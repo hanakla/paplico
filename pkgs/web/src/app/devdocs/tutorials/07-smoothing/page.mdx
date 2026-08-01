@@ -1,0 +1,120 @@
+import Playground from "./playground";
+
+# 第7章: ぐにゃぐにゃの線をなめらかにする (スムージング)
+
+## この章でできるようになること
+
+- 手書きで「ガタガタ」した点列を、**なめらかな線** に整えられるようになる
+- **Gaussian 加重平均** が「近い点ほど重みを大きくして平均する」考え方だと分かる
+- σ (シグマ) を変えると、なめらかさがどう変わるか実感できる
+
+## まずは絵で見てみよう
+
+ペンや指で線を描くと、本当はまっすぐ描きたくても、**手の震え** や **入力デバイスのノイズ** で点がガクガクするんだ。これを後からきれいに整えてあげる処理を **スムージング** と呼ぶよ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="ガタガタの入力点列となめらかにした結果">
+	<g>
+		<text x="100" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">そのままの入力</text>
+		<polyline points="20,140 35,80 50,130 65,75 80,135 95,82 110,128 125,78 140,132 155,80 170,130 185,82" stroke="#888" strokeWidth="2" fill="none" />
+	</g>
+	<g>
+		<text x="350" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">スムージング後</text>
+		<path d="M 270 105 Q 320 100 360 105 T 440 105" stroke="#3a86ff" strokeWidth="2.5" fill="none" />
+	</g>
+</svg>
+
+ぱっと見、左はギザギザだけど、右はなめらか。**点列の一個一個は同じ場所付近だけど、ノイズだけが消えた** 状態だね。
+
+## どこで使われている？
+
+- ペンタブやマウスの入力点列を、Paplico の `processStroke` で受け取った直後
+- ジェスチャー認識 (波線か直線か判定する前に)
+- 手書き図形の **角を丸める** 効果
+
+Paplico の `strokeFitting.ts` には、このスムージングが他のもっと高度な処理 (フィッティング、コーナー検出) の **第 1 段階** として入っているよ。
+
+## どうやって動くのか — ステップで見ていこう
+
+一番素直な方法は、**「自分と隣の点たちを混ぜて、新しい位置にする」** こと。これを **加重平均** っていうよ。
+
+### ステップ 1: 隣の点を全部足す ?
+
+「自分の左右 5 点ぜんぶを単純平均」 → これでもガタガタは減るんだけど、**両端のほうも内側に引っ張られる** から、線がちょっと縮んだり、形が大きく崩れたりするよ。
+
+### ステップ 2: 近い点ほど重みを大きく (Gaussian)
+
+そこで、**近い点ほど大きく、遠い点ほど小さい重み** をつけてあげるよ。この「だんだん小さくなる重み」を計算する関数として **Gaussian (ガウス関数)** が使われるんだ。
+
+```
+weight(k) = exp(-(k * k) / (2 * σ * σ))
+```
+
+`k` は「自分から何個ずれてるか」、`σ` は「どれくらい遠くまで見るか」を決める数。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="Gaussian 重みの形">
+	<line x1="40" y1="160" x2="420" y2="160" stroke="currentColor" strokeWidth="1" />
+	<line x1="230" y1="40" x2="230" y2="170" stroke="currentColor" strokeWidth="1" />
+	<text x="425" y="158" fontSize="10" fill="currentColor">k</text>
+	<text x="218" y="36" fontSize="10" fill="currentColor">w</text>
+	<path d="M 40 158 C 130 156, 180 50, 230 48 C 280 50, 330 156, 420 158" stroke="#3a86ff" strokeWidth="2" fill="none" />
+	<text x="226" y="186" textAnchor="middle" fontSize="10" fill="currentColor" fillOpacity="0.7">k=0</text>
+	<text x="125" y="186" textAnchor="middle" fontSize="10" fill="currentColor" fillOpacity="0.7">遠い (重みほぼ 0)</text>
+	<text x="335" y="186" textAnchor="middle" fontSize="10" fill="currentColor" fillOpacity="0.7">遠い (重みほぼ 0)</text>
+</svg>
+
+- σ が **小さい** と、山が細くなって、すぐ近くの点だけが効く → ノイズ消去は弱め、形は保たれる
+- σ が **大きい** と、山が広がって、遠くの点まで効く → よくなめらかになるけど、形がぼやける
+
+### ステップ 3: 重みを使って平均する
+
+各点について、近所の点の **「位置 × 重み」を足して、重みの合計で割る** よ。
+
+```
+new_pi.x = (Σ pj.x * weight(j - i)) / Σ weight(j - i)
+new_pi.y = (Σ pj.y * weight(j - i)) / Σ weight(j - i)
+```
+
+これだけ。シンプルでしょ ?
+
+### ステップ 4: 端っこの工夫
+
+両端の点 (i = 0 や i = N-1) では、片側の隣がない。そういうときは「ある分だけで重み平均」すれば OK。点が少ないときは普通に分母も分子も小さくなるけど、それでちゃんと動くよ。
+
+## 数学のところ（読み飛ばしOK）
+
+<details>
+<summary>他のスムージング方式</summary>
+
+Paplico の本物の `strokeFitting.ts` には 3 種類のスムージングがあるよ:
+
+1. **Gaussian 加重平均** (この章で実装するやつ)
+   - シンプル・安定・形を保つ
+   - 全体に少しずつ縮みやすい
+2. **Pulled String** (引きひも法)
+   - 最後の出力点から **一定距離以上離れたら** 次に進む
+   - Lazy Nezumi Pro などで採用されている書き心地
+3. **Spring-damper inertia** (ばね・ダンパー)
+   - 点が「重さを持って」動くシミュレーション
+   - 流麗な筆致になるが、レスポンスは遅れがち
+
+実用では用途によって使い分けるよ。
+
+</details>
+
+## 実装してみる
+
+`gaussianSmooth` を書いてみよう。**灰色のジャギジャギした線** が「もとの入力」、**赤いなめらかな線** が「スムージング後」だよ。
+
+<Playground />
+
+## やってみよう
+
+- σ を `0.5` にしてみよう。何も変わらないように見える ?
+- σ を `5` にしてみよう。線がグニャッと変形しすぎないか ?
+- 端っこの点が「内側に引っ張られて元の場所からズレる」現象が見える ? なぜそうなる ?
+
+## もっと知りたい人へ
+
+- Paplico の本格実装: [`pkgs/web/src/core/utils/strokeFitting.ts`](https://github.com/) の `gaussianSmooth`
+- 前の章 → [第6章: ベジェ曲線上の最近点](/devdocs/tutorials/06-closest-point)
+- 次の章 → [第8章: たくさんの点をベジェ曲線にフィッティング](/devdocs/tutorials/08-bezier-fitting)

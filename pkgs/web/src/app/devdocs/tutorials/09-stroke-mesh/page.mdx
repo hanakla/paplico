@@ -1,0 +1,159 @@
+import Playground from "./playground";
+
+# 第9章: ストロークを三角形のあつまりにして画面に出す
+
+## この章でできるようになること
+
+- 1 本の細い線 (中心線) を、**幅を持った帯** に変えて画面に描けるようになる
+- **接線ベクトル** と **法線ベクトル** が線の太さを作るカギだと分かる
+- WebGPU が三角形しか描けないことを踏まえて、**点列 → 三角形列** の変換が書けるようになる
+
+## まずは絵で見てみよう
+
+ペンで描いた **線** は、ただの「点の並び」 ; 太さがない。これを画面に表示するには、**両側に幅を広げて、リボン状の帯** にしてあげる必要があるよ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="細い線をリボン状の帯にする">
+	<g>
+		<text x="100" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">中心線 (細い)</text>
+		<path d="M 30 110 Q 80 50 130 110 T 200 110" stroke="#3a86ff" strokeWidth="1.5" fill="none" />
+	</g>
+	<g>
+		<text x="350" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">幅を広げた帯</text>
+		<path d="M 270 110 Q 320 50 370 110 T 440 110" stroke="#3a86ff" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+	</g>
+</svg>
+
+ブラウザの SVG なら `stroke-width` を指定するだけで太くなるけど、**WebGPU は三角形しか描けない**。だから自分で **三角形** に分解する必要があるよ。
+
+## どこで使われている？
+
+ペンで描いた線、ブラシ、消しゴムの軌跡、選択ツールの lasso、レイアウトのガイド線 — **画面に出る線はぜんぶ** 三角形になっているよ。
+
+Paplico の `BrushStrokeRenderer` (テクスチャブラシ) と `path-rendering` (図形ストローク) も、最終的にはこの章でやることをやっているよ。
+
+## どうやって動くのか — ステップで見ていこう
+
+### ステップ 1: 接線ベクトル T を計算
+
+まず、各点 `p_i` での「**進んでいる向き**」を求めるよ。これは前後の点の差分で出せる。
+
+```
+T_i = normalize(p_{i+1} − p_{i-1})
+```
+
+両端 (i = 0, i = N-1) は **片側の差分** で代用するよ。
+
+### ステップ 2: 法線ベクトル N を作る
+
+接線を **90 度回転** すると、線に **垂直な方向** が手に入る。これを法線って呼ぶよ。
+
+```
+N_i = (−T_i.y, T_i.x)   ← 反時計回りに 90 度
+```
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="接線と法線">
+	<path d="M 60 130 Q 230 30 400 130" stroke="#3a86ff" strokeWidth="2" fill="none" />
+	<circle cx="230" cy="60" r="4" fill="#3a86ff" />
+	<line x1="170" y1="80" x2="290" y2="80" stroke="#e0457b" strokeWidth="2" markerEnd="url(#arr-c9-tan)" />
+	<text x="296" y="78" fontSize="11" fill="#e0457b">T (接線)</text>
+	<line x1="230" y1="60" x2="230" y2="120" stroke="#2a9d8f" strokeWidth="2" markerEnd="url(#arr-c9-norm)" />
+	<text x="240" y="100" fontSize="11" fill="#2a9d8f">N (法線)</text>
+	<defs>
+		<marker id="arr-c9-tan" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+			<path d="M0,0 L10,5 L0,10 z" fill="#e0457b" />
+		</marker>
+		<marker id="arr-c9-norm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+			<path d="M0,0 L10,5 L0,10 z" fill="#2a9d8f" />
+		</marker>
+	</defs>
+</svg>
+
+### ステップ 3: 左右に半幅ずらした 2 点を作る
+
+太さ `w` の半分 (`w/2`) を、法線方向に **両側へ** ずらす。これで各点が **左の点 L_i** と **右の点 R_i** の 2 つになるよ。
+
+```
+L_i = p_i + N_i * (w / 2)
+R_i = p_i − N_i * (w / 2)
+```
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="点 P を左右に広げて L, R を作る">
+	<path d="M 60 100 Q 230 50 400 100" stroke="#888" strokeWidth="1.5" strokeDasharray="4 3" fill="none" />
+	<g>
+		<path d="M 60 80 Q 230 30 400 80" stroke="#3a86ff" strokeWidth="2" fill="none" />
+		<path d="M 60 120 Q 230 70 400 120" stroke="#3a86ff" strokeWidth="2" fill="none" />
+	</g>
+	<g fill="#888">
+		<circle cx="60" cy="100" r="3" />
+		<circle cx="230" cy="65" r="3" />
+		<circle cx="400" cy="100" r="3" />
+	</g>
+	<g fill="#3a86ff">
+		<circle cx="230" cy="33" r="4" /><text x="240" y="32" fontSize="10" fill="#3a86ff">L</text>
+		<circle cx="230" cy="67" r="4" /><text x="240" y="74" fontSize="10" fill="#3a86ff">R</text>
+	</g>
+</svg>
+
+### ステップ 4: 隣どうしを 2 つの三角形でつなぐ
+
+連続する 2 点 (i と i+1) について、`L_i, R_i, L_{i+1}, R_{i+1}` の 4 点ができたよ。これを **2 つの三角形** に分けるんだ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="4 点を 2 つの三角形に分ける">
+	<polygon points="80,40 80,140 280,40" fill="#3a86ff" fillOpacity="0.3" stroke="#3a86ff" strokeWidth="1.5" />
+	<polygon points="80,140 280,40 280,140" fill="#e0457b" fillOpacity="0.3" stroke="#e0457b" strokeWidth="1.5" />
+	<g fill="currentColor">
+		<circle cx="80" cy="40" r="4" /><text x="56" y="38" fontSize="11" fill="currentColor">L_i</text>
+		<circle cx="80" cy="140" r="4" /><text x="56" y="158" fontSize="11" fill="currentColor">R_i</text>
+		<circle cx="280" cy="40" r="4" /><text x="288" y="38" fontSize="11" fill="currentColor">{"L_{i+1}"}</text>
+		<circle cx="280" cy="140" r="4" /><text x="288" y="158" fontSize="11" fill="currentColor">{"R_{i+1}"}</text>
+	</g>
+	<text x="180" y="190" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">青三角と赤三角の 2 枚で、1 セグメントの帯ができる</text>
+</svg>
+
+頂点の並び方は (時計回り or 反時計回り、向き統一):
+
+```
+三角形 1: L_i, R_i, L_{i+1}
+三角形 2: R_i, R_{i+1}, L_{i+1}
+```
+
+これを **N - 1 セグメント分繰り返す** と、線全体が三角形のあつまりになるよ。WebGPU はこの三角形列を `triangle-list` として描画してくれる。
+
+### ステップ 5: 出力は Float32Array
+
+GPU に渡すため、`{x, y}` のオブジェクトの配列ではなく、**フラットな数値配列** (`Float32Array`) で返すのが約束。各三角形は **3 頂点 × 2 (x, y) = 6 数値**。N-1 セグメント × 2 三角形 = 2(N-1) 三角形 × 6 = **12(N-1)** 個の数値が並ぶよ。
+
+## 数学のところ（読み飛ばしOK）
+
+<details>
+<summary>線が曲がるところ (join) のあれこれ</summary>
+
+この章では各点で「単純に法線方向に半幅ずらす」だけだから、**線が急に曲がる場所** で帯の内側がペコっとへこんだり、外側にスキマができたりするよ。これを綺麗にするには:
+
+- **miter join**: 隣接 2 セグメントの法線の **平均** で頂点を作る (尖りが鋭くなりすぎたら制限)
+- **bevel join**: 急な曲がりは斜めに切り落とす
+- **round join**: 円弧で滑らかにつなぐ
+
+両端の **cap** (端の処理) も同じで、butt / square / round の 3 種類が定番。
+
+Paplico はもっと洗練された tessellator を使っているけど、出発点はこの章でやる「左右に半幅ずらして 2 三角形」だよ。
+
+</details>
+
+## 実装してみる
+
+`tessellateStroke` を書いてみよう。WebGPU で **青いリボン** が画面に出るよ。**正しく書けたら、波打つ太い線** が見えるはず。
+
+<Playground />
+
+## やってみよう
+
+- `strokeWidth` を `60` にしたら、線の太さはどうなる ?
+- 接線計算で、両端を **片側差分** ではなく `points[1] - points[0]` だけにしたら、ストロークの始まりが歪まない ?
+- 点が 1 個や 2 個しかないとき、空配列を返さないと WebGPU 側でエラーが出るよ
+
+## もっと知りたい人へ
+
+- Paplico の本格実装: [`pkgs/web/src/core/renderer/`](https://github.com/) の strokeTessellator
+- 前の章 → [第8章: ベジェフィッティング](/devdocs/tutorials/08-bezier-fitting)
+- 次の章 → [第10章: 多角形を三角形に分ける (Ear Clipping)](/devdocs/tutorials/10-ear-clipping)

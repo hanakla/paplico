@@ -1,0 +1,130 @@
+import Playground from "./playground";
+
+# 第12章: メッシュグラデーション (4 隅の色をなめらかにつなぐ)
+
+## この章でできるようになること
+
+- 4 つの色を **四隅に置いた長方形** の中身をなめらかに塗れるようになる
+- **双線形補間 (bilinear interpolation)** が「2 段階の lerp」で書けると分かる
+- メッシュグラデーションの **基礎部分** (Coons patch の前段) が理解できる
+
+## まずは絵で見てみよう
+
+四隅に違う色 (赤・青・緑・黄) を置いて、その間をなめらかにつなぐとこうなるよ:
+
+<svg viewBox="0 0 300 200" width="100%" style={{ maxWidth: 300, height: "auto" }} role="img" aria-label="4 隅の色をブレンド">
+	<defs>
+		<linearGradient id="cg-h-top" x1="0" x2="1">
+			<stop offset="0" stopColor="#e0457b" />
+			<stop offset="1" stopColor="#3a86ff" />
+		</linearGradient>
+		<linearGradient id="cg-h-bot" x1="0" x2="1">
+			<stop offset="0" stopColor="#2a9d8f" />
+			<stop offset="1" stopColor="#f4a261" />
+		</linearGradient>
+		<linearGradient id="cg-v" x1="0" x2="0" y1="0" y2="1">
+			<stop offset="0" stopColor="#fff" stopOpacity="1" />
+			<stop offset="1" stopColor="#fff" stopOpacity="0" />
+		</linearGradient>
+	</defs>
+	<rect x="40" y="20" width="220" height="160" fill="url(#cg-h-bot)" />
+	<rect x="40" y="20" width="220" height="160" fill="url(#cg-h-top)" mask="url(#cg-mask)" />
+	<text x="40" y="14" textAnchor="middle" fontSize="10" fill="#e0457b">c00 (左上)</text>
+	<text x="260" y="14" textAnchor="middle" fontSize="10" fill="#3a86ff">c10 (右上)</text>
+	<text x="40" y="195" textAnchor="middle" fontSize="10" fill="#2a9d8f">c01 (左下)</text>
+	<text x="260" y="195" textAnchor="middle" fontSize="10" fill="#f4a261">c11 (右下)</text>
+</svg>
+
+これが **メッシュグラデーション** の基本形。本物の Coons patch はもっと複雑で、辺がベジェ曲線になったりするけど、出発点はこの **「4 隅の色を双線形補間する」** ところ。
+
+## どこで使われている？
+
+- Adobe Illustrator のメッシュグラデーション
+- Figma のグラデーション (4 stops の色をブレンド)
+- 3D のテクスチャマッピング (頂点ごとの UV/色を補間)
+
+Paplico のメッシュグラデーションも、まずこの bilinear ブレンドを各四角形パッチで計算して、それを compute shader で全ピクセルに展開しているよ。
+
+## どうやって動くのか — ステップで見ていこう
+
+### ステップ 1: 各ピクセルに座標 (u, v) をふる
+
+長方形の左上を `(u=0, v=0)`, 右下を `(u=1, v=1)` とした **正規化された座標** を使うよ。
+
+### ステップ 2: 上の辺と下の辺で先に色を作る
+
+```
+top    = lerp(c00, c10, u)   ← 上辺の u 位置の色
+bottom = lerp(c01, c11, u)   ← 下辺の u 位置の色
+```
+
+### ステップ 3: 縦に補間
+
+```
+result = lerp(top, bottom, v)
+```
+
+これで終わり！**lerp を 3 回** 呼ぶだけ。これを **双線形補間 (bilinear interpolation)** と呼ぶよ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="bilinear interpolation の流れ">
+	<rect x="40" y="40" width="380" height="120" fill="currentColor" fillOpacity="0.05" stroke="currentColor" strokeWidth="1" />
+	<g fill="#e0457b"><circle cx="40" cy="40" r="5" /></g>
+	<g fill="#3a86ff"><circle cx="420" cy="40" r="5" /></g>
+	<g fill="#2a9d8f"><circle cx="40" cy="160" r="5" /></g>
+	<g fill="#f4a261"><circle cx="420" cy="160" r="5" /></g>
+	<text x="20" y="32" fontSize="10" fill="#e0457b">c00</text>
+	<text x="425" y="32" fontSize="10" fill="#3a86ff">c10</text>
+	<text x="20" y="178" fontSize="10" fill="#2a9d8f">c01</text>
+	<text x="425" y="178" fontSize="10" fill="#f4a261">c11</text>
+	<line x1="40" y1="40" x2="420" y2="40" stroke="currentColor" strokeWidth="1" strokeDasharray="3 3" />
+	<line x1="40" y1="160" x2="420" y2="160" stroke="currentColor" strokeWidth="1" strokeDasharray="3 3" />
+	<circle cx="230" cy="40" r="4" fill="currentColor" />
+	<text x="200" y="30" fontSize="10" fill="currentColor">top (上辺の u 位置)</text>
+	<circle cx="230" cy="160" r="4" fill="currentColor" />
+	<text x="180" y="180" fontSize="10" fill="currentColor">bottom (下辺の u 位置)</text>
+	<line x1="230" y1="40" x2="230" y2="160" stroke="currentColor" strokeWidth="1" strokeDasharray="3 3" />
+	<circle cx="230" cy="100" r="6" fill="#888" stroke="currentColor" strokeWidth="2" />
+	<text x="240" y="105" fontSize="11" fill="currentColor">最終色 (top と bottom の v 位置)</text>
+</svg>
+
+### ステップ 4: ImageData に書き込み
+
+各ピクセル `(x, y)` について `u = x / W`, `v = y / H` で色を計算して、Canvas2D の `ImageData` に書き込むよ。300 × 300 なら関数を 90,000 回呼ぶ。Canvas2D で 1 度だけ計算すれば、スクロールしてもなめらか。
+
+## 数学のところ（読み飛ばしOK）
+
+<details>
+<summary>Coons patch (本物)</summary>
+
+Coons patch は、双線形補間より一段豊かな曲面補間。4 辺がそれぞれ **3 次ベジェ曲線** になっていて、その内側を以下の式でフィルする:
+
+```
+S(u, v) = Lc(u, v) + Ld(u, v) − B(u, v)
+```
+
+- `Lc(u, v)` : 上下辺の v 補間 (curve direction lerp)
+- `Ld(u, v)` : 左右辺の u 補間
+- `B(u, v)`  : 4 隅の双線形補間 (この章のやつ)
+
+つまり、**この章の bilinear が引き算項** として登場する。Paplico の `meshGradient.ts` の `coonsSurfacePoint` がこれを実装しているよ。
+
+</details>
+
+## 実装してみる
+
+`bilinearInterp` を書いてみよう。Canvas に **4 隅の色から自動生成されたグラデーション** が出るよ。**正しく書けたら、なめらかな色変化** が現れる。
+
+<Playground />
+
+## やってみよう
+
+- 4 隅すべて同じ色にしたら、結果はどうなる ?
+- u と v を入れ替えたら ?
+- 計算順を「先に v 方向、次に u 方向」に変えても、結果は同じはず。本当 ?
+
+## もっと知りたい人へ
+
+- Paplico の本格実装: [`pkgs/web/src/core/utils/meshGradient.ts`](https://github.com/) の Coons patch / 逆双線形 UV
+- 前の章 → [第11章: Stencil-then-Cover](/devdocs/tutorials/11-stencil-then-cover)
+
+🎉 **これでチュートリアル完走！** Paplico の中で動いている幾何学の旅、お疲れ様でした。

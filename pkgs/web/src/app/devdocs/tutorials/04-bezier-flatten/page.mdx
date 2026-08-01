@@ -1,0 +1,179 @@
+import Playground from "./playground";
+
+# 第4章: ベジェ曲線をまっすぐな線に分ける (フラット化)
+
+## この章でできるようになること
+
+- ぐにゃっと曲がった線を、たくさんの **真っ直ぐな線の集まり** に分けられるようになる
+- 「曲線が直線で近似できるか」を **弦からの距離** で判定できるようになる
+- **De Casteljau 分割** で曲線を半分に切る方法が分かる
+
+## まずは絵で見てみよう
+
+ベジェ曲線をそのまま画面に描くのって、実は意外と大変。コンピューターはまっすぐな線を描くのは得意だから、**曲線を「短い直線の集まり」に分けて** から描くと、すごく扱いやすくなるよ。これを **フラット化 (flattening)** って呼ぶよ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="ベジェ曲線とそれをフラット化した折れ線">
+	<g>
+		<text x="100" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">なめらかな曲線</text>
+		<path d="M 30 160 C 70 30, 130 30, 170 160" stroke="#3a86ff" strokeWidth="2.5" fill="none" />
+	</g>
+	<g>
+		<text x="350" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">短い直線の集まり</text>
+		<polyline points="280,160 290,120 305,80 330,55 360,55 385,80 400,120 410,160" stroke="#e0457b" strokeWidth="2.5" fill="none" strokeLinejoin="round" />
+		<g fill="#e0457b">
+			<circle cx="280" cy="160" r="3" />
+			<circle cx="290" cy="120" r="3" />
+			<circle cx="305" cy="80" r="3" />
+			<circle cx="330" cy="55" r="3" />
+			<circle cx="360" cy="55" r="3" />
+			<circle cx="385" cy="80" r="3" />
+			<circle cx="400" cy="120" r="3" />
+			<circle cx="410" cy="160" r="3" />
+		</g>
+	</g>
+</svg>
+
+ぱっと見、左の青い曲線と右のピンクの折れ線、ほとんど同じ形に見えるよね。**点をたくさん打てば、折れ線でも曲線そっくり** に見える、というのがポイント。
+
+## どこで使われている？
+
+WebGPU や OpenGL みたいな GPU は、**三角形しか直接描けない** んだ。だから、曲線を画面に出すには、まず曲線を直線にバラして、直線を三角形のリボンで太くして、と段階を踏む必要があるよ。フラット化はその一番最初のステップ。
+
+Paplico でも、ベジェ曲線で描かれたあらゆる図形 (パス、文字、ストロークなど) は、最終的にこのフラット化を通って三角形になっていくよ。
+
+## どうやって動くのか — ステップで見ていこう
+
+### ステップ 1: 曲線が直線で近似できるか？
+
+曲線が **「短くて、ほぼ真っ直ぐ」** だったら、もう直線 1 本で近似していいよね。じゃあ「ほぼ真っ直ぐ」をどうやって判定する？
+
+簡単な方法は、**両端 (p0, p3) を結んだ線 (弦) と、制御点 (p1, p2) との距離** を測ること。距離が小さければ、曲線は弦からあまりはみ出していない、つまり「ほぼ真っ直ぐ」。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="弦と制御点の距離で平坦さを判定">
+	<line x1="60" y1="160" x2="320" y2="160" stroke="#888" strokeWidth="2" strokeDasharray="5 4" />
+	<text x="190" y="180" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">弦 (p0 → p3)</text>
+	<path d="M 60 160 C 130 40, 250 40, 320 160" stroke="#3a86ff" strokeWidth="2.5" fill="none" />
+	<circle cx="60" cy="160" r="5" fill="#3a86ff" />
+	<text x="50" y="155" fontSize="11" fill="currentColor">p0</text>
+	<circle cx="130" cy="40" r="4" fill="#888" />
+	<text x="118" y="32" fontSize="11" fill="currentColor">p1</text>
+	<line x1="130" y1="40" x2="130" y2="160" stroke="#e0457b" strokeWidth="1.5" strokeDasharray="3 3" />
+	<text x="138" y="100" fontSize="11" fill="#e0457b">d1</text>
+	<circle cx="250" cy="40" r="4" fill="#888" />
+	<text x="246" y="32" fontSize="11" fill="currentColor">p2</text>
+	<line x1="250" y1="40" x2="250" y2="160" stroke="#e0457b" strokeWidth="1.5" strokeDasharray="3 3" />
+	<text x="258" y="100" fontSize="11" fill="#e0457b">d2</text>
+	<circle cx="320" cy="160" r="5" fill="#3a86ff" />
+	<text x="324" y="155" fontSize="11" fill="currentColor">p3</text>
+</svg>
+
+`max(d1, d2) ≤ tolerance` (許容誤差) なら、もう直線として返していい。
+
+### ステップ 2: ダメなら半分に分ける (De Casteljau 分割)
+
+「真っ直ぐ判定」がダメだったら、**曲線を真ん中で 2 つに分ける** よ。これがすごく綺麗な方法で、新しい曲線の制御点は **元の制御点の中点をどんどん取っていくだけ** で求まるんだ。これを **De Casteljau の分割アルゴリズム** って呼ぶよ。
+
+<svg viewBox="0 0 460 240" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="De Casteljau 分割: 中点を取っていくと左右の曲線の制御点が出る">
+	<path d="M 60 200 C 130 40, 290 40, 360 200" stroke="#3a86ff" strokeWidth="2.5" fill="none" />
+	<g>
+		<circle cx="60" cy="200" r="5" fill="#3a86ff" />
+		<text x="50" y="218" fontSize="11" fill="currentColor">p0</text>
+		<circle cx="130" cy="40" r="5" fill="#3a86ff" />
+		<text x="116" y="32" fontSize="11" fill="currentColor">p1</text>
+		<circle cx="290" cy="40" r="5" fill="#3a86ff" />
+		<text x="282" y="32" fontSize="11" fill="currentColor">p2</text>
+		<circle cx="360" cy="200" r="5" fill="#3a86ff" />
+		<text x="364" y="218" fontSize="11" fill="currentColor">p3</text>
+	</g>
+	<g stroke="#888" strokeWidth="1" strokeDasharray="3 3" fill="none">
+		<line x1="60" y1="200" x2="130" y2="40" />
+		<line x1="130" y1="40" x2="290" y2="40" />
+		<line x1="290" y1="40" x2="360" y2="200" />
+	</g>
+	<g fill="#e0457b">
+		<circle cx="95" cy="120" r="4" />
+		<circle cx="210" cy="40" r="4" />
+		<circle cx="325" cy="120" r="4" />
+	</g>
+	<g fill="#f4a261">
+		<circle cx="152" cy="80" r="4" />
+		<circle cx="268" cy="80" r="4" />
+	</g>
+	<circle cx="210" cy="80" r="6" fill="#2a9d8f" stroke="currentColor" strokeWidth="1.5" />
+	<text x="218" y="76" fontSize="11" fill="#2a9d8f">中央点 (新しい p3 / p0)</text>
+</svg>
+
+中点を 3 段重ねて取った点が、**左の曲線の終点 = 右の曲線の始点** になるよ。新しい制御点もぜんぶ中点で取れる。これだけで「曲線を半分に切る」ことができちゃう。
+
+### ステップ 3: 再帰で繰り返す
+
+半分に切ったあとは、左右それぞれについて **またステップ 1 に戻って判定** するよ。やがて全部の小さな曲線が「真っ直ぐ判定」を満たしたら終わり。
+
+```
+flattenCubic(c, tolerance):
+  もし弦からの距離 ≤ tolerance なら:
+    [p0, p3] を返す
+  そうでなければ:
+    左半分と右半分に分ける
+    左半分を flattenCubic
+    右半分を flattenCubic
+    つなげて返す
+```
+
+### ステップ 4: tolerance で精度を変えられる
+
+`tolerance` (許容誤差) を小さくすると、フラット化の結果は **点が増えて、より曲線にぴったり** になる。大きくすると、**点が減って、カクカク** になる。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="tolerance による精度の違い">
+	<g>
+		<text x="100" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">小さな tolerance</text>
+		<polyline points="30,160 45,120 65,90 95,70 130,60 165,70 195,90 215,120 230,160" stroke="#e0457b" strokeWidth="2" fill="none" />
+		<text x="100" y="190" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">細かい (なめらか)</text>
+	</g>
+	<g>
+		<text x="350" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">大きな tolerance</text>
+		<polyline points="280,160 320,80 380,80 420,160" stroke="#e0457b" strokeWidth="2" fill="none" />
+		<text x="350" y="190" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">荒い (カクカク)</text>
+	</g>
+</svg>
+
+## 数学のところ（読み飛ばしOK）
+
+<details>
+<summary>De Casteljau の中点公式</summary>
+
+3次ベジェの 4 つの制御点 `p0, p1, p2, p3` を、`t = 0.5` で分割すると、左右の制御点はこうなる:
+
+```
+m01    = (p0 + p1) / 2
+m12    = (p1 + p2) / 2
+m23    = (p2 + p3) / 2
+m012   = (m01 + m12) / 2
+m123   = (m12 + m23) / 2
+m0123  = (m012 + m123) / 2          ← 中央点
+
+左:  [p0, m01, m012, m0123]
+右:  [m0123, m123, m23, p3]
+```
+
+任意の `t` に対する分割は、 `(a + b) / 2` を `(1−t) a + t b` (線形補間) に置き換えればいい。これが第5章の話だよ。
+
+</details>
+
+## 実装してみる
+
+`flattenCubic` を書いてみよう。青い曲線の上に、**ピンクの折れ線** が重なって表示されるよ。**正しく書けたら 2 本がほぼ重なる** はず。tolerance が大きいとカクカクに、小さいとぴったり、になることも確認してみよう。
+
+<Playground />
+
+## やってみよう
+
+- tolerance を `0.5` にしたら点はどれくらい増える？ `20` にしたら？
+- 制御点 (p1, p2) を p0/p3 に近づけて、ほとんど直線な曲線にしたら、フラット化の結果は何点になる？
+- `distanceFromLine` を計算するとき、なぜ `Math.abs(cross) / Math.sqrt(lenSq)` なんだろう？ (外積の意味を考えよう)
+
+## もっと知りたい人へ
+
+- Paplico の本格実装: [`pkgs/web/src/core/utils/pathOps.ts`](https://github.com/) の `isCubicFlatEnough`
+- 前の章 → [第3章: ヒットテスト](/devdocs/tutorials/03-hit-test)
+- 次の章 → [第5章: ベジェ曲線を真ん中で 2 つに切る](/devdocs/tutorials/05-bezier-split)

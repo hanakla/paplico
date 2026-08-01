@@ -1,0 +1,8 @@
+<!-- WebGPU logo by [World Wide Web Consortium (W3C) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 768 600">
+	<path fill="#005a9c" fill-rule="evenodd" d="m265.5 504-240.76-417h481.51z"/>
+	<path fill="#0066b0" fill-rule="evenodd" d="m506.26 87-120.38 208.5 240.76-.002z"/>
+	<path fill="#0076cc" fill-rule="evenodd" d="m506.26 504-120.38-208.5 240.76-.002z"/>
+	<path fill="#0086e8" fill-rule="evenodd" d="m626.63 295.5-60.189-104.25h120.55z"/>
+	<path fill="#0093ff" fill-rule="evenodd" d="m626.63 87.001-60.189 104.25h120.55z"/>
+</svg>

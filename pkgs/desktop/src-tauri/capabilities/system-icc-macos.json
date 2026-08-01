@@ -1,0 +1,24 @@
+{
+	"identifier": "system-icc-macos",
+	"description": "Read access to macOS ColorSync profile directories for system ICC profile enumeration",
+	"platforms": ["macOS"],
+	"windows": ["main"],
+	"permissions": [
+		{
+			"identifier": "fs:allow-read-dir",
+			"allow": [
+				{ "path": "$HOME/Library/ColorSync/Profiles" },
+				{ "path": "/Library/ColorSync/Profiles" },
+				{ "path": "/System/Library/ColorSync/Profiles" }
+			]
+		},
+		{
+			"identifier": "fs:allow-read-file",
+			"allow": [
+				{ "path": "$HOME/Library/ColorSync/Profiles/*" },
+				{ "path": "/Library/ColorSync/Profiles/*" },
+				{ "path": "/System/Library/ColorSync/Profiles/*" }
+			]
+		}
+	]
+}

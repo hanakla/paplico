@@ -1,0 +1,36 @@
+{
+	"permissions": {
+		"allow": [
+			"Edit(.claude/memos/*)",
+			"Bash(find:*)",
+			"Bash(grep:*)",
+			"Bash(cat:*)",
+			"Bash(sed:*)",
+			"Bash(awk:*)",
+			"Bash(gh:*)",
+			"Bash(yarn test:*)",
+			"Bash(yarn tsc:*)",
+			"Bash(yarn lint:*)",
+			"Bash(yarn build:*)",
+			"Bash(head:*)",
+			"Bash(tail:*)",
+			"Bash(yarn check-dev-server)",
+			"WebFetch(domain:base-ui.com)",
+			"WebSearch",
+			"mcp__chrome-devtools__*",
+			"mcp__execute_js",
+			"mcp__now__now"
+		],
+		"deny": [
+			"Bash(npx tsc:*)",
+			"Bash(npx biome:*)",
+			"Bash(yarn --cwd :*)",
+			"Bash(yarn biome:*)",
+			"Bash(git restore:*)",
+			"Bash(git stash:*)",
+			"Bash(git checkout:*)",
+			"Bash(git reset:*)"
+		]
+	},
+	"hooks": {}
+}

@@ -1,0 +1,132 @@
+import Playground from "./playground";
+
+# 第10章: 多角形を三角形のあつまりに分ける (Ear Clipping)
+
+## この章でできるようになること
+
+- どんな形の **凹みのある多角形** でも、たくさんの三角形に分けられるようになる
+- 「**耳 (ear)**」 を見つけて切り取る発想がつかめる
+- 三角形分割の結果を **GPU で塗れる三角形リスト** にできる
+
+## まずは絵で見てみよう
+
+第9章では「線」を三角形にしたよね。今度は **多角形の中身 (面)** を三角形に分けるよ。これができれば、星型でもギザギザの形でも、GPU で塗りつぶせるようになる。
+
+<svg viewBox="0 0 460 220" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="L字型の多角形を三角形に分割">
+	<g>
+		<text x="100" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">凹型の多角形</text>
+		<polygon
+			points="40,40 160,40 160,110 90,110 90,190 40,190"
+			fill="#3a86ff"
+			fillOpacity="0.3"
+			stroke="#3a86ff"
+			strokeWidth="1.5"
+		/>
+	</g>
+	<g>
+		<text x="350" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">三角形に分けたあと</text>
+		<g fill="#3a86ff" fillOpacity="0.3" stroke="#e0457b" strokeWidth="1.5">
+			<polygon points="290,40 410,40 410,110" />
+			<polygon points="290,40 410,110 340,110" />
+			<polygon points="290,40 340,110 340,190" />
+			<polygon points="290,40 340,190 290,190" />
+		</g>
+	</g>
+</svg>
+
+## どこで使われている？
+
+塗りつぶしツール、塗ったストローク、メッシュグラデーション、文字の中身 — **「中身がある形」** を画面に出すには、すべて三角形分割が要るよ。
+
+Paplico の本格実装は `earcut` ライブラリを使っているけど、その心はこの章でやる **耳切り (Ear Clipping)** とまったく同じ。
+
+## どうやって動くのか — ステップで見ていこう
+
+### ステップ 1: 「耳 (ear)」って何？
+
+多角形の頂点 `i` が **耳** になる条件は 2 つ。
+
+1. **凸頂点である** ; 頂点 `i-1, i, i+1` を順番に見たとき、左に曲がる (反時計回り)
+2. **三角形 (i-1, i, i+1) の中に、他の頂点が 1 つも入っていない**
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="耳の例と、耳でない例">
+	<g>
+		<text x="100" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="#2a9d8f">耳！</text>
+		<polygon points="30,160 100,40 170,90" fill="#2a9d8f" fillOpacity="0.25" stroke="#2a9d8f" strokeWidth="1.5" />
+		<circle cx="30" cy="160" r="4" fill="currentColor" /><text x="14" y="180" fontSize="10" fill="currentColor">i-1</text>
+		<circle cx="100" cy="40" r="5" fill="#2a9d8f" /><text x="92" y="32" fontSize="10" fill="#2a9d8f">i</text>
+		<circle cx="170" cy="90" r="4" fill="currentColor" /><text x="178" y="86" fontSize="10" fill="currentColor">i+1</text>
+	</g>
+	<g>
+		<text x="350" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="#e0457b">耳じゃない</text>
+		<polygon points="280,160 350,40 420,90" fill="#e0457b" fillOpacity="0.25" stroke="#e0457b" strokeWidth="1.5" />
+		<circle cx="280" cy="160" r="4" fill="currentColor" />
+		<circle cx="350" cy="40" r="5" fill="#e0457b" />
+		<circle cx="420" cy="90" r="4" fill="currentColor" />
+		<circle cx="350" cy="100" r="3" fill="#e0457b" />
+		<text x="340" y="130" fontSize="10" fill="#e0457b">他の点が中</text>
+	</g>
+</svg>
+
+### ステップ 2: 凸判定 (CCW / 外積)
+
+頂点 `i` が凸かは、3 点 `(p_{i-1}, p_i, p_{i+1})` の **外積** で分かる。
+
+```
+cross = (p_i - p_{i-1}) × (p_{i+1} - p_i)
+      = (p_i.x - p_{i-1}.x)(p_{i+1}.y - p_i.y)
+      − (p_i.y - p_{i-1}.y)(p_{i+1}.x - p_i.x)
+```
+
+多角形が **反時計回り** に並んでいる前提なら、`cross > 0` で凸。
+
+### ステップ 3: 三角形に他の点が入ってないか
+
+ステップ 2 で凸だったら、その三角形 `(i-1, i, i+1)` の中に **他の頂点** が入っていないかチェック。1 個でも入っていたら耳じゃない。
+
+点と三角形の判定は、3 つの辺について **「点が辺の左側か右側か」** を外積で見て、全部同じ側なら中。
+
+### ステップ 4: 耳を見つけたら切り取って繰り返す
+
+耳が見つかったら、
+
+1. 三角形 `(i-1, i, i+1)` を出力配列に追加
+2. 頂点 `i` をリストから削除
+3. 残り頂点が 3 個になるまで戻る (3 個になったら、それが最後の三角形)
+
+この方法で、**N 角形は N − 2 個の三角形に分割** されるよ。
+
+## 数学のところ（読み飛ばしOK）
+
+<details>
+<summary>ear clipping の限界と earcut</summary>
+
+ear clipping は実装が **やさしい代わりに遅い** (素朴に書くと O(N²))。点が多い (1000 点超え) と、もっと速いアルゴリズムが要る。
+
+industry standard の `earcut` ライブラリは、
+
+- **z-order curve** で点を空間ソートして、耳判定を早くする
+- **頂点リストを Linked List** で保持して、削除を O(1) にする
+
+など、Ear Clipping を高速化したもの。最終結果は同じだから、教育的には Ear Clipping を理解するだけで十分。
+
+また、Ear Clipping は **単純多角形 (自己交差なし)** にしか使えない。穴がある形は事前に「橋」でつないで、複数の輪郭を 1 つにマージする必要があるよ。
+
+</details>
+
+## 実装してみる
+
+`earClip` を書いてみよう。星型の多角形を **GPU で塗った青い面** が現れるよ。**正しく書けたら、星全体がベタ塗り** になるよ。
+
+<Playground />
+
+## やってみよう
+
+- 多角形を **時計回り** に渡したらどうなる ? (CCW 前提だから、結果が空っぽになるはず)
+- 三角形分割の **三角形数** をカウントすると、N − 2 になっている ? (頂点数 N)
+
+## もっと知りたい人へ
+
+- Paplico は `earcut` ライブラリを使っている (高速化版)
+- 前の章 → [第9章: ストロークの三角形メッシュ](/devdocs/tutorials/09-stroke-mesh)
+- 次の章 → [第11章: ステンシルを使った塗りつぶし](/devdocs/tutorials/11-stencil-then-cover)

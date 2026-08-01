@@ -1,0 +1,402 @@
+# フィルターオーサリングガイド
+
+> [!TIP]
+> **前提ページ:** [フィルターシステム](/devdocs/renderer/filters)。フィルターアーキテクチャの全体像、プリフィルターとポストフィルターの違い、テクスチャピンポンの仕組みを先に把握しておくと読みやすい。
+
+このページでは、Paplico のフィルターシステムに新しいカスタムフィルターを追加する具体的な手順を解説する。`FilterHandler` インターフェースの各メソッドの実装方法、WGSL シェーダーの書き方、`RenderOrchestrator` への登録方法をステップバイステップで示す。
+
+## `FilterHandler` インターフェース
+
+すべてのフィルターは `FilterHandler` を実装する。以下がインターフェースの全容である。
+
+```typescript
+interface FilterHandler {
+  // GPU パイプラインの初期化。プリフィルターは no-op で良い。
+  initialize(device: GPUDevice, canvasFormat: GPUTextureFormat): Promise<void>;
+
+  // 要素リサイズ時にフィルターパラメータをスケーリングする。
+  onScaleFilter(params: Filter, scale: [number, number]): Filter;
+
+  // フィルター効果がはみ出す範囲をワールド単位で返す。
+  getExpansionMargin(filter: Filter): number;
+
+  // リソース解放（任意）。
+  destroy?(): void;
+
+  // true の場合、レンダラーがバックドロップテクスチャをキャプチャして渡す。
+  readonly requiresBackdrop?: boolean;
+
+  // プリフィルター: ラスタライズ前にジオメトリを変形する。
+  preProcess?(
+    segments: CubicBezierSegment[],
+    filter: Filter,
+  ): CubicBezierSegment[];
+
+  // ポストフィルター: ラスタライズ済みテクスチャに GPU 処理を適用する。
+  postProcess?(context: FilterProcessorContext, filter: Filter): void;
+
+  // アニメーションキーフレーム間のパラメータ補間（任意）。
+  onInterpolate?(paramsA: unknown, paramsB: unknown, t: number): unknown;
+}
+```
+
+### `postProcess` -- ポストフィルターの実装
+
+`postProcess` は、ラスタライズ済みの要素テクスチャに対して GPU レンダーパスを実行するメソッドである。`FilterProcessorContext` として以下のフィールドが渡される。
+
+```typescript
+interface FilterProcessorContext {
+  device: GPUDevice;
+  sourceTexture: GPUTexture;   // 入力テクスチャ（前段フィルターの出力）
+  targetTexture: GPUTexture;   // 出力先テクスチャ（ここに描画結果を書き込む）
+  commandEncoder: GPUCommandEncoder;
+  sceneInfo: {
+    textureSize: { width: number; height: number };
+    zoom: number;                // ビューポートズーム倍率
+    canvasRotationDeg: number;   // キャンバス回転角度
+    worldOrigin?: [number, number];
+  };
+}
+```
+
+実装上の要点:
+
+- `sourceTexture` からサンプリングし、`targetTexture` に描画する。**source と target が同一テクスチャであることはないため**、読み書きの競合を気にする必要はない。
+- 空間パラメータ（ぼかし半径など）は `sceneInfo.zoom` でスケーリングすること。ズーム倍率が異なってもフィルター効果の見た目が一定になるようにするためである。
+- `commandEncoder` に対して `beginRenderPass` でレンダーパスを発行する。`queue.submit` は呼ばない（`FilterRenderer` が一括で送信する）。
+
+以下は `BlurFilterProcessor` から抜粋したポストフィルターの実装パターンである。2パス分離型ガウシアンブラーの水平パスを示す。
+
+```typescript
+public postProcess(context: FilterProcessorContext, filter: Filter): void {
+  const { device, sourceTexture, targetTexture, commandEncoder,
+          sceneInfo: { textureSize, zoom } } = context;
+  const scaledRadius = (filter as BlurFilter).paramData.params.radius * zoom;
+
+  // ユニフォームバッファを作成・書き込み
+  const uniformBuffer = this.createUniformBuffer(
+    device,
+    [textureSize.width, textureSize.height],
+    [1.0, 0.0],  // horizontal direction
+    scaledRadius,
+  );
+
+  const bindGroup = device.createBindGroup({
+    layout: this.bindGroupLayout!,
+    entries: [
+      { binding: 0, resource: { buffer: uniformBuffer } },
+      { binding: 1, resource: sourceTexture.createView() },
+      { binding: 2, resource: sampler },
+    ],
+  });
+
+  // レンダーパスを発行（source -> target）
+  const pass = commandEncoder.beginRenderPass({
+    colorAttachments: [{
+      view: targetTexture.createView(),
+      loadOp: "clear",
+      storeOp: "store",
+      clearValue: { r: 0, g: 0, b: 0, a: 0 },
+    }],
+  });
+  pass.setPipeline(this.pipeline!);
+  pass.setBindGroup(0, bindGroup);
+  pass.draw(3, 1, 0, 0);  // full-screen triangle
+  pass.end();
+}
+```
+
+### `preProcess` -- プリフィルター（ジオメトリ変形）の実装
+
+`preProcess` は、ラスタライズ前に `CubicBezierSegment[]` を受け取り、変形した新しい配列を返す純粋関数である。GPU は使用しない。
+
+実装上の要点:
+
+- 入力セグメントは `PreFilterRenderer` が `deepClone` 済みのコピーを渡すため、破壊的変更が許可されている。ただし慣例として新しい配列を返す実装が推奨される。
+- `initialize` は no-op で良い（GPU パイプライン不要）。
+
+以下は `ZigzagFilterHandler` の `preProcess` の概要である。
+
+```typescript
+public preProcess(
+  segments: CubicBezierSegment[],
+  filter: Filter,
+): CubicBezierSegment[] {
+  const { frequency, amplitude, phase } = (filter as ZigzagFilter).paramData.params;
+
+  // 1. パスを弧長パラメータ化してサンプリング
+  const sampledPoints = samplePathAtRegularIntervals(segments, frequency);
+
+  // 2. 法線方向に三角波でオフセット
+  const offsetPoints = applyZigzagOffset(sampledPoints, amplitude, phase);
+
+  // 3. オフセット済み点列からベジエセグメントを再構築
+  return reconstructBezierSegments(offsetPoints);
+}
+```
+
+### `requiresBackdrop` -- バックドロップフィルターのフラグ
+
+`requiresBackdrop` を `true` に設定すると、レンダラーは以下の追加処理を行う。
+
+1. **`RenderPlanner`** がフレームプラン構築時にバックドロップフィルターを持つ要素を検出し、レイヤーをセグメント分割する。これにより、バックドロップキャプチャが正しい描画順序で実行される。
+2. **`BackdropCaptureManager`** が要素描画前にキャンバスの現在内容をキャプチャする。
+3. `postProcess` に渡されるコンテキストが `BackdropFilterProcessorContext` に拡張され、`backdropTexture` フィールドが追加される。
+4. フィルター処理後、**`FilterRenderer`** が `backdropMask.wgsl` シェーダーで要素形状のマスクを自動的に適用する。
+
+```typescript
+interface BackdropFilterProcessorContext extends FilterProcessorContext {
+  backdropTexture: GPUTexture;  // キャンバス上の既存描画内容
+}
+```
+
+バックドロップフィルターの `postProcess` では `backdropTexture` をサンプリングして加工する。マスク合成は `FilterRenderer` が自動で行うため、ハンドラー側でマスク処理を実装する必要はない。
+
+### `getExpansionMargin` -- 描画領域の拡張量
+
+`getExpansionMargin` は、フィルター効果が要素の元の境界からはみ出す量をワールド単位で返す。`RenderPlanner` がオフスクリーンテクスチャのサイズを決定する際に使用する。
+
+- **ブラー**: 半径の3倍を返す（ガウス分布の99.7%がカバーされる範囲）。
+- **ジグザグ**: 振幅をそのまま返す（法線方向の最大オフセット量）。
+- **バックドロップフィルター**: 通常 `0` を返す（要素形状内で完結するため）。
+
+```typescript
+// BlurFilterProcessor の例
+public getExpansionMargin(filter: Filter): number {
+  return ((filter as BlurFilter).paramData.params.radius ?? 0) * 3;
+}
+
+// ZigzagFilterHandler の例
+public getExpansionMargin(filter: Filter): number {
+  return (filter as ZigzagFilter).paramData.params.amplitude ?? 0;
+}
+```
+
+返却値が小さすぎるとフィルター効果がテクスチャ境界でクリップされ、大きすぎるとメモリを無駄に消費する。
+
+### `onScaleFilter` -- リサイズ時のパラメータスケーリング
+
+要素がリサイズされたときに呼ばれる。空間パラメータをスケール係数に応じて調整する。均一スケールでないリサイズには `Math.sqrt(scaleX * scaleY)` で幾何平均を取るのが一般的なパターンである。
+
+```typescript
+public onScaleFilter(params: Filter, [scaleX, scaleY]: [number, number]): Filter {
+  const f = params as BlurFilter;
+  const uniformScale = Math.sqrt(scaleX * scaleY);
+  return {
+    ...f,
+    paramData: {
+      ...f.paramData,
+      params: { ...f.paramData.params, radius: f.paramData.params.radius * uniformScale },
+    },
+  };
+}
+```
+
+### `onInterpolate` -- アニメーション補間
+
+アニメーションキーフレーム間でフィルターパラメータを補間するメソッドである。引数 `t` はベジエイージング適用済みの補間係数で、`[0, 1]` の範囲を超えることがある。
+
+```typescript
+public onInterpolate(paramsA: unknown, paramsB: unknown, t: number): unknown {
+  const a = paramsA as BlurParams;
+  const b = paramsB as BlurParams;
+  return { radius: a.radius + (b.radius - a.radius) * t };
+}
+```
+
+## ステップバイステップ: 新しいフィルターの追加手順
+
+### 1. Filter 型を定義する
+
+`pkgs/web/src/core/schema.ts` に新しいフィルター型を追加し、`Filter` ユニオン型に加える。
+
+```typescript
+// schema.ts
+export interface MyCustomParams {
+  intensity: number;
+}
+
+export interface MyCustomFilter extends Appearance<MyCustomParams> {
+  processor: "my-custom";
+}
+
+export type Filter =
+  | ZigzagFilter
+  | BlurFilter
+  // ...existing filters...
+  | MyCustomFilter;
+```
+
+### 2. `FilterHandler` を実装するクラスを作成する
+
+`renderer/filters/` ディレクトリに新しいファイルを作成する。
+
+```typescript
+// renderer/filters/MyCustomFilterProcessor.ts
+import type { Filter } from "../../schema";
+import type { FilterHandler, FilterProcessorContext } from "../pipeline/FilterRenderer";
+import { compileShaderModule } from "../../utils/wgpu-utils";
+import { MY_CUSTOM_SHADER } from "../shaders/myCustom.wgsl";
+
+export class MyCustomFilterProcessor implements FilterHandler {
+  private pipeline: GPURenderPipeline | null = null;
+  private bindGroupLayout: GPUBindGroupLayout | null = null;
+
+  public async initialize(
+    device: GPUDevice,
+    canvasFormat: GPUTextureFormat,
+  ): Promise<void> {
+    const { module, uniformViews } = compileShaderModule(device, {
+      label: "MyCustom Filter Shader",
+      code: MY_CUSTOM_SHADER,
+    });
+
+    this.bindGroupLayout = device.createBindGroupLayout({
+      label: "MyCustom Bind Group Layout",
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float" } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT,
+          sampler: { type: "filtering" } },
+      ],
+    });
+
+    this.pipeline = device.createRenderPipeline({
+      label: "MyCustom Filter Pipeline",
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [this.bindGroupLayout],
+      }),
+      vertex: { module, entryPoint: "vertexMain" },
+      fragment: {
+        module,
+        entryPoint: "fragmentMain",
+        targets: [{ format: canvasFormat }],
+      },
+      primitive: { topology: "triangle-list" },
+    });
+  }
+
+  public postProcess(context: FilterProcessorContext, filter: Filter): void {
+    // sourceTexture からサンプリングして targetTexture に描画する
+    // (具体的なシェーダー処理はここで bind group を組み立てて実行)
+  }
+
+  public getExpansionMargin(filter: Filter): number {
+    return 0; // 効果が要素境界をはみ出さないなら 0
+  }
+
+  public onScaleFilter(
+    params: Filter,
+    [scaleX, scaleY]: [number, number],
+  ): Filter {
+    return params; // 空間パラメータがなければそのまま返す
+  }
+
+  public destroy(): void {
+    this.pipeline = null;
+    this.bindGroupLayout = null;
+  }
+}
+```
+
+### 3. WGSL シェーダーを作成する
+
+`renderer/shaders/` ディレクトリにシェーダーファイルを作成する。Paplico のポストフィルターシェーダーは全画面三角形（full-screen triangle）パターンを使用する。頂点シェーダーでクリップ空間を覆う1枚の三角形を生成し、フラグメントシェーダーでテクスチャをサンプリングして加工する。
+
+```wgsl
+// renderer/shaders/myCustom.wgsl.ts にエクスポートする文字列として定義
+struct Uniforms {
+  resolution: vec2f,
+  intensity: f32,
+};
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var inputTexture: texture_2d<f32>;
+@group(0) @binding(2) var inputSampler: sampler;
+
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+};
+
+@vertex
+fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+  // Full-screen triangle (3 vertices cover the entire clip space)
+  var pos = array<vec2f, 3>(
+    vec2f(-1.0, -1.0),
+    vec2f( 3.0, -1.0),
+    vec2f(-1.0,  3.0),
+  );
+  var uv = array<vec2f, 3>(
+    vec2f(0.0, 1.0),
+    vec2f(2.0, 1.0),
+    vec2f(0.0, -1.0),
+  );
+  var output: VertexOutput;
+  output.position = vec4f(pos[vertexIndex], 0.0, 1.0);
+  output.uv = uv[vertexIndex];
+  return output;
+}
+
+@fragment
+fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+  let color = textureSample(inputTexture, inputSampler, input.uv);
+  // Apply custom effect using uniforms.intensity
+  return color;
+}
+```
+
+### 4. `RenderOrchestrator` に登録する
+
+`RenderOrchestrator.ts` の初期化処理で `filterRenderer.registerHandler` を呼ぶ。processor ID は `schema.ts` の `processor` フィールドと一致させること。
+
+```typescript
+// RenderOrchestrator.ts の初期化処理内
+const myCustomProcessor = new MyCustomFilterProcessor();
+await myCustomProcessor.initialize(this.device, this.canvasFormat);
+filterRenderer.registerHandler("my-custom", myCustomProcessor);
+```
+
+これだけで `FilterRenderer` と `RenderPlanner` が新しいフィルターを認識し、要素の `filters` 配列に `{ processor: "my-custom", ... }` が含まれていれば自動的に適用される。
+
+## テクスチャピンポン: 入出力テクスチャの扱い
+
+`FilterRenderer` は2枚のテンポラリテクスチャ間でピンポンしながらフィルターチェーンを実行する。各フィルターハンドラーの `postProcess` が守るべきルールは以下の通りである。
+
+1. **`sourceTexture` から読み取り、`targetTexture` に書き込む。** この2つは必ず別のテクスチャである。
+2. **`commandEncoder` にレンダーパスを追加するだけで、`queue.submit` は呼ばない。** `FilterRenderer` がすべてのフィルターのパスを1つの `CommandBuffer` にまとめて送信する。
+3. **複数パスが必要な場合**（ブラーの水平/垂直パスなど）、1パス目で `source -> target` に書き込んだ後、`copyTextureToTexture` で `target` の内容を `source` にコピーし、2パス目で再び `source -> target` に書き込む。`FilterRenderer` のピンポンは各ハンドラーの呼び出し間でのみ切り替わるため、ハンドラー内部の複数パスは自前で管理する。
+
+```
+FilterRenderer のピンポン:
+  Filter A: source=tex1, target=tex2   (Filter A の postProcess が tex1→tex2 に書き込む)
+  Filter B: source=tex2, target=tex1   (Filter B の postProcess が tex2→tex1 に書き込む)
+  Filter C: source=tex1, target=tex2   (...)
+
+Filter A 内部の複数パス (e.g. blur):
+  Pass 1: source(tex1) → target(tex2)
+  copy:   tex2 → tex1  (source に書き戻す)
+  Pass 2: source(tex1) → target(tex2)
+```
+
+> [!TIP]
+> **デバッグのコツ:**
+> - フィルターが何も効果を出さない場合、まず `postProcess` 内で `sourceTexture` と `targetTexture` の `width`/`height` をログ出力し、テクスチャサイズが 0 でないことを確認する。
+> - シェーダーのコンパイルエラーは `device.createShaderModule` 時にコンソールに出力される。Chrome DevTools の Console タブを確認すること。
+> - `getExpansionMargin` が小さすぎてフィルター効果がクリップされる場合、要素の境界にフィルター効果が不自然に途切れる症状として現れる。
+> - `sceneInfo.zoom` でパラメータをスケーリングし忘れると、ズームインしたときにフィルター効果が弱く見える（またはズームアウトで過剰に見える）。
+> - `webgpu-utils` の `compileShaderModule` を使うと、ユニフォームバッファのパディングとアライメントが自動計算される。手動でバッファレイアウトを計算する必要はない。
+
+## よくある落とし穴
+
+- **`queue.submit` をハンドラー内で呼んでしまう。** `FilterRenderer` が最終的にまとめて送信するため、ハンドラー内で `submit` を呼ぶとコマンドの実行順序が壊れる。
+- **`sourceTexture` に書き込んでしまう。** `sourceTexture` は読み取り専用として扱うこと。書き込み先は常に `targetTexture` である（ハンドラー内部の複数パスで `copyTextureToTexture` を使う場合を除く）。
+- **`getExpansionMargin` で 0 を返しているのにフィルター効果が要素境界をはみ出す。** ブラーやドロップシャドウなど、効果が元の境界の外に広がるフィルターでは、はみ出し量を正確に計算して返す必要がある。返却値が不足するとテクスチャ境界で効果がクリップされる。
+- **`sceneInfo.zoom` を無視する。** ズーム倍率を空間パラメータに乗算しないと、ズームレベルによってフィルター効果の見た目が変わってしまう。キャプチャされたテクスチャはズーム済みサイズであるため、半径やオフセット量には `zoom` を掛ける。
+- **processor ID の不一致。** `schema.ts` の `processor` フィールドと `registerHandler` の第1引数が一致しないと、フィルターが無視される。
+- **`onScaleFilter` で元のオブジェクトを変更する。** イミュータブルに新しいオブジェクトを返すこと。スプレッド構文で浅いコピーを作り、変更したいフィールドだけ上書きするパターンが標準的である。
+
+> [!TIP]
+> **次に読むページ:** [用語集](/devdocs/renderer/glossary)

@@ -1,0 +1,141 @@
+import Playground from "./playground";
+
+# 第2章: AABB — 図形を「四角い箱」で囲む
+
+## この章でできるようになること
+
+- ベジェ曲線を「ぴったりはまる四角い箱」で囲めるようになる
+- なぜ「箱で囲む」と便利なのか、自分の言葉で説明できる
+- ベジェ曲線が **制御点の中** にしか出てこない (凸包性質) と知れる
+
+## まずは絵で見てみよう
+
+ぐにゃぐにゃした図形でも、その周りに **「ぴったりサイズの四角い箱」** を描くと、コンピューターがすごく扱いやすくなるよ。この箱のことを **AABB** (Axis-Aligned Bounding Box) って呼ぶよ。**Axis-Aligned** は「軸に揃った」という意味。傾いていない、縦横まっすぐな箱だよ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="AABB の概念図: 図形と、それを囲む四角い箱">
+	<g>
+		<text x="80" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">図形だけ</text>
+		<path d="M 30 80 Q 80 30 130 80 T 130 150" stroke="#3a86ff" strokeWidth="2.5" fill="none" />
+	</g>
+	<g>
+		<text x="240" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">図形 + AABB</text>
+		<rect x="190" y="65" width="100" height="100" fill="#f4a261" fillOpacity="0.18" stroke="#f4a261" strokeWidth="1.5" strokeDasharray="5 4" />
+		<path d="M 190 80 Q 240 30 290 80 T 290 150" stroke="#3a86ff" strokeWidth="2.5" fill="none" />
+		<text x="240" y="180" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">点線が AABB</text>
+	</g>
+	<g>
+		<text x="400" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">箱だけ</text>
+		<rect x="350" y="65" width="100" height="100" fill="#f4a261" fillOpacity="0.35" stroke="#f4a261" strokeWidth="1.5" />
+		<text x="400" y="100" textAnchor="middle" fontSize="11" fill="currentColor">min</text>
+		<circle cx="350" cy="65" r="3" fill="#e0457b" />
+		<text x="400" y="140" textAnchor="middle" fontSize="11" fill="currentColor">max</text>
+		<circle cx="450" cy="165" r="3" fill="#e0457b" />
+	</g>
+</svg>
+
+AABB は **左上の角 (min)** と **右下の角 (max)** の 2 つの点だけで決まるよ。とっても軽いデータだね。
+
+## どこで使われている？
+
+「画面の外にある絵は描かなくていい」って判断するとき、まず AABB を使って **「この絵は画面に重なってる？」** をざっくりチェックするよ。重なってなければ、複雑な計算をぜんぶスキップできる。これを **viewport カリング** って呼ぶよ。
+
+ほかにも、選択ツールで「マウスがどの絵に当たった？」を調べるときにも、最初の 1 段目の絞り込みは AABB でやるよ。**ざっくり判定 → 細かい判定** という二段構えで速く動かす作戦だよ。
+
+## どうやって動くのか — ステップで見ていこう
+
+ベジェ曲線の AABB を出すには、実は **すごく簡単な方法** があるよ。
+
+### ステップ 1: ベジェ曲線は制御点の中にいる (凸包性質)
+
+ベジェ曲線には不思議なルールがあるよ。曲線本体は、**4 つの制御点を結んだ図形 (凸包) の中に必ず収まる** んだ。これを **凸包性質** って呼ぶよ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="凸包性質: ベジェ曲線は制御点の凸包に収まる">
+	<polygon points="60,160 130,40 250,40 320,160" fill="#3a86ff" fillOpacity="0.18" stroke="#3a86ff" strokeWidth="1" strokeDasharray="4 3" />
+	<path d="M 60 160 C 130 40, 250 40, 320 160" stroke="#3a86ff" strokeWidth="2.5" fill="none" />
+	<circle cx="60" cy="160" r="5" fill="#3a86ff" />
+	<text x="56" y="180" fontSize="11" fill="currentColor">p0</text>
+	<circle cx="130" cy="40" r="4" fill="#888" />
+	<text x="118" y="32" fontSize="11" fill="currentColor">p1</text>
+	<circle cx="250" cy="40" r="4" fill="#888" />
+	<text x="246" y="32" fontSize="11" fill="currentColor">p2</text>
+	<circle cx="320" cy="160" r="5" fill="#3a86ff" />
+	<text x="316" y="180" fontSize="11" fill="currentColor">p3</text>
+	<text x="380" y="80" fontSize="11" fill="currentColor" fillOpacity="0.7">青い線は</text>
+	<text x="380" y="98" fontSize="11" fill="currentColor" fillOpacity="0.7">点線の中に</text>
+	<text x="380" y="116" fontSize="11" fill="currentColor" fillOpacity="0.7">収まっている</text>
+</svg>
+
+つまり、**制御点だけ** から「曲線が絶対にここから外には行かない箱」が作れちゃう、ということ。
+
+### ステップ 2: 制御点の min と max を取る
+
+これだけで AABB ができるよ。
+
+```
+xs = [p0.x, p1.x, p2.x, p3.x]
+ys = [p0.y, p1.y, p2.y, p3.y]
+min = (min(xs), min(ys))
+max = (max(xs), max(ys))
+```
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="ステップ2: 制御点の min/max から AABB を構成">
+	<rect x="60" y="40" width="260" height="120" fill="#f4a261" fillOpacity="0.18" stroke="#f4a261" strokeWidth="1.5" strokeDasharray="5 4" />
+	<path d="M 60 160 C 130 40, 250 40, 320 160" stroke="#3a86ff" strokeWidth="2.5" fill="none" />
+	<circle cx="60" cy="160" r="5" fill="#3a86ff" />
+	<circle cx="130" cy="40" r="4" fill="#888" />
+	<circle cx="250" cy="40" r="4" fill="#888" />
+	<circle cx="320" cy="160" r="5" fill="#3a86ff" />
+	<circle cx="60" cy="40" r="3" fill="#e0457b" />
+	<text x="40" y="38" fontSize="10" fill="#e0457b">min</text>
+	<circle cx="320" cy="160" r="3" fill="#e0457b" />
+	<text x="332" y="170" fontSize="10" fill="#e0457b">max</text>
+	<text x="190" y="190" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">min は (左の x, 上の y) / max は (右の x, 下の y)</text>
+</svg>
+
+### ステップ 3: ぴったりじゃないけどそれで OK?
+
+実はこのやり方、**箱が実際よりちょっと大きめ** になることがあるよ。曲線が p1 や p2 のあたりまで届かないことが多いからね。それでも大丈夫。**「曲線がはみ出さない箱」を素早く作る** のが目的だから、少しゆとりがあっても困らないよ。
+
+ぴったりサイズの箱が欲しいときは、もう一歩進んで「ベジェ曲線の極値 (山と谷)」を計算するんだけど、それは下の折りたたみセクションで。
+
+## 数学のところ（読み飛ばしOK）
+
+<details>
+<summary>ぴったりサイズの AABB を作るには…</summary>
+
+3次ベジェ曲線の式は:
+
+```
+B(t) = (1−t)³ p0 + 3(1−t)² t p1 + 3(1−t) t² p2 + t³ p3
+```
+
+これを `t` で微分して、`B'(t) = 0` となる `t` の場所が「極値 (山と谷)」だよ。`B'(t) = 0` は 2 次方程式になるから、`t` は最大 2 つ求まる。
+
+各成分 (x と y) について 2 つずつ解いて、それぞれの `t` で `B(t)` の点を計算し、その点も min/max の候補に入れれば、**ぴったりサイズの AABB** が作れるよ。
+
+```
+B'(t) = 3(1−t)² (p1 − p0) + 6(1−t) t (p2 − p1) + 3 t² (p3 − p2)
+      = a t² + b t + c   (a, b, c はそれぞれ x, y 成分で別々)
+```
+
+2 次方程式の解の公式で `t` を求めて、`0 ≤ t ≤ 1` の範囲のものだけ採用すれば OK。
+
+</details>
+
+## 実装してみる
+
+`bezierAABB` を書いてみよう。橙色の点線で AABB が表示されるよ。**正しく書けたら、4 つの制御点をぜんぶ含む四角が出る** はず。曲線をドラッグして動かしてみて、箱がついてくるか試してみよう。
+
+<Playground />
+
+## やってみよう
+
+- 制御点をドラッグして、青い曲線が箱からはみ出ることがないか確かめてみよう (はみ出ない、それが凸包性質！)
+- 4 つの制御点を 1 か所に集めると、箱はどうなる？
+- もし `bezierAABB` を「曲線の本当の極値」まで含めるように書き直したら、箱はどう変わるか想像してみよう
+
+## もっと知りたい人へ
+
+- Paplico の本格実装: [`pkgs/web/src/core/utils/bounds.ts`](https://github.com/) — 極値計算もした tight な AABB を返す
+- 前の章 → [第1章: 座標系の話](/devdocs/tutorials/01-coordinates)
+- 次の章 → [第3章: ヒットテスト基礎](/devdocs/tutorials/03-hit-test)

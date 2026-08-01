@@ -1,0 +1,3210 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`UI overlay builders > should build artboard outline primitives from the VRT fixture 1`] = `
+[
+  {
+    "cx": -60,
+    "cy": 10,
+    "height": 150,
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.4,
+        0.4,
+        0.4,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+    "width": 200,
+  },
+  {
+    "cx": 120,
+    "cy": -60,
+    "height": 80,
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.4,
+        0.4,
+        0.4,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+    "width": 100,
+  },
+]
+`;
+
+exports[`UI overlay builders > should build artboard selection primitives from the VRT fixture 1`] = `
+[
+  {
+    "cx": -60,
+    "cy": 10,
+    "height": 150,
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.4,
+        0.4,
+        0.4,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+    "width": 200,
+  },
+  {
+    "cx": 120,
+    "cy": -60,
+    "height": 80,
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.4,
+        0.4,
+        0.4,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+    "width": 100,
+  },
+  {
+    "cx": -60,
+    "cy": 10,
+    "height": 150,
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.6,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": 200,
+  },
+  {
+    "cx": -160,
+    "cy": 85,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.6,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": -60,
+    "cy": 85,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.6,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": 40,
+    "cy": 85,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.6,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": 40,
+    "cy": 10,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.6,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": 40,
+    "cy": -65,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.6,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": -60,
+    "cy": -65,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.6,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": -160,
+    "cy": -65,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.6,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": -160,
+    "cy": 10,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.6,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+]
+`;
+
+exports[`UI overlay builders > should build bucket-fill primitives from the VRT fixture 1`] = `
+[
+  {
+    "kind": "polyline",
+    "points": [
+      {
+        "x": -140,
+        "y": -60,
+      },
+      {
+        "x": -70,
+        "y": -10,
+      },
+      {
+        "x": -10,
+        "y": -50,
+      },
+    ],
+    "stroke": {
+      "color": [
+        1,
+        0.6,
+        0,
+        0.9,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "kind": "polyline",
+    "points": [
+      {
+        "x": 20,
+        "y": 70,
+      },
+      {
+        "x": 90,
+        "y": 40,
+      },
+      {
+        "x": 150,
+        "y": 75,
+      },
+    ],
+    "stroke": {
+      "color": [
+        1,
+        0.6,
+        0,
+        0.9,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "kind": "polyline",
+    "points": [
+      {
+        "x": -60,
+        "y": 80,
+      },
+      {
+        "x": 10,
+        "y": 110,
+      },
+      {
+        "x": 80,
+        "y": 95,
+      },
+    ],
+    "stroke": {
+      "color": [
+        1,
+        0.6,
+        0,
+        0.9,
+      ],
+      "width": 1.5,
+    },
+  },
+]
+`;
+
+exports[`UI overlay builders > should build eraser primitives from the VRT fixture 1`] = `
+[
+  {
+    "cx": -40,
+    "cy": 20,
+    "kind": "circle",
+    "radius": {
+      "screen": 0.5,
+      "world": 48,
+    },
+    "stroke": {
+      "color": [
+        0,
+        0,
+        0,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -40,
+    "cy": 20,
+    "kind": "circle",
+    "radius": 48,
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        0.9,
+      ],
+      "width": 1.5,
+    },
+  },
+]
+`;
+
+exports[`UI overlay builders > should build gradient-edit primitives from the VRT fixture 1`] = `
+[
+  {
+    "kind": "bezierPath",
+    "segments": [
+      {
+        "cp1": {
+          "x": -100,
+          "y": 105,
+        },
+        "cp2": {
+          "x": -60,
+          "y": 108,
+        },
+        "end": {
+          "x": -40,
+          "y": 110,
+        },
+        "start": {
+          "x": -120,
+          "y": 90,
+        },
+      },
+    ],
+    "stroke": {
+      "color": [
+        0.39,
+        0.39,
+        1,
+        0.6,
+      ],
+      "width": 2,
+    },
+  },
+  {
+    "kind": "bezierPath",
+    "segments": [
+      {
+        "cp1": {
+          "x": -130,
+          "y": 60,
+        },
+        "cp2": {
+          "x": -110,
+          "y": 40,
+        },
+        "end": {
+          "x": -90,
+          "y": 30,
+        },
+        "start": {
+          "x": -120,
+          "y": 90,
+        },
+      },
+    ],
+    "stroke": {
+      "color": [
+        0.23,
+        0.51,
+        0.96,
+        1,
+      ],
+      "width": 2,
+    },
+  },
+  {
+    "cx": 60,
+    "cy": -70,
+    "kind": "circle",
+    "radius": 40,
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -40,
+    "cy": -95,
+    "endAngle": 6.283185307179586,
+    "kind": "arc",
+    "radiusX": 60,
+    "radiusY": 25,
+    "rotation": 0.4,
+    "startAngle": 0,
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        0.9,
+      ],
+      "width": 1.5,
+    },
+    "x1": -140,
+    "x2": 100,
+    "y1": -60,
+    "y2": 60,
+  },
+  {
+    "cx": -60,
+    "cy": -20,
+    "kind": "circle",
+    "radius": {
+      "screen": 8.5,
+    },
+    "stroke": {
+      "color": [
+        0.23,
+        0.51,
+        0.96,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -120,
+    "cy": 90,
+    "kind": "circle",
+    "radius": {
+      "screen": 8.5,
+    },
+    "stroke": {
+      "color": [
+        0.23,
+        0.51,
+        0.96,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -140,
+    "cy": -60,
+    "kind": "circle",
+    "radius": {
+      "screen": 6.5,
+    },
+    "stroke": {
+      "color": [
+        0.59,
+        0.59,
+        0.59,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -60,
+    "cy": -20,
+    "kind": "circle",
+    "radius": {
+      "screen": 7.5,
+    },
+    "stroke": {
+      "color": [
+        0.59,
+        0.59,
+        0.59,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 20,
+    "cy": 20,
+    "kind": "circle",
+    "radius": {
+      "screen": 7.5,
+    },
+    "stroke": {
+      "color": [
+        0.59,
+        0.59,
+        0.59,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 100,
+    "cy": 60,
+    "kind": "circle",
+    "radius": {
+      "screen": 6.5,
+    },
+    "stroke": {
+      "color": [
+        0.59,
+        0.59,
+        0.59,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -120,
+    "cy": 90,
+    "kind": "circle",
+    "radius": {
+      "screen": 7.5,
+    },
+    "stroke": {
+      "color": [
+        0.59,
+        0.59,
+        0.59,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -40,
+    "cy": 110,
+    "kind": "circle",
+    "radius": {
+      "screen": 4.833333333333334,
+    },
+    "stroke": {
+      "color": [
+        0.59,
+        0.59,
+        0.59,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -80,
+    "cy": 70,
+    "kind": "circle",
+    "radius": {
+      "screen": 4.833333333333334,
+    },
+    "stroke": {
+      "color": [
+        0.59,
+        0.59,
+        0.59,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 140,
+    "cy": -90,
+    "kind": "circle",
+    "radius": {
+      "screen": 4.833333333333334,
+    },
+    "stroke": {
+      "color": [
+        0.59,
+        0.59,
+        0.59,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -140,
+    "cy": -60,
+    "fill": {
+      "color": [
+        0.1,
+        0.4,
+        0.9,
+        1,
+      ],
+    },
+    "hitId": "g-start",
+    "hitPadding": {
+      "screen": 5,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+    "stroke": {
+      "color": [
+        0.23,
+        0.51,
+        0.96,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -60,
+    "cy": -20,
+    "fill": {
+      "color": [
+        0.5,
+        0.2,
+        0.8,
+        1,
+      ],
+    },
+    "hitId": "g-stop-1",
+    "hitPadding": {
+      "screen": 4,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 6,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 2.5,
+    },
+  },
+  {
+    "cx": 20,
+    "cy": 20,
+    "fill": {
+      "color": [
+        0.9,
+        0.6,
+        0.1,
+        1,
+      ],
+    },
+    "hitId": "g-stop-2",
+    "hitPadding": {
+      "screen": 4,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 6,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 2.5,
+    },
+  },
+  {
+    "cx": 100,
+    "cy": 60,
+    "fill": {
+      "color": [
+        0.9,
+        0.1,
+        0.2,
+        1,
+      ],
+    },
+    "hitId": "g-end",
+    "hitPadding": {
+      "screen": 5,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+    "stroke": {
+      "color": [
+        0.94,
+        0.27,
+        0.27,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -120,
+    "cy": 90,
+    "fill": {
+      "color": [
+        0.2,
+        0.8,
+        0.4,
+        1,
+      ],
+    },
+    "hitId": "m-v1",
+    "hitPadding": {
+      "screen": 4,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 6,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 2.5,
+    },
+  },
+  {
+    "cx": -40,
+    "cy": 110,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "hitId": "m-v2",
+    "hitPadding": {
+      "screen": 6.666666666666666,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 3.3333333333333335,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -80,
+    "cy": 70,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "hitId": "m-cp1",
+    "hitPadding": {
+      "screen": 6.666666666666666,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 3.3333333333333335,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 140,
+    "cy": -90,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "hitId": "f-cp",
+    "hitPadding": {
+      "screen": 6.666666666666666,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 3.3333333333333335,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+]
+`;
+
+exports[`UI overlay builders > should build hover primitives from the VRT fixture 1`] = `
+[
+  {
+    "kind": "bezierPath",
+    "segments": [
+      {
+        "cp1": {
+          "x": -60,
+          "y": 80,
+        },
+        "cp2": {
+          "x": 40,
+          "y": -90,
+        },
+        "end": {
+          "x": 120,
+          "y": 30,
+        },
+        "start": {
+          "x": -120,
+          "y": -20,
+        },
+      },
+    ],
+    "stroke": {
+      "color": [
+        0.2,
+        0.6,
+        1,
+        0.6,
+      ],
+      "width": 2,
+    },
+  },
+  {
+    "kind": "bezierPath",
+    "segments": [
+      {
+        "cp1": {
+          "x": -60,
+          "y": -50,
+        },
+        "cp2": {
+          "x": 20,
+          "y": -120,
+        },
+        "end": {
+          "x": 80,
+          "y": -70,
+        },
+        "start": {
+          "x": -100,
+          "y": -90,
+        },
+      },
+    ],
+    "stroke": {
+      "color": [
+        0.2,
+        0.6,
+        1,
+        0.6,
+      ],
+      "width": 2,
+    },
+  },
+]
+`;
+
+exports[`UI overlay builders > should build marquee primitives from the VRT fixture 1`] = `
+[
+  {
+    "cx": -30,
+    "cy": -20,
+    "fill": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        0.15,
+      ],
+    },
+    "height": 140,
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+    "width": 200,
+  },
+]
+`;
+
+exports[`UI overlay builders > should build mesh-deform primitives from the VRT fixture 1`] = `
+[
+  {
+    "cx": -20,
+    "cy": -10,
+    "height": 140,
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.5,
+        0.5,
+        0.5,
+        0.3,
+      ],
+      "width": 1.5,
+    },
+    "width": 200,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -120,
+    "x2": -20,
+    "y1": -80,
+    "y2": -85,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -20,
+    "x2": 80,
+    "y1": -85,
+    "y2": -80,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -125,
+    "x2": -10,
+    "y1": -10,
+    "y2": 0,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -10,
+    "x2": 85,
+    "y1": 0,
+    "y2": -10,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -120,
+    "x2": -20,
+    "y1": 60,
+    "y2": 72,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -20,
+    "x2": 80,
+    "y1": 72,
+    "y2": 60,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -120,
+    "x2": -125,
+    "y1": -80,
+    "y2": -10,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -20,
+    "x2": -10,
+    "y1": -85,
+    "y2": 0,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": 80,
+    "x2": 85,
+    "y1": -80,
+    "y2": -10,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -125,
+    "x2": -120,
+    "y1": -10,
+    "y2": 60,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -10,
+    "x2": -20,
+    "y1": 0,
+    "y2": 72,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": 85,
+    "x2": 80,
+    "y1": -10,
+    "y2": 60,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -120,
+    "x2": -10,
+    "y1": -80,
+    "y2": 0,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -10,
+    "x2": 80,
+    "y1": 0,
+    "y2": -80,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -125,
+    "x2": -20,
+    "y1": -10,
+    "y2": 72,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        0.4,
+      ],
+      "width": 1.5,
+    },
+    "x1": -10,
+    "x2": 80,
+    "y1": 0,
+    "y2": 60,
+  },
+  {
+    "cx": -120,
+    "cy": -80,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "hitId": "h-1",
+    "hitPadding": {
+      "screen": 3,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+  },
+  {
+    "cx": -20,
+    "cy": -85,
+    "fill": {
+      "color": [
+        1,
+        0.8,
+        0.3,
+        1,
+      ],
+    },
+    "hitId": "h-2",
+    "hitPadding": {
+      "screen": 3,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+  },
+  {
+    "cx": 80,
+    "cy": 60,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "hitId": "h-3",
+    "hitPadding": {
+      "screen": 3,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+  },
+  {
+    "cx": -10,
+    "cy": 0,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "hitId": "h-4",
+    "hitPadding": {
+      "screen": 3,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+  },
+  {
+    "cx": -120,
+    "cy": -80,
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -20,
+    "cy": -85,
+    "kind": "circle",
+    "radius": {
+      "screen": 7,
+    },
+    "stroke": {
+      "color": [
+        1,
+        0.5,
+        0,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -20,
+    "cy": -85,
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 80,
+    "cy": 60,
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -10,
+    "cy": 0,
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "closed": true,
+    "kind": "polyline",
+    "points": [
+      {
+        "x": 100,
+        "y": 80,
+      },
+      {
+        "x": 160,
+        "y": 90,
+      },
+      {
+        "x": 170,
+        "y": 125,
+      },
+      {
+        "x": 110,
+        "y": 115,
+      },
+    ],
+    "stroke": {
+      "color": [
+        0.2,
+        0.8,
+        1,
+        0.7,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 140,
+    "cy": -60,
+    "kind": "circle",
+    "radius": {
+      "screen": 9,
+    },
+    "stroke": {
+      "color": [
+        1,
+        0.3,
+        0.3,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+  },
+]
+`;
+
+exports[`UI overlay builders > should build path-edit primitives from the VRT fixture 1`] = `
+[
+  {
+    "kind": "bezierPath",
+    "segments": [
+      {
+        "cp1": {
+          "x": -120,
+          "y": 120,
+        },
+        "cp2": {
+          "x": -40,
+          "y": 120,
+        },
+        "end": {
+          "x": 0,
+          "y": 90,
+        },
+        "start": {
+          "x": -160,
+          "y": 90,
+        },
+      },
+    ],
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 2,
+    },
+  },
+  {
+    "kind": "bezierPath",
+    "segments": [
+      {
+        "cp1": {
+          "x": -100,
+          "y": 60,
+        },
+        "cp2": {
+          "x": -20,
+          "y": 60,
+        },
+        "end": {
+          "x": 20,
+          "y": -20,
+        },
+        "start": {
+          "x": -140,
+          "y": -40,
+        },
+      },
+      {
+        "cp1": {
+          "x": 60,
+          "y": -70,
+        },
+        "cp2": {
+          "x": 120,
+          "y": -40,
+        },
+        "end": {
+          "x": 140,
+          "y": 40,
+        },
+      },
+    ],
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 2,
+    },
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.6,
+        0.6,
+        0.6,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+    "x1": -140,
+    "x2": -100,
+    "y1": -40,
+    "y2": 60,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.6,
+        0.6,
+        0.6,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+    "x1": -20,
+    "x2": 20,
+    "y1": 60,
+    "y2": -20,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.6,
+        0.6,
+        0.6,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+    "x1": 20,
+    "x2": 60,
+    "y1": -20,
+    "y2": -70,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.6,
+        0.6,
+        0.6,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+    "x1": 120,
+    "x2": 140,
+    "y1": -40,
+    "y2": 40,
+  },
+  {
+    "cx": 0,
+    "cy": -110,
+    "halfSize": {
+      "screen": 5,
+    },
+    "kind": "diamond",
+    "stroke": {
+      "color": [
+        0.8,
+        0.4,
+        0,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -100,
+    "cy": 60,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+  },
+  {
+    "cx": -20,
+    "cy": 60,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+  },
+  {
+    "cx": 60,
+    "cy": -70,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+  },
+  {
+    "cx": 120,
+    "cy": -40,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+  },
+  {
+    "cx": -60,
+    "cy": -90,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+  },
+  {
+    "cx": -100,
+    "cy": 60,
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -20,
+    "cy": 60,
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 60,
+    "cy": -70,
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 120,
+    "cy": -40,
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+    "stroke": {
+      "color": [
+        0.4,
+        0.7,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -60,
+    "cy": -90,
+    "kind": "circle",
+    "radius": {
+      "screen": 5,
+    },
+    "stroke": {
+      "color": [
+        0.2,
+        0.7,
+        0.3,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -140,
+    "cy": -40,
+    "fill": {
+      "color": [
+        1,
+        0.5,
+        0.2,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 10,
+    },
+    "kind": "rect",
+    "width": {
+      "screen": 10,
+    },
+  },
+  {
+    "cx": 20,
+    "cy": -20,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 10,
+    },
+    "kind": "rect",
+    "width": {
+      "screen": 10,
+    },
+  },
+  {
+    "cx": 140,
+    "cy": 40,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 10,
+    },
+    "kind": "rect",
+    "width": {
+      "screen": 10,
+    },
+  },
+  {
+    "cx": -140,
+    "cy": -40,
+    "height": {
+      "screen": 10,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        1,
+        0.3,
+        0,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 10,
+    },
+  },
+  {
+    "cx": 20,
+    "cy": -20,
+    "height": {
+      "screen": 10,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.4,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 10,
+    },
+  },
+  {
+    "cx": 140,
+    "cy": 40,
+    "height": {
+      "screen": 10,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.2,
+        0.4,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 10,
+    },
+  },
+  {
+    "cx": 0,
+    "cy": -110,
+    "fill": {
+      "color": [
+        1,
+        0.6,
+        0,
+        1,
+      ],
+    },
+    "halfSize": {
+      "screen": 5,
+    },
+    "kind": "diamond",
+  },
+  {
+    "cx": -140,
+    "cy": -40,
+    "hitId": "path-1:0:start",
+    "hitOnly": true,
+    "hitPadding": 0,
+    "kind": "circle",
+    "radius": {
+      "screen": 8,
+    },
+    "zIndex": 1,
+  },
+  {
+    "cx": -100,
+    "cy": 60,
+    "hitId": "path-1:0:cp1",
+    "hitOnly": true,
+    "hitPadding": 0,
+    "kind": "circle",
+    "radius": {
+      "screen": 8,
+    },
+    "zIndex": 0,
+  },
+  {
+    "cx": -20,
+    "cy": 60,
+    "hitId": "path-1:0:cp2",
+    "hitOnly": true,
+    "hitPadding": 0,
+    "kind": "circle",
+    "radius": {
+      "screen": 8,
+    },
+    "zIndex": 0,
+  },
+  {
+    "cx": 20,
+    "cy": -20,
+    "hitId": "path-1:0:end",
+    "hitOnly": true,
+    "hitPadding": 0,
+    "kind": "circle",
+    "radius": {
+      "screen": 8,
+    },
+    "zIndex": 1,
+  },
+  {
+    "cx": 60,
+    "cy": -70,
+    "hitId": "path-1:1:cp1",
+    "hitOnly": true,
+    "hitPadding": 0,
+    "kind": "circle",
+    "radius": {
+      "screen": 8,
+    },
+    "zIndex": 0,
+  },
+  {
+    "cx": 120,
+    "cy": -40,
+    "hitId": "path-1:1:cp2",
+    "hitOnly": true,
+    "hitPadding": 0,
+    "kind": "circle",
+    "radius": {
+      "screen": 8,
+    },
+    "zIndex": 0,
+  },
+  {
+    "cx": 140,
+    "cy": 40,
+    "hitId": "path-1:1:end",
+    "hitOnly": true,
+    "hitPadding": 0,
+    "kind": "circle",
+    "radius": {
+      "screen": 8,
+    },
+    "zIndex": 1,
+  },
+  {
+    "cx": -60,
+    "cy": -90,
+    "hitId": "path-1:0:corner-radius",
+    "hitOnly": true,
+    "hitPadding": 0,
+    "kind": "circle",
+    "radius": {
+      "screen": 8,
+    },
+    "zIndex": 2,
+  },
+  {
+    "cx": 0,
+    "cy": -110,
+    "hitId": "path-1:1:corner-superellipse-k",
+    "hitOnly": true,
+    "hitPadding": 0,
+    "kind": "circle",
+    "radius": {
+      "screen": 8,
+    },
+    "zIndex": 2,
+  },
+  {
+    "cx": -140,
+    "cy": 100,
+    "kind": "circle",
+    "radius": {
+      "screen": 9,
+    },
+    "stroke": {
+      "color": [
+        1,
+        0.3,
+        0.3,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "closed": true,
+    "fill": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        0.12,
+      ],
+    },
+    "kind": "polyline",
+    "points": [
+      {
+        "x": 60,
+        "y": 60,
+      },
+      {
+        "x": 150,
+        "y": 70,
+      },
+      {
+        "x": 160,
+        "y": 120,
+      },
+      {
+        "x": 80,
+        "y": 110,
+      },
+    ],
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+  },
+]
+`;
+
+exports[`UI overlay builders > should build pattern-edit primitives from the VRT fixture 1`] = `
+[
+  {
+    "cx": -10,
+    "cy": 5,
+    "height": 140,
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0.5,
+        0.5,
+        0.5,
+        0.3,
+      ],
+      "width": 1.5,
+    },
+    "width": 180,
+  },
+]
+`;
+
+exports[`UI overlay builders > should build perspective ruler primitives (horizon + finite VP markers) 1`] = `
+[
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.2,
+        0.7,
+        0.9,
+        0.7,
+      ],
+      "width": 1.5,
+    },
+    "x1": -100500,
+    "x2": 99500,
+    "y1": 40,
+    "y2": 40,
+  },
+  {
+    "cx": -500,
+    "cy": 40,
+    "fill": {
+      "color": [
+        0.2,
+        0.7,
+        0.9,
+        1,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 1,
+    },
+    "zIndex": 1,
+  },
+  {
+    "cx": 600,
+    "cy": 40,
+    "fill": {
+      "color": [
+        0.2,
+        0.7,
+        0.9,
+        1,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 1,
+    },
+    "zIndex": 1,
+  },
+]
+`;
+
+exports[`UI overlay builders > should build selection primitives from the VRT fixture 1`] = `
+[
+  {
+    "kind": "bezierPath",
+    "segments": [
+      {
+        "cp1": {
+          "x": -100,
+          "y": 55,
+        },
+        "cp2": {
+          "x": 100,
+          "y": 55,
+        },
+        "end": {
+          "x": 100,
+          "y": 0,
+        },
+        "start": {
+          "x": -100,
+          "y": 0,
+        },
+      },
+      {
+        "cp1": {
+          "x": 100,
+          "y": -55,
+        },
+        "cp2": {
+          "x": -100,
+          "y": -55,
+        },
+        "end": {
+          "x": -100,
+          "y": 0,
+        },
+      },
+    ],
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 2,
+    },
+  },
+  {
+    "cx": 0,
+    "cy": 0,
+    "height": 140,
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+      "dash": undefined,
+      "width": 1.5,
+    },
+    "width": 240,
+  },
+  {
+    "cx": -120,
+    "cy": 70,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": 0,
+    "cy": 70,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": 120,
+    "cy": 70,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": 120,
+    "cy": 0,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": 120,
+    "cy": -70,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": 0,
+    "cy": -70,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": -120,
+    "cy": -70,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "cx": -120,
+    "cy": 0,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 8,
+    },
+    "kind": "rect",
+    "stroke": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "width": {
+      "screen": 8,
+    },
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+    "x1": 0,
+    "x2": 0,
+    "y1": 70,
+    "y2": 94,
+  },
+  {
+    "cx": 0,
+    "cy": 94,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+    "stroke": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+]
+`;
+
+exports[`UI overlay builders > should build snap-line primitives from the VRT fixture 1`] = `
+[
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        1,
+        0.2,
+        0.5,
+        0.9,
+      ],
+      "width": 1.5,
+    },
+    "x1": -80,
+    "x2": -80,
+    "y1": -240,
+    "y2": 240,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        1,
+        0.2,
+        0.5,
+        0.9,
+      ],
+      "width": 1.5,
+    },
+    "x1": -320,
+    "x2": 320,
+    "y1": 40,
+    "y2": 40,
+  },
+]
+`;
+
+exports[`UI overlay builders > should build stroke-width-edit primitives from the VRT fixture 1`] = `
+[
+  {
+    "kind": "bezierPath",
+    "segments": [
+      {
+        "cp1": {
+          "x": -70,
+          "y": 80,
+        },
+        "cp2": {
+          "x": 30,
+          "y": -80,
+        },
+        "end": {
+          "x": 130,
+          "y": 10,
+        },
+        "start": {
+          "x": -140,
+          "y": 0,
+        },
+      },
+    ],
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 2,
+    },
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.2,
+        0.8,
+        0.3,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+    "x1": -140,
+    "x2": -70,
+    "y1": 20,
+    "y2": 45,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.3,
+        0.5,
+        1,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+    "x1": -140,
+    "x2": -70,
+    "y1": -20,
+    "y2": 5,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.2,
+        0.8,
+        0.3,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+    "x1": -70,
+    "x2": 30,
+    "y1": 45,
+    "y2": -35,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.3,
+        0.5,
+        1,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+    "x1": -70,
+    "x2": 30,
+    "y1": 5,
+    "y2": -75,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.2,
+        0.8,
+        0.3,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+    "x1": 30,
+    "x2": 130,
+    "y1": -35,
+    "y2": 30,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.3,
+        0.5,
+        1,
+        0.5,
+      ],
+      "width": 1.5,
+    },
+    "x1": 30,
+    "x2": 130,
+    "y1": -75,
+    "y2": -10,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.6,
+        0.6,
+        0.6,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+    "x1": -140,
+    "x2": -140,
+    "y1": 20,
+    "y2": -20,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.6,
+        0.6,
+        0.6,
+        0.8,
+      ],
+      "width": 1.5,
+    },
+    "x1": 130,
+    "x2": 130,
+    "y1": 30,
+    "y2": -10,
+  },
+  {
+    "cx": -140,
+    "cy": 20,
+    "fill": {
+      "color": [
+        0.2,
+        0.8,
+        0.3,
+        1,
+      ],
+    },
+    "hitId": "-1:side1",
+    "hitPadding": {
+      "screen": 4,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+  },
+  {
+    "cx": -140,
+    "cy": -20,
+    "fill": {
+      "color": [
+        0.3,
+        0.5,
+        1,
+        1,
+      ],
+    },
+    "hitId": "-1:side2",
+    "hitPadding": {
+      "screen": 4,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+  },
+  {
+    "cx": 130,
+    "cy": 30,
+    "fill": {
+      "color": [
+        0.2,
+        0.8,
+        0.3,
+        1,
+      ],
+    },
+    "hitId": "-2:side1",
+    "hitPadding": {
+      "screen": 4,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+  },
+  {
+    "cx": 130,
+    "cy": -10,
+    "fill": {
+      "color": [
+        0.3,
+        0.5,
+        1,
+        1,
+      ],
+    },
+    "hitId": "-2:side2",
+    "hitPadding": {
+      "screen": 4,
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+  },
+  {
+    "cx": -140,
+    "cy": 20,
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -140,
+    "cy": -20,
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 130,
+    "cy": 30,
+    "kind": "circle",
+    "radius": {
+      "screen": 6,
+    },
+    "stroke": {
+      "color": [
+        1,
+        0.6,
+        0,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 130,
+    "cy": 30,
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 130,
+    "cy": -10,
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": -140,
+    "cy": 0,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+  {
+    "cx": 130,
+    "cy": 10,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 4,
+    },
+    "stroke": {
+      "color": [
+        0.2,
+        0.5,
+        1,
+        1,
+      ],
+      "width": 1.5,
+    },
+  },
+]
+`;
+
+exports[`UI overlay builders > should build text-edit primitives from the VRT fixture 1`] = `
+[
+  {
+    "cx": -20,
+    "cy": 2,
+    "fill": {
+      "color": [
+        0.25,
+        0.46,
+        0.93,
+        0.3,
+      ],
+    },
+    "height": 44,
+    "kind": "rect",
+    "width": 120,
+  },
+  {
+    "fill": {
+      "color": [
+        0.25,
+        0.46,
+        0.93,
+        0.3,
+      ],
+      "width": 40,
+    },
+    "kind": "line",
+    "x1": -84.94807918509046,
+    "x2": 2.2540387688675594,
+    "y1": -50.62175156578711,
+    "y2": -28.355395232880042,
+  },
+  {
+    "cx": -80,
+    "cy": 2,
+    "fill": {
+      "color": [
+        0,
+        0.5,
+        1,
+        1,
+      ],
+    },
+    "height": 44,
+    "kind": "rect",
+    "screenOffset": {
+      "x": 1,
+      "y": 0,
+    },
+    "width": {
+      "screen": 2,
+    },
+  },
+  {
+    "cx": 100,
+    "cy": 40,
+    "fill": {
+      "color": [
+        0.92,
+        0.69,
+        0.15,
+        1,
+      ],
+    },
+    "height": {
+      "screen": 2,
+    },
+    "kind": "rect",
+    "screenOffset": {
+      "x": 0,
+      "y": 1,
+    },
+    "width": 80,
+  },
+]
+`;
+
+exports[`UI overlay builders > should build tool-cursor primitives from the VRT fixture 1`] = `
+[
+  {
+    "cx": 0,
+    "cy": -28,
+    "fill": {
+      "color": [
+        0.5,
+        0.5,
+        0.5,
+        0.4,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 27,
+    },
+    "screenOffset": {
+      "x": 0,
+      "y": 31,
+    },
+  },
+  {
+    "cx": 0,
+    "cy": -28,
+    "fill": {
+      "color": [
+        1,
+        1,
+        1,
+        0.9,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 26,
+    },
+    "screenOffset": {
+      "x": 0,
+      "y": 31,
+    },
+  },
+  {
+    "cx": 0,
+    "cy": -28,
+    "fill": {
+      "color": [
+        0.85,
+        0.3,
+        0.2,
+        1,
+      ],
+    },
+    "kind": "circle",
+    "radius": {
+      "screen": 24,
+    },
+    "screenOffset": {
+      "x": 0,
+      "y": 31,
+    },
+  },
+  {
+    "cx": 0,
+    "cy": -60,
+    "kind": "circle",
+    "radius": 32,
+    "stroke": {
+      "color": [
+        0.2,
+        0.2,
+        0.2,
+        0.9,
+      ],
+      "width": 1.5,
+    },
+  },
+]
+`;
+
+exports[`UI overlay builders > should draw a gray outline stroke beneath an outlined gradient line 1`] = `
+[
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        0.59,
+        0.59,
+        0.59,
+        0.5,
+      ],
+      "width": 7,
+    },
+    "x1": 0,
+    "x2": 100,
+    "y1": 0,
+    "y2": 0,
+  },
+  {
+    "kind": "line",
+    "stroke": {
+      "color": [
+        1,
+        1,
+        1,
+        1,
+      ],
+      "width": 4,
+    },
+    "x1": 0,
+    "x2": 100,
+    "y1": 0,
+    "y2": 0,
+  },
+]
+`;

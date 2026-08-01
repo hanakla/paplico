@@ -1,0 +1,243 @@
+# エレメントレンダリング
+
+> [!TIP]
+> **前提ページ:** [パイプライン](/devdocs/renderer/pipeline)
+
+Paplicoのドキュメントは、パス・画像・テキスト・グループといった**要素（Element）**（ドキュメントを構成する描画オブジェクト）の集合で構成される。これらの要素はそれぞれ描画に必要な処理が根本的に異なる。パスは曲線を三角形メッシュに変換するテッセレーション（曲線パスを描画可能なジオメトリに変換する処理）を経る必要があり、画像はGPUへのテクスチャ転送、テキストはフォントからのグリフパス抽出が前提となる。このページでは、`core/renderer/elements/` と `core/renderer/brush/` に実装された各要素の描画パイプラインを、ディスパッチの仕組みから個別の描画戦略まで順に解説する。
+
+> [!NOTE]
+> 本ページは [パイプライン](/devdocs/renderer/pipeline) の内容を前提とする。各要素の描画は `CanvasLayer` から呼び出され、必要に応じて `CompositeRenderer` や `OffscreenPresenter` に委譲される。
+
+### 設計意図
+
+要素レンダリングを種別ごとの**ディスパッチテーブル**（要素の型に応じて処理関数を振り分けるルックアップテーブル）で実装する理由は、各要素型の描画ロジックを独立させ、新しい要素型の追加が既存コードに影響しないためである。`group` 型をテーブルから除外する設計は、グループの子要素がCanvasLayer側でフラット化されて個別にディスパッチされるため、再帰的なグループ描画よりもバッチ効率が高い。
+
+## モジュール概観
+
+| ディレクトリ | モジュール | 役割 |
+|---|---|---|
+| elements/ | `ElementRenderer` | 要素種別ディスパッチ、パスのストローク/フィル描画、ステンシルベースフィル、バッチ頂点バッファ管理 |
+| elements/ | `GradientRenderer` | グラデーションフィル描画（linear / radial / free）。フィンガープリントベースのキャッシュ対応 |
+| elements/ | `TextElementRenderer` | テキスト要素→パスへの変換とキャッシュ。グリフパスを `renderPath` に委譲して描画 |
+| elements/ | `ImageElementRenderer` | 画像要素の `GPUTexture` ロードと blit 描画。祖先グループのトランスフォーム合成 |
+| brush/ | `BrushStrokeRenderer` | スタンプベースのインスタンスド描画。テクスチャ別バッチで draw call を最小化 |
+| brush/ | `BrushTextureManager` | ブラシテクスチャの読み込み・プログラム生成・キャッシュ管理 |
+| brush/ | `StampGenerator` | ベジェ曲線に沿ったスタンプ位置の計算。筆圧・チルト・速度に基づくパラメータ生成 |
+
+以降のセクションでは、まず全要素型の入口となる `ElementRenderer` のディスパッチ構造とパス描画フローを説明し、次にグラデーション・テキスト・画像の各専門レンダラー、最後にブラシストロークの描画パイプラインを解説する。
+
+## ElementRenderer
+
+`ElementRenderer` はエレメント種別に応じた描画処理のエントリポイントである。内部に `elementDispatchTable` を持ち、`dispatchElementDirect` メソッドで要素の `type` フィールドに基づいて処理を振り分ける。このテーブルは要素型の文字列をキーとし、対応する描画関数を値とする単純なマッピングであり、新しい要素型を追加する際も対応エントリを足す形で拡張できる。
+
+### ディスパッチテーブル
+
+| 要素型 | ハンドラー |
+|---|---|
+| `path` | `ElementRenderer.renderPath()` |
+| `image` | `ImageElementRenderer.renderImage()` |
+| `compound-path` | `ElementRenderer.renderCompoundPath()` |
+| `text` | `TextElementRenderer.renderText()` |
+
+`group` 型はディスパッチテーブルに登録されていない。グループの子要素は `CanvasLayer` 側でフラット化されて個別にディスパッチされる。
+
+### パス描画フロー
+
+パスはPaplicoで最も頻繁に使われる要素型であり、描画フローも最も複雑である。`renderPath` は以下の順序で処理を行う:
+
+```mermaid
+flowchart TD
+    A[renderPath] --> B[applyCornerRadius]
+    B --> C[applyPreFilters]
+    C --> D{filters 走査}
+    D -->|fill| E[renderPathFill]
+    D -->|stroke geometric| F[renderGeometricStroke]
+    D -->|stroke brush| G["BrushStrokeRenderer.addToBatch"]
+    E --> E1{fill type}
+    E1 -->|solid| E2[ステンシルfan+coverで塗りつぶし]
+    E1 -->|gradient| E3["GradientRenderer.renderGradientFillWithPipeline"]
+```
+
+1. **角丸処理**: `applyCornerRadius` でフィレットを適用
+2. **プリフィルター**: `applyPreFilters` でジグザグ等のジオメトリ変形を適用
+3. **アピアランス走査**: 要素の `filters` 配列（**アピアランス**、すなわちフィル（塗り）やストローク（線）など見た目を定義する設定の列）を順に処理し、`fill` と `stroke` の各アピアランスを描画する。1つの要素に複数のフィルやストロークを重ねることで、影付き文字や多重輪郭などの表現が可能になる
+4. **フィル描画**: **ステンシルベースフィル**（ステンシルバッファを使って任意形状を正確に塗りつぶす手法）の fan/cover アルゴリズムでパスを塗りつぶす。グラデーションの場合は `GradientRenderer` に委譲
+5. **ストローク描画**: ブラシ種別に応じて分岐
+   - **ジオメトリックブラシ** (`isGeometricBrush`): `renderGeometricStroke` でテッセレーション済みストロークを描画。ダッシュパターン・可変幅に対応
+   - **テクスチャブラシ**: `BrushStrokeRenderer.addToBatch` でスタンプデータをバッチに蓄積
+
+### バッチ頂点バッファ
+
+フィル描画の頂点データはフレーム全体で1つのCPUバッファに蓄積され、`flushFillBatch()` で1回の **writeBuffer**（CPU側のデータをGPUバッファにコピーするAPI呼び出し）でGPUにアップロードされる。各要素の **draw call**（GPUに描画命令を1回発行すること。回数が多いほどオーバーヘッドが増加する）はこの共有GPUバッファのオフセットを参照する。初回フレームではフォールバックとしてプール管理されたper-element バッファを使用し、2フレーム目以降はピーク使用量に基づいてバッチバッファを確保する。
+
+フィル頂点データを1つのバッチバッファに集約する理由は、`device.queue.writeBuffer()` の呼び出し回数を削減するためである。要素ごとに個別のwriteBufferを発行すると、数百要素で数百回のCPU→GPUコピーが発生する。バッチ化により1回のwriteBufferで全要素のデータを転送でき、CPU-GPUバス帯域の効率が大幅に向上する。
+
+初回フレームでper-elementバッファにフォールバックする理由は、バッチバッファのサイズ決定にピーク使用量の観測が必要なためである。ドキュメントの複雑さは事前に予測できないため、初回フレームで実際の使用量を計測し、2フレーム目以降は `2 × peakBytes` の余裕を持たせたバッファを確保する。この「計測→事前確保」パターンにより、通常フレームではアロケーションが完全に不要になる。
+
+## GradientRenderer
+
+パスのフィルには単色だけでなくグラデーション（色が連続的に変化する塗り）を指定できる。`GradientRenderer` はこのグラデーションフィルの描画を担当するモジュールである。`renderGradientFillWithPipeline` が唯一の公開メソッドで、ステンシル cover パスのパイプラインを受け取ってグラデーション付きフィルを描画する。
+
+### 対応グラデーション型
+
+| 型 | `gradientType` 値 | キャッシュ |
+|---|---|---|
+| `linear` | 1 | 対応（フィンガープリントベース） |
+| `radial` | 2 | 対応（フィンガープリントベース） |
+| `free` (メッシュ) | 3 | 非対応（毎フレームテクスチャ再生成） |
+
+### キャッシュ戦略
+
+`linear` / `radial` グラデーションでは `hashGradientDraw` で**フィンガープリント**（データの同一性を高速に判定するためのハッシュ値）を算出し、`GradientCache` に専用のGPUバッファ（uniform / stops / vertex）と `GPUBindGroup` をキャッシュする。キャッシュヒット時はバッファ書き込みを完全にスキップし、キャッシュ済みリソースでそのまま draw call を発行する。
+
+`free` グラデーション（メッシュ）は `GradientTextureGenerator.generateMeshTexture` でCPU側にテクスチャを毎フレーム生成するため、キャッシュ非対応。バッファプール方式で一時リソースを確保する。
+
+`linear`/`radial` グラデーションをフィンガープリントベースでキャッシュする理由は、グラデーション描画に必要なGPUリソース（uniformバッファ、ストップバッファ、頂点バッファ、バインドグループ）の生成コストが高いためである。同一グラデーションが繰り返し描画される場合（選択移動中、ビューポート操作中等）、バッファ書き込みを完全にスキップできる。`free`（メッシュ）グラデーションがキャッシュ非対応なのは、フリーグラデーションの仕様がまだ未確定であり、キャッシュ戦略の設計が確定していないためである。
+
+### Uniform構造
+
+グラデーション uniform は以下のフィールドを持つ:
+
+- `gradientType`, `stopCount`
+- `linearStart`, `linearEnd` (linear用)
+- `radialCenter`, `radialRadiusX`, `radialRadiusY`, `radialRotation` (radial用)
+- `boundsMin`, `boundsMax` (要素バウンディングボックス)
+
+カラーストップは最大16個まで対応し、**storage buffer**（GPUが読み書きできる大容量バッファ）に `offset`, `r`, `g`, `b`, `a` の5フィールドで格納される。
+
+## TextElementRenderer
+
+テキストの描画は、他の要素型と比較して特殊な前処理を要する。文字列をそのまま描画する仕組みはWebGPUに存在しないため、フォントファイルから各グリフ（文字）のアウトラインをベクターパスとして抽出し、それをパス描画パイプラインに流す必要がある。`TextElementRenderer` はこの変換とキャッシュを担当し、抽出済みのグリフパスを `ElementRenderer.renderPath` に委譲して描画する。
+
+### レンダリングフロー
+
+```mermaid
+flowchart TD
+    A[renderText] --> B{pathCache にヒット?}
+    B -->|Yes| C[キャッシュ済みパスで描画]
+    B -->|No| D[requestTextPathCache: 非同期パス抽出]
+    D --> E[次フレームで再描画]
+    C --> F[グリフパスを要素位置でオフセット]
+    F --> G[fill/stroke アピアランスを解決]
+    G --> H[各グリフパスに対して renderPath]
+```
+
+1. **キャッシュキー**: `TextRenderer.computeTextCacheKey` でテキスト内容・スタイル・レイアウトからキーを生成（要素のワールド位置は含まない）
+2. **非同期パス抽出**: キャッシュミス時は `textElementToPaths` を非同期で実行し、完了後に再レンダリングを要求。フォントファイルのパースとグリフ抽出は数十ミリ秒を要しうるため、レンダリングフレームをブロックしないよう非同期で処理される
+3. **アピアランス解決**: 要素の `filters` 配列から `fill` / `stroke` アピアランスを抽出し、`defaultStyle` とマージ。ストローク幅はデフォルトで `fontSize` の3%
+4. **座標オフセット**: グリフパスのローカル座標に `element.x`, `element.y` を加算してワールド座標に変換
+5. **バウンズ同期**: `syncTextBoundsIfNeeded` でレンダリング結果のバウンディングボックスをキャッシュに反映（ヒットテスト用）
+
+## ImageElementRenderer
+
+画像要素の描画は、パスやテキストのようなジオメトリ変換を必要としない。画像データは既にラスタ（ピクセル）形式であるため、GPUテクスチャとしてロードした後は、適切な位置とサイズに転送（blit）するだけで描画が完了する。`ImageElementRenderer` はこのテクスチャロードと blit 描画を担当する。
+
+### レンダリングフロー
+
+1. **ファイル検索**: `EmbeddedFile` 配列から `image.fileUid` に一致するファイルを検索
+2. **テクスチャ取得**: `AssetState.imageTextureCache` からキャッシュ済みテクスチャを同期的に取得。未ロードの場合は非同期ロードを開始し、次フレームで描画
+3. **祖先トランスフォーム合成**: `parentGroupMap` を辿って祖先グループのトランスフォームを合成。`composeTransforms` で累積行列を計算
+4. **blit描画**: 算出したワールド空間バウンズとテクスチャを `blitTextureToCanvas` に渡して描画
+
+### テクスチャロード
+
+`loadImageTexture` は `EmbeddedFile` のバイナリデータから以下の手順でテクスチャを生成する:
+
+1. `Blob` → `createImageBitmap` でデコード
+2. `copyExternalImageToTexture` でGPUにアップロード（premultiplied alpha）
+3. Node.js環境フォールバック: `pngjs` でデコード → 手動premultiply → `writeTexture`
+4. `imageTextureCache` に格納し、再レンダリングを要求
+
+## ブラシレンダリング
+
+ここまでの要素レンダラーはジオメトリやテクスチャの直接描画を扱ってきたが、ブラシストロークの描画は根本的に異なるアプローチを採用する。ペンや鉛筆のような自然なストロークを再現するために、**スタンプベースレンダリング**（ブラシの形状画像（スタンプ）をパスに沿って等間隔に並べる描画方式）が用いられる。
+
+### BrushStrokeRenderer
+
+**インスタンスドレンダリング**（1つのジオメトリテンプレートをGPUが複数回複製して描画する手法）でブラシストロークを描画する。同一テクスチャのパスを**バッチ描画**（複数の描画命令をまとめて少数のGPUコマンドに集約する最適化）にまとめ、テクスチャ種別数分（通常3程度）の draw call に削減する。
+
+ブラシストロークにスタンプベースのインスタンスドレンダリングを採用する理由は、ストロークの三角形テッセレーションと比較して、頂点処理の負荷が大幅に低いためである。5000パスをテッセレーションすると約50万三角形の頂点処理が必要になるが、インスタンシングでは1つのunit quadを5000インスタンスで複製するだけでよい。筆圧・回転・チルト・不透明度などのパラメータはインスタンスデータ（storage buffer）として渡され、頂点シェーダーが各スタンプを独立に配置・変形する。
+
+テクスチャ種別でバッチする理由は、draw call数を最小化するためである。ブラシテクスチャの切り替えにはバインドグループの再バインドが必要であり、パスごとにdraw callを発行すると5000回になる。同一テクスチャのパスをまとめることで、テクスチャ種別数（通常3〜4種）分のdraw callに削減できる。
+
+#### バッチ描画フロー
+
+```mermaid
+flowchart TD
+    A["addToBatch (パスごと)"] --> B[StampCache から取得/生成]
+    B --> C[ビューポートカリング]
+    C --> D[バッチバッファに蓄積]
+    D --> E["flushBatch (フレーム終端)"]
+    E --> F{テクスチャ別に分割}
+    F --> G["draw call (テクスチャごと)"]
+```
+
+1. **`addToBatch`**: パスごとに呼び出され、`StampCache` からスタンプデータを取得（キャッシュミス時は `generateStampsDirect` で生成）。ビューポート外のスタンプを `cullStampBufferToViewport` で除外した後、バッチバッファに蓄積
+2. **`flushBatch`**: フレーム終端で呼び出され、蓄積されたスタンプデータをGPUバッファにアップロードし、テクスチャ種別ごとに1回の `draw` コールでインスタンスド描画
+
+#### GPUバッファ構造
+
+| BindGroup | Binding | データ |
+|---|---|---|
+| 0 | 0 | ビューポートuniform |
+| 0 | 1 | スタンプ storage buffer（全パス結合） |
+| 0 | 2 | ブラシテクスチャ |
+| 0 | 3 | サンプラー |
+| 1 | 0 | PathMeta storage buffer（パスごとのカラー/gradient情報） |
+| 1 | 1 | ColorStops storage buffer（全パスのgradient stops結合） |
+
+#### スタンプデータ構造
+
+1スタンプは12 floats（48 bytes）で構成される:
+
+| Offset | フィールド | 説明 |
+|---|---|---|
+| 0 | `x` | ワールド座標X |
+| 1 | `y` | ワールド座標Y |
+| 2 | `sizeX` | 横方向サイズ（筆圧・速度・プーリング反映済み） |
+| 3 | `opacity` | 不透明度（`flow` `*` `opacity` `*` 筆圧係数） |
+| 4 | `rotation` | 回転角（tangent / random / none） |
+| 5 | `pathT` | パス上の正規化位置（0-1、グラデーション用） |
+| 6 | `pathIndex` | パスインデックス（u32をf32にビット再解釈） |
+| 7 | `sizeY` | 縦方向サイズ（チルトによる扁平反映） |
+| 8 | `side1Width` | ストローク幅ポイントのside1 |
+| 9 | `side2Width` | ストローク幅ポイントのside2 |
+| 10 | `normalX` | パス法線X |
+| 11 | `normalY` | パス法線Y |
+
+### BrushTextureManager
+
+ブラシテクスチャの読み込みとキャッシュを管理する。以下の4種のビルトインブラシを初期化時にロードする:
+
+| ブラシID | 生成方法 | 特徴 |
+|---|---|---|
+| `pencil` | Base64 PNG → `createImageBitmap` → `copyExternalImageToTexture` | アセット画像からロード |
+| `airbrush` | Base64 PNG → 同上 | アセット画像からロード |
+| `hardCircle` | プログラム生成（128x128） | ハードエッジの円形。半径内は完全不透明 |
+| `softCircle` | プログラム生成（128x128） | ガウシアン風フォールオフ（sigma=0.4）の円形グラデーション |
+
+テクスチャはRGB輝度ベースでアルファを表現する（A=255固定、シェーダーが `(R+G+B)/3` で不透明度を算出）。
+
+`loadFromEmbeddedFile` でユーザー定義ブラシテクスチャを追加読み込みでき、`normalizeBrushTextureMaskInPlace` でテクスチャマスクの正規化が適用される。
+
+### StampGenerator
+
+`generateStampsDirect` はベジェ曲線セグメント配列を入力とし、等間隔スタンプの `StampBuffer`（`Float32Array` + 有効数）を出力する。スタンプの配置は単純な等間隔配置にとどまらず、筆圧・チルト・速度といった入力デバイスの情報をリアルタイムに反映して、自然な筆致を再現する。
+
+#### 生成アルゴリズム
+
+1. **セグメント長計算**: 各セグメントを10サンプルで近似し、累積パス長を計算
+2. **スタンプ配置**: `spacing = size * spacingRatio` の間隔でパスに沿ってスタンプを配置。ベジェ評価をインライン展開して中間オブジェクト生成を回避
+3. **筆圧反映**: `sizeByPressure`, `opacityByPressure` パラメータで線形補間
+4. **回転モード**: `tangent`（接線方向）、`random`（シード付き疑似乱数 mulberry32）、`none`
+5. **チルト**: `rotationByTilt` でペン傾斜角を回転に変換、`aspectRatioByTilt` で楕円化
+6. **速度依存**: `sizeBySpeed` で高速時にサイズ縮小、`pooling` で低速時にインク溜まり効果（サイズ・不透明度増加、スペーシング縮小）
+7. **可変幅ストローク**: `strokeWidths` が指定された場合、`interpolateStrokeWidths` で `pathT` に応じた `side1`, `side2` を補間
+
+`cullStampBufferToViewport` はビューポート外のスタンプを除去するカリング関数で、描画パフォーマンスの最適化に使用される。出力は共有バッファを参照するため、呼び出し元は即座にデータをコピーする必要がある。
+
+> [!CAUTION]
+> ベジエ評価のインライン展開と共有出力バッファを採用する理由は、スタンプ生成がペイント中の毎フレームで実行されるホットパスであるためである。ヘルパー関数呼び出しごとに中間Pointオブジェクトが生成されると**GC圧力**（JavaScriptのガベージコレクションによるフレームレートへの悪影響）が増大し、フレームレートが不安定になる。ローカル変数への直接書き込みとFloat32Arrayの再利用により、アロケーションをゼロに抑えている。このホットパスにヘルパー関数や中間オブジェクトを導入する変更は、パフォーマンスへの影響を計測した上で行うこと。
+
+> [!TIP]
+> **次に読むページ:** [パス描画フロー](/devdocs/renderer/path-rendering)

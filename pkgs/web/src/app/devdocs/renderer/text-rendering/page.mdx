@@ -1,0 +1,357 @@
+# テキストレンダリング
+
+> [!TIP]
+> **前提ページ:** [パス描画フロー](/devdocs/renderer/path-rendering)、[エレメントレンダリング](/devdocs/renderer/elements)
+
+Paplicoにおけるテキストレンダリングは、`TextElement` のデータをマルチステージパイプラインを通じてWebGPU描画可能なグリフパスに変換する処理である。WebGPUには文字列を直接描画する仕組みが存在しないため、フォントファイルから各グリフのアウトラインをベクターパスとして抽出し、既存のパス描画パイプラインに流す方式を採用している。
+
+> [!NOTE]
+> テキストはテクスチャアトラスではなくパスとして描画される。各グリフが `renderPath` に委譲されるため、パスと同じアピアランス（フィル・ストローク・フィルター）を適用できる。
+
+## モジュール概観
+
+| モジュール | 役割 |
+|---|---|
+| `TextLayoutEngine` | テキスト内容とスタイルからグリフの配置情報を生成 |
+| `TextRenderer` | レイアウト結果をPath形式に変換、キャッシュ管理 |
+| `TextElementRenderer` | WebGPUパイプラインへの統合、非同期パスキャッシュ |
+| `FontManager` | フォントの読み込み・テキストシェイピング・グリフパス抽出 |
+| `GoogleFontsLoader` | Google Fonts APIからのフォント取得・登録 |
+| `LocalFontsLoader` | Local Font Access APIによるOSフォント利用 |
+
+## パイプライン全体像
+
+<svg viewBox="0 0 780 520" xmlns="http://www.w3.org/2000/svg" style={{fontSize: "11px", fontFamily: "system-ui, sans-serif"}}>
+  {/* Background */}
+  <rect x="0" y="0" width="780" height="520" rx="8" fill="#1e1e2e"/>
+
+  {/* Stage 1: TextElement */}
+  <rect x="290" y="15" width="200" height="40" rx="6" fill="#181825" stroke="#89b4fa" strokeWidth="1.5"/>
+  <text x="390" y="40" textAnchor="middle" fill="#89b4fa" fontWeight="bold" fontSize="12">TextElement</text>
+
+  {/* Arrow down */}
+  <line x1="390" y1="55" x2="390" y2="75" stroke="#a6adc8" strokeWidth="1.5"/>
+  <polygon points="385,75 390,85 395,75" fill="#a6adc8"/>
+
+  {/* Stage 2: TextLayoutEngine */}
+  <rect x="240" y="85" width="300" height="50" rx="6" fill="#181825" stroke="#a6e3a1" strokeWidth="1.5"/>
+  <text x="390" y="105" textAnchor="middle" fill="#a6e3a1" fontWeight="bold" fontSize="12">TextLayoutEngine.layout()</text>
+  <text x="390" y="122" textAnchor="middle" fill="#a6adc8" fontSize="9">horizontal / vertical / path-on-text</text>
+
+  {/* Arrow down */}
+  <line x1="390" y1="135" x2="390" y2="155" stroke="#a6adc8" strokeWidth="1.5"/>
+  <polygon points="385,155 390,165 395,155" fill="#a6adc8"/>
+
+  {/* Stage 3: LayoutResult */}
+  <rect x="260" y="165" width="260" height="40" rx="6" fill="#181825" stroke="#f9e2af" strokeWidth="1.5"/>
+  <text x="390" y="190" textAnchor="middle" fill="#f9e2af" fontWeight="bold" fontSize="11">LayoutResult &#123; chars[], lines[], bounds &#125;</text>
+
+  {/* Arrow down */}
+  <line x1="390" y1="205" x2="390" y2="225" stroke="#a6adc8" strokeWidth="1.5"/>
+  <polygon points="385,225 390,235 395,225" fill="#a6adc8"/>
+
+  {/* Stage 4: TextRenderer */}
+  <rect x="240" y="235" width="300" height="40" rx="6" fill="#181825" stroke="#fab387" strokeWidth="1.5"/>
+  <text x="390" y="260" textAnchor="middle" fill="#fab387" fontWeight="bold" fontSize="12">TextRenderer.textElementToPaths()</text>
+
+  {/* Arrow down */}
+  <line x1="390" y1="275" x2="390" y2="295" stroke="#a6adc8" strokeWidth="1.5"/>
+  <polygon points="385,295 390,305 395,295" fill="#a6adc8"/>
+
+  {/* Stage 5: Path[] */}
+  <rect x="290" y="305" width="200" height="40" rx="6" fill="#181825" stroke="#cba6f7" strokeWidth="1.5"/>
+  <text x="390" y="330" textAnchor="middle" fill="#cba6f7" fontWeight="bold" fontSize="12">Path[] (one per glyph)</text>
+
+  {/* Arrow down */}
+  <line x1="390" y1="345" x2="390" y2="365" stroke="#a6adc8" strokeWidth="1.5"/>
+  <polygon points="385,365 390,375 395,365" fill="#a6adc8"/>
+
+  {/* Stage 6: TextElementRenderer */}
+  <rect x="200" y="375" width="380" height="50" rx="6" fill="#181825" stroke="#f38ba8" strokeWidth="1.5"/>
+  <text x="390" y="395" textAnchor="middle" fill="#f38ba8" fontWeight="bold" fontSize="12">TextElementRenderer.renderText()</text>
+  <text x="390" y="412" textAnchor="middle" fill="#a6adc8" fontSize="9">pathCache check → renderPath() for each glyph</text>
+
+  {/* Cache hit/miss branches */}
+  <line x1="300" y1="425" x2="300" y2="455" stroke="#a6e3a1" strokeWidth="1"/>
+  <polygon points="295,455 300,465 305,455" fill="#a6e3a1"/>
+  <rect x="220" y="465" width="160" height="35" rx="4" fill="#181825" stroke="#a6e3a1" strokeWidth="1"/>
+  <text x="300" y="483" textAnchor="middle" fill="#a6e3a1" fontSize="10">cache hit</text>
+  <text x="300" y="495" textAnchor="middle" fill="#a6adc8" fontSize="9">renderPath() per glyph</text>
+
+  <line x1="480" y1="425" x2="480" y2="455" stroke="#f9e2af" strokeWidth="1"/>
+  <polygon points="475,455 480,465 485,455" fill="#f9e2af"/>
+  <rect x="400" y="465" width="160" height="35" rx="4" fill="#181825" stroke="#f9e2af" strokeWidth="1"/>
+  <text x="480" y="483" textAnchor="middle" fill="#f9e2af" fontSize="10">cache miss</text>
+  <text x="480" y="495" textAnchor="middle" fill="#a6adc8" fontSize="9">async → re-render next frame</text>
+</svg>
+
+## TextLayoutEngine
+
+`TextLayoutEngine` はテキスト内容とスタイル情報を受け取り、各グリフの配置情報（位置・サイズ・回転）を算出するモジュールである。レイアウト処理はCPU上で完結し、GPU描画には関与しない。
+
+### レイアウトモード
+
+3種類のレイアウトモードに対応する:
+
+| モード | `layout` 値 | 説明 |
+|---|---|---|
+| 横書き | `horizontal-tb` | 左→右に文字を配置、行は上→下に進行 |
+| 縦書き（右→左） | `vertical-rl` | 上→下に文字を配置、列は右→左に進行 |
+| 縦書き（左→右） | `vertical-lr` | 上→下に文字を配置、列は左→右に進行 |
+| パスに沿ったテキスト | `axisBinding` (mode: "onPath") 指定時 | ベジエ曲線パスに沿って文字を配置 |
+
+### 文字配置フロー
+
+1. **スタイルマージ** — `defaultStyle` と各 `run.style` をマージし、フォントサイズ・ウェイト・色などを決定
+2. **フォント読み込み** — `FontManager` 経由でフォントを取得。読み込み失敗時は **Noto Sans JP**（アプリケーション埋め込みのフォールバックフォント）にフォールバック
+3. **テキストシェイピング** — `FontManager` がfontkit（HarfBuzzベースのテキストシェイピングライブラリ）を使用してテキストをシェイピングし、`ShapedGlyph[]` を返す。シェイピングはグリフID・アドバンス幅・グリフパスを含む
+4. **CharOverride適用** — 文字単位のオーバーライド（`kerningAdjust`、`sizeMultiplier`、`baselineShift`、`rotation`）を適用
+5. **グリフ配置** — レイアウトモードに応じた位置計算とアライメント（`left`、`center`、`right`）を適用
+6. **バウンズ計算** — インクバウンズ（実際のグリフの描画領域）とフォントメトリクス（ascender/descender）からバウンディングボックスを算出
+
+### 縦書きサポート
+
+縦書きレイアウトでは、OpenTypeの `vert` **GSUB（Glyph Substitution）フィーチャー**（縦書き用のグリフに置き換えるOpenTypeフォント機能）を使用して縦書き用グリフへの置換を行う。
+
+文字は以下の3つに分類される:
+
+| 分類 | 処理 | 対象例 |
+|---|---|---|
+| rotate | 90度回転して配置 | 括弧 `()[]`、ダッシュ `—` |
+| offset | 位置オフセットを適用 | 句読点 `、。` |
+| normal | そのまま縦方向に配置 | 漢字、かな、アルファベット |
+
+列は右から左へ進行する（`vertical-rl` の場合）。
+
+### パスに沿ったテキスト
+
+`axisBinding` (mode: "onPath") が指定されている場合、文字は `pathObjectId` の参照先パスの `CubicBezierSegment` に沿って配置される。
+
+1. **パス長の計算** — 20ステップの近似でベジエ曲線のアーク長を算出
+2. **文字中心の配置** — 各文字のアドバンス幅の中心がパス上に位置するよう、累積距離で配置座標を決定
+3. **接線回転** — 配置座標でのパスの接線角度を算出し、文字にその回転を適用
+
+## グリフパス抽出
+
+フォントファイルからグリフのアウトラインを抽出し、Paplicoのパス形式（`CubicBezierSegment[]`）に変換する処理である。
+
+### FontKitのパスコマンド
+
+FontKitは以下のパスコマンドでグリフアウトラインを表現する:
+
+| コマンド | 説明 |
+|---|---|
+| `moveTo(x, y)` | 新しいサブパスの開始 |
+| `lineTo(x, y)` | 直線セグメント |
+| `quadraticCurveTo(cpx, cpy, x, y)` | 2次ベジエ曲線 |
+| `bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y)` | 3次ベジエ曲線 |
+| `closePath()` | サブパスを閉じる |
+
+### 2次→3次ベジエ変換
+
+FontKitの `quadraticCurveTo` は2次ベジエ曲線を返すが、Paplicoのパスデータは3次ベジエ（`CubicBezierSegment`）で統一されている。以下の変換公式で2次を3次に昇格する:
+
+```
+cp1 = start + 2/3 * (qcp - start)
+cp2 = end   + 2/3 * (qcp - end)
+```
+
+ここで `qcp` は2次ベジエの制御点、`start` / `end` はセグメントの始点・終点である。
+
+### Em正規化ストレージ
+
+グリフパスは**Em正規化**（`unitsPerEm` で除算してフォントサイズ非依存にした座標系）で1度だけキャッシュされる。描画時に `fontSize` を乗じて実際のサイズにスケーリングする。これにより、同一グリフを異なるフォントサイズで使う場合もキャッシュを共有できる。
+
+### CubicBezierSegmentへの変換
+
+直線セグメントは退化した3次ベジエとして表現する:
+
+```
+// Line as degenerate cubic
+cp1 = (end - start) / 3       // relative offset from start
+cp2 = -(end - start) / 3      // relative offset from end
+```
+
+`cp1` / `cp2` は始点・終点からの**相対オフセット**で格納される。これはPaplicoの `CubicBezierSegment` の共通規約である。
+
+## フォント管理
+
+`FontManager` はフォントの読み込み・テキストシェイピング・グリフパス抽出を一元管理するモジュールである。
+
+### フォント読み込みルート
+
+| ルート | モジュール | 説明 |
+|---|---|---|
+| Google Fonts | `GoogleFontsLoader` | Google Fonts APIからWOFF2フォントを取得し、FontManagerに登録 |
+| ローカルフォント | `LocalFontsLoader` | Local Font Access API経由でOSにインストール済みのフォントを利用 |
+| 埋め込みフォールバック | — | Noto Sans JPがアプリケーションに埋め込まれており、他のルートが失敗した場合のフォールバックとして使用 |
+
+### テキストシェイピング
+
+`FontManager` はfontkitの `layout()` メソッドを呼び出してテキストシェイピングを実行する。fontkit内部ではHarfBuzzベースのシェイピングエンジンが動作し、グリフID・アドバンス幅を算出する。その結果からグリフパスを抽出し、`ShapedGlyph[]` として返す。
+
+### グリフパスキャッシュ
+
+グリフパスは `${postScriptName}:cp${codePoint}` をキーとしてキャッシュされる。同一フォント・同一コードポイントのグリフパスは1度だけ抽出され、以降はキャッシュから返される。パスはEm正規化されているため、フォントサイズに依存しない。
+
+## テキストの座標系
+
+| 座標系 | 原点 | Y軸 | 単位 | 用途 |
+|---|---|---|---|---|
+| Em Space | (0, 0) | 上が正 | 1em = 1.0 | グリフパス（キャッシュ済み） |
+| Local | (0, 0) | 上が正 | px | TextLayoutEngine出力 |
+| World | キャンバス中心 | 上が正 | px | element.x/y オフセット適用後 |
+
+**座標変換:**
+- Em → Px: `value × fontSize`
+- Local → World: `+ element.x/y`
+
+## キャッシュ戦略
+
+テキストレンダリングでは4段階のキャッシュ階層を設けて、フォントパース・レイアウト計算・パス変換の再実行を回避する。
+
+<svg viewBox="0 0 780 380" xmlns="http://www.w3.org/2000/svg" style={{fontSize: "11px", fontFamily: "system-ui, sans-serif"}}>
+  {/* Background */}
+  <rect x="0" y="0" width="780" height="380" rx="8" fill="#1e1e2e"/>
+
+  {/* Title */}
+  <text x="390" y="25" textAnchor="middle" fill="#cdd6f4" fontWeight="bold" fontSize="13">4-Level Cache Hierarchy</text>
+
+  {/* Level 1: Glyph Path Cache */}
+  <rect x="30" y="45" width="720" height="65" rx="6" fill="#181825" stroke="#89b4fa" strokeWidth="1.5"/>
+  <text x="50" y="65" fill="#89b4fa" fontWeight="bold" fontSize="12">L1: Glyph Path Cache</text>
+  <text x="50" y="80" fill="#a6adc8" fontSize="10">Owner: FontManager</text>
+  <text x="50" y="95" fill="#cdd6f4" fontSize="10">Em-normalized paths, keyed by $&#123;postScriptName&#125;:cp$&#123;codePoint&#125;</text>
+  <text x="620" y="80" textAnchor="end" fill="#a6e3a1" fontSize="10">Lifetime: app</text>
+  <rect x="630" y="55" width="110" height="45" rx="4" fill="#a6e3a1" opacity="0.1" stroke="#a6e3a1" strokeWidth="0.5"/>
+  <text x="685" y="77" textAnchor="middle" fill="#a6e3a1" fontSize="10" fontWeight="bold">invalidation:</text>
+  <text x="685" y="92" textAnchor="middle" fill="#a6e3a1" fontSize="9">none (immutable)</text>
+
+  {/* Arrow */}
+  <line x1="390" y1="110" x2="390" y2="125" stroke="#585b70" strokeWidth="1" strokeDasharray="4,3"/>
+  <polygon points="385,125 390,132 395,125" fill="#585b70"/>
+
+  {/* Level 2: Layout Cache */}
+  <rect x="30" y="135" width="720" height="65" rx="6" fill="#181825" stroke="#f9e2af" strokeWidth="1.5"/>
+  <text x="50" y="155" fill="#f9e2af" fontWeight="bold" fontSize="12">L2: Layout Cache</text>
+  <text x="50" y="170" fill="#a6adc8" fontSize="10">Owner: TextRenderer</text>
+  <text x="50" y="185" fill="#cdd6f4" fontSize="10">LayoutResult keyed by content + style hash</text>
+  <rect x="630" y="145" width="110" height="45" rx="4" fill="#f9e2af" opacity="0.1" stroke="#f9e2af" strokeWidth="0.5"/>
+  <text x="685" y="167" textAnchor="middle" fill="#f9e2af" fontSize="10" fontWeight="bold">invalidation:</text>
+  <text x="685" y="182" textAnchor="middle" fill="#f9e2af" fontSize="9">text edit / style change</text>
+
+  {/* Arrow */}
+  <line x1="390" y1="200" x2="390" y2="215" stroke="#585b70" strokeWidth="1" strokeDasharray="4,3"/>
+  <polygon points="385,215 390,222 395,215" fill="#585b70"/>
+
+  {/* Level 3: Path Cache */}
+  <rect x="30" y="225" width="720" height="65" rx="6" fill="#181825" stroke="#fab387" strokeWidth="1.5"/>
+  <text x="50" y="245" fill="#fab387" fontWeight="bold" fontSize="12">L3: Path Cache</text>
+  <text x="50" y="260" fill="#a6adc8" fontSize="10">Owner: TextElementRenderer</text>
+  <text x="50" y="275" fill="#cdd6f4" fontSize="10">Path[] per element, used by renderText() for cache-hit rendering</text>
+  <rect x="630" y="235" width="110" height="45" rx="4" fill="#fab387" opacity="0.1" stroke="#fab387" strokeWidth="0.5"/>
+  <text x="685" y="257" textAnchor="middle" fill="#fab387" fontSize="10" fontWeight="bold">invalidation:</text>
+  <text x="685" y="272" textAnchor="middle" fill="#fab387" fontSize="9">text edit / style change</text>
+
+  {/* Arrow */}
+  <line x1="390" y1="290" x2="390" y2="305" stroke="#585b70" strokeWidth="1" strokeDasharray="4,3"/>
+  <polygon points="385,305 390,312 395,305" fill="#585b70"/>
+
+  {/* Level 4: Bounds Cache */}
+  <rect x="30" y="315" width="720" height="50" rx="6" fill="#181825" stroke="#94e2d5" strokeWidth="1.5"/>
+  <text x="50" y="335" fill="#94e2d5" fontWeight="bold" fontSize="12">L4: Bounds Cache</text>
+  <text x="50" y="350" fill="#cdd6f4" fontSize="10">World-space bounds for spatial indexing (hit test, viewport culling)</text>
+  <rect x="630" y="322" width="110" height="36" rx="4" fill="#94e2d5" opacity="0.1" stroke="#94e2d5" strokeWidth="0.5"/>
+  <text x="685" y="340" textAnchor="middle" fill="#94e2d5" fontSize="10" fontWeight="bold">invalidation:</text>
+  <text x="685" y="353" textAnchor="middle" fill="#94e2d5" fontSize="9">text edit / move</text>
+</svg>
+
+| レベル | キャッシュ | 所有者 | キー | ライフタイム |
+|---|---|---|---|---|
+| L1 | Glyph Path Cache | `FontManager` | `${postScriptName}:cp${codePoint}` | アプリケーション全体（不変） |
+| L2 | Layout Cache | `TextRenderer` | content + style hash | テキスト編集時に無効化 |
+| L3 | Path Cache | `TextElementRenderer` | element ID | テキスト編集時に無効化 |
+| L4 | Bounds Cache | — | element ID | テキスト編集・移動時に無効化 |
+
+L1のGlyph Path Cacheは不変（immutable）である。同一フォント・同一コードポイントのグリフ形状は変化しないため、アプリケーションの起動中は一度キャッシュすれば無効化の必要がない。
+
+## 非同期レンダリングパターン
+
+テキストレンダリングでは、レイアウト計算とグリフパス抽出が数十ミリ秒を要しうる（特にCJKテキストでは文字数が多く、フォントパースの負荷が高い）。レンダリングフレームをブロックしないよう、非同期ファーストのレンダリングパターンを採用している。
+
+1. `renderText()` が呼び出され、`pathCache` をチェック
+2. **キャッシュヒット**: キャッシュ済みパスで即座に `renderPath()` を呼び出し、各グリフを描画
+3. **キャッシュミス**: `requestTextPathCache()` を非同期で発火し、フレームの描画を待たずにreturn
+4. **非同期解決**: パス抽出が完了すると `pathCache` に格納し、再レンダリングを要求
+5. **次フレーム**: キャッシュヒットとなり、全グリフパスが描画される
+
+`pendingPathCacheKeys` セットが重複リクエストを防止する。同一要素に対する `requestTextPathCache()` が複数フレームにわたって重複発火されることを防ぎ、不要な計算を回避する。
+
+## データ構造
+
+テキストレンダリングに関連する主要な型定義:
+
+### TextElement
+
+```typescript
+interface TextElement extends ArtObject {
+  type: "text"
+  content: TextContent
+  defaultStyle: TextStyle
+  layout: "horizontal-tb" | "vertical-rl" | "vertical-lr"
+  axisBinding?: TextAxisBinding // pathObjectId で軸パスを参照
+}
+```
+
+### TextContent
+
+```typescript
+interface TextContent {
+  paragraphs: TextParagraph[]
+  charOverrides?: Map<number, CharOverride>
+}
+```
+
+### TextParagraph / TextRun
+
+```typescript
+interface TextParagraph {
+  runs: TextRun[]
+  alignment: "left" | "center" | "right"
+  lineHeight: number
+}
+
+interface TextRun {
+  text: string
+  style?: Partial<TextStyle>
+  charOverrides?: Map<number, CharOverride>
+}
+```
+
+### CharOverride
+
+```typescript
+interface CharOverride {
+  kerningAdjust?: number      // inter-character spacing adjustment (px)
+  sizeMultiplier?: number     // relative size multiplier (1.0 = default)
+  baselineShift?: number      // vertical offset from baseline (px)
+  rotation?: number           // per-character rotation (radians)
+}
+```
+
+### LayoutedChar
+
+```typescript
+interface LayoutedChar {
+  char: string
+  position: { x: number; y: number }
+  rotation: number
+  fontSize: number
+  glyphPath: CubicBezierSegment[]
+  advanceWidth: number
+}
+```
+
+---
+
+前提ページ → [パス描画フロー](/devdocs/renderer/path-rendering)、次に読むページ → [ブラシ描画](/devdocs/renderer/brush)

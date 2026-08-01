@@ -1,0 +1,167 @@
+import Playground from "./playground";
+
+# 第5章: ベジェ曲線を任意の場所で 2 つに切る (t-splitting)
+
+## この章でできるようになること
+
+- ベジェ曲線を **好きな位置で 2 つに切る** ことができるようになる
+- パラメータ **t (0 〜 1)** が「曲線のどこ？」を表すことを理解できる
+- **線形補間 (lerp)** が中点取りの一般版だ、と気づける
+
+## まずは絵で見てみよう
+
+第4章では「真ん中で 2 つに切る」をやった。今度は **好きな場所で切る** よ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="t = 0.4 でベジェを 2 つに分割する例">
+	<path d="M 60 160 C 130 30, 250 30, 380 160" stroke="#888" strokeWidth="3" fill="none" opacity="0.3" strokeDasharray="6 4" />
+	<path d="M 60 160 C 88 108, 116 80, 156 73" stroke="#3a86ff" strokeWidth="3" fill="none" />
+	<path d="M 156 73 C 220 60, 296 70, 380 160" stroke="#e0457b" strokeWidth="3" fill="none" />
+	<circle cx="156" cy="73" r="6" fill="#2a9d8f" stroke="currentColor" strokeWidth="1.5" />
+	<text x="166" y="68" fontSize="11" fill="#2a9d8f">t = 0.4 の点</text>
+	<circle cx="60" cy="160" r="4" fill="#3a86ff" />
+	<text x="50" y="180" fontSize="11" fill="currentColor">p0</text>
+	<circle cx="380" cy="160" r="4" fill="#e0457b" />
+	<text x="370" y="180" fontSize="11" fill="currentColor">p3</text>
+	<text x="100" y="115" fontSize="11" fill="#3a86ff">左の曲線</text>
+	<text x="290" y="135" fontSize="11" fill="#e0457b">右の曲線</text>
+</svg>
+
+t は 0 から 1 までの数。**t = 0** が曲線の始まり、**t = 1** が終わり、**t = 0.5** が真ん中。t = 0.4 ならちょっと早めの位置で切れるよ。
+
+## どこで使われている？
+
+- **消しゴム**: 線の途中で止まったとき、その曲線を 2 つに切って、要らない部分だけ消す
+- **パス編集**: 曲線の途中にアンカーポイント (新しい節) を追加するとき
+- **アニメーション**: 線が伸びていくアニメ — t を 0 → 1 と動かして「t までの部分」を表示
+
+Paplico の `splitBezierAtT` も、消しゴムやパス編集ツールから呼ばれているよ。
+
+## どうやって動くのか — ステップで見ていこう
+
+実は、第4章の「中点取り」を **線形補間 (lerp)** に置き換えるだけ。すごく似てるよ。
+
+### ステップ 1: 線形補間 (lerp) って何？
+
+2 つの点 a と b を結んだ線の上で、**a から t の割合だけ進んだ点** を返す関数だよ。
+
+```
+lerp(a, b, t) = a + (b - a) * t
+             = (1 - t) * a + t * b
+```
+
+<svg viewBox="0 0 460 140" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="線形補間の例">
+	<line x1="40" y1="70" x2="420" y2="70" stroke="currentColor" strokeWidth="2" />
+	<circle cx="40" cy="70" r="5" fill="#3a86ff" />
+	<text x="34" y="98" fontSize="12" fill="#3a86ff">a (t=0)</text>
+	<circle cx="420" cy="70" r="5" fill="#e0457b" />
+	<text x="404" y="98" fontSize="12" fill="#e0457b">b (t=1)</text>
+	<circle cx="230" cy="70" r="5" fill="#888" />
+	<text x="216" y="98" fontSize="12" fill="currentColor">t=0.5</text>
+	<circle cx="116" cy="70" r="5" fill="#2a9d8f" />
+	<text x="100" y="50" fontSize="12" fill="#2a9d8f">t=0.2</text>
+	<circle cx="344" cy="70" r="5" fill="#f4a261" />
+	<text x="328" y="50" fontSize="12" fill="#f4a261">t=0.8</text>
+</svg>
+
+t = 0.5 のとき、`(a + b) / 2` (中点) と同じになる。第4章の中点取りは、lerp の **特別な場合** だったんだ！
+
+### ステップ 2: De Casteljau を一般化
+
+第4章でやった中点取りを、ぜんぶ lerp に置き換えるよ。
+
+```
+m01    = lerp(p0, p1, t)
+m12    = lerp(p1, p2, t)
+m23    = lerp(p2, p3, t)
+m012   = lerp(m01, m12, t)
+m123   = lerp(m12, m23, t)
+m0123  = lerp(m012, m123, t)        ← 分割点
+```
+
+<svg viewBox="0 0 460 240" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="任意の t での De Casteljau 分割">
+	<path d="M 60 200 C 130 40, 290 40, 360 200" stroke="#3a86ff" strokeWidth="2.5" fill="none" />
+	<g>
+		<circle cx="60" cy="200" r="5" fill="#3a86ff" />
+		<text x="50" y="218" fontSize="11" fill="currentColor">p0</text>
+		<circle cx="130" cy="40" r="5" fill="#3a86ff" />
+		<text x="118" y="32" fontSize="11" fill="currentColor">p1</text>
+		<circle cx="290" cy="40" r="5" fill="#3a86ff" />
+		<text x="282" y="32" fontSize="11" fill="currentColor">p2</text>
+		<circle cx="360" cy="200" r="5" fill="#3a86ff" />
+		<text x="364" y="218" fontSize="11" fill="currentColor">p3</text>
+	</g>
+	<g stroke="#888" strokeWidth="1" strokeDasharray="3 3" fill="none">
+		<line x1="60" y1="200" x2="130" y2="40" />
+		<line x1="130" y1="40" x2="290" y2="40" />
+		<line x1="290" y1="40" x2="360" y2="200" />
+	</g>
+	<g fill="#e0457b">
+		<circle cx="88" cy="136" r="4" />
+		<text x="55" y="135" fontSize="10" fill="#e0457b">m01</text>
+		<circle cx="194" cy="40" r="4" />
+		<text x="184" y="30" fontSize="10" fill="#e0457b">m12</text>
+		<circle cx="318" cy="136" r="4" />
+		<text x="324" y="135" fontSize="10" fill="#e0457b">m23</text>
+	</g>
+	<g fill="#f4a261">
+		<circle cx="130" cy="98" r="4" />
+		<circle cx="244" cy="78" r="4" />
+	</g>
+	<circle cx="176" cy="90" r="6" fill="#2a9d8f" stroke="currentColor" strokeWidth="1.5" />
+	<text x="186" y="86" fontSize="11" fill="#2a9d8f">m0123 (t=0.4)</text>
+</svg>
+
+t = 0.4 のとき、各 lerp の進み具合は「a から 40% のところ」になる。t = 0.5 のときの真ん中の絵 (第4章) と比べると、**全体に左寄り** な絵になるよ。
+
+### ステップ 3: 左右の制御点が一気に手に入る
+
+3 段の lerp が終わると、副産物として **左右の曲線の制御点ぜんぶ** が揃ってる。
+
+```
+左の曲線:  [p0,    m01,   m012,  m0123]
+右の曲線:  [m0123, m123,  m23,   p3]
+```
+
+`m0123` が左の終点 = 右の始点になることに注目。
+
+## 数学のところ（読み飛ばしOK）
+
+<details>
+<summary>De Casteljau と Bernstein 多項式</summary>
+
+ベジェ曲線の式は Bernstein 多項式で書けるよ:
+
+```
+B(t) = (1-t)³ p0 + 3(1-t)² t p1 + 3(1-t) t² p2 + t³ p3
+```
+
+De Casteljau のアルゴリズムは、これを「lerp の繰り返し」で求めている。具体的には、各段階で次数を 1 ずつ下げていく:
+
+```
+3次:  p0    p1    p2    p3
+2次:  m01   m12   m23
+1次:  m012  m123
+0次:  m0123  ← 曲線上の点
+```
+
+数学的には、これは線形演算なので、結果は同じ。実装としては **Bernstein を直接計算するより数値的に安定** なので、グラフィックスでは De Casteljau がよく使われるよ。
+
+</details>
+
+## 実装してみる
+
+`splitCubicAtT` を書いてみよう。元の青い曲線が、**緑の左半分 + 橙の右半分** に分かれて表示されるよ。**正しく書けたら、2 本がぴったり元の曲線に重なる** はず。
+
+<Playground />
+
+## やってみよう
+
+- t を `0.2`, `0.5`, `0.8` と変えてみよう。分割位置は曲線のどこに動く？
+- t = 0 / t = 1 のとき、何が起きる？ (片方の曲線が「点」みたいになるね)
+- 第4章のフラット化 (`flattenCubic`) を、`splitCubicAtT(c, 0.5)` を使って書き直すこともできるよ。やってみよう
+
+## もっと知りたい人へ
+
+- Paplico の本格実装: [`pkgs/web/src/core/utils/pathOps.ts`](https://github.com/) の `splitBezierAtT`
+- 前の章 → [第4章: ベジェ曲線のフラット化](/devdocs/tutorials/04-bezier-flatten)
+- 次の章 → [第6章: ベジェ曲線上で「一番近い点」を探す](/devdocs/tutorials/06-closest-point)

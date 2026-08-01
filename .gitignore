@@ -1,0 +1,41 @@
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Whether you use PnP or not, the node_modules folder is often used to store
+# build artifacts that should be gitignored
+node_modules
+
+# Swap the comments on the following lines if you wish to use zero-installs
+# In that case, don't forget to run `yarn config set enableGlobalCache false`!
+# Documentation here: https://yarnpkg.com/features/caching#zero-installs
+
+#!.yarn/cache
+.pnp.*
+
+# SSL certificates (self-signed for local dev)
+.certs
+
+.next/
+.claude/memos/
+pap.lock
+.env
+
+.claude/.worktree
+.claude/.plans
+.claude/skills/*
+!.claude/skills/paplico-core-dev/
+examples/
+.serena
+.DS_Store
+
+# Tauri
+pkgs/desktop/src-tauri/target/
+pkgs/desktop/src-tauri/gen/
+pkgs/web/out/
+pkgs/web/.tauri-build-backup/
+paplico-*.papf
+Trace-*.json

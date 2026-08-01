@@ -1,0 +1,21 @@
+{
+	"name": "@paplico/avif-hdr",
+	"version": "0.1.0",
+	"license": "BSD-2-Clause",
+	"type": "module",
+	"exports": {
+		".": {
+			"import": "./src/index.ts",
+			"types": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"test": "vitest run",
+		"test:watch": "vitest"
+	},
+	"devDependencies": {
+		"@types/node": "^24.0.0",
+		"typescript": "^6.0.3",
+		"vitest": "^4.0.17"
+	}
+}
