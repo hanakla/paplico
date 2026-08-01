@@ -190,12 +190,15 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	// Adjust distortion amount based on turbulence
 	let turbulenceBoost = 1.0 + (uniforms.turbulence * 0.5);
 	let distortionAmount = (uniforms.intensity / 1000.0) * turbulenceBoost;
-	let distortedCoord = texCoord + distortionVec * distortionAmount;
+	// The distortion is sized in element-rect UV units; convert to bake UV so
+	// it covers the same world distance at any zoom (identity when unclamped)
+	let uvScale = uniforms.elementSize * uniforms.dpiScale / uniforms.resolution;
+	let distortedCoord = texCoord + distortionVec * distortionAmount * uvScale;
 
 	// Apply chromatic aberration
 	let chromaticShift = uniforms.colorShift * 0.01 * (1.0 + uniforms.turbulence * 0.3);
-	let redOffset = distortedCoord + distortionVec * chromaticShift;
-	let blueOffset = distortedCoord - distortionVec * chromaticShift;
+	let redOffset = distortedCoord + distortionVec * chromaticShift * uvScale;
+	let blueOffset = distortedCoord - distortionVec * chromaticShift * uvScale;
 
 	// Sample the texture with the distorted coordinates
 	let rs = sampleBounded(redOffset);

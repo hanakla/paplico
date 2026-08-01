@@ -195,7 +195,11 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 			let noiseValue = (noiseX * 2.0 - 1.0);
 			// Use distance to modulate the effect (stronger at edges)
 			let strength = noiseValue * distance * length(vec2f(scaledDisplacementX, scaledDisplacementY));
-			displacement = direction * strength / min(dims.x, dims.y);
+			// Normalize against the element rect in bake px, not the clamped
+			// bake dims, so the world-space amplitude does not swing while
+			// panning (identity for an unclamped bake).
+			let elementPx = uniforms.elementSize * uniforms.dpiScale;
+			displacement = direction * strength * elementPx / (dims * min(elementPx.x, elementPx.y));
 		}
 	} else if (uniforms.displacementMode == 2) { // twist
 		let offset = stableUV - vec2f(0.5);
