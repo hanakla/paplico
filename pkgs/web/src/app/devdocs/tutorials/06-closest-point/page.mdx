@@ -1,0 +1,143 @@
+import Playground from "./playground";
+
+# 第6章: ベジェ曲線の上で「一番近い点」を探す
+
+## この章でできるようになること
+
+- 画面の好きな点 P から見て、**曲線の上で一番近い点** を探せるようになる
+- まず **粗くサンプリング**、次に **その近くで細かく探す** の二段構えが分かる
+- 「三分探索」で、**1 段ごとに範囲を 2/3 に狭めて** 解を絞り込めることを実感できる
+
+## まずは絵で見てみよう
+
+外にある点 P から、曲線にスーッと垂線を下ろしたみたいに、**一番近いところはどこ？** を答えてくれる関数を作るよ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="点Pから曲線への最近点">
+	<path d="M 60 160 C 120 30, 280 30, 400 160" stroke="#3a86ff" strokeWidth="2.5" fill="none" />
+	<circle cx="230" cy="160" r="6" fill="#e0457b" />
+	<text x="220" y="182" fontSize="12" fill="#e0457b">P (外の点)</text>
+	<circle cx="230" cy="62" r="5" fill="#2a9d8f" />
+	<text x="240" y="58" fontSize="11" fill="#2a9d8f">最近点</text>
+	<line x1="230" y1="160" x2="230" y2="62" stroke="#888" strokeWidth="1.5" strokeDasharray="4 3" />
+	<text x="238" y="115" fontSize="11" fill="currentColor" fillOpacity="0.7">最短の距離</text>
+</svg>
+
+## どこで使われている？
+
+- **パス編集ツール**: 曲線の上をマウスでクリックしたとき、その曲線上の **どこをクリックしたのか (パラメータ t)** が知りたい
+- **消しゴム**: ペン先と曲線の距離を測って、近すぎたら消す
+- **ヒットテスト**: 「点 P が曲線から離れすぎていたら、まず無視」という早期判定
+
+Paplico の `bounds.ts` の中で、点とベジェの距離計算がここで作る関数とほぼ同じ流れで動いているよ。
+
+## どうやって動くのか — ステップで見ていこう
+
+### ステップ 1: ベジェ曲線上の点を計算する
+
+ベジェ曲線は、パラメータ **t (0〜1)** を入れると、その位置の **(x, y)** を返してくれる関数だよ。
+
+```
+B(t) = (1-t)³ p0 + 3(1-t)² t p1 + 3(1-t) t² p2 + t³ p3
+```
+
+t = 0 なら p0、t = 1 なら p3、t = 0.5 なら真ん中、という感じ。最近点を探すというのは、**「どの t のときに距離が一番小さくなるか」** を探すこと、と言い換えられる。
+
+### ステップ 2: まず粗くサンプリング
+
+t を `0, 0.02, 0.04, ..., 1.0` のように **50 等分** して、それぞれの点と P の距離を全部計算してみる。一番小さかった t が、**だいたいの最近点** だよ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="粗サンプリングの図">
+	<path d="M 60 160 C 120 30, 280 30, 400 160" stroke="#3a86ff" strokeWidth="2.5" fill="none" />
+	<g fill="#888">
+		<circle cx="60" cy="160" r="2.5" />
+		<circle cx="100" cy="100" r="2.5" />
+		<circle cx="150" cy="60" r="2.5" />
+		<circle cx="200" cy="45" r="2.5" />
+		<circle cx="250" cy="45" r="2.5" />
+		<circle cx="300" cy="60" r="2.5" />
+		<circle cx="350" cy="100" r="2.5" />
+		<circle cx="400" cy="160" r="2.5" />
+	</g>
+	<circle cx="230" cy="160" r="5" fill="#e0457b" />
+	<text x="220" y="180" fontSize="11" fill="#e0457b">P</text>
+	<circle cx="225" cy="45" r="6" fill="#f4a261" stroke="currentColor" strokeWidth="1.5" />
+	<text x="232" y="40" fontSize="11" fill="#f4a261">一番近い候補</text>
+</svg>
+
+これだけだと精度がだいたい 1/50 = 2% くらい。もっと正確にしたいときは…
+
+### ステップ 3: 候補の近くで「三分探索」
+
+候補の t の左右にちょっとだけ広めに範囲を取って、**その中でもう一段細かく探す** よ。これを **三分探索 (ternary search)** って呼ぶ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="三分探索のステップ">
+	<rect x="40" y="80" width="380" height="40" fill="currentColor" fillOpacity="0.18" stroke="currentColor" strokeWidth="1" />
+	<text x="50" y="68" fontSize="11" fill="currentColor">lo</text>
+	<text x="408" y="68" fontSize="11" fill="currentColor">hi</text>
+	<line x1="167" y1="80" x2="167" y2="120" stroke="#e0457b" strokeWidth="2" />
+	<text x="155" y="142" fontSize="11" fill="#e0457b">m1</text>
+	<line x1="293" y1="80" x2="293" y2="120" stroke="#e0457b" strokeWidth="2" />
+	<text x="282" y="142" fontSize="11" fill="#e0457b">m2</text>
+	<text x="100" y="105" fontSize="10" textAnchor="middle" fill="currentColor">1/3</text>
+	<text x="230" y="105" fontSize="10" textAnchor="middle" fill="currentColor">1/3</text>
+	<text x="356" y="105" fontSize="10" textAnchor="middle" fill="currentColor">1/3</text>
+	<text x="230" y="170" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">m1 と m2 の距離を比べて、遠い方の端を狭める</text>
+</svg>
+
+範囲を 3 等分して、両方の境目 m1 と m2 で **どっちが P に近いか** 比べる。近かった方を残して、遠かった方の端を捨てるんだ。これを 20 回くらい繰り返すと、範囲はものすごく狭まって (`(2/3)^20 ≈ 0.0003` 倍)、ほぼ完璧な t が見つかるよ。
+
+```
+lo = bestT - 範囲
+hi = bestT + 範囲
+20 回繰り返す:
+  m1 = lo + (hi - lo) / 3
+  m2 = hi - (hi - lo) / 3
+  もし dist(P, B(m1)) < dist(P, B(m2)) なら:
+    hi = m2  (右側を捨てる)
+  そうでなければ:
+    lo = m1  (左側を捨てる)
+最近点 = B((lo + hi) / 2)
+```
+
+### ステップ 4: 二乗距離で十分
+
+距離を比べるときは `sqrt` を取らなくていいよ。**二乗距離** で大小関係は変わらないから、計算が速くなる。
+
+```
+distSq(a, b) = (a.x - b.x)² + (a.y - b.y)²
+```
+
+## 数学のところ（読み飛ばしOK）
+
+<details>
+<summary>ニュートン法でもっと精密に</summary>
+
+「点と曲線の距離」を最小化する `t` は、`f(t) = |P - B(t)|²` の極小値だよ。`f'(t) = 0` を満たす `t` をニュートン法で探すと、二次収束で爆速になる。
+
+```
+g(t)  = (P - B(t)) · B'(t) = 0   ← 解きたい式
+g'(t) = -|B'(t)|² + (P - B(t)) · B''(t)
+t_new = t - g(t) / g'(t)
+```
+
+ただし、初期値が悪いと収束しないことがあるから、**まず三分探索でだいたいの場所** を絞って、**最後にニュートン法で精密化** する、という二段構えがよく使われるよ。
+
+</details>
+
+## 実装してみる
+
+`closestPointOnCubic` を書いてみよう。Canvas 上の **5 つのテスト点 (赤)** から、それぞれの最近点 (青) に向かって **線** が伸びるよ。**正しく書けたら、線が曲線にスーッと「最短の方向」で当たる** はず。
+
+<Playground />
+
+## やってみよう
+
+- サンプリング数を `10` にしたら、どれくらい精度が落ちる？
+- 三分探索の繰り返し回数を `5` にしたら？ `30` にしたら？
+- 曲線上の点を入力したら、どうなるはず？ (距離 0 になる t が見つかればOK)
+
+## もっと知りたい人へ
+
+- Paplico の本格実装: [`pkgs/web/src/core/utils/bounds.ts`](https://github.com/) — もっと最適化された距離計算
+- 前の章 → [第5章: ベジェ曲線を真ん中で 2 つに切る](/devdocs/tutorials/05-bezier-split)
+- 次の章 → [第7章: ぐにゃぐにゃの線をなめらかにする (スムージング)](/devdocs/tutorials/07-smoothing)

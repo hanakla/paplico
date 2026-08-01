@@ -1,0 +1,17 @@
+pre-commit:
+  commands:
+    lint-fix:
+      glob: "*.{js,ts,tsx,json,css}"
+      run: yarn lint:fix --diagnostic-level=error {staged_files}
+      stage_fixed: true
+pre-push:
+  commands:
+    type-check:
+      root: pkgs/web
+      run: yarn typecheck
+    lint-unused:
+      glob: "*.{ts,tsx}"
+      run: yarn lint:unused
+    licenses-fresh:
+      glob: "**/package.json"
+      run: yarn licenses:check

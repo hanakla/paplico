@@ -1,0 +1,105 @@
+name: Release Desktop
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  tag-name:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        run: echo "tag=$(TZ=Asia/Tokyo date +%Y-%m-%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+  build-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - run: corepack enable
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: "yarn"
+
+      - run: yarn install --immutable
+
+      - run: bash pkgs/web/scripts/build-tauri.sh
+        env:
+          TAURI_BUILD: "1"
+          NEXT_PUBLIC_API_BASE_URL: https://paplico.hanak.la
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: web-out
+          path: pkgs/web/out
+          retention-days: 1
+
+  release:
+    needs: [tag-name, build-web]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - platform: ubuntu-latest
+            args: ""
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: web-out
+          path: pkgs/web/out
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - run: corepack enable && corepack install
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: pkgs/desktop/src-tauri -> target
+
+      - run: yarn install --immutable
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: pkgs/desktop
+          tagName: ${{ needs.tag-name.outputs.tag }}
+          releaseName: ${{ needs.tag-name.outputs.tag }}
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args && format('{0} ', matrix.args) || '' }}--config '{"build":{"beforeBuildCommand":""}}'

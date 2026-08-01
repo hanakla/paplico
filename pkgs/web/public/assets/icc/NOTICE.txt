@@ -1,0 +1,35 @@
+ICC Profile Attributions
+========================
+
+sRGB-v4.icc
+DisplayP3Compat-v4.icc
+  Source:  Compact ICC Profiles (https://github.com/saucecontrol/Compact-ICC-Profiles)
+  Author:  Clinton Ingram (saucecontrol)
+  License: CC0-1.0 (public domain). All profiles in that collection are
+           released to the public domain under the Creative Commons CC0
+           license.
+
+CMYK profiles (NOT bundled)
+  Paplico ships no CMYK ICC profile. Soft proofing and CMYK TIFF export work
+  only once the user loads their own profile (Japan Color 2001 Coated, US Web
+  Coated (SWOP), and so on) through the in-app ICC profile import.
+
+  Adobe's profiles cannot be shipped here even under Adobe's Color Profile
+  Bundling Agreement, which does otherwise permit bundling with your own
+  application software. Its Section 3 requires distribution to happen "by
+  first obtaining the agreement of the end user", and neither a public
+  repository nor a public web deployment has a step where that agreement is
+  obtained -- anyone can fetch the raw .icc from a clone or from a static
+  asset URL. Note this is a different obstacle from the one an earlier
+  revision of this file described: the prohibition it quoted comes from the
+  Adobe end user agreement, which covers profiles installed by Creative Cloud
+  rather than profiles obtained through the Bundling download.
+
+  What is permitted regardless: Section 2 (b) of both agreements allows a
+  profile to travel "as embedded within digital image files", so an exported
+  image may carry the profile the user supplied.
+
+  If a CMYK profile ever needs to ship by default, prefer one whose license
+  asks nothing of the distributor. The Idealliance CGATS21 / GRACoL2013
+  profiles state they may be "used, embedded, exchanged, and shared without
+  restriction", which suits a public repository and a public web build.

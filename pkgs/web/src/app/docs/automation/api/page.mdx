@@ -1,0 +1,138 @@
+# スクリプト API
+
+スクリプトから見えるものは、全部 `paplico` の下にぶら下がっています。入口は 4 つだけです。
+
+```swift
+paplico.activeDocument   // 開いているドキュメント
+paplico.editor           // 選択
+paplico.prompt           // 入力ダイアログ
+paplico.getFileSystem()  // ファイル（使えないときは nil）
+```
+
+型の名前は補完に出るとおりに書けば大丈夫です。`Number` は整数も小数もまとめて扱う数値型で、`Bool?` のように `?` が付いているものは、値が入っていないことがあります。
+
+## ドキュメント
+
+`activeDocument` から、レイヤーやアートボード、ひとつひとつのオブジェクトへ降りていけます。
+
+| メンバー | 型 | 中身 |
+|---|---|---|
+| `uid` / `title` | `String` | ドキュメントを見分けるための ID と、画面に出る名前。読むだけ |
+| `viewport` | `Viewport` | いま画面のどこを、どれくらいの倍率で見ているか。読むだけ |
+| `hdr` | `HdrSettings?` | HDR のオンオフと明るさ |
+| `colorProfile` | `ColorProfileSettings?` | 色の扱いかたの設定 |
+| `rasterizationDpi` | `Number?` | 画像として書き出すときの細かさ |
+| `artObjects()` | `[ArtObject]` | 全オブジェクト |
+| `findArtObject(uid:)` | `ArtObject?` | uid でひとつ引く |
+| `layers()` / `findLayer(uid:)` | `[Layer]` / `Layer?` | レイヤー |
+| `artboards()` / `findArtboard(uid:)` | `[Artboard]` / `Artboard?` | アートボード |
+
+`find` で始まる関数は「見つからないかもしれない」ので、`if let` で受けてください。
+
+```swift
+if let obj = paplico.activeDocument.findArtObject(uid: "abc") {
+	obj.opacity = 0.5
+}
+```
+
+## オブジェクト
+
+パスも画像もテキストもグループも、全部 `ArtObject` という 1 つの型で表しています。どれなのかは `type` を見ればわかります。種類ごとにしかないプロパティは `?` 付きになっていて、たとえばテキストじゃないオブジェクトで `content` を読むと `nil` が返ってきます。
+
+書き換えられるのは、この 7 つです。
+
+- `name`：名前
+- `visible` / `locked`：表示とロック
+- `opacity`：0 から 1
+- `blendMode` / `compositionMode`：重ね方
+- `transform`：`x`、`y`、`rotation`、`scaleX`、`scaleY`。それぞれ個別に変えられます
+
+あとは読むだけになっています。`uid` と `type` はそのオブジェクトが何者かを決めているので変えられません。`bounds` は形と変形から計算した答えなので、書き込んでも意味がありません。パスの `segments` やテキストの `content` は、変えるとなると構造ごと入れ替える話になるので、いまは読むだけです。
+
+種類ごとに読めるものは、こんな感じです。
+
+| `type` | 読めるもの |
+|---|---|
+| `path` | `segments`、`strokeWidths`、`eraseMasks`、`pathStart` / `pathEnd`、`isGuide` |
+| `group` | `childIds`、`collapsed`、`clipPathId` |
+| `text` | `content`、`defaultStyle`、`layout`、`axisBinding`、`flow`、`x` / `y` |
+| `image` | `fileUid`、`x` / `y` / `width` / `height` |
+| `compoundPath` | `sources` |
+| `blend` | `objectIds`、`renderOrder`、`spacing`、`spineSourceId`、`tiltToSpine` |
+| `mesh` | `vertices`、`faces`、`width` / `height` |
+| `reference3d` | `sceneId`、`camera`、`displayMode`、`lineart`、`lightDir` |
+
+テキストの `content` は段落の集まりで、段落は装飾の切れ目ごとに `runs` へ分かれています。この `run.text` は書き換えられるので、フォントや色はそのままに、文字だけ差し替えるということができます。組み込みの「Replace Text in Selection」がやっているのが、まさにこれです。
+
+## 選択
+
+```swift
+paplico.editor.selection              // [ArtObject]
+paplico.editor.select(uids: ["a"])    // 選び直す
+paplico.editor.clearSelection()       // 解除
+```
+
+`selection` は選択に加わった順に並んでいます。番号を振っていくスクリプトは、この順番をそのまま使えます。
+
+## ダイアログ
+
+どれも `await` を付けて呼びます。キャンセルされると `nil` が返ってくるので、`if let` か `guard let` で受けてください。
+
+| 関数 | 返るもの | 使いどころ |
+|---|---|---|
+| `alert(message:)` | `Void` | 見せて、閉じるまで待つ |
+| `confirm(message:)` | `Bool` | はい / いいえ |
+| `string(message:, defaultValue:)` | `String?` | 文字を入れてもらう |
+| `number(message:, defaultValue:)` | `Number?` | 数字を入れてもらう |
+| `boolean(message:, defaultValue:)` | `Bool?` | どちらか選んでもらう |
+| `choice(message:, choices:, defaultValue:)` | `String?` | 選択肢からひとつ |
+
+`defaultValue` は省いてかまいません。省くと、空文字・0・真がそれぞれ初期値になります。
+
+ここでひとつ気をつけたいのが、キャンセルと空入力は別物だということです。入力欄を空のまま OK を押すと、返ってくるのは `nil` ではなく空文字列です。空を弾きたいなら、自分で見てください。
+
+```swift
+if let name = await paplico.prompt.string(message: "名前"), !name.isEmpty {
+	print(name)
+}
+```
+
+## ファイル
+
+`getFileSystem()` は、使えない環境だと `nil` を返します。使えるときは、ドキュメントの隣のフォルダ、ユーザーが選んだファイル、保存先の 3 つに手が届きます。
+
+```swift
+if let fs = paplico.getFileSystem() {
+	if let dir = fs.documentDirectory {
+		let exports = await dir.createDirectory(path: "exports")
+		if let log = await exports.file(path: "log.txt", create: true) {
+			await log.writeText(content: "done")
+		}
+	}
+}
+```
+
+フォルダにできるのは、下をたどることと、そこのファイルを取り出すことだけです。
+
+| メンバー | 返るもの | 中身 |
+|---|---|---|
+| `file(path:, create:)` | `AutomationFile?` | そこにあるファイル。無ければ `nil`。`create: true` を付けたときだけ作る |
+| `createDirectory(path:)` | `DocumentDirectory` | `mkdir -p` と同じ。既にあってもエラーにならず、掘った先のフォルダが返る |
+
+読み書きはファイル側にあります。
+
+| メンバー | 返るもの | 中身 |
+|---|---|---|
+| `name` | `String` | ファイル名 |
+| `readText()` / `readBytes()` | `String` / `[Number]` | 読む |
+| `writeText(content:)` / `writeBytes(content:)` | `Void` | 書く。なければ作られる |
+
+どこまで触れて、どこで止まるのかは [ファイルアクセス](/docs/automation/filesystem) にまとめました。
+
+## はじめから使えるもの
+
+数学の関数（`abs`、`min`、`max`、`floor`、`round`、`sqrt`、`random` など）と、配列・文字列・辞書のメソッドは、何も書かなくても使えます。
+
+配列には `count`、`isEmpty`、`first`、`last`、`append(element:)`、`insert(element:, at:)`、`remove(at:)`、`contains(element:)`、`map(transform:)`、`filter(isIncluded:)`、`reduce(initial:, combine:)`、`sorted(by:)`。文字列には `count`、`isEmpty`、`uppercased()`、`lowercased()`、`contains(needle:)`、`hasPrefix(prefix:)`、`hasSuffix(suffix:)`、`split(separator:)` があります。
+
+`print` で書いたものはパネル下のログに出ます。途中経過を見ながら流したいときに便利です。

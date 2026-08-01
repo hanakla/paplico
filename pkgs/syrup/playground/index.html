@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Syrup Playground</title>
+		<!-- Resolve theme before first paint to avoid a flash of the wrong palette -->
+		<script>
+			document.documentElement.dataset.theme = ["light", "dark"].includes(localStorage.getItem("syrup-playground-theme")) ? localStorage.getItem("syrup-playground-theme") : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+		</script>
+		<link rel="stylesheet" href="./style.css" />
+	</head>
+	<body>
+		<div id="app">
+			<header id="toolbar">
+				<span id="brand">Syrup Playground</span>
+				<label id="sample-label">
+					Sample
+					<select id="sample-select"></select>
+				</label>
+				<button id="run-button" type="button">Run</button>
+				<button id="test-button" type="button">Run Tests</button>
+				<label id="mode-label">
+					Mode
+					<select id="run-mode">
+						<option value="in-process" selected>In-process</option>
+						<option value="worker">Worker</option>
+					</select>
+				</label>
+				<label id="theme-label">
+					Theme
+					<select id="theme-select">
+						<option value="system" selected>System</option>
+						<option value="light">Light</option>
+						<option value="dark">Dark</option>
+					</select>
+				</label>
+			</header>
+			<main id="panes">
+				<section id="editors">
+					<div id="main-editor-pane">
+						<div class="pane-title">main.syrup</div>
+						<div id="main-editor"></div>
+					</div>
+					<details id="module-pane" open>
+						<summary class="pane-title">module: brushes</summary>
+						<div id="module-editor"></div>
+					</details>
+				</section>
+				<section id="compiled-pane">
+					<div class="pane-title">Compiled JS</div>
+					<div id="compiled-js"></div>
+				</section>
+				<section id="output-pane">
+					<div class="pane-title output-title">
+						<span>Output</span>
+						<button id="clear-button" type="button">Clear</button>
+					</div>
+					<pre id="output"></pre>
+				</section>
+			</main>
+		</div>
+		<script type="module" src="./main.ts"></script>
+	</body>
+</html>

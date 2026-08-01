@@ -1,0 +1,112 @@
+import Playground from "./playground";
+
+# 第11章: ステンシルを使った塗りつぶし (Stencil-then-Cover)
+
+## この章でできるようになること
+
+- 凹凸のある多角形を、**三角形分割なしで** 塗りつぶせる発想がつかめる
+- **重心への三角形ファン** をどう作るかが分かる
+- **ステンシルバッファ** が「ぬり絵の透明シール」みたいに使える、と感覚で理解できる
+
+## まずは絵で見てみよう
+
+第10章では多角形を **三角形に分けて** 塗ったよね。今度は **三角形に分けないまま** 塗る別の方法を見てみるよ。これは「ぬり絵の透明シール」を貼り重ねる感じ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="Stencil-then-cover の概念">
+	<g>
+		<text x="100" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">Fan Pass (透明シール)</text>
+		<polygon points="30,160 100,30 170,160" fill="#888" fillOpacity="0.2" stroke="currentColor" strokeWidth="1" />
+		<polygon points="170,160 100,30 30,160" fill="none" stroke="#888" strokeDasharray="3 3" />
+		<text x="100" y="190" textAnchor="middle" fontSize="10" fill="currentColor" fillOpacity="0.7">+1 / −1 を塗り重ねる</text>
+	</g>
+	<g>
+		<text x="350" y="20" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">Cover Pass (色を流す)</text>
+		<rect x="280" y="40" width="140" height="120" fill="#3a86ff" fillOpacity="0.45" stroke="#3a86ff" strokeWidth="1.5" />
+		<text x="350" y="190" textAnchor="middle" fontSize="10" fill="currentColor" fillOpacity="0.7">stencil ≠ 0 のところだけ色が出る</text>
+	</g>
+</svg>
+
+## どこで使われている？
+
+- 自己交差した多角形 (8 の字とか)
+- ベジェ曲線で囲まれた図形 (フォントの「あ」とか)
+- 穴のあいた図形 (ドーナツとか)
+
+これらは **Ear Clipping だけだと正しく塗れない**。Stencil-then-cover なら、複雑な形でも 1 回でしれっと塗れるよ。
+
+Paplico の path-rendering もこの方式を使っているんだ。
+
+## どうやって動くのか — ステップで見ていこう
+
+### ステップ 1: 重心 c を計算
+
+多角形の **重心** (全頂点の平均) を出すよ。
+
+```
+c = (Σ p_i) / N
+```
+
+### ステップ 2: 重心を中心に三角形ファンを作る
+
+各辺 `(p_i, p_{i+1})` について、**三角形 `(c, p_i, p_{i+1})`** を作るよ。これが **ファン (扇)** という形。
+
+<svg viewBox="0 0 460 220" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="重心ファン">
+	<g fill="#3a86ff" fillOpacity="0.18" stroke="#3a86ff" strokeWidth="1">
+		<polygon points="230,110 60,40 230,30" />
+		<polygon points="230,110 230,30 400,40" />
+		<polygon points="230,110 400,40 380,180" />
+		<polygon points="230,110 380,180 230,200" />
+		<polygon points="230,110 230,200 80,180" />
+		<polygon points="230,110 80,180 60,40" />
+	</g>
+	<circle cx="230" cy="110" r="5" fill="#e0457b" />
+	<text x="240" y="106" fontSize="11" fill="#e0457b">c (重心)</text>
+</svg>
+
+### ステップ 3: ステンシルに +1 / −1 を貯める (本物のお話)
+
+GPU で各ファン三角形を描くとき、**色は出さずに、ステンシルバッファに数を足し引き** するよ。三角形が **時計回り** なら +1、**反時計回り** なら −1。
+
+凹凸ある多角形でも、**最終的に「内側」のピクセルでは数が ≠ 0**、**「外側」では 0** になるよ。これがマジック。
+
+> [!NOTE]
+> ステンシルって、紙のステンシルアートと同じ。マスクが「中」「外」を決めて、塗りはそこを通り抜けるかどうかだけ。
+
+### ステップ 4: BBox を「カバー」して色を流す
+
+最後に、多角形の AABB (第2章！) のサイズの **大きな矩形 (cover quad)** を 1 枚描く。GPU には **「stencil ≠ 0 の場所だけ色を出して」** と頼む。これで塗りつぶしが完成。
+
+### この章で書くもの
+
+ステンシル操作は GPU の細かい設定がいるから、この章ではその一歩手前 ; **重心ファンの三角形を作るところ** だけ自分で書いてみよう。結果は GPU で **そのまま重ねて描画** されるよ。多角形が凸なら綺麗に塗れて、**凹だと変な部分が出る** ;それが「stencil なしの限界」を体感させてくれる。
+
+## 数学のところ（読み飛ばしOK）
+
+<details>
+<summary>偶奇規則 vs 非ゼロ規則</summary>
+
+塗りつぶしの判定には 2 種類のルールがあるよ。
+
+- **偶奇規則 (even-odd)**: 巻数の偶奇で判定。`stencil & 1` で「中」を判定 (XOR)
+- **非ゼロ規則 (nonzero)**: 巻数 ≠ 0 で「中」と判定。SVG / PDF / Canvas2D のデフォルト
+
+非ゼロ規則は、三角形の **向き** (時計回り or 反時計回り) を考慮する。`stencil_op` を `increment_wrap` / `decrement_wrap` にして、両方サポートするのが Paplico のやり方。
+
+</details>
+
+## 実装してみる
+
+`buildFanTriangles` を書いてみよう。星型の多角形に **重心ファン** を作って、GPU で **半透明で重ね描き** するよ。多角形が凸なら綺麗、凹なら **重なって濃くなる場所** が出るよ ;それがステンシルが必要な理由。
+
+<Playground />
+
+## やってみよう
+
+- 多角形を凸 (三角形や四角形) にしたら、見た目はどうなる ?
+- 重心の代わりに **始点 (p0)** を中心にしたファンに変えると、凹型でどうなる ?
+
+## もっと知りたい人へ
+
+- Paplico の本格実装: stencil-then-cover (path-rendering)
+- 前の章 → [第10章: 多角形の三角形分割](/devdocs/tutorials/10-ear-clipping)
+- 次の章 → [第12章: メッシュグラデーション](/devdocs/tutorials/12-coons-patch)

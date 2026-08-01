@@ -1,0 +1,38 @@
+name: Build WebGPU DevTools
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pkgs/webgpu-devtools/**"
+  pull_request:
+    paths:
+      - "pkgs/webgpu-devtools/**"
+
+defaults:
+  run:
+    working-directory: pkgs/webgpu-devtools
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - run: corepack enable
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: "yarn"
+
+      - run: yarn install --immutable
+
+      - run: yarn build
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: webgpu-devtools-chrome-mv3
+          path: pkgs/webgpu-devtools/.output/chrome-mv3/

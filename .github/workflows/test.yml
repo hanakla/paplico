@@ -1,0 +1,146 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  NODE_VERSION: 24
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v6
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - id: cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            pkgs/*/node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+
+  typecheck:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v6
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            node_modules
+            pkgs/*/node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+      - run: yarn workspace pap typecheck
+
+  test:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v6
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            node_modules
+            pkgs/*/node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+      - run: yarn workspace pap test run
+
+  lint:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v6
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            node_modules
+            pkgs/*/node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+      - run: yarn lint --diagnostic-level=error
+
+  test-storybook:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            node_modules
+            pkgs/*/node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+      - name: Get Playwright version
+        id: pw-version
+        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ steps.pw-version.outputs.version }}
+      - if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      - run: npx concurrently -k -s first -n "SB,TEST" "yarn workspace pap storybook --ci" "npx wait-on tcp:6006 && yarn workspace pap test-storybook"
+
+  lint-unused:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v6
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - id: cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            node_modules
+            pkgs/*/node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+      - run: yarn lint:unused

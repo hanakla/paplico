@@ -1,0 +1,170 @@
+import Playground from "./playground";
+
+# 第1章: 座標系の話 — Screen と World
+
+## この章でできるようになること
+
+- 画面 (Screen) の点と、世界 (World) の点をお互いに変換できるようになる
+- なぜ Y 軸の向きを反転するのか、自分の言葉で説明できる
+- 拡大・縮小 (zoom) を含めた座標変換が頭の中で描けるようになる
+
+## まずは絵で見てみよう
+
+絵を描くソフトの中には、**2 つの座標の世界**があるんだ。1 つは「画面の世界」、もう 1 つは「絵そのものの世界」。この 2 つは、原点の位置も Y 軸の向きも違うよ。
+
+<svg viewBox="0 0 480 240" width="100%" style={{ maxWidth: 480, height: "auto" }} role="img" aria-label="Screen 座標系と World 座標系の対比図">
+	<g>
+		<rect x="20" y="30" width="200" height="180" rx="6" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1.5" />
+		<text x="120" y="22" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">Screen 座標</text>
+		<circle cx="20" cy="30" r="4" fill="#e0457b" />
+		<text x="28" y="48" fontSize="11" fill="currentColor">原点 (0, 0)</text>
+		<line x1="20" y1="30" x2="80" y2="30" stroke="#3a86ff" strokeWidth="2" markerEnd="url(#arr-c1)" />
+		<text x="50" y="22" fontSize="11" fill="#3a86ff">+X</text>
+		<line x1="20" y1="30" x2="20" y2="90" stroke="#2a9d8f" strokeWidth="2" markerEnd="url(#arr-c1)" />
+		<text x="6" y="65" fontSize="11" fill="#2a9d8f">+Y</text>
+		<text x="120" y="120" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">左上が (0, 0)</text>
+		<text x="120" y="138" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">Y は下向き</text>
+	</g>
+	<g>
+		<rect x="260" y="30" width="200" height="180" rx="6" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1.5" />
+		<text x="360" y="22" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">World 座標</text>
+		<circle cx="360" cy="120" r="4" fill="#e0457b" />
+		<text x="368" y="138" fontSize="11" fill="currentColor">原点 (0, 0)</text>
+		<line x1="360" y1="120" x2="420" y2="120" stroke="#3a86ff" strokeWidth="2" markerEnd="url(#arr-c1)" />
+		<text x="390" y="115" fontSize="11" fill="#3a86ff">+X</text>
+		<line x1="360" y1="120" x2="360" y2="60" stroke="#2a9d8f" strokeWidth="2" markerEnd="url(#arr-c1)" />
+		<text x="345" y="80" fontSize="11" fill="#2a9d8f">+Y</text>
+		<text x="360" y="190" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">真ん中が (0, 0)</text>
+		<text x="360" y="206" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">Y は上向き</text>
+	</g>
+	<defs>
+		<marker id="arr-c1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+			<path d="M0,0 L10,5 L0,10 z" fill="currentColor" />
+		</marker>
+	</defs>
+</svg>
+
+ぱっと見、左の世界と右の世界では「原点の場所」と「Y の矢印の向き」が違うよね。これが今日のすべての話のもとになるよ。
+
+## どこで使われている？
+
+ユーザーがマウスを「カチッ」と押した瞬間、ブラウザが教えてくれるのは **画面 (Screen) の座標** だけ。でも絵のデータとしては、絵の真ん中を基準にした **世界 (World) の座標** で保存しないと困る (画面サイズが変わるたびに絵が動いてしまうからね)。
+
+だから、お絵かきツールは入口のところで **Screen → World** の変換を必ず通る。逆に、データを画面に表示するときは **World → Screen** に戻すよ。Paplico のすべてのツール (ペン、選択、塗り、テキスト) はここを必ず通るんだ。
+
+## どうやって動くのか — ステップで見ていこう
+
+「画面の点」を「世界の点」に変換するのは、3 つのステップで考えるとわかりやすいよ。
+
+### ステップ 1: 画面の真ん中を原点に
+
+画面の左上を原点にしている世界を、まず **画面の真ん中を原点** に直すよ。これは「画面の幅の半分」と「画面の高さの半分」を引くだけ。
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="ステップ1: 画面の中心を原点にする変換">
+	<rect x="20" y="20" width="180" height="160" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1" />
+	<circle cx="20" cy="20" r="3" fill="#e0457b" />
+	<text x="28" y="35" fontSize="10" fill="currentColor">(0, 0)</text>
+	<circle cx="140" cy="60" r="5" fill="#3a86ff" />
+	<text x="148" y="56" fontSize="11" fill="#3a86ff">(sx, sy)</text>
+	<text x="110" y="195" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">画面の左上が原点</text>
+
+	<path d="M 220 100 L 250 100" stroke="currentColor" strokeWidth="2" markerEnd="url(#arr-c2)" />
+	<text x="235" y="92" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">中心へ移動</text>
+
+	<rect x="270" y="20" width="180" height="160" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1" />
+	<circle cx="360" cy="100" r="3" fill="#e0457b" />
+	<text x="368" y="116" fontSize="10" fill="currentColor">(0, 0)</text>
+	<circle cx="390" cy="60" r="5" fill="#3a86ff" />
+	<text x="398" y="56" fontSize="11" fill="#3a86ff">(sx − w/2, sy − h/2)</text>
+	<text x="360" y="195" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">真ん中が原点</text>
+
+	<defs>
+		<marker id="arr-c2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+			<path d="M0,0 L10,5 L0,10 z" fill="currentColor" />
+		</marker>
+	</defs>
+</svg>
+
+### ステップ 2: ズーム倍率で割る
+
+絵を拡大表示しているとき、画面の 100 ピクセルは絵の世界の 100 とは限らないよね。ズームが 2 倍なら、画面で 200 ピクセル動いた点は、絵の世界では 100 しか動いていない。
+
+だから **画面のズレをズーム倍率で割って** 絵の単位に直すよ。
+
+```
+画面の差 ÷ zoom = 世界の差
+```
+
+### ステップ 3: Y 軸を反転する
+
+最後に Y の向き。Screen は下向きが「+」、World は上向きが「+」。**Y にだけマイナスをつける** と、向きが入れ替わるよ。
+
+<svg viewBox="0 0 460 180" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="ステップ3: Y軸の反転">
+	<rect x="40" y="20" width="160" height="140" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1" />
+	<circle cx="120" cy="90" r="3" fill="#e0457b" />
+	<line x1="120" y1="90" x2="120" y2="140" stroke="#2a9d8f" strokeWidth="2" markerEnd="url(#arr-c3)" />
+	<text x="128" y="125" fontSize="11" fill="#2a9d8f">+Y (Screen)</text>
+
+	<text x="230" y="95" textAnchor="middle" fontSize="14" fontWeight="600" fill="currentColor">→</text>
+	<text x="230" y="115" textAnchor="middle" fontSize="11" fill="currentColor" fillOpacity="0.7">y に −1 をかける</text>
+
+	<rect x="260" y="20" width="160" height="140" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1" />
+	<circle cx="340" cy="90" r="3" fill="#e0457b" />
+	<line x1="340" y1="90" x2="340" y2="40" stroke="#2a9d8f" strokeWidth="2" markerEnd="url(#arr-c3)" />
+	<text x="348" y="60" fontSize="11" fill="#2a9d8f">+Y (World)</text>
+
+	<defs>
+		<marker id="arr-c3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+			<path d="M0,0 L10,5 L0,10 z" fill="currentColor" />
+		</marker>
+	</defs>
+</svg>
+
+3 つのステップをつなげると、こうなるよ:
+
+```
+worldX = (screenX − 画面幅/2) ÷ zoom + viewport.x
+worldY = −(screenY − 画面高/2) ÷ zoom + viewport.y
+```
+
+`viewport.x` と `viewport.y` は「いま画面の真ん中で見ている世界の場所」。最後に足すことで、画面の外の点も正しく扱えるようになるよ。
+
+## 数学のところ（読み飛ばしOK）
+
+<details>
+<summary>行列で書くと…</summary>
+
+3 つのステップは、3 つの 2D 変換の合成と見ることもできるよ:
+
+1. 平行移動 (− 画面の中心)
+2. スケール (1/zoom × Y 反転)
+3. 平行移動 (+ viewport)
+
+行列で書くと:
+
+```
+[ 1/zoom    0       vx ]   [ 1   0   −w/2 ]   [ sx ]
+[   0    −1/zoom    vy ] · [ 0   1   −h/2 ] · [ sy ]
+[   0      0        1  ]   [ 0   0     1  ]   [  1 ]
+```
+
+逆向き (World → Screen) は、この合成行列の逆行列だよ。
+
+</details>
+
+## 実装してみる
+
+`screenToWorld` と `worldToScreen` を書いてみよう。Canvas をクリックすると、青い点（4 か所のテスト点）が表示されるよ。**正しく書けたら、4 か所が上下左右にきれいに散らばるはず**。間違っていると、点が 1 か所に固まったり、画面の外に飛んでいったりするよ。
+
+<Playground />
+
+## やってみよう
+
+- `viewport.zoom` を `2` にしたら、点はどこに行くと思う？ コードの中で zoom を変えて確かめてみよう
+- `viewport.x = 100` にしたら、画面の真ん中はどこの世界の点を映してる？
+- `screenToWorld(worldToScreen(p, vp, c), vp, c)` を計算したら、元の `p` に戻る？ (戻らなかったら、どっちかの式が間違ってるよ)
+
+## もっと知りたい人へ
+
+- Paplico の本格実装: [`pkgs/web/src/core/utils/coordinates.ts`](https://github.com/) — viewport の回転にも対応した版
+- 次の章 → [第2章: AABB と図形の囲み方](/devdocs/tutorials/02-bounds)

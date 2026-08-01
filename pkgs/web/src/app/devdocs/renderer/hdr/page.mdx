@@ -1,0 +1,178 @@
+# HDR レンダリングと色空間
+
+> [!TIP]
+> **前提ページ:** [レンダラーアーキテクチャ](/devdocs/renderer), [パイプライン](/devdocs/renderer/pipeline)
+
+このページでは Paplico の HDR レンダリング機能に関連する色空間・トーンカーブ・輝度の概念を整理し、WebGPU canvas から AVIF HDR エクスポートまでのカラーパイプラインを解説する。
+
+---
+
+## 基本概念
+
+### 輝度と nits
+
+**nits** (cd/m²) はディスプレイの輝度の単位。
+
+| 基準 | 典型値 |
+|---|---|
+| SDR reference white (ITU-R BT.2408) | 203 nits |
+| macOS SDR white (環境依存) | 400–500 nits |
+| MacBook Pro Liquid Retina XDR ピーク | 1,600 nits (全画面 HDR) |
+| Pro Display XDR ピーク | 1,600 nits (全画面持続) |
+| PQ 定義上限 | 10,000 nits |
+
+SDR コンテンツは reference white を上限として表示される。HDR コンテンツはそれを超えてディスプレイのピーク輝度まで表示可能。
+
+### ガンマとトランスファー関数
+
+**トランスファー関数**は、線形光量 (linear light) と信号値 (signal) の間の変換を定義する。
+
+- **OETF (Optical-Electro Transfer Function)**: linear → signal（エンコード方向）
+- **EOTF (Electro-Optical Transfer Function)**: signal → linear（デコード方向）
+
+#### sRGB
+
+SDR で最も広く使われるトランスファー。
+
+```
+OETF: v ≤ 0.0031308 → 12.92v
+       v > 0.0031308 → 1.055 × v^(1/2.4) − 0.055
+
+EOTF: v ≤ 0.04045   → v / 12.92
+       v > 0.04045   → ((v + 0.055) / 1.055)^2.4
+```
+
+低輝度域に線形部分があるため、pure power gamma 2.2 とは微妙に異なる。ディスプレイのネイティブガンマ (≈ 2.2) とも完全には一致しない。
+
+#### PQ (Perceptual Quantizer / SMPTE ST 2084)
+
+HDR 用トランスファー。人間の視覚特性に基づき、0–10,000 nits の範囲を均一な知覚ステップで量子化する。
+
+```
+OETF: Y = (c1 + c2 × L^m1) / (1 + c3 × L^m1))^m2
+       L = linearLight / 10000   (nits を [0,1] に正規化)
+```
+
+PQ は絶対輝度基準。linear 1.0 が何 nits かは `maxNits` パラメータで決まる。
+
+#### ディスプレイのネイティブガンマ
+
+物理ディスプレイは入力信号に対して概ね power law (≈ 2.2) で発光する。
+
+- sRGB EOTF ≠ gamma 2.2（低輝度域の線形部分の差）
+- PQ EOTF ≠ ディスプレイガンマ（PQ は絶対輝度ベース）
+- **WebGPU の `toneMapping: "extended"` は linear 値をそのままフレームバッファに書く**。OS のカラーマネジメントがディスプレイへのマッピングを担当する。
+
+### 色空間 (Color Space) と色域 (Gamut)
+
+**色空間** = 色域 (primaries) + 白色点 (white point) + トランスファー関数の組み合わせ。
+
+| 色空間 | 色域 | 白色点 | トランスファー |
+|---|---|---|---|
+| sRGB | BT.709 | D65 | sRGB OETF/EOTF |
+| Display P3 | DCI-P3 (D65) | D65 | sRGB OETF/EOTF |
+| BT.2020 + PQ | BT.2020 | D65 | PQ |
+| BT.2020 + HLG | BT.2020 | D65 | HLG |
+
+Display P3 は sRGB と同じトランスファー関数だが、色域が広い（特に赤〜緑方向）。
+
+### 色域変換 (Gamut Mapping)
+
+異なる色域間の変換は 3×3 行列で行う（両方 D65 白色点なら色順応不要）。
+
+```
+Display-P3 → BT.2020:
+  [0.7539  0.1986  0.0476]   [R_P3]
+  [0.0457  0.9418  0.0125] × [G_P3]
+  [-0.0012 0.0176  0.9836]   [B_P3]
+```
+
+P3 → BT.2020 変換では色域が広がる方向のため、P3 の色は BT.2020 内に収まる（クリッピングなし）。ただしオレンジ・赤系は P3 と BT.2020 で係数の差が大きく、変換による色シフトが目立ちやすい。
+
+---
+
+## Paplico のカラーパイプライン
+
+### Canvas 表示パス
+
+```
+シェーダー出力 (gamma-encoded Display-P3 値 [0,1])
+    ↓
+rgba16float テクスチャに格納 (値はそのまま、自動 linearize なし)
+    ↓
+[exposure > 0 の場合] Exposure Post-Process Pass: RGB × pow(2, exposure)
+    ↓
+Canvas (display-p3, toneMapping: "extended")
+    ↓
+OS カラーマネジメント → ディスプレイ
+```
+
+> [!IMPORTANT]
+> **シェーダーは `-srgb` suffix の texture format を使っていない。** そのため sampler による自動 sRGB→linear 変換は行われず、シェーダーの出力値はユーザーが指定した色値（sRGB gamma 空間）がそのまま格納される。
+>
+> `rgba16float` format は linear storage だが、格納される値が linear とは限らない。「format が linear」と「値が linear」は異なる概念。
+
+### AVIF HDR エクスポートパス
+
+```
+renderArtboardToFloat32()
+    ↓
+CanvasLayer.render() (exposure pass 含む)
+    ↓
+convertToRgba32Float blit → GPU readback (Float32Array)
+    ↓
+[exposure = 0] sRGB OETF で gamma encode → convertFloat32ToP3Yuv (BT.709 YCbCr)
+[exposure > 0] EDR headroom でクリップ → PQ OETF (maxNits) → convertFloat32ToP3Yuv (BT.709 YCbCr)
+    ↓
+encodeAvifHdr (PlanarYuvData) → AVIF (colorPrimaries: display-p3, matrixCoefficients: bt709)
+```
+
+### EDR Headroom とクリッピング
+
+macOS の HDR ディスプレイでは、canvas の `toneMapping: "extended"` が linear 値をそのまま出力する。ディスプレイの **EDR (Extended Dynamic Range) headroom** を超える値はハードクリップされる。
+
+```
+linear 1.0 = SDR white
+linear > 1.0 = HDR 領域
+linear > EDR headroom = クリップ（白飛び）
+```
+
+AVIF エクスポート時に canvas と同じ白飛びを再現するには、PQ encode 前に readback 値を EDR headroom でクリップする必要がある。
+
+EDR headroom はディスプレイと輝度設定に依存する（画面輝度を下げると headroom が増加する）:
+
+| デバイス | 最大 potential headroom | 最大輝度時の実効 headroom |
+|---|---|---|
+| MacBook Pro (液晶バックライト) | ~2.0x | ~1.25x |
+| Pro Display XDR (500nit ref) | 3.2x | 3.2x |
+| iPad Pro Liquid Retina XDR | 16.0x | — |
+
+macOS の `NSScreen.maximumExtendedDynamicRangeColorComponentValue` で実効 headroom が取得できるが、Web API からは取得不可能。プライバシー上の理由で headroom 値はブラウザが意図的に非公開としている。
+
+> [!WARNING]
+> 現状 EDR headroom はハードコードされている。Web API から取得する標準的な手段は存在しない（[gpuweb #4919](https://github.com/gpuweb/gpuweb/issues/4919) で議論中）。
+
+### maxNits パラメータ
+
+PQ OETF の `maxNits` は linear 1.0 を何 cd/m² にマッピングするかを決める。
+
+```
+pqOetf(linearValue × maxNits)
+```
+
+- `maxNits = 203`: ITU-R BT.2408 SDR reference white。標準的だが macOS HDR ディスプレイの SDR white (≈500 nits) より低い。
+- `maxNits = 1600`: MacBook Pro のピーク輝度相当。exposure で 1.0 超の値がディスプレイのフル輝度域にマッピングされる。
+
+maxNits の選択は「linear 1.0 がディスプレイ上でどの明るさか」を決定し、HDR headroom の使い方に直結する。
+
+CSS Color HDR 仕様 (W3C) では **203 cd/m² を reference white** として定義しているが、WebGPU canvas の `toneMapping:extended` における linear 1.0 はディスプレイの SDR white 輝度にマッピングされ、macOS では 400–500 cd/m² になる。このギャップにより `maxNits=203` は canvas 表示より暗くなる。
+
+参考: CSS Color HDR の headroom 定義は `headroom(stops) = log2(peak_luminance / 203)`。ハイエンド (1600 nits peak) で ≈ 3 stops。
+
+---
+
+## 既知の制限と注意点
+
+1. **EDR headroom がハードコード。** ディスプレイによって異なるため、異なる環境では白飛びの閾値がずれる。将来的には platform API から動的取得すべき。
+2. **シェーダー出力は gamma-encoded。** `rgba16float` canvas でも値は linear ではない。エクスポート時の linearize が必要な場合がある。
+3. **PQ maxNits の調整が必要。** Canvas 表示の明るさと AVIF 出力を一致させるには、ディスプレイの SDR white nits に合わせた maxNits 設定が必要。

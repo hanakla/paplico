@@ -1,0 +1,16 @@
+{
+	"identifier": "system-icc-windows",
+	"description": "Read access to the Windows color profile directory for system ICC profile enumeration",
+	"platforms": ["windows"],
+	"windows": ["main"],
+	"permissions": [
+		{
+			"identifier": "fs:allow-read-dir",
+			"allow": [{ "path": "C:\\Windows\\System32\\spool\\drivers\\color" }]
+		},
+		{
+			"identifier": "fs:allow-read-file",
+			"allow": [{ "path": "C:\\Windows\\System32\\spool\\drivers\\color\\*" }]
+		}
+	]
+}
