@@ -46,6 +46,9 @@ fn glitchWorldPos(texCoord: vec2f) -> vec2f {
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let dims = uniforms.resolution;
 	let texCoord = input.texCoord;
+	// Element-rect UV → bake UV conversion for displacement amounts, so they
+	// cover the same world distance at any zoom (identity for an unclamped bake)
+	let uvScale = uniforms.elementSize * uniforms.dpiScale / uniforms.resolution;
 
 	var shiftedCoord = texCoord;
 
@@ -70,15 +73,12 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 			let xShift = shift * cos(shiftAngle);
 			let yShift = shift * sin(shiftAngle);
 
-			// The shift is sized in element-rect UV units; convert to bake UV
-			// so the displacement covers the same world distance at any zoom
-			let uvScale = uniforms.elementSize * uniforms.dpiScale / uniforms.resolution;
 			shiftedCoord.x = clamp(texCoord.x + xShift * uvScale.x, 0.0, 1.0);
 			shiftedCoord.y = clamp(texCoord.y + yShift * uvScale.y, 0.0, 1.0);
 		}
 	}
 
-	let rOffset = uniforms.colorShift;
+	let rOffset = uniforms.colorShift * uvScale.x;
 
 	let rCoord = clamp(vec2f(shiftedCoord.x + rOffset, shiftedCoord.y), vec2f(0.0), vec2f(1.0));
 	let gCoord = shiftedCoord;

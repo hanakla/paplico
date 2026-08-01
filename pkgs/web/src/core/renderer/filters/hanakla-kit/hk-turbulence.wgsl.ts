@@ -186,8 +186,9 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 			(noiseY * 2.0 - 1.0) * scaledDisplacementY / dims.y
 		);
 	} else if (uniforms.displacementMode == 1) { // radial
-		let center = vec2f(0.5);
-		let offset = texCoord - center;
+		// Center on the full element rect (stable UV), not the bake rect, so
+		// the radial origin stays fixed while zooming or panning.
+		let offset = stableUV - vec2f(0.5);
 		let distance = length(offset);
 		if (distance > 0.001) {
 			let direction = offset / distance;
@@ -197,8 +198,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 			displacement = direction * strength / min(dims.x, dims.y);
 		}
 	} else if (uniforms.displacementMode == 2) { // twist
-		let center = vec2f(0.5);
-		let offset = texCoord - center;
+		let offset = stableUV - vec2f(0.5);
 		let distance = length(offset);
 		if (distance > 0.001) {
 			// Angle increases with distance from center
@@ -209,7 +209,10 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 				offset.x * cosA - offset.y * sinA,
 				offset.x * sinA + offset.y * cosA
 			);
-			displacement = (rotated - offset) * scaledDisplacementY * 0.02;
+			// The rotational offset is in stable-UV units; convert to real bake
+			// UV before applying (identity for an unclamped bake).
+			let uvScale = uniforms.elementSize * uniforms.dpiScale / dims;
+			displacement = (rotated - offset) * uvScale * scaledDisplacementY * 0.02;
 		}
 	}
 
