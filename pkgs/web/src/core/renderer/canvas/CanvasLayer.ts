@@ -89,6 +89,7 @@ import {
 import {
 	aabbOfQuad,
 	calculatePrebufDimensions,
+	capFilterBakeDensity,
 	computeDotGridPhase,
 	expandRenderFilter,
 	splitGroupAppearances,
@@ -111,6 +112,7 @@ import {
 	type ViewportState,
 } from "./CanvasLayerTypes";
 import { MaskedBlitBindGroupCache } from "./caches/BindGroupCache";
+import type { FilteredElementCacheEntry } from "./caches/FilteredElementCache";
 import type { RenderCacheManager } from "./caches/RenderCacheManager";
 import {
 	collectDrawableAppearances,
@@ -529,6 +531,16 @@ export class CanvasLayer {
 	 * runs every frame while any override is active — see render().
 	 */
 	private lastOverrideIds: ReadonlySet<string> | null = null;
+	/**
+	 * Per-frame filtered-element cache participation, set by renderDocument.
+	 * Null disables the cache for the frame (partial/isolated renders);
+	 * blockedIds lists elements whose entries must be bypassed because a
+	 * preview override or transient affects them or a descendant.
+	 */
+	private filterCacheFrame: { blockedIds: ReadonlySet<string> } | null = null;
+	/** defRevision of the last frame — a def edit changes pattern pixels
+	 *  without an element delta, so the filtered-element cache clears on it. */
+	private lastFilterCacheDefRevision: number | undefined;
 	/**
 	 * Merged elements map + viewport-independent frame-plan structure, reused
 	 * across frames while the document is unchanged (pan/zoom never rebuilds
@@ -1672,6 +1684,25 @@ export class CanvasLayer {
 				);
 			}
 			this.clipMaskAtlas.invalidateAll();
+			// The filtered-element cache is push-invalidated here: a tracked
+			// change set evicts the changed elements plus every ancestor group
+			// (their bakes composite the changed child); an untracked full
+			// render proves nothing about what changed, so clear it all.
+			if (request.changedElements) {
+				this.cacheManager.filteredElement.deleteMany([
+					...this.expandWithAncestorGroups([
+						...request.changedElements.upserted,
+						...request.changedElements.deleted,
+					]),
+				]);
+			} else {
+				this.cacheManager.filteredElement.clear();
+			}
+		}
+		// A shared def edit changes pattern pixels without an element delta.
+		if (request.defRevision !== this.lastFilterCacheDefRevision) {
+			this.lastFilterCacheDefRevision = request.defRevision;
+			this.cacheManager.filteredElement.clear();
 		}
 		const exposure = request.hdrExposure ?? 0;
 		const needsExposurePass = request.hdrExposure != null;
@@ -1912,6 +1943,23 @@ export class CanvasLayer {
 		// Store editing scope ID for isolation mode rendering
 		this.renderState.editingScopeStack = editingScopeStack ?? [];
 		this.renderState.isolatedElementId = isolatedElementId ?? null;
+
+		// The filtered-element cache only participates in ordinary full-document
+		// frames: partial renders (elementFilter), isolation modes, and export
+		// (null viewport bounds, checked at use site) draw a different subset or
+		// resolution than a cached bake represents. Elements previewed through
+		// overrides/transients — and their ancestor groups, whose bakes composite
+		// them — bypass the cache per element instead of disabling the frame, so
+		// dragging one element keeps every other filtered element's bake hot.
+		this.filterCacheFrame =
+			!elementFilter && !editingScopeStack?.length && isolatedElementId == null
+				? {
+						blockedIds: this.collectFilterCacheBlockedIds(
+							elementOverrides,
+							transientElements,
+						),
+					}
+				: null;
 
 		// Build — or reuse — the merged elements map and the viewport-independent
 		// frame-plan structure. Both derive purely from the document plus the
@@ -3265,6 +3313,34 @@ export class CanvasLayer {
 	 * document's rasterizationDpi (72 DPI = 1 texel per world px). Fixed
 	 * regardless of viewport zoom / display DPI / export scale so filter
 	 * results stay stable. */
+	/** Expand element ids with every ancestor group (a group's filter bake
+	 *  composites its descendants, so a child change invalidates it too). */
+	private expandWithAncestorGroups(ids: Iterable<string>): Set<string> {
+		const parentMap = this.viewportManager.getParentGroupMap();
+		const out = new Set<string>();
+		for (const id of ids) {
+			let current: string | undefined = id;
+			while (current !== undefined && !out.has(current)) {
+				out.add(current);
+				current = parentMap.get(current);
+			}
+		}
+		return out;
+	}
+
+	private collectFilterCacheBlockedIds(
+		elementOverrides?: ReadonlyMap<string, AnyArtObject>,
+		transientElements?: ReadonlyMap<string, TransientElementEntry>,
+	): ReadonlySet<string> {
+		if (!elementOverrides?.size && !transientElements?.size) {
+			return EMPTY_ID_SET;
+		}
+		return this.expandWithAncestorGroups([
+			...(elementOverrides?.keys() ?? []),
+			...(transientElements?.keys() ?? []),
+		]);
+	}
+
 	private getRasterScale(): number {
 		return (this.activeDocument?.rasterizationDpi ?? 72) / 72;
 	}
@@ -3330,6 +3406,45 @@ export class CanvasLayer {
 			// margin; recover that scalar so the offscreen bake can clamp to
 			// (viewport + margin) without clipping the filter's bleed.
 			const fpFilterMargin = (fp.textureBounds.width - fp.bounds.width) / 2;
+
+			// Frame-cache participation. A non-null hash means this element's
+			// filtered bake may be reused across frames: the bake then covers
+			// the full textureBounds (viewport-independent) so pans hit without
+			// re-running the chain. Backdrop-reading chains depend on what is
+			// behind the element and stay frame-local, as do preview-overridden
+			// elements and bakes past the full-bake pixel budget.
+			const cacheHash =
+				this.filterCacheFrame != null &&
+				selectedPlans === undefined &&
+				!rendersOwnSource &&
+				this.viewportState.bounds != null &&
+				!this.filterCacheFrame.blockedIds.has(element.id) &&
+				!fp.postFilters.some(
+					(f) =>
+						resolveRenderConfigure(
+							this.filterRenderer.getHandler(f.processor),
+							f,
+						).needsBackdrop,
+				) &&
+				this.filteredBakeWithinBudget(fp, rasterScale)
+					? this.computeFilteredElementHash(
+							fp,
+							element,
+							elementsMap,
+							rasterScale,
+						)
+					: null;
+			if (cacheHash != null) {
+				const entry = this.cacheManager.filteredElement.get(element.id);
+				if (entry?.hash === cacheHash) {
+					filteredTextures.set(
+						element.id,
+						buildCachedFilteredTextureInfo(entry, fp),
+					);
+					continue;
+				}
+			}
+
 			const offscreenResult = rendersOwnSource
 				? null
 				: isGroup(element)
@@ -3341,6 +3456,7 @@ export class CanvasLayer {
 							this.viewportManager.getBoundsCache(),
 							rasterScale,
 							fpFilterMargin,
+							cacheHash == null,
 						)
 					: this.offscreen.renderElementToTexture(
 							encoder,
@@ -3350,6 +3466,8 @@ export class CanvasLayer {
 							rasterScale,
 							selectedPlans !== undefined,
 							fpFilterMargin,
+							undefined,
+							cacheHash == null,
 						);
 
 			if (!rendersOwnSource && !offscreenResult) continue;
@@ -3452,6 +3570,19 @@ export class CanvasLayer {
 				? FULL_BLIT_UV_RECT
 				: // biome-ignore lint/style/noNonNullAssertion: guarded above.
 					offscreenResult!.placement.uvRect;
+			// Self-sized override layers (extrude) never reach here with a
+			// cacheHash (rendersOwnSource is excluded), so a plain chain result
+			// is the only thing ever stored.
+			if (cacheHash != null && !overrides) {
+				this.storeFilteredElementBake(
+					encoder,
+					element.id,
+					cacheHash,
+					filteredTexture,
+					outputBounds,
+					outputUvRect,
+				);
+			}
 			filteredTextures.set(element.id, {
 				source: createRenderSurface(
 					sourceRef,
@@ -3486,6 +3617,88 @@ export class CanvasLayer {
 				overrideLayers: overrides,
 			});
 		}
+	}
+
+	/** A cacheable bake covers the full textureBounds; refuse when that would
+	 *  dwarf the canvas (zoomed-in giants stay on the frame-local clamp path). */
+	private filteredBakeWithinBudget(
+		fp: ElementFilterPlan,
+		rasterScale: number,
+	): boolean {
+		const density = capFilterBakeDensity(
+			rasterScale,
+			this.viewportState.current?.zoom ?? 1,
+		);
+		const bakePx =
+			Math.ceil(fp.textureBounds.width * density) *
+			Math.ceil(fp.textureBounds.height * density);
+		return (
+			bakePx <=
+			this.viewportState.width *
+				this.viewportState.height *
+				FILTER_CACHE_FULL_BAKE_BUDGET_FACTOR
+		);
+	}
+
+	/** Content hash for a cached filtered bake. Push invalidation (element
+	 *  edits, moves, deletions via changedElements) is the primary eviction
+	 *  path; this hash catches what no element delta reports — filter
+	 *  parameter edits and async paint changes (image decode, text outline
+	 *  resolution) — plus the density bucket and bake size. */
+	private computeFilteredElementHash(
+		fp: ElementFilterPlan,
+		element: AnyArtObject,
+		elementsMap: Map<string, AnyArtObject>,
+		rasterScale: number,
+	): string {
+		const density = capFilterBakeDensity(
+			rasterScale,
+			this.viewportState.current?.zoom ?? 1,
+		);
+		const paintHash = computePaintHash(element, elementsMap, {
+			resolvePatternTexture: (defId) => this.resolvePatternTexture(defId),
+			resolveTextOutline: (el) => this.resolveTextOutline(el),
+			isImageReady: (fileUid) => this.assetState.imageTextureCache.has(fileUid),
+			hasPreProcessHandler: (processor) =>
+				!!this.filterRenderer.getHandler(processor)?.preProcess,
+		});
+		return `${density}:${Math.round(fp.textureBounds.width)}x${Math.round(
+			fp.textureBounds.height,
+		)}:${JSON.stringify(fp.postFilters)}:${paintHash}`;
+	}
+
+	/** Copy a just-produced filter result into a cache-owned texture. The copy
+	 *  is negligible next to the chain it lets future frames skip. */
+	private storeFilteredElementBake(
+		encoder: GPUCommandEncoder,
+		elementId: string,
+		hash: string,
+		texture: GPUTexture,
+		bounds: BoundingBox,
+		uvRect: BlitUVRect,
+	): void {
+		const cacheTexture = this.device.createTexture({
+			label: "Filtered Element Cache Texture",
+			size: { width: texture.width, height: texture.height },
+			format: texture.format,
+			usage:
+				GPUTextureUsage.TEXTURE_BINDING |
+				GPUTextureUsage.COPY_DST |
+				GPUTextureUsage.COPY_SRC,
+		});
+		encoder.copyTextureToTexture(
+			{ texture },
+			{ texture: cacheTexture },
+			{ width: texture.width, height: texture.height },
+		);
+		const bytesPerPixel = texture.format.includes("16float") ? 8 : 4;
+		this.cacheManager.filteredElement.set(elementId, {
+			hash,
+			texture: cacheTexture,
+			bounds: brandWorldBBox(bounds),
+			uvRect,
+			byteSize: texture.width * texture.height * bytesPerPixel,
+		});
 	}
 
 	/**
@@ -6678,6 +6891,10 @@ function hashString(value: string): number {
 	return h;
 }
 
+const EMPTY_ID_SET: ReadonlySet<string> = new Set();
+/** Full-bounds cached bakes may cover at most this many canvas surfaces. */
+const FILTER_CACHE_FULL_BAKE_BUDGET_FACTOR = 4;
+
 const WET_INK_MAX_SIMULATION_WORLD_PER_TEXEL = 1;
 const WET_INK_SIMULATION_TEXELS_PER_BRUSH_SIZE = 96;
 const WET_INK_MIN_SIMULATION_WORLD_PER_TEXEL = 0.125;
@@ -7288,4 +7505,32 @@ function collectBrushDefIdsInUse(
 		}
 	}
 	return out;
+}
+
+/**
+ * Rebuild a FilteredTextureInfo from a cached filtered bake. Source and output
+ * share the borrowed cache texture — borrowed refs are skipped by frame
+ * release and by post-mask replacement, so the cached texture survives.
+ */
+function buildCachedFilteredTextureInfo(
+	entry: FilteredElementCacheEntry,
+	fp: ElementFilterPlan,
+): FilteredTextureInfo {
+	const ref = createBorrowedTextureRef(entry.texture, "appearance-cache");
+	const placement = {
+		kind: "world-aabb" as const,
+		bounds: entry.bounds,
+		uvRect: entry.uvRect,
+	};
+	const semantics = {
+		role: "color" as const,
+		alphaMode: "premultiplied" as const,
+		opacityState: "intrinsic" as const,
+	};
+	return {
+		source: createRenderSurface(ref, placement, semantics),
+		output: createRenderSurface(ref, placement, semantics),
+		elementBounds: fp.bounds,
+		textureBounds: fp.textureBounds,
+	};
 }

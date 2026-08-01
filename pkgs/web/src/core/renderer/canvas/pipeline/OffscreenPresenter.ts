@@ -402,6 +402,8 @@ export class OffscreenPresenter {
 		 * postProcess filter renders its filtered result, not the flat geometry.
 		 */
 		filteredTextures?: Map<string, FilteredTextureInfo>,
+		/** Opt out of the viewport region clamp — see createOffscreenPass. */
+		clampRegionToViewport = true,
 	): RasterizedRenderSurface | null {
 		const ctx = this.createOffscreenPass(
 			encoder,
@@ -410,6 +412,7 @@ export class OffscreenPresenter {
 			rasterScale,
 			skipCull,
 			filterMargin,
+			clampRegionToViewport,
 		);
 		if (!ctx) return null;
 
@@ -666,6 +669,8 @@ export class OffscreenPresenter {
 		rasterScale?: number,
 		/** Opt-in output clamp margin — see createOffscreenPass (null = no clamp). */
 		filterMargin: number | null = null,
+		/** Opt out of the viewport region clamp — see createOffscreenPass. */
+		clampRegionToViewport = true,
 	): RasterizedRenderSurface | null {
 		if (
 			Math.ceil(textureBounds.width) <= 0 ||
@@ -807,6 +812,7 @@ export class OffscreenPresenter {
 			rasterScale,
 			false,
 			filterMargin,
+			clampRegionToViewport,
 		);
 		if (!ctx) return null;
 
@@ -1187,6 +1193,10 @@ export class OffscreenPresenter {
 		 *  coordinate space must span the full textureBounds, e.g. the
 		 *  per-appearance accumulator). */
 		filterMargin: number | null = null,
+		/** Opt out of the viewport region clamp (density cap still applies) so
+		 *  the bake covers the full textureBounds — required when the result is
+		 *  cached across frames and must not depend on the current viewport. */
+		clampRegionToViewport = true,
 	): {
 		offscreenTexture: GPUTexture;
 		offscreenStencilTexture: GPUTexture;
@@ -1223,8 +1233,9 @@ export class OffscreenPresenter {
 		// than the screen. Skipped for null-bounds passes (export / nested
 		// offscreen), matching the cull guard above; everything below derives
 		// from `effectiveBounds`, so the caller blits back the smaller region.
-		const clampBounds =
+		const interactiveBounds =
 			filterMargin != null && !skipCull ? this.deps.viewportState.bounds : null;
+		const clampBounds = clampRegionToViewport ? interactiveBounds : null;
 		const effectiveBounds: BoundingBox = clampBounds
 			? (boundsIntersectionBox(
 					textureBounds,
@@ -1234,7 +1245,9 @@ export class OffscreenPresenter {
 
 		// Interactive bakes also cap their density to the display zoom bucket so
 		// a zoomed-out viewport does not rasterize far denser than the screen.
-		const bakeZoom = clampBounds
+		// The density cap applies even when the region clamp is opted out (a
+		// cached full-bounds bake must still not exceed display density).
+		const bakeZoom = interactiveBounds
 			? capFilterBakeDensity(rasterZoom, zoom)
 			: rasterZoom;
 
