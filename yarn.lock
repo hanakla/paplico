@@ -3707,6 +3707,11 @@ __metadata:
     typescript: "npm:^7.0.2"
     vite: "npm:^8.1.5"
     vitest: "npm:^4.1.10"
+  peerDependencies:
+    monaco-editor: ^0.55.1
+  peerDependenciesMeta:
+    monaco-editor:
+      optional: true
   languageName: unknown
   linkType: soft
 
