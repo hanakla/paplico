@@ -13,9 +13,21 @@ export interface PerfCheckResult {
 	fps: number;
 	gpuTimingSupported: boolean;
 	coverage: Record<string, number> | null;
+	context: PerfCheckContext;
 	inventory: unknown;
 	overall: unknown;
 	windows: unknown[];
+}
+
+/** Document / viewport / GPU conditions the measurement ran under. */
+export interface PerfCheckContext {
+	rasterizationDpi: number | null;
+	rasterScale: number | null;
+	viewportAtStart: unknown;
+	viewportAtEnd: unknown;
+	canvas: { width: number; height: number; pixelRatio: number } | null;
+	devicePixelRatio: number;
+	gpuLimits: { maxTextureDimension2D: number };
 }
 
 type PassRecord = {
@@ -75,9 +87,9 @@ export async function runPerfCheck(
 	const canvasLayer = td?.canvasLayer;
 	const uiLayer = td?.uiLayer;
 	const filterRenderer = orchestrator.filterRenderer ?? null;
-	const scheduler = p.canvasTargets
-		? [...p.canvasTargets.values()][0]?.scheduler
-		: null;
+	const targetEntry = p.canvasTargets ? [...p.canvasTargets.values()][0] : null;
+	const scheduler = targetEntry?.scheduler ?? null;
+	const canvasTarget = targetEntry?.target ?? null;
 	const document_ = p.uiState?.document ?? p.rendererStore?.document ?? null;
 	if (!canvasLayer || !uiLayer) {
 		console.error("[perf] no active canvas target (canvas must be rendering).");
@@ -93,6 +105,7 @@ export async function runPerfCheck(
 	const cpuSamples: CpuSample[] = [];
 	const dirtyEvents: DirtyEvent[] = [];
 	let curRender: RenderRecord | null = null;
+	let viewportAtStart: unknown = null;
 	const state = {
 		windowMs: 2_000,
 		// Capturing a JS stack per render pass is costly (skews CPU numbers);
@@ -537,6 +550,32 @@ export async function runPerfCheck(
 		};
 	}
 
+	const snapshotViewport = (): unknown =>
+		typeof canvasTarget?.getViewport === "function"
+			? { ...canvasTarget.getViewport() }
+			: null;
+
+	function buildContext(): PerfCheckContext {
+		const rasterizationDpi = document_?.rasterizationDpi ?? null;
+		return {
+			rasterizationDpi,
+			rasterScale: rasterizationDpi != null ? rasterizationDpi / 72 : null,
+			viewportAtStart,
+			viewportAtEnd: snapshotViewport(),
+			canvas: canvasTarget
+				? {
+						width: canvasTarget.width,
+						height: canvasTarget.height,
+						pixelRatio: canvasTarget.pixelRatio,
+					}
+				: null,
+			devicePixelRatio: globalThis.devicePixelRatio ?? 1,
+			gpuLimits: {
+				maxTextureDimension2D: device!.limits.maxTextureDimension2D,
+			},
+		};
+	}
+
 	function buildInventory() {
 		if (!document_) return null;
 		const objects = document_.objects ?? {};
@@ -619,6 +658,7 @@ export async function runPerfCheck(
 							: 0,
 					}
 				: null,
+			context: buildContext(),
 			inventory: buildInventory(),
 			overall: aggregate(renders, cpuSamples),
 			windows: buildWindows(),
@@ -634,6 +674,7 @@ export async function runPerfCheck(
 	const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
 	running = true;
+	viewportAtStart = snapshotViewport();
 	try {
 		console.log(
 			`%c[perf] measuring ${(durationMs / 1000).toFixed(0)}s (gpuTiming=${gpuTimingSupported}) — interact now...`,
