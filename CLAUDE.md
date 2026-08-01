@@ -291,16 +291,7 @@ Being told about a single word is a report about a habit, not about that word. G
 - **Remove debug code immediately after use.** Don't leave console.log spam in the codebase.
 - **Trust the user when they say they reloaded the page.** Don't question whether they actually did - they are more reliable than you.
 
-### Performance Profiling Cycle
-
-Render performance is measured with the built-in perf check (`src/devtools/perfCheck.ts`). It patches the WebGPU device and render pipeline for 10 seconds, records render passes / draws / GPU timestamps / CPU method timings, then restores all patches.
-
-The cycle:
-
-1. **Ask the user to run a measurement** — Development menu → "Run Perf Check (10s)" (dev builds only), then interact with the canvas during the window (pan/zoom, edit, etc. — the per-window `activity` field records what happened). Do not drive the browser yourself.
-2. **Read the result JSON** — it is auto-POSTed to `/api/dev/perf-result` and saved as `pkgs/web/perf-results/perf-<timestamp>.json` (gitignored). The same JSON is also printed to the browser console.
-3. **Analyze** — start from `fps` and `topGpu` / `topCpu`, then drill into `passesPerRender`, `drawsPerRender`, `emptyPassesPerRender`, `copiesPerRender`, and `passOriginsPerRender` (JS call sites per pass). Per-2s `windows` separate idle from interaction phases; `coverage` tells how many passes actually got GPU timestamps.
-4. **Change code, re-measure, compare** — keep the previous JSON and compare the same activity windows against the new run. Judge improvements by the measured numbers, never by impression.
+## Architecture
 
 ### Technology Stack
 

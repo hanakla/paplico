@@ -10,7 +10,6 @@ import {
 	FileUp,
 	FolderOpen,
 	Gamepad2,
-	Gauge,
 	Group,
 	ImageDown,
 	ImagePlus,
@@ -146,25 +145,6 @@ export function DesktopMenuBar({
 
 	const handleEmulateDisconnect = useEventCallback(() => {
 		paplico?.getCollaboration()?.simulateDisconnect();
-	});
-
-	const handleRunPerfCheck = useEventCallback(async () => {
-		if (!paplico) return;
-		// Dynamic import keeps the dev profiler out of the production bundle.
-		const { runPerfCheck } = await import("@/devtools/perfCheck");
-		const result = await runPerfCheck(paplico);
-		if (!result) return;
-		try {
-			const res = await fetch("/api/dev/perf-result", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(result),
-			});
-			const { saved } = await res.json();
-			console.log(`[perf] result sent: ${saved}`);
-		} catch (e) {
-			console.error("[perf] failed to send result:", e);
-		}
 	});
 
 	const handleReloadApp = useEventCallback(() => {
@@ -423,10 +403,6 @@ export function DesktopMenuBar({
 								</Menu.Positioner>
 							</Menu.Portal>
 						</Menu.SubmenuRoot>
-						<Menubar.Item onClick={handleRunPerfCheck} disabled={!paplico}>
-							<Gauge size={16} />
-							{t("menubar.runPerfCheck")}
-						</Menubar.Item>
 					</Menubar.Menu>
 				)}
 			</Menubar.Root>

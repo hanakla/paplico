@@ -87,6 +87,25 @@ export function calculatePrebufDimensions({
 }
 
 /**
+ * Cap an interactive filter bake's density (texels per world px) to the
+ * power-of-two bucket at or above the viewport zoom, so a zoomed-out viewport
+ * does not rasterize filters far denser than the screen can show. The bucket
+ * is quantized because downstream caches key on the resulting density and
+ * would miss on every frame of a continuous zoom.
+ *
+ * Invariants: result <= rasterZoom, and result >= min(rasterZoom, viewportZoom)
+ * so a raised rasterizationDpi still sharpens zoomed-in views.
+ */
+export function capFilterBakeDensity(
+	rasterZoom: number,
+	viewportZoom: number,
+): number {
+	if (!Number.isFinite(viewportZoom) || viewportZoom <= 0) return rasterZoom;
+	const bucket = 2 ** Math.ceil(Math.log2(viewportZoom));
+	return Math.min(rasterZoom, Math.max(bucket, viewportZoom));
+}
+
+/**
  * Screen-space phase (top-left origin, physical px) that anchors a constant-
  * spacing dot lattice to the world origin. Using this as the lattice phase makes
  * the dots pan with the canvas while keeping their on-screen spacing fixed

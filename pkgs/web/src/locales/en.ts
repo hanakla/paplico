@@ -30,7 +30,6 @@ export const en = {
 		devMenu: "Development",
 		chatSubmenu: "Chat",
 		emulateDisconnect: "Emulate Disconnection",
-		runPerfCheck: "Run Perf Check (10s)",
 	},
 	licenses: {
 		title: "Licenses",
