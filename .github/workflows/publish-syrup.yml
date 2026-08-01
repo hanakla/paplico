@@ -18,8 +18,11 @@ jobs:
     timeout-minutes: 10
     environment: publish
 
+    # id-token lets npm exchange a GitHub OIDC token for a short-lived
+    # registry credential (trusted publishing), so no npm token is stored.
     permissions:
       contents: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@v6
@@ -28,6 +31,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      # Trusted publishing needs npm 11.5.1+; pin ahead of whatever Node ships.
+      - run: npm install -g npm@latest
+
       - run: yarn install --immutable
 
       - name: Check whether the version is already published
@@ -35,7 +41,6 @@ jobs:
         run: |
           local_version="$(node -p "require('./pkgs/syrup/package.json').version")"
           published_version="$(npm view @paplico/syrup version 2>/dev/null || true)"
-          echo "local=$local_version" >> "$GITHUB_OUTPUT"
           if [ "$local_version" = "$published_version" ]; then
             echo "should-publish=false" >> "$GITHUB_OUTPUT"
             echo "@paplico/syrup@$local_version is already published; skipping."
@@ -51,12 +56,18 @@ jobs:
         if: steps.version.outputs.should-publish == 'true'
         run: yarn workspace @paplico/syrup build
 
-      # `yarn npm publish` is required here: the package resolves to its
-      # TypeScript sources during development and only switches to dist via
-      # publishConfig, which npm does not apply but Yarn does.
+      # The package resolves to its TypeScript sources during development and
+      # only switches to dist through publishConfig, which Yarn applies and npm
+      # ignores. Packing with Yarn and unpacking the result hands npm a
+      # directory whose manifest is already publish-ready.
+      - name: Stage the package
+        if: steps.version.outputs.should-publish == 'true'
+        run: |
+          yarn workspace @paplico/syrup pack -o "$RUNNER_TEMP/syrup.tgz"
+          mkdir -p "$RUNNER_TEMP/stage"
+          tar -xzf "$RUNNER_TEMP/syrup.tgz" -C "$RUNNER_TEMP/stage"
+
       - name: Publish
         if: steps.version.outputs.should-publish == 'true'
-        working-directory: pkgs/syrup
-        run: yarn npm publish --access public --tolerate-republish
-        env:
-          YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: ${{ runner.temp }}/stage/package
+        run: npm publish --access public
