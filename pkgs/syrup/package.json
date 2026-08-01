@@ -41,7 +41,6 @@
 	"scripts": {
 		"playground": "vite playground",
 		"build": "tsdown",
-		"prepublishOnly": "yarn build",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"typecheck": "tsc --noEmit"
