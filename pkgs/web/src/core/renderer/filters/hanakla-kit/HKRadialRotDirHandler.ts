@@ -109,10 +109,26 @@ export class HKRadialRotDirHandler implements FilterHandler {
 		// Direction is a unit vector; strength provides its length in px
 		const directionX = params.directionX * params.strength * dpiScale;
 		const directionY = params.directionY * params.strength * dpiScale;
-		// Stored center is a normalized 0-1 position; the shader expects a px
-		// offset from the texture centre
-		const centerX = (params.centerX - 0.5) * textureSize.width;
-		const centerY = (params.centerY - 0.5) * textureSize.height;
+		// Stored center is normalized 0-1 over the FULL element rect, but the
+		// bake may be viewport-clamped to a sub-rect. Expand it in world px on
+		// the element rect and map it into bake UV — reading it as a UV of the
+		// bake itself snapped the pivot to the clamped rect's centre on every
+		// zoom or pan.
+		const worldSize = context.sourceWorldSize ?? {
+			width: textureSize.width / dpiScale,
+			height: textureSize.height / dpiScale,
+		};
+		const contentOffset = context.sourceContentOffset ?? { x: 0, y: 0 };
+		const elementWorldSize = context.coordinateSpace?.worldSize ?? worldSize;
+		const worldOrigin = context.coordinateSpace?.sourceOffset ?? { x: 0, y: 0 };
+		const centerU =
+			((params.centerX * elementWorldSize.width - worldOrigin.x) * dpiScale +
+				contentOffset.x) /
+			textureSize.width;
+		const centerV =
+			((params.centerY * elementWorldSize.height - worldOrigin.y) * dpiScale +
+				contentOffset.y) /
+			textureSize.height;
 
 		if (
 			amount === 0 ||
@@ -178,7 +194,7 @@ export class HKRadialRotDirHandler implements FilterHandler {
 				iniC,
 			],
 			iniDelta: [-moveX1 / outputWidth, -moveY1 / outputHeight],
-			center: [centerX / outputWidth + 0.5, centerY / outputHeight + 0.5],
+			center: [centerU, centerV],
 		});
 
 		const uniformBuffer = device.createBuffer({

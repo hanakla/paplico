@@ -1,6 +1,9 @@
 export const HK_FLUID_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
+	contentOffset: vec2f,
+	worldOrigin: vec2f,
+	elementSize: vec2f,
 	dpiScale: f32,
 	intensity: f32,
 	speed: f32,
@@ -105,6 +108,16 @@ fn noise3D(v: vec3f) -> f32 {
 	return 42.0 * dot(m * m, vec4f(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
 }
 
+// World-anchored noise position: the editor clamps the bake to the viewport,
+// so texCoord 0 is not the element corner and the texture scale follows the
+// live zoom. Mapping back through contentOffset/dpiScale and shifting by
+// worldOrigin anchors the noise field to the FULL element rect, keeping the
+// pattern fixed while zooming or panning.
+fn fluidWorldPos(texCoord: vec2f) -> vec2f {
+	return (texCoord * uniforms.resolution - uniforms.contentOffset) / uniforms.dpiScale
+		+ uniforms.worldOrigin;
+}
+
 // Function to create fluid-like distortion
 fn fluidDistortion(uv: vec2f, time: f32, scale: f32, turbulence: f32) -> vec2f {
 	let t = time * 0.1;
@@ -162,11 +175,13 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let dims = uniforms.resolution;
 	let texCoord = input.texCoord;
 
-	let dpiScale = uniforms.dpiScale;
+	// Stable UV: world position normalized by the full element rect, matching
+	// the legacy texCoord domain of an unclamped bake so the noise pattern
+	// stays fixed while zooming or panning.
+	let stableUV = fluidWorldPos(texCoord) / uniforms.elementSize;
 
-	// Apply fluid distortion with DPI-aware scaling
 	let distortionVec = fluidDistortion(
-		texCoord,
+		stableUV,
 		uniforms.timeSeed * uniforms.speed,
 		uniforms.scale,
 		uniforms.turbulence
@@ -175,12 +190,15 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	// Adjust distortion amount based on turbulence
 	let turbulenceBoost = 1.0 + (uniforms.turbulence * 0.5);
 	let distortionAmount = (uniforms.intensity / 1000.0) * turbulenceBoost;
-	let distortedCoord = texCoord + distortionVec * distortionAmount;
+	// The distortion is sized in element-rect UV units; convert to bake UV so
+	// it covers the same world distance at any zoom (identity when unclamped)
+	let uvScale = uniforms.elementSize * uniforms.dpiScale / uniforms.resolution;
+	let distortedCoord = texCoord + distortionVec * distortionAmount * uvScale;
 
 	// Apply chromatic aberration
 	let chromaticShift = uniforms.colorShift * 0.01 * (1.0 + uniforms.turbulence * 0.3);
-	let redOffset = distortedCoord + distortionVec * chromaticShift;
-	let blueOffset = distortedCoord - distortionVec * chromaticShift;
+	let redOffset = distortedCoord + distortionVec * chromaticShift * uvScale;
+	let blueOffset = distortedCoord - distortionVec * chromaticShift * uvScale;
 
 	// Sample the texture with the distorted coordinates
 	let rs = sampleBounded(redOffset);

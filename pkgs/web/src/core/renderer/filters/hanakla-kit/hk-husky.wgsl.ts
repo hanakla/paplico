@@ -7,6 +7,9 @@
 const HUSKY_COMMON = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
+	contentOffset: vec2f,
+	worldOrigin: vec2f,
+	elementSize: vec2f,
 	dpiScale: f32,
 	angle: f32,
 	horizontalEnabled: f32,
@@ -89,6 +92,23 @@ fn huskyFlowDirection(posPx: vec2f, noiseSeed: f32) -> vec2f {
 	let dirAngle = fractalNoise(posPx / 96.0 + vec2f(2.7, 9.1), noiseSeed + 150.0) * 6.7021;
 	return vec2f(cos(dirAngle), sin(dirAngle));
 }
+
+// World-anchored noise position: the editor clamps the bake to the viewport,
+// so texCoord 0 is not the element corner and the texture scale follows the
+// live zoom. Mapping back through contentOffset/dpiScale and shifting by
+// worldOrigin anchors every noise field to the FULL element rect, keeping the
+// pattern fixed while zooming or panning.
+fn huskyWorldPos(texCoord: vec2f) -> vec2f {
+	return (texCoord * uniforms.resolution - uniforms.contentOffset) / uniforms.dpiScale
+		+ uniforms.worldOrigin;
+}
+
+// World-anchored replacement for the legacy "texCoord * 3.0" noise domain:
+// three noise periods across the full element rect, independent of viewport
+// clamping and zoom.
+fn huskyNoiseUV(posPx: vec2f) -> vec2f {
+	return posPx / uniforms.elementSize * 3.0;
+}
 `;
 
 /** Pass 1 — melt: rim bite + wisps over the raw source. The handler skips
@@ -102,7 +122,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let coord = input.texCoord;
 	let dpiScale = uniforms.dpiScale;
 	let noiseSeed = uniforms.randomSeed * 100.0;
-	let posPx = coord * dims / dpiScale;
+	let posPx = huskyWorldPos(coord);
 
 	let sourceColor = textureSample(inputTexture, inputSampler, coord);
 
@@ -167,8 +187,8 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let coord = input.texCoord;
 	let dpiScale = uniforms.dpiScale;
 	let noiseSeed = uniforms.randomSeed * 100.0;
-	let posPx = coord * dims / dpiScale;
-	let noiseUV = coord * 3.0;
+	let posPx = huskyWorldPos(coord);
+	let noiseUV = huskyNoiseUV(posPx);
 	// 30 stays the reference full-strength point (documents tuned below 30
 	// look identical), but the slider now reaches 50: the overshoot keeps
 	// strengthening the flow smear and stretch-thinning up to their caps.
@@ -255,8 +275,8 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let texCoord = input.texCoord;
 	let dpiScale = uniforms.dpiScale;
 	let noiseSeed = uniforms.randomSeed * 100.0;
-	let posPx = texCoord * dims / dpiScale;
-	let noiseUV = texCoord * 3.0;
+	let posPx = huskyWorldPos(texCoord);
+	let noiseUV = huskyNoiseUV(posPx);
 	let direction = huskyFlowDirection(posPx, noiseSeed);
 
 	var finalColor = textureSample(inputTexture, inputSampler, texCoord);
