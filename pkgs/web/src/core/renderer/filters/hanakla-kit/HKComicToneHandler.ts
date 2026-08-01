@@ -114,16 +114,8 @@ export class HKComicToneHandler implements FilterHandler {
 
 		const toneRGBA = colorToRawRGBA(params.toneColor);
 
-		// The bake may cover only a viewport-clamped sub-rect of the element;
-		// anchor the tone patterns to the full element rect (see
-		// comicToneWorldPos) so their phase stays fixed while zooming or panning.
-		const contentOffset = context.sourceContentOffset ?? { x: 0, y: 0 };
-		const worldOrigin = context.coordinateSpace?.sourceOffset ?? { x: 0, y: 0 };
-
 		this.uniformView.set({
 			resolution: [textureSize.width, textureSize.height],
-			contentOffset: [contentOffset.x, contentOffset.y],
-			worldOrigin: [worldOrigin.x, worldOrigin.y],
 			dpiScale,
 			toneType: toneTypeMap[params.toneType] ?? 0,
 			colorMode: colorModeMap[params.colorMode] ?? 0,

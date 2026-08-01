@@ -89,22 +89,8 @@ export class HKWaveHandler implements FilterHandler {
 
 		const params = f.paramData.params;
 
-		// The bake may cover only a viewport-clamped sub-rect of the element;
-		// anchor the wave phase to the full element rect (see waveWorldPos)
-		// so the waves stay fixed while zooming or panning.
-		const worldSize = context.sourceWorldSize ?? {
-			width: textureSize.width / dpiScale,
-			height: textureSize.height / dpiScale,
-		};
-		const contentOffset = context.sourceContentOffset ?? { x: 0, y: 0 };
-		const elementWorldSize = context.coordinateSpace?.worldSize ?? worldSize;
-		const worldOrigin = context.coordinateSpace?.sourceOffset ?? { x: 0, y: 0 };
-
 		this.uniformView.set({
 			resolution: [textureSize.width, textureSize.height],
-			contentOffset: [contentOffset.x, contentOffset.y],
-			worldOrigin: [worldOrigin.x, worldOrigin.y],
-			elementSize: [elementWorldSize.width, elementWorldSize.height],
 			dpiScale,
 			amplitude: params.amplitude,
 			frequency: params.frequency,

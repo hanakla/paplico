@@ -91,13 +91,8 @@ export class HKBlushStrokeHandler implements FilterHandler {
 
 		const params = f.paramData.params;
 
-		const contentOffset = context.sourceContentOffset ?? { x: 0, y: 0 };
-		const worldOrigin = context.coordinateSpace?.sourceOffset ?? { x: 0, y: 0 };
-
 		this.uniformView.set({
 			resolution: [textureSize.width, textureSize.height],
-			contentOffset: [contentOffset.x, contentOffset.y],
-			worldOrigin: [worldOrigin.x, worldOrigin.y],
 			dpiScale,
 			angle: params.angle,
 			brushSize: params.brushSize,

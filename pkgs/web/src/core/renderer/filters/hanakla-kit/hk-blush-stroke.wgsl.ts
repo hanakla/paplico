@@ -1,8 +1,6 @@
 export const HK_BLUSH_STROKE_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
-	contentOffset: vec2f,
-	worldOrigin: vec2f,
 	dpiScale: f32,
 	angle: f32,
 	brushSize: f32,
@@ -36,25 +34,12 @@ fn hash(n: f32) -> f32 {
 	return fract(sin(n) * 43758.5453);
 }
 
-// World-anchored position: the editor clamps the bake to the viewport, so
-// texCoord 0 is not the element corner and the texture scale follows the live
-// zoom. Mapping back through contentOffset/dpiScale and shifting by
-// worldOrigin anchors the stroke grid to the FULL element rect, keeping the
-// pattern fixed while zooming or panning.
-fn blushWorldPos(texCoord: vec2f) -> vec2f {
-	return (texCoord * uniforms.resolution - uniforms.contentOffset) / uniforms.dpiScale
-		+ uniforms.worldOrigin;
-}
-
-// Inverse of blushWorldPos: world position back to bake-texture UV.
-fn blushWorldToUV(worldPos: vec2f) -> vec2f {
-	return ((worldPos - uniforms.worldOrigin) * uniforms.dpiScale + uniforms.contentOffset)
-		/ uniforms.resolution;
-}
-
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+	let dims = uniforms.resolution;
 	let texCoord = input.texCoord;
+
+	let dpiScale = uniforms.dpiScale;
 
 	// Original image color
 	let originalColor = textureSample(inputTexture, inputSampler, texCoord);
@@ -68,19 +53,22 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	// Convert angle to radians
 	let baseAngleRad = uniforms.angle * 3.14159265359 / 180.0;
 
-	// Grid structure in world units, anchored by blushWorldPos so cells stay
-	// fixed while zooming or panning
+	// Physical dimension based calculation (DPI-aware)
+	let onTex1PxFactor = 1.0 / dpiScale;
+
+	// Grid structure
 	let physicalBrushSize = uniforms.brushSize;
 	let physicalCellSize = sqrt(physicalBrushSize) * 5.0;
 
-	// Different cell sizes for horizontal and vertical directions
-	let cellSize = vec2f(
-		physicalCellSize,
-		physicalCellSize / (uniforms.strokeDensity * 1.5)
-	);
+	// Different densities for horizontal and vertical directions
+	let baseDensity = 1.0 / (physicalCellSize * dpiScale);
+	let densityX = baseDensity;
+	let densityY = baseDensity * uniforms.strokeDensity * 1.5;
 
-	let pixelWorld = blushWorldPos(texCoord);
-	let gridCoord = floor(pixelWorld / cellSize);
+	// Calculate grid coordinates with different densities
+	let gridCoordX = floor(texCoord.x * dims.x * densityX);
+	let gridCoordY = floor(texCoord.y * dims.y * densityY);
+	let gridCoord = vec2f(gridCoordX, gridCoordY);
 
 	// Scan from bottom to top so upper strokes overwrite lower ones
 	for (var dy = -1; dy <= 1; dy++) {
@@ -93,10 +81,10 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 			// Decide whether to draw this cell (density control)
 			let cellDrawProb = min(0.95, 0.7 + physicalBrushSize * 0.015) * uniforms.strokeDensity;
 
-			// Cell center in world units; sample unconditionally (textureSample
-			// requires uniform control flow)
-			let cellCenter = (cellPos + vec2f(0.5)) * cellSize;
-			let sampledColor = textureSample(inputTexture, inputSampler, blushWorldToUV(cellCenter));
+			// Pre-compute cellCenter and sample unconditionally (textureSample requires uniform control flow)
+			let densityVec = vec2f(densityX, densityY);
+			let cellCenter = (cellPos + vec2f(0.5)) / (dims * densityVec);
+			let sampledColor = textureSample(inputTexture, inputSampler, cellCenter);
 
 			if (cellHash < cellDrawProb) {
 
@@ -105,8 +93,10 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 				let strokeAngle = baseAngleRad + (angleJitter * uniforms.randomStrength);
 				let strokeDir = vec2f(cos(strokeAngle), sin(strokeAngle));
 
-				// Stroke length in world units
-				let strokeLen = uniforms.strokeLength * 0.3;
+				// Stroke length - constant in physical units
+				let physicalStrokeLength = uniforms.strokeLength;
+				let pixelStrokeLength = physicalStrokeLength * dpiScale;
+				let strokeLen = (pixelStrokeLength * 0.3) / dims.x;
 
 				// Stroke as independent short line segment
 				let halfLen = strokeLen * 0.5;
@@ -114,21 +104,21 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 				let strokeEnd = cellCenter + strokeDir * halfLen;
 
 				// Distance from pixel to stroke
-				let toPixel = pixelWorld - strokeStart;
+				let toPixel = texCoord - strokeStart;
 				let projLen = dot(toPixel, strokeDir);
 				let paramT = clamp(projLen / (strokeLen), 0.0, 1.0);
 
 				// Closest point on stroke
 				let closestPt = strokeStart + strokeDir * paramT * strokeLen;
 
-				// Distance to stroke line in world units
-				let distToLine = distance(pixelWorld, closestPt);
+				// Distance to stroke line in physical units
+				let distToLine = distance(texCoord, closestPt) * dims.x * onTex1PxFactor;
 
 				// End cap rounding distance
 				let distToEnds = min(
-					distance(pixelWorld, strokeStart),
-					distance(pixelWorld, strokeEnd)
-				);
+					distance(texCoord, strokeStart),
+					distance(texCoord, strokeEnd)
+				) * dims.x * onTex1PxFactor;
 
 				// Brush width in physical units
 				let brushWidth = physicalBrushSize * 0.4;

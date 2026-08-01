@@ -212,22 +212,8 @@ export class HKHuskyHandler implements FilterHandler {
 
 		const params = f.paramData.params;
 
-		// The bake may cover only a viewport-clamped sub-rect of the element;
-		// anchor the noise fields to the full element rect (see huskyWorldPos)
-		// so the pattern stays fixed while zooming or panning.
-		const worldSize = context.sourceWorldSize ?? {
-			width: textureSize.width / dpiScale,
-			height: textureSize.height / dpiScale,
-		};
-		const contentOffset = context.sourceContentOffset ?? { x: 0, y: 0 };
-		const elementWorldSize = context.coordinateSpace?.worldSize ?? worldSize;
-		const worldOrigin = context.coordinateSpace?.sourceOffset ?? { x: 0, y: 0 };
-
 		this.uniformView.set({
 			resolution: [textureSize.width, textureSize.height],
-			contentOffset: [contentOffset.x, contentOffset.y],
-			worldOrigin: [worldOrigin.x, worldOrigin.y],
-			elementSize: [elementWorldSize.width, elementWorldSize.height],
 			dpiScale: dpiScale,
 			angle: params.angle,
 			horizontalEnabled: params.horizontalEnabled ? 1.0 : 0.0,

@@ -1,9 +1,6 @@
 export const HK_TURBULENCE_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
-	contentOffset: vec2f,
-	worldOrigin: vec2f,
-	elementSize: vec2f,
 	dpiScale: f32,
 	scale: f32,
 	octaves: i32,
@@ -125,16 +122,6 @@ fn turbulence(pos: vec3f, octaves: i32) -> f32 {
 	return (value / maxValue) * 0.5 + 0.5; // Normalize to 0-1 range
 }
 
-// World-anchored noise position: the editor clamps the bake to the viewport,
-// so texCoord 0 is not the element corner and the texture scale follows the
-// live zoom. Mapping back through contentOffset/dpiScale and shifting by
-// worldOrigin anchors the noise field to the FULL element rect, keeping the
-// pattern fixed while zooming or panning.
-fn turbulenceWorldPos(texCoord: vec2f) -> vec2f {
-	return (texCoord * uniforms.resolution - uniforms.contentOffset) / uniforms.dpiScale
-		+ uniforms.worldOrigin;
-}
-
 fn sampleWithEdgeMode(texCoord: vec2f) -> vec4f {
 	var coord = texCoord;
 
@@ -156,20 +143,16 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
 	let dpiScale = uniforms.dpiScale;
 
-	// Generate turbulence noise with separate X and Y components.
-	// Stable UV: world position normalized by the full element rect, matching
-	// the legacy texCoord domain of an unclamped bake so the noise pattern
-	// stays fixed while zooming or panning.
-	let stableUV = turbulenceWorldPos(texCoord) / uniforms.elementSize;
+	// Generate turbulence noise with separate X and Y components
 	let noiseScale = uniforms.scale * 0.01;
 	let noisePosX = vec3f(
-		stableUV.x * noiseScale,
-		stableUV.y * noiseScale,
+		texCoord.x * noiseScale,
+		texCoord.y * noiseScale,
 		uniforms.seed
 	);
 	let noisePosY = vec3f(
-		stableUV.x * noiseScale,
-		stableUV.y * noiseScale,
+		texCoord.x * noiseScale,
+		texCoord.y * noiseScale,
 		uniforms.seed + 100.0
 	);
 
@@ -186,23 +169,19 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 			(noiseY * 2.0 - 1.0) * scaledDisplacementY / dims.y
 		);
 	} else if (uniforms.displacementMode == 1) { // radial
-		// Center on the full element rect (stable UV), not the bake rect, so
-		// the radial origin stays fixed while zooming or panning.
-		let offset = stableUV - vec2f(0.5);
+		let center = vec2f(0.5);
+		let offset = texCoord - center;
 		let distance = length(offset);
 		if (distance > 0.001) {
 			let direction = offset / distance;
 			let noiseValue = (noiseX * 2.0 - 1.0);
 			// Use distance to modulate the effect (stronger at edges)
 			let strength = noiseValue * distance * length(vec2f(scaledDisplacementX, scaledDisplacementY));
-			// Normalize against the element rect in bake px, not the clamped
-			// bake dims, so the world-space amplitude does not swing while
-			// panning (identity for an unclamped bake).
-			let elementPx = uniforms.elementSize * uniforms.dpiScale;
-			displacement = direction * strength * elementPx / (dims * min(elementPx.x, elementPx.y));
+			displacement = direction * strength / min(dims.x, dims.y);
 		}
 	} else if (uniforms.displacementMode == 2) { // twist
-		let offset = stableUV - vec2f(0.5);
+		let center = vec2f(0.5);
+		let offset = texCoord - center;
 		let distance = length(offset);
 		if (distance > 0.001) {
 			// Angle increases with distance from center
@@ -213,10 +192,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 				offset.x * cosA - offset.y * sinA,
 				offset.x * sinA + offset.y * cosA
 			);
-			// The rotational offset is in stable-UV units; convert to real bake
-			// UV before applying (identity for an unclamped bake).
-			let uvScale = uniforms.elementSize * uniforms.dpiScale / dims;
-			displacement = (rotated - offset) * uvScale * scaledDisplacementY * 0.02;
+			displacement = (rotated - offset) * scaledDisplacementY * 0.02;
 		}
 	}
 

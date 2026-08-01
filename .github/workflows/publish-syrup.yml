@@ -1,0 +1,62 @@
+name: Publish Syrup
+
+# Runs only on the public mirror; the private repository is a no-op.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pkgs/syrup/**"
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: 24
+
+jobs:
+  publish:
+    if: github.repository == 'hanakla/paplico'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: publish
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - run: yarn install --immutable
+
+      - name: Check whether the version is already published
+        id: version
+        run: |
+          local_version="$(node -p "require('./pkgs/syrup/package.json').version")"
+          published_version="$(npm view @paplico/syrup version 2>/dev/null || true)"
+          echo "local=$local_version" >> "$GITHUB_OUTPUT"
+          if [ "$local_version" = "$published_version" ]; then
+            echo "should-publish=false" >> "$GITHUB_OUTPUT"
+            echo "@paplico/syrup@$local_version is already published; skipping."
+          else
+            echo "should-publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Test
+        if: steps.version.outputs.should-publish == 'true'
+        run: yarn workspace @paplico/syrup test
+
+      - name: Build
+        if: steps.version.outputs.should-publish == 'true'
+        run: yarn workspace @paplico/syrup build
+
+      # `yarn npm publish` is required here: the package resolves to its
+      # TypeScript sources during development and only switches to dist via
+      # publishConfig, which npm does not apply but Yarn does.
+      - name: Publish
+        if: steps.version.outputs.should-publish == 'true'
+        working-directory: pkgs/syrup
+        run: yarn npm publish --access public --tolerate-republish
+        env:
+          YARN_NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

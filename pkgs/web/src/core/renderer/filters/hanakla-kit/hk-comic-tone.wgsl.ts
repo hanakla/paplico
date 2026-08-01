@@ -1,8 +1,6 @@
 export const HK_COMIC_TONE_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
-	contentOffset: vec2f,
-	worldOrigin: vec2f,
 	dpiScale: f32,
 	toneType: f32,
 	colorMode: f32,
@@ -53,23 +51,6 @@ fn mod_f32(x: f32, y: f32) -> f32 {
 	return x - y * floor(x / y);
 }
 
-// World-anchored position: the editor clamps the bake to the viewport, so
-// texCoord 0 is not the element corner and the texture scale follows the live
-// zoom. Mapping back through contentOffset/dpiScale and shifting by
-// worldOrigin anchors the line/dot patterns to the FULL element rect, keeping
-// their phase fixed while zooming or panning.
-fn comicToneWorldPos(texCoord: vec2f) -> vec2f {
-	return (texCoord * uniforms.resolution - uniforms.contentOffset) / uniforms.dpiScale
-		+ uniforms.worldOrigin;
-}
-
-// Inverse of comicToneWorldPos * dpiScale: world-anchored texel back to a
-// sampleable texCoord of the (possibly clamped) bake.
-fn comicToneTexCoord(worldTexel: vec2f) -> vec2f {
-	return (worldTexel - uniforms.worldOrigin * uniforms.dpiScale + uniforms.contentOffset)
-		/ uniforms.resolution;
-}
-
 fn createLinePattern(pos: vec2f, size: f32, spacing: f32, angleRad: f32) -> f32 {
 	let rotatedPos = vec2f(
 		pos.x * cos(angleRad) - pos.y * sin(angleRad),
@@ -87,6 +68,7 @@ fn createCrosshatchPattern(pos: vec2f, size: f32, spacing: f32, angleRad: f32) -
 
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+	let dims = uniforms.resolution;
 	let texCoord = input.texCoord;
 
 	let dpiScale = uniforms.dpiScale;
@@ -119,7 +101,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	}
 
 	let angleRad = uniforms.angle * 3.14159265359 / 180.0;
-	let pixelPos = comicToneWorldPos(texCoord) * dpiScale;
+	let pixelPos = texCoord * dims;
 
 	let toneTypeInt = i32(uniforms.toneType + 0.5);
 	let colorModeInt = i32(uniforms.colorMode + 0.5);
@@ -158,7 +140,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 		let baseRadius = scaledSize * 0.5;
 
 		// Sample at dot center
-		let dotCenterTexCoord = comicToneTexCoord(cellCenter);
+		let dotCenterTexCoord = cellCenter / dims;
 		let clampedDotCenter = clamp(dotCenterTexCoord, vec2f(0.0), vec2f(1.0));
 		let sampledDotCenter = textureSample(inputTexture, inputSampler, clampedDotCenter);
 		let dotInBounds = dotCenterTexCoord.x >= 0.0 && dotCenterTexCoord.x <= 1.0 && dotCenterTexCoord.y >= 0.0 && dotCenterTexCoord.y <= 1.0;

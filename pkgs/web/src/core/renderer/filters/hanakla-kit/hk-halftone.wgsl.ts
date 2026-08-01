@@ -1,9 +1,6 @@
 export const HK_HALFTONE_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
-	contentOffset: vec2f,
-	worldOrigin: vec2f,
-	elementSize: vec2f,
 	dpiScale: f32,
 	size: f32,
 	angle: f32,
@@ -39,30 +36,14 @@ fn rgbToGray(color: vec3f, alpha: f32) -> f32 {
 	return dot(color.rgb, vec3f(0.299, 0.587, 0.114)) * alpha;
 }
 
-// World-anchored position: the editor clamps the bake to the viewport, so
-// texCoord 0 is not the element corner and the texture scale follows the live
-// zoom. Mapping back through contentOffset/dpiScale and shifting by
-// worldOrigin anchors the dot grid to the FULL element rect, keeping the
-// pattern fixed while zooming or panning.
-fn halftoneWorldPos(texCoord: vec2f) -> vec2f {
-	return (texCoord * uniforms.resolution - uniforms.contentOffset) / uniforms.dpiScale
-		+ uniforms.worldOrigin;
-}
-
-// Inverse of halftoneWorldPos * dpiScale: world-anchored texel back to a
-// sampleable texCoord of the (possibly clamped) bake.
-fn halftoneTexCoord(worldTexel: vec2f) -> vec2f {
-	return (worldTexel - uniforms.worldOrigin * uniforms.dpiScale + uniforms.contentOffset)
-		/ uniforms.resolution;
-}
-
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+	let dims = uniforms.resolution;
 	let texCoord = input.texCoord;
 
 	let dpiScale = uniforms.dpiScale;
 
-	let currentPixel = halftoneWorldPos(texCoord) * dpiScale;
+	let currentPixel = texCoord * dims;
 
 	// Calculate rotation matrices
 	let radians = uniforms.angle * 3.14159265359 / 180.0;
@@ -79,9 +60,8 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 		sinTheta, cosTheta
 	);
 
-	// Rotate around the element center in world-anchored texels — a pivot
-	// tied to the clamped bake would shift the grid phase on every pan/zoom.
-	let center = uniforms.elementSize * dpiScale * 0.5;
+	// Center and rotate current pixel
+	let center = dims * 0.5;
 	let centered = currentPixel - center;
 	let rotated = rotMatrix * centered;
 	let rotatedPixel = rotated + center;
@@ -116,7 +96,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let samplePoint = originalCellCenter + center;
 
 	// Sample original image
-	let sampleTexCoord = halftoneTexCoord(samplePoint);
+	let sampleTexCoord = samplePoint / dims;
 	let origColor = textureSample(inputTexture, inputSampler, sampleTexCoord);
 	let grayscale = rgbToGray(origColor.rgb, origColor.a);
 

@@ -90,22 +90,8 @@ export class HKGlitchHandler implements FilterHandler {
 
 		const params = f.paramData.params;
 
-		// The bake may cover only a viewport-clamped sub-rect of the element;
-		// anchor the slice pattern to the full element rect (see glitchWorldPos)
-		// so the slices stay fixed while zooming or panning.
-		const worldSize = context.sourceWorldSize ?? {
-			width: textureSize.width / dpiScale,
-			height: textureSize.height / dpiScale,
-		};
-		const contentOffset = context.sourceContentOffset ?? { x: 0, y: 0 };
-		const elementWorldSize = context.coordinateSpace?.worldSize ?? worldSize;
-		const worldOrigin = context.coordinateSpace?.sourceOffset ?? { x: 0, y: 0 };
-
 		this.uniformView.set({
 			resolution: [textureSize.width, textureSize.height],
-			contentOffset: [contentOffset.x, contentOffset.y],
-			worldOrigin: [worldOrigin.x, worldOrigin.y],
-			elementSize: [elementWorldSize.width, elementWorldSize.height],
 			dpiScale,
 			intensity: params.intensity,
 			colorShift: params.colorShift / 100,

@@ -1,9 +1,6 @@
 export const HK_KALEIDOSCOPE_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
-	contentOffset: vec2f,
-	worldOrigin: vec2f,
-	elementSize: vec2f,
 	dpiScale: f32,
 	patternType: f32,
 	segments: f32,
@@ -36,16 +33,6 @@ fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
 	output.position = vec4f(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
 	output.texCoord = vec2f(x, y);
 	return output;
-}
-
-// World-anchored position: the editor clamps the bake to the viewport, so
-// texCoord 0 is not the element corner and the texture scale follows the live
-// zoom. Mapping back through contentOffset/dpiScale and shifting by
-// worldOrigin anchors the mirror/cell pattern to the full element rect,
-// keeping it fixed while zooming or panning.
-fn kaleidoscopeWorldPos(texCoord: vec2f) -> vec2f {
-	return (texCoord * uniforms.resolution - uniforms.contentOffset) / uniforms.dpiScale
-		+ uniforms.worldOrigin;
 }
 
 fn degToRad(degrees: f32) -> f32 {
@@ -336,16 +323,11 @@ fn shiftColor(color: vec4f, shift: f32) -> vec4f {
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let texCoord = input.texCoord;
 
-	// The whole transform chain runs in element-rect UV so the mirror axes,
-	// cells, and loop period stay anchored to the element instead of the
-	// viewport-clamped bake rect
-	let stableUV = kaleidoscopeWorldPos(texCoord) / uniforms.elementSize;
-
 	let kaleidoscopeCenter = vec2f(0.5, 0.5);
 	let samplePosition = vec2f(uniforms.centerX, uniforms.centerY);
 	let sampleOffset = kaleidoscopeCenter - samplePosition;
 
-	let offsetCoord = (stableUV - kaleidoscopeCenter) / uniforms.zoom + sampleOffset + kaleidoscopeCenter;
+	let offsetCoord = (texCoord - kaleidoscopeCenter) / uniforms.zoom + sampleOffset + kaleidoscopeCenter;
 
 	let cellCoord = applyCellEffect(offsetCoord, kaleidoscopeCenter, uniforms.cellEffect, uniforms.cellSize);
 	let distortedCoord = applyDistortion(cellCoord, kaleidoscopeCenter, uniforms.distortion);
@@ -393,12 +375,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
 	let finalCellCoord = applyCellEffect(loopedCoord, kaleidoscopeCenter, uniforms.cellEffect * 0.5, uniforms.cellSize * 0.5);
 
-	// finalCellCoord lives in element-rect UV; convert back to bake UV for
-	// the actual texture read (inverse of kaleidoscopeWorldPos)
-	let sampleUV = (finalCellCoord * uniforms.elementSize * uniforms.dpiScale + uniforms.contentOffset)
-		/ uniforms.resolution;
-
-	let sampledColor = textureSample(inputTexture, inputSampler, clamp(sampleUV, vec2f(0.0), vec2f(1.0)));
+	let sampledColor = textureSample(inputTexture, inputSampler, finalCellCoord);
 
 	let finalColor = shiftColor(sampledColor, uniforms.colorShift);
 
