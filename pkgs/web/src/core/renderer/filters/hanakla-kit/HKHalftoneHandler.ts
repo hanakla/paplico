@@ -98,8 +98,22 @@ export class HKHalftoneHandler implements FilterHandler {
 
 		const colorRGBA = colorToRawRGBA(params.color);
 
+		// The bake may cover only a viewport-clamped sub-rect of the element;
+		// anchor the dot grid to the full element rect (see halftoneWorldPos)
+		// so the pattern stays fixed while zooming or panning.
+		const worldSize = context.sourceWorldSize ?? {
+			width: textureSize.width / dpiScale,
+			height: textureSize.height / dpiScale,
+		};
+		const contentOffset = context.sourceContentOffset ?? { x: 0, y: 0 };
+		const elementWorldSize = context.coordinateSpace?.worldSize ?? worldSize;
+		const worldOrigin = context.coordinateSpace?.sourceOffset ?? { x: 0, y: 0 };
+
 		this.uniformView.set({
 			resolution: [textureSize.width, textureSize.height],
+			contentOffset: [contentOffset.x, contentOffset.y],
+			worldOrigin: [worldOrigin.x, worldOrigin.y],
+			elementSize: [elementWorldSize.width, elementWorldSize.height],
 			dpiScale,
 			size: params.size,
 			angle: params.angle,
