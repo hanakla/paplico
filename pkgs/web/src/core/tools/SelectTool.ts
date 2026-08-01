@@ -67,6 +67,7 @@ import {
 	createResizeHandles,
 	createRotationHandle,
 	getResizeCursor,
+	getResizeSnapTargets,
 	hitTestResizeHandle,
 	hitTestRotationHandle,
 	type ResizeHandle,
@@ -99,6 +100,7 @@ type DragState =
 			dragStartY: number;
 			originalBounds: WorldBBox;
 			activeHandle: ResizeHandle;
+			lastPreviewBounds: BoundingBox | null;
 	  }
 	| {
 			mode: "rotate";
@@ -255,6 +257,7 @@ export class SelectTool implements Tool {
 					dragStartY: worldY,
 					originalBounds: { ...this.selectedBounds },
 					activeHandle: handle,
+					lastPreviewBounds: null,
 				};
 				return;
 			}
@@ -901,7 +904,7 @@ export class SelectTool implements Tool {
 				this.handleMoveDrag(ds, worldX, worldY, viewport);
 				break;
 			case "resize":
-				this.handleResizeDrag(ds, worldX, worldY);
+				this.handleResizeDrag(ds, worldX, worldY, viewport);
 				break;
 			case "rotate":
 				this.handleRotateDrag(
@@ -975,8 +978,9 @@ export class SelectTool implements Tool {
 		state: Extract<DragState, { mode: "resize" }>,
 		worldX: number,
 		worldY: number,
+		viewport: Viewport,
 	): void {
-		const newBounds = calculateResizedBounds(
+		const rawBounds = calculateResizedBounds(
 			state.originalBounds,
 			state.activeHandle,
 			worldX,
@@ -986,9 +990,91 @@ export class SelectTool implements Tool {
 			this.shiftKey,
 			this.altKey,
 		);
+		const snapped = this.snapResizedBounds(
+			rawBounds,
+			state.activeHandle,
+			viewport.zoom,
+		);
+		state.lastPreviewBounds = snapped.bounds;
 
-		const selectionUI = this.createSelectionUI(newBounds);
+		const selectionUI = this.createSelectionUI(snapped.bounds);
 		this.context.uiUpdateSelectionUI(selectionUI);
+
+		this.updateSnapLineOverlay(snapped.snapLines);
+	}
+
+	/**
+	 * Snap the handle-dragged edges of resized bounds to other elements and
+	 * artboards, per axis. The selected elements themselves are excluded from
+	 * the snap targets via snapElements.
+	 */
+	private snapResizedBounds(
+		rawBounds: BoundingBox,
+		handle: ResizeHandle,
+		zoom: number,
+	): { bounds: BoundingBox; snapLines: SnapLine[] } {
+		const selectedIds = this.context.getSelectedElementIds();
+		const targets = getResizeSnapTargets(handle);
+		const snapLines: SnapLine[] = [];
+		const bounds: BoundingBox = { ...rawBounds };
+
+		if (targets.x !== "none") {
+			const edge = targets.x === "min" ? bounds.minX : bounds.maxX;
+			const xSnap = this.context.snapElements(
+				selectedIds,
+				brandWorldBBox({
+					minX: edge,
+					maxX: edge,
+					minY: bounds.minY,
+					maxY: bounds.maxY,
+					width: 0,
+					height: bounds.height,
+				}),
+				0,
+				0,
+				zoom,
+			);
+			if (targets.x === "min") {
+				bounds.minX += xSnap.deltaX;
+			} else {
+				bounds.maxX += xSnap.deltaX;
+			}
+			bounds.width = bounds.maxX - bounds.minX;
+			const verticalLine = xSnap.snapLines.find(
+				(line) => line.axis === "vertical",
+			);
+			if (verticalLine) snapLines.push(verticalLine);
+		}
+
+		if (targets.y !== "none") {
+			const edge = targets.y === "min" ? bounds.minY : bounds.maxY;
+			const ySnap = this.context.snapElements(
+				selectedIds,
+				brandWorldBBox({
+					minX: bounds.minX,
+					maxX: bounds.maxX,
+					minY: edge,
+					maxY: edge,
+					width: bounds.width,
+					height: 0,
+				}),
+				0,
+				0,
+				zoom,
+			);
+			if (targets.y === "min") {
+				bounds.minY += ySnap.deltaY;
+			} else {
+				bounds.maxY += ySnap.deltaY;
+			}
+			bounds.height = bounds.maxY - bounds.minY;
+			const horizontalLine = ySnap.snapLines.find(
+				(line) => line.axis === "horizontal",
+			);
+			if (horizontalLine) snapLines.push(horizontalLine);
+		}
+
+		return { bounds, snapLines };
 	}
 
 	private handleRotateDrag(
@@ -1124,7 +1210,7 @@ export class SelectTool implements Tool {
 				this.finalizeMoveDrag(ds, worldX, worldY, viewport);
 				break;
 			case "resize":
-				this.finalizeResizeDrag(ds, worldX, worldY);
+				this.finalizeResizeDrag(ds, worldX, worldY, viewport);
 				break;
 			case "rotate":
 				this.finalizeRotateDrag(ds, worldX, worldY);
@@ -1224,20 +1310,27 @@ export class SelectTool implements Tool {
 		state: Extract<DragState, { mode: "resize" }>,
 		worldX: number,
 		worldY: number,
+		viewport: Viewport,
 	): void {
 		const selectedIds = this.context.getSelectedElementIds();
 		if (selectedIds.length === 0) return;
 
-		const newBounds = calculateResizedBounds(
-			state.originalBounds,
-			state.activeHandle,
-			worldX,
-			worldY,
-			state.dragStartX,
-			state.dragStartY,
-			this.shiftKey,
-			this.altKey,
-		);
+		const newBounds =
+			state.lastPreviewBounds ??
+			this.snapResizedBounds(
+				calculateResizedBounds(
+					state.originalBounds,
+					state.activeHandle,
+					worldX,
+					worldY,
+					state.dragStartX,
+					state.dragStartY,
+					this.shiftKey,
+					this.altKey,
+				),
+				state.activeHandle,
+				viewport.zoom,
+			).bounds;
 
 		const newWorldBounds = brandWorldBBox(newBounds);
 
@@ -1256,6 +1349,8 @@ export class SelectTool implements Tool {
 		}
 
 		this.selectedBounds = newWorldBounds;
+
+		this.updateSnapLineOverlay([]);
 
 		this.refreshUI();
 	}

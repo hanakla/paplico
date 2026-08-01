@@ -285,6 +285,38 @@ export function hitTestRotationHandle(
 	return dx * dx + dy * dy <= hitRadius * hitRadius;
 }
 
+export type ResizeSnapAxisTarget = "none" | "min" | "max";
+
+export type ResizeSnapTargets = {
+	x: ResizeSnapAxisTarget;
+	y: ResizeSnapAxisTarget;
+};
+
+/**
+ * Which world-space bounds edges a handle drags (and thus may snap).
+ * World Y is up, so the "n" (screen-top) handles drag maxY.
+ */
+export function getResizeSnapTargets(handle: ResizeHandle): ResizeSnapTargets {
+	switch (handle) {
+		case "nw":
+			return { x: "min", y: "max" };
+		case "n":
+			return { x: "none", y: "max" };
+		case "ne":
+			return { x: "max", y: "max" };
+		case "e":
+			return { x: "max", y: "none" };
+		case "se":
+			return { x: "max", y: "min" };
+		case "s":
+			return { x: "none", y: "min" };
+		case "sw":
+			return { x: "min", y: "min" };
+		case "w":
+			return { x: "min", y: "none" };
+	}
+}
+
 export function getResizeCursor(handle: ResizeHandle): string {
 	switch (handle) {
 		case "nw":

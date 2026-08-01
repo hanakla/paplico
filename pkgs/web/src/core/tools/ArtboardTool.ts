@@ -17,9 +17,11 @@ import {
 	calculateResizedBounds,
 	createResizeHandles,
 	getResizeCursor,
+	getResizeSnapTargets,
 	type HandlePosition,
 	hitTestResizeHandle,
 	type ResizeHandle,
+	type ResizeSnapTargets,
 } from "./resizeHandleHelper";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
@@ -47,13 +49,6 @@ type DragState =
 			originalBounds: BoundingBox;
 			constrainAspect: boolean;
 	  };
-
-type SnapAxisTarget = "none" | "min" | "max";
-
-type SnapTargets = {
-	x: SnapAxisTarget;
-	y: SnapAxisTarget;
-};
 
 export class ArtboardTool implements Tool {
 	public readonly name = "artboard";
@@ -497,7 +492,7 @@ export class ArtboardTool implements Tool {
 		endY: number,
 		zoom: number,
 	): { bounds: BoundingBox; snapLines: SnapLine[] } {
-		const targets: SnapTargets = {
+		const targets: ResizeSnapTargets = {
 			x: endX >= startX ? "max" : "min",
 			y: endY >= startY ? "max" : "min",
 		};
@@ -511,35 +506,14 @@ export class ArtboardTool implements Tool {
 	): { bounds: BoundingBox; snapLines: SnapLine[] } {
 		return this.snapBoundsByTargets(
 			rawBounds,
-			this.getResizeSnapTargets(handle),
+			getResizeSnapTargets(handle),
 			zoom,
 		);
 	}
 
-	private getResizeSnapTargets(handle: ResizeHandle): SnapTargets {
-		switch (handle) {
-			case "nw":
-				return { x: "min", y: "max" };
-			case "n":
-				return { x: "none", y: "max" };
-			case "ne":
-				return { x: "max", y: "max" };
-			case "e":
-				return { x: "max", y: "none" };
-			case "se":
-				return { x: "max", y: "min" };
-			case "s":
-				return { x: "none", y: "min" };
-			case "sw":
-				return { x: "min", y: "min" };
-			case "w":
-				return { x: "min", y: "none" };
-		}
-	}
-
 	private snapBoundsByTargets(
 		rawBounds: BoundingBox,
-		targets: SnapTargets,
+		targets: ResizeSnapTargets,
 		zoom: number,
 	): { bounds: BoundingBox; snapLines: SnapLine[] } {
 		const snapLines: SnapLine[] = [];
