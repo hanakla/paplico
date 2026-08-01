@@ -1,6 +1,9 @@
 export const HK_TURBULENCE_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
+	contentOffset: vec2f,
+	worldOrigin: vec2f,
+	elementSize: vec2f,
 	dpiScale: f32,
 	scale: f32,
 	octaves: i32,
@@ -122,6 +125,16 @@ fn turbulence(pos: vec3f, octaves: i32) -> f32 {
 	return (value / maxValue) * 0.5 + 0.5; // Normalize to 0-1 range
 }
 
+// World-anchored noise position: the editor clamps the bake to the viewport,
+// so texCoord 0 is not the element corner and the texture scale follows the
+// live zoom. Mapping back through contentOffset/dpiScale and shifting by
+// worldOrigin anchors the noise field to the FULL element rect, keeping the
+// pattern fixed while zooming or panning.
+fn turbulenceWorldPos(texCoord: vec2f) -> vec2f {
+	return (texCoord * uniforms.resolution - uniforms.contentOffset) / uniforms.dpiScale
+		+ uniforms.worldOrigin;
+}
+
 fn sampleWithEdgeMode(texCoord: vec2f) -> vec4f {
 	var coord = texCoord;
 
@@ -143,16 +156,20 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
 	let dpiScale = uniforms.dpiScale;
 
-	// Generate turbulence noise with separate X and Y components
+	// Generate turbulence noise with separate X and Y components.
+	// Stable UV: world position normalized by the full element rect, matching
+	// the legacy texCoord domain of an unclamped bake so the noise pattern
+	// stays fixed while zooming or panning.
+	let stableUV = turbulenceWorldPos(texCoord) / uniforms.elementSize;
 	let noiseScale = uniforms.scale * 0.01;
 	let noisePosX = vec3f(
-		texCoord.x * noiseScale,
-		texCoord.y * noiseScale,
+		stableUV.x * noiseScale,
+		stableUV.y * noiseScale,
 		uniforms.seed
 	);
 	let noisePosY = vec3f(
-		texCoord.x * noiseScale,
-		texCoord.y * noiseScale,
+		stableUV.x * noiseScale,
+		stableUV.y * noiseScale,
 		uniforms.seed + 100.0
 	);
 
