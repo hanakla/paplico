@@ -160,8 +160,14 @@ export type ToolContextOptions = {
 	reference3dEdit: (element: AnyArtObject) => void;
 	/** Leave reference3d editing (switches back to the select tool). */
 	reference3dExitEdit: () => void;
-	/** Create a shared scene (floor + box) + a viewing element at world (x, y). */
-	reference3dCreate: (x: number, y: number) => AnyArtObject | null;
+	/** Create a shared scene (floor + box) + a viewing element centered at
+	 *  world (x, y), optionally with an explicit element size. */
+	reference3dCreate: (
+		x: number,
+		y: number,
+		width?: number,
+		height?: number,
+	) => AnyArtObject | null;
 	/** Scene definition lookup — returns the drag-preview state when active. */
 	reference3dGetDef: (sceneId: string) => Reference3DDef | null;
 	reference3dAddNode: (sceneId: string, node: Reference3DNode) => void;
