@@ -15,7 +15,6 @@ import {
 	generateRoomId,
 	generateRoomKey,
 } from "@/core/collaboration/roomCrypto";
-import { buildSessionCode } from "@/core/collaboration/sessionCode";
 import type { Paplico } from "@/core/Paplico";
 import {
 	DEFAULT_COMPOSITION_MODE,
@@ -40,10 +39,11 @@ import { useEventCallback } from "@/utils/hooks";
 export const companionHostState = proxy({
 	/** True while a code should be on offer. */
 	adhocRequested: false,
-	/** What the QR carries. Set once the channel is up, so the dialog knows the
-	 *  code is real. */
-	adhocCode: null as string | null,
-	/** The same session as a link, for passing along by hand. */
+	/**
+	 * The session as a link, which is both what the QR carries and what there is
+	 * to pass along by hand. Set once the channel is up, so the dialog knows the
+	 * code is real.
+	 */
 	adhocUrl: null as string | null,
 	/**
 	 * A companion has said hello and has not gone yet. The relay names nobody,
@@ -164,10 +164,6 @@ const CompanionHostInner = memo(function CompanionHostInner({
 
 			channel = openChannel(roomId, roomKey);
 			const encodedKey = await exportRoomKey(roomKey);
-			companionHostState.adhocCode = buildSessionCode("companion", {
-				roomId,
-				encodedKey,
-			});
 			companionHostState.adhocUrl = buildCompanionUrl(inviteOrigin(), {
 				roomId,
 				encodedKey,
@@ -177,7 +173,6 @@ const CompanionHostInner = memo(function CompanionHostInner({
 
 		return () => {
 			cancelled = true;
-			companionHostState.adhocCode = null;
 			companionHostState.adhocUrl = null;
 			if (channel) closeChannel(channel);
 		};

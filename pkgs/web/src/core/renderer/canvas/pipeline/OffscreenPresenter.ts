@@ -32,7 +32,6 @@ import {
 	applyTransformToBounds,
 	composeTransforms,
 } from "../../../utils/geometry/geometry";
-import { capFilterBakeDensity } from "../CanvasLayer.helpers";
 import {
 	type BlitQuadToCanvasFn,
 	type BlitTextureToCanvasFn,
@@ -402,8 +401,6 @@ export class OffscreenPresenter {
 		 * postProcess filter renders its filtered result, not the flat geometry.
 		 */
 		filteredTextures?: Map<string, FilteredTextureInfo>,
-		/** Full-bounds bake at a caller-keyed density — see createOffscreenPass. */
-		fullBoundsBake: { density: number } | null = null,
 	): RasterizedRenderSurface | null {
 		const ctx = this.createOffscreenPass(
 			encoder,
@@ -412,7 +409,6 @@ export class OffscreenPresenter {
 			rasterScale,
 			skipCull,
 			filterMargin,
-			fullBoundsBake,
 		);
 		if (!ctx) return null;
 
@@ -669,8 +665,6 @@ export class OffscreenPresenter {
 		rasterScale?: number,
 		/** Opt-in output clamp margin — see createOffscreenPass (null = no clamp). */
 		filterMargin: number | null = null,
-		/** Full-bounds bake at a caller-keyed density — see createOffscreenPass. */
-		fullBoundsBake: { density: number } | null = null,
 	): RasterizedRenderSurface | null {
 		if (
 			Math.ceil(textureBounds.width) <= 0 ||
@@ -812,7 +806,6 @@ export class OffscreenPresenter {
 			rasterScale,
 			false,
 			filterMargin,
-			fullBoundsBake,
 		);
 		if (!ctx) return null;
 
@@ -1193,11 +1186,6 @@ export class OffscreenPresenter {
 		 *  coordinate space must span the full textureBounds, e.g. the
 		 *  per-appearance accumulator). */
 		filterMargin: number | null = null,
-		/** Non-null bakes the full textureBounds (no viewport region clamp) at
-		 *  exactly this density. A caller caching the result across frames keys
-		 *  on that density, so it is passed in rather than re-derived here —
-		 *  the hash and the texture can never disagree. */
-		fullBoundsBake: { density: number } | null = null,
 	): {
 		offscreenTexture: GPUTexture;
 		offscreenStencilTexture: GPUTexture;
@@ -1234,30 +1222,26 @@ export class OffscreenPresenter {
 		// than the screen. Skipped for null-bounds passes (export / nested
 		// offscreen), matching the cull guard above; everything below derives
 		// from `effectiveBounds`, so the caller blits back the smaller region.
-		const interactiveBounds =
-			filterMargin != null && !skipCull ? this.deps.viewportState.bounds : null;
-		const clampBounds = fullBoundsBake ? null : interactiveBounds;
-		const effectiveBounds: BoundingBox = clampBounds
-			? (boundsIntersectionBox(
-					textureBounds,
-					expandBounds(brandWorldBBox(clampBounds), filterMargin ?? 0),
-				) ?? textureBounds)
-			: textureBounds;
-
-		// Interactive bakes also cap their density to the display zoom bucket so
-		// a zoomed-out viewport does not rasterize far denser than the screen.
-		// A cached full-bounds bake uses the caller-provided density verbatim
-		// (the caller derived it from the same cap and keys its cache on it).
-		const bakeZoom = fullBoundsBake
-			? fullBoundsBake.density
-			: interactiveBounds
-				? capFilterBakeDensity(rasterZoom, zoom)
-				: rasterZoom;
+		const effectiveBounds: BoundingBox =
+			filterMargin != null &&
+			!skipCull &&
+			this.deps.viewportState.bounds != null
+				? (boundsIntersectionBox(
+						textureBounds,
+						expandBounds(
+							brandWorldBBox(this.deps.viewportState.bounds),
+							filterMargin,
+						),
+					) ?? textureBounds)
+				: textureBounds;
 
 		// Texture covers effectiveBounds, clamped only by GPU max.
-		const width = Math.min(Math.ceil(effectiveBounds.width * bakeZoom), maxDim);
+		const width = Math.min(
+			Math.ceil(effectiveBounds.width * rasterZoom),
+			maxDim,
+		);
 		const height = Math.min(
-			Math.ceil(effectiveBounds.height * bakeZoom),
+			Math.ceil(effectiveBounds.height * rasterZoom),
 			maxDim,
 		);
 		if (width <= 0 || height <= 0) return null;
@@ -1265,7 +1249,7 @@ export class OffscreenPresenter {
 		let effectiveZoom = Math.min(
 			width / effectiveBounds.width,
 			height / effectiveBounds.height,
-			bakeZoom,
+			rasterZoom,
 		);
 		const coverageBounds = effectiveBounds;
 
@@ -1321,7 +1305,7 @@ export class OffscreenPresenter {
 		effectiveZoom = Math.min(
 			texW / coverageBounds.width,
 			texH / coverageBounds.height,
-			bakeZoom,
+			rasterZoom,
 		);
 
 		const tempViewport = {

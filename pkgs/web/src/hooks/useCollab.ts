@@ -9,7 +9,6 @@ import {
 	generateRoomKey,
 	importRoomKey,
 } from "@/core/collaboration/roomCrypto";
-import { buildSessionCode } from "@/core/collaboration/sessionCode";
 import type { Paplico } from "@/core/Paplico";
 import { DisconnectedDialog } from "@/dialogs/DisconnectedDialog";
 import { appConfig, setCollaborationUserName } from "@/hooks/useAppConfig";
@@ -33,12 +32,6 @@ interface CollabState {
 	 * useless without the key.
 	 */
 	inviteUrl: string | null;
-	/**
-	 * What the QR carries for an encrypted session. A URL would name the address
-	 * it was generated on, which is often not an address the scanning device can
-	 * reach; the room and key are the only parts that travel meaningfully.
-	 */
-	inviteCode: string | null;
 	/**
 	 * Whether the current room is end-to-end encrypted. Encrypted rooms live
 	 * only on the relay for the length of the session: nothing is registered
@@ -93,7 +86,6 @@ const collabState = proxy<CollabState>({
 	signInDialogOpen: false,
 	pendingRoomId: null,
 	inviteUrl: null,
-	inviteCode: null,
 	isEncryptedRoom: false,
 	isSyncing: false,
 });
@@ -300,7 +292,6 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 		collabState.isRoomOwner = false;
 		collabState.publishedRoomId = null;
 		collabState.inviteUrl = null;
-		collabState.inviteCode = null;
 		collabState.isEncryptedRoom = false;
 		collabState.isSyncing = false;
 		setReconnectInfo(null);
@@ -325,8 +316,6 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 		): Promise<{
 			roomId: string;
 			inviteUrl: string;
-			/** Encrypted sessions only: a public room has no key to put in a code. */
-			inviteCode: string | null;
 		} | null> => {
 			const pap = paplicoRef.current;
 			if (!pap) return null;
@@ -360,12 +349,10 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 					roomId,
 					encodedKey,
 				});
-				const inviteCode = buildSessionCode("room", { roomId, encodedKey });
 				collabState.inviteUrl = inviteUrl;
-				collabState.inviteCode = inviteCode;
 				markRoomPublished(roomId, true);
 
-				return { roomId, inviteUrl, inviteCode };
+				return { roomId, inviteUrl };
 			}
 
 			let authToken: string | undefined;
@@ -420,7 +407,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 			collabState.inviteUrl = inviteUrl;
 			markRoomPublished(roomId, false);
 
-			return { roomId, inviteUrl, inviteCode: null };
+			return { roomId, inviteUrl };
 		},
 	);
 
@@ -502,7 +489,6 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 		publishedRoomId: snap.publishedRoomId,
 		publishedReadonly: snap.publishedReadonly,
 		inviteUrl: snap.inviteUrl,
-		inviteCode: snap.inviteCode,
 		isEncryptedRoom: snap.isEncryptedRoom,
 		isSyncing: snap.isSyncing,
 		signInDialogOpen: snap.signInDialogOpen,

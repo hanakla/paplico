@@ -431,7 +431,6 @@ export default function Page() {
 			encrypted: false,
 			publishedRoomId: collab.publishedRoomId,
 			inviteUrl: collab.inviteUrl,
-			inviteCode: collab.inviteCode,
 			onPublish: handlePublishRoom,
 		});
 	});
@@ -441,7 +440,6 @@ export default function Page() {
 			encrypted: true,
 			publishedRoomId: collab.publishedRoomId,
 			inviteUrl: collab.inviteUrl,
-			inviteCode: collab.inviteCode,
 			onPublish: handleConnectOtherDevices,
 			onScanCode: handleScanInviteCode,
 		});
@@ -451,8 +449,8 @@ export default function Page() {
 		const scanned = await ScanInviteDialog.call({});
 		if (!scanned) return;
 
-		// A code is what this device shows now. An invite URL is still accepted:
-		// links handed out before codes existed are still out there.
+		// The QR carries an invite link, which parseSessionCode reads. What it
+		// will not read is an invite to a room with no key, handled below.
 		const code = parseSessionCode(scanned);
 		if (code?.kind === "room") {
 			setPendingInvite({ roomId: code.roomId, encodedKey: code.encodedKey });

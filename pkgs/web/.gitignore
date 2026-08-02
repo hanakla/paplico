@@ -5,6 +5,3 @@ out/
 # Visual regression test diffs (temporary test artifacts)
 src/__visual_diffs__/
 src/__visual_temp__/
-
-# Perf check results saved by the dev API (src/app/api/dev/perf-result)
-perf-results/
