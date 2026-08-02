@@ -7,7 +7,10 @@
  * See also: https://github.com/linebender/vello/blob/main/vello_shaders/shader/flatten.wgsl
  *
  * Strokes and fills are expanded to filled quads by offsetting along the curve
- * normal by ±halfWidth, producing a triangle-list quad strip.
+ * normal by ±(halfWidth + 1px AA margin), producing a triangle-list quad strip.
+ * Edges are anti-aliased analytically: the fragment shader evaluates box-filter
+ * coverage from the signed pixel distance to the true edge, symmetric on both
+ * sides, so no MSAA or fwidth is involved.
  *
  * Vertex buffer 0 (stepMode: vertex):  [t, side] per vertex.
  *   - t:    parametric position along the curve (0..1)
@@ -52,8 +55,10 @@ struct InstanceInput {
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) color: vec4<f32>,
-  @location(1) side: f32,
-  @location(2) halfWidth: f32,
+  // Signed lateral distance from the curve centerline, in screen pixels.
+  @location(1) distPx: f32,
+  // Half-width of the visible stroke core, in screen pixels.
+  @location(2) coreHalfWidthPx: f32,
 }
 
 @vertex
@@ -96,7 +101,18 @@ fn vertexMain(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
   // Linearly interpolate half-width along the curve (enables tapered fills)
   let hw = mix(instance.halfWidth0, instance.halfWidth1, t);
 
-  let worldPos = pos + normal * side * hw;
+  // Analytic AA operates in screen pixels: normal offsets are isotropic under
+  // the viewport transform, so world-units × zoom = screen pixels exactly.
+  let hwPx = hw * uniforms.zoom;
+  // Sub-pixel strokes keep a half-pixel core and compensate with alpha,
+  // avoiding the ropy look of geometry thinner than one pixel.
+  let coreHwPx = max(hwPx, 0.5);
+  let alphaScale = clamp(hwPx * 2.0, 0.0, 1.0);
+  // Expand the quad one pixel past the visible edge so the coverage ramp
+  // (edge ±0.5px) completes before the geometry is clipped.
+  let quadHwPx = coreHwPx + 1.0;
+
+  let worldPos = pos + normal * side * (quadHwPx / uniforms.zoom);
 
   let relX = (worldPos.x - uniforms.viewportX) * uniforms.zoom;
   let relY = (worldPos.y - uniforms.viewportY) * uniforms.zoom;
@@ -105,19 +121,19 @@ fn vertexMain(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
   let ndcX = rotX / (uniforms.canvasWidth / 2.0);
   let ndcY = rotY / (uniforms.canvasHeight / 2.0);
 
-  output.position  = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
-  output.color     = instance.color;
-  output.side      = side;
-  output.halfWidth = hw;
+  output.position        = vec4<f32>(ndcX, ndcY, 0.0, 1.0);
+  output.color           = vec4<f32>(instance.color.rgb, instance.color.a * alphaScale);
+  output.distPx          = side * quadHwPx;
+  output.coreHalfWidthPx = coreHwPx;
   return output;
 }
 
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
-  let edge_dist = (1.0 - abs(input.side)) * input.halfWidth;
-  let aa_width = max(fwidth(edge_dist), 1e-6);
-  let alpha = smoothstep(0.0, aa_width, edge_dist);
-  let a = input.color.a * alpha;
+  // Box-filter coverage: linear 1px ramp centered on the true stroke edge,
+  // symmetric inside/outside. Distances are already in pixels, no fwidth.
+  let coverage = clamp(input.coreHalfWidthPx - abs(input.distPx) + 0.5, 0.0, 1.0);
+  let a = input.color.a * coverage;
   return vec4f(input.color.rgb * a, a);
 }
 `;

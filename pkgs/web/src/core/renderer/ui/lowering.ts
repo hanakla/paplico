@@ -169,14 +169,14 @@ export function resolveSizeDim(dim: Dim, zoom: number): number {
 }
 
 /**
- * Resolve a stroke-width Dim to a world half-width. The screen component uses
- * the AA-compensated formula `(px + 1) / 2 / zoom` (+1px compensates edge
- * attenuation at sampleCount=1); the world component is an exact half `w / 2`.
+ * Resolve a stroke-width Dim to a world half-width. Both components are exact
+ * halves (`px / 2 / zoom`, `w / 2`): the bezier shader's analytic AA places the
+ * coverage edge at the true half-width, so no width compensation is needed.
  * Bare number = screen pixels.
  */
 export function resolveStrokeHalfWidth(dim: Dim, zoom: number): number {
-	if (typeof dim === "number") return (dim + 1) / 2 / zoom;
-	const screen = dim.screen != null ? (dim.screen + 1) / 2 / zoom : 0;
+	if (typeof dim === "number") return dim / 2 / zoom;
+	const screen = dim.screen != null ? dim.screen / 2 / zoom : 0;
 	const world = dim.world != null ? dim.world / 2 : 0;
 	return screen + world;
 }
