@@ -28,17 +28,11 @@ export const PublishRoomDialog = createCallable<
 		 */
 		encrypted: boolean;
 		publishedRoomId: string | null;
+		/** Also what the QR carries, so a phone's own camera can act on it. */
 		inviteUrl: string | null;
-		/**
-		 * What the QR carries for an encrypted session. A URL would name the
-		 * address it was generated on, which the scanning device often cannot
-		 * reach; the room and key are the only parts that travel meaningfully.
-		 */
-		inviteCode: string | null;
 		onPublish: (readonly: boolean) => Promise<{
 			roomId: string;
 			inviteUrl: string;
-			inviteCode: string | null;
 		} | null>;
 		/**
 		 * Opens the camera to scan a code shown on another device. Only offered
@@ -53,7 +47,6 @@ export const PublishRoomDialog = createCallable<
 		encrypted,
 		publishedRoomId: initialRoomId,
 		inviteUrl: initialInviteUrl,
-		inviteCode: initialInviteCode,
 		onPublish,
 		onScanCode,
 	}) => {
@@ -62,7 +55,6 @@ export const PublishRoomDialog = createCallable<
 		const t = useTranslation();
 		const [roomId, setRoomId] = useState(initialRoomId);
 		const [inviteUrl, setInviteUrl] = useState(initialInviteUrl);
-		const [inviteCode, setInviteCode] = useState(initialInviteCode);
 		const [readonly, setReadonly] = useState(false);
 		const [copiedField, setCopiedField] = useState<string | null>(null);
 
@@ -95,7 +87,6 @@ export const PublishRoomDialog = createCallable<
 
 			setRoomId(published.roomId);
 			setInviteUrl(published.inviteUrl);
-			setInviteCode(published.inviteCode);
 		});
 
 		const handleClose = useEventCallback(() => {
@@ -170,10 +161,10 @@ export const PublishRoomDialog = createCallable<
 										: t("connectRoomDialog.shareRoomDescription")}
 								</p>
 
-								{encrypted && inviteCode && (
+								{encrypted && inviteUrl && (
 									<div className="flex justify-center">
 										<SessionQrCode
-											value={inviteCode}
+											value={inviteUrl}
 											title={t("connectRoomDialog.inviteQrLabel")}
 										/>
 									</div>
@@ -287,10 +278,14 @@ export const PublishRoomDialog = createCallable<
 										{t("connectRoomDialog.scanCode")}
 									</Button>
 								)}
+								{/* Showing a code leads the stack, the same way it does in the
+								    companion dialog. Only while stacked: in the row the
+								    public-room case draws, the primary action belongs on the
+								    right, which is where the source order already puts it. */}
 								<Button
 									$variant="default"
 									$size="sm"
-									className={twm(encrypted && "justify-center")}
+									className={twm(encrypted && "justify-center order-first")}
 									onClick={handlePublish}
 									disabled={needsPublishSignIn}
 								>

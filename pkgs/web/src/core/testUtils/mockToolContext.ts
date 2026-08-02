@@ -236,6 +236,7 @@ export function createMockToolContext(
 		getDocumentContentBounds: vi.fn(() => null),
 		getMaxRasterDimension: vi.fn(() => 2048),
 		setBucketFillLeaks: vi.fn(),
+		setBucketFillComputing: vi.fn(),
 		panToWorldPoint: vi.fn(),
 
 		hintTransformOnlyChange: vi.fn((fn: () => void) => fn()),

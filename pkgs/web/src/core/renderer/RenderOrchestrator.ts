@@ -235,6 +235,8 @@ export class RenderOrchestrator {
 	/** CPU-side soft proof LUT, retained so it can be re-uploaded after
 	 *  device re-initialization (HDR switch, device loss recovery). */
 	private softProofLut: SoftProofLutResult | null = null;
+	/** Retained so targets created after the toggle inherit the mode. */
+	private pixelPreviewEnabled = false;
 
 	// Stored callbacks (applied to new targets)
 	private _onRequestRender: (() => void) | null = null;
@@ -555,6 +557,7 @@ export class RenderOrchestrator {
 		// GPU textures don't survive device re-init (HDR switch, device loss
 		// recovery) — re-upload the soft proof LUT from the CPU-side copy.
 		if (this.softProofLut) canvasLayer.setSoftProofLut(this.softProofLut);
+		canvasLayer.setPixelPreview(this.pixelPreviewEnabled);
 
 		this.targets.set(target.id, {
 			context,
@@ -643,6 +646,14 @@ export class RenderOrchestrator {
 		this.softProofLut = lut;
 		for (const td of this.targets.values()) {
 			td.canvasLayer.setSoftProofLut(lut);
+		}
+	}
+
+	/** Toggle pixel preview on all canvas targets (see CanvasLayer.setPixelPreview). */
+	public setPixelPreview(enabled: boolean): void {
+		this.pixelPreviewEnabled = enabled;
+		for (const td of this.targets.values()) {
+			td.canvasLayer.setPixelPreview(enabled);
 		}
 	}
 
@@ -828,6 +839,10 @@ export class RenderOrchestrator {
 		transientElements?: FrameRequest["transientElements"];
 		/** Interaction flag forwarded to the frame (tile bake-budget tests). */
 		interacting?: boolean;
+		/** Keep CPU viewport culling and the interactive bake clamp/density cap
+		 *  active (filtered-element cache tests exercise the editor-path bakes);
+		 *  production exports always disable culling for full-fidelity output. */
+		disableViewportCulling?: boolean;
 		/** Paint artboard backgrounds despite the clearColorOverride background
 		 *  (raster analysis renders where artboard edges act as barriers). */
 		paintArtboardBackgrounds?: boolean;
@@ -926,7 +941,7 @@ export class RenderOrchestrator {
 						viewport: exportViewport,
 						document: opts.document,
 						strategy: "full",
-						disableViewportCulling: true,
+						disableViewportCulling: opts.disableViewportCulling ?? true,
 						isExport: true,
 						changedElements: opts.changedElements,
 						transientElements: opts.transientElements,
@@ -1413,6 +1428,7 @@ export class RenderOrchestrator {
 		changedElements?: FrameRequest["changedElements"],
 		transientElements?: FrameRequest["transientElements"],
 		interacting?: boolean,
+		disableViewportCulling?: boolean,
 	): Promise<GPUTexture | null> {
 		const result = await this.renderExportToTexture({
 			label: "Viewport Render",
@@ -1427,6 +1443,7 @@ export class RenderOrchestrator {
 			changedElements,
 			transientElements,
 			interacting,
+			disableViewportCulling,
 		});
 		return result?.texture ?? null;
 	}

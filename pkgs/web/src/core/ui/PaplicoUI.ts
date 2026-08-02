@@ -736,7 +736,8 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			tool.name === "text" ||
 			tool.name === "gradient" ||
 			tool.name === "reference3d" ||
-			tool.name === "artboard";
+			tool.name === "artboard" ||
+			tool.name === "shape";
 
 		if (this.gesture.type === "tooling" || isInteractiveTool) {
 			tool.onPointerMove(eventData, viewport, rect.width, rect.height);

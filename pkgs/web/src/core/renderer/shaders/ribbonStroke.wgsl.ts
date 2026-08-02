@@ -109,11 +109,11 @@ struct VertexOutput {
 	@location(2) opacity: f32,
 	@location(3) worldPos: vec2f,
 	@location(4) @interpolate(flat) pathIndex: u32,
-	@location(5) side1Width: f32,
-	@location(6) side2Width: f32,
 	@location(7) transformedWorldPos: vec2f,
-	@location(8) side: f32,
-	@location(9) halfWidth: f32,
+	// Signed screen-px distances from this fragment to the visible lateral
+	// edges (lower = side2 edge, upper = side1 edge). Positive = inside.
+	@location(8) edgeLowerPx: f32,
+	@location(9) edgeUpperPx: f32,
 	@location(10) @interpolate(flat) colorMode: u32,
 	@location(11) @interpolate(flat) maskIndex: u32,
 	@location(12) maskBoundsMin: vec2f,
@@ -189,11 +189,27 @@ fn vs_main(
 
 	// Preserve the original cross-stroke coordinate while clipping the visible interval.
 	let normalizedSide = strokeWidthPosition(side, s1w, s2w);
-	let localPos = pos + normal * hw * normalizedSide;
 
-	// Apply element transform
 	let pm = pathMetas[inst.pathIndex];
 	let et = transforms[pm.transformIndex];
+
+	// Analytic AA works in screen pixels. The element transform's linear part
+	// scales the lateral direction, so measure it on the transformed normal.
+	let mNormal = vec2f(
+		et.m00 * normal.x + et.m01 * normal.y,
+		et.m10 * normal.x + et.m11 * normal.y,
+	);
+	let latScale = max(length(mNormal), 1e-6);
+	// Screen px per one normalizedSide unit.
+	let pxPerSideUnit = hw * latScale * uniforms.zoom;
+	// Expand the quad 1px outward so the symmetric coverage ramp (edge
+	// ±0.5px) completes before the geometry is clipped. hw cancels in the
+	// world offset, so taper tips stay bounded.
+	let padSideUnits = 1.0 / max(pxPerSideUnit, 1e-6);
+	let expandedSide = normalizedSide + side * padSideUnits;
+	let localPos = pos + normal * hw * expandedSide;
+
+	// Apply element transform
 	let worldPos = applyElementTransform(localPos, et);
 
 	// World → NDC
@@ -219,7 +235,9 @@ fn vs_main(
 	} else {
 		ribbonU = arcPos / max(actualTileWidth, 0.001) + ribbonParams.uvOffset;
 	}
-	var ribbonV = strokeWidthAcrossUV(normalizedSide);
+	// V follows the expanded geometry so it stays linear in position; the
+	// fragment clamps it back to [0, 1] inside the AA margin.
+	var ribbonV = strokeWidthAcrossUV(expandedSide);
 
 	// Per-instance flip flags (only meaningful in stretch mode)
 	if inst.uvModeBit == 1u {
@@ -242,11 +260,9 @@ fn vs_main(
 	out.opacity = inst.opacity;
 	out.worldPos = applyElementTransform(pos, et);
 	out.pathIndex = inst.pathIndex;
-	out.side1Width = s1w;
-	out.side2Width = s2w;
 	out.transformedWorldPos = worldPos;
-	out.side = side;
-	out.halfWidth = hw;
+	out.edgeLowerPx = (expandedSide + s2w) * pxPerSideUnit;
+	out.edgeUpperPx = (s1w - expandedSide) * pxPerSideUnit;
 	out.colorMode = u32(inst.colorModeBit);
 	out.maskIndex = et.maskIndex;
 	out.maskBoundsMin = et.maskBoundsMin;
@@ -312,7 +328,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 		}
 		sampleU = phase;
 	}
-	let centered = vec2f(sampleU, in.ribbonUV.y) - vec2f(0.5, 0.5);
+	// V may run past [0, 1] inside the AA expansion margin; clamp so the
+	// margin repeats the edge texel row (faded out by the edge coverage).
+	let sampleV = clamp(in.ribbonUV.y, 0.0, 1.0);
+	let centered = vec2f(sampleU, sampleV) - vec2f(0.5, 0.5);
 	let rotated = vec2f(
 		centered.x * cosA - centered.y * sinA,
 		centered.x * sinA + centered.y * cosA,
@@ -358,7 +377,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 			colorA = sampled.a;
 		}
 		case 3u: {
-			let sampled = sampleGradientStops(in.ribbonUV.y, pm);
+			let sampled = sampleGradientStops(sampleV, pm);
 			color = sampled.rgb;
 			colorA = sampled.a;
 		}
@@ -368,15 +387,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 		}
 	}
 
-	let normalizedSide = strokeWidthPosition(
-		in.side,
-		in.side1Width,
-		in.side2Width,
-	);
-	var widthFade = strokeWidthCoverage(
-		normalizedSide,
-		in.side1Width,
-		in.side2Width,
+	// Analytic box-filter coverage: exact overlap of the 1px pixel footprint
+	// with the visible lateral interval. Falls to 0 for degenerate widths and
+	// stays exact for sub-pixel-wide strokes.
+	var widthFade = clamp(
+		min(in.edgeLowerPx, 0.5) + min(in.edgeUpperPx, 0.5),
+		0.0,
+		1.0,
 	);
 	// Inter-tile gap mask (pattern mode only when tileSpacing > 0)
 	widthFade = widthFade * gapMask;

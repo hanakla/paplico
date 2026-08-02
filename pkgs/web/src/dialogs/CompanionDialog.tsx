@@ -83,7 +83,7 @@ export const CompanionDialog = createCallable<Record<never, never>, void>(
 					</div>
 
 					<div className="p-4 space-y-4">
-						{hostSnap.adhocCode ? (
+						{hostSnap.adhocUrl ? (
 							<>
 								<div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-accent/10 border border-accent/30 text-sm">
 									<Check size={14} className="text-accent shrink-0" />
@@ -100,7 +100,7 @@ export const CompanionDialog = createCallable<Record<never, never>, void>(
 
 								<div className="flex justify-center">
 									<SessionQrCode
-										value={hostSnap.adhocCode}
+										value={hostSnap.adhocUrl}
 										title={t("connectRoomDialog.inviteQrLabel")}
 									/>
 								</div>
@@ -138,7 +138,7 @@ export const CompanionDialog = createCallable<Record<never, never>, void>(
 					{/* Stacked, because the two directions are a choice to read rather
 					    than a row to skim, and neither reads as the obvious one. */}
 					<div className="flex flex-col gap-2 px-4 py-3 border-t border-border/30">
-						{hostSnap.adhocCode ? (
+						{hostSnap.adhocUrl ? (
 							<>
 								<Button
 									$variant="default"

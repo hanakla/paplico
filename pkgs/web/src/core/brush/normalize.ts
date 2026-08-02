@@ -6,6 +6,7 @@ import {
 	type BrushStroking,
 	BUILTIN_BRUSH_IDS,
 	type CalligraphyBrushSettings,
+	DEFAULT_CALLIGRAPHY_SPACING,
 	DEFAULT_WET_INK_ABSORPTION,
 	DEFAULT_WET_INK_DIFFUSION,
 	DEFAULT_WET_INK_GRANULATION,
@@ -169,6 +170,7 @@ function buildCalligraphy(
 			r.angleMode === "tangent" || r.angleMode === "tilt"
 				? r.angleMode
 				: "fixed",
+		spacing: num(r.spacing, DEFAULT_CALLIGRAPHY_SPACING),
 		flow: num(r.flow, 1),
 		sizeBySpeed: num(r.sizeBySpeed, 0),
 		pooling: num(r.pooling, 0),

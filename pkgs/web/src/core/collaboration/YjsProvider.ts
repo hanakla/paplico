@@ -192,14 +192,15 @@ interface YjsProviderOptions {
  */
 export class YjsProvider {
 	public ydoc: Y.Doc;
-	private yLayers: Y.Array<Y.Map<unknown>>;
-	private yObjects: Y.Map<Y.Map<unknown>>;
-	private yMeta: Y.Map<unknown>;
-	private yArtboards: Y.Array<Artboard>;
-	private yFiles: Y.Map<SerializedEmbeddedFile>;
-	private yBrushPresets: Y.Map<Y.Map<unknown>>;
-	private yDefs: Y.Map<Y.Map<unknown>>;
-	private yReferences3d: Y.Map<Y.Map<unknown>>;
+	// Bound by bindSharedTypes() (constructor + resetWithFreshDoc).
+	private yLayers!: Y.Array<Y.Map<unknown>>;
+	private yObjects!: Y.Map<Y.Map<unknown>>;
+	private yMeta!: Y.Map<unknown>;
+	private yArtboards!: Y.Array<Artboard>;
+	private yFiles!: Y.Map<SerializedEmbeddedFile>;
+	private yBrushPresets!: Y.Map<Y.Map<unknown>>;
+	private yDefs!: Y.Map<Y.Map<unknown>>;
+	private yReferences3d!: Y.Map<Y.Map<unknown>>;
 	private callbacks: YjsProviderCallbacks;
 	/** Meta stash consumed by the next captured undo stack item. */
 	private pendingUndoMeta: UndoStackMeta | null = null;
@@ -232,16 +233,7 @@ export class YjsProvider {
 		this.callbacks = options.callbacks;
 		try {
 			this.ydoc = new Y.Doc();
-
-			// Initialize Yjs data structures
-			this.yLayers = this.ydoc.getArray("layers");
-			this.yObjects = this.ydoc.getMap("objects");
-			this.yMeta = this.ydoc.getMap("meta");
-			this.yArtboards = this.ydoc.getArray("artboards");
-			this.yFiles = this.ydoc.getMap("files");
-			this.yBrushPresets = this.ydoc.getMap("brushPresets");
-			this.yDefs = this.ydoc.getMap("defs");
-			this.yReferences3d = this.ydoc.getMap("references3d");
+			this.bindSharedTypes();
 
 			this.attachObservers();
 			this.undoManager = this.createUndoManager();
@@ -2369,6 +2361,23 @@ export class YjsProvider {
 	}
 
 	/**
+	 * (Re)bind every shared Y structure to the current Y.Doc. Called from the
+	 * constructor and resetWithFreshDoc — a structure bound in only one of
+	 * the two would keep pointing at the destroyed doc after a guest-join
+	 * reset, silently dropping its writes and remote updates.
+	 */
+	private bindSharedTypes(): void {
+		this.yLayers = this.ydoc.getArray("layers");
+		this.yObjects = this.ydoc.getMap("objects");
+		this.yMeta = this.ydoc.getMap("meta");
+		this.yArtboards = this.ydoc.getArray("artboards");
+		this.yFiles = this.ydoc.getMap("files");
+		this.yBrushPresets = this.ydoc.getMap("brushPresets");
+		this.yDefs = this.ydoc.getMap("defs");
+		this.yReferences3d = this.ydoc.getMap("references3d");
+	}
+
+	/**
 	 * Replace the current Y.Doc with a fresh, empty one.
 	 * Used when connecting to an existing room (non-reconnect) so that
 	 * the Yjs merge produces no duplicates — the fresh doc has no state.
@@ -2382,12 +2391,7 @@ export class YjsProvider {
 
 		// Create fresh Y.Doc
 		this.ydoc = new Y.Doc();
-		this.yLayers = this.ydoc.getArray("layers");
-		this.yObjects = this.ydoc.getMap("objects");
-		this.yMeta = this.ydoc.getMap("meta");
-		this.yArtboards = this.ydoc.getArray("artboards");
-		this.yFiles = this.ydoc.getMap("files");
-		this.yBrushPresets = this.ydoc.getMap("brushPresets");
+		this.bindSharedTypes();
 
 		// Reset pending sync state
 		this.pendingObjectChanges = null;

@@ -16,17 +16,17 @@ const BLUE: RGBA = [0, 0, 1, 1];
 
 describe("lowering", () => {
 	describe("stroke width resolution", () => {
-		it("should resolve screen stroke widths with the AA-compensated (px+1)/2/zoom formula", () => {
+		it("should resolve screen stroke widths as exact half-width px/2/zoom", () => {
 			const out = lower(
 				[line(0, 0, 10, 0, { stroke: { color: RED, width: 1.5 } })],
 				2,
 			);
 			expect(out.length).toBe(BEZIER_INSTANCE_FLOATS);
-			expect(out[12]).toBe((1.5 + 1) / 2 / 2);
-			expect(out[13]).toBe((1.5 + 1) / 2 / 2);
+			expect(out[12]).toBe(1.5 / 2 / 2);
+			expect(out[13]).toBe(1.5 / 2 / 2);
 		});
 
-		it("should resolve world stroke widths as exact half-width without AA padding", () => {
+		it("should resolve world stroke widths as exact half-width", () => {
 			const out = lower([
 				line(0, 0, 10, 0, { stroke: { color: RED, width: { world: 44 } } }),
 			]);

@@ -20,6 +20,7 @@ import {
 } from "../geometry/bezierFlatten";
 import {
 	calculatePrebufDimensions,
+	capFilterBakeDensity,
 	computeDotGridPhase,
 	createCompoundPathRenderPath,
 	expandRenderFilter,
@@ -78,6 +79,90 @@ describe("calculatePrebufDimensions", () => {
 		expect(result.prebufZoom).toBeCloseTo(1.28);
 		expect(result.prebufWidth).toBe(2_048);
 		expect(result.prebufHeight).toBe(1_536);
+	});
+
+	it("should render at the zoom override while world coverage still follows the viewport", () => {
+		const visibleBounds: BoundingBox = {
+			minX: -100,
+			minY: -75,
+			maxX: 100,
+			maxY: 75,
+			width: 200,
+			height: 150,
+		};
+
+		const result = calculatePrebufDimensions({
+			viewport,
+			visibleBounds,
+			canvasWidth: 800,
+			canvasHeight: 600,
+			maxTextureDimension: 1_024,
+			zoomOverride: 1,
+		});
+
+		expect(result.prebufZoom).toBe(1);
+		expect(result.prebufWidth).toBe(200);
+		expect(result.prebufHeight).toBe(150);
+	});
+
+	it("should still clamp an overridden zoom to the device texture limit", () => {
+		const visibleBounds: BoundingBox = {
+			minX: -800,
+			minY: -600,
+			maxX: 800,
+			maxY: 600,
+			width: 1_600,
+			height: 1_200,
+		};
+
+		const result = calculatePrebufDimensions({
+			viewport,
+			visibleBounds,
+			canvasWidth: 800,
+			canvasHeight: 600,
+			maxTextureDimension: 2_048,
+			zoomOverride: 4,
+		});
+
+		expect(result.prebufZoom).toBeCloseTo(1.28);
+		expect(result.prebufWidth).toBe(2_048);
+		expect(result.prebufHeight).toBe(1_536);
+	});
+});
+
+describe("capFilterBakeDensity", () => {
+	it("should keep the rasterization scale when the viewport zoom is at or above it", () => {
+		expect(capFilterBakeDensity(1, 1)).toBe(1);
+		expect(capFilterBakeDensity(1, 2.5)).toBe(1);
+		expect(capFilterBakeDensity(4, 8)).toBe(4);
+	});
+
+	it("should cap a zoomed-out bake to the power-of-two bucket above the zoom", () => {
+		// zoom 0.19 → bucket 0.25; raster density 1 would be 5x the display
+		expect(capFilterBakeDensity(1, 0.19)).toBe(0.25);
+		expect(capFilterBakeDensity(4, 0.6)).toBe(1);
+	});
+
+	it("should never go below the display density", () => {
+		for (const zoom of [0.13, 0.3, 0.77, 1.9]) {
+			const capped = capFilterBakeDensity(4, zoom);
+			expect(capped).toBeGreaterThanOrEqual(Math.min(4, zoom));
+			expect(capped).toBeLessThanOrEqual(4);
+		}
+	});
+
+	it("should return a stable value across a zoom bucket so cache keys stay stable", () => {
+		expect(capFilterBakeDensity(2, 0.26)).toBe(capFilterBakeDensity(2, 0.49));
+		expect(capFilterBakeDensity(2, 0.26)).not.toBe(
+			capFilterBakeDensity(2, 0.51),
+		);
+	});
+
+	it("should fall back to the rasterization scale for degenerate zoom values", () => {
+		expect(capFilterBakeDensity(2, 0)).toBe(2);
+		expect(capFilterBakeDensity(2, -1)).toBe(2);
+		expect(capFilterBakeDensity(2, Number.POSITIVE_INFINITY)).toBe(2);
+		expect(capFilterBakeDensity(2, Number.NaN)).toBe(2);
 	});
 });
 

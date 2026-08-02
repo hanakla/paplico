@@ -45,7 +45,27 @@ describe("tessellateStroke", () => {
 
 		// 2 triangles for the body segment, no caps
 		expect(result.count).toBe(6); // 2 triangles × 3 vertices
-		expect(result.vertices).toHaveLength(12); // 6 vertices × 2 coords
+		expect(result.vertices).toHaveLength(24); // 6 vertices × 4 floats (x, y, ox, oy)
+	});
+
+	it("should inset open butt end corners inward on both axes", () => {
+		const result = tessellateStroke(
+			makeInput({
+				points: [0, 0, 100, 0],
+				pressures: [1, 1],
+				baseWidth: 10,
+				lineCap: "butt",
+			}),
+		);
+
+		// Horizontal butt rectangle: every corner is an outline corner, so the
+		// AA offset pulls half a pixel inward laterally (y) and along the cap
+		// direction (x).
+		const verts = result.vertices;
+		for (let i = 0; i < verts.length; i += 4) {
+			expect(verts[i + 2]).toBeCloseTo(verts[i] === 0 ? 0.5 : -0.5, 5);
+			expect(verts[i + 3]).toBeCloseTo(verts[i + 1] > 0 ? -0.5 : 0.5, 5);
+		}
 	});
 
 	it("should produce additional geometry for round caps", () => {
@@ -88,8 +108,8 @@ describe("tessellateStroke", () => {
 			}),
 		);
 
-		const xValues = result.vertices.filter((_, i) => i % 2 === 0);
-		const buttXValues = butt.vertices.filter((_, i) => i % 2 === 0);
+		const xValues = result.vertices.filter((_, i) => i % 4 === 0);
+		const buttXValues = butt.vertices.filter((_, i) => i % 4 === 0);
 
 		// Butt cap: x stays within [0, 100]
 		expect(Math.min(...buttXValues)).toBeCloseTo(0, 5);
@@ -261,13 +281,13 @@ describe("tessellateStroke", () => {
 		);
 
 		const verts = result.vertices;
-		for (let i = 0; i < verts.length; i += 6) {
+		for (let i = 0; i < verts.length; i += 12) {
 			const ax = verts[i];
 			const ay = verts[i + 1];
-			const bx = verts[i + 2];
-			const by = verts[i + 3];
-			const cx = verts[i + 4];
-			const cy = verts[i + 5];
+			const bx = verts[i + 4];
+			const by = verts[i + 5];
+			const cx = verts[i + 8];
+			const cy = verts[i + 9];
 			const cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
 			expect(cross).toBeGreaterThanOrEqual(0);
 		}
@@ -286,7 +306,7 @@ describe("tessellateStroke", () => {
 			}),
 		);
 
-		const yValues = result.vertices.filter((_, index) => index % 2 === 1);
+		const yValues = result.vertices.filter((_, index) => index % 4 === 1);
 		expect(Math.min(...yValues)).toBeCloseTo(5, 5);
 		expect(Math.max(...yValues)).toBeCloseTo(10, 5);
 		expect(result.vertices.every(Number.isFinite)).toBe(true);
@@ -446,7 +466,7 @@ describe("tessellateStroke fringe AA", () => {
 		);
 
 		// Horizontal line: normal (0, 1), body should extend to ±5
-		const yValues = result.vertices.filter((_, i) => i % 2 === 1);
+		const yValues = result.vertices.filter((_, i) => i % 4 === 1);
 		const maxY = Math.max(...yValues);
 		const minY = Math.min(...yValues);
 
@@ -517,7 +537,7 @@ describe("tessellateStroke taper", () => {
 		// Endpoint vertices (x≈0 and x≈100) collapse onto the centerline
 		const verts = result.vertices;
 		let maxAbsY = 0;
-		for (let i = 0; i < verts.length; i += 2) {
+		for (let i = 0; i < verts.length; i += 4) {
 			const x = verts[i];
 			const y = verts[i + 1];
 			if (Math.abs(x) < 1e-6 || Math.abs(x - 100) < 1e-6) {
@@ -692,8 +712,8 @@ function expectTrianglesDoNotCrossXGap(
 	gapStart: number,
 	gapEnd: number,
 ): void {
-	for (let index = 0; index < vertices.length; index += 6) {
-		const xs = [vertices[index], vertices[index + 2], vertices[index + 4]];
+	for (let index = 0; index < vertices.length; index += 12) {
+		const xs = [vertices[index], vertices[index + 4], vertices[index + 8]];
 		expect(Math.min(...xs) < gapStart && Math.max(...xs) > gapEnd).toBe(false);
 	}
 }
@@ -715,9 +735,9 @@ function getBodySegmentEndpointCenter(
 	targetX: number,
 	targetY: number,
 ): { x: number; y: number } {
-	const offset = segmentIndex * 12;
+	const offset = segmentIndex * 24;
 	const uniqueVertices = new Map<string, { x: number; y: number }>();
-	for (let index = offset; index < offset + 12; index += 2) {
+	for (let index = offset; index < offset + 24; index += 4) {
 		const point = { x: vertices[index], y: vertices[index + 1] };
 		uniqueVertices.set(`${point.x},${point.y}`, point);
 	}
@@ -776,11 +796,12 @@ describe("tessellateStroke gradient params", () => {
 			}),
 		);
 
-		for (let i = 0; i < result.vertices.length; i += 2) {
+		for (let i = 0; i < result.vertices.length; i += 4) {
 			const x = result.vertices[i];
 			const y = result.vertices[i + 1];
-			expect(result.vertexParams[i]).toBeCloseTo(x / 100, 5);
-			expect(result.vertexParams[i + 1]).toBeCloseTo(y > 0 ? 1 : 0, 5);
+			const pi = i / 2;
+			expect(result.vertexParams[pi]).toBeCloseTo(x / 100, 5);
+			expect(result.vertexParams[pi + 1]).toBeCloseTo(y > 0 ? 1 : 0, 5);
 		}
 	});
 

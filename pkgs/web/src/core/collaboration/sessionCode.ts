@@ -1,20 +1,24 @@
 /**
  * Session codes — what a QR on screen actually carries.
  *
- * A URL would have to name the address it was generated on, and that address
- * is often wrong for whoever reads it: a machine serving the page on its own
- * loopback hands out a link that resolves to the scanner's own machine. The
- * room id and key are the only parts that travel meaningfully, so those are
- * the only parts a code carries; the device that reads one connects from
- * wherever it already is.
+ * The code is the same link a person would be handed by hand, so a phone's
+ * own camera app can do something with it: reading one opens Paplico at the
+ * right place with the room already named, without going through this app's
+ * scanner at all.
  *
- * The kind is in the code because the two sessions do very different things
- * with the same pair of values — one shares a document, the other hands over
- * control of the tools — and reading one as the other would be silent and
+ * Paplico itself never follows the address. It takes the room id and the key
+ * out of the link and connects from wherever it already is, because the
+ * address a code was generated on is often wrong for whoever reads it: a
+ * machine serving the page on its own loopback hands out a link that resolves
+ * to the scanner's own machine.
+ *
+ * The kind rides in the path, because the two sessions do very different
+ * things with the same pair of values — one shares a document, the other hands
+ * over control of the tools — and reading one as the other would be silent and
  * confusing.
  */
 
-import type { InviteTarget } from "./inviteUrl";
+import { type InviteTarget, parseInvite } from "./inviteUrl";
 
 export type SessionCodeKind = "room" | "companion";
 
@@ -24,26 +28,48 @@ export type SessionCode = InviteTarget & {
 	encodedKey: string;
 };
 
-const PREFIX = "paplico";
-const SEPARATOR = ":";
-
-export function buildSessionCode(
-	kind: SessionCodeKind,
-	{ roomId, encodedKey }: { roomId: string; encodedKey: string },
-): string {
-	return [PREFIX, kind, roomId, encodedKey].join(SEPARATOR);
-}
+/** Path `buildCompanionUrl` puts a companion session on. */
+const COMPANION_PATH = "/companion";
 
 /**
  * Returns null for anything that is not one of our codes. A camera reads
  * whatever is put in front of it, so being handed something else is expected.
  */
 export function parseSessionCode(text: string): SessionCode | null {
-	const parts = text.trim().split(SEPARATOR);
-	if (parts.length !== 4) return null;
+	const trimmed = text.trim();
+	// The bare form is tried first because `paplico:` parses as a URL scheme,
+	// which would send it down the link branch to be rejected there.
+	return parseLegacyCode(trimmed) ?? parseInviteLink(trimmed);
+}
 
-	const [prefix, kind, roomId, encodedKey] = parts;
-	if (prefix !== PREFIX) return null;
+function parseInviteLink(text: string): SessionCode | null {
+	if (!URL.canParse(text)) return null;
+
+	const invite = parseInvite(text);
+	if (!invite?.encodedKey) return null;
+
+	return {
+		kind: isCompanionPath(new URL(text).pathname) ? "companion" : "room",
+		roomId: invite.roomId,
+		encodedKey: invite.encodedKey,
+	};
+}
+
+function isCompanionPath(pathname: string): boolean {
+	return pathname.replace(/\/+$/, "") === COMPANION_PATH;
+}
+
+/**
+ * Codes minted while the QR carried a bare `paplico:kind:room:key` string.
+ *
+ * A host and the phone reading it are routinely on different builds — a
+ * desktop app paired with a phone's browser is the whole point of a companion
+ * session — so one side can still be handing these out after the other has
+ * moved on.
+ */
+function parseLegacyCode(text: string): SessionCode | null {
+	const [prefix, kind, roomId, encodedKey, ...rest] = text.split(":");
+	if (rest.length || prefix !== "paplico") return null;
 	if (kind !== "room" && kind !== "companion") return null;
 	if (!roomId || !encodedKey) return null;
 

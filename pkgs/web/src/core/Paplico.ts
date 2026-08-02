@@ -1226,26 +1226,40 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
-	 * Patch the reference3d element currently being edited (light direction,
-	 * export inclusion, scene reference, …). No-op when no scene is being
-	 * edited.
+	 * Patch a reference3d element (light direction, export inclusion, scene
+	 * reference, …) regardless of whether it is being edited.
+	 */
+	public reference3dUpdateElement(
+		elementId: string,
+		patch: Partial<Reference3DElement>,
+	): void {
+		const layerId = this.rendererStore.document.layers.find((l) =>
+			l.elementIds.includes(elementId),
+		)?.id;
+		if (!layerId) return;
+		// Switching the edited element's referenced scene invalidates the node
+		// selection.
+		if (
+			patch.sceneId !== undefined &&
+			this.reference3dController.getEditingElementId() === elementId
+		) {
+			this.reference3dController.selectNode(null);
+		}
+		this.commands.updateElement(layerId, elementId, patch);
+		// Overlay geometry (gizmo) may depend on the patched fields.
+		this.tool?.refreshUI?.();
+	}
+
+	/**
+	 * Patch the reference3d element currently being edited. No-op when no
+	 * scene is being edited.
 	 */
 	public reference3dUpdateEditingElement(
 		patch: Partial<Reference3DElement>,
 	): void {
 		const id = this.reference3dController.getEditingElementId();
 		if (!id) return;
-		const layerId = this.rendererStore.document.layers.find((l) =>
-			l.elementIds.includes(id),
-		)?.id;
-		if (!layerId) return;
-		// Switching the referenced scene invalidates the node selection.
-		if (patch.sceneId !== undefined) {
-			this.reference3dController.selectNode(null);
-		}
-		this.commands.updateElement(layerId, id, patch);
-		// Overlay geometry (gizmo) may depend on the patched fields.
-		this.tool?.refreshUI?.();
+		this.reference3dUpdateElement(id, patch);
 	}
 
 	/**
@@ -1381,8 +1395,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		const target = new CanvasTarget(canvas, options);
 		await this.renderer.initCanvasTarget(target);
 
-		const scheduler = new RenderScheduler((strategy, changedElements) =>
-			this.renderTarget(target.id, strategy, changedElements),
+		const scheduler = new RenderScheduler(
+			(strategy, changedElements) =>
+				this.renderTarget(target.id, strategy, changedElements),
+			() =>
+				this.rendererStore.transientElements.size > 0 ||
+				this.rendererStore.elementOverrides.size > 0,
 		);
 
 		const ui = new PaplicoUI(canvas, {
@@ -1583,6 +1601,15 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	 * profile when this returns `false`. Disabling (`enabled === false`) always
 	 * returns `false`.
 	 */
+	/**
+	 * Toggle pixel preview: display the canvas rasterized at the document's
+	 * rasterization DPI with nearest-neighbor upscaling.
+	 */
+	public setPixelPreview(enabled: boolean): void {
+		this.renderer.setPixelPreview(enabled);
+		this.markDirty("render");
+	}
+
 	public async setSoftProof(enabled: boolean): Promise<boolean> {
 		if (!enabled) {
 			this.softProof.active = false;
@@ -2657,7 +2684,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			reference3dExitEdit: () => {
 				this.tools.setCurrentTool("select");
 			},
-			reference3dCreate: (x, y) => this.commands.createReference3DScene(x, y),
+			reference3dCreate: (x, y, width, height) =>
+				this.commands.createReference3DScene(x, y, width, height),
 			reference3dGetDef: (sceneId) =>
 				this.getReference3DDefWithPreview(sceneId),
 			reference3dAddNode: (sceneId, node) =>
@@ -3518,6 +3546,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			getMaxRasterDimension: () => this.renderer.getMaxTextureDimension(),
 			setBucketFillLeaks: (state) => {
 				this.tools.setBucketFillLeaks(state);
+			},
+			setBucketFillComputing: (computing) => {
+				this.tools.setBucketFillComputing(computing);
 			},
 			panToWorldPoint: (point, zoom) => {
 				const t = this.activeTarget ?? this.getPrimaryTarget();

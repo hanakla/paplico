@@ -1,6 +1,7 @@
 import { AppearanceCache } from "./AppearanceCache";
 import { BlendCache } from "./BlendCache";
 import { CompoundPathCache } from "./CompoundPathCache";
+import { FilteredElementCache } from "./FilteredElementCache";
 import { GeometryCache } from "./GeometryCache";
 import { GradientCache } from "./GradientCache";
 import { GroupPathCache } from "./GroupPathCache";
@@ -21,6 +22,7 @@ interface DocumentCacheScope {
 	gradient: GradientCache;
 	blend: BlendCache;
 	appearance: AppearanceCache;
+	filteredElement: FilteredElementCache;
 }
 
 /** Scope id used before any document is activated (tests construct a manager
@@ -90,6 +92,9 @@ export class RenderCacheManager {
 	public get appearance(): AppearanceCache {
 		return this.active.appearance;
 	}
+	public get filteredElement(): FilteredElementCache {
+		return this.active.filteredElement;
+	}
 
 	/**
 	 * Bind the caches to `documentId`'s scope, creating it on first sight.
@@ -136,6 +141,7 @@ export class RenderCacheManager {
 	public flushPendingDestroy(): void {
 		for (const scope of this.scopes.values()) {
 			scope.appearance.flushPendingDestroy();
+			scope.filteredElement.flushPendingDestroy();
 		}
 	}
 
@@ -174,6 +180,7 @@ export class RenderCacheManager {
 		collectStale(this.blend.keys());
 		collectStale(this.appearance.keys());
 		collectStale(this.stroke.keys());
+		collectStale(this.filteredElement.keys());
 
 		if (staleIds.length > 0) {
 			this.geometry.deleteMany(staleIds);
@@ -184,6 +191,7 @@ export class RenderCacheManager {
 			this.blend.deleteMany(staleIds);
 			this.appearance.deleteMany(staleIds);
 			this.stroke.deleteMany(staleIds);
+			this.filteredElement.deleteMany(staleIds);
 		}
 
 		// Gradient and stamp caches use composite keys "elementId:...".
@@ -243,6 +251,7 @@ function createScope(stampCacheMaxBytes?: number): DocumentCacheScope {
 		gradient: new GradientCache(),
 		blend: new BlendCache(),
 		appearance: new AppearanceCache(),
+		filteredElement: new FilteredElementCache(),
 	};
 }
 
@@ -259,4 +268,6 @@ function destroyScope(scope: DocumentCacheScope): void {
 	scope.gradient.clear();
 	scope.blend.clear();
 	scope.appearance.clear();
+	scope.filteredElement.clear();
+	scope.filteredElement.flushPendingDestroy();
 }

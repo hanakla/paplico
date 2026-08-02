@@ -70,11 +70,27 @@ describe("Reference3DTool", () => {
 			context.reference3dCreate.mockReturnValue(element);
 
 			down(100, 100);
+			up(100, 100);
 
 			// screen(100,100) → world(-300,200)
 			expect(context.reference3dCreate.mock.calls[0]).toEqual([-300, 200]);
 			expect(controller.isEditing()).toBe(true);
 			expect(controller.getEditingElementId()).toBe(element.id);
+		});
+
+		it("should size the new element by the drag rectangle", () => {
+			context.reference3dCreate.mockReturnValue(element);
+
+			down(100, 100);
+			move(300, 200);
+			up(300, 200);
+
+			// screen(100,100) → world(-300,200), screen(300,200) → world(-100,100):
+			// center (-200,150), size 200×100
+			expect(context.reference3dCreate.mock.calls[0]).toEqual([
+				-200, 150, 200, 100,
+			]);
+			expect(controller.isEditing()).toBe(true);
 		});
 
 		it("should enter edit for an existing reference3d element under the pointer", () => {
@@ -157,6 +173,7 @@ describe("Reference3DTool", () => {
 			// First scene: clicking empty canvas creates it and enters edit.
 			context.reference3dCreate.mockReturnValue(element);
 			down(100, 100);
+			up(100, 100);
 			expect(controller.isEditing()).toBe(true);
 
 			// The user switches to another tool: Paplico cancels and disposes
@@ -175,6 +192,7 @@ describe("Reference3DTool", () => {
 			context.reference3dCreate.mockReturnValue(second);
 			const nextTool = new Reference3DTool(context);
 			pointerDown(nextTool, 500, 400);
+			pointerUp(nextTool, 500, 400);
 
 			expect(context.reference3dCreate).toHaveBeenCalledTimes(2);
 			expect(controller.getEditingElementId()).toBe("reference3d-el-2");

@@ -108,7 +108,7 @@ export const PenToolControls = memo(function PenToolControls() {
 				}
 				min={0.01}
 				max={Infinity}
-				range={100}
+				range={50}
 				step={BRUSH_WIDTH_STEP}
 				onValueChange={handleWidthChange}
 			/>

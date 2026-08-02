@@ -8,12 +8,14 @@
 import { createIdentityTransform } from "../document/factory";
 import { buildHoverOverlay } from "../renderer/ui/builders/hover";
 import { buildPathEditOverlay } from "../renderer/ui/builders/pathEdit";
+import { buildSnapLineOverlay } from "../renderer/ui/builders/snapLine";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import { OVERLAY_Z, UI_THEME } from "../renderer/ui/theme";
 import type {
 	ControlPointHandle,
 	HoverUIData,
 	PathEditUIData,
+	SnapLine,
 } from "../renderer/ui/types";
 import {
 	type CubicBezierSegment,
@@ -28,6 +30,7 @@ import {
 	type Viewport,
 } from "../schema";
 import {
+	brandWorldBBox,
 	calculatePathBounds,
 	distanceToSegment,
 } from "../utils/geometry/bounds";
@@ -357,10 +360,13 @@ export class PathTool implements Tool {
 			return;
 		}
 
+		// Place a new anchor: snap it to artboard/element edges.
+		const snapped = this.snapAnchorPoint(worldPos, viewport.zoom);
 		this.isDragging = true;
 		this.isClosingDrag = false;
-		this.dragStartWorld = worldPos;
+		this.dragStartWorld = snapped.point;
 		this.pendingHandleOut = null;
+		this.updateSnapLineOverlay(snapped.snapLines);
 	}
 
 	public onPointerMove(
@@ -421,6 +427,8 @@ export class PathTool implements Tool {
 		}
 
 		if (this.isDragging && this.dragStartWorld) {
+			this.updateSnapLineOverlay([]);
+
 			// Vertex insertion drag: adjust CPs symmetrically
 			if (this.vertexInsertDrag) {
 				const local = this.vertexInsertDrag.toLocal(worldPos.x, worldPos.y);
@@ -506,6 +514,8 @@ export class PathTool implements Tool {
 			} else {
 				this.isNearFirstVertex = false;
 			}
+
+			this.updateHoverSnap(worldPos, viewport.zoom);
 		}
 
 		this.emitPreview();
@@ -721,6 +731,74 @@ export class PathTool implements Tool {
 		this.lastCanvasHeight = canvasHeight;
 	}
 
+	/**
+	 * Preview anchor snap while hovering, before the next anchor is placed.
+	 * Suppressed when the pointer would close/continue/edit an existing path.
+	 * The snapped point also becomes the rubber-band preview endpoint.
+	 */
+	private updateHoverSnap(
+		worldPos: { x: number; y: number },
+		zoom: number,
+	): void {
+		if (
+			this.isNearFirstVertex ||
+			this.hoveredPathId !== null ||
+			this.context.isReadonly() ||
+			this.context.isCurrentLayerLocked()
+		) {
+			this.updateSnapLineOverlay([]);
+			return;
+		}
+
+		const snapped = this.snapAnchorPoint(worldPos, zoom);
+		this.currentMouseWorld = snapped.point;
+		this.updateSnapLineOverlay(snapped.snapLines);
+	}
+
+	/**
+	 * Snap a prospective anchor point to artboard/element edges. The draft
+	 * path itself is excluded so the in-progress path is not a snap target.
+	 */
+	private snapAnchorPoint(
+		point: { x: number; y: number },
+		zoom: number,
+	): { point: { x: number; y: number }; snapLines: SnapLine[] } {
+		const snapResult = this.context.snapElements(
+			[this.pathId],
+			brandWorldBBox({
+				minX: point.x,
+				maxX: point.x,
+				minY: point.y,
+				maxY: point.y,
+				width: 0,
+				height: 0,
+			}),
+			0,
+			0,
+			zoom,
+		);
+
+		return {
+			point: {
+				x: point.x + snapResult.deltaX,
+				y: point.y + snapResult.deltaY,
+			},
+			snapLines: snapResult.snapLines,
+		};
+	}
+
+	private updateSnapLineOverlay(lines: SnapLine[]): void {
+		this.context.uiSetOverlay(
+			OVERLAY_KEYS.pathSnapLines,
+			lines.length > 0
+				? {
+						zIndex: OVERLAY_Z.snapLine,
+						primitives: buildSnapLineOverlay({ lines }, UI_THEME),
+					}
+				: null,
+		);
+	}
+
 	private updateHoverOverlay(hover: HoverUIData | null): void {
 		this.context.uiSetOverlay(
 			OVERLAY_KEYS.pathHover,
@@ -817,6 +895,7 @@ export class PathTool implements Tool {
 		this.displayingEditTarget = false;
 		this.context.previewUpdate(null);
 		this.updatePathEditOverlay(null);
+		this.updateSnapLineOverlay([]);
 	}
 
 	private updateVertexInsertionCPs(dx: number, dy: number): void {

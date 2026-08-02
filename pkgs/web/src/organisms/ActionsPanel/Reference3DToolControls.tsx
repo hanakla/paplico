@@ -10,6 +10,7 @@ import { memo, useMemo } from "react";
 import { useSnapshot } from "valtio";
 import { Button } from "@/components/Button";
 import { Checkbox } from "@/components/Checkbox";
+import { FakeInput } from "@/components/FakeInput";
 import { IconButton } from "@/components/IconButton";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { InfiniteSlider, Slider } from "@/components/Slider";
@@ -17,6 +18,7 @@ import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import type {
 	Reference3DCamera,
+	Reference3DElement,
 	Reference3DPrimitiveShape,
 	Vec3,
 } from "@/core/schema";
@@ -68,18 +70,6 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 	const cameraOrbit = scene
 		? getCameraOrbitAngles(scene.camera as Reference3DCamera)
 		: { yawDeg: 0, pitchDeg: 0 };
-
-	// Shared scenes are reusable across elements (one scene, many cameras) —
-	// the select re-points this element at any existing scene.
-	const references3d = snap.document.references3d;
-	const sceneItems = useMemo(
-		() =>
-			Object.values(references3d ?? {}).map((def, index) => ({
-				label: def.name ?? `${t("actionsPanel.reference3dScene")} ${index + 1}`,
-				value: def.id,
-			})),
-		[references3d, t],
-	);
 
 	const handleAddPrimitive = useEventCallback(
 		(shape: Reference3DPrimitiveShape) => {
@@ -160,10 +150,6 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 		paplico.reference3dUpdateEditingElement({ includeInExport: checked });
 	});
 
-	const handleSceneChange = useEventCallback((sceneId: string) => {
-		paplico.reference3dUpdateEditingElement({ sceneId });
-	});
-
 	if (!scene) {
 		return (
 			<p className="text-[10px] leading-tight text-muted-foreground px-1">
@@ -174,19 +160,7 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 
 	return (
 		<div className="flex flex-col gap-3 w-full">
-			{sceneItems.length > 1 && (
-				<div className="flex flex-col">
-					<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
-						{t("actionsPanel.reference3dScene")}
-					</span>
-					<SimpleSelect
-						$size="sm"
-						items={sceneItems}
-						value={scene.sceneId}
-						onValueChange={handleSceneChange}
-					/>
-				</div>
-			)}
+			<Reference3DSceneField element={scene} />
 
 			<div className="flex flex-col">
 				<span className="mb-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
@@ -289,6 +263,68 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 				/>
 				{t("actionsPanel.reference3dIncludeInExport")}
 			</label>
+		</div>
+	);
+});
+
+/**
+ * Scene picker for a reference3d element. Shared scenes are reusable across
+ * elements (one scene, many cameras) — the select re-points the element at
+ * any existing scene. Used both while editing (Reference3DToolControls) and
+ * for a plain selection (ActionsPanel element controls).
+ */
+export const Reference3DSceneField = memo(function Reference3DSceneField({
+	element,
+}: {
+	/** Snapshot-safe subset: the field only reads the id and scene ref. */
+	element: Pick<Reference3DElement, "id" | "sceneId">;
+}) {
+	const t = useTranslation();
+	const paplico = usePaplico();
+	const snap = useSnapshot(paplico.uiState);
+
+	const references3d = snap.document.references3d;
+	const sceneItems = useMemo(
+		() =>
+			Object.values(references3d ?? {}).map((def, index) => ({
+				label: def.name ?? `${t("actionsPanel.reference3dScene")} ${index + 1}`,
+				value: def.id,
+			})),
+		[references3d, t],
+	);
+
+	const handleSceneChange = useEventCallback((sceneId: string) => {
+		paplico.reference3dUpdateElement(element.id, { sceneId });
+	});
+
+	const handleSceneNameChange = useEventCallback((name: string | undefined) => {
+		if (name == null) return;
+		paplico.commands.renameReference3DScene(element.sceneId, name);
+	});
+
+	const currentSceneName = references3d?.[element.sceneId]?.name ?? "";
+	const defaultSceneLabel =
+		sceneItems.find((item) => item.value === element.sceneId)?.label ??
+		t("actionsPanel.reference3dScene");
+
+	return (
+		<div className="flex flex-col gap-1">
+			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+				{t("actionsPanel.reference3dScene")}
+			</span>
+			<SimpleSelect
+				$size="sm"
+				items={sceneItems}
+				value={element.sceneId}
+				onValueChange={handleSceneChange}
+			/>
+			<FakeInput
+				$size="sm"
+				$side="start"
+				value={currentSceneName}
+				placeholder={defaultSceneLabel}
+				onChange={handleSceneNameChange}
+			/>
 		</div>
 	);
 });

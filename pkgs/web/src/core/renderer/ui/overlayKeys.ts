@@ -15,6 +15,7 @@ export const OVERLAY_KEYS = {
 	shapeSnapLines: "shape/snap-lines",
 	pathHover: "path/hover",
 	pathHandles: "path/handles",
+	pathSnapLines: "path/snap-lines",
 	pathEditMarquee: "path-edit/marquee",
 	pathEditHandles: "path-edit/handles",
 	textHover: "text/hover",
@@ -34,6 +35,7 @@ export const OVERLAY_KEYS = {
 	reference3dPose: "reference3d/pose",
 	reference3dCameraUi: "reference3d/camera-ui",
 	reference3dEditBounds: "reference3d/edit-bounds",
+	reference3dCreatePreview: "reference3d/create-preview",
 	penPerspective: "pen/perspective",
 	// Engine-owned (sink/adapter) overlays
 	sysCursor: "sys/cursor",

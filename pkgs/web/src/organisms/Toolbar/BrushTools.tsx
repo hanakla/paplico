@@ -49,6 +49,7 @@ import type {
 } from "@/core/schema";
 import {
 	type BrushSettings,
+	DEFAULT_CALLIGRAPHY_SPACING,
 	DEFAULT_WET_INK_ABSORPTION,
 	DEFAULT_WET_INK_DIFFUSION,
 	DEFAULT_WET_INK_GRANULATION,
@@ -64,7 +65,11 @@ import { useBrushPresets } from "@/hooks/useBrushPresets";
 import { FileSystem } from "@/infra/filesystem";
 import { type LocalizeKeys, useTranslation } from "@/locales";
 import type { BrushStrokePreviewSource } from "@/repos/brushPresets";
-import { setSelectedBrushPresetUid } from "@/stores/uiStore";
+import {
+	setBrushDesignerTargetFilterIndex,
+	setSelectedBrushPresetUid,
+	useUIState,
+} from "@/stores/uiStore";
 import { useAsyncEffect, useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
 
@@ -73,6 +78,8 @@ function useSyncBrushSettingsWithSelection(): void {
 	const commands = paplico.commands;
 	const store = paplico.uiState;
 	const docSnap = useSnapshot(store);
+	const uiSnap = useUIState();
+	const targetFilterIndex = uiSnap.brushDesignerTargetFilterIndex;
 
 	const snap = useSnapshot(paplico.tools.state);
 	const brushSettings = useFlatBrushView(
@@ -85,12 +92,27 @@ function useSyncBrushSettingsWithSelection(): void {
 		const selectionChanged =
 			prevSelectedIds.current !== docSnap.selectedElementIds;
 		prevSelectedIds.current = docSnap.selectedElementIds;
-		if (selectionChanged) return;
+		if (selectionChanged) {
+			// An appearance target is bound to the element it was opened from.
+			if (targetFilterIndex != null) setBrushDesignerTargetFilterIndex(null);
+			return;
+		}
 
-		if (docSnap.selectedElementIds.length > 0) {
+		if (docSnap.selectedElementIds.length === 0) return;
+		if (targetFilterIndex != null) {
+			commands.updateSelectedElementStrokeBrushSettings(
+				targetFilterIndex,
+				brushSettings.union,
+			);
+		} else {
 			commands.updateSelectedElementsBrushSettings(brushSettings.union);
 		}
-	}, [brushSettings.union, commands, docSnap.selectedElementIds]);
+	}, [
+		brushSettings.union,
+		commands,
+		docSnap.selectedElementIds,
+		targetFilterIndex,
+	]);
 }
 
 /** Canonical S-curve stroke for brush preview: one period ±10 amplitude,
@@ -893,86 +915,98 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 								{/* Stamp-specific settings */}
 								{(brushSettings.renderMode ?? "stamp") === "stamp" ? (
 									<>
-										<BrushSettingSlider
-											label={t("toolbar.spacing")}
-											valueLabel={`${Math.round(brushSettings.spacing * 100)}%`}
-											min={0.01}
-											max={0.5}
-											step={0.01}
-											value={brushSettings.spacing}
-											onValueChange={(value) =>
-												updateBrushSettings({ spacing: value })
-											}
-										/>
+										{brushSettings.union.type === "scatter" ||
+										brushSettings.union.type === "calligraphy" ? (
+											<BrushSettingSlider
+												label={t("toolbar.spacing")}
+												valueLabel={`${Math.round(brushSettings.spacing * 100)}%`}
+												min={0.01}
+												max={0.5}
+												step={0.01}
+												value={brushSettings.spacing}
+												onValueChange={(value) =>
+													updateBrushSettings({ spacing: value })
+												}
+											/>
+										) : null}
 
-										<div className="flex flex-col gap-1">
-											<span className="text-xs text-muted-foreground">
-												{t("toolbar.stampRotation")}
-											</span>
-											<ToggleGroup.Root
-												value={[brushSettings.stampRotation]}
-												onValueChange={(value) => {
-													const mode = value[0] as StampRotation | undefined;
-													if (mode)
-														updateBrushSettings({ stampRotation: mode });
-												}}
-											>
-												<ToggleGroup.Item
-													value="none"
-													className="h-5 w-auto px-1.5 text-[10px]"
-												>
-													{t("toolbar.rotationNone")}
-												</ToggleGroup.Item>
-												<ToggleGroup.Item
-													value="tangent"
-													className="h-5 w-auto px-1.5 text-[10px]"
-												>
-													{t("toolbar.rotationTangent")}
-												</ToggleGroup.Item>
-												<ToggleGroup.Item
-													value="random"
-													className="h-5 w-auto px-1.5 text-[10px]"
-												>
-													{t("toolbar.rotationRandom")}
-												</ToggleGroup.Item>
-											</ToggleGroup.Root>
-										</div>
+										{/* Scatter-only settings: these fields exist only on the
+										    scatter union member, so the sliders would be dead
+										    controls for other stamp brushes. */}
+										{brushSettings.union.type === "scatter" ? (
+											<>
+												<div className="flex flex-col gap-1">
+													<span className="text-xs text-muted-foreground">
+														{t("toolbar.stampRotation")}
+													</span>
+													<ToggleGroup.Root
+														value={[brushSettings.stampRotation]}
+														onValueChange={(value) => {
+															const mode = value[0] as
+																| StampRotation
+																| undefined;
+															if (mode)
+																updateBrushSettings({ stampRotation: mode });
+														}}
+													>
+														<ToggleGroup.Item
+															value="none"
+															className="h-5 w-auto px-1.5 text-[10px]"
+														>
+															{t("toolbar.rotationNone")}
+														</ToggleGroup.Item>
+														<ToggleGroup.Item
+															value="tangent"
+															className="h-5 w-auto px-1.5 text-[10px]"
+														>
+															{t("toolbar.rotationTangent")}
+														</ToggleGroup.Item>
+														<ToggleGroup.Item
+															value="random"
+															className="h-5 w-auto px-1.5 text-[10px]"
+														>
+															{t("toolbar.rotationRandom")}
+														</ToggleGroup.Item>
+													</ToggleGroup.Root>
+												</div>
 
-										<BrushSettingSlider
-											label={t("toolbar.stampAngle")}
-											valueLabel={`${brushSettings.stampAngle ?? 0}°`}
-											min={-180}
-											max={180}
-											step={1}
-											value={brushSettings.stampAngle ?? 0}
-											onValueChange={(value) =>
-												updateBrushSettings({ stampAngle: value })
-											}
-										/>
+												<BrushSettingSlider
+													label={t("toolbar.stampAngle")}
+													valueLabel={`${brushSettings.stampAngle ?? 0}°`}
+													min={-180}
+													max={180}
+													step={1}
+													value={brushSettings.stampAngle ?? 0}
+													onValueChange={(value) =>
+														updateBrushSettings({ stampAngle: value })
+													}
+												/>
 
-										<BrushSettingSlider
-											label={t("toolbar.tiltRotation")}
-											valueLabel={`${Math.round(brushSettings.rotationByTilt * 100)}%`}
-											min={0}
-											max={1}
-											step={0.01}
-											value={brushSettings.rotationByTilt}
-											onValueChange={(value) =>
-												updateBrushSettings({ rotationByTilt: value })
-											}
-										/>
+												<BrushSettingSlider
+													label={t("toolbar.tiltRotation")}
+													valueLabel={`${Math.round(brushSettings.rotationByTilt * 100)}%`}
+													min={0}
+													max={1}
+													step={0.01}
+													value={brushSettings.rotationByTilt}
+													onValueChange={(value) =>
+														updateBrushSettings({ rotationByTilt: value })
+													}
+												/>
 
-										<BrushSettingSlider
-											label={t("toolbar.tiltAspectRatio")}
-											valueLabel={`${Math.round(brushSettings.aspectRatioByTilt * 100)}%`}
-											min={0}
-											max={1}
-											step={0.01}
-											value={brushSettings.aspectRatioByTilt}
-											onValueChange={(value) =>
-												updateBrushSettings({ aspectRatioByTilt: value })
-											}
-										/>
+												<BrushSettingSlider
+													label={t("toolbar.tiltAspectRatio")}
+													valueLabel={`${Math.round(brushSettings.aspectRatioByTilt * 100)}%`}
+													min={0}
+													max={1}
+													step={0.01}
+													value={brushSettings.aspectRatioByTilt}
+													onValueChange={(value) =>
+														updateBrushSettings({ aspectRatioByTilt: value })
+													}
+												/>
+											</>
+										) : null}
 
 										<BrushSettingSlider
 											label={t("toolbar.speedSize")}
@@ -1032,133 +1066,140 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 											</div>
 										</div>
 
-										{/* Scatter texture variants */}
-										<div className="flex flex-col gap-1.5">
-											<div className="flex items-center justify-between">
-												<span className="text-xs text-muted-foreground">
-													{t("toolbar.scatterTextures")}
-												</span>
-												<Tooltip
-													content={t("toolbar.addScatterTexture")}
-													side="top"
-												>
-													<IconButton
-														$size="sm"
-														$variant="ghost"
-														onClick={handleImportScatterTexture}
-														$clickOnPointerUpOnly
-													>
-														<ImagePlus size={12} />
-													</IconButton>
-												</Tooltip>
-											</div>
+										{brushSettings.union.type === "scatter" ? (
+											<>
+												{/* Scatter texture variants */}
+												<div className="flex flex-col gap-1.5">
+													<div className="flex items-center justify-between">
+														<span className="text-xs text-muted-foreground">
+															{t("toolbar.scatterTextures")}
+														</span>
+														<Tooltip
+															content={t("toolbar.addScatterTexture")}
+															side="top"
+														>
+															<IconButton
+																$size="sm"
+																$variant="ghost"
+																onClick={handleImportScatterTexture}
+																$clickOnPointerUpOnly
+															>
+																<ImagePlus size={12} />
+															</IconButton>
+														</Tooltip>
+													</div>
 
-											{(brushSettings.scatterTextureUids?.length ?? 0) > 0 ? (
-												<div className="flex flex-wrap gap-1">
-													{brushSettings.scatterTextureUids!.map((uid) => {
-														const file =
-															brushPresets.builtinFiles.find(
-																(f) => f.uid === uid,
-															) ??
-															store.document.files.find((f) => f.uid === uid);
+													{(brushSettings.scatterTextureUids?.length ?? 0) >
+													0 ? (
+														<div className="flex flex-wrap gap-1">
+															{brushSettings.scatterTextureUids!.map((uid) => {
+																const file =
+																	brushPresets.builtinFiles.find(
+																		(f) => f.uid === uid,
+																	) ??
+																	store.document.files.find(
+																		(f) => f.uid === uid,
+																	);
 
-														return (
-															<div key={uid} className="group relative">
-																<BrushThumbnail
-																	file={file}
-																	size={28}
-																	className="rounded border border-border/25"
-																/>
-																<button
-																	type="button"
-																	className="absolute -top-1 -right-1 hidden size-3.5 items-center justify-center rounded-full bg-destructive text-destructive-foreground group-hover:flex"
-																	onClick={() =>
-																		handleRemoveScatterTexture(uid)
-																	}
-																>
-																	<X size={8} />
-																</button>
-															</div>
-														);
-													})}
+																return (
+																	<div key={uid} className="group relative">
+																		<BrushThumbnail
+																			file={file}
+																			size={28}
+																			className="rounded border border-border/25"
+																		/>
+																		<button
+																			type="button"
+																			className="absolute -top-1 -right-1 hidden size-3.5 items-center justify-center rounded-full bg-destructive text-destructive-foreground group-hover:flex"
+																			onClick={() =>
+																				handleRemoveScatterTexture(uid)
+																			}
+																		>
+																			<X size={8} />
+																		</button>
+																	</div>
+																);
+															})}
+														</div>
+													) : (
+														<span className="text-[10px] text-muted-foreground/60">
+															{t("toolbar.scatterTexturesEmpty")}
+														</span>
+													)}
 												</div>
-											) : (
-												<span className="text-[10px] text-muted-foreground/60">
-													{t("toolbar.scatterTexturesEmpty")}
-												</span>
-											)}
-										</div>
 
-										<BrushSettingSlider
-											label={t("toolbar.scatterOffset")}
-											valueLabel={`${Math.round((brushSettings.scatterOffset ?? 0) * 100)}%`}
-											min={0}
-											max={1}
-											step={0.01}
-											value={brushSettings.scatterOffset ?? 0}
-											onValueChange={(value) =>
-												updateBrushSettings({ scatterOffset: value })
-											}
-										/>
-										<BrushSettingSlider
-											label={t("toolbar.scatterSizeVariation")}
-											valueLabel={`${Math.round((brushSettings.scatterSizeVariation ?? 0) * 100)}%`}
-											min={0}
-											max={1}
-											step={0.01}
-											value={brushSettings.scatterSizeVariation ?? 0}
-											onValueChange={(value) =>
-												updateBrushSettings({
-													scatterSizeVariation: value,
-												})
-											}
-										/>
+												<BrushSettingSlider
+													label={t("toolbar.scatterOffset")}
+													valueLabel={`${Math.round((brushSettings.scatterOffset ?? 0) * 100)}%`}
+													min={0}
+													max={1}
+													step={0.01}
+													value={brushSettings.scatterOffset ?? 0}
+													onValueChange={(value) =>
+														updateBrushSettings({ scatterOffset: value })
+													}
+												/>
+												<BrushSettingSlider
+													label={t("toolbar.scatterSizeVariation")}
+													valueLabel={`${Math.round((brushSettings.scatterSizeVariation ?? 0) * 100)}%`}
+													min={0}
+													max={1}
+													step={0.01}
+													value={brushSettings.scatterSizeVariation ?? 0}
+													onValueChange={(value) =>
+														updateBrushSettings({
+															scatterSizeVariation: value,
+														})
+													}
+												/>
 
-										{/* Start / End textures */}
-										<div className="flex gap-2">
-											<SimpleSelect
-												className="min-w-0 flex-1"
-												$size="sm"
-												label={t("toolbar.startTexture")}
-												items={[
-													{
-														label: t("toolbar.noneTexture"),
-														value: "",
-													},
-													...brushPresets.builtinFiles.map((f) => ({
-														label: f.name,
-														value: f.uid,
-													})),
-												]}
-												value={brushSettings.startTextureUid ?? ""}
-												onValueChange={(value) =>
-													updateBrushSettings({
-														startTextureUid: (value as string) || undefined,
-													})
-												}
-											/>
-											<SimpleSelect
-												className="min-w-0 flex-1"
-												$size="sm"
-												label={t("toolbar.endTexture")}
-												items={[
-													{
-														label: t("toolbar.noneTexture"),
-														value: "",
-													},
-													...brushPresets.builtinFiles.map((f) => ({
-														label: f.name,
-														value: f.uid,
-													})),
-												]}
-												value={brushSettings.endTextureUid ?? ""}
-												onValueChange={(value) =>
-													updateBrushSettings({
-														endTextureUid: (value as string) || undefined,
-													})
-												}
-											/>
-										</div>
+												{/* Start / End textures */}
+												<div className="flex gap-2">
+													<SimpleSelect
+														className="min-w-0 flex-1"
+														$size="sm"
+														label={t("toolbar.startTexture")}
+														items={[
+															{
+																label: t("toolbar.noneTexture"),
+																value: "",
+															},
+															...brushPresets.builtinFiles.map((f) => ({
+																label: f.name,
+																value: f.uid,
+															})),
+														]}
+														value={brushSettings.startTextureUid ?? ""}
+														onValueChange={(value) =>
+															updateBrushSettings({
+																startTextureUid: (value as string) || undefined,
+															})
+														}
+													/>
+													<SimpleSelect
+														className="min-w-0 flex-1"
+														$size="sm"
+														label={t("toolbar.endTexture")}
+														items={[
+															{
+																label: t("toolbar.noneTexture"),
+																value: "",
+															},
+															...brushPresets.builtinFiles.map((f) => ({
+																label: f.name,
+																value: f.uid,
+															})),
+														]}
+														value={brushSettings.endTextureUid ?? ""}
+														onValueChange={(value) =>
+															updateBrushSettings({
+																endTextureUid: (value as string) || undefined,
+															})
+														}
+													/>
+												</div>
+											</>
+										) : null}
 
 										<WetInkSection
 											wetInk={brushSettings.wetInk}
@@ -2132,7 +2173,12 @@ function toFlatBrushView(raw: unknown): FlatBrushView {
 		opacityByPressure: u.opacityByPressure,
 		colorMode: u.colorMode,
 		textureFileUid: resolveBrushTextureUid(u) ?? "",
-		spacing: u.type === "scatter" ? u.spacing : 0.1,
+		spacing:
+			u.type === "scatter"
+				? u.spacing
+				: u.type === "calligraphy"
+					? (u.spacing ?? DEFAULT_CALLIGRAPHY_SPACING)
+					: 0.1,
 		flow: "flow" in u ? u.flow : 1,
 		stampRotation: u.type === "scatter" ? u.stampRotation : "none",
 		stampAngle: u.type === "scatter" ? u.stampAngle : undefined,
@@ -2203,7 +2249,6 @@ function applyFlatPatch(
 	}
 
 	if (next.type === "scatter") {
-		if (patch.spacing !== undefined) next.spacing = patch.spacing;
 		if (patch.stampRotation !== undefined)
 			next.stampRotation = patch.stampRotation;
 		if (patch.stampAngle !== undefined) next.stampAngle = patch.stampAngle;
@@ -2233,8 +2278,9 @@ function applyFlatPatch(
 		}
 	}
 
-	// sizeBySpeed / pooling / poolingSizeRatio / wetInk live on scatter and calligraphy.
+	// spacing / sizeBySpeed / pooling / poolingSizeRatio / wetInk live on scatter and calligraphy.
 	if (next.type === "scatter" || next.type === "calligraphy") {
+		if (patch.spacing !== undefined) next.spacing = patch.spacing;
 		if (patch.sizeBySpeed !== undefined) next.sizeBySpeed = patch.sizeBySpeed;
 		if (patch.pooling !== undefined) next.pooling = patch.pooling;
 		if (patch.poolingSizeRatio !== undefined)

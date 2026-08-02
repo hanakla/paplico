@@ -206,6 +206,7 @@ export class BucketFillTool implements Tool {
 	private fillAreas: FillArea[] = [];
 	private dragState: DragState = { mode: "idle" };
 	private savedSelection: string[] = [];
+	private inFlightComputes = 0;
 
 	public tolerance: number;
 	public gapClosing: number;
@@ -407,6 +408,28 @@ export class BucketFillTool implements Tool {
 		this.restoreSelection();
 	}
 
+	public saveInterruptibleState(): unknown {
+		return {
+			fillAreas: this.fillAreas,
+			savedSelection: this.savedSelection,
+		};
+	}
+
+	public restoreFromInterrupt(state: unknown): void {
+		const s = state as {
+			fillAreas: FillArea[];
+			savedSelection: string[];
+		};
+		this.fillAreas = s.fillAreas;
+		this.savedSelection = s.savedSelection;
+		// onCancel restored the pre-tool selection; clear it again so the fill
+		// color picker keeps targeting the revived fill session (see the
+		// "Selection handling" note above).
+		this.context.selectionClear();
+		this.refreshPreview();
+		this.publishLeakState();
+	}
+
 	/** Recompute all existing fill areas (e.g. after gapClosing changes). */
 	public recomputeAllAreas(): void {
 		for (const area of this.fillAreas) {
@@ -516,6 +539,18 @@ export class BucketFillTool implements Tool {
 	}
 
 	private async computeAndPreviewArea(area: FillArea): Promise<void> {
+		this.inFlightComputes++;
+		this.context.setBucketFillComputing(true);
+		try {
+			await this.computeAndPreviewAreaBody(area);
+		} finally {
+			if (--this.inFlightComputes === 0) {
+				this.context.setBucketFillComputing(false);
+			}
+		}
+	}
+
+	private async computeAndPreviewAreaBody(area: FillArea): Promise<void> {
 		const gen = ++area.computeGeneration;
 		const docBounds = this.context.getDocumentContentBounds();
 		const budget = Math.min(

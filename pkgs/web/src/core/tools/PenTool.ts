@@ -93,6 +93,10 @@ export class PenTool implements Tool {
 		this.smoothingMethod = options.smoothingMethod ?? "smooth";
 		this.perspectiveSnap = options.perspectiveSnap ?? true;
 		this.opacity = options.opacity ?? 1;
+
+		// Freehand drawing never operates on the selection; drop it on activation
+		// so stale selection frames don't linger while drawing.
+		context.selectionClear();
 	}
 
 	public get isLongPicking(): boolean {

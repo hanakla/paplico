@@ -78,6 +78,10 @@ function getGradientStops(color: FillColor | StrokeColor) {
 	}
 }
 
+/** Checkerboard backdrop that reveals transparency in the layered color. */
+const CHECKERBOARD_CSS =
+	"repeating-conic-gradient(#bbb 0% 25%, #f5f5f5 0% 50%) 0 0 / 12px 12px";
+
 function applyFillStyle(
 	color: FillColor | StrokeColor | null,
 	style: CSSProperties,
@@ -86,7 +90,11 @@ function applyFillStyle(
 
 	if (color.type === "solid") {
 		const c = colorToRawRGBA(color.color);
-		style.backgroundColor = `rgba(${c.r * 255},${c.g * 255},${c.b * 255},${c.a})`;
+		const rgba = `rgba(${c.r * 255},${c.g * 255},${c.b * 255},${c.a})`;
+		// Layer translucent colors over a checkerboard — an alpha-0 fill used
+		// to look identical to both solid white and "no fill".
+		style.background =
+			c.a < 1 ? `linear-gradient(${rgba}, ${rgba}), ${CHECKERBOARD_CSS}` : rgba;
 		return;
 	}
 
@@ -97,8 +105,7 @@ function applyFillStyle(
 
 	if (color.type === "pattern" || color.type === "stroke-pattern") {
 		// Checkerboard placeholder until per-def thumbnails are wired in.
-		style.background =
-			"repeating-conic-gradient(#bbb 0% 25%, #f5f5f5 0% 50%) 0 0 / 12px 12px";
+		style.background = CHECKERBOARD_CSS;
 		return;
 	}
 
@@ -113,10 +120,12 @@ function applyFillStyle(
 		})
 		.join(", ");
 
-	if (color.type === "radial") {
-		style.background = `radial-gradient(circle, ${stopsCss})`;
-		return;
-	}
-
-	style.background = `linear-gradient(to right, ${stopsCss})`;
+	const gradientCss =
+		color.type === "radial"
+			? `radial-gradient(circle, ${stopsCss})`
+			: `linear-gradient(to right, ${stopsCss})`;
+	const hasTranslucentStop = stops.some((s) => colorToRawRGBA(s.color).a < 1);
+	style.background = hasTranslucentStop
+		? `${gradientCss}, ${CHECKERBOARD_CSS}`
+		: gradientCss;
 }

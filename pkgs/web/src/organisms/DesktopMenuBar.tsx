@@ -10,6 +10,8 @@ import {
 	FileUp,
 	FolderOpen,
 	Gamepad2,
+	Gauge,
+	Grid2x2,
 	Group,
 	ImageDown,
 	ImagePlus,
@@ -42,6 +44,7 @@ import { useShortcutBinding } from "@/hooks/useShortcutBinding";
 import { useTranslation } from "@/locales";
 import { RoomParticipants } from "@/organisms/RoomParticipants";
 import { UserMenu } from "@/organisms/UserMenu";
+import { setPixelPreviewEnabled, useUIState } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
 import { IS_TAURI_ENV } from "@/utils/platform";
 import { twm } from "@/utils/tailwind";
@@ -107,6 +110,7 @@ export function DesktopMenuBar({
 		[],
 	);
 	const uiState = useSnapshot(paplico?.uiState ?? fallbackUiState);
+	const appUiState = useUIState();
 
 	const undoShortcut = useShortcutBinding("paplico.undo");
 	const redoShortcut = useShortcutBinding("paplico.redo");
@@ -145,6 +149,31 @@ export function DesktopMenuBar({
 
 	const handleEmulateDisconnect = useEventCallback(() => {
 		paplico?.getCollaboration()?.simulateDisconnect();
+	});
+
+	const handleRunPerfCheck = useEventCallback(async () => {
+		if (!paplico) return;
+		// Dynamic import keeps the dev profiler out of the production bundle.
+		const { runPerfCheck } = await import("@/devtools/perfCheck");
+		const result = await runPerfCheck(paplico);
+		if (!result) return;
+		try {
+			const res = await fetch("/api/dev/perf-result", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(result),
+			});
+			const { saved } = await res.json();
+			console.log(`[perf] result sent: ${saved}`);
+		} catch (e) {
+			console.error("[perf] failed to send result:", e);
+		}
+	});
+
+	const handleTogglePixelPreview = useEventCallback(() => {
+		const next = !appUiState.pixelPreviewEnabled;
+		setPixelPreviewEnabled(next);
+		paplico?.setPixelPreview(next);
 	});
 
 	const handleReloadApp = useEventCallback(() => {
@@ -377,6 +406,12 @@ export function DesktopMenuBar({
 						{t("menubar.resetRotationAndZoom")}
 					</Menubar.Item>
 					<Menubar.Separator />
+					<Menubar.Item onClick={handleTogglePixelPreview} disabled={!paplico}>
+						<Grid2x2 size={16} />
+						{t("menubar.pixelPreview")}
+						{appUiState.pixelPreviewEnabled && <Check size={16} />}
+					</Menubar.Item>
+					<Menubar.Separator />
 					<Menubar.Item
 						onClick={onToggleSplitView}
 						shortcut="⌘\"
@@ -403,6 +438,10 @@ export function DesktopMenuBar({
 								</Menu.Positioner>
 							</Menu.Portal>
 						</Menu.SubmenuRoot>
+						<Menubar.Item onClick={handleRunPerfCheck} disabled={!paplico}>
+							<Gauge size={16} />
+							{t("menubar.runPerfCheck")}
+						</Menubar.Item>
 					</Menubar.Menu>
 				)}
 			</Menubar.Root>

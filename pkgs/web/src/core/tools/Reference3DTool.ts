@@ -30,10 +30,11 @@ import {
 } from "../reference3d/vrm/ikSolver";
 import { sparsifyPose } from "../reference3d/vrm/pose";
 import { PRESET_POSES } from "../reference3d/vrm/presetPoses";
+import { buildMarqueeOverlay } from "../renderer/ui/builders/marquee";
 import { rectGeom } from "../renderer/ui/builders/shared";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import type { UIPrimitive } from "../renderer/ui/primitives";
-import { type RGBA, UI_THEME } from "../renderer/ui/theme";
+import { OVERLAY_Z, type RGBA, UI_THEME } from "../renderer/ui/theme";
 import {
 	type ElementTransform,
 	generateUid,
@@ -70,6 +71,13 @@ const POSE_OVERLAY_KEY = OVERLAY_KEYS.reference3dPose;
 const CAMERA_UI_OVERLAY_KEY = OVERLAY_KEYS.reference3dCameraUi;
 /** Overlay channel key for the edited element's bounding-box outline (selection is cleared while editing). */
 const EDIT_BOUNDS_OVERLAY_KEY = OVERLAY_KEYS.reference3dEditBounds;
+/** Overlay channel key for the drag-to-size rectangle while creating an element. */
+const CREATE_PREVIEW_OVERLAY_KEY = OVERLAY_KEYS.reference3dCreatePreview;
+
+/** Screen-pixel movement that turns a create click into a size-defining drag. */
+const CREATE_DRAG_THRESHOLD_PX = 3;
+/** Minimum side length of a drag-created element (world units). */
+const CREATE_MIN_SIZE = 10;
 
 /** Orbit rotation speed in radians per screen pixel. */
 const ORBIT_SPEED = 0.008;
@@ -252,9 +260,23 @@ interface PoseDragState {
 	currentPose: FigureNode["pose"] | null;
 }
 
+/**
+ * Element creation on empty canvas: the pointer went down and the gesture is
+ * still undecided. `currentWorld` stays null for a plain click (default-size
+ * element) and tracks the pointer once the drag threshold is passed
+ * (drag-to-size).
+ */
+interface CreateDragState {
+	type: "create";
+	startWorld: { x: number; y: number };
+	startScreen: { x: number; y: number };
+	currentWorld: { x: number; y: number } | null;
+}
+
 type DragState =
 	| CameraDragState
 	| CameraGestureDragState
+	| CreateDragState
 	| GizmoDragState
 	| GizmoRotateDragState
 	| GizmoScaleDragState
@@ -332,11 +354,14 @@ export class Reference3DTool implements Tool {
 				this.enterEditModeForElement(hitElement);
 				return;
 			}
-			// Empty canvas: create a fresh shared scene + viewing element here.
-			const created = this.context.reference3dCreate(world.x, world.y);
-			if (created && isReference3D(created)) {
-				this.enterEditModeForElement(created);
-			}
+			// Empty canvas: decide on pointer-up — a click creates a
+			// default-size element, a drag defines the element's rect.
+			this.dragState = {
+				type: "create",
+				startWorld: world,
+				startScreen: { x: event.x, y: event.y },
+				currentWorld: null,
+			};
 			return;
 		}
 
@@ -419,6 +444,38 @@ export class Reference3DTool implements Tool {
 			this.updateGizmoHover(event);
 			return;
 		}
+
+		if (drag.type === "create") {
+			if (
+				drag.currentWorld === null &&
+				Math.hypot(event.x - drag.startScreen.x, event.y - drag.startScreen.y) <
+					CREATE_DRAG_THRESHOLD_PX
+			) {
+				return;
+			}
+			drag.currentWorld = screenToWorld(
+				event.x,
+				event.y,
+				viewport,
+				canvasWidth,
+				canvasHeight,
+			);
+			this.context.uiSetOverlay(CREATE_PREVIEW_OVERLAY_KEY, {
+				zIndex: OVERLAY_Z.marquee,
+				primitives: buildMarqueeOverlay(
+					{
+						startX: drag.startWorld.x,
+						startY: drag.startWorld.y,
+						endX: drag.currentWorld.x,
+						endY: drag.currentWorld.y,
+					},
+					UI_THEME,
+				),
+			});
+			this.context.requestRender("selection");
+			return;
+		}
+
 		const state = this.getEditState();
 		if (!state) return;
 
@@ -502,6 +559,23 @@ export class Reference3DTool implements Tool {
 		// single-pointer up must not tear the gesture down.
 		if (drag.type === "camera-gesture") {
 			this.dragState = drag;
+			return;
+		}
+
+		if (drag.type === "create") {
+			this.context.uiSetOverlay(CREATE_PREVIEW_OVERLAY_KEY, null);
+			const end = drag.currentWorld;
+			const created = end
+				? this.context.reference3dCreate(
+						(drag.startWorld.x + end.x) / 2,
+						(drag.startWorld.y + end.y) / 2,
+						Math.max(Math.abs(end.x - drag.startWorld.x), CREATE_MIN_SIZE),
+						Math.max(Math.abs(end.y - drag.startWorld.y), CREATE_MIN_SIZE),
+					)
+				: this.context.reference3dCreate(drag.startWorld.x, drag.startWorld.y);
+			if (created && isReference3D(created)) {
+				this.enterEditModeForElement(created);
+			}
 			return;
 		}
 
@@ -1292,6 +1366,10 @@ export class Reference3DTool implements Tool {
 		const drag = this.dragState;
 		this.dragState = null;
 		if (!drag) return;
+		if (drag.type === "create") {
+			this.context.uiSetOverlay(CREATE_PREVIEW_OVERLAY_KEY, null);
+			return;
+		}
 		const state = this.getEditState();
 		if (!state) return;
 		if (drag.type === "camera" || drag.type === "camera-gesture") {

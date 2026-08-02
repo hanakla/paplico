@@ -22,7 +22,13 @@ export const ScanInviteDialog = createCallable<
 	string | null
 >(({ call }) => {
 	const t = useTranslation();
-	const videoRef = useRef<HTMLVideoElement>(null);
+	/**
+	 * The dialog renders into a portal, which has nothing in it yet when the
+	 * effect below first runs — a ref would still be null there, and with no
+	 * reason to run again the scanner would never be built at all. Holding the
+	 * element in state gives the effect the second run it needs.
+	 */
+	const [video, setVideo] = useState<HTMLVideoElement | null>(null);
 	const photoInputRef = useRef<HTMLInputElement>(null);
 	const [standalone] = useState(isStandaloneDisplay);
 	const [cameraFailed, setCameraFailed] = useState(false);
@@ -37,10 +43,7 @@ export const ScanInviteDialog = createCallable<
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: useEventCallback keeps a stable reference
 	useEffect(() => {
-		if (standalone) return;
-
-		const video = videoRef.current;
-		if (!video) return;
+		if (standalone || !video) return;
 
 		const scanner = new QrScanner(video, handleDecode, {
 			returnDetailedScanResult: true,
@@ -51,7 +54,7 @@ export const ScanInviteDialog = createCallable<
 		return () => {
 			scanner.destroy();
 		};
-	}, [standalone]);
+	}, [standalone, video]);
 
 	const handleTakePhoto = useEventCallback(() => {
 		photoInputRef.current?.click();
@@ -133,7 +136,7 @@ export const ScanInviteDialog = createCallable<
 						<div className="relative aspect-square rounded-lg overflow-hidden bg-black">
 							{/* biome-ignore lint/a11y/useMediaCaption: live camera preview has no captions */}
 							<video
-								ref={videoRef}
+								ref={setVideo}
 								className="absolute inset-0 w-full h-full object-cover"
 							/>
 						</div>
@@ -155,61 +158,21 @@ export const ScanInviteDialog = createCallable<
 	);
 });
 
-/** Long edge the first decoding pass works at. */
-const PHOTO_SCAN_EDGE = 1600;
-
 /**
  * Reads a code out of a photo, or returns null.
  *
- * A phone camera hands over twelve megapixels, nearly all of it not the code.
- * The decoder is given a downscaled copy first: that is what a normally framed
- * shot succeeds on, and it returns well inside the ten seconds the decoder
- * allows itself, where the full frame can spend all of them and give up. Full
- * resolution follows only when the small copy finds nothing, which is the case
- * for a code photographed from across the room.
+ * The frame goes to the decoder exactly as the camera produced it. qr-scanner
+ * allows itself ten seconds per image, and a phone's full-size photo can take
+ * a noticeable part of that, which is what the button's spinner is for.
  */
 async function readCodeFromPhoto(file: File): Promise<string | null> {
-	const downscaled = await downscalePhoto(file, PHOTO_SCAN_EDGE);
-
-	for (const image of downscaled ? [downscaled, file] : [file]) {
-		try {
-			const result = await QrScanner.scanImage(image, {
-				returnDetailedScanResult: true,
-			});
-			return result.data;
-		} catch {
-			// Nothing found at this size; the next one may still have it.
-		}
-	}
-
-	return null;
-}
-
-/** Null when the photo is already small enough, or cannot be read at all. */
-async function downscalePhoto(
-	file: File,
-	maxEdge: number,
-): Promise<HTMLCanvasElement | null> {
-	let bitmap: ImageBitmap;
 	try {
-		bitmap = await createImageBitmap(file);
+		const result = await QrScanner.scanImage(file, {
+			returnDetailedScanResult: true,
+		});
+		return result.data;
 	} catch {
 		return null;
-	}
-
-	try {
-		const scale = maxEdge / Math.max(bitmap.width, bitmap.height);
-		if (scale >= 1) return null;
-
-		const canvas = document.createElement("canvas");
-		canvas.width = Math.round(bitmap.width * scale);
-		canvas.height = Math.round(bitmap.height * scale);
-		canvas
-			.getContext("2d")
-			?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-		return canvas;
-	} finally {
-		bitmap.close();
 	}
 }
 

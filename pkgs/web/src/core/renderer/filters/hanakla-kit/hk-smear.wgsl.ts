@@ -1,6 +1,8 @@
 export const HK_SMEAR_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
+	contentOffset: vec2f,
+	worldOrigin: vec2f,
 	dpiScale: f32,
 	angle: f32,
 	intensity: f32,
@@ -69,9 +71,18 @@ fn fractalNoise(p: vec2f, seed: f32) -> f32 {
 	return value;
 }
 
+// World-anchored noise position: the editor clamps the bake to the viewport,
+// so texCoord 0 is not the element corner and the texture scale follows the
+// live zoom. Mapping back through contentOffset/dpiScale and shifting by
+// worldOrigin anchors the streak noise to the FULL element rect, keeping the
+// pattern fixed while zooming or panning.
+fn smearWorldPos(texCoord: vec2f) -> vec2f {
+	return (texCoord * uniforms.resolution - uniforms.contentOffset) / uniforms.dpiScale
+		+ uniforms.worldOrigin;
+}
+
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
-	let dims = uniforms.resolution;
 	let texCoord = input.texCoord;
 	let originalColor = textureSample(inputTexture, inputSampler, texCoord);
 
@@ -86,7 +97,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
 	// Streak-space noise coords in world px: long wavelength along the
 	// direction, short across it, producing fiber-like streaks.
-	let posPx = texCoord * dims / uniforms.dpiScale;
+	let posPx = smearWorldPos(texCoord);
 	let streakUV = vec2f(
 		dot(posPx, streakDir) / max(uniforms.streakLength, 1.0),
 		dot(posPx, streakPerp) / max(uniforms.streakWidth, 0.5)

@@ -81,8 +81,10 @@ export class ShapeTool implements Tool {
 			canvasWidth,
 			canvasHeight,
 		);
+		const snapped = this.snapPoint(worldPos, viewport.zoom);
+		this.updateSnapLineOverlay(snapped.snapLines);
 
-		this.dragStartWorld = worldPos;
+		this.dragStartWorld = snapped.point;
 		this.isDragging = true;
 		this.shiftKeyPressed = event.shiftKey;
 	}
@@ -93,7 +95,10 @@ export class ShapeTool implements Tool {
 		canvasWidth: number,
 		canvasHeight: number,
 	): void {
-		if (!this.isDragging || !this.dragStartWorld) return;
+		if (!this.isDragging || !this.dragStartWorld) {
+			this.updateHoverSnap(event, viewport, canvasWidth, canvasHeight);
+			return;
+		}
 
 		this.shiftKeyPressed = event.shiftKey;
 
@@ -187,6 +192,58 @@ export class ShapeTool implements Tool {
 		this.shiftKeyPressed = false;
 		this.context.previewUpdate(null);
 		this.updateSnapLineOverlay([]);
+	}
+
+	/**
+	 * Preview snap lines while hovering, before the creation drag begins
+	 * (mirrors ArtboardTool's hover snap).
+	 */
+	private updateHoverSnap(
+		event: PointerEventData,
+		viewport: Viewport,
+		canvasWidth: number,
+		canvasHeight: number,
+	): void {
+		if (this.context.isReadonly() || this.context.isCurrentLayerLocked()) {
+			this.updateSnapLineOverlay([]);
+			return;
+		}
+
+		const worldPos = screenToWorld(
+			event.x,
+			event.y,
+			viewport,
+			canvasWidth,
+			canvasHeight,
+		);
+		const { snapLines } = this.snapPoint(worldPos, viewport.zoom);
+		this.updateSnapLineOverlay(snapLines);
+	}
+
+	/** Snap a single point to artboard/element edges on both axes. */
+	private snapPoint(
+		point: { x: number; y: number },
+		zoom: number,
+	): { point: { x: number; y: number }; snapLines: SnapLine[] } {
+		const snapResult = this.context.snapArtboardToElements(
+			{
+				minX: point.x,
+				maxX: point.x,
+				minY: point.y,
+				maxY: point.y,
+				width: 0,
+				height: 0,
+			},
+			zoom,
+		);
+
+		return {
+			point: {
+				x: point.x + snapResult.deltaX,
+				y: point.y + snapResult.deltaY,
+			},
+			snapLines: snapResult.snapLines,
+		};
 	}
 
 	/**
