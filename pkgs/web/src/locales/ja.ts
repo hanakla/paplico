@@ -30,6 +30,7 @@ export const ja = {
 		devMenu: "開発",
 		chatSubmenu: "チャット",
 		emulateDisconnect: "切断をエミュレート",
+		runPerfCheck: "パフォーマンス計測 (10秒)",
 	},
 	licenses: {
 		title: "ライセンス",
