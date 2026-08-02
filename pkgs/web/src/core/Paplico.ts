@@ -1381,8 +1381,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		const target = new CanvasTarget(canvas, options);
 		await this.renderer.initCanvasTarget(target);
 
-		const scheduler = new RenderScheduler((strategy, changedElements) =>
-			this.renderTarget(target.id, strategy, changedElements),
+		const scheduler = new RenderScheduler(
+			(strategy, changedElements) =>
+				this.renderTarget(target.id, strategy, changedElements),
+			() =>
+				this.rendererStore.transientElements.size > 0 ||
+				this.rendererStore.elementOverrides.size > 0,
 		);
 
 		const ui = new PaplicoUI(canvas, {
@@ -3518,6 +3522,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			getMaxRasterDimension: () => this.renderer.getMaxTextureDimension(),
 			setBucketFillLeaks: (state) => {
 				this.tools.setBucketFillLeaks(state);
+			},
+			setBucketFillComputing: (computing) => {
+				this.tools.setBucketFillComputing(computing);
 			},
 			panToWorldPoint: (point, zoom) => {
 				const t = this.activeTarget ?? this.getPrimaryTarget();

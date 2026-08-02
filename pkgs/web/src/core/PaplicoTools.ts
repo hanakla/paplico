@@ -177,6 +177,10 @@ export class PaplicoTools {
 		this.store.bucketFillLeaks = state;
 	}
 
+	public setBucketFillComputing(computing: boolean): void {
+		this.store.bucketFillComputing = computing;
+	}
+
 	public setBucketFillGapClosing(radius: number): void {
 		this.store.bucketFillGapClosing = radius;
 	}

@@ -425,6 +425,8 @@ export type ToolContextOptions = {
 	getMaxRasterDimension: () => number;
 	/** Publish bucket-fill leak state to toolSettings for the toolbar panel. */
 	setBucketFillLeaks: (state: BucketFillLeakState | null) => void;
+	/** Publish whether a bucket-fill area compute is in flight (toolbar spinner). */
+	setBucketFillComputing: (computing: boolean) => void;
 	/** Center the viewport on a world point, optionally changing the zoom. */
 	panToWorldPoint: (point: { x: number; y: number }, zoom?: number) => void;
 

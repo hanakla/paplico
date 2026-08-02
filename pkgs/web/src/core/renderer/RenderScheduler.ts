@@ -67,14 +67,20 @@ export class RenderScheduler {
 	private viewportZoomChanged = false;
 	/** Debounce timer for settling after interaction stops. */
 	private settleTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Whether volatile content (transient preview elements, element overrides)
+	 *  is currently present. The composite frame cache never captures such
+	 *  content, so blitting it would show a frame without them. */
+	private hasVolatileContent: () => boolean;
 
 	public constructor(
 		renderCallback: (
 			strategy: RenderStrategy,
 			changedElements?: ChangedElements,
 		) => void,
+		hasVolatileContent: () => boolean = () => false,
 	) {
 		this.renderCallback = renderCallback;
+		this.hasVolatileContent = hasVolatileContent;
 	}
 
 	/**
@@ -233,10 +239,13 @@ export class RenderScheduler {
 			// screen-sized cache would reveal unbaked edges). "preview"
 			// (in-progress draw geometry) and "render" (async resource /
 			// post-process) need real document pixels, so those re-render too.
+			// Volatile content (transient previews / overrides) is never in the
+			// composite cache, so blitting while it exists would hide it.
 			if (
 				this.viewportZoomChanged &&
 				!this.dirtyReasons.has("preview") &&
-				!this.dirtyReasons.has("render")
+				!this.dirtyReasons.has("render") &&
+				!this.hasVolatileContent()
 			) {
 				return RenderStrategy.viewportBlit;
 			}

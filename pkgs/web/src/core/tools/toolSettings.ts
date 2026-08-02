@@ -91,6 +91,8 @@ export interface ToolSettings {
 	bucketFillTolerance: number;
 	/** Unbounded-fill leak state (null = last fill was bounded / no fill yet) */
 	bucketFillLeaks: BucketFillLeakState | null;
+	/** True while BucketFillTool is computing a fill area preview */
+	bucketFillComputing: boolean;
 	/** Eyedropper copy target flags */
 	eyedropperCopyTargets: {
 		stroke: boolean;
@@ -168,6 +170,7 @@ export function createToolSettings(): ToolSettings {
 		bucketFillGapClosing: 3,
 		bucketFillTolerance: 30,
 		bucketFillLeaks: null,
+		bucketFillComputing: false,
 		eyedropperCopyTargets: {
 			stroke: true,
 			fill: true,
