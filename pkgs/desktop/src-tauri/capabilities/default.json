@@ -1,0 +1,23 @@
+{
+	"identifier": "default",
+	"description": "Default capability for the main window",
+	"windows": ["main"],
+	"permissions": [
+		"core:default",
+		"core:window:allow-start-dragging",
+		"safe-area-insets-css:default",
+		"fs:allow-read-file",
+		"fs:allow-write-file",
+		"dialog:default",
+		"dialog:allow-open",
+		"dialog:allow-save",
+		"sql:default",
+		"deep-link:default",
+		"opener:allow-default-urls",
+		"opener:allow-open-url",
+		"opener:default",
+		"oauth:allow-start",
+		"oauth:allow-cancel",
+		"system-fonts:default"
+	]
+}

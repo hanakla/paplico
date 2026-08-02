@@ -1,0 +1,7 @@
+.env
+tsconfig.tsbuildinfo
+out/
+
+# Visual regression test diffs (temporary test artifacts)
+src/__visual_diffs__/
+src/__visual_temp__/

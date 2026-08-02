@@ -1,0 +1,517 @@
+@import "tailwindcss";
+
+@custom-variant tauri-mac (&:where(.tauri-mac *));
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-border: var(--border);
+	--color-border-active: var(--border-active);
+
+	--color-accent: var(--accent);
+	--color-accent-hover: var(--accent-hover);
+	--color-accent-active: var(--accent-active);
+	--color-accent-foreground: var(--accent-foreground);
+
+	--color-muted: var(--muted);
+	--color-muted-hover: var(--muted-hover);
+	--color-muted-active: var(--muted-active);
+	--color-muted-foreground: var(--muted-foreground);
+
+	--color-danger: var(--danger);
+	--color-danger-hover: var(--danger-hover);
+	--color-danger-active: var(--danger-active);
+	--color-danger-foreground: var(--danger-foreground);
+
+	--color-warn: var(--warn);
+	--color-warn-hover: var(--warn-hover);
+	--color-warn-active: var(--warn-active);
+	--color-warn-foreground: var(--warn-foreground);
+
+	--color-virtual-shiftkey: var(--virtual-shiftkey);
+	--color-virtual-shiftkey-hover: var(--virtual-shiftkey-hover);
+	--color-virtual-shiftkey-active: var(--virtual-shiftkey-active);
+	--color-virtual-shiftkey-pressed: var(--virtual-shiftkey-pressed);
+	--color-virtual-shiftkey-foreground: var(--virtual-shiftkey-foreground);
+
+	--color-success: var(--success);
+
+	--spacing-safe-top: var(--safe-top);
+	--spacing-safe-right: var(--safe-right);
+	--spacing-safe-bottom: var(--safe-bottom);
+	--spacing-safe-left: var(--safe-left);
+
+	--spacing-notch-top: var(--notch-top);
+	--spacing-notch-right: var(--notch-right);
+	--spacing-notch-bottom: var(--notch-bottom);
+	--spacing-notch-left: var(--notch-left);
+
+	--animate-overlay-in: overlay-in 150ms cubic-bezier(0.34, 1.56, 0.64, 1);
+	--animate-panel-expand:
+		panel-expand 180ms cubic-bezier(0.22, 1, 0.36, 1),
+		panel-slide 280ms cubic-bezier(0.22, 1, 0.36, 1);
+	/* Same motion for a panel opening from a toolbar docked on the right. */
+	--animate-panel-expand-rtl:
+		panel-expand-rtl 180ms cubic-bezier(0.22, 1, 0.36, 1),
+		panel-slide-rtl 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes overlay-in {
+	from {
+		opacity: 0;
+		transform: scale(0.5);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+@keyframes panel-expand {
+	from {
+		border-radius: 0 9999px 9999px 0;
+		opacity: 0;
+	}
+	to {
+		border-radius: 0 20px 20px 0;
+		opacity: 1;
+	}
+}
+
+@keyframes panel-slide {
+	from {
+		translate: -100% 0;
+	}
+	to {
+		translate: 0 0;
+	}
+}
+
+@keyframes panel-expand-rtl {
+	from {
+		border-radius: 9999px 0 0 9999px;
+		opacity: 0;
+	}
+	to {
+		border-radius: 20px 0 0 20px;
+		opacity: 1;
+	}
+}
+
+@keyframes panel-slide-rtl {
+	from {
+		translate: 100% 0;
+	}
+	to {
+		translate: 0 0;
+	}
+}
+
+@layer theme {
+	:root {
+		--background: var(--color-gray-100);
+		--foreground: var(--color-gray-900);
+		--border: var(--color-gray-300);
+		--border-active: var(--color-sky-500);
+
+		--accent: var(--color-sky-600);
+		--accent-hover: var(--color-sky-700);
+		--accent-active: var(--color-sky-700);
+		--accent-foreground: var(--color-zinc-100);
+
+		--muted: var(--color-gray-200);
+		--muted-hover: var(--color-gray-300);
+		--muted-active: var(--color-gray-300);
+		--muted-foreground: var(--color-gray-700);
+
+		--danger: var(--color-red-600);
+		--danger-hover: var(--color-red-700);
+		--danger-active: var(--color-red-800);
+		--danger-foreground: var(--color-white);
+
+		--warn: var(--color-yellow-400);
+		--warn-hover: var(--color-yellow-500);
+		--warn-active: var(--color-yellow-600);
+		--warn-foreground: var(--color-black);
+
+		--virtual-shiftkey: var(--color-gray-50);
+		--virtual-shiftkey-hover: var(--color-gray-100);
+		--virtual-shiftkey-active: var(--color-gray-200);
+		--virtual-shiftkey-pressed: var(--color-gray-200);
+		--virtual-shiftkey-foreground: var(--color-gray-400);
+
+		--success: var(--color-green-500);
+	}
+
+	/* .dark is Single source of truth */
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--background: var(--color-slate-700);
+			--foreground: var(--color-white);
+			--border: var(--color-slate-600);
+			--border-active: var(--color-sky-600);
+
+			--accent: var(--color-sky-600);
+			--accent-hover: var(--color-sky-700);
+			--accent-active: var(--color-sky-700);
+			--accent-foreground: var(--color-zinc-100);
+
+			--muted: var(--color-slate-600);
+			--muted-hover: var(--color-gray-800);
+			--muted-active: var(--color-gray-800);
+			--muted-foreground: var(--color-gray-300);
+
+			--danger: var(--color-red-700);
+			--danger-hover: var(--color-red-800);
+			--danger-active: var(--color-red-900);
+			--danger-foreground: var(--color-white);
+
+			--warn: var(--color-yellow-400);
+			--warn-hover: var(--color-yellow-500);
+			--warn-active: var(--color-yellow-600);
+			--warn-foreground: var(--color-black);
+
+			--virtual-shiftkey: var(--color-slate-500);
+			--virtual-shiftkey-hover: var(--color-slate-600);
+			--virtual-shiftkey-active: var(--color-slate-600);
+			--virtual-shiftkey-pressed: var(--color-slate-900);
+			--virtual-shiftkey-foreground: var(--color-slate-300);
+
+			--success: var(--color-green-600);
+		}
+	}
+
+	.dark {
+		--background: var(--color-slate-800);
+		--foreground: var(--color-white);
+		--border: var(--color-slate-500);
+		--border-active: var(--color-sky-600);
+
+		--accent: var(--color-sky-600);
+		--accent-hover: var(--color-sky-700);
+		--accent-active: var(--color-sky-700);
+		--accent-foreground: var(--color-zinc-100);
+
+		--muted: var(--color-slate-600);
+		--muted-hover: var(--color-gray-500);
+		--muted-active: var(--color-gray-500);
+		--muted-foreground: var(--color-gray-300);
+
+		--danger: var(--color-red-700);
+		--danger-hover: var(--color-red-800);
+		--danger-active: var(--color-red-900);
+		--danger-foreground: var(--color-white);
+
+		--warn: var(--color-yellow-400);
+		--warn-hover: var(--color-yellow-500);
+		--warn-active: var(--color-yellow-600);
+		--warn-foreground: var(--color-black);
+
+		--virtual-shiftkey: var(--color-slate-500);
+		--virtual-shiftkey-hover: var(--color-slate-600);
+		--virtual-shiftkey-active: var(--color-slate-600);
+		--virtual-shiftkey-pressed: var(--color-slate-900);
+		--virtual-shiftkey-foreground: var(--color-slate-300);
+
+		--success: var(--color-green-600);
+	}
+
+	.pink {
+		--background: var(--color-slate-50);
+		--foreground: var(--color-slate-900);
+		--border: color-mix(in srgb, var(--color-rose-400) 40%, transparent);
+		--border-active: color-mix(in srgb, var(--color-rose-500) 60%, transparent);
+
+		--accent: color-mix(in srgb, var(--color-pink-500) 80%, transparent);
+		--accent-hover: color-mix(in srgb, var(--color-pink-700) 80%, transparent);
+		--accent-active: color-mix(in srgb, var(--color-pink-700) 80%, transparent);
+		--accent-foreground: var(--color-white);
+
+		--muted: var(--color-pink-100);
+		--muted-hover: var(--color-pink-200);
+		--muted-active: var(--color-pink-300);
+		--muted-foreground: var(--color-zinc-700);
+
+		--danger: var(--color-rose-600);
+		--danger-hover: var(--color-rose-800);
+		--danger-active: var(--color-rose-800);
+		--danger-foreground: var(--color-white);
+
+		--warn: var(--color-yellow-500);
+		--warn-hover: var(--color-yellow-600);
+		--warn-active: var(--color-yellow-700);
+		--warn-foreground: var(--color-white);
+
+		--virtual-shiftkey: var(--color-rose-50);
+		--virtual-shiftkey-hover: var(--color-rose-100);
+		--virtual-shiftkey-active: var(--color-rose-200);
+		--virtual-shiftkey-pressed: var(--color-rose-200);
+		--virtual-shiftkey-foreground: var(--color-rose-500);
+
+		--success: var(--color-green-500);
+	}
+
+	.lime {
+		--background: var(--color-zinc-50);
+		--foreground: var(--color-stone-900);
+		--border: color-mix(in srgb, var(--color-lime-300) 40%, transparent);
+		--border-active: var(--color-lime-400);
+
+		--accent: var(--color-lime-600);
+		--accent-hover: var(--color-lime-700);
+		--accent-active: var(--color-lime-800);
+		--accent-foreground: var(--color-white);
+
+		--muted: var(--color-lime-100);
+		--muted-hover: var(--color-lime-200);
+		--muted-active: var(--color-lime-300);
+		--muted-foreground: var(--color-lime-900);
+
+		--danger: var(--color-rose-600);
+		--danger-hover: var(--color-rose-800);
+		--danger-active: var(--color-rose-800);
+		--danger-foreground: var(--color-white);
+
+		--warn: var(--color-yellow-400);
+		--warn-hover: var(--color-yellow-500);
+		--warn-active: var(--color-yellow-600);
+		--warn-foreground: var(--color-yellow-700);
+
+		--virtual-shiftkey: var(--color-lime-50);
+		--virtual-shiftkey-hover: var(--color-lime-100);
+		--virtual-shiftkey-active: var(--color-lime-200);
+		--virtual-shiftkey-pressed: var(--color-lime-200);
+		--virtual-shiftkey-foreground: var(--color-lime-600);
+
+		--success: var(--color-green-500);
+	}
+
+	.purple {
+		--background: var(--color-zinc-50);
+		--foreground: var(--color-zinc-950);
+		--border: var(--color-violet-200);
+		--border-active: var(--color-violet-400);
+
+		--accent: var(--color-violet-500);
+		--accent-hover: var(--color-violet-800);
+		--accent-active: var(--color-violet-800);
+		--accent-foreground: var(--color-white);
+
+		--muted: var(--color-violet-200);
+		--muted-hover: var(--color-violet-300);
+		--muted-active: var(--color-violet-300);
+		--muted-foreground: var(--color-violet-900);
+
+		--danger: var(--color-red-700);
+		--danger-hover: var(--color-red-800);
+		--danger-active: var(--color-red-800);
+		--danger-foreground: var(--color-white);
+
+		--warn: var(--color-yellow-400);
+		--warn-hover: var(--color-yellow-500);
+		--warn-active: var(--color-yellow-600);
+		--warn-foreground: var(--color-yellow-700);
+
+		--virtual-shiftkey: var(--color-violet-50);
+		--virtual-shiftkey-hover: var(--color-violet-100);
+		--virtual-shiftkey-active: var(--color-violet-200);
+		--virtual-shiftkey-pressed: var(--color-violet-200);
+		--virtual-shiftkey-foreground: var(--color-violet-600);
+
+		--success: var(--color-green-500);
+	}
+
+	.black {
+		--background: var(--color-zinc-900);
+		--foreground: var(--color-zinc-100);
+		--border: var(--color-zinc-600);
+		--border-active: var(--color-zinc-500);
+
+		--accent: var(--color-zinc-300);
+		--accent-hover: var(--color-zinc-200);
+		--accent-active: var(--color-zinc-100);
+		--accent-foreground: var(--color-black);
+
+		--muted: var(--color-zinc-700);
+		--muted-hover: color-mix(in srgb, var(--color-zinc-200) 15%, transparent);
+		--muted-active: color-mix(in srgb, var(--color-zinc-200) 15%, transparent);
+		--muted-foreground: var(--color-zinc-200);
+
+		--danger: var(--color-red-700);
+		--danger-hover: var(--color-red-800);
+		--danger-active: var(--color-red-900);
+		--danger-foreground: var(--color-white);
+
+		--warn: var(--color-yellow-400);
+		--warn-hover: var(--color-yellow-500);
+		--warn-active: var(--color-yellow-600);
+		--warn-foreground: var(--color-black);
+
+		--virtual-shiftkey: var(--color-zinc-900);
+		--virtual-shiftkey-hover: var(--color-zinc-800);
+		--virtual-shiftkey-active: var(--color-zinc-700);
+		--virtual-shiftkey-pressed: var(--color-zinc-950);
+		--virtual-shiftkey-foreground: var(--color-zinc-400);
+
+		--success: var(--color-green-600);
+	}
+
+	.white {
+		--background: var(--color-white);
+		--foreground: var(--color-gray-900);
+		--border: var(--color-gray-200);
+		--border-active: var(--color-gray-500);
+
+		--accent: var(--color-gray-800);
+		--accent-hover: var(--color-gray-700);
+		--accent-active: var(--color-gray-600);
+		--accent-foreground: var(--color-white);
+
+		--muted: var(--color-gray-100);
+		--muted-hover: var(--color-gray-200);
+		--muted-active: var(--color-gray-300);
+		--muted-foreground: var(--color-gray-600);
+
+		--danger: var(--color-red-700);
+		--danger-hover: var(--color-red-800);
+		--danger-active: var(--color-red-900);
+		--danger-foreground: var(--color-white);
+
+		--warn: var(--color-yellow-400);
+		--warn-hover: var(--color-yellow-500);
+		--warn-active: var(--color-yellow-600);
+		--warn-foreground: var(--color-yellow-700);
+
+		--virtual-shiftkey: var(--color-white);
+		--virtual-shiftkey-hover: var(--color-gray-100);
+		--virtual-shiftkey-active: var(--color-gray-200);
+		--virtual-shiftkey-pressed: var(--color-gray-200);
+		--virtual-shiftkey-foreground: var(--color-gray-400);
+
+		--success: var(--color-green-500);
+	}
+}
+
+@utility backdrop-liquid {
+	& {
+		backdrop-filter: blur(20px) saturate(180%) url(#liquid-glass-frosted);
+	}
+
+	/* Safari doesn't support url() in backdrop-filter */
+	&:where(.safari *) {
+		backdrop-filter: blur(40px) saturate(180%);
+	}
+
+	&:where(.tauri-mac *) {
+		backdrop-filter: blur(40px) saturate(180%);
+	}
+}
+
+:root {
+	/* One beat at 190 BPM (~316ms) — global animation duration. Keep in sync with RELEASE_HOLD_MS in components/Slider.tsx */
+	--duration-beat: calc(60s / 190);
+}
+
+:root {
+	--safe-top: max(
+		env(safe-area-inset-top, 0px),
+		var(--safe-area-inset-top, 0px)
+	);
+	--safe-right: env(safe-area-inset-right, 0px);
+	--safe-bottom: max(
+		env(safe-area-inset-bottom, 0px),
+		var(--safe-area-inset-bottom, 0px)
+	);
+	--safe-left: env(safe-area-inset-left, 0px);
+}
+
+:root {
+	--notch-top: max(0.75rem, var(--safe-top));
+	--notch-right: 0px;
+	--notch-bottom: max(0.75rem, var(--safe-bottom));
+	--notch-left: 0px;
+
+	/* Portrait tab bar: the controls' own 2.5rem plus the home indicator inset.
+	   Anything stacked on the tab bar (drawers) offsets by this. */
+	--mobile-tab-bar-height: calc(2.5rem + var(--safe-bottom));
+}
+
+.notch-left {
+	--notch-left: var(--safe-left);
+	--notch-right: 0px;
+}
+
+.notch-right {
+	--notch-left: 0px;
+	--notch-right: var(--safe-right);
+}
+
+html,
+body {
+	@apply text-foreground;
+
+	width: 100dvw;
+	height: 100dvh;
+	overflow: hidden;
+	overscroll-behavior: none;
+}
+
+:not(input, textarea, select, button) {
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+	user-select: none;
+}
+
+[data-docs] * {
+	-webkit-user-select: text !important;
+	-moz-user-select: text !important;
+	-ms-user-select: text !important;
+	user-select: text !important;
+}
+
+/* via: https://cssloaders.github.io/ */
+.spinner,
+.spinner::before,
+.spinner::after {
+	display: inline-block;
+	border-radius: 50%;
+	width: var(--spinner-size);
+	height: var(--spinner-size);
+	color: var(--foreground);
+	animation: bblFadInOut 1.8s infinite ease-in-out;
+	animation-fill-mode: both;
+}
+
+.spinner {
+	position: relative;
+	transform: translateZ(0);
+	animation-delay: -0.16s;
+	margin-top: calc(var(--spinner-size) * -1);
+	margin-bottom: var(--spinner-size);
+}
+
+.spinner::before,
+.spinner::after {
+	content: "";
+	position: absolute;
+	top: 0;
+}
+.spinner::before {
+	left: calc(var(--spinner-gap) * -1);
+	animation-delay: -0.32s;
+}
+.spinner::after {
+	left: var(--spinner-gap);
+}
+
+@keyframes bblFadInOut {
+	0%,
+	80%,
+	100% {
+		box-shadow: 0 var(--spinner-size) 0 calc(var(--spinner-size) / -2);
+	}
+	40% {
+		box-shadow: 0 var(--spinner-size) 0 0;
+	}
+}

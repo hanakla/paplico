@@ -1,0 +1,29 @@
+# Data Flow
+
+Paplico のデータ層は Yjs (CRDT) を single source of truth として持ち、Valtio を React の reactive layer として使用する。ユーザー操作が発生するとドキュメントへの変更は Yjs トランザクションとして記録され、同期的に Valtio store へ反映され、さらに派生データ構造（SpatialIndex 等）が更新される。
+
+## ドキュメントの種類
+
+| 層 | 実体 | 説明 |
+|---|---|---|
+| Yjs | `YjsProvider` 内の `Y.Map`/`Y.Array` | 永続化・コラボレーション・undo/redo の正規データ |
+| Valtio | `RendererState.document` | React レンダリング・ツール状態参照用のリアクティブミラー |
+| SpatialIndex | `SpatialIndex` | ヒットテスト・BBox キャッシュ・スナップ用の派生データ |
+
+## 更新の流れ
+
+```
+ユーザー操作
+  └─ YjsProvider.transact()
+       └─ Yjs "update" イベント（同期）
+            └─ Valtio store 反映
+                 └─ SpatialIndex 更新
+                      └─ React re-render
+```
+
+ドキュメント自体の shape は [Document Schema](/devdocs/data-flow/document-schema) を、派生データ構造への伝播は [SpatialIndex とドキュメント更新フロー](/devdocs/data-flow/spatial-index) を参照。
+
+## このセクションのページ
+
+- [Document Schema](/devdocs/data-flow/document-schema) — `Document` / `Layer` / `AnyArtObject` の構造、ID参照ルール、補助コレクションの意味
+- [SpatialIndex とドキュメント更新フロー](/devdocs/data-flow/spatial-index) — ヒットテスト・BBox の管理と、ドキュメント変更が SpatialIndex に伝播するまでの詳細フロー

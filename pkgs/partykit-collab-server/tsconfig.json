@@ -1,0 +1,12 @@
+{
+	"compilerOptions": {
+		"target": "ES2025",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"strict": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"types": ["partykit/server"]
+	},
+	"include": ["src"]
+}

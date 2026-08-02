@@ -1,0 +1,510 @@
+# 用語集
+
+> [!NOTE]
+> この用語集は、レンダラーアーキテクチャドキュメント全体で使用されるドメイン用語をまとめたものである。各用語の括弧書き定義は本ドキュメントシリーズの各ページから収集した。
+
+## WebGPU基礎用語
+
+### WebGPU
+
+ブラウザの次世代グラフィックスAPI。Canvas 2D APIでは実現が難しいGPUアクセラレーションによる高速な描画・合成・フィルター処理を可能にする。Paplicoの描画エンジンはWebGPUを採用している。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer)
+
+### GPUデバイス
+
+`navigator.gpu.requestAdapter()` → `requestDevice()` によって取得されるWebGPUの論理デバイス。`RenderOrchestrator` が初期化・管理し、全キャンバスターゲットで共有される。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#renderorchestrator)
+
+### GPUテクスチャ
+
+GPU上に保持される画像データ。レンダリングのソースやターゲットとして使用される。生成（`createTexture()`）と破棄（`destroy()`）はGPUメモリアロケータへの負荷が高い操作であるため、`TexturePool` でフレーム間の再利用が行われる。
+
+→ [パイプライン](/devdocs/renderer/pipeline#texturepool)
+
+### GPUパイプライン
+
+シェーダーやレンダリング設定（ブレンド、デプスステンシル、トポロジ等）を組み合わせた描画手順の定義。ジオメトリパイプラインとフルスクリーンパイプラインの2種に分類される。シェーダーコンパイルとパイプライン生成は高コストであるため、`RenderOrchestrator` が1回だけ生成して全ターゲットで共有する。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#renderorchestrator), [パイプライン](/devdocs/renderer/pipeline#pipelinefactory)
+
+### レンダーパス
+
+GPUが1回の描画操作で実行する命令セット。メインのキャンバス描画パスとオフスクリーンパスがある。
+
+→ [フィルターシステム](/devdocs/renderer/filters)
+
+### オフスクリーンレンダーパス
+
+メイン画面ではなく一時テクスチャに対する描画パス。フィルター処理、グループ合成、クリップグループのステンシルマスキングで使用される。`OffscreenPresenter` が生成とライフサイクル管理を担当する。
+
+→ [パイプライン](/devdocs/renderer/pipeline#offscreenpresenter)
+
+### Uniform Buffer
+
+GPUシェーダーに渡す定数パラメータのバッファ。ビューポートの中心座標・ズーム・回転などがこのバッファに格納される。WebGPUはバッファの内容を `queue.submit()` 時点で読み取るため、オフスクリーンパスごとに独立したバッファが必要になる。
+
+→ [パイプライン](/devdocs/renderer/pipeline#viewportmanager), [パイプライン](/devdocs/renderer/pipeline#uniformscope)
+
+### Storage Buffer
+
+GPUが読み書きできる大容量バッファで、Uniform Bufferより大きいデータ向け。要素のワールド変換行列やブラシスタンプデータの格納に使用される。
+
+→ [パイプライン](/devdocs/renderer/pipeline#viewportmanager), [エレメントレンダリング](/devdocs/renderer/elements#gpuバッファ構造)
+
+### Bind Group
+
+GPUリソース（バッファ、テクスチャ、サンプラー）をシェーダーにバインドする単位。クリップマスクはBG3（Bind Group 3）として格納され、要素ごとにバインドグループを切り替えることでマスクを適用する。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#モジュール概観), [クリッピング方式](/devdocs/renderer/clipping)
+
+### GPUCommandEncoder
+
+GPUコマンドを記録するオブジェクト。`UniformScope` がパスごとに独立したバッファを持つことで、複数パスを単一のGPUCommandEncoderにまとめて発行でき、submit回数を削減できる。
+
+→ [パイプライン](/devdocs/renderer/pipeline#uniformscope)
+
+### queue.submit()
+
+GPUにコマンドを発行する呼び出し。submit後もGPUがテクスチャを読み取り中の可能性があるため、テクスチャの即時`destroy()`はGPUパイプラインをストールさせる。この問題に対処するため遅延破棄が採用されている。
+
+→ [パイプライン](/devdocs/renderer/pipeline#offscreenpresenter)
+
+### WGSL
+
+WebGPU Shading Language。GPU上で実行されるプログラムの記述言語。Paplicoでは `*.wgsl.ts` ファイルとしてエクスポートし、`compileShaderModule()` でGPUShaderModuleにコンパイルする。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#シェーダー), [フィルターシステム](/devdocs/renderer/filters)
+
+### フラグメントシェーダー
+
+GPU上でピクセルごとの色計算を行うプログラム。インラインマスキングではフラグメントシェーダーがマスクテクスチャを直接サンプリングしてクリッピングを行う。
+
+→ [クリッピング方式](/devdocs/renderer/clipping#インラインマスキング)
+
+### NDC (Normalized Device Coordinates)
+
+-1〜+1の正規化されたGPU座標系。ワールド座標からNDCへの変換はビューポート変換で行われる。フルスクリーンNDC三角形は頂点座標-1〜+1の固定三角形であり、テクスチャの1:1転写に使用される。
+
+→ [パイプライン](/devdocs/renderer/pipeline#compositerenderer)
+
+### ステンシルバッファ
+
+ピクセルの描画可否を制御するGPUの補助バッファ。`depth24plus-stencil8` フォーマットのテクスチャとして使用され、stencil-then-coverアルゴリズムやクリップマスクの生成に利用される。
+
+→ [クリッピング方式](/devdocs/renderer/clipping#ステンシルテクスチャ)
+
+### loadOp
+
+レンダーパス開始時の既存内容の扱いを指定するオプション。`"load"` を指定すると既存の描画内容を保持し、`"clear"` を指定すると指定色でクリアする。UILayerのblitパスでは `loadOp: "load"` によりドキュメント描画結果を保持する。
+
+→ [UILayer](/devdocs/renderer/ui#概要)
+
+### writeBuffer
+
+CPU側のデータをGPUバッファにコピーするAPI呼び出し。フィル頂点データをバッチバッファに集約することで、writeBufferの呼び出し回数を削減しCPU-GPUバス帯域の効率を向上させる。
+
+→ [エレメントレンダリング](/devdocs/renderer/elements#バッチ頂点バッファ)
+
+### Draw Call
+
+GPUに描画命令を1回発行すること。回数が多いほどオーバーヘッドが増加する。バッチ描画やインスタンスドレンダリングにより削減される。
+
+→ [エレメントレンダリング](/devdocs/renderer/elements#バッチ頂点バッファ)
+
+## Paplico固有用語
+
+### RenderOrchestrator
+
+レンダリングエンジンのトップレベルオーケストレータ。GPUデバイス、パイプライン、CanvasTarget、フィルターハンドラーを一元管理し、`render()` メソッドでRenderStrategyを受け取って各ターゲットの描画を実行する。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#renderorchestrator)
+
+### RenderScheduler
+
+オンデマンドレンダリングのスケジューラ。DirtyReasonの収集、rAFバッチング、RenderStrategyの解決、インタラクション判定を担当する。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#renderscheduler)
+
+### DirtyReason
+
+再描画が必要になった理由を表す列挙型。`document`, `viewport`, `selection`, `cursor`, `preview` など複数の理由があり、RenderSchedulerがこれらを収集してRenderStrategyに集約する。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#renderstrategy)
+
+### RenderStrategy
+
+DirtyReasonから解決された再描画戦略。`full`（全体再レンダリング）、`fullInteraction`（高コスト処理スキップ）、`fullTransformOnly`（形状非変更操作用）、`overlayOnly`（UI/プレビューのみ再描画）の4段階がある。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#renderstrategy)
+
+### CanvasLayer
+
+キャンバス単位のレンダリングパイプラインのファサード。ViewportManager、CompositeRenderer、OffscreenPresenter等のサブモジュールを束ね、`render()` メソッドが1フレームの描画処理を完結させる。
+
+→ [パイプライン](/devdocs/renderer/pipeline#canvaslayer)
+
+### CanvasTarget
+
+Canvas要素のラッパー。ResizeObserverとビューポート状態を保持し、キャンバスごとのTargetData（GPUコンテキスト、uniform buffer、CanvasLayer、UILayer等）を管理する。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#モジュール概観)
+
+### FramePlan
+
+1フレーム分の描画手順をまとめたPaplico独自のデータ構造。`RenderPlanner.buildFramePlan()` がドキュメントデータから構築する。レイヤーごとの描画計画（`layerPlans`）、フィルター計画（`filterPlans`）、バックドロップエントリ等を含む。
+
+→ [パイプライン](/devdocs/renderer/pipeline#renderplanner), [RenderPlanner](/devdocs/renderer/planner)
+
+### RenderPlanner
+
+ドキュメントデータからFramePlanを構築する純粋関数群。GPU状態への副作用を持たず、同じドキュメント状態を入力すれば常に同じFramePlanを返す。
+
+→ [パイプライン](/devdocs/renderer/pipeline#renderplanner), [RenderPlanner](/devdocs/renderer/planner)
+
+### ViewportManager
+
+ビューポートuniformバッファとトランスフォームStorage Bufferを一元管理するモジュール。`setViewportUniforms()`, `writeViewportUniformsToGPU()`, `restoreViewportUniformsToGPU()` の3メソッドで、通常描画とオフスクリーンパスの両方に対応する。
+
+→ [パイプライン](/devdocs/renderer/pipeline#viewportmanager)
+
+### CompositeRenderer
+
+ブレンドモード合成とテクスチャblitを担当するモジュール。ソースとデスティネーションの2枚のテクスチャをシェーダーで演算し、normalブレンドモード以外の合成を実現する。
+
+→ [パイプライン](/devdocs/renderer/pipeline#compositerenderer)
+
+### OffscreenPresenter
+
+オフスクリーンレンダーパスの生成とライフサイクル管理を担当するモジュール。`renderElementToTexture()`, `renderGroupToTexture()`, `renderClipGroup()` 等の公開メソッドを持つ。
+
+→ [パイプライン](/devdocs/renderer/pipeline#offscreenpresenter)
+
+### DocumentCache
+
+ステンシル、composite、prebuffer、final-blit、backdrop-mask用テクスチャの遅延生成と再利用を管理するモジュール。リソースのサイズ一致時は再利用し、変更時のみ再生成する。描画済みドキュメント内容やタイルを保持するキャッシュではない。
+
+→ [パイプライン](/devdocs/renderer/pipeline#documentcache)
+
+### TexturePool
+
+フレーム間のGPUテクスチャプーリングを行うモジュール。テクスチャサイズをSIZE_QUANTUM（128px）の倍数に切り上げてバケット化し、同一バケットのテクスチャを再利用する。available / idle状態のテクスチャについて推定したメモリ量が384 MiBを超えた場合はLRU evictionで古いテクスチャを破棄する。この値は総GPUメモリ上限ではない。
+
+→ [パイプライン](/devdocs/renderer/pipeline#texturepool)
+
+### UniformScope
+
+パスごとのビューポートuniform buffer / bind groupペアのプール。各オフスクリーンパスに独立したバッファを割り当てることで、複数パスを単一のGPUCommandEncoderで発行可能にする。
+
+→ [パイプライン](/devdocs/renderer/pipeline#uniformscope)
+
+### ClipMaskAtlas
+
+クリップパスの白マスクを事前レンダリングし、インラインマスキング用に再利用するモジュール。フレーム開始時にドキュメント内の全クリップグループを一括走査し、各クリップパスを個別の `texture_2d` に焼き込む。
+
+→ [クリッピング方式](/devdocs/renderer/clipping#clipmaskatlas)
+
+### BackdropCaptureManager
+
+バックドロップフィルター用にキャンバス内容をスクリーン空間で切り出してキャプチャするモジュール。ビューポート回転に対応するため、ワールド座標の4隅をスクリーン空間に変換しAABBを算出する。
+
+→ [クリッピング方式](/devdocs/renderer/clipping#backdropcapturemanager)
+
+### UILayer
+
+選択枠、リサイズハンドル、ブラシカーソル、スナップガイドなどのUIオーバーレイを描画するモジュール。全図形を単一のインスタンスド3次ベジェquad-stripパイプラインで描画する。
+
+→ [UILayer](/devdocs/renderer/ui)
+
+### ElementRenderer
+
+要素種別に応じた描画処理のエントリポイント。`elementDispatchTable` で要素の `type` フィールドに基づいて処理を振り分ける。
+
+→ [エレメントレンダリング](/devdocs/renderer/elements#elementrenderer)
+
+### BrushStrokeRenderer
+
+スタンプベースのインスタンスド描画でブラシストロークを描画するモジュール。同一テクスチャのパスをバッチにまとめ、テクスチャ種別数分のdraw callに削減する。
+
+→ [ブラシレンダリング](/devdocs/renderer/brush#brushstrokerenderer)
+
+### FilterRenderer
+
+ポストフィルターの実行を担当するクラス。ハンドラーレジストリの管理、テクスチャピンポンによるフィルターチェーン実行、バックドロップマスク合成を行う。
+
+→ [フィルターシステム](/devdocs/renderer/filters#filterrenderer)
+
+### FilterHandler
+
+すべてのフィルターが実装するインターフェース。`preProcess`（ジオメトリ変形）と `postProcess`（GPU画像処理）のメソッドを持ち、ハンドラーレジストリに登録することでレンダラーから呼び出される。
+
+→ [フィルターシステム](/devdocs/renderer/filters#filterhandler-インターフェース)
+
+### RenderCacheManager
+
+テッセレーション結果、ブラシスタンプデータ、グラデーションテクスチャなどの中間生成物を統合管理するキャッシュモジュール。キャンバスターゲットごとに1インスタンスが所有される。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#キャッシュシステム)
+
+### UIOverlayState
+
+UILayerの描画内容を駆動する構造体。各ツールがポインタイベントハンドラ内でフィールドにデータを設定し、UILayerが毎フレーム参照して対応するUI要素を描画する。全フィールドがオプショナルで、nullの場合は描画がスキップされる。
+
+→ [UILayer](/devdocs/renderer/ui#uioverlaystate)
+
+### ファサード
+
+複数のサブシステムへの統一的なアクセスポイント。`CanvasLayer` がパイプラインのファサードとして機能し、呼び出し側が個々のモジュールを意識せずに `render()` を呼ぶだけで描画が完結する。
+
+→ [パイプライン](/devdocs/renderer/pipeline#canvaslayer)
+
+### UIオーバーレイ
+
+ドキュメントの描画結果の上に重ねて表示されるインターフェース要素。選択枠、カーソル、ガイドなど。ドキュメントとは独立した更新頻度を持ち、`overlayOnly` 戦略でドキュメント再描画なしに更新できる。
+
+→ [UILayer](/devdocs/renderer/ui)
+
+## レンダリング技法
+
+### テッセレーション
+
+曲線パスを描画可能なジオメトリ（三角形メッシュ）に変換する処理。結果は `GeometryCache` にキャッシュされ、要素が変更されない限り再利用される。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#キャッシュシステム), [エレメントレンダリング](/devdocs/renderer/elements)
+
+### Blit
+
+テクスチャを別のテクスチャにコピー描画する操作。オフスクリーンテクスチャのキャンバスへの転写、プレビューパスの合成、バックドロップマスクの適用など広範に使用される。ワールド空間blitとフルスクリーンNDC blitの2種がある。
+
+→ [パイプライン](/devdocs/renderer/pipeline#compositerenderer), [レンダラーアーキテクチャ](/devdocs/renderer#renderstrategy)
+
+### インスタンスドレンダリング
+
+1つのジオメトリテンプレートをGPUが複数回複製して描画する手法。ブラシストロークのスタンプ描画では、1つのunit quadを数千インスタンスで複製して配置する。UILayerでは3次ベジェquad-stripをインスタンスドレンダリングで描画する。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#設計原則), [エレメントレンダリング](/devdocs/renderer/elements#brushstrokerenderer), [UILayer](/devdocs/renderer/ui#統一パイプライン-instanced-cubic-bezier-quad-strip)
+
+### バッチ描画
+
+複数の描画命令をまとめて少数のGPUコマンドに集約する最適化。`BrushStrokeRenderer` は同一テクスチャのパスをバッチにまとめ、テクスチャ種別数分のdraw callに削減する。
+
+→ [エレメントレンダリング](/devdocs/renderer/elements#brushstrokerenderer)
+
+### Stencil-then-Cover
+
+ステンシルバッファで形状の内外を判定し、内側だけに色を出力する2パスアルゴリズム。Fan Writeパスで三角ファンのステンシル値を加減算し、Coverパスで非ゼロのピクセルに色を出力する。三角形分割に依存せず、複合パスや自己交差を安定して処理できる。
+
+→ [クリッピング方式](/devdocs/renderer/clipping#ステンシルテクスチャ)
+
+### 三角ファン
+
+1つの中心点（重心）から放射状に三角形を形成するジオメトリ構造。stencil-then-coverのFan Writeパスで使用され、各サブパスの巻き方向に応じてステンシル値を加減算する。
+
+→ [クリッピング方式](/devdocs/renderer/clipping#2パス処理)
+
+### インラインマスキング
+
+メイン描画パス内でマスクテクスチャを参照してクリッピングを行う方式。追加のレンダーパスが不要で最もGPU負荷が低い。`ClipMaskAtlas` が事前レンダリングしたマスクをフラグメントシェーダーがサンプリングする。
+
+→ [クリッピング方式](/devdocs/renderer/clipping#インラインマスキング)
+
+### オフスクリーンフォールバック
+
+インラインマスキングでは対応できないケース（ネストされたクリップグループ、非normalブレンドモード）で、一時テクスチャに迂回して処理する方式。`OffscreenPresenter.renderClipGroup` が3パスで処理する。
+
+→ [クリッピング方式](/devdocs/renderer/clipping#オフスクリーンフォールバック)
+
+### テクスチャピンポン
+
+2枚のGPUテクスチャを交互にsource（入力）/target（出力）として使い回す手法。フィルターチェーンの長さに関わらずメモリ使用量を2枚に保てる。
+
+→ [フィルターシステム](/devdocs/renderer/filters#テクスチャピンポン)
+
+### スタンプベースレンダリング
+
+ブラシの形状画像（スタンプ）をパスに沿って等間隔に並べる描画方式。ストロークの三角形テッセレーションと比較して頂点処理の負荷が低く、筆圧・回転・チルト・不透明度などのパラメータをインスタンスデータで個別制御できる。
+
+→ [エレメントレンダリング](/devdocs/renderer/elements#ブラシレンダリング)
+
+### リボンタイリング
+
+テクスチャをパスに沿ってUVマッピングする描画モード。ベジェセグメントインスタンシング方式でGPU頂点シェーダーが曲線を直接評価し、法線方向に押し出してクアッドストリップを生成する。スタンプ方式と異なりUVが完全に連続し、テクスチャがシームレスにタイリングされる。
+
+→ [ブラシレンダリング](/devdocs/renderer/brush#リボンタイリング)
+
+### カラーモード
+
+ブラシテクスチャの色処理方式。`"tinting"` はテクスチャのルミナンスをアルファに変換してブラシカラーで着色する従来の方式。`"color"` はテクスチャのRGBをそのまま出力する。
+
+→ [ブラシレンダリング](/devdocs/renderer/brush#カラーモード)
+
+### 散布
+
+複数のテクスチャバリアントからスタンプごとにランダム選択する描画機能。`texture_2d_array` で複数テクスチャを格納し、位置ジッターとサイズジッターを組み合わせて自然な散布パターンを生成する。始端・終端テクスチャの個別指定にも対応する。
+
+→ [ブラシレンダリング](/devdocs/renderer/brush#マルチテクスチャ散布)
+
+### ベクターブラシ
+
+キャンバス上の要素（Path、Group等）をGPUテクスチャにオンデマンドでラスタライズし、ブラシ先端として使用する機能。`VectorBrushRasterizer` がキャッシュ管理と循環参照防止を担当する。
+
+→ [ブラシレンダリング](/devdocs/renderer/brush#ベクターブラシ)
+
+### ステンシルベースフィル
+
+ステンシルバッファを使って任意形状を正確に塗りつぶす手法。stencil-then-coverアルゴリズムにより、自己交差パスやコンパウンドパスの穴も安定して処理できる。
+
+→ [エレメントレンダリング](/devdocs/renderer/elements#パス描画フロー), [クリッピング方式](/devdocs/renderer/clipping#ステンシルテクスチャ)
+
+### ラスタライズ
+
+ベクターデータ（パスの数学的定義）をピクセル画像に変換する処理。プリフィルターはラスタライズ前に実行され、ポストフィルターはラスタライズ後に実行される。
+
+→ [フィルターシステム](/devdocs/renderer/filters#プリフィルター-vs-ポストフィルター)
+
+### 量子化 (SIZE_QUANTUM)
+
+テクスチャサイズを128pxの倍数に切り上げること。ズーム中のオフスクリーンテクスチャサイズの微小な変動（300→301→302px）を同一バケット（384px）にマッピングし、テクスチャの再利用を促進する。
+
+→ [パイプライン](/devdocs/renderer/pipeline#texturepool)
+
+### LRU Eviction
+
+最も長く使われていないものから破棄するキャッシュ戦略。`TexturePool` は384 MiBを超えたavailable / idle textureをbucketの挿入順で刈り込むため、全texture横断の厳密なLRUではない。
+
+→ [パイプライン](/devdocs/renderer/pipeline#texturepool)
+
+### 遅延破棄
+
+GPUテクスチャやバッファをin-flightのコマンドバッファの完了を待って次フレーム開始時に破棄する設計。`queue.submit()` 後もGPUがテクスチャを読み取り中の可能性があるため、即時`destroy()`を避ける。
+
+→ [パイプライン](/devdocs/renderer/pipeline#offscreenpresenter), [レンダラーアーキテクチャ](/devdocs/renderer#設計原則)
+
+### フィンガープリント
+
+データの同一性を高速に判定するためのハッシュ値。キャッシュエントリがフィンガープリントを保持し、ヒット時に現在の要素データと照合する自己検証方式に使用される。頂点数、エンドポイント座標、グラデーションハッシュなどが入力となる。
+
+→ [キャッシュと無効化](/devdocs/renderer/caches#キャッシュ無効化戦略), [パス描画フロー](/devdocs/renderer/path-rendering#キャッシュ戦略)
+
+### アンチエイリアシング
+
+図形の端をぼかして階段状のギザギザ（ジャギー）を目立たなくする技法。UILayerのquad-stripでは、端のエッジ減衰が切れるのを防ぐため+1pxのパディング補正が行われる。
+
+→ [UILayer](/devdocs/renderer/ui#スクリーンピクセル固定サイズ)
+
+### rAF (requestAnimationFrame)
+
+ブラウザの画面更新タイミング（通常60Hz）に同期するコールバックAPI。`RenderScheduler` が同一フレーム内の複数 `markDirty` 呼び出しをrAFコールバックで合体し、1回のレンダリングにまとめる。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#フレームレンダリングの流れ)
+
+### Quad Strip
+
+四角形を帯状に繋げたジオメトリ。UILayerでは、ベジェ曲線の各点で法線方向に幅を持たせることで曲線に沿った帯状のポリゴンを形成する。
+
+→ [UILayer](/devdocs/renderer/ui#統一パイプライン-instanced-cubic-bezier-quad-strip)
+
+### 退化ベジェ曲線
+
+制御点を端点に一致させて直線にした特殊なベジェ曲線。`cp1 = p0, cp2 = p1` と設定することで3次ベジェ曲線を直線として扱い、UILayerでは矩形や直線もベジェパイプラインで描画できる。
+
+→ [UILayer](/devdocs/renderer/ui#図形の表現)
+
+### AABB (Axis-Aligned Bounding Box)
+
+軸に平行な矩形境界。バックドロップキャプチャでは、ワールド座標の4隅をスクリーン空間に変換してAABBを算出し、回転ビューポートでも正確なキャプチャを行う。
+
+→ [クリッピング方式](/devdocs/renderer/clipping#backdropcapturemanager)
+
+### Expansion Margin
+
+フィルター効果（ブラーの広がり等）が要素バウンズからはみ出す範囲。`FilterHandler.getExpansionMargin()` が返す値で、オフスクリーンテクスチャの確保サイズを決定する際に使用される。
+
+→ [フィルターシステム](/devdocs/renderer/filters#filterhandler-インターフェース), [RenderPlanner](/devdocs/renderer/planner#expansion-marginの計算)
+
+### In-flightコマンドバッファ
+
+GPUに送信済みだがまだ実行完了していないコマンド。テクスチャの遅延破棄やTexturePoolのevictionタイミングに影響する。
+
+→ [フィルターシステム](/devdocs/renderer/filters#テクスチャピンポン), [パイプライン](/devdocs/renderer/pipeline#offscreenpresenter)
+
+## データ構造・概念
+
+### 要素 (Element)
+
+ドキュメントを構成する描画オブジェクト。`path`, `image`, `text`, `group`, `compound-path` の5型があり、すべて `ArtObject` 基底インターフェースを継承する。`ElementRenderer` のディスパッチテーブルで型ごとに描画処理が振り分けられる。
+
+→ [エレメントレンダリング](/devdocs/renderer/elements)
+
+### アピアランス
+
+フィル（塗り）やストローク（線）など、要素の見た目を定義する設定の列。要素の `filters` 配列に格納され、1つの要素に複数のフィルやストロークを重ねることで影付き文字や多重輪郭の表現が可能になる。
+
+→ [エレメントレンダリング](/devdocs/renderer/elements#パス描画フロー)
+
+### ビューポート
+
+画面に表示されている領域。中心座標、ズーム、回転の情報を持ち、ワールド空間からスクリーン空間への変換に使用される。`ViewportManager` がビューポートのuniformバッファを管理する。
+
+→ [レンダラーアーキテクチャ](/devdocs/renderer#モジュール概観), [パイプライン](/devdocs/renderer/pipeline#viewportmanager)
+
+### ブレンドモード
+
+乗算、スクリーン、オーバーレイなど、下のレイヤーとの色の合成方法を指定する属性。normalブレンドモード以外は `CompositeRenderer` でオフスクリーン合成が行われる。
+
+→ [パイプライン](/devdocs/renderer/pipeline#compositerenderer)
+
+### クリップグループ
+
+`clipPathId` を持つGroup要素で、子要素をクリップパスの形で切り抜く。インラインマスキング、オフスクリーンフォールバック、バックドロップキャプチャの3手法で処理される。
+
+→ [クリッピング方式](/devdocs/renderer/clipping)
+
+### バックドロップフィルター
+
+要素の背後にあるキャンバス内容にフィルター効果を適用する機能。CSSの `backdrop-filter` に類似する。`BackdropCaptureManager` がキャンバス内容をキャプチャし、`FilterRenderer` がフィルターを適用する。
+
+→ [クリッピング方式](/devdocs/renderer/clipping#backdropcapturemanager), [フィルターシステム](/devdocs/renderer/filters#バックドロップフィルター)
+
+### プリフィルター
+
+ラスタライズ前にパスの形状を変形するフィルター。CPU上でCubicBezierSegmentの配列を変形する純粋関数として実行される。zigzag、path-offsetなどが該当する。
+
+→ [フィルターシステム](/devdocs/renderer/filters#applyprefilters)
+
+### ポストフィルター
+
+ラスタライズ後のピクセルデータに画像処理を適用するフィルター。GPUレンダーパスを使用する。blur、drop-shadow、frost-glassなどが該当する。
+
+→ [フィルターシステム](/devdocs/renderer/filters#プリフィルター-vs-ポストフィルター)
+
+### ディスパッチテーブル
+
+要素の型に応じて処理関数を振り分けるルックアップテーブル。`ElementRenderer` が持ち、`path`, `image`, `compound-path`, `text` のキーに描画関数を対応付ける。`group` はテーブルに登録されず、CanvasLayer側でフラット化される。
+
+→ [エレメントレンダリング](/devdocs/renderer/elements#ディスパッチテーブル)
+
+### CubicBezierSegment
+
+3次ベジェ曲線の1セグメントを表すデータ構造。始点、制御点2つ、終点の4点で構成される。プリフィルターの `preProcess` が入出力とする型である。
+
+→ [フィルターシステム](/devdocs/renderer/filters#filterhandler-インターフェース)
+
+### ハンドラーレジストリ
+
+フィルターの型名（processor ID）と処理実装（`FilterHandler`）の対応表。`RenderOrchestrator` が初期化時にすべてのハンドラーを登録し、`FilterRenderer` がprocessor IDでハンドラーを引いてフィルターを実行する。
+
+→ [フィルターシステム](/devdocs/renderer/filters)
+
+### DI (依存性注入)
+
+コンポーネントの依存先を外部から渡すパターン。`CanvasLayerTypes` で定義されるコールバック型（`RenderElementsFn` 等）を通じて、`CanvasLayer` のメソッドをサブモジュールに注入する。
+
+→ [パイプライン](/devdocs/renderer/pipeline#canvaslayertypes)
+
+### GC圧力
+
+JavaScriptのガベージコレクションによるフレームレートへの悪影響。スタンプ生成のホットパスでは、ベジエ評価のインライン展開と共有出力バッファによりオブジェクトアロケーションをゼロに抑え、GC圧力を回避している。
+
+→ [エレメントレンダリング](/devdocs/renderer/elements#stampgenerator)

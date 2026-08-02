@@ -1,0 +1,18 @@
+# Paplico 開発者ドキュメント
+
+このセクションでは、Paplico の内部実装を解説する。描画エンジンは `core/renderer/` 配下にあり、`RenderOrchestrator` を頂点とするモジュール分割されたパイプラインで構成されている。
+
+ユーザー向けの機能ドキュメント（オートメーションなど）は [Paplico Docs](/docs) にある。
+
+## 読み進め方
+
+1. [レンダラーアーキテクチャ](/devdocs/renderer) で全体像と主要モジュールの責務を把握する。
+2. [パイプライン](/devdocs/renderer/pipeline) から [RenderPlanner](/devdocs/renderer/planner)、[キャッシュと無効化](/devdocs/renderer/caches) を辿り、1 フレームの実行経路とリソース管理を確認する。
+3. [エレメントレンダリング](/devdocs/renderer/elements)、[パス描画フロー](/devdocs/renderer/path-rendering)、[ブラシレンダリング](/devdocs/renderer/brush) で要素種別ごとの描画戦略を確認する。
+4. [クリッピング方式](/devdocs/renderer/clipping)、[フィルターシステム](/devdocs/renderer/filters)、[フィルターオーサリングガイド](/devdocs/renderer/filter-authoring) で合成・効果処理を確認する。
+5. [UILayer](/devdocs/renderer/ui) と [用語集](/devdocs/renderer/glossary) で UI オーバーレイと用語の整理を行う。
+
+データ層の設計は [Data Flow](/devdocs/data-flow) に、描画を支える幾何アルゴリズムは [チュートリアル](/devdocs/tutorials) にまとめてある。チュートリアルは各ページに実行可能なプレイグラウンドを持つ。
+
+> [!TIP]
+> レンダラーの読み始めは [レンダラーアーキテクチャ](/devdocs/renderer) から進める。

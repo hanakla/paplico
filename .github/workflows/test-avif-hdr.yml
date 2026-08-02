@@ -1,0 +1,48 @@
+name: Test AVIF HDR
+
+on:
+  pull_request:
+    paths:
+      - "pkgs/avif-hdr/**"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - run: corepack enable
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: "yarn"
+
+      - run: yarn install --immutable
+
+      - name: Install ffmpeg (with AVIF alpha support)
+        uses: federicocarboni/setup-ffmpeg@v3
+        with:
+          ffmpeg-version: release
+
+      - name: Cache dav1d apt package
+        uses: actions/cache@v6
+        id: dav1d-cache
+        with:
+          path: ~/dav1d-debs
+          key: dav1d-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install dav1d
+        run: |
+          if [ -d ~/dav1d-debs ]; then
+            sudo dpkg -i ~/dav1d-debs/*.deb 2>/dev/null || sudo apt-get install -f -y
+          else
+            sudo apt-get update && sudo apt-get install -y dav1d
+            mkdir -p ~/dav1d-debs
+            cp /var/cache/apt/archives/dav1d*.deb ~/dav1d-debs/ 2>/dev/null || true
+            cp /var/cache/apt/archives/libdav1d*.deb ~/dav1d-debs/ 2>/dev/null || true
+          fi
+
+      - run: yarn workspace @paplico/avif-hdr test

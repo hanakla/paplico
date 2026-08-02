@@ -1,0 +1,136 @@
+import Playground from "./playground";
+
+# 第3章: 点が図形の中にあるか調べる (ヒットテスト)
+
+## この章でできるようになること
+
+- 点が多角形の **中** にあるのか、**外** にあるのかを判定できるようになる
+- なぜ「光線を伸ばす」と中外が分かるのか、説明できるようになる
+- 交差回数の **奇数 / 偶数** が答えのカギになる理由を理解できる
+
+## まずは絵で見てみよう
+
+Canvas にぐにゃっとした図形を描いた。点 A は中、点 B は外。**コンピューターはどうやってこの 2 つを区別している** と思う？
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="多角形と、中の点・外の点の例">
+	<polygon points="60,40 220,30 270,90 220,170 80,170 30,100" fill="#3a86ff" fillOpacity="0.18" stroke="#3a86ff" strokeWidth="2" />
+	<circle cx="140" cy="100" r="5" fill="#2a9d8f" />
+	<text x="148" y="96" fontSize="12" fill="#2a9d8f">A (中)</text>
+	<circle cx="350" cy="100" r="5" fill="#e0457b" />
+	<text x="358" y="96" fontSize="12" fill="#e0457b">B (外)</text>
+</svg>
+
+## どこで使われている？
+
+ペンや消しゴムで「どの絵に当たった？」を判定するとき、選択ツールで「投げ縄で囲んだ範囲に入っている絵はどれ？」を判定するとき、塗りつぶしツールで「この点を塗ると、どの領域がいっぱいになる？」を判定するとき。**お絵かきソフトはヒットテストだらけ** だよ。
+
+Paplico では、選択ツール (rectangle / lasso) や PathEditTool など、**ほぼすべてのツールがこの判定を使っている** よ。
+
+## どうやって動くのか — ステップで見ていこう
+
+「点 P が多角形の中にいる？」を調べるとっても上手な方法に、**Ray Casting (光線投射法)** っていうのがあるよ。
+
+### ステップ 1: 点から右に光線を伸ばす
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="ステップ1: 点から右へ光線を伸ばす">
+	<polygon points="60,40 220,30 270,90 220,170 80,170 30,100" fill="#3a86ff" fillOpacity="0.18" stroke="#3a86ff" strokeWidth="2" />
+	<circle cx="140" cy="100" r="5" fill="#2a9d8f" />
+	<text x="148" y="96" fontSize="12" fill="#2a9d8f">P</text>
+	<line x1="140" y1="100" x2="450" y2="100" stroke="#e0457b" strokeWidth="2" strokeDasharray="4 3" />
+	<text x="380" y="96" fontSize="11" fill="#e0457b">光線 →</text>
+</svg>
+
+点 P から **右にまっすぐ無限に光線** を飛ばすよ。方向はどっちでもいいんだけど、右が分かりやすいから右にしよう。
+
+### ステップ 2: 多角形の辺と、光線が何回ぶつかるか数える
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="ステップ2: 光線と多角形の辺の交差回数を数える">
+	<polygon points="60,40 220,30 270,90 220,170 80,170 30,100" fill="#3a86ff" fillOpacity="0.18" stroke="#3a86ff" strokeWidth="2" />
+	<circle cx="140" cy="100" r="5" fill="#2a9d8f" />
+	<text x="148" y="116" fontSize="12" fill="#2a9d8f">P (中)</text>
+	<line x1="140" y1="100" x2="450" y2="100" stroke="#e0457b" strokeWidth="2" strokeDasharray="4 3" />
+	<circle cx="248" cy="100" r="5" fill="#f4a261" />
+	<text x="240" y="92" fontSize="11" fill="#f4a261">×1</text>
+
+	<circle cx="350" cy="100" r="5" fill="#e0457b" />
+	<text x="358" y="116" fontSize="12" fill="#e0457b">P' (外)</text>
+	<line x1="350" y1="100" x2="450" y2="100" stroke="#888" strokeWidth="2" strokeDasharray="4 3" />
+	<text x="400" y="92" fontSize="11" fill="currentColor" fillOpacity="0.7">交差なし</text>
+</svg>
+
+中にいる点 P は、光線が辺に **1 回** ぶつかる。外にいる点 P' は、ぶつかる回数が **0 回**。
+
+### ステップ 3: 奇数なら中、偶数なら外
+
+これが今日の魔法の一言だよ。**交差回数が奇数なら中、偶数なら外** !
+
+<svg viewBox="0 0 460 200" width="100%" style={{ maxWidth: 460, height: "auto" }} role="img" aria-label="奇数なら中、偶数なら外の例">
+	<polygon points="60,30 240,30 240,90 130,90 130,170 60,170" fill="#3a86ff" fillOpacity="0.18" stroke="#3a86ff" strokeWidth="2" />
+	<polygon points="280,30 460,30 460,170 280,170 280,90 380,90" fill="#3a86ff" fillOpacity="0.18" stroke="#3a86ff" strokeWidth="2" />
+
+	<circle cx="100" cy="60" r="4" fill="#2a9d8f" />
+	<line x1="100" y1="60" x2="270" y2="60" stroke="#e0457b" strokeWidth="1.5" strokeDasharray="3 3" />
+	<circle cx="240" cy="60" r="4" fill="#f4a261" />
+	<text x="105" y="52" fontSize="10" fill="#2a9d8f">P1: 1回 → 中</text>
+
+	<circle cx="100" cy="120" r="4" fill="#2a9d8f" />
+	<line x1="100" y1="120" x2="270" y2="120" stroke="#e0457b" strokeWidth="1.5" strokeDasharray="3 3" />
+	<circle cx="130" cy="120" r="4" fill="#f4a261" />
+	<circle cx="240" cy="120" r="4" fill="#f4a261" />
+	<text x="105" y="138" fontSize="10" fill="#e0457b">P2: 2回 → 外</text>
+
+	<circle cx="320" cy="60" r="4" fill="#2a9d8f" />
+	<line x1="320" y1="60" x2="470" y2="60" stroke="#e0457b" strokeWidth="1.5" strokeDasharray="3 3" />
+	<circle cx="460" cy="60" r="4" fill="#f4a261" />
+	<text x="325" y="52" fontSize="10" fill="#2a9d8f">P3: 1回 → 中</text>
+</svg>
+
+ふしぎだけど、これで本当に判定できるんだ。ザックリ言うと、**辺をまたぐたびに「中／外」がパタンと入れ替わる** 。0 回 (偶数) なら最初と同じ「外」。1 回 (奇数) なら入れ替わって「中」。2 回 (偶数) ならまた入れ替わって元の「外」。
+
+### ステップ 4: 各辺について判定する
+
+辺 (i 番目の点と j 番目の点を結ぶ線) と、点 P から右に伸びる光線が交差するか判定するよ:
+
+```
+1. 辺の y の範囲が点 P の y を「またいでる」？
+   (片方の頂点が P より上、もう片方が P より下)
+2. その辺の上で、点 P と同じ y のところの x 座標は、P の x より右？
+3. 両方 YES なら、交差した！
+```
+
+これを全部の辺について繰り返して、交差回数を数えるよ。
+
+## 数学のところ（読み飛ばしOK）
+
+<details>
+<summary>もう一つのやり方: Winding Number</summary>
+
+Ray Casting とは別に、**Winding Number 法** っていうのもあるよ。
+
+これは「点 P から見て、多角形の頂点が何周まわって帰ってくるか」を数える方法。
+
+- 0 周なら外
+- ±1 周なら中
+- ±2 周ならもう一周してて、複雑な形 (自己交差あり) のとき意味が変わる
+
+実装はちょっと複雑だけど、**自己交差した多角形 (8 の字みたいなやつ)** に対しても意味のある結果を返すから、PostScript の `nonzero` ルールはこれに基づいているよ。
+
+</details>
+
+## 実装してみる
+
+`pointInPolygon` を書いてみよう。Canvas にたくさんの点をばらまいて、各点を判定するよ。**正しく書けたら、多角形の中の点だけが青く** なるよ。間違っていると、点がぜんぶ同じ色になったり、ヘンな縞模様になったりするよ。
+
+<Playground />
+
+## やってみよう
+
+- 多角形を凹型 (星型など) に変えても、ちゃんと判定できる？
+- 光線の向きを「上」に変えたら、判定結果は変わる？ (実は変わらないよ — どっちでも OK)
+- 「ぴったり辺の上」にある点はどうなる？ (これは厳密には不安定だから、実装で工夫が要るよ)
+
+## もっと知りたい人へ
+
+- Paplico の本格実装: [`pkgs/web/src/core/utils/bounds.ts`](https://github.com/) の `pointInPolygon`
+- 前の章 → [第2章: AABB](/devdocs/tutorials/02-bounds)
+- 次の章 → [第4章: ベジェ曲線をまっすぐな線に分ける](/devdocs/tutorials/04-bezier-flatten)

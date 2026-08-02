@@ -1,0 +1,16 @@
+#!/bin/bash
+
+if [ -f pap.lock ]; then
+  PID=$(cat pap.lock)
+  if ps -p $PID > /dev/null 2>&1; then
+    echo "Server is running (PID: $PID)"
+    PORTS=$(lsof -Pan -p $PID -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {split($9,a,":"); print a[2]}' | sort -u)
+    if [ -n "$PORTS" ]; then
+      echo "Listening on port(s): $PORTS"
+    fi
+  else
+    echo "Server is not running (stale lock file)"
+  fi
+else
+  echo "No lock file found - server is not running"
+fi
