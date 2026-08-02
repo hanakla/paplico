@@ -1293,11 +1293,7 @@ export class SelectTool implements Tool {
 			deltaY = snapResult.deltaY;
 		}
 
-		if (selectedIds.length === 1) {
-			this.context.elementMove(selectedIds[0], deltaX, deltaY);
-		} else {
-			this.context.elementsMove(selectedIds, deltaX, deltaY);
-		}
+		this.context.elementsMove(selectedIds, deltaX, deltaY);
 
 		this.selectedBounds = translateBounds(state.originalBounds, deltaX, deltaY);
 
@@ -1334,19 +1330,11 @@ export class SelectTool implements Tool {
 
 		const newWorldBounds = brandWorldBBox(newBounds);
 
-		if (selectedIds.length === 1) {
-			this.context.elementResize(
-				selectedIds[0],
-				state.originalBounds,
-				newWorldBounds,
-			);
-		} else {
-			this.context.elementsResize(
-				selectedIds,
-				state.originalBounds,
-				newWorldBounds,
-			);
-		}
+		this.context.elementsResize(
+			selectedIds,
+			state.originalBounds,
+			newWorldBounds,
+		);
 
 		this.selectedBounds = newWorldBounds;
 
@@ -1380,11 +1368,7 @@ export class SelectTool implements Tool {
 			return;
 		}
 
-		if (selectedIds.length === 1) {
-			this.context.elementRotate(selectedIds[0], angleDeg, cx, cy);
-		} else {
-			this.context.elementsRotate(selectedIds, angleDeg, cx, cy);
-		}
+		this.context.elementsRotate(selectedIds, angleDeg, cx, cy);
 
 		this.refreshUI();
 	}
@@ -1639,11 +1623,7 @@ export class SelectTool implements Tool {
 				return false;
 		}
 
-		if (selectedIds.length === 1) {
-			this.context.elementMove(selectedIds[0], dx, dy);
-		} else {
-			this.context.elementsMove(selectedIds, dx, dy);
-		}
+		this.context.elementsMove(selectedIds, dx, dy);
 
 		this.refreshUI();
 
@@ -1883,19 +1863,11 @@ export class SelectTool implements Tool {
 			return;
 		}
 
-		if (selectedIds.length === 1) {
-			this.context.elementResize(
-				selectedIds[0],
-				this.pinchResizeOriginalBounds,
-				this.selectedBounds,
-			);
-		} else {
-			this.context.elementsResize(
-				selectedIds,
-				this.pinchResizeOriginalBounds,
-				this.selectedBounds,
-			);
-		}
+		this.context.elementsResize(
+			selectedIds,
+			this.pinchResizeOriginalBounds,
+			this.selectedBounds,
+		);
 
 		this.isPinchResizing = false;
 		this.pinchResizeOriginalBounds = null;

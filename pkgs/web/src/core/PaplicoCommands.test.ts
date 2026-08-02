@@ -1002,8 +1002,8 @@ describe("PaplicoCommands", () => {
 		});
 	});
 
-	describe("rotateElement", () => {
-		it("should only update rotation angle without moving position", () => {
+	describe("rotateElements", () => {
+		it("should only update rotation angle when the pivot is the element center", () => {
 			const path = createPathAt("p1", 100, 100, 200, 200);
 			const layer = createLayer("l1", [path.id]);
 			const { commands, store } = createRotateCommands(layer, {
@@ -1020,7 +1020,7 @@ describe("PaplicoCommands", () => {
 			const cx = (bounds.minX + bounds.maxX) / 2;
 			const cy = (bounds.minY + bounds.maxY) / 2;
 
-			commands.rotateElement(layer.id, path.id, 45, cx, cy);
+			commands.rotateElements([path.id], 45, cx, cy);
 
 			const updated = store.document.objects[path.id] as Path;
 			expect(updated.transform.x).toBe(0);
@@ -1036,14 +1036,12 @@ describe("PaplicoCommands", () => {
 				[path.id]: path,
 			});
 
-			commands.rotateElement(layer.id, path.id, 90, 50, 50);
+			commands.rotateElements([path.id], 90, 50, 50);
 
 			const updated = store.document.objects[path.id] as Path;
 			expect(updated.transform.rotation).toBeCloseTo(Math.PI / 4 + Math.PI / 2);
 		});
-	});
 
-	describe("rotateElements", () => {
 		it("should rotate each element's visual center around the group center", () => {
 			// Two elements side by side:
 			// A: localBounds (0,0)-(100,100), transform=(0,0) → visualCenter=(50,50)
@@ -1157,7 +1155,7 @@ describe("PaplicoCommands", () => {
 			expect(b.transform.rotation).toBeCloseTo(Math.PI / 2);
 		});
 
-		it("should handle rotateElement on a group by rotating children", () => {
+		it("should rotate a group by rotating its children", () => {
 			const child = createPathAt("c1", 0, 0, 100, 100);
 			const group = createGroup("g1", ["c1"]);
 			const layer = createLayer("l1", [group.id]);
@@ -1167,7 +1165,7 @@ describe("PaplicoCommands", () => {
 			});
 
 			// Single group rotation: rotate 90° around center (50,50)
-			commands.rotateElement(layer.id, group.id, 90, 50, 50);
+			commands.rotateElements([group.id], 90, 50, 50);
 
 			// Group transform stays identity
 			expect(store.document.objects[group.id]!.transform.rotation).toBe(0);

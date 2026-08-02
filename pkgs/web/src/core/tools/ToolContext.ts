@@ -71,23 +71,11 @@ export type ToolContextOptions = {
 
 	elementSelect: (elementId: string, bounds: BoundingBox) => void;
 	elementToggleSelect: (elementId: string, bounds: BoundingBox) => void;
-	elementMove: (elementId: string, deltaX: number, deltaY: number) => void;
 	elementsMove: (elementIds: string[], deltaX: number, deltaY: number) => void;
-	elementResize: (
-		elementId: string,
-		originalBounds: WorldBBox,
-		newBounds: WorldBBox,
-	) => void;
 	elementsResize: (
 		elementIds: string[],
 		originalBounds: WorldBBox,
 		newBounds: WorldBBox,
-	) => void;
-	elementRotate: (
-		elementId: string,
-		angleDeg: number,
-		centerX: number,
-		centerY: number,
 	) => void;
 	elementsRotate: (
 		elementIds: string[],

@@ -36,7 +36,7 @@ export function MoreActionsMenu({
 	const commands = usePaplicoCommands();
 
 	const handleOutlineText = useEventCallback(() => {
-		paplico.outlineTextElements([...selectedIds]);
+		paplico.commands.outlineTextElements([...selectedIds]);
 	});
 
 	const handleCreateMask = useEventCallback(() => {

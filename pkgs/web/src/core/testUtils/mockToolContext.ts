@@ -74,11 +74,8 @@ export function createMockToolContext(
 
 		elementSelect: vi.fn(),
 		elementToggleSelect: vi.fn(),
-		elementMove: vi.fn(),
 		elementsMove: vi.fn(),
-		elementResize: vi.fn(),
 		elementsResize: vi.fn(),
-		elementRotate: vi.fn(),
 		elementsRotate: vi.fn(),
 		uiUpdateSelectionUI: vi.fn(),
 		selectionSelectMultiple: vi.fn(),
