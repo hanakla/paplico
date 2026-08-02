@@ -286,11 +286,6 @@ export class CanvasLayer {
 	// (set per-frame in render(); false for export/preview/subset frames).
 	private captureCompositeFrameThisFrame = false;
 
-	// Pixel preview: live-canvas frames render the prebuf at the document's
-	// rasterization scale and present it with nearest sampling (see
-	// setPixelPreview). Export/copy/thumbnail renders are unaffected.
-	private pixelPreviewEnabled = false;
-
 	// -- Render pipelines --
 	private strokePipeline: GPURenderPipeline;
 	private fillPipeline: GPURenderPipeline;
@@ -809,7 +804,6 @@ export class CanvasLayer {
 			canvasFormat: this.canvasFormat,
 			getBindGroup: () => this.viewportBinding.active,
 			sampler: this.sampler,
-			nearestSampler: this.nearestSampler,
 			blitPipeline: this.blitPipeline,
 			blitGlassPunchPipeline: this.blitGlassPunchPipeline,
 			compositePipeline: this.compositePipeline,
@@ -1490,19 +1484,6 @@ export class CanvasLayer {
 	}
 
 	/**
-	 * Toggle pixel preview: render the document at the rasterization scale
-	 * (Document.rasterizationDpi / 72) instead of the viewport zoom and present
-	 * it with nearest sampling, so the raster grid is visible when zoomed in.
-	 */
-	public setPixelPreview(enabled: boolean): void {
-		if (this.pixelPreviewEnabled === enabled) return;
-		this.pixelPreviewEnabled = enabled;
-		// The cached composite frame was rendered at the other density; a zoom
-		// gesture right after toggling must not reproject it.
-		this.compositeFrameCache.valid = false;
-	}
-
-	/**
 	 * Upload or clear the soft proof 3D LUT used by the final display pass.
 	 */
 	public setSoftProofLut(lut: SoftProofLutResult | null): void {
@@ -2112,37 +2093,21 @@ export class CanvasLayer {
 						realCanvasHeight,
 					)
 				: null;
-		// Pixel preview applies only to live-canvas frames; export/copy/thumbnail
-		// renders always pass clearColorOverride (same signal as the dot grid).
-		const pixelPreview = this.pixelPreviewEnabled && clearColorOverride == null;
-		const maxTextureDimension = this.device.limits.maxTextureDimension2D;
-		let { prebufWidth, prebufHeight, prebufZoom } = calculatePrebufDimensions({
-			viewport: this.viewportState.current!,
-			visibleBounds: realViewportBounds,
-			canvasWidth: realCanvasWidth,
-			canvasHeight: realCanvasHeight,
-			maxTextureDimension,
-			zoomOverride: pixelPreview ? this.getRasterScale() : undefined,
-		});
+		const { prebufWidth, prebufHeight, prebufZoom } = calculatePrebufDimensions(
+			{
+				viewport: this.viewportState.current!,
+				visibleBounds: realViewportBounds,
+				canvasWidth: realCanvasWidth,
+				canvasHeight: realCanvasHeight,
+				maxTextureDimension: this.device.limits.maxTextureDimension2D,
+			},
+		);
 		const prebufViewport = {
 			x: this.viewportState.current!.x,
 			y: this.viewportState.current!.y,
 			zoom: prebufZoom,
 			rotation: 0,
 		} satisfies Viewport;
-		if (pixelPreview) {
-			// Anchor the raster grid to world space: snap the prebuf's min corner
-			// to a texel multiple so panning never shifts texel boundaries within
-			// world space (which would make pixels shimmer). One extra texel of
-			// coverage absorbs the sub-texel snap shift at the opposite edge.
-			prebufWidth = Math.min(prebufWidth + 1, maxTextureDimension);
-			prebufHeight = Math.min(prebufHeight + 1, maxTextureDimension);
-			const texelWorld = 1 / prebufZoom;
-			const left = prebufViewport.x - prebufWidth / (2 * prebufZoom);
-			const bottom = prebufViewport.y - prebufHeight / (2 * prebufZoom);
-			prebufViewport.x += Math.floor(left / texelWorld) * texelWorld - left;
-			prebufViewport.y += Math.floor(bottom / texelWorld) * texelWorld - bottom;
-		}
 		const prebufVisibleBounds = getVisibleWorldBounds(
 			prebufViewport,
 			prebufWidth,
@@ -2509,9 +2474,6 @@ export class CanvasLayer {
 					ctx.get(prebufHandle),
 					prebufBounds,
 					1.0,
-					FULL_BLIT_UV_RECT,
-					undefined,
-					pixelPreview ? "nearest" : "linear",
 				);
 			}
 			finalPass.end();
@@ -3189,9 +3151,6 @@ export class CanvasLayer {
 					cache.texture!,
 					cache.worldBounds!,
 					1.0,
-					FULL_BLIT_UV_RECT,
-					undefined,
-					this.pixelPreviewEnabled ? "nearest" : "linear",
 				);
 				pass.end();
 			},

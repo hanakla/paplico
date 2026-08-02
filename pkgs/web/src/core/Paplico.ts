@@ -1601,15 +1601,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	 * profile when this returns `false`. Disabling (`enabled === false`) always
 	 * returns `false`.
 	 */
-	/**
-	 * Toggle pixel preview: display the canvas rasterized at the document's
-	 * rasterization DPI with nearest-neighbor upscaling.
-	 */
-	public setPixelPreview(enabled: boolean): void {
-		this.renderer.setPixelPreview(enabled);
-		this.markDirty("render");
-	}
-
 	public async setSoftProof(enabled: boolean): Promise<boolean> {
 		if (!enabled) {
 			this.softProof.active = false;

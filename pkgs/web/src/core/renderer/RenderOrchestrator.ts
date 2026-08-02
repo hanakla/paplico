@@ -235,8 +235,6 @@ export class RenderOrchestrator {
 	/** CPU-side soft proof LUT, retained so it can be re-uploaded after
 	 *  device re-initialization (HDR switch, device loss recovery). */
 	private softProofLut: SoftProofLutResult | null = null;
-	/** Retained so targets created after the toggle inherit the mode. */
-	private pixelPreviewEnabled = false;
 
 	// Stored callbacks (applied to new targets)
 	private _onRequestRender: (() => void) | null = null;
@@ -557,7 +555,6 @@ export class RenderOrchestrator {
 		// GPU textures don't survive device re-init (HDR switch, device loss
 		// recovery) — re-upload the soft proof LUT from the CPU-side copy.
 		if (this.softProofLut) canvasLayer.setSoftProofLut(this.softProofLut);
-		canvasLayer.setPixelPreview(this.pixelPreviewEnabled);
 
 		this.targets.set(target.id, {
 			context,
@@ -646,14 +643,6 @@ export class RenderOrchestrator {
 		this.softProofLut = lut;
 		for (const td of this.targets.values()) {
 			td.canvasLayer.setSoftProofLut(lut);
-		}
-	}
-
-	/** Toggle pixel preview on all canvas targets (see CanvasLayer.setPixelPreview). */
-	public setPixelPreview(enabled: boolean): void {
-		this.pixelPreviewEnabled = enabled;
-		for (const td of this.targets.values()) {
-			td.canvasLayer.setPixelPreview(enabled);
 		}
 	}
 

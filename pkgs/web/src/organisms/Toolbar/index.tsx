@@ -45,7 +45,6 @@ import { Portal } from "@/components/Portal";
 import { Resizable } from "@/components/Resizable";
 import { Separator } from "@/components/Separator";
 import { Slider } from "@/components/Slider";
-import { Spinner } from "@/components/Spinner";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import type { ShapeType } from "@/core";
@@ -1205,15 +1204,6 @@ function BucketFillPanel() {
 					onValueChange={handleGapClosingChange}
 				/>
 			</div>
-
-			{snap.bucketFillComputing && (
-				<div className="flex items-center gap-2">
-					<Spinner $size="sm" />
-					<span className="text-[10px] text-muted-foreground">
-						{t("toolbar.bucketFillComputing")}
-					</span>
-				</div>
-			)}
 
 			{snap.bucketFillLeaks && (
 				<div className="flex flex-col gap-1">

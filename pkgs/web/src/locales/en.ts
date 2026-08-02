@@ -25,7 +25,6 @@ export const en = {
 		group: "Group",
 		ungroup: "Ungroup",
 		resetRotationAndZoom: "Reset Rotation & Zoom",
-		pixelPreview: "Pixel Preview",
 		splitView: "Split View",
 		documentSettings: "Document Settings",
 		devMenu: "Development",

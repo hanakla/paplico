@@ -6,6 +6,7 @@ import type { Paplico } from "@/core/Paplico";
 import { clearCurrentTargetId, setCurrentTargetId } from "@/stores/uiStore";
 import { reportError } from "@/utils/errorReporting";
 import { useEventCallback } from "@/utils/hooks";
+import { BucketFillComputingOverlay } from "./BucketFillComputingOverlay";
 import { CanvasZoomToast } from "./CanvasZoomToast";
 import { ContextActionsOverlay } from "./ContextAction";
 import { DeviceRecoveryOverlay } from "./DeviceRecoveryOverlay";
@@ -158,6 +159,7 @@ export function CanvasPane({
 						<PatternEditBar />
 						<MaskEditBar />
 						<CanvasZoomToast />
+						<BucketFillComputingOverlay />
 						{isDeviceRecovering && <DeviceRecoveryOverlay />}
 					</>
 				)}
