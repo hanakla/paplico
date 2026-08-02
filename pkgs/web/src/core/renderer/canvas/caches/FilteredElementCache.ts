@@ -33,6 +33,12 @@ export interface FilteredElementCacheEntry {
 export class FilteredElementCache {
 	private cache = new Map<string, FilteredElementCacheEntry>();
 	private pendingDestroy: GPUTexture[] = [];
+	/** Entries touched (hit or stored) since the last beginFrame. Budget
+	 *  eviction never removes them: when the visible working set exceeds the
+	 *  budget, evicting an entry the current frame just used would make every
+	 *  later store thrash the earlier hits. The budget may transiently
+	 *  overshoot instead; unpinned (older) entries still evict. */
+	private framePinned = new Set<string>();
 
 	public constructor(private readonly maxBytes = 256 * 1024 * 1024) {}
 
@@ -43,12 +49,19 @@ export class FilteredElementCache {
 		return this.maxBytes / 4;
 	}
 
+	/** Start a new frame: entries pinned by the previous frame become
+	 *  evictable again. */
+	public beginFrame(): void {
+		this.framePinned.clear();
+	}
+
 	public get(elementId: string): FilteredElementCacheEntry | undefined {
 		const entry = this.cache.get(elementId);
 		if (!entry) return undefined;
 		// Map iteration order doubles as the LRU order — re-insert to touch.
 		this.cache.delete(elementId);
 		this.cache.set(elementId, entry);
+		this.framePinned.add(elementId);
 		return entry;
 	}
 
@@ -65,6 +78,7 @@ export class FilteredElementCache {
 		}
 		this.delete(elementId);
 		this.cache.set(elementId, entry);
+		this.framePinned.add(elementId);
 		this.evictOverBudget();
 		return this.cache.has(elementId);
 	}
@@ -126,12 +140,12 @@ export class FilteredElementCache {
 	private evictOverBudget(): void {
 		let totalBytes = 0;
 		for (const entry of this.cache.values()) totalBytes += entry.byteSize;
-		while (totalBytes > this.maxBytes) {
-			const oldest = this.cache.entries().next().value;
-			if (!oldest) break;
-			const [key, entry] = oldest;
+		if (totalBytes <= this.maxBytes) return;
+		for (const [key, entry] of [...this.cache]) {
+			if (this.framePinned.has(key)) continue;
 			totalBytes -= entry.byteSize;
 			this.delete(key);
+			if (totalBytes <= this.maxBytes) return;
 		}
 	}
 }

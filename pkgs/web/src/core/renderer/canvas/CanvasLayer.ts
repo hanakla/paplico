@@ -1824,6 +1824,9 @@ export class CanvasLayer {
 		// All scopes, not just the active one: a scope deactivated mid-frame must
 		// still release the buffers it deferred.
 		this.cacheManager.flushPendingDestroy();
+		// Unpin the previous frame's filtered bakes so budget eviction can
+		// reach them again.
+		this.cacheManager.filteredElement.beginFrame();
 		this.geometryStore.flushPendingReleases();
 		this.runBatcher.beginFrame();
 		this.backdropBlitPool.index = 0;
@@ -3361,6 +3364,12 @@ export class CanvasLayer {
 	): void {
 		const { elementsMap, filterPlans, layerPlans } = framePlan;
 		const rasterScale = this.getRasterScale();
+		// Single density for this frame's cacheable bakes: the hash, the byte
+		// budget, and the bake itself all consume this exact value.
+		const cacheDensity = capFilterBakeDensity(
+			rasterScale,
+			this.viewportState.current?.zoom ?? 1,
+		);
 		const plans =
 			selectedPlans ??
 			layerPlans.flatMap((layerPlan) =>
@@ -3427,7 +3436,7 @@ export class CanvasLayer {
 							f,
 						).needsBackdrop,
 				) &&
-				this.filteredBakeWithinBudget(fp, rasterScale)
+				this.filteredBakeWithinBudget(fp, cacheDensity)
 			) {
 				// Everything this bake renders (group children, mask/compound/
 				// blend sources, …). A preview override anywhere inside means
@@ -3439,7 +3448,7 @@ export class CanvasLayer {
 						fp,
 						element,
 						elementsMap,
-						rasterScale,
+						cacheDensity,
 					);
 				}
 			}
@@ -3465,7 +3474,7 @@ export class CanvasLayer {
 							this.viewportManager.getBoundsCache(),
 							rasterScale,
 							fpFilterMargin,
-							cacheHash == null,
+							cacheHash != null ? { density: cacheDensity } : null,
 						)
 					: this.offscreen.renderElementToTexture(
 							encoder,
@@ -3476,7 +3485,7 @@ export class CanvasLayer {
 							selectedPlans !== undefined,
 							fpFilterMargin,
 							undefined,
-							cacheHash == null,
+							cacheHash != null ? { density: cacheDensity } : null,
 						);
 
 			if (!rendersOwnSource && !offscreenResult) continue;
@@ -3635,12 +3644,8 @@ export class CanvasLayer {
 	 *  (zoomed-in giants stay on the frame-local clamp path). */
 	private filteredBakeWithinBudget(
 		fp: ElementFilterPlan,
-		rasterScale: number,
+		density: number,
 	): boolean {
-		const density = capFilterBakeDensity(
-			rasterScale,
-			this.viewportState.current?.zoom ?? 1,
-		);
 		const bakePx =
 			Math.ceil(fp.textureBounds.width * density) *
 			Math.ceil(fp.textureBounds.height * density);
@@ -3677,12 +3682,8 @@ export class CanvasLayer {
 		fp: ElementFilterPlan,
 		element: AnyArtObject,
 		elementsMap: Map<string, AnyArtObject>,
-		rasterScale: number,
+		density: number,
 	): string {
-		const density = capFilterBakeDensity(
-			rasterScale,
-			this.viewportState.current?.zoom ?? 1,
-		);
 		const paintHash = computePaintHash(
 			element,
 			elementsMap,

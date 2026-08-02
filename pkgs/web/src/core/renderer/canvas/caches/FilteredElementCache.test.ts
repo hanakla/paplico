@@ -8,9 +8,10 @@ import {
 
 describe("FilteredElementCache", () => {
 	describe("LRU byte budget", () => {
-		it("should evict the least recently used entry when over budget", () => {
+		it("should evict the least recently used entry of a previous frame when over budget", () => {
 			const cache = new FilteredElementCache(100);
 			for (const id of ["a", "b", "c", "d"]) cache.set(id, entry(22));
+			cache.beginFrame();
 
 			cache.set("e", entry(22));
 
@@ -22,6 +23,7 @@ describe("FilteredElementCache", () => {
 		it("should treat get() as a touch that protects the entry from eviction", () => {
 			const cache = new FilteredElementCache(100);
 			for (const id of ["a", "b", "c", "d"]) cache.set(id, entry(22));
+			cache.beginFrame();
 			cache.get("a");
 
 			cache.set("e", entry(22));
@@ -61,6 +63,7 @@ describe("FilteredElementCache", () => {
 			const cache = new FilteredElementCache(100);
 			const evicted = entry(22);
 			cache.set("a", evicted);
+			cache.beginFrame();
 			for (const id of ["b", "c", "d", "e"]) cache.set(id, entry(22));
 
 			expect(evicted.texture.destroy).not.toHaveBeenCalled();
@@ -93,6 +96,52 @@ describe("FilteredElementCache", () => {
 
 			expect(a.texture.destroy).toHaveBeenCalledTimes(1);
 			expect(b.texture.destroy).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	describe("frame pinning", () => {
+		it("should not evict an entry the current frame already used", () => {
+			const cache = new FilteredElementCache(100);
+			for (const id of ["a", "b", "c", "d"]) cache.set(id, entry(22));
+			cache.beginFrame();
+			cache.get("a");
+
+			// Storing more than the budget in one frame must not evict this
+			// frame's own hits — only unpinned (older) entries.
+			cache.set("e", entry(22));
+			cache.set("f", entry(22));
+
+			expect(cache.get("a")).toBeDefined();
+			expect(cache.get("e")).toBeDefined();
+			expect(cache.get("f")).toBeDefined();
+		});
+
+		it("should allow a transient overshoot when every entry is pinned", () => {
+			const cache = new FilteredElementCache(50);
+			cache.set("a", entry(12));
+			cache.set("b", entry(12));
+			cache.set("c", entry(12));
+			cache.set("d", entry(12));
+
+			cache.set("e", entry(12));
+
+			for (const id of ["a", "b", "c", "d", "e"]) {
+				expect(cache.get(id)).toBeDefined();
+			}
+		});
+
+		it("should make previous-frame entries evictable again after beginFrame", () => {
+			const cache = new FilteredElementCache(50);
+			cache.set("a", entry(12));
+			cache.set("b", entry(12));
+			cache.set("c", entry(12));
+			cache.set("d", entry(12));
+			cache.beginFrame();
+
+			cache.set("e", entry(12));
+
+			expect(cache.get("a")).toBeUndefined();
+			expect(cache.get("e")).toBeDefined();
 		});
 	});
 
