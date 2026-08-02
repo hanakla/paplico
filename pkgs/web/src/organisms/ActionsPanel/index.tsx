@@ -1,6 +1,7 @@
 import { useDeferredValue, useMemo } from "react";
 import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
+import { isReference3D } from "@/core/schema";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
 import { useTranslation } from "@/locales";
 import { uiState } from "@/stores/uiStore";
@@ -17,7 +18,10 @@ import { EyedropperToolControls } from "./EyedropperToolControls";
 import { PathBooleanOperations } from "./PathBooleanOperations";
 import { PathEditToolControls } from "./PathEditToolControls";
 import { PenToolControls } from "./PenToolControls";
-import { Reference3DToolControls } from "./Reference3DToolControls";
+import {
+	Reference3DSceneField,
+	Reference3DToolControls,
+} from "./Reference3DToolControls";
 import { RepeatControls } from "./RepeatControls";
 import { SelectToolControls } from "./SelectToolControls";
 import {
@@ -72,6 +76,12 @@ export function ActionsPanel() {
 	const allSelectedArePaths = uniformType === "path";
 	const showPathOperations = hasMultipleSelection && allSelectedArePaths;
 	const showElementControls = hasSelection && uniformType && !isTextEditing;
+	// Lone reference3d element selected: offer its scene picker without
+	// requiring the reference3d tool's edit mode.
+	const selectedReference3d =
+		selectedElements.length === 1 && isReference3D(selectedElements[0])
+			? selectedElements[0]
+			: null;
 
 	return (
 		<div className="w-52 bg-background/80 backdrop-liquid rounded-xl shadow-lg flex flex-col overflow-hidden">
@@ -109,6 +119,9 @@ export function ActionsPanel() {
 				) : showElementControls ? (
 					<div className="flex flex-col gap-3 w-full">
 						{isSelectTool && <SelectToolControls />}
+						{selectedReference3d && (
+							<Reference3DSceneField element={selectedReference3d} />
+						)}
 						<ElementControls elements={selectedElements} />
 						<TransformControls />
 						{showPathOperations && <PathBooleanOperations />}
