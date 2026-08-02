@@ -4,8 +4,11 @@ import {
 	type BoundingBox,
 	type ElementTransform,
 	type EraseMask,
+	type FillAppearance,
+	getContainerChildIds,
 	isGroup,
 	isIdentityTransform,
+	isVisibleFill,
 	type Layer,
 	type Path,
 	type PathSegment,
@@ -154,9 +157,10 @@ export class EraserTool implements Tool {
 		}
 	}
 
-	/** Layers to erase across: all unlocked layers when piercing, else the current one. */
+	/** Layers to erase across: all unlocked layers when piercing, else the current one.
+	 *  Piercing would reach outside the editing scope, so it is ignored while one is active. */
 	private resolveTargetLayers(): Layer[] {
-		if (this.options.pierceAllLayers) {
+		if (this.options.pierceAllLayers && !this.context.getEditingScopeId()) {
 			return this.context.getLayers();
 		}
 		const current = this.context.getCurrentLayer();
@@ -313,7 +317,12 @@ export class EraserTool implements Tool {
 				(Math.abs(composedT.scaleX) + Math.abs(composedT.scaleY)) / 2;
 			const localEraserRadius =
 				avgScale > 0 ? this.eraserRadius / avgScale : this.eraserRadius;
-			const hasFill = pathEl.filters?.some((f) => f.processor === "fill");
+			// Only a fill that actually shows pixels switches the eraser into
+			// surface-cut mode; an invisible fill (disabled / fully transparent)
+			// would silently cut a path the user perceives as stroke-only.
+			const hasFill = pathEl.filters?.some(
+				(f) => f.processor === "fill" && isVisibleFill(f as FillAppearance),
+			);
 
 			if (hasFill) {
 				const splitResult = subtractEraserFromFilledPath(
@@ -536,7 +545,9 @@ export class EraserTool implements Tool {
 	}
 
 	/**
-	 * Return target element IDs: selected elements if any, otherwise all layer elements.
+	 * Return target element IDs: selected elements if any, otherwise all reachable
+	 * elements. Reachable means the editing scope's members when a scope is active,
+	 * otherwise the layer's top-level elements.
 	 * Groups are expanded recursively so that their children are included as targets.
 	 */
 	private getTargetElementIds(
@@ -560,13 +571,25 @@ export class EraserTool implements Tool {
 			return result;
 		};
 
+		const baseIds = this.resolveScopedElementIds(layer);
 		const selected = this.context.getSelectedElementIds();
 		if (selected.length > 0) {
-			const layerSet = new Set(layer.elementIds);
-			const topLevel = selected.filter((id) => layerSet.has(id));
-			return expandGroups(topLevel);
+			const baseSet = new Set(baseIds);
+			return expandGroups(selected.filter((id) => baseSet.has(id)));
 		}
-		return expandGroups(layer.elementIds);
+		return expandGroups(baseIds);
+	}
+
+	/** Same membership rule as PaplicoSelection.isElementEditable: layer-id scope
+	 *  exposes the scoped layer's elements, a container scope its direct children,
+	 *  and a single-element scope only the element itself. */
+	private resolveScopedElementIds(layer: Layer): string[] {
+		const scopeId = this.context.getEditingScopeId();
+		if (!scopeId || layer.id === scopeId) return layer.elementIds;
+
+		const scopeElement = this.context.getObjects()[scopeId];
+		if (!scopeElement) return [];
+		return getContainerChildIds(scopeElement) ?? [scopeId];
 	}
 
 	public onCancel(): void {

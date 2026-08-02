@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createIdentityTransform } from "../document/factory";
 import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
-import type { AnyArtObject, Layer, Path, StrokeAppearance } from "../schema";
+import type {
+	AnyArtObject,
+	FillAppearance,
+	Group,
+	Layer,
+	Path,
+	StrokeAppearance,
+} from "../schema";
 import { createMockToolContext } from "../testUtils/mockToolContext";
 import {
 	ev,
@@ -244,6 +251,118 @@ describe("EraserTool", () => {
 			expect(updatedIds).toEqual(expect.arrayContaining(["path-1", "path-2"]));
 		});
 
+		it("should erase only elements inside the editing scope", () => {
+			// Group scope "g1" holds path-in; path-out is a sibling on the layer.
+			const insidePath = { ...testPath, id: "path-in" };
+			const outsidePath = { ...testPath, id: "path-out" };
+			const scopeGroup: Group = {
+				id: "g1",
+				type: "group",
+				opacity: 1,
+				blendMode: "normal",
+				childIds: ["path-in"],
+				transform: createIdentityTransform(),
+			};
+			const scopedLayer: Layer = {
+				...testLayer,
+				elementIds: ["g1", "path-out"],
+			};
+			const scopedCtx = createMockToolContext({
+				getCurrentLayer: vi.fn(() => scopedLayer),
+				getEditingScopeId: vi.fn(() => "g1"),
+				getObjects: vi.fn(() => ({
+					g1: scopeGroup,
+					"path-in": insidePath,
+					"path-out": outsidePath,
+				})),
+			});
+			const scopedTool = new EraserTool(scopedCtx, {
+				width: 2,
+				mode: "slice" as const,
+			});
+
+			// Stroke over both paths: world(0,0) → world(100,0)
+			scopedTool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			scopedTool.onPointerMove(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			scopedTool.onPointerUp(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const updatedIds = scopedCtx.mockCommands.updateElement.mock.calls.map(
+				(call) => call[1],
+			);
+			expect(updatedIds).toContain("path-in");
+			expect(updatedIds).not.toContain("path-out");
+		});
+
+		it("should erase the selected scope child when a selection exists inside the scope", () => {
+			// Selecting a group child used to fall through the top-level filter
+			// (layer.elementIds does not contain grandchildren) and erase nothing.
+			const selectedChild = { ...testPath, id: "path-in" };
+			const otherChild = { ...testPath, id: "path-in2" };
+			const scopeGroup: Group = {
+				id: "g1",
+				type: "group",
+				opacity: 1,
+				blendMode: "normal",
+				childIds: ["path-in", "path-in2"],
+				transform: createIdentityTransform(),
+			};
+			const scopedLayer: Layer = { ...testLayer, elementIds: ["g1"] };
+			const scopedCtx = createMockToolContext({
+				getCurrentLayer: vi.fn(() => scopedLayer),
+				getEditingScopeId: vi.fn(() => "g1"),
+				getSelectedElementIds: vi.fn(() => ["path-in"]),
+				getObjects: vi.fn(() => ({
+					g1: scopeGroup,
+					"path-in": selectedChild,
+					"path-in2": otherChild,
+				})),
+			});
+			const scopedTool = new EraserTool(scopedCtx, {
+				width: 2,
+				mode: "slice" as const,
+			});
+
+			scopedTool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			scopedTool.onPointerMove(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			scopedTool.onPointerUp(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const updatedIds = scopedCtx.mockCommands.updateElement.mock.calls.map(
+				(call) => call[1],
+			);
+			expect(updatedIds).toContain("path-in");
+			expect(updatedIds).not.toContain("path-in2");
+		});
+
 		it("should not erase path when stroke is far away", () => {
 			opts.getCurrentLayer.mockReturnValue(testLayer);
 			opts.getObjects.mockReturnValue({ "path-1": testPath });
@@ -351,6 +470,74 @@ describe("EraserTool", () => {
 			// EraserTool processes single-point strokes and retains the collapsed endpoint.
 			expect(ctx.mockCommands.deleteElements).not.toHaveBeenCalled();
 			expect(ctx.mockCommands.updateElement).toHaveBeenCalled();
+		});
+	});
+
+	describe("Fill visibility", () => {
+		/** Erase inside the square's area, far from its outline stroke:
+		 *  a visible fill face-cuts, an invisible fill leaves it untouched. */
+		function eraseInsideSquare(fillAlpha: number, fillEnabled?: boolean) {
+			const squarePath: Path = {
+				...testPath,
+				id: "square",
+				filters: [
+					...(testPath.filters ?? []),
+					fillFilter(fillAlpha, fillEnabled),
+				],
+				segments: [
+					lineSeg(-50, -50, 50, -50),
+					lineSeg(50, -50, 50, 50),
+					lineSeg(50, 50, -50, 50),
+					lineSeg(-50, 50, -50, -50),
+				],
+			};
+			const squareLayer: Layer = { ...testLayer, elementIds: ["square"] };
+			const squareCtx = createMockToolContext({
+				getCurrentLayer: vi.fn(() => squareLayer),
+				getObjects: vi.fn(() => ({ square: squarePath })),
+			});
+			const squareTool = new EraserTool(squareCtx, {
+				width: 2,
+				mode: "slice" as const,
+			});
+
+			// Stroke inside the area: world(-10,0) → world(10,0)
+			squareTool.onPointerDown(
+				ev(390, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			squareTool.onPointerMove(
+				ev(410, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			squareTool.onPointerUp(
+				ev(410, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			return squareCtx;
+		}
+
+		it("should face-cut a path with a visible fill", () => {
+			const squareCtx = eraseInsideSquare(1);
+			expect(squareCtx.mockCommands.deleteElements).toHaveBeenCalled();
+		});
+
+		it("should not face-cut when the fill is fully transparent", () => {
+			const squareCtx = eraseInsideSquare(0);
+			expect(squareCtx.mockCommands.deleteElements).not.toHaveBeenCalled();
+			expect(squareCtx.mockCommands.updateElement).not.toHaveBeenCalled();
+		});
+
+		it("should not face-cut when the fill is disabled", () => {
+			const squareCtx = eraseInsideSquare(1, false);
+			expect(squareCtx.mockCommands.deleteElements).not.toHaveBeenCalled();
+			expect(squareCtx.mockCommands.updateElement).not.toHaveBeenCalled();
 		});
 	});
 
@@ -1473,3 +1660,39 @@ describe("EraserTool", () => {
 		});
 	});
 });
+
+/** Straight-line segment in the shape EraserTool consumes. */
+function lineSeg(sx: number, sy: number, ex: number, ey: number) {
+	return {
+		start: { x: sx, y: sy },
+		cp1: { x: sx + (ex - sx) / 3, y: sy + (ey - sy) / 3 },
+		cp2: { x: sx + ((ex - sx) * 2) / 3, y: sy + ((ey - sy) * 2) / 3 },
+		end: { x: ex, y: ey },
+		startTiltX: 0,
+		startTiltY: 0,
+		endTiltX: 0,
+		endTiltY: 0,
+		startDeltaTime: 0,
+		endDeltaTime: 0,
+		isMoved: false,
+	};
+}
+
+/** Solid fill appearance with the given alpha and enabled flag. */
+function fillFilter(alpha: number, enabled?: boolean): FillAppearance {
+	return {
+		processor: "fill",
+		enabled,
+		opacity: 1,
+		blendMode: "normal",
+		paramData: {
+			version: "1",
+			params: {
+				fill: {
+					type: "solid",
+					color: { type: "rgb", r: 1, g: 0, b: 0, a: alpha },
+				},
+			},
+		},
+	} as unknown as FillAppearance;
+}
