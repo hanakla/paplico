@@ -51,17 +51,23 @@ export function calculatePrebufDimensions({
 	canvasWidth,
 	canvasHeight,
 	maxTextureDimension,
+	zoomOverride,
 }: {
 	viewport: Viewport;
 	visibleBounds: Pick<BoundingBox, "width" | "height"> | null;
 	canvasWidth: number;
 	canvasHeight: number;
 	maxTextureDimension: number;
+	/** Render density decoupled from the viewport (pixel preview renders at the
+	 *  document's rasterization scale). World coverage still follows the
+	 *  viewport; the maxTextureDimension clamp applies as usual. */
+	zoomOverride?: number;
 }): {
 	prebufWidth: number;
 	prebufHeight: number;
 	prebufZoom: number;
 } {
+	const requestedZoom = zoomOverride ?? viewport.zoom;
 	const requestedWorldWidth =
 		visibleBounds?.width ?? canvasWidth / viewport.zoom;
 	const requestedWorldHeight =
@@ -69,14 +75,14 @@ export function calculatePrebufDimensions({
 	const zoomLimitFromWidth =
 		requestedWorldWidth > 0
 			? maxTextureDimension / requestedWorldWidth
-			: viewport.zoom;
+			: requestedZoom;
 	const zoomLimitFromHeight =
 		requestedWorldHeight > 0
 			? maxTextureDimension / requestedWorldHeight
-			: viewport.zoom;
+			: requestedZoom;
 	const prebufZoom = Math.max(
 		Number.EPSILON,
-		Math.min(viewport.zoom, zoomLimitFromWidth, zoomLimitFromHeight),
+		Math.min(requestedZoom, zoomLimitFromWidth, zoomLimitFromHeight),
 	);
 
 	return {
