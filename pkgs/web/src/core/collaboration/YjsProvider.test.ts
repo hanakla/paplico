@@ -41,6 +41,20 @@ describe("YjsProvider", () => {
 		});
 	});
 
+	describe("resetWithFreshDoc", () => {
+		it("should keep 3D scene writes bound to the fresh doc (guest-join reset)", () => {
+			const provider = new YjsProvider({ callbacks });
+			const freshDoc = provider.resetWithFreshDoc();
+
+			const def: Reference3DDef = { id: "scene-1", nodes: [] };
+			provider.setReference3D(def);
+
+			// A stale binding would write into the destroyed pre-reset doc and
+			// leave the fresh doc's map empty.
+			expect(freshDoc.getMap("references3d").has("scene-1")).toBe(true);
+		});
+	});
+
 	describe("addLayer", () => {
 		it("should add a new layer to yLayers", () => {
 			const provider = new YjsProvider({ callbacks });
