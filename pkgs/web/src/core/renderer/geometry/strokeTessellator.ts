@@ -29,6 +29,12 @@ export interface StrokeTessellateInput {
 }
 
 interface StrokeTessellateResult {
+	/**
+	 * Core body vertices: [x, y, offsetX, offsetY, ...] (4 floats per vertex).
+	 * Outline vertices carry a half-pixel inward offset so the body stops at
+	 * coverage 0.5 of the fringe ramp; interior vertices carry (0, 0). Offsets
+	 * are zoom-independent unit displacements scaled by 1/zoom in the shader.
+	 */
 	vertices: number[];
 	count: number;
 	/** Fringe vertices for AA: [x, y, offsetX, offsetY, alpha, ...] (5 floats per vertex). alpha is 0.0 (outer) or 1.0 (inner edge). Offsets are zoom-independent unit displacements scaled by 1/zoom in the shader. */
@@ -163,7 +169,7 @@ export function tessellateStroke(
 		appendNumbers(result.fringeParams, subpathResult.fringeParams);
 	}
 
-	result.count = result.vertices.length / 2;
+	result.count = result.vertices.length / 4;
 	result.fringeCount = result.fringeVertices.length / 5;
 	return result;
 }
@@ -453,8 +459,40 @@ function tessellateVisibleSubpath(
 		const ly1 = seg.y1 + seg.ny * hw1;
 		const rx1 = seg.x1 - seg.nx * hw1;
 		const ry1 = seg.y1 - seg.ny * hw1;
-		pushTriangle(vertices, lx0, ly0, rx0, ry0, lx1, ly1);
-		pushTriangle(vertices, rx0, ry0, rx1, ry1, lx1, ly1);
+		// Half-pixel inward inset on each lateral outline vertex; the fringe
+		// straddles the outline (±0.5px) so the body must stop at its midpoint.
+		const inx = seg.nx * 0.5;
+		const iny = seg.ny * 0.5;
+		pushTriangle(
+			vertices,
+			lx0,
+			ly0,
+			-inx,
+			-iny,
+			rx0,
+			ry0,
+			inx,
+			iny,
+			lx1,
+			ly1,
+			-inx,
+			-iny,
+		);
+		pushTriangle(
+			vertices,
+			rx0,
+			ry0,
+			inx,
+			iny,
+			rx1,
+			ry1,
+			inx,
+			iny,
+			lx1,
+			ly1,
+			-inx,
+			-iny,
+		);
 		if (globalTs) {
 			const t0 = globalTs[seg.i0];
 			const t1 = globalTs[seg.i1];
@@ -484,7 +522,7 @@ function tessellateVisibleSubpath(
 				vertices,
 				groupStart,
 				vertexParams,
-				2,
+				4,
 				globalTs[joinIndex],
 				points[joinIndex * 2],
 				points[joinIndex * 2 + 1],
@@ -515,7 +553,7 @@ function tessellateVisibleSubpath(
 				vertices,
 				groupStart,
 				vertexParams,
-				2,
+				4,
 				globalTs[first.i0],
 				first.x0,
 				first.y0,
@@ -543,7 +581,7 @@ function tessellateVisibleSubpath(
 				vertices,
 				groupStart,
 				vertexParams,
-				2,
+				4,
 				globalTs[last.i1],
 				last.x1,
 				last.y1,
@@ -1096,15 +1134,23 @@ function emitJoin(
 	const outerHw = isLeftTurn ? side1Hw : side2Hw;
 	const innerSign = isLeftTurn ? -1 : 1;
 
-	// Fill the inner-side gap between the two strip segments.
+	// Fill the inner-side gap between the two strip segments. The two outline
+	// vertices inset inward (opposite their outward normals); the centerline
+	// vertex is interior and stays put.
 	pushTriangle(
 		out,
 		cx,
 		cy,
+		0,
+		0,
 		cx + segA.nx * innerHw * innerSign,
 		cy + segA.ny * innerHw * innerSign,
+		-segA.nx * innerSign * 0.5,
+		-segA.ny * innerSign * 0.5,
 		cx + segB.nx * innerHw * innerSign,
 		cy + segB.ny * innerHw * innerSign,
+		-segB.nx * innerSign * 0.5,
+		-segB.ny * innerSign * 0.5,
 	);
 
 	if (joinType === "miter") {
@@ -1158,8 +1204,43 @@ function emitMiterJoin(
 		return;
 	}
 
-	pushTriangle(out, cx, cy, outerA_x, outerA_y, ix[0], ix[1]);
-	pushTriangle(out, cx, cy, ix[0], ix[1], outerB_x, outerB_y);
+	const miterOx = (-miterDx / miterLen) * 0.5;
+	const miterOy = (-miterDy / miterLen) * 0.5;
+	const insetAx = -segA.nx * sign * 0.5;
+	const insetAy = -segA.ny * sign * 0.5;
+	const insetBx = -segB.nx * sign * 0.5;
+	const insetBy = -segB.ny * sign * 0.5;
+
+	pushTriangle(
+		out,
+		cx,
+		cy,
+		0,
+		0,
+		outerA_x,
+		outerA_y,
+		insetAx,
+		insetAy,
+		ix[0],
+		ix[1],
+		miterOx,
+		miterOy,
+	);
+	pushTriangle(
+		out,
+		cx,
+		cy,
+		0,
+		0,
+		ix[0],
+		ix[1],
+		miterOx,
+		miterOy,
+		outerB_x,
+		outerB_y,
+		insetBx,
+		insetBy,
+	);
 }
 
 function emitRoundJoin(
@@ -1195,12 +1276,26 @@ function emitRoundJoin(
 		const a0 = angleA + angleStep * s;
 		const a1 = angleA + angleStep * (s + 1);
 
-		const px0 = cx + Math.cos(a0) * hw;
-		const py0 = cy + Math.sin(a0) * hw;
-		const px1 = cx + Math.cos(a1) * hw;
-		const py1 = cy + Math.sin(a1) * hw;
+		const cos0 = Math.cos(a0);
+		const sin0 = Math.sin(a0);
+		const cos1 = Math.cos(a1);
+		const sin1 = Math.sin(a1);
 
-		pushTriangle(out, cx, cy, px0, py0, px1, py1);
+		pushTriangle(
+			out,
+			cx,
+			cy,
+			0,
+			0,
+			cx + cos0 * hw,
+			cy + sin0 * hw,
+			-cos0 * 0.5,
+			-sin0 * 0.5,
+			cx + cos1 * hw,
+			cy + sin1 * hw,
+			-cos1 * 0.5,
+			-sin1 * 0.5,
+		);
 	}
 }
 
@@ -1220,7 +1315,21 @@ function emitBevelJoin(
 	const outerB_x = cx + segB.nx * hw * sign;
 	const outerB_y = cy + segB.ny * hw * sign;
 
-	pushTriangle(out, cx, cy, outerA_x, outerA_y, outerB_x, outerB_y);
+	pushTriangle(
+		out,
+		cx,
+		cy,
+		0,
+		0,
+		outerA_x,
+		outerA_y,
+		-segA.nx * sign * 0.5,
+		-segA.ny * sign * 0.5,
+		outerB_x,
+		outerB_y,
+		-segB.nx * sign * 0.5,
+		-segB.ny * sign * 0.5,
+	);
 }
 
 // --- Cap emitters ---
@@ -1268,8 +1377,12 @@ function emitSquareCap(
 	const erx = rx + dx * extHw;
 	const ery = ry + dy * extHw;
 
-	pushTriangle(out, lx, ly, rx, ry, elx, ely);
-	pushTriangle(out, rx, ry, erx, ery, elx, ely);
+	// Lateral-only inset: the cap's end face keeps the pre-inset behavior
+	// (its fringe still straddles the edge, leaving a half-strength ramp).
+	const inx = nx * 0.5;
+	const iny = ny * 0.5;
+	pushTriangle(out, lx, ly, -inx, -iny, rx, ry, inx, iny, elx, ely, -inx, -iny);
+	pushTriangle(out, rx, ry, inx, iny, erx, ery, inx, iny, elx, ely, -inx, -iny);
 }
 
 function emitRoundCap(
@@ -1299,32 +1412,57 @@ function emitRoundCap(
 		const r0 = side1Hw + (side2Hw - side1Hw) * t0;
 		const r1 = side1Hw + (side2Hw - side1Hw) * t1;
 
-		const x0 = px + Math.cos(a0) * r0;
-		const y0 = py + Math.sin(a0) * r0;
-		const x1 = px + Math.cos(a1) * r1;
-		const y1 = py + Math.sin(a1) * r1;
+		const cos0 = Math.cos(a0);
+		const sin0 = Math.sin(a0);
+		const cos1 = Math.cos(a1);
+		const sin1 = Math.sin(a1);
 
-		pushTriangle(out, px, py, x0, y0, x1, y1);
+		pushTriangle(
+			out,
+			px,
+			py,
+			0,
+			0,
+			px + cos0 * r0,
+			py + sin0 * r0,
+			-cos0 * 0.5,
+			-sin0 * 0.5,
+			px + cos1 * r1,
+			py + sin1 * r1,
+			-cos1 * 0.5,
+			-sin1 * 0.5,
+		);
 	}
 }
 
 // --- Geometry utilities ---
 
+/**
+ * Push a core triangle as [x, y, offsetX, offsetY] per vertex. Offsets are
+ * half-pixel inward displacements on outline vertices (0 on interior ones),
+ * applied in the shader as px/zoom so cached geometry stays zoom-independent.
+ */
 function pushTriangle(
 	out: number[],
 	ax: number,
 	ay: number,
+	aox: number,
+	aoy: number,
 	bx: number,
 	by: number,
+	box_: number,
+	boy: number,
 	cx: number,
 	cy: number,
+	cox: number,
+	coy: number,
 ): void {
 	const cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
 
 	if (cross >= 0) {
-		out.push(ax, ay, bx, by, cx, cy);
+		out.push(ax, ay, aox, aoy, bx, by, box_, boy, cx, cy, cox, coy);
 	} else {
-		out.push(ax, ay, cx, cy, bx, by);
+		out.push(ax, ay, aox, aoy, cx, cy, cox, coy, bx, by, box_, boy);
 	}
 }
 

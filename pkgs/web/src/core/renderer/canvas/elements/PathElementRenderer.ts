@@ -830,12 +830,14 @@ export class PathElementRenderer {
 
 				if (result.count === 0) continue;
 
-				// Main stroke body vertices
+				// Main stroke body vertices (4 floats: x, y, inward AA inset offset)
 				const verts = result.vertices;
 				const vertParams = result.vertexParams;
-				for (let i = 0; i < verts.length; i += 2) {
+				for (let i = 0; i < verts.length; i += 4) {
 					const vx = verts[i];
 					const vy = verts[i + 1];
+					const vox = verts[i + 2];
+					const voy = verts[i + 3];
 					if (vx < minX) minX = vx;
 					if (vy < minY) minY = vy;
 					if (vx > maxX) maxX = vx;
@@ -843,17 +845,20 @@ export class PathElementRenderer {
 
 					if (isSolidColor) {
 						const a = c.a * alphaMultiplier;
-						buf.pushFill(vx, vy, c.r, c.g, c.b, a);
+						buf.pushFill(vx, vy, c.r, c.g, c.b, a, vox, voy);
 					} else if (wantArcParams) {
+						const pi = i / 2;
 						buf.pushGradientTU(
 							vx,
 							vy,
-							vertParams[i],
-							vertParams[i + 1],
+							vertParams[pi],
+							vertParams[pi + 1],
 							alphaMultiplier,
+							vox,
+							voy,
 						);
 					} else {
-						buf.pushGradient(vx, vy, alphaMultiplier);
+						buf.pushGradient(vx, vy, alphaMultiplier, vox, voy);
 					}
 				}
 
