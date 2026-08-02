@@ -18,6 +18,10 @@ export interface FilteredElementCacheEntry {
 	/** Crop rect for pool-padding, from the bake's placement. */
 	uvRect: BlitUVRect;
 	byteSize: number;
+	/** Every element this bake rendered (the element itself, group children,
+	 *  mask / compound-path / blend sources, …) — a change to any of them
+	 *  must evict the entry. */
+	dependencyIds: ReadonlySet<string>;
 }
 
 /**
@@ -31,6 +35,13 @@ export class FilteredElementCache {
 	private pendingDestroy: GPUTexture[] = [];
 
 	public constructor(private readonly maxBytes = 256 * 1024 * 1024) {}
+
+	/** Entries above this are rejected by set(). Callers must pre-check a
+	 *  bake's byte estimate against it and keep larger bakes frame-local —
+	 *  otherwise every frame pays a full bake + copy just to be rejected. */
+	public get maxEntryBytes(): number {
+		return this.maxBytes / 4;
+	}
 
 	public get(elementId: string): FilteredElementCacheEntry | undefined {
 		const entry = this.cache.get(elementId);
@@ -48,7 +59,7 @@ export class FilteredElementCache {
 	public set(elementId: string, entry: FilteredElementCacheEntry): boolean {
 		// An entry that alone dwarfs the budget would immediately evict the
 		// whole working set for a single element — reject it outright.
-		if (entry.byteSize > this.maxBytes / 4) {
+		if (entry.byteSize > this.maxEntryBytes) {
 			this.pendingDestroy.push(entry.texture);
 			return false;
 		}
@@ -60,6 +71,31 @@ export class FilteredElementCache {
 
 	public deleteMany(ids: readonly string[]): void {
 		for (const id of ids) this.delete(id);
+	}
+
+	/** Evict entries invalidated by a document change set. Two directions:
+	 *  an entry whose id sits inside the changed elements' render closure was
+	 *  relocated by an edited ancestor container, and an entry whose own
+	 *  dependency closure contains a changed id composites the edited
+	 *  element (group child, blend/compound source, …). */
+	public evictChanged(
+		changedIds: ReadonlySet<string>,
+		changedClosure: ReadonlySet<string>,
+	): void {
+		const stale: string[] = [];
+		for (const [key, entry] of this.cache) {
+			if (changedClosure.has(key)) {
+				stale.push(key);
+				continue;
+			}
+			for (const dep of entry.dependencyIds) {
+				if (changedIds.has(dep)) {
+					stale.push(key);
+					break;
+				}
+			}
+		}
+		this.deleteMany(stale);
 	}
 
 	public keys(): MapIterator<string> {

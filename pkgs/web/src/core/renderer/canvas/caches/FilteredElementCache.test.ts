@@ -96,6 +96,38 @@ describe("FilteredElementCache", () => {
 		});
 	});
 
+	describe("evictChanged", () => {
+		it("should evict an entry relocated by an edited ancestor container", () => {
+			const cache = new FilteredElementCache(100);
+			cache.set("child", entry(10, ["child"]));
+
+			// The moved group's render closure includes its descendants.
+			cache.evictChanged(new Set(["group"]), new Set(["group", "child"]));
+
+			expect(cache.get("child")).toBeUndefined();
+		});
+
+		it("should evict a container entry whose dependency was edited", () => {
+			const cache = new FilteredElementCache(100);
+			cache.set("blend", entry(10, ["blend", "source-1"]));
+
+			// A blend source edit reports only the source id; the closure of a
+			// non-container leaf is itself.
+			cache.evictChanged(new Set(["source-1"]), new Set(["source-1"]));
+
+			expect(cache.get("blend")).toBeUndefined();
+		});
+
+		it("should keep entries unrelated to the change set", () => {
+			const cache = new FilteredElementCache(100);
+			cache.set("bystander", entry(10, ["bystander"]));
+
+			cache.evictChanged(new Set(["other"]), new Set(["other", "other-child"]));
+
+			expect(cache.get("bystander")).toBeDefined();
+		});
+	});
+
 	describe("stale-id pruning interface", () => {
 		it("should expose plain element-id keys and delete them via deleteMany", () => {
 			const cache = new FilteredElementCache(100);
@@ -111,9 +143,13 @@ describe("FilteredElementCache", () => {
 	});
 });
 
-function entry(byteSize: number): FilteredElementCacheEntry {
+function entry(
+	byteSize: number,
+	dependencyIds: readonly string[] = [],
+): FilteredElementCacheEntry {
 	return {
 		hash: "h",
+		dependencyIds: new Set(dependencyIds),
 		texture: { destroy: vi.fn() } as unknown as GPUTexture,
 		bounds: brandWorldBBox({
 			minX: 0,

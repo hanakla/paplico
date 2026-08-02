@@ -7,6 +7,7 @@ import {
 import type {
 	Document,
 	FillAppearance,
+	Group,
 	Path,
 	PathSegment,
 	RawRGBA,
@@ -22,6 +23,7 @@ import type { ChangedElements } from "../types";
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
 const BLURRED_ID = "blurred-1";
+const GROUP_ID = "group-1";
 const BACKGROUND: RawRGBA = { r: 1, g: 1, b: 1, a: 1 };
 const UNCHANGED: ChangedElements = { upserted: new Set(), deleted: new Set() };
 const CACHE_TEXTURE_LABEL = "Filtered Element Cache Texture";
@@ -81,6 +83,61 @@ describe("filtered-element cache idempotency", () => {
 		expect(missStores).toBeGreaterThan(0);
 		expect(countDifferingPixels(hitPixels, missPixels)).toBe(0);
 	}, 240_000);
+
+	it("should not keep a filtered child at its old position when an ancestor group moves", async () => {
+		// Moving a group reports only the group id in changedElements, while the
+		// filtered child's cached bake carries its own world rect — without
+		// descendant-direction invalidation the child kept rendering at the
+		// pre-move position (review finding on PR #681).
+		const { renderer } = await createTestRenderer();
+		const device = renderer.getDevice();
+		if (!device) throw new Error("no GPU device");
+
+		const base: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+		for (let i = 0; i < 3; i++) {
+			(
+				await renderFrame(
+					renderer,
+					createGroupedBlurDocument(0),
+					base,
+					UNCHANGED,
+				)
+			).destroy();
+		}
+
+		const movedDoc = createGroupedBlurDocument(120);
+		const movedTexture = await renderFrame(renderer, movedDoc, base, {
+			upserted: new Set([GROUP_ID]),
+			deleted: new Set(),
+		});
+		const movedPixels = await captureTexturePixels(
+			device,
+			movedTexture,
+			CANVAS_WIDTH,
+			CANVAS_HEIGHT,
+		);
+		movedTexture.destroy();
+
+		// Reference: a fresh renderer that never saw the pre-move document.
+		const fresh = await createTestRenderer();
+		const referenceTexture = await renderFrame(
+			fresh.renderer,
+			createGroupedBlurDocument(120),
+			base,
+			UNCHANGED,
+		);
+		const freshDevice = fresh.renderer.getDevice();
+		if (!freshDevice) throw new Error("no GPU device");
+		const referencePixels = await captureTexturePixels(
+			freshDevice,
+			referenceTexture,
+			CANVAS_WIDTH,
+			CANVAS_HEIGHT,
+		);
+		referenceTexture.destroy();
+
+		expect(countDifferingPixels(movedPixels, referencePixels)).toBe(0);
+	}, 240_000);
 });
 
 // Helpers
@@ -131,6 +188,23 @@ function countDifferingPixels(a: Uint8Array, b: Uint8Array): number {
 		}
 	}
 	return differing;
+}
+
+/** The blurred square from createBlurDocument wrapped in a group whose
+ *  transform shifts it by groupOffsetX world px. */
+function createGroupedBlurDocument(groupOffsetX: number): Document {
+	const document = createBlurDocument();
+	const group: Group = {
+		id: GROUP_ID,
+		type: "group",
+		opacity: 1,
+		blendMode: "normal",
+		transform: { ...createDefaultTransform(), x: groupOffsetX },
+		childIds: [BLURRED_ID],
+	};
+	document.objects[group.id] = group;
+	document.layers[0].elementIds = [group.id];
+	return document;
 }
 
 /** One blurred red square over a white background. */

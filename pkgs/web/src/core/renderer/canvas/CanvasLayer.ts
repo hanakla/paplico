@@ -533,11 +533,20 @@ export class CanvasLayer {
 	private lastOverrideIds: ReadonlySet<string> | null = null;
 	/**
 	 * Per-frame filtered-element cache participation, set by renderDocument.
-	 * Null disables the cache for the frame (partial/isolated renders);
-	 * blockedIds lists elements whose entries must be bypassed because a
-	 * preview override or transient affects them or a descendant.
+	 * Null disables the cache for the frame (partial/isolated renders).
+	 * blockedIds = everything the previewed elements render (their closure),
+	 * so a dragged container blocks its relocated descendants; overrideIds is
+	 * the raw preview set, checked against each bake's own dependency closure
+	 * at the use site so a container bake never captures preview state.
 	 */
-	private filterCacheFrame: { blockedIds: ReadonlySet<string> } | null = null;
+	private filterCacheFrame: {
+		blockedIds: ReadonlySet<string>;
+		overrideIds: ReadonlySet<string>;
+	} | null = null;
+	/** Changed-element ids recorded by render(); resolved against the merged
+	 *  elements map (which knows every container kind's edges) once
+	 *  renderDocument has built it. */
+	private pendingFilterCacheChanges: ReadonlySet<string> | null = null;
 	/** defRevision of the last frame — a def edit changes pattern pixels
 	 *  without an element delta, so the filtered-element cache clears on it. */
 	private lastFilterCacheDefRevision: number | undefined;
@@ -1684,16 +1693,15 @@ export class CanvasLayer {
 				);
 			}
 			this.clipMaskAtlas.invalidateAll();
-			// The filtered-element cache is push-invalidated here: a tracked
-			// change set evicts the changed elements plus every ancestor group
-			// (their bakes composite the changed child); an untracked full
-			// render proves nothing about what changed, so clear it all.
+			// The filtered-element cache is push-invalidated per document
+			// change. Resolving the change set against container edges needs
+			// the merged elements map, so record it here and let
+			// renderDocument apply it. An untracked full render proves
+			// nothing about what changed — clear it all.
 			if (request.changedElements) {
-				this.cacheManager.filteredElement.deleteMany([
-					...this.expandWithAncestorGroups([
-						...request.changedElements.upserted,
-						...request.changedElements.deleted,
-					]),
+				this.pendingFilterCacheChanges = new Set([
+					...request.changedElements.upserted,
+					...request.changedElements.deleted,
 				]);
 			} else {
 				this.cacheManager.filteredElement.clear();
@@ -1944,23 +1952,6 @@ export class CanvasLayer {
 		this.renderState.editingScopeStack = editingScopeStack ?? [];
 		this.renderState.isolatedElementId = isolatedElementId ?? null;
 
-		// The filtered-element cache only participates in ordinary full-document
-		// frames: partial renders (elementFilter), isolation modes, and export
-		// (null viewport bounds, checked at use site) draw a different subset or
-		// resolution than a cached bake represents. Elements previewed through
-		// overrides/transients — and their ancestor groups, whose bakes composite
-		// them — bypass the cache per element instead of disabling the frame, so
-		// dragging one element keeps every other filtered element's bake hot.
-		this.filterCacheFrame =
-			!elementFilter && !editingScopeStack?.length && isolatedElementId == null
-				? {
-						blockedIds: this.collectFilterCacheBlockedIds(
-							elementOverrides,
-							transientElements,
-						),
-					}
-				: null;
-
 		// Build — or reuse — the merged elements map and the viewport-independent
 		// frame-plan structure. Both derive purely from the document plus the
 		// override/transient overlays, so document-invariant frames (pan/zoom)
@@ -2020,6 +2011,42 @@ export class CanvasLayer {
 		// Track the active elementsMap for def rasterization so live overrides
 		// (tool drafts, transient layers) are reflected in pattern previews.
 		this.activeElementsMap = mergedElementsMap;
+
+		// Resolve the deferred filtered-element push-invalidation now that the
+		// elements map (which knows every container kind's edges) exists: the
+		// changed elements' render closure catches descendants an edited
+		// container relocated, and each entry's stored dependency closure
+		// catches containers whose children/sources were edited.
+		if (this.pendingFilterCacheChanges) {
+			const changed = this.pendingFilterCacheChanges;
+			this.pendingFilterCacheChanges = null;
+			this.cacheManager.filteredElement.evictChanged(
+				changed,
+				expandRenderFilter(new Set(changed), mergedElementsMap),
+			);
+		}
+		// The filtered-element cache only participates in ordinary full-document
+		// frames: partial renders (elementFilter), isolation modes, and export
+		// (null viewport bounds, checked at use site) draw a different subset or
+		// resolution than a cached bake represents. Preview overrides/transients
+		// bypass the cache per element instead of disabling the frame, so
+		// dragging one element keeps every other filtered element's bake hot.
+		const overrideIds: ReadonlySet<string> =
+			elementOverrides?.size || transientElements?.size
+				? new Set<string>([
+						...(elementOverrides?.keys() ?? []),
+						...(transientElements?.keys() ?? []),
+					])
+				: EMPTY_ID_SET;
+		this.filterCacheFrame =
+			!elementFilter && !editingScopeStack?.length && isolatedElementId == null
+				? {
+						overrideIds,
+						blockedIds: overrideIds.size
+							? expandRenderFilter(new Set(overrideIds), mergedElementsMap)
+							: EMPTY_ID_SET,
+					}
+				: null;
 
 		// Derive this frame's plan (viewport culling + backdrop segment slicing
 		// — cheap, O(candidates + layers), no full element walk).
@@ -3313,34 +3340,6 @@ export class CanvasLayer {
 	 * document's rasterizationDpi (72 DPI = 1 texel per world px). Fixed
 	 * regardless of viewport zoom / display DPI / export scale so filter
 	 * results stay stable. */
-	/** Expand element ids with every ancestor group (a group's filter bake
-	 *  composites its descendants, so a child change invalidates it too). */
-	private expandWithAncestorGroups(ids: Iterable<string>): Set<string> {
-		const parentMap = this.viewportManager.getParentGroupMap();
-		const out = new Set<string>();
-		for (const id of ids) {
-			let current: string | undefined = id;
-			while (current !== undefined && !out.has(current)) {
-				out.add(current);
-				current = parentMap.get(current);
-			}
-		}
-		return out;
-	}
-
-	private collectFilterCacheBlockedIds(
-		elementOverrides?: ReadonlyMap<string, AnyArtObject>,
-		transientElements?: ReadonlyMap<string, TransientElementEntry>,
-	): ReadonlySet<string> {
-		if (!elementOverrides?.size && !transientElements?.size) {
-			return EMPTY_ID_SET;
-		}
-		return this.expandWithAncestorGroups([
-			...(elementOverrides?.keys() ?? []),
-			...(transientElements?.keys() ?? []),
-		]);
-	}
-
 	private getRasterScale(): number {
 		return (this.activeDocument?.rasterizationDpi ?? 72) / 72;
 	}
@@ -3412,8 +3411,10 @@ export class CanvasLayer {
 			// the full textureBounds (viewport-independent) so pans hit without
 			// re-running the chain. Backdrop-reading chains depend on what is
 			// behind the element and stay frame-local, as do preview-overridden
-			// elements and bakes past the full-bake pixel budget.
-			const cacheHash =
+			// elements and bakes past the full-bake budget.
+			let cacheHash: string | null = null;
+			let cacheDeps: ReadonlySet<string> | null = null;
+			if (
 				this.filterCacheFrame != null &&
 				selectedPlans === undefined &&
 				!rendersOwnSource &&
@@ -3427,13 +3428,21 @@ export class CanvasLayer {
 						).needsBackdrop,
 				) &&
 				this.filteredBakeWithinBudget(fp, rasterScale)
-					? this.computeFilteredElementHash(
-							fp,
-							element,
-							elementsMap,
-							rasterScale,
-						)
-					: null;
+			) {
+				// Everything this bake renders (group children, mask/compound/
+				// blend sources, …). A preview override anywhere inside means
+				// the bake would capture preview state — keep it frame-local.
+				const deps = expandRenderFilter(new Set([element.id]), elementsMap);
+				if (!setsIntersect(deps, this.filterCacheFrame.overrideIds)) {
+					cacheDeps = deps;
+					cacheHash = this.computeFilteredElementHash(
+						fp,
+						element,
+						elementsMap,
+						rasterScale,
+					);
+				}
+			}
 			if (cacheHash != null) {
 				const entry = this.cacheManager.filteredElement.get(element.id);
 				if (entry?.hash === cacheHash) {
@@ -3573,11 +3582,12 @@ export class CanvasLayer {
 			// Self-sized override layers (extrude) never reach here with a
 			// cacheHash (rendersOwnSource is excluded), so a plain chain result
 			// is the only thing ever stored.
-			if (cacheHash != null && !overrides) {
+			if (cacheHash != null && cacheDeps != null && !overrides) {
 				this.storeFilteredElementBake(
 					encoder,
 					element.id,
 					cacheHash,
+					cacheDeps,
 					filteredTexture,
 					outputBounds,
 					outputUvRect,
@@ -3620,7 +3630,9 @@ export class CanvasLayer {
 	}
 
 	/** A cacheable bake covers the full textureBounds; refuse when that would
-	 *  dwarf the canvas (zoomed-in giants stay on the frame-local clamp path). */
+	 *  dwarf the canvas or exceed the cache's per-entry byte cap — otherwise
+	 *  every frame pays a full bake + copy only for set() to reject it
+	 *  (zoomed-in giants stay on the frame-local clamp path). */
 	private filteredBakeWithinBudget(
 		fp: ElementFilterPlan,
 		rasterScale: number,
@@ -3634,17 +3646,33 @@ export class CanvasLayer {
 			Math.ceil(fp.textureBounds.height * density);
 		return (
 			bakePx <=
-			this.viewportState.width *
-				this.viewportState.height *
-				FILTER_CACHE_FULL_BAKE_BUDGET_FACTOR
+				this.viewportState.width *
+					this.viewportState.height *
+					FILTER_CACHE_FULL_BAKE_BUDGET_FACTOR &&
+			bakePx * bytesPerTexel(this.canvasFormat) <=
+				this.cacheManager.filteredElement.maxEntryBytes
 		);
+	}
+
+	/** Single source for the paint-hash callbacks — the clip-mask atlas and
+	 *  the filtered-element cache must fingerprint paint identically, or a
+	 *  change one of them tracks would leave the other stale. */
+	private paintHashContext(): Parameters<typeof computePaintHash>[2] {
+		return {
+			resolvePatternTexture: (defId) => this.resolvePatternTexture(defId),
+			resolveTextOutline: (el) => this.resolveTextOutline(el),
+			isImageReady: (fileUid) => this.assetState.imageTextureCache.has(fileUid),
+			hasPreProcessHandler: (processor) =>
+				!!this.filterRenderer.getHandler(processor)?.preProcess,
+		};
 	}
 
 	/** Content hash for a cached filtered bake. Push invalidation (element
 	 *  edits, moves, deletions via changedElements) is the primary eviction
 	 *  path; this hash catches what no element delta reports — filter
 	 *  parameter edits and async paint changes (image decode, text outline
-	 *  resolution) — plus the density bucket and bake size. */
+	 *  resolution) — plus the density bucket and the bake's world rect (its
+	 *  position guards against a push miss relocating the bake). */
 	private computeFilteredElementHash(
 		fp: ElementFilterPlan,
 		element: AnyArtObject,
@@ -3655,16 +3683,15 @@ export class CanvasLayer {
 			rasterScale,
 			this.viewportState.current?.zoom ?? 1,
 		);
-		const paintHash = computePaintHash(element, elementsMap, {
-			resolvePatternTexture: (defId) => this.resolvePatternTexture(defId),
-			resolveTextOutline: (el) => this.resolveTextOutline(el),
-			isImageReady: (fileUid) => this.assetState.imageTextureCache.has(fileUid),
-			hasPreProcessHandler: (processor) =>
-				!!this.filterRenderer.getHandler(processor)?.preProcess,
-		});
-		return `${density}:${Math.round(fp.textureBounds.width)}x${Math.round(
-			fp.textureBounds.height,
-		)}:${JSON.stringify(fp.postFilters)}:${paintHash}`;
+		const paintHash = computePaintHash(
+			element,
+			elementsMap,
+			this.paintHashContext(),
+		);
+		const tb = fp.textureBounds;
+		return `${density}:${Math.round(tb.minX)},${Math.round(tb.minY)},${Math.round(
+			tb.width,
+		)}x${Math.round(tb.height)}:${JSON.stringify(fp.postFilters)}:${paintHash}`;
 	}
 
 	/** Copy a just-produced filter result into a cache-owned texture. The copy
@@ -3673,6 +3700,7 @@ export class CanvasLayer {
 		encoder: GPUCommandEncoder,
 		elementId: string,
 		hash: string,
+		dependencyIds: ReadonlySet<string>,
 		texture: GPUTexture,
 		bounds: BoundingBox,
 		uvRect: BlitUVRect,
@@ -3691,13 +3719,13 @@ export class CanvasLayer {
 			{ texture: cacheTexture },
 			{ width: texture.width, height: texture.height },
 		);
-		const bytesPerPixel = texture.format.includes("16float") ? 8 : 4;
 		this.cacheManager.filteredElement.set(elementId, {
 			hash,
 			texture: cacheTexture,
 			bounds: brandWorldBBox(bounds),
 			uvRect,
-			byteSize: texture.width * texture.height * bytesPerPixel,
+			byteSize: texture.width * texture.height * bytesPerTexel(texture.format),
+			dependencyIds,
 		});
 	}
 
@@ -5989,14 +6017,7 @@ export class CanvasLayer {
 				this.elements.renderElementToMask(...args),
 			renderElements: (...args) => this.renderElements(...args),
 			paintHash: (element, elementsMap) =>
-				computePaintHash(element, elementsMap, {
-					resolvePatternTexture: (defId) => this.resolvePatternTexture(defId),
-					resolveTextOutline: (el) => this.resolveTextOutline(el),
-					isImageReady: (fileUid) =>
-						this.assetState.imageTextureCache.has(fileUid),
-					hasPreProcessHandler: (processor) =>
-						!!this.filterRenderer.getHandler(processor)?.preProcess,
-				}),
+				computePaintHash(element, elementsMap, this.paintHashContext()),
 			viewportState: this.viewportState,
 			renderState: this.renderState,
 			setActiveBindGroup: (bg, uniformBuffer, replace) => {
@@ -7505,6 +7526,20 @@ function collectBrushDefIdsInUse(
 		}
 	}
 	return out;
+}
+
+function setsIntersect(
+	a: ReadonlySet<string>,
+	b: ReadonlySet<string>,
+): boolean {
+	if (b.size === 0 || a.size === 0) return false;
+	const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+	for (const value of small) if (large.has(value)) return true;
+	return false;
+}
+
+function bytesPerTexel(format: GPUTextureFormat): number {
+	return format.includes("32float") ? 16 : format.includes("16float") ? 8 : 4;
 }
 
 /**
