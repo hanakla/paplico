@@ -278,10 +278,14 @@ export const PublishRoomDialog = createCallable<
 										{t("connectRoomDialog.scanCode")}
 									</Button>
 								)}
+								{/* Showing a code leads the stack, the same way it does in the
+								    companion dialog. Only while stacked: in the row the
+								    public-room case draws, the primary action belongs on the
+								    right, which is where the source order already puts it. */}
 								<Button
 									$variant="default"
 									$size="sm"
-									className={twm(encrypted && "justify-center")}
+									className={twm(encrypted && "justify-center order-first")}
 									onClick={handlePublish}
 									disabled={needsPublishSignIn}
 								>
