@@ -158,128 +158,22 @@ export const ScanInviteDialog = createCallable<
 	);
 });
 
-/** A box of photo to decode, in the photo's own pixels. */
-type PhotoRegion = { x: number; y: number; width: number; height: number };
-
-/** Long edge each decoding pass works at. */
-const PHOTO_SCAN_EDGE = 1600;
-
 /**
  * Reads a code out of a photo, or returns null.
  *
- * A phone camera hands over twelve megapixels, nearly all of it not the code,
- * and a photo of a screen carries the display's own dot grid on top of it.
- * Handing that to the decoder at full size fails on the grid, and can spend
- * the ten seconds the decoder allows itself before saying so. Shrinking first
- * averages the grid away, which is what makes a normally framed shot succeed.
- *
- * The second pass is the middle of the photo rather than more of its pixels.
- * Cropping raises the modules per pixel the same way full resolution would,
- * while still going through a downscale — and the downscale is the part that
- * removes the grid. That is what reaches a code photographed from further off.
+ * The frame goes to the decoder exactly as the camera produced it. qr-scanner
+ * allows itself ten seconds per image, and a phone's full-size photo can take
+ * a noticeable part of that, which is what the button's spinner is for.
  */
 async function readCodeFromPhoto(file: File): Promise<string | null> {
-	let bitmap: ImageBitmap;
 	try {
-		bitmap = await createImageBitmap(file);
+		const result = await QrScanner.scanImage(file, {
+			returnDetailedScanResult: true,
+		});
+		return result.data;
 	} catch {
 		return null;
 	}
-
-	try {
-		for (const region of [wholeOf(bitmap), middleOf(bitmap)]) {
-			try {
-				const result = await QrScanner.scanImage(shrink(bitmap, region), {
-					returnDetailedScanResult: true,
-				});
-				return result.data;
-			} catch {
-				// Nothing usable here; the next region may still hold the code.
-			}
-		}
-	} finally {
-		bitmap.close();
-	}
-
-	return null;
-}
-
-const wholeOf = (photo: ImageBitmap): PhotoRegion => ({
-	x: 0,
-	y: 0,
-	width: photo.width,
-	height: photo.height,
-});
-
-const middleOf = (photo: ImageBitmap): PhotoRegion => ({
-	x: photo.width / 4,
-	y: photo.height / 4,
-	width: photo.width / 2,
-	height: photo.height / 2,
-});
-
-/**
- * Draws a region down to PHOTO_SCAN_EDGE, never shrinking by more than half in
- * a single step.
- *
- * Going from twelve megapixels straight to 1600px is a 2.5x reduction, and the
- * browser serves that with a tap that reads a 2x2 neighbourhood: most pixels
- * never reach the result, so a display's dot grid comes through as noise
- * instead of averaging out. Halving keeps every step inside what that tap can
- * actually average.
- */
-function shrink(photo: ImageBitmap, region: PhotoRegion): HTMLCanvasElement {
-	let source: CanvasImageSource = photo;
-	let { x, y, width, height } = region;
-	let canvas: HTMLCanvasElement;
-
-	do {
-		const step = Math.max(
-			Math.min(1, PHOTO_SCAN_EDGE / Math.max(width, height)),
-			0.5,
-		);
-		canvas = paint(
-			source,
-			{ x, y, width, height },
-			Math.round(width * step),
-			Math.round(height * step),
-		);
-		source = canvas;
-		x = 0;
-		y = 0;
-		width = canvas.width;
-		height = canvas.height;
-	} while (Math.max(width, height) > PHOTO_SCAN_EDGE);
-
-	return canvas;
-}
-
-function paint(
-	source: CanvasImageSource,
-	region: PhotoRegion,
-	width: number,
-	height: number,
-): HTMLCanvasElement {
-	const canvas = document.createElement("canvas");
-	canvas.width = width;
-	canvas.height = height;
-
-	const context = canvas.getContext("2d");
-	if (!context) throw new Error("Cannot read a photo without a 2d context");
-
-	context.imageSmoothingQuality = "high";
-	context.drawImage(
-		source,
-		region.x,
-		region.y,
-		region.width,
-		region.height,
-		0,
-		0,
-		width,
-		height,
-	);
-	return canvas;
 }
 
 /**
