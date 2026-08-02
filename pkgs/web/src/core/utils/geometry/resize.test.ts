@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type {
 	BoundingBox,
+	CubicBezierSegment,
+	Path,
 	TextContent,
 	TextLayout,
 	TextStyle,
 } from "../../schema";
+import { computeInverseCompositionTransform } from "./geometry";
 import {
 	createScaleTransform,
+	scaleSegments,
 	scaleTextContent,
 	scaleTextLayout,
 	scaleTextStyle,
 } from "./resize";
+import { getWorldSegments, toWorldPath } from "./segmentOps";
 
 // --- Helpers ---
 
@@ -333,3 +338,93 @@ describe("text resize integration", () => {
 		expect(scaledContent.paragraphs[0].runs[0].style.fontSize).toBe(48);
 	});
 });
+
+describe("resize commit under a transformed ancestor", () => {
+	// Mirrors Paplico.applyElementResize's path branch: bake to world through
+	// the ancestor transform, scale in world space, then store the ancestor's
+	// inverse as the path transform so the renderer's re-applied ancestor
+	// transform cancels out.
+	it("should land the scaled path exactly where the world-space map put it", () => {
+		const ancestorT = {
+			x: 40,
+			y: -25,
+			rotation: Math.PI / 6,
+			scaleX: 1.5,
+			scaleY: 0.8,
+			skewX: 0,
+			skewY: 0,
+		};
+		const path = makePath();
+
+		const worldPath = toWorldPath(path, ancestorT);
+		const originalBounds = makeBounds(-100, -100, 100, 100);
+		const newBounds = makeBounds(-100, -100, 300, 300);
+		const map = createScaleTransform(originalBounds, newBounds);
+
+		const committed: Path = {
+			...path,
+			segments: scaleSegments(worldPath.segments, map),
+			transform: computeInverseCompositionTransform(ancestorT),
+		};
+
+		const rendered = getWorldSegments(committed, ancestorT);
+		const expected = committed.segments;
+
+		for (let i = 0; i < expected.length; i++) {
+			const expectedStart = expected[i].start;
+			if (expectedStart) {
+				expect(rendered[i].start?.x).toBeCloseTo(expectedStart.x, 6);
+				expect(rendered[i].start?.y).toBeCloseTo(expectedStart.y, 6);
+			}
+			expect(rendered[i].end.x).toBeCloseTo(expected[i].end.x, 6);
+			expect(rendered[i].end.y).toBeCloseTo(expected[i].end.y, 6);
+		}
+	});
+});
+
+function makePath(): Path {
+	const segments: CubicBezierSegment[] = [
+		{
+			start: { x: 10, y: 20 },
+			cp1: { x: 35, y: -8 },
+			cp2: { x: -24, y: 14 },
+			end: { x: 80, y: 50 },
+			startTiltX: 0,
+			startTiltY: 0,
+			endTiltX: 0,
+			endTiltY: 0,
+			startDeltaTime: 0,
+			endDeltaTime: 0,
+			isMoved: true,
+		},
+		{
+			cp1: { x: 12, y: -5 },
+			cp2: { x: -16, y: 9 },
+			end: { x: 120, y: 85 },
+			startTiltX: 0,
+			startTiltY: 0,
+			endTiltX: 0,
+			endTiltY: 0,
+			startDeltaTime: 0,
+			endDeltaTime: 0,
+			isMoved: false,
+		},
+	];
+
+	return {
+		type: "path",
+		id: "path-1",
+		opacity: 1,
+		blendMode: "normal",
+		transform: {
+			x: 15,
+			y: -10,
+			rotation: 0.2,
+			scaleX: 1,
+			scaleY: 1,
+			skewX: 0,
+			skewY: 0,
+		},
+		segments,
+	};
+}

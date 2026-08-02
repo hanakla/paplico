@@ -182,6 +182,7 @@ import {
 	applyTransformToPoint,
 	applyWorldAffineToTransform,
 	composeTransforms,
+	computeInverseCompositionTransform,
 	computeTransformOrigin,
 	cursorLocalToWorld,
 	inverseTransform,
@@ -2506,7 +2507,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				}
 			},
 			elementResize: (id, originalBounds, newBounds) => {
-				this.handleElementResize(id, originalBounds, newBounds);
+				// Group resize fans out into one updateElement per descendant; a
+				// single transaction keeps it to one Yjs→Valtio sync per commit
+				// instead of one full-document sync per element.
+				this.commands.transact(() => {
+					this.handleElementResize(id, originalBounds, newBounds);
+				});
 			},
 			elementsResize: (ids, originalBounds, newBounds) => {
 				// Build set of all descendant IDs of groups in the selection
@@ -2525,9 +2531,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				}
 
 				const targetIds = ids.filter((id) => !descendantIds.has(id));
-				for (const id of targetIds) {
-					this.handleElementResize(id, originalBounds, newBounds);
-				}
+				// Same single-transaction batching as elementResize above.
+				this.commands.transact(() => {
+					for (const id of targetIds) {
+						this.handleElementResize(id, originalBounds, newBounds);
+					}
+				});
 			},
 			elementRotate: (id, angleDeg, cx, cy) => {
 				const layerId = this.rendererStore.currentLayerId;
@@ -4370,11 +4379,18 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		if (element.type === "path") {
 			// Bake transform into segments before scaling so that
 			// originalBounds (world-space) and segment coordinates are in the same space.
-			const worldPath = toWorldPath(element);
+			// Under a transformed ancestor the renderer re-applies that ancestor
+			// transform on top of the stored segments, so store its inverse as the
+			// path transform: compose(ancestor, inverse) = identity keeps the
+			// world-mapped segments exactly where the selection frame previewed.
+			const ancestorT = this.spatialIndex.getAncestorTransform(elementId);
+			const worldPath = toWorldPath(element, ancestorT ?? undefined);
 			const scaledFilters = scaleStrokeFilters(element.filters, uniformScale);
 			this.commands.updateElement(currentLayerId, elementId, {
 				segments: scaleSegments(worldPath.segments, transform),
-				transform: worldPath.transform,
+				transform: ancestorT
+					? computeInverseCompositionTransform(ancestorT)
+					: worldPath.transform,
 				...(scaledFilters ? { filters: scaledFilters } : {}),
 				...commonUpdates,
 			});
@@ -4389,32 +4405,63 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				...commonUpdates,
 			});
 		} else if (element.type === "image" || isReference3D(element)) {
-			// Moves store their delta on transform.x/y while the placement rect
-			// (x/y) stays put, but the bounds mapping is world-space — bake the
-			// translation into the rect first (same spirit as the path branch)
-			// so resizing a moved element keeps its anchor. Rotation about the
-			// rect center commutes with this baking.
 			const t = getTransform(element);
-			this.commands.updateElement(currentLayerId, elementId, {
-				x: mapX(element.x + t.x),
-				y: mapY(element.y + t.y),
-				width: element.width * scaleX,
-				height: element.height * scaleY,
-				transform: { ...t, x: 0, y: 0 },
-				...commonUpdates,
-			});
+			const ancestorT = this.spatialIndex.getAncestorTransform(elementId);
+			if (ancestorT) {
+				// The x/y rect is parent-local; mapping it with the world-space
+				// affine would double-apply the ancestor transform. Fold the affine
+				// into the element transform instead (same approach as mesh/repeat).
+				this.commands.updateElement(currentLayerId, elementId, {
+					transform: this.foldResizeAffineIntoTransform(
+						element,
+						t,
+						ancestorT,
+						transform,
+					),
+					...commonUpdates,
+				});
+			} else {
+				// Moves store their delta on transform.x/y while the placement rect
+				// (x/y) stays put, but the bounds mapping is world-space — bake the
+				// translation into the rect first (same spirit as the path branch)
+				// so resizing a moved element keeps its anchor. Rotation about the
+				// rect center commutes with this baking.
+				this.commands.updateElement(currentLayerId, elementId, {
+					x: mapX(element.x + t.x),
+					y: mapY(element.y + t.y),
+					width: element.width * scaleX,
+					height: element.height * scaleY,
+					transform: { ...t, x: 0, y: 0 },
+					...commonUpdates,
+				});
+			}
 		} else if (element.type === "text") {
-			// Same translation baking as the image/reference3d branch above.
 			const t = getTransform(element);
-			this.commands.updateElement(currentLayerId, elementId, {
-				x: mapX(element.x + t.x),
-				y: mapY(element.y + t.y),
-				layout: scaleTextLayout(element.layout, transform, newBounds),
-				defaultStyle: scaleTextStyle(element.defaultStyle, uniformScale),
-				content: scaleTextContent(element.content, uniformScale),
-				transform: { ...t, x: 0, y: 0 },
-				...commonUpdates,
-			});
+			const ancestorT = this.spatialIndex.getAncestorTransform(elementId);
+			if (ancestorT) {
+				// Same parent-local rect problem as the image branch above; fold the
+				// affine into the transform and leave layout/content untouched.
+				this.commands.updateElement(currentLayerId, elementId, {
+					transform: this.foldResizeAffineIntoTransform(
+						element,
+						t,
+						ancestorT,
+						transform,
+					),
+					...commonUpdates,
+				});
+			} else {
+				// Same translation baking as the image/reference3d branch above.
+				this.commands.updateElement(currentLayerId, elementId, {
+					x: mapX(element.x + t.x),
+					y: mapY(element.y + t.y),
+					layout: scaleTextLayout(element.layout, transform, newBounds),
+					defaultStyle: scaleTextStyle(element.defaultStyle, uniformScale),
+					content: scaleTextContent(element.content, uniformScale),
+					transform: { ...t, x: 0, y: 0 },
+					...commonUpdates,
+				});
+			}
 
 			this.renderer.invalidateTextCache(elementId);
 		} else if (element.type === "group") {
@@ -4454,7 +4501,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			const newTransform = applyWorldAffineToTransform(
 				getTransform(element),
 				center,
-				null,
+				this.spatialIndex.getAncestorTransform(elementId),
 				{ m00: scaleX, m01: 0, m10: 0, m11: scaleY },
 				mapX(0),
 				mapY(0),
@@ -4482,7 +4529,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				const newTransform = applyWorldAffineToTransform(
 					getTransform(element),
 					center,
-					null,
+					this.spatialIndex.getAncestorTransform(elementId),
 					{ m00: scaleX, m01: 0, m10: 0, m11: scaleY },
 					mapX(0),
 					mapY(0),
@@ -4493,6 +4540,34 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				} as Partial<AnyArtObject>);
 			}
 		}
+	}
+
+	/**
+	 * Fold a resize's world-space affine into an element's own transform,
+	 * solved back to parent-local space through the ancestor transform.
+	 * Used by the rect-based applyElementResize branches (image, reference3d,
+	 * text) whose x/y live in parent-local space and therefore cannot be
+	 * mapped with the world affine directly.
+	 */
+	private foldResizeAffineIntoTransform(
+		element: AnyArtObject,
+		t: ElementTransform,
+		ancestorT: ElementTransform,
+		transform: ReturnType<typeof createScaleTransform>,
+	): ElementTransform {
+		const localBounds = calculateLocalElementBounds(element);
+		const center = {
+			x: (localBounds.minX + localBounds.maxX) / 2,
+			y: (localBounds.minY + localBounds.maxY) / 2,
+		};
+		return applyWorldAffineToTransform(
+			t,
+			center,
+			ancestorT,
+			{ m00: transform.scaleX, m01: 0, m10: 0, m11: transform.scaleY },
+			transform.mapX(0),
+			transform.mapY(0),
+		);
 	}
 
 	/**
