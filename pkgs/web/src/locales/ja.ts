@@ -478,6 +478,7 @@ export const ja = {
 		spreadRadius: "スプレッド",
 		fillColor: "塗りの色",
 		strokeColor: "線の色",
+		editBrush: "ブラシを編集",
 		appearances: "アピアランス",
 		effects: "エフェクト",
 		pixelate: "ピクセレート",

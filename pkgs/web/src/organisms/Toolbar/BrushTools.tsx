@@ -65,7 +65,11 @@ import { useBrushPresets } from "@/hooks/useBrushPresets";
 import { FileSystem } from "@/infra/filesystem";
 import { type LocalizeKeys, useTranslation } from "@/locales";
 import type { BrushStrokePreviewSource } from "@/repos/brushPresets";
-import { setSelectedBrushPresetUid } from "@/stores/uiStore";
+import {
+	setBrushDesignerTargetFilterIndex,
+	setSelectedBrushPresetUid,
+	useUIState,
+} from "@/stores/uiStore";
 import { useAsyncEffect, useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
 
@@ -74,6 +78,8 @@ function useSyncBrushSettingsWithSelection(): void {
 	const commands = paplico.commands;
 	const store = paplico.uiState;
 	const docSnap = useSnapshot(store);
+	const uiSnap = useUIState();
+	const targetFilterIndex = uiSnap.brushDesignerTargetFilterIndex;
 
 	const snap = useSnapshot(paplico.tools.state);
 	const brushSettings = useFlatBrushView(
@@ -86,12 +92,27 @@ function useSyncBrushSettingsWithSelection(): void {
 		const selectionChanged =
 			prevSelectedIds.current !== docSnap.selectedElementIds;
 		prevSelectedIds.current = docSnap.selectedElementIds;
-		if (selectionChanged) return;
+		if (selectionChanged) {
+			// An appearance target is bound to the element it was opened from.
+			if (targetFilterIndex != null) setBrushDesignerTargetFilterIndex(null);
+			return;
+		}
 
-		if (docSnap.selectedElementIds.length > 0) {
+		if (docSnap.selectedElementIds.length === 0) return;
+		if (targetFilterIndex != null) {
+			commands.updateSelectedElementStrokeBrushSettings(
+				targetFilterIndex,
+				brushSettings.union,
+			);
+		} else {
 			commands.updateSelectedElementsBrushSettings(brushSettings.union);
 		}
-	}, [brushSettings.union, commands, docSnap.selectedElementIds]);
+	}, [
+		brushSettings.union,
+		commands,
+		docSnap.selectedElementIds,
+		targetFilterIndex,
+	]);
 }
 
 /** Canonical S-curve stroke for brush preview: one period ±10 amplitude,

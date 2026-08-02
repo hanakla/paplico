@@ -1,3 +1,4 @@
+import { Brush } from "lucide-react";
 import { memo, type ReactNode } from "react";
 import { ColorPickerThin } from "@/components/ColorPicker2";
 import { DashPatternControls } from "@/components/DashPatternControls";
@@ -19,6 +20,11 @@ import type {
 import { type BrushStroking, isGeometricBrush } from "@/core/schema";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { useTranslation } from "@/locales";
+import {
+	setBrushDesignerPanelOpen,
+	setBrushDesignerTargetFilterIndex,
+	setSelectedBrushPresetUid,
+} from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
 
 export const AppearanceBaseControls = memo(function AppearanceBaseControls({
@@ -125,7 +131,7 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 	filter: StrokeAppearance;
 	index: number;
 }) {
-	const { commands } = usePaplico();
+	const { commands, tools } = usePaplico();
 	const t = useTranslation();
 	const params = filter.paramData.params;
 	const strokeColor = params.strokeColor;
@@ -139,6 +145,18 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 			},
 		}),
 	);
+
+	const handleEditBrush = useEventCallback(() => {
+		// Load this appearance's brush as the designer's working copy, then
+		// bind the designer to this filter index so edits flow back here
+		// instead of into the element's first stroke appearance.
+		if (params.brushSettings) {
+			tools.setBrushSettings(normalizeBrushSettings(params.brushSettings));
+		}
+		setSelectedBrushPresetUid(null);
+		setBrushDesignerTargetFilterIndex(index);
+		setBrushDesignerPanelOpen(true);
+	});
 
 	return (
 		<AppearanceBaseControls filter={filter} index={index}>
@@ -197,6 +215,15 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 					}
 				/>
 			</div>
+
+			<button
+				type="button"
+				className="flex w-full items-center justify-center gap-2 rounded border border-dashed border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted"
+				onClick={handleEditBrush}
+			>
+				<Brush size={14} />
+				{t("filterPanel.editBrush")}
+			</button>
 
 			<StrokeGeometryControls
 				params={params}

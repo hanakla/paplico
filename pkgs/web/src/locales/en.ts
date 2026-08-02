@@ -477,6 +477,7 @@ export const en = {
 		spreadRadius: "Spread",
 		fillColor: "Fill Color",
 		strokeColor: "Stroke Color",
+		editBrush: "Edit Brush",
 		appearances: "Appearances",
 		effects: "Effects",
 		pixelate: "Pixelate",

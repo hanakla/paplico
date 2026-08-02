@@ -22,6 +22,9 @@ interface UIState {
 	brushDesignerPanelOpen: boolean;
 	/** Width of the brush designer panel docked next to the toolbar */
 	brushDesignerPanelWidth: number;
+	/** Filter index of the selected element's stroke appearance the brush
+	 *  designer is editing; null = the element's first stroke appearance. */
+	brushDesignerTargetFilterIndex: number | null;
 	/** Width of the automation panel docked next to the toolbar */
 	automationPanelWidth: number;
 	/** Currently selected brush preset uid (built-in or persisted) */
@@ -50,6 +53,7 @@ export const uiState = proxy<UIState>({
 	brushPanelOpen: false,
 	brushDesignerPanelOpen: false,
 	brushDesignerPanelWidth: BRUSH_DESIGNER_PANEL_DEFAULT_WIDTH,
+	brushDesignerTargetFilterIndex: null,
 	automationPanelWidth: AUTOMATION_PANEL_DEFAULT_WIDTH,
 	selectedBrushPresetUid: null,
 	mobilePanelOpen: null,
@@ -90,6 +94,13 @@ export function setBrushPanelOpen(open: boolean): void {
 
 export function setBrushDesignerPanelOpen(open: boolean): void {
 	uiState.brushDesignerPanelOpen = open;
+	// A closed designer must not keep editing an appearance; the target is
+	// meaningful only while the panel is open.
+	if (!open) uiState.brushDesignerTargetFilterIndex = null;
+}
+
+export function setBrushDesignerTargetFilterIndex(index: number | null): void {
+	uiState.brushDesignerTargetFilterIndex = index;
 }
 
 export function setBrushDesignerPanelWidth(width: number): void {
