@@ -1830,6 +1830,8 @@ export interface CalligraphyBrushSettings extends BrushSettingsBase {
 	roundness: number;
 	/** Source of nib orientation */
 	angleMode: "fixed" | "tangent" | "tilt";
+	/** Stamp spacing as ratio of size (0.1 = 10% of size) */
+	spacing?: number;
 	/** Flow/accumulation (0-1) */
 	flow: number;
 	/** Speed-to-size influence (0-1) */
@@ -1841,6 +1843,8 @@ export interface CalligraphyBrushSettings extends BrushSettingsBase {
 	/** Optional wet-ink parameters. Undefined keeps the stroke dry. */
 	wetInk?: WetInkSettings;
 }
+
+export const DEFAULT_CALLIGRAPHY_SPACING = 0.05;
 
 export type BrushSettings =
 	| StrokeBrushSettings
@@ -2050,4 +2054,29 @@ export function isFreeGradient(fill: FillColor): fill is FreeGradient {
 
 export function isMeshGradient(fill: FillColor): fill is MeshGradient {
 	return fill.type === "mesh";
+}
+
+/**
+ * Whether a fill appearance contributes any visible pixels: enabled, has
+ * appearance opacity, and its color is not fully transparent. Pattern fills
+ * are treated as visible (their pixels are not statically known).
+ */
+export function isVisibleFill(appearance: FillAppearance): boolean {
+	if (appearance.enabled === false) return false;
+	if (appearance.opacity <= 0) return false;
+
+	const fill = appearance.paramData.params.fill;
+	switch (fill.type) {
+		case "solid":
+			return colorToRawRGBA(fill.color).a > 0;
+		case "linear":
+		case "radial":
+			return fill.stops.some((s) => colorToRawRGBA(s.color).a > 0);
+		case "free":
+			return fill.stops.some((s) => colorToRawRGBA(s.color).a > 0);
+		case "mesh":
+			return fill.vertices.some((v) => colorToRawRGBA(v.color).a > 0);
+		case "pattern":
+			return true;
+	}
 }
