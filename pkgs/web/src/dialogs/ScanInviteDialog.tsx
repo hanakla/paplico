@@ -22,7 +22,13 @@ export const ScanInviteDialog = createCallable<
 	string | null
 >(({ call }) => {
 	const t = useTranslation();
-	const videoRef = useRef<HTMLVideoElement>(null);
+	/**
+	 * The dialog renders into a portal, which has nothing in it yet when the
+	 * effect below first runs — a ref would still be null there, and with no
+	 * reason to run again the scanner would never be built at all. Holding the
+	 * element in state gives the effect the second run it needs.
+	 */
+	const [video, setVideo] = useState<HTMLVideoElement | null>(null);
 	const photoInputRef = useRef<HTMLInputElement>(null);
 	const [standalone] = useState(isStandaloneDisplay);
 	const [cameraFailed, setCameraFailed] = useState(false);
@@ -37,10 +43,7 @@ export const ScanInviteDialog = createCallable<
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: useEventCallback keeps a stable reference
 	useEffect(() => {
-		if (standalone) return;
-
-		const video = videoRef.current;
-		if (!video) return;
+		if (standalone || !video) return;
 
 		const scanner = new QrScanner(video, handleDecode, {
 			returnDetailedScanResult: true,
@@ -51,7 +54,7 @@ export const ScanInviteDialog = createCallable<
 		return () => {
 			scanner.destroy();
 		};
-	}, [standalone]);
+	}, [standalone, video]);
 
 	const handleTakePhoto = useEventCallback(() => {
 		photoInputRef.current?.click();
@@ -133,7 +136,7 @@ export const ScanInviteDialog = createCallable<
 						<div className="relative aspect-square rounded-lg overflow-hidden bg-black">
 							{/* biome-ignore lint/a11y/useMediaCaption: live camera preview has no captions */}
 							<video
-								ref={videoRef}
+								ref={setVideo}
 								className="absolute inset-0 w-full h-full object-cover"
 							/>
 						</div>
@@ -155,41 +158,27 @@ export const ScanInviteDialog = createCallable<
 	);
 });
 
-/** Long edge the first decoding pass works at. */
+/** A box of photo to decode, in the photo's own pixels. */
+type PhotoRegion = { x: number; y: number; width: number; height: number };
+
+/** Long edge each decoding pass works at. */
 const PHOTO_SCAN_EDGE = 1600;
 
 /**
  * Reads a code out of a photo, or returns null.
  *
- * A phone camera hands over twelve megapixels, nearly all of it not the code.
- * The decoder is given a downscaled copy first: that is what a normally framed
- * shot succeeds on, and it returns well inside the ten seconds the decoder
- * allows itself, where the full frame can spend all of them and give up. Full
- * resolution follows only when the small copy finds nothing, which is the case
- * for a code photographed from across the room.
+ * A phone camera hands over twelve megapixels, nearly all of it not the code,
+ * and a photo of a screen carries the display's own dot grid on top of it.
+ * Handing that to the decoder at full size fails on the grid, and can spend
+ * the ten seconds the decoder allows itself before saying so. Shrinking first
+ * averages the grid away, which is what makes a normally framed shot succeed.
+ *
+ * The second pass is the middle of the photo rather than more of its pixels.
+ * Cropping raises the modules per pixel the same way full resolution would,
+ * while still going through a downscale — and the downscale is the part that
+ * removes the grid. That is what reaches a code photographed from further off.
  */
 async function readCodeFromPhoto(file: File): Promise<string | null> {
-	const downscaled = await downscalePhoto(file, PHOTO_SCAN_EDGE);
-
-	for (const image of downscaled ? [downscaled, file] : [file]) {
-		try {
-			const result = await QrScanner.scanImage(image, {
-				returnDetailedScanResult: true,
-			});
-			return result.data;
-		} catch {
-			// Nothing found at this size; the next one may still have it.
-		}
-	}
-
-	return null;
-}
-
-/** Null when the photo is already small enough, or cannot be read at all. */
-async function downscalePhoto(
-	file: File,
-	maxEdge: number,
-): Promise<HTMLCanvasElement | null> {
 	let bitmap: ImageBitmap;
 	try {
 		bitmap = await createImageBitmap(file);
@@ -198,19 +187,99 @@ async function downscalePhoto(
 	}
 
 	try {
-		const scale = maxEdge / Math.max(bitmap.width, bitmap.height);
-		if (scale >= 1) return null;
-
-		const canvas = document.createElement("canvas");
-		canvas.width = Math.round(bitmap.width * scale);
-		canvas.height = Math.round(bitmap.height * scale);
-		canvas
-			.getContext("2d")
-			?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-		return canvas;
+		for (const region of [wholeOf(bitmap), middleOf(bitmap)]) {
+			try {
+				const result = await QrScanner.scanImage(shrink(bitmap, region), {
+					returnDetailedScanResult: true,
+				});
+				return result.data;
+			} catch {
+				// Nothing usable here; the next region may still hold the code.
+			}
+		}
 	} finally {
 		bitmap.close();
 	}
+
+	return null;
+}
+
+const wholeOf = (photo: ImageBitmap): PhotoRegion => ({
+	x: 0,
+	y: 0,
+	width: photo.width,
+	height: photo.height,
+});
+
+const middleOf = (photo: ImageBitmap): PhotoRegion => ({
+	x: photo.width / 4,
+	y: photo.height / 4,
+	width: photo.width / 2,
+	height: photo.height / 2,
+});
+
+/**
+ * Draws a region down to PHOTO_SCAN_EDGE, never shrinking by more than half in
+ * a single step.
+ *
+ * Going from twelve megapixels straight to 1600px is a 2.5x reduction, and the
+ * browser serves that with a tap that reads a 2x2 neighbourhood: most pixels
+ * never reach the result, so a display's dot grid comes through as noise
+ * instead of averaging out. Halving keeps every step inside what that tap can
+ * actually average.
+ */
+function shrink(photo: ImageBitmap, region: PhotoRegion): HTMLCanvasElement {
+	let source: CanvasImageSource = photo;
+	let { x, y, width, height } = region;
+	let canvas: HTMLCanvasElement;
+
+	do {
+		const step = Math.max(
+			Math.min(1, PHOTO_SCAN_EDGE / Math.max(width, height)),
+			0.5,
+		);
+		canvas = paint(
+			source,
+			{ x, y, width, height },
+			Math.round(width * step),
+			Math.round(height * step),
+		);
+		source = canvas;
+		x = 0;
+		y = 0;
+		width = canvas.width;
+		height = canvas.height;
+	} while (Math.max(width, height) > PHOTO_SCAN_EDGE);
+
+	return canvas;
+}
+
+function paint(
+	source: CanvasImageSource,
+	region: PhotoRegion,
+	width: number,
+	height: number,
+): HTMLCanvasElement {
+	const canvas = document.createElement("canvas");
+	canvas.width = width;
+	canvas.height = height;
+
+	const context = canvas.getContext("2d");
+	if (!context) throw new Error("Cannot read a photo without a 2d context");
+
+	context.imageSmoothingQuality = "high";
+	context.drawImage(
+		source,
+		region.x,
+		region.y,
+		region.width,
+		region.height,
+		0,
+		0,
+		width,
+		height,
+	);
+	return canvas;
 }
 
 /**
