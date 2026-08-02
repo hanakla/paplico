@@ -1,9 +1,9 @@
 import type { Popover as BUIPopover } from "@base-ui/react/popover";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { ColorSwatch } from "@/components/ColorSwatch";
 import { GradientPicker } from "@/components/GradientPicker";
 import { Popover } from "@/components/Popover";
-import type { FillColor, StrokeGradientMode } from "@/core/schema";
+import type { StrokeGradientMode } from "@/core/schema";
 import { useActiveColors } from "@/hooks/useActiveColors";
 import { useTranslation } from "@/locales";
 import { setActiveColorTarget, useUIState } from "@/stores/uiStore";
@@ -17,8 +17,11 @@ const STROKE_GRADIENT_MODES: StrokeGradientMode[] = [
 ];
 
 /**
- * Overlapping fill/stroke swatch pair with popover pickers, backed by the
+ * Labeled fill/stroke swatch pair with popover pickers, backed by the
  * active selection (falls back to tool colors when nothing is selected).
+ * The two swatches are laid out side by side (row by default; pass
+ * `flex-col` via className for a vertical stack) so it is always visible
+ * which one is being edited.
  */
 export function FillStrokeSwatchPicker({
 	className,
@@ -58,16 +61,23 @@ export function FillStrokeSwatchPicker({
 	});
 
 	return (
-		<div className={twm("relative", className)}>
-			{/* Fill color picker (stacked behind the stroke swatch) */}
+		<div className={twm("flex gap-1.5", className)}>
+			{/* Fill color picker */}
 			<Popover.Root>
 				<Popover.Trigger>
-					<FillSwatchButton
-						fill={currentFill}
+					<SwatchButton
+						label={t("toolbar.fillLabel")}
 						isActive={uiSnap.activeColorTarget === "fill"}
-						hasMixed={hasMixedFillColor}
 						onClick={handleFillSwatchClick}
-					/>
+					>
+						<ColorSwatch
+							color={currentFill}
+							variant="fill"
+							size={24}
+							className="w-full h-full rounded-none"
+						/>
+						{hasMixedFillColor && currentFill && <MixedColorBadge />}
+					</SwatchButton>
 				</Popover.Trigger>
 				<Popover.Content
 					side={popoverSide}
@@ -87,13 +97,9 @@ export function FillStrokeSwatchPicker({
 			{/* Stroke color/gradient picker */}
 			<Popover.Root>
 				<Popover.Trigger>
-					<button
-						type="button"
-						className={`absolute bottom-0 right-0 w-6 h-6 rounded-sm overflow-hidden cursor-pointer ${
-							uiSnap.activeColorTarget === "stroke"
-								? "ring-1 ring-inset ring-white z-10"
-								: "ring-1 ring-inset ring-border z-0"
-						}`}
+					<SwatchButton
+						label={t("toolbar.strokeLabel")}
+						isActive={uiSnap.activeColorTarget === "stroke"}
 						onClick={handleStrokeSwatchClick}
 					>
 						<ColorSwatch
@@ -102,12 +108,8 @@ export function FillStrokeSwatchPicker({
 							size={24}
 							className="w-full h-full rounded-none"
 						/>
-						{hasMixedStrokeColor && currentStrokeFill && (
-							<div className="absolute inset-0 flex items-center justify-center bg-black/20">
-								<span className="text-white text-xs font-bold">?</span>
-							</div>
-						)}
-					</button>
+						{hasMixedStrokeColor && currentStrokeFill && <MixedColorBadge />}
+					</SwatchButton>
 				</Popover.Trigger>
 				<Popover.Content
 					side={popoverSide}
@@ -160,37 +162,46 @@ export function FillStrokeSwatchPicker({
 	);
 }
 
-function FillSwatchButton({
-	fill,
+function SwatchButton({
+	label,
 	isActive,
-	hasMixed,
 	onClick,
+	children,
 }: {
-	fill: FillColor | null;
+	label: string;
 	isActive: boolean;
-	hasMixed: boolean;
 	onClick: () => void;
+	children: ReactNode;
 }) {
 	return (
 		<button
 			type="button"
-			className={`absolute top-0 left-0 w-6 h-6 rounded-sm border-2 overflow-hidden cursor-pointer ${
-				isActive ? "border-blue-500 z-10" : "border-border z-0"
-			}`}
+			className="flex flex-col items-center gap-0.5 cursor-pointer"
 			onClick={onClick}
 		>
-			<ColorSwatch
-				color={fill}
-				variant="fill"
-				size={24}
-				className="w-full h-full rounded-none"
-			/>
-			{hasMixed && fill && (
-				<div className="absolute inset-0 flex items-center justify-center bg-black/20">
-					<span className="text-white text-xs font-bold">?</span>
-				</div>
-			)}
+			<span
+				className={`relative block w-6 h-6 rounded-sm border-2 overflow-hidden ${
+					isActive ? "border-blue-500" : "border-border"
+				}`}
+			>
+				{children}
+			</span>
+			<span
+				className={`text-[9px] leading-none ${
+					isActive ? "text-foreground" : "text-muted-foreground"
+				}`}
+			>
+				{label}
+			</span>
 		</button>
+	);
+}
+
+function MixedColorBadge() {
+	return (
+		<span className="absolute inset-0 flex items-center justify-center bg-black/20">
+			<span className="text-white text-xs font-bold">?</span>
+		</span>
 	);
 }
 

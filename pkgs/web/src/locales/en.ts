@@ -105,6 +105,7 @@ export const en = {
 		bucketFillNoBarriers:
 			"Nothing encloses this point — click inside an outlined area",
 		bucketFillSealAndFill: "Seal gaps and fill",
+		bucketFillComputing: "Computing fill region…",
 		shapeTool: "Shape Tool",
 		textTool: "Text Tool",
 		gradientTool: "Gradient Tool",
@@ -204,6 +205,8 @@ export const en = {
 		editWithGradientTool: "Edit with Gradient Tool",
 		removeFill: "Remove Fill",
 		swapColors: "Swap Fill & Stroke",
+		fillLabel: "Fill",
+		strokeLabel: "Stroke",
 		gradientNone: "None",
 		noColor: "No Color",
 		strokeGradientMode: "Stroke Gradient",

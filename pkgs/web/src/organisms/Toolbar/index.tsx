@@ -45,6 +45,7 @@ import { Portal } from "@/components/Portal";
 import { Resizable } from "@/components/Resizable";
 import { Separator } from "@/components/Separator";
 import { Slider } from "@/components/Slider";
+import { Spinner } from "@/components/Spinner";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import type { ShapeType } from "@/core";
@@ -661,7 +662,7 @@ export function Toolbar({
 					<Separator orientation="horizontal" />
 
 					<div className="relative py-2">
-						<FillStrokeSwatchPicker className="w-10 h-10 mx-auto" />
+						<FillStrokeSwatchPicker className="mx-auto w-fit flex-col items-center" />
 
 						{/* Swap fill ↔ stroke colors */}
 						<Tooltip content={t("toolbar.swapColors")} side={outwardSide}>
@@ -1204,6 +1205,15 @@ function BucketFillPanel() {
 					onValueChange={handleGapClosingChange}
 				/>
 			</div>
+
+			{snap.bucketFillComputing && (
+				<div className="flex items-center gap-2">
+					<Spinner $size="sm" />
+					<span className="text-[10px] text-muted-foreground">
+						{t("toolbar.bucketFillComputing")}
+					</span>
+				</div>
+			)}
 
 			{snap.bucketFillLeaks && (
 				<div className="flex flex-col gap-1">

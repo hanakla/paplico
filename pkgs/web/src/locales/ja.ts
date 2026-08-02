@@ -106,6 +106,7 @@ export const ja = {
 		bucketFillNoBarriers:
 			"この位置を囲む線がありません — 線で囲まれた領域内をクリックしてください",
 		bucketFillSealAndFill: "隙間を閉じて塗る",
+		bucketFillComputing: "塗り領域を計算中…",
 		shapeTool: "シェイプツール",
 		textTool: "テキストツール",
 		gradientTool: "グラデーションツール",
@@ -205,6 +206,8 @@ export const ja = {
 		editWithGradientTool: "グラデーションツールで編集",
 		removeFill: "塗りを削除",
 		swapColors: "塗りと線の色を入れ替え",
+		fillLabel: "塗り",
+		strokeLabel: "線",
 		gradientNone: "なし",
 		noColor: "色設定なし",
 		strokeGradientMode: "ストロークグラデーション",
