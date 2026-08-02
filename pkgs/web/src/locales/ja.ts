@@ -25,6 +25,7 @@ export const ja = {
 		group: "グループ化",
 		ungroup: "グループ解除",
 		resetRotationAndZoom: "回転と拡大のリセット",
+		pixelPreview: "ピクセルプレビュー",
 		splitView: "分割ビュー",
 		documentSettings: "ドキュメント設定",
 		devMenu: "開発",

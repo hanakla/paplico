@@ -11,6 +11,7 @@ import {
 	FolderOpen,
 	Gamepad2,
 	Gauge,
+	Grid2x2,
 	Group,
 	ImageDown,
 	ImagePlus,
@@ -43,6 +44,7 @@ import { useShortcutBinding } from "@/hooks/useShortcutBinding";
 import { useTranslation } from "@/locales";
 import { RoomParticipants } from "@/organisms/RoomParticipants";
 import { UserMenu } from "@/organisms/UserMenu";
+import { setPixelPreviewEnabled, useUIState } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
 import { IS_TAURI_ENV } from "@/utils/platform";
 import { twm } from "@/utils/tailwind";
@@ -108,6 +110,7 @@ export function DesktopMenuBar({
 		[],
 	);
 	const uiState = useSnapshot(paplico?.uiState ?? fallbackUiState);
+	const appUiState = useUIState();
 
 	const undoShortcut = useShortcutBinding("paplico.undo");
 	const redoShortcut = useShortcutBinding("paplico.redo");
@@ -165,6 +168,12 @@ export function DesktopMenuBar({
 		} catch (e) {
 			console.error("[perf] failed to send result:", e);
 		}
+	});
+
+	const handleTogglePixelPreview = useEventCallback(() => {
+		const next = !appUiState.pixelPreviewEnabled;
+		setPixelPreviewEnabled(next);
+		paplico?.setPixelPreview(next);
 	});
 
 	const handleReloadApp = useEventCallback(() => {
@@ -395,6 +404,12 @@ export function DesktopMenuBar({
 					>
 						<RotateCcw size={16} />
 						{t("menubar.resetRotationAndZoom")}
+					</Menubar.Item>
+					<Menubar.Separator />
+					<Menubar.Item onClick={handleTogglePixelPreview} disabled={!paplico}>
+						<Grid2x2 size={16} />
+						{t("menubar.pixelPreview")}
+						{appUiState.pixelPreviewEnabled && <Check size={16} />}
 					</Menubar.Item>
 					<Menubar.Separator />
 					<Menubar.Item
