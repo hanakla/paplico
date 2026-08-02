@@ -259,7 +259,7 @@ function ContextActionsOverlayInner({
 			{isGradientToolContext && <GradientStopActions />}
 			{!isTextEditing && hasElementSelection && hasFillOrStrokeInSelection && (
 				<FillStrokeSwatchPicker
-					className="flex-none items-center"
+					className="h-9 w-9 flex-none"
 					popoverSide="top"
 					popoverSideOffset={12}
 					popoverAlign="start"

@@ -662,7 +662,7 @@ export function Toolbar({
 					<Separator orientation="horizontal" />
 
 					<div className="relative py-2">
-						<FillStrokeSwatchPicker className="mx-auto w-fit flex-col items-center" />
+						<FillStrokeSwatchPicker className="w-10 h-10 mx-auto" />
 
 						{/* Swap fill ↔ stroke colors */}
 						<Tooltip content={t("toolbar.swapColors")} side={outwardSide}>

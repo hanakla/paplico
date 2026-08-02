@@ -205,8 +205,6 @@ export const en = {
 		editWithGradientTool: "Edit with Gradient Tool",
 		removeFill: "Remove Fill",
 		swapColors: "Swap Fill & Stroke",
-		fillLabel: "Fill",
-		strokeLabel: "Stroke",
 		gradientNone: "None",
 		noColor: "No Color",
 		strokeGradientMode: "Stroke Gradient",

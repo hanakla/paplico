@@ -34,7 +34,7 @@ type Story = StoryObj<typeof meta>;
  * FillStrokeSwatchPicker reads/writes colors through useActiveColors(),
  * which requires a live Paplico engine via PaplicoContext (usePaplico(),
  * throws without a provider). Storybook has no engine instance, so this
- * showcase reproduces the same labeled fill/stroke swatch pair + popover
+ * showcase reproduces the same overlapping fill/stroke swatch + popover
  * interaction with local state, built from the same pieces the real
  * component composes (ColorSwatch, Popover, GradientPicker).
  */
@@ -53,35 +53,24 @@ function FillStrokeSwatchPickerShowcase() {
 	const [activeTarget, setActiveTarget] = useState<"fill" | "stroke">("fill");
 
 	return (
-		<div className="flex gap-1.5">
+		<div className="relative w-6 h-6">
 			<Popover.Root>
 				<Popover.Trigger>
 					<button
 						type="button"
-						className="flex flex-col items-center gap-0.5 cursor-pointer"
+						className={`absolute top-0 left-0 w-6 h-6 rounded-sm border-2 overflow-hidden cursor-pointer ${
+							activeTarget === "fill"
+								? "border-blue-500 z-10"
+								: "border-border z-0"
+						}`}
 						onClick={() => setActiveTarget("fill")}
 					>
-						<span
-							className={`relative block w-6 h-6 rounded-sm border-2 overflow-hidden ${
-								activeTarget === "fill" ? "border-blue-500" : "border-border"
-							}`}
-						>
-							<ColorSwatch
-								color={fill}
-								variant="fill"
-								size={24}
-								className="w-full h-full rounded-none"
-							/>
-						</span>
-						<span
-							className={`text-[9px] leading-none ${
-								activeTarget === "fill"
-									? "text-foreground"
-									: "text-muted-foreground"
-							}`}
-						>
-							{t("toolbar.fillLabel")}
-						</span>
+						<ColorSwatch
+							color={fill}
+							variant="fill"
+							size={24}
+							className="w-full h-full rounded-none"
+						/>
 					</button>
 				</Popover.Trigger>
 				<Popover.Content side="right" sideOffset={12} align="start">
@@ -93,30 +82,19 @@ function FillStrokeSwatchPickerShowcase() {
 				<Popover.Trigger>
 					<button
 						type="button"
-						className="flex flex-col items-center gap-0.5 cursor-pointer"
+						className={`absolute bottom-0 right-0 w-6 h-6 rounded-sm overflow-hidden cursor-pointer ${
+							activeTarget === "stroke"
+								? "ring-1 ring-inset ring-white z-10"
+								: "ring-1 ring-inset ring-border z-0"
+						}`}
 						onClick={() => setActiveTarget("stroke")}
 					>
-						<span
-							className={`relative block w-6 h-6 rounded-sm border-2 overflow-hidden ${
-								activeTarget === "stroke" ? "border-blue-500" : "border-border"
-							}`}
-						>
-							<ColorSwatch
-								color={strokeFill}
-								variant="stroke"
-								size={24}
-								className="w-full h-full rounded-none"
-							/>
-						</span>
-						<span
-							className={`text-[9px] leading-none ${
-								activeTarget === "stroke"
-									? "text-foreground"
-									: "text-muted-foreground"
-							}`}
-						>
-							{t("toolbar.strokeLabel")}
-						</span>
+						<ColorSwatch
+							color={strokeFill}
+							variant="stroke"
+							size={24}
+							className="w-full h-full rounded-none"
+						/>
 					</button>
 				</Popover.Trigger>
 				<Popover.Content side="right" sideOffset={12} align="start">

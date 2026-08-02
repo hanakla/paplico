@@ -206,8 +206,6 @@ export const ja = {
 		editWithGradientTool: "グラデーションツールで編集",
 		removeFill: "塗りを削除",
 		swapColors: "塗りと線の色を入れ替え",
-		fillLabel: "塗り",
-		strokeLabel: "線",
 		gradientNone: "なし",
 		noColor: "色設定なし",
 		strokeGradientMode: "ストロークグラデーション",
