@@ -3,6 +3,7 @@ import type {
 	BoundingBox,
 	CubicBezierSegment,
 	Path,
+	StrokeAppearance,
 	TextContent,
 	TextLayout,
 	TextStyle,
@@ -11,6 +12,7 @@ import { computeInverseCompositionTransform } from "./geometry";
 import {
 	createScaleTransform,
 	scaleSegments,
+	scaleStrokeFilters,
 	scaleTextContent,
 	scaleTextLayout,
 	scaleTextStyle,
@@ -70,7 +72,70 @@ function makeTextContent(
 	};
 }
 
+function makeStrokeAppearance(size: number): StrokeAppearance {
+	return {
+		uid: "app-stroke",
+		processor: "stroke",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: {
+			version: "1",
+			params: {
+				strokeColor: {
+					type: "solid",
+					color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+				},
+				brushSettings: {
+					type: "stroke",
+					size,
+					sizeByPressure: 0,
+					opacity: 1,
+					opacityByPressure: 0,
+					randomSeed: 0,
+				},
+			},
+		},
+	};
+}
+
 // --- Tests ---
+
+describe("scaleStrokeFilters", () => {
+	it("should scale brushSettings.size of stroke filters", () => {
+		const result = scaleStrokeFilters([makeStrokeAppearance(10)], 2);
+		const stroke = result?.[0] as StrokeAppearance;
+		expect(stroke.paramData.params.brushSettings?.size).toBe(20);
+	});
+
+	it("should pass non-stroke filters through unchanged", () => {
+		const fill = {
+			uid: "app-fill",
+			processor: "fill",
+			opacity: 1,
+			blendMode: "normal" as const,
+			paramData: { version: "1", params: {} },
+		};
+		const result = scaleStrokeFilters([fill], 2);
+		expect(result?.[0]).toBe(fill);
+	});
+
+	it("should return undefined for undefined filters", () => {
+		expect(scaleStrokeFilters(undefined, 2)).toBeUndefined();
+	});
+
+	it("should skip stroke filters without brushSettings", () => {
+		const app = makeStrokeAppearance(10);
+		app.paramData.params.brushSettings = undefined;
+		const result = scaleStrokeFilters([app], 2);
+		expect(result?.[0]).toBe(app);
+	});
+
+	it("should not mutate the original filter", () => {
+		const app = makeStrokeAppearance(10);
+		scaleStrokeFilters([app], 2);
+		expect(app.paramData.params.brushSettings?.size).toBe(10);
+	});
+});
 
 describe("scaleTextStyle", () => {
 	it("should scale fontSize by the uniform factor", () => {

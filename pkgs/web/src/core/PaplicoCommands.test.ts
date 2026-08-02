@@ -2490,6 +2490,64 @@ describe("computePerspectiveWarpUpdates (vertex bake)", () => {
 		expect(patch.transform?.y).toBeCloseTo(0, 6);
 	});
 
+	it("should scale stroke widths by the warp's uniform area scale", () => {
+		// 2x uniform enlargement of the source quad: area ratio 4, width scale 2.
+		const scaled2x: [Vec2, Vec2, Vec2, Vec2] = [
+			[0, 200],
+			[200, 200],
+			[200, 0],
+			[0, 0],
+		];
+		const path = {
+			...createPathAt("path-1", 0, 0, 100, 100),
+			filters: [existingStrokeAppearance()],
+		};
+		const layer = createLayer("layer-1", [path.id]);
+		const { commands } = createCommands(layer, { [path.id]: path }, [path.id]);
+
+		const updates = commands.computePerspectiveWarpUpdates(
+			[path.id],
+			scaled2x,
+			SOURCE,
+		);
+
+		const stroke = (updates[0].updates as Partial<Path>)
+			.filters?.[0] as StrokeAppearance;
+		expect(stroke.paramData.params.brushSettings?.size).toBeCloseTo(
+			createDefaultBrushSettings().size * 2,
+			6,
+		);
+	});
+
+	it("should keep stroke widths under an area-preserving shear", () => {
+		// Horizontal shear of the top edge: a parallelogram with unchanged area.
+		const sheared: [Vec2, Vec2, Vec2, Vec2] = [
+			[50, 100],
+			[150, 100],
+			[100, 0],
+			[0, 0],
+		];
+		const path = {
+			...createPathAt("path-1", 0, 0, 100, 100),
+			filters: [existingStrokeAppearance()],
+		};
+		const layer = createLayer("layer-1", [path.id]);
+		const { commands } = createCommands(layer, { [path.id]: path }, [path.id]);
+
+		const updates = commands.computePerspectiveWarpUpdates(
+			[path.id],
+			sheared,
+			SOURCE,
+		);
+
+		const stroke = (updates[0].updates as Partial<Path>)
+			.filters?.[0] as StrokeAppearance;
+		expect(stroke.paramData.params.brushSettings?.size).toBeCloseTo(
+			createDefaultBrushSettings().size,
+			6,
+		);
+	});
+
 	it("should bake warped corner vertices into an image", () => {
 		const image = {
 			type: "image",

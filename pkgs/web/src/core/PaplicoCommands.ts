@@ -131,6 +131,14 @@ import {
 	isDeformableElement,
 	resolveStoredTransform,
 } from "./utils/geometry/pointDeform";
+import {
+	createScaleTransform,
+	scaleSegments,
+	scaleStrokeFilters,
+	scaleTextContent,
+	scaleTextLayout,
+	scaleTextStyle,
+} from "./utils/geometry/resize";
 import { toWorldPath, translateSegments } from "./utils/geometry/segmentOps";
 import { deepClone, neverReached } from "./utils/lang";
 import { parseSvgToArtObjects, type SvgImportResult } from "./utils/svgImport";
@@ -2651,6 +2659,12 @@ export class PaplicoCommands {
 			quad.map(([x, y]) => ({ x, y })) as [Point, Point, Point, Point];
 		const H = solveHomography(toPoints(sourceCorners), toPoints(corners));
 		if (!H) return [];
+
+		// Stroke widths follow the warp's overall size change: the square root
+		// of the quad area ratio, so a pure shear (area-preserving) keeps widths.
+		const sourceArea = quadArea(sourceCorners);
+		const strokeScale =
+			sourceArea > 0 ? Math.sqrt(quadArea(corners) / sourceArea) : 1;
 		const worldDeform = (x: number, y: number) => projectViaH(x, y, H);
 
 		const getElement = (id: string): AnyArtObject | null =>
@@ -2714,12 +2728,15 @@ export class PaplicoCommands {
 					...element,
 					segments,
 				});
-				const filters = deformGradientFilters(
-					element,
-					deformPoint,
-					frame.localBounds,
-					newLocalBounds,
-					{ x: 0, y: 0 },
+				const filters = scaleStrokeFilters(
+					deformGradientFilters(
+						element,
+						deformPoint,
+						frame.localBounds,
+						newLocalBounds,
+						{ x: 0, y: 0 },
+					) ?? element.filters,
+					strokeScale,
 				);
 				updates.push({
 					elementId,
@@ -4567,6 +4584,17 @@ function translateClonedElement(
 		return { ...element, x: element.x + offsetX, y: element.y + offsetY };
 	}
 	return element;
+}
+
+/** Absolute area of a quad (shoelace formula). */
+function quadArea(quad: [Vec2, Vec2, Vec2, Vec2]): number {
+	let area = 0;
+	for (let i = 0; i < 4; i++) {
+		const [x1, y1] = quad[i];
+		const [x2, y2] = quad[(i + 1) % 4];
+		area += x1 * y2 - x2 * y1;
+	}
+	return Math.abs(area / 2);
 }
 
 /**

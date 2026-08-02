@@ -6,6 +6,8 @@
 import type {
 	BoundingBox,
 	CubicBezierSegment,
+	Filter,
+	StrokeAppearance,
 	TextContent,
 	TextLayout,
 	TextStyle,
@@ -93,6 +95,34 @@ export function scaleTextStyle(
 			? style.strokeWidth * uniformScale
 			: undefined,
 	};
+}
+
+/**
+ * Scale the brush size of stroke appearance filters by a uniform factor,
+ * so stroke widths follow element resizes. Non-stroke filters pass through.
+ */
+export function scaleStrokeFilters(
+	filters: Filter[] | undefined,
+	scale: number,
+): Filter[] | undefined {
+	return filters?.map((f) => {
+		if (f.processor !== "stroke") return f;
+		const params = (f as StrokeAppearance).paramData.params;
+		if (!params.brushSettings) return f;
+		return {
+			...f,
+			paramData: {
+				...f.paramData,
+				params: {
+					...params,
+					brushSettings: {
+						...params.brushSettings,
+						size: params.brushSettings.size * scale,
+					},
+				},
+			},
+		};
+	});
 }
 
 /**
