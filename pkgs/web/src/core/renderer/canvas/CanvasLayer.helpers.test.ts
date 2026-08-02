@@ -80,6 +80,54 @@ describe("calculatePrebufDimensions", () => {
 		expect(result.prebufWidth).toBe(2_048);
 		expect(result.prebufHeight).toBe(1_536);
 	});
+
+	it("should render at the zoom override while world coverage still follows the viewport", () => {
+		const visibleBounds: BoundingBox = {
+			minX: -100,
+			minY: -75,
+			maxX: 100,
+			maxY: 75,
+			width: 200,
+			height: 150,
+		};
+
+		const result = calculatePrebufDimensions({
+			viewport,
+			visibleBounds,
+			canvasWidth: 800,
+			canvasHeight: 600,
+			maxTextureDimension: 1_024,
+			zoomOverride: 1,
+		});
+
+		expect(result.prebufZoom).toBe(1);
+		expect(result.prebufWidth).toBe(200);
+		expect(result.prebufHeight).toBe(150);
+	});
+
+	it("should still clamp an overridden zoom to the device texture limit", () => {
+		const visibleBounds: BoundingBox = {
+			minX: -800,
+			minY: -600,
+			maxX: 800,
+			maxY: 600,
+			width: 1_600,
+			height: 1_200,
+		};
+
+		const result = calculatePrebufDimensions({
+			viewport,
+			visibleBounds,
+			canvasWidth: 800,
+			canvasHeight: 600,
+			maxTextureDimension: 2_048,
+			zoomOverride: 4,
+		});
+
+		expect(result.prebufZoom).toBeCloseTo(1.28);
+		expect(result.prebufWidth).toBe(2_048);
+		expect(result.prebufHeight).toBe(1_536);
+	});
 });
 
 describe("capFilterBakeDensity", () => {

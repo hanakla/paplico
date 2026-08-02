@@ -56,6 +56,7 @@ const MESH_BLIT_FLOATS_PER_VERTEX = 4;
 // ---------------------------------------------------------------------------
 
 interface CompositeRendererDeps extends SharedRenderBindings {
+	nearestSampler: GPUSampler;
 	blitPipeline: GPURenderPipeline;
 	blitGlassPunchPipeline: GPURenderPipeline;
 	compositePipeline: GPURenderPipeline;
@@ -196,6 +197,10 @@ export class CompositeRenderer {
 
 	// -- Bind group caches (parallel to buffer pools, keyed by texture identity) --
 	private blitBGCache = new BlitBindGroupCache();
+	/** Separate cache for nearest-sampled blits: BlitBindGroupCache keys on
+	 *  (poolIndex, texture) only, so sharing one cache across samplers would
+	 *  return a bind group built with the wrong sampler. */
+	private blitNearestBGCache = new BlitBindGroupCache();
 	private quadBlitBGCache = new BlitBindGroupCache();
 	private meshBlitBGCache = new BlitBindGroupCache();
 	private compositeBGCache = new TripleTextureBindGroupCache();
@@ -269,6 +274,7 @@ export class CompositeRenderer {
 		opacity: number = 1.0,
 		uvRect: BlitUVRect = FULL_BLIT_UV_RECT,
 		pipeline: GPURenderPipeline = this.deps.blitPipeline,
+		sampling: "linear" | "nearest" = "linear",
 	): void {
 		this.deps.onBeforeDraw();
 		const f = this.blitF32;
@@ -288,13 +294,17 @@ export class CompositeRenderer {
 		const bufIdx = this.blitPool.nextIndex;
 		const blitUniformBuffer = this.blitPool.write(f);
 
-		const blitBindGroup = this.blitBGCache.getOrCreate(bufIdx, texture, () =>
+		const sampler =
+			sampling === "nearest" ? this.deps.nearestSampler : this.deps.sampler;
+		const bgCache =
+			sampling === "nearest" ? this.blitNearestBGCache : this.blitBGCache;
+		const blitBindGroup = bgCache.getOrCreate(bufIdx, texture, () =>
 			this.deps.device.createBindGroup({
 				label: "Blit Bind Group",
 				layout: this.deps.blitBindGroupLayout,
 				entries: [
 					{ binding: 0, resource: { buffer: blitUniformBuffer } },
-					{ binding: 1, resource: this.deps.sampler },
+					{ binding: 1, resource: sampler },
 					{ binding: 2, resource: texture.createView() },
 				],
 			}),

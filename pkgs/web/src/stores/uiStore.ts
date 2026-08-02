@@ -33,6 +33,8 @@ interface UIState {
 	mobilePanelOpen: "context" | "layers" | "filters" | null;
 	/** Whether soft proof (print simulation) display is enabled (UI-only, not synced) */
 	softProofEnabled: boolean;
+	/** Whether pixel preview (rasterization-DPI display) is enabled (UI-only, not synced) */
+	pixelPreviewEnabled: boolean;
 }
 
 const BRUSH_DESIGNER_PANEL_DEFAULT_WIDTH = 480;
@@ -58,6 +60,7 @@ export const uiState = proxy<UIState>({
 	selectedBrushPresetUid: null,
 	mobilePanelOpen: null,
 	softProofEnabled: false,
+	pixelPreviewEnabled: false,
 });
 
 export function toggleActiveColorTarget(): void {
@@ -119,6 +122,10 @@ export function setMobilePanelOpen(
 
 export function setSoftProofEnabled(enabled: boolean): void {
 	uiState.softProofEnabled = enabled;
+}
+
+export function setPixelPreviewEnabled(enabled: boolean): void {
+	uiState.pixelPreviewEnabled = enabled;
 }
 
 export function setAutomationPanelWidth(width: number): void {
