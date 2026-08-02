@@ -448,7 +448,12 @@ function tessellateVisibleSubpath(
 
 	const vertices: number[] = [];
 	const vertexParams: number[] = [];
-	for (const seg of segments) {
+	// Open butt ends expose the segment's end cross-section as an outline, so
+	// those corners also inset along the cap direction. Round/square caps own
+	// their end outline instead (the segment/cap seam stays interior).
+	const buttEnds = !isClosed && lineCap === "butt";
+	for (let segIndex = 0; segIndex < segments.length; segIndex++) {
+		const seg = segments[segIndex];
 		const hw0 = halfWidths[seg.i0];
 		const hw1 = halfWidths[seg.i1];
 		const lx0 = seg.x0 + seg.nx * hw0;
@@ -463,35 +468,43 @@ function tessellateVisibleSubpath(
 		// straddles the outline (±0.5px) so the body must stop at its midpoint.
 		const inx = seg.nx * 0.5;
 		const iny = seg.ny * 0.5;
+		// Cap-direction inset at open butt ends (outward is -d at the start
+		// end and +d at the end end, so the inward pull flips accordingly).
+		const startCapped = buttEnds && segIndex === 0;
+		const endCapped = buttEnds && segIndex === segments.length - 1;
+		const e0x = startCapped ? seg.dx * 0.5 : 0;
+		const e0y = startCapped ? seg.dy * 0.5 : 0;
+		const e1x = endCapped ? -seg.dx * 0.5 : 0;
+		const e1y = endCapped ? -seg.dy * 0.5 : 0;
 		pushTriangle(
 			vertices,
 			lx0,
 			ly0,
-			-inx,
-			-iny,
+			-inx + e0x,
+			-iny + e0y,
 			rx0,
 			ry0,
-			inx,
-			iny,
+			inx + e0x,
+			iny + e0y,
 			lx1,
 			ly1,
-			-inx,
-			-iny,
+			-inx + e1x,
+			-iny + e1y,
 		);
 		pushTriangle(
 			vertices,
 			rx0,
 			ry0,
-			inx,
-			iny,
+			inx + e0x,
+			iny + e0y,
 			rx1,
 			ry1,
-			inx,
-			iny,
+			inx + e1x,
+			iny + e1y,
 			lx1,
 			ly1,
-			-inx,
-			-iny,
+			-inx + e1x,
+			-iny + e1y,
 		);
 		if (globalTs) {
 			const t0 = globalTs[seg.i0];
@@ -1377,12 +1390,43 @@ function emitSquareCap(
 	const erx = rx + dx * extHw;
 	const ery = ry + dy * extHw;
 
-	// Lateral-only inset: the cap's end face keeps the pre-inset behavior
-	// (its fringe still straddles the edge, leaving a half-strength ramp).
+	// Lateral inset on all corners; the tip corners additionally inset along
+	// the (outward) cap direction because the extension's end face is an
+	// outline edge with its own straddling fringe.
 	const inx = nx * 0.5;
 	const iny = ny * 0.5;
-	pushTriangle(out, lx, ly, -inx, -iny, rx, ry, inx, iny, elx, ely, -inx, -iny);
-	pushTriangle(out, rx, ry, inx, iny, erx, ery, inx, iny, elx, ely, -inx, -iny);
+	const edx = dx * 0.5;
+	const edy = dy * 0.5;
+	pushTriangle(
+		out,
+		lx,
+		ly,
+		-inx,
+		-iny,
+		rx,
+		ry,
+		inx,
+		iny,
+		elx,
+		ely,
+		-inx - edx,
+		-iny - edy,
+	);
+	pushTriangle(
+		out,
+		rx,
+		ry,
+		inx,
+		iny,
+		erx,
+		ery,
+		inx - edx,
+		iny - edy,
+		elx,
+		ely,
+		-inx - edx,
+		-iny - edy,
+	);
 }
 
 function emitRoundCap(

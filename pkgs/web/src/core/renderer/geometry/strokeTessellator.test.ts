@@ -48,6 +48,26 @@ describe("tessellateStroke", () => {
 		expect(result.vertices).toHaveLength(24); // 6 vertices × 4 floats (x, y, ox, oy)
 	});
 
+	it("should inset open butt end corners inward on both axes", () => {
+		const result = tessellateStroke(
+			makeInput({
+				points: [0, 0, 100, 0],
+				pressures: [1, 1],
+				baseWidth: 10,
+				lineCap: "butt",
+			}),
+		);
+
+		// Horizontal butt rectangle: every corner is an outline corner, so the
+		// AA offset pulls half a pixel inward laterally (y) and along the cap
+		// direction (x).
+		const verts = result.vertices;
+		for (let i = 0; i < verts.length; i += 4) {
+			expect(verts[i + 2]).toBeCloseTo(verts[i] === 0 ? 0.5 : -0.5, 5);
+			expect(verts[i + 3]).toBeCloseTo(verts[i + 1] > 0 ? -0.5 : 0.5, 5);
+		}
+	});
+
 	it("should produce additional geometry for round caps", () => {
 		const butt = tessellateStroke(
 			makeInput({
