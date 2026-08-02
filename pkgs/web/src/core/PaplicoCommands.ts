@@ -2078,6 +2078,39 @@ export class PaplicoCommands {
 		}
 	}
 
+	/**
+	 * Update the brush settings of the stroke appearance at `filterIndex` on
+	 * the selected element. Unlike updateSelectedElementsBrushSettings (which
+	 * always targets the first stroke), this addresses one specific stroke
+	 * appearance of a multi-stroke element.
+	 */
+	public updateSelectedElementStrokeBrushSettings(
+		filterIndex: number,
+		brushSettings: BrushSettings | undefined,
+	): void {
+		if (this.cannotMutate()) return;
+		const element = this.getSelectedElement();
+		if (!element?.filters || !this.ctx.store.currentLayerId) return;
+		if (this.isElementLocked(element.id)) return;
+
+		const filter = element.filters[filterIndex];
+		if (filter?.processor !== "stroke") return;
+
+		const strokeApp = filter as StrokeAppearance;
+		if (
+			areBrushSettingsSemanticallyEqual(
+				strokeApp.paramData.params.brushSettings,
+				brushSettings,
+			)
+		) {
+			return;
+		}
+
+		this.updateFilterForSelectedElement(filterIndex, {
+			params: { brushSettings },
+		});
+	}
+
 	// --- Filter Operations ---
 
 	public addFilterToSelectedElement(filter: Filter): void {
@@ -3988,6 +4021,8 @@ export class PaplicoCommands {
 	public createReference3DScene(
 		x: number,
 		y: number,
+		width = 400,
+		height = 300,
 	): Reference3DElement | null {
 		const layerId = this.ctx.store.currentLayerId;
 		if (this.cannotMutate() || !layerId || this.isLayerLocked(layerId)) {
@@ -4013,8 +4048,8 @@ export class PaplicoCommands {
 			sceneId: def.id,
 			x,
 			y,
-			width: 400,
-			height: 300,
+			width,
+			height,
 		});
 
 		this.ctx.yjsProvider.transact(() => {
@@ -4030,6 +4065,19 @@ export class PaplicoCommands {
 	}
 
 	/** Append a node to a shared scene definition. */
+	/** Rename a shared 3D scene definition (empty name clears it). */
+	public renameReference3DScene(sceneId: string, name: string): void {
+		if (this.cannotMutate()) return;
+		const def = this.ctx.store.document.references3d?.[sceneId];
+		if (!def) return;
+		const trimmed = name.trim();
+		if ((def.name ?? "") === trimmed) return;
+		this.ctx.yjsProvider.setReference3D(
+			{ ...def, name: trimmed || undefined },
+			this.getMutationOrigin(),
+		);
+	}
+
 	public reference3dAddNode(sceneId: string, node: Reference3DNode): void {
 		if (this.cannotMutate()) return;
 		const def = this.ctx.store.document.references3d?.[sceneId];
