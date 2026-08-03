@@ -685,6 +685,31 @@ export function evaluateDabs(
 	return { data, count, state, totalLength };
 }
 
+/**
+ * Arc length of a segment run using the walk's own approximation, continuing
+ * relative-cp resolution from a resume state when given. Chunked callers use
+ * this to assemble the totalLength option without re-walking committed work.
+ */
+export function measureSegmentsLength(
+	segments: CubicBezierSegment[],
+	resume?: Pick<DabEvalState, "prevEndX" | "prevEndY" | "hasPrevEnd">,
+): number {
+	let prevEndX = resume?.hasPrevEnd ? resume.prevEndX : 0;
+	let prevEndY = resume?.hasPrevEnd ? resume.prevEndY : 0;
+	let total = 0;
+	for (const segment of segments) {
+		const [sx, sy, c1x, c1y, c2x, c2y, ex, ey] = resolveSegment(
+			segment,
+			prevEndX,
+			prevEndY,
+		);
+		total += approximateCubicLength(sx, sy, c1x, c1y, c2x, c2y, ex, ey);
+		prevEndX = ex;
+		prevEndY = ey;
+	}
+	return total;
+}
+
 /** Neutral state for a stroke that has not emitted anything yet. */
 function initialEvalState(settings: BrushSettingsV2): DabEvalState {
 	return {

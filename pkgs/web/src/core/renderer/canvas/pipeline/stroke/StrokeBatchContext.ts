@@ -20,6 +20,7 @@ import {
 import { normalizeBrushSettings } from "../../../../brush/normalize";
 import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
 import { toLegacyBrushSettings } from "../../../../brush/toLegacy";
+import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../../../document/constants";
 import { createDefaultBrushSettings } from "../../../../document/factory";
 import {
 	type ArtBrushSettings,
@@ -61,6 +62,7 @@ import {
 import type { BrushTextureManager } from "../brush/BrushTextureManager";
 import { evaluateDabs } from "../brush/DabEvaluator";
 import { DAB_INSTANCE_FLOATS } from "../brush/DabInstanceLayout";
+import { LiveDabAccumulator } from "../brush/LiveDabAccumulator";
 import {
 	generateRibbonInstances,
 	RIBBON_FLOATS_PER_INSTANCE,
@@ -304,6 +306,14 @@ export class StrokeBatchContext {
 	>();
 	private falloffLutView: GPUTextureView | null = null;
 	private falloffSampler: GPUSampler | null = null;
+	// Live-stroke dab residency (design §8): the preview path re-uses one
+	// grow-only buffer; only newly committed dabs and the volatile tail are
+	// uploaded per frame.
+	private liveDabAccumulator: LiveDabAccumulator | null = null;
+	private liveDabBuffer: GPUBuffer | null = null;
+	private liveDabCapacityFloats = 0;
+	private liveUploadedCommitted = 0;
+	private retiredLiveDabBuffers: GPUBuffer[] = [];
 	private scatterPipeline: GPURenderPipeline | null = null;
 	private scatterBindGroupLayout: GPUBindGroupLayout | null = null;
 	private textureArrayBuilder: BrushTextureArrayBuilder | null = null;
@@ -938,6 +948,10 @@ export class StrokeBatchContext {
 		this.stampStore.flushPendingReleases();
 		this.metaStore.flushPendingReleases();
 		this.stopsStore.flushPendingReleases();
+		// Grown-out live dab buffers: destroyed one frame later so last
+		// frame's encoded draws kept their data.
+		for (const buffer of this.retiredLiveDabBuffers) buffer.destroy();
+		this.retiredLiveDabBuffers.length = 0;
 	}
 
 	// ================================================================
@@ -2152,27 +2166,46 @@ export class StrokeBatchContext {
 		}
 		if (!textureView || !sampler) return;
 
-		const dabs = evaluateDabs(segments, settings, {
-			pathStart: path.pathStart ?? 0,
-			pathEnd: path.pathEnd ?? 1,
-			strokeWidths: path.strokeWidths,
-			textureAspectRatio,
-			variantCount,
-			startLayerIndex,
-			endLayerIndex,
-		});
-		if (dabs.count === 0) return;
+		let dabBuffer: GPUBuffer;
+		let dabCount: number;
+		if (
+			path.id === PREVIEW_ELEMENT_SENTINEL_ID &&
+			(path.pathStart ?? 0) === 0 &&
+			(path.pathEnd ?? 1) === 1 &&
+			path.strokeWidths == null
+		) {
+			const live = this.uploadLiveDabs(segments, settings, {
+				textureAspectRatio,
+				variantCount,
+				startLayerIndex,
+			});
+			if (!live) return;
+			dabBuffer = live.buffer;
+			dabCount = live.count;
+		} else {
+			const dabs = evaluateDabs(segments, settings, {
+				pathStart: path.pathStart ?? 0,
+				pathEnd: path.pathEnd ?? 1,
+				strokeWidths: path.strokeWidths,
+				textureAspectRatio,
+				variantCount,
+				startLayerIndex,
+				endLayerIndex,
+			});
+			if (dabs.count === 0) return;
 
-		const floatCount = dabs.count * DAB_INSTANCE_FLOATS;
-		const dabBuffer = this.acquireStampBuffer(floatCount * 4);
-		const dabView = dabs.data.subarray(0, floatCount);
-		this.device.queue.writeBuffer(
-			dabBuffer,
-			0,
-			dabView.buffer as ArrayBuffer,
-			dabView.byteOffset,
-			dabView.byteLength,
-		);
+			const floatCount = dabs.count * DAB_INSTANCE_FLOATS;
+			dabBuffer = this.acquireStampBuffer(floatCount * 4);
+			dabCount = dabs.count;
+			const dabView = dabs.data.subarray(0, floatCount);
+			this.device.queue.writeBuffer(
+				dabBuffer,
+				0,
+				dabView.buffer as ArrayBuffer,
+				dabView.byteOffset,
+				dabView.byteLength,
+			);
+		}
 
 		const singleMeta = new Float32Array(PATH_META_FLOATS);
 		this.writeSinglePathMeta(
@@ -2217,7 +2250,68 @@ export class StrokeBatchContext {
 			passEncoder.setBindGroup(2, transformsBindGroup);
 		}
 		passEncoder.setBindGroup(3, this.getMaskBindGroup());
-		passEncoder.draw(6, dabs.count, 0, 0);
+		passEncoder.draw(6, dabCount, 0, 0);
+	}
+
+	/**
+	 * Incremental upload for the live preview stroke: newly committed dabs
+	 * append into a persistent grow-only buffer, the volatile tail rewrites
+	 * behind them every frame.
+	 */
+	private uploadLiveDabs(
+		segments: CubicBezierSegment[],
+		settings: BrushSettingsV2,
+		options: {
+			textureAspectRatio: number;
+			variantCount: number;
+			startLayerIndex: number;
+		},
+	): { buffer: GPUBuffer; count: number } | null {
+		this.liveDabAccumulator ??= new LiveDabAccumulator();
+		const frame = this.liveDabAccumulator.update(segments, settings, options);
+		if (frame.totalCount === 0) return null;
+		if (frame.reset) this.liveUploadedCommitted = 0;
+
+		const neededFloats = frame.totalCount * DAB_INSTANCE_FLOATS;
+		if (!this.liveDabBuffer || this.liveDabCapacityFloats < neededFloats) {
+			if (this.liveDabBuffer) {
+				this.retiredLiveDabBuffers.push(this.liveDabBuffer);
+			}
+			this.liveDabCapacityFloats = Math.max(
+				neededFloats * 2,
+				4096 * DAB_INSTANCE_FLOATS,
+			);
+			this.liveDabBuffer = this.device.createBuffer({
+				label: "Live Dab Instances",
+				size: this.liveDabCapacityFloats * 4,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+			});
+			this.liveUploadedCommitted = 0;
+		}
+
+		if (frame.committedCount > this.liveUploadedCommitted) {
+			const startFloat = this.liveUploadedCommitted * DAB_INSTANCE_FLOATS;
+			const endFloat = frame.committedCount * DAB_INSTANCE_FLOATS;
+			this.device.queue.writeBuffer(
+				this.liveDabBuffer,
+				startFloat * 4,
+				frame.committedData.buffer as ArrayBuffer,
+				frame.committedData.byteOffset + startFloat * 4,
+				(endFloat - startFloat) * 4,
+			);
+			this.liveUploadedCommitted = frame.committedCount;
+		}
+		if (frame.tailCount > 0) {
+			const tailFloats = frame.tailCount * DAB_INSTANCE_FLOATS;
+			this.device.queue.writeBuffer(
+				this.liveDabBuffer,
+				frame.committedCount * DAB_INSTANCE_FLOATS * 4,
+				frame.tailData.buffer as ArrayBuffer,
+				frame.tailData.byteOffset,
+				tailFloats * 4,
+			);
+		}
+		return { buffer: this.liveDabBuffer, count: frame.totalCount };
 	}
 
 	private ensureDabPipeline(mode: DabTipMode): {
@@ -2599,6 +2693,13 @@ export class StrokeBatchContext {
 	public destroy(): void {
 		for (const entry of this.stampBufferPool) entry.buffer.destroy();
 		this.stampBufferPool.length = 0;
+		this.liveDabBuffer?.destroy();
+		this.liveDabBuffer = null;
+		this.liveDabCapacityFloats = 0;
+		this.liveUploadedCommitted = 0;
+		this.liveDabAccumulator = null;
+		for (const buffer of this.retiredLiveDabBuffers) buffer.destroy();
+		this.retiredLiveDabBuffers.length = 0;
 		for (const entry of this.pathMetaBufferPool) entry.buffer.destroy();
 		this.pathMetaBufferPool.length = 0;
 		for (const entry of this.colorStopsBufferPool) entry.buffer.destroy();

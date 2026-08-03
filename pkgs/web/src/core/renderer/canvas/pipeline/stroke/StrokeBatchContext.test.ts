@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { normalizeBrushSettingsV2 } from "../../../../brush/migrate";
 import { normalizeBrushSettings } from "../../../../brush/normalize";
+import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../../../document/constants";
 import { createDefaultTransform } from "../../../../document/factory";
 import type {
+	CubicBezierSegment,
 	Path,
 	PathSegment,
 	ScatterBrushSettings,
@@ -9,6 +12,7 @@ import type {
 } from "../../../../schema";
 import { StampCache } from "../../caches/StampCache";
 import type { BrushTextureManager } from "../brush/BrushTextureManager";
+import { evaluateDabs } from "../brush/DabEvaluator";
 import {
 	generateStampsDirect,
 	NIB_SHAPE_CIRCLE,
@@ -254,6 +258,177 @@ describe("StrokeBatchContext", () => {
 		});
 	});
 
+	describe("live preview dab incrementality (v2 route)", () => {
+		function liveSeg(
+			startX: number,
+			endX: number,
+			t0: number,
+			t1: number,
+			first = false,
+		): CubicBezierSegment {
+			return {
+				start: first ? { x: startX, y: 0 } : undefined,
+				cp1: { x: 10, y: 5 },
+				cp2: { x: -10, y: -5 },
+				end: { x: endX, y: 0 },
+				startPressure: 0.4,
+				endPressure: 0.8,
+				startTiltX: 0,
+				startTiltY: 0,
+				endTiltX: 0,
+				endTiltY: 0,
+				startDeltaTime: t0,
+				endDeltaTime: t1,
+				isMoved: first,
+			} as CubicBezierSegment;
+		}
+
+		function livePreviewPath(segments: CubicBezierSegment[]): Path {
+			return {
+				id: PREVIEW_ELEMENT_SENTINEL_ID,
+				type: "path",
+				opacity: 1,
+				blendMode: "normal",
+				transform: createDefaultTransform(),
+				segments,
+				filters: [
+					{
+						uid: "stroke",
+						processor: "stroke",
+						opacity: 1,
+						blendMode: "normal",
+						paramData: {
+							version: "1",
+							params: {
+								strokeColor: {
+									type: "solid",
+									color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+								},
+								brushSettings: normalizeBrushSettingsV2({
+									version: 2,
+									engine: "dab",
+									strokeOpacity: 1,
+									paintMode: "buildup",
+									properties: {
+										size: { base: 10 },
+										spacing: { base: 0.2 },
+										flow: { base: 1 },
+									},
+									tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+									randomSeed: 3,
+								}),
+							},
+						},
+					} as unknown as StrokeAppearance,
+				],
+			};
+		}
+
+		function liveDabFloats(
+			writes: Array<{ buffer: { label: string }; data: Float32Array }>,
+		): number {
+			return writes
+				.filter((w) => w.buffer.label === "Live Dab Instances")
+				.reduce((sum, w) => sum + w.data.length, 0);
+		}
+
+		it("should upload only the committed delta and tail on subsequent frames", () => {
+			const { context, writes } = createContext({ maxResidentStamps: 64 });
+			const { passEncoder } = createPassEncoder();
+
+			const s0 = liveSeg(0, 80, 0, 90, true);
+			const s1 = liveSeg(80, 150, 90, 200);
+			const s2 = liveSeg(150, 230, 200, 320);
+
+			context.beginFrame();
+			context.render(
+				passEncoder,
+				livePreviewPath([s0, liveSeg(80, 120, 90, 140)]),
+				1,
+			);
+			expect(liveDabFloats(writes)).toBeGreaterThan(0);
+
+			writes.length = 0;
+			context.beginFrame();
+			context.render(
+				passEncoder,
+				livePreviewPath([s0, s1, liveSeg(150, 190, 200, 250)]),
+				1,
+			);
+
+			// From the third frame on, the settled prefix (s0 here) is already
+			// uploaded and must not be written again.
+			writes.length = 0;
+			context.beginFrame();
+			const frame3Segments = [s0, s1, s2, liveSeg(230, 260, 320, 360)];
+			context.render(passEncoder, livePreviewPath(frame3Segments), 1);
+
+			const fullCount = evaluateDabs(
+				frame3Segments,
+				normalizeBrushSettingsV2({
+					version: 2,
+					engine: "dab",
+					strokeOpacity: 1,
+					paintMode: "buildup",
+					properties: {
+						size: { base: 10 },
+						spacing: { base: 0.2 },
+						flow: { base: 1 },
+					},
+					tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+					randomSeed: 3,
+				}),
+			).count;
+			const frame3Floats = liveDabFloats(writes);
+			expect(frame3Floats).toBeGreaterThan(0);
+			// The full stroke would be fullCount*24 floats; the incremental
+			// frame only writes the newly-committed prefix and the tail.
+			expect(frame3Floats).toBeLessThan(fullCount * 24);
+		});
+
+		it("should release the live buffer on destroy", () => {
+			const { context, buffers } = createContext({ maxResidentStamps: 64 });
+			const { passEncoder } = createPassEncoder();
+
+			context.beginFrame();
+			context.render(
+				passEncoder,
+				livePreviewPath([
+					liveSeg(0, 80, 0, 90, true),
+					liveSeg(80, 120, 90, 140),
+				]),
+				1,
+			);
+			const liveBuffer = buffers.find((b) => b.label === "Live Dab Instances");
+			if (!liveBuffer) throw new Error("live buffer was never created");
+
+			context.destroy();
+			expect(liveBuffer.destroy).toHaveBeenCalled();
+		});
+
+		it("should restart uploads when a new stroke begins", () => {
+			const { context, writes } = createContext({ maxResidentStamps: 64 });
+			const { passEncoder } = createPassEncoder();
+
+			context.beginFrame();
+			context.render(
+				passEncoder,
+				livePreviewPath([
+					liveSeg(0, 80, 0, 90, true),
+					liveSeg(80, 120, 90, 140),
+				]),
+				1,
+			);
+			writes.length = 0;
+
+			// New stroke: fresh segment identities from index 0.
+			context.beginFrame();
+			const next = [liveSeg(0, 60, 0, 70, true), liveSeg(60, 100, 70, 120)];
+			context.render(passEncoder, livePreviewPath(next), 1);
+			expect(liveDabFloats(writes)).toBeGreaterThan(0);
+		});
+	});
+
 	describe("strokes over the stamp cache budget", () => {
 		it("should draw through the pooled path without leaving an ownerless resident lease", () => {
 			const short = stampCountFor(SHORT_LENGTH);
@@ -397,6 +572,7 @@ function createContext(options: {
 			}): MockBindGroup => ({ label: desc.label ?? "", entries: desc.entries }),
 		),
 		queue: {
+			writeTexture: vi.fn(),
 			writeBuffer: vi.fn(
 				(
 					buffer: MockBuffer,
