@@ -6,6 +6,8 @@ export interface PointerEventData {
 	pressure: number; // 0.0~1.0
 	tiltX: number; // -90~90 degrees
 	tiltY: number;
+	/** Pen barrel rotation (PointerEvent.twist, 0-359 degrees; 0 without hardware support). */
+	twist: number;
 	pointerType: "mouse" | "pen" | "touch";
 	button: number;
 	contactWidth: number; // PointerEvent.width (contact geometry in CSS pixels)

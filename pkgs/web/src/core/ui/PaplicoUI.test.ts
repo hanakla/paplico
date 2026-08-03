@@ -350,6 +350,36 @@ describe("PaplicoUI touch draw offset", () => {
 	});
 });
 
+describe("PaplicoUI pen input passthrough", () => {
+	it("should forward PointerEvent.twist to the tool event data", () => {
+		const harness = createHarness("pen", 50);
+
+		dispatchPointer(harness.canvas, "pointerdown", {
+			clientX: 100,
+			clientY: 100,
+			pointerType: "pen",
+			twist: 90,
+		});
+
+		expect(harness.tool.onPointerDown).toHaveBeenCalledTimes(1);
+		const eventData = harness.tool.onPointerDown.mock.calls[0][0];
+		expect(eventData.twist).toBe(90);
+	});
+
+	it("should default twist to 0 when the event does not carry it", () => {
+		const harness = createHarness("pen", 50);
+
+		dispatchPointer(harness.canvas, "pointerdown", {
+			clientX: 100,
+			clientY: 100,
+			pointerType: "pen",
+		});
+
+		const eventData = harness.tool.onPointerDown.mock.calls[0][0];
+		expect(eventData.twist).toBe(0);
+	});
+});
+
 function createHarness(
 	toolName: string,
 	initialWidth: number,

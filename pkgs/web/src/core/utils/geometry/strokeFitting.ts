@@ -687,6 +687,9 @@ function gaussianSmooth(
 		let sumPressure = 0;
 		let sumTiltX = 0;
 		let sumTiltY = 0;
+		// Twist is angular (0-359 wraps): average sin/cos, not the raw degrees.
+		let sumTwistSin = 0;
+		let sumTwistCos = 0;
 		let sumDeltaTime = 0;
 		let totalWeight = 0;
 
@@ -701,16 +704,22 @@ function gaussianSmooth(
 			sumPressure += (p.pressure ?? 0.5) * w;
 			sumTiltX += (p.tiltX ?? 0) * w;
 			sumTiltY += (p.tiltY ?? 0) * w;
+			const twistRad = ((p.twist ?? 0) * Math.PI) / 180;
+			sumTwistSin += Math.sin(twistRad) * w;
+			sumTwistCos += Math.cos(twistRad) * w;
 			sumDeltaTime += (p.deltaTime ?? 0) * w;
 			totalWeight += w;
 		}
 
+		const twistDeg =
+			(Math.atan2(sumTwistSin, sumTwistCos) * 180) / Math.PI;
 		result[i] = {
 			x: sumX / totalWeight,
 			y: sumY / totalWeight,
 			pressure: sumPressure / totalWeight,
 			tiltX: sumTiltX / totalWeight,
 			tiltY: sumTiltY / totalWeight,
+			twist: ((twistDeg % 360) + 360) % 360,
 			deltaTime: sumDeltaTime / totalWeight,
 		};
 	}
@@ -762,6 +771,7 @@ function pulledStringSmooth(
 				pressure: points[i].pressure,
 				tiltX: points[i].tiltX,
 				tiltY: points[i].tiltY,
+				twist: points[i].twist,
 				deltaTime: points[i].deltaTime,
 			});
 		}
@@ -835,6 +845,7 @@ function inertiaSmooth(
 			pressure: points[i].pressure,
 			tiltX: points[i].tiltX,
 			tiltY: points[i].tiltY,
+			twist: points[i].twist,
 			deltaTime: points[i].deltaTime,
 		});
 	}
@@ -1431,6 +1442,8 @@ export function processStroke(
 			startTiltY: startMeta.tiltY ?? 0,
 			endTiltX: endMeta.tiltX ?? 0,
 			endTiltY: endMeta.tiltY ?? 0,
+			startTwist: startMeta.twist,
+			endTwist: endMeta.twist,
 			startDeltaTime: startMeta.deltaTime ?? 0,
 			endDeltaTime: endMeta.deltaTime ?? 0,
 			isMoved: i === 0,

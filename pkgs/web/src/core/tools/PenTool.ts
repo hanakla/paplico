@@ -145,6 +145,7 @@ export class PenTool implements Tool {
 					pressure: event.pressure,
 					tiltX: event.tiltX,
 					tiltY: event.tiltY,
+					twist: event.twist,
 					deltaTime: 0,
 				},
 			],
@@ -205,6 +206,7 @@ export class PenTool implements Tool {
 				pressure: event.pressure,
 				tiltX: event.tiltX,
 				tiltY: event.tiltY,
+				twist: event.twist,
 				deltaTime,
 			});
 

@@ -972,6 +972,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			pressure,
 			tiltX: e.tiltX,
 			tiltY: e.tiltY,
+			twist: e.twist ?? 0,
 			pointerType: e.pointerType as "mouse" | "pen" | "touch",
 			button: e.button,
 			contactWidth: e.width,
