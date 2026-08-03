@@ -1,9 +1,9 @@
 import {
 	buildFalloffLut,
 	buildFalloffLutFromCurve,
+	buildFalloffLutLayersData,
 	FALLOFF_LUT_LAYERS,
 	FALLOFF_LUT_SIZE,
-	buildFalloffLutLayersData,
 	hardnessFalloff,
 	hardnessToLutIndex,
 } from "./TipMaskBuilder";

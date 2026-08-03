@@ -1,8 +1,8 @@
-import { sampleCurveLut, buildCurveLut } from "../../../../brush/curves";
+import { buildCurveLut, sampleCurveLut } from "../../../../brush/curves";
 import {
 	BRUSH_PROPERTY_REGISTRY,
-	MAX_SCALE_FACTOR,
 	type BrushPropertySpec,
+	MAX_SCALE_FACTOR,
 } from "../../../../brush/properties";
 import type {
 	BrushInputId,
@@ -11,12 +11,9 @@ import type {
 	CubicBezierSegment,
 	StrokeWidthPoint,
 } from "../../../../schema";
-import { resolveTaper, taperFactor } from "../../../geometry/taper";
 import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
-import {
-	DAB_FIELD_OFFSETS,
-	DAB_INSTANCE_FLOATS,
-} from "./DabInstanceLayout";
+import { resolveTaper, taperFactor } from "../../../geometry/taper";
+import { DAB_FIELD_OFFSETS, DAB_INSTANCE_FLOATS } from "./DabInstanceLayout";
 import { packStampPathIndex } from "./StampPacking";
 import { hardnessToLutIndex } from "./TipMaskBuilder";
 
@@ -81,7 +78,8 @@ export function evaluateDabs(
 			: undefined;
 
 	const baked = bakeProperties(settings);
-	const sizeBase = settings.properties.size?.base ?? BRUSH_PROPERTY_REGISTRY.size.base;
+	const sizeBase =
+		settings.properties.size?.base ?? BRUSH_PROPERTY_REGISTRY.size.base;
 	const wetEnabled = settings.wet?.enabled === true;
 	const tangentAngle = settings.tip?.angleMode === "tangent";
 
@@ -125,7 +123,8 @@ export function evaluateDabs(
 	const speedRef =
 		settings.inputDynamics?.speedRef ??
 		Math.min(Math.max(sizeBase * 0.06, 0.5), 2.0);
-	const fineTau = settings.inputDynamics?.speedFineTau ?? DEFAULT_SPEED_FINE_TAU_MS;
+	const fineTau =
+		settings.inputDynamics?.speedFineTau ?? DEFAULT_SPEED_FINE_TAU_MS;
 	const grossTau =
 		settings.inputDynamics?.speedGrossTau ?? DEFAULT_SPEED_GROSS_TAU_MS;
 
@@ -183,7 +182,7 @@ export function evaluateDabs(
 			inputs.tiltMagnitude > 1e-3
 				? (Math.atan2(tiltY, tiltX) + Math.PI) / (2 * Math.PI)
 				: 0.5;
-		inputs.twist = clamp01(((twistDeg % 360) + 360) % 360 / 360);
+		inputs.twist = clamp01((((twistDeg % 360) + 360) % 360) / 360);
 		inputs.direction = (Math.atan2(flowY, flowX) + Math.PI) / (2 * Math.PI);
 		inputs.strokeT = pathStart + (pathEnd - pathStart) * fragT;
 		inputs.fade = clamp01(fragDistance / (sizeBase * FADE_SATURATION_SIZES));
@@ -212,8 +211,7 @@ export function evaluateDabs(
 		let dabX = x;
 		let dabY = y;
 		if (scatterOffsetVal !== 0) {
-			const jitter =
-				(inputs.randomPerDab * 2 - 1) * scatterOffsetVal * sizeVal;
+			const jitter = (inputs.randomPerDab * 2 - 1) * scatterOffsetVal * sizeVal;
 			dabX += normalX * jitter;
 			dabY += normalY * jitter;
 		}
@@ -229,10 +227,13 @@ export function evaluateDabs(
 			alpha = flowVal;
 		} else {
 			const dabsPerPixel = Math.max(
-				1 + OPAQUE_LINEARIZE * (1 / Math.min(Math.max(spacingVal, 1e-3), 1) - 1),
+				1 +
+					OPAQUE_LINEARIZE * (1 / Math.min(Math.max(spacingVal, 1e-3), 1) - 1),
 				1,
 			);
-			alpha = 1 - (1 - clamp01(flowVal * settings.strokeOpacity)) ** (1 / dabsPerPixel);
+			alpha =
+				1 -
+				(1 - clamp01(flowVal * settings.strokeOpacity)) ** (1 / dabsPerPixel);
 		}
 
 		let rotation = angleVal;
@@ -281,7 +282,11 @@ export function evaluateDabs(
 			hardnessToLutIndex(hardnessVal);
 		data[off + DAB_FIELD_OFFSETS.grainStrength] = grainVal;
 		if (wetEnabled) {
-			data[off + DAB_FIELD_OFFSETS.wetness] = evalProp(baked, "wetness", inputs);
+			data[off + DAB_FIELD_OFFSETS.wetness] = evalProp(
+				baked,
+				"wetness",
+				inputs,
+			);
 			data[off + DAB_FIELD_OFFSETS.directionality] = evalProp(
 				baked,
 				"directionality",
@@ -445,8 +450,10 @@ export function evaluateDabs(
 				3 * omt * t * t * c2y +
 				t * t * t * ey;
 			const samplePressure = startPressure + (endPressure - startPressure) * t;
-			const tiltX = segment.startTiltX + (segment.endTiltX - segment.startTiltX) * t;
-			const tiltY = segment.startTiltY + (segment.endTiltY - segment.startTiltY) * t;
+			const tiltX =
+				segment.startTiltX + (segment.endTiltX - segment.startTiltX) * t;
+			const tiltY =
+				segment.startTiltY + (segment.endTiltY - segment.startTiltY) * t;
 			const twist =
 				(segment.startTwist ?? 0) +
 				((segment.endTwist ?? 0) - (segment.startTwist ?? 0)) * t;
@@ -468,8 +475,10 @@ export function evaluateDabs(
 			// Speed EMAs + accel, updated per sample (world-based, zoom-free).
 			if (stepTime > 0.001) {
 				const stepVelocity = stepDist / stepTime;
-				velFast += (stepVelocity - velFast) * (1 - Math.exp(-stepTime / fineTau));
-				velSlow += (stepVelocity - velSlow) * (1 - Math.exp(-stepTime / grossTau));
+				velFast +=
+					(stepVelocity - velFast) * (1 - Math.exp(-stepTime / fineTau));
+				velSlow +=
+					(stepVelocity - velSlow) * (1 - Math.exp(-stepTime / grossTau));
 				const turnAmount = Math.min(
 					Math.max(0, 1 - (prevDirX * dirX + prevDirY * dirY)) * 0.5,
 					1,

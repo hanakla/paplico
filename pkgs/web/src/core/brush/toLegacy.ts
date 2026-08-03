@@ -20,7 +20,9 @@ import { evaluatePiecewiseLinear } from "./curves";
  * Arbitrary user curves (curve editor, phase 8+) are NOT representable in
  * the v1 union; by the time they can exist, the legacy consumers are gone.
  */
-export function toLegacyBrushSettings(settings: BrushSettingsV2): BrushSettings {
+export function toLegacyBrushSettings(
+	settings: BrushSettingsV2,
+): BrushSettings {
 	const sizeBase = base(settings, "size", 10);
 	const flowBase = base(settings, "flow", 1);
 	const common = {

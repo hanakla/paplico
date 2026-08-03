@@ -711,8 +711,7 @@ function gaussianSmooth(
 			totalWeight += w;
 		}
 
-		const twistDeg =
-			(Math.atan2(sumTwistSin, sumTwistCos) * 180) / Math.PI;
+		const twistDeg = (Math.atan2(sumTwistSin, sumTwistCos) * 180) / Math.PI;
 		result[i] = {
 			x: sumX / totalWeight,
 			y: sumY / totalWeight,

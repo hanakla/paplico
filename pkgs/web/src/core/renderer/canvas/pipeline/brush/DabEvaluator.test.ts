@@ -120,9 +120,10 @@ describe("evaluateDabs", () => {
 				10 * (1 - k),
 				4,
 			);
-			expect(
-				readDabField(result.data, result.count - 1, "sizeX"),
-			).toBeCloseTo(10, 4);
+			expect(readDabField(result.data, result.count - 1, "sizeX")).toBeCloseTo(
+				10,
+				4,
+			);
 		});
 	});
 
@@ -229,7 +230,12 @@ describe("evaluateDabs", () => {
 		it("should write wet seed fields only while wet is enabled", () => {
 			const wetOn = dabSettings({
 				paintMode: "wash",
-				wet: { enabled: true, bleedRadius: 0.5, pigmentLoad: 0.85, grainScale: 1 },
+				wet: {
+					enabled: true,
+					bleedRadius: 0.5,
+					pigmentLoad: 0.85,
+					grainScale: 1,
+				},
 				properties: {
 					size: { base: 10 },
 					spacing: { base: 0.2 },

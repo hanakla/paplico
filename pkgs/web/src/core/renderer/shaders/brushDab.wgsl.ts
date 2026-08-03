@@ -27,7 +27,9 @@ export interface BrushDabShaderOptions {
 	tipMode: DabTipMode;
 }
 
-export function buildBrushDabShader({ tipMode }: BrushDabShaderOptions): string {
+export function buildBrushDabShader({
+	tipMode,
+}: BrushDabShaderOptions): string {
 	const tipBindings =
 		tipMode === "procedural"
 			? /* wgsl */ `
