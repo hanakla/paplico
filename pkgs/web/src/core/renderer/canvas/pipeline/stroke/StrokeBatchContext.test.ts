@@ -473,13 +473,11 @@ describe("StrokeBatchContext", () => {
 
 			// Wash previews render through per-frame offscreen textures; the
 			// incremental live buffer's cross-frame delta model does not apply.
+			expect(writes.some((w) => w.buffer.label === "Live Dab Instances")).toBe(
+				false,
+			);
 			expect(
-				writes.some((w) => w.buffer.label === "Live Dab Instances"),
-			).toBe(false);
-			expect(
-				writes.some(
-					(w) => w.buffer.label === "Stamp Instance Buffer (Pooled)",
-				),
+				writes.some((w) => w.buffer.label === "Stamp Instance Buffer (Pooled)"),
 			).toBe(true);
 		});
 
