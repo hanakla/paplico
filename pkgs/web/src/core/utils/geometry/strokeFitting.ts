@@ -1412,18 +1412,412 @@ export function processStroke(
 
 	// Step 4: Convert absolute Bézier control points to CubicBezierSegments
 	// (cp1/cp2 stored as relative offsets from anchors)
+	return convertBeziersToSegments(allBeziers, smoothed, true);
+}
+
+// ---------------------------------------------------------------------------
+// Incremental fitting (live preview)
+// ---------------------------------------------------------------------------
+
+export interface IncrementalStrokeFitterOptions {
+	stabilization: number;
+	zoom: number;
+	smoothingMethod?: SmoothingMethod;
+}
+
+/** Force-freeze threshold: stable tail points beyond this get fitted out. */
+const FITTER_TAIL_MAX_POINTS = 128;
+/** Points held back from a forced freeze so the visible tail stays supple. */
+const FITTER_TAIL_HOLDBACK = 16;
+const FITTER_DEDUPE_DIST_SQ = 0.5 * 0.5;
+
+/**
+ * Incremental variant of processStroke for live drawing: sections behind the
+ * last settled corner (or beyond the tail window) are fitted once and frozen;
+ * every push only re-smooths and re-fits the tail. The committed stroke is
+ * still produced by the full processStroke — this class only serves the
+ * preview, so its output may differ from the final fit in the tail region.
+ */
+export class IncrementalStrokeFitter {
+	/** Points touched by the last push+getSegments cycle (instrumentation). */
+	public lastProcessedPoints = 0;
+
+	private readonly stabilization: number;
+	private readonly tolerance: number;
+	private readonly method: SmoothingMethod;
+	private readonly gaussianRadius: number;
+
+	/** Deduped raw input. */
+	private readonly deduped: BezierPoint[] = [];
+	/** Raw last point that fell under the dedupe threshold. */
+	private floatingLast: BezierPoint | null = null;
+
+	/**
+	 * Smoothed points. Causal methods (pulled-string/inertia) append final
+	 * values; gaussian entries are final only below stableSmoothedCount.
+	 */
+	private readonly smoothed: BezierPoint[] = [];
+	private stableSmoothedCount = 0;
+
+	// Causal smoother state.
+	private pulledAnchorX = 0;
+	private pulledAnchorY = 0;
+	private inertiaPosX = 0;
+	private inertiaPosY = 0;
+	private inertiaVelX = 0;
+	private inertiaVelY = 0;
+
+	private frozen: CubicBezierSegment[] = [];
+	/** Smoothed index where the live tail begins (= last freeze boundary). */
+	private tailStart = 0;
+	/** Highest smoothed index already checked for a freezable corner. */
+	private cornerCheckedUpTo = 0;
+
+	private cachedSegments: CubicBezierSegment[] | null = null;
+
+	public constructor(options: IncrementalStrokeFitterOptions) {
+		this.stabilization = options.stabilization;
+		this.method = options.smoothingMethod ?? "smooth";
+		const baseTolerance =
+			options.stabilization <= 0 ? 0.5 : 1.0 + options.stabilization * 3.0;
+		this.tolerance = baseTolerance / options.zoom;
+		this.gaussianRadius =
+			this.method === "smooth" && options.stabilization > 0
+				? Math.ceil(3 * options.stabilization * 4.0)
+				: 0;
+	}
+
+	public get frozenSegmentCount(): number {
+		return this.frozen.length;
+	}
+
+	public push(point: BezierPoint): void {
+		this.cachedSegments = null;
+		this.lastProcessedPoints = 0;
+
+		const prev = this.deduped[this.deduped.length - 1];
+		if (prev) {
+			const dx = point.x - prev.x;
+			const dy = point.y - prev.y;
+			if (dx * dx + dy * dy < FITTER_DEDUPE_DIST_SQ) {
+				this.floatingLast = point;
+				return;
+			}
+		}
+		this.floatingLast = null;
+		this.deduped.push(point);
+		this.appendSmoothed(point);
+		this.maybeFreeze();
+	}
+
+	public getSegments(): CubicBezierSegment[] {
+		if (this.cachedSegments) return this.cachedSegments;
+
+		const tailPts = this.buildTailPoints();
+		this.lastProcessedPoints += tailPts.length;
+		const tail =
+			tailPts.length >= 2
+				? fitPointSequence(tailPts, this.tolerance, this.frozen.length === 0)
+				: [];
+		this.cachedSegments = [...this.frozen, ...tail];
+		return this.cachedSegments;
+	}
+
+	// --- smoothing ---------------------------------------------------------
+
+	private appendSmoothed(point: BezierPoint): void {
+		if (this.stabilization <= 0) {
+			this.smoothed.push(point);
+			this.stableSmoothedCount = this.smoothed.length;
+			this.lastProcessedPoints += 1;
+			return;
+		}
+
+		switch (this.method) {
+			case "pulled-string": {
+				if (this.smoothed.length === 0) {
+					this.smoothed.push(point);
+					this.pulledAnchorX = point.x;
+					this.pulledAnchorY = point.y;
+				} else {
+					const stringLength = this.stabilization * 20.0;
+					const dx = point.x - this.pulledAnchorX;
+					const dy = point.y - this.pulledAnchorY;
+					const dist = Math.sqrt(dx * dx + dy * dy);
+					if (dist > stringLength) {
+						const move = dist - stringLength;
+						this.pulledAnchorX += (dx / dist) * move;
+						this.pulledAnchorY += (dy / dist) * move;
+						this.smoothed.push({
+							x: this.pulledAnchorX,
+							y: this.pulledAnchorY,
+							pressure: point.pressure,
+							tiltX: point.tiltX,
+							tiltY: point.tiltY,
+							twist: point.twist,
+							deltaTime: point.deltaTime,
+						});
+					}
+				}
+				this.stableSmoothedCount = this.smoothed.length;
+				this.lastProcessedPoints += 1;
+				break;
+			}
+			case "inertia": {
+				if (this.smoothed.length === 0) {
+					this.smoothed.push(point);
+					this.inertiaPosX = point.x;
+					this.inertiaPosY = point.y;
+				} else {
+					const stiffness = 4.0 * (1 - this.stabilization * 0.8);
+					const damping = 2 * Math.sqrt(stiffness);
+					const prevRaw = this.deduped[this.deduped.length - 2];
+					const dt = Math.min(
+						((point.deltaTime ?? 0) - (prevRaw?.deltaTime ?? 0)) / 1000,
+						0.1,
+					);
+					if (dt <= 0) {
+						this.inertiaPosX += (point.x - this.inertiaPosX) * 0.5;
+						this.inertiaPosY += (point.y - this.inertiaPosY) * 0.5;
+					} else {
+						const fx =
+							stiffness * (point.x - this.inertiaPosX) -
+							damping * this.inertiaVelX;
+						const fy =
+							stiffness * (point.y - this.inertiaPosY) -
+							damping * this.inertiaVelY;
+						this.inertiaVelX += fx * dt;
+						this.inertiaVelY += fy * dt;
+						this.inertiaPosX += this.inertiaVelX * dt;
+						this.inertiaPosY += this.inertiaVelY * dt;
+					}
+					this.smoothed.push({
+						x: this.inertiaPosX,
+						y: this.inertiaPosY,
+						pressure: point.pressure,
+						tiltX: point.tiltX,
+						tiltY: point.tiltY,
+						twist: point.twist,
+						deltaTime: point.deltaTime,
+					});
+				}
+				this.stableSmoothedCount = this.smoothed.length;
+				this.lastProcessedPoints += 1;
+				break;
+			}
+			default: {
+				// Gaussian: entries within `radius` of the end still shift as
+				// points arrive. Settle every index whose full kernel window is
+				// now in the past.
+				this.smoothed.push(point);
+				const settleUpTo = this.deduped.length - 1 - this.gaussianRadius;
+				for (let i = this.stableSmoothedCount; i < settleUpTo; i++) {
+					this.smoothed[i] = this.gaussianAt(i);
+					this.lastProcessedPoints += 1;
+				}
+				this.stableSmoothedCount = Math.max(
+					this.stableSmoothedCount,
+					settleUpTo,
+				);
+				break;
+			}
+		}
+	}
+
+	/** Gaussian-smoothed value of deduped[i] (index 0 passes through). */
+	private gaussianAt(i: number): BezierPoint {
+		const points = this.deduped;
+		if (i === 0) return points[0];
+		const radius = this.gaussianRadius;
+		const sigma = this.stabilization * 4.0;
+		const twoSigmaSq = 2 * sigma * sigma;
+
+		let sumX = 0;
+		let sumY = 0;
+		let sumPressure = 0;
+		let sumTiltX = 0;
+		let sumTiltY = 0;
+		let sumTwistSin = 0;
+		let sumTwistCos = 0;
+		let sumDeltaTime = 0;
+		let totalWeight = 0;
+		const lo = Math.max(0, i - radius);
+		const hi = Math.min(points.length - 1, i + radius);
+		for (let j = lo; j <= hi; j++) {
+			const d = Math.abs(j - i);
+			const w = Math.exp(-(d * d) / twoSigmaSq);
+			const p = points[j];
+			sumX += p.x * w;
+			sumY += p.y * w;
+			sumPressure += (p.pressure ?? 0.5) * w;
+			sumTiltX += (p.tiltX ?? 0) * w;
+			sumTiltY += (p.tiltY ?? 0) * w;
+			const twistRad = ((p.twist ?? 0) * Math.PI) / 180;
+			sumTwistSin += Math.sin(twistRad) * w;
+			sumTwistCos += Math.cos(twistRad) * w;
+			sumDeltaTime += (p.deltaTime ?? 0) * w;
+			totalWeight += w;
+		}
+		const twistDeg = (Math.atan2(sumTwistSin, sumTwistCos) * 180) / Math.PI;
+		return {
+			x: sumX / totalWeight,
+			y: sumY / totalWeight,
+			pressure: sumPressure / totalWeight,
+			tiltX: sumTiltX / totalWeight,
+			tiltY: sumTiltY / totalWeight,
+			twist: ((twistDeg % 360) + 360) % 360,
+			deltaTime: sumDeltaTime / totalWeight,
+		};
+	}
+
+	// --- freezing ----------------------------------------------------------
+
+	private maybeFreeze(): void {
+		// Corner freeze: a settled corner splits the fit exactly like
+		// processStroke's corner detection, so freezing there is lossless.
+		const checkLimit = this.stableSmoothedCount - 1;
+		for (let i = Math.max(this.cornerCheckedUpTo, 1); i < checkLimit; i++) {
+			if (isCornerAt(this.smoothed, i) && i > this.tailStart) {
+				this.freezeUpTo(i);
+			}
+		}
+		this.cornerCheckedUpTo = Math.max(this.cornerCheckedUpTo, checkLimit);
+
+		// Forced freeze keeps the tail bounded on corner-less strokes. The
+		// split is an artificial anchor (C0-continuous with the next fit).
+		if (this.stableSmoothedCount - this.tailStart > FITTER_TAIL_MAX_POINTS) {
+			this.freezeUpTo(this.stableSmoothedCount - 1 - FITTER_TAIL_HOLDBACK);
+		}
+	}
+
+	private freezeUpTo(index: number): void {
+		if (index <= this.tailStart) return;
+		const section = this.smoothed.slice(this.tailStart, index + 1);
+		this.lastProcessedPoints += section.length;
+		const fitted = fitPointSequence(
+			section,
+			this.tolerance,
+			this.frozen.length === 0,
+		);
+		this.frozen = [...this.frozen, ...fitted];
+		this.tailStart = index;
+	}
+
+	// --- tail --------------------------------------------------------------
+
+	private buildTailPoints(): BezierPoint[] {
+		const tail = this.smoothed.slice(this.tailStart);
+
+		if (this.method === "smooth" && this.stabilization > 0) {
+			// Re-smooth the unsettled window; the raw endpoint stays exact
+			// (processStroke preserves endpoints the same way).
+			const len = this.deduped.length;
+			for (let k = 0; k < tail.length; k++) {
+				const i = this.tailStart + k;
+				if (i < this.stableSmoothedCount) continue;
+				tail[k] = i === len - 1 ? this.deduped[i] : this.gaussianAt(i);
+				this.lastProcessedPoints += 1;
+			}
+		} else if (this.method === "inertia" && tail.length > 0) {
+			// Snap the visible endpoint to the raw position (processStroke's
+			// final-point behavior) without disturbing the smoother state.
+			const rawLast = this.deduped[this.deduped.length - 1];
+			if (rawLast) tail[tail.length - 1] = rawLast;
+		} else if (this.method === "pulled-string") {
+			const rawLast = this.deduped[this.deduped.length - 1];
+			const lastSmoothed = tail[tail.length - 1];
+			if (
+				rawLast &&
+				lastSmoothed &&
+				(lastSmoothed.x !== rawLast.x || lastSmoothed.y !== rawLast.y)
+			) {
+				tail.push(rawLast);
+			}
+		}
+
+		if (this.floatingLast) tail.push(this.floatingLast);
+		return tail;
+	}
+}
+
+/** detectCorners' predicate for a single interior index. */
+function isCornerAt(points: BezierPoint[], i: number): boolean {
+	if (i <= 0 || i >= points.length - 1) return false;
+	const prev = points[i - 1];
+	const curr = points[i];
+	const next = points[i + 1];
+	const dx1 = curr.x - prev.x;
+	const dy1 = curr.y - prev.y;
+	const dx2 = next.x - curr.x;
+	const dy2 = next.y - curr.y;
+	const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+	const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+	if (len1 < 1e-9 || len2 < 1e-9) return false;
+	const dot = (dx1 * dx2 + dy1 * dy2) / (len1 * len2);
+	return dot < Math.cos((45 * Math.PI) / 180);
+}
+
+/**
+ * Corner-split + Schneider fit for one point run (processStroke steps 2-3),
+ * converted with section-scoped metadata.
+ */
+function fitPointSequence(
+	points: BezierPoint[],
+	tolerance: number,
+	isFirstOfPath: boolean,
+): CubicBezierSegment[] {
+	if (points.length < 2) return [];
+	const corners = detectCorners(points, 45);
+	const beziers: Array<
+		[number, number, number, number, number, number, number, number]
+	> = [];
+	for (let c = 0; c < corners.length - 1; c++) {
+		const section = points.slice(corners[c], corners[c + 1] + 1);
+		if (section.length < 2) continue;
+		fitCubicBeziersImpl(
+			section,
+			computeLeftTangent(section),
+			computeRightTangent(section),
+			tolerance,
+			beziers,
+		);
+	}
+	return convertBeziersToSegments(beziers, points, isFirstOfPath);
+}
+
+/**
+ * Convert absolute fitted cubics to CubicBezierSegments, resolving
+ * pressure/tilt/twist/deltaTime metadata from the nearest point in
+ * `metaSource`. Only the very first segment of a path carries `start` and
+ * `isMoved` — continuation chunks pass isFirstOfPath=false.
+ */
+function convertBeziersToSegments(
+	beziers: Array<
+		[number, number, number, number, number, number, number, number]
+	>,
+	metaSource: BezierPoint[],
+	isFirstOfPath: boolean,
+): CubicBezierSegment[] {
 	const segments: CubicBezierSegment[] = [];
 
-	for (let i = 0; i < allBeziers.length; i++) {
-		const [p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y] = allBeziers[i];
+	for (let i = 0; i < beziers.length; i++) {
+		const [p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y] = beziers[i];
 
-		// Find nearest original points for pressure/tilt/deltaTime metadata
-		const startMeta = findNearestPoint(smoothed, p0x, p0y);
-		const endMeta = findNearestPoint(smoothed, p3x, p3y);
+		// Find nearest original points for pressure/tilt/deltaTime metadata.
+		// The last anchor always maps to the last input point: a nearest-point
+		// scan ties at distance 0 when an airbrush hold repeats the position
+		// with only deltaTime advanced, and would pick the stale twin.
+		const startMeta = findNearestPoint(metaSource, p0x, p0y);
+		const endMeta =
+			i === beziers.length - 1
+				? metaSource[metaSource.length - 1]
+				: findNearestPoint(metaSource, p3x, p3y);
+		const first = isFirstOfPath && i === 0;
 
 		segments.push({
-			start:
-				i === 0 ? { x: p0x, y: p0y, pressure: startMeta.pressure } : undefined,
+			start: first
+				? { x: p0x, y: p0y, pressure: startMeta.pressure }
+				: undefined,
 			cp1: {
 				x: p1x - p0x,
 				y: p1y - p0y,
@@ -1445,7 +1839,7 @@ export function processStroke(
 			endTwist: endMeta.twist,
 			startDeltaTime: startMeta.deltaTime ?? 0,
 			endDeltaTime: endMeta.deltaTime ?? 0,
-			isMoved: i === 0,
+			isMoved: first,
 		});
 	}
 
