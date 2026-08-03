@@ -25,6 +25,22 @@ export type SimulationDomainTile = {
 };
 
 /**
+ * Texels per world unit for a brush's fixed-R rasterization — the inverse of
+ * the domain's world-per-pixel. Pure function of the brush size (zoom-free):
+ * offscreen passes that feed neighbor-reading effects (wet edge) render at
+ * this scale so the result never depends on the viewport.
+ */
+export function fixedRasterScaleForBrush(brushSize: number): number {
+	const brushWorldPerPixel =
+		Math.max(brushSize, 1) / SIMULATION_TEXELS_PER_BRUSH_SIZE;
+	const worldPerPixel = Math.max(
+		MIN_SIMULATION_WORLD_PER_TEXEL,
+		Math.min(MAX_SIMULATION_WORLD_PER_TEXEL, brushWorldPerPixel),
+	);
+	return 1 / worldPerPixel;
+}
+
+/**
  * Resolve the fixed-R domain for `bounds`: world-per-texel follows the brush
  * size (96 texels per brush diameter, clamped to [0.125, 1]), zoom-free.
  */

@@ -188,7 +188,10 @@ import {
 	replaceRenderSurface,
 } from "./pipeline/RenderSurface";
 import { RunBatcher } from "./pipeline/RunBatcher";
-import { resolveSimulationDomain } from "./pipeline/rasterizationDomain";
+import {
+	fixedRasterScaleForBrush,
+	resolveSimulationDomain,
+} from "./pipeline/rasterizationDomain";
 import { SoftProofPass } from "./pipeline/SoftProofPass";
 import { resolveStrokeStyle } from "./pipeline/stroke/resolveStrokeStyle";
 import type { StrokeEngineRegistry } from "./pipeline/stroke/StrokeEnginePicker";
@@ -4174,6 +4177,14 @@ export class CanvasLayer {
 			// the isolated texture; its opacity and strokeOpacity apply exactly
 			// once at composite time below.
 			const isWash = plan.washStrokeOpacity != null;
+			// Wet edge reads neighboring texels (erosion), so its appearance
+			// rasterizes at the fixed-R scale (appendix B-2) — a pure function
+			// of the brush size — instead of the viewport-derived rasterScale.
+			// The world-space blit onto the accumulator resamples it correctly.
+			const appearanceScale =
+				isWash && plan.washWetEdge != null
+					? fixedRasterScaleForBrush(plan.washBrushSize ?? 0)
+					: rasterScale;
 			// Virtual element with element-level pre-filters + per-appearance pre sub-filters + this single appearance
 			const virtualElement = {
 				...fp.element,
@@ -4192,7 +4203,7 @@ export class CanvasLayer {
 				virtualElement,
 				fp.textureBounds,
 				elementsMap,
-				rasterScale,
+				appearanceScale,
 			);
 			if (!appResult) continue;
 			const appTexture = appResult.texture.texture;
