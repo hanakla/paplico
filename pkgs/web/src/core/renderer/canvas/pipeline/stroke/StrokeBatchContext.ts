@@ -314,6 +314,8 @@ export class StrokeBatchContext {
 	private liveDabCapacityFloats = 0;
 	private liveUploadedCommitted = 0;
 	private retiredLiveDabBuffers: GPUBuffer[] = [];
+	/** Settings-object -> JSON fingerprint (settings are immutable). */
+	private readonly v2FingerprintCache = new WeakMap<object, string>();
 	private scatterPipeline: GPURenderPipeline | null = null;
 	private scatterBindGroupLayout: GPUBindGroupLayout | null = null;
 	private textureArrayBuilder: BrushTextureArrayBuilder | null = null;
@@ -2183,27 +2185,43 @@ export class StrokeBatchContext {
 			dabBuffer = live.buffer;
 			dabCount = live.count;
 		} else {
-			const dabs = evaluateDabs(segments, settings, {
-				pathStart: path.pathStart ?? 0,
-				pathEnd: path.pathEnd ?? 1,
-				strokeWidths: path.strokeWidths,
-				textureAspectRatio,
-				variantCount,
-				startLayerIndex,
-				endLayerIndex,
-			});
-			if (dabs.count === 0) return;
+			// Committed strokes: cache the evaluated dab buffer so pans/zooms
+			// re-upload but never re-evaluate (the pre-v2 path had the same
+			// property through StampCache + resident stamps).
+			let fingerprint = this.v2FingerprintCache.get(settings);
+			if (!fingerprint) {
+				fingerprint = JSON.stringify(settings);
+				this.v2FingerprintCache.set(settings, fingerprint);
+			}
+			const cacheKey = `${path.id}:v2dab:${fingerprint}:${textureAspectRatio}:${variantCount}:${startLayerIndex}:${endLayerIndex}:${hashStampInput(path, segments)}`;
+			const stampCache = this.getStampCache();
+			let cached = stampCache.get(cacheKey);
+			if (!cached) {
+				const dabs = evaluateDabs(segments, settings, {
+					pathStart: path.pathStart ?? 0,
+					pathEnd: path.pathEnd ?? 1,
+					strokeWidths: path.strokeWidths,
+					textureAspectRatio,
+					variantCount,
+					startLayerIndex,
+					endLayerIndex,
+				});
+				cached = {
+					data: dabs.data.slice(0, dabs.count * DAB_INSTANCE_FLOATS),
+					count: dabs.count,
+				};
+				stampCache.set(cacheKey, cached, path.id);
+			}
+			if (cached.count === 0) return;
 
-			const floatCount = dabs.count * DAB_INSTANCE_FLOATS;
-			dabBuffer = this.acquireStampBuffer(floatCount * 4);
-			dabCount = dabs.count;
-			const dabView = dabs.data.subarray(0, floatCount);
+			dabBuffer = this.acquireStampBuffer(cached.data.byteLength);
+			dabCount = cached.count;
 			this.device.queue.writeBuffer(
 				dabBuffer,
 				0,
-				dabView.buffer as ArrayBuffer,
-				dabView.byteOffset,
-				dabView.byteLength,
+				cached.data.buffer as ArrayBuffer,
+				cached.data.byteOffset,
+				cached.data.byteLength,
 			);
 		}
 

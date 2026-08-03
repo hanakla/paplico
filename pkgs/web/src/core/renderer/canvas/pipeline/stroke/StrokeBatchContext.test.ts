@@ -19,6 +19,11 @@ import {
 } from "../brush/StampGenerator";
 import { StrokeBatchContext } from "./StrokeBatchContext";
 
+vi.mock("../brush/DabEvaluator", async (importOriginal) => {
+	const mod = await importOriginal<typeof import("../brush/DabEvaluator")>();
+	return { ...mod, evaluateDabs: vi.fn(mod.evaluateDabs) };
+});
+
 /** Buffer labels distinguishing the two stamp sources in a draw. */
 const RESIDENT_STAMPS = "Resident Stamp Instances";
 const POOLED_STAMPS = "Stamp Instance Buffer (Pooled)";
@@ -384,6 +389,29 @@ describe("StrokeBatchContext", () => {
 			// The full stroke would be fullCount*24 floats; the incremental
 			// frame only writes the newly-committed prefix and the tail.
 			expect(frame3Floats).toBeLessThan(fullCount * 24);
+		});
+
+		it("should evaluate committed v2 strokes once and reuse the cache across frames", () => {
+			const { context } = createContext({ maxResidentStamps: 64 });
+			const { passEncoder } = createPassEncoder();
+			const committedPath: Path = {
+				...livePreviewPath([
+					liveSeg(0, 80, 0, 90, true),
+					liveSeg(80, 150, 90, 200),
+				]),
+				id: "committed-v2",
+			};
+
+			context.beginFrame();
+			context.render(passEncoder, committedPath, 1);
+			const callsAfterFirst = vi.mocked(evaluateDabs).mock.calls.length;
+			expect(callsAfterFirst).toBeGreaterThan(0);
+
+			// Pan/zoom re-render: same geometry, new frame — the dab buffer
+			// must come from the cache without re-evaluating.
+			context.beginFrame();
+			context.render(passEncoder, committedPath, 1);
+			expect(vi.mocked(evaluateDabs).mock.calls.length).toBe(callsAfterFirst);
 		});
 
 		it("should release the live buffer on destroy", () => {

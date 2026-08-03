@@ -19,14 +19,33 @@ export type BrushRenderRoute =
 	| { kind: "ribbon-legacy"; settings: BrushSettingsV2 }
 	| { kind: "geometric"; settings: BrushSettingsV2 };
 
+/**
+ * Route memoization keyed on the stored settings object. Document updates
+ * are immutable (a changed brush is a new object), so identity implies
+ * content — without this, every stroke re-normalizes on every frame and the
+ * routed settings never stay referentially stable for downstream caches.
+ */
+const routeCache = new WeakMap<object, BrushRenderRoute>();
+
 export function resolveBrushRenderRoute(raw: unknown): BrushRenderRoute {
-	const settings = normalizeBrushSettingsV2(raw);
-	if (settings.engine === "geometric") return { kind: "geometric", settings };
-	if (settings.engine === "ribbon") return { kind: "ribbon-legacy", settings };
-	if (settings.wetV1?.enabled === true) {
-		return { kind: "dab-legacy", settings };
+	const cacheable = typeof raw === "object" && raw !== null;
+	if (cacheable) {
+		const hit = routeCache.get(raw);
+		if (hit) return hit;
 	}
-	return { kind: "dab-v2", settings };
+	const settings = normalizeBrushSettingsV2(raw);
+	let route: BrushRenderRoute;
+	if (settings.engine === "geometric") {
+		route = { kind: "geometric", settings };
+	} else if (settings.engine === "ribbon") {
+		route = { kind: "ribbon-legacy", settings };
+	} else if (settings.wetV1?.enabled === true) {
+		route = { kind: "dab-legacy", settings };
+	} else {
+		route = { kind: "dab-v2", settings };
+	}
+	if (cacheable) routeCache.set(raw as object, route);
+	return route;
 }
 
 /** Legacy v1 view for the routes that still render through v1 code. */
