@@ -1,3 +1,4 @@
+import { withStoredBrushSize } from "../brush/access";
 import { createIdentityTransform } from "../document/factory";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
@@ -357,7 +358,9 @@ export class PenTool implements Tool {
 		if (this.strokeWidth != null) {
 			const bs = active.paramData.params.brushSettings;
 			return cloneAppearance(active, {
-				brushSettings: bs ? { ...bs, size: this.strokeWidth } : undefined,
+				brushSettings: bs
+					? withStoredBrushSize(bs, this.strokeWidth)
+					: undefined,
 			});
 		}
 		return cloneAppearance(active);

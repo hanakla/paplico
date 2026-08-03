@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readStoredBrushSize } from "../brush/access";
 import { createStrokeBrushSettings } from "../document/factory";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
 import type {
@@ -236,7 +237,9 @@ describe("PenTool", () => {
 			const strokeApp = path.filters?.find((f) => f.processor === "stroke") as
 				| StrokeAppearance
 				| undefined;
-			expect(strokeApp?.paramData.params.brushSettings?.size).toBe(2);
+			expect(
+				readStoredBrushSize(strokeApp?.paramData.params.brushSettings),
+			).toBe(2);
 		});
 
 		it("should create path with segments", () => {

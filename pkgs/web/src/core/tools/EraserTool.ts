@@ -1,3 +1,4 @@
+import { readStoredBrushSize } from "../brush/access";
 import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
 import type { BrushSettings } from "../schema";
 import {
@@ -1036,7 +1037,8 @@ function getBrushHalfSize(path: Path): number {
 	const strokeFilter = path.filters?.find((f) => f.processor === "stroke") as
 		| StrokeAppearance
 		| undefined;
-	const size = strokeFilter?.paramData.params.brushSettings?.size ?? 2;
+	const size =
+		readStoredBrushSize(strokeFilter?.paramData.params.brushSettings) ?? 2;
 	return size / 2;
 }
 

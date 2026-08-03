@@ -7,6 +7,7 @@ import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { usePaplico } from "@/contexts/PaplicoContext";
+import { readStoredBrushSize, withStoredBrushSize } from "@/core/brush/access";
 import { normalizeBrushSettings } from "@/core/brush/normalize";
 import type {
 	BlendMode,
@@ -181,18 +182,19 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 						$behaviour="click"
 						$side="end"
 						$size="xs"
-						value={(params.brushSettings?.size ?? 1).toFixed(1)}
+						value={(readStoredBrushSize(params.brushSettings) ?? 1).toFixed(1)}
 						onChange={(val) => {
 							if (val == null) return;
 							const parsed = Number.parseFloat(val.trim());
 							if (Number.isNaN(parsed)) return;
 							const clamped = Math.min(100, Math.max(0.5, parsed));
+							if (!params.brushSettings) return;
 							commands.updateFilterForSelectedElement(index, {
 								params: {
-									brushSettings: {
-										...params.brushSettings,
-										size: clamped,
-									},
+									brushSettings: withStoredBrushSize(
+										params.brushSettings,
+										clamped,
+									),
 								},
 							});
 						}}
@@ -202,17 +204,15 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 					min={0.5}
 					max={100}
 					step={0.5}
-					value={params.brushSettings?.size ?? 1}
-					onValueChange={(val) =>
+					value={readStoredBrushSize(params.brushSettings) ?? 1}
+					onValueChange={(val) => {
+						if (!params.brushSettings) return;
 						commands.updateFilterForSelectedElement(index, {
 							params: {
-								brushSettings: {
-									...params.brushSettings,
-									size: val,
-								},
+								brushSettings: withStoredBrushSize(params.brushSettings, val),
 							},
-						})
-					}
+						});
+					}}
 				/>
 			</div>
 

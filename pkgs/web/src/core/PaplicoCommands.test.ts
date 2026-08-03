@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readStoredBrushSize } from "./brush/access";
 import type { YjsProvider } from "./collaboration/YjsProvider";
 import {
 	createDefaultBrushSettings,
@@ -2511,10 +2512,9 @@ describe("computePerspectiveWarpUpdates (vertex bake)", () => {
 
 		const stroke = (updates[0].updates as Partial<Path>)
 			.filters?.[0] as StrokeAppearance;
-		expect(stroke.paramData.params.brushSettings?.size).toBeCloseTo(
-			createDefaultBrushSettings().size * 2,
-			6,
-		);
+		expect(
+			readStoredBrushSize(stroke.paramData.params.brushSettings),
+		).toBeCloseTo(createDefaultBrushSettings().size * 2, 6);
 	});
 
 	it("should keep stroke widths under an area-preserving shear", () => {
@@ -2540,10 +2540,9 @@ describe("computePerspectiveWarpUpdates (vertex bake)", () => {
 
 		const stroke = (updates[0].updates as Partial<Path>)
 			.filters?.[0] as StrokeAppearance;
-		expect(stroke.paramData.params.brushSettings?.size).toBeCloseTo(
-			createDefaultBrushSettings().size,
-			6,
-		);
+		expect(
+			readStoredBrushSize(stroke.paramData.params.brushSettings),
+		).toBeCloseTo(createDefaultBrushSettings().size, 6);
 	});
 
 	it("should bake warped corner vertices into an image", () => {

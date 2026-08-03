@@ -1,3 +1,4 @@
+import { readStoredBrushSize } from "../brush/access";
 import type {
 	AnyArtObject,
 	BlendMode,
@@ -66,7 +67,9 @@ export function getStrokeWidth(
 	const stroke = filters?.find(
 		(f) => f.processor === "stroke" && f.enabled !== false,
 	) as StrokeAppearance | undefined;
-	return stroke?.paramData.params.brushSettings?.size ?? fallback;
+	return (
+		readStoredBrushSize(stroke?.paramData.params.brushSettings) ?? fallback
+	);
 }
 
 /** Get the taper-in distance from the first enabled StrokeAppearance's brushSettings.taperStart */

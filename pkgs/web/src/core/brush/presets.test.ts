@@ -24,7 +24,9 @@ describe("createBuiltinBrushPresets", () => {
 	it("should enable wet ink on the watercolor-family presets", () => {
 		const presets = createBuiltinBrushPresets();
 		for (const uid of WET_INK_PRESET_UIDS) {
-			expect(hasWetInk(findPreset(presets, uid).settings)).toBe(true);
+			expect(hasWetInk(asV1Settings(findPreset(presets, uid).settings))).toBe(
+				true,
+			);
 		}
 	});
 
@@ -33,8 +35,9 @@ describe("createBuiltinBrushPresets", () => {
 			createBuiltinBrushPresets(),
 			"builtin-brush-bleed-watercolor",
 		);
-		if (preset.settings.type !== "scatter") throw new Error("expected scatter");
-		expect(preset.settings.wetInk?.pickupUnderlyingColor).toBe(true);
+		const settings = asV1Settings(preset.settings);
+		if (settings.type !== "scatter") throw new Error("expected scatter");
+		expect(settings.wetInk?.pickupUnderlyingColor).toBe(true);
 	});
 
 	it("should assign a category to every preset", () => {
@@ -45,7 +48,7 @@ describe("createBuiltinBrushPresets", () => {
 
 	it("should set speed→size influence to 0.5 on every stamp-based preset", () => {
 		for (const preset of createBuiltinBrushPresets()) {
-			const settings = preset.settings;
+			const settings = asV1Settings(preset.settings);
 			if (settings.type !== "scatter" && settings.type !== "calligraphy")
 				continue;
 			expect(settings.sizeBySpeed, preset.uid).toBe(0.5);
@@ -57,4 +60,11 @@ function findPreset(presets: BrushPreset[], uid: string): BrushPreset {
 	const preset = presets.find((p) => p.uid === uid);
 	if (!preset) throw new Error(`missing builtin preset: ${uid}`);
 	return preset;
+}
+
+function asV1Settings(
+	settings: ReturnType<typeof createBuiltinBrushPresets>[number]["settings"],
+) {
+	if ("version" in settings) throw new Error("expected v1 settings");
+	return settings;
 }

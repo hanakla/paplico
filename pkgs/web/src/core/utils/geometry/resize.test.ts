@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readStoredBrushSize } from "../../brush/access";
 import type {
 	BoundingBox,
 	CubicBezierSegment,
@@ -104,7 +105,7 @@ describe("scaleStrokeFilters", () => {
 	it("should scale brushSettings.size of stroke filters", () => {
 		const result = scaleStrokeFilters([makeStrokeAppearance(10)], 2);
 		const stroke = result?.[0] as StrokeAppearance;
-		expect(stroke.paramData.params.brushSettings?.size).toBe(20);
+		expect(readStoredBrushSize(stroke.paramData.params.brushSettings)).toBe(20);
 	});
 
 	it("should pass non-stroke filters through unchanged", () => {
@@ -133,7 +134,7 @@ describe("scaleStrokeFilters", () => {
 	it("should not mutate the original filter", () => {
 		const app = makeStrokeAppearance(10);
 		scaleStrokeFilters([app], 2);
-		expect(app.paramData.params.brushSettings?.size).toBe(10);
+		expect(readStoredBrushSize(app.paramData.params.brushSettings)).toBe(10);
 	});
 });
 
@@ -493,3 +494,38 @@ function makePath(): Path {
 		segments,
 	};
 }
+
+describe("scaleStrokeFilters with stored v2 brush settings", () => {
+	it("should scale the v2 size property base without corrupting the value", () => {
+		const app = makeStrokeAppearance(10);
+		app.paramData.params.brushSettings = {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				size: {
+					base: 10,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.5],
+								[1, 0],
+							],
+						},
+					],
+				},
+			},
+			randomSeed: 0,
+		} as unknown as StrokeAppearance["paramData"]["params"]["brushSettings"];
+
+		const result = scaleStrokeFilters([app], 2);
+		const scaled = (result?.[0] as StrokeAppearance).paramData.params
+			.brushSettings as unknown as {
+			properties: { size?: { base: number; curves?: unknown[] } };
+		};
+		expect(scaled.properties.size?.base).toBe(20);
+		expect(scaled.properties.size?.curves?.length).toBe(1);
+	});
+});

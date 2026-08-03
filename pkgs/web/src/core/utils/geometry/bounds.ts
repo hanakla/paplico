@@ -1,3 +1,4 @@
+import { readStoredBrushSize, readStoredWetInk } from "../../brush/access";
 import {
 	type AnyArtObject,
 	type BezierPoint,
@@ -136,12 +137,9 @@ export function calculatePathBounds(path: Path): LocalBBox {
 		for (const f of path.filters) {
 			if (f.processor === "stroke" && f.enabled !== false) {
 				const brush = (f as StrokeAppearance).paramData.params.brushSettings;
-				const size = brush?.size ?? 0;
+				const size = readStoredBrushSize(brush) ?? 0;
 				halfWidth = size / 2;
-				const wet =
-					brush && (brush.type === "scatter" || brush.type === "calligraphy")
-						? brush.wetInk
-						: undefined;
+				const wet = readStoredWetInk(brush);
 				if (wet?.enabled) {
 					wetExtra = size * wet.bleedWidth;
 				}

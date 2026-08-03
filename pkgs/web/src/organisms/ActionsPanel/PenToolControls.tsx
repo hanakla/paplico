@@ -4,6 +4,7 @@ import { Checkbox } from "@/components/Checkbox";
 import { DashPatternControls } from "@/components/DashPatternControls";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { usePaplico } from "@/contexts/PaplicoContext";
+import { readStoredBrushSize } from "@/core/brush/access";
 import { normalizeBrushSettings } from "@/core/brush/normalize";
 import type { BrushStroking, LineCap, LineJoin } from "@/core/schema";
 import { isGeometricBrush } from "@/core/schema";
@@ -104,7 +105,9 @@ export const PenToolControls = memo(function PenToolControls() {
 			<StrokeWidthField
 				label={t("actionsPanel.brushWidth")}
 				value={
-					toolSnap.strokeAppearance?.paramData.params.brushSettings?.size ?? 2
+					readStoredBrushSize(
+						toolSnap.strokeAppearance?.paramData.params.brushSettings,
+					) ?? 2
 				}
 				min={0.01}
 				max={Infinity}

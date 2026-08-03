@@ -3,6 +3,10 @@ import polygonClipping, {
 	type Polygon,
 	type Ring,
 } from "polygon-clipping";
+import {
+	readStoredBrushSize,
+	readStoredBrushStroking,
+} from "../../../brush/access";
 import { createIdentityTransform } from "../../../document/factory";
 import {
 	type AnyArtObject,
@@ -1254,13 +1258,13 @@ export function buildExtrudeOutline(
 	const strokeApp = resolveStrokeAppearance(filters);
 	if (!strokeApp || segments.length === 0) return segments;
 	const brush = strokeApp.paramData.params.brushSettings;
-	const halfWidth = (brush?.size ?? 1) / 2;
+	const halfWidth = (readStoredBrushSize(brush) ?? 1) / 2;
 	if (!(halfWidth > 0)) return segments;
 
 	const hasFill = resolveFillAppearance(filters) !== null;
 	// Stroking geometry exists only on the geometric stroke pen; stamp
 	// brushes fall back to the renderer's round join/cap defaults.
-	const stroking = brush?.type === "stroke" ? brush.stroking : undefined;
+	const stroking = readStoredBrushStroking(brush);
 	const roundJoin = (stroking?.lineJoin ?? "round") === "round";
 	const roundCap = (stroking?.lineCap ?? "round") === "round";
 

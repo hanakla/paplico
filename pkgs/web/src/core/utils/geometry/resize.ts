@@ -3,6 +3,7 @@
  * Pure functions for computing scaled element properties.
  */
 
+import { readStoredBrushSize, withStoredBrushSize } from "../../brush/access";
 import type {
 	BoundingBox,
 	CubicBezierSegment,
@@ -108,17 +109,18 @@ export function scaleStrokeFilters(
 	return filters?.map((f) => {
 		if (f.processor !== "stroke") return f;
 		const params = (f as StrokeAppearance).paramData.params;
-		if (!params.brushSettings) return f;
+		const size = readStoredBrushSize(params.brushSettings);
+		if (params.brushSettings == null || size === undefined) return f;
 		return {
 			...f,
 			paramData: {
 				...f.paramData,
 				params: {
 					...params,
-					brushSettings: {
-						...params.brushSettings,
-						size: params.brushSettings.size * scale,
-					},
+					brushSettings: withStoredBrushSize(
+						params.brushSettings,
+						size * scale,
+					),
 				},
 			},
 		};

@@ -69,6 +69,60 @@ describe("bounds utilities", () => {
 			expect(bounds.height).toBe(110);
 		});
 
+		it("should include size and wetV1 bleed margin for stored v2 settings", () => {
+			const path: Path = {
+				type: "path",
+				id: "test-path-v2",
+				filters: [
+					{
+						processor: "stroke",
+						paramData: {
+							version: "1",
+							params: {
+								strokeColor: {
+									type: "solid",
+									color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+								},
+								brushSettings: {
+									version: 2,
+									engine: "dab",
+									strokeOpacity: 1,
+									paintMode: "buildup",
+									properties: { size: { base: 10 } },
+									randomSeed: 0,
+									wetV1: { enabled: true, bleedWidth: 0.5 },
+								},
+							},
+						},
+					} as unknown as StrokeAppearance,
+				],
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+				segments: [
+					{
+						start: { x: 0, y: 0 },
+						cp1: { x: 0, y: 0 },
+						cp2: { x: 0, y: 0 },
+						end: { x: 100, y: 100 },
+						startTiltX: 0,
+						startTiltY: 0,
+						endTiltX: 0,
+						endTiltY: 0,
+						startDeltaTime: 0,
+						endDeltaTime: 0,
+						isMoved: true,
+					},
+				],
+			};
+
+			const bounds = calculatePathBounds(path);
+
+			// margin = size/2 (5) + size * bleedWidth (5) = 10
+			expect(bounds.minX).toBe(-10);
+			expect(bounds.maxX).toBe(110);
+		});
+
 		it("should handle empty path segments", () => {
 			const path: Path = {
 				type: "path",

@@ -14,6 +14,10 @@ import { Slider } from "@/components/Slider";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
+import {
+	readStoredBrushStroking,
+	withStoredBrushSize,
+} from "@/core/brush/access";
 import { normalizeBrushSettings } from "@/core/brush/normalize";
 import type {
 	AnyArtObject,
@@ -87,7 +91,8 @@ function StrokeWidthControl({
 
 		for (const el of elements) {
 			const stroke = getFirstStroke(el.filters);
-			if (!stroke?.paramData.params.brushSettings) continue;
+			const bs = stroke?.paramData.params.brushSettings;
+			if (!stroke || !bs) continue;
 
 			const newFilters = el.filters?.map((f) => {
 				if (f !== stroke) return f;
@@ -97,10 +102,7 @@ function StrokeWidthControl({
 						...f.paramData,
 						params: {
 							...stroke.paramData.params,
-							brushSettings: {
-								...stroke.paramData.params.brushSettings!,
-								size: value,
-							},
+							brushSettings: withStoredBrushSize(bs, value),
 						},
 					},
 				};
@@ -146,9 +148,12 @@ function StrokeWidthControl({
 			for (const el of elements) {
 				const stroke = getFirstStroke(el.filters);
 				const bs = stroke?.paramData.params.brushSettings;
-				if (!bs || bs.type !== "stroke") continue;
+				const isGeometric =
+					bs != null &&
+					("version" in bs ? bs.engine === "geometric" : bs.type === "stroke");
+				if (!bs || !isGeometric) continue;
 
-				const prev = bs.stroking;
+				const prev = readStoredBrushStroking(bs);
 				const newFilters = el.filters?.map((f) => {
 					if (f !== stroke) return f;
 					return {

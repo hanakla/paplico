@@ -1,3 +1,4 @@
+import { readStoredBrushSize } from "../brush/access";
 import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
 import { buildStrokeWidthEditOverlay } from "../renderer/ui/builders/strokeWidthEdit";
 import type { OverlayHit } from "../renderer/ui/hitTest";
@@ -552,7 +553,8 @@ export class StrokeWidthEditTool implements Tool {
 			(f) => f.processor === "stroke",
 		) as StrokeAppearance | undefined;
 
-		const size = strokeFilter?.paramData.params.brushSettings?.size ?? 2;
+		const size =
+			readStoredBrushSize(strokeFilter?.paramData.params.brushSettings) ?? 2;
 		return size / 2;
 	}
 

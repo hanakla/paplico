@@ -49,6 +49,7 @@ import type {
 } from "@/core/schema";
 import {
 	type BrushSettings,
+	type BrushSettingsV2,
 	DEFAULT_CALLIGRAPHY_SPACING,
 	DEFAULT_WET_INK_ABSORPTION,
 	DEFAULT_WET_INK_DIFFUSION,
@@ -1865,7 +1866,7 @@ export function BrushStrokePreview({
 	height,
 	className,
 }: {
-	brushSettings: BrushSettings;
+	brushSettings: BrushSettings | BrushSettingsV2;
 	textureFile: EmbeddedFile | null;
 	width: number;
 	height: number;
@@ -1977,7 +1978,7 @@ export function BrushStrokePreview({
 }
 
 type BrushStrokePreviewCacheKeyInput = {
-	brushSettings: BrushSettings;
+	brushSettings: BrushSettings | BrushSettingsV2;
 	textureHash: string;
 	width: number;
 	height: number;
