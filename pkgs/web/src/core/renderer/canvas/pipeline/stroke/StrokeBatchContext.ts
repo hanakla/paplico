@@ -2179,6 +2179,10 @@ export class StrokeBatchContext {
 		let dabFirstInstance = 0;
 		if (
 			path.id === PREVIEW_ELEMENT_SENTINEL_ID &&
+			// Wash previews draw into a fresh per-frame offscreen texture (the
+			// per-appearance plan), so the live buffer's cross-frame delta
+			// model does not apply — they take the frame-pooled path below.
+			settings.paintMode !== "wash" &&
 			(path.pathStart ?? 0) === 0 &&
 			(path.pathEnd ?? 1) === 1 &&
 			path.strokeWidths == null
@@ -2191,6 +2195,27 @@ export class StrokeBatchContext {
 			if (!live) return;
 			dabBuffer = live.buffer;
 			dabCount = live.count;
+		} else if (path.id === PREVIEW_ELEMENT_SENTINEL_ID) {
+			// Wash previews: fresh evaluation into the frame pool. Caching would
+			// churn StampCache (the geometry hash changes every pointermove) and
+			// residency would leak lease turnover for a one-frame buffer.
+			const dabs = evaluateDabs(segments, settings, {
+				textureAspectRatio,
+				variantCount,
+				startLayerIndex,
+			});
+			if (dabs.count === 0) return;
+			const floatCount = dabs.count * DAB_INSTANCE_FLOATS;
+			dabBuffer = this.acquireStampBuffer(floatCount * 4);
+			dabCount = dabs.count;
+			const dabView = dabs.data.subarray(0, floatCount);
+			this.device.queue.writeBuffer(
+				dabBuffer,
+				0,
+				dabView.buffer as ArrayBuffer,
+				dabView.byteOffset,
+				dabView.byteLength,
+			);
 		} else {
 			// Committed strokes: cache the evaluated dab buffer so pans/zooms
 			// re-upload but never re-evaluate (the pre-v2 path had the same

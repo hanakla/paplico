@@ -444,6 +444,45 @@ describe("StrokeBatchContext", () => {
 			expect(dabWrites).toHaveLength(0);
 		});
 
+		it("should not use the live incremental buffer for wash previews", () => {
+			const { context, writes } = createContext({ maxResidentStamps: 4096 });
+			const { passEncoder } = createPassEncoder();
+			const washPreview: Path = {
+				...livePreviewPath([
+					liveSeg(0, 80, 0, 90, true),
+					liveSeg(80, 120, 90, 140),
+				]),
+			};
+			const stroke = washPreview.filters![0] as unknown as StrokeAppearance;
+			stroke.paramData.params.brushSettings = normalizeBrushSettingsV2({
+				version: 2,
+				engine: "dab",
+				strokeOpacity: 0.6,
+				paintMode: "wash",
+				properties: {
+					size: { base: 10 },
+					spacing: { base: 0.2 },
+					flow: { base: 1 },
+				},
+				tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+				randomSeed: 3,
+			});
+
+			context.beginFrame();
+			context.render(passEncoder, washPreview, 1);
+
+			// Wash previews render through per-frame offscreen textures; the
+			// incremental live buffer's cross-frame delta model does not apply.
+			expect(
+				writes.some((w) => w.buffer.label === "Live Dab Instances"),
+			).toBe(false);
+			expect(
+				writes.some(
+					(w) => w.buffer.label === "Stamp Instance Buffer (Pooled)",
+				),
+			).toBe(true);
+		});
+
 		it("should release the live buffer on destroy", () => {
 			const { context, buffers } = createContext({ maxResidentStamps: 64 });
 			const { passEncoder } = createPassEncoder();
