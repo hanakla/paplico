@@ -1,11 +1,11 @@
 import type { WetEdgeConfig } from "../../../schema";
+import { compileShaderModule } from "../../../utils/wgpu-utils";
+import { WET_EDGE_SHADER } from "../../shaders/wetEdge.wgsl";
 import {
 	BlurPyramidBuilder,
 	requiredPyramidLevels,
 	selectPyramidLevels,
 } from "./BlurPyramid";
-import { compileShaderModule } from "../../../utils/wgpu-utils";
-import { WET_EDGE_SHADER } from "../../shaders/wetEdge.wgsl";
 import type { TexturePool } from "./TexturePool";
 
 /** Erosion tap cap — must match MAX_EROSION_TAPS in wetEdge.wgsl. */

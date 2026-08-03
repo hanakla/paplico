@@ -96,12 +96,10 @@ describe("WashCompositor.applyWetEdge", () => {
 					data[i + 3] = 255;
 				}
 			}
-			device.queue.writeTexture(
-				{ texture },
-				data,
-				{ bytesPerRow: size * 4 },
-				[size, size],
-			);
+			device.queue.writeTexture({ texture }, data, { bytesPerRow: size * 4 }, [
+				size,
+				size,
+			]);
 			const encoder = device.createCommandEncoder();
 			const scratch = compositor.applyWetEdge(
 				encoder,
