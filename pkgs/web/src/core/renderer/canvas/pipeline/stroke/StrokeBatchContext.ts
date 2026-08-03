@@ -18,11 +18,14 @@ import {
 	resolveScatterSourceUids,
 } from "../../../../brush/brushSource";
 import { normalizeBrushSettings } from "../../../../brush/normalize";
+import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
+import { toLegacyBrushSettings } from "../../../../brush/toLegacy";
 import { createDefaultBrushSettings } from "../../../../document/factory";
 import {
 	type ArtBrushSettings,
 	type BoundingBox,
 	type BrushSettings,
+	type BrushSettingsV2,
 	BUILTIN_BRUSH_IDS,
 	type CalligraphyBrushSettings,
 	type CubicBezierSegment,
@@ -41,6 +44,10 @@ import {
 } from "../../../../utils/geometry/segmentOps";
 import { compileShaderModule } from "../../../../utils/wgpu-utils";
 import {
+	buildBrushDabShader,
+	type DabTipMode,
+} from "../../../shaders/brushDab.wgsl";
+import {
 	BRUSH_STAMP_ARRAY_SHADER,
 	BRUSH_STAMP_SHADER,
 } from "../../../shaders/brushStamp.wgsl";
@@ -52,6 +59,8 @@ import {
 	type TextureArrayResult,
 } from "../brush/BrushTextureArrayBuilder";
 import type { BrushTextureManager } from "../brush/BrushTextureManager";
+import { evaluateDabs } from "../brush/DabEvaluator";
+import { DAB_INSTANCE_FLOATS } from "../brush/DabInstanceLayout";
 import {
 	generateRibbonInstances,
 	RIBBON_FLOATS_PER_INSTANCE,
@@ -69,6 +78,11 @@ import {
 	replaceStampPathIndex,
 	STAMP_META_INDEX_MASK,
 } from "../brush/StampPacking";
+import {
+	buildFalloffLutLayersData,
+	FALLOFF_LUT_LAYERS,
+	FALLOFF_LUT_SIZE,
+} from "../brush/TipMaskBuilder";
 import { GeometryStore } from "../GeometryStore";
 import { BoundedStampStore } from "./BoundedStampStore";
 
@@ -284,6 +298,12 @@ export class StrokeBatchContext {
 	private batchRibbonParams = new Float32Array(4);
 
 	// Scatter (texture array) pipeline — lazy initialized
+	private dabPipelines = new Map<
+		DabTipMode,
+		{ pipeline: GPURenderPipeline; bindGroupLayout: GPUBindGroupLayout }
+	>();
+	private falloffLutView: GPUTextureView | null = null;
+	private falloffSampler: GPUSampler | null = null;
 	private scatterPipeline: GPURenderPipeline | null = null;
 	private scatterBindGroupLayout: GPUBindGroupLayout | null = null;
 	private textureArrayBuilder: BrushTextureArrayBuilder | null = null;
@@ -952,28 +972,40 @@ export class StrokeBatchContext {
 
 		const { brushSettings: pathBrushSettings } =
 			StrokeBatchContext.extractStrokeParams(path);
-		const brushSettings: BrushSettings =
-			pathBrushSettings ?? createDefaultBrushSettings();
+		const route = resolveBrushRenderRoute(
+			pathBrushSettings ?? createDefaultBrushSettings(),
+		);
+
+		// Geometric stroke is rendered by ElementRenderer, not the stamp pipeline.
+		if (route.kind === "geometric") return;
 
 		// Ribbon methods (pattern/art): accumulate ribbon instances separately
-		if (brushSettings.type === "pattern" || brushSettings.type === "art") {
+		if (route.kind === "ribbon-legacy") {
+			const legacy = toLegacyBrushSettings(route.settings);
+			if (legacy.type !== "pattern" && legacy.type !== "art") return;
 			const patternSettings =
-				brushSettings.type === "art"
-					? artBrushToPatternInput(brushSettings)
-					: brushSettings;
+				legacy.type === "art" ? artBrushToPatternInput(legacy) : legacy;
 			this.addRibbonToBatch(
 				path,
 				segments,
 				patternSettings,
-				brushSettings,
+				legacy,
 				alphaMultiplier,
 				transformIndex,
 			);
 			return;
 		}
 
-		// Geometric stroke is rendered by ElementRenderer, not the stamp pipeline.
-		if (brushSettings.type === "stroke") return;
+		// dab-v2 strokes never enter this batch in phase 1 — the CanvasLayer
+		// filter routes them through the immediate path. A stray call falls
+		// back to the legacy renderer so a stroke is never dropped.
+		const brushSettings = toLegacyBrushSettings(route.settings);
+		if (
+			brushSettings.type !== "scatter" &&
+			brushSettings.type !== "calligraphy"
+		) {
+			return;
+		}
 
 		// Stamp methods (scatter/calligraphy) — resident lease: uploaded once,
 		// every later frame draws straight from the stores. A stroke the
@@ -1966,21 +1998,26 @@ export class StrokeBatchContext {
 
 		const { brushSettings: pathBrushSettings } =
 			StrokeBatchContext.extractStrokeParams(path);
-		const brushSettings: BrushSettings =
-			pathBrushSettings ?? createDefaultBrushSettings();
+		const route = resolveBrushRenderRoute(
+			pathBrushSettings ?? createDefaultBrushSettings(),
+		);
 
-		// Ribbon methods (pattern/art): bezier segment instancing
-		if (brushSettings.type === "pattern" || brushSettings.type === "art") {
+		// Geometric stroke is rendered by ElementRenderer, not the stamp pipeline.
+		if (route.kind === "geometric") return;
+
+		// Ribbon methods (pattern/art): bezier segment instancing through the
+		// legacy renderer until the ribbon integration phase.
+		if (route.kind === "ribbon-legacy") {
+			const legacy = toLegacyBrushSettings(route.settings);
+			if (legacy.type !== "pattern" && legacy.type !== "art") return;
 			const patternSettings =
-				brushSettings.type === "art"
-					? artBrushToPatternInput(brushSettings)
-					: brushSettings;
+				legacy.type === "art" ? artBrushToPatternInput(legacy) : legacy;
 			this.renderRibbon(
 				passEncoder,
 				path,
 				actualSegments,
 				patternSettings,
-				brushSettings,
+				legacy,
 				alphaMultiplier,
 				transformsBindGroup,
 				transformIndex,
@@ -1988,8 +2025,29 @@ export class StrokeBatchContext {
 			return;
 		}
 
-		// Geometric stroke is rendered by ElementRenderer, not the stamp pipeline.
-		if (brushSettings.type === "stroke") return;
+		// v2 dab pipeline (curve matrix + linearize + procedural tips).
+		if (route.kind === "dab-v2") {
+			this.renderDabsV2(
+				passEncoder,
+				path,
+				route.settings,
+				actualSegments,
+				alphaMultiplier,
+				transformsBindGroup,
+				transformIndex,
+			);
+			return;
+		}
+
+		// dab-legacy: wetV1 keeps the v1 stamp path authoritative until the wet
+		// switchover (design §13-7).
+		const brushSettings = toLegacyBrushSettings(route.settings);
+		if (
+			brushSettings.type !== "scatter" &&
+			brushSettings.type !== "calligraphy"
+		) {
+			return;
+		}
 
 		// Stamp methods (scatter/calligraphy) — draw straight from the resident
 		// stores (zero uploads on cache hit; off-screen stamps clip in the
@@ -2025,6 +2083,267 @@ export class StrokeBatchContext {
 			},
 			transformsBindGroup,
 		);
+	}
+
+	/** v2 dab pipeline — immediate (frame-pooled) draw for curve-matrix
+	 *  strokes. Residency/batching integration arrives with
+	 *  BrushStrokeSession (plan phase 2); until then every v2 dab stroke
+	 *  uploads its instances per frame. */
+	private renderDabsV2(
+		passEncoder: GPURenderPassEncoder,
+		path: Path,
+		settings: BrushSettingsV2,
+		segments: CubicBezierSegment[],
+		alphaMultiplier: number,
+		transformsBindGroup: GPUBindGroup | undefined,
+		transformIndex: number,
+	): void {
+		let tipMode: DabTipMode = "procedural";
+		let textureView: GPUTextureView | null = null;
+		let sampler: GPUSampler | null = null;
+		let textureAspectRatio = 1;
+		let variantCount = 0;
+		let startLayerIndex = -1;
+		let endLayerIndex = -1;
+
+		if (settings.tip?.kind === "image") {
+			// Texture resolution reuses the battle-tested v1 machinery through
+			// the down-converted view (uids, variant arrays, start/end layers).
+			const legacy = toLegacyBrushSettings(settings);
+			if (legacy.type !== "scatter") return;
+			const setup = this.resolveScatterTextureSetup(
+				legacy,
+				legacy,
+				() => this.ensureScatterPipeline().arrayBuilder,
+			);
+			textureAspectRatio = this.textureManager.getTextureAspectRatio(
+				setup.effectiveTextureFileUid,
+			);
+			variantCount = setup.variantCount;
+			startLayerIndex = setup.startLayerIndex;
+			endLayerIndex = setup.endLayerIndex;
+			if (setup.textureArrayResult) {
+				tipMode = "imageArray";
+				textureView = setup.textureArrayResult.texture.createView({
+					dimension: "2d-array",
+				});
+				sampler = setup.textureArrayResult.sampler;
+			} else {
+				tipMode = "image";
+				const uid = this.resolveTextureUid(setup.effectiveTextureFileUid);
+				const texture = this.textureManager.getTexture(uid);
+				if (!texture) return;
+				let view = this.textureViewCache.get(uid);
+				if (!view) {
+					view = texture.createView();
+					this.textureViewCache.set(uid, view);
+				}
+				textureView = view;
+				this.cachedSampler ??= this.textureManager.getSampler();
+				sampler = this.cachedSampler;
+			}
+		} else {
+			const falloff = this.ensureFalloffLut();
+			textureView = falloff.view;
+			sampler = falloff.sampler;
+		}
+		if (!textureView || !sampler) return;
+
+		const dabs = evaluateDabs(segments, settings, {
+			pathStart: path.pathStart ?? 0,
+			pathEnd: path.pathEnd ?? 1,
+			strokeWidths: path.strokeWidths,
+			textureAspectRatio,
+			variantCount,
+			startLayerIndex,
+			endLayerIndex,
+		});
+		if (dabs.count === 0) return;
+
+		const floatCount = dabs.count * DAB_INSTANCE_FLOATS;
+		const dabBuffer = this.acquireStampBuffer(floatCount * 4);
+		const dabView = dabs.data.subarray(0, floatCount);
+		this.device.queue.writeBuffer(
+			dabBuffer,
+			0,
+			dabView.buffer as ArrayBuffer,
+			dabView.byteOffset,
+			dabView.byteLength,
+		);
+
+		const singleMeta = new Float32Array(PATH_META_FLOATS);
+		this.writeSinglePathMeta(
+			singleMeta,
+			0,
+			path,
+			alphaMultiplier,
+			transformIndex,
+		);
+		const pathMetaBuffer = this.acquirePathMetaBuffer(PATH_META_FLOATS * 4);
+		this.device.queue.writeBuffer(pathMetaBuffer, 0, singleMeta);
+
+		const { strokeColor } = StrokeBatchContext.extractStrokeParams(path);
+		const stopData = buildColorStopsData(strokeColor);
+		const colorStopsBuffer = this.acquireColorStopsBuffer(stopData.byteLength);
+		this.device.queue.writeBuffer(colorStopsBuffer, 0, stopData);
+
+		const { pipeline, bindGroupLayout } = this.ensureDabPipeline(tipMode);
+		const bindGroup0 = this.device.createBindGroup({
+			label: "Brush Dab Bind Group 0",
+			layout: bindGroupLayout,
+			entries: [
+				{ binding: 0, resource: { buffer: this.getEffectiveUniformBuffer() } },
+				{ binding: 1, resource: { buffer: dabBuffer } },
+				{ binding: 2, resource: textureView },
+				{ binding: 3, resource: sampler },
+			],
+		});
+		const bindGroup1 = this.device.createBindGroup({
+			label: "Brush Dab Bind Group 1",
+			layout: this.brushBindGroupLayout,
+			entries: [
+				{ binding: 0, resource: { buffer: pathMetaBuffer } },
+				{ binding: 1, resource: { buffer: colorStopsBuffer } },
+			],
+		});
+
+		passEncoder.setPipeline(pipeline);
+		passEncoder.setBindGroup(0, bindGroup0);
+		passEncoder.setBindGroup(1, bindGroup1);
+		if (transformsBindGroup) {
+			passEncoder.setBindGroup(2, transformsBindGroup);
+		}
+		passEncoder.setBindGroup(3, this.getMaskBindGroup());
+		passEncoder.draw(6, dabs.count, 0, 0);
+	}
+
+	private ensureDabPipeline(mode: DabTipMode): {
+		pipeline: GPURenderPipeline;
+		bindGroupLayout: GPUBindGroupLayout;
+	} {
+		const existing = this.dabPipelines.get(mode);
+		if (existing) return existing;
+
+		const { module } = compileShaderModule(this.device, {
+			label: `Brush Dab Shader (${mode})`,
+			code: buildBrushDabShader({ tipMode: mode }),
+		});
+		const bindGroupLayout = this.device.createBindGroupLayout({
+			label: `Brush Dab Bind Group Layout 0 (${mode})`,
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.VERTEX,
+					buffer: { type: "uniform" },
+				},
+				{
+					// The fragment stage reads per-dab extras via the flat
+					// instance index (packed color, hardness layer, wet seeds).
+					binding: 1,
+					visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: {
+						sampleType: "float",
+						viewDimension: mode === "image" ? "2d" : "2d-array",
+					},
+				},
+				{
+					binding: 3,
+					visibility: GPUShaderStage.FRAGMENT,
+					sampler: { type: "filtering" },
+				},
+			],
+		});
+		const pipelineLayout = this.device.createPipelineLayout({
+			label: `Brush Dab Pipeline Layout (${mode})`,
+			bindGroupLayouts: [
+				bindGroupLayout,
+				this.brushBindGroupLayout,
+				this.transformsBindGroupLayout,
+				this.maskBindGroupLayout,
+			],
+		});
+		const blendState: GPUBlendState = {
+			color: {
+				srcFactor: "one",
+				dstFactor: "one-minus-src-alpha",
+				operation: "add",
+			},
+			alpha: {
+				srcFactor: "one",
+				dstFactor: "one-minus-src-alpha",
+				operation: "add",
+			},
+		};
+		const pipeline = this.device.createRenderPipeline({
+			label: `Brush Dab Pipeline (${mode})`,
+			layout: pipelineLayout,
+			vertex: { module, entryPoint: "vs_main" },
+			fragment: {
+				module,
+				entryPoint: "fs_main",
+				targets: [{ format: this.canvasFormat, blend: blendState }],
+			},
+			primitive: { topology: "triangle-list", cullMode: "none" },
+			depthStencil: {
+				format: "depth24plus-stencil8",
+				depthWriteEnabled: false,
+				depthCompare: "always",
+				stencilFront: {
+					compare: "always",
+					passOp: "keep",
+					failOp: "keep",
+					depthFailOp: "keep",
+				},
+				stencilBack: {
+					compare: "always",
+					passOp: "keep",
+					failOp: "keep",
+					depthFailOp: "keep",
+				},
+				stencilWriteMask: 0x00,
+				stencilReadMask: 0x00,
+			},
+			multisample: { count: RENDER_SAMPLE_COUNT },
+		});
+
+		const entry = { pipeline, bindGroupLayout };
+		this.dabPipelines.set(mode, entry);
+		return entry;
+	}
+
+	/** 32-layer falloff LUT (r8unorm 256x1) for procedural tips. */
+	private ensureFalloffLut(): { view: GPUTextureView; sampler: GPUSampler } {
+		if (this.falloffLutView && this.falloffSampler) {
+			return { view: this.falloffLutView, sampler: this.falloffSampler };
+		}
+		const texture = this.device.createTexture({
+			label: "Brush Dab Falloff LUT",
+			size: [FALLOFF_LUT_SIZE, 1, FALLOFF_LUT_LAYERS],
+			format: "r8unorm",
+			usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+		});
+		const layers = buildFalloffLutLayersData();
+		for (let layer = 0; layer < layers.length; layer++) {
+			this.device.queue.writeTexture(
+				{ texture, origin: [0, 0, layer] },
+				layers[layer],
+				{ bytesPerRow: FALLOFF_LUT_SIZE, rowsPerImage: 1 },
+				[FALLOFF_LUT_SIZE, 1, 1],
+			);
+		}
+		this.falloffLutView = texture.createView({ dimension: "2d-array" });
+		this.falloffSampler = this.device.createSampler({
+			magFilter: "linear",
+			minFilter: "linear",
+			addressModeU: "clamp-to-edge",
+			addressModeV: "clamp-to-edge",
+		});
+		return { view: this.falloffLutView, sampler: this.falloffSampler };
 	}
 
 	/** Per-frame pooled fallback when a resident lease cannot be used: the

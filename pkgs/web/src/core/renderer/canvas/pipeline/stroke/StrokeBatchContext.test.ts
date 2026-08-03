@@ -175,6 +175,29 @@ describe("StrokeBatchContext", () => {
 	});
 
 	describe("same-frame conflict fallback", () => {
+		// The resident/pooled machinery serves the legacy (wetV1) route during
+		// the v2 transition; a wet brush pins these strokes onto it.
+		const WET_SCATTER_ARRAY: ScatterBrushSettings = {
+			...SCATTER_ARRAY,
+			wetInk: {
+				enabled: true,
+				bleedWidth: 0.3,
+				edgeDarkening: 0.4,
+				edgeRoughness: 0.3,
+				paperGrain: 0.2,
+				paperScale: 1,
+				directionality: 0.4,
+				speedInfluence: 0.5,
+				accelInfluence: 0.3,
+				wetness: 0.7,
+				pigmentLoad: 0.85,
+				absorption: 0.35,
+				granulation: 0.25,
+				pickupUnderlyingColor: false,
+				pickupStrength: 0.35,
+			},
+		};
+
 		it("should regenerate a resident-baked stroke at pooled meta index 0, keeping its texture layers", () => {
 			const count = stampCountFor(SHORT_LENGTH);
 			const { context, writes } = createContext({
@@ -184,8 +207,8 @@ describe("StrokeBatchContext", () => {
 			context.beginBatch();
 			// "a" takes meta index 0, so "b" resident-izes with a NON-zero baked
 			// meta index — exactly the bits the conflict fallback must clear.
-			addStroke(context, "a", SHORT_LENGTH, SCATTER_ARRAY);
-			const bPath = scatterPath("b", SHORT_LENGTH, SCATTER_ARRAY);
+			addStroke(context, "a", SHORT_LENGTH, WET_SCATTER_ARRAY);
+			const bPath = scatterPath("b", SHORT_LENGTH, WET_SCATTER_ARRAY);
 			context.addToBatch(bPath, bPath.segments, 1);
 
 			const { passEncoder, draws } = createPassEncoder();

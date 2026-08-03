@@ -4,6 +4,7 @@ import {
 	resolveScatterSourceUids,
 } from "../../brush/brushSource";
 import { normalizeBrushSettings } from "../../brush/normalize";
+import { resolveBrushRenderRoute } from "../../brush/renderRoute";
 import type { SoftProofLutResult } from "../../color/types";
 import { createIdentityTransform } from "../../document/factory";
 import {
@@ -26,7 +27,6 @@ import {
 	hasWetInk,
 	isBlend,
 	isCompoundPath,
-	isGeometricBrush,
 	isGroup,
 	isIdentityTransform,
 	isMesh,
@@ -5181,10 +5181,15 @@ export class CanvasLayer {
 				const batchableStrokes = enabledStrokes.filter((s) => {
 					if (!s.paramData.params.brushSettings) return false;
 					if (!s.paramData.params.strokeColor) return false;
-					const brush = normalizeBrushSettings(
-						s.paramData.params.brushSettings,
+					// Only the legacy ribbon path batches during the v2
+					// transition: v2 dab strokes draw immediately (their
+					// residency/batching arrives with BrushStrokeSession),
+					// wet strokes keep their isolated path, and geometric
+					// strokes render through ElementRenderer.
+					return (
+						resolveBrushRenderRoute(s.paramData.params.brushSettings).kind ===
+						"ribbon-legacy"
 					);
-					return !isGeometricBrush(brush) && !hasWetInk(brush);
 				});
 				const canBatch =
 					batchRegistry &&
