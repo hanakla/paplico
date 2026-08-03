@@ -357,6 +357,8 @@ export interface BezierPoint {
 	pressure?: number;
 	tiltX?: number;
 	tiltY?: number;
+	/** Pen barrel rotation in degrees (0–359, PointerEvent.twist). */
+	twist?: number;
 	deltaTime?: number;
 }
 
@@ -390,6 +392,10 @@ export interface CubicBezierSegment {
 	endTiltX: number;
 	/** Pen tilt Y at the end of this segment (-90–90 degrees). */
 	endTiltY: number;
+	/** Pen barrel rotation at the start of this segment (0–359 degrees). */
+	startTwist?: number;
+	/** Pen barrel rotation at the end of this segment (0–359 degrees). */
+	endTwist?: number;
 	/** Elapsed time from stroke start at segment start (ms). */
 	startDeltaTime: number;
 	/** Elapsed time from stroke start at segment end (ms). */
