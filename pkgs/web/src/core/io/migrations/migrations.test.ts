@@ -18,6 +18,7 @@ import { migColorProfile } from "./20260613_mig_color_profile";
 import { migDefs } from "./20260617_mig_defs";
 import { migRasterizationDpi } from "./20260705_mig_rasterization_dpi";
 import { migGradientStopMidpoint } from "./20260722_mig_gradient_stop_midpoint";
+import { migBrushV2 } from "./20260803_mig_brush_v2";
 import { applyMigration, applyMigrations } from "./index";
 
 const defaultViewport: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
@@ -1245,5 +1246,136 @@ describe("migGradientStopMidpoint (20260722)", () => {
 		applyMigrations(doc);
 
 		expect(doc.schemaVersion).toBe(20260722);
+	});
+});
+
+describe("migBrushV2 (20260803)", () => {
+	function makeV1ScatterSettings(): Record<string, unknown> {
+		return {
+			type: "scatter",
+			size: 20,
+			sizeByPressure: 0.5,
+			opacity: 0.8,
+			opacityByPressure: 0.3,
+			randomSeed: 7,
+			source: { kind: "file", fileUid: "tex-1" },
+			spacing: 0.12,
+			flow: 0.6,
+			stampRotation: "none",
+			rotationByTilt: 0,
+			aspectRatioByTilt: 0,
+			sizeBySpeed: 0,
+			pooling: 0,
+			poolingSizeRatio: 0.5,
+			wetInk: {
+				enabled: true,
+				bleedWidth: 0.5,
+				edgeDarkening: 0.4,
+				edgeRoughness: 0.3,
+				paperGrain: 0.2,
+				paperScale: 1,
+				directionality: 0.4,
+				speedInfluence: 0.5,
+				accelInfluence: 0.3,
+				wetness: 0.7,
+				pigmentLoad: 0.85,
+				absorption: 0.35,
+				granulation: 0.25,
+				pickupUnderlyingColor: true,
+				pickupStrength: 0.35,
+			},
+		};
+	}
+
+	function makeBrushDoc(): Document {
+		const doc = makeDoc({
+			p1: makeLegacyPath({
+				filters: [
+					{
+						enabled: true,
+						processor: "stroke",
+						opacity: 1,
+						blendMode: "normal",
+						paramData: {
+							params: {
+								strokeColor: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+								brushSettings: makeV1ScatterSettings(),
+							},
+						},
+					},
+				],
+			}),
+		});
+		doc.brushPresets = [
+			{
+				uid: "preset-1",
+				name: "Preset 1",
+				settings: {
+					type: "stroke",
+					size: 4,
+					sizeByPressure: 0,
+					opacity: 1,
+					opacityByPressure: 0,
+					randomSeed: 0,
+				} as BrushSettings,
+			},
+		];
+		return doc;
+	}
+
+	it("migrates element filters and document presets to v2 simultaneously", () => {
+		const doc = makeBrushDoc();
+
+		applyMigration(doc, migBrushV2);
+
+		const filterParams = (doc.objects.p1 as any).filters[0].paramData
+			.params as Record<string, any>;
+		expect(filterParams.brushSettings.version).toBe(2);
+		expect(filterParams.brushSettings.engine).toBe("dab");
+		expect((doc.brushPresets?.[0]?.settings as any).version).toBe(2);
+		expect((doc.brushPresets?.[0]?.settings as any).engine).toBe("geometric");
+	});
+
+	it("preserves wet ink settings as wetV1 without synthesizing v2 wet", () => {
+		const doc = makeBrushDoc();
+
+		applyMigration(doc, migBrushV2);
+
+		const bs = (doc.objects.p1 as any).filters[0].paramData.params
+			.brushSettings as Record<string, any>;
+		expect(bs.wetV1?.enabled).toBe(true);
+		expect(bs.wetV1?.bleedWidth).toBeCloseTo(0.5, 10);
+		expect(bs.wet).toBeUndefined();
+	});
+
+	it("converts a legacy flat preset shape (defaultSettings + textureFileUid)", () => {
+		const doc = makeDoc({});
+		doc.brushPresets = [
+			{
+				uid: "legacy-1",
+				name: "Legacy",
+				defaultSettings: { size: 9 },
+				textureFileUid: "builtin-brush-soft-circle",
+			} as unknown as BrushPreset,
+		];
+
+		applyMigration(doc, migBrushV2);
+
+		const settings = (doc.brushPresets?.[0] as any).settings;
+		expect(settings.version).toBe(2);
+		expect(settings.engine).toBe("dab");
+		expect(settings.properties.size.base).toBe(9);
+	});
+
+	it("is idempotent when applied twice", () => {
+		const doc = makeBrushDoc();
+
+		applyMigration(doc, migBrushV2);
+		const once = structuredClone(doc);
+		doc.schemaVersion = undefined;
+		applyMigration(doc, migBrushV2);
+		doc.schemaVersion = once.schemaVersion;
+
+		expect(doc).toEqual(once);
 	});
 });
