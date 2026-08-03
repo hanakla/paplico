@@ -997,10 +997,9 @@ export class StrokeBatchContext {
 	): void {
 		if (segments.length === 0) return;
 
-		const { brushSettings: pathBrushSettings } =
-			StrokeBatchContext.extractStrokeParams(path);
+		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
 		const route = resolveBrushRenderRoute(
-			pathBrushSettings ?? createDefaultBrushSettings(),
+			rawBrushSettings ?? createDefaultBrushSettings(),
 		);
 
 		// Geometric stroke is rendered by ElementRenderer, not the stamp pipeline.
@@ -2023,10 +2022,9 @@ export class StrokeBatchContext {
 		const actualSegments = segments ?? path.segments;
 		if (actualSegments.length === 0) return;
 
-		const { brushSettings: pathBrushSettings } =
-			StrokeBatchContext.extractStrokeParams(path);
+		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
 		const route = resolveBrushRenderRoute(
-			pathBrushSettings ?? createDefaultBrushSettings(),
+			rawBrushSettings ?? createDefaultBrushSettings(),
 		);
 
 		// Geometric stroke is rendered by ElementRenderer, not the stamp pipeline.
@@ -3010,6 +3008,9 @@ export class StrokeBatchContext {
 	private static extractStrokeParams(path: Path): {
 		strokeColor: StrokeColor | undefined;
 		brushSettings: BrushSettings | undefined;
+		/** Stored value as-is — route resolution MUST use this: the legacy
+		 *  view drops v2-only state (paintMode, curves, wet config). */
+		rawBrushSettings: unknown;
 	} {
 		const strokeApp = path.filters?.find((f) => f.processor === "stroke") as
 			| StrokeAppearance
@@ -3021,6 +3022,7 @@ export class StrokeBatchContext {
 				rawBrushSettings != null
 					? normalizeBrushSettings(rawBrushSettings)
 					: undefined,
+			rawBrushSettings,
 		};
 	}
 }

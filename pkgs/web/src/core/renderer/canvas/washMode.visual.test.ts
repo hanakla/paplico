@@ -74,13 +74,14 @@ function washBrush(overrides: {
  */
 async function renderCrossPixels(
 	brushSettings: ReturnType<typeof washBrush>,
+	strokeRgb?: { r: number; g: number; b: number },
 ): Promise<{ atCrossing: number[]; offCrossing: number[] }> {
 	const { renderer, canvas } = await createTestRenderer();
 	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
 	const device = renderer.getDevice();
 	if (!device) throw new Error("Test renderer has no GPU device");
 
-	const doc = crossDoc(brushSettings);
+	const doc = crossDoc(brushSettings, strokeRgb);
 	// Warm caches on identical frames before asserting (render cache rule).
 	await renderWithViewport(renderer, canvas, doc, viewport);
 	await renderWithViewport(renderer, canvas, doc, viewport);
@@ -106,7 +107,10 @@ async function renderCrossPixels(
 	return { atCrossing, offCrossing };
 }
 
-function crossDoc(brushSettings: ReturnType<typeof washBrush>): Document {
+function crossDoc(
+	brushSettings: ReturnType<typeof washBrush>,
+	strokeRgb: { r: number; g: number; b: number } = { r: 0, g: 0, b: 0 },
+): Document {
 	const path: Path = {
 		id: "wash-cross-stroke",
 		type: "path",
@@ -156,7 +160,7 @@ function crossDoc(brushSettings: ReturnType<typeof washBrush>): Document {
 					params: {
 						strokeColor: {
 							type: "solid",
-							color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+							color: { type: "rgb", ...strokeRgb, a: 1 },
 						},
 						brushSettings,
 					},
@@ -174,4 +178,63 @@ function crossDoc(brushSettings: ReturnType<typeof washBrush>): Document {
 	doc.layers.push(layer);
 	doc.artboards.push(createArtboard("wash-mode-ab", "Main", 0, 0, 800, 600));
 	return doc;
+}
+
+describe("Wash wet edge", () => {
+	it("should darken the stroke rim relative to its interior", async () => {
+		const brush = normalizeBrushSettingsV2({
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 0.6,
+			paintMode: "wash",
+			properties: {
+				size: { base: 40 },
+				spacing: { base: 0.1 },
+				flow: { base: 1 },
+			},
+			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+			wetEdge: { width: 6, intensity: 0.6, darkening: 0.6, blur: 0 },
+			randomSeed: 1,
+		});
+		// Red stroke: darkening scales the straight color, which is invisible
+		// on black; alpha sits saturated inside the buffer either way.
+		const red = { r: 1, g: 0, b: 0 };
+		const { offCrossing: armInterior } = await renderCrossPixels(brush, red);
+		// Interior: red at strokeOpacity 0.6 over white keeps R near 255.
+		expect(armInterior[0]).toBeGreaterThan(230);
+
+		// The rim band darkens the red channel along the arm's edge profile.
+		const darkestR = await renderRimProfileDarkest(brush, red);
+		expect(darkestR).toBeLessThan(armInterior[0] - 40);
+	});
+});
+
+/**
+ * Darkest red channel along the vertical profile x=500, y 276..298 — the top
+ * rim band of the horizontal arm (half width 20, rim width 6).
+ */
+async function renderRimProfileDarkest(
+	brushSettings: ReturnType<typeof washBrush>,
+	strokeRgb?: { r: number; g: number; b: number },
+): Promise<number> {
+	const { renderer, canvas } = await createTestRenderer();
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no GPU device");
+	const doc = crossDoc(brushSettings, strokeRgb);
+	await renderWithViewport(renderer, canvas, doc, viewport);
+	await renderWithViewport(renderer, canvas, doc, viewport);
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const pixels = await captureTexturePixels(
+		device,
+		texture,
+		texture.width,
+		texture.height,
+	);
+	let darkest = 255;
+	for (let sy = 276; sy <= 298; sy++) {
+		darkest = Math.min(darkest, pixels[(sy * texture.width + 500) * 4]);
+	}
+	texture.destroy();
+	return darkest;
 }

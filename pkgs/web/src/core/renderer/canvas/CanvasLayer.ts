@@ -199,6 +199,7 @@ import {
 import { TexturePool, texturePoolBudgetBytes } from "./pipeline/TexturePool";
 import { UniformScope } from "./pipeline/UniformScope";
 import { ViewportManager } from "./pipeline/ViewportManager";
+import { WashCompositor } from "./pipeline/WashCompositor";
 
 interface PendingWetInkJob {
 	compositeContext: CompositeRenderContext;
@@ -426,6 +427,7 @@ export class CanvasLayer {
 	// -- Caches --
 	private cache: DocumentCache;
 	private texturePool!: TexturePool;
+	private washCompositor!: WashCompositor;
 	/** Persistent shared vertex buffer for retained element geometry. One per
 	 *  canvas target, shared across document cache scopes (entries own their
 	 *  leased ranges and release them when their cache scope drops). */
@@ -835,6 +837,11 @@ export class CanvasLayer {
 		});
 
 		this.texturePool = new TexturePool(this.device);
+		this.washCompositor = new WashCompositor(
+			this.device,
+			this.texturePool,
+			this.canvasFormat,
+		);
 		this.backdropCaptureManager.setTexturePool(this.texturePool);
 		this.backdropEffectCoordinator = new BackdropEffectCoordinator(
 			this.device,
@@ -4199,6 +4206,18 @@ export class CanvasLayer {
 					appResult.effectiveZoom,
 					fp.textureBounds,
 				);
+			}
+
+			// Watercolor rim on the isolated wash appearance (design §9).
+			if (isWash && plan.washWetEdge) {
+				const scratch = this.washCompositor.applyWetEdge(
+					encoder,
+					appTexture,
+					plan.washWetEdge,
+					1 / appResult.effectiveZoom,
+					plan.washBrushSize ?? 0,
+				);
+				for (const texture of scratch) this.offscreen.deferDestroy(texture);
 			}
 
 			// Blit appearance result onto accumulator

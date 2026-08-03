@@ -1,3 +1,4 @@
+import { readStoredBrushSize } from "../../../brush/access";
 import { resolveBrushRenderRoute } from "../../../brush/renderRoute";
 import {
 	type AnyArtObject,
@@ -14,6 +15,7 @@ import {
 	isRepeat,
 	type StrokeAppearance,
 	type Viewport,
+	type WetEdgeConfig,
 } from "../../../schema";
 import {
 	brandWorldBBox,
@@ -90,6 +92,10 @@ interface AppearancePlan {
 	/** Wash strokes only (design §6-3): strokeOpacity to apply exactly once
 	 *  when compositing the isolated appearance; dabs carry flow alone. */
 	washStrokeOpacity?: number;
+	/** Watercolor rim for wash strokes (§9); absent while wet is enabled. */
+	washWetEdge?: WetEdgeConfig;
+	/** Brush size for the wet-edge width cap (world units). */
+	washBrushSize?: number;
 }
 
 /** Contiguous run of elements to render between backdrop boundaries. */
@@ -584,8 +590,7 @@ function classifyElementFilters(
 				}
 			}
 
-			const washStrokeOpacity =
-				filter.processor === "stroke" ? washStrokeOpacityOf(filter) : null;
+			const wash = filter.processor === "stroke" ? washInfoOf(filter) : null;
 			allAppearancePlans.push({
 				appearance: filter,
 				filterIndex: i,
@@ -594,7 +599,13 @@ function classifyElementFilters(
 				textureBounds: planTexBounds,
 				opacity: filter.opacity,
 				blendMode: filter.blendMode,
-				...(washStrokeOpacity != null ? { washStrokeOpacity } : {}),
+				...(wash != null
+					? {
+							washStrokeOpacity: wash.strokeOpacity,
+							washBrushSize: wash.brushSize,
+							...(wash.wetEdge ? { washWetEdge: wash.wetEdge } : {}),
+						}
+					: {}),
 			});
 		}
 	}
@@ -1279,10 +1290,26 @@ function scanBlendingFlags(
 
 /** strokeOpacity of a wash-routed stroke appearance, or null otherwise. */
 function washStrokeOpacityOf(filter: Filter): number | null {
+	return washInfoOf(filter)?.strokeOpacity ?? null;
+}
+
+/** Wash routing info of a stroke appearance, or null for other routes. */
+function washInfoOf(filter: Filter): {
+	strokeOpacity: number;
+	brushSize: number;
+	wetEdge: WetEdgeConfig | undefined;
+} | null {
 	const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
 	if (raw == null) return null;
 	const route = resolveBrushRenderRoute(raw);
-	return route.kind === "dab-v2" && route.settings.paintMode === "wash"
-		? route.settings.strokeOpacity
-		: null;
+	if (route.kind !== "dab-v2" || route.settings.paintMode !== "wash") {
+		return null;
+	}
+	return {
+		strokeOpacity: route.settings.strokeOpacity,
+		brushSize: readStoredBrushSize(route.settings) ?? 0,
+		// Wet edge and the wet layer are exclusive (§H-4).
+		wetEdge:
+			route.settings.wet?.enabled === true ? undefined : route.settings.wetEdge,
+	};
 }
