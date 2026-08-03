@@ -209,6 +209,100 @@ describe("Wash wet edge", () => {
 	});
 });
 
+describe("Wash inside containers (strokeOpacity applies once)", () => {
+	// KNOWN GAP (appendix B route coverage): group children without a
+	// post-process filter draw inline in renderGroupChildrenToTexture and
+	// never reach the per-appearance wash isolation. Flip to it() when the
+	// container routes get wash support.
+	it.fails("should keep the crossing flat inside a group", async () => {
+		const brush = washBrush({ paintMode: "wash", strokeOpacity: 0.5, flow: 1 });
+		const { renderer, canvas } = await createTestRenderer();
+		const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+		const device = renderer.getDevice();
+		if (!device) throw new Error("Test renderer has no GPU device");
+
+		const doc = crossDoc(brush);
+		// Wrap the stroke in a group: the wash isolation must survive the
+		// group offscreen path with strokeOpacity still applied exactly once.
+		const path = doc.objects["wash-cross-stroke"];
+		const group = {
+			type: "group",
+			id: "wash-group",
+			opacity: 1,
+			blendMode: "normal",
+			transform: createDefaultTransform(),
+			childIds: [path.id],
+			visible: true,
+		} as unknown as Document["objects"][string];
+		doc.objects[group.id] = group;
+		doc.layers[doc.layers.length - 1].elementIds = [group.id];
+
+		await renderWithViewport(renderer, canvas, doc, viewport);
+		await renderWithViewport(renderer, canvas, doc, viewport);
+		const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+		const pixels = await captureTexturePixels(
+			device,
+			texture,
+			texture.width,
+			texture.height,
+		);
+		const read = (sx: number, sy: number) =>
+			pixels[(sy * texture.width + sx) * 4];
+		const atCrossing = read(400, 300);
+		const offCrossing = read(500, 300);
+		texture.destroy();
+
+		expect(offCrossing).toBeGreaterThan(110);
+		expect(offCrossing).toBeLessThan(146);
+		expect(Math.abs(atCrossing - offCrossing)).toBeLessThanOrEqual(8);
+	});
+});
+
+describe("Wash wet edge under zoom (fixed-R)", () => {
+	it("should keep the rim visible at zoom 2", async () => {
+		const brush = normalizeBrushSettingsV2({
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 0.6,
+			paintMode: "wash",
+			properties: {
+				size: { base: 40 },
+				spacing: { base: 0.1 },
+				flow: { base: 1 },
+			},
+			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+			wetEdge: { width: 6, intensity: 0.6, darkening: 0.6, blur: 0 },
+			randomSeed: 1,
+		});
+		const red = { r: 1, g: 0, b: 0 };
+		const { renderer, canvas } = await createTestRenderer();
+		const viewport = { x: 0, y: 0, zoom: 2, rotation: 0 };
+		const device = renderer.getDevice();
+		if (!device) throw new Error("Test renderer has no GPU device");
+		const doc = crossDoc(brush, red);
+		await renderWithViewport(renderer, canvas, doc, viewport);
+		await renderWithViewport(renderer, canvas, doc, viewport);
+		const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+		const pixels = await captureTexturePixels(
+			device,
+			texture,
+			texture.width,
+			texture.height,
+		);
+		// world (100, 0) -> screen (600, 300); the top rim of the arm spans
+		// world y 14..20 -> screen y 272..260 at zoom 2.
+		const interiorR = pixels[(300 * texture.width + 600) * 4];
+		let darkest = 255;
+		for (let sy = 252; sy <= 296; sy++) {
+			darkest = Math.min(darkest, pixels[(sy * texture.width + 600) * 4]);
+		}
+		texture.destroy();
+
+		expect(interiorR).toBeGreaterThan(230);
+		expect(darkest).toBeLessThan(interiorR - 40);
+	});
+});
+
 /**
  * Darkest red channel along the vertical profile x=500, y 276..298 — the top
  * rim band of the horizontal arm (half width 20, rim width 6).
