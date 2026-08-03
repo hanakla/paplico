@@ -1,4 +1,5 @@
 import type { WetEdgeConfig } from "../../../schema";
+import { BlurPyramidBuilder } from "./BlurPyramid";
 import { compileShaderModule } from "../../../utils/wgpu-utils";
 import { WET_EDGE_SHADER } from "../../shaders/wetEdge.wgsl";
 import type { TexturePool } from "./TexturePool";
@@ -15,7 +16,11 @@ const UNIFORM_FLOATS = 8;
  */
 export class WashCompositor {
 	private erodePipeline: GPURenderPipeline | null = null;
+	private rimPipeline: GPURenderPipeline | null = null;
 	private composePipeline: GPURenderPipeline | null = null;
+	private blurBuilder: BlurPyramidBuilder | null = null;
+	/** Textures acquired for the current applyWetEdge call. */
+	private scratchOut: GPUTexture[] = [];
 	private sampler: GPUSampler | null = null;
 	private bindGroupLayout: GPUBindGroupLayout | null = null;
 
@@ -65,6 +70,14 @@ export class WashCompositor {
 			usage,
 			"Wash Wet Edge Eroded",
 		);
+		const rim = this.texturePool.acquireExact(
+			width,
+			height,
+			"r8unorm",
+			1,
+			usage,
+			"Wash Wet Edge Rim",
+		);
 		const composed = this.texturePool.acquireExact(
 			width,
 			height,
@@ -73,6 +86,7 @@ export class WashCompositor {
 			usage | GPUTextureUsage.COPY_SRC,
 			"Wash Wet Edge Composed",
 		);
+		this.scratchOut = [erodedX, eroded, rim, composed];
 
 		const sourceView = texture.createView();
 		this.runPass(
@@ -94,10 +108,20 @@ export class WashCompositor {
 		);
 		this.runPass(
 			encoder,
+			this.rimPipeline!,
+			rim.createView(),
+			sourceView,
+			eroded.createView(),
+			[0, 0, 0, 0, 0, 0],
+		);
+
+		const blurredRim = this.blurRim(encoder, rim, wetEdge, worldPerPixel);
+		this.runPass(
+			encoder,
 			this.composePipeline!,
 			composed.createView(),
 			sourceView,
-			eroded.createView(),
+			blurredRim.createView(),
 			[0, 0, 0, wetEdge.intensity, wetEdge.darkening, 0],
 		);
 		encoder.copyTextureToTexture(
@@ -105,11 +129,95 @@ export class WashCompositor {
 			{ texture },
 			{ width, height },
 		);
-		return [erodedX, eroded, composed];
+		const out = this.scratchOut;
+		this.scratchOut = [];
+		return out;
+	}
+
+	/** Soften the rim band (§9): repeated separable gaussian passes whose
+	 *  count approximates the config's world-space blur width. */
+	private blurRim(
+		encoder: GPUCommandEncoder,
+		rim: GPUTexture,
+		wetEdge: WetEdgeConfig,
+		worldPerPixel: number,
+	): GPUTexture {
+		const blurPx = Math.min(
+			wetEdge.blur / Math.max(worldPerPixel, 1e-6),
+			32,
+		);
+		if (blurPx < 1) return rim;
+
+		this.blurBuilder ??= new BlurPyramidBuilder(
+			this.device,
+			(width, height, format) => {
+				const t = this.texturePool.acquireExact(
+					width,
+					height,
+					format,
+					1,
+					GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+					"Wash Wet Edge Blur",
+				);
+				this.scratchOut.push(t);
+				return t;
+			},
+		);
+		// Each X+Y pair applies sigma 2 per axis and pairs accumulate as
+		// sqrt(n); map the world blur width to roughly 2*sigma reach.
+		const pairs = Math.min(
+			8,
+			Math.max(1, Math.round((blurPx * blurPx) / 16)),
+		);
+		let current = rim;
+		for (let i = 0; i < pairs; i++) {
+			const tempX = this.texturePool.acquireExact(
+				rim.width,
+				rim.height,
+				"r8unorm",
+				1,
+				GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+				"Wash Wet Edge Blur X",
+			);
+			const tempY = this.texturePool.acquireExact(
+				rim.width,
+				rim.height,
+				"r8unorm",
+				1,
+				GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+				"Wash Wet Edge Blur Y",
+			);
+			this.scratchOut.push(tempX, tempY);
+			this.blurBuilder.encodeLevelPass(
+				encoder,
+				current,
+				rim.width,
+				rim.height,
+				tempX,
+				rim.width,
+				rim.height,
+				[1, 0],
+			);
+			this.blurBuilder.encodeLevelPass(
+				encoder,
+				tempX,
+				rim.width,
+				rim.height,
+				tempY,
+				rim.width,
+				rim.height,
+				[0, 1],
+			);
+			current = tempY;
+		}
+		return current;
 	}
 
 	public destroy(): void {
+		this.blurBuilder?.destroy();
+		this.blurBuilder = null;
 		this.erodePipeline = null;
+		this.rimPipeline = null;
 		this.composePipeline = null;
 		this.sampler = null;
 	}
@@ -153,7 +261,14 @@ export class WashCompositor {
 	}
 
 	private ensurePipelines(): void {
-		if (this.erodePipeline && this.composePipeline && this.sampler) return;
+		if (
+			this.erodePipeline &&
+			this.rimPipeline &&
+			this.composePipeline &&
+			this.sampler
+		) {
+			return;
+		}
 		const { module } = compileShaderModule(this.device, {
 			label: "Wash Wet Edge Shader",
 			code: WET_EDGE_SHADER,
@@ -186,6 +301,17 @@ export class WashCompositor {
 			fragment: {
 				module,
 				entryPoint: "fs_erode",
+				targets: [{ format: "r8unorm" }],
+			},
+			primitive: { topology: "triangle-list" },
+		});
+		this.rimPipeline = this.device.createRenderPipeline({
+			label: "Wash Wet Edge Rim",
+			layout,
+			vertex: { module, entryPoint: "vs_main" },
+			fragment: {
+				module,
+				entryPoint: "fs_rim",
 				targets: [{ format: "r8unorm" }],
 			},
 			primitive: { topology: "triangle-list" },

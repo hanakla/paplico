@@ -4,8 +4,10 @@
  * Two fullscreen passes over the isolated wash appearance texture:
  * 1. erode (run twice, X then Y): separable min-filter of coverage alpha —
  *    the eroded alpha marks the stroke interior.
- * 2. compose: rim = alpha - eroded; darken the straight color by
- *    rim*darkening and raise alpha by rim*intensity (clamped).
+ * 2. rim: alpha - eroded, extracted to its own r8 texture (optionally
+ *    blurred by the caller before composing).
+ * 3. compose: darken the straight color by rim*darkening and raise alpha by
+ *    rim*intensity (clamped).
  */
 export const WET_EDGE_SHADER = /* wgsl */ `
 struct Uniforms {
@@ -60,10 +62,16 @@ fn fs_erode(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 @fragment
+fn fs_rim(in: VertexOutput) -> @location(0) vec4<f32> {
+	let alpha = textureSampleLevel(srcTexture, srcSampler, in.uv, 0.0).a;
+	let eroded = textureSampleLevel(erodedTexture, srcSampler, in.uv, 0.0).r;
+	return vec4<f32>(clamp(alpha - eroded, 0.0, 1.0), 0.0, 0.0, 1.0);
+}
+
+@fragment
 fn fs_compose(in: VertexOutput) -> @location(0) vec4<f32> {
 	let src = textureSampleLevel(srcTexture, srcSampler, in.uv, 0.0);
-	let eroded = textureSampleLevel(erodedTexture, srcSampler, in.uv, 0.0).r;
-	let rim = clamp(src.a - eroded, 0.0, 1.0);
+	let rim = textureSampleLevel(erodedTexture, srcSampler, in.uv, 0.0).r;
 	if (src.a <= 0.0) { return vec4<f32>(0.0); }
 	let straight = src.rgb / src.a;
 	let outAlpha = min(src.a * (1.0 + rim * uniforms.intensity), 1.0);
