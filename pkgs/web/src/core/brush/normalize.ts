@@ -3,6 +3,7 @@ import {
 	type BrushColorMode,
 	type BrushPreset,
 	type BrushSettings,
+	type BrushSettingsV2,
 	type BrushStroking,
 	BUILTIN_BRUSH_IDS,
 	type CalligraphyBrushSettings,
@@ -18,6 +19,7 @@ import {
 	type StampRotation,
 	type WetInkSettings,
 } from "../schema";
+import { toLegacyBrushSettings } from "./toLegacy";
 
 /**
  * Normalize persisted brush data (legacy flat shape or current union) into a
@@ -30,6 +32,13 @@ import {
  */
 export function normalizeBrushSettings(raw: unknown): BrushSettings {
 	const r = (raw ?? {}) as Record<string, unknown>;
+	if (r.version === 2) {
+		// Stored BrushSettingsV2: every remaining v1 consumer receives the
+		// legacy view (a v2 value has no `type` field and would otherwise be
+		// misread as the legacy flat shape). v2-native consumers use
+		// normalizeBrushSettingsV2 / resolveBrushRenderRoute instead.
+		return toLegacyBrushSettings(r as unknown as BrushSettingsV2);
+	}
 	const base: BrushSettingsCommon = {
 		size: num(r.size, 10),
 		sizeByPressure: num(r.sizeByPressure, 0.5),

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BUILTIN_BRUSH_IDS } from "../schema";
+import { normalizeBrushSettingsV2 } from "./migrate";
 import { normalizeBrushPreset, normalizeBrushSettings } from "./normalize";
 
 describe("normalizeBrushSettings", () => {
@@ -226,6 +227,7 @@ describe("normalizeBrushPreset", () => {
 
 		expect(result.uid).toBe("p1");
 		expect(result.name).toBe("Pen");
+		if ("version" in result.settings) throw new Error("expected v1 settings");
 		expect(result.settings.type).toBe("stroke");
 	});
 
@@ -238,6 +240,7 @@ describe("normalizeBrushPreset", () => {
 		});
 
 		expect(result.uid).toBe("p2");
+		if ("version" in result.settings) throw new Error("expected v1 settings");
 		expect(result.settings.type).toBe("scatter");
 		if (result.settings.type !== "scatter") throw new Error("expected scatter");
 		expect(result.settings.source).toEqual({ kind: "file", fileUid: "tex-e" });
@@ -301,5 +304,44 @@ describe("normalizeBrushSettings — wetInk (Task#22)", () => {
 		expect(result.type).toBe("scatter");
 		if (result.type !== "scatter") throw new Error("expected scatter");
 		expect(result.wetInk).toBeUndefined();
+	});
+});
+
+describe("normalizeBrushSettings — v2 awareness", () => {
+	it("should return the legacy view for a stored v2 value instead of misreading it as legacy flat", () => {
+		const v2 = normalizeBrushSettingsV2({
+			type: "scatter",
+			size: 20,
+			sizeByPressure: 0.5,
+			opacity: 0.8,
+			opacityByPressure: 0.3,
+			randomSeed: 7,
+			source: { kind: "file", fileUid: "tex-1" },
+			spacing: 0.12,
+			flow: 0.6,
+			stampRotation: "tangent",
+			rotationByTilt: 0,
+			aspectRatioByTilt: 0,
+			sizeBySpeed: 0,
+			pooling: 0,
+			poolingSizeRatio: 0.5,
+		});
+
+		const view = normalizeBrushSettings(v2);
+
+		expect(view.type).toBe("scatter");
+		if (view.type !== "scatter") throw new Error("expected scatter");
+		expect(view.size).toBeCloseTo(20, 10);
+		expect(view.sizeByPressure).toBeCloseTo(0.5, 10);
+		expect(view.opacity * view.flow).toBeCloseTo(0.8 * 0.6, 10);
+		expect(view.spacing).toBeCloseTo(0.12, 10);
+		expect(view.stampRotation).toBe("tangent");
+		expect(view.source).toEqual({ kind: "file", fileUid: "tex-1" });
+	});
+
+	it("should keep the v1 legacy-flat path unchanged for non-v2 input", () => {
+		const result = normalizeBrushSettings({ size: 8 });
+		expect(result.type).toBe("scatter");
+		expect(result.size).toBe(8);
 	});
 });

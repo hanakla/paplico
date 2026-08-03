@@ -790,7 +790,10 @@ export interface FillAppearance extends Appearance<FillParams> {
 
 export interface StrokeParams {
 	strokeColor: StrokeColor;
-	brushSettings?: BrushSettings;
+	/** Stored value: v1 union in pre-v2 documents, BrushSettingsV2 after the
+	 * brush-v2 migration. Read through normalizeBrushSettings (legacy view) or
+	 * resolveBrushRenderRoute; never assume the v1 shape directly. */
+	brushSettings?: BrushSettings | BrushSettingsV2;
 }
 
 export interface StrokeAppearance extends Appearance<StrokeParams> {
@@ -1870,7 +1873,14 @@ export type BrushSettingsPatch =
 /** Whether a brush uses geometric stroke expansion instead of stamp-based rendering. */
 export function isGeometricBrush(
 	settings: BrushSettings,
-): settings is StrokeBrushSettings {
+): settings is StrokeBrushSettings;
+export function isGeometricBrush(
+	settings: BrushSettings | BrushSettingsV2,
+): boolean;
+export function isGeometricBrush(
+	settings: BrushSettings | BrushSettingsV2,
+): boolean {
+	if ("version" in settings) return settings.engine === "geometric";
 	return settings.type === "stroke";
 }
 
@@ -1903,7 +1913,7 @@ export interface BrushPreset {
 	/** Optional shelf grouping for builtin presets. */
 	category?: BrushPresetCategory;
 	/** Brush settings applied when selecting this preset */
-	settings: BrushSettings;
+	settings: BrushSettings | BrushSettingsV2;
 }
 
 // --- Brush Engine v2 Types ---

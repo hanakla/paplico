@@ -4,7 +4,11 @@ import {
 	type WetInkSettings,
 } from "../schema";
 import { evaluateBrushProperty } from "./curves";
-import { normalizeBrushSettingsV2 } from "./migrate";
+import {
+	mergeBrushSettingsV2PreservingCurves,
+	normalizeBrushSettingsV2,
+} from "./migrate";
+import { toLegacyBrushSettings } from "./toLegacy";
 
 describe("normalizeBrushSettingsV2", () => {
 	describe("v1 stroke conversion", () => {
@@ -531,5 +535,98 @@ describe("normalizeBrushSettingsV2", () => {
 			});
 			expect(v2.mixing?.enabled).toBe(false);
 		});
+	});
+});
+
+describe("mergeBrushSettingsV2PreservingCurves", () => {
+	function v2WithCustomState(): ReturnType<typeof normalizeBrushSettingsV2> {
+		return normalizeBrushSettingsV2({
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				size: { base: 20 },
+				flow: {
+					base: 0.5,
+					// A curve-editor curve the flat slider layer cannot express.
+					curves: [
+						{
+							input: "strokeT",
+							points: [
+								[0, 0.4],
+								[0.5, -0.2],
+								[1, 0.4],
+							],
+						},
+					],
+				},
+			},
+			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+			grain: {
+				source: { kind: "file", fileUid: "paper-1" },
+				scale: 2,
+				mode: "multiply",
+				randomOffsetPerStroke: true,
+			},
+			inputDynamics: { speedRef: 1.5 },
+			randomSeed: 3,
+		});
+	}
+
+	it("should keep unmanaged curves and configs across an unrelated flat patch", () => {
+		const previous = v2WithCustomState();
+		// The flat layer rebuilds from the legacy view + patch: size changed.
+		const rebuilt = normalizeBrushSettingsV2({
+			...toLegacyBrushSettings(previous),
+			size: 42,
+		});
+
+		const merged = mergeBrushSettingsV2PreservingCurves(previous, rebuilt);
+
+		expect(merged.properties.size?.base).toBe(42);
+		const strokeTCurve = merged.properties.flow?.curves?.find(
+			(c) => c.input === "strokeT",
+		);
+		expect(strokeTCurve).toBeDefined();
+		expect(strokeTCurve?.points.length).toBe(3);
+		expect(merged.grain?.source).toEqual({ kind: "file", fileUid: "paper-1" });
+		expect(merged.inputDynamics?.speedRef).toBe(1.5);
+	});
+
+	it("should let flat-managed curves be replaced by the patch", () => {
+		const previous = normalizeBrushSettingsV2({
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				size: {
+					base: 20,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.5],
+								[1, 0],
+							],
+						},
+					],
+				},
+			},
+			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+			randomSeed: 0,
+		});
+		const rebuilt = normalizeBrushSettingsV2({
+			...toLegacyBrushSettings(previous),
+			sizeByPressure: 0.9,
+		});
+
+		const merged = mergeBrushSettingsV2PreservingCurves(previous, rebuilt);
+		const pressureCurves = merged.properties.size?.curves?.filter(
+			(c) => c.input === "pressure",
+		);
+		expect(pressureCurves?.length).toBe(1);
+		expect(pressureCurves?.[0].points[0][1]).toBeCloseTo(-0.9, 10);
 	});
 });

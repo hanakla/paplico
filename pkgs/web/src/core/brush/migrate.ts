@@ -36,6 +36,97 @@ export function normalizeBrushSettingsV2(raw: unknown): BrushSettingsV2 {
 	return sanitizeV2(convertV1(normalizeBrushSettings(raw)));
 }
 
+/**
+ * Normalize persisted brush settings while preserving their stored format:
+ * v2 stays v2 (sanitized), everything else stays a v1 union value. Storage
+ * boundaries (papb, IndexedDB) use this so stored v2 data never collapses to
+ * the lossy legacy view on a read/save cycle.
+ */
+export function normalizeStoredBrushSettings(
+	raw: unknown,
+): BrushSettings | BrushSettingsV2 {
+	const r = (raw ?? {}) as Record<string, unknown>;
+	if (r.version === 2) return sanitizeV2(r);
+	return normalizeBrushSettings(raw);
+}
+
+/**
+ * Curve pairs the flat slider layer owns. Must match exactly what convertV1
+ * emits: a pair listed here is rebuilt from sliders on every flat patch, so
+ * `next` wins for it; every other pair is curve-editor territory and is
+ * preserved from the previously stored v2 value.
+ */
+const FLAT_MANAGED_CURVE_PAIRS: ReadonlySet<string> = new Set([
+	"size:pressure",
+	"flow:pressure",
+	"size:speedFine",
+	"spacing:speedFine",
+	"flow:speedFine",
+	"size:randomPerDab",
+	"angle:randomPerDab",
+	"angle:tiltAzimuth",
+	"ratio:tiltMagnitude",
+]);
+
+/**
+ * Merge a flat-layer rebuild (`next`, produced from the legacy view plus a
+ * slider patch) onto the previously stored v2 value. Flat-managed curve pairs
+ * and property bases come from `next` so slider edits (including removals)
+ * win; unmanaged curves and v2-only config sections the flat layer cannot
+ * express (grain, wet, mixing, inputDynamics, strokeOpacity, paintMode) are
+ * preserved from `previous`.
+ */
+export function mergeBrushSettingsV2PreservingCurves(
+	previous: BrushSettingsV2 | undefined,
+	next: BrushSettingsV2,
+): BrushSettingsV2 {
+	if (!previous) return next;
+
+	const properties: MutableProps = {};
+	const ids = new Set([
+		...Object.keys(next.properties),
+		...Object.keys(previous.properties),
+	]) as Set<BrushPropertyId>;
+	for (const id of ids) {
+		const nextCfg = next.properties[id];
+		const prevCfg = previous.properties[id];
+		const preserved = (prevCfg?.curves ?? []).filter(
+			(c) =>
+				!FLAT_MANAGED_CURVE_PAIRS.has(`${id}:${c.input}`) &&
+				!nextCfg?.curves?.some((n) => n.input === c.input),
+		);
+		if (nextCfg) {
+			const curves = [...(nextCfg.curves ?? []), ...preserved];
+			properties[id] =
+				curves.length > 0 ? { base: nextCfg.base, curves } : { ...nextCfg };
+		} else if (prevCfg && preserved.length > 0) {
+			properties[id] = { base: prevCfg.base, curves: preserved };
+		}
+	}
+
+	const merged: Record<string, unknown> = {
+		...next,
+		properties,
+		strokeOpacity: previous.strokeOpacity,
+		paintMode: previous.paintMode,
+		grain: next.grain ?? previous.grain,
+		wetEdge: next.wetEdge ?? previous.wetEdge,
+		mixing: next.mixing ?? previous.mixing,
+		wet: next.wet ?? previous.wet,
+		inputDynamics: next.inputDynamics ?? previous.inputDynamics,
+		wetV1: next.wetV1 ?? previous.wetV1,
+	};
+	if (
+		next.tip?.kind === "procedural" &&
+		previous.tip?.kind === "procedural" &&
+		next.tip.softnessCurve == null &&
+		previous.tip.softnessCurve != null
+	) {
+		merged.tip = { ...next.tip, softnessCurve: previous.tip.softnessCurve };
+	}
+	return sanitizeV2(merged);
+}
+
 // --- v1 -> v2 conversion -------------------------------------------------
 
 type MutableProps = Partial<Record<BrushPropertyId, BrushPropertyConfig>>;

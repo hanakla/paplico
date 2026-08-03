@@ -4,6 +4,7 @@ import {
 } from "../document/factory";
 import type {
 	BrushSettings,
+	BrushSettingsV2,
 	Color,
 	Document,
 	EmbeddedFile,
@@ -12,12 +13,12 @@ import type {
 	RawRGBA,
 	StrokeAppearance,
 } from "../schema";
-import { hasWetInk } from "../schema";
 import { calculateElementBounds, expandBounds } from "../utils/geometry/bounds";
 import { deepClone } from "../utils/lang";
+import { readStoredBrushSize, readStoredWetInk } from "./access";
 
 export interface BrushStrokePreviewOptions {
-	brushSettings: BrushSettings;
+	brushSettings: BrushSettings | BrushSettingsV2;
 	textureFile: EmbeddedFile | null;
 	segments: PathSegment[];
 	width: number;
@@ -65,14 +66,12 @@ export function createBrushStrokePreviewScene(
 		];
 	}
 
-	const wetBleed =
-		hasWetInk(options.brushSettings) && options.brushSettings.wetInk
-			? options.brushSettings.size *
-				(0.5 + options.brushSettings.wetInk.bleedWidth)
-			: 0;
+	const size = readStoredBrushSize(options.brushSettings) ?? 0;
+	const wet = readStoredWetInk(options.brushSettings);
+	const wetBleed = wet?.enabled ? size * (0.5 + wet.bleedWidth) : 0;
 	const pathBounds = expandBounds(
 		calculateElementBounds(path),
-		Math.max(options.brushSettings.size * 0.75, wetBleed, 8),
+		Math.max(size * 0.75, wetBleed, 8),
 	);
 	const scale = Math.min(
 		options.width / pathBounds.width,
@@ -95,7 +94,7 @@ export function createBrushStrokePreviewScene(
 
 export function createBrushStrokePreviewPath(
 	segments: PathSegment[],
-	brushSettings: BrushSettings,
+	brushSettings: BrushSettings | BrushSettingsV2,
 	strokeColor: Color,
 ): Path {
 	return {
