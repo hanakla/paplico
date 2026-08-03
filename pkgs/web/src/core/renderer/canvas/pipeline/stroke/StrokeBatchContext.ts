@@ -2319,7 +2319,9 @@ export class StrokeBatchContext {
 		this.liveDabAccumulator ??= new LiveDabAccumulator();
 		const frame = this.liveDabAccumulator.update(segments, settings, options);
 		if (frame.totalCount === 0) return null;
-		if (frame.reset) this.liveUploadedCommitted = 0;
+		if (frame.reset || frame.committedCount < this.liveUploadedCommitted) {
+			this.liveUploadedCommitted = 0;
+		}
 
 		const neededFloats = frame.totalCount * DAB_INSTANCE_FLOATS;
 		if (!this.liveDabBuffer || this.liveDabCapacityFloats < neededFloats) {

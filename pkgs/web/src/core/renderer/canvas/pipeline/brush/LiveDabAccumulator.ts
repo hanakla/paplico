@@ -69,18 +69,17 @@ export class LiveDabAccumulator {
 			shared++;
 		}
 
+		// Reset only when something committed must be discarded: a fingerprint
+		// change or a prefix that no longer matches. With nothing committed a
+		// fresh stroke needs no teardown — early frames (before the fitter
+		// freezes anything) share no references and must not reset each frame.
 		let reset = false;
-		if (
-			fingerprint !== this.fingerprint ||
-			shared < this.committedSegCount ||
-			// No shared geometry at all = a new stroke, even with nothing
-			// committed yet (keeps the reset signal meaningful for uploads).
-			(shared === 0 && this.prevSegments.length > 0)
-		) {
+		if (fingerprint !== this.fingerprint || shared < this.committedSegCount) {
+			const hadCommitted = this.committedCount > 0;
 			this.reset();
 			this.fingerprint = fingerprint;
 			shared = 0;
-			reset = true;
+			reset = hadCommitted;
 		}
 		this.prevSegments = segments.slice();
 

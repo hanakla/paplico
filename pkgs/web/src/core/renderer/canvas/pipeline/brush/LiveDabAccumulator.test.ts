@@ -142,25 +142,39 @@ describe("LiveDabAccumulator", () => {
 		).toEqual(Array.from(frame1Committed));
 	});
 
-	it("should reset when the segment prefix no longer matches (new stroke)", () => {
+	it("should discard committed state only when a mismatching prefix drops it", () => {
 		const settings = settingsNoStrokeT();
 		const acc = new LiveDabAccumulator();
 
+		// Nothing committed yet: early all-fresh frames must not report a
+		// reset (before the fitter freezes anything, every reference is new).
 		const first = acc.update([seg(0, 80, 0, 90, true)], settings, {});
-		expect(first.reset).toBe(true);
+		expect(first.reset).toBe(false);
+		expect(acc.update([seg(0, 80, 0, 90, true)], settings, {}).reset).toBe(
+			false,
+		);
 
-		const grown = acc.update([seg(0, 80, 0, 90, true)], settings, {});
-		// Different object identity for the first segment = a new stroke.
-		expect(grown.reset).toBe(true);
+		// Build a committed prefix, then start a new stroke: the committed
+		// state is discarded and the fresh stroke still evaluates correctly.
+		const s0 = seg(0, 80, 0, 90, true);
+		const s1 = seg(80, 150, 90, 200);
+		acc.update([s0, seg(80, 120, 90, 140)], settings, {});
+		const committedFrame = acc.update(
+			[s0, s1, seg(150, 190, 200, 250)],
+			settings,
+			{},
+		);
+		expect(committedFrame.committedCount).toBeGreaterThan(0);
 
 		const other = [seg(0, 40, 0, 50, true)];
 		const frame = acc.update(other, settings, {});
 		expect(frame.reset).toBe(true);
+		expect(frame.committedCount).toBe(0);
 		const full = evaluateDabs(other, settings);
 		expect(frame.committedCount + frame.tailCount).toBe(full.count);
 	});
 
-	it("should reset when the settings change", () => {
+	it("should restart cleanly when the settings change", () => {
 		const acc = new LiveDabAccumulator();
 		const s0 = seg(0, 80, 0, 90, true);
 		acc.update([s0, seg(80, 120, 90, 140)], settingsNoStrokeT(), {});
@@ -170,7 +184,9 @@ describe("LiveDabAccumulator", () => {
 			randomSeed: 99,
 		});
 		const frame = acc.update([s0, seg(80, 120, 90, 140)], changed, {});
-		expect(frame.reset).toBe(true);
+		// Nothing was committed yet, so no reset is reported — but the output
+		// must fully reflect the changed settings.
+		expect(frame.committedCount).toBe(0);
 		const full = evaluateDabs([s0, seg(80, 120, 90, 140)], changed);
 		expect(Array.from(maskPathT(concatFrame(frame)))).toEqual(
 			Array.from(
