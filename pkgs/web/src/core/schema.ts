@@ -1900,6 +1900,191 @@ export interface BrushPreset {
 	settings: BrushSettings;
 }
 
+// --- Brush Engine v2 Types ---
+
+/**
+ * Inputs of the brush curve matrix. All values are normalized to 0..1 before
+ * curve evaluation (angular inputs are wrapped into 0..1; accel is computed
+ * once per dab by the CPU input sampler and shared with the dab layout).
+ */
+export type BrushInputId =
+	| "pressure"
+	| "speedFine"
+	| "speedGross"
+	| "accel"
+	| "tiltMagnitude"
+	| "tiltAzimuth"
+	| "twist"
+	| "direction"
+	| "strokeT"
+	| "fade"
+	| "distance"
+	| "randomPerDab"
+	| "randomPerStroke";
+
+/** Curve-modulatable brush properties. Domains/ranges live in brush/properties.ts. */
+export type BrushPropertyId =
+	| "size"
+	| "ratio"
+	| "angle"
+	| "flow"
+	| "spacing"
+	| "scatterOffset"
+	| "scatterAlong"
+	| "hueShift"
+	| "satShift"
+	| "valShift"
+	| "grainStrength"
+	| "hardness"
+	| "colorRate"
+	| "alphaRate"
+	| "smudgeLength"
+	| "dabsPerSecond"
+	| "wetness"
+	| "directionality"
+	| "grainAmount"
+	| "absorption"
+	| "granulation"
+	| "bleedSoftness"
+	| "edgeDarkening"
+	| "edgeRoughness";
+
+/** One input-to-property connection: a piecewise linear curve (max 16 points). */
+export interface BrushCurve {
+	input: BrushInputId;
+	points: [number, number][];
+}
+
+/** Base value plus optional modulation curves. Evaluation: brush/curves.ts. */
+export interface BrushPropertyConfig {
+	base: number;
+	curves?: BrushCurve[];
+}
+
+export type BrushEngineKind = "dab" | "ribbon" | "geometric";
+
+export type BrushTipConfig =
+	| {
+			kind: "procedural";
+			/** Falloff hardness 0..1 (2-segment MyPaint falloff baked into a LUT). */
+			hardness: number;
+			/** Optional custom falloff curve (Krita curve-circle style). */
+			softnessCurve?: [number, number][];
+			angleMode: "fixed" | "tangent";
+	  }
+	| {
+			kind: "image";
+			sources: BrushArtSource[];
+			selection: "sequence" | "random";
+			startSource?: BrushArtSource;
+			endSource?: BrushArtSource;
+			angleMode: "fixed" | "tangent";
+	  };
+
+/** Ribbon engine (art/pattern) configuration. */
+export interface RibbonConfig {
+	source: BrushArtSource;
+	uvMode: "repeat" | "stretch";
+	tileScale: number;
+	tileSpacing: number;
+	uvOffset?: number;
+	flipU?: boolean;
+	flipV?: boolean;
+}
+
+/** Paper grain applied per dab with canvas-locked UVs. */
+export interface GrainConfig {
+	source: BrushArtSource;
+	/** Grain UV scale in world units. */
+	scale: number;
+	mode: "multiply" | "subtract";
+	randomOffsetPerStroke: boolean;
+}
+
+/** CSP-style watercolor edge. Stroke-level; ignored while wet.enabled (exclusive). */
+export interface WetEdgeConfig {
+	width: number;
+	intensity: number;
+	darkening: number;
+	blur: number;
+}
+
+/**
+ * Color mixing (dulling sample). Enablement is the explicit boolean only —
+ * presence of this object does NOT enable mixing. Modulatable bases
+ * (colorRate/alphaRate/smudgeLength) live in `properties`.
+ */
+export interface MixingConfig {
+	enabled: boolean;
+	mode: "dulling";
+	sampleRadius: number;
+	/** Sample position trail along stroke direction (-2..2, forward positive). */
+	sampleTrail: number;
+	/** 0 = vivid (OkLCH), 1 = muted (OkLAB). */
+	blendStyle: number;
+}
+
+/**
+ * Wet layer stroke-level config. The 8 modulatable wet parameters live in
+ * `properties`; `enabled` is the only activation gate (never inferred from
+ * property values or curves).
+ */
+export interface WetConfig {
+	enabled: boolean;
+	/** Bleed radius as a ratio of size. Decides the sim domain allocation. */
+	bleedRadius: number;
+	/** Pigment density to visible alpha conversion strength (composite time). */
+	pigmentLoad: number;
+	/** Grain noise UV frequency in world units. */
+	grainScale: number;
+}
+
+/**
+ * Non-modulated settings that feed input computation itself. These must not
+ * be curve targets (a speed curve wired into speedRef would recurse).
+ * Undefined fields mean "auto/engine default"; speedRef auto derives from
+ * brushSize via the current clamp(size*0.06, 0.5, 2.0) formula.
+ */
+export interface InputDynamicsConfig {
+	speedRef?: number;
+	speedFineTau?: number;
+	speedGrossTau?: number;
+	directionFilter?: number;
+}
+
+/**
+ * Brush settings v2: curve-matrix based engine settings. See
+ * .claude/memos/new-brush-engine.md for the full design.
+ */
+export interface BrushSettingsV2 {
+	version: 2;
+	engine: BrushEngineKind;
+	/** Stroke-level opacity cap (wash composite). Base value only, no curves. */
+	strokeOpacity: number;
+	paintMode: "buildup" | "wash";
+	properties: Partial<Record<BrushPropertyId, BrushPropertyConfig>>;
+	/** Dab engine tip. Absent for ribbon/geometric engines. */
+	tip?: BrushTipConfig;
+	ribbon?: RibbonConfig;
+	stroking?: BrushStroking;
+	grain?: GrainConfig;
+	wetEdge?: WetEdgeConfig;
+	mixing?: MixingConfig;
+	wet?: WetConfig;
+	/**
+	 * Migration-period verbatim copy of the v1 wet ink settings. While present
+	 * it is the single authority for wet rendering/editing; the final
+	 * conversion into wet/mixing/properties happens in the wet switchover
+	 * (design §13-7) which also deletes this field.
+	 */
+	wetV1?: WetInkSettings;
+	inputDynamics?: InputDynamicsConfig;
+	randomSeed: number;
+	taperStart?: number;
+	taperEnd?: number;
+	colorMode?: BrushColorMode;
+}
+
 // --- Artboard Types ---
 
 export interface Artboard {
