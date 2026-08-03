@@ -1,8 +1,13 @@
+import {
+	mergeBrushSettingsV2PreservingCurves,
+	normalizeBrushSettingsV2,
+} from "./brush/migrate";
 import { normalizeBrushSettings } from "./brush/normalize";
 import { createStrokeBrushSettings } from "./document/factory";
 import {
 	type BrushSettings,
 	type BrushSettingsPatch,
+	type BrushSettingsV2,
 	cloneAppearance,
 	type FillAppearance,
 	type FillColor,
@@ -62,6 +67,18 @@ export class PaplicoTools {
 			: createStrokeBrushSettings(2);
 	}
 
+	/**
+	 * Stored brush settings in their persisted format (v2 after any edit).
+	 * Persistence paths (preset save) read this so curve-editor state
+	 * survives; UI edits go through the legacy view via `brushSettings`.
+	 */
+	public get storedBrushSettings(): BrushSettings | BrushSettingsV2 {
+		return (
+			this.store.strokeAppearance?.paramData.params.brushSettings ??
+			createStrokeBrushSettings(2)
+		);
+	}
+
 	// --- Mutations ---
 
 	public setStrokeColor(color: StrokeColor | null): void {
@@ -105,14 +122,28 @@ export class PaplicoTools {
 		this.store.currentTool = tool;
 	}
 
-	public setBrushSettings(patch: BrushSettingsPatch): void {
+	public setBrushSettings(patch: BrushSettingsPatch | BrushSettingsV2): void {
 		if (!this.store.strokeAppearance) return;
 
-		const current = this.brushSettings;
-		// Merge within the same brush type. A patch carrying a different `type`
-		// is treated as a full replacement (re-normalized to a valid union value).
-		const merged = { ...current, ...patch };
-		const updated = normalizeBrushSettings(merged);
+		let updated: BrushSettingsV2;
+		if ("version" in patch && patch.version === 2) {
+			// A complete v2 value (preset application) replaces the stored
+			// settings wholesale — no state is carried over.
+			updated = normalizeBrushSettingsV2(patch);
+		} else {
+			const stored = this.store.strokeAppearance.paramData.params.brushSettings;
+			const previous =
+				stored != null ? normalizeBrushSettingsV2(stored) : undefined;
+			// Flat (v1-shaped) patches merge onto the legacy view (same brush
+			// type; a patch carrying a different `type` is a full replacement),
+			// then the result is rebuilt as v2. Curve-editor state the flat layer
+			// cannot express is carried over from the previously stored v2 value.
+			const merged = { ...this.brushSettings, ...patch };
+			updated = mergeBrushSettingsV2PreservingCurves(
+				previous,
+				normalizeBrushSettingsV2(merged),
+			);
+		}
 		this.store.strokeAppearance = cloneAppearance(this.store.strokeAppearance, {
 			brushSettings: updated,
 		});

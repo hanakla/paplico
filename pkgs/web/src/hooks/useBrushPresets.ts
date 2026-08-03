@@ -288,7 +288,7 @@ export function useBrushPresets() {
 
 		const preset = createPersistedBrushPreset({
 			name,
-			defaultSettings: createBrushPresetDefaults(tools.brushSettings),
+			defaultSettings: createBrushPresetDefaults(tools.storedBrushSettings),
 			file: source.file,
 			sourceBuiltinUid: source.sourceBuiltinUid,
 		});
@@ -361,7 +361,7 @@ export function useBrushPresets() {
 		const updatedPreset = createPersistedBrushPreset({
 			uid: existingPreset.uid,
 			name: existingPreset.name,
-			defaultSettings: createBrushPresetDefaults(tools.brushSettings),
+			defaultSettings: createBrushPresetDefaults(tools.storedBrushSettings),
 			file: source.file,
 			sourceBuiltinUid: source.sourceBuiltinUid,
 			createdAt: existingPreset.createdAt,
