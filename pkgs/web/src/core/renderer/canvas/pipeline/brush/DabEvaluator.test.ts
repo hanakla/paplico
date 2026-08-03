@@ -1,7 +1,7 @@
 import { normalizeBrushSettingsV2 } from "../../../../brush/migrate";
 import type { BrushSettingsV2, CubicBezierSegment } from "../../../../schema";
 import { evaluateDabs } from "./DabEvaluator";
-import { readDabField } from "./DabInstanceLayout";
+import { DAB_INSTANCE_FLOATS, readDabField } from "./DabInstanceLayout";
 
 /** Straight line from (0,0) to (100,0): collinear controls, arc length 100. */
 function lineSegment(
@@ -266,5 +266,168 @@ describe("evaluateDabs", () => {
 			expect(readDabField(off.data, 0, "directionality")).toBe(0);
 			expect(readDabField(off.data, 0, "grainAmount")).toBe(0);
 		});
+	});
+});
+
+describe("evaluateDabs — incremental resume", () => {
+	/** Curved, pressure/timing-varying 3-segment stroke. */
+	function chunkSegments(): CubicBezierSegment[] {
+		return [
+			{
+				start: { x: 0, y: 0 },
+				cp1: { x: 20, y: 15 },
+				cp2: { x: -20, y: 10 },
+				end: { x: 80, y: 30 },
+				startPressure: 0.3,
+				endPressure: 0.6,
+				startTiltX: 10,
+				startTiltY: 0,
+				endTiltX: 20,
+				endTiltY: 5,
+				startDeltaTime: 0,
+				endDeltaTime: 90,
+				isMoved: true,
+			},
+			{
+				cp1: { x: 25, y: -5 },
+				cp2: { x: -15, y: 20 },
+				end: { x: 150, y: -10 },
+				startPressure: 0.6,
+				endPressure: 0.9,
+				startTiltX: 20,
+				startTiltY: 5,
+				endTiltX: 5,
+				endTiltY: 15,
+				startDeltaTime: 90,
+				endDeltaTime: 210,
+				isMoved: false,
+			},
+			{
+				cp1: { x: 10, y: 25 },
+				cp2: { x: -30, y: 0 },
+				end: { x: 220, y: 60 },
+				startPressure: 0.9,
+				endPressure: 0.4,
+				startTiltX: 5,
+				startTiltY: 15,
+				endTiltX: 0,
+				endTiltY: 0,
+				startDeltaTime: 210,
+				endDeltaTime: 380,
+				isMoved: false,
+			},
+		] as CubicBezierSegment[];
+	}
+
+	function dynamicSettings(): BrushSettingsV2 {
+		return normalizeBrushSettingsV2({
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				size: {
+					base: 10,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.5],
+								[1, 0],
+							],
+						},
+						{
+							input: "speedFine",
+							points: [
+								[0, 0],
+								[1, -0.4],
+							],
+						},
+					],
+				},
+				spacing: { base: 0.2 },
+				flow: {
+					base: 0.8,
+					curves: [
+						{
+							input: "strokeT",
+							points: [
+								[0, 0.2],
+								[1, -0.3],
+							],
+						},
+					],
+				},
+				scatterOffset: { base: 0.3 },
+				angle: {
+					base: 0,
+					curves: [
+						{
+							input: "randomPerDab",
+							points: [
+								[0, -3],
+								[1, 3],
+							],
+						},
+					],
+				},
+			},
+			tip: { kind: "procedural", hardness: 0.8, angleMode: "fixed" },
+			randomSeed: 7,
+		});
+	}
+
+	function assertChunkedMatchesFull(
+		settings: BrushSettingsV2,
+		options: { variantCount?: number } = {},
+	): void {
+		const segments = chunkSegments();
+		const full = evaluateDabs(segments, settings, options);
+		expect(full.count).toBeGreaterThan(10);
+
+		const chunk1 = evaluateDabs([segments[0]], settings, {
+			...options,
+			totalLength: full.totalLength,
+		});
+		const chunk2 = evaluateDabs([segments[1], segments[2]], settings, {
+			...options,
+			totalLength: full.totalLength,
+			resume: chunk1.state,
+		});
+
+		expect(chunk1.count + chunk2.count).toBe(full.count);
+		const merged = new Float32Array(full.count * DAB_INSTANCE_FLOATS);
+		merged.set(chunk1.data.subarray(0, chunk1.count * DAB_INSTANCE_FLOATS), 0);
+		merged.set(
+			chunk2.data.subarray(0, chunk2.count * DAB_INSTANCE_FLOATS),
+			chunk1.count * DAB_INSTANCE_FLOATS,
+		);
+		expect(Array.from(merged)).toEqual(
+			Array.from(full.data.subarray(0, full.count * DAB_INSTANCE_FLOATS)),
+		);
+	}
+
+	it("should produce bit-identical dabs when evaluated in two chunks", () => {
+		assertChunkedMatchesFull(dynamicSettings());
+	});
+
+	it("should keep random tip selection and jitter deterministic across the boundary", () => {
+		assertChunkedMatchesFull(dynamicSettings(), { variantCount: 3 });
+	});
+
+	it("should keep timed dabs deterministic across the boundary", () => {
+		const settings = normalizeBrushSettingsV2({
+			...dynamicSettings(),
+			properties: {
+				...dynamicSettings().properties,
+				dabsPerSecond: { base: 120 },
+			},
+		});
+		assertChunkedMatchesFull(settings);
+	});
+
+	it("should report the full arc length on the returned buffer", () => {
+		const full = evaluateDabs(chunkSegments(), dynamicSettings());
+		expect(full.totalLength).toBeGreaterThan(200);
 	});
 });

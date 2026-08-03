@@ -40,11 +40,57 @@ export interface DabEvaluateOptions {
 	endLayerIndex?: number;
 	/** Resolved stroke color packed into every dab (straight, 0..1). */
 	color?: { r: number; g: number; b: number; a: number };
+	/**
+	 * Continue from a previous chunk's end state. The chunked result is
+	 * bit-identical to a full evaluation as long as every chunk receives the
+	 * same `totalLength` (see the incremental-resume tests).
+	 */
+	resume?: DabEvalState;
+	/**
+	 * Full-stroke arc length when `segments` is only a fragment of the
+	 * stroke. strokeT/fade normalization and taper use this instead of the
+	 * fragment's own length.
+	 */
+	totalLength?: number;
+}
+
+/**
+ * Everything the segment walk carries between dabs. Opaque to callers:
+ * capture it from one chunk's DabBuffer and feed it to the next.
+ */
+export interface DabEvalState {
+	velFast: number;
+	velSlow: number;
+	speedFine: number;
+	speedGross: number;
+	accel: number;
+	accDist: number;
+	accTime: number;
+	spacingWorld: number;
+	timedInterval: number;
+	globalDistance: number;
+	prevX: number;
+	prevY: number;
+	prevPressure: number;
+	prevDeltaTime: number;
+	prevDirX: number;
+	prevDirY: number;
+	prevEndX: number;
+	prevEndY: number;
+	hasPrevEnd: boolean;
+	/** Dabs emitted across all prior chunks. */
+	dabCount: number;
+	/** mulberry32 internal state of the per-dab rng. */
+	rngState: number;
 }
 
 export interface DabBuffer {
 	data: Float32Array;
 	count: number;
+	/** End state for incremental continuation (evaluateDabs `resume`). */
+	state: DabEvalState;
+	/** Arc length the walk normalized against (options.totalLength wins). */
+	totalLength: number;
 }
 
 /** Speed EMA defaults (carried over from the v1 stamp generator). */
@@ -65,8 +111,14 @@ export function evaluateDabs(
 	settings: BrushSettingsV2,
 	options: DabEvaluateOptions = {},
 ): DabBuffer {
+	const resume = options.resume;
 	if (settings.engine !== "dab" || segments.length === 0) {
-		return { data: EMPTY_F32, count: 0 };
+		return {
+			data: EMPTY_F32,
+			count: 0,
+			state: resume ?? initialEvalState(settings),
+			totalLength: options.totalLength ?? 0,
+		};
 	}
 
 	const pathStart = options.pathStart ?? 0;
@@ -84,16 +136,24 @@ export function evaluateDabs(
 	const tangentAngle = settings.tip?.angleMode === "tangent";
 
 	// Seeded rngs keep the output a pure function of (segments, settings).
-	const dabRng = mulberry32(settings.randomSeed >>> 0);
+	// Resumed chunks continue the same random sequence.
+	let dabRngState = (resume?.rngState ?? settings.randomSeed) >>> 0;
+	const dabRng = (): number => {
+		dabRngState = (dabRngState + 0x6d2b79f5) >>> 0;
+		let t = dabRngState;
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
 	const strokeRng = mulberry32((settings.randomSeed ^ 0x9e3779b9) >>> 0);
 	const randomPerStroke = strokeRng();
 
 	// --- arc lengths -------------------------------------------------------
 	const segLengths = new Float64Array(segments.length);
-	let totalLength = 0;
+	let fragmentLength = 0;
 	{
-		let prevEndX = 0;
-		let prevEndY = 0;
+		let prevEndX = resume?.hasPrevEnd ? resume.prevEndX : 0;
+		let prevEndY = resume?.hasPrevEnd ? resume.prevEndY : 0;
 		for (let si = 0; si < segments.length; si++) {
 			const [sx, sy, c1x, c1y, c2x, c2y, ex, ey] = resolveSegment(
 				segments[si],
@@ -102,12 +162,20 @@ export function evaluateDabs(
 			);
 			const len = approximateCubicLength(sx, sy, c1x, c1y, c2x, c2y, ex, ey);
 			segLengths[si] = len;
-			totalLength += len;
+			fragmentLength += len;
 			prevEndX = ex;
 			prevEndY = ey;
 		}
 	}
-	if (totalLength <= 0) return { data: EMPTY_F32, count: 0 };
+	const totalLength = options.totalLength ?? fragmentLength;
+	if (totalLength <= 0) {
+		return {
+			data: EMPTY_F32,
+			count: 0,
+			state: resume ?? initialEvalState(settings),
+			totalLength: 0,
+		};
+	}
 
 	const taper =
 		(settings.taperStart ?? 0) > 0 || (settings.taperEnd ?? 0) > 0
@@ -130,9 +198,10 @@ export function evaluateDabs(
 
 	// --- output state ------------------------------------------------------
 	const estimatedDabs =
-		Math.ceil(totalLength / Math.max(sizeBase * 0.05, MIN_SPACING_WORLD)) +
+		Math.ceil(fragmentLength / Math.max(sizeBase * 0.05, MIN_SPACING_WORLD)) +
 		segments.length +
 		2;
+	const priorDabs = resume?.dabCount ?? 0;
 	let data = new Float32Array(estimatedDabs * DAB_INSTANCE_FLOATS);
 	let count = 0;
 
@@ -245,7 +314,7 @@ export function evaluateDabs(
 		if (variantCount > 0) {
 			textureLayer = Math.floor(dabRng() * variantCount);
 		}
-		if (count === 0 && (options.startLayerIndex ?? -1) >= 0) {
+		if (priorDabs + count === 0 && (options.startLayerIndex ?? -1) >= 0) {
 			textureLayer = options.startLayerIndex ?? 0;
 		}
 
@@ -315,71 +384,106 @@ export function evaluateDabs(
 	};
 
 	// --- walk --------------------------------------------------------------
-	let velFast = 0;
-	let velSlow = 0;
-	const firstSeg = segments[0];
-	{
-		// Seed velocity from the first segment's timing so speed curves do not
-		// ramp from zero on every stroke. Mid-stroke fragments seed both EMAs
-		// equally (ramp-in suppression).
-		const duration = firstSeg.endDeltaTime - firstSeg.startDeltaTime;
-		if (duration > 0 && segLengths[0] > 0) {
-			velFast = segLengths[0] / duration;
-			velSlow = pathStart > 0 ? velFast : 0;
+	let velFast: number;
+	let velSlow: number;
+	let accDist: number;
+	let accTime: number;
+	let spacingWorld: number;
+	let timedInterval: number;
+	let globalDistance: number;
+	let prevX: number;
+	let prevY: number;
+	let prevPressure: number;
+	let prevDeltaTime: number;
+	let prevDirX: number;
+	let prevDirY: number;
+	let prevEndX: number;
+	let prevEndY: number;
+	let hasPrevEnd: boolean;
+
+	if (resume) {
+		velFast = resume.velFast;
+		velSlow = resume.velSlow;
+		inputs.speedFine = resume.speedFine;
+		inputs.speedGross = resume.speedGross;
+		inputs.accel = resume.accel;
+		accDist = resume.accDist;
+		accTime = resume.accTime;
+		spacingWorld = resume.spacingWorld;
+		timedInterval = resume.timedInterval;
+		globalDistance = resume.globalDistance;
+		prevX = resume.prevX;
+		prevY = resume.prevY;
+		prevPressure = resume.prevPressure;
+		prevDeltaTime = resume.prevDeltaTime;
+		prevDirX = resume.prevDirX;
+		prevDirY = resume.prevDirY;
+		prevEndX = resume.prevEndX;
+		prevEndY = resume.prevEndY;
+		hasPrevEnd = resume.hasPrevEnd;
+	} else {
+		const firstSeg = segments[0];
+		velFast = 0;
+		velSlow = 0;
+		{
+			// Seed velocity from the first segment's timing so speed curves do
+			// not ramp from zero on every stroke. Mid-stroke fragments seed both
+			// EMAs equally (ramp-in suppression).
+			const duration = firstSeg.endDeltaTime - firstSeg.startDeltaTime;
+			if (duration > 0 && segLengths[0] > 0) {
+				velFast = segLengths[0] / duration;
+				velSlow = pathStart > 0 ? velFast : 0;
+			}
 		}
-	}
 
-	const [fsx, fsy, fc1x, fc1y, fc2x, fc2y, fex, fey] = resolveSegment(
-		firstSeg,
-		0,
-		0,
-	);
-	const firstPressure =
-		pathStart > 0
-			? (firstSeg.endPressure ?? firstSeg.startPressure ?? 0.5)
-			: (firstSeg.startPressure ?? 0.5);
-	let firstDirX = 1;
-	let firstDirY = 0;
-	{
-		const dx = fex - fsx;
-		const dy = fey - fsy;
-		const len = Math.hypot(dx, dy);
-		if (len > 0) {
-			firstDirX = dx / len;
-			firstDirY = dy / len;
+		const [fsx, fsy, , , , , fex, fey] = resolveSegment(firstSeg, 0, 0);
+		const firstPressure =
+			pathStart > 0
+				? (firstSeg.endPressure ?? firstSeg.startPressure ?? 0.5)
+				: (firstSeg.startPressure ?? 0.5);
+		let firstDirX = 1;
+		let firstDirY = 0;
+		{
+			const dx = fex - fsx;
+			const dy = fey - fsy;
+			const len = Math.hypot(dx, dy);
+			if (len > 0) {
+				firstDirX = dx / len;
+				firstDirY = dy / len;
+			}
 		}
+
+		inputs.speedFine = Math.min(velFast / speedRef, 1);
+		inputs.speedGross = Math.min(velSlow / speedRef, 1);
+		inputs.accel = 0;
+
+		emit(
+			fsx,
+			fsy,
+			firstPressure,
+			firstSeg.startTiltX,
+			firstSeg.startTiltY,
+			firstSeg.startTwist ?? 0,
+			firstDirX,
+			firstDirY,
+			0,
+		);
+
+		accDist = 0;
+		accTime = 0;
+		spacingWorld = currentSpacingWorld();
+		timedInterval = currentTimedInterval();
+		globalDistance = 0;
+		prevX = fsx;
+		prevY = fsy;
+		prevPressure = firstPressure;
+		prevDeltaTime = firstSeg.startDeltaTime;
+		prevDirX = firstDirX;
+		prevDirY = firstDirY;
+		prevEndX = 0;
+		prevEndY = 0;
+		hasPrevEnd = false;
 	}
-
-	inputs.speedFine = Math.min(velFast / speedRef, 1);
-	inputs.speedGross = Math.min(velSlow / speedRef, 1);
-	inputs.accel = 0;
-
-	emit(
-		fsx,
-		fsy,
-		firstPressure,
-		firstSeg.startTiltX,
-		firstSeg.startTiltY,
-		firstSeg.startTwist ?? 0,
-		firstDirX,
-		firstDirY,
-		0,
-	);
-
-	let accDist = 0;
-	let accTime = 0;
-	let spacingWorld = currentSpacingWorld();
-	let timedInterval = currentTimedInterval();
-	let globalDistance = 0;
-	let prevX = fsx;
-	let prevY = fsy;
-	let prevPressure = firstPressure;
-	let prevDeltaTime = firstSeg.startDeltaTime;
-	let prevDirX = firstDirX;
-	let prevDirY = firstDirY;
-	let prevEndX = 0;
-	let prevEndY = 0;
-	let hasPrevEnd = false;
 
 	for (let si = 0; si < segments.length; si++) {
 		const segment = segments[si];
@@ -390,7 +494,7 @@ export function evaluateDabs(
 		);
 		const segLen = segLengths[si];
 
-		if (segment.isMoved && si > 0) {
+		if (segment.isMoved && (si > 0 || resume != null)) {
 			// New subpath: restart accumulation and emit its head dab.
 			accDist = 0;
 			accTime = 0;
@@ -555,7 +659,57 @@ export function evaluateDabs(
 		);
 	}
 
-	return { data, count };
+	const state: DabEvalState = {
+		velFast,
+		velSlow,
+		speedFine: inputs.speedFine,
+		speedGross: inputs.speedGross,
+		accel: inputs.accel,
+		accDist,
+		accTime,
+		spacingWorld,
+		timedInterval,
+		globalDistance,
+		prevX,
+		prevY,
+		prevPressure,
+		prevDeltaTime,
+		prevDirX,
+		prevDirY,
+		prevEndX,
+		prevEndY,
+		hasPrevEnd,
+		dabCount: priorDabs + count,
+		rngState: dabRngState,
+	};
+	return { data, count, state, totalLength };
+}
+
+/** Neutral state for a stroke that has not emitted anything yet. */
+function initialEvalState(settings: BrushSettingsV2): DabEvalState {
+	return {
+		velFast: 0,
+		velSlow: 0,
+		speedFine: 0,
+		speedGross: 0,
+		accel: 0,
+		accDist: 0,
+		accTime: 0,
+		spacingWorld: MIN_SPACING_WORLD,
+		timedInterval: Number.POSITIVE_INFINITY,
+		globalDistance: 0,
+		prevX: 0,
+		prevY: 0,
+		prevPressure: 0.5,
+		prevDeltaTime: 0,
+		prevDirX: 1,
+		prevDirY: 0,
+		prevEndX: 0,
+		prevEndY: 0,
+		hasPrevEnd: false,
+		dabCount: 0,
+		rngState: settings.randomSeed >>> 0,
+	};
 }
 
 // --- property baking ------------------------------------------------------
