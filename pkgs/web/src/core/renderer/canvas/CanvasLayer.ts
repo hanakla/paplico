@@ -6,6 +6,7 @@ import {
 import { normalizeBrushSettings } from "../../brush/normalize";
 import { resolveBrushRenderRoute } from "../../brush/renderRoute";
 import type { SoftProofLutResult } from "../../color/types";
+import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../document/constants";
 import { createIdentityTransform } from "../../document/factory";
 import {
 	type AnyArtObject,
@@ -68,7 +69,6 @@ import {
 	elementTransformToAffine,
 	repeatGridRegion,
 } from "../../utils/geometry/repeatInterpolation";
-import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../document/constants";
 import { hashSegmentsWithMetadata } from "../../utils/geometry/segmentOps";
 import {
 	compileShaderModule,
@@ -451,6 +451,9 @@ export class CanvasLayer {
 	private washResultCacheBytes = 0;
 	/** Filters-array -> JSON fingerprint (documents update immutably). */
 	private readonly washFiltersFpCache = new WeakMap<object, string>();
+	/** Element -> content key (elements update immutably; the key also
+	 *  embeds scale/bounds, revalidated cheaply by string comparison). */
+	private readonly washKeyCache = new WeakMap<object, string>();
 	/** Persistent shared vertex buffer for retained element geometry. One per
 	 *  canvas target, shared across document cache scopes (entries own their
 	 *  leased ranges and release them when their cache scope drops). */
@@ -4505,13 +4508,15 @@ export class CanvasLayer {
 		if (!fp.allAppearancePlans?.some((p) => p.washStrokeOpacity != null)) {
 			return null;
 		}
+		const cached = this.washKeyCache.get(element);
+		if (cached != null) return cached;
 		const filters = element.filters ?? [];
 		let filtersFp = this.washFiltersFpCache.get(filters);
 		if (filtersFp == null) {
 			filtersFp = JSON.stringify(filters);
 			this.washFiltersFpCache.set(filters, filtersFp);
 		}
-		return [
+		const key = [
 			hashSegmentsWithMetadata(element.segments).toString(36),
 			filtersFp,
 			element.opacity,
@@ -4522,6 +4527,8 @@ export class CanvasLayer {
 			fp.textureBounds.maxX,
 			fp.textureBounds.maxY,
 		].join(":");
+		this.washKeyCache.set(element, key);
+		return key;
 	}
 
 	private washCacheInfo(entry: {
@@ -4555,7 +4562,10 @@ export class CanvasLayer {
 	}
 
 	private evictWashResultsOverBudget(): void {
-		const MAX_BYTES = 128 * 1024 * 1024;
+		// Sized with the texture pool: fixed-R accumulators run a few MB per
+		// stroke and an undersized budget thrashes (one eviction+rerun per
+		// frame, observed at 10% zoom on a stroke-heavy document).
+		const MAX_BYTES = 384 * 1024 * 1024;
 		while (this.washResultCacheBytes > MAX_BYTES) {
 			const oldest = this.washResultCache.entries().next().value;
 			if (!oldest) break;
