@@ -799,11 +799,14 @@ export class StrokeBatchContext {
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 		});
 
-		// Sampler with repeat U for seamless tiling
+		// Sampler with repeat U for seamless tiling. Brush textures now carry
+		// mip chains for the dab pipeline; pin this legacy sampler to level 0
+		// so ribbon output stays identical to the pre-mip behavior.
 		this.ribbonSampler = this.device.createSampler({
 			label: "Ribbon Repeat Sampler",
 			magFilter: "linear",
 			minFilter: "linear",
+			lodMaxClamp: 0,
 			addressModeU: "repeat",
 			addressModeV: "clamp-to-edge",
 		});
@@ -2127,7 +2130,6 @@ export class StrokeBatchContext {
 				textureView = setup.textureArrayResult.texture.createView({
 					dimension: "2d-array",
 				});
-				sampler = setup.textureArrayResult.sampler;
 			} else {
 				tipMode = "image";
 				const uid = this.resolveTextureUid(setup.effectiveTextureFileUid);
@@ -2139,9 +2141,10 @@ export class StrokeBatchContext {
 					this.textureViewCache.set(uid, view);
 				}
 				textureView = view;
-				this.cachedSampler ??= this.textureManager.getSampler();
-				sampler = this.cachedSampler;
 			}
+			// The dab pipeline trilinearly filters the tip mip chain; the legacy
+			// stamp path keeps its level-0-pinned sampler.
+			sampler = this.textureManager.getMipSampler();
 		} else {
 			const falloff = this.ensureFalloffLut();
 			textureView = falloff.view;
