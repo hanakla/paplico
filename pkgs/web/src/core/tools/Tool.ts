@@ -16,6 +16,24 @@ export interface PointerEventData {
 	ctrlKey: boolean;
 	altKey: boolean;
 	metaKey: boolean;
+	/**
+	 * getCoalescedEvents() samples for this pointermove, oldest first (the
+	 * last one matches the dispatched event). Drawing tools append every
+	 * sample so fast strokes lose no input between frames.
+	 */
+	coalesced?: readonly CoalescedPointerSample[];
+}
+
+/** One raw input sample from PointerEvent.getCoalescedEvents(). */
+export interface CoalescedPointerSample {
+	x: number; // screen coordinates
+	y: number;
+	pressure: number;
+	tiltX: number;
+	tiltY: number;
+	twist: number;
+	/** DOMHighResTimeStamp of the sample (performance.now() clock). */
+	timeStamp: number;
 }
 
 export interface WheelEventData {

@@ -378,6 +378,71 @@ describe("PaplicoUI pen input passthrough", () => {
 		const eventData = harness.tool.onPointerDown.mock.calls[0][0];
 		expect(eventData.twist).toBe(0);
 	});
+
+	it("should forward getCoalescedEvents samples on pointermove", () => {
+		const harness = createHarness("pen", 50);
+
+		dispatchPointer(harness.canvas, "pointerdown", {
+			clientX: 100,
+			clientY: 100,
+			pointerType: "pen",
+		});
+
+		const move = new PointerEvent("pointermove", {
+			bubbles: true,
+			pointerId: 1,
+			pointerType: "pen",
+			button: 0,
+			pressure: 0.6,
+			clientX: 112,
+			clientY: 100,
+			width: 1,
+			height: 1,
+		});
+		const samples = [
+			{
+				clientX: 104,
+				clientY: 100,
+				pressure: 0.4,
+				tiltX: 5,
+				tiltY: 0,
+				twist: 10,
+				timeStamp: 1010,
+			},
+			{
+				clientX: 108,
+				clientY: 100,
+				pressure: 0.5,
+				tiltX: 6,
+				tiltY: 0,
+				twist: 20,
+				timeStamp: 1020,
+			},
+			{
+				clientX: 112,
+				clientY: 100,
+				pressure: 0.6,
+				tiltX: 7,
+				tiltY: 0,
+				twist: 30,
+				timeStamp: 1030,
+			},
+		];
+		Object.defineProperty(move, "getCoalescedEvents", {
+			value: () => samples,
+		});
+		harness.canvas.dispatchEvent(move);
+
+		const eventData = harness.tool.onPointerMove.mock.calls.at(-1)?.[0];
+		expect(eventData.coalesced).toHaveLength(3);
+		expect(eventData.coalesced[0]).toMatchObject({
+			x: 104,
+			y: 100,
+			twist: 10,
+			timeStamp: 1010,
+		});
+		expect(eventData.coalesced[2]).toMatchObject({ x: 112, twist: 30 });
+	});
 });
 
 function createHarness(

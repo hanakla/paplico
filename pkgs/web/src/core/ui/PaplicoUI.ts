@@ -961,15 +961,16 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 	): PointerEventData {
 		// Mouse reports a constant pressure (0.5 while pressed), so the pressure
 		// curve applies to pen/touch input only.
-		const pressure =
+		const transformPressure = (raw: number): number =>
 			e.pointerType !== "mouse" && this.callbacks.transformPressure
-				? this.callbacks.transformPressure(e.pressure)
-				: e.pressure;
+				? this.callbacks.transformPressure(raw)
+				: raw;
+		const touchOffsetY = this.touchDrawOffsetY(e);
 
-		return {
+		const data: PointerEventData = {
 			x: e.clientX - rect.left,
-			y: e.clientY - rect.top - this.touchDrawOffsetY(e),
-			pressure,
+			y: e.clientY - rect.top - touchOffsetY,
+			pressure: transformPressure(e.pressure),
 			tiltX: e.tiltX,
 			tiltY: e.tiltY,
 			twist: e.twist ?? 0,
@@ -982,6 +983,27 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			altKey: e.altKey,
 			metaKey: e.metaKey,
 		};
+
+		// Raw input samples between frames (drawing tools append them all).
+		if (
+			e.type === "pointermove" &&
+			typeof e.getCoalescedEvents === "function"
+		) {
+			const events = e.getCoalescedEvents();
+			if (events.length > 0) {
+				data.coalesced = events.map((ce) => ({
+					x: ce.clientX - rect.left,
+					y: ce.clientY - rect.top - touchOffsetY,
+					pressure: transformPressure(ce.pressure),
+					tiltX: ce.tiltX,
+					tiltY: ce.tiltY,
+					twist: ce.twist ?? 0,
+					timeStamp: ce.timeStamp,
+				}));
+			}
+		}
+
+		return data;
 	}
 
 	/**
