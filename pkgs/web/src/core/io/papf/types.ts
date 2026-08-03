@@ -16,7 +16,6 @@ import type {
 	Reference3DDef,
 	Viewport,
 } from "../../schema";
-import type { TimelapseDirtyRect } from "../../timelapse/types";
 
 // ---------------------------------------------------------------------------
 // Magic bytes (ASCII encoded)
@@ -177,30 +176,6 @@ export type MetaPayload = {
 		totalUpdates: number;
 		blockCount: number;
 	};
-};
-
-/**
- * The CBOR-encoded body of the TMLH section.
- *
- * The per-entry dirty rects live here rather than alongside the updates in
- * TMLB, so filtering playback down to one artboard never has to decompress an
- * update payload.
- */
-export type TimelapseManifestPayload = {
-	schemaVersion: number;
-	totalUpdates: number;
-	blockCount: number;
-	/**
-	 * World rect `[minX, minY, maxX, maxY]` per entry, or null where the
-	 * affected area is unknown. Absent in recordings written before the index
-	 * existed.
-	 */
-	dirtyRects?: (TimelapseDirtyRect | null)[];
-	/**
-	 * Entry positions where the recorded state starts over, written whenever a
-	 * document switch split the recording. Absent means one unbroken stream.
-	 */
-	baselines?: number[];
 };
 
 // ---------------------------------------------------------------------------

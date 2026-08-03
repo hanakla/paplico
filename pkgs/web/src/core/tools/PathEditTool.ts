@@ -1083,10 +1083,10 @@ export class PathEditTool implements Tool {
 					canvasHeight,
 				);
 				this.context.clearDeformationPreview([ds.elementId]);
-				// elementsMove knows the per-type move semantics (path segments,
+				// elementMove knows the per-type move semantics (path segments,
 				// blends, path-bound text, …) and commits once.
-				this.context.elementsMove(
-					[ds.elementId],
+				this.context.elementMove(
+					ds.elementId,
 					world.x - ds.startX,
 					world.y - ds.startY,
 				);

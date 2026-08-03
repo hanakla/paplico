@@ -30,28 +30,28 @@ export function AlignActionsMenu({
 	const canDistribute = selectedIds.length >= 3;
 
 	const handleAlignLeft = useEventCallback(() =>
-		paplico.commands.alignSelectedElements("left"),
+		paplico.alignSelectedElements("left"),
 	);
 	const handleAlignCenterH = useEventCallback(() =>
-		paplico.commands.alignSelectedElements("centerH"),
+		paplico.alignSelectedElements("centerH"),
 	);
 	const handleAlignRight = useEventCallback(() =>
-		paplico.commands.alignSelectedElements("right"),
+		paplico.alignSelectedElements("right"),
 	);
 	const handleAlignTop = useEventCallback(() =>
-		paplico.commands.alignSelectedElements("top"),
+		paplico.alignSelectedElements("top"),
 	);
 	const handleAlignCenterV = useEventCallback(() =>
-		paplico.commands.alignSelectedElements("centerV"),
+		paplico.alignSelectedElements("centerV"),
 	);
 	const handleAlignBottom = useEventCallback(() =>
-		paplico.commands.alignSelectedElements("bottom"),
+		paplico.alignSelectedElements("bottom"),
 	);
 	const handleDistributeHorizontal = useEventCallback(() =>
-		paplico.commands.distributeSelectedElements("horizontal"),
+		paplico.distributeSelectedElements("horizontal"),
 	);
 	const handleDistributeVertical = useEventCallback(() =>
-		paplico.commands.distributeSelectedElements("vertical"),
+		paplico.distributeSelectedElements("vertical"),
 	);
 
 	return (

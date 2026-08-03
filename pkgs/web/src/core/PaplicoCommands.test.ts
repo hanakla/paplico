@@ -1,6 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { readStoredBrushSize } from "./brush/access";
-import { normalizeBrushSettingsV2 } from "./brush/migrate";
 import type { YjsProvider } from "./collaboration/YjsProvider";
 import {
 	createDefaultBrushSettings,
@@ -12,7 +10,6 @@ import { PaplicoCommands } from "./PaplicoCommands";
 import type {
 	AnyArtObject,
 	BlendObject,
-	BrushSettingsV2,
 	FillAppearance,
 	Filter,
 	Group,
@@ -120,20 +117,28 @@ describe("PaplicoCommands", () => {
 	});
 
 	it("skips brush-setting updates when selected paths already match semantically", () => {
-		// A document authored before v2 stores the brush flat. Reopening it and
-		// touching the panel must not rewrite every stroke: the migrated value
-		// is the same brush.
-		const storedFlatBrushSettings = {
-			textureFileUid: "builtin-brush-soft-circle",
-			size: 10,
-			sizeByPressure: 0.5,
-			opacity: 1,
-			opacityByPressure: 0.3,
-			spacing: 0.15,
-			flow: 1,
-			randomSeed: 0,
+		const brushSettings = createDefaultBrushSettings();
+		const legacyFlatBrushSettings = {
+			size: brushSettings.size,
+			sizeByPressure: brushSettings.sizeByPressure,
+			opacity: brushSettings.opacity,
+			opacityByPressure: brushSettings.opacityByPressure,
+			randomSeed: brushSettings.randomSeed,
+			colorMode: brushSettings.colorMode,
+			textureFileUid:
+				brushSettings.source.kind === "file"
+					? brushSettings.source.fileUid
+					: "builtin-brush-soft-circle",
+			spacing: brushSettings.spacing,
+			flow: brushSettings.flow,
+			stampRotation: brushSettings.stampRotation,
+			stampAngle: brushSettings.stampAngle,
+			rotationByTilt: brushSettings.rotationByTilt,
+			aspectRatioByTilt: brushSettings.aspectRatioByTilt,
+			sizeBySpeed: brushSettings.sizeBySpeed,
+			pooling: brushSettings.pooling,
+			poolingSizeRatio: brushSettings.poolingSizeRatio,
 		};
-		const brushSettings = normalizeBrushSettingsV2(storedFlatBrushSettings);
 		const path = {
 			...createPath("path-1"),
 			filters: [
@@ -148,7 +153,7 @@ describe("PaplicoCommands", () => {
 								type: "solid",
 								color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
 							},
-							brushSettings: storedFlatBrushSettings,
+							brushSettings: legacyFlatBrushSettings,
 						},
 					},
 				},
@@ -181,184 +186,6 @@ describe("PaplicoCommands", () => {
 		commands.updateSelectedElementsBrushSettings(brushSettings);
 
 		expect(updateElement).not.toHaveBeenCalled();
-	});
-
-	// The panel edits v2 settings; writing them to a selected stroke has to
-	// carry the parts v1 cannot hold, or every mixing and wet value silently
-	// reverts the moment the stroke is selected.
-	it("keeps mixing and curves when writing v2 settings to the selection", () => {
-		const path = {
-			...createPath("path-1"),
-			filters: [
-				{
-					processor: "stroke",
-					opacity: 1,
-					blendMode: "normal",
-					paramData: {
-						version: "1",
-						params: {
-							strokeColor: {
-								type: "solid",
-								color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
-							},
-							brushSettings: createDefaultBrushSettings(),
-						},
-					},
-				},
-			],
-		} as Path;
-		const layer = createLayer("layer-1", [path.id]);
-		const updateElement = vi.fn();
-
-		const commands = new PaplicoCommands({
-			store: {
-				currentLayerId: layer.id,
-				selectedElementIds: [path.id],
-				editingScopeStack: [],
-				document: {
-					layers: [layer],
-					objects: { [path.id]: path },
-				},
-			} as unknown as RendererState,
-			yjsProvider: {
-				updateElement,
-				transact: vi.fn((fn: () => void) => fn()),
-				isAnimationUndoMode: vi.fn(() => false),
-			} as unknown as YjsProvider,
-			spatial: {
-				isElementLocked: () => false,
-			} as unknown as SpatialIndex,
-			isReadonly: () => false,
-		});
-
-		commands.updateSelectedElementsBrushSettings({
-			version: 2,
-			engine: "dab",
-			strokeOpacity: 1,
-			paintMode: "buildup",
-			properties: {
-				size: { base: 24 },
-				colorRate: {
-					base: 0,
-					curves: [
-						{
-							input: "pressure",
-							points: [
-								[0, 0],
-								[1, 0.5],
-							],
-						},
-					],
-				},
-			},
-			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
-			mixing: {
-				enabled: true,
-				mode: "dulling",
-				sampleRadius: 2,
-				sampleTrail: 0,
-				blendStyle: 1,
-			},
-			randomSeed: 5,
-		});
-
-		expect(updateElement).toHaveBeenCalledTimes(1);
-		const [, , patch] = updateElement.mock.calls[0] as [
-			string,
-			string,
-			{ filters: Filter[] },
-		];
-		const written = (
-			patch.filters[0] as unknown as {
-				paramData: { params: { brushSettings: BrushSettingsV2 } };
-			}
-		).paramData.params.brushSettings;
-		expect(written.mixing?.enabled).toBe(true);
-		expect(written.mixing?.sampleRadius).toBe(2);
-		expect(written.properties.colorRate?.curves?.[0].input).toBe("pressure");
-	});
-
-	// Two settings that differ only in what v1 cannot express must not read as
-	// the same, or the write carrying them to the element is skipped and the
-	// change is lost the moment the stroke is selected again.
-	it("writes a change only the v2 shape can express", () => {
-		const base = {
-			version: 2,
-			engine: "dab",
-			strokeOpacity: 1,
-			paintMode: "wash",
-			properties: { size: { base: 20 } },
-			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
-			wet: {
-				enabled: true,
-				bleedRadius: 0.8,
-				pigmentLoad: 1,
-				grainScale: 1,
-				scatter: 0.4,
-			},
-			randomSeed: 1,
-		};
-		const path = {
-			...createPath("path-1"),
-			filters: [
-				{
-					processor: "stroke",
-					opacity: 1,
-					blendMode: "normal",
-					paramData: {
-						version: "1",
-						params: {
-							strokeColor: {
-								type: "solid",
-								color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
-							},
-							brushSettings: base,
-						},
-					},
-				},
-			],
-		} as unknown as Path;
-		const layer = createLayer("layer-1", [path.id]);
-		const updateElement = vi.fn();
-
-		const commands = new PaplicoCommands({
-			store: {
-				currentLayerId: layer.id,
-				selectedElementIds: [path.id],
-				editingScopeStack: [],
-				document: {
-					layers: [layer],
-					objects: { [path.id]: path },
-				},
-			} as unknown as RendererState,
-			yjsProvider: {
-				updateElement,
-				transact: vi.fn((fn: () => void) => fn()),
-				isAnimationUndoMode: vi.fn(() => false),
-			} as unknown as YjsProvider,
-			spatial: {
-				isElementLocked: () => false,
-			} as unknown as SpatialIndex,
-			isReadonly: () => false,
-		});
-
-		commands.updateSelectedElementsBrushSettings({
-			...base,
-			wet: { ...base.wet, scatter: 2.5 },
-		} as unknown as BrushSettingsV2);
-
-		expect(updateElement).toHaveBeenCalledTimes(1);
-		const [, , patch] = updateElement.mock.calls[0] as [
-			string,
-			string,
-			{ filters: Filter[] },
-		];
-		const written = (
-			patch.filters[0] as unknown as {
-				paramData: { params: { brushSettings: BrushSettingsV2 } };
-			}
-		).paramData.params.brushSettings;
-		expect(written.wet?.scatter).toBe(2.5);
 	});
 
 	describe("pasteElements", () => {
@@ -1175,8 +1002,8 @@ describe("PaplicoCommands", () => {
 		});
 	});
 
-	describe("rotateElements", () => {
-		it("should only update rotation angle when the pivot is the element center", () => {
+	describe("rotateElement", () => {
+		it("should only update rotation angle without moving position", () => {
 			const path = createPathAt("p1", 100, 100, 200, 200);
 			const layer = createLayer("l1", [path.id]);
 			const { commands, store } = createRotateCommands(layer, {
@@ -1193,7 +1020,7 @@ describe("PaplicoCommands", () => {
 			const cx = (bounds.minX + bounds.maxX) / 2;
 			const cy = (bounds.minY + bounds.maxY) / 2;
 
-			commands.rotateElements([path.id], 45, cx, cy);
+			commands.rotateElement(layer.id, path.id, 45, cx, cy);
 
 			const updated = store.document.objects[path.id] as Path;
 			expect(updated.transform.x).toBe(0);
@@ -1209,12 +1036,14 @@ describe("PaplicoCommands", () => {
 				[path.id]: path,
 			});
 
-			commands.rotateElements([path.id], 90, 50, 50);
+			commands.rotateElement(layer.id, path.id, 90, 50, 50);
 
 			const updated = store.document.objects[path.id] as Path;
 			expect(updated.transform.rotation).toBeCloseTo(Math.PI / 4 + Math.PI / 2);
 		});
+	});
 
+	describe("rotateElements", () => {
 		it("should rotate each element's visual center around the group center", () => {
 			// Two elements side by side:
 			// A: localBounds (0,0)-(100,100), transform=(0,0) → visualCenter=(50,50)
@@ -1328,7 +1157,7 @@ describe("PaplicoCommands", () => {
 			expect(b.transform.rotation).toBeCloseTo(Math.PI / 2);
 		});
 
-		it("should rotate a group by rotating its children", () => {
+		it("should handle rotateElement on a group by rotating children", () => {
 			const child = createPathAt("c1", 0, 0, 100, 100);
 			const group = createGroup("g1", ["c1"]);
 			const layer = createLayer("l1", [group.id]);
@@ -1338,7 +1167,7 @@ describe("PaplicoCommands", () => {
 			});
 
 			// Single group rotation: rotate 90° around center (50,50)
-			commands.rotateElements([group.id], 90, 50, 50);
+			commands.rotateElement(layer.id, group.id, 90, 50, 50);
 
 			// Group transform stays identity
 			expect(store.document.objects[group.id]!.transform.rotation).toBe(0);
@@ -2659,65 +2488,6 @@ describe("computePerspectiveWarpUpdates (vertex bake)", () => {
 		// Identity-transform element: the re-resolved transform stays identity.
 		expect(patch.transform?.x).toBeCloseTo(0, 6);
 		expect(patch.transform?.y).toBeCloseTo(0, 6);
-	});
-
-	it("should scale stroke widths by the warp's uniform area scale", () => {
-		// 2x uniform enlargement of the source quad: area ratio 4, width scale 2.
-		const scaled2x: [Vec2, Vec2, Vec2, Vec2] = [
-			[0, 200],
-			[200, 200],
-			[200, 0],
-			[0, 0],
-		];
-		const path = {
-			...createPathAt("path-1", 0, 0, 100, 100),
-			filters: [existingStrokeAppearance()],
-		};
-		const layer = createLayer("layer-1", [path.id]);
-		const { commands } = createCommands(layer, { [path.id]: path }, [path.id]);
-
-		const updates = commands.computePerspectiveWarpUpdates(
-			[path.id],
-			scaled2x,
-			SOURCE,
-		);
-
-		const stroke = (updates[0].updates as Partial<Path>)
-			.filters?.[0] as StrokeAppearance;
-		expect(
-			readStoredBrushSize(stroke.paramData.params.brushSettings),
-		).toBeCloseTo(
-			(createDefaultBrushSettings().properties.size?.base ?? 0) * 2,
-			6,
-		);
-	});
-
-	it("should keep stroke widths under an area-preserving shear", () => {
-		// Horizontal shear of the top edge: a parallelogram with unchanged area.
-		const sheared: [Vec2, Vec2, Vec2, Vec2] = [
-			[50, 100],
-			[150, 100],
-			[100, 0],
-			[0, 0],
-		];
-		const path = {
-			...createPathAt("path-1", 0, 0, 100, 100),
-			filters: [existingStrokeAppearance()],
-		};
-		const layer = createLayer("layer-1", [path.id]);
-		const { commands } = createCommands(layer, { [path.id]: path }, [path.id]);
-
-		const updates = commands.computePerspectiveWarpUpdates(
-			[path.id],
-			sheared,
-			SOURCE,
-		);
-
-		const stroke = (updates[0].updates as Partial<Path>)
-			.filters?.[0] as StrokeAppearance;
-		expect(
-			readStoredBrushSize(stroke.paramData.params.brushSettings),
-		).toBeCloseTo(createDefaultBrushSettings().properties.size?.base ?? 0, 6);
 	});
 
 	it("should bake warped corner vertices into an image", () => {

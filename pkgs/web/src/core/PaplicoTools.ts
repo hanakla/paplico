@@ -1,13 +1,8 @@
-import { applyBrushPatch } from "./brush/access";
-import { normalizeBrushSettingsV2 } from "./brush/migrate";
-import {
-	PAPLICO_MAX_ZOOM_SCALE,
-	PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
-} from "./document/constants";
+import { normalizeBrushSettings } from "./brush/normalize";
 import { createStrokeBrushSettings } from "./document/factory";
 import {
+	type BrushSettings,
 	type BrushSettingsPatch,
-	type BrushSettingsV2,
 	cloneAppearance,
 	type FillAppearance,
 	type FillColor,
@@ -60,13 +55,11 @@ export class PaplicoTools {
 		return this.store.fillAppearance?.paramData.params.fill ?? null;
 	}
 
-	/** The brush as stored. Everything reads this: a down-converted view has
-	 *  nowhere to hold curves, mixing or the wet layer. */
-	public get storedBrushSettings(): BrushSettingsV2 {
-		return normalizeBrushSettingsV2(
-			this.store.strokeAppearance?.paramData.params.brushSettings ??
-				createStrokeBrushSettings(2),
-		);
+	public get brushSettings(): BrushSettings {
+		const raw = this.store.strokeAppearance?.paramData.params.brushSettings;
+		return raw != null
+			? normalizeBrushSettings(raw)
+			: createStrokeBrushSettings(2);
 	}
 
 	// --- Mutations ---
@@ -112,34 +105,21 @@ export class PaplicoTools {
 		this.store.currentTool = tool;
 	}
 
-	public setBrushSettings(patch: BrushSettingsPatch | BrushSettingsV2): void {
+	public setBrushSettings(patch: BrushSettingsPatch): void {
 		if (!this.store.strokeAppearance) return;
 
-		let updated: BrushSettingsV2;
-		// A whole brush replaces the stored settings outright — nothing is
-		// carried over. Presets arrive this way.
-		if ("version" in patch && patch.version === 2) {
-			updated = normalizeBrushSettingsV2(patch);
-		} else {
-			updated = applyBrushPatch(
-				normalizeBrushSettingsV2(
-					this.store.strokeAppearance.paramData.params.brushSettings ??
-						createStrokeBrushSettings(2),
-				),
-				patch,
-			);
-		}
+		const current = this.brushSettings;
+		// Merge within the same brush type. A patch carrying a different `type`
+		// is treated as a full replacement (re-normalized to a valid union value).
+		const merged = { ...current, ...patch };
+		const updated = normalizeBrushSettings(merged);
 		this.store.strokeAppearance = cloneAppearance(this.store.strokeAppearance, {
 			brushSettings: updated,
 		});
 	}
 
 	public setSvgBrush(): void {
-		this.setBrushSettings(
-			createStrokeBrushSettings(
-				this.storedBrushSettings.properties.size?.base ?? 2,
-			),
-		);
+		this.setBrushSettings(createStrokeBrushSettings(this.brushSettings.size));
 	}
 
 	public setFillColor(color: FillColor | null): void {
@@ -235,13 +215,6 @@ export class PaplicoTools {
 		this.store.touchDrawOffsetScale = Math.max(
 			0,
 			Math.min(MAX_TOUCH_DRAW_OFFSET_SCALE, scale),
-		);
-	}
-
-	public setMaxZoomScale(scale: number): void {
-		this.store.maxZoomScale = Math.max(
-			PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
-			Math.min(PAPLICO_MAX_ZOOM_SCALE, scale),
 		);
 	}
 

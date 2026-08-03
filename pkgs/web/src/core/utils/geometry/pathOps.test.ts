@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { readStoredBrushSize } from "../../brush/access";
 import { createIdentityTransform } from "../../document/factory";
 import type {
 	BezierPoint,
@@ -1397,9 +1396,7 @@ describe("splitPathAtAnchor", () => {
 			const stroke = (
 				p.filters?.find((f) => f.processor === "stroke") as StrokeAppearance
 			).paramData.params;
-			expect(readStoredBrushSize(stroke.brushSettings)).toBe(
-				readStoredBrushSize(srcStroke.brushSettings),
-			);
+			expect(stroke.brushSettings?.size).toBe(srcStroke.brushSettings?.size);
 		}
 	});
 

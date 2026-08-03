@@ -14,11 +14,7 @@ import { Slider } from "@/components/Slider";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import {
-	readStoredBrushStroking,
-	withStoredBrushSize,
-} from "@/core/brush/access";
-import { resolveBrushRenderRoute } from "@/core/brush/renderRoute";
+import { normalizeBrushSettings } from "@/core/brush/normalize";
 import type {
 	AnyArtObject,
 	BrushStroking,
@@ -28,6 +24,7 @@ import type {
 	Path,
 	TextElement,
 } from "@/core/schema";
+import { isGeometricBrush } from "@/core/schema";
 import {
 	getFirstStroke,
 	getStrokeTaperEnd,
@@ -90,8 +87,7 @@ function StrokeWidthControl({
 
 		for (const el of elements) {
 			const stroke = getFirstStroke(el.filters);
-			const bs = stroke?.paramData.params.brushSettings;
-			if (!stroke || !bs) continue;
+			if (!stroke?.paramData.params.brushSettings) continue;
 
 			const newFilters = el.filters?.map((f) => {
 				if (f !== stroke) return f;
@@ -101,7 +97,10 @@ function StrokeWidthControl({
 						...f.paramData,
 						params: {
 							...stroke.paramData.params,
-							brushSettings: withStoredBrushSize(bs, value),
+							brushSettings: {
+								...stroke.paramData.params.brushSettings!,
+								size: value,
+							},
 						},
 					},
 				};
@@ -147,9 +146,9 @@ function StrokeWidthControl({
 			for (const el of elements) {
 				const stroke = getFirstStroke(el.filters);
 				const bs = stroke?.paramData.params.brushSettings;
-				if (bs?.engine !== "geometric") continue;
+				if (!bs || bs.type !== "stroke") continue;
 
-				const prev = readStoredBrushStroking(bs);
+				const prev = bs.stroking;
 				const newFilters = el.filters?.map((f) => {
 					if (f !== stroke) return f;
 					return {
@@ -204,15 +203,17 @@ function StrokeWidthControl({
 	const firstStroke = getFirstStroke(elements[0]?.filters);
 	const firstBrush = firstStroke?.paramData.params.brushSettings;
 	const normalizedFirst = firstBrush
-		? resolveBrushRenderRoute(firstBrush).settings
+		? normalizeBrushSettings(firstBrush)
 		: null;
-	const showStroking = normalizedFirst?.engine === "geometric";
+	const showStroking = normalizedFirst
+		? isGeometricBrush(normalizedFirst)
+		: false;
 	const lineCap =
-		normalizedFirst?.engine === "geometric"
+		normalizedFirst?.type === "stroke"
 			? (normalizedFirst.stroking?.lineCap ?? "round")
 			: "round";
 	const lineJoin =
-		normalizedFirst?.engine === "geometric"
+		normalizedFirst?.type === "stroke"
 			? (normalizedFirst.stroking?.lineJoin ?? "round")
 			: "round";
 
@@ -308,7 +309,7 @@ function StrokeWidthControl({
 
 					<DashPatternControls
 						stroking={
-							normalizedFirst?.engine === "geometric"
+							normalizedFirst?.type === "stroke"
 								? normalizedFirst.stroking
 								: undefined
 						}

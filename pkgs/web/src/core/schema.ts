@@ -357,8 +357,6 @@ export interface BezierPoint {
 	pressure?: number;
 	tiltX?: number;
 	tiltY?: number;
-	/** Pen barrel rotation in degrees (0–359, PointerEvent.twist). */
-	twist?: number;
 	deltaTime?: number;
 }
 
@@ -392,10 +390,6 @@ export interface CubicBezierSegment {
 	endTiltX: number;
 	/** Pen tilt Y at the end of this segment (-90–90 degrees). */
 	endTiltY: number;
-	/** Pen barrel rotation at the start of this segment (0–359 degrees). */
-	startTwist?: number;
-	/** Pen barrel rotation at the end of this segment (0–359 degrees). */
-	endTwist?: number;
 	/** Elapsed time from stroke start at segment start (ms). */
 	startDeltaTime: number;
 	/** Elapsed time from stroke start at segment end (ms). */
@@ -498,7 +492,7 @@ export interface EraseMask {
 	strokeColor: StrokeColor;
 
 	/** Brush settings for rendering the mask stroke. */
-	brushSettings: BrushSettingsV2;
+	brushSettings: BrushSettings;
 
 	/**
 	 * Mask opacity (0–1). Controls hard vs soft erasing:
@@ -790,10 +784,7 @@ export interface FillAppearance extends Appearance<FillParams> {
 
 export interface StrokeParams {
 	strokeColor: StrokeColor;
-	/** Documents authored before the brush-v2 migration hold the pre-v2 shape
-	 * on disk; it is migrated on read, so anything running against a loaded
-	 * document sees v2. Route rendering through resolveBrushRenderRoute. */
-	brushSettings?: BrushSettingsV2;
+	brushSettings?: BrushSettings;
 }
 
 export interface StrokeAppearance extends Appearance<StrokeParams> {
@@ -1636,13 +1627,6 @@ export const BUILTIN_BRUSH_IDS = {
 export type BuiltinBrushId =
 	(typeof BUILTIN_BRUSH_IDS)[keyof typeof BUILTIN_BRUSH_IDS];
 
-/** Built-in paper grain textures (GrainConfig.source), seeded alongside the
- *  brush textures so a fresh document can use them without an import. */
-export const BUILTIN_PAPER_IDS = {
-	finePaper: "builtin-paper-fine",
-	coarsePaper: "builtin-paper-coarse",
-} as const;
-
 // Stamp rotation mode
 // - none: No rotation (fixed at 0)
 // - tangent: Rotate along path tangent direction
@@ -1672,37 +1656,240 @@ export interface BrushStroking {
 	dashOffset?: number;
 }
 
+/**
+ * Brush settings for stamp-based rendering.
+ */
+export type BrushType =
+	| "stroke"
+	| "scatter"
+	| "art"
+	| "pattern"
+	| "calligraphy";
+
 /** Brush art source: raster (EmbeddedFile UID) or vector (defs entry, wired in a later step). */
 export type BrushArtSource =
 	| { kind: "file"; fileUid: string }
 	| { kind: "def"; defId: string };
 
-/**
- * Small edits callers make without holding the whole brush: the base size,
- * the taper, the dash, and swapping the tip's texture. Everything with a
- * curve behind it goes through a complete BrushSettingsV2 instead.
- */
-export type BrushSettingsPatch = {
-	size?: number;
-	taperStart?: number;
-	taperEnd?: number;
-	stroking?: BrushStroking;
-	/** Replaces the tip's own texture, keeping its variants. */
-	tipSource?: BrushArtSource;
+interface BrushSettingsBase {
+	/** Base size in world units */
+	size: number;
+	/** Pressure-to-size sensitivity (0-1). 1.0 = zero pressure yields zero size */
+	sizeByPressure: number;
+	/** Base opacity (0-1) */
+	opacity: number;
+	/** Pressure-to-opacity sensitivity (0-1) */
+	opacityByPressure: number;
+	/** Seed for reproducible randomness (rotation, scatter selection, jitter) */
+	randomSeed: number;
+	/** Texture color processing mode. "tinting" uses luminance as alpha (default), "color" uses texture RGB directly */
 	colorMode?: BrushColorMode;
-};
+	/** Entry taper length in world units. 0/undefined = off */
+	taperStart?: number;
+	/** Exit taper length in world units. 0/undefined = off */
+	taperEnd?: number;
+}
+
+/** Geometric stroke pen (formerly the SVG brush). */
+export interface StrokeBrushSettings extends BrushSettingsBase {
+	type: "stroke";
+	/** Stroke geometry (line cap/join, miter, dash). */
+	stroking?: BrushStroking;
+}
+
+/**
+ * Per-stroke wetness parameters consumed by WetInkPass.
+ *
+ * All values are deterministic inputs to the simulation. Strokes without
+ * `wetInk` (or with `enabled === false`) skip the wet pass and render
+ * through the regular pipeline with no extra render target allocation.
+ */
+export interface WetInkSettings {
+	/** Master toggle. `false` (or undefined wetInk) short-circuits all wet-ink work. */
+	enabled: boolean;
+	/** Bleed radius as a ratio of `size`. 0 = sharp edge, 1 = doubles the radius. */
+	bleedWidth: number;
+	/** Edge darkening intensity (0..1). Higher values deepen the rim of the wet patch. */
+	edgeDarkening: number;
+	/** Edge roughness (0..1). Paper-grain noise modulating the bleed boundary. */
+	edgeRoughness: number;
+	/** Internal paper grain (0..1). Granularity inside the wet patch. */
+	paperGrain: number;
+	/** Noise frequency in world units (smaller = larger grain). */
+	paperScale: number;
+	/** Directional bias toward stroke tangent (0..1). 1 = strong forward-pull. */
+	directionality: number;
+	/** Speed influence (0..1). Fast strokes bleed less (dry brush). */
+	speedInfluence: number;
+	/** Acceleration influence (0..1). Pauses/turns bleed more. */
+	accelInfluence: number;
+	/** Master wetness (0..1). Scales the field-write weight. */
+	wetness: number;
+	/**
+	 * Optional bleed softness (0..1). 0 = granular bleed, 1 = soft bleed; the
+	 * bleed radius itself does not change. Undefined uses
+	 * `DEFAULT_WET_INK_DIFFUSION`. The diffuse pass always runs a fixed 32
+	 * dt-normalized iterations, so the total effect is iteration-count
+	 * independent.
+	 */
+	diffusion?: number;
+	/** Pigment density to visible premultiplied alpha conversion strength. */
+	pigmentLoad: number;
+	/** Paper absorption rate. Higher values remove water earlier and leave pigment in paper grain. */
+	absorption: number;
+	/** Paper-grain pigment separation amount. */
+	granulation: number;
+	/** When true, the wet stroke picks pigment from the already-rendered layer buffer. */
+	pickupUnderlyingColor: boolean;
+	/** Strength of render-buffer color pickup into the wet simulation. */
+	pickupStrength: number;
+	/** Pickup trail distance (-2..2). Positive = forward sampling, negative = backward. Abs scales reach. Default 1.0. */
+	pickupDecay?: number;
+	/** Pickup color blend style (0..1). 0 = vivid (OkLCH hue arc), 1 = muted (OkLAB linear). Default 0. */
+	pickupBlendMode?: number;
+}
+
+export const DEFAULT_WET_INK_DIFFUSION = 0.35;
+export const DEFAULT_WET_INK_PIGMENT_LOAD = 0.85;
+export const DEFAULT_WET_INK_ABSORPTION = 0.35;
+export const DEFAULT_WET_INK_GRANULATION = 0.25;
+export const DEFAULT_WET_INK_PICKUP_UNDERLYING_COLOR = false;
+export const DEFAULT_WET_INK_PICKUP_STRENGTH = 0.35;
+export const DEFAULT_WET_INK_PICKUP_DECAY = 1.0;
+
+export interface ScatterBrushSettings extends BrushSettingsBase {
+	type: "scatter";
+	/** Art source for the stamp texture */
+	source: BrushArtSource;
+	/** Stamp spacing as ratio of size (0.1 = 10% of size) */
+	spacing: number;
+	/** Flow/accumulation (0-1). Lower values produce thinner layering */
+	flow: number;
+	/** Stamp rotation mode */
+	stampRotation: StampRotation;
+	/** Fixed stamp rotation angle in degrees (-180 to 180). Added on top of stampRotation mode. */
+	stampAngle?: number;
+	/** Tilt-to-stamp rotation influence (0-1). 0=no effect, 1=full tilt angle applied */
+	rotationByTilt: number;
+	/** Tilt-to-aspect ratio influence (0-1). 0=circular, 1=max elongation at full tilt */
+	aspectRatioByTilt: number;
+	/** Speed-to-size influence (0-1). Higher speed yields a thinner line. */
+	sizeBySpeed: number;
+	/** Ink pooling strength (0-1). Higher values accumulate more ink at low speed */
+	pooling: number;
+	/** Pooling size/opacity balance (0-1). 0=opacity-heavy, 1=size-heavy */
+	poolingSizeRatio: number;
+	/** Additional art variants for scatter (randomly selected per stamp) */
+	scatterSources?: readonly BrushArtSource[];
+	/** Art source for the first stamp of a stroke */
+	startSource?: BrushArtSource;
+	/** Art source for the last stamp of a stroke */
+	endSource?: BrushArtSource;
+	/** Perpendicular scatter offset (0-1, ratio of brush size) */
+	scatterOffset?: number;
+	/** Size jitter range (0-1, random variation ratio of base size) */
+	scatterSizeVariation?: number;
+	/** Optional wet-ink parameters. Undefined keeps the stroke dry. */
+	wetInk?: WetInkSettings;
+}
+
+/** Art brush: stretches one art source along the whole stroke length. */
+export interface ArtBrushSettings extends BrushSettingsBase {
+	type: "art";
+	source: BrushArtSource;
+	/** Flow/accumulation (0-1) */
+	flow: number;
+	/** Flip art along the stroke direction */
+	flip?: boolean;
+	/** Flip art across the stroke width */
+	flipAcross?: boolean;
+}
+
+/** Pattern brush: repeats a tile along the stroke. */
+export interface PatternBrushSettings extends BrushSettingsBase {
+	type: "pattern";
+	source: BrushArtSource;
+	/** Flow/accumulation (0-1) */
+	flow: number;
+	/** Tile width factor (1 = preserve texture aspect ratio) */
+	tileScale: number;
+	/** Gap between tiles as ratio of tile width (0 = no gap) */
+	tileSpacing: number;
+	/** UV.x offset for alignment */
+	uvOffset?: number;
+	/** End-fraction handling. v1 supports "none" only. */
+	fitMode?: "none";
+}
+
+/** Calligraphy brush: elliptical nib, no texture. */
+export interface CalligraphyBrushSettings extends BrushSettingsBase {
+	type: "calligraphy";
+	/** Nib angle in degrees */
+	nibAngle: number;
+	/** Nib roundness 0..1 (minor/major axis ratio; 1 = circular) */
+	roundness: number;
+	/** Source of nib orientation */
+	angleMode: "fixed" | "tangent" | "tilt";
+	/** Stamp spacing as ratio of size (0.1 = 10% of size) */
+	spacing?: number;
+	/** Flow/accumulation (0-1) */
+	flow: number;
+	/** Speed-to-size influence (0-1) */
+	sizeBySpeed: number;
+	/** Ink pooling strength (0-1) */
+	pooling: number;
+	/** Pooling size/opacity balance (0-1) */
+	poolingSizeRatio: number;
+	/** Optional wet-ink parameters. Undefined keeps the stroke dry. */
+	wetInk?: WetInkSettings;
+}
+
+export const DEFAULT_CALLIGRAPHY_SPACING = 0.05;
+
+export type BrushSettings =
+	| StrokeBrushSettings
+	| ScatterBrushSettings
+	| ArtBrushSettings
+	| PatternBrushSettings
+	| CalligraphyBrushSettings;
+
+/** Per-brush-type partial update (same-type fields only). */
+export type BrushSettingsPatch =
+	| Partial<StrokeBrushSettings>
+	| Partial<ScatterBrushSettings>
+	| Partial<ArtBrushSettings>
+	| Partial<PatternBrushSettings>
+	| Partial<CalligraphyBrushSettings>;
 
 /** Whether a brush uses geometric stroke expansion instead of stamp-based rendering. */
-export function isGeometricBrush(settings: BrushSettingsV2): boolean {
-	return settings.engine === "geometric";
+export function isGeometricBrush(
+	settings: BrushSettings,
+): settings is StrokeBrushSettings {
+	return settings.type === "stroke";
+}
+
+/**
+ * True when the brush has wet-ink enabled. CanvasLayer routes wet strokes
+ * through the immediate (non-batched) path so WetInkPass can run between
+ * strokes without disturbing other batches.
+ */
+export function hasWetInk(settings: BrushSettings): settings is (
+	| ScatterBrushSettings
+	| CalligraphyBrushSettings
+) & {
+	wetInk: WetInkSettings & { enabled: true };
+} {
+	if (settings.type === "scatter" || settings.type === "calligraphy") {
+		return settings.wetInk?.enabled === true;
+	}
+	return false;
 }
 
 export type BrushPresetCategory =
 	| "pen"
 	| "airbrush"
 	| "watercolor"
-	| "calligraphy"
-	| "effect";
+	| "calligraphy";
 
 export interface BrushPreset {
 	uid: string;
@@ -1710,189 +1897,7 @@ export interface BrushPreset {
 	/** Optional shelf grouping for builtin presets. */
 	category?: BrushPresetCategory;
 	/** Brush settings applied when selecting this preset */
-	settings: BrushSettingsV2;
-}
-
-// --- Brush Engine v2 Types ---
-
-/**
- * Inputs of the brush curve matrix. All values are normalized to 0..1 before
- * curve evaluation (angular inputs are wrapped into 0..1; accel is computed
- * once per dab by the CPU input sampler and shared with the dab layout).
- */
-export type BrushInputId =
-	| "pressure"
-	| "speedFine"
-	| "speedGross"
-	| "accel"
-	| "tiltMagnitude"
-	| "tiltAzimuth"
-	| "twist"
-	| "direction"
-	| "strokeT"
-	| "fade"
-	| "distance"
-	| "randomPerDab"
-	| "randomPerStroke";
-
-/** Curve-modulatable brush properties. Domains/ranges live in brush/properties.ts. */
-export type BrushPropertyId =
-	| "size"
-	| "ratio"
-	| "angle"
-	| "flow"
-	| "spacing"
-	| "scatterOffset"
-	| "scatterAlong"
-	| "hueShift"
-	| "satShift"
-	| "valShift"
-	| "grainStrength"
-	| "hardness"
-	| "colorRate"
-	| "alphaRate"
-	| "smudgeLength"
-	| "dabsPerSecond"
-	| "wetness"
-	| "directionality"
-	| "grainAmount"
-	| "absorption"
-	| "granulation"
-	| "bleedSoftness"
-	| "edgeDarkening"
-	| "edgeRoughness";
-
-/** One input-to-property connection: a piecewise linear curve (max 16 points). */
-export interface BrushCurve {
-	input: BrushInputId;
-	points: [number, number][];
-}
-
-/** Base value plus optional modulation curves. Evaluation: brush/curves.ts. */
-export interface BrushPropertyConfig {
-	base: number;
-	curves?: BrushCurve[];
-}
-
-export type BrushEngineKind = "dab" | "ribbon" | "geometric";
-
-export type BrushTipConfig =
-	| {
-			kind: "procedural";
-			/** Falloff hardness 0..1 (2-segment MyPaint falloff baked into a LUT). */
-			hardness: number;
-			/** Optional custom falloff curve (Krita curve-circle style). */
-			softnessCurve?: [number, number][];
-			angleMode: "fixed" | "tangent";
-	  }
-	| {
-			kind: "image";
-			sources: BrushArtSource[];
-			selection: "sequence" | "random";
-			startSource?: BrushArtSource;
-			endSource?: BrushArtSource;
-			angleMode: "fixed" | "tangent";
-	  };
-
-/** Ribbon engine (art/pattern) configuration. */
-export interface RibbonConfig {
-	source: BrushArtSource;
-	uvMode: "repeat" | "stretch";
-	tileScale: number;
-	tileSpacing: number;
-	uvOffset?: number;
-	flipU?: boolean;
-	flipV?: boolean;
-}
-
-/** Paper grain applied per dab with canvas-locked UVs. */
-export interface GrainConfig {
-	source: BrushArtSource;
-	/** Grain UV scale in world units. */
-	scale: number;
-	mode: "multiply" | "subtract";
-	randomOffsetPerStroke: boolean;
-}
-
-/** CSP-style watercolor edge. Stroke-level; ignored while wet.enabled (exclusive). */
-export interface WetEdgeConfig {
-	width: number;
-	intensity: number;
-	darkening: number;
-	blur: number;
-}
-
-/**
- * Color mixing (dulling sample). Enablement is the explicit boolean only —
- * presence of this object does NOT enable mixing. Modulatable bases
- * (colorRate/alphaRate/smudgeLength) live in `properties`.
- */
-export interface MixingConfig {
-	enabled: boolean;
-	mode: "dulling";
-	sampleRadius: number;
-	/** Sample position trail along stroke direction (-2..2, forward positive). */
-	sampleTrail: number;
-	/** 0 = vivid (OkLCH), 1 = muted (OkLAB). */
-	blendStyle: number;
-}
-
-/**
- * Wet layer stroke-level config. The 8 modulatable wet parameters live in
- * `properties`; `enabled` is the only activation gate (never inferred from
- * property values or curves).
- */
-export interface WetConfig {
-	enabled: boolean;
-	/** Bleed radius as a ratio of size. Decides the sim domain allocation. */
-	bleedRadius: number;
-	/** Pigment density to visible alpha conversion strength (composite time). */
-	pigmentLoad: number;
-	/** Grain noise UV frequency in world units. */
-	grainScale: number;
-	/** How far each texel's pigment is displaced when the layer is composited,
-	 *  as a ratio of the brush radius. Shuffling texels is what scatters the
-	 *  paint into grain; moving whole dabs cannot. */
-	scatter?: number;
-}
-
-/**
- * Non-modulated settings that feed input computation itself. These must not
- * be curve targets (a speed curve wired into speedRef would recurse).
- * Undefined fields mean "auto/engine default"; speedRef auto derives from
- * brushSize via the current clamp(size*0.06, 0.5, 2.0) formula.
- */
-export interface InputDynamicsConfig {
-	speedRef?: number;
-	speedFineTau?: number;
-	speedGrossTau?: number;
-	directionFilter?: number;
-}
-
-/**
- * Brush settings v2: curve-matrix based engine settings. See
- * .claude/memos/new-brush-engine.md for the full design.
- */
-export interface BrushSettingsV2 {
-	version: 2;
-	engine: BrushEngineKind;
-	/** Stroke-level opacity cap (wash composite). Base value only, no curves. */
-	strokeOpacity: number;
-	paintMode: "buildup" | "wash";
-	properties: Partial<Record<BrushPropertyId, BrushPropertyConfig>>;
-	/** Dab engine tip. Absent for ribbon/geometric engines. */
-	tip?: BrushTipConfig;
-	ribbon?: RibbonConfig;
-	stroking?: BrushStroking;
-	grain?: GrainConfig;
-	wetEdge?: WetEdgeConfig;
-	mixing?: MixingConfig;
-	wet?: WetConfig;
-	inputDynamics?: InputDynamicsConfig;
-	randomSeed: number;
-	taperStart?: number;
-	taperEnd?: number;
-	colorMode?: BrushColorMode;
+	settings: BrushSettings;
 }
 
 // --- Artboard Types ---

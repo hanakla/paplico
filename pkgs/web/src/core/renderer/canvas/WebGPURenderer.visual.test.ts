@@ -1,7 +1,6 @@
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { normalizeBrushSettingsV2 } from "../../brush/migrate";
 import {
 	createArtboard,
 	createDefaultBrushSettings,
@@ -9,7 +8,7 @@ import {
 	createDefaultLayer,
 	createStrokeBrushSettings,
 } from "../../document/factory";
-import type { BrushSettingsV2, Path, StrokeWidthPoint } from "../../schema";
+import type { BrushSettings, Path, StrokeWidthPoint } from "../../schema";
 import { loadTestFont } from "../../testUtils/fontSetup";
 import { loadTestDocument } from "../../testUtils/loadTestDocument";
 import { createMockToolContext } from "../../testUtils/mockToolContext";
@@ -895,7 +894,7 @@ describe("WebGPU Visual Regression - Mutation Detection", () => {
 });
 
 async function renderSignedWidthBrush(
-	brushSettings: BrushSettingsV2,
+	brushSettings: BrushSettings,
 	strokeWidths: StrokeWidthPoint[],
 	id: string,
 	transform?: Partial<Path["transform"]>,
@@ -943,7 +942,7 @@ async function renderSignedWidthBrush(
 }
 
 function createSignedWidthPath(
-	brushSettings: BrushSettingsV2,
+	brushSettings: BrushSettings,
 	strokeWidths: StrokeWidthPoint[],
 	id: string,
 	transform?: Partial<Path["transform"]>,
@@ -970,9 +969,7 @@ function createSignedWidthPath(
 			},
 		}),
 	});
-	const pen = new PenTool(context, {
-		strokeWidth: brushSettings.properties.size?.base ?? 20,
-	});
+	const pen = new PenTool(context, { strokeWidth: brushSettings.size });
 	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
 
 	pen.onPointerDown(ev(340, 300), viewport, testCanvasWidth, testCanvasHeight);
@@ -989,50 +986,50 @@ function createSignedWidthPath(
 	};
 }
 
-function signedWidthScatterSettings(): BrushSettingsV2 {
+function signedWidthScatterSettings(): BrushSettings {
 	return {
 		...createDefaultBrushSettings(),
-		strokeOpacity: 1,
-		properties: {
-			size: { base: 20 },
-			spacing: { base: 0.1 },
-			flow: { base: 1 },
-		},
+		size: 20,
+		sizeByPressure: 0,
+		opacity: 1,
+		opacityByPressure: 0,
+		spacing: 0.1,
+		flow: 1,
 	};
 }
 
-function signedWidthCalligraphySettings(): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
-		version: 2,
-		engine: "dab",
-		strokeOpacity: 1,
-		paintMode: "buildup",
-		properties: {
-			size: { base: 20 },
-			flow: { base: 1 },
-			roundness: { base: 0.4 },
-			angle: { base: 45 },
-		},
-		tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+function signedWidthCalligraphySettings(): BrushSettings {
+	return {
+		type: "calligraphy",
+		size: 20,
+		sizeByPressure: 0,
+		opacity: 1,
+		opacityByPressure: 0,
+		flow: 1,
 		randomSeed: 0,
-	});
+		nibAngle: 45,
+		roundness: 0.4,
+		angleMode: "fixed",
+		sizeBySpeed: 0,
+		pooling: 0,
+		poolingSizeRatio: 0,
+	};
 }
 
-function signedWidthPatternSettings(): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
-		version: 2,
-		engine: "ribbon",
-		strokeOpacity: 1,
-		paintMode: "buildup",
-		properties: { size: { base: 20 }, flow: { base: 1 } },
-		ribbon: {
-			source: { kind: "file", fileUid: "builtin-brush-soft-circle" },
-			uvMode: "repeat",
-			tileScale: 1,
-			tileSpacing: 0,
-		},
+function signedWidthPatternSettings(): BrushSettings {
+	return {
+		type: "pattern",
+		source: { kind: "file", fileUid: "builtin-brush-soft-circle" },
+		size: 20,
+		sizeByPressure: 0,
+		opacity: 1,
+		opacityByPressure: 0,
 		randomSeed: 0,
-	});
+		flow: 1,
+		tileScale: 1,
+		tileSpacing: 0,
+		fitMode: "none",
+	};
 }
 
 function requireCapturedPath(path: Path | null): Path {

@@ -21,15 +21,13 @@ import {
 	type StrokeAppearance,
 } from "../../../schema";
 import type { Brand } from "../../../utils/lang";
+import { applyCornerRadius } from "../../generators/CornerRadiusProcessor";
 import {
 	type FilterRenderer,
 	isElementRenderReplaced,
 	isGeometryFilter,
 } from "../pipeline/FilterRenderer";
-import {
-	applyPreFilters,
-	resolveElementGeometry,
-} from "../pipeline/PreFilterRenderer";
+import { applyPreFilters } from "../pipeline/PreFilterRenderer";
 
 declare const DrawableSegmentsBrand: unique symbol;
 
@@ -88,8 +86,8 @@ export function resolveAppearancePasses(
 	const appearances = collectDrawableAppearances(path, filterRenderer);
 	if (appearances.length === 0) return [];
 
-	const baseSegments = resolveElementGeometry(
-		path.segments,
+	const baseSegments = applyPreFilters(
+		applyCornerRadius(path.segments),
 		path.filters,
 		filterRenderer,
 	);

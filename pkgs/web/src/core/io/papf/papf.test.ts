@@ -7,7 +7,6 @@ import {
 } from "../../errors";
 import type {
 	BrushPreset,
-	BrushSettingsV2,
 	Document,
 	EmbeddedFile,
 	Viewport,
@@ -53,7 +52,7 @@ function makeFile(
 
 function makeTimelapse(count: number): TimelapseData {
 	return {
-		version: 2,
+		version: 1,
 		entries: Array.from({ length: count }, (_, i) => ({
 			t: i * 100,
 			u: new Uint8Array([i & 0xff, (i >> 8) & 0xff]),
@@ -142,7 +141,7 @@ describe("PAPF format", () => {
 			const restored = await papf.toDocument();
 
 			expect(restored.timelapse).toBeDefined();
-			expect(restored.timelapse!.version).toBe(2);
+			expect(restored.timelapse!.version).toBe(1);
 			expect(restored.timelapse!.entries).toHaveLength(5);
 
 			for (let i = 0; i < 5; i++) {
@@ -151,58 +150,6 @@ describe("PAPF format", () => {
 					timelapse.entries[i].u,
 				);
 			}
-		});
-
-		it("should round-trip the timelapse dirty-rect index", async () => {
-			const timelapse = makeTimelapse(3);
-			timelapse.index = {
-				rects: [[0, 0, 10, 10], null, [-5, -5, 5, 5]],
-			};
-
-			const blob = await serializeDocument(makeMinimalDoc({ timelapse }));
-			const restored = await (await openPapf(blob)).toDocument();
-
-			expect(restored.timelapse!.index).toEqual(timelapse.index);
-		});
-
-		it("should round-trip the positions where the recording starts over", async () => {
-			const timelapse = makeTimelapse(4);
-			timelapse.baselines = [2];
-
-			const blob = await serializeDocument(makeMinimalDoc({ timelapse }));
-			const restored = await (await openPapf(blob)).toDocument();
-
-			// Losing these would replay a switched-away document on top of the
-			// current one, stacking every layer twice.
-			expect(restored.timelapse!.baselines).toEqual([2]);
-		});
-
-		it("should report no starting-over positions for an unbroken recording", async () => {
-			const blob = await serializeDocument(
-				makeMinimalDoc({ timelapse: makeTimelapse(3) }),
-			);
-			const restored = await (await openPapf(blob)).toDocument();
-
-			expect(restored.timelapse!.baselines).toBeUndefined();
-		});
-
-		it("should report no index when the recording predates it", async () => {
-			const blob = await serializeDocument(
-				makeMinimalDoc({ timelapse: makeTimelapse(3) }),
-			);
-			const restored = await (await openPapf(blob)).toDocument();
-
-			expect(restored.timelapse!.index).toBeUndefined();
-		});
-
-		it("should drop an index whose length disagrees with the entries", async () => {
-			const timelapse = makeTimelapse(3);
-			timelapse.index = { rects: [[0, 0, 10, 10]] };
-
-			const blob = await serializeDocument(makeMinimalDoc({ timelapse }));
-			const restored = await (await openPapf(blob)).toDocument();
-
-			expect(restored.timelapse!.index).toBeUndefined();
 		});
 
 		it("should round-trip HDR settings through papf", async () => {
@@ -449,7 +396,7 @@ describe("PAPF format", () => {
 	describe("edge cases", () => {
 		it("handles a document with empty timelapse entries (no TMLB written)", async () => {
 			const doc = makeMinimalDoc({
-				timelapse: { version: 2, entries: [] },
+				timelapse: { version: 1, entries: [] },
 			});
 			const blob = await serializeDocument(doc);
 			const papf = await openPapf(blob);
@@ -623,13 +570,12 @@ describe("PAPF format", () => {
 	});
 
 	describe("brush presets", () => {
-		it("migrates a union preset to BrushSettingsV2 and round-trips it stably", async () => {
+		it("roundtrips a v2 preset (settings union) unchanged", async () => {
 			const doc = makeMinimalDoc({
 				brushPresets: [
 					{
 						uid: "brush-preset-v2",
 						name: "Pen",
-						// Pre-v2 stored shape; the reader migrates it.
 						settings: {
 							type: "stroke",
 							size: 4,
@@ -637,7 +583,7 @@ describe("PAPF format", () => {
 							opacity: 1,
 							opacityByPressure: 0.3,
 							randomSeed: 0,
-						} as unknown as BrushSettingsV2,
+						},
 					},
 				],
 			});
@@ -646,17 +592,7 @@ describe("PAPF format", () => {
 			const restored = await (await openPapf(blob)).toDocument();
 
 			expect(restored.brushPresets).toHaveLength(1);
-			const settings = restored.brushPresets[0]!.settings;
-			if (!("version" in settings)) throw new Error("expected v2 settings");
-			expect(settings.version).toBe(2);
-			expect(settings.engine).toBe("geometric");
-			expect(settings.properties.size?.base).toBe(4);
-
-			// A second save/load cycle must be a fixed point (idempotent migration).
-			const restoredTwice = await (
-				await openPapf(await serializeDocument(restored))
-			).toDocument();
-			expect(restoredTwice.brushPresets[0]).toEqual(restored.brushPresets[0]);
+			expect(restored.brushPresets[0]).toEqual(doc.brushPresets[0]);
 		});
 
 		it("normalizes a v1 preset (textureFileUid + defaultSettings) into the settings union so it survives round-tripping", async () => {
@@ -678,17 +614,22 @@ describe("PAPF format", () => {
 			expect(restored.brushPresets).toHaveLength(1);
 			const preset = restored.brushPresets[0]!;
 			expect(preset.uid).toBe("brush-preset-legacy");
-			const settings = preset.settings;
-			if (!("version" in settings)) throw new Error("expected v2 settings");
-			expect(settings.version).toBe(2);
-			expect(settings.engine).toBe("dab");
-			expect(settings.properties.size?.base).toBe(24);
-			// opacity x flow folds into flow.base (design §13-8).
-			expect(settings.properties.flow?.base).toBeCloseTo(0.8, 10);
-			if (settings.tip?.kind !== "image") throw new Error("expected image tip");
-			expect(settings.tip.sources[0]).toEqual({
-				kind: "file",
-				fileUid: "builtin-brush-soft-circle",
+			expect(preset.settings).toEqual({
+				type: "scatter",
+				source: { kind: "file", fileUid: "builtin-brush-soft-circle" },
+				size: 24,
+				sizeByPressure: 0.5,
+				opacity: 0.8,
+				opacityByPressure: 0.3,
+				randomSeed: 0,
+				spacing: 0.1,
+				flow: 1,
+				stampRotation: "none",
+				rotationByTilt: 0,
+				aspectRatioByTilt: 0,
+				sizeBySpeed: 0,
+				pooling: 0,
+				poolingSizeRatio: 0.5,
 			});
 			// The legacy flat fields must not survive normalization.
 			expect("defaultSettings" in preset).toBe(false);

@@ -1,5 +1,4 @@
 import { type Mock, vi } from "vitest";
-import { PAPLICO_MAX_ZOOM_SCALE } from "../document/constants";
 import type { PaplicoCommands } from "../PaplicoCommands";
 import { hitTestOverlays } from "../renderer/ui/hitTest";
 import type { OverlayKey } from "../renderer/ui/overlayKeys";
@@ -75,8 +74,11 @@ export function createMockToolContext(
 
 		elementSelect: vi.fn(),
 		elementToggleSelect: vi.fn(),
+		elementMove: vi.fn(),
 		elementsMove: vi.fn(),
+		elementResize: vi.fn(),
 		elementsResize: vi.fn(),
+		elementRotate: vi.fn(),
 		elementsRotate: vi.fn(),
 		uiUpdateSelectionUI: vi.fn(),
 		selectionSelectMultiple: vi.fn(),
@@ -233,7 +235,6 @@ export function createMockToolContext(
 		renderWorldRegionToImageData: vi.fn(async () => null),
 		getDocumentContentBounds: vi.fn(() => null),
 		getMaxRasterDimension: vi.fn(() => 2048),
-		getMaxZoomScale: vi.fn(() => PAPLICO_MAX_ZOOM_SCALE),
 		setBucketFillLeaks: vi.fn(),
 		setBucketFillComputing: vi.fn(),
 		panToWorldPoint: vi.fn(),

@@ -1,5 +1,5 @@
 import { resolveBrushTextureUid } from "../../../brush/brushSource";
-import { resolveBrushRenderRoute } from "../../../brush/renderRoute";
+import { normalizeBrushSettings } from "../../../brush/normalize";
 import { createStrokeBrushSettings } from "../../../document/factory";
 import {
 	type AnyArtObject,
@@ -10,6 +10,7 @@ import {
 	type FillAppearance,
 	type FillColor,
 	type Filter,
+	isGeometricBrush,
 	isPath,
 	type LineCap,
 	type LineJoin,
@@ -270,35 +271,30 @@ export class PathElementRenderer {
 				const strokeColor = strokeApp.paramData.params.strokeColor;
 				if (!strokeColor) continue;
 
-				const settings = resolveBrushRenderRoute(
-					strokeApp.paramData.params.brushSettings ??
-						createStrokeBrushSettings(1),
-				).settings;
+				const rawBrush = strokeApp.paramData.params.brushSettings;
+				const brushSettings = rawBrush
+					? normalizeBrushSettings(rawBrush)
+					: createStrokeBrushSettings(1);
 
-				if (settings.engine === "geometric") {
-					const sizeCurve = settings.properties.size?.curves?.find(
-						(curve) => curve.input === "pressure",
-					);
+				if (isGeometricBrush(brushSettings)) {
 					this.renderGeometricStroke(
 						passEncoder,
 						segments,
 						strokeColor,
-						settings.properties.size?.base ?? 1,
-						// The flat slider's pressure response is a two-point line
-						// from -k to 0; the geometric renderer takes that k back.
-						sizeCurve ? -(sizeCurve.points[0][1] ?? 0) : 0,
+						brushSettings.size,
+						brushSettings.sizeByPressure,
 						appAlpha,
-						settings.stroking?.lineCap ?? "round",
-						settings.stroking?.lineJoin ?? "round",
-						settings.stroking?.miterLimit ?? 4,
+						brushSettings.stroking?.lineCap ?? "round",
+						brushSettings.stroking?.lineJoin ?? "round",
+						brushSettings.stroking?.miterLimit ?? 4,
 						pipelineType,
 						path.id,
 						`${cacheKey}:stroke`,
-						settings.stroking?.dashArray,
-						settings.stroking?.dashOffset,
+						brushSettings.stroking?.dashArray,
+						brushSettings.stroking?.dashOffset,
 						path.strokeWidths,
-						settings.taperStart,
-						settings.taperEnd,
+						brushSettings.taperStart,
+						brushSettings.taperEnd,
 						path.pathStart,
 						path.pathEnd,
 					);
@@ -307,7 +303,7 @@ export class PathElementRenderer {
 					if (!strokeRegistry) continue;
 
 					const textureUid = resolveBrushTextureUid(
-						settings,
+						brushSettings,
 						strokeRegistry.getBrushTextureManager(),
 					);
 					if (textureUid) {

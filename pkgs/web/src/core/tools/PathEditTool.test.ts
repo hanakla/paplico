@@ -3270,7 +3270,7 @@ describe("PathEditTool", () => {
 				testCanvasHeight,
 			);
 			expect(ctx.clearDeformationPreview).toHaveBeenCalledWith(["image-1"]);
-			expect(ctx.elementsMove).toHaveBeenCalledWith(["image-1"], 40, 20);
+			expect(ctx.elementMove).toHaveBeenCalledWith("image-1", 40, 20);
 		});
 
 		it("should return a promoted cage vertex to derived on Delete", () => {

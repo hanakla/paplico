@@ -8,10 +8,6 @@
 import { airBrush, pencil } from "../../../../assets";
 import type { DefSourceResolver } from "../../../../brush/brushSource";
 import { BUILTIN_BRUSH_IDS } from "../../../../schema";
-import {
-	generateMipmaps,
-	mipLevelCountFor,
-} from "../../../../utils/wgpu-utils";
 
 // ビルトインブラシ（プログラム生成）のテクスチャサイズ
 const BUILTIN_TEXTURE_SIZE = 128;
@@ -26,7 +22,6 @@ export class BrushTextureManager implements DefSourceResolver {
 	/** Uids whose GPUTexture is owned by DefRasterizer — never destroyed here. */
 	private defOwnedUids = new Set<string>();
 	private sampler: GPUSampler;
-	private mipSampler: GPUSampler;
 	private initialized = false;
 
 	public constructor(device: GPUDevice) {
@@ -34,17 +29,6 @@ export class BrushTextureManager implements DefSourceResolver {
 		this.sampler = device.createSampler({
 			magFilter: "linear",
 			minFilter: "linear",
-			// Textures now carry mip chains for the dab pipeline; pin the legacy
-			// stamp/ribbon sampler to level 0 so their output stays bit-identical
-			// to the pre-mip behavior.
-			lodMaxClamp: 0,
-			addressModeU: "clamp-to-edge",
-			addressModeV: "clamp-to-edge",
-		});
-		this.mipSampler = device.createSampler({
-			magFilter: "linear",
-			minFilter: "linear",
-			mipmapFilter: "linear",
 			addressModeU: "clamp-to-edge",
 			addressModeV: "clamp-to-edge",
 		});
@@ -99,7 +83,6 @@ export class BrushTextureManager implements DefSourceResolver {
 			label: `brush-texture-${key}`,
 			size: [imageBitmap.width, imageBitmap.height, 1],
 			format: "rgba8unorm",
-			mipLevelCount: mipLevelCountFor(imageBitmap.width, imageBitmap.height),
 			usage:
 				GPUTextureUsage.TEXTURE_BINDING |
 				GPUTextureUsage.COPY_DST |
@@ -132,7 +115,6 @@ export class BrushTextureManager implements DefSourceResolver {
 			);
 		}
 
-		generateMipmaps(this.device, texture);
 		this.textureCache.set(key, texture);
 		this.textureSizes.set(key, {
 			width: imageBitmap.width,
@@ -172,12 +154,10 @@ export class BrushTextureManager implements DefSourceResolver {
 			label: `brush-texture-${key}`,
 			size: [size, size, 1],
 			format: "rgba8unorm",
-			mipLevelCount: mipLevelCountFor(size, size),
 			usage:
 				GPUTextureUsage.TEXTURE_BINDING |
 				GPUTextureUsage.COPY_DST |
-				GPUTextureUsage.COPY_SRC |
-				GPUTextureUsage.RENDER_ATTACHMENT,
+				GPUTextureUsage.COPY_SRC,
 		});
 
 		this.device.queue.writeTexture(
@@ -186,7 +166,6 @@ export class BrushTextureManager implements DefSourceResolver {
 			{ bytesPerRow: size * 4, rowsPerImage: size },
 			[size, size, 1],
 		);
-		generateMipmaps(this.device, texture);
 
 		this.textureCache.set(key, texture);
 		this.textureSizes.set(key, { width: size, height: size });
@@ -227,12 +206,10 @@ export class BrushTextureManager implements DefSourceResolver {
 			label: `brush-texture-${key}`,
 			size: [size, size, 1],
 			format: "rgba8unorm",
-			mipLevelCount: mipLevelCountFor(size, size),
 			usage:
 				GPUTextureUsage.TEXTURE_BINDING |
 				GPUTextureUsage.COPY_DST |
-				GPUTextureUsage.COPY_SRC |
-				GPUTextureUsage.RENDER_ATTACHMENT,
+				GPUTextureUsage.COPY_SRC,
 		});
 
 		this.device.queue.writeTexture(
@@ -241,7 +218,6 @@ export class BrushTextureManager implements DefSourceResolver {
 			{ bytesPerRow: size * 4, rowsPerImage: size },
 			[size, size, 1],
 		);
-		generateMipmaps(this.device, texture);
 
 		this.textureCache.set(key, texture);
 		this.textureSizes.set(key, { width: size, height: size });
@@ -283,7 +259,6 @@ export class BrushTextureManager implements DefSourceResolver {
 			label: `brush-texture-${uid}`,
 			size: [imageBitmap.width, imageBitmap.height, 1],
 			format: "rgba8unorm",
-			mipLevelCount: mipLevelCountFor(imageBitmap.width, imageBitmap.height),
 			usage:
 				GPUTextureUsage.TEXTURE_BINDING |
 				GPUTextureUsage.COPY_DST |
@@ -295,7 +270,6 @@ export class BrushTextureManager implements DefSourceResolver {
 			imageBitmap.width,
 			imageBitmap.height,
 		]);
-		generateMipmaps(this.device, texture);
 
 		this.textureCache.set(uid, texture);
 		this.textureSizes.set(uid, {
@@ -348,11 +322,6 @@ export class BrushTextureManager implements DefSourceResolver {
 	 */
 	public getSampler(): GPUSampler {
 		return this.sampler;
-	}
-
-	/** Mip-filtering sampler for the v2 dab pipeline (legacy paths keep level 0). */
-	public getMipSampler(): GPUSampler {
-		return this.mipSampler;
 	}
 
 	/**

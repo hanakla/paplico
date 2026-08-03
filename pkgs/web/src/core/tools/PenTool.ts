@@ -1,8 +1,5 @@
-import { withStoredBrushSize } from "../brush/access";
-import { normalizeBrushSettingsV2 } from "../brush/migrate";
 import { createIdentityTransform } from "../document/factory";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
-import { BrushStrokeSession } from "../renderer/canvas/pipeline/stroke/BrushStrokeSession";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import type { UIPrimitive } from "../renderer/ui/primitives";
 import { OVERLAY_Z, UI_THEME } from "../renderer/ui/theme";
@@ -46,8 +43,6 @@ const PERSPECTIVE_LOCK_DISTANCE_PX = 8;
 const PERSPECTIVE_LOCK_MAX_ANGLE_DEG = 10;
 /** Half-extent of the locked direction guide line (world units). */
 const PERSPECTIVE_LOCK_LINE_HALF_EXTENT = 100_000;
-/** Airbrush hold-point injection interval while the pointer rests (ms). */
-const HOLD_POINT_INTERVAL_MS = 25;
 
 interface PerspectiveSnapState {
 	/** Stroke start point P0 (world). Candidate directions anchor here. */
@@ -62,12 +57,10 @@ type DragState =
 	| { mode: "idle" }
 	| {
 			mode: "drawing";
-			session: BrushStrokeSession;
+			stroke: BezierPoint[];
 			startTime: number;
 			/** Long-press timer (null after threshold exceeded or timer expired) */
 			longPressTimer: ReturnType<typeof setTimeout> | null;
-			/** Airbrush hold-point timer (null for brushes without timed dabs) */
-			holdTimer: ReturnType<typeof setInterval> | null;
 			startScreenX: number;
 			startScreenY: number;
 			perspective: PerspectiveSnapState;
@@ -143,32 +136,23 @@ export class PenTool implements Tool {
 
 		this.cancelDrag();
 
-		const session = new BrushStrokeSession({
-			stabilization: this.stabilization,
-			zoom: viewport.zoom,
-			smoothingMethod: this.smoothingMethod,
-		});
-		session.append({
-			x: worldPos.x,
-			y: worldPos.y,
-			pressure: event.pressure,
-			tiltX: event.tiltX,
-			tiltY: event.tiltY,
-			twist: event.twist,
-			deltaTime: 0,
-		});
-
 		this.dragState = {
 			mode: "drawing",
-			session,
+			stroke: [
+				{
+					x: worldPos.x,
+					y: worldPos.y,
+					pressure: event.pressure,
+					tiltX: event.tiltX,
+					tiltY: event.tiltY,
+					deltaTime: 0,
+				},
+			],
 			startTime: performance.now(),
 			longPressTimer: setTimeout(
 				() => this.triggerLongPress(),
 				PenTool.LONG_PRESS_DURATION,
 			),
-			holdTimer: this.brushHasTimedDabs()
-				? setInterval(() => this.injectHoldPoint(), HOLD_POINT_INTERVAL_MS)
-				: null,
 			startScreenX: event.x,
 			startScreenY: event.y,
 			perspective: {
@@ -191,6 +175,15 @@ export class PenTool implements Tool {
 		}
 
 		if (this.dragState.mode === "drawing") {
+			const rawWorldPos = screenToWorld(
+				event.x,
+				event.y,
+				viewport,
+				canvasWidth,
+				canvasHeight,
+			);
+			const worldPos = this.applyPerspectiveSnap(rawWorldPos, event, viewport);
+
 			// Cancel long-press if pointer moved beyond threshold
 			if (this.dragState.longPressTimer) {
 				const dist = Math.hypot(
@@ -203,64 +196,48 @@ export class PenTool implements Tool {
 				}
 			}
 
-			// Fast strokes deliver several raw samples per pointermove; append
-			// them all so the fit sees the full input.
-			const samples =
-				event.coalesced && event.coalesced.length > 0 ? event.coalesced : null;
-			let lastWorldPos: { x: number; y: number } | null = null;
-			if (samples) {
-				for (const sample of samples) {
-					const rawWorldPos = screenToWorld(
-						sample.x,
-						sample.y,
-						viewport,
-						canvasWidth,
-						canvasHeight,
-					);
-					const worldPos = this.applyPerspectiveSnap(
-						rawWorldPos,
-						event,
-						viewport,
-					);
-					this.dragState.session.append({
-						x: worldPos.x,
-						y: worldPos.y,
-						pressure: sample.pressure,
-						tiltX: sample.tiltX,
-						tiltY: sample.tiltY,
-						twist: sample.twist,
-						deltaTime: Math.max(sample.timeStamp - this.dragState.startTime, 0),
-					});
-					lastWorldPos = worldPos;
-				}
-			} else {
-				const rawWorldPos = screenToWorld(
-					event.x,
-					event.y,
-					viewport,
-					canvasWidth,
-					canvasHeight,
-				);
-				const worldPos = this.applyPerspectiveSnap(
-					rawWorldPos,
-					event,
-					viewport,
-				);
-				// Perspective snap replaces only x/y — pressure and tilt pass through.
-				this.dragState.session.append({
-					x: worldPos.x,
-					y: worldPos.y,
-					pressure: event.pressure,
-					tiltX: event.tiltX,
-					tiltY: event.tiltY,
-					twist: event.twist,
-					deltaTime: performance.now() - this.dragState.startTime,
-				});
-				lastWorldPos = worldPos;
-			}
+			const deltaTime = performance.now() - this.dragState.startTime;
 
-			if (lastWorldPos) this.updatePerspectiveOverlay(lastWorldPos);
-			this.updatePreview();
+			// Perspective snap replaces only x/y — pressure and tilt pass through.
+			this.dragState.stroke.push({
+				x: worldPos.x,
+				y: worldPos.y,
+				pressure: event.pressure,
+				tiltX: event.tiltX,
+				tiltY: event.tiltY,
+				deltaTime,
+			});
+
+			this.updatePerspectiveOverlay(worldPos);
+
+			// Update preview path for real-time rendering
+			if (this.dragState.stroke.length >= 2) {
+				const segments = processStroke(
+					this.dragState.stroke,
+					this.stabilization,
+					viewport,
+					this.smoothingMethod,
+				);
+
+				const stroke = this.resolveStroke();
+				const fill = this.context.getActiveFillAppearance();
+
+				const filters: Filter[] = [];
+				if (stroke) filters.push(stroke);
+				if (fill) filters.push(cloneAppearance(fill));
+				if (filters.length === 0) return;
+
+				const previewPath: Path = {
+					type: "path",
+					id: "preview",
+					transform: createIdentityTransform(),
+					opacity: this.opacity,
+					blendMode: "normal",
+					segments,
+					filters,
+				};
+				this.context.previewUpdate(previewPath);
+			}
 		}
 	}
 
@@ -281,23 +258,16 @@ export class PenTool implements Tool {
 		if (this.dragState.longPressTimer) {
 			clearTimeout(this.dragState.longPressTimer);
 		}
-		if (this.dragState.holdTimer) {
-			clearInterval(this.dragState.holdTimer);
-		}
 
 		this.context.uiSetOverlay(PERSPECTIVE_PEN_OVERLAY_KEY, null);
 
-		// Exit 1 (commit): the raw record re-fits through the full pipeline,
-		// so the committed geometry is identical to the pre-session behavior.
-		const points = this.dragState.session.commit();
-		if (points.length < 2) {
+		if (this.dragState.stroke.length < 2) {
 			this.dragState = { mode: "idle" };
-			this.context.previewUpdate(null);
 			return;
 		}
 
 		const segments = processStroke(
-			points,
+			this.dragState.stroke,
 			this.stabilization,
 			viewport,
 			this.smoothingMethod,
@@ -343,9 +313,7 @@ export class PenTool implements Tool {
 	}
 
 	public getCurrentStroke(): BezierPoint[] | null {
-		return this.dragState.mode === "drawing"
-			? this.dragState.session.rawPoints
-			: null;
+		return this.dragState.mode === "drawing" ? this.dragState.stroke : null;
 	}
 
 	public dispose(): void {
@@ -357,8 +325,6 @@ export class PenTool implements Tool {
 			return;
 
 		const { startScreenX, startScreenY } = this.dragState;
-		if (this.dragState.holdTimer) clearInterval(this.dragState.holdTimer);
-		this.dragState.session.abort();
 
 		this.context.previewUpdate(null);
 		this.context.uiSetOverlay(PERSPECTIVE_PEN_OVERLAY_KEY, null);
@@ -382,50 +348,6 @@ export class PenTool implements Tool {
 		this.context.requestRender("cursor");
 	}
 
-	/** Rebuild and publish the preview path from the session's segments. */
-	private updatePreview(): void {
-		if (this.dragState.mode !== "drawing") return;
-		const segments = this.dragState.session.getPreviewSegments();
-		if (segments.length === 0) return;
-
-		const stroke = this.resolveStroke();
-		const fill = this.context.getActiveFillAppearance();
-		const filters: Filter[] = [];
-		if (stroke) filters.push(stroke);
-		if (fill) filters.push(cloneAppearance(fill));
-		if (filters.length === 0) return;
-
-		const previewPath: Path = {
-			type: "path",
-			id: "preview",
-			transform: createIdentityTransform(),
-			opacity: this.opacity,
-			blendMode: "normal",
-			segments,
-			filters,
-		};
-		this.context.previewUpdate(previewPath);
-	}
-
-	/** Whether the active brush emits timed dabs (airbrush hold applies). */
-	private brushHasTimedDabs(): boolean {
-		const bs =
-			this.context.getActiveStrokeAppearance()?.paramData.params.brushSettings;
-		if (!bs) return false;
-		const v2 = normalizeBrushSettingsV2(bs);
-		if (v2.engine !== "dab") return false;
-		const dps = v2.properties.dabsPerSecond;
-		return dps != null && (dps.base > 0 || (dps.curves?.length ?? 0) > 0);
-	}
-
-	private injectHoldPoint(): void {
-		if (this.dragState.mode !== "drawing") return;
-		this.dragState.session.injectHold(
-			performance.now() - this.dragState.startTime,
-		);
-		this.updatePreview();
-	}
-
 	private resolveStroke(): StrokeAppearance | null {
 		const active = this.context.getActiveStrokeAppearance();
 		if (!active) return null;
@@ -433,24 +355,17 @@ export class PenTool implements Tool {
 		if (this.strokeWidth != null) {
 			const bs = active.paramData.params.brushSettings;
 			return cloneAppearance(active, {
-				brushSettings: bs
-					? withStoredBrushSize(bs, this.strokeWidth)
-					: undefined,
+				brushSettings: bs ? { ...bs, size: this.strokeWidth } : undefined,
 			});
 		}
 		return cloneAppearance(active);
 	}
 
 	private cancelDrag(): void {
+		if (this.dragState.mode === "drawing" && this.dragState.longPressTimer) {
+			clearTimeout(this.dragState.longPressTimer);
+		}
 		if (this.dragState.mode === "drawing") {
-			if (this.dragState.longPressTimer) {
-				clearTimeout(this.dragState.longPressTimer);
-			}
-			if (this.dragState.holdTimer) {
-				clearInterval(this.dragState.holdTimer);
-			}
-			// Exit 2 (abort): discard the live stroke entirely.
-			this.dragState.session.abort();
 			this.context.uiSetOverlay(PERSPECTIVE_PEN_OVERLAY_KEY, null);
 		}
 		this.dragState = { mode: "idle" };

@@ -1,6 +1,5 @@
-import { readStoredBrushSize } from "../brush/access";
 import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
-import type { BrushSettingsV2 } from "../schema";
+import type { BrushSettings } from "../schema";
 import {
 	type BoundingBox,
 	type ElementTransform,
@@ -41,7 +40,7 @@ interface EraserToolOptions {
 	/** Mask opacity (0–1). Only used in "mask" mode. Default: 1.0 */
 	maskOpacity?: number;
 	/** Brush settings for mask rendering. Only used in "mask" mode. */
-	maskBrushSettings?: BrushSettingsV2;
+	maskBrushSettings?: BrushSettings;
 	/** Erase across all unlocked layers instead of only the current layer */
 	pierceAllLayers?: boolean;
 }
@@ -462,26 +461,22 @@ export class EraserTool implements Tool {
 		if (this.currentStroke.length < 2) return;
 
 		const maskOpacity = this.options.maskOpacity ?? 1.0;
-		const brushSettings: BrushSettingsV2 = this.options.maskBrushSettings ?? {
-			version: 2,
-			engine: "dab",
-			strokeOpacity: 1,
-			paintMode: "buildup",
-			properties: {
-				size: {
-					base: this.options.width,
-					curves: [{ input: "pressure", points: [[1, 0.5]] }],
-				},
-				spacing: { base: 0.1 },
-				flow: { base: 1 },
-			},
-			tip: {
-				kind: "image",
-				sources: [{ kind: "file", fileUid: "__airbrush" }],
-				selection: "random",
-				angleMode: "fixed",
-			},
+		const brushSettings: BrushSettings = this.options.maskBrushSettings ?? {
+			type: "scatter",
+			source: { kind: "file", fileUid: "__airbrush" },
+			size: this.options.width,
+			sizeByPressure: 0.5,
+			opacity: 1,
+			opacityByPressure: 0,
+			spacing: 0.1,
+			flow: 1,
+			stampRotation: "none",
 			randomSeed: 0,
+			rotationByTilt: 0,
+			aspectRatioByTilt: 0,
+			sizeBySpeed: 0,
+			pooling: 0,
+			poolingSizeRatio: 0.5,
 		};
 
 		const masks: Array<{ elementId: string; mask: EraseMask }> = [];
@@ -1041,8 +1036,7 @@ function getBrushHalfSize(path: Path): number {
 	const strokeFilter = path.filters?.find((f) => f.processor === "stroke") as
 		| StrokeAppearance
 		| undefined;
-	const size =
-		readStoredBrushSize(strokeFilter?.paramData.params.brushSettings) ?? 2;
+	const size = strokeFilter?.paramData.params.brushSettings?.size ?? 2;
 	return size / 2;
 }
 

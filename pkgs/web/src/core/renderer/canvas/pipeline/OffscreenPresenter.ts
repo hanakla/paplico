@@ -73,10 +73,8 @@ import type { UniformEntry, UniformScope } from "./UniformScope";
 interface OffscreenPresenterDeps extends SharedRenderBindings {
 	strokePipeline: GPURenderPipeline;
 	blitWithMaskPipeline: GPURenderPipeline;
-	blitWithMaskChainPipeline: GPURenderPipeline;
 	blitWithEraseMaskPipeline: GPURenderPipeline;
 	blitWithMaskBindGroupLayout: GPUBindGroupLayout;
-	maskChainBindGroupLayout: GPUBindGroupLayout;
 	dummyGradientBindGroup: GPUBindGroup;
 	dummyMaskBindGroup: GPUBindGroup;
 
@@ -108,15 +106,8 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 	 *  the main pass's inline BG3 and applyPostMasks both miss — so a masked
 	 *  child needs its mask multiplied in here, or a filter on the group (a drop
 	 *  shadow) reads the child before the mask removed anything. */
-	/** Per-appearance isolated render for wash strokes inside containers
-	 *  (returns null when the element carries no wash appearance plan). */
-	renderIsolatedWashAppearances?: (
-		encoder: GPUCommandEncoder,
-		elementId: string,
-	) => RenderSurface | null;
 	getElementPostMasks: (elementId: string) => readonly {
 		bindGroup: GPUBindGroup;
-		textureView: GPUTextureView;
 		bounds: BoundingBox;
 		inverted?: boolean;
 	}[];
@@ -128,7 +119,6 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 
 export interface WorldMaskAssignment {
 	bindGroup: GPUBindGroup;
-	textureView: GPUTextureView;
 	bounds: BoundingBox;
 	inverted?: boolean;
 }
@@ -142,15 +132,8 @@ export interface WorldMaskAssignment {
 const CLIP_BLIT_F32_COUNT = 20;
 const CLIP_BLIT_BUFFER_SIZE = CLIP_BLIT_F32_COUNT * 4;
 
-/** World-space masks applied per chain pass — matches the shader's slot count. */
-const MASK_CHAIN_SLOTS = 4;
-/** MaskChainUniforms: 4x bounds vec4f + inverts vec4f. */
-const MASK_CHAIN_F32_COUNT = 20;
-const MASK_CHAIN_BUFFER_SIZE = MASK_CHAIN_F32_COUNT * 4;
-
 export class OffscreenPresenter {
 	private readonly clipBlitF32 = new Float32Array(CLIP_BLIT_F32_COUNT);
-	private readonly maskChainF32 = new Float32Array(MASK_CHAIN_F32_COUNT);
 	private readonly clipBlitPool: FrameUniformPool;
 	private clipBlitBGCache = new MaskedBlitBindGroupCache();
 	private whiteMaskTexture: GPUTexture | null = null;
@@ -228,10 +211,10 @@ export class OffscreenPresenter {
 	 *
 	 * Returns null when the source is fully culled.
 	 */
-	public applyWorldMasksToTexture(
+	public applyWorldMaskToTexture(
 		encoder: GPUCommandEncoder,
 		source: RenderSurface,
-		masks: readonly WorldMaskAssignment[],
+		mask: { bindGroup: GPUBindGroup; bounds: BoundingBox; inverted?: boolean },
 		/** Texels per world px that `source` already holds. The result is baked at
 		 *  this, or at R when it is finer — masking must not be the step that puts
 		 *  an element below the document's rasterization resolution. */
@@ -240,49 +223,6 @@ export class OffscreenPresenter {
 		 *  more than the element it belongs to (the glass composite spans the whole
 		 *  viewport) would otherwise be re-baked whole, which costs
 		 *  `viewportWorldWidth x scale` — unbounded as the viewport zooms out. */
-		coverBounds?: BoundingBox,
-	): ColorRenderSurface | null {
-		if (masks.length === 0) return null;
-		let current: RenderSurface = source;
-		let produced: ColorRenderSurface | null = null;
-		for (let offset = 0; offset < masks.length; offset += MASK_CHAIN_SLOTS) {
-			const chunk = masks.slice(offset, offset + MASK_CHAIN_SLOTS);
-			const masked = this.applyMaskChainChunk(
-				encoder,
-				current,
-				chunk,
-				sourceScale,
-				// The first chunk crops to coverBounds; later chunks re-mask the
-				// already-cropped intermediate, so cropping again is a no-op.
-				offset === 0 ? coverBounds : undefined,
-			);
-			// A failed chunk (zero-size crop) keeps the previous surface, matching
-			// the skip-on-null behaviour of the per-mask loops this replaced.
-			if (!masked) continue;
-			if (produced) releaseRenderSurface(produced);
-			produced = masked;
-			current = masked;
-		}
-		return produced;
-	}
-
-	/**
-	 * Multiply up to {@link MASK_CHAIN_SLOTS} world-space masks into an
-	 * already-rendered texture in ONE pass, returning a fresh texture.
-	 *
-	 * This is how `ArtObject.mask` reaches elements that cannot take the inline
-	 * BG3 path: the element (or its filter output) is baked first, then masked
-	 * here. Doing it as a separate step is what puts the mask *after* filters —
-	 * blurring an element no longer smears its mask edge outward. A stacked
-	 * clip chain used to cost one pass + one intermediate texture per mask;
-	 * the chain shader samples each mask by world position, so four multiply
-	 * in a single fragment invocation.
-	 */
-	private applyMaskChainChunk(
-		encoder: GPUCommandEncoder,
-		source: RenderSurface,
-		masks: readonly WorldMaskAssignment[],
-		sourceScale: number,
 		coverBounds?: BoundingBox,
 	): ColorRenderSurface | null {
 		const sourceBounds = brandWorldBBox(source.placement.bounds);
@@ -314,17 +254,17 @@ export class OffscreenPresenter {
 		f[2] = b.maxX;
 		f[3] = b.maxY;
 		f[4] = 1.0; // opacity is applied later, by whoever composites this
-		f[5] = 0;
+		f[5] = mask.inverted ? 1 : 0;
 		f[6] = 0;
 		f[7] = 0;
 		f[8] = bakeUvRect.minU;
 		f[9] = bakeUvRect.minV;
 		f[10] = bakeUvRect.maxU;
 		f[11] = bakeUvRect.maxV;
-		f[12] = 0;
-		f[13] = 0;
-		f[14] = 0;
-		f[15] = 0;
+		f[12] = mask.bounds.minX;
+		f[13] = mask.bounds.minY;
+		f[14] = mask.bounds.maxX;
+		f[15] = mask.bounds.maxY;
 
 		const blitUniformBuffer = this.clipBlitPool.acquire(CLIP_BLIT_BUFFER_SIZE);
 		this.deps.device.queue.writeBuffer(blitUniformBuffer, 0, f);
@@ -336,49 +276,18 @@ export class OffscreenPresenter {
 				{ binding: 0, resource: { buffer: blitUniformBuffer } },
 				{ binding: 1, resource: this.deps.sampler },
 				{ binding: 2, resource: source.texture.texture.createView() },
-				// The UV-aligned mask slot is unused here — masks arrive through
-				// the world-space chain slots instead — so feed it an opaque
-				// white texture, which multiplies by 1.
+				// The UV-aligned mask slot is unused here — the mask arrives
+				// through the world-space outer slot instead — so feed it an
+				// opaque white texture, which multiplies by 1.
 				{ binding: 3, resource: this.getWhiteMaskTexture().createView() },
 			],
 		});
 
-		// Chain slots: per-mask world bounds + invert flag. Unused slots carry
-		// the boundsMin == boundsMax sentinel and a white texture.
-		const chain = this.maskChainF32;
-		chain.fill(0);
-		for (let i = 0; i < masks.length; i++) {
-			const mask = masks[i];
-			chain[i * 4] = mask.bounds.minX;
-			chain[i * 4 + 1] = mask.bounds.minY;
-			chain[i * 4 + 2] = mask.bounds.maxX;
-			chain[i * 4 + 3] = mask.bounds.maxY;
-			chain[16 + i] = mask.inverted ? 1 : 0;
-		}
-		const chainUniformBuffer = this.clipBlitPool.acquire(
-			MASK_CHAIN_BUFFER_SIZE,
-		);
-		this.deps.device.queue.writeBuffer(chainUniformBuffer, 0, chain);
-
-		const whiteView = this.getWhiteMaskTexture().createView();
-		const chainBindGroup = this.deps.device.createBindGroup({
-			label: "Mask Chain Bind Group",
-			layout: this.deps.maskChainBindGroupLayout,
-			entries: [
-				{ binding: 0, resource: { buffer: chainUniformBuffer } },
-				{ binding: 1, resource: masks[0]?.textureView ?? whiteView },
-				{ binding: 2, resource: masks[1]?.textureView ?? whiteView },
-				{ binding: 3, resource: masks[2]?.textureView ?? whiteView },
-				{ binding: 4, resource: masks[3]?.textureView ?? whiteView },
-				{ binding: 5, resource: this.deps.sampler },
-			],
-		});
-
 		const pass = ctx.passEncoder;
-		pass.setPipeline(this.deps.blitWithMaskChainPipeline);
+		pass.setPipeline(this.deps.blitWithMaskPipeline);
 		pass.setBindGroup(0, ctx.entry.bindGroup);
 		pass.setBindGroup(1, blitBindGroup);
-		pass.setBindGroup(2, chainBindGroup);
+		pass.setBindGroup(2, mask.bindGroup);
 		pass.draw(6);
 		pass.end();
 
@@ -409,7 +318,7 @@ export class OffscreenPresenter {
 	 * A quad layer's texture maps to four arbitrary corners, not to a rectangle,
 	 * so a world-space mask cannot be multiplied into it as-is. Drawing it once
 	 * through its own quad blit puts it back on a world-aligned rectangle, which
-	 * {@link applyWorldMasksToTexture} can then mask like any other.
+	 * {@link applyWorldMaskToTexture} can then mask like any other.
 	 */
 	public bakeQuadToTexture(
 		encoder: GPUCommandEncoder,
@@ -788,24 +697,6 @@ export class OffscreenPresenter {
 		// pass; everything else renders inline in renderGroupChildrenToTexture,
 		// which merges the group pre-filters into each child.
 		for (const child of childElements) {
-			// Wash strokes need their per-appearance isolation inside groups
-			// too — without it the inline draw below renders them buildup-dark
-			// with no strokeOpacity. Masked children keep the legacy path
-			// (mask-after-isolation is not wired yet); group pre-filters do not
-			// reach the isolated render either (accepted limitation).
-			if (
-				this.deps.renderIsolatedWashAppearances &&
-				this.deps.getElementPostMasks(child.id).length === 0
-			) {
-				const isolated = this.deps.renderIsolatedWashAppearances(
-					encoder,
-					child.id,
-				);
-				if (isolated) {
-					childFilteredTextures.set(child.id, isolated);
-					continue;
-				}
-			}
 			const childNeedsPostPass = (child.filters ?? []).some(
 				(f) =>
 					f.enabled !== false &&
@@ -896,11 +787,11 @@ export class OffscreenPresenter {
 					placement: childSurface.placement,
 				});
 			}
-			if (childMasks.length > 0) {
-				const masked = this.applyWorldMasksToTexture(
+			for (const childMask of childMasks) {
+				const masked = this.applyWorldMaskToTexture(
 					encoder,
 					childSurface,
-					childMasks,
+					childMask,
 					this.deps.getRasterScale(),
 				);
 				if (masked) {
@@ -1203,19 +1094,18 @@ export class OffscreenPresenter {
 				opacityState: "intrinsic",
 			},
 		);
-		if (outerMasks.length > 0) {
-			const masked = this.applyWorldMasksToTexture(
+		for (const outerMask of outerMasks) {
+			const masked = this.applyWorldMaskToTexture(
 				encoder,
 				surface,
-				outerMasks,
+				outerMask,
 				this.deps.getRasterScale(),
 			);
-			if (masked) {
-				surface = replaceRenderSurface(surface, {
-					texture: masked.texture,
-					placement: masked.placement,
-				});
-			}
+			if (!masked) continue;
+			surface = replaceRenderSurface(surface, {
+				texture: masked.texture,
+				placement: masked.placement,
+			});
 		}
 		return surface;
 	}

@@ -1,7 +1,6 @@
 import { ref, snapshot, subscribe } from "valtio";
 import { subscribeKey } from "valtio/utils";
 import * as Y from "yjs";
-import { readStoredBrushSize } from "./brush/access";
 import {
 	type BrushStrokePreviewOptions,
 	createBrushStrokePreviewScene,
@@ -29,7 +28,6 @@ import {
 import { PaplicoError } from "./errors";
 import { PaplicoExporter } from "./io/export/PaplicoExporter";
 import { PaplicoPSDExporter } from "./io/export/PaplicoPSDExporter";
-import { PaplicoSVGExporter } from "./io/export/PaplicoSVGExporter";
 import { PaplicoTIFFExporter } from "./io/export/PaplicoTIFFExporter";
 import { gcDocument } from "./io/papf/gc";
 import { openPapf } from "./io/papf/reader";
@@ -92,20 +90,26 @@ import {
 	type Color,
 	cloneAppearance,
 	colorToRawRGBA,
+	createDefaultContentAppearance,
 	type Document,
 	type ElementTransform,
 	type EmbeddedFile,
 	type FillAppearance,
 	type FillColor,
 	type Filter,
+	type Group,
 	generateUid,
 	getArtboardBounds,
 	getContainerChildIds,
 	getTransform,
 	type ImageObject,
+	isBlend,
 	isContainer,
+	isGroup,
 	isIdentityTransform,
+	isMesh,
 	isReference3D,
+	isRepeat,
 	isSolidColor,
 	type Layer,
 	type MeshArtObject,
@@ -119,9 +123,7 @@ import {
 } from "./schema";
 import { TimelapseExporter } from "./timelapse/TimelapseExporter";
 import { TimelapsePlayer } from "./timelapse/TimelapsePlayer";
-import { TimelapsePreviewSurface } from "./timelapse/TimelapsePreviewSurface";
 import { TimelapseRecorder } from "./timelapse/TimelapseRecorder";
-import type { TimelapseChangeSet } from "./timelapse/timelapseIndex";
 import type { PlaybackState } from "./timelapse/types";
 import { ArtboardTool } from "./tools/ArtboardTool";
 import { BucketFillTool } from "./tools/BucketFillTool";
@@ -159,21 +161,40 @@ import {
 	extractAppearance as extractAppearanceFromArtObject,
 } from "./utils/elementQuery";
 import { Emitter } from "./utils/emitter";
+import {
+	type AlignDelta,
+	type AlignItem,
+	type AlignMode,
+	computeAlignDeltas,
+	computeDistributeDeltas,
+	type DistributeAxis,
+	unionBounds,
+} from "./utils/geometry/align";
 import { arcLengthOfNearestSpinePoint } from "./utils/geometry/blendInterpolation";
 import {
 	brandWorldBBox,
 	calculateLocalElementBounds,
+	calculateRepeatSourceUnion,
 	translateBounds,
 	type WorldBBox,
 } from "./utils/geometry/bounds";
 import {
 	applyTransformToPoint,
+	applyWorldAffineToTransform,
 	composeTransforms,
 	computeTransformOrigin,
 	cursorLocalToWorld,
 	inverseTransform,
 } from "./utils/geometry/geometry";
 import { buildArcLengthTable } from "./utils/geometry/pathSampling";
+import {
+	createScaleTransform,
+	scaleSegments,
+	scaleTextContent,
+	scaleTextLayout,
+	scaleTextStyle,
+} from "./utils/geometry/resize";
+import { toWorldPath } from "./utils/geometry/segmentOps";
 import {
 	collectSelectionOutlines,
 	shouldDashSelectionBounds,
@@ -292,7 +313,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	public readonly exporter!: PaplicoExporter;
 	public readonly psdExporter!: PaplicoPSDExporter;
 	public readonly tiffExporter!: PaplicoTIFFExporter;
-	public readonly svgExporter!: PaplicoSVGExporter;
 	public readonly shortcuts!: PaplicoShortcuts;
 
 	private renderer: RenderOrchestrator;
@@ -316,16 +336,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private _isDrawing = false;
 	private activeTarget: CanvasTarget | null = null;
 	public readonly textToolController: TextToolController | null = null;
-	private timelapseRecorder: TimelapseRecorder = new TimelapseRecorder((id) =>
-		this.spatialIndex.getWorldBounds(id),
-	);
-	/**
-	 * Object delta of the transaction currently being committed. YjsProvider
-	 * registers its `update` listener first, so by the time the timelapse
-	 * listener runs the delta is settled and the SpatialIndex already holds
-	 * post-update bounds.
-	 */
-	private pendingTimelapseChanges: TimelapseChangeSet | null = null;
+	private timelapseRecorder: TimelapseRecorder = new TimelapseRecorder();
 
 	private readonly toolSettings: ToolSettings;
 	public readonly tools: PaplicoTools;
@@ -865,10 +876,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			toolSettings: this.toolSettings,
 			getTextRenderer: () => this.renderer.getTextRenderer(),
 			selection: this.selection,
-			scaleFilters: (filters, scaleX, scaleY) =>
-				this.renderer.scaleFilters(filters, scaleX, scaleY),
-			invalidateTextCache: (elementId) =>
-				this.renderer.invalidateTextCache(elementId),
 			// `this.patternEdit` is assigned right after this constructor call
 			// (see below) — by the time any command actually mutates the
 			// document, the field is populated, so the closure resolves it
@@ -920,14 +927,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				() => this.rendererStore.document,
 				this.getBuiltinProfileBytes,
 			);
-		(this as { svgExporter: PaplicoSVGExporter }).svgExporter =
-			new PaplicoSVGExporter(this.renderer, () => this.rendererStore.document);
 		this.toolContext = this.createToolContext();
 		// Timelapse recording
 		this.yjsProvider.ydoc.on("update", (update: Uint8Array) => {
-			const changes = this.pendingTimelapseChanges;
-			this.pendingTimelapseChanges = null;
-			this.timelapseRecorder.onYjsUpdate(update, changes);
+			this.timelapseRecorder.onYjsUpdate(update);
 		});
 
 		// Register default shortcut commands
@@ -1430,7 +1433,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			getToolWidth: () =>
 				this.toolSettings.currentTool === "eraser"
 					? this.toolSettings.eraserSize
-					: (readStoredBrushSize(this.tools.storedBrushSettings) ?? 10),
+					: this.tools.brushSettings.size,
 			setToolWidth: (width) => {
 				if (this.toolSettings.currentTool === "eraser") {
 					this.tools.setEraserSize(Math.max(1, Math.min(100, width)));
@@ -1443,7 +1446,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			transformPressure: (pressure) =>
 				transformPressure(this.toolSettings.pressureCurvePoints, pressure),
 			getTouchDrawOffsetScale: () => this.toolSettings.touchDrawOffsetScale,
-			getMaxZoomScale: () => this.toolSettings.maxZoomScale,
 			updateCursor: (x, y) => this.collaboration?.updateCursor(x, y),
 			clearCursor: () => this.collaboration?.clearCursor(),
 			getCommands: () => this.commands,
@@ -1544,9 +1546,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.activeTarget = null;
 		}
 		entry.destroy();
-		// The renderer keeps its own per-target GPU resources and re-acquires
-		// every registered target's context on HDR switch / device recovery.
-		this.renderer.disposeCanvasTarget(entry.target);
 		this.canvasTargets.delete(targetId);
 
 		if (this.primaryTargetId === targetId) {
@@ -1856,13 +1855,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						layers,
 						deletedSnapshot,
 					);
-
-					// The SpatialIndex now holds post-update bounds, so the timelapse
-					// listener that runs after this one can resolve them by id.
-					this.pendingTimelapseChanges = {
-						upserted: new Set([...delta.added.keys(), ...delta.updated.keys()]),
-						deleted: new Set(delta.deleted),
-					};
 
 					// Phase 4: Valtio notification for React UI panels
 					this.rendererStore.document.objects = {
@@ -2251,6 +2243,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 		this.stopRendering();
 
+		if (doc.timelapse && this.timelapseRecorder) {
+			this.timelapseRecorder.restoreFrom(doc.timelapse);
+		}
+
 		this.rendererStore.document.timelapse = doc.timelapse;
 
 		// Clear all UI state
@@ -2272,18 +2268,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		if (outgoingDocumentId !== doc.id) {
 			this.renderer.dropDocumentCaches(outgoingDocumentId);
 		}
-
-		// The recorder outlives the document. Take back the incoming file's own
-		// recording — which also discards replaceDocument's update, a delta
-		// against items no longer in the recording — then start a new segment
-		// from a baseline built out of the document's content.
-		this.timelapseRecorder.restoreFrom(doc.timelapse);
-		this.timelapseRecorder.appendBaseline(
-			Y.encodeStateAsUpdate(this.yjsProvider.ydoc),
-		);
-		// The incoming objects predate every future update, so the timelapse
-		// ledger needs their bounds to detect anything leaving an artboard.
-		this.timelapseRecorder.seedBounds(Object.keys(doc.objects));
 
 		// Restore viewport
 		const primaryTarget = this.getPrimaryTarget();
@@ -2460,6 +2444,27 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			},
 			elementToggleSelect: (id, bounds) =>
 				this.selection.toggleElement(id, bounds),
+			elementMove: (id, dx, dy) => {
+				const currentLayerId = this.rendererStore.currentLayerId;
+				if (!currentLayerId) return;
+
+				this.renderChangeSubscriber.withTransformOnlyChange(() => {
+					const elementMoves = this.collectElementMoveUpdates(
+						[{ layerId: currentLayerId, elementId: id }],
+						dx,
+						dy,
+					);
+					this.commands.batchUpdateElements(elementMoves);
+				});
+
+				// If the moved element is a blend key, reshape its spine to follow.
+				this.commands.rebuildBlendSpineIfKey(id);
+
+				const el = this.rendererStore.document.objects[id];
+				if (el?.type === "group") {
+					this.spatialIndex.invalidateBounds(id);
+				}
+			},
 			elementsMove: (ids, dx, dy) => {
 				const currentLayerId = this.rendererStore.currentLayerId;
 				if (!currentLayerId) return;
@@ -2484,11 +2489,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					.map((id) => ({ layerId: currentLayerId, elementId: id }));
 
 				this.renderChangeSubscriber.withTransformOnlyChange(() => {
-					const elementMoves = this.commands.collectElementMoveUpdates(
-						elements,
-						dx,
-						dy,
-					);
+					const elementMoves = this.collectElementMoveUpdates(elements, dx, dy);
 					this.commands.batchUpdateElements(elementMoves);
 				});
 
@@ -2504,11 +2505,53 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					}
 				}
 			},
+			elementResize: (id, originalBounds, newBounds) => {
+				this.handleElementResize(id, originalBounds, newBounds);
+			},
 			elementsResize: (ids, originalBounds, newBounds) => {
-				this.commands.resizeElements(ids, originalBounds, newBounds);
+				// Build set of all descendant IDs of groups in the selection
+				// to prevent double-resize (handleElementResize recurses into groups)
+				const descendantIds = new Set<string>();
+				const collectDescendants = (groupId: string) => {
+					const el = this.rendererStore.document.objects[groupId];
+					if (el?.type !== "group") return;
+					for (const childId of el.childIds) {
+						descendantIds.add(childId);
+						collectDescendants(childId);
+					}
+				};
+				for (const id of ids) {
+					collectDescendants(id);
+				}
+
+				const targetIds = ids.filter((id) => !descendantIds.has(id));
+				for (const id of targetIds) {
+					this.handleElementResize(id, originalBounds, newBounds);
+				}
+			},
+			elementRotate: (id, angleDeg, cx, cy) => {
+				const layerId = this.rendererStore.currentLayerId;
+				if (!layerId) return;
+				this.commands.rotateElement(layerId, id, angleDeg, cx, cy);
 			},
 			elementsRotate: (ids, angleDeg, cx, cy) => {
-				this.commands.rotateElements(ids, angleDeg, cx, cy);
+				// Build set of all descendant IDs of groups in the selection
+				// to prevent double-rotation (rotateElements recurses into groups)
+				const descendantIds = new Set<string>();
+				const collectDescendants = (groupId: string) => {
+					const el = this.rendererStore.document.objects[groupId];
+					if (el?.type !== "group") return;
+					for (const childId of el.childIds) {
+						descendantIds.add(childId);
+						collectDescendants(childId);
+					}
+				};
+				for (const id of ids) {
+					collectDescendants(id);
+				}
+
+				const targetIds = ids.filter((id) => !descendantIds.has(id));
+				this.commands.rotateElements(targetIds, angleDeg, cx, cy);
 			},
 			uiUpdateSelectionUI: (ui) => {
 				if (this.tool instanceof ArtboardTool) {
@@ -2826,7 +2869,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				const targetElements = elements.filter(
 					(e) => !descendantIds.has(e.elementId),
 				);
-				const elementMoves = this.commands.collectElementMoveUpdates(
+				const elementMoves = this.collectElementMoveUpdates(
 					targetElements,
 					deltaX,
 					deltaY,
@@ -3424,7 +3467,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					.computePerspectiveWarpUpdates(ids, corners, sourceCorners)
 					.map((u) => ({ ...u, layerId }));
 			},
-			outlineTextElements: (ids) => this.commands.outlineTextElements(ids),
+			outlineTextElements: (ids) => this.outlineTextElements(ids),
 			complete: () => {
 				this.tools.setCurrentTool("select");
 			},
@@ -3501,7 +3544,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					snapshot(this.rendererStore.document) as Document,
 				),
 			getMaxRasterDimension: () => this.renderer.getMaxTextureDimension(),
-			getMaxZoomScale: () => this.toolSettings.maxZoomScale,
 			setBucketFillLeaks: (state) => {
 				this.tools.setBucketFillLeaks(state);
 			},
@@ -3579,8 +3621,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				if (this.tool) {
 					if (this.tool instanceof PenTool) {
 						this.tool.setOptions({
-							strokeWidth:
-								readStoredBrushSize(this.tools.storedBrushSettings) ?? 10,
+							strokeWidth: this.tools.brushSettings.size,
 							stabilization: currentSnapshot.stabilization,
 							smoothingMethod: currentSnapshot.smoothingMethod,
 							perspectiveSnap: currentSnapshot.perspectiveSnap,
@@ -3662,7 +3703,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 		if (toolType === "pen") {
 			this.tool = new PenTool(this.toolContext, {
-				strokeWidth: readStoredBrushSize(this.tools.storedBrushSettings) ?? 10,
+				strokeWidth: this.tools.brushSettings.size,
 				stabilization: this.toolSettings.stabilization,
 				smoothingMethod: this.toolSettings.smoothingMethod,
 				perspectiveSnap: this.toolSettings.perspectiveSnap,
@@ -3881,7 +3922,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		} else {
 			// Default to pen
 			this.tool = new PenTool(this.toolContext, {
-				strokeWidth: readStoredBrushSize(this.tools.storedBrushSettings) ?? 10,
+				strokeWidth: this.tools.brushSettings.size,
 				stabilization: this.toolSettings.stabilization,
 				smoothingMethod: this.toolSettings.smoothingMethod,
 				perspectiveSnap: this.toolSettings.perspectiveSnap,
@@ -4084,6 +4125,377 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
+	 * Align the current multi-selection along `mode`. The reference is the key
+	 * object's world bounds when one is set (and still selected), otherwise the
+	 * selection's combined AABB. Needs at least 2 selected elements.
+	 */
+	public alignSelectedElements(mode: AlignMode): void {
+		const layerId = this.rendererStore.currentLayerId;
+		if (!layerId) return;
+
+		const items = this.collectAlignItems(this.rendererStore.selectedElementIds);
+		if (items.length < 2) return;
+
+		const keyObjectId = this.rendererStore.keyObjectId;
+		const keyItem =
+			keyObjectId != null
+				? items.find((it) => it.id === keyObjectId)
+				: undefined;
+		const reference = keyItem?.bounds ?? unionBounds(items);
+		if (!reference) return;
+
+		this.applyAlignDeltas(layerId, computeAlignDeltas(items, mode, reference));
+	}
+
+	/**
+	 * Distribute the current multi-selection so element centers are evenly
+	 * spaced along `axis`. The two extreme elements stay put. Needs at least 3
+	 * selected elements.
+	 */
+	public distributeSelectedElements(axis: DistributeAxis): void {
+		const layerId = this.rendererStore.currentLayerId;
+		if (!layerId) return;
+
+		const items = this.collectAlignItems(this.rendererStore.selectedElementIds);
+		if (items.length < 3) return;
+
+		this.applyAlignDeltas(layerId, computeDistributeDeltas(items, axis));
+	}
+
+	private collectAlignItems(elementIds: readonly string[]): AlignItem[] {
+		const items: AlignItem[] = [];
+		for (const id of elementIds) {
+			const bounds = this.spatialIndex.getWorldBounds(id);
+			if (bounds) items.push({ id, bounds });
+		}
+		return items;
+	}
+
+	private applyAlignDeltas(
+		layerId: string,
+		deltas: Map<string, AlignDelta>,
+	): void {
+		const updates: Array<{
+			elementId: string;
+			updates: Partial<AnyArtObject>;
+		}> = [];
+		for (const [elementId, { dx, dy }] of deltas) {
+			if (dx === 0 && dy === 0) continue;
+			// Reuse the shared move-update builder so blend baking and axis-path
+			// following stay correct, applied per element with its own delta.
+			updates.push(
+				...this.collectElementMoveUpdates([{ layerId, elementId }], dx, dy),
+			);
+		}
+		if (updates.length === 0) return;
+
+		this.commands.batchUpdateElements(updates);
+
+		for (const id of deltas.keys()) {
+			this.spatialIndex.invalidateBounds(id);
+			this.commands.rebuildBlendSpineIfKey(id);
+		}
+		this.selection.updateSelectionBounds();
+		this.refreshSelectionUI(this.currentToolType === "select");
+	}
+
+	/**
+	 * Collect element move updates without committing to Yjs.
+	 * Used by elementMove, elementsMove, and commitArtboardMove
+	 * to batch all moves in a single Yjs transaction.
+	 */
+	private collectElementMoveUpdates(
+		elements: Array<{ layerId: string; elementId: string }>,
+		deltaX: number,
+		deltaY: number,
+	): Array<{ elementId: string; updates: Partial<AnyArtObject> }> {
+		const result: Array<{
+			elementId: string;
+			updates: Partial<AnyArtObject>;
+		}> = [];
+		const inputIds = new Set(elements.map((e) => e.elementId));
+		const movedAxisPathIds = new Set<string>();
+
+		for (const { elementId, layerId } of elements) {
+			const element = this.rendererStore.document.objects[elementId];
+			if (!element) continue;
+
+			// Path-bound text: dragging the text moves the whole object — the
+			// axis path is translated instead and the text follows through
+			// re-layout (its glyph geometry derives from the path). Translating
+			// both would double-move when path and text are selected together.
+			if (element.type === "text" && element.axisBinding) {
+				const pathId = element.axisBinding.pathObjectId;
+				const path = this.rendererStore.document.objects[pathId];
+				if (path?.type === "path") {
+					if (!inputIds.has(pathId) && !movedAxisPathIds.has(pathId)) {
+						movedAxisPathIds.add(pathId);
+						const pt = getTransform(path);
+						result.push({
+							elementId: pathId,
+							updates: {
+								transform: { ...pt, x: pt.x + deltaX, y: pt.y + deltaY },
+							} as Partial<AnyArtObject>,
+						});
+					}
+					continue;
+				}
+				// Dangling binding: fall through to a normal text move
+			}
+
+			if (isBlend(element)) {
+				const bt = getTransform(element);
+				const isPureTranslate =
+					bt.scaleX === 1 &&
+					bt.scaleY === 1 &&
+					(bt.rotation ?? 0) === 0 &&
+					(bt.skewX ?? 0) === 0 &&
+					(bt.skewY ?? 0) === 0;
+				if (!isPureTranslate) {
+					// Scaled/rotated blend: keep the legacy behavior (move its own
+					// transform). Baking a non-translation matrix into the absorbed
+					// sources is out of scope here.
+					result.push({
+						elementId,
+						updates: {
+							transform: { ...bt, x: bt.x + deltaX, y: bt.y + deltaY },
+						} as Partial<AnyArtObject>,
+					});
+					continue;
+				}
+				// A blend's sources are absorbed and rendered (world-baked) under the
+				// blend's transform index, so they have no transform slot of their
+				// own. Keeping the translation on the blend desyncs the stored source
+				// positions from what is drawn (breaking gradient-edit UI and release
+				// placement). Bake any existing blend translation + this move into the
+				// sources (and spine) and reset the blend to identity, so stored ==
+				// displayed everywhere.
+				const srcIds = element.spineSourceId
+					? [...element.objectIds, element.spineSourceId]
+					: element.objectIds;
+				for (const srcId of srcIds) {
+					const src = this.rendererStore.document.objects[srcId];
+					if (!src) continue;
+					const st = getTransform(src);
+					result.push({
+						elementId: srcId,
+						updates: {
+							transform: {
+								...st,
+								x: st.x + bt.x + deltaX,
+								y: st.y + bt.y + deltaY,
+							},
+						} as Partial<AnyArtObject>,
+					});
+				}
+				if (bt.x !== 0 || bt.y !== 0) {
+					// The spine source is baked alongside the other sources above;
+					// only the blend's own transform needs resetting to identity.
+					result.push({
+						elementId,
+						updates: {
+							transform: createIdentityTransform(),
+						} as Partial<AnyArtObject>,
+					});
+				}
+				continue;
+			}
+
+			if (isGroup(element)) {
+				const t = getTransform(element);
+				result.push({
+					elementId,
+					updates: {
+						transform: { ...t, x: t.x + deltaX, y: t.y + deltaY },
+					} as Partial<AnyArtObject>,
+				});
+				continue;
+			}
+
+			const t = getTransform(element);
+			result.push({
+				elementId,
+				updates: {
+					transform: { ...t, x: t.x + deltaX, y: t.y + deltaY },
+				} as Partial<AnyArtObject>,
+			});
+		}
+
+		return result;
+	}
+
+	private handleElementResize(
+		elementId: string,
+		originalBounds: BoundingBox,
+		newBounds: BoundingBox,
+	): void {
+		this.applyElementResize(elementId, originalBounds, newBounds);
+		// updateElement syncs the store and clears stale cache entries
+		// synchronously, so recomputing here reads the resized geometry in the
+		// element's parent space — pushing the world-space selection frame into
+		// the cache instead would corrupt nested (editing-scope) elements.
+		this.spatialIndex.invalidateBoundsWithAncestors(elementId);
+	}
+
+	private applyElementResize(
+		elementId: string,
+		originalBounds: BoundingBox,
+		newBounds: BoundingBox,
+	): void {
+		const currentLayerId = this.rendererStore.currentLayerId;
+		if (!currentLayerId) return;
+
+		const layer = this.rendererStore.document.layers.find(
+			(l) => l.id === currentLayerId,
+		);
+		if (!layer) return;
+
+		const element = this.rendererStore.document.objects[elementId];
+		if (!element) return;
+
+		const transform = createScaleTransform(originalBounds, newBounds);
+		const { scaleX, scaleY, mapX, mapY } = transform;
+		const uniformScale = Math.sqrt(scaleX * scaleY);
+
+		// Common properties that apply to all element types
+		const commonUpdates: Record<string, unknown> = {};
+		if (element.filters?.length) {
+			commonUpdates.filters = this.renderer.scaleFilters(
+				element.filters,
+				scaleX,
+				scaleY,
+			);
+		}
+
+		if (element.type === "path") {
+			// Bake transform into segments before scaling so that
+			// originalBounds (world-space) and segment coordinates are in the same space.
+			const worldPath = toWorldPath(element);
+			const scaledFilters = scaleStrokeFilters(element.filters, uniformScale);
+			this.commands.updateElement(currentLayerId, elementId, {
+				segments: scaleSegments(worldPath.segments, transform),
+				transform: worldPath.transform,
+				...(scaledFilters ? { filters: scaledFilters } : {}),
+				...commonUpdates,
+			});
+		} else if (element.type === "compound-path") {
+			// Source paths are recursively resized.
+			for (const { id: sourceId } of element.sources) {
+				this.applyElementResize(sourceId, originalBounds, newBounds);
+			}
+			const scaledFilters = scaleStrokeFilters(element.filters, uniformScale);
+			this.commands.updateElement(currentLayerId, elementId, {
+				...(scaledFilters ? { filters: scaledFilters } : {}),
+				...commonUpdates,
+			});
+		} else if (element.type === "image" || isReference3D(element)) {
+			// Moves store their delta on transform.x/y while the placement rect
+			// (x/y) stays put, but the bounds mapping is world-space — bake the
+			// translation into the rect first (same spirit as the path branch)
+			// so resizing a moved element keeps its anchor. Rotation about the
+			// rect center commutes with this baking.
+			const t = getTransform(element);
+			this.commands.updateElement(currentLayerId, elementId, {
+				x: mapX(element.x + t.x),
+				y: mapY(element.y + t.y),
+				width: element.width * scaleX,
+				height: element.height * scaleY,
+				transform: { ...t, x: 0, y: 0 },
+				...commonUpdates,
+			});
+		} else if (element.type === "text") {
+			// Same translation baking as the image/reference3d branch above.
+			const t = getTransform(element);
+			this.commands.updateElement(currentLayerId, elementId, {
+				x: mapX(element.x + t.x),
+				y: mapY(element.y + t.y),
+				layout: scaleTextLayout(element.layout, transform, newBounds),
+				defaultStyle: scaleTextStyle(element.defaultStyle, uniformScale),
+				content: scaleTextContent(element.content, uniformScale),
+				transform: { ...t, x: 0, y: 0 },
+				...commonUpdates,
+			});
+
+			this.renderer.invalidateTextCache(elementId);
+		} else if (element.type === "group") {
+			for (const childId of element.childIds) {
+				this.applyElementResize(childId, originalBounds, newBounds);
+			}
+		} else if (isBlend(element)) {
+			// Keys and the absorbed spine live in objects (not in any layer); resize
+			// them recursively so the whole blend scales. Intermediates recompute
+			// from the scaled keys/spine.
+			for (const keyId of element.objectIds) {
+				this.applyElementResize(keyId, originalBounds, newBounds);
+			}
+			if (element.spineSourceId) {
+				this.applyElementResize(
+					element.spineSourceId,
+					originalBounds,
+					newBounds,
+				);
+			}
+			const scaledFilters = scaleStrokeFilters(element.filters, uniformScale);
+			this.commands.updateElement(currentLayerId, elementId, {
+				...(scaledFilters ? { filters: scaledFilters } : {}),
+				...commonUpdates,
+			});
+		} else if (isMesh(element)) {
+			// Fold the resize's world affine into the container's own transform,
+			// pivoted at the cage's local-bounds center (the renderer's transform
+			// origin). The warped children ride the container's transform entry,
+			// so the cage and everything it bends scale together — same approach
+			// as repeat below.
+			const localBounds = calculateLocalElementBounds(element);
+			const center = {
+				x: (localBounds.minX + localBounds.maxX) / 2,
+				y: (localBounds.minY + localBounds.maxY) / 2,
+			};
+			const newTransform = applyWorldAffineToTransform(
+				getTransform(element),
+				center,
+				null,
+				{ m00: scaleX, m01: 0, m10: 0, m11: scaleY },
+				mapX(0),
+				mapY(0),
+			);
+			this.commands.updateElement(currentLayerId, elementId, {
+				transform: newTransform,
+				...commonUpdates,
+			} as Partial<AnyArtObject>);
+		} else if (isRepeat(element)) {
+			// Scale the whole repeat uniformly by folding the resize's world affine
+			// into the repeat's own transform, pivoted at the source union center
+			// (the same pivot the renderer/bounds use). This scales both the tiles
+			// and their spacing, unlike recursing into the absorbed sources.
+			const union = calculateRepeatSourceUnion(
+				element,
+				new Map(Object.entries(this.rendererStore.document.objects)),
+			);
+			if (union) {
+				const center = {
+					x: (union.minX + union.maxX) / 2,
+					y: (union.minY + union.maxY) / 2,
+				};
+				// mapX/mapY are affine maps (scale + translate); the world affine's
+				// translation is their value at the origin.
+				const newTransform = applyWorldAffineToTransform(
+					getTransform(element),
+					center,
+					null,
+					{ m00: scaleX, m01: 0, m10: 0, m11: scaleY },
+					mapX(0),
+					mapY(0),
+				);
+				this.commands.updateElement(currentLayerId, elementId, {
+					transform: newTransform,
+					...commonUpdates,
+				} as Partial<AnyArtObject>);
+			}
+		}
+	}
+
+	/**
 	 * Style source of a text element: the flow-chain head that owns content
 	 * and styles, or the element itself outside a chain. UI style panels must
 	 * read and write through this so flow targets never expose or receive
@@ -4091,6 +4503,88 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	 */
 	public getTextStyleSource(element: TextElement): TextElement {
 		return this.renderer?.getTextRenderer()?.getFlowHead(element) ?? element;
+	}
+
+	/**
+	 * Convert text elements to outlined path groups.
+	 * Each text element becomes an independent group containing its glyph paths
+	 * plus the original (hidden) text element.
+	 */
+	public async outlineTextElements(elementIds: string[]): Promise<string[]> {
+		const textRenderer = this.renderer?.getTextRenderer();
+		if (!textRenderer) return [];
+
+		const layerId = this.rendererStore.currentLayerId;
+		if (!layerId) return [];
+
+		const newGroupIds: string[] = [];
+
+		for (const elementId of elementIds) {
+			const element = this.rendererStore.document.objects[elementId];
+			if (!element || element.type !== "text") continue;
+
+			const textElement = element;
+			const result = await textRenderer.textElementToOutlinedPaths(textElement);
+
+			if (result.outlinedPaths.length === 0) continue;
+
+			// Apply per-character paint from source Run styles. Runs and styles
+			// live on the flow-chain head; flow targets have empty content.
+			const paintSource = textRenderer.getFlowHead(textElement);
+			const paths: Path[] = result.outlinedPaths.map(
+				({ path, runIndex, paragraphIndex }) => {
+					const run =
+						paintSource.content.paragraphs[paragraphIndex]?.runs[runIndex];
+					const style = run?.style ?? paintSource.defaultStyle;
+
+					const fill = style.fill ?? paintSource.defaultStyle.fill ?? null;
+					const stroke =
+						style.stroke ?? paintSource.defaultStyle.stroke ?? null;
+
+					const filters: Filter[] = [];
+					if (fill) {
+						filters.push({
+							uid: generateUid("app"),
+							processor: "fill",
+							paramData: { version: "1", params: { fill } },
+						} as FillAppearance);
+					}
+					if (stroke) {
+						filters.push({
+							uid: generateUid("app"),
+							processor: "stroke",
+							paramData: {
+								version: "1",
+								params: {
+									strokeColor: stroke,
+								},
+							},
+						} as StrokeAppearance);
+					}
+
+					return { ...path, filters };
+				},
+			);
+
+			const group: Group = {
+				type: "group",
+				id: generateUid("group"),
+				childIds: [...paths.map((p) => p.id), textElement.id],
+				opacity: textElement.opacity,
+				blendMode: textElement.blendMode,
+				transform: textElement.transform,
+				name: "Outlined Text",
+				filters: [createDefaultContentAppearance()],
+			};
+
+			this.commands.outlineTextElement(layerId, textElement.id, paths, group);
+			newGroupIds.push(group.id);
+		}
+
+		if (newGroupIds.length > 0) {
+			this.rendererStore.selectedElementIds = newGroupIds;
+		}
+		return newGroupIds;
 	}
 
 	/**
@@ -4179,18 +4673,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	): TimelapsePlayer | null {
 		const data = this.timelapseRecorder.getTimelapseData();
 		if (!data) return null;
-		return new TimelapsePlayer(
-			data,
-			{
-				...callbacks,
-				// The recording ends at the live document, so the intro frame
-				// needs no replay pass to reach the finished artwork.
-				getCompletedDocument: () => this.rendererStore.document,
-				onIndexBuilt: (index) =>
-					this.timelapseRecorder.adoptRebuiltIndex(index),
-			},
-			filterArtboard ?? undefined,
-		);
+		return new TimelapsePlayer(data, callbacks, filterArtboard ?? undefined);
 	}
 
 	/** Render an artboard to ImageData for export or thumbnail. */
@@ -4222,22 +4705,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		}
 	}
 
-	/**
-	 * Create the dedicated render surface timelapse playback draws through.
-	 * Dispose it when the preview canvas goes away.
-	 */
-	public createTimelapsePreviewSurface(
-		canvas: HTMLCanvasElement,
-	): Promise<TimelapsePreviewSurface> {
-		return TimelapsePreviewSurface.create(this.renderer, canvas);
-	}
-
 	/** Create a TimelapseExporter for encoding timelapse MP4. */
-	public createTimelapseExporter(
-		surface: TimelapsePreviewSurface,
-		player: TimelapsePlayer,
-	): TimelapseExporter {
-		return new TimelapseExporter(surface, player);
+	public createTimelapseExporter(player: TimelapsePlayer): TimelapseExporter {
+		return new TimelapseExporter(this.renderer, player);
 	}
 
 	// ===== Document Persistence =====
@@ -4276,12 +4746,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		if (outgoingDocumentId !== this.rendererStore.document.id) {
 			this.renderer.dropDocumentCaches(outgoingDocumentId);
 		}
-
-		// The incoming objects predate every future update, so the timelapse
-		// ledger needs their bounds to detect anything leaving an artboard.
-		this.timelapseRecorder.seedBounds(
-			Object.keys(this.rendererStore.document.objects),
-		);
 
 		// Restore viewport (not stored in Yjs)
 		if (viewport) {
@@ -4325,6 +4789,30 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 		console.log("✅ Paplico cleaned up");
 	}
+}
+
+function scaleStrokeFilters(
+	filters: Filter[] | undefined,
+	scale: number,
+): Filter[] | undefined {
+	return filters?.map((f) => {
+		if (f.processor !== "stroke") return f;
+		const params = (f as StrokeAppearance).paramData.params;
+		if (!params.brushSettings) return f;
+		return {
+			...f,
+			paramData: {
+				...f.paramData,
+				params: {
+					...params,
+					brushSettings: {
+						...params.brushSettings,
+						size: params.brushSettings.size * scale,
+					},
+				},
+			},
+		};
+	});
 }
 
 /**

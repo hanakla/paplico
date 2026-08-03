@@ -9,15 +9,13 @@ import {
 	UserCog,
 	X,
 } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { Button } from "@/components/Button";
-import { CurveEditor } from "@/components/CurveEditor";
 import { Input } from "@/components/Input";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import { Switch } from "@/components/Switch";
 import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
-import { PAPLICO_MAX_ZOOM_SCALE } from "@/core/document/constants";
 import { MAX_TOUCH_DRAW_OFFSET_SCALE } from "@/core/tools/toolSettings";
 import {
 	DEFAULT_PRESSURE_CURVE,
@@ -31,7 +29,6 @@ import {
 	resolveTouchDrawOffsetScale,
 	setCollaborationUserName,
 	setLanguage,
-	setMaxZoomScale,
 	setPanelLayout,
 	setPressureCurvePoints,
 	setTheme,
@@ -54,8 +51,6 @@ const LANGUAGE_OPTIONS = [
 	{ label: "English", value: "en" },
 	{ label: "日本語", value: "ja" },
 ] as const;
-
-const MAX_ZOOM_SCALE_PRESETS = [100, 200, 400, PAPLICO_MAX_ZOOM_SCALE] as const;
 
 const SECTIONS: ReadonlyArray<{
 	id: SectionId;
@@ -250,7 +245,6 @@ const SectionListItem = memo(function SectionListItem({
 
 const InterfaceSection = memo(function InterfaceSection() {
 	const settings = useAppConfig();
-	const paplico = usePaplicoMaybe();
 	const t = useTranslation();
 
 	const handleThemeChange = useEventCallback((v: string) => {
@@ -267,12 +261,6 @@ const InterfaceSection = memo(function InterfaceSection() {
 
 	const handlePanelLayoutChange = useEventCallback((v: string) => {
 		setPanelLayout(v as PanelLayout);
-	});
-
-	const handleMaxZoomScaleChange = useEventCallback((v: string) => {
-		const next = Number(v);
-		setMaxZoomScale(next);
-		paplico?.tools.setMaxZoomScale(next);
 	});
 
 	return (
@@ -371,22 +359,6 @@ const InterfaceSection = memo(function InterfaceSection() {
 						</button>
 					))}
 				</div>
-			</SettingRow>
-
-			{/* Max Zoom */}
-			<SettingRow
-				label={t("preferences.maxZoomScale")}
-				description={t("preferences.maxZoomScaleDescription")}
-			>
-				<SimpleSelect
-					items={MAX_ZOOM_SCALE_PRESETS.map((v) => ({
-						label: `${v}×`,
-						value: String(v),
-					}))}
-					value={String(settings.maxZoomScale)}
-					onValueChange={handleMaxZoomScaleChange}
-					className="w-[120px]"
-				/>
 			</SettingRow>
 		</div>
 	);
@@ -642,11 +614,23 @@ const PanelLayoutDiagram = memo(function PanelLayoutDiagram({
 });
 
 const SVG_WIDTH = 200;
+const SVG_HEIGHT = 160;
 const PAD = 8;
+const PLOT_WIDTH = SVG_WIDTH - PAD * 2;
+const PLOT_HEIGHT = SVG_HEIGHT - PAD * 2;
+const CURVE_SAMPLES = 64;
+/** Pointer distance (svg units) within which a control point is grabbed */
+const HIT_RADIUS = 8;
+/** Client px outside the svg bounds beyond which a dragged point is removed */
+const REMOVE_DISTANCE_PX = 24;
+/** Minimum x gap kept between an interior point and its neighbors */
+const NEIGHBOR_X_GAP = 0.01;
 
 /**
- * Pressure curve editor: the shared curve plot, plus what only this setting
- * needs — a stroke preview of the curve and a way back to the default.
+ * Pressure curve editor: control points on a 0..1 grid, draggable via
+ * pointer capture. Endpoints move on y only; interior points can be added
+ * by clicking the background and removed by double-click or by dragging
+ * them far outside the plot.
  */
 const PressureCurveEditor = memo(function PressureCurveEditor({
 	value,
@@ -658,20 +642,200 @@ const PressureCurveEditor = memo(function PressureCurveEditor({
 	className?: string;
 }) {
 	const t = useTranslation();
+	const svgRef = useRef<SVGSVGElement>(null);
+	const draggingRef = useRef<{
+		index: number;
+		removedPoint: PressureCurvePoint | null;
+	} | null>(null);
+	// A point inserted by pointerdown must not be removed by the dblclick that
+	// the same double-tap on the background would otherwise trigger.
+	const suppressDoubleClickRef = useRef(false);
+
+	const handlePointerDown = useEventCallback(
+		(e: React.PointerEvent<SVGSVGElement>) => {
+			if (draggingRef.current) return;
+			const svg = svgRef.current;
+			if (!svg) return;
+
+			const pos = clientToCurve(e, svg.getBoundingClientRect());
+			const hitIndex = hitTestPointIndex(value, pos.svgX, pos.svgY);
+			suppressDoubleClickRef.current = false;
+
+			if (hitIndex >= 0) {
+				draggingRef.current = { index: hitIndex, removedPoint: null };
+				svg.setPointerCapture(e.pointerId);
+				return;
+			}
+
+			// Insert a new point on the curve at the clicked x and start dragging it
+			const inserted = {
+				x: Math.min(1 - NEIGHBOR_X_GAP, Math.max(NEIGHBOR_X_GAP, pos.x)),
+				y: evaluatePressureCurve(value, pos.x),
+			};
+			const next = [...value, inserted].sort((a, b) => a.x - b.x);
+			suppressDoubleClickRef.current = true;
+			onChange(next);
+			draggingRef.current = {
+				index: next.indexOf(inserted),
+				removedPoint: null,
+			};
+			svg.setPointerCapture(e.pointerId);
+		},
+	);
+
+	const handlePointerMove = useEventCallback(
+		(e: React.PointerEvent<SVGSVGElement>) => {
+			const drag = draggingRef.current;
+			if (!drag) return;
+			const svg = svgRef.current;
+			if (!svg) return;
+
+			const rect = svg.getBoundingClientRect();
+			const pos = clientToCurve(e, rect);
+			const isFarOutside =
+				e.clientX < rect.left - REMOVE_DISTANCE_PX ||
+				e.clientX > rect.right + REMOVE_DISTANCE_PX ||
+				e.clientY < rect.top - REMOVE_DISTANCE_PX ||
+				e.clientY > rect.bottom + REMOVE_DISTANCE_PX;
+
+			if (drag.removedPoint) {
+				// Hidden while outside; re-insert when the pointer comes back
+				if (isFarOutside) return;
+				const restored = {
+					x: Math.min(1 - NEIGHBOR_X_GAP, Math.max(NEIGHBOR_X_GAP, pos.x)),
+					y: pos.y,
+				};
+				const next = [...value, restored].sort((a, b) => a.x - b.x);
+				drag.index = next.indexOf(restored);
+				drag.removedPoint = null;
+				onChange(next);
+				return;
+			}
+
+			const isEndpoint = drag.index === 0 || drag.index === value.length - 1;
+			if (isFarOutside && !isEndpoint) {
+				drag.removedPoint = { ...value[drag.index] };
+				onChange(value.filter((_, i) => i !== drag.index));
+				return;
+			}
+
+			onChange(
+				value.map((p, i) =>
+					i === drag.index ? clampDraggedPoint(value, drag.index, pos) : p,
+				),
+			);
+		},
+	);
+
+	const handlePointerUp = useEventCallback(
+		(e: React.PointerEvent<SVGSVGElement>) => {
+			const svg = svgRef.current;
+			if (svg?.hasPointerCapture(e.pointerId)) {
+				svg.releasePointerCapture(e.pointerId);
+			}
+			draggingRef.current = null;
+		},
+	);
+
+	const handleDoubleClick = useEventCallback(
+		(e: React.MouseEvent<SVGSVGElement>) => {
+			if (suppressDoubleClickRef.current) {
+				suppressDoubleClickRef.current = false;
+				return;
+			}
+			const svg = svgRef.current;
+			if (!svg) return;
+
+			const pos = clientToCurve(e, svg.getBoundingClientRect());
+			const hitIndex = hitTestPointIndex(value, pos.svgX, pos.svgY);
+			if (hitIndex <= 0 || hitIndex >= value.length - 1) return;
+
+			onChange(value.filter((_, i) => i !== hitIndex));
+		},
+	);
+
 	const handleReset = useEventCallback(() => {
 		onChange(DEFAULT_PRESSURE_CURVE.map((p) => ({ ...p })));
 	});
+
+	const curvePath = Array.from({ length: CURVE_SAMPLES }, (_, i) => {
+		const x = i / (CURVE_SAMPLES - 1);
+		return `${toSvgX(x)},${toSvgY(evaluatePressureCurve(value, x))}`;
+	}).join(" ");
 
 	return (
 		<div
 			className={twm("flex flex-col items-start sm:items-end gap-2", className)}
 		>
-			<CurveEditor
-				value={value}
-				onChange={onChange}
-				evaluate={evaluatePressureCurve}
-				label={t("preferences.pressureCurve")}
-			/>
+			<svg
+				ref={svgRef}
+				width={SVG_WIDTH}
+				height={SVG_HEIGHT}
+				viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
+				role="img"
+				aria-label={t("preferences.pressureCurve")}
+				className="touch-none cursor-crosshair select-none rounded border border-border/40 bg-background/50"
+				onPointerDown={handlePointerDown}
+				onPointerMove={handlePointerMove}
+				onPointerUp={handlePointerUp}
+				onPointerCancel={handlePointerUp}
+				onDoubleClick={handleDoubleClick}
+			>
+				<title>{t("preferences.pressureCurve")}</title>
+				{/* Quarter grid */}
+				{[0.25, 0.5, 0.75].map((step) => (
+					<g key={step} className="stroke-border/50">
+						<line
+							x1={toSvgX(step)}
+							y1={toSvgY(0)}
+							x2={toSvgX(step)}
+							y2={toSvgY(1)}
+						/>
+						<line
+							x1={toSvgX(0)}
+							y1={toSvgY(step)}
+							x2={toSvgX(1)}
+							y2={toSvgY(step)}
+						/>
+					</g>
+				))}
+				<rect
+					x={PAD}
+					y={PAD}
+					width={PLOT_WIDTH}
+					height={PLOT_HEIGHT}
+					className="fill-none stroke-border/50"
+				/>
+
+				{/* Identity diagonal */}
+				<line
+					x1={toSvgX(0)}
+					y1={toSvgY(0)}
+					x2={toSvgX(1)}
+					y2={toSvgY(1)}
+					strokeDasharray="3 3"
+					className="stroke-muted-foreground/50"
+				/>
+
+				{/* Interpolated curve (same interpolation as the runtime) */}
+				<polyline
+					points={curvePath}
+					strokeWidth={1.5}
+					className="fill-none stroke-accent"
+				/>
+
+				{/* Control points */}
+				{value.map((point, i) => (
+					<circle
+						key={i}
+						cx={toSvgX(point.x)}
+						cy={toSvgY(point.y)}
+						r={4}
+						strokeWidth={1.5}
+						className="fill-accent stroke-background"
+					/>
+				))}
+			</svg>
 
 			<div className="flex w-full flex-col gap-1">
 				<span className="text-[10px] text-muted-foreground">
@@ -737,3 +901,61 @@ const PressureCurvePreview = memo(function PressureCurvePreview({
 		</svg>
 	);
 });
+
+function toSvgX(x: number): number {
+	return PAD + x * PLOT_WIDTH;
+}
+
+function toSvgY(y: number): number {
+	return SVG_HEIGHT - PAD - y * PLOT_HEIGHT;
+}
+
+/** Convert a client position to curve coordinates (clamped) + raw svg units */
+function clientToCurve(
+	e: { clientX: number; clientY: number },
+	rect: DOMRect,
+): { x: number; y: number; svgX: number; svgY: number } {
+	const svgX = ((e.clientX - rect.left) / rect.width) * SVG_WIDTH;
+	const svgY = ((e.clientY - rect.top) / rect.height) * SVG_HEIGHT;
+	return {
+		x: clamp01((svgX - PAD) / PLOT_WIDTH),
+		y: clamp01((SVG_HEIGHT - PAD - svgY) / PLOT_HEIGHT),
+		svgX,
+		svgY,
+	};
+}
+
+function hitTestPointIndex(
+	points: readonly PressureCurvePoint[],
+	svgX: number,
+	svgY: number,
+): number {
+	let bestIndex = -1;
+	let bestDistance = HIT_RADIUS;
+	points.forEach((point, i) => {
+		const distance = Math.hypot(toSvgX(point.x) - svgX, toSvgY(point.y) - svgY);
+		if (distance <= bestDistance) {
+			bestDistance = distance;
+			bestIndex = i;
+		}
+	});
+	return bestIndex;
+}
+
+/** Endpoints move on y only; interior x stays between its neighbors */
+function clampDraggedPoint(
+	points: readonly PressureCurvePoint[],
+	index: number,
+	pos: { x: number; y: number },
+): PressureCurvePoint {
+	if (index === 0) return { x: 0, y: pos.y };
+	if (index === points.length - 1) return { x: 1, y: pos.y };
+
+	const minX = points[index - 1].x + NEIGHBOR_X_GAP;
+	const maxX = points[index + 1].x - NEIGHBOR_X_GAP;
+	return { x: Math.min(maxX, Math.max(minX, pos.x)), y: pos.y };
+}
+
+function clamp01(value: number): number {
+	return Math.min(1, Math.max(0, value));
+}

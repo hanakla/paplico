@@ -10,9 +10,10 @@
  * `color` directly.
  */
 
-import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
+import { normalizeBrushSettings } from "../../../../brush/normalize";
 import { createDefaultBrushSettings } from "../../../../document/factory";
 import {
+	type BrushSettings,
 	type CubicBezierSegment,
 	colorToRawRGBA,
 	type Path,
@@ -55,22 +56,20 @@ export function resolveStrokeStyle(
 	const strokeColor = strokeApp?.paramData.params.strokeColor;
 	if (!strokeApp || !strokeColor) return null;
 
-	const route = resolveBrushRenderRoute(
-		strokeApp.paramData.params.brushSettings ?? createDefaultBrushSettings(),
-	);
+	const rawBrush = strokeApp.paramData.params.brushSettings;
+	const brush: BrushSettings = rawBrush
+		? normalizeBrushSettings(rawBrush)
+		: createDefaultBrushSettings();
 
 	return {
 		segments,
 		strokeWidths: path.strokeWidths,
 		pathStart: path.pathStart,
 		pathEnd: path.pathEnd,
-		engine: route.settings.engine,
+		brush,
 		textures: { primary: null },
 		color: resolveStrokeColorScalar(strokeColor),
-		selfOverlap:
-			route.kind === "dab" && route.settings.paintMode === "wash"
-				? "wash"
-				: "over",
+		selfOverlap: "over",
 		alphaMultiplier,
 		transformIndex,
 		legacyPath: path,

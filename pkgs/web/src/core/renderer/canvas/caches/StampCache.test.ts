@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { StampBuffer } from "./StampCache";
+import type { StampBuffer } from "../pipeline/brush/StampGenerator";
+import type { GeometryHandle } from "../pipeline/GeometryStore";
 import { StampCache } from "./StampCache";
 
 describe("StampCache", () => {
@@ -131,21 +132,25 @@ describe("StampCache", () => {
 	describe("commitResident re-accounting", () => {
 		it("should release the lease when commitResident evicts the just-resident-ized entry itself", () => {
 			const cache = new StampCache(100);
-			const entry = plainEntry(96);
+			const entry = plainEntry(60);
 			expect(cache.set("p1:fpA", entry, "p1")).toBe(true);
 
-			// The lease is attached after the entry is cached, so the entry
-			// that goes over budget is the one that just became resident —
-			// its eviction must still run through the releasing delete path.
+			// Residency attached lazily, with accounting above the budget —
+			// the eviction must run through the lease-releasing delete path.
 			const stampsRelease = vi.fn();
-			entry.residentDab = {
-				handle: { firstStamp: 0, stampCount: 1, release: stampsRelease },
+			entry.resident = {
+				stamps: { firstStamp: 0, stampCount: 1, release: stampsRelease },
+				meta: fakeGeometryHandle(),
+				stops: null,
+				metaSnapshot: new Float32Array(16),
+				stopsSnapshot: null,
+				syncedFrame: 0,
+				byteSize: 120,
 			};
-			cache.set("p2:fpA", plainEntry(96), "p2");
 			cache.commitResident("p1:fpA");
 
 			expect(stampsRelease).toHaveBeenCalledTimes(1);
-			expect(entry.residentDab).toBeUndefined();
+			expect(entry.resident).toBeUndefined();
 			expect(cache.get("p1:fpA")).toBeUndefined();
 		});
 	});
@@ -157,15 +162,33 @@ function plainEntry(dataBytes: number): StampBuffer {
 	return { data: new Float32Array(dataBytes / 4), count: 1 };
 }
 
-/** An entry holding a resident dab lease, so eviction has one to release. */
+/** A resident entry whose `data` plays the store-shared mirror: byteSize
+ *  covers it, mirroring StrokeBatchContext's single-ownership accounting. */
 function residentEntry(dataBytes: number) {
 	const stampsRelease = vi.fn();
+	const data = new Float32Array(dataBytes / 4);
 	const entry: StampBuffer = {
-		data: new Float32Array(dataBytes / 4),
+		data,
 		count: 1,
-		residentDab: {
-			handle: { firstStamp: 0, stampCount: 1, release: stampsRelease },
+		resident: {
+			stamps: { firstStamp: 0, stampCount: 1, release: stampsRelease },
+			meta: fakeGeometryHandle(),
+			stops: null,
+			metaSnapshot: new Float32Array(16),
+			stopsSnapshot: null,
+			syncedFrame: 0,
+			byteSize: dataBytes,
 		},
 	};
 	return { entry, stampsRelease };
+}
+
+function fakeGeometryHandle(): GeometryHandle {
+	return {
+		byteOffset: 0,
+		firstVertex: 0,
+		vertexCount: 1,
+		write() {},
+		release() {},
+	};
 }

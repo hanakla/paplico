@@ -48,19 +48,12 @@ type RenderRecord = {
 type CpuSample = { t: number; method: string; ms: number };
 type DirtyEvent = { t: number; reason: string };
 
-type QueryBlock = {
+type QueryCtx = {
 	querySet: GPUQuerySet;
 	resolveBuf: GPUBuffer;
 	readBuf: GPUBuffer;
 	used: number;
 	pending: Array<{ passRec: PassRecord; begin: number; end: number }>;
-};
-
-/** Per-encoder timestamp pool: query-set blocks allocated on demand, so an
- *  encoder with ten thousand passes still gets full coverage instead of
- *  timing only the first 256 (one query set caps at 4096 slots). */
-type QueryCtx = {
-	blocks: QueryBlock[];
 };
 
 let running = false;
@@ -104,10 +97,7 @@ export async function runPerfCheck(
 	}
 
 	const gpuTimingSupported = device.features?.has?.("timestamp-query") ?? false;
-	// Timestamp slots per query-set block (WebGPU caps a set at 4096) and the
-	// per-encoder block cap: 8 blocks = 16k timed passes per encoder.
-	const BLOCK_QUERIES = 4096;
-	const MAX_QUERY_BLOCKS = 8;
+	const MAX_QUERIES = 512; // timestamp slots per encoder
 
 	// ---- storage -------------------------------------------------------------
 	const patches: Array<{ obj: any; key: string; orig: any }> = [];
@@ -157,19 +147,20 @@ export async function runPerfCheck(
 		noFreeBlock: 0,
 	};
 
-	function makeQueryBlock(): QueryBlock | null {
+	function makeQueryCtx(): QueryCtx | null {
+		if (!gpuTimingSupported) return null;
 		try {
 			return {
 				querySet: device!.createQuerySet({
 					type: "timestamp",
-					count: BLOCK_QUERIES,
+					count: MAX_QUERIES,
 				}),
 				resolveBuf: device!.createBuffer({
-					size: BLOCK_QUERIES * 8,
+					size: MAX_QUERIES * 8,
 					usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
 				}),
 				readBuf: device!.createBuffer({
-					size: BLOCK_QUERIES * 8,
+					size: MAX_QUERIES * 8,
 					usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
 				}),
 				used: 0,
@@ -178,17 +169,6 @@ export async function runPerfCheck(
 		} catch {
 			return null;
 		}
-	}
-
-	/** The block the next pass should write into: the current one while it has
-	 *  free slots, a freshly allocated one until the cap, then null. */
-	function acquireQueryBlock(qctx: QueryCtx): QueryBlock | null {
-		const current = qctx.blocks.at(-1);
-		if (current && current.used + 2 <= BLOCK_QUERIES) return current;
-		if (qctx.blocks.length >= MAX_QUERY_BLOCKS) return null;
-		const block = makeQueryBlock();
-		if (block) qctx.blocks.push(block);
-		return block;
 	}
 
 	function originOf() {
@@ -240,11 +220,7 @@ export async function runPerfCheck(
 		(orig) =>
 			function (this: GPUDevice, ...a: any[]) {
 				const encoder = orig.apply(this, a);
-				// Blocks are allocated lazily on the first pass, so encoders that
-				// never begin a render pass cost nothing.
-				const qctx: QueryCtx | null = gpuTimingSupported
-					? { blocks: [] }
-					: null;
+				const qctx = makeQueryCtx();
 
 				wrapLocal(
 					encoder,
@@ -265,24 +241,25 @@ export async function runPerfCheck(
 							if (curRender) curRender.passes.push(rec);
 
 							let useDesc = desc;
-							if (qctx && !desc?.timestampWrites) {
-								const block = acquireQueryBlock(qctx);
-								if (block) {
-									const begin = block.used;
-									const end = block.used + 1;
-									block.used += 2;
-									block.pending.push({ passRec: rec, begin, end });
-									useDesc = {
-										...desc,
-										timestampWrites: {
-											querySet: block.querySet,
-											beginningOfPassWriteIndex: begin,
-											endOfPassWriteIndex: end,
-										},
-									};
-								} else {
-									coverage.noFreeBlock++;
-								}
+							if (
+								qctx &&
+								!desc?.timestampWrites &&
+								qctx.used + 2 <= MAX_QUERIES
+							) {
+								const begin = qctx.used;
+								const end = qctx.used + 1;
+								qctx.used += 2;
+								qctx.pending.push({ passRec: rec, begin, end });
+								useDesc = {
+									...desc,
+									timestampWrites: {
+										querySet: qctx.querySet,
+										beginningOfPassWriteIndex: begin,
+										endOfPassWriteIndex: end,
+									},
+								};
+							} else if (qctx) {
+								coverage.noFreeBlock++;
 							}
 
 							const pass: any = obp.call(this, useDesc);
@@ -330,31 +307,27 @@ export async function runPerfCheck(
 						"finish",
 						(ofin) =>
 							function (this: GPUCommandEncoder, ...args: any[]) {
-								for (const block of qctx.blocks) {
-									if (block.used === 0) continue;
+								if (qctx.used > 0) {
 									try {
 										this.resolveQuerySet(
-											block.querySet,
+											qctx.querySet,
 											0,
-											block.used,
-											block.resolveBuf,
+											qctx.used,
+											qctx.resolveBuf,
 											0,
 										);
 										this.copyBufferToBuffer(
-											block.resolveBuf,
+											qctx.resolveBuf,
 											0,
-											block.readBuf,
+											qctx.readBuf,
 											0,
-											block.used * 8,
+											qctx.used * 8,
 										);
 									} catch {}
 								}
 								const cb = ofin.apply(this, args);
-								for (const block of qctx.blocks) {
-									if (block.used > 0) scheduleReadback(block);
-									else destroyBlock(block);
-								}
-								qctx.blocks.length = 0;
+								if (qctx.used > 0) scheduleReadback(qctx);
+								else destroyQctx(qctx);
 								return cb;
 							},
 					);
@@ -364,13 +337,13 @@ export async function runPerfCheck(
 			},
 	);
 
-	function scheduleReadback(block: QueryBlock) {
+	function scheduleReadback(qctx: QueryCtx) {
 		device!.queue
 			.onSubmittedWorkDone()
-			.then(() => block.readBuf.mapAsync(GPUMapMode.READ))
+			.then(() => qctx.readBuf.mapAsync(GPUMapMode.READ))
 			.then(() => {
-				const ts = new BigInt64Array(block.readBuf.getMappedRange());
-				for (const { passRec, begin, end } of block.pending) {
+				const ts = new BigInt64Array(qctx.readBuf.getMappedRange());
+				for (const { passRec, begin, end } of qctx.pending) {
 					const dtNs = ts[end] - ts[begin];
 					const ms = Number(dtNs) / 1e6;
 					if (dtNs > 0n && Number.isFinite(ms)) {
@@ -380,17 +353,17 @@ export async function runPerfCheck(
 						coverage.invalidDurations++;
 					}
 				}
-				block.readBuf.unmap();
+				qctx.readBuf.unmap();
 			})
 			.catch(() => {})
-			.finally(() => destroyBlock(block));
+			.finally(() => destroyQctx(qctx));
 	}
 
-	function destroyBlock(block: QueryBlock) {
+	function destroyQctx(qctx: QueryCtx) {
 		try {
-			block.querySet.destroy();
-			block.resolveBuf.destroy();
-			block.readBuf.destroy();
+			qctx.querySet.destroy();
+			qctx.resolveBuf.destroy();
+			qctx.readBuf.destroy();
 		} catch {}
 	}
 

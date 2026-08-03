@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
+import { Accordion } from "@/components/Accordion";
 import { Button } from "@/components/Button";
 import { DashPatternControls } from "@/components/DashPatternControls";
 import { FakeInput } from "@/components/FakeInput";
@@ -18,6 +19,7 @@ import { IconButton } from "@/components/IconButton";
 import { Select } from "@/components/Select";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { InfiniteSlider, Slider } from "@/components/Slider";
+import { Switch } from "@/components/Switch";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
@@ -26,8 +28,8 @@ import {
 	resolveOptionalSourceUid,
 	resolveScatterSourceUids,
 } from "@/core/brush/brushSource";
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
-import { BUILTIN_PRESET_CATEGORY_ORDER } from "@/core/brush/presets";
+import { normalizeBrushSettings } from "@/core/brush/normalize";
+import { applyWetInkMacro, readWetInkMacro } from "@/core/brush/wetInkMacros";
 import { createStrokeBrushSettings } from "@/core/document/factory";
 import type {
 	BrushArtSource,
@@ -40,11 +42,21 @@ import type {
 	LineCap,
 	LineJoin,
 	PathSegment,
+	PatternBrushSettings,
+	ScatterBrushSettings,
 	StampRotation,
+	WetInkSettings,
 } from "@/core/schema";
 import {
-	type BrushSettingsV2,
-	BUILTIN_BRUSH_IDS,
+	type BrushSettings,
+	DEFAULT_CALLIGRAPHY_SPACING,
+	DEFAULT_WET_INK_ABSORPTION,
+	DEFAULT_WET_INK_DIFFUSION,
+	DEFAULT_WET_INK_GRANULATION,
+	DEFAULT_WET_INK_PICKUP_DECAY,
+	DEFAULT_WET_INK_PICKUP_STRENGTH,
+	DEFAULT_WET_INK_PICKUP_UNDERLYING_COLOR,
+	DEFAULT_WET_INK_PIGMENT_LOAD,
 	isGeometricBrush,
 } from "@/core/schema";
 import { createBrushTextureFile } from "@/core/utils/embeddedFile";
@@ -60,7 +72,6 @@ import {
 } from "@/stores/uiStore";
 import { useAsyncEffect, useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
-import { BrushMatrixSection } from "./BrushMatrixSection";
 
 function useSyncBrushSettingsWithSelection(): void {
 	const paplico = usePaplico();
@@ -71,11 +82,9 @@ function useSyncBrushSettingsWithSelection(): void {
 	const targetFilterIndex = uiSnap.brushDesignerTargetFilterIndex;
 
 	const snap = useSnapshot(paplico.tools.state);
-	// The stored settings, not the flat view: v1 has no place to hold curves,
-	// mixing or the wet layer, so writing the view back to the element drops
-	// everything the panel just edited.
-	const storedBrushSettings = snap.strokeAppearance?.paramData.params
-		.brushSettings as BrushSettingsV2 | undefined;
+	const brushSettings = useFlatBrushView(
+		snap.strokeAppearance?.paramData.params.brushSettings,
+	);
 
 	const prevSelectedIds = useRef(docSnap.selectedElementIds);
 
@@ -93,13 +102,13 @@ function useSyncBrushSettingsWithSelection(): void {
 		if (targetFilterIndex != null) {
 			commands.updateSelectedElementStrokeBrushSettings(
 				targetFilterIndex,
-				storedBrushSettings,
+				brushSettings.union,
 			);
 		} else {
-			commands.updateSelectedElementsBrushSettings(storedBrushSettings);
+			commands.updateSelectedElementsBrushSettings(brushSettings.union);
 		}
 	}, [
-		storedBrushSettings,
+		brushSettings.union,
 		commands,
 		docSnap.selectedElementIds,
 		targetFilterIndex,
@@ -310,7 +319,7 @@ export const BrushSettingsPanel = memo(function BrushSettingsPanel({
 				{/* biome-ignore lint/a11y/noStaticElementInteractions: preview double-click to open designer */}
 				<div onDoubleClick={onOpenDesigner}>
 					<BrushStrokePreview
-						brushSettings={brushSettings.settings}
+						brushSettings={brushSettings.union}
 						textureFile={
 							brushPresets.activePresetPreviewSource?.textureFile ?? null
 						}
@@ -425,7 +434,10 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 
 		const embeddedFile = await createBrushTextureFile(handle.file);
 		const textureFileUid = commands.addEmbeddedFile(embeddedFile);
-		const current = brushSettings.scatterTextureUids ?? [];
+		const current =
+			tools.brushSettings.type === "scatter"
+				? resolveScatterSourceUids(tools.brushSettings.scatterSources)
+				: [];
 
 		updateBrushSettings({
 			scatterTextureUids: [...current, textureFileUid],
@@ -433,7 +445,10 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 	});
 
 	const handleRemoveScatterTexture = useEventCallback((uid: string) => {
-		const current = brushSettings.scatterTextureUids ?? [];
+		const current =
+			tools.brushSettings.type === "scatter"
+				? resolveScatterSourceUids(tools.brushSettings.scatterSources)
+				: [];
 		updateBrushSettings({
 			scatterTextureUids: current.filter((u) => u !== uid),
 		});
@@ -441,28 +456,7 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 
 	const updateBrushSettings = useEventCallback((patch: FlatBrushPatch) => {
 		setSelectedBrushPresetUid(null);
-		tools.setBrushSettings(
-			applyFlatPatch(
-				normalizeBrushSettingsV2(tools.storedBrushSettings),
-				patch,
-			),
-		);
-	});
-
-	// The curve matrix edits the stored settings themselves: the flat view
-	// above can only express what a v1 brush had, so anything it does not
-	// carry would be dropped by a round trip through it.
-	const matrixSettings = useMemo(
-		() =>
-			normalizeBrushSettingsV2(
-				snap.strokeAppearance?.paramData.params.brushSettings,
-			),
-		[snap.strokeAppearance?.paramData.params.brushSettings],
-	);
-
-	const handleMatrixChange = useEventCallback((next: BrushSettingsV2) => {
-		setSelectedBrushPresetUid(null);
-		tools.setBrushSettings(next);
+		tools.setBrushSettings(applyFlatPatch(tools.brushSettings, patch));
 	});
 
 	const handleStrokingChange = useEventCallback(
@@ -473,15 +467,17 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 
 	const currentTextureValue = useMemo(() => {
 		if (brushSettings.isGeometric) return "__none__";
-		const source =
-			brushSettings.settings.tip?.kind === "image"
-				? brushSettings.settings.tip.sources[0]
-				: brushSettings.settings.ribbon?.source;
-		if (source?.kind === "def") return `def:${source.defId}`;
+		const u = brushSettings.union;
+		if (
+			(u.type === "scatter" || u.type === "art" || u.type === "pattern") &&
+			u.source?.kind === "def"
+		) {
+			return `def:${u.source.defId}`;
+		}
 		return brushSettings.textureFileUid || "__none__";
 	}, [
 		brushSettings.isGeometric,
-		brushSettings.settings,
+		brushSettings.union,
 		brushSettings.textureFileUid,
 	]);
 
@@ -537,12 +533,14 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 			handleDisableBrush();
 		} else if (value.startsWith("def:")) {
 			tools.setBrushSettings({
-				tipSource: { kind: "def", defId: value.slice(4) },
+				type: "scatter",
+				source: { kind: "def", defId: value.slice(4) },
 			});
 			setSelectedBrushPresetUid(null);
 		} else {
 			tools.setBrushSettings({
-				tipSource: { kind: "file", fileUid: value },
+				type: "scatter",
+				source: { kind: "file", fileUid: value },
 			});
 			setSelectedBrushPresetUid(null);
 		}
@@ -633,7 +631,7 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 					</div>
 
 					<BrushStrokePreview
-						brushSettings={brushSettings.settings}
+						brushSettings={brushSettings.union}
 						textureFile={
 							brushPresets.currentCustomTextureFile ??
 							brushPresets.builtinFiles.find(
@@ -798,6 +796,26 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 							</Tooltip>
 						</div>
 
+						<BrushSettingSlider
+							label={t("toolbar.size")}
+							valueLabel={brushSettings.size.toFixed(0)}
+							min={1}
+							max={100}
+							step={1}
+							value={brushSettings.size}
+							onValueChange={(value) => updateBrushSettings({ size: value })}
+						/>
+
+						<BrushSettingSlider
+							label={t("toolbar.opacity")}
+							valueLabel={`${Math.round(brushSettings.opacity * 100)}%`}
+							min={0}
+							max={1}
+							step={0.01}
+							value={brushSettings.opacity}
+							onValueChange={(value) => updateBrushSettings({ opacity: value })}
+						/>
+
 						{!brushSettings.isGeometric ? (
 							<>
 								{/* Color mode */}
@@ -854,12 +872,68 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 									</ToggleGroup.Root>
 								</div>
 
+								<BrushSettingSlider
+									label={t("toolbar.flow")}
+									valueLabel={`${Math.round(brushSettings.flow * 100)}%`}
+									min={0.1}
+									max={1}
+									step={0.01}
+									value={brushSettings.flow}
+									onValueChange={(value) =>
+										updateBrushSettings({ flow: value })
+									}
+								/>
+
+								<p className={twm(panelSectionHeadingClassName, "pt-1")}>
+									{t("toolbar.inputSection")}
+								</p>
+
+								<BrushSettingSlider
+									label={t("toolbar.pressureSize")}
+									valueLabel={`${Math.round(brushSettings.sizeByPressure * 100)}%`}
+									min={0}
+									max={1}
+									step={0.01}
+									value={brushSettings.sizeByPressure}
+									onValueChange={(value) =>
+										updateBrushSettings({ sizeByPressure: value })
+									}
+								/>
+
+								<BrushSettingSlider
+									label={t("toolbar.pressureOpacity")}
+									valueLabel={`${Math.round(brushSettings.opacityByPressure * 100)}%`}
+									min={0}
+									max={1}
+									step={0.01}
+									value={brushSettings.opacityByPressure}
+									onValueChange={(value) =>
+										updateBrushSettings({ opacityByPressure: value })
+									}
+								/>
+
 								{/* Stamp-specific settings */}
 								{(brushSettings.renderMode ?? "stamp") === "stamp" ? (
 									<>
-										{/* Tip-image settings: a procedural tip has no textures
-										    to rotate or vary, so these would be dead controls. */}
-										{brushSettings.settings.tip?.kind === "image" ? (
+										{brushSettings.union.type === "scatter" ||
+										brushSettings.union.type === "calligraphy" ? (
+											<BrushSettingSlider
+												label={t("toolbar.spacing")}
+												valueLabel={`${Math.round(brushSettings.spacing * 100)}%`}
+												min={0.01}
+												max={0.5}
+												step={0.01}
+												value={brushSettings.spacing}
+												onValueChange={(value) =>
+													updateBrushSettings({ spacing: value })
+												}
+											/>
+										) : null}
+
+										{/* Scatter-only settings: these fields exist only on the
+										    scatter union member, so the sliders would be dead
+										    controls for other stamp brushes. */}
+										{brushSettings.union.type === "scatter" ? (
 											<>
 												<div className="flex flex-col gap-1">
 													<span className="text-xs text-muted-foreground">
@@ -895,10 +969,104 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 														</ToggleGroup.Item>
 													</ToggleGroup.Root>
 												</div>
+
+												<BrushSettingSlider
+													label={t("toolbar.stampAngle")}
+													valueLabel={`${brushSettings.stampAngle ?? 0}°`}
+													min={-180}
+													max={180}
+													step={1}
+													value={brushSettings.stampAngle ?? 0}
+													onValueChange={(value) =>
+														updateBrushSettings({ stampAngle: value })
+													}
+												/>
+
+												<BrushSettingSlider
+													label={t("toolbar.tiltRotation")}
+													valueLabel={`${Math.round(brushSettings.rotationByTilt * 100)}%`}
+													min={0}
+													max={1}
+													step={0.01}
+													value={brushSettings.rotationByTilt}
+													onValueChange={(value) =>
+														updateBrushSettings({ rotationByTilt: value })
+													}
+												/>
+
+												<BrushSettingSlider
+													label={t("toolbar.tiltAspectRatio")}
+													valueLabel={`${Math.round(brushSettings.aspectRatioByTilt * 100)}%`}
+													min={0}
+													max={1}
+													step={0.01}
+													value={brushSettings.aspectRatioByTilt}
+													onValueChange={(value) =>
+														updateBrushSettings({ aspectRatioByTilt: value })
+													}
+												/>
 											</>
 										) : null}
 
-										{brushSettings.settings.tip?.kind === "image" ? (
+										<BrushSettingSlider
+											label={t("toolbar.speedSize")}
+											valueLabel={`${Math.round(brushSettings.sizeBySpeed * 100)}%`}
+											min={0}
+											max={1}
+											step={0.01}
+											value={brushSettings.sizeBySpeed}
+											onValueChange={(value) =>
+												updateBrushSettings({ sizeBySpeed: value })
+											}
+										/>
+
+										<p className={twm(panelSectionHeadingClassName, "pt-1")}>
+											{t("toolbar.compositeSection")}
+										</p>
+
+										<BrushSettingSlider
+											label={t("toolbar.pooling")}
+											valueLabel={`${Math.round(brushSettings.pooling * 100)}%`}
+											min={0}
+											max={1}
+											step={0.01}
+											value={brushSettings.pooling}
+											onValueChange={(value) =>
+												updateBrushSettings({ pooling: value })
+											}
+										/>
+
+										<div className="flex flex-col gap-1.5">
+											<div className="flex items-center justify-between">
+												<span className="text-xs text-muted-foreground">
+													{t("toolbar.poolingBalance")}
+												</span>
+												<span className="text-xs font-mono tabular-nums text-foreground">
+													{Math.round(brushSettings.poolingSizeRatio * 100)}%
+												</span>
+											</div>
+											<div className="flex items-center gap-2">
+												<span className="text-[10px] text-muted-foreground">
+													{t("toolbar.poolingBalanceOpacity")}
+												</span>
+												<Slider
+													min={0}
+													max={1}
+													step={0.01}
+													value={brushSettings.poolingSizeRatio}
+													onValueChange={(value) =>
+														updateBrushSettings({
+															poolingSizeRatio: value,
+														})
+													}
+												/>
+												<span className="text-[10px] text-muted-foreground">
+													{t("toolbar.poolingBalanceSize")}
+												</span>
+											</div>
+										</div>
+
+										{brushSettings.union.type === "scatter" ? (
 											<>
 												{/* Scatter texture variants */}
 												<div className="flex flex-col gap-1.5">
@@ -960,6 +1128,31 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 													)}
 												</div>
 
+												<BrushSettingSlider
+													label={t("toolbar.scatterOffset")}
+													valueLabel={`${Math.round((brushSettings.scatterOffset ?? 0) * 100)}%`}
+													min={0}
+													max={1}
+													step={0.01}
+													value={brushSettings.scatterOffset ?? 0}
+													onValueChange={(value) =>
+														updateBrushSettings({ scatterOffset: value })
+													}
+												/>
+												<BrushSettingSlider
+													label={t("toolbar.scatterSizeVariation")}
+													valueLabel={`${Math.round((brushSettings.scatterSizeVariation ?? 0) * 100)}%`}
+													min={0}
+													max={1}
+													step={0.01}
+													value={brushSettings.scatterSizeVariation ?? 0}
+													onValueChange={(value) =>
+														updateBrushSettings({
+															scatterSizeVariation: value,
+														})
+													}
+												/>
+
 												{/* Start / End textures */}
 												<div className="flex gap-2">
 													<SimpleSelect
@@ -1007,6 +1200,11 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 												</div>
 											</>
 										) : null}
+
+										<WetInkSection
+											wetInk={brushSettings.wetInk}
+											onChange={(next) => updateBrushSettings({ wetInk: next })}
+										/>
 									</>
 								) : null}
 
@@ -1106,8 +1304,8 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 
 								<DashPatternControls
 									stroking={
-										brushSettings.settings.engine === "geometric"
-											? brushSettings.settings.stroking
+										brushSettings.union.type === "stroke"
+											? brushSettings.union.stroking
 											: undefined
 									}
 									strokeWidth={brushSettings.size}
@@ -1115,15 +1313,6 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 								/>
 							</>
 						)}
-
-						<p className={twm(panelSectionHeadingClassName, "pt-1")}>
-							{t("toolbar.brushResponse")}
-						</p>
-
-						<BrushMatrixSection
-							settings={matrixSettings}
-							onChange={handleMatrixChange}
-						/>
 					</div>
 				</div>
 			</div>
@@ -1335,6 +1524,284 @@ export const BrushSettingSlider = memo(function BrushSettingSlider({
 	);
 });
 
+/**
+ * Wet-ink controls. Visible inside the stamp brush panel (scatter +
+ * calligraphy). When disabled, hasWetInk() returns false and the wet-ink
+ * pass is skipped, leaving rendering pixel-identical to the dry case.
+ */
+const DEFAULT_WET_INK: WetInkSettings = {
+	enabled: true,
+	bleedWidth: 0.5,
+	edgeDarkening: 0.4,
+	edgeRoughness: 0.3,
+	paperGrain: 0.2,
+	paperScale: 1,
+	directionality: 0.4,
+	speedInfluence: 0.5,
+	accelInfluence: 0.3,
+	wetness: 0.7,
+	diffusion: DEFAULT_WET_INK_DIFFUSION,
+	pigmentLoad: DEFAULT_WET_INK_PIGMENT_LOAD,
+	absorption: DEFAULT_WET_INK_ABSORPTION,
+	granulation: DEFAULT_WET_INK_GRANULATION,
+	pickupUnderlyingColor: DEFAULT_WET_INK_PICKUP_UNDERLYING_COLOR,
+	pickupStrength: DEFAULT_WET_INK_PICKUP_STRENGTH,
+	pickupDecay: DEFAULT_WET_INK_PICKUP_DECAY,
+	pickupBlendMode: 0,
+};
+
+export const WetInkSection = memo(function WetInkSection({
+	wetInk,
+	onChange,
+}: {
+	wetInk: WetInkSettings | undefined;
+	onChange: (next: WetInkSettings | undefined) => void;
+}) {
+	const t = useTranslation();
+	const current = wetInk ? { ...DEFAULT_WET_INK, ...wetInk } : DEFAULT_WET_INK;
+	const enabled = wetInk?.enabled === true;
+	const set = (patch: Partial<WetInkSettings>) => {
+		onChange({ ...current, ...patch, enabled: patch.enabled ?? enabled });
+	};
+
+	const handleMacroBleedChange = useEventCallback((value: number) => {
+		onChange(applyWetInkMacro(current, "bleed", value));
+	});
+	const handleMacroDrynessChange = useEventCallback((value: number) => {
+		onChange(applyWetInkMacro(current, "dryness", value));
+	});
+	const handleMacroPaperChange = useEventCallback((value: number) => {
+		onChange(applyWetInkMacro(current, "paper", value));
+	});
+
+	const macroBleed = readWetInkMacro(current, "bleed");
+	const macroDryness = readWetInkMacro(current, "dryness");
+	const macroPaper = readWetInkMacro(current, "paper");
+
+	return (
+		<div className="flex flex-col gap-2 rounded-md border border-border/40 p-2">
+			<div className="flex items-center justify-between">
+				<span className="text-xs font-medium text-foreground">
+					{t("toolbar.wetInk")}
+				</span>
+				<Switch
+					checked={enabled}
+					onCheckedChange={(checked) => set({ enabled: checked })}
+				/>
+			</div>
+			{enabled ? (
+				<>
+					<BrushSettingSlider
+						label={t("toolbar.wetInkMacroBleed")}
+						valueLabel={`${Math.round(macroBleed * 100)}%`}
+						min={0}
+						max={1}
+						step={0.01}
+						value={macroBleed}
+						onValueChange={handleMacroBleedChange}
+					/>
+					<BrushSettingSlider
+						label={t("toolbar.wetInkMacroDryness")}
+						valueLabel={`${Math.round(macroDryness * 100)}%`}
+						min={0}
+						max={1}
+						step={0.01}
+						value={macroDryness}
+						onValueChange={handleMacroDrynessChange}
+					/>
+					<BrushSettingSlider
+						label={t("toolbar.wetInkMacroPaper")}
+						valueLabel={`${Math.round(macroPaper * 100)}%`}
+						min={0}
+						max={1}
+						step={0.01}
+						value={macroPaper}
+						onValueChange={handleMacroPaperChange}
+					/>
+					<Accordion.Root>
+						<Accordion.Item value="advanced">
+							<Accordion.Header className="m-0">
+								<Accordion.Trigger className="group flex items-center justify-between rounded-md px-1 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.04]">
+									<span>{t("toolbar.wetInkAdvanced")}</span>
+									<ChevronDown
+										size={14}
+										className="shrink-0 transition-transform group-data-panel-open:rotate-180"
+									/>
+								</Accordion.Trigger>
+							</Accordion.Header>
+							<Accordion.Panel>
+								<div className="flex flex-col gap-2 pt-2">
+									<BrushSettingSlider
+										label={t("toolbar.wetInkBleedWidth")}
+										valueLabel={`${Math.round(current.bleedWidth * 100)}%`}
+										min={0}
+										max={1}
+										step={0.01}
+										value={current.bleedWidth}
+										onValueChange={(v) => set({ bleedWidth: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkEdgeDarkening")}
+										valueLabel={`${Math.round(current.edgeDarkening * 100)}%`}
+										min={0}
+										max={1}
+										step={0.01}
+										value={current.edgeDarkening}
+										onValueChange={(v) => set({ edgeDarkening: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkEdgeRoughness")}
+										valueLabel={`${Math.round(current.edgeRoughness * 100)}%`}
+										min={0}
+										max={1}
+										step={0.01}
+										value={current.edgeRoughness}
+										onValueChange={(v) => set({ edgeRoughness: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkPaperGrain")}
+										valueLabel={`${Math.round(current.paperGrain * 100)}%`}
+										min={0}
+										max={1}
+										step={0.01}
+										value={current.paperGrain}
+										onValueChange={(v) => set({ paperGrain: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkPaperScale")}
+										valueLabel={current.paperScale.toFixed(2)}
+										min={0.1}
+										max={5}
+										step={0.05}
+										value={current.paperScale}
+										onValueChange={(v) => set({ paperScale: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkDirectionality")}
+										valueLabel={`${Math.round(current.directionality * 100)}%`}
+										min={0}
+										max={1}
+										step={0.01}
+										value={current.directionality}
+										onValueChange={(v) => set({ directionality: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkSpeedInfluence")}
+										valueLabel={`${Math.round(current.speedInfluence * 100)}%`}
+										min={0}
+										max={1}
+										step={0.01}
+										value={current.speedInfluence}
+										onValueChange={(v) => set({ speedInfluence: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkAccelInfluence")}
+										valueLabel={`${Math.round(current.accelInfluence * 100)}%`}
+										min={0}
+										max={1}
+										step={0.01}
+										value={current.accelInfluence}
+										onValueChange={(v) => set({ accelInfluence: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkWetness")}
+										valueLabel={`${Math.round(current.wetness * 100)}%`}
+										min={0}
+										max={1}
+										step={0.01}
+										value={current.wetness}
+										onValueChange={(v) => set({ wetness: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkDiffusion")}
+										valueLabel={`${Math.round((current.diffusion ?? 0) * 100)}%`}
+										min={0}
+										max={1}
+										step={0.01}
+										value={current.diffusion ?? 0}
+										onValueChange={(v) => set({ diffusion: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkPigmentLoad")}
+										valueLabel={`${Math.round(current.pigmentLoad * 100)}%`}
+										min={0}
+										max={2}
+										step={0.01}
+										value={current.pigmentLoad}
+										onValueChange={(v) => set({ pigmentLoad: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkAbsorption")}
+										valueLabel={`${Math.round(current.absorption * 100)}%`}
+										min={0}
+										max={1}
+										step={0.01}
+										value={current.absorption}
+										onValueChange={(v) => set({ absorption: v })}
+									/>
+									<BrushSettingSlider
+										label={t("toolbar.wetInkGranulation")}
+										valueLabel={`${Math.round(current.granulation * 100)}%`}
+										min={0}
+										max={1}
+										step={0.01}
+										value={current.granulation}
+										onValueChange={(v) => set({ granulation: v })}
+									/>
+									<div className="flex items-center justify-between gap-2">
+										<span className="text-xs text-muted-foreground">
+											{t("toolbar.wetInkPickupUnderlyingColor")}
+										</span>
+										<Switch
+											checked={current.pickupUnderlyingColor}
+											onCheckedChange={(checked) =>
+												set({ pickupUnderlyingColor: checked })
+											}
+										/>
+									</div>
+									{current.pickupUnderlyingColor ? (
+										<>
+											<BrushSettingSlider
+												label={t("toolbar.wetInkPickupStrength")}
+												valueLabel={`${Math.round(current.pickupStrength * 100)}%`}
+												min={0}
+												max={1}
+												step={0.01}
+												value={current.pickupStrength}
+												onValueChange={(v) => set({ pickupStrength: v })}
+											/>
+											<BrushSettingSlider
+												label={t("toolbar.wetInkPickupDecay")}
+												valueLabel={`${((current.pickupDecay ?? DEFAULT_WET_INK_PICKUP_DECAY) * 100).toFixed(0)}%`}
+												min={-2}
+												max={2}
+												step={0.01}
+												value={
+													current.pickupDecay ?? DEFAULT_WET_INK_PICKUP_DECAY
+												}
+												onValueChange={(v) => set({ pickupDecay: v })}
+											/>
+											<BrushSettingSlider
+												label={t("toolbar.wetInkPickupBlendMode")}
+												valueLabel={`${t("toolbar.wetInkPickupBlendVivid")} — ${t("toolbar.wetInkPickupBlendSoft")}`}
+												min={0}
+												max={1}
+												step={0.01}
+												value={current.pickupBlendMode ?? 0}
+												onValueChange={(v) => set({ pickupBlendMode: v })}
+											/>
+										</>
+									) : null}
+								</div>
+							</Accordion.Panel>
+						</Accordion.Item>
+					</Accordion.Root>
+				</>
+			) : null}
+		</div>
+	);
+});
+
 export function BrushThumbnail({
 	file,
 	size = 24,
@@ -1398,7 +1865,7 @@ export function BrushStrokePreview({
 	height,
 	className,
 }: {
-	brushSettings: BrushSettingsV2;
+	brushSettings: BrushSettings;
 	textureFile: EmbeddedFile | null;
 	width: number;
 	height: number;
@@ -1510,7 +1977,7 @@ export function BrushStrokePreview({
 }
 
 type BrushStrokePreviewCacheKeyInput = {
-	brushSettings: BrushSettingsV2;
+	brushSettings: BrushSettings;
 	textureHash: string;
 	width: number;
 	height: number;
@@ -1625,32 +2092,60 @@ function parseRgbColor(source: string): Color {
 // ---------------------------------------------------------------------------
 
 type FlatBrushView = {
-	settings: BrushSettingsV2;
+	union: BrushSettings;
 	isGeometric: boolean;
 	size: number;
+	opacity: number;
+	sizeByPressure: number;
+	opacityByPressure: number;
 	colorMode: BrushColorMode | undefined;
 	textureFileUid: string;
+	spacing: number;
+	flow: number;
 	stampRotation: StampRotation;
+	stampAngle: number | undefined;
+	rotationByTilt: number;
+	aspectRatioByTilt: number;
+	sizeBySpeed: number;
+	pooling: number;
+	poolingSizeRatio: number;
+	scatterOffset: number | undefined;
+	scatterSizeVariation: number | undefined;
 	scatterTextureUids: string[] | undefined;
 	startTextureUid: string | undefined;
 	endTextureUid: string | undefined;
 	renderMode: "stamp" | "ribbon";
 	ribbonStretch: number;
 	ribbonOffset: number;
+	wetInk: WetInkSettings | undefined;
 	lineCap: LineCap;
 	lineJoin: LineJoin;
 };
 
 type FlatBrushPatch = Partial<{
 	size: number;
+	opacity: number;
+	sizeByPressure: number;
+	opacityByPressure: number;
 	colorMode: BrushColorMode;
+	spacing: number;
+	flow: number;
 	stampRotation: StampRotation;
+	stampAngle: number;
+	rotationByTilt: number;
+	aspectRatioByTilt: number;
+	sizeBySpeed: number;
+	pooling: number;
+	poolingSizeRatio: number;
+	scatterOffset: number;
+	scatterSizeVariation: number;
 	scatterTextureUids: string[];
 	startTextureUid: string | undefined;
 	endTextureUid: string | undefined;
 	renderMode: "stamp" | "ribbon";
 	ribbonStretch: number;
 	ribbonOffset: number;
+	wetInk: WetInkSettings | undefined;
 	lineCap: LineCap;
 	lineJoin: LineJoin;
 	stroking: Partial<BrushStroking>;
@@ -1666,138 +2161,205 @@ function useFlatBrushView(raw: unknown): FlatBrushView {
 }
 
 function toFlatBrushView(raw: unknown): FlatBrushView {
-	const settings = normalizeBrushSettingsV2(
-		raw ?? createStrokeBrushSettings(2),
-	);
-	const tip = settings.tip?.kind === "image" ? settings.tip : null;
+	const u =
+		raw != null ? normalizeBrushSettings(raw) : createStrokeBrushSettings(2);
 
 	return {
-		settings,
-		isGeometric: settings.engine === "geometric",
-		size: settings.properties.size?.base ?? 10,
-		colorMode: settings.colorMode,
-		textureFileUid: resolveBrushTextureUid(settings) ?? "",
-		stampRotation: tip?.angleMode === "tangent" ? "tangent" : "none",
-		// The first source is the tip itself; the rest are its variants.
-		scatterTextureUids: tip
-			? resolveScatterSourceUids(tip.sources.slice(1))
-			: undefined,
-		startTextureUid: resolveOptionalSourceUid(tip?.startSource),
-		endTextureUid: resolveOptionalSourceUid(tip?.endSource),
-		renderMode: settings.engine === "ribbon" ? "ribbon" : "stamp",
-		ribbonStretch: settings.ribbon ? settings.ribbon.tileScale - 1 : 0,
-		ribbonOffset: settings.ribbon?.uvOffset ?? 0,
-		lineCap: settings.stroking?.lineCap ?? "round",
-		lineJoin: settings.stroking?.lineJoin ?? "round",
+		union: u,
+		isGeometric: isGeometricBrush(u),
+		size: u.size,
+		opacity: u.opacity,
+		sizeByPressure: u.sizeByPressure,
+		opacityByPressure: u.opacityByPressure,
+		colorMode: u.colorMode,
+		textureFileUid: resolveBrushTextureUid(u) ?? "",
+		spacing:
+			u.type === "scatter"
+				? u.spacing
+				: u.type === "calligraphy"
+					? (u.spacing ?? DEFAULT_CALLIGRAPHY_SPACING)
+					: 0.1,
+		flow: "flow" in u ? u.flow : 1,
+		stampRotation: u.type === "scatter" ? u.stampRotation : "none",
+		stampAngle: u.type === "scatter" ? u.stampAngle : undefined,
+		rotationByTilt: u.type === "scatter" ? u.rotationByTilt : 0,
+		aspectRatioByTilt: u.type === "scatter" ? u.aspectRatioByTilt : 0,
+		sizeBySpeed:
+			u.type === "scatter" || u.type === "calligraphy" ? u.sizeBySpeed : 0,
+		pooling: u.type === "scatter" || u.type === "calligraphy" ? u.pooling : 0,
+		poolingSizeRatio:
+			u.type === "scatter" || u.type === "calligraphy"
+				? u.poolingSizeRatio
+				: 0.5,
+		scatterOffset: u.type === "scatter" ? u.scatterOffset : undefined,
+		scatterSizeVariation:
+			u.type === "scatter" ? u.scatterSizeVariation : undefined,
+		scatterTextureUids:
+			u.type === "scatter"
+				? resolveScatterSourceUids(u.scatterSources)
+				: undefined,
+		startTextureUid:
+			u.type === "scatter"
+				? resolveOptionalSourceUid(u.startSource)
+				: undefined,
+		endTextureUid:
+			u.type === "scatter" ? resolveOptionalSourceUid(u.endSource) : undefined,
+		renderMode: u.type === "pattern" ? "ribbon" : "stamp",
+		ribbonStretch: u.type === "pattern" ? u.tileScale - 1 : 0,
+		ribbonOffset: u.type === "pattern" ? (u.uvOffset ?? 0) : 0,
+		wetInk:
+			u.type === "scatter" || u.type === "calligraphy" ? u.wetInk : undefined,
+		lineCap: u.type === "stroke" ? (u.stroking?.lineCap ?? "round") : "round",
+		lineJoin: u.type === "stroke" ? (u.stroking?.lineJoin ?? "round") : "round",
 	};
 }
 
-/**
- * Apply the panel's remaining flat controls onto stored v2 settings. What
- * these controls touch — the engine, the tip's textures, the ribbon's
- * geometry, the dash — has no curve behind it, so each maps to one field.
- */
 function applyFlatPatch(
-	current: BrushSettingsV2,
+	current: BrushSettings,
 	patch: FlatBrushPatch,
-): BrushSettingsV2 {
-	// The engine decides which of the sections below apply, so it resolves
-	// first.
-	let next: BrushSettingsV2 = { ...current };
-	if (patch.renderMode === "ribbon" && next.engine !== "ribbon") {
-		next = {
-			...next,
-			engine: "ribbon",
-			tip: undefined,
-			ribbon: next.ribbon ?? {
-				source: tipSourceOf(current) ?? { kind: "file", fileUid: "" },
-				uvMode: "repeat",
-				tileScale: 1,
-				tileSpacing: 0,
-			},
-		};
-	} else if (patch.renderMode === "stamp" && next.engine !== "dab") {
-		next = {
-			...next,
-			engine: "dab",
-			ribbon: undefined,
-			tip: next.tip ?? {
-				kind: "image",
-				sources: [
-					next.ribbon?.source ?? {
-						kind: "file",
-						fileUid: BUILTIN_BRUSH_IDS.softCircle,
-					},
-				],
-				selection: "random",
-				angleMode: "fixed",
-			},
-		};
+): BrushSettings {
+	// renderMode switches the brush kind; resolve it first so subsequent
+	// flat fields apply onto the correct union member.
+	let next: BrushSettings = current;
+	if (patch.renderMode === "ribbon") {
+		next = toPattern(current);
+	} else if (patch.renderMode === "stamp") {
+		next = toScatter(current);
 	}
 
-	if (patch.size !== undefined) {
-		next.properties = {
-			...next.properties,
-			size: { ...next.properties.size, base: patch.size },
-		};
-	}
+	// Base fields exist on every union member.
+	if (patch.size !== undefined) next.size = patch.size;
+	if (patch.opacity !== undefined) next.opacity = patch.opacity;
+	if (patch.sizeByPressure !== undefined)
+		next.sizeByPressure = patch.sizeByPressure;
+	if (patch.opacityByPressure !== undefined)
+		next.opacityByPressure = patch.opacityByPressure;
 	if (patch.colorMode !== undefined) next.colorMode = patch.colorMode;
 
-	if (next.ribbon) {
-		const ribbon = { ...next.ribbon };
-		if (patch.ribbonStretch !== undefined)
-			ribbon.tileScale = 1 + patch.ribbonStretch;
-		if (patch.ribbonOffset !== undefined) ribbon.uvOffset = patch.ribbonOffset;
-		next.ribbon = ribbon;
+	// Fields that carry flow (scatter/art/pattern/calligraphy) — `in`
+	// narrows `next` to the flow-carrying union members, no cast needed.
+	if (patch.flow !== undefined && "flow" in next) {
+		next.flow = patch.flow;
 	}
 
-	if (next.tip?.kind === "image") {
-		const tip = { ...next.tip };
-		if (patch.stampRotation !== undefined) {
-			tip.angleMode = patch.stampRotation === "tangent" ? "tangent" : "fixed";
-		}
+	if (next.type === "pattern") {
+		if (patch.ribbonStretch !== undefined)
+			next.tileScale = 1 + patch.ribbonStretch;
+		if (patch.ribbonOffset !== undefined) next.uvOffset = patch.ribbonOffset;
+	}
+
+	if (next.type === "scatter") {
+		if (patch.stampRotation !== undefined)
+			next.stampRotation = patch.stampRotation;
+		if (patch.stampAngle !== undefined) next.stampAngle = patch.stampAngle;
+		if (patch.rotationByTilt !== undefined)
+			next.rotationByTilt = patch.rotationByTilt;
+		if (patch.aspectRatioByTilt !== undefined)
+			next.aspectRatioByTilt = patch.aspectRatioByTilt;
+		if (patch.scatterOffset !== undefined)
+			next.scatterOffset = patch.scatterOffset;
+		if (patch.scatterSizeVariation !== undefined)
+			next.scatterSizeVariation = patch.scatterSizeVariation;
 		if (patch.scatterTextureUids !== undefined) {
-			// The first source is the tip itself; the rest are its variants.
-			tip.sources = [
-				tip.sources[0],
-				...patch.scatterTextureUids.map(toFileSource),
-			];
+			next.scatterSources =
+				patch.scatterTextureUids.length > 0
+					? patch.scatterTextureUids.map(toFileSource)
+					: undefined;
 		}
 		if (patch.startTextureUid !== undefined) {
-			tip.startSource = patch.startTextureUid
+			next.startSource = patch.startTextureUid
 				? toFileSource(patch.startTextureUid)
 				: undefined;
 		}
 		if (patch.endTextureUid !== undefined) {
-			tip.endSource = patch.endTextureUid
+			next.endSource = patch.endTextureUid
 				? toFileSource(patch.endTextureUid)
 				: undefined;
 		}
-		next.tip = tip;
 	}
 
-	if (
-		patch.lineCap !== undefined ||
-		patch.lineJoin !== undefined ||
-		patch.stroking !== undefined
-	) {
-		const prev = next.stroking;
-		next.stroking = {
-			lineCap: patch.lineCap ?? prev?.lineCap ?? "round",
-			lineJoin: patch.lineJoin ?? prev?.lineJoin ?? "round",
-			miterLimit: prev?.miterLimit ?? 4,
-			dashArray: prev?.dashArray,
-			dashOffset: prev?.dashOffset,
-			...patch.stroking,
-		};
+	// spacing / sizeBySpeed / pooling / poolingSizeRatio / wetInk live on scatter and calligraphy.
+	if (next.type === "scatter" || next.type === "calligraphy") {
+		if (patch.spacing !== undefined) next.spacing = patch.spacing;
+		if (patch.sizeBySpeed !== undefined) next.sizeBySpeed = patch.sizeBySpeed;
+		if (patch.pooling !== undefined) next.pooling = patch.pooling;
+		if (patch.poolingSizeRatio !== undefined)
+			next.poolingSizeRatio = patch.poolingSizeRatio;
+		if (patch.wetInk !== undefined) next.wetInk = patch.wetInk;
+	}
+
+	if (next.type === "stroke") {
+		if (
+			patch.lineCap !== undefined ||
+			patch.lineJoin !== undefined ||
+			patch.stroking !== undefined
+		) {
+			const prev = next.stroking;
+			next.stroking = {
+				lineCap: patch.lineCap ?? prev?.lineCap ?? "round",
+				lineJoin: patch.lineJoin ?? prev?.lineJoin ?? "round",
+				miterLimit: prev?.miterLimit ?? 4,
+				dashArray: prev?.dashArray,
+				dashOffset: prev?.dashOffset,
+				...patch.stroking,
+			};
+		}
 	}
 
 	return next;
 }
 
-/** The tip's own texture, for carrying it across an engine switch. */
-function tipSourceOf(settings: BrushSettingsV2): BrushArtSource | undefined {
-	return settings.tip?.kind === "image" ? settings.tip.sources[0] : undefined;
+function toPattern(current: BrushSettings): PatternBrushSettings {
+	if (current.type === "pattern") return { ...current };
+	return {
+		size: current.size,
+		sizeByPressure: current.sizeByPressure,
+		opacity: current.opacity,
+		opacityByPressure: current.opacityByPressure,
+		randomSeed: current.randomSeed,
+		colorMode: current.colorMode,
+		type: "pattern",
+		source: resolveSource(current),
+		flow: "flow" in current ? current.flow : 1,
+		tileScale: 1,
+		tileSpacing: 0,
+		uvOffset: undefined,
+		fitMode: "none",
+	};
+}
+
+function toScatter(current: BrushSettings): ScatterBrushSettings {
+	if (current.type === "scatter") return { ...current };
+	return {
+		size: current.size,
+		sizeByPressure: current.sizeByPressure,
+		opacity: current.opacity,
+		opacityByPressure: current.opacityByPressure,
+		randomSeed: current.randomSeed,
+		colorMode: current.colorMode,
+		type: "scatter",
+		source: resolveSource(current),
+		spacing: 0.1,
+		flow: "flow" in current ? current.flow : 1,
+		stampRotation: "none",
+		rotationByTilt: 0,
+		aspectRatioByTilt: 0,
+		sizeBySpeed: 0,
+		pooling: 0,
+		poolingSizeRatio: 0.5,
+	};
+}
+
+function resolveSource(settings: BrushSettings): BrushArtSource {
+	if (
+		settings.type === "scatter" ||
+		settings.type === "art" ||
+		settings.type === "pattern"
+	) {
+		return settings.source;
+	}
+	const fileUid = resolveBrushTextureUid(settings);
+	return { kind: "file", fileUid: fileUid ?? "" };
 }
 
 function toFileSource(fileUid: string): BrushArtSource {
@@ -1812,9 +2374,16 @@ const BRUSH_CATEGORY_LABEL_KEYS: Record<
 	airbrush: "toolbar.brushCategoryAirbrush",
 	watercolor: "toolbar.brushCategoryWatercolor",
 	calligraphy: "toolbar.brushCategoryCalligraphy",
-	effect: "toolbar.brushCategoryEffect",
 	other: "toolbar.brushCategoryOther",
 };
+
+const BUILTIN_PRESET_CATEGORY_ORDER = [
+	"pen",
+	"airbrush",
+	"watercolor",
+	"calligraphy",
+	"other",
+] as const;
 
 /** Group builtin presets into categorized shelves, keeping a stable order. */
 function groupBuiltinPresetsByCategory(

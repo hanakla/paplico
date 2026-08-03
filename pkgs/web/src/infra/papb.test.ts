@@ -1,7 +1,5 @@
 import { encode } from "cbor-x";
 import { describe, expect, it } from "vitest";
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
-import type { BrushSettingsV2 } from "@/core/schema";
 import { PAPB_SCHEMA_VERSION, parsePapb, serializePapb } from "@/infra/papb";
 import { createPersistedBrushPreset } from "@/repos/brushPresets";
 
@@ -10,7 +8,23 @@ describe("papb codec", () => {
 		const preset = createPersistedBrushPreset({
 			uid: "brush-preset-roundtrip",
 			name: "Graphite",
-			defaultSettings: graphiteBrush(),
+			defaultSettings: {
+				type: "scatter",
+				source: { kind: "file", fileUid: "builtin-brush-soft-circle" },
+				randomSeed: 0,
+				size: 24,
+				sizeByPressure: 0.3,
+				opacity: 0.8,
+				opacityByPressure: 0.4,
+				spacing: 0.08,
+				flow: 0.7,
+				stampRotation: "random",
+				rotationByTilt: 0.2,
+				aspectRatioByTilt: 0.1,
+				sizeBySpeed: 0.15,
+				pooling: 0.25,
+				poolingSizeRatio: 0.6,
+			},
 			file: {
 				uid: "file-source",
 				name: "graphite.png",
@@ -29,45 +43,28 @@ describe("papb codec", () => {
 		expect(payload.brushPreset).toEqual(preset);
 	});
 
-	// Brush files written before v2 hold a v1 union. Reading one has to migrate
-	// it, or the brush lands in the panel as an empty shell.
-	it("should migrate a pre-v2 brush file to v2 on read", () => {
-		const preset = createPersistedBrushPreset({
-			uid: "brush-preset-legacy",
-			name: "Legacy",
-			defaultSettings: {
-				type: "scatter",
-				source: { kind: "file", fileUid: "builtin-brush-soft-circle" },
-				randomSeed: 0,
-				size: 24,
-				sizeByPressure: 0.3,
-				opacity: 0.8,
-				opacityByPressure: 0.4,
-				spacing: 0.08,
-				flow: 0.7,
-			} as unknown as BrushSettingsV2,
-			file: {
-				uid: "file-source",
-				name: "legacy.png",
-				type: "image/png",
-				hash: "texture-hash",
-				bin: Uint8Array.from([1]),
-			},
-		});
-
-		const { brushPreset } = parsePapb(serializePapb(preset));
-
-		expect(brushPreset.defaultSettings.version).toBe(2);
-		expect(brushPreset.defaultSettings.engine).toBe("dab");
-		expect(brushPreset.defaultSettings.properties.size?.base).toBe(24);
-	});
-
 	it("should reject unsupported schema versions", () => {
 		const invalidPayload = encode({
 			schemaVersion: PAPB_SCHEMA_VERSION + 1,
 			brushPreset: createPersistedBrushPreset({
 				name: "Broken",
-				defaultSettings: graphiteBrush(),
+				defaultSettings: {
+					type: "scatter",
+					source: { kind: "file", fileUid: "builtin-brush-soft-circle" },
+					randomSeed: 0,
+					size: 10,
+					sizeByPressure: 0.5,
+					opacity: 1,
+					opacityByPressure: 0.3,
+					spacing: 0.1,
+					flow: 1,
+					stampRotation: "none",
+					rotationByTilt: 0,
+					aspectRatioByTilt: 0,
+					sizeBySpeed: 0,
+					pooling: 0,
+					poolingSizeRatio: 0.5,
+				},
 				file: {
 					uid: "file-source",
 					name: "broken.png",
@@ -83,24 +80,3 @@ describe("papb codec", () => {
 		);
 	});
 });
-
-function graphiteBrush(): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
-		version: 2,
-		engine: "dab",
-		strokeOpacity: 0.8,
-		paintMode: "buildup",
-		properties: {
-			size: { base: 24 },
-			spacing: { base: 0.08 },
-			flow: { base: 0.7 },
-		},
-		tip: {
-			kind: "image",
-			sources: [{ kind: "file", fileUid: "builtin-brush-soft-circle" }],
-			selection: "random",
-			angleMode: "fixed",
-		},
-		randomSeed: 0,
-	});
-}
