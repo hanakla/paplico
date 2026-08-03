@@ -98,7 +98,12 @@ export class StampCache {
 // Helpers
 
 function releaseResident(entry: StampBuffer | undefined): void {
-	if (!entry?.resident) return;
+	if (!entry) return;
+	if (entry.residentDab) {
+		entry.residentDab.handle.release();
+		entry.residentDab = undefined;
+	}
+	if (!entry.resident) return;
 	entry.resident.stamps.release();
 	entry.resident.meta.release();
 	entry.resident.stops?.release();

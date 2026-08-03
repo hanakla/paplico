@@ -269,6 +269,7 @@ export class StrokeBatchContext {
 	// per-frame pathIndex rewrite (the meta's absolute store index is baked
 	// into the stamps once, so meta/stops offsets must stay stable).
 	private readonly stampStore: BoundedStampStore;
+	private readonly dabStore: BoundedStampStore;
 	private readonly metaStore: GeometryStore;
 	private readonly stopsStore: GeometryStore;
 	/** Paint-order queue of strokes since the last flush — resident draws
@@ -374,6 +375,12 @@ export class StrokeBatchContext {
 			floatsPerStamp: STAMP_FLOATS,
 			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			label: "Resident Stamp Instances",
+			maxCapacityStamps: options?.maxResidentStamps,
+		});
+		this.dabStore = new BoundedStampStore(device, {
+			floatsPerStamp: DAB_INSTANCE_FLOATS,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+			label: "Resident Dab Instances",
 			maxCapacityStamps: options?.maxResidentStamps,
 		});
 		// Meta/stops offsets are baked into stamp instances (pathIndex) and
@@ -948,6 +955,7 @@ export class StrokeBatchContext {
 		// Return ranges released by evicted StampCache entries — deferred to
 		// this frame boundary so last frame's encoded draws kept their data.
 		this.stampStore.flushPendingReleases();
+		this.dabStore.flushPendingReleases();
 		this.metaStore.flushPendingReleases();
 		this.stopsStore.flushPendingReleases();
 		// Grown-out live dab buffers: destroyed one frame later so last
@@ -2170,6 +2178,7 @@ export class StrokeBatchContext {
 
 		let dabBuffer: GPUBuffer;
 		let dabCount: number;
+		let dabFirstInstance = 0;
 		if (
 			path.id === PREVIEW_ELEMENT_SENTINEL_ID &&
 			(path.pathStart ?? 0) === 0 &&
@@ -2196,6 +2205,7 @@ export class StrokeBatchContext {
 			const cacheKey = `${path.id}:v2dab:${fingerprint}:${textureAspectRatio}:${variantCount}:${startLayerIndex}:${endLayerIndex}:${hashStampInput(path, segments)}`;
 			const stampCache = this.getStampCache();
 			let cached = stampCache.get(cacheKey);
+			let retained = true;
 			if (!cached) {
 				const dabs = evaluateDabs(segments, settings, {
 					pathStart: path.pathStart ?? 0,
@@ -2210,19 +2220,40 @@ export class StrokeBatchContext {
 					data: dabs.data.slice(0, dabs.count * DAB_INSTANCE_FLOATS),
 					count: dabs.count,
 				};
-				stampCache.set(cacheKey, cached, path.id);
+				retained = stampCache.set(cacheKey, cached, path.id);
 			}
 			if (cached.count === 0) return;
 
-			dabBuffer = this.acquireStampBuffer(cached.data.byteLength);
+			// Lazy GPU residency: the entry's data becomes the store's regrow
+			// mirror; the cache entry owns the lease (released on eviction).
+			// Only retained entries may residentize — otherwise nothing would
+			// ever release the lease.
+			if (
+				!cached.residentDab &&
+				retained &&
+				this.dabStore.canFit(cached.count)
+			) {
+				const handle = this.dabStore.alloc(cached.data);
+				if (handle) {
+					cached.residentDab = { handle };
+					stampCache.commitResident(cacheKey);
+				}
+			}
+
 			dabCount = cached.count;
-			this.device.queue.writeBuffer(
-				dabBuffer,
-				0,
-				cached.data.buffer as ArrayBuffer,
-				cached.data.byteOffset,
-				cached.data.byteLength,
-			);
+			if (cached.residentDab) {
+				dabBuffer = this.dabStore.buffer();
+				dabFirstInstance = cached.residentDab.handle.firstStamp;
+			} else {
+				dabBuffer = this.acquireStampBuffer(cached.data.byteLength);
+				this.device.queue.writeBuffer(
+					dabBuffer,
+					0,
+					cached.data.buffer as ArrayBuffer,
+					cached.data.byteOffset,
+					cached.data.byteLength,
+				);
+			}
 		}
 
 		const singleMeta = new Float32Array(PATH_META_FLOATS);
@@ -2268,7 +2299,7 @@ export class StrokeBatchContext {
 			passEncoder.setBindGroup(2, transformsBindGroup);
 		}
 		passEncoder.setBindGroup(3, this.getMaskBindGroup());
-		passEncoder.draw(6, dabCount, 0, 0);
+		passEncoder.draw(6, dabCount, 0, dabFirstInstance);
 	}
 
 	/**
@@ -2711,6 +2742,7 @@ export class StrokeBatchContext {
 	public destroy(): void {
 		for (const entry of this.stampBufferPool) entry.buffer.destroy();
 		this.stampBufferPool.length = 0;
+		this.dabStore.destroy();
 		this.liveDabBuffer?.destroy();
 		this.liveDabBuffer = null;
 		this.liveDabCapacityFloats = 0;

@@ -51,6 +51,8 @@ export interface StampBuffer {
 	count: number;
 	/** Assigned on first batch draw; released with the cache entry. */
 	resident?: ResidentStamps;
+	/** v2 dab residency (24-float stride store); released with the entry. */
+	residentDab?: { handle: StampHandle };
 }
 
 const FLOATS_PER_STAMP = 16;

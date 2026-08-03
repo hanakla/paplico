@@ -414,6 +414,36 @@ describe("StrokeBatchContext", () => {
 			expect(vi.mocked(evaluateDabs).mock.calls.length).toBe(callsAfterFirst);
 		});
 
+		it("should draw committed v2 strokes from the resident store without re-upload", () => {
+			const { context, writes } = createContext({ maxResidentStamps: 4096 });
+			const { passEncoder } = createPassEncoder();
+			const committedPath: Path = {
+				...livePreviewPath([
+					liveSeg(0, 80, 0, 90, true),
+					liveSeg(80, 150, 90, 200),
+				]),
+				id: "committed-v2-resident",
+			};
+
+			context.beginFrame();
+			context.render(passEncoder, committedPath, 1);
+			expect(
+				writes.some((w) => w.buffer.label === "Resident Dab Instances"),
+			).toBe(true);
+
+			// Pan re-render: the dab data lives in the resident store — no dab
+			// bytes move at all.
+			writes.length = 0;
+			context.beginFrame();
+			context.render(passEncoder, committedPath, 1);
+			const dabWrites = writes.filter(
+				(w) =>
+					w.buffer.label === "Resident Dab Instances" ||
+					w.buffer.label === "Stamp Instance Buffer (Pooled)",
+			);
+			expect(dabWrites).toHaveLength(0);
+		});
+
 		it("should release the live buffer on destroy", () => {
 			const { context, buffers } = createContext({ maxResidentStamps: 64 });
 			const { passEncoder } = createPassEncoder();
