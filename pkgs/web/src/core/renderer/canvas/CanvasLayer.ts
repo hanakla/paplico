@@ -68,6 +68,7 @@ import {
 	elementTransformToAffine,
 	repeatGridRegion,
 } from "../../utils/geometry/repeatInterpolation";
+import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../document/constants";
 import { hashSegmentsWithMetadata } from "../../utils/geometry/segmentOps";
 import {
 	compileShaderModule,
@@ -433,6 +434,23 @@ export class CanvasLayer {
 	private texturePool!: TexturePool;
 	private washCompositor!: WashCompositor;
 	private activeFramePlan: RendererFramePlan | null = null;
+	/** Isolated wash results reused across frames (fixed content key). The
+	 *  cache owns the textures; eviction defers destruction to the frame
+	 *  boundary. */
+	private readonly washResultCache = new Map<
+		string,
+		{
+			key: string;
+			texture: GPUTexture;
+			placement: { bounds: WorldBBox; uvRect: BlitUVRect };
+			elementBounds: WorldBBox;
+			textureBounds: WorldBBox;
+			bytes: number;
+		}
+	>();
+	private washResultCacheBytes = 0;
+	/** Filters-array -> JSON fingerprint (documents update immutably). */
+	private readonly washFiltersFpCache = new WeakMap<object, string>();
 	/** Persistent shared vertex buffer for retained element geometry. One per
 	 *  canvas target, shared across document cache scopes (entries own their
 	 *  leased ranges and release them when their cache scope drops). */
@@ -4166,6 +4184,18 @@ export class CanvasLayer {
 		elementsMap: Map<string, AnyArtObject>,
 		rasterScale: number,
 	): FilteredTextureInfo | null {
+		// Wash isolation (dab render + erosion + pyramid blur) is expensive
+		// and, being fixed-R/DPI-scaled, zoom-independent: reuse the committed
+		// result until the element's content changes.
+		const washCacheKey = this.washResultCacheKey(fp, rasterScale);
+		if (washCacheKey) {
+			const hit = this.washResultCache.get(fp.element.id);
+			if (hit && hit.key === washCacheKey) {
+				this.washResultCache.delete(fp.element.id);
+				this.washResultCache.set(fp.element.id, hit);
+				return this.washCacheInfo(hit);
+			}
+		}
 		const plans = fp.allAppearancePlans!;
 
 		// Collect pre-filters (geometry deformations like zigzag) to apply
@@ -4417,6 +4447,27 @@ export class CanvasLayer {
 						maxV: 0.5 + accVHalf,
 					};
 
+		if (washCacheKey) {
+			const entry = {
+				key: washCacheKey,
+				texture: accTexture,
+				placement: { bounds: fp.textureBounds, uvRect: accBlitUvRect },
+				elementBounds: fp.bounds,
+				textureBounds: fp.textureBounds,
+				bytes: accWidth * accHeight * 4,
+			};
+			const previous = this.washResultCache.get(fp.element.id);
+			if (previous) {
+				this.washResultCacheBytes -= previous.bytes;
+				this.offscreen.deferDestroy(previous.texture);
+				this.washResultCache.delete(fp.element.id);
+			}
+			this.washResultCache.set(fp.element.id, entry);
+			this.washResultCacheBytes += entry.bytes;
+			this.evictWashResultsOverBudget();
+			return this.washCacheInfo(entry);
+		}
+
 		// accTexture contains the final result (applyFilters writes back via copyTextureToTexture)
 		const accRef = createFrameTextureRef(accTexture, (texture) =>
 			this.offscreen.deferDestroy(texture),
@@ -4440,6 +4491,79 @@ export class CanvasLayer {
 			elementBounds: fp.bounds,
 			textureBounds: fp.textureBounds,
 		};
+	}
+
+	/** Content key of a cacheable wash plan, or null when not cacheable
+	 *  (non-wash plans, previews, non-path elements). */
+	private washResultCacheKey(
+		fp: ElementFilterPlan,
+		rasterScale: number,
+	): string | null {
+		const element = fp.element;
+		if (element.id === PREVIEW_ELEMENT_SENTINEL_ID) return null;
+		if (element.type !== "path") return null;
+		if (!fp.allAppearancePlans?.some((p) => p.washStrokeOpacity != null)) {
+			return null;
+		}
+		const filters = element.filters ?? [];
+		let filtersFp = this.washFiltersFpCache.get(filters);
+		if (filtersFp == null) {
+			filtersFp = JSON.stringify(filters);
+			this.washFiltersFpCache.set(filters, filtersFp);
+		}
+		return [
+			hashSegmentsWithMetadata(element.segments).toString(36),
+			filtersFp,
+			element.opacity,
+			JSON.stringify(element.transform),
+			rasterScale,
+			fp.textureBounds.minX,
+			fp.textureBounds.minY,
+			fp.textureBounds.maxX,
+			fp.textureBounds.maxY,
+		].join(":");
+	}
+
+	private washCacheInfo(entry: {
+		texture: GPUTexture;
+		placement: { bounds: WorldBBox; uvRect: BlitUVRect };
+		elementBounds: WorldBBox;
+		textureBounds: WorldBBox;
+	}): FilteredTextureInfo {
+		// A fresh no-op ref per frame: the cache owns the texture, so the
+		// frame-resource release must not destroy it.
+		const ref = createFrameTextureRef(entry.texture, () => {});
+		const surface = createRenderSurface(
+			ref,
+			{
+				kind: "world-aabb",
+				bounds: entry.placement.bounds,
+				uvRect: entry.placement.uvRect,
+			},
+			{
+				role: "color",
+				alphaMode: "premultiplied",
+				opacityState: "intrinsic",
+			},
+		);
+		return {
+			source: surface,
+			output: surface,
+			elementBounds: entry.elementBounds,
+			textureBounds: entry.textureBounds,
+		};
+	}
+
+	private evictWashResultsOverBudget(): void {
+		const MAX_BYTES = 128 * 1024 * 1024;
+		while (this.washResultCacheBytes > MAX_BYTES) {
+			const oldest = this.washResultCache.entries().next().value;
+			if (!oldest) break;
+			const [id, entry] = oldest;
+			this.washResultCacheBytes -= entry.bytes;
+			this.offscreen.deferDestroy(entry.texture);
+			this.washResultCache.delete(id);
+		}
 	}
 
 	/** Max shared-pyramid blur sigma the element's backdrop filters declare
@@ -6924,6 +7048,11 @@ export class CanvasLayer {
 		this.defRasterizer.destroy();
 		this.composite.destroy();
 		this.offscreen.destroy();
+		for (const entry of this.washResultCache.values()) {
+			entry.texture.destroy();
+		}
+		this.washResultCache.clear();
+		this.washResultCacheBytes = 0;
 		this.texturePool.destroy();
 		this.geometryStore.destroy();
 		this.runBatcher.destroy();
