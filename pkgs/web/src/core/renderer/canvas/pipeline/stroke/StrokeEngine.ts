@@ -35,7 +35,7 @@ import type { PipelineType } from "../../CanvasLayerTypes";
  * declared so wet-ink and future blend modes can opt in without touching
  * the engine API.
  */
-export type SelfOverlap = "none" | "over" | "max";
+export type SelfOverlap = "none" | "over" | "max" | "wash";
 
 /**
  * Resolved texture views that an engine consumes. The upstream resolver

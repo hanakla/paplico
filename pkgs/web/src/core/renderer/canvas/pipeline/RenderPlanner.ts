@@ -1,3 +1,4 @@
+import { resolveBrushRenderRoute } from "../../../brush/renderRoute";
 import {
 	type AnyArtObject,
 	type BlendMode,
@@ -11,6 +12,7 @@ import {
 	isGroup,
 	isIdentityTransform,
 	isRepeat,
+	type StrokeAppearance,
 	type Viewport,
 } from "../../../schema";
 import {
@@ -85,6 +87,9 @@ interface AppearancePlan {
 	opacity: number;
 	/** Per-appearance blend mode */
 	blendMode: BlendMode;
+	/** Wash strokes only (design §6-3): strokeOpacity to apply exactly once
+	 *  when compositing the isolated appearance; dabs carry flow alone. */
+	washStrokeOpacity?: number;
 }
 
 /** Contiguous run of elements to render between backdrop boundaries. */
@@ -482,10 +487,26 @@ function classifyElementFilters(
 		}
 	}
 
+	// Wash strokes accumulate flow in an isolated appearance texture and
+	// apply strokeOpacity once at composite time — same offscreen routing as
+	// a non-normal appearance blend. Groups carry no stroke appearances of
+	// their own here.
+	let hasWashStroke = false;
+	if (!isGroup(element) && !suppressFlatAppearances) {
+		for (const filter of element.filters ?? []) {
+			if (!isFilterEnabled(filter) || filter.processor !== "stroke") continue;
+			if (washStrokeOpacityOf(filter) != null) {
+				hasWashStroke = true;
+				break;
+			}
+		}
+	}
+
 	if (
 		postFilters.length === 0 &&
 		!hasAnySubFilters &&
-		!hasNonNormalAppearanceBlend
+		!hasNonNormalAppearanceBlend &&
+		!hasWashStroke
 	) {
 		// Only pre-filters or appearance filters — rendered inline, no offscreen pass needed
 		return { filterPlan: null, backdropEntry: null };
@@ -511,7 +532,7 @@ function classifyElementFilters(
 	// in array order with sub-filters applied after each one.
 	let allAppearancePlans: AppearancePlan[] | undefined;
 	let maxSubExpansion = 0;
-	if (hasAnySubFilters || hasNonNormalAppearanceBlend) {
+	if (hasAnySubFilters || hasNonNormalAppearanceBlend || hasWashStroke) {
 		allAppearancePlans = [];
 		for (let i = 0; i < (element.filters?.length ?? 0); i++) {
 			const filter = element.filters![i];
@@ -563,6 +584,8 @@ function classifyElementFilters(
 				}
 			}
 
+			const washStrokeOpacity =
+				filter.processor === "stroke" ? washStrokeOpacityOf(filter) : null;
 			allAppearancePlans.push({
 				appearance: filter,
 				filterIndex: i,
@@ -571,6 +594,7 @@ function classifyElementFilters(
 				textureBounds: planTexBounds,
 				opacity: filter.opacity,
 				blendMode: filter.blendMode,
+				...(washStrokeOpacity != null ? { washStrokeOpacity } : {}),
 			});
 		}
 	}
@@ -1251,4 +1275,14 @@ function scanBlendingFlags(
 		}
 	}
 	return { hasCompositionModeElement: false, hasBlendingElement };
+}
+
+/** strokeOpacity of a wash-routed stroke appearance, or null otherwise. */
+function washStrokeOpacityOf(filter: Filter): number | null {
+	const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
+	if (raw == null) return null;
+	const route = resolveBrushRenderRoute(raw);
+	return route.kind === "dab-v2" && route.settings.paintMode === "wash"
+		? route.settings.strokeOpacity
+		: null;
 }

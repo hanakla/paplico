@@ -4162,10 +4162,18 @@ export class CanvasLayer {
 		for (let i = 0; i < plans.length; i++) {
 			const plan = plans[i];
 
+			// Wash strokes (design §6-3): the appearance renders flow-only into
+			// the isolated texture; its opacity and strokeOpacity apply exactly
+			// once at composite time below.
+			const isWash = plan.washStrokeOpacity != null;
 			// Virtual element with element-level pre-filters + per-appearance pre sub-filters + this single appearance
 			const virtualElement = {
 				...fp.element,
-				filters: [...preFilters, ...plan.preSubFilters, plan.appearance],
+				filters: [
+					...preFilters,
+					...plan.preSubFilters,
+					isWash ? { ...plan.appearance, opacity: 1 } : plan.appearance,
+				],
 			} as AnyArtObject;
 
 			// Render to isolated offscreen texture using unified element-level
@@ -4247,7 +4255,9 @@ export class CanvasLayer {
 					source,
 					backdrop: createBlendBackdrop(accCopy, undefined, source.placement),
 					blendMode: plan.blendMode,
-					placementOpacity: createPlacementOpacity(plan.opacity),
+					placementOpacity: createPlacementOpacity(
+						plan.opacity * (plan.washStrokeOpacity ?? 1),
+					),
 					pipeline: this.compositePipeline,
 				});
 
@@ -4279,7 +4289,7 @@ export class CanvasLayer {
 					blitPass,
 					appTexture,
 					appResult.placement.bounds,
-					plan.opacity,
+					plan.opacity * (plan.washStrokeOpacity ?? 1),
 					appResult.placement.uvRect,
 					this.blitPipeline,
 				);

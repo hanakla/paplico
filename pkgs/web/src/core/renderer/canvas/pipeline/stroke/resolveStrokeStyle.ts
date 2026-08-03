@@ -11,6 +11,7 @@
  */
 
 import { normalizeBrushSettings } from "../../../../brush/normalize";
+import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
 import { createDefaultBrushSettings } from "../../../../document/factory";
 import {
 	type BrushSettings,
@@ -69,7 +70,11 @@ export function resolveStrokeStyle(
 		brush,
 		textures: { primary: null },
 		color: resolveStrokeColorScalar(strokeColor),
-		selfOverlap: "over",
+		selfOverlap:
+			resolveBrushRenderRoute(rawBrush).kind === "dab-v2" &&
+			resolveBrushRenderRoute(rawBrush).settings.paintMode === "wash"
+				? "wash"
+				: "over",
 		alphaMultiplier,
 		transformIndex,
 		legacyPath: path,
