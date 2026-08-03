@@ -210,11 +210,7 @@ describe("Wash wet edge", () => {
 });
 
 describe("Wash inside containers (strokeOpacity applies once)", () => {
-	// KNOWN GAP (appendix B route coverage): group children without a
-	// post-process filter draw inline in renderGroupChildrenToTexture and
-	// never reach the per-appearance wash isolation. Flip to it() when the
-	// container routes get wash support.
-	it.fails("should keep the crossing flat inside a group", async () => {
+	it("should keep the crossing flat inside a group", async () => {
 		const brush = washBrush({ paintMode: "wash", strokeOpacity: 0.5, flow: 1 });
 		const { renderer, canvas } = await createTestRenderer();
 		const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };

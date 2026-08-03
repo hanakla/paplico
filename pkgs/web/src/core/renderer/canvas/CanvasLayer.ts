@@ -432,6 +432,7 @@ export class CanvasLayer {
 	private cache: DocumentCache;
 	private texturePool!: TexturePool;
 	private washCompositor!: WashCompositor;
+	private activeFramePlan: RendererFramePlan | null = null;
 	/** Persistent shared vertex buffer for retained element geometry. One per
 	 *  canvas target, shared across document cache scopes (entries own their
 	 *  leased ranges and release them when their cache scope drops). */
@@ -954,6 +955,21 @@ export class CanvasLayer {
 				this.inlineMaskEntries.get(elementId)?.bindGroup ??
 				this.dummyMaskBindGroup,
 			getElementPostMasks: (elementId) => this.resolveSubtreeMasks(elementId),
+			renderIsolatedWashAppearances: (encoder, elementId) => {
+				const framePlan = this.activeFramePlan;
+				const fp = framePlan?.filterPlans.get(elementId);
+				if (!fp?.allAppearancePlans?.some((p) => p.washStrokeOpacity != null)) {
+					return null;
+				}
+				return (
+					this.renderIsolatedAppearances(
+						encoder,
+						fp,
+						framePlan!.elementsMap,
+						this.getRasterScale(),
+					)?.source ?? null
+				);
+			},
 			getRasterScale: () => this.getRasterScale(),
 		});
 
@@ -2095,6 +2111,9 @@ export class CanvasLayer {
 		};
 		this.activeMaskApplicationPlans = framePlan.maskApplicationPlans;
 		this.activeGroupCompositionPlans = framePlan.groupCompositionPlans;
+		// Container routes (group offscreen) resolve wash filter plans through
+		// this while the frame renders.
+		this.activeFramePlan = framePlan;
 		const {
 			elementsMap,
 			anyLayerNeedsCompositing,
@@ -3422,14 +3441,30 @@ export class CanvasLayer {
 			rasterScale,
 			this.viewportState.current?.zoom ?? 1,
 		);
-		const plans =
-			selectedPlans ??
-			layerPlans.flatMap((layerPlan) =>
+		let plans: readonly ElementFilterPlan[];
+		if (selectedPlans) {
+			plans = selectedPlans;
+		} else {
+			const base = layerPlans.flatMap((layerPlan) =>
 				layerPlan.elements.flatMap((element) => {
 					const plan = filterPlans.get(element.id);
 					return plan ? [plan] : [];
 				}),
 			);
+			// Wash plans on group children never appear in layerPlan.elements
+			// (only top-level elements do): execute them here too, so the
+			// inline group recursion can blit the isolated wash result from
+			// filteredTextures instead of drawing the dabs buildup-dark.
+			const seen = new Set(base.map((plan) => plan.elementId));
+			for (const plan of filterPlans.values()) {
+				if (seen.has(plan.elementId)) continue;
+				if (plan.allAppearancePlans?.some((p) => p.washStrokeOpacity != null)) {
+					base.push(plan);
+					seen.add(plan.elementId);
+				}
+			}
+			plans = base;
+		}
 
 		for (const fp of plans) {
 			const element = fp.element;
@@ -4111,6 +4146,26 @@ export class CanvasLayer {
 		elementsMap: Map<string, AnyArtObject>,
 		rasterScale: number,
 	): void {
+		const info = this.renderIsolatedAppearances(
+			encoder,
+			fp,
+			elementsMap,
+			rasterScale,
+		);
+		if (info) filteredTextures.set(fp.element.id, info);
+	}
+
+	/**
+	 * Render every appearance of `fp` in isolation and composite them into an
+	 * accumulator (wash strokes apply strokeOpacity exactly once here).
+	 * Shared by the top-level filter-plan path and the group container route.
+	 */
+	private renderIsolatedAppearances(
+		encoder: GPUCommandEncoder,
+		fp: ElementFilterPlan,
+		elementsMap: Map<string, AnyArtObject>,
+		rasterScale: number,
+	): FilteredTextureInfo | null {
 		const plans = fp.allAppearancePlans!;
 
 		// Collect pre-filters (geometry deformations like zigzag) to apply
@@ -4129,7 +4184,7 @@ export class CanvasLayer {
 			Math.ceil(fp.textureBounds.height * rasterScale),
 			maxDim,
 		);
-		if (accWidth <= 0 || accHeight <= 0) return;
+		if (accWidth <= 0 || accHeight <= 0) return null;
 
 		const accTexture = this.texturePool.acquire(
 			accWidth,
@@ -4379,12 +4434,12 @@ export class CanvasLayer {
 				opacityState: "intrinsic",
 			},
 		);
-		filteredTextures.set(fp.element.id, {
+		return {
 			source: accSurface,
 			output: accSurface,
 			elementBounds: fp.bounds,
 			textureBounds: fp.textureBounds,
-		});
+		};
 	}
 
 	/** Max shared-pyramid blur sigma the element's backdrop filters declare

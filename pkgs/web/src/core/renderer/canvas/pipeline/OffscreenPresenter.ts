@@ -106,6 +106,12 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 	 *  the main pass's inline BG3 and applyPostMasks both miss — so a masked
 	 *  child needs its mask multiplied in here, or a filter on the group (a drop
 	 *  shadow) reads the child before the mask removed anything. */
+	/** Per-appearance isolated render for wash strokes inside containers
+	 *  (returns null when the element carries no wash appearance plan). */
+	renderIsolatedWashAppearances?: (
+		encoder: GPUCommandEncoder,
+		elementId: string,
+	) => RenderSurface | null;
 	getElementPostMasks: (elementId: string) => readonly {
 		bindGroup: GPUBindGroup;
 		bounds: BoundingBox;
@@ -697,6 +703,24 @@ export class OffscreenPresenter {
 		// pass; everything else renders inline in renderGroupChildrenToTexture,
 		// which merges the group pre-filters into each child.
 		for (const child of childElements) {
+			// Wash strokes need their per-appearance isolation inside groups
+			// too — without it the inline draw below renders them buildup-dark
+			// with no strokeOpacity. Masked children keep the legacy path
+			// (mask-after-isolation is not wired yet); group pre-filters do not
+			// reach the isolated render either (accepted limitation).
+			if (
+				this.deps.renderIsolatedWashAppearances &&
+				this.deps.getElementPostMasks(child.id).length === 0
+			) {
+				const isolated = this.deps.renderIsolatedWashAppearances(
+					encoder,
+					child.id,
+				);
+				if (isolated) {
+					childFilteredTextures.set(child.id, isolated);
+					continue;
+				}
+			}
 			const childNeedsPostPass = (child.filters ?? []).some(
 				(f) =>
 					f.enabled !== false &&
