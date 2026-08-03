@@ -97,6 +97,18 @@ export function normalizeBrushSettings(raw: unknown): BrushSettings {
 export function normalizeBrushPreset(raw: unknown): BrushPreset {
 	const r = (raw ?? {}) as Record<string, unknown>;
 	if (r.settings != null) {
+		const settings = r.settings as Record<string, unknown>;
+		if (settings.version === 2) {
+			// BrushSettingsV2 must not run through the v1 normalizer (it has no
+			// `type` field and would be misread as the legacy flat shape).
+			// Sanitization happens in normalizeBrushSettingsV2 at the migration
+			// gate; pass through untouched here.
+			return {
+				uid: String(r.uid),
+				name: String(r.name),
+				settings: settings as unknown as BrushPreset["settings"],
+			};
+		}
 		return {
 			uid: String(r.uid),
 			name: String(r.name),
