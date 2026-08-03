@@ -950,6 +950,7 @@ function collectPlanCandidates(
 	baseElementIndex = 0,
 	localBoundsCache?: LocalBoundsCache,
 	skipCull = false,
+	transientIds?: ReadonlySet<string>,
 ): void {
 	const handlerLookup = {
 		getHandler: (processor: string) => filterHandlers.get(processor),
@@ -957,11 +958,14 @@ function collectPlanCandidates(
 	for (let i = 0; i < elements.length; i++) {
 		const element = elements[i];
 		const elementIndex = baseElementIndex + i;
+		// Transient elements (live previews) mutate under a stable id without
+		// any document-change invalidation, so a cached bounds entry would pin
+		// the plan (and its offscreen texture) to the first frame's size.
 		const elementBounds = calculatePreFilteredElementBounds(
 			element,
 			elementsMap,
 			handlerLookup,
-			localBoundsCache,
+			transientIds?.has(element.id) ? undefined : localBoundsCache,
 		);
 
 		const { filterPlan, backdropEntry } = classifyElementFilters(
@@ -1147,6 +1151,12 @@ export function buildFramePlanStructure(
 		? { r: 0.9, g: 0.9, b: 0.9, a: 1.0 }
 		: { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
 
+	const transientIds =
+		transientElements != null
+			? new Set(
+					[...transientElements.values()].map((entry) => entry.element.id),
+				)
+			: undefined;
 	const candidates: PlanCandidate[] = [];
 	const layerRows: LayerRow[] = [];
 	for (let layerIndex = 0; layerIndex < document.layers.length; layerIndex++) {
@@ -1162,6 +1172,8 @@ export function buildFramePlanStructure(
 			candidates,
 			0,
 			localBoundsCache,
+			false,
+			transientIds,
 		);
 		const blending = scanBlendingFlags(layerElements, elementsMap);
 		layerRows.push({
