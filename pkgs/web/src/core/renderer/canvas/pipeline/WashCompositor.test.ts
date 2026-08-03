@@ -74,7 +74,10 @@ describe("WashCompositor.applyWetEdge", () => {
 		const pool = new TexturePool(device);
 		const compositor = new WashCompositor(device, pool, "rgba8unorm");
 
-		const renderWith = async (blur: number): Promise<Uint8Array> => {
+		const renderWith = async (
+			blur: number,
+			worldPerPixel = 1,
+		): Promise<Uint8Array> => {
 			const size = 64;
 			const texture = device.createTexture({
 				size: [size, size],
@@ -103,8 +106,8 @@ describe("WashCompositor.applyWetEdge", () => {
 			const scratch = compositor.applyWetEdge(
 				encoder,
 				texture,
-				{ width: 4, intensity: 0.5, darkening: 0.6, blur },
-				1,
+				{ width: 4 * worldPerPixel, intensity: 0.5, darkening: 0.6, blur },
+				worldPerPixel,
 				100,
 			);
 			const readback = device.createBuffer({
@@ -134,8 +137,15 @@ describe("WashCompositor.applyWetEdge", () => {
 		// visibly darkened once the rim is blurred outward.
 		expect(at(sharp, 23, 32)).toBeGreaterThan(250);
 		expect(at(soft, 23, 32)).toBeLessThan(245);
-		// The rim itself still darkens in both.
-		expect(at(soft, 17, 32)).toBeLessThan(220);
+		// The rim still darkens, softened: blur spreads the band, so its
+		// peak is lighter than the sharp rim but clearly below the interior.
+		expect(at(soft, 17, 32)).toBeLessThan(240);
+
+		// Fixed-R reality check: wet-edge appearances rasterize at ~2.4 texels
+		// per world unit (brush 40), so worldPerPixel ≈ 0.42 — a world-space
+		// blur of 3 must still visibly bleed inward there.
+		const softFixedR = await renderWith(3 * 0.42, 0.42);
+		expect(at(softFixedR, 23, 32)).toBeLessThan(245);
 
 		compositor.destroy();
 		pool.destroy();

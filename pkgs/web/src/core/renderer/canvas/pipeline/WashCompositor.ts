@@ -1,5 +1,9 @@
 import type { WetEdgeConfig } from "../../../schema";
-import { BlurPyramidBuilder } from "./BlurPyramid";
+import {
+	BlurPyramidBuilder,
+	requiredPyramidLevels,
+	selectPyramidLevels,
+} from "./BlurPyramid";
 import { compileShaderModule } from "../../../utils/wgpu-utils";
 import { WET_EDGE_SHADER } from "../../shaders/wetEdge.wgsl";
 import type { TexturePool } from "./TexturePool";
@@ -134,18 +138,16 @@ export class WashCompositor {
 		return out;
 	}
 
-	/** Soften the rim band (§9): repeated separable gaussian passes whose
-	 *  count approximates the config's world-space blur width. */
+	/** Soften the rim band (§9): downsampling gaussian pyramid levels double
+	 *  their sigma per level; the level nearest the world-space blur width is
+	 *  sampled back up through the compose pass's linear filter. */
 	private blurRim(
 		encoder: GPUCommandEncoder,
 		rim: GPUTexture,
 		wetEdge: WetEdgeConfig,
 		worldPerPixel: number,
 	): GPUTexture {
-		const blurPx = Math.min(
-			wetEdge.blur / Math.max(worldPerPixel, 1e-6),
-			32,
-		);
+		const blurPx = Math.min(wetEdge.blur / Math.max(worldPerPixel, 1e-6), 64);
 		if (blurPx < 1) return rim;
 
 		this.blurBuilder ??= new BlurPyramidBuilder(
@@ -163,54 +165,20 @@ export class WashCompositor {
 				return t;
 			},
 		);
-		// Each X+Y pair applies sigma 2 per axis and pairs accumulate as
-		// sqrt(n); map the world blur width to roughly 2*sigma reach.
-		const pairs = Math.min(
-			8,
-			Math.max(1, Math.round((blurPx * blurPx) / 16)),
+		const levels = this.blurBuilder.build(
+			encoder,
+			rim,
+			rim.width,
+			rim.height,
+			requiredPyramidLevels(blurPx),
 		);
-		let current = rim;
-		for (let i = 0; i < pairs; i++) {
-			const tempX = this.texturePool.acquireExact(
-				rim.width,
-				rim.height,
-				"r8unorm",
-				1,
-				GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-				"Wash Wet Edge Blur X",
-			);
-			const tempY = this.texturePool.acquireExact(
-				rim.width,
-				rim.height,
-				"r8unorm",
-				1,
-				GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-				"Wash Wet Edge Blur Y",
-			);
-			this.scratchOut.push(tempX, tempY);
-			this.blurBuilder.encodeLevelPass(
-				encoder,
-				current,
-				rim.width,
-				rim.height,
-				tempX,
-				rim.width,
-				rim.height,
-				[1, 0],
-			);
-			this.blurBuilder.encodeLevelPass(
-				encoder,
-				tempX,
-				rim.width,
-				rim.height,
-				tempY,
-				rim.width,
-				rim.height,
-				[0, 1],
-			);
-			current = tempY;
-		}
-		return current;
+		if (levels.length === 0) return rim;
+		const sel = selectPyramidLevels(blurPx, levels.length);
+		// Round up: the config asks for "at least this much" softness, and the
+		// discrete level sigmas (2, 4.5, 9.2…) undershoot badly otherwise.
+		const pickedLevel = sel.mix > 0 ? sel.hi : sel.lo;
+		if (pickedLevel === 0) return rim;
+		return levels[Math.min(pickedLevel, levels.length) - 1].texture;
 	}
 
 	public destroy(): void {
