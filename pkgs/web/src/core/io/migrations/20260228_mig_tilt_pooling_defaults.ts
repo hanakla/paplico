@@ -61,10 +61,6 @@ export const migTiltPoolingDefaults: Migration = {
 					const stroke = filter as StrokeAppearance;
 					const bs = stroke.paramData.params.brushSettings;
 					if (bs == null) continue;
-					// v2 settings carry no flat fields; backfilling would inject
-					// v1 keys into them (papf runs every migration on each load).
-					if ((bs as unknown as Record<string, unknown>).version === 2)
-						continue;
 
 					for (const [key, val] of Object.entries(BRUSH_DEFAULTS)) {
 						(bs as unknown as Record<string, unknown>)[key] ??= val;

@@ -217,7 +217,7 @@ describe("normalizeBrushSettings", () => {
 });
 
 describe("normalizeBrushPreset", () => {
-	it("should migrate a preset holding a v1 union into v2", () => {
+	it("should normalize a v2 preset with a settings union", () => {
 		const result = normalizeBrushPreset({
 			uid: "p1",
 			name: "Pen",
@@ -226,12 +226,10 @@ describe("normalizeBrushPreset", () => {
 
 		expect(result.uid).toBe("p1");
 		expect(result.name).toBe("Pen");
-		expect(result.settings.version).toBe(2);
-		expect(result.settings.engine).toBe("geometric");
-		expect(result.settings.properties.size?.base).toBe(2);
+		expect(result.settings.type).toBe("stroke");
 	});
 
-	it("should migrate a pre-union preset (textureFileUid + defaultSettings) into v2", () => {
+	it("should normalize a v1 preset (textureFileUid + defaultSettings) into a union", () => {
 		const result = normalizeBrushPreset({
 			uid: "p2",
 			name: "Soft",
@@ -240,15 +238,10 @@ describe("normalizeBrushPreset", () => {
 		});
 
 		expect(result.uid).toBe("p2");
-		expect(result.settings.version).toBe(2);
-		expect(result.settings.engine).toBe("dab");
-		if (result.settings.tip?.kind !== "image")
-			throw new Error("expected an image tip");
-		expect(result.settings.tip.sources[0]).toEqual({
-			kind: "file",
-			fileUid: "tex-e",
-		});
-		expect(result.settings.properties.spacing?.base).toBe(0.2);
+		expect(result.settings.type).toBe("scatter");
+		if (result.settings.type !== "scatter") throw new Error("expected scatter");
+		expect(result.settings.source).toEqual({ kind: "file", fileUid: "tex-e" });
+		expect(result.settings.spacing).toBe(0.2);
 	});
 });
 
@@ -308,13 +301,5 @@ describe("normalizeBrushSettings — wetInk (Task#22)", () => {
 		expect(result.type).toBe("scatter");
 		if (result.type !== "scatter") throw new Error("expected scatter");
 		expect(result.wetInk).toBeUndefined();
-	});
-});
-
-describe("normalizeBrushSettings — v2 awareness", () => {
-	it("should keep the v1 legacy-flat path unchanged for non-v2 input", () => {
-		const result = normalizeBrushSettings({ size: 8 });
-		expect(result.type).toBe("scatter");
-		expect(result.size).toBe(8);
 	});
 });

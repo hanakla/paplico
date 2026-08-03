@@ -28,7 +28,6 @@ export function ev(
 		pressure: 0.5,
 		tiltX: 0,
 		tiltY: 0,
-		twist: 0,
 		pointerType: "mouse",
 		button: 0,
 		contactWidth: 1,

@@ -9,7 +9,6 @@
  * Instance data: storage buffer with per-segment metadata (24 floats)
  */
 
-import { PATH_META_WGSL } from "./dabColor.wgsl";
 import { GRADIENT_COMMON_WGSL } from "./gradientCommon.wgsl";
 import { MASK_COMMON_WGSL } from "./maskCommon.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
@@ -57,18 +56,39 @@ struct RibbonInstance {
 	reserved: f32,
 }
 
+struct RibbonParams {
+	ribbonStretch: f32,
+	uvOffset: f32,
+	textureAspectRatio: f32,
+	stampAngle: f32,
+}
+
+struct PathMeta {
+	colorR: f32,
+	colorG: f32,
+	colorB: f32,
+	colorA: f32,
+	gradientMode: u32,
+	stopCount: u32,
+	stopOffset: u32,
+	transformIndex: u32,
+	linearStart: vec2f,
+	linearEnd: vec2f,
+	boundsMin: vec2f,
+	boundsMax: vec2f,
+}
+
 ${TRANSFORM_COMMON_WGSL}
 
 ${GRADIENT_COMMON_WGSL}
 
 ${STROKE_WIDTH_COMMON_WGSL}
 
-${PATH_META_WGSL}
-
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read> instances: array<RibbonInstance>;
 @group(0) @binding(2) var ribbonTexture: texture_2d<f32>;
 @group(0) @binding(3) var ribbonSampler: sampler;
+@group(0) @binding(4) var<uniform> ribbonParams: RibbonParams;
 
 @group(1) @binding(0) var<storage, read> pathMetas: array<PathMeta>;
 @group(1) @binding(1) var<storage, read> colorStops: array<ColorStop>;
@@ -205,15 +225,15 @@ fn vs_main(
 	//   repeat (pattern): U = arcPos / actualTileWidth (tiles wrap via sampler)
 	// V is always side-based (-1..+1 → 0..1).
 	let arcPos = inst.arcLengthOffset + t * inst.segmentArcLength;
-	let naturalTileWidth = inst.halfWidth0 * 2.0 * pm.ribbonAspectRatio;
-	let actualTileWidth = naturalTileWidth * max(1.0 + pm.ribbonStretch, 0.1);
+	let naturalTileWidth = inst.halfWidth0 * 2.0 * ribbonParams.textureAspectRatio;
+	let actualTileWidth = naturalTileWidth * max(1.0 + ribbonParams.ribbonStretch, 0.1);
 	var ribbonU: f32;
 	if inst.uvModeBit == 1u {
 		// stretch: U = arc-length normalized over the whole path
 		let total = max(inst.totalArcLength, 0.001);
 		ribbonU = clamp(arcPos / total, 0.0, 1.0);
 	} else {
-		ribbonU = arcPos / max(actualTileWidth, 0.001) + pm.ribbonUvOffset;
+		ribbonU = arcPos / max(actualTileWidth, 0.001) + ribbonParams.uvOffset;
 	}
 	// V follows the expanded geometry so it stays linear in position; the
 	// fragment clamps it back to [0, 1] inside the AA margin.
@@ -250,6 +270,41 @@ fn vs_main(
 	return out;
 }
 
+fn sampleGradientStops(t: f32, pm: PathMeta) -> vec4f {
+	let ct = clamp(t, 0.0, 1.0);
+	let count = pm.stopCount;
+	let baseOffset = pm.stopOffset;
+
+	if count == 0u { return vec4f(0.0, 0.0, 0.0, 1.0); }
+	if count == 1u {
+		let s = colorStops[baseOffset];
+		return vec4f(s.r, s.g, s.b, s.a);
+	}
+	if ct <= colorStops[baseOffset].offset {
+		let s = colorStops[baseOffset];
+		return vec4f(s.r, s.g, s.b, s.a);
+	}
+	let lastIdx = count - 1u;
+	if ct >= colorStops[baseOffset + lastIdx].offset {
+		let s = colorStops[baseOffset + lastIdx];
+		return vec4f(s.r, s.g, s.b, s.a);
+	}
+	for (var i = 0u; i < lastIdx; i = i + 1u) {
+		let s0 = colorStops[baseOffset + i];
+		let s1 = colorStops[baseOffset + i + 1u];
+		if ct >= s0.offset && ct <= s1.offset {
+			let range = s1.offset - s0.offset;
+			var f = 0.0;
+			if range > 0.0 { f = remapGradientT((ct - s0.offset) / range, s0.midpoint); }
+			let lab0 = srgbToOklab(vec3f(s0.r, s0.g, s0.b));
+			let lab1 = srgbToOklab(vec3f(s1.r, s1.g, s1.b));
+			let rgb = oklabToSrgb(mix(lab0, lab1, f));
+			return vec4f(rgb, mix(s0.a, s1.a, f));
+		}
+	}
+	let s = colorStops[baseOffset + lastIdx];
+	return vec4f(s.r, s.g, s.b, s.a);
+}
 
 ${MASK_COMMON_WGSL}
 
@@ -258,7 +313,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 	let pm = pathMetas[in.pathIndex];
 
 	// Rotate UV by stampAngle around (0.5, 0.5) center
-	let angle = pm.ribbonStampAngle;
+	let angle = ribbonParams.stampAngle;
 	let cosA = cos(angle);
 	let sinA = sin(angle);
 	var sampleU = in.ribbonUV.x;

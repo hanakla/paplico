@@ -33,14 +33,7 @@ describe("bounds utilities", () => {
 									type: "solid",
 									color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
 								},
-								brushSettings: {
-									version: 2,
-									engine: "dab",
-									strokeOpacity: 1,
-									paintMode: "buildup",
-									properties: { size: { base: 10 } },
-									randomSeed: 0,
-								},
+								brushSettings: { type: "line", size: 10, opacity: 1 },
 							},
 						},
 					} as unknown as StrokeAppearance,
@@ -76,65 +69,6 @@ describe("bounds utilities", () => {
 			expect(bounds.height).toBe(110);
 		});
 
-		it("should include size and wet bleed margin for stored v2 settings", () => {
-			const path: Path = {
-				type: "path",
-				id: "test-path-v2",
-				filters: [
-					{
-						processor: "stroke",
-						paramData: {
-							version: "1",
-							params: {
-								strokeColor: {
-									type: "solid",
-									color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
-								},
-								brushSettings: {
-									version: 2,
-									engine: "dab",
-									strokeOpacity: 1,
-									paintMode: "buildup",
-									properties: { size: { base: 10 } },
-									randomSeed: 0,
-									wet: {
-										enabled: true,
-										bleedRadius: 0.5,
-										pigmentLoad: 0.85,
-										grainScale: 1,
-									},
-								},
-							},
-						},
-					} as unknown as StrokeAppearance,
-				],
-				opacity: 1,
-				blendMode: "normal",
-				transform: createIdentityTransform(),
-				segments: [
-					{
-						start: { x: 0, y: 0 },
-						cp1: { x: 0, y: 0 },
-						cp2: { x: 0, y: 0 },
-						end: { x: 100, y: 100 },
-						startTiltX: 0,
-						startTiltY: 0,
-						endTiltX: 0,
-						endTiltY: 0,
-						startDeltaTime: 0,
-						endDeltaTime: 0,
-						isMoved: true,
-					},
-				],
-			};
-
-			const bounds = calculatePathBounds(path);
-
-			// margin = size/2 (5) + size * bleedRadius (5) = 10
-			expect(bounds.minX).toBe(-10);
-			expect(bounds.maxX).toBe(110);
-		});
-
 		it("should handle empty path segments", () => {
 			const path: Path = {
 				type: "path",
@@ -149,14 +83,7 @@ describe("bounds utilities", () => {
 									type: "solid",
 									color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
 								},
-								brushSettings: {
-									version: 2,
-									engine: "dab",
-									strokeOpacity: 1,
-									paintMode: "buildup",
-									properties: { size: { base: 10 } },
-									randomSeed: 0,
-								},
+								brushSettings: { type: "line", size: 10, opacity: 1 },
 							},
 						},
 					} as unknown as StrokeAppearance,
@@ -189,14 +116,7 @@ describe("bounds utilities", () => {
 									type: "solid",
 									color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
 								},
-								brushSettings: {
-									version: 2,
-									engine: "dab",
-									strokeOpacity: 1,
-									paintMode: "buildup",
-									properties: { size: { base: 2 } },
-									randomSeed: 0,
-								},
+								brushSettings: { type: "line", size: 2, opacity: 1 },
 							},
 						},
 					} as unknown as StrokeAppearance,
@@ -246,14 +166,7 @@ describe("bounds utilities", () => {
 									type: "solid",
 									color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
 								},
-								brushSettings: {
-									version: 2,
-									engine: "dab",
-									strokeOpacity: 1,
-									paintMode: "buildup",
-									properties: { size: { base: 10 } },
-									randomSeed: 0,
-								},
+								brushSettings: { type: "line", size: 10, opacity: 1 },
 							},
 						},
 					} as unknown as StrokeAppearance,

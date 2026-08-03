@@ -2,13 +2,9 @@ import {
 	type BrushArtSource,
 	type BrushColorMode,
 	type BrushPreset,
+	type BrushSettings,
 	type BrushStroking,
 	BUILTIN_BRUSH_IDS,
-	type StampRotation,
-} from "../schema";
-import { normalizeBrushSettingsV2 } from "./migrate";
-import {
-	type BrushSettings,
 	type CalligraphyBrushSettings,
 	DEFAULT_CALLIGRAPHY_SPACING,
 	DEFAULT_WET_INK_ABSORPTION,
@@ -19,13 +15,14 @@ import {
 	DEFAULT_WET_INK_PICKUP_UNDERLYING_COLOR,
 	DEFAULT_WET_INK_PIGMENT_LOAD,
 	type ScatterBrushSettings,
+	type StampRotation,
 	type WetInkSettings,
-} from "./v1";
+} from "../schema";
 
 /**
- * Read pre-v2 brush data (legacy flat shape or v1 union) into a v1 union
- * value. This is the first half of the migration to v2 and has no other
- * callers; reading is lenient so old documents keep opening:
+ * Normalize persisted brush data (legacy flat shape or current union) into a
+ * BrushSettings union value. Reading is lenient so old documents keep working
+ * without a document migration:
  * - svg texture -> stroke
  * - renderMode "ribbon" -> pattern
  * - everything else -> scatter
@@ -96,25 +93,25 @@ export function normalizeBrushSettings(raw: unknown): BrushSettings {
 	return buildScatter(r, base, { kind: "file", fileUid: textureFileUid });
 }
 
-/**
- * Normalize a persisted brush preset into v2. Presets predating v2 stored the
- * brush as `textureFileUid` + `defaultSettings`, or as a v1 union under
- * `settings`; both are folded back into a flat record and migrated here, so
- * everything downstream of this point is v2.
- */
+/** Normalize a persisted brush preset (v1 `textureFileUid`+`defaultSettings` or v2 `settings`). */
 export function normalizeBrushPreset(raw: unknown): BrushPreset {
 	const r = (raw ?? {}) as Record<string, unknown>;
-	const stored =
-		r.settings != null
-			? r.settings
-			: {
-					...((r.defaultSettings as Record<string, unknown>) ?? {}),
-					textureFileUid: r.textureFileUid,
-				};
+	if (r.settings != null) {
+		return {
+			uid: String(r.uid),
+			name: String(r.name),
+			settings: normalizeBrushSettings(r.settings),
+		};
+	}
+	// v1: merge defaultSettings + textureFileUid back into a flat record.
+	const legacy = {
+		...((r.defaultSettings as Record<string, unknown>) ?? {}),
+		textureFileUid: r.textureFileUid,
+	};
 	return {
 		uid: String(r.uid),
 		name: String(r.name),
-		settings: normalizeBrushSettingsV2(stored),
+		settings: normalizeBrushSettings(legacy),
 	};
 }
 

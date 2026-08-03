@@ -1,5 +1,6 @@
 import { Download, Pause, Play, X } from "lucide-react";
 import { memo, type RefObject, useEffect, useRef, useState } from "react";
+import { proxy } from "valtio";
 import { Button } from "@/components/Button";
 import { Dialog } from "@/components/Dialog";
 import { Slider } from "@/components/Slider";
@@ -10,7 +11,6 @@ import type { Paplico } from "@/core/Paplico";
 import { type Artboard, type Document, getArtboardBounds } from "@/core/schema";
 import { TimelapseExporter } from "@/core/timelapse/TimelapseExporter";
 import type { TimelapsePlayer } from "@/core/timelapse/TimelapsePlayer";
-import type { TimelapsePreviewSurface } from "@/core/timelapse/TimelapsePreviewSurface";
 import type { PlaybackState } from "@/core/timelapse/types";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
@@ -29,9 +29,7 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 	onOpenChange,
 }: TimelapseDialogProps) {
 	const paplico = usePaplicoMaybe();
-	// Held as state rather than a ref: the render surface is created from the
-	// element, so its arrival has to re-run the effect.
-	const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
+	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const t = useTranslation();
 
 	const artboards = paplico?.uiState.document.artboards ?? [];
@@ -54,19 +52,12 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 
 	const artboard = selectedArtboard;
 
-	const {
-		playerRef,
-		surfaceRef,
-		state,
-		handlePlayPause,
-		handleSeek,
-		handleSpeedChange,
-	} = useTimelapsePlayer(paplico, canvasEl, artboard, open);
+	const { playerRef, state, handlePlayPause, handleSeek, handleSpeedChange } =
+		useTimelapsePlayer(paplico, canvasRef, artboard, open);
 
 	const { exporting, exportProgress, handleExportMP4 } = useTimelapseExport(
 		paplico,
 		playerRef,
-		surfaceRef,
 		artboard,
 		state.speed,
 	);
@@ -135,18 +126,14 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 						className="relative bg-black/5 rounded-lg overflow-hidden"
 						style={{ height: previewHeight, maxHeight: "50vh" }}
 					>
-						{/* The canvas stays mounted so its render surface can be created
-						    before the player reports how many frames there are. */}
-						<canvas
-							ref={setCanvasEl}
-							className={twm(
-								"w-full h-full object-contain transition-opacity duration-300",
-								!hasData && "invisible",
-							)}
-							style={{ opacity: canvasOpacity }}
-						/>
-						{!hasData && (
-							<div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+						{hasData ? (
+							<canvas
+								ref={canvasRef}
+								className="w-full h-full object-contain transition-opacity duration-300"
+								style={{ opacity: canvasOpacity }}
+							/>
+						) : (
+							<div className="flex items-center justify-center h-full text-sm text-muted-foreground">
 								{t("timelapseDialog.noTimelapseData")}
 							</div>
 						)}
@@ -165,7 +152,7 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 							onValueChange={(v) =>
 								handleSeek(typeof v === "number" ? v : v[0])
 							}
-							disabled={exporting || state.isPreparing}
+							disabled={exporting}
 						/>
 
 						{/* Play controls */}
@@ -175,7 +162,7 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 									$variant="ghost"
 									$size="sm"
 									onClick={handlePlayPause}
-									disabled={exporting || state.isPreparing}
+									disabled={exporting}
 								>
 									{state.isPlaying ? <Pause size={16} /> : <Play size={16} />}
 								</Button>
@@ -188,7 +175,7 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 											handleSpeedChange(Number(value[0]));
 										}
 									}}
-									disabled={exporting || state.isPreparing}
+									disabled={exporting}
 								>
 									{SPEED_OPTIONS.map((s) => (
 										<ToggleGroup.Item
@@ -242,7 +229,7 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 											$variant="default"
 											$size="sm"
 											onClick={artboard ? handleExportMP4 : undefined}
-											disabled={exporting || state.isPreparing || !artboard}
+											disabled={exporting || !artboard}
 										>
 											<Download size={14} />
 											{t("timelapseDialog.saveVideo")}
@@ -264,7 +251,6 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 
 const INITIAL_STATE: PlaybackState = {
 	isPlaying: false,
-	isPreparing: false,
 	currentIndex: -1,
 	totalEvents: 0,
 	speed: 1,
@@ -272,60 +258,44 @@ const INITIAL_STATE: PlaybackState = {
 	introPhase: null,
 };
 
-/**
- * Owns the dedicated WebGPU surface playback draws through. Frames go straight
- * to the canvas, so nothing is read back from the GPU per frame.
- */
-function useTimelapseSurface(
+/** Renders a Document to a 2D canvas via GPU readback. */
+function useRenderToCanvas(
 	paplico: Paplico | null,
-	canvas: HTMLCanvasElement | null,
-	open: boolean,
+	canvasRef: RefObject<HTMLCanvasElement | null>,
+	artboard: Artboard | undefined,
 ) {
-	const surfaceRef = useRef<TimelapsePreviewSurface | null>(null);
-	const [ready, setReady] = useState(false);
+	return useEventCallback((document: Document) => {
+		const canvas = canvasRef.current;
+		if (!canvas || !artboard) return;
 
-	useEffect(() => {
-		if (!open || !canvas || !paplico) return;
-
-		let disposed = false;
-		void paplico.createTimelapsePreviewSurface(canvas).then((surface) => {
-			if (disposed) {
-				surface.dispose();
-				return;
-			}
-			surfaceRef.current = surface;
-			setReady(true);
-		});
-
-		return () => {
-			disposed = true;
-			setReady(false);
-			surfaceRef.current?.dispose();
-			surfaceRef.current = null;
-		};
-	}, [open, paplico, canvas]);
-
-	return { surfaceRef, ready };
+		paplico
+			?.renderArtboardToImageData(artboard, proxy(document))
+			?.then((imageData) => {
+				if (!imageData) return;
+				const ctx = canvas.getContext("2d");
+				if (ctx) {
+					canvas.width = imageData.width;
+					canvas.height = imageData.height;
+					ctx.putImageData(imageData, 0, 0);
+				}
+			});
+	});
 }
 
 /** Manages TimelapsePlayer lifecycle, playback state, and control handlers. */
 function useTimelapsePlayer(
 	paplico: Paplico | null,
-	canvas: HTMLCanvasElement | null,
+	canvasRef: RefObject<HTMLCanvasElement | null>,
 	artboard: Artboard | undefined,
 	open: boolean,
 ) {
 	const playerRef = useRef<TimelapsePlayer | null>(null);
 	const [state, setState] = useState<PlaybackState>(INITIAL_STATE);
-	const { surfaceRef, ready } = useTimelapseSurface(paplico, canvas, open);
 
-	const renderFrame = useEventCallback((document: Document) => {
-		if (!artboard) return;
-		surfaceRef.current?.render(document, artboard);
-	});
+	const renderFrame = useRenderToCanvas(paplico, canvasRef, artboard);
 
 	useEffect(() => {
-		if (!open || !ready) {
+		if (!open) {
 			playerRef.current?.dispose();
 			playerRef.current = null;
 			return;
@@ -346,15 +316,14 @@ function useTimelapsePlayer(
 		}
 
 		playerRef.current = player;
-		// seekTo emits the real state, including whether the player is still
-		// rebuilding a missing index. Seeding INITIAL_STATE here would clobber it.
+		setState({ ...INITIAL_STATE, totalEvents: player.totalEvents });
 		player.seekTo(0);
 
 		return () => {
 			player.dispose();
 			playerRef.current = null;
 		};
-	}, [open, ready, paplico?.createTimelapsePlayer, artboard, renderFrame]);
+	}, [open, paplico?.createTimelapsePlayer, artboard, renderFrame]);
 
 	const handlePlayPause = useEventCallback(() => {
 		const player = playerRef.current;
@@ -374,21 +343,13 @@ function useTimelapsePlayer(
 		playerRef.current?.setSpeed(speed);
 	});
 
-	return {
-		playerRef,
-		surfaceRef,
-		state,
-		handlePlayPause,
-		handleSeek,
-		handleSpeedChange,
-	};
+	return { playerRef, state, handlePlayPause, handleSeek, handleSpeedChange };
 }
 
 /** Manages MP4 export state and handler. */
 function useTimelapseExport(
 	paplico: Paplico | null,
 	playerRef: RefObject<TimelapsePlayer | null>,
-	surfaceRef: RefObject<TimelapsePreviewSurface | null>,
 	artboard: Artboard | undefined,
 	speed: number,
 ) {
@@ -397,15 +358,14 @@ function useTimelapseExport(
 
 	const handleExportMP4 = useEventCallback(async () => {
 		const player = playerRef.current;
-		const surface = surfaceRef.current;
-		if (!player || !surface || !artboard || !paplico) return;
+		if (!player || !artboard || !paplico) return;
 
 		player.pause();
 		setExporting(true);
 		setExportProgress(0);
 
 		try {
-			const exporter = paplico.createTimelapseExporter(surface, player);
+			const exporter = paplico.createTimelapseExporter(player);
 			const blob = await exporter.exportMP4({
 				artboard,
 				fps: 30,

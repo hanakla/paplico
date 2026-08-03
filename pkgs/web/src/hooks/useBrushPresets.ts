@@ -5,7 +5,7 @@ import {
 	resolveBrushTextureUid,
 	withTextureFileUid,
 } from "@/core/brush/brushSource";
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
+import { normalizeBrushSettings } from "@/core/brush/normalize";
 import {
 	BUILTIN_BRUSH_IDS,
 	type BuiltinBrushId,
@@ -99,7 +99,7 @@ export function useBrushPresets() {
 				if (signal.aborted) return;
 				if (migratedPresetIdsRef.current.has(legacyPreset.uid)) continue;
 
-				const presetSettings = normalizeBrushSettingsV2(legacyPreset.settings);
+				const presetSettings = normalizeBrushSettings(legacyPreset.settings);
 				const presetTextureUid = resolveBrushTextureUid(presetSettings);
 				const sourceFile = presetTextureUid
 					? (builtinFileMap.get(presetTextureUid) ??
@@ -165,7 +165,7 @@ export function useBrushPresets() {
 	const rawBrushSettings =
 		toolSnap.strokeAppearance?.paramData.params.brushSettings;
 	const brushTextureFileUid = rawBrushSettings
-		? (resolveBrushTextureUid(normalizeBrushSettingsV2(rawBrushSettings)) ??
+		? (resolveBrushTextureUid(normalizeBrushSettings(rawBrushSettings)) ??
 			undefined)
 		: undefined;
 
@@ -250,9 +250,9 @@ export function useBrushPresets() {
 
 	const applyBuiltinTexture = useEventCallback(
 		(textureFileUid: BuiltinBrushId) => {
-			tools.setBrushSettings({
-				tipSource: { kind: "file", fileUid: textureFileUid },
-			});
+			tools.setBrushSettings(
+				withTextureFileUid(tools.brushSettings, textureFileUid),
+			);
 			setSelectedBrushPresetUid(null);
 		},
 	);
@@ -272,9 +272,9 @@ export function useBrushPresets() {
 		const embeddedFile = await createBrushTextureFile(handle.file);
 		const textureFileUid = commands.addEmbeddedFile(embeddedFile);
 
-		tools.setBrushSettings({
-			tipSource: { kind: "file", fileUid: textureFileUid },
-		});
+		tools.setBrushSettings(
+			withTextureFileUid(tools.brushSettings, textureFileUid),
+		);
 		setSelectedBrushPresetUid(null);
 	});
 
@@ -282,13 +282,13 @@ export function useBrushPresets() {
 		const source = await resolveCurrentTextureSource({
 			builtinFiles,
 			documentFiles: store.document.files,
-			textureFileUid: resolveBrushTextureUid(tools.storedBrushSettings),
+			textureFileUid: resolveBrushTextureUid(tools.brushSettings),
 		});
 		if (!source) return null;
 
 		const preset = createPersistedBrushPreset({
 			name,
-			defaultSettings: createBrushPresetDefaults(tools.storedBrushSettings),
+			defaultSettings: createBrushPresetDefaults(tools.brushSettings),
 			file: source.file,
 			sourceBuiltinUid: source.sourceBuiltinUid,
 		});
@@ -354,14 +354,14 @@ export function useBrushPresets() {
 		const source = await resolveCurrentTextureSource({
 			builtinFiles,
 			documentFiles: store.document.files,
-			textureFileUid: resolveBrushTextureUid(tools.storedBrushSettings),
+			textureFileUid: resolveBrushTextureUid(tools.brushSettings),
 		});
 		if (!source) return;
 
 		const updatedPreset = createPersistedBrushPreset({
 			uid: existingPreset.uid,
 			name: existingPreset.name,
-			defaultSettings: createBrushPresetDefaults(tools.storedBrushSettings),
+			defaultSettings: createBrushPresetDefaults(tools.brushSettings),
 			file: source.file,
 			sourceBuiltinUid: source.sourceBuiltinUid,
 			createdAt: existingPreset.createdAt,

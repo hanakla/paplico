@@ -124,13 +124,6 @@ export class ViewportManager {
 		return this._transformsBindGroup;
 	}
 
-	/** The raw transforms storage buffer, for passes that read it outside the
-	 *  render pipeline's bind group (the mix pass resolves dab world positions
-	 *  in a compute shader). */
-	public get transformsStorageBuffer(): GPUBuffer | null {
-		return this.transformsBuffer;
-	}
-
 	public get uniformBuffer(): GPUBuffer {
 		return this._uniformBuffer;
 	}

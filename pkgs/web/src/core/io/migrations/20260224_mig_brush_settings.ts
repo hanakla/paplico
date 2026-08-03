@@ -1,12 +1,12 @@
-import type { BrushSettingsV2, Document, StrokeAppearance } from "../../schema";
+import type { BrushSettings, Document, StrokeAppearance } from "../../schema";
 import type { Migration } from "./index";
 
 /**
- * Frozen default brush settings as of schema version 20260224. Emits the pre-v2
- * shape on purpose: this migration runs before the brush-v2 one, which is what
- * converts the whole document to BrushSettingsV2.
+ * Frozen default brush settings as of schema version 20260224.
+ * Returns the legacy flat persisted shape; normalizeBrushSettings converts it
+ * into the current BrushSettings union when the document is loaded.
  */
-function createDefaultLineBrush(size: number): BrushSettingsV2 {
+function createDefaultLineBrush(size: number): BrushSettings {
 	return {
 		textureFileUid: "builtin-brush-line",
 		size,
@@ -22,7 +22,7 @@ function createDefaultLineBrush(size: number): BrushSettingsV2 {
 		sizeBySpeed: 0,
 		pooling: 0,
 		poolingSizeRatio: 0,
-	} as unknown as BrushSettingsV2;
+	} as unknown as BrushSettings;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, expect, it, type Mock, vi } from "vitest";
+import type { StampBuffer } from "../pipeline/brush/StampGenerator";
 import type { AppearanceCacheEntry } from "./AppearanceCache";
 import { RenderCacheManager } from "./RenderCacheManager";
-import type { StampBuffer } from "./StampCache";
 
 type MockEntry = AppearanceCacheEntry & { destroy: Mock };
 
@@ -124,20 +124,24 @@ describe("RenderCacheManager", () => {
 	describe("resident stamp ownership", () => {
 		it("should release the old fingerprint for the same path", () => {
 			const manager = new RenderCacheManager();
-			const oldEntry = makeResidentStampBuffer(4);
+			const oldEntry = makeResidentStampBuffer(4, 4);
 			manager.stamp.set("el1:old", oldEntry.entry, "el1");
 
 			manager.stamp.set("el1:new", makeStampBuffer(), "el1");
 
 			expect(manager.stamp.get("el1:old")).toBeUndefined();
-			expect(oldEntry.release).toHaveBeenCalledTimes(1);
+			expect(oldEntry.releases.stamps).toHaveBeenCalledTimes(1);
+			expect(oldEntry.releases.meta).toHaveBeenCalledTimes(1);
+			expect(oldEntry.releases.stops).toHaveBeenCalledTimes(1);
 		});
 
 		it("should evict the least-recently-used entry over the document byte budget", () => {
+			// A resident entry costs resident.byteSize alone — its `data` is the
+			// store-shared mirror already counted there.
 			const manager = new RenderCacheManager({ stampCacheMaxBytes: 16 });
-			const a = makeResidentStampBuffer(2);
-			const b = makeResidentStampBuffer(2);
-			const c = makeResidentStampBuffer(2);
+			const a = makeResidentStampBuffer(1, 8);
+			const b = makeResidentStampBuffer(1, 8);
+			const c = makeResidentStampBuffer(1, 8);
 			manager.stamp.set("a:fp", a.entry, "a");
 			manager.stamp.set("b:fp", b.entry, "b");
 			manager.stamp.get("a:fp");
@@ -147,7 +151,9 @@ describe("RenderCacheManager", () => {
 			expect(manager.stamp.get("a:fp")).toBeDefined();
 			expect(manager.stamp.get("b:fp")).toBeUndefined();
 			expect(manager.stamp.get("c:fp")).toBeDefined();
-			expect(b.release).toHaveBeenCalledTimes(1);
+			expect(b.releases.stamps).toHaveBeenCalledTimes(1);
+			expect(b.releases.meta).toHaveBeenCalledTimes(1);
+			expect(b.releases.stops).toHaveBeenCalledTimes(1);
 		});
 	});
 });
@@ -158,16 +164,26 @@ function makeStampBuffer(): StampBuffer {
 	return { data: new Float32Array(0), count: 0 };
 }
 
-/** An entry holding a resident dab lease. `dataFloats` sets what it costs
- *  the cache, since the entry is accounted by its own data alone. */
-function makeResidentStampBuffer(dataFloats: number) {
-	const release = vi.fn();
+function makeResidentStampBuffer(dataFloats: number, residentBytes: number) {
+	const releases = {
+		stamps: vi.fn(),
+		meta: vi.fn(),
+		stops: vi.fn(),
+	};
 	const entry = {
 		data: new Float32Array(dataFloats),
 		count: dataFloats,
-		residentDab: { handle: { release } },
+		resident: {
+			stamps: { release: releases.stamps },
+			meta: { release: releases.meta },
+			stops: { release: releases.stops },
+			metaSnapshot: new Float32Array(0),
+			stopsSnapshot: null,
+			syncedFrame: 0,
+			byteSize: residentBytes,
+		},
 	} as unknown as StampBuffer;
-	return { entry, release };
+	return { entry, releases };
 }
 
 function makeAppearanceEntry(): MockEntry {

@@ -1,24 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { readStoredBrushSize } from "../../brush/access";
 import type {
 	BoundingBox,
-	CubicBezierSegment,
-	Path,
-	StrokeAppearance,
 	TextContent,
 	TextLayout,
 	TextStyle,
 } from "../../schema";
-import { computeInverseCompositionTransform } from "./geometry";
 import {
 	createScaleTransform,
-	scaleSegments,
-	scaleStrokeFilters,
 	scaleTextContent,
 	scaleTextLayout,
 	scaleTextStyle,
 } from "./resize";
-import { getWorldSegments, toWorldPath } from "./segmentOps";
 
 // --- Helpers ---
 
@@ -73,70 +65,7 @@ function makeTextContent(
 	};
 }
 
-function makeStrokeAppearance(size: number): StrokeAppearance {
-	return {
-		uid: "app-stroke",
-		processor: "stroke",
-		opacity: 1,
-		blendMode: "normal",
-		paramData: {
-			version: "1",
-			params: {
-				strokeColor: {
-					type: "solid",
-					color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
-				},
-				brushSettings: {
-					version: 2,
-					engine: "geometric",
-					strokeOpacity: 1,
-					paintMode: "buildup",
-					properties: { size: { base: size } },
-					randomSeed: 0,
-				},
-			},
-		},
-	};
-}
-
 // --- Tests ---
-
-describe("scaleStrokeFilters", () => {
-	it("should scale brushSettings.size of stroke filters", () => {
-		const result = scaleStrokeFilters([makeStrokeAppearance(10)], 2);
-		const stroke = result?.[0] as StrokeAppearance;
-		expect(readStoredBrushSize(stroke.paramData.params.brushSettings)).toBe(20);
-	});
-
-	it("should pass non-stroke filters through unchanged", () => {
-		const fill = {
-			uid: "app-fill",
-			processor: "fill",
-			opacity: 1,
-			blendMode: "normal" as const,
-			paramData: { version: "1", params: {} },
-		};
-		const result = scaleStrokeFilters([fill], 2);
-		expect(result?.[0]).toBe(fill);
-	});
-
-	it("should return undefined for undefined filters", () => {
-		expect(scaleStrokeFilters(undefined, 2)).toBeUndefined();
-	});
-
-	it("should skip stroke filters without brushSettings", () => {
-		const app = makeStrokeAppearance(10);
-		app.paramData.params.brushSettings = undefined;
-		const result = scaleStrokeFilters([app], 2);
-		expect(result?.[0]).toBe(app);
-	});
-
-	it("should not mutate the original filter", () => {
-		const app = makeStrokeAppearance(10);
-		scaleStrokeFilters([app], 2);
-		expect(readStoredBrushSize(app.paramData.params.brushSettings)).toBe(10);
-	});
-});
 
 describe("scaleTextStyle", () => {
 	it("should scale fontSize by the uniform factor", () => {
@@ -402,130 +331,5 @@ describe("text resize integration", () => {
 		]);
 		const scaledContent = scaleTextContent(content, uniformScale);
 		expect(scaledContent.paragraphs[0].runs[0].style.fontSize).toBe(48);
-	});
-});
-
-describe("resize commit under a transformed ancestor", () => {
-	// Mirrors Paplico.applyElementResize's path branch: bake to world through
-	// the ancestor transform, scale in world space, then store the ancestor's
-	// inverse as the path transform so the renderer's re-applied ancestor
-	// transform cancels out.
-	it("should land the scaled path exactly where the world-space map put it", () => {
-		const ancestorT = {
-			x: 40,
-			y: -25,
-			rotation: Math.PI / 6,
-			scaleX: 1.5,
-			scaleY: 0.8,
-			skewX: 0,
-			skewY: 0,
-		};
-		const path = makePath();
-
-		const worldPath = toWorldPath(path, ancestorT);
-		const originalBounds = makeBounds(-100, -100, 100, 100);
-		const newBounds = makeBounds(-100, -100, 300, 300);
-		const map = createScaleTransform(originalBounds, newBounds);
-
-		const committed: Path = {
-			...path,
-			segments: scaleSegments(worldPath.segments, map),
-			transform: computeInverseCompositionTransform(ancestorT),
-		};
-
-		const rendered = getWorldSegments(committed, ancestorT);
-		const expected = committed.segments;
-
-		for (let i = 0; i < expected.length; i++) {
-			const expectedStart = expected[i].start;
-			if (expectedStart) {
-				expect(rendered[i].start?.x).toBeCloseTo(expectedStart.x, 6);
-				expect(rendered[i].start?.y).toBeCloseTo(expectedStart.y, 6);
-			}
-			expect(rendered[i].end.x).toBeCloseTo(expected[i].end.x, 6);
-			expect(rendered[i].end.y).toBeCloseTo(expected[i].end.y, 6);
-		}
-	});
-});
-
-function makePath(): Path {
-	const segments: CubicBezierSegment[] = [
-		{
-			start: { x: 10, y: 20 },
-			cp1: { x: 35, y: -8 },
-			cp2: { x: -24, y: 14 },
-			end: { x: 80, y: 50 },
-			startTiltX: 0,
-			startTiltY: 0,
-			endTiltX: 0,
-			endTiltY: 0,
-			startDeltaTime: 0,
-			endDeltaTime: 0,
-			isMoved: true,
-		},
-		{
-			cp1: { x: 12, y: -5 },
-			cp2: { x: -16, y: 9 },
-			end: { x: 120, y: 85 },
-			startTiltX: 0,
-			startTiltY: 0,
-			endTiltX: 0,
-			endTiltY: 0,
-			startDeltaTime: 0,
-			endDeltaTime: 0,
-			isMoved: false,
-		},
-	];
-
-	return {
-		type: "path",
-		id: "path-1",
-		opacity: 1,
-		blendMode: "normal",
-		transform: {
-			x: 15,
-			y: -10,
-			rotation: 0.2,
-			scaleX: 1,
-			scaleY: 1,
-			skewX: 0,
-			skewY: 0,
-		},
-		segments,
-	};
-}
-
-describe("scaleStrokeFilters with stored v2 brush settings", () => {
-	it("should scale the v2 size property base without corrupting the value", () => {
-		const app = makeStrokeAppearance(10);
-		app.paramData.params.brushSettings = {
-			version: 2,
-			engine: "dab",
-			strokeOpacity: 1,
-			paintMode: "buildup",
-			properties: {
-				size: {
-					base: 10,
-					curves: [
-						{
-							input: "pressure",
-							points: [
-								[0, -0.5],
-								[1, 0],
-							],
-						},
-					],
-				},
-			},
-			randomSeed: 0,
-		} as unknown as StrokeAppearance["paramData"]["params"]["brushSettings"];
-
-		const result = scaleStrokeFilters([app], 2);
-		const scaled = (result?.[0] as StrokeAppearance).paramData.params
-			.brushSettings as unknown as {
-			properties: { size?: { base: number; curves?: unknown[] } };
-		};
-		expect(scaled.properties.size?.base).toBe(20);
-		expect(scaled.properties.size?.curves?.length).toBe(1);
 	});
 });

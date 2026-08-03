@@ -36,7 +36,7 @@ export function MoreActionsMenu({
 	const commands = usePaplicoCommands();
 
 	const handleOutlineText = useEventCallback(() => {
-		paplico.commands.outlineTextElements([...selectedIds]);
+		paplico.outlineTextElements([...selectedIds]);
 	});
 
 	const handleCreateMask = useEventCallback(() => {
@@ -108,7 +108,8 @@ export function MoreActionsMenu({
 		// Immediately apply the new def as the current brush (mirrors the
 		// texture picker in BrushTools).
 		paplico.tools.setBrushSettings({
-			tipSource: { kind: "def", defId },
+			type: "scatter",
+			source: { kind: "def", defId },
 			colorMode: "color",
 		});
 		setSelectedBrushPresetUid(null);

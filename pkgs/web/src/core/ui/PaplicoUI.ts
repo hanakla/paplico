@@ -40,8 +40,6 @@ interface PaplicoUICallbacks {
 	 * above the contact point while drawing (0 = draw at the contact point).
 	 */
 	getTouchDrawOffsetScale?: () => number;
-	/** User-configured zoom ceiling; falls back to PAPLICO_MAX_ZOOM_SCALE when absent. */
-	getMaxZoomScale?: () => number;
 
 	// Yjs
 	updateCursor?: (x: number, y: number) => void;
@@ -963,19 +961,17 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 	): PointerEventData {
 		// Mouse reports a constant pressure (0.5 while pressed), so the pressure
 		// curve applies to pen/touch input only.
-		const transformPressure = (raw: number): number =>
+		const pressure =
 			e.pointerType !== "mouse" && this.callbacks.transformPressure
-				? this.callbacks.transformPressure(raw)
-				: raw;
-		const touchOffsetY = this.touchDrawOffsetY(e);
+				? this.callbacks.transformPressure(e.pressure)
+				: e.pressure;
 
-		const data: PointerEventData = {
+		return {
 			x: e.clientX - rect.left,
-			y: e.clientY - rect.top - touchOffsetY,
-			pressure: transformPressure(e.pressure),
+			y: e.clientY - rect.top - this.touchDrawOffsetY(e),
+			pressure,
 			tiltX: e.tiltX,
 			tiltY: e.tiltY,
-			twist: e.twist ?? 0,
 			pointerType: e.pointerType as "mouse" | "pen" | "touch",
 			button: e.button,
 			contactWidth: e.width,
@@ -985,27 +981,6 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			altKey: e.altKey,
 			metaKey: e.metaKey,
 		};
-
-		// Raw input samples between frames (drawing tools append them all).
-		if (
-			e.type === "pointermove" &&
-			typeof e.getCoalescedEvents === "function"
-		) {
-			const events = e.getCoalescedEvents();
-			if (events.length > 0) {
-				data.coalesced = events.map((ce) => ({
-					x: ce.clientX - rect.left,
-					y: ce.clientY - rect.top - touchOffsetY,
-					pressure: transformPressure(ce.pressure),
-					tiltX: ce.tiltX,
-					tiltY: ce.tiltY,
-					twist: ce.twist ?? 0,
-					timeStamp: ce.timeStamp,
-				}));
-			}
-		}
-
-		return data;
 	}
 
 	/**
@@ -1026,10 +1001,6 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			TOUCH_DRAW_OFFSET_BASE_PX *
 			(this.callbacks.getTouchDrawOffsetScale?.() ?? 0)
 		);
-	}
-
-	private maxZoomScale(): number {
-		return this.callbacks.getMaxZoomScale?.() ?? PAPLICO_MAX_ZOOM_SCALE;
 	}
 
 	// --- Gesture Logic ---
@@ -1222,7 +1193,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
 			const newZoom = Math.max(
 				PAPLICO_MIN_ZOOM_SCALE,
-				Math.min(this.maxZoomScale(), viewport.zoom * zoomFactor),
+				Math.min(PAPLICO_MAX_ZOOM_SCALE, viewport.zoom * zoomFactor),
 			);
 
 			// Use screenToWorld (rotation-aware) to find world position under cursor
@@ -1580,7 +1551,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		if (g.intent === "pan-zoom") {
 			const newZoom = Math.max(
 				PAPLICO_MIN_ZOOM_SCALE,
-				Math.min(this.maxZoomScale(), g.startZoom * distanceRatio),
+				Math.min(PAPLICO_MAX_ZOOM_SCALE, g.startZoom * distanceRatio),
 			);
 
 			const cos = Math.cos(-g.startRotation);
@@ -1684,7 +1655,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		const newRotation = g.startRotation + (ge.rotation * Math.PI) / 180;
 		const newZoom = Math.max(
 			PAPLICO_MIN_ZOOM_SCALE,
-			Math.min(this.maxZoomScale(), g.startZoom * ge.scale),
+			Math.min(PAPLICO_MAX_ZOOM_SCALE, g.startZoom * ge.scale),
 		);
 
 		// Solve for viewport center so that cursorWorld stays at cursorScreen

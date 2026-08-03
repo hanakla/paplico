@@ -1,6 +1,6 @@
 import {
 	type BrushArtSource,
-	type BrushSettingsV2,
+	type BrushSettings,
 	BUILTIN_BRUSH_IDS,
 } from "../schema";
 
@@ -16,49 +16,54 @@ export interface DefSourceResolver {
 
 /**
  * Return a copy of `settings` whose primary texture source points at `fileUid`.
- * Image tips and ribbons get their source re-pointed; procedural tips and the
- * geometric engine sample no texture and come back unchanged.
+ * Texture-backed methods (scatter/art/pattern) get their `source` re-pointed;
+ * texture-less methods (stroke/calligraphy) are returned unchanged.
+ *
+ * Legacy flat records (no `type` discriminator) can still reach this function
+ * at runtime from unnormalized persisted data — normalization must happen at
+ * the read boundary (see normalizeBrushSettings), but this function returns
+ * `settings` unchanged rather than `undefined` as a last-resort backstop.
  */
 export function withTextureFileUid(
-	settings: BrushSettingsV2,
+	settings: BrushSettings,
 	fileUid: string,
-): BrushSettingsV2 {
-	if (settings.tip?.kind === "image") {
-		return {
-			...settings,
-			tip: {
-				...settings.tip,
-				sources: [{ kind: "file", fileUid }, ...settings.tip.sources.slice(1)],
-			},
-		};
+): BrushSettings {
+	switch (settings.type) {
+		case "scatter":
+		case "art":
+		case "pattern":
+			return { ...settings, source: { kind: "file", fileUid } };
+		case "stroke":
+		case "calligraphy":
+			return settings;
+		default:
+			return settings;
 	}
-	if (settings.ribbon) {
-		return {
-			...settings,
-			ribbon: { ...settings.ribbon, source: { kind: "file", fileUid } },
-		};
-	}
-	return settings;
 }
 
 /**
  * Resolve the texture UID a brush stamp/ribbon pipeline should sample.
- * Returns null for geometric stroke (no texture). `def` sources are rasterized
- * via DefRasterizer; without a resolver they fall back to a built-in texture
- * so rendering keeps working.
+ * Returns null for geometric stroke (no texture). `def` sources will be
+ * rasterized via DefRasterizer in a later step; until then they fall back to a
+ * built-in texture so existing rendering keeps working.
  */
 export function resolveBrushTextureUid(
-	s: BrushSettingsV2,
+	s: BrushSettings,
 	defResolver?: DefSourceResolver,
 ): string | null {
-	if (s.tip?.kind === "image") {
-		return resolveSourceUid(s.tip.sources[0], defResolver);
+	switch (s.type) {
+		case "stroke":
+			return null;
+		case "scatter":
+		case "art":
+		case "pattern":
+			return resolveSourceUid(s.source, defResolver);
+		case "calligraphy":
+			// Calligraphy renders as a procedural elliptical nib via texture
+			// scaling, but the stamp pipeline still needs a bound texture —
+			// the hard circle keeps the bind group valid.
+			return BUILTIN_BRUSH_IDS.hardCircle;
 	}
-	if (s.ribbon) return resolveSourceUid(s.ribbon.source, defResolver);
-	if (s.engine === "geometric") return null;
-	// Procedural dab tips render without an image but the stamp pipeline
-	// still needs a bound texture.
-	return BUILTIN_BRUSH_IDS.hardCircle;
 }
 
 /** Resolve scatter variant sources (if any) to texture UIDs. */

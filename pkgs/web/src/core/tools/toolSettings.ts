@@ -4,7 +4,6 @@
  */
 
 import { proxy } from "valtio";
-import { PAPLICO_MAX_ZOOM_SCALE } from "../document/constants";
 import {
 	createDefaultColor,
 	createStrokeBrushSettings,
@@ -139,12 +138,6 @@ export interface ToolSettings {
 	 * enabled is harmless otherwise.
 	 */
 	perspectiveSnap: boolean;
-	/**
-	 * User-configured ceiling for interactive zoom (wheel/pinch/gesture and
-	 * bucket-fill leak auto-zoom), clamped to
-	 * [PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE, PAPLICO_MAX_ZOOM_SCALE].
-	 */
-	maxZoomScale: number;
 }
 
 export function createToolSettings(): ToolSettings {
@@ -197,6 +190,5 @@ export function createToolSettings(): ToolSettings {
 		pressureCurvePoints: [...DEFAULT_PRESSURE_CURVE],
 		touchDrawOffsetScale: 1,
 		perspectiveSnap: true,
-		maxZoomScale: PAPLICO_MAX_ZOOM_SCALE,
 	});
 }

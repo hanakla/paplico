@@ -75,8 +75,6 @@ export interface MaskEntry {
 	bounds: BoundingBox;
 	/** BG3 bind group for this mask's texture_2d + sampler. */
 	bindGroup: GPUBindGroup;
-	/** View of the mask texture, for multi-mask chain bind groups. */
-	textureView: GPUTextureView;
 }
 
 /** Cache key for the mask a clip path produces. */
@@ -469,12 +467,11 @@ export class ClipMaskAtlas {
 		};
 
 		// Create BG3 bind group for this mask.
-		const textureView = maskTexture.createView();
 		const bindGroup = this.deps.device.createBindGroup({
 			label: `Clip Mask Bind Group [${index}]`,
 			layout: this.deps.maskBindGroupLayout,
 			entries: [
-				{ binding: 0, resource: textureView },
+				{ binding: 0, resource: maskTexture.createView() },
 				{ binding: 1, resource: this.sampler },
 			],
 		});
@@ -483,7 +480,6 @@ export class ClipMaskAtlas {
 			layerIndex: 0,
 			bounds: maskBounds,
 			bindGroup,
-			textureView,
 		});
 	}
 }

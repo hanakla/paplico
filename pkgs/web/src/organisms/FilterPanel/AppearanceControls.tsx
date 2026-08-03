@@ -7,12 +7,9 @@ import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { readStoredBrushSize, withStoredBrushSize } from "@/core/brush/access";
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
-import { resolveBrushRenderRoute } from "@/core/brush/renderRoute";
+import { normalizeBrushSettings } from "@/core/brush/normalize";
 import type {
 	BlendMode,
-	BrushStroking,
 	Color,
 	FillAppearance,
 	Filter,
@@ -20,6 +17,7 @@ import type {
 	LineJoin,
 	StrokeAppearance,
 } from "@/core/schema";
+import { type BrushStroking, isGeometricBrush } from "@/core/schema";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { useTranslation } from "@/locales";
 import {
@@ -153,10 +151,7 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 		// bind the designer to this filter index so edits flow back here
 		// instead of into the element's first stroke appearance.
 		if (params.brushSettings) {
-			// Loaded as stored, not through the legacy view: that view has
-			// nowhere to hold curves, mixing or the wet layer, so opening the
-			// designer on an appearance would strip them from it.
-			tools.setBrushSettings(normalizeBrushSettingsV2(params.brushSettings));
+			tools.setBrushSettings(normalizeBrushSettings(params.brushSettings));
 		}
 		setSelectedBrushPresetUid(null);
 		setBrushDesignerTargetFilterIndex(index);
@@ -186,19 +181,18 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 						$behaviour="click"
 						$side="end"
 						$size="xs"
-						value={(readStoredBrushSize(params.brushSettings) ?? 1).toFixed(1)}
+						value={(params.brushSettings?.size ?? 1).toFixed(1)}
 						onChange={(val) => {
 							if (val == null) return;
 							const parsed = Number.parseFloat(val.trim());
 							if (Number.isNaN(parsed)) return;
 							const clamped = Math.min(100, Math.max(0.5, parsed));
-							if (!params.brushSettings) return;
 							commands.updateFilterForSelectedElement(index, {
 								params: {
-									brushSettings: withStoredBrushSize(
-										params.brushSettings,
-										clamped,
-									),
+									brushSettings: {
+										...params.brushSettings,
+										size: clamped,
+									},
 								},
 							});
 						}}
@@ -208,15 +202,17 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 					min={0.5}
 					max={100}
 					step={0.5}
-					value={readStoredBrushSize(params.brushSettings) ?? 1}
-					onValueChange={(val) => {
-						if (!params.brushSettings) return;
+					value={params.brushSettings?.size ?? 1}
+					onValueChange={(val) =>
 						commands.updateFilterForSelectedElement(index, {
 							params: {
-								brushSettings: withStoredBrushSize(params.brushSettings, val),
+								brushSettings: {
+									...params.brushSettings,
+									size: val,
+								},
 							},
-						});
-					}}
+						})
+					}
 				/>
 			</div>
 
@@ -235,8 +231,7 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 				filter={filter}
 				disabled={
 					!params.brushSettings ||
-					resolveBrushRenderRoute(params.brushSettings).settings.engine !==
-						"geometric"
+					!isGeometricBrush(normalizeBrushSettings(params.brushSettings))
 				}
 			/>
 		</AppearanceBaseControls>
@@ -258,10 +253,10 @@ export const StrokeGeometryControls = memo(function StrokeGeometryControls({
 	const t = useTranslation();
 
 	const normalizedBrush = params.brushSettings
-		? resolveBrushRenderRoute(params.brushSettings).settings
+		? normalizeBrushSettings(params.brushSettings)
 		: null;
 	const stroking =
-		normalizedBrush?.engine === "geometric"
+		normalizedBrush && isGeometricBrush(normalizedBrush)
 			? normalizedBrush.stroking
 			: undefined;
 	const lineCap = stroking?.lineCap ?? "round";
@@ -385,7 +380,7 @@ export const StrokeGeometryControls = memo(function StrokeGeometryControls({
 
 			<DashPatternControls
 				stroking={stroking}
-				strokeWidth={normalizedBrush?.properties.size?.base ?? 2}
+				strokeWidth={normalizedBrush?.size ?? 2}
 				disabled={disabled}
 				onChange={updateStroking}
 			/>

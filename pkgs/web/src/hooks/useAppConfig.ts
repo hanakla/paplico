@@ -1,8 +1,4 @@
 import { proxy, subscribe, useSnapshot } from "valtio";
-import {
-	PAPLICO_MAX_ZOOM_SCALE,
-	PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
-} from "@/core/document/constants";
 import type { ShortcutsConfig } from "@/core/PaplicoShortcuts";
 import { MAX_TOUCH_DRAW_OFFSET_SCALE } from "@/core/tools/toolSettings";
 import {
@@ -59,9 +55,6 @@ interface AppConfig {
 	selectSelectionMode: "lasso" | "rectangle";
 	/** Selection mode for the PathEdit tool: lasso or rectangle marquee */
 	pathEditSelectionMode: "lasso" | "rectangle";
-	/** Highest zoom the user can interactively reach (wheel/pinch/gesture, and
-	 *  bucket-fill leak auto-zoom). Clamped to [PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE, PAPLICO_MAX_ZOOM_SCALE]. */
-	maxZoomScale: number;
 }
 
 function detectDefaultLanguage(): Language {
@@ -147,7 +140,6 @@ export const appConfig = proxy<AppConfig>({
 	touchDrawOffsetScale: 1,
 	selectSelectionMode: "rectangle",
 	pathEditSelectionMode: "rectangle",
-	maxZoomScale: 100,
 });
 
 // Persist and apply theme on every change
@@ -169,7 +161,6 @@ subscribe(appConfig, () => {
 		touchDrawOffsetScale: appConfig.touchDrawOffsetScale,
 		selectSelectionMode: appConfig.selectSelectionMode,
 		pathEditSelectionMode: appConfig.pathEditSelectionMode,
-		maxZoomScale: appConfig.maxZoomScale,
 	});
 	applyThemeToDOM(appConfig.theme);
 });
@@ -234,13 +225,6 @@ export function resolveTouchDrawOffsetScale(): number {
 	return appConfig.touchDrawOffsetEnabled ? appConfig.touchDrawOffsetScale : 0;
 }
 
-export function setMaxZoomScale(scale: number): void {
-	appConfig.maxZoomScale = Math.max(
-		PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
-		Math.min(PAPLICO_MAX_ZOOM_SCALE, scale),
-	);
-}
-
 // --- Init ---
 
 let initialized = false;
@@ -292,11 +276,6 @@ export async function initAppConfig(): Promise<void> {
 		appConfig.pathEditSelectionMode = stored.pathEditSelectionMode as
 			| "lasso"
 			| "rectangle";
-	if (stored.maxZoomScale !== undefined)
-		appConfig.maxZoomScale = Math.max(
-			PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
-			Math.min(PAPLICO_MAX_ZOOM_SCALE, stored.maxZoomScale),
-		);
 
 	applyThemeToDOM(appConfig.theme);
 	listenSystemThemeChange();
