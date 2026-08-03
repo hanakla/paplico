@@ -186,13 +186,19 @@ describe("webBrushPresetsRepo", () => {
 
 		const listed = await webBrushPresetsRepo.list();
 		expect(listed).toHaveLength(1);
-		expect(listed[0]?.defaultSettings.type).toBe("scatter");
+		const listedSettings = listed[0]?.defaultSettings;
+		if (listedSettings == null || "version" in listedSettings)
+			throw new Error("expected v1 settings");
+		expect(listedSettings.type).toBe("scatter");
 		expect(resolveBrushTextureUid(listed[0]!.defaultSettings)).toBe(
 			"builtin-brush-soft-circle",
 		);
 
 		const got = await webBrushPresetsRepo.get("brush-preset-legacy");
-		expect(got?.defaultSettings.type).toBe("scatter");
+		const gotSettings = got?.defaultSettings;
+		if (gotSettings == null || "version" in gotSettings)
+			throw new Error("expected v1 settings");
+		expect(gotSettings.type).toBe("scatter");
 
 		// createPersistedBrushPreviewSource routes defaultSettings through
 		// withTextureFileUid — must not blow up on a (now-normalized) record

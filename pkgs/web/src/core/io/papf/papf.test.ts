@@ -622,7 +622,7 @@ describe("PAPF format", () => {
 	});
 
 	describe("brush presets", () => {
-		it("roundtrips a v2 preset (settings union) unchanged", async () => {
+		it("migrates a union preset to BrushSettingsV2 and round-trips it stably", async () => {
 			const doc = makeMinimalDoc({
 				brushPresets: [
 					{
@@ -644,7 +644,17 @@ describe("PAPF format", () => {
 			const restored = await (await openPapf(blob)).toDocument();
 
 			expect(restored.brushPresets).toHaveLength(1);
-			expect(restored.brushPresets[0]).toEqual(doc.brushPresets[0]);
+			const settings = restored.brushPresets[0]!.settings;
+			if (!("version" in settings)) throw new Error("expected v2 settings");
+			expect(settings.version).toBe(2);
+			expect(settings.engine).toBe("geometric");
+			expect(settings.properties.size?.base).toBe(4);
+
+			// A second save/load cycle must be a fixed point (idempotent migration).
+			const restoredTwice = await (
+				await openPapf(await serializeDocument(restored))
+			).toDocument();
+			expect(restoredTwice.brushPresets[0]).toEqual(restored.brushPresets[0]);
 		});
 
 		it("normalizes a v1 preset (textureFileUid + defaultSettings) into the settings union so it survives round-tripping", async () => {
@@ -666,22 +676,17 @@ describe("PAPF format", () => {
 			expect(restored.brushPresets).toHaveLength(1);
 			const preset = restored.brushPresets[0]!;
 			expect(preset.uid).toBe("brush-preset-legacy");
-			expect(preset.settings).toEqual({
-				type: "scatter",
-				source: { kind: "file", fileUid: "builtin-brush-soft-circle" },
-				size: 24,
-				sizeByPressure: 0.5,
-				opacity: 0.8,
-				opacityByPressure: 0.3,
-				randomSeed: 0,
-				spacing: 0.1,
-				flow: 1,
-				stampRotation: "none",
-				rotationByTilt: 0,
-				aspectRatioByTilt: 0,
-				sizeBySpeed: 0,
-				pooling: 0,
-				poolingSizeRatio: 0.5,
+			const settings = preset.settings;
+			if (!("version" in settings)) throw new Error("expected v2 settings");
+			expect(settings.version).toBe(2);
+			expect(settings.engine).toBe("dab");
+			expect(settings.properties.size?.base).toBe(24);
+			// opacity x flow folds into flow.base (design §13-8).
+			expect(settings.properties.flow?.base).toBeCloseTo(0.8, 10);
+			if (settings.tip?.kind !== "image") throw new Error("expected image tip");
+			expect(settings.tip.sources[0]).toEqual({
+				kind: "file",
+				fileUid: "builtin-brush-soft-circle",
 			});
 			// The legacy flat fields must not survive normalization.
 			expect("defaultSettings" in preset).toBe(false);

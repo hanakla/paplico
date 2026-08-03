@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 import { describe, expect, it } from "vitest";
+import { readStoredBrushSize } from "@/core/brush/access";
 import type { BlurFilter } from "../../renderer/filters";
 import type {
 	BrushPreset,
@@ -280,7 +281,7 @@ describe("migAppearanceFilters (20260221)", () => {
 
 		const el = doc.objects.g1 as any;
 		const f = el.filters[0] as StrokeAppearance;
-		expect(f.paramData.params.brushSettings?.size).toBe(1);
+		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(1);
 	});
 
 	it("migrates multiple elements in doc.objects", () => {
@@ -336,7 +337,7 @@ describe("migBrushSettings (20260224)", () => {
 		expect(el.width).toBeUndefined();
 		const f = el.filters[0] as StrokeAppearance;
 		expect(f.paramData.params.brushSettings).toBeDefined();
-		expect(f.paramData.params.brushSettings?.size).toBe(3);
+		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(3);
 	});
 
 	it("backfills missing brushSettings with 1px when no element.width", () => {
@@ -370,7 +371,7 @@ describe("migBrushSettings (20260224)", () => {
 		applyMigration(doc, migBrushSettings);
 
 		const f = (doc.objects.p1 as any).filters[0] as StrokeAppearance;
-		expect(f.paramData.params.brushSettings?.size).toBe(1);
+		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(1);
 	});
 
 	it("uses legacy element.width when backfilling missing brushSettings", () => {
@@ -398,7 +399,7 @@ describe("migBrushSettings (20260224)", () => {
 		const el = doc.objects.p1 as any;
 		expect(el.width).toBeUndefined();
 		const f = el.filters[0] as StrokeAppearance;
-		expect(f.paramData.params.brushSettings?.size).toBe(7);
+		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(7);
 	});
 
 	it("does not overwrite existing brushSettings.size with element.width", () => {
@@ -445,7 +446,7 @@ describe("migBrushSettings (20260224)", () => {
 		const el = doc.objects.p1 as any;
 		expect(el.width).toBeUndefined();
 		const f = el.filters[0] as StrokeAppearance;
-		expect(f.paramData.params.brushSettings?.size).toBe(3);
+		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(3);
 		expect((f.paramData.params.brushSettings as any)?.textureFileUid).toBe(
 			"builtin-brush-solid",
 		);
@@ -522,7 +523,7 @@ describe("migBrushSettings (20260224)", () => {
 		applyMigration(doc, migBrushSettings);
 
 		const f = (doc.objects.p1 as any).filters[0] as StrokeAppearance;
-		expect(f.paramData.params.brushSettings?.size).toBe(8);
+		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(8);
 		expect((f.paramData.params.brushSettings as any)?.textureFileUid).toBe(
 			"builtin-brush-solid",
 		);
@@ -1240,12 +1241,12 @@ describe("migGradientStopMidpoint (20260722)", () => {
 		});
 	});
 
-	it("updates schemaVersion to 20260722 via applyMigrations", () => {
+	it("updates schemaVersion to 20260803 via applyMigrations", () => {
 		const doc = makeDoc({}, 20260705);
 
 		applyMigrations(doc);
 
-		expect(doc.schemaVersion).toBe(20260722);
+		expect(doc.schemaVersion).toBe(20260803);
 	});
 });
 

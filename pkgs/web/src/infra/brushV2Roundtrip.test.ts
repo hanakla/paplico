@@ -1,4 +1,5 @@
 import "fake-indexeddb/auto";
+import { encode } from "cbor-x";
 import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import type { BrushSettings } from "@/core/schema";
 import type { PersistedBrushPreset } from "@/repos/brushPresets";
@@ -78,5 +79,114 @@ describe("brush v2 IndexedDB roundtrip", () => {
 		const convertedTwice = normalizeBrushSettingsV2(second.defaultSettings);
 
 		expect(convertedTwice).toEqual(convertedOnce);
+	});
+});
+
+describe("papb v2 storage switchover", () => {
+	function makeV2Preset(): PersistedBrushPreset {
+		return {
+			...makeV1Preset(),
+			uid: "preset-v2",
+			name: "V2 Preset",
+			defaultSettings: normalizeBrushSettingsV2({
+				version: 2,
+				engine: "dab",
+				strokeOpacity: 1,
+				paintMode: "buildup",
+				properties: {
+					size: { base: 20 },
+					flow: {
+						base: 0.5,
+						curves: [
+							{
+								input: "strokeT",
+								points: [
+									[0, 0.4],
+									[0.5, -0.2],
+									[1, 0.4],
+								],
+							},
+						],
+					},
+				},
+				tip: {
+					kind: "image",
+					sources: [{ kind: "file", fileUid: "tex-1" }],
+					selection: "random",
+					angleMode: "fixed",
+				},
+				randomSeed: 0,
+			}) as unknown as PersistedBrushPreset["defaultSettings"],
+		};
+	}
+
+	it("should write schemaVersion 2 and still accept version-1 payloads", () => {
+		const encoded = serializePapb(makeV1Preset());
+		expect(parsePapb(encoded).schemaVersion).toBe(2);
+
+		const legacyPayload = encode({
+			schemaVersion: 1,
+			brushPreset: makeV1Preset(),
+		}) as Uint8Array;
+		expect(parsePapb(legacyPayload).brushPreset.uid).toBe("preset-v1");
+	});
+
+	it("should preserve stored v2 settings (curves included) across a papb roundtrip", () => {
+		const preset = makeV2Preset();
+		const parsed = parsePapb(serializePapb(preset));
+		const settings = parsed.brushPreset.defaultSettings as unknown as {
+			version?: number;
+			properties: {
+				flow?: { curves?: { input: string; points: number[][] }[] };
+			};
+		};
+		expect(settings.version).toBe(2);
+		expect(settings.properties.flow?.curves?.[0].input).toBe("strokeT");
+		expect(settings.properties.flow?.curves?.[0].points.length).toBe(3);
+	});
+});
+
+describe("IndexedDB v2 storage switchover", () => {
+	afterEach(async () => {
+		await brushPresetsDB.brushPresets.clear();
+	});
+
+	it("should preserve stored v2 settings across read/save/read", async () => {
+		const v2Settings = normalizeBrushSettingsV2({
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				flow: {
+					base: 0.5,
+					curves: [
+						{
+							input: "fade",
+							points: [
+								[0, 0],
+								[1, -0.5],
+							],
+						},
+					],
+				},
+			},
+			randomSeed: 0,
+		});
+		await brushPresetsDB.brushPresets.put({
+			...makeV1Preset(),
+			uid: "preset-v2-db",
+			defaultSettings:
+				v2Settings as unknown as PersistedBrushPreset["defaultSettings"],
+		});
+
+		const first = await webBrushPresetsRepo.get("preset-v2-db");
+		if (first === null) throw new Error("unreachable");
+		expect(first.defaultSettings).toEqual(v2Settings);
+
+		await webBrushPresetsRepo.save(first);
+		const second = await webBrushPresetsRepo.get("preset-v2-db");
+		if (second === null) throw new Error("unreachable");
+		expect(second.defaultSettings).toEqual(v2Settings);
 	});
 });
