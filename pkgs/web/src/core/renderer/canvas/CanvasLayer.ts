@@ -4205,7 +4205,13 @@ export class CanvasLayer {
 		);
 
 		// Create accumulator texture at element-level textureBounds size.
-		const maxDim = this.device.limits.maxTextureDimension2D;
+		// Wash plans cap at 4096 px per side (64 MB) so even a huge stroke's
+		// result always fits the cross-frame cache — effectiveZoom below
+		// scales the isolated render down to match.
+		const maxDim = Math.min(
+			this.device.limits.maxTextureDimension2D,
+			washCacheKey != null ? 4096 : Number.POSITIVE_INFINITY,
+		);
 		let accWidth = Math.min(
 			Math.ceil(fp.textureBounds.width * rasterScale),
 			maxDim,
@@ -4443,12 +4449,7 @@ export class CanvasLayer {
 						maxV: 0.5 + accVHalf,
 					};
 
-		// An entry bigger than a quarter of the budget would evict itself (or
-		// everything else) every frame — leave giants uncached.
-		const cacheable =
-			washCacheKey != null &&
-			accWidth * accHeight * 4 <= (384 * 1024 * 1024) / 4;
-		if (cacheable) {
+		if (washCacheKey != null) {
 			const entry = {
 				key: washCacheKey,
 				texture: accTexture,
