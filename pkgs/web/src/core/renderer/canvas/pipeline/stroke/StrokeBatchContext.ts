@@ -47,6 +47,7 @@ import { compileShaderModule } from "../../../../utils/wgpu-utils";
 import {
 	buildBrushDabShader,
 	type DabTipMode,
+	WET_SEED_TARGETS,
 } from "../../../shaders/brushDab.wgsl";
 import {
 	BRUSH_STAMP_ARRAY_SHADER,
@@ -2102,6 +2103,190 @@ export class StrokeBatchContext {
 	 *  strokes. Residency/batching integration arrives with
 	 *  BrushStrokeSession (plan phase 2); until then every v2 dab stroke
 	 *  uploads its instances per frame. */
+	/**
+	 * Draw a wet stroke's dabs into the wet layer's seed targets.
+	 *
+	 * The pass belongs to the caller (WetLayerPass consumes what lands here),
+	 * which is why this takes an open encoder: the seed targets are cleared to
+	 * the stroke's base coefficients so texels no dab covers keep them.
+	 */
+	public renderWetSeedDabs(args: {
+		passEncoder: GPURenderPassEncoder;
+		path: Path;
+		settings: BrushSettingsV2;
+		segments: CubicBezierSegment[];
+		alphaMultiplier: number;
+		transformsBindGroup: GPUBindGroup | undefined;
+		transformIndex: number;
+	}): void {
+		const tip = this.resolveDabTipSetup(args.settings);
+		if (!tip) return;
+
+		const dabs = evaluateDabs(args.segments, args.settings, {
+			pathStart: args.path.pathStart ?? 0,
+			pathEnd: args.path.pathEnd ?? 1,
+			strokeWidths: args.path.strokeWidths,
+			textureAspectRatio: tip.textureAspectRatio,
+			variantCount: tip.variantCount,
+			startLayerIndex: tip.startLayerIndex,
+			endLayerIndex: tip.endLayerIndex,
+		});
+		if (dabs.count === 0) return;
+
+		const floatCount = dabs.count * DAB_INSTANCE_FLOATS;
+		const dabBuffer = this.acquireStampBuffer(floatCount * 4);
+		const dabView = dabs.data.subarray(0, floatCount);
+		this.device.queue.writeBuffer(
+			dabBuffer,
+			0,
+			dabView.buffer as ArrayBuffer,
+			dabView.byteOffset,
+			dabView.byteLength,
+		);
+
+		const singleMeta = new Float32Array(PATH_META_FLOATS);
+		this.writeSinglePathMeta(
+			singleMeta,
+			0,
+			args.path,
+			args.alphaMultiplier,
+			args.transformIndex,
+		);
+		const pathMetaBuffer = this.acquirePathMetaBuffer(PATH_META_FLOATS * 4);
+		this.device.queue.writeBuffer(pathMetaBuffer, 0, singleMeta);
+		const { strokeColor } = StrokeBatchContext.extractStrokeParams(args.path);
+		const stopData = buildColorStopsData(strokeColor);
+		const colorStopsBuffer = this.acquireColorStopsBuffer(stopData.byteLength);
+		this.device.queue.writeBuffer(colorStopsBuffer, 0, stopData);
+
+		const { pipeline, bindGroupLayout } = this.ensureWetSeedPipeline(
+			tip.tipMode,
+		);
+		args.passEncoder.setPipeline(pipeline);
+		args.passEncoder.setBindGroup(
+			0,
+			this.device.createBindGroup({
+				label: "Wet Seed Bind Group 0",
+				layout: bindGroupLayout,
+				entries: [
+					{
+						binding: 0,
+						resource: { buffer: this.getEffectiveUniformBuffer() },
+					},
+					{ binding: 1, resource: { buffer: dabBuffer } },
+					{ binding: 2, resource: tip.textureView },
+					{ binding: 3, resource: tip.sampler },
+					...this.grainBindings(args.path),
+				],
+			}),
+		);
+		args.passEncoder.setBindGroup(
+			1,
+			this.device.createBindGroup({
+				label: "Wet Seed Bind Group 1",
+				layout: this.brushBindGroupLayout,
+				entries: [
+					{ binding: 0, resource: { buffer: pathMetaBuffer } },
+					{ binding: 1, resource: { buffer: colorStopsBuffer } },
+				],
+			}),
+		);
+		if (args.transformsBindGroup) {
+			args.passEncoder.setBindGroup(2, args.transformsBindGroup);
+		}
+		args.passEncoder.setBindGroup(3, this.getMaskBindGroup());
+		args.passEncoder.draw(6, dabs.count);
+	}
+
+	/** Group 0 layout of every dab pipeline: viewport uniform, dab instances,
+	 *  the tip texture/sampler and the paper grain pair. */
+	private createDabBindGroupLayout(
+		mode: DabTipMode,
+		cacheKey: string,
+	): GPUBindGroupLayout {
+		return this.device.createBindGroupLayout({
+			label: `Brush Dab Bind Group Layout 0 (${cacheKey})`,
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.VERTEX,
+					buffer: { type: "uniform" },
+				},
+				{
+					// The fragment stage reads per-dab extras via the flat
+					// instance index (packed color, hardness layer, wet seeds).
+					binding: 1,
+					visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: {
+						sampleType: "float",
+						viewDimension: mode === "image" ? "2d" : "2d-array",
+					},
+				},
+				{
+					binding: 3,
+					visibility: GPUShaderStage.FRAGMENT,
+					sampler: { type: "filtering" },
+				},
+				{
+					binding: 4,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: { sampleType: "float" },
+				},
+				{
+					binding: 5,
+					visibility: GPUShaderStage.FRAGMENT,
+					sampler: { type: "filtering" },
+				},
+			],
+		});
+	}
+
+	/** Dab pipeline writing the wet seed targets. Separate from the painting
+	 *  pipeline because it has no depth attachment and six colour targets. */
+	private ensureWetSeedPipeline(mode: DabTipMode): {
+		pipeline: GPURenderPipeline;
+		bindGroupLayout: GPUBindGroupLayout;
+	} {
+		const cacheKey = `${mode}:wetSeed`;
+		const existing = this.dabPipelines.get(cacheKey);
+		if (existing) return existing;
+
+		const { module } = compileShaderModule(this.device, {
+			label: `Brush Dab Shader (${cacheKey})`,
+			code: buildBrushDabShader({ tipMode: mode, wetSeed: true }),
+		});
+		const bindGroupLayout = this.createDabBindGroupLayout(mode, cacheKey);
+		const pipeline = this.device.createRenderPipeline({
+			label: `Brush Dab Pipeline (${cacheKey})`,
+			layout: this.device.createPipelineLayout({
+				label: `Brush Dab Pipeline Layout (${cacheKey})`,
+				bindGroupLayouts: [
+					bindGroupLayout,
+					this.brushBindGroupLayout,
+					this.transformsBindGroupLayout,
+					this.maskBindGroupLayout,
+				],
+			}),
+			vertex: { module, entryPoint: "vs_main" },
+			fragment: {
+				module,
+				entryPoint: "fs_wet",
+				targets: [...WET_SEED_TARGETS],
+			},
+			primitive: { topology: "triangle-list", cullMode: "none" },
+			multisample: { count: RENDER_SAMPLE_COUNT },
+		});
+
+		const entry = { pipeline, bindGroupLayout };
+		this.dabPipelines.set(cacheKey, entry);
+		return entry;
+	}
+
 	/** Set up one mixing stroke's draw state (pipeline + bind groups). The
 	 *  mix driver draws each chunk into its own render pass via
 	 *  drawMixedDabChunk as the chunked mix pass resolves colors. Buffers are
@@ -2508,46 +2693,7 @@ export class StrokeBatchContext {
 			label: `Brush Dab Shader (${cacheKey})`,
 			code: buildBrushDabShader({ tipMode: mode, mixedColors }),
 		});
-		const bindGroupLayout = this.device.createBindGroupLayout({
-			label: `Brush Dab Bind Group Layout 0 (${mode})`,
-			entries: [
-				{
-					binding: 0,
-					visibility: GPUShaderStage.VERTEX,
-					buffer: { type: "uniform" },
-				},
-				{
-					// The fragment stage reads per-dab extras via the flat
-					// instance index (packed color, hardness layer, wet seeds).
-					binding: 1,
-					visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-					buffer: { type: "read-only-storage" },
-				},
-				{
-					binding: 2,
-					visibility: GPUShaderStage.FRAGMENT,
-					texture: {
-						sampleType: "float",
-						viewDimension: mode === "image" ? "2d" : "2d-array",
-					},
-				},
-				{
-					binding: 3,
-					visibility: GPUShaderStage.FRAGMENT,
-					sampler: { type: "filtering" },
-				},
-				{
-					binding: 4,
-					visibility: GPUShaderStage.FRAGMENT,
-					texture: { sampleType: "float" },
-				},
-				{
-					binding: 5,
-					visibility: GPUShaderStage.FRAGMENT,
-					sampler: { type: "filtering" },
-				},
-			],
-		});
+		const bindGroupLayout = this.createDabBindGroupLayout(mode, cacheKey);
 		const pipelineLayout = this.device.createPipelineLayout({
 			label: `Brush Dab Pipeline Layout (${cacheKey})`,
 			bindGroupLayouts: [
