@@ -67,8 +67,9 @@ describe("wetLayerDiffuse compute shader", () => {
 			moisture: fillTexture(W, H, [0, 0, 1.5, 1]),
 			// Every coefficient at its maximum, with the highest water seed the
 			// wetness clamp allows.
-			coefficients: fillTexture(W, H, [1, 1, 1, 1]),
-			moistureSeed: fillTexture(W, H, [1, 0, 1.5, 1]),
+			absorptionGranulation: fillTexture(W, H, [1, 1, 0, 1]),
+			softnessEdgeDarkening: fillTexture(W, H, [1, 1, 0, 1]),
+			moistureSeed: fillTexture(W, H, [1, 1, 1.5, 1]),
 			velocitySeed: fillTexture(W, H, [1, 0, 1, 0]),
 			iterations: 20,
 		});
@@ -103,8 +104,9 @@ describe("wetLayerDiffuse compute shader", () => {
 		const { pigment, moisture } = await runDiffusion({
 			pigment: centerDotTexture(W, H, [1, 1, 1, 1]),
 			moisture: fillTexture(W, H, [0, 0, 1.5, 0.5]),
-			coefficients: checker,
-			moistureSeed: fillTexture(W, H, [1, 0, 1.5, 0.5]),
+			absorptionGranulation: checker,
+			softnessEdgeDarkening: checker,
+			moistureSeed: fillTexture(W, H, [0, 0, 1.5, 0.5]),
 			iterations: 32,
 		});
 
@@ -117,19 +119,17 @@ describe("wetLayerDiffuse compute shader", () => {
 	it("should dry faster where the absorption coefficient is higher", async () => {
 		// Left half absorbs fully, right half not at all — one field, two
 		// behaviours, which is the whole point of per-texel coefficients.
-		const seed = new Float32Array(W * H * 4);
+		const coefficients = new Float32Array(W * H * 4);
 		for (let y = 0; y < H; y++) {
 			for (let x = 0; x < W; x++) {
-				const i = (y * W + x) * 4;
-				seed[i] = x < W / 2 ? 1 : 0; // absorption
-				seed[i + 2] = 1; // water
+				coefficients[(y * W + x) * 4] = x < W / 2 ? 1 : 0;
 			}
 		}
 
 		const { moisture } = await runDiffusion({
 			pigment: fillTexture(W, H, [0, 0, 0, 0]),
 			moisture: fillTexture(W, H, [0, 0, 1, 0]),
-			moistureSeed: seed,
+			absorptionGranulation: coefficients,
 			iterations: 16,
 		});
 
@@ -143,7 +143,8 @@ describe("wetLayerDiffuse compute shader", () => {
 			const { pigment } = await runDiffusion({
 				pigment: centerDotTexture(W, H, [1, 1, 1, 1]),
 				moisture: fillTexture(W, H, [0, 0, 1, 0]),
-				coefficients: fillTexture(W, H, [granulation, 1, 0, 0]),
+				absorptionGranulation: fillTexture(W, H, [0, granulation, 0, 0]),
+				softnessEdgeDarkening: fillTexture(W, H, [1, 0, 0, 0]),
 				iterations: 8,
 			});
 			return pigment[(4 * W + 4) * 4 + 3];
@@ -157,7 +158,7 @@ describe("wetLayerDiffuse compute shader", () => {
 			const { pigment } = await runDiffusion({
 				pigment: centerDotTexture(W, H, [1, 1, 1, 1]),
 				moisture: fillTexture(W, H, [0, 0, 1, 0]),
-				coefficients: fillTexture(W, H, [0, softness, 0, 0]),
+				softnessEdgeDarkening: fillTexture(W, H, [softness, 0, 0, 0]),
 				iterations: 8,
 			});
 			return pigment[(4 * W + 5) * 4 + 3];
@@ -187,7 +188,8 @@ describe("wetLayerDiffuse compute shader", () => {
 		const { pigment, moisture } = await runDiffusion({
 			pigment: fillTexture(W, H, [0, 0, 0, 0]),
 			moisture: fillTexture(W, H, [0, 0, 0, 0]),
-			mask: fillTexture(W, H, [0, 0, 0, 0]),
+			velocitySeed: fillTexture(W, H, [0, 0, 0, 0]),
+			moistureSeed: fillTexture(W, H, [0, 0, 0, 0]),
 		});
 
 		expect(sumChannel(pigment, 3)).toBe(0);
@@ -214,8 +216,8 @@ async function runDiffusion(opts: {
 	moisture: Float32Array;
 	velocitySeed?: Float32Array;
 	moistureSeed?: Float32Array;
-	mask?: Float32Array;
-	coefficients?: Float32Array;
+	absorptionGranulation?: Float32Array;
+	softnessEdgeDarkening?: Float32Array;
 	uniformOverrides?: Partial<Record<string, number>>;
 	iterations?: number;
 }) {
@@ -239,15 +241,18 @@ async function runDiffusion(opts: {
 	let srcMoisture = field(opts.moisture);
 	// Seeded with full coverage and unit water unless a case says otherwise,
 	// so wetness recovers as 1 and the field is active everywhere.
+	// b is coverage, which the kernel divides motion and the seeds by.
 	const velocitySeed = field(
-		opts.velocitySeed ?? fillTexture(W, H, [0, 0, 0, 0]),
+		opts.velocitySeed ?? fillTexture(W, H, [0, 0, 1, 0]),
 	);
 	const moistureSeed = field(
 		opts.moistureSeed ?? fillTexture(W, H, [0, 0, 1, 0]),
 	);
-	const maskSeed = field(opts.mask ?? fillTexture(W, H, [1, 0, 0, 0]));
-	const coefficients = field(
-		opts.coefficients ?? fillTexture(W, H, [0, 0.35, 0, 0]),
+	const absorptionGranulation = field(
+		opts.absorptionGranulation ?? fillTexture(W, H, [0, 0, 0, 0]),
+	);
+	const softnessEdgeDarkening = field(
+		opts.softnessEdgeDarkening ?? fillTexture(W, H, [0.35, 0, 0, 0]),
 	);
 
 	const iterations = opts.iterations ?? 1;
@@ -270,8 +275,8 @@ async function runDiffusion(opts: {
 				{ binding: 2, resource: srcMoisture.createView() },
 				{ binding: 3, resource: velocitySeed.createView() },
 				{ binding: 4, resource: moistureSeed.createView() },
-				{ binding: 5, resource: maskSeed.createView() },
-				{ binding: 6, resource: coefficients.createView() },
+				{ binding: 5, resource: absorptionGranulation.createView() },
+				{ binding: 6, resource: softnessEdgeDarkening.createView() },
 				{ binding: 7, resource: dstPigment.createView() },
 				{ binding: 8, resource: dstMoisture.createView() },
 			],
@@ -292,8 +297,8 @@ async function runDiffusion(opts: {
 	srcMoisture.destroy();
 	velocitySeed.destroy();
 	moistureSeed.destroy();
-	maskSeed.destroy();
-	coefficients.destroy();
+	absorptionGranulation.destroy();
+	softnessEdgeDarkening.destroy();
 
 	return { pigment: pigmentOut, moisture: moistureOut };
 }

@@ -8,9 +8,11 @@
 // staying sharp at the other.
 //
 // Where each coefficient comes from:
-// - absorption            moistureSeed.x   (packed by the dab's wet seed)
-// - granulation, bleedSoftness, edgeDarkening, edgeRoughness
-//                         coefficient texture (rgba16float)
+// - absorption, granulation, bleedSoftness
+//                         the seed pass's coefficient targets, blended by
+//                         coverage so the covering dab's value wins
+// - edgeDarkening, edgeRoughness
+//                         also seeded, but consumed by the finish pass only
 // - wetness               moistureSeed.z / coverage — the seed wrote
 //                         coverage * wetness, so dividing recovers it
 // - directionality        |velocitySeed.rg| / velocitySeed.b — likewise
@@ -42,8 +44,8 @@ struct DiffuseUniforms {
 @group(0) @binding(2) var srcMoisture: texture_2d<f32>;
 @group(0) @binding(3) var fluidVelocitySeed: texture_2d<f32>;
 @group(0) @binding(4) var moistureSeed: texture_2d<f32>;
-@group(0) @binding(5) var maskSeed: texture_2d<f32>;
-@group(0) @binding(6) var coefficients: texture_2d<f32>;
+@group(0) @binding(5) var absorptionGranulation: texture_2d<f32>;
+@group(0) @binding(6) var softnessEdgeDarkening: texture_2d<f32>;
 @group(0) @binding(7) var dstPigment: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(8) var dstMoisture: texture_storage_2d<rgba16float, write>;
 
@@ -116,7 +118,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
 	let seedMoisture = textureLoad(moistureSeed, coord, 0);
 	let seedVelocity = textureLoad(fluidVelocitySeed, coord, 0);
-	let mask = textureLoad(maskSeed, coord, 0);
 
 	let pigmentNeighborhood =
 		centerPigment.a + leftPigment.a + rightPigment.a + downPigment.a + upPigment.a;
@@ -125,7 +126,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 	if (
 		pigmentNeighborhood <= 0.00001 &&
 		moistureNeighborhood <= 0.00001 &&
-		mask.r <= 0.00001 &&
+		seedVelocity.b <= 0.00001 &&
 		seedMoisture.b <= 0.00001 &&
 		dot(abs(seedVelocity.rg), vec2f(1.0)) <= 0.00001
 	) {
@@ -134,20 +135,28 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 		return;
 	}
 
-	let coverage = clamp(mask.r, 0.0, 1.0);
-	let sourceEdge = clamp(mask.g, 0.0, 1.0);
-	let speed = clamp(mask.b, 0.0, 1.0);
-	let accel = clamp(mask.a, 0.0, 1.0);
+	// Coverage is the velocity seed's accumulated weight; motion divides back
+	// out of the moisture seed, and the edge factor is a pure function of
+	// coverage so the seed never stored it.
+	let coverage = clamp(seedVelocity.b, 0.0, 1.0);
+	let sourceEdge =
+		smoothstep(0.02, 0.35, coverage) * (1.0 - smoothstep(0.58, 0.98, coverage));
+	let speed = clamp(seedMoisture.r / max(coverage, 1e-5), 0.0, 1.0);
+	let accel = clamp(seedMoisture.g / max(coverage, 1e-5), 0.0, 1.0);
 	let slowWet = 1.0 - speed;
 	let pooling = max(centerMoisture.a, seedMoisture.a);
 	let water = max(centerMoisture.b, 0.0);
 	let cornerBrake = clamp(1.0 - accel * (0.46 + sourceEdge * 0.34), 0.24, 1.0);
 
 	// --- per-texel coefficients ------------------------------------------
-	let coeff = textureLoad(coefficients, coord, 0);
-	let granulation = clamp(coeff.r, 0.0, 1.0);
-	let bleedSoftness = clamp(coeff.g, 0.0, 1.0);
-	let absorption = clamp(seedMoisture.x, 0.0, 1.0);
+	let absorptionGranulationValue = textureLoad(absorptionGranulation, coord, 0);
+	let absorption = clamp(absorptionGranulationValue.r, 0.0, 1.0);
+	let granulation = clamp(absorptionGranulationValue.g, 0.0, 1.0);
+	let bleedSoftness = clamp(
+		textureLoad(softnessEdgeDarkening, coord, 0).r,
+		0.0,
+		1.0,
+	);
 	// The seed wrote coverage * wetness and coverage * directionality, so the
 	// ratios recover what the curve produced for the dab that landed here.
 	let wetness = clamp(seedMoisture.b / max(coverage, 1e-5), 0.0, 1.5);

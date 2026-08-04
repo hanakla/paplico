@@ -1,6 +1,10 @@
 import { getTestDevice } from "../../testUtils/shaderTestHarness";
 import { compileShaderModule } from "../../utils/wgpu-utils";
-import { buildBrushDabShader, DAB_TIP_MODES } from "./brushDab.wgsl";
+import {
+	buildBrushDabShader,
+	DAB_TIP_MODES,
+	WET_SEED_TARGETS,
+} from "./brushDab.wgsl";
 
 describe("brushDab shader single source", () => {
 	it("should contain exactly one gradient sampling switch per variant", () => {
@@ -39,6 +43,9 @@ describe("brushDab shader single source", () => {
 		// per stroke as v1 did.
 		expect(code).toContain("dab.wetness");
 		expect(code).toContain("dab.directionality");
+		// Five coefficients across three narrow targets, so each can blend by
+		// coverage while the fields keep accumulating.
+		expect(WET_SEED_TARGETS).toHaveLength(6);
 		const { module } = compileShaderModule(device, {
 			label: "brushDab-wet",
 			code,
@@ -49,12 +56,7 @@ describe("brushDab shader single source", () => {
 			fragment: {
 				module,
 				entryPoint: "fs_wet",
-				targets: [
-					{ format: "rgba16float" },
-					{ format: "rgba16float" },
-					{ format: "rgba16float" },
-					{ format: "rgba16float" },
-				],
+				targets: [...WET_SEED_TARGETS],
 			},
 			primitive: { topology: "triangle-list" },
 		});

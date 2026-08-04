@@ -21,6 +21,50 @@ import { MASK_COMMON_WGSL } from "./maskCommon.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
 import { TRANSFORM_COMMON_WGSL } from "./transformCommon.wgsl";
 
+/** Overlapping dabs add up, as the density encoding expects. */
+const WET_FIELD_BLEND: GPUBlendState = {
+	color: { srcFactor: "one", dstFactor: "one", operation: "add" },
+	alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
+};
+
+/** dst = mix(dst, value, coverage): the covering dab's coefficient wins. */
+const WET_COEFFICIENT_BLEND: GPUBlendState = {
+	color: {
+		srcFactor: "src-alpha",
+		dstFactor: "one-minus-src-alpha",
+		operation: "add",
+	},
+	alpha: { srcFactor: "one", dstFactor: "zero", operation: "add" },
+};
+
+/**
+ * Colour attachments of the wet seed pass, in location order.
+ *
+ * Sized against the 32-byte-per-sample floor every WebGPU adapter
+ * guarantees: rgba8unorm costs 8 bytes, not 4, so three float fields plus a
+ * single rgba8unorm would already sit at the ceiling. Splitting the
+ * coefficients across narrow rg8unorm/r8unorm targets costs 5 bytes for all
+ * five of them and — the reason for the split — lets each target carry its
+ * own blend state. The fields accumulate additively as in v1 while the
+ * coefficients blend by coverage, so where dabs overlap the later one wins in
+ * proportion to how much it covers (design §13-2's recency weighting) instead
+ * of summing into saturation.
+ */
+export const WET_SEED_TARGETS: readonly GPUColorTargetState[] = [
+	// pigment: rgb = color * density, a = density (unbounded above)
+	{ format: "rgba16float", blend: WET_FIELD_BLEND },
+	// fluidVelocity: rg = direction * coverage * directionality, b = coverage
+	{ format: "rgba16float", blend: WET_FIELD_BLEND },
+	// moisture: r = speed * cov, g = accel * cov, b = water, a = pooling
+	{ format: "rgba16float", blend: WET_FIELD_BLEND },
+	// absorption, granulation
+	{ format: "rg8unorm", blend: WET_COEFFICIENT_BLEND },
+	// bleedSoftness, edgeDarkening
+	{ format: "rg8unorm", blend: WET_COEFFICIENT_BLEND },
+	// edgeRoughness
+	{ format: "r8unorm", blend: WET_COEFFICIENT_BLEND },
+];
+
 export const DAB_TIP_MODES = ["procedural", "image", "imageArray"] as const;
 export type DabTipMode = (typeof DAB_TIP_MODES)[number];
 
@@ -293,7 +337,11 @@ struct WetSeedOutput {
 	@location(0) pigment: vec4f,
 	@location(1) fluidVelocity: vec4f,
 	@location(2) moisture: vec4f,
-	@location(3) mask: vec4f,
+	/** Coefficients carry coverage in alpha to drive their blend factor; the
+	 *  narrow formats ignore the channels past their own. */
+	@location(3) absorptionGranulation: vec4f,
+	@location(4) softnessEdgeDarkening: vec4f,
+	@location(5) edgeRoughness: vec4f,
 }
 
 struct WetCoefficients {
@@ -356,7 +404,6 @@ ${tipSample}
 	let cov = clamp(premultiplied.a, 0.0, 1.0);
 
 	let dir = normalize(vec2f(dab.strokeDirX, dab.strokeDirY) + vec2f(1e-6, 0.0));
-	let edge = smoothstep(0.02, 0.35, cov) * (1.0 - smoothstep(0.58, 0.98, cov));
 	let speed = clamp(dab.motionSpeed, 0.0, 1.0);
 	let accel = clamp(dab.motionAccel, 0.0, 1.0);
 
@@ -368,15 +415,28 @@ ${tipSample}
 	var out: WetSeedOutput;
 	out.pigment = encodeWetPigmentMass(premultiplied);
 	out.fluidVelocity = vec4f(dir * cov * directionality, cov, 0.0);
-	// Absorption rides in moisture.x, which the field itself never used; the
-	// remaining four coefficients need their own target (design §13-2).
+	// Motion rides in the channels v1 left unused; coverage divides back out
+	// in the kernel. Edge is a pure function of coverage, so it is recomputed
+	// there rather than stored.
 	out.moisture = vec4f(
-		coefficients.absorption,
-		0.0,
+		speed * cov,
+		accel * cov,
 		cov * wetness,
 		cov * (0.18 + wetness * 0.35),
 	);
-	out.mask = vec4f(cov, edge, speed, accel);
+	out.absorptionGranulation = vec4f(
+		coefficients.absorption,
+		coefficients.granulation,
+		0.0,
+		cov,
+	);
+	out.softnessEdgeDarkening = vec4f(
+		coefficients.bleedSoftness,
+		coefficients.edgeDarkening,
+		0.0,
+		cov,
+	);
+	out.edgeRoughness = vec4f(coefficients.edgeRoughness, 0.0, 0.0, cov);
 	return out;
 }
 `;
