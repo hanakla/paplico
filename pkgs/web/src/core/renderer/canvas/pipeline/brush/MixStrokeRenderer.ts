@@ -111,7 +111,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	}
 
 	public hasInlineComposite(element: AnyArtObject): boolean {
-		return this.mixStrokeOf(element) != null;
+		return resolveMixingStroke(element) != null;
 	}
 
 	public composeInline(
@@ -123,7 +123,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		height: number,
 		profiler?: GPUTimingProfiler | null,
 	): BlitLayer | void {
-		const stroke = this.mixStrokeOf(element);
+		const stroke = resolveMixingStroke(element);
 		if (!stroke || !viewport) return;
 		const path = element as Path;
 		const segments = path.segments ?? [];
@@ -444,23 +444,6 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		this.mixPass = null;
 	}
 
-	private mixStrokeOf(
-		element: AnyArtObject,
-	): { settings: BrushSettingsV2; filter: Filter } | null {
-		if (element.type !== "path") return null;
-		for (const filter of element.filters ?? []) {
-			if (!isFilterEnabled(filter) || filter.processor !== "stroke") continue;
-			const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
-			if (raw == null) continue;
-			const route = resolveBrushRenderRoute(raw);
-			if (route.kind !== "dab-v2" || route.settings.mixing?.enabled !== true) {
-				continue;
-			}
-			return { settings: route.settings, filter };
-		}
-		return null;
-	}
-
 	private uploadFrameBuffer(data: Float32Array, label: string): GPUBuffer {
 		const buffer = this.deps.device.createBuffer({
 			label,
@@ -477,4 +460,29 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		this.frameBuffers.push(buffer);
 		return buffer;
 	}
+}
+
+/**
+ * The element's mixing stroke appearance, or null when it has none.
+ *
+ * Only the dab-v2 route mixes: a stroke still carrying wetV1 belongs to the
+ * legacy wet ink path until the wet switchover (design §13-7), so the mix
+ * pass must not start for it even with mixing enabled. Enablement is the
+ * explicit boolean alone (§H-3).
+ */
+export function resolveMixingStroke(
+	element: AnyArtObject,
+): { settings: BrushSettingsV2; filter: Filter } | null {
+	if (element.type !== "path") return null;
+	for (const filter of element.filters ?? []) {
+		if (!isFilterEnabled(filter) || filter.processor !== "stroke") continue;
+		const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
+		if (raw == null) continue;
+		const route = resolveBrushRenderRoute(raw);
+		if (route.kind !== "dab-v2" || route.settings.mixing?.enabled !== true) {
+			continue;
+		}
+		return { settings: route.settings, filter };
+	}
+	return null;
 }

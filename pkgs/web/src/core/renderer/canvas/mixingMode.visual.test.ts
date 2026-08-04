@@ -12,6 +12,7 @@ import type {
 	Filter,
 	Path,
 	StrokeGradient,
+	Viewport,
 } from "../../schema";
 import { closedRectSegments } from "../../testUtils/segmentFactory";
 import {
@@ -90,6 +91,35 @@ describe("Mixing strokes", () => {
 
 		expect(before[1]).toBeGreaterThan(before[2] + 40);
 		expect(after[2]).toBeGreaterThan(after[1] + 40);
+	});
+
+	it("should resolve the same color at any viewport zoom", async () => {
+		// Fixed-R rule (appendix B-2): the mix domain follows the document's
+		// rasterization grid, never the viewport, so zooming must not change
+		// what the brush picks up.
+		const brush = mixingBrush({ colorRate: 0.5 });
+		const atZoom1 = await renderStrokePixel(brush);
+		const atZoom2 = await renderStrokePixel(brush, {
+			x: 0,
+			y: 0,
+			zoom: 2,
+			rotation: 0,
+		});
+
+		for (let channel = 0; channel < 3; channel++) {
+			expect(Math.abs(atZoom1[channel] - atZoom2[channel])).toBeLessThanOrEqual(
+				4,
+			);
+		}
+	});
+
+	it("should resolve identically on a second independent render", async () => {
+		// Determinism (appendix A): same backdrop + same dab list, same result.
+		const brush = mixingBrush({ colorRate: 0.5, smudgeLength: 0.7 });
+		const first = await renderStrokePixel(brush);
+		const second = await renderStrokePixel(brush);
+
+		expect(second).toEqual(first);
 	});
 
 	it("should keep the brush color when mixing is disabled (control)", async () => {
@@ -397,17 +427,21 @@ async function renderStrokeEnds(
  */
 async function renderStrokePixel(
 	brushSettings: BrushSettingsV2,
+	viewport?: Viewport,
 ): Promise<number[]> {
-	return (await renderPixels(brushSettings, [[400, 300]]))[0];
+	return (
+		await renderPixels(brushSettings, [[400, 300]], undefined, viewport)
+	)[0];
 }
 
 async function renderPixels(
 	brushSettings: BrushSettingsV2,
 	points: [number, number][],
 	strokeColor?: StrokeGradient,
+	viewportOverride?: Viewport,
 ): Promise<number[][]> {
 	const { renderer, canvas } = await createTestRenderer();
-	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const viewport = viewportOverride ?? { x: 0, y: 0, zoom: 1, rotation: 0 };
 	const device = renderer.getDevice();
 	if (!device) throw new Error("Test renderer has no GPU device");
 
