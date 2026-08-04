@@ -15,7 +15,7 @@ import {
 	STAMP_META_INDEX_MASK,
 	STAMP_TEXTURE_LAYER_SHIFT,
 } from "../canvas/pipeline/brush/StampPacking";
-import { buildDabColorWgsl } from "./dabColor.wgsl";
+import { buildDabColorWgsl, PATH_META_WGSL } from "./dabColor.wgsl";
 import { GRADIENT_COMMON_WGSL } from "./gradientCommon.wgsl";
 import { MASK_COMMON_WGSL } from "./maskCommon.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
@@ -119,6 +119,7 @@ ${
 @group(3) @binding(0) var maskAtlas: texture_2d<f32>;
 @group(3) @binding(1) var maskSampler: sampler;
 
+${PATH_META_WGSL}
 ${buildDabColorWgsl(STAMP_META_INDEX_MASK)}
 
 fn textureLayerOf(dab: DabInstance) -> u32 {

@@ -12,6 +12,7 @@
 import { GRADIENT_COMMON_WGSL } from "./gradientCommon.wgsl";
 import { MASK_COMMON_WGSL } from "./maskCommon.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
+import { PATH_META_WGSL } from "./dabColor.wgsl";
 import { TRANSFORM_COMMON_WGSL } from "./transformCommon.wgsl";
 
 export const RIBBON_STROKE_SHADER = /* wgsl */ `
@@ -63,26 +64,13 @@ struct RibbonParams {
 	stampAngle: f32,
 }
 
-struct PathMeta {
-	colorR: f32,
-	colorG: f32,
-	colorB: f32,
-	colorA: f32,
-	gradientMode: u32,
-	stopCount: u32,
-	stopOffset: u32,
-	transformIndex: u32,
-	linearStart: vec2f,
-	linearEnd: vec2f,
-	boundsMin: vec2f,
-	boundsMax: vec2f,
-}
-
 ${TRANSFORM_COMMON_WGSL}
 
 ${GRADIENT_COMMON_WGSL}
 
 ${STROKE_WIDTH_COMMON_WGSL}
+
+${PATH_META_WGSL}
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read> instances: array<RibbonInstance>;
@@ -270,41 +258,6 @@ fn vs_main(
 	return out;
 }
 
-fn sampleGradientStops(t: f32, pm: PathMeta) -> vec4f {
-	let ct = clamp(t, 0.0, 1.0);
-	let count = pm.stopCount;
-	let baseOffset = pm.stopOffset;
-
-	if count == 0u { return vec4f(0.0, 0.0, 0.0, 1.0); }
-	if count == 1u {
-		let s = colorStops[baseOffset];
-		return vec4f(s.r, s.g, s.b, s.a);
-	}
-	if ct <= colorStops[baseOffset].offset {
-		let s = colorStops[baseOffset];
-		return vec4f(s.r, s.g, s.b, s.a);
-	}
-	let lastIdx = count - 1u;
-	if ct >= colorStops[baseOffset + lastIdx].offset {
-		let s = colorStops[baseOffset + lastIdx];
-		return vec4f(s.r, s.g, s.b, s.a);
-	}
-	for (var i = 0u; i < lastIdx; i = i + 1u) {
-		let s0 = colorStops[baseOffset + i];
-		let s1 = colorStops[baseOffset + i + 1u];
-		if ct >= s0.offset && ct <= s1.offset {
-			let range = s1.offset - s0.offset;
-			var f = 0.0;
-			if range > 0.0 { f = remapGradientT((ct - s0.offset) / range, s0.midpoint); }
-			let lab0 = srgbToOklab(vec3f(s0.r, s0.g, s0.b));
-			let lab1 = srgbToOklab(vec3f(s1.r, s1.g, s1.b));
-			let rgb = oklabToSrgb(mix(lab0, lab1, f));
-			return vec4f(rgb, mix(s0.a, s1.a, f));
-		}
-	}
-	let s = colorStops[baseOffset + lastIdx];
-	return vec4f(s.r, s.g, s.b, s.a);
-}
 
 ${MASK_COMMON_WGSL}
 

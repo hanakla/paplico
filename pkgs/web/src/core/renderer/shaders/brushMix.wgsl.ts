@@ -1,7 +1,7 @@
 import { generateDabInstanceWgsl } from "../canvas/pipeline/brush/DabInstanceLayout";
 import { STAMP_META_INDEX_MASK } from "../canvas/pipeline/brush/StampPacking";
 import { COLOR_MIX_WGSL } from "./colorMix.wgsl";
-import { buildDabColorWgsl } from "./dabColor.wgsl";
+import { buildDabColorWgsl, PATH_META_WGSL } from "./dabColor.wgsl";
 import { GRADIENT_COMMON_WGSL } from "./gradientCommon.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
 import { TRANSFORM_COMMON_WGSL } from "./transformCommon.wgsl";
@@ -57,6 +57,7 @@ struct MixUniforms {
 @group(0) @binding(11) var<storage, read> colorStops: array<ColorStop>;
 @group(0) @binding(12) var<storage, read> transforms: array<ElementTransform>;
 
+${PATH_META_WGSL}
 ${buildDabColorWgsl(STAMP_META_INDEX_MASK)}
 
 /** The dab's own brush color, resolved exactly as the dab shader would.

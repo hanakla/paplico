@@ -1,18 +1,20 @@
 /**
- * Shared per-dab color resolution (design §10). The dab fragment shader and
- * the mix pass's chunk scan must agree on what color a dab carries, so the
- * PathMeta layout, the gradient stop sampling and the gradient-mode switch
- * live here once and both include them.
- *
- * Requires ahead of it: the DabInstance struct, GRADIENT_COMMON_WGSL
- * (ColorStop + remapGradientT + OkLab conversion), STROKE_WIDTH_COMMON_WGSL,
- * and a `colorStops: array<ColorStop>` binding.
+ * Path meta layout and stroke color resolution, shared by every shader that
+ * reads the path meta buffer (design §10).
  */
 /** Float count of the PathMeta struct below; CPU writers stride by this. */
 export const PATH_META_FLOATS = 20;
 
-export function buildDabColorWgsl(stampMetaIndexMask: number): string {
-	return /* wgsl */ `
+/**
+ * The PathMeta layout and the color it resolves, shared by every stroke
+ * shader that indexes path metas — dabs and ribbons alike. Both read the
+ * same buffer, so a second copy of this struct silently desynchronizes the
+ * stride the moment either side gains a field.
+ *
+ * Requires GRADIENT_COMMON_WGSL and STROKE_WIDTH_COMMON_WGSL ahead of it,
+ * plus a `colorStops: array<ColorStop>` binding.
+ */
+export const PATH_META_WGSL = /* wgsl */ `
 struct PathMeta {
 	colorR: f32,
 	colorG: f32,
@@ -32,10 +34,6 @@ struct PathMeta {
 	grainScale: f32,
 	/** Per-stroke UV offset, in grain periods. */
 	grainOffset: vec2f,
-}
-
-fn pathIndexOf(dab: DabInstance) -> u32 {
-	return dab.packedMeta & ${stampMetaIndexMask}u;
 }
 
 // OKLab perceptual gradient stop sampling — the ONE copy for dab rendering.
@@ -81,6 +79,54 @@ fn sampleGradientStops(t: f32, pm: PathMeta) -> vec4f {
 
 	let s = colorStops[baseOffset + lastIdx];
 	return vec4f(s.r, s.g, s.b, s.a);
+}
+
+fn resolveDabBaseColor(
+	pm: PathMeta,
+	worldPos: vec2f,
+	pathT: f32,
+	acrossDistance: f32,
+) -> vec4f {
+	switch pm.gradientMode & 0xFFFFu {
+		// Solid color
+		case 0u: {
+			return vec4f(pm.colorR, pm.colorG, pm.colorB, pm.colorA);
+		}
+		// Within: bbox-based linear gradient
+		case 1u: {
+			let boundsSize = pm.boundsMax - pm.boundsMin;
+			let uv = (worldPos - pm.boundsMin) / boundsSize;
+			let dir = pm.linearEnd - pm.linearStart;
+			let lenSq = dot(dir, dir);
+			var t = 0.0;
+			if lenSq > 0.0 {
+				t = dot(uv - pm.linearStart, dir) / lenSq;
+			}
+			return sampleGradientStops(t, pm);
+		}
+		// Along the path
+		case 2u: {
+			return sampleGradientStops(pathT, pm);
+		}
+		// Across the stroke width
+		case 3u: {
+			return sampleGradientStops(strokeWidthAcrossUV(acrossDistance), pm);
+		}
+		default: {
+			return vec4f(0.0, 0.0, 0.0, 1.0);
+		}
+	}
+}
+`;
+
+/**
+ * Per-dab color: the shared PathMeta resolution plus the dab's own color
+ * dynamics. Requires PATH_META_WGSL and the DabInstance struct ahead of it.
+ */
+export function buildDabColorWgsl(stampMetaIndexMask: number): string {
+	return /* wgsl */ `
+fn pathIndexOf(dab: DabInstance) -> u32 {
+	return dab.packedMeta & ${stampMetaIndexMask}u;
 }
 
 fn rgbToHsv(c: vec3f) -> vec3f {
@@ -158,43 +204,6 @@ fn resolveDabColor(
 ) -> vec4f {
 	let base = resolveDabBaseColor(pm, worldPos, pathT, acrossDistance);
 	return vec4f(applyDabColorShift(dab, base.rgb), base.a);
-}
-
-fn resolveDabBaseColor(
-	pm: PathMeta,
-	worldPos: vec2f,
-	pathT: f32,
-	acrossDistance: f32,
-) -> vec4f {
-	switch pm.gradientMode & 0xFFFFu {
-		// Solid color
-		case 0u: {
-			return vec4f(pm.colorR, pm.colorG, pm.colorB, pm.colorA);
-		}
-		// Within: bbox-based linear gradient
-		case 1u: {
-			let boundsSize = pm.boundsMax - pm.boundsMin;
-			let uv = (worldPos - pm.boundsMin) / boundsSize;
-			let dir = pm.linearEnd - pm.linearStart;
-			let lenSq = dot(dir, dir);
-			var t = 0.0;
-			if lenSq > 0.0 {
-				t = dot(uv - pm.linearStart, dir) / lenSq;
-			}
-			return sampleGradientStops(t, pm);
-		}
-		// Along the path
-		case 2u: {
-			return sampleGradientStops(pathT, pm);
-		}
-		// Across the stroke width
-		case 3u: {
-			return sampleGradientStops(strokeWidthAcrossUV(acrossDistance), pm);
-		}
-		default: {
-			return vec4f(0.0, 0.0, 0.0, 1.0);
-		}
-	}
 }
 `;
 }
