@@ -128,6 +128,7 @@ import {
 	BackdropEffectCoordinator,
 	type BackdropEffectRequest,
 } from "./pipeline/BackdropEffectCoordinator";
+import { MixStrokeRenderer } from "./pipeline/brush/MixStrokeRenderer";
 import {
 	type ClipGroupEntry,
 	ClipMaskAtlas,
@@ -468,6 +469,7 @@ export class CanvasLayer {
 	 *  (currently glass extrude). CanvasLayer drives them generically without
 	 *  knowing the concrete filter behind each. */
 	private backdropDrivers: BackdropEffectDriver[] = [];
+	private mixStrokeRenderer: MixStrokeRenderer | null = null;
 	/** Shared backdrop capture/pyramid service the drivers request their
 	 *  backdrop samples through; fed main-pass draw bounds for epoch tracking. */
 	private backdropEffectCoordinator!: BackdropEffectCoordinator;
@@ -909,9 +911,28 @@ export class CanvasLayer {
 		for (const handler of this.filterRenderer.getHandlers().values()) {
 			handler.attachCanvas?.(this.canvasId, backdropResources);
 		}
-		this.backdropDrivers = [...this.filterRenderer.getHandlers().values()]
-			.map((h) => h.getBackdropEffectDriver?.(this.canvasId) ?? null)
-			.filter((d): d is BackdropEffectDriver => d !== null);
+		// The mixing stroke driver is built here rather than by a filter
+		// handler: mixing is a brush route, not a filter processor, but it
+		// needs the identical inline-composite seam glass uses (read the live
+		// composite below the element at its z-order).
+		this.mixStrokeRenderer = new MixStrokeRenderer({
+			device: this.device,
+			canvasFormat: this.canvasFormat,
+			texturePool: this.texturePool,
+			coordinator: this.backdropEffectCoordinator,
+			uniformScope: this.uniformScope,
+			getBatchContext: () => this.strokeRegistry?.getBatchContext() ?? null,
+			getTransformIndex: (elementId) =>
+				this.viewportManager.getTransformIndex(elementId),
+			getTransformsBindGroup: () => this.transformsBindGroup ?? undefined,
+			getRasterScale: () => this.getRasterScale(),
+		});
+		this.backdropDrivers = [
+			...[...this.filterRenderer.getHandlers().values()]
+				.map((h) => h.getBackdropEffectDriver?.(this.canvasId) ?? null)
+				.filter((d): d is BackdropEffectDriver => d !== null),
+			this.mixStrokeRenderer,
+		];
 
 		this.offscreen = new OffscreenPresenter({
 			device: this.device,
@@ -7082,6 +7103,8 @@ export class CanvasLayer {
 		for (const handler of this.filterRenderer.getHandlers().values()) {
 			handler.detachCanvas?.(this.canvasId);
 		}
+		this.mixStrokeRenderer?.destroy();
+		this.mixStrokeRenderer = null;
 		this.backdropDrivers = [];
 
 		// Cleanup viewport manager (transforms buffer)

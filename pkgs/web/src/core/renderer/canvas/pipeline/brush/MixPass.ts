@@ -12,14 +12,20 @@ export type MixChunkArgs = {
 	firstDab: number;
 	/** Number of dabs in this chunk (≤ MIX_CHUNK_SIZE). */
 	dabCount: number;
-	/** Chunk-local per-dab {colorRate, alphaRate, smudgeLength, _} vec4s. */
+	/** Per-dab {colorRate, alphaRate, smudgeLength, _} vec4s. The binding
+	 *  starts at mixParamsOffsetBytes so a whole-stroke buffer can serve
+	 *  chunk-local indexing (offset must be 256-byte aligned — chunk stride
+	 *  64×16B satisfies this). */
 	mixParams: GPUBuffer;
+	mixParamsOffsetBytes?: number;
 	/** Backdrop snapshot below the stroke (premultiplied). */
 	below: GPUTexture;
 	/** World rect covered by `below` (and `stroke` when present). */
 	belowBounds: BoundingBox;
 	/** Current stroke buffer state, composited over `below` when sampling. */
 	stroke?: GPUTexture | null;
+	/** World rect `stroke` covers; defaults to belowBounds. */
+	strokeBounds?: BoundingBox;
 	/** Straight-alpha brush color. */
 	brushColor: { r: number; g: number; b: number; a: number };
 	/** Footprint radius as a ratio of the dab radius (MixingConfig.sampleRadius). */
@@ -32,8 +38,10 @@ export type MixChunkArgs = {
 	falloffLut: GPUTexture;
 	/** Persistent bucket state from createBucket(), carried across chunks. */
 	bucket: GPUBuffer;
-	/** Output: dabCount × vec4f resolved straight-alpha colors, chunk-local. */
+	/** Output: dabCount × vec4f resolved straight-alpha colors, chunk-local
+	 *  indexing from outColorsOffsetBytes (same alignment rule as mixParams). */
 	outColors: GPUBuffer;
+	outColorsOffsetBytes?: number;
 };
 
 /**
@@ -55,6 +63,7 @@ export class MixPass {
 		typeof compileShaderModule
 	>["uniformViews"][string];
 	private pendingUniformBuffers: GPUBuffer[] = [];
+	private retiredUniformBuffers: GPUBuffer[] = [];
 
 	public constructor(device: GPUDevice) {
 		this.device = device;
@@ -168,6 +177,14 @@ export class MixPass {
 		this.uniformSource.set({
 			belowMin: [args.belowBounds.minX, args.belowBounds.minY],
 			belowSize: [args.belowBounds.width, args.belowBounds.height],
+			strokeMin: [
+				(args.strokeBounds ?? args.belowBounds).minX,
+				(args.strokeBounds ?? args.belowBounds).minY,
+			],
+			strokeSize: [
+				(args.strokeBounds ?? args.belowBounds).width,
+				(args.strokeBounds ?? args.belowBounds).height,
+			],
 			brushColor: [
 				args.brushColor.r,
 				args.brushColor.g,
@@ -198,7 +215,14 @@ export class MixPass {
 			entries: [
 				{ binding: 0, resource: { buffer: uniformBuffer } },
 				{ binding: 1, resource: { buffer: args.dabBuffer } },
-				{ binding: 2, resource: { buffer: args.mixParams } },
+				{
+					binding: 2,
+					resource: {
+						buffer: args.mixParams,
+						offset: args.mixParamsOffsetBytes ?? 0,
+						size: args.dabCount * 16,
+					},
+				},
 				{ binding: 3, resource: args.below.createView() },
 				{
 					binding: 4,
@@ -208,7 +232,14 @@ export class MixPass {
 				{ binding: 6, resource: args.falloffLut.createView() },
 				{ binding: 7, resource: { buffer: this.samples } },
 				{ binding: 8, resource: { buffer: args.bucket } },
-				{ binding: 9, resource: { buffer: args.outColors } },
+				{
+					binding: 9,
+					resource: {
+						buffer: args.outColors,
+						offset: args.outColorsOffsetBytes ?? 0,
+						size: args.dabCount * 16,
+					},
+				},
 			],
 		});
 
@@ -221,14 +252,26 @@ export class MixPass {
 		pass.end();
 	}
 
-	/** Destroy per-chunk uniform buffers; call after their encoder submitted. */
-	public releaseChunkResources(): void {
-		for (const buffer of this.pendingUniformBuffers) buffer.destroy();
+	/**
+	 * Hand this frame's per-chunk uniform buffers over for destruction one
+	 * frame later: at end-of-frame the encoder that references them has not
+	 * been submitted yet, so destroying immediately invalidates the submit.
+	 */
+	public retireChunkResources(): void {
+		for (const buffer of this.retiredUniformBuffers) buffer.destroy();
+		this.retiredUniformBuffers = this.pendingUniformBuffers;
 		this.pendingUniformBuffers = [];
 	}
 
 	public destroy(): void {
-		this.releaseChunkResources();
+		for (const buffer of [
+			...this.retiredUniformBuffers,
+			...this.pendingUniformBuffers,
+		]) {
+			buffer.destroy();
+		}
+		this.retiredUniformBuffers = [];
+		this.pendingUniformBuffers = [];
 		this.samples.destroy();
 	}
 }

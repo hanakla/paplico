@@ -314,6 +314,7 @@ export class StrokeBatchContext {
 	>();
 	private mixedBrushBindGroupLayout: GPUBindGroupLayout | null = null;
 	private falloffLutView: GPUTextureView | null = null;
+	private falloffLutTexture: GPUTexture | null = null;
 	private falloffSampler: GPUSampler | null = null;
 	// Live-stroke dab residency (design §8): the preview path re-uses one
 	// grow-only buffer; only newly committed dabs and the volatile tail are
@@ -2636,6 +2637,12 @@ export class StrokeBatchContext {
 		return this.mixedBrushBindGroupLayout;
 	}
 
+	/** Falloff LUT texture for the mix pass's footprint weighting. */
+	public getFalloffLutTexture(): GPUTexture {
+		this.ensureFalloffLut();
+		return this.falloffLutTexture!;
+	}
+
 	/** 32-layer falloff LUT (r8unorm 256x1) for procedural tips. */
 	private ensureFalloffLut(): { view: GPUTextureView; sampler: GPUSampler } {
 		if (this.falloffLutView && this.falloffSampler) {
@@ -2656,6 +2663,7 @@ export class StrokeBatchContext {
 				[FALLOFF_LUT_SIZE, 1, 1],
 			);
 		}
+		this.falloffLutTexture = texture;
 		this.falloffLutView = texture.createView({ dimension: "2d-array" });
 		this.falloffSampler = this.device.createSampler({
 			magFilter: "linear",

@@ -25,6 +25,8 @@ ${COLOR_MIX_WGSL}
 struct MixUniforms {
 	belowMin: vec2<f32>,
 	belowSize: vec2<f32>,
+	strokeMin: vec2<f32>,
+	strokeSize: vec2<f32>,
 	brushColor: vec4<f32>,
 	firstDab: u32,
 	dabCount: u32,
@@ -78,8 +80,16 @@ fn cs_sample(
 		if (all(uv >= vec2f(0.0)) && all(uv <= vec2f(1.0))) {
 			var c = textureSampleLevel(below, samp, uv, 0.0);
 			if (u.hasStroke > 0.5) {
-				let s = textureSampleLevel(strokeTex, samp, uv, 0.0);
-				c = s + c * (1.0 - s.a);
+				// The stroke buffer spans its own world rect, not the backdrop's
+				// canvas-clamped one: sample it through its own uv.
+				let strokeUv = vec2f(
+					(p.x - u.strokeMin.x) / u.strokeSize.x,
+					1.0 - (p.y - u.strokeMin.y) / u.strokeSize.y,
+				);
+				if (all(strokeUv >= vec2f(0.0)) && all(strokeUv <= vec2f(1.0))) {
+					let s = textureSampleLevel(strokeTex, samp, strokeUv, 0.0);
+					c = s + c * (1.0 - s.a);
+				}
 			}
 			color = c * weight;
 		} else {

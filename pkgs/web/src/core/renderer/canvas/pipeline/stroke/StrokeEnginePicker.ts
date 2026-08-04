@@ -138,6 +138,11 @@ export class StrokeEngineRegistry {
 	 * BrushTextureManager accessor — exposed because ElementRenderer's
 	 * ensureBrushTexture() preloads textures into the shared manager.
 	 */
+	/** The shared batch context (mix driver needs its dab draw machinery). */
+	public getBatchContext(): StrokeBatchContext {
+		return this.context;
+	}
+
 	public getBrushTextureManager(): BrushTextureManager {
 		return this.context.getTextureManager();
 	}
