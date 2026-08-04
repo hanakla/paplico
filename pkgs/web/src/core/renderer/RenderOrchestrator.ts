@@ -140,6 +140,13 @@ export const RenderStrategy = {
 } as const;
 export type RenderStrategy = keyof typeof RenderStrategy;
 
+/** Per-call overrides for the offscreen export render path. */
+export interface ExportRenderOptions {
+	/** Draw through this target so the caller keeps its own cache scope. */
+	targetId?: string;
+	changedElements?: FrameRequest["changedElements"];
+}
+
 interface TargetData {
 	context: GPUCanvasContext;
 	uniformBuffer: GPUBuffer;
@@ -231,6 +238,8 @@ export class RenderOrchestrator {
 	private targets = new Map<string, TargetData>();
 	private activeTarget: CanvasTarget | null = null;
 	private registeredTargets = new Set<CanvasTarget>();
+	/** Target ids that render documents other than the live one. @see initCanvasTarget */
+	private isolatedTargets = new Set<string>();
 
 	/** CPU-side soft proof LUT, retained so it can be re-uploaded after
 	 *  device re-initialization (HDR switch, device loss recovery). */
@@ -358,7 +367,16 @@ export class RenderOrchestrator {
 		}
 	}
 
-	public async initCanvasTarget(target: CanvasTarget): Promise<void> {
+	/**
+	 * @param opts.isolated Marks a target that renders documents other than the
+	 * live one (timelapse replay). Engine-wide callbacks write their results
+	 * back into live editor state keyed by element id, and a replayed document
+	 * reuses those ids — so an isolated target is left unwired.
+	 */
+	public async initCanvasTarget(
+		target: CanvasTarget,
+		opts?: { isolated?: boolean },
+	): Promise<void> {
 		// Wait for any pending device re-initialization (e.g. HDR switch)
 		if (this.#pendingDeviceReInit) {
 			const success = await this.#pendingDeviceReInit;
@@ -546,9 +564,14 @@ export class RenderOrchestrator {
 			this.canvasFormat,
 		);
 
-		if (this._onRequestRender)
+		// Device recovery re-inits every registered target without options, so
+		// the flag is remembered rather than taken from the argument each time.
+		if (opts?.isolated) this.isolatedTargets.add(target.id);
+		const isolated = this.isolatedTargets.has(target.id);
+
+		if (this._onRequestRender && !isolated)
 			canvasLayer.setOnRequestRender(this._onRequestRender);
-		if (this._onTextBoundsComputed)
+		if (this._onTextBoundsComputed && !isolated)
 			canvasLayer.setOnTextBoundsComputed(this._onTextBoundsComputed);
 		if (this._reference3dContextProvider)
 			canvasLayer.setReference3DContextProvider(
@@ -661,6 +684,11 @@ export class RenderOrchestrator {
 		this.activeTarget = target;
 	}
 
+	/** The target `render()` and the export paths currently draw through. */
+	public getActiveCanvasTarget(): CanvasTarget | null {
+		return this.activeTarget;
+	}
+
 	public setDeviceLostCallbacks(callbacks: {
 		onDeviceLost?: () => void;
 		onDeviceRestored?: () => void;
@@ -748,7 +776,8 @@ export class RenderOrchestrator {
 
 	public setOnRequestRender(callback: () => void): void {
 		this._onRequestRender = callback;
-		for (const td of this.targets.values()) {
+		for (const [id, td] of this.targets) {
+			if (this.isolatedTargets.has(id)) continue;
 			td.canvasLayer.setOnRequestRender(callback);
 		}
 	}
@@ -761,7 +790,8 @@ export class RenderOrchestrator {
 		) => void,
 	): void {
 		this._onTextBoundsComputed = callback;
-		for (const td of this.targets.values()) {
+		for (const [id, td] of this.targets) {
+			if (this.isolatedTargets.has(id)) continue;
 			td.canvasLayer.setOnTextBoundsComputed(callback);
 		}
 	}
@@ -846,10 +876,12 @@ export class RenderOrchestrator {
 		/** Paint artboard backgrounds despite the clearColorOverride background
 		 *  (raster analysis renders where artboard edges act as barriers). */
 		paintArtboardBackgrounds?: boolean;
+		/** Render through this target instead of the active one, to keep a
+		 *  caller's cache scope off the editor's target. */
+		targetId?: string;
 	}): Promise<{ texture: GPUTexture; width: number; height: number } | null> {
-		const td = this.activeTarget
-			? this.targets.get(this.activeTarget.id)
-			: null;
+		const targetId = opts.targetId ?? this.activeTarget?.id;
+		const td = targetId ? this.targets.get(targetId) : null;
 		if (!td || !this.device) {
 			console.error("Renderer not initialized or no active target");
 			return null;
@@ -1035,6 +1067,7 @@ export class RenderOrchestrator {
 		document: Document,
 		scale = 1,
 		backgroundColor: RawRGBA = { r: 1, g: 1, b: 1, a: 1 },
+		opts?: ExportRenderOptions,
 	): Promise<{ texture: GPUTexture; width: number; height: number } | null> {
 		const bounds = getArtboardBounds(artboard);
 		return this.renderExportToTexture({
@@ -1046,6 +1079,7 @@ export class RenderOrchestrator {
 			scale,
 			backgroundColor,
 			document,
+			...opts,
 		});
 	}
 
@@ -1054,12 +1088,14 @@ export class RenderOrchestrator {
 		document: Document,
 		scale = 1,
 		backgroundColor: RawRGBA = { r: 1, g: 1, b: 1, a: 1 },
+		opts?: ExportRenderOptions,
 	): Promise<ImageData | null> {
 		const result = await this.renderArtboardToTexture(
 			artboard,
 			document,
 			scale,
 			backgroundColor,
+			opts,
 		);
 		if (!result) return null;
 
@@ -1649,6 +1685,34 @@ export class RenderOrchestrator {
 			console.warn("WebGPU recovery attempt failed");
 			this.scheduleRecovery();
 		}
+	}
+
+	/**
+	 * Release one target's GPU resources and unregister it.
+	 *
+	 * Both the HDR switch and device-loss recovery walk `registeredTargets` and
+	 * re-acquire each canvas context, so a target left registered after its
+	 * canvas is gone takes those paths down for the whole app.
+	 *
+	 * The CanvasTarget itself is owned by the caller and is not disposed here.
+	 */
+	public disposeCanvasTarget(target: CanvasTarget): void {
+		const td = this.targets.get(target.id);
+		if (td) {
+			td.canvasLayer.elements.destroyReference3DTextures();
+			td.canvasLayer.destroy();
+			td.strokeRegistry.destroy();
+			td.uniformBuffer.destroy();
+			td.uiLayer.destroy();
+			// The device outlives a single target, so its cache scopes have to be
+			// released here rather than with the device.
+			td.cacheManager.clearAll();
+			this.targets.delete(target.id);
+		}
+
+		this.registeredTargets.delete(target);
+		this.isolatedTargets.delete(target.id);
+		if (this.activeTarget === target) this.activeTarget = null;
 	}
 
 	private releaseGPUResources(): void {
