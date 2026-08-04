@@ -196,6 +196,47 @@ export class TimelapsePlayer {
 		return this.buildCompletedDocument();
 	}
 
+	/**
+	 * Move the playback clock forward and hand back the frame to show, or null
+	 * when this step produced nothing new.
+	 *
+	 * Both the preview loop and the exporter drive playback through here, so a
+	 * recording is drawn on the same timeline either way — including the
+	 * segment-by-segment draw-on of each new path, which the video would
+	 * otherwise skip straight past.
+	 */
+	public advanceBy(elapsedMs: number): Document | null {
+		const scaled = elapsedMs * this.speed;
+
+		if (this.activePathAnim) {
+			this.activePathAnim.elapsed += scaled;
+			if (this.activePathAnim.elapsed >= this.activePathAnim.duration) {
+				this.clearPathAnimation();
+			}
+			return this.consumeFrame();
+		}
+
+		if (this.hasFinished) return null;
+
+		this.playbackTime += scaled;
+		if (this.playbackTime < EVENT_INTERVAL_MS) return null;
+		this.playbackTime -= EVENT_INTERVAL_MS;
+		return this.advanceToNextVisibleEntry();
+	}
+
+	/** True once every visible entry has played and no draw-on is running. */
+	public get hasFinished(): boolean {
+		return (
+			!this.activePathAnim && this.visibleCursor + 1 >= this.visible.length
+		);
+	}
+
+	/** Rewind to a blank canvas, for an export that walks the whole recording. */
+	public restart(): Document {
+		this.resetReplay();
+		return this.consumeFrame();
+	}
+
 	public dispose(): void {
 		this.disposed = true;
 		this.pause();
@@ -273,25 +314,11 @@ export class TimelapsePlayer {
 			return;
 		}
 
-		// Normal playback (apply speed multiplier)
-		const scaledElapsed = elapsed * this.speed;
-		this.playbackTime += scaledElapsed;
-
-		if (this.activePathAnim) {
-			this.activePathAnim.elapsed += scaledElapsed;
-			const animatedPathId = this.activePathAnim.pathId;
-			if (this.activePathAnim.elapsed >= this.activePathAnim.duration) {
-				this.clearPathAnimation();
-			}
-			this.touched.upserted.add(animatedPathId);
-			this.emitFrame();
+		const frame = this.advanceBy(elapsed);
+		if (frame) {
+			this.callbacks.onFrame(frame);
 			this.emitState();
-		} else if (this.visibleCursor + 1 < this.visible.length) {
-			if (this.playbackTime >= EVENT_INTERVAL_MS) {
-				this.playbackTime -= EVENT_INTERVAL_MS;
-				this.advanceToNextVisibleEntry();
-			}
-		} else {
+		} else if (this.hasFinished) {
 			this.pause();
 			return;
 		}
@@ -301,7 +328,7 @@ export class TimelapsePlayer {
 		}
 	};
 
-	private advanceToNextVisibleEntry(): void {
+	private advanceToNextVisibleEntry(): Document | null {
 		const nextCursor = this.visibleCursor + 1;
 		this.applyEntriesUpTo(this.visible[nextCursor]);
 		this.visibleCursor = nextCursor;
@@ -309,12 +336,11 @@ export class TimelapsePlayer {
 		// Animation-track edits leave the drawing untouched.
 		if (this.touched.animation && !hasDocumentChange(this.touched)) {
 			this.touched = createTouchedState();
-			return;
+			return null;
 		}
 
 		this.startPathAnimationIfNewPath();
-		this.emitFrame();
-		this.emitState();
+		return this.consumeFrame();
 	}
 
 	private seekInternal(visibleIndex: number): void {
@@ -408,10 +434,9 @@ export class TimelapsePlayer {
 	}
 
 	private clearPathAnimation(): void {
-		const animation = this.activePathAnim;
+		// The shortened path only ever lived on the emitted frame, never on the
+		// accumulator, so there is nothing to put back.
 		this.activePathAnim = null;
-		if (!animation || !this.currentDoc) return;
-		this.currentDoc.objects[animation.pathId] = animation.element;
 	}
 
 	private emitFrame(): void {
@@ -436,7 +461,15 @@ export class TimelapsePlayer {
 		return document;
 	}
 
-	/** Patch the reconstructed Document with whatever the applied updates touched. */
+	/**
+	 * Patch the reconstructed Document with whatever the applied updates touched,
+	 * and hand back a frame the renderer will actually re-read.
+	 *
+	 * The accumulator is kept across frames so objects are not re-parsed from
+	 * Yjs every time, but the frame itself has to be a new object: handing the
+	 * renderer the same Document twice makes it redraw the first one, so the
+	 * preview freezes on whatever was on screen when playback started.
+	 */
 	private syncDocument(): Document {
 		const touched = this.touched;
 		this.touched = createTouchedState();
@@ -447,10 +480,10 @@ export class TimelapsePlayer {
 			const document = extractDocumentFromYDoc(this.replayDoc);
 			document.id = TIMELAPSE_REPLAY_DOCUMENT_ID;
 			this.currentDoc = document;
-			return document;
+			return { ...document, objects: { ...document.objects } };
 		}
 
-		const document = this.currentDoc!;
+		const document = this.currentDoc;
 		if (touched.layers) {
 			document.layers = extractLayersFromYDoc(this.replayDoc);
 		}
@@ -463,7 +496,7 @@ export class TimelapsePlayer {
 			else delete document.objects[id];
 		}
 
-		return document;
+		return { ...document, objects: { ...document.objects } };
 	}
 
 	/** Rebuild a single object from the replay document. */

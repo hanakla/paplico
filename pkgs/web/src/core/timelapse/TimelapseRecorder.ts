@@ -59,18 +59,21 @@ export class TimelapseRecorder {
 	}
 
 	/**
-	 * 差し替わったドキュメントの記録を引き継ぎ、追記を続ける。
-	 * Recorder はドキュメントより長く生きるので、記録を持たないドキュメントに
-	 * 切り替わったときは undefined を渡して空から録り直す。渡さないと前の
-	 * ドキュメントの履歴がそのまま再生されてしまう。
+	 * ドキュメントが差し替わったので、記録を最初からやり直す。
+	 *
+	 * `baseline` は差し替え直後の Yjs 状態を丸ごとエンコードしたもの。ここを
+	 * 差分にしてはいけない。差し替えが出す更新は、直前まで存在していた
+	 * アイテムを前提にした差分で、その依存を作った更新はもう記録に無い。
+	 * 空の Y.Doc に再生しても Yjs が統合できず、何も現れなくなる。
+	 *
+	 * 差し替え前の記録は引き継げない。過去の記録が作るアイテムと、差し替え後の
+	 * Yjs が持つアイテムは別物なので、連結して再生するとレイヤーが二重になる。
+	 * 切り替えたら録り直す。
 	 */
-	public restoreFrom(data: TimelapseData | undefined): void {
-		this.entries = data ? [...data.entries] : [];
-		this.rects = data?.index
-			? [...data.index.rects]
-			: new Array<TimelapseDirtyRect | null>(this.entries.length).fill(null);
-		const lastT = this.entries.at(-1)?.t ?? 0;
-		this.startedAt = Date.now() - lastT;
+	public restartFrom(baseline: Uint8Array): void {
+		this.startedAt = Date.now();
+		this.entries = [{ t: 0, u: baseline }];
+		this.rects = [null];
 	}
 
 	/**

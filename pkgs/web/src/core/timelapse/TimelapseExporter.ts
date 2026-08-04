@@ -82,12 +82,11 @@ export class TimelapseExporter {
 		const totalEvents = this.player.totalEvents;
 		let frameIndex = 0;
 
-		// Match preview playback timing:
-		// Preview advances 1 event per EVENT_INTERVAL_MS (scaled by speed).
-		// At the given fps, compute how many frames per event (or events per frame).
-		const msPerEvent = EVENT_INTERVAL_MS / speed;
-		const msPerFrame = 1000 / fps;
-		const framesPerEvent = msPerEvent / msPerFrame;
+		// The video runs on the preview's clock: one video frame is one tick of
+		// it. Stepping event-by-event instead would skip every intermediate
+		// draw-on frame, which is the whole point of a timelapse.
+		const frameDurationMs = 1000 / fps;
+		this.player.setSpeed(speed);
 
 		const encodeFrame = (pixels: Uint8ClampedArray, keyFrame: boolean) => {
 			if (encoderError) throw encoderError;
@@ -132,32 +131,32 @@ export class TimelapseExporter {
 			if (f % 5 === 0) await this.yieldIfNeeded(encoder);
 		}
 
-		// --- Timelapse from beginning ---
-		// Match preview timing: hold one event across several video frames when
-		// framesPerEvent >= 1, otherwise skip events to keep up.
-		// The walk only ever moves forward, so the player never rewinds.
-		const eventsPerFrame =
-			framesPerEvent >= 1 ? 1 : Math.max(1, Math.round(1 / framesPerEvent));
-		const repeatCount =
-			framesPerEvent >= 1 ? Math.max(1, Math.round(framesPerEvent)) : 1;
-		let eventIndex = -1;
+		// --- Timelapse from the beginning ---
+		// The player only moves forward here, so it never rewinds its replay
+		// document. A step that changes nothing reuses the previous pixels
+		// rather than re-rendering them.
+		let framePixels = this.padToEncoder(
+			await this.renderFrame(this.player.restart(), artboard, scale),
+			encWidth,
+			encHeight,
+		);
 
-		while (eventIndex < totalEvents - 1) {
+		while (!this.player.hasFinished) {
 			if (encoderError) throw encoderError;
 
-			eventIndex = Math.min(eventIndex + eventsPerFrame, totalEvents - 1);
-			const imageData = await this.renderFrame(
-				this.player.captureFrameAt(eventIndex),
-				artboard,
-				scale,
-			);
-			const framePixels = this.padToEncoder(imageData, encWidth, encHeight);
-
-			for (let r = 0; r < repeatCount; r++) {
-				encodeFrame(framePixels, frameIndex % (fps * 2) === 0);
+			const frame = this.player.advanceBy(frameDurationMs);
+			if (frame) {
+				framePixels = this.padToEncoder(
+					await this.renderFrame(frame, artboard, scale),
+					encWidth,
+					encHeight,
+				);
 			}
+			encodeFrame(framePixels, frameIndex % (fps * 2) === 0);
 
-			onProgress?.(Math.min(1, (eventIndex + 1) / totalEvents));
+			onProgress?.(
+				Math.min(1, (this.player.currentIndex + 1) / Math.max(1, totalEvents)),
+			);
 			await this.yieldIfNeeded(encoder);
 		}
 

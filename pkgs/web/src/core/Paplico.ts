@@ -2245,10 +2245,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 		this.stopRendering();
 
-		// Unconditional: the recorder outlives the document, so a document with
-		// no recording has to clear it rather than inherit the previous one.
-		this.timelapseRecorder.restoreFrom(doc.timelapse);
-
 		this.rendererStore.document.timelapse = doc.timelapse;
 
 		// Clear all UI state
@@ -2271,6 +2267,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.renderer.dropDocumentCaches(outgoingDocumentId);
 		}
 
+		// The recorder outlives the document, so a switch restarts it. The
+		// baseline is the whole Yjs state rather than replaceDocument's own
+		// update: that update is a delta against items whose creating updates
+		// are no longer in the recording, and Yjs cannot integrate it into an
+		// empty document.
+		this.timelapseRecorder.restartFrom(
+			Y.encodeStateAsUpdate(this.yjsProvider.ydoc),
+		);
 		// The incoming objects predate every future update, so the timelapse
 		// ledger needs their bounds to detect anything leaving an artboard.
 		this.timelapseRecorder.seedBounds(Object.keys(doc.objects));

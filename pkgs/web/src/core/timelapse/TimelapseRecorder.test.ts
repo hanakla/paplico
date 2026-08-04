@@ -1,84 +1,95 @@
 import { describe, expect, it } from "vitest";
 import type { BoundingBox } from "../schema";
 import { TimelapseRecorder } from "./TimelapseRecorder";
-import type { TimelapseData } from "./types";
 
 describe("TimelapseRecorder", () => {
-	describe("restoreFrom", () => {
-		it("should adopt the incoming document's entries", () => {
-			const recorder = new TimelapseRecorder(() => bbox(0, 0, 10, 10));
-			recorder.restoreFrom(recordingOf(3));
+	describe("restartFrom", () => {
+		it("should make the baseline the only entry", () => {
+			const recorder = newRecorder();
+			recorder.restartFrom(new Uint8Array([1, 2, 3]));
 
-			expect(recorder.getTimelapseData()?.entries).toHaveLength(3);
+			const data = recorder.getTimelapseData();
+			expect(data?.entries).toHaveLength(1);
+			expect(data?.entries[0].u).toEqual(new Uint8Array([1, 2, 3]));
 		});
 
-		it("should carry the incoming document's dirty rects", () => {
-			const recording = recordingOf(2);
-			recording.index = { rects: [[0, 0, 10, 10], null] };
-			const recorder = new TimelapseRecorder(() => bbox(0, 0, 10, 10));
+		it("should leave the baseline's affected area unknown", () => {
+			const recorder = newRecorder();
+			recorder.restartFrom(new Uint8Array([1]));
 
-			recorder.restoreFrom(recording);
-
-			expect(recorder.getTimelapseData()?.index?.rects).toEqual([
-				[0, 0, 10, 10],
-				null,
-			]);
+			expect(recorder.getTimelapseData()?.index?.rects).toEqual([null]);
 		});
 
-		it("should leave the rects unknown when the recording has no index", () => {
-			const recorder = new TimelapseRecorder(() => bbox(0, 0, 10, 10));
-			recorder.restoreFrom(recordingOf(2));
-
-			expect(recorder.getTimelapseData()?.index?.rects).toEqual([null, null]);
-		});
-
-		it("should drop the previous document's recording when the new one has none", () => {
-			const recorder = new TimelapseRecorder(() => bbox(0, 0, 10, 10));
-			recorder.restoreFrom(recordingOf(3));
-
-			recorder.restoreFrom(undefined);
-
-			expect(recorder.getTimelapseData()).toBeNull();
-		});
-
-		it("should record the new document's updates from scratch after a switch", () => {
-			const recorder = new TimelapseRecorder(() => bbox(0, 0, 10, 10));
-			recorder.restoreFrom(recordingOf(3));
-			recorder.restoreFrom(undefined);
-
-			recorder.onYjsUpdate(new Uint8Array([1]), {
+		it("should drop what was recorded for the previous document", () => {
+			const recorder = newRecorder();
+			recorder.onYjsUpdate(new Uint8Array([9]), {
 				upserted: new Set(["a"]),
 				deleted: new Set(),
 			});
 
+			recorder.restartFrom(new Uint8Array([1]));
+
+			// The old entries reference items the baseline does not create, so
+			// replaying them alongside it would not reconstruct anything.
 			expect(recorder.getTimelapseData()?.entries).toHaveLength(1);
+		});
+
+		it("should keep recording after the restart", () => {
+			const recorder = newRecorder();
+			recorder.restartFrom(new Uint8Array([1]));
+			recorder.onYjsUpdate(new Uint8Array([2]), {
+				upserted: new Set(["a"]),
+				deleted: new Set(),
+			});
+
+			const data = recorder.getTimelapseData();
+			expect(data?.entries).toHaveLength(2);
+			expect(data?.index?.rects).toEqual([null, [0, 0, 10, 10]]);
+		});
+	});
+
+	describe("getTimelapseData", () => {
+		it("should report nothing before anything is recorded", () => {
+			expect(newRecorder().getTimelapseData()).toBeNull();
+		});
+
+		it("should keep one rect per entry", () => {
+			const recorder = newRecorder();
+			recorder.restartFrom(new Uint8Array([1]));
+			recorder.onYjsUpdate(new Uint8Array([2]), null);
+
+			const data = recorder.getTimelapseData();
+			expect(data?.index?.rects).toHaveLength(data?.entries.length ?? 0);
 		});
 	});
 
 	describe("adoptRebuiltIndex", () => {
 		it("should fill only the rects that were still unknown", () => {
-			const recorder = new TimelapseRecorder(() => bbox(0, 0, 10, 10));
-			recorder.restoreFrom(recordingOf(2));
-			recorder.onYjsUpdate(new Uint8Array([9]), {
+			const recorder = newRecorder();
+			recorder.restartFrom(new Uint8Array([1]));
+			recorder.onYjsUpdate(new Uint8Array([2]), {
 				upserted: new Set(["a"]),
 				deleted: new Set(),
 			});
 
 			recorder.adoptRebuiltIndex({
 				rects: [
-					[0, 0, 1, 1],
-					[2, 2, 3, 3],
+					[5, 5, 6, 6],
+					[7, 7, 8, 8],
 				],
 			});
 
 			expect(recorder.getTimelapseData()?.index?.rects).toEqual([
-				[0, 0, 1, 1],
-				[2, 2, 3, 3],
+				[5, 5, 6, 6],
 				[0, 0, 10, 10],
 			]);
 		});
 	});
 });
+
+function newRecorder(): TimelapseRecorder {
+	return new TimelapseRecorder(() => bbox(0, 0, 10, 10));
+}
 
 function bbox(
 	minX: number,
@@ -87,14 +98,4 @@ function bbox(
 	maxY: number,
 ): BoundingBox {
 	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
-}
-
-function recordingOf(count: number): TimelapseData {
-	return {
-		version: 2,
-		entries: Array.from({ length: count }, (_, i) => ({
-			t: i * 100,
-			u: new Uint8Array([i]),
-		})),
-	};
 }
