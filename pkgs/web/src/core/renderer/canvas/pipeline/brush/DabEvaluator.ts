@@ -1,12 +1,10 @@
-import { buildCurveLut, sampleCurveLut } from "../../../../brush/curves";
 import {
-	BRUSH_PROPERTY_REGISTRY,
-	type BrushPropertySpec,
-	MAX_SCALE_FACTOR,
-} from "../../../../brush/properties";
+	bakeBrushProperties,
+	evalBrushProperty,
+} from "../../../../brush/evaluateProperties";
+import { BRUSH_PROPERTY_REGISTRY } from "../../../../brush/properties";
 import type {
 	BrushInputId,
-	BrushPropertyId,
 	BrushSettingsV2,
 	CubicBezierSegment,
 	StrokeWidthPoint,
@@ -131,7 +129,7 @@ export function evaluateDabs(
 			? options.strokeWidths
 			: undefined;
 
-	const baked = bakeProperties(settings);
+	const baked = bakeBrushProperties(settings);
 	const sizeBase =
 		settings.properties.size?.base ?? BRUSH_PROPERTY_REGISTRY.size.base;
 	const wetEnabled = settings.wet?.enabled === true;
@@ -279,15 +277,15 @@ export function evaluateDabs(
 		inputs.distance = clamp01(fragDistance / DISTANCE_SATURATION_PX);
 		inputs.randomPerDab = dabRng();
 
-		const sizeVal = evalProp(baked, "size", inputs);
-		const ratioVal = evalProp(baked, "ratio", inputs);
-		const angleVal = evalProp(baked, "angle", inputs);
-		const flowVal = evalProp(baked, "flow", inputs);
-		const spacingVal = evalProp(baked, "spacing", inputs);
-		const scatterOffsetVal = evalProp(baked, "scatterOffset", inputs);
-		const scatterAlongVal = evalProp(baked, "scatterAlong", inputs);
-		const hardnessVal = evalProp(baked, "hardness", inputs);
-		const grainVal = evalProp(baked, "grainStrength", inputs);
+		const sizeVal = evalBrushProperty(baked, "size", inputs);
+		const ratioVal = evalBrushProperty(baked, "ratio", inputs);
+		const angleVal = evalBrushProperty(baked, "angle", inputs);
+		const flowVal = evalBrushProperty(baked, "flow", inputs);
+		const spacingVal = evalBrushProperty(baked, "spacing", inputs);
+		const scatterOffsetVal = evalBrushProperty(baked, "scatterOffset", inputs);
+		const scatterAlongVal = evalBrushProperty(baked, "scatterAlong", inputs);
+		const hardnessVal = evalBrushProperty(baked, "hardness", inputs);
+		const grainVal = evalBrushProperty(baked, "grainStrength", inputs);
 
 		let sizeX = sizeVal * Math.max(textureAspectRatio, 1);
 		if (taper) {
@@ -369,29 +367,29 @@ export function evaluateDabs(
 		if (colorDynamic) {
 			data[off + DAB_FIELD_OFFSETS.packedColorShift0] = u32AsFloat(
 				pack2x16snorm(
-					evalProp(baked, "hueShift", inputs),
-					evalProp(baked, "satShift", inputs),
+					evalBrushProperty(baked, "hueShift", inputs),
+					evalBrushProperty(baked, "satShift", inputs),
 				),
 			);
 			data[off + DAB_FIELD_OFFSETS.packedColorShift1] = u32AsFloat(
-				pack2x16snorm(evalProp(baked, "valShift", inputs), 0),
+				pack2x16snorm(evalBrushProperty(baked, "valShift", inputs), 0),
 			);
 		}
 		data[off + DAB_FIELD_OFFSETS.hardnessLutIndex] =
 			hardnessToLutIndex(hardnessVal);
 		data[off + DAB_FIELD_OFFSETS.grainStrength] = grainVal;
 		if (wetEnabled) {
-			data[off + DAB_FIELD_OFFSETS.wetness] = evalProp(
+			data[off + DAB_FIELD_OFFSETS.wetness] = evalBrushProperty(
 				baked,
 				"wetness",
 				inputs,
 			);
-			data[off + DAB_FIELD_OFFSETS.directionality] = evalProp(
+			data[off + DAB_FIELD_OFFSETS.directionality] = evalBrushProperty(
 				baked,
 				"directionality",
 				inputs,
 			);
-			data[off + DAB_FIELD_OFFSETS.grainAmount] = evalProp(
+			data[off + DAB_FIELD_OFFSETS.grainAmount] = evalBrushProperty(
 				baked,
 				"grainAmount",
 				inputs,
@@ -404,18 +402,21 @@ export function evaluateDabs(
 		data[off + DAB_FIELD_OFFSETS.reserved] = 0;
 		if (mixingEnabled) {
 			const mixOff = count * 4;
-			mixParams[mixOff] = evalProp(baked, "colorRate", inputs);
-			mixParams[mixOff + 1] = evalProp(baked, "alphaRate", inputs);
-			mixParams[mixOff + 2] = evalProp(baked, "smudgeLength", inputs);
+			mixParams[mixOff] = evalBrushProperty(baked, "colorRate", inputs);
+			mixParams[mixOff + 1] = evalBrushProperty(baked, "alphaRate", inputs);
+			mixParams[mixOff + 2] = evalBrushProperty(baked, "smudgeLength", inputs);
 		}
 		count++;
 	};
 
 	// Spacing thresholds re-evaluated after every emitted dab.
 	const currentSpacingWorld = (): number =>
-		Math.max(sizeBase * evalProp(baked, "spacing", inputs), MIN_SPACING_WORLD);
+		Math.max(
+			sizeBase * evalBrushProperty(baked, "spacing", inputs),
+			MIN_SPACING_WORLD,
+		);
 	const currentTimedInterval = (): number => {
-		const dps = evalProp(baked, "dabsPerSecond", inputs);
+		const dps = evalBrushProperty(baked, "dabsPerSecond", inputs);
 		return dps > 0 ? 1000 / dps : Number.POSITIVE_INFINITY;
 	};
 
@@ -801,54 +802,6 @@ function initialEvalState(settings: BrushSettingsV2): DabEvalState {
 		dabCount: 0,
 		rngState: settings.randomSeed >>> 0,
 	};
-}
-
-// --- property baking ------------------------------------------------------
-
-interface BakedProperty {
-	spec: BrushPropertySpec;
-	base: number;
-	curves: { input: BrushInputId; lut: Float32Array }[];
-}
-
-type BakedProperties = Partial<Record<BrushPropertyId, BakedProperty>>;
-
-function bakeProperties(settings: BrushSettingsV2): BakedProperties {
-	const out: BakedProperties = {};
-	for (const [id, config] of Object.entries(settings.properties)) {
-		const spec = BRUSH_PROPERTY_REGISTRY[id as BrushPropertyId];
-		if (!spec || !config) continue;
-		out[id as BrushPropertyId] = {
-			spec,
-			base: config.base,
-			curves: (config.curves ?? []).map((curve) => ({
-				input: curve.input,
-				lut: buildCurveLut(curve.points),
-			})),
-		};
-	}
-	return out;
-}
-
-function evalProp(
-	baked: BakedProperties,
-	id: BrushPropertyId,
-	inputs: Record<BrushInputId, number>,
-): number {
-	const entry = baked[id];
-	const spec = entry?.spec ?? BRUSH_PROPERTY_REGISTRY[id];
-	const base = entry?.base ?? spec.base;
-	let sum = 0;
-	if (entry) {
-		for (const curve of entry.curves) {
-			sum += sampleCurveLut(curve.lut, inputs[curve.input]);
-		}
-	}
-	if (spec.domain === "scale") {
-		const factor = Math.min(Math.max(1 + sum, 0), MAX_SCALE_FACTOR);
-		return Math.min(Math.max(base * factor, spec.min), spec.max);
-	}
-	return Math.min(Math.max(base + sum, spec.min), spec.max);
 }
 
 // --- helpers --------------------------------------------------------------

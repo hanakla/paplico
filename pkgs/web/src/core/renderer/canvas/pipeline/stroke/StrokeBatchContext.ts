@@ -1392,7 +1392,7 @@ export class StrokeBatchContext {
 		alphaMultiplier: number,
 		transformIndex: number,
 	): void {
-		const ribbonOpts = ribbonOptionsFor(originalBrush);
+		const ribbonOpts = this.ribbonOptionsWithCurves(path, originalBrush);
 		const ribbonBuf = generateRibbonInstances(
 			segments,
 			brushSettings,
@@ -2859,7 +2859,7 @@ export class StrokeBatchContext {
 		transformsBindGroup: GPUBindGroup | undefined,
 		transformIndex: number,
 	): void {
-		const ribbonOpts = ribbonOptionsFor(originalBrush);
+		const ribbonOpts = this.ribbonOptionsWithCurves(path, originalBrush);
 		const ribbonBuf = generateRibbonInstances(
 			segments,
 			brushSettings,
@@ -3107,6 +3107,20 @@ export class StrokeBatchContext {
 		data[offset + 21] = ribbon.uvOffset;
 		data[offset + 22] = ribbon.aspectRatio;
 		data[offset + 23] = ribbon.stampAngle;
+	}
+
+	/** Ribbon options plus the v2 settings whose curves modulate width and
+	 *  opacity, when the stroke is on the v2 route. */
+	private ribbonOptionsWithCurves(
+		path: Path,
+		originalBrush: PatternBrushSettings | ArtBrushSettings,
+	): RibbonOptions {
+		const base = ribbonOptionsFor(originalBrush);
+		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
+		if (rawBrushSettings == null) return base;
+		const route = resolveBrushRenderRoute(rawBrushSettings);
+		if (route.kind !== "ribbon-legacy") return base;
+		return { ...base, curved: route.settings };
 	}
 
 	/** Per-path ribbon tiling for the path meta. Zeroed for non-ribbon

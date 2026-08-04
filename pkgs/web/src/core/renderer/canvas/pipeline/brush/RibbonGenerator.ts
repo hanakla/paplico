@@ -6,7 +6,14 @@
  * Each segment becomes one instanced draw with arc-length prefix sums for UV.
  */
 
+import {
+	bakeBrushProperties,
+	createBrushInputs,
+	evalBrushProperty,
+} from "../../../../brush/evaluateProperties";
+import { BRUSH_PROPERTY_REGISTRY } from "../../../../brush/properties";
 import type {
+	BrushSettingsV2,
 	CubicBezierSegment,
 	PatternBrushSettings,
 	StrokeWidthPoint,
@@ -30,6 +37,13 @@ export interface RibbonOptions {
 	flipV: boolean;
 	/** Gap between tiles as ratio of tile width (0 = no gap; repeat mode only). */
 	tileSpacing: number;
+	/**
+	 * v2 settings whose size/flow curves modulate the ribbon (design §12).
+	 * Evaluated at each segment's endpoints and interpolated in between, the
+	 * same granularity taper already uses. Absent for legacy strokes, which
+	 * keep the v1 pressure factor.
+	 */
+	curved?: BrushSettingsV2;
 }
 
 export const DEFAULT_RIBBON_OPTIONS: RibbonOptions = {
@@ -114,6 +128,22 @@ export function generateRibbonInstances(
 
 	const brushHalfWidth = settings.size * 0.5;
 	const hasStrokeWidths = strokeWidths != null && strokeWidths.length > 0;
+
+	// Curve matrix: size scales the half-width, flow scales the opacity.
+	const baked = options.curved ? bakeBrushProperties(options.curved) : null;
+	const curveInputs = createBrushInputs();
+	const sizeBase =
+		options.curved?.properties.size?.base ?? BRUSH_PROPERTY_REGISTRY.size.base;
+	const evalAt = (
+		property: "size" | "flow",
+		pressure: number,
+		strokeT: number,
+	): number => {
+		curveInputs.pressure = Math.min(Math.max(pressure, 0), 1);
+		curveInputs.strokeT = strokeT;
+		curveInputs.fade = strokeT;
+		return evalBrushProperty(baked!, property, curveInputs);
+	};
 
 	// Pass 1: resolve source segments and their global path ranges.
 	const sourceSegments: Array<{
@@ -273,10 +303,17 @@ export function generateRibbonInstances(
 		// Pressure-based half-width at segment endpoints
 		const p0 = segment.startPressure;
 		const p1 = segment.endPressure;
-		const pf0 = 1 - settings.sizeByPressure + settings.sizeByPressure * p0;
-		const pf1 = 1 - settings.sizeByPressure + settings.sizeByPressure * p1;
-		let hw0 = brushHalfWidth * pf0;
-		let hw1 = brushHalfWidth * pf1;
+		let hw0: number;
+		let hw1: number;
+		if (baked) {
+			hw0 = evalAt("size", p0, pathT0) * 0.5;
+			hw1 = evalAt("size", p1, pathT1) * 0.5;
+		} else {
+			const pf0 = 1 - settings.sizeByPressure + settings.sizeByPressure * p0;
+			const pf1 = 1 - settings.sizeByPressure + settings.sizeByPressure * p1;
+			hw0 = brushHalfWidth * pf0;
+			hw1 = brushHalfWidth * pf1;
+		}
 		if (taper) {
 			hw0 *= taperFactor(taper, arcLengthOffset, totalArcLength);
 			hw1 *= taperFactor(taper, arcLengthOffset + segArcLen, totalArcLength);
@@ -302,7 +339,11 @@ export function generateRibbonInstances(
 		data[off + 17] = pathT1;
 		data[off + 18] = u32AsFloat(pathIndex);
 		data[off + 19] = totalArcLength;
-		data[off + 20] = opacity;
+		data[off + 20] = baked
+			? opacity *
+				(evalAt("flow", (p0 + p1) * 0.5, (pathT0 + pathT1) * 0.5) /
+					Math.max(BRUSH_PROPERTY_REGISTRY.flow.base, 1e-6))
+			: opacity;
 		data[off + 21] = colorModeBit;
 		// Junction tangent angles for normal blending at segment boundaries
 		const NO_JOIN = 1e30;

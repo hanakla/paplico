@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { normalizeBrushSettingsV2 } from "../../../../brush/migrate";
 import type {
+	BrushSettingsV2,
 	CubicBezierSegment,
 	PatternBrushSettings,
 } from "../../../../schema";
-import { generateRibbonInstances } from "./RibbonGenerator";
+import {
+	DEFAULT_RIBBON_OPTIONS,
+	generateRibbonInstances,
+} from "./RibbonGenerator";
 
 describe("generateRibbonInstances — signed stroke widths", () => {
 	it("should preserve negative side widths at segment endpoints", () => {
@@ -70,7 +75,80 @@ describe("generateRibbonInstances — signed stroke widths", () => {
 	});
 });
 
-function straightSegment(): CubicBezierSegment {
+describe("generateRibbonInstances — v2 curves", () => {
+	it("should modulate the half width by the size curve at segment ends", () => {
+		const result = generateRibbonInstances(
+			[straightSegment({ startPressure: 0, endPressure: 1 })],
+			patternSettings(),
+			0,
+			undefined,
+			{
+				...DEFAULT_RIBBON_OPTIONS,
+				curved: curvedSettings({
+					size: {
+						base: 20,
+						curves: [
+							{
+								input: "pressure",
+								points: [
+									[0, -0.5],
+									[1, 0],
+								],
+							},
+						],
+					},
+				}),
+			},
+		);
+
+		// scale domain: pressure 0 halves the base, pressure 1 leaves it.
+		expect(result.data[8]).toBeCloseTo(5, 4);
+		expect(result.data[9]).toBeCloseTo(10, 4);
+	});
+
+	it("should leave the width to the v1 pressure factor without v2 settings", () => {
+		const result = generateRibbonInstances(
+			[straightSegment({ startPressure: 0, endPressure: 1 })],
+			{ ...patternSettings(), sizeByPressure: 1 },
+			0,
+		);
+
+		expect(result.data[8]).toBeCloseTo(0, 4);
+		expect(result.data[9]).toBeCloseTo(5, 4);
+	});
+
+	it("should scale opacity by the flow curve", () => {
+		const opacityOf = (flowBase: number): number =>
+			generateRibbonInstances(
+				[straightSegment()],
+				patternSettings(),
+				0,
+				undefined,
+				{
+					...DEFAULT_RIBBON_OPTIONS,
+					curved: curvedSettings({ flow: { base: flowBase } }),
+				},
+			).data[20];
+
+		expect(opacityOf(1)).toBeCloseTo(1, 4);
+		expect(opacityOf(0.5)).toBeCloseTo(0.5, 4);
+	});
+});
+
+function curvedSettings(properties: Record<string, unknown>): BrushSettingsV2 {
+	return normalizeBrushSettingsV2({
+		version: 2,
+		engine: "ribbon",
+		strokeOpacity: 1,
+		paintMode: "buildup",
+		properties: { size: { base: 10 }, flow: { base: 1 }, ...properties },
+		randomSeed: 1,
+	});
+}
+
+function straightSegment(
+	overrides: Partial<CubicBezierSegment> = {},
+): CubicBezierSegment {
 	return {
 		start: { x: 0, y: 0 },
 		cp1: { x: 33, y: 0 },
@@ -85,6 +163,7 @@ function straightSegment(): CubicBezierSegment {
 		endTiltY: 0,
 		startDeltaTime: 0,
 		endDeltaTime: 1,
+		...overrides,
 	};
 }
 
