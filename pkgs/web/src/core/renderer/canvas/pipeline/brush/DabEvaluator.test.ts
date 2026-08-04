@@ -257,6 +257,47 @@ describe("evaluateDabs", () => {
 		});
 	});
 
+	describe("wet field coefficients", () => {
+		it("should pack the five field coefficients when wet is enabled", () => {
+			const settings = dabSettings({
+				wet: {
+					enabled: true,
+					bleedRadius: 0.5,
+					pigmentLoad: 0.85,
+					grainScale: 1,
+				},
+				properties: {
+					size: { base: 10 },
+					spacing: { base: 0.2 },
+					flow: { base: 1 },
+					absorption: { base: 0.5 },
+					granulation: { base: 0.25 },
+					bleedSoftness: { base: 1 },
+					edgeDarkening: { base: 0 },
+					edgeRoughness: { base: 0.75 },
+				},
+			});
+			const coefficients = readWetCoefficients(
+				evaluateDabs([lineSegment()], settings).data,
+				0,
+			);
+
+			// 6-bit quantization: one step is 1/63.
+			const eps = 1 / 63;
+			expect(Math.abs(coefficients[0] - 0.5)).toBeLessThanOrEqual(eps);
+			expect(Math.abs(coefficients[1] - 0.25)).toBeLessThanOrEqual(eps);
+			expect(coefficients[2]).toBe(1);
+			expect(coefficients[3]).toBe(0);
+			expect(Math.abs(coefficients[4] - 0.75)).toBeLessThanOrEqual(eps);
+		});
+
+		it("should pack nothing when wet is disabled", () => {
+			const result = evaluateDabs([lineSegment()], dabSettings());
+
+			expect(readDabField(result.data, 0, "packedWetCoefficients")).toBe(0);
+		});
+	});
+
 	describe("determinism", () => {
 		it("should produce byte-identical buffers for identical inputs", () => {
 			const settings = dabSettings({
@@ -578,4 +619,11 @@ function readDabColorShift(
 	);
 	const [value] = unpack(readDabField(data, dabIndex, "packedColorShift1"));
 	return { hue, saturation, value };
+}
+
+/** Unpack the five 6-bit wet field coefficients from a dab. */
+function readWetCoefficients(data: Float32Array, dabIndex: number): number[] {
+	const packed = readDabField(data, dabIndex, "packedWetCoefficients");
+	const bits = new Uint32Array(new Float32Array([packed]).buffer)[0];
+	return [0, 1, 2, 3, 4].map((i) => ((bits >>> (i * 6)) & 0x3f) / 63);
 }

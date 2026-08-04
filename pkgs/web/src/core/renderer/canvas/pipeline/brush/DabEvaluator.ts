@@ -399,7 +399,17 @@ export function evaluateDabs(
 			data[off + DAB_FIELD_OFFSETS.directionality] = 0;
 			data[off + DAB_FIELD_OFFSETS.grainAmount] = 0;
 		}
-		data[off + DAB_FIELD_OFFSETS.reserved] = 0;
+		data[off + DAB_FIELD_OFFSETS.packedWetCoefficients] = wetEnabled
+			? u32AsFloat(
+					pack5x6unorm(
+						evalBrushProperty(baked, "absorption", inputs),
+						evalBrushProperty(baked, "granulation", inputs),
+						evalBrushProperty(baked, "bleedSoftness", inputs),
+						evalBrushProperty(baked, "edgeDarkening", inputs),
+						evalBrushProperty(baked, "edgeRoughness", inputs),
+					),
+				)
+			: 0;
 		if (mixingEnabled) {
 			const mixOff = count * 4;
 			mixParams[mixOff] = evalBrushProperty(baked, "colorRate", inputs);
@@ -875,6 +885,27 @@ const _bitView = new DataView(new ArrayBuffer(4));
 function u32AsFloat(value: number): number {
 	_bitView.setUint32(0, value >>> 0, true);
 	return _bitView.getFloat32(0, true);
+}
+
+/** Five 0..1 coefficients into 30 bits, lowest first (see
+ *  DAB_FIELD_OFFSETS.packedWetCoefficients). */
+function pack5x6unorm(
+	a: number,
+	b: number,
+	c: number,
+	d: number,
+	e: number,
+): number {
+	const enc = (value: number) =>
+		Math.round(Math.min(Math.max(value, 0), 1) * 63) & 0x3f;
+	return (
+		(enc(a) |
+			(enc(b) << 6) |
+			(enc(c) << 12) |
+			(enc(d) << 18) |
+			(enc(e) << 24)) >>>
+		0
+	);
 }
 
 /** WGSL pack2x16snorm: zero bits decode to zero, so an unwritten dab

@@ -296,6 +296,26 @@ struct WetSeedOutput {
 	@location(3) mask: vec4f,
 }
 
+struct WetCoefficients {
+	absorption: f32,
+	granulation: f32,
+	bleedSoftness: f32,
+	edgeDarkening: f32,
+	edgeRoughness: f32,
+}
+
+/** Five 6-bit coefficients out of the dab's one spare slot, lowest first. */
+fn unpackWetCoefficients(packed: f32) -> WetCoefficients {
+	let bits = bitcast<u32>(packed);
+	var out: WetCoefficients;
+	out.absorption = f32(bits & 63u) / 63.0;
+	out.granulation = f32((bits >> 6u) & 63u) / 63.0;
+	out.bleedSoftness = f32((bits >> 12u) & 63u) / 63.0;
+	out.edgeDarkening = f32((bits >> 18u) & 63u) / 63.0;
+	out.edgeRoughness = f32((bits >> 24u) & 63u) / 63.0;
+	return out;
+}
+
 /** Coverage -> optical density, so overlapping dabs add instead of saturate. */
 fn encodeWetPigmentMass(premultiplied: vec4f) -> vec4f {
 	let coverage = clamp(premultiplied.a, 0.0, 0.999);
@@ -343,11 +363,19 @@ ${tipSample}
 	// Per-dab seeds: v1 read these from one uniform per stroke.
 	let wetness = max(dab.wetness, 0.0);
 	let directionality = clamp(dab.directionality, 0.0, 1.0);
+	let coefficients = unpackWetCoefficients(dab.packedWetCoefficients);
 
 	var out: WetSeedOutput;
 	out.pigment = encodeWetPigmentMass(premultiplied);
 	out.fluidVelocity = vec4f(dir * cov * directionality, cov, 0.0);
-	out.moisture = vec4f(0.0, 0.0, cov * wetness, cov * (0.18 + wetness * 0.35));
+	// Absorption rides in moisture.x, which the field itself never used; the
+	// remaining four coefficients need their own target (design §13-2).
+	out.moisture = vec4f(
+		coefficients.absorption,
+		0.0,
+		cov * wetness,
+		cov * (0.18 + wetness * 0.35),
+	);
 	out.mask = vec4f(cov, edge, speed, accel);
 	return out;
 }

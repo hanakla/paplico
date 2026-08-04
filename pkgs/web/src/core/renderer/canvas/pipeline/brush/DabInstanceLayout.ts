@@ -37,7 +37,16 @@ export const DAB_FIELD_OFFSETS = {
 	wetness: 20,
 	directionality: 21,
 	grainAmount: 22,
-	reserved: 23,
+	/**
+	 * The five field-evolution wet coefficients at 6 bits each, in order:
+	 * absorption, granulation, bleedSoftness, edgeDarkening, edgeRoughness.
+	 *
+	 * They share the layout's one spare slot because the 24-float ABI is
+	 * frozen (appendix C). 6 bits is 1.6% of each coefficient's 0..1 range —
+	 * below what a diffusion coefficient can show, and the alternative was
+	 * widening the instance for every non-wet brush.
+	 */
+	packedWetCoefficients: 23,
 } as const;
 
 export type DabFieldName = keyof typeof DAB_FIELD_OFFSETS;
