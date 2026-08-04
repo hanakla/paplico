@@ -71,7 +71,6 @@ import {
 	type RibbonOptions,
 } from "../brush/RibbonGenerator";
 import {
-	cullStampBufferToViewport,
 	generateStampsDirect,
 	NIB_SHAPE_CIRCLE,
 	type NibShape,

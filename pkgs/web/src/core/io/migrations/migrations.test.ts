@@ -1337,16 +1337,18 @@ describe("migBrushV2 (20260803)", () => {
 		expect((doc.brushPresets?.[0]?.settings as any).engine).toBe("geometric");
 	});
 
-	it("preserves wet ink settings as wetV1 without synthesizing v2 wet", () => {
+	it("converts wet ink settings into the v2 wet layer", () => {
 		const doc = makeBrushDoc();
 
 		applyMigration(doc, migBrushV2);
 
 		const bs = (doc.objects.p1 as any).filters[0].paramData.params
 			.brushSettings as Record<string, any>;
-		expect(bs.wetV1?.enabled).toBe(true);
-		expect(bs.wetV1?.bleedWidth).toBeCloseTo(0.5, 10);
-		expect(bs.wet).toBeUndefined();
+		expect(bs.wet?.enabled).toBe(true);
+		expect(bs.wet?.bleedRadius).toBeCloseTo(0.5, 10);
+		// The modulatable half lands in properties, not in WetConfig.
+		expect(bs.properties?.wetness?.base).toBeGreaterThan(0);
+		expect(bs.wetV1).toBeUndefined();
 	});
 
 	it("converts a legacy flat preset shape (defaultSettings + textureFileUid)", () => {

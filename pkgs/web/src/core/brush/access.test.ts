@@ -1,8 +1,8 @@
-import type { BrushSettingsV2, ScatterBrushSettings } from "../schema";
+import type { BrushSettingsV2 } from "../schema";
 import {
 	readStoredBrushSize,
 	readStoredBrushStroking,
-	readStoredWetInk,
+	readStoredWetBleedRatio,
 	withStoredBrushSize,
 } from "./access";
 

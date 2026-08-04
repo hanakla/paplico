@@ -9,6 +9,7 @@ import {
 	type BrushSettingsV2,
 	type BrushTipConfig,
 	DEFAULT_CALLIGRAPHY_SPACING,
+	DEFAULT_WET_INK_DIFFUSION,
 	type GrainConfig,
 	type InputDynamicsConfig,
 	type MixingConfig,

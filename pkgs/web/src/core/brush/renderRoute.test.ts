@@ -46,7 +46,9 @@ describe("resolveBrushRenderRoute", () => {
 		expect(route.kind).toBe("dab-v2");
 	});
 
-	it("should keep wet strokes on the legacy path (wetV1 authority)", () => {
+	it("should route wet strokes through the v2 dab pipeline", () => {
+		// wetV1 is gone: a v1 wet brush converts into the v2 wet layer, so
+		// there is no legacy route left for it to take.
 		const route = resolveBrushRenderRoute({
 			...scatterV1,
 			wetInk: {

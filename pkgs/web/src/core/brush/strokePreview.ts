@@ -15,7 +15,7 @@ import type {
 } from "../schema";
 import { calculateElementBounds, expandBounds } from "../utils/geometry/bounds";
 import { deepClone } from "../utils/lang";
-import { readStoredBrushSize, readStoredWetInk } from "./access";
+import { readStoredBrushSize, readStoredWetBleedRatio } from "./access";
 
 export interface BrushStrokePreviewOptions {
 	brushSettings: BrushSettings | BrushSettingsV2;

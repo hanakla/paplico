@@ -1,4 +1,7 @@
-import { readStoredBrushSize, readStoredWetInk } from "../../brush/access";
+import {
+	readStoredBrushSize,
+	readStoredWetBleedRatio,
+} from "../../brush/access";
 import {
 	type AnyArtObject,
 	type BezierPoint,

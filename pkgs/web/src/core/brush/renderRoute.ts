@@ -8,14 +8,11 @@ import { toLegacyBrushSettings } from "./toLegacy";
  * probing settings shapes ad hoc.
  *
  * - "dab-v2": the new dab pipeline consumes BrushSettingsV2 directly.
- * - "dab-legacy": wetV1 is present — the legacy WetInkPass path stays the
- *   authority until the wet switchover, consuming the down-converted view.
  * - "ribbon-legacy" / "geometric": engines that keep their v1 renderers
  *   until their own integration phases.
  */
 export type BrushRenderRoute =
 	| { kind: "dab-v2"; settings: BrushSettingsV2 }
-	| { kind: "dab-legacy"; settings: BrushSettingsV2 }
 	| { kind: "ribbon-legacy"; settings: BrushSettingsV2 }
 	| { kind: "geometric"; settings: BrushSettingsV2 };
 

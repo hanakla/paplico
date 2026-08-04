@@ -226,7 +226,7 @@ describe("normalizeBrushSettingsV2", () => {
 			expect(v2.tip.endSource).toEqual({ kind: "file", fileUid: "tex-e" });
 		});
 
-		it("should preserve wetInk verbatim as wetV1 and not synthesize v2 wet/mixing", () => {
+		it("should convert wetInk into the v2 wet layer", () => {
 			const wetInk: WetInkSettings = {
 				enabled: true,
 				bleedWidth: 0.5,

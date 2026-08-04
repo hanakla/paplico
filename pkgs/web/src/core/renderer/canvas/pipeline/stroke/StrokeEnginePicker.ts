@@ -19,10 +19,7 @@ import type { BrushTextureManager } from "../brush/BrushTextureManager";
 import type { GeometricStrokeEngine } from "./GeometricStrokeEngine";
 import type { RibbonStrokeEngine } from "./RibbonStrokeEngine";
 import type { StampStrokeEngine } from "./StampStrokeEngine";
-import type {
-	StrokeBatchContext,
-	WetStrokeIsolatedRenderParams,
-} from "./StrokeBatchContext";
+import type { StrokeBatchContext } from "./StrokeBatchContext";
 import type {
 	EnginePipeline,
 	ResolvedStrokeStyle,

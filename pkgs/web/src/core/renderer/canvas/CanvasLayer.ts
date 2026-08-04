@@ -29,7 +29,6 @@ import {
 	getContainerChildIds,
 	getTransform,
 	hasGroupAppearances,
-	hasWetInk,
 	isBlend,
 	isCompoundPath,
 	isGroup,

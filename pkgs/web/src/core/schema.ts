@@ -2097,13 +2097,6 @@ export interface BrushSettingsV2 {
 	wetEdge?: WetEdgeConfig;
 	mixing?: MixingConfig;
 	wet?: WetConfig;
-	/**
-	 * Migration-period verbatim copy of the v1 wet ink settings. While present
-	 * it is the single authority for wet rendering/editing; the final
-	 * conversion into wet/mixing/properties happens in the wet switchover
-	 * (design §13-7) which also deletes this field.
-	 */
-	wetV1?: WetInkSettings;
 	inputDynamics?: InputDynamicsConfig;
 	randomSeed: number;
 	taperStart?: number;

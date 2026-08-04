@@ -6,9 +6,8 @@ import { resolveMixingStroke } from "./MixStrokeRenderer";
 
 /**
  * Which strokes the mix pass owns (design §10, §13-7). Everything else must
- * stay on its existing route — starting the mix pass for a wetV1 stroke would
- * make the legacy wet ink path and the new mixing path both pick up the
- * backdrop color, applying it twice.
+ * stay on its existing route. Picking up the layer below belongs to the mix
+ * pass alone now, which is why a converted v1 wet brush lands here.
  */
 describe("resolveMixingStroke", () => {
 	it("should claim a dab-v2 stroke with mixing enabled", () => {

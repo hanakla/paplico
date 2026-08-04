@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { normalizeBrushSettingsV2 } from "../../../../brush/migrate";
 import { normalizeBrushSettings } from "../../../../brush/normalize";
-import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../../../document/constants";
 import { createDefaultTransform } from "../../../../document/factory";
 import type {
-	CubicBezierSegment,
 	Path,
 	PathSegment,
 	ScatterBrushSettings,

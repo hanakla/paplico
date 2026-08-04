@@ -37,18 +37,20 @@ export function withStoredBrushSize<T>(settings: T, size: number): T {
 }
 
 /**
- * Read the wet ink settings that are authoritative for the stored value:
- * `wetInk` on v1 scatter/calligraphy brushes, `wetV1` on v2 (design §13-7).
+ * How far past its own width a wet stroke bleeds, as a ratio of the brush
+ * size, from either settings shape. Bounds needs this without normalizing.
  */
-export function readStoredWetInk(raw: unknown): WetInkSettings | undefined {
-	if (!isRecord(raw)) return undefined;
+export function readStoredWetBleedRatio(raw: unknown): number {
+	if (!isRecord(raw)) return 0;
 	if (raw.version === 2) {
-		return (raw as unknown as BrushSettingsV2).wetV1;
+		const wet = (raw as unknown as BrushSettingsV2).wet;
+		return wet?.enabled === true ? wet.bleedRadius : 0;
 	}
-	if (raw.type !== "scatter" && raw.type !== "calligraphy") return undefined;
-	return isRecord(raw.wetInk)
+	if (raw.type !== "scatter" && raw.type !== "calligraphy") return 0;
+	const wetInk = isRecord(raw.wetInk)
 		? (raw.wetInk as unknown as WetInkSettings)
 		: undefined;
+	return wetInk?.enabled === true ? wetInk.bleedWidth : 0;
 }
 
 /** Read geometric stroking config: v1 stroke brushes and v2 both carry it. */

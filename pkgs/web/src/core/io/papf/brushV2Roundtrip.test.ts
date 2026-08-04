@@ -104,7 +104,7 @@ describe("brush v2 papf roundtrip", () => {
 		const migrated = getStrokeBrushSettings(loaded);
 		expect(migrated.version).toBe(2);
 		expect(migrated.engine).toBe("dab");
-		expect(migrated.wetV1?.enabled).toBe(true);
+		expect(migrated.wet?.enabled).toBe(true);
 		expect((loaded.brushPresets?.[0]?.settings as any).version).toBe(2);
 
 		// Save the migrated document, reload it and migrate again (papf never

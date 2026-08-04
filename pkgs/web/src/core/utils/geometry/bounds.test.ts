@@ -69,7 +69,7 @@ describe("bounds utilities", () => {
 			expect(bounds.height).toBe(110);
 		});
 
-		it("should include size and wetV1 bleed margin for stored v2 settings", () => {
+		it("should include size and wet bleed margin for stored v2 settings", () => {
 			const path: Path = {
 				type: "path",
 				id: "test-path-v2",

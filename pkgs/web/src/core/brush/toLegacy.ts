@@ -6,8 +6,10 @@ import type {
 	BrushSettingsV2,
 	CalligraphyBrushSettings,
 	ScatterBrushSettings,
+	WetInkSettings,
 } from "../schema";
 import { evaluatePiecewiseLinear } from "./curves";
+import { BRUSH_PROPERTY_REGISTRY } from "./properties";
 
 /**
  * v2 -> v1 down-converter for the transition period (design §13-7 / plan
