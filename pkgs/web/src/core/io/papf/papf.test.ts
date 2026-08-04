@@ -52,7 +52,7 @@ function makeFile(
 
 function makeTimelapse(count: number): TimelapseData {
 	return {
-		version: 1,
+		version: 2,
 		entries: Array.from({ length: count }, (_, i) => ({
 			t: i * 100,
 			u: new Uint8Array([i & 0xff, (i >> 8) & 0xff]),
@@ -141,7 +141,7 @@ describe("PAPF format", () => {
 			const restored = await papf.toDocument();
 
 			expect(restored.timelapse).toBeDefined();
-			expect(restored.timelapse!.version).toBe(1);
+			expect(restored.timelapse!.version).toBe(2);
 			expect(restored.timelapse!.entries).toHaveLength(5);
 
 			for (let i = 0; i < 5; i++) {
@@ -150,6 +150,37 @@ describe("PAPF format", () => {
 					timelapse.entries[i].u,
 				);
 			}
+		});
+
+		it("should round-trip the timelapse dirty-rect index", async () => {
+			const timelapse = makeTimelapse(3);
+			timelapse.index = {
+				rects: [[0, 0, 10, 10], null, [-5, -5, 5, 5]],
+			};
+
+			const blob = await serializeDocument(makeMinimalDoc({ timelapse }));
+			const restored = await (await openPapf(blob)).toDocument();
+
+			expect(restored.timelapse!.index).toEqual(timelapse.index);
+		});
+
+		it("should report no index when the recording predates it", async () => {
+			const blob = await serializeDocument(
+				makeMinimalDoc({ timelapse: makeTimelapse(3) }),
+			);
+			const restored = await (await openPapf(blob)).toDocument();
+
+			expect(restored.timelapse!.index).toBeUndefined();
+		});
+
+		it("should drop an index whose length disagrees with the entries", async () => {
+			const timelapse = makeTimelapse(3);
+			timelapse.index = { rects: [[0, 0, 10, 10]] };
+
+			const blob = await serializeDocument(makeMinimalDoc({ timelapse }));
+			const restored = await (await openPapf(blob)).toDocument();
+
+			expect(restored.timelapse!.index).toBeUndefined();
 		});
 
 		it("should round-trip HDR settings through papf", async () => {
@@ -396,7 +427,7 @@ describe("PAPF format", () => {
 	describe("edge cases", () => {
 		it("handles a document with empty timelapse entries (no TMLB written)", async () => {
 			const doc = makeMinimalDoc({
-				timelapse: { version: 1, entries: [] },
+				timelapse: { version: 2, entries: [] },
 			});
 			const blob = await serializeDocument(doc);
 			const papf = await openPapf(blob);

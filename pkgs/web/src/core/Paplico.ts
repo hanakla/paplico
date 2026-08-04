@@ -117,7 +117,9 @@ import {
 } from "./schema";
 import { TimelapseExporter } from "./timelapse/TimelapseExporter";
 import { TimelapsePlayer } from "./timelapse/TimelapsePlayer";
+import { TimelapsePreviewSurface } from "./timelapse/TimelapsePreviewSurface";
 import { TimelapseRecorder } from "./timelapse/TimelapseRecorder";
+import type { TimelapseChangeSet } from "./timelapse/timelapseIndex";
 import type { PlaybackState } from "./timelapse/types";
 import { ArtboardTool } from "./tools/ArtboardTool";
 import { BucketFillTool } from "./tools/BucketFillTool";
@@ -311,7 +313,16 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private _isDrawing = false;
 	private activeTarget: CanvasTarget | null = null;
 	public readonly textToolController: TextToolController | null = null;
-	private timelapseRecorder: TimelapseRecorder = new TimelapseRecorder();
+	private timelapseRecorder: TimelapseRecorder = new TimelapseRecorder((id) =>
+		this.spatialIndex.getWorldBounds(id),
+	);
+	/**
+	 * Object delta of the transaction currently being committed. YjsProvider
+	 * registers its `update` listener first, so by the time the timelapse
+	 * listener runs the delta is settled and the SpatialIndex already holds
+	 * post-update bounds.
+	 */
+	private pendingTimelapseChanges: TimelapseChangeSet | null = null;
 
 	private readonly toolSettings: ToolSettings;
 	public readonly tools: PaplicoTools;
@@ -909,7 +920,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.toolContext = this.createToolContext();
 		// Timelapse recording
 		this.yjsProvider.ydoc.on("update", (update: Uint8Array) => {
-			this.timelapseRecorder.onYjsUpdate(update);
+			const changes = this.pendingTimelapseChanges;
+			this.pendingTimelapseChanges = null;
+			this.timelapseRecorder.onYjsUpdate(update, changes);
 		});
 
 		// Register default shortcut commands
@@ -1525,6 +1538,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.activeTarget = null;
 		}
 		entry.destroy();
+		// The renderer keeps its own per-target GPU resources and re-acquires
+		// every registered target's context on HDR switch / device recovery.
+		this.renderer.disposeCanvasTarget(entry.target);
 		this.canvasTargets.delete(targetId);
 
 		if (this.primaryTargetId === targetId) {
@@ -1834,6 +1850,13 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						layers,
 						deletedSnapshot,
 					);
+
+					// The SpatialIndex now holds post-update bounds, so the timelapse
+					// listener that runs after this one can resolve them by id.
+					this.pendingTimelapseChanges = {
+						upserted: new Set([...delta.added.keys(), ...delta.updated.keys()]),
+						deleted: new Set(delta.deleted),
+					};
 
 					// Phase 4: Valtio notification for React UI panels
 					this.rendererStore.document.objects = {
@@ -2222,9 +2245,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 		this.stopRendering();
 
-		if (doc.timelapse && this.timelapseRecorder) {
-			this.timelapseRecorder.restoreFrom(doc.timelapse);
-		}
+		// Unconditional: the recorder outlives the document, so a document with
+		// no recording has to clear it rather than inherit the previous one.
+		this.timelapseRecorder.restoreFrom(doc.timelapse);
 
 		this.rendererStore.document.timelapse = doc.timelapse;
 
@@ -2247,6 +2270,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		if (outgoingDocumentId !== doc.id) {
 			this.renderer.dropDocumentCaches(outgoingDocumentId);
 		}
+
+		// The incoming objects predate every future update, so the timelapse
+		// ledger needs their bounds to detect anything leaving an artboard.
+		this.timelapseRecorder.seedBounds(Object.keys(doc.objects));
 
 		// Restore viewport
 		const primaryTarget = this.getPrimaryTarget();
@@ -4133,14 +4160,28 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	public createTimelapsePlayer(
 		callbacks: {
-			onFrame: (document: Document) => void;
+			onFrame: (
+				document: Document,
+				changes: ChangedElements | undefined,
+			) => void;
 			onStateChange: (state: PlaybackState) => void;
 		},
 		filterArtboard: Artboard | null,
 	): TimelapsePlayer | null {
 		const data = this.timelapseRecorder.getTimelapseData();
 		if (!data) return null;
-		return new TimelapsePlayer(data, callbacks, filterArtboard ?? undefined);
+		return new TimelapsePlayer(
+			data,
+			{
+				...callbacks,
+				// The recording ends at the live document, so the intro frame
+				// needs no replay pass to reach the finished artwork.
+				getCompletedDocument: () => this.rendererStore.document,
+				onIndexBuilt: (index) =>
+					this.timelapseRecorder.adoptRebuiltIndex(index),
+			},
+			filterArtboard ?? undefined,
+		);
 	}
 
 	/** Render an artboard to ImageData for export or thumbnail. */
@@ -4172,9 +4213,22 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		}
 	}
 
+	/**
+	 * Create the dedicated render surface timelapse playback draws through.
+	 * Dispose it when the preview canvas goes away.
+	 */
+	public createTimelapsePreviewSurface(
+		canvas: HTMLCanvasElement,
+	): Promise<TimelapsePreviewSurface> {
+		return TimelapsePreviewSurface.create(this.renderer, canvas);
+	}
+
 	/** Create a TimelapseExporter for encoding timelapse MP4. */
-	public createTimelapseExporter(player: TimelapsePlayer): TimelapseExporter {
-		return new TimelapseExporter(this.renderer, player);
+	public createTimelapseExporter(
+		surface: TimelapsePreviewSurface,
+		player: TimelapsePlayer,
+	): TimelapseExporter {
+		return new TimelapseExporter(surface, player);
 	}
 
 	// ===== Document Persistence =====
@@ -4213,6 +4267,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		if (outgoingDocumentId !== this.rendererStore.document.id) {
 			this.renderer.dropDocumentCaches(outgoingDocumentId);
 		}
+
+		// The incoming objects predate every future update, so the timelapse
+		// ledger needs their bounds to detect anything leaving an artboard.
+		this.timelapseRecorder.seedBounds(
+			Object.keys(this.rendererStore.document.objects),
+		);
 
 		// Restore viewport (not stored in Yjs)
 		if (viewport) {
