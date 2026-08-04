@@ -71,6 +71,17 @@ describe("Mixing strokes", () => {
 		}
 	});
 
+	it("should re-resolve when the backdrop below it changes", async () => {
+		// The result is cached across frames (§10-2), so a backdrop edit has to
+		// invalidate it — otherwise the stroke keeps painting the old pickup.
+		const { before, after } = await renderAcrossBackdropEdit(
+			mixingBrush({ colorRate: 0 }),
+		);
+
+		expect(before[1]).toBeGreaterThan(before[2] + 40);
+		expect(after[2]).toBeGreaterThan(after[1] + 40);
+	});
+
 	it("should keep the brush color when mixing is disabled (control)", async () => {
 		const pixel = await renderStrokePixel(
 			mixingBrush({ colorRate: 0, enabled: false }),
@@ -110,6 +121,68 @@ function mixingBrush(overrides: {
 		},
 		randomSeed: 1,
 	});
+}
+
+/**
+ * Render the green-field document, swap the field for a blue one (a new
+ * object, as an immutable document update produces), and render again on the
+ * same renderer. Returns the stroke pixel from each pass.
+ */
+async function renderAcrossBackdropEdit(
+	brushSettings: BrushSettingsV2,
+): Promise<{ before: number[]; after: number[] }> {
+	const { renderer, canvas } = await createTestRenderer();
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no GPU device");
+
+	const doc = mixingDoc(brushSettings);
+	const readStrokePixel = async (): Promise<number[]> => {
+		const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+		const pixels = await captureTexturePixels(
+			device,
+			texture,
+			texture.width,
+			texture.height,
+		);
+		const offset = (300 * texture.width + 400) * 4;
+		const pixel = [
+			pixels[offset],
+			pixels[offset + 1],
+			pixels[offset + 2],
+			pixels[offset + 3],
+		];
+		texture.destroy();
+		return pixel;
+	};
+
+	await readStrokePixel();
+	const before = await readStrokePixel();
+
+	// Immutable update, as a document edit produces: a new objects map with a
+	// new element object. Mutating in place would leave the frame plan (keyed
+	// on the objects map's identity) reused and prove nothing.
+	const field = doc.objects["mixing-field"];
+	doc.objects = { ...doc.objects };
+	doc.objects["mixing-field"] = {
+		...field,
+		filters: [
+			{
+				...field.filters![0],
+				paramData: {
+					version: "1",
+					params: {
+						fill: {
+							type: "solid",
+							color: { type: "rgb", r: 0, g: 0, b: 0.75, a: 1 },
+						},
+					},
+				},
+			} as unknown as Filter,
+		],
+	} as Path;
+	const after = await readStrokePixel();
+	return { before, after };
 }
 
 /** Blue-to-white gradient running along the stroke. */

@@ -1,6 +1,7 @@
 import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
 import type {
 	AnyArtObject,
+	BoundingBox,
 	BrushSettingsV2,
 	Filter,
 	Path,
@@ -12,6 +13,7 @@ import {
 	calculateElementBounds,
 	expandBounds,
 } from "../../../../utils/geometry/bounds";
+import { hashSegmentsWithMetadata } from "../../../../utils/geometry/segmentOps";
 import type { GPUTimingProfiler } from "../../../GPUTimingProfiler";
 import type { BlitLayer } from "../../CanvasLayerTypes";
 import type {
@@ -29,6 +31,17 @@ import { MIX_CHUNK_SIZE, MixPass } from "./MixPass";
 
 /** Same cap as the wash accumulators: keeps one stroke's buffer bounded. */
 const MAX_MIX_STROKE_TEXTURE_SIDE = 4096;
+/** Cross-frame result budget. One capped stroke buffer is 64 MB, so this
+ *  holds a handful of them; the LRU drops the rest. */
+const MAX_RESULT_CACHE_BYTES = 384 * 1024 * 1024;
+
+interface MixResultCacheEntry {
+	key: string;
+	texture: GPUTexture;
+	bounds: BoundingBox;
+	opacity: number;
+	bytes: number;
+}
 
 export interface MixStrokeRendererDeps {
 	device: GPUDevice;
@@ -40,6 +53,12 @@ export interface MixStrokeRendererDeps {
 	getTransformIndex: (elementId: string) => number;
 	getTransformsBindGroup: () => GPUBindGroup | undefined;
 	getTransformsBuffer: () => GPUBuffer | null;
+	/** Identity of the composite below the stroke (design §10-2), or null when
+	 *  it cannot be determined — the result is then not cached. */
+	getBackdropContentKey: (
+		elementId: string,
+		bounds: BoundingBox,
+	) => string | null;
 	getRasterScale: () => number;
 }
 
@@ -55,9 +74,14 @@ export interface MixStrokeRendererDeps {
 export class MixStrokeRenderer implements BackdropEffectDriver {
 	private readonly deps: MixStrokeRendererDeps;
 	private mixPass: MixPass | null = null;
+	/** elementId -> last resolved stroke, reused while its key holds. */
+	private readonly resultCache = new Map<string, MixResultCacheEntry>();
+	private resultCacheBytes = 0;
 	private frameBuffers: GPUBuffer[] = [];
 	private retiredBuffers: GPUBuffer[] = [];
 	private frameTextures: GPUTexture[] = [];
+	/** Evicted cache textures, returned to the pool next releaseFrame. */
+	private retiredTextures: GPUTexture[] = [];
 
 	public constructor(deps: MixStrokeRendererDeps) {
 		this.deps = deps;
@@ -102,6 +126,29 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		// Stroke world bounds padded by the brush reach.
 		const sizeBase = settings.properties.size?.base ?? 10;
 		const bounds = expandBounds(calculateElementBounds(element), sizeBase);
+
+		// The stroke still paints into the target on a cache hit, so report it
+		// either way — other backdrop consumers key off this.
+		this.deps.coordinator.noteDraw(bounds);
+
+		const cacheKey = this.resultCacheKey(
+			element,
+			filter,
+			bounds,
+			rasterScale,
+			viewport,
+			width,
+			height,
+		);
+		if (cacheKey != null) {
+			const hit = this.resultCache.get(element.id);
+			if (hit?.key === cacheKey) {
+				// Refresh LRU order.
+				this.resultCache.delete(element.id);
+				this.resultCache.set(element.id, hit);
+				return this.cachedLayer(hit);
+			}
+		}
 
 		// Backdrop below this stroke, on the fixed-R raster grid (§B-2).
 		const request: BackdropEffectRequest = {
@@ -260,14 +307,32 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			pass.end();
 		}
 
-		this.deps.coordinator.noteDraw(bounds);
+		const entry: MixResultCacheEntry = {
+			key: cacheKey ?? "",
+			texture: strokeTex,
+			bounds,
+			// Wash semantics: strokeOpacity applies exactly once, here.
+			opacity:
+				filter.opacity *
+				(settings.paintMode === "wash" ? settings.strokeOpacity : 1),
+			bytes: texW * texH * 4,
+		};
+		if (cacheKey != null) {
+			// The cache owns the texture from here; drop the frame's claim so
+			// releaseFrame does not hand it back to the pool.
+			this.frameTextures = this.frameTextures.filter((t) => t !== strokeTex);
+			this.storeResult(element.id, entry);
+		}
+		return this.cachedLayer(entry);
+	}
 
+	/** BlitLayer over a resolved stroke texture the caller does not own. */
+	private cachedLayer(entry: MixResultCacheEntry): BlitLayer {
 		const surface = createRenderSurface(
-			// releaseFrame owns the texture's return to the pool.
-			createFrameTextureRef(strokeTex, () => {}),
+			createFrameTextureRef(entry.texture, () => {}),
 			{
 				kind: "world-aabb",
-				bounds,
+				bounds: entry.bounds,
 				uvRect: { minU: 0, minV: 0, maxU: 1, maxV: 1 },
 			},
 			{
@@ -276,20 +341,77 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				opacityState: "intrinsic",
 			},
 		);
-		return {
-			...surface,
-			// Wash semantics: strokeOpacity applies exactly once, here.
-			opacity:
-				filter.opacity *
-				(settings.paintMode === "wash" ? settings.strokeOpacity : 1),
-		};
+		return { ...surface, opacity: entry.opacity };
+	}
+
+	/**
+	 * Everything the resolved stroke depends on: its own geometry and
+	 * settings, the rasterization grid, the composite below it (§10-2), and
+	 * the visible world rect — the backdrop capture is clamped to the canvas,
+	 * so a stroke running off screen resolves differently once panned into
+	 * view. Null when the backdrop identity is unknown.
+	 */
+	private resultCacheKey(
+		element: AnyArtObject,
+		filter: Filter,
+		bounds: BoundingBox,
+		rasterScale: number,
+		viewport: Viewport,
+		width: number,
+		height: number,
+	): string | null {
+		const backdropKey = this.deps.getBackdropContentKey(element.id, bounds);
+		if (backdropKey == null) return null;
+		const path = element as Path;
+		const halfW = width / 2 / viewport.zoom;
+		const halfH = height / 2 / viewport.zoom;
+		const snap = (value: number, round: (v: number) => number) =>
+			round(value * rasterScale) / rasterScale;
+		const visible = [
+			snap(Math.max(bounds.minX, viewport.x - halfW), Math.floor),
+			snap(Math.max(bounds.minY, viewport.y - halfH), Math.floor),
+			snap(Math.min(bounds.maxX, viewport.x + halfW), Math.ceil),
+			snap(Math.min(bounds.maxY, viewport.y + halfH), Math.ceil),
+		].join(",");
+		return [
+			hashSegmentsWithMetadata(path.segments).toString(36),
+			JSON.stringify(filter),
+			element.opacity,
+			JSON.stringify(element.transform),
+			path.pathStart ?? 0,
+			path.pathEnd ?? 1,
+			rasterScale,
+			visible,
+			backdropKey,
+		].join(":");
+	}
+
+	private storeResult(elementId: string, entry: MixResultCacheEntry): void {
+		const previous = this.resultCache.get(elementId);
+		if (previous) {
+			this.resultCacheBytes -= previous.bytes;
+			this.retiredTextures.push(previous.texture);
+			this.resultCache.delete(elementId);
+		}
+		this.resultCache.set(elementId, entry);
+		this.resultCacheBytes += entry.bytes;
+		for (const [id, cached] of this.resultCache) {
+			if (this.resultCacheBytes <= MAX_RESULT_CACHE_BYTES) break;
+			if (id === elementId) continue;
+			this.resultCacheBytes -= cached.bytes;
+			this.retiredTextures.push(cached.texture);
+			this.resultCache.delete(id);
+		}
 	}
 
 	public flushRemaining(): void {}
 
 	public releaseFrame(release: (texture: GPUTexture) => void): void {
-		for (const texture of this.frameTextures) release(texture);
+		for (const texture of [...this.frameTextures, ...this.retiredTextures]) {
+			release(texture);
+		}
 		this.frameTextures = [];
+		this.retiredTextures = [];
 		// Destroying here would hit the still-unsubmitted encoder; hand them
 		// to the next frame instead.
 		this.retiredBuffers.push(...this.frameBuffers);
@@ -304,6 +426,9 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		this.retiredBuffers = [];
 		this.frameBuffers = [];
 		this.frameTextures = [];
+		this.retiredTextures = [];
+		this.resultCache.clear();
+		this.resultCacheBytes = 0;
 		this.mixPass?.destroy();
 		this.mixPass = null;
 	}

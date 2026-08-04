@@ -470,6 +470,10 @@ export class CanvasLayer {
 	 *  knowing the concrete filter behind each. */
 	private backdropDrivers: BackdropEffectDriver[] = [];
 	private mixStrokeRenderer: MixStrokeRenderer | null = null;
+	/** Object identity -> serial, for backdrop content keys (see
+	 *  backdropContentKeyFor). */
+	private readonly objectSerials = new WeakMap<object, number>();
+	private objectSerialCounter = 0;
 	/** Shared backdrop capture/pyramid service the drivers request their
 	 *  backdrop samples through; fed main-pass draw bounds for epoch tracking. */
 	private backdropEffectCoordinator!: BackdropEffectCoordinator;
@@ -926,6 +930,8 @@ export class CanvasLayer {
 				this.viewportManager.getTransformIndex(elementId),
 			getTransformsBindGroup: () => this.transformsBindGroup ?? undefined,
 			getTransformsBuffer: () => this.viewportManager.transformsStorageBuffer,
+			getBackdropContentKey: (elementId, bounds) =>
+				this.backdropContentKeyFor(elementId, bounds),
 			getRasterScale: () => this.getRasterScale(),
 		});
 		this.backdropDrivers = [
@@ -4554,6 +4560,72 @@ export class CanvasLayer {
 			elementBounds: fp.bounds,
 			textureBounds: isolationBounds,
 		};
+	}
+
+	/**
+	 * Identity of everything drawn below `elementId` that overlaps `bounds` —
+	 * what a mixing stroke's result depends on besides its own content
+	 * (design §10-2). Document updates are immutable, so object identity IS
+	 * content identity: a per-object serial captures a change without deep
+	 * hashing. Null when the element is not in this frame's plan, which makes
+	 * the caller skip caching rather than cache under a wrong key.
+	 */
+	private backdropContentKeyFor(
+		elementId: string,
+		bounds: BoundingBox,
+	): string | null {
+		const plan = this.activeFramePlan;
+		if (!plan) return null;
+		const boundsCache = this.viewportManager.getBoundsCache();
+		const parts: string[] = [];
+		let reachedTarget = false;
+
+		const visit = (element: AnyArtObject): boolean => {
+			if (element.id === elementId) return true;
+			const elementBounds = calculateElementBounds(
+				element,
+				plan.elementsMap,
+				boundsCache,
+			);
+			if (boundsIntersect(elementBounds, bounds)) {
+				parts.push(`${element.id}#${this.objectSerial(element)}`);
+			}
+			if (isGroup(element)) {
+				for (const childId of element.childIds) {
+					const child = plan.elementsMap.get(childId);
+					if (child && visit(child)) return true;
+				}
+			}
+			return false;
+		};
+
+		for (const layerPlan of plan.layerPlans) {
+			parts.push(
+				`L${layerPlan.layerId}:${layerPlan.opacity}:${layerPlan.blendMode}`,
+			);
+			for (const element of layerPlan.elements) {
+				if (visit(element)) {
+					reachedTarget = true;
+					break;
+				}
+			}
+			if (reachedTarget) break;
+		}
+		if (!reachedTarget) return null;
+		if (this.activeDocument) {
+			parts.push(`A${this.objectSerial(this.activeDocument.artboards)}`);
+		}
+		return parts.join("|");
+	}
+
+	/** Stable per-object number, assigned on first sight. */
+	private objectSerial(object: object): number {
+		let serial = this.objectSerials.get(object);
+		if (serial == null) {
+			serial = ++this.objectSerialCounter;
+			this.objectSerials.set(object, serial);
+		}
+		return serial;
 	}
 
 	/** Content key of a cacheable wash plan, or null when not cacheable
