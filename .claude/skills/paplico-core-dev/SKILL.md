@@ -292,6 +292,9 @@ answers are not the inline stroke branch:
 **A stroke that reads what is beneath it belongs on the inline-composite seam.
 A stroke that only needs isolation from itself belongs on the appearance route.**
 
+Full detail — the settings model, dab generation, wash, mixing, the wet layer,
+ribbons, the caches and what can be tested — is in `references/brush-engine.md`.
+
 ### Per-dab and per-path GPU data layouts
 
 Two structs carry everything the dab shaders read, and both have exactly one
@@ -587,6 +590,7 @@ Paplico has two independent 3D features — **do not conflate them**:
 
 - `references/extrude-3d-appearance.md` — extrude3d appearance filter (opaque postProcess vs glass GeometryBackdropDriver), ExtrudeMeshBaker, MeshPassRenderer, mesh/cache
 - `references/scene3d.md` — Scene3D atari feature: three.js boundary, scene data model, VRM/IK, lineart, perspective guides, Scene3DTool
+- `references/brush-engine.md` — Brush settings model and curve matrix, routing and the four draw seams, dab/path GPU layouts, wash, colour mixing, the wet layer, ribbons, caches, testing constraints
 - `references/rasterization-dpi.md` — Fixed rasterization resolution (R), where it applies, persistence, gotchas
 - `references/rendering-pipeline.md` — FrameGraph (declarative pass graph), render pass structure, cache, compositing, GPU resource ownership
 - `references/cache-strategy.md` — Current cache, pool, dirty-state, and GPU resource ownership inventory
