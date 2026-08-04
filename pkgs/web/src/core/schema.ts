@@ -1636,6 +1636,16 @@ export const BUILTIN_BRUSH_IDS = {
 export type BuiltinBrushId =
 	(typeof BUILTIN_BRUSH_IDS)[keyof typeof BUILTIN_BRUSH_IDS];
 
+/** Built-in paper grain textures (GrainConfig.source), seeded alongside the
+ *  brush textures so a fresh document can use them without an import. */
+export const BUILTIN_PAPER_IDS = {
+	finePaper: "builtin-paper-fine",
+	coarsePaper: "builtin-paper-coarse",
+} as const;
+
+export type BuiltinPaperId =
+	(typeof BUILTIN_PAPER_IDS)[keyof typeof BUILTIN_PAPER_IDS];
+
 // Stamp rotation mode
 // - none: No rotation (fixed at 0)
 // - tangent: Rotate along path tangent direction

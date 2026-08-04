@@ -12,6 +12,7 @@ import {
 	type BrushPresetCategory,
 	type BrushSettings,
 	BUILTIN_BRUSH_IDS,
+	BUILTIN_PAPER_IDS,
 	type BuiltinBrushId,
 	type CalligraphyBrushSettings,
 	DEFAULT_CALLIGRAPHY_SPACING,
@@ -24,6 +25,9 @@ import {
 	type EmbeddedFile,
 	type ScatterBrushSettings,
 } from "../schema";
+
+// Paper grain textures tile, so they can be smaller than a brush stamp
+const PAPER_SIZE = 256;
 
 // Texture size used for programmatically generated brushes
 const TEXTURE_SIZE = 128;
@@ -148,6 +152,20 @@ export async function createBuiltinBrushFiles(): Promise<EmbeddedFile[]> {
 		softBlob.arrayBuffer().then((buf) => new Uint8Array(buf)),
 	]);
 
+	// Paper grain textures (design §11): value noise at two frequencies.
+	const [finePaperBlob, coarsePaperBlob] = await Promise.all([
+		pixelsToBlob(generatePaperGrainPixels(PAPER_SIZE, 24, 3), PAPER_SIZE),
+		pixelsToBlob(generatePaperGrainPixels(PAPER_SIZE, 8, 4), PAPER_SIZE),
+	]);
+	const [finePaperBin, coarsePaperBin] = await Promise.all([
+		finePaperBlob.arrayBuffer().then((buf) => new Uint8Array(buf)),
+		coarsePaperBlob.arrayBuffer().then((buf) => new Uint8Array(buf)),
+	]);
+	const [finePaperHash, coarsePaperHash] = await Promise.all([
+		computeHash(finePaperBin),
+		computeHash(coarsePaperBin),
+	]);
+
 	// Decode base64 asset brushes
 	const pencilBin = base64ToUint8Array(pencil);
 	const airbrushBin = base64ToUint8Array(airBrush);
@@ -188,6 +206,20 @@ export async function createBuiltinBrushFiles(): Promise<EmbeddedFile[]> {
 			type: "image/png",
 			hash: airbrushHash,
 			bin: airbrushBin,
+		},
+		{
+			uid: BUILTIN_PAPER_IDS.finePaper,
+			name: "Fine Paper",
+			type: "image/png",
+			hash: finePaperHash,
+			bin: finePaperBin,
+		},
+		{
+			uid: BUILTIN_PAPER_IDS.coarsePaper,
+			name: "Coarse Paper",
+			type: "image/png",
+			hash: coarsePaperHash,
+			bin: coarsePaperBin,
 		},
 	];
 }
@@ -423,6 +455,64 @@ function generateHardCirclePixels(size: number): Uint8Array {
 		}
 	}
 
+	return data;
+}
+
+/**
+ * Tiling paper grain: value noise summed over `octaves`, with `cells` cells
+ * across the first octave. The lattice wraps, so the texture repeats without
+ * a seam under the canvas-fixed UV the grain shader uses.
+ */
+export function generatePaperGrainPixels(
+	size: number,
+	cells: number,
+	octaves: number,
+): Uint8Array {
+	const data = new Uint8Array(size * size * 4);
+	const lattice = (cx: number, cy: number, period: number): number => {
+		// Wrapped hash: cell (period, y) must equal cell (0, y).
+		const x = ((cx % period) + period) % period;
+		const y = ((cy % period) + period) % period;
+		let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1);
+		h = Math.imul(h ^ (h >>> 15), 0x2545f491);
+		return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+	};
+	const smooth = (t: number) => t * t * (3 - 2 * t);
+
+	for (let y = 0; y < size; y++) {
+		for (let x = 0; x < size; x++) {
+			let value = 0;
+			let amplitude = 1;
+			let total = 0;
+			let period = cells;
+			for (let octave = 0; octave < octaves; octave++) {
+				const fx = (x / size) * period;
+				const fy = (y / size) * period;
+				const x0 = Math.floor(fx);
+				const y0 = Math.floor(fy);
+				const tx = smooth(fx - x0);
+				const ty = smooth(fy - y0);
+				const top =
+					lattice(x0, y0, period) * (1 - tx) + lattice(x0 + 1, y0, period) * tx;
+				const bottom =
+					lattice(x0, y0 + 1, period) * (1 - tx) +
+					lattice(x0 + 1, y0 + 1, period) * tx;
+				value += (top * (1 - ty) + bottom * ty) * amplitude;
+				total += amplitude;
+				amplitude *= 0.5;
+				period *= 2;
+			}
+			// Centred around mid grey so multiply/subtract both stay gentle.
+			const level = Math.round(
+				Math.min(Math.max(0.35 + (value / total) * 0.65, 0), 1) * 255,
+			);
+			const idx = (y * size + x) * 4;
+			data[idx] = level;
+			data[idx + 1] = level;
+			data[idx + 2] = level;
+			data[idx + 3] = 255;
+		}
+	}
 	return data;
 }
 

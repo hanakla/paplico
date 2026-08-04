@@ -8,6 +8,9 @@
  * (ColorStop + remapGradientT + OkLab conversion), STROKE_WIDTH_COMMON_WGSL,
  * and a `colorStops: array<ColorStop>` binding.
  */
+/** Float count of the PathMeta struct below; CPU writers stride by this. */
+export const PATH_META_FLOATS = 20;
+
 export function buildDabColorWgsl(stampMetaIndexMask: number): string {
 	return /* wgsl */ `
 struct PathMeta {
@@ -23,6 +26,12 @@ struct PathMeta {
 	linearEnd: vec2f,
 	boundsMin: vec2f,
 	boundsMax: vec2f,
+	/** 0 = no grain, 1 = multiply, 2 = subtract. */
+	grainMode: u32,
+	/** Grain UV period in world units. */
+	grainScale: f32,
+	/** Per-stroke UV offset, in grain periods. */
+	grainOffset: vec2f,
 }
 
 fn pathIndexOf(dab: DabInstance) -> u32 {

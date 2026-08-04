@@ -41,6 +41,7 @@ import {
 	type BrushPreset,
 	type BrushSettings,
 	BUILTIN_BRUSH_IDS,
+	BUILTIN_PAPER_IDS,
 	type Color,
 	type ColorProfileSettings,
 	type CompoundPath,
@@ -3599,9 +3600,12 @@ export class PaplicoCommands {
 	 */
 	public async ensureBuiltinBrushes(): Promise<void> {
 		if (this.cannotMutate()) return;
-		const builtinTextureIds = Object.values(BUILTIN_BRUSH_IDS).filter(
-			(id) => id !== BUILTIN_BRUSH_IDS.svg,
-		);
+		const builtinTextureIds = [
+			...Object.values(BUILTIN_BRUSH_IDS).filter(
+				(id) => id !== BUILTIN_BRUSH_IDS.svg,
+			),
+			...Object.values(BUILTIN_PAPER_IDS),
+		];
 		const hasAllFiles = builtinTextureIds.every((id) =>
 			this.ctx.store.document.files.some((file) => file.uid === id),
 		);

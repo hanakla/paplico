@@ -52,6 +52,7 @@ import {
 	BRUSH_STAMP_ARRAY_SHADER,
 	BRUSH_STAMP_SHADER,
 } from "../../../shaders/brushStamp.wgsl";
+import { PATH_META_FLOATS } from "../../../shaders/dabColor.wgsl";
 import { RIBBON_STROKE_SHADER } from "../../../shaders/ribbonStroke.wgsl";
 import { type PipelineType, RENDER_SAMPLE_COUNT } from "../../CanvasLayerTypes";
 import type { StampCache } from "../../caches/StampCache";
@@ -94,7 +95,7 @@ const RIBBON_STEPS = 32;
 const RIBBON_VERTICES_PER_SEGMENT = RIBBON_STEPS * 6;
 
 /** PathMeta: 16 floats (64 bytes) per path entry */
-const PATH_META_FLOATS = 16;
+
 /** ColorStop: 6 floats (24 bytes) per stop */
 const COLOR_STOP_FLOATS = 6;
 /** Stamp: 16 floats (64 bytes) per stamp — includes width, normal, flow, and motion metadata. */
@@ -318,6 +319,9 @@ export class StrokeBatchContext {
 	private mixedBrushBindGroupLayout: GPUBindGroupLayout | null = null;
 	private falloffLutView: GPUTextureView | null = null;
 	private falloffLutTexture: GPUTexture | null = null;
+	private blankGrainTexture: GPUTexture | null = null;
+	private blankGrainView: GPUTextureView | null = null;
+	private grainSampler: GPUSampler | null = null;
 	private falloffSampler: GPUSampler | null = null;
 	// Live-stroke dab residency (design §8): the preview path re-uses one
 	// grow-only buffer; only newly committed dabs and the volatile tail are
@@ -2170,6 +2174,7 @@ export class StrokeBatchContext {
 				{ binding: 1, resource: { buffer: args.dabBuffer } },
 				{ binding: 2, resource: tip.textureView },
 				{ binding: 3, resource: tip.sampler },
+				...this.grainBindings(args.path),
 			],
 		});
 		const bindGroup1 = this.device.createBindGroup({
@@ -2431,6 +2436,7 @@ export class StrokeBatchContext {
 				{ binding: 1, resource: { buffer: dabBuffer } },
 				{ binding: 2, resource: textureView },
 				{ binding: 3, resource: sampler },
+				...this.grainBindings(path),
 			],
 		});
 		const bindGroup1 = this.device.createBindGroup({
@@ -2558,6 +2564,16 @@ export class StrokeBatchContext {
 					visibility: GPUShaderStage.FRAGMENT,
 					sampler: { type: "filtering" },
 				},
+				{
+					binding: 4,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: { sampleType: "float" },
+				},
+				{
+					binding: 5,
+					visibility: GPUShaderStage.FRAGMENT,
+					sampler: { type: "filtering" },
+				},
 			],
 		});
 		const pipelineLayout = this.device.createPipelineLayout({
@@ -2644,6 +2660,61 @@ export class StrokeBatchContext {
 			],
 		});
 		return this.mixedBrushBindGroupLayout;
+	}
+
+	/** Grain texture + sampler entries for a dab bind group. Falls back to a
+	 *  1x1 white texture, which leaves every grain mode a no-op. */
+	private grainBindings(path: Path): GPUBindGroupEntry[] {
+		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
+		const grain =
+			rawBrushSettings != null
+				? resolveBrushRenderRoute(rawBrushSettings).settings.grain
+				: undefined;
+		let view: GPUTextureView | null = null;
+		if (grain) {
+			const uid =
+				grain.source.kind === "file"
+					? grain.source.fileUid
+					: this.textureManager.resolveDefTextureUid(grain.source.defId);
+			const texture = uid != null ? this.textureManager.getTexture(uid) : null;
+			if (texture) view = texture.createView();
+		}
+		return [
+			{ binding: 4, resource: view ?? this.ensureBlankGrainView() },
+			{ binding: 5, resource: this.ensureGrainSampler() },
+		];
+	}
+
+	private ensureBlankGrainView(): GPUTextureView {
+		if (!this.blankGrainView) {
+			const texture = this.device.createTexture({
+				label: "Blank Grain",
+				size: [1, 1],
+				format: "r8unorm",
+				usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+			});
+			this.device.queue.writeTexture(
+				{ texture },
+				new Uint8Array([255]),
+				{ bytesPerRow: 1 },
+				[1, 1],
+			);
+			this.blankGrainTexture = texture;
+			this.blankGrainView = texture.createView();
+		}
+		return this.blankGrainView;
+	}
+
+	private ensureGrainSampler(): GPUSampler {
+		this.grainSampler ??= this.device.createSampler({
+			label: "Grain Sampler",
+			magFilter: "linear",
+			minFilter: "linear",
+			mipmapFilter: "linear",
+			addressModeU: "repeat",
+			addressModeV: "repeat",
+		});
+		return this.grainSampler;
 	}
 
 	/** Falloff LUT texture for the mix pass's footprint weighting. */
@@ -3082,6 +3153,45 @@ export class StrokeBatchContext {
 		data[offset + 13] = sm.bMinY;
 		data[offset + 14] = sm.bMaxX;
 		data[offset + 15] = sm.bMaxY;
+
+		// Grain rides on the stroke, not the dab: mode/scale/offset are
+		// per-stroke, only its strength is modulated per dab.
+		const grain = StrokeBatchContext.grainMetaOf(path);
+		u32View[0] = grain.mode;
+		data[offset + 16] = f32View[0];
+		data[offset + 17] = grain.scale;
+		data[offset + 18] = grain.offsetX;
+		data[offset + 19] = grain.offsetY;
+	}
+
+	/** Per-stroke grain parameters for the path meta (design §11). Grain is a
+	 *  stroke-level texture: only its strength varies per dab. */
+	private static grainMetaOf(path: Path): {
+		mode: number;
+		scale: number;
+		offsetX: number;
+		offsetY: number;
+	} {
+		const off = { mode: 0, scale: 1, offsetX: 0, offsetY: 0 };
+		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
+		if (rawBrushSettings == null) return off;
+		const { grain, randomSeed } =
+			resolveBrushRenderRoute(rawBrushSettings).settings;
+		if (grain == null) return off;
+		const mode = grain.mode === "subtract" ? 2 : 1;
+		if (!grain.randomOffsetPerStroke) {
+			return { mode, scale: grain.scale, offsetX: 0, offsetY: 0 };
+		}
+		// Seeded so the offset stays a pure function of the stroke's settings.
+		let state = (randomSeed ^ 0x85ebca6b) >>> 0;
+		const rand = (): number => {
+			state = (state + 0x6d2b79f5) >>> 0;
+			let t = state;
+			t = Math.imul(t ^ (t >>> 15), t | 1);
+			t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+		};
+		return { mode, scale: grain.scale, offsetX: rand(), offsetY: rand() };
 	}
 
 	// Shared scratch for u32 <-> f32 bit-casts

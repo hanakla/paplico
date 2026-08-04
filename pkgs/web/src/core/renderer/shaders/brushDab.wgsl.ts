@@ -102,6 +102,8 @@ ${STROKE_WIDTH_COMMON_WGSL}
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read> dabs: array<DabInstance>;
 ${tipBindings}
+@group(0) @binding(4) var grainTexture: texture_2d<f32>;
+@group(0) @binding(5) var grainSampler: sampler;
 
 @group(1) @binding(0) var<storage, read> pathMetas: array<PathMeta>;
 @group(1) @binding(1) var<storage, read> colorStops: array<ColorStop>;
@@ -235,6 +237,20 @@ ${
 	colorA = mixed.a;`
 		: ""
 }
+	// Paper grain (design §11): sampled at a canvas-fixed UV so the texture
+	// stays put under the stroke instead of travelling with each dab.
+	// Sampled unconditionally: implicit derivatives need uniform control
+	// flow, and a grain-less stroke binds a 1x1 white texture anyway.
+	let grainUv = in.transformedWorldPos / max(pm.grainScale, 1e-4) + pm.grainOffset;
+	let grainValue = textureSample(grainTexture, grainSampler, grainUv).r;
+	let grainStrength = clamp(dab.grainStrength, 0.0, 1.0);
+	var grainedAlpha = texAlpha;
+	if pm.grainMode == 1u {
+		grainedAlpha = texAlpha * mix(1.0, grainValue, grainStrength);
+	} else if pm.grainMode == 2u {
+		grainedAlpha = max(0.0, texAlpha - (1.0 - grainValue) * grainStrength);
+	}
+
 	let widthFade = strokeWidthCoverage(
 		in.normalizedStrokeDistance,
 		in.side1Width,
@@ -244,10 +260,10 @@ ${
 	var finalColor: vec3f;
 	var finalAlpha: f32;
 	if colorMode == 1u {
-		finalAlpha = texAlpha * in.alpha * widthFade;
+		finalAlpha = grainedAlpha * in.alpha * widthFade;
 		finalColor = texRgb;
 	} else {
-		finalAlpha = texAlpha * in.alpha * colorA * widthFade;
+		finalAlpha = grainedAlpha * in.alpha * colorA * widthFade;
 		finalColor = color;
 	}
 

@@ -1,4 +1,5 @@
 import { getTestDevice } from "../../../../testUtils/shaderTestHarness";
+import { PATH_META_FLOATS } from "../../../shaders/dabColor.wgsl";
 import { DAB_INSTANCE_FLOATS, writeDabField } from "./DabInstanceLayout";
 import { MIX_CHUNK_SIZE, MixPass } from "./MixPass";
 
@@ -196,7 +197,7 @@ async function runMixChunks(
 
 	// Solid-color PathMeta + identity transform: the mix pass resolves each
 	// dab's brush color through the same path the dab shader uses.
-	const pathMetaData = new Float32Array(16);
+	const pathMetaData = new Float32Array(PATH_META_FLOATS);
 	pathMetaData[0] = opts.brushColor.r;
 	pathMetaData[1] = opts.brushColor.g;
 	pathMetaData[2] = opts.brushColor.b;
