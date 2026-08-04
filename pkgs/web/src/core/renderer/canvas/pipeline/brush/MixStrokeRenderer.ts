@@ -99,6 +99,17 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 
 	public unionSolidBounds(): void {}
 
+	/**
+	 * Cache key of an element's last resolved mixing result, or null when it
+	 * has none. Backdrop keys embed this so invalidation is transitive
+	 * (appendix A): a stroke that mixed from a changed element gets a new key,
+	 * which in turn changes the key of any stroke mixing from it — even when
+	 * the original change does not overlap that later stroke at all.
+	 */
+	public resultKeyOf(elementId: string): string | null {
+		return this.resultCache.get(elementId)?.key ?? null;
+	}
+
 	public hasInlineComposite(element: AnyArtObject): boolean {
 		return this.mixStrokeOf(element) != null;
 	}

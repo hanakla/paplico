@@ -82,6 +82,16 @@ describe("Mixing strokes", () => {
 		expect(after[2]).toBeGreaterThan(after[1] + 40);
 	});
 
+	it("should re-resolve a stroke that mixed from another mixing stroke", async () => {
+		// Chain: patch → stroke B (mixes the patch) → stroke C (mixes B). The
+		// patch does not overlap C at all, so only a transitively propagated
+		// key can invalidate C when the patch changes (appendix A).
+		const { before, after } = await renderChainAcrossPatchEdit();
+
+		expect(before[1]).toBeGreaterThan(before[2] + 40);
+		expect(after[2]).toBeGreaterThan(after[1] + 40);
+	});
+
 	it("should keep the brush color when mixing is disabled (control)", async () => {
 		const pixel = await renderStrokePixel(
 			mixingBrush({ colorRate: 0, enabled: false }),
@@ -97,6 +107,7 @@ describe("Mixing strokes", () => {
 function mixingBrush(overrides: {
 	colorRate: number;
 	enabled?: boolean;
+	smudgeLength?: number;
 }): BrushSettingsV2 {
 	return normalizeBrushSettingsV2({
 		version: 2,
@@ -109,7 +120,7 @@ function mixingBrush(overrides: {
 			flow: { base: 1 },
 			colorRate: { base: overrides.colorRate },
 			alphaRate: { base: 1 },
-			smudgeLength: { base: 0 },
+			smudgeLength: { base: overrides.smudgeLength ?? 0 },
 		},
 		tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 		mixing: {
@@ -121,6 +132,158 @@ function mixingBrush(overrides: {
 		},
 		randomSeed: 1,
 	});
+}
+
+/**
+ * Render the chained document, recolor the patch (green → blue) through an
+ * immutable update, and render again. Returns stroke C's pixel each time.
+ */
+async function renderChainAcrossPatchEdit(): Promise<{
+	before: number[];
+	after: number[];
+}> {
+	const { renderer, canvas } = await createTestRenderer();
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no GPU device");
+
+	const doc = chainedDoc();
+	// Stroke C spans world x 140..200, overlapping B up to 170; read world
+	// x 150 (screen 550), where B lies underneath.
+	const readC = async (): Promise<number[]> => {
+		const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+		const pixels = await captureTexturePixels(
+			device,
+			texture,
+			texture.width,
+			texture.height,
+		);
+		const offset = (300 * texture.width + 550) * 4;
+		const pixel = [
+			pixels[offset],
+			pixels[offset + 1],
+			pixels[offset + 2],
+			pixels[offset + 3],
+		];
+		texture.destroy();
+		return pixel;
+	};
+
+	await readC();
+	const before = await readC();
+
+	const patch = doc.objects["chain-patch"];
+	doc.objects = { ...doc.objects };
+	doc.objects["chain-patch"] = {
+		...patch,
+		filters: [
+			{
+				...patch.filters![0],
+				paramData: {
+					version: "1",
+					params: {
+						fill: {
+							type: "solid",
+							color: { type: "rgb", r: 0, g: 0, b: 0.75, a: 1 },
+						},
+					},
+				},
+			} as unknown as Filter,
+		],
+	} as Path;
+	const after = await readC();
+	return { before, after };
+}
+
+/**
+ * A green patch on the left, stroke B running across it and out to the right,
+ * and stroke C sitting only on B's right end. Both strokes use smudgeLength 1,
+ * which freezes the bucket at its first sample: B paints the patch's color
+ * along its whole length, and C paints what B laid down.
+ */
+function chainedDoc(): Document {
+	const patch: Path = {
+		id: "chain-patch",
+		type: "path",
+		opacity: 1,
+		blendMode: "normal",
+		transform: createDefaultTransform(),
+		segments: closedRectSegments(-200, -60, 20, 60),
+		filters: [
+			{
+				uid: "chain-patch-fill",
+				processor: "fill",
+				opacity: 1,
+				blendMode: "normal",
+				paramData: {
+					version: "1",
+					params: {
+						fill: {
+							type: "solid",
+							color: { type: "rgb", r: 0, g: 0.75, b: 0, a: 1 },
+						},
+					},
+				},
+			} as unknown as Filter,
+		],
+	};
+
+	const doc = createDefaultDocument("mixing-chain");
+	const layer = createDefaultLayer("mixing-chain-layer", "Strokes");
+	const strokeB = chainStroke("chain-b", -170, 170);
+	const strokeC = chainStroke("chain-c", 140, 200);
+	layer.elementIds.push(patch.id, strokeB.id, strokeC.id);
+	doc.objects[patch.id] = patch;
+	doc.objects[strokeB.id] = strokeB;
+	doc.objects[strokeC.id] = strokeC;
+	doc.layers.push(layer);
+	doc.artboards.push(createArtboard("mixing-chain-ab", "Main", 0, 0, 800, 600));
+	return doc;
+}
+
+function chainStroke(id: string, fromX: number, toX: number): Path {
+	return {
+		id,
+		type: "path",
+		opacity: 1,
+		blendMode: "normal",
+		transform: createDefaultTransform(),
+		segments: [
+			{
+				start: { x: fromX, y: 0 },
+				cp1: { x: 0, y: 0 },
+				cp2: { x: 0, y: 0 },
+				end: { x: toX, y: 0 },
+				startPressure: 1,
+				endPressure: 1,
+				startTiltX: 0,
+				startTiltY: 0,
+				endTiltX: 0,
+				endTiltY: 0,
+				startDeltaTime: 0,
+				endDeltaTime: 150,
+				isMoved: true,
+			},
+		],
+		filters: [
+			{
+				uid: `${id}-appearance`,
+				processor: "stroke",
+				opacity: 1,
+				blendMode: "normal",
+				paramData: {
+					version: "1",
+					params: {
+						strokeColor: {
+							type: "solid",
+							color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
+						},
+						brushSettings: mixingBrush({ colorRate: 0, smudgeLength: 1 }),
+					},
+				},
+			} as unknown as Filter,
+		],
+	};
 }
 
 /**

@@ -4588,7 +4588,10 @@ export class CanvasLayer {
 				boundsCache,
 			);
 			if (boundsIntersect(elementBounds, bounds)) {
-				parts.push(`${element.id}#${this.objectSerial(element)}`);
+				// A mixing stroke's own key already folds in what it mixed
+				// from, so using it here carries invalidation up the chain.
+				const mixKey = this.mixStrokeRenderer?.resultKeyOf(element.id);
+				parts.push(`${element.id}#${mixKey ?? this.objectSerial(element)}`);
 			}
 			if (isGroup(element)) {
 				for (const childId of element.childIds) {
@@ -4615,7 +4618,19 @@ export class CanvasLayer {
 		if (this.activeDocument) {
 			parts.push(`A${this.objectSerial(this.activeDocument.artboards)}`);
 		}
-		return parts.join("|");
+		// Hashed, not joined verbatim: nested mixing keys would otherwise
+		// compound in length down a chain of strokes.
+		return CanvasLayer.hashKeyString(parts.join("|")).toString(36);
+	}
+
+	/** FNV-1a over a key string; unsigned so the base-36 form stays short. */
+	private static hashKeyString(value: string): number {
+		let hash = 0x811c9dc5;
+		for (let i = 0; i < value.length; i++) {
+			hash ^= value.charCodeAt(i);
+			hash = Math.imul(hash, 0x01000193);
+		}
+		return hash >>> 0;
 	}
 
 	/** Stable per-object number, assigned on first sight. */
