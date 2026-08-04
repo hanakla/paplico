@@ -90,6 +90,36 @@ describe("evaluateDabs", () => {
 		});
 	});
 
+	describe("airbrush hold", () => {
+		it("should keep spraying dabs while the pointer stays still", () => {
+			// An airbrush held in place still lays down paint: the timed
+			// interval has to fire even though no distance accumulates.
+			const settings = dabSettings({
+				properties: {
+					size: { base: 10 },
+					spacing: { base: 0.2 },
+					flow: { base: 1 },
+					dabsPerSecond: { base: 50 },
+				},
+			});
+			const held = lineSegment({
+				cp1: { x: 0, y: 0 },
+				cp2: { x: 0, y: 0 },
+				end: { x: 0, y: 0 },
+				startDeltaTime: 0,
+				endDeltaTime: 200,
+			});
+
+			const result = evaluateDabs([held], settings);
+
+			// 200 ms at 50 dabs/s: about ten, all on the same spot.
+			expect(result.count).toBeGreaterThanOrEqual(8);
+			for (let i = 0; i < result.count; i++) {
+				expect(readDabField(result.data, i, "positionX")).toBeCloseTo(0, 4);
+			}
+		});
+	});
+
 	describe("curve matrix evaluation", () => {
 		it("should reproduce the v1 pressure-size formula on emitted dabs", () => {
 			const k = 0.5;

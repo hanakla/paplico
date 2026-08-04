@@ -170,7 +170,12 @@ export function evaluateDabs(
 		}
 	}
 	const totalLength = options.totalLength ?? fragmentLength;
-	if (totalLength <= 0) {
+	// A held airbrush has no length at all but still sprays, so only bail out
+	// when nothing can produce a dab.
+	const heldOnly =
+		totalLength <= 0 &&
+		segments.some((seg) => seg.endDeltaTime - seg.startDeltaTime > 0);
+	if (totalLength <= 0 && !heldOnly) {
 		return {
 			data: EMPTY_F32,
 			count: 0,
@@ -260,7 +265,7 @@ export function evaluateDabs(
 			}
 		}
 
-		const fragT = fragDistance / totalLength;
+		const fragT = totalLength > 0 ? fragDistance / totalLength : 0;
 		inputs.pressure = clamp01(pressure);
 		inputs.tiltMagnitude = clamp01(Math.hypot(tiltX, tiltY) / 90);
 		inputs.tiltAzimuth =
@@ -554,6 +559,36 @@ export function evaluateDabs(
 		}
 
 		if (segLen < 0.001) {
+			// Airbrush hold: no distance accrues, but time does. Without this
+			// a stylus held in place stops laying down paint entirely, since
+			// the sample walk below is driven by arc length.
+			const heldTime = segment.endDeltaTime - segment.startDeltaTime;
+			if (heldTime > 0) {
+				const decay = 1 - Math.exp(-heldTime / fineTau);
+				velFast += (0 - velFast) * decay;
+				velSlow += (0 - velSlow) * (1 - Math.exp(-heldTime / grossTau));
+				inputs.speedFine = Math.min(velFast / speedRef, 1);
+				inputs.speedGross = Math.min(velSlow / speedRef, 1);
+				inputs.accel = 0;
+				accTime += heldTime;
+				while (Number.isFinite(timedInterval) && accTime >= timedInterval) {
+					accTime -= timedInterval;
+					emit(
+						ex,
+						ey,
+						segment.endPressure ?? prevPressure,
+						segment.endTiltX,
+						segment.endTiltY,
+						segment.endTwist ?? 0,
+						prevDirX,
+						prevDirY,
+						globalDistance,
+					);
+					spacingWorld = currentSpacingWorld();
+					timedInterval = currentTimedInterval();
+				}
+				prevDeltaTime = segment.endDeltaTime;
+			}
 			prevEndX = segment.end.x;
 			prevEndY = segment.end.y;
 			hasPrevEnd = true;
