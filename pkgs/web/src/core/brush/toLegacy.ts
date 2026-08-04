@@ -74,7 +74,7 @@ export function toLegacyBrushSettings(
 
 	// --- dab engine: scatter or calligraphy --------------------------------
 	const dynamics = extractDabDynamics(settings);
-	const wetInk = settings.wetV1;
+	const wetInk = legacyWetInkView(settings);
 
 	if (settings.tip?.kind === "procedural") {
 		const tiltCurve = findCurve(settings, "angle", "tiltAzimuth");
@@ -210,4 +210,43 @@ function curvesOf(
 	return (settings.properties[id]?.curves ?? []).filter(
 		(curve) => curve.input === input,
 	);
+}
+
+/**
+ * A v1-shaped wet ink view of the v2 wet layer, for the UI and the flat
+ * adapter that still speak v1. The stroke-level four come back out of
+ * WetConfig and the rest out of their properties' bases; the curves a
+ * property may carry have no v1 equivalent and simply do not appear here,
+ * which is why this is a view and not a round trip.
+ */
+function legacyWetInkView(
+	settings: BrushSettingsV2,
+): WetInkSettings | undefined {
+	const wet = settings.wet;
+	if (!wet) return undefined;
+	const base = (id: BrushPropertyId): number =>
+		settings.properties[id]?.base ?? BRUSH_PROPERTY_REGISTRY[id].base;
+	const mixing = settings.mixing;
+	return {
+		enabled: wet.enabled,
+		bleedWidth: wet.bleedRadius,
+		pigmentLoad: wet.pigmentLoad,
+		paperScale: wet.grainScale,
+		wetness: base("wetness"),
+		directionality: base("directionality"),
+		paperGrain: base("grainAmount"),
+		absorption: base("absorption"),
+		granulation: base("granulation"),
+		diffusion: base("bleedSoftness"),
+		edgeDarkening: base("edgeDarkening"),
+		edgeRoughness: base("edgeRoughness"),
+		// v1's fixed speed/accel wiring is gone; their influence now lives in
+		// whatever curves the wetness property carries.
+		speedInfluence: 0,
+		accelInfluence: 0,
+		pickupUnderlyingColor: mixing?.enabled === true,
+		pickupStrength: Math.min(Math.max((1 - base("colorRate")) / 0.7, 0), 1),
+		pickupDecay: mixing?.sampleTrail ?? 1,
+		pickupBlendMode: mixing?.blendStyle ?? 0,
+	};
 }

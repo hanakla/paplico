@@ -142,10 +142,7 @@ export function calculatePathBounds(path: Path): LocalBBox {
 				const brush = (f as StrokeAppearance).paramData.params.brushSettings;
 				const size = readStoredBrushSize(brush) ?? 0;
 				halfWidth = size / 2;
-				const wet = readStoredWetInk(brush);
-				if (wet?.enabled) {
-					wetExtra = size * wet.bleedWidth;
-				}
+				wetExtra = size * readStoredWetBleedRatio(brush);
 				break;
 			}
 		}

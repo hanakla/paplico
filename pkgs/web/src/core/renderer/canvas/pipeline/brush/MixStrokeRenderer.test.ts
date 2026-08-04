@@ -16,9 +16,9 @@ describe("resolveMixingStroke", () => {
 		expect(resolveMixingStroke(element)?.settings.mixing?.enabled).toBe(true);
 	});
 
-	it("should leave a wetV1 stroke on the legacy route", () => {
-		// wetV1 is the authority until the wet switchover, so its stroke keeps
-		// rendering through WetInkPass even with mixing configured.
+	it("should claim a converted v1 wet stroke that picked up colour", () => {
+		// v1's pickup migrates into mixing, so a wet brush that picked up the
+		// layer below now mixes — the wet layer no longer touches colour.
 		const element = strokePath(
 			normalizeBrushSettingsV2({
 				type: "scatter",
@@ -28,7 +28,7 @@ describe("resolveMixingStroke", () => {
 			}),
 		);
 
-		expect(resolveMixingStroke(element)).toBeNull();
+		expect(resolveMixingStroke(element)?.settings.wet?.enabled).toBe(true);
 	});
 
 	it("should ignore a stroke whose mixing is disabled", () => {

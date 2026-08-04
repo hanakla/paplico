@@ -66,10 +66,12 @@ describe("resolveBrushRenderRoute", () => {
 				absorption: 0.35,
 				granulation: 0.25,
 				pickupUnderlyingColor: false,
-				pickupStrength: 0.35,
+				pickupStrength: 0,
 			},
 		});
-		expect(route.kind).toBe("dab-legacy");
+
+		expect(route.kind).toBe("dab-v2");
+		expect(route.settings.wet?.enabled).toBe(true);
 	});
 
 	it("should treat disabled wet ink as a plain v2 dab stroke", () => {

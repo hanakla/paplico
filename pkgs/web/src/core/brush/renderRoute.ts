@@ -36,8 +36,6 @@ export function resolveBrushRenderRoute(raw: unknown): BrushRenderRoute {
 		route = { kind: "geometric", settings };
 	} else if (settings.engine === "ribbon") {
 		route = { kind: "ribbon-legacy", settings };
-	} else if (settings.wetV1?.enabled === true) {
-		route = { kind: "dab-legacy", settings };
 	} else {
 		route = { kind: "dab-v2", settings };
 	}

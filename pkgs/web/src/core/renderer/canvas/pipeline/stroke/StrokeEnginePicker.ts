@@ -127,10 +127,6 @@ export class StrokeEngineRegistry {
 		pipeline.render(passEncoder, style, pipelineType, transformsBindGroup);
 	}
 
-	public renderWetStrokeIsolated(params: WetStrokeIsolatedRenderParams): void {
-		this.context.renderWetStrokeIsolated(params);
-	}
-
 	/**
 	 * BrushTextureManager accessor — exposed because ElementRenderer's
 	 * ensureBrushTexture() preloads textures into the shared manager.

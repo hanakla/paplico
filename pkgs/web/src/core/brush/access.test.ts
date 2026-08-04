@@ -70,36 +70,34 @@ describe("withStoredBrushSize", () => {
 	});
 });
 
-describe("readStoredWetInk", () => {
-	const wetInk: ScatterBrushSettings["wetInk"] = {
-		enabled: true,
-		bleedWidth: 0.5,
-		edgeDarkening: 0.4,
-		edgeRoughness: 0.3,
-		paperGrain: 0.2,
-		paperScale: 1,
-		directionality: 0.4,
-		speedInfluence: 0.5,
-		accelInfluence: 0.3,
-		wetness: 0.7,
-		pigmentLoad: 0.85,
-		absorption: 0.35,
-		granulation: 0.25,
-		pickupUnderlyingColor: false,
-		pickupStrength: 0.35,
-	};
-
-	it("should read wetInk from a v1 scatter brush", () => {
-		expect(readStoredWetInk({ type: "scatter", wetInk })).toEqual(wetInk);
+describe("readStoredWetBleedRatio", () => {
+	it("should read the bleed from a v1 wet brush", () => {
+		expect(
+			readStoredWetBleedRatio({
+				type: "scatter",
+				wetInk: { enabled: true, bleedWidth: 0.5 },
+			}),
+		).toBe(0.5);
 	});
 
-	it("should read wetV1 from a stored v2 brush", () => {
-		expect(readStoredWetInk({ ...v2, wetV1: wetInk })).toEqual(wetInk);
+	it("should read the bleed from a v2 wet brush", () => {
+		expect(
+			readStoredWetBleedRatio({
+				version: 2,
+				wet: { enabled: true, bleedRadius: 0.75 },
+			}),
+		).toBe(0.75);
 	});
 
-	it("should return undefined for stroke brushes and wet-less v2", () => {
-		expect(readStoredWetInk({ type: "stroke", wetInk })).toBeUndefined();
-		expect(readStoredWetInk(v2)).toBeUndefined();
+	it("should read zero when wet is off or absent", () => {
+		expect(
+			readStoredWetBleedRatio({
+				version: 2,
+				wet: { enabled: false, bleedRadius: 0.75 },
+			}),
+		).toBe(0);
+		expect(readStoredWetBleedRatio({ type: "scatter" })).toBe(0);
+		expect(readStoredWetBleedRatio(null)).toBe(0);
 	});
 });
 

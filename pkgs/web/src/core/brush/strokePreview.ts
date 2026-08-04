@@ -67,8 +67,8 @@ export function createBrushStrokePreviewScene(
 	}
 
 	const size = readStoredBrushSize(options.brushSettings) ?? 0;
-	const wet = readStoredWetInk(options.brushSettings);
-	const wetBleed = wet?.enabled ? size * (0.5 + wet.bleedWidth) : 0;
+	const bleedRatio = readStoredWetBleedRatio(options.brushSettings);
+	const wetBleed = bleedRatio > 0 ? size * (0.5 + bleedRatio) : 0;
 	const pathBounds = expandBounds(
 		calculateElementBounds(path),
 		Math.max(size * 0.75, wetBleed, 8),

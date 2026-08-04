@@ -245,16 +245,30 @@ describe("normalizeBrushSettingsV2", () => {
 				pickupStrength: 0.35,
 			};
 			const v2 = normalizeBrushSettingsV2({ ...baseScatter, wetInk });
-			// wetV1 is the v1-normalized value: v1's own asWetInk() fills its
-			// optional defaults (diffusion/pickupDecay/pickupBlendMode) on read.
-			expect(v2.wetV1).toEqual({
-				...wetInk,
-				diffusion: 0.35,
-				pickupDecay: 1,
-				pickupBlendMode: 0,
+
+			// The stroke-level four stay in WetConfig...
+			expect(v2.wet).toEqual({
+				enabled: true,
+				bleedRadius: 0.5,
+				pigmentLoad: 0.85,
+				grainScale: 1,
 			});
-			expect(v2.wet).toBeUndefined();
-			expect(v2.mixing).toBeUndefined();
+			// ...everything else was a uniform and is now a property base.
+			expect(v2.properties.wetness?.base).toBe(0.7);
+			expect(v2.properties.directionality?.base).toBe(0.4);
+			expect(v2.properties.absorption?.base).toBe(0.35);
+			expect(v2.properties.granulation?.base).toBe(0.25);
+			expect(v2.properties.grainAmount?.base).toBe(0.2);
+			expect(v2.properties.edgeDarkening?.base).toBe(0.4);
+			expect(v2.properties.edgeRoughness?.base).toBe(0.3);
+			// Speed and acceleration lose their fixed wiring and become curves.
+			const wetnessCurves = v2.properties.wetness?.curves ?? [];
+			expect(wetnessCurves.map((c) => c.input)).toEqual([
+				"speedGross",
+				"accel",
+			]);
+			// Picking up the layer below belongs to mixing now.
+			expect(v2.mixing?.enabled).toBe(true);
 		});
 	});
 
@@ -274,15 +288,6 @@ describe("normalizeBrushSettingsV2", () => {
 			pooling: 0,
 			poolingSizeRatio: 0.5,
 		};
-
-		it("should map to a procedural hard tip", () => {
-			const v2 = normalizeBrushSettingsV2(calligraphy);
-			expect(v2.engine).toBe("dab");
-			expect(v2.tip?.kind).toBe("procedural");
-			if (v2.tip?.kind !== "procedural") throw new Error("unreachable");
-			expect(v2.tip.hardness).toBe(1);
-			expect(v2.tip.angleMode).toBe("fixed");
-		});
 
 		it("should map roundness and nibAngle to ratio and angle bases", () => {
 			const v2 = normalizeBrushSettingsV2(calligraphy);

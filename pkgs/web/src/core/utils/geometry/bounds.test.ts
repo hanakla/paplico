@@ -90,7 +90,12 @@ describe("bounds utilities", () => {
 									paintMode: "buildup",
 									properties: { size: { base: 10 } },
 									randomSeed: 0,
-									wetV1: { enabled: true, bleedWidth: 0.5 },
+									wet: {
+										enabled: true,
+										bleedRadius: 0.5,
+										pigmentLoad: 0.85,
+										grainScale: 1,
+									},
 								},
 							},
 						},
@@ -118,7 +123,7 @@ describe("bounds utilities", () => {
 
 			const bounds = calculatePathBounds(path);
 
-			// margin = size/2 (5) + size * bleedWidth (5) = 10
+			// margin = size/2 (5) + size * bleedRadius (5) = 10
 			expect(bounds.minX).toBe(-10);
 			expect(bounds.maxX).toBe(110);
 		});

@@ -202,11 +202,6 @@ import {
 import { SoftProofPass } from "./pipeline/SoftProofPass";
 import { resolveStrokeStyle } from "./pipeline/stroke/resolveStrokeStyle";
 import type { StrokeEngineRegistry } from "./pipeline/stroke/StrokeEnginePicker";
-import {
-	buildWetInkSimCacheKey,
-	type WetInkCachedResultComposite,
-	WetInkPass,
-} from "./pipeline/stroke/WetInkPass";
 import { WetLayerPass } from "./pipeline/stroke/WetLayerPass";
 import { TexturePool, texturePoolBudgetBytes } from "./pipeline/TexturePool";
 import { UniformScope } from "./pipeline/UniformScope";
@@ -345,7 +340,6 @@ export class CanvasLayer {
 	 * first wet stroke; stays null for documents that never enable wet ink so
 	 * non-wet rendering pays nothing.
 	 */
-	private wetInkPass: WetInkPass | null = null;
 
 	// -- Viewport & uniform binding --
 	private viewportManager!: ViewportManager;
@@ -4994,48 +4988,7 @@ export class CanvasLayer {
 		const batchRegistry = compositeContext ? this.strokeRegistry : null;
 		let currentBatchTextureUid = "";
 		const pendingWetInkJobs: PendingWetInkJob[] = [];
-		let wetRenderBufferCacheKey: string | null = null;
-		const getWetRenderBufferCacheKey = () => {
-			wetRenderBufferCacheKey ??= buildWetInkRenderBufferCacheKey(elements);
-			return wetRenderBufferCacheKey;
-		};
-		const flushPendingWetInkJobs = () => {
-			if (pendingWetInkJobs.length === 0) return;
-			// Wet-ink jobs interrupt the pass and composite back — emit any
-			// pending merged run first and suspend merging until the pass resumes.
-			const wasBatching = this.runBatcher.pauseBatching();
-			if (batchRegistry) {
-				batchRegistry.flushBatch(
-					activePass,
-					pipelineType,
-					this.transformsBindGroup!,
-				);
-				currentBatchTextureUid = "";
-			}
-			activePass.end();
-			const pendingCachedResults: WetInkCachedResultComposite[] = [];
-			for (const job of pendingWetInkJobs) {
-				this.applyWetInkPasses(
-					job.compositeContext,
-					job.path,
-					job.wetPasses,
-					job.effectiveAlpha,
-					job.transformIndex,
-					job.renderBufferCacheKey,
-					pendingCachedResults,
-				);
-			}
-			if (pendingCachedResults.length > 0) {
-				this.wetInkPass!.compositeCachedResults(
-					compositeContext!.encoder,
-					pendingCachedResults,
-					this.activeProfiler,
-				);
-			}
-			pendingWetInkJobs.length = 0;
-			activePass = compositeContext!.restartPass();
-			this.runBatcher.resumeBatching(wasBatching);
-		};
+		const wetRenderBufferCacheKey: string | null = null;
 		if (batchRegistry) batchRegistry.beginBatch();
 
 		for (const element of elements) {
@@ -5142,7 +5095,6 @@ export class CanvasLayer {
 				continue;
 			}
 			if (backdropDriver && compositeContext) {
-				flushPendingWetInkJobs();
 				if (batchRegistry) {
 					batchRegistry.flushBatch(
 						activePass,
@@ -5296,7 +5248,6 @@ export class CanvasLayer {
 				(blendMode !== "normal" || compositionMode !== "normal");
 			// Filtered textures are already rasterized snapshots; render/blit directly.
 			if (filteredData) {
-				flushPendingWetInkJobs();
 				// Preserve draw order by flushing pending batches before textured blits.
 				if (batchRegistry) {
 					batchRegistry.flushBatch(
@@ -5405,7 +5356,6 @@ export class CanvasLayer {
 				}
 				// Don't render children - they're already in the filtered texture
 			} else if (needsComposite) {
-				flushPendingWetInkJobs();
 				if (batchRegistry) {
 					batchRegistry.flushBatch(
 						activePass,
@@ -5519,7 +5469,6 @@ export class CanvasLayer {
 				element.eraseMasks.length > 0 &&
 				compositeContext
 			) {
-				flushPendingWetInkJobs();
 				// EraseMask path: render to offscreen with alpha subtraction
 				if (batchRegistry) {
 					batchRegistry.flushBatch(
@@ -5566,9 +5515,7 @@ export class CanvasLayer {
 					this.filterRenderer,
 				);
 
-				// Check if all strokes are batch-eligible. Wet-ink strokes are
-				// excluded from the batch path so WetInkPass can run between
-				// stroke and the next element on the shared layer target.
+				// Check if all strokes are batch-eligible.
 				const enabledStrokes = drawableApps.filter(
 					(f) => f.processor === "stroke",
 				) as StrokeAppearance[];
@@ -5591,7 +5538,6 @@ export class CanvasLayer {
 					enabledStrokes.length > 0;
 
 				if (canBatch) {
-					flushPendingWetInkJobs();
 					const passes = resolveAppearancePasses(
 						effectivePath,
 						this.filterRenderer,
@@ -5761,98 +5707,17 @@ export class CanvasLayer {
 						effectivePath,
 						this.filterRenderer,
 					);
-					const wetStrokes =
-						this.device.limits.maxColorAttachments >= 3
-							? enabledStrokes.filter((s) =>
-									hasWetInk(
-										normalizeBrushSettings(s.paramData.params.brushSettings),
-									),
-								)
-							: [];
-					const hasWetStrokes = wetStrokes.length > 0 && compositeContext;
-
-					if (!hasWetStrokes) {
-						flushPendingWetInkJobs();
-						if (passes.length > 0) {
-							this.elements.renderAppearancePasses(
-								activePass,
-								effectivePath,
-								passes,
-								effectiveAlpha,
-								pipelineType,
-							);
-						}
-					} else {
-						// Interleave wet and non-wet appearances in their original
-						// order so that a non-wet stroke placed after a wet stroke
-						// renders on top of it. Splitting the resolved PASSES (not
-						// the filters array) keeps each run's geometry intact — a
-						// filters-level split would drop the element's pre-filters
-						// from whichever run doesn't carry them.
-						const wetSet: ReadonlySet<Filter> = new Set(wetStrokes);
-						let normalRun: ResolvedAppearancePass[] = [];
-						let wetRun: ResolvedAppearancePass[] = [];
-						let didEmit = false;
-
-						const flushNormalRun = () => {
-							if (normalRun.length === 0) return;
-							flushPendingWetInkJobs();
-							this.elements.renderAppearancePasses(
-								activePass,
-								effectivePath,
-								normalRun,
-								effectiveAlpha,
-								pipelineType,
-							);
-							didEmit = true;
-							normalRun = [];
-						};
-
-						const flushWetRun = () => {
-							if (wetRun.length === 0) return;
-							const renderBufferCacheKey = wetRun.some(({ appearance }) => {
-								const brush = normalizeBrushSettings(
-									(appearance as StrokeAppearance).paramData.params
-										.brushSettings,
-								);
-								return (
-									(brush.type === "scatter" || brush.type === "calligraphy") &&
-									usesWetInkRenderBufferPickup(brush.wetInk)
-								);
-							})
-								? getWetRenderBufferCacheKey()
-								: "";
-							pendingWetInkJobs.push({
-								compositeContext,
-								path: effectivePath,
-								wetPasses: wetRun,
-								effectiveAlpha,
-								transformIndex: this.renderState.currentTransformIndex,
-								renderBufferCacheKey,
-							});
-							didEmit = true;
-							wetRun = [];
-						};
-
-						for (const pass of passes) {
-							if (wetSet.has(pass.appearance)) {
-								flushNormalRun();
-								wetRun.push(pass);
-							} else {
-								flushWetRun();
-								normalRun.push(pass);
-							}
-						}
-						flushWetRun();
-						flushNormalRun();
-
-						if (!didEmit) {
-							flushPendingWetInkJobs();
-						}
+					if (passes.length > 0) {
+						this.elements.renderAppearancePasses(
+							activePass,
+							effectivePath,
+							passes,
+							effectiveAlpha,
+							pipelineType,
+						);
 					}
 				}
 			} else if (isGroup(element)) {
-				flushPendingWetInkJobs();
 				if (batchRegistry) {
 					batchRegistry.flushBatch(
 						activePass,
@@ -6043,7 +5908,6 @@ export class CanvasLayer {
 				);
 			} else {
 				// Non-path, non-group elements: image, compound-path, text
-				flushPendingWetInkJobs();
 				if (batchRegistry) {
 					batchRegistry.flushBatch(
 						activePass,
@@ -6068,7 +5932,6 @@ export class CanvasLayer {
 			}
 		}
 
-		flushPendingWetInkJobs();
 		if (batchRegistry) {
 			// Flush any remaining batched strokes at loop end.
 			batchRegistry.flushBatch(
@@ -6902,270 +6765,6 @@ export class CanvasLayer {
 			: null;
 	}
 
-	private applyWetInkPasses(
-		compositeContext: CompositeRenderContext,
-		path: Path,
-		wetPasses: readonly ResolvedAppearancePass[],
-		effectiveAlpha: number,
-		transformIndex: number,
-		renderBufferCacheKey: string,
-		pendingCachedResults?: WetInkCachedResultComposite[],
-	): void {
-		const viewport = this.viewportState.current;
-		if (!viewport) return;
-		if (!this.strokeRegistry || !this.transformsBindGroup) return;
-		const target = compositeContext.targetTexture;
-		const worldPerPixel = 1 / Math.max(viewport.zoom, 1e-5);
-		if (!this.wetInkPass) {
-			this.wetInkPass = new WetInkPass(this.device, this.canvasFormat);
-		}
-		const ownsCachedResults = pendingCachedResults == null;
-		const cachedResults = pendingCachedResults ?? [];
-		const flushCachedResults = () => {
-			if (cachedResults.length === 0) return;
-			this.wetInkPass!.compositeCachedResults(
-				compositeContext.encoder,
-				cachedResults,
-				this.activeProfiler,
-			);
-			cachedResults.length = 0;
-		};
-		const worldOriginX = viewport.x - (target.width * worldPerPixel) / 2;
-		const worldOriginY = viewport.y + (target.height * worldPerPixel) / 2;
-		const composedTransform =
-			this.viewportManager.getComposedTransformCache().get(path.id) ??
-			path.transform;
-		const pathKey = [
-			path.id,
-			(path.pathStart ?? 0).toFixed(5),
-			(path.pathEnd ?? 1).toFixed(5),
-			composedTransform.x.toFixed(3),
-			composedTransform.y.toFixed(3),
-			composedTransform.rotation.toFixed(4),
-			composedTransform.scaleX.toFixed(4),
-			composedTransform.scaleY.toFixed(4),
-			(composedTransform.skewX ?? 0).toFixed(4),
-			(composedTransform.skewY ?? 0).toFixed(4),
-		].join(":");
-		for (let index = 0; index < wetPasses.length; index++) {
-			const { appearance, segments: strokeSegments } = wetPasses[index];
-			const strokeApp = appearance as StrokeAppearance;
-			// The pass carries the deformed geometry (pre-filters + this
-			// appearance's own sub-filters), so the simulation runs on the shape
-			// the stroke actually draws.
-			const strokeCenterBounds = calculatePathBounds({
-				...path,
-				segments: strokeSegments,
-				filters: [],
-			});
-			const segmentsKey = hashSegmentsWithMetadata(strokeSegments);
-			const brush = normalizeBrushSettings(
-				strokeApp.paramData.params.brushSettings,
-			);
-			if (brush.type !== "scatter" && brush.type !== "calligraphy") continue;
-			const wetInk = brush.wetInk;
-			if (!wetInk?.enabled) continue;
-			const simulationBrushSize = Math.max(brush.size, 1);
-			const effectBounds = applyTransformToBounds(
-				expandBounds(
-					strokeCenterBounds,
-					brush.size * (0.5 + wetInk.bleedWidth),
-				),
-				composedTransform,
-			);
-			const bboxPixelRect = computeWetInkPixelRect(
-				effectBounds,
-				{ x: worldOriginX, y: worldOriginY },
-				worldPerPixel,
-				target.width,
-				target.height,
-			);
-			if (bboxPixelRect.width === 0 || bboxPixelRect.height === 0) continue;
-
-			const simulationDomain = resolveSimulationDomain(
-				effectBounds,
-				simulationBrushSize,
-				this.device.limits.maxTextureDimension2D,
-			);
-			const simWPP = simulationDomain.worldPerPixel;
-			const usesPickup = usesWetInkRenderBufferPickup(wetInk);
-			const basePathKey = `${pathKey}:${segmentsKey}:${index}:${hashWetStrokeCacheKey(
-				strokeApp,
-				effectiveAlpha,
-				path,
-			)}`;
-
-			for (
-				let tileIdx = 0;
-				tileIdx < simulationDomain.tiles.length;
-				tileIdx++
-			) {
-				const tile = simulationDomain.tiles[tileIdx];
-				const innerWorldMinX = tile.worldOrigin.x + tile.innerOffset.x * simWPP;
-				const innerWorldMaxY = tile.worldOrigin.y - tile.innerOffset.y * simWPP;
-				const innerWorldMaxX = innerWorldMinX + tile.innerSize.width * simWPP;
-				const innerWorldMinY = innerWorldMaxY - tile.innerSize.height * simWPP;
-				const innerBounds: BoundingBox = {
-					minX: innerWorldMinX,
-					minY: innerWorldMinY,
-					maxX: innerWorldMaxX,
-					maxY: innerWorldMaxY,
-					width: innerWorldMaxX - innerWorldMinX,
-					height: innerWorldMaxY - innerWorldMinY,
-				};
-				const tileBboxPixelRect = computeWetInkPixelRect(
-					innerBounds,
-					{ x: worldOriginX, y: worldOriginY },
-					worldPerPixel,
-					target.width,
-					target.height,
-				);
-				if (tileBboxPixelRect.width === 0 || tileBboxPixelRect.height === 0)
-					continue;
-
-				const tileKeySuffix =
-					simulationDomain.tiles.length > 1 ? `:t${tileIdx}` : "";
-				const contentKey = buildWetInkSimCacheKey({
-					pathKey: `${basePathKey}${tileKeySuffix}`,
-					settings: wetInk,
-					randomSeed: brush.randomSeed ?? 0,
-					brushSize: brush.size,
-					domainWorldOrigin: tile.worldOrigin,
-					domainWorldSize: {
-						width: tile.textureSize.width * simWPP,
-						height: tile.textureSize.height * simWPP,
-					},
-					domainTextureSize: tile.textureSize,
-					domainWorldPerPixel: simWPP,
-				});
-				const cacheKey = usesPickup
-					? `${contentKey}|rb:${renderBufferCacheKey}`
-					: contentKey;
-				const compositeParams = {
-					target,
-					bboxPixelRect: tileBboxPixelRect,
-					domainTextureSize: tile.textureSize,
-					domainWorldOrigin: tile.worldOrigin,
-					domainWorldPerPixel: simWPP,
-					targetWorldOrigin: { x: worldOriginX, y: worldOriginY },
-					targetWorldPerPixel: worldPerPixel,
-					randomSeed: brush.randomSeed ?? 0,
-					settings: wetInk,
-					cacheKey,
-				};
-				const driedResult = this.wetInkPass.lookupDried(
-					contentKey,
-					compositeParams,
-				);
-				if (driedResult) {
-					cachedResults.push(driedResult);
-					continue;
-				}
-				const cachedResult =
-					this.wetInkPass.lookupCachedResult(compositeParams);
-				if (cachedResult) {
-					this.wetInkPass.trackStability(contentKey, cacheKey);
-					cachedResults.push(cachedResult);
-					continue;
-				}
-				flushCachedResults();
-				const domainViewport = {
-					x: tile.worldOrigin.x + (tile.textureSize.width * simWPP) / 2,
-					y: tile.worldOrigin.y - (tile.textureSize.height * simWPP) / 2,
-					zoom: 1 / simWPP,
-					rotation: 0,
-				};
-				const domainUniform = this.uniformScope.acquire(
-					domainViewport,
-					tile.textureSize.width,
-					tile.textureSize.height,
-				);
-				const tempUsage =
-					GPUTextureUsage.RENDER_ATTACHMENT |
-					GPUTextureUsage.TEXTURE_BINDING |
-					GPUTextureUsage.COPY_SRC |
-					GPUTextureUsage.COPY_DST;
-				const pigmentTexture = this.texturePool.acquire(
-					tile.textureSize.width,
-					tile.textureSize.height,
-					"rgba16float",
-					1,
-					tempUsage,
-					"WetInk Isolated Pigment",
-				);
-				const fluidTexture = this.texturePool.acquire(
-					tile.textureSize.width,
-					tile.textureSize.height,
-					"rgba16float",
-					1,
-					tempUsage,
-					"WetInk Isolated Fluid",
-				);
-				const flowTexture = this.texturePool.acquire(
-					tile.textureSize.width,
-					tile.textureSize.height,
-					"rgba16float",
-					1,
-					tempUsage,
-					"WetInk Isolated Flow",
-				);
-				const maskTexture = this.texturePool.acquire(
-					tile.textureSize.width,
-					tile.textureSize.height,
-					"rgba16float",
-					1,
-					tempUsage,
-					"WetInk Isolated Mask",
-				);
-				const wetPath: Path = {
-					...path,
-					segments: strokeSegments,
-					filters: [strokeApp],
-				};
-				this.strokeRegistry.renderWetStrokeIsolated({
-					commandEncoder: compositeContext.encoder,
-					path: wetPath,
-					segments: strokeSegments,
-					transformsBindGroup: this.transformsBindGroup,
-					pigmentView: pigmentTexture.createView(),
-					flowView: flowTexture.createView(),
-					fluidView: fluidTexture.createView(),
-					maskView: maskTexture.createView(),
-					scissorRect: {
-						x: 0,
-						y: 0,
-						width: tile.textureSize.width,
-						height: tile.textureSize.height,
-					},
-					viewportUniformBuffer: domainUniform.buffer,
-					alphaMultiplier: effectiveAlpha * strokeApp.opacity,
-					viewportBounds: effectBounds,
-					transformIndex,
-				});
-
-				this.wetInkPass.apply(
-					compositeContext.encoder,
-					{
-						...compositeParams,
-						pigmentView: pigmentTexture.createView(),
-						flowView: flowTexture.createView(),
-						fluidView: fluidTexture.createView(),
-						maskView: maskTexture.createView(),
-						renderBufferView: target.createView(),
-						brushSize: brush.size,
-					},
-					this.activeProfiler,
-				);
-				this.wetInkPass.trackStability(contentKey, cacheKey);
-				this.texturePool.release(pigmentTexture);
-				this.texturePool.release(flowTexture);
-				this.texturePool.release(fluidTexture);
-				this.texturePool.release(maskTexture);
-			}
-		}
-		if (ownsCachedResults) flushCachedResults();
-	}
-
 	/**
 	 * Rasterize one DefEntry's rootElementIds tree into a freshly created
 	 * GPUTexture sized `width x height`. Returns null when the def cannot be
@@ -7379,8 +6978,6 @@ export class CanvasLayer {
 		this.exposureBindGroupSourceView = null;
 		this.exposureUniformBuffer.destroy();
 		this.softProofPass.destroy();
-		this.wetInkPass?.destroy();
-		this.wetInkPass = null;
 		this.backdropCaptureManager.destroy();
 		this.backdropEffectCoordinator.destroy();
 

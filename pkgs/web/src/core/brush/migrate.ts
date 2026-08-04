@@ -29,7 +29,7 @@ export const MAX_CURVE_POINTS = 16;
  * Single v2 gate: accepts v1 unions, the legacy flat shape and v2 values and
  * returns a sanitized BrushSettingsV2. Idempotent — see migrate.test.ts.
  * Wet ink settings are NOT converted here: they are preserved verbatim in
- * `wetV1` until the wet switchover migration (design §13-7).
+ * the v2 wet layer (design §13-6).
  */
 export function normalizeBrushSettingsV2(raw: unknown): BrushSettingsV2 {
 	const r = (raw ?? {}) as Record<string, unknown>;
@@ -115,7 +115,6 @@ export function mergeBrushSettingsV2PreservingCurves(
 		mixing: next.mixing ?? previous.mixing,
 		wet: next.wet ?? previous.wet,
 		inputDynamics: next.inputDynamics ?? previous.inputDynamics,
-		wetV1: next.wetV1 ?? previous.wetV1,
 	};
 	if (
 		next.tip?.kind === "procedural" &&
@@ -219,7 +218,7 @@ function convertV1(v1: BrushSettings): Record<string, unknown> {
 				engine: "dab" satisfies BrushEngineKind,
 				properties: props,
 				tip,
-				wetV1: v1.wetInk,
+				...convertWetInk(props, v1.wetInk),
 			};
 		}
 
@@ -246,7 +245,7 @@ function convertV1(v1: BrushSettings): Record<string, unknown> {
 				engine: "dab" satisfies BrushEngineKind,
 				properties: props,
 				tip,
-				wetV1: v1.wetInk,
+				...convertWetInk(props, v1.wetInk),
 			};
 		}
 
@@ -310,6 +309,81 @@ function convertDabDynamics(
 	}
 }
 
+/**
+ * v1 wet ink -> the v2 wet layer (design §13-6).
+ *
+ * The stroke-level four stay in WetConfig; everything else was a uniform
+ * that is now a curve-modulated property, so it lands as that property's
+ * base. Speed and acceleration lose their fixed wiring into the simulation
+ * and become wetness curves, which is where a stroke's own motion belongs
+ * once every property can be modulated.
+ *
+ * Picking up the layer below is mixing's job in v2, so the pickup settings
+ * migrate there rather than into the wet layer.
+ */
+function convertWetInk(
+	props: MutableProps,
+	wetInk: WetInkSettings | undefined,
+): { wet?: WetConfig; mixing?: MixingConfig } {
+	if (!wetInk) return {};
+
+	setBase(props, "wetness", wetInk.wetness);
+	setBase(props, "directionality", wetInk.directionality);
+	setBase(props, "grainAmount", wetInk.paperGrain);
+	setBase(props, "absorption", wetInk.absorption);
+	setBase(props, "granulation", wetInk.granulation);
+	setBase(
+		props,
+		"bleedSoftness",
+		wetInk.diffusion ?? DEFAULT_WET_INK_DIFFUSION,
+	);
+	setBase(props, "edgeDarkening", wetInk.edgeDarkening);
+	setBase(props, "edgeRoughness", wetInk.edgeRoughness);
+
+	// v1 read speed and acceleration straight out of the field and folded
+	// them into drying and advection. Two-point linear curves reproduce that
+	// coupling through wetness: a fast stroke carries less water, a
+	// decelerating one carries more.
+	if (wetInk.speedInfluence > 0) {
+		addCurve(props, "wetness", "speedGross", [
+			[0, 0],
+			[1, -wetInk.speedInfluence * wetInk.wetness],
+		]);
+	}
+	if (wetInk.accelInfluence > 0) {
+		addCurve(props, "wetness", "accel", [
+			[0, 0],
+			[1, wetInk.accelInfluence * wetInk.wetness * 0.5],
+		]);
+	}
+
+	const wet: WetConfig = {
+		enabled: wetInk.enabled,
+		bleedRadius: wetInk.bleedWidth,
+		pigmentLoad: wetInk.pigmentLoad,
+		grainScale: wetInk.paperScale,
+	};
+	if (!wetInk.pickupUnderlyingColor && wetInk.pickupStrength <= 0) {
+		return { wet };
+	}
+
+	// v1's pickup blended the layer below into the stroke; v2's colorRate
+	// blends the other way, toward the brush colour, so the rate that leaves
+	// the same contribution is its complement. v1 caps the blend at 0.7 of
+	// the sampled colour (see the seed pass), which is the scale here.
+	setBase(props, "colorRate", 1 - Math.min(wetInk.pickupStrength * 0.7, 1));
+	return {
+		wet,
+		mixing: {
+			enabled: wetInk.pickupUnderlyingColor,
+			mode: "dulling",
+			sampleRadius: 1,
+			sampleTrail: wetInk.pickupDecay ?? 1,
+			blendStyle: wetInk.pickupBlendMode ?? 0,
+		},
+	};
+}
+
 function setBase(props: MutableProps, id: BrushPropertyId, base: number): void {
 	const existing = props[id];
 	props[id] = { ...existing, base };
@@ -361,12 +435,6 @@ function sanitizeV2(r: Record<string, unknown>): BrushSettingsV2 {
 	const mixing = sanitizeMixing(r.mixing);
 	if (mixing) result.mixing = mixing;
 	if (wet) result.wet = wet;
-	if (isRecord(r.wetV1)) {
-		// Boundary cast: wetV1 is the migration-period original and must stay
-		// verbatim — reshaping or clamping it here would break the v1 authority
-		// rule (design §13-7).
-		result.wetV1 = r.wetV1 as unknown as WetInkSettings;
-	}
 	const inputDynamics = sanitizeInputDynamics(r.inputDynamics);
 	if (inputDynamics) result.inputDynamics = inputDynamics;
 
