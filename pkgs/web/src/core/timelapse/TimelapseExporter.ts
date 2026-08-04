@@ -1,4 +1,3 @@
-import type { ChangedElements } from "../renderer/types";
 import { type Artboard, type Document, getArtboardBounds } from "../schema";
 import type { TimelapsePlayer } from "./TimelapsePlayer";
 import type { TimelapsePreviewSurface } from "./TimelapsePreviewSurface";
@@ -147,12 +146,10 @@ export class TimelapseExporter {
 			if (encoderError) throw encoderError;
 
 			eventIndex = Math.min(eventIndex + eventsPerFrame, totalEvents - 1);
-			const frame = this.player.captureFrameAt(eventIndex);
 			const imageData = await this.renderFrame(
-				frame.document,
+				this.player.captureFrameAt(eventIndex),
 				artboard,
 				scale,
-				frame.changes,
 			);
 			const framePixels = this.padToEncoder(imageData, encWidth, encHeight);
 
@@ -201,13 +198,11 @@ export class TimelapseExporter {
 		document: Document,
 		artboard: Artboard,
 		scale: number,
-		changes?: ChangedElements,
 	): Promise<ImageData> {
 		const imageData = await this.surface.renderToImageData(
 			document,
 			artboard,
 			scale,
-			changes,
 		);
 		if (!imageData) throw new Error("Render failed");
 		return imageData;

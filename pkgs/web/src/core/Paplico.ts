@@ -4160,10 +4160,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	public createTimelapsePlayer(
 		callbacks: {
-			onFrame: (
-				document: Document,
-				changes: ChangedElements | undefined,
-			) => void;
+			onFrame: (document: Document) => void;
 			onStateChange: (state: PlaybackState) => void;
 		},
 		filterArtboard: Artboard | null,

@@ -1,6 +1,5 @@
 import { CanvasTarget } from "../renderer/CanvasTarget";
 import type { RenderOrchestrator } from "../renderer/RenderOrchestrator";
-import type { ChangedElements } from "../renderer/types";
 import { type Artboard, type Document, getArtboardBounds } from "../schema";
 
 /**
@@ -30,15 +29,8 @@ export class TimelapsePreviewSurface {
 		private readonly target: CanvasTarget,
 	) {}
 
-	/**
-	 * Draw one replayed frame, framing `artboard` to fill the preview canvas.
-	 * `changes` may be omitted to say every element could have changed.
-	 */
-	public render(
-		document: Document,
-		artboard: Artboard,
-		changes: ChangedElements | undefined,
-	): void {
+	/** Draw one replayed frame, framing `artboard` to fill the preview canvas. */
+	public render(document: Document, artboard: Artboard): void {
 		this.target.updateSize();
 		if (this.target.width === 0 || this.target.height === 0) return;
 
@@ -61,7 +53,12 @@ export class TimelapsePreviewSurface {
 					viewport: this.target.getViewport(),
 					document,
 					strategy: "full",
-					changedElements: changes,
+					// Deliberately no changedElements, and culling off: this matches
+					// the artboard export path, which is the configuration replayed
+					// documents are known to render correctly under. A replay frame
+					// is not an incremental edit of the frame before it — the whole
+					// document is rebuilt from the Yjs stream each time.
+					disableViewportCulling: true,
 					// Match the exported video: white surround, artboard fills reach
 					// the edges of the frame.
 					clearColorOverride: { r: 1, g: 1, b: 1, a: 1 },
@@ -82,14 +79,13 @@ export class TimelapsePreviewSurface {
 		document: Document,
 		artboard: Artboard,
 		scale: number,
-		changes: ChangedElements | undefined,
 	): Promise<ImageData | null> {
 		return this.renderer.renderArtboardToImageData(
 			artboard,
 			document,
 			scale,
 			{ r: 1, g: 1, b: 1, a: 1 },
-			{ targetId: this.target.id, changedElements: changes },
+			{ targetId: this.target.id },
 		);
 	}
 

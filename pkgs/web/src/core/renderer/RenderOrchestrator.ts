@@ -144,7 +144,6 @@ export type RenderStrategy = keyof typeof RenderStrategy;
 export interface ExportRenderOptions {
 	/** Draw through this target so the caller keeps its own cache scope. */
 	targetId?: string;
-	changedElements?: FrameRequest["changedElements"];
 }
 
 interface TargetData {

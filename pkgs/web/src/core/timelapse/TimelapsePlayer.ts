@@ -4,7 +4,6 @@ import {
 	extractLayersFromYDoc,
 	yMapToObject,
 } from "../collaboration/extractDocumentFromYDoc";
-import type { ChangedElements } from "../renderer/types";
 import type { Artboard, CubicBezierSegment, Document, Path } from "../schema";
 import { selectEntriesForArtboard } from "./artboardFilter";
 import { TimelapseIndexBuilder } from "./timelapseIndex";
@@ -104,18 +103,10 @@ export class TimelapsePlayer {
 	 */
 	private touched = createTouchedState();
 
-	// What the most recent syncDocument() consumed, reported alongside the frame.
-	private lastUpserted: ReadonlySet<string> = new Set();
-	private lastDeleted: ReadonlySet<string> = new Set();
-	private lastSyncWasFullExtract = true;
-
 	public constructor(
 		data: TimelapseData,
 		private callbacks: {
-			onFrame: (
-				document: Document,
-				changes: ChangedElements | undefined,
-			) => void;
+			onFrame: (document: Document) => void;
 			onStateChange: (state: PlaybackState) => void;
 			/** The live document, which is what the recording ends at. */
 			getCompletedDocument: () => Document;
@@ -160,7 +151,7 @@ export class TimelapsePlayer {
 			this.introPhase = "complete";
 			this.introElapsed = 0;
 			this.resetReplay();
-			this.callbacks.onFrame(this.buildCompletedDocument(), undefined);
+			this.callbacks.onFrame(this.buildCompletedDocument());
 		}
 
 		this.animFrameId = requestAnimationFrame(this.tick);
@@ -195,10 +186,7 @@ export class TimelapsePlayer {
 	 * Seek and hand back the frame without emitting it, for the exporter which
 	 * drives its own render loop.
 	 */
-	public captureFrameAt(visibleIndex: number): {
-		document: Document;
-		changes: ChangedElements | undefined;
-	} {
+	public captureFrameAt(visibleIndex: number): Document {
 		this.seekInternal(visibleIndex);
 		return this.consumeFrame();
 	}
@@ -427,28 +415,14 @@ export class TimelapsePlayer {
 	}
 
 	private emitFrame(): void {
-		const { document, changes } = this.consumeFrame();
-		this.callbacks.onFrame(document, changes);
+		this.callbacks.onFrame(this.consumeFrame());
 	}
 
-	/**
-	 * Bring the reconstructed Document up to date and report what moved.
-	 *
-	 * `changes` is undefined whenever the document had to be extracted whole,
-	 * which is the renderer's contract for "tracking was lost, assume every
-	 * element changed".
-	 */
-	private consumeFrame(): {
-		document: Document;
-		changes: ChangedElements | undefined;
-	} {
+	/** Bring the reconstructed Document up to date and overlay any draw-on animation. */
+	private consumeFrame(): Document {
 		const document = this.syncDocument();
-		const changes = this.lastSyncWasFullExtract
-			? undefined
-			: { upserted: this.lastUpserted, deleted: this.lastDeleted };
-
 		const animation = this.activePathAnim;
-		if (!animation) return { document, changes };
+		if (!animation) return document;
 
 		const progress = Math.min(1, animation.elapsed / animation.duration);
 		const visibleCount = Math.max(
@@ -459,20 +433,17 @@ export class TimelapsePlayer {
 			...animation.element,
 			segments: animation.segments.slice(0, visibleCount),
 		};
-		return { document, changes };
+		return document;
 	}
 
 	/** Patch the reconstructed Document with whatever the applied updates touched. */
 	private syncDocument(): Document {
 		const touched = this.touched;
 		this.touched = createTouchedState();
-		this.lastUpserted = touched.upserted;
-		this.lastDeleted = touched.deleted;
 
 		// Anything outside objects and layers is rare enough that re-extracting
 		// the whole document beats maintaining a patch path for each of them.
-		this.lastSyncWasFullExtract = !this.currentDoc || touched.other;
-		if (this.lastSyncWasFullExtract) {
+		if (!this.currentDoc || touched.other) {
 			const document = extractDocumentFromYDoc(this.replayDoc);
 			document.id = TIMELAPSE_REPLAY_DOCUMENT_ID;
 			this.currentDoc = document;

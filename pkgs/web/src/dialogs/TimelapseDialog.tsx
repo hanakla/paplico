@@ -7,7 +7,6 @@ import { ToggleGroup } from "@/components/ToggleGroup";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
 import type { Paplico } from "@/core/Paplico";
-import type { ChangedElements } from "@/core/renderer/types";
 import { type Artboard, type Document, getArtboardBounds } from "@/core/schema";
 import { TimelapseExporter } from "@/core/timelapse/TimelapseExporter";
 import type { TimelapsePlayer } from "@/core/timelapse/TimelapsePlayer";
@@ -320,12 +319,10 @@ function useTimelapsePlayer(
 	const [state, setState] = useState<PlaybackState>(INITIAL_STATE);
 	const { surfaceRef, ready } = useTimelapseSurface(paplico, canvas, open);
 
-	const renderFrame = useEventCallback(
-		(document: Document, changes: ChangedElements | undefined) => {
-			if (!artboard) return;
-			surfaceRef.current?.render(document, artboard, changes);
-		},
-	);
+	const renderFrame = useEventCallback((document: Document) => {
+		if (!artboard) return;
+		surfaceRef.current?.render(document, artboard);
+	});
 
 	useEffect(() => {
 		if (!open || !ready) {
