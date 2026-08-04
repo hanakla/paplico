@@ -42,7 +42,11 @@ Paplico.ts (facade — public API boundary)
           ├── ElementRenderer (elements/ — element-type dispatch)
           │   ├── GradientRenderer / ImageElementRenderer / TextElementRenderer / MeshElementRenderer
           │   └── Reference3DElementRenderer (blits the three.js scene texture)
-          └── BrushStrokeRenderer (pipeline/brush/ — stamp-based instanced strokes)
+          └── pipeline/brush/ + pipeline/stroke/ — stroke engines
+              ├── DabEvaluator (curve matrix -> dab instances) + TipMaskBuilder
+              ├── RibbonGenerator (bezier ribbon instances)
+              ├── MixPass / MixStrokeRenderer (colour mixing off the live backdrop)
+              └── WetLayerPass (watercolour field simulation)
 
 renderer/filters/ (FilterHandlers + their WGSL)
   ├── Solid3DFilterHandlerBase   (shared 3D-solid core; Extrude3D/Revolve3D
@@ -250,12 +254,61 @@ is how a feature ships four times and is still broken.
 
 ### Adding a new brush
 
-**Impact:** brush types → assets → BrushTextureManager → BrushStrokeRenderer
+**Impact:** brush settings → assets → BrushTextureManager → the engine its route
+selects
 
-1. `core/schema.ts` (Brush Types section) — Extend `BrushSettings` or add new brush ID
-2. `core/assets/` — Stamp PNG if stamp-based
-3. `BrushTextureManager` — Register texture
-4. `BrushStrokeRenderer` — Extend stamp generation (spacing, rotation, size calculation)
+1. `core/schema.ts` — extend `BrushSettingsV2` (or add a property to
+   `BRUSH_PROPERTY_REGISTRY` if the value should be curve-modulated)
+2. `core/assets/` or `core/brush/presets.ts` — texture, generated procedurally
+   if it can be
+3. `BrushTextureManager` — register the texture
+4. the engine for the route (`core/brush/renderRoute.ts` decides): dab strokes
+   go through `DabEvaluator` + `brushDab.wgsl`, ribbons through
+   `RibbonGenerator` + `ribbonStroke.wgsl`
+
+### Brush engine v2: what decides where a stroke is drawn
+
+`resolveBrushRenderRoute(storedSettings)` is the single routing decision, taken
+once per stroke. **Resolve it from the stored value, never from the legacy view**
+— the down-converted view drops paint mode, curves and wet/mixing config, so a
+route taken from it silently picks the wrong pipeline.
+
+Which pipeline draws a stroke follows from its settings, and three of the four
+answers are not the inline stroke branch:
+
+- **plain dab / ribbon** — drawn inline in the main pass.
+- **wash paint mode** — drawn into a per-appearance isolation texture, with
+  `strokeOpacity` applied once when that texture composites. This is what keeps
+  a self-crossing stroke from darkening at the crossing.
+- **wet** — `normalizeBrushSettingsV2` forces a wet brush into wash paint mode,
+  so **every wet stroke is a wash stroke** and arrives through the isolation
+  route. The wet simulation stands in for the appearance's offscreen render.
+- **mixing** — needs the composite that exists *below* the stroke, which the
+  isolation route cannot provide: it runs before the main pass, when the target
+  still holds nothing. Mixing therefore uses the `BackdropEffectDriver`
+  inline-composite seam (the same one glass refraction uses), where the main
+  pass ends at the stroke's z-order, the driver draws, and the pass restarts.
+
+**A stroke that reads what is beneath it belongs on the inline-composite seam.
+A stroke that only needs isolation from itself belongs on the appearance route.**
+
+### Per-dab and per-path GPU data layouts
+
+Two structs carry everything the dab shaders read, and both have exactly one
+definition:
+
+- **`DabInstanceLayout.ts`** — the dab instance ABI, **frozen at 24 floats**.
+  New per-dab data reuses a slot or bit-packs into one (five wet coefficients
+  share a slot at 6 bits each; colour-dynamics offsets ride in two slots as
+  snorm). Widening the instance would cost every non-wet brush the same bytes.
+  Pack signed values as snorm, not as offset unorm, so an unwritten dab decodes
+  to zero rather than to a maximum-magnitude offset.
+- **`shaders/dabColor.wgsl.ts`** — `PATH_META_WGSL` (the struct) and
+  `PATH_META_FLOATS` (its stride). Every shader that indexes the path meta
+  buffer includes the former; every CPU writer strides by the latter. **A second
+  copy of the struct, or a second hand-written CPU writer, desynchronizes the
+  stride the moment either side gains a field** — and index 0 still lines up, so
+  the failure only appears with two or more paths in a batch.
 
 ### Changing the rendering pipeline
 
@@ -323,6 +376,14 @@ on screen, so its resolution *is* its output, and fixing the scale spends the
 edge for nothing. This branch baked masks at R and had to undo it: clip outlines
 and alpha lock both came out visibly softer. Bound those passes by shrinking what
 the texture covers instead.
+
+**A stroke simulation has its own fixed resolution, derived from the stroke.**
+`resolveSimulationDomain(bounds, brushSize, maxTextureSide)` gives the wet layer
+and any other neighbourhood-reading stroke pass a world-per-texel taken from the
+brush size (96 texels per brush diameter, clamped), never from the viewport or
+from R, and tiles it with overlap when it outgrows one texture. That is what
+makes bleeding and mixing a pure function of the stroke — and it is why the
+composite that puts the result on screen has to filter (see the gotchas).
 
 Full detail — which passes use R vs. live viewport zoom, the filter contract,
 persistence/sync/migration, and gotchas — is in `references/rasterization-dpi.md`.
@@ -435,6 +496,65 @@ Paplico has two independent 3D features — **do not conflate them**:
   to return a **cache-owned** texture (reused next frame) must mark the layer
   `retainedTexture: true` (`BlitLayer`) so the sweep skips it — the extrude
   bake's caller clone does this.
+
+- **A colour attachment costs more bytes than its texels.** The guaranteed
+  `maxColorAttachmentBytesPerSample` is 32, and the per-format cost is not the
+  texel size: `rgba8unorm` costs **8**, `rgba16float` 8, `rg8unorm` 2,
+  `r8unorm` 1. Three float fields plus one `rgba8unorm` already sit at the
+  ceiling. Narrow formats are also how a pass gets more *blend states*: there is
+  one per target, so values that accumulate (coverage) and values that should be
+  taken from whichever draw covers the texel (a coefficient) cannot share a
+  target — putting them together forces one of the two to be wrong.
+- **`textureSample` must be called from uniform control flow.** Implicit
+  derivatives are undefined inside a branch. Sample unconditionally and branch on
+  the *result*; bind a 1×1 dummy texture for the case that does not want it.
+- **A frame's GPU buffers must not be destroyed at end of frame.** The
+  orchestrator submits *after* `render()` returns, so a `releaseFrame` that calls
+  `buffer.destroy()` invalidates the command buffer that still references it —
+  and the whole frame silently produces nothing, not just that pass. Retire
+  buffers one frame late (hand them to a list the next `beginFrame` destroys).
+  Textures are exempt only because `deferDestroy` already defers them.
+- **Compositing a fixed-R field onto a coarser target needs a box filter.** The
+  simulation domain is sized from the stroke, not the viewport, so for a small
+  brush it is several times finer than what it composites onto. One tap per
+  target pixel then skips whole rows of the field: the result reads as stripes,
+  or as a hole through the middle of a stroke. Average a box covering the target
+  pixel's footprint.
+- **A content key over document objects is an identity key.** Document updates
+  are immutable, so object identity *is* content identity — a per-object serial
+  is a complete content key and needs no deep hashing. It is not transitive on
+  its own: a stroke that reads the *rendered result* of another stroke must
+  embed that stroke's own key, or editing something only the lower stroke reads
+  leaves the upper one serving a stale texture.
+
+## Test-writing gotchas (GPU)
+
+- **`copyTextureToBuffer` requires `bytesPerRow` to be a multiple of 256.** A
+  64×64 rgba8 readback is 256 and works; 32×32 is 128 and the copy is dropped as
+  a validation error — the test then reads an all-zero buffer and reports the
+  renderer drew nothing. Wrap suspect submits in
+  `pushErrorScope("validation")` / `popErrorScope()` before believing a blank
+  result.
+- **The unit test environment cannot decode embedded images.** `createImageBitmap`
+  is absent, so `BrushTextureManager` never loads a document's embedded PNGs.
+  Anything that needs a real brush or paper texture cannot be asserted there;
+  test the generator that produces the pixels instead.
+- **The frame plan caches on `document.objects` identity.** A test that mutates
+  `doc.objects[id]` in place changes nothing the renderer can see — it keeps the
+  cached plan and the previous element. Replace the map
+  (`doc.objects = { ...doc.objects, [id]: next }`) the way a real edit does.
+- **`webgpu-utils` cannot build a structured view for a fixed-size vector
+  array.** `array<vec4f, 64>` in a storage binding throws `unknown type: vec4f`
+  at `makeStructuredView`; declare it unsized (`array<vec4f>`) and size the
+  buffer from the CPU.
+- **Prove a test can fail before trusting it.** A test whose fixture accidentally
+  satisfies the assertion by another route passes with the fix reverted, which is
+  worse than no test. Revert the change, watch it fail, restore. Two shapes that
+  invite this: a "spread further" assertion where an alpha curve saturates either
+  way, and an overlap-based invalidation test whose fixture overlaps through a
+  second path. `calculateElementBounds` includes stroke width, so bounds are
+  wider than the geometry suggests — measure the real value rather than
+  estimating it.
 
 ## Key Interfaces
 
