@@ -26,8 +26,12 @@ export type MixChunkArgs = {
 	stroke?: GPUTexture | null;
 	/** World rect `stroke` covers; defaults to belowBounds. */
 	strokeBounds?: BoundingBox;
-	/** Straight-alpha brush color. */
-	brushColor: { r: number; g: number; b: number; a: number };
+	/** PathMeta buffer of the stroke (color / gradient mode / transform index). */
+	pathMetas: GPUBuffer;
+	/** Gradient color stops referenced by the PathMeta. */
+	colorStops: GPUBuffer;
+	/** Element transforms buffer, indexed by PathMeta.transformIndex. */
+	transforms: GPUBuffer;
 	/** Footprint radius as a ratio of the dab radius (MixingConfig.sampleRadius). */
 	sampleRadiusRatio: number;
 	/** Sample offset along the stroke direction in footprint radii (-2..2). */
@@ -129,6 +133,21 @@ export class MixPass {
 					visibility: GPUShaderStage.COMPUTE,
 					buffer: { type: "storage" },
 				},
+				{
+					binding: 10,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 11,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 12,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "read-only-storage" },
+				},
 			],
 		});
 		const layout = device.createPipelineLayout({
@@ -185,12 +204,6 @@ export class MixPass {
 				(args.strokeBounds ?? args.belowBounds).width,
 				(args.strokeBounds ?? args.belowBounds).height,
 			],
-			brushColor: [
-				args.brushColor.r,
-				args.brushColor.g,
-				args.brushColor.b,
-				args.brushColor.a,
-			],
 			firstDab: args.firstDab,
 			dabCount: args.dabCount,
 			sampleRadiusRatio: args.sampleRadiusRatio,
@@ -240,6 +253,9 @@ export class MixPass {
 						size: args.dabCount * 16,
 					},
 				},
+				{ binding: 10, resource: { buffer: args.pathMetas } },
+				{ binding: 11, resource: { buffer: args.colorStops } },
+				{ binding: 12, resource: { buffer: args.transforms } },
 			],
 		});
 

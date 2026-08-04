@@ -6,7 +6,13 @@ import {
 	createDefaultLayer,
 	createDefaultTransform,
 } from "../../document/factory";
-import type { BrushSettingsV2, Document, Filter, Path } from "../../schema";
+import type {
+	BrushSettingsV2,
+	Document,
+	Filter,
+	Path,
+	StrokeGradient,
+} from "../../schema";
 import { closedRectSegments } from "../../testUtils/segmentFactory";
 import {
 	captureTexturePixels,
@@ -36,6 +42,33 @@ describe("Mixing strokes", () => {
 
 		expect(pixel[0]).toBeGreaterThan(180);
 		expect(pixel[1]).toBeLessThan(pixel[0] - 40);
+	});
+
+	it("should resolve an along-path gradient per dab before mixing", async () => {
+		// Blue at the start, white at the end; colorRate 1 keeps the brush
+		// color, so the two ends must differ along the stroke.
+		const { left, right } = await renderStrokeEnds(
+			mixingBrush({ colorRate: 1 }),
+			alongGradient(),
+		);
+
+		expect(left[2]).toBeGreaterThan(left[0] + 60);
+		expect(right[0]).toBeGreaterThan(right[2] - 30);
+	});
+
+	it("should route a gradient stroke through mixing too", async () => {
+		// colorRate 0 paints purely what was picked up: a gradient stroke that
+		// still renders blue/white here never reached the mix pass.
+		const { left, right } = await renderStrokeEnds(
+			mixingBrush({ colorRate: 0 }),
+			alongGradient(),
+		);
+
+		for (const pixel of [left, right]) {
+			expect(pixel[1]).toBeGreaterThan(120);
+			expect(pixel[0]).toBeLessThan(pixel[1] - 40);
+			expect(pixel[2]).toBeLessThan(pixel[1] - 40);
+		}
 	});
 
 	it("should keep the brush color when mixing is disabled (control)", async () => {
@@ -79,6 +112,49 @@ function mixingBrush(overrides: {
 	});
 }
 
+/** Blue-to-white gradient running along the stroke. */
+function alongGradient(): StrokeGradient {
+	return {
+		type: "stroke-gradient",
+		mode: "along",
+		gradient: {
+			type: "linear",
+			x1: 0,
+			y1: 0,
+			x2: 1,
+			y2: 0,
+			stops: [
+				{
+					offset: 0,
+					color: { type: "rgb", r: 0, g: 0, b: 1, a: 1 },
+					midpoint: 0.5,
+				},
+				{
+					offset: 1,
+					color: { type: "rgb", r: 1, g: 1, b: 1, a: 1 },
+					midpoint: 0.5,
+				},
+			],
+		},
+	};
+}
+
+/** Pixels near both ends of the stroke: screen x 280 and 520 at y 300. */
+async function renderStrokeEnds(
+	brushSettings: BrushSettingsV2,
+	strokeColor: StrokeGradient,
+): Promise<{ left: number[]; right: number[] }> {
+	const pixels = await renderPixels(
+		brushSettings,
+		[
+			[280, 300],
+			[520, 300],
+		],
+		strokeColor,
+	);
+	return { left: pixels[0], right: pixels[1] };
+}
+
 /**
  * Render a green field with a red mixing stroke across its middle and read
  * the pixel at world (0,0) → screen (400,300), inside both.
@@ -86,12 +162,20 @@ function mixingBrush(overrides: {
 async function renderStrokePixel(
 	brushSettings: BrushSettingsV2,
 ): Promise<number[]> {
+	return (await renderPixels(brushSettings, [[400, 300]]))[0];
+}
+
+async function renderPixels(
+	brushSettings: BrushSettingsV2,
+	points: [number, number][],
+	strokeColor?: StrokeGradient,
+): Promise<number[][]> {
 	const { renderer, canvas } = await createTestRenderer();
 	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
 	const device = renderer.getDevice();
 	if (!device) throw new Error("Test renderer has no GPU device");
 
-	const doc = mixingDoc(brushSettings);
+	const doc = mixingDoc(brushSettings, strokeColor);
 	// Warm caches on identical frames before asserting (render cache rule).
 	await renderWithViewport(renderer, canvas, doc, viewport);
 	await renderWithViewport(renderer, canvas, doc, viewport);
@@ -102,18 +186,23 @@ async function renderStrokePixel(
 		texture.width,
 		texture.height,
 	);
-	const offset = (300 * texture.width + 400) * 4;
-	const pixel = [
-		pixels[offset],
-		pixels[offset + 1],
-		pixels[offset + 2],
-		pixels[offset + 3],
-	];
+	const read = points.map(([x, y]) => {
+		const offset = (y * texture.width + x) * 4;
+		return [
+			pixels[offset],
+			pixels[offset + 1],
+			pixels[offset + 2],
+			pixels[offset + 3],
+		];
+	});
 	texture.destroy();
-	return pixel;
+	return read;
 }
 
-function mixingDoc(brushSettings: BrushSettingsV2): Document {
+function mixingDoc(
+	brushSettings: BrushSettingsV2,
+	strokeColor?: StrokeGradient,
+): Document {
 	const field: Path = {
 		id: "mixing-field",
 		type: "path",
@@ -172,7 +261,7 @@ function mixingDoc(brushSettings: BrushSettingsV2): Document {
 				paramData: {
 					version: "1",
 					params: {
-						strokeColor: {
+						strokeColor: strokeColor ?? {
 							type: "solid",
 							color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
 						},

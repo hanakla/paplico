@@ -1,5 +1,10 @@
 import { generateDabInstanceWgsl } from "../canvas/pipeline/brush/DabInstanceLayout";
+import { STAMP_META_INDEX_MASK } from "../canvas/pipeline/brush/StampPacking";
 import { COLOR_MIX_WGSL } from "./colorMix.wgsl";
+import { buildDabColorWgsl } from "./dabColor.wgsl";
+import { GRADIENT_COMMON_WGSL } from "./gradientCommon.wgsl";
+import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
+import { TRANSFORM_COMMON_WGSL } from "./transformCommon.wgsl";
 
 /**
  * Mix pass chunk compute (design §10-1). Two entry points share one bind
@@ -20,6 +25,9 @@ import { COLOR_MIX_WGSL } from "./colorMix.wgsl";
  */
 export const BRUSH_MIX_SHADER = /* wgsl */ `
 ${generateDabInstanceWgsl("DabInstance")}
+${TRANSFORM_COMMON_WGSL}
+${GRADIENT_COMMON_WGSL}
+${STROKE_WIDTH_COMMON_WGSL}
 ${COLOR_MIX_WGSL}
 
 struct MixUniforms {
@@ -27,7 +35,6 @@ struct MixUniforms {
 	belowSize: vec2<f32>,
 	strokeMin: vec2<f32>,
 	strokeSize: vec2<f32>,
-	brushColor: vec4<f32>,
 	firstDab: u32,
 	dabCount: u32,
 	sampleRadiusRatio: f32,
@@ -46,6 +53,22 @@ struct MixUniforms {
 @group(0) @binding(7) var<storage, read_write> samples: array<vec4<f32>>;
 @group(0) @binding(8) var<storage, read_write> bucket: array<vec4<f32>>;
 @group(0) @binding(9) var<storage, read_write> outColors: array<vec4<f32>>;
+@group(0) @binding(10) var<storage, read> pathMetas: array<PathMeta>;
+@group(0) @binding(11) var<storage, read> colorStops: array<ColorStop>;
+@group(0) @binding(12) var<storage, read> transforms: array<ElementTransform>;
+
+${buildDabColorWgsl(STAMP_META_INDEX_MASK)}
+
+/** The dab's own brush color, resolved exactly as the dab shader would.
+ *  Across-width gradients collapse to the width center (see resolveDabColor). */
+fn brushColorOf(dab: DabInstance) -> vec4<f32> {
+	let pm = pathMetas[pathIndexOf(dab)];
+	let worldPos = applyElementTransform(
+		vec2f(dab.positionX, dab.positionY),
+		transforms[pm.transformIndex],
+	);
+	return resolveDabColor(pm, worldPos, dab.pathT, 0.0);
+}
 
 const FOOT: u32 = 8u;
 
@@ -114,8 +137,9 @@ fn cs_sample(
 		let accumulated = wgColor[0];
 		var sampled: vec4f;
 		if (totalWeight <= 1e-6 || accumulated.a <= 1e-5 * totalWeight) {
-			// Transparent footprint: the brush picks up nothing, keep its color.
-			sampled = vec4f(u.brushColor.rgb, 0.0);
+			// Transparent footprint: nothing to pick up. cs_scan substitutes
+			// the dab's own brush color for the zero-alpha sample.
+			sampled = vec4f(0.0);
 		} else {
 			let avg = accumulated / totalWeight;
 			sampled = vec4f(avg.rgb / max(avg.a, 1e-5), avg.a);
@@ -128,7 +152,11 @@ fn cs_sample(
 fn cs_scan() {
 	var b = bucket[0];
 	for (var i = 0u; i < u.dabCount; i++) {
-		let smp = samples[i];
+		let brushColor = brushColorOf(dabs[u.firstDab + i]);
+		var smp = samples[i];
+		if (smp.a <= 0.0) {
+			smp = vec4f(brushColor.rgb, 0.0);
+		}
 		let mp = mixParams[i];
 		if (b.w < 0.0) {
 			b = smp;
@@ -136,10 +164,10 @@ fn cs_scan() {
 		b = mix(smp, b, clamp(mp.z, 0.0, 1.0));
 		let rate = clamp(mp.x, 0.0, 1.0);
 		let rgbRate = rate * rate;
-		let vivid = mixOklchPigmentColor(b.rgb, u.brushColor.rgb, rgbRate);
-		let muted = mixOklabPigmentColor(b.rgb, u.brushColor.rgb, rgbRate);
+		let vivid = mixOklchPigmentColor(b.rgb, brushColor.rgb, rgbRate);
+		let muted = mixOklabPigmentColor(b.rgb, brushColor.rgb, rgbRate);
 		let rgb = mix(vivid, muted, clamp(u.blendStyle, 0.0, 1.0));
-		let alpha = mix(b.a, u.brushColor.a, clamp(mp.y, 0.0, 1.0));
+		let alpha = mix(b.a, brushColor.a, clamp(mp.y, 0.0, 1.0));
 		outColors[i] = vec4f(rgb, alpha);
 	}
 	bucket[0] = b;

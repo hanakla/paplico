@@ -1,4 +1,5 @@
 import { COLOR_MIX_WGSL } from "./colorMix.wgsl";
+import { GRADIENT_COMMON_WGSL } from "./gradientCommon.wgsl";
 
 export const WET_INK_DIFFUSE_SEED_SHADER = /* wgsl */ `
 struct SeedUniforms {
@@ -46,6 +47,7 @@ fn clampDomainCoord(coord: vec2i) -> vec2i {
 	);
 }
 
+${GRADIENT_COMMON_WGSL}
 ${COLOR_MIX_WGSL}
 
 @compute @workgroup_size(16, 16, 1)

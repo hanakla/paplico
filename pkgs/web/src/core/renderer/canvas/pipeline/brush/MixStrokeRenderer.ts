@@ -39,6 +39,7 @@ export interface MixStrokeRendererDeps {
 	getBatchContext: () => StrokeBatchContext | null;
 	getTransformIndex: (elementId: string) => number;
 	getTransformsBindGroup: () => GPUBindGroup | undefined;
+	getTransformsBuffer: () => GPUBuffer | null;
 	getRasterScale: () => number;
 }
 
@@ -119,13 +120,12 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		);
 		if (!below) return;
 
-		const brushColor = solidBrushColorOf(filter);
-		if (!brushColor) return;
+		const transforms = this.deps.getTransformsBuffer();
+		if (!transforms) return;
 		const dabs = evaluateDabs(segments, settings, {
 			pathStart: path.pathStart ?? 0,
 			pathEnd: path.pathEnd ?? 1,
 			strokeWidths: path.strokeWidths,
-			color: brushColor,
 		});
 		if (dabs.count === 0) return;
 
@@ -219,7 +219,9 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				belowBounds: below.actualBounds,
 				stroke: firstDab === 0 ? null : strokeTex,
 				strokeBounds: bounds,
-				brushColor,
+				pathMetas: drawState.pathMetaBuffer,
+				colorStops: drawState.colorStopsBuffer,
+				transforms,
 				sampleRadiusRatio: mixing.sampleRadius,
 				sampleTrail: mixing.sampleTrail,
 				blendStyle: mixing.blendStyle,
@@ -318,11 +320,6 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			if (route.kind !== "dab-v2" || route.settings.mixing?.enabled !== true) {
 				continue;
 			}
-			// The mix pass resolves one color per dab from a single brush color,
-			// so a gradient/pattern stroke would lose its color mapping. Those
-			// keep their normal route until per-dab gradient sampling feeds the
-			// mix pass (the dab shader still holds the gradient switch).
-			if (!solidBrushColorOf(filter)) continue;
 			return { settings: route.settings, filter };
 		}
 		return null;
@@ -344,16 +341,4 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		this.frameBuffers.push(buffer);
 		return buffer;
 	}
-}
-
-/** The stroke appearance's solid color, or null for gradient/pattern fills. */
-function solidBrushColorOf(
-	filter: Filter,
-): { r: number; g: number; b: number; a: number } | null {
-	const strokeColor = (filter as StrokeAppearance).paramData.params.strokeColor;
-	if (strokeColor?.type !== "solid") return null;
-	const { color } = strokeColor;
-	return color.type === "rgb"
-		? { r: color.r, g: color.g, b: color.b, a: color.a }
-		: null;
 }

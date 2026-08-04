@@ -15,6 +15,7 @@ import {
 	STAMP_META_INDEX_MASK,
 	STAMP_TEXTURE_LAYER_SHIFT,
 } from "../canvas/pipeline/brush/StampPacking";
+import { buildDabColorWgsl } from "./dabColor.wgsl";
 import { GRADIENT_COMMON_WGSL } from "./gradientCommon.wgsl";
 import { MASK_COMMON_WGSL } from "./maskCommon.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
@@ -92,21 +93,6 @@ struct Uniforms {
 
 ${generateDabInstanceWgsl("DabInstance")}
 
-struct PathMeta {
-	colorR: f32,
-	colorG: f32,
-	colorB: f32,
-	colorA: f32,
-	gradientMode: u32,
-	stopCount: u32,
-	stopOffset: u32,
-	transformIndex: u32,
-	linearStart: vec2f,
-	linearEnd: vec2f,
-	boundsMin: vec2f,
-	boundsMax: vec2f,
-}
-
 ${TRANSFORM_COMMON_WGSL}
 
 ${GRADIENT_COMMON_WGSL}
@@ -131,9 +117,7 @@ ${
 @group(3) @binding(0) var maskAtlas: texture_2d<f32>;
 @group(3) @binding(1) var maskSampler: sampler;
 
-fn pathIndexOf(dab: DabInstance) -> u32 {
-	return dab.packedMeta & ${STAMP_META_INDEX_MASK}u;
-}
+${buildDabColorWgsl(STAMP_META_INDEX_MASK)}
 
 fn textureLayerOf(dab: DabInstance) -> u32 {
 	return dab.packedMeta >> ${STAMP_TEXTURE_LAYER_SHIFT}u;
@@ -224,103 +208,22 @@ fn vs_main(
 	return out;
 }
 
-// OKLab perceptual gradient stop sampling — the ONE copy in this shader.
-fn sampleGradientStops(t: f32, pm: PathMeta) -> vec4f {
-	let ct = clamp(t, 0.0, 1.0);
-	let count = pm.stopCount;
-	let baseOffset = pm.stopOffset;
-
-	if count == 0u {
-		return vec4f(0.0, 0.0, 0.0, 1.0);
-	}
-	if count == 1u {
-		let s = colorStops[baseOffset];
-		return vec4f(s.r, s.g, s.b, s.a);
-	}
-
-	if ct <= colorStops[baseOffset].offset {
-		let s = colorStops[baseOffset];
-		return vec4f(s.r, s.g, s.b, s.a);
-	}
-
-	let lastIdx = count - 1u;
-	if ct >= colorStops[baseOffset + lastIdx].offset {
-		let s = colorStops[baseOffset + lastIdx];
-		return vec4f(s.r, s.g, s.b, s.a);
-	}
-
-	for (var i = 0u; i < lastIdx; i = i + 1u) {
-		let s0 = colorStops[baseOffset + i];
-		let s1 = colorStops[baseOffset + i + 1u];
-		if ct >= s0.offset && ct <= s1.offset {
-			let range = s1.offset - s0.offset;
-			var f = 0.0;
-			if range > 0.0 {
-				f = remapGradientT((ct - s0.offset) / range, s0.midpoint);
-			}
-			let lab0 = srgbToOklab(vec3f(s0.r, s0.g, s0.b));
-			let lab1 = srgbToOklab(vec3f(s1.r, s1.g, s1.b));
-			let rgb = oklabToSrgb(mix(lab0, lab1, f));
-			return vec4f(rgb, mix(s0.a, s1.a, f));
-		}
-	}
-
-	let s = colorStops[baseOffset + lastIdx];
-	return vec4f(s.r, s.g, s.b, s.a);
-}
-
 ${MASK_COMMON_WGSL}
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 	let dab = dabs[in.instanceIndex];
 	let pm = pathMetas[pathIndexOf(dab)];
-	let gradientMode = pm.gradientMode & 0xFFFFu;
 ${tipSample}
 
-	var color: vec3f;
-	var colorA: f32;
-
-	switch gradientMode {
-		// Solid color
-		case 0u: {
-			color = vec3f(pm.colorR, pm.colorG, pm.colorB);
-			colorA = pm.colorA;
-		}
-		// Within: bbox-based linear gradient
-		case 1u: {
-			let boundsSize = pm.boundsMax - pm.boundsMin;
-			let uv = (in.worldPos - pm.boundsMin) / boundsSize;
-			let dir = pm.linearEnd - pm.linearStart;
-			let lenSq = dot(dir, dir);
-			var t = 0.0;
-			if lenSq > 0.0 {
-				t = dot(uv - pm.linearStart, dir) / lenSq;
-			}
-			let sampled = sampleGradientStops(t, pm);
-			color = sampled.rgb;
-			colorA = sampled.a;
-		}
-		// Along the path
-		case 2u: {
-			let sampled = sampleGradientStops(in.pathT, pm);
-			color = sampled.rgb;
-			colorA = sampled.a;
-		}
-		// Across the stroke width
-		case 3u: {
-			let sampled = sampleGradientStops(
-				strokeWidthAcrossUV(in.normalizedStrokeDistance),
-				pm,
-			);
-			color = sampled.rgb;
-			colorA = sampled.a;
-		}
-		default: {
-			color = vec3f(0.0, 0.0, 0.0);
-			colorA = 1.0;
-		}
-	}
+	let resolved = resolveDabColor(
+		pm,
+		in.worldPos,
+		in.pathT,
+		in.normalizedStrokeDistance,
+	);
+	var color = resolved.rgb;
+	var colorA = resolved.a;
 
 ${
 	mixedColors

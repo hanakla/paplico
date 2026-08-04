@@ -233,6 +233,9 @@ export interface MixedDabStrokeDrawState {
 	pipeline: GPURenderPipeline;
 	bindGroup0: GPUBindGroup;
 	bindGroup1: GPUBindGroup;
+	/** Same buffers the mix pass must read to resolve each dab's brush color. */
+	pathMetaBuffer: GPUBuffer;
+	colorStopsBuffer: GPUBuffer;
 }
 
 export class StrokeBatchContext {
@@ -2178,7 +2181,13 @@ export class StrokeBatchContext {
 				{ binding: 2, resource: { buffer: args.mixedColors } },
 			],
 		});
-		return { pipeline, bindGroup0, bindGroup1 };
+		return {
+			pipeline,
+			bindGroup0,
+			bindGroup1,
+			pathMetaBuffer,
+			colorStopsBuffer,
+		};
 	}
 
 	/** Draw one resolved chunk of a mixing stroke into an open render pass. */

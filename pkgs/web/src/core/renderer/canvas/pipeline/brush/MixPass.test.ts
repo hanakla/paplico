@@ -194,6 +194,21 @@ async function runMixChunks(
 		);
 	}
 
+	// Solid-color PathMeta + identity transform: the mix pass resolves each
+	// dab's brush color through the same path the dab shader uses.
+	const pathMetaData = new Float32Array(16);
+	pathMetaData[0] = opts.brushColor.r;
+	pathMetaData[1] = opts.brushColor.g;
+	pathMetaData[2] = opts.brushColor.b;
+	pathMetaData[3] = opts.brushColor.a;
+	new Uint32Array(pathMetaData.buffer).set([0, 0, 0, 0], 4);
+	const pathMetas = makeStorageBuffer(device, pathMetaData);
+	const transformData = new Float32Array(16);
+	transformData[4] = 1; // m00
+	transformData[7] = 1; // m11
+	const transforms = makeStorageBuffer(device, transformData);
+	const colorStops = makeStorageBuffer(device, new Float32Array(6));
+
 	const bucket = mixPass.createBucket();
 	const belowBounds = {
 		minX: -TEX_SIZE / 2,
@@ -248,7 +263,9 @@ async function runMixChunks(
 			below,
 			belowBounds,
 			stroke: null,
-			brushColor: opts.brushColor,
+			pathMetas,
+			colorStops,
+			transforms,
 			sampleRadiusRatio: 0.5,
 			sampleTrail: opts.sampleTrail ?? 0,
 			blendStyle: opts.blendStyle ?? 0,
@@ -284,7 +301,19 @@ async function runMixChunks(
 	mixPass.destroy();
 	below.destroy();
 	lut.destroy();
+	pathMetas.destroy();
+	transforms.destroy();
+	colorStops.destroy();
 	return results;
+}
+
+function makeStorageBuffer(device: GPUDevice, data: Float32Array): GPUBuffer {
+	const buffer = device.createBuffer({
+		size: data.byteLength,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+	});
+	device.queue.writeBuffer(buffer, 0, data);
+	return buffer;
 }
 
 function expectVec4Close(actual: Vec4, expected: Vec4, tolerance: number) {

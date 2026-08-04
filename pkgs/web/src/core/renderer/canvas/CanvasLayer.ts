@@ -925,6 +925,7 @@ export class CanvasLayer {
 			getTransformIndex: (elementId) =>
 				this.viewportManager.getTransformIndex(elementId),
 			getTransformsBindGroup: () => this.transformsBindGroup ?? undefined,
+			getTransformsBuffer: () => this.viewportManager.transformsStorageBuffer,
 			getRasterScale: () => this.getRasterScale(),
 		});
 		this.backdropDrivers = [
