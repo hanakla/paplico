@@ -18,7 +18,6 @@ import {
 	type BrushPropertyId,
 	type BrushSettingsV2,
 	type CubicBezierSegment,
-	DEFAULT_WET_INK_PICKUP_STRENGTH,
 	type DefEntry,
 	type Document,
 	type ElementTransform,
@@ -43,7 +42,6 @@ import {
 	type TextElement,
 	TRANSIENT_LAYER_KIND,
 	type Viewport,
-	type WetInkSettings,
 } from "../../schema";
 import type { TextRenderer } from "../../typography/TextRenderer";
 import {
@@ -7062,79 +7060,6 @@ export class CanvasLayer {
 		this.textState.pendingPathCacheKeys.clear();
 		this.cacheManager.clearAll();
 	}
-}
-
-function computeWetInkPixelRect(
-	bounds: BoundingBox,
-	viewportWorldOrigin: { x: number; y: number },
-	worldPerPixel: number,
-	textureWidth: number,
-	textureHeight: number,
-): { x: number; y: number; width: number; height: number } {
-	const pixelsPerWorld = 1 / Math.max(worldPerPixel, 1e-5);
-	const minX = Math.floor(
-		(bounds.minX - viewportWorldOrigin.x) * pixelsPerWorld,
-	);
-	const minY = Math.floor(
-		(viewportWorldOrigin.y - bounds.maxY) * pixelsPerWorld,
-	);
-	const maxX = Math.ceil(
-		(bounds.maxX - viewportWorldOrigin.x) * pixelsPerWorld,
-	);
-	const maxY = Math.ceil(
-		(viewportWorldOrigin.y - bounds.minY) * pixelsPerWorld,
-	);
-	const x = Math.max(0, Math.min(textureWidth, minX));
-	const y = Math.max(0, Math.min(textureHeight, minY));
-	const xEnd = Math.max(0, Math.min(textureWidth, maxX));
-	const yEnd = Math.max(0, Math.min(textureHeight, maxY));
-	return {
-		x,
-		y,
-		width: Math.max(0, xEnd - x),
-		height: Math.max(0, yEnd - y),
-	};
-}
-
-function usesWetInkRenderBufferPickup(
-	settings: WetInkSettings | undefined,
-): boolean {
-	return (
-		settings?.pickupUnderlyingColor === true &&
-		(settings.pickupStrength ?? DEFAULT_WET_INK_PICKUP_STRENGTH) > 0
-	);
-}
-
-function hashWetStrokeCacheKey(
-	strokeApp: StrokeAppearance,
-	effectiveAlpha: number,
-	path: Path,
-): string {
-	return hashString(
-		JSON.stringify({
-			enabled: strokeApp.enabled,
-			opacity: strokeApp.opacity,
-			effectiveAlpha,
-			params: strokeApp.paramData.params,
-			subFilters: strokeApp.subFilters,
-			pathStart: path.pathStart ?? 0,
-			pathEnd: path.pathEnd ?? 1,
-		}),
-	).toString(36);
-}
-
-function buildWetInkRenderBufferCacheKey(
-	elements: readonly AnyArtObject[],
-): string {
-	return hashString(JSON.stringify(elements)).toString(36);
-}
-
-function hashString(value: string): number {
-	let h = 0;
-	for (let i = 0; i < value.length; i++) {
-		h = (h * 31 + value.charCodeAt(i)) | 0;
-	}
-	return h;
 }
 
 const EMPTY_ID_SET: ReadonlySet<string> = new Set();

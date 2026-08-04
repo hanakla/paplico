@@ -88,7 +88,3 @@ export const BRUSH_PROPERTY_REGISTRY: Record<
 export const BRUSH_PROPERTY_IDS = Object.keys(
 	BRUSH_PROPERTY_REGISTRY,
 ) as BrushPropertyId[];
-
-export function isBrushPropertyId(value: unknown): value is BrushPropertyId {
-	return typeof value === "string" && value in BRUSH_PROPERTY_REGISTRY;
-}

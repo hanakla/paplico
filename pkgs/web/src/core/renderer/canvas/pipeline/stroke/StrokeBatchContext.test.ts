@@ -629,11 +629,6 @@ function packedFieldsOf(stampData: Float32Array): number[] {
 	return fields;
 }
 
-/** Per-stamp meta index (lower 16 bits of the packed field). */
-function metaIndicesOf(stampData: Float32Array): number[] {
-	return packedFieldsOf(stampData).map((v) => v & 0xffff);
-}
-
 /** Per-stamp texture-array layer (upper 16 bits of the packed field). */
 function layersOf(stampData: Float32Array): number[] {
 	return packedFieldsOf(stampData).map((v) => v >>> 16);

@@ -24,7 +24,6 @@ import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../../../document/constants";
 import { createDefaultBrushSettings } from "../../../../document/factory";
 import {
 	type ArtBrushSettings,
-	type BoundingBox,
 	type BrushSettings,
 	type BrushSettingsV2,
 	BUILTIN_BRUSH_IDS,
@@ -206,27 +205,6 @@ export interface StrokeBatchContextOptions {
 	 *  cap from the device limits; tests inject a small value to exercise
 	 *  the pooled fallback. */
 	maxResidentStamps?: number;
-}
-
-export interface WetStrokeIsolatedRenderParams {
-	commandEncoder: GPUCommandEncoder;
-	path: Path;
-	segments: Path["segments"];
-	transformsBindGroup: GPUBindGroup;
-	pigmentView: GPUTextureView;
-	flowView: GPUTextureView;
-	fluidView: GPUTextureView;
-	maskView: GPUTextureView;
-	scissorRect: {
-		x: number;
-		y: number;
-		width: number;
-		height: number;
-	};
-	viewportUniformBuffer: GPUBuffer;
-	alphaMultiplier?: number;
-	viewportBounds?: BoundingBox;
-	transformIndex?: number;
 }
 
 /** Per-stroke draw state of the mixing route (see prepareMixedDabStroke). */

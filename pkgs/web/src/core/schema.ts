@@ -1643,9 +1643,6 @@ export const BUILTIN_PAPER_IDS = {
 	coarsePaper: "builtin-paper-coarse",
 } as const;
 
-export type BuiltinPaperId =
-	(typeof BUILTIN_PAPER_IDS)[keyof typeof BUILTIN_PAPER_IDS];
-
 // Stamp rotation mode
 // - none: No rotation (fixed at 0)
 // - tangent: Rotate along path tangent direction

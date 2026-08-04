@@ -1,6 +1,5 @@
 import type { BrushSettingsV2 } from "../schema";
 import { normalizeBrushSettingsV2 } from "./migrate";
-import { toLegacyBrushSettings } from "./toLegacy";
 
 /**
  * Single routing decision for stroke rendering during the v2 transition
@@ -41,9 +40,4 @@ export function resolveBrushRenderRoute(raw: unknown): BrushRenderRoute {
 	}
 	if (cacheable) routeCache.set(raw as object, route);
 	return route;
-}
-
-/** Legacy v1 view for the routes that still render through v1 code. */
-export function legacyViewOf(route: BrushRenderRoute) {
-	return toLegacyBrushSettings(route.settings);
 }

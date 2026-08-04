@@ -81,18 +81,6 @@ async function renderInteriorSpread(
 	return max - min;
 }
 
-/** Rows above the stroke's centre line that carry any darkening. */
-async function renderBleedReach(
-	brushSettings: BrushSettingsV2,
-): Promise<number> {
-	const pixels = await renderPixels(brushSettings);
-	let reach = 0;
-	for (let dy = 1; dy < 100; dy++) {
-		if (pixels[((300 - dy) * 800 + 400) * 4] < 252) reach = dy;
-	}
-	return reach;
-}
-
 async function renderStrokePixel(
 	brushSettings: BrushSettingsV2,
 	screenY = 300,
