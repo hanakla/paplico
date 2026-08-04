@@ -25,10 +25,15 @@ export type DabTipMode = (typeof DAB_TIP_MODES)[number];
 
 export interface BrushDabShaderOptions {
 	tipMode: DabTipMode;
+	/** Mixing route: per-dab resolved colors from the chunked mix pass
+	 *  override the gradient/solid color (group(1) binding(2), indexed by the
+	 *  flat instance index — the mix route draws from stroke-local buffers). */
+	mixedColors?: boolean;
 }
 
 export function buildBrushDabShader({
 	tipMode,
+	mixedColors = false,
 }: BrushDabShaderOptions): string {
 	const tipBindings =
 		tipMode === "procedural"
@@ -114,6 +119,12 @@ ${tipBindings}
 
 @group(1) @binding(0) var<storage, read> pathMetas: array<PathMeta>;
 @group(1) @binding(1) var<storage, read> colorStops: array<ColorStop>;
+${
+	mixedColors
+		? /* wgsl */ `
+@group(1) @binding(2) var<storage, read> mixedColors: array<vec4<f32>>;`
+		: ""
+}
 
 @group(2) @binding(0) var<storage, read> transforms: array<ElementTransform>;
 
@@ -311,6 +322,15 @@ ${tipSample}
 		}
 	}
 
+${
+	mixedColors
+		? /* wgsl */ `
+	// Mixing: the chunked mix pass resolved this dab's color already.
+	let mixed = mixedColors[in.instanceIndex];
+	color = mixed.rgb;
+	colorA = mixed.a;`
+		: ""
+}
 	let widthFade = strokeWidthCoverage(
 		in.normalizedStrokeDistance,
 		in.side1Width,

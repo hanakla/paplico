@@ -228,6 +228,13 @@ export interface WetStrokeIsolatedRenderParams {
 	transformIndex?: number;
 }
 
+/** Per-stroke draw state of the mixing route (see prepareMixedDabStroke). */
+export interface MixedDabStrokeDrawState {
+	pipeline: GPURenderPipeline;
+	bindGroup0: GPUBindGroup;
+	bindGroup1: GPUBindGroup;
+}
+
 export class StrokeBatchContext {
 	private device: GPUDevice;
 	private pipeline: GPURenderPipeline;
@@ -302,9 +309,10 @@ export class StrokeBatchContext {
 
 	// Scatter (texture array) pipeline — lazy initialized
 	private dabPipelines = new Map<
-		DabTipMode,
+		string,
 		{ pipeline: GPURenderPipeline; bindGroupLayout: GPUBindGroupLayout }
 	>();
+	private mixedBrushBindGroupLayout: GPUBindGroupLayout | null = null;
 	private falloffLutView: GPUTextureView | null = null;
 	private falloffSampler: GPUSampler | null = null;
 	// Live-stroke dab residency (design §8): the preview path re-uses one
@@ -2114,15 +2122,93 @@ export class StrokeBatchContext {
 	 *  strokes. Residency/batching integration arrives with
 	 *  BrushStrokeSession (plan phase 2); until then every v2 dab stroke
 	 *  uploads its instances per frame. */
-	private renderDabsV2(
+	/** Set up one mixing stroke's draw state (pipeline + bind groups). The
+	 *  mix driver draws each chunk into its own render pass via
+	 *  drawMixedDabChunk as the chunked mix pass resolves colors. Buffers are
+	 *  stroke-local (dab 0 at buffer start) so the flat instance index lines
+	 *  up with the mixedColors buffer. Callers must have set the offscreen
+	 *  viewport uniform via setActiveUniformBuffer first. */
+	public prepareMixedDabStroke(args: {
+		path: Path;
+		settings: BrushSettingsV2;
+		dabBuffer: GPUBuffer;
+		mixedColors: GPUBuffer;
+		alphaMultiplier: number;
+		transformIndex: number;
+	}): MixedDabStrokeDrawState | null {
+		const tip = this.resolveDabTipSetup(args.settings);
+		if (!tip) return null;
+		const { pipeline, bindGroupLayout } = this.ensureDabPipeline(
+			tip.tipMode,
+			true,
+		);
+
+		const singleMeta = new Float32Array(PATH_META_FLOATS);
+		this.writeSinglePathMeta(
+			singleMeta,
+			0,
+			args.path,
+			args.alphaMultiplier,
+			args.transformIndex,
+		);
+		const pathMetaBuffer = this.acquirePathMetaBuffer(PATH_META_FLOATS * 4);
+		this.device.queue.writeBuffer(pathMetaBuffer, 0, singleMeta);
+		const { strokeColor } = StrokeBatchContext.extractStrokeParams(args.path);
+		const stopData = buildColorStopsData(strokeColor);
+		const colorStopsBuffer = this.acquireColorStopsBuffer(stopData.byteLength);
+		this.device.queue.writeBuffer(colorStopsBuffer, 0, stopData);
+
+		const bindGroup0 = this.device.createBindGroup({
+			label: "Brush Dab Bind Group 0 (mixed)",
+			layout: bindGroupLayout,
+			entries: [
+				{ binding: 0, resource: { buffer: this.getEffectiveUniformBuffer() } },
+				{ binding: 1, resource: { buffer: args.dabBuffer } },
+				{ binding: 2, resource: tip.textureView },
+				{ binding: 3, resource: tip.sampler },
+			],
+		});
+		const bindGroup1 = this.device.createBindGroup({
+			label: "Brush Dab Bind Group 1 (mixed)",
+			layout: this.ensureMixedBrushBindGroupLayout(),
+			entries: [
+				{ binding: 0, resource: { buffer: pathMetaBuffer } },
+				{ binding: 1, resource: { buffer: colorStopsBuffer } },
+				{ binding: 2, resource: { buffer: args.mixedColors } },
+			],
+		});
+		return { pipeline, bindGroup0, bindGroup1 };
+	}
+
+	/** Draw one resolved chunk of a mixing stroke into an open render pass. */
+	public drawMixedDabChunk(
 		passEncoder: GPURenderPassEncoder,
-		path: Path,
-		settings: BrushSettingsV2,
-		segments: CubicBezierSegment[],
-		alphaMultiplier: number,
+		stroke: MixedDabStrokeDrawState,
+		firstDab: number,
+		dabCount: number,
 		transformsBindGroup: GPUBindGroup | undefined,
-		transformIndex: number,
 	): void {
+		passEncoder.setPipeline(stroke.pipeline);
+		passEncoder.setBindGroup(0, stroke.bindGroup0);
+		passEncoder.setBindGroup(1, stroke.bindGroup1);
+		if (transformsBindGroup) {
+			passEncoder.setBindGroup(2, transformsBindGroup);
+		}
+		passEncoder.setBindGroup(3, this.getMaskBindGroup());
+		passEncoder.draw(6, dabCount, 0, firstDab);
+	}
+
+	/** Resolve the tip pipeline variant + texture bindings for v2 settings.
+	 *  Shared by the plain dab draw and the mixing chunk draw. */
+	private resolveDabTipSetup(settings: BrushSettingsV2): {
+		tipMode: DabTipMode;
+		textureView: GPUTextureView;
+		sampler: GPUSampler;
+		textureAspectRatio: number;
+		variantCount: number;
+		startLayerIndex: number;
+		endLayerIndex: number;
+	} | null {
 		let tipMode: DabTipMode = "procedural";
 		let textureView: GPUTextureView | null = null;
 		let sampler: GPUSampler | null = null;
@@ -2135,7 +2221,7 @@ export class StrokeBatchContext {
 			// Texture resolution reuses the battle-tested v1 machinery through
 			// the down-converted view (uids, variant arrays, start/end layers).
 			const legacy = toLegacyBrushSettings(settings);
-			if (legacy.type !== "scatter") return;
+			if (legacy.type !== "scatter") return null;
 			const setup = this.resolveScatterTextureSetup(
 				legacy,
 				legacy,
@@ -2156,7 +2242,7 @@ export class StrokeBatchContext {
 				tipMode = "image";
 				const uid = this.resolveTextureUid(setup.effectiveTextureFileUid);
 				const texture = this.textureManager.getTexture(uid);
-				if (!texture) return;
+				if (!texture) return null;
 				let view = this.textureViewCache.get(uid);
 				if (!view) {
 					view = texture.createView();
@@ -2172,7 +2258,38 @@ export class StrokeBatchContext {
 			textureView = falloff.view;
 			sampler = falloff.sampler;
 		}
-		if (!textureView || !sampler) return;
+		if (!textureView || !sampler) return null;
+		return {
+			tipMode,
+			textureView,
+			sampler,
+			textureAspectRatio,
+			variantCount,
+			startLayerIndex,
+			endLayerIndex,
+		};
+	}
+
+	private renderDabsV2(
+		passEncoder: GPURenderPassEncoder,
+		path: Path,
+		settings: BrushSettingsV2,
+		segments: CubicBezierSegment[],
+		alphaMultiplier: number,
+		transformsBindGroup: GPUBindGroup | undefined,
+		transformIndex: number,
+	): void {
+		const tip = this.resolveDabTipSetup(settings);
+		if (!tip) return;
+		const {
+			tipMode,
+			textureView,
+			sampler,
+			textureAspectRatio,
+			variantCount,
+			startLayerIndex,
+			endLayerIndex,
+		} = tip;
 
 		let dabBuffer: GPUBuffer;
 		let dabCount: number;
@@ -2388,16 +2505,20 @@ export class StrokeBatchContext {
 		return { buffer: this.liveDabBuffer, count: frame.totalCount };
 	}
 
-	private ensureDabPipeline(mode: DabTipMode): {
+	private ensureDabPipeline(
+		mode: DabTipMode,
+		mixedColors = false,
+	): {
 		pipeline: GPURenderPipeline;
 		bindGroupLayout: GPUBindGroupLayout;
 	} {
-		const existing = this.dabPipelines.get(mode);
+		const cacheKey = mixedColors ? `${mode}:mixed` : mode;
+		const existing = this.dabPipelines.get(cacheKey);
 		if (existing) return existing;
 
 		const { module } = compileShaderModule(this.device, {
-			label: `Brush Dab Shader (${mode})`,
-			code: buildBrushDabShader({ tipMode: mode }),
+			label: `Brush Dab Shader (${cacheKey})`,
+			code: buildBrushDabShader({ tipMode: mode, mixedColors }),
 		});
 		const bindGroupLayout = this.device.createBindGroupLayout({
 			label: `Brush Dab Bind Group Layout 0 (${mode})`,
@@ -2430,10 +2551,12 @@ export class StrokeBatchContext {
 			],
 		});
 		const pipelineLayout = this.device.createPipelineLayout({
-			label: `Brush Dab Pipeline Layout (${mode})`,
+			label: `Brush Dab Pipeline Layout (${cacheKey})`,
 			bindGroupLayouts: [
 				bindGroupLayout,
-				this.brushBindGroupLayout,
+				mixedColors
+					? this.ensureMixedBrushBindGroupLayout()
+					: this.brushBindGroupLayout,
 				this.transformsBindGroupLayout,
 				this.maskBindGroupLayout,
 			],
@@ -2451,7 +2574,7 @@ export class StrokeBatchContext {
 			},
 		};
 		const pipeline = this.device.createRenderPipeline({
-			label: `Brush Dab Pipeline (${mode})`,
+			label: `Brush Dab Pipeline (${cacheKey})`,
 			layout: pipelineLayout,
 			vertex: { module, entryPoint: "vs_main" },
 			fragment: {
@@ -2483,8 +2606,34 @@ export class StrokeBatchContext {
 		});
 
 		const entry = { pipeline, bindGroupLayout };
-		this.dabPipelines.set(mode, entry);
+		this.dabPipelines.set(cacheKey, entry);
 		return entry;
+	}
+
+	/** Group(1) layout of the mixing route: pathMetas + colorStops + the
+	 *  per-dab resolved colors from the chunked mix pass. */
+	private ensureMixedBrushBindGroupLayout(): GPUBindGroupLayout {
+		this.mixedBrushBindGroupLayout ??= this.device.createBindGroupLayout({
+			label: "Brush Dab Bind Group Layout 1 (mixed)",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
+			],
+		});
+		return this.mixedBrushBindGroupLayout;
 	}
 
 	/** 32-layer falloff LUT (r8unorm 256x1) for procedural tips. */

@@ -31,4 +31,28 @@ describe("brushDab shader single source", () => {
 		});
 		expect(pipeline).toBeTruthy();
 	});
+
+	it("should build a valid pipeline for the mixed-colors variant", async () => {
+		const device = await getTestDevice();
+		const code = buildBrushDabShader({
+			tipMode: "procedural",
+			mixedColors: true,
+		});
+		expect(code).toContain("var<storage, read> mixedColors: array<vec4<f32>>");
+		const { module } = compileShaderModule(device, {
+			label: "brushDab-mixed",
+			code,
+		});
+		const pipeline = await device.createRenderPipelineAsync({
+			layout: "auto",
+			vertex: { module, entryPoint: "vs_main" },
+			fragment: {
+				module,
+				entryPoint: "fs_main",
+				targets: [{ format: "rgba8unorm" }],
+			},
+			primitive: { topology: "triangle-list" },
+		});
+		expect(pipeline).toBeTruthy();
+	});
 });
