@@ -1,4 +1,8 @@
 import type { BoundingBox } from "../../../schema";
+import {
+	boundsIntersectionBox,
+	expandBounds,
+} from "../../../utils/geometry/bounds";
 
 /**
  * Fixed-R rasterization domain (design §9, appendix B-2).
@@ -28,6 +32,39 @@ export type SimulationDomainTile = {
  * Resolve the fixed-R domain for `bounds`: world-per-texel follows the brush
  * size (96 texels per brush diameter, clamped to [0.125, 1]), zoom-free.
  */
+/**
+ * Bound a live-preview (transient) wash isolation to what is actually on
+ * screen: clip its render bounds to the padded viewport (the pad keeps the
+ * wet-edge erosion/blur stable at the screen edge) and cap its resolution at
+ * the on-screen pixel density. A committed stroke re-renders once at full
+ * document scale and is cached, so final quality is unaffected.
+ *
+ * Returns null when the stroke lies fully outside the viewport. With no
+ * known viewport the input passes through unchanged. The density cap uses
+ * viewportPixelWidth / viewportBounds.width, which under rotation slightly
+ * underestimates the display density (the bounds are the rotated envelope) —
+ * acceptable for a transient preview.
+ */
+export function resolveTransientWashDomain(args: {
+	textureBounds: BoundingBox;
+	viewportBounds: BoundingBox | null;
+	viewportPixelWidth: number;
+	rasterScale: number;
+	padWorld: number;
+}): { bounds: BoundingBox; scale: number } | null {
+	const { textureBounds, viewportBounds, rasterScale } = args;
+	if (viewportBounds == null || viewportBounds.width <= 0) {
+		return { bounds: textureBounds, scale: rasterScale };
+	}
+	const bounds = boundsIntersectionBox(
+		textureBounds,
+		expandBounds(viewportBounds, args.padWorld),
+	);
+	if (bounds == null) return null;
+	const displayScale = args.viewportPixelWidth / viewportBounds.width;
+	return { bounds, scale: Math.min(rasterScale, displayScale) };
+}
+
 export function resolveSimulationDomain(
 	bounds: BoundingBox,
 	brushSize: number,

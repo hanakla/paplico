@@ -189,7 +189,10 @@ import {
 	replaceRenderSurface,
 } from "./pipeline/RenderSurface";
 import { RunBatcher } from "./pipeline/RunBatcher";
-import { resolveSimulationDomain } from "./pipeline/rasterizationDomain";
+import {
+	resolveSimulationDomain,
+	resolveTransientWashDomain,
+} from "./pipeline/rasterizationDomain";
 import { SoftProofPass } from "./pipeline/SoftProofPass";
 import { resolveStrokeStyle } from "./pipeline/stroke/resolveStrokeStyle";
 import type { StrokeEngineRegistry } from "./pipeline/stroke/StrokeEnginePicker";
@@ -4198,6 +4201,42 @@ export class CanvasLayer {
 		}
 		const plans = fp.allAppearancePlans!;
 
+		// A live-preview wash re-runs its full isolation every frame, so bound
+		// it to what is visible: clip to the viewport and render at display
+		// density. Committed strokes render once at full scale and get cached.
+		let isolationBounds: WorldBBox = fp.textureBounds;
+		let isolationScale = rasterScale;
+		const isTransientWash =
+			plans.some((plan) => plan.washStrokeOpacity != null) &&
+			(fp.element.id === PREVIEW_ELEMENT_SENTINEL_ID ||
+				(this.lastTransientElements != null &&
+					[...this.lastTransientElements.values()].some(
+						(entry) => entry.element.id === fp.element.id,
+					)));
+		if (isTransientWash) {
+			const padWorld = plans.reduce(
+				(pad, plan) =>
+					plan.washWetEdge
+						? Math.max(
+								pad,
+								Math.min(plan.washWetEdge.width, plan.washBrushSize ?? 0) +
+									plan.washWetEdge.blur,
+							)
+						: pad,
+				0,
+			);
+			const domain = resolveTransientWashDomain({
+				textureBounds: fp.textureBounds,
+				viewportBounds: this.viewportState.bounds,
+				viewportPixelWidth: this.viewportState.width,
+				rasterScale,
+				padWorld,
+			});
+			if (domain == null) return null;
+			isolationBounds = brandWorldBBox(domain.bounds);
+			isolationScale = domain.scale;
+		}
+
 		// Collect pre-filters (geometry deformations like zigzag) to apply
 		// to each isolated appearance.
 		const preFilters = (fp.element.filters ?? []).filter((f) =>
@@ -4213,11 +4252,11 @@ export class CanvasLayer {
 			washCacheKey != null ? 4096 : Number.POSITIVE_INFINITY,
 		);
 		let accWidth = Math.min(
-			Math.ceil(fp.textureBounds.width * rasterScale),
+			Math.ceil(isolationBounds.width * isolationScale),
 			maxDim,
 		);
 		let accHeight = Math.min(
-			Math.ceil(fp.textureBounds.height * rasterScale),
+			Math.ceil(isolationBounds.height * isolationScale),
 			maxDim,
 		);
 		if (accWidth <= 0 || accHeight <= 0) return null;
@@ -4250,13 +4289,13 @@ export class CanvasLayer {
 
 		// Viewport for blit passes targeting the accumulator
 		const effectiveZoom = Math.min(
-			accWidth / fp.textureBounds.width,
-			accHeight / fp.textureBounds.height,
-			rasterScale,
+			accWidth / isolationBounds.width,
+			accHeight / isolationBounds.height,
+			isolationScale,
 		);
 		const accViewport = {
-			x: (fp.textureBounds.minX + fp.textureBounds.maxX) / 2,
-			y: (fp.textureBounds.minY + fp.textureBounds.maxY) / 2,
+			x: (isolationBounds.minX + isolationBounds.maxX) / 2,
+			y: (isolationBounds.minY + isolationBounds.maxY) / 2,
 			zoom: effectiveZoom,
 			rotation: 0,
 		};
@@ -4288,9 +4327,9 @@ export class CanvasLayer {
 			const appResult = this.offscreen.renderElementToTexture(
 				encoder,
 				virtualElement,
-				fp.textureBounds,
+				isolationBounds,
 				elementsMap,
-				rasterScale,
+				isolationScale,
 			);
 			if (!appResult) continue;
 			const appTexture = appResult.texture.texture;
@@ -4303,7 +4342,7 @@ export class CanvasLayer {
 					encoder,
 					undefined,
 					appResult.effectiveZoom,
-					fp.textureBounds,
+					isolationBounds,
 				);
 			}
 
@@ -4428,15 +4467,15 @@ export class CanvasLayer {
 				encoder,
 				undefined,
 				effectiveZoom,
-				fp.textureBounds,
+				isolationBounds,
 			);
 		}
 
 		this.offscreen.deferDestroy(accStencilTexture);
 
 		// Compute blit UV rect to crop pool quantization margin.
-		const accUsedW = fp.textureBounds.width * effectiveZoom;
-		const accUsedH = fp.textureBounds.height * effectiveZoom;
+		const accUsedW = isolationBounds.width * effectiveZoom;
+		const accUsedH = isolationBounds.height * effectiveZoom;
 		const accUHalf = accUsedW / (2 * accWidth);
 		const accVHalf = accUsedH / (2 * accHeight);
 		const accBlitUvRect: BlitUVRect =
@@ -4478,7 +4517,7 @@ export class CanvasLayer {
 			accRef,
 			{
 				kind: "world-aabb",
-				bounds: fp.textureBounds,
+				bounds: isolationBounds,
 				uvRect: accBlitUvRect,
 			},
 			{
@@ -4491,7 +4530,7 @@ export class CanvasLayer {
 			source: accSurface,
 			output: accSurface,
 			elementBounds: fp.bounds,
-			textureBounds: fp.textureBounds,
+			textureBounds: isolationBounds,
 		};
 	}
 
