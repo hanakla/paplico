@@ -127,6 +127,56 @@ describe("evaluateDabs", () => {
 		});
 	});
 
+	describe("mixing per-dab params", () => {
+		it("should evaluate mixing rates per dab when mixing is enabled", () => {
+			const settings = dabSettings({
+				mixing: {
+					enabled: true,
+					mode: "dulling",
+					sampleRadius: 1,
+					sampleTrail: 1,
+					blendStyle: 0,
+				},
+				properties: {
+					size: { base: 10 },
+					spacing: { base: 0.2 },
+					flow: { base: 1 },
+					colorRate: {
+						base: 0.5,
+						curves: [
+							{
+								input: "pressure",
+								points: [
+									[0, -0.5],
+									[1, 0],
+								],
+							},
+						],
+					},
+					alphaRate: { base: 0.7 },
+					smudgeLength: { base: 0.3 },
+				},
+			});
+			const result = evaluateDabs(
+				[lineSegment({ startPressure: 0, endPressure: 1 })],
+				settings,
+			);
+			expect(result.count).toBeGreaterThan(1);
+			expect(result.mixParams.length).toBeGreaterThanOrEqual(result.count * 4);
+			// colorRate is scale-domain: pressure 0 halves the base, pressure 1
+			// leaves it unchanged.
+			expect(result.mixParams[0]).toBeCloseTo(0.25, 4);
+			expect(result.mixParams[(result.count - 1) * 4]).toBeCloseTo(0.5, 4);
+			expect(result.mixParams[1]).toBeCloseTo(0.7, 4);
+			expect(result.mixParams[2]).toBeCloseTo(0.3, 4);
+		});
+
+		it("should not allocate mix params when mixing is disabled", () => {
+			const result = evaluateDabs([lineSegment()], dabSettings());
+			expect(result.mixParams.length).toBe(0);
+		});
+	});
+
 	describe("determinism", () => {
 		it("should produce byte-identical buffers for identical inputs", () => {
 			const settings = dabSettings({

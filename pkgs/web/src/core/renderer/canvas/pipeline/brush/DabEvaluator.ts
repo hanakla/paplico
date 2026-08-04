@@ -87,6 +87,9 @@ export interface DabEvalState {
 export interface DabBuffer {
 	data: Float32Array;
 	count: number;
+	/** Per-dab {colorRate, alphaRate, smudgeLength, 0} vec4s for the mix
+	 *  pass; empty unless settings.mixing.enabled (explicit gate, §H-3). */
+	mixParams: Float32Array;
 	/** End state for incremental continuation (evaluateDabs `resume`). */
 	state: DabEvalState;
 	/** Arc length the walk normalized against (options.totalLength wins). */
@@ -116,6 +119,7 @@ export function evaluateDabs(
 		return {
 			data: EMPTY_F32,
 			count: 0,
+			mixParams: EMPTY_F32,
 			state: resume ?? initialEvalState(settings),
 			totalLength: options.totalLength ?? 0,
 		};
@@ -172,6 +176,7 @@ export function evaluateDabs(
 		return {
 			data: EMPTY_F32,
 			count: 0,
+			mixParams: EMPTY_F32,
 			state: resume ?? initialEvalState(settings),
 			totalLength: 0,
 		};
@@ -203,6 +208,10 @@ export function evaluateDabs(
 		2;
 	const priorDabs = resume?.dabCount ?? 0;
 	let data = new Float32Array(estimatedDabs * DAB_INSTANCE_FLOATS);
+	const mixingEnabled = settings.mixing?.enabled === true;
+	let mixParams = mixingEnabled
+		? new Float32Array(estimatedDabs * 4)
+		: EMPTY_F32;
 	let count = 0;
 
 	const inputs: Record<BrushInputId, number> = {
@@ -242,6 +251,11 @@ export function evaluateDabs(
 			const grown = new Float32Array(data.length * 2);
 			grown.set(data);
 			data = grown;
+			if (mixingEnabled) {
+				const grownMix = new Float32Array(mixParams.length * 2);
+				grownMix.set(mixParams);
+				mixParams = grownMix;
+			}
 		}
 
 		const fragT = fragDistance / totalLength;
@@ -372,6 +386,12 @@ export function evaluateDabs(
 			data[off + DAB_FIELD_OFFSETS.grainAmount] = 0;
 		}
 		data[off + DAB_FIELD_OFFSETS.reserved] = 0;
+		if (mixingEnabled) {
+			const mixOff = count * 4;
+			mixParams[mixOff] = evalProp(baked, "colorRate", inputs);
+			mixParams[mixOff + 1] = evalProp(baked, "alphaRate", inputs);
+			mixParams[mixOff + 2] = evalProp(baked, "smudgeLength", inputs);
+		}
 		count++;
 	};
 
@@ -682,7 +702,7 @@ export function evaluateDabs(
 		dabCount: priorDabs + count,
 		rngState: dabRngState,
 	};
-	return { data, count, state, totalLength };
+	return { data, count, mixParams, state, totalLength };
 }
 
 /**
