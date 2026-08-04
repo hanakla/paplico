@@ -32,6 +32,35 @@ describe("brushDab shader single source", () => {
 		expect(pipeline).toBeTruthy();
 	});
 
+	it("should build a valid pipeline for the wet-seed variant", async () => {
+		const device = await getTestDevice();
+		const code = buildBrushDabShader({ tipMode: "procedural", wetSeed: true });
+		// The wet route seeds its fields from each dab, not from one uniform
+		// per stroke as v1 did.
+		expect(code).toContain("dab.wetness");
+		expect(code).toContain("dab.directionality");
+		const { module } = compileShaderModule(device, {
+			label: "brushDab-wet",
+			code,
+		});
+		const pipeline = await device.createRenderPipelineAsync({
+			layout: "auto",
+			vertex: { module, entryPoint: "vs_main" },
+			fragment: {
+				module,
+				entryPoint: "fs_wet",
+				targets: [
+					{ format: "rgba16float" },
+					{ format: "rgba16float" },
+					{ format: "rgba16float" },
+					{ format: "rgba16float" },
+				],
+			},
+			primitive: { topology: "triangle-list" },
+		});
+		expect(pipeline).toBeTruthy();
+	});
+
 	it("should build a valid pipeline for the mixed-colors variant", async () => {
 		const device = await getTestDevice();
 		const code = buildBrushDabShader({

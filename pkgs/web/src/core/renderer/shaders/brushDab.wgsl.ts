@@ -26,6 +26,9 @@ export type DabTipMode = (typeof DAB_TIP_MODES)[number];
 
 export interface BrushDabShaderOptions {
 	tipMode: DabTipMode;
+	/** Emit the wet layer's seed MRT (fs_wet) alongside the normal fragment
+	 *  entry point. Only the wet route builds a pipeline against it. */
+	wetSeed?: boolean;
 	/** Mixing route: per-dab resolved colors from the chunked mix pass
 	 *  override the gradient/solid color (group(1) binding(2), indexed by the
 	 *  flat instance index — the mix route draws from stroke-local buffers). */
@@ -35,6 +38,7 @@ export interface BrushDabShaderOptions {
 export function buildBrushDabShader({
 	tipMode,
 	mixedColors = false,
+	wetSeed = false,
 }: BrushDabShaderOptions): string {
 	const tipBindings =
 		tipMode === "procedural"
@@ -270,6 +274,82 @@ ${
 
 	let result = vec4f(finalColor * finalAlpha, finalAlpha);
 	return applyClipMask(result, in.maskIndex, in.maskBoundsMin, in.maskBoundsMax, in.transformedWorldPos);
+}
+${wetSeed ? buildWetSeedWgsl(tipSample) : ""}
+`;
+}
+
+/**
+ * Wet layer seed targets (design §13-2). Field names follow the v2 naming:
+ * the velocity field is `fluidVelocity` (the old `flow`, which collided with
+ * the flow brush property) and the water/pooling field is `moisture`.
+ *
+ * Unlike v1, wetness / directionality / grain ride in on each dab, so a
+ * curve can modulate them along the stroke instead of one value covering it.
+ */
+function buildWetSeedWgsl(tipSample: string): string {
+	return /* wgsl */ `
+struct WetSeedOutput {
+	@location(0) pigment: vec4f,
+	@location(1) fluidVelocity: vec4f,
+	@location(2) moisture: vec4f,
+	@location(3) mask: vec4f,
+}
+
+/** Coverage -> optical density, so overlapping dabs add instead of saturate. */
+fn encodeWetPigmentMass(premultiplied: vec4f) -> vec4f {
+	let coverage = clamp(premultiplied.a, 0.0, 0.999);
+	let density = -log(max(1.0 - coverage, 0.001));
+	let color = premultiplied.rgb / max(coverage, 1e-5);
+	return vec4f(color * density, density);
+}
+
+@fragment
+fn fs_wet(in: VertexOutput) -> WetSeedOutput {
+	let dab = dabs[in.instanceIndex];
+	let pm = pathMetas[pathIndexOf(dab)];
+	let resolved = resolveDabColor(
+		dab,
+		pm,
+		in.worldPos,
+		in.pathT,
+		in.normalizedStrokeDistance,
+	);
+${tipSample}
+	let widthFade = strokeWidthCoverage(
+		in.normalizedStrokeDistance,
+		in.side1Width,
+		in.side2Width,
+	);
+	let coverage = clamp(
+		texAlpha * in.alpha * resolved.a * widthFade,
+		0.0,
+		1.0,
+	);
+	let premultiplied = applyClipMask(
+		vec4f(resolved.rgb * coverage, coverage),
+		in.maskIndex,
+		in.maskBoundsMin,
+		in.maskBoundsMax,
+		in.transformedWorldPos,
+	);
+	let cov = clamp(premultiplied.a, 0.0, 1.0);
+
+	let dir = normalize(vec2f(dab.strokeDirX, dab.strokeDirY) + vec2f(1e-6, 0.0));
+	let edge = smoothstep(0.02, 0.35, cov) * (1.0 - smoothstep(0.58, 0.98, cov));
+	let speed = clamp(dab.motionSpeed, 0.0, 1.0);
+	let accel = clamp(dab.motionAccel, 0.0, 1.0);
+
+	// Per-dab seeds: v1 read these from one uniform per stroke.
+	let wetness = max(dab.wetness, 0.0);
+	let directionality = clamp(dab.directionality, 0.0, 1.0);
+
+	var out: WetSeedOutput;
+	out.pigment = encodeWetPigmentMass(premultiplied);
+	out.fluidVelocity = vec4f(dir * cov * directionality, cov, 0.0);
+	out.moisture = vec4f(0.0, 0.0, cov * wetness, cov * (0.18 + wetness * 0.35));
+	out.mask = vec4f(cov, edge, speed, accel);
+	return out;
 }
 `;
 }
