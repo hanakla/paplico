@@ -67,7 +67,7 @@ fn brushColorOf(dab: DabInstance) -> vec4<f32> {
 		vec2f(dab.positionX, dab.positionY),
 		transforms[pm.transformIndex],
 	);
-	return resolveDabColor(pm, worldPos, dab.pathT, 0.0);
+	return resolveDabColor(dab, pm, worldPos, dab.pathT, 0.0);
 }
 
 const FOOT: u32 = 8u;

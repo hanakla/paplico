@@ -27,10 +27,10 @@ export const DAB_FIELD_OFFSETS = {
 	strokeDirY: 13,
 	motionSpeed: 14,
 	motionAccel: 15,
-	/** pack2x16unorm(r, g) of the resolved per-dab color. */
-	packedColor0: 16,
-	/** pack2x16unorm(b, a) of the resolved per-dab color. */
-	packedColor1: 17,
+	/** pack2x16snorm(hueShift, satShift); zero bits mean no shift. */
+	packedColorShift0: 16,
+	/** pack2x16snorm(valShift, 0). */
+	packedColorShift1: 17,
 	/** Quantized falloff LUT layer: round(hardness * 31), 0..31. */
 	hardnessLutIndex: 18,
 	grainStrength: 19,

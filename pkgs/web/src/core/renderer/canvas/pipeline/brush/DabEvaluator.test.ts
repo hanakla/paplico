@@ -177,6 +177,56 @@ describe("evaluateDabs", () => {
 		});
 	});
 
+	describe("color dynamics", () => {
+		it("should pack per-dab hue/saturation/value shifts", () => {
+			const settings = dabSettings({
+				properties: {
+					size: { base: 10 },
+					spacing: { base: 0.2 },
+					flow: { base: 1 },
+					hueShift: {
+						base: 0,
+						curves: [
+							{
+								input: "pressure",
+								points: [
+									[0, 0],
+									[1, 0.25],
+								],
+							},
+						],
+					},
+					satShift: { base: -0.5 },
+					valShift: { base: 0.5 },
+				},
+			});
+			const result = evaluateDabs(
+				[lineSegment({ startPressure: 0, endPressure: 1 })],
+				settings,
+			);
+
+			// 16-bit signed quantization: within one step of the exact value.
+			const eps = 2 / 32767;
+			const first = readDabColorShift(result.data, 0);
+			const last = readDabColorShift(result.data, result.count - 1);
+			expect(first.hue).toBeCloseTo(0, 3);
+			expect(last.hue).toBeCloseTo(0.25, 3);
+			for (const shift of [first, last]) {
+				expect(Math.abs(shift.saturation - -0.5)).toBeLessThan(eps);
+				expect(Math.abs(shift.value - 0.5)).toBeLessThan(eps);
+			}
+		});
+
+		it("should pack zero shifts when no color properties are set", () => {
+			const result = evaluateDabs([lineSegment()], dabSettings());
+			const shift = readDabColorShift(result.data, 0);
+
+			expect(shift.hue).toBe(0);
+			expect(shift.saturation).toBe(0);
+			expect(shift.value).toBe(0);
+		});
+	});
+
 	describe("determinism", () => {
 		it("should produce byte-identical buffers for identical inputs", () => {
 			const settings = dabSettings({
@@ -481,3 +531,21 @@ describe("evaluateDabs — incremental resume", () => {
 		expect(full.totalLength).toBeGreaterThan(200);
 	});
 });
+
+/** Unpack the per-dab color shift written by the evaluator. */
+function readDabColorShift(
+	data: Float32Array,
+	dabIndex: number,
+): { hue: number; saturation: number; value: number } {
+	const unpack = (packed: number): [number, number] => {
+		const bits = new Uint32Array(new Float32Array([packed]).buffer)[0];
+		const dec = (half: number) =>
+			Math.max((half > 32767 ? half - 65536 : half) / 32767, -1);
+		return [dec(bits & 0xffff), dec(bits >>> 16)];
+	};
+	const [hue, saturation] = unpack(
+		readDabField(data, dabIndex, "packedColorShift0"),
+	);
+	const [value] = unpack(readDabField(data, dabIndex, "packedColorShift1"));
+	return { hue, saturation, value };
+}

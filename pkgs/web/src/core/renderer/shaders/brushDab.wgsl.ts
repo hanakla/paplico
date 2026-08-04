@@ -217,6 +217,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 ${tipSample}
 
 	let resolved = resolveDabColor(
+		dab,
 		pm,
 		in.worldPos,
 		in.pathT,

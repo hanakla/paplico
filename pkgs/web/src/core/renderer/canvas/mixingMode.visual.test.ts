@@ -134,10 +134,24 @@ describe("Mixing strokes", () => {
 	});
 });
 
+describe("Color dynamics", () => {
+	it("should rotate the hue per dab", async () => {
+		// A red brush with a +1/3 hue rotation lands on green; the shift rides
+		// along with each dab, so it composes with mixing rather than
+		// replacing the resolved color.
+		const brush = mixingBrush({ colorRate: 1, hueShift: 1 / 3 });
+		const pixel = await renderStrokePixel(brush);
+
+		expect(pixel[1]).toBeGreaterThan(180);
+		expect(pixel[0]).toBeLessThan(pixel[1] - 60);
+	});
+});
+
 function mixingBrush(overrides: {
 	colorRate: number;
 	enabled?: boolean;
 	smudgeLength?: number;
+	hueShift?: number;
 }): BrushSettingsV2 {
 	return normalizeBrushSettingsV2({
 		version: 2,
@@ -151,6 +165,9 @@ function mixingBrush(overrides: {
 			colorRate: { base: overrides.colorRate },
 			alphaRate: { base: 1 },
 			smudgeLength: { base: overrides.smudgeLength ?? 0 },
+			...(overrides.hueShift != null
+				? { hueShift: { base: overrides.hueShift } }
+				: {}),
 		},
 		tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 		mixing: {

@@ -74,8 +74,64 @@ fn sampleGradientStops(t: f32, pm: PathMeta) -> vec4f {
 	return vec4f(s.r, s.g, s.b, s.a);
 }
 
+fn rgbToHsv(c: vec3f) -> vec3f {
+	let maxC = max(c.r, max(c.g, c.b));
+	let minC = min(c.r, min(c.g, c.b));
+	let delta = maxC - minC;
+	var hue = 0.0;
+	if delta > 1e-6 {
+		if maxC == c.r {
+			hue = ((c.g - c.b) / delta) % 6.0;
+		} else if maxC == c.g {
+			hue = (c.b - c.r) / delta + 2.0;
+		} else {
+			hue = (c.r - c.g) / delta + 4.0;
+		}
+		hue = hue / 6.0;
+		if hue < 0.0 {
+			hue = hue + 1.0;
+		}
+	}
+	let sat = select(0.0, delta / maxC, maxC > 1e-6);
+	return vec3f(hue, sat, maxC);
+}
+
+fn hsvToRgb(hsv: vec3f) -> vec3f {
+	let h = fract(hsv.x) * 6.0;
+	let c = hsv.z * hsv.y;
+	let x = c * (1.0 - abs(h % 2.0 - 1.0));
+	let m = hsv.z - c;
+	var rgb = vec3f(0.0);
+	if h < 1.0 { rgb = vec3f(c, x, 0.0); }
+	else if h < 2.0 { rgb = vec3f(x, c, 0.0); }
+	else if h < 3.0 { rgb = vec3f(0.0, c, x); }
+	else if h < 4.0 { rgb = vec3f(0.0, x, c); }
+	else if h < 5.0 { rgb = vec3f(x, 0.0, c); }
+	else { rgb = vec3f(c, 0.0, x); }
+	return rgb + vec3f(m);
+}
+
+/** Per-dab color dynamics: hue rotates, saturation and value offset. */
+fn applyDabColorShift(dab: DabInstance, rgb: vec3f) -> vec3f {
+	let packed0 = unpack2x16snorm(bitcast<u32>(dab.packedColorShift0));
+	let hueShift = packed0.x;
+	let satShift = packed0.y;
+	let valShift = unpack2x16snorm(bitcast<u32>(dab.packedColorShift1)).x;
+	if abs(hueShift) < 1e-4 && abs(satShift) < 1e-4 && abs(valShift) < 1e-4 {
+		return rgb;
+	}
+	let hsv = rgbToHsv(clamp(rgb, vec3f(0.0), vec3f(1.0)));
+	return hsvToRgb(vec3f(
+		hsv.x + hueShift,
+		clamp(hsv.y + satShift, 0.0, 1.0),
+		clamp(hsv.z + valShift, 0.0, 1.0),
+	));
+}
+
 /**
  * The dab's straight-alpha color for the given sampling position.
+ *
+ * Gradient resolution plus the dab's own color dynamics offsets.
  *
  * \`worldPos\` is the transformed dab center (constant per dab, so the "within
  * bounds" gradient is a per-dab value too) and \`acrossDistance\` is the
@@ -85,6 +141,17 @@ fn sampleGradientStops(t: f32, pm: PathMeta) -> vec4f {
  * and cannot carry a gradient inside a single dab.
  */
 fn resolveDabColor(
+	dab: DabInstance,
+	pm: PathMeta,
+	worldPos: vec2f,
+	pathT: f32,
+	acrossDistance: f32,
+) -> vec4f {
+	let base = resolveDabBaseColor(pm, worldPos, pathT, acrossDistance);
+	return vec4f(applyDabColorShift(dab, base.rgb), base.a);
+}
+
+fn resolveDabBaseColor(
 	pm: PathMeta,
 	worldPos: vec2f,
 	pathT: f32,

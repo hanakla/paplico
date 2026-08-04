@@ -38,8 +38,6 @@ export interface DabEvaluateOptions {
 	variantCount?: number;
 	startLayerIndex?: number;
 	endLayerIndex?: number;
-	/** Resolved stroke color packed into every dab (straight, 0..1). */
-	color?: { r: number; g: number; b: number; a: number };
 	/**
 	 * Continue from a previous chunk's end state. The chunked result is
 	 * bit-identical to a full evaluation as long as every chunk receives the
@@ -230,9 +228,13 @@ export function evaluateDabs(
 		randomPerStroke,
 	};
 
-	const color = options.color ?? { r: 0, g: 0, b: 0, a: 1 };
-	const packedColor0 = u32AsFloat(pack2x16unorm(color.r, color.g));
-	const packedColor1 = u32AsFloat(pack2x16unorm(color.b, color.a));
+	// Color dynamics ride along as offsets, not as a resolved color: the
+	// gradient switch and the mix pass both resolve color in the shader, so a
+	// baked color here would have to duplicate them (design §5).
+	const colorDynamic =
+		settings.properties.hueShift != null ||
+		settings.properties.satShift != null ||
+		settings.properties.valShift != null;
 	const pathIndex = options.pathIndex ?? 0;
 	const variantCount = options.variantCount ?? 0;
 
@@ -359,8 +361,17 @@ export function evaluateDabs(
 		data[off + DAB_FIELD_OFFSETS.strokeDirY] = flowY;
 		data[off + DAB_FIELD_OFFSETS.motionSpeed] = inputs.speedFine;
 		data[off + DAB_FIELD_OFFSETS.motionAccel] = inputs.accel;
-		data[off + DAB_FIELD_OFFSETS.packedColor0] = packedColor0;
-		data[off + DAB_FIELD_OFFSETS.packedColor1] = packedColor1;
+		if (colorDynamic) {
+			data[off + DAB_FIELD_OFFSETS.packedColorShift0] = u32AsFloat(
+				pack2x16snorm(
+					evalProp(baked, "hueShift", inputs),
+					evalProp(baked, "satShift", inputs),
+				),
+			);
+			data[off + DAB_FIELD_OFFSETS.packedColorShift1] = u32AsFloat(
+				pack2x16snorm(evalProp(baked, "valShift", inputs), 0),
+			);
+		}
 		data[off + DAB_FIELD_OFFSETS.hardnessLutIndex] =
 			hardnessToLutIndex(hardnessVal);
 		data[off + DAB_FIELD_OFFSETS.grainStrength] = grainVal;
@@ -878,10 +889,12 @@ function u32AsFloat(value: number): number {
 	return _bitView.getFloat32(0, true);
 }
 
-function pack2x16unorm(a: number, b: number): number {
-	const lo = Math.round(clamp01(a) * 65535);
-	const hi = Math.round(clamp01(b) * 65535);
-	return ((hi << 16) | lo) >>> 0;
+/** WGSL pack2x16snorm: zero bits decode to zero, so an unwritten dab
+ *  carries no shift at all. */
+function pack2x16snorm(a: number, b: number): number {
+	const enc = (value: number) =>
+		Math.round(Math.min(Math.max(value, -1), 1) * 32767) & 0xffff;
+	return ((enc(b) << 16) | enc(a)) >>> 0;
 }
 
 function clamp01(value: number): number {
