@@ -1314,9 +1314,11 @@ function washInfoOf(filter: Filter): {
 	const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
 	if (raw == null) return null;
 	const route = resolveBrushRenderRoute(raw);
-	if (route.kind !== "dab-v2" || route.settings.paintMode !== "wash") {
-		return null;
-	}
+	// Ribbons wash too (design §12): the isolation and the single
+	// strokeOpacity application are engine-independent, and a ribbon that
+	// doubles back over itself darkens exactly like a dab stroke does.
+	if (route.kind !== "dab-v2" && route.kind !== "ribbon-legacy") return null;
+	if (route.settings.paintMode !== "wash") return null;
 	return {
 		strokeOpacity: route.settings.strokeOpacity,
 		brushSize: readStoredBrushSize(route.settings) ?? 0,

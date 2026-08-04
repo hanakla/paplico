@@ -209,6 +209,33 @@ describe("Wash wet edge", () => {
 	});
 });
 
+describe("Wash on ribbon strokes", () => {
+	it("should cap a self-crossing ribbon at strokeOpacity", async () => {
+		// The isolation is engine-independent (§12): however much coverage a
+		// ribbon stacks on itself inside the buffer, strokeOpacity is applied
+		// once on the way out, so a black stroke at 0.5 can never pass mid
+		// grey. (Unlike a hard dab tip, a ribbon's texture is partly
+		// transparent, so the crossing does legitimately read darker than the
+		// arms — what it must not do is exceed the cap.)
+		const { atCrossing, offCrossing } = await renderCrossPixels(
+			normalizeBrushSettingsV2({
+				version: 2,
+				engine: "ribbon",
+				strokeOpacity: 0.5,
+				paintMode: "wash",
+				properties: { size: { base: 24 }, flow: { base: 1 } },
+				ribbon: { uvMode: "repeat", tileScale: 1, tileSpacing: 0 },
+				randomSeed: 1,
+			}),
+		);
+
+		expect(offCrossing[0]).toBeLessThan(240);
+		for (const channel of [atCrossing[0], atCrossing[1], atCrossing[2]]) {
+			expect(channel).toBeGreaterThanOrEqual(120);
+		}
+	});
+});
+
 describe("Wash inside containers (strokeOpacity applies once)", () => {
 	it("should keep the crossing flat inside a group", async () => {
 		const brush = washBrush({ paintMode: "wash", strokeOpacity: 0.5, flow: 1 });
