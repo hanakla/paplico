@@ -3,7 +3,7 @@
  * reads the path meta buffer (design §10).
  */
 /** Float count of the PathMeta struct below; CPU writers stride by this. */
-export const PATH_META_FLOATS = 20;
+export const PATH_META_FLOATS = 24;
 
 /**
  * The PathMeta layout and the color it resolves, shared by every stroke
@@ -34,6 +34,14 @@ struct PathMeta {
 	grainScale: f32,
 	/** Per-stroke UV offset, in grain periods. */
 	grainOffset: vec2f,
+	/** Ribbon tile stretch (tileScale - 1); ribbon strokes only. */
+	ribbonStretch: f32,
+	/** Ribbon UV offset along the stroke. */
+	ribbonUvOffset: f32,
+	/** Aspect ratio of the ribbon's texture. */
+	ribbonAspectRatio: f32,
+	/** Ribbon stamp rotation, radians. */
+	ribbonStampAngle: f32,
 }
 
 // OKLab perceptual gradient stop sampling — the ONE copy for dab rendering.

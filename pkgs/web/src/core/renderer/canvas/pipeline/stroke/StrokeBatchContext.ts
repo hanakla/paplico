@@ -309,7 +309,6 @@ export class StrokeBatchContext {
 	private batchRibbonData: Float32Array = new Float32Array(0);
 	private batchRibbonSegmentCount = 0;
 	private batchRibbonTextureUid: string | null = null;
-	private batchRibbonParams = new Float32Array(4);
 
 	// Scatter (texture array) pipeline — lazy initialized
 	private dabPipelines = new Map<
@@ -344,7 +343,6 @@ export class StrokeBatchContext {
 	private ribbonPipeline: GPURenderPipeline | null = null;
 	private ribbonBindGroupLayout: GPUBindGroupLayout | null = null;
 	private ribbonUnitVertexBuffer: GPUBuffer | null = null;
-	private ribbonParamsBuffer: GPUBuffer | null = null;
 	private ribbonSampler: GPUSampler | null = null;
 
 	private canvasFormat: GPUTextureFormat;
@@ -779,21 +777,18 @@ export class StrokeBatchContext {
 		pipeline: GPURenderPipeline;
 		bindGroupLayout: GPUBindGroupLayout;
 		unitVertexBuffer: GPUBuffer;
-		paramsBuffer: GPUBuffer;
 		sampler: GPUSampler;
 	} {
 		if (
 			this.ribbonPipeline &&
 			this.ribbonBindGroupLayout &&
 			this.ribbonUnitVertexBuffer &&
-			this.ribbonParamsBuffer &&
 			this.ribbonSampler
 		) {
 			return {
 				pipeline: this.ribbonPipeline,
 				bindGroupLayout: this.ribbonBindGroupLayout,
 				unitVertexBuffer: this.ribbonUnitVertexBuffer,
-				paramsBuffer: this.ribbonParamsBuffer,
 				sampler: this.ribbonSampler,
 			};
 		}
@@ -826,13 +821,6 @@ export class StrokeBatchContext {
 			usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
 		});
 		this.device.queue.writeBuffer(this.ribbonUnitVertexBuffer, 0, vertexData);
-
-		// Ribbon params uniform (textureRepeatLength, uvOffset, pad, pad)
-		this.ribbonParamsBuffer = this.device.createBuffer({
-			label: "Ribbon Params Uniform",
-			size: 16, // 4 floats
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		});
 
 		// Sampler with repeat U for seamless tiling. Brush textures now carry
 		// mip chains for the dab pipeline; pin this legacy sampler to level 0
@@ -873,11 +861,6 @@ export class StrokeBatchContext {
 					binding: 3,
 					visibility: GPUShaderStage.FRAGMENT,
 					sampler: { type: "filtering" },
-				},
-				{
-					binding: 4,
-					visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-					buffer: { type: "uniform" },
 				},
 			],
 		});
@@ -957,7 +940,6 @@ export class StrokeBatchContext {
 			pipeline: this.ribbonPipeline,
 			bindGroupLayout: this.ribbonBindGroupLayout,
 			unitVertexBuffer: this.ribbonUnitVertexBuffer,
-			paramsBuffer: this.ribbonParamsBuffer,
 			sampler: this.ribbonSampler,
 		};
 	}
@@ -1438,12 +1420,6 @@ export class StrokeBatchContext {
 			resolveBrushTextureUid(brushSettings, this.textureManager) ??
 				BUILTIN_BRUSH_IDS.softCircle,
 		);
-		this.batchRibbonParams[0] = brushSettings.tileScale - 1;
-		this.batchRibbonParams[1] = brushSettings.uvOffset ?? 0;
-		this.batchRibbonParams[2] = this.textureManager.getTextureAspectRatio(
-			this.batchRibbonTextureUid,
-		);
-		this.batchRibbonParams[3] = 0;
 
 		// Add PathMeta (shared with stamps)
 		this.ensureBatchPathMetas((this.batchPathCount + 1) * PATH_META_FLOATS);
@@ -1551,7 +1527,6 @@ export class StrokeBatchContext {
 				pipeline: ribPipeline,
 				bindGroupLayout: ribBGL,
 				unitVertexBuffer,
-				paramsBuffer,
 				sampler: ribSampler,
 			} = this.ensureRibbonPipeline();
 
@@ -1567,8 +1542,6 @@ export class StrokeBatchContext {
 				ribbonView.byteOffset,
 				ribbonView.byteLength,
 			);
-
-			this.device.queue.writeBuffer(paramsBuffer, 0, this.batchRibbonParams);
 
 			const texture = this.textureManager.getTexture(
 				this.batchRibbonTextureUid,
@@ -1591,7 +1564,6 @@ export class StrokeBatchContext {
 						{ binding: 1, resource: { buffer: ribbonBuffer } },
 						{ binding: 2, resource: textureView },
 						{ binding: 3, resource: ribSampler },
-						{ binding: 4, resource: { buffer: paramsBuffer } },
 					],
 				});
 
@@ -2945,25 +2917,8 @@ export class StrokeBatchContext {
 			this.textureViewCache.set(textureUid, textureView);
 		}
 
-		// Ribbon pipeline + params
-		const {
-			pipeline,
-			bindGroupLayout,
-			unitVertexBuffer,
-			paramsBuffer,
-			sampler,
-		} = this.ensureRibbonPipeline();
-		const ribbonStretch = brushSettings.tileScale - 1;
-		const uvOffset = brushSettings.uvOffset ?? 0;
-		const textureAspectRatio =
-			this.textureManager.getTextureAspectRatio(textureUid);
-		const paramsData = new Float32Array([
-			ribbonStretch,
-			uvOffset,
-			textureAspectRatio,
-			0,
-		]);
-		this.device.queue.writeBuffer(paramsBuffer, 0, paramsData);
+		const { pipeline, bindGroupLayout, unitVertexBuffer, sampler } =
+			this.ensureRibbonPipeline();
 
 		const effectiveUniformBuffer = this.getEffectiveUniformBuffer();
 		const bindGroup0 = this.device.createBindGroup({
@@ -2974,7 +2929,6 @@ export class StrokeBatchContext {
 				{ binding: 1, resource: { buffer: ribbonBuffer } },
 				{ binding: 2, resource: textureView },
 				{ binding: 3, resource: sampler },
-				{ binding: 4, resource: { buffer: paramsBuffer } },
 			],
 		});
 		const bindGroup1 = this.device.createBindGroup({
@@ -3033,9 +2987,7 @@ export class StrokeBatchContext {
 		this.wetScatterPipeline = null;
 		this.wetScatterBindGroupLayout = null;
 		this.ribbonUnitVertexBuffer?.destroy();
-		this.ribbonParamsBuffer?.destroy();
 		this.ribbonUnitVertexBuffer = null;
-		this.ribbonParamsBuffer = null;
 		this.ribbonPipeline = null;
 		this.ribbonBindGroupLayout = null;
 		this.ribbonSampler = null;
@@ -3081,33 +3033,18 @@ export class StrokeBatchContext {
 			this.batchColorStopCount += sm.stopCount;
 		}
 
-		// Pack colorMode into upper bits of gradientMode (bit 16)
-		const colorModeBit = brushSettings?.colorMode === "color" ? 1 << 16 : 0;
-
-		// PathMeta: 16 floats (64 bytes)
-		const m = this.batchPathMetas;
-		m[metaOff] = sm.r;
-		m[metaOff + 1] = sm.g;
-		m[metaOff + 2] = sm.b;
-		m[metaOff + 3] = a;
-		const u32View = StrokeBatchContext._u32Scratch;
-		const f32View = StrokeBatchContext._f32Scratch;
-		u32View[0] = sm.gradientMode | colorModeBit;
-		m[metaOff + 4] = f32View[0];
-		u32View[0] = sm.stopCount;
-		m[metaOff + 5] = f32View[0];
-		u32View[0] = stopOffset;
-		m[metaOff + 6] = f32View[0];
-		u32View[0] = transformIndex;
-		m[metaOff + 7] = f32View[0];
-		m[metaOff + 8] = sm.lsx;
-		m[metaOff + 9] = sm.lsy;
-		m[metaOff + 10] = sm.lex;
-		m[metaOff + 11] = sm.ley;
-		m[metaOff + 12] = sm.bMinX;
-		m[metaOff + 13] = sm.bMinY;
-		m[metaOff + 14] = sm.bMaxX;
-		m[metaOff + 15] = sm.bMaxY;
+		// The fields themselves are written by the single-path writer: this
+		// path only owns the batch's shared color-stop arena. Duplicating the
+		// layout here is what left batched ribbons reading a zero texture
+		// aspect ratio when the meta grew.
+		this.writeSinglePathMeta(
+			this.batchPathMetas,
+			metaOff,
+			path,
+			alphaMultiplier,
+			transformIndex,
+			stopOffset,
+		);
 	}
 
 	/**
@@ -3162,6 +3099,53 @@ export class StrokeBatchContext {
 		data[offset + 17] = grain.scale;
 		data[offset + 18] = grain.offsetX;
 		data[offset + 19] = grain.offsetY;
+
+		// Ribbon tiling used to live in one uniform shared by the whole batch,
+		// which made the last path in a run dictate every other path's tiling.
+		const ribbon = this.ribbonMetaOf(path, brushSettings);
+		data[offset + 20] = ribbon.stretch;
+		data[offset + 21] = ribbon.uvOffset;
+		data[offset + 22] = ribbon.aspectRatio;
+		data[offset + 23] = ribbon.stampAngle;
+	}
+
+	/** Per-path ribbon tiling for the path meta. Zeroed for non-ribbon
+	 *  brushes, which never read these fields. */
+	private ribbonMetaOf(
+		path: Path,
+		brushSettings: BrushSettings | undefined,
+	): {
+		stretch: number;
+		uvOffset: number;
+		aspectRatio: number;
+		stampAngle: number;
+	} {
+		if (
+			brushSettings == null ||
+			(brushSettings.type !== "art" && brushSettings.type !== "pattern")
+		) {
+			return { stretch: 0, uvOffset: 0, aspectRatio: 1, stampAngle: 0 };
+		}
+		const textureUid = this.resolveTextureUid(
+			resolveBrushTextureUid(brushSettings, this.textureManager) ??
+				BUILTIN_BRUSH_IDS.softCircle,
+		);
+		// The shader has always rotated the ribbon's texture by a stamp angle
+		// that nothing ever set; the v2 angle property is that value.
+		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
+		const stampAngle =
+			rawBrushSettings != null
+				? (resolveBrushRenderRoute(rawBrushSettings).settings.properties.angle
+						?.base ?? 0)
+				: 0;
+		return {
+			stretch:
+				brushSettings.type === "pattern" ? brushSettings.tileScale - 1 : 0,
+			uvOffset:
+				brushSettings.type === "pattern" ? (brushSettings.uvOffset ?? 0) : 0,
+			aspectRatio: this.textureManager.getTextureAspectRatio(textureUid),
+			stampAngle,
+		};
 	}
 
 	/** Per-stroke grain parameters for the path meta (design §11). Grain is a

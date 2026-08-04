@@ -9,10 +9,10 @@
  * Instance data: storage buffer with per-segment metadata (24 floats)
  */
 
+import { PATH_META_WGSL } from "./dabColor.wgsl";
 import { GRADIENT_COMMON_WGSL } from "./gradientCommon.wgsl";
 import { MASK_COMMON_WGSL } from "./maskCommon.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
-import { PATH_META_WGSL } from "./dabColor.wgsl";
 import { TRANSFORM_COMMON_WGSL } from "./transformCommon.wgsl";
 
 export const RIBBON_STROKE_SHADER = /* wgsl */ `
@@ -57,13 +57,6 @@ struct RibbonInstance {
 	reserved: f32,
 }
 
-struct RibbonParams {
-	ribbonStretch: f32,
-	uvOffset: f32,
-	textureAspectRatio: f32,
-	stampAngle: f32,
-}
-
 ${TRANSFORM_COMMON_WGSL}
 
 ${GRADIENT_COMMON_WGSL}
@@ -76,7 +69,6 @@ ${PATH_META_WGSL}
 @group(0) @binding(1) var<storage, read> instances: array<RibbonInstance>;
 @group(0) @binding(2) var ribbonTexture: texture_2d<f32>;
 @group(0) @binding(3) var ribbonSampler: sampler;
-@group(0) @binding(4) var<uniform> ribbonParams: RibbonParams;
 
 @group(1) @binding(0) var<storage, read> pathMetas: array<PathMeta>;
 @group(1) @binding(1) var<storage, read> colorStops: array<ColorStop>;
@@ -213,15 +205,15 @@ fn vs_main(
 	//   repeat (pattern): U = arcPos / actualTileWidth (tiles wrap via sampler)
 	// V is always side-based (-1..+1 → 0..1).
 	let arcPos = inst.arcLengthOffset + t * inst.segmentArcLength;
-	let naturalTileWidth = inst.halfWidth0 * 2.0 * ribbonParams.textureAspectRatio;
-	let actualTileWidth = naturalTileWidth * max(1.0 + ribbonParams.ribbonStretch, 0.1);
+	let naturalTileWidth = inst.halfWidth0 * 2.0 * pm.ribbonAspectRatio;
+	let actualTileWidth = naturalTileWidth * max(1.0 + pm.ribbonStretch, 0.1);
 	var ribbonU: f32;
 	if inst.uvModeBit == 1u {
 		// stretch: U = arc-length normalized over the whole path
 		let total = max(inst.totalArcLength, 0.001);
 		ribbonU = clamp(arcPos / total, 0.0, 1.0);
 	} else {
-		ribbonU = arcPos / max(actualTileWidth, 0.001) + ribbonParams.uvOffset;
+		ribbonU = arcPos / max(actualTileWidth, 0.001) + pm.ribbonUvOffset;
 	}
 	// V follows the expanded geometry so it stays linear in position; the
 	// fragment clamps it back to [0, 1] inside the AA margin.
@@ -266,7 +258,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 	let pm = pathMetas[in.pathIndex];
 
 	// Rotate UV by stampAngle around (0.5, 0.5) center
-	let angle = ribbonParams.stampAngle;
+	let angle = pm.ribbonStampAngle;
 	let cosA = cos(angle);
 	let sinA = sin(angle);
 	var sampleU = in.ribbonUV.x;
