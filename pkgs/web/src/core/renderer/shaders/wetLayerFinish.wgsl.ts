@@ -109,7 +109,23 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let domainTexel = 1.0 / max(pigmentTexSize, vec2f(1.0));
 	let neighborMinUv = vec2f(0.5) / pigmentTexSize;
 	let neighborMaxUv = (logicalMaxPx + vec2f(0.5)) / pigmentTexSize;
-	let center = samplePigmentUv(domainUv);
+	// The domain is finer than the target whenever the brush is small: one
+	// tap per target pixel would skip whole rows of the field, which reads as
+	// stripes and holes. Average a 3x3 box covering the target pixel's
+	// footprint instead.
+	let minify = max(uniforms.targetWorldPerPixel / uniforms.domainWorldPerPixel, 1.0);
+	let boxStep = domainTexel * (minify / 3.0);
+	var boxSum = vec4f(0.0);
+	for (var by = -1; by <= 1; by = by + 1) {
+		for (var bx = -1; bx <= 1; bx = bx + 1) {
+			boxSum += samplePigmentUv(clamp(
+				domainUv + vec2f(f32(bx), f32(by)) * boxStep,
+				neighborMinUv,
+				neighborMaxUv,
+			));
+		}
+	}
+	let center = boxSum / 9.0;
 	let moisture = textureSampleLevel(diffusedMoisture, inputSampler, domainUv, 0.0);
 	let l = samplePigmentUv(clamp(domainUv + vec2f(-domainTexel.x, 0.0), neighborMinUv, neighborMaxUv));
 	let r = samplePigmentUv(clamp(domainUv + vec2f(domainTexel.x, 0.0), neighborMinUv, neighborMaxUv));

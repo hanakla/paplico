@@ -1,9 +1,11 @@
+import { readStoredBrushSize } from "../../brush/access";
 import {
 	resolveBrushTextureUid,
 	resolveOptionalSourceUid,
 	resolveScatterSourceUids,
 } from "../../brush/brushSource";
 import { normalizeBrushSettings } from "../../brush/normalize";
+import { BRUSH_PROPERTY_REGISTRY } from "../../brush/properties";
 import { resolveBrushRenderRoute } from "../../brush/renderRoute";
 import type { SoftProofLutResult } from "../../color/types";
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../document/constants";
@@ -13,6 +15,8 @@ import {
 	type Artboard,
 	type BoundingBox,
 	type BrushArtSource,
+	type BrushPropertyId,
+	type BrushSettingsV2,
 	type CubicBezierSegment,
 	DEFAULT_WET_INK_PICKUP_STRENGTH,
 	type DefEntry,
@@ -80,6 +84,7 @@ import type { GradientTextureGenerator } from "../generators/GradientTextureGene
 import type { MeshGradientTextureGenerator } from "../generators/MeshGradientTextureGenerator";
 import { createFullscreenPipeline } from "../PipelineFactory";
 import { RenderStrategy } from "../RenderOrchestrator";
+import { WET_SEED_TARGETS } from "../shaders/brushDab.wgsl";
 import { DOT_GRID_SHADER } from "../shaders/dotGrid.wgsl";
 import {
 	type FrameRequest,
@@ -185,6 +190,7 @@ import {
 	createFrameTextureRef,
 	createPlacementOpacity,
 	createRenderSurface,
+	type RasterizedRenderSurface,
 	type RenderSurface,
 	releaseRenderSurface,
 	replaceRenderSurface,
@@ -202,6 +208,7 @@ import {
 	type WetInkCachedResultComposite,
 	WetInkPass,
 } from "./pipeline/stroke/WetInkPass";
+import { WetLayerPass } from "./pipeline/stroke/WetLayerPass";
 import { TexturePool, texturePoolBudgetBytes } from "./pipeline/TexturePool";
 import { UniformScope } from "./pipeline/UniformScope";
 import { ViewportManager } from "./pipeline/ViewportManager";
@@ -470,6 +477,7 @@ export class CanvasLayer {
 	 *  knowing the concrete filter behind each. */
 	private backdropDrivers: BackdropEffectDriver[] = [];
 	private mixStrokeRenderer: MixStrokeRenderer | null = null;
+	private wetLayerPass: WetLayerPass | null = null;
 	/** Object identity -> serial, for backdrop content keys (see
 	 *  backdropContentKeyFor). */
 	private readonly objectSerials = new WeakMap<object, number>();
@@ -4352,13 +4360,23 @@ export class CanvasLayer {
 			// Render to isolated offscreen texture using unified element-level
 			// bounds so all appearances share the same coordinate space when
 			// composited onto the accumulator.
-			const appResult = this.offscreen.renderElementToTexture(
-				encoder,
-				virtualElement,
-				isolationBounds,
-				elementsMap,
-				isolationScale,
-			);
+			const wetSettings = CanvasLayer.wetSettingsOf(plan.appearance);
+			const appResult = wetSettings
+				? this.renderWetAppearanceToTexture(
+						encoder,
+						fp.element,
+						wetSettings,
+						isolationBounds,
+						isolationScale,
+						this.viewportManager.getTransformIndex(fp.element.id),
+					)
+				: this.offscreen.renderElementToTexture(
+						encoder,
+						virtualElement,
+						isolationBounds,
+						elementsMap,
+						isolationScale,
+					);
 			if (!appResult) continue;
 			const appTexture = appResult.texture.texture;
 
@@ -6703,6 +6721,186 @@ export class CanvasLayer {
 			return null;
 		}
 		return { minX: mnx, minY: mny, maxX: mxx, maxY: mxy, tile: null };
+	}
+
+	/**
+	 * Render one wet appearance: its dabs seed the simulation fields and
+	 * WetLayerPass composites the settled result (design §13).
+	 *
+	 * It stands in for the normal offscreen element render inside the wash
+	 * isolation — every wet stroke is a wash stroke, since normalize forces
+	 * the paint mode — so the surface it returns is shaped like that one and
+	 * the accumulator blit applies opacity exactly as it does for any other
+	 * appearance.
+	 */
+	private renderWetAppearanceToTexture(
+		encoder: GPUCommandEncoder,
+		element: AnyArtObject,
+		settings: BrushSettingsV2,
+		bounds: WorldBBox,
+		scale: number,
+		transformIndex: number,
+	): RasterizedRenderSurface | null {
+		const batchContext = this.strokeRegistry?.getBatchContext();
+		if (!batchContext || element.type !== "path") return null;
+		const segments = element.segments ?? [];
+		if (segments.length === 0) return null;
+		const wet = settings.wet!;
+		const brushSize = Math.max(readStoredBrushSize(settings) ?? 10, 1);
+
+		const width = Math.max(1, Math.ceil(bounds.width * scale));
+		const height = Math.max(1, Math.ceil(bounds.height * scale));
+		const result = this.texturePool.acquireExact(
+			width,
+			height,
+			this.canvasFormat,
+			1,
+			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+			"Wet Appearance",
+		);
+		const clear = encoder.beginRenderPass({
+			label: "Wet Appearance Clear",
+			colorAttachments: [
+				{
+					view: result.createView(),
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+			],
+		});
+		clear.end();
+
+		const composedTransform =
+			this.viewportManager.getComposedTransformCache().get(element.id) ??
+			getTransform(element);
+		const effectBounds = applyTransformToBounds(
+			expandBounds(
+				calculatePathBounds({ ...element, segments, filters: [] }),
+				brushSize * (0.5 + wet.bleedRadius),
+			),
+			composedTransform,
+		);
+		const domain = resolveSimulationDomain(
+			effectBounds,
+			brushSize,
+			this.device.limits.maxTextureDimension2D,
+		);
+		const base = (id: BrushPropertyId): number =>
+			settings.properties[id]?.base ?? BRUSH_PROPERTY_REGISTRY[id].base;
+		// Coefficient targets clear to the stroke's own bases so texels no dab
+		// covers still carry sane coefficients; the fields clear to nothing.
+		const clearValues = [
+			{ r: 0, g: 0, b: 0, a: 0 },
+			{ r: 0, g: 0, b: 0, a: 0 },
+			{ r: 0, g: 0, b: 0, a: 0 },
+			{ r: base("absorption"), g: base("granulation"), b: 0, a: 0 },
+			{ r: base("bleedSoftness"), g: base("edgeDarkening"), b: 0, a: 0 },
+			{ r: base("edgeRoughness"), g: 0, b: 0, a: 0 },
+		];
+
+		this.wetLayerPass ??= new WetLayerPass(this.device, this.canvasFormat);
+		for (const tile of domain.tiles) {
+			const tileW = tile.textureSize.width;
+			const tileH = tile.textureSize.height;
+			if (tileW <= 0 || tileH <= 0) continue;
+
+			const seeds = WET_SEED_TARGETS.map((seedTarget, index) =>
+				this.texturePool.acquireExact(
+					tileW,
+					tileH,
+					seedTarget.format,
+					1,
+					GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+					`Wet Seed ${index}`,
+				),
+			);
+			const seedPass = encoder.beginRenderPass({
+				label: "Wet Layer Seed Pass",
+				colorAttachments: seeds.map((texture, index) => ({
+					view: texture.createView(),
+					clearValue: clearValues[index],
+					loadOp: "clear" as const,
+					storeOp: "store" as const,
+				})),
+			});
+
+			// Dabs draw in the domain's own space: one texel per domain pixel.
+			const entry = this.uniformScope.acquire(
+				{
+					x: tile.worldOrigin.x + (tileW * domain.worldPerPixel) / 2,
+					y: tile.worldOrigin.y - (tileH * domain.worldPerPixel) / 2,
+					zoom: 1 / domain.worldPerPixel,
+					rotation: 0,
+				},
+				tileW,
+				tileH,
+			);
+			batchContext.setActiveUniformBuffer(entry.buffer);
+			batchContext.renderWetSeedDabs({
+				passEncoder: seedPass,
+				path: element,
+				settings,
+				segments,
+				alphaMultiplier: 1,
+				transformsBindGroup: this.transformsBindGroup ?? undefined,
+				transformIndex,
+			});
+			batchContext.setActiveUniformBuffer(null);
+			seedPass.end();
+
+			this.wetLayerPass.apply(encoder, {
+				seeds: {
+					pigment: seeds[0],
+					fluidVelocity: seeds[1],
+					moisture: seeds[2],
+					absorptionGranulation: seeds[3],
+					softnessEdgeDarkening: seeds[4],
+					edgeRoughness: seeds[5],
+				},
+				domain: { width: tileW, height: tileH },
+				domainWorldOrigin: tile.worldOrigin,
+				domainWorldPerPixel: domain.worldPerPixel,
+				target: result.createView(),
+				targetResolution: { width, height },
+				targetWorldOrigin: { x: bounds.minX, y: bounds.maxY },
+				targetWorldPerPixel: 1 / scale,
+				brushRadiusPx: Math.max(brushSize * 0.5, 1) / domain.worldPerPixel,
+				bleedRadius: wet.bleedRadius,
+				pigmentLoad: wet.pigmentLoad,
+				grainScale: wet.grainScale,
+				randomSeed: settings.randomSeed,
+				paperGrain: base("grainAmount"),
+			});
+
+			for (const texture of seeds) this.offscreen.deferDestroy(texture);
+		}
+
+		return {
+			...createRenderSurface(
+				createFrameTextureRef(result, (texture) =>
+					this.offscreen.deferDestroy(texture),
+				),
+				{ kind: "world-aabb", bounds, uvRect: FULL_BLIT_UV_RECT },
+				{
+					role: "color",
+					alphaMode: "premultiplied",
+					opacityState: "intrinsic",
+				},
+			),
+			effectiveZoom: scale,
+		};
+	}
+
+	/** The v2 wet settings of a stroke appearance, or null. */
+	private static wetSettingsOf(appearance: Filter): BrushSettingsV2 | null {
+		if (appearance.processor !== "stroke") return null;
+		const raw = (appearance as StrokeAppearance).paramData.params.brushSettings;
+		if (raw == null) return null;
+		const route = resolveBrushRenderRoute(raw);
+		return route.kind === "dab-v2" && route.settings.wet?.enabled === true
+			? route.settings
+			: null;
 	}
 
 	private applyWetInkPasses(
