@@ -189,10 +189,7 @@ import {
 	replaceRenderSurface,
 } from "./pipeline/RenderSurface";
 import { RunBatcher } from "./pipeline/RunBatcher";
-import {
-	fixedRasterScaleForBrush,
-	resolveSimulationDomain,
-} from "./pipeline/rasterizationDomain";
+import { resolveSimulationDomain } from "./pipeline/rasterizationDomain";
 import { SoftProofPass } from "./pipeline/SoftProofPass";
 import { resolveStrokeStyle } from "./pipeline/stroke/resolveStrokeStyle";
 import type { StrokeEngineRegistry } from "./pipeline/stroke/StrokeEnginePicker";
@@ -4265,14 +4262,10 @@ export class CanvasLayer {
 			// the isolated texture; its opacity and strokeOpacity apply exactly
 			// once at composite time below.
 			const isWash = plan.washStrokeOpacity != null;
-			// Wet edge reads neighboring texels (erosion), so its appearance
-			// rasterizes at the fixed-R scale (appendix B-2) — a pure function
-			// of the brush size — instead of the viewport-derived rasterScale.
-			// The world-space blit onto the accumulator resamples it correctly.
-			const appearanceScale =
-				isWash && plan.washWetEdge != null
-					? fixedRasterScaleForBrush(plan.washBrushSize ?? 0)
-					: rasterScale;
+			// rasterScale is DPI-derived (zoom-free), so the wet edge's texel
+			// grid is already viewport-independent at this scale; a
+			// brush-derived fixed-R blowup produced multi-hundred-MB
+			// accumulators on large strokes.
 			// Virtual element with element-level pre-filters + per-appearance pre sub-filters + this single appearance
 			const virtualElement = {
 				...fp.element,
@@ -4291,7 +4284,7 @@ export class CanvasLayer {
 				virtualElement,
 				fp.textureBounds,
 				elementsMap,
-				appearanceScale,
+				rasterScale,
 			);
 			if (!appResult) continue;
 			const appTexture = appResult.texture.texture;
@@ -4450,7 +4443,12 @@ export class CanvasLayer {
 						maxV: 0.5 + accVHalf,
 					};
 
-		if (washCacheKey) {
+		// An entry bigger than a quarter of the budget would evict itself (or
+		// everything else) every frame — leave giants uncached.
+		const cacheable =
+			washCacheKey != null &&
+			accWidth * accHeight * 4 <= (384 * 1024 * 1024) / 4;
+		if (cacheable) {
 			const entry = {
 				key: washCacheKey,
 				texture: accTexture,
