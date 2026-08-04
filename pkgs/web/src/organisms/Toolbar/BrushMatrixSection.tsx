@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Slider } from "@/components/Slider";
 import { Switch } from "@/components/Switch";
+import { ToggleGroup } from "@/components/ToggleGroup";
 import {
 	BRUSH_PROPERTY_IDS,
 	BRUSH_PROPERTY_REGISTRY,
@@ -98,8 +99,55 @@ export const BrushMatrixSection = memo(function BrushMatrixSection({
 		},
 	);
 
+	const handleStrokeOpacityChange = useEventCallback(
+		(_key: string, value: number) => {
+			onChange({ ...settings, strokeOpacity: value });
+		},
+	);
+
+	const handlePaintModeChange = useEventCallback((value: string[]) => {
+		const mode = value[0];
+		if (mode !== "buildup" && mode !== "wash") return;
+		onChange({ ...settings, paintMode: mode });
+	});
+
 	return (
 		<div className="flex flex-col gap-2">
+			<div className="flex flex-col">
+				<PlainRow
+					label={t("toolbar.opacity")}
+					min={0}
+					max={1}
+					step={0.01}
+					value={settings.strokeOpacity}
+					valueKey="strokeOpacity"
+					onValueChange={handleStrokeOpacityChange}
+				/>
+				<div className="flex items-center gap-3 px-3 py-1.5">
+					<span className="w-20 shrink-0 truncate text-xs text-muted-foreground">
+						{t("toolbar.paintMode")}
+					</span>
+					<ToggleGroup.Root
+						value={[settings.paintMode]}
+						onValueChange={handlePaintModeChange}
+						disabled={wetEnabled}
+					>
+						<ToggleGroup.Item
+							value="buildup"
+							className="h-5 w-auto px-1.5 text-[10px]"
+						>
+							{t("toolbar.paintModeBuildup")}
+						</ToggleGroup.Item>
+						<ToggleGroup.Item
+							value="wash"
+							className="h-5 w-auto px-1.5 text-[10px]"
+						>
+							{t("toolbar.paintModeWash")}
+						</ToggleGroup.Item>
+					</ToggleGroup.Root>
+				</div>
+			</div>
+
 			{groupsForEngine(settings.engine).map((group) => (
 				<div key={group} className="flex flex-col">
 					<p className="px-3 py-1 text-[11px] font-medium text-muted-foreground">
@@ -116,114 +164,125 @@ export const BrushMatrixSection = memo(function BrushMatrixSection({
 				</div>
 			))}
 
-			<GatedSection
-				title={t("brushGroup.mixing")}
-				enabled={mixingEnabled}
-				onToggle={handleMixingToggle}
-			>
-				{propertiesOfGroup("mixing").map((propertyId) => (
-					<BrushPropertyRow
-						key={propertyId}
-						propertyId={propertyId}
-						config={settings.properties[propertyId]}
-						onChange={handlePropertyChange}
-					/>
-				))}
-				<PlainRow
-					label={t("toolbar.mixingSampleRadius")}
-					min={0.25}
-					max={4}
-					step={0.05}
-					value={
-						settings.mixing?.sampleRadius ?? DEFAULT_MIXING_CONFIG.sampleRadius
-					}
-					valueKey="sampleRadius"
-					onValueChange={handleMixingValueChange}
-				/>
-				<PlainRow
-					label={t("toolbar.mixingSampleTrail")}
-					min={-2}
-					max={2}
-					step={0.05}
-					value={
-						settings.mixing?.sampleTrail ?? DEFAULT_MIXING_CONFIG.sampleTrail
-					}
-					valueKey="sampleTrail"
-					onValueChange={handleMixingValueChange}
-				/>
-				<PlainRow
-					label={t("toolbar.mixingBlendStyle")}
-					min={0}
-					max={1}
-					step={0.01}
-					value={
-						settings.mixing?.blendStyle ?? DEFAULT_MIXING_CONFIG.blendStyle
-					}
-					valueKey="blendStyle"
-					onValueChange={handleMixingValueChange}
-				/>
-			</GatedSection>
+			{/* Only the dab engine runs the mix pass and the wet layer: the
+			    solid-line and ribbon renderers ignore both, so their switches
+			    would do nothing. */}
+			{settings.engine !== "dab" ? null : (
+				<>
+					<GatedSection
+						title={t("brushGroup.mixing")}
+						enabled={mixingEnabled}
+						onToggle={handleMixingToggle}
+					>
+						{propertiesOfGroup("mixing").map((propertyId) => (
+							<BrushPropertyRow
+								key={propertyId}
+								propertyId={propertyId}
+								config={settings.properties[propertyId]}
+								onChange={handlePropertyChange}
+							/>
+						))}
+						<PlainRow
+							label={t("toolbar.mixingSampleRadius")}
+							min={0.25}
+							max={4}
+							step={0.05}
+							value={
+								settings.mixing?.sampleRadius ??
+								DEFAULT_MIXING_CONFIG.sampleRadius
+							}
+							valueKey="sampleRadius"
+							onValueChange={handleMixingValueChange}
+						/>
+						<PlainRow
+							label={t("toolbar.mixingSampleTrail")}
+							min={-2}
+							max={2}
+							step={0.05}
+							value={
+								settings.mixing?.sampleTrail ??
+								DEFAULT_MIXING_CONFIG.sampleTrail
+							}
+							valueKey="sampleTrail"
+							onValueChange={handleMixingValueChange}
+						/>
+						<PlainRow
+							label={t("toolbar.mixingBlendStyle")}
+							min={0}
+							max={1}
+							step={0.01}
+							value={
+								settings.mixing?.blendStyle ?? DEFAULT_MIXING_CONFIG.blendStyle
+							}
+							valueKey="blendStyle"
+							onValueChange={handleMixingValueChange}
+						/>
+					</GatedSection>
 
-			<GatedSection
-				title={t("brushGroup.wet")}
-				enabled={wetEnabled}
-				onToggle={handleWetToggle}
-			>
-				<PlainRow
-					label={t("toolbar.wetMacroBleed")}
-					min={0}
-					max={1}
-					step={0.01}
-					value={readWetMacro(settings, "bleed")}
-					valueKey="bleed"
-					onValueChange={handleMacroChange}
-				/>
-				<PlainRow
-					label={t("toolbar.wetMacroDryness")}
-					min={0}
-					max={1}
-					step={0.01}
-					value={readWetMacro(settings, "dryness")}
-					valueKey="dryness"
-					onValueChange={handleMacroChange}
-				/>
-				<PlainRow
-					label={t("toolbar.wetMacroPaper")}
-					min={0}
-					max={1}
-					step={0.01}
-					value={readWetMacro(settings, "paper")}
-					valueKey="paper"
-					onValueChange={handleMacroChange}
-				/>
+					<GatedSection
+						title={t("brushGroup.wet")}
+						enabled={wetEnabled}
+						onToggle={handleWetToggle}
+					>
+						<PlainRow
+							label={t("toolbar.wetMacroBleed")}
+							min={0}
+							max={1}
+							step={0.01}
+							value={readWetMacro(settings, "bleed")}
+							valueKey="bleed"
+							onValueChange={handleMacroChange}
+						/>
+						<PlainRow
+							label={t("toolbar.wetMacroDryness")}
+							min={0}
+							max={1}
+							step={0.01}
+							value={readWetMacro(settings, "dryness")}
+							valueKey="dryness"
+							onValueChange={handleMacroChange}
+						/>
+						<PlainRow
+							label={t("toolbar.wetMacroPaper")}
+							min={0}
+							max={1}
+							step={0.01}
+							value={readWetMacro(settings, "paper")}
+							valueKey="paper"
+							onValueChange={handleMacroChange}
+						/>
 
-				{propertiesOfGroup("wet").map((propertyId) => (
-					<BrushPropertyRow
-						key={propertyId}
-						propertyId={propertyId}
-						config={settings.properties[propertyId]}
-						onChange={handlePropertyChange}
-					/>
-				))}
-				<PlainRow
-					label={t("toolbar.wetPigmentLoad")}
-					min={0}
-					max={2}
-					step={0.01}
-					value={settings.wet?.pigmentLoad ?? DEFAULT_WET_CONFIG.pigmentLoad}
-					valueKey="pigmentLoad"
-					onValueChange={handleWetValueChange}
-				/>
-				<PlainRow
-					label={t("toolbar.wetGrainScale")}
-					min={0.25}
-					max={4}
-					step={0.05}
-					value={settings.wet?.grainScale ?? DEFAULT_WET_CONFIG.grainScale}
-					valueKey="grainScale"
-					onValueChange={handleWetValueChange}
-				/>
-			</GatedSection>
+						{propertiesOfGroup("wet").map((propertyId) => (
+							<BrushPropertyRow
+								key={propertyId}
+								propertyId={propertyId}
+								config={settings.properties[propertyId]}
+								onChange={handlePropertyChange}
+							/>
+						))}
+						<PlainRow
+							label={t("toolbar.wetPigmentLoad")}
+							min={0}
+							max={2}
+							step={0.01}
+							value={
+								settings.wet?.pigmentLoad ?? DEFAULT_WET_CONFIG.pigmentLoad
+							}
+							valueKey="pigmentLoad"
+							onValueChange={handleWetValueChange}
+						/>
+						<PlainRow
+							label={t("toolbar.wetGrainScale")}
+							min={0.25}
+							max={4}
+							step={0.05}
+							value={settings.wet?.grainScale ?? DEFAULT_WET_CONFIG.grainScale}
+							valueKey="grainScale"
+							onValueChange={handleWetValueChange}
+						/>
+					</GatedSection>
+				</>
+			)}
 		</div>
 	);
 });

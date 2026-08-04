@@ -47,7 +47,6 @@ import type {
 import {
 	type BrushSettings,
 	type BrushSettingsV2,
-	DEFAULT_CALLIGRAPHY_SPACING,
 	isGeometricBrush,
 } from "@/core/schema";
 import { createBrushTextureFile } from "@/core/utils/embeddedFile";
@@ -804,26 +803,6 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 							</Tooltip>
 						</div>
 
-						<BrushSettingSlider
-							label={t("toolbar.size")}
-							valueLabel={brushSettings.size.toFixed(0)}
-							min={1}
-							max={100}
-							step={1}
-							value={brushSettings.size}
-							onValueChange={(value) => updateBrushSettings({ size: value })}
-						/>
-
-						<BrushSettingSlider
-							label={t("toolbar.opacity")}
-							valueLabel={`${Math.round(brushSettings.opacity * 100)}%`}
-							min={0}
-							max={1}
-							step={0.01}
-							value={brushSettings.opacity}
-							onValueChange={(value) => updateBrushSettings({ opacity: value })}
-						/>
-
 						{!brushSettings.isGeometric ? (
 							<>
 								{/* Color mode */}
@@ -880,64 +859,9 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 									</ToggleGroup.Root>
 								</div>
 
-								<BrushSettingSlider
-									label={t("toolbar.flow")}
-									valueLabel={`${Math.round(brushSettings.flow * 100)}%`}
-									min={0.1}
-									max={1}
-									step={0.01}
-									value={brushSettings.flow}
-									onValueChange={(value) =>
-										updateBrushSettings({ flow: value })
-									}
-								/>
-
-								<p className={twm(panelSectionHeadingClassName, "pt-1")}>
-									{t("toolbar.inputSection")}
-								</p>
-
-								<BrushSettingSlider
-									label={t("toolbar.pressureSize")}
-									valueLabel={`${Math.round(brushSettings.sizeByPressure * 100)}%`}
-									min={0}
-									max={1}
-									step={0.01}
-									value={brushSettings.sizeByPressure}
-									onValueChange={(value) =>
-										updateBrushSettings({ sizeByPressure: value })
-									}
-								/>
-
-								<BrushSettingSlider
-									label={t("toolbar.pressureOpacity")}
-									valueLabel={`${Math.round(brushSettings.opacityByPressure * 100)}%`}
-									min={0}
-									max={1}
-									step={0.01}
-									value={brushSettings.opacityByPressure}
-									onValueChange={(value) =>
-										updateBrushSettings({ opacityByPressure: value })
-									}
-								/>
-
 								{/* Stamp-specific settings */}
 								{(brushSettings.renderMode ?? "stamp") === "stamp" ? (
 									<>
-										{brushSettings.union.type === "scatter" ||
-										brushSettings.union.type === "calligraphy" ? (
-											<BrushSettingSlider
-												label={t("toolbar.spacing")}
-												valueLabel={`${Math.round(brushSettings.spacing * 100)}%`}
-												min={0.01}
-												max={0.5}
-												step={0.01}
-												value={brushSettings.spacing}
-												onValueChange={(value) =>
-													updateBrushSettings({ spacing: value })
-												}
-											/>
-										) : null}
-
 										{/* Scatter-only settings: these fields exist only on the
 										    scatter union member, so the sliders would be dead
 										    controls for other stamp brushes. */}
@@ -977,102 +901,8 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 														</ToggleGroup.Item>
 													</ToggleGroup.Root>
 												</div>
-
-												<BrushSettingSlider
-													label={t("toolbar.stampAngle")}
-													valueLabel={`${brushSettings.stampAngle ?? 0}°`}
-													min={-180}
-													max={180}
-													step={1}
-													value={brushSettings.stampAngle ?? 0}
-													onValueChange={(value) =>
-														updateBrushSettings({ stampAngle: value })
-													}
-												/>
-
-												<BrushSettingSlider
-													label={t("toolbar.tiltRotation")}
-													valueLabel={`${Math.round(brushSettings.rotationByTilt * 100)}%`}
-													min={0}
-													max={1}
-													step={0.01}
-													value={brushSettings.rotationByTilt}
-													onValueChange={(value) =>
-														updateBrushSettings({ rotationByTilt: value })
-													}
-												/>
-
-												<BrushSettingSlider
-													label={t("toolbar.tiltAspectRatio")}
-													valueLabel={`${Math.round(brushSettings.aspectRatioByTilt * 100)}%`}
-													min={0}
-													max={1}
-													step={0.01}
-													value={brushSettings.aspectRatioByTilt}
-													onValueChange={(value) =>
-														updateBrushSettings({ aspectRatioByTilt: value })
-													}
-												/>
 											</>
 										) : null}
-
-										<BrushSettingSlider
-											label={t("toolbar.speedSize")}
-											valueLabel={`${Math.round(brushSettings.sizeBySpeed * 100)}%`}
-											min={0}
-											max={1}
-											step={0.01}
-											value={brushSettings.sizeBySpeed}
-											onValueChange={(value) =>
-												updateBrushSettings({ sizeBySpeed: value })
-											}
-										/>
-
-										<p className={twm(panelSectionHeadingClassName, "pt-1")}>
-											{t("toolbar.compositeSection")}
-										</p>
-
-										<BrushSettingSlider
-											label={t("toolbar.pooling")}
-											valueLabel={`${Math.round(brushSettings.pooling * 100)}%`}
-											min={0}
-											max={1}
-											step={0.01}
-											value={brushSettings.pooling}
-											onValueChange={(value) =>
-												updateBrushSettings({ pooling: value })
-											}
-										/>
-
-										<div className="flex flex-col gap-1.5">
-											<div className="flex items-center justify-between">
-												<span className="text-xs text-muted-foreground">
-													{t("toolbar.poolingBalance")}
-												</span>
-												<span className="text-xs font-mono tabular-nums text-foreground">
-													{Math.round(brushSettings.poolingSizeRatio * 100)}%
-												</span>
-											</div>
-											<div className="flex items-center gap-2">
-												<span className="text-[10px] text-muted-foreground">
-													{t("toolbar.poolingBalanceOpacity")}
-												</span>
-												<Slider
-													min={0}
-													max={1}
-													step={0.01}
-													value={brushSettings.poolingSizeRatio}
-													onValueChange={(value) =>
-														updateBrushSettings({
-															poolingSizeRatio: value,
-														})
-													}
-												/>
-												<span className="text-[10px] text-muted-foreground">
-													{t("toolbar.poolingBalanceSize")}
-												</span>
-											</div>
-										</div>
 
 										{brushSettings.union.type === "scatter" ? (
 											<>
@@ -1135,31 +965,6 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 														</span>
 													)}
 												</div>
-
-												<BrushSettingSlider
-													label={t("toolbar.scatterOffset")}
-													valueLabel={`${Math.round((brushSettings.scatterOffset ?? 0) * 100)}%`}
-													min={0}
-													max={1}
-													step={0.01}
-													value={brushSettings.scatterOffset ?? 0}
-													onValueChange={(value) =>
-														updateBrushSettings({ scatterOffset: value })
-													}
-												/>
-												<BrushSettingSlider
-													label={t("toolbar.scatterSizeVariation")}
-													valueLabel={`${Math.round((brushSettings.scatterSizeVariation ?? 0) * 100)}%`}
-													min={0}
-													max={1}
-													step={0.01}
-													value={brushSettings.scatterSizeVariation ?? 0}
-													onValueChange={(value) =>
-														updateBrushSettings({
-															scatterSizeVariation: value,
-														})
-													}
-												/>
 
 												{/* Start / End textures */}
 												<div className="flex gap-2">
@@ -1829,22 +1634,9 @@ type FlatBrushView = {
 	union: BrushSettings;
 	isGeometric: boolean;
 	size: number;
-	opacity: number;
-	sizeByPressure: number;
-	opacityByPressure: number;
 	colorMode: BrushColorMode | undefined;
 	textureFileUid: string;
-	spacing: number;
-	flow: number;
 	stampRotation: StampRotation;
-	stampAngle: number | undefined;
-	rotationByTilt: number;
-	aspectRatioByTilt: number;
-	sizeBySpeed: number;
-	pooling: number;
-	poolingSizeRatio: number;
-	scatterOffset: number | undefined;
-	scatterSizeVariation: number | undefined;
 	scatterTextureUids: string[] | undefined;
 	startTextureUid: string | undefined;
 	endTextureUid: string | undefined;
@@ -1857,21 +1649,8 @@ type FlatBrushView = {
 
 type FlatBrushPatch = Partial<{
 	size: number;
-	opacity: number;
-	sizeByPressure: number;
-	opacityByPressure: number;
 	colorMode: BrushColorMode;
-	spacing: number;
-	flow: number;
 	stampRotation: StampRotation;
-	stampAngle: number;
-	rotationByTilt: number;
-	aspectRatioByTilt: number;
-	sizeBySpeed: number;
-	pooling: number;
-	poolingSizeRatio: number;
-	scatterOffset: number;
-	scatterSizeVariation: number;
 	scatterTextureUids: string[];
 	startTextureUid: string | undefined;
 	endTextureUid: string | undefined;
@@ -1900,32 +1679,9 @@ function toFlatBrushView(raw: unknown): FlatBrushView {
 		union: u,
 		isGeometric: isGeometricBrush(u),
 		size: u.size,
-		opacity: u.opacity,
-		sizeByPressure: u.sizeByPressure,
-		opacityByPressure: u.opacityByPressure,
 		colorMode: u.colorMode,
 		textureFileUid: resolveBrushTextureUid(u) ?? "",
-		spacing:
-			u.type === "scatter"
-				? u.spacing
-				: u.type === "calligraphy"
-					? (u.spacing ?? DEFAULT_CALLIGRAPHY_SPACING)
-					: 0.1,
-		flow: "flow" in u ? u.flow : 1,
 		stampRotation: u.type === "scatter" ? u.stampRotation : "none",
-		stampAngle: u.type === "scatter" ? u.stampAngle : undefined,
-		rotationByTilt: u.type === "scatter" ? u.rotationByTilt : 0,
-		aspectRatioByTilt: u.type === "scatter" ? u.aspectRatioByTilt : 0,
-		sizeBySpeed:
-			u.type === "scatter" || u.type === "calligraphy" ? u.sizeBySpeed : 0,
-		pooling: u.type === "scatter" || u.type === "calligraphy" ? u.pooling : 0,
-		poolingSizeRatio:
-			u.type === "scatter" || u.type === "calligraphy"
-				? u.poolingSizeRatio
-				: 0.5,
-		scatterOffset: u.type === "scatter" ? u.scatterOffset : undefined,
-		scatterSizeVariation:
-			u.type === "scatter" ? u.scatterSizeVariation : undefined,
 		scatterTextureUids:
 			u.type === "scatter"
 				? resolveScatterSourceUids(u.scatterSources)
@@ -1959,18 +1715,7 @@ function applyFlatPatch(
 
 	// Base fields exist on every union member.
 	if (patch.size !== undefined) next.size = patch.size;
-	if (patch.opacity !== undefined) next.opacity = patch.opacity;
-	if (patch.sizeByPressure !== undefined)
-		next.sizeByPressure = patch.sizeByPressure;
-	if (patch.opacityByPressure !== undefined)
-		next.opacityByPressure = patch.opacityByPressure;
 	if (patch.colorMode !== undefined) next.colorMode = patch.colorMode;
-
-	// Fields that carry flow (scatter/art/pattern/calligraphy) — `in`
-	// narrows `next` to the flow-carrying union members, no cast needed.
-	if (patch.flow !== undefined && "flow" in next) {
-		next.flow = patch.flow;
-	}
 
 	if (next.type === "pattern") {
 		if (patch.ribbonStretch !== undefined)
@@ -1981,15 +1726,6 @@ function applyFlatPatch(
 	if (next.type === "scatter") {
 		if (patch.stampRotation !== undefined)
 			next.stampRotation = patch.stampRotation;
-		if (patch.stampAngle !== undefined) next.stampAngle = patch.stampAngle;
-		if (patch.rotationByTilt !== undefined)
-			next.rotationByTilt = patch.rotationByTilt;
-		if (patch.aspectRatioByTilt !== undefined)
-			next.aspectRatioByTilt = patch.aspectRatioByTilt;
-		if (patch.scatterOffset !== undefined)
-			next.scatterOffset = patch.scatterOffset;
-		if (patch.scatterSizeVariation !== undefined)
-			next.scatterSizeVariation = patch.scatterSizeVariation;
 		if (patch.scatterTextureUids !== undefined) {
 			next.scatterSources =
 				patch.scatterTextureUids.length > 0
@@ -2006,15 +1742,6 @@ function applyFlatPatch(
 				? toFileSource(patch.endTextureUid)
 				: undefined;
 		}
-	}
-
-	// spacing / sizeBySpeed / pooling / poolingSizeRatio / wetInk live on scatter and calligraphy.
-	if (next.type === "scatter" || next.type === "calligraphy") {
-		if (patch.spacing !== undefined) next.spacing = patch.spacing;
-		if (patch.sizeBySpeed !== undefined) next.sizeBySpeed = patch.sizeBySpeed;
-		if (patch.pooling !== undefined) next.pooling = patch.pooling;
-		if (patch.poolingSizeRatio !== undefined)
-			next.poolingSizeRatio = patch.poolingSizeRatio;
 	}
 
 	if (next.type === "stroke") {

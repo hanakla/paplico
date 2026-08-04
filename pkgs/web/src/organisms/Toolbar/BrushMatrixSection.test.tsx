@@ -78,6 +78,25 @@ describe("BrushMatrixSection", () => {
 		});
 	});
 
+	it("should not offer watercolour or mixing to engines that ignore them", () => {
+		for (const engine of ["ribbon", "geometric"] as const) {
+			const settings = dabBrush();
+			settings.engine = engine;
+
+			const { unmount } = render(
+				<BrushMatrixSection settings={settings} onChange={vi.fn()} />,
+			);
+
+			expect(screen.queryByRole("switch", { name: "Watercolour" })).toBeNull();
+			expect(
+				screen.queryByRole("switch", {
+					name: "Mixing with what is underneath",
+				}),
+			).toBeNull();
+			unmount();
+		}
+	});
+
 	it("should not offer tip properties for a brush that has no tip", () => {
 		const settings = dabBrush();
 		settings.engine = "ribbon";
