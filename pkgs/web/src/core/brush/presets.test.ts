@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { type BrushPreset, hasWetInk } from "../schema";
+import { type BrushPreset, type BrushSettingsV2, hasWetInk } from "../schema";
+import { normalizeBrushSettingsV2 } from "./migrate";
 import { normalizeBrushSettings } from "./normalize";
 import { createBuiltinBrushPresets } from "./presets";
 
@@ -15,9 +16,12 @@ describe("createBuiltinBrushPresets", () => {
 		expect(new Set(uids).size).toBe(uids.length);
 	});
 
-	it("should author settings that survive normalizeBrushSettings unchanged", () => {
+	it("should author settings that survive normalization unchanged", () => {
 		for (const preset of createBuiltinBrushPresets()) {
-			expect(normalizeBrushSettings(preset.settings)).toEqual(preset.settings);
+			const normalized = isV2(preset.settings)
+				? normalizeBrushSettingsV2(preset.settings)
+				: normalizeBrushSettings(preset.settings);
+			expect(normalized, preset.uid).toEqual(preset.settings);
 		}
 	});
 
@@ -48,6 +52,15 @@ describe("createBuiltinBrushPresets", () => {
 
 	it("should set speed→size influence to 0.5 on every stamp-based preset", () => {
 		for (const preset of createBuiltinBrushPresets()) {
+			if (isV2(preset.settings)) {
+				if (preset.settings.engine !== "dab") continue;
+				const speedCurve = preset.settings.properties.size?.curves?.find(
+					(curve) => curve.input === "speedFine",
+				);
+				expect(speedCurve?.points.at(-1), preset.uid).toEqual([1, -0.5]);
+				continue;
+			}
+
 			const settings = asV1Settings(preset.settings);
 			if (settings.type !== "scatter" && settings.type !== "calligraphy")
 				continue;
@@ -55,6 +68,10 @@ describe("createBuiltinBrushPresets", () => {
 		}
 	});
 });
+
+function isV2(settings: BrushPreset["settings"]): settings is BrushSettingsV2 {
+	return "version" in settings && settings.version === 2;
+}
 
 function findPreset(presets: BrushPreset[], uid: string): BrushPreset {
 	const preset = presets.find((p) => p.uid === uid);

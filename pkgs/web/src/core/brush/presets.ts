@@ -417,6 +417,69 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 		}),
 	};
 
+	// Picks up whatever is already on the layer and drags it along, the way a
+	// damp brush moves paint around. Written against the v2 engine directly:
+	// the pickup amount rides on pressure, which the v1 shape cannot express.
+	const mixingBrush: BrushPreset = {
+		uid: "builtin-brush-mixing",
+		name: "Mixing Brush",
+		category: "watercolor",
+		settings: {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "wash",
+			properties: {
+				size: {
+					base: 28,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.4],
+								[1, 0],
+							],
+						},
+						// Same speed thinning the stamp-based builtins carry.
+						{
+							input: "speedFine",
+							points: [
+								[0, 0],
+								[1, -0.5],
+							],
+						},
+					],
+				},
+				spacing: { base: 0.05 },
+				flow: { base: 0.5 },
+				hardness: { base: 0.35 },
+				colorRate: {
+					base: 0.75,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.5],
+								[1, 0],
+							],
+						},
+					],
+				},
+				alphaRate: { base: 0.4 },
+				smudgeLength: { base: 0.7 },
+			},
+			tip: { kind: "procedural", hardness: 0.35, angleMode: "fixed" },
+			mixing: {
+				enabled: true,
+				mode: "dulling",
+				sampleRadius: 1.2,
+				sampleTrail: 1,
+				blendStyle: 0.35,
+			},
+			randomSeed: 41,
+		},
+	};
+
 	return [
 		...builtins,
 		watercolour,
@@ -426,6 +489,7 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 		marker,
 		ink,
 		softAirbrush,
+		mixingBrush,
 	];
 }
 

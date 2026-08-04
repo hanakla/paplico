@@ -1,0 +1,106 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
+import type { BrushSettingsV2 } from "@/core/schema";
+import { setLanguage } from "@/hooks/useAppConfig";
+import { BrushMatrixSection } from "./BrushMatrixSection";
+
+/**
+ * What someone can do to a brush from the panel: switch watercolour or
+ * mixing on, drag a base value, and hang an input on a property. Each of
+ * those must leave everything they did not touch alone.
+ */
+describe("BrushMatrixSection", () => {
+	beforeEach(() => {
+		setLanguage("en");
+	});
+
+	it("should keep the watercolour settings hidden until it is switched on", () => {
+		render(<BrushMatrixSection settings={dabBrush()} onChange={vi.fn()} />);
+
+		expect(screen.queryByText("Wetness")).toBeNull();
+
+		fireEvent.click(switchOf("Watercolour"));
+
+		// The section only re-renders once the caller feeds the change back,
+		// so what the click produced is what the caller was handed.
+		expect(screen.queryByText("Wetness")).toBeNull();
+	});
+
+	it("should paint a wet stroke as one wash when watercolour is switched on", () => {
+		const onChange = vi.fn();
+		const settings = dabBrush();
+		settings.paintMode = "buildup";
+		render(<BrushMatrixSection settings={settings} onChange={onChange} />);
+
+		fireEvent.click(switchOf("Watercolour"));
+
+		const next: BrushSettingsV2 = onChange.mock.calls[0][0];
+		expect(next.wet?.enabled).toBe(true);
+		expect(next.paintMode).toBe("wash");
+	});
+
+	it("should show the watercolour properties once it is on", () => {
+		const settings = dabBrush();
+		settings.wet = {
+			enabled: true,
+			bleedRadius: 0.5,
+			pigmentLoad: 0.85,
+			grainScale: 1,
+		};
+
+		render(<BrushMatrixSection settings={settings} onChange={vi.fn()} />);
+
+		expect(screen.getByText("Wetness")).toBeTruthy();
+		expect(screen.getByText("Bleed")).toBeTruthy();
+	});
+
+	it("should keep the mixing settings when it is switched off", () => {
+		const onChange = vi.fn();
+		const settings = dabBrush();
+		settings.mixing = {
+			enabled: true,
+			mode: "dulling",
+			sampleRadius: 2,
+			sampleTrail: 1,
+			blendStyle: 0.5,
+		};
+		render(<BrushMatrixSection settings={settings} onChange={onChange} />);
+
+		fireEvent.click(switchOf("Mixing with what is underneath"));
+
+		const next: BrushSettingsV2 = onChange.mock.calls[0][0];
+		expect(next.mixing).toEqual({
+			enabled: false,
+			mode: "dulling",
+			sampleRadius: 2,
+			sampleTrail: 1,
+			blendStyle: 0.5,
+		});
+	});
+
+	it("should not offer tip properties for a brush that has no tip", () => {
+		const settings = dabBrush();
+		settings.engine = "ribbon";
+
+		render(<BrushMatrixSection settings={settings} onChange={vi.fn()} />);
+
+		expect(screen.queryByText("Hardness")).toBeNull();
+		expect(screen.getByText("Size")).toBeTruthy();
+	});
+});
+
+function switchOf(sectionTitle: string): HTMLElement {
+	return screen.getByRole("switch", { name: sectionTitle });
+}
+
+function dabBrush(): BrushSettingsV2 {
+	return normalizeBrushSettingsV2({
+		version: 2,
+		engine: "dab",
+		strokeOpacity: 1,
+		paintMode: "wash",
+		properties: { size: { base: 24 } },
+		tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+		randomSeed: 3,
+	});
+}

@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
-import { Accordion } from "@/components/Accordion";
 import { Button } from "@/components/Button";
 import { DashPatternControls } from "@/components/DashPatternControls";
 import { FakeInput } from "@/components/FakeInput";
@@ -19,7 +18,6 @@ import { IconButton } from "@/components/IconButton";
 import { Select } from "@/components/Select";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { InfiniteSlider, Slider } from "@/components/Slider";
-import { Switch } from "@/components/Switch";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
@@ -28,8 +26,8 @@ import {
 	resolveOptionalSourceUid,
 	resolveScatterSourceUids,
 } from "@/core/brush/brushSource";
+import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import { normalizeBrushSettings } from "@/core/brush/normalize";
-import { applyWetInkMacro, readWetInkMacro } from "@/core/brush/wetInkMacros";
 import { createStrokeBrushSettings } from "@/core/document/factory";
 import type {
 	BrushArtSource,
@@ -45,19 +43,11 @@ import type {
 	PatternBrushSettings,
 	ScatterBrushSettings,
 	StampRotation,
-	WetInkSettings,
 } from "@/core/schema";
 import {
 	type BrushSettings,
 	type BrushSettingsV2,
 	DEFAULT_CALLIGRAPHY_SPACING,
-	DEFAULT_WET_INK_ABSORPTION,
-	DEFAULT_WET_INK_DIFFUSION,
-	DEFAULT_WET_INK_GRANULATION,
-	DEFAULT_WET_INK_PICKUP_DECAY,
-	DEFAULT_WET_INK_PICKUP_STRENGTH,
-	DEFAULT_WET_INK_PICKUP_UNDERLYING_COLOR,
-	DEFAULT_WET_INK_PIGMENT_LOAD,
 	isGeometricBrush,
 } from "@/core/schema";
 import { createBrushTextureFile } from "@/core/utils/embeddedFile";
@@ -73,6 +63,7 @@ import {
 } from "@/stores/uiStore";
 import { useAsyncEffect, useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
+import { BrushMatrixSection } from "./BrushMatrixSection";
 
 function useSyncBrushSettingsWithSelection(): void {
 	const paplico = usePaplico();
@@ -458,6 +449,22 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 	const updateBrushSettings = useEventCallback((patch: FlatBrushPatch) => {
 		setSelectedBrushPresetUid(null);
 		tools.setBrushSettings(applyFlatPatch(tools.brushSettings, patch));
+	});
+
+	// The curve matrix edits the stored settings themselves: the flat view
+	// above can only express what a v1 brush had, so anything it does not
+	// carry would be dropped by a round trip through it.
+	const matrixSettings = useMemo(
+		() =>
+			normalizeBrushSettingsV2(
+				snap.strokeAppearance?.paramData.params.brushSettings,
+			),
+		[snap.strokeAppearance?.paramData.params.brushSettings],
+	);
+
+	const handleMatrixChange = useEventCallback((next: BrushSettingsV2) => {
+		setSelectedBrushPresetUid(null);
+		tools.setBrushSettings(next);
 	});
 
 	const handleStrokingChange = useEventCallback(
@@ -1201,11 +1208,6 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 												</div>
 											</>
 										) : null}
-
-										<WetInkSection
-											wetInk={brushSettings.wetInk}
-											onChange={(next) => updateBrushSettings({ wetInk: next })}
-										/>
 									</>
 								) : null}
 
@@ -1314,6 +1316,15 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 								/>
 							</>
 						)}
+
+						<p className={twm(panelSectionHeadingClassName, "pt-1")}>
+							{t("toolbar.brushResponse")}
+						</p>
+
+						<BrushMatrixSection
+							settings={matrixSettings}
+							onChange={handleMatrixChange}
+						/>
 					</div>
 				</div>
 			</div>
@@ -1521,284 +1532,6 @@ export const BrushSettingSlider = memo(function BrushSettingSlider({
 				value={value}
 				onValueChange={onValueChange}
 			/>
-		</div>
-	);
-});
-
-/**
- * Wet-ink controls. Visible inside the stamp brush panel (scatter +
- * calligraphy). When disabled, hasWetInk() returns false and the wet-ink
- * pass is skipped, leaving rendering pixel-identical to the dry case.
- */
-const DEFAULT_WET_INK: WetInkSettings = {
-	enabled: true,
-	bleedWidth: 0.5,
-	edgeDarkening: 0.4,
-	edgeRoughness: 0.3,
-	paperGrain: 0.2,
-	paperScale: 1,
-	directionality: 0.4,
-	speedInfluence: 0.5,
-	accelInfluence: 0.3,
-	wetness: 0.7,
-	diffusion: DEFAULT_WET_INK_DIFFUSION,
-	pigmentLoad: DEFAULT_WET_INK_PIGMENT_LOAD,
-	absorption: DEFAULT_WET_INK_ABSORPTION,
-	granulation: DEFAULT_WET_INK_GRANULATION,
-	pickupUnderlyingColor: DEFAULT_WET_INK_PICKUP_UNDERLYING_COLOR,
-	pickupStrength: DEFAULT_WET_INK_PICKUP_STRENGTH,
-	pickupDecay: DEFAULT_WET_INK_PICKUP_DECAY,
-	pickupBlendMode: 0,
-};
-
-export const WetInkSection = memo(function WetInkSection({
-	wetInk,
-	onChange,
-}: {
-	wetInk: WetInkSettings | undefined;
-	onChange: (next: WetInkSettings | undefined) => void;
-}) {
-	const t = useTranslation();
-	const current = wetInk ? { ...DEFAULT_WET_INK, ...wetInk } : DEFAULT_WET_INK;
-	const enabled = wetInk?.enabled === true;
-	const set = (patch: Partial<WetInkSettings>) => {
-		onChange({ ...current, ...patch, enabled: patch.enabled ?? enabled });
-	};
-
-	const handleMacroBleedChange = useEventCallback((value: number) => {
-		onChange(applyWetInkMacro(current, "bleed", value));
-	});
-	const handleMacroDrynessChange = useEventCallback((value: number) => {
-		onChange(applyWetInkMacro(current, "dryness", value));
-	});
-	const handleMacroPaperChange = useEventCallback((value: number) => {
-		onChange(applyWetInkMacro(current, "paper", value));
-	});
-
-	const macroBleed = readWetInkMacro(current, "bleed");
-	const macroDryness = readWetInkMacro(current, "dryness");
-	const macroPaper = readWetInkMacro(current, "paper");
-
-	return (
-		<div className="flex flex-col gap-2 rounded-md border border-border/40 p-2">
-			<div className="flex items-center justify-between">
-				<span className="text-xs font-medium text-foreground">
-					{t("toolbar.wetInk")}
-				</span>
-				<Switch
-					checked={enabled}
-					onCheckedChange={(checked) => set({ enabled: checked })}
-				/>
-			</div>
-			{enabled ? (
-				<>
-					<BrushSettingSlider
-						label={t("toolbar.wetInkMacroBleed")}
-						valueLabel={`${Math.round(macroBleed * 100)}%`}
-						min={0}
-						max={1}
-						step={0.01}
-						value={macroBleed}
-						onValueChange={handleMacroBleedChange}
-					/>
-					<BrushSettingSlider
-						label={t("toolbar.wetInkMacroDryness")}
-						valueLabel={`${Math.round(macroDryness * 100)}%`}
-						min={0}
-						max={1}
-						step={0.01}
-						value={macroDryness}
-						onValueChange={handleMacroDrynessChange}
-					/>
-					<BrushSettingSlider
-						label={t("toolbar.wetInkMacroPaper")}
-						valueLabel={`${Math.round(macroPaper * 100)}%`}
-						min={0}
-						max={1}
-						step={0.01}
-						value={macroPaper}
-						onValueChange={handleMacroPaperChange}
-					/>
-					<Accordion.Root>
-						<Accordion.Item value="advanced">
-							<Accordion.Header className="m-0">
-								<Accordion.Trigger className="group flex items-center justify-between rounded-md px-1 py-1 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.04]">
-									<span>{t("toolbar.wetInkAdvanced")}</span>
-									<ChevronDown
-										size={14}
-										className="shrink-0 transition-transform group-data-panel-open:rotate-180"
-									/>
-								</Accordion.Trigger>
-							</Accordion.Header>
-							<Accordion.Panel>
-								<div className="flex flex-col gap-2 pt-2">
-									<BrushSettingSlider
-										label={t("toolbar.wetInkBleedWidth")}
-										valueLabel={`${Math.round(current.bleedWidth * 100)}%`}
-										min={0}
-										max={1}
-										step={0.01}
-										value={current.bleedWidth}
-										onValueChange={(v) => set({ bleedWidth: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkEdgeDarkening")}
-										valueLabel={`${Math.round(current.edgeDarkening * 100)}%`}
-										min={0}
-										max={1}
-										step={0.01}
-										value={current.edgeDarkening}
-										onValueChange={(v) => set({ edgeDarkening: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkEdgeRoughness")}
-										valueLabel={`${Math.round(current.edgeRoughness * 100)}%`}
-										min={0}
-										max={1}
-										step={0.01}
-										value={current.edgeRoughness}
-										onValueChange={(v) => set({ edgeRoughness: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkPaperGrain")}
-										valueLabel={`${Math.round(current.paperGrain * 100)}%`}
-										min={0}
-										max={1}
-										step={0.01}
-										value={current.paperGrain}
-										onValueChange={(v) => set({ paperGrain: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkPaperScale")}
-										valueLabel={current.paperScale.toFixed(2)}
-										min={0.1}
-										max={5}
-										step={0.05}
-										value={current.paperScale}
-										onValueChange={(v) => set({ paperScale: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkDirectionality")}
-										valueLabel={`${Math.round(current.directionality * 100)}%`}
-										min={0}
-										max={1}
-										step={0.01}
-										value={current.directionality}
-										onValueChange={(v) => set({ directionality: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkSpeedInfluence")}
-										valueLabel={`${Math.round(current.speedInfluence * 100)}%`}
-										min={0}
-										max={1}
-										step={0.01}
-										value={current.speedInfluence}
-										onValueChange={(v) => set({ speedInfluence: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkAccelInfluence")}
-										valueLabel={`${Math.round(current.accelInfluence * 100)}%`}
-										min={0}
-										max={1}
-										step={0.01}
-										value={current.accelInfluence}
-										onValueChange={(v) => set({ accelInfluence: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkWetness")}
-										valueLabel={`${Math.round(current.wetness * 100)}%`}
-										min={0}
-										max={1}
-										step={0.01}
-										value={current.wetness}
-										onValueChange={(v) => set({ wetness: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkDiffusion")}
-										valueLabel={`${Math.round((current.diffusion ?? 0) * 100)}%`}
-										min={0}
-										max={1}
-										step={0.01}
-										value={current.diffusion ?? 0}
-										onValueChange={(v) => set({ diffusion: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkPigmentLoad")}
-										valueLabel={`${Math.round(current.pigmentLoad * 100)}%`}
-										min={0}
-										max={2}
-										step={0.01}
-										value={current.pigmentLoad}
-										onValueChange={(v) => set({ pigmentLoad: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkAbsorption")}
-										valueLabel={`${Math.round(current.absorption * 100)}%`}
-										min={0}
-										max={1}
-										step={0.01}
-										value={current.absorption}
-										onValueChange={(v) => set({ absorption: v })}
-									/>
-									<BrushSettingSlider
-										label={t("toolbar.wetInkGranulation")}
-										valueLabel={`${Math.round(current.granulation * 100)}%`}
-										min={0}
-										max={1}
-										step={0.01}
-										value={current.granulation}
-										onValueChange={(v) => set({ granulation: v })}
-									/>
-									<div className="flex items-center justify-between gap-2">
-										<span className="text-xs text-muted-foreground">
-											{t("toolbar.wetInkPickupUnderlyingColor")}
-										</span>
-										<Switch
-											checked={current.pickupUnderlyingColor}
-											onCheckedChange={(checked) =>
-												set({ pickupUnderlyingColor: checked })
-											}
-										/>
-									</div>
-									{current.pickupUnderlyingColor ? (
-										<>
-											<BrushSettingSlider
-												label={t("toolbar.wetInkPickupStrength")}
-												valueLabel={`${Math.round(current.pickupStrength * 100)}%`}
-												min={0}
-												max={1}
-												step={0.01}
-												value={current.pickupStrength}
-												onValueChange={(v) => set({ pickupStrength: v })}
-											/>
-											<BrushSettingSlider
-												label={t("toolbar.wetInkPickupDecay")}
-												valueLabel={`${((current.pickupDecay ?? DEFAULT_WET_INK_PICKUP_DECAY) * 100).toFixed(0)}%`}
-												min={-2}
-												max={2}
-												step={0.01}
-												value={
-													current.pickupDecay ?? DEFAULT_WET_INK_PICKUP_DECAY
-												}
-												onValueChange={(v) => set({ pickupDecay: v })}
-											/>
-											<BrushSettingSlider
-												label={t("toolbar.wetInkPickupBlendMode")}
-												valueLabel={`${t("toolbar.wetInkPickupBlendVivid")} — ${t("toolbar.wetInkPickupBlendSoft")}`}
-												min={0}
-												max={1}
-												step={0.01}
-												value={current.pickupBlendMode ?? 0}
-												onValueChange={(v) => set({ pickupBlendMode: v })}
-											/>
-										</>
-									) : null}
-								</div>
-							</Accordion.Panel>
-						</Accordion.Item>
-					</Accordion.Root>
-				</>
-			) : null}
 		</div>
 	);
 });
@@ -2118,7 +1851,6 @@ type FlatBrushView = {
 	renderMode: "stamp" | "ribbon";
 	ribbonStretch: number;
 	ribbonOffset: number;
-	wetInk: WetInkSettings | undefined;
 	lineCap: LineCap;
 	lineJoin: LineJoin;
 };
@@ -2146,7 +1878,6 @@ type FlatBrushPatch = Partial<{
 	renderMode: "stamp" | "ribbon";
 	ribbonStretch: number;
 	ribbonOffset: number;
-	wetInk: WetInkSettings | undefined;
 	lineCap: LineCap;
 	lineJoin: LineJoin;
 	stroking: Partial<BrushStroking>;
@@ -2208,8 +1939,6 @@ function toFlatBrushView(raw: unknown): FlatBrushView {
 		renderMode: u.type === "pattern" ? "ribbon" : "stamp",
 		ribbonStretch: u.type === "pattern" ? u.tileScale - 1 : 0,
 		ribbonOffset: u.type === "pattern" ? (u.uvOffset ?? 0) : 0,
-		wetInk:
-			u.type === "scatter" || u.type === "calligraphy" ? u.wetInk : undefined,
 		lineCap: u.type === "stroke" ? (u.stroking?.lineCap ?? "round") : "round",
 		lineJoin: u.type === "stroke" ? (u.stroking?.lineJoin ?? "round") : "round",
 	};
@@ -2286,7 +2015,6 @@ function applyFlatPatch(
 		if (patch.pooling !== undefined) next.pooling = patch.pooling;
 		if (patch.poolingSizeRatio !== undefined)
 			next.poolingSizeRatio = patch.poolingSizeRatio;
-		if (patch.wetInk !== undefined) next.wetInk = patch.wetInk;
 	}
 
 	if (next.type === "stroke") {
