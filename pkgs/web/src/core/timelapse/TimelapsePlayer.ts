@@ -185,15 +185,6 @@ export class TimelapsePlayer {
 		this.emitState();
 	}
 
-	/**
-	 * Seek and hand back the frame without emitting it, for the exporter which
-	 * drives its own render loop.
-	 */
-	public captureFrameAt(visibleIndex: number): Document {
-		this.seekInternal(visibleIndex);
-		return this.consumeFrame();
-	}
-
 	/** The finished artwork, used as the first frame of an export. */
 	public captureCompletedFrame(): Document {
 		return this.buildCompletedDocument();
