@@ -223,6 +223,7 @@ export const en = {
 		brushCategoryAirbrush: "Airbrush",
 		brushCategoryWatercolor: "Watercolor",
 		brushCategoryCalligraphy: "Calligraphy",
+		brushCategoryEffect: "Effects",
 		brushCategoryOther: "Other",
 		factoryPreset: "Factory",
 		savedPreset: "Saved",

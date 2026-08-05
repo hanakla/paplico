@@ -1912,7 +1912,8 @@ export type BrushPresetCategory =
 	| "pen"
 	| "airbrush"
 	| "watercolor"
-	| "calligraphy";
+	| "calligraphy"
+	| "effect";
 
 export interface BrushPreset {
 	uid: string;

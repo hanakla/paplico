@@ -8,6 +8,7 @@
 
 import { airBrush, pencil } from "../assets";
 import {
+	type BrushCurve,
 	type BrushPreset,
 	type BrushPresetCategory,
 	type BrushSettings,
@@ -131,6 +132,17 @@ export const BRUSH_PRESETS: Record<BuiltinBrushId, BrushSettings> = {
 		flow: 0.4,
 	}),
 };
+
+/** Shelf order of the builtin preset list. A preset whose category is not
+ *  here never reaches the panel, so the preset tests assert against it. */
+export const BUILTIN_PRESET_CATEGORY_ORDER = [
+	"pen",
+	"airbrush",
+	"watercolor",
+	"calligraphy",
+	"effect",
+	"other",
+] as const;
 
 // -- Public API --------------------------------------------------------------
 
@@ -440,14 +452,7 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 								[1, 0],
 							],
 						},
-						// Same speed thinning the stamp-based builtins carry.
-						{
-							input: "speedFine",
-							points: [
-								[0, 0],
-								[1, -0.5],
-							],
-						},
+						speedThinning(),
 					],
 				},
 				spacing: { base: 0.05 },
@@ -480,6 +485,104 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 		},
 	};
 
+	// Softens what is already on the layer instead of adding paint: each dab
+	// takes the average colour under its own footprint, so a dense trail of
+	// wide-footprint dabs reads as a blur that deepens as it is gone over
+	// again. Paint amount stays at zero — any of the brush's own colour would
+	// tint the very thing it smooths.
+	const blur: BrushPreset = {
+		uid: "builtin-brush-blur",
+		name: "Blur",
+		category: "effect",
+		settings: {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				size: {
+					base: 40,
+					curves: [speedThinning()],
+				},
+				spacing: { base: 0.03 },
+				hardness: { base: 0.4 },
+				flow: {
+					base: 0.7,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.6],
+								[1, 0],
+							],
+						},
+					],
+				},
+				colorRate: { base: 0 },
+				alphaRate: { base: 0 },
+				smudgeLength: { base: 0.15 },
+			},
+			tip: { kind: "procedural", hardness: 0.4, angleMode: "fixed" },
+			mixing: {
+				enabled: true,
+				mode: "dulling",
+				sampleRadius: 3,
+				sampleTrail: 0,
+				// Averaging colours in OkLAB keeps a blur from gaining the
+				// saturation that the vivid path would push into it.
+				blendStyle: 1,
+			},
+			randomSeed: 53,
+		},
+	};
+
+	// The same pickup, thrown off the stroke line: each dab lands somewhere
+	// around where the pointer went and drops what it found there, so edges
+	// break into grain rather than dissolving evenly.
+	const scatterBlur: BrushPreset = {
+		uid: "builtin-brush-scatter-blur",
+		name: "Scatter Blur",
+		category: "effect",
+		settings: {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				size: {
+					base: 26,
+					curves: [
+						speedThinning(),
+						{
+							input: "randomPerDab",
+							points: [
+								[0, -0.45],
+								[1, 0.2],
+							],
+						},
+					],
+				},
+				spacing: { base: 0.05 },
+				hardness: { base: 0.25 },
+				flow: { base: 0.55 },
+				scatterOffset: { base: 0.9 },
+				scatterAlong: { base: 0.6 },
+				colorRate: { base: 0 },
+				alphaRate: { base: 0 },
+				smudgeLength: { base: 0.35 },
+			},
+			tip: { kind: "procedural", hardness: 0.25, angleMode: "fixed" },
+			mixing: {
+				enabled: true,
+				mode: "dulling",
+				sampleRadius: 1.6,
+				sampleTrail: 0.4,
+				blendStyle: 1,
+			},
+			randomSeed: 59,
+		},
+	};
+
 	return [
 		...builtins,
 		watercolour,
@@ -490,7 +593,20 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 		ink,
 		softAirbrush,
 		mixingBrush,
+		blur,
+		scatterBlur,
 	];
+}
+
+/** Speed thinning every stamp-based builtin carries. */
+function speedThinning(): BrushCurve {
+	return {
+		input: "speedFine",
+		points: [
+			[0, 0],
+			[1, -0.5],
+		],
+	};
 }
 
 // -- Pixel generation helpers ------------------------------------------------

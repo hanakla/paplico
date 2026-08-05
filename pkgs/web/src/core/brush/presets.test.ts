@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { type BrushPreset, type BrushSettingsV2, hasWetInk } from "../schema";
 import { normalizeBrushSettingsV2 } from "./migrate";
 import { normalizeBrushSettings } from "./normalize";
-import { createBuiltinBrushPresets } from "./presets";
+import {
+	BUILTIN_PRESET_CATEGORY_ORDER,
+	createBuiltinBrushPresets,
+} from "./presets";
+
+const BLUR_PRESET_UIDS = ["builtin-brush-blur", "builtin-brush-scatter-blur"];
 
 const WET_INK_PRESET_UIDS = [
 	"builtin-brush-watercolor",
@@ -22,6 +27,40 @@ describe("createBuiltinBrushPresets", () => {
 				? normalizeBrushSettingsV2(preset.settings)
 				: normalizeBrushSettings(preset.settings);
 			expect(normalized, preset.uid).toEqual(preset.settings);
+		}
+	});
+
+	// A blur brush carries no paint of its own: every dab takes the colour
+	// already on the layer, averaged over its footprint. Anything above zero
+	// in the paint amount would tint what it is meant to smear.
+	it("should paint no colour of its own on the blur presets", () => {
+		const presets = createBuiltinBrushPresets();
+		for (const uid of BLUR_PRESET_UIDS) {
+			const settings = findPreset(presets, uid).settings;
+			if (!isV2(settings)) throw new Error(`${uid} must be authored as v2`);
+
+			expect(settings.properties.colorRate?.base, uid).toBe(0);
+			expect(settings.properties.alphaRate?.base, uid).toBe(0);
+			expect(settings.mixing?.enabled, uid).toBe(true);
+		}
+	});
+
+	it("should throw the dabs off the stroke on the scattering blur preset", () => {
+		const settings = findPreset(
+			createBuiltinBrushPresets(),
+			"builtin-brush-scatter-blur",
+		).settings;
+		if (!isV2(settings)) throw new Error("must be authored as v2");
+
+		expect(settings.properties.scatterOffset?.base).toBeGreaterThan(0);
+		expect(settings.properties.scatterAlong?.base).toBeGreaterThan(0);
+	});
+
+	it("should put every preset on a shelf the panel actually shows", () => {
+		for (const preset of createBuiltinBrushPresets()) {
+			expect(BUILTIN_PRESET_CATEGORY_ORDER, preset.uid).toContain(
+				preset.category,
+			);
 		}
 	});
 

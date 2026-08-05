@@ -28,6 +28,7 @@ import {
 } from "@/core/brush/brushSource";
 import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import { normalizeBrushSettings } from "@/core/brush/normalize";
+import { BUILTIN_PRESET_CATEGORY_ORDER } from "@/core/brush/presets";
 import { createStrokeBrushSettings } from "@/core/document/factory";
 import type {
 	BrushArtSource,
@@ -1830,16 +1831,9 @@ const BRUSH_CATEGORY_LABEL_KEYS: Record<
 	airbrush: "toolbar.brushCategoryAirbrush",
 	watercolor: "toolbar.brushCategoryWatercolor",
 	calligraphy: "toolbar.brushCategoryCalligraphy",
+	effect: "toolbar.brushCategoryEffect",
 	other: "toolbar.brushCategoryOther",
 };
-
-const BUILTIN_PRESET_CATEGORY_ORDER = [
-	"pen",
-	"airbrush",
-	"watercolor",
-	"calligraphy",
-	"other",
-] as const;
 
 /** Group builtin presets into categorized shelves, keeping a stable order. */
 function groupBuiltinPresetsByCategory(

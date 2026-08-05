@@ -224,6 +224,7 @@ export const ja = {
 		brushCategoryAirbrush: "エアブラシ",
 		brushCategoryWatercolor: "水彩",
 		brushCategoryCalligraphy: "カリグラフィ",
+		brushCategoryEffect: "効果",
 		brushCategoryOther: "その他",
 		factoryPreset: "初期プリセット",
 		savedPreset: "保存済み",
