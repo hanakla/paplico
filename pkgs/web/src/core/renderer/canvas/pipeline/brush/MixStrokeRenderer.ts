@@ -46,6 +46,11 @@ interface MixResultCacheEntry {
 	bounds: BoundingBox;
 	opacity: number;
 	bytes: number;
+	/** Portion of the texture the stroke actually drew into. A stroke wider
+	 *  than the texture cap renders at a reduced zoom and leaves the rest of
+	 *  the texture blank; blitting the whole thing stretches that blank space
+	 *  across the bounds and squashes the stroke. */
+	uvRect: { minU: number; minV: number; maxU: number; maxV: number };
 }
 
 export interface MixStrokeRendererDeps {
@@ -341,10 +346,23 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			});
 		}
 
+		// The draw viewport is centred on the bounds, so the used region sits in
+		// the middle of the texture.
+		const usedHalfU = (bounds.width * effectiveZoom) / (2 * texW);
+		const usedHalfV = (bounds.height * effectiveZoom) / (2 * texH);
 		const entry: MixResultCacheEntry = {
 			key: cacheKey ?? "",
 			texture: strokeTex,
 			bounds,
+			uvRect:
+				usedHalfU >= 0.5 && usedHalfV >= 0.5
+					? { minU: 0, minV: 0, maxU: 1, maxV: 1 }
+					: {
+							minU: 0.5 - usedHalfU,
+							minV: 0.5 - usedHalfV,
+							maxU: 0.5 + usedHalfU,
+							maxV: 0.5 + usedHalfV,
+						},
 			// Wash semantics: strokeOpacity applies exactly once, here.
 			opacity:
 				filter.opacity *
@@ -499,7 +517,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			{
 				kind: "world-aabb",
 				bounds: entry.bounds,
-				uvRect: { minU: 0, minV: 0, maxU: 1, maxV: 1 },
+				uvRect: entry.uvRect,
 			},
 			{
 				role: "color",
