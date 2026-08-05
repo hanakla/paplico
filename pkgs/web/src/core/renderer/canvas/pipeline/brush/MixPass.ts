@@ -180,7 +180,10 @@ export class MixPass {
 		const bucket = this.device.createBuffer({
 			label: "Brush Mix Bucket",
 			size: 16,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+			usage:
+				GPUBufferUsage.STORAGE |
+				GPUBufferUsage.COPY_DST |
+				GPUBufferUsage.COPY_SRC,
 		});
 		this.device.queue.writeBuffer(bucket, 0, new Float32Array([0, 0, 0, -1]));
 		return bucket;
