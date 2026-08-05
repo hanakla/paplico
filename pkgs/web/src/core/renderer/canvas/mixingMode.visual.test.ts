@@ -122,6 +122,18 @@ describe("Mixing strokes", () => {
 		expect(second).toEqual(first);
 	});
 
+	// Panning changes only which part of the canvas the backdrop capture can
+	// see, and re-resolving every chunk on every frame of a pan costs more
+	// than drawing the stroke did. The stroke holds its result while the view
+	// moves, and resolves again on the frame it settles.
+	it("should resolve again once the view settles after a pan", async () => {
+		const { duringPan, afterSettling } = await renderAcrossPan(
+			mixingBrush({ colorRate: 0 }),
+		);
+
+		expect(duringPan).toEqual(afterSettling);
+	});
+
 	it("should keep the brush color when mixing is disabled (control)", async () => {
 		const pixel = await renderStrokePixel(
 			mixingBrush({ colorRate: 0, enabled: false }),
@@ -179,6 +191,50 @@ function mixingBrush(overrides: {
 		},
 		randomSeed: 1,
 	});
+}
+
+/**
+ * Render still, pan, then render twice at the new viewport: the frame during
+ * the pan reuses the previous result, and the one after it resolves at the
+ * new viewport. Both are read at the same world point, so a correct reuse
+ * and a correct re-resolve agree.
+ */
+async function renderAcrossPan(brushSettings: BrushSettingsV2): Promise<{
+	duringPan: number[];
+	afterSettling: number[];
+}> {
+	const { renderer, canvas } = await createTestRenderer();
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no GPU device");
+
+	const doc = mixingDoc(brushSettings);
+	const readAt = async (viewport: Viewport, worldX: number) => {
+		const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+		const pixels = await captureTexturePixels(
+			device,
+			texture,
+			texture.width,
+			texture.height,
+		);
+		const screenX = Math.round(400 + (worldX - viewport.x) * viewport.zoom);
+		const offset = (300 * texture.width + screenX) * 4;
+		const pixel = [
+			pixels[offset],
+			pixels[offset + 1],
+			pixels[offset + 2],
+			pixels[offset + 3],
+		];
+		texture.destroy();
+		return pixel;
+	};
+
+	const still = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const panned = { x: 40, y: 0, zoom: 1, rotation: 0 };
+	await readAt(still, 0);
+	await readAt(still, 0);
+	const duringPan = await readAt(panned, 0);
+	const afterSettling = await readAt(panned, 0);
+	return { duringPan, afterSettling };
 }
 
 /**

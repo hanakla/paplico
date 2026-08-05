@@ -42,6 +42,8 @@ const MAX_RESULT_CACHE_BYTES = 384 * 1024 * 1024;
 
 interface MixResultCacheEntry {
 	key: string;
+	/** The key without the visible rect: what a pan does not invalidate. */
+	stableKey: string;
 	texture: GPUTexture;
 	bounds: BoundingBox;
 	opacity: number;
@@ -85,6 +87,8 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	private readonly deps: MixStrokeRendererDeps;
 	private mixPass: MixPass | null = null;
 	private wetLayerPass: WetLayerPass | null = null;
+	/** Viewport the last frame composited at, to tell a pan from a still view. */
+	private lastViewport: Viewport | null = null;
 	/** elementId -> last resolved stroke, reused while its key holds. */
 	private readonly resultCache = new Map<string, MixResultCacheEntry>();
 	private resultCacheBytes = 0;
@@ -147,13 +151,16 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 
 		// Stroke world bounds padded by the brush reach.
 		const sizeBase = settings.properties.size?.base ?? 10;
+		// Snapped outward: a stroke being drawn grows a little every frame, and
+		// an exact fit would move the texture — and throw away everything
+		// carried over — on each of them.
 		const bounds = expandBounds(calculateElementBounds(element), sizeBase);
 
 		// The stroke still paints into the target on a cache hit, so report it
 		// either way — other backdrop consumers key off this.
 		this.deps.coordinator.noteDraw(bounds);
 
-		const cacheKey = this.resultCacheKey(
+		const keys = this.resultCacheKeys(
 			element,
 			filter,
 			bounds,
@@ -162,15 +169,30 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			width,
 			height,
 		);
-		if (cacheKey != null) {
+		// While the view is moving, the stroke keeps the result it already has:
+		// only the visible rect changed, and re-resolving every chunk on every
+		// frame of a pan costs more than the whole stroke did to draw. The
+		// frame the view settles on has the exact key again and re-resolves.
+		const panning =
+			this.lastViewport != null &&
+			(this.lastViewport.x !== viewport.x ||
+				this.lastViewport.y !== viewport.y ||
+				this.lastViewport.zoom !== viewport.zoom ||
+				this.lastViewport.rotation !== viewport.rotation);
+		this.lastViewport = { ...viewport };
+		if (keys != null) {
 			const hit = this.resultCache.get(element.id);
-			if (hit?.key === cacheKey) {
+			if (
+				hit != null &&
+				(hit.key === keys.key || (panning && hit.stableKey === keys.stableKey))
+			) {
 				// Refresh LRU order.
 				this.resultCache.delete(element.id);
 				this.resultCache.set(element.id, hit);
 				return this.cachedLayer(hit);
 			}
 		}
+		const cacheKey = keys?.key ?? null;
 
 		// Backdrop below this stroke, on the fixed-R raster grid (§B-2).
 		const request: BackdropEffectRequest = {
@@ -356,6 +378,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		const usedHalfV = (bounds.height * effectiveZoom) / (2 * texH);
 		const entry: MixResultCacheEntry = {
 			key: cacheKey ?? "",
+			stableKey: keys?.stableKey ?? "",
 			texture: strokeTex,
 			bounds,
 			uvRect:
@@ -549,7 +572,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	 * so a stroke running off screen resolves differently once panned into
 	 * view. Null when the backdrop identity is unknown.
 	 */
-	private resultCacheKey(
+	private resultCacheKeys(
 		element: AnyArtObject,
 		filter: Filter,
 		bounds: BoundingBox,
@@ -557,7 +580,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		viewport: Viewport,
 		width: number,
 		height: number,
-	): string | null {
+	): { key: string; stableKey: string } | null {
 		const backdropKey = this.deps.getBackdropContentKey(element.id, bounds);
 		if (backdropKey == null) return null;
 		const path = element as Path;
@@ -571,7 +594,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			snap(Math.min(bounds.maxX, viewport.x + halfW), Math.ceil),
 			snap(Math.min(bounds.maxY, viewport.y + halfH), Math.ceil),
 		].join(",");
-		return [
+		const stableKey = [
 			hashSegmentsWithMetadata(path.segments).toString(36),
 			JSON.stringify(filter),
 			element.opacity,
@@ -579,9 +602,9 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			path.pathStart ?? 0,
 			path.pathEnd ?? 1,
 			rasterScale,
-			visible,
 			backdropKey,
 		].join(":");
+		return { key: `${stableKey}:${visible}`, stableKey };
 	}
 
 	private storeResult(elementId: string, entry: MixResultCacheEntry): void {
