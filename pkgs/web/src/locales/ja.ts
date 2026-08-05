@@ -1115,6 +1115,9 @@ export const ja = {
 		leave: "編集を終える",
 		layerName: "マスク",
 	},
+	canvasZoomToast: {
+		scale: "{{value}}倍",
+	},
 	newDocumentDialog: {
 		title: "新規ドキュメント",
 		screen: "スクリーン",

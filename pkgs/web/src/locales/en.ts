@@ -1114,6 +1114,9 @@ export const en = {
 		leave: "Leave",
 		layerName: "Mask",
 	},
+	canvasZoomToast: {
+		scale: "{{value}}x",
+	},
 	newDocumentDialog: {
 		title: "New Document",
 		screen: "Screen",
