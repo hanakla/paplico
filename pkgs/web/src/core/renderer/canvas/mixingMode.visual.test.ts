@@ -146,6 +146,15 @@ describe("Mixing strokes", () => {
 		expect(grown).toEqual(whole);
 	});
 
+	// Every stroke in a frame has to reach the same verdict about whether the
+	// view moved. Deciding it per stroke lets the first one update the record
+	// of where the view was, and the rest re-resolve as if it had stood still.
+	it("should hold every stroke's result through a pan, not just the first", async () => {
+		const { duringPan, afterSettling } = await renderChainAcrossPan();
+
+		expect(duringPan).toEqual(afterSettling);
+	});
+
 	it("should keep the brush color when mixing is disabled (control)", async () => {
 		const pixel = await renderStrokePixel(
 			mixingBrush({ colorRate: 0, enabled: false }),
@@ -203,6 +212,48 @@ function mixingBrush(overrides: {
 		},
 		randomSeed: 1,
 	});
+}
+
+/**
+ * The chained document holds three elements, two of them mixing strokes.
+ * Reads the later stroke — the one a per-stroke verdict would leave out.
+ */
+async function renderChainAcrossPan(): Promise<{
+	duringPan: number[];
+	afterSettling: number[];
+}> {
+	const { renderer, canvas } = await createTestRenderer();
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no GPU device");
+
+	const doc = chainedDoc();
+	const readAt = async (viewport: Viewport, worldX: number) => {
+		const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+		const pixels = await captureTexturePixels(
+			device,
+			texture,
+			texture.width,
+			texture.height,
+		);
+		const screenX = Math.round(400 + (worldX - viewport.x) * viewport.zoom);
+		const offset = (300 * texture.width + screenX) * 4;
+		const pixel = [
+			pixels[offset],
+			pixels[offset + 1],
+			pixels[offset + 2],
+			pixels[offset + 3],
+		];
+		texture.destroy();
+		return pixel;
+	};
+
+	const still = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const panned = { x: 30, y: 0, zoom: 1, rotation: 0 };
+	await readAt(still, 150);
+	await readAt(still, 150);
+	const duringPan = await readAt(panned, 150);
+	const afterSettling = await readAt(panned, 150);
+	return { duringPan, afterSettling };
 }
 
 /**

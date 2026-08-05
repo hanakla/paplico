@@ -117,8 +117,11 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		texture: GPUTexture;
 		bucket: GPUBuffer;
 	}> = [];
-	/** Viewport the last frame composited at, to tell a pan from a still view. */
+	/** Viewport the previous frame composited at, and this frame's, to tell a
+	 *  pan from a still view. Frame-scoped: every stroke in one frame has to
+	 *  reach the same verdict, or only the first of them keeps its result. */
 	private lastViewport: Viewport | null = null;
+	private frameViewport: Viewport | null = null;
 	/** elementId -> last resolved stroke, reused while its key holds. */
 	private readonly resultCache = new Map<string, MixResultCacheEntry>();
 	private resultCacheBytes = 0;
@@ -133,6 +136,8 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	}
 
 	public beginFrame(): void {
+		this.lastViewport = this.frameViewport;
+		this.frameViewport = null;
 		// The frame that owned these buffers has been submitted by now (the
 		// orchestrator submits after render returns, i.e. after releaseFrame),
 		// so this is the first safe point to free them.
@@ -203,13 +208,13 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		// only the visible rect changed, and re-resolving every chunk on every
 		// frame of a pan costs more than the whole stroke did to draw. The
 		// frame the view settles on has the exact key again and re-resolves.
+		this.frameViewport ??= { ...viewport };
 		const panning =
 			this.lastViewport != null &&
 			(this.lastViewport.x !== viewport.x ||
 				this.lastViewport.y !== viewport.y ||
 				this.lastViewport.zoom !== viewport.zoom ||
 				this.lastViewport.rotation !== viewport.rotation);
-		this.lastViewport = { ...viewport };
 		if (keys != null) {
 			const hit = this.resultCache.get(element.id);
 			if (
