@@ -48,6 +48,35 @@ describe("Blur brush", () => {
 		expect(wetPickup).toBeGreaterThan(dryPickup * 1.15);
 	});
 
+	it("should roughen the stroke as the scatter amount rises", async () => {
+		const roughness = async (scatter: number): Promise<number> => {
+			const settings = diffusingBrush(true);
+			settings.wet = { ...settings.wet!, scatter };
+			const { renderer, canvas } = await createTestRenderer();
+			const device = renderer.getDevice();
+			if (!device) throw new Error("Test renderer has no GPU device");
+			const doc = seamDoc(settings, false);
+			await renderWithViewport(renderer, canvas, doc, VIEWPORT);
+			await renderWithViewport(renderer, canvas, doc, VIEWPORT);
+			const texture = await renderWithViewport(renderer, canvas, doc, VIEWPORT);
+			const pixels = await captureTexturePixels(
+				device,
+				texture,
+				texture.width,
+				texture.height,
+			);
+			let sum = 0;
+			for (let dx = -40; dx < 40; dx++) {
+				const a = (STROKE_ROW * texture.width + SEAM_X + dx) * 4;
+				sum += Math.abs(pixels[a] - pixels[a + 4]);
+			}
+			texture.destroy();
+			return sum;
+		};
+
+		expect(await roughness(3)).toBeGreaterThan((await roughness(0)) + 20);
+	});
+
 	it("should reach the artwork on the layer below it", async () => {
 		// What someone actually does: the drawing sits on one layer and the
 		// blur stroke goes on a fresh one above it.
@@ -160,6 +189,7 @@ async function seamTransitionWidth(
 function seamDoc(
 	brushSettings: BrushSettingsV2 | null,
 	strokeOnOwnLayer: boolean,
+	strokeWorldWidth = 300,
 ): Document {
 	const left = filledRect("seam-left", -200, -120, 0, 120, {
 		r: 0.8,
@@ -180,10 +210,10 @@ function seamDoc(
 		transform: createDefaultTransform(),
 		segments: [
 			{
-				start: { x: -150, y: 0 },
+				start: { x: -strokeWorldWidth / 2, y: 0 },
 				cp1: { x: 0, y: 0 },
 				cp2: { x: 0, y: 0 },
-				end: { x: 150, y: 0 },
+				end: { x: strokeWorldWidth / 2, y: 0 },
 				startPressure: 1,
 				endPressure: 1,
 				startTiltX: 0,

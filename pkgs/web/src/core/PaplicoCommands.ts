@@ -6,7 +6,7 @@
  * keeping core/ free from stores/ imports.
  */
 
-import { normalizeBrushSettings } from "./brush/normalize";
+import { normalizeBrushSettingsV2 } from "./brush/migrate";
 import { createBuiltinBrushFiles } from "./brush/presets";
 import type { YjsProvider } from "./collaboration/YjsProvider";
 import {
@@ -4911,9 +4911,13 @@ function areBrushSettingsSemanticallyEqual(
 ): boolean {
 	if (left == null || right == null) return left == null && right == null;
 
+	// Compared as v2: the legacy view has nowhere to hold curves, mixing or
+	// the wet layer, so comparing through it calls two settings that differ
+	// only in those equal — and the write that would have carried them to the
+	// element is skipped as redundant.
 	return (
-		JSON.stringify(normalizeBrushSettings(left)) ===
-		JSON.stringify(normalizeBrushSettings(right))
+		JSON.stringify(normalizeBrushSettingsV2(left)) ===
+		JSON.stringify(normalizeBrushSettingsV2(right))
 	);
 }
 

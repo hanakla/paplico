@@ -285,6 +285,89 @@ describe("PaplicoCommands", () => {
 		expect(written.properties.colorRate?.curves?.[0].input).toBe("pressure");
 	});
 
+	// Two settings that differ only in what v1 cannot express must not read as
+	// the same, or the write carrying them to the element is skipped and the
+	// change is lost the moment the stroke is selected again.
+	it("writes a change only the v2 shape can express", () => {
+		const base = {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "wash",
+			properties: { size: { base: 20 } },
+			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+			wet: {
+				enabled: true,
+				bleedRadius: 0.8,
+				pigmentLoad: 1,
+				grainScale: 1,
+				scatter: 0.4,
+			},
+			randomSeed: 1,
+		};
+		const path = {
+			...createPath("path-1"),
+			filters: [
+				{
+					processor: "stroke",
+					opacity: 1,
+					blendMode: "normal",
+					paramData: {
+						version: "1",
+						params: {
+							strokeColor: {
+								type: "solid",
+								color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+							},
+							brushSettings: base,
+						},
+					},
+				},
+			],
+		} as unknown as Path;
+		const layer = createLayer("layer-1", [path.id]);
+		const updateElement = vi.fn();
+
+		const commands = new PaplicoCommands({
+			store: {
+				currentLayerId: layer.id,
+				selectedElementIds: [path.id],
+				editingScopeStack: [],
+				document: {
+					layers: [layer],
+					objects: { [path.id]: path },
+				},
+			} as unknown as RendererState,
+			yjsProvider: {
+				updateElement,
+				transact: vi.fn((fn: () => void) => fn()),
+				isAnimationUndoMode: vi.fn(() => false),
+			} as unknown as YjsProvider,
+			spatial: {
+				isElementLocked: () => false,
+			} as unknown as SpatialIndex,
+			isReadonly: () => false,
+		});
+
+		commands.updateSelectedElementsBrushSettings({
+			...base,
+			wet: { ...base.wet, scatter: 2.5 },
+		} as unknown as BrushSettingsV2);
+
+		expect(updateElement).toHaveBeenCalledTimes(1);
+		const [, , patch] = updateElement.mock.calls[0] as [
+			string,
+			string,
+			{ filters: Filter[] },
+		];
+		const written = (
+			patch.filters[0] as unknown as {
+				paramData: { params: { brushSettings: BrushSettingsV2 } };
+			}
+		).paramData.params.brushSettings;
+		expect(written.wet?.scatter).toBe(2.5);
+	});
+
 	describe("pasteElements", () => {
 		it("pastes in place when no position is given (offset = 0,0)", () => {
 			const sourcePath = createPath("path-1");

@@ -635,3 +635,52 @@ describe("mergeBrushSettingsV2PreservingCurves", () => {
 		expect(pressureCurves?.[0].points[0][1]).toBeCloseTo(-0.9, 10);
 	});
 });
+
+/**
+ * The scatter amount is a wet-layer setting a person drags in the panel; it
+ * has to survive the normalization every write goes through, or the slider
+ * moves and nothing downstream ever sees it.
+ */
+describe("wet scatter", () => {
+	it("should keep the scatter amount through normalization", () => {
+		const normalized = normalizeBrushSettingsV2({
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "wash",
+			properties: { size: { base: 20 } },
+			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+			wet: {
+				enabled: true,
+				bleedRadius: 0.8,
+				pigmentLoad: 1,
+				grainScale: 1,
+				scatter: 2.4,
+			},
+			randomSeed: 1,
+		});
+
+		expect(normalized.wet?.scatter).toBe(2.4);
+	});
+
+	it("should keep a scatter of zero rather than dropping the field", () => {
+		const normalized = normalizeBrushSettingsV2({
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "wash",
+			properties: { size: { base: 20 } },
+			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+			wet: {
+				enabled: true,
+				bleedRadius: 0.8,
+				pigmentLoad: 1,
+				grainScale: 1,
+				scatter: 0,
+			},
+			randomSeed: 1,
+		});
+
+		expect(normalized.wet?.scatter).toBe(0);
+	});
+});
