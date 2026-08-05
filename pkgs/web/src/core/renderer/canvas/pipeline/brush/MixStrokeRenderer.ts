@@ -40,6 +40,25 @@ const MAX_MIX_STROKE_TEXTURE_SIDE = 4096;
  *  holds a handful of them; the LRU drops the rest. */
 const MAX_RESULT_CACHE_BYTES = 384 * 1024 * 1024;
 
+/**
+ * Carried-over state of a stroke still being drawn. Chunks run in dab order
+ * because the smudge bucket threads through them, so a growing stroke would
+ * otherwise replay every chunk it already has on every frame — the per-frame
+ * cost climbing with the stroke's own length.
+ */
+interface LiveMixSession {
+	elementId: string;
+	/** Settings, backdrop and raster conditions the frozen state was built at. */
+	key: string;
+	texW: number;
+	texH: number;
+	/** Stroke buffer as of the last frozen chunk boundary. */
+	texture: GPUTexture;
+	/** Smudge bucket at that same boundary. */
+	bucket: GPUBuffer;
+	frozenDabs: number;
+}
+
 interface MixResultCacheEntry {
 	key: string;
 	/** The key without the visible rect: what a pan does not invalidate. */
@@ -87,6 +106,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	private readonly deps: MixStrokeRendererDeps;
 	private mixPass: MixPass | null = null;
 	private wetLayerPass: WetLayerPass | null = null;
+	private liveSession: LiveMixSession | null = null;
 	/** Viewport the last frame composited at, to tell a pan from a still view. */
 	private lastViewport: Viewport | null = null;
 	/** elementId -> last resolved stroke, reused while its key holds. */
@@ -257,7 +277,10 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			texH,
 			this.deps.canvasFormat,
 			1,
-			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+			GPUTextureUsage.RENDER_ATTACHMENT |
+				GPUTextureUsage.TEXTURE_BINDING |
+				GPUTextureUsage.COPY_SRC |
+				GPUTextureUsage.COPY_DST,
 			"Mix Stroke Buffer",
 		);
 		const depthTex = this.deps.texturePool.acquireExact(
@@ -298,7 +321,35 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		const falloffLut = batchContext.getFalloffLutTexture();
 		const transformsBindGroup = this.deps.getTransformsBindGroup();
 
-		for (let firstDab = 0; firstDab < dabs.count; firstDab += MIX_CHUNK_SIZE) {
+		// The last two chunks stay live: a stroke's tail is refitted as it is
+		// drawn, so only what lies behind it can be trusted to stay put.
+		const freezeAt = Math.max(
+			0,
+			Math.floor(dabs.count / MIX_CHUNK_SIZE) * MIX_CHUNK_SIZE - MIX_CHUNK_SIZE,
+		);
+		const sessionKey = `${keys?.stableKey ?? ""}:${texW}x${texH}`;
+		const session =
+			this.liveSession?.elementId === element.id &&
+			this.liveSession.key === sessionKey &&
+			this.liveSession.frozenDabs <= dabs.count
+				? this.liveSession
+				: null;
+		if (!session) this.disposeLiveSession();
+		const startDab = session?.frozenDabs ?? 0;
+		if (session) {
+			encoder.copyTextureToTexture(
+				{ texture: session.texture },
+				{ texture: strokeTex },
+				{ width: texW, height: texH, depthOrArrayLayers: 1 },
+			);
+			encoder.copyBufferToBuffer(session.bucket, 0, bucket, 0, 16);
+		}
+
+		for (
+			let firstDab = startDab;
+			firstDab < dabs.count;
+			firstDab += MIX_CHUNK_SIZE
+		) {
 			const chunkLen = Math.min(MIX_CHUNK_SIZE, dabs.count - firstDab);
 			this.mixPass.resolveChunk(encoder, {
 				dabBuffer,
@@ -327,7 +378,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 					{
 						view: strokeView,
 						clearValue: { r: 0, g: 0, b: 0, a: 0 },
-						loadOp: firstDab === 0 ? "clear" : "load",
+						loadOp: firstDab === 0 && !session ? "clear" : "load",
 						storeOp: "store",
 					},
 				],
@@ -349,6 +400,18 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				transformsBindGroup ?? undefined,
 			);
 			pass.end();
+
+			if (firstDab + chunkLen === freezeAt && freezeAt > startDab) {
+				this.freezeLiveSession(encoder, {
+					elementId: element.id,
+					key: sessionKey,
+					texW,
+					texH,
+					source: strokeTex,
+					bucket,
+					frozenDabs: freezeAt,
+				});
+			}
 		}
 
 		if (settings.wet?.enabled) {
@@ -547,6 +610,64 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		}
 	}
 
+	/**
+	 * Keep the stroke buffer and bucket as they stand at a chunk boundary, so
+	 * the next frame resumes from there instead of replaying the whole stroke.
+	 */
+	private freezeLiveSession(
+		encoder: GPUCommandEncoder,
+		args: {
+			elementId: string;
+			key: string;
+			texW: number;
+			texH: number;
+			source: GPUTexture;
+			bucket: GPUBuffer;
+			frozenDabs: number;
+		},
+	): void {
+		const current = this.liveSession;
+		const reusable = current?.texW === args.texW && current?.texH === args.texH;
+		if (current && !reusable) this.disposeLiveSession();
+
+		const texture =
+			(reusable ? current?.texture : null) ??
+			this.deps.device.createTexture({
+				label: "Mix Live Frozen Buffer",
+				size: [args.texW, args.texH],
+				format: this.deps.canvasFormat,
+				usage: GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST,
+			});
+		const bucket =
+			(reusable ? current?.bucket : null) ??
+			this.deps.device.createBuffer({
+				label: "Mix Live Frozen Bucket",
+				size: 16,
+				usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+			});
+		encoder.copyTextureToTexture(
+			{ texture: args.source },
+			{ texture },
+			{ width: args.texW, height: args.texH, depthOrArrayLayers: 1 },
+		);
+		encoder.copyBufferToBuffer(args.bucket, 0, bucket, 0, 16);
+		this.liveSession = {
+			elementId: args.elementId,
+			key: args.key,
+			texW: args.texW,
+			texH: args.texH,
+			texture,
+			bucket,
+			frozenDabs: args.frozenDabs,
+		};
+	}
+
+	private disposeLiveSession(): void {
+		this.liveSession?.texture.destroy();
+		this.liveSession?.bucket.destroy();
+		this.liveSession = null;
+	}
+
 	/** BlitLayer over a resolved stroke texture the caller does not own. */
 	private cachedLayer(entry: MixResultCacheEntry): BlitLayer {
 		const surface = createRenderSurface(
@@ -642,6 +763,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	}
 
 	public destroy(): void {
+		this.disposeLiveSession();
 		this.wetLayerPass?.destroy();
 		this.wetLayerPass = null;
 		for (const buffer of [...this.retiredBuffers, ...this.frameBuffers]) {

@@ -134,6 +134,18 @@ describe("Mixing strokes", () => {
 		expect(duringPan).toEqual(afterSettling);
 	});
 
+	// A stroke being drawn grows by a few dabs a frame. Replaying every chunk
+	// it already has makes each frame cost more than the last, so the settled
+	// chunks are carried over — and carrying them over has to land the same
+	// pixels as resolving the whole stroke from scratch.
+	it("should resolve a grown stroke the same as one drawn in full", async () => {
+		const { grown, whole } = await renderGrowingStroke(
+			mixingBrush({ colorRate: 0.5, smudgeLength: 0.7 }),
+		);
+
+		expect(grown).toEqual(whole);
+	});
+
 	it("should keep the brush color when mixing is disabled (control)", async () => {
 		const pixel = await renderStrokePixel(
 			mixingBrush({ colorRate: 0, enabled: false }),
@@ -191,6 +203,62 @@ function mixingBrush(overrides: {
 		},
 		randomSeed: 1,
 	});
+}
+
+/**
+ * Draw the stroke in growing pieces on one renderer, the way a hand does,
+ * then draw the finished stroke on a renderer that never saw the shorter
+ * ones. Returns the same pixel from each.
+ */
+async function renderGrowingStroke(brushSettings: BrushSettingsV2): Promise<{
+	grown: number[];
+	whole: number[];
+}> {
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const readEnd = async (
+		renderer: Awaited<ReturnType<typeof createTestRenderer>>,
+		fractions: number[],
+	): Promise<number[]> => {
+		const device = renderer.renderer.getDevice();
+		if (!device) throw new Error("Test renderer has no GPU device");
+		let pixel: number[] = [];
+		for (const fraction of fractions) {
+			const doc = mixingDoc(brushSettings);
+			const stroke = doc.objects["mixing-stroke"] as Path;
+			const segment = stroke.segments[0];
+			stroke.segments = [
+				{ ...segment, end: { x: -150 + 300 * fraction, y: segment.end.y } },
+			];
+			const texture = await renderWithViewport(
+				renderer.renderer,
+				renderer.canvas,
+				doc,
+				viewport,
+			);
+			const pixels = await captureTexturePixels(
+				device,
+				texture,
+				texture.width,
+				texture.height,
+			);
+			// Read near the start, which every length covers.
+			const offset = (300 * texture.width + 300) * 4;
+			pixel = [
+				pixels[offset],
+				pixels[offset + 1],
+				pixels[offset + 2],
+				pixels[offset + 3],
+			];
+			texture.destroy();
+		}
+		return pixel;
+	};
+
+	const growing = await createTestRenderer();
+	const grown = await readEnd(growing, [0.35, 0.6, 0.8, 1, 1]);
+	const fresh = await createTestRenderer();
+	const whole = await readEnd(fresh, [1, 1]);
+	return { grown, whole };
 }
 
 /**
