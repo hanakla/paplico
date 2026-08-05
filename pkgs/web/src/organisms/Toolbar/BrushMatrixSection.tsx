@@ -333,7 +333,7 @@ const GatedSection = memo(function GatedSection({
 	children: React.ReactNode;
 }) {
 	return (
-		<div className="flex flex-col rounded-md border border-border/40 py-1">
+		<div className="flex flex-col rounded-md border border-border-dim py-1">
 			<div className="flex items-center justify-between px-3 py-1">
 				<span className="text-[11px] font-medium text-foreground">{title}</span>
 				<Switch
