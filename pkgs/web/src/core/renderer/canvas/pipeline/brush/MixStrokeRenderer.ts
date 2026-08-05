@@ -335,7 +335,11 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				path,
 				settings,
 				bounds,
-				scale: rasterScale,
+				// The dabs drew at the zoom the texture could hold, not the
+				// document's: a capped texture holds fewer pixels per world unit,
+				// and compositing at the document's scale lands the simulation
+				// somewhere else entirely.
+				scale: effectiveZoom,
 				target: strokeView,
 				targetSize: { width: texW, height: texH },
 				dabBuffer,
@@ -495,7 +499,17 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				domainWorldPerPixel: domain.worldPerPixel,
 				target: args.target,
 				targetResolution: args.targetSize,
-				targetWorldOrigin: { x: args.bounds.minX, y: args.bounds.maxY },
+				// The draw viewport is centred on the bounds, so the texture's
+				// top-left corner is half a texture away from that centre —
+				// which is not the bounds' corner once the texture is capped.
+				targetWorldOrigin: {
+					x:
+						(args.bounds.minX + args.bounds.maxX) / 2 -
+						args.targetSize.width / (2 * args.scale),
+					y:
+						(args.bounds.minY + args.bounds.maxY) / 2 +
+						args.targetSize.height / (2 * args.scale),
+				},
 				targetWorldPerPixel: 1 / args.scale,
 				brushRadiusPx: Math.max(brushSize * 0.5, 1) / domain.worldPerPixel,
 				bleedRadius: wet.bleedRadius,
