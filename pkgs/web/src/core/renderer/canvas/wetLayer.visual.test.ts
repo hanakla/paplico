@@ -58,8 +58,8 @@ describe("Wet layer strokes", () => {
 	it("should hold less pigment as the load drops", async () => {
 		// Read the bleed's edge, not the body: the centre saturates and holds
 		// the same 8-bit value at either load.
-		const light = await renderStrokePixel(wetTuned({ pigmentLoad: 0.15 }), 292);
-		const heavy = await renderStrokePixel(wetTuned({ pigmentLoad: 1.5 }), 292);
+		const light = await renderStrokePixel(wetTuned({ pigmentLoad: 0.15 }), 286);
+		const heavy = await renderStrokePixel(wetTuned({ pigmentLoad: 1.5 }), 286);
 
 		expect(light[0]).toBeGreaterThan(heavy[0] + 10);
 	});

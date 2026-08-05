@@ -498,13 +498,17 @@ function classifyElementFilters(
 	// a non-normal appearance blend. Groups carry no stroke appearances of
 	// their own here.
 	let hasWashStroke = false;
+	// The wet layer carries pigment past the stroke's own outline, so the
+	// isolated texture has to hold that reach. Sized to the outline alone,
+	// every bleed is cropped back to the dabs.
+	let wetReach = 0;
 	if (!isGroup(element) && !suppressFlatAppearances) {
 		for (const filter of element.filters ?? []) {
 			if (!isFilterEnabled(filter) || filter.processor !== "stroke") continue;
 			if (washStrokeOpacityOf(filter) != null) {
 				hasWashStroke = true;
-				break;
 			}
+			wetReach = Math.max(wetReach, wetReachOf(filter));
 		}
 	}
 
@@ -531,7 +535,7 @@ function classifyElementFilters(
 			);
 		}
 	}
-	const textureBounds = expandBounds(bounds, expansion);
+	const textureBounds = expandBounds(bounds, expansion + wetReach);
 
 	// Build per-appearance plans when any appearance has sub-filters.
 	// ALL enabled appearances are included so they can be rendered individually
@@ -1298,6 +1302,17 @@ function scanBlendingFlags(
 		}
 	}
 	return { hasCompositionModeElement: false, hasBlendingElement };
+}
+
+/** How far past its outline a wet stroke's pigment can reach, in world units. */
+function wetReachOf(filter: Filter): number {
+	const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
+	if (raw == null) return 0;
+	const route = resolveBrushRenderRoute(raw);
+	const wet = route.settings.wet;
+	if (route.kind !== "dab-v2" || wet?.enabled !== true) return 0;
+	const brushSize = readStoredBrushSize(route.settings) ?? 0;
+	return brushSize * (0.5 + Math.max(wet.bleedRadius, 0));
 }
 
 /** strokeOpacity of a wash-routed stroke appearance, or null otherwise. */
