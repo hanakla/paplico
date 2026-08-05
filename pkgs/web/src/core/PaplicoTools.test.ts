@@ -136,6 +136,47 @@ describe("PaplicoTools.setBrushSettings with a builtin preset", () => {
 		return { store, tools };
 	}
 
+	it("should keep curves and wet settings when an appearance is loaded", () => {
+		// The appearance panel hands the designer an element's stored brush.
+		// Routed through the legacy view it would arrive stripped of exactly
+		// the parts the designer exists to edit.
+		const { store, tools } = makeTools();
+		tools.setBrushSettings({
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "wash",
+			properties: {
+				size: {
+					base: 20,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.3],
+								[1, 0],
+							],
+						},
+					],
+				},
+			},
+			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+			wet: {
+				enabled: true,
+				bleedRadius: 0.8,
+				pigmentLoad: 1,
+				grainScale: 1,
+				scatter: 1.5,
+			},
+			randomSeed: 1,
+		} as BrushSettingsV2);
+
+		const stored = store.strokeAppearance?.paramData.params
+			.brushSettings as unknown as BrushSettingsV2;
+		expect(stored.wet?.scatter).toBe(1.5);
+		expect(stored.properties.size?.curves?.[0].input).toBe("pressure");
+	});
+
 	it("should keep mixing enabled after applying the blur preset", async () => {
 		const { getBuiltinBrushPresets } = await import("@/repos/brushPresets");
 		const preset = getBuiltinBrushPresets().find(

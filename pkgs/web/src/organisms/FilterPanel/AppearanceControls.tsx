@@ -8,6 +8,7 @@ import { Slider } from "@/components/Slider";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { readStoredBrushSize, withStoredBrushSize } from "@/core/brush/access";
+import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import { normalizeBrushSettings } from "@/core/brush/normalize";
 import type {
 	BlendMode,
@@ -152,7 +153,10 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 		// bind the designer to this filter index so edits flow back here
 		// instead of into the element's first stroke appearance.
 		if (params.brushSettings) {
-			tools.setBrushSettings(normalizeBrushSettings(params.brushSettings));
+			// Loaded as stored, not through the legacy view: that view has
+			// nowhere to hold curves, mixing or the wet layer, so opening the
+			// designer on an appearance would strip them from it.
+			tools.setBrushSettings(normalizeBrushSettingsV2(params.brushSettings));
 		}
 		setSelectedBrushPresetUid(null);
 		setBrushDesignerTargetFilterIndex(index);
