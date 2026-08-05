@@ -107,6 +107,16 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	private mixPass: MixPass | null = null;
 	private wetLayerPass: WetLayerPass | null = null;
 	private liveSession: LiveMixSession | null = null;
+	/** Dropped session resources, freed a frame late: this frame's commands
+	 *  still reference them and have not been submitted yet. */
+	private retiredSessions: Array<{
+		texture: GPUTexture;
+		bucket: GPUBuffer;
+	}> = [];
+	private frameRetiredSessions: Array<{
+		texture: GPUTexture;
+		bucket: GPUBuffer;
+	}> = [];
 	/** Viewport the last frame composited at, to tell a pan from a still view. */
 	private lastViewport: Viewport | null = null;
 	/** elementId -> last resolved stroke, reused while its key holds. */
@@ -663,8 +673,12 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	}
 
 	private disposeLiveSession(): void {
-		this.liveSession?.texture.destroy();
-		this.liveSession?.bucket.destroy();
+		if (this.liveSession) {
+			this.frameRetiredSessions.push({
+				texture: this.liveSession.texture,
+				bucket: this.liveSession.bucket,
+			});
+		}
 		this.liveSession = null;
 	}
 
@@ -750,6 +764,12 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 
 	public releaseFrame(release: (texture: GPUTexture) => void): void {
 		this.wetLayerPass?.releaseFrame();
+		for (const dropped of this.retiredSessions) {
+			dropped.texture.destroy();
+			dropped.bucket.destroy();
+		}
+		this.retiredSessions = this.frameRetiredSessions;
+		this.frameRetiredSessions = [];
 		for (const texture of [...this.frameTextures, ...this.retiredTextures]) {
 			release(texture);
 		}
@@ -764,6 +784,15 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 
 	public destroy(): void {
 		this.disposeLiveSession();
+		for (const dropped of [
+			...this.retiredSessions,
+			...this.frameRetiredSessions,
+		]) {
+			dropped.texture.destroy();
+			dropped.bucket.destroy();
+		}
+		this.retiredSessions = [];
+		this.frameRetiredSessions = [];
 		this.wetLayerPass?.destroy();
 		this.wetLayerPass = null;
 		for (const buffer of [...this.retiredBuffers, ...this.frameBuffers]) {
