@@ -104,17 +104,28 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
 	let coord = vec2i(gid.xy);
 
+	// The stencil steps in proportion to how far the paint is meant to run.
+	// A one-texel stencil spreads by sqrt(2*D*N) texels however large the
+	// coefficients are, which on this domain is well under a world pixel — the
+	// bleed would be invisible and every wet value would look inert. Widening
+	// the step scales the spread without touching the stability limit, which
+	// depends on the weights alone.
+	let stencil = max(
+		1,
+		i32(round(clamp(uniforms.bleedRadius * uniforms.brushRadiusPx * 0.35, 1.0, 24.0))),
+	);
+
 	let centerPigment = samplePigment(coord);
-	let leftPigment = samplePigment(coord + vec2i(-1, 0));
-	let rightPigment = samplePigment(coord + vec2i(1, 0));
-	let downPigment = samplePigment(coord + vec2i(0, -1));
-	let upPigment = samplePigment(coord + vec2i(0, 1));
+	let leftPigment = samplePigment(coord + vec2i(-stencil, 0));
+	let rightPigment = samplePigment(coord + vec2i(stencil, 0));
+	let downPigment = samplePigment(coord + vec2i(0, -stencil));
+	let upPigment = samplePigment(coord + vec2i(0, stencil));
 
 	let centerMoisture = sampleMoisture(coord);
-	let leftMoisture = sampleMoisture(coord + vec2i(-1, 0));
-	let rightMoisture = sampleMoisture(coord + vec2i(1, 0));
-	let downMoisture = sampleMoisture(coord + vec2i(0, -1));
-	let upMoisture = sampleMoisture(coord + vec2i(0, 1));
+	let leftMoisture = sampleMoisture(coord + vec2i(-stencil, 0));
+	let rightMoisture = sampleMoisture(coord + vec2i(stencil, 0));
+	let downMoisture = sampleMoisture(coord + vec2i(0, -stencil));
+	let upMoisture = sampleMoisture(coord + vec2i(0, stencil));
 
 	let seedMoisture = textureLoad(moistureSeed, coord, 0);
 	let seedVelocity = textureLoad(fluidVelocitySeed, coord, 0);

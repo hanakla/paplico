@@ -4233,6 +4233,22 @@ export class CanvasLayer {
 		// density. Committed strokes render once at full scale and get cached.
 		let isolationBounds: WorldBBox = fp.textureBounds;
 		let isolationScale = rasterScale;
+		// The wet layer carries pigment past the stroke's own outline. The
+		// isolated texture is what the simulation composites into, so it has to
+		// hold that reach — sized to the outline alone, every bleed is cropped
+		// back to the dabs and no wet value appears to do anything.
+		const wetPad = plans.reduce((pad, plan) => {
+			const wetSettings = CanvasLayer.wetSettingsOf(plan.appearance);
+			if (!wetSettings?.wet) return pad;
+			const brushSize = Math.max(readStoredBrushSize(wetSettings) ?? 10, 1);
+			return Math.max(
+				pad,
+				brushSize * (0.5 + Math.max(wetSettings.wet.bleedRadius, 0)),
+			);
+		}, 0);
+		if (wetPad > 0) {
+			isolationBounds = brandWorldBBox(expandBounds(isolationBounds, wetPad));
+		}
 		const isTransientWash =
 			plans.some((plan) => plan.washStrokeOpacity != null) &&
 			(fp.element.id === PREVIEW_ELEMENT_SENTINEL_ID ||

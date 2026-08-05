@@ -41,45 +41,51 @@ describe("Wet layer strokes", () => {
 	// them does right now: the simulation runs, the values reach its uniforms,
 	// and the result comes out identical either way. Recorded as known
 	// failures until the diffusion itself is fixed.
-	it.fails("should bleed further as the wetness rises", async () => {
-		const damp = await renderSpreadReach(wetTuned({ wetness: 0.2 }));
-		const soaked = await renderSpreadReach(wetTuned({ wetness: 1.4 }));
+	it("should bleed further as the wetness rises", async () => {
+		const damp = await renderBleedMass(wetTuned({ wetness: 0.2 }));
+		const soaked = await renderBleedMass(wetTuned({ wetness: 1.4 }));
 
-		expect(soaked).toBeGreaterThan(damp + 2);
+		expect(soaked).toBeGreaterThan(damp * 1.15);
 	});
 
-	it.fails("should bleed further as the bleed radius grows", async () => {
-		const tight = await renderSpreadReach(wetTuned({ bleedRadius: 0.3 }));
-		const wide = await renderSpreadReach(wetTuned({ bleedRadius: 2.5 }));
+	it("should bleed further as the bleed radius grows", async () => {
+		const tight = await renderBleedMass(wetTuned({ bleedRadius: 0.3 }));
+		const wide = await renderBleedMass(wetTuned({ bleedRadius: 2.5 }));
 
-		expect(wide).toBeGreaterThan(tight + 2);
+		expect(wide).toBeGreaterThan(tight * 1.15);
 	});
 
-	it.fails("should hold less pigment as the load drops", async () => {
-		const light = await renderStrokePixel(wetTuned({ pigmentLoad: 0.15 }));
-		const heavy = await renderStrokePixel(wetTuned({ pigmentLoad: 1.5 }));
+	it("should hold less pigment as the load drops", async () => {
+		// Read the bleed's edge, not the body: the centre saturates and holds
+		// the same 8-bit value at either load.
+		const light = await renderStrokePixel(wetTuned({ pigmentLoad: 0.15 }), 292);
+		const heavy = await renderStrokePixel(wetTuned({ pigmentLoad: 1.5 }), 292);
 
 		expect(light[0]).toBeGreaterThan(heavy[0] + 10);
 	});
 
-	it.fails("should soak up the bleed as absorption rises", async () => {
-		const wicking = await renderSpreadReach(wetTuned({ absorption: 0.05 }));
-		const thirsty = await renderSpreadReach(wetTuned({ absorption: 0.95 }));
+	it("should soak up the bleed as absorption rises", async () => {
+		const wicking = await renderBleedMass(wetTuned({ absorption: 0.05 }));
+		const thirsty = await renderBleedMass(wetTuned({ absorption: 0.95 }));
 
-		expect(wicking).toBeGreaterThan(thirsty + 2);
+		expect(wicking).toBeGreaterThan(thirsty * 1.15);
 	});
 });
 
-/** Rows above the stroke centre that carry any pigment: how far it bled. */
-async function renderSpreadReach(
+/**
+ * Total darkness outside the stroke's own body: how much pigment bled out.
+ * A reach in whole rows quantises away most of what these values change,
+ * which is why the earlier measurements read identical.
+ */
+async function renderBleedMass(
 	brushSettings: BrushSettingsV2,
 ): Promise<number> {
 	const pixels = await renderPixels(brushSettings);
-	let reach = 0;
-	for (let dy = 1; dy < 120; dy++) {
-		if (pixels[((300 - dy) * 800 + 400) * 4] < 250) reach = dy;
+	let mass = 0;
+	for (let dy = 9; dy < 60; dy++) {
+		mass += 255 - pixels[((300 - dy) * 800 + 400) * 4];
 	}
-	return reach;
+	return mass;
 }
 
 function wetTuned(overrides: {
