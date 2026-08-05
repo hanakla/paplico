@@ -36,7 +36,8 @@ struct DiffuseUniforms {
 	brushRadiusPx: f32,
 	// Bleed radius as a ratio of the brush size (WetConfig, stroke level).
 	bleedRadius: f32,
-	pad0: f32,
+	/** Alternates between iterations so the two stencil lattices differ. */
+	stencilScale: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: DiffuseUniforms;
@@ -110,9 +111,18 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 	// bleed would be invisible and every wet value would look inert. Widening
 	// the step scales the spread without touching the stability limit, which
 	// depends on the weights alone.
+	//
+	// The width has to be the same at every texel of one iteration, or the
+	// laplacian stops being symmetric and the spread cancels itself out. A
+	// fixed width reads the same lattice every time and combs the bleed into
+	// diagonal stripes, so it alternates between iterations instead: the two
+	// lattices overlay and the comb averages away.
 	let stencil = max(
 		1,
-		i32(round(clamp(uniforms.bleedRadius * uniforms.brushRadiusPx * 0.35, 1.0, 24.0))),
+		i32(round(
+			clamp(uniforms.bleedRadius * uniforms.brushRadiusPx * 0.32, 1.0, 18.0) *
+				uniforms.stencilScale,
+		)),
 	);
 
 	let centerPigment = samplePigment(coord);
