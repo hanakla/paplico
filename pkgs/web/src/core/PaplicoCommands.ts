@@ -40,6 +40,7 @@ import {
 	type BoundingBox,
 	type BrushPreset,
 	type BrushSettings,
+	type BrushSettingsV2,
 	BUILTIN_BRUSH_IDS,
 	BUILTIN_PAPER_IDS,
 	type Color,
@@ -2149,7 +2150,7 @@ export class PaplicoCommands {
 	}
 
 	public updateSelectedElementsBrushSettings(
-		brushSettings: BrushSettings | undefined,
+		brushSettings: BrushSettings | BrushSettingsV2 | undefined,
 	): void {
 		if (this.cannotMutate()) return;
 		const layerId = this.ctx.store.currentLayerId;
@@ -2198,7 +2199,7 @@ export class PaplicoCommands {
 	 */
 	public updateSelectedElementStrokeBrushSettings(
 		filterIndex: number,
-		brushSettings: BrushSettings | undefined,
+		brushSettings: BrushSettings | BrushSettingsV2 | undefined,
 	): void {
 		if (this.cannotMutate()) return;
 		const element = this.getSelectedElement();

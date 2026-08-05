@@ -74,9 +74,11 @@ function useSyncBrushSettingsWithSelection(): void {
 	const targetFilterIndex = uiSnap.brushDesignerTargetFilterIndex;
 
 	const snap = useSnapshot(paplico.tools.state);
-	const brushSettings = useFlatBrushView(
-		snap.strokeAppearance?.paramData.params.brushSettings,
-	);
+	// The stored settings, not the flat view: v1 has no place to hold curves,
+	// mixing or the wet layer, so writing the view back to the element drops
+	// everything the panel just edited.
+	const storedBrushSettings = snap.strokeAppearance?.paramData.params
+		.brushSettings as BrushSettings | BrushSettingsV2 | undefined;
 
 	const prevSelectedIds = useRef(docSnap.selectedElementIds);
 
@@ -94,13 +96,13 @@ function useSyncBrushSettingsWithSelection(): void {
 		if (targetFilterIndex != null) {
 			commands.updateSelectedElementStrokeBrushSettings(
 				targetFilterIndex,
-				brushSettings.union,
+				storedBrushSettings,
 			);
 		} else {
-			commands.updateSelectedElementsBrushSettings(brushSettings.union);
+			commands.updateSelectedElementsBrushSettings(storedBrushSettings);
 		}
 	}, [
-		brushSettings.union,
+		storedBrushSettings,
 		commands,
 		docSnap.selectedElementIds,
 		targetFilterIndex,

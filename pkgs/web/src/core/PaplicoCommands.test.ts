@@ -11,6 +11,7 @@ import { PaplicoCommands } from "./PaplicoCommands";
 import type {
 	AnyArtObject,
 	BlendObject,
+	BrushSettingsV2,
 	FillAppearance,
 	Filter,
 	Group,
@@ -187,6 +188,101 @@ describe("PaplicoCommands", () => {
 		commands.updateSelectedElementsBrushSettings(brushSettings);
 
 		expect(updateElement).not.toHaveBeenCalled();
+	});
+
+	// The panel edits v2 settings; writing them to a selected stroke has to
+	// carry the parts v1 cannot hold, or every mixing and wet value silently
+	// reverts the moment the stroke is selected.
+	it("keeps mixing and curves when writing v2 settings to the selection", () => {
+		const path = {
+			...createPath("path-1"),
+			filters: [
+				{
+					processor: "stroke",
+					opacity: 1,
+					blendMode: "normal",
+					paramData: {
+						version: "1",
+						params: {
+							strokeColor: {
+								type: "solid",
+								color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+							},
+							brushSettings: createDefaultBrushSettings(),
+						},
+					},
+				},
+			],
+		} as Path;
+		const layer = createLayer("layer-1", [path.id]);
+		const updateElement = vi.fn();
+
+		const commands = new PaplicoCommands({
+			store: {
+				currentLayerId: layer.id,
+				selectedElementIds: [path.id],
+				editingScopeStack: [],
+				document: {
+					layers: [layer],
+					objects: { [path.id]: path },
+				},
+			} as unknown as RendererState,
+			yjsProvider: {
+				updateElement,
+				transact: vi.fn((fn: () => void) => fn()),
+				isAnimationUndoMode: vi.fn(() => false),
+			} as unknown as YjsProvider,
+			spatial: {
+				isElementLocked: () => false,
+			} as unknown as SpatialIndex,
+			isReadonly: () => false,
+		});
+
+		commands.updateSelectedElementsBrushSettings({
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				size: { base: 24 },
+				colorRate: {
+					base: 0,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, 0],
+								[1, 0.5],
+							],
+						},
+					],
+				},
+			},
+			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+			mixing: {
+				enabled: true,
+				mode: "dulling",
+				sampleRadius: 2,
+				sampleTrail: 0,
+				blendStyle: 1,
+			},
+			randomSeed: 5,
+		});
+
+		expect(updateElement).toHaveBeenCalledTimes(1);
+		const [, , patch] = updateElement.mock.calls[0] as [
+			string,
+			string,
+			{ filters: Filter[] },
+		];
+		const written = (
+			patch.filters[0] as unknown as {
+				paramData: { params: { brushSettings: BrushSettingsV2 } };
+			}
+		).paramData.params.brushSettings;
+		expect(written.mixing?.enabled).toBe(true);
+		expect(written.mixing?.sampleRadius).toBe(2);
+		expect(written.properties.colorRate?.curves?.[0].input).toBe("pressure");
 	});
 
 	describe("pasteElements", () => {
