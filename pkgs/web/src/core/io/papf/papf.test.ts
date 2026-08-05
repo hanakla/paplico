@@ -164,6 +164,27 @@ describe("PAPF format", () => {
 			expect(restored.timelapse!.index).toEqual(timelapse.index);
 		});
 
+		it("should round-trip the positions where the recording starts over", async () => {
+			const timelapse = makeTimelapse(4);
+			timelapse.baselines = [2];
+
+			const blob = await serializeDocument(makeMinimalDoc({ timelapse }));
+			const restored = await (await openPapf(blob)).toDocument();
+
+			// Losing these would replay a switched-away document on top of the
+			// current one, stacking every layer twice.
+			expect(restored.timelapse!.baselines).toEqual([2]);
+		});
+
+		it("should report no starting-over positions for an unbroken recording", async () => {
+			const blob = await serializeDocument(
+				makeMinimalDoc({ timelapse: makeTimelapse(3) }),
+			);
+			const restored = await (await openPapf(blob)).toDocument();
+
+			expect(restored.timelapse!.baselines).toBeUndefined();
+		});
+
 		it("should report no index when the recording predates it", async () => {
 			const blob = await serializeDocument(
 				makeMinimalDoc({ timelapse: makeTimelapse(3) }),

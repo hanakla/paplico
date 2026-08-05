@@ -2267,12 +2267,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.renderer.dropDocumentCaches(outgoingDocumentId);
 		}
 
-		// The recorder outlives the document, so a switch restarts it. The
-		// baseline is the whole Yjs state rather than replaceDocument's own
-		// update: that update is a delta against items whose creating updates
-		// are no longer in the recording, and Yjs cannot integrate it into an
-		// empty document.
-		this.timelapseRecorder.restartFrom(
+		// The recorder outlives the document. Take back the incoming file's own
+		// recording — which also discards replaceDocument's update, a delta
+		// against items no longer in the recording — then start a new segment
+		// from a baseline built out of the document's content.
+		this.timelapseRecorder.restoreFrom(doc.timelapse);
+		this.timelapseRecorder.appendBaseline(
 			Y.encodeStateAsUpdate(this.yjsProvider.ydoc),
 		);
 		// The incoming objects predate every future update, so the timelapse

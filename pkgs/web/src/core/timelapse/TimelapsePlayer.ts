@@ -67,6 +67,8 @@ export class TimelapsePlayer {
 	private replayDoc: Y.Doc;
 	private entries: TimelapseData["entries"];
 	private index: TimelapseIndex | undefined;
+	/** Entry positions where the recorded state starts over (document switch), ascending. */
+	private baselines: readonly number[];
 
 	/** Entry indices worth drawing for the target artboard. */
 	private visible: number[];
@@ -118,6 +120,7 @@ export class TimelapsePlayer {
 		this.replayDoc = new Y.Doc();
 		this.entries = data.entries;
 		this.index = data.index;
+		this.baselines = [...(data.baselines ?? [])].sort((a, b) => a - b);
 		this.visible = selectEntriesForArtboard(
 			this.entries.length,
 			this.index,
@@ -360,39 +363,59 @@ export class TimelapsePlayer {
 	/** Apply every entry up to and including `entryIndex`, without drawing. */
 	private applyEntriesUpTo(entryIndex: number): void {
 		for (let i = this.appliedUpToIndex + 1; i <= entryIndex; i++) {
+			// A baseline entry stands on its own. Everything recorded before it
+			// belongs to a document that was swapped out, and its items would
+			// stack on top of the new ones — the same layer twice.
+			if (this.baselines.includes(i)) this.recreateReplayDoc();
 			Y.applyUpdate(this.replayDoc, this.entries[i].u);
 			this.appliedUpToIndex = i;
 			this.captureKeyframe(i);
 		}
 	}
 
+	/** The last position at or before `entryIndex` where the state starts over. */
+	private baselineAtOrBefore(entryIndex: number): number {
+		let found = -1;
+		for (const baseline of this.baselines) {
+			if (baseline > entryIndex) break;
+			found = baseline;
+		}
+		return found;
+	}
+
+	private recreateReplayDoc(): void {
+		this.replayDoc.destroy();
+		this.replayDoc = new Y.Doc();
+		this.setupChangeTracking();
+		this.touched = createTouchedState();
+		this.currentDoc = null;
+	}
+
 	/** Rebuild the replay document from the nearest keyframe at or before the target. */
 	private rewindTo(entryIndex: number): void {
+		// A keyframe from before the last baseline holds the superseded
+		// document, so the walk has to restart at the baseline instead.
+		const baseline = this.baselineAtOrBefore(entryIndex);
 		let startIndex = -1;
 		let snapshot: Uint8Array | null = null;
 		for (const keyframe of this.keyframes) {
 			if (keyframe.index > entryIndex) break;
+			if (keyframe.index < baseline) continue;
 			startIndex = keyframe.index;
 			snapshot = keyframe.snapshot;
 		}
 
-		this.replayDoc.destroy();
-		this.replayDoc = new Y.Doc();
-		this.setupChangeTracking();
-		this.touched = createTouchedState();
-		this.currentDoc = null;
+		this.recreateReplayDoc();
 
 		if (snapshot) Y.applyUpdate(this.replayDoc, snapshot);
-		this.appliedUpToIndex = snapshot ? startIndex : -1;
+		// Without a usable keyframe, start at the baseline rather than at zero:
+		// the entries before it build a document this one replaces.
+		this.appliedUpToIndex = snapshot ? startIndex : baseline - 1;
 		this.applyEntriesUpTo(entryIndex);
 	}
 
 	private resetReplay(): void {
-		this.replayDoc.destroy();
-		this.replayDoc = new Y.Doc();
-		this.setupChangeTracking();
-		this.touched = createTouchedState();
-		this.currentDoc = null;
+		this.recreateReplayDoc();
 		this.appliedUpToIndex = -1;
 		this.visibleCursor = -1;
 		this.activePathAnim = null;

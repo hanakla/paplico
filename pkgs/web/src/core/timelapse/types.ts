@@ -33,6 +33,14 @@ export interface TimelapseData {
 	entries: TimelapseEntry[];
 	/** 未計算なら undefined。読込時に一度だけ再構築して埋める */
 	index?: TimelapseIndex;
+	/**
+	 * それ単体で完結した状態を持つエントリの位置。
+	 *
+	 * ドキュメントを切り替えると、それ以降の更新は切り替え前とは別のアイテムに
+	 * 対する差分になる。再生側はここで replay ドキュメントを作り直す。作り直さ
+	 * ずに繋げて再生すると、同じレイヤーが二重に積まれる。
+	 */
+	baselines?: number[];
 }
 
 /** 再生状態（UI向け） */

@@ -491,6 +491,7 @@ export class PapfFile {
 			version: 2,
 			entries: allEntries,
 			index,
+			baselines: manifest.baselines,
 		};
 	}
 

@@ -17,6 +17,8 @@ import type {
 export class TimelapseRecorder {
 	private entries: TimelapseEntry[] = [];
 	private rects: (TimelapseDirtyRect | null)[] = [];
+	/** Entry positions where the state starts over. @see appendBaseline */
+	private baselines: number[] = [];
 	private startedAt = Date.now();
 	private readonly ledger = new TimelapseBoundsLedger();
 
@@ -55,25 +57,40 @@ export class TimelapseRecorder {
 			version: 2,
 			entries: this.entries,
 			index: { rects: this.rects },
+			baselines: [...this.baselines],
 		};
 	}
 
 	/**
-	 * ドキュメントが差し替わったので、記録を最初からやり直す。
-	 *
-	 * `baseline` は差し替え直後の Yjs 状態を丸ごとエンコードしたもの。ここを
-	 * 差分にしてはいけない。差し替えが出す更新は、直前まで存在していた
-	 * アイテムを前提にした差分で、その依存を作った更新はもう記録に無い。
-	 * 空の Y.Doc に再生しても Yjs が統合できず、何も現れなくなる。
-	 *
-	 * 差し替え前の記録は引き継げない。過去の記録が作るアイテムと、差し替え後の
-	 * Yjs が持つアイテムは別物なので、連結して再生するとレイヤーが二重になる。
-	 * 切り替えたら録り直す。
+	 * 読み込んだドキュメントが持っていた記録を引き継ぐ。
+	 * Recorder はドキュメントより長く生きるので、記録を持たないドキュメントに
+	 * 切り替わったときは undefined を渡す。渡さないと前のドキュメントの履歴が
+	 * そのまま再生されてしまう。
 	 */
-	public restartFrom(baseline: Uint8Array): void {
-		this.startedAt = Date.now();
-		this.entries = [{ t: 0, u: baseline }];
-		this.rects = [null];
+	public restoreFrom(data: TimelapseData | undefined): void {
+		this.entries = data ? [...data.entries] : [];
+		this.rects = data?.index
+			? [...data.index.rects]
+			: new Array<TimelapseDirtyRect | null>(this.entries.length).fill(null);
+		this.baselines = data?.baselines ? [...data.baselines] : [];
+		const lastT = this.entries.at(-1)?.t ?? 0;
+		this.startedAt = Date.now() - lastT;
+	}
+
+	/**
+	 * ドキュメントが差し替わったので、ここから先を新しい区切りとして記録する。
+	 *
+	 * `baseline` はドキュメントの内容から作った、それ単体で完結した更新。差し替えが
+	 * 出す更新をそのまま使ってはいけない。あれは直前まで存在していたアイテムを
+	 * 前提にした差分で、空の Y.Doc に再生しても Yjs が統合できない。
+	 *
+	 * 引き継いだ記録は消さない。再生側がこの位置で replay ドキュメントを作り直す
+	 * ので、前の記録と繋げても同じレイヤーが二重に積まれることはない。
+	 */
+	public appendBaseline(baseline: Uint8Array): void {
+		this.baselines.push(this.entries.length);
+		this.entries.push({ t: Date.now() - this.startedAt, u: baseline });
+		this.rects.push(null);
 	}
 
 	/**

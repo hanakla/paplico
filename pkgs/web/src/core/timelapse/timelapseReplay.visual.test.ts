@@ -204,10 +204,9 @@ describe("Timelapse end to end", () => {
 		expect(partialInk).toBeLessThan(fullInk);
 	});
 
-	it("should start over when the incoming document carries its own recording", async () => {
-		// A recording made elsewhere, as a loaded .papf would carry. It cannot be
-		// continued: its items and the items the switch creates are different
-		// objects, so replaying both in a row duplicates every layer.
+	it("should keep the incoming document's own recording and play past it", async () => {
+		// A recording made elsewhere, as a loaded .papf would carry. Losing it on
+		// a switch would destroy it the next time the document is saved.
 		const earlier = startSession();
 		earlier.addArtboard(createArtboard("ab", "Main", 0, 0, 800, 600));
 		earlier.draw(strokePath("earlier-stroke", -300, -150, 300, 150));
@@ -218,11 +217,15 @@ describe("Timelapse end to end", () => {
 		session.switchTo({ ...carriedDocument, timelapse: carried });
 		session.draw(strokePath("stroke-1", -150, 0, 150, 0));
 
-		// The baseline plus the one stroke drawn after the switch.
-		expect(session.recording().entries).toHaveLength(2);
+		const recording = session.recording();
+		// Everything that was carried, plus the baseline and the new stroke.
+		expect(recording.entries.length).toBe(carried.entries.length + 2);
+		for (let i = 0; i < carried.entries.length; i++) {
+			expect(recording.entries[i].u).toEqual(carried.entries[i].u);
+		}
+		expect(recording.baselines).toEqual([carried.entries.length]);
 
 		const live = session.document();
-		const recording = session.recording();
 		const replayed = replayToEnd(recording, live.artboards[0]);
 
 		expect(Object.keys(replayed.objects).sort()).toEqual(
@@ -296,7 +299,8 @@ function startSession() {
 		/** Same order as Paplico.importDocument. */
 		switchTo: (incoming: Document) => {
 			provider.replaceDocument(incoming);
-			recorder.restartFrom(Y.encodeStateAsUpdate(provider.ydoc));
+			recorder.restoreFrom(incoming.timelapse);
+			recorder.appendBaseline(Y.encodeStateAsUpdate(provider.ydoc));
 			recorder.seedBounds(Object.keys(incoming.objects));
 		},
 		document: () => extractLiveDocument(provider),

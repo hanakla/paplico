@@ -196,6 +196,11 @@ export type TimelapseManifestPayload = {
 	 * existed.
 	 */
 	dirtyRects?: (TimelapseDirtyRect | null)[];
+	/**
+	 * Entry positions where the recorded state starts over, written whenever a
+	 * document switch split the recording. Absent means one unbroken stream.
+	 */
+	baselines?: number[];
 };
 
 // ---------------------------------------------------------------------------
