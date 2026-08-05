@@ -565,8 +565,6 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 				spacing: { base: 0.05 },
 				hardness: { base: 0.25 },
 				flow: { base: 0.55 },
-				scatterOffset: { base: 0.9 },
-				scatterAlong: { base: 0.6 },
 				colorRate: { base: 0 },
 				alphaRate: { base: 0 },
 				smudgeLength: { base: 0.35 },
@@ -577,6 +575,11 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 				mode: "dulling",
 				sampleRadius: 1.6,
 				sampleTrail: 0.4,
+				// Each dab paints where it is but picks up from somewhere else
+				// nearby, which is what breaks the edge into grain. Throwing the
+				// dabs themselves off the line instead would move pickup and
+				// paint together and scatter nothing.
+				sampleScatter: 2.2,
 				blendStyle: 1,
 			},
 			randomSeed: 59,

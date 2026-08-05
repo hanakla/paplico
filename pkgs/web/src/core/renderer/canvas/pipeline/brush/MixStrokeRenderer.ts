@@ -282,6 +282,8 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				transforms,
 				sampleRadiusRatio: mixing.sampleRadius,
 				sampleTrail: mixing.sampleTrail,
+				sampleScatter: mixing.sampleScatter ?? 0,
+				randomSeed: settings.randomSeed,
 				blendStyle: mixing.blendStyle,
 				falloffLut,
 				bucket,

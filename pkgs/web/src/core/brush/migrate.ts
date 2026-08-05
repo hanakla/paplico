@@ -586,6 +586,9 @@ function sanitizeMixing(raw: unknown): MixingConfig | undefined {
 		mode: "dulling",
 		sampleRadius: clamp(num(raw.sampleRadius, 1), 0, 4),
 		sampleTrail: clamp(num(raw.sampleTrail, 1), -2, 2),
+		...(raw.sampleScatter != null
+			? { sampleScatter: clamp(num(raw.sampleScatter, 0), 0, 4) }
+			: {}),
 		blendStyle: clamp(num(raw.blendStyle, 0), 0, 1),
 	};
 }

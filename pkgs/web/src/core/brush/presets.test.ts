@@ -45,15 +45,14 @@ describe("createBuiltinBrushPresets", () => {
 		}
 	});
 
-	it("should throw the dabs off the stroke on the scattering blur preset", () => {
+	it("should pick up away from where it paints on the scattering blur preset", () => {
 		const settings = findPreset(
 			createBuiltinBrushPresets(),
 			"builtin-brush-scatter-blur",
 		).settings;
 		if (!isV2(settings)) throw new Error("must be authored as v2");
 
-		expect(settings.properties.scatterOffset?.base).toBeGreaterThan(0);
-		expect(settings.properties.scatterAlong?.base).toBeGreaterThan(0);
+		expect(settings.mixing?.sampleScatter ?? 0).toBeGreaterThan(1);
 	});
 
 	it("should put every preset on a shelf the panel actually shows", () => {
