@@ -498,7 +498,7 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 1,
-			paintMode: "buildup",
+			paintMode: "wash",
 			properties: {
 				size: {
 					base: 40,
@@ -521,6 +521,12 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 				colorRate: { base: 0 },
 				alphaRate: { base: 0 },
 				smudgeLength: { base: 0.15 },
+				wetness: { base: 1.1 },
+				absorption: { base: 0.12 },
+				bleedSoftness: { base: 0.9 },
+				granulation: { base: 0 },
+				grainAmount: { base: 0 },
+				edgeDarkening: { base: 0 },
 			},
 			tip: { kind: "procedural", hardness: 0.4, angleMode: "fixed" },
 			mixing: {
@@ -531,6 +537,15 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 				// Averaging colours in OkLAB keeps a blur from gaining the
 				// saturation that the vivid path would push into it.
 				blendStyle: 1,
+			},
+			// The pickup is spread by the wet layer rather than left as a disc
+			// of averaged colour: diffusion is what softens an edge instead of
+			// repainting it. Little absorption so it keeps running.
+			wet: {
+				enabled: true,
+				bleedRadius: 1,
+				pigmentLoad: 0.9,
+				grainScale: 1,
 			},
 			randomSeed: 53,
 		},
@@ -547,7 +562,7 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 1,
-			paintMode: "buildup",
+			paintMode: "wash",
 			properties: {
 				size: {
 					base: 26,
@@ -568,6 +583,12 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 				colorRate: { base: 0 },
 				alphaRate: { base: 0 },
 				smudgeLength: { base: 0.35 },
+				wetness: { base: 0.8 },
+				absorption: { base: 0.5 },
+				bleedSoftness: { base: 0.4 },
+				granulation: { base: 0.7 },
+				grainAmount: { base: 0.5 },
+				edgeRoughness: { base: 0.6 },
 			},
 			tip: { kind: "procedural", hardness: 0.25, angleMode: "fixed" },
 			mixing: {
@@ -581,6 +602,12 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 				// paint together and scatter nothing.
 				sampleScatter: 2.2,
 				blendStyle: 1,
+			},
+			wet: {
+				enabled: true,
+				bleedRadius: 0.8,
+				pigmentLoad: 1,
+				grainScale: 0.7,
 			},
 			randomSeed: 59,
 		},

@@ -319,7 +319,7 @@ ${
 	let result = vec4f(finalColor * finalAlpha, finalAlpha);
 	return applyClipMask(result, in.maskIndex, in.maskBoundsMin, in.maskBoundsMax, in.transformedWorldPos);
 }
-${wetSeed ? buildWetSeedWgsl(tipSample) : ""}
+${wetSeed ? buildWetSeedWgsl(tipSample, mixedColors) : ""}
 `;
 }
 
@@ -331,7 +331,7 @@ ${wetSeed ? buildWetSeedWgsl(tipSample) : ""}
  * Unlike v1, wetness / directionality / grain ride in on each dab, so a
  * curve can modulate them along the stroke instead of one value covering it.
  */
-function buildWetSeedWgsl(tipSample: string): string {
+function buildWetSeedWgsl(tipSample: string, mixedColors: boolean): string {
 	return /* wgsl */ `
 struct WetSeedOutput {
 	@location(0) pigment: vec4f,
@@ -376,13 +376,21 @@ fn encodeWetPigmentMass(premultiplied: vec4f) -> vec4f {
 fn fs_wet(in: VertexOutput) -> WetSeedOutput {
 	let dab = dabs[in.instanceIndex];
 	let pm = pathMetas[pathIndexOf(dab)];
-	let resolved = resolveDabColor(
+	var resolved = resolveDabColor(
 		dab,
 		pm,
 		in.worldPos,
 		in.pathT,
 		in.normalizedStrokeDistance,
 	);
+${
+	mixedColors
+		? /* wgsl */ `
+	// Seeded with what the dab picked up, not the brush colour: this is how a
+	// mixing stroke's pigment reaches the simulation and spreads.
+	resolved = mixedColors[in.instanceIndex];`
+		: ""
+}
 ${tipSample}
 	let widthFade = strokeWidthCoverage(
 		in.normalizedStrokeDistance,

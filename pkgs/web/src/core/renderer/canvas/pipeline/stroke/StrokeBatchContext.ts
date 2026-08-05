@@ -1710,6 +1710,10 @@ export class StrokeBatchContext {
 		alphaMultiplier: number;
 		transformsBindGroup: GPUBindGroup | undefined;
 		transformIndex: number;
+		/** Resolved per-dab colours of a mixing stroke, with the dab buffer
+		 *  they index into. Given together, the seed carries what the stroke
+		 *  picked up instead of the brush colour. */
+		mixed?: { dabBuffer: GPUBuffer; colors: GPUBuffer; dabCount: number };
 	}): void {
 		const tip = this.resolveDabTipSetup(args.settings);
 		if (!tip) return;
@@ -1753,6 +1757,7 @@ export class StrokeBatchContext {
 
 		const { pipeline, bindGroupLayout } = this.ensureWetSeedPipeline(
 			tip.tipMode,
+			args.mixed != null,
 		);
 		args.passEncoder.setPipeline(pipeline);
 		args.passEncoder.setBindGroup(
@@ -1765,7 +1770,10 @@ export class StrokeBatchContext {
 						binding: 0,
 						resource: { buffer: this.getEffectiveUniformBuffer() },
 					},
-					{ binding: 1, resource: { buffer: dabBuffer } },
+					{
+						binding: 1,
+						resource: { buffer: args.mixed?.dabBuffer ?? dabBuffer },
+					},
 					{ binding: 2, resource: tip.textureView },
 					{ binding: 3, resource: tip.sampler },
 					...this.grainBindings(args.path),
@@ -1776,10 +1784,15 @@ export class StrokeBatchContext {
 			1,
 			this.device.createBindGroup({
 				label: "Wet Seed Bind Group 1",
-				layout: this.brushBindGroupLayout,
+				layout: args.mixed
+					? this.ensureMixedBrushBindGroupLayout()
+					: this.brushBindGroupLayout,
 				entries: [
 					{ binding: 0, resource: { buffer: pathMetaBuffer } },
 					{ binding: 1, resource: { buffer: colorStopsBuffer } },
+					...(args.mixed
+						? [{ binding: 2, resource: { buffer: args.mixed.colors } }]
+						: []),
 				],
 			}),
 		);
@@ -1787,7 +1800,7 @@ export class StrokeBatchContext {
 			args.passEncoder.setBindGroup(2, args.transformsBindGroup);
 		}
 		args.passEncoder.setBindGroup(3, this.getMaskBindGroup());
-		args.passEncoder.draw(6, dabs.count);
+		args.passEncoder.draw(6, args.mixed?.dabCount ?? dabs.count);
 	}
 
 	/** Group 0 layout of every dab pipeline: viewport uniform, dab instances,
@@ -1840,17 +1853,24 @@ export class StrokeBatchContext {
 
 	/** Dab pipeline writing the wet seed targets. Separate from the painting
 	 *  pipeline because it has no depth attachment and six colour targets. */
-	private ensureWetSeedPipeline(mode: DabTipMode): {
+	private ensureWetSeedPipeline(
+		mode: DabTipMode,
+		mixed = false,
+	): {
 		pipeline: GPURenderPipeline;
 		bindGroupLayout: GPUBindGroupLayout;
 	} {
-		const cacheKey = `${mode}:wetSeed`;
+		const cacheKey = `${mode}:wetSeed${mixed ? ":mixed" : ""}`;
 		const existing = this.dabPipelines.get(cacheKey);
 		if (existing) return existing;
 
 		const { module } = compileShaderModule(this.device, {
 			label: `Brush Dab Shader (${cacheKey})`,
-			code: buildBrushDabShader({ tipMode: mode, wetSeed: true }),
+			code: buildBrushDabShader({
+				tipMode: mode,
+				wetSeed: true,
+				mixedColors: mixed,
+			}),
 		});
 		const bindGroupLayout = this.createDabBindGroupLayout(mode, cacheKey);
 		const pipeline = this.device.createRenderPipeline({
@@ -1859,7 +1879,9 @@ export class StrokeBatchContext {
 				label: `Brush Dab Pipeline Layout (${cacheKey})`,
 				bindGroupLayouts: [
 					bindGroupLayout,
-					this.brushBindGroupLayout,
+					mixed
+						? this.ensureMixedBrushBindGroupLayout()
+						: this.brushBindGroupLayout,
 					this.transformsBindGroupLayout,
 					this.maskBindGroupLayout,
 				],

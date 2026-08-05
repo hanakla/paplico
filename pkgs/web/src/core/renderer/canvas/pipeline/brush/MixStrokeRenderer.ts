@@ -1,7 +1,9 @@
+import { BRUSH_PROPERTY_REGISTRY } from "../../../../brush/properties";
 import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
 import type {
 	AnyArtObject,
 	BoundingBox,
+	BrushPropertyId,
 	BrushSettingsV2,
 	Filter,
 	Path,
@@ -15,6 +17,7 @@ import {
 } from "../../../../utils/geometry/bounds";
 import { hashSegmentsWithMetadata } from "../../../../utils/geometry/segmentOps";
 import type { GPUTimingProfiler } from "../../../GPUTimingProfiler";
+import { WET_SEED_TARGETS } from "../../../shaders/brushDab.wgsl";
 import type { BlitLayer } from "../../CanvasLayerTypes";
 import type {
 	BackdropEffectCoordinator,
@@ -22,7 +25,9 @@ import type {
 } from "../BackdropEffectCoordinator";
 import type { BackdropEffectDriver } from "../FilterRenderer";
 import { createFrameTextureRef, createRenderSurface } from "../RenderSurface";
+import { resolveSimulationDomain } from "../rasterizationDomain";
 import type { StrokeBatchContext } from "../stroke/StrokeBatchContext";
+import { WetLayerPass } from "../stroke/WetLayerPass";
 import type { TexturePool } from "../TexturePool";
 import type { UniformScope } from "../UniformScope";
 import { evaluateDabs } from "./DabEvaluator";
@@ -74,6 +79,7 @@ export interface MixStrokeRendererDeps {
 export class MixStrokeRenderer implements BackdropEffectDriver {
 	private readonly deps: MixStrokeRendererDeps;
 	private mixPass: MixPass | null = null;
+	private wetLayerPass: WetLayerPass | null = null;
 	/** elementId -> last resolved stroke, reused while its key holds. */
 	private readonly resultCache = new Map<string, MixResultCacheEntry>();
 	private resultCacheBytes = 0;
@@ -320,6 +326,23 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			pass.end();
 		}
 
+		if (settings.wet?.enabled) {
+			this.runWetLayer(encoder, {
+				element,
+				path,
+				settings,
+				bounds,
+				scale: rasterScale,
+				target: strokeView,
+				targetSize: { width: texW, height: texH },
+				dabBuffer,
+				mixedColors,
+				dabCount: dabs.count,
+				batchContext,
+				transformsBindGroup,
+			});
+		}
+
 		const entry: MixResultCacheEntry = {
 			key: cacheKey ?? "",
 			texture: strokeTex,
@@ -337,6 +360,135 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			this.storeResult(element.id, entry);
 		}
 		return this.cachedLayer(entry);
+	}
+
+	/**
+	 * Spread the stroke's picked-up pigment through the wet simulation, on top
+	 * of what the mixed dabs already painted. A mixing stroke is taken by this
+	 * inline route before the per-appearance isolation the wet layer normally
+	 * runs in, so without this the two features can never combine.
+	 */
+	private runWetLayer(
+		encoder: GPUCommandEncoder,
+		args: {
+			element: AnyArtObject;
+			path: Path;
+			settings: BrushSettingsV2;
+			bounds: BoundingBox;
+			scale: number;
+			target: GPUTextureView;
+			targetSize: { width: number; height: number };
+			dabBuffer: GPUBuffer;
+			mixedColors: GPUBuffer;
+			dabCount: number;
+			batchContext: StrokeBatchContext;
+			transformsBindGroup: GPUBindGroup | undefined;
+		},
+	): void {
+		const wet = args.settings.wet;
+		if (!wet) return;
+		const segments = args.path.segments ?? [];
+		const brushSize = Math.max(args.settings.properties.size?.base ?? 10, 1);
+		const domain = resolveSimulationDomain(
+			expandBounds(args.bounds, brushSize * wet.bleedRadius),
+			brushSize,
+			this.deps.device.limits.maxTextureDimension2D,
+		);
+		const base = (id: BrushPropertyId): number =>
+			args.settings.properties[id]?.base ?? BRUSH_PROPERTY_REGISTRY[id].base;
+		// Texels no dab covers keep the stroke's own coefficients.
+		const clearValues = [
+			{ r: 0, g: 0, b: 0, a: 0 },
+			{ r: 0, g: 0, b: 0, a: 0 },
+			{ r: 0, g: 0, b: 0, a: 0 },
+			{ r: base("absorption"), g: base("granulation"), b: 0, a: 0 },
+			{ r: base("bleedSoftness"), g: base("edgeDarkening"), b: 0, a: 0 },
+			{ r: base("edgeRoughness"), g: 0, b: 0, a: 0 },
+		];
+
+		this.wetLayerPass ??= new WetLayerPass(
+			this.deps.device,
+			this.deps.canvasFormat,
+		);
+		for (const tile of domain.tiles) {
+			const tileW = tile.textureSize.width;
+			const tileH = tile.textureSize.height;
+			if (tileW <= 0 || tileH <= 0) continue;
+
+			const seeds = WET_SEED_TARGETS.map((seedTarget, index) =>
+				this.deps.texturePool.acquireExact(
+					tileW,
+					tileH,
+					seedTarget.format,
+					1,
+					GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+					`Mix Wet Seed ${index}`,
+				),
+			);
+			this.frameTextures.push(...seeds);
+
+			const seedPass = encoder.beginRenderPass({
+				label: "Mix Wet Seed Pass",
+				colorAttachments: seeds.map((texture, index) => ({
+					view: texture.createView(),
+					clearValue: clearValues[index],
+					loadOp: "clear" as const,
+					storeOp: "store" as const,
+				})),
+			});
+			// Dabs draw in the domain's own space: one texel per domain pixel.
+			const entry = this.deps.uniformScope.acquire(
+				{
+					x: tile.worldOrigin.x + (tileW * domain.worldPerPixel) / 2,
+					y: tile.worldOrigin.y - (tileH * domain.worldPerPixel) / 2,
+					zoom: 1 / domain.worldPerPixel,
+					rotation: 0,
+				},
+				tileW,
+				tileH,
+			);
+			args.batchContext.setActiveUniformBuffer(entry.buffer);
+			args.batchContext.renderWetSeedDabs({
+				passEncoder: seedPass,
+				path: args.path,
+				settings: args.settings,
+				segments,
+				alphaMultiplier: 1,
+				transformsBindGroup: args.transformsBindGroup ?? undefined,
+				transformIndex: this.deps.getTransformIndex(args.element.id),
+				mixed: {
+					dabBuffer: args.dabBuffer,
+					colors: args.mixedColors,
+					dabCount: args.dabCount,
+				},
+			});
+			args.batchContext.setActiveUniformBuffer(null);
+			seedPass.end();
+
+			this.wetLayerPass.apply(encoder, {
+				seeds: {
+					pigment: seeds[0],
+					fluidVelocity: seeds[1],
+					moisture: seeds[2],
+					absorptionGranulation: seeds[3],
+					softnessEdgeDarkening: seeds[4],
+					edgeRoughness: seeds[5],
+				},
+				domain: { width: tileW, height: tileH },
+				domainWorldOrigin: tile.worldOrigin,
+				domainWorldPerPixel: domain.worldPerPixel,
+				target: args.target,
+				targetResolution: args.targetSize,
+				targetWorldOrigin: { x: args.bounds.minX, y: args.bounds.maxY },
+				targetWorldPerPixel: 1 / args.scale,
+				brushRadiusPx: Math.max(brushSize * 0.5, 1) / domain.worldPerPixel,
+				bleedRadius: wet.bleedRadius,
+				pigmentLoad: wet.pigmentLoad,
+				grainScale: wet.grainScale,
+				randomSeed: args.settings.randomSeed,
+				paperGrain: base("grainAmount"),
+			});
+		}
 	}
 
 	/** BlitLayer over a resolved stroke texture the caller does not own. */
@@ -420,6 +572,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	public flushRemaining(): void {}
 
 	public releaseFrame(release: (texture: GPUTexture) => void): void {
+		this.wetLayerPass?.releaseFrame();
 		for (const texture of [...this.frameTextures, ...this.retiredTextures]) {
 			release(texture);
 		}
@@ -433,6 +586,8 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	}
 
 	public destroy(): void {
+		this.wetLayerPass?.destroy();
+		this.wetLayerPass = null;
 		for (const buffer of [...this.retiredBuffers, ...this.frameBuffers]) {
 			buffer.destroy();
 		}

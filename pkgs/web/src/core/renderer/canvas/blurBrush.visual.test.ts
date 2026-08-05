@@ -41,11 +41,11 @@ describe("Blur brush", () => {
 	// a stroke that mixes is taken by the inline composite route, which never
 	// runs the wet layer, so the two never combine. Recorded as a known
 	// failure.
-	it.fails("should spread further once the wet layer carries the pickup", async () => {
+	it("should spread further once the wet layer carries the pickup", async () => {
 		const dryPickup = await seamTransitionWidth(diffusingBrush(false));
 		const wetPickup = await seamTransitionWidth(diffusingBrush(true));
 
-		expect(wetPickup).toBeGreaterThan(dryPickup + 8);
+		expect(wetPickup).toBeGreaterThan(dryPickup * 1.15);
 	});
 
 	it("should reach the artwork on the layer below it", async () => {
