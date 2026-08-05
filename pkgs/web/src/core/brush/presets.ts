@@ -532,7 +532,7 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 			mixing: {
 				enabled: true,
 				mode: "dulling",
-				sampleRadius: 3,
+				sampleRadius: 1.2,
 				sampleTrail: 0,
 				// Averaging colours in OkLAB keeps a blur from gaining the
 				// saturation that the vivid path would push into it.
@@ -594,13 +594,8 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 			mixing: {
 				enabled: true,
 				mode: "dulling",
-				sampleRadius: 1.6,
+				sampleRadius: 1,
 				sampleTrail: 0.4,
-				// Each dab paints where it is but picks up from somewhere else
-				// nearby, which is what breaks the edge into grain. Throwing the
-				// dabs themselves off the line instead would move pickup and
-				// paint together and scatter nothing.
-				sampleScatter: 2.2,
 				blendStyle: 1,
 			},
 			wet: {
@@ -608,6 +603,9 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 				bleedRadius: 0.8,
 				pigmentLoad: 1,
 				grainScale: 0.7,
+				// Displaces each texel's pigment on the way out, which is what
+				// breaks the bleed into grain instead of smoothing it.
+				scatter: 0.45,
 			},
 			randomSeed: 59,
 		},

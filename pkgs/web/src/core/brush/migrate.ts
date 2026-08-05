@@ -586,9 +586,6 @@ function sanitizeMixing(raw: unknown): MixingConfig | undefined {
 		mode: "dulling",
 		sampleRadius: clamp(num(raw.sampleRadius, 1), 0, 4),
 		sampleTrail: clamp(num(raw.sampleTrail, 1), -2, 2),
-		...(raw.sampleScatter != null
-			? { sampleScatter: clamp(num(raw.sampleScatter, 0), 0, 4) }
-			: {}),
 		blendStyle: clamp(num(raw.blendStyle, 0), 0, 1),
 	};
 }
@@ -600,6 +597,9 @@ function sanitizeWet(raw: unknown): WetConfig | undefined {
 		bleedRadius: clamp(num(raw.bleedRadius, 0.5), 0, 1),
 		pigmentLoad: clamp(num(raw.pigmentLoad, 0.85), 0, 1),
 		grainScale: clamp(num(raw.grainScale, 1), 0.05, 1000),
+		...(raw.scatter != null
+			? { scatter: clamp(num(raw.scatter, 0), 0, 4) }
+			: {}),
 	};
 }
 

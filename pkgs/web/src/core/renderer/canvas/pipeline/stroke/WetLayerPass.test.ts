@@ -45,6 +45,23 @@ describe("WetLayerPass", () => {
 		expect(await paintedArea(1)).toBeGreaterThan(await paintedArea(0));
 	});
 
+	// Scattering displaces where each output texel reads its pigment, so the
+	// composite comes out grainy: neighbouring texels stop agreeing.
+	it("should break the composite into grain when scattering", async () => {
+		const roughness = async (scatter: number): Promise<number> => {
+			const pixels = await runWetLayer({ scatter });
+			let sum = 0;
+			for (let y = TARGET / 2 - 6; y < TARGET / 2 + 6; y++) {
+				for (let x = TARGET / 2 - 6; x < TARGET / 2 + 6; x++) {
+					sum += Math.abs(alphaAt(pixels, x, y) - alphaAt(pixels, x + 1, y));
+				}
+			}
+			return sum;
+		};
+
+		expect(await roughness(4)).toBeGreaterThan((await roughness(0)) + 0.5);
+	});
+
 	it("should reuse its fields across strokes without leaking", async () => {
 		// Two runs on one pass instance: the second must still paint, which it
 		// cannot if the first run's fields were destroyed or left dirty.
@@ -71,6 +88,7 @@ async function runWetLayer(opts: {
 	coverage?: number;
 	water?: number;
 	bleedSoftness?: number;
+	scatter?: number;
 }): Promise<Uint8Array> {
 	const device = opts.device ?? (await getTestDevice());
 	const pass = opts.pass ?? new WetLayerPass(device, "rgba8unorm");
@@ -166,6 +184,7 @@ async function runWetLayer(opts: {
 		grainScale: 1,
 		randomSeed: 7,
 		paperGrain: 0.2,
+		scatter: opts.scatter ?? 0,
 	});
 
 	const readback = device.createBuffer({

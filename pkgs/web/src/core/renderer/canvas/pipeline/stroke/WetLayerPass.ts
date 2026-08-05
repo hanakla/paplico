@@ -40,6 +40,8 @@ export interface WetLayerApplyParams {
 	randomSeed: number;
 	/** Paper grain strength applied at composite time. */
 	paperGrain: number;
+	/** Random per-texel displacement of the pigment read, in domain texels. */
+	scatter: number;
 }
 
 /**
@@ -175,19 +177,27 @@ export class WetLayerPass {
 		fields: NonNullable<WetLayerPass["fields"]>,
 	): { pigment: GPUTexture; moisture: GPUTexture } {
 		const view = pipelines.uniformViews.diffuse;
-		view.set({
-			resolution: [params.domain.width, params.domain.height],
-			paperScale: params.grainScale,
-			randomSeed: (params.randomSeed % 65521) / 65521,
-			dt: 1 / WET_LAYER_ITERATIONS,
-			brushRadiusPx: params.brushRadiusPx,
-			bleedRadius: params.bleedRadius,
-		});
-		const uniforms = this.uploadUniforms(view.arrayBuffer, "Wet Layer Diffuse");
+		const uniformsFor = (stencilScale: number): GPUBuffer => {
+			view.set({
+				resolution: [params.domain.width, params.domain.height],
+				paperScale: params.grainScale,
+				randomSeed: (params.randomSeed % 65521) / 65521,
+				dt: 1 / WET_LAYER_ITERATIONS,
+				brushRadiusPx: params.brushRadiusPx,
+				bleedRadius: params.bleedRadius,
+				stencilScale,
+			});
+			return this.uploadUniforms(view.arrayBuffer, "Wet Layer Diffuse");
+		};
+		// One stencil width per ping-pong direction: a single width reads the
+		// same lattice on every iteration and leaves a diagonal comb behind.
+		const wideUniforms = uniformsFor(1);
+		const narrowUniforms = uniformsFor(0.55);
 
 		// Two bind groups swapped each step; only the pigment and moisture
 		// fields ping-pong, the seeds stay bound read-only throughout.
 		const bindGroupFor = (
+			uniforms: GPUBuffer,
 			srcPigment: GPUTexture,
 			srcMoisture: GPUTexture,
 			dstPigment: GPUTexture,
@@ -215,12 +225,14 @@ export class WetLayerPass {
 			});
 
 		const forward = bindGroupFor(
+			wideUniforms,
 			fields.pigmentA,
 			fields.moistureA,
 			fields.pigmentB,
 			fields.moistureB,
 		);
 		const backward = bindGroupFor(
+			narrowUniforms,
 			fields.pigmentB,
 			fields.moistureB,
 			fields.pigmentA,
@@ -269,6 +281,7 @@ export class WetLayerPass {
 			domainWorldPerPixel: params.domainWorldPerPixel,
 			paperGrain: params.paperGrain,
 			paperScale: params.grainScale,
+			scatter: params.scatter,
 			pigmentLoad: params.pigmentLoad,
 			randomSeed: (params.randomSeed % 65521) / 65521,
 		});

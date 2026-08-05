@@ -41,8 +41,6 @@ struct MixUniforms {
 	sampleTrail: f32,
 	blendStyle: f32,
 	hasStroke: f32,
-	sampleScatter: f32,
-	randomSeed: f32,
 }
 
 @group(0) @binding(0) var<uniform> u: MixUniforms;
@@ -75,26 +73,6 @@ fn brushColorOf(dab: DabInstance) -> vec4<f32> {
 
 const FOOT: u32 = 8u;
 
-/** Two decorrelated values in 0..1 from one integer, so a dab's scatter is
- *  fixed by its index alone and a re-render lands on the same offsets. The
- *  avalanche matters here: dab indices are small consecutive integers, and a
- *  weaker mix leaves neighbouring dabs drawing near-identical offsets. */
-fn scramble(value: u32) -> u32 {
-	var h = value;
-	h ^= h >> 16u;
-	h *= 2246822519u;
-	h ^= h >> 13u;
-	h *= 3266489917u;
-	h ^= h >> 16u;
-	return h;
-}
-
-fn hash21(value: u32) -> vec2f {
-	let a = scramble(value * 2654435761u + 1u);
-	let b = scramble(a ^ 0x9e3779b9u);
-	return vec2f(f32(a >> 8u), f32(b >> 8u)) / 16777216.0;
-}
-
 var<workgroup> wgColor: array<vec4f, 64>;
 var<workgroup> wgWeight: array<f32, 64>;
 
@@ -106,15 +84,8 @@ fn cs_sample(
 	let dab = dabs[u.firstDab + wg.x];
 	let radius = max(max(dab.sizeX, dab.sizeY) * 0.5 * u.sampleRadiusRatio, 0.5);
 	let dir = vec2f(dab.strokeDirX, dab.strokeDirY);
-	// Where the dab picks up from, which is not where it paints: a random
-	// offset per dab drags colour in from around the stroke rather than
-	// returning each dab's own patch to itself.
-	let scatterRnd = hash21(u.firstDab + wg.x + u32(u.randomSeed * 65521.0));
-	let scatterAngle = scatterRnd.x * 6.2831853;
-	let scatterDist = sqrt(scatterRnd.y) * u.sampleScatter * radius;
 	let center = vec2f(dab.positionX, dab.positionY)
-		+ dir * (u.sampleTrail * radius)
-		+ vec2f(cos(scatterAngle), sin(scatterAngle)) * scatterDist;
+		+ dir * (u.sampleTrail * radius);
 	let cell = vec2f(f32(li % FOOT), f32(li / FOOT));
 	let off = ((cell + vec2f(0.5)) / f32(FOOT)) * 2.0 - vec2f(1.0);
 	let r = length(off);

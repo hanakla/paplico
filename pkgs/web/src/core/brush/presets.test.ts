@@ -45,14 +45,14 @@ describe("createBuiltinBrushPresets", () => {
 		}
 	});
 
-	it("should pick up away from where it paints on the scattering blur preset", () => {
+	it("should displace its texels on the scattering blur preset", () => {
 		const settings = findPreset(
 			createBuiltinBrushPresets(),
 			"builtin-brush-scatter-blur",
 		).settings;
 		if (!isV2(settings)) throw new Error("must be authored as v2");
 
-		expect(settings.mixing?.sampleScatter ?? 0).toBeGreaterThan(1);
+		expect(settings.wet?.scatter ?? 0).toBeGreaterThan(0);
 	});
 
 	it("should put every preset on a shelf the panel actually shows", () => {

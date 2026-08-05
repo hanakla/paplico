@@ -6747,6 +6747,9 @@ export class CanvasLayer {
 				grainScale: wet.grainScale,
 				randomSeed: settings.randomSeed,
 				paperGrain: base("grainAmount"),
+				scatter:
+					(wet.scatter ?? 0) *
+					(Math.max(brushSize * 0.5, 1) / domain.worldPerPixel),
 			});
 
 			for (const texture of seeds) this.offscreen.deferDestroy(texture);

@@ -36,10 +36,6 @@ export type MixChunkArgs = {
 	sampleRadiusRatio: number;
 	/** Sample offset along the stroke direction in footprint radii (-2..2). */
 	sampleTrail: number;
-	/** Random per-dab offset of the sample position, in footprint radii. */
-	sampleScatter: number;
-	/** Seeds the scatter so a re-render picks up from the same places. */
-	randomSeed: number;
 	/** 0 = vivid (OkLCH), 1 = muted (OkLAB). */
 	blendStyle: number;
 	/** Tip falloff LUT array (r8unorm 256×1×32) weighting the footprint. */
@@ -214,8 +210,6 @@ export class MixPass {
 			sampleTrail: args.sampleTrail,
 			blendStyle: args.blendStyle,
 			hasStroke: args.stroke ? 1 : 0,
-			sampleScatter: args.sampleScatter,
-			randomSeed: (args.randomSeed % 65521) / 65521,
 		});
 		const uniformBuffer = this.device.createBuffer({
 			label: "Brush Mix Chunk Uniforms",

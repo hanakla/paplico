@@ -131,42 +131,6 @@ describe("MixPass.resolveChunk", () => {
 		});
 		expectVec4Close(colors[0], BLUE, 2 / 255);
 	});
-
-	// Scattering is what separates a blur from a repaint: each dab has to pick
-	// up from somewhere other than the spot it covers, or it hands every patch
-	// straight back where it came from.
-	it("should pick up away from the dab when sampleScatter is set", async () => {
-		// Four dabs sitting well inside green. Without scatter every one of
-		// them reads green; with it, footprints reach across into blue.
-		const placed = Array.from({ length: 16 }, (_, i) => dab(-6 - (i % 4), 0));
-		const [plain] = await runMixChunks([placed], {
-			brushColor: RED,
-			params: { colorRate: 0, alphaRate: 0, smudge: 0 },
-		});
-		const [scattered] = await runMixChunks([placed], {
-			brushColor: RED,
-			params: { colorRate: 0, alphaRate: 0, smudge: 0 },
-			sampleScatter: 3,
-		});
-
-		const blueness = (colors: Vec4[]) =>
-			colors.reduce((sum, c) => sum + c[2], 0);
-		expect(blueness(plain)).toBeLessThan(0.05);
-		expect(blueness(scattered)).toBeGreaterThan(0.2);
-	});
-
-	it("should scatter the same way on a second run", async () => {
-		const placed = Array.from({ length: 16 }, (_, i) => dab(-6 - (i % 4), 0));
-		const opts = {
-			brushColor: RED,
-			params: { colorRate: 0, alphaRate: 0, smudge: 0 },
-			sampleScatter: 3,
-		};
-		const [first] = await runMixChunks([placed], opts);
-		const [second] = await runMixChunks([placed], opts);
-
-		expect(second).toEqual(first);
-	});
 });
 
 type Vec4 = [number, number, number, number];
@@ -186,7 +150,6 @@ async function runMixChunks(
 		params: { colorRate: number; alphaRate: number; smudge: number };
 		blendStyle?: number;
 		sampleTrail?: number;
-		sampleScatter?: number;
 	},
 ): Promise<Vec4[][]> {
 	const device = await getTestDevice();
@@ -306,8 +269,6 @@ async function runMixChunks(
 			transforms,
 			sampleRadiusRatio: 0.5,
 			sampleTrail: opts.sampleTrail ?? 0,
-			sampleScatter: opts.sampleScatter ?? 0,
-			randomSeed: 1,
 			blendStyle: opts.blendStyle ?? 0,
 			falloffLut: lut,
 			bucket,

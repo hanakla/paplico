@@ -288,8 +288,6 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				transforms,
 				sampleRadiusRatio: mixing.sampleRadius,
 				sampleTrail: mixing.sampleTrail,
-				sampleScatter: mixing.sampleScatter ?? 0,
-				randomSeed: settings.randomSeed,
 				blendStyle: mixing.blendStyle,
 				falloffLut,
 				bucket,
@@ -487,6 +485,9 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				grainScale: wet.grainScale,
 				randomSeed: args.settings.randomSeed,
 				paperGrain: base("grainAmount"),
+				scatter:
+					(wet.scatter ?? 0) *
+					(Math.max(brushSize * 0.5, 1) / domain.worldPerPixel),
 			});
 		}
 	}

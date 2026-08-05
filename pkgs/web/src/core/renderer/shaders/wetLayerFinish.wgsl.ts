@@ -19,6 +19,9 @@ struct Uniforms {
 	domainWorldPerPixel: f32,
 	paperGrain: f32,
 	paperScale: f32,
+	/** Radius, in domain texels, of the random displacement applied to where
+	 *  each output texel reads its pigment. */
+	scatter: f32,
 	pigmentLoad: f32,
 	randomSeed: f32,
 	pad0: f32,
@@ -104,7 +107,18 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
 	let pigmentTexSize = vec2f(textureDimensions(diffusedPigment, 0));
 	let logicalMaxPx = max(uniforms.domainResolution - vec2f(1.0), vec2f(0.0));
-	let samplePx = clamp(domainPx, vec2f(0.0), logicalMaxPx);
+	// Scattering displaces the read, not the write: each output texel takes
+	// its pigment from a random spot nearby, which shuffles texels around and
+	// breaks the field into grain. Displacing whole dabs instead moves pickup
+	// and paint together and shuffles nothing.
+	var readPx = domainPx;
+	if (uniforms.scatter > 0.0) {
+		let jitterSeed = floor(domainPx) + vec2f(uniforms.randomSeed * 131.0);
+		let angle = hash21(jitterSeed) * 6.2831853;
+		let dist = sqrt(hash21(jitterSeed + vec2f(37.0, 61.0))) * uniforms.scatter;
+		readPx = domainPx + vec2f(cos(angle), sin(angle)) * dist;
+	}
+	let samplePx = clamp(readPx, vec2f(0.0), logicalMaxPx);
 	let domainUv = (samplePx + vec2f(0.5)) / pigmentTexSize;
 	let domainTexel = 1.0 / max(pigmentTexSize, vec2f(1.0));
 	let neighborMinUv = vec2f(0.5) / pigmentTexSize;

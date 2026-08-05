@@ -2044,10 +2044,6 @@ export interface MixingConfig {
 	sampleRadius: number;
 	/** Sample position trail along stroke direction (-2..2, forward positive). */
 	sampleTrail: number;
-	/** Random per-dab offset of the sample position, in footprint radii. The
-	 *  dab paints where it is but picks up from somewhere nearby, which is
-	 *  what scatters the colour instead of merely repainting it in place. */
-	sampleScatter?: number;
 	/** 0 = vivid (OkLCH), 1 = muted (OkLAB). */
 	blendStyle: number;
 }
@@ -2065,6 +2061,10 @@ export interface WetConfig {
 	pigmentLoad: number;
 	/** Grain noise UV frequency in world units. */
 	grainScale: number;
+	/** How far each texel's pigment is displaced when the layer is composited,
+	 *  as a ratio of the brush radius. Shuffling texels is what scatters the
+	 *  paint into grain; moving whole dabs cannot. */
+	scatter?: number;
 }
 
 /**
