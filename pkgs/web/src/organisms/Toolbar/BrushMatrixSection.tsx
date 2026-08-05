@@ -72,7 +72,10 @@ export const BrushMatrixSection = memo(function BrushMatrixSection({
 	});
 
 	const handleWetValueChange = useEventCallback(
-		(key: "bleedRadius" | "pigmentLoad" | "grainScale", value: number) => {
+		(
+			key: "bleedRadius" | "pigmentLoad" | "grainScale" | "scatter",
+			value: number,
+		) => {
 			onChange({
 				...settings,
 				wet: { ...DEFAULT_WET_CONFIG, ...settings.wet, [key]: value },
@@ -269,6 +272,15 @@ export const BrushMatrixSection = memo(function BrushMatrixSection({
 								settings.wet?.pigmentLoad ?? DEFAULT_WET_CONFIG.pigmentLoad
 							}
 							valueKey="pigmentLoad"
+							onValueChange={handleWetValueChange}
+						/>
+						<PlainRow
+							label={t("toolbar.wetScatter")}
+							min={0}
+							max={4}
+							step={0.05}
+							value={settings.wet?.scatter ?? 0}
+							valueKey="scatter"
 							onValueChange={handleWetValueChange}
 						/>
 						<PlainRow

@@ -97,6 +97,7 @@ export const en = {
 		mixingBlendStyle: "Vivid — muted",
 		wetPigmentLoad: "Pigment load",
 		wetGrainScale: "Paper size",
+		wetScatter: "Scatter",
 		brushResponse: "Response",
 		penTool: "Pen Tool",
 		eraserTool: "Eraser Tool",

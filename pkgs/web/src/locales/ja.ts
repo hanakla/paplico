@@ -98,6 +98,7 @@ export const ja = {
 		mixingBlendStyle: "鮮やか — 落ち着いた",
 		wetPigmentLoad: "絵の具の濃さ",
 		wetGrainScale: "紙目の大きさ",
+		wetScatter: "散らし",
 		brushResponse: "反応",
 		penTool: "ペンツール",
 		eraserTool: "消しゴムツール",
