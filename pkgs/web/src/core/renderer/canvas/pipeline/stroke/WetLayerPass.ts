@@ -80,6 +80,8 @@ export class WetLayerPass {
 	} | null = null;
 	private retiredBuffers: GPUBuffer[] = [];
 	private frameBuffers: GPUBuffer[] = [];
+	private retiredFields: GPUTexture[] = [];
+	private frameFields: GPUTexture[] = [];
 
 	public constructor(device: GPUDevice, colorFormat: GPUTextureFormat) {
 		this.device = device;
@@ -105,6 +107,9 @@ export class WetLayerPass {
 		for (const buffer of this.retiredBuffers) buffer.destroy();
 		this.retiredBuffers = this.frameBuffers;
 		this.frameBuffers = [];
+		for (const texture of this.retiredFields) texture.destroy();
+		this.retiredFields = this.frameFields;
+		this.frameFields = [];
 	}
 
 	public destroy(): void {
@@ -114,6 +119,8 @@ export class WetLayerPass {
 		this.retiredBuffers = [];
 		this.frameBuffers = [];
 		for (const texture of [
+			...this.retiredFields,
+			...this.frameFields,
 			this.fields?.pigmentA,
 			this.fields?.pigmentB,
 			this.fields?.moistureA,
@@ -121,6 +128,8 @@ export class WetLayerPass {
 		]) {
 			texture?.destroy();
 		}
+		this.retiredFields = [];
+		this.frameFields = [];
 		this.fields = null;
 		this.pipelines = null;
 	}
@@ -320,13 +329,17 @@ export class WetLayerPass {
 		}
 		const w = Math.max(width, current?.width ?? 0);
 		const h = Math.max(height, current?.height ?? 0);
+		// Retired, not destroyed: this frame's commands still reference the old
+		// fields and have not been submitted yet. A second wet stroke wanting a
+		// bigger domain would otherwise take the textures out from under the
+		// first one and lose the whole frame.
 		for (const texture of [
 			current?.pigmentA,
 			current?.pigmentB,
 			current?.moistureA,
 			current?.moistureB,
 		]) {
-			texture?.destroy();
+			if (texture) this.frameFields.push(texture);
 		}
 		const field = (label: string) =>
 			this.device.createTexture({
