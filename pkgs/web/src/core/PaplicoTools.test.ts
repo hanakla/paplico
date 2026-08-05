@@ -119,3 +119,37 @@ describe("PaplicoTools.setBrushSettings", () => {
 		expect(stored.properties.flow?.curves).toBeUndefined();
 	});
 });
+
+/**
+ * Applying a builtin preset must land in the tool exactly as authored: the
+ * panel reads the stored settings back, so anything dropped on the way is
+ * a switch that silently turns itself off.
+ */
+describe("PaplicoTools.setBrushSettings with a builtin preset", () => {
+	function makeTools() {
+		const store = createToolSettings();
+		const tools = new PaplicoTools(store, { getCurrentTool: () => null });
+		tools.setStrokeColor({
+			type: "solid",
+			color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+		});
+		return { store, tools };
+	}
+
+	it("should keep mixing enabled after applying the blur preset", async () => {
+		const { getBuiltinBrushPresets } = await import("@/repos/brushPresets");
+		const preset = getBuiltinBrushPresets().find(
+			(p) => p.uid === "builtin-brush-blur",
+		);
+		if (!preset) throw new Error("missing blur preset");
+
+		const { store, tools } = makeTools();
+		tools.setBrushSettings(preset.settings as BrushSettingsV2);
+
+		const stored = store.strokeAppearance?.paramData.params
+			.brushSettings as unknown as BrushSettingsV2;
+		expect(stored.engine).toBe("dab");
+		expect(stored.mixing?.enabled).toBe(true);
+		expect(stored.properties.colorRate?.base).toBe(0);
+	});
+});

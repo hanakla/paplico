@@ -36,7 +36,83 @@ describe("Wet layer strokes", () => {
 
 		expect(wet).toBeGreaterThan(dry + 8);
 	});
+
+	// Every wet value a person can drag has to change what comes out. None of
+	// them does right now: the simulation runs, the values reach its uniforms,
+	// and the result comes out identical either way. Recorded as known
+	// failures until the diffusion itself is fixed.
+	it.fails("should bleed further as the wetness rises", async () => {
+		const damp = await renderSpreadReach(wetTuned({ wetness: 0.2 }));
+		const soaked = await renderSpreadReach(wetTuned({ wetness: 1.4 }));
+
+		expect(soaked).toBeGreaterThan(damp + 2);
+	});
+
+	it.fails("should bleed further as the bleed radius grows", async () => {
+		const tight = await renderSpreadReach(wetTuned({ bleedRadius: 0.3 }));
+		const wide = await renderSpreadReach(wetTuned({ bleedRadius: 2.5 }));
+
+		expect(wide).toBeGreaterThan(tight + 2);
+	});
+
+	it.fails("should hold less pigment as the load drops", async () => {
+		const light = await renderStrokePixel(wetTuned({ pigmentLoad: 0.15 }));
+		const heavy = await renderStrokePixel(wetTuned({ pigmentLoad: 1.5 }));
+
+		expect(light[0]).toBeGreaterThan(heavy[0] + 10);
+	});
+
+	it.fails("should soak up the bleed as absorption rises", async () => {
+		const wicking = await renderSpreadReach(wetTuned({ absorption: 0.05 }));
+		const thirsty = await renderSpreadReach(wetTuned({ absorption: 0.95 }));
+
+		expect(wicking).toBeGreaterThan(thirsty + 2);
+	});
 });
+
+/** Rows above the stroke centre that carry any pigment: how far it bled. */
+async function renderSpreadReach(
+	brushSettings: BrushSettingsV2,
+): Promise<number> {
+	const pixels = await renderPixels(brushSettings);
+	let reach = 0;
+	for (let dy = 1; dy < 120; dy++) {
+		if (pixels[((300 - dy) * 800 + 400) * 4] < 250) reach = dy;
+	}
+	return reach;
+}
+
+function wetTuned(overrides: {
+	wetness?: number;
+	bleedRadius?: number;
+	pigmentLoad?: number;
+	absorption?: number;
+}): BrushSettingsV2 {
+	return normalizeBrushSettingsV2({
+		version: 2,
+		engine: "dab",
+		strokeOpacity: 1,
+		paintMode: "wash",
+		properties: {
+			size: { base: 16 },
+			spacing: { base: 0.1 },
+			flow: { base: 1 },
+			wetness: { base: overrides.wetness ?? 1 },
+			absorption: { base: overrides.absorption ?? 0.1 },
+			bleedSoftness: { base: 1 },
+			granulation: { base: 0 },
+			grainAmount: { base: 0 },
+		},
+		tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+		wet: {
+			enabled: true,
+			bleedRadius: overrides.bleedRadius ?? 1.5,
+			pigmentLoad: overrides.pigmentLoad ?? 0.85,
+			grainScale: 1,
+		},
+		randomSeed: 1,
+	});
+}
 
 function wetBrush(overrides: { enabled: boolean }): BrushSettingsV2 {
 	return normalizeBrushSettingsV2({

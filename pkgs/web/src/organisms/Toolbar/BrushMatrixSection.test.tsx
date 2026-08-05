@@ -123,3 +123,33 @@ function dabBrush(): BrushSettingsV2 {
 		randomSeed: 3,
 	});
 }
+
+/**
+ * The panel is what tells someone whether a preset's mixing is on. A preset
+ * that carries it must show it as on the moment it is applied.
+ */
+describe("BrushMatrixSection with a builtin preset", () => {
+	beforeEach(() => {
+		setLanguage("en");
+	});
+
+	it("should show mixing as on for the blur preset", async () => {
+		const { getBuiltinBrushPresets } = await import("@/repos/brushPresets");
+		const preset = getBuiltinBrushPresets().find(
+			(p) => p.uid === "builtin-brush-blur",
+		);
+		if (!preset) throw new Error("missing blur preset");
+
+		render(
+			<BrushMatrixSection
+				settings={normalizeBrushSettingsV2(preset.settings)}
+				onChange={vi.fn()}
+			/>,
+		);
+
+		const toggle = screen.getByRole("switch", {
+			name: "Mixing with what is underneath",
+		});
+		expect(toggle.getAttribute("aria-checked")).toBe("true");
+	});
+});
