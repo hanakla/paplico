@@ -17,6 +17,7 @@ import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import { Switch } from "@/components/Switch";
 import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
+import { PAPLICO_MAX_ZOOM_SCALE } from "@/core/document/constants";
 import { MAX_TOUCH_DRAW_OFFSET_SCALE } from "@/core/tools/toolSettings";
 import {
 	DEFAULT_PRESSURE_CURVE,
@@ -30,6 +31,7 @@ import {
 	resolveTouchDrawOffsetScale,
 	setCollaborationUserName,
 	setLanguage,
+	setMaxZoomScale,
 	setPanelLayout,
 	setPressureCurvePoints,
 	setTheme,
@@ -52,6 +54,8 @@ const LANGUAGE_OPTIONS = [
 	{ label: "English", value: "en" },
 	{ label: "日本語", value: "ja" },
 ] as const;
+
+const MAX_ZOOM_SCALE_PRESETS = [100, 200, 400, PAPLICO_MAX_ZOOM_SCALE] as const;
 
 const SECTIONS: ReadonlyArray<{
 	id: SectionId;
@@ -246,6 +250,7 @@ const SectionListItem = memo(function SectionListItem({
 
 const InterfaceSection = memo(function InterfaceSection() {
 	const settings = useAppConfig();
+	const paplico = usePaplicoMaybe();
 	const t = useTranslation();
 
 	const handleThemeChange = useEventCallback((v: string) => {
@@ -262,6 +267,12 @@ const InterfaceSection = memo(function InterfaceSection() {
 
 	const handlePanelLayoutChange = useEventCallback((v: string) => {
 		setPanelLayout(v as PanelLayout);
+	});
+
+	const handleMaxZoomScaleChange = useEventCallback((v: string) => {
+		const next = Number(v);
+		setMaxZoomScale(next);
+		paplico?.tools.setMaxZoomScale(next);
 	});
 
 	return (
@@ -360,6 +371,22 @@ const InterfaceSection = memo(function InterfaceSection() {
 						</button>
 					))}
 				</div>
+			</SettingRow>
+
+			{/* Max Zoom */}
+			<SettingRow
+				label={t("preferences.maxZoomScale")}
+				description={t("preferences.maxZoomScaleDescription")}
+			>
+				<SimpleSelect
+					items={MAX_ZOOM_SCALE_PRESETS.map((v) => ({
+						label: `${v}×`,
+						value: String(v),
+					}))}
+					value={String(settings.maxZoomScale)}
+					onValueChange={handleMaxZoomScaleChange}
+					className="w-[120px]"
+				/>
 			</SettingRow>
 		</div>
 	);

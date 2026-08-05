@@ -1439,6 +1439,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			transformPressure: (pressure) =>
 				transformPressure(this.toolSettings.pressureCurvePoints, pressure),
 			getTouchDrawOffsetScale: () => this.toolSettings.touchDrawOffsetScale,
+			getMaxZoomScale: () => this.toolSettings.maxZoomScale,
 			updateCursor: (x, y) => this.collaboration?.updateCursor(x, y),
 			clearCursor: () => this.collaboration?.clearCursor(),
 			getCommands: () => this.commands,
@@ -3496,6 +3497,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					snapshot(this.rendererStore.document) as Document,
 				),
 			getMaxRasterDimension: () => this.renderer.getMaxTextureDimension(),
+			getMaxZoomScale: () => this.toolSettings.maxZoomScale,
 			setBucketFillLeaks: (state) => {
 				this.tools.setBucketFillLeaks(state);
 			},

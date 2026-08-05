@@ -1,4 +1,5 @@
 import { normalizeBrushSettingsV2 } from "./brush/migrate";
+import { PAPLICO_MAX_ZOOM_SCALE } from "./document/constants";
 import { PaplicoTools } from "./PaplicoTools";
 import type { BrushSettingsV2 } from "./schema";
 import { createToolSettings } from "./tools/toolSettings";
@@ -192,5 +193,31 @@ describe("PaplicoTools.setBrushSettings with a builtin preset", () => {
 		expect(stored.engine).toBe("dab");
 		expect(stored.mixing?.enabled).toBe(true);
 		expect(stored.properties.colorRate?.base).toBe(0);
+	});
+});
+
+describe("PaplicoTools.setMaxZoomScale", () => {
+	function makeTools() {
+		const store = createToolSettings();
+		const tools = new PaplicoTools(store, { getCurrentTool: () => null });
+		return { store, tools };
+	}
+
+	it("should clamp to PAPLICO_MAX_ZOOM_SCALE when given a larger value", () => {
+		const { store, tools } = makeTools();
+		tools.setMaxZoomScale(PAPLICO_MAX_ZOOM_SCALE + 1000);
+		expect(store.maxZoomScale).toBe(PAPLICO_MAX_ZOOM_SCALE);
+	});
+
+	it("should clamp to the configurable lower bound when given a smaller value", () => {
+		const { store, tools } = makeTools();
+		tools.setMaxZoomScale(0);
+		expect(store.maxZoomScale).toBe(1);
+	});
+
+	it("should store the value unchanged when within range", () => {
+		const { store, tools } = makeTools();
+		tools.setMaxZoomScale(100);
+		expect(store.maxZoomScale).toBe(100);
 	});
 });

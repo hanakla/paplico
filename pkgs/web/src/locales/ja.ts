@@ -1200,6 +1200,8 @@ export const ja = {
 		panelLayoutDescription: "サイドパネルをまとめるか両端に分散させるか",
 		panelLayoutTogether: "まとめる",
 		panelLayoutSplit: "両端",
+		maxZoomScale: "最大ズーム倍率",
+		maxZoomScaleDescription: "キャンバスを拡大できる最大の倍率",
 		shortcuts: "ショートカット",
 		shortcutsSearch: "コマンドを検索...",
 		shortcutsConflict: "既に割り当て済み:",

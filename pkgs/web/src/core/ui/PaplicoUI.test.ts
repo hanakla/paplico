@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PAPLICO_MAX_ZOOM_SCALE } from "../document/constants";
 import type { RawRGBA, Viewport } from "../schema";
 import type { Tool } from "../tools/Tool";
 import { PaplicoUI } from "./PaplicoUI";
@@ -445,11 +446,51 @@ describe("PaplicoUI pen input passthrough", () => {
 	});
 });
 
+describe("PaplicoUI zoom clamp", () => {
+	function dispatchCtrlWheelZoomIn(canvas: HTMLCanvasElement) {
+		// happy-dom's WheelEvent constructor does not wire up `ctrlKey` from
+		// the init dict, so it has to be forced on afterward.
+		const event = new WheelEvent("wheel", {
+			bubbles: true,
+			cancelable: true,
+			deltaY: -1,
+			clientX: 400,
+			clientY: 300,
+		});
+		Object.defineProperty(event, "ctrlKey", { value: true });
+		canvas.dispatchEvent(event);
+	}
+
+	it("should clamp Ctrl+wheel zoom-in to the configured max instead of PAPLICO_MAX_ZOOM_SCALE", () => {
+		const harness = createHarness("pen", 50, 1, 0, 10);
+
+		for (let i = 0; i < 100; i++) {
+			dispatchCtrlWheelZoomIn(harness.canvas);
+		}
+
+		const zooms = harness.setViewport.mock.calls
+			.map((call) => call[0]?.zoom)
+			.filter((z): z is number => typeof z === "number");
+		expect(zooms.length).toBeGreaterThan(0);
+		expect(Math.max(...zooms)).toBeLessThanOrEqual(10);
+	});
+
+	it("should fall back to PAPLICO_MAX_ZOOM_SCALE when getMaxZoomScale is omitted", () => {
+		const harness = createHarness("pen", 50, PAPLICO_MAX_ZOOM_SCALE - 1);
+
+		dispatchCtrlWheelZoomIn(harness.canvas);
+
+		const zoom = harness.setViewport.mock.calls.at(-1)?.[0]?.zoom;
+		expect(zoom).toBeLessThanOrEqual(PAPLICO_MAX_ZOOM_SCALE);
+	});
+});
+
 function createHarness(
 	toolName: string,
 	initialWidth: number,
 	zoom = 1,
 	touchDrawOffsetScale = 0,
+	maxZoomScale?: number,
 ) {
 	const canvas = document.createElement("canvas");
 	canvas.getBoundingClientRect = () =>
@@ -494,6 +535,9 @@ function createHarness(
 		getToolColor: () => color,
 		setShapeType: vi.fn(),
 		getTouchDrawOffsetScale: () => touchDrawOffsetScale,
+		...(maxZoomScale !== undefined
+			? { getMaxZoomScale: () => maxZoomScale }
+			: {}),
 	});
 	mountedUis.push(ui);
 

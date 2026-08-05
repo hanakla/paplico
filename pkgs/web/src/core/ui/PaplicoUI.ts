@@ -40,6 +40,8 @@ interface PaplicoUICallbacks {
 	 * above the contact point while drawing (0 = draw at the contact point).
 	 */
 	getTouchDrawOffsetScale?: () => number;
+	/** User-configured zoom ceiling; falls back to PAPLICO_MAX_ZOOM_SCALE when absent. */
+	getMaxZoomScale?: () => number;
 
 	// Yjs
 	updateCursor?: (x: number, y: number) => void;
@@ -1026,6 +1028,10 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		);
 	}
 
+	private maxZoomScale(): number {
+		return this.callbacks.getMaxZoomScale?.() ?? PAPLICO_MAX_ZOOM_SCALE;
+	}
+
 	// --- Gesture Logic ---
 
 	/** Promote pending-tap to an active gesture (viewport or object-resize) */
@@ -1216,7 +1222,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
 			const newZoom = Math.max(
 				PAPLICO_MIN_ZOOM_SCALE,
-				Math.min(PAPLICO_MAX_ZOOM_SCALE, viewport.zoom * zoomFactor),
+				Math.min(this.maxZoomScale(), viewport.zoom * zoomFactor),
 			);
 
 			// Use screenToWorld (rotation-aware) to find world position under cursor
@@ -1574,7 +1580,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		if (g.intent === "pan-zoom") {
 			const newZoom = Math.max(
 				PAPLICO_MIN_ZOOM_SCALE,
-				Math.min(PAPLICO_MAX_ZOOM_SCALE, g.startZoom * distanceRatio),
+				Math.min(this.maxZoomScale(), g.startZoom * distanceRatio),
 			);
 
 			const cos = Math.cos(-g.startRotation);
@@ -1678,7 +1684,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		const newRotation = g.startRotation + (ge.rotation * Math.PI) / 180;
 		const newZoom = Math.max(
 			PAPLICO_MIN_ZOOM_SCALE,
-			Math.min(PAPLICO_MAX_ZOOM_SCALE, g.startZoom * ge.scale),
+			Math.min(this.maxZoomScale(), g.startZoom * ge.scale),
 		);
 
 		// Solve for viewport center so that cursorWorld stays at cursorScreen

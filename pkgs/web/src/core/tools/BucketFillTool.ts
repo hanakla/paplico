@@ -1,4 +1,3 @@
-import { PAPLICO_MAX_ZOOM_SCALE } from "../document/constants";
 import {
 	BUCKET_FILL_LEAK_HIT_PREFIX,
 	buildBucketFillOverlay,
@@ -241,7 +240,7 @@ export class BucketFillTool implements Tool {
 						viewport.zoom,
 						LEAK_ZOOM_TARGET_PX / Math.max(leak.gapWidthWorld, 1e-3),
 					),
-					PAPLICO_MAX_ZOOM_SCALE,
+					this.context.getMaxZoomScale(),
 				);
 				this.context.panToWorldPoint({ x: leak.x, y: leak.y }, targetZoom);
 				return;

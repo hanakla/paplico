@@ -426,6 +426,7 @@ describe("BucketFillTool document-wide fill", () => {
 	function setupWithScene(
 		sampleWorld: (wx: number, wy: number) => Rgba,
 		docHalf: number,
+		overrides: Partial<Parameters<typeof createMockToolContext>[0]> = {},
 	) {
 		const render = createSyntheticRegionRenderer(sampleWorld);
 		const ctx = createMockToolContext({
@@ -437,6 +438,7 @@ describe("BucketFillTool document-wide fill", () => {
 				height: docHalf * 2,
 			})),
 			getMaxRasterDimension: vi.fn(() => 2048),
+			...overrides,
 		});
 		const tool = new BucketFillTool(ctx);
 		return { render, ctx, tool };
@@ -647,6 +649,35 @@ describe("BucketFillTool document-wide fill", () => {
 		expect(zoom).toBeGreaterThanOrEqual(testViewport.zoom);
 		// Markers stay visible after the jump
 		expect(ctx.setBucketFillLeaks.mock.calls.at(-1)?.[0]).not.toBeNull();
+	});
+
+	it("should not auto-zoom past the configured max-zoom ceiling", async () => {
+		const { ctx, tool } = setupWithScene(
+			ringScene(RING_R, 4, 0.06),
+			RING_R + 8,
+			{ getMaxZoomScale: vi.fn(() => 10) },
+		);
+		clickAt(tool, 400, 300);
+
+		await vi.waitFor(
+			() => {
+				const states = ctx.setBucketFillLeaks.mock.calls.map((c) => c[0]);
+				expect(states.some((s) => s !== null && s.count >= 1)).toBe(true);
+			},
+			{ timeout: 10_000 },
+		);
+
+		// The ring opening is at world (R, 0) → screen (400 + R, 300)
+		tool.onPointerDown(
+			ev(400 + RING_R, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(ctx.panToWorldPoint.mock.calls.length).toBe(1);
+		const [, zoom] = ctx.panToWorldPoint.mock.calls[0];
+		expect(zoom).toBeLessThanOrEqual(10);
 	});
 
 	it("should fill a small closed region with a single render request", async () => {

@@ -417,6 +417,8 @@ export type ToolContextOptions = {
 	} | null;
 	/** Device texture-size limit for sizing analysis rasters. */
 	getMaxRasterDimension: () => number;
+	/** User-configured zoom ceiling for auto-zoom (e.g. bucket-fill leak jump). */
+	getMaxZoomScale: () => number;
 	/** Publish bucket-fill leak state to toolSettings for the toolbar panel. */
 	setBucketFillLeaks: (state: BucketFillLeakState | null) => void;
 	/** Publish whether a bucket-fill area compute is in flight (toolbar spinner). */

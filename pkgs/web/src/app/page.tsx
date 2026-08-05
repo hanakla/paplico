@@ -361,6 +361,7 @@ export default function Page() {
 				p.tools.state.pathEditSelectionMode = appConfig.pathEditSelectionMode;
 				p.tools.setPressureCurve(appConfig.pressureCurvePoints);
 				p.tools.setTouchDrawOffsetScale(resolveTouchDrawOffsetScale());
+				p.tools.setMaxZoomScale(appConfig.maxZoomScale);
 
 				// Skip new document dialog when joining a room via URL parameter
 				const roomParam = new URLSearchParams(window.location.search).get(

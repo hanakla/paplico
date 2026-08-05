@@ -3,6 +3,10 @@ import {
 	normalizeBrushSettingsV2,
 } from "./brush/migrate";
 import { normalizeBrushSettings } from "./brush/normalize";
+import {
+	PAPLICO_MAX_ZOOM_SCALE,
+	PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
+} from "./document/constants";
 import { createStrokeBrushSettings } from "./document/factory";
 import {
 	type BrushSettings,
@@ -246,6 +250,13 @@ export class PaplicoTools {
 		this.store.touchDrawOffsetScale = Math.max(
 			0,
 			Math.min(MAX_TOUCH_DRAW_OFFSET_SCALE, scale),
+		);
+	}
+
+	public setMaxZoomScale(scale: number): void {
+		this.store.maxZoomScale = Math.max(
+			PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
+			Math.min(PAPLICO_MAX_ZOOM_SCALE, scale),
 		);
 	}
 

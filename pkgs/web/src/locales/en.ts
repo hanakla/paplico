@@ -1200,6 +1200,9 @@ export const en = {
 		panelLayoutDescription: "How side panels are distributed around the canvas",
 		panelLayoutTogether: "Together",
 		panelLayoutSplit: "Spread",
+		maxZoomScale: "Maximum Zoom",
+		maxZoomScaleDescription:
+			"The highest zoom level you can reach when zooming in on the canvas",
 		shortcuts: "Keyboard Shortcuts",
 		shortcutsSearch: "Search commands...",
 		shortcutsConflict: "Already assigned to",
