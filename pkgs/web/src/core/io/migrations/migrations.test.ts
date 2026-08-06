@@ -1,10 +1,9 @@
 import { nanoid } from "nanoid";
 import { describe, expect, it } from "vitest";
-import { readStoredBrushSize } from "@/core/brush/access";
 import type { BlurFilter } from "../../renderer/filters";
 import type {
 	BrushPreset,
-	BrushSettings,
+	BrushSettingsV2,
 	Document,
 	FillAppearance,
 	StrokeAppearance,
@@ -281,7 +280,7 @@ describe("migAppearanceFilters (20260221)", () => {
 
 		const el = doc.objects.g1 as any;
 		const f = el.filters[0] as StrokeAppearance;
-		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(1);
+		expect(preV2BrushSize(f.paramData.params.brushSettings)).toBe(1);
 	});
 
 	it("migrates multiple elements in doc.objects", () => {
@@ -337,7 +336,7 @@ describe("migBrushSettings (20260224)", () => {
 		expect(el.width).toBeUndefined();
 		const f = el.filters[0] as StrokeAppearance;
 		expect(f.paramData.params.brushSettings).toBeDefined();
-		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(3);
+		expect(preV2BrushSize(f.paramData.params.brushSettings)).toBe(3);
 	});
 
 	it("backfills missing brushSettings with 1px when no element.width", () => {
@@ -371,7 +370,7 @@ describe("migBrushSettings (20260224)", () => {
 		applyMigration(doc, migBrushSettings);
 
 		const f = (doc.objects.p1 as any).filters[0] as StrokeAppearance;
-		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(1);
+		expect(preV2BrushSize(f.paramData.params.brushSettings)).toBe(1);
 	});
 
 	it("uses legacy element.width when backfilling missing brushSettings", () => {
@@ -399,7 +398,7 @@ describe("migBrushSettings (20260224)", () => {
 		const el = doc.objects.p1 as any;
 		expect(el.width).toBeUndefined();
 		const f = el.filters[0] as StrokeAppearance;
-		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(7);
+		expect(preV2BrushSize(f.paramData.params.brushSettings)).toBe(7);
 	});
 
 	it("does not overwrite existing brushSettings.size with element.width", () => {
@@ -431,7 +430,7 @@ describe("migBrushSettings (20260224)", () => {
 						sizeBySpeed: 0,
 						pooling: 0,
 						poolingSizeRatio: 0,
-					} as unknown as BrushSettings,
+					} as unknown as BrushSettingsV2,
 				},
 			},
 		};
@@ -446,7 +445,7 @@ describe("migBrushSettings (20260224)", () => {
 		const el = doc.objects.p1 as any;
 		expect(el.width).toBeUndefined();
 		const f = el.filters[0] as StrokeAppearance;
-		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(3);
+		expect(preV2BrushSize(f.paramData.params.brushSettings)).toBe(3);
 		expect((f.paramData.params.brushSettings as any)?.textureFileUid).toBe(
 			"builtin-brush-solid",
 		);
@@ -509,7 +508,7 @@ describe("migBrushSettings (20260224)", () => {
 						sizeBySpeed: 0,
 						pooling: 0,
 						poolingSizeRatio: 0,
-					} as unknown as BrushSettings,
+					} as unknown as BrushSettingsV2,
 				},
 			},
 		};
@@ -523,7 +522,7 @@ describe("migBrushSettings (20260224)", () => {
 		applyMigration(doc, migBrushSettings);
 
 		const f = (doc.objects.p1 as any).filters[0] as StrokeAppearance;
-		expect(readStoredBrushSize(f.paramData.params.brushSettings)).toBe(8);
+		expect(preV2BrushSize(f.paramData.params.brushSettings)).toBe(8);
 		expect((f.paramData.params.brushSettings as any)?.textureFileUid).toBe(
 			"builtin-brush-solid",
 		);
@@ -587,7 +586,7 @@ describe("migTiltPoolingDefaults (20260228)", () => {
 						sizeBySpeed: 0,
 						pooling: 0,
 						poolingSizeRatio: 0,
-					} as unknown as BrushSettings,
+					} as unknown as BrushSettingsV2,
 				},
 			},
 		};
@@ -648,7 +647,7 @@ describe("migTiltPoolingDefaults (20260228)", () => {
 						sizeBySpeed: 0,
 						pooling: 0,
 						poolingSizeRatio: 0.5,
-					} as unknown as BrushSettings,
+					} as unknown as BrushSettingsV2,
 				},
 			},
 		};
@@ -696,7 +695,7 @@ describe("migTiltPoolingDefaults (20260228)", () => {
 						sizeBySpeed: 0,
 						pooling: 0.6,
 						poolingSizeRatio: 0.5,
-					} as unknown as BrushSettings,
+					} as unknown as BrushSettingsV2,
 				},
 			},
 		};
@@ -1318,7 +1317,7 @@ describe("migBrushV2 (20260803)", () => {
 					opacity: 1,
 					opacityByPressure: 0,
 					randomSeed: 0,
-				} as BrushSettings,
+				} as unknown as BrushSettingsV2,
 			},
 		];
 		return doc;
@@ -1348,7 +1347,6 @@ describe("migBrushV2 (20260803)", () => {
 		expect(bs.wet?.bleedRadius).toBeCloseTo(0.5, 10);
 		// The modulatable half lands in properties, not in WetConfig.
 		expect(bs.properties?.wetness?.base).toBeGreaterThan(0);
-		expect(bs.wetV1).toBeUndefined();
 	});
 
 	it("converts a legacy flat preset shape (defaultSettings + textureFileUid)", () => {
@@ -1382,3 +1380,12 @@ describe("migBrushV2 (20260803)", () => {
 		expect(doc).toEqual(once);
 	});
 });
+
+/**
+ * These migrations run before the brush-v2 one and therefore still emit the
+ * flat pre-v2 shape; the v2 readers cannot see into it.
+ */
+function preV2BrushSize(brushSettings: unknown): number | undefined {
+	const size = (brushSettings as { size?: unknown } | null)?.size;
+	return typeof size === "number" ? size : undefined;
+}

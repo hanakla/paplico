@@ -385,7 +385,7 @@ export const StrokeGeometryControls = memo(function StrokeGeometryControls({
 
 			<DashPatternControls
 				stroking={stroking}
-				strokeWidth={normalizedBrush?.size ?? 2}
+				strokeWidth={normalizedBrush?.properties.size?.base ?? 2}
 				disabled={disabled}
 				onChange={updateStroking}
 			/>

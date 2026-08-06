@@ -68,7 +68,7 @@ export function resolveStrokeStyle(
 		textures: { primary: null },
 		color: resolveStrokeColorScalar(strokeColor),
 		selfOverlap:
-			route.kind === "dab-v2" && route.settings.paintMode === "wash"
+			route.kind === "dab" && route.settings.paintMode === "wash"
 				? "wash"
 				: "over",
 		alphaMultiplier,

@@ -1,16 +1,16 @@
 /**
- * RibbonStrokeEngine — owns BrushTypes `art` and `pattern`.
+ * RibbonStrokeEngine — owns the ribbon engine.
  *
  * Drives the ribbon pipeline (RIBBON_STROKE_SHADER) hosted on the shared
- * StrokeBatchContext. Pattern brushes feed the pipeline with uvMode=repeat
- * (and tileSpacing for inter-tile gaps); art brushes go through a forward
- * adapter inside StrokeBatchContext that synthesizes a PatternBrushSettings
- * shape with uvMode=stretch + per-instance flip flags.
+ * StrokeBatchContext. The brush's RibbonConfig decides the UV layout: repeat
+ * tiles the texture along the stroke (with tileSpacing for inter-tile gaps),
+ * stretch spans it once end to end with per-instance flip flags.
  *
- * supportsField=false because art / pattern do not carry a wetness model
- * in the BrushSettings union, so the wet-ink path skips them.
+ * supportsField=false because the wet layer is a dab-engine feature; a ribbon
+ * stroke skips it.
  */
 
+import type { BrushEngineKind } from "../../../../schema";
 import type { StrokeBatchContext } from "./StrokeBatchContext";
 import type {
 	EnginePipeline,

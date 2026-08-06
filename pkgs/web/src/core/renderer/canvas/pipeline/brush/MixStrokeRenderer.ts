@@ -834,10 +834,8 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 /**
  * The element's mixing stroke appearance, or null when it has none.
  *
- * Only the dab-v2 route mixes: a stroke still carrying wetV1 belongs to the
- * legacy wet ink path until the wet switchover (design §13-7), so the mix
- * pass must not start for it even with mixing enabled. Enablement is the
- * explicit boolean alone (§H-3).
+ * Only the dab engine mixes; ribbon and geometric strokes have no dabs to
+ * sample under. Enablement is the explicit boolean alone (§H-3).
  */
 export function resolveMixingStroke(
 	element: AnyArtObject,
@@ -848,7 +846,7 @@ export function resolveMixingStroke(
 		const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
 		if (raw == null) continue;
 		const route = resolveBrushRenderRoute(raw);
-		if (route.kind !== "dab-v2" || route.settings.mixing?.enabled !== true) {
+		if (route.kind !== "dab" || route.settings.mixing?.enabled !== true) {
 			continue;
 		}
 		return { settings: route.settings, filter };

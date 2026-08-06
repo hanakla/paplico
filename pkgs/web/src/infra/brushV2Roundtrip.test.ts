@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { encode } from "cbor-x";
 import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
-import type { BrushSettings } from "@/core/schema";
+import type { BrushSettingsV2 } from "@/core/schema";
 import type { PersistedBrushPreset } from "@/repos/brushPresets";
 import { brushPresetsDB, webBrushPresetsRepo } from "./brushPresetsDB.web";
 import { parsePapb, serializePapb } from "./papb";
@@ -26,7 +26,7 @@ function makeV1Preset(): PersistedBrushPreset {
 			sizeBySpeed: 0,
 			pooling: 0,
 			poolingSizeRatio: 0.5,
-		} as BrushSettings,
+		} as unknown as BrushSettingsV2,
 		textureName: "tex-1.png",
 		textureMime: "image/png",
 		textureHash: "sha256-tex-1",

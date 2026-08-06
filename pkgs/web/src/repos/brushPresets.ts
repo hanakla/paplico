@@ -5,7 +5,6 @@ import {
 } from "@/core/brush/presets";
 import {
 	type BrushPreset,
-	type BrushSettings,
 	type BrushSettingsV2,
 	type EmbeddedFile,
 	generateUid,
@@ -18,8 +17,8 @@ import { IS_TAURI_ENV } from "@/utils/platform";
 export interface PersistedBrushPreset {
 	uid: string;
 	name: string;
-	/** Stored brush settings (v1 union or v2). The texture is stored separately as a bin. */
-	defaultSettings: BrushSettings | BrushSettingsV2;
+	/** Stored brush settings. The texture is stored separately as a bin. */
+	defaultSettings: BrushSettingsV2;
 	textureName: string;
 	textureMime: string;
 	textureHash: string;
@@ -38,7 +37,7 @@ export interface BrushPresetsRepo {
 }
 
 export interface BrushStrokePreviewSource {
-	brushSettings: BrushSettings | BrushSettingsV2;
+	brushSettings: BrushSettingsV2;
 	textureFile: EmbeddedFile | null;
 }
 
@@ -68,8 +67,8 @@ export function getBuiltinBrushFiles(): Promise<EmbeddedFile[]> {
 }
 
 export function createBrushPresetDefaults(
-	settings: BrushSettings | BrushSettingsV2,
-): BrushSettings | BrushSettingsV2 {
+	settings: BrushSettingsV2,
+): BrushSettingsV2 {
 	// Reset the random seed so the preset renders reproducibly; the texture is
 	// captured separately as a bin, so the source is left as-is here.
 	return deepClone({ ...settings, randomSeed: 0 });
@@ -86,7 +85,7 @@ export function createPersistedBrushPreset({
 }: {
 	uid?: string;
 	name: string;
-	defaultSettings: BrushSettings | BrushSettingsV2;
+	defaultSettings: BrushSettingsV2;
 	file: EmbeddedFile;
 	sourceBuiltinUid?: string;
 	createdAt?: number;

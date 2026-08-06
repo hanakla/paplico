@@ -43,7 +43,7 @@ export const PenToolControls = memo(function PenToolControls() {
 		(taperStart: number, taperEnd: number) => {
 			tools.setBrushSettings({ taperStart, taperEnd });
 			commands.updateSelectedElementsBrushSettings({
-				...tools.brushSettings,
+				...tools.storedBrushSettings,
 				taperStart,
 				taperEnd,
 			});
@@ -67,8 +67,8 @@ export const PenToolControls = memo(function PenToolControls() {
 	});
 
 	const updateStroking = useEventCallback((patch: Partial<BrushStroking>) => {
-		const current = tools.brushSettings;
-		if (current.type !== "stroke") return;
+		const current = tools.storedBrushSettings;
+		if (current.engine !== "geometric") return;
 		const stroking: BrushStroking = {
 			lineCap: current.stroking?.lineCap ?? "round",
 			lineJoin: current.stroking?.lineJoin ?? "round",
@@ -247,7 +247,7 @@ export const PenToolControls = memo(function PenToolControls() {
 								? normalizedBrush.stroking
 								: undefined
 						}
-						strokeWidth={normalizedBrush?.size ?? 2}
+						strokeWidth={normalizedBrush?.properties.size?.base ?? 2}
 						onChange={updateStroking}
 					/>
 				</>

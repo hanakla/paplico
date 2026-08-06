@@ -1,13 +1,13 @@
 import { decode, encode } from "cbor-x";
-import { normalizeStoredBrushSettings } from "@/core/brush/migrate";
+import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import {
 	type PersistedBrushPreset,
 	snapshotPersistedBrushPreset,
 } from "@/repos/brushPresets";
 export const PAPB_SCHEMA_VERSION = 2;
 
-/** Versions parsePapb accepts. v1 payloads carry v1 brush settings, which
- * normalizeStoredBrushSettings still reads; new files are written as v2. */
+/** Versions parsePapb accepts. Version 1 payloads carry pre-v2 brush settings, which
+ * normalizeBrushSettingsV2 still reads; new files are written as v2. */
 const READABLE_PAPB_SCHEMA_VERSIONS = new Set([1, PAPB_SCHEMA_VERSION]);
 
 export interface PapbPayload {
@@ -55,9 +55,9 @@ function normalizePersistedBrushPreset(value: unknown): PersistedBrushPreset {
 	return {
 		uid: record.uid,
 		name: record.name,
-		// Format-preserving: legacy flat records become a union value, stored
-		// v2 stays v2 so curves and v2-only config survive the roundtrip.
-		defaultSettings: normalizeStoredBrushSettings(record.defaultSettings),
+		// Records written before v2 are migrated on the way out, so callers
+		// never see the old shape.
+		defaultSettings: normalizeBrushSettingsV2(record.defaultSettings),
 		textureName: expectString(record.textureName, "textureName"),
 		textureMime: expectString(record.textureMime, "textureMime"),
 		textureHash: expectString(record.textureHash, "textureHash"),

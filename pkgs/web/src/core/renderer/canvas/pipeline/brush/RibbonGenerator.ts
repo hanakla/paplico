@@ -41,7 +41,7 @@ export interface RibbonOptions {
 	 * v2 settings whose size/flow curves modulate the ribbon (design §12).
 	 * Evaluated at each segment's endpoints and interpolated in between, the
 	 * same granularity taper already uses. Absent for legacy strokes, which
-	 * keep the v1 pressure factor.
+	 * keep the flat pressure factor.
 	 */
 	curved?: BrushSettingsV2;
 }

@@ -43,8 +43,8 @@ import type {
 	StampRotation,
 } from "@/core/schema";
 import {
-	type BrushSettings,
 	type BrushSettingsV2,
+	BUILTIN_BRUSH_IDS,
 	isGeometricBrush,
 } from "@/core/schema";
 import { createBrushTextureFile } from "@/core/utils/embeddedFile";
@@ -75,7 +75,7 @@ function useSyncBrushSettingsWithSelection(): void {
 	// mixing or the wet layer, so writing the view back to the element drops
 	// everything the panel just edited.
 	const storedBrushSettings = snap.strokeAppearance?.paramData.params
-		.brushSettings as BrushSettings | BrushSettingsV2 | undefined;
+		.brushSettings as BrushSettingsV2 | undefined;
 
 	const prevSelectedIds = useRef(docSnap.selectedElementIds);
 
@@ -1106,7 +1106,7 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 
 								<DashPatternControls
 									stroking={
-										brushSettings.settings.type === "stroke"
+										brushSettings.settings.engine === "geometric"
 											? brushSettings.settings.stroking
 											: undefined
 									}
@@ -1398,7 +1398,7 @@ export function BrushStrokePreview({
 	height,
 	className,
 }: {
-	brushSettings: BrushSettings | BrushSettingsV2;
+	brushSettings: BrushSettingsV2;
 	textureFile: EmbeddedFile | null;
 	width: number;
 	height: number;
@@ -1510,7 +1510,7 @@ export function BrushStrokePreview({
 }
 
 type BrushStrokePreviewCacheKeyInput = {
-	brushSettings: BrushSettings | BrushSettingsV2;
+	brushSettings: BrushSettingsV2;
 	textureHash: string;
 	width: number;
 	height: number;

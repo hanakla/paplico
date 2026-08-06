@@ -11,20 +11,11 @@ import {
 	type BrushCurve,
 	type BrushPreset,
 	type BrushPresetCategory,
-	type BrushSettings,
+	type BrushSettingsV2,
 	BUILTIN_BRUSH_IDS,
 	BUILTIN_PAPER_IDS,
 	type BuiltinBrushId,
-	type CalligraphyBrushSettings,
-	DEFAULT_CALLIGRAPHY_SPACING,
-	DEFAULT_WET_INK_ABSORPTION,
-	DEFAULT_WET_INK_GRANULATION,
-	DEFAULT_WET_INK_PICKUP_DECAY,
-	DEFAULT_WET_INK_PICKUP_STRENGTH,
-	DEFAULT_WET_INK_PICKUP_UNDERLYING_COLOR,
-	DEFAULT_WET_INK_PIGMENT_LOAD,
 	type EmbeddedFile,
-	type ScatterBrushSettings,
 } from "../schema";
 
 // Paper grain textures tile, so they can be smaller than a brush stamp
@@ -33,104 +24,280 @@ const PAPER_SIZE = 256;
 // Texture size used for programmatically generated brushes
 const TEXTURE_SIZE = 128;
 
-/** Shared scatter defaults for the stamp-based built-in brushes. */
-const SCATTER_DEFAULTS = {
-	size: 10,
-	sizeByPressure: 0.5,
-	opacity: 1.0,
-	opacityByPressure: 0.3,
-	randomSeed: 0,
-	spacing: 0.15,
-	flow: 1.0,
-	stampRotation: "none",
-	rotationByTilt: 0,
-	aspectRatioByTilt: 0,
-	sizeBySpeed: 0.5,
-	pooling: 0,
-	poolingSizeRatio: 0.5,
-} as const satisfies Omit<ScatterBrushSettings, "type" | "source">;
-
-/** Build a scatter brush preset for a built-in texture, with per-brush overrides. */
-function scatterPreset(
-	fileUid: BuiltinBrushId,
-	overrides: Partial<ScatterBrushSettings>,
-): ScatterBrushSettings {
-	return {
-		...SCATTER_DEFAULTS,
-		type: "scatter",
-		source: { kind: "file", fileUid },
-		...overrides,
-	};
-}
-
-/** Build a calligraphy preset (no texture source; rendered procedurally). */
-function calligraphyPreset(
-	overrides: Partial<CalligraphyBrushSettings>,
-): CalligraphyBrushSettings {
-	return {
-		size: 10,
-		sizeByPressure: 0.3,
-		opacity: 1.0,
-		opacityByPressure: 0,
-		randomSeed: 0,
-		type: "calligraphy",
-		nibAngle: 0,
-		roundness: 1,
-		angleMode: "fixed",
-		spacing: DEFAULT_CALLIGRAPHY_SPACING,
-		flow: 1.0,
-		sizeBySpeed: 0.5,
-		pooling: 0,
-		poolingSizeRatio: 0.5,
-		...overrides,
-	};
-}
-
 /**
  * Built-in brush presets keyed by texture file UID.
  *
  * Note: Hard Round (BUILTIN_BRUSH_IDS.hardCircle) and Calligraphy
- * (BUILTIN_BRUSH_IDS.calligraphy) both use the procedural calligraphy engine
- * (elliptical nib, no texture). The hardCircle EmbeddedFile is retained for
- * documents authored before the brush-system rework — those references resolve
- * via the BrushTextureManager fallback chain.
+ * (BUILTIN_BRUSH_IDS.calligraphy) both render a procedural elliptical nib and
+ * carry no texture. The hardCircle EmbeddedFile is retained for documents
+ * authored before the brush-system rework — those references resolve via the
+ * BrushTextureManager fallback chain.
  */
-export const BRUSH_PRESETS: Record<BuiltinBrushId, BrushSettings> = {
+export const BRUSH_PRESETS: Record<BuiltinBrushId, BrushSettingsV2> = {
 	[BUILTIN_BRUSH_IDS.svg]: {
-		type: "stroke",
-		size: 10,
-		sizeByPressure: 0,
-		opacity: 1.0,
-		opacityByPressure: 0,
+		version: 2,
+		engine: "geometric",
+		strokeOpacity: 1,
+		paintMode: "buildup",
+		properties: {
+			size: {
+				base: 10,
+			},
+			flow: {
+				base: 1,
+			},
+		},
 		randomSeed: 0,
 	},
-	[BUILTIN_BRUSH_IDS.hardCircle]: calligraphyPreset({
-		nibAngle: 0,
-		roundness: 1,
-		angleMode: "fixed",
-	}),
-	[BUILTIN_BRUSH_IDS.calligraphy]: calligraphyPreset({
-		nibAngle: 45,
-		roundness: 0.25,
-		angleMode: "fixed",
-	}),
-	[BUILTIN_BRUSH_IDS.softCircle]: scatterPreset(BUILTIN_BRUSH_IDS.softCircle, {
-		spacing: 0.1,
-		sizeByPressure: 0.5,
-		opacityByPressure: 0.2,
-	}),
-	[BUILTIN_BRUSH_IDS.pencil]: scatterPreset(BUILTIN_BRUSH_IDS.pencil, {
-		spacing: 0.08,
-		sizeByPressure: 0.3,
-		opacityByPressure: 0.5,
-		flow: 0.8,
-	}),
-	[BUILTIN_BRUSH_IDS.airbrush]: scatterPreset(BUILTIN_BRUSH_IDS.airbrush, {
-		spacing: 0.05,
-		sizeByPressure: 0.2,
-		opacityByPressure: 0.6,
-		flow: 0.4,
-	}),
+	[BUILTIN_BRUSH_IDS.hardCircle]: {
+		version: 2,
+		engine: "dab",
+		strokeOpacity: 1,
+		paintMode: "buildup",
+		properties: {
+			size: {
+				base: 10,
+				curves: [
+					{
+						input: "pressure",
+						points: [
+							[0, -0.3],
+							[1, 0],
+						],
+					},
+					{
+						input: "speedFine",
+						points: [
+							[0, 0],
+							[1, -0.5],
+						],
+					},
+				],
+			},
+			ratio: {
+				base: 1,
+			},
+			flow: {
+				base: 1,
+			},
+			spacing: {
+				base: 0.05,
+			},
+		},
+		randomSeed: 0,
+		tip: {
+			kind: "procedural",
+			hardness: 1,
+			angleMode: "fixed",
+		},
+	},
+	[BUILTIN_BRUSH_IDS.calligraphy]: {
+		version: 2,
+		engine: "dab",
+		strokeOpacity: 1,
+		paintMode: "buildup",
+		properties: {
+			size: {
+				base: 10,
+				curves: [
+					{
+						input: "pressure",
+						points: [
+							[0, -0.3],
+							[1, 0],
+						],
+					},
+					{
+						input: "speedFine",
+						points: [
+							[0, 0],
+							[1, -0.5],
+						],
+					},
+				],
+			},
+			ratio: {
+				base: 0.25,
+			},
+			angle: {
+				base: 0.7853981633974483,
+			},
+			flow: {
+				base: 1,
+			},
+			spacing: {
+				base: 0.05,
+			},
+		},
+		randomSeed: 0,
+		tip: {
+			kind: "procedural",
+			hardness: 1,
+			angleMode: "fixed",
+		},
+	},
+	[BUILTIN_BRUSH_IDS.softCircle]: {
+		version: 2,
+		engine: "dab",
+		strokeOpacity: 1,
+		paintMode: "buildup",
+		properties: {
+			size: {
+				base: 10,
+				curves: [
+					{
+						input: "pressure",
+						points: [
+							[0, -0.5],
+							[1, 0],
+						],
+					},
+					{
+						input: "speedFine",
+						points: [
+							[0, 0],
+							[1, -0.5],
+						],
+					},
+				],
+			},
+			flow: {
+				base: 1,
+				curves: [
+					{
+						input: "pressure",
+						points: [
+							[0, -0.2],
+							[1, 0],
+						],
+					},
+				],
+			},
+			spacing: {
+				base: 0.1,
+			},
+		},
+		randomSeed: 0,
+		tip: {
+			kind: "image",
+			sources: [
+				{
+					kind: "file",
+					fileUid: "builtin-brush-soft-circle",
+				},
+			],
+			selection: "random",
+			angleMode: "fixed",
+		},
+	},
+	[BUILTIN_BRUSH_IDS.pencil]: {
+		version: 2,
+		engine: "dab",
+		strokeOpacity: 1,
+		paintMode: "buildup",
+		properties: {
+			size: {
+				base: 10,
+				curves: [
+					{
+						input: "pressure",
+						points: [
+							[0, -0.3],
+							[1, 0],
+						],
+					},
+					{
+						input: "speedFine",
+						points: [
+							[0, 0],
+							[1, -0.5],
+						],
+					},
+				],
+			},
+			flow: {
+				base: 0.8,
+				curves: [
+					{
+						input: "pressure",
+						points: [
+							[0, -0.5],
+							[1, 0],
+						],
+					},
+				],
+			},
+			spacing: {
+				base: 0.08,
+			},
+		},
+		randomSeed: 0,
+		tip: {
+			kind: "image",
+			sources: [
+				{
+					kind: "file",
+					fileUid: "builtin-brush-pencil",
+				},
+			],
+			selection: "random",
+			angleMode: "fixed",
+		},
+	},
+	[BUILTIN_BRUSH_IDS.airbrush]: {
+		version: 2,
+		engine: "dab",
+		strokeOpacity: 1,
+		paintMode: "buildup",
+		properties: {
+			size: {
+				base: 10,
+				curves: [
+					{
+						input: "pressure",
+						points: [
+							[0, -0.2],
+							[1, 0],
+						],
+					},
+					{
+						input: "speedFine",
+						points: [
+							[0, 0],
+							[1, -0.5],
+						],
+					},
+				],
+			},
+			flow: {
+				base: 0.4,
+				curves: [
+					{
+						input: "pressure",
+						points: [
+							[0, -0.6],
+							[1, 0],
+						],
+					},
+				],
+			},
+			spacing: {
+				base: 0.05,
+			},
+		},
+		randomSeed: 0,
+		tip: {
+			kind: "image",
+			sources: [
+				{
+					kind: "file",
+					fileUid: "builtin-brush-airbrush",
+				},
+			],
+			selection: "random",
+			angleMode: "fixed",
+		},
+	},
 };
 
 /** Shelf order of the builtin preset list. A preset whose category is not
@@ -276,38 +443,122 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 		}),
 	);
 
-	// Demonstrates wetInk on top of an existing soft-circle stamp; reuses the
+	// Runs the wet layer on top of an existing soft-circle stamp; reuses the
 	// soft circle texture so no new builtin texture is required.
 	const watercolour: BrushPreset = {
 		uid: "builtin-brush-watercolor",
 		name: "Watercolor",
 		category: "watercolor",
-		settings: scatterPreset(BUILTIN_BRUSH_IDS.softCircle, {
-			spacing: 0.06,
-			sizeByPressure: 0.4,
-			opacityByPressure: 0.4,
-			flow: 0.65,
-			wetInk: {
-				enabled: true,
-				bleedWidth: 0.5,
-				edgeDarkening: 0.45,
-				edgeRoughness: 0.35,
-				paperGrain: 0.25,
-				paperScale: 1.2,
-				directionality: 0.3,
-				speedInfluence: 0.5,
-				accelInfluence: 0.5,
-				wetness: 0.8,
-				diffusion: 0.55,
-				pigmentLoad: DEFAULT_WET_INK_PIGMENT_LOAD,
-				absorption: DEFAULT_WET_INK_ABSORPTION,
-				granulation: DEFAULT_WET_INK_GRANULATION,
-				pickupUnderlyingColor: DEFAULT_WET_INK_PICKUP_UNDERLYING_COLOR,
-				pickupStrength: DEFAULT_WET_INK_PICKUP_STRENGTH,
-				pickupDecay: DEFAULT_WET_INK_PICKUP_DECAY,
-				pickupBlendMode: 0,
+		settings: {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "wash",
+			properties: {
+				size: {
+					base: 10,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.4],
+								[1, 0],
+							],
+						},
+						{
+							input: "speedFine",
+							points: [
+								[0, 0],
+								[1, -0.5],
+							],
+						},
+					],
+				},
+				flow: {
+					base: 0.65,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.4],
+								[1, 0],
+							],
+						},
+					],
+				},
+				spacing: {
+					base: 0.06,
+				},
+				colorRate: {
+					base: 0.755,
+				},
+				wetness: {
+					base: 0.8,
+					curves: [
+						{
+							input: "speedGross",
+							points: [
+								[0, 0],
+								[1, -0.4],
+							],
+						},
+						{
+							input: "accel",
+							points: [
+								[0, 0],
+								[1, 0.2],
+							],
+						},
+					],
+				},
+				directionality: {
+					base: 0.3,
+				},
+				grainAmount: {
+					base: 0.25,
+				},
+				absorption: {
+					base: 0.35,
+				},
+				granulation: {
+					base: 0.25,
+				},
+				bleedSoftness: {
+					base: 0.55,
+				},
+				edgeDarkening: {
+					base: 0.45,
+				},
+				edgeRoughness: {
+					base: 0.35,
+				},
 			},
-		}),
+			randomSeed: 0,
+			tip: {
+				kind: "image",
+				sources: [
+					{
+						kind: "file",
+						fileUid: "builtin-brush-soft-circle",
+					},
+				],
+				selection: "random",
+				angleMode: "fixed",
+			},
+			mixing: {
+				enabled: false,
+				mode: "dulling",
+				sampleRadius: 1,
+				sampleTrail: 1,
+				blendStyle: 0,
+			},
+			wet: {
+				enabled: true,
+				bleedRadius: 0.5,
+				pigmentLoad: 0.85,
+				grainScale: 1.2,
+			},
+		},
 	};
 
 	// Fast, high-absorption strokes over the grainy pencil stamp; bleeds only a
@@ -316,32 +567,116 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 		uid: "builtin-brush-dry-brush",
 		name: "Dry Brush",
 		category: "watercolor",
-		settings: scatterPreset(BUILTIN_BRUSH_IDS.pencil, {
-			spacing: 0.08,
-			sizeByPressure: 0.35,
-			opacityByPressure: 0.4,
-			flow: 0.7,
-			wetInk: {
-				enabled: true,
-				bleedWidth: 0.15,
-				edgeDarkening: 0.2,
-				edgeRoughness: 0.55,
-				paperGrain: 0.6,
-				paperScale: 1.6,
-				directionality: 0.15,
-				speedInfluence: 0.9,
-				accelInfluence: 0.2,
-				wetness: 0.3,
-				diffusion: 0.2,
-				pigmentLoad: 1.0,
-				absorption: 0.7,
-				granulation: 0.65,
-				pickupUnderlyingColor: false,
-				pickupStrength: DEFAULT_WET_INK_PICKUP_STRENGTH,
-				pickupDecay: DEFAULT_WET_INK_PICKUP_DECAY,
-				pickupBlendMode: 0,
+		settings: {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "wash",
+			properties: {
+				size: {
+					base: 10,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.35],
+								[1, 0],
+							],
+						},
+						{
+							input: "speedFine",
+							points: [
+								[0, 0],
+								[1, -0.5],
+							],
+						},
+					],
+				},
+				flow: {
+					base: 0.7,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.4],
+								[1, 0],
+							],
+						},
+					],
+				},
+				spacing: {
+					base: 0.08,
+				},
+				colorRate: {
+					base: 0.755,
+				},
+				wetness: {
+					base: 0.3,
+					curves: [
+						{
+							input: "speedGross",
+							points: [
+								[0, 0],
+								[1, -0.27],
+							],
+						},
+						{
+							input: "accel",
+							points: [
+								[0, 0],
+								[1, 0.03],
+							],
+						},
+					],
+				},
+				directionality: {
+					base: 0.15,
+				},
+				grainAmount: {
+					base: 0.6,
+				},
+				absorption: {
+					base: 0.7,
+				},
+				granulation: {
+					base: 0.65,
+				},
+				bleedSoftness: {
+					base: 0.2,
+				},
+				edgeDarkening: {
+					base: 0.2,
+				},
+				edgeRoughness: {
+					base: 0.55,
+				},
 			},
-		}),
+			randomSeed: 0,
+			tip: {
+				kind: "image",
+				sources: [
+					{
+						kind: "file",
+						fileUid: "builtin-brush-pencil",
+					},
+				],
+				selection: "random",
+				angleMode: "fixed",
+			},
+			mixing: {
+				enabled: false,
+				mode: "dulling",
+				sampleRadius: 1,
+				sampleTrail: 1,
+				blendStyle: 0,
+			},
+			wet: {
+				enabled: true,
+				bleedRadius: 0.15,
+				pigmentLoad: 1,
+				grainScale: 1.6,
+			},
+		},
 	};
 
 	// Very wet strokes that spread far and mix with the colors already on the
@@ -350,88 +685,345 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 		uid: "builtin-brush-bleed-watercolor",
 		name: "Bleed Watercolor",
 		category: "watercolor",
-		settings: scatterPreset(BUILTIN_BRUSH_IDS.softCircle, {
-			spacing: 0.06,
-			sizeByPressure: 0.4,
-			opacityByPressure: 0.35,
-			flow: 0.5,
-			wetInk: {
-				enabled: true,
-				bleedWidth: 0.85,
-				edgeDarkening: 0.55,
-				edgeRoughness: 0.4,
-				paperGrain: 0.3,
-				paperScale: 1.2,
-				directionality: 0.4,
-				speedInfluence: 0.25,
-				accelInfluence: 0.6,
-				wetness: 0.95,
-				diffusion: 0.75,
-				pigmentLoad: 0.7,
-				absorption: 0.2,
-				granulation: 0.3,
-				pickupUnderlyingColor: true,
-				pickupStrength: 0.55,
-				pickupDecay: 1.0,
-				pickupBlendMode: 0,
+		settings: {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "wash",
+			properties: {
+				size: {
+					base: 10,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.4],
+								[1, 0],
+							],
+						},
+						{
+							input: "speedFine",
+							points: [
+								[0, 0],
+								[1, -0.5],
+							],
+						},
+					],
+				},
+				flow: {
+					base: 0.5,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.35],
+								[1, 0],
+							],
+						},
+					],
+				},
+				spacing: {
+					base: 0.06,
+				},
+				colorRate: {
+					base: 0.615,
+				},
+				wetness: {
+					base: 0.95,
+					curves: [
+						{
+							input: "speedGross",
+							points: [
+								[0, 0],
+								[1, -0.2375],
+							],
+						},
+						{
+							input: "accel",
+							points: [
+								[0, 0],
+								[1, 0.285],
+							],
+						},
+					],
+				},
+				directionality: {
+					base: 0.4,
+				},
+				grainAmount: {
+					base: 0.3,
+				},
+				absorption: {
+					base: 0.2,
+				},
+				granulation: {
+					base: 0.3,
+				},
+				bleedSoftness: {
+					base: 0.75,
+				},
+				edgeDarkening: {
+					base: 0.55,
+				},
+				edgeRoughness: {
+					base: 0.4,
+				},
 			},
-		}),
+			randomSeed: 0,
+			tip: {
+				kind: "image",
+				sources: [
+					{
+						kind: "file",
+						fileUid: "builtin-brush-soft-circle",
+					},
+				],
+				selection: "random",
+				angleMode: "fixed",
+			},
+			mixing: {
+				enabled: true,
+				mode: "dulling",
+				sampleRadius: 1,
+				sampleTrail: 1,
+				blendStyle: 0,
+			},
+			wet: {
+				enabled: true,
+				bleedRadius: 0.85,
+				pigmentLoad: 0.7,
+				grainScale: 1.2,
+			},
+		},
 	};
 
 	const gPen: BrushPreset = {
 		uid: "builtin-brush-g-pen",
 		name: "G-Pen",
 		category: "pen",
-		settings: calligraphyPreset({
-			nibAngle: 0,
-			roundness: 1,
-			angleMode: "fixed",
-			sizeByPressure: 0.85,
-			opacityByPressure: 0,
-		}),
+		settings: {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				size: {
+					base: 10,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.85],
+								[1, 0],
+							],
+						},
+						{
+							input: "speedFine",
+							points: [
+								[0, 0],
+								[1, -0.5],
+							],
+						},
+					],
+				},
+				ratio: {
+					base: 1,
+				},
+				flow: {
+					base: 1,
+				},
+				spacing: {
+					base: 0.05,
+				},
+			},
+			randomSeed: 0,
+			tip: {
+				kind: "procedural",
+				hardness: 1,
+				angleMode: "fixed",
+			},
+		},
 	};
 
 	const marker: BrushPreset = {
 		uid: "builtin-brush-marker",
 		name: "Marker",
 		category: "pen",
-		settings: scatterPreset(BUILTIN_BRUSH_IDS.hardCircle, {
-			spacing: 0.05,
-			sizeByPressure: 0,
-			opacityByPressure: 0,
-			opacity: 0.85,
-			flow: 0.9,
-		}),
+		settings: {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				size: {
+					base: 10,
+					curves: [
+						{
+							input: "speedFine",
+							points: [
+								[0, 0],
+								[1, -0.5],
+							],
+						},
+					],
+				},
+				flow: {
+					base: 0.765,
+				},
+				spacing: {
+					base: 0.05,
+				},
+			},
+			randomSeed: 0,
+			tip: {
+				kind: "image",
+				sources: [
+					{
+						kind: "file",
+						fileUid: "builtin-brush-hard-circle",
+					},
+				],
+				selection: "random",
+				angleMode: "fixed",
+			},
+		},
 	};
 
 	const ink: BrushPreset = {
 		uid: "builtin-brush-ink",
 		name: "Ink",
 		category: "pen",
-		settings: calligraphyPreset({
-			roundness: 1,
-			sizeByPressure: 0.7,
-			pooling: 0.6,
-			poolingSizeRatio: 0.4,
-		}),
+		settings: {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				size: {
+					base: 10,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.7],
+								[1, 0],
+							],
+						},
+						{
+							input: "speedFine",
+							points: [
+								[0, 0],
+								[1, -0.5],
+							],
+						},
+						{
+							input: "speedFine",
+							points: [
+								[0, 0.072],
+								[1, 0],
+							],
+						},
+					],
+				},
+				ratio: {
+					base: 1,
+				},
+				flow: {
+					base: 1,
+					curves: [
+						{
+							input: "speedFine",
+							points: [
+								[0, 0.18],
+								[1, 0],
+							],
+						},
+					],
+				},
+				spacing: {
+					base: 0.05,
+					curves: [
+						{
+							input: "speedFine",
+							points: [
+								[0, -0.36],
+								[1, 0],
+							],
+						},
+					],
+				},
+			},
+			randomSeed: 0,
+			tip: {
+				kind: "procedural",
+				hardness: 1,
+				angleMode: "fixed",
+			},
+		},
 	};
 
 	const softAirbrush: BrushPreset = {
 		uid: "builtin-brush-soft-airbrush",
 		name: "Soft Airbrush",
 		category: "airbrush",
-		settings: scatterPreset(BUILTIN_BRUSH_IDS.softCircle, {
-			size: 30,
-			spacing: 0.04,
-			sizeByPressure: 0.1,
-			opacityByPressure: 0.7,
-			flow: 0.15,
-		}),
+		settings: {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "buildup",
+			properties: {
+				size: {
+					base: 30,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.1],
+								[1, 0],
+							],
+						},
+						{
+							input: "speedFine",
+							points: [
+								[0, 0],
+								[1, -0.5],
+							],
+						},
+					],
+				},
+				flow: {
+					base: 0.15,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.7],
+								[1, 0],
+							],
+						},
+					],
+				},
+				spacing: {
+					base: 0.04,
+				},
+			},
+			randomSeed: 0,
+			tip: {
+				kind: "image",
+				sources: [
+					{
+						kind: "file",
+						fileUid: "builtin-brush-soft-circle",
+					},
+				],
+				selection: "random",
+				angleMode: "fixed",
+			},
+		},
 	};
 
 	// Picks up whatever is already on the layer and drags it along, the way a
-	// damp brush moves paint around. Written against the v2 engine directly:
-	// the pickup amount rides on pressure, which the v1 shape cannot express.
+	// damp brush moves paint around. The pickup amount rides on pressure.
 	const mixingBrush: BrushPreset = {
 		uid: "builtin-brush-mixing",
 		name: "Mixing Brush",

@@ -1,5 +1,6 @@
 import { makeStructuredView } from "webgpu-utils";
 import type { SoftProofLutResult } from "../color/types";
+import type { BrushEngineKind } from "../schema";
 import {
 	type AnyArtObject,
 	type Artboard,

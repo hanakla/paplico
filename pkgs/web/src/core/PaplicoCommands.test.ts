@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { readStoredBrushSize } from "./brush/access";
+import { normalizeBrushSettingsV2 } from "./brush/migrate";
 import type { YjsProvider } from "./collaboration/YjsProvider";
 import {
 	createDefaultBrushSettings,
@@ -119,28 +120,20 @@ describe("PaplicoCommands", () => {
 	});
 
 	it("skips brush-setting updates when selected paths already match semantically", () => {
-		const brushSettings = createDefaultBrushSettings();
-		const legacyFlatBrushSettings = {
-			size: brushSettings.size,
-			sizeByPressure: brushSettings.sizeByPressure,
-			opacity: brushSettings.opacity,
-			opacityByPressure: brushSettings.opacityByPressure,
-			randomSeed: brushSettings.randomSeed,
-			colorMode: brushSettings.colorMode,
-			textureFileUid:
-				brushSettings.source.kind === "file"
-					? brushSettings.source.fileUid
-					: "builtin-brush-soft-circle",
-			spacing: brushSettings.spacing,
-			flow: brushSettings.flow,
-			stampRotation: brushSettings.stampRotation,
-			stampAngle: brushSettings.stampAngle,
-			rotationByTilt: brushSettings.rotationByTilt,
-			aspectRatioByTilt: brushSettings.aspectRatioByTilt,
-			sizeBySpeed: brushSettings.sizeBySpeed,
-			pooling: brushSettings.pooling,
-			poolingSizeRatio: brushSettings.poolingSizeRatio,
+		// A document authored before v2 stores the brush flat. Reopening it and
+		// touching the panel must not rewrite every stroke: the migrated value
+		// is the same brush.
+		const storedFlatBrushSettings = {
+			textureFileUid: "builtin-brush-soft-circle",
+			size: 10,
+			sizeByPressure: 0.5,
+			opacity: 1,
+			opacityByPressure: 0.3,
+			spacing: 0.15,
+			flow: 1,
+			randomSeed: 0,
 		};
+		const brushSettings = normalizeBrushSettingsV2(storedFlatBrushSettings);
 		const path = {
 			...createPath("path-1"),
 			filters: [
@@ -155,7 +148,7 @@ describe("PaplicoCommands", () => {
 								type: "solid",
 								color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
 							},
-							brushSettings: legacyFlatBrushSettings,
+							brushSettings: storedFlatBrushSettings,
 						},
 					},
 				},
@@ -2693,7 +2686,10 @@ describe("computePerspectiveWarpUpdates (vertex bake)", () => {
 			.filters?.[0] as StrokeAppearance;
 		expect(
 			readStoredBrushSize(stroke.paramData.params.brushSettings),
-		).toBeCloseTo(createDefaultBrushSettings().size * 2, 6);
+		).toBeCloseTo(
+			(createDefaultBrushSettings().properties.size?.base ?? 0) * 2,
+			6,
+		);
 	});
 
 	it("should keep stroke widths under an area-preserving shear", () => {
@@ -2721,7 +2717,7 @@ describe("computePerspectiveWarpUpdates (vertex bake)", () => {
 			.filters?.[0] as StrokeAppearance;
 		expect(
 			readStoredBrushSize(stroke.paramData.params.brushSettings),
-		).toBeCloseTo(createDefaultBrushSettings().size, 6);
+		).toBeCloseTo(createDefaultBrushSettings().properties.size?.base ?? 0, 6);
 	});
 
 	it("should bake warped corner vertices into an image", () => {

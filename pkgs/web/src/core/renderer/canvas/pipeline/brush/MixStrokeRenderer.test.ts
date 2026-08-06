@@ -10,7 +10,7 @@ import { resolveMixingStroke } from "./MixStrokeRenderer";
  * pass alone now, which is why a converted v1 wet brush lands here.
  */
 describe("resolveMixingStroke", () => {
-	it("should claim a dab-v2 stroke with mixing enabled", () => {
+	it("should claim a dab stroke with mixing enabled", () => {
 		const element = strokePath(mixingBrushSettings());
 
 		expect(resolveMixingStroke(element)?.settings.mixing?.enabled).toBe(true);

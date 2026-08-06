@@ -99,9 +99,8 @@ export function useBrushPresets() {
 				if (signal.aborted) return;
 				if (migratedPresetIdsRef.current.has(legacyPreset.uid)) continue;
 
-				const presetTextureUid = resolveBrushTextureUid(
-					normalizeBrushSettingsV2(legacyPreset.settings),
-				);
+				const presetSettings = normalizeBrushSettingsV2(legacyPreset.settings);
+				const presetTextureUid = resolveBrushTextureUid(presetSettings);
 				const sourceFile = presetTextureUid
 					? (builtinFileMap.get(presetTextureUid) ??
 						docSnap.document.files.find(
@@ -283,7 +282,7 @@ export function useBrushPresets() {
 		const source = await resolveCurrentTextureSource({
 			builtinFiles,
 			documentFiles: store.document.files,
-			textureFileUid: resolveBrushTextureUid(tools.brushSettings),
+			textureFileUid: resolveBrushTextureUid(tools.storedBrushSettings),
 		});
 		if (!source) return null;
 
@@ -355,7 +354,7 @@ export function useBrushPresets() {
 		const source = await resolveCurrentTextureSource({
 			builtinFiles,
 			documentFiles: store.document.files,
-			textureFileUid: resolveBrushTextureUid(tools.brushSettings),
+			textureFileUid: resolveBrushTextureUid(tools.storedBrushSettings),
 		});
 		if (!source) return;
 

@@ -147,10 +147,7 @@ function StrokeWidthControl({
 			for (const el of elements) {
 				const stroke = getFirstStroke(el.filters);
 				const bs = stroke?.paramData.params.brushSettings;
-				const isGeometric =
-					bs != null &&
-					("version" in bs ? bs.engine === "geometric" : bs.type === "stroke");
-				if (!bs || !isGeometric) continue;
+				if (bs?.engine !== "geometric") continue;
 
 				const prev = readStoredBrushStroking(bs);
 				const newFilters = el.filters?.map((f) => {

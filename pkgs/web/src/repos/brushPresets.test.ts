@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { resolveBrushTextureUid } from "@/core/brush/brushSource";
+import {
+	resolveBrushTextureUid,
+	withTextureFileUid,
+} from "@/core/brush/brushSource";
+import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import { createDefaultBrushSettings } from "@/core/document/factory";
-import type { BrushSettings } from "@/core/schema";
+import type { BrushSettingsV2 } from "@/core/schema";
 import {
 	brushPresetsDB,
 	webBrushPresetsRepo,
@@ -16,19 +20,19 @@ import {
 
 describe("brushPresets helpers", () => {
 	it("should reset randomSeed and keep settings reproducible", () => {
-		const defaults = createBrushPresetDefaults({
-			...createDefaultBrushSettings(),
-			source: { kind: "file", fileUid: "builtin-brush-airbrush" },
-			randomSeed: 12345,
-			size: 42,
-			flow: 0.35,
-		});
+		const defaults = createBrushPresetDefaults(
+			withTextureFileUid(
+				{
+					...createDefaultBrushSettings(),
+					randomSeed: 12345,
+					properties: { size: { base: 42 }, flow: { base: 0.35 } },
+				},
+				"builtin-brush-airbrush",
+			),
+		);
 
-		expect(defaults).toMatchObject({
-			type: "scatter",
-			size: 42,
-			flow: 0.35,
-		});
+		expect(defaults.properties.size?.base).toBe(42);
+		expect(defaults.properties.flow?.base).toBe(0.35);
 		// randomSeed is reset to 0 so the preset renders reproducibly.
 		expect(defaults.randomSeed).toBe(0);
 		// The flat textureFileUid no longer exists; the source carries the texture.
@@ -72,23 +76,24 @@ describe("brushPresets helpers", () => {
 			{
 				uid: "builtin-brush-airbrush",
 				name: "Airbrush",
-				settings: {
-					type: "scatter",
-					source: { kind: "file", fileUid: "builtin-brush-airbrush" },
+				settings: normalizeBrushSettingsV2({
+					version: 2,
+					engine: "dab",
+					strokeOpacity: 0.8,
+					paintMode: "buildup",
+					properties: {
+						size: { base: 18 },
+						spacing: { base: 0.1 },
+						flow: { base: 0.5 },
+					},
+					tip: {
+						kind: "image",
+						sources: [{ kind: "file", fileUid: "builtin-brush-airbrush" }],
+						selection: "random",
+						angleMode: "fixed",
+					},
 					randomSeed: 0,
-					size: 18,
-					sizeByPressure: 0.2,
-					opacity: 0.8,
-					opacityByPressure: 0.4,
-					spacing: 0.1,
-					flow: 0.5,
-					stampRotation: "random",
-					rotationByTilt: 0.3,
-					aspectRatioByTilt: 0.1,
-					sizeBySpeed: 0.2,
-					pooling: 0.4,
-					poolingSizeRatio: 0.5,
-				},
+				}),
 			},
 			{
 				uid: "builtin-brush-airbrush",
@@ -163,7 +168,7 @@ describe("webBrushPresetsRepo", () => {
 		expect(await webBrushPresetsRepo.list()).toEqual([]);
 	});
 
-	it("should normalize a legacy flat defaultSettings record written before the BrushSettings union existed", async () => {
+	it("should migrate a legacy flat defaultSettings record to v2 on read", async () => {
 		// Simulates a row written by pre-union app code: `defaultSettings` has
 		// no `type` discriminator. Written directly to the DB (bypassing
 		// webBrushPresetsRepo.save, which always normalizes on write) so the
@@ -175,7 +180,7 @@ describe("webBrushPresetsRepo", () => {
 				textureFileUid: "builtin-brush-soft-circle",
 				size: 24,
 				spacing: 0.15,
-			} as unknown as BrushSettings,
+			} as unknown as BrushSettingsV2,
 			textureName: "legacy.png",
 			textureMime: "image/png",
 			textureHash: "legacy-hash",
@@ -186,19 +191,14 @@ describe("webBrushPresetsRepo", () => {
 
 		const listed = await webBrushPresetsRepo.list();
 		expect(listed).toHaveLength(1);
-		const listedSettings = listed[0]?.defaultSettings;
-		if (listedSettings == null || "version" in listedSettings)
-			throw new Error("expected v1 settings");
-		expect(listedSettings.type).toBe("scatter");
+		expect(listed[0]?.defaultSettings.engine).toBe("dab");
 		expect(resolveBrushTextureUid(listed[0]!.defaultSettings)).toBe(
 			"builtin-brush-soft-circle",
 		);
 
 		const got = await webBrushPresetsRepo.get("brush-preset-legacy");
-		const gotSettings = got?.defaultSettings;
-		if (gotSettings == null || "version" in gotSettings)
-			throw new Error("expected v1 settings");
-		expect(gotSettings.type).toBe("scatter");
+		expect(got?.defaultSettings.version).toBe(2);
+		expect(got?.defaultSettings.engine).toBe("dab");
 
 		// createPersistedBrushPreviewSource routes defaultSettings through
 		// withTextureFileUid — must not blow up on a (now-normalized) record

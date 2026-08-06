@@ -39,7 +39,6 @@ import {
 	type BooleanOperation,
 	type BoundingBox,
 	type BrushPreset,
-	type BrushSettings,
 	type BrushSettingsV2,
 	BUILTIN_BRUSH_IDS,
 	BUILTIN_PAPER_IDS,
@@ -2150,7 +2149,7 @@ export class PaplicoCommands {
 	}
 
 	public updateSelectedElementsBrushSettings(
-		brushSettings: BrushSettings | BrushSettingsV2 | undefined,
+		brushSettings: BrushSettingsV2 | undefined,
 	): void {
 		if (this.cannotMutate()) return;
 		const layerId = this.ctx.store.currentLayerId;
@@ -2199,7 +2198,7 @@ export class PaplicoCommands {
 	 */
 	public updateSelectedElementStrokeBrushSettings(
 		filterIndex: number,
-		brushSettings: BrushSettings | BrushSettingsV2 | undefined,
+		brushSettings: BrushSettingsV2 | undefined,
 	): void {
 		if (this.cannotMutate()) return;
 		const element = this.getSelectedElement();
@@ -4911,10 +4910,8 @@ function areBrushSettingsSemanticallyEqual(
 ): boolean {
 	if (left == null || right == null) return left == null && right == null;
 
-	// Compared as v2: the legacy view has nowhere to hold curves, mixing or
-	// the wet layer, so comparing through it calls two settings that differ
-	// only in those equal — and the write that would have carried them to the
-	// element is skipped as redundant.
+	// Normalized before comparing so a stroke still holding a pre-v2 record
+	// is not rewritten just for having been saved in the old shape.
 	return (
 		JSON.stringify(normalizeBrushSettingsV2(left)) ===
 		JSON.stringify(normalizeBrushSettingsV2(right))

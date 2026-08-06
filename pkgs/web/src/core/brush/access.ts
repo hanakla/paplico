@@ -2,68 +2,50 @@ import type {
 	BrushSettingsPatch,
 	BrushSettingsV2,
 	BrushStroking,
-	WetInkSettings,
 } from "../schema";
 import { BRUSH_PROPERTY_REGISTRY } from "./properties";
 
 /**
- * Lightweight readers/writers for stored brush settings (v1 union, legacy
- * flat shape, or v2). They avoid a full normalize pass in hot paths (bounds,
- * hit testing) and keep write sites format-preserving. Anything richer must
- * go through normalizeBrushSettings / normalizeBrushSettingsV2.
+ * Lightweight readers/writers for stored brush settings. They avoid a full
+ * normalize pass in hot paths (bounds, hit testing) and keep write sites
+ * cheap. Anything richer goes through normalizeBrushSettingsV2.
  */
 
-/** Read the effective brush size from a stored value in any format. */
+/** Read the effective brush size off stored settings. */
 export function readStoredBrushSize(raw: unknown): number | undefined {
 	if (!isRecord(raw)) return undefined;
-	if (raw.version === 2) {
-		const size = (raw as unknown as BrushSettingsV2).properties?.size;
-		return size?.base ?? BRUSH_PROPERTY_REGISTRY.size.base;
-	}
-	return typeof raw.size === "number" && Number.isFinite(raw.size)
-		? raw.size
-		: undefined;
+	const size = (raw as unknown as BrushSettingsV2).properties?.size;
+	return size?.base ?? BRUSH_PROPERTY_REGISTRY.size.base;
 }
 
-/** Return a copy with the size replaced, preserving the stored format. */
+/** Return a copy with the size replaced. */
 export function withStoredBrushSize<T>(settings: T, size: number): T {
 	if (!isRecord(settings)) return settings;
-	if (settings.version === 2) {
-		const v2 = settings as unknown as BrushSettingsV2;
-		return {
-			...v2,
-			properties: {
-				...v2.properties,
-				size: { ...v2.properties.size, base: size },
-			},
-		} as unknown as T;
-	}
-	return { ...settings, size } as T;
+	const v2 = settings as unknown as BrushSettingsV2;
+	return {
+		...v2,
+		properties: {
+			...v2.properties,
+			size: { ...v2.properties?.size, base: size },
+		},
+	} as unknown as T;
 }
 
 /**
  * How far past its own width a wet stroke bleeds, as a ratio of the brush
- * size, from either settings shape. Bounds needs this without normalizing.
+ * size. Bounds needs this without normalizing.
  */
 export function readStoredWetBleedRatio(raw: unknown): number {
 	if (!isRecord(raw)) return 0;
-	if (raw.version === 2) {
-		const wet = (raw as unknown as BrushSettingsV2).wet;
-		return wet?.enabled === true ? wet.bleedRadius : 0;
-	}
-	if (raw.type !== "scatter" && raw.type !== "calligraphy") return 0;
-	const wetInk = isRecord(raw.wetInk)
-		? (raw.wetInk as unknown as WetInkSettings)
-		: undefined;
-	return wetInk?.enabled === true ? wetInk.bleedWidth : 0;
+	const wet = (raw as unknown as BrushSettingsV2).wet;
+	return wet?.enabled === true ? wet.bleedRadius : 0;
 }
 
-/** Read geometric stroking config: v1 stroke brushes and v2 both carry it. */
+/** Read geometric stroking config (line cap/join, miter, dash). */
 export function readStoredBrushStroking(
 	raw: unknown,
 ): BrushStroking | undefined {
 	if (!isRecord(raw)) return undefined;
-	if (raw.version !== 2 && raw.type !== "stroke") return undefined;
 	return isRecord(raw.stroking)
 		? (raw.stroking as unknown as BrushStroking)
 		: undefined;

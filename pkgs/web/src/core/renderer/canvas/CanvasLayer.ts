@@ -5526,7 +5526,7 @@ export class CanvasLayer {
 					// strokes render through ElementRenderer.
 					return (
 						resolveBrushRenderRoute(s.paramData.params.brushSettings).kind ===
-						"ribbon-legacy"
+						"ribbon"
 					);
 				});
 				const canBatch =
@@ -6758,7 +6758,7 @@ export class CanvasLayer {
 		const raw = (appearance as StrokeAppearance).paramData.params.brushSettings;
 		if (raw == null) return null;
 		const route = resolveBrushRenderRoute(raw);
-		return route.kind === "dab-v2" && route.settings.wet?.enabled === true
+		return route.kind === "dab" && route.settings.wet?.enabled === true
 			? route.settings
 			: null;
 	}

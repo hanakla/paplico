@@ -21,8 +21,8 @@ describe("resolveBrushRenderRoute", () => {
 
 	it("should route plain scatter strokes to the v2 dab pipeline", () => {
 		const route = resolveBrushRenderRoute(scatterV1);
-		expect(route.kind).toBe("dab-v2");
-		if (route.kind !== "dab-v2") throw new Error("unreachable");
+		expect(route.kind).toBe("dab");
+		if (route.kind !== "dab") throw new Error("unreachable");
 		expect(route.settings.version).toBe(2);
 		expect(route.settings.engine).toBe("dab");
 	});
@@ -43,12 +43,12 @@ describe("resolveBrushRenderRoute", () => {
 			pooling: 0,
 			poolingSizeRatio: 0.5,
 		});
-		expect(route.kind).toBe("dab-v2");
+		expect(route.kind).toBe("dab");
 	});
 
-	it("should route wet strokes through the v2 dab pipeline", () => {
-		// wetV1 is gone: a v1 wet brush converts into the v2 wet layer, so
-		// there is no legacy route left for it to take.
+	it("should route a migrated wet brush onto the dab engine", () => {
+		// A pre-v2 wet brush becomes a v2 wet layer, which only the dab engine
+		// draws.
 		const route = resolveBrushRenderRoute({
 			...scatterV1,
 			wetInk: {
@@ -70,7 +70,7 @@ describe("resolveBrushRenderRoute", () => {
 			},
 		});
 
-		expect(route.kind).toBe("dab-v2");
+		expect(route.kind).toBe("dab");
 		expect(route.settings.wet?.enabled).toBe(true);
 	});
 
@@ -95,7 +95,7 @@ describe("resolveBrushRenderRoute", () => {
 				pickupStrength: 0.35,
 			},
 		});
-		expect(route.kind).toBe("dab-v2");
+		expect(route.kind).toBe("dab");
 	});
 
 	it("should route ribbon and geometric engines to their legacy paths", () => {
@@ -110,7 +110,7 @@ describe("resolveBrushRenderRoute", () => {
 				source: { kind: "file", fileUid: "a" },
 				flow: 1,
 			}).kind,
-		).toBe("ribbon-legacy");
+		).toBe("ribbon");
 		expect(
 			resolveBrushRenderRoute({
 				type: "stroke",

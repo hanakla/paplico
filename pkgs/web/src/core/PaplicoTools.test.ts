@@ -30,10 +30,10 @@ describe("PaplicoTools.setBrushSettings", () => {
 		expect(stored.properties.size?.base).toBe(24);
 	});
 
-	it("should keep the legacy view getter working on stored v2", () => {
-		const { tools } = makeTools();
+	it("should read a patched size back off the stored settings", () => {
+		const { store, tools } = makeTools();
 		tools.setBrushSettings({ size: 24 });
-		expect(tools.brushSettings.size).toBe(24);
+		expect(storedSettings(store).properties.size?.base).toBe(24);
 	});
 
 	it("should preserve curve-editor curves across an unrelated flat patch", () => {
@@ -138,8 +138,8 @@ describe("PaplicoTools.setBrushSettings with a builtin preset", () => {
 
 	it("should keep curves and wet settings when an appearance is loaded", () => {
 		// The appearance panel hands the designer an element's stored brush.
-		// Routed through the legacy view it would arrive stripped of exactly
-		// the parts the designer exists to edit.
+		// A patch-shaped read would arrive stripped of exactly the parts the
+		// designer exists to edit.
 		const { store, tools } = makeTools();
 		tools.setBrushSettings({
 			version: 2,

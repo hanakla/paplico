@@ -30,10 +30,6 @@ const v2: BrushSettingsV2 = {
 };
 
 describe("readStoredBrushSize", () => {
-	it("should read the flat v1 size field", () => {
-		expect(readStoredBrushSize({ type: "scatter", size: 12 })).toBe(12);
-	});
-
 	it("should read the v2 size property base", () => {
 		expect(readStoredBrushSize(v2)).toBe(24);
 	});
@@ -42,21 +38,12 @@ describe("readStoredBrushSize", () => {
 		expect(readStoredBrushSize({ ...v2, properties: {} })).toBeGreaterThan(0);
 	});
 
-	it("should return undefined for non-object or sizeless input", () => {
+	it("should return undefined for non-object input", () => {
 		expect(readStoredBrushSize(null)).toBeUndefined();
-		expect(readStoredBrushSize({ type: "stroke" })).toBeUndefined();
 	});
 });
 
 describe("withStoredBrushSize", () => {
-	it("should replace the flat v1 size field", () => {
-		const out = withStoredBrushSize(
-			{ type: "scatter", size: 12, flow: 0.5 },
-			30,
-		);
-		expect(out).toEqual({ type: "scatter", size: 30, flow: 0.5 });
-	});
-
 	it("should patch the v2 size base while keeping its curves", () => {
 		const out = withStoredBrushSize(v2, 48);
 		expect(out.properties.size?.base).toBe(48);
@@ -71,15 +58,6 @@ describe("withStoredBrushSize", () => {
 });
 
 describe("readStoredWetBleedRatio", () => {
-	it("should read the bleed from a v1 wet brush", () => {
-		expect(
-			readStoredWetBleedRatio({
-				type: "scatter",
-				wetInk: { enabled: true, bleedWidth: 0.5 },
-			}),
-		).toBe(0.5);
-	});
-
 	it("should read the bleed from a v2 wet brush", () => {
 		expect(
 			readStoredWetBleedRatio({
@@ -96,7 +74,7 @@ describe("readStoredWetBleedRatio", () => {
 				wet: { enabled: false, bleedRadius: 0.75 },
 			}),
 		).toBe(0);
-		expect(readStoredWetBleedRatio({ type: "scatter" })).toBe(0);
+		expect(readStoredWetBleedRatio({ ...v2 })).toBe(0);
 		expect(readStoredWetBleedRatio(null)).toBe(0);
 	});
 });
@@ -104,13 +82,8 @@ describe("readStoredWetBleedRatio", () => {
 describe("readStoredBrushStroking", () => {
 	const stroking = { lineCap: "butt", lineJoin: "miter", miterLimit: 2 };
 
-	it("should read stroking from a v1 stroke brush only", () => {
-		expect(readStoredBrushStroking({ type: "stroke", stroking })).toEqual(
-			stroking,
-		);
-		expect(
-			readStoredBrushStroking({ type: "scatter", stroking }),
-		).toBeUndefined();
+	it("should return undefined when the brush carries no stroking", () => {
+		expect(readStoredBrushStroking(v2)).toBeUndefined();
 	});
 
 	it("should read stroking from a stored v2 brush", () => {

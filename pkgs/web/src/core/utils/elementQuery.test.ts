@@ -198,12 +198,6 @@ describe("getStrokeWidth", () => {
 		} as unknown as Filter;
 	}
 
-	it("should read the flat v1 size", () => {
-		expect(getStrokeWidth([strokeFilter({ type: "scatter", size: 12 })])).toBe(
-			12,
-		);
-	});
-
 	it("should read the size base from stored v2 settings", () => {
 		expect(
 			getStrokeWidth([

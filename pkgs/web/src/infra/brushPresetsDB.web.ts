@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from "dexie";
-import { normalizeStoredBrushSettings } from "@/core/brush/migrate";
+import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import { deepClone } from "@/core/utils/lang";
 import type {
 	BrushPresetsRepo,
@@ -54,9 +54,9 @@ function clonePersistedBrushPreset(
 ): PersistedBrushPreset {
 	return {
 		...preset,
-		// Format-preserving: legacy flat records become a union value, stored
-		// v2 stays v2 so curves and v2-only config survive the roundtrip.
-		defaultSettings: normalizeStoredBrushSettings(
+		// Records written before v2 are migrated on the way out, so callers
+		// never see the old shape.
+		defaultSettings: normalizeBrushSettingsV2(
 			deepClone(preset.defaultSettings),
 		),
 		textureBin: new Uint8Array(preset.textureBin),

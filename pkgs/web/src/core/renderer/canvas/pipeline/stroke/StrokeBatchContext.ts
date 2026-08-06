@@ -20,8 +20,8 @@ import {
 import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../../../document/constants";
 import { createDefaultBrushSettings } from "../../../../document/factory";
+import type { RibbonConfig } from "../../../../schema";
 import {
-	type BrushSettings,
 	type BrushSettingsV2,
 	BUILTIN_BRUSH_IDS,
 	type CubicBezierSegment,
@@ -61,6 +61,7 @@ import {
 	generateRibbonInstances,
 	RIBBON_FLOATS_PER_INSTANCE,
 	type RibbonOptions,
+	type RibbonStrokeInput,
 } from "../brush/RibbonGenerator";
 import {
 	buildFalloffLutLayersData,
@@ -775,7 +776,7 @@ export class StrokeBatchContext {
 		if (route.kind === "geometric") return;
 
 		// Ribbon methods (pattern/art): accumulate ribbon instances separately
-		if (route.kind === "ribbon-legacy") {
+		if (route.kind === "ribbon") {
 			const ribbon = route.settings.ribbon;
 			if (!ribbon) return;
 			this.addRibbonToBatch(
@@ -882,8 +883,9 @@ export class StrokeBatchContext {
 
 		// Track texture and params (last ribbon path wins for shared params)
 		this.batchRibbonTextureUid = this.resolveTextureUid(
-			resolveBrushTextureUid(brushSettings, this.textureManager) ??
-				BUILTIN_BRUSH_IDS.softCircle,
+			ribbon.source.kind === "file"
+				? ribbon.source.fileUid
+				: BUILTIN_BRUSH_IDS.softCircle,
 		);
 
 		// Add PathMeta (shared with stamps)
@@ -1067,7 +1069,7 @@ export class StrokeBatchContext {
 
 		// Ribbon methods (pattern/art): bezier segment instancing through the
 		// legacy renderer until the ribbon integration phase.
-		if (route.kind === "ribbon-legacy") {
+		if (route.kind === "ribbon") {
 			const ribbon = route.settings.ribbon;
 			if (!ribbon) return;
 			this.renderRibbon(
@@ -1084,7 +1086,7 @@ export class StrokeBatchContext {
 		}
 
 		// v2 dab pipeline (curve matrix + linearize + procedural tips).
-		if (route.kind === "dab-v2") {
+		if (route.kind === "dab") {
 			this.renderDabsV2(
 				passEncoder,
 				path,
@@ -1948,8 +1950,9 @@ export class StrokeBatchContext {
 
 		// Texture
 		const textureUid = this.resolveTextureUid(
-			resolveBrushTextureUid(brushSettings, this.textureManager) ??
-				BUILTIN_BRUSH_IDS.softCircle,
+			ribbon.source.kind === "file"
+				? ribbon.source.fileUid
+				: BUILTIN_BRUSH_IDS.softCircle,
 		);
 		const texture = this.textureManager.getTexture(textureUid);
 		if (!texture) return;
@@ -2046,7 +2049,7 @@ export class StrokeBatchContext {
 		alphaMultiplier: number,
 		transformIndex = 0,
 	): void {
-		const { strokeColor, brushSettings } =
+		const { strokeColor, rawBrushSettings } =
 			StrokeBatchContext.extractStrokeParams(path);
 
 		const sm = resolveStrokeColorMeta(strokeColor, path);
@@ -2098,14 +2101,17 @@ export class StrokeBatchContext {
 		transformIndex = 0,
 		stopOffset = 0,
 	): void {
-		const { strokeColor, brushSettings } =
+		const { strokeColor, rawBrushSettings } =
 			StrokeBatchContext.extractStrokeParams(path);
 
 		const sm = resolveStrokeColorMeta(strokeColor, path);
 		const a = sm.a * alphaMultiplier;
 
 		// Pack colorMode into upper bits of gradientMode (bit 16)
-		const colorModeBit = brushSettings?.colorMode === "color" ? 1 << 16 : 0;
+		const colorModeBit =
+			resolveBrushRenderRoute(rawBrushSettings).settings.colorMode === "color"
+				? 1 << 16
+				: 0;
 
 		const u32View = StrokeBatchContext._u32Scratch;
 		const f32View = StrokeBatchContext._f32Scratch;
@@ -2142,7 +2148,7 @@ export class StrokeBatchContext {
 
 		// Ribbon tiling used to live in one uniform shared by the whole batch,
 		// which made the last path in a run dictate every other path's tiling.
-		const ribbon = this.ribbonMetaOf(path, brushSettings);
+		const ribbon = this.ribbonMetaOf(path);
 		data[offset + 20] = ribbon.stretch;
 		data[offset + 21] = ribbon.uvOffset;
 		data[offset + 22] = ribbon.aspectRatio;
@@ -2159,46 +2165,40 @@ export class StrokeBatchContext {
 		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
 		if (rawBrushSettings == null) return base;
 		const route = resolveBrushRenderRoute(rawBrushSettings);
-		if (route.kind !== "ribbon-legacy") return base;
+		if (route.kind !== "ribbon") return base;
 		return { ...base, curved: route.settings };
 	}
 
 	/** Per-path ribbon tiling for the path meta. Zeroed for non-ribbon
 	 *  brushes, which never read these fields. */
-	private ribbonMetaOf(
-		path: Path,
-		brushSettings: BrushSettings | undefined,
-	): {
+	private ribbonMetaOf(path: Path): {
 		stretch: number;
 		uvOffset: number;
 		aspectRatio: number;
 		stampAngle: number;
 	} {
-		if (
-			brushSettings == null ||
-			(brushSettings.type !== "art" && brushSettings.type !== "pattern")
-		) {
-			return { stretch: 0, uvOffset: 0, aspectRatio: 1, stampAngle: 0 };
-		}
-		const textureUid = this.resolveTextureUid(
-			resolveBrushTextureUid(brushSettings, this.textureManager) ??
-				BUILTIN_BRUSH_IDS.softCircle,
-		);
-		// The shader has always rotated the ribbon's texture by a stamp angle
-		// that nothing ever set; the v2 angle property is that value.
+		const zero = { stretch: 0, uvOffset: 0, aspectRatio: 1, stampAngle: 0 };
 		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
-		const stampAngle =
-			rawBrushSettings != null
-				? (resolveBrushRenderRoute(rawBrushSettings).settings.properties.angle
-						?.base ?? 0)
-				: 0;
+		if (rawBrushSettings == null) return zero;
+		const route = resolveBrushRenderRoute(rawBrushSettings);
+		if (route.kind !== "ribbon") return zero;
+		const ribbon = route.settings.ribbon;
+		if (!ribbon) return zero;
+
+		const textureUid = this.resolveTextureUid(
+			ribbon.source.kind === "file"
+				? ribbon.source.fileUid
+				: BUILTIN_BRUSH_IDS.softCircle,
+		);
 		return {
-			stretch:
-				brushSettings.type === "pattern" ? brushSettings.tileScale - 1 : 0,
-			uvOffset:
-				brushSettings.type === "pattern" ? (brushSettings.uvOffset ?? 0) : 0,
+			// A stretched ribbon spans the stroke once, so it has no tiling to
+			// scale; only repeat mode reads this.
+			stretch: ribbon.uvMode === "repeat" ? ribbon.tileScale - 1 : 0,
+			uvOffset: ribbon.uvMode === "repeat" ? (ribbon.uvOffset ?? 0) : 0,
 			aspectRatio: this.textureManager.getTextureAspectRatio(textureUid),
-			stampAngle,
+			// The shader has always rotated the ribbon's texture by a stamp angle
+			// that nothing ever set; the v2 angle property is that value.
+			stampAngle: route.settings.properties.angle?.base ?? 0,
 		};
 	}
 

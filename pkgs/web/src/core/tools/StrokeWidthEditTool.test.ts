@@ -41,11 +41,17 @@ function createTestPath(strokeWidths?: StrokeWidthPoint[]): Path {
 					params: {
 						strokeColor: { type: "rgb" as const, r: 0, g: 0, b: 0, a: 1 },
 						brushSettings: {
-							type: "svg" as const,
-							size: 20,
-							roundCap: true,
-							roundJoin: true,
-							texture: "none" as const,
+							version: 2 as const,
+							engine: "geometric" as const,
+							strokeOpacity: 1,
+							paintMode: "buildup" as const,
+							properties: { size: { base: 20 } },
+							stroking: {
+								lineCap: "round" as const,
+								lineJoin: "round" as const,
+								miterLimit: 4,
+							},
+							randomSeed: 0,
 						},
 					},
 				},

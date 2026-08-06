@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { normalizeBrushSettingsV2 } from "../../../../brush/migrate";
-import type {
-	BrushSettingsV2,
-	CubicBezierSegment,
-	PatternBrushSettings,
-} from "../../../../schema";
+import type { BrushSettingsV2, CubicBezierSegment } from "../../../../schema";
 import {
 	DEFAULT_RIBBON_OPTIONS,
 	generateRibbonInstances,
+	type RibbonStrokeInput,
 } from "./RibbonGenerator";
 
 describe("generateRibbonInstances — signed stroke widths", () => {
@@ -106,7 +103,7 @@ describe("generateRibbonInstances — v2 curves", () => {
 		expect(result.data[9]).toBeCloseTo(10, 4);
 	});
 
-	it("should leave the width to the v1 pressure factor without v2 settings", () => {
+	it("should leave the width to the flat pressure factor without curves", () => {
 		const result = generateRibbonInstances(
 			[straightSegment({ startPressure: 0, endPressure: 1 })],
 			{ ...patternSettings(), sizeByPressure: 1 },
@@ -184,18 +181,14 @@ function lineSegment(
 	};
 }
 
-function patternSettings(): PatternBrushSettings {
+function patternSettings(): RibbonStrokeInput {
 	return {
-		type: "pattern",
-		source: { kind: "file", fileUid: "builtin-brush-soft-circle" },
 		size: 10,
-		sizeByPressure: 0,
 		opacity: 1,
-		opacityByPressure: 0,
-		randomSeed: 0,
 		flow: 1,
-		tileScale: 1,
-		tileSpacing: 0,
-		fitMode: "none",
+		sizeByPressure: 0,
+		colorMode: undefined,
+		taperStart: undefined,
+		taperEnd: undefined,
 	};
 }

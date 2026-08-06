@@ -1,11 +1,11 @@
 /**
- * StrokeEnginePicker — registry that maps BrushSettings.type to the engine
- * that owns that brush family.
+ * StrokeEnginePicker — registry that maps a brush's engine kind to the
+ * implementation that draws it.
  *
  * Three engines:
- *   - GeometricStrokeEngine: `stroke`
- *   - StampStrokeEngine:     `scatter` + `calligraphy`
- *   - RibbonStrokeEngine:    `art` + `pattern`
+ *   - GeometricStrokeEngine: `geometric`
+ *   - StampStrokeEngine:     `dab`
+ *   - RibbonStrokeEngine:    `ribbon`
  *
  * The registry also forwards the frame-level lifecycle (beginFrame,
  * setActiveUniformBuffer) and the batch lifecycle (beginBatch, addToBatch,

@@ -1,5 +1,5 @@
 /**
- * StampStrokeEngine — owns BrushTypes `scatter` and `calligraphy`.
+ * StampStrokeEngine — owns the dab engine.
  *
  * Drives the stamp pipeline (BRUSH_STAMP_SHADER / BRUSH_STAMP_ARRAY_SHADER)
  * hosted on the shared StrokeBatchContext. Scatter brushes feed the pipeline
@@ -12,18 +12,13 @@
  * variant is wired up.
  */
 
-import type { BrushType } from "../../../../schema";
+import type { BrushEngineKind } from "../../../../schema";
 import type { StrokeBatchContext } from "./StrokeBatchContext";
 import type {
 	EnginePipeline,
 	EnginePipelineContext,
 	StrokeEngine,
 } from "./StrokeEngine";
-
-export const STAMP_BRUSH_TYPES: readonly BrushType[] = [
-	"scatter",
-	"calligraphy",
-];
 
 export class StampStrokeEngine implements StrokeEngine {
 	public readonly ids: readonly BrushEngineKind[] = ["dab"];

@@ -1,5 +1,5 @@
 /**
- * GeometricStrokeEngine — owns BrushType `stroke` (geometric pen).
+ * GeometricStrokeEngine — owns the geometric engine (the pen).
  *
  * Defers rendering to ElementRenderer.renderPath, which already routes
  * geometric brushes through renderGeometricStroke (strokeTessellator + GPU
@@ -7,7 +7,7 @@
  * never participate in the stamp/ribbon batch flow.
  */
 
-import type { Path } from "../../../../schema";
+import type { BrushEngineKind, Path } from "../../../../schema";
 import type { PipelineType } from "../../CanvasLayerTypes";
 import type {
 	EnginePipeline,

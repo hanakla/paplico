@@ -1,5 +1,6 @@
 import {
 	type Artboard,
+	type BrushSettingsV2,
 	type BrushStroking,
 	BUILTIN_BRUSH_IDS,
 	type Document,
@@ -15,8 +16,6 @@ import {
 	type Reference3DCamera,
 	type Reference3DElement,
 	type RepeatObject,
-	type ScatterBrushSettings,
-	type StrokeBrushSettings,
 	type Viewport,
 } from "../schema";
 import { createWarpCageFromRect } from "../utils/geometry/meshWarp";
@@ -253,23 +252,31 @@ export function createDefaultLineart3DParams(): Lineart3DParams {
 /**
  * Create default brush settings.
  */
-export function createDefaultBrushSettings(): ScatterBrushSettings {
+export function createDefaultBrushSettings(): BrushSettingsV2 {
 	return {
-		type: "scatter",
-		source: { kind: "file", fileUid: BUILTIN_BRUSH_IDS.softCircle },
-		size: 10,
-		sizeByPressure: 0.5,
-		opacity: 1.0,
-		opacityByPressure: 0.3,
-		spacing: 0.15,
-		flow: 1.0,
-		stampRotation: "none",
+		version: 2,
+		engine: "dab",
+		strokeOpacity: 1,
+		paintMode: "buildup",
+		properties: {
+			size: {
+				base: 10,
+				curves: [{ input: "pressure", points: [[1, 0.5]] }],
+			},
+			flow: { base: 1 },
+			alphaRate: {
+				base: 1,
+				curves: [{ input: "pressure", points: [[1, 0.3]] }],
+			},
+			spacing: { base: 0.15 },
+		},
+		tip: {
+			kind: "image",
+			sources: [{ kind: "file", fileUid: BUILTIN_BRUSH_IDS.softCircle }],
+			selection: "random",
+			angleMode: "fixed",
+		},
 		randomSeed: (Math.random() * 0xffff_ffff) >>> 0,
-		rotationByTilt: 0,
-		aspectRatioByTilt: 0,
-		sizeBySpeed: 0,
-		pooling: 0,
-		poolingSizeRatio: 0.5,
 	};
 }
 
@@ -279,15 +286,15 @@ export function createDefaultBrushSettings(): ScatterBrushSettings {
 export function createStrokeBrushSettings(
 	width: number,
 	stroking?: BrushStroking,
-): StrokeBrushSettings {
+): BrushSettingsV2 {
 	return {
-		type: "stroke",
-		size: width,
-		sizeByPressure: 0,
-		opacity: 1.0,
-		opacityByPressure: 0,
-		randomSeed: (Math.random() * 0xffff_ffff) >>> 0,
+		version: 2,
+		engine: "geometric",
+		strokeOpacity: 1,
+		paintMode: "buildup",
+		properties: { size: { base: width }, flow: { base: 1 } },
 		stroking,
+		randomSeed: (Math.random() * 0xffff_ffff) >>> 0,
 	};
 }
 

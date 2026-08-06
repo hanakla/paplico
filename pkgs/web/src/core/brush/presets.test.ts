@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { type BrushPreset, type BrushSettingsV2, hasWetInk } from "../schema";
+import type { BrushPreset } from "../schema";
 import { normalizeBrushSettingsV2 } from "./migrate";
-import { normalizeBrushSettings } from "./normalize";
 import {
 	BUILTIN_PRESET_CATEGORY_ORDER,
 	createBuiltinBrushPresets,
@@ -9,13 +8,22 @@ import {
 
 const BLUR_PRESET_UIDS = ["builtin-brush-blur", "builtin-brush-scatter-blur"];
 
-const WET_INK_PRESET_UIDS = [
+const WET_PRESET_UIDS = [
 	"builtin-brush-watercolor",
 	"builtin-brush-dry-brush",
 	"builtin-brush-bleed-watercolor",
 ];
 
 describe("createBuiltinBrushPresets", () => {
+	// Selecting a preset hands the whole brush to the tool, which only takes
+	// v2. A preset still in the v1 shape would be read as a partial edit,
+	// apply almost nothing, and leave the brush looking unchanged.
+	it("should be authored as v2", () => {
+		for (const preset of createBuiltinBrushPresets()) {
+			expect(preset.settings.version, preset.uid).toBe(2);
+		}
+	});
+
 	it("should give every preset a unique uid", () => {
 		const uids = createBuiltinBrushPresets().map((preset) => preset.uid);
 		expect(new Set(uids).size).toBe(uids.length);
@@ -23,10 +31,9 @@ describe("createBuiltinBrushPresets", () => {
 
 	it("should author settings that survive normalization unchanged", () => {
 		for (const preset of createBuiltinBrushPresets()) {
-			const normalized = isV2(preset.settings)
-				? normalizeBrushSettingsV2(preset.settings)
-				: normalizeBrushSettings(preset.settings);
-			expect(normalized, preset.uid).toEqual(preset.settings);
+			expect(normalizeBrushSettingsV2(preset.settings), preset.uid).toEqual(
+				preset.settings,
+			);
 		}
 	});
 
@@ -37,8 +44,6 @@ describe("createBuiltinBrushPresets", () => {
 		const presets = createBuiltinBrushPresets();
 		for (const uid of BLUR_PRESET_UIDS) {
 			const settings = findPreset(presets, uid).settings;
-			if (!isV2(settings)) throw new Error(`${uid} must be authored as v2`);
-
 			expect(settings.properties.colorRate?.base, uid).toBe(0);
 			expect(settings.properties.alphaRate?.base, uid).toBe(0);
 			expect(settings.mixing?.enabled, uid).toBe(true);
@@ -50,8 +55,6 @@ describe("createBuiltinBrushPresets", () => {
 			createBuiltinBrushPresets(),
 			"builtin-brush-scatter-blur",
 		).settings;
-		if (!isV2(settings)) throw new Error("must be authored as v2");
-
 		expect(settings.wet?.scatter ?? 0).toBeGreaterThan(0);
 	});
 
@@ -63,23 +66,23 @@ describe("createBuiltinBrushPresets", () => {
 		}
 	});
 
-	it("should enable wet ink on the watercolor-family presets", () => {
+	it("should run the wet layer on the watercolor-family presets", () => {
 		const presets = createBuiltinBrushPresets();
-		for (const uid of WET_INK_PRESET_UIDS) {
-			expect(hasWetInk(asV1Settings(findPreset(presets, uid).settings))).toBe(
-				true,
-			);
+		for (const uid of WET_PRESET_UIDS) {
+			const settings = findPreset(presets, uid).settings;
+			expect(settings.wet?.enabled, uid).toBe(true);
+			// Wet strokes composite as a single wash; the normalizer enforces it.
+			expect(settings.paintMode, uid).toBe("wash");
 		}
 	});
 
-	it("should pick up underlying color on the bleed watercolor preset", () => {
-		const preset = findPreset(
+	it("should pick up the layer below on the bleed watercolor preset", () => {
+		const settings = findPreset(
 			createBuiltinBrushPresets(),
 			"builtin-brush-bleed-watercolor",
-		);
-		const settings = asV1Settings(preset.settings);
-		if (settings.type !== "scatter") throw new Error("expected scatter");
-		expect(settings.wetInk?.pickupUnderlyingColor).toBe(true);
+		).settings;
+
+		expect(settings.mixing?.enabled).toBe(true);
 	});
 
 	it("should assign a category to every preset", () => {
@@ -90,36 +93,17 @@ describe("createBuiltinBrushPresets", () => {
 
 	it("should set speed→size influence to 0.5 on every stamp-based preset", () => {
 		for (const preset of createBuiltinBrushPresets()) {
-			if (isV2(preset.settings)) {
-				if (preset.settings.engine !== "dab") continue;
-				const speedCurve = preset.settings.properties.size?.curves?.find(
-					(curve) => curve.input === "speedFine",
-				);
-				expect(speedCurve?.points.at(-1), preset.uid).toEqual([1, -0.5]);
-				continue;
-			}
-
-			const settings = asV1Settings(preset.settings);
-			if (settings.type !== "scatter" && settings.type !== "calligraphy")
-				continue;
-			expect(settings.sizeBySpeed, preset.uid).toBe(0.5);
+			if (preset.settings.engine !== "dab") continue;
+			const speedCurve = preset.settings.properties.size?.curves?.find(
+				(curve) => curve.input === "speedFine",
+			);
+			expect(speedCurve?.points.at(-1), preset.uid).toEqual([1, -0.5]);
 		}
 	});
 });
-
-function isV2(settings: BrushPreset["settings"]): settings is BrushSettingsV2 {
-	return "version" in settings && settings.version === 2;
-}
 
 function findPreset(presets: BrushPreset[], uid: string): BrushPreset {
 	const preset = presets.find((p) => p.uid === uid);
 	if (!preset) throw new Error(`missing builtin preset: ${uid}`);
 	return preset;
-}
-
-function asV1Settings(
-	settings: ReturnType<typeof createBuiltinBrushPresets>[number]["settings"],
-) {
-	if ("version" in settings) throw new Error("expected v1 settings");
-	return settings;
 }

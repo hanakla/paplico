@@ -6,13 +6,13 @@ import { normalizeBrushSettingsV2 } from "./migrate";
  * (design §13-7): every consumer asks this once per stroke instead of
  * probing settings shapes ad hoc.
  *
- * - "dab-v2": the new dab pipeline consumes BrushSettingsV2 directly.
- * - "ribbon-legacy" / "geometric": engines that keep their v1 renderers
+ * - "dab": the new dab pipeline consumes BrushSettingsV2 directly.
+ * - "ribbon" / "geometric": engines that keep their v1 renderers
  *   until their own integration phases.
  */
 export type BrushRenderRoute =
-	| { kind: "dab-v2"; settings: BrushSettingsV2 }
-	| { kind: "ribbon-legacy"; settings: BrushSettingsV2 }
+	| { kind: "dab"; settings: BrushSettingsV2 }
+	| { kind: "ribbon"; settings: BrushSettingsV2 }
 	| { kind: "geometric"; settings: BrushSettingsV2 };
 
 /**
@@ -34,9 +34,9 @@ export function resolveBrushRenderRoute(raw: unknown): BrushRenderRoute {
 	if (settings.engine === "geometric") {
 		route = { kind: "geometric", settings };
 	} else if (settings.engine === "ribbon") {
-		route = { kind: "ribbon-legacy", settings };
+		route = { kind: "ribbon", settings };
 	} else {
-		route = { kind: "dab-v2", settings };
+		route = { kind: "dab", settings };
 	}
 	if (cacheable) routeCache.set(raw as object, route);
 	return route;

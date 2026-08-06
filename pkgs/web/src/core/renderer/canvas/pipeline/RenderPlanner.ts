@@ -1310,7 +1310,7 @@ function wetReachOf(filter: Filter): number {
 	if (raw == null) return 0;
 	const route = resolveBrushRenderRoute(raw);
 	const wet = route.settings.wet;
-	if (route.kind !== "dab-v2" || wet?.enabled !== true) return 0;
+	if (route.kind !== "dab" || wet?.enabled !== true) return 0;
 	const brushSize = readStoredBrushSize(route.settings) ?? 0;
 	return brushSize * (0.5 + Math.max(wet.bleedRadius, 0));
 }
@@ -1332,7 +1332,7 @@ function washInfoOf(filter: Filter): {
 	// Ribbons wash too (design §12): the isolation and the single
 	// strokeOpacity application are engine-independent, and a ribbon that
 	// doubles back over itself darkens exactly like a dab stroke does.
-	if (route.kind !== "dab-v2" && route.kind !== "ribbon-legacy") return null;
+	if (route.kind !== "dab" && route.kind !== "ribbon") return null;
 	if (route.settings.paintMode !== "wash") return null;
 	return {
 		strokeOpacity: route.settings.strokeOpacity,

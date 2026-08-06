@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { airBrush } from "../assets";
-import {
-	createDefaultBrushSettings,
-	createStrokeBrushSettings,
-} from "../document/factory";
+import { createStrokeBrushSettings } from "../document/factory";
 import type { RenderCacheManager } from "../renderer/canvas/caches/RenderCacheManager";
-import type { EmbeddedFile, PathSegment } from "../schema";
+import type { BrushSettingsV2, EmbeddedFile, PathSegment } from "../schema";
 import { BUILTIN_BRUSH_IDS } from "../schema";
 import { createTestRenderer } from "../testUtils/visualRegression";
+import { normalizeBrushSettingsV2 } from "./migrate";
 import { createBrushStrokePreviewScene } from "./strokePreview";
 
 describe("brushStrokePreview", () => {
@@ -16,14 +14,7 @@ describe("brushStrokePreview", () => {
 		try {
 			const builtinFile = await createBitmapPreviewFile();
 			const scene = createBrushStrokePreviewScene({
-				brushSettings: {
-					...createDefaultBrushSettings(),
-					source: { kind: "file", fileUid: builtinFile.uid },
-					size: 28,
-					spacing: 0.08,
-					rotationByTilt: 0.4,
-					sizeBySpeed: 0.25,
-				},
+				brushSettings: imageTipBrush(builtinFile.uid),
 				textureFile: builtinFile,
 				segments: createTestSegments(),
 				width: 96,
@@ -77,31 +68,22 @@ describe("brushStrokePreview", () => {
 		const { renderer } = await createTestRenderer();
 		try {
 			const builtinFile = await createBitmapPreviewFile();
-			const drySettings = {
-				...createDefaultBrushSettings(),
-				source: { kind: "file" as const, fileUid: builtinFile.uid },
-				size: 24,
-				spacing: 0.08,
+			const drySettings: BrushSettingsV2 = {
+				...imageTipBrush(builtinFile.uid),
+				properties: {
+					size: { base: 24 },
+					spacing: { base: 0.08 },
+					flow: { base: 1 },
+				},
 			};
-			const wetSettings = {
+			const wetSettings: BrushSettingsV2 = {
 				...drySettings,
-				wetInk: {
+				paintMode: "wash",
+				wet: {
 					enabled: true,
-					bleedWidth: 0.65,
-					edgeDarkening: 0.45,
-					edgeRoughness: 0.35,
-					paperGrain: 0.25,
-					paperScale: 1.2,
-					directionality: 0.5,
-					speedInfluence: 0.25,
-					accelInfluence: 0.5,
-					wetness: 0.8,
-					diffusion: 0.5,
+					bleedRadius: 0.65,
 					pigmentLoad: 0.85,
-					absorption: 0.35,
-					granulation: 0.25,
-					pickupUnderlyingColor: false,
-					pickupStrength: 0.35,
+					grainScale: 1.2,
 				},
 			};
 			const dryScene = createBrushStrokePreviewScene({
@@ -151,21 +133,27 @@ describe("brushStrokePreview", () => {
 		const { renderer } = await createTestRenderer();
 		try {
 			const builtinFile = await createBitmapPreviewFile();
-			const baseSettings = {
-				...createDefaultBrushSettings(),
-				textureFileUid: builtinFile.uid,
-				size: 24,
-				spacing: 0.06,
-				rotationByTilt: 0,
-				sizeBySpeed: 0,
+			const baseSettings: BrushSettingsV2 = {
+				...imageTipBrush(builtinFile.uid),
+				properties: {
+					size: { base: 24 },
+					spacing: { base: 0.06 },
+					flow: { base: 1 },
+				},
 			};
-			const dynamicSettings = {
+			// Wider spacing plus a speed-driven size falloff: the same stroke has
+			// to come out visibly different from the flat one above.
+			const dynamicSettings: BrushSettingsV2 = {
 				...baseSettings,
-				spacing: 0.2,
-				rotationByTilt: 0.8,
-				sizeBySpeed: 0.5,
+				properties: {
+					size: {
+						base: 24,
+						curves: [{ input: "speedFine", points: [[1, -0.5]] }],
+					},
+					spacing: { base: 0.2 },
+					flow: { base: 1 },
+				},
 			};
-
 			const baseScene = createBrushStrokePreviewScene({
 				brushSettings: baseSettings,
 				textureFile: builtinFile,
@@ -361,4 +349,21 @@ async function createBitmapPreviewFile(): Promise<EmbeddedFile> {
 function base64ToUint8Array(base64: string): Uint8Array {
 	const binary = atob(base64);
 	return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function imageTipBrush(fileUid: string): BrushSettingsV2 {
+	return normalizeBrushSettingsV2({
+		version: 2,
+		engine: "dab",
+		strokeOpacity: 1,
+		paintMode: "buildup",
+		properties: { size: { base: 24 }, flow: { base: 1 } },
+		tip: {
+			kind: "image",
+			sources: [{ kind: "file", fileUid }],
+			selection: "random",
+			angleMode: "fixed",
+		},
+		randomSeed: 0,
+	});
 }

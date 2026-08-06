@@ -781,28 +781,23 @@ describe("extractDocumentFromYDoc: full document extraction", () => {
 		expect(doc.files[0].uid).toBe("file-1");
 		expect(doc.files[0].bin).toBeInstanceOf(Uint8Array);
 
-		// Brush presets (legacy v1 preset normalized to v2 {uid,name,settings})
+		// Brush presets: a pre-v2 preset arrives as textureFileUid +
+		// defaultSettings and is migrated to v2 on extraction.
 		expect(doc.brushPresets).toHaveLength(1);
 		expect(doc.brushPresets[0]).toMatchObject({
 			uid: "preset-1",
 			name: "Soft Brush",
 		});
-		expect(doc.brushPresets[0].settings).toEqual({
-			type: "scatter",
-			source: { kind: "file", fileUid: "file-1" },
-			size: 10,
-			sizeByPressure: 0.5,
-			opacity: 0.8,
-			opacityByPressure: 0.3,
-			randomSeed: 0,
-			spacing: 0.2,
-			flow: 1,
-			stampRotation: "none",
-			rotationByTilt: 0,
-			aspectRatioByTilt: 0,
-			sizeBySpeed: 0,
-			pooling: 0,
-			poolingSizeRatio: 0.5,
+		const presetSettings = doc.brushPresets[0].settings;
+		expect(presetSettings.version).toBe(2);
+		expect(presetSettings.engine).toBe("dab");
+		expect(presetSettings.properties.size?.base).toBe(10);
+		expect(presetSettings.properties.spacing?.base).toBe(0.2);
+		if (presetSettings.tip?.kind !== "image")
+			throw new Error("expected an image tip");
+		expect(presetSettings.tip.sources[0]).toEqual({
+			kind: "file",
+			fileUid: "file-1",
 		});
 
 		ydoc.destroy();

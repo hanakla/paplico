@@ -2,10 +2,13 @@ import {
 	type BrushArtSource,
 	type BrushColorMode,
 	type BrushPreset,
-	type BrushSettings,
-	type BrushSettingsV2,
 	type BrushStroking,
 	BUILTIN_BRUSH_IDS,
+	type StampRotation,
+} from "../schema";
+import { normalizeBrushSettingsV2 } from "./migrate";
+import {
+	type BrushSettings,
 	type CalligraphyBrushSettings,
 	DEFAULT_CALLIGRAPHY_SPACING,
 	DEFAULT_WET_INK_ABSORPTION,
@@ -16,15 +19,13 @@ import {
 	DEFAULT_WET_INK_PICKUP_UNDERLYING_COLOR,
 	DEFAULT_WET_INK_PIGMENT_LOAD,
 	type ScatterBrushSettings,
-	type StampRotation,
 	type WetInkSettings,
-} from "../schema";
-import { toLegacyBrushSettings } from "./toLegacy";
+} from "./v1";
 
 /**
- * Normalize persisted brush data (legacy flat shape or current union) into a
- * BrushSettings union value. Reading is lenient so old documents keep working
- * without a document migration:
+ * Read pre-v2 brush data (legacy flat shape or v1 union) into a v1 union
+ * value. This is the first half of the migration to v2 and has no other
+ * callers; reading is lenient so old documents keep opening:
  * - svg texture -> stroke
  * - renderMode "ribbon" -> pattern
  * - everything else -> scatter
@@ -32,13 +33,6 @@ import { toLegacyBrushSettings } from "./toLegacy";
  */
 export function normalizeBrushSettings(raw: unknown): BrushSettings {
 	const r = (raw ?? {}) as Record<string, unknown>;
-	if (r.version === 2) {
-		// Stored BrushSettingsV2: every remaining v1 consumer receives the
-		// legacy view (a v2 value has no `type` field and would otherwise be
-		// misread as the legacy flat shape). v2-native consumers use
-		// normalizeBrushSettingsV2 / resolveBrushRenderRoute instead.
-		return toLegacyBrushSettings(r as unknown as BrushSettingsV2);
-	}
 	const base: BrushSettingsCommon = {
 		size: num(r.size, 10),
 		sizeByPressure: num(r.sizeByPressure, 0.5),
@@ -102,37 +96,25 @@ export function normalizeBrushSettings(raw: unknown): BrushSettings {
 	return buildScatter(r, base, { kind: "file", fileUid: textureFileUid });
 }
 
-/** Normalize a persisted brush preset (v1 `textureFileUid`+`defaultSettings` or v2 `settings`). */
+/**
+ * Normalize a persisted brush preset into v2. Presets predating v2 stored the
+ * brush as `textureFileUid` + `defaultSettings`, or as a v1 union under
+ * `settings`; both are folded back into a flat record and migrated here, so
+ * everything downstream of this point is v2.
+ */
 export function normalizeBrushPreset(raw: unknown): BrushPreset {
 	const r = (raw ?? {}) as Record<string, unknown>;
-	if (r.settings != null) {
-		const settings = r.settings as Record<string, unknown>;
-		if (settings.version === 2) {
-			// BrushSettingsV2 must not run through the v1 normalizer (it has no
-			// `type` field and would be misread as the legacy flat shape).
-			// Sanitization happens in normalizeBrushSettingsV2 at the migration
-			// gate; pass through untouched here.
-			return {
-				uid: String(r.uid),
-				name: String(r.name),
-				settings: settings as unknown as BrushPreset["settings"],
-			};
-		}
-		return {
-			uid: String(r.uid),
-			name: String(r.name),
-			settings: normalizeBrushSettings(r.settings),
-		};
-	}
-	// v1: merge defaultSettings + textureFileUid back into a flat record.
-	const legacy = {
-		...((r.defaultSettings as Record<string, unknown>) ?? {}),
-		textureFileUid: r.textureFileUid,
-	};
+	const stored =
+		r.settings != null
+			? r.settings
+			: {
+					...((r.defaultSettings as Record<string, unknown>) ?? {}),
+					textureFileUid: r.textureFileUid,
+				};
 	return {
 		uid: String(r.uid),
 		name: String(r.name),
-		settings: normalizeBrushSettings(legacy),
+		settings: normalizeBrushSettingsV2(stored),
 	};
 }
 

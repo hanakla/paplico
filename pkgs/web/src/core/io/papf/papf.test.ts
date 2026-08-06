@@ -7,6 +7,7 @@ import {
 } from "../../errors";
 import type {
 	BrushPreset,
+	BrushSettingsV2,
 	Document,
 	EmbeddedFile,
 	Viewport,
@@ -628,6 +629,7 @@ describe("PAPF format", () => {
 					{
 						uid: "brush-preset-v2",
 						name: "Pen",
+						// Pre-v2 stored shape; the reader migrates it.
 						settings: {
 							type: "stroke",
 							size: 4,
@@ -635,7 +637,7 @@ describe("PAPF format", () => {
 							opacity: 1,
 							opacityByPressure: 0.3,
 							randomSeed: 0,
-						},
+						} as unknown as BrushSettingsV2,
 					},
 				],
 			});
