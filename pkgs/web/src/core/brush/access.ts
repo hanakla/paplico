@@ -1,4 +1,9 @@
-import type { BrushSettingsV2, BrushStroking, WetInkSettings } from "../schema";
+import type {
+	BrushSettingsPatch,
+	BrushSettingsV2,
+	BrushStroking,
+	WetInkSettings,
+} from "../schema";
 import { BRUSH_PROPERTY_REGISTRY } from "./properties";
 
 /**
@@ -66,4 +71,47 @@ export function readStoredBrushStroking(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
+}
+
+/**
+ * Apply a small edit to stored settings. Only values with no curve behind
+ * them are patchable this way — anything a curve can shape is set by handing
+ * over a complete BrushSettingsV2, so a patch can never silently flatten one.
+ */
+export function applyBrushPatch(
+	current: BrushSettingsV2,
+	patch: BrushSettingsPatch,
+): BrushSettingsV2 {
+	const next: BrushSettingsV2 = { ...current };
+
+	if (patch.size !== undefined) {
+		next.properties = {
+			...next.properties,
+			size: { ...next.properties.size, base: patch.size },
+		};
+	}
+	if (patch.taperStart !== undefined) next.taperStart = patch.taperStart;
+	if (patch.taperEnd !== undefined) next.taperEnd = patch.taperEnd;
+	if (patch.colorMode !== undefined) next.colorMode = patch.colorMode;
+	if (patch.stroking !== undefined) {
+		next.stroking = { ...next.stroking, ...patch.stroking };
+	}
+	if (patch.tipSource !== undefined) {
+		next.tip =
+			next.tip?.kind === "image"
+				? {
+						...next.tip,
+						sources: [patch.tipSource, ...next.tip.sources.slice(1)],
+					}
+				: {
+						kind: "image",
+						sources: [patch.tipSource],
+						selection: "random",
+						angleMode: "fixed",
+					};
+		next.ribbon = next.ribbon
+			? { ...next.ribbon, source: patch.tipSource }
+			: undefined;
+	}
+	return next;
 }

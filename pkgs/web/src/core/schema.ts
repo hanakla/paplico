@@ -1869,13 +1869,20 @@ export type BrushSettings =
 	| PatternBrushSettings
 	| CalligraphyBrushSettings;
 
-/** Per-brush-type partial update (same-type fields only). */
-export type BrushSettingsPatch =
-	| Partial<StrokeBrushSettings>
-	| Partial<ScatterBrushSettings>
-	| Partial<ArtBrushSettings>
-	| Partial<PatternBrushSettings>
-	| Partial<CalligraphyBrushSettings>;
+/**
+ * Small edits callers make without holding the whole brush: the base size,
+ * the taper, the dash, and swapping the tip's texture. Everything with a
+ * curve behind it goes through a complete BrushSettingsV2 instead.
+ */
+export type BrushSettingsPatch = {
+	size?: number;
+	taperStart?: number;
+	taperEnd?: number;
+	stroking?: BrushStroking;
+	/** Replaces the tip's own texture, keeping its variants. */
+	tipSource?: BrushArtSource;
+	colorMode?: BrushColorMode;
+};
 
 /** Whether a brush uses geometric stroke expansion instead of stamp-based rendering. */
 export function isGeometricBrush(

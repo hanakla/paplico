@@ -251,9 +251,9 @@ export function useBrushPresets() {
 
 	const applyBuiltinTexture = useEventCallback(
 		(textureFileUid: BuiltinBrushId) => {
-			tools.setBrushSettings(
-				withTextureFileUid(tools.brushSettings, textureFileUid),
-			);
+			tools.setBrushSettings({
+				tipSource: { kind: "file", fileUid: textureFileUid },
+			});
 			setSelectedBrushPresetUid(null);
 		},
 	);
@@ -273,9 +273,9 @@ export function useBrushPresets() {
 		const embeddedFile = await createBrushTextureFile(handle.file);
 		const textureFileUid = commands.addEmbeddedFile(embeddedFile);
 
-		tools.setBrushSettings(
-			withTextureFileUid(tools.brushSettings, textureFileUid),
-		);
+		tools.setBrushSettings({
+			tipSource: { kind: "file", fileUid: textureFileUid },
+		});
 		setSelectedBrushPresetUid(null);
 	});
 

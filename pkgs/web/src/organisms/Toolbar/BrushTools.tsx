@@ -27,7 +27,6 @@ import {
 	resolveScatterSourceUids,
 } from "@/core/brush/brushSource";
 import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
-import { normalizeBrushSettings } from "@/core/brush/normalize";
 import { BUILTIN_PRESET_CATEGORY_ORDER } from "@/core/brush/presets";
 import { createStrokeBrushSettings } from "@/core/document/factory";
 import type {
@@ -41,8 +40,6 @@ import type {
 	LineCap,
 	LineJoin,
 	PathSegment,
-	PatternBrushSettings,
-	ScatterBrushSettings,
 	StampRotation,
 } from "@/core/schema";
 import {
@@ -313,7 +310,7 @@ export const BrushSettingsPanel = memo(function BrushSettingsPanel({
 				{/* biome-ignore lint/a11y/noStaticElementInteractions: preview double-click to open designer */}
 				<div onDoubleClick={onOpenDesigner}>
 					<BrushStrokePreview
-						brushSettings={brushSettings.union}
+						brushSettings={brushSettings.settings}
 						textureFile={
 							brushPresets.activePresetPreviewSource?.textureFile ?? null
 						}
@@ -428,10 +425,7 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 
 		const embeddedFile = await createBrushTextureFile(handle.file);
 		const textureFileUid = commands.addEmbeddedFile(embeddedFile);
-		const current =
-			tools.brushSettings.type === "scatter"
-				? resolveScatterSourceUids(tools.brushSettings.scatterSources)
-				: [];
+		const current = brushSettings.scatterTextureUids ?? [];
 
 		updateBrushSettings({
 			scatterTextureUids: [...current, textureFileUid],
@@ -439,10 +433,7 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 	});
 
 	const handleRemoveScatterTexture = useEventCallback((uid: string) => {
-		const current =
-			tools.brushSettings.type === "scatter"
-				? resolveScatterSourceUids(tools.brushSettings.scatterSources)
-				: [];
+		const current = brushSettings.scatterTextureUids ?? [];
 		updateBrushSettings({
 			scatterTextureUids: current.filter((u) => u !== uid),
 		});
@@ -450,7 +441,12 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 
 	const updateBrushSettings = useEventCallback((patch: FlatBrushPatch) => {
 		setSelectedBrushPresetUid(null);
-		tools.setBrushSettings(applyFlatPatch(tools.brushSettings, patch));
+		tools.setBrushSettings(
+			applyFlatPatch(
+				normalizeBrushSettingsV2(tools.storedBrushSettings),
+				patch,
+			),
+		);
 	});
 
 	// The curve matrix edits the stored settings themselves: the flat view
@@ -477,17 +473,15 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 
 	const currentTextureValue = useMemo(() => {
 		if (brushSettings.isGeometric) return "__none__";
-		const u = brushSettings.union;
-		if (
-			(u.type === "scatter" || u.type === "art" || u.type === "pattern") &&
-			u.source?.kind === "def"
-		) {
-			return `def:${u.source.defId}`;
-		}
+		const source =
+			brushSettings.settings.tip?.kind === "image"
+				? brushSettings.settings.tip.sources[0]
+				: brushSettings.settings.ribbon?.source;
+		if (source?.kind === "def") return `def:${source.defId}`;
 		return brushSettings.textureFileUid || "__none__";
 	}, [
 		brushSettings.isGeometric,
-		brushSettings.union,
+		brushSettings.settings,
 		brushSettings.textureFileUid,
 	]);
 
@@ -543,14 +537,12 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 			handleDisableBrush();
 		} else if (value.startsWith("def:")) {
 			tools.setBrushSettings({
-				type: "scatter",
-				source: { kind: "def", defId: value.slice(4) },
+				tipSource: { kind: "def", defId: value.slice(4) },
 			});
 			setSelectedBrushPresetUid(null);
 		} else {
 			tools.setBrushSettings({
-				type: "scatter",
-				source: { kind: "file", fileUid: value },
+				tipSource: { kind: "file", fileUid: value },
 			});
 			setSelectedBrushPresetUid(null);
 		}
@@ -641,7 +633,7 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 					</div>
 
 					<BrushStrokePreview
-						brushSettings={brushSettings.union}
+						brushSettings={brushSettings.settings}
 						textureFile={
 							brushPresets.currentCustomTextureFile ??
 							brushPresets.builtinFiles.find(
@@ -865,10 +857,9 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 								{/* Stamp-specific settings */}
 								{(brushSettings.renderMode ?? "stamp") === "stamp" ? (
 									<>
-										{/* Scatter-only settings: these fields exist only on the
-										    scatter union member, so the sliders would be dead
-										    controls for other stamp brushes. */}
-										{brushSettings.union.type === "scatter" ? (
+										{/* Tip-image settings: a procedural tip has no textures
+										    to rotate or vary, so these would be dead controls. */}
+										{brushSettings.settings.tip?.kind === "image" ? (
 											<>
 												<div className="flex flex-col gap-1">
 													<span className="text-xs text-muted-foreground">
@@ -907,7 +898,7 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 											</>
 										) : null}
 
-										{brushSettings.union.type === "scatter" ? (
+										{brushSettings.settings.tip?.kind === "image" ? (
 											<>
 												{/* Scatter texture variants */}
 												<div className="flex flex-col gap-1.5">
@@ -1115,8 +1106,8 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 
 								<DashPatternControls
 									stroking={
-										brushSettings.union.type === "stroke"
-											? brushSettings.union.stroking
+										brushSettings.settings.type === "stroke"
+											? brushSettings.settings.stroking
 											: undefined
 									}
 									strokeWidth={brushSettings.size}
@@ -1634,7 +1625,7 @@ function parseRgbColor(source: string): Color {
 // ---------------------------------------------------------------------------
 
 type FlatBrushView = {
-	union: BrushSettings;
+	settings: BrushSettingsV2;
 	isGeometric: boolean;
 	size: number;
 	colorMode: BrushColorMode | undefined;
@@ -1675,150 +1666,138 @@ function useFlatBrushView(raw: unknown): FlatBrushView {
 }
 
 function toFlatBrushView(raw: unknown): FlatBrushView {
-	const u =
-		raw != null ? normalizeBrushSettings(raw) : createStrokeBrushSettings(2);
+	const settings = normalizeBrushSettingsV2(
+		raw ?? createStrokeBrushSettings(2),
+	);
+	const tip = settings.tip?.kind === "image" ? settings.tip : null;
 
 	return {
-		union: u,
-		isGeometric: isGeometricBrush(u),
-		size: u.size,
-		colorMode: u.colorMode,
-		textureFileUid: resolveBrushTextureUid(u) ?? "",
-		stampRotation: u.type === "scatter" ? u.stampRotation : "none",
-		scatterTextureUids:
-			u.type === "scatter"
-				? resolveScatterSourceUids(u.scatterSources)
-				: undefined,
-		startTextureUid:
-			u.type === "scatter"
-				? resolveOptionalSourceUid(u.startSource)
-				: undefined,
-		endTextureUid:
-			u.type === "scatter" ? resolveOptionalSourceUid(u.endSource) : undefined,
-		renderMode: u.type === "pattern" ? "ribbon" : "stamp",
-		ribbonStretch: u.type === "pattern" ? u.tileScale - 1 : 0,
-		ribbonOffset: u.type === "pattern" ? (u.uvOffset ?? 0) : 0,
-		lineCap: u.type === "stroke" ? (u.stroking?.lineCap ?? "round") : "round",
-		lineJoin: u.type === "stroke" ? (u.stroking?.lineJoin ?? "round") : "round",
+		settings,
+		isGeometric: settings.engine === "geometric",
+		size: settings.properties.size?.base ?? 10,
+		colorMode: settings.colorMode,
+		textureFileUid: resolveBrushTextureUid(settings) ?? "",
+		stampRotation: tip?.angleMode === "tangent" ? "tangent" : "none",
+		// The first source is the tip itself; the rest are its variants.
+		scatterTextureUids: tip
+			? resolveScatterSourceUids(tip.sources.slice(1))
+			: undefined,
+		startTextureUid: resolveOptionalSourceUid(tip?.startSource),
+		endTextureUid: resolveOptionalSourceUid(tip?.endSource),
+		renderMode: settings.engine === "ribbon" ? "ribbon" : "stamp",
+		ribbonStretch: settings.ribbon ? settings.ribbon.tileScale - 1 : 0,
+		ribbonOffset: settings.ribbon?.uvOffset ?? 0,
+		lineCap: settings.stroking?.lineCap ?? "round",
+		lineJoin: settings.stroking?.lineJoin ?? "round",
 	};
 }
 
+/**
+ * Apply the panel's remaining flat controls onto stored v2 settings. What
+ * these controls touch — the engine, the tip's textures, the ribbon's
+ * geometry, the dash — has no curve behind it, so each maps to one field.
+ */
 function applyFlatPatch(
-	current: BrushSettings,
+	current: BrushSettingsV2,
 	patch: FlatBrushPatch,
-): BrushSettings {
-	// renderMode switches the brush kind; resolve it first so subsequent
-	// flat fields apply onto the correct union member.
-	let next: BrushSettings = current;
-	if (patch.renderMode === "ribbon") {
-		next = toPattern(current);
-	} else if (patch.renderMode === "stamp") {
-		next = toScatter(current);
+): BrushSettingsV2 {
+	// The engine decides which of the sections below apply, so it resolves
+	// first.
+	let next: BrushSettingsV2 = { ...current };
+	if (patch.renderMode === "ribbon" && next.engine !== "ribbon") {
+		next = {
+			...next,
+			engine: "ribbon",
+			tip: undefined,
+			ribbon: next.ribbon ?? {
+				source: tipSourceOf(current) ?? { kind: "file", fileUid: "" },
+				uvMode: "repeat",
+				tileScale: 1,
+				tileSpacing: 0,
+			},
+		};
+	} else if (patch.renderMode === "stamp" && next.engine !== "dab") {
+		next = {
+			...next,
+			engine: "dab",
+			ribbon: undefined,
+			tip: next.tip ?? {
+				kind: "image",
+				sources: [
+					next.ribbon?.source ?? {
+						kind: "file",
+						fileUid: BUILTIN_BRUSH_IDS.softCircle,
+					},
+				],
+				selection: "random",
+				angleMode: "fixed",
+			},
+		};
 	}
 
-	// Base fields exist on every union member.
-	if (patch.size !== undefined) next.size = patch.size;
+	if (patch.size !== undefined) {
+		next.properties = {
+			...next.properties,
+			size: { ...next.properties.size, base: patch.size },
+		};
+	}
 	if (patch.colorMode !== undefined) next.colorMode = patch.colorMode;
 
-	if (next.type === "pattern") {
+	if (next.ribbon) {
+		const ribbon = { ...next.ribbon };
 		if (patch.ribbonStretch !== undefined)
-			next.tileScale = 1 + patch.ribbonStretch;
-		if (patch.ribbonOffset !== undefined) next.uvOffset = patch.ribbonOffset;
+			ribbon.tileScale = 1 + patch.ribbonStretch;
+		if (patch.ribbonOffset !== undefined) ribbon.uvOffset = patch.ribbonOffset;
+		next.ribbon = ribbon;
 	}
 
-	if (next.type === "scatter") {
-		if (patch.stampRotation !== undefined)
-			next.stampRotation = patch.stampRotation;
+	if (next.tip?.kind === "image") {
+		const tip = { ...next.tip };
+		if (patch.stampRotation !== undefined) {
+			tip.angleMode = patch.stampRotation === "tangent" ? "tangent" : "fixed";
+		}
 		if (patch.scatterTextureUids !== undefined) {
-			next.scatterSources =
-				patch.scatterTextureUids.length > 0
-					? patch.scatterTextureUids.map(toFileSource)
-					: undefined;
+			// The first source is the tip itself; the rest are its variants.
+			tip.sources = [
+				tip.sources[0],
+				...patch.scatterTextureUids.map(toFileSource),
+			];
 		}
 		if (patch.startTextureUid !== undefined) {
-			next.startSource = patch.startTextureUid
+			tip.startSource = patch.startTextureUid
 				? toFileSource(patch.startTextureUid)
 				: undefined;
 		}
 		if (patch.endTextureUid !== undefined) {
-			next.endSource = patch.endTextureUid
+			tip.endSource = patch.endTextureUid
 				? toFileSource(patch.endTextureUid)
 				: undefined;
 		}
+		next.tip = tip;
 	}
 
-	if (next.type === "stroke") {
-		if (
-			patch.lineCap !== undefined ||
-			patch.lineJoin !== undefined ||
-			patch.stroking !== undefined
-		) {
-			const prev = next.stroking;
-			next.stroking = {
-				lineCap: patch.lineCap ?? prev?.lineCap ?? "round",
-				lineJoin: patch.lineJoin ?? prev?.lineJoin ?? "round",
-				miterLimit: prev?.miterLimit ?? 4,
-				dashArray: prev?.dashArray,
-				dashOffset: prev?.dashOffset,
-				...patch.stroking,
-			};
-		}
+	if (
+		patch.lineCap !== undefined ||
+		patch.lineJoin !== undefined ||
+		patch.stroking !== undefined
+	) {
+		const prev = next.stroking;
+		next.stroking = {
+			lineCap: patch.lineCap ?? prev?.lineCap ?? "round",
+			lineJoin: patch.lineJoin ?? prev?.lineJoin ?? "round",
+			miterLimit: prev?.miterLimit ?? 4,
+			dashArray: prev?.dashArray,
+			dashOffset: prev?.dashOffset,
+			...patch.stroking,
+		};
 	}
 
 	return next;
 }
 
-function toPattern(current: BrushSettings): PatternBrushSettings {
-	if (current.type === "pattern") return { ...current };
-	return {
-		size: current.size,
-		sizeByPressure: current.sizeByPressure,
-		opacity: current.opacity,
-		opacityByPressure: current.opacityByPressure,
-		randomSeed: current.randomSeed,
-		colorMode: current.colorMode,
-		type: "pattern",
-		source: resolveSource(current),
-		flow: "flow" in current ? current.flow : 1,
-		tileScale: 1,
-		tileSpacing: 0,
-		uvOffset: undefined,
-		fitMode: "none",
-	};
-}
-
-function toScatter(current: BrushSettings): ScatterBrushSettings {
-	if (current.type === "scatter") return { ...current };
-	return {
-		size: current.size,
-		sizeByPressure: current.sizeByPressure,
-		opacity: current.opacity,
-		opacityByPressure: current.opacityByPressure,
-		randomSeed: current.randomSeed,
-		colorMode: current.colorMode,
-		type: "scatter",
-		source: resolveSource(current),
-		spacing: 0.1,
-		flow: "flow" in current ? current.flow : 1,
-		stampRotation: "none",
-		rotationByTilt: 0,
-		aspectRatioByTilt: 0,
-		sizeBySpeed: 0,
-		pooling: 0,
-		poolingSizeRatio: 0.5,
-	};
-}
-
-function resolveSource(settings: BrushSettings): BrushArtSource {
-	if (
-		settings.type === "scatter" ||
-		settings.type === "art" ||
-		settings.type === "pattern"
-	) {
-		return settings.source;
-	}
-	const fileUid = resolveBrushTextureUid(settings);
-	return { kind: "file", fileUid: fileUid ?? "" };
+/** The tip's own texture, for carrying it across an engine switch. */
+function tipSourceOf(settings: BrushSettingsV2): BrushArtSource | undefined {
+	return settings.tip?.kind === "image" ? settings.tip.sources[0] : undefined;
 }
 
 function toFileSource(fileUid: string): BrushArtSource {

@@ -108,8 +108,7 @@ export function MoreActionsMenu({
 		// Immediately apply the new def as the current brush (mirrors the
 		// texture picker in BrushTools).
 		paplico.tools.setBrushSettings({
-			type: "scatter",
-			source: { kind: "def", defId },
+			tipSource: { kind: "def", defId },
 			colorMode: "color",
 		});
 		setSelectedBrushPresetUid(null);

@@ -1,6 +1,7 @@
 import { ref, snapshot, subscribe } from "valtio";
 import { subscribeKey } from "valtio/utils";
 import * as Y from "yjs";
+import { readStoredBrushSize } from "./brush/access";
 import {
 	type BrushStrokePreviewOptions,
 	createBrushStrokePreviewScene,
