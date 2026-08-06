@@ -17,6 +17,7 @@ import {
 	SegmentCurve,
 	SegmentLine,
 } from "../../utils/geometry/bezierBool";
+import { groupRingsByContainment } from "../../utils/geometry/ringContainment";
 import { hashSegments, resolveSegment } from "../../utils/geometry/segmentOps";
 import { splitIntoSubPaths } from "../canvas/CanvasLayer.helpers";
 import type { FilterHandler } from "../canvas/pipeline/FilterRenderer";
@@ -121,20 +122,23 @@ function applyPathBoolFilter(
 
 	let resultContours: Segment[][];
 	try {
-		const opMap: Record<string, BooleanOp> = {
-			union: "union",
-			intersection: "intersect",
-			difference: "difference",
-			xor: "xor",
-		};
-		const op = opMap[mode] ?? "union";
-
-		// Accumulate: fold each contour into the result via the boolean operation.
-		// booleanOp treats each argument as a separate polygon (with selfIntersection=false).
-		resultContours = [closedContours[0]];
-		for (let i = 1; i < closedContours.length; i++) {
-			resultContours = booleanOp(resultContours, [closedContours[i]], op);
-			if (resultContours.length === 0) break;
+		if (mode === "union") {
+			resultContours = uniteSubPaths(closedContours);
+		} else {
+			// The other modes are operations BETWEEN sub-paths (first minus the
+			// rest, the common area, the exclusive area), so each contour stays its
+			// own operand and folds into the running result.
+			const opMap: Record<string, BooleanOp> = {
+				intersection: "intersect",
+				difference: "difference",
+				xor: "xor",
+			};
+			const op = opMap[mode] ?? "union";
+			resultContours = [closedContours[0]];
+			for (let i = 1; i < closedContours.length; i++) {
+				resultContours = booleanOp(resultContours, [closedContours[i]], op);
+				if (resultContours.length === 0) break;
+			}
 		}
 	} catch {
 		return segments;
@@ -156,6 +160,112 @@ function applyPathBoolFilter(
 	}
 
 	return output;
+}
+
+/**
+ * Unite a path's sub-paths into one shape.
+ *
+ * The sub-paths of a single path already describe one region under the
+ * non-zero rule the renderer fills with: a sub-path wound with the majority
+ * adds area, one wound against it removes area. So union merges the former and
+ * subtracts the latter. Treating every sub-path as another shape to absorb
+ * fills a glyph's counters shut, which is the bug this shape exists to avoid.
+ *
+ * Winding decides it, not geometric containment — the same rule buildExtrudeMesh
+ * applies downstream, so the flat render and the 3D solid agree. Containment
+ * would have to be decided from a polygon approximation of a curved outline,
+ * and any approximation drops counters that hug their outline.
+ */
+function uniteSubPaths(contours: Segment[][]): Segment[][] {
+	const areas = contours.map(signedContourArea);
+	const total = areas.reduce((sum, area) => sum + area, 0);
+	const dominant = total >= 0 ? 1 : -1;
+	const solids = contours.filter((_, i) => areas[i] * dominant > 0);
+	const holes = contours.filter((_, i) => areas[i] * dominant <= 0);
+	if (solids.length === 0) return contours;
+
+	let result = [solids[0]];
+	for (let i = 1; i < solids.length; i++) {
+		result = booleanOp(result, [solids[i]], "union");
+		if (result.length === 0) return result;
+	}
+	for (const hole of holes) {
+		result = booleanOp(result, [hole], "difference");
+		if (result.length === 0) return result;
+	}
+	return normalizeWinding(result);
+}
+
+/**
+ * Re-wind a disjoint contour set so holes wind against their solids.
+ *
+ * bezierBool does not encode solid-vs-hole in the winding it returns — two
+ * rectangles come back with the counter reversed, the same shapes drawn with
+ * curves come back both the same way — while everything downstream reads
+ * exactly that: the non-zero fill and buildExtrudeMesh's dominant-winding rule.
+ * The contours are disjoint by this point, so containment is unambiguous and
+ * settles it.
+ */
+function normalizeWinding(contours: Segment[][]): Segment[][] {
+	if (contours.length < 2) return contours;
+
+	const holes = new Set<number>();
+	for (const group of groupRingsByContainment(contours.map(contourRing))) {
+		for (const index of group.slice(1)) holes.add(index);
+	}
+	if (holes.size === 0) return contours;
+
+	const areas = contours.map(signedContourArea);
+	// Solids keep the direction most of their own area already has, so a result
+	// that was already consistent comes back untouched.
+	const solidTotal = areas.reduce(
+		(sum, area, i) => (holes.has(i) ? sum : sum + area),
+		0,
+	);
+	const solidSign = solidTotal >= 0 ? 1 : -1;
+	return contours.map((contour, i) => {
+		const wanted = holes.has(i) ? -solidSign : solidSign;
+		return Math.sign(areas[i]) === wanted ? contour : reverseContour(contour);
+	});
+}
+
+/**
+ * A contour's polygon approximation. Curve segments contribute interior samples
+ * as well as their anchor: chaining bare anchors chords every curve, and a chord
+ * cuts inside a bulging outline far enough that a counter hugging that outline
+ * reads as outside it.
+ */
+function contourRing(contour: Segment[]): [number, number][] {
+	return contour.flatMap((seg) =>
+		seg instanceof SegmentCurve
+			? [seg.start(), seg.point(1 / 3), seg.point(2 / 3)]
+			: [seg.start()],
+	);
+}
+
+function reverseContour(contour: Segment[]): Segment[] {
+	return [...contour]
+		.reverse()
+		.map((seg) =>
+			seg instanceof SegmentCurve
+				? new SegmentCurve(seg.p3, seg.p2, seg.p1, seg.p0, defaultGeo)
+				: new SegmentLine(
+						(seg as SegmentLine).p1,
+						(seg as SegmentLine).p0,
+						defaultGeo,
+					),
+		);
+}
+
+/** Signed area of a contour's anchor polygon; the sign carries the winding. */
+function signedContourArea(contour: Segment[]): number {
+	let sum = 0;
+	for (const seg of contour) {
+		const [x1, y1] = seg.start();
+		const [x2, y2] = seg.end();
+		sum += x1 * y2 - x2 * y1;
+	}
+	return sum / 2;
 }
 
 const defaultGeo = new GeometryEpsilon();
