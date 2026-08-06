@@ -1,10 +1,20 @@
-import type { StampBuffer } from "../pipeline/brush/StampGenerator";
+import type { StampHandle } from "../pipeline/stroke/BoundedStampStore";
+
+/** One stroke's evaluated dab instances, ready to upload. */
+export interface StampBuffer {
+	/** Dab instance floats. Once `residentDab` is attached this is the run
+	 *  SHARED with the store's regrow mirror — never mutate it. */
+	data: Float32Array;
+	count: number;
+	/** Lease in the resident dab store; released with the cache entry. */
+	residentDab?: { handle: StampHandle };
+}
 
 /**
- * Caches per-element brush stamp generation results to avoid repeated
- * stamp computation for unchanged strokes. Entries may carry resident GPU
- * leases (see ResidentStamps); eviction releases them — the stores defer
- * reuse to their frame-boundary flush, so in-flight draws stay valid.
+ * Caches per-element dab evaluation results to avoid repeated computation
+ * for unchanged strokes. Entries may carry a resident GPU lease; eviction
+ * releases it — the store defers reuse to its frame-boundary flush, so
+ * in-flight draws stay valid.
  */
 export class StampCache {
 	private cache = new Map<string, StampBuffer>();
@@ -103,15 +113,8 @@ function releaseResident(entry: StampBuffer | undefined): void {
 		entry.residentDab.handle.release();
 		entry.residentDab = undefined;
 	}
-	if (!entry.resident) return;
-	entry.resident.stamps.release();
-	entry.resident.meta.release();
-	entry.resident.stops?.release();
-	entry.resident = undefined;
 }
 
 function entryByteSize(entry: StampBuffer): number {
-	// A resident entry's `data` IS the store's regrow mirror (one shared
-	// array), already counted inside resident.byteSize — never both.
-	return entry.resident ? entry.resident.byteSize : entry.data.byteLength;
+	return entry.data.byteLength;
 }

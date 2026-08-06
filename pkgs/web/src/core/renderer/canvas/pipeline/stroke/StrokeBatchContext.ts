@@ -30,7 +30,6 @@ import {
 	type CalligraphyBrushSettings,
 	type CubicBezierSegment,
 	colorToRawRGBA,
-	DEFAULT_CALLIGRAPHY_SPACING,
 	type Path,
 	type PatternBrushSettings,
 	type ScatterBrushSettings,
@@ -69,17 +68,6 @@ import {
 	RIBBON_FLOATS_PER_INSTANCE,
 	type RibbonOptions,
 } from "../brush/RibbonGenerator";
-import {
-	generateStampsDirect,
-	NIB_SHAPE_CIRCLE,
-	type NibShape,
-	type ResidentStamps,
-	type StampBuffer,
-} from "../brush/StampGenerator";
-import {
-	replaceStampPathIndex,
-	STAMP_META_INDEX_MASK,
-} from "../brush/StampPacking";
 import {
 	buildFalloffLutLayersData,
 	FALLOFF_LUT_LAYERS,
@@ -133,16 +121,6 @@ export const WET_ISOLATED_RENDER_TARGETS: GPUColorTargetState[] = [
 	{ format: "rgba16float", blend: WET_MAX_BLEND }, // mask
 ];
 
-/** One resident-store stroke draw: an instanced quad run over a contiguous
- *  stamp range in the bounded stamp store. `firstStamp` is the ABSOLUTE
- *  first-stamp index — the draw's firstInstance against the whole-buffer
- *  binding. */
-interface ResidentStampDraw {
-	firstStamp: number;
-	stampCount: number;
-	textureUid: string;
-}
-
 /** Texture resolution for a stamp stroke: the single brush texture plus
  *  (when scatter/start/end sources are set) the texture-array layout that
  *  stamp generation packed layer indices against. Carried from resolve time
@@ -156,49 +134,6 @@ interface ResolvedStampTextureSetup {
 	startLayerIndex: number;
 	endLayerIndex: number;
 }
-
-/** A stroke drawn through the frame-pooled path, carrying the texture setup
- *  and stamp buffer already produced at resolve time. */
-interface PooledStampStroke {
-	path: Path;
-	segments: CubicBezierSegment[];
-	brushSettings: ScatterBrushSettings | CalligraphyBrushSettings;
-	alphaMultiplier: number;
-	transformIndex: number;
-	/** The resolve-time texture setup — the pooled draw must bind the same
-	 *  array (or single texture) the stamps' layer indices were packed for. */
-	setup: ResolvedStampTextureSetup;
-	/** The resolve-time stamp buffer. Uploaded directly while non-resident
-	 *  (its pathIndex floats are still 0 — exactly the pooled per-draw meta
-	 *  index); regenerated only when a resident lease baked its meta index
-	 *  into the array (the same-frame-conflict fallback). */
-	stamps: StampBuffer;
-}
-
-/** How a scatter/calligraphy stroke resolved against the resident stores. */
-type ResidentStrokeResolution =
-	/** Leased (or already resident) — draw straight from the stores. */
-	| { kind: "resident"; draw: ResidentStampDraw }
-	/** The stroke yields no stamps — nothing to draw. */
-	| { kind: "empty" }
-	/** The resident stores cannot take the stroke right now (stamp store at
-	 *  cap, meta index overflow, a same-frame lease conflict, or a cache
-	 *  entry too large to retain) — it must be drawn through the frame-pooled
-	 *  path, with the resolved setup and generated stamps carried along. */
-	| {
-			kind: "pooled-fallback";
-			setup: ResolvedStampTextureSetup;
-			stamps: StampBuffer;
-	  };
-
-/** One entry in the batch's paint-order queue. Resident and pooled-fallback
- *  strokes share ONE queue: at flush, contiguous resident entries draw as a
- *  resident run and a pooled entry draws through the frame-pooled machinery,
- *  in exactly the queued order — a full stamp store must not drop a stroke
- *  or reorder paint. */
-type BatchStampEntry =
-	| { kind: "resident"; draw: ResidentStampDraw }
-	| ({ kind: "pooled" } & PooledStampStroke);
 
 export interface StrokeBatchContextOptions {
 	/** Cap for the resident stamp store, in stamps. Production derives the
@@ -257,14 +192,9 @@ export class StrokeBatchContext {
 	// straight from the GPU with zero uploads, no culling walk, and no
 	// per-frame pathIndex rewrite (the meta's absolute store index is baked
 	// into the stamps once, so meta/stops offsets must stay stable).
-	private readonly stampStore: BoundedStampStore;
 	private readonly dabStore: BoundedStampStore;
 	private readonly metaStore: GeometryStore;
 	private readonly stopsStore: GeometryStore;
-	/** Paint-order queue of strokes since the last flush — resident draws
-	 *  interleaved with pooled fallbacks (see BatchStampEntry). */
-	private batchStampQueue: BatchStampEntry[] = [];
-	private readonly residentMetaScratch = new Float32Array(PATH_META_FLOATS);
 	private residentBindGroup1: GPUBindGroup | null = null;
 	private residentBG1MetaBuf: GPUBuffer | null = null;
 	private residentBG1StopsBuf: GPUBuffer | null = null;
@@ -360,15 +290,6 @@ export class StrokeBatchContext {
 		this.transformsBindGroupLayout = transformsBindGroupLayout;
 		this.maskBindGroupLayout = maskBindGroupLayout;
 
-		// Bounded so the resident stamp binding never exceeds the device
-		// storage binding limit: the buffer grows up to min(binding limit,
-		// 128 MiB); a full store falls back to the frame-pooled path.
-		this.stampStore = new BoundedStampStore(device, {
-			floatsPerStamp: STAMP_FLOATS,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-			label: "Resident Stamp Instances",
-			maxCapacityStamps: options?.maxResidentStamps,
-		});
 		this.dabStore = new BoundedStampStore(device, {
 			floatsPerStamp: DAB_INSTANCE_FLOATS,
 			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -810,7 +731,6 @@ export class StrokeBatchContext {
 		this.colorStopsPoolIdx = 0;
 		// Return ranges released by evicted StampCache entries — deferred to
 		// this frame boundary so last frame's encoded draws kept their data.
-		this.stampStore.flushPendingReleases();
 		this.dabStore.flushPendingReleases();
 		this.metaStore.flushPendingReleases();
 		this.stopsStore.flushPendingReleases();
@@ -830,7 +750,6 @@ export class StrokeBatchContext {
 		this.batchColorStopCount = 0;
 		this.batchRibbonSegmentCount = 0;
 		this.batchRibbonTextureUid = null;
-		this.batchStampQueue.length = 0;
 
 		// Preallocate from the previous frame's peak sizes
 		if (this.peakPathMetaFloats > this.batchPathMetas.length) {
@@ -878,44 +797,8 @@ export class StrokeBatchContext {
 			return;
 		}
 
-		// dab-v2 strokes never enter this batch in phase 1 — the CanvasLayer
-		// filter routes them through the immediate path. A stray call falls
-		// back to the legacy renderer so a stroke is never dropped.
-		const brushSettings = toLegacyBrushSettings(route.settings);
-		if (
-			brushSettings.type !== "scatter" &&
-			brushSettings.type !== "calligraphy"
-		) {
-			return;
-		}
-
-		// Stamp methods (scatter/calligraphy) — resident lease: uploaded once,
-		// every later frame draws straight from the stores. A stroke the
-		// stores cannot take right now is queued as a pooled fallback in the
-		// SAME paint-order queue, so it still draws, in order.
-		const resolution = this.resolveResidentStroke(
-			path,
-			segments,
-			brushSettings,
-			alphaMultiplier,
-			transformIndex,
-			false,
-		);
-		if (resolution.kind === "empty") return;
-		this.batchStampQueue.push(
-			resolution.kind === "resident"
-				? { kind: "resident", draw: resolution.draw }
-				: {
-						kind: "pooled",
-						path,
-						segments,
-						brushSettings,
-						alphaMultiplier,
-						transformIndex,
-						setup: resolution.setup,
-						stamps: resolution.stamps,
-					},
-		);
+		// Dab strokes are drawn by the v2 pipeline, which the CanvasLayer
+		// filter routes to directly. Nothing reaches this batch.
 	}
 
 	/** Resolve the brush texture and (when scatter/start/end sources are set)
@@ -969,274 +852,6 @@ export class StrokeBatchContext {
 			startLayerIndex,
 			endLayerIndex,
 		};
-	}
-
-	/** Resolve a scatter/calligraphy stroke to its resident-store draw,
-	 *  generating and leasing the stamps on first sight. Reports
-	 *  "pooled-fallback" when the resident stores cannot take the run or
-	 *  (with skipConflictingWrites) the lease was already synced with
-	 *  different contents this frame — the caller draws it through the
-	 *  frame-pooled path, and the entry stays non-resident so a later frame
-	 *  with freed space retries residency naturally. */
-	private resolveResidentStroke(
-		path: Path,
-		segments: CubicBezierSegment[],
-		brushSettings: ScatterBrushSettings | CalligraphyBrushSettings,
-		alphaMultiplier: number,
-		transformIndex: number,
-		skipConflictingWrites: boolean,
-	): ResidentStrokeResolution {
-		const scatterSettings: ScatterBrushSettings =
-			brushSettings.type === "calligraphy"
-				? calligraphyBrushToScatterInput(brushSettings)
-				: brushSettings;
-		const nibShape: NibShape =
-			brushSettings.type === "calligraphy"
-				? { aspectRatio: brushSettings.roundness }
-				: NIB_SHAPE_CIRCLE;
-		const setup = this.resolveScatterTextureSetup(
-			brushSettings,
-			scatterSettings,
-			() => this.ensureScatterPipeline().arrayBuilder,
-		);
-
-		// Retrieve stamps from cache; generate and cache if not present.
-		const textureAspectRatio = this.textureManager.getTextureAspectRatio(
-			setup.effectiveTextureFileUid,
-		);
-		const cacheKey = `${path.id}:${createStampCacheFingerprint(scatterSettings, setup.effectiveTextureFileUid, textureAspectRatio)}:${nibShape.aspectRatio}:${hashStampInput(path, segments)}`;
-		const stampCache = this.getStampCache();
-		let fullStampBuf = stampCache.get(cacheKey);
-		let retained = true;
-		if (!fullStampBuf) {
-			fullStampBuf = generateStampsDirect(
-				segments,
-				scatterSettings,
-				0,
-				path.pathStart ?? 0,
-				path.pathEnd ?? 1,
-				path.strokeWidths,
-				textureAspectRatio,
-				setup.variantCount,
-				setup.startLayerIndex,
-				setup.endLayerIndex,
-				nibShape,
-			);
-			retained = stampCache.set(cacheKey, fullStampBuf, path.id);
-		}
-		if (fullStampBuf.count === 0) return { kind: "empty" };
-
-		// A single stroke over the whole cache budget evicts itself on insert:
-		// resident-izing it would create store leases no cache entry owns (and
-		// so nothing would ever release) — draw it through the pooled path.
-		if (!retained) {
-			return { kind: "pooled-fallback", setup, stamps: fullStampBuf };
-		}
-
-		const resident = this.syncResidentStamps(
-			fullStampBuf,
-			path,
-			alphaMultiplier,
-			transformIndex,
-			skipConflictingWrites,
-		);
-		if (!resident) {
-			return { kind: "pooled-fallback", setup, stamps: fullStampBuf };
-		}
-		stampCache.commitResident(cacheKey);
-		// Scatter mode uses a synthetic "array:"-prefixed uid so the draw loop
-		// can pick the scatter pipeline (missing textures fall back to the
-		// default brush).
-		const textureUid = setup.textureArrayResult
-			? `array:${setup.textureArrayResult.layerUids.join(",")}`
-			: this.resolveTextureUid(setup.effectiveTextureFileUid);
-		return {
-			kind: "resident",
-			draw: {
-				firstStamp: resident.stamps.firstStamp,
-				stampCount: fullStampBuf.count,
-				textureUid,
-			},
-		};
-	}
-
-	/** Lease store ranges for a cached stroke on first sight; afterwards
-	 *  rewrite only the meta/stops ranges whose derived contents changed.
-	 *  Returns null when the stamp store cannot fit the run (the caller
-	 *  falls back to the frame-pooled path), or when a rewrite is needed but
-	 *  the lease was already synced this frame and skipConflictingWrites is
-	 *  set — rewriting would corrupt the draws already queued against the
-	 *  old contents (queue.writeBuffer lands before every draw in the
-	 *  submit). */
-	private syncResidentStamps(
-		buf: StampBuffer,
-		path: Path,
-		alphaMultiplier: number,
-		transformIndex: number,
-		skipConflictingWrites: boolean,
-	): ResidentStamps | null {
-		if (!buf.resident) {
-			// Admission check BEFORE any resident allocation: an overflow
-			// stroke must not consume meta/stops ranges it will never draw
-			// with — a same-frame burst of overflow strokes would otherwise
-			// grow the stable-offset stores for data that is only released.
-			if (!this.stampStore.canFit(buf.count)) return null;
-
-			const stops = this.buildResidentStops(path);
-			const stopsHandle = stops ? this.stopsStore.alloc(stops) : null;
-			const meta = this.buildResidentMeta(
-				path,
-				alphaMultiplier,
-				transformIndex,
-				stopsHandle?.firstVertex ?? 0,
-			);
-			const metaHandle = this.metaStore.alloc(meta);
-			if (metaHandle.firstVertex > STAMP_META_INDEX_MASK) {
-				metaHandle.release();
-				stopsHandle?.release();
-				return null;
-			}
-			// Bake the meta's absolute store index into every stamp before the
-			// one-time upload (upper 16 bits keep the scatter texture layer
-			// written at generation time; cached pathIndex is always 0).
-			const stamps = buf.data.slice(0, buf.count * STAMP_FLOATS);
-			const u32 = StrokeBatchContext._u32Scratch;
-			const f32 = StrokeBatchContext._f32Scratch;
-			for (let i = 0; i < buf.count; i++) {
-				const idx = i * STAMP_FLOATS + 6;
-				f32[0] = stamps[idx];
-				u32[0] = replaceStampPathIndex(u32[0], metaHandle.firstVertex);
-				stamps[idx] = f32[0];
-			}
-			// canFit() was checked above, so this cannot fail; the rollback
-			// stays as a safety net against admission/allocation divergence.
-			const stampHandle = this.stampStore.alloc(stamps);
-			if (!stampHandle) {
-				metaHandle.release();
-				stopsHandle?.release();
-				return null;
-			}
-			// The store took ownership of `stamps` as its regrow mirror; the
-			// cache entry shares the SAME array so the run's CPU bytes exist
-			// once (StampCache budgets resident entries via byteSize alone).
-			buf.data = stamps;
-			buf.resident = {
-				stamps: stampHandle,
-				meta: metaHandle,
-				stops: stopsHandle,
-				metaSnapshot: meta,
-				stopsSnapshot: stops,
-				syncedFrame: this.frameCounter,
-				byteSize:
-					stamps.byteLength +
-					meta.byteLength * 2 +
-					(stops?.byteLength ?? 0) * 2,
-			};
-			return buf.resident;
-		}
-
-		const stops = this.buildResidentStops(path);
-		const resident = buf.resident;
-		const stopsChanged = !f32ArraysEqual(stops, resident.stopsSnapshot);
-		let meta: Float32Array | null = null;
-		let metaChanged = false;
-		if (!stopsChanged) {
-			meta = this.buildResidentMeta(
-				path,
-				alphaMultiplier,
-				transformIndex,
-				resident.stops?.firstVertex ?? 0,
-			);
-			metaChanged = !f32ArraysEqual(meta, resident.metaSnapshot);
-		}
-
-		if (
-			(stopsChanged || metaChanged) &&
-			resident.syncedFrame === this.frameCounter
-		) {
-			if (skipConflictingWrites) return null;
-			// Batch path: overwriting a lease already synced this frame is a
-			// pre-existing last-writer-wins hazard (e.g. an element drawn twice
-			// in one frame with different alpha); keep the behavior but surface
-			// it in dev builds.
-			if (process.env.NODE_ENV !== "production") {
-				console.warn(
-					`[StrokeBatchContext] resident lease re-synced with different contents within one frame (path=${path.id})`,
-				);
-			}
-		}
-		resident.syncedFrame = this.frameCounter;
-
-		let stopsMoved = false;
-		if (stopsChanged) {
-			if (
-				stops &&
-				resident.stops &&
-				stops.length === resident.stops.vertexCount * COLOR_STOP_FLOATS
-			) {
-				resident.stops.write(stops);
-			} else {
-				// Stop count changed — relet the range (the meta re-bakes the
-				// new absolute offset below).
-				resident.stops?.release();
-				resident.stops = stops ? this.stopsStore.alloc(stops) : null;
-				stopsMoved = true;
-			}
-			resident.stopsSnapshot = stops;
-			meta = this.buildResidentMeta(
-				path,
-				alphaMultiplier,
-				transformIndex,
-				resident.stops?.firstVertex ?? 0,
-			);
-			metaChanged = stopsMoved || !f32ArraysEqual(meta, resident.metaSnapshot);
-		}
-		if (metaChanged && meta) {
-			resident.meta.write(meta);
-			resident.metaSnapshot = meta;
-		}
-		resident.byteSize =
-			resident.stamps.stampCount * STAMP_FLOATS * 4 +
-			resident.metaSnapshot.byteLength * 2 +
-			(resident.stopsSnapshot?.byteLength ?? 0) * 2;
-		return resident;
-	}
-
-	/** Resident color stops for a stroke gradient (null for solid colors). */
-	private buildResidentStops(path: Path): Float32Array | null {
-		const { strokeColor } = StrokeBatchContext.extractStrokeParams(path);
-		if (strokeColor?.type !== "stroke-gradient") return null;
-		const stops = strokeColor.gradient.stops;
-		const data = new Float32Array(stops.length * COLOR_STOP_FLOATS);
-		for (let i = 0; i < stops.length; i++) {
-			const stop = stops[i];
-			const c = colorToRawRGBA(stop.color);
-			const off = i * COLOR_STOP_FLOATS;
-			data[off] = stop.offset;
-			data[off + 1] = c.r;
-			data[off + 2] = c.g;
-			data[off + 3] = c.b;
-			data[off + 4] = c.a;
-			data[off + 5] = stop.midpoint;
-		}
-		return data;
-	}
-
-	private buildResidentMeta(
-		path: Path,
-		alphaMultiplier: number,
-		transformIndex: number,
-		stopOffset: number,
-	): Float32Array {
-		this.writeSinglePathMeta(
-			this.residentMetaScratch,
-			0,
-			path,
-			alphaMultiplier,
-			transformIndex,
-			stopOffset,
-		);
-		return this.residentMetaScratch.slice();
 	}
 
 	/**
@@ -1296,40 +911,11 @@ export class StrokeBatchContext {
 		_pipelineType: PipelineType,
 		transformsBindGroup: GPUBindGroup,
 	): void {
-		if (this.batchStampQueue.length === 0 && this.batchRibbonSegmentCount === 0)
-			return;
+		if (this.batchRibbonSegmentCount === 0) return;
 
 		this.onBeforeDraw?.();
 
 		const effectiveUniformBuffer = this.getEffectiveUniformBuffer();
-
-		// === Stamp drawing: walk the paint-order queue ===
-		// Contiguous resident entries flush as one drawResidentStamps() run
-		// (zero uploads on cache hit); a pooled-fallback entry uploads and
-		// draws through the frame-pooled machinery, then the walk resumes —
-		// resident run → pooled stroke → next resident run keeps queue order.
-		if (this.batchStampQueue.length > 0) {
-			const residentRun: ResidentStampDraw[] = [];
-			const flushResidentRun = () => {
-				if (residentRun.length === 0) return;
-				this.drawResidentStamps(
-					passEncoder,
-					transformsBindGroup,
-					effectiveUniformBuffer,
-					residentRun,
-				);
-				residentRun.length = 0;
-			};
-			for (const entry of this.batchStampQueue) {
-				if (entry.kind === "resident") {
-					residentRun.push(entry.draw);
-					continue;
-				}
-				flushResidentRun();
-				this.renderStampsPooled(passEncoder, entry, transformsBindGroup);
-			}
-			flushResidentRun();
-		}
 
 		// === Ribbon drawing ===
 		if (this.batchRibbonSegmentCount > 0 && this.batchRibbonTextureUid) {
@@ -1453,179 +1039,10 @@ export class StrokeBatchContext {
 
 	/** Reset the batch accumulation state. */
 	private resetBatchState(): void {
-		this.batchStampQueue.length = 0;
 		this.batchPathCount = 0;
 		this.batchColorStopCount = 0;
 		this.batchRibbonSegmentCount = 0;
 		this.batchRibbonTextureUid = null;
-	}
-
-	/** Draw every queued resident stroke, pulling stamps/metas/stops straight
-	 *  from the persistent stores. Store-adjacent same-texture strokes merge
-	 *  into one instanced draw. */
-	private drawResidentStamps(
-		passEncoder: GPURenderPassEncoder,
-		transformsBindGroup: GPUBindGroup | null,
-		effectiveUniformBuffer: GPUBuffer,
-		draws: readonly ResidentStampDraw[],
-	): void {
-		let bg0ByTexture = this.residentBG0Cache.get(effectiveUniformBuffer);
-		if (!bg0ByTexture) {
-			bg0ByTexture = new Map();
-			this.residentBG0Cache.set(effectiveUniformBuffer, bg0ByTexture);
-		}
-		this.cachedSampler ??= this.textureManager.getSampler();
-
-		// BG1-3 layouts are shared between the normal and scatter pipelines,
-		// so they stay bound across pipeline switches inside the loop.
-		passEncoder.setBindGroup(1, this.getResidentBindGroup1());
-		if (transformsBindGroup) {
-			passEncoder.setBindGroup(2, transformsBindGroup);
-		}
-		passEncoder.setBindGroup(3, this.getMaskBindGroup());
-
-		// Coalesce adjacent ranges: residency allocates in draw order, so
-		// consecutive strokes usually sit contiguously in the store and a
-		// stable pan collapses to one draw per texture switch. Ranges are
-		// only joined in queue order — painter's order is preserved.
-		const merged: ResidentStampDraw[] = [];
-		for (const rd of draws) {
-			const last = merged.at(-1);
-			if (
-				last &&
-				last.textureUid === rd.textureUid &&
-				last.firstStamp + last.stampCount === rd.firstStamp
-			) {
-				last.stampCount += rd.stampCount;
-			} else {
-				merged.push({ ...rd });
-			}
-		}
-
-		let boundPipeline: GPURenderPipeline | null = null;
-		let boundBindGroup0: GPUBindGroup | null = null;
-		for (const rd of merged) {
-			// Re-read the stamp buffer per draw — growth replaces it — and
-			// re-validate the cached per-texture bind group against it.
-			const stampBuf = this.stampStore.buffer();
-			const isArray = rd.textureUid.startsWith("array:");
-			const arrayResult = isArray
-				? this.ensureScatterPipeline().arrayBuilder.build(
-						rd.textureUid.slice(6).split(","),
-					)
-				: null;
-			const currentTexture = isArray
-				? arrayResult?.texture
-				: this.textureManager.getTexture(rd.textureUid);
-			if (!currentTexture) continue;
-			const pipeline = arrayResult
-				? this.ensureScatterPipeline().pipeline
-				: this.pipeline;
-			let cached = bg0ByTexture.get(rd.textureUid);
-			if (
-				!cached ||
-				cached.texture !== currentTexture ||
-				cached.stampBuf !== stampBuf
-			) {
-				const target = this.resolveStampDrawTarget(arrayResult, rd.textureUid);
-				if (!target) continue;
-				cached = {
-					texture: currentTexture,
-					stampBuf,
-					bindGroup: this.device.createBindGroup({
-						label: arrayResult
-							? "Brush Scatter Bind Group 0"
-							: "Brush Batch Bind Group 0",
-						layout: target.layout,
-						entries: [
-							{
-								binding: 0,
-								resource: { buffer: effectiveUniformBuffer },
-							},
-							{ binding: 1, resource: { buffer: stampBuf } },
-							{ binding: 2, resource: target.textureView },
-							{ binding: 3, resource: target.sampler },
-						],
-					}),
-				};
-				bg0ByTexture.set(rd.textureUid, cached);
-			}
-			if (boundPipeline !== pipeline) {
-				passEncoder.setPipeline(pipeline);
-				boundPipeline = pipeline;
-			}
-			if (boundBindGroup0 !== cached.bindGroup) {
-				passEncoder.setBindGroup(0, cached.bindGroup);
-				boundBindGroup0 = cached.bindGroup;
-			}
-			passEncoder.draw(6, rd.stampCount, 0, rd.firstStamp);
-		}
-	}
-
-	/** Pipeline, bind-group layout, texture view, and sampler for one stamp
-	 *  draw: the scatter texture_2d_array variant when `arrayResult` is set,
-	 *  else the single-texture variant for `textureUid` (already resolved
-	 *  through resolveTextureUid). Shared by the resident and pooled draw
-	 *  paths so array-vs-single binding cannot diverge between them. Returns
-	 *  null when the single texture is missing. */
-	private resolveStampDrawTarget(
-		arrayResult: TextureArrayResult | null,
-		textureUid: string,
-	): {
-		pipeline: GPURenderPipeline;
-		layout: GPUBindGroupLayout;
-		textureView: GPUTextureView;
-		sampler: GPUSampler;
-	} | null {
-		if (arrayResult) {
-			const { pipeline, bindGroupLayout } = this.ensureScatterPipeline();
-			return {
-				pipeline,
-				layout: bindGroupLayout,
-				textureView: arrayResult.texture.createView({
-					dimension: "2d-array",
-				}),
-				sampler: arrayResult.sampler,
-			};
-		}
-		const texture = this.textureManager.getTexture(textureUid);
-		if (!texture) return null;
-		let textureView = this.textureViewCache.get(textureUid);
-		if (!textureView) {
-			textureView = texture.createView();
-			this.textureViewCache.set(textureUid, textureView);
-		}
-		this.cachedSampler ??= this.textureManager.getSampler();
-		return {
-			pipeline: this.pipeline,
-			layout: this.bindGroupLayout,
-			textureView,
-			sampler: this.cachedSampler,
-		};
-	}
-
-	private getResidentBindGroup1(): GPUBindGroup {
-		const metaBuffer = this.metaStore.buffer();
-		const stopsBuffer = this.stopsStore.buffer();
-		if (
-			this.residentBindGroup1 &&
-			this.residentBG1MetaBuf === metaBuffer &&
-			this.residentBG1StopsBuf === stopsBuffer
-		) {
-			return this.residentBindGroup1;
-		}
-		const bindGroup = this.device.createBindGroup({
-			label: "Resident Brush Bind Group 1",
-			layout: this.brushBindGroupLayout,
-			entries: [
-				{ binding: 0, resource: { buffer: metaBuffer } },
-				{ binding: 1, resource: { buffer: stopsBuffer } },
-			],
-		});
-		this.residentBindGroup1 = bindGroup;
-		this.residentBG1MetaBuf = metaBuffer;
-		this.residentBG1StopsBuf = stopsBuffer;
-		return bindGroup;
 	}
 
 	// ================================================================
@@ -2486,126 +1903,6 @@ export class StrokeBatchContext {
 		return { view: this.falloffLutView, sampler: this.falloffSampler };
 	}
 
-	/** Per-frame pooled fallback when a resident lease cannot be used: the
-	 *  rare same-submit conflict (an element drawn twice in one frame with
-	 *  different derived meta, e.g. the editing-scope dim overlay), a full
-	 *  resident stamp store, and a cache entry too large to retain. Uploads
-	 *  this draw's stamps to the pool so the resident stores stay untouched.
-	 *  Called from both the immediate render() path and the batch flush's
-	 *  paint-order queue walk. */
-	private renderStampsPooled(
-		passEncoder: GPURenderPassEncoder,
-		stroke: PooledStampStroke,
-		transformsBindGroup: GPUBindGroup | undefined,
-	): void {
-		const { path, brushSettings, setup } = stroke;
-		// The resolve-time buffer uploads as-is while it never went resident:
-		// its pathIndex floats are still 0, exactly the pooled per-draw meta
-		// index. Once a resident lease baked its meta index into the array
-		// (the same-frame-conflict fallback), regenerate — with the SAME
-		// resolved setup, so texture-array layer packing matches the resident
-		// path. Residency is re-checked here, at draw time: a later draw in
-		// the same frame may have resident-ized the shared cache entry.
-		let stampBuf = stroke.stamps;
-		if (stampBuf.resident) {
-			const scatterSettings: ScatterBrushSettings =
-				brushSettings.type === "calligraphy"
-					? calligraphyBrushToScatterInput(brushSettings)
-					: brushSettings;
-			const nibShape: NibShape =
-				brushSettings.type === "calligraphy"
-					? { aspectRatio: brushSettings.roundness }
-					: NIB_SHAPE_CIRCLE;
-			stampBuf = generateStampsDirect(
-				stroke.segments,
-				scatterSettings,
-				0, // pathIndex=0 for single-path rendering (PathMeta[0])
-				path.pathStart ?? 0,
-				path.pathEnd ?? 1,
-				path.strokeWidths,
-				this.textureManager.getTextureAspectRatio(
-					setup.effectiveTextureFileUid,
-				),
-				setup.variantCount,
-				setup.startLayerIndex,
-				setup.endLayerIndex,
-				nibShape,
-			);
-		}
-		if (stampBuf.count === 0) return;
-
-		// Stamp buffer — use a subarray view so writeBuffer reads exactly
-		// count * STAMP_FLOATS floats, avoiding offset/size mismatch when the
-		// backing Float32Array is larger than the valid stamp region.
-		const stampFloatCount = stampBuf.count * STAMP_FLOATS;
-		const stampByteLength = stampFloatCount * 4;
-		const stampBuffer = this.acquireStampBuffer(stampByteLength);
-		const stampView = stampBuf.data.subarray(0, stampFloatCount);
-		this.device.queue.writeBuffer(
-			stampBuffer,
-			0,
-			stampView.buffer as ArrayBuffer,
-			stampView.byteOffset,
-			stampView.byteLength,
-		);
-
-		// PathMeta (one entry)
-		const singleMeta = new Float32Array(PATH_META_FLOATS);
-		this.writeSinglePathMeta(
-			singleMeta,
-			0,
-			path,
-			stroke.alphaMultiplier,
-			stroke.transformIndex,
-		);
-		const pathMetaBuffer = this.acquirePathMetaBuffer(PATH_META_FLOATS * 4);
-		this.device.queue.writeBuffer(pathMetaBuffer, 0, singleMeta);
-
-		// ColorStops
-		const { strokeColor: renderStrokeColor } =
-			StrokeBatchContext.extractStrokeParams(path);
-		const stopData = buildColorStopsData(renderStrokeColor);
-		const colorStopsBuffer = this.acquireColorStopsBuffer(stopData.byteLength);
-		this.device.queue.writeBuffer(colorStopsBuffer, 0, stopData);
-
-		// Texture: bind the carried array (or single texture, falling back to
-		// the default brush when missing) exactly as the resident path would.
-		const target = this.resolveStampDrawTarget(
-			setup.textureArrayResult,
-			this.resolveTextureUid(setup.effectiveTextureFileUid),
-		);
-		if (!target) return;
-
-		const bindGroup0 = this.device.createBindGroup({
-			label: "Brush Stamp Bind Group 0",
-			layout: target.layout,
-			entries: [
-				{ binding: 0, resource: { buffer: this.getEffectiveUniformBuffer() } },
-				{ binding: 1, resource: { buffer: stampBuffer } },
-				{ binding: 2, resource: target.textureView },
-				{ binding: 3, resource: target.sampler },
-			],
-		});
-
-		const bindGroup1 = this.device.createBindGroup({
-			label: "Brush Stamp Bind Group 1",
-			layout: this.brushBindGroupLayout,
-			entries: [
-				{ binding: 0, resource: { buffer: pathMetaBuffer } },
-				{ binding: 1, resource: { buffer: colorStopsBuffer } },
-			],
-		});
-
-		passEncoder.setPipeline(target.pipeline);
-		passEncoder.setBindGroup(0, bindGroup0);
-		passEncoder.setBindGroup(1, bindGroup1);
-		if (transformsBindGroup) {
-			passEncoder.setBindGroup(2, transformsBindGroup);
-		}
-		passEncoder.setBindGroup(3, this.getMaskBindGroup());
-		passEncoder.draw(6, stampBuf.count, 0, 0);
-	}
-
 	/**
 	 * Single-path ribbon rendering (offscreen/stencil fallback).
 	 */
@@ -2733,10 +2030,8 @@ export class StrokeBatchContext {
 		this.textureViewCache.clear();
 		this.cachedSampler = null;
 		this.cachedBindGroup1 = null;
-		this.stampStore.destroy();
 		this.metaStore.destroy();
 		this.stopsStore.destroy();
-		this.batchStampQueue.length = 0;
 		this.residentBG0Cache = new WeakMap();
 		this.residentBindGroup1 = null;
 		this.residentBG1MetaBuf = null;
@@ -3179,18 +2474,6 @@ function poolBufferSize(requiredSize: number, minSize: number): number {
 	return Math.max(2 ** Math.ceil(Math.log2(requiredSize)), minSize);
 }
 
-function f32ArraysEqual(
-	a: Float32Array | null,
-	b: Float32Array | null,
-): boolean {
-	if (a === b) return true;
-	if (!a || !b || a.length !== b.length) return false;
-	for (let i = 0; i < a.length; i++) {
-		if (a[i] !== b[i]) return false;
-	}
-	return true;
-}
-
 function buildColorStopsData(
 	strokeColor: StrokeColor | undefined,
 ): Float32Array<ArrayBuffer> {
@@ -3211,18 +2494,6 @@ function buildColorStopsData(
 		stopData[off + 5] = stop.midpoint;
 	}
 	return stopData;
-}
-
-/** Build a cache key fingerprint from stamp-affecting brush settings fields. */
-function createStampCacheFingerprint(
-	b: ScatterBrushSettings,
-	textureUid: string,
-	textureAspectRatio = 1,
-): string {
-	const scatterUids = resolveScatterSourceUids(b.scatterSources).join(",");
-	const startUid = resolveOptionalSourceUid(b.startSource) ?? "";
-	const endUid = resolveOptionalSourceUid(b.endSource) ?? "";
-	return `${textureUid}|${b.size}|${b.sizeByPressure}|${b.sizeBySpeed}|${b.spacing}|${b.flow}|${b.stampRotation}|${b.stampAngle ?? 0}|${b.rotationByTilt}|${b.aspectRatioByTilt}|${b.pooling}|${b.poolingSizeRatio}|${textureAspectRatio}|${b.colorMode ?? ""}|${scatterUids}|${startUid}|${endUid}|${b.scatterOffset ?? 0}|${b.scatterSizeVariation ?? 0}|${b.taperStart ?? 0}|${b.taperEnd ?? 0}`;
 }
 
 function hashStampInput(path: Path, segments: CubicBezierSegment[]): string {
@@ -3251,36 +2522,6 @@ function hashStampInput(path: Path, segments: CubicBezierSegment[]): string {
 // They live here (rather than in core/brush) because the resulting structure
 // is purely a renderer-side concern.
 // ================================================================
-
-/** Render-time input for the stamp generator built from a calligraphy brush. */
-function calligraphyBrushToScatterInput(
-	s: CalligraphyBrushSettings,
-): ScatterBrushSettings {
-	return {
-		type: "scatter",
-		// The procedural elliptical nib bypasses texture sampling in the shader,
-		// but a stamp pipeline still needs a placeholder source: bind the
-		// hard-circle texture so the bind group remains valid.
-		source: { kind: "file", fileUid: BUILTIN_BRUSH_IDS.hardCircle },
-		size: s.size,
-		sizeByPressure: s.sizeByPressure,
-		opacity: s.opacity,
-		opacityByPressure: s.opacityByPressure,
-		randomSeed: s.randomSeed,
-		colorMode: s.colorMode,
-		spacing: s.spacing ?? DEFAULT_CALLIGRAPHY_SPACING,
-		flow: s.flow,
-		stampRotation: s.angleMode === "tangent" ? "tangent" : "none",
-		stampAngle: s.nibAngle,
-		rotationByTilt: s.angleMode === "tilt" ? 1 : 0,
-		aspectRatioByTilt: 0,
-		sizeBySpeed: s.sizeBySpeed,
-		pooling: s.pooling,
-		poolingSizeRatio: s.poolingSizeRatio,
-		taperStart: s.taperStart,
-		taperEnd: s.taperEnd,
-	};
-}
 
 /** Render-time input for the ribbon generator built from an art brush. */
 function artBrushToPatternInput(s: ArtBrushSettings): PatternBrushSettings {
