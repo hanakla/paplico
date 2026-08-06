@@ -5,7 +5,7 @@ import {
 	resolveBrushTextureUid,
 	withTextureFileUid,
 } from "@/core/brush/brushSource";
-import { normalizeBrushSettings } from "@/core/brush/normalize";
+import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import {
 	BUILTIN_BRUSH_IDS,
 	type BuiltinBrushId,
@@ -99,8 +99,9 @@ export function useBrushPresets() {
 				if (signal.aborted) return;
 				if (migratedPresetIdsRef.current.has(legacyPreset.uid)) continue;
 
-				const presetSettings = normalizeBrushSettings(legacyPreset.settings);
-				const presetTextureUid = resolveBrushTextureUid(presetSettings);
+				const presetTextureUid = resolveBrushTextureUid(
+					normalizeBrushSettingsV2(legacyPreset.settings),
+				);
 				const sourceFile = presetTextureUid
 					? (builtinFileMap.get(presetTextureUid) ??
 						docSnap.document.files.find(
@@ -165,7 +166,7 @@ export function useBrushPresets() {
 	const rawBrushSettings =
 		toolSnap.strokeAppearance?.paramData.params.brushSettings;
 	const brushTextureFileUid = rawBrushSettings
-		? (resolveBrushTextureUid(normalizeBrushSettings(rawBrushSettings)) ??
+		? (resolveBrushTextureUid(normalizeBrushSettingsV2(rawBrushSettings)) ??
 			undefined)
 		: undefined;
 

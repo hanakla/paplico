@@ -523,9 +523,13 @@ function sanitizeTip(raw: unknown): BrushTipConfig | undefined {
 }
 
 function sanitizeRibbon(raw: unknown): RibbonConfig | undefined {
-	if (!isRecord(raw) || !isArtSource(raw.source)) return undefined;
+	if (!isRecord(raw)) return undefined;
 	const ribbon: RibbonConfig = {
-		source: raw.source,
+		// A ribbon without a source still draws — the renderer falls back to a
+		// built-in texture, the way the legacy view's empty uid did.
+		source: isArtSource(raw.source)
+			? raw.source
+			: { kind: "file", fileUid: "" },
 		uvMode: raw.uvMode === "stretch" ? "stretch" : "repeat",
 		tileScale: Math.max(num(raw.tileScale, 1), 0.1),
 		tileSpacing: Math.max(num(raw.tileSpacing, 0), 0),

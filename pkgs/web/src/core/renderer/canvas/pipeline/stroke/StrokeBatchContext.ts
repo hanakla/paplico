@@ -17,22 +17,16 @@ import {
 	resolveOptionalSourceUid,
 	resolveScatterSourceUids,
 } from "../../../../brush/brushSource";
-import { normalizeBrushSettings } from "../../../../brush/normalize";
 import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
-import { toLegacyBrushSettings } from "../../../../brush/toLegacy";
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../../../document/constants";
 import { createDefaultBrushSettings } from "../../../../document/factory";
 import {
-	type ArtBrushSettings,
 	type BrushSettings,
 	type BrushSettingsV2,
 	BUILTIN_BRUSH_IDS,
-	type CalligraphyBrushSettings,
 	type CubicBezierSegment,
 	colorToRawRGBA,
 	type Path,
-	type PatternBrushSettings,
-	type ScatterBrushSettings,
 	type StrokeAppearance,
 	type StrokeColor,
 } from "../../../../schema";
@@ -782,15 +776,13 @@ export class StrokeBatchContext {
 
 		// Ribbon methods (pattern/art): accumulate ribbon instances separately
 		if (route.kind === "ribbon-legacy") {
-			const legacy = toLegacyBrushSettings(route.settings);
-			if (legacy.type !== "pattern" && legacy.type !== "art") return;
-			const patternSettings =
-				legacy.type === "art" ? artBrushToPatternInput(legacy) : legacy;
+			const ribbon = route.settings.ribbon;
+			if (!ribbon) return;
 			this.addRibbonToBatch(
 				path,
 				segments,
-				patternSettings,
-				legacy,
+				ribbonStrokeInputOf(route.settings),
+				ribbon,
 				alphaMultiplier,
 				transformIndex,
 			);
@@ -806,21 +798,21 @@ export class StrokeBatchContext {
 	 *  paths — array builds must match the stamp generation parameters, or a
 	 *  cache entry created by one path would render wrong on another. */
 	private resolveScatterTextureSetup(
-		brushSettings: ScatterBrushSettings | CalligraphyBrushSettings,
-		scatterSettings: ScatterBrushSettings,
+		settings: BrushSettingsV2,
 		getArrayBuilder: () => BrushTextureArrayBuilder,
 	): ResolvedStampTextureSetup {
+		const tip = settings.tip?.kind === "image" ? settings.tip : null;
 		const effectiveTextureFileUid =
-			resolveBrushTextureUid(brushSettings, this.textureManager) ??
+			resolveBrushTextureUid(settings, this.textureManager) ??
 			BUILTIN_BRUSH_IDS.softCircle;
 
 		// Def sources stay unresolved here (built-in fallback): canvas-format
 		// def textures are not copy-compatible with the rgba8unorm array.
-		const startUid = resolveOptionalSourceUid(scatterSettings.startSource);
-		const endUid = resolveOptionalSourceUid(scatterSettings.endSource);
-		const scatterUids = resolveScatterSourceUids(
-			scatterSettings.scatterSources,
-		);
+		const startUid = resolveOptionalSourceUid(tip?.startSource);
+		const endUid = resolveOptionalSourceUid(tip?.endSource);
+		// The first source is the tip itself; the rest are the variants a dab
+		// picks between.
+		const scatterUids = resolveScatterSourceUids(tip?.sources.slice(1));
 		const usesTextureArray =
 			scatterUids.length > 0 || startUid != null || endUid != null;
 
@@ -860,12 +852,12 @@ export class StrokeBatchContext {
 	private addRibbonToBatch(
 		path: Path,
 		segments: CubicBezierSegment[],
-		brushSettings: PatternBrushSettings,
-		originalBrush: PatternBrushSettings | ArtBrushSettings,
+		brushSettings: RibbonStrokeInput,
+		ribbon: RibbonConfig,
 		alphaMultiplier: number,
 		transformIndex: number,
 	): void {
-		const ribbonOpts = this.ribbonOptionsWithCurves(path, originalBrush);
+		const ribbonOpts = this.ribbonOptionsWithCurves(path, ribbon);
 		const ribbonBuf = generateRibbonInstances(
 			segments,
 			brushSettings,
@@ -1076,16 +1068,14 @@ export class StrokeBatchContext {
 		// Ribbon methods (pattern/art): bezier segment instancing through the
 		// legacy renderer until the ribbon integration phase.
 		if (route.kind === "ribbon-legacy") {
-			const legacy = toLegacyBrushSettings(route.settings);
-			if (legacy.type !== "pattern" && legacy.type !== "art") return;
-			const patternSettings =
-				legacy.type === "art" ? artBrushToPatternInput(legacy) : legacy;
+			const ribbon = route.settings.ribbon;
+			if (!ribbon) return;
 			this.renderRibbon(
 				passEncoder,
 				path,
 				actualSegments,
-				patternSettings,
-				legacy,
+				ribbonStrokeInputOf(route.settings),
+				ribbon,
 				alphaMultiplier,
 				transformsBindGroup,
 				transformIndex,
@@ -1421,13 +1411,8 @@ export class StrokeBatchContext {
 		let endLayerIndex = -1;
 
 		if (settings.tip?.kind === "image") {
-			// Texture resolution reuses the battle-tested v1 machinery through
-			// the down-converted view (uids, variant arrays, start/end layers).
-			const legacy = toLegacyBrushSettings(settings);
-			if (legacy.type !== "scatter") return null;
 			const setup = this.resolveScatterTextureSetup(
-				legacy,
-				legacy,
+				settings,
 				() => this.ensureScatterPipeline().arrayBuilder,
 			);
 			textureAspectRatio = this.textureManager.getTextureAspectRatio(
@@ -1910,13 +1895,13 @@ export class StrokeBatchContext {
 		passEncoder: GPURenderPassEncoder,
 		path: Path,
 		segments: CubicBezierSegment[],
-		brushSettings: PatternBrushSettings,
-		originalBrush: PatternBrushSettings | ArtBrushSettings,
+		brushSettings: RibbonStrokeInput,
+		ribbon: RibbonConfig,
 		alphaMultiplier: number,
 		transformsBindGroup: GPUBindGroup | undefined,
 		transformIndex: number,
 	): void {
-		const ribbonOpts = this.ribbonOptionsWithCurves(path, originalBrush);
+		const ribbonOpts = this.ribbonOptionsWithCurves(path, ribbon);
 		const ribbonBuf = generateRibbonInstances(
 			segments,
 			brushSettings,
@@ -2168,9 +2153,9 @@ export class StrokeBatchContext {
 	 *  opacity, when the stroke is on the v2 route. */
 	private ribbonOptionsWithCurves(
 		path: Path,
-		originalBrush: PatternBrushSettings | ArtBrushSettings,
+		ribbon: RibbonConfig,
 	): RibbonOptions {
-		const base = ribbonOptionsFor(originalBrush);
+		const base = ribbonOptionsFor(ribbon);
 		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
 		if (rawBrushSettings == null) return base;
 		const route = resolveBrushRenderRoute(rawBrushSettings);
@@ -2361,22 +2346,16 @@ export class StrokeBatchContext {
 	/** Extract stroke appearance params from path filters */
 	private static extractStrokeParams(path: Path): {
 		strokeColor: StrokeColor | undefined;
-		brushSettings: BrushSettings | undefined;
-		/** Stored value as-is — route resolution MUST use this: the legacy
-		 *  view drops v2-only state (paintMode, curves, wet config). */
+		/** Stored value as-is — route resolution reads this, never a
+		 *  down-converted view, which drops curves, mixing and the wet layer. */
 		rawBrushSettings: unknown;
 	} {
 		const strokeApp = path.filters?.find((f) => f.processor === "stroke") as
 			| StrokeAppearance
 			| undefined;
-		const rawBrushSettings = strokeApp?.paramData.params.brushSettings;
 		return {
 			strokeColor: strokeApp?.paramData.params.strokeColor,
-			brushSettings:
-				rawBrushSettings != null
-					? normalizeBrushSettings(rawBrushSettings)
-					: undefined,
-			rawBrushSettings,
+			rawBrushSettings: strokeApp?.paramData.params.brushSettings,
 		};
 	}
 }
@@ -2523,42 +2502,31 @@ function hashStampInput(path: Path, segments: CubicBezierSegment[]): string {
 // is purely a renderer-side concern.
 // ================================================================
 
-/** Render-time input for the ribbon generator built from an art brush. */
-function artBrushToPatternInput(s: ArtBrushSettings): PatternBrushSettings {
+/** Pick the ribbon UV layout options matching the brush method. */
+/** What the ribbon geometry reads, taken off v2 settings. The width's
+ *  pressure response is a two-point line from -k to 0; the generator wants
+ *  that k back. */
+function ribbonStrokeInputOf(settings: BrushSettingsV2): RibbonStrokeInput {
+	const sizeCurve = settings.properties.size?.curves?.find(
+		(curve) => curve.input === "pressure",
+	);
 	return {
-		type: "pattern",
-		source: s.source,
-		size: s.size,
-		sizeByPressure: s.sizeByPressure,
-		opacity: s.opacity,
-		opacityByPressure: s.opacityByPressure,
-		randomSeed: s.randomSeed,
-		colorMode: s.colorMode,
-		flow: s.flow,
-		tileScale: 1,
-		tileSpacing: 0,
-		fitMode: "none",
-		taperStart: s.taperStart,
-		taperEnd: s.taperEnd,
+		size: settings.properties.size?.base ?? 10,
+		opacity: settings.strokeOpacity,
+		flow: settings.properties.flow?.base ?? 1,
+		sizeByPressure: sizeCurve ? -(sizeCurve.points[0][1] ?? 0) : 0,
+		colorMode: settings.colorMode,
+		taperStart: settings.taperStart,
+		taperEnd: settings.taperEnd,
 	};
 }
 
-/** Pick the ribbon UV layout options matching the brush method. */
-function ribbonOptionsFor(
-	brush: PatternBrushSettings | ArtBrushSettings,
-): RibbonOptions {
-	if (brush.type === "art") {
-		return {
-			uvMode: "stretch",
-			flipU: brush.flip ?? false,
-			flipV: brush.flipAcross ?? false,
-			tileSpacing: 0,
-		};
-	}
+function ribbonOptionsFor(ribbon: RibbonConfig): RibbonOptions {
 	return {
-		uvMode: "repeat",
-		flipU: false,
-		flipV: false,
-		tileSpacing: Math.max(brush.tileSpacing, 0),
+		uvMode: ribbon.uvMode,
+		flipU: ribbon.flipU ?? false,
+		flipV: ribbon.flipV ?? false,
+		tileSpacing:
+			ribbon.uvMode === "stretch" ? 0 : Math.max(ribbon.tileSpacing, 0),
 	};
 }

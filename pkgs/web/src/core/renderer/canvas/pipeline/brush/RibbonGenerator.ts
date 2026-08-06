@@ -13,9 +13,9 @@ import {
 } from "../../../../brush/evaluateProperties";
 import { BRUSH_PROPERTY_REGISTRY } from "../../../../brush/properties";
 import type {
+	BrushColorMode,
 	BrushSettingsV2,
 	CubicBezierSegment,
-	PatternBrushSettings,
 	StrokeWidthPoint,
 } from "../../../../schema";
 import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
@@ -114,9 +114,21 @@ function u32AsFloat(v: number): number {
 
 const EMPTY_F32 = new Float32Array(0);
 
+/** What the ribbon geometry needs from the brush, read off v2 settings. */
+export interface RibbonStrokeInput {
+	size: number;
+	opacity: number;
+	flow: number;
+	/** Pressure response of the width, 0..1 as the flat layer expressed it. */
+	sizeByPressure: number;
+	colorMode: BrushColorMode | undefined;
+	taperStart: number | undefined;
+	taperEnd: number | undefined;
+}
+
 export function generateRibbonInstances(
 	segments: CubicBezierSegment[],
-	settings: PatternBrushSettings,
+	settings: RibbonStrokeInput,
 	pathIndex: number = 0,
 	strokeWidths?: StrokeWidthPoint[],
 	options: RibbonOptions = DEFAULT_RIBBON_OPTIONS,

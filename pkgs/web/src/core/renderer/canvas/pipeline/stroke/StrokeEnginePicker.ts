@@ -13,7 +13,7 @@
  * engines drive.
  */
 
-import type { BrushType } from "../../../../schema";
+import type { BrushEngineKind } from "../../../../schema";
 import type { PipelineType } from "../../CanvasLayerTypes";
 import type { BrushTextureManager } from "../brush/BrushTextureManager";
 import type { GeometricStrokeEngine } from "./GeometricStrokeEngine";
@@ -42,14 +42,14 @@ export interface StrokeEngineRegistryEngines {
  * texture preloading from ElementRenderer.ensureBrushTexture).
  */
 export class StrokeEngineRegistry {
-	private readonly engineById: Map<BrushType, StrokeEngine>;
-	private readonly pipelineById: Map<BrushType, EnginePipeline>;
+	private readonly engineById: Map<BrushEngineKind, StrokeEngine>;
+	private readonly pipelineById: Map<BrushEngineKind, EnginePipeline>;
 	private readonly context: StrokeBatchContext;
 
 	public constructor(
 		engines: StrokeEngineRegistryEngines,
 		context: StrokeBatchContext,
-		pipelines: Map<BrushType, EnginePipeline>,
+		pipelines: Map<BrushEngineKind, EnginePipeline>,
 	) {
 		this.context = context;
 		this.pipelineById = pipelines;
@@ -62,8 +62,8 @@ export class StrokeEngineRegistry {
 	}
 
 	/** Look up the engine pipeline that owns a given brush family. */
-	public pickPipeline(brushType: BrushType): EnginePipeline | null {
-		return this.pipelineById.get(brushType) ?? null;
+	public pickPipeline(engine: BrushEngineKind): EnginePipeline | null {
+		return this.pipelineById.get(engine) ?? null;
 	}
 
 	/**
@@ -98,7 +98,7 @@ export class StrokeEngineRegistry {
 	}
 
 	public addToBatch(style: ResolvedStrokeStyle, transformIndex: number): void {
-		const pipeline = this.pickPipeline(style.brush.type);
+		const pipeline = this.pickPipeline(style.engine);
 		if (!pipeline?.addToBatch) return;
 		pipeline.addToBatch(style, transformIndex);
 	}
@@ -121,7 +121,7 @@ export class StrokeEngineRegistry {
 		pipelineType: PipelineType,
 		transformsBindGroup: GPUBindGroup,
 	): void {
-		const pipeline = this.pickPipeline(style.brush.type);
+		const pipeline = this.pickPipeline(style.engine);
 		if (!pipeline) return;
 		this.context.onBeforeDraw?.();
 		pipeline.render(passEncoder, style, pipelineType, transformsBindGroup);

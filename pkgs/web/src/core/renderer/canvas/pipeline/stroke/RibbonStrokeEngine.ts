@@ -11,7 +11,6 @@
  * in the BrushSettings union, so the wet-ink path skips them.
  */
 
-import type { BrushType } from "../../../../schema";
 import type { StrokeBatchContext } from "./StrokeBatchContext";
 import type {
 	EnginePipeline,
@@ -20,7 +19,7 @@ import type {
 } from "./StrokeEngine";
 
 export class RibbonStrokeEngine implements StrokeEngine {
-	public readonly ids: readonly BrushType[] = ["art", "pattern"];
+	public readonly ids: readonly BrushEngineKind[] = ["ribbon"];
 	public readonly supportsField = false;
 
 	public constructor(private readonly context: StrokeBatchContext) {}

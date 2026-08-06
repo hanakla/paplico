@@ -1425,7 +1425,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			getToolWidth: () =>
 				this.toolSettings.currentTool === "eraser"
 					? this.toolSettings.eraserSize
-					: this.tools.brushSettings.size,
+					: (readStoredBrushSize(this.tools.storedBrushSettings) ?? 10),
 			setToolWidth: (width) => {
 				if (this.toolSettings.currentTool === "eraser") {
 					this.tools.setEraserSize(Math.max(1, Math.min(100, width)));
@@ -3572,7 +3572,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				if (this.tool) {
 					if (this.tool instanceof PenTool) {
 						this.tool.setOptions({
-							strokeWidth: this.tools.brushSettings.size,
+							strokeWidth:
+								readStoredBrushSize(this.tools.storedBrushSettings) ?? 10,
 							stabilization: currentSnapshot.stabilization,
 							smoothingMethod: currentSnapshot.smoothingMethod,
 							perspectiveSnap: currentSnapshot.perspectiveSnap,
@@ -3654,7 +3655,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 		if (toolType === "pen") {
 			this.tool = new PenTool(this.toolContext, {
-				strokeWidth: this.tools.brushSettings.size,
+				strokeWidth: readStoredBrushSize(this.tools.storedBrushSettings) ?? 10,
 				stabilization: this.toolSettings.stabilization,
 				smoothingMethod: this.toolSettings.smoothingMethod,
 				perspectiveSnap: this.toolSettings.perspectiveSnap,
@@ -3873,7 +3874,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		} else {
 			// Default to pen
 			this.tool = new PenTool(this.toolContext, {
-				strokeWidth: this.tools.brushSettings.size,
+				strokeWidth: readStoredBrushSize(this.tools.storedBrushSettings) ?? 10,
 				stabilization: this.toolSettings.stabilization,
 				smoothingMethod: this.toolSettings.smoothingMethod,
 				perspectiveSnap: this.toolSettings.perspectiveSnap,

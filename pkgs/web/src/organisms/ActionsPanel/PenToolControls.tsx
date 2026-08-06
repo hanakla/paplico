@@ -5,9 +5,8 @@ import { DashPatternControls } from "@/components/DashPatternControls";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { readStoredBrushSize } from "@/core/brush/access";
-import { normalizeBrushSettings } from "@/core/brush/normalize";
+import { resolveBrushRenderRoute } from "@/core/brush/renderRoute";
 import type { BrushStroking, LineCap, LineJoin } from "@/core/schema";
-import { isGeometricBrush } from "@/core/schema";
 import { appConfig } from "@/hooks/useAppConfig";
 import { useBrushEdits } from "@/hooks/useBrushEdits";
 import { useTranslation } from "@/locales";
@@ -23,16 +22,16 @@ export const PenToolControls = memo(function PenToolControls() {
 	const toolSnap = useSnapshot(tools.state);
 
 	const rawBrush = toolSnap.strokeAppearance?.paramData.params.brushSettings;
-	const normalizedBrush = rawBrush ? normalizeBrushSettings(rawBrush) : null;
-	const isGeometric = normalizedBrush
-		? isGeometricBrush(normalizedBrush)
-		: false;
+	const normalizedBrush = rawBrush
+		? resolveBrushRenderRoute(rawBrush).settings
+		: null;
+	const isGeometric = normalizedBrush?.engine === "geometric";
 	const lineCap =
-		normalizedBrush?.type === "stroke"
+		normalizedBrush?.engine === "geometric"
 			? (normalizedBrush.stroking?.lineCap ?? "round")
 			: "round";
 	const lineJoin =
-		normalizedBrush?.type === "stroke"
+		normalizedBrush?.engine === "geometric"
 			? (normalizedBrush.stroking?.lineJoin ?? "round")
 			: "round";
 
@@ -244,7 +243,7 @@ export const PenToolControls = memo(function PenToolControls() {
 
 					<DashPatternControls
 						stroking={
-							normalizedBrush?.type === "stroke"
+							normalizedBrush?.engine === "geometric"
 								? normalizedBrush.stroking
 								: undefined
 						}

@@ -3,7 +3,6 @@ import type { SoftProofLutResult } from "../color/types";
 import {
 	type AnyArtObject,
 	type Artboard,
-	type BrushType,
 	type Document,
 	type Filter,
 	getArtboardBounds,
@@ -478,7 +477,7 @@ export class RenderOrchestrator {
 				mask: this.layouts.mask,
 			},
 		};
-		const enginePipelines = new Map<BrushType, EnginePipeline>();
+		const enginePipelines = new Map<BrushEngineKind, EnginePipeline>();
 		for (const engine of [geometricEngine, stampEngine, ribbonEngine]) {
 			const pipeline = engine.createPipeline(engineCtx);
 			for (const id of engine.ids) {

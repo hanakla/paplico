@@ -4,7 +4,6 @@ import {
 	resolveOptionalSourceUid,
 	resolveScatterSourceUids,
 } from "../../brush/brushSource";
-import { normalizeBrushSettings } from "../../brush/normalize";
 import { BRUSH_PROPERTY_REGISTRY } from "../../brush/properties";
 import { resolveBrushRenderRoute } from "../../brush/renderRoute";
 import type { SoftProofLutResult } from "../../color/types";
@@ -5613,12 +5612,13 @@ export class CanvasLayer {
 							}
 						} else {
 							const strokeApp = app as StrokeAppearance;
-							const brushSettings = normalizeBrushSettings(
+							const settings = resolveBrushRenderRoute(
 								strokeApp.paramData.params.brushSettings,
-							);
+							).settings;
+							const tip = settings.tip?.kind === "image" ? settings.tip : null;
 
 							const textureUid = resolveBrushTextureUid(
-								brushSettings,
+								settings,
 								this.strokeRegistry?.getBrushTextureManager(),
 							);
 							if (
@@ -5638,21 +5638,18 @@ export class CanvasLayer {
 							// array, so def sources in these slots fall back to
 							// the built-in texture.
 							const files = this.assetState.currentFiles;
-							if (brushSettings.type === "scatter") {
+							if (tip) {
+								// The first source is the tip; the rest are variants.
 								for (const uid of resolveScatterSourceUids(
-									brushSettings.scatterSources,
+									tip.sources.slice(1),
 								)) {
 									this.elements.ensureBrushTexture(uid, files);
 								}
-								const startUid = resolveOptionalSourceUid(
-									brushSettings.startSource,
-								);
+								const startUid = resolveOptionalSourceUid(tip.startSource);
 								if (startUid) {
 									this.elements.ensureBrushTexture(startUid, files);
 								}
-								const endUid = resolveOptionalSourceUid(
-									brushSettings.endSource,
-								);
+								const endUid = resolveOptionalSourceUid(tip.endSource);
 								if (endUid) {
 									this.elements.ensureBrushTexture(endUid, files);
 								}

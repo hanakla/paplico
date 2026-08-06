@@ -14,8 +14,6 @@
  */
 
 import type {
-	BrushSettings,
-	BrushType,
 	CubicBezierSegment,
 	Path,
 	StrokeColor,
@@ -102,7 +100,8 @@ export interface ResolvedStrokeStyle {
 	pathEnd?: number;
 
 	/** Brush settings; engine matches on `type`. */
-	brush: BrushSettings;
+	/** Which engine draws this stroke. */
+	engine: BrushEngineKind;
 	/** Pre-resolved GPU texture views the engine should bind. */
 	textures: ResolvedTextureBindings;
 	/** Pre-resolved stroke color (solid value, or sampled texture). */
@@ -211,7 +210,7 @@ export interface EnginePipeline {
  * via this flag.
  */
 export interface StrokeEngine {
-	readonly ids: readonly BrushType[];
+	readonly ids: readonly BrushEngineKind[];
 	readonly supportsField: boolean;
 	createPipeline(ctx: EnginePipelineContext): EnginePipeline;
 }

@@ -26,7 +26,7 @@ export const STAMP_BRUSH_TYPES: readonly BrushType[] = [
 ];
 
 export class StampStrokeEngine implements StrokeEngine {
-	public readonly ids = STAMP_BRUSH_TYPES;
+	public readonly ids: readonly BrushEngineKind[] = ["dab"];
 	public readonly supportsField = true;
 
 	public constructor(private readonly context: StrokeBatchContext) {}

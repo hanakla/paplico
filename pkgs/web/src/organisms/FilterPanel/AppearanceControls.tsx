@@ -9,9 +9,10 @@ import { ToggleGroup } from "@/components/ToggleGroup";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { readStoredBrushSize, withStoredBrushSize } from "@/core/brush/access";
 import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
-import { normalizeBrushSettings } from "@/core/brush/normalize";
+import { resolveBrushRenderRoute } from "@/core/brush/renderRoute";
 import type {
 	BlendMode,
+	BrushStroking,
 	Color,
 	FillAppearance,
 	Filter,
@@ -19,7 +20,6 @@ import type {
 	LineJoin,
 	StrokeAppearance,
 } from "@/core/schema";
-import { type BrushStroking, isGeometricBrush } from "@/core/schema";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { useTranslation } from "@/locales";
 import {
@@ -235,7 +235,8 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 				filter={filter}
 				disabled={
 					!params.brushSettings ||
-					!isGeometricBrush(normalizeBrushSettings(params.brushSettings))
+					resolveBrushRenderRoute(params.brushSettings).settings.engine !==
+						"geometric"
 				}
 			/>
 		</AppearanceBaseControls>
@@ -257,10 +258,10 @@ export const StrokeGeometryControls = memo(function StrokeGeometryControls({
 	const t = useTranslation();
 
 	const normalizedBrush = params.brushSettings
-		? normalizeBrushSettings(params.brushSettings)
+		? resolveBrushRenderRoute(params.brushSettings).settings
 		: null;
 	const stroking =
-		normalizedBrush && isGeometricBrush(normalizedBrush)
+		normalizedBrush?.engine === "geometric"
 			? normalizedBrush.stroking
 			: undefined;
 	const lineCap = stroking?.lineCap ?? "round";
