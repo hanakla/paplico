@@ -32,8 +32,10 @@ import {
 } from "../../canvas/pipeline/RenderSurface";
 import type { TexturePool } from "../../canvas/pipeline/TexturePool";
 import { Extrude3DFilterHandler } from "../Extrude3DFilterHandler";
+import { PathUnionFilterHandler } from "../PathUnionFilterProcessor";
 import {
 	buildExtrudeOutline,
+	buildTextGlyphOutline,
 	collectGroupExtrudeOutline,
 	ExtrudeAppearanceRenderer,
 	type ExtrudeFrameEntry,
@@ -2160,6 +2162,191 @@ describe("resolveFillBaseColor", () => {
 	});
 });
 
+describe("buildTextGlyphOutline", () => {
+	it("should run an element geometry filter once over the whole text", () => {
+		const cached = {
+			paths: [
+				{ id: "glyph-0", segments: squareSegments() },
+				{ id: "glyph-1", segments: translateSegments(squareSegments(), 20, 0) },
+			] as unknown as Path[],
+		};
+		const receivedSegmentCounts: number[] = [];
+		const filterRenderer = {
+			getHandler: (processor: string) =>
+				processor === "path-union"
+					? {
+							preProcess: (segments: CubicBezierSegment[]) => {
+								receivedSegmentCounts.push(segments.length);
+								return segments;
+							},
+						}
+					: undefined,
+		} as unknown as FilterRenderer;
+
+		const outline = buildTextGlyphOutline(
+			cached,
+			{ x: 0, y: 0, filters: [appearance("path-union")] },
+			filterRenderer,
+		);
+
+		// Both glyphs arrive in a single call. A per-glyph unit would instead show
+		// two calls of four segments each, which is what lets path-union merge a
+		// glyph's own counters while leaving overlapping neighbours separate.
+		expect(receivedSegmentCounts).toEqual([8]);
+		expect(splitByIsMoved(outline.flatSegments)).toHaveLength(2);
+	});
+
+	it("should run the geometry filter before the stroke sweep, as the path branch does", () => {
+		const cached = {
+			paths: [
+				{ id: "glyph-0", segments: squareSegments() },
+			] as unknown as Path[],
+		};
+		const receivedSegmentCounts: number[] = [];
+		const filterRenderer = {
+			getHandler: (processor: string) =>
+				processor === "path-union"
+					? {
+							preProcess: (segments: CubicBezierSegment[]) => {
+								receivedSegmentCounts.push(segments.length);
+								return segments;
+							},
+						}
+					: undefined,
+		} as unknown as FilterRenderer;
+
+		const outline = buildTextGlyphOutline(
+			cached,
+			{
+				x: 0,
+				y: 0,
+				filters: [appearance("path-union"), strokeAppearance(4)],
+			},
+			filterRenderer,
+		);
+
+		// The filter sees the raw four-segment fill outline, not the swept
+		// polygon — the sweep normalizes winding, so a boolean filter running
+		// after it would hand buildExtrudeMesh unnormalized contours.
+		expect(receivedSegmentCounts).toEqual([4]);
+		expect(outline.segments.length).toBeGreaterThan(
+			outline.flatSegments.length,
+		);
+	});
+
+	it("should keep glyph counters as holes when path-union runs over the whole text", () => {
+		const handler = new PathUnionFilterHandler();
+		const filterRenderer = {
+			getHandler: (processor: string) =>
+				processor === "path-union" ? handler : undefined,
+		} as unknown as FilterRenderer;
+		const counter = (dx: number) =>
+			reverseSubPath(translateSegments(squareSegments(20), dx + 10, 10));
+		const cached = {
+			paths: [
+				{
+					id: "glyph-0",
+					segments: [...squareSegments(), ...counter(0)],
+				},
+				{
+					id: "glyph-1",
+					segments: [
+						...translateSegments(squareSegments(), 60, 0),
+						...counter(60),
+					],
+				},
+			] as unknown as Path[],
+		};
+
+		const outline = buildTextGlyphOutline(
+			cached,
+			{ x: 0, y: 0, filters: [appearance("path-union")] },
+			filterRenderer,
+		);
+
+		const areas = splitByIsMoved(outline.flatSegments).map(
+			computeSubPathSignedArea,
+		);
+		// Two outers and two counters survive, and the counters are wound against
+		// the outers so buildExtrudeMesh's dominant-winding rule cuts them out.
+		expect(areas).toHaveLength(4);
+		expect(areas.filter((a) => a > 0)).toHaveLength(2);
+		expect(areas.filter((a) => a < 0)).toHaveLength(2);
+
+		// The mesh silhouette is what actually gets triangulated, so the counters
+		// have to survive the stroke sweep too, not just the boolean.
+		const meshAreas = splitByIsMoved(outline.segments).map(
+			computeSubPathSignedArea,
+		);
+		expect(meshAreas.filter((a) => a > 0)).toHaveLength(2);
+		expect(meshAreas.filter((a) => a < 0)).toHaveLength(2);
+	});
+
+	it("should keep glyph counters as holes through the stroke sweep", () => {
+		const handler = new PathUnionFilterHandler();
+		const filterRenderer = {
+			getHandler: (processor: string) =>
+				processor === "path-union" ? handler : undefined,
+		} as unknown as FilterRenderer;
+		const counter = (dx: number) =>
+			reverseSubPath(translateSegments(squareSegments(20), dx + 10, 10));
+		const cached = {
+			paths: [
+				{ id: "glyph-0", segments: [...squareSegments(), ...counter(0)] },
+				{
+					id: "glyph-1",
+					segments: [
+						...translateSegments(squareSegments(), 60, 0),
+						...counter(60),
+					],
+				},
+			] as unknown as Path[],
+		};
+
+		const outline = buildTextGlyphOutline(
+			cached,
+			{
+				x: 0,
+				y: 0,
+				filters: [
+					appearance("path-union"),
+					solidFillAppearance(),
+					strokeAppearance(4),
+				],
+			},
+			filterRenderer,
+		);
+
+		const meshAreas = splitByIsMoved(outline.segments).map(
+			computeSubPathSignedArea,
+		);
+		// The sweep widens the outers and narrows the counters, but a counter that
+		// the stroke does not close over stays a hole.
+		expect(meshAreas.filter((a) => a > 0)).toHaveLength(2);
+		expect(meshAreas.filter((a) => a < 0)).toHaveLength(2);
+	});
+
+	it("should leave the glyph outlines untouched when no geometry filter is enabled", () => {
+		const cached = {
+			paths: [
+				{ id: "glyph-0", segments: squareSegments() },
+			] as unknown as Path[],
+		};
+		const filterRenderer = {
+			getHandler: () => undefined,
+		} as unknown as FilterRenderer;
+
+		const outline = buildTextGlyphOutline(
+			cached,
+			{ x: 5, y: 7, filters: [appearance("path-union")] },
+			filterRenderer,
+		);
+
+		expect(outline.flatSegments).toHaveLength(4);
+		expect(outline.flatSegments[0].start).toEqual({ x: 5, y: 7 });
+	});
+});
+
 // Helpers
 
 function createFakeDevice() {
@@ -2340,14 +2527,29 @@ function pathWithExtrude(
 	} as unknown as Path & { transform?: ElementTransform };
 }
 
-/** A closed 40×40 square outline (isClosed set on the last segment). */
-function squareSegments(): CubicBezierSegment[] {
+/** A closed square outline, 40×40 by default (isClosed set on the last segment). */
+function squareSegments(size = 40): CubicBezierSegment[] {
 	const points: BezierPoint[] = [
 		{ x: 0, y: 0 },
-		{ x: 40, y: 0 },
-		{ x: 40, y: 40 },
-		{ x: 0, y: 40 },
+		{ x: size, y: 0 },
+		{ x: size, y: size },
+		{ x: 0, y: size },
 	];
+	return points.map((p, i) => ({
+		...lineSeg(p, points[(i + 1) % points.length], i === 0),
+		isClosed: i === points.length - 1,
+	}));
+}
+
+/** Reverse a closed sub-path's direction so it winds against its container. */
+function reverseSubPath(segments: CubicBezierSegment[]): CubicBezierSegment[] {
+	const points: BezierPoint[] = [];
+	let cursor = segments[0].start ?? { x: 0, y: 0 };
+	for (const seg of segments) {
+		points.push({ x: cursor.x, y: cursor.y });
+		cursor = seg.end;
+	}
+	points.reverse();
 	return points.map((p, i) => ({
 		...lineSeg(p, points[(i + 1) % points.length], i === 0),
 		isClosed: i === points.length - 1,

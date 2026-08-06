@@ -49,7 +49,9 @@ import {
 	computeQuadProjectiveWeights,
 	quadOfBounds,
 } from "../../../utils/geometry/quadProjection";
+import { groupRingsByContainment } from "../../../utils/geometry/ringContainment";
 import {
+	appendSubpath,
 	reconstructSegmentsFromWorld,
 	toWorldPath,
 	transformSegmentsToWorld,
@@ -66,6 +68,7 @@ import {
 	instanceAppearanceUid,
 } from "../../canvas/caches/AppearanceCache";
 import type { CompoundPathCache } from "../../canvas/caches/CompoundPathCache";
+import { buildTextGeometry } from "../../canvas/elements/textGeometry";
 import type {
 	BackdropEffectCoordinator,
 	BackdropEffectRequest,
@@ -80,7 +83,10 @@ import type {
 import { resolveRenderConfigure } from "../../canvas/pipeline/FilterRenderer";
 import { collectGroupSegments } from "../../canvas/pipeline/GroupAppearanceCollector";
 import type { MeshPassRenderer } from "../../canvas/pipeline/MeshPassRenderer";
-import { applyPreFilters } from "../../canvas/pipeline/PreFilterRenderer";
+import {
+	applyPreFilters,
+	resolveElementGeometry,
+} from "../../canvas/pipeline/PreFilterRenderer";
 import {
 	createBorrowedTextureRef,
 	createRenderSurface,
@@ -1276,12 +1282,13 @@ export function buildExtrudeOutline(
 	// so a filled+stroked shape has no interior hole; a stroke-only shape keeps
 	// its middle empty (a frame), because the swept quads never cover it.
 	const operands: Polygon[] = [];
+	const fillRings: Ring[] = [];
 	for (const sub of splitIntoSubPaths(segments)) {
 		const points = flattenSubPathPoints(sub);
 		if (points.length < 2) continue;
 		const isClosed = sub.at(-1)?.isClosed === true;
 		if (hasFill && isClosed && points.length >= 3) {
-			operands.push([toPolygonRing(points)]);
+			fillRings.push(toPolygonRing(points));
 		}
 		appendStrokePolygons(
 			points,
@@ -1291,6 +1298,13 @@ export function buildExtrudeOutline(
 			roundCap,
 			operands,
 		);
+	}
+	// The fill's closed sub-paths describe ONE region with holes, not a pile of
+	// separate shapes. Pushing a glyph's outer and its counter in as two
+	// operands unions the counter shut, which is how a stroked "o" came back
+	// solid; folding the holes into their outer keeps them open.
+	for (const group of groupRingsByContainment(fillRings)) {
+		operands.push(group.map((index) => fillRings[index]));
 	}
 	if (operands.length === 0) return segments;
 
@@ -1399,8 +1413,8 @@ export function collectGroupExtrudeOutline(
 		path: Path,
 		nodeTransform: ElementTransform | undefined,
 	): Path => {
-		const flatSegments = applyPreFilters(
-			applyCornerRadius(path.segments),
+		const flatSegments = resolveElementGeometry(
+			path.segments,
 			path.filters,
 			filterRenderer,
 		);
@@ -1450,6 +1464,7 @@ export function collectGroupExtrudeOutline(
 							nodeTransform,
 							resolveTextOutline,
 							requestTextOutline,
+							filterRenderer,
 						),
 					);
 					break;
@@ -1750,34 +1765,97 @@ export function collectBlendExtrudeInstances(
 
 /**
  * Combine a Text element's cached glyph outlines (one Path per non-empty
- * glyph) into one multi-subpath outline in the element's own LOCAL space:
- * each glyph is offset by the element's x/y (matching
- * ElementRenderer.renderElementToMask's text case) and its own extrude
- * outline (stroke sweep) is folded in. Pure geometry — no transform
- * composition. A caller needing world space must still fold the element's
- * own transform afterward, and should do so ONCE around the combined
- * outline (not per glyph), so a rotated/scaled text block moves as one
- * rigid shape instead of each glyph spinning around its own center.
+ * glyph) into one multi-subpath outline in the element's own LOCAL space,
+ * running the SAME pipeline `buildOutline`'s path branch runs — corner radius,
+ * then the element's geometry pre-filters, then the stroke sweep — over the
+ * glyphs as a single shape. The order is the point: `buildExtrudeOutline`
+ * normalizes winding (solids CCW, holes CW) through polygon-clipping, so a
+ * boolean pre-filter has to run BEFORE it, or its unnormalized output reaches
+ * buildExtrudeMesh and glyphs wound against the majority get cut away as
+ * holes.
+ *
+ * Returns the pre-sweep fill outline as `flatSegments` (the albedo bake's
+ * source) alongside the swept `segments` (the mesh silhouette), mirroring the
+ * path branch's two values.
+ *
+ * Pure geometry — no transform composition. A caller needing world space must
+ * still fold the element's own transform afterward, and should do so ONCE
+ * around the combined outline (not per glyph), so a rotated/scaled text block
+ * moves as one rigid shape instead of each glyph spinning around its own
+ * center.
  */
 export function buildTextGlyphOutline(
 	cached: { paths: Path[] },
-	element: { x: number; y: number },
-): CubicBezierSegment[] {
-	const result: CubicBezierSegment[] = [];
+	element: { x: number; y: number; filters?: Filter[] },
+	filterRenderer: Pick<FilterRenderer, "getHandler">,
+): TextGlyphOutline {
+	// The stroke sweep polygon-clips every sub-path of the whole text at once,
+	// which costs tens of milliseconds on a line of CJK glyphs — far too much to
+	// repeat while panning, where nothing it depends on changes. Glyph cache
+	// entries and filter arrays are both replaced rather than mutated, so their
+	// identity is a complete content key.
+	const memo = textOutlineMemo.get(cached);
+	if (
+		memo &&
+		memo.filters === element.filters &&
+		memo.x === element.x &&
+		memo.y === element.y
+	) {
+		return memo.outline;
+	}
+
+	const outline = computeTextGlyphOutline(cached, element, filterRenderer);
+	textOutlineMemo.set(cached, {
+		filters: element.filters,
+		x: element.x,
+		y: element.y,
+		outline,
+	});
+	return outline;
+}
+
+interface TextGlyphOutline {
+	segments: CubicBezierSegment[];
+	flatSegments: CubicBezierSegment[];
+}
+
+const textOutlineMemo = new WeakMap<
+	object,
+	{
+		filters: Filter[] | undefined;
+		x: number;
+		y: number;
+		outline: TextGlyphOutline;
+	}
+>();
+
+function computeTextGlyphOutline(
+	cached: { paths: Path[] },
+	element: { x: number; y: number; filters?: Filter[] },
+	filterRenderer: Pick<FilterRenderer, "getHandler">,
+): TextGlyphOutline {
 	const ox = element.x;
 	const oy = element.y;
-	for (const glyphPath of cached.paths) {
-		const offsetSegments = glyphPath.segments.map((seg) => ({
+	// Corner radius and the geometry filters both run inside buildTextGeometry,
+	// over the concatenated text — the same resolution the flat render uses.
+	const glyphFills = cached.paths.map((glyphPath) =>
+		glyphPath.segments.map((seg) => ({
 			...seg,
 			start: seg.start
 				? { ...seg.start, x: seg.start.x + ox, y: seg.start.y + oy }
 				: undefined,
 			end: { ...seg.end, x: seg.end.x + ox, y: seg.end.y + oy },
-		}));
-		const outline = buildExtrudeOutline(glyphPath.filters, offsetSegments);
-		appendSubpath(result, outline);
-	}
-	return result;
+		})),
+	);
+	const flatSegments = buildTextGeometry(
+		glyphFills,
+		element.filters,
+		filterRenderer,
+	);
+	return {
+		segments: buildExtrudeOutline(element.filters, flatSegments),
+		flatSegments,
+	};
 }
 
 /**
@@ -1837,13 +1915,14 @@ function collectTextExtrudeOutline(
 		element: TextElement,
 	) => { paths: Path[]; localBounds: BoundingBox } | null,
 	requestTextOutline: (element: TextElement) => void,
+	filterRenderer: Pick<FilterRenderer, "getHandler">,
 ): CubicBezierSegment[] {
 	const cached = resolveTextOutline(element);
 	if (!cached) {
 		requestTextOutline(element);
 		return [];
 	}
-	const local = buildTextGlyphOutline(cached, element);
+	const local = buildTextGlyphOutline(cached, element, filterRenderer).segments;
 	if (local.length === 0) return [];
 	const world = toWorldPath(
 		{ ...element, segments: local } as unknown as Path,
@@ -1854,15 +1933,6 @@ function collectTextExtrudeOutline(
 
 /** Append `segments` as a new sub-path (marking its first segment isMoved)
  *  onto `result`, in place. No-op for an empty `segments`. */
-function appendSubpath(
-	result: CubicBezierSegment[],
-	segments: CubicBezierSegment[],
-): void {
-	if (segments.length === 0) return;
-	result.push({ ...segments[0], isMoved: true });
-	for (let i = 1; i < segments.length; i++) result.push(segments[i]);
-}
-
 /** Compose a group's own transform with all its ancestor group transforms. */
 export function composeAncestorTransform(
 	element: AnyArtObject,

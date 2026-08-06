@@ -115,6 +115,20 @@ export function translateSegments(
 }
 
 /**
+ * Append `segments` to `result` as a new sub-path. The appended run's first
+ * segment is re-marked `isMoved` so concatenating several outlines produces one
+ * multi-subpath list instead of a single run joined end to end.
+ */
+export function appendSubpath(
+	result: CubicBezierSegment[],
+	segments: readonly CubicBezierSegment[],
+): void {
+	if (segments.length === 0) return;
+	result.push({ ...segments[0], isMoved: true });
+	for (let i = 1; i < segments.length; i++) result.push(segments[i]);
+}
+
+/**
  * 絶対cp1座標を開始アンカーからの相対オフセットに変換する。
  */
 export function toRelativeCP1(
