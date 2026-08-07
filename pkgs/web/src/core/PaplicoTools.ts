@@ -1,15 +1,11 @@
-import {
-	mergeBrushSettingsV2PreservingCurves,
-	normalizeBrushSettingsV2,
-} from "./brush/migrate";
-import { normalizeBrushSettings } from "./brush/normalize";
+import { applyBrushPatch } from "./brush/access";
+import { normalizeBrushSettingsV2 } from "./brush/migrate";
 import {
 	PAPLICO_MAX_ZOOM_SCALE,
 	PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
 } from "./document/constants";
 import { createStrokeBrushSettings } from "./document/factory";
 import {
-	type BrushSettings,
 	type BrushSettingsPatch,
 	type BrushSettingsV2,
 	cloneAppearance,
@@ -64,22 +60,12 @@ export class PaplicoTools {
 		return this.store.fillAppearance?.paramData.params.fill ?? null;
 	}
 
-	public get brushSettings(): BrushSettings {
-		const raw = this.store.strokeAppearance?.paramData.params.brushSettings;
-		return raw != null
-			? normalizeBrushSettings(raw)
-			: createStrokeBrushSettings(2);
-	}
-
-	/**
-	 * Stored brush settings in their persisted format (v2 after any edit).
-	 * Persistence paths (preset save) read this so curve-editor state
-	 * survives; UI edits go through the legacy view via `brushSettings`.
-	 */
-	public get storedBrushSettings(): BrushSettings | BrushSettingsV2 {
-		return (
+	/** The brush as stored. Everything reads this: a down-converted view has
+	 *  nowhere to hold curves, mixing or the wet layer. */
+	public get storedBrushSettings(): BrushSettingsV2 {
+		return normalizeBrushSettingsV2(
 			this.store.strokeAppearance?.paramData.params.brushSettings ??
-			createStrokeBrushSettings(2)
+				createStrokeBrushSettings(2),
 		);
 	}
 
@@ -130,22 +116,17 @@ export class PaplicoTools {
 		if (!this.store.strokeAppearance) return;
 
 		let updated: BrushSettingsV2;
+		// A whole brush replaces the stored settings outright — nothing is
+		// carried over. Presets arrive this way.
 		if ("version" in patch && patch.version === 2) {
-			// A complete v2 value (preset application) replaces the stored
-			// settings wholesale — no state is carried over.
 			updated = normalizeBrushSettingsV2(patch);
 		} else {
-			const stored = this.store.strokeAppearance.paramData.params.brushSettings;
-			const previous =
-				stored != null ? normalizeBrushSettingsV2(stored) : undefined;
-			// Flat (v1-shaped) patches merge onto the legacy view (same brush
-			// type; a patch carrying a different `type` is a full replacement),
-			// then the result is rebuilt as v2. Curve-editor state the flat layer
-			// cannot express is carried over from the previously stored v2 value.
-			const merged = { ...this.brushSettings, ...patch };
-			updated = mergeBrushSettingsV2PreservingCurves(
-				previous,
-				normalizeBrushSettingsV2(merged),
+			updated = applyBrushPatch(
+				normalizeBrushSettingsV2(
+					this.store.strokeAppearance.paramData.params.brushSettings ??
+						createStrokeBrushSettings(2),
+				),
+				patch,
 			);
 		}
 		this.store.strokeAppearance = cloneAppearance(this.store.strokeAppearance, {
@@ -154,7 +135,11 @@ export class PaplicoTools {
 	}
 
 	public setSvgBrush(): void {
-		this.setBrushSettings(createStrokeBrushSettings(this.brushSettings.size));
+		this.setBrushSettings(
+			createStrokeBrushSettings(
+				this.storedBrushSettings.properties.size?.base ?? 2,
+			),
+		);
 	}
 
 	public setFillColor(color: FillColor | null): void {

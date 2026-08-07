@@ -29,7 +29,6 @@ import {
 import { PaplicoError } from "./errors";
 import { PaplicoExporter } from "./io/export/PaplicoExporter";
 import { PaplicoPSDExporter } from "./io/export/PaplicoPSDExporter";
-import { PaplicoSVGExporter } from "./io/export/PaplicoSVGExporter";
 import { PaplicoTIFFExporter } from "./io/export/PaplicoTIFFExporter";
 import { gcDocument } from "./io/papf/gc";
 import { openPapf } from "./io/papf/reader";
@@ -292,7 +291,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	public readonly exporter!: PaplicoExporter;
 	public readonly psdExporter!: PaplicoPSDExporter;
 	public readonly tiffExporter!: PaplicoTIFFExporter;
-	public readonly svgExporter!: PaplicoSVGExporter;
 	public readonly shortcuts!: PaplicoShortcuts;
 
 	private renderer: RenderOrchestrator;
@@ -920,8 +918,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				() => this.rendererStore.document,
 				this.getBuiltinProfileBytes,
 			);
-		(this as { svgExporter: PaplicoSVGExporter }).svgExporter =
-			new PaplicoSVGExporter(this.renderer, () => this.rendererStore.document);
 		this.toolContext = this.createToolContext();
 		// Timelapse recording
 		this.yjsProvider.ydoc.on("update", (update: Uint8Array) => {

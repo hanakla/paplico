@@ -5001,15 +5001,6 @@ export class CanvasLayer {
 			) {
 				continue;
 			}
-			// Guide paths stay visible on canvas but are excluded from exports
-			// (schema: Path.isGuide "Excluded from export").
-			if (
-				element.type === "path" &&
-				element.isGuide &&
-				this.renderState.isExport
-			) {
-				continue;
-			}
 			// Skip backdrop filter elements - they'll be processed separately
 			if (skipElementIds?.has(element.id)) {
 				continue;

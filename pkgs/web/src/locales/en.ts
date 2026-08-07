@@ -1055,7 +1055,6 @@ export const en = {
 		jpegExport: "JPEG Export",
 		tiff: "TIFF",
 		tiffExport: "TIFF Export",
-		svgExport: "SVG Export",
 		hdrDisabledTooltip: "Enable HDR in Document Settings first",
 		format: "Format",
 		resolution: "Resolution",
