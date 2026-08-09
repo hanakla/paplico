@@ -261,7 +261,21 @@ describe("classifyElement", () => {
 		expect(
 			classifyElement(
 				basePath({
-					filters: [appearance("fill", { fill: { type: "free", stops: [] } })],
+					filters: [
+						appearance("fill", {
+							fill: {
+								type: "free",
+								stops: [
+									{
+										id: "s1",
+										x: 0.5,
+										y: 0.5,
+										color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
+									},
+								],
+							},
+						}),
+					],
 				}),
 				opts,
 			),
@@ -391,6 +405,62 @@ describe("classifyElement", () => {
 		).toBe("raster");
 	});
 
+	it("should ignore invisible appearances instead of rasterizing", () => {
+		// A transparent dab stroke beside a clean gradient fill must not drag
+		// the element into rasterization.
+		const invisibleDabStroke = appearance("stroke", {
+			strokeColor: {
+				type: "solid",
+				color: { type: "rgb", r: 0, g: 0, b: 0, a: 0 },
+			},
+			brushSettings: geometricBrush({ engine: "dab" }),
+		});
+		const gradientFill = appearance("fill", {
+			fill: {
+				type: "linear",
+				x1: 0,
+				y1: 0,
+				x2: 1,
+				y2: 0,
+				stops: [
+					{
+						offset: 0,
+						color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+						midpoint: 0.5,
+					},
+					{
+						offset: 1,
+						color: { type: "rgb", r: 1, g: 1, b: 1, a: 1 },
+						midpoint: 0.5,
+					},
+				],
+			},
+		});
+		const el = basePath({ filters: [gradientFill, invisibleDabStroke] });
+		expect(classifyElement(el, makeOptions([el]))).toBe("pure");
+
+		// A zero-width dab stroke is equally invisible.
+		const zeroWidthDab = appearance("stroke", {
+			strokeColor: {
+				type: "solid",
+				color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+			},
+			brushSettings: geometricBrush({
+				engine: "dab",
+				properties: { size: { base: 0 } },
+			}),
+		});
+		const el2 = basePath({ filters: [gradientFill, zeroWidthDab] });
+		expect(classifyElement(el2, makeOptions([el2]))).toBe("pure");
+
+		// A fully transparent free-gradient fill must not force raster either.
+		const invisibleFreeFill = appearance("fill", {
+			fill: { type: "free", stops: [] },
+		});
+		const el3 = basePath({ filters: [invisibleFreeFill, solidFill()] });
+		expect(classifyElement(el3, makeOptions([el3]))).toBe("pure");
+	});
+
 	it("should rasterize text whose runs use non-vectorizable paint", () => {
 		const opts = makeOptions([]);
 		const gradientStrokeText = textElement({
@@ -493,7 +563,7 @@ describe("planLayerItems", () => {
 		]);
 	});
 
-	it("should swallow everything below a backdrop-dependent element", () => {
+	it("should swallow overlapping items below a backdrop-dependent element", () => {
 		const vector = basePath({ filters: [solidFill()] });
 		const raster = basePath({ filters: [appearance("blur")] });
 		const locked = basePath({ compositionMode: "alpha-lock" });
@@ -507,6 +577,25 @@ describe("planLayerItems", () => {
 		expect(items).toEqual([
 			{ kind: "raster", elementIds: [vector.id, raster.id, locked.id] },
 			{ kind: "vector", elementId: above.id, class: "pure" },
+		]);
+	});
+
+	it("should keep non-overlapping items out of a backdrop swallow", () => {
+		// A blended vector far away from the alpha-locked element must stay
+		// vector — only backdrop-feeding overlaps get merged into the chunk.
+		const farBlend = basePath({
+			filters: [solidFill()],
+			blendMode: "multiply",
+			transform: { x: 500, y: 500, rotation: 0, scaleX: 1, scaleY: 1 },
+		});
+		const underLock = basePath({ filters: [solidFill()] });
+		const locked = basePath({ compositionMode: "alpha-lock" });
+		const opts = makeOptions([farBlend, underLock, locked]);
+
+		const items = planLayerItems([farBlend.id, underLock.id, locked.id], opts);
+		expect(items).toEqual([
+			{ kind: "vector", elementId: farBlend.id, class: "pure" },
+			{ kind: "raster", elementIds: [underLock.id, locked.id] },
 		]);
 	});
 

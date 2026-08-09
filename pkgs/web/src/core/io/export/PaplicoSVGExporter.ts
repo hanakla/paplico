@@ -152,6 +152,7 @@ export class PaplicoSVGExporter {
 			mapper: createCoordMapper(artboard),
 			viewBox: { width: artboard.width, height: artboard.height },
 			classify,
+			cullBounds: artboardBounds,
 			filterResolver: {
 				getHandler: (processor) => this.renderer.getFilterHandler(processor),
 			},

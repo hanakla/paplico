@@ -16,6 +16,7 @@ import {
 	isFilterEnabled,
 	isIdentityTransform,
 	isPath,
+	isVisibleFill,
 	type ObjectMask,
 	type Path,
 	type PathSegment,
@@ -45,6 +46,7 @@ import {
 	type SvgCoordMapper,
 	segmentsToPathData,
 	svgMatrixToString,
+	type WorldAffine,
 } from "./pathData";
 import type { RasterChunkResult } from "./rasterChunk";
 import type { SvgDocumentBuilder, SvgNode } from "./svgBuilder";
@@ -56,6 +58,13 @@ export interface SerializeContext {
 	mapper: SvgCoordMapper;
 	viewBox: { width: number; height: number };
 	classify: ClassifyOptions;
+	/**
+	 * Region this context's output can actually show, in the SAME space the
+	 * geometry is serialized in (world artboard bounds; the tile rect for
+	 * pattern-tile serialization). Elements whose painted bounds do not reach
+	 * it are dropped instead of shipping invisible markup.
+	 */
+	cullBounds: BoundingBox;
 	filterResolver: Pick<FilterRenderer, "getHandler">;
 	outlineText(element: TextElement): Promise<{
 		outlinedPaths: Array<{
@@ -172,11 +181,19 @@ async function serializePathLike(
 	const worldBounds = calculateSegmentListBounds(worldSegments);
 	if (!worldBounds) return null;
 
+	// Cull elements whose painted area (geometry + stroke reach) cannot touch
+	// the visible region — invisible markup must not ship in the export.
+	if (!boundsIntersect(worldBounds, ctx.cullBounds, maxStrokeWidth(element))) {
+		return null;
+	}
+
 	const shapes: SvgNode[] = [];
 	for (const filter of element.filters ?? []) {
 		if (!isFilterEnabled(filter)) continue;
 		if (filter.processor === "fill") {
-			const fill = (filter as FillAppearance).paramData.params.fill;
+			const fillAppearance = filter as FillAppearance;
+			if (!isVisibleFill(fillAppearance)) continue;
+			const fill = fillAppearance.paramData.params.fill;
 			const paint = await resolveFillPaint(fill, worldBounds, ctx);
 			if (paint.paint === "none") continue;
 			shapes.push({
@@ -370,6 +387,9 @@ async function serializeImage(
 		contentToLocal,
 	);
 
+	const cornerBounds = affineRectBounds(worldAffine, image.width, image.height);
+	if (!boundsIntersect(cornerBounds, ctx.cullBounds, 0)) return null;
+
 	const node: SvgNode = {
 		tag: "image",
 		attrs: {
@@ -410,6 +430,18 @@ async function serializeText(
 			paintSource.defaultStyle;
 		const fill = style.fill ?? paintSource.defaultStyle.fill ?? null;
 		const stroke = style.stroke ?? paintSource.defaultStyle.stroke ?? null;
+		const strokeWidth =
+			style.strokeWidth ?? paintSource.defaultStyle.strokeWidth ?? 1;
+
+		// Per-glyph culling: glyphs that cannot reach the visible region are
+		// dropped; glyphs crossing the edge are kept whole.
+		const cullBounds = calculateSegmentListBounds(worldSegments);
+		if (
+			!cullBounds ||
+			!boundsIntersect(cullBounds, ctx.cullBounds, stroke ? strokeWidth : 0)
+		) {
+			continue;
+		}
 
 		if (fill) {
 			const glyphBounds = calculateSegmentListBounds(worldSegments);
@@ -437,8 +469,7 @@ async function serializeText(
 						fill: "none",
 						stroke: paint.paint,
 						...opacityAttr("stroke-opacity", paint.opacity),
-						"stroke-width":
-							style.strokeWidth ?? paintSource.defaultStyle.strokeWidth ?? 1,
+						"stroke-width": strokeWidth,
 						"stroke-linecap": "round",
 						"stroke-linejoin": "round",
 					},
@@ -551,9 +582,19 @@ async function registerPatternBase(
 		width: def.tile.width,
 		height: def.tile.height,
 	});
+	const halfW = def.tile.width / 2;
+	const halfH = def.tile.height / 2;
 	const children = await serializePlanItems(def.rootElementIds, {
 		...ctx,
 		mapper: tileMapper,
+		cullBounds: {
+			minX: -halfW,
+			minY: -halfH,
+			maxX: halfW,
+			maxY: halfH,
+			width: def.tile.width,
+			height: def.tile.height,
+		},
 	});
 
 	ctx.builder.addDef({
@@ -690,6 +731,60 @@ function bakeSegmentsToWorld(
 		transformSegmentsToWorld(geometry, composed, origin),
 		geometry,
 	);
+}
+
+function boundsIntersect(
+	a: BoundingBox,
+	b: BoundingBox,
+	margin: number,
+): boolean {
+	return (
+		a.minX - margin <= b.maxX &&
+		a.maxX + margin >= b.minX &&
+		a.minY - margin <= b.maxY &&
+		a.maxY + margin >= b.minY
+	);
+}
+
+/** Widest visible stroke of the element, as the geometry-bounds cull margin. */
+function maxStrokeWidth(element: AnyArtObject): number {
+	let width = 0;
+	for (const filter of element.filters ?? []) {
+		if (!isFilterEnabled(filter)) continue;
+		if (filter.processor !== "stroke") continue;
+		const params = (filter as StrokeAppearance).paramData.params;
+		const settings = params.brushSettings
+			? resolveBrushRenderRoute(params.brushSettings).settings
+			: null;
+		width = Math.max(width, settings?.properties.size?.base ?? 1);
+	}
+	return width;
+}
+
+/** World bbox of a w×h rect at the origin of `affine`'s input space. */
+function affineRectBounds(
+	affine: WorldAffine,
+	width: number,
+	height: number,
+): BoundingBox {
+	let minX = Infinity;
+	let minY = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+	for (const [u, v] of [
+		[0, 0],
+		[width, 0],
+		[width, height],
+		[0, height],
+	]) {
+		const x = affine.m00 * u + affine.m01 * v + affine.tx;
+		const y = affine.m10 * u + affine.m11 * v + affine.ty;
+		minX = Math.min(minX, x);
+		minY = Math.min(minY, y);
+		maxX = Math.max(maxX, x);
+		maxY = Math.max(maxY, y);
+	}
+	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
 
 function boundsCenter(bounds: BoundingBox): { x: number; y: number } {

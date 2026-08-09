@@ -2,15 +2,18 @@ import { resolveBrushRenderRoute } from "../../../brush/renderRoute";
 import {
 	type AnyArtObject,
 	type BlendMode,
+	colorToRawRGBA,
 	type Document,
 	type FillAppearance,
 	type Filter,
 	hasGroupAppearances,
 	isFilterEnabled,
+	isVisibleFill,
 	type StrokeAppearance,
 	type TextElement,
 	type TextStyle,
 } from "../../../schema";
+import { calculateElementBounds } from "../../../utils/geometry/bounds";
 
 /**
  * How an element travels into the SVG output:
@@ -84,12 +87,23 @@ function classifyElementInner(
 	let needsBake = false;
 	for (const filter of element.filters ?? []) {
 		if (!isFilterEnabled(filter)) continue;
+
+		if (filter.processor === "fill") {
+			// An invisible fill contributes nothing — it must not drag the
+			// element into rasterization (e.g. a leftover transparent free
+			// gradient beside a clean solid fill).
+			if (!isVisibleFill(filter as FillAppearance)) continue;
+		} else if (filter.processor === "stroke") {
+			if (!isVisibleStroke(filter as StrokeAppearance)) continue;
+		}
+
 		if (filter.applyToBackdrop) return "raster";
 		if (opts.filterReplacesElementRender(filter)) return "raster";
 		if (filter.subFilters?.some(isFilterEnabled)) return "raster";
 		// Per-appearance blends composite against the element's other
 		// appearances; SVG has no equivalent below the element level.
-		if (filter.blendMode !== "normal") return "raster";
+		// (?? guards documents that predate the blendMode backfill.)
+		if ((filter.blendMode ?? "normal") !== "normal") return "raster";
 
 		const kind = opts.filterKind(filter);
 		if (kind === "raster") return "raster";
@@ -172,16 +186,18 @@ function classifyElementInner(
  * maps to SVG output items. Consecutive raster elements merge into one
  * {@link RasterRun}; a non-normal-blend raster element becomes a singleton run
  * so its blend applies against real siblings instead of a transparent chunk.
- * A backdrop-dependent element (alpha-lock / applyToBackdrop) swallows every
- * item below it in the same list — cross-layer backdrop references are a known
- * limitation and are not reproduced.
+ * A backdrop-dependent element (alpha-lock / applyToBackdrop) swallows the
+ * items below it in the same list that its bounds overlap — only those can
+ * feed its backdrop. Cross-layer backdrop references and relative stacking
+ * among mutually-overlapping swallowed/kept items are known limitations.
  */
 export function planLayerItems(
 	elementIds: readonly string[],
 	opts: ClassifyOptions,
 ): LayerPlanItem[] {
-	const items: LayerPlanItem[] = [];
+	let items: LayerPlanItem[] = [];
 	let openRun: RasterRun | null = null;
+	let elementsMap: Map<string, AnyArtObject> | null = null;
 
 	const flush = () => {
 		if (openRun) {
@@ -199,10 +215,28 @@ export function planLayerItems(
 		if (cls === "raster") {
 			if (isBackdropDependent(element)) {
 				flush();
-				const swallowed = items.flatMap((item) =>
-					item.kind === "vector" ? [item.elementId] : item.elementIds,
-				);
-				items.length = 0;
+				elementsMap ??= new Map(Object.entries(opts.document.objects));
+				const backdropBounds = calculateElementBounds(element, elementsMap);
+				const swallowed: string[] = [];
+				const kept: LayerPlanItem[] = [];
+				for (const item of items) {
+					const ids =
+						item.kind === "vector" ? [item.elementId] : item.elementIds;
+					const overlaps = ids.some((id) => {
+						const el = opts.document.objects[id];
+						if (!el) return false;
+						const bounds = calculateElementBounds(el, elementsMap ?? undefined);
+						return (
+							bounds.minX <= backdropBounds.maxX &&
+							bounds.maxX >= backdropBounds.minX &&
+							bounds.minY <= backdropBounds.maxY &&
+							bounds.maxY >= backdropBounds.minY
+						);
+					});
+					if (overlaps) swallowed.push(...ids);
+					else kept.push(item);
+				}
+				items = kept;
 				openRun = {
 					kind: "raster",
 					elementIds: [...swallowed, elementId],
@@ -235,6 +269,25 @@ export function planLayerItems(
 
 	flush();
 	return items;
+}
+
+/**
+ * Whether a stroke appearance produces any visible pixels: opaque enough,
+ * non-transparent solid color (non-solid paints are treated as visible),
+ * and a non-zero brush width.
+ */
+function isVisibleStroke(appearance: StrokeAppearance): boolean {
+	if ((appearance.opacity ?? 1) <= 0) return false;
+	const params = appearance.paramData.params;
+	if (
+		params.strokeColor.type === "solid" &&
+		colorToRawRGBA(params.strokeColor.color).a <= 0
+	) {
+		return false;
+	}
+	if (!params.brushSettings) return true;
+	const settings = resolveBrushRenderRoute(params.brushSettings).settings;
+	return (settings.properties.size?.base ?? 1) > 0;
 }
 
 function hasVectorizableTextPaint(element: TextElement): boolean {

@@ -257,6 +257,27 @@ describe("PaplicoSVGExporter", () => {
 		);
 	});
 
+	it("should omit vector elements that lie outside the artboard", async () => {
+		const outside = path("outside", {
+			filters: [solidFill(1, 0, 0)],
+			transform: { x: 500, y: 500, rotation: 0, scaleX: 1, scaleY: 1 },
+		});
+		const partial = path("partial", {
+			filters: [solidFill(0, 1, 0)],
+			// World square (-10..10) shifted to straddle the right artboard edge.
+			transform: { x: 55, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+		});
+		const doc = makeDocument(
+			[outside, partial],
+			[{ elementIds: ["outside", "partial"] }],
+		);
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.renderArtboardToSVG("artboard1");
+
+		expect(result?.svg).not.toContain("#ff0000");
+		expect(result?.svg).toContain("#00ff00");
+	});
+
 	it("should return null for an unknown artboard", async () => {
 		const doc = makeDocument([], []);
 		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
