@@ -177,33 +177,43 @@ export async function expectVisualMatch(
 	width: number,
 	height: number,
 	testName: string,
+	options: VisualMatchOptions = {},
+): Promise<void> {
+	const device = renderer.getDevice()!;
+	const actual = await captureTextureToBuffer(device, texture, width, height);
+	expectPngBufferMatch(actual, testName, options);
+}
+
+interface VisualMatchOptions {
+	threshold?: number;
+	maxDiffPercentage?: number;
+	updateBaseline?: boolean;
+	/** Allow rendered image are all tranparent or white */
+	allowEmpty?: boolean;
+}
+
+/**
+ * Compare an already-encoded PNG buffer against a stored baseline. The
+ * non-GPU sibling of expectVisualMatch, for pipelines that produce PNG bytes
+ * directly (e.g. rasterized SVG exports).
+ */
+export function expectPngBufferMatch(
+	actual: Buffer,
+	testName: string,
 	{
 		threshold,
 		maxDiffPercentage,
 		updateBaseline,
 		allowEmpty = false,
-	}: {
-		threshold?: number;
-		maxDiffPercentage?: number;
-		updateBaseline?: boolean;
-		/** Allow rendered image are all tranparent or white */
-		allowEmpty?: boolean;
-	} = {},
-): Promise<void> {
-	const device = renderer.getDevice()!;
+	}: VisualMatchOptions = {},
+): void {
 	const baselineDir = path.join(__dirname, "../../__visual_baselines__");
 	const diffDir = path.join(__dirname, "../../__visual_diffs__");
 	const baselinePath = path.join(baselineDir, `${testName}.png`);
 	const diffPath = path.join(diffDir, `${testName}.diff.png`);
 
-	const actual = await captureTextureToBuffer(device, texture, width, height);
-	const actualBitmap = await new Promise<Buffer<ArrayBufferLike>>((res) => {
-		new PNG().parse(actual).on("parsed", function () {
-			res(this.data);
-		});
-	});
-
 	if (!allowEmpty) {
+		const actualBitmap = PNG.sync.read(actual).data;
 		let isNotEmpty = false;
 
 		for (let i = 0; i < actualBitmap.byteLength; i += 4) {
