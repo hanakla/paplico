@@ -681,6 +681,29 @@ export default function Page() {
 		},
 	);
 
+	const handleExportSVG = useEventCallback(async (artboardIds: string[]) => {
+		const p = paplicoRef.current;
+		if (!p) return;
+
+		setExportingMessage(t("exportDialog.exporting"));
+		try {
+			for (const artboardId of artboardIds) {
+				try {
+					await p.svgExporter.asSVG(artboardId, {
+						backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
+					});
+				} catch (error) {
+					console.error(
+						`Failed to export artboard as SVG: ${artboardId}`,
+						error,
+					);
+				}
+			}
+		} finally {
+			setExportingMessage(null);
+		}
+	});
+
 	const handleExportAvifHdr = useEventCallback(
 		async (artboardIds: string[], scale: number) => {
 			const p = paplicoRef.current;
@@ -1113,6 +1136,7 @@ export default function Page() {
 						isHdrEnabled={!!paplico?.uiState.document.hdr?.enabled}
 						onExportAvifHdr={handleExportAvifHdr}
 						onExportTiff={handleExportTiff}
+						onExportSVG={handleExportSVG}
 					/>
 
 					{/* Document Settings Dialog */}

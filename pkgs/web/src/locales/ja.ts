@@ -1056,6 +1056,7 @@ export const ja = {
 		jpegExport: "JPEG 書き出し",
 		tiff: "TIFF",
 		tiffExport: "TIFF 書き出し",
+		svgExport: "SVG 書き出し",
 		hdrDisabledTooltip: "先にドキュメント設定でHDRを有効にしてください",
 		format: "形式",
 		resolution: "解像度",
