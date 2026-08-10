@@ -5,7 +5,7 @@ import {
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
@@ -24,7 +24,7 @@ import {
 	type Path,
 	type PathSegment,
 } from "../../schema";
-import { loadTestFont } from "../../testUtils/fontSetup";
+import { loadTestFont, NOTO_SANS_JP_PATH } from "../../testUtils/fontSetup";
 import { loadTestDocument } from "../../testUtils/loadTestDocument";
 import {
 	createTestRenderer,
@@ -59,6 +59,11 @@ const ARTBOARDS: ReadonlyArray<[artboardName: string, maxDiff: number]> = [
 	["CompoundPaths", 0.5],
 	["StrokeGradients", 0.5],
 	["MultiFilters", 0.5],
+	["SubFilters", 1.0],
+	["ObjectBlend", 1.0],
+	["Mesh Object", 1.0],
+	["Complex Text Flows", 1.5],
+	["Patterns", 0.5],
 ];
 
 let originalOffscreenCanvas: typeof globalThis.OffscreenCanvas | undefined;
@@ -76,13 +81,7 @@ beforeAll(() => {
 	originalFetch = globalThis.fetch;
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 		if (String(input).includes("/assets/fonts/NotoSansJP")) {
-			const bytes = readFileSync(
-				resolve(
-					__dirname,
-					"../../testUtils/assets/NotoSansJP-VariableFont_wght.ttf",
-				),
-			);
-			return new Response(new Uint8Array(bytes));
+			return new Response(new Uint8Array(readFileSync(NOTO_SANS_JP_PATH)));
 		}
 		return originalFetch(input, init);
 	}) as typeof globalThis.fetch;
@@ -106,7 +105,7 @@ describe("SVG Export vs GPU render - testDocument artboards", () => {
 				renderer,
 				artboard,
 				doc,
-				artboardName.toLowerCase(),
+				artboardName.toLowerCase().replaceAll(" ", "-"),
 				maxDiff,
 			);
 		});

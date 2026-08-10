@@ -4,7 +4,7 @@ import * as fontkit from "fontkit";
 import type { LoadedFont } from "../typography/fonts/FontLoader";
 import type { FontManager } from "../typography/fonts/FontManager";
 
-const NOTO_SANS_JP_PATH = path.resolve(
+export const NOTO_SANS_JP_PATH = path.resolve(
 	__dirname,
 	"assets/NotoSansJP-VariableFont_wght.ttf",
 );
