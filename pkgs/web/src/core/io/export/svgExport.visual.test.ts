@@ -26,15 +26,20 @@ import {
 } from "../../schema";
 import { loadTestFont } from "../../testUtils/fontSetup";
 import { loadTestDocument } from "../../testUtils/loadTestDocument";
-import { createTestRenderer } from "../../testUtils/visualRegression";
+import {
+	createTestRenderer,
+	expectPngBufferMatch,
+} from "../../testUtils/visualRegression";
 import { getFontManager } from "../../typography/fonts";
 import { PaplicoSVGExporter } from "./PaplicoSVGExporter";
 
 /**
- * SVG export fidelity tests: each artboard is exported to SVG, rasterized
- * with resvg, and compared DIRECTLY against the renderer's PNG output of the
- * same artboard — the export must reproduce what the app renders, not merely
- * stay stable against its own past output.
+ * SVG export fidelity tests. Each artboard is exported to SVG and rasterized
+ * with resvg, then verified two ways:
+ * 1. DIRECTLY against the renderer's PNG output of the same artboard — the
+ *    export must reproduce what the app renders.
+ * 2. Against a checked-in baseline of the resvg rasterization itself
+ *    (svg-export-*.png) — pixel-tight regression tracking of the SVG output.
  */
 
 /**
@@ -101,7 +106,7 @@ describe("SVG Export vs GPU render - testDocument artboards", () => {
 				renderer,
 				artboard,
 				doc,
-				`svg-vs-gpu-${artboardName.toLowerCase()}`,
+				artboardName.toLowerCase(),
 				maxDiff,
 			);
 		});
@@ -116,7 +121,7 @@ describe("SVG Export vs GPU render - 3D effects", () => {
 		// 3D shading needs looser tolerance than flat shapes, but the extrusion
 		// must not be clipped to the flat bbox and the rotation must keep its
 		// perspective — both blow far past this threshold when broken.
-		await expectSvgMatchesGpu(renderer, artboard, doc, "svg-vs-gpu-solid3d", 2);
+		await expectSvgMatchesGpu(renderer, artboard, doc, "solid3d", 2);
 	});
 });
 
@@ -126,10 +131,11 @@ async function expectSvgMatchesGpu(
 	renderer: RenderOrchestrator,
 	artboard: Artboard,
 	doc: Document,
-	testName: string,
+	name: string,
 	maxDiffPercentage: number,
 ): Promise<void> {
 	const white = { r: 1, g: 1, b: 1, a: 1 };
+	const testName = `svg-vs-gpu-${name}`;
 
 	const gpu = await renderer.renderArtboardToImageData(artboard, doc, 1, white);
 	if (!gpu) throw new Error("GPU render failed");
@@ -140,15 +146,18 @@ async function expectSvgMatchesGpu(
 	});
 	if (!result) throw new Error("SVG export failed");
 
-	const svgPng = PNG.sync.read(
-		Buffer.from(
-			new Resvg(result.svg, {
-				fitTo: { mode: "width", value: gpu.width },
-			})
-				.render()
-				.asPng(),
-		),
+	const svgPngBuffer = Buffer.from(
+		new Resvg(result.svg, {
+			fitTo: { mode: "width", value: gpu.width },
+		})
+			.render()
+			.asPng(),
 	);
+	const svgPng = PNG.sync.read(svgPngBuffer);
+
+	// Baseline VRT of the resvg rasterization itself: pixel-tight regression
+	// tracking of the SVG output, independent of the looser GPU tolerance.
+	expectPngBufferMatch(svgPngBuffer, `svg-export-${name}`);
 
 	// Fractional artboard sizes may round one pixel apart between the two
 	// rasterizers; anything larger is a real geometry bug.
@@ -177,21 +186,18 @@ async function expectSvgMatchesGpu(
 	);
 	const diffPercentage = (diffPixels / (width * height)) * 100;
 
-	// The rasterized SVG is always saved for eyeballing the export output;
-	// the diff and the SVG source stick around only on failure.
 	const diffDir = join(__dirname, "../../../__visual_diffs__");
-	mkdirSync(diffDir, { recursive: true });
-	const svgOut = new PNG({ width, height });
-	svgOut.data = Buffer.from(svgPixels);
-	writeFileSync(join(diffDir, `${testName}.svg.png`), PNG.sync.write(svgOut));
-
 	if (diffPercentage <= maxDiffPercentage) {
-		for (const suffix of [".diff.png", ".svg"]) {
+		for (const suffix of [".svg.png", ".diff.png", ".svg"]) {
 			const stale = join(diffDir, `${testName}${suffix}`);
 			if (existsSync(stale)) unlinkSync(stale);
 		}
 		return;
 	}
+	mkdirSync(diffDir, { recursive: true });
+	const svgOut = new PNG({ width, height });
+	svgOut.data = Buffer.from(svgPixels);
+	writeFileSync(join(diffDir, `${testName}.svg.png`), PNG.sync.write(svgOut));
 	writeFileSync(join(diffDir, `${testName}.diff.png`), PNG.sync.write(diff));
 	writeFileSync(join(diffDir, `${testName}.svg`), result.svg);
 	throw new Error(
