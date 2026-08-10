@@ -292,16 +292,6 @@ export function centerDotTexture(
 	return data;
 }
 
-export function readFloat32PixelAt(
-	pixels: Float32Array,
-	width: number,
-	x: number,
-	y: number,
-): RGBA {
-	const idx = (y * width + x) * 4;
-	return [pixels[idx], pixels[idx + 1], pixels[idx + 2], pixels[idx + 3]];
-}
-
 function float32ToFloat16(f: number): number {
 	const buf = new ArrayBuffer(4);
 	new DataView(buf).setFloat32(0, f);

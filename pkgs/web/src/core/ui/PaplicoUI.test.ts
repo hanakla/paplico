@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PAPLICO_MAX_ZOOM_SCALE } from "../document/constants";
 import type { RawRGBA, Viewport } from "../schema";
 import type { Tool } from "../tools/Tool";
 import { PaplicoUI } from "./PaplicoUI";
@@ -350,11 +351,146 @@ describe("PaplicoUI touch draw offset", () => {
 	});
 });
 
+describe("PaplicoUI pen input passthrough", () => {
+	it("should forward PointerEvent.twist to the tool event data", () => {
+		const harness = createHarness("pen", 50);
+
+		dispatchPointer(harness.canvas, "pointerdown", {
+			clientX: 100,
+			clientY: 100,
+			pointerType: "pen",
+			twist: 90,
+		});
+
+		expect(harness.tool.onPointerDown).toHaveBeenCalledTimes(1);
+		const eventData = harness.tool.onPointerDown.mock.calls[0][0];
+		expect(eventData.twist).toBe(90);
+	});
+
+	it("should default twist to 0 when the event does not carry it", () => {
+		const harness = createHarness("pen", 50);
+
+		dispatchPointer(harness.canvas, "pointerdown", {
+			clientX: 100,
+			clientY: 100,
+			pointerType: "pen",
+		});
+
+		const eventData = harness.tool.onPointerDown.mock.calls[0][0];
+		expect(eventData.twist).toBe(0);
+	});
+
+	it("should forward getCoalescedEvents samples on pointermove", () => {
+		const harness = createHarness("pen", 50);
+
+		dispatchPointer(harness.canvas, "pointerdown", {
+			clientX: 100,
+			clientY: 100,
+			pointerType: "pen",
+		});
+
+		const move = new PointerEvent("pointermove", {
+			bubbles: true,
+			pointerId: 1,
+			pointerType: "pen",
+			button: 0,
+			pressure: 0.6,
+			clientX: 112,
+			clientY: 100,
+			width: 1,
+			height: 1,
+		});
+		const samples = [
+			{
+				clientX: 104,
+				clientY: 100,
+				pressure: 0.4,
+				tiltX: 5,
+				tiltY: 0,
+				twist: 10,
+				timeStamp: 1010,
+			},
+			{
+				clientX: 108,
+				clientY: 100,
+				pressure: 0.5,
+				tiltX: 6,
+				tiltY: 0,
+				twist: 20,
+				timeStamp: 1020,
+			},
+			{
+				clientX: 112,
+				clientY: 100,
+				pressure: 0.6,
+				tiltX: 7,
+				tiltY: 0,
+				twist: 30,
+				timeStamp: 1030,
+			},
+		];
+		Object.defineProperty(move, "getCoalescedEvents", {
+			value: () => samples,
+		});
+		harness.canvas.dispatchEvent(move);
+
+		const eventData = harness.tool.onPointerMove.mock.calls.at(-1)?.[0];
+		expect(eventData.coalesced).toHaveLength(3);
+		expect(eventData.coalesced[0]).toMatchObject({
+			x: 104,
+			y: 100,
+			twist: 10,
+			timeStamp: 1010,
+		});
+		expect(eventData.coalesced[2]).toMatchObject({ x: 112, twist: 30 });
+	});
+});
+
+describe("PaplicoUI zoom clamp", () => {
+	function dispatchCtrlWheelZoomIn(canvas: HTMLCanvasElement) {
+		// happy-dom's WheelEvent constructor does not wire up `ctrlKey` from
+		// the init dict, so it has to be forced on afterward.
+		const event = new WheelEvent("wheel", {
+			bubbles: true,
+			cancelable: true,
+			deltaY: -1,
+			clientX: 400,
+			clientY: 300,
+		});
+		Object.defineProperty(event, "ctrlKey", { value: true });
+		canvas.dispatchEvent(event);
+	}
+
+	it("should clamp Ctrl+wheel zoom-in to the configured max instead of PAPLICO_MAX_ZOOM_SCALE", () => {
+		const harness = createHarness("pen", 50, 1, 0, 10);
+
+		for (let i = 0; i < 100; i++) {
+			dispatchCtrlWheelZoomIn(harness.canvas);
+		}
+
+		const zooms = harness.setViewport.mock.calls
+			.map((call) => call[0]?.zoom)
+			.filter((z): z is number => typeof z === "number");
+		expect(zooms.length).toBeGreaterThan(0);
+		expect(Math.max(...zooms)).toBeLessThanOrEqual(10);
+	});
+
+	it("should fall back to PAPLICO_MAX_ZOOM_SCALE when getMaxZoomScale is omitted", () => {
+		const harness = createHarness("pen", 50, PAPLICO_MAX_ZOOM_SCALE - 1);
+
+		dispatchCtrlWheelZoomIn(harness.canvas);
+
+		const zoom = harness.setViewport.mock.calls.at(-1)?.[0]?.zoom;
+		expect(zoom).toBeLessThanOrEqual(PAPLICO_MAX_ZOOM_SCALE);
+	});
+});
+
 function createHarness(
 	toolName: string,
 	initialWidth: number,
 	zoom = 1,
 	touchDrawOffsetScale = 0,
+	maxZoomScale?: number,
 ) {
 	const canvas = document.createElement("canvas");
 	canvas.getBoundingClientRect = () =>
@@ -399,6 +535,9 @@ function createHarness(
 		getToolColor: () => color,
 		setShapeType: vi.fn(),
 		getTouchDrawOffsetScale: () => touchDrawOffsetScale,
+		...(maxZoomScale !== undefined
+			? { getMaxZoomScale: () => maxZoomScale }
+			: {}),
 	});
 	mountedUis.push(ui);
 

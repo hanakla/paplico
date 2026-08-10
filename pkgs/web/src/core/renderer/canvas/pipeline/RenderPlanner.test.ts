@@ -240,6 +240,94 @@ describe("RenderPlanner frame planning", () => {
 
 // Helpers
 
+describe("transient element bounds", () => {
+	it("should ignore stale cached bounds for transient (preview) elements", () => {
+		// A live preview mutates under a stable id with no document-change
+		// invalidation: a stale cache entry must not pin the plan's texture
+		// bounds to the first frame's size.
+		const preview = plainPath();
+		preview.id = "__pen_preview__";
+		preview.segments = [
+			{
+				start: { x: 0, y: 0 },
+				cp1: { x: 0, y: 0 },
+				cp2: { x: 0, y: 0 },
+				end: { x: 300, y: 0 },
+				startPressure: 1,
+				endPressure: 1,
+				startTiltX: 0,
+				startTiltY: 0,
+				endTiltX: 0,
+				endTiltY: 0,
+				startDeltaTime: 0,
+				endDeltaTime: 100,
+				isMoved: true,
+			} as CubicBezierSegment,
+		];
+		preview.filters = [
+			{
+				uid: "preview-stroke",
+				processor: "stroke",
+				opacity: 1,
+				blendMode: "normal",
+				paramData: {
+					version: "1",
+					params: {
+						strokeColor: {
+							type: "solid",
+							color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+						},
+						brushSettings: {
+							version: 2,
+							engine: "dab",
+							strokeOpacity: 0.5,
+							paintMode: "wash",
+							properties: {
+								size: { base: 20 },
+								spacing: { base: 0.2 },
+								flow: { base: 1 },
+							},
+							tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+							randomSeed: 0,
+						},
+					},
+				},
+			} as unknown as Filter,
+		];
+
+		// Stale cache: the first frame's tiny bounds under the preview's id.
+		const staleCache = new Map();
+		staleCache.set(preview.id, {
+			minX: 0,
+			minY: 0,
+			maxX: 2,
+			maxY: 2,
+			width: 2,
+			height: 2,
+		});
+
+		const structure = buildFramePlanStructure(
+			makeDocument(plainPath()),
+			makeFilterHandlers(),
+			false,
+			staleCache as Parameters<typeof buildFramePlanStructure>[3],
+			undefined,
+			new Map([
+				[preview.id, { layerId: "layer-1", element: preview }],
+			]) as Parameters<typeof buildFramePlanStructure>[5],
+		);
+		const view = buildFramePlanView(
+			structure,
+			{ x: 150, y: 0, zoom: 1, rotation: 0 },
+			800,
+			600,
+		);
+		const plan = view.filterPlans.get(preview.id);
+		expect(plan).toBeDefined();
+		expect(plan!.textureBounds.width).toBeGreaterThan(250);
+	});
+});
+
 function plainPath(): Path {
 	const element = pathWithExtrude("normal");
 	element.filters = [];

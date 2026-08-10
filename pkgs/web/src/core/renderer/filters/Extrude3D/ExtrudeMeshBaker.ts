@@ -44,7 +44,7 @@ import {
 	type MeshPassGeometry,
 	MeshPassRenderer,
 } from "../../canvas/pipeline/MeshPassRenderer";
-import { applyPreFilters } from "../../canvas/pipeline/PreFilterRenderer";
+import { resolveElementGeometry } from "../../canvas/pipeline/PreFilterRenderer";
 import {
 	createBorrowedTextureRef,
 	createFrameTextureRef,
@@ -52,7 +52,6 @@ import {
 } from "../../canvas/pipeline/RenderSurface";
 import type { TexturePool } from "../../canvas/pipeline/TexturePool";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
-import { applyCornerRadius } from "../../generators/CornerRadiusProcessor";
 import {
 	buildExtrudeMesh,
 	type ExtrudeMeshData,
@@ -194,8 +193,8 @@ export class ExtrudeMeshBaker {
 
 		switch (element.type) {
 			case "path": {
-				const flatSegments = applyPreFilters(
-					applyCornerRadius(element.segments),
+				const flatSegments = resolveElementGeometry(
+					element.segments,
 					element.filters,
 					this.filterRenderer,
 				);
@@ -233,9 +232,13 @@ export class ExtrudeMeshBaker {
 					geom.requestTextOutline(element);
 					return null;
 				}
-				const segments = buildTextGlyphOutline(cached, element);
+				const { segments, flatSegments } = buildTextGlyphOutline(
+					cached,
+					element,
+					this.filterRenderer,
+				);
 				if (segments.length === 0) return null;
-				return { segments, flatSegments: segments, worldSpace: false };
+				return { segments, flatSegments, worldSpace: false };
 			}
 			case "blend": {
 				// Already fully composed (own transform folded in, no ancestor) —

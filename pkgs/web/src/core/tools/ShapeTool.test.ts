@@ -138,7 +138,9 @@ describe("ShapeTool", () => {
 				type: "solid",
 				color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
 			});
-			expect(strokeFilter.paramData.params.brushSettings?.size).toBe(2);
+			expect(
+				strokeFilter.paramData.params.brushSettings?.properties.size?.base,
+			).toBe(2);
 		});
 	});
 

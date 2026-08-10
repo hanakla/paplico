@@ -1,3 +1,5 @@
+import { WORLD_CELL_HASH_WGSL } from "../../shaders/worldCellHash.wgsl";
+
 export const HK_SPRAYING_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
@@ -28,19 +30,7 @@ fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
 	return output;
 }
 
-fn hash(p: vec2u, seed: u32) -> u32 {
-	var state = p.x ^ (p.y << 8u) ^ seed;
-	state = state ^ (state >> 16u);
-	state = state * 0x45d9f3bu;
-	state = state ^ (state >> 16u);
-	state = state * 0x45d9f3bu;
-	state = state ^ (state >> 16u);
-	return state;
-}
-
-fn hashToFloat(h: u32) -> f32 {
-	return f32(h) / 4294967295.0;
-}
+${WORLD_CELL_HASH_WGSL}
 
 fn randomOffset(coord: vec2u, seed: u32, strength: f32) -> vec2f {
 	let h1 = hash(coord, seed);
@@ -60,13 +50,6 @@ fn randomOffset(coord: vec2u, seed: u32, strength: f32) -> vec2f {
 fn sprayingWorldPos(texCoord: vec2f) -> vec2f {
 	return (texCoord * uniforms.resolution - uniforms.contentOffset) / uniforms.dpiScale
 		+ uniforms.worldOrigin;
-}
-
-// Hashable cell index on a world-px grid. floor + i32→u32 bitcast stays
-// bijective for negative world coordinates, which vec2u(floor(...)) would
-// collapse to 0.
-fn worldCell(pos: vec2f, cellSize: f32) -> vec2u {
-	return bitcast<vec2u>(vec2i(floor(pos / cellSize)));
 }
 
 @fragment

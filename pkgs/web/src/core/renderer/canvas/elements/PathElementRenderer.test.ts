@@ -5,7 +5,7 @@ import {
 	createStrokeBrushSettings,
 } from "../../../document/factory";
 import type {
-	BrushSettings,
+	BrushSettingsV2,
 	Path,
 	PathSegment,
 	StrokeAppearance,
@@ -79,7 +79,7 @@ function appearanceOrderPath(): Path {
 	};
 }
 
-function stroke(uid: string, brushSettings: BrushSettings): StrokeAppearance {
+function stroke(uid: string, brushSettings: BrushSettingsV2): StrokeAppearance {
 	return {
 		uid,
 		processor: "stroke",

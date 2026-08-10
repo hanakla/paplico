@@ -14,8 +14,7 @@
  */
 
 import type {
-	BrushSettings,
-	BrushType,
+	BrushEngineKind,
 	CubicBezierSegment,
 	Path,
 	StrokeColor,
@@ -35,7 +34,7 @@ import type { PipelineType } from "../../CanvasLayerTypes";
  * declared so wet-ink and future blend modes can opt in without touching
  * the engine API.
  */
-export type SelfOverlap = "none" | "over" | "max";
+export type SelfOverlap = "none" | "over" | "max" | "wash";
 
 /**
  * Resolved texture views that an engine consumes. The upstream resolver
@@ -101,8 +100,8 @@ export interface ResolvedStrokeStyle {
 	/** Path end fraction along the curve [0,1]. */
 	pathEnd?: number;
 
-	/** Brush settings; engine matches on `type`. */
-	brush: BrushSettings;
+	/** Which engine draws this stroke. */
+	engine: BrushEngineKind;
 	/** Pre-resolved GPU texture views the engine should bind. */
 	textures: ResolvedTextureBindings;
 	/** Pre-resolved stroke color (solid value, or sampled texture). */
@@ -198,20 +197,17 @@ export interface EnginePipeline {
 }
 
 /**
- * StrokeEngine — registry-facing type. One engine per BrushType family.
+ * StrokeEngine — registry-facing type. One engine per BrushEngineKind.
  *
- * `ids` lists every BrushType this engine claims (stamp engine takes scatter
- * and calligraphy; ribbon engine takes art and pattern; geometric engine
- * takes stroke).
+ * `ids` lists every engine kind this implementation claims.
  *
- * `supportsField` declares whether the engine knows how to emit the wet-ink
+ * `supportsField` declares whether the engine knows how to emit the wet
  * dynamics field on a second render target (rgba16float = dirX·w, dirY·w,
- * wetness·w, w). The wet-ink path skips engines that return `false`, so
- * methods with no wetness model (art / pattern / geometric stroke) opt out
- * via this flag.
+ * wetness·w, w). The wet path skips engines that return `false`, so the
+ * ribbon and geometric engines opt out via this flag.
  */
 export interface StrokeEngine {
-	readonly ids: readonly BrushType[];
+	readonly ids: readonly BrushEngineKind[];
 	readonly supportsField: boolean;
 	createPipeline(ctx: EnginePipelineContext): EnginePipeline;
 }

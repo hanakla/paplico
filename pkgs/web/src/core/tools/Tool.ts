@@ -6,6 +6,8 @@ export interface PointerEventData {
 	pressure: number; // 0.0~1.0
 	tiltX: number; // -90~90 degrees
 	tiltY: number;
+	/** Pen barrel rotation (PointerEvent.twist, 0-359 degrees; 0 without hardware support). */
+	twist: number;
 	pointerType: "mouse" | "pen" | "touch";
 	button: number;
 	contactWidth: number; // PointerEvent.width (contact geometry in CSS pixels)
@@ -14,6 +16,24 @@ export interface PointerEventData {
 	ctrlKey: boolean;
 	altKey: boolean;
 	metaKey: boolean;
+	/**
+	 * getCoalescedEvents() samples for this pointermove, oldest first (the
+	 * last one matches the dispatched event). Drawing tools append every
+	 * sample so fast strokes lose no input between frames.
+	 */
+	coalesced?: readonly CoalescedPointerSample[];
+}
+
+/** One raw input sample from PointerEvent.getCoalescedEvents(). */
+export interface CoalescedPointerSample {
+	x: number; // screen coordinates
+	y: number;
+	pressure: number;
+	tiltX: number;
+	tiltY: number;
+	twist: number;
+	/** DOMHighResTimeStamp of the sample (performance.now() clock). */
+	timeStamp: number;
 }
 
 export interface WheelEventData {

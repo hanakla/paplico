@@ -110,7 +110,7 @@ function makeFile(
 
 function makeTimelapse(count: number): TimelapseData {
 	return {
-		version: 1,
+		version: 2,
 		entries: Array.from({ length: count }, (_, i) => ({
 			t: i * 100,
 			u: new Uint8Array([i & 0xff, (i >> 8) & 0xff]),

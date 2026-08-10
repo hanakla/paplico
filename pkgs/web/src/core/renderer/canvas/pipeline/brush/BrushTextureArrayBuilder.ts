@@ -8,6 +8,10 @@
  * Cached by sorted UID hash so repeated brush strokes reuse the same array.
  */
 
+import {
+	generateMipmaps,
+	mipLevelCountFor,
+} from "../../../../utils/wgpu-utils";
 import type { BrushTextureManager } from "./BrushTextureManager";
 
 export interface TextureArrayResult {
@@ -71,6 +75,7 @@ export class BrushTextureArrayBuilder {
 			label: `brush-texture-array-${layerCount}layers`,
 			size: [maxW, maxH, layerCount],
 			format: "rgba8unorm",
+			mipLevelCount: mipLevelCountFor(maxW, maxH),
 			usage:
 				GPUTextureUsage.TEXTURE_BINDING |
 				GPUTextureUsage.COPY_DST |
@@ -103,6 +108,7 @@ export class BrushTextureArrayBuilder {
 		}
 
 		this.device.queue.submit([encoder.finish()]);
+		generateMipmaps(this.device, arrayTexture);
 
 		const result: TextureArrayResult = {
 			texture: arrayTexture,

@@ -1,4 +1,4 @@
-import { normalizeBrushSettings } from "@/core/brush/normalize";
+import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import { deepClone } from "@/core/utils/lang";
 import type {
 	BrushPresetsRepo,
@@ -176,9 +176,9 @@ function fromBrushPresetRow(row: BrushPresetRow): PersistedBrushPreset {
 	return {
 		uid: row.uid,
 		name: row.name,
-		// Normalizes legacy flat records written by pre-union code paths so
-		// callers never observe a `type`-less BrushSettings shape.
-		defaultSettings: normalizeBrushSettings(
+		// Records written before v2 are migrated on the way out, so callers
+		// never see the old shape.
+		defaultSettings: normalizeBrushSettingsV2(
 			JSON.parse(row.defaultSettingsJson),
 		),
 		textureName: row.textureName,

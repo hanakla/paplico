@@ -21,6 +21,7 @@ import {
 	type WorldBBox,
 } from "../../../utils/geometry/bounds";
 import { applyTransformToBounds } from "../../../utils/geometry/geometry";
+import { appendSubpath } from "../../../utils/geometry/segmentOps";
 import {
 	applyRotate3DToSegments,
 	applyRotate3DWithContext,
@@ -29,10 +30,15 @@ import {
 } from "../../filters/Rotate3DFilterProcessor";
 import type { PipelineType, RenderState, TextState } from "../CanvasLayerTypes";
 import { boundsAlmostEqual } from "../pipeline/DocumentCache";
+import {
+	type FilterRenderer,
+	isGeometryFilter,
+} from "../pipeline/FilterRenderer";
 
 interface TextRendererDeps {
 	textState: TextState;
 	renderState: RenderState;
+	filterRenderer: Pick<FilterRenderer, "getHandler">;
 	renderPath: (
 		passEncoder: GPURenderPassEncoder,
 		path: Path,
@@ -175,20 +181,32 @@ export class TextElementRenderer {
 			),
 		);
 
-		for (const [pathIndex, path] of paths.entries()) {
-			const offsetFilters = buildGlyphPaintFilters({
+		const glyphPaints = paths.map((path) =>
+			buildGlyphPaintFilters({
 				elementFilters: element.filters,
 				glyphFilters: path.filters,
 				defaultFill: paintStyle.fill ?? null,
 				defaultStroke: paintStyle.stroke ?? null,
 				defaultBrushWidth,
-			});
+			}),
+		);
 
-			if (perPathGeometryFilters.length > 0) {
-				offsetFilters.unshift(...perPathGeometryFilters);
-			}
+		// A geometry filter belongs to the text, not to each glyph: run per glyph,
+		// path-union merges a glyph's own counters but leaves overlapping
+		// neighbours as separate contours. Concatenating the glyphs first makes
+		// renderPath deform the whole text at once instead.
+		const mergeGlyphs = perPathGeometryFilters.some((f) =>
+			isGeometryFilter(f, this.deps.filterRenderer),
+		);
 
-			let segments = worldPathSegments[pathIndex] as Path["segments"];
+		for (const unit of resolveTextDrawUnits(
+			paths,
+			worldPathSegments as Path["segments"][],
+			glyphPaints,
+			element.id,
+			mergeGlyphs,
+		)) {
+			let segments = unit.segments;
 			for (const [filterIndex, filter] of sharedRotate3DFilters.entries()) {
 				const context = sharedRotate3DContexts[filterIndex];
 				segments = context
@@ -201,8 +219,9 @@ export class TextElementRenderer {
 			}
 
 			const offsetPath: Path = {
-				...path,
-				filters: offsetFilters,
+				...unit.template,
+				id: unit.id,
+				filters: [...perPathGeometryFilters, ...unit.paintFilters],
 				opacity: element.opacity,
 				blendMode: element.blendMode,
 				segments,
@@ -426,6 +445,60 @@ export class TextElementRenderer {
 			this.deps.textState.pendingPathCacheKeys.clear();
 		}
 	}
+}
+
+/** One run of glyphs drawn as a single path. The element's geometry filters
+ *  deform a run's whole outline, so a run must share one resolved paint. */
+interface TextDrawUnit {
+	id: string;
+	/** Glyph path the run inherits its non-paint fields from. */
+	template: Path;
+	paintFilters: Filter[];
+	segments: Path["segments"];
+}
+
+/**
+ * Split a text's glyphs into the runs drawn as one path each.
+ *
+ * `merge` false keeps one run per glyph. `merge` true concatenates the glyphs
+ * that resolve to the same paint into one multi-subpath run, so the geometry
+ * filters renderPath applies act on the text rather than on single glyphs.
+ * Grouping by paint instead of merging everything keeps per-run fills
+ * paintable; a text painted in one colour — the common case — yields exactly
+ * one run, i.e. the whole text.
+ */
+function resolveTextDrawUnits(
+	paths: Path[],
+	glyphSegments: Path["segments"][],
+	glyphPaints: Filter[][],
+	elementId: string,
+	merge: boolean,
+): TextDrawUnit[] {
+	if (!merge) {
+		return paths.map((path, i) => ({
+			id: path.id,
+			template: path,
+			paintFilters: glyphPaints[i],
+			segments: glyphSegments[i],
+		}));
+	}
+
+	const runs = new Map<string, TextDrawUnit>();
+	paths.forEach((path, i) => {
+		const paintKey = JSON.stringify(glyphPaints[i]);
+		let run = runs.get(paintKey);
+		if (!run) {
+			run = {
+				id: `${elementId}-text-run-${runs.size}`,
+				template: path,
+				paintFilters: glyphPaints[i],
+				segments: [],
+			};
+			runs.set(paintKey, run);
+		}
+		appendSubpath(run.segments, glyphSegments[i]);
+	});
+	return [...runs.values()];
 }
 
 function findStaleByElementId(

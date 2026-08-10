@@ -26,10 +26,7 @@ export function useBrushEdits(): {
 		// its own, so this repeats that while the panel is open. It writes the
 		// same value either way, and without it a change made with the panel
 		// closed would leave the selection behind.
-		commands.updateSelectedElementsBrushSettings({
-			...tools.brushSettings,
-			size,
-		});
+		commands.updateSelectedElementsBrushSettings(tools.storedBrushSettings);
 	});
 
 	const setOpacity = useEventCallback((value: number) => {

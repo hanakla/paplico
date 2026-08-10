@@ -108,6 +108,61 @@ describe("TextElementRenderer", () => {
 					: applyRotate3DToSegments(rightSource, rotateParams, worldBounds),
 			);
 		});
+
+		it("should draw the glyphs as one path so a geometry filter deforms the whole text", () => {
+			const renderPath = vi.fn();
+			const renderer = createRendererWithGlyphs(
+				[
+					createGlyphPath("left", makeFill("shared")),
+					createGlyphPath("right", makeFill("shared")),
+				],
+				renderPath,
+			);
+
+			renderer.renderText(
+				{} as GPURenderPassEncoder,
+				withGeometryFilterOnly(createTextElement(NO_ROTATION)),
+				1,
+				"main",
+			);
+
+			expect(renderPath).toHaveBeenCalledTimes(1);
+			const drawn = renderPath.mock.calls[0]?.[1] as Path;
+			// Both glyphs, each still its own sub-path, handed to renderPath in one
+			// go — that is the unit the geometry filter then runs over.
+			expect(drawn.segments).toHaveLength(2);
+			expect(drawn.segments[1].isMoved).toBe(true);
+			expect(drawn.filters?.map((filter) => filter.processor)).toEqual([
+				"path-union",
+				"fill",
+			]);
+		});
+
+		it("should keep glyphs painted differently in separate runs", () => {
+			const renderPath = vi.fn();
+			const renderer = createRendererWithGlyphs(
+				[
+					createGlyphPath("left", makeFill("left")),
+					createGlyphPath("right", makeFill("right")),
+				],
+				renderPath,
+			);
+
+			renderer.renderText(
+				{} as GPURenderPassEncoder,
+				withGeometryFilterOnly(createTextElement(NO_ROTATION)),
+				1,
+				"main",
+			);
+
+			// Merging these would make the two runs share one fill, so per-run
+			// colours bound the merge.
+			expect(renderPath).toHaveBeenCalledTimes(2);
+			const first = renderPath.mock.calls[0]?.[1] as Path;
+			const second = renderPath.mock.calls[1]?.[1] as Path;
+			expect(first.filters?.[1]).toEqual(makeFill("left"));
+			expect(second.filters?.[1]).toEqual(makeFill("right"));
+		});
 	});
 
 	describe("requestTextPathCache", () => {
@@ -535,6 +590,69 @@ function createTextElement(rotateParams: Rotate3DParams): TextElement {
 			},
 		],
 	};
+}
+
+const NO_ROTATION: Rotate3DParams = {
+	rotateX: 0,
+	rotateY: 0,
+	rotateZ: 0,
+	perspective: 0,
+};
+
+/** Swap the sample element's 3d-rotate stack for a single geometry filter. */
+function withGeometryFilterOnly(element: TextElement): TextElement {
+	return {
+		...element,
+		filters: [
+			{
+				uid: "path-union-1",
+				processor: "path-union",
+				opacity: 1,
+				blendMode: "normal",
+				paramData: { version: "1", params: { mode: "union" } },
+			} as unknown as Filter,
+		],
+	};
+}
+
+function createRendererWithGlyphs(
+	paths: Path[],
+	renderPath: ReturnType<typeof vi.fn>,
+): TextElementRenderer {
+	return new TextElementRenderer({
+		textState: {
+			renderer: {
+				computeTextCacheKey: vi.fn(() => "text-cache"),
+				getFlowHead: vi.fn((el) => el),
+			},
+			pathCache: new Map([
+				[
+					"text-cache",
+					{
+						paths,
+						localBounds: {
+							minX: -50,
+							minY: -10,
+							maxX: 50,
+							maxY: 10,
+							width: 100,
+							height: 20,
+						} satisfies BoundingBox,
+					},
+				],
+			]),
+			stalePathCache: new Map(),
+			pendingPathCacheKeys: new Set(),
+		},
+		renderState: { boundsCache: new Map(), localBoundsCache: new Map() },
+		filterRenderer: {
+			getHandler: (processor: string) =>
+				processor === "path-union"
+					? { preProcess: (segments: unknown) => segments }
+					: undefined,
+		},
+		renderPath,
+	} as unknown as ConstructorParameters<typeof TextElementRenderer>[0]);
 }
 
 function createGlyphPath(id: string, fill: FillAppearance): Path {

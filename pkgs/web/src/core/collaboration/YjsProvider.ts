@@ -779,79 +779,7 @@ export class YjsProvider {
 	}
 
 	private populateYjsFromDocument(doc: Document): void {
-		for (const [id, obj] of Object.entries(doc.objects)) {
-			this.yObjects.set(id, this.objectToYMap(obj));
-		}
-
-		for (const layer of doc.layers) {
-			const yLayer = new Y.Map<unknown>();
-			yLayer.set("id", layer.id);
-			yLayer.set("name", layer.name);
-			yLayer.set("visible", layer.visible);
-			yLayer.set("locked", layer.locked);
-			yLayer.set("opacity", layer.opacity);
-			yLayer.set("blendMode", layer.blendMode ?? "normal");
-			if (layer.transientKind !== undefined) {
-				yLayer.set("transientKind", layer.transientKind);
-			}
-			if (layer.ownerClientId !== undefined) {
-				yLayer.set("ownerClientId", layer.ownerClientId);
-			}
-
-			const yElementIds = new Y.Array<string>();
-			for (const id of layer.elementIds) {
-				yElementIds.push([id]);
-			}
-			yLayer.set("elementIds", yElementIds);
-
-			this.yLayers.push([yLayer]);
-		}
-
-		for (const artboard of doc.artboards) {
-			this.yArtboards.push([artboard]);
-		}
-
-		for (const file of doc.files) {
-			this.yFiles.set(file.uid, {
-				uid: file.uid,
-				name: file.name,
-				type: file.type,
-				hash: file.hash,
-				bin: new Uint8Array(file.bin),
-			});
-		}
-
-		for (const preset of doc.brushPresets) {
-			// Defense-in-depth: normalize in case doc.brushPresets carries a
-			// legacy v1 shape (textureFileUid + defaultSettings) from a caller
-			// other than the papf reader (which already normalizes).
-			const normalized = normalizeBrushPreset(preset);
-			const yPreset = new Y.Map<unknown>();
-			yPreset.set("uid", normalized.uid);
-			yPreset.set("name", normalized.name);
-			yPreset.set("settings", JSON.stringify(normalized.settings));
-			this.yBrushPresets.set(normalized.uid, yPreset);
-		}
-
-		const defs = doc.defs ?? {};
-		for (const [defId, entry] of Object.entries(defs)) {
-			this.yDefs.set(defId, this.defEntryToYMap(entry));
-		}
-
-		const references3d = doc.references3d ?? {};
-		for (const [sceneId, def] of Object.entries(references3d)) {
-			this.yReferences3d.set(sceneId, this.reference3DDefToYMap(def));
-		}
-
-		this.yMeta.set(
-			"hdr",
-			JSON.stringify(doc.hdr ?? { enabled: false, exposure: 0 }),
-		);
-		this.yMeta.set(
-			"colorProfile",
-			JSON.stringify(doc.colorProfile ?? { workingSpace: "display-p3" }),
-		);
-		this.yMeta.set("rasterizationDpi", doc.rasterizationDpi ?? 72);
+		populateYDocFromDocument(this.ydoc, doc);
 	}
 
 	/**
@@ -2444,15 +2372,7 @@ export class YjsProvider {
 
 	/** Serialize a DefEntry into a Y.Map with rootElementIds as Y.Array. */
 	private defEntryToYMap(entry: DefEntry): Y.Map<unknown> {
-		const yMap = new Y.Map<unknown>();
-		yMap.set("id", entry.id);
-		yMap.set("kind", entry.kind);
-		if (entry.name !== undefined) yMap.set("name", entry.name);
-		if (entry.tile !== undefined) yMap.set("tile", JSON.stringify(entry.tile));
-		const yRoots = new Y.Array<string>();
-		for (const id of entry.rootElementIds) yRoots.push([id]);
-		yMap.set("rootElementIds", yRoots);
-		return yMap;
+		return defEntryToYMap(entry);
 	}
 
 	/** Create a new def entry. Member elements must already exist in yObjects. */
@@ -2573,11 +2493,7 @@ export class YjsProvider {
 
 	/** Serialize a Reference3DDef into a Y.Map (nodes as JSON string). */
 	private reference3DDefToYMap(def: Reference3DDef): Y.Map<unknown> {
-		const yMap = new Y.Map<unknown>();
-		yMap.set("id", def.id);
-		if (def.name !== undefined) yMap.set("name", def.name);
-		yMap.set("nodes", JSON.stringify(def.nodes));
-		return yMap;
+		return reference3DDefToYMap(def);
 	}
 
 	/** Create or replace a shared 3D scene definition. */
@@ -2679,6 +2595,112 @@ export class YjsProvider {
 		this.undoManager.destroy();
 		this.ydoc.destroy();
 	}
+}
+
+/**
+ * Write a Document into a Y.Doc's shared types. The inverse of
+ * extractDocumentFromYDoc, and the single description of how a Document is
+ * laid out in Yjs — YjsProvider populates through here too.
+ */
+export function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
+	const yObjects = ydoc.getMap<Y.Map<unknown>>("objects");
+	for (const [id, obj] of Object.entries(doc.objects)) {
+		yObjects.set(id, storedFieldsToYMap(objectToStoredFields(obj)));
+	}
+
+	const yLayers = ydoc.getArray<Y.Map<unknown>>("layers");
+	for (const layer of doc.layers) {
+		const yLayer = new Y.Map<unknown>();
+		yLayer.set("id", layer.id);
+		yLayer.set("name", layer.name);
+		yLayer.set("visible", layer.visible);
+		yLayer.set("locked", layer.locked);
+		yLayer.set("opacity", layer.opacity);
+		yLayer.set("blendMode", layer.blendMode ?? "normal");
+		if (layer.transientKind !== undefined) {
+			yLayer.set("transientKind", layer.transientKind);
+		}
+		if (layer.ownerClientId !== undefined) {
+			yLayer.set("ownerClientId", layer.ownerClientId);
+		}
+
+		const yElementIds = new Y.Array<string>();
+		for (const id of layer.elementIds) yElementIds.push([id]);
+		yLayer.set("elementIds", yElementIds);
+
+		yLayers.push([yLayer]);
+	}
+
+	const yArtboards = ydoc.getArray<Artboard>("artboards");
+	for (const artboard of doc.artboards) yArtboards.push([artboard]);
+
+	const yFiles = ydoc.getMap<unknown>("files");
+	for (const file of doc.files) {
+		yFiles.set(file.uid, {
+			uid: file.uid,
+			name: file.name,
+			type: file.type,
+			hash: file.hash,
+			bin: new Uint8Array(file.bin),
+		});
+	}
+
+	const yBrushPresets = ydoc.getMap<Y.Map<unknown>>("brushPresets");
+	for (const preset of doc.brushPresets) {
+		// Defense-in-depth: normalize in case doc.brushPresets carries a
+		// legacy v1 shape (textureFileUid + defaultSettings) from a caller
+		// other than the papf reader (which already normalizes).
+		const normalized = normalizeBrushPreset(preset);
+		const yPreset = new Y.Map<unknown>();
+		yPreset.set("uid", normalized.uid);
+		yPreset.set("name", normalized.name);
+		yPreset.set("settings", JSON.stringify(normalized.settings));
+		yBrushPresets.set(normalized.uid, yPreset);
+	}
+
+	const yDefs = ydoc.getMap<Y.Map<unknown>>("defs");
+	for (const [defId, entry] of Object.entries(doc.defs ?? {})) {
+		yDefs.set(defId, defEntryToYMap(entry));
+	}
+
+	const yReferences3d = ydoc.getMap<Y.Map<unknown>>("references3d");
+	for (const [sceneId, def] of Object.entries(doc.references3d ?? {})) {
+		yReferences3d.set(sceneId, reference3DDefToYMap(def));
+	}
+
+	const yMeta = ydoc.getMap<unknown>("meta");
+	yMeta.set("hdr", JSON.stringify(doc.hdr ?? { enabled: false, exposure: 0 }));
+	yMeta.set(
+		"colorProfile",
+		JSON.stringify(doc.colorProfile ?? { workingSpace: "display-p3" }),
+	);
+	yMeta.set("rasterizationDpi", doc.rasterizationDpi ?? 72);
+}
+
+export function defEntryToYMap(entry: DefEntry): Y.Map<unknown> {
+	const yMap = new Y.Map<unknown>();
+	yMap.set("id", entry.id);
+	yMap.set("kind", entry.kind);
+	if (entry.name !== undefined) yMap.set("name", entry.name);
+	if (entry.tile !== undefined) yMap.set("tile", JSON.stringify(entry.tile));
+	const yRoots = new Y.Array<string>();
+	for (const id of entry.rootElementIds) yRoots.push([id]);
+	yMap.set("rootElementIds", yRoots);
+	return yMap;
+}
+
+export function reference3DDefToYMap(def: Reference3DDef): Y.Map<unknown> {
+	const yMap = new Y.Map<unknown>();
+	yMap.set("id", def.id);
+	if (def.name !== undefined) yMap.set("name", def.name);
+	yMap.set("nodes", JSON.stringify(def.nodes));
+	return yMap;
+}
+
+function storedFieldsToYMap(fields: Record<string, unknown>): Y.Map<unknown> {
+	const yMap = new Y.Map<unknown>();
+	for (const [key, value] of Object.entries(fields)) yMap.set(key, value);
+	return yMap;
 }
 
 /** Convert AnyArtObject to serializable key/value fields for Y.Map storage */

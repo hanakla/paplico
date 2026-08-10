@@ -1,7 +1,6 @@
-import { proxy } from "valtio";
-import type { RenderOrchestrator } from "../renderer/RenderOrchestrator";
 import { type Artboard, type Document, getArtboardBounds } from "../schema";
 import type { TimelapsePlayer } from "./TimelapsePlayer";
+import type { TimelapsePreviewSurface } from "./TimelapsePreviewSurface";
 
 const INTRO_COMPLETE_MS = 400;
 const INTRO_FADEOUT_MS = 300;
@@ -20,7 +19,7 @@ const EVENT_INTERVAL_MS = 100;
  */
 export class TimelapseExporter {
 	public constructor(
-		private renderer: RenderOrchestrator,
+		private surface: TimelapsePreviewSurface,
 		private player: TimelapsePlayer,
 	) {}
 
@@ -83,12 +82,11 @@ export class TimelapseExporter {
 		const totalEvents = this.player.totalEvents;
 		let frameIndex = 0;
 
-		// Match preview playback timing:
-		// Preview advances 1 event per EVENT_INTERVAL_MS (scaled by speed).
-		// At the given fps, compute how many frames per event (or events per frame).
-		const msPerEvent = EVENT_INTERVAL_MS / speed;
-		const msPerFrame = 1000 / fps;
-		const framesPerEvent = msPerEvent / msPerFrame;
+		// The video runs on the preview's clock: one video frame is one tick of
+		// it. Stepping event-by-event instead would skip every intermediate
+		// draw-on frame, which is the whole point of a timelapse.
+		const frameDurationMs = 1000 / fps;
+		this.player.setSpeed(speed);
 
 		const encodeFrame = (pixels: Uint8ClampedArray, keyFrame: boolean) => {
 			if (encoderError) throw encoderError;
@@ -106,10 +104,8 @@ export class TimelapseExporter {
 		};
 
 		// --- Intro: render the completed work ---
-		this.player.seekTo(totalEvents - 1);
-		const completedDoc = this.player.buildCurrentDocument();
 		const completedImage = await this.renderFrame(
-			completedDoc,
+			this.player.captureCompletedFrame(),
 			artboard,
 			scale,
 		);
@@ -135,41 +131,32 @@ export class TimelapseExporter {
 			if (f % 5 === 0) await this.yieldIfNeeded(encoder);
 		}
 
-		// --- Timelapse from beginning ---
-		// Use fractional accumulator to match preview timing precisely.
-		// When framesPerEvent >= 1, we hold each event's frame for multiple video frames.
-		// When framesPerEvent < 1, we skip events to keep up.
-		let eventIndex = -1;
+		// --- Timelapse from the beginning ---
+		// The player only moves forward here, so it never rewinds its replay
+		// document. A step that changes nothing reuses the previous pixels
+		// rather than re-rendering them.
+		let framePixels = this.padToEncoder(
+			await this.renderFrame(this.player.restart(), artboard, scale),
+			encWidth,
+			encHeight,
+		);
 
-		while (eventIndex < totalEvents - 1) {
+		while (!this.player.hasFinished) {
 			if (encoderError) throw encoderError;
 
-			// Advance events based on accumulated frames
-			if (framesPerEvent >= 1) {
-				// Slow mode: render one event, then duplicate the frame
-				eventIndex++;
-				this.player.seekTo(eventIndex);
-				const doc = this.player.buildCurrentDocument();
-				const imageData = await this.renderFrame(doc, artboard, scale);
-				const framePixels = this.padToEncoder(imageData, encWidth, encHeight);
-
-				const repeatCount = Math.max(1, Math.round(framesPerEvent));
-				for (let r = 0; r < repeatCount; r++) {
-					encodeFrame(framePixels, frameIndex % (fps * 2) === 0);
-				}
-			} else {
-				// Fast mode: skip multiple events per frame
-				const eventsToAdvance = Math.max(1, Math.round(1 / framesPerEvent));
-				eventIndex = Math.min(eventIndex + eventsToAdvance, totalEvents - 1);
-				this.player.seekTo(eventIndex);
-				const doc = this.player.buildCurrentDocument();
-				const imageData = await this.renderFrame(doc, artboard, scale);
-				const framePixels = this.padToEncoder(imageData, encWidth, encHeight);
-
-				encodeFrame(framePixels, frameIndex % (fps * 2) === 0);
+			const frame = this.player.advanceBy(frameDurationMs);
+			if (frame) {
+				framePixels = this.padToEncoder(
+					await this.renderFrame(frame, artboard, scale),
+					encWidth,
+					encHeight,
+				);
 			}
+			encodeFrame(framePixels, frameIndex % (fps * 2) === 0);
 
-			onProgress?.(Math.min(1, (eventIndex + 1) / totalEvents));
+			onProgress?.(
+				Math.min(1, (this.player.currentIndex + 1) / Math.max(1, totalEvents)),
+			);
 			await this.yieldIfNeeded(encoder);
 		}
 
@@ -211,11 +198,10 @@ export class TimelapseExporter {
 		artboard: Artboard,
 		scale: number,
 	): Promise<ImageData> {
-		const imageData = await this.renderer.renderArtboardToImageData(
+		const imageData = await this.surface.renderToImageData(
+			document,
 			artboard,
-			proxy(document),
 			scale,
-			{ r: 1, g: 1, b: 1, a: 1 },
 		);
 		if (!imageData) throw new Error("Render failed");
 		return imageData;

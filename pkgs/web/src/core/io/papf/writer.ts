@@ -20,6 +20,7 @@ import {
 	type MetaPayload,
 	SECTION_HEADER_BYTES,
 	SectionType,
+	type TimelapseManifestPayload,
 	TOC_ENTRY_BYTES,
 	TOC_HEADER_BYTES,
 	TOC_KEY_NONE,
@@ -480,11 +481,14 @@ async function writeSection(
 
 function buildTimelapseManifest(timelapse: TimelapseData): Uint8Array {
 	const blockCount = Math.ceil(timelapse.entries.length / TIMELAPSE_BLOCK_SIZE);
-	return encode({
+	const manifest: TimelapseManifestPayload = {
 		schemaVersion: timelapse.version,
 		totalUpdates: timelapse.entries.length,
 		blockCount,
-	});
+	};
+	if (timelapse.index) manifest.dirtyRects = timelapse.index.rects;
+	if (timelapse.baselines?.length) manifest.baselines = timelapse.baselines;
+	return encode(manifest);
 }
 
 function buildTimelapseBlock(

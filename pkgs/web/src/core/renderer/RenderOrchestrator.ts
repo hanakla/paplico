@@ -1,9 +1,9 @@
 import { makeStructuredView } from "webgpu-utils";
 import type { SoftProofLutResult } from "../color/types";
+import type { BrushEngineKind } from "../schema";
 import {
 	type AnyArtObject,
 	type Artboard,
-	type BrushType,
 	type Document,
 	type Filter,
 	getArtboardBounds,
@@ -20,6 +20,7 @@ import {
 import { getFontManager } from "../typography/fonts";
 import {
 	calculateElementBounds,
+	expandBounds,
 	type LocalBBox,
 	type WorldBBox,
 } from "../utils/geometry/bounds";
@@ -37,6 +38,7 @@ import type { Reference3DRenderContext } from "./canvas/elements/Reference3DElem
 import { BackdropCaptureManager } from "./canvas/pipeline/BackdropCaptureManager";
 import { BrushTextureManager } from "./canvas/pipeline/brush/BrushTextureManager";
 import {
+	classifyFilterHandler,
 	type FilterHandler,
 	FilterRenderer,
 	type RegisterableFilterHandler,
@@ -106,6 +108,7 @@ import {
 	BLIT_GLASS_PUNCH_SHADER,
 	BLIT_SHADER,
 	BLIT_WITH_ERASE_MASK_SHADER,
+	BLIT_WITH_MASK_CHAIN_SHADER,
 	BLIT_WITH_MASK_SHADER,
 	EXPOSURE_BLIT_SHADER,
 	MESH_BLIT_SHADER,
@@ -140,6 +143,12 @@ export const RenderStrategy = {
 } as const;
 export type RenderStrategy = keyof typeof RenderStrategy;
 
+/** Per-call overrides for the offscreen export render path. */
+export interface ExportRenderOptions {
+	/** Draw through this target so the caller keeps its own cache scope. */
+	targetId?: string;
+}
+
 interface TargetData {
 	context: GPUCanvasContext;
 	uniformBuffer: GPUBuffer;
@@ -168,6 +177,7 @@ interface Pipelines {
 	blitPipelineRgba8: GPURenderPipeline;
 	blitPipelineRgba32Float: GPURenderPipeline;
 	blitWithMaskPipeline: GPURenderPipeline;
+	blitWithMaskChainPipeline: GPURenderPipeline;
 	blitWithEraseMaskPipeline: GPURenderPipeline;
 	blitBackdropWithMaskPipeline: GPURenderPipeline;
 	blitBackdropPunchPipeline: GPURenderPipeline;
@@ -181,6 +191,8 @@ interface Pipelines {
 interface Layouts {
 	blit: GPUBindGroupLayout;
 	blitWithMask: GPUBindGroupLayout;
+	/** BG2 of the mask-chain blit: 4 mask slots applied in one pass. */
+	maskChain: GPUBindGroupLayout;
 	composite: GPUBindGroupLayout;
 	exposureBlit: GPUBindGroupLayout;
 	gradient: GPUBindGroupLayout;
@@ -231,6 +243,8 @@ export class RenderOrchestrator {
 	private targets = new Map<string, TargetData>();
 	private activeTarget: CanvasTarget | null = null;
 	private registeredTargets = new Set<CanvasTarget>();
+	/** Target ids that render documents other than the live one. @see initCanvasTarget */
+	private isolatedTargets = new Set<string>();
 
 	/** CPU-side soft proof LUT, retained so it can be re-uploaded after
 	 *  device re-initialization (HDR switch, device loss recovery). */
@@ -358,7 +372,16 @@ export class RenderOrchestrator {
 		}
 	}
 
-	public async initCanvasTarget(target: CanvasTarget): Promise<void> {
+	/**
+	 * @param opts.isolated Marks a target that renders documents other than the
+	 * live one (timelapse replay). Engine-wide callbacks write their results
+	 * back into live editor state keyed by element id, and a replayed document
+	 * reuses those ids — so an isolated target is left unwired.
+	 */
+	public async initCanvasTarget(
+		target: CanvasTarget,
+		opts?: { isolated?: boolean },
+	): Promise<void> {
 		// Wait for any pending device re-initialization (e.g. HDR switch)
 		if (this.#pendingDeviceReInit) {
 			const success = await this.#pendingDeviceReInit;
@@ -461,7 +484,7 @@ export class RenderOrchestrator {
 				mask: this.layouts.mask,
 			},
 		};
-		const enginePipelines = new Map<BrushType, EnginePipeline>();
+		const enginePipelines = new Map<BrushEngineKind, EnginePipeline>();
 		for (const engine of [geometricEngine, stampEngine, ribbonEngine]) {
 			const pipeline = engine.createPipeline(engineCtx);
 			for (const id of engine.ids) {
@@ -496,6 +519,7 @@ export class RenderOrchestrator {
 				blitPipelineRgba8: this.pipelines.blitPipelineRgba8,
 				blitPipelineRgba32Float: this.pipelines.blitPipelineRgba32Float,
 				blitWithMaskPipeline: this.pipelines.blitWithMaskPipeline,
+				blitWithMaskChainPipeline: this.pipelines.blitWithMaskChainPipeline,
 				blitWithEraseMaskPipeline: this.pipelines.blitWithEraseMaskPipeline,
 				blitBackdropWithMaskPipeline:
 					this.pipelines.blitBackdropWithMaskPipeline,
@@ -513,6 +537,7 @@ export class RenderOrchestrator {
 				viewportBindGroupLayout: this.bindGroupLayout,
 				blitBindGroupLayout: this.layouts.blit,
 				blitWithMaskBindGroupLayout: this.layouts.blitWithMask,
+				maskChainBindGroupLayout: this.layouts.maskChain,
 				compositeBindGroupLayout: this.layouts.composite,
 				exposureBlitBindGroupLayout: this.layouts.exposureBlit,
 				gradientBindGroupLayout: this.layouts.gradient,
@@ -546,9 +571,14 @@ export class RenderOrchestrator {
 			this.canvasFormat,
 		);
 
-		if (this._onRequestRender)
+		// Device recovery re-inits every registered target without options, so
+		// the flag is remembered rather than taken from the argument each time.
+		if (opts?.isolated) this.isolatedTargets.add(target.id);
+		const isolated = this.isolatedTargets.has(target.id);
+
+		if (this._onRequestRender && !isolated)
 			canvasLayer.setOnRequestRender(this._onRequestRender);
-		if (this._onTextBoundsComputed)
+		if (this._onTextBoundsComputed && !isolated)
 			canvasLayer.setOnTextBoundsComputed(this._onTextBoundsComputed);
 		if (this._reference3dContextProvider)
 			canvasLayer.setReference3DContextProvider(
@@ -661,6 +691,11 @@ export class RenderOrchestrator {
 		this.activeTarget = target;
 	}
 
+	/** The target `render()` and the export paths currently draw through. */
+	public getActiveCanvasTarget(): CanvasTarget | null {
+		return this.activeTarget;
+	}
+
 	public setDeviceLostCallbacks(callbacks: {
 		onDeviceLost?: () => void;
 		onDeviceRestored?: () => void;
@@ -738,6 +773,20 @@ export class RenderOrchestrator {
 	}
 
 	/**
+	 * Wire a document-derived text resolver when none is set — standalone
+	 * callers (export, VRT) pass a bare Document with no owning Paplico, and
+	 * without a resolver flow members and axis-bound texts render/outline
+	 * their leftover content literally instead of resolving the chain/binding.
+	 * Returns a restore function; a no-op when a live resolver already exists
+	 * so a Paplico-owned export keeps its real (override-aware) resolver.
+	 */
+	public ensureTextDocumentResolver(document: Document): () => void {
+		if (this.textDocumentResolver != null) return () => {};
+		this.setTextDocumentResolver(buildDocumentTextResolver(document));
+		return () => this.setTextDocumentResolver(null);
+	}
+
+	/**
 	 * Document access for text layout (axisBinding / flow chain resolution).
 	 * Held here because TextRenderer is created lazily on device init.
 	 */
@@ -748,7 +797,8 @@ export class RenderOrchestrator {
 
 	public setOnRequestRender(callback: () => void): void {
 		this._onRequestRender = callback;
-		for (const td of this.targets.values()) {
+		for (const [id, td] of this.targets) {
+			if (this.isolatedTargets.has(id)) continue;
 			td.canvasLayer.setOnRequestRender(callback);
 		}
 	}
@@ -761,7 +811,8 @@ export class RenderOrchestrator {
 		) => void,
 	): void {
 		this._onTextBoundsComputed = callback;
-		for (const td of this.targets.values()) {
+		for (const [id, td] of this.targets) {
+			if (this.isolatedTargets.has(id)) continue;
 			td.canvasLayer.setOnTextBoundsComputed(callback);
 		}
 	}
@@ -846,10 +897,12 @@ export class RenderOrchestrator {
 		/** Paint artboard backgrounds despite the clearColorOverride background
 		 *  (raster analysis renders where artboard edges act as barriers). */
 		paintArtboardBackgrounds?: boolean;
+		/** Render through this target instead of the active one, to keep a
+		 *  caller's cache scope off the editor's target. */
+		targetId?: string;
 	}): Promise<{ texture: GPUTexture; width: number; height: number } | null> {
-		const td = this.activeTarget
-			? this.targets.get(this.activeTarget.id)
-			: null;
+		const targetId = opts.targetId ?? this.activeTarget?.id;
+		const td = targetId ? this.targets.get(targetId) : null;
 		if (!td || !this.device) {
 			console.error("Renderer not initialized or no active target");
 			return null;
@@ -868,16 +921,9 @@ export class RenderOrchestrator {
 			return null;
 		}
 
-		// Standalone callers (export, VRT) pass a bare Document with no owning
-		// Paplico to wire flow-chain / axis-binding resolution — without one,
-		// flow members and axis-bound texts render their own leftover content
-		// literally instead of resolving the chain/binding. Fall back to a
-		// document-derived resolver only when nothing is already wired, so a
-		// live Paplico export keeps using its real (override-aware) resolver.
-		const hadTextDocumentResolver = this.textDocumentResolver != null;
-		if (!hadTextDocumentResolver) {
-			this.setTextDocumentResolver(buildDocumentTextResolver(opts.document));
-		}
+		const restoreTextDocumentResolver = this.ensureTextDocumentResolver(
+			opts.document,
+		);
 
 		// 1. Pre-warm text paths (renderText is synchronous and skips uncached)
 		const textElements = Object.values(opts.document.objects).filter(
@@ -1024,9 +1070,7 @@ export class RenderOrchestrator {
 			td.canvasLayer.offscreen.restoreDeferredList(savedDeferredList);
 			const textureToDestroy = intermediateTexture as GPUTexture | null;
 			textureToDestroy?.destroy();
-			if (!hadTextDocumentResolver) {
-				this.setTextDocumentResolver(null);
-			}
+			restoreTextDocumentResolver();
 		}
 	}
 
@@ -1035,6 +1079,7 @@ export class RenderOrchestrator {
 		document: Document,
 		scale = 1,
 		backgroundColor: RawRGBA = { r: 1, g: 1, b: 1, a: 1 },
+		opts?: ExportRenderOptions,
 	): Promise<{ texture: GPUTexture; width: number; height: number } | null> {
 		const bounds = getArtboardBounds(artboard);
 		return this.renderExportToTexture({
@@ -1046,6 +1091,7 @@ export class RenderOrchestrator {
 			scale,
 			backgroundColor,
 			document,
+			...opts,
 		});
 	}
 
@@ -1054,12 +1100,14 @@ export class RenderOrchestrator {
 		document: Document,
 		scale = 1,
 		backgroundColor: RawRGBA = { r: 1, g: 1, b: 1, a: 1 },
+		opts?: ExportRenderOptions,
 	): Promise<ImageData | null> {
 		const result = await this.renderArtboardToTexture(
 			artboard,
 			document,
 			scale,
 			backgroundColor,
+			opts,
 		);
 		if (!result) return null;
 
@@ -1358,15 +1406,35 @@ export class RenderOrchestrator {
 			// deform the shape (3d-rotate, zigzag, …) are not clipped to the flat
 			// outline. calculatePreFilteredElementBounds returns plain geometry
 			// bounds when the element has no pre-filter.
-			const b =
-				plans?.get(el.id)?.textureBounds ??
-				(this.filterRenderer
+			// Some filters never get a plan yet still reach beyond the flat
+			// outline — a glass 3D solid (needsBackdrop) routes through the
+			// mid-pass refraction path and self-sizes at draw time — so the
+			// fallback must still apply the handlers' expansion margins.
+			let b = plans?.get(el.id)?.textureBounds;
+			if (!b) {
+				const base = this.filterRenderer
 					? calculatePreFilteredElementBounds(
 							el,
 							elementsMap,
 							this.filterRenderer,
 						)
-					: calculateElementBounds(el, elementsMap));
+					: calculateElementBounds(el, elementsMap);
+				let margin = 0;
+				for (const filter of el.filters ?? []) {
+					if (filter.enabled === false) continue;
+					const handler = this.filterRenderer?.getHandler(filter.processor);
+					// Geometry pre-filters already deformed `base` (it comes from
+					// calculatePreFilteredElementBounds); adding their margin on
+					// top would double-count the deformation. FilterRenderer.
+					// calculateExpansion cannot be reused here for that reason.
+					if (classifyFilterHandler(handler) === "geometry") continue;
+					margin = Math.max(
+						margin,
+						handler?.getExpansionMargin?.(filter, base) ?? 0,
+					);
+				}
+				b = margin > 0 ? expandBounds(base, margin) : base;
+			}
 			if (b.minX < minX) minX = b.minX;
 			if (b.minY < minY) minY = b.minY;
 			if (b.maxX > maxX) maxX = b.maxX;
@@ -1649,6 +1717,34 @@ export class RenderOrchestrator {
 			console.warn("WebGPU recovery attempt failed");
 			this.scheduleRecovery();
 		}
+	}
+
+	/**
+	 * Release one target's GPU resources and unregister it.
+	 *
+	 * Both the HDR switch and device-loss recovery walk `registeredTargets` and
+	 * re-acquire each canvas context, so a target left registered after its
+	 * canvas is gone takes those paths down for the whole app.
+	 *
+	 * The CanvasTarget itself is owned by the caller and is not disposed here.
+	 */
+	public disposeCanvasTarget(target: CanvasTarget): void {
+		const td = this.targets.get(target.id);
+		if (td) {
+			td.canvasLayer.elements.destroyReference3DTextures();
+			td.canvasLayer.destroy();
+			td.strokeRegistry.destroy();
+			td.uniformBuffer.destroy();
+			td.uiLayer.destroy();
+			// The device outlives a single target, so its cache scopes have to be
+			// released here rather than with the device.
+			td.cacheManager.clearAll();
+			this.targets.delete(target.id);
+		}
+
+		this.registeredTargets.delete(target);
+		this.isolatedTargets.delete(target.id);
+		if (this.activeTarget === target) this.activeTarget = null;
 	}
 
 	private releaseGPUResources(): void {
@@ -2428,6 +2524,48 @@ export class RenderOrchestrator {
 			depthStencil: noopStencil,
 		});
 
+		// Mask-chain layout: 4 world-space mask slots applied in one pass.
+		// Unused slots bind a white 1x1 texture and a bounds sentinel.
+		const maskChainBindGroupLayout = this.device.createBindGroupLayout({
+			label: "Mask Chain Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.FRAGMENT,
+					buffer: { type: "uniform" },
+				},
+				{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+				{ binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+				{ binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+				{ binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+				{ binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+			],
+		});
+
+		const { module: blitWithMaskChainShaderModule } = compileShaderModule(
+			this.device,
+			{
+				label: "Blit With Mask Chain Shader",
+				code: BLIT_WITH_MASK_CHAIN_SHADER,
+			},
+		);
+
+		const blitWithMaskChainPipeline = createFullscreenPipeline({
+			device: this.device,
+			label: "Blit With Mask Chain Pipeline",
+			shaderModule: blitWithMaskChainShaderModule,
+			pipelineLayout: this.device.createPipelineLayout({
+				bindGroupLayouts: [
+					bindGroupLayout,
+					blitWithMaskBindGroupLayout,
+					maskChainBindGroupLayout,
+				],
+			}),
+			targetFormat: this.canvasFormat,
+			blend: premultipliedBlend,
+			depthStencil: noopStencil,
+		});
+
 		const { module: blitBackdropWithMaskShaderModule } = compileShaderModule(
 			this.device,
 			{
@@ -2485,6 +2623,7 @@ export class RenderOrchestrator {
 			blitPipelineRgba8,
 			blitPipelineRgba32Float,
 			blitWithMaskPipeline,
+			blitWithMaskChainPipeline,
 			blitWithEraseMaskPipeline,
 			blitBackdropWithMaskPipeline,
 			blitBackdropPunchPipeline,
@@ -2498,6 +2637,7 @@ export class RenderOrchestrator {
 		this.layouts = {
 			blit: blitBindGroupLayout,
 			blitWithMask: blitWithMaskBindGroupLayout,
+			maskChain: maskChainBindGroupLayout,
 			composite: compositeBindGroupLayout,
 			exposureBlit: exposureBlitBindGroupLayout,
 			gradient: gradientBindGroupLayout,
