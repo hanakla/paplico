@@ -767,6 +767,20 @@ export class RenderOrchestrator {
 	}
 
 	/**
+	 * Wire a document-derived text resolver when none is set — standalone
+	 * callers (export, VRT) pass a bare Document with no owning Paplico, and
+	 * without a resolver flow members and axis-bound texts render/outline
+	 * their leftover content literally instead of resolving the chain/binding.
+	 * Returns a restore function; a no-op when a live resolver already exists
+	 * so a Paplico-owned export keeps its real (override-aware) resolver.
+	 */
+	public ensureTextDocumentResolver(document: Document): () => void {
+		if (this.textDocumentResolver != null) return () => {};
+		this.setTextDocumentResolver(buildDocumentTextResolver(document));
+		return () => this.setTextDocumentResolver(null);
+	}
+
+	/**
 	 * Document access for text layout (axisBinding / flow chain resolution).
 	 * Held here because TextRenderer is created lazily on device init.
 	 */
@@ -901,16 +915,9 @@ export class RenderOrchestrator {
 			return null;
 		}
 
-		// Standalone callers (export, VRT) pass a bare Document with no owning
-		// Paplico to wire flow-chain / axis-binding resolution — without one,
-		// flow members and axis-bound texts render their own leftover content
-		// literally instead of resolving the chain/binding. Fall back to a
-		// document-derived resolver only when nothing is already wired, so a
-		// live Paplico export keeps using its real (override-aware) resolver.
-		const hadTextDocumentResolver = this.textDocumentResolver != null;
-		if (!hadTextDocumentResolver) {
-			this.setTextDocumentResolver(buildDocumentTextResolver(opts.document));
-		}
+		const restoreTextDocumentResolver = this.ensureTextDocumentResolver(
+			opts.document,
+		);
 
 		// 1. Pre-warm text paths (renderText is synchronous and skips uncached)
 		const textElements = Object.values(opts.document.objects).filter(
@@ -1057,9 +1064,7 @@ export class RenderOrchestrator {
 			td.canvasLayer.offscreen.restoreDeferredList(savedDeferredList);
 			const textureToDestroy = intermediateTexture as GPUTexture | null;
 			textureToDestroy?.destroy();
-			if (!hadTextDocumentResolver) {
-				this.setTextDocumentResolver(null);
-			}
+			restoreTextDocumentResolver();
 		}
 	}
 

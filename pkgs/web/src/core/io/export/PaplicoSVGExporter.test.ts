@@ -99,6 +99,7 @@ const makeMockRenderer = (): RenderOrchestrator =>
 		getTextRenderer: () => null,
 		getFilterHandler: (processor: string) =>
 			processor === "blur" ? { postProcess: () => {} } : undefined,
+		ensureTextDocumentResolver: () => () => {},
 	}) as unknown as RenderOrchestrator;
 
 describe("PaplicoSVGExporter", () => {
@@ -245,6 +246,7 @@ describe("PaplicoSVGExporter", () => {
 				getFlowHead: (el: TextElement) => el,
 			}),
 			getFilterHandler: () => undefined,
+			ensureTextDocumentResolver: () => () => {},
 		} as unknown as RenderOrchestrator;
 
 		const doc = makeDocument([textEl], [{ elementIds: ["t1"] }]);

@@ -6,7 +6,7 @@ import {
 	type RawRGBA,
 	toRGBColor,
 } from "../../schema";
-import type { ClassifyOptions } from "./svg/classify";
+import { type ClassifyOptions, collectTextAxisPathIds } from "./svg/classify";
 import { colorToSvgPaint } from "./svg/paintServer";
 import { createCoordMapper } from "./svg/pathData";
 import { renderRasterChunk } from "./svg/rasterChunk";
@@ -83,6 +83,23 @@ export class PaplicoSVGExporter {
 			return null;
 		}
 
+		// Text outlining resolves flow chains and path/shape bindings through
+		// the TextRenderer's document resolver — without it, flow members and
+		// axis-bound texts outline their leftover content literally.
+		const restoreTextDocumentResolver =
+			this.renderer.ensureTextDocumentResolver(doc);
+		try {
+			return await this.renderArtboardToSVGInner(doc, artboard, options);
+		} finally {
+			restoreTextDocumentResolver();
+		}
+	}
+
+	private async renderArtboardToSVGInner(
+		doc: Document,
+		artboard: Document["artboards"][number],
+		options: SVGExportOptions,
+	): Promise<SVGExportResult | null> {
 		const builder = new SvgDocumentBuilder({
 			width: artboard.width,
 			height: artboard.height,
@@ -138,6 +155,7 @@ export class PaplicoSVGExporter {
 
 		const classify: ClassifyOptions = {
 			document: doc,
+			textAxisPathIds: collectTextAxisPathIds(doc),
 			filterKind: (filter) =>
 				classifyFilterHandler(this.renderer.getFilterHandler(filter.processor)),
 			filterReplacesElementRender: (filter) =>

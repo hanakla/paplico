@@ -106,6 +106,7 @@ const makeOptions = (elements: AnyArtObject[]): ClassifyOptions => {
 	} as unknown as Document;
 	return {
 		document,
+		textAxisPathIds: new Set<string>(),
 		filterKind: (filter) => {
 			if (["zigzag", "path-offset", "pucker-bloat"].includes(filter.processor))
 				return "geometry";
@@ -509,6 +510,44 @@ describe("classifyElement", () => {
 				{ x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 3 },
 			),
 		).toBe("raster");
+	});
+
+	it("should skip axis paths and rasterize text whose axis carries appearances", () => {
+		// The renderer never paints an axis path in its own z-slot.
+		const axisPath = basePath({ filters: [solidStroke(geometricBrush())] });
+		const boundText = textElement({
+			axisBinding: {
+				mode: "onPath",
+				pathObjectId: axisPath.id,
+				startOffset: 0,
+				alignment: "left",
+				offsetDistance: 0,
+				orientation: "rotate",
+			},
+		});
+		const opts = makeOptions([axisPath, boundText]);
+		(opts.textAxisPathIds as Set<string>).add(axisPath.id);
+
+		expect(classifyElement(axisPath, opts)).toBe("skip");
+		// The axis path's stroke appearance renders as an underlay of the bound
+		// text; the serializer cannot reproduce that, so the text rasterizes.
+		expect(classifyElement(boundText, opts)).toBe("raster");
+
+		// Without axis appearances, on-path text stays vectorizable.
+		const bareAxis = basePath({});
+		const bareBound = textElement({
+			axisBinding: {
+				mode: "onPath",
+				pathObjectId: bareAxis.id,
+				startOffset: 0,
+				alignment: "left",
+				offsetDistance: 0,
+				orientation: "rotate",
+			},
+		});
+		const opts2 = makeOptions([bareAxis, bareBound]);
+		(opts2.textAxisPathIds as Set<string>).add(bareAxis.id);
+		expect(classifyElement(bareBound, opts2)).toBe("bake");
 	});
 
 	it("should terminate on cyclic mask references", () => {

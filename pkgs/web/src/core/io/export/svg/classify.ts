@@ -34,12 +34,29 @@ export type SvgElementClass = "pure" | "bake" | "raster" | "skip";
 /** Renderer-derived predicates injected so this module stays a pure function. */
 export interface ClassifyOptions {
 	document: Document;
+	/**
+	 * Paths referenced as text axis bindings — the renderer never paints them
+	 * in their own z-slot (their appearances render as an underlay of the
+	 * bound text instead). Collect with {@link collectTextAxisPathIds}.
+	 */
+	textAxisPathIds: ReadonlySet<string>;
 	/** classifyFilterHandler result for the filter's processor. */
 	filterKind(filter: Filter): "geometry" | "raster" | null;
 	/** True when the appearance replaces the element's own render (e.g. extrude3d). */
 	filterReplacesElementRender(filter: Filter): boolean;
 	/** True when the filter samples the backdrop (glass solids etc.). */
 	filterNeedsBackdrop(filter: Filter): boolean;
+}
+
+/** Mirror of the renderer's per-frame text-axis-path collection. */
+export function collectTextAxisPathIds(document: Document): Set<string> {
+	const ids = new Set<string>();
+	for (const obj of Object.values(document.objects)) {
+		if (obj.type === "text" && obj.axisBinding) {
+			ids.add(obj.axisBinding.pathObjectId);
+		}
+	}
+	return ids;
 }
 
 export interface VectorItem {
@@ -85,6 +102,12 @@ function classifyElementInner(
 	ancestorTransform?: ElementTransform,
 ): SvgElementClass {
 	if (element.visible === false) return "skip";
+	if (element.type === "path" && opts.textAxisPathIds.has(element.id)) {
+		// The renderer never paints an axis path in its own z-slot; its
+		// appearances render as an underlay of the bound text (which the
+		// text's classification accounts for).
+		return "skip";
+	}
 	if (element.opacity <= 0) return "skip";
 	if (element.type === "path" && element.isGuide) return "skip";
 	if (element.type === "reference3d") {
@@ -205,6 +228,22 @@ function classifyElementInner(
 			// (TextElementRenderer.buildGlyphPaintFilters); the outline exporter
 			// only reads run styles, so appearance-painted text must rasterize.
 			if (hasVisiblePaintAppearances(element)) return "raster";
+			// An axis path carrying appearances renders as an underlay of THIS
+			// text (renderAxisAppearanceUnderlay) — even at axis opacity 0.
+			// The serializer has no underlay path, so the pair rasterizes.
+			if (element.axisBinding) {
+				const axisPath =
+					opts.document.objects[element.axisBinding.pathObjectId];
+				if (
+					axisPath?.filters?.some(
+						(f) =>
+							isFilterEnabled(f) &&
+							(f.processor === "fill" || f.processor === "stroke"),
+					)
+				) {
+					return "raster";
+				}
+			}
 			const paint = textPaintProfile(element);
 			if (!paint.vectorizable) return "raster";
 			// Glyph stroke widths cannot follow a non-uniform/skewed transform.
