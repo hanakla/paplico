@@ -112,7 +112,7 @@
 		"@types/ws": "^8.5.13",
 		"@vitest/ui": "^4.1.0",
 		"fake-indexeddb": "^6.2.4",
-		"happy-dom": "^20.3.1",
+		"happy-dom": "^20.11.2",
 		"npm-run-all2": "^8.0.4",
 		"pixelmatch": "^7.1.0",
 		"pngjs": "^7.0.0",
@@ -121,6 +121,6 @@
 		"typescript": "6.0.3",
 		"vite": "^8.1.5",
 		"vitest": "^4.1.2",
-		"webgpu": "^0.4.0"
+		"webgpu": "^0.3.10"
 	}
 }

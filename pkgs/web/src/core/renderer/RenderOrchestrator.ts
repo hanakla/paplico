@@ -108,7 +108,6 @@ import {
 	BLIT_GLASS_PUNCH_SHADER,
 	BLIT_SHADER,
 	BLIT_WITH_ERASE_MASK_SHADER,
-	BLIT_WITH_MASK_CHAIN_SHADER,
 	BLIT_WITH_MASK_SHADER,
 	EXPOSURE_BLIT_SHADER,
 	MESH_BLIT_SHADER,
@@ -177,7 +176,6 @@ interface Pipelines {
 	blitPipelineRgba8: GPURenderPipeline;
 	blitPipelineRgba32Float: GPURenderPipeline;
 	blitWithMaskPipeline: GPURenderPipeline;
-	blitWithMaskChainPipeline: GPURenderPipeline;
 	blitWithEraseMaskPipeline: GPURenderPipeline;
 	blitBackdropWithMaskPipeline: GPURenderPipeline;
 	blitBackdropPunchPipeline: GPURenderPipeline;
@@ -191,8 +189,6 @@ interface Pipelines {
 interface Layouts {
 	blit: GPUBindGroupLayout;
 	blitWithMask: GPUBindGroupLayout;
-	/** BG2 of the mask-chain blit: 4 mask slots applied in one pass. */
-	maskChain: GPUBindGroupLayout;
 	composite: GPUBindGroupLayout;
 	exposureBlit: GPUBindGroupLayout;
 	gradient: GPUBindGroupLayout;
@@ -519,7 +515,6 @@ export class RenderOrchestrator {
 				blitPipelineRgba8: this.pipelines.blitPipelineRgba8,
 				blitPipelineRgba32Float: this.pipelines.blitPipelineRgba32Float,
 				blitWithMaskPipeline: this.pipelines.blitWithMaskPipeline,
-				blitWithMaskChainPipeline: this.pipelines.blitWithMaskChainPipeline,
 				blitWithEraseMaskPipeline: this.pipelines.blitWithEraseMaskPipeline,
 				blitBackdropWithMaskPipeline:
 					this.pipelines.blitBackdropWithMaskPipeline,
@@ -537,7 +532,6 @@ export class RenderOrchestrator {
 				viewportBindGroupLayout: this.bindGroupLayout,
 				blitBindGroupLayout: this.layouts.blit,
 				blitWithMaskBindGroupLayout: this.layouts.blitWithMask,
-				maskChainBindGroupLayout: this.layouts.maskChain,
 				compositeBindGroupLayout: this.layouts.composite,
 				exposureBlitBindGroupLayout: this.layouts.exposureBlit,
 				gradientBindGroupLayout: this.layouts.gradient,
@@ -2524,48 +2518,6 @@ export class RenderOrchestrator {
 			depthStencil: noopStencil,
 		});
 
-		// Mask-chain layout: 4 world-space mask slots applied in one pass.
-		// Unused slots bind a white 1x1 texture and a bounds sentinel.
-		const maskChainBindGroupLayout = this.device.createBindGroupLayout({
-			label: "Mask Chain Bind Group Layout",
-			entries: [
-				{
-					binding: 0,
-					visibility: GPUShaderStage.FRAGMENT,
-					buffer: { type: "uniform" },
-				},
-				{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
-				{ binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: {} },
-				{ binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: {} },
-				{ binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: {} },
-				{ binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
-			],
-		});
-
-		const { module: blitWithMaskChainShaderModule } = compileShaderModule(
-			this.device,
-			{
-				label: "Blit With Mask Chain Shader",
-				code: BLIT_WITH_MASK_CHAIN_SHADER,
-			},
-		);
-
-		const blitWithMaskChainPipeline = createFullscreenPipeline({
-			device: this.device,
-			label: "Blit With Mask Chain Pipeline",
-			shaderModule: blitWithMaskChainShaderModule,
-			pipelineLayout: this.device.createPipelineLayout({
-				bindGroupLayouts: [
-					bindGroupLayout,
-					blitWithMaskBindGroupLayout,
-					maskChainBindGroupLayout,
-				],
-			}),
-			targetFormat: this.canvasFormat,
-			blend: premultipliedBlend,
-			depthStencil: noopStencil,
-		});
-
 		const { module: blitBackdropWithMaskShaderModule } = compileShaderModule(
 			this.device,
 			{
@@ -2623,7 +2575,6 @@ export class RenderOrchestrator {
 			blitPipelineRgba8,
 			blitPipelineRgba32Float,
 			blitWithMaskPipeline,
-			blitWithMaskChainPipeline,
 			blitWithEraseMaskPipeline,
 			blitBackdropWithMaskPipeline,
 			blitBackdropPunchPipeline,
@@ -2637,7 +2588,6 @@ export class RenderOrchestrator {
 		this.layouts = {
 			blit: blitBindGroupLayout,
 			blitWithMask: blitWithMaskBindGroupLayout,
-			maskChain: maskChainBindGroupLayout,
 			composite: compositeBindGroupLayout,
 			exposureBlit: exposureBlitBindGroupLayout,
 			gradient: gradientBindGroupLayout,

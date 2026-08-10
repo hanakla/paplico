@@ -307,7 +307,6 @@ export class CanvasLayer {
 	private blitPipelineRgba8: GPURenderPipeline;
 	private blitPipelineRgba32Float: GPURenderPipeline;
 	private blitWithMaskPipeline: GPURenderPipeline;
-	private blitWithMaskChainPipeline: GPURenderPipeline;
 	private blitWithEraseMaskPipeline: GPURenderPipeline;
 	private blitBackdropWithMaskPipeline: GPURenderPipeline;
 	private blitBackdropPunchPipeline: GPURenderPipeline;
@@ -321,7 +320,6 @@ export class CanvasLayer {
 	private blitBindGroupLayout: GPUBindGroupLayout;
 	private compositeBindGroupLayout: GPUBindGroupLayout;
 	private blitWithMaskBindGroupLayout: GPUBindGroupLayout;
-	private maskChainBindGroupLayout: GPUBindGroupLayout;
 	private exposureBlitBindGroupLayout: GPUBindGroupLayout;
 	private exposureUniformBuffer: GPUBuffer;
 	private exposureBindGroup: GPUBindGroup | null = null;
@@ -631,7 +629,6 @@ export class CanvasLayer {
 			blitPipelineRgba32Float: GPURenderPipeline;
 			compositePipeline: GPURenderPipeline;
 			blitWithMaskPipeline: GPURenderPipeline;
-			blitWithMaskChainPipeline: GPURenderPipeline;
 			blitWithEraseMaskPipeline: GPURenderPipeline;
 			blitBackdropWithMaskPipeline: GPURenderPipeline;
 			blitBackdropPunchPipeline: GPURenderPipeline;
@@ -664,7 +661,6 @@ export class CanvasLayer {
 			maskBindGroupLayout: GPUBindGroupLayout;
 			pulledBindGroupLayout: GPUBindGroupLayout;
 			blitWithMaskBindGroupLayout: GPUBindGroupLayout;
-			maskChainBindGroupLayout: GPUBindGroupLayout;
 			cacheManager: RenderCacheManager;
 			maskBindGroupRef?: { current: GPUBindGroup };
 		},
@@ -686,7 +682,6 @@ export class CanvasLayer {
 		this.blitPipelineRgba32Float = pipelines.blitPipelineRgba32Float;
 		this.compositePipeline = pipelines.compositePipeline;
 		this.blitWithMaskPipeline = pipelines.blitWithMaskPipeline;
-		this.blitWithMaskChainPipeline = pipelines.blitWithMaskChainPipeline;
 		this.blitWithEraseMaskPipeline = pipelines.blitWithEraseMaskPipeline;
 		this.blitBackdropWithMaskPipeline = pipelines.blitBackdropWithMaskPipeline;
 		this.blitBackdropPunchPipeline = pipelines.blitBackdropPunchPipeline;
@@ -729,7 +724,6 @@ export class CanvasLayer {
 		this.maskBindGroupRef = resources.maskBindGroupRef ?? null;
 		this.cacheManager = resources.cacheManager;
 		this.blitWithMaskBindGroupLayout = resources.blitWithMaskBindGroupLayout;
-		this.maskChainBindGroupLayout = resources.maskChainBindGroupLayout;
 		this.viewportManager = new ViewportManager(
 			device,
 			resources.uniformBuffer,
@@ -956,10 +950,8 @@ export class CanvasLayer {
 			dummyGradientBindGroup: this.dummyGradientBindGroup,
 			dummyMaskBindGroup: this.dummyMaskBindGroup,
 			blitWithMaskPipeline: this.blitWithMaskPipeline,
-			blitWithMaskChainPipeline: this.blitWithMaskChainPipeline,
 			blitWithEraseMaskPipeline: this.blitWithEraseMaskPipeline,
 			blitWithMaskBindGroupLayout: this.blitWithMaskBindGroupLayout,
-			maskChainBindGroupLayout: this.maskChainBindGroupLayout,
 			viewportState: this.viewportState,
 			renderState: this.renderState,
 			compositeState: this.compositeState,
@@ -3788,7 +3780,17 @@ export class CanvasLayer {
 		fp: ElementFilterPlan,
 		density: number,
 	): boolean {
-		return this.bakeWithinCacheBudget(fp.textureBounds, density);
+		const bakePx =
+			Math.ceil(fp.textureBounds.width * density) *
+			Math.ceil(fp.textureBounds.height * density);
+		return (
+			bakePx <=
+				this.viewportState.width *
+					this.viewportState.height *
+					FILTER_CACHE_FULL_BAKE_BUDGET_FACTOR &&
+			bakePx * bytesPerTexel(this.canvasFormat) <=
+				this.cacheManager.filteredElement.maxEntryBytes
+		);
 	}
 
 	/** Single source for the paint-hash callbacks — the clip-mask atlas and
@@ -4086,216 +4088,97 @@ export class CanvasLayer {
 			const element = elementsMap.get(elementId);
 			if (!element) continue;
 
-			const masks = plan.masks.flatMap((planned) => {
+			for (const planned of plan.masks) {
 				const mask = this.maskEntriesByKey.get(planned.key);
-				return mask ? [mask] : [];
-			});
-			if (masks.length === 0) continue;
+				if (!mask) continue;
+				let existing = filteredTextures.get(elementId);
+				if (existing?.overrideLayers) {
+					// Self-sized layers (extrude solids) are blitted one by one, so the
+					// mask goes into each of them rather than into one combined texture.
+					filteredTextures.set(elementId, {
+						...existing,
+						overrideLayers: existing.overrideLayers.map((layer) => {
+							let sourceSurface: RenderSurface = layer;
+							if (layer.placement.kind === "world-quad") {
+								const flattened = this.offscreen.bakeQuadToTexture(
+									encoder,
+									layer,
+								);
+								if (!flattened) return layer;
+								sourceSurface = replaceRenderSurface(sourceSurface, flattened);
+							}
 
-			const existing = filteredTextures.get(elementId);
-			if (existing?.overrideLayers) {
-				// Self-sized layers (extrude solids) are blitted one by one, so the
-				// masks go into each of them rather than into one combined texture.
-				filteredTextures.set(elementId, {
-					...existing,
-					overrideLayers: existing.overrideLayers.map((layer) => {
-						let sourceSurface: RenderSurface = layer;
-						if (layer.placement.kind === "world-quad") {
-							const flattened = this.offscreen.bakeQuadToTexture(
+							const masked = this.offscreen.applyWorldMaskToTexture(
 								encoder,
-								layer,
+								sourceSurface,
+								mask,
+								this.getRasterScale(),
 							);
-							if (!flattened) return layer;
-							sourceSurface = replaceRenderSurface(sourceSurface, flattened);
-						}
-
-						const masked = this.offscreen.applyWorldMasksToTexture(
-							encoder,
-							sourceSurface,
-							masks,
-							this.getRasterScale(),
-						);
-						if (masked) {
+							if (!masked) {
+								return {
+									...sourceSurface,
+									opacity: layer.opacity,
+									coverage: layer.coverage,
+								};
+							}
 							sourceSurface = replaceRenderSurface(sourceSurface, masked);
-						}
-						return {
-							...sourceSurface,
-							opacity: layer.opacity,
-							coverage: layer.coverage,
-						};
-					}),
-				});
-				continue;
-			}
-
-			if (!existing) {
-				const bounds = brandWorldBBox(
-					computeWorldBounds(
-						element,
-						boundsContext,
-						resolveParentGroupMap(boundsContext),
-					),
-				);
-
-				// Frame-cache participation, mirroring executeFilterPlans: an
-				// unfiltered masked bake covers its full bounds at R, so it is
-				// viewport-independent and pans can reuse it. Filtered elements
-				// stay out — their bake is cached (unmasked) by executeFilterPlans
-				// under the same key, and two writers per key would thrash.
-				let cacheHash: string | null = null;
-				let cacheDeps: ReadonlySet<string> | null = null;
-				if (
-					this.filterCacheFrame != null &&
-					this.viewportState.bounds != null &&
-					!this.filterCacheFrame.blockedIds.has(elementId) &&
-					this.bakeWithinCacheBudget(bounds, rasterScale) &&
-					!subtreeContainsReference3D(element, elementsMap)
-				) {
-					const deps = expandRenderFilter(new Set([elementId]), elementsMap);
-					if (!setsIntersect(deps, this.filterCacheFrame.overrideIds)) {
-						cacheDeps = deps;
-						cacheHash = this.computeMaskedElementHash(
-							element,
-							elementsMap,
-							masks,
-							bounds,
-							rasterScale,
-						);
-					}
-				}
-				if (cacheHash != null) {
-					const entry = this.cacheManager.filteredElement.get(elementId);
-					if (entry?.hash === cacheHash) {
-						const ref = createBorrowedTextureRef(
-							entry.texture,
-							"appearance-cache",
-						);
-						const placement = {
-							kind: "world-aabb" as const,
-							bounds: entry.bounds,
-							uvRect: entry.uvRect,
-						};
-						const semantics = {
-							role: "color" as const,
-							alphaMode: "premultiplied" as const,
-							opacityState: "intrinsic" as const,
-						};
-						filteredTextures.set(elementId, {
-							source: createRenderSurface(ref, placement, semantics),
-							output: createRenderSurface(ref, placement, semantics),
-							elementBounds: bounds,
-							textureBounds: bounds,
-						});
-						continue;
-					}
+							return {
+								...sourceSurface,
+								opacity: layer.opacity,
+								coverage: layer.coverage,
+							};
+						}),
+					});
+					continue;
 				}
 
-				const baked = isGroup(element)
-					? this.offscreen.renderGroupToTexture(
-							encoder,
+				if (!existing) {
+					const bounds = brandWorldBBox(
+						computeWorldBounds(
 							element,
-							bounds,
-							elementsMap,
-							this.viewportManager.getBoundsCache(),
-							rasterScale,
-						)
-					: this.offscreen.renderElementToTexture(
-							encoder,
-							element,
-							bounds,
-							elementsMap,
-							rasterScale,
-						);
-				if (!baked) continue;
+							boundsContext,
+							resolveParentGroupMap(boundsContext),
+						),
+					);
+					const baked = isGroup(element)
+						? this.offscreen.renderGroupToTexture(
+								encoder,
+								element,
+								bounds,
+								elementsMap,
+								this.viewportManager.getBoundsCache(),
+								rasterScale,
+							)
+						: this.offscreen.renderElementToTexture(
+								encoder,
+								element,
+								bounds,
+								elementsMap,
+								rasterScale,
+							);
+					if (!baked) continue;
+					existing = {
+						source: baked,
+						output: baked,
+						elementBounds: bounds,
+						textureBounds: bounds,
+					};
+				}
 
-				const masked = this.offscreen.applyWorldMasksToTexture(
+				const masked = this.offscreen.applyWorldMaskToTexture(
 					encoder,
-					baked,
-					masks,
+					existing.output,
+					mask,
 					this.getRasterScale(),
 				);
 				if (!masked) continue;
-				const output = replaceRenderSurface(baked, masked);
-				if (
-					cacheHash != null &&
-					cacheDeps != null &&
-					output.placement.kind === "world-aabb"
-				) {
-					this.storeFilteredElementBake(
-						encoder,
-						elementId,
-						cacheHash,
-						cacheDeps,
-						output.texture.texture,
-						output.placement.bounds,
-						output.placement.uvRect,
-					);
-				}
+
 				filteredTextures.set(elementId, {
-					source: baked,
-					output,
-					elementBounds: bounds,
-					textureBounds: bounds,
+					...existing,
+					output: replaceRenderSurface(existing.output, masked),
 				});
-				continue;
 			}
-
-			const masked = this.offscreen.applyWorldMasksToTexture(
-				encoder,
-				existing.output,
-				masks,
-				this.getRasterScale(),
-			);
-			if (!masked) continue;
-
-			filteredTextures.set(elementId, {
-				...existing,
-				output: replaceRenderSurface(existing.output, masked),
-			});
 		}
-	}
-
-	/** Content hash for a cached masked (unfiltered) bake — the applyPostMasks
-	 *  counterpart of computeFilteredElementHash. Push invalidation via
-	 *  dependencyIds is the primary eviction path; the hash catches async paint
-	 *  changes plus everything that reshapes the bake without an element delta.
-	 *  Masks are identified by their atlas bind-group identity: the atlas
-	 *  creates a new bind group whenever a mask's content, coverage, or zoom
-	 *  changes, so a stale-mask bake can never match. */
-	private computeMaskedElementHash(
-		element: AnyArtObject,
-		elementsMap: Map<string, AnyArtObject>,
-		masks: readonly AssignedMask[],
-		bounds: BoundingBox,
-		rasterScale: number,
-	): string {
-		const paintHash = computePaintHash(
-			element,
-			elementsMap,
-			this.paintHashContext(),
-		);
-		const maskKey = masks
-			.map((m) => `${this.objectSerial(m.bindGroup)}i${m.inverted ? 1 : 0}`)
-			.join(",");
-		return `masked:${rasterScale}:${Math.round(bounds.minX)},${Math.round(
-			bounds.minY,
-		)},${Math.round(bounds.width)}x${Math.round(bounds.height)}:${maskKey}:${paintHash}`;
-	}
-
-	/** A cacheable bake covers its full world bounds; refuse when that would
-	 *  dwarf the canvas or exceed the cache's per-entry byte cap — otherwise
-	 *  every frame pays a full bake + copy only for set() to reject it. */
-	private bakeWithinCacheBudget(bounds: BoundingBox, density: number): boolean {
-		const bakePx =
-			Math.ceil(bounds.width * density) * Math.ceil(bounds.height * density);
-		return (
-			bakePx <=
-				this.viewportState.width *
-					this.viewportState.height *
-					FILTER_CACHE_FULL_BAKE_BUDGET_FACTOR &&
-			bakePx * bytesPerTexel(this.canvasFormat) <=
-				this.cacheManager.filteredElement.maxEntryBytes
-		);
 	}
 
 	/**
@@ -5273,35 +5156,42 @@ export class CanvasLayer {
 									height: maxY - minY,
 								}
 							: undefined;
-					const previousCoverage = filteredComposite.coverage;
-					const masked = this.offscreen.applyWorldMasksToTexture(
-						compositeContext.encoder,
-						filteredComposite,
-						inlineMasks,
-						this.viewportState.current?.zoom ?? 1,
-						solidBounds,
-					);
-					// The coverage side-channel takes the same ordered stack in one
-					// call so it matches the color surface's crop.
-					const maskedCoverage =
-						masked && previousCoverage
-							? this.offscreen.applyWorldMasksToTexture(
-									compositeContext.encoder,
-									createRenderSurface(
-										previousCoverage,
-										filteredComposite.placement,
-										{
-											role: "coverage",
-											alphaMode: "scalar",
-											opacityState: "intrinsic",
-										},
-									),
-									inlineMasks,
-									this.viewportState.current?.zoom ?? 1,
-									solidBounds,
-								)
-							: null;
-					if (masked) {
+					for (const inlineMask of inlineMasks) {
+						const previousCoverage = filteredComposite.coverage;
+						const masked = this.offscreen.applyWorldMaskToTexture(
+							compositeContext.encoder,
+							filteredComposite,
+							inlineMask,
+							this.viewportState.current?.zoom ?? 1,
+							solidBounds,
+						);
+						// The coverage side-channel goes through the same ordered
+						// stack so every mask uses the color surface's current crop.
+						const maskedCoverage =
+							masked && previousCoverage
+								? this.offscreen.applyWorldMaskToTexture(
+										compositeContext.encoder,
+										createRenderSurface(
+											previousCoverage,
+											filteredComposite.placement,
+											{
+												role: "coverage",
+												alphaMode: "scalar",
+												opacityState: "intrinsic",
+											},
+										),
+										inlineMask,
+										this.viewportState.current?.zoom ?? 1,
+										solidBounds,
+									)
+								: null;
+						if (!masked) continue;
+						if (ownsMaskedColor) releaseRenderSurface(filteredComposite);
+						if (ownsMaskedCoverage && previousCoverage) {
+							if (previousCoverage.kind === "frame-owned") {
+								previousCoverage.release();
+							}
+						}
 						filteredComposite = {
 							...masked,
 							opacity: filteredComposite.opacity,
@@ -7613,6 +7503,7 @@ function assignMaskStackRecursive(
 	}
 }
 
+/** World AABB of a blit quad's four corners. */
 /**
  * Walk the resolved elementsMap and collect every PatternFill `defId` that's
  * referenced by a visible element's fill or stroke. Empty `defId`s (the
@@ -7721,21 +7612,6 @@ function setsIntersect(
 
 function bytesPerTexel(format: GPUTextureFormat): number {
 	return format.includes("32float") ? 16 : format.includes("16float") ? 8 : 4;
-}
-
-/** Whether an element or any descendant is a 3D reference scene. Their
- *  texture updates arrive from the three.js runtime without any element
- *  delta or paint-hash change, so a cached bake could serve a stale scene. */
-function subtreeContainsReference3D(
-	element: AnyArtObject,
-	elementsMap: Map<string, AnyArtObject>,
-): boolean {
-	if (element.type === "reference3d") return true;
-	if (!isGroup(element)) return false;
-	return element.childIds.some((childId) => {
-		const child = elementsMap.get(childId);
-		return child != null && subtreeContainsReference3D(child, elementsMap);
-	});
 }
 
 /**
