@@ -462,6 +462,64 @@ describe("classifyElement", () => {
 		expect(classifyElement(el3, makeOptions([el3]))).toBe("pure");
 	});
 
+	it("should rasterize text carrying visible fill/stroke appearances", () => {
+		// The renderer composites element-level appearances onto glyph paint;
+		// the outline exporter only reads run styles.
+		const el = textElement({ filters: [solidFill()] });
+		expect(classifyElement(el, makeOptions([el]))).toBe("raster");
+
+		// A content-only appearance list stays vectorizable.
+		const contentOnly = textElement({
+			filters: [appearance("content")],
+		});
+		expect(classifyElement(contentOnly, makeOptions([contentOnly]))).toBe(
+			"bake",
+		);
+	});
+
+	it("should rasterize stroked elements under non-uniform or skewed transforms", () => {
+		const opts = makeOptions([]);
+		const stroked = (transform: Path["transform"]) =>
+			basePath({ filters: [solidStroke(geometricBrush())], transform });
+
+		expect(
+			classifyElement(
+				stroked({ x: 0, y: 0, rotation: 0, scaleX: 2, scaleY: 1 }),
+				opts,
+			),
+		).toBe("raster");
+		expect(
+			classifyElement(
+				stroked({ x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1, skewX: 0.4 }),
+				opts,
+			),
+		).toBe("raster");
+		// Uniform scale (and rotation) keeps a representable constant width.
+		expect(
+			classifyElement(
+				stroked({ x: 0, y: 0, rotation: 0.5, scaleX: 2, scaleY: 2 }),
+				opts,
+			),
+		).toBe("pure");
+		// A non-uniform ANCESTOR scale is just as unrepresentable.
+		expect(
+			classifyElement(
+				stroked({ x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
+				opts,
+				{ x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 3 },
+			),
+		).toBe("raster");
+	});
+
+	it("should terminate on cyclic mask references", () => {
+		const a = basePath({ filters: [solidFill()] });
+		const b = basePath({ filters: [solidFill()] });
+		a.mask = { elementIds: [b.id] };
+		b.mask = { elementIds: [a.id] };
+		// Broken data — the classification just has to return, not recurse forever.
+		expect(classifyElement(a, makeOptions([a, b]))).toBe("pure");
+	});
+
 	it("should rasterize text whose runs use non-vectorizable paint", () => {
 		const opts = makeOptions([]);
 		const gradientStrokeText = textElement({

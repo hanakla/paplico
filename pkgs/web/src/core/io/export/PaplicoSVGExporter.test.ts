@@ -257,6 +257,133 @@ describe("PaplicoSVGExporter", () => {
 		);
 	});
 
+	it("should rotate gradients with the element (local-space evaluation)", async () => {
+		const rotated = path("g1", {
+			transform: { x: 0, y: 0, rotation: Math.PI / 2, scaleX: 1, scaleY: 1 },
+			filters: [
+				{
+					uid: "grad-fill",
+					processor: "fill",
+					opacity: 1,
+					blendMode: "normal",
+					paramData: {
+						version: "1",
+						params: {
+							fill: {
+								type: "linear",
+								x1: 0,
+								y1: 0,
+								x2: 1,
+								y2: 0,
+								stops: [
+									{
+										offset: 0,
+										color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+										midpoint: 0.5,
+									},
+									{
+										offset: 1,
+										color: { type: "rgb", r: 1, g: 1, b: 1, a: 1 },
+										midpoint: 0.5,
+									},
+								],
+							},
+						},
+					},
+				} as FillAppearance,
+			],
+		});
+		const doc = makeDocument([rotated], [{ elementIds: ["g1"] }]);
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.renderArtboardToSVG("artboard1");
+
+		// A 90° rotation must land in the gradientTransform's off-diagonal
+		// terms: matrix(a b c d ...) with a≈0 — the gradient turns with the
+		// element instead of staying world-axis aligned.
+		const match = result?.svg.match(/gradientTransform="matrix\(([^)]+)\)"/);
+		expect(match).not.toBeNull();
+		const [a, b] = (match?.[1] ?? "").split(" ").map(Number);
+		expect(Math.abs(a)).toBeLessThan(1e-6);
+		expect(Math.abs(b)).toBeGreaterThan(1);
+	});
+
+	it("should scale geometric stroke widths with a uniform transform", async () => {
+		const stroked = path("s1", {
+			transform: { x: 0, y: 0, rotation: 0, scaleX: 2, scaleY: 2 },
+			filters: [
+				{
+					uid: "stroke-1",
+					processor: "stroke",
+					opacity: 1,
+					blendMode: "normal",
+					paramData: {
+						version: "1",
+						params: {
+							strokeColor: {
+								type: "solid",
+								color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+							},
+							brushSettings: {
+								version: 2,
+								engine: "geometric",
+								strokeOpacity: 1,
+								paintMode: "buildup",
+								properties: { size: { base: 4 } },
+								randomSeed: 0,
+							},
+						},
+					},
+				} as Filter,
+			],
+		});
+		const doc = makeDocument([stroked], [{ elementIds: ["s1"] }]);
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.renderArtboardToSVG("artboard1");
+
+		expect(result?.svg).toContain(`stroke-width="8"`);
+	});
+
+	it("should distribute element opacity into shape paints (non-isolated)", async () => {
+		const el = path("op1", {
+			opacity: 0.5,
+			filters: [solidFill(1, 0, 0)],
+		});
+		const doc = makeDocument([el], [{ elementIds: ["op1"] }]);
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.renderArtboardToSVG("artboard1");
+
+		expect(result?.svg).toContain(`fill-opacity="0.5"`);
+		expect(result?.svg).not.toContain(`<g opacity="0.5"`);
+	});
+
+	it("should hide an element whose enabled mask has no visible content", async () => {
+		const hiddenByMask = path("m1", {
+			filters: [solidFill(1, 0, 0)],
+			mask: { elementIds: [] },
+		});
+		const doc = makeDocument([hiddenByMask], [{ elementIds: ["m1"] }]);
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.renderArtboardToSVG("artboard1");
+
+		// schema: "Empty = the owner is fully hidden"
+		expect(result?.svg).not.toContain("#ff0000");
+	});
+
+	it("should emit an sRGB invert filter for inverted masks", async () => {
+		const maskShape = path("mask-shape", { filters: [solidFill(1, 1, 1)] });
+		const masked = path("m2", {
+			filters: [solidFill(1, 0, 0)],
+			mask: { elementIds: ["mask-shape"], inverted: true },
+		});
+		const doc = makeDocument([masked, maskShape], [{ elementIds: ["m2"] }]);
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.renderArtboardToSVG("artboard1");
+
+		expect(result?.svg).toContain(`mask="url(#mask0)"`);
+		expect(result?.svg).toContain(`color-interpolation-filters="sRGB"`);
+		expect(result?.svg).toContain(`fill="#ffffff"`);
+	});
+
 	it("should omit vector elements that lie outside the artboard", async () => {
 		const outside = path("outside", {
 			filters: [solidFill(1, 0, 0)],

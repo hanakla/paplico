@@ -4,6 +4,7 @@ import {
 	type BlendMode,
 	colorToRawRGBA,
 	type Document,
+	type ElementTransform,
 	type FillAppearance,
 	type Filter,
 	hasGroupAppearances,
@@ -13,7 +14,12 @@ import {
 	type TextElement,
 	type TextStyle,
 } from "../../../schema";
-import { calculateElementBounds } from "../../../utils/geometry/bounds";
+import {
+	boundsIntersect,
+	calculateElementBounds,
+} from "../../../utils/geometry/bounds";
+import { composeTransforms } from "../../../utils/geometry/geometry";
+import { uniformTransformScale } from "./pathData";
 
 /**
  * How an element travels into the SVG output:
@@ -53,17 +59,30 @@ export interface RasterRun {
 
 export type LayerPlanItem = VectorItem | RasterRun;
 
+/** Recursion guards threaded through nested classification walks. */
+interface ClassifyVisitState {
+	defs: Set<string>;
+	masks: Set<string>;
+}
+
 export function classifyElement(
 	element: AnyArtObject,
 	opts: ClassifyOptions,
+	ancestorTransform?: ElementTransform,
 ): SvgElementClass {
-	return classifyElementInner(element, opts, new Set());
+	return classifyElementInner(
+		element,
+		opts,
+		{ defs: new Set(), masks: new Set() },
+		ancestorTransform,
+	);
 }
 
 function classifyElementInner(
 	element: AnyArtObject,
 	opts: ClassifyOptions,
-	visitedDefs: Set<string>,
+	visited: ClassifyVisitState,
+	ancestorTransform?: ElementTransform,
 ): SvgElementClass {
 	if (element.visible === false) return "skip";
 	if (element.opacity <= 0) return "skip";
@@ -74,13 +93,30 @@ function classifyElementInner(
 
 	if (element.compositionMode === "alpha-lock") return "raster";
 
+	const composed = ancestorTransform
+		? composeTransforms(ancestorTransform, element.transform)
+		: element.transform;
+
 	// Mask content lives outside layers, so a raster-only mask element cannot
 	// be chunk-rendered on its own — the masked owner falls back instead.
-	if (element.mask && element.mask.enabled !== false) {
+	// The visited set stops broken cyclic mask references from recursing.
+	if (
+		element.mask &&
+		element.mask.enabled !== false &&
+		!visited.masks.has(element.id)
+	) {
+		const nextVisited: ClassifyVisitState = {
+			defs: visited.defs,
+			masks: new Set(visited.masks).add(element.id),
+		};
 		for (const maskElementId of element.mask.elementIds) {
 			const maskElement = opts.document.objects[maskElementId];
 			if (!maskElement) continue;
-			if (classifyElementInner(maskElement, opts, visitedDefs) === "raster") {
+			// Mask element transforms are owner-local.
+			if (
+				classifyElementInner(maskElement, opts, nextVisited, composed) ===
+				"raster"
+			) {
 				return "raster";
 			}
 		}
@@ -122,13 +158,17 @@ function classifyElementInner(
 			// so the pattern-filled element falls back to raster as a whole.
 			if (
 				fill.type === "pattern" &&
-				!isPatternTileVectorizable(fill.defId, opts, visitedDefs)
+				!isPatternTileVectorizable(fill.defId, opts, visited)
 			) {
 				return "raster";
 			}
 		} else if (filter.processor === "stroke") {
 			const params = (filter as StrokeAppearance).paramData.params;
 			if (params.strokeColor.type !== "solid") return "raster";
+			// A constant-width stroke scales with the transform in the renderer;
+			// SVG strokes only take one width, so non-uniform/skewed transforms
+			// cannot be represented.
+			if (uniformTransformScale(composed) === null) return "raster";
 			// No brushSettings = the renderer's constant-width geometric default.
 			if (params.brushSettings) {
 				const route = resolveBrushRenderRoute(params.brushSettings);
@@ -157,11 +197,22 @@ function classifyElementInner(
 			// Geometry filters deform the image quad into a perspective blit,
 			// which SVG cannot express — same as explicit corner warps.
 			return element.corners || needsBake ? "raster" : "pure";
-		case "text":
+		case "text": {
 			// Geometry filters apply to the laid-out glyph outlines inside the
 			// renderer; the outline exporter does not reproduce that yet.
 			if (needsBake) return "raster";
-			return hasVectorizableTextPaint(element) ? "bake" : "raster";
+			// The renderer composites fill/stroke APPEARANCES onto glyph paint
+			// (TextElementRenderer.buildGlyphPaintFilters); the outline exporter
+			// only reads run styles, so appearance-painted text must rasterize.
+			if (hasVisiblePaintAppearances(element)) return "raster";
+			const paint = textPaintProfile(element);
+			if (!paint.vectorizable) return "raster";
+			// Glyph stroke widths cannot follow a non-uniform/skewed transform.
+			if (paint.hasStroke && uniformTransformScale(composed) === null) {
+				return "raster";
+			}
+			return "bake";
+		}
 		case "compound-path":
 			return "bake";
 		case "group": {
@@ -181,13 +232,11 @@ function classifyElementInner(
 					return "raster";
 				}
 			}
-			return needsBake ? "bake" : "pure";
+			return "pure";
 		}
-		case "mesh":
-		case "blend":
-		case "repeat":
-			return "raster";
 		default:
+			// mesh / blend / repeat and any future kind: raster is the safe
+			// fallback — a chunk render always reproduces the on-canvas look.
 			return "raster";
 	}
 }
@@ -205,6 +254,7 @@ function classifyElementInner(
 export function planLayerItems(
 	elementIds: readonly string[],
 	opts: ClassifyOptions,
+	ancestorTransform?: ElementTransform,
 ): LayerPlanItem[] {
 	let items: LayerPlanItem[] = [];
 	let openRun: RasterRun | null = null;
@@ -220,7 +270,7 @@ export function planLayerItems(
 	for (const elementId of elementIds) {
 		const element = opts.document.objects[elementId];
 		if (!element) continue;
-		const cls = classifyElement(element, opts);
+		const cls = classifyElement(element, opts, ancestorTransform);
 		if (cls === "skip") continue;
 
 		if (cls === "raster") {
@@ -237,12 +287,7 @@ export function planLayerItems(
 						const el = opts.document.objects[id];
 						if (!el) return false;
 						const bounds = calculateElementBounds(el, elementsMap ?? undefined);
-						return (
-							bounds.minX <= backdropBounds.maxX &&
-							bounds.maxX >= backdropBounds.minX &&
-							bounds.minY <= backdropBounds.maxY &&
-							bounds.maxY >= backdropBounds.minY
-						);
+						return boundsIntersect(bounds, backdropBounds);
 					});
 					if (overlaps) swallowed.push(...ids);
 					else kept.push(item);
@@ -285,9 +330,10 @@ export function planLayerItems(
 /**
  * Whether a stroke appearance produces any visible pixels: opaque enough,
  * non-transparent solid color (non-solid paints are treated as visible),
- * and a non-zero brush width.
+ * and a non-zero brush width. Shared with the serializer so classification
+ * and output cannot disagree on what counts as visible.
  */
-function isVisibleStroke(appearance: StrokeAppearance): boolean {
+export function isVisibleStroke(appearance: StrokeAppearance): boolean {
 	if ((appearance.opacity ?? 1) <= 0) return false;
 	const params = appearance.paramData.params;
 	if (
@@ -301,36 +347,55 @@ function isVisibleStroke(appearance: StrokeAppearance): boolean {
 	return (settings.properties.size?.base ?? 1) > 0;
 }
 
-function hasVectorizableTextPaint(element: TextElement): boolean {
+/** True when element-level fill/stroke appearances would paint the glyphs. */
+function hasVisiblePaintAppearances(element: TextElement): boolean {
+	return (element.filters ?? []).some(
+		(f) =>
+			isFilterEnabled(f) &&
+			((f.processor === "fill" && isVisibleFill(f as FillAppearance)) ||
+				(f.processor === "stroke" && isVisibleStroke(f as StrokeAppearance))),
+	);
+}
+
+function textPaintProfile(element: TextElement): {
+	vectorizable: boolean;
+	hasStroke: boolean;
+} {
 	const styles: TextStyle[] = [element.defaultStyle];
 	for (const paragraph of element.content.paragraphs) {
 		for (const run of paragraph.runs) {
 			if (run.style) styles.push(run.style);
 		}
 	}
-	return styles.every((style) => {
+	let hasStroke = false;
+	const vectorizable = styles.every((style) => {
 		const fillOk =
 			!style.fill ||
 			style.fill.type === "solid" ||
 			style.fill.type === "linear" ||
 			style.fill.type === "radial";
+		if (style.stroke) hasStroke = true;
 		const strokeOk = !style.stroke || style.stroke.type === "solid";
 		return fillOk && strokeOk;
 	});
+	return { vectorizable, hasStroke };
 }
 
 function isPatternTileVectorizable(
 	defId: string | null,
 	opts: ClassifyOptions,
-	visitedDefs: Set<string>,
+	visited: ClassifyVisitState,
 ): boolean {
 	if (!defId) return true;
 	// Cyclic def references are broken data; stop instead of recursing.
-	if (visitedDefs.has(defId)) return true;
+	if (visited.defs.has(defId)) return true;
 	const def = opts.document.defs?.[defId];
 	if (!def) return true;
 
-	const nextVisited = new Set(visitedDefs).add(defId);
+	const nextVisited: ClassifyVisitState = {
+		defs: new Set(visited.defs).add(defId),
+		masks: visited.masks,
+	};
 	return def.rootElementIds.every((id) => {
 		const element = opts.document.objects[id];
 		if (!element) return true;

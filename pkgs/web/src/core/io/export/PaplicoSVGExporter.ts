@@ -152,6 +152,7 @@ export class PaplicoSVGExporter {
 
 		return {
 			document: doc,
+			elementsMap: new Map(Object.entries(doc.objects)),
 			builder,
 			mapper: createCoordMapper(artboard),
 			viewBox: { width: artboard.width, height: artboard.height },

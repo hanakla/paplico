@@ -15,7 +15,6 @@ import {
 	type ImageObject,
 	isFilterEnabled,
 	isIdentityTransform,
-	isPath,
 	isVisibleFill,
 	type ObjectMask,
 	type Path,
@@ -24,15 +23,23 @@ import {
 	type StrokeAppearance,
 	type TextElement,
 } from "../../../schema";
-import { calculateSegmentListBounds } from "../../../utils/geometry/bounds";
+import {
+	boundsIntersect,
+	calculateLocalElementBounds,
+	calculateSegmentListBounds,
+	expandBounds,
+} from "../../../utils/geometry/bounds";
+import { bakeCompoundPathSegments } from "../../../utils/geometry/compoundBake";
 import { composeTransforms } from "../../../utils/geometry/geometry";
-import { computeBooleanOperation } from "../../../utils/geometry/pathOps";
 import {
 	reconstructSegmentsFromWorld,
-	toWorldPath,
 	transformSegmentsToWorld,
 } from "../../../utils/geometry/segmentOps";
-import { type ClassifyOptions, planLayerItems } from "./classify";
+import {
+	type ClassifyOptions,
+	isVisibleStroke,
+	planLayerItems,
+} from "./classify";
 import { bytesToDataUrl } from "./dataUrl";
 import {
 	colorToSvgPaint,
@@ -40,12 +47,14 @@ import {
 	type SvgPaint,
 } from "./paintServer";
 import {
+	boundsUnitAffine,
 	composeWorldAffine,
 	createCoordMapper,
 	elementTransformToWorldAffine,
 	type SvgCoordMapper,
 	segmentsToPathData,
 	svgMatrixToString,
+	uniformTransformScale,
 	type WorldAffine,
 } from "./pathData";
 import type { RasterChunkResult } from "./rasterChunk";
@@ -54,6 +63,8 @@ import type { SvgDocumentBuilder, SvgNode } from "./svgBuilder";
 /** Everything element serialization needs, wired once by the exporter. */
 export interface SerializeContext {
 	document: Document;
+	/** Map view of document.objects for bounds helpers that need one. */
+	elementsMap: ReadonlyMap<string, AnyArtObject>;
 	builder: SvgDocumentBuilder;
 	mapper: SvgCoordMapper;
 	viewBox: { width: number; height: number };
@@ -94,7 +105,11 @@ export async function serializePlanItems(
 	ancestorTransform?: ElementTransform,
 ): Promise<SvgNode[]> {
 	const nodes: SvgNode[] = [];
-	for (const item of planLayerItems(elementIds, ctx.classify)) {
+	for (const item of planLayerItems(
+		elementIds,
+		ctx.classify,
+		ancestorTransform,
+	)) {
 		if (item.kind === "raster") {
 			const chunk = await ctx.renderRasterRun(item.elementIds);
 			if (!chunk) continue;
@@ -143,9 +158,10 @@ async function serializeVectorElement(
 		case "compound-path":
 			return serializePathLike(
 				element,
-				bakeCompoundSegments(element, ctx.document),
+				bakeCompoundPathSegments(element, (id) => ctx.document.objects[id]),
 				ctx,
 				ancestorTransform,
+				compoundTransformOrigin(element, ctx),
 			);
 		case "group":
 			return serializeGroup(element, ctx, ancestorTransform);
@@ -165,6 +181,7 @@ async function serializePathLike(
 	localSegments: CubicBezierSegment[],
 	ctx: SerializeContext,
 	ancestorTransform?: ElementTransform,
+	transformOrigin?: { x: number; y: number },
 ): Promise<SvgNode | null> {
 	const geometry = resolveElementGeometry(
 		localSegments,
@@ -174,75 +191,103 @@ async function serializePathLike(
 	if (geometry.length === 0) return null;
 
 	const composed = composeAncestor(ancestorTransform, getTransform(element));
-	const worldSegments = bakeSegmentsToWorld(geometry, composed, localSegments);
+	const origin = transformOrigin ??
+		segmentsBoundsCenter(localSegments) ?? { x: 0, y: 0 };
+	const worldSegments = bakeSegmentsToWorld(geometry, composed, origin);
 	const d = segmentsToPathData(worldSegments, ctx.mapper);
 	if (!d) return null;
 
 	const worldBounds = calculateSegmentListBounds(worldSegments);
 	if (!worldBounds) return null;
 
+	// The renderer evaluates gradient/pattern uv in the element's LOCAL
+	// (pre-transform) space (gradientFill.wgsl), so paints must ride the
+	// element transform instead of the world-baked bbox.
+	const localBounds = calculateSegmentListBounds(geometry);
+	const localToWorld = elementTransformToWorldAffine(composed, origin);
+	// A constant-width stroke scales with the transform in the renderer; a
+	// non-uniform/skewed transform is classified as raster before reaching here.
+	const strokeScale = uniformTransformScale(composed) ?? 1;
+
 	// Cull elements whose painted area (geometry + stroke reach) cannot touch
 	// the visible region — invisible markup must not ship in the export.
-	if (!boundsIntersect(worldBounds, ctx.cullBounds, maxStrokeWidth(element))) {
+	const cullMargin = maxStrokeWidth(element) * strokeScale;
+	if (
+		!boundsIntersect(
+			cullMargin > 0 ? expandBounds(worldBounds, cullMargin) : worldBounds,
+			ctx.cullBounds,
+		)
+	) {
 		return null;
 	}
 
+	const elementAlpha = element.opacity;
 	const shapes: SvgNode[] = [];
 	for (const filter of element.filters ?? []) {
 		if (!isFilterEnabled(filter)) continue;
 		if (filter.processor === "fill") {
 			const fillAppearance = filter as FillAppearance;
 			if (!isVisibleFill(fillAppearance)) continue;
+			if (!localBounds) continue;
 			const fill = fillAppearance.paramData.params.fill;
-			const paint = await resolveFillPaint(fill, worldBounds, ctx);
+			const paint = await resolveFillPaint(
+				fill,
+				{ localBounds, localToWorld },
+				ctx,
+			);
 			if (paint.paint === "none") continue;
 			shapes.push({
 				tag: "path",
 				attrs: {
 					d,
 					fill: paint.paint,
-					...opacityAttr("fill-opacity", paint.opacity * filter.opacity),
+					...opacityAttr(
+						"fill-opacity",
+						paint.opacity * filter.opacity * elementAlpha,
+					),
 				},
 			});
 		} else if (filter.processor === "stroke") {
-			const node = strokeAppearanceToNode(filter as StrokeAppearance, d);
+			const node = strokeAppearanceToNode(
+				filter as StrokeAppearance,
+				d,
+				strokeScale,
+				elementAlpha,
+			);
 			if (node) shapes.push(node);
 		}
 	}
 	if (shapes.length === 0) return null;
 
-	return wrapElement(shapes, element, ctx, composed);
+	// Element opacity is already distributed into each shape's paint opacity
+	// (the renderer applies it per appearance, non-isolated), so the wrapper
+	// must not add a second, isolated group opacity.
+	return wrapElement(shapes, element, ctx, composed, {}, false);
 }
 
-function bakeCompoundSegments(
+/**
+ * The renderer's GPU transform origin for a compound path is the center of
+ * its SOURCES' bounds union (calculateCompoundPathBounds), not the boolean
+ * result's bbox — subtract/intersect results differ.
+ */
+function compoundTransformOrigin(
 	compound: CompoundPath,
-	document: Document,
-): CubicBezierSegment[] {
-	// Mirrors PathElementRenderer.renderCompoundPath: sources are world-baked
-	// by their own transforms, the boolean result then acts as the compound's
-	// local geometry under the compound's own transform.
-	const pathMap = new Map<string, Path>();
-	const validSources: CompoundPath["sources"] = [];
-	for (const source of compound.sources) {
-		const el = document.objects[source.id];
-		if (!el || !isPath(el)) continue;
-		pathMap.set(source.id, toWorldPath(el));
-		validSources.push(source);
-	}
-	if (validSources.length === 0) return [];
-	return computeBooleanOperation(validSources, pathMap, {
-		curveTolerance: 0.25,
-	});
+	ctx: SerializeContext,
+): { x: number; y: number } {
+	const bounds = calculateLocalElementBounds(compound, ctx.elementsMap);
+	return boundsCenter(bounds);
 }
 
 function strokeAppearanceToNode(
 	appearance: StrokeAppearance,
 	d: string,
+	strokeScale: number,
+	elementAlpha: number,
 ): SvgNode | null {
 	const params = appearance.paramData.params;
 	if (params.strokeColor.type !== "solid") return null;
+	if (!isVisibleStroke(appearance)) return null;
 	const paint = colorToSvgPaint(params.strokeColor.color);
-	if (paint.opacity <= 0) return null;
 
 	const settings = params.brushSettings
 		? resolveBrushRenderRoute(params.brushSettings).settings
@@ -256,17 +301,24 @@ function strokeAppearanceToNode(
 			d,
 			fill: "none",
 			stroke: paint.paint,
-			...opacityAttr("stroke-opacity", paint.opacity * appearance.opacity),
-			"stroke-width": settings?.properties.size?.base ?? 1,
+			...opacityAttr(
+				"stroke-opacity",
+				paint.opacity * appearance.opacity * elementAlpha,
+			),
+			"stroke-width": (settings?.properties.size?.base ?? 1) * strokeScale,
 			"stroke-linecap": stroking?.lineCap ?? "round",
 			"stroke-linejoin": stroking?.lineJoin ?? "round",
 			// 4 is the SVG default
 			...(miterLimit !== 4 ? { "stroke-miterlimit": miterLimit } : {}),
 			...(stroking?.dashArray?.length
-				? { "stroke-dasharray": stroking.dashArray.join(" ") }
+				? {
+						"stroke-dasharray": stroking.dashArray
+							.map((v) => v * strokeScale)
+							.join(" "),
+					}
 				: {}),
 			...(stroking?.dashOffset
-				? { "stroke-dashoffset": stroking.dashOffset }
+				? { "stroke-dashoffset": stroking.dashOffset * strokeScale }
 				: {}),
 		},
 	};
@@ -318,7 +370,10 @@ async function collectClipPathData(
 	ctx: SerializeContext,
 	ancestorTransform: ElementTransform | undefined,
 ): Promise<string[]> {
-	const bakeToD = (localSegments: CubicBezierSegment[]): string | null => {
+	const bakeToD = (
+		localSegments: CubicBezierSegment[],
+		transformOrigin?: { x: number; y: number },
+	): string | null => {
 		const geometry = resolveElementGeometry(
 			localSegments,
 			clipSource.filters,
@@ -329,8 +384,10 @@ async function collectClipPathData(
 			ancestorTransform,
 			getTransform(clipSource),
 		);
+		const origin = transformOrigin ??
+			segmentsBoundsCenter(localSegments) ?? { x: 0, y: 0 };
 		const d = segmentsToPathData(
-			bakeSegmentsToWorld(geometry, composed, localSegments),
+			bakeSegmentsToWorld(geometry, composed, origin),
 			ctx.mapper,
 		);
 		return d || null;
@@ -341,7 +398,10 @@ async function collectClipPathData(
 		return d ? [d] : [];
 	}
 	if (clipSource.type === "compound-path") {
-		const d = bakeToD(bakeCompoundSegments(clipSource, ctx.document));
+		const d = bakeToD(
+			bakeCompoundPathSegments(clipSource, (id) => ctx.document.objects[id]),
+			compoundTransformOrigin(clipSource, ctx),
+		);
 		return d ? [d] : [];
 	}
 	if (clipSource.type === "text") {
@@ -388,7 +448,7 @@ async function serializeImage(
 	);
 
 	const cornerBounds = affineRectBounds(worldAffine, image.width, image.height);
-	if (!boundsIntersect(cornerBounds, ctx.cullBounds, 0)) return null;
+	if (!boundsIntersect(cornerBounds, ctx.cullBounds)) return null;
 
 	const node: SvgNode = {
 		tag: "image",
@@ -418,6 +478,9 @@ async function serializeText(
 	const paintSource = ctx.getTextPaintSource(element);
 	const composed = composeAncestor(ancestorTransform, getTransform(element));
 	const origin = boundsCenter(outline.bounds);
+	const localToWorld = elementTransformToWorldAffine(composed, origin);
+	const strokeScale = uniformTransformScale(composed) ?? 1;
+	const elementAlpha = element.opacity;
 
 	const glyphNodes: SvgNode[] = [];
 	for (const { path, runIndex, paragraphIndex } of outline.outlinedPaths) {
@@ -431,29 +494,39 @@ async function serializeText(
 		const fill = style.fill ?? paintSource.defaultStyle.fill ?? null;
 		const stroke = style.stroke ?? paintSource.defaultStyle.stroke ?? null;
 		const strokeWidth =
-			style.strokeWidth ?? paintSource.defaultStyle.strokeWidth ?? 1;
+			(style.strokeWidth ?? paintSource.defaultStyle.strokeWidth ?? 1) *
+			strokeScale;
 
 		// Per-glyph culling: glyphs that cannot reach the visible region are
 		// dropped; glyphs crossing the edge are kept whole.
-		const cullBounds = calculateSegmentListBounds(worldSegments);
+		const glyphWorldBounds = calculateSegmentListBounds(worldSegments);
 		if (
-			!cullBounds ||
-			!boundsIntersect(cullBounds, ctx.cullBounds, stroke ? strokeWidth : 0)
+			!glyphWorldBounds ||
+			!boundsIntersect(
+				stroke ? expandBounds(glyphWorldBounds, strokeWidth) : glyphWorldBounds,
+				ctx.cullBounds,
+			)
 		) {
 			continue;
 		}
 
 		if (fill) {
-			const glyphBounds = calculateSegmentListBounds(worldSegments);
-			if (glyphBounds) {
-				const paint = await resolveFillPaint(fill, glyphBounds, ctx);
+			// Gradients are evaluated per glyph in the glyph's pre-transform
+			// bounds, matching the renderer's per-glyph fill passes.
+			const glyphLocalBounds = calculateSegmentListBounds(path.segments);
+			if (glyphLocalBounds) {
+				const paint = await resolveFillPaint(
+					fill,
+					{ localBounds: glyphLocalBounds, localToWorld },
+					ctx,
+				);
 				if (paint.paint !== "none") {
 					glyphNodes.push({
 						tag: "path",
 						attrs: {
 							d,
 							fill: paint.paint,
-							...opacityAttr("fill-opacity", paint.opacity),
+							...opacityAttr("fill-opacity", paint.opacity * elementAlpha),
 						},
 					});
 				}
@@ -468,7 +541,7 @@ async function serializeText(
 						d,
 						fill: "none",
 						stroke: paint.paint,
-						...opacityAttr("stroke-opacity", paint.opacity),
+						...opacityAttr("stroke-opacity", paint.opacity * elementAlpha),
 						"stroke-width": strokeWidth,
 						"stroke-linecap": "round",
 						"stroke-linejoin": "round",
@@ -479,7 +552,8 @@ async function serializeText(
 	}
 	if (glyphNodes.length === 0) return null;
 
-	return wrapElement(glyphNodes, element, ctx, composed);
+	// Element opacity rides each glyph shape (see serializePathLike).
+	return wrapElement(glyphNodes, element, ctx, composed, {}, false);
 }
 
 /** Glyph outlines are already world-positioned; apply only a non-identity element transform. */
@@ -497,9 +571,20 @@ function transformWorldGlyph(
 
 // --- Paint resolution ---
 
+/**
+ * The space a textured paint is evaluated in: the element's pre-transform
+ * bounds plus the map carrying that local space into world coordinates —
+ * mirroring the renderer, which samples gradient/pattern uv before the
+ * element transform applies.
+ */
+interface PaintSpace {
+	localBounds: BoundingBox;
+	localToWorld: WorldAffine;
+}
+
 async function resolveFillPaint(
 	fill: FillColor,
-	worldBounds: BoundingBox,
+	space: PaintSpace,
 	ctx: SerializeContext,
 ): Promise<SvgPaint> {
 	switch (fill.type) {
@@ -507,9 +592,17 @@ async function resolveFillPaint(
 			return colorToSvgPaint(fill.color);
 		case "linear":
 		case "radial":
-			return gradientToSvgPaint(fill, worldBounds, ctx.mapper, ctx.builder);
+			return gradientToSvgPaint(
+				fill,
+				composeWorldAffine(
+					space.localToWorld,
+					boundsUnitAffine(space.localBounds),
+				),
+				ctx.mapper,
+				ctx.builder,
+			);
 		case "pattern":
-			return patternToSvgPaint(fill, worldBounds, ctx);
+			return patternToSvgPaint(fill, space, ctx);
 		default:
 			// free / mesh gradients are classified as raster and never reach here.
 			return { paint: "none", opacity: 1 };
@@ -518,7 +611,7 @@ async function resolveFillPaint(
 
 async function patternToSvgPaint(
 	fill: PatternFill,
-	worldBounds: BoundingBox,
+	space: PaintSpace,
 	ctx: SerializeContext,
 ): Promise<SvgPaint> {
 	if (!fill.defId) return { paint: "none", opacity: 1 };
@@ -526,20 +619,21 @@ async function patternToSvgPaint(
 	if (!baseId) return { paint: "none", opacity: 1 };
 
 	// Forward tile map mirroring the unified shader's inverse sampling: tile
-	// coords (Y down) → rotate → scale → offset in Y-down space anchored at the
-	// element's world-bbox top-left.
+	// coords (Y down) → rotate → scale → offset in Y-down LOCAL space anchored
+	// at the element's local-bbox top-left, then through the element transform.
 	const sx = fill.scaleX || 1;
 	const sy = fill.scaleY || 1;
 	const cos = Math.cos(fill.rotation);
 	const sin = Math.sin(fill.rotation);
-	const tileToWorld = {
+	const tileToLocal = {
 		m00: cos * sx,
 		m01: -sin * sy,
 		m10: -sin * sx,
 		m11: -cos * sy,
-		tx: worldBounds.minX + fill.offsetX,
-		ty: worldBounds.maxY - fill.offsetY,
+		tx: space.localBounds.minX + fill.offsetX,
+		ty: space.localBounds.maxY - fill.offsetY,
 	};
+	const tileToWorld = composeWorldAffine(space.localToWorld, tileToLocal);
 
 	const id = ctx.builder.allocId("pat");
 	ctx.builder.addDef({
@@ -618,15 +712,23 @@ async function wrapElement(
 	ctx: SerializeContext,
 	composedTransform: ElementTransform,
 	extraAttrs: Record<string, string | number> = {},
-): Promise<SvgNode> {
+	includeOpacity = true,
+): Promise<SvgNode | null> {
 	const attrs: Record<string, string | number> = { ...extraAttrs };
-	if (element.opacity < 1) attrs.opacity = element.opacity;
+	if (includeOpacity && element.opacity < 1) attrs.opacity = element.opacity;
 	if (element.blendMode !== "normal") {
 		attrs.style = `mix-blend-mode:${element.blendMode}`;
 	}
 	if (element.mask && element.mask.enabled !== false) {
 		const maskId = await registerMask(element.mask, ctx, composedTransform);
-		if (maskId) attrs.mask = `url(#${maskId})`;
+		if (maskId) {
+			attrs.mask = `url(#${maskId})`;
+		} else if (!element.mask.inverted) {
+			// An enabled mask with no visible content is all-black luminance:
+			// the owner is fully hidden (schema: "Empty = fully hidden").
+			// An empty INVERTED mask is all-white and hides nothing.
+			return null;
+		}
 	}
 
 	if (Object.keys(attrs).length === 0) {
@@ -643,7 +745,13 @@ async function registerMask(
 	ownerTransform: ElementTransform,
 ): Promise<string | null> {
 	// Mask element transforms are owner-local: the owner acts as their parent.
-	let content = await serializePlanItems(mask.elementIds, ctx, ownerTransform);
+	// Mask content must NOT be culled against the artboard: a mask shape
+	// moved off-artboard still drives the owner's alpha (absence = hidden).
+	let content = await serializePlanItems(
+		mask.elementIds,
+		{ ...ctx, cullBounds: UNBOUNDED_CULL },
+		ownerTransform,
+	);
 	if (content.length === 0) return null;
 
 	if (mask.inverted) {
@@ -695,6 +803,9 @@ function ensureInvertFilter(ctx: SerializeContext): string {
 			{
 				tag: "feColorMatrix",
 				attrs: {
+					// The renderer inverts sRGB-encoded values directly; the SVG
+					// filter default (linearRGB) would diverge on midtones.
+					"color-interpolation-filters": "sRGB",
 					type: "matrix",
 					values: "-1 0 0 0 1 0 -1 0 0 1 0 0 -1 0 1 0 0 0 1 0",
 				},
@@ -715,35 +826,38 @@ function composeAncestor(
 		: elementTransform;
 }
 
+/** Cull rect used where nothing may be culled (mask content). */
+const UNBOUNDED_CULL: BoundingBox = {
+	minX: Number.NEGATIVE_INFINITY,
+	minY: Number.NEGATIVE_INFINITY,
+	maxX: Number.POSITIVE_INFINITY,
+	maxY: Number.POSITIVE_INFINITY,
+	width: Number.POSITIVE_INFINITY,
+	height: Number.POSITIVE_INFINITY,
+};
+
 /**
  * Bake local geometry into identity-transform world segments, transforming
- * around the ORIGINAL (pre-filter) geometry's bbox center, matching
- * getWorldSegments / the renderer's transform origin.
+ * around `origin` — the ORIGINAL (pre-filter) geometry's bbox center for
+ * paths, the source-union center for compound paths, matching the renderer's
+ * transform origin.
  */
 function bakeSegmentsToWorld(
 	geometry: CubicBezierSegment[],
 	composed: ElementTransform,
-	originSegments: CubicBezierSegment[],
+	origin: { x: number; y: number },
 ): PathSegment[] {
-	const originBounds = calculateSegmentListBounds(originSegments);
-	const origin = originBounds ? boundsCenter(originBounds) : { x: 0, y: 0 };
 	return reconstructSegmentsFromWorld(
 		transformSegmentsToWorld(geometry, composed, origin),
 		geometry,
 	);
 }
 
-function boundsIntersect(
-	a: BoundingBox,
-	b: BoundingBox,
-	margin: number,
-): boolean {
-	return (
-		a.minX - margin <= b.maxX &&
-		a.maxX + margin >= b.minX &&
-		a.minY - margin <= b.maxY &&
-		a.maxY + margin >= b.minY
-	);
+function segmentsBoundsCenter(
+	segments: CubicBezierSegment[],
+): { x: number; y: number } | null {
+	const bounds = calculateSegmentListBounds(segments);
+	return bounds ? boundsCenter(bounds) : null;
 }
 
 /** Widest visible stroke of the element, as the geometry-bounds cull margin. */
@@ -752,6 +866,7 @@ function maxStrokeWidth(element: AnyArtObject): number {
 	for (const filter of element.filters ?? []) {
 		if (!isFilterEnabled(filter)) continue;
 		if (filter.processor !== "stroke") continue;
+		if (!isVisibleStroke(filter as StrokeAppearance)) continue;
 		const params = (filter as StrokeAppearance).paramData.params;
 		const settings = params.brushSettings
 			? resolveBrushRenderRoute(params.brushSettings).settings
