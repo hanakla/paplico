@@ -7613,7 +7613,6 @@ function assignMaskStackRecursive(
 	}
 }
 
-/** World AABB of a blit quad's four corners. */
 /**
  * Walk the resolved elementsMap and collect every PatternFill `defId` that's
  * referenced by a visible element's fill or stroke. Empty `defId`s (the
