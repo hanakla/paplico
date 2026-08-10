@@ -192,12 +192,8 @@ interface VisualMatchOptions {
 	allowEmpty?: boolean;
 }
 
-/**
- * Compare an already-encoded PNG buffer against a stored baseline. The
- * non-GPU sibling of expectVisualMatch, for pipelines that produce PNG bytes
- * directly (e.g. rasterized SVG exports).
- */
-export function expectPngBufferMatch(
+/** Compare an already-encoded PNG buffer against a stored baseline. */
+function expectPngBufferMatch(
 	actual: Buffer,
 	testName: string,
 	{
