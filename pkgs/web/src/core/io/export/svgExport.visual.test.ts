@@ -177,18 +177,21 @@ async function expectSvgMatchesGpu(
 	);
 	const diffPercentage = (diffPixels / (width * height)) * 100;
 
+	// The rasterized SVG is always saved for eyeballing the export output;
+	// the diff and the SVG source stick around only on failure.
 	const diffDir = join(__dirname, "../../../__visual_diffs__");
+	mkdirSync(diffDir, { recursive: true });
+	const svgOut = new PNG({ width, height });
+	svgOut.data = Buffer.from(svgPixels);
+	writeFileSync(join(diffDir, `${testName}.svg.png`), PNG.sync.write(svgOut));
+
 	if (diffPercentage <= maxDiffPercentage) {
-		for (const suffix of [".svg.png", ".diff.png", ".svg"]) {
+		for (const suffix of [".diff.png", ".svg"]) {
 			const stale = join(diffDir, `${testName}${suffix}`);
 			if (existsSync(stale)) unlinkSync(stale);
 		}
 		return;
 	}
-	mkdirSync(diffDir, { recursive: true });
-	const svgOut = new PNG({ width, height });
-	svgOut.data = Buffer.from(svgPixels);
-	writeFileSync(join(diffDir, `${testName}.svg.png`), PNG.sync.write(svgOut));
 	writeFileSync(join(diffDir, `${testName}.diff.png`), PNG.sync.write(diff));
 	writeFileSync(join(diffDir, `${testName}.svg`), result.svg);
 	throw new Error(
