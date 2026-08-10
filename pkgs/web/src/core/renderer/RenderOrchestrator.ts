@@ -38,6 +38,7 @@ import type { Reference3DRenderContext } from "./canvas/elements/Reference3DElem
 import { BackdropCaptureManager } from "./canvas/pipeline/BackdropCaptureManager";
 import { BrushTextureManager } from "./canvas/pipeline/brush/BrushTextureManager";
 import {
+	classifyFilterHandler,
 	type FilterHandler,
 	FilterRenderer,
 	type RegisterableFilterHandler,
@@ -1411,6 +1412,11 @@ export class RenderOrchestrator {
 				for (const filter of el.filters ?? []) {
 					if (filter.enabled === false) continue;
 					const handler = this.filterRenderer?.getHandler(filter.processor);
+					// Geometry pre-filters already deformed `base` (it comes from
+					// calculatePreFilteredElementBounds); adding their margin on
+					// top would double-count the deformation. FilterRenderer.
+					// calculateExpansion cannot be reused here for that reason.
+					if (classifyFilterHandler(handler) === "geometry") continue;
 					margin = Math.max(
 						margin,
 						handler?.getExpansionMargin?.(filter, base) ?? 0,
