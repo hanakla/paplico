@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type {
-	BoundingBox,
 	ColorStop,
 	LinearGradient,
 	RadialGradient,
 	RGBColor,
 } from "../../../schema";
+import {
+	oklabToRgb,
+	rgbToOklab,
+} from "../../../utils/geometry/blendInterpolation";
 import { colorToSvgPaint, gradientToSvgPaint } from "./paintServer";
-import { createCoordMapper } from "./pathData";
+import { boundsUnitAffine, createCoordMapper } from "./pathData";
 import { SvgDocumentBuilder } from "./svgBuilder";
 
 const rgb = (r: number, g: number, b: number, a = 1): RGBColor => ({
@@ -24,19 +27,13 @@ const stop = (offset: number, color: RGBColor, midpoint = 0.5): ColorStop => ({
 	midpoint,
 });
 
-const bounds = (
+/** unit space → world map spanning a w×h rect anchored at (minX, minY). */
+const unitAffine = (
 	minX: number,
 	minY: number,
 	width: number,
 	height: number,
-): BoundingBox => ({
-	minX,
-	minY,
-	maxX: minX + width,
-	maxY: minY + height,
-	width,
-	height,
-});
+) => boundsUnitAffine({ minX, minY, width, height });
 
 const mapper = createCoordMapper({
 	id: "ab",
@@ -64,7 +61,7 @@ describe("colorToSvgPaint", () => {
 });
 
 describe("gradientToSvgPaint", () => {
-	it("should register a unit-space linearGradient with a bbox gradientTransform", () => {
+	it("should register a unit-space linearGradient with the unit→world gradientTransform", () => {
 		const builder = new SvgDocumentBuilder({ width: 800, height: 600 });
 		const gradient: LinearGradient = {
 			type: "linear",
@@ -76,7 +73,7 @@ describe("gradientToSvgPaint", () => {
 		};
 		const paint = gradientToSvgPaint(
 			gradient,
-			bounds(0, 0, 100, 50),
+			unitAffine(0, 0, 100, 50),
 			mapper,
 			builder,
 		);
@@ -102,14 +99,14 @@ describe("gradientToSvgPaint", () => {
 			rotation: 0,
 			stops: [stop(0, rgb(1, 0, 0)), stop(1, rgb(0, 0, 1))],
 		};
-		gradientToSvgPaint(gradient, bounds(0, 0, 100, 100), mapper, builder);
+		gradientToSvgPaint(gradient, unitAffine(0, 0, 100, 100), mapper, builder);
 		// Center world (50, 50) → svg (450, 250); radius 50 with Y flip.
 		expect(builder.serialize()).toContain(
 			`<radialGradient id="grad0" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="matrix(50 0 0 -50 450 250)">`,
 		);
 	});
 
-	it("should insert a mixed intermediate stop for non-0.5 midpoints", () => {
+	it("should sample intermediate stops reproducing the OKLab + midpoint ramp", () => {
 		const builder = new SvgDocumentBuilder({ width: 800, height: 600 });
 		const gradient: LinearGradient = {
 			type: "linear",
@@ -119,13 +116,30 @@ describe("gradientToSvgPaint", () => {
 			y2: 0,
 			stops: [stop(0, rgb(0, 0, 0), 0.25), stop(1, rgb(1, 1, 1))],
 		};
-		gradientToSvgPaint(gradient, bounds(0, 0, 100, 100), mapper, builder);
+		gradientToSvgPaint(gradient, unitAffine(0, 0, 100, 100), mapper, builder);
+
+		// midpoint 0.25 puts the ramp's 50% point at offset 0.25; the color
+		// there is the OKLab midpoint of black/white, not the sRGB average.
+		const labBlack = rgbToOklab(rgb(0, 0, 0));
+		const labWhite = rgbToOklab(rgb(1, 1, 1));
+		const mid = oklabToRgb({
+			L: (labBlack.L + labWhite.L) / 2,
+			a: (labBlack.a + labWhite.a) / 2,
+			b: (labBlack.b + labWhite.b) / 2,
+			alpha: 1,
+		});
+		const channel = (v: number) =>
+			Math.round(Math.min(1, Math.max(0, v)) * 255)
+				.toString(16)
+				.padStart(2, "0");
+		const midHex = `#${channel(mid.r)}${channel(mid.g)}${channel(mid.b)}`;
+		expect(midHex).not.toBe("#808080");
 		expect(builder.serialize()).toContain(
-			`<stop offset="0.25" stop-color="#808080"/>`,
+			`<stop offset="0.25" stop-color="${midHex}"/>`,
 		);
 	});
 
-	it("should emit stop-opacity only for translucent stops", () => {
+	it("should not insert stops for same-color unbiased pairs and keep stop-opacity", () => {
 		const builder = new SvgDocumentBuilder({ width: 800, height: 600 });
 		const gradient: LinearGradient = {
 			type: "linear",
@@ -133,10 +147,13 @@ describe("gradientToSvgPaint", () => {
 			y1: 0,
 			x2: 1,
 			y2: 0,
-			stops: [stop(0, rgb(0, 0, 0, 0.5)), stop(1, rgb(1, 1, 1))],
+			stops: [stop(0, rgb(0, 0, 0, 0.5)), stop(1, rgb(0, 0, 0))],
 		};
-		gradientToSvgPaint(gradient, bounds(0, 0, 100, 100), mapper, builder);
-		expect(builder.serialize()).toContain(
+		gradientToSvgPaint(gradient, unitAffine(0, 0, 100, 100), mapper, builder);
+		const svg = builder.serialize();
+		// Alpha interpolates linearly on both sides — no intermediate stops.
+		expect(svg.match(/<stop /g)).toHaveLength(2);
+		expect(svg).toContain(
 			`<stop offset="0" stop-color="#000000" stop-opacity="0.5"/>`,
 		);
 	});
@@ -152,19 +169,19 @@ describe("gradientToSvgPaint", () => {
 			stops: [],
 		};
 		expect(
-			gradientToSvgPaint(base, bounds(0, 0, 10, 10), mapper, builder),
+			gradientToSvgPaint(base, unitAffine(0, 0, 10, 10), mapper, builder),
 		).toEqual({ paint: "none", opacity: 1 });
 		expect(
 			gradientToSvgPaint(
 				{ ...base, stops: [stop(0, rgb(1, 0, 0))] },
-				bounds(0, 0, 10, 10),
+				unitAffine(0, 0, 10, 10),
 				mapper,
 				builder,
 			),
 		).toEqual({ paint: "#ff0000", opacity: 1 });
 	});
 
-	it("should fall back to the first stop color for degenerate bounds", () => {
+	it("should fall back to the first stop color for a degenerate unit map", () => {
 		const builder = new SvgDocumentBuilder({ width: 800, height: 600 });
 		const gradient: LinearGradient = {
 			type: "linear",
@@ -175,7 +192,7 @@ describe("gradientToSvgPaint", () => {
 			stops: [stop(0, rgb(0, 1, 0)), stop(1, rgb(1, 1, 1))],
 		};
 		expect(
-			gradientToSvgPaint(gradient, bounds(0, 0, 0, 10), mapper, builder),
+			gradientToSvgPaint(gradient, unitAffine(0, 0, 0, 10), mapper, builder),
 		).toEqual({ paint: "#00ff00", opacity: 1 });
 	});
 });

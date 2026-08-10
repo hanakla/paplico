@@ -1,5 +1,4 @@
 import {
-	type BoundingBox,
 	type Color,
 	type ColorStop,
 	colorToRawRGBA,
@@ -8,10 +7,15 @@ import {
 	type RawRGBA,
 } from "../../../schema";
 import {
+	oklabToRgb,
+	rgbToOklab,
+} from "../../../utils/geometry/blendInterpolation";
+import {
 	composeWorldAffine,
 	formatNumber,
 	type SvgCoordMapper,
 	svgMatrixToString,
+	type WorldAffine,
 } from "./pathData";
 import type { SvgDocumentBuilder, SvgNode } from "./svgBuilder";
 
@@ -21,29 +25,34 @@ export interface SvgPaint {
 	opacity: number;
 }
 
+/** Stops sampled per pair when approximating the renderer's OKLab ramp. */
+const GRADIENT_SAMPLE_SEGMENTS = 8;
+
 export function colorToSvgPaint(color: Color): SvgPaint {
 	const raw = colorToRawRGBA(color);
 	return { paint: rawToHex(raw), opacity: raw.a };
 }
 
 /**
- * Register a gradient def for an element whose world bounding box is
- * `worldBounds` and return the referencing paint. Gradient coordinates are
- * bbox-relative with Y up (see svgImport's inverse mapping); they are
- * expanded to world space here and emitted as userSpaceOnUse.
+ * Register a gradient def and return the referencing paint. Gradient
+ * coordinates are bbox-relative with Y up (see svgImport's inverse mapping);
+ * `unitToWorld` carries that unit space through the element's LOCAL bounds
+ * and transform into world space — the renderer evaluates gradient uv in
+ * pre-transform local space (gradientFill.wgsl), so the gradient must rotate
+ * and shear with the element.
  */
 export function gradientToSvgPaint(
 	gradient: LinearGradient | RadialGradient,
-	worldBounds: BoundingBox,
+	unitToWorld: WorldAffine,
 	mapper: SvgCoordMapper,
 	builder: SvgDocumentBuilder,
 ): SvgPaint {
 	const stops = [...gradient.stops].sort((a, b) => a.offset - b.offset);
 	if (stops.length === 0) return { paint: "none", opacity: 1 };
 	if (stops.length === 1) return colorToSvgPaint(stops[0].color);
-	if (worldBounds.width <= 0 || worldBounds.height <= 0) {
-		return colorToSvgPaint(stops[0].color);
-	}
+	const determinant =
+		unitToWorld.m00 * unitToWorld.m11 - unitToWorld.m01 * unitToWorld.m10;
+	if (Math.abs(determinant) < 1e-9) return colorToSvgPaint(stops[0].color);
 
 	const stopNodes = expandStops(stops).map(
 		(stop): SvgNode => ({
@@ -55,19 +64,6 @@ export function gradientToSvgPaint(
 			},
 		}),
 	);
-
-	// The renderer evaluates gradients in the element's world-bbox-normalized
-	// uv space (Y up) — see gradientFill.wgsl. Emitting raw unit coordinates
-	// with a bbox gradientTransform reproduces that exactly, including the
-	// uv-space projection of diagonal linear gradients on non-square bounds.
-	const unitToWorld = {
-		m00: worldBounds.width,
-		m01: 0,
-		m10: 0,
-		m11: worldBounds.height,
-		tx: worldBounds.minX,
-		ty: worldBounds.minY,
-	};
 
 	const id = builder.allocId("grad");
 	if (gradient.type === "linear") {
@@ -90,7 +86,7 @@ export function gradientToSvgPaint(
 		}
 		// The shader rotates the ellipse in uv space, then scales by the
 		// relative radii: unit circle → translate(cx, cy)·Rot(θ)·diag(rx, ry),
-		// all composed under the bbox map.
+		// all composed under the unit→world map.
 		const cos = Math.cos(gradient.rotation);
 		const sin = Math.sin(gradient.rotation);
 		const transform = mapper.composeWorld(
@@ -120,9 +116,10 @@ export function gradientToSvgPaint(
 }
 
 /**
- * Expand Photoshop-style stop midpoints into plain stops. A midpoint biases
- * where the blend toward the next stop reaches 50%; SVG has no equivalent,
- * so an intermediate 50/50-mixed stop is inserted at the biased position.
+ * Expand stop pairs into sampled plain stops reproducing the renderer's
+ * ramp: OKLab color interpolation with the Photoshop-style midpoint remap
+ * (gradientCommon.wgsl). SVG interpolates linearly in sRGB, so intermediate
+ * stops pin the curve to the shader's values.
  */
 function expandStops(
 	stops: readonly ColorStop[],
@@ -135,25 +132,46 @@ function expandStops(
 
 		const next = stops[i + 1];
 		if (!next) continue;
-		const midpoint = stop.midpoint;
-		if (midpoint === 0.5) continue;
-		const clamped = Math.min(0.95, Math.max(0.05, midpoint));
 		const nextRaw = colorToRawRGBA(next.color);
-		result.push({
-			offset: stop.offset + clamped * (next.offset - stop.offset),
-			color: mixRawRGBA(raw, nextRaw),
-		});
+		const sameColor =
+			raw.r === nextRaw.r && raw.g === nextRaw.g && raw.b === nextRaw.b;
+		// A same-color pair with an unbiased midpoint is exactly linear in
+		// both sRGB and OKLab — nothing to approximate.
+		if (sameColor && stop.midpoint === 0.5) continue;
+
+		const range = next.offset - stop.offset;
+		if (range <= 0) continue;
+		for (let k = 1; k < GRADIENT_SAMPLE_SEGMENTS; k++) {
+			const u = k / GRADIENT_SAMPLE_SEGMENTS;
+			const f = remapGradientT(u, stop.midpoint);
+			result.push({
+				offset: stop.offset + u * range,
+				color: mixOklab(raw, nextRaw, f),
+			});
+		}
 	}
 	return result;
 }
 
-function mixRawRGBA(a: RawRGBA, b: RawRGBA): RawRGBA {
-	return {
-		r: (a.r + b.r) / 2,
-		g: (a.g + b.g) / 2,
-		b: (a.b + b.b) / 2,
-		a: (a.a + b.a) / 2,
-	};
+/** TS twin of gradientCommon.wgsl's remapGradientT (piecewise midpoint bias). */
+function remapGradientT(fRaw: number, midpoint: number): number {
+	const mp = Math.min(0.9999, Math.max(0.0001, midpoint));
+	if (fRaw < mp) return (0.5 * fRaw) / mp;
+	return 0.5 + (0.5 * (fRaw - mp)) / (1 - mp);
+}
+
+function mixOklab(a: RawRGBA, b: RawRGBA, f: number): RawRGBA {
+	const labA = rgbToOklab({ type: "rgb", ...a });
+	const labB = rgbToOklab({ type: "rgb", ...b });
+	const rgb = oklabToRgb({
+		L: labA.L + (labB.L - labA.L) * f,
+		a: labA.a + (labB.a - labA.a) * f,
+		b: labA.b + (labB.b - labA.b) * f,
+		// The shader mixes alpha linearly in sRGB space, outside the OKLab
+		// conversion (gradientFill.wgsl) — do the same here.
+		alpha: 1,
+	});
+	return { r: rgb.r, g: rgb.g, b: rgb.b, a: a.a + (b.a - a.a) * f };
 }
 
 function rawToHex(raw: RawRGBA): string {

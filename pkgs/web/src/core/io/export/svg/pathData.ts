@@ -66,6 +66,45 @@ export function createCoordMapper(artboard: Artboard): SvgCoordMapper {
 	};
 }
 
+/**
+ * Uniform scale factor of a transform's linear part, or null when the
+ * transform is non-uniform or shears. SVG strokes only support a single
+ * width, so a null here means a constant-width stroke cannot be represented.
+ */
+export function uniformTransformScale(
+	transform: ElementTransform,
+): number | null {
+	const m = transformLinearMatrix(transform);
+	const sx = Math.hypot(m.m00, m.m10);
+	const sy = Math.hypot(m.m01, m.m11);
+	const shear = m.m00 * m.m01 + m.m10 * m.m11;
+	const maxScale = Math.max(sx, sy, 1e-12);
+	if (
+		Math.abs(sx - sy) > maxScale * 1e-3 ||
+		Math.abs(shear) > maxScale * maxScale * 1e-3
+	) {
+		return null;
+	}
+	return sx;
+}
+
+/** Affine mapping bbox-relative unit space (0..1, Y up) onto `bounds`. */
+export function boundsUnitAffine(bounds: {
+	minX: number;
+	minY: number;
+	width: number;
+	height: number;
+}): WorldAffine {
+	return {
+		m00: bounds.width,
+		m01: 0,
+		m10: 0,
+		m11: bounds.height,
+		tx: bounds.minX,
+		ty: bounds.minY,
+	};
+}
+
 /** Compose two affine maps: result(p) = outer(inner(p)). */
 export function composeWorldAffine(
 	outer: WorldAffine,
