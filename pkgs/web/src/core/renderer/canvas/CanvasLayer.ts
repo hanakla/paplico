@@ -7724,11 +7724,6 @@ function bytesPerTexel(format: GPUTextureFormat): number {
 	return format.includes("32float") ? 16 : format.includes("16float") ? 8 : 4;
 }
 
-/**
- * Rebuild a FilteredTextureInfo from a cached filtered bake. Source and output
- * share the borrowed cache texture — borrowed refs are skipped by frame
- * release and by post-mask replacement, so the cached texture survives.
- */
 /** Whether an element or any descendant is a 3D reference scene. Their
  *  texture updates arrive from the three.js runtime without any element
  *  delta or paint-hash change, so a cached bake could serve a stale scene. */
@@ -7744,6 +7739,11 @@ function subtreeContainsReference3D(
 	});
 }
 
+/**
+ * Rebuild a FilteredTextureInfo from a cached filtered bake. Source and output
+ * share the borrowed cache texture — borrowed refs are skipped by frame
+ * release and by post-mask replacement, so the cached texture survives.
+ */
 function buildCachedFilteredTextureInfo(
 	entry: FilteredElementCacheEntry,
 	fp: ElementFilterPlan,
