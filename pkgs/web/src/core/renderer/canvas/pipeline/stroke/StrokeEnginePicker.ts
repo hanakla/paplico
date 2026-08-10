@@ -1,11 +1,11 @@
 /**
- * StrokeEnginePicker — registry that maps BrushSettings.type to the engine
- * that owns that brush family.
+ * StrokeEnginePicker — registry that maps a brush's engine kind to the
+ * implementation that draws it.
  *
  * Three engines:
- *   - GeometricStrokeEngine: `stroke`
- *   - StampStrokeEngine:     `scatter` + `calligraphy`
- *   - RibbonStrokeEngine:    `art` + `pattern`
+ *   - GeometricStrokeEngine: `geometric`
+ *   - StampStrokeEngine:     `dab`
+ *   - RibbonStrokeEngine:    `ribbon`
  *
  * The registry also forwards the frame-level lifecycle (beginFrame,
  * setActiveUniformBuffer) and the batch lifecycle (beginBatch, addToBatch,
@@ -13,16 +13,13 @@
  * engines drive.
  */
 
-import type { BrushType } from "../../../../schema";
+import type { BrushEngineKind } from "../../../../schema";
 import type { PipelineType } from "../../CanvasLayerTypes";
 import type { BrushTextureManager } from "../brush/BrushTextureManager";
 import type { GeometricStrokeEngine } from "./GeometricStrokeEngine";
 import type { RibbonStrokeEngine } from "./RibbonStrokeEngine";
 import type { StampStrokeEngine } from "./StampStrokeEngine";
-import type {
-	StrokeBatchContext,
-	WetStrokeIsolatedRenderParams,
-} from "./StrokeBatchContext";
+import type { StrokeBatchContext } from "./StrokeBatchContext";
 import type {
 	EnginePipeline,
 	ResolvedStrokeStyle,
@@ -45,14 +42,14 @@ export interface StrokeEngineRegistryEngines {
  * texture preloading from ElementRenderer.ensureBrushTexture).
  */
 export class StrokeEngineRegistry {
-	private readonly engineById: Map<BrushType, StrokeEngine>;
-	private readonly pipelineById: Map<BrushType, EnginePipeline>;
+	private readonly engineById: Map<BrushEngineKind, StrokeEngine>;
+	private readonly pipelineById: Map<BrushEngineKind, EnginePipeline>;
 	private readonly context: StrokeBatchContext;
 
 	public constructor(
 		engines: StrokeEngineRegistryEngines,
 		context: StrokeBatchContext,
-		pipelines: Map<BrushType, EnginePipeline>,
+		pipelines: Map<BrushEngineKind, EnginePipeline>,
 	) {
 		this.context = context;
 		this.pipelineById = pipelines;
@@ -65,8 +62,8 @@ export class StrokeEngineRegistry {
 	}
 
 	/** Look up the engine pipeline that owns a given brush family. */
-	public pickPipeline(brushType: BrushType): EnginePipeline | null {
-		return this.pipelineById.get(brushType) ?? null;
+	public pickPipeline(engine: BrushEngineKind): EnginePipeline | null {
+		return this.pipelineById.get(engine) ?? null;
 	}
 
 	/**
@@ -101,7 +98,7 @@ export class StrokeEngineRegistry {
 	}
 
 	public addToBatch(style: ResolvedStrokeStyle, transformIndex: number): void {
-		const pipeline = this.pickPipeline(style.brush.type);
+		const pipeline = this.pickPipeline(style.engine);
 		if (!pipeline?.addToBatch) return;
 		pipeline.addToBatch(style, transformIndex);
 	}
@@ -124,20 +121,21 @@ export class StrokeEngineRegistry {
 		pipelineType: PipelineType,
 		transformsBindGroup: GPUBindGroup,
 	): void {
-		const pipeline = this.pickPipeline(style.brush.type);
+		const pipeline = this.pickPipeline(style.engine);
 		if (!pipeline) return;
 		this.context.onBeforeDraw?.();
 		pipeline.render(passEncoder, style, pipelineType, transformsBindGroup);
-	}
-
-	public renderWetStrokeIsolated(params: WetStrokeIsolatedRenderParams): void {
-		this.context.renderWetStrokeIsolated(params);
 	}
 
 	/**
 	 * BrushTextureManager accessor — exposed because ElementRenderer's
 	 * ensureBrushTexture() preloads textures into the shared manager.
 	 */
+	/** The shared batch context (mix driver needs its dab draw machinery). */
+	public getBatchContext(): StrokeBatchContext {
+		return this.context;
+	}
+
 	public getBrushTextureManager(): BrushTextureManager {
 		return this.context.getTextureManager();
 	}

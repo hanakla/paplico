@@ -341,9 +341,147 @@ describe("PathUnionFilterHandler", () => {
 	});
 });
 
+describe("containment of counters", () => {
+	it("keeps a counter inside a curved outline as a hole", () => {
+		// A round outline whose anchors chord into a diamond. The counter sits
+		// outside that diamond but well inside the real curve (every corner is
+		// within r=40, every corner is beyond x+y=40) — the gap a glyph's counter
+		// falls into when the outline is approximated by its anchors alone.
+		const outline = makeCircle(0, 0, 40);
+		const counter = makeCWRect(24, 24, 6, 6);
+		const result = applyBool([...outline, ...counter], "union");
+
+		// Two sub-paths come back, wound against each other, so the extrude
+		// mesh's dominant-winding rule cuts the counter out of the outline.
+		const areas = splitSubPaths(result).map(signedArea);
+		expect(areas).toHaveLength(2);
+		expect(areas.filter((a) => a > 0)).toHaveLength(1);
+		expect(areas.filter((a) => a < 0)).toHaveLength(1);
+	});
+
+	it("keeps every counter of a multi-part glyph", () => {
+		// Two boxed parts side by side, each holding two stacked counters —
+		// the shape of a CJK character built from several components.
+		const input = [
+			...makeCCWRect(-30, 0, 40, 90),
+			...makeCWRect(-30, 20, 30, 20),
+			...makeCWRect(-30, -20, 30, 20),
+			...makeCCWRect(30, 0, 40, 90),
+			...makeCWRect(30, 20, 30, 20),
+			...makeCWRect(30, -20, 30, 20),
+		];
+		const result = applyBool(input, "union");
+
+		const areas = splitSubPaths(result).map(signedArea);
+		const outers = areas.filter((a) => Math.abs(a) > 1000);
+		const counters = areas.filter((a) => Math.abs(a) <= 1000);
+		expect(outers).toHaveLength(2);
+		expect(counters).toHaveLength(4);
+		// Counters wind against their outers, whichever direction the boolean
+		// chose for the outers.
+		expect(new Set(counters.map(Math.sign)).size).toBe(1);
+		expect(Math.sign(counters[0])).toBe(-Math.sign(outers[0]));
+	});
+});
+
 // ---------------------------------------------------------------------------
 // Helpers (placed after test cases per project convention)
 // ---------------------------------------------------------------------------
+
+/** Clockwise rectangle in Y-up space — a hole against a CCW outline. */
+function makeCWRect(
+	cx: number,
+	cy: number,
+	w: number,
+	h: number,
+): CubicBezierSegment[] {
+	const hw = w / 2;
+	const hh = h / 2;
+	return [
+		lineSeg(cx - hw, cy - hh, cx - hw, cy + hh, { isMoved: true }),
+		lineSeg(cx - hw, cy + hh, cx + hw, cy + hh),
+		lineSeg(cx + hw, cy + hh, cx + hw, cy - hh),
+		lineSeg(cx + hw, cy - hh, cx - hw, cy - hh, { isClosed: true }),
+	];
+}
+
+/** CCW circle from four cubic arcs (anchors at the axis crossings). */
+function makeCircle(cx: number, cy: number, r: number): CubicBezierSegment[] {
+	const k = 0.5522847498 * r;
+	const anchors: [number, number][] = [
+		[cx + r, cy],
+		[cx, cy + r],
+		[cx - r, cy],
+		[cx, cy - r],
+	];
+	const handles: [number, number][][] = [
+		[
+			[0, k],
+			[k, 0],
+		],
+		[
+			[-k, 0],
+			[0, k],
+		],
+		[
+			[0, -k],
+			[-k, 0],
+		],
+		[
+			[k, 0],
+			[0, -k],
+		],
+	];
+	return anchors.map((anchor, i) => {
+		const next = anchors[(i + 1) % anchors.length];
+		const [cp1, cp2] = handles[i];
+		return {
+			...(i === 0 ? { start: { x: anchor[0], y: anchor[1] } } : {}),
+			cp1: { x: cp1[0], y: cp1[1] },
+			cp2: { x: cp2[0], y: cp2[1] },
+			end: { x: next[0], y: next[1] },
+			startPressure: 1,
+			endPressure: 1,
+			startTiltX: 0,
+			startTiltY: 0,
+			endTiltX: 0,
+			endTiltY: 0,
+			startDeltaTime: 0,
+			endDeltaTime: 0,
+			isMoved: i === 0,
+			isClosed: i === anchors.length - 1 ? true : undefined,
+		} satisfies CubicBezierSegment;
+	});
+}
+
+function splitSubPaths(segments: CubicBezierSegment[]): CubicBezierSegment[][] {
+	const subs: CubicBezierSegment[][] = [];
+	let current: CubicBezierSegment[] = [];
+	for (const seg of segments) {
+		if (seg.isMoved && current.length > 0) {
+			subs.push(current);
+			current = [];
+		}
+		current.push(seg);
+	}
+	if (current.length > 0) subs.push(current);
+	return subs;
+}
+
+/** Signed area of a sub-path's anchor polygon (sign carries the winding). */
+function signedArea(subPath: CubicBezierSegment[]): number {
+	const points: [number, number][] = [];
+	let cursor = subPath[0].start ?? { x: 0, y: 0 };
+	for (const seg of subPath) {
+		points.push([cursor.x, cursor.y]);
+		cursor = seg.end;
+	}
+	let sum = 0;
+	for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+		sum += points[j][0] * points[i][1] - points[i][0] * points[j][1];
+	}
+	return sum / 2;
+}
 
 function lineSeg(
 	sx: number,

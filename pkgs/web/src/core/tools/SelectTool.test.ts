@@ -105,9 +105,9 @@ describe("SelectTool", () => {
 			testCanvasHeight,
 		);
 
-		expect(context.elementMove).toHaveBeenCalledTimes(1);
-		const [movedId, deltaX, deltaY] = context.elementMove.mock.calls[0];
-		expect(movedId).toBe(elementId);
+		expect(context.elementsMove).toHaveBeenCalledTimes(1);
+		const [movedIds, deltaX, deltaY] = context.elementsMove.mock.calls[0];
+		expect(movedIds).toEqual([elementId]);
 		expect(deltaX).toBe(100);
 		expect(deltaY).toBe(0);
 	});
@@ -267,7 +267,7 @@ describe("SelectTool extrude gizmo", () => {
 		expect(rotationDeg[1]).toBeCloseTo(0, 4);
 		expect(rotationDeg[2]).toBeCloseTo(90, 4);
 		// The drag stayed a gizmo interaction — no element move happened.
-		expect(context.elementMove).not.toHaveBeenCalled();
+		expect(context.elementsMove).not.toHaveBeenCalled();
 	});
 
 	it("should grow the depth by dragging the depth handle outward", () => {
@@ -388,7 +388,7 @@ describe("SelectTool extrude gizmo", () => {
 			expect(index).toBe(0);
 			const rotationDeg = (patch as { rotationDeg: Vec3 }).rotationDeg;
 			expect(rotationDeg[2]).toBeCloseTo(90, 4);
-			expect(context.elementMove).not.toHaveBeenCalled();
+			expect(context.elementsMove).not.toHaveBeenCalled();
 		});
 
 		it("should center the rings on the revolve axis, not the profile", () => {
@@ -910,9 +910,9 @@ describe("SelectTool rotation integration", () => {
 			testCanvasHeight,
 		);
 
-		expect(context.elementRotate).toHaveBeenCalledTimes(1);
-		const [rotId, angleDeg] = context.elementRotate.mock.calls[0];
-		expect(rotId).toBe(elementId);
+		expect(context.elementsRotate).toHaveBeenCalledTimes(1);
+		const [rotIds, angleDeg] = context.elementsRotate.mock.calls[0];
+		expect(rotIds).toEqual([elementId]);
 		// angleDelta should be ≈ 90°
 		expect(angleDeg).toBeCloseTo(90, 1);
 

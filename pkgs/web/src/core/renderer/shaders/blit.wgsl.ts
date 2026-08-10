@@ -554,6 +554,164 @@ ${OUTER_CLIP_MASK_WGSL}
 	`;
 
 /**
+ * Blit With Mask Chain — applies up to 4 world-space masks in a single pass.
+ *
+ * Replaces chained BLIT_WITH_MASK_SHADER passes: each mask used to cost one
+ * offscreen pass + one intermediate texture, so a 3-deep clip stack tripled
+ * the pass count. Here every mask is sampled by world position against its
+ * own bounds and the coverages multiply in one fragment invocation.
+ *
+ * Unused mask slots carry the boundsMin == boundsMax sentinel (same as
+ * applyOuterClipMask) and a white 1x1 texture, so they multiply by 1.
+ *
+ * Bind groups:
+ *   group(0) — viewport uniforms (shared)
+ *   group(1) — BlitUniforms + sampler + source texture + unused mask slot
+ *              (same layout as BLIT_WITH_MASK_SHADER so callers reuse the
+ *              blitWithMask bind group construction)
+ *   group(2) — MaskChainUniforms + 4 mask textures + sampler
+ */
+export const BLIT_WITH_MASK_CHAIN_SHADER = /* wgsl */ `
+	struct Uniforms {
+		viewportX: f32,
+		viewportY: f32,
+		zoom: f32,
+		canvasWidth: f32,
+		canvasHeight: f32,
+		rotSin: f32,
+		rotCos: f32,
+	}
+
+	struct BlitUniforms {
+		boundsMinX: f32,
+		boundsMinY: f32,
+		boundsMaxX: f32,
+		boundsMaxY: f32,
+		opacity: f32,
+		outerMaskInvert: f32,
+		_pad1: f32,
+		_pad2: f32,
+		uvMinX: f32,
+		uvMinY: f32,
+		uvMaxX: f32,
+		uvMaxY: f32,
+		outerMaskMinX: f32,
+		outerMaskMinY: f32,
+		outerMaskMaxX: f32,
+		outerMaskMaxY: f32,
+	}
+
+	struct MaskChainUniforms {
+		// One vec4f (minX, minY, maxX, maxY) per mask slot, world space.
+		bounds0: vec4f,
+		bounds1: vec4f,
+		bounds2: vec4f,
+		bounds3: vec4f,
+		// 1 = invert that slot's coverage, 0 = leave as-is.
+		inverts: vec4f,
+	}
+
+	@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+	@group(1) @binding(0) var<uniform> blitUniforms: BlitUniforms;
+	@group(1) @binding(1) var texSampler: sampler;
+	@group(1) @binding(2) var sourceTexture: texture_2d<f32>;
+	@group(1) @binding(3) var unusedMaskTexture: texture_2d<f32>;
+	@group(2) @binding(0) var<uniform> maskChain: MaskChainUniforms;
+	@group(2) @binding(1) var maskTexture0: texture_2d<f32>;
+	@group(2) @binding(2) var maskTexture1: texture_2d<f32>;
+	@group(2) @binding(3) var maskTexture2: texture_2d<f32>;
+	@group(2) @binding(4) var maskTexture3: texture_2d<f32>;
+	@group(2) @binding(5) var maskSampler: sampler;
+
+	struct VertexOutput {
+		@builtin(position) position: vec4f,
+		@location(0) texCoord: vec2f,
+		@location(1) worldPos: vec2f,
+	}
+
+	// Mirrors applyOuterClipMask in OUTER_CLIP_MASK_WGSL: premultiplied mask,
+	// luminance = brightness x opacity, empty-outside semantics for inversion.
+	fn maskCoverage(sampled: vec4f, bounds: vec4f, worldPos: vec2f, invert: f32) -> f32 {
+		if (bounds.x == bounds.z && bounds.y == bounds.w) {
+			return 1.0;
+		}
+		let rawUV = (worldPos - bounds.xy) / (bounds.zw - bounds.xy);
+		let maskUV = vec2f(rawUV.x, 1.0 - rawUV.y);
+		let inBounds = step(0.0, maskUV.x) * step(maskUV.x, 1.0)
+		             * step(0.0, maskUV.y) * step(maskUV.y, 1.0);
+		let covered = dot(sampled.rgb, vec3f(0.2126, 0.7152, 0.0722)) * inBounds;
+		return mix(covered, 1.0 - covered, invert);
+	}
+
+	fn maskUVFor(bounds: vec4f, worldPos: vec2f) -> vec2f {
+		// Sentinel slots divide by zero here; the result is discarded by
+		// maskCoverage's early return, and the sample itself is well-defined
+		// (clamped UV into a white texture).
+		let safeSize = max(bounds.zw - bounds.xy, vec2f(1e-6));
+		let rawUV = (worldPos - bounds.xy) / safeSize;
+		return clamp(vec2f(rawUV.x, 1.0 - rawUV.y), vec2f(0.0), vec2f(1.0));
+	}
+
+	@vertex
+	fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+		var output: VertexOutput;
+
+		var positions = array<vec2f, 6>(
+			vec2f(-1.0, -1.0),
+			vec2f(1.0, -1.0),
+			vec2f(-1.0, 1.0),
+			vec2f(-1.0, 1.0),
+			vec2f(1.0, -1.0),
+			vec2f(1.0, 1.0),
+		);
+		var texCoords = array<vec2f, 6>(
+			vec2f(0.0, 1.0),
+			vec2f(1.0, 1.0),
+			vec2f(0.0, 0.0),
+			vec2f(0.0, 0.0),
+			vec2f(1.0, 1.0),
+			vec2f(1.0, 0.0),
+		);
+
+		let quadPos = positions[vertexIndex];
+		let texCoord = texCoords[vertexIndex];
+
+		let worldX = mix(blitUniforms.boundsMinX, blitUniforms.boundsMaxX, (quadPos.x + 1.0) * 0.5);
+		let worldY = mix(blitUniforms.boundsMinY, blitUniforms.boundsMaxY, (quadPos.y + 1.0) * 0.5);
+
+		let x = (worldX - uniforms.viewportX) * uniforms.zoom;
+		let y = (worldY - uniforms.viewportY) * uniforms.zoom;
+		let rotX = x * uniforms.rotCos - y * uniforms.rotSin;
+		let rotY = x * uniforms.rotSin + y * uniforms.rotCos;
+
+		output.position = vec4f(rotX / (uniforms.canvasWidth * 0.5), rotY / (uniforms.canvasHeight * 0.5), 0.0, 1.0);
+		output.texCoord = vec2f(
+			mix(blitUniforms.uvMinX, blitUniforms.uvMaxX, texCoord.x),
+			mix(blitUniforms.uvMinY, blitUniforms.uvMaxY, texCoord.y),
+		);
+		output.worldPos = vec2f(worldX, worldY);
+
+		return output;
+	}
+
+	@fragment
+	fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+		let color = textureSample(sourceTexture, texSampler, input.texCoord);
+		// textureSampleLevel needs no derivatives, so sentinel slots sampling a
+		// white 1x1 dummy stay well-defined.
+		let s0 = textureSampleLevel(maskTexture0, maskSampler, maskUVFor(maskChain.bounds0, input.worldPos), 0.0);
+		let s1 = textureSampleLevel(maskTexture1, maskSampler, maskUVFor(maskChain.bounds1, input.worldPos), 0.0);
+		let s2 = textureSampleLevel(maskTexture2, maskSampler, maskUVFor(maskChain.bounds2, input.worldPos), 0.0);
+		let s3 = textureSampleLevel(maskTexture3, maskSampler, maskUVFor(maskChain.bounds3, input.worldPos), 0.0);
+		let coverage = maskCoverage(s0, maskChain.bounds0, input.worldPos, maskChain.inverts.x)
+		             * maskCoverage(s1, maskChain.bounds1, input.worldPos, maskChain.inverts.y)
+		             * maskCoverage(s2, maskChain.bounds2, input.worldPos, maskChain.inverts.z)
+		             * maskCoverage(s3, maskChain.bounds3, input.worldPos, maskChain.inverts.w);
+		return color * (coverage * blitUniforms.opacity);
+	}
+	`;
+
+/**
  * Blit Backdrop With Mask — replaces BLIT_WITH_STENCIL_SHADER.
  *
  * Designed for backdrop filters where the source (captured backdrop) is

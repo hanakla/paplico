@@ -1,3 +1,5 @@
+import { readStoredBrushSize } from "../../../brush/access";
+import { resolveBrushRenderRoute } from "../../../brush/renderRoute";
 import {
 	type AnyArtObject,
 	type BlendMode,
@@ -11,7 +13,9 @@ import {
 	isGroup,
 	isIdentityTransform,
 	isRepeat,
+	type StrokeAppearance,
 	type Viewport,
+	type WetEdgeConfig,
 } from "../../../schema";
 import {
 	brandWorldBBox,
@@ -85,6 +89,13 @@ interface AppearancePlan {
 	opacity: number;
 	/** Per-appearance blend mode */
 	blendMode: BlendMode;
+	/** Wash strokes only (design §6-3): strokeOpacity to apply exactly once
+	 *  when compositing the isolated appearance; dabs carry flow alone. */
+	washStrokeOpacity?: number;
+	/** Watercolor rim for wash strokes (§9); absent while wet is enabled. */
+	washWetEdge?: WetEdgeConfig;
+	/** Brush size for the wet-edge width cap (world units). */
+	washBrushSize?: number;
 }
 
 /** Contiguous run of elements to render between backdrop boundaries. */
@@ -482,10 +493,30 @@ function classifyElementFilters(
 		}
 	}
 
+	// Wash strokes accumulate flow in an isolated appearance texture and
+	// apply strokeOpacity once at composite time — same offscreen routing as
+	// a non-normal appearance blend. Groups carry no stroke appearances of
+	// their own here.
+	let hasWashStroke = false;
+	// The wet layer carries pigment past the stroke's own outline, so the
+	// isolated texture has to hold that reach. Sized to the outline alone,
+	// every bleed is cropped back to the dabs.
+	let wetReach = 0;
+	if (!isGroup(element) && !suppressFlatAppearances) {
+		for (const filter of element.filters ?? []) {
+			if (!isFilterEnabled(filter) || filter.processor !== "stroke") continue;
+			if (washStrokeOpacityOf(filter) != null) {
+				hasWashStroke = true;
+			}
+			wetReach = Math.max(wetReach, wetReachOf(filter));
+		}
+	}
+
 	if (
 		postFilters.length === 0 &&
 		!hasAnySubFilters &&
-		!hasNonNormalAppearanceBlend
+		!hasNonNormalAppearanceBlend &&
+		!hasWashStroke
 	) {
 		// Only pre-filters or appearance filters — rendered inline, no offscreen pass needed
 		return { filterPlan: null, backdropEntry: null };
@@ -504,14 +535,14 @@ function classifyElementFilters(
 			);
 		}
 	}
-	const textureBounds = expandBounds(bounds, expansion);
+	const textureBounds = expandBounds(bounds, expansion + wetReach);
 
 	// Build per-appearance plans when any appearance has sub-filters.
 	// ALL enabled appearances are included so they can be rendered individually
 	// in array order with sub-filters applied after each one.
 	let allAppearancePlans: AppearancePlan[] | undefined;
 	let maxSubExpansion = 0;
-	if (hasAnySubFilters || hasNonNormalAppearanceBlend) {
+	if (hasAnySubFilters || hasNonNormalAppearanceBlend || hasWashStroke) {
 		allAppearancePlans = [];
 		for (let i = 0; i < (element.filters?.length ?? 0); i++) {
 			const filter = element.filters![i];
@@ -563,6 +594,7 @@ function classifyElementFilters(
 				}
 			}
 
+			const wash = filter.processor === "stroke" ? washInfoOf(filter) : null;
 			allAppearancePlans.push({
 				appearance: filter,
 				filterIndex: i,
@@ -571,6 +603,13 @@ function classifyElementFilters(
 				textureBounds: planTexBounds,
 				opacity: filter.opacity,
 				blendMode: filter.blendMode,
+				...(wash != null
+					? {
+							washStrokeOpacity: wash.strokeOpacity,
+							washBrushSize: wash.brushSize,
+							...(wash.wetEdge ? { washWetEdge: wash.wetEdge } : {}),
+						}
+					: {}),
 			});
 		}
 	}
@@ -915,6 +954,7 @@ function collectPlanCandidates(
 	baseElementIndex = 0,
 	localBoundsCache?: LocalBoundsCache,
 	skipCull = false,
+	transientIds?: ReadonlySet<string>,
 ): void {
 	const handlerLookup = {
 		getHandler: (processor: string) => filterHandlers.get(processor),
@@ -922,11 +962,14 @@ function collectPlanCandidates(
 	for (let i = 0; i < elements.length; i++) {
 		const element = elements[i];
 		const elementIndex = baseElementIndex + i;
+		// Transient elements (live previews) mutate under a stable id without
+		// any document-change invalidation, so a cached bounds entry would pin
+		// the plan (and its offscreen texture) to the first frame's size.
 		const elementBounds = calculatePreFilteredElementBounds(
 			element,
 			elementsMap,
 			handlerLookup,
-			localBoundsCache,
+			transientIds?.has(element.id) ? undefined : localBoundsCache,
 		);
 
 		const { filterPlan, backdropEntry } = classifyElementFilters(
@@ -1112,6 +1155,12 @@ export function buildFramePlanStructure(
 		? { r: 0.9, g: 0.9, b: 0.9, a: 1.0 }
 		: { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
 
+	const transientIds =
+		transientElements != null
+			? new Set(
+					[...transientElements.values()].map((entry) => entry.element.id),
+				)
+			: undefined;
 	const candidates: PlanCandidate[] = [];
 	const layerRows: LayerRow[] = [];
 	for (let layerIndex = 0; layerIndex < document.layers.length; layerIndex++) {
@@ -1127,6 +1176,8 @@ export function buildFramePlanStructure(
 			candidates,
 			0,
 			localBoundsCache,
+			false,
+			transientIds,
 		);
 		const blending = scanBlendingFlags(layerElements, elementsMap);
 		layerRows.push({
@@ -1251,4 +1302,43 @@ function scanBlendingFlags(
 		}
 	}
 	return { hasCompositionModeElement: false, hasBlendingElement };
+}
+
+/** How far past its outline a wet stroke's pigment can reach, in world units. */
+function wetReachOf(filter: Filter): number {
+	const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
+	if (raw == null) return 0;
+	const route = resolveBrushRenderRoute(raw);
+	const wet = route.settings.wet;
+	if (route.kind !== "dab" || wet?.enabled !== true) return 0;
+	const brushSize = readStoredBrushSize(route.settings) ?? 0;
+	return brushSize * (0.5 + Math.max(wet.bleedRadius, 0));
+}
+
+/** strokeOpacity of a wash-routed stroke appearance, or null otherwise. */
+function washStrokeOpacityOf(filter: Filter): number | null {
+	return washInfoOf(filter)?.strokeOpacity ?? null;
+}
+
+/** Wash routing info of a stroke appearance, or null for other routes. */
+function washInfoOf(filter: Filter): {
+	strokeOpacity: number;
+	brushSize: number;
+	wetEdge: WetEdgeConfig | undefined;
+} | null {
+	const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
+	if (raw == null) return null;
+	const route = resolveBrushRenderRoute(raw);
+	// Ribbons wash too (design §12): the isolation and the single
+	// strokeOpacity application are engine-independent, and a ribbon that
+	// doubles back over itself darkens exactly like a dab stroke does.
+	if (route.kind !== "dab" && route.kind !== "ribbon") return null;
+	if (route.settings.paintMode !== "wash") return null;
+	return {
+		strokeOpacity: route.settings.strokeOpacity,
+		brushSize: readStoredBrushSize(route.settings) ?? 0,
+		// Wet edge and the wet layer are exclusive (§H-4).
+		wetEdge:
+			route.settings.wet?.enabled === true ? undefined : route.settings.wetEdge,
+	};
 }

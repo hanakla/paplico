@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTargetViewport } from "@/contexts/ViewIdContext";
+import { useTranslation } from "@/locales";
 import { twm } from "@/utils/tailwind";
 
 // How long the readout lingers after the last scale change before it fades out.
@@ -12,6 +13,7 @@ const HIDE_DELAY_MS = 1200;
  */
 export function CanvasZoomToast() {
 	const { zoom } = useTargetViewport();
+	const t = useTranslation();
 	const previousZoomRef = useRef(zoom);
 	const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [visible, setVisible] = useState(false);
@@ -45,7 +47,7 @@ export function CanvasZoomToast() {
 				)}
 			>
 				<span className="text-xs font-medium tabular-nums text-foreground">
-					{(zoom * 100).toFixed(2)}%
+					{t("canvasZoomToast.scale", { value: zoom.toFixed(2) })}
 				</span>
 			</div>
 		</div>

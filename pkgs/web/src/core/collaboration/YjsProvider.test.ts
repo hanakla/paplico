@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import * as Y from "yjs";
 import { createIdentityTransform } from "../document/factory";
-import type { BrushPreset, Reference3DDef } from "../schema";
+import type { BrushPreset, BrushSettingsV2, Reference3DDef } from "../schema";
 import { extractDocumentFromYDoc } from "./extractDocumentFromYDoc";
 import { YjsProvider, type YjsProviderCallbacks } from "./YjsProvider";
 
@@ -1780,6 +1780,7 @@ describe("YjsProvider", () => {
 			provider.addBrushPreset({
 				uid: "preset-1",
 				name: "Preset 1",
+				// Pre-v2 stored shape: the provider migrates it on the way in.
 				settings: {
 					type: "scatter",
 					source: { kind: "file", fileUid: "file-1" },
@@ -1796,7 +1797,7 @@ describe("YjsProvider", () => {
 					sizeBySpeed: 0,
 					pooling: 0,
 					poolingSizeRatio: 0.5,
-				},
+				} as unknown as BrushSettingsV2,
 			});
 
 			expect(mockOnDocumentUpdate).toHaveBeenCalledTimes(1);
@@ -1943,16 +1944,15 @@ describe("YjsProvider", () => {
 	});
 
 	describe("brush preset normalization", () => {
-		it("should normalize a v1 preset (textureFileUid + defaultSettings) into the settings union when initializing the document", () => {
+		it("should migrate a pre-v2 preset (textureFileUid + defaultSettings) to v2 when initializing the document", () => {
 			// Defense-in-depth: normalizeBrushPreset should already have run at
 			// the papf reader boundary, but initializeDocument re-normalizes in
 			// case a caller other than the reader supplies a legacy-shaped
 			// Document.brushPresets entry.
 			const provider = new YjsProvider({ callbacks });
 
-			// The `type` discriminator (and thus `settings`) is intentionally
-			// absent — this is what a document saved before the BrushSettings
-			// union existed looks like at runtime.
+			// `settings` is intentionally absent — this is what a document saved
+			// before the brush settings union existed looks like at runtime.
 			const legacyPreset = {
 				uid: "legacy-1",
 				name: "Legacy Ink",
@@ -1975,13 +1975,14 @@ describe("YjsProvider", () => {
 				.get("legacy-1");
 			expect(yPreset).toBeDefined();
 			const settings = JSON.parse(yPreset!.get("settings") as string);
-			expect(settings.type).toBe("scatter");
-			expect(settings.source).toEqual({
+			expect(settings.version).toBe(2);
+			expect(settings.engine).toBe("dab");
+			expect(settings.tip.sources[0]).toEqual({
 				kind: "file",
 				fileUid: "builtin-brush-soft-circle",
 			});
-			expect(settings.size).toBe(24);
-			expect(settings.spacing).toBe(0.1);
+			expect(settings.properties.size.base).toBe(24);
+			expect(settings.properties.spacing.base).toBe(0.1);
 			expect(yPreset!.get("defaultSettings")).toBeUndefined();
 			expect(yPreset!.get("textureFileUid")).toBeUndefined();
 

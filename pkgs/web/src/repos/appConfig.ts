@@ -21,6 +21,7 @@ export interface PersistedConfig {
 	touchDrawOffsetScale?: number;
 	selectSelectionMode?: string;
 	pathEditSelectionMode?: string;
+	maxZoomScale?: number;
 }
 
 export interface AppConfigRepo {
@@ -60,6 +61,7 @@ const configSchema = z.object({
 	touchDrawOffsetScale: fallback(z.optional(z.number())),
 	selectSelectionMode: fallback(z.optional(z.string())),
 	pathEditSelectionMode: fallback(z.optional(z.string())),
+	maxZoomScale: fallback(z.optional(z.number())),
 });
 
 export function parsePersistedConfig(raw: unknown): PersistedConfig {

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { AnyArtObject, Layer } from "../schema";
-import { findLayerForElement, isEffectivelyLocked } from "./elementQuery";
+import type { AnyArtObject, Filter, Layer } from "../schema";
+import {
+	findLayerForElement,
+	getStrokeWidth,
+	isEffectivelyLocked,
+} from "./elementQuery";
 
 describe("isEffectivelyLocked", () => {
 	it("should return true when element itself is locked", () => {
@@ -179,3 +183,33 @@ function makeCompoundPath(id: string, locked?: boolean): AnyArtObject {
 		filters: [],
 	} as unknown as AnyArtObject;
 }
+
+describe("getStrokeWidth", () => {
+	function strokeFilter(brushSettings: unknown): Filter {
+		return {
+			uid: "app-1",
+			processor: "stroke",
+			opacity: 1,
+			blendMode: "normal",
+			paramData: {
+				version: "1",
+				params: { strokeColor: null, brushSettings },
+			},
+		} as unknown as Filter;
+	}
+
+	it("should read the size base from stored v2 settings", () => {
+		expect(
+			getStrokeWidth([
+				strokeFilter({
+					version: 2,
+					engine: "dab",
+					strokeOpacity: 1,
+					paintMode: "buildup",
+					properties: { size: { base: 24 } },
+					randomSeed: 0,
+				}),
+			]),
+		).toBe(24);
+	});
+});

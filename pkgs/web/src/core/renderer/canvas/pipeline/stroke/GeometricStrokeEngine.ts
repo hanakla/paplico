@@ -1,5 +1,5 @@
 /**
- * GeometricStrokeEngine — owns BrushType `stroke` (geometric pen).
+ * GeometricStrokeEngine — owns the geometric engine (the pen).
  *
  * Defers rendering to ElementRenderer.renderPath, which already routes
  * geometric brushes through renderGeometricStroke (strokeTessellator + GPU
@@ -7,7 +7,7 @@
  * never participate in the stamp/ribbon batch flow.
  */
 
-import type { BrushType, Path } from "../../../../schema";
+import type { BrushEngineKind, Path } from "../../../../schema";
 import type { PipelineType } from "../../CanvasLayerTypes";
 import type {
 	EnginePipeline,
@@ -28,7 +28,7 @@ export type GeometricStrokeRenderFn = (
 ) => void;
 
 export class GeometricStrokeEngine implements StrokeEngine {
-	public readonly ids: readonly BrushType[] = ["stroke"];
+	public readonly ids: readonly BrushEngineKind[] = ["geometric"];
 	// Geometric stroke is opaque coverage with no wetness model, so it does
 	// not emit the wet-ink dynamics field.
 	public readonly supportsField = false;

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readStoredBrushSize } from "../brush/access";
 import { createStrokeBrushSettings } from "../document/factory";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
 import type {
@@ -236,7 +237,9 @@ describe("PenTool", () => {
 			const strokeApp = path.filters?.find((f) => f.processor === "stroke") as
 				| StrokeAppearance
 				| undefined;
-			expect(strokeApp?.paramData.params.brushSettings?.size).toBe(2);
+			expect(
+				readStoredBrushSize(strokeApp?.paramData.params.brushSettings),
+			).toBe(2);
 		});
 
 		it("should create path with segments", () => {
@@ -513,6 +516,183 @@ describe("PenTool", () => {
 			const currentStroke = penTool.getCurrentStroke();
 			expect(currentStroke?.[0].x).toBeCloseTo(100);
 			expect(currentStroke?.[0].y).toBeCloseTo(50);
+		});
+	});
+});
+
+describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
+	let penTool: PenTool;
+	let mockContext: ReturnType<typeof createMockToolContext>;
+
+	function airbrushAppearance(): StrokeAppearance {
+		return {
+			...testStrokeAppearance,
+			paramData: {
+				version: "1",
+				params: {
+					strokeColor: {
+						type: "solid",
+						color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+					},
+					brushSettings: {
+						version: 2,
+						engine: "dab",
+						strokeOpacity: 1,
+						paintMode: "buildup",
+						properties: {
+							size: { base: 10 },
+							spacing: { base: 0.2 },
+							dabsPerSecond: { base: 60 },
+						},
+						tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+						randomSeed: 0,
+					} as unknown as StrokeAppearance["paramData"]["params"]["brushSettings"],
+				},
+			},
+		};
+	}
+
+	function coalescedSample(x: number, y: number, timeStamp: number) {
+		return {
+			x,
+			y,
+			pressure: 0.5,
+			tiltX: 0,
+			tiltY: 0,
+			twist: 0,
+			timeStamp,
+		};
+	}
+
+	beforeEach(() => {
+		mockContext = createMockToolContext({
+			getActiveStrokeAppearance: () => testStrokeAppearance,
+		});
+		penTool = new PenTool(mockContext, { strokeWidth: 2 });
+	});
+
+	it("should append every coalesced sample to the stroke", () => {
+		penTool.onPointerDown(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		const now = performance.now();
+		penTool.onPointerMove(
+			{
+				...ev(412, 300),
+				coalesced: [
+					coalescedSample(404, 300, now + 4),
+					coalescedSample(408, 300, now + 8),
+					coalescedSample(412, 300, now + 12),
+				],
+			},
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(penTool.getCurrentStroke()).toHaveLength(4);
+	});
+
+	it("should reuse frozen preview segments across moves", () => {
+		penTool.onPointerDown(
+			ev(100, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		// Long wavy motion: enough points to trigger the forced freeze.
+		for (let i = 1; i <= 400; i++) {
+			penTool.onPointerMove(
+				ev(100 + i, 300 + Math.sin(i * 0.08) * 20),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		}
+
+		const calls = (
+			mockContext.previewUpdate as ReturnType<typeof vi.fn>
+		).mock.calls.filter((c) => c[0] != null);
+		expect(calls.length).toBeGreaterThan(10);
+		const lastSegments = calls[calls.length - 1][0].segments;
+		const midSegments = calls[Math.floor(calls.length * 0.8)][0].segments;
+		// The frozen prefix is the same object graph, not a re-fit copy.
+		expect(lastSegments[0]).toBe(midSegments[0]);
+	});
+
+	describe("airbrush hold", () => {
+		beforeEach(() => {
+			vi.useFakeTimers({
+				toFake: [
+					"setTimeout",
+					"clearTimeout",
+					"setInterval",
+					"clearInterval",
+					"performance",
+				],
+			});
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("should inject time-advancing hold points while the pointer rests", () => {
+			const context = createMockToolContext({
+				getActiveStrokeAppearance: () => airbrushAppearance(),
+			});
+			const tool = new PenTool(context, {});
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(420, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			const before = tool.getCurrentStroke()!.length;
+
+			vi.advanceTimersByTime(200);
+
+			const stroke = tool.getCurrentStroke()!;
+			expect(stroke.length).toBeGreaterThan(before);
+			const last = stroke[stroke.length - 1];
+			const preHold = stroke[before - 1];
+			expect(last.x).toBe(preHold.x);
+			expect(last.y).toBe(preHold.y);
+			expect(last.deltaTime!).toBeGreaterThan(preHold.deltaTime!);
+
+			tool.onPointerUp(
+				ev(420, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		});
+
+		it("should not inject hold points for brushes without dabsPerSecond", () => {
+			penTool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			penTool.onPointerMove(
+				ev(420, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			const before = penTool.getCurrentStroke()!.length;
+			vi.advanceTimersByTime(200);
+			expect(penTool.getCurrentStroke()!.length).toBe(before);
 		});
 	});
 });

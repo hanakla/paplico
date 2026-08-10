@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import type { StampBuffer } from "../../caches/StampCache";
 import { StampCache } from "../../caches/StampCache";
-import type { StampBuffer } from "../brush/StampGenerator";
-import type { GeometryHandle } from "../GeometryStore";
 import { BoundedStampStore } from "./BoundedStampStore";
 
 /** Floats per resident stamp instance (mirrors STAMP_FLOATS). */
@@ -261,12 +260,12 @@ describe("BoundedStampStore", () => {
 		cache.set("path-1:fpA", first.entry, "path-1");
 
 		// Editing the path produces a NEW composite key for the same owner;
-		// inserting it must free the old key's stamp/meta/stops leases.
+		// inserting it must free the old key's lease.
 		const second = residentEntry(store, stamps(2)); // store now full
 		cache.set("path-1:fpB", second.entry, "path-1");
 		store.flushPendingReleases();
 
-		expect(first.metaRelease).toHaveBeenCalledTimes(1);
+		expect(first.release).toHaveBeenCalledTimes(1);
 		// The old stamp lease was returned through the deferred-release path:
 		// its slot is reusable again.
 		expect(store.alloc(stamps(2))?.firstStamp).toBe(0);
@@ -356,34 +355,15 @@ function destroyCalls(buffer: GPUBuffer): number {
 	return (buffer as unknown as MockBuffer).destroy.mock.calls.length;
 }
 
-/** A StampCache entry whose resident stamps lease comes from `store`, with
- *  spied meta release (StampCache releases stamps, meta, and stops together). */
+/** A StampCache entry holding a lease from `store`, with a spied release. */
 function residentEntry(store: BoundedStampStore, data: Float32Array) {
 	const handle = store.alloc(data);
 	if (!handle) throw new Error("test setup: store.alloc returned null");
-	const metaRelease = vi.fn();
+	const release = vi.fn(handle.release);
 	const entry: StampBuffer = {
 		data,
 		count: data.length / STAMP_FLOATS,
-		resident: {
-			stamps: handle,
-			meta: fakeGeometryHandle(metaRelease),
-			stops: null,
-			metaSnapshot: new Float32Array(16),
-			stopsSnapshot: null,
-			syncedFrame: 0,
-			byteSize: data.byteLength,
-		},
+		residentDab: { handle: { ...handle, release } },
 	};
-	return { entry, metaRelease };
-}
-
-function fakeGeometryHandle(release: () => void): GeometryHandle {
-	return {
-		byteOffset: 0,
-		firstVertex: 0,
-		vertexCount: 1,
-		write() {},
-		release,
-	};
+	return { entry, release };
 }

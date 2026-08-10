@@ -4,9 +4,9 @@ import { Checkbox } from "@/components/Checkbox";
 import { DashPatternControls } from "@/components/DashPatternControls";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { normalizeBrushSettings } from "@/core/brush/normalize";
+import { readStoredBrushSize } from "@/core/brush/access";
+import { resolveBrushRenderRoute } from "@/core/brush/renderRoute";
 import type { BrushStroking, LineCap, LineJoin } from "@/core/schema";
-import { isGeometricBrush } from "@/core/schema";
 import { appConfig } from "@/hooks/useAppConfig";
 import { useBrushEdits } from "@/hooks/useBrushEdits";
 import { useTranslation } from "@/locales";
@@ -22,16 +22,16 @@ export const PenToolControls = memo(function PenToolControls() {
 	const toolSnap = useSnapshot(tools.state);
 
 	const rawBrush = toolSnap.strokeAppearance?.paramData.params.brushSettings;
-	const normalizedBrush = rawBrush ? normalizeBrushSettings(rawBrush) : null;
-	const isGeometric = normalizedBrush
-		? isGeometricBrush(normalizedBrush)
-		: false;
+	const normalizedBrush = rawBrush
+		? resolveBrushRenderRoute(rawBrush).settings
+		: null;
+	const isGeometric = normalizedBrush?.engine === "geometric";
 	const lineCap =
-		normalizedBrush?.type === "stroke"
+		normalizedBrush?.engine === "geometric"
 			? (normalizedBrush.stroking?.lineCap ?? "round")
 			: "round";
 	const lineJoin =
-		normalizedBrush?.type === "stroke"
+		normalizedBrush?.engine === "geometric"
 			? (normalizedBrush.stroking?.lineJoin ?? "round")
 			: "round";
 
@@ -43,7 +43,7 @@ export const PenToolControls = memo(function PenToolControls() {
 		(taperStart: number, taperEnd: number) => {
 			tools.setBrushSettings({ taperStart, taperEnd });
 			commands.updateSelectedElementsBrushSettings({
-				...tools.brushSettings,
+				...tools.storedBrushSettings,
 				taperStart,
 				taperEnd,
 			});
@@ -67,8 +67,8 @@ export const PenToolControls = memo(function PenToolControls() {
 	});
 
 	const updateStroking = useEventCallback((patch: Partial<BrushStroking>) => {
-		const current = tools.brushSettings;
-		if (current.type !== "stroke") return;
+		const current = tools.storedBrushSettings;
+		if (current.engine !== "geometric") return;
 		const stroking: BrushStroking = {
 			lineCap: current.stroking?.lineCap ?? "round",
 			lineJoin: current.stroking?.lineJoin ?? "round",
@@ -104,7 +104,9 @@ export const PenToolControls = memo(function PenToolControls() {
 			<StrokeWidthField
 				label={t("actionsPanel.brushWidth")}
 				value={
-					toolSnap.strokeAppearance?.paramData.params.brushSettings?.size ?? 2
+					readStoredBrushSize(
+						toolSnap.strokeAppearance?.paramData.params.brushSettings,
+					) ?? 2
 				}
 				min={0.01}
 				max={Infinity}
@@ -241,11 +243,11 @@ export const PenToolControls = memo(function PenToolControls() {
 
 					<DashPatternControls
 						stroking={
-							normalizedBrush?.type === "stroke"
+							normalizedBrush?.engine === "geometric"
 								? normalizedBrush.stroking
 								: undefined
 						}
-						strokeWidth={normalizedBrush?.size ?? 2}
+						strokeWidth={normalizedBrush?.properties.size?.base ?? 2}
 						onChange={updateStroking}
 					/>
 				</>

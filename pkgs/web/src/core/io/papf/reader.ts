@@ -30,6 +30,7 @@ import {
 	type ParsedTocEntry,
 	SECTION_HEADER_BYTES,
 	SectionType,
+	type TimelapseManifestPayload,
 	TOC_ENTRY_BYTES,
 	TOC_HEADER_BYTES,
 	TOC_KEY_NONE,
@@ -456,11 +457,7 @@ export class PapfFile {
 			tmlhEntry.storedBytes,
 		);
 		const tmlhData = await decompressPayload(tmlhCompressed, tmlhEntry.codec);
-		const manifest = decode(tmlhData) as {
-			schemaVersion: number;
-			totalUpdates: number;
-			blockCount: number;
-		};
+		const manifest = decode(tmlhData) as TimelapseManifestPayload;
 
 		// Read all TMLB blocks (already sorted by aux0)
 		const allEntries: TimelapseEntry[] = [];
@@ -482,9 +479,19 @@ export class PapfFile {
 			}
 		}
 
+		// A truncated or absent rect list would mis-align with the entries, so
+		// it is dropped entirely and rebuilt on first playback.
+		const dirtyRects = manifest.dirtyRects;
+		const index =
+			dirtyRects && dirtyRects.length === allEntries.length
+				? { rects: dirtyRects }
+				: undefined;
+
 		return {
-			version: manifest.schemaVersion as 1,
+			version: 2,
 			entries: allEntries,
+			index,
+			baselines: manifest.baselines,
 		};
 	}
 

@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from "dexie";
-import { normalizeBrushSettings } from "@/core/brush/normalize";
+import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import { deepClone } from "@/core/utils/lang";
 import type {
 	BrushPresetsRepo,
@@ -54,9 +54,11 @@ function clonePersistedBrushPreset(
 ): PersistedBrushPreset {
 	return {
 		...preset,
-		// Normalizes legacy flat records written by pre-union code paths so
-		// callers never observe a `type`-less BrushSettings shape.
-		defaultSettings: normalizeBrushSettings(deepClone(preset.defaultSettings)),
+		// Records written before v2 are migrated on the way out, so callers
+		// never see the old shape.
+		defaultSettings: normalizeBrushSettingsV2(
+			deepClone(preset.defaultSettings),
+		),
 		textureBin: new Uint8Array(preset.textureBin),
 	};
 }

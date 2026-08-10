@@ -9,6 +9,7 @@ import type {
 	CompanionState,
 } from "@/companion/companionProtocol";
 import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
+import { readStoredBrushSize } from "@/core/brush/access";
 import { buildCompanionUrl } from "@/core/collaboration/inviteUrl";
 import {
 	exportRoomKey,
@@ -320,14 +321,17 @@ function useHostState(
 	const strokeColor = toolSnap.strokeAppearance?.paramData.params.strokeColor;
 	const fillColor = toolSnap.fillAppearance?.paramData.params.fill;
 	const language = useAppConfig().language;
+	const brushSize =
+		readStoredBrushSize(
+			toolSnap.strokeAppearance?.paramData.params.brushSettings,
+		) ?? 2;
 
 	return useMemo(
 		() => ({
 			currentTool: toolSnap.currentTool,
 			strokeColor: (strokeColor as StrokeColor | undefined) ?? null,
 			fillColor: (fillColor as FillColor | undefined) ?? null,
-			brushSize:
-				toolSnap.strokeAppearance?.paramData.params.brushSettings?.size ?? 2,
+			brushSize,
 			opacity: toolSnap.opacity,
 			stabilization: toolSnap.stabilization,
 			presets,
@@ -343,7 +347,7 @@ function useHostState(
 			toolSnap.currentTool,
 			toolSnap.opacity,
 			toolSnap.stabilization,
-			toolSnap.strokeAppearance?.paramData.params.brushSettings?.size,
+			brushSize,
 			strokeColor,
 			fillColor,
 			presets,

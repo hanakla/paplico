@@ -29,7 +29,7 @@ import { twm } from "@/utils/tailwind";
 const THUMBNAIL_MAX_SIZE = 80;
 const DEFAULT_JPEG_QUALITY = 0.92;
 
-type ExportFormat = "png" | "jpeg" | "psd" | "avif-hdr" | "tiff";
+type ExportFormat = "png" | "jpeg" | "psd" | "avif-hdr" | "tiff" | "svg";
 
 /** Resolved RGB ICC profile choice for PNG / JPEG export. */
 export type IccExportChoice =
@@ -68,6 +68,7 @@ interface ExportDialogProps {
 		scale: number,
 		profileValue: string,
 	) => void;
+	onExportSVG: (artboardIds: string[]) => void;
 }
 
 export const ExportDialog = memo(function ExportDialog({
@@ -81,6 +82,7 @@ export const ExportDialog = memo(function ExportDialog({
 	isHdrEnabled,
 	onExportAvifHdr,
 	onExportTiff,
+	onExportSVG,
 }: ExportDialogProps) {
 	const [selectedIds, setSelectedIds] = useState<Set<string>>(
 		() => new Set(artboards.map((a) => a.id)),
@@ -239,12 +241,18 @@ export const ExportDialog = memo(function ExportDialog({
 			onExportAvifHdr(ids, scale);
 		} else if (format === "tiff") {
 			onExportTiff(ids, scale, profileValue);
+		} else if (format === "svg") {
+			onExportSVG(ids);
 		}
 		onOpenChange(false);
 	});
 
 	// Calculate output size for selected artboards
 	const getOutputSize = useEventCallback((artboard: Artboard) => {
+		// SVG output is vector: the viewBox always matches the artboard size.
+		if (format === "svg") {
+			return `${Math.round(artboard.width)} × ${Math.round(artboard.height)}px`;
+		}
 		if (isCustomDpi && !customDpiValid) return "—";
 		return `${Math.round(artboard.width * scale)} × ${Math.round(artboard.height * scale)}px`;
 	});
@@ -254,6 +262,7 @@ export const ExportDialog = memo(function ExportDialog({
 	const handleSetFormatPsd = useEventCallback(() => setFormat("psd"));
 	const handleSetFormatAvifHdr = useEventCallback(() => setFormat("avif-hdr"));
 	const handleSetFormatTiff = useEventCallback(() => setFormat("tiff"));
+	const handleSetFormatSvg = useEventCallback(() => setFormat("svg"));
 	const handleSelectDpiPreset = useEventCallback((preset: number) => {
 		setIsCustomDpi(false);
 		setDpi(preset);
@@ -333,7 +342,9 @@ export const ExportDialog = memo(function ExportDialog({
 					? "exportDialog.psdExport"
 					: format === "avif-hdr"
 						? "exportDialog.avifHdrExport"
-						: "exportDialog.tiffExport";
+						: format === "tiff"
+							? "exportDialog.tiffExport"
+							: "exportDialog.svgExport";
 
 	const rgbProfileItems = [
 		{ label: t("exportDialog.profileNone"), value: "" },
@@ -425,11 +436,16 @@ export const ExportDialog = memo(function ExportDialog({
 								onClick={handleSetFormatTiff}
 								label={t("exportDialog.tiff")}
 							/>
+							<FormatButton
+								active={format === "svg"}
+								onClick={handleSetFormatSvg}
+								label="SVG"
+							/>
 						</div>
 					</div>
 
-					{/* Resolution Selection */}
-					{format !== "psd" && (
+					{/* Resolution Selection (SVG rasterizes at the document's filter DPI) */}
+					{format !== "psd" && format !== "svg" && (
 						<div>
 							<span className="text-xs text-muted-foreground block mb-2">
 								{t("exportDialog.resolution")}
