@@ -116,6 +116,7 @@ const makeOptions = (elements: AnyArtObject[]): ClassifyOptions => {
 			return null;
 		},
 		filterReplacesElementRender: (filter) => filter.processor === "extrude3d",
+		filterNeedsBackdrop: () => false,
 	};
 };
 

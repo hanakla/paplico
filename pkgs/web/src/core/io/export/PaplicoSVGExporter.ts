@@ -144,6 +144,10 @@ export class PaplicoSVGExporter {
 				this.renderer
 					.getFilterHandler(filter.processor)
 					?.replacesElementRender?.(filter) ?? false,
+			filterNeedsBackdrop: (filter) =>
+				this.renderer
+					.getFilterHandler(filter.processor)
+					?.getRenderConfigure?.(filter).needsBackdrop ?? false,
 		};
 
 		return {

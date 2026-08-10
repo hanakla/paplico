@@ -32,6 +32,8 @@ export interface ClassifyOptions {
 	filterKind(filter: Filter): "geometry" | "raster" | null;
 	/** True when the appearance replaces the element's own render (e.g. extrude3d). */
 	filterReplacesElementRender(filter: Filter): boolean;
+	/** True when the filter samples the backdrop (glass solids etc.). */
+	filterNeedsBackdrop(filter: Filter): boolean;
 }
 
 export interface VectorItem {
@@ -152,13 +154,22 @@ function classifyElementInner(
 			return needsBake || hasCorners ? "bake" : "pure";
 		}
 		case "image":
-			return element.corners ? "raster" : needsBake ? "bake" : "pure";
+			// Geometry filters deform the image quad into a perspective blit,
+			// which SVG cannot express — same as explicit corner warps.
+			return element.corners || needsBake ? "raster" : "pure";
 		case "text":
+			// Geometry filters apply to the laid-out glyph outlines inside the
+			// renderer; the outline exporter does not reproduce that yet.
+			if (needsBake) return "raster";
 			return hasVectorizableTextPaint(element) ? "bake" : "raster";
 		case "compound-path":
 			return "bake";
 		case "group": {
 			if (hasGroupAppearances(element)) return "raster";
+			// A geometry filter on a group deforms the children inside the
+			// renderer; the serializer walks children untouched, so bake is
+			// not possible here yet.
+			if (needsBake) return "raster";
 			if (element.clipPathId) {
 				const clipSource = opts.document.objects[element.clipPathId];
 				if (
@@ -213,7 +224,7 @@ export function planLayerItems(
 		if (cls === "skip") continue;
 
 		if (cls === "raster") {
-			if (isBackdropDependent(element)) {
+			if (isBackdropDependent(element, opts)) {
 				flush();
 				elementsMap ??= new Map(Object.entries(opts.document.objects));
 				const backdropBounds = calculateElementBounds(element, elementsMap);
@@ -327,11 +338,16 @@ function isPatternTileVectorizable(
 	});
 }
 
-function isBackdropDependent(element: AnyArtObject): boolean {
+function isBackdropDependent(
+	element: AnyArtObject,
+	opts: ClassifyOptions,
+): boolean {
 	if (element.compositionMode === "alpha-lock") return true;
 	return (
 		element.filters?.some(
-			(f) => isFilterEnabled(f) && f.applyToBackdrop === true,
+			(f) =>
+				isFilterEnabled(f) &&
+				(f.applyToBackdrop === true || opts.filterNeedsBackdrop(f)),
 		) ?? false
 	);
 }
