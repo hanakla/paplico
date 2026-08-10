@@ -1,4 +1,5 @@
 import type { BoundingBox, Document, RawRGBA } from "../../../schema";
+import { imageDataToBlob } from "../pngEncode";
 import { bytesToDataUrl } from "./dataUrl";
 
 /** Center-form world bounds used by the renderer's export entry points. */
@@ -68,8 +69,14 @@ export async function renderRasterChunk(
 	);
 	if (!imageData) return null;
 
+	const blob = await imageDataToBlob(imageData);
+	if (!blob) return null;
+
 	return {
-		dataUrl: await imageDataToPngDataUrl(imageData),
+		dataUrl: bytesToDataUrl(
+			new Uint8Array(await blob.arrayBuffer()),
+			"image/png",
+		),
 		bounds: {
 			minX,
 			minY,
@@ -79,13 +86,4 @@ export async function renderRasterChunk(
 			height: maxY - minY,
 		},
 	};
-}
-
-async function imageDataToPngDataUrl(imageData: ImageData): Promise<string> {
-	const canvas = new OffscreenCanvas(imageData.width, imageData.height);
-	const ctx = canvas.getContext("2d");
-	if (!ctx) throw new Error("OffscreenCanvas 2d context unavailable");
-	ctx.putImageData(imageData, 0, 0);
-	const blob = await canvas.convertToBlob({ type: "image/png" });
-	return bytesToDataUrl(new Uint8Array(await blob.arrayBuffer()), "image/png");
 }

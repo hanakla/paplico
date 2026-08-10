@@ -5,6 +5,7 @@ import { HDR_EDR_HEADROOM, HDR_MAX_NITS } from "../../renderer/types";
 import type { Document, RawRGBA } from "../../schema";
 import { pqOetf, srgbEotf, srgbOetf } from "../../utils/color";
 import { embedIccProfileInJpeg } from "./jpegIcc";
+import { imageDataToBlob } from "./pngEncode";
 import { embedIccProfileInPng, sanitizeIccProfileName } from "./pngIcc";
 
 interface ExportOptions {
@@ -383,15 +384,10 @@ export class PaplicoExporter {
 		);
 		if (!imageData) return null;
 
-		const { width, height } = imageData;
-		const canvas = new OffscreenCanvas(width, height);
-		const ctx = canvas.getContext("2d");
-		if (!ctx) return null;
+		const blob = await imageDataToBlob(imageData);
+		if (!blob) return null;
 
-		ctx.putImageData(imageData, 0, 0);
-		const blob = await canvas.convertToBlob({ type: "image/png" });
-
-		return { blob, width, height };
+		return { blob, width: imageData.width, height: imageData.height };
 	}
 }
 
