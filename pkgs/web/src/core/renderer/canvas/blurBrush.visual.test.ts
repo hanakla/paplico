@@ -44,6 +44,8 @@ describe("Blur brush", () => {
 	it("should spread further once the wet layer carries the pickup", async () => {
 		const dryPickup = await seamTransitionWidth(diffusingBrush(false));
 		const wetPickup = await seamTransitionWidth(diffusingBrush(true));
+		await probeSeam(diffusingBrush(false), "dry");
+		await probeSeam(diffusingBrush(true), "wet");
 
 		expect(wetPickup).toBeGreaterThan(dryPickup * 1.15);
 	});
@@ -298,4 +300,22 @@ function filledRect(
 			} as unknown as Filter,
 		],
 	};
+}
+
+async function probeSeam(b: BrushSettingsV2, label: string): Promise<void> {
+	const { renderer, canvas } = await createTestRenderer();
+	const device = renderer.getDevice();
+	if (!device) throw new Error("no device");
+	const doc = seamDoc(b, false);
+	await renderWithViewport(renderer, canvas, doc, VIEWPORT);
+	await renderWithViewport(renderer, canvas, doc, VIEWPORT);
+	const t = await renderWithViewport(renderer, canvas, doc, VIEWPORT);
+	const px = await captureTexturePixels(device, t, t.width, t.height);
+	const out: string[] = [];
+	for (let dx = -60; dx <= 60; dx += 10) {
+		const o = (STROKE_ROW * t.width + SEAM_X + dx) * 4;
+		out.push(`${px[o]}/${px[o + 1]}/${px[o + 2]}`);
+	}
+	console.log(`PROBE ${label}`, out.join("  "));
+	t.destroy();
 }

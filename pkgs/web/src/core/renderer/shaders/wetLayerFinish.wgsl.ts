@@ -24,8 +24,10 @@ struct Uniforms {
 	scatter: f32,
 	pigmentLoad: f32,
 	randomSeed: f32,
+	/** Domain texels per diffused-field texel: the fields run on a coarser
+	 *  grid than the seeds, which is how the bleed reaches its distance. */
+	fieldScale: f32,
 	pad0: f32,
-	pad1: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -106,7 +108,10 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	}
 
 	let pigmentTexSize = vec2f(textureDimensions(diffusedPigment, 0));
+	let fieldScale = max(1.0, uniforms.fieldScale);
+	let fieldResolution = ceil(uniforms.domainResolution / fieldScale);
 	let logicalMaxPx = max(uniforms.domainResolution - vec2f(1.0), vec2f(0.0));
+	let fieldMaxPx = max(fieldResolution - vec2f(1.0), vec2f(0.0));
 	// Scattering displaces the read, not the write: each output texel takes
 	// its pigment from a random spot nearby, which shuffles texels around and
 	// breaks the field into grain. Displacing whole dabs instead moves pickup
@@ -119,15 +124,20 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 		readPx = domainPx + vec2f(cos(angle), sin(angle)) * dist;
 	}
 	let samplePx = clamp(readPx, vec2f(0.0), logicalMaxPx);
-	let domainUv = (samplePx + vec2f(0.5)) / pigmentTexSize;
+	// Coefficients are read at the seed grid, the fields at the coarser one.
+	let fieldPx = clamp(samplePx / fieldScale, vec2f(0.0), fieldMaxPx);
+	let domainUv = (fieldPx + vec2f(0.5)) / pigmentTexSize;
 	let domainTexel = 1.0 / max(pigmentTexSize, vec2f(1.0));
 	let neighborMinUv = vec2f(0.5) / pigmentTexSize;
-	let neighborMaxUv = (logicalMaxPx + vec2f(0.5)) / pigmentTexSize;
+	let neighborMaxUv = (fieldMaxPx + vec2f(0.5)) / pigmentTexSize;
 	// The domain is finer than the target whenever the brush is small: one
 	// tap per target pixel would skip whole rows of the field, which reads as
 	// stripes and holes. Average a 3x3 box covering the target pixel's
 	// footprint instead.
-	let minify = max(uniforms.targetWorldPerPixel / uniforms.domainWorldPerPixel, 1.0);
+	let minify = max(
+		uniforms.targetWorldPerPixel / (uniforms.domainWorldPerPixel * fieldScale),
+		1.0,
+	);
 	let boxStep = domainTexel * (minify / 3.0);
 	var boxSum = vec4f(0.0);
 	for (var by = -1; by <= 1; by = by + 1) {

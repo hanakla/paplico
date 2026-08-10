@@ -19,7 +19,9 @@
 //
 // The seed targets are read-only for the whole iteration loop (only pigment
 // and moisture ping-pong), so recovering the seeds from them stays valid as
-// the field evolves.
+// the field evolves. They stay at the seed resolution while the fields run on
+// a coarser grid, so every seed read averages the block of seed texels the
+// field texel stands for.
 //
 // Field semantics are inherited from v1 with the v2 names: the velocity field
 // is `fluidVelocity` (v1 `flow`) and the water/pooling field is `moisture`
@@ -32,12 +34,16 @@ struct DiffuseUniforms {
 	randomSeed: f32,
 	// 1 / iterationCount, so the total effect is iteration-count independent.
 	dt: f32,
-	// Brush radius in simulation-domain pixels (advection reach reference).
+	// Brush radius in seed-resolution pixels (advection reach reference).
 	brushRadiusPx: f32,
 	// Bleed radius as a ratio of the brush size (WetConfig, stroke level).
 	bleedRadius: f32,
-	/** Alternates between iterations so the two stencil lattices differ. */
-	stencilScale: f32,
+	/** Seed texels per field texel. Distances below are in field texels, so
+	 *  anything expressed in seed texels divides by this. */
+	scale: f32,
+	/** Seed resolution, to bound the block reads. */
+	seedResolution: vec2f,
+	pad0: vec2f,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: DiffuseUniforms;
@@ -97,6 +103,27 @@ fn sampleMoisture(coord: vec2i) -> vec4f {
 	return textureLoad(srcMoisture, clampCoord(coord), 0);
 }
 
+/** Mean of a seed texture over the block one field texel covers. Four
+ *  quarter-points stand in for the whole block: the seeds vary on the scale of
+ *  a dab, so a point sample would step the coefficients in blocks the size of
+ *  the field grid and print that grid onto the result. */
+fn sampleSeed(tex: texture_2d<f32>, coord: vec2i) -> vec4f {
+	let scale = max(1.0, uniforms.scale);
+	let base = vec2f(coord) * scale;
+	let seedMax = uniforms.seedResolution - vec2f(1.0);
+	let q = scale * 0.25;
+	var sum = vec4f(0.0);
+	for (var i = 0; i < 4; i = i + 1) {
+		let offset = vec2f(
+			select(q, scale - q, i == 1 || i == 3),
+			select(q, scale - q, i >= 2),
+		);
+		let at = vec2i(clamp(base + offset, vec2f(0.0), seedMax));
+		sum += textureLoad(tex, at, 0);
+	}
+	return sum * 0.25;
+}
+
 @compute @workgroup_size(16, 16, 1)
 fn main(@builtin(global_invocation_id) gid: vec3u) {
 	if (gid.x >= u32(uniforms.resolution.x) || gid.y >= u32(uniforms.resolution.y)) {
@@ -105,40 +132,27 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
 	let coord = vec2i(gid.xy);
 
-	// The stencil steps in proportion to how far the paint is meant to run.
-	// A one-texel stencil spreads by sqrt(2*D*N) texels however large the
-	// coefficients are, which on this domain is well under a world pixel — the
-	// bleed would be invisible and every wet value would look inert. Widening
-	// the step scales the spread without touching the stability limit, which
-	// depends on the weights alone.
-	//
-	// The width has to be the same at every texel of one iteration, or the
-	// laplacian stops being symmetric and the spread cancels itself out. A
-	// fixed width reads the same lattice every time and combs the bleed into
-	// diagonal stripes, so it alternates between iterations instead: the two
-	// lattices overlay and the comb averages away.
-	let stencil = max(
-		1,
-		i32(round(
-			clamp(uniforms.bleedRadius * uniforms.brushRadiusPx * 0.32, 1.0, 18.0) *
-				uniforms.stencilScale,
-		)),
-	);
-
+	// The neighbours are the immediate ones. Reaching further by stepping the
+	// taps out instead splits the grid into that many independent lattices —
+	// a texel would only ever exchange with texels a whole step away and never
+	// with the one beside it — and the lattices settle at different densities,
+	// which prints as a grid of blobs. The distance comes from the grid
+	// spacing instead: the field runs on a grid that many times coarser than
+	// the seeds, so the same iterations carry paint that many times further.
 	let centerPigment = samplePigment(coord);
-	let leftPigment = samplePigment(coord + vec2i(-stencil, 0));
-	let rightPigment = samplePigment(coord + vec2i(stencil, 0));
-	let downPigment = samplePigment(coord + vec2i(0, -stencil));
-	let upPigment = samplePigment(coord + vec2i(0, stencil));
+	let leftPigment = samplePigment(coord + vec2i(-1, 0));
+	let rightPigment = samplePigment(coord + vec2i(1, 0));
+	let downPigment = samplePigment(coord + vec2i(0, -1));
+	let upPigment = samplePigment(coord + vec2i(0, 1));
 
 	let centerMoisture = sampleMoisture(coord);
-	let leftMoisture = sampleMoisture(coord + vec2i(-stencil, 0));
-	let rightMoisture = sampleMoisture(coord + vec2i(stencil, 0));
-	let downMoisture = sampleMoisture(coord + vec2i(0, -stencil));
-	let upMoisture = sampleMoisture(coord + vec2i(0, stencil));
+	let leftMoisture = sampleMoisture(coord + vec2i(-1, 0));
+	let rightMoisture = sampleMoisture(coord + vec2i(1, 0));
+	let downMoisture = sampleMoisture(coord + vec2i(0, -1));
+	let upMoisture = sampleMoisture(coord + vec2i(0, 1));
 
-	let seedMoisture = textureLoad(moistureSeed, coord, 0);
-	let seedVelocity = textureLoad(fluidVelocitySeed, coord, 0);
+	let seedMoisture = sampleSeed(moistureSeed, coord);
+	let seedVelocity = sampleSeed(fluidVelocitySeed, coord);
 
 	let pigmentNeighborhood =
 		centerPigment.a + leftPigment.a + rightPigment.a + downPigment.a + upPigment.a;
@@ -170,11 +184,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 	let cornerBrake = clamp(1.0 - accel * (0.46 + sourceEdge * 0.34), 0.24, 1.0);
 
 	// --- per-texel coefficients ------------------------------------------
-	let absorptionGranulationValue = textureLoad(absorptionGranulation, coord, 0);
+	let absorptionGranulationValue = sampleSeed(absorptionGranulation, coord);
 	let absorption = clamp(absorptionGranulationValue.r, 0.0, 1.0);
 	let granulation = clamp(absorptionGranulationValue.g, 0.0, 1.0);
 	let bleedSoftness = clamp(
-		textureLoad(softnessEdgeDarkening, coord, 0).r,
+		sampleSeed(softnessEdgeDarkening, coord).r,
 		0.0,
 		1.0,
 	);
@@ -190,7 +204,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 	let absorbLambda = -log(max(1.0 - 0.85 * absorption, 1e-4));
 	let poolStepRetention = pow(0.75 - 0.35 * absorption, uniforms.dt);
 
-	let noisePos = vec2f(gid.xy) / max(0.0001, uniforms.paperScale * 16.0);
+	let noisePos =
+		vec2f(gid.xy) * max(1.0, uniforms.scale) /
+		max(0.0001, uniforms.paperScale * 16.0);
 	let grain = valueNoise(noisePos);
 	let permeability = mix(1.25, 0.45, granulation * grain);
 
@@ -227,7 +243,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
 	// Advection reach is brush-relative; the per-step displacement is capped
 	// at 1.5px and dt bounds the total by ~reachPx.
-	let reachPx = clamp(uniforms.bleedRadius * uniforms.brushRadiusPx * 1.5, 2.0, 32.0);
+	let reachPx =
+		clamp(uniforms.bleedRadius * uniforms.brushRadiusPx * 1.5, 2.0, 32.0) /
+		max(1.0, uniforms.scale);
 	let flowBoost = nextWaterAmount * (0.65 + slowWet * 0.25 + pooling * 0.4);
 	let advectStep = min(
 		1.5,

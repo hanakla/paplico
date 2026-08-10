@@ -203,6 +203,10 @@ function setUniforms(
 ): void {
 	view.set({
 		resolution: [overrides.resolutionX ?? W, overrides.resolutionY ?? H],
+		// One field texel per seed texel: the coarse grid is the pass's job to
+		// choose, and these cases pin the per-texel behaviour.
+		seedResolution: [overrides.resolutionX ?? W, overrides.resolutionY ?? H],
+		scale: overrides.scale ?? 1,
 		paperScale: overrides.paperScale ?? 24,
 		randomSeed: overrides.randomSeed ?? 42,
 		dt: overrides.dt ?? 1 / 32,

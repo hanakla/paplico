@@ -9,6 +9,44 @@ import { WET_LAYER_SEED_SHADER } from "../../../shaders/wetLayerSeed.wgsl";
  */
 export const WET_LAYER_ITERATIONS = 32;
 
+/**
+ * Seed texels per field texel. The diffusion reaches `sqrt(2 * D * N)` grid
+ * cells whatever the coefficients are — under four cells at the stability
+ * limit — so a bleed wider than that comes from a coarser grid, not from more
+ * iterations and not from stepping the stencil out (which splits the grid into
+ * independent lattices and prints them as a grid of blobs).
+ *
+ * Reach is `cells * scale`, so the factor is the stencil width the stepped
+ * kernel used: the bleed lands the same distance out as before.
+ */
+export function resolveWetFieldScale(
+	bleedRadius: number,
+	brushRadiusPx: number,
+): number {
+	const reach = Math.max(
+		1,
+		bleedRadius * brushRadiusPx * WET_BLEED_TEXELS_PER_SIZE,
+	);
+	// The grid still has to resolve the stroke itself. Coarser than this and
+	// the brush spans a handful of cells, so the upsample spreads it into a
+	// blob that buries whatever it was painted over.
+	const cap = Math.max(
+		1,
+		Math.floor((brushRadiusPx * 2) / MIN_FIELD_CELLS_ACROSS_BRUSH),
+	);
+	return Math.min(cap, Math.max(1, Math.round(reach * WET_STEPPED_MEAN)));
+}
+
+/** Bleed reach in seed texels per unit of `bleedRadius * brushRadius`. */
+const WET_BLEED_TEXELS_PER_SIZE = 0.32;
+/** The stepped kernel alternated full and 0.55 width; its mean set the reach. */
+const WET_STEPPED_MEAN = (1 + 0.55) / 2;
+/** Field cells the brush diameter must keep, whatever the bleed asks for. */
+const MIN_FIELD_CELLS_ACROSS_BRUSH = 12;
+
+/** The coarser grid the fields run on, in field texels. */
+type WetFieldGrid = { width: number; height: number; scale: number };
+
 /** The dab pass's seed targets, in location order (see WET_SEED_TARGETS). */
 export interface WetLayerSeedTextures {
 	pigment: GPUTexture;
@@ -95,12 +133,22 @@ export class WetLayerPass {
 		const { width, height } = params.domain;
 		if (width <= 0 || height <= 0) return;
 
-		const pipelines = this.ensurePipelines();
-		const fields = this.ensureFields(width, height);
+		const scale = resolveWetFieldScale(
+			params.bleedRadius,
+			params.brushRadiusPx,
+		);
+		const field = {
+			width: Math.ceil(width / scale),
+			height: Math.ceil(height / scale),
+			scale,
+		};
 
-		this.seedFields(encoder, params, pipelines, fields);
-		const diffused = this.diffuse(encoder, params, pipelines, fields);
-		this.composite(encoder, params, pipelines, diffused);
+		const pipelines = this.ensurePipelines();
+		const fields = this.ensureFields(field.width, field.height);
+
+		this.seedFields(encoder, params, pipelines, fields, field);
+		const diffused = this.diffuse(encoder, params, pipelines, fields, field);
+		this.composite(encoder, params, pipelines, diffused, field);
 	}
 
 	/** Free the buffers this frame's dispatches referenced. Called one frame
@@ -141,9 +189,14 @@ export class WetLayerPass {
 		params: WetLayerApplyParams,
 		pipelines: NonNullable<WetLayerPass["pipelines"]>,
 		fields: NonNullable<WetLayerPass["fields"]>,
+		field: WetFieldGrid,
 	): void {
 		const view = pipelines.uniformViews.seed;
-		view.set({ resolution: [params.domain.width, params.domain.height] });
+		view.set({
+			resolution: [field.width, field.height],
+			seedResolution: [params.domain.width, params.domain.height],
+			scale: field.scale,
+		});
 		const uniforms = this.uploadUniforms(view.arrayBuffer, "Wet Layer Seed");
 
 		const pass = encoder.beginComputePass({ label: "Wet Layer Seed" });
@@ -163,8 +216,8 @@ export class WetLayerPass {
 			}),
 		);
 		pass.dispatchWorkgroups(
-			Math.ceil(params.domain.width / 16),
-			Math.ceil(params.domain.height / 16),
+			Math.ceil(field.width / 16),
+			Math.ceil(field.height / 16),
 			1,
 		);
 		pass.end();
@@ -175,29 +228,24 @@ export class WetLayerPass {
 		params: WetLayerApplyParams,
 		pipelines: NonNullable<WetLayerPass["pipelines"]>,
 		fields: NonNullable<WetLayerPass["fields"]>,
+		field: WetFieldGrid,
 	): { pigment: GPUTexture; moisture: GPUTexture } {
 		const view = pipelines.uniformViews.diffuse;
-		const uniformsFor = (stencilScale: number): GPUBuffer => {
-			view.set({
-				resolution: [params.domain.width, params.domain.height],
-				paperScale: params.grainScale,
-				randomSeed: (params.randomSeed % 65521) / 65521,
-				dt: 1 / WET_LAYER_ITERATIONS,
-				brushRadiusPx: params.brushRadiusPx,
-				bleedRadius: params.bleedRadius,
-				stencilScale,
-			});
-			return this.uploadUniforms(view.arrayBuffer, "Wet Layer Diffuse");
-		};
-		// One stencil width per ping-pong direction: a single width reads the
-		// same lattice on every iteration and leaves a diagonal comb behind.
-		const wideUniforms = uniformsFor(1);
-		const narrowUniforms = uniformsFor(0.55);
+		view.set({
+			resolution: [field.width, field.height],
+			seedResolution: [params.domain.width, params.domain.height],
+			scale: field.scale,
+			paperScale: params.grainScale,
+			randomSeed: (params.randomSeed % 65521) / 65521,
+			dt: 1 / WET_LAYER_ITERATIONS,
+			brushRadiusPx: params.brushRadiusPx,
+			bleedRadius: params.bleedRadius,
+		});
+		const uniforms = this.uploadUniforms(view.arrayBuffer, "Wet Layer Diffuse");
 
 		// Two bind groups swapped each step; only the pigment and moisture
 		// fields ping-pong, the seeds stay bound read-only throughout.
 		const bindGroupFor = (
-			uniforms: GPUBuffer,
 			srcPigment: GPUTexture,
 			srcMoisture: GPUTexture,
 			dstPigment: GPUTexture,
@@ -225,14 +273,12 @@ export class WetLayerPass {
 			});
 
 		const forward = bindGroupFor(
-			wideUniforms,
 			fields.pigmentA,
 			fields.moistureA,
 			fields.pigmentB,
 			fields.moistureB,
 		);
 		const backward = bindGroupFor(
-			narrowUniforms,
 			fields.pigmentB,
 			fields.moistureB,
 			fields.pigmentA,
@@ -244,8 +290,8 @@ export class WetLayerPass {
 		for (let i = 0; i < WET_LAYER_ITERATIONS; i++) {
 			pass.setBindGroup(0, i % 2 === 0 ? forward : backward);
 			pass.dispatchWorkgroups(
-				Math.ceil(params.domain.width / 16),
-				Math.ceil(params.domain.height / 16),
+				Math.ceil(field.width / 16),
+				Math.ceil(field.height / 16),
 				1,
 			);
 		}
@@ -261,6 +307,7 @@ export class WetLayerPass {
 		params: WetLayerApplyParams,
 		pipelines: NonNullable<WetLayerPass["pipelines"]>,
 		diffused: { pigment: GPUTexture; moisture: GPUTexture },
+		field: WetFieldGrid,
 	): void {
 		const view = pipelines.uniformViews.finish;
 		view.set({
@@ -284,6 +331,7 @@ export class WetLayerPass {
 			scatter: params.scatter,
 			pigmentLoad: params.pigmentLoad,
 			randomSeed: (params.randomSeed % 65521) / 65521,
+			fieldScale: field.scale,
 		});
 		const uniforms = this.uploadUniforms(view.arrayBuffer, "Wet Layer Finish");
 

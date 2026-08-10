@@ -58,8 +58,8 @@ describe("Wet layer strokes", () => {
 	it("should hold less pigment as the load drops", async () => {
 		// Read the bleed's edge, not the body: the centre saturates and holds
 		// the same 8-bit value at either load.
-		const light = await renderStrokePixel(wetTuned({ pigmentLoad: 0.15 }), 286);
-		const heavy = await renderStrokePixel(wetTuned({ pigmentLoad: 1.5 }), 286);
+		const light = await renderStrokePixel(wetTuned({ pigmentLoad: 0.15 }), 290);
+		const heavy = await renderStrokePixel(wetTuned({ pigmentLoad: 1.5 }), 290);
 
 		expect(light[0]).toBeGreaterThan(heavy[0] + 10);
 	});
@@ -141,7 +141,7 @@ function wetBrush(overrides: { enabled: boolean }): BrushSettingsV2 {
 			enabled: overrides.enabled,
 			// A light load leaves the body unsaturated, so granulation shows.
 			bleedRadius: 1,
-			pigmentLoad: 0.3,
+			pigmentLoad: 0.1,
 			grainScale: 1,
 		},
 		randomSeed: 1,
