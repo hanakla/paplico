@@ -20,6 +20,7 @@ import {
 import { getFontManager } from "../typography/fonts";
 import {
 	calculateElementBounds,
+	expandBounds,
 	type LocalBBox,
 	type WorldBBox,
 } from "../utils/geometry/bounds";
@@ -1393,15 +1394,30 @@ export class RenderOrchestrator {
 			// deform the shape (3d-rotate, zigzag, …) are not clipped to the flat
 			// outline. calculatePreFilteredElementBounds returns plain geometry
 			// bounds when the element has no pre-filter.
-			const b =
-				plans?.get(el.id)?.textureBounds ??
-				(this.filterRenderer
+			// Some filters never get a plan yet still reach beyond the flat
+			// outline — a glass 3D solid (needsBackdrop) routes through the
+			// mid-pass refraction path and self-sizes at draw time — so the
+			// fallback must still apply the handlers' expansion margins.
+			let b = plans?.get(el.id)?.textureBounds;
+			if (!b) {
+				const base = this.filterRenderer
 					? calculatePreFilteredElementBounds(
 							el,
 							elementsMap,
 							this.filterRenderer,
 						)
-					: calculateElementBounds(el, elementsMap));
+					: calculateElementBounds(el, elementsMap);
+				let margin = 0;
+				for (const filter of el.filters ?? []) {
+					if (filter.enabled === false) continue;
+					const handler = this.filterRenderer?.getHandler(filter.processor);
+					margin = Math.max(
+						margin,
+						handler?.getExpansionMargin?.(filter, base) ?? 0,
+					);
+				}
+				b = margin > 0 ? expandBounds(base, margin) : base;
+			}
 			if (b.minX < minX) minX = b.minX;
 			if (b.minY < minY) minY = b.minY;
 			if (b.maxX > maxX) maxX = b.maxX;
