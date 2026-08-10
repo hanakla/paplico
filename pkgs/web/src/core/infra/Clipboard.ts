@@ -1,3 +1,5 @@
+import { uint8ToBase64 } from "../utils/binary";
+
 // "web " prefix enables custom MIME types via Chromium-based Clipboard API.
 // Safari and Firefox do not support "web " custom MIME types, so we encode
 // custom type data into text/html as a fallback (HTML comment with base64 payload).
@@ -239,15 +241,6 @@ function decodeFromHTML(
 	} catch {
 		return null;
 	}
-}
-
-function uint8ToBase64(bytes: Uint8Array): string {
-	const CHUNK = 8192;
-	const parts: string[] = [];
-	for (let i = 0; i < bytes.length; i += CHUNK) {
-		parts.push(String.fromCharCode(...bytes.subarray(i, i + CHUNK)));
-	}
-	return btoa(parts.join(""));
 }
 
 function base64ToUint8(base64: string): Uint8Array {

@@ -20,6 +20,7 @@ import {
 import { getFontManager } from "../typography/fonts";
 import {
 	calculateElementBounds,
+	expandBounds,
 	type LocalBBox,
 	type WorldBBox,
 } from "../utils/geometry/bounds";
@@ -37,6 +38,7 @@ import type { Reference3DRenderContext } from "./canvas/elements/Reference3DElem
 import { BackdropCaptureManager } from "./canvas/pipeline/BackdropCaptureManager";
 import { BrushTextureManager } from "./canvas/pipeline/brush/BrushTextureManager";
 import {
+	classifyFilterHandler,
 	type FilterHandler,
 	FilterRenderer,
 	type RegisterableFilterHandler,
@@ -765,6 +767,20 @@ export class RenderOrchestrator {
 	}
 
 	/**
+	 * Wire a document-derived text resolver when none is set — standalone
+	 * callers (export, VRT) pass a bare Document with no owning Paplico, and
+	 * without a resolver flow members and axis-bound texts render/outline
+	 * their leftover content literally instead of resolving the chain/binding.
+	 * Returns a restore function; a no-op when a live resolver already exists
+	 * so a Paplico-owned export keeps its real (override-aware) resolver.
+	 */
+	public ensureTextDocumentResolver(document: Document): () => void {
+		if (this.textDocumentResolver != null) return () => {};
+		this.setTextDocumentResolver(buildDocumentTextResolver(document));
+		return () => this.setTextDocumentResolver(null);
+	}
+
+	/**
 	 * Document access for text layout (axisBinding / flow chain resolution).
 	 * Held here because TextRenderer is created lazily on device init.
 	 */
@@ -899,16 +915,9 @@ export class RenderOrchestrator {
 			return null;
 		}
 
-		// Standalone callers (export, VRT) pass a bare Document with no owning
-		// Paplico to wire flow-chain / axis-binding resolution — without one,
-		// flow members and axis-bound texts render their own leftover content
-		// literally instead of resolving the chain/binding. Fall back to a
-		// document-derived resolver only when nothing is already wired, so a
-		// live Paplico export keeps using its real (override-aware) resolver.
-		const hadTextDocumentResolver = this.textDocumentResolver != null;
-		if (!hadTextDocumentResolver) {
-			this.setTextDocumentResolver(buildDocumentTextResolver(opts.document));
-		}
+		const restoreTextDocumentResolver = this.ensureTextDocumentResolver(
+			opts.document,
+		);
 
 		// 1. Pre-warm text paths (renderText is synchronous and skips uncached)
 		const textElements = Object.values(opts.document.objects).filter(
@@ -1055,9 +1064,7 @@ export class RenderOrchestrator {
 			td.canvasLayer.offscreen.restoreDeferredList(savedDeferredList);
 			const textureToDestroy = intermediateTexture as GPUTexture | null;
 			textureToDestroy?.destroy();
-			if (!hadTextDocumentResolver) {
-				this.setTextDocumentResolver(null);
-			}
+			restoreTextDocumentResolver();
 		}
 	}
 
@@ -1393,15 +1400,35 @@ export class RenderOrchestrator {
 			// deform the shape (3d-rotate, zigzag, …) are not clipped to the flat
 			// outline. calculatePreFilteredElementBounds returns plain geometry
 			// bounds when the element has no pre-filter.
-			const b =
-				plans?.get(el.id)?.textureBounds ??
-				(this.filterRenderer
+			// Some filters never get a plan yet still reach beyond the flat
+			// outline — a glass 3D solid (needsBackdrop) routes through the
+			// mid-pass refraction path and self-sizes at draw time — so the
+			// fallback must still apply the handlers' expansion margins.
+			let b = plans?.get(el.id)?.textureBounds;
+			if (!b) {
+				const base = this.filterRenderer
 					? calculatePreFilteredElementBounds(
 							el,
 							elementsMap,
 							this.filterRenderer,
 						)
-					: calculateElementBounds(el, elementsMap));
+					: calculateElementBounds(el, elementsMap);
+				let margin = 0;
+				for (const filter of el.filters ?? []) {
+					if (filter.enabled === false) continue;
+					const handler = this.filterRenderer?.getHandler(filter.processor);
+					// Geometry pre-filters already deformed `base` (it comes from
+					// calculatePreFilteredElementBounds); adding their margin on
+					// top would double-count the deformation. FilterRenderer.
+					// calculateExpansion cannot be reused here for that reason.
+					if (classifyFilterHandler(handler) === "geometry") continue;
+					margin = Math.max(
+						margin,
+						handler?.getExpansionMargin?.(filter, base) ?? 0,
+					);
+				}
+				b = margin > 0 ? expandBounds(base, margin) : base;
+			}
 			if (b.minX < minX) minX = b.minX;
 			if (b.minY < minY) minY = b.minY;
 			if (b.maxX > maxX) maxX = b.maxX;

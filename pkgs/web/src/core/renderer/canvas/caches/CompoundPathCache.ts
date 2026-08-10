@@ -4,6 +4,7 @@ import {
 	getTransform,
 	type Path,
 } from "../../../schema";
+import { COMPOUND_CURVE_TOLERANCE } from "../../../utils/geometry/compoundBake";
 import { computeBooleanOperation } from "../../../utils/geometry/pathOps";
 import type { CompoundPathGeometryCacheEntry } from "../CanvasLayerTypes";
 
@@ -25,7 +26,7 @@ export class CompoundPathCache {
 		}
 
 		const segments = computeBooleanOperation(compoundPath.sources, pathMap, {
-			curveTolerance: 0.25,
+			curveTolerance: COMPOUND_CURVE_TOLERANCE,
 		});
 		this.cache.set(compoundPath.id, { fingerprint, segments });
 		return segments;

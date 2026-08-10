@@ -606,6 +606,12 @@ export class FontManager extends Emitter<FontManagerEvents> {
 			return loadedFont;
 		})();
 
+		// A failed load must not be cached forever — drop the promise so the
+		// next caller retries (e.g. after a transient network failure).
+		this.fallbackFontLoadPromise.catch(() => {
+			this.fallbackFontLoadPromise = undefined;
+		});
+
 		return this.fallbackFontLoadPromise;
 	}
 
