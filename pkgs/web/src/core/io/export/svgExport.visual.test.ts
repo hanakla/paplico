@@ -43,27 +43,31 @@ import { PaplicoSVGExporter } from "./PaplicoSVGExporter";
  */
 
 /**
- * Artboard name → allowed diff (% of pixels). Text pays for outline AA;
- * Filters is raster-fallback heavy (chunk edge AA + stochastic pixel-level
- * filters like pixel-sort).
+ * Artboard name → allowed diff, as % of the GPU render's CONTENT pixels
+ * (non-background) — never of the whole canvas, which would let a sparse
+ * artboard hide a fully broken element inside its whitespace. Sub-pixel edge
+ * shifts and the GPU-vs-resvg AA-density gap are already excluded by the
+ * two-stage judgement, so what these thresholds allow is real divergence.
+ * Measured residuals: Text 2.49%, Complex Text Flows 1.41%, all others
+ * ≤0.20% — thresholds sit at roughly 1.5–2× the measured value.
  */
 const ARTBOARDS: ReadonlyArray<[artboardName: string, maxDiff: number]> = [
-	["Main", 0.5],
-	["Text", 1.5],
-	["Filters", 1.5],
-	["BlendModes", 0.5],
-	["Transforms", 0.5],
-	["Opacity", 0.5],
-	["Groups", 0.5],
-	["Masks", 0.5],
-	["CompoundPaths", 0.5],
-	["StrokeGradients", 0.5],
-	["MultiFilters", 0.5],
-	["SubFilters", 1.0],
-	["ObjectBlend", 1.0],
-	["Mesh Object", 1.0],
-	["Complex Text Flows", 1.5],
-	["Patterns", 0.5],
+	["Main", 1],
+	["Text", 4],
+	["Filters", 1],
+	["BlendModes", 1],
+	["Transforms", 1],
+	["Opacity", 1],
+	["Groups", 1],
+	["Masks", 1],
+	["CompoundPaths", 1],
+	["StrokeGradients", 1],
+	["MultiFilters", 1],
+	["SubFilters", 1],
+	["ObjectBlend", 1],
+	["Mesh Object", 1],
+	["Complex Text Flows", 3],
+	["Patterns", 1],
 ];
 
 let originalOffscreenCanvas: typeof globalThis.OffscreenCanvas | undefined;
@@ -117,10 +121,10 @@ describe("SVG Export vs GPU render - 3D effects", () => {
 		const { renderer } = await createTestRenderer();
 		const { doc, artboard } = buildSolid3DDocument();
 
-		// 3D shading needs looser tolerance than flat shapes, but the extrusion
-		// must not be clipped to the flat bbox and the rotation must keep its
-		// perspective — both blow far past this threshold when broken.
-		await expectSvgMatchesGpu(renderer, artboard, doc, "solid3d", 2);
+		// The extrusion must not be clipped to the flat bbox and the rotation
+		// must keep its perspective — both blow far past this threshold when
+		// broken (measured residual: 0.00%).
+		await expectSvgMatchesGpu(renderer, artboard, doc, "solid3d", 1);
 	});
 });
 
@@ -175,19 +179,48 @@ async function expectSvgMatchesGpu(
 	const gpuPixels = cropRgba(gpu.data, gpu.width, width, height);
 
 	const diff = new PNG({ width, height });
-	const diffPixels = pixelmatch(
-		svgPixels,
-		gpuPixels,
-		diff.data,
-		width,
-		height,
-		{ threshold: 0.15 },
-	);
-	const diffPercentage = (diffPixels / (width * height)) * 100;
+	pixelmatch(svgPixels, gpuPixels, diff.data, width, height, {
+		threshold: 0.15,
+	});
+	// Two-stage judgement: a raw pixelmatch diff that has a matching color
+	// within 1px in BOTH directions is a sub-pixel edge shift (outlined text
+	// AA vs the GPU's text rendering) — content that is simply MISSING on one
+	// side has no nearby match and stays a real difference.
+	let realDiffPixels = 0;
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const i = (y * width + x) * 4;
+			// pixelmatch writes red (255,0,0) into flagged pixels.
+			if (!(diff.data[i] === 255 && diff.data[i + 1] === 0)) continue;
+			if (
+				!hasNearbyMatch(gpuPixels, svgPixels, x, y, width, height) ||
+				!hasNearbyMatch(svgPixels, gpuPixels, x, y, width, height)
+			) {
+				realDiffPixels++;
+			} else {
+				// Downgrade shifted-edge pixels in the saved diff for eyeballing.
+				diff.data[i] = 255;
+				diff.data[i + 1] = 220;
+				diff.data[i + 2] = 0;
+			}
+		}
+	}
+	// Measure against the CONTENT the GPU actually painted, not the canvas
+	// area: on a mostly-empty artboard a whole-canvas percentage hides a
+	// completely broken element inside the whitespace.
+	let contentPixels = 0;
+	for (let i = 0; i < gpuPixels.length; i += 4) {
+		if (
+			!(gpuPixels[i] > 245 && gpuPixels[i + 1] > 245 && gpuPixels[i + 2] > 245)
+		) {
+			contentPixels++;
+		}
+	}
+	const diffPercentage = (realDiffPixels / Math.max(contentPixels, 1)) * 100;
 
 	const diffDir = join(__dirname, "../../../__visual_diffs__");
 	if (diffPercentage <= maxDiffPercentage) {
-		for (const suffix of [".svg.png", ".diff.png", ".svg"]) {
+		for (const suffix of [".svg.png", ".gpu.png", ".diff.png", ".svg"]) {
 			const stale = join(diffDir, `${testName}${suffix}`);
 			if (existsSync(stale)) unlinkSync(stale);
 		}
@@ -196,14 +229,52 @@ async function expectSvgMatchesGpu(
 	mkdirSync(diffDir, { recursive: true });
 	const svgOut = new PNG({ width, height });
 	svgOut.data = Buffer.from(svgPixels);
+	const gpuOut = new PNG({ width, height });
+	gpuOut.data = Buffer.from(gpuPixels);
 	writeFileSync(join(diffDir, `${testName}.svg.png`), PNG.sync.write(svgOut));
+	writeFileSync(join(diffDir, `${testName}.gpu.png`), PNG.sync.write(gpuOut));
 	writeFileSync(join(diffDir, `${testName}.diff.png`), PNG.sync.write(diff));
 	writeFileSync(join(diffDir, `${testName}.svg`), result.svg);
 	throw new Error(
-		`SVG export diverges from the GPU render: ${diffPixels}/${width * height} pixels differ ` +
-			`(${diffPercentage.toFixed(2)}% > ${maxDiffPercentage}%)\n` +
+		`SVG export diverges from the GPU render: ${realDiffPixels} of ${contentPixels} content pixels differ ` +
+			`(${diffPercentage.toFixed(2)}% > ${maxDiffPercentage}%, edge shifts excluded)\n` +
 			`SVG rendering / diff saved under: ${diffDir}/${testName}.*`,
 	);
+}
+
+/**
+ * True when `expected`'s pixel at (x, y) has a color within pixelmatch-like
+ * tolerance somewhere in `actual`'s 3×3 neighborhood — i.e. the flagged pixel
+ * is explained by a ≤1px edge shift rather than by missing content.
+ */
+function hasNearbyMatch(
+	expected: Uint8Array,
+	actual: Uint8Array,
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+): boolean {
+	const e = (y * width + x) * 4;
+	for (let dy = -1; dy <= 1; dy++) {
+		for (let dx = -1; dx <= 1; dx++) {
+			const nx = x + dx;
+			const ny = y + dy;
+			if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+			const a = (ny * width + nx) * 4;
+			// 96 also absorbs the AA-density gap between the GPU's text
+			// compositing and resvg's path AA (same coverage renders ~60 apart),
+			// while missing content against the background stays >96 apart.
+			if (
+				Math.abs(expected[e] - actual[a]) < 96 &&
+				Math.abs(expected[e + 1] - actual[a + 1]) < 96 &&
+				Math.abs(expected[e + 2] - actual[a + 2]) < 96
+			) {
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 function cropRgba(
