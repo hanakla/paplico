@@ -1,4 +1,8 @@
 import { readStoredBrushSize } from "../brush/access";
+import {
+	createStrokeHalfWidthSampler,
+	type StrokeHalfWidthSampler,
+} from "../renderer/canvas/pipeline/brush/strokeHalfWidth";
 import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
 import { buildStrokeWidthEditOverlay } from "../renderer/ui/builders/strokeWidthEdit";
 import type { OverlayHit } from "../renderer/ui/hitTest";
@@ -52,6 +56,13 @@ export class StrokeWidthEditTool implements Tool {
 	/** Cumulative arc-lengths per segment for arc-length parameterization */
 	private segArcLengths: Float64Array = new Float64Array(0);
 	private totalArcLength = 0;
+	/**
+	 * Actual rendered half width per t (pressure/taper evaluated). Rebuilt only
+	 * with the world segments: a strokeWidths edit recreates the Path object
+	 * (and its segments array) on every pointer move, so identity-keyed caching
+	 * would miss each time, while segments/brush settings never change here.
+	 */
+	private halfWidthSampler: StrokeHalfWidthSampler | null = null;
 
 	public constructor(ctx: ToolContext) {
 		this.ctx = ctx;
@@ -268,6 +279,7 @@ export class StrokeWidthEditTool implements Tool {
 		this.worldSegments = [];
 		this.segArcLengths = new Float64Array(0);
 		this.totalArcLength = 0;
+		this.halfWidthSampler = null;
 		this.updateStrokeWidthOverlay(null);
 	}
 
@@ -309,9 +321,16 @@ export class StrokeWidthEditTool implements Tool {
 		const sign = side === "side1" ? 1 : -1;
 		const projected = dx * evalResult.nx * sign + dy * evalResult.ny * sign;
 
+		// Ratio conversion divides by the actual rendered half width at this t,
+		// floored at 5% of the base half size: below that a 1px drag would blow
+		// the ratio up 20x+ (or become 0/0 at a taper tip). The display keeps
+		// the raw half width, so handles near a taper tip intentionally do not
+		// track the pointer 1:1.
+		const denom = Math.max(this.effectiveHalfAt(pointT), brushHalf * 0.05);
+
 		const sides = resolveDraggedSides(
 			interpolateStrokeWidths(this.dragInitialWidths ?? [], pointT),
-			projected / brushHalf,
+			projected / denom,
 			side,
 			event,
 		);
@@ -382,8 +401,17 @@ export class StrokeWidthEditTool implements Tool {
 			this.worldSegments = [];
 			this.segArcLengths = new Float64Array(0);
 			this.totalArcLength = 0;
+			this.halfWidthSampler = null;
 			return;
 		}
+
+		this.halfWidthSampler = createStrokeHalfWidthSampler({
+			storedBrushSettings:
+				this.getStrokeAppearance()?.paramData.params.brushSettings,
+			segments: this.targetPath.segments,
+			pathStart: this.targetPath.pathStart,
+			pathEnd: this.targetPath.pathEnd,
+		});
 
 		const ancestorTransform = this.ctx.getAncestorTransform(
 			this.targetElementId,
@@ -546,21 +574,29 @@ export class StrokeWidthEditTool implements Tool {
 		return this.findExplicitIndex(point.t);
 	}
 
+	private getStrokeAppearance(): StrokeAppearance | undefined {
+		return this.targetPath?.filters?.find((f) => f.processor === "stroke") as
+			| StrokeAppearance
+			| undefined;
+	}
+
 	private getBrushHalfSize(): number {
 		if (!this.targetPath) return 1;
 
-		const strokeFilter = this.targetPath.filters?.find(
-			(f) => f.processor === "stroke",
-		) as StrokeAppearance | undefined;
-
 		const size =
-			readStoredBrushSize(strokeFilter?.paramData.params.brushSettings) ?? 2;
+			readStoredBrushSize(
+				this.getStrokeAppearance()?.paramData.params.brushSettings,
+			) ?? 2;
 		return size / 2;
+	}
+
+	/** Actual rendered half width at t; base half size when no sampler applies. */
+	private effectiveHalfAt(t: number): number {
+		return this.halfWidthSampler?.halfWidthAt(t) ?? this.getBrushHalfSize();
 	}
 
 	private buildUIData(): StrokeWidthEditUIData {
 		const effective = this.getEffectiveWidths();
-		const brushHalf = this.getBrushHalfSize();
 
 		// Use world-space resolved segments for correct rendering
 		const pathSegments: StrokeWidthEditUIData["pathSegments"] =
@@ -582,11 +618,12 @@ export class StrokeWidthEditTool implements Tool {
 
 			const cx = evalResult.x;
 			const cy = evalResult.y;
+			const halfAt = this.effectiveHalfAt(point.t);
 
-			const s1x = cx + evalResult.nx * point.side1 * brushHalf;
-			const s1y = cy + evalResult.ny * point.side1 * brushHalf;
-			const s2x = cx - evalResult.nx * point.side2 * brushHalf;
-			const s2y = cy - evalResult.ny * point.side2 * brushHalf;
+			const s1x = cx + evalResult.nx * point.side1 * halfAt;
+			const s1y = cy + evalResult.ny * point.side1 * halfAt;
+			const s2x = cx - evalResult.nx * point.side2 * halfAt;
+			const s2y = cy - evalResult.ny * point.side2 * halfAt;
 
 			const isSelected = this.selectedPointIndex === i;
 			const pointIndex = this.uiPointIndexOf(point);
@@ -632,13 +669,14 @@ export class StrokeWidthEditTool implements Tool {
 			if (!evalResult) continue;
 
 			const { side1, side2 } = interpolateStrokeWidths(strokeWidths, t);
+			const halfAt = this.effectiveHalfAt(t);
 			side1Points.push({
-				x: evalResult.x + evalResult.nx * side1 * brushHalf,
-				y: evalResult.y + evalResult.ny * side1 * brushHalf,
+				x: evalResult.x + evalResult.nx * side1 * halfAt,
+				y: evalResult.y + evalResult.ny * side1 * halfAt,
 			});
 			side2Points.push({
-				x: evalResult.x - evalResult.nx * side2 * brushHalf,
-				y: evalResult.y - evalResult.ny * side2 * brushHalf,
+				x: evalResult.x - evalResult.nx * side2 * halfAt,
+				y: evalResult.y - evalResult.ny * side2 * halfAt,
 			});
 		}
 

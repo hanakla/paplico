@@ -4,37 +4,78 @@ import { WET_LAYER_FINISH_SHADER } from "../../../shaders/wetLayerFinish.wgsl";
 import { WET_LAYER_SEED_SHADER } from "../../../shaders/wetLayerSeed.wgsl";
 
 /**
- * Fixed iteration count. dt = 1 / this, so the total effect a stroke shows is
- * independent of it; raising it only refines the time resolution.
+ * Iterations a stroke runs when its bleed asks for nothing in particular, and
+ * the reference the shader's per-step diffusion is sized against.
  */
 export const WET_LAYER_ITERATIONS = 32;
 
 /**
- * Seed texels per field texel. The diffusion reaches `sqrt(2 * D * N)` grid
- * cells whatever the coefficients are — under four cells at the stability
- * limit — so a bleed wider than that comes from a coarser grid, not from more
- * iterations and not from stepping the stencil out (which splits the grid into
- * independent lattices and prints them as a grid of blobs).
+ * How far the paint should run, in seed texels.
  *
- * Reach is `cells * scale`, so the factor is the stencil width the stepped
- * kernel used: the bleed lands the same distance out as before.
+ * Diffusion reaches `spacing * sqrt(2 * D * iterations)`, so a wide bleed is
+ * bought with the grid spacing and the iteration count together — never by
+ * stepping the stencil out, which splits the grid into that many independent
+ * lattices and prints them as a grid of blobs.
+ */
+export function resolveWetBleedReach(
+	bleedRadius: number,
+	brushRadiusPx: number,
+): number {
+	const stencilWidth = Math.max(
+		1,
+		bleedRadius * brushRadiusPx * WET_BLEED_TEXELS_PER_SIZE,
+	);
+	return stencilWidth * WET_STEPPED_MEAN * WET_REFERENCE_CELLS;
+}
+
+/**
+ * Seed texels per field texel. Spacing carries the reach cheaply — one
+ * iteration on a grid N times coarser costs N² less — but the grid still has
+ * to resolve the stroke itself, so it stops where the brush would span only a
+ * handful of cells and the iteration count takes over from there.
  */
 export function resolveWetFieldScale(
 	bleedRadius: number,
 	brushRadiusPx: number,
 ): number {
-	const reach = Math.max(
-		1,
-		bleedRadius * brushRadiusPx * WET_BLEED_TEXELS_PER_SIZE,
-	);
-	// The grid still has to resolve the stroke itself. Coarser than this and
-	// the brush spans a handful of cells, so the upsample spreads it into a
-	// blob that buries whatever it was painted over.
 	const cap = Math.max(
 		1,
 		Math.floor((brushRadiusPx * 2) / MIN_FIELD_CELLS_ACROSS_BRUSH),
 	);
-	return Math.min(cap, Math.max(1, Math.round(reach * WET_STEPPED_MEAN)));
+	const wanted = Math.round(
+		resolveWetBleedReach(bleedRadius, brushRadiusPx) / WET_REFERENCE_CELLS,
+	);
+	return Math.min(cap, Math.max(1, wanted));
+}
+
+/**
+ * Iterations that carry `reach` across a grid of `scale`. Capping the spacing
+ * without raising this is what left the top of the bleed slider inert: past
+ * the cap every value resolved to the same grid and therefore the same reach.
+ */
+export function resolveWetIterations(reach: number, scale: number): number {
+	const cells = reach / scale;
+	const needed = Math.ceil((cells * cells) / (2 * WET_DIFFUSION_STEP));
+	return Math.min(
+		MAX_WET_LAYER_ITERATIONS,
+		Math.max(WET_LAYER_ITERATIONS, needed),
+	);
+}
+
+/**
+ * How much thinner the paint comes out for having been spread.
+ *
+ * Diffusion conserves the sum of optical densities, but the coverage that sum
+ * stands for grows as it thins — the same ink spread wide reads as more ink.
+ * Left alone a very wet stroke buries whatever it was dragged over instead of
+ * blending into it.
+ */
+export function resolveWetSpreadDilution(
+	reach: number,
+	brushRadiusPx: number,
+): number {
+	const widened = (brushRadiusPx + reach) / Math.max(brushRadiusPx, 1);
+	return widened ** WET_SPREAD_DILUTION_EXPONENT;
 }
 
 /** Bleed reach in seed texels per unit of `bleedRadius * brushRadius`. */
@@ -43,9 +84,25 @@ const WET_BLEED_TEXELS_PER_SIZE = 0.32;
 const WET_STEPPED_MEAN = (1 + 0.55) / 2;
 /** Field cells the brush diameter must keep, whatever the bleed asks for. */
 const MIN_FIELD_CELLS_ACROSS_BRUSH = 12;
+/** Diffusion per iteration at the parameter maxima; matches DIFFUSION_STEP. */
+const WET_DIFFUSION_STEP = 0.228;
+/** Cells the reference iteration count reaches: sqrt(2 * step * iterations). */
+const WET_REFERENCE_CELLS = Math.sqrt(
+	2 * WET_DIFFUSION_STEP * WET_LAYER_ITERATIONS,
+);
+/** Thinning follows the widening; the power is fitted so the ink a stroke
+ *  shows stays put as the bleed grows. */
+const WET_SPREAD_DILUTION_EXPONENT = 1;
+/** A stroke past this is spending more than it can show. */
+const MAX_WET_LAYER_ITERATIONS = 256;
 
 /** The coarser grid the fields run on, in field texels. */
-type WetFieldGrid = { width: number; height: number; scale: number };
+type WetFieldGrid = {
+	width: number;
+	height: number;
+	scale: number;
+	iterations: number;
+};
 
 /** The dab pass's seed targets, in location order (see WET_SEED_TARGETS). */
 export interface WetLayerSeedTextures {
@@ -141,6 +198,10 @@ export class WetLayerPass {
 			width: Math.ceil(width / scale),
 			height: Math.ceil(height / scale),
 			scale,
+			iterations: resolveWetIterations(
+				resolveWetBleedReach(params.bleedRadius, params.brushRadiusPx),
+				scale,
+			),
 		};
 
 		const pipelines = this.ensurePipelines();
@@ -237,7 +298,7 @@ export class WetLayerPass {
 			scale: field.scale,
 			paperScale: params.grainScale,
 			randomSeed: (params.randomSeed % 65521) / 65521,
-			dt: 1 / WET_LAYER_ITERATIONS,
+			dt: 1 / field.iterations,
 			brushRadiusPx: params.brushRadiusPx,
 			bleedRadius: params.bleedRadius,
 		});
@@ -287,7 +348,7 @@ export class WetLayerPass {
 
 		const pass = encoder.beginComputePass({ label: "Wet Layer Diffuse" });
 		pass.setPipeline(pipelines.diffuse);
-		for (let i = 0; i < WET_LAYER_ITERATIONS; i++) {
+		for (let i = 0; i < field.iterations; i++) {
 			pass.setBindGroup(0, i % 2 === 0 ? forward : backward);
 			pass.dispatchWorkgroups(
 				Math.ceil(field.width / 16),
@@ -297,7 +358,7 @@ export class WetLayerPass {
 		}
 		pass.end();
 
-		return WET_LAYER_ITERATIONS % 2 === 0
+		return field.iterations % 2 === 0
 			? { pigment: fields.pigmentA, moisture: fields.moistureA }
 			: { pigment: fields.pigmentB, moisture: fields.moistureB };
 	}
@@ -332,6 +393,10 @@ export class WetLayerPass {
 			pigmentLoad: params.pigmentLoad,
 			randomSeed: (params.randomSeed % 65521) / 65521,
 			fieldScale: field.scale,
+			spreadDilution: resolveWetSpreadDilution(
+				resolveWetBleedReach(params.bleedRadius, params.brushRadiusPx),
+				params.brushRadiusPx,
+			),
 		});
 		const uniforms = this.uploadUniforms(view.arrayBuffer, "Wet Layer Finish");
 

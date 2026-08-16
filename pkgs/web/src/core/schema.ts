@@ -455,9 +455,12 @@ export interface PathSegment extends CubicBezierSegment {
  *
  *   effectiveHalfWidth(side) = stampHalfSize * sideRatio
  *
- * strokeWidths is NOT populated during brush input. It defaults to
- * undefined (= full width on both sides). It is only modified by the
- * eraser tool's width-adjust mode or manual editing in PathEditTool.
+ * On brush-stroke commit, PenTool bakes the size-curve-evaluated width
+ * profile into strokeWidths (and strips the size curves from the stored
+ * settings), so the drawn width survives vertex edits that rebuild the
+ * per-segment pressure data. It is further modified by the eraser tool's
+ * width-adjust mode or manual editing in PathEditTool. Live previews and
+ * curve-less strokes leave it undefined (= full width on both sides).
  */
 export interface StrokeWidthPoint {
 	/** Position along the path, normalized to [0, 1] by total path length.

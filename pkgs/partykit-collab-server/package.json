@@ -7,7 +7,7 @@
 		"deploy": "partykit deploy"
 	},
 	"dependencies": {
-		"jose": "^6.2.2",
+		"jose": "^6.2.8",
 		"partykit": "^0.0.115",
 		"y-partykit": "^0.0.33"
 	}

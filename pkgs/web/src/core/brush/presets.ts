@@ -410,7 +410,7 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 		name: string;
 		category: BrushPresetCategory;
 	}> = [
-		{ builtinId: BUILTIN_BRUSH_IDS.svg, name: "Pen", category: "pen" },
+		{ builtinId: BUILTIN_BRUSH_IDS.svg, name: "Pen (SVG)", category: "pen" },
 		{
 			builtinId: BUILTIN_BRUSH_IDS.hardCircle,
 			name: "Hard Round",

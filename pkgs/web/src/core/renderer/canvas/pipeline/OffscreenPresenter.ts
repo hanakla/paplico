@@ -32,7 +32,7 @@ import {
 	applyTransformToBounds,
 	composeTransforms,
 } from "../../../utils/geometry/geometry";
-import { capFilterBakeDensity } from "../CanvasLayer.helpers";
+import { interactiveBakeDensity } from "../CanvasLayer.helpers";
 import {
 	type BlitQuadToCanvasFn,
 	type BlitTextureToCanvasFn,
@@ -154,6 +154,7 @@ export class OffscreenPresenter {
 	private readonly clipBlitPool: FrameUniformPool;
 	private clipBlitBGCache = new MaskedBlitBindGroupCache();
 	private whiteMaskTexture: GPUTexture | null = null;
+	private whiteMaskView: GPUTextureView | null = null;
 	/** Textures whose destroy must be deferred until after queue.submit(). */
 	private deferredDestroys: GPUTexture[] = [];
 
@@ -339,7 +340,7 @@ export class OffscreenPresenter {
 				// The UV-aligned mask slot is unused here — masks arrive through
 				// the world-space chain slots instead — so feed it an opaque
 				// white texture, which multiplies by 1.
-				{ binding: 3, resource: this.getWhiteMaskTexture().createView() },
+				{ binding: 3, resource: this.getWhiteMaskView() },
 			],
 		});
 
@@ -360,7 +361,7 @@ export class OffscreenPresenter {
 		);
 		this.deps.device.queue.writeBuffer(chainUniformBuffer, 0, chain);
 
-		const whiteView = this.getWhiteMaskTexture().createView();
+		const whiteView = this.getWhiteMaskView();
 		const chainBindGroup = this.deps.device.createBindGroup({
 			label: "Mask Chain Bind Group",
 			layout: this.deps.maskChainBindGroupLayout,
@@ -472,6 +473,14 @@ export class OffscreenPresenter {
 		);
 		this.whiteMaskTexture = texture;
 		return texture;
+	}
+
+	/** Cached view of the white no-op mask. A mask-chain re-bake frame binds it
+	 *  up to three times per chunk; in Chrome every createView is an IPC to the
+	 *  GPU process, so thousands of fresh views per frame are real time. */
+	private getWhiteMaskView(): GPUTextureView {
+		this.whiteMaskView ??= this.getWhiteMaskTexture().createView();
+		return this.whiteMaskView;
 	}
 	/**
 	 * Render a single element to an offscreen texture.
@@ -1344,8 +1353,13 @@ export class OffscreenPresenter {
 		// than the screen. Skipped for null-bounds passes (export / nested
 		// offscreen), matching the cull guard above; everything below derives
 		// from `effectiveBounds`, so the caller blits back the smaller region.
+		// drawRegion narrows the clamp to what the frame actually renders (the
+		// viewport on margined content frames, the dirty rect on partial
+		// redraws) so the store margin never inflates bake areas.
 		const interactiveBounds =
-			filterMargin != null && !skipCull ? this.deps.viewportState.bounds : null;
+			filterMargin != null && !skipCull
+				? (this.deps.viewportState.drawRegion ?? this.deps.viewportState.bounds)
+				: null;
 		const clampBounds = fullBoundsBake ? null : interactiveBounds;
 		const effectiveBounds: BoundingBox = clampBounds
 			? (boundsIntersectionBox(
@@ -1354,14 +1368,18 @@ export class OffscreenPresenter {
 				) ?? textureBounds)
 			: textureBounds;
 
-		// Interactive bakes also cap their density to the display zoom bucket so
-		// a zoomed-out viewport does not rasterize far denser than the screen.
-		// A cached full-bounds bake uses the caller-provided density verbatim
-		// (the caller derived it from the same cap and keys its cache on it).
+		// Interactive bakes follow the display zoom bucket — sharper zoomed in,
+		// coarser zoomed out. Export frames keep the rasterizationDpi ceiling so
+		// display-quality decisions never change exported pixels. A cached
+		// full-bounds bake uses the caller-provided density verbatim (the caller
+		// derived it from the same rule and keys its cache on it).
+		const zoomBucket = interactiveBakeDensity(rasterZoom, zoom);
 		const bakeZoom = fullBoundsBake
 			? fullBoundsBake.density
 			: interactiveBounds
-				? capFilterBakeDensity(rasterZoom, zoom)
+				? this.deps.renderState.isExport
+					? Math.min(rasterZoom, zoomBucket)
+					: zoomBucket
 				: rasterZoom;
 
 		// Texture covers effectiveBounds, clamped only by GPU max.

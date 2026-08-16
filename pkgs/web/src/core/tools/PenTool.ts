@@ -2,6 +2,7 @@ import { withStoredBrushSize } from "../brush/access";
 import { normalizeBrushSettingsV2 } from "../brush/migrate";
 import { createIdentityTransform } from "../document/factory";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
+import { bakeStrokeWidthProfile } from "../renderer/canvas/pipeline/brush/strokeHalfWidth";
 import { BrushStrokeSession } from "../renderer/canvas/pipeline/stroke/BrushStrokeSession";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import type { UIPrimitive } from "../renderer/ui/primitives";
@@ -307,8 +308,19 @@ export class PenTool implements Tool {
 		const stroke = this.resolveStroke();
 		const fill = this.context.getActiveFillAppearance();
 
+		// Materialize the size-curve width profile into strokeWidths: pressure
+		// lives only on the segments, so a later vertex edit would otherwise
+		// flatten the drawn width.
+		const baked = stroke
+			? bakeStrokeWidthProfile(stroke.paramData.params.brushSettings, segments)
+			: null;
+		const strokeFilter =
+			baked && stroke
+				? cloneAppearance(stroke, { brushSettings: baked.brushSettings })
+				: stroke;
+
 		const filters: Filter[] = [];
-		if (stroke) filters.push(stroke);
+		if (strokeFilter) filters.push(strokeFilter);
 		if (fill) filters.push(cloneAppearance(fill));
 
 		if (filters.length === 0) {
@@ -325,6 +337,7 @@ export class PenTool implements Tool {
 			blendMode: "normal",
 			segments,
 			filters,
+			strokeWidths: baked?.strokeWidths,
 		};
 
 		// Notify completion

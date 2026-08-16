@@ -158,6 +158,126 @@ describe("tessellateStroke", () => {
 		expect(result.count).toBe(18);
 	});
 
+	describe("join side", () => {
+		// L-shaped path turning left: the outer corner extension is (110, -10).
+		const leftTurn = { points: [0, 0, 100, 0, 100, 100], pressures: [1, 1, 1] };
+		// Mirrored path turning right: the outer corner extension is (110, 10).
+		const rightTurn = {
+			points: [0, 0, 100, 0, 100, -100],
+			pressures: [1, 1, 1],
+		};
+
+		it("should emit the miter tip on the outer side of the corner", () => {
+			const left = tessellateStroke(
+				makeInput({ ...leftTurn, baseWidth: 20, lineJoin: "miter" }),
+			);
+			expect(hasBodyVertexNear(left, 110, -10)).toBe(true);
+			expect(hasBodyVertexNear(left, 90, 10)).toBe(false);
+
+			const right = tessellateStroke(
+				makeInput({ ...rightTurn, baseWidth: 20, lineJoin: "miter" }),
+			);
+			expect(hasBodyVertexNear(right, 110, 10)).toBe(true);
+			expect(hasBodyVertexNear(right, 90, -10)).toBe(false);
+		});
+
+		it("should emit the miter fringe on the outer side of the corner", () => {
+			const result = tessellateStroke(
+				makeInput({ ...leftTurn, baseWidth: 20, lineJoin: "miter" }),
+			);
+			expect(hasFringeVertexNear(result, 110, -10)).toBe(true);
+			expect(hasFringeVertexNear(result, 90, 10)).toBe(false);
+		});
+
+		it("should emit the round fan on the outer side of the corner", () => {
+			const result = tessellateStroke(
+				makeInput({ ...leftTurn, baseWidth: 20, lineJoin: "round" }),
+			);
+			// Fan vertices lie on the outer quadrant of the hw=10 circle around
+			// the corner: x > 100 and y < 0.
+			const fan: Array<[number, number]> = [];
+			for (let i = 0; i < result.count; i++) {
+				const x = result.vertices[i * 4];
+				const y = result.vertices[i * 4 + 1];
+				if (x > 100 + 1e-6 && y < -1e-6) fan.push([x, y]);
+			}
+			expect(fan.length).toBeGreaterThan(0);
+			for (const [x, y] of fan) {
+				expect(Math.hypot(x - 100, y)).toBeCloseTo(10, 5);
+			}
+		});
+
+		it("should keep the bevel corner chamfered between the strip edges", () => {
+			const result = tessellateStroke(
+				makeInput({ ...leftTurn, baseWidth: 20, lineJoin: "bevel" }),
+			);
+			expect(hasBodyVertexNear(result, 100, -10)).toBe(true);
+			expect(hasBodyVertexNear(result, 110, 0)).toBe(true);
+			expect(hasBodyVertexNear(result, 110, -10)).toBe(false);
+		});
+	});
+
+	describe("adaptive arc subdivision", () => {
+		const leftTurn = { points: [0, 0, 100, 0, 100, 100], pressures: [1, 1, 1] };
+
+		it("should subdivide round joins finer as zoom increases", () => {
+			expect(roundJoinFanVertexCount(8)).toBeGreaterThan(
+				roundJoinFanVertexCount(1),
+			);
+		});
+
+		it("should subdivide round joins finer for wider strokes", () => {
+			expect(roundJoinFanVertexCount(1, 80)).toBeGreaterThan(
+				roundJoinFanVertexCount(1, 8),
+			);
+		});
+
+		it("should keep round join chords within the device-space error budget", () => {
+			for (const zoom of [1, 4]) {
+				const result = tessellateStroke(
+					makeInput({ ...leftTurn, baseWidth: 20, lineJoin: "round", zoom }),
+				);
+				// Angular positions of the outer fan vertices (radius-10 circle
+				// around the corner, outer quadrant including both arc ends).
+				const angles: number[] = [];
+				for (let i = 0; i < result.count; i++) {
+					const dx = result.vertices[i * 4] - 100;
+					const dy = result.vertices[i * 4 + 1];
+					if (
+						Math.abs(Math.hypot(dx, dy) - 10) < 1e-6 &&
+						dx > -1e-6 &&
+						dy < 1e-6
+					) {
+						angles.push(Math.atan2(dy, dx));
+					}
+				}
+				const sorted = [
+					...new Set(angles.map((a) => Number(a.toFixed(9)))),
+				].toSorted((a, b) => a - b);
+				expect(sorted.length).toBeGreaterThan(2);
+				let maxGap = 0;
+				for (let i = 1; i < sorted.length; i++) {
+					maxGap = Math.max(maxGap, sorted[i] - sorted[i - 1]);
+				}
+				const sagitta = 10 * (1 - Math.cos(maxGap / 2));
+				expect(sagitta).toBeLessThanOrEqual(0.25 / zoom + 1e-6);
+			}
+		});
+
+		function roundJoinFanVertexCount(zoom: number, baseWidth = 20): number {
+			const result = tessellateStroke(
+				makeInput({ ...leftTurn, baseWidth, lineJoin: "round", zoom }),
+			);
+			let fan = 0;
+			for (let i = 0; i < result.count; i++) {
+				const x = result.vertices[i * 4];
+				const y = result.vertices[i * 4 + 1];
+				if (x > 100 + 1e-6 && y < -1e-6) fan++;
+			}
+			return fan;
+		}
+	});
+
 	it("should produce more geometry for round joins than bevel joins", () => {
 		const points = [0, 0, 100, 0, 100, 100];
 		const pressures = [1, 1, 1];
@@ -706,6 +826,40 @@ describe("applyDashPattern", () => {
 		expect(dashVertexCount).toBeGreaterThan(solidResult.count);
 	});
 });
+
+function hasBodyVertexNear(
+	result: { vertices: number[]; count: number },
+	x: number,
+	y: number,
+): boolean {
+	for (let i = 0; i < result.count; i++) {
+		if (
+			Math.hypot(result.vertices[i * 4] - x, result.vertices[i * 4 + 1] - y) <
+			1e-6
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
+function hasFringeVertexNear(
+	result: { fringeVertices: number[]; fringeCount: number },
+	x: number,
+	y: number,
+): boolean {
+	for (let i = 0; i < result.fringeCount; i++) {
+		if (
+			Math.hypot(
+				result.fringeVertices[i * 5] - x,
+				result.fringeVertices[i * 5 + 1] - y,
+			) < 1e-6
+		) {
+			return true;
+		}
+	}
+	return false;
+}
 
 function expectTrianglesDoNotCrossXGap(
 	vertices: number[],

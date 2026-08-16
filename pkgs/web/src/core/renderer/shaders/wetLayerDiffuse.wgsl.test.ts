@@ -167,7 +167,10 @@ describe("wetLayerDiffuse compute shader", () => {
 		expect(await neighbour(1)).toBeGreaterThan(await neighbour(0));
 	});
 
-	it("should reach the same state at any iteration count", async () => {
+	// Reach is the grid spacing times sqrt(2 * D * iterations), so the count is
+	// half of how a wide bleed is bought. It used to be normalized away, which
+	// is what left the top of the bleed slider with nothing to do.
+	it("should spread further the longer it runs", async () => {
 		const run = async (iterations: number) =>
 			runDiffusion({
 				pigment: centerDotTexture(W, H, [1, 1, 1, 1]),
@@ -176,12 +179,97 @@ describe("wetLayerDiffuse compute shader", () => {
 				iterations,
 			});
 
+		const brief = await run(8);
+		const long = await run(32);
+		const away = (4 * W + 7) * 4 + 3;
+		expect(long.pigment[away]).toBeGreaterThan(brief.pigment[away] * 1.5);
+	});
+
+	// Drying is a rate over the stroke's own time, not over its steps: running
+	// the pass longer must not dry the paper any further.
+	it("should dry by the same amount at any iteration count", async () => {
+		const run = async (iterations: number) =>
+			runDiffusion({
+				pigment: fillTexture(W, H, [0, 0, 0, 0]),
+				// A flat water field has no gradient to diffuse, so only drying
+				// moves it.
+				moisture: fillTexture(W, H, [0, 0, 1, 0]),
+				uniformOverrides: { dt: 1 / iterations },
+				iterations,
+			});
+
 		const coarse = await run(8);
-		const fine = await run(16);
-		const ratio =
-			fine.pigment[(4 * W + 4) * 4 + 3] / coarse.pigment[(4 * W + 4) * 4 + 3];
+		const fine = await run(32);
+		const at = (4 * W + 4) * 4 + 2;
+		const ratio = fine.moisture[at] / coarse.moisture[at];
 		expect(ratio).toBeGreaterThan(0.95);
 		expect(ratio).toBeLessThan(1.05);
+	});
+
+	// Pigment is colour * density alongside that density, and the composite
+	// recovers the colour by dividing one by the other. Every step here is a
+	// weighted sum of whole pigment values, so a field laid down in one colour
+	// has to stay that colour however long it runs — a ratio that drifts comes
+	// out as paint brighter than anything the stroke was given.
+	it("should keep the colour it was seeded with", async () => {
+		const COLOUR = 0.8;
+		// A stroke's seeds fall off to nothing at its edge, and the kernel
+		// recovers wetness and directionality by dividing by that coverage.
+		// A uniform fill never exercises those divisions.
+		const falloff = (x: number, y: number): number => {
+			const dx = (x - (W - 1) / 2) / (W / 2);
+			const dy = (y - (H - 1) / 2) / (H / 2);
+			return Math.max(0, 1 - Math.hypot(dx, dy));
+		};
+		const perTexel = (
+			make: (cov: number, x: number, y: number) => number[],
+		): Float32Array => {
+			const out = new Float32Array(W * H * 4);
+			for (let y = 0; y < H; y++) {
+				for (let x = 0; x < W; x++) {
+					out.set(make(falloff(x, y), x, y), (y * W + x) * 4);
+				}
+			}
+			return out;
+		};
+		const seeded = perTexel((cov) => {
+			const density = -Math.log(Math.max(1 - cov * 0.99, 0.001));
+			return [COLOUR * density, 0, 0, density];
+		});
+
+		const { pigment } = await runDiffusion({
+			pigment: seeded,
+			moisture: perTexel((cov) => [0, 0, cov, cov * 0.5]),
+			velocitySeed: perTexel((cov) => [cov * 0.7, cov * 0.3, cov, 0]),
+			moistureSeed: perTexel((cov) => [
+				cov * 0.5,
+				cov * 0.2,
+				cov * 1.2,
+				cov * 0.3,
+			]),
+			absorptionGranulation: perTexel((cov, x) => [
+				(x / W) * 0.9,
+				cov * 0.8,
+				0,
+				cov,
+			]),
+			softnessEdgeDarkening: perTexel((cov, _x, y) => [
+				(y / H) * 0.9,
+				cov * 0.5,
+				0,
+				cov,
+			]),
+			uniformOverrides: { scale: 4 },
+			iterations: 32,
+		});
+
+		let worst = 0;
+		for (let i = 0; i < pigment.length; i += 4) {
+			const a = pigment[i + 3];
+			if (a < 1e-4) continue;
+			worst = Math.max(worst, Math.abs(pigment[i] / a - COLOUR));
+		}
+		expect(worst).toBeLessThan(0.01);
 	});
 
 	it("should write zero where nothing was seeded", async () => {

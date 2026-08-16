@@ -695,4 +695,114 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 			expect(penTool.getCurrentStroke()!.length).toBe(before);
 		});
 	});
+
+	describe("strokeWidths baking on commit", () => {
+		let bakedPaths: Path[] = [];
+
+		beforeEach(() => {
+			bakedPaths = [];
+		});
+
+		function toolWith(appearance: StrokeAppearance): PenTool {
+			return new PenTool(
+				createMockToolContext({
+					strokeComplete: (path) => {
+						bakedPaths.push(path);
+					},
+					getActiveStrokeAppearance: () => appearance,
+				}),
+				{},
+			);
+		}
+
+		function pressureBrushAppearance(): StrokeAppearance {
+			return {
+				...testStrokeAppearance,
+				paramData: {
+					version: "1",
+					params: {
+						strokeColor: testStrokeAppearance.paramData.params.strokeColor,
+						brushSettings: {
+							version: 2,
+							engine: "dab",
+							strokeOpacity: 1,
+							paintMode: "buildup",
+							properties: {
+								size: {
+									base: 10,
+									curves: [
+										{
+											input: "pressure",
+											points: [
+												[0, -1],
+												[1, 0],
+											],
+										},
+									],
+								},
+								ratio: { base: 1 },
+								flow: { base: 1 },
+								spacing: { base: 0.05 },
+							},
+							randomSeed: 0,
+							tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+						},
+					},
+				},
+			} as StrokeAppearance;
+		}
+
+		function drawPressureStroke(tool: PenTool): void {
+			tool.onPointerDown(
+				ev(300, 300, { pressure: 1 }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			for (let i = 1; i <= 8; i++) {
+				tool.onPointerMove(
+					ev(300 + i * 25, 300, { pressure: 1 - i * 0.1 }),
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+			}
+			tool.onPointerUp(
+				ev(500, 300, { pressure: 0.2 }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		}
+
+		it("should bake the pressure width profile into strokeWidths", () => {
+			drawPressureStroke(toolWith(pressureBrushAppearance()));
+
+			expect(bakedPaths).toHaveLength(1);
+			const widths = bakedPaths[0].strokeWidths!;
+			expect(widths.length).toBeGreaterThanOrEqual(2);
+			// Falling pressure → the profile must narrow toward the stroke end.
+			expect(widths[0].side1).toBeGreaterThan(widths[widths.length - 1].side1);
+		});
+
+		it("should strip the size curves from the committed brush settings", () => {
+			drawPressureStroke(toolWith(pressureBrushAppearance()));
+
+			const strokeApp = bakedPaths[0].filters?.find(
+				(f) => f.processor === "stroke",
+			) as StrokeAppearance;
+			const settings = strokeApp.paramData.params.brushSettings as {
+				properties: { size?: { base: number; curves?: unknown[] } };
+			};
+			expect(settings.properties.size?.curves).toBeUndefined();
+			expect(settings.properties.size?.base).toBeGreaterThan(0);
+		});
+
+		it("should leave curve-less strokes without strokeWidths", () => {
+			drawPressureStroke(toolWith(testStrokeAppearance));
+
+			expect(bakedPaths).toHaveLength(1);
+			expect(bakedPaths[0].strokeWidths).toBeUndefined();
+		});
+	});
 });

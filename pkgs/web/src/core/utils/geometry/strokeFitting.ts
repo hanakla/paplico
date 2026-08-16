@@ -726,6 +726,34 @@ function gaussianSmooth(
 	return result;
 }
 
+/**
+ * Applies gaussianSmooth independently to each section between the given
+ * corner indices ([0, ...interior, last]) so corner geometry survives:
+ * section endpoints keep their raw values and the kernel window never
+ * crosses a corner. Length-preserving like gaussianSmooth itself.
+ */
+function gaussianSmoothSections(
+	points: BezierPoint[],
+	cornerIdxs: number[],
+	stabilization: number,
+): BezierPoint[] {
+	if (stabilization <= 0 || cornerIdxs.length <= 2) {
+		return gaussianSmooth(points, stabilization);
+	}
+	const result: BezierPoint[] = [];
+	for (let c = 0; c < cornerIdxs.length - 1; c++) {
+		const section = gaussianSmooth(
+			points.slice(cornerIdxs[c], cornerIdxs[c + 1] + 1),
+			stabilization,
+		);
+		// Skip the boundary point shared with the previous section.
+		for (let k = c === 0 ? 0 : 1; k < section.length; k++) {
+			result.push(section[k]);
+		}
+	}
+	return result;
+}
+
 // ---------------------------------------------------------------------------
 // 1b. Pulled-string smoothing
 // ---------------------------------------------------------------------------
@@ -893,6 +921,177 @@ function detectCorners(
 
 	corners.push(points.length - 1);
 	return corners;
+}
+
+// ---------------------------------------------------------------------------
+// Raw-input corner detection (span-based)
+// ---------------------------------------------------------------------------
+
+/** One-sided arc-length span used to measure the turn angle at a candidate. */
+const CORNER_SPAN_DIST = 3.0;
+/**
+ * Index cap for span walks. Also the lookahead IncrementalStrokeFitter needs
+ * before a corner decision is final: with the 0.5-unit dedupe spacing the
+ * arc-length span is always satisfied well within this many indices, so a
+ * decision at index i never depends on data beyond i + CORNER_MAX_SPAN_POINTS.
+ */
+const CORNER_MAX_SPAN_POINTS = 24;
+/** Base apex-deviation gate (world units); scaled up with stabilization. */
+const CORNER_MIN_DEVIATION = 0.75;
+const CORNER_ANGLE_THRESHOLD_DEG = 45;
+
+export interface RawCornerOptions {
+	/** One-sided arc-length span for turn measurement (world units). */
+	spanDistance?: number;
+	/** Index cap for span walks (bounds the data a decision depends on). */
+	maxSpanPoints?: number;
+	angleThresholdDeg?: number;
+	/** Minimum apex deviation from the window chord (world units). */
+	minDeviation?: number;
+}
+
+/** Open non-max-suppression cluster of corner candidates. */
+interface CornerCandidateGroup {
+	bestIdx: number;
+	bestDev: number;
+	lastIdx: number;
+}
+
+/**
+ * Raw-corner options with the deviation gate scaled by stabilization: the
+ * stronger the requested smoothing, the larger a wiggle must be to count as
+ * an intentional corner.
+ */
+function rawCornerOptionsFor(
+	stabilization: number,
+): Required<RawCornerOptions> {
+	return {
+		spanDistance: CORNER_SPAN_DIST,
+		maxSpanPoints: CORNER_MAX_SPAN_POINTS,
+		angleThresholdDeg: CORNER_ANGLE_THRESHOLD_DEG,
+		minDeviation: CORNER_MIN_DEVIATION * (1 + stabilization),
+	};
+}
+
+/**
+ * Detects intentional corners on raw (pre-smoothing) input.
+ *
+ * detectCorners cannot run before smoothing (adjacent-triplet angles are
+ * dominated by pointer jitter) nor after it (gaussian smoothing spreads a
+ * corner's turn across the kernel window until it drops under the
+ * threshold). This variant is jitter-tolerant by construction:
+ *
+ * 1. The turn angle at a point is measured between chords spanning
+ *    `spanDistance` of arc length on each side.
+ * 2. A candidate must deviate from the straight chord across its window by
+ *    `minDeviation` — jitter on a straight run turns sharply but stays near
+ *    the chord.
+ * 3. Non-max suppression keeps only the deepest point of each candidate
+ *    cluster, which is also what locates the apex.
+ *
+ * Returns indices shaped like detectCorners: [0, ...interior corners, last].
+ */
+export function detectRawCorners(
+	points: BezierPoint[],
+	options?: RawCornerOptions,
+): number[] {
+	const opts = { ...rawCornerOptionsFor(0), ...options };
+	const corners: number[] = [0];
+	if (points.length > 2) {
+		const arc = cumulativeArcLengths(points);
+		let group: CornerCandidateGroup | null = null;
+		for (let i = 1; i < points.length - 1; i++) {
+			const dev = rawCornerDeviationAt(points, arc, i, opts);
+			if (dev < 0) continue;
+			if (group && arc[i] - arc[group.lastIdx] <= opts.spanDistance) {
+				if (dev > group.bestDev) {
+					group.bestIdx = i;
+					group.bestDev = dev;
+				}
+				group.lastIdx = i;
+			} else {
+				if (group) corners.push(group.bestIdx);
+				group = { bestIdx: i, bestDev: dev, lastIdx: i };
+			}
+		}
+		if (group) corners.push(group.bestIdx);
+	}
+	corners.push(points.length - 1);
+	return corners;
+}
+
+/**
+ * Apex deviation of a span-based corner candidate at index i, or -1 when the
+ * point is no candidate. Walks are capped at `maxSpanPoints` indices so the
+ * result depends only on a bounded neighborhood (required for incremental
+ * confirmation to match batch detection).
+ */
+function rawCornerDeviationAt(
+	points: BezierPoint[],
+	arc: number[],
+	i: number,
+	opts: Required<RawCornerOptions>,
+): number {
+	if (i <= 0 || i >= points.length - 1) return -1;
+
+	let j = i - 1;
+	while (
+		j > 0 &&
+		arc[i] - arc[j] < opts.spanDistance &&
+		i - j < opts.maxSpanPoints
+	) {
+		j--;
+	}
+	if (arc[i] - arc[j] < opts.spanDistance) return -1;
+
+	let k = i + 1;
+	while (
+		k < points.length - 1 &&
+		arc[k] - arc[i] < opts.spanDistance &&
+		k - i < opts.maxSpanPoints
+	) {
+		k++;
+	}
+	if (arc[k] - arc[i] < opts.spanDistance) return -1;
+
+	const v1x = points[i].x - points[j].x;
+	const v1y = points[i].y - points[j].y;
+	const v2x = points[k].x - points[i].x;
+	const v2y = points[k].y - points[i].y;
+	const len1 = Math.hypot(v1x, v1y);
+	const len2 = Math.hypot(v2x, v2y);
+	if (len1 < 1e-9 || len2 < 1e-9) return -1;
+	const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
+	if (dot >= Math.cos((opts.angleThresholdDeg * Math.PI) / 180)) return -1;
+
+	// Apex deviation gate: how far the window bulges away from its chord.
+	const cx = points[k].x - points[j].x;
+	const cy = points[k].y - points[j].y;
+	const chordLen = Math.hypot(cx, cy);
+	let maxDev = 0;
+	for (let m = j + 1; m < k; m++) {
+		const dx = points[m].x - points[j].x;
+		const dy = points[m].y - points[j].y;
+		// Degenerate chord (full reversal): fall back to distance from P[j].
+		const dev =
+			chordLen < 1e-9
+				? Math.hypot(dx, dy)
+				: Math.abs(dx * cy - dy * cx) / chordLen;
+		if (dev > maxDev) maxDev = dev;
+	}
+	return maxDev >= opts.minDeviation ? maxDev : -1;
+}
+
+/** Cumulative arc length per point ([0] = 0). */
+function cumulativeArcLengths(points: BezierPoint[]): number[] {
+	const arc = new Array<number>(points.length);
+	arc[0] = 0;
+	for (let i = 1; i < points.length; i++) {
+		arc[i] =
+			arc[i - 1] +
+			Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+	}
+	return arc;
 }
 
 /** Compute chord-length parameterization for points. */
@@ -1376,22 +1575,28 @@ export function processStroke(
 	}
 	if (deduped.length < 2) return [];
 
-	// Step 1: Smoothing (method-dependent)
+	// Steps 1-2: Smoothing + corner detection (method-dependent).
+	// The gaussian method detects corners on the raw input first — smoothing
+	// spreads a corner's turn across the kernel window, which both hides it
+	// from detection and rounds the geometry — then smooths each section
+	// independently so corners survive as sharp anchors (where lineJoin
+	// applies).
 	let smoothed: BezierPoint[];
+	let corners: number[];
 	switch (smoothingMethod) {
 		case "pulled-string":
 			smoothed = pulledStringSmooth(deduped, stabilization);
+			corners = detectCorners(smoothed, 45);
 			break;
 		case "inertia":
 			smoothed = inertiaSmooth(deduped, stabilization);
+			corners = detectCorners(smoothed, 45);
 			break;
 		default:
-			smoothed = gaussianSmooth(deduped, stabilization);
+			corners = detectRawCorners(deduped, rawCornerOptionsFor(stabilization));
+			smoothed = gaussianSmoothSections(deduped, corners, stabilization);
 			break;
 	}
-
-	// Step 2: Corner detection — split path at sharp turns (45° threshold)
-	const corners = detectCorners(smoothed, 45);
 
 	// Step 3: Fit cubic Béziers to each section between corners
 	// Scale tolerance by stabilization so that stabilization=0 produces near-raw input.
@@ -1473,10 +1678,24 @@ export class IncrementalStrokeFitter {
 	/** Highest smoothed index already checked for a freezable corner. */
 	private cornerCheckedUpTo = 0;
 
+	// Raw-corner state (gaussian method only; mirrors detectRawCorners).
+	private readonly rawCornerOptions: Required<RawCornerOptions>;
+	/** Cumulative arc length of `deduped`. */
+	private readonly arc: number[] = [];
+	/** Confirmed raw-corner indices (deduped index space), ascending. */
+	private readonly rawCorners: number[] = [];
+	/** Highest deduped index whose corner candidacy is decided. */
+	private rawCornerCheckedUpTo = 0;
+	/** Open candidate cluster still awaiting non-max suppression. */
+	private pendingCornerGroup: CornerCandidateGroup | null = null;
+	/** rawCorners entries already consumed as freeze boundaries. */
+	private frozenCornerCount = 0;
+
 	private cachedSegments: CubicBezierSegment[] | null = null;
 
 	public constructor(options: IncrementalStrokeFitterOptions) {
 		this.stabilization = options.stabilization;
+		this.rawCornerOptions = rawCornerOptionsFor(options.stabilization);
 		this.method = options.smoothingMethod ?? "smooth";
 		const baseTolerance =
 			options.stabilization <= 0 ? 0.5 : 1.0 + options.stabilization * 3.0;
@@ -1505,7 +1724,16 @@ export class IncrementalStrokeFitter {
 			}
 		}
 		this.floatingLast = null;
+		this.arc.push(
+			prev
+				? this.arc[this.arc.length - 1] +
+						Math.hypot(point.x - prev.x, point.y - prev.y)
+				: 0,
+		);
 		this.deduped.push(point);
+		// Corner decisions must precede smoothing settlement: a settled kernel
+		// window must never gain a section boundary afterwards.
+		if (this.method === "smooth") this.confirmRawCorners();
 		this.appendSmoothed(point);
 		this.maybeFreeze();
 	}
@@ -1608,9 +1836,15 @@ export class IncrementalStrokeFitter {
 			default: {
 				// Gaussian: entries within `radius` of the end still shift as
 				// points arrive. Settle every index whose full kernel window is
-				// now in the past.
+				// now in the past — held back by CORNER_MAX_SPAN_POINTS beyond
+				// the radius so every corner a settling window could touch is
+				// already decided.
 				this.smoothed.push(point);
-				const settleUpTo = this.deduped.length - 1 - this.gaussianRadius;
+				const settleUpTo =
+					this.deduped.length -
+					1 -
+					this.gaussianRadius -
+					CORNER_MAX_SPAN_POINTS;
 				for (let i = this.stableSmoothedCount; i < settleUpTo; i++) {
 					this.smoothed[i] = this.gaussianAt(i);
 					this.lastProcessedPoints += 1;
@@ -1628,6 +1862,19 @@ export class IncrementalStrokeFitter {
 	private gaussianAt(i: number): BezierPoint {
 		const points = this.deduped;
 		if (i === 0) return points[0];
+		// Clamp the kernel window to the section between confirmed corners and
+		// pin the corners themselves (mirrors gaussianSmoothSections).
+		let sectionLo = 0;
+		let sectionHi = points.length - 1;
+		for (let c = this.rawCorners.length - 1; c >= 0; c--) {
+			const cornerIdx = this.rawCorners[c];
+			if (cornerIdx <= i) {
+				sectionLo = cornerIdx;
+				break;
+			}
+			sectionHi = cornerIdx;
+		}
+		if (i === sectionLo || i === sectionHi) return points[i];
 		const radius = this.gaussianRadius;
 		const sigma = this.stabilization * 4.0;
 		const twoSigmaSq = 2 * sigma * sigma;
@@ -1641,8 +1888,8 @@ export class IncrementalStrokeFitter {
 		let sumTwistCos = 0;
 		let sumDeltaTime = 0;
 		let totalWeight = 0;
-		const lo = Math.max(0, i - radius);
-		const hi = Math.min(points.length - 1, i + radius);
+		const lo = Math.max(sectionLo, i - radius);
+		const hi = Math.min(sectionHi, i + radius);
 		for (let j = lo; j <= hi; j++) {
 			const d = Math.abs(j - i);
 			const w = Math.exp(-(d * d) / twoSigmaSq);
@@ -1670,18 +1917,72 @@ export class IncrementalStrokeFitter {
 		};
 	}
 
+	// --- raw corners -------------------------------------------------------
+
+	/**
+	 * Advance raw-corner detection over indices whose bounded lookahead
+	 * window is fully available, mirroring detectRawCorners' candidate and
+	 * non-max-suppression logic so confirmed corners match the batch result.
+	 */
+	private confirmRawCorners(): void {
+		const opts = this.rawCornerOptions;
+		const decidableUpTo = this.deduped.length - 1 - opts.maxSpanPoints;
+		for (
+			let i = Math.max(this.rawCornerCheckedUpTo + 1, 1);
+			i <= decidableUpTo;
+			i++
+		) {
+			const dev = rawCornerDeviationAt(this.deduped, this.arc, i, opts);
+			const group = this.pendingCornerGroup;
+			if (dev >= 0) {
+				if (
+					group &&
+					this.arc[i] - this.arc[group.lastIdx] <= opts.spanDistance
+				) {
+					if (dev > group.bestDev) {
+						group.bestIdx = i;
+						group.bestDev = dev;
+					}
+					group.lastIdx = i;
+				} else {
+					if (group) this.rawCorners.push(group.bestIdx);
+					this.pendingCornerGroup = { bestIdx: i, bestDev: dev, lastIdx: i };
+				}
+			} else if (
+				group &&
+				this.arc[i] - this.arc[group.lastIdx] > opts.spanDistance
+			) {
+				// No later candidate can rejoin this cluster: finalize it.
+				this.rawCorners.push(group.bestIdx);
+				this.pendingCornerGroup = null;
+			}
+			this.rawCornerCheckedUpTo = i;
+			this.lastProcessedPoints += 1;
+		}
+	}
+
 	// --- freezing ----------------------------------------------------------
 
 	private maybeFreeze(): void {
-		// Corner freeze: a settled corner splits the fit exactly like
-		// processStroke's corner detection, so freezing there is lossless.
-		const checkLimit = this.stableSmoothedCount - 1;
-		for (let i = Math.max(this.cornerCheckedUpTo, 1); i < checkLimit; i++) {
-			if (isCornerAt(this.smoothed, i) && i > this.tailStart) {
-				this.freezeUpTo(i);
+		// Corner freeze: a confirmed corner splits the fit exactly like
+		// processStroke's corner split, so freezing there is lossless.
+		if (this.method === "smooth") {
+			while (this.frozenCornerCount < this.rawCorners.length) {
+				const idx = this.rawCorners[this.frozenCornerCount];
+				// Everything up to the corner must be settled before fitting.
+				if (idx >= this.stableSmoothedCount) break;
+				if (idx > this.tailStart) this.freezeUpTo(idx);
+				this.frozenCornerCount++;
 			}
+		} else {
+			const checkLimit = this.stableSmoothedCount - 1;
+			for (let i = Math.max(this.cornerCheckedUpTo, 1); i < checkLimit; i++) {
+				if (isCornerAt(this.smoothed, i) && i > this.tailStart) {
+					this.freezeUpTo(i);
+				}
+			}
+			this.cornerCheckedUpTo = Math.max(this.cornerCheckedUpTo, checkLimit);
 		}
-		this.cornerCheckedUpTo = Math.max(this.cornerCheckedUpTo, checkLimit);
 
 		// Forced freeze keeps the tail bounded on corner-less strokes. The
 		// split is an artificial anchor (C0-continuous with the next fit).

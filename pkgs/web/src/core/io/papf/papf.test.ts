@@ -628,7 +628,7 @@ describe("PAPF format", () => {
 				brushPresets: [
 					{
 						uid: "brush-preset-v2",
-						name: "Pen",
+						name: "Pen (SVG)",
 						// Pre-v2 stored shape; the reader migrates it.
 						settings: {
 							type: "stroke",

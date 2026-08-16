@@ -429,7 +429,44 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			}
 		}
 
-		if (settings.wet?.enabled) {
+		// The mixed dabs are the trail the bucket samples, not the picture: a
+		// wet stroke's picture is the wash the simulation paints from them.
+		// Compositing that wash back onto the same texture would lay the same
+		// pigment down twice — the stroke came out at double density and buried
+		// whatever it was dragged over.
+		const washTex = settings.wet?.enabled
+			? this.deps.texturePool.acquireExact(
+					texW,
+					texH,
+					this.deps.canvasFormat,
+					1,
+					GPUTextureUsage.RENDER_ATTACHMENT |
+						GPUTextureUsage.TEXTURE_BINDING |
+						GPUTextureUsage.COPY_SRC |
+						GPUTextureUsage.COPY_DST,
+					"Mix Wash Buffer",
+				)
+			: null;
+		if (washTex) {
+			this.frameTextures.push(washTex);
+			// The wash composite loads its target, so it has to start empty.
+			encoder
+				.beginRenderPass({
+					label: "Mix Wash Clear",
+					colorAttachments: [
+						{
+							view: washTex.createView(),
+							clearValue: { r: 0, g: 0, b: 0, a: 0 },
+							loadOp: "clear",
+							storeOp: "store",
+						},
+					],
+				})
+				.end();
+		}
+		const resultTex = washTex ?? strokeTex;
+
+		if (settings.wet?.enabled && washTex) {
 			this.runWetLayer(encoder, {
 				element,
 				path,
@@ -440,7 +477,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				// and compositing at the document's scale lands the simulation
 				// somewhere else entirely.
 				scale: effectiveZoom,
-				target: strokeView,
+				target: washTex.createView(),
 				targetSize: { width: texW, height: texH },
 				dabBuffer,
 				mixedColors,
@@ -457,7 +494,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		const entry: MixResultCacheEntry = {
 			key: cacheKey ?? "",
 			stableKey: keys?.stableKey ?? "",
-			texture: strokeTex,
+			texture: resultTex,
 			bounds,
 			uvRect:
 				usedHalfU >= 0.5 && usedHalfV >= 0.5
@@ -477,7 +514,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		if (cacheKey != null) {
 			// The cache owns the texture from here; drop the frame's claim so
 			// releaseFrame does not hand it back to the pool.
-			this.frameTextures = this.frameTextures.filter((t) => t !== strokeTex);
+			this.frameTextures = this.frameTextures.filter((t) => t !== resultTex);
 			this.storeResult(element.id, entry);
 		}
 		return this.cachedLayer(entry);

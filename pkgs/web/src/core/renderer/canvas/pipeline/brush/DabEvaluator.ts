@@ -287,10 +287,8 @@ export function evaluateDabs(
 		const hardnessVal = evalBrushProperty(baked, "hardness", inputs);
 		const grainVal = evalBrushProperty(baked, "grainStrength", inputs);
 
-		let sizeX = sizeVal * Math.max(textureAspectRatio, 1);
-		if (taper) {
-			sizeX *= taperFactor(taper, fragDistance, totalLength);
-		}
+		const taperF = taper ? taperFactor(taper, fragDistance, totalLength) : 1;
+		const sizeX = sizeVal * taperF * Math.max(textureAspectRatio, 1);
 		const sizeY = (sizeX * ratioVal) / textureAspectRatio;
 
 		// Scatter offsets displace along the normal / tangent as size ratios.
@@ -314,11 +312,13 @@ export function evaluateDabs(
 			// strokeOpacity applies exactly once at composite time.
 			alpha = flowVal;
 		} else {
-			const dabsPerPixel = Math.max(
-				1 +
-					OPAQUE_LINEARIZE * (1 / Math.min(Math.max(spacingVal, 1e-3), 1) - 1),
-				1,
-			);
+			// Overlap counts the dab's actual stamped diameter, not the
+			// configured base size: a size or taper modulation that shrinks a
+			// dab thins its overlap in equal measure, and assuming 1/spacing
+			// here left pressure-shrunk strokes far lighter than their flow.
+			const spacingWorld = Math.max(sizeBase * spacingVal, MIN_SPACING_WORLD);
+			const overlap = (sizeVal * taperF) / spacingWorld;
+			const dabsPerPixel = Math.max(1 + OPAQUE_LINEARIZE * (overlap - 1), 1);
 			alpha =
 				1 -
 				(1 - clamp01(flowVal * settings.strokeOpacity)) ** (1 / dabsPerPixel);

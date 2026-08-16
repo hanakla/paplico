@@ -262,7 +262,54 @@ async function serializePathLike(
 	// Element opacity is already distributed into each shape's paint opacity
 	// (the renderer applies it per appearance, non-isolated), so the wrapper
 	// must not add a second, isolated group opacity.
-	return wrapElement(shapes, element, ctx, composed, {}, false);
+	return wrapElement(
+		mergeFillStrokePairs(shapes),
+		element,
+		ctx,
+		composed,
+		{},
+		false,
+	);
+}
+
+/**
+ * Collapse an adjacent fill `<path>` / stroke `<path>` pair of the same
+ * geometry into one `<path fill stroke>`. A single SVG path paints fill then
+ * stroke by default, matching a fill under its stroke; the reverse order is
+ * expressed with `paint-order="stroke"`.
+ */
+function mergeFillStrokePairs(shapes: SvgNode[]): SvgNode[] {
+	const merged: SvgNode[] = [];
+	for (const shape of shapes) {
+		const prev = merged.at(-1);
+		if (
+			prev &&
+			prev.tag === "path" &&
+			shape.tag === "path" &&
+			prev.attrs.d === shape.attrs.d
+		) {
+			if (isFillOnlyPath(prev) && isStrokeOnlyPath(shape)) {
+				const { d: _d, fill: _none, ...strokeAttrs } = shape.attrs;
+				prev.attrs = { ...prev.attrs, ...strokeAttrs };
+				continue;
+			}
+			if (isStrokeOnlyPath(prev) && isFillOnlyPath(shape)) {
+				const { d: _d, ...fillAttrs } = shape.attrs;
+				prev.attrs = { ...prev.attrs, ...fillAttrs, "paint-order": "stroke" };
+				continue;
+			}
+		}
+		merged.push(shape);
+	}
+	return merged;
+}
+
+function isFillOnlyPath(node: SvgNode): boolean {
+	return node.attrs.fill !== "none" && node.attrs.stroke === undefined;
+}
+
+function isStrokeOnlyPath(node: SvgNode): boolean {
+	return node.attrs.fill === "none" && node.attrs.stroke !== undefined;
 }
 
 /**

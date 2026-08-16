@@ -15,6 +15,7 @@
 import type { AnyArtObject, BoundingBox } from "../../../schema";
 import { boundsIntersectionBox } from "../../../utils/geometry/bounds";
 import { neverReached } from "../../../utils/lang";
+import { expandRenderFilter } from "../CanvasLayer.helpers";
 import {
 	type FilteredTextureInfo,
 	type GPUCoreResources,
@@ -138,6 +139,10 @@ interface CachedMask {
 	fingerprint: string;
 	texture: TextureRef;
 	entry: MaskEntry;
+	/** Render closure of the mask's source elements at bake time. A tracked
+	 *  document change intersecting it drops the entry (the fingerprint alone
+	 *  cannot see an in-place geometry edit of a silhouette source). */
+	dependencyIds: ReadonlySet<string>;
 }
 
 export class ClipMaskAtlas {
@@ -266,6 +271,10 @@ export class ClipMaskAtlas {
 					fingerprint,
 					texture: createBorrowedTextureRef(texture, "mask-atlas"),
 					entry,
+					dependencyIds: expandRenderFilter(
+						new Set(mask.sources.map((s) => s.id)),
+						elementsMap,
+					),
 				});
 			}
 		}
@@ -281,6 +290,28 @@ export class ClipMaskAtlas {
 		this.maskCache.clear();
 		this.maskTextures = [];
 		this.maskEntries.clear();
+	}
+
+	/**
+	 * Drop only the masks whose source closure intersects a tracked document
+	 * change. Unchanged masks keep their texture AND their bind group, so
+	 * downstream caches keyed on bind-group identity (the masked-bake hash)
+	 * stay hot across content frames.
+	 */
+	public invalidateChanged(changedIds: ReadonlySet<string>): void {
+		for (const [key, cached] of this.maskCache) {
+			let hit = false;
+			for (const id of changedIds) {
+				if (cached.dependencyIds.has(id)) {
+					hit = true;
+					break;
+				}
+			}
+			if (!hit) continue;
+			this.deps.deferDestroy(cached.texture.texture);
+			this.maskCache.delete(key);
+			this.maskEntries.delete(key);
+		}
 	}
 
 	public destroy(): void {

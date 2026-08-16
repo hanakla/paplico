@@ -93,8 +93,15 @@ export interface ViewportState {
 	current: Viewport | null;
 	width: number;
 	height: number;
-	/** Pre-computed viewport bounds for stamp culling (reused across all renderPath calls in a frame). */
+	/** World coverage of the current render target texture (the full store
+	 *  while the prebuf viewport is bound). Blits and composites map textures
+	 *  through this; culling uses drawRegion when set. */
 	bounds: BoundingBox | null;
+	/** World region this frame actually draws — the viewport on content
+	 *  frames, the dirty rect on partial redraws, unset (= bounds) on
+	 *  full-store bakes. Element culling and the interactive bake clamp read
+	 *  this so the store margin / restored region costs no CPU or bake area. */
+	drawRegion?: BoundingBox | null;
 }
 
 /** Cached Reference3D render result. The hash encodes every render input. */
@@ -164,6 +171,9 @@ export interface RenderState {
 	paintedAxisPathIds: Set<string> | null;
 	/** Reference to ViewportManager's local bounds cache for rotation origin computation. */
 	localBoundsCache: LocalBoundsCache | null;
+	/** Viewport zoom for this render pass. Set at frame start; consumed as the
+	 *  device-space error budget for stroke join/cap arc subdivision. */
+	currentZoom: number;
 	/** Current element's transform index in the GPU Storage Buffer. Set before rendering each element. */
 	currentTransformIndex: number;
 	/** Current element's clip mask bind group. Set before rendering each element. */

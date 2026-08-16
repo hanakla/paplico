@@ -59,6 +59,7 @@ import type {
 	StencilFillVariant,
 } from "../caches/StencilFillCache";
 import type { StrokeCache } from "../caches/StrokeCache";
+import { resolveGeometricSizeByPressure } from "../pipeline/brush/strokeHalfWidth";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
 import type { GeometryStore } from "../pipeline/GeometryStore";
 import { applyPreFilters } from "../pipeline/PreFilterRenderer";
@@ -276,17 +277,12 @@ export class PathElementRenderer {
 				).settings;
 
 				if (settings.engine === "geometric") {
-					const sizeCurve = settings.properties.size?.curves?.find(
-						(curve) => curve.input === "pressure",
-					);
 					this.renderGeometricStroke(
 						passEncoder,
 						segments,
 						strokeColor,
 						settings.properties.size?.base ?? 1,
-						// The flat slider's pressure response is a two-point line
-						// from -k to 0; the geometric renderer takes that k back.
-						sizeCurve ? -(sizeCurve.points[0][1] ?? 0) : 0,
+						resolveGeometricSizeByPressure(settings),
 						appAlpha,
 						settings.stroking?.lineCap ?? "round",
 						settings.stroking?.lineJoin ?? "round",
@@ -603,6 +599,12 @@ export class PathElementRenderer {
 	): void {
 		if (segments.length === 0) return;
 
+		// Power-of-two zoom buckets: round join/cap subdivision follows the
+		// device-space error budget without re-tessellating on every zoom tick.
+		const zoomBucket = Math.round(
+			Math.log2(Math.max(this.deps.renderState.currentZoom, 1e-3)),
+		);
+		const tessZoom = 2 ** zoomBucket;
 		const geoHash = hashStrokeGeometry(
 			segments,
 			strokeWidth,
@@ -617,6 +619,7 @@ export class PathElementRenderer {
 			taperEnd,
 			pathStart,
 			pathEnd,
+			zoomBucket,
 		);
 
 		// Check stroke tessellation cache. Vertices bake the resolved paint, so
@@ -830,6 +833,7 @@ export class PathElementRenderer {
 					arcParams: wantArcParams
 						? { arcOffset, totalArcLength: subPathArcTotal }
 						: undefined,
+					zoom: tessZoom,
 				});
 
 				if (result.count === 0) continue;

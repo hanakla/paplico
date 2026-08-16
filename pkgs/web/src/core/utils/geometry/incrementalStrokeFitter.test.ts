@@ -1,4 +1,5 @@
 import type { BezierPoint, CubicBezierSegment } from "../../schema";
+import { maxTurnNear } from "../../testUtils/strokeGeometry";
 import {
 	IncrementalStrokeFitter,
 	processStroke,
@@ -81,6 +82,23 @@ function sampleSegments(
 		prevEnd = seg.end;
 	}
 	return pts;
+}
+
+function nearestAnchorTo(
+	segments: CubicBezierSegment[],
+	x: number,
+	y: number,
+): { x: number; y: number } {
+	let best = segments[0].end;
+	for (const seg of segments) {
+		if (
+			Math.hypot(seg.end.x - x, seg.end.y - y) <
+			Math.hypot(best.x - x, best.y - y)
+		) {
+			best = seg.end;
+		}
+	}
+	return best;
 }
 
 function distanceToPolyline(
@@ -174,7 +192,7 @@ describe("IncrementalStrokeFitter", () => {
 		);
 	});
 
-	it("should keep an anchor near a sharp corner", () => {
+	it("should keep a sharp anchor at the corner", () => {
 		const fitter = makeFitter("smooth", 0.3);
 		for (const p of zigzagPoints()) fitter.push(p);
 		const segments = fitter.getSegments();
@@ -183,7 +201,28 @@ describe("IncrementalStrokeFitter", () => {
 			const a = segmentAnchor(segments, i);
 			best = Math.min(best, Math.hypot(a.x - 100, a.y - 0));
 		}
-		expect(best).toBeLessThan(6);
+		expect(best).toBeLessThan(1.5);
+		expect(maxTurnNear(segments, 100, 0, 1.5)).toBeGreaterThanOrEqual(60);
+	});
+
+	it("should place the corner anchor where processStroke places it", () => {
+		const points = zigzagPoints();
+		const fitter = makeFitter("smooth", 0.5);
+		for (const p of points) fitter.push(p);
+		const incremental = nearestAnchorTo(fitter.getSegments(), 100, 0);
+		const full = nearestAnchorTo(
+			processStroke(
+				points,
+				0.5,
+				{ x: 0, y: 0, zoom: 1, rotation: 0 },
+				"smooth",
+			),
+			100,
+			0,
+		);
+		expect(
+			Math.hypot(incremental.x - full.x, incremental.y - full.y),
+		).toBeLessThanOrEqual(1.0);
 	});
 
 	it("should work with stabilization 0 (no smoothing)", () => {

@@ -26,6 +26,7 @@ export function hashStrokeGeometry(
 	taperEnd?: number,
 	pathStart?: number,
 	pathEnd?: number,
+	zoomBucket?: number,
 ): number {
 	let h = hashSegments(segments);
 	h = (h * 31 + floatBits(strokeWidth)) | 0;
@@ -53,6 +54,10 @@ export function hashStrokeGeometry(
 	h = (h * 31 + floatBits(taperEnd ?? 0)) | 0;
 	h = (h * 31 + floatBits(pathStart ?? 0)) | 0;
 	h = (h * 31 + floatBits(pathEnd ?? 1)) | 0;
+	// Round join/cap subdivision follows the device-space error budget, so
+	// cached geometry must be split per zoom bucket or zooming in would keep
+	// serving the coarser tessellation.
+	h = (h * 31 + (zoomBucket ?? 0)) | 0;
 	return h;
 }
 

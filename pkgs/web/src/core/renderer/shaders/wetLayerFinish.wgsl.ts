@@ -27,7 +27,10 @@ struct Uniforms {
 	/** Domain texels per diffused-field texel: the fields run on a coarser
 	 *  grid than the seeds, which is how the bleed reaches its distance. */
 	fieldScale: f32,
-	pad0: f32,
+	/** How much wider than its own body the stroke ended up. A stroke carries
+	 *  the paint it was given, so spreading it has to thin it by the same
+	 *  factor; without this a wide bleed paints more ink than a narrow one. */
+	spreadDilution: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -195,7 +198,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let paperHold = mix(1.0, 0.82 + grain * 0.36, absorption * uniforms.paperGrain);
 	let granulationMod = 1.0 + granulation * (grain - 0.5) * uniforms.paperGrain;
 	let displayDensity = max(0.0, density * rough * edgeDeposit * paperHold * granulationMod);
-	let load = max(uniforms.pigmentLoad, 0.0);
+	let load = max(uniforms.pigmentLoad, 0.0) / max(uniforms.spreadDilution, 1.0);
 	// The body alpha floor keeps edge shaping from thinning the stroke itself.
 	let bodyAlpha = 1.0 - exp(-density * load * 1.15);
 	let alpha = clamp(

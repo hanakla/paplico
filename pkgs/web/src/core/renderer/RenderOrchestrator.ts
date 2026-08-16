@@ -129,7 +129,9 @@ import { UILayer } from "./ui/UILayer";
 export const RenderStrategy = {
 	/** Re-render document + overlay (viewport/resize/document changed) */
 	full: "full",
-	/** Re-render document but skip expensive effects (backdrop filters) */
+	/** Re-render document during an interaction that cannot blit (preview
+	 *  geometry or volatile content rides along). Renders the same passes as
+	 *  `full`; the name only records why the frame happened. */
 	fullInteraction: "fullInteraction",
 	/** Re-render document keeping boundsCache (shape-preserving changes: moves, paste, duplicate) */
 	fullTransformOnly: "fullTransformOnly",

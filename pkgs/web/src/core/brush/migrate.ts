@@ -32,18 +32,33 @@ export const MAX_CURVE_POINTS = 16;
  * returns a sanitized BrushSettingsV2. Idempotent — see migrate.test.ts.
  * Wet ink settings are NOT converted here: they are preserved verbatim in
  * the v2 wet layer (design §13-6).
+ *
+ * `fullCoverageFlow` is for stored document strokes: v1 buildup piled
+ * per-dab alpha without normalization, so overlapped runs saturated toward
+ * full coverage regardless of the configured opacity. Folding opacity into
+ * flow would replay those strokes at the v2 "total ≈ flow" density and fade
+ * them, so their dab conversions take flow 1 with no pressure fold instead.
+ * Wash (wet-ink) strokes keep the fold — wash paints flow directly.
  */
-export function normalizeBrushSettingsV2(raw: unknown): BrushSettingsV2 {
+export function normalizeBrushSettingsV2(
+	raw: unknown,
+	opts?: { fullCoverageFlow?: boolean },
+): BrushSettingsV2 {
 	const r = (raw ?? {}) as Record<string, unknown>;
 	if (r.version === 2) return sanitizeV2(r);
-	return sanitizeV2(convertV1(normalizeBrushSettings(raw)));
+	return sanitizeV2(
+		convertV1(normalizeBrushSettings(raw), opts?.fullCoverageFlow === true),
+	);
 }
 
 // --- v1 -> v2 conversion -------------------------------------------------
 
 type MutableProps = Partial<Record<BrushPropertyId, BrushPropertyConfig>>;
 
-function convertV1(v1: BrushSettings): Record<string, unknown> {
+function convertV1(
+	v1: BrushSettings,
+	fullCoverageFlow: boolean,
+): Record<string, unknown> {
 	const props: MutableProps = {};
 
 	setBase(props, "size", v1.size);
@@ -54,13 +69,21 @@ function convertV1(v1: BrushSettings): Record<string, unknown> {
 		]);
 	}
 
+	const opaqueFlow =
+		fullCoverageFlow &&
+		(v1.type === "scatter" || v1.type === "calligraphy") &&
+		v1.wetInk?.enabled !== true;
 	const v1Flow = "flow" in v1 ? v1.flow : 1;
-	setBase(props, "flow", v1.opacity * v1Flow);
-	if (v1.opacityByPressure > 0) {
-		addCurve(props, "flow", "pressure", [
-			[0, -v1.opacityByPressure],
-			[1, 0],
-		]);
+	if (opaqueFlow) {
+		setBase(props, "flow", 1);
+	} else {
+		setBase(props, "flow", v1.opacity * v1Flow);
+		if (v1.opacityByPressure > 0) {
+			addCurve(props, "flow", "pressure", [
+				[0, -v1.opacityByPressure],
+				[1, 0],
+			]);
+		}
 	}
 
 	const common = {

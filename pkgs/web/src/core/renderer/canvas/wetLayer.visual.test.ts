@@ -141,7 +141,7 @@ function wetBrush(overrides: { enabled: boolean }): BrushSettingsV2 {
 			enabled: overrides.enabled,
 			// A light load leaves the body unsaturated, so granulation shows.
 			bleedRadius: 1,
-			pigmentLoad: 0.1,
+			pigmentLoad: 0.3,
 			grainScale: 1,
 		},
 		randomSeed: 1,

@@ -26,6 +26,11 @@ export interface StrokeTessellateInput {
 	 * their own total.
 	 */
 	arcParams?: { arcOffset: number; totalArcLength: number };
+	/**
+	 * Viewport zoom that sizes round join/cap arc subdivision to a
+	 * device-space error budget. Defaults to 1 (world units = screen px).
+	 */
+	zoom?: number;
 }
 
 interface StrokeTessellateResult {
@@ -69,6 +74,7 @@ export function tessellateStroke(
 		pathStart = 0,
 		pathEnd = 1,
 		arcParams,
+		zoom = 1,
 	} = input;
 
 	const pointCount = points.length / 2;
@@ -159,6 +165,7 @@ export function tessellateStroke(
 			lineCap,
 			lineJoin,
 			miterLimit,
+			zoom,
 			arcParams
 				? subpath.samples.map(({ pathT }) => toGlobalT(pathT))
 				: undefined,
@@ -430,6 +437,7 @@ function tessellateVisibleSubpath(
 	lineCap: LineCap,
 	lineJoin: LineJoin,
 	miterLimit: number,
+	zoom: number,
 	/** Whole-stroke t per sample; enables vertexParams/fringeParams emission. */
 	globalTs?: number[],
 ): StrokeTessellateResult {
@@ -529,6 +537,7 @@ function tessellateVisibleSubpath(
 			points[joinIndex * 2 + 1],
 			halfWidths[joinIndex],
 			halfWidths[joinIndex],
+			zoom,
 		);
 		if (globalTs) {
 			appendJoinGroupParams(
@@ -560,6 +569,7 @@ function tessellateVisibleSubpath(
 			first.ny,
 			halfWidths[first.i0],
 			halfWidths[first.i0],
+			zoom,
 		);
 		if (globalTs) {
 			appendGroupParams(
@@ -588,6 +598,7 @@ function tessellateVisibleSubpath(
 			last.ny,
 			halfWidths[last.i1],
 			halfWidths[last.i1],
+			zoom,
 		);
 		if (globalTs) {
 			appendGroupParams(
@@ -688,6 +699,7 @@ function tessellateVisibleSubpath(
 			points[joinIndex * 2 + 1],
 			halfWidths[joinIndex],
 			halfWidths[joinIndex],
+			zoom,
 		);
 		if (globalTs) {
 			appendJoinGroupParams(
@@ -719,6 +731,7 @@ function tessellateVisibleSubpath(
 			first.ny,
 			halfWidths[first.i0],
 			halfWidths[first.i0],
+			zoom,
 		);
 		if (globalTs) {
 			appendGroupParams(
@@ -747,6 +760,7 @@ function tessellateVisibleSubpath(
 			last.ny,
 			halfWidths[last.i1],
 			halfWidths[last.i1],
+			zoom,
 		);
 		if (globalTs) {
 			appendGroupParams(
@@ -1124,6 +1138,26 @@ function buildSegments(points: number[], pointCount: number): Segment[] {
 
 // --- Join emitters ---
 
+/** Device-space error budget for round join/cap arc subdivision (px). */
+const ARC_TOLERANCE_PX = 0.25;
+
+/**
+ * Angular step whose chord deviates from the arc by at most ARC_TOLERANCE_PX
+ * on screen (NanoVG's curve-divs formula: the sagitta is r·tol/(r+tol) < tol),
+ * so subdivision follows the on-screen radius instead of a fixed step.
+ */
+function arcAngleStep(radius: number, zoom: number): number {
+	return 2 * Math.acos(radius / (radius + ARC_TOLERANCE_PX / zoom));
+}
+
+/** Semicircle subdivision for round caps; body and fringe must agree. */
+function roundCapSteps(side1Hw: number, side2Hw: number, zoom: number): number {
+	return Math.max(
+		2,
+		Math.ceil(Math.PI / arcAngleStep(Math.max(side1Hw, side2Hw), zoom)),
+	);
+}
+
 function emitJoin(
 	out: number[],
 	joinType: LineJoin,
@@ -1134,6 +1168,7 @@ function emitJoin(
 	cy: number,
 	side1Hw: number,
 	side2Hw: number,
+	zoom: number,
 ): void {
 	const cross = segA.dx * segB.dy - segA.dy * segB.dx;
 
@@ -1141,11 +1176,12 @@ function emitJoin(
 
 	const isLeftTurn = cross > 0;
 
-	// left turn: outer = +normal (side1), inner = -normal (side2)
-	// right turn: outer = -normal (side2), inner = +normal (side1)
-	const innerHw = isLeftTurn ? side2Hw : side1Hw;
-	const outerHw = isLeftTurn ? side1Hw : side2Hw;
-	const innerSign = isLeftTurn ? -1 : 1;
+	// Normals are left-hand ((nx,ny) = (-dy,dx)). On a left (CCW) turn the
+	// left side is the inside of the corner, so inner = +normal (side1) and
+	// outer = -normal (side2); mirrored on a right turn.
+	const innerHw = isLeftTurn ? side1Hw : side2Hw;
+	const outerHw = isLeftTurn ? side2Hw : side1Hw;
+	const innerSign = isLeftTurn ? 1 : -1;
 
 	// Fill the inner-side gap between the two strip segments. The two outline
 	// vertices inset inward (opposite their outward normals); the centerline
@@ -1169,7 +1205,7 @@ function emitJoin(
 	if (joinType === "miter") {
 		emitMiterJoin(out, miterLimit, segA, segB, cx, cy, outerHw, isLeftTurn);
 	} else if (joinType === "round") {
-		emitRoundJoin(out, segA, segB, cx, cy, outerHw, isLeftTurn);
+		emitRoundJoin(out, segA, segB, cx, cy, outerHw, isLeftTurn, zoom);
 	} else {
 		emitBevelJoin(out, segA, segB, cx, cy, outerHw, isLeftTurn);
 	}
@@ -1185,7 +1221,7 @@ function emitMiterJoin(
 	hw: number,
 	isLeftTurn: boolean,
 ): void {
-	const sign = isLeftTurn ? 1 : -1;
+	const sign = isLeftTurn ? -1 : 1;
 
 	const outerA_x = cx + segA.nx * hw * sign;
 	const outerA_y = cy + segA.ny * hw * sign;
@@ -1264,8 +1300,9 @@ function emitRoundJoin(
 	cy: number,
 	hw: number,
 	isLeftTurn: boolean,
+	zoom: number,
 ): void {
-	const sign = isLeftTurn ? 1 : -1;
+	const sign = isLeftTurn ? -1 : 1;
 
 	const nAx = segA.nx * sign;
 	const nAy = segA.ny * sign;
@@ -1282,7 +1319,10 @@ function emitRoundJoin(
 		if (angleDiff > 0) angleDiff -= Math.PI * 2;
 	}
 
-	const steps = Math.max(4, Math.ceil(Math.abs(angleDiff) / (Math.PI / 8)));
+	const steps = Math.max(
+		2,
+		Math.ceil(Math.abs(angleDiff) / arcAngleStep(hw, zoom)),
+	);
 	const angleStep = angleDiff / steps;
 
 	for (let s = 0; s < steps; s++) {
@@ -1321,7 +1361,7 @@ function emitBevelJoin(
 	hw: number,
 	isLeftTurn: boolean,
 ): void {
-	const sign = isLeftTurn ? 1 : -1;
+	const sign = isLeftTurn ? -1 : 1;
 
 	const outerA_x = cx + segA.nx * hw * sign;
 	const outerA_y = cy + segA.ny * hw * sign;
@@ -1358,13 +1398,14 @@ function emitCap(
 	ny: number,
 	side1Hw: number,
 	side2Hw: number,
+	zoom: number,
 ): void {
 	if (capType === "butt") return;
 
 	if (capType === "square") {
 		emitSquareCap(out, px, py, dx, dy, nx, ny, side1Hw, side2Hw);
 	} else {
-		emitRoundCap(out, px, py, dx, dy, nx, ny, side1Hw, side2Hw);
+		emitRoundCap(out, px, py, dx, dy, nx, ny, side1Hw, side2Hw, zoom);
 	}
 }
 
@@ -1439,8 +1480,9 @@ function emitRoundCap(
 	_ny: number,
 	side1Hw: number,
 	side2Hw: number,
+	zoom: number,
 ): void {
-	const steps = 8;
+	const steps = roundCapSteps(side1Hw, side2Hw, zoom);
 	const startAngle = Math.atan2(dx, -dy);
 	// Sweep clockwise so the semicircle extends outward (through the cap
 	// direction) rather than inward through the stroke body.
@@ -1618,12 +1660,14 @@ function emitJoinFringe(
 	cy: number,
 	side1Hw: number,
 	side2Hw: number,
+	zoom: number,
 ): void {
 	const cross = segA.dx * segB.dy - segA.dy * segB.dx;
 	if (Math.abs(cross) < 1e-10) return;
 
 	const isLeftTurn = cross > 0;
-	const outerHw = isLeftTurn ? side1Hw : side2Hw;
+	// Same outer-side convention as emitJoin: outer = -normal on a left turn.
+	const outerHw = isLeftTurn ? side2Hw : side1Hw;
 
 	if (joinType === "miter") {
 		emitMiterJoinFringe(
@@ -1637,7 +1681,7 @@ function emitJoinFringe(
 			isLeftTurn,
 		);
 	} else if (joinType === "round") {
-		emitRoundJoinFringe(out, segA, segB, cx, cy, outerHw, isLeftTurn);
+		emitRoundJoinFringe(out, segA, segB, cx, cy, outerHw, isLeftTurn, zoom);
 	} else {
 		emitBevelJoinFringe(out, segA, segB, cx, cy, outerHw, isLeftTurn);
 	}
@@ -1652,7 +1696,7 @@ function emitBevelJoinFringe(
 	hw: number,
 	isLeftTurn: boolean,
 ): void {
-	const sign = isLeftTurn ? 1 : -1;
+	const sign = isLeftTurn ? -1 : 1;
 
 	const outerA_x = cx + segA.nx * hw * sign;
 	const outerA_y = cy + segA.ny * hw * sign;
@@ -1682,7 +1726,7 @@ function emitMiterJoinFringe(
 	hw: number,
 	isLeftTurn: boolean,
 ): void {
-	const sign = isLeftTurn ? 1 : -1;
+	const sign = isLeftTurn ? -1 : 1;
 
 	const outerA_x = cx + segA.nx * hw * sign;
 	const outerA_y = cy + segA.ny * hw * sign;
@@ -1749,8 +1793,9 @@ function emitRoundJoinFringe(
 	cy: number,
 	hw: number,
 	isLeftTurn: boolean,
+	zoom: number,
 ): void {
-	const sign = isLeftTurn ? 1 : -1;
+	const sign = isLeftTurn ? -1 : 1;
 
 	const nAx = segA.nx * sign;
 	const nAy = segA.ny * sign;
@@ -1767,7 +1812,10 @@ function emitRoundJoinFringe(
 		if (angleDiff > 0) angleDiff -= Math.PI * 2;
 	}
 
-	const steps = Math.max(4, Math.ceil(Math.abs(angleDiff) / (Math.PI / 8)));
+	const steps = Math.max(
+		2,
+		Math.ceil(Math.abs(angleDiff) / arcAngleStep(hw, zoom)),
+	);
 	const angleStep = angleDiff / steps;
 
 	for (let s = 0; s < steps; s++) {
@@ -1805,11 +1853,12 @@ function emitCapFringe(
 	ny: number,
 	side1Hw: number,
 	side2Hw: number,
+	zoom: number,
 ): void {
 	if (capType === "square") {
 		emitSquareCapFringe(out, px, py, dx, dy, nx, ny, side1Hw, side2Hw);
 	} else if (capType === "round") {
-		emitRoundCapFringe(out, px, py, dx, dy, side1Hw, side2Hw);
+		emitRoundCapFringe(out, px, py, dx, dy, side1Hw, side2Hw, zoom);
 	} else {
 		emitButtCapFringe(out, px, py, dx, dy, nx, ny, side1Hw, side2Hw);
 	}
@@ -1950,8 +1999,9 @@ function emitRoundCapFringe(
 	dy: number,
 	side1Hw: number,
 	side2Hw: number,
+	zoom: number,
 ): void {
-	const steps = 8;
+	const steps = roundCapSteps(side1Hw, side2Hw, zoom);
 	const startAngle = Math.atan2(dx, -dy);
 	const angleStep = -Math.PI / steps;
 

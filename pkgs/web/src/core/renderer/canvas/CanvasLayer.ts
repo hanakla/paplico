@@ -45,6 +45,7 @@ import {
 import type { TextRenderer } from "../../typography/TextRenderer";
 import {
 	boundsIntersect,
+	boundsIntersectionBox,
 	brandWorldBBox,
 	calculateElementBounds,
 	calculatePathBounds,
@@ -91,10 +92,14 @@ import {
 import {
 	aabbOfQuad,
 	calculatePrebufDimensions,
-	capFilterBakeDensity,
+	collectExternallyReferencedIds,
 	computeDotGridPhase,
 	expandRenderFilter,
+	interactiveBakeDensity,
+	STORE_MARGIN_PX,
 	splitGroupAppearances,
+	unionBoundingBoxes,
+	visibleBoundsToBox,
 } from "./CanvasLayer.helpers";
 import {
 	type AssetState,
@@ -143,7 +148,11 @@ import {
 	createBlendBackdrop,
 	createCompositeSourceSurface,
 } from "./pipeline/CompositeRenderer";
-import { DocumentCache, destroyStencilState } from "./pipeline/DocumentCache";
+import {
+	boundsAlmostEqual,
+	DocumentCache,
+	destroyStencilState,
+} from "./pipeline/DocumentCache";
 import { DefRasterizer } from "./pipeline/defs/DefRasterizer";
 import {
 	type BackdropEffectCanvasResources,
@@ -180,6 +189,7 @@ import {
 	type ElementFilterPlan,
 	type FramePlan,
 	type FramePlanStructure,
+	type LayerPassPlan,
 } from "./pipeline/RenderPlanner";
 import {
 	createBorrowedTextureRef,
@@ -230,6 +240,15 @@ interface IsolationDimContext {
 	startNewPass: (clear: boolean) => GPURenderPassEncoder;
 }
 
+/** A qualified partial redraw: the dirty world rect (snapped to the store's
+ *  texel grid), its prebuf-space scissor, and the baked-region union the
+ *  capture records. Produced by planPartialRedraw. */
+interface PartialRedrawPlan {
+	dirtyWorld: BoundingBox;
+	scissor: { x: number; y: number; width: number; height: number };
+	bakedUnion: BoundingBox;
+}
+
 /** One encoded canvas frame. The owner that calls queue.submit must settle it
  * exactly once so tile residency follows submission, not command encoding. */
 export interface CanvasFrameTransaction {
@@ -271,6 +290,20 @@ export class CanvasLayer {
 	private compositeFrameCache: {
 		texture: GPUTexture | null;
 		worldBounds: BoundingBox | null;
+		/** World region actually rendered into the capture (content frames draw
+		 *  only the viewport region of the store, so it can be smaller than
+		 *  worldBounds). Blits sample only this region; pans stay on the blit
+		 *  path while the visible world remains inside it. */
+		bakedWorldBounds: BoundingBox | null;
+		/** Viewport zoom at capture time. Same-zoom frames (pure pan/rotate)
+		 *  require baked coverage; zoom frames keep the pre-store tradeoff of
+		 *  blitting whatever is cached. */
+		viewportZoom: number;
+		/** World rect of the whole store texture at capture time, derived from
+		 *  the same source a later frame compares against (prebufVisibleBounds).
+		 *  A partial redraw may restore from the cache only while the store
+		 *  geometry is unchanged. */
+		storeBounds: BoundingBox | null;
 		width: number;
 		height: number;
 		valid: boolean;
@@ -281,6 +314,9 @@ export class CanvasLayer {
 	} = {
 		texture: null,
 		worldBounds: null,
+		bakedWorldBounds: null,
+		viewportZoom: 1,
+		storeBounds: null,
 		width: 0,
 		height: 0,
 		valid: false,
@@ -290,6 +326,30 @@ export class CanvasLayer {
 	// Whether the current frame's full render should refresh compositeFrameCache
 	// (set per-frame in render(); false for export/preview/subset frames).
 	private captureCompositeFrameThisFrame = false;
+	// Whether this frame draws the whole margined store instead of just the
+	// viewport region. Viewport-driven frames (blit fall-through, interaction,
+	// settle) bake the margin so subsequent pans blit; content-dirty frames keep
+	// the draw region at the viewport so document edits (brush strokes) never
+	// pay the oversized filter-bake/raster cost (set per-frame in render()).
+	private fullStoreBakeThisFrame = false;
+	// Whether this frame may attempt a partial redraw (tracked content change on
+	// an ordinary live frame; final eligibility — cache/store geometry, plan
+	// shape, dirty size — is decided inside renderDocument). Set in render().
+	private partialRedrawCandidate = false;
+	// Prebuf-space scissor active for the rest of this frame's prebuf passes
+	// once a partial redraw restored the region outside it (set by the Canvas
+	// Clear pass, consumed by startNewPass, cleared at the final blit).
+	private activePartialScissor: {
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+	} | null = null;
+	// World rect each element's rendered output covered when it last drew —
+	// the "old bounds" side of a partial redraw's dirty rect. Grows with the
+	// document; cleared when the document changes identity.
+	private lastElementWorldBounds = new Map<string, BoundingBox>();
+	private lastBoundsDocumentId: string | null = null;
 
 	// Pixel preview: live-canvas frames render the prebuf at the document's
 	// rasterization scale and present it with nearest sampling (see
@@ -514,6 +574,7 @@ export class CanvasLayer {
 		textAxisPathIds: null,
 		paintedAxisPathIds: null,
 		localBoundsCache: null,
+		currentZoom: 1,
 		currentTransformIndex: 0,
 		currentMaskBindGroup: null!,
 	};
@@ -1677,6 +1738,32 @@ export class CanvasLayer {
 			!elementOverrides?.size &&
 			!transientElements?.size;
 
+		// Content strategies (full / fullTransformOnly) keep the draw region at
+		// the viewport; every other capture-eligible frame is viewport-driven and
+		// bakes the whole store (see fullStoreBakeThisFrame).
+		this.fullStoreBakeThisFrame =
+			this.captureCompositeFrameThisFrame &&
+			strategy !== RenderStrategy.full &&
+			strategy !== RenderStrategy.fullTransformOnly;
+
+		// A tracked content change on an ordinary live frame may redraw only the
+		// changed region, restoring the rest from the composite cache. Modes
+		// that change how the whole frame composites (isolation, HDR/proof,
+		// pixel preview's texel snap) fall back to the full render.
+		this.partialRedrawCandidate =
+			this.captureCompositeFrameThisFrame &&
+			(strategy === RenderStrategy.full ||
+				strategy === RenderStrategy.fullTransformOnly) &&
+			request.changedElements != null &&
+			request.changedElements.upserted.size +
+				request.changedElements.deleted.size >
+				0 &&
+			!editingScopeStack?.length &&
+			isolatedElementId == null &&
+			request.hdrExposure == null &&
+			request.softProof !== true &&
+			!this.pixelPreviewEnabled;
+
 		// Text axis paths are guides: collect them fresh each frame so paths
 		// render again the moment their referencing text (or its binding) goes
 		// away, without relying on the opacity restore bookkeeping.
@@ -1689,6 +1776,8 @@ export class CanvasLayer {
 		}
 		this.renderState.textAxisPathIds = textAxisPathIds;
 		this.renderState.paintedAxisPathIds = textAxisPathIds ? new Set() : null;
+		this.renderState.currentZoom =
+			this.viewportManager.viewportState.current?.zoom ?? 1;
 
 		// Store encoder for use by sub-methods (renderElements, etc.)
 		this.activeEncoder = encoder;
@@ -1711,16 +1800,18 @@ export class CanvasLayer {
 		if (!this.viewportState.current) return null;
 
 		// viewportBlit: a viewport-only interaction frame. With a valid cached
-		// composite, blit + reproject it and skip the whole document render.
-		// HDR/soft-proof frames and a missing cache fall through to a normal
-		// render (which refreshes the cache via the capture pass).
+		// composite that still covers the visible world, blit + reproject it and
+		// skip the whole document render. HDR/soft-proof frames, a missing cache
+		// and a pan past the store margin fall through to a normal render (which
+		// re-centers the store and refreshes the cache via the capture pass).
 		if (strategy === RenderStrategy.viewportBlit) {
 			const needsPostProcess =
 				request.hdrExposure != null || request.softProof === true;
 			if (
 				!needsPostProcess &&
 				this.compositeFrameCache.valid &&
-				this.compositeFrameCache.texture
+				this.compositeFrameCache.texture &&
+				this.cachedFrameCoversViewport()
 			) {
 				return this.renderViewportBlit(encoder, canvasTexture, profiler);
 			}
@@ -1793,7 +1884,20 @@ export class CanvasLayer {
 					strategy === RenderStrategy.full,
 				);
 			}
-			this.clipMaskAtlas.invalidateAll();
+			// A tracked change set drops only the masks it touches, keeping every
+			// other mask's bind group identity stable — the masked-bake cache
+			// hashes on it, so a blanket drop re-baked every masked element on
+			// every content frame. An untracked frame still drops everything.
+			if (request.changedElements) {
+				this.clipMaskAtlas.invalidateChanged(
+					new Set([
+						...request.changedElements.upserted,
+						...request.changedElements.deleted,
+					]),
+				);
+			} else {
+				this.clipMaskAtlas.invalidateAll();
+			}
 			// The filtered-element cache is push-invalidated per document
 			// change. Resolving the change set against container edges needs
 			// the merged elements map, so record it here and let
@@ -2042,6 +2146,14 @@ export class CanvasLayer {
 		// Pre-compute viewport bounds once for all renderPath calls in this frame
 		this.updateViewportBoundsCache();
 
+		// Partial-redraw bookkeeping: the scissor never leaks across frames, and
+		// last-drawn bounds describe one document only.
+		this.activePartialScissor = null;
+		if (document.id !== this.lastBoundsDocumentId) {
+			this.lastBoundsDocumentId = document.id;
+			this.lastElementWorldBounds.clear();
+		}
+
 		// Disable CPU-side viewport culling for export/offscreen rendering.
 		// Elements may have transforms that place them within the target
 		// post-transform, but at pre-transform positions outside the viewport.
@@ -2201,6 +2313,17 @@ export class CanvasLayer {
 		// renders always pass clearColorOverride (same signal as the dot grid).
 		const pixelPreview = this.pixelPreviewEnabled && clearColorOverride == null;
 		const maxTextureDimension = this.device.limits.maxTextureDimension2D;
+		// Store margin only on capture-eligible live-canvas frames: exports need
+		// exact prebuf sizing, and pixel preview's world-grid texel snap has not
+		// been reconciled with the margin (its pans fall through to full renders,
+		// which is the pre-store behavior).
+		const storeMarginPx =
+			this.captureCompositeFrameThisFrame &&
+			!disableViewportCulling &&
+			clearColorOverride == null &&
+			!pixelPreview
+				? STORE_MARGIN_PX
+				: 0;
 		let { prebufWidth, prebufHeight, prebufZoom } = calculatePrebufDimensions({
 			viewport: this.viewportState.current!,
 			visibleBounds: realViewportBounds,
@@ -2208,6 +2331,7 @@ export class CanvasLayer {
 			canvasHeight: realCanvasHeight,
 			maxTextureDimension,
 			zoomOverride: pixelPreview ? this.getRasterScale() : undefined,
+			marginPx: storeMarginPx,
 		});
 		const prebufViewport = {
 			x: this.viewportState.current!.x,
@@ -2233,16 +2357,30 @@ export class CanvasLayer {
 			prebufWidth,
 			prebufHeight,
 		);
-		const prebufViewportBounds =
+		// Draw region: what this frame actually renders (culling clamp, filter
+		// bake clamp). Viewport-driven frames bake the whole margined store so
+		// later pans blit; content-dirty frames keep it at the viewport so edits
+		// never pay the margin's extra raster/bake area. The capture records it
+		// as bakedWorldBounds — the region a blit may reveal.
+		const drawRegionSource =
+			storeMarginPx > 0 && !this.fullStoreBakeThisFrame && realViewportBounds
+				? realViewportBounds
+				: prebufVisibleBounds;
+		// Reassigned to the dirty rect when this frame qualifies for a partial
+		// redraw (see planPartialRedraw below, after the pass plan is known).
+		// Declared before the Canvas Clear pass so its deferred execute closure
+		// can see the plan chosen after the pass plan is built.
+		let partialPlan: PartialRedrawPlan | null = null;
+		let prebufViewportBounds =
 			disableViewportCulling || realViewportBounds == null
 				? null
 				: {
-						minX: prebufVisibleBounds.left,
-						minY: prebufVisibleBounds.bottom,
-						maxX: prebufVisibleBounds.right,
-						maxY: prebufVisibleBounds.top,
-						width: prebufVisibleBounds.width,
-						height: prebufVisibleBounds.height,
+						minX: drawRegionSource.left,
+						minY: drawRegionSource.bottom,
+						maxX: drawRegionSource.right,
+						maxY: drawRegionSource.top,
+						width: drawRegionSource.width,
+						height: drawRegionSource.height,
 					};
 
 		// Expand the top-level export selection to its full render subtree so the
@@ -2443,6 +2581,7 @@ export class CanvasLayer {
 		const savedViewportWidth = this.viewportState.width;
 		const savedViewportHeight = this.viewportState.height;
 		const savedViewportBounds = this.viewportState.bounds;
+		const savedDrawRegion = this.viewportState.drawRegion;
 		// Swap the CPU viewport state and the active viewport binding over to
 		// the prebuf. The graph path defers this until its first layer pass
 		// (Canvas Clear) executes, so graph passes declared earlier (element
@@ -2460,7 +2599,15 @@ export class CanvasLayer {
 			this.viewportState.current = prebufViewport;
 			this.viewportState.width = prebufWidth;
 			this.viewportState.height = prebufHeight;
-			this.viewportState.bounds = prebufViewportBounds;
+			// bounds = the store texture's world coverage (blit/composite
+			// mapping); drawRegion = what this frame renders (culling, bake
+			// clamp). They diverge on margined content frames and partial
+			// redraws — conflating them squeezes the final blit.
+			this.viewportState.bounds =
+				disableViewportCulling || realViewportBounds == null
+					? prebufViewportBounds
+					: visibleBoundsToBox(prebufVisibleBounds);
+			this.viewportState.drawRegion = prebufViewportBounds;
 			this.pushViewportBinding(prebufEntry.bindGroup, prebufEntry.buffer);
 			prebufBounds = this.elements.getCurrentRenderTargetBounds();
 		};
@@ -2486,7 +2633,14 @@ export class CanvasLayer {
 			if (!ctx)
 				throw new Error("CanvasLayer: render pass opened outside FrameGraph");
 			const desc: GPURenderPassDescriptor = {
-				label: "Canvas Layer Prebuf Pass",
+				// The partial variant is observable: tests assert the partial
+				// redraw actually engaged instead of silently full-rendering.
+				// Keyed on the plan (not the scissor) so the Canvas Clear pass —
+				// which restores the store before the scissor activates — counts
+				// too; a deletion's dirty rect may open no other prebuf pass.
+				label: partialPlan
+					? "Canvas Layer Prebuf Pass (partial)"
+					: "Canvas Layer Prebuf Pass",
 				colorAttachments: [
 					{
 						view: ctx.view(prebufHandle),
@@ -2506,6 +2660,13 @@ export class CanvasLayer {
 			pass.setBindGroup(1, this.transformsBindGroup!);
 			pass.setBindGroup(2, this.dummyGradientBindGroup);
 			pass.setBindGroup(3, this.renderState.currentMaskBindGroup);
+			// Partial redraw: elements are CPU-culled to the dirty rect but a
+			// partially-inside element still draws all of itself; the scissor
+			// keeps its spill from overwriting the restored region.
+			if (this.activePartialScissor) {
+				const s = this.activePartialScissor;
+				pass.setScissorRect(s.x, s.y, s.width, s.height);
+			}
 			return pass;
 		};
 
@@ -2554,11 +2715,14 @@ export class CanvasLayer {
 		};
 
 		const encodeFinalBlit = (ctx: FGExecuteContext): void => {
+			// The final blit targets the real canvas, not the prebuf store.
+			this.activePartialScissor = null;
 			this.popViewportBinding();
 			this.viewportState.current = savedViewportCurrent;
 			this.viewportState.width = savedViewportWidth;
 			this.viewportState.height = savedViewportHeight;
 			this.viewportState.bounds = savedViewportBounds;
+			this.viewportState.drawRegion = savedDrawRegion;
 			this.restoreViewportUniformsToGPU();
 			const finalPass = ctx.encoder.beginRenderPass({
 				label: "Canvas Layer Final Blit Pass",
@@ -2644,7 +2808,16 @@ export class CanvasLayer {
 			execute: (ctx) =>
 				withGraphContext(ctx, () => {
 					bindPrebufViewport();
+					// loadOp "clear" wipes the whole store (it ignores scissors); a
+					// partial frame then paints back everything OUTSIDE the dirty
+					// rect from the cached composite, leaving only the dirty rect
+					// cleared for re-rendering.
 					const pass = startNewPass(true);
+					if (partialPlan) {
+						this.drawStoreRestoreBands(pass, partialPlan.dirtyWorld);
+						const s = partialPlan.scissor;
+						pass.setScissorRect(s.x, s.y, s.width, s.height);
+					}
 					// Artboard backgrounds render only on the clearing pass. Skip
 					// when clearColorOverride is set — the caller controls the
 					// background — unless the caller explicitly asks for them
@@ -2656,6 +2829,9 @@ export class CanvasLayer {
 						this.renderArtboardBackgrounds(pass, document.artboards);
 					}
 					pass.end();
+					// Every later prebuf pass this frame is confined to the dirty
+					// rect; pixels outside it already hold the restored composite.
+					if (partialPlan) this.activePartialScissor = partialPlan.scissor;
 				}),
 		});
 
@@ -2712,6 +2888,37 @@ export class CanvasLayer {
 		const passPlans = buildPassPlan({ ...framePlan, layerPlans }, (element) =>
 			this.backdropDrivers.some((d) => d.hasInlineComposite(element)),
 		);
+
+		// With the pass plan known, decide whether this content frame can redraw
+		// only the changed region and restore the rest from the composite cache.
+		if (this.partialRedrawCandidate && storeMarginPx > 0) {
+			partialPlan = this.planPartialRedraw(
+				fg.changedElements,
+				mergedElementsMap,
+				planStructure,
+				passPlans,
+				visibleBoundsToBox(prebufVisibleBounds),
+				prebufWidth,
+				prebufHeight,
+				prebufZoom,
+			);
+			if (partialPlan) {
+				// The dirty rect becomes the frame's draw region: element/segment
+				// culling and the offscreen bake clamp all follow viewportState
+				// .bounds, so everything outside it is skipped on the CPU.
+				prebufViewportBounds = partialPlan.dirtyWorld;
+			}
+		}
+		// Deleted elements never draw again: drop their last-drawn bounds AFTER
+		// the partial plan consumed them as the deletion's dirty region, or the
+		// map grows for every element the session ever removed (eraser, undo
+		// churn). Live elements stay — one box per element, bounded by the
+		// document.
+		if (fg.changedElements) {
+			for (const id of fg.changedElements.deleted) {
+				this.lastElementWorldBounds.delete(id);
+			}
+		}
 
 		// renderElements culls each element against the viewport, but only once
 		// the pass is already open — so a segment whose elements are all off
@@ -3179,6 +3386,17 @@ export class CanvasLayer {
 						{ width: prebufWidth, height: prebufHeight },
 					);
 					this.compositeFrameCache.worldBounds = prebufBounds;
+					// Culling clamped the frame to the draw region; only that part
+					// of the store holds a complete composite. A partial redraw
+					// restored the previously-baked region, so its union with the
+					// dirty rect stays baked.
+					this.compositeFrameCache.bakedWorldBounds = partialPlan
+						? partialPlan.bakedUnion
+						: (prebufViewportBounds ?? prebufBounds);
+					this.compositeFrameCache.viewportZoom =
+						savedViewportCurrent?.zoom ?? 1;
+					this.compositeFrameCache.storeBounds =
+						visibleBoundsToBox(prebufVisibleBounds);
 					this.compositeFrameCache.clearColor = clearColor;
 					this.compositeFrameCache.dotGrid = dotGridBackground;
 					this.compositeFrameCache.valid = true;
@@ -3221,7 +3439,14 @@ export class CanvasLayer {
 	): CanvasFrameTransaction | null {
 		const cache = this.compositeFrameCache;
 		const viewport = this.viewportState.current;
-		if (!cache.texture || !cache.worldBounds || !viewport) return null;
+		if (
+			!cache.texture ||
+			!cache.worldBounds ||
+			!cache.bakedWorldBounds ||
+			!viewport
+		) {
+			return null;
+		}
 
 		const realCanvasWidth = this.viewportState.width;
 		const realCanvasHeight = this.viewportState.height;
@@ -3269,12 +3494,24 @@ export class CanvasLayer {
 						viewport,
 					);
 				}
+				// Sample only the baked region: content frames leave the store's
+				// margin partially rendered (culling clamps them to the viewport),
+				// so blitting the full texture would reveal half-drawn content.
+				const world = cache.worldBounds!;
+				const baked = cache.bakedWorldBounds!;
+				const bakedUVRect: BlitUVRect = {
+					minU: (baked.minX - world.minX) / world.width,
+					maxU: (baked.maxX - world.minX) / world.width,
+					// Texture v=0 is the top row (world maxY).
+					minV: (world.maxY - baked.maxY) / world.height,
+					maxV: (world.maxY - baked.minY) / world.height,
+				};
 				this.composite.blitTextureToCanvas(
 					pass,
 					cache.texture!,
-					cache.worldBounds!,
+					baked,
 					1.0,
-					FULL_BLIT_UV_RECT,
+					bakedUVRect,
 					undefined,
 					this.pixelPreviewEnabled ? "nearest" : "linear",
 				);
@@ -3282,6 +3519,220 @@ export class CanvasLayer {
 			},
 		});
 		return this.executeFrame(graph, encoder, new Map());
+	}
+
+	/**
+	 * Whether the cached composite still covers the visible world. Pure pan /
+	 * rotate frames (same zoom as the capture) must stay inside the baked
+	 * region — outside it the store is unrendered or half-rendered. Zoom frames
+	 * keep the pre-store behavior of blitting whatever is cached: the settle
+	 * re-render restores full quality 100ms later.
+	 */
+	private cachedFrameCoversViewport(): boolean {
+		const cache = this.compositeFrameCache;
+		const viewport = this.viewportState.current;
+		if (!viewport || !cache.bakedWorldBounds) return false;
+		if (Math.abs(viewport.zoom - cache.viewportZoom) > 1e-9) return true;
+		const visible = getVisibleWorldBounds(
+			viewport,
+			this.viewportState.width,
+			this.viewportState.height,
+		);
+		// Half a device pixel of slack absorbs float error at the store edge.
+		const eps = 0.5 / Math.max(viewport.zoom, Number.EPSILON);
+		const baked = cache.bakedWorldBounds;
+		return (
+			visible.left >= baked.minX - eps &&
+			visible.right <= baked.maxX + eps &&
+			visible.bottom >= baked.minY - eps &&
+			visible.top <= baked.maxY + eps
+		);
+	}
+
+	/**
+	 * Decide whether a tracked content change can redraw only its region.
+	 * Returns the dirty world rect (snapped to the store's texel grid), the
+	 * matching prebuf-space scissor, and the baked-region union the capture
+	 * should record — or null to fall back to the plain full render. The
+	 * fallbacks are deliberately broad: correctness first, coverage grows as
+	 * the exceptional paths (filters, backdrop, glass) learn their margins.
+	 */
+	private planPartialRedraw(
+		changedElements: FrameRequest["changedElements"],
+		mergedElementsMap: Map<string, AnyArtObject>,
+		planStructure: FramePlanStructure,
+		passPlans: readonly LayerPassPlan[],
+		storeBox: BoundingBox,
+		prebufWidth: number,
+		prebufHeight: number,
+		prebufZoom: number,
+	): PartialRedrawPlan | null {
+		const cache = this.compositeFrameCache;
+		if (!changedElements) return null;
+		if (
+			!cache.valid ||
+			!cache.texture ||
+			!cache.bakedWorldBounds ||
+			!cache.storeBounds
+		) {
+			return null;
+		}
+		// The restore blits cached texels 1:1 back onto the store, so the store
+		// geometry (anchor/zoom/dims) must be unchanged since the capture.
+		if (!boundsAlmostEqual(cache.storeBounds, storeBox)) return null;
+		// Backdrop and inline-glass breaks read the prebuf mid-frame; a restored
+		// prebuf holds the FINAL previous composite there, not the mid-frame
+		// state below the element, so those frames render fully.
+		for (const layerPass of passPlans) {
+			for (const segment of layerPass.segments) {
+				const kind = segment.breakAfter?.kind;
+				if (kind === "backdrop" || kind === "inlineBackdropCompose") {
+					return null;
+				}
+			}
+		}
+		// Elements whose rendered output extends past their bounds (filter
+		// margins, backdrop capture) need expansion math this path skips.
+		const specialIds = new Set<string>();
+		for (const candidate of planStructure.candidates) {
+			if (candidate.filterPlan) {
+				specialIds.add(candidate.filterPlan.elementId);
+			}
+			if (candidate.backdropEntry) {
+				specialIds.add(candidate.backdropEntry.element.id);
+			}
+		}
+		const changedIds = new Set([
+			...changedElements.upserted,
+			...changedElements.deleted,
+		]);
+		// The render closure: containers relocate descendants, so an edited
+		// group dirties every descendant's region (and vice versa). Deleted ids
+		// are gone from the elements map, so the closure walk drops them — union
+		// them back in: their last-drawn bounds ARE the deletion's dirty region.
+		const closure = new Set([
+			...expandRenderFilter(changedIds, mergedElementsMap),
+			...changedIds,
+		]);
+		const boundsCtx: WorldBoundsContext = {
+			elementsMap: mergedElementsMap,
+			localBoundsCache: planStructure.localBoundsCache,
+		};
+		// A changed element another element derives from (clip path, mask
+		// source, compound-path/blend member) alters pixels outside its own
+		// bounds — the dirty rect cannot cover that.
+		const referencedIds = collectExternallyReferencedIds(mergedElementsMap);
+		let parentGroupMap: ReadonlyMap<string, string> | null = null;
+		let dirty: BoundingBox | null = null;
+		for (const id of closure) {
+			if (specialIds.has(id)) return null;
+			if (referencedIds.has(id)) return null;
+			dirty = unionBoundingBoxes(
+				dirty,
+				this.lastElementWorldBounds.get(id) ?? null,
+			);
+			const element = mergedElementsMap.get(id);
+			if (element) {
+				parentGroupMap ??= resolveParentGroupMap(boundsCtx);
+				const next =
+					this.renderState.boundsCache?.get(id) ??
+					computeWorldBounds(element, boundsCtx, parentGroupMap);
+				dirty = unionBoundingBoxes(dirty, next);
+			}
+		}
+		if (!dirty) return null;
+		// AA / hairline slack around the changed geometry (device px → world).
+		dirty = expandBounds(dirty, 8 / prebufZoom);
+		const clipped = boundsIntersectionBox(dirty, storeBox);
+		// Entirely outside the store: nothing visible changes, but the plain
+		// path keeps the bookkeeping (bounds map, capture) coherent.
+		if (!clipped) return null;
+		// Past this ratio a full redraw costs about the same and re-bakes the
+		// whole store for later pans.
+		const storeArea = storeBox.width * storeBox.height;
+		if (clipped.width * clipped.height > storeArea * 0.4) return null;
+		// Snap to the store texel grid so the scissor and the world-space cull
+		// rect describe exactly the same pixels.
+		const clampX = (v: number) => Math.min(Math.max(v, 0), prebufWidth);
+		const clampY = (v: number) => Math.min(Math.max(v, 0), prebufHeight);
+		const x0 = clampX(Math.floor((clipped.minX - storeBox.minX) * prebufZoom));
+		const x1 = clampX(Math.ceil((clipped.maxX - storeBox.minX) * prebufZoom));
+		const y0 = clampY(Math.floor((storeBox.maxY - clipped.maxY) * prebufZoom));
+		const y1 = clampY(Math.ceil((storeBox.maxY - clipped.minY) * prebufZoom));
+		if (x1 <= x0 || y1 <= y0) return null;
+		const dirtyWorld: BoundingBox = {
+			minX: storeBox.minX + x0 / prebufZoom,
+			maxX: storeBox.minX + x1 / prebufZoom,
+			minY: storeBox.maxY - y1 / prebufZoom,
+			maxY: storeBox.maxY - y0 / prebufZoom,
+			width: (x1 - x0) / prebufZoom,
+			height: (y1 - y0) / prebufZoom,
+		};
+		const bakedUnion = boundsIntersectionBox(
+			unionBoundingBoxes(cache.bakedWorldBounds, dirtyWorld)!,
+			storeBox,
+		);
+		if (!bakedUnion) return null;
+		return {
+			dirtyWorld,
+			scissor: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
+			bakedUnion,
+		};
+	}
+
+	/**
+	 * Paint the cached composite back onto the store everywhere EXCEPT the
+	 * dirty rect (up to four bands), leaving only the dirty rect cleared for
+	 * re-rendering. The cached prebuf composite is background-complete, so
+	 * src-over onto the just-cleared background reproduces it exactly; nearest
+	 * sampling keeps the 1:1 texel mapping crisp.
+	 */
+	private drawStoreRestoreBands(
+		pass: GPURenderPassEncoder,
+		dirtyWorld: BoundingBox,
+	): void {
+		const cache = this.compositeFrameCache;
+		const world = cache.worldBounds;
+		if (!cache.texture || !world) return;
+		const bands: BoundingBox[] = [];
+		const push = (
+			minX: number,
+			maxX: number,
+			minY: number,
+			maxY: number,
+		): void => {
+			if (maxX <= minX || maxY <= minY) return;
+			bands.push({
+				minX,
+				minY,
+				maxX,
+				maxY,
+				width: maxX - minX,
+				height: maxY - minY,
+			});
+		};
+		push(world.minX, world.maxX, dirtyWorld.maxY, world.maxY); // top
+		push(world.minX, world.maxX, world.minY, dirtyWorld.minY); // bottom
+		push(world.minX, dirtyWorld.minX, dirtyWorld.minY, dirtyWorld.maxY); // left
+		push(dirtyWorld.maxX, world.maxX, dirtyWorld.minY, dirtyWorld.maxY); // right
+		for (const band of bands) {
+			const uvRect: BlitUVRect = {
+				minU: (band.minX - world.minX) / world.width,
+				maxU: (band.maxX - world.minX) / world.width,
+				// Texture v=0 is the top row (world maxY).
+				minV: (world.maxY - band.maxY) / world.height,
+				maxV: (world.maxY - band.minY) / world.height,
+			};
+			this.composite.blitTextureToCanvas(
+				pass,
+				cache.texture,
+				band,
+				1.0,
+				uvRect,
+				undefined,
+				"nearest",
+			);
+		}
 	}
 
 	/**
@@ -3491,11 +3942,16 @@ export class CanvasLayer {
 		const { elementsMap, filterPlans, layerPlans } = framePlan;
 		const rasterScale = this.getRasterScale();
 		// Single density for this frame's cacheable bakes: the hash, the byte
-		// budget, and the bake itself all consume this exact value.
-		const cacheDensity = capFilterBakeDensity(
+		// budget, and the bake itself all consume this exact value. Live frames
+		// follow the display density; exports keep the rasterizationDpi ceiling
+		// so display-quality decisions never change exported pixels.
+		const zoomBucket = interactiveBakeDensity(
 			rasterScale,
 			this.viewportState.current?.zoom ?? 1,
 		);
+		const cacheDensity = this.renderState.isExport
+			? Math.min(rasterScale, zoomBucket)
+			: zoomBucket;
 		let plans: readonly ElementFilterPlan[];
 		if (selectedPlans) {
 			plans = selectedPlans;
@@ -4079,7 +4535,17 @@ export class CanvasLayer {
 		if (this.activeMaskApplicationPlans.size === 0) return;
 		const boundsContext = this.maskBoundsContext;
 		if (!boundsContext) return;
-		const rasterScale = this.getRasterScale();
+		// Display-following density, mirroring executeFilterPlans' cacheDensity:
+		// masked bakes were pinned to the document raster scale, which kept the
+		// whole bake blurry at any zoom past it no matter how often the frame
+		// re-rendered. Export frames keep the raster scale so display-quality
+		// decisions never change exported pixels.
+		const rasterScale = this.renderState.isExport
+			? this.getRasterScale()
+			: interactiveBakeDensity(
+					this.getRasterScale(),
+					this.viewportState.current?.zoom ?? 1,
+				);
 
 		for (const [elementId, plan] of this.activeMaskApplicationPlans) {
 			if (plan.kind !== "subtree-composite") continue;
@@ -4113,7 +4579,7 @@ export class CanvasLayer {
 							encoder,
 							sourceSurface,
 							masks,
-							this.getRasterScale(),
+							rasterScale,
 						);
 						if (masked) {
 							sourceSurface = replaceRenderSurface(sourceSurface, masked);
@@ -4212,7 +4678,7 @@ export class CanvasLayer {
 					encoder,
 					baked,
 					masks,
-					this.getRasterScale(),
+					rasterScale,
 				);
 				if (!masked) continue;
 				const output = replaceRenderSurface(baked, masked);
@@ -5165,7 +5631,8 @@ export class CanvasLayer {
 			// content off the current view but inside the offscreen target — e.g. a
 			// group extrude's children outside the viewport vanished from its bake,
 			// which read as a zoom-dependent partial clip of the solid.
-			const viewportBounds = this.viewportState.bounds;
+			const viewportBounds =
+				this.viewportState.drawRegion ?? this.viewportState.bounds;
 			const intersectsViewport =
 				viewportBounds == null ||
 				!(
@@ -5176,6 +5643,11 @@ export class CanvasLayer {
 				);
 			if (!intersectsViewport) {
 				continue;
+			}
+			// Record where this element's rendered output lands — the "old
+			// bounds" side of a later partial redraw's dirty rect.
+			if (pipelineType === "main") {
+				this.lastElementWorldBounds.set(element.id, cullBounds);
 			}
 
 			// Set current transform index and mask bind group for this element.

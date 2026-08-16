@@ -32,7 +32,8 @@ struct DiffuseUniforms {
 	resolution: vec2f,
 	paperScale: f32,
 	randomSeed: f32,
-	// 1 / iterationCount, so the total effect is iteration-count independent.
+	// 1 / iterationCount. Drying, advection and alignment scale by it so their
+	// totals stay put however long the pass runs; diffusion does not.
 	dt: f32,
 	// Brush radius in seed-resolution pixels (advection reach reference).
 	brushRadiusPx: f32,
@@ -45,6 +46,10 @@ struct DiffuseUniforms {
 	seedResolution: vec2f,
 	pad0: vec2f,
 }
+
+/** Diffusion carried per iteration at the parameter maxima. Its value is what
+ *  the pass assumes when it works out how many iterations a bleed needs. */
+const DIFFUSION_STEP: f32 = 0.228;
 
 @group(0) @binding(0) var<uniform> uniforms: DiffuseUniforms;
 @group(0) @binding(1) var srcPigment: texture_2d<f32>;
@@ -223,10 +228,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 		(leftMoisture.b + rightMoisture.b + downMoisture.b + upMoisture.b) - water * 4.0;
 	// Explicit-Euler coefficient; the 0.23 cap keeps it below the 0.25
 	// stability limit at the parameter maxima.
+	//
+	// This is per step and deliberately not scaled by dt: how far paint runs
+	// is the grid spacing times sqrt(2 * D * iterations), so dividing D by the
+	// iteration count would pin the reach and leave the count nothing to do.
+	// Drying, advection and alignment below stay dt-normalized — their totals
+	// must not move when the pass runs longer.
 	let waterDiffusion = min(
 		0.23,
-		7.3 * (0.25 + 0.75 * bleedSoftness) * (0.3 + 0.7 * uniforms.bleedRadius) *
-			(0.7 + 0.3 * wetness) * isotropicScale * uniforms.dt,
+		DIFFUSION_STEP * (0.25 + 0.75 * bleedSoftness) *
+			(0.3 + 0.7 * uniforms.bleedRadius) * (0.7 + 0.3 * wetness) *
+			isotropicScale,
 	);
 	let nextWaterAmount = max(0.0, (water + lapWater * waterDiffusion) * retention);
 
@@ -260,13 +272,30 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 		samplePigmentBilinear(vec2f(gid.xy) - vec2f(flowDir.x, -flowDir.y) * advectStep) *
 		directionalFade;
 
+	// The laplacian has to be taken around the value it is added to. Measuring
+	// it from the un-advected centre leaves the update with no positive weight
+	// holding that centre down, so the field oscillates and grows, and the
+	// non-negativity floor below then breaks colour away from density. Around
+	// the advected value the weights are 1-4D on it and D on each neighbour,
+	// which sum to one and stay non-negative while D is under the 0.25 limit.
 	let lapPigment =
-		(leftPigment + rightPigment + downPigment + upPigment) - centerPigment * 4.0;
+		(leftPigment + rightPigment + downPigment + upPigment) -
+		advectedPigment * 4.0;
 	let pigmentMobility = clamp(nextWaterAmount * (0.35 + wetness), 0.0, 1.0);
 	let granulationHold = 1.0 - granulation * grain * (0.35 + coverage * 0.45);
 	let pigmentDiffusion = min(0.23, waterDiffusion * 0.6 * pigmentMobility * granulationHold);
-	var nextPigment = advectedPigment + lapPigment * pigmentDiffusion;
-	nextPigment = max(nextPigment, vec4f(0.0));
+	// rgb is colour * density and a is that density, so the two have to be
+	// clamped as one value. Flooring them channel by channel lets a texel keep
+	// its colour after its density has been floored away, and the composite
+	// recovers the colour by dividing rgb by the density — a ratio broken here
+	// comes out as paint brighter than anything the stroke was given.
+	let rawPigment = advectedPigment + lapPigment * pigmentDiffusion;
+	let density = max(rawPigment.a, 0.0);
+	var nextPigment = select(
+		vec4f(0.0),
+		vec4f(max(rawPigment.rgb, vec3f(0.0)), density),
+		density > 0.0,
+	);
 
 	// Carried flow aligns toward the current target at a dt-normalized rate;
 	// saturating its magnitude keeps the feedback gain below 1.

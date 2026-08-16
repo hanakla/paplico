@@ -1349,6 +1349,68 @@ describe("migBrushV2 (20260803)", () => {
 		expect(bs.properties?.wetness?.base).toBeGreaterThan(0);
 	});
 
+	it("carries buildup strokes as full-coverage flow without a pressure fold", () => {
+		const settings = makeV1ScatterSettings();
+		delete settings.wetInk;
+		const doc = makeDoc({
+			p1: makeLegacyPath({
+				filters: [
+					{
+						enabled: true,
+						processor: "stroke",
+						opacity: 1,
+						blendMode: "normal",
+						paramData: {
+							params: {
+								strokeColor: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+								brushSettings: settings,
+							},
+						},
+					},
+				],
+			}),
+		});
+
+		applyMigration(doc, migBrushV2);
+
+		const bs = (doc.objects.p1 as any).filters[0].paramData.params
+			.brushSettings as Record<string, any>;
+		expect(bs.properties.flow.base).toBe(1);
+		expect(bs.properties.flow.curves).toBeUndefined();
+	});
+
+	it("keeps the opacity fold for wet-ink strokes (wash paints flow directly)", () => {
+		const doc = makeBrushDoc();
+
+		applyMigration(doc, migBrushV2);
+
+		const bs = (doc.objects.p1 as any).filters[0].paramData.params
+			.brushSettings as Record<string, any>;
+		expect(bs.paintMode).toBe("wash");
+		expect(bs.properties.flow.base).toBeCloseTo(0.8 * 0.6, 10);
+		expect(bs.properties.flow.curves?.[0]?.input).toBe("pressure");
+	});
+
+	it("keeps the opacity fold for presets", () => {
+		const doc = makeDoc({});
+		doc.brushPresets = [
+			{
+				uid: "preset-scatter",
+				name: "Scatter",
+				settings: (() => {
+					const s = makeV1ScatterSettings();
+					delete s.wetInk;
+					return s;
+				})() as unknown as BrushSettingsV2,
+			},
+		];
+
+		applyMigration(doc, migBrushV2);
+
+		const settings = (doc.brushPresets?.[0] as any).settings;
+		expect(settings.properties.flow.base).toBeCloseTo(0.8 * 0.6, 10);
+	});
+
 	it("converts a legacy flat preset shape (defaultSettings + textureFileUid)", () => {
 		const doc = makeDoc({});
 		doc.brushPresets = [

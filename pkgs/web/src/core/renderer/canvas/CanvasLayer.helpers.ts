@@ -45,6 +45,17 @@ export function aabbOfQuad(
 	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
 
+/** Pan margin baked around the viewport on store-eligible frames (device px
+ *  per side). A pan stays a cache blit until it exits the margin, which then
+ *  costs one oversized re-render that re-centers the store (Inkscape's
+ *  store/prerender padding, sized for ~16px-per-frame pans). */
+export const STORE_MARGIN_PX = 256;
+
+/** Store dimensions quantum (device px). Margined prebuf sizes are rounded up
+ *  to this so continuous zoom does not re-allocate the five prebuf-sized
+ *  textures every frame (DocumentCache ensure* compare sizes exactly). */
+export const STORE_DIM_QUANTUM = 128;
+
 export function calculatePrebufDimensions({
 	viewport,
 	visibleBounds,
@@ -52,6 +63,7 @@ export function calculatePrebufDimensions({
 	canvasHeight,
 	maxTextureDimension,
 	zoomOverride,
+	marginPx = 0,
 }: {
 	viewport: Viewport;
 	visibleBounds: Pick<BoundingBox, "width" | "height"> | null;
@@ -62,6 +74,9 @@ export function calculatePrebufDimensions({
 	 *  document's rasterization scale). World coverage still follows the
 	 *  viewport; the maxTextureDimension clamp applies as usual. */
 	zoomOverride?: number;
+	/** Extra device px per side for the pan-blit store. 0 keeps the exact
+	 *  pre-store sizing (exports and pixel preview depend on it). */
+	marginPx?: number;
 }): {
 	prebufWidth: number;
 	prebufHeight: number;
@@ -86,29 +101,112 @@ export function calculatePrebufDimensions({
 	);
 
 	return {
-		prebufWidth: Math.max(1, Math.ceil(requestedWorldWidth * prebufZoom)),
-		prebufHeight: Math.max(1, Math.ceil(requestedWorldHeight * prebufZoom)),
+		prebufWidth: applyStoreMargin(
+			Math.max(1, Math.ceil(requestedWorldWidth * prebufZoom)),
+			marginPx,
+			maxTextureDimension,
+		),
+		prebufHeight: applyStoreMargin(
+			Math.max(1, Math.ceil(requestedWorldHeight * prebufZoom)),
+			marginPx,
+			maxTextureDimension,
+		),
 		prebufZoom,
 	};
 }
 
 /**
- * Cap an interactive filter bake's density (texels per world px) to the
- * power-of-two bucket at or above the viewport zoom, so a zoomed-out viewport
- * does not rasterize filters far denser than the screen can show. The bucket
- * is quantized because downstream caches key on the resulting density and
- * would miss on every frame of a continuous zoom.
- *
- * Invariants: result <= rasterZoom, and result >= min(rasterZoom, viewportZoom)
- * so a raised rasterizationDpi still sharpens zoomed-in views.
+ * Ids whose edit changes pixels OUTSIDE the element's own bounds because
+ * another element derives its render from them: mask/clip/axis references and
+ * the children of derived containers (compound path booleans, blends, mesh
+ * warps — a source edit reshapes the container anywhere). Plain group children
+ * are excluded: a group composes children in place, so a child edit stays
+ * inside the child's own region. The partial-redraw path cannot bound these
+ * effects and falls back to a full render.
  */
-export function capFilterBakeDensity(
+export function collectExternallyReferencedIds(
+	elementsMap: ReadonlyMap<string, AnyArtObject>,
+): Set<string> {
+	const referenced = new Set<string>();
+	for (const el of elementsMap.values()) {
+		if (el.type !== "group") {
+			for (const childId of getContainerChildIds(el) ?? []) {
+				referenced.add(childId);
+			}
+		}
+		if (el.mask) for (const mid of el.mask.elementIds) referenced.add(mid);
+		if ((el.type === "group" || el.type === "text") && el.clipPathId) {
+			referenced.add(el.clipPathId);
+		}
+		if (el.type === "text" && el.axisBinding) {
+			referenced.add(el.axisBinding.pathObjectId);
+		}
+	}
+	return referenced;
+}
+
+/** Union of two world-space boxes (width/height kept consistent). */
+export function unionBoundingBoxes(
+	a: BoundingBox | null,
+	b: BoundingBox | null,
+): BoundingBox | null {
+	if (!a) return b;
+	if (!b) return a;
+	const minX = Math.min(a.minX, b.minX);
+	const minY = Math.min(a.minY, b.minY);
+	const maxX = Math.max(a.maxX, b.maxX);
+	const maxY = Math.max(a.maxY, b.maxY);
+	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+/** Convert a getVisibleWorldBounds result into the BoundingBox shape used by
+ *  culling and the composite-frame cache. */
+export function visibleBoundsToBox(v: {
+	left: number;
+	right: number;
+	top: number;
+	bottom: number;
+	width: number;
+	height: number;
+}): BoundingBox {
+	return {
+		minX: v.left,
+		minY: v.bottom,
+		maxX: v.right,
+		maxY: v.top,
+		width: v.width,
+		height: v.height,
+	};
+}
+
+function applyStoreMargin(
+	base: number,
+	marginPx: number,
+	maxTextureDimension: number,
+): number {
+	if (marginPx <= 0) return base;
+	const padded = base + marginPx * 2;
+	return Math.min(
+		maxTextureDimension,
+		Math.ceil(padded / STORE_DIM_QUANTUM) * STORE_DIM_QUANTUM,
+	);
+}
+
+/**
+ * Interactive bake density (texels per world px): the power-of-two bucket at
+ * or above the viewport zoom, so bakes follow what the display actually needs
+ * — sharper as the user zooms in, coarser zoomed out (Inkscape bakes its
+ * raster caches at the live CTM the same way; rasterizationDpi governs
+ * exports, not the screen). The bucket is quantized because downstream caches
+ * key on the resulting density and would miss on every frame of a continuous
+ * zoom. Degenerate zoom values fall back to the document's raster scale.
+ */
+export function interactiveBakeDensity(
 	rasterZoom: number,
 	viewportZoom: number,
 ): number {
 	if (!Number.isFinite(viewportZoom) || viewportZoom <= 0) return rasterZoom;
-	const bucket = 2 ** Math.ceil(Math.log2(viewportZoom));
-	return Math.min(rasterZoom, Math.max(bucket, viewportZoom));
+	return 2 ** Math.ceil(Math.log2(viewportZoom));
 }
 
 /**

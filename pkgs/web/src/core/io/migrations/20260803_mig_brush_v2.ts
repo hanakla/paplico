@@ -19,7 +19,9 @@ export const migBrushV2: Migration = {
 					| Record<string, unknown>
 					| undefined;
 				if (filter.processor !== "stroke" || !params?.brushSettings) continue;
-				params.brushSettings = normalizeBrushSettingsV2(params.brushSettings);
+				params.brushSettings = normalizeBrushSettingsV2(params.brushSettings, {
+					fullCoverageFlow: true,
+				});
 			}
 		}
 

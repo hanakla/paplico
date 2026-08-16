@@ -72,14 +72,14 @@ export async function createTestRenderer({
 		});
 	}
 
-	const canvas = createCanvasTarget();
+	const canvas = createCanvasTarget(() => renderer.getDevice());
 	await renderer.initCanvasTarget(canvas);
 	renderer.setCanvasTarget(canvas);
 
 	return { renderer, canvas };
 }
 
-function createCanvasTarget(): CanvasTarget {
+function createCanvasTarget(getDevice: () => GPUDevice | null): CanvasTarget {
 	const mockCanvas: any = {
 		width: 800,
 		height: 600,
@@ -102,14 +102,39 @@ function createCanvasTarget(): CanvasTarget {
 		}),
 	};
 
+	// Simulated swapchain: hand out a real texture so the interactive frame
+	// path (RenderOrchestrator.render — strategy-driven, composite blit) is
+	// drivable headless. Reused across frames like a real swapchain image.
+	let configuredFormat: GPUTextureFormat | null = null;
+	let swapchainTexture: GPUTexture | null = null;
 	const mockContext = {
 		canvas: mockCanvas,
-		configure: () => {},
+		configure: (config: { format: GPUTextureFormat }) => {
+			configuredFormat = config.format;
+		},
 		unconfigure: () => {},
 		getCurrentTexture: () => {
-			throw new Error(
-				"getCurrentTexture should not be called in test environment",
-			);
+			const device = getDevice();
+			if (!device || !configuredFormat) {
+				throw new Error("test canvas context is not configured yet");
+			}
+			if (
+				!swapchainTexture ||
+				swapchainTexture.width !== mockCanvas.width ||
+				swapchainTexture.height !== mockCanvas.height
+			) {
+				swapchainTexture?.destroy();
+				swapchainTexture = device.createTexture({
+					label: "Test Swapchain Texture",
+					size: { width: mockCanvas.width, height: mockCanvas.height },
+					format: configuredFormat,
+					usage:
+						GPUTextureUsage.RENDER_ATTACHMENT |
+						GPUTextureUsage.TEXTURE_BINDING |
+						GPUTextureUsage.COPY_SRC,
+				});
+			}
+			return swapchainTexture;
 		},
 	} as any as GPUCanvasContext;
 

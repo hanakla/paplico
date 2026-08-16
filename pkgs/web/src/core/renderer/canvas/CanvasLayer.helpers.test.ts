@@ -20,11 +20,11 @@ import {
 } from "../geometry/bezierFlatten";
 import {
 	calculatePrebufDimensions,
-	capFilterBakeDensity,
 	computeDotGridPhase,
 	createCompoundPathRenderPath,
 	expandRenderFilter,
 	groupSubPathsByContainment,
+	interactiveBakeDensity,
 } from "./CanvasLayer.helpers";
 
 describe("calculatePrebufDimensions", () => {
@@ -130,39 +130,40 @@ describe("calculatePrebufDimensions", () => {
 	});
 });
 
-describe("capFilterBakeDensity", () => {
-	it("should keep the rasterization scale when the viewport zoom is at or above it", () => {
-		expect(capFilterBakeDensity(1, 1)).toBe(1);
-		expect(capFilterBakeDensity(1, 2.5)).toBe(1);
-		expect(capFilterBakeDensity(4, 8)).toBe(4);
+describe("interactiveBakeDensity", () => {
+	it("should follow the display density when zooming in, past the raster scale", () => {
+		expect(interactiveBakeDensity(1, 1)).toBe(1);
+		// zoom 2.5 → bucket 4: bakes sharpen with the zoom instead of pinning
+		// to the document raster scale (which kept them blurry forever).
+		expect(interactiveBakeDensity(1, 2.5)).toBe(4);
+		expect(interactiveBakeDensity(4, 8)).toBe(8);
 	});
 
-	it("should cap a zoomed-out bake to the power-of-two bucket above the zoom", () => {
+	it("should coarsen a zoomed-out bake to the power-of-two bucket above the zoom", () => {
 		// zoom 0.19 → bucket 0.25; raster density 1 would be 5x the display
-		expect(capFilterBakeDensity(1, 0.19)).toBe(0.25);
-		expect(capFilterBakeDensity(4, 0.6)).toBe(1);
+		expect(interactiveBakeDensity(1, 0.19)).toBe(0.25);
+		expect(interactiveBakeDensity(4, 0.6)).toBe(1);
 	});
 
 	it("should never go below the display density", () => {
-		for (const zoom of [0.13, 0.3, 0.77, 1.9]) {
-			const capped = capFilterBakeDensity(4, zoom);
-			expect(capped).toBeGreaterThanOrEqual(Math.min(4, zoom));
-			expect(capped).toBeLessThanOrEqual(4);
+		for (const zoom of [0.13, 0.3, 0.77, 1.9, 3.2]) {
+			expect(interactiveBakeDensity(4, zoom)).toBeGreaterThanOrEqual(zoom);
 		}
 	});
 
 	it("should return a stable value across a zoom bucket so cache keys stay stable", () => {
-		expect(capFilterBakeDensity(2, 0.26)).toBe(capFilterBakeDensity(2, 0.49));
-		expect(capFilterBakeDensity(2, 0.26)).not.toBe(
-			capFilterBakeDensity(2, 0.51),
+		expect(interactiveBakeDensity(2, 0.26)).toBe(
+			interactiveBakeDensity(2, 0.49),
+		);
+		expect(interactiveBakeDensity(2, 0.26)).not.toBe(
+			interactiveBakeDensity(2, 0.51),
 		);
 	});
 
 	it("should fall back to the rasterization scale for degenerate zoom values", () => {
-		expect(capFilterBakeDensity(2, 0)).toBe(2);
-		expect(capFilterBakeDensity(2, -1)).toBe(2);
-		expect(capFilterBakeDensity(2, Number.POSITIVE_INFINITY)).toBe(2);
-		expect(capFilterBakeDensity(2, Number.NaN)).toBe(2);
+		expect(interactiveBakeDensity(2, 0)).toBe(2);
+		expect(interactiveBakeDensity(2, -1)).toBe(2);
+		expect(interactiveBakeDensity(2, Number.NaN)).toBe(2);
 	});
 });
 

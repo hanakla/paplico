@@ -1,0 +1,47 @@
+import type { CubicBezierSegment } from "../schema";
+
+/**
+ * Turn angle (deg) at each interior anchor between consecutive fitted
+ * segments: measured between the incoming tangent (-cp2 of the previous
+ * segment) and the outgoing tangent (cp1 of the next). A sharp corner anchor
+ * shows a large turn; tangent-continuous joints show ~0.
+ */
+export function anchorTurns(
+	segments: CubicBezierSegment[],
+): { x: number; y: number; turnDeg: number }[] {
+	const turns: { x: number; y: number; turnDeg: number }[] = [];
+	for (let i = 1; i < segments.length; i++) {
+		const inX = -segments[i - 1].cp2.x;
+		const inY = -segments[i - 1].cp2.y;
+		const outX = segments[i].cp1.x;
+		const outY = segments[i].cp1.y;
+		const lenIn = Math.hypot(inX, inY);
+		const lenOut = Math.hypot(outX, outY);
+		if (lenIn < 1e-9 || lenOut < 1e-9) continue;
+		const dot = Math.min(
+			1,
+			Math.max(-1, (inX * outX + inY * outY) / (lenIn * lenOut)),
+		);
+		const anchor = segments[i - 1].end;
+		turns.push({
+			x: anchor.x,
+			y: anchor.y,
+			turnDeg: (Math.acos(dot) * 180) / Math.PI,
+		});
+	}
+	return turns;
+}
+
+/** Largest anchor turn (deg) within `radius` of (x, y); 0 when none. */
+export function maxTurnNear(
+	segments: CubicBezierSegment[],
+	x: number,
+	y: number,
+	radius: number,
+): number {
+	let max = 0;
+	for (const t of anchorTurns(segments)) {
+		if (Math.hypot(t.x - x, t.y - y) <= radius) max = Math.max(max, t.turnDeg);
+	}
+	return max;
+}

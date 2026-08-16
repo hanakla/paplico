@@ -345,6 +345,80 @@ describe("PaplicoSVGExporter", () => {
 		expect(result?.svg).toContain(`stroke-width="8"`);
 	});
 
+	it("should merge a fill and the stroke above it into a single <path>", async () => {
+		const filled = path("fs1", {
+			filters: [
+				solidFill(1, 0, 0),
+				{
+					uid: "stroke-fs1",
+					processor: "stroke",
+					opacity: 1,
+					blendMode: "normal",
+					paramData: {
+						version: "1",
+						params: {
+							strokeColor: {
+								type: "solid",
+								color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+							},
+							brushSettings: {
+								version: 2,
+								engine: "geometric",
+								strokeOpacity: 1,
+								paintMode: "buildup",
+								properties: { size: { base: 4 } },
+								randomSeed: 0,
+							},
+						},
+					},
+				} as Filter,
+			],
+		});
+		const doc = makeDocument([filled], [{ elementIds: ["fs1"] }]);
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.renderArtboardToSVG("artboard1");
+
+		expect(result?.svg.match(/<path /g)).toHaveLength(1);
+		expect(result?.svg).toMatch(/<path [^>]*fill="[^"]+"[^>]*stroke="[^"]+"/);
+	});
+
+	it("should merge a stroke below its fill via paint-order", async () => {
+		const stroked = path("sf1", {
+			filters: [
+				{
+					uid: "stroke-sf1",
+					processor: "stroke",
+					opacity: 1,
+					blendMode: "normal",
+					paramData: {
+						version: "1",
+						params: {
+							strokeColor: {
+								type: "solid",
+								color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+							},
+							brushSettings: {
+								version: 2,
+								engine: "geometric",
+								strokeOpacity: 1,
+								paintMode: "buildup",
+								properties: { size: { base: 4 } },
+								randomSeed: 0,
+							},
+						},
+					},
+				} as Filter,
+				solidFill(1, 0, 0),
+			],
+		});
+		const doc = makeDocument([stroked], [{ elementIds: ["sf1"] }]);
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.renderArtboardToSVG("artboard1");
+
+		expect(result?.svg.match(/<path /g)).toHaveLength(1);
+		expect(result?.svg).toContain(`paint-order="stroke"`);
+	});
+
 	it("should distribute element opacity into shape paints (non-isolated)", async () => {
 		const el = path("op1", {
 			opacity: 0.5,

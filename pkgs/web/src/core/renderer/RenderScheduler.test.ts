@@ -154,59 +154,49 @@ describe("RenderScheduler", () => {
 			expect(strategy).toBe("overlayOnly");
 		});
 
-		it("should blit the cached frame for a zoom interaction", () => {
+		it("should blit the cached frame for a viewport interaction", () => {
 			const callback = vi.fn();
 			const scheduler = new RenderScheduler(callback);
 
-			// A zoom interaction blits the cached composite (reprojected).
-			scheduler.markViewportInteraction(true);
+			// Pan and zoom interactions both try the composite blit; CanvasLayer
+			// falls through to a re-render when the cache no longer covers the
+			// visible world.
+			scheduler.markDirty("viewport");
 			flushFrame();
 
 			expect(lastCall(callback)[0]).toBe("viewportBlit");
 		});
 
-		it("should full-render a pan-only interaction (no zoom change)", () => {
-			const callback = vi.fn();
-			const scheduler = new RenderScheduler(callback);
-
-			// Panning a screen-sized cache would reveal unbaked edges, so a
-			// pan-only viewport interaction re-renders instead of blitting.
-			scheduler.markViewportInteraction(false);
-			flushFrame();
-
-			expect(lastCall(callback)[0]).toBe("fullInteraction");
-		});
-
-		it("should let selection ride along a zoom blit", () => {
+		it("should let selection ride along a viewport blit", () => {
 			const callback = vi.fn();
 			const scheduler = new RenderScheduler(callback);
 
 			// selection only affects the overlay layer (re-rendered every frame),
 			// so it does not force a document re-render.
-			scheduler.markViewportInteraction(true);
+			scheduler.markDirty("viewport");
 			scheduler.markDirty("selection");
 			flushFrame();
 
 			expect(lastCall(callback)[0]).toBe("viewportBlit");
 		});
 
-		it("should fall back to fullInteraction when a preview rides with a zoom", () => {
+		it("should fall back to fullInteraction when a preview rides with a viewport change", () => {
 			const callback = vi.fn();
 			const scheduler = new RenderScheduler(callback);
 
 			// An in-progress draw needs real document pixels, so no blit.
-			scheduler.markViewportInteraction(true);
+			scheduler.markDirty("viewport");
 			scheduler.markDirty("preview");
 			flushFrame();
 
 			expect(lastCall(callback)[0]).toBe("fullInteraction");
 		});
 
-		it("should fall back to fullInteraction when a render dirt rides with a zoom", () => {
+		it("should fall back to fullInteraction when a render dirt rides with a viewport change", () => {
 			const callback = vi.fn();
 			const scheduler = new RenderScheduler(callback);
 
-			scheduler.markViewportInteraction(true);
+			scheduler.markDirty("viewport");
 			scheduler.markDirty("render");
 			flushFrame();
 
@@ -221,7 +211,7 @@ describe("RenderScheduler", () => {
 				const callback = vi.fn();
 				const scheduler = new RenderScheduler(callback);
 
-				scheduler.markViewportInteraction(true);
+				scheduler.markDirty("viewport");
 				flushFrame();
 				expect(lastCall(callback)[0]).toBe("viewportBlit");
 

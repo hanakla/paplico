@@ -1407,9 +1407,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					viewport.zoom !== undefined &&
 					viewport.zoom !== target.getViewport().zoom;
 				target.setViewport(viewport);
-				// Only a zoom change may blit the cached composite; a pan
-				// re-renders (see RenderScheduler.markViewportInteraction).
-				scheduler.markViewportInteraction(zoomChanged);
+				// Every viewport interaction tries the composite blit; CanvasLayer
+				// re-renders when the cached frame no longer covers the view.
+				scheduler.markDirty("viewport");
 				// Tool overlays with fixed on-screen sizes baked into world
 				// coordinates (scene gizmo arrows/rings) rebuild at the new zoom.
 				if (zoomChanged) this.tool?.refreshUI?.();

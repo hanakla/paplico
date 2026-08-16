@@ -62,6 +62,44 @@ function createTestPath(strokeWidths?: StrokeWidthPoint[]): Path {
 	} as unknown as Path;
 }
 
+/** Path whose brush settings / segment pressures drive the rendered width. */
+function createBrushTestPath(options: {
+	brushSettings: Record<string, unknown>;
+	startPressure?: number;
+	endPressure?: number;
+	strokeWidths?: StrokeWidthPoint[];
+}): Path {
+	const base = createTestPath(options.strokeWidths);
+	return {
+		...base,
+		segments: [
+			{
+				...base.segments[0],
+				startPressure: options.startPressure,
+				endPressure: options.endPressure,
+				startTiltX: 0,
+				startTiltY: 0,
+				endTiltX: 0,
+				endTiltY: 0,
+				startDeltaTime: 0,
+				endDeltaTime: 200,
+			},
+		],
+		filters: [
+			{
+				...base.filters![0],
+				paramData: {
+					version: "1",
+					params: {
+						strokeColor: { type: "rgb" as const, r: 0, g: 0, b: 0, a: 1 },
+						brushSettings: options.brushSettings,
+					},
+				},
+			},
+		],
+	} as unknown as Path;
+}
+
 /** Last "stroke-width/handles" overlay pushed through the generic channel. */
 function lastStrokeWidthOverlay(ctx: MockToolContext): UIOverlay | null {
 	const call = ctx.uiSetOverlay.mock.calls
@@ -552,6 +590,186 @@ describe("StrokeWidthEditTool", () => {
 			);
 
 			expect(handled).toBe(false);
+		});
+	});
+
+	describe("actual rendered width (pressure / taper)", () => {
+		function pressureHalvedSettings(pressureCurveDepth: number) {
+			return {
+				version: 2,
+				engine: "geometric",
+				strokeOpacity: 1,
+				paintMode: "buildup",
+				properties: {
+					size: {
+						base: 40,
+						curves: [
+							{
+								input: "pressure",
+								points: [
+									[0, -pressureCurveDepth],
+									[1, 0],
+								],
+							},
+						],
+					},
+				},
+				randomSeed: 0,
+			};
+		}
+
+		function initTool(p: Path): void {
+			ctx.getPathById.mockReturnValue(p);
+			ctx.updateElement.mockImplementation((_id, patch) => {
+				p = { ...p, ...patch } as Path;
+				ctx.getPathById.mockReturnValue(p);
+			});
+			tool.initWithSelectedPath(
+				p,
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		}
+
+		function handleY(ctx: MockToolContext, hitId: string): number {
+			return getHandleCircles(ctx).find((p) => p.hitId === hitId)!.cy;
+		}
+
+		it("should place handles at the pressure-evaluated width, not the base width", () => {
+			// base 40 (brushHalf 20), pressure 0 with a half-depth curve → half 10
+			initTool(
+				createBrushTestPath({
+					brushSettings: pressureHalvedSettings(0.5),
+					startPressure: 0,
+					endPressure: 0,
+				}),
+			);
+
+			expect(handleY(ctx, "-1:side1")).toBeCloseTo(10, 4);
+			expect(handleY(ctx, "-2:side1")).toBeCloseTo(10, 4);
+		});
+
+		it("should collapse the handle to the centerline at a taper tip", () => {
+			initTool(
+				createBrushTestPath({
+					brushSettings: {
+						version: 2,
+						engine: "geometric",
+						strokeOpacity: 1,
+						paintMode: "buildup",
+						properties: { size: { base: 40 } },
+						randomSeed: 0,
+						taperStart: 100,
+					},
+				}),
+			);
+
+			expect(handleY(ctx, "-1:side1")).toBeCloseTo(0, 4);
+			expect(handleY(ctx, "-2:side1")).toBeCloseTo(20, 4);
+		});
+
+		it("should follow the dab evaluator's sizes on a dab brush", () => {
+			initTool(
+				createBrushTestPath({
+					brushSettings: {
+						version: 2,
+						engine: "dab",
+						strokeOpacity: 1,
+						paintMode: "buildup",
+						properties: {
+							size: {
+								base: 10,
+								curves: [
+									{
+										input: "pressure",
+										points: [
+											[0, -1],
+											[1, 0],
+										],
+									},
+								],
+							},
+							ratio: { base: 1 },
+							flow: { base: 1 },
+							spacing: { base: 0.05 },
+						},
+						randomSeed: 0,
+						tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
+					},
+					startPressure: 1,
+					endPressure: 0,
+				}),
+			);
+
+			// Full pressure at the start (half ≈ 5), none at the end (half ≈ 0).
+			expect(handleY(ctx, "-1:side1")).toBeGreaterThan(3);
+			expect(handleY(ctx, "-2:side1")).toBeLessThan(1.5);
+		});
+
+		it("should convert a drag by the actual width at the point", () => {
+			// half 10 → the side1 handle of {side1: 0.5} sits at world y = 5
+			initTool(
+				createBrushTestPath({
+					brushSettings: pressureHalvedSettings(0.5),
+					startPressure: 0,
+					endPressure: 0,
+					strokeWidths: [{ t: 0.5, side1: 0.5, side2: 0.8 }],
+				}),
+			);
+			tool.onPointerDown(
+				ev(400, 295),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// screen(400, 293) → world y = 7 → side1 asks for 7/10 = 0.7; the +0.2
+			// delta is what side2's headroom allows. Dividing by the base half (20)
+			// instead would ask for 0.35 and shrink the point.
+			tool.onPointerMove(
+				ev(400, 293),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const point = draggedWidthPoint(ctx);
+			expect(point.side1).toBeCloseTo(0.7);
+			expect(point.side2).toBeCloseTo(1);
+		});
+
+		it("should write finite widths when dragging at a zero-width point", () => {
+			// Full-depth curve at pressure 0 → actual width 0 everywhere.
+			initTool(
+				createBrushTestPath({
+					brushSettings: pressureHalvedSettings(1),
+					startPressure: 0,
+					endPressure: 0,
+					strokeWidths: [{ t: 0.5, side1: 0.5, side2: 0.8 }],
+				}),
+			);
+			// All three t=0.5 handles collapse onto world(0, 0); clicking just off
+			// the centre stays outside the centre disc and grabs a side handle.
+			tool.onPointerDown(
+				ev(400, 294.5),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// Pointer on the centerline: projected = 0 over a 0 half width would be
+			// 0/0 = NaN without the ratio-denominator floor.
+			tool.onPointerMove(
+				ev(410, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const point = draggedWidthPoint(ctx);
+			expect(Number.isFinite(point.side1)).toBe(true);
+			expect(Number.isFinite(point.side2)).toBe(true);
 		});
 	});
 

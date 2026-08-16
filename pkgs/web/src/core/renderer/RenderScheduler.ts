@@ -28,7 +28,8 @@ export type DirtyReason =
 const FULL_RENDER_REASONS: ReadonlySet<DirtyReason> = new Set([
 	"document",
 	"editingScope",
-	// "viewport" excluded: pan/zoom uses oversize document cache in CanvasLayer
+	// "viewport" excluded: interaction frames blit the cached composite frame
+	// (or fall through to a re-render inside CanvasLayer when it is stale).
 	"resize",
 	"collaboration",
 ]);
@@ -61,10 +62,6 @@ export class RenderScheduler {
 
 	/** Whether the user is actively interacting (zoom/pan). */
 	private isInteracting = false;
-	/** Whether the zoom (not just pan) changed among this frame's viewport
-	 *  dirties. Only a zoom can blit the cached composite; a pan blit would
-	 *  reveal unbaked edges beyond the screen-sized cache, so pans re-render. */
-	private viewportZoomChanged = false;
 	/** Debounce timer for settling after interaction stops. */
 	private settleTimer: ReturnType<typeof setTimeout> | null = null;
 	/** Whether volatile content (transient preview elements, element overrides)
@@ -132,17 +129,6 @@ export class RenderScheduler {
 		}
 
 		this.scheduleFrame();
-	}
-
-	/**
-	 * A viewport interaction dirty that also records whether the zoom changed.
-	 * Panning re-renders (a translated blit of the screen-sized cache would show
-	 * unbaked edges); zooming blits the cached composite. Callers that only pan
-	 * may use `markDirty("viewport")` directly.
-	 */
-	public markViewportInteraction(zoomChanged: boolean): void {
-		if (zoomChanged) this.viewportZoomChanged = true;
-		this.markDirty("viewport");
 	}
 
 	/**
@@ -214,7 +200,6 @@ export class RenderScheduler {
 				const changedElements = this.changedElements ?? undefined;
 				this.changedElements = emptyChanges();
 				this.dirtyReasons.clear();
-				this.viewportZoomChanged = false;
 				this.renderCallback(strategy, changedElements);
 			}
 		});
@@ -232,17 +217,16 @@ export class RenderScheduler {
 		}
 
 		if (this.dirtyReasons.has("viewport") && this.isInteracting) {
-			// A ZOOM interaction can blit the cached composite frame instead of
-			// re-rendering the document. Overlay-only reasons (selection/cursor)
-			// ride along because the overlay layer re-renders every frame anyway.
-			// A pan-only interaction re-renders (a translated blit of the
-			// screen-sized cache would reveal unbaked edges). "preview"
+			// Any viewport interaction (pan/zoom/rotate) tries the composite
+			// blit; CanvasLayer falls through to a re-render when the cached
+			// frame no longer covers the visible world (e.g. a pan past the
+			// store margin). Overlay-only reasons (selection/cursor) ride along
+			// because the overlay layer re-renders every frame anyway. "preview"
 			// (in-progress draw geometry) and "render" (async resource /
-			// post-process) need real document pixels, so those re-render too.
+			// post-process) need real document pixels, so those re-render.
 			// Volatile content (transient previews / overrides) is never in the
 			// composite cache, so blitting while it exists would hide it.
 			if (
-				this.viewportZoomChanged &&
 				!this.dirtyReasons.has("preview") &&
 				!this.dirtyReasons.has("render") &&
 				!this.hasVolatileContent()
