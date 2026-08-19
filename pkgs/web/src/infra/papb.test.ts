@@ -59,7 +59,13 @@ describe("papb codec", () => {
 
 		expect(brushPreset.defaultSettings.version).toBe(2);
 		expect(brushPreset.defaultSettings.engine).toBe("dab");
-		expect(brushPreset.defaultSettings.properties.size?.base).toBe(24);
+		// The width is never recorded in preset data: the legacy size 24 is
+		// dropped on read while the pressure curve migrated from
+		// sizeByPressure survives.
+		expect(brushPreset.defaultSettings.properties.size?.base).toBeUndefined();
+		expect(
+			brushPreset.defaultSettings.properties.size?.curves?.length,
+		).toBeGreaterThan(0);
 	});
 
 	it("should reject unsupported schema versions", () => {

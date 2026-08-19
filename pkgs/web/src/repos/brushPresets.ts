@@ -1,3 +1,4 @@
+import { withoutStoredBrushSize } from "@/core/brush/access";
 import { withTextureFileUid } from "@/core/brush/brushSource";
 import {
 	createBuiltinBrushFiles,
@@ -94,7 +95,8 @@ export function createPersistedBrushPreset({
 	return {
 		uid,
 		name,
-		defaultSettings: deepClone(defaultSettings),
+		// Presets never record the user's working width — see withoutStoredBrushSize.
+		defaultSettings: deepClone(withoutStoredBrushSize(defaultSettings)),
 		textureName: file.name,
 		textureMime: file.type,
 		textureHash: file.hash,

@@ -1199,7 +1199,7 @@ export const BrushPresetCard = memo(function BrushPresetCard({
 	);
 });
 
-const PresetSelect = memo(function PresetSelect({
+export const PresetSelect = memo(function PresetSelect({
 	persistedPresets,
 	builtinPresets,
 	selectedUid,

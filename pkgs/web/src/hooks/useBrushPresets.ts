@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
+import { readStoredBrushSize, withStoredBrushSize } from "@/core/brush/access";
 import {
 	resolveBrushTextureUid,
 	withTextureFileUid,
@@ -222,12 +223,20 @@ export function useBrushPresets() {
 				: null) ?? null;
 
 	const applyBrushPreset = useEventCallback(async (presetUid: string) => {
+		// The brush width is the user's working value, not part of the preset's
+		// character: applying a preset swaps the brush but keeps the width.
+		const currentSize = readStoredBrushSize(tools.storedBrushSettings);
+		const keepWidth = <T>(settings: T): T =>
+			currentSize != null
+				? withStoredBrushSize(settings, currentSize)
+				: settings;
+
 		const builtinPreset = builtinPresets.find(
 			(preset) => preset.uid === presetUid,
 		);
 		if (builtinPreset) {
 			// Builtin preset settings already reference their builtin texture source.
-			tools.setBrushSettings(builtinPreset.settings);
+			tools.setBrushSettings(keepWidth(builtinPreset.settings));
 			setSelectedBrushPresetUid(builtinPreset.uid);
 			return;
 		}
@@ -243,7 +252,7 @@ export function useBrushPresets() {
 		});
 
 		tools.setBrushSettings(
-			withTextureFileUid(preset.defaultSettings, textureFileUid),
+			keepWidth(withTextureFileUid(preset.defaultSettings, textureFileUid)),
 		);
 		setSelectedBrushPresetUid(preset.uid);
 	});

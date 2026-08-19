@@ -1,4 +1,5 @@
 import type {
+	BrushPropertyConfig,
 	BrushSettingsPatch,
 	BrushSettingsV2,
 	BrushStroking,
@@ -39,6 +40,29 @@ export function readStoredWetBleedRatio(raw: unknown): number {
 	if (!isRecord(raw)) return 0;
 	const wet = (raw as unknown as BrushSettingsV2).wet;
 	return wet?.enabled === true ? wet.bleedRadius : 0;
+}
+
+/**
+ * Settings with the stored width deleted, for persistence. Presets and papb
+ * files must not record the user's working width; reading them back goes
+ * through normalizeBrushSettingsV2, which fills the registry default for the
+ * missing base. Size curves stay — they are the brush's dynamics, not a width.
+ */
+export function withoutStoredBrushSize(
+	settings: BrushSettingsV2,
+): BrushSettingsV2 {
+	// Callers may hand in raw pre-v2 records; those carry no properties bag.
+	if (!settings.properties?.size) return settings;
+	const { size, ...rest } = settings.properties;
+	if (!size.curves?.length) return { ...settings, properties: rest };
+	return {
+		...settings,
+		// The stored form intentionally omits `base`; normalize restores it.
+		properties: {
+			...rest,
+			size: { curves: size.curves } as BrushPropertyConfig,
+		},
+	};
 }
 
 /**

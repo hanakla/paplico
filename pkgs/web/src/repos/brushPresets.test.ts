@@ -157,7 +157,14 @@ describe("webBrushPresetsRepo", () => {
 
 		await webBrushPresetsRepo.save(preset);
 
-		expect(await webBrushPresetsRepo.list()).toEqual([preset]);
+		// The stored form is width-neutral; the read path normalizes it back to a
+		// full BrushSettingsV2, filling the registry-default size base.
+		expect(await webBrushPresetsRepo.list()).toEqual([
+			{
+				...preset,
+				defaultSettings: normalizeBrushSettingsV2(preset.defaultSettings),
+			},
+		]);
 
 		await webBrushPresetsRepo.rename(preset.uid, "Texture Prime");
 		expect((await webBrushPresetsRepo.get(preset.uid))?.name).toBe(

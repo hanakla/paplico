@@ -1,4 +1,5 @@
 import { decode, encode } from "cbor-x";
+import { withoutStoredBrushSize } from "@/core/brush/access";
 import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import {
 	type PersistedBrushPreset,
@@ -16,9 +17,15 @@ export interface PapbPayload {
 }
 
 export function serializePapb(brushPreset: PersistedBrushPreset): Uint8Array {
+	const snapshot = snapshotPersistedBrushPreset(brushPreset);
 	return encode({
 		schemaVersion: PAPB_SCHEMA_VERSION,
-		brushPreset: snapshotPersistedBrushPreset(brushPreset),
+		brushPreset: {
+			...snapshot,
+			// Presets stored before the width-neutral rule may still carry a
+			// width; the file format never does.
+			defaultSettings: withoutStoredBrushSize(snapshot.defaultSettings),
+		},
 	}) as Uint8Array;
 }
 
@@ -56,8 +63,11 @@ function normalizePersistedBrushPreset(value: unknown): PersistedBrushPreset {
 		uid: record.uid,
 		name: record.name,
 		// Records written before v2 are migrated on the way out, so callers
-		// never see the old shape.
-		defaultSettings: normalizeBrushSettingsV2(record.defaultSettings),
+		// never see the old shape. Old files may carry a width; strip it after
+		// normalize so imports never re-record one.
+		defaultSettings: withoutStoredBrushSize(
+			normalizeBrushSettingsV2(record.defaultSettings),
+		),
 		textureName: expectString(record.textureName, "textureName"),
 		textureMime: expectString(record.textureMime, "textureMime"),
 		textureHash: expectString(record.textureHash, "textureHash"),

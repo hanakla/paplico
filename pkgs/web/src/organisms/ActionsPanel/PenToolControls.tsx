@@ -9,7 +9,9 @@ import { resolveBrushRenderRoute } from "@/core/brush/renderRoute";
 import type { BrushStroking, LineCap, LineJoin } from "@/core/schema";
 import { appConfig } from "@/hooks/useAppConfig";
 import { useBrushEdits } from "@/hooks/useBrushEdits";
+import { useBrushPresets } from "@/hooks/useBrushPresets";
 import { useTranslation } from "@/locales";
+import { PresetSelect } from "@/organisms/Toolbar/BrushTools";
 import { useEventCallback } from "@/utils/hooks";
 import { StrokeWidthField } from "./StrokeWidthField";
 import { TaperRangeField } from "./TaperRangeField";
@@ -19,6 +21,7 @@ export const PenToolControls = memo(function PenToolControls() {
 	const t = useTranslation();
 	const { tools, commands } = usePaplico();
 	const brushEdits = useBrushEdits();
+	const brushPresets = useBrushPresets();
 	const toolSnap = useSnapshot(tools.state);
 
 	const rawBrush = toolSnap.strokeAppearance?.paramData.params.brushSettings;
@@ -99,8 +102,20 @@ export const PenToolControls = memo(function PenToolControls() {
 		appConfig.selectStrokeAfterDraw = checked;
 	});
 
+	const handlePresetSelect = useEventCallback((presetUid: string) => {
+		void brushPresets.applyBrushPreset(presetUid);
+	});
+
 	return (
 		<div className="flex flex-col gap-2 w-full">
+			<PresetSelect
+				persistedPresets={brushPresets.persistedPresets}
+				builtinPresets={brushPresets.builtinPresets}
+				selectedUid={brushPresets.selectedBrushPresetUid}
+				onSelect={handlePresetSelect}
+				getPersistedPreview={brushPresets.getPersistedPresetPreviewSource}
+				getBuiltinPreview={brushPresets.getBuiltinPresetPreviewSource}
+			/>
 			<StrokeWidthField
 				label={t("actionsPanel.brushWidth")}
 				value={
