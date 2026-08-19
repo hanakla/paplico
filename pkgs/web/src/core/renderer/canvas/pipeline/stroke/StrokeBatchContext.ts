@@ -12,6 +12,7 @@
  * texture instead of one per path.
  */
 
+import { neutralizeSizeCurves } from "../../../../brush/access";
 import {
 	resolveBrushTextureUid,
 	resolveOptionalSourceUid,
@@ -1131,6 +1132,7 @@ export class StrokeBatchContext {
 			pathStart: args.path.pathStart ?? 0,
 			pathEnd: args.path.pathEnd ?? 1,
 			strokeWidths: args.path.strokeWidths,
+			strokeWidthsBaked: args.path.strokeWidthsBaked,
 			textureAspectRatio: tip.textureAspectRatio,
 			variantCount: tip.variantCount,
 			startLayerIndex: tip.startLayerIndex,
@@ -1541,6 +1543,7 @@ export class StrokeBatchContext {
 					pathStart: path.pathStart ?? 0,
 					pathEnd: path.pathEnd ?? 1,
 					strokeWidths: path.strokeWidths,
+					strokeWidthsBaked: path.strokeWidthsBaked,
 					textureAspectRatio,
 					variantCount,
 					startLayerIndex,
@@ -2166,7 +2169,14 @@ export class StrokeBatchContext {
 		if (rawBrushSettings == null) return base;
 		const route = resolveBrushRenderRoute(rawBrushSettings);
 		if (route.kind !== "ribbon") return base;
-		return { ...base, curved: route.settings };
+		// Baked paths carry the size curves' evaluation in strokeWidths, which
+		// the ribbon applies as its side ratios; evaluate size from the base.
+		return {
+			...base,
+			curved: path.strokeWidthsBaked
+				? neutralizeSizeCurves(route.settings)
+				: route.settings,
+		};
 	}
 
 	/** Per-path ribbon tiling for the path meta. Zeroed for non-ribbon
@@ -2479,6 +2489,7 @@ function hashStampInput(path: Path, segments: CubicBezierSegment[]): string {
 	let h = hashSegmentsWithMetadata(segments);
 	h = (h * 31 + floatBits(path.pathStart ?? 0)) | 0;
 	h = (h * 31 + floatBits(path.pathEnd ?? 1)) | 0;
+	h = (h * 31 + (path.strokeWidthsBaked ? 1 : 0)) | 0;
 	const strokeWidths = path.strokeWidths;
 	if (strokeWidths) {
 		h = (h * 31 + strokeWidths.length) | 0;

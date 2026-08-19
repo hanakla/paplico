@@ -2728,6 +2728,8 @@ export function objectToStoredFields(
 			fields.segments = JSON.stringify(element.segments);
 			if (element.strokeWidths?.length)
 				fields.strokeWidths = JSON.stringify(element.strokeWidths);
+			if (element.strokeWidthsBaked !== undefined)
+				fields.strokeWidthsBaked = element.strokeWidthsBaked;
 			if (element.eraseMasks?.length)
 				fields.eraseMasks = JSON.stringify(element.eraseMasks);
 			if (element.pathStart !== undefined) fields.pathStart = element.pathStart;

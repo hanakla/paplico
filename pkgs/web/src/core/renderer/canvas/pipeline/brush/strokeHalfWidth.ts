@@ -1,3 +1,4 @@
+import { neutralizeSizeCurves } from "../../../../brush/access";
 import {
 	bakeBrushProperties,
 	createBrushInputs,
@@ -5,6 +6,7 @@ import {
 } from "../../../../brush/evaluateProperties";
 import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
 import type {
+	BezierPoint,
 	BrushSettingsV2,
 	CubicBezierSegment,
 	StrokeWidthPoint,
@@ -39,6 +41,9 @@ export function createStrokeHalfWidthSampler(options: {
 	segments: CubicBezierSegment[];
 	pathStart?: number;
 	pathEnd?: number;
+	/** Path.strokeWidthsBaked: size curves are neutralized for this path —
+	 * the width lives in the strokeWidths profile the caller applies on top. */
+	strokeWidthsBaked?: boolean;
 }): StrokeHalfWidthSampler | null {
 	const { storedBrushSettings, segments } = options;
 	if (storedBrushSettings == null || segments.length === 0) return null;
@@ -47,6 +52,15 @@ export function createStrokeHalfWidthSampler(options: {
 	const pathEnd = options.pathEnd ?? 1;
 	const route = resolveBrushRenderRoute(storedBrushSettings);
 
+	if (options.strokeWidthsBaked) {
+		return createCurveSampler(
+			segments,
+			neutralizeSizeCurves(route.settings),
+			route.kind === "dab" ? "ribbon" : route.kind,
+			pathStart,
+			pathEnd,
+		);
+	}
 	if (route.kind === "dab") {
 		return createDabSampler(segments, route.settings, pathStart, pathEnd);
 	}
@@ -75,35 +89,73 @@ export function resolveGeometricSizeByPressure(
 	return sizeCurve ? -(sizeCurve.points[0][1] ?? 0) : 0;
 }
 
-export interface BakedStrokeWidthProfile {
-	/** Settings with the size curves folded away. The base absorbs the peak
-	 * evaluated width, so the profile ratios stay within [0, 1]. */
-	brushSettings: BrushSettingsV2;
-	/** Present only when the evaluated width actually varies along the stroke. */
-	strokeWidths?: StrokeWidthPoint[];
-}
-
 const BAKE_SAMPLES = 256;
 /** Profile simplification tolerance, in width-ratio units (1 = full width). */
 const BAKE_TOLERANCE = 0.01;
 
 /**
+ * Straight-line profile segments over the stroke's raw input points, keeping
+ * each point's real pressure and timestamp. Fitted segments only carry time
+ * at their endpoints, so a fast-then-slow run fused into one cubic loses its
+ * speed variation to linear interpolation — the bake below must therefore
+ * evaluate on this polyline, not on the fitted geometry.
+ */
+export function polylineSegmentsFromPoints(
+	points: BezierPoint[],
+): CubicBezierSegment[] {
+	const segments: CubicBezierSegment[] = [];
+	for (let i = 1; i < points.length; i++) {
+		const prev = points[i - 1];
+		const point = points[i];
+		segments.push({
+			start: i === 1 ? { x: prev.x, y: prev.y } : undefined,
+			cp1: { x: (point.x - prev.x) / 3, y: (point.y - prev.y) / 3 },
+			cp2: { x: (prev.x - point.x) / 3, y: (prev.y - point.y) / 3 },
+			end: { x: point.x, y: point.y },
+			isMoved: i === 1,
+			startPressure: prev.pressure,
+			endPressure: point.pressure,
+			startTiltX: prev.tiltX ?? 0,
+			startTiltY: prev.tiltY ?? 0,
+			endTiltX: point.tiltX ?? 0,
+			endTiltY: point.tiltY ?? 0,
+			startTwist: prev.twist,
+			endTwist: point.twist,
+			startDeltaTime: prev.deltaTime ?? 0,
+			endDeltaTime: point.deltaTime ?? 0,
+		});
+	}
+	return segments;
+}
+
+/**
  * Materialize the size-curve-driven width profile of a finished brush stroke
- * into strokeWidths, and strip the size curves from the settings so the two
- * never apply twice. Pressure lives only on the segments, so without this a
- * vertex edit that rebuilds segments flattens the drawn width; the baked
- * profile survives because it is arc-length parameterized on the path.
+ * into strokeWidths ratios (actual half width ÷ base half width). The stored
+ * settings are NOT touched — the committed path carries the profile plus the
+ * strokeWidthsBaked flag, and renderers skip the size curves for such paths.
+ * Stripping curves from the appearance instead would poison appearance
+ * adoption (selection follow copies a committed appearance back into the
+ * tool settings), killing pressure/speed width for every following stroke.
+ *
+ * Pressure and timing live only on the input samples, so without the bake a
+ * vertex edit (or the fit's per-segment time linearization) flattens the
+ * drawn width; the baked profile survives because it is arc-length
+ * parameterized on the path.
+ *
+ * `segments` should be the raw input polyline (polylineSegmentsFromPoints),
+ * not the fitted geometry: fitting fuses samples into few cubics whose
+ * linearized timing erases speed-driven width within each segment.
  *
  * Taper is NOT baked — it stays in the settings and keeps applying live on
  * top of the profile, exactly as it composes with size curves today.
  *
- * Returns null when there is nothing to bake (no size curves, or the stroke
- * has no length).
+ * Returns null when there is nothing to bake (no size curves, no length, or
+ * a constant profile — the live curves then reproduce the same width).
  */
 export function bakeStrokeWidthProfile(
 	storedBrushSettings: unknown,
 	segments: CubicBezierSegment[],
-): BakedStrokeWidthProfile | null {
+): StrokeWidthPoint[] | null {
 	if (storedBrushSettings == null || segments.length === 0) return null;
 
 	const settings = resolveBrushRenderRoute(storedBrushSettings).settings;
@@ -124,31 +176,15 @@ export function bakeStrokeWidthProfile(
 	const baseHalf = size.base / 2;
 	const ts = new Float64Array(BAKE_SAMPLES + 1);
 	const ratios = new Float64Array(BAKE_SAMPLES + 1);
-	let maxRatio = 0;
+	let constant = true;
 	for (let i = 0; i <= BAKE_SAMPLES; i++) {
 		ts[i] = i / BAKE_SAMPLES;
 		ratios[i] = sampler.halfWidthAt(ts[i]) / baseHalf;
-		if (ratios[i] > maxRatio) maxRatio = ratios[i];
+		if (Math.abs(ratios[i] - ratios[0]) > 1e-3) constant = false;
 	}
-	if (maxRatio <= 1e-6) return null;
+	if (constant) return null;
 
-	// Normalize so the peak sits at ratio 1: the dab renderer clips at the
-	// stamp extent, so any ratio above 1 could not widen the stroke anyway.
-	let constant = true;
-	for (let i = 0; i <= BAKE_SAMPLES; i++) {
-		ratios[i] /= maxRatio;
-		if (Math.abs(ratios[i] - 1) > 1e-3) constant = false;
-	}
-
-	const brushSettings: BrushSettingsV2 = {
-		...settings,
-		properties: {
-			...settings.properties,
-			size: { base: size.base * maxRatio },
-		},
-	};
-	if (constant) return { brushSettings };
-	return { brushSettings, strokeWidths: simplifyProfile(ts, ratios) };
+	return simplifyProfile(ts, ratios);
 }
 
 /**

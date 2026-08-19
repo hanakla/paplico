@@ -456,11 +456,12 @@ export interface PathSegment extends CubicBezierSegment {
  *   effectiveHalfWidth(side) = stampHalfSize * sideRatio
  *
  * On brush-stroke commit, PenTool bakes the size-curve-evaluated width
- * profile into strokeWidths (and strips the size curves from the stored
- * settings), so the drawn width survives vertex edits that rebuild the
- * per-segment pressure data. It is further modified by the eraser tool's
- * width-adjust mode or manual editing in PathEditTool. Live previews and
- * curve-less strokes leave it undefined (= full width on both sides).
+ * profile into strokeWidths and marks the path strokeWidthsBaked, so the
+ * drawn width survives vertex edits that rebuild the per-segment pressure
+ * data (renderers skip the size curves for baked paths — see Path). It is
+ * further modified by the eraser tool's width-adjust mode or manual editing
+ * in PathEditTool. Live previews and curve-less strokes leave it undefined
+ * (= full width on both sides).
  */
 export interface StrokeWidthPoint {
 	/** Position along the path, normalized to [0, 1] by total path length.
@@ -1077,6 +1078,18 @@ export interface Path extends ArtObject {
 	 * Default when undefined or empty: full width on both sides.
 	 */
 	strokeWidths?: StrokeWidthPoint[];
+
+	/**
+	 * True when strokeWidths carries the brush's size-curve evaluation, baked
+	 * at commit from the raw input's pressure/speed. Renderers then SKIP the
+	 * size curves and treat the profile as the width itself: dab/ribbon scale
+	 * the stamp size by the ratios (no alpha clip), geometric drops its
+	 * pressure term. The stored brush settings stay untouched, so adopting
+	 * this stroke's appearance (selection follow) keeps the live curves.
+	 * Unset/false: strokeWidths composes multiplicatively on top of the live
+	 * curve evaluation (eraser width-adjust, manual edits).
+	 */
+	strokeWidthsBaked?: boolean;
 
 	/**
 	 * Non-destructive erase masks applied to this element's rendered output.

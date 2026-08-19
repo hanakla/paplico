@@ -953,7 +953,7 @@ export interface RawCornerOptions {
 /** Open non-max-suppression cluster of corner candidates. */
 interface CornerCandidateGroup {
 	bestIdx: number;
-	bestDev: number;
+	bestScore: number;
 	lastIdx: number;
 }
 
@@ -1001,17 +1001,17 @@ export function detectRawCorners(
 		const arc = cumulativeArcLengths(points);
 		let group: CornerCandidateGroup | null = null;
 		for (let i = 1; i < points.length - 1; i++) {
-			const dev = rawCornerDeviationAt(points, arc, i, opts);
-			if (dev < 0) continue;
+			const score = rawCornerScoreAt(points, i, opts);
+			if (score < 0) continue;
 			if (group && arc[i] - arc[group.lastIdx] <= opts.spanDistance) {
-				if (dev > group.bestDev) {
+				if (score > group.bestScore) {
 					group.bestIdx = i;
-					group.bestDev = dev;
+					group.bestScore = score;
 				}
 				group.lastIdx = i;
 			} else {
 				if (group) corners.push(group.bestIdx);
-				group = { bestIdx: i, bestDev: dev, lastIdx: i };
+				group = { bestIdx: i, bestScore: score, lastIdx: i };
 			}
 		}
 		if (group) corners.push(group.bestIdx);
@@ -1021,38 +1021,55 @@ export function detectRawCorners(
 }
 
 /**
- * Apex deviation of a span-based corner candidate at index i, or -1 when the
- * point is no candidate. Walks are capped at `maxSpanPoints` indices so the
- * result depends only on a bounded neighborhood (required for incremental
- * confirmation to match batch detection).
+ * Turn-angle score (radians) of a span-based corner candidate at index i, or
+ * -1 when the point is no candidate (angle or apex-deviation gate failed).
+ * Walks are capped at `maxSpanPoints` indices so the result depends only on a
+ * bounded neighborhood (required for incremental confirmation to match batch
+ * detection).
  */
-function rawCornerDeviationAt(
+function rawCornerScoreAt(
 	points: BezierPoint[],
-	arc: number[],
 	i: number,
 	opts: Required<RawCornerOptions>,
 ): number {
 	if (i <= 0 || i >= points.length - 1) return -1;
 
+	// Span walks measure CHORD distance (net displacement), not arc length:
+	// a pen dwelling at a corner piles up arc from jitter alone, which used
+	// to collapse the window into the dwell cluster and turn the measured
+	// directions into noise (several false corner anchors per real corner).
+	// Chord spans step across the dwell to real geometry instead.
 	let j = i - 1;
 	while (
 		j > 0 &&
-		arc[i] - arc[j] < opts.spanDistance &&
+		Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y) <
+			opts.spanDistance &&
 		i - j < opts.maxSpanPoints
 	) {
 		j--;
 	}
-	if (arc[i] - arc[j] < opts.spanDistance) return -1;
+	if (
+		Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y) <
+		opts.spanDistance
+	) {
+		return -1;
+	}
 
 	let k = i + 1;
 	while (
 		k < points.length - 1 &&
-		arc[k] - arc[i] < opts.spanDistance &&
+		Math.hypot(points[k].x - points[i].x, points[k].y - points[i].y) <
+			opts.spanDistance &&
 		k - i < opts.maxSpanPoints
 	) {
 		k++;
 	}
-	if (arc[k] - arc[i] < opts.spanDistance) return -1;
+	if (
+		Math.hypot(points[k].x - points[i].x, points[k].y - points[i].y) <
+		opts.spanDistance
+	) {
+		return -1;
+	}
 
 	const v1x = points[i].x - points[j].x;
 	const v1y = points[i].y - points[j].y;
@@ -1079,7 +1096,13 @@ function rawCornerDeviationAt(
 				: Math.abs(dx * cy - dy * cx) / chordLen;
 		if (dev > maxDev) maxDev = dev;
 	}
-	return maxDev >= opts.minDeviation ? maxDev : -1;
+	if (maxDev < opts.minDeviation) return -1;
+
+	// Score by turn angle, not by deviation: chord windows are asymmetric, and
+	// an off-apex window bulges further from its chord than the apex's own, so
+	// deviation-based non-max suppression drifts the anchor off the apex. The
+	// turn angle peaks at the apex itself.
+	return Math.acos(Math.min(Math.max(dot, -1), 1));
 }
 
 /** Cumulative arc length per point ([0] = 0). */
@@ -1176,9 +1199,25 @@ function bezierSecondDerivative(
 }
 
 /** Compute left tangent at start of point sequence. */
+/**
+ * End tangents measure direction over a minimum chord so a single noisy
+ * sample next to the endpoint (dense slow-motion input, dwell jitter at a
+ * corner anchor) cannot skew the fitted handle. Inputs sampled coarser than
+ * the span behave exactly as the classic adjacent-point tangent.
+ */
+const TANGENT_SPAN_DIST = 2.0;
+
 function computeLeftTangent(points: BezierPoint[]): [number, number] {
-	const dx = points[1].x - points[0].x;
-	const dy = points[1].y - points[0].y;
+	const p0 = points[0];
+	let idx = 1;
+	while (
+		idx < points.length - 1 &&
+		Math.hypot(points[idx].x - p0.x, points[idx].y - p0.y) < TANGENT_SPAN_DIST
+	) {
+		idx++;
+	}
+	const dx = points[idx].x - p0.x;
+	const dy = points[idx].y - p0.y;
 	const len = Math.sqrt(dx * dx + dy * dy);
 	if (len < 1e-9) return [1, 0];
 	return [dx / len, dy / len];
@@ -1187,8 +1226,16 @@ function computeLeftTangent(points: BezierPoint[]): [number, number] {
 /** Compute right tangent at end of point sequence. */
 function computeRightTangent(points: BezierPoint[]): [number, number] {
 	const n = points.length;
-	const dx = points[n - 2].x - points[n - 1].x;
-	const dy = points[n - 2].y - points[n - 1].y;
+	const pn = points[n - 1];
+	let idx = n - 2;
+	while (
+		idx > 0 &&
+		Math.hypot(points[idx].x - pn.x, points[idx].y - pn.y) < TANGENT_SPAN_DIST
+	) {
+		idx--;
+	}
+	const dx = points[idx].x - pn.x;
+	const dy = points[idx].y - pn.y;
 	const len = Math.sqrt(dx * dx + dy * dy);
 	if (len < 1e-9) return [-1, 0];
 	return [dx / len, dy / len];
@@ -1743,9 +1790,15 @@ export class IncrementalStrokeFitter {
 
 		const tailPts = this.buildTailPoints();
 		this.lastProcessedPoints += tailPts.length;
+		// Time-knot subdivision keeps the live tail's speed readable: one fit
+		// over the whole tail would linearize its timing and flatten
+		// speed-driven brush width until the next freeze.
 		const tail =
 			tailPts.length >= 2
-				? fitPointSequence(tailPts, this.tolerance, this.frozen.length === 0)
+				? subdivideSegmentsAtTimeKnots(
+						fitPointSequence(tailPts, this.tolerance, this.frozen.length === 0),
+						tailPts,
+					)
 				: [];
 		this.cachedSegments = [...this.frozen, ...tail];
 		return this.cachedSegments;
@@ -1932,21 +1985,25 @@ export class IncrementalStrokeFitter {
 			i <= decidableUpTo;
 			i++
 		) {
-			const dev = rawCornerDeviationAt(this.deduped, this.arc, i, opts);
+			const score = rawCornerScoreAt(this.deduped, i, opts);
 			const group = this.pendingCornerGroup;
-			if (dev >= 0) {
+			if (score >= 0) {
 				if (
 					group &&
 					this.arc[i] - this.arc[group.lastIdx] <= opts.spanDistance
 				) {
-					if (dev > group.bestDev) {
+					if (score > group.bestScore) {
 						group.bestIdx = i;
-						group.bestDev = dev;
+						group.bestScore = score;
 					}
 					group.lastIdx = i;
 				} else {
 					if (group) this.rawCorners.push(group.bestIdx);
-					this.pendingCornerGroup = { bestIdx: i, bestDev: dev, lastIdx: i };
+					this.pendingCornerGroup = {
+						bestIdx: i,
+						bestScore: score,
+						lastIdx: i,
+					};
 				}
 			} else if (
 				group &&
@@ -1995,10 +2052,11 @@ export class IncrementalStrokeFitter {
 		if (index <= this.tailStart) return;
 		const section = this.smoothed.slice(this.tailStart, index + 1);
 		this.lastProcessedPoints += section.length;
-		const fitted = fitPointSequence(
+		// Subdivided once here, then immutable — the live dab accumulator's
+		// frozen prefix keeps stable segment identities.
+		const fitted = subdivideSegmentsAtTimeKnots(
+			fitPointSequence(section, this.tolerance, this.frozen.length === 0),
 			section,
-			this.tolerance,
-			this.frozen.length === 0,
 		);
 		this.frozen = [...this.frozen, ...fitted];
 		this.tailStart = index;
@@ -2039,6 +2097,322 @@ export class IncrementalStrokeFitter {
 		if (this.floatingLast) tail.push(this.floatingLast);
 		return tail;
 	}
+}
+
+/** Max time knots inserted per subdivided section. */
+const TIME_KNOT_MAX = 16;
+/** Deviation from the section-linear time schedule that earns a knot (ms). */
+const TIME_KNOT_TOLERANCE_MS = 8;
+
+/**
+ * Subdivide fitted segments at points where the input's timing deviates from
+ * the segments' endpoint-linear time schedule. The geometry is unchanged (de
+ * Casteljau splits); only the anchors' time/pressure resolution grows, so the
+ * dab evaluator can read real speed instead of a whole-fit average. Serves
+ * the live preview — committed strokes carry their speed in the baked
+ * strokeWidths profile and stay unsplit (extra stored anchors would surface
+ * in path editing).
+ */
+export function subdivideSegmentsAtTimeKnots(
+	segments: CubicBezierSegment[],
+	sourcePoints: BezierPoint[],
+): CubicBezierSegment[] {
+	if (segments.length === 0 || sourcePoints.length < 3) return segments;
+	// Multi-subpath fits have no single arc mapping; skip (pen strokes are one).
+	for (let i = 1; i < segments.length; i++) {
+		if (segments[i].isMoved) return segments;
+	}
+
+	// Source arc-length / time table.
+	const arcs = new Float64Array(sourcePoints.length);
+	for (let i = 1; i < sourcePoints.length; i++) {
+		arcs[i] =
+			arcs[i - 1] +
+			Math.hypot(
+				sourcePoints[i].x - sourcePoints[i - 1].x,
+				sourcePoints[i].y - sourcePoints[i - 1].y,
+			);
+	}
+	const totalArc = arcs[arcs.length - 1];
+	if (totalArc <= 0) return segments;
+
+	const knotIndices = pickTimeKnotIndices(arcs, sourcePoints);
+	if (knotIndices.length === 0) return segments;
+
+	// Resolve fitted segments to absolute cubics + their arc spans.
+	const abs: Array<
+		[number, number, number, number, number, number, number, number]
+	> = [];
+	const segLens: number[] = [];
+	let totalFit = 0;
+	{
+		// A fit chunk's first segment may omit `start` (it chains from the
+		// previous chunk's end anchor, which equals the section's first source
+		// point — Schneider fits interpolate their endpoints).
+		let px = sourcePoints[0].x;
+		let py = sourcePoints[0].y;
+		for (const segment of segments) {
+			const sx = segment.start?.x ?? px;
+			const sy = segment.start?.y ?? py;
+			const cubic: [
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+				number,
+			] = [
+				sx,
+				sy,
+				sx + segment.cp1.x,
+				sy + segment.cp1.y,
+				segment.end.x + segment.cp2.x,
+				segment.end.y + segment.cp2.y,
+				segment.end.x,
+				segment.end.y,
+			];
+			abs.push(cubic);
+			const len = sampledCubicLength(cubic);
+			segLens.push(len);
+			totalFit += len;
+			px = segment.end.x;
+			py = segment.end.y;
+		}
+	}
+	if (totalFit <= 0) return segments;
+
+	const result: CubicBezierSegment[] = [];
+	let knotCursor = 0;
+	let cumFit = 0;
+	for (let si = 0; si < segments.length; si++) {
+		const segment = segments[si];
+		const segStart = cumFit;
+		const segEnd = cumFit + segLens[si];
+		cumFit = segEnd;
+
+		// Knots strictly inside this segment's arc span (fraction space).
+		const cuts: Array<{ localT: number; point: BezierPoint }> = [];
+		while (knotCursor < knotIndices.length) {
+			const src = sourcePoints[knotIndices[knotCursor]];
+			const target = (arcs[knotIndices[knotCursor]] / totalArc) * totalFit;
+			if (target >= segEnd - 1e-6) break;
+			knotCursor++;
+			if (target <= segStart + 1e-6 || segLens[si] <= 1e-6) continue;
+			cuts.push({
+				localT: cubicParamAtArcLength(abs[si], target - segStart),
+				point: src,
+			});
+		}
+		if (cuts.length === 0) {
+			result.push(segment);
+			continue;
+		}
+
+		// Split into pieces at ascending params; renormalize into the remainder.
+		let remainder = abs[si];
+		let prevT = 0;
+		const pieces: Array<{
+			cubic: [number, number, number, number, number, number, number, number];
+			endPoint: BezierPoint | null;
+			endFraction: number;
+		}> = [];
+		for (const cut of cuts) {
+			const relT = (cut.localT - prevT) / Math.max(1 - prevT, 1e-9);
+			const [head, tailPart] = splitAbsCubic(
+				remainder,
+				Math.min(Math.max(relT, 0), 1),
+			);
+			pieces.push({
+				cubic: head,
+				endPoint: cut.point,
+				endFraction: cut.localT,
+			});
+			remainder = tailPart;
+			prevT = cut.localT;
+		}
+		pieces.push({ cubic: remainder, endPoint: null, endFraction: 1 });
+
+		let pieceStartPressure = segment.startPressure;
+		let pieceStartTime = segment.startDeltaTime;
+		let pieceStartFraction = 0;
+		for (let pi = 0; pi < pieces.length; pi++) {
+			const piece = pieces[pi];
+			const isFirst = pi === 0;
+			const isLast = pi === pieces.length - 1;
+			const endFraction = piece.endFraction;
+			const lerp = (a: number, b: number, f: number) => a + (b - a) * f;
+			result.push({
+				start:
+					isFirst && segment.start
+						? { x: piece.cubic[0], y: piece.cubic[1] }
+						: undefined,
+				cp1: {
+					x: piece.cubic[2] - piece.cubic[0],
+					y: piece.cubic[3] - piece.cubic[1],
+				},
+				cp2: {
+					x: piece.cubic[4] - piece.cubic[6],
+					y: piece.cubic[5] - piece.cubic[7],
+				},
+				end: { x: piece.cubic[6], y: piece.cubic[7] },
+				isMoved: isFirst ? segment.isMoved : false,
+				isClosed: isLast ? segment.isClosed : undefined,
+				startPressure: pieceStartPressure,
+				endPressure: isLast
+					? segment.endPressure
+					: (piece.endPoint?.pressure ?? segment.endPressure),
+				startDeltaTime: pieceStartTime,
+				endDeltaTime: isLast
+					? segment.endDeltaTime
+					: (piece.endPoint?.deltaTime ?? segment.endDeltaTime),
+				startTiltX: lerp(
+					segment.startTiltX,
+					segment.endTiltX,
+					pieceStartFraction,
+				),
+				startTiltY: lerp(
+					segment.startTiltY,
+					segment.endTiltY,
+					pieceStartFraction,
+				),
+				endTiltX: lerp(segment.startTiltX, segment.endTiltX, endFraction),
+				endTiltY: lerp(segment.startTiltY, segment.endTiltY, endFraction),
+				startTwist: segment.startTwist,
+				endTwist: isLast ? segment.endTwist : segment.startTwist,
+			});
+			pieceStartPressure = isLast
+				? segment.endPressure
+				: (piece.endPoint?.pressure ?? segment.endPressure);
+			pieceStartTime = isLast
+				? segment.endDeltaTime
+				: (piece.endPoint?.deltaTime ?? segment.endDeltaTime);
+			pieceStartFraction = endFraction;
+		}
+	}
+	return result;
+}
+
+/**
+ * Indices of source points whose time deviates most from the endpoint-linear
+ * schedule (greedy max-error refinement, same shape as the profile
+ * simplification in strokeHalfWidth). Ascending order, capped at
+ * TIME_KNOT_MAX by keeping the largest deviations.
+ */
+function pickTimeKnotIndices(
+	arcs: Float64Array,
+	points: BezierPoint[],
+): number[] {
+	const last = points.length - 1;
+	const chosen: Array<{ idx: number; error: number }> = [];
+	const stack: Array<[number, number]> = [[0, last]];
+	while (stack.length > 0) {
+		const [a, b] = stack.pop()!;
+		if (b - a < 2) continue;
+		const arcSpan = arcs[b] - arcs[a];
+		if (arcSpan <= 1e-9) continue;
+		const timeA = points[a].deltaTime ?? 0;
+		const timeB = points[b].deltaTime ?? 0;
+		let worst = -1;
+		let worstError = TIME_KNOT_TOLERANCE_MS;
+		for (let i = a + 1; i < b; i++) {
+			const f = (arcs[i] - arcs[a]) / arcSpan;
+			const error = Math.abs(
+				(points[i].deltaTime ?? 0) - (timeA + (timeB - timeA) * f),
+			);
+			if (error > worstError) {
+				worstError = error;
+				worst = i;
+			}
+		}
+		if (worst >= 0) {
+			chosen.push({ idx: worst, error: worstError });
+			stack.push([a, worst], [worst, b]);
+		}
+	}
+	return chosen
+		.sort((a, b) => b.error - a.error)
+		.slice(0, TIME_KNOT_MAX)
+		.map((entry) => entry.idx)
+		.sort((a, b) => a - b);
+}
+
+/** Arc length of an absolute cubic via 32-step polyline sampling. */
+function sampledCubicLength(
+	c: [number, number, number, number, number, number, number, number],
+): number {
+	let len = 0;
+	let px = c[0];
+	let py = c[1];
+	for (let i = 1; i <= 32; i++) {
+		const t = i / 32;
+		const [x, y] = evalAbsCubic(c, t);
+		len += Math.hypot(x - px, y - py);
+		px = x;
+		py = y;
+	}
+	return len;
+}
+
+/** Curve parameter whose sampled arc length from t=0 reaches `target`. */
+function cubicParamAtArcLength(
+	c: [number, number, number, number, number, number, number, number],
+	target: number,
+): number {
+	let len = 0;
+	let px = c[0];
+	let py = c[1];
+	for (let i = 1; i <= 32; i++) {
+		const t = i / 32;
+		const [x, y] = evalAbsCubic(c, t);
+		const step = Math.hypot(x - px, y - py);
+		if (len + step >= target) {
+			const f = step > 1e-9 ? (target - len) / step : 0;
+			return (i - 1 + f) / 32;
+		}
+		len += step;
+		px = x;
+		py = y;
+	}
+	return 1;
+}
+
+function evalAbsCubic(
+	c: [number, number, number, number, number, number, number, number],
+	t: number,
+): [number, number] {
+	const u = 1 - t;
+	const a = u * u * u;
+	const b = 3 * u * u * t;
+	const d = 3 * u * t * t;
+	const e = t * t * t;
+	return [
+		a * c[0] + b * c[2] + d * c[4] + e * c[6],
+		a * c[1] + b * c[3] + d * c[5] + e * c[7],
+	];
+}
+
+/** De Casteljau split of an absolute cubic at parameter t. */
+function splitAbsCubic(
+	c: [number, number, number, number, number, number, number, number],
+	t: number,
+): [
+	[number, number, number, number, number, number, number, number],
+	[number, number, number, number, number, number, number, number],
+] {
+	const mix = (ax: number, ay: number, bx: number, by: number) =>
+		[ax + (bx - ax) * t, ay + (by - ay) * t] as const;
+	const [abx, aby] = mix(c[0], c[1], c[2], c[3]);
+	const [bcx, bcy] = mix(c[2], c[3], c[4], c[5]);
+	const [cdx, cdy] = mix(c[4], c[5], c[6], c[7]);
+	const [abcx, abcy] = mix(abx, aby, bcx, bcy);
+	const [bcdx, bcdy] = mix(bcx, bcy, cdx, cdy);
+	const [mx, my] = mix(abcx, abcy, bcdx, bcdy);
+	return [
+		[c[0], c[1], abx, aby, abcx, abcy, mx, my],
+		[mx, my, bcdx, bcdy, cdx, cdy, c[6], c[7]],
+	];
 }
 
 /** detectCorners' predicate for a single interior index. */

@@ -411,6 +411,7 @@ export class StrokeWidthEditTool implements Tool {
 			segments: this.targetPath.segments,
 			pathStart: this.targetPath.pathStart,
 			pathEnd: this.targetPath.pathEnd,
+			strokeWidthsBaked: this.targetPath.strokeWidthsBaked,
 		});
 
 		const ancestorTransform = this.ctx.getAncestorTransform(

@@ -100,6 +100,28 @@ describe("processStroke corner preservation (smooth)", () => {
 			expect(turn.turnDeg).toBeLessThan(20);
 		}
 	});
+
+	it("should keep a single clean corner when the pen dwells at the apex", () => {
+		const segments = processStroke(
+			cornerStrokeWithDwell(90, 0.8, 8),
+			0.5,
+			viewport,
+			"smooth",
+		);
+
+		// One sharp anchor at the corner...
+		expect(maxTurnNear(segments, 100, 0, 3.0)).toBeGreaterThanOrEqual(45);
+		// ...and no direction reversals: a zigzag through the dwell noise shows
+		// up as near-180° turns at the extra anchors.
+		for (const turn of anchorTurns(segments)) {
+			expect(turn.turnDeg).toBeLessThan(135);
+		}
+		// The dwell cluster must not split into several corner anchors.
+		const sharpNearApex = anchorTurns(segments).filter(
+			(turn) => turn.turnDeg >= 45 && Math.hypot(turn.x - 100, turn.y) <= 5,
+		);
+		expect(sharpNearApex).toHaveLength(1);
+	});
 });
 
 describe("detectRawCorners", () => {
@@ -121,6 +143,19 @@ describe("detectRawCorners", () => {
 
 	it("should report no interior corners on a semicircle", () => {
 		expect(detectRawCorners(semicircle()).slice(1, -1)).toHaveLength(0);
+	});
+
+	it("should report exactly one interior corner when the pen dwells at the apex", () => {
+		const points = cornerStrokeWithDwell(90, 0.8, 8);
+		const interior = detectRawCorners(points).slice(1, -1);
+		expect(interior).toHaveLength(1);
+		const corner = points[interior[0]];
+		expect(Math.hypot(corner.x - 100, corner.y)).toBeLessThanOrEqual(3);
+	});
+
+	it("should report no interior corners when the pen dwells on a straight line", () => {
+		const interior = detectRawCorners(lineWithDwell(0.8, 8)).slice(1, -1);
+		expect(interior).toHaveLength(0);
 	});
 });
 
@@ -148,6 +183,80 @@ function cornerStroke(turnDeg: number, jitterAmp = 0): BezierPoint[] {
 		base.push({ x: 100 + Math.cos(rad) * i * 2, y: Math.sin(rad) * i * 2 });
 	}
 	return withPerpendicularJitter(base, jitterAmp);
+}
+
+/**
+ * cornerStroke with a hand-like approach: the pen decelerates into the
+ * corner (steps shrink toward the apex), jitters more while moving slowly,
+ * and sits nearly still at (100, 0) for `dwellCount` samples with jitter
+ * that survives dedup. Reproduces the corner-wobble misdetection.
+ */
+function cornerStrokeWithDwell(
+	turnDeg: number,
+	dwellJitterAmp: number,
+	dwellCount: number,
+): BezierPoint[] {
+	const rad = (turnDeg * Math.PI) / 180;
+	const rand = mulberry32(5678);
+	const jitterAt = (distToApex: number): number =>
+		distToApex < 6 ? dwellJitterAmp : distToApex < 15 ? 0.5 : 0.3;
+	const points: BezierPoint[] = [];
+	let i = 0;
+	let x = 0;
+	while (x < 100) {
+		const distToApex = 100 - x;
+		const jitter = jitterAt(distToApex);
+		points.push(
+			pt(x + (rand() * 2 - 1) * jitter * 0.5, (rand() * 2 - 1) * jitter, i++),
+		);
+		x += Math.max(0.6, Math.min(3, distToApex * 0.15));
+	}
+	for (let d = 0; d < dwellCount; d++) {
+		points.push(
+			pt(
+				100 + (rand() * 2 - 1) * dwellJitterAmp,
+				(rand() * 2 - 1) * dwellJitterAmp,
+				i++,
+			),
+		);
+	}
+	let s = 0;
+	while (s <= 100) {
+		const jitter = jitterAt(s);
+		const jx = (rand() * 2 - 1) * jitter;
+		const js = s + (rand() * 2 - 1) * jitter * 0.5;
+		points.push(
+			pt(
+				100 + Math.cos(rad) * js - Math.sin(rad) * jx,
+				Math.sin(rad) * js + Math.cos(rad) * jx,
+				i++,
+			),
+		);
+		s += Math.max(0.6, Math.min(3, s * 0.15 + 0.6));
+	}
+	return points;
+}
+
+/** Straight line with a mid-stroke dwell (near-stationary jittered samples). */
+function lineWithDwell(
+	dwellJitterAmp: number,
+	dwellCount: number,
+): BezierPoint[] {
+	const rand = mulberry32(9012);
+	const points: BezierPoint[] = [];
+	let i = 0;
+	for (let s = 0; s <= 50; s++) points.push(pt(s * 2, 0, i++));
+	for (let d = 0; d < dwellCount; d++) {
+		points.push(
+			pt(
+				100 + (rand() * 2 - 1) * dwellJitterAmp,
+				(rand() * 2 - 1) * dwellJitterAmp,
+				i++,
+			),
+		);
+	}
+	for (let s = 1; s <= 50; s++) points.push(pt(100 + s * 2, 0, i++));
+	return points;
 }
 
 function jitteredLine(jitterAmp: number): BezierPoint[] {

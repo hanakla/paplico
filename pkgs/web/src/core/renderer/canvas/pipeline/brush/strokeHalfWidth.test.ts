@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeBrushSettingsV2 } from "../../../../brush/migrate";
-import type { CubicBezierSegment } from "../../../../schema";
+import type { BezierPoint, CubicBezierSegment } from "../../../../schema";
 import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
 import { evaluateDabs } from "./DabEvaluator";
 import { readDabField } from "./DabInstanceLayout";
@@ -13,6 +13,7 @@ import {
 import {
 	bakeStrokeWidthProfile,
 	createStrokeHalfWidthSampler,
+	polylineSegmentsFromPoints,
 	resolveGeometricSizeByPressure,
 } from "./strokeHalfWidth";
 
@@ -289,7 +290,7 @@ describe("bakeStrokeWidthProfile", () => {
 		).toBeNull();
 	});
 
-	it("should bake the varying width into points and strip the size curves", () => {
+	it("should bake the varying width into ratio points", () => {
 		const raw = dabSettingsWithPressureCurve();
 		const segments = [
 			lineSegment(0, 0, 300, 0, {
@@ -301,12 +302,9 @@ describe("bakeStrokeWidthProfile", () => {
 			}),
 		];
 
-		const baked = bakeStrokeWidthProfile(raw, segments)!;
-		expect(baked).not.toBeNull();
-		expect(baked.strokeWidths!.length).toBeGreaterThanOrEqual(2);
-		expect(baked.brushSettings.properties.size?.curves).toBeUndefined();
-		// Taper never bakes into the profile; it stays live in the settings.
-		expect(baked.brushSettings.taperStart).toBe(50);
+		const profile = bakeStrokeWidthProfile(raw, segments)!;
+		expect(profile).not.toBeNull();
+		expect(profile.length).toBeGreaterThanOrEqual(2);
 
 		// Reconstructed width (base × profile) must match the taper-less dab
 		// evaluation the renderer would have produced with the curves intact.
@@ -315,34 +313,111 @@ describe("bakeStrokeWidthProfile", () => {
 			normalizeBrushSettingsV2({ ...raw, taperStart: undefined }),
 			{},
 		);
-		const bakedBaseHalf = (baked.brushSettings.properties.size?.base ?? 0) / 2;
-		expect(bakedBaseHalf).toBeGreaterThan(0);
+		const baseHalf = 10 / 2;
 		for (let i = 0; i < buffer.count; i++) {
 			const pathT = readDabField(buffer.data, i, "pathT");
 			const expectedHalf = readDabField(buffer.data, i, "sizeX") * 0.5;
-			const ratio = interpolateStrokeWidths(baked.strokeWidths!, pathT).side1;
-			expect(Math.abs(bakedBaseHalf * ratio - expectedHalf)).toBeLessThan(0.1);
+			const ratio = interpolateStrokeWidths(profile, pathT).side1;
+			expect(Math.abs(baseHalf * ratio - expectedHalf)).toBeLessThan(0.1);
 		}
 	});
 
-	it("should fold a constant curve factor into the base without points", () => {
-		const baked = bakeStrokeWidthProfile(dabSettingsWithPressureCurve(), [
+	it("should render a baked path identically to the live curve evaluation", () => {
+		const raw = { ...dabSettingsWithPressureCurve(), taperStart: undefined };
+		const segments = [
 			lineSegment(0, 0, 300, 0, {
 				isMoved: true,
-				startPressure: 0.5,
-				endPressure: 0.5,
+				startPressure: 1,
+				endPressure: 0,
 				startDeltaTime: 0,
 				endDeltaTime: 300,
 			}),
-		])!;
+		];
+		const profile = bakeStrokeWidthProfile(raw, segments)!;
+		const settings = normalizeBrushSettingsV2(raw);
 
-		expect(baked.strokeWidths).toBeUndefined();
-		// Curve at pressure 0.5 is -0.15 → factor 0.85 → base 10 × 0.85.
-		expect(baked.brushSettings.properties.size?.base).toBeCloseTo(8.5, 2);
-		expect(baked.brushSettings.properties.size?.curves).toBeUndefined();
+		// Live path: curves evaluated per dab. Baked path: curves skipped,
+		// profile scales the stamp. Both must draw the same widths.
+		const live = evaluateDabs(segments, settings, {});
+		const bakedRun = evaluateDabs(segments, settings, {
+			strokeWidths: profile,
+			strokeWidthsBaked: true,
+		});
+		expect(bakedRun.count).toBeGreaterThan(10);
+		expect(Math.abs(bakedRun.count - live.count)).toBeLessThanOrEqual(1);
+		const n = Math.min(live.count, bakedRun.count);
+		for (let i = 0; i < n; i++) {
+			const liveHalf = readDabField(live.data, i, "sizeX") * 0.5;
+			const bakedHalf = readDabField(bakedRun.data, i, "sizeX") * 0.5;
+			expect(Math.abs(bakedHalf - liveHalf)).toBeLessThan(0.1);
+			// No alpha clip in baked mode: the width IS the stamp size.
+			expect(readDabField(bakedRun.data, i, "side1Width")).toBe(1);
+			expect(readDabField(bakedRun.data, i, "side2Width")).toBe(1);
+		}
 	});
 
-	it("should absorb width growth above the base into the baked base", () => {
+	it("should return null for a constant profile", () => {
+		expect(
+			bakeStrokeWidthProfile(dabSettingsWithPressureCurve(), [
+				lineSegment(0, 0, 300, 0, {
+					isMoved: true,
+					startPressure: 0.5,
+					endPressure: 0.5,
+					startDeltaTime: 0,
+					endDeltaTime: 300,
+				}),
+			]),
+		).toBeNull();
+	});
+
+	it("should keep speed-driven width variation when baking from the input polyline", () => {
+		// A fitted stroke fuses this into one cubic whose linearized timing
+		// erases the speed difference — the input polyline must not.
+		const points: BezierPoint[] = [];
+		let t = 0;
+		for (let x = 0; x <= 150; x += 2) {
+			points.push({ x, y: 0, pressure: 0.5, deltaTime: t });
+			t += 2; // fast half
+		}
+		for (let x = 152; x <= 300; x += 2) {
+			points.push({ x, y: 0, pressure: 0.5, deltaTime: t });
+			t += 25; // slow half
+		}
+
+		const profile = bakeStrokeWidthProfile(
+			{
+				...dabSettingsWithPressureCurve(),
+				properties: {
+					size: {
+						base: 10,
+						curves: [
+							{
+								input: "speedFine",
+								points: [
+									[0, 0],
+									[1, -0.5],
+								],
+							},
+						],
+					},
+					ratio: { base: 1 },
+					flow: { base: 1 },
+					spacing: { base: 0.05 },
+				},
+				taperStart: undefined,
+			},
+			polylineSegmentsFromPoints(points),
+		)!;
+
+		expect(profile).not.toBeNull();
+		const fastSide = interpolateStrokeWidths(profile, 0.25).side1;
+		const slowSide = interpolateStrokeWidths(profile, 0.75).side1;
+		// The fast half must bake meaningfully thinner than the slow half.
+		expect(fastSide).toBeLessThan(slowSide * 0.7);
+		expect(slowSide).toBeGreaterThan(0.9);
+	});
+
+	it("should keep ratios above 1 for width growth (size scaling has no cap)", () => {
 		const raw = {
 			...dabSettingsWithPressureCurve(),
 			properties: {
@@ -364,7 +439,7 @@ describe("bakeStrokeWidthProfile", () => {
 			},
 			taperStart: undefined,
 		};
-		const baked = bakeStrokeWidthProfile(raw, [
+		const profile = bakeStrokeWidthProfile(raw, [
 			lineSegment(0, 0, 300, 0, {
 				isMoved: true,
 				startPressure: 1,
@@ -374,14 +449,8 @@ describe("bakeStrokeWidthProfile", () => {
 			}),
 		])!;
 
-		// Peak factor 1.5 at full pressure moves into the base; the profile
-		// stays within [0, 1] so the dab stamp clip cannot cut it off.
-		expect(baked.brushSettings.properties.size?.base).toBeCloseTo(15, 1);
-		const maxSide = Math.max(
-			...baked.strokeWidths!.map((point) => point.side1),
-		);
-		expect(maxSide).toBeLessThanOrEqual(1 + 1e-6);
-		expect(maxSide).toBeGreaterThan(0.99);
+		const maxSide = Math.max(...profile.map((point) => point.side1));
+		expect(maxSide).toBeGreaterThan(1.4);
 	});
 });
 

@@ -252,6 +252,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			pathStart: path.pathStart ?? 0,
 			pathEnd: path.pathEnd ?? 1,
 			strokeWidths: path.strokeWidths,
+			strokeWidthsBaked: path.strokeWidthsBaked,
 		});
 		if (dabs.count === 0) return;
 

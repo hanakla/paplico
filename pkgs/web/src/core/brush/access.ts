@@ -41,6 +41,22 @@ export function readStoredWetBleedRatio(raw: unknown): number {
 	return wet?.enabled === true ? wet.bleedRadius : 0;
 }
 
+/**
+ * Settings with the size curves dropped. Paths flagged strokeWidthsBaked
+ * carry the curves' evaluation in their strokeWidths profile, so renderers
+ * evaluate size from this neutralized view to avoid applying width twice.
+ */
+export function neutralizeSizeCurves(
+	settings: BrushSettingsV2,
+): BrushSettingsV2 {
+	const size = settings.properties.size;
+	if (!size?.curves?.length) return settings;
+	return {
+		...settings,
+		properties: { ...settings.properties, size: { base: size.base } },
+	};
+}
+
 /** Read geometric stroking config (line cap/join, miter, dash). */
 export function readStoredBrushStroking(
 	raw: unknown,

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readStoredBrushSize } from "../brush/access";
 import { createStrokeBrushSettings } from "../document/factory";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
+import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
 import type {
 	Path,
 	RGBColor,
@@ -779,13 +780,14 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 			drawPressureStroke(toolWith(pressureBrushAppearance()));
 
 			expect(bakedPaths).toHaveLength(1);
+			expect(bakedPaths[0].strokeWidthsBaked).toBe(true);
 			const widths = bakedPaths[0].strokeWidths!;
 			expect(widths.length).toBeGreaterThanOrEqual(2);
 			// Falling pressure → the profile must narrow toward the stroke end.
 			expect(widths[0].side1).toBeGreaterThan(widths[widths.length - 1].side1);
 		});
 
-		it("should strip the size curves from the committed brush settings", () => {
+		it("should keep the committed brush settings untouched", () => {
 			drawPressureStroke(toolWith(pressureBrushAppearance()));
 
 			const strokeApp = bakedPaths[0].filters?.find(
@@ -794,8 +796,25 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 			const settings = strokeApp.paramData.params.brushSettings as {
 				properties: { size?: { base: number; curves?: unknown[] } };
 			};
-			expect(settings.properties.size?.curves).toBeUndefined();
-			expect(settings.properties.size?.base).toBeGreaterThan(0);
+			// Stripping the curves here would poison appearance adoption
+			// (selection follow copies this appearance back to the tool).
+			expect(settings.properties.size?.curves).toHaveLength(1);
+			expect(settings.properties.size?.base).toBe(10);
+		});
+
+		it("should keep baking for strokes drawn with an adopted committed appearance", () => {
+			// Selection follow: after the first stroke, the tool may adopt the
+			// committed appearance. The second stroke must bake all the same.
+			drawPressureStroke(toolWith(pressureBrushAppearance()));
+			const adopted = bakedPaths[0].filters?.find(
+				(f) => f.processor === "stroke",
+			) as StrokeAppearance;
+
+			drawPressureStroke(toolWith(adopted));
+
+			expect(bakedPaths).toHaveLength(2);
+			expect(bakedPaths[1].strokeWidthsBaked).toBe(true);
+			expect(bakedPaths[1].strokeWidths!.length).toBeGreaterThanOrEqual(2);
 		});
 
 		it("should leave curve-less strokes without strokeWidths", () => {
@@ -803,6 +822,71 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 
 			expect(bakedPaths).toHaveLength(1);
 			expect(bakedPaths[0].strokeWidths).toBeUndefined();
+		});
+
+		it("should bake speed-driven width from the input timing, not the fitted segments", () => {
+			// A long straight run fits into one cubic whose endpoint-only timing
+			// would average the speed away — the bake must read the raw samples.
+			vi.useFakeTimers({
+				toFake: [
+					"setTimeout",
+					"clearTimeout",
+					"setInterval",
+					"clearInterval",
+					"performance",
+				],
+			});
+			try {
+				const speedBrush = {
+					...pressureBrushAppearance(),
+				} as StrokeAppearance;
+				(
+					speedBrush.paramData.params.brushSettings as {
+						properties: { size: { curves: unknown[] } };
+					}
+				).properties.size.curves = [
+					{
+						input: "speedFine",
+						points: [
+							[0, 0],
+							[1, -0.5],
+						],
+					},
+				];
+				const tool = toolWith(speedBrush);
+
+				tool.onPointerDown(
+					ev(200, 300, { pressure: 0.5 }),
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+				// Fast half: 25px every 2ms. Slow half: 25px every 60ms.
+				for (let i = 1; i <= 16; i++) {
+					vi.advanceTimersByTime(i <= 8 ? 2 : 60);
+					tool.onPointerMove(
+						ev(200 + i * 25, 300, { pressure: 0.5 }),
+						testViewport,
+						testCanvasWidth,
+						testCanvasHeight,
+					);
+				}
+				tool.onPointerUp(
+					ev(600, 300, { pressure: 0.5 }),
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+
+				expect(bakedPaths).toHaveLength(1);
+				const widths = bakedPaths[0].strokeWidths!;
+				expect(widths).toBeDefined();
+				const fastSide = interpolateStrokeWidths(widths, 0.25).side1;
+				const slowSide = interpolateStrokeWidths(widths, 0.75).side1;
+				expect(fastSide).toBeLessThan(slowSide * 0.8);
+			} finally {
+				vi.useRealTimers();
+			}
 		});
 	});
 });

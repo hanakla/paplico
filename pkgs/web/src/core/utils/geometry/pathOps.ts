@@ -1818,6 +1818,9 @@ function createPathFromSegments(
 		transform: { ...originalPath.transform },
 		pathStart: composedPathStart > 0 ? composedPathStart : undefined,
 		pathEnd: composedPathEnd < 1 ? composedPathEnd : undefined,
+		// The sliced strokeWidths the caller assigns keep their meaning only
+		// with the same interpretation as the source path.
+		strokeWidthsBaked: originalPath.strokeWidthsBaked,
 	};
 }
 
@@ -2061,5 +2064,11 @@ export function mergePathsAtEndpoints(
 		pathStart: minPathStart > 0 ? minPathStart : undefined,
 		pathEnd: maxPathEnd < 1 ? maxPathEnd : undefined,
 		strokeWidths: mergedStrokeWidths,
+		// The merged profile keeps one interpretation; carry the flag only when
+		// both sources agree (a mixed merge falls back to composing ratios).
+		strokeWidthsBaked:
+			pathA.strokeWidthsBaked === pathB.strokeWidthsBaked
+				? pathA.strokeWidthsBaked
+				: undefined,
 	};
 }

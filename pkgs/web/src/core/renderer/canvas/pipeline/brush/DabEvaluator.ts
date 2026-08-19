@@ -1,3 +1,4 @@
+import { neutralizeSizeCurves } from "../../../../brush/access";
 import {
 	bakeBrushProperties,
 	evalBrushProperty,
@@ -31,6 +32,14 @@ export interface DabEvaluateOptions {
 	pathStart?: number;
 	pathEnd?: number;
 	strokeWidths?: StrokeWidthPoint[];
+	/**
+	 * Path.strokeWidthsBaked: strokeWidths carries the size-curve evaluation
+	 * baked at commit. Size curves are skipped, and the profile scales the
+	 * stamp size (with its asymmetry as a normal offset) instead of clipping
+	 * alpha — a clipped full-size stamp keeps its along-stroke extent and
+	 * pokes past corners.
+	 */
+	strokeWidthsBaked?: boolean;
 	textureAspectRatio?: number;
 	/** Number of texture-array variants for random tip selection. */
 	variantCount?: number;
@@ -128,8 +137,12 @@ export function evaluateDabs(
 		options.strokeWidths != null && options.strokeWidths.length > 0
 			? options.strokeWidths
 			: undefined;
+	const widthsBaked =
+		options.strokeWidthsBaked === true && strokeWidths != null;
 
-	const baked = bakeBrushProperties(settings);
+	const baked = bakeBrushProperties(
+		widthsBaked ? neutralizeSizeCurves(settings) : settings,
+	);
 	const sizeBase =
 		settings.properties.size?.base ?? BRUSH_PROPERTY_REGISTRY.size.base;
 	const wetEnabled = settings.wet?.enabled === true;
@@ -288,14 +301,39 @@ export function evaluateDabs(
 		const grainVal = evalBrushProperty(baked, "grainStrength", inputs);
 
 		const taperF = taper ? taperFactor(taper, fragDistance, totalLength) : 1;
-		const sizeX = sizeVal * taperF * Math.max(textureAspectRatio, 1);
-		const sizeY = (sizeX * ratioVal) / textureAspectRatio;
+		let sizeX = sizeVal * taperF * Math.max(textureAspectRatio, 1);
+		let sizeY = (sizeX * ratioVal) / textureAspectRatio;
+
+		let side1 = 1;
+		let side2 = 1;
+		let bakedNormalOffset = 0;
+		if (strokeWidths) {
+			const widths = interpolateStrokeWidths(strokeWidths, fragT);
+			if (widthsBaked) {
+				// Baked profile IS the width: scale the stamp instead of clipping
+				// its alpha, so the mark stays a round stamp (clipped full-size
+				// stamps keep their along-stroke extent and poke past corners).
+				const halfRatio = (widths.side1 + widths.side2) * 0.5;
+				if (halfRatio <= 0) return;
+				sizeX *= halfRatio;
+				sizeY *= halfRatio;
+				bakedNormalOffset =
+					(widths.side1 - widths.side2) * 0.25 * sizeVal * taperF;
+			} else {
+				side1 = widths.side1;
+				side2 = widths.side2;
+			}
+		}
 
 		// Scatter offsets displace along the normal / tangent as size ratios.
 		const normalX = -flowY;
 		const normalY = flowX;
 		let dabX = x;
 		let dabY = y;
+		if (bakedNormalOffset !== 0) {
+			dabX += normalX * bakedNormalOffset;
+			dabY += normalY * bakedNormalOffset;
+		}
 		if (scatterOffsetVal !== 0) {
 			const jitter = (inputs.randomPerDab * 2 - 1) * scatterOffsetVal * sizeVal;
 			dabX += normalX * jitter;
@@ -316,8 +354,10 @@ export function evaluateDabs(
 			// configured base size: a size or taper modulation that shrinks a
 			// dab thins its overlap in equal measure, and assuming 1/spacing
 			// here left pressure-shrunk strokes far lighter than their flow.
+			// sizeX / max(aspect, 1) recovers that diameter including the baked
+			// width ratio.
 			const spacingWorld = Math.max(sizeBase * spacingVal, MIN_SPACING_WORLD);
-			const overlap = (sizeVal * taperF) / spacingWorld;
+			const overlap = sizeX / Math.max(textureAspectRatio, 1) / spacingWorld;
 			const dabsPerPixel = Math.max(1 + OPAQUE_LINEARIZE * (overlap - 1), 1);
 			alpha =
 				1 -
@@ -335,14 +375,6 @@ export function evaluateDabs(
 		}
 		if (priorDabs + count === 0 && (options.startLayerIndex ?? -1) >= 0) {
 			textureLayer = options.startLayerIndex ?? 0;
-		}
-
-		let side1 = 1;
-		let side2 = 1;
-		if (strokeWidths) {
-			const widths = interpolateStrokeWidths(strokeWidths, fragT);
-			side1 = widths.side1;
-			side2 = widths.side2;
 		}
 
 		const off = count * DAB_INSTANCE_FLOATS;

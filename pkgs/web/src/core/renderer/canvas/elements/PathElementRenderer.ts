@@ -282,7 +282,11 @@ export class PathElementRenderer {
 						segments,
 						strokeColor,
 						settings.properties.size?.base ?? 1,
-						resolveGeometricSizeByPressure(settings),
+						// Baked paths carry the width in strokeWidths; the live
+						// pressure term would apply it twice.
+						path.strokeWidthsBaked
+							? 0
+							: resolveGeometricSizeByPressure(settings),
 						appAlpha,
 						settings.stroking?.lineCap ?? "round",
 						settings.stroking?.lineJoin ?? "round",

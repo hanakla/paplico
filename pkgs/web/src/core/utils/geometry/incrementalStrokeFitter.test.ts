@@ -4,6 +4,7 @@ import {
 	IncrementalStrokeFitter,
 	processStroke,
 	type SmoothingMethod,
+	subdivideSegmentsAtTimeKnots,
 } from "./strokeFitting";
 
 const METHODS: SmoothingMethod[] = ["smooth", "pulled-string", "inertia"];
@@ -245,4 +246,76 @@ describe("IncrementalStrokeFitter", () => {
 		expect(incremental.length).toBeGreaterThan(0);
 		expect(incremental.length).toBeLessThan(full.length * 3 + 8);
 	});
+
+	describe("time-knot subdivision (live speed width)", () => {
+		it("should keep per-segment timing close to the input speed profile", () => {
+			const fitter = makeFitter("smooth");
+			for (const p of fastSlowPoints()) fitter.push(p);
+			const segments = fitter.getSegments();
+
+			// Per-segment average speed, bucketed by segment midpoint x. A single
+			// fit over the whole run would linearize time and flatten this.
+			const speeds: { x: number; v: number }[] = [];
+			let prevEnd = { x: 0, y: 0 };
+			for (const seg of segments) {
+				const sx = seg.start?.x ?? prevEnd.x;
+				const len = Math.abs(seg.end.x - sx);
+				const duration = seg.endDeltaTime - seg.startDeltaTime;
+				if (len > 1 && duration > 0) {
+					speeds.push({ x: (sx + seg.end.x) / 2, v: len / duration });
+				}
+				prevEnd = seg.end;
+			}
+			const mean = (values: number[]) =>
+				values.reduce((a, b) => a + b, 0) / Math.max(values.length, 1);
+			const fast = mean(
+				speeds.filter((s) => s.x > 15 && s.x < 85).map((s) => s.v),
+			);
+			const slow = mean(
+				speeds.filter((s) => s.x > 115 && s.x < 185).map((s) => s.v),
+			);
+			// True speeds are 1.0 and 0.08 px/ms. The whole run stays inside one
+			// tail fit (< 128 points, no freeze), so without time knots both
+			// halves collapse to one linearized schedule.
+			expect(fast).toBeGreaterThan(slow * 5);
+			expect(slow).toBeLessThan(0.15);
+		});
+
+		it("should not change the fitted geometry", () => {
+			const points = fastSlowPoints();
+			const fitted = processStroke(
+				points,
+				0.5,
+				{ x: 0, y: 0, zoom: 1, rotation: 0 },
+				"smooth",
+			);
+			const subdivided = subdivideSegmentsAtTimeKnots(fitted, points);
+
+			expect(subdivided.length).toBeGreaterThan(fitted.length);
+			for (const sample of sampleSegments(subdivided)) {
+				expect(
+					distanceToPolyline(sample.x, sample.y, sampleSegments(fitted)),
+				).toBeLessThan(0.01);
+			}
+		});
+	});
 });
+
+/**
+ * Straight line: fast first half (2px / 2ms), slow second half (2px / 25ms).
+ * Kept under 128 points so the whole run fits into a single live tail
+ * (no forced freeze) — the hardest case for speed preservation.
+ */
+function fastSlowPoints(): BezierPoint[] {
+	const out: BezierPoint[] = [];
+	let t = 0;
+	for (let x = 0; x <= 100; x += 2) {
+		out.push({ x, y: 0, pressure: 0.5, deltaTime: t });
+		t += 2;
+	}
+	for (let x = 102; x <= 200; x += 2) {
+		out.push({ x, y: 0, pressure: 0.5, deltaTime: t });
+		t += 25;
+	}
+	return out;
+}
