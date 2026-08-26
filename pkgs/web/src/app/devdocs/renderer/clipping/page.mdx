@@ -194,7 +194,7 @@ stencil-then-coverアルゴリズムを採用する理由は、三角形分割�
 
 ### シェーダー内の処理
 
-各シェーダー（`unified.wgsl.ts`, `brushStamp.wgsl.ts`）は `applyClipMask` 関数を持つ。この関数は、描画対象のピクセルのワールド座標をマスクテクスチャのUV座標に変換し、マスク値を乗算することで、マスク外のピクセルを透明にする。
+各シェーダー（`unified.wgsl.ts`, `brushDab.wgsl.ts`）は `applyClipMask` 関数を持つ。この関数は、描画対象のピクセルのワールド座標をマスクテクスチャのUV座標に変換し、マスク値を乗算することで、マスク外のピクセルを透明にする。
 
 ```wgsl
 fn applyClipMask(

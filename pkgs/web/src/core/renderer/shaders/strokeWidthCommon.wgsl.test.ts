@@ -3,10 +3,7 @@ import {
 	getTestDevice,
 	setupComputeShaderTest,
 } from "../../testUtils/shaderTestHarness";
-import {
-	BRUSH_STAMP_ARRAY_SHADER,
-	BRUSH_STAMP_SHADER,
-} from "./brushStamp.wgsl";
+import { buildBrushDabShader, DAB_TIP_MODES } from "./brushDab.wgsl";
 import { RIBBON_STROKE_SHADER } from "./ribbonStroke.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
 
@@ -64,8 +61,17 @@ describe("strokeWidthCoverage", () => {
 
 describe("brush stroke shaders", () => {
 	it.each([
-		["single-texture stamp", BRUSH_STAMP_SHADER],
-		["texture-array stamp", BRUSH_STAMP_ARRAY_SHADER],
+		...DAB_TIP_MODES.flatMap((tipMode) => [
+			[`dab (${tipMode})`, buildBrushDabShader({ tipMode })],
+			[
+				`dab (${tipMode}, mixed colors)`,
+				buildBrushDabShader({ tipMode, mixedColors: true }),
+			],
+			[
+				`dab (${tipMode}, wet seed)`,
+				buildBrushDabShader({ tipMode, wetSeed: true }),
+			],
+		]),
 		["ribbon", RIBBON_STROKE_SHADER],
 	])("should compile the %s shader", async (_name, code) => {
 		const device = await getTestDevice();

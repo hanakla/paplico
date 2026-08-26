@@ -1,15 +1,16 @@
 /**
- * StrokeBatchContext - shared GPU pipeline + batch state for stamp / ribbon
- * stroke engines.
+ * StrokeBatchContext - shared GPU pipelines + batch state for the dab and
+ * ribbon stroke engines.
  *
- * The stamp pipeline (scatter + calligraphy via StampStrokeEngine) and the
- * ribbon pipeline (art + pattern via RibbonStrokeEngine) live here. The
- * engines route their BrushSettings union member onto the generator inputs
- * (StampGenerator / RibbonGenerator) and call back into this context.
+ * Both engines consume BrushSettingsV2: the dab pipeline evaluates the curve
+ * matrix into DabEvaluator instances, and the ribbon pipeline instances one
+ * bezier segment per RibbonGenerator entry with the same v2 size/flow curves
+ * applied at segment endpoints.
  *
- * Batch mode draws paths sharing a texture in one draw call, so a document
- * with thousands of stamp paths issues roughly one draw per distinct brush
- * texture instead of one per path.
+ * Ribbon strokes accumulate through beginBatch/addToBatch/flushBatch so paths
+ * sharing a texture issue one draw call. Dab strokes bypass that accumulator:
+ * CanvasLayer routes them straight to render(), which draws from the resident
+ * stamp store.
  */
 
 import { neutralizeSizeCurves } from "../../../../brush/access";
@@ -42,10 +43,6 @@ import {
 	type DabTipMode,
 	WET_SEED_TARGETS,
 } from "../../../shaders/brushDab.wgsl";
-import {
-	BRUSH_STAMP_ARRAY_SHADER,
-	BRUSH_STAMP_SHADER,
-} from "../../../shaders/brushStamp.wgsl";
 import { PATH_META_FLOATS } from "../../../shaders/dabColor.wgsl";
 import { RIBBON_STROKE_SHADER } from "../../../shaders/ribbonStroke.wgsl";
 import { type PipelineType, RENDER_SAMPLE_COUNT } from "../../CanvasLayerTypes";
@@ -81,45 +78,10 @@ const RIBBON_VERTICES_PER_SEGMENT = RIBBON_STEPS * 6;
 
 /** ColorStop: 6 floats (24 bytes) per stop */
 const COLOR_STOP_FLOATS = 6;
-/** Stamp: 16 floats (64 bytes) per stamp — includes width, normal, flow, and motion metadata. */
-const STAMP_FLOATS = 16;
 
-const WET_ADDITIVE_BLEND: GPUBlendState = {
-	color: {
-		srcFactor: "one",
-		dstFactor: "one",
-		operation: "add",
-	},
-	alpha: {
-		srcFactor: "one",
-		dstFactor: "one",
-		operation: "add",
-	},
-};
-
-const WET_MAX_BLEND: GPUBlendState = {
-	color: {
-		srcFactor: "one",
-		dstFactor: "one",
-		operation: "max",
-	},
-	alpha: {
-		srcFactor: "one",
-		dstFactor: "one",
-		operation: "max",
-	},
-};
-
-export const WET_ISOLATED_RENDER_TARGETS: GPUColorTargetState[] = [
-	{ format: "rgba16float", blend: WET_ADDITIVE_BLEND }, // pigment
-	{ format: "rgba16float", blend: WET_ADDITIVE_BLEND }, // flow (additive, normalized in seed)
-	{ format: "rgba16float", blend: WET_ADDITIVE_BLEND }, // fluid (water/pooling)
-	{ format: "rgba16float", blend: WET_MAX_BLEND }, // mask
-];
-
-/** Texture resolution for a stamp stroke: the single brush texture plus
+/** Texture resolution for a dab stroke: the single brush texture plus
  *  (when scatter/start/end sources are set) the texture-array layout that
- *  stamp generation packed layer indices against. Carried from resolve time
+ *  dab evaluation packed layer indices against. Carried from resolve time
  *  to draw time so the pooled fallback binds — and, when it must regenerate,
  *  regenerates — with EXACTLY the resident path's parameters. */
 interface ResolvedStampTextureSetup {
@@ -150,8 +112,6 @@ export interface MixedDabStrokeDrawState {
 
 export class StrokeBatchContext {
 	private device: GPUDevice;
-	private pipeline: GPURenderPipeline;
-	private bindGroupLayout: GPUBindGroupLayout;
 	private brushBindGroupLayout: GPUBindGroupLayout;
 	private textureManager: BrushTextureManager;
 	private uniformBuffer: GPUBuffer; // Shared uniform buffer (viewport info)
@@ -165,9 +125,8 @@ export class StrokeBatchContext {
 	private pathMetaPoolIdx = 0;
 	private colorStopsPoolIdx = 0;
 
-	// Texture view / sampler cache
+	// Texture view cache
 	private textureViewCache: Map<string, GPUTextureView> = new Map();
-	private cachedSampler: GPUSampler | null = null;
 
 	// Bind group cache (flushBatch, ribbon)
 	private cachedBindGroup1: GPUBindGroup | null = null;
@@ -183,17 +142,14 @@ export class StrokeBatchContext {
 	private batchColorStopCount = 0;
 
 	// ── Resident stamp stores ──
-	// Stamp instances + per-stroke path metas + color stops live in
+	// Dab instances + per-stroke path metas + color stops live in
 	// persistent stores keyed by the StampCache entry: a cache hit draws
-	// straight from the GPU with zero uploads, no culling walk, and no
-	// per-frame pathIndex rewrite (the meta's absolute store index is baked
-	// into the stamps once, so meta/stops offsets must stay stable).
+	// straight from the GPU with zero uploads and no per-frame pathIndex
+	// rewrite (the meta's absolute store index is baked into the dabs once,
+	// so meta/stops offsets must stay stable).
 	private readonly dabStore: BoundedStampStore;
 	private readonly metaStore: GeometryStore;
 	private readonly stopsStore: GeometryStore;
-	private residentBindGroup1: GPUBindGroup | null = null;
-	private residentBG1MetaBuf: GPUBuffer | null = null;
-	private residentBG1StopsBuf: GPUBuffer | null = null;
 	/** BG0 per (uniform buffer, brush texture uid). Keyed by uniform buffer via
 	 *  WeakMap so per-pass viewport-override buffers (UniformScope pool) and
 	 *  the main buffer keep separate entries instead of thrashing one slot.
@@ -214,7 +170,7 @@ export class StrokeBatchContext {
 	private batchRibbonSegmentCount = 0;
 	private batchRibbonTextureUid: string | null = null;
 
-	// Scatter (texture array) pipeline — lazy initialized
+	// Dab pipelines, keyed by tip mode / wet-seed / mixed-color variant
 	private dabPipelines = new Map<
 		string,
 		{ pipeline: GPURenderPipeline; bindGroupLayout: GPUBindGroupLayout }
@@ -236,12 +192,7 @@ export class StrokeBatchContext {
 	private retiredLiveDabBuffers: GPUBuffer[] = [];
 	/** Settings-object -> JSON fingerprint (settings are immutable). */
 	private readonly v2FingerprintCache = new WeakMap<object, string>();
-	private scatterPipeline: GPURenderPipeline | null = null;
-	private scatterBindGroupLayout: GPUBindGroupLayout | null = null;
 	private textureArrayBuilder: BrushTextureArrayBuilder | null = null;
-	private wetPipeline: GPURenderPipeline | null = null;
-	private wetScatterPipeline: GPURenderPipeline | null = null;
-	private wetScatterBindGroupLayout: GPUBindGroupLayout | null = null;
 
 	// Ribbon pipeline — lazy initialized
 	private ribbonPipeline: GPURenderPipeline | null = null;
@@ -309,41 +260,10 @@ export class StrokeBatchContext {
 			initialCapacityVertices: 256,
 		});
 
-		const { module: shaderModule } = compileShaderModule(device, {
-			label: "Brush Stamp Shader",
-			code: BRUSH_STAMP_SHADER,
-		});
-
-		// Bind Group Layout 0: Viewport uniforms + Stamps + Texture
-		this.bindGroupLayout = device.createBindGroupLayout({
-			label: "Brush Stamp Bind Group Layout 0",
-			entries: [
-				{
-					binding: 0,
-					visibility: GPUShaderStage.VERTEX,
-					buffer: { type: "uniform" },
-				},
-				{
-					binding: 1,
-					visibility: GPUShaderStage.VERTEX,
-					buffer: { type: "read-only-storage" },
-				},
-				{
-					binding: 2,
-					visibility: GPUShaderStage.FRAGMENT,
-					texture: { sampleType: "float" },
-				},
-				{
-					binding: 3,
-					visibility: GPUShaderStage.FRAGMENT,
-					sampler: { type: "filtering" },
-				},
-			],
-		});
-
-		// Bind Group Layout 1: PathMetas (storage) + ColorStops (storage)
+		// Bind Group Layout 1: PathMetas (storage) + ColorStops (storage).
+		// Shared by every stroke pipeline (dab, ribbon, wet seed).
 		this.brushBindGroupLayout = device.createBindGroupLayout({
-			label: "Brush Stamp Bind Group Layout 1",
+			label: "Stroke Bind Group Layout 1",
 			entries: [
 				{
 					binding: 0,
@@ -357,67 +277,12 @@ export class StrokeBatchContext {
 				},
 			],
 		});
-
-		const pipelineLayout = device.createPipelineLayout({
-			label: "Brush Stamp Pipeline Layout",
-			bindGroupLayouts: [
-				this.bindGroupLayout,
-				this.brushBindGroupLayout,
-				transformsBindGroupLayout,
-				maskBindGroupLayout,
-			],
-		});
-
-		const blendState: GPUBlendState = {
-			color: {
-				srcFactor: "one",
-				dstFactor: "one-minus-src-alpha",
-				operation: "add",
-			},
-			alpha: {
-				srcFactor: "one",
-				dstFactor: "one-minus-src-alpha",
-				operation: "add",
-			},
-		};
-
-		this.pipeline = device.createRenderPipeline({
-			label: "Brush Stamp Pipeline",
-			layout: pipelineLayout,
-			vertex: { module: shaderModule, entryPoint: "vs_main" },
-			fragment: {
-				module: shaderModule,
-				entryPoint: "fs_main",
-				targets: [{ format: canvasFormat, blend: blendState }],
-			},
-			primitive: { topology: "triangle-list", cullMode: "none" },
-			depthStencil: {
-				format: "depth24plus-stencil8",
-				depthWriteEnabled: false,
-				depthCompare: "always",
-				stencilFront: {
-					compare: "always",
-					passOp: "keep",
-					failOp: "keep",
-					depthFailOp: "keep",
-				},
-				stencilBack: {
-					compare: "always",
-					passOp: "keep",
-					failOp: "keep",
-					depthFailOp: "keep",
-				},
-				stencilWriteMask: 0x00,
-				stencilReadMask: 0x00,
-			},
-			multisample: { count: RENDER_SAMPLE_COUNT },
-		});
 	}
 
 	/**
 	 * Override the uniform buffer used for bind group 0.
 	 * Offscreen passes call this with the per-pass uniform buffer from
-	 * UniformScope so that the stamp shader reads the correct viewport
+	 * UniformScope so that the stroke shaders read the correct viewport
 	 * parameters for the offscreen texture.
 	 */
 	public setActiveUniformBuffer(buffer: GPUBuffer | null): void {
@@ -428,123 +293,14 @@ export class StrokeBatchContext {
 		return this.activeUniformBuffer ?? this.uniformBuffer;
 	}
 
-	/** Lazy-init scatter pipeline (texture_2d_array variant) */
-	private ensureScatterPipeline(): {
-		pipeline: GPURenderPipeline;
-		bindGroupLayout: GPUBindGroupLayout;
-		arrayBuilder: BrushTextureArrayBuilder;
-	} {
-		if (
-			this.scatterPipeline &&
-			this.scatterBindGroupLayout &&
-			this.textureArrayBuilder
-		) {
-			return {
-				pipeline: this.scatterPipeline,
-				bindGroupLayout: this.scatterBindGroupLayout,
-				arrayBuilder: this.textureArrayBuilder,
-			};
-		}
-
-		const { module: shaderModule } = compileShaderModule(this.device, {
-			label: "Brush Stamp Array Shader",
-			code: BRUSH_STAMP_ARRAY_SHADER,
-		});
-
-		this.scatterBindGroupLayout = this.device.createBindGroupLayout({
-			label: "Brush Stamp Array Bind Group Layout 0",
-			entries: [
-				{
-					binding: 0,
-					visibility: GPUShaderStage.VERTEX,
-					buffer: { type: "uniform" },
-				},
-				{
-					binding: 1,
-					visibility: GPUShaderStage.VERTEX,
-					buffer: { type: "read-only-storage" },
-				},
-				{
-					binding: 2,
-					visibility: GPUShaderStage.FRAGMENT,
-					texture: {
-						sampleType: "float",
-						viewDimension: "2d-array",
-					},
-				},
-				{
-					binding: 3,
-					visibility: GPUShaderStage.FRAGMENT,
-					sampler: { type: "filtering" },
-				},
-			],
-		});
-
-		const pipelineLayout = this.device.createPipelineLayout({
-			label: "Brush Stamp Array Pipeline Layout",
-			bindGroupLayouts: [
-				this.scatterBindGroupLayout,
-				this.brushBindGroupLayout,
-				this.transformsBindGroupLayout,
-				this.maskBindGroupLayout,
-			],
-		});
-
-		const blendState: GPUBlendState = {
-			color: {
-				srcFactor: "one",
-				dstFactor: "one-minus-src-alpha",
-				operation: "add",
-			},
-			alpha: {
-				srcFactor: "one",
-				dstFactor: "one-minus-src-alpha",
-				operation: "add",
-			},
-		};
-
-		this.scatterPipeline = this.device.createRenderPipeline({
-			label: "Brush Stamp Array Pipeline",
-			layout: pipelineLayout,
-			vertex: { module: shaderModule, entryPoint: "vs_main" },
-			fragment: {
-				module: shaderModule,
-				entryPoint: "fs_main",
-				targets: [{ format: this.canvasFormat, blend: blendState }],
-			},
-			primitive: { topology: "triangle-list", cullMode: "none" },
-			depthStencil: {
-				format: "depth24plus-stencil8",
-				depthWriteEnabled: false,
-				depthCompare: "always",
-				stencilFront: {
-					compare: "always",
-					passOp: "keep",
-					failOp: "keep",
-					depthFailOp: "keep",
-				},
-				stencilBack: {
-					compare: "always",
-					passOp: "keep",
-					failOp: "keep",
-					depthFailOp: "keep",
-				},
-				stencilWriteMask: 0x00,
-				stencilReadMask: 0x00,
-			},
-			multisample: { count: RENDER_SAMPLE_COUNT },
-		});
-
-		this.textureArrayBuilder = new BrushTextureArrayBuilder(
+	/** Lazy-init the scatter texture-array builder. Only image tips with
+	 *  scatter/start/end sources need it, so it stays unbuilt otherwise. */
+	private ensureTextureArrayBuilder(): BrushTextureArrayBuilder {
+		this.textureArrayBuilder ??= new BrushTextureArrayBuilder(
 			this.device,
 			this.textureManager,
 		);
-
-		return {
-			pipeline: this.scatterPipeline,
-			bindGroupLayout: this.scatterBindGroupLayout,
-			arrayBuilder: this.textureArrayBuilder,
-		};
+		return this.textureArrayBuilder;
 	}
 
 	/** Lazy-init ribbon pipeline (bezier segment instancing) */
@@ -597,9 +353,9 @@ export class StrokeBatchContext {
 		});
 		this.device.queue.writeBuffer(this.ribbonUnitVertexBuffer, 0, vertexData);
 
-		// Sampler with repeat U for seamless tiling. Brush textures now carry
-		// mip chains for the dab pipeline; pin this legacy sampler to level 0
-		// so ribbon output stays identical to the pre-mip behavior.
+		// Sampler with repeat U for seamless tiling. Brush textures carry mip
+		// chains for the dab pipeline; pin this one to level 0 so ribbon output
+		// stays identical to the pre-mip behavior.
 		this.ribbonSampler = this.device.createSampler({
 			label: "Ribbon Repeat Sampler",
 			magFilter: "linear",
@@ -1065,11 +821,10 @@ export class StrokeBatchContext {
 			rawBrushSettings ?? createDefaultBrushSettings(),
 		);
 
-		// Geometric stroke is rendered by ElementRenderer, not the stamp pipeline.
+		// Geometric stroke is rendered by ElementRenderer, not by a stroke pipeline.
 		if (route.kind === "geometric") return;
 
-		// Ribbon methods (pattern/art): bezier segment instancing through the
-		// legacy renderer until the ribbon integration phase.
+		// Ribbon engine: one instance per bezier segment, extruded on the GPU.
 		if (route.kind === "ribbon") {
 			const ribbon = route.settings.ribbon;
 			if (!ribbon) return;
@@ -1415,9 +1170,8 @@ export class StrokeBatchContext {
 		let endLayerIndex = -1;
 
 		if (settings.tip?.kind === "image") {
-			const setup = this.resolveScatterTextureSetup(
-				settings,
-				() => this.ensureScatterPipeline().arrayBuilder,
+			const setup = this.resolveScatterTextureSetup(settings, () =>
+				this.ensureTextureArrayBuilder(),
 			);
 			textureAspectRatio = this.textureManager.getTextureAspectRatio(
 				setup.effectiveTextureFileUid,
@@ -1442,8 +1196,8 @@ export class StrokeBatchContext {
 				}
 				textureView = view;
 			}
-			// The dab pipeline trilinearly filters the tip mip chain; the legacy
-			// stamp path keeps its level-0-pinned sampler.
+			// Trilinear filtering over the tip's mip chain. The ribbon pipeline
+			// keeps its own level-0-pinned sampler instead.
 			sampler = this.textureManager.getMipSampler();
 		} else {
 			const falloff = this.ensureFalloffLut();
@@ -2019,19 +1773,12 @@ export class StrokeBatchContext {
 		for (const entry of this.colorStopsBufferPool) entry.buffer.destroy();
 		this.colorStopsBufferPool.length = 0;
 		this.textureViewCache.clear();
-		this.cachedSampler = null;
 		this.cachedBindGroup1 = null;
 		this.metaStore.destroy();
 		this.stopsStore.destroy();
 		this.residentBG0Cache = new WeakMap();
-		this.residentBindGroup1 = null;
-		this.residentBG1MetaBuf = null;
-		this.residentBG1StopsBuf = null;
 		this.textureArrayBuilder?.destroy();
 		this.textureArrayBuilder = null;
-		this.wetPipeline = null;
-		this.wetScatterPipeline = null;
-		this.wetScatterBindGroupLayout = null;
 		this.ribbonUnitVertexBuffer?.destroy();
 		this.ribbonUnitVertexBuffer = null;
 		this.ribbonPipeline = null;
@@ -2504,11 +2251,10 @@ function hashStampInput(path: Path, segments: CubicBezierSegment[]): string {
 }
 
 // ================================================================
-// Brush method -> generator input adapters
+// BrushSettingsV2 -> generator input adapters
 //
-// Map a calligraphy / art union member onto the input shape consumed by
-// StampGenerator / RibbonGenerator. The union member stays the source of
-// truth; the adapter simply expresses it in the generator's vocabulary.
+// Express v2 settings in the vocabulary RibbonGenerator consumes. The
+// settings object stays the source of truth; these only reshape it.
 // They live here (rather than in core/brush) because the resulting structure
 // is purely a renderer-side concern.
 // ================================================================

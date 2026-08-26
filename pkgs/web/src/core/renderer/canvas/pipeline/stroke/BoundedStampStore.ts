@@ -11,7 +11,7 @@
  *
  * A run's offset never moves for the lease's lifetime: growth reallocates the
  * buffer but copies every live range to the SAME offset from its CPU mirror,
- * so the shader's `stamps[instance_index]` read (brushStamp.wgsl) stays valid
+ * so the shader's `dabs[instance_index]` read (brushDab.wgsl) stays valid
  * with the handle's absolute firstStamp as the draw's firstInstance. The
  * outgrown buffer is retired to a frame-boundary destroy, and releases are
  * deferred there too (a just-released range may still be referenced by this

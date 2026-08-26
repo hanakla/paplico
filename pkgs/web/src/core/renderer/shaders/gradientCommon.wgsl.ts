@@ -1,7 +1,7 @@
 /**
  * Gradient Common WGSL - OKLab色空間変換とColorStop構造体
  *
- * gradientFill.wgsl.ts と brushStamp.wgsl.ts で共有する
+ * gradientFill.wgsl.ts と brushDab.wgsl.ts で共有する
  * OKLab perceptual色空間の変換関数群。
  *
  * WGSLにはinclude機構がないため、TypeScript文字列テンプレートとして

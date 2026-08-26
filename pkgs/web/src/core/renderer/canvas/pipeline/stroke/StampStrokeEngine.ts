@@ -1,15 +1,13 @@
 /**
  * StampStrokeEngine — owns the dab engine.
  *
- * Drives the stamp pipeline (BRUSH_STAMP_SHADER / BRUSH_STAMP_ARRAY_SHADER)
- * hosted on the shared StrokeBatchContext. Scatter brushes feed the pipeline
- * directly; calligraphy brushes feed it through a forward adapter inside
- * StrokeBatchContext that maps roundness / nibAngle onto stamp sizeY +
- * rotation (elliptical nib via texture scaling).
+ * Drives the dab pipelines (buildBrushDabShader, one variant per tip mode)
+ * hosted on the shared StrokeBatchContext. Tip shape, nib ellipticity and
+ * rotation all arrive as BrushSettingsV2 properties, so this engine only
+ * forwards; DabEvaluator resolves them per dab.
  *
- * `supportsField=true` so the wet-ink pass can pick this engine to write
- * into the per-stroke dynamics field once the field-writing pipeline
- * variant is wired up.
+ * `supportsField=true` so the wet layer can pick this engine to seed the
+ * per-stroke dynamics field.
  */
 
 import type { BrushEngineKind } from "../../../../schema";

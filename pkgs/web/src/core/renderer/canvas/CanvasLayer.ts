@@ -124,7 +124,6 @@ import type { FilteredElementCacheEntry } from "./caches/FilteredElementCache";
 import type { RenderCacheManager } from "./caches/RenderCacheManager";
 import {
 	collectDrawableAppearances,
-	type ResolvedAppearancePass,
 	resolveAppearancePasses,
 } from "./elements/appearancePasses";
 import { ElementRenderer } from "./elements/ElementRenderer";
@@ -220,15 +219,6 @@ import { TexturePool, texturePoolBudgetBytes } from "./pipeline/TexturePool";
 import { UniformScope } from "./pipeline/UniformScope";
 import { ViewportManager } from "./pipeline/ViewportManager";
 import { WashCompositor } from "./pipeline/WashCompositor";
-
-interface PendingWetInkJob {
-	compositeContext: CompositeRenderContext;
-	path: Path;
-	wetPasses: ResolvedAppearancePass[];
-	effectiveAlpha: number;
-	transformIndex: number;
-	renderBufferCacheKey: string;
-}
 
 /**
  * Frame-local values the isolation-dim pass body reads, threaded from
@@ -5799,8 +5789,6 @@ export class CanvasLayer {
 		let activePass = passEncoder;
 		const batchRegistry = compositeContext ? this.strokeRegistry : null;
 		let currentBatchTextureUid = "";
-		const pendingWetInkJobs: PendingWetInkJob[] = [];
-		const wetRenderBufferCacheKey: string | null = null;
 		if (batchRegistry) batchRegistry.beginBatch();
 
 		for (const element of elements) {

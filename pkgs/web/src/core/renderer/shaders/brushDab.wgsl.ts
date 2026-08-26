@@ -1,9 +1,8 @@
 /**
  * Brush dab shader (v2) — single template source (design §15).
  *
- * One template generates every tip variant, replacing the duplicated
- * BRUSH_STAMP_SHADER / BRUSH_STAMP_ARRAY_SHADER pair; the gradient sampling
- * switch exists exactly once. The DabInstance struct is generated from
+ * One template generates every tip variant, so the gradient sampling switch
+ * exists exactly once. The DabInstance struct is generated from
  * DabInstanceLayout so the CPU writer and the shader cannot drift. Per-dab
  * extras (packed color, hardness layer, grain strength, wet seeds) are read
  * from the storage buffer in the fragment stage via one flat instance index

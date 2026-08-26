@@ -1,397 +1,305 @@
 # ブラシレンダリング
 
 > [!NOTE]
-> **前提ページ:** [エレメントレンダリング](/devdocs/renderer/elements) — ブラシストロークが `ElementRenderer` のパス描画フローからどのように呼び出されるかを先に把握しておくと理解しやすい。
+> **前提ページ:** [ブラシシステム](/devdocs/brush-system) — Pointer入力からベジェfit・Path確定までの入力側パイプラインを先に把握しておくこと。本ページはその後段、確定・プレビュー両方のストロークをGPUで描画する部分を扱う。[エレメントレンダリング](/devdocs/renderer/elements)の`ElementRenderer`からの呼び出し関係も参照。
 
-Paplicoのブラシストロークは**スタンプベースのインスタンスドレンダリング**で描画される。ベジェ曲線に沿って等間隔に配置されたスタンプ（ブラシの形状画像）を、WebGPUのインスタンシングで一括描画する方式である。ストロークのテッセレーション（曲線を三角形メッシュに変換する処理）と比較して、頂点処理の負荷が桁違いに小さい。5000パスをテッセレーションすると約50万三角形の頂点処理が必要になるが、インスタンシングでは1つの unit quad（6頂点の矩形）をスタンプ数分のインスタンスで複製するだけで済む。
+Paplicoのブラシストロークは**Dabベースのインスタンスドレンダリング**で描画される。Dabはブラシ先端画像を1つ置く単位である。ベジェ曲線に沿って配置されたDab列をstorage bufferへ格納し、1回のインスタンスド描画で発行する。ストロークをメッシュにテッセレーションする方式と比較して頂点処理の負荷が桁違いに小さい。
 
-筆圧・回転・チルト・速度・不透明度といった入力デバイスパラメータは、インスタンスデータとして storage buffer に格納され、頂点シェーダーが各スタンプを独立に配置・スケーリング・回転する。フラグメントシェーダーはブラシテクスチャの輝度からアルファを算出し、ストロークグラデーション（within / along / across）にも対応する。
+ブラシ設定は`BrushSettingsV2`（`core/schema.ts`）である。`engine`フィールドが描画エンジンを決め、`properties`のカーブ行列（入力×プロパティのカーブ変調）がDabごとのサイズ・不透明度・回転などを決める。カーブ評価の仕組み自体は`core/brush/`（`properties.ts` / `inputs.ts` / `curves.ts` / `evaluateProperties.ts`）にあり、本ページではレンダラがそれをどう消費するかに絞る。
 
-このページでは `core/renderer/brush/` 配下のモジュールを中心に、スタンプの生成・カリング・バッチ描画・テクスチャ管理・パフォーマンス上の制約を解説する。
+## エンジンルーティング
+
+`resolveBrushRenderRoute()`（`core/brush/renderRoute.ts`）が`BrushSettingsV2.engine`から3経路を決める。
+
+```mermaid
+flowchart TD
+    A[Path + BrushSettingsV2] --> B[resolveBrushRenderRoute]
+    B -->|dab| C["StrokeBatchContext.render → renderDabsV2"]
+    B -->|ribbon| D["addToBatch → flushBatch（バッチ経路）"]
+    B -->|geometric| E[ElementRenderer.renderGeometricStroke]
+    C --> F[インスタンスド描画]
+    D --> F
+```
+
+- **dab**: 既定。CanvasLayerのフィルタ経路から`StrokeBatchContext.render()`へ直行し、`renderDabsV2()`が描く。**バッチ蓄積には乗らない**
+- **ribbon**: テクスチャをパスに沿ってUVマッピングする。バッチ経路（`addToBatch` / `flushBatch`）を使う唯一のエンジン
+- **geometric**: SVG風のジオメトリックストローク。`ElementRenderer.renderGeometricStroke`へ戻す
+
+エンジンの選択はStrokeEngineRegistry（`pipeline/stroke/StrokeEnginePicker.ts`）が仲介する。`StampStrokeEngine` / `RibbonStrokeEngine` / `GeometricStrokeEngine`はいずれも薄いラッパで、実体は`StrokeBatchContext`に集約されている。
 
 ## モジュール概観
 
 | モジュール | 役割 |
 |---|---|
-| `BrushStrokeRenderer` | スタンプ/散布/リボンの3パイプライン管理、バッチ蓄積、GPUバッファ書き込み、テクスチャ別 draw call 発行 |
-| `StampGenerator` | ベジェ曲線に沿ったスタンプ位置・サイズ・不透明度の計算。`StampBuffer` の生成 |
-| `BrushTextureManager` | ブラシテクスチャの読み込み（Base64 PNG / プログラム生成 / ユーザー定義）、寸法追跡、キャッシュ |
-| `BrushTextureArrayBuilder` | 複数テクスチャバリアントを `texture_2d_array` にまとめて散布パイプライン用に構築 |
-| `RibbonGenerator` | ベジェセグメントメタデータ（弧長プレフィックスサム等）をリボンパイプライン用に前処理 |
-| `VectorBrushRasterizer` | キャンバス上の要素をオンデマンドでGPUテクスチャにラスタライズし、ブラシ先端として使用 |
-| `StampCache` | 要素単位のスタンプ生成結果をキャッシュし、未変更ストロークの再計算を回避 |
+| `StrokeBatchContext` | 全WebGPUパイプラインの所有者。dab描画・GPUバッファプール・falloff LUT・wet seed・混色チャンク描画 |
+| `DabEvaluator` | セグメント列 + `BrushSettingsV2` → Dabインスタンス列。速度EMA・カーブ評価・timed dab |
+| `DabInstanceLayout` | 24 float/dabレイアウトのSSoT。WGSL構造体宣言を自動生成 |
+| `LiveDabAccumulator` | ライブ描画の増分評価。確定プレフィックスの差分アップロード |
+| `TipMaskBuilder` | 手続き先端のfalloff LUT生成 |
+| `BrushTextureManager` | 先端テクスチャの読み込み・ミップ生成・defテクスチャ登録 |
+| `BrushTextureArrayBuilder` | 散布用に複数テクスチャを`texture_2d_array`へ構築 |
+| `MixPass` / `MixStrokeRenderer` | 混色（smudge）のチャンクcomputeとインライン合成 |
+| `WetLayerPass` | wet層の拡散シミュレーション |
+| `WashCompositor` | washストロークの水彩ウェットエッジ後処理 |
+| `RibbonGenerator` | リボンのセグメントインスタンス生成 |
+| `StampCache` / `BoundedStampStore` | 確定ストロークのCPU/GPU 2層キャッシュ |
+| `strokeHalfWidth` | UI向けの実効半幅サンプラ（描画経路ではない） |
 
-## BrushStrokeRenderer
+配置は`core/renderer/canvas/pipeline/brush/`と`core/renderer/canvas/pipeline/stroke/`である。シェーダは`core/renderer/shaders/`の`brushDab.wgsl.ts`・`dabColor.wgsl.ts`・`brushMix.wgsl.ts`・`wetEdge.wgsl.ts`・`wetLayer*.wgsl.ts`・`ribbonStroke.wgsl.ts`。
 
-`BrushStrokeRenderer` はブラシストロークの描画パイプライン全体を管理するクラスである。WebGPUのレンダーパイプラインを初期化し、バッチ蓄積 API とフォールバック用の個別描画 API を提供する。3つの描画パイプライン（スタンプ、散布、リボン）を持ち、`BrushSettings.renderMode` と散布テクスチャの有無に応じて使い分ける。
+## Dabインスタンスレイアウト
 
-### パイプライン構成
-
-3種のパイプラインを管理する。スタンプパイプラインはコンストラクタで即座に生成され、散布・リボンパイプラインは初回使用時に遅延初期化される:
-
-**スタンプパイプライン（既定）:**
-- **シェーダー**: `BRUSH_STAMP_SHADER`（`brushStamp.wgsl.ts`）
-- **テクスチャ**: 単一の `texture_2d<f32>`
-- **用途**: 単一テクスチャによる通常のスタンプ描画
-
-**散布パイプライン:**
-- **シェーダー**: `BRUSH_STAMP_ARRAY_SHADER`（`brushStamp.wgsl.ts`）
-- **テクスチャ**: `texture_2d_array<f32>`（複数バリアントを1つの配列テクスチャに格納）
-- **用途**: 複数テクスチャバリアントからランダム選択 + 始端/終端テクスチャ
-
-**リボンパイプライン:**
-- **シェーダー**: `RIBBON_STROKE_SHADER`（`ribbonStroke.wgsl.ts`）
-- **頂点バッファ**: 静的ユニットベジェ分割バッファ（32分割×2辺=192頂点/セグメント）
-- **インスタンスデータ**: セグメントメタデータ（制御点、弧長、幅）をstorage bufferに格納
-- **用途**: テクスチャをパスに沿ってUVマッピングし、シームレスにタイリング
-
-共通設定:
-- **プリミティブトポロジー**: `triangle-list`、カリングなし
-- **ブレンドステート**: premultiplied alpha（`srcFactor: "one"`, `dstFactor: "one-minus-src-alpha"`）
-- **マルチサンプル**: `RENDER_SAMPLE_COUNT` に従う
-- **深度ステンシル**: 深度書き込み無効、ステンシル無効（`stencilWriteMask: 0x00`）
-
-### Bind Group レイアウト
-
-| BindGroup | Binding | リソース | ステージ |
-|---|---|---|---|
-| 0 | 0 | Viewport uniform buffer | Vertex |
-| 0 | 1 | Stamp storage buffer（全パス結合） | Vertex |
-| 0 | 2 | Brush texture | Fragment |
-| 0 | 3 | Brush sampler | Fragment |
-| 1 | 0 | PathMeta storage buffer | Vertex + Fragment |
-| 1 | 1 | ColorStops storage buffer | Fragment |
-| 2 | 0 | Element transforms storage buffer | Vertex |
-| 3 | 0 | Mask atlas texture | Fragment |
-| 3 | 1 | Mask sampler | Fragment |
-
-BindGroup 0 はテクスチャを含むため、テクスチャが変わるたびに再バインドが必要である。BindGroup 1 の PathMeta と ColorStops は全テクスチャで共通であり、フレーム内で1回だけバインドすればよい。
-
-### バッチ描画 API
-
-通常のレンダリングでは以下の3メソッドをフレームごとに順に呼び出す:
-
-1. **`beginBatch()`**: バッチ蓄積バッファをリセットする。前フレームのピーク使用量（`peakStampFloats`, `peakPathMetaFloats`, `peakColorStopFloats`）に基づいて `Float32Array` をプリアロケートし、フレーム中の再アロケーションを回避する
-2. **`addToBatch(path, segments, viewportBounds, alphaMultiplier, transformIndex)`**: パスごとに呼び出され、スタンプデータをバッチバッファに蓄積する。内部では `StampCache` からキャッシュ済みスタンプを取得し（ミス時は `generateStampsDirect` で生成）、`cullStampBufferToViewport` でビューポート外のスタンプを除外した後、`batchStamps` / `batchPathMetas` / `batchColorStops` に追加する
-3. **`flushBatch(passEncoder, pipelineType, transformsBindGroup)`**: 蓄積されたスタンプデータをGPUバッファにアップロードし、`passEncoder.draw(6, batchStampCount, 0, 0)` でインスタンスド描画を発行する
-
-```mermaid
-flowchart TD
-    A[beginBatch] --> B["addToBatch × N paths"]
-    B --> C[flushBatch]
-    C --> D[acquireStampBuffer]
-    C --> E[acquirePathMetaBuffer]
-    C --> F[acquireColorStopsBuffer]
-    D --> G["writeBuffer → GPU"]
-    E --> G
-    F --> G
-    G --> H["draw(6, stampCount)"]
-```
-
-### pathIndex のリライト
-
-`StampCache` はスタンプデータを `pathIndex=0` で生成・キャッシュする。`addToBatch` でバッチに追加する際に、各スタンプの `pathIndex` フィールド（オフセット+6）を現在の `batchPathCount` で上書きする。u32 → f32 のビット再解釈には `_u32Scratch` / `_f32Scratch` の共有 `ArrayBuffer` を使用する。
-
-### 個別描画 API（フォールバック）
-
-`render()` メソッドはオフスクリーンパスやステンシルパスなど、バッチ対象外の描画に使用される。スタンプ生成からGPUバッファ書き込み・draw call 発行まで1メソッドで完結する。`StampCache` を使用せず毎回スタンプを生成するため、バッチ API より低効率である。
-
-### Uniform Buffer のオーバーライド
-
-`setActiveUniformBuffer(buffer)` で BindGroup 0 の viewport uniform buffer を一時的に差し替えられる。オフスクリーンパスでは `UniformScope` が発行する専用 uniform buffer を設定し、オフスクリーンテクスチャの寸法に合わせたビューポートパラメータでスタンプを描画する。
-
-### GPUバッファプール
-
-stamp / pathMeta / colorStops の3種のGPUバッファはそれぞれ **grow-only プール** で管理される。`acquireStampBuffer` はプール内のバッファが要求サイズに満たない場合のみ新規作成し、十分なサイズのバッファが存在すればそのまま再利用する。フレーム開始時に `beginFrame()` でプールインデックスをリセットする。
-
-### BindGroup キャッシュ
-
-`flushBatch` 内の `createBindGroup` 呼び出しを最小化するため、BindGroup 0 と BindGroup 1 のキャッシュを保持する。バッファやテクスチャビューが前回と同一であればキャッシュ済み BindGroup をそのまま再利用する。`cachedBG0UniformBuf`, `cachedBG0StampBuf`, `cachedBG0TextureView`, `cachedBG0Sampler` の全4フィールドが一致した場合のみキャッシュヒットとなる。
-
-## StampGenerator
-
-`generateStampsDirect` はベジェ曲線セグメント配列と `BrushSettings` を入力とし、`StampBuffer`（`Float32Array` + 有効スタンプ数 `count`）を出力する純粋関数である。中間オブジェクトの生成を徹底的に回避した高速なホットパス実装である。
-
-### スタンプデータ構造
-
-1スタンプは `FLOATS_PER_STAMP = 12` floats（48 bytes）で構成される:
+`DabInstanceLayout.ts`がCPU/GPU双方のレイアウトのSSoTである。`DAB_INSTANCE_FLOATS = 24`（96バイト、16バイトアライン）。`generateDabInstanceWgsl()`がこのテーブルからWGSL構造体宣言を生成するため、CPUとシェーダのドリフトは構造的に起きない。
 
 | Offset | フィールド | 説明 |
 |---|---|---|
-| 0 | `x` | ローカル座標X |
-| 1 | `y` | ローカル座標Y |
-| 2 | `sizeX` | 横方向サイズ（筆圧・速度・プーリング反映済み） |
-| 3 | `opacity` | 不透明度（`flow * opacity * 筆圧係数 * プーリング係数`） |
-| 4 | `rotation` | 回転角（tangent / random / none） |
-| 5 | `pathT` | パス上の正規化位置（0.0 ~ 1.0）。ストロークグラデーション用 |
-| 6 | `pathIndex` | パスインデックス（u32をf32にビット再解釈。`u32AsFloat` で変換） |
-| 7 | `sizeY` | 縦方向サイズ（チルトによる楕円化反映） |
-| 8 | `side1Width` | 可変幅ストロークの side1（パス法線方向） |
-| 9 | `side2Width` | 可変幅ストロークの side2（パス法線逆方向） |
-| 10 | `normalX` | パス法線X成分 |
-| 11 | `normalY` | パス法線Y成分 |
+| 0 | `positionX` | Dab中心X（ワールド座標） |
+| 1 | `positionY` | Dab中心Y |
+| 2 | `sizeX` | 横方向サイズ（アスペクト込み） |
+| 3 | `alpha` | Dabアルファ。flow由来。buildupではlinearize補正済み |
+| 4 | `rotation` | 回転角。tangent時は接線角を加算済み |
+| 5 | `pathT` | 弧長比 0..1。グラデーション用 |
+| 6 | `packedMeta` | u32: 下位21bit = pathIndex、上位11bit = テクスチャレイヤ |
+| 7 | `sizeY` | 縦方向サイズ |
+| 8 | `side1Width` | 可変線幅 側1 |
+| 9 | `side2Width` | 可変線幅 側2 |
+| 10 | `normalX` | パス法線X |
+| 11 | `normalY` | パス法線Y |
+| 12 | `strokeDirX` | 進行方向X |
+| 13 | `strokeDirY` | 進行方向Y |
+| 14 | `motionSpeed` | `speedFine`入力値 |
+| 15 | `motionAccel` | `accel`入力値 |
+| 16 | `packedColorShift0` | `pack2x16snorm(hueShift, satShift)` |
+| 17 | `packedColorShift1` | `pack2x16snorm(valShift, 0)` |
+| 18 | `hardnessLutIndex` | falloff LUTレイヤ。`round(hardness * 31)`で0..31 |
+| 19 | `grainStrength` | 紙目強度 |
+| 20 | `wetness` | wet無効時は0 |
+| 21 | `directionality` | wet無効時は0 |
+| 22 | `grainAmount` | wet紙目量 |
+| 23 | `packedWetCoefficients` | wet場発展係数5種を6bitずつパック |
 
-### 生成アルゴリズム
+pathIndex/テクスチャレイヤのビット詰めは`StampPacking.ts`の純関数（`packStampPathIndex` / `replaceStampPathIndex`）が担う。この24 float ABIはフェーズ1で凍結されており、以後変更しない。wet無効のブラシもwet系3フィールド分を0で運ぶが、これは固定ABIの意図的な代償である。
 
-1. **セグメント長計算**: 全セグメントを10サンプルで近似し、`segLengths` と `totalPathLength` を1パスで算出する。`resolveSegmentInline` でセグメントの絶対座標を8つの number 変数に直接展開し、中間オブジェクトの生成を回避する
-2. **スタンプ配置**: `spacing = size * spacingRatio` の間隔で累積距離を追跡しながらスタンプを配置する。ベジエ評価（3次ベジエ `t1³·s + 3t1²t·c1 + 3t1t²·c2 + t³·e`）はループ内にインライン展開されている
-3. **筆圧反映**: `sizeByPressure` は `pressureFactor = 1 - sizeByPressure + sizeByPressure * pressure` で線形補間する。`opacityByPressure` も同様
-4. **回転モード**: `tangent` は `atan2(dy, dx) - PI/2` でパス接線方向に整列する。`random` はシード付き擬似乱数生成器（mulberry32、`createSeededRng`）で決定論的な乱数列を生成する。同じシードからは常に同じ回転列が再現される
-5. **チルト**: `rotationByTilt` はペン傾斜角の大きさ（`tiltMag = sqrt(tiltX² + tiltY²) / 90`）に比例してスタンプを回転する。`aspectRatioByTilt` は傾斜に応じて `sizeY` を縮小し（最大30%まで）、楕円形のスタンプを生成する
-6. **速度依存効果**: 速度は `stepDist / deltaTime` で算出し、`velocityThreshold = brushSize * 0.5` で正規化する
-   - **`sizeBySpeed`**: 高速時にサイズを縮小する（最大70%縮小）
-   - **`pooling`**: 低速時にインク溜まり効果を発生させる。`poolingSizeRatio` でサイズ増加と不透明度増加のバランスを制御し、スペーシングも最大60%縮小してスタンプ密度を上げる
-7. **可変幅ストローク**: `strokeWidths` 配列が指定された場合、`interpolateStrokeWidths` で `pathT` に応じた `side1`, `side2` を補間し、スタンプごとに格納する
-8. **サブパス処理**: `segment.isMoved` が true のセグメント（moveTo に相当）では `accumulatedDistance` をリセットし、サブパスの先頭に新しいスタンプを配置する
+## DabEvaluator
 
-### pathStart / pathEnd による部分描画
+`evaluateDabs(segments, settings, options)`がDab生成の本体である。`settings.engine !== "dab"`なら空バッファを返す。
 
-`pathStart` / `pathEnd`（0.0 ~ 1.0）でストロークの描画範囲を制限できる。`pathStart > 0` の場合、先頭セグメントの筆圧を `endPressure` で代用して不自然な太さの変化を抑制する。`pathEnd < 1` の場合、最終セグメントの `endPressure` を `startPressure` で上書きして同様に対処する。
+- **入力**: `CubicBezierSegment[]`、`BrushSettingsV2`、`DabEvaluateOptions`（`pathIndex` / `pathStart` / `pathEnd` / `strokeWidths` / `textureAspectRatio` / 散布レイヤ情報 / `resume` / `totalLength`）
+- **出力**: `DabBuffer` = `{ data: Float32Array, count, mixParams, state, totalLength }`。`mixParams`はDabごとの混色パラメータ（colorRate / alphaRate / smudgeLength）で、`mixing.enabled`が明示trueのときのみ充填される
 
-## BrushTextureManager
+1関数の中で責務が分かれている。
 
-`BrushTextureManager` はブラシテクスチャの読み込みとGPUテクスチャキャッシュを管理するクラスである。`textureCache`（`Map<string, GPUTexture>`）にテクスチャを格納し、UID で取得する。
+1. **弧長積分**: `approximateCubicLength`でセグメント長を近似し、spacing間隔でDab位置を積分する
+2. **入力サンプラ**: 速度EMA 2本（fast 25ms / slow 110ms既定）、`accel`、`fade`（32ブラシサイズで飽和）、`distance`（1024pxで飽和）などのカーブ入力を更新する
+3. **カーブ評価**: `bakeBrushProperties()`でカーブを256bin LUTへ焼き、Dabごとに`evalBrushProperty()`でLUT参照する
+4. **書き込み**: `DAB_FIELD_OFFSETS`へ直書きする。`u32AsFloat` / `pack2x16snorm` / `pack5x6unorm`でビット詰めする
 
-### ビルトインブラシテクスチャ
+### timed dab
 
-`loadDefaultTextures()` で以下の4種を初期化時にロードする:
+距離アキュムレータと時間アキュムレータを両方回し、**先に閾値へ達した側でDabを発火**する。`dabsPerSecond`プロパティが0より大きいと時間側が有効になり、ペンを止めても滞留噴射が積もる。エアブラシの本質的挙動である。
 
-| ブラシID | 生成方法 | 特徴 |
+### opaque_linearize
+
+buildup経路ではDabアルファに補正を掛ける。
+
+```text
+overlap = sizeX / max(aspect, 1) / spacingWorld
+dabsPerPixel = max(1 + 0.9 * (overlap - 1), 1)
+alpha = 1 - (1 - clamp01(flow * strokeOpacity)) ^ (1 / dabsPerPixel)
+```
+
+over合成では最終濃度が「1画素を覆うDab数」に依存するため、無補正だとspacingを変えるだけで線の濃さが変わってしまう。この式は合成後の濃度が指定値へ収束するようDab単体のアルファを逆算する。libmypaintの`opaque_linearize`と同じ発想である。wash経路ではこの補正を掛けず`alpha = flow`とし、`strokeOpacity`は合成時に1回だけ適用する。
+
+### チャンク分割と決定論
+
+`DabEvalState`（速度EMA・累積距離・乱数状態など22フィールド）を`resume`オプションで受け渡すと、ストロークを分割評価しても一括評価とビット一致する。`LiveDabAccumulator`の増分評価と混色のチャンク処理はこの性質に依存している。乱数はmulberry32のシード付きで、同一シードから同一Dab列が再現される。
+
+## Dab供給の3系統とキャッシュ
+
+`renderDabsV2()`はDabデータの供給元を3系統に分ける。
+
+```mermaid
+flowchart TD
+    A[renderDabsV2] --> B{ストローク種別}
+    B -->|ライブ buildup| C[LiveDabAccumulator.update]
+    B -->|ライブ wash| D[毎フレーム evaluateDabs 全評価]
+    B -->|確定ストローク| E[StampCache 参照]
+    E -->|hit| F[BoundedStampStore 常駐リース]
+    E -->|miss| G[evaluateDabs → cache set]
+    G --> F
+    F -->|容量不足| H[フレームプールへフォールバック]
+    C --> I["draw(4, dabCount, 0, firstInstance)"]
+    D --> I
+    F --> I
+    H --> I
+```
+
+- **ライブbuildup**: `LiveDabAccumulator`がプレビューフィッタの確定プレフィックスを`resume` stateで1回だけ評価し、committedバッファへ追記する。毎フレーム再評価するのは変化するテールのみ
+- **ライブwash**: 毎フレーム全評価してフレームプールのバッファへアップロードする
+- **確定ストローク**: settingsのフィンガープリント + `hashStampInput(path, segments)`の幾何ハッシュをキーに`StampCache`（CPU側、LRU）を引く。ヒットしたDab列は`BoundedStampStore`で常駐化を試みる
+
+`BoundedStampStore`（`pipeline/stroke/BoundedStampStore.ts`）は単一GPUBufferの常駐アロケータである。上限は`min(maxStorageBufferBindingSize, maxBufferSize, 128MiB)`。リースの`firstStamp`オフセットは成長後も不変で、描画は`draw`の`firstInstance`にこの値を渡すだけでよい。解放はフレーム境界へ遅延され、描画中のバッファを壊さない。常駐化されたDab列は`StampCache`のCPUミラーとバッファを共有するため、キャッシュ済みデータの書き換えは禁止である。
+
+## 先端システム
+
+### 手続き先端（falloff LUT）
+
+`tip.kind: "procedural"`の先端はテクスチャを持たない。フラグメントシェーダが正規化二乗距離を計算し、1D falloff LUTを引く。
+
+- LUTは`TipMaskBuilder.ts`が生成する。`FALLOFF_LUT_SIZE = 256`、hardness量子化`FALLOFF_LUT_LAYERS = 32`
+- falloff式はMyPaintの2セグメント式。`rr < h`なら`1 + rr(h-1)/h`、それ以外は`h/(1-h)·(1-rr)`
+- `softnessCurve`指定時はKritaのcurve circle規約（線形距離のカーブを二乗距離インデックスへ再マップ）でLUTを作る
+- GPU側は`StrokeBatchContext.ensureFalloffLut()`がr8unorm 256×1×32の`texture_2d_array`を1枚だけ作り、Dabの`hardnessLutIndex`でレイヤを選ぶ
+
+hardnessが実行時パラメータになり、任意サイズでシャープな縁が出る。旧実装の128px焼き込み円テクスチャは撤去済みである。
+
+### 画像先端
+
+`tip.kind: "image"`は`BrushTextureManager`が管理するテクスチャを使う。
+
+- ビルトインは`BUILTIN_BRUSH_IDS`の6種: `svg` / `hardCircle` / `softCircle` / `pencil` / `airbrush` / `calligraphy`。pencil / airbrushはbase64 PNGから、円形2種はプログラム生成（`BUILTIN_TEXTURE_SIZE = 128`）
+- 紙目用に`BUILTIN_PAPER_IDS`（`finePaper` / `coarsePaper`）が別枠である
+- アップロード時に**ミップマップを生成**する。縮小サンプル時のシマリングを防ぐ
+- ユーザー定義テクスチャはドキュメントの`EmbeddedFile`から`BrushArtSource`（`{kind:"file", fileUid}`）参照で読み込む
+
+### defテクスチャ（ベクター先端）
+
+キャンバス上の要素をブラシ先端に使う機能は`pipeline/defs/DefRasterizer.ts`が担う。要素をラスタライズし、`BrushTextureManager.registerDefTexture()`で`def:`プレフィックスのUIDとして登録する。ソース要素の変更で無効化される。
+
+### 散布（マルチテクスチャ）
+
+`tip.sources`が複数ある場合は`BrushTextureArrayBuilder`が全バリアントを1つの`texture_2d_array`へまとめる。最大寸法に揃えて透明パディングで中央配置し、ソート済みUIDハッシュでキャッシュする。レイヤ選択はCPU側で行う。`DabEvaluator`がシード付き乱数からレイヤを選び、先頭Dabは`startSource`、末尾Dabは`endSource`のレイヤで上書きして`packedMeta`の上位11bitへ詰める。defテクスチャはフォーマット互換がないため配列化されず、ビルトインへフォールバックする。
+
+## シェーダとパイプライン
+
+Dab描画のシェーダは`brushDab.wgsl.ts`の`buildBrushDabShader({tipMode, wetSeed?, mixedColors?})`が単一テンプレートから生成する。`tipMode`は`procedural` / `image` / `imageArray`の3種で、差分はテクスチャ宣言のみ。エントリポイントは`vs_main` / `fs_main`と、wet seed用の`fs_wet`である。
+
+頂点バッファは持たない。`vs_main`が`vertex_index`からクアッドを構成し、`draw(4, dabCount, 0, firstInstance)`でインスタンスごとに`dabs[instanceIndex]`を読んで配置・スケーリング・回転する。
+
+### Bind Group
+
+| Group | Binding | リソース |
 |---|---|---|
-| `builtin-brush-pencil` | Base64 PNG → `createImageBitmap` → `copyExternalImageToTexture` | アセット画像からロード |
-| `builtin-brush-airbrush` | 同上 | アセット画像からロード |
-| `builtin-brush-hard-circle` | `createHardCircleTexture`（128x128 プログラム生成） | ハードエッジの円形。半径内は完全不透明 |
-| `builtin-brush-soft-circle` | `createSoftCircleTexture`（128x128 プログラム生成） | ガウシアン風フォールオフ（sigma=0.4）の円形グラデーション |
+| 0 | 0 | Viewport uniform buffer |
+| 0 | 1 | `dabs` storage buffer |
+| 0 | 2 | falloff LUT（procedural）/ 先端テクスチャ（image / imageArray） |
+| 0 | 3 | 先端サンプラ |
+| 0 | 4 | 紙目テクスチャ |
+| 0 | 5 | 紙目サンプラ |
+| 1 | 0 | PathMeta storage buffer |
+| 1 | 1 | ColorStops storage buffer |
+| 1 | 2 | `mixedColors` storage buffer（混色バリアントのみ） |
+| 2 | 0 | Element transforms storage buffer |
+| 3 | 0 | マスクアトラス |
+| 3 | 1 | マスクサンプラ |
 
-テクスチャの色処理は `colorMode` に依存する:
+### カラーとグラデーション
 
-- **`"tinting"`（既定）**: RGB輝度ベースでアルファを表現する。A チャンネルは常に255固定で、フラグメントシェーダーが `(R+G+B)/3` で輝度を算出してアルファ値として使用する。ブラシカラー（PathMetaのRGBA）で着色される。単色のグレースケール画像をそのままブラシテクスチャとして利用できる。
-- **`"color"`**: テクスチャのRGBをそのまま出力色として使用する。テクスチャのアルファチャンネルで透明度を制御する。カラーイラストや写真をブラシテクスチャとして使う場合に適する。
+色解決は`dabColor.wgsl.ts`に集約されている（`PATH_META_FLOATS = 24`）。
 
-### テクスチャ寸法の追跡
+- **colorMode**: `tinting`（テクスチャ輝度をアルファとし、PathMetaの色で着色）と`color`（テクスチャRGBを直接使用）の2種。PathMetaの`gradientMode`の上位bitに詰まっている。手続き先端は常にtinting固定である
+- **グラデーション**: `within`（BBoxベースUV）/ `along`（`pathT`）/ `across`（幅方向）の3種。ストップ補間はOKLab色空間で行う
+- Dabごとの色揺らぎは`packedColorShift0/1`のHSVシフトで運ぶ
+- 混色経路の制約: 1Dab = 1色のため、Dab内部にグラデーションを持てない。`across`は幅中心で評価する
 
-`textureSizes: Map<string, {width: number, height: number}>` でテクスチャの元寸法を追跡する。`getTextureSize(uid)` で寸法を取得し、`getTextureAspectRatio(uid)` でアスペクト比（width/height、未登録時1.0）を返す。非正方形テクスチャのスタンプサイズ計算（短辺=ブラシサイズ）に使用される。
+## washモード
 
-### ユーザー定義テクスチャ
+`paintMode`は不透明度の意味論を切り替える。
 
-`loadFromEmbeddedFile(uid, bin, mimeType)` でドキュメントの `EmbeddedFile` からユーザー定義ブラシテクスチャを追加できる。読み込み時に `normalizeBrushTextureMaskInPlace` でテクスチャマスクの正規化が適用される。`OffscreenCanvas` + `getContext("2d")` でピクセルデータを取得・変換した後、`copyExternalImageToTexture` でGPUにアップロードする。
-
-### テクスチャフォールバック
-
-`BrushStrokeRenderer.resolveTextureUid` は、指定されたテクスチャ UID が `BrushTextureManager` に存在しない場合、`BUILTIN_BRUSH_IDS.softCircle` へフォールバックする。ドキュメントにカスタムブラシが含まれているがテクスチャファイルが未ロードの場合でも、ストロークが完全に消失せず既定のソフトサークルで描画される。
-
-## ブラシパラメータ
-
-`BrushSettings` インターフェース（`core/types/brush.ts`）がブラシの全パラメータを定義する。`createDefaultBrushSettings()` が既定値を返す。
-
-| パラメータ | 型 | 既定値 | 説明 |
-|---|---|---|---|
-| `textureFileUid` | `string` | `softCircle` | ブラシテクスチャの EmbeddedFile UID |
-| `size` | `number` | 10 | ワールド単位のベースサイズ |
-| `sizeByPressure` | `number` | 0.5 | 筆圧→サイズ感度（0-1）。1.0で筆圧ゼロ時にサイズもゼロ |
-| `opacity` | `number` | 1.0 | ベース不透明度（0-1） |
-| `opacityByPressure` | `number` | 0.3 | 筆圧→不透明度感度（0-1） |
-| `spacing` | `number` | 0.15 | スタンプ間隔（`size` に対する比率）。0.15 = サイズの15% |
-| `flow` | `number` | 1.0 | フロー/蓄積（0-1）。低い値で薄いレイヤリング |
-| `stampRotation` | `StampRotation` | `"none"` | 回転モード: `"none"` / `"tangent"` / `"random"` |
-| `randomSeed` | `number` | ランダム | 乱数シード（`stampRotation="random"` 時） |
-| `rotationByTilt` | `number` | 0 | チルト→回転影響（0-1） |
-| `aspectRatioByTilt` | `number` | 0 | チルト→アスペクト比影響（0-1）。1で最大傾斜時にsizeYが30%に |
-| `sizeBySpeed` | `number` | 0 | 速度→サイズ影響（0-1）。高速時にサイズ縮小 |
-| `pooling` | `number` | 0 | インク溜まり強度（0-1）。低速時のインク蓄積効果 |
-| `poolingSizeRatio` | `number` | 0.5 | プーリングのサイズ/不透明度バランス（0=不透明度重視、1=サイズ重視） |
-| `colorMode` | `BrushColorMode` | `"tinting"` | テクスチャの色処理モード。`"tinting"`: ルミナンス→アルファ変換+ブラシカラーで着色。`"color"`: テクスチャRGBをそのまま使用 |
-| `renderMode` | `"stamp" \| "ribbon"` | `"stamp"` | 描画モード。`"stamp"`: スタンプ配置。`"ribbon"`: パスに沿ったUVマッピング |
-| `scatterTextureUids` | `string[]` | — | 散布用の追加テクスチャバリアント。スタンプごとにランダム選択 |
-| `startTextureUid` | `string` | — | 始端テクスチャ（ストロークの最初のスタンプ用） |
-| `endTextureUid` | `string` | — | 終端テクスチャ（ストロークの最後のスタンプ用） |
-| `scatterOffset` | `number` | 0 | パスからの垂直方向ジッター量（0-1、ブラシサイズに対する比率） |
-| `scatterSizeVariation` | `number` | 0 | サイズジッター範囲（0-1、基本サイズに対するランダム変動比率） |
-| `ribbonStretch` | `number` | 0 | リボン: 伸長率（負=圧縮/密ループ、0=テクスチャアスペクト比保持、正=引き伸ばし） |
-| `ribbonOffset` | `number` | 0 | リボン: UV.xオフセット（位置合わせ用） |
-| `vectorBrushSourceId` | `string` | — | ベクターブラシとして使う要素のID。設定時は`textureFileUid`より優先 |
-
-`BUILTIN_BRUSH_IDS.svg` が指定された場合はスタンプベースではなくジオメトリックストローク（`isGeometricBrush` が true を返す）として `ElementRenderer.renderGeometricStroke` で描画される。SVGブラシは `BrushStroking` インターフェースで `lineCap`, `lineJoin`, `dashArray` などを制御する。
-
-## インスタンスドレンダリング
-
-### なぜスタンプをインスタンスで描画するか
-
-ブラシストロークを三角形メッシュにテッセレーションする方式では、パスの曲率・筆圧変化に応じた複雑な頂点生成が必要であり、5000パスで約50万三角形の頂点処理が発生する。インスタンシングでは、6頂点の unit quad を `draw(6, instanceCount)` で `instanceCount` 回複製するだけで済む。頂点シェーダーは `stamps[instanceIndex]` からスタンプデータを読み取り、quad の各頂点を配置・スケーリング・回転する。
-
-### シェーダーの処理フロー
-
-**頂点シェーダー（`vs_main`）:**
-
-1. `quadVertices[vertexIndex]` で unit quad の頂点を取得
-2. `stamp.size` / `stamp.sizeY` でスケーリング（最小サイズ保証: `1.0 / uniforms.zoom`）
-3. `stamp.rotation` で回転
-4. `stamp.positionX/Y` でスタンプ位置に配置
-5. `pathMetas[stamp.pathIndex].transformIndex` で要素トランスフォームを適用（`applyElementTransform`）
-6. ビューポート変換 → NDC変換
-
-**フラグメントシェーダー（`fs_main`）:**
-
-1. ブラシテクスチャを UV でサンプリング
-2. `PathMeta.colorMode` に基づいてテクスチャ色を処理:
-   - `tinting`: `(R+G+B)/3` で輝度ベースのアルファを算出し、PathMetaのカラーで着色
-   - `color`: テクスチャRGBをそのまま使用し、テクスチャのアルファチャンネルで透明度制御
-3. `PathMeta.gradientMode` に基づいてカラーを決定（`tinting` モード時のみ）:
-   - `0` (solid): `PathMeta` の RGBA を直接使用
-   - `1` (within): BBox ベースの UV で `sampleGradientStops` を呼び出し
-   - `2` (along): `pathT` をパラメータとして `sampleGradientStops` を呼び出し
-   - `3` (across): `uv.x`（ストローク幅方向）で `sampleGradientStops` を呼び出し
-4. 可変幅プロファイル: `side1Width` / `side2Width` が1未満の場合、パス法線方向の signed distance に基づいて `widthFade` を算出
-5. `luminance * opacity * colorA * widthFade` で最終アルファを算出し、premultiplied alpha で出力
-6. `applyClipMask` でクリップマスクを適用
-
-グラデーションストップの補間は **OKLab 知覚色空間** で行われる（`srgbToOklab` / `oklabToSrgb`）。sRGB での線形補間よりも知覚的に均一な色遷移を実現する。
-
-## ビューポートカリング
-
-### cullStampBufferToViewport
-
-`cullStampBufferToViewport(buf, viewportBounds, margin)` はスタンプバッファ内のビューポート外スタンプを除去するカリング関数である。長いパス（数千スタンプ）でビューポートに表示されるのが一部だけの場合、描画するインスタンス数を大幅に削減できる。
-
-カリングロジックは単純な AABB テスト（`x >= minX && x <= maxX && y >= minY && y <= maxY`）で、マージンとしてブラシサイズの半分 + 10px を加算する。
-
-**座標系の注意**: スタンプ座標はローカル空間、ビューポート境界はワールド空間のため、`addToBatch` 内でビューポート境界をローカル空間に変換してからカリングを実行する。変換は `viewportBounds.minX - transform.x` のような平行移動のみで済む。ただし、`rotation !== 0` または `scaleX/Y !== 1` の場合は逆変換が複雑になるため、カリングをスキップして全スタンプを描画する。
-
-### 共有出力バッファ
-
-カリング結果は**モジュールレベルの共有バッファ** `cullView`（grow-only の `Float32Array`）に書き込まれる。返される `StampBuffer.data` はこの共有バッファの参照であり、次の `cullStampBufferToViewport` 呼び出しで上書きされる。呼び出し元（`addToBatch`）は返却後すぐにデータを `batchStamps` にコピーするため、この制約は実用上問題にならない。
-
-> [!CAUTION]
-> `cullStampBufferToViewport` の返す `StampBuffer.data` は共有バッファの参照である。次の呼び出しで上書きされるため、呼び出し元はデータを即座にコピーする必要がある。
-
-## StampCache
-
-`StampCache`（`core/renderer/caches/StampCache.ts`）は要素単位のスタンプ生成結果を `Map<string, StampBuffer>` でキャッシュする。キャッシュキーは `${path.id}:${fingerprint}` で、`fingerprint` はスタンプ生成に影響する `BrushSettings` のフィールド（`textureFileUid`, `size`, `sizeByPressure`, `spacing`, `flow`, `stampRotation`, `rotationByTilt`, `aspectRatioByTilt`, `pooling`, `poolingSizeRatio`）から構成される。
-
-`RenderCacheManager` のダーティ追跡で要素が変更された場合、対応するキャッシュエントリは `deleteMany` で除去される。ストロークの形状（セグメント）やブラシ設定が変わらない限りスタンプは再生成されない。
-
-ビューポートカリングはキャッシュの外側で毎フレーム実行される。ビューポートはフレームごとに変わりうるが、カリング前のフルスタンプデータはキャッシュに保持されているため、カリング結果のみが都度計算される。
-
-## パフォーマンス考慮
-
-### GC圧力の回避
-
-`generateStampsDirect` は毎フレーム実行されるホットパスであるため、以下の手法でガベージコレクション圧力を最小化する:
-
-- **`resolveSegmentInline`**: セグメントの絶対座標を8つの number 変数に直接展開し、中間 `Point` オブジェクトの生成を回避する
-- **ベジエ評価のインライン展開**: `t1³·s + 3t1²t·c1 + 3t1t²·c2 + t³·e` をループ内にリテラル展開し、関数呼び出しを排除する
-- **u32AsFloat**: ビットキャスト用の `Uint32Array(1)` / `Float32Array(同buffer)` をモジュールレベルで共有し、毎回のバッファ生成を回避する
-- **grow-only Float32Array**: スタンプデータ配列は容量不足時のみ2倍に拡張し、縮小しない
-- **カリング出力の共有バッファ**: `cullView` をモジュールレベルで保持し、呼び出しごとのアロケーションをゼロにする
-
-### バッチバッファのプリアロケーション
-
-`BrushStrokeRenderer` はフレーム間のピーク使用量を `peakStampFloats`, `peakPathMetaFloats`, `peakColorStopFloats` で追跡する。`beginBatch()` で前フレームのピーク値に基づいてバッチバッファをプリアロケートし、フレーム中の `ensureBatchStamps` / `ensureBatchPathMetas` / `ensureBatchColorStops` による再アロケーションを回避する。
-
-### GPUバッファプールの grow-only 戦略
-
-stamp / pathMeta / colorStops の各GPUバッファプールは grow-only で管理される。要求サイズがプール内の既存バッファサイズを超えた場合のみ新規作成（古いバッファは `destroy`）し、十分なサイズのバッファが存在すればそのまま再利用する。フレーム開始時にプールインデックスをリセットする。
-
-> [!TIP]
-> `beginFrame()` はフレームの先頭で呼び出し、GPUバッファプールのインデックスをリセットする。`beginBatch()` はレイヤー内のブラシ描画開始時に呼び出し、CPUバッチ蓄積バッファをリセットする。この2つのリセットポイントの区別はバッファ管理の理解に重要である。
-
-## 設計上の判断
-
-**テクスチャ別バッチの簡易実装**: 現在の実装では全スタンプを1つのバッファに結合し、最初のテクスチャで全スタンプを描画する。テクスチャが混在する場合の正確な描画は、CanvasLayer側でテクスチャ変更時に `flushBatch` する設計で対応する。WebGPU にはテクスチャ配列のバインドレスアクセスがないため、テクスチャごとに draw call を分ける必要がある。
-
-**キャッシュキーのフィンガープリント**: `createStampCacheFingerprint` はスタンプ生成に影響するフィールドのみをキーに含める。ストロークカラーやグラデーション設定はスタンプの位置・サイズに影響しないため、キーから除外されている。これにより、色のみの変更ではスタンプの再生成が発生しない。
-
-**カリングのスキップ条件**: rotation や scale が 1 でない場合、ビューポート境界のローカル空間への逆変換は回転行列の逆行列が必要になる。変換コストとカリングの効果のトレードオフから、単純な平行移動のみの場合にカリングを実行する設計としている。
-
-**シード付き乱数**: `stampRotation="random"` で使用する `createSeededRng`（mulberry32）は、同じシードから同じ乱数列を再現する。ストロークの見た目がフレーム間で安定し、`StampCache` によるキャッシュが有効に機能する。
-
-**輝度ベースアルファ**: テクスチャの RGB 輝度でアルファを算出する方式は、グレースケール画像をそのままブラシテクスチャとして利用できる利点がある。A チャンネルを 255 固定にすることで、テクスチャの透明部分が意図せずクリッピングされる問題を回避している。`colorMode: "color"` ではこの変換をバイパスし、テクスチャRGBをそのまま出力する。
-
-## カラーモード
-
-`BrushSettings.colorMode` はフラグメントシェーダーのテクスチャ色処理を切り替える。PathMetaのフラグとしてGPUに渡され、シェーダー内の単一の `if` で分岐する。
-
-- **`"tinting"`（既定）**: テクスチャの `(R+G+B)/3` をアルファとして使い、PathMetaのRGBAで着色する。グレースケールのブラシテクスチャとブラシカラーの組み合わせで描画する従来の方式。
-- **`"color"`**: テクスチャのRGBをそのまま出力色として使い、テクスチャのアルファチャンネルで透明度を制御する。カラーイラストや写真をブラシテクスチャとして使う場合に適する。グラデーションモードは無視される。
-
-## マルチテクスチャ散布
-
-`scatterTextureUids` が設定されたブラシは散布パイプラインで描画される。複数のテクスチャバリアント（primary + scatter + start + end）を `texture_2d_array` にまとめ、スタンプごとにランダム選択する。
-
-### BrushTextureArrayBuilder
-
-全ユニークテクスチャUIDを収集し、最大幅・高さを決定して `GPUTexture` を `size: [maxW, maxH, layerCount]` で作成する。各テクスチャをレイヤーにコピー（中央配置、透明パディング）する。ソート済みテクスチャUIDハッシュでキャッシュし、同一構成の再構築を回避する。
-
-### textureLayerのパッキング
-
-FLOATS_PER_STAMP=12を維持するため、textureLayerは `pathIndex`（オフセット+6）の上位16ビットにパックされる。頂点シェーダーが上位16ビットからtextureLayerをアンパックし、フラグメントシェーダーの `textureSample(brushTexture, brushSampler, uv, textureLayer)` に渡す。
-
-### テクスチャ選択ロジック
-
-- シードRNG（mulberry32）でスタンプごとにテクスチャレイヤーを割り当て: `floor(rng() * variantCount)`
-- 最初のスタンプ: `startTextureUid` のインデックスを強制
-- 最後のスタンプ: `endTextureUid` のインデックスを強制
-- 位置ジッター: `(rng() * 2 - 1) * scatterOffset * brushSize` をタンジェント垂直方向に適用
-- サイズジッター: `size *= 1 + (rng() * 2 - 1) * scatterSizeVariation`
-
-## リボンタイリング
-
-`renderMode: "ribbon"` はテクスチャをパス曲線に沿ってUVマッピングする描画モードである。ベジェセグメントインスタンシング方式を採用し、GPU頂点シェーダーでベジェ曲線を直接評価して法線方向に押し出す。
-
-| 比較 | スタンプ方式 | リボン方式 |
+| | buildup | wash |
 |---|---|---|
-| 1パスあたりインスタンス数 | ~1000 | ~15 |
-| 1パスあたりバッファ量 | ~40KB | ~1.3KB |
-| UV連続性 | スタンプ境界で不連続 | 完全に連続 |
-| CPU処理 | StampGeneratorと同等 | 弧長計算のみ（O(N)） |
+| Dabアルファ | `flow * strokeOpacity`にlinearize補正 | `flow`のみ |
+| strokeOpacity | Dabアルファへ焼き込み | 合成時に1回だけ適用 |
+| 自己交差 | 重なるほど濃くなる | ストローク内で`strokeOpacity`を超えない |
+| 描画先 | メインパスへ直接 | オフスクリーンのストロークバッファ |
 
-### RibbonGenerator
+washストロークは`RenderPlanner`がwashプランとして分離し、CanvasLayerの`renderIsolatedWashAppearances()`がオフスクリーンで描いてから合成する。ドメインは1辺4096pxでキャップされる。合成結果はwashResultCacheで再利用される。
 
-CPU処理はセグメントメタデータの軽量前処理のみ:
+### 水彩ウェットエッジ（WashCompositor）
 
-1. セグメント列を1回走査し、弧長を計算（10サンプル弦近似 — StampGeneratorと同一手法）
-2. プレフィックスサムを計算
-3. 22 floats/セグメントを `Float32Array` にパック（制御点、幅、弧長情報、pathIndex）
+`pipeline/WashCompositor.ts`の`applyWetEdge()`がwashストロークの後処理として縁効果を作る。
 
-15セグメントのパスで330 floats（~1.3KB）。メッシュ生成は一切不要。
+1. カバレッジアルファに分離可能minフィルタ（erosion）を掛けて内部マスクを得る（半径上限48px）
+2. `rim = alpha - eroded`が縁帯。ぼかし幅指定時はBlurPyramidで平滑化する
+3. rimに応じて暗くする・アルファを上げることで、水彩の縁溜まりを表現する
 
-### リボンシェーダー
+`wetEdge`設定とwet層は排他である。`wet.enabled`がtrueのとき`RenderPlanner`は`wetEdge`を破棄し、縁の表現はwet層側の`edgeDarkening` / `edgeRoughness`が担う。
 
-**頂点シェーダー**（`bezierPath.wgsl.ts` パターンから転用）:
-- パラメータ `t` でベジェ曲線の位置とタンジェントを評価（GPU側）
-- タンジェントの法線方向に `side * halfWidth` で押し出し
-- UV.x = `(arcLengthOffset + t * segmentArcLength) / textureRepeatLength`
-- UV.y = `(side + 1.0) * 0.5`
+## 混色（MixPass / MixStrokeRenderer）
 
-**フラグメントシェーダー**:
-- サンプラー `addressModeU: "repeat"` でシームレスタイリング
-- カラーモード分岐はスタンプシェーダーと共通
-- `GRADIENT_COMMON_WGSL`, `TRANSFORM_COMMON_WGSL` を再利用
-- 可変幅プロファイル（`side1Width` / `side2Width`）対応
+`mixing.enabled`のブラシは下地の色を拾って引きずる。下地を読むため通常のバッチには乗らず、`MixStrokeRenderer`が`BackdropEffectDriver`としてz順のインライン合成を行う。ガラス系フィルタと同じ扱いである。
 
-## ベクターブラシ
+処理はDab列を64個のチャンク（`MIX_CHUNK_SIZE`）に分割し、チャンクごとにcompute 2段と描画を交互に実行する。
 
-`vectorBrushSourceId` が設定されたブラシは、キャンバス上の要素をオンデマンドでGPUテクスチャにラスタライズしてブラシ先端として使用する。
+```mermaid
+flowchart LR
+    A[チャンクのDab列] --> B["cs_sample: workgroup=1dab<br/>足元のfootprint加重平均色を並列リダクション"]
+    B --> C["cs_scan: バケットを逐次更新<br/>smudgeLength / colorRate / alphaRate"]
+    C --> D[per-dab解決済み色バッファ]
+    D --> E["drawMixedDabChunk: 解決済み色で<br/>ストロークバッファへ描画"]
+    E -->|次チャンク| A
+```
 
-### VectorBrushRasterizer
+- サンプル重みはfalloff LUTを使い、先端形状と一致させる
+- `sampleTrail`はサンプル位置を進行方向前後にずらす。`blendStyle`はOkLCH（鮮やか）とOkLAB（落ち着き）の混色スタイル補間である
+- ライブ描画では`LiveMixSession`が確定Dab数の境界でテクスチャとバケットを凍結し、ストロークが伸びても再生しない
+- 確定ストロークの結果はLRUキャッシュ（上限384MB、テクスチャ1辺上限4096px）に載る
 
-`VectorBrushRasterizer` はラスタライズとキャッシュを管理する:
+wet層と併用した場合、ここで解決したDab色がwetシミュレーションのpigmentシードへ渡る。下地色の取得は混色の専任責務で、wet層は色を拾わない。
 
-1. `calculateElementBounds()` でソース要素のバウンディングボックスを計算
-2. ターゲット解像度: 長辺 = `clamp(brushSize * 2, 64, 1024)` ピクセル
-3. 永続的な `GPUTexture` を `device.createTexture()` で作成（TexturePoolは使用しない）
-4. `RenderElementToTextureFn` コールバック経由でCanvasLayerに描画を委譲
-5. 結果を `BrushTextureManager.registerTexture()` で登録
+## wet層（WetLayerPass）
 
-キャッシュキーは `(sourceElementId, targetLongSide)` の2値。ソース要素変更時に `invalidate(sourceElementId)` で無効化する。
+`wet.enabled`のブラシはにじみ・拡散のシミュレーションを通る。旧WetInkPassの4フィールド拡散シミュレーションを、係数の供給をuniformからDab属性・場テクスチャへ移した形で移植したものである（`pipeline/stroke/WetLayerPass.ts`）。
 
-### 循環参照防止
+処理は3段のシェーダで構成される。
 
-DFS走査で循環参照を検出する。ソース要素（またはその子孫）が `vectorBrushSourceId` で直接・間接的に自身を参照する場合、ラスタライズを拒否して `null` を返す。
+1. **seed**（`fs_wet`、6枚MRT）: Dab列からpigment / fluidVelocity / moistureの3場（rgba16float、加算ブレンド）と、場発展係数（rg8unorm×2 + r8unorm、カバレッジブレンド）をシードする
+2. **diffuse**（`wetLayerDiffuse.wgsl.ts`）: pigment / moistureをping-pongで拡散する。既定32反復。係数テクスチャは全反復でread-onlyの固定バインドである
+3. **finish**（`wetLayerFinish.wgsl.ts`）: 拡散結果を可視色へ変換して合成する
 
-### 統合
+拡散の到達距離は格子間隔と反復数の組で決まる（`resolveWetBleedReach` / `resolveWetIterations`）。ステンシル幅を広げると格子が独立サブラティスに割れてブロブ状になるため、必ずこの組み合わせで距離を稼ぐ設計である。駆動は`MixStrokeRenderer.runWetLayer()`が行い、seed描画は`StrokeBatchContext.renderWetSeedDabs()`が担う。
 
-CanvasLayerの `renderDocument()` 内で、要素描画の前にプリレンダーフェーズを実行する。可視パスの `vectorBrushSourceId` をスキャンし、`VectorBrushRasterizer.ensureRasterized()` でテクスチャの存在を保証する。`BrushStrokeRenderer` は `VectorBrushRasterizer.textureUidFor()` 静的メソッドでテクスチャUIDを解決する。
+## リボン
+
+`engine: "ribbon"`はテクスチャをパス曲線に沿ってUVマッピングする。1ベジェセグメント = 1インスタンス（`RIBBON_FLOATS_PER_INSTANCE = 28`）で、CPUはメッシュを作らない。頂点シェーダがベジェ曲線を直接評価し、法線方向に押し出す（32分割×6頂点 = 192頂点/セグメント）。
+
+- `RibbonGenerator.generateRibbonInstances()`が弧長プレフィックス和込みのインスタンス列を作る
+- `uvMode: "repeat"`はパターンブラシ（`U = arcPos / tileWidth`）、`"stretch"`はアートブラシ（`U = arcPos / totalArc`）
+- `RibbonOptions.curved`に`BrushSettingsV2`を渡すと、sizeとflowのカーブがリボンにも効く。評価はセグメント端点で行い、間は線形補間する
+- リボンはバッチ経路を使う唯一のエンジンで、`flushBatch()`はリボン専用である。wet層のMRTには対応しない
+
+## GPUテクスチャの消費のしかた
+
+ブラシ描画が消費するGPUテクスチャの全体像。「誰が作り、どこで読まれ、いつまで生きるか」の一覧である。
+
+| テクスチャ | 生成元 | フォーマット | 消費先 | 寿命 |
+|---|---|---|---|---|
+| ブラシ先端画像 | `BrushTextureManager` | rgba8unorm + ミップ | dabパイプライン group(0) binding(2) | Manager内キャッシュ。UID単位 |
+| 散布用texture array | `BrushTextureArrayBuilder` | rgba8unorm array + ミップ | 同上（imageArrayバリアント） | UIDハッシュでキャッシュ |
+| falloff LUT | `StrokeBatchContext.ensureFalloffLut()` | r8unorm 256×1×32 array | 手続き先端のgroup(0) binding(2)。`MixPass`のフットプリント重みにも渡る | 生成後は常駐 |
+| 紙目（grain） | `BrushTextureManager` | rgba8unorm | dabパイプライン group(0) binding(4) | Manager内キャッシュ |
+| defテクスチャ | `DefRasterizer` → `registerDefTexture()` | canvas形式 | 先端として単体消費。array化不可 | ソース要素の変更で無効化 |
+| マスクアトラス | ClipMaskAtlas | — | dabパイプライン group(3) binding(0) | 既存のアトラス管理に従う |
+| washストロークバッファ | TexturePoolから取得 | canvasFormat | dab描画のレンダーターゲット → `WashCompositor` → 合成blit | フレーム内。結果キャッシュへ昇格あり |
+| wet seed MRT 6枚 | `renderWetSeedDabs()`のレンダーターゲット | rgba16float×3 + rg8unorm×2 + r8unorm | `WetLayerPass`の拡散入力。反復中はread-only固定バインド | ストローク処理内 |
+| wet拡散ping-pong | `WetLayerPass` | rgba16float | diffuse反復の読み書き交互 | ストローク処理内 |
+| 混色below snapshot | 背景キャプチャ | canvasFormat | `MixPass.cs_sample`のサンプル元 | チャンク処理中 |
+| 混色stroke現況 | ストロークバッファ | canvasFormat | `MixPass.cs_sample`のサンプル元 | チャンク処理中 |
+
+サンプラは2本を使い分ける。
+
+- `getMipSampler()`: dab経路用。`mipmapFilter: "linear"`でミップを効かせる
+- `getSampler()`: リボン経路用。`lodMaxClamp: 0`でレベル0固定とし、ミップ導入前とビット互換を保つ
+
+## パフォーマンスと設計判断
+
+**Dab単位のビューポートカリングは行わない**: 旧実装の`cullStampBufferToViewport`は撤去された。カリングは`RenderPlanner`の要素単位CPUカリングのみで、画面外のDabはGPUのクリップに任せる。常駐ストアのDab列をそのまま`firstInstance`で描く現構成では、フレームごとのカリングコピーの方が高くつくためである。
+
+**常駐ストアとフレームプールの使い分け**: 確定ストロークは`BoundedStampStore`に常駐し、フレームをまたいでアップロードが発生しない。ライブストロークと容量あふれ分だけがフレームプール（grow-onlyのGPUバッファプール）を使う。
+
+**決定論の維持**: シード付き乱数・`DabEvalState`のresume・コラボ断片の`pathStart` / `pathEnd`により、同一入力から同一Dab列が常に再現される。キャッシュ・コラボ・VRTの前提である。
+
+**線幅のUI表示**: 選択ツールなどが必要とする「実効的な線の半幅」は`strokeHalfWidth.ts`の`createStrokeHalfWidthSampler()`が返す。dabエンジンでは実際に`evaluateDabs()`を1回走らせてサイズを補間するため、速度・乱数由来の幅変化が描画と一致する。
 
 > [!TIP]
 > **次に読むページ:** [UILayer](/devdocs/renderer/ui)
