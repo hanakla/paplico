@@ -28,7 +28,12 @@ export interface FrameTextureRef {
 export interface BorrowedTextureRef {
 	kind: "borrowed";
 	texture: GPUTexture;
-	owner: "appearance-cache" | "mask-atlas" | "external";
+	owner:
+		| "appearance-cache"
+		| "mask-atlas"
+		| "child-bake-memo"
+		| "color-atlas"
+		| "external";
 }
 
 export type SurfacePlacement =

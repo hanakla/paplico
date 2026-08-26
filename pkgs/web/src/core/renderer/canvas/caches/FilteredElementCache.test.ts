@@ -198,6 +198,8 @@ function entry(
 ): FilteredElementCacheEntry {
 	return {
 		hash: "h",
+		contentHash: "content",
+		density: 1,
 		dependencyIds: new Set(dependencyIds),
 		texture: { destroy: vi.fn() } as unknown as GPUTexture,
 		bounds: brandWorldBBox({

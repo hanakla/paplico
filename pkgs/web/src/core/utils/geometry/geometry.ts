@@ -698,6 +698,9 @@ export const NO_MASK_INDEX = 0xffffffff;
  */
 export const MASK_INVERT_BIT = 0x8000_0000;
 
+/** The mask texture is a sub-rectangle of the shared 4096×4096 atlas. */
+export const MASK_ATLAS_BIT = 0x4000_0000;
+
 /** Identity GPU transform (no-op in shader) */
 export const IDENTITY_GPU_TRANSFORM: GPUElementTransform = {
 	tx: 0,
@@ -746,7 +749,7 @@ export function writeGPUTransform(
 	// maskIndex and _pad1 are u32 values — write via Uint32Array view
 	const u = u32 ?? new Uint32Array(f32.buffer, f32.byteOffset, f32.length);
 	u[offset + 8] = gt.maskIndex;
-	u[offset + 9] = 0; // _pad1
+	u[offset + 9] = 0;
 	f32[offset + 10] = gt.maskBoundsMinX;
 	f32[offset + 11] = gt.maskBoundsMinY;
 	f32[offset + 12] = gt.maskBoundsMaxX;

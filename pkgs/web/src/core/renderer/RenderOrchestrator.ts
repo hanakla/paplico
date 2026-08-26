@@ -1976,6 +1976,11 @@ export class RenderOrchestrator {
 					visibility: GPUShaderStage.FRAGMENT,
 					sampler: {},
 				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
 			],
 		});
 
@@ -2223,6 +2228,11 @@ export class RenderOrchestrator {
 			{ bytesPerRow: 1 },
 			{ width: 1, height: 1 },
 		);
+		const dummyMaskDescriptorBuffer = this.device.createBuffer({
+			label: "Dummy Mask Descriptor Buffer",
+			size: 16,
+			usage: GPUBufferUsage.STORAGE,
+		});
 		const dummyMaskBindGroup = this.device.createBindGroup({
 			label: "Dummy Mask Bind Group",
 			layout: maskBindGroupLayout,
@@ -2232,6 +2242,7 @@ export class RenderOrchestrator {
 					resource: dummyMaskTexture.createView(),
 				},
 				{ binding: 1, resource: this.sampler },
+				{ binding: 2, resource: { buffer: dummyMaskDescriptorBuffer } },
 			],
 		});
 

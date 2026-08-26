@@ -12,7 +12,10 @@
  */
 
 export const MASK_COMMON_WGSL = /* wgsl */ `
+@group(3) @binding(2) var<storage, read> maskRects: array<vec4u>;
+
 const MASK_LUMA = vec3f(0.2126, 0.7152, 0.0722);
+const MASK_ATLAS_BIT = 0x40000000u;
 
 fn applyClipMask(premultiplied: vec4f, maskIdx: u32, boundsMin: vec2f, boundsMax: vec2f, worldPos: vec2f) -> vec4f {
 	if (maskIdx == 0xFFFFFFFFu) {
@@ -24,7 +27,14 @@ fn applyClipMask(premultiplied: vec4f, maskIdx: u32, boundsMin: vec2f, boundsMax
 	// Use textureSampleLevel (explicit LOD) to avoid uniform control flow
 	// restriction of textureSample.  Clamp UV and zero-out fragments outside
 	// [0,1] via step() instead of an early-return branch.
-	let clampedUV = clamp(maskUV, vec2f(0.0), vec2f(1.0));
+	var clampedUV = clamp(maskUV, vec2f(0.0), vec2f(1.0));
+	if ((maskIdx & MASK_ATLAS_BIT) != 0u) {
+		let rect = maskRects[maskIdx & 0x3FFFFFFFu];
+		let origin = vec2f(rect.xy);
+		let size = vec2f(rect.zw);
+		let atlasSize = vec2f(textureDimensions(maskAtlas));
+		clampedUV = (origin + vec2f(0.5) + clampedUV * max(size - vec2f(1.0), vec2f(0.0))) / atlasSize;
+	}
 	let sampled = textureSampleLevel(maskAtlas, maskSampler, clampedUV, 0.0);
 	let inBounds = step(0.0, maskUV.x) * step(maskUV.x, 1.0)
 	             * step(0.0, maskUV.y) * step(maskUV.y, 1.0);

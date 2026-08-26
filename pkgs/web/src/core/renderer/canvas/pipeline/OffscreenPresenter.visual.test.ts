@@ -26,7 +26,7 @@ import {
 // once a raster filter is added".
 
 describe("Group 3d-rotate with raster post filter", () => {
-	it("should keep the rotated silhouette when a blur post filter is added", async () => {
+	it("should bake the group-level pre-filter into the offscreen texture", async () => {
 		const box = await renderGroupAndMeasure([rotate3d(0, 0, 45), blur(2)]);
 		// Flat 200×100 rect rotated 45° covers ~212×212; without the fix the
 		// group renders flat (200×100).
@@ -66,6 +66,46 @@ describe("Group 3d-rotate with raster post filter", () => {
 	});
 });
 
+describe("Group child atlas masking", () => {
+	it("keeps the intersection of inherited silhouette and object appearance masks", async () => {
+		const box = await renderAtlasMaskedGroupAndMeasure();
+
+		expect(box.width).toBeGreaterThanOrEqual(55);
+		expect(box.width).toBeLessThanOrEqual(65);
+		expect(box.height).toBeGreaterThanOrEqual(55);
+		expect(box.height).toBeLessThanOrEqual(65);
+	});
+
+	it("applies all five nested clip masks", async () => {
+		const box = await renderNestedAtlasMaskedGroupAndMeasure();
+
+		expect(box.width).toBeGreaterThanOrEqual(70);
+		expect(box.width).toBeLessThanOrEqual(80);
+		expect(box.height).toBeGreaterThanOrEqual(55);
+		expect(box.height).toBeLessThanOrEqual(65);
+	});
+});
+
+describe("Top-level atlas masking", () => {
+	it("applies the object mask after the path blur", async () => {
+		const box = await renderTopLevelAtlasMaskedPathAndMeasure();
+
+		expect(box.width).toBeGreaterThanOrEqual(55);
+		expect(box.width).toBeLessThanOrEqual(65);
+		expect(box.height).toBeGreaterThanOrEqual(55);
+		expect(box.height).toBeLessThanOrEqual(65);
+	});
+
+	it("applies the object mask before multiply compositing", async () => {
+		const box = await renderTopLevelAtlasMaskedPathAndMeasure("multiply");
+
+		expect(box.width).toBeGreaterThanOrEqual(55);
+		expect(box.width).toBeLessThanOrEqual(65);
+		expect(box.height).toBeGreaterThanOrEqual(55);
+		expect(box.height).toBeLessThanOrEqual(65);
+	});
+});
+
 function spraying(strength: number): Filter {
 	return {
 		uid: generateUid("filter"),
@@ -95,6 +135,44 @@ async function renderGroupAndMeasure(
 	return redBBox(pixels, 800, 600);
 }
 
+async function renderAtlasMaskedGroupAndMeasure() {
+	const { renderer, canvas } = await createTestRenderer();
+	const doc = createAtlasMaskedGroupDoc();
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	texture.destroy();
+	return redBBox(pixels, 800, 600);
+}
+
+async function renderNestedAtlasMaskedGroupAndMeasure() {
+	const { renderer, canvas } = await createTestRenderer();
+	const doc = createNestedAtlasMaskedGroupDoc();
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	texture.destroy();
+	return redBBox(pixels, 800, 600);
+}
+
+async function renderTopLevelAtlasMaskedPathAndMeasure(
+	blendMode: Path["blendMode"] = "normal",
+) {
+	const { renderer, canvas } = await createTestRenderer();
+	const doc = createTopLevelAtlasMaskedPathDoc(blendMode);
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	texture.destroy();
+	return redBBox(pixels, 800, 600);
+}
+
 function createGroupDoc(
 	groupFilters: Filter[],
 	groupTransform?: Group["transform"],
@@ -102,21 +180,7 @@ function createGroupDoc(
 	const doc = createDefaultDocument("group-prefilter-vrt");
 	const layer = createDefaultLayer("layer-bg", "Background");
 
-	const fillApp: FillAppearance = {
-		uid: generateUid("fill"),
-		processor: "fill",
-		opacity: 1,
-		blendMode: "normal",
-		paramData: {
-			version: "1",
-			params: {
-				fill: {
-					type: "solid",
-					color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
-				},
-			},
-		},
-	};
+	const fillApp = solidFill(1, 0, 0);
 
 	const rect: Path = {
 		type: "path",
@@ -144,6 +208,130 @@ function createGroupDoc(
 	doc.layers = [layer];
 	doc.artboards.push(createArtboard("ab", "AB", 0, 0, 400, 220));
 	return doc;
+}
+
+function createAtlasMaskedGroupDoc() {
+	const doc = createGroupDoc([]);
+	const group = Object.values(doc.objects).find(
+		(element): element is Group => element.type === "group",
+	);
+	const child = Object.values(doc.objects).find(
+		(element): element is Path => element.type === "path",
+	);
+	if (!group || !child) throw new Error("Group fixture is incomplete");
+
+	child.segments = rectSegments(0, 0, 120, 120);
+	const clipPath: Path = {
+		...child,
+		id: generateUid("clip-path"),
+		segments: rectSegments(-30, 0, 60, 120),
+		filters: [solidFill(1, 1, 1)],
+	};
+	const objectMask: Path = {
+		...child,
+		id: generateUid("object-mask"),
+		segments: rectSegments(0, 30, 120, 60),
+		filters: [solidFill(1, 1, 1)],
+	};
+	child.mask = { elementIds: [objectMask.id] };
+	group.childIds = [child.id, clipPath.id];
+	group.clipPathId = clipPath.id;
+	doc.objects[clipPath.id] = clipPath;
+	doc.objects[objectMask.id] = objectMask;
+	return doc;
+}
+
+function createNestedAtlasMaskedGroupDoc() {
+	const doc = createDefaultDocument("nested-atlas-mask-vrt");
+	const layer = createDefaultLayer("layer-bg", "Background");
+	const child: Path = {
+		type: "path",
+		id: generateUid("path"),
+		opacity: 1,
+		blendMode: "normal",
+		segments: rectSegments(0, 0, 120, 120),
+		filters: [solidFill(1, 0, 0)],
+		transform: createDefaultTransform(),
+	};
+	doc.objects[child.id] = child;
+	let contentId = child.id;
+	const clipRects = [
+		[-30, 0, 90, 120],
+		[0, 30, 120, 60],
+		[0, 0, 120, 120],
+		[-10, -10, 140, 140],
+		[-20, -20, 160, 160],
+	] as const;
+	for (const [x, y, width, height] of clipRects) {
+		const clipPath: Path = {
+			...child,
+			id: generateUid("clip-path"),
+			segments: rectSegments(x, y, width, height),
+			filters: [solidFill(1, 1, 1)],
+		};
+		const group: Group = {
+			type: "group",
+			id: generateUid("group"),
+			opacity: 1,
+			blendMode: "normal",
+			childIds: [contentId, clipPath.id],
+			clipPathId: clipPath.id,
+			transform: createDefaultTransform(),
+			filters: [],
+		};
+		doc.objects[clipPath.id] = clipPath;
+		doc.objects[group.id] = group;
+		contentId = group.id;
+	}
+	layer.elementIds.push(contentId);
+	doc.layers = [layer];
+	doc.artboards.push(createArtboard("ab", "AB", 0, 0, 400, 220));
+	return doc;
+}
+
+function createTopLevelAtlasMaskedPathDoc(blendMode: Path["blendMode"]) {
+	const doc = createDefaultDocument("top-level-atlas-mask-vrt");
+	const layer = createDefaultLayer("layer-bg", "Background");
+	const child: Path = {
+		type: "path",
+		id: generateUid("path"),
+		opacity: 1,
+		blendMode,
+		segments: rectSegments(0, 0, 120, 120),
+		filters: [solidFill(1, 0, 0), blur(4)],
+		transform: createDefaultTransform(),
+	};
+	const mask: Path = {
+		...child,
+		id: generateUid("mask"),
+		segments: rectSegments(30, 30, 60, 60),
+		filters: [solidFill(1, 1, 1)],
+	};
+	child.mask = { elementIds: [mask.id] };
+	doc.objects[mask.id] = mask;
+	doc.objects[child.id] = child;
+	layer.elementIds.push(child.id);
+	doc.layers = [layer];
+	doc.artboards.push(createArtboard("ab", "AB", 0, 0, 400, 220));
+	return doc;
+}
+
+function solidFill(r: number, g: number, b: number): FillAppearance {
+	return {
+		uid: generateUid("fill"),
+		processor: "fill",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: {
+			version: "1",
+			params: {
+				fill: {
+					type: "solid",
+					color: { type: "rgb", r, g, b, a: 1 },
+				},
+			},
+		},
+	};
 }
 
 function rotate3d(rotateX: number, rotateY: number, rotateZ: number): Filter {

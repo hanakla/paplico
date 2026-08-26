@@ -7,7 +7,7 @@ import type {
 	Filter,
 	Path,
 } from "../../../schema";
-import { brandWorldBBox, type WorldBBox } from "../../../utils/geometry/bounds";
+import type { WorldBBox } from "../../../utils/geometry/bounds";
 import { computeSubPathSignedArea } from "../../../utils/geometry/segmentOps";
 import {
 	AppearanceCache,
@@ -23,7 +23,6 @@ import type {
 	UnderlayResult,
 } from "../../canvas/pipeline/FilterRenderer";
 import type { MeshPassRenderer } from "../../canvas/pipeline/MeshPassRenderer";
-import { OffscreenPresenter } from "../../canvas/pipeline/OffscreenPresenter";
 import {
 	createBorrowedTextureRef,
 	createFrameTextureRef,
@@ -2020,91 +2019,6 @@ describe("resolveFillAppearance", () => {
 	it("should return null without a usable fill appearance", () => {
 		expect(resolveFillAppearance([appearance("stroke")])).toBe(null);
 		expect(resolveFillAppearance(undefined)).toBe(null);
-	});
-});
-
-describe("OffscreenPresenter group baking", () => {
-	it("should render a group element itself so group-level fill/pre-filters are baked", () => {
-		const passEncoder = {
-			setPipeline: vi.fn(),
-			setBindGroup: vi.fn(),
-			end: vi.fn(),
-		};
-		const encoder = {
-			beginRenderPass: vi.fn(() => passEncoder),
-		} as unknown as GPUCommandEncoder;
-		const group = {
-			...groupWithExtrude(["child-1"]),
-			filters: [solidFillAppearance()],
-		} as AnyArtObject;
-		const child = childFillPath("child-1");
-		const elementsMap = toMap(group, child);
-		const renderElements = vi.fn((...args: unknown[]) => args[0]);
-		const dispatchElementDirect = vi.fn();
-		const offscreen = new OffscreenPresenter({
-			device: {
-				limits: { maxTextureDimension2D: 4096 },
-			},
-			canvasFormat: "rgba8unorm",
-			viewportState: {
-				current: { x: 20, y: 20, zoom: 1, rotation: 0 },
-				width: 128,
-				height: 128,
-				bounds: { minX: -44, minY: -44, maxX: 84, maxY: 84 },
-			},
-			renderState: {
-				currentTransformIndex: 0,
-				currentMaskBindGroup: {},
-			},
-			compositeState: { captureTexture: null },
-			filterRenderer: {
-				getHandler: () => undefined,
-				calculateExpansion: () => 0,
-				applyFilters: (texture: GPUTexture) => ({ texture }),
-			},
-			setActiveBindGroup: vi.fn(),
-			texturePool: createFakeTexturePool(),
-			uniformScope: {
-				acquire: vi.fn(() => ({ bindGroup: {}, buffer: {} })),
-			},
-			getTransformIndex: vi.fn(() => 0),
-			getTransformsBindGroup: vi.fn(() => ({})),
-			strokePipeline: {},
-			blitWithMaskPipeline: {},
-			blitWithEraseMaskPipeline: {},
-			blitWithMaskBindGroupLayout: {},
-			dummyGradientBindGroup: {},
-			dummyMaskBindGroup: {},
-			renderElements,
-			dispatchElementDirect,
-			blitTextureToCanvas: vi.fn(),
-			renderElementToMask: vi.fn(),
-			getElementMaskBindGroup: vi.fn(() => ({}) as GPUBindGroup),
-		} as never);
-
-		offscreen.renderElementToTexture(
-			encoder,
-			group,
-			brandWorldBBox({
-				minX: 0,
-				minY: 0,
-				maxX: 40,
-				maxY: 40,
-				width: 40,
-				height: 40,
-			}),
-			elementsMap,
-			1,
-			true,
-		);
-
-		expect(renderElements).toHaveBeenCalledTimes(1);
-		expect(renderElements.mock.calls[0][1]).toEqual([group]);
-		expect(renderElements.mock.calls[0][4]).toBe(1);
-		expect(renderElements.mock.calls[0][5]).toBe(null);
-		expect(renderElements.mock.calls[0][7]).toBe("offscreen");
-		expect(dispatchElementDirect).not.toHaveBeenCalled();
-		expect(passEncoder.end).toHaveBeenCalledTimes(1);
 	});
 });
 

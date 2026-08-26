@@ -26,6 +26,7 @@ import type {
 import type { StructuredView } from "../../utils/wgpu-utils";
 import type { GradientTextureGenerator } from "../generators/GradientTextureGenerator";
 import type { MeshGradientTextureGenerator } from "../generators/MeshGradientTextureGenerator";
+import type { MaskAtlasRect } from "./pipeline/MaskAtlasAllocator";
 import type { RenderSurface, TextureRef } from "./pipeline/RenderSurface";
 
 // ---------------------------------------------------------------------------
@@ -220,6 +221,14 @@ export type BlitLayer = RenderSurface & {
 	coverage?: TextureRef;
 };
 
+export interface WorldMaskAssignment {
+	bindGroup: GPUBindGroup;
+	textureView: GPUTextureView;
+	bounds: BoundingBox;
+	atlasRect?: MaskAtlasRect;
+	inverted?: boolean;
+}
+
 export interface CompoundPathGeometryCacheEntry {
 	fingerprint: string;
 	segments: CubicBezierSegment[];
@@ -230,6 +239,7 @@ export interface FilteredTextureInfo {
 	output: RenderSurface;
 	elementBounds: BoundingBox;
 	textureBounds: BoundingBox;
+	postMasks?: readonly WorldMaskAssignment[];
 	/** Self-sized filter output layers (extrude3d appearances) to composite at
 	 *  their own bounds/quad instead of the single filteredTexture. When set,
 	 *  the main pass blits each layer in order and skips the normal blit. */

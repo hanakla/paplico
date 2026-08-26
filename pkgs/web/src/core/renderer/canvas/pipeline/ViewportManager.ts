@@ -18,6 +18,7 @@ import {
 	GPU_TRANSFORM_VALUES,
 	getVisibleWorldBounds,
 	IDENTITY_GPU_TRANSFORM,
+	MASK_ATLAS_BIT,
 	MASK_INVERT_BIT,
 	NO_MASK_INDEX,
 	transformLinearMatrix,
@@ -35,6 +36,8 @@ export interface GPUMaskInfo {
 	layerIndex: number;
 	/** World-space area the mask texture covers. */
 	bounds: BoundingBox;
+	/** Pixel-space region inside the shared mask atlas. */
+	atlasRect?: { x: number; y: number; width: number; height: number };
 	/** Default: false. Swaps which side of the mask keeps the pixels. */
 	inverted?: boolean;
 }
@@ -835,9 +838,10 @@ export class ViewportManager {
 
 /** Pack a mask entry into the `maskIndex` word the shader reads. */
 function maskIndexWord(mask: GPUMaskInfo): number {
-	return mask.inverted
-		? (mask.layerIndex | MASK_INVERT_BIT) >>> 0
+	const index = mask.atlasRect
+		? (MASK_ATLAS_BIT | mask.layerIndex) >>> 0
 		: mask.layerIndex;
+	return mask.inverted ? (index | MASK_INVERT_BIT) >>> 0 : index;
 }
 
 /**

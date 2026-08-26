@@ -609,6 +609,11 @@ export const BLIT_WITH_MASK_CHAIN_SHADER = /* wgsl */ `
 		bounds3: vec4f,
 		// 1 = invert that slot's coverage, 0 = leave as-is.
 		inverts: vec4f,
+		// Pixel-space atlas rects (x, y, width, height). Zero size = full texture.
+		rect0: vec4f,
+		rect1: vec4f,
+		rect2: vec4f,
+		rect3: vec4f,
 	}
 
 	@group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -643,13 +648,17 @@ export const BLIT_WITH_MASK_CHAIN_SHADER = /* wgsl */ `
 		return mix(covered, 1.0 - covered, invert);
 	}
 
-	fn maskUVFor(bounds: vec4f, worldPos: vec2f) -> vec2f {
+	fn maskUVFor(bounds: vec4f, rect: vec4f, textureSize: vec2f, worldPos: vec2f) -> vec2f {
 		// Sentinel slots divide by zero here; the result is discarded by
 		// maskCoverage's early return, and the sample itself is well-defined
 		// (clamped UV into a white texture).
 		let safeSize = max(bounds.zw - bounds.xy, vec2f(1e-6));
 		let rawUV = (worldPos - bounds.xy) / safeSize;
-		return clamp(vec2f(rawUV.x, 1.0 - rawUV.y), vec2f(0.0), vec2f(1.0));
+		let clampedUV = clamp(vec2f(rawUV.x, 1.0 - rawUV.y), vec2f(0.0), vec2f(1.0));
+		if (rect.z > 0.0 && rect.w > 0.0) {
+			return (rect.xy + vec2f(0.5) + clampedUV * max(rect.zw - vec2f(1.0), vec2f(0.0))) / textureSize;
+		}
+		return clampedUV;
 	}
 
 	@vertex
@@ -699,10 +708,10 @@ export const BLIT_WITH_MASK_CHAIN_SHADER = /* wgsl */ `
 		let color = textureSample(sourceTexture, texSampler, input.texCoord);
 		// textureSampleLevel needs no derivatives, so sentinel slots sampling a
 		// white 1x1 dummy stay well-defined.
-		let s0 = textureSampleLevel(maskTexture0, maskSampler, maskUVFor(maskChain.bounds0, input.worldPos), 0.0);
-		let s1 = textureSampleLevel(maskTexture1, maskSampler, maskUVFor(maskChain.bounds1, input.worldPos), 0.0);
-		let s2 = textureSampleLevel(maskTexture2, maskSampler, maskUVFor(maskChain.bounds2, input.worldPos), 0.0);
-		let s3 = textureSampleLevel(maskTexture3, maskSampler, maskUVFor(maskChain.bounds3, input.worldPos), 0.0);
+		let s0 = textureSampleLevel(maskTexture0, maskSampler, maskUVFor(maskChain.bounds0, maskChain.rect0, vec2f(textureDimensions(maskTexture0)), input.worldPos), 0.0);
+		let s1 = textureSampleLevel(maskTexture1, maskSampler, maskUVFor(maskChain.bounds1, maskChain.rect1, vec2f(textureDimensions(maskTexture1)), input.worldPos), 0.0);
+		let s2 = textureSampleLevel(maskTexture2, maskSampler, maskUVFor(maskChain.bounds2, maskChain.rect2, vec2f(textureDimensions(maskTexture2)), input.worldPos), 0.0);
+		let s3 = textureSampleLevel(maskTexture3, maskSampler, maskUVFor(maskChain.bounds3, maskChain.rect3, vec2f(textureDimensions(maskTexture3)), input.worldPos), 0.0);
 		let coverage = maskCoverage(s0, maskChain.bounds0, input.worldPos, maskChain.inverts.x)
 		             * maskCoverage(s1, maskChain.bounds1, input.worldPos, maskChain.inverts.y)
 		             * maskCoverage(s2, maskChain.bounds2, input.worldPos, maskChain.inverts.z)

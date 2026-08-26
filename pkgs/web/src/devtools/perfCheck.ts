@@ -42,6 +42,7 @@ type RenderRecord = {
 	t: number;
 	strategy: string | null;
 	passes: PassRecord[];
+	computePasses: string[];
 	copies: string[];
 };
 
@@ -113,6 +114,7 @@ export async function runPerfCheck(
 	const patches: Array<{ obj: any; key: string; orig: any }> = [];
 	const renders: RenderRecord[] = [];
 	const cpuSamples: CpuSample[] = [];
+	const apiSamples: CpuSample[] = [];
 	const dirtyEvents: DirtyEvent[] = [];
 	let curRender: RenderRecord | null = null;
 	let viewportAtStart: unknown = null;
@@ -212,11 +214,37 @@ export async function runPerfCheck(
 		"createView",
 		(orig) =>
 			function (this: GPUTexture, ...a: any[]) {
-				const v = orig.apply(this, a);
+				const t0 = performance.now();
 				try {
-					viewToTex.set(v, this);
-				} catch {}
-				return v;
+					const v = orig.apply(this, a);
+					try {
+						viewToTex.set(v, this);
+					} catch {}
+					return v;
+				} finally {
+					apiSamples.push({
+						t: nowRel(),
+						method: "GPUTexture.createView",
+						ms: performance.now() - t0,
+					});
+				}
+			},
+	);
+	patch(
+		device,
+		"createBindGroup",
+		(orig) =>
+			function (this: GPUDevice, ...a: any[]) {
+				const t0 = performance.now();
+				try {
+					return orig.apply(this, a);
+				} finally {
+					apiSamples.push({
+						t: nowRel(),
+						method: "GPUDevice.createBindGroup",
+						ms: performance.now() - t0,
+					});
+				}
 			},
 	);
 
@@ -301,6 +329,21 @@ export async function runPerfCheck(
 								}
 							}
 							return pass;
+						},
+				);
+
+				wrapLocal(
+					encoder,
+					"beginComputePass",
+					(obp) =>
+						function (
+							this: GPUCommandEncoder,
+							desc?: GPUComputePassDescriptor,
+						) {
+							if (curRender) {
+								curRender.computePasses.push(desc?.label || "(unlabeled)");
+							}
+							return obp.call(this, desc);
 						},
 				);
 
@@ -416,6 +459,7 @@ export async function runPerfCheck(
 					t: nowRel(),
 					strategy,
 					passes: [],
+					computePasses: [],
 					copies: [],
 				};
 				const prev = curRender;
@@ -455,7 +499,68 @@ export async function runPerfCheck(
 	wrapCpu(clProto, "renderDocument", "CanvasLayer.renderDocument");
 	wrapCpu(clProto, "executeFrame", "CanvasLayer.executeFrame");
 	wrapCpu(clProto, "renderElements", "CanvasLayer.renderElements");
+	wrapCpu(clProto, "applyPostMasks", "CanvasLayer.applyPostMasks");
 	wrapCpu(Object.getPrototypeOf(uiLayer), "render", "UILayer.render");
+	const offscreen = canvasLayer.offscreen;
+	if (offscreen) {
+		const proto = Object.getPrototypeOf(offscreen);
+		wrapCpu(
+			proto,
+			"renderElementToTexture",
+			"OffscreenPresenter.renderElementToTexture",
+		);
+		wrapCpu(
+			proto,
+			"renderGroupToTexture",
+			"OffscreenPresenter.renderGroupToTexture",
+		);
+		wrapCpu(
+			proto,
+			"applyWorldMasksToTexture",
+			"OffscreenPresenter.applyWorldMasksToTexture",
+		);
+		wrapCpu(
+			proto,
+			"applyMaskChainChunk",
+			"OffscreenPresenter.applyMaskChainChunk",
+		);
+		wrapCpu(
+			proto,
+			"renderColorBakeBatch",
+			"OffscreenPresenter.renderColorBakeBatch",
+		);
+		wrapCpu(
+			proto,
+			"renderColorAtlasBatch",
+			"OffscreenPresenter.renderColorAtlasBatch",
+		);
+		wrapCpu(
+			proto,
+			"copyColorSurfacesToAtlas",
+			"OffscreenPresenter.copyColorSurfacesToAtlas",
+		);
+		wrapCpu(
+			proto,
+			"applyAtlasMasksComputeBatch",
+			"OffscreenPresenter.applyAtlasMasksComputeBatch",
+		);
+		wrapCpu(
+			proto,
+			"drawSurfaceWithAtlasMasks",
+			"OffscreenPresenter.drawSurfaceWithAtlasMasks",
+		);
+	}
+	const clipMaskAtlas = canvasLayer.clipMaskAtlas;
+	if (clipMaskAtlas) {
+		const proto = Object.getPrototypeOf(clipMaskAtlas);
+		wrapCpu(proto, "preRender", "ClipMaskAtlas.preRender");
+		wrapCpu(proto, "renderMask", "ClipMaskAtlas.renderMask");
+		wrapCpu(
+			proto,
+			"renderSilhouetteAtlasBatch",
+			"ClipMaskAtlas.renderSilhouetteAtlasBatch",
+		);
+	}
 	if (filterRenderer)
 		wrapCpu(
 			Object.getPrototypeOf(filterRenderer),
@@ -494,9 +599,14 @@ export async function runPerfCheck(
 				}
 			: null;
 
-	function aggregate(renderSet: RenderRecord[], cpuSet: CpuSample[]) {
+	function aggregate(
+		renderSet: RenderRecord[],
+		cpuSet: CpuSample[],
+		apiSet: CpuSample[],
+	) {
 		const rc = renderSet.length || 1;
 		const passCount: Record<string, number> = {};
+		const computePassCount: Record<string, number> = {};
 		const passDraws: Record<string, number> = {};
 		const passEmpty: Record<string, number> = {};
 		const passDims: Record<string, Record<string, number>> = {};
@@ -519,6 +629,9 @@ export async function runPerfCheck(
 					gpuByLabel[ps.label].push(ps.gpuMs);
 				}
 			}
+			for (const label of r.computePasses) {
+				computePassCount[label] = (computePassCount[label] ?? 0) + 1;
+			}
 			for (const c of r.copies) copyCount[c] = (copyCount[c] ?? 0) + 1;
 		}
 
@@ -526,6 +639,11 @@ export async function runPerfCheck(
 		for (const s of cpuSet) {
 			cpuByMethod[s.method] ??= [];
 			cpuByMethod[s.method].push(s.ms);
+		}
+		const apiByMethod: Record<string, number[]> = {};
+		for (const s of apiSet) {
+			apiByMethod[s.method] ??= [];
+			apiByMethod[s.method].push(s.ms);
 		}
 
 		const round = (o: Record<string, number>, f: (v: number) => number) =>
@@ -548,6 +666,19 @@ export async function runPerfCheck(
 			const s = stat(arr);
 			if (s) cpu[k] = { ...s, callsPerRender: +(arr.length / rc).toFixed(2) };
 		}
+		const webgpuApi: Record<
+			string,
+			NonNullable<ReturnType<typeof stat>> & { callsPerRender: number }
+		> = {};
+		for (const [k, arr] of Object.entries(apiByMethod)) {
+			const s = stat(arr);
+			if (s) {
+				webgpuApi[k] = {
+					...s,
+					callsPerRender: +(arr.length / rc).toFixed(2),
+				};
+			}
+		}
 
 		const topGpu = Object.entries(gpu)
 			.sort((a, b) => b[1].totalMs - a[1].totalMs)
@@ -559,9 +690,14 @@ export async function runPerfCheck(
 			.slice(0, 6)
 			.map(([k, v]) => `${k} ${v.totalMs}ms x${v.callsPerRender}/r`)
 			.join("  |  ");
+		const topApi = Object.entries(webgpuApi)
+			.sort((a, b) => b[1].totalMs - a[1].totalMs)
+			.map(([k, v]) => `${k} ${v.totalMs}ms x${v.callsPerRender}/r`)
+			.join("  |  ");
 
 		return {
 			passesPerRender: round(passCount, (v) => v / rc),
+			computePassesPerRender: round(computePassCount, (v) => v / rc),
 			drawsPerRender: round(passDraws, (v) => v / rc),
 			emptyPassesPerRender: round(passEmpty, (v) => v / rc),
 			copiesPerRender: round(copyCount, (v) => v / rc),
@@ -572,8 +708,10 @@ export async function runPerfCheck(
 			).toFixed(1),
 			topGpu,
 			topCpu,
+			topApi,
 			gpu,
 			cpu,
+			webgpuApi,
 		};
 	}
 
@@ -652,6 +790,7 @@ export async function runPerfCheck(
 			const rSet = renders.filter((r) => r.t >= lo && r.t < hi);
 			if (!rSet.length) continue;
 			const cSet = cpuSamples.filter((s) => s.t >= lo && s.t < hi);
+			const aSet = apiSamples.filter((s) => s.t >= lo && s.t < hi);
 			const reasons = new Set(
 				dirtyEvents.filter((d) => d.t >= lo && d.t < hi).map((d) => d.reason),
 			);
@@ -661,7 +800,7 @@ export async function runPerfCheck(
 				activity: reasonToActivity(reasons),
 				renders: rSet.length,
 				renderFps: +(rSet.length / secs).toFixed(1),
-				...aggregate(rSet, cSet),
+				...aggregate(rSet, cSet, aSet),
 			});
 		}
 		return out;
@@ -687,7 +826,7 @@ export async function runPerfCheck(
 				: null,
 			context: buildContext(),
 			inventory: buildInventory(),
-			overall: aggregate(renders, cpuSamples),
+			overall: aggregate(renders, cpuSamples, apiSamples),
 			windows: buildWindows(),
 		};
 	}

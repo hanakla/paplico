@@ -12,6 +12,10 @@ export interface FilteredElementCacheEntry {
 	/** Content hash (chain fingerprint + paint hash + density bucket + size).
 	 *  Compared by the caller each frame — the cache itself never validates. */
 	hash: string;
+	/** Hash of everything except raster density. */
+	contentHash: string;
+	/** Density bucket used to create the texture. */
+	density: number;
 	texture: GPUTexture;
 	/** World rect the texture covers (the plan's textureBounds at bake time). */
 	bounds: WorldBBox;

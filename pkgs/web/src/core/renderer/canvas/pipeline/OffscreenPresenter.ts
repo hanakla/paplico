@@ -48,14 +48,17 @@ import {
 	type RenderState,
 	type SharedRenderBindings,
 	type ViewportState,
+	type WorldMaskAssignment,
 } from "../CanvasLayerTypes";
 import { MaskedBlitBindGroupCache } from "../caches/BindGroupCache";
 import type { FilterRenderer } from "./FilterRenderer";
 import { FrameUniformPool } from "./FrameUniformPool";
+import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
 import { createPassLocalStencilAttachment } from "./PassLocalStencil";
 import { calculatePreFilteredElementBounds } from "./RenderPlanner";
 import {
 	type ColorRenderSurface,
+	createBorrowedTextureRef,
 	createFrameTextureRef,
 	createRenderSurface,
 	type RasterizedRenderSurface,
@@ -71,6 +74,7 @@ import type { UniformEntry, UniformScope } from "./UniformScope";
 // ---------------------------------------------------------------------------
 
 interface OffscreenPresenterDeps extends SharedRenderBindings {
+	viewportBindGroupLayout: GPUBindGroupLayout;
 	strokePipeline: GPURenderPipeline;
 	blitWithMaskPipeline: GPURenderPipeline;
 	blitWithMaskChainPipeline: GPURenderPipeline;
@@ -114,23 +118,18 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 		encoder: GPUCommandEncoder,
 		elementId: string,
 	) => RenderSurface | null;
+	hasIsolatedWashAppearances?: (elementId: string) => boolean;
 	getElementPostMasks: (elementId: string) => readonly {
 		bindGroup: GPUBindGroup;
 		textureView: GPUTextureView;
 		bounds: BoundingBox;
 		inverted?: boolean;
 	}[];
+	onBeforeDraw: () => void;
 	/** The document rasterization scale R (see references/rasterization-dpi.md).
 	 *  A dep rather than a `rasterScale` argument so that a pass re-baking an
 	 *  R-rasterized intermediary cannot fall back to the zoom by omission. */
 	getRasterScale: () => number;
-}
-
-export interface WorldMaskAssignment {
-	bindGroup: GPUBindGroup;
-	textureView: GPUTextureView;
-	bounds: BoundingBox;
-	inverted?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,9 +143,241 @@ const CLIP_BLIT_BUFFER_SIZE = CLIP_BLIT_F32_COUNT * 4;
 
 /** World-space masks applied per chain pass — matches the shader's slot count. */
 const MASK_CHAIN_SLOTS = 4;
-/** MaskChainUniforms: 4x bounds vec4f + inverts vec4f. */
-const MASK_CHAIN_F32_COUNT = 20;
+const ATLAS_MASK_SLOTS = 16;
+
+interface GroupChildSurface {
+	surface: RenderSurface;
+	deferredMasks?: readonly WorldMaskAssignment[];
+}
+
+export interface ColorAtlasBakeReservation {
+	bounds: WorldBBox;
+	effectiveZoom: number;
+	atlasRect: MaskAtlasRect;
+}
+
+export interface ColorAtlasBakeItem extends ColorAtlasBakeReservation {
+	key: string;
+	element: AnyArtObject;
+	elementsMap: Map<string, AnyArtObject>;
+}
+
+export interface ColorAtlasCopyItem {
+	key: string;
+	surface: RenderSurface;
+}
+
+export interface AtlasMaskComputeItem {
+	key: string;
+	source: RenderSurface;
+	masks: readonly WorldMaskAssignment[];
+}
+
+interface ColorBakeBatchItem extends ColorAtlasBakeItem {
+	memoKey: string;
+	deferredMasks: readonly WorldMaskAssignment[];
+}
+/** MaskChainUniforms: 4x bounds vec4f + inverts vec4f + 4x atlas rect vec4f. */
+const MASK_CHAIN_F32_COUNT = 36;
 const MASK_CHAIN_BUFFER_SIZE = MASK_CHAIN_F32_COUNT * 4;
+const COLOR_BAKE_ATLAS_SIZE = 2048;
+const MAX_COLOR_BAKE_DIM = 256;
+const COLOR_ATLAS_MASK_DRAW_F32_COUNT = 12 + ATLAS_MASK_SLOTS * 9;
+const MAX_COLOR_ATLAS_MASK_DRAWS = 16_384;
+const ATLAS_MASK_COMPUTE_F32_COUNT = 16 + ATLAS_MASK_SLOTS * 9;
+
+const COLOR_ATLAS_MASK_SHADER = /* wgsl */ `
+	struct Uniforms {
+		viewportX: f32,
+		viewportY: f32,
+		zoom: f32,
+		canvasWidth: f32,
+		canvasHeight: f32,
+		rotSin: f32,
+		rotCos: f32,
+	}
+
+	struct DrawData {
+		bounds: vec4f,
+		uvRect: vec4f,
+		params: vec4f,
+		maskBounds: array<vec4f, 16>,
+		maskRects: array<vec4f, 16>,
+		inverts: array<vec4f, 4>,
+	}
+
+	@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+	@group(1) @binding(0) var texSampler: sampler;
+	@group(1) @binding(1) var sourceTexture: texture_2d<f32>;
+	@group(1) @binding(2) var maskTexture: texture_2d<f32>;
+	@group(1) @binding(3) var<storage, read> drawData: array<DrawData>;
+
+	struct VertexOutput {
+		@builtin(position) position: vec4f,
+		@location(0) texCoord: vec2f,
+		@location(1) worldPos: vec2f,
+		@location(2) @interpolate(flat) drawIndex: u32,
+	}
+
+	fn maskUVFor(bounds: vec4f, rect: vec4f, textureSize: vec2f, worldPos: vec2f) -> vec2f {
+		let safeSize = max(bounds.zw - bounds.xy, vec2f(1e-6));
+		let rawUV = (worldPos - bounds.xy) / safeSize;
+		let clampedUV = clamp(vec2f(rawUV.x, 1.0 - rawUV.y), vec2f(0.0), vec2f(1.0));
+		return (rect.xy + vec2f(0.5) + clampedUV * max(rect.zw - vec2f(1.0), vec2f(0.0))) / textureSize;
+	}
+
+	fn maskCoverage(sampled: vec4f, bounds: vec4f, worldPos: vec2f, invert: f32) -> f32 {
+		if (bounds.x == bounds.z && bounds.y == bounds.w) {
+			return 1.0;
+		}
+		let rawUV = (worldPos - bounds.xy) / (bounds.zw - bounds.xy);
+		let maskUV = vec2f(rawUV.x, 1.0 - rawUV.y);
+		let inBounds = step(0.0, maskUV.x) * step(maskUV.x, 1.0)
+		             * step(0.0, maskUV.y) * step(maskUV.y, 1.0);
+		let covered = dot(sampled.rgb, vec3f(0.2126, 0.7152, 0.0722)) * inBounds;
+		return mix(covered, 1.0 - covered, invert);
+	}
+
+	@vertex
+	fn vertexMain(
+		@builtin(vertex_index) vertexIndex: u32,
+		@builtin(instance_index) instanceIndex: u32,
+	) -> VertexOutput {
+		var output: VertexOutput;
+		var positions = array<vec2f, 6>(
+			vec2f(-1.0, -1.0),
+			vec2f(1.0, -1.0),
+			vec2f(-1.0, 1.0),
+			vec2f(-1.0, 1.0),
+			vec2f(1.0, -1.0),
+			vec2f(1.0, 1.0),
+		);
+		var texCoords = array<vec2f, 6>(
+			vec2f(0.0, 1.0),
+			vec2f(1.0, 1.0),
+			vec2f(0.0, 0.0),
+			vec2f(0.0, 0.0),
+			vec2f(1.0, 1.0),
+			vec2f(1.0, 0.0),
+		);
+		let draw = drawData[instanceIndex];
+		let quadPos = positions[vertexIndex];
+		let texCoord = texCoords[vertexIndex];
+		let worldX = mix(draw.bounds.x, draw.bounds.z, (quadPos.x + 1.0) * 0.5);
+		let worldY = mix(draw.bounds.y, draw.bounds.w, (quadPos.y + 1.0) * 0.5);
+		let x = (worldX - uniforms.viewportX) * uniforms.zoom;
+		let y = (worldY - uniforms.viewportY) * uniforms.zoom;
+		let rotX = x * uniforms.rotCos - y * uniforms.rotSin;
+		let rotY = x * uniforms.rotSin + y * uniforms.rotCos;
+		output.position = vec4f(
+			rotX / (uniforms.canvasWidth * 0.5),
+			rotY / (uniforms.canvasHeight * 0.5),
+			0.0,
+			1.0,
+		);
+		output.texCoord = vec2f(
+			mix(draw.uvRect.x, draw.uvRect.z, texCoord.x),
+			mix(draw.uvRect.y, draw.uvRect.w, texCoord.y),
+		);
+		output.worldPos = vec2f(worldX, worldY);
+		output.drawIndex = instanceIndex;
+		return output;
+	}
+
+	@fragment
+	fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+		let draw = drawData[input.drawIndex];
+		let textureSize = vec2f(textureDimensions(maskTexture));
+		var coverage = 1.0;
+		for (var i = 0u; i < u32(draw.params.y); i++) {
+			let sampled = textureSampleLevel(
+				maskTexture,
+				texSampler,
+				maskUVFor(draw.maskBounds[i], draw.maskRects[i], textureSize, input.worldPos),
+				0.0,
+			);
+			coverage *= maskCoverage(
+				sampled,
+				draw.maskBounds[i],
+				input.worldPos,
+				draw.inverts[i / 4u][i % 4u],
+			);
+		}
+		return textureSample(sourceTexture, texSampler, input.texCoord) * (coverage * draw.params.x);
+	}
+`;
+
+const ATLAS_MASK_COMPUTE_SHADER = /* wgsl */ `
+	struct ComputeData {
+		sourceRect: vec4f,
+		destinationRect: vec4f,
+		bounds: vec4f,
+		params: vec4f,
+		maskBounds: array<vec4f, 16>,
+		maskRects: array<vec4f, 16>,
+		inverts: array<vec4f, 4>,
+	}
+
+	@group(0) @binding(0) var texSampler: sampler;
+	@group(0) @binding(1) var sourceTexture: texture_2d<f32>;
+	@group(0) @binding(2) var maskTexture: texture_2d<f32>;
+	@group(0) @binding(3) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+	@group(0) @binding(4) var<storage, read> computeData: array<ComputeData>;
+
+	fn maskUVFor(bounds: vec4f, rect: vec4f, textureSize: vec2f, worldPos: vec2f) -> vec2f {
+		let safeSize = max(bounds.zw - bounds.xy, vec2f(1e-6));
+		let rawUV = (worldPos - bounds.xy) / safeSize;
+		let clampedUV = clamp(vec2f(rawUV.x, 1.0 - rawUV.y), vec2f(0.0), vec2f(1.0));
+		return (rect.xy + vec2f(0.5) + clampedUV * max(rect.zw - vec2f(1.0), vec2f(0.0))) / textureSize;
+	}
+
+	fn maskCoverage(sampled: vec4f, bounds: vec4f, worldPos: vec2f, invert: f32) -> f32 {
+		let rawUV = (worldPos - bounds.xy) / max(bounds.zw - bounds.xy, vec2f(1e-6));
+		let maskUV = vec2f(rawUV.x, 1.0 - rawUV.y);
+		let inBounds = step(0.0, maskUV.x) * step(maskUV.x, 1.0)
+		             * step(0.0, maskUV.y) * step(maskUV.y, 1.0);
+		let covered = dot(sampled.rgb, vec3f(0.2126, 0.7152, 0.0722)) * inBounds;
+		return mix(covered, 1.0 - covered, invert);
+	}
+
+	@compute @workgroup_size(8, 8, 1)
+	fn computeMain(@builtin(global_invocation_id) invocation: vec3u) {
+		let item = computeData[invocation.z];
+		let size = vec2u(item.destinationRect.zw);
+		if (invocation.x >= size.x || invocation.y >= size.y) {
+			return;
+		}
+		let localPixel = invocation.xy;
+		let position = (vec2f(localPixel) + vec2f(0.5)) / vec2f(size);
+		let worldPos = vec2f(
+			mix(item.bounds.x, item.bounds.z, position.x),
+			mix(item.bounds.w, item.bounds.y, position.y),
+		);
+		let textureSize = vec2f(textureDimensions(maskTexture));
+		var coverage = 1.0;
+		for (var i = 0u; i < u32(item.params.x); i++) {
+			let sampled = textureSampleLevel(
+				maskTexture,
+				texSampler,
+				maskUVFor(item.maskBounds[i], item.maskRects[i], textureSize, worldPos),
+				0.0,
+			);
+			coverage *= maskCoverage(
+				sampled,
+				item.maskBounds[i],
+				worldPos,
+				item.inverts[i / 4u][i % 4u],
+			);
+		}
+		let sourcePixel = vec2i(vec2u(item.sourceRect.xy) + localPixel);
+		let destinationPixel = vec2i(vec2u(item.destinationRect.xy) + localPixel);
+		textureStore(
+			outputTexture,
+			destinationPixel,
+			textureLoad(sourceTexture, sourcePixel, 0) * coverage,
+		);
+	}
+`;
 
 export class OffscreenPresenter {
 	private readonly clipBlitF32 = new Float32Array(CLIP_BLIT_F32_COUNT);
@@ -157,28 +388,231 @@ export class OffscreenPresenter {
 	private whiteMaskView: GPUTextureView | null = null;
 	/** Textures whose destroy must be deferred until after queue.submit(). */
 	private deferredDestroys: GPUTexture[] = [];
+	/** Frame-local memo of pre-rasterized (filtered + masked) group children.
+	 *  Nested group bakes re-rasterize the same child once per ancestor bake
+	 *  (measured avg 5.6x per frame on a mask-heavy document); the memo owns
+	 *  each texture for the frame and hands out borrowed refs, so consumers'
+	 *  releases stay no-ops and the textures die at the next frame reset. */
+	private childBakeMemo = new Map<
+		string,
+		{
+			texture: GPUTexture;
+			placement: RenderSurface["placement"];
+			role: RenderSurface["role"];
+			alphaMode: RenderSurface["alphaMode"];
+			opacityState: RenderSurface["opacityState"];
+		}
+	>();
+	private childBakeMemoTextures: GPUTexture[] = [];
+	private colorBakeAtlasAllocator = new MaskAtlasAllocator(
+		COLOR_BAKE_ATLAS_SIZE,
+		COLOR_BAKE_ATLAS_SIZE,
+	);
+	private colorBakeAtlasTexture: GPUTexture | null = null;
+	private colorBakeAtlasView: GPUTextureView | null = null;
+	private colorBakeClearTexture: GPUTexture | null = null;
+	private readonly textureViewCache = new WeakMap<GPUTexture, GPUTextureView>();
+	private readonly colorAtlasMaskDrawData = new Float32Array(
+		MAX_COLOR_ATLAS_MASK_DRAWS * COLOR_ATLAS_MASK_DRAW_F32_COUNT,
+	);
+	private readonly colorAtlasMaskDrawBuffer: GPUBuffer;
+	private readonly colorAtlasMaskBindGroupLayout: GPUBindGroupLayout;
+	private readonly colorAtlasMaskPipeline: GPURenderPipeline;
+	private readonly colorAtlasMaskBindGroupCache = new WeakMap<
+		GPUTextureView,
+		WeakMap<GPUTextureView, GPUBindGroup>
+	>();
+	private colorAtlasMaskDrawCount = 0;
+	private atlasMaskOutputAllocator = new MaskAtlasAllocator(
+		COLOR_BAKE_ATLAS_SIZE,
+		COLOR_BAKE_ATLAS_SIZE,
+	);
+	private atlasMaskOutputTexture: GPUTexture | null = null;
+	private atlasMaskOutputView: GPUTextureView | null = null;
+	private readonly atlasMaskComputeData: Float32Array;
+	private readonly atlasMaskComputeBuffer: GPUBuffer;
+	private readonly atlasMaskComputeBindGroupLayout: GPUBindGroupLayout;
+	private readonly atlasMaskComputePipeline: GPUComputePipeline;
+	private readonly atlasMaskComputeBindGroupCache = new WeakMap<
+		GPUTextureView,
+		GPUBindGroup
+	>();
 
 	public constructor(private readonly deps: OffscreenPresenterDeps) {
 		this.clipBlitPool = new FrameUniformPool(
 			deps.device,
 			"Clip Blit Uniform Buffer",
 		);
+		this.colorAtlasMaskDrawBuffer = deps.device.createBuffer({
+			label: "Color Atlas Mask Draw Buffer",
+			size: this.colorAtlasMaskDrawData.byteLength,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+		});
+		this.colorAtlasMaskBindGroupLayout = deps.device.createBindGroupLayout({
+			label: "Color Atlas Mask Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.FRAGMENT,
+					sampler: {},
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: {},
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: {},
+				},
+				{
+					binding: 3,
+					visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
+			],
+		});
+		const shader = deps.device.createShaderModule({
+			label: "Color Atlas Mask Shader",
+			code: COLOR_ATLAS_MASK_SHADER,
+		});
+		this.colorAtlasMaskPipeline = deps.device.createRenderPipeline({
+			label: "Color Atlas Mask Pipeline",
+			layout: deps.device.createPipelineLayout({
+				bindGroupLayouts: [
+					deps.viewportBindGroupLayout,
+					this.colorAtlasMaskBindGroupLayout,
+				],
+			}),
+			vertex: { module: shader, entryPoint: "vertexMain" },
+			fragment: {
+				module: shader,
+				entryPoint: "fragmentMain",
+				targets: [
+					{
+						format: deps.canvasFormat,
+						blend: {
+							color: {
+								srcFactor: "one",
+								dstFactor: "one-minus-src-alpha",
+								operation: "add",
+							},
+							alpha: {
+								srcFactor: "one",
+								dstFactor: "one-minus-src-alpha",
+								operation: "add",
+							},
+						},
+					},
+				],
+			},
+			primitive: { topology: "triangle-list" },
+			depthStencil: {
+				format: "depth24plus-stencil8",
+				depthWriteEnabled: false,
+				depthCompare: "always",
+				stencilFront: { compare: "always", passOp: "keep" },
+				stencilBack: { compare: "always", passOp: "keep" },
+			},
+			multisample: { count: MSAA_SAMPLE_COUNT },
+		});
+		this.atlasMaskComputeData = new Float32Array(
+			MAX_COLOR_ATLAS_MASK_DRAWS * ATLAS_MASK_COMPUTE_F32_COUNT,
+		);
+		this.atlasMaskComputeBuffer = deps.device.createBuffer({
+			label: "Atlas Mask Compute Buffer",
+			size: this.atlasMaskComputeData.byteLength,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+		});
+		this.atlasMaskComputeBindGroupLayout = deps.device.createBindGroupLayout({
+			label: "Atlas Mask Compute Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.COMPUTE,
+					sampler: {},
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.COMPUTE,
+					texture: {},
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.COMPUTE,
+					texture: {},
+				},
+				{
+					binding: 3,
+					visibility: GPUShaderStage.COMPUTE,
+					storageTexture: {
+						access: "write-only",
+						format: "rgba8unorm",
+					},
+				},
+				{
+					binding: 4,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "read-only-storage" },
+				},
+			],
+		});
+		const computeShader = deps.device.createShaderModule({
+			label: "Atlas Mask Compute Shader",
+			code: ATLAS_MASK_COMPUTE_SHADER,
+		});
+		this.atlasMaskComputePipeline = deps.device.createComputePipeline({
+			label: "Atlas Mask Compute Pipeline",
+			layout: deps.device.createPipelineLayout({
+				bindGroupLayouts: [this.atlasMaskComputeBindGroupLayout],
+			}),
+			compute: { module: computeShader, entryPoint: "computeMain" },
+		});
 	}
 
 	/** Reset pool indices and flush deferred destroys from the previous frame. */
 	public resetFrame(): void {
 		this.clipBlitPool.beginFrame();
+		this.colorAtlasMaskDrawCount = 0;
 		// Destroy textures deferred during the previous frame.  By deferring
 		// to the next frame's start (instead of right after queue.submit),
 		// the GPU has had time to finish executing the previous command buffer.
 		for (const tex of this.deferredDestroys) tex.destroy();
 		this.deferredDestroys.length = 0;
+		// Memoized child bakes live for exactly one frame; queue them behind the
+		// same one-frame deferral so in-flight command buffers finish first.
+		for (const tex of this.childBakeMemoTextures) {
+			this.deferDestroy(tex);
+		}
+		this.childBakeMemoTextures.length = 0;
+		this.childBakeMemo.clear();
+		this.colorBakeAtlasAllocator = new MaskAtlasAllocator(
+			COLOR_BAKE_ATLAS_SIZE,
+			COLOR_BAKE_ATLAS_SIZE,
+		);
+		this.atlasMaskOutputAllocator = new MaskAtlasAllocator(
+			COLOR_BAKE_ATLAS_SIZE,
+			COLOR_BAKE_ATLAS_SIZE,
+		);
 	}
 
 	/** Destroy all textures that were deferred during the frame. Call after submit. */
 	public flushDeferredDestroys(): void {
 		for (const tex of this.deferredDestroys) tex.destroy();
 		this.deferredDestroys.length = 0;
+	}
+
+	/** Upload the frame's storage-backed atlas composite records before submit. */
+	public finishFrame(): void {
+		if (this.colorAtlasMaskDrawCount === 0) return;
+		this.deps.device.queue.writeBuffer(
+			this.colorAtlasMaskDrawBuffer,
+			0,
+			this.colorAtlasMaskDrawData.buffer,
+			0,
+			this.colorAtlasMaskDrawCount * COLOR_ATLAS_MASK_DRAW_F32_COUNT * 4,
+		);
 	}
 
 	/**
@@ -214,8 +648,18 @@ export class OffscreenPresenter {
 	/** Release all pooled GPU resources. */
 	public destroy(): void {
 		this.clipBlitPool.destroy();
+		this.colorAtlasMaskDrawBuffer.destroy();
+		this.atlasMaskComputeBuffer.destroy();
 		this.whiteMaskTexture?.destroy();
 		this.whiteMaskTexture = null;
+		this.colorBakeAtlasTexture?.destroy();
+		this.colorBakeAtlasTexture = null;
+		this.colorBakeAtlasView = null;
+		this.colorBakeClearTexture?.destroy();
+		this.colorBakeClearTexture = null;
+		this.atlasMaskOutputTexture?.destroy();
+		this.atlasMaskOutputTexture = null;
+		this.atlasMaskOutputView = null;
 	}
 
 	/**
@@ -308,79 +752,16 @@ export class OffscreenPresenter {
 		);
 		if (!ctx) return null;
 
-		const b = ctx.coverageBounds;
-		const f = this.clipBlitF32;
-		f[0] = b.minX;
-		f[1] = b.minY;
-		f[2] = b.maxX;
-		f[3] = b.maxY;
-		f[4] = 1.0; // opacity is applied later, by whoever composites this
-		f[5] = 0;
-		f[6] = 0;
-		f[7] = 0;
-		f[8] = bakeUvRect.minU;
-		f[9] = bakeUvRect.minV;
-		f[10] = bakeUvRect.maxU;
-		f[11] = bakeUvRect.maxV;
-		f[12] = 0;
-		f[13] = 0;
-		f[14] = 0;
-		f[15] = 0;
-
-		const blitUniformBuffer = this.clipBlitPool.acquire(CLIP_BLIT_BUFFER_SIZE);
-		this.deps.device.queue.writeBuffer(blitUniformBuffer, 0, f);
-
-		const blitBindGroup = this.deps.device.createBindGroup({
-			label: "Object Mask Blit Bind Group",
-			layout: this.deps.blitWithMaskBindGroupLayout,
-			entries: [
-				{ binding: 0, resource: { buffer: blitUniformBuffer } },
-				{ binding: 1, resource: this.deps.sampler },
-				{ binding: 2, resource: source.texture.texture.createView() },
-				// The UV-aligned mask slot is unused here — masks arrive through
-				// the world-space chain slots instead — so feed it an opaque
-				// white texture, which multiplies by 1.
-				{ binding: 3, resource: this.getWhiteMaskView() },
-			],
-		});
-
-		// Chain slots: per-mask world bounds + invert flag. Unused slots carry
-		// the boundsMin == boundsMax sentinel and a white texture.
-		const chain = this.maskChainF32;
-		chain.fill(0);
-		for (let i = 0; i < masks.length; i++) {
-			const mask = masks[i];
-			chain[i * 4] = mask.bounds.minX;
-			chain[i * 4 + 1] = mask.bounds.minY;
-			chain[i * 4 + 2] = mask.bounds.maxX;
-			chain[i * 4 + 3] = mask.bounds.maxY;
-			chain[16 + i] = mask.inverted ? 1 : 0;
-		}
-		const chainUniformBuffer = this.clipBlitPool.acquire(
-			MASK_CHAIN_BUFFER_SIZE,
-		);
-		this.deps.device.queue.writeBuffer(chainUniformBuffer, 0, chain);
-
-		const whiteView = this.getWhiteMaskView();
-		const chainBindGroup = this.deps.device.createBindGroup({
-			label: "Mask Chain Bind Group",
-			layout: this.deps.maskChainBindGroupLayout,
-			entries: [
-				{ binding: 0, resource: { buffer: chainUniformBuffer } },
-				{ binding: 1, resource: masks[0]?.textureView ?? whiteView },
-				{ binding: 2, resource: masks[1]?.textureView ?? whiteView },
-				{ binding: 3, resource: masks[2]?.textureView ?? whiteView },
-				{ binding: 4, resource: masks[3]?.textureView ?? whiteView },
-				{ binding: 5, resource: this.deps.sampler },
-			],
-		});
-
 		const pass = ctx.passEncoder;
-		pass.setPipeline(this.deps.blitWithMaskChainPipeline);
-		pass.setBindGroup(0, ctx.entry.bindGroup);
-		pass.setBindGroup(1, blitBindGroup);
-		pass.setBindGroup(2, chainBindGroup);
-		pass.draw(6);
+		this.drawSurfaceWithMaskChain(
+			pass,
+			source.texture.texture,
+			ctx.coverageBounds,
+			bakeUvRect,
+			1,
+			masks,
+			ctx.entry.bindGroup,
+		);
 		pass.end();
 
 		this.deferDestroy(ctx.offscreenStencilTexture);
@@ -402,6 +783,239 @@ export class OffscreenPresenter {
 				opacityState: "intrinsic",
 			},
 		);
+	}
+
+	private drawSurfaceWithMaskChain(
+		pass: GPURenderPassEncoder,
+		texture: GPUTexture,
+		bounds: BoundingBox,
+		uvRect: BlitUVRect,
+		opacity: number,
+		masks: readonly WorldMaskAssignment[],
+		viewportBindGroup: GPUBindGroup,
+	): void {
+		this.deps.onBeforeDraw();
+		if (
+			this.tryDrawColorAtlasSurfaceWithMasks(
+				pass,
+				texture,
+				bounds,
+				uvRect,
+				opacity,
+				masks,
+				viewportBindGroup,
+			)
+		) {
+			return;
+		}
+		const f = this.clipBlitF32;
+		f[0] = bounds.minX;
+		f[1] = bounds.minY;
+		f[2] = bounds.maxX;
+		f[3] = bounds.maxY;
+		f[4] = opacity;
+		f[5] = 0;
+		f[6] = 0;
+		f[7] = 0;
+		f[8] = uvRect.minU;
+		f[9] = uvRect.minV;
+		f[10] = uvRect.maxU;
+		f[11] = uvRect.maxV;
+		f[12] = 0;
+		f[13] = 0;
+		f[14] = 0;
+		f[15] = 0;
+
+		const blitUniformBuffer = this.clipBlitPool.acquire(CLIP_BLIT_BUFFER_SIZE);
+		this.deps.device.queue.writeBuffer(blitUniformBuffer, 0, f);
+
+		const blitBindGroup = this.deps.device.createBindGroup({
+			label: "Object Mask Blit Bind Group",
+			layout: this.deps.blitWithMaskBindGroupLayout,
+			entries: [
+				{ binding: 0, resource: { buffer: blitUniformBuffer } },
+				{ binding: 1, resource: this.deps.sampler },
+				{ binding: 2, resource: this.getTextureView(texture) },
+				{ binding: 3, resource: this.getWhiteMaskView() },
+			],
+		});
+
+		const chain = this.maskChainF32;
+		chain.fill(0);
+		for (let i = 0; i < masks.length; i++) {
+			const mask = masks[i];
+			chain[i * 4] = mask.bounds.minX;
+			chain[i * 4 + 1] = mask.bounds.minY;
+			chain[i * 4 + 2] = mask.bounds.maxX;
+			chain[i * 4 + 3] = mask.bounds.maxY;
+			chain[16 + i] = mask.inverted ? 1 : 0;
+			if (mask.atlasRect) {
+				const rectOffset = 20 + i * 4;
+				chain[rectOffset] = mask.atlasRect.x;
+				chain[rectOffset + 1] = mask.atlasRect.y;
+				chain[rectOffset + 2] = mask.atlasRect.width;
+				chain[rectOffset + 3] = mask.atlasRect.height;
+			}
+		}
+		const chainUniformBuffer = this.clipBlitPool.acquire(
+			MASK_CHAIN_BUFFER_SIZE,
+		);
+		this.deps.device.queue.writeBuffer(chainUniformBuffer, 0, chain);
+
+		const whiteView = this.getWhiteMaskView();
+		const chainBindGroup = this.deps.device.createBindGroup({
+			label: "Mask Chain Bind Group",
+			layout: this.deps.maskChainBindGroupLayout,
+			entries: [
+				{ binding: 0, resource: { buffer: chainUniformBuffer } },
+				{ binding: 1, resource: masks[0]?.textureView ?? whiteView },
+				{ binding: 2, resource: masks[1]?.textureView ?? whiteView },
+				{ binding: 3, resource: masks[2]?.textureView ?? whiteView },
+				{ binding: 4, resource: masks[3]?.textureView ?? whiteView },
+				{ binding: 5, resource: this.deps.sampler },
+			],
+		});
+
+		pass.setPipeline(this.deps.blitWithMaskChainPipeline);
+		pass.setBindGroup(0, viewportBindGroup);
+		pass.setBindGroup(1, blitBindGroup);
+		pass.setBindGroup(2, chainBindGroup);
+		pass.draw(6);
+	}
+
+	public canDrawSurfaceWithAtlasMasks(
+		surface: RenderSurface,
+		masks: readonly WorldMaskAssignment[],
+	): boolean {
+		if (surface.placement.kind !== "world-aabb") return false;
+		return this.isSharedAtlasMaskChain(masks);
+	}
+
+	private isSharedAtlasMaskChain(
+		masks: readonly WorldMaskAssignment[],
+	): boolean {
+		if (masks.length === 0 || masks.length > ATLAS_MASK_SLOTS) return false;
+		const maskView = masks[0]?.textureView;
+		return Boolean(
+			maskView &&
+				masks.every((mask) => mask.atlasRect && mask.textureView === maskView),
+		);
+	}
+
+	private canDeferWorldMasks(masks: readonly WorldMaskAssignment[]): boolean {
+		return (
+			masks.length <= MASK_CHAIN_SLOTS || this.isSharedAtlasMaskChain(masks)
+		);
+	}
+
+	public drawSurfaceWithAtlasMasks(
+		pass: GPURenderPassEncoder,
+		surface: RenderSurface,
+		opacity: number,
+		masks: readonly WorldMaskAssignment[],
+		viewportBindGroup: GPUBindGroup,
+	): boolean {
+		if (!this.canDrawSurfaceWithAtlasMasks(surface, masks)) return false;
+		const placement = surface.placement;
+		if (placement.kind !== "world-aabb") return false;
+		this.deps.onBeforeDraw();
+		return this.tryDrawColorAtlasSurfaceWithMasks(
+			pass,
+			surface.texture.texture,
+			placement.bounds,
+			placement.uvRect,
+			opacity,
+			masks,
+			viewportBindGroup,
+		);
+	}
+
+	private tryDrawColorAtlasSurfaceWithMasks(
+		pass: GPURenderPassEncoder,
+		texture: GPUTexture,
+		bounds: BoundingBox,
+		uvRect: BlitUVRect,
+		opacity: number,
+		masks: readonly WorldMaskAssignment[],
+		viewportBindGroup: GPUBindGroup,
+	): boolean {
+		if (
+			masks.length === 0 ||
+			masks.length > ATLAS_MASK_SLOTS ||
+			this.colorAtlasMaskDrawCount >= MAX_COLOR_ATLAS_MASK_DRAWS
+		) {
+			return false;
+		}
+		const sourceView = this.getTextureView(texture);
+		const maskView = masks[0]?.textureView;
+		if (
+			!maskView ||
+			masks.some((mask) => !mask.atlasRect || mask.textureView !== maskView)
+		) {
+			return false;
+		}
+
+		let bindGroupsByMask = this.colorAtlasMaskBindGroupCache.get(sourceView);
+		if (!bindGroupsByMask) {
+			bindGroupsByMask = new WeakMap();
+			this.colorAtlasMaskBindGroupCache.set(sourceView, bindGroupsByMask);
+		}
+		let bindGroup = bindGroupsByMask.get(maskView);
+		if (!bindGroup) {
+			bindGroup = this.deps.device.createBindGroup({
+				label: "Atlas Mask Bind Group",
+				layout: this.colorAtlasMaskBindGroupLayout,
+				entries: [
+					{ binding: 0, resource: this.deps.sampler },
+					{ binding: 1, resource: sourceView },
+					{ binding: 2, resource: maskView },
+					{
+						binding: 3,
+						resource: { buffer: this.colorAtlasMaskDrawBuffer },
+					},
+				],
+			});
+			bindGroupsByMask.set(maskView, bindGroup);
+		}
+
+		const drawIndex = this.colorAtlasMaskDrawCount++;
+		const drawOffset = drawIndex * COLOR_ATLAS_MASK_DRAW_F32_COUNT;
+		const data = this.colorAtlasMaskDrawData;
+		data.fill(0, drawOffset, drawOffset + COLOR_ATLAS_MASK_DRAW_F32_COUNT);
+		data.set([bounds.minX, bounds.minY, bounds.maxX, bounds.maxY], drawOffset);
+		data.set(
+			[uvRect.minU, uvRect.minV, uvRect.maxU, uvRect.maxV],
+			drawOffset + 4,
+		);
+		data[drawOffset + 8] = opacity;
+		data[drawOffset + 9] = masks.length;
+		const maskRectOffset = 12 + ATLAS_MASK_SLOTS * 4;
+		const invertOffset = maskRectOffset + ATLAS_MASK_SLOTS * 4;
+		for (let i = 0; i < masks.length; i++) {
+			const mask = masks[i];
+			const atlasRect = mask.atlasRect;
+			if (!atlasRect) return false;
+			data.set(
+				[
+					mask.bounds.minX,
+					mask.bounds.minY,
+					mask.bounds.maxX,
+					mask.bounds.maxY,
+				],
+				drawOffset + 12 + i * 4,
+			);
+			data.set(
+				[atlasRect.x, atlasRect.y, atlasRect.width, atlasRect.height],
+				drawOffset + maskRectOffset + i * 4,
+			);
+			data[drawOffset + invertOffset + i] = mask.inverted ? 1 : 0;
+		}
+
+		pass.setPipeline(this.colorAtlasMaskPipeline);
+		pass.setBindGroup(0, viewportBindGroup);
+		pass.setBindGroup(1, bindGroup);
+		pass.draw(6, 1, 0, drawIndex);
+		return true;
 	}
 
 	/**
@@ -779,7 +1393,8 @@ export class OffscreenPresenter {
 			return null;
 
 		// First, collect and apply filters for child elements
-		const childFilteredTextures = new Map<string, RenderSurface>();
+		const childFilteredTextures = new Map<string, GroupChildSurface>();
+		const colorBakeBatch: ColorBakeBatchItem[] = [];
 
 		const childElements = group.childIds
 			.filter((id) => id !== group.clipPathId)
@@ -797,6 +1412,9 @@ export class OffscreenPresenter {
 		// pass; everything else renders inline in renderGroupChildrenToTexture,
 		// which merges the group pre-filters into each child.
 		for (const child of childElements) {
+			const childMasks = this.deps.getElementPostMasks(child.id);
+			const needsWashIsolation =
+				this.deps.hasIsolatedWashAppearances?.(child.id) ?? false;
 			// Wash strokes need their per-appearance isolation inside groups
 			// too — without it the inline draw below renders them buildup-dark
 			// with no strokeOpacity. Masked children keep the legacy path
@@ -804,14 +1422,15 @@ export class OffscreenPresenter {
 			// reach the isolated render either (accepted limitation).
 			if (
 				this.deps.renderIsolatedWashAppearances &&
-				this.deps.getElementPostMasks(child.id).length === 0
+				needsWashIsolation &&
+				childMasks.length === 0
 			) {
 				const isolated = this.deps.renderIsolatedWashAppearances(
 					encoder,
 					child.id,
 				);
 				if (isolated) {
-					childFilteredTextures.set(child.id, isolated);
+					childFilteredTextures.set(child.id, { surface: isolated });
 					continue;
 				}
 			}
@@ -823,8 +1442,48 @@ export class OffscreenPresenter {
 			// A masked child is pre-rasterized even without a filter of its own:
 			// the inline draw below never applies the mask, so a filter on the
 			// group would read the child before the mask removed anything.
-			const childMasks = this.deps.getElementPostMasks(child.id);
-			if (!childNeedsPostPass && childMasks.length === 0) continue;
+			const hasInlineMask =
+				childMasks.length === 1 &&
+				this.deps.getElementMaskBindGroup(child.id) !==
+					this.deps.dummyMaskBindGroup;
+			if (
+				!childNeedsPostPass &&
+				!needsWashIsolation &&
+				(childMasks.length === 0 || hasInlineMask)
+			) {
+				continue;
+			}
+
+			// One bake per (child, density, clamp context, parent deformation)
+			// per frame. The clamp context is part of the key because interactive
+			// bakes crop to the draw region, which differs between the element-
+			// filter phase (real viewport) and the layer phase (prebuf store).
+			const clampCtx =
+				this.deps.viewportState.drawRegion ?? this.deps.viewportState.bounds;
+			const memoKey = `${child.id}:${rasterScale ?? "R"}:${
+				clampCtx
+					? `${Math.round(clampCtx.minX)},${Math.round(clampCtx.minY)},${Math.round(clampCtx.maxX)},${Math.round(clampCtx.maxY)}`
+					: "full"
+			}:${groupPreFilters.map((f) => f.uid ?? f.processor).join(",")}`;
+			const memoized = this.childBakeMemo.get(memoKey);
+			if (memoized) {
+				childFilteredTextures.set(child.id, {
+					surface: createRenderSurface(
+						createBorrowedTextureRef(memoized.texture, "child-bake-memo"),
+						memoized.placement,
+						{
+							role: memoized.role,
+							alphaMode: memoized.alphaMode,
+							opacityState: memoized.opacityState,
+						},
+					),
+					deferredMasks:
+						this.canDeferWorldMasks(childMasks) && !needsWashIsolation
+							? childMasks
+							: undefined,
+				});
+				continue;
+			}
 
 			const effectiveChild = groupPreFilters.length
 				? ({
@@ -843,6 +1502,29 @@ export class OffscreenPresenter {
 				childBounds,
 			);
 			const childTextureBounds = expandBounds(childBounds, childExpansion);
+			const colorBakeReservation =
+				child.type === "path" &&
+				child.blendMode === "normal" &&
+				!childNeedsPostPass &&
+				groupPreFilters.length === 0 &&
+				childMasks.length > 1 &&
+				this.isSharedAtlasMaskChain(childMasks) &&
+				!needsWashIsolation
+					? this.reserveColorAtlasBake(childTextureBounds, rasterScale)
+					: null;
+			if (colorBakeReservation) {
+				colorBakeBatch.push({
+					key: child.id,
+					element: child,
+					elementsMap,
+					bounds: colorBakeReservation.bounds,
+					effectiveZoom: colorBakeReservation.effectiveZoom,
+					atlasRect: colorBakeReservation.atlasRect,
+					memoKey,
+					deferredMasks: childMasks,
+				});
+				continue;
+			}
 
 			const childOffscreenTexture = isGroup(effectiveChild)
 				? this.renderGroupToTexture(
@@ -905,7 +1587,11 @@ export class OffscreenPresenter {
 					placement: childSurface.placement,
 				});
 			}
-			if (childMasks.length > 0) {
+			const deferredMasks =
+				this.canDeferWorldMasks(childMasks) && !needsWashIsolation
+					? childMasks
+					: undefined;
+			if (childMasks.length > 0 && !deferredMasks) {
 				const masked = this.applyWorldMasksToTexture(
 					encoder,
 					childSurface,
@@ -920,8 +1606,44 @@ export class OffscreenPresenter {
 				}
 			}
 
-			childFilteredTextures.set(child.id, childSurface);
+			// Transfer ownership to the frame memo: the map receives a borrowed
+			// ref, so the post-blit release loop below stays a no-op for the
+			// shared texture, and the memo destroys it at the next frame reset.
+			// Only frame-owned textures are memoizable — a borrowed source has
+			// an owner with its own lifetime, and holding it for the frame would
+			// be a use-after-destroy waiting to happen.
+			if (childSurface.texture.kind !== "frame-owned") {
+				childFilteredTextures.set(child.id, {
+					surface: childSurface,
+					deferredMasks,
+				});
+				continue;
+			}
+			this.childBakeMemo.set(memoKey, {
+				texture: childSurface.texture.texture,
+				placement: childSurface.placement,
+				role: childSurface.role,
+				alphaMode: childSurface.alphaMode,
+				opacityState: childSurface.opacityState,
+			});
+			this.childBakeMemoTextures.push(childSurface.texture.texture);
+			childFilteredTextures.set(child.id, {
+				surface: createRenderSurface(
+					createBorrowedTextureRef(
+						childSurface.texture.texture,
+						"child-bake-memo",
+					),
+					childSurface.placement,
+					{
+						role: childSurface.role,
+						alphaMode: childSurface.alphaMode,
+						opacityState: childSurface.opacityState,
+					},
+				),
+				deferredMasks,
+			});
 		}
+		this.renderColorBakeBatch(encoder, colorBakeBatch, childFilteredTextures);
 
 		const ctx = this.createOffscreenPass(
 			encoder,
@@ -967,8 +1689,8 @@ export class OffscreenPresenter {
 		finalPassEncoder.end();
 
 		// Release child filtered textures now that they've been blitted.
-		for (const surface of childFilteredTextures.values()) {
-			releaseRenderSurface(surface);
+		for (const entry of childFilteredTextures.values()) {
+			releaseRenderSurface(entry.surface);
 		}
 
 		this.deps.compositeState.captureTexture = savedCaptureTexture;
@@ -1520,7 +2242,7 @@ export class OffscreenPresenter {
 		passEncoder: GPURenderPassEncoder,
 		children: AnyArtObject[],
 		elementsMap: Map<string, AnyArtObject>,
-		childFilteredTextures: Map<string, RenderSurface>,
+		childFilteredTextures: Map<string, GroupChildSurface>,
 		alphaMultiplier: number = 1.0,
 		compositeContext?: CompositeRenderContext,
 		ancestorTransform?: ElementTransform | null,
@@ -1531,6 +2253,8 @@ export class OffscreenPresenter {
 		// we use its return value for subsequent iterations.
 		let activePass = passEncoder;
 		for (const child of children) {
+			this.deps.renderState.currentMaskBindGroup =
+				this.deps.getElementMaskBindGroup(child.id);
 			// Set transform index so the GPU shader applies the correct child transform
 			this.deps.renderState.currentTransformIndex = this.deps.getTransformIndex(
 				child.id,
@@ -1540,14 +2264,26 @@ export class OffscreenPresenter {
 			// Check if this child has a pre-filtered texture
 			const filteredData = childFilteredTextures.get(child.id);
 			if (filteredData) {
-				// Blit the filtered texture
-				this.deps.blitTextureToCanvas(
-					activePass,
-					filteredData.texture.texture,
-					filteredData.placement.bounds,
-					childAlpha,
-					filteredData.placement.uvRect,
-				);
+				const surface = filteredData.surface;
+				if (filteredData.deferredMasks?.length) {
+					this.drawSurfaceWithMaskChain(
+						activePass,
+						surface.texture.texture,
+						surface.placement.bounds,
+						surface.placement.uvRect,
+						childAlpha,
+						filteredData.deferredMasks,
+						this.deps.getBindGroup(),
+					);
+				} else {
+					this.deps.blitTextureToCanvas(
+						activePass,
+						surface.texture.texture,
+						surface.placement.bounds,
+						childAlpha,
+						surface.placement.uvRect,
+					);
+				}
 				activePass.setPipeline(this.deps.strokePipeline);
 				activePass.setBindGroup(0, this.deps.getBindGroup());
 				activePass.setBindGroup(1, this.deps.getTransformsBindGroup()!);
@@ -1622,7 +2358,481 @@ export class OffscreenPresenter {
 				);
 			}
 		}
+		this.deps.renderState.currentMaskBindGroup = this.deps.dummyMaskBindGroup;
 		return activePass;
+	}
+
+	public reserveColorAtlasBake(
+		textureBounds: WorldBBox,
+		rasterScale?: number,
+	): ColorAtlasBakeReservation | null {
+		const viewportBounds = this.deps.viewportState.bounds;
+		if (viewportBounds && !boundsIntersect(textureBounds, viewportBounds)) {
+			return null;
+		}
+		const interactiveBounds =
+			this.deps.viewportState.drawRegion ?? this.deps.viewportState.bounds;
+		const bounds = interactiveBounds
+			? (boundsIntersectionBox(textureBounds, interactiveBounds) ??
+				textureBounds)
+			: textureBounds;
+		const zoom = this.deps.viewportState.current?.zoom ?? 1;
+		const rasterZoom = rasterScale ?? zoom;
+		const zoomBucket = interactiveBakeDensity(rasterZoom, zoom);
+		const bakeZoom = interactiveBounds
+			? this.deps.renderState.isExport
+				? Math.min(rasterZoom, zoomBucket)
+				: zoomBucket
+			: rasterZoom;
+		const width = Math.ceil(bounds.width * bakeZoom);
+		const height = Math.ceil(bounds.height * bakeZoom);
+		if (
+			width <= 0 ||
+			height <= 0 ||
+			width > MAX_COLOR_BAKE_DIM ||
+			height > MAX_COLOR_BAKE_DIM
+		) {
+			return null;
+		}
+		const atlasRect = this.colorBakeAtlasAllocator.allocate(width, height);
+		if (!atlasRect) return null;
+		return {
+			bounds: brandWorldBBox(bounds),
+			effectiveZoom: Math.min(
+				width / bounds.width,
+				height / bounds.height,
+				bakeZoom,
+			),
+			atlasRect,
+		};
+	}
+
+	private renderColorBakeBatch(
+		encoder: GPUCommandEncoder,
+		items: readonly ColorBakeBatchItem[],
+		childFilteredTextures: Map<string, GroupChildSurface>,
+	): void {
+		const surfaces = this.renderColorAtlasBatch(encoder, items);
+		for (const item of items) {
+			const surface = surfaces.get(item.key);
+			if (!surface) continue;
+			this.childBakeMemo.set(item.memoKey, {
+				texture: surface.texture.texture,
+				placement: surface.placement,
+				role: surface.role,
+				alphaMode: surface.alphaMode,
+				opacityState: surface.opacityState,
+			});
+			childFilteredTextures.set(item.element.id, {
+				surface,
+				deferredMasks: item.deferredMasks,
+			});
+		}
+	}
+
+	public renderColorAtlasBatch(
+		encoder: GPUCommandEncoder,
+		items: readonly ColorAtlasBakeItem[],
+	): Map<string, ColorRenderSurface> {
+		const surfaces = new Map<string, ColorRenderSurface>();
+		if (items.length === 0) return surfaces;
+		const transformsBindGroup = this.deps.getTransformsBindGroup();
+		if (!transformsBindGroup) return surfaces;
+		const atlas = this.ensureColorBakeAtlas();
+		const clearTexture = this.ensureColorBakeClearTexture();
+		this.deps.onBeforeDraw();
+		for (const { atlasRect } of items) {
+			encoder.copyTextureToTexture(
+				{ texture: clearTexture },
+				{ texture: atlas.texture, origin: [atlasRect.x, atlasRect.y] },
+				[atlasRect.width, atlasRect.height],
+			);
+		}
+
+		const stencilTexture = this.deps.texturePool.acquireExact(
+			COLOR_BAKE_ATLAS_SIZE,
+			COLOR_BAKE_ATLAS_SIZE,
+			"depth24plus-stencil8",
+			MSAA_SAMPLE_COUNT,
+			GPUTextureUsage.RENDER_ATTACHMENT,
+			"Color Bake Atlas Stencil",
+		);
+		const pass = encoder.beginRenderPass({
+			label: `Color Bake Atlas Batch [${items.length}]`,
+			colorAttachments: [
+				{
+					view: atlas.view,
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+			depthStencilAttachment: createPassLocalStencilAttachment(
+				stencilTexture.createView(),
+			),
+		});
+		const savedViewportBounds = this.deps.viewportState.bounds;
+
+		for (const item of items) {
+			this.deps.onBeforeDraw();
+			pass.setViewport(
+				item.atlasRect.x,
+				item.atlasRect.y,
+				item.atlasRect.width,
+				item.atlasRect.height,
+				0,
+				1,
+			);
+			pass.setScissorRect(
+				item.atlasRect.x,
+				item.atlasRect.y,
+				item.atlasRect.width,
+				item.atlasRect.height,
+			);
+			const entry = this.deps.uniformScope.acquire(
+				{
+					x: (item.bounds.minX + item.bounds.maxX) / 2,
+					y: (item.bounds.minY + item.bounds.maxY) / 2,
+					zoom: item.effectiveZoom,
+					rotation: 0,
+				},
+				item.atlasRect.width,
+				item.atlasRect.height,
+			);
+			this.deps.setActiveBindGroup(entry.bindGroup, entry.buffer);
+			this.deps.viewportState.bounds = item.bounds;
+			this.deps.renderState.currentTransformIndex = this.deps.getTransformIndex(
+				item.element.id,
+			);
+			this.deps.renderState.currentMaskBindGroup = this.deps.dummyMaskBindGroup;
+			pass.setPipeline(this.deps.strokePipeline);
+			pass.setBindGroup(0, entry.bindGroup);
+			pass.setBindGroup(1, transformsBindGroup);
+			pass.setBindGroup(2, this.deps.dummyGradientBindGroup);
+			pass.setBindGroup(3, this.deps.dummyMaskBindGroup);
+			this.deps.dispatchElementDirect(
+				pass,
+				item.element,
+				item.elementsMap,
+				1,
+				"offscreen",
+			);
+			this.deps.onBeforeDraw();
+			this.deps.setActiveBindGroup(null);
+
+			const placement = {
+				kind: "world-aabb" as const,
+				bounds: item.bounds,
+				uvRect: {
+					minU: (item.atlasRect.x + 0.5) / COLOR_BAKE_ATLAS_SIZE,
+					minV: (item.atlasRect.y + 0.5) / COLOR_BAKE_ATLAS_SIZE,
+					maxU:
+						(item.atlasRect.x + item.atlasRect.width - 0.5) /
+						COLOR_BAKE_ATLAS_SIZE,
+					maxV:
+						(item.atlasRect.y + item.atlasRect.height - 0.5) /
+						COLOR_BAKE_ATLAS_SIZE,
+				},
+			};
+			const surface = {
+				...createRenderSurface(
+					createBorrowedTextureRef(atlas.texture, "child-bake-memo"),
+					placement,
+					{
+						role: "color" as const,
+						alphaMode: "premultiplied" as const,
+						opacityState: "intrinsic" as const,
+					},
+				),
+				effectiveZoom: item.effectiveZoom,
+			};
+			surfaces.set(item.key, surface);
+		}
+
+		pass.end();
+		this.deps.viewportState.bounds = savedViewportBounds;
+		this.deps.renderState.currentMaskBindGroup = this.deps.dummyMaskBindGroup;
+		this.deps.texturePool.release(stencilTexture);
+		return surfaces;
+	}
+
+	public copyColorSurfacesToAtlas(
+		encoder: GPUCommandEncoder,
+		items: readonly ColorAtlasCopyItem[],
+	): Map<string, RenderSurface> {
+		const surfaces = new Map<string, RenderSurface>();
+		if (items.length === 0) return surfaces;
+		const atlas = this.ensureColorBakeAtlas();
+		for (const item of items) {
+			const { surface } = item;
+			if (surface.placement.kind !== "world-aabb") continue;
+			const source = surface.texture.texture;
+			const uvRect = surface.placement.uvRect;
+			if (
+				source.format !== this.deps.canvasFormat ||
+				(source.usage & GPUTextureUsage.COPY_SRC) === 0 ||
+				source.sampleCount !== 1 ||
+				uvRect.minU !== 0 ||
+				uvRect.minV !== 0 ||
+				uvRect.maxU !== 1 ||
+				uvRect.maxV !== 1 ||
+				source.width > MAX_COLOR_BAKE_DIM ||
+				source.height > MAX_COLOR_BAKE_DIM
+			) {
+				continue;
+			}
+			const atlasRect = this.colorBakeAtlasAllocator.allocate(
+				source.width,
+				source.height,
+			);
+			if (!atlasRect) continue;
+			encoder.copyTextureToTexture(
+				{ texture: source },
+				{ texture: atlas.texture, origin: [atlasRect.x, atlasRect.y] },
+				[source.width, source.height],
+			);
+			const bounds = surface.placement.bounds;
+			surfaces.set(
+				item.key,
+				createRenderSurface(
+					createBorrowedTextureRef(atlas.texture, "color-atlas"),
+					{
+						kind: "world-aabb",
+						bounds,
+						uvRect: {
+							minU: (atlasRect.x + 0.5) / COLOR_BAKE_ATLAS_SIZE,
+							minV: (atlasRect.y + 0.5) / COLOR_BAKE_ATLAS_SIZE,
+							maxU:
+								(atlasRect.x + atlasRect.width - 0.5) / COLOR_BAKE_ATLAS_SIZE,
+							maxV:
+								(atlasRect.y + atlasRect.height - 0.5) / COLOR_BAKE_ATLAS_SIZE,
+						},
+					},
+					{
+						role: surface.role,
+						alphaMode: surface.alphaMode,
+						opacityState: surface.opacityState,
+					},
+				),
+			);
+		}
+		return surfaces;
+	}
+
+	public applyAtlasMasksComputeBatch(
+		encoder: GPUCommandEncoder,
+		items: readonly AtlasMaskComputeItem[],
+	): Map<string, RenderSurface> {
+		const surfaces = new Map<string, RenderSurface>();
+		if (items.length === 0) return surfaces;
+		const sourceTexture = this.colorBakeAtlasTexture;
+		const sourceView = this.colorBakeAtlasView;
+		if (!sourceTexture || !sourceView) return surfaces;
+		const output = this.ensureAtlasMaskOutput();
+		const data = this.atlasMaskComputeData;
+		let count = 0;
+		let maskView: GPUTextureView | null = null;
+
+		for (const item of items) {
+			if (
+				count >= MAX_COLOR_ATLAS_MASK_DRAWS ||
+				item.source.texture.texture !== sourceTexture ||
+				item.source.placement.kind !== "world-aabb" ||
+				!this.isSharedAtlasMaskChain(item.masks)
+			) {
+				continue;
+			}
+			const itemMaskView = item.masks[0]?.textureView;
+			if (!itemMaskView || (maskView && itemMaskView !== maskView)) continue;
+			maskView = itemMaskView;
+			const uvRect = item.source.placement.uvRect;
+			const sourceX = Math.round(uvRect.minU * COLOR_BAKE_ATLAS_SIZE - 0.5);
+			const sourceY = Math.round(uvRect.minV * COLOR_BAKE_ATLAS_SIZE - 0.5);
+			const sourceWidth =
+				Math.round(uvRect.maxU * COLOR_BAKE_ATLAS_SIZE + 0.5) - sourceX;
+			const sourceHeight =
+				Math.round(uvRect.maxV * COLOR_BAKE_ATLAS_SIZE + 0.5) - sourceY;
+			if (
+				sourceWidth <= 0 ||
+				sourceHeight <= 0 ||
+				sourceWidth > MAX_COLOR_BAKE_DIM ||
+				sourceHeight > MAX_COLOR_BAKE_DIM
+			) {
+				continue;
+			}
+			const destination = this.atlasMaskOutputAllocator.allocate(
+				sourceWidth,
+				sourceHeight,
+			);
+			if (!destination) continue;
+
+			const offset = count * ATLAS_MASK_COMPUTE_F32_COUNT;
+			data.fill(0, offset, offset + ATLAS_MASK_COMPUTE_F32_COUNT);
+			data.set([sourceX, sourceY, sourceWidth, sourceHeight], offset);
+			data.set(
+				[destination.x, destination.y, destination.width, destination.height],
+				offset + 4,
+			);
+			const bounds = item.source.placement.bounds;
+			data.set(
+				[bounds.minX, bounds.minY, bounds.maxX, bounds.maxY],
+				offset + 8,
+			);
+			data[offset + 12] = item.masks.length;
+			const maskRectOffset = 16 + ATLAS_MASK_SLOTS * 4;
+			const invertOffset = maskRectOffset + ATLAS_MASK_SLOTS * 4;
+			for (let i = 0; i < item.masks.length; i++) {
+				const mask = item.masks[i];
+				const atlasRect = mask.atlasRect;
+				if (!atlasRect) continue;
+				data.set(
+					[
+						mask.bounds.minX,
+						mask.bounds.minY,
+						mask.bounds.maxX,
+						mask.bounds.maxY,
+					],
+					offset + 16 + i * 4,
+				);
+				data.set(
+					[atlasRect.x, atlasRect.y, atlasRect.width, atlasRect.height],
+					offset + maskRectOffset + i * 4,
+				);
+				data[offset + invertOffset + i] = mask.inverted ? 1 : 0;
+			}
+			surfaces.set(
+				item.key,
+				createRenderSurface(
+					createBorrowedTextureRef(output.texture, "color-atlas"),
+					{
+						kind: "world-aabb",
+						bounds,
+						uvRect: {
+							minU: (destination.x + 0.5) / COLOR_BAKE_ATLAS_SIZE,
+							minV: (destination.y + 0.5) / COLOR_BAKE_ATLAS_SIZE,
+							maxU:
+								(destination.x + destination.width - 0.5) /
+								COLOR_BAKE_ATLAS_SIZE,
+							maxV:
+								(destination.y + destination.height - 0.5) /
+								COLOR_BAKE_ATLAS_SIZE,
+						},
+					},
+					{
+						role: item.source.role,
+						alphaMode: item.source.alphaMode,
+						opacityState: item.source.opacityState,
+					},
+				),
+			);
+			count++;
+		}
+
+		if (count === 0 || !maskView) return surfaces;
+		this.deps.device.queue.writeBuffer(
+			this.atlasMaskComputeBuffer,
+			0,
+			data.subarray(0, count * ATLAS_MASK_COMPUTE_F32_COUNT),
+		);
+		let bindGroup = this.atlasMaskComputeBindGroupCache.get(maskView);
+		if (!bindGroup) {
+			bindGroup = this.deps.device.createBindGroup({
+				label: "Atlas Mask Compute Bind Group",
+				layout: this.atlasMaskComputeBindGroupLayout,
+				entries: [
+					{ binding: 0, resource: this.deps.sampler },
+					{ binding: 1, resource: sourceView },
+					{ binding: 2, resource: maskView },
+					{ binding: 3, resource: output.view },
+					{
+						binding: 4,
+						resource: { buffer: this.atlasMaskComputeBuffer },
+					},
+				],
+			});
+			this.atlasMaskComputeBindGroupCache.set(maskView, bindGroup);
+		}
+		const pass = encoder.beginComputePass({
+			label: `Atlas Mask Batch [${count}]`,
+		});
+		pass.setPipeline(this.atlasMaskComputePipeline);
+		pass.setBindGroup(0, bindGroup);
+		pass.dispatchWorkgroups(
+			Math.ceil(MAX_COLOR_BAKE_DIM / 8),
+			Math.ceil(MAX_COLOR_BAKE_DIM / 8),
+			count,
+		);
+		pass.end();
+		return surfaces;
+	}
+
+	private ensureAtlasMaskOutput(): {
+		texture: GPUTexture;
+		view: GPUTextureView;
+	} {
+		if (!this.atlasMaskOutputTexture || !this.atlasMaskOutputView) {
+			this.atlasMaskOutputTexture = this.deps.device.createTexture({
+				label: "Atlas Mask Compute Output",
+				size: [COLOR_BAKE_ATLAS_SIZE, COLOR_BAKE_ATLAS_SIZE],
+				format: "rgba8unorm",
+				usage:
+					GPUTextureUsage.STORAGE_BINDING |
+					GPUTextureUsage.TEXTURE_BINDING |
+					GPUTextureUsage.COPY_SRC,
+			});
+			this.atlasMaskOutputView = this.atlasMaskOutputTexture.createView();
+		}
+		return {
+			texture: this.atlasMaskOutputTexture,
+			view: this.atlasMaskOutputView,
+		};
+	}
+
+	private ensureColorBakeAtlas(): {
+		texture: GPUTexture;
+		view: GPUTextureView;
+	} {
+		if (this.colorBakeAtlasTexture && this.colorBakeAtlasView) {
+			return {
+				texture: this.colorBakeAtlasTexture,
+				view: this.colorBakeAtlasView,
+			};
+		}
+		this.colorBakeAtlasTexture = this.deps.device.createTexture({
+			label: "Color Bake Atlas",
+			size: [COLOR_BAKE_ATLAS_SIZE, COLOR_BAKE_ATLAS_SIZE],
+			format: this.deps.canvasFormat,
+			usage:
+				GPUTextureUsage.RENDER_ATTACHMENT |
+				GPUTextureUsage.TEXTURE_BINDING |
+				GPUTextureUsage.COPY_DST,
+		});
+		this.colorBakeAtlasView = this.colorBakeAtlasTexture.createView();
+		this.textureViewCache.set(
+			this.colorBakeAtlasTexture,
+			this.colorBakeAtlasView,
+		);
+		return {
+			texture: this.colorBakeAtlasTexture,
+			view: this.colorBakeAtlasView,
+		};
+	}
+
+	private ensureColorBakeClearTexture(): GPUTexture {
+		this.colorBakeClearTexture ??= this.deps.device.createTexture({
+			label: "Color Bake Atlas Clear Texture",
+			size: [MAX_COLOR_BAKE_DIM, MAX_COLOR_BAKE_DIM],
+			format: this.deps.canvasFormat,
+			usage: GPUTextureUsage.COPY_SRC,
+		});
+		return this.colorBakeClearTexture;
+	}
+
+	private getTextureView(texture: GPUTexture): GPUTextureView {
+		let view = this.textureViewCache.get(texture);
+		if (view) return view;
+		view = texture.createView();
+		this.textureViewCache.set(texture, view);
+		return view;
 	}
 
 	/**

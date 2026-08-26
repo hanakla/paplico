@@ -117,6 +117,7 @@ import {
 	type StencilState,
 	type TextState,
 	type ViewportState,
+	type WorldMaskAssignment,
 } from "./CanvasLayerTypes";
 import { MaskedBlitBindGroupCache } from "./caches/BindGroupCache";
 import type { FilteredElementCacheEntry } from "./caches/FilteredElementCache";
@@ -178,7 +179,12 @@ import {
 	planGroupComposition,
 	planMaskApplication,
 } from "./pipeline/MaskApplicationPlan";
-import { OffscreenPresenter } from "./pipeline/OffscreenPresenter";
+import {
+	type AtlasMaskComputeItem,
+	type ColorAtlasBakeItem,
+	type ColorAtlasCopyItem,
+	OffscreenPresenter,
+} from "./pipeline/OffscreenPresenter";
 import { createPassLocalStencilAttachment } from "./pipeline/PassLocalStencil";
 import {
 	type BackdropElementEntry,
@@ -643,6 +649,8 @@ export class CanvasLayer {
 		blockedIds: ReadonlySet<string>;
 		overrideIds: ReadonlySet<string>;
 	} | null = null;
+	private progressiveBakeBudget = 0;
+	private progressiveBakeDeferred = false;
 	/** Changed-element ids recorded by render(); resolved against the merged
 	 *  elements map (which knows every container kind's edges) once
 	 *  renderDocument has built it. */
@@ -1009,6 +1017,7 @@ export class CanvasLayer {
 		this.offscreen = new OffscreenPresenter({
 			device: this.device,
 			canvasFormat: this.canvasFormat,
+			viewportBindGroupLayout: resources.viewportBindGroupLayout,
 			sampler: this.sampler,
 			getBindGroup: () => this.viewportBinding.active,
 			blitBindGroupLayout: this.blitBindGroupLayout,
@@ -1071,12 +1080,14 @@ export class CanvasLayer {
 				this.inlineMaskEntries.get(elementId)?.bindGroup ??
 				this.dummyMaskBindGroup,
 			getElementPostMasks: (elementId) => this.resolveSubtreeMasks(elementId),
+			hasIsolatedWashAppearances: (elementId) =>
+				this.hasIsolatedWashAppearances(elementId),
 			renderIsolatedWashAppearances: (encoder, elementId) => {
-				const framePlan = this.activeFramePlan;
-				const fp = framePlan?.filterPlans.get(elementId);
-				if (!fp?.allAppearancePlans?.some((p) => p.washStrokeOpacity != null)) {
+				if (!this.hasIsolatedWashAppearances(elementId)) {
 					return null;
 				}
+				const framePlan = this.activeFramePlan!;
+				const fp = framePlan.filterPlans.get(elementId)!;
 				return (
 					this.renderIsolatedAppearances(
 						encoder,
@@ -1086,6 +1097,7 @@ export class CanvasLayer {
 					)?.source ?? null
 				);
 			},
+			onBeforeDraw: () => this.runBatcher.flush(),
 			getRasterScale: () => this.getRasterScale(),
 		});
 
@@ -2101,6 +2113,7 @@ export class CanvasLayer {
 		// Upload this frame's accumulated run indices (and reset the batcher) —
 		// after every pass is encoded, before the orchestrator submits.
 		this.runBatcher.finishFrame();
+		this.offscreen.finishFrame();
 	}
 
 	/**
@@ -2124,6 +2137,10 @@ export class CanvasLayer {
 		transientElements?: ReadonlyMap<string, TransientElementEntry>,
 		paintArtboardBackgrounds?: boolean,
 	): Map<string, FilteredTextureInfo> {
+		this.progressiveBakeBudget = this.renderState.isExport
+			? Number.POSITIVE_INFINITY
+			: PROGRESSIVE_BAKES_PER_FRAME;
+		this.progressiveBakeDeferred = false;
 		// Evict unused gradient textures and reset per-frame draw indices
 		this.gradient.textureGenerator.beginFrame();
 		this.gradient.meshTextureGenerator.beginFrame();
@@ -3403,6 +3420,7 @@ export class CanvasLayer {
 				},
 			});
 		}
+		if (this.progressiveBakeDeferred) this.onRequestRender?.();
 		return filteredTextures;
 	}
 
@@ -4020,6 +4038,7 @@ export class CanvasLayer {
 			// behind the element and stay frame-local, as do preview-overridden
 			// elements and bakes past the full-bake budget.
 			let cacheHash: string | null = null;
+			let cacheContentHash: string | null = null;
 			let cacheDeps: ReadonlySet<string> | null = null;
 			if (
 				this.filterCacheFrame != null &&
@@ -4042,17 +4061,28 @@ export class CanvasLayer {
 				const deps = expandRenderFilter(new Set([element.id]), elementsMap);
 				if (!setsIntersect(deps, this.filterCacheFrame.overrideIds)) {
 					cacheDeps = deps;
-					cacheHash = this.computeFilteredElementHash(
+					cacheContentHash = this.computeFilteredElementContentHash(
 						fp,
 						element,
 						elementsMap,
-						cacheDensity,
 					);
+					cacheHash = `${cacheDensity}:${cacheContentHash}`;
 				}
 			}
 			if (cacheHash != null) {
 				const entry = this.cacheManager.filteredElement.get(element.id);
 				if (entry?.hash === cacheHash) {
+					filteredTextures.set(
+						element.id,
+						buildCachedFilteredTextureInfo(entry, fp),
+					);
+					continue;
+				}
+				if (
+					cacheContentHash != null &&
+					entry &&
+					this.shouldUseStaleBake(entry, cacheContentHash, cacheDensity)
+				) {
 					filteredTextures.set(
 						element.id,
 						buildCachedFilteredTextureInfo(entry, fp),
@@ -4189,11 +4219,18 @@ export class CanvasLayer {
 			// Self-sized override layers (extrude) never reach here with a
 			// cacheHash (rendersOwnSource is excluded), so a plain chain result
 			// is the only thing ever stored.
-			if (cacheHash != null && cacheDeps != null && !overrides) {
+			if (
+				cacheHash != null &&
+				cacheContentHash != null &&
+				cacheDeps != null &&
+				!overrides
+			) {
 				this.storeFilteredElementBake(
 					encoder,
 					element.id,
 					cacheHash,
+					cacheContentHash,
+					cacheDensity,
 					cacheDeps,
 					filteredTexture,
 					outputBounds,
@@ -4260,17 +4297,31 @@ export class CanvasLayer {
 		};
 	}
 
+	private shouldUseStaleBake(
+		entry: FilteredElementCacheEntry,
+		contentHash: string,
+		density: number,
+	): boolean {
+		if (entry.contentHash !== contentHash || entry.density === density)
+			return false;
+		if (this.progressiveBakeBudget > 0) {
+			this.progressiveBakeBudget--;
+			return false;
+		}
+		this.progressiveBakeDeferred = true;
+		return true;
+	}
+
 	/** Content hash for a cached filtered bake. Push invalidation (element
 	 *  edits, moves, deletions via changedElements) is the primary eviction
 	 *  path; this hash catches what no element delta reports — filter
 	 *  parameter edits and async paint changes (image decode, text outline
 	 *  resolution) — plus the density bucket and the bake's world rect (its
 	 *  position guards against a push miss relocating the bake). */
-	private computeFilteredElementHash(
+	private computeFilteredElementContentHash(
 		fp: ElementFilterPlan,
 		element: AnyArtObject,
 		elementsMap: Map<string, AnyArtObject>,
-		density: number,
 	): string {
 		const paintHash = computePaintHash(
 			element,
@@ -4278,7 +4329,7 @@ export class CanvasLayer {
 			this.paintHashContext(),
 		);
 		const tb = fp.textureBounds;
-		return `${density}:${Math.round(tb.minX)},${Math.round(tb.minY)},${Math.round(
+		return `${Math.round(tb.minX)},${Math.round(tb.minY)},${Math.round(
 			tb.width,
 		)}x${Math.round(tb.height)}:${JSON.stringify(fp.postFilters)}:${paintHash}`;
 	}
@@ -4289,6 +4340,8 @@ export class CanvasLayer {
 		encoder: GPUCommandEncoder,
 		elementId: string,
 		hash: string,
+		contentHash: string,
+		density: number,
 		dependencyIds: ReadonlySet<string>,
 		texture: GPUTexture,
 		bounds: BoundingBox,
@@ -4310,6 +4363,8 @@ export class CanvasLayer {
 		);
 		this.cacheManager.filteredElement.set(elementId, {
 			hash,
+			contentHash,
+			density,
 			texture: cacheTexture,
 			bounds: brandWorldBBox(bounds),
 			uvRect,
@@ -4527,6 +4582,44 @@ export class CanvasLayer {
 	 * which is why an element can end up wearing both masks even though the
 	 * GPU transform buffer only has room for one.
 	 */
+	private bakeElementWithWorldMasks(
+		encoder: GPUCommandEncoder,
+		element: AnyArtObject,
+		bounds: WorldBBox,
+		elementsMap: Map<string, AnyArtObject>,
+		masks: readonly WorldMaskAssignment[],
+		rasterScale: number,
+	): Pick<FilteredTextureInfo, "source" | "output"> | null {
+		const baked = isGroup(element)
+			? this.offscreen.renderGroupToTexture(
+					encoder,
+					element,
+					bounds,
+					elementsMap,
+					this.viewportManager.getBoundsCache(),
+					rasterScale,
+				)
+			: this.offscreen.renderElementToTexture(
+					encoder,
+					element,
+					bounds,
+					elementsMap,
+					rasterScale,
+				);
+		if (!baked) return null;
+		const masked = this.offscreen.applyWorldMasksToTexture(
+			encoder,
+			baked,
+			masks,
+			rasterScale,
+		);
+		if (!masked) return null;
+		return {
+			source: baked,
+			output: replaceRenderSurface(baked, masked),
+		};
+	}
+
 	private applyPostMasks(
 		encoder: GPUCommandEncoder,
 		filteredTextures: Map<string, FilteredTextureInfo>,
@@ -4546,6 +4639,17 @@ export class CanvasLayer {
 					this.getRasterScale(),
 					this.viewportState.current?.zoom ?? 1,
 				);
+		const atlasBakeItems: ColorAtlasBakeItem[] = [];
+		const atlasBakeMasks = new Map<string, readonly WorldMaskAssignment[]>();
+		const atlasCopyItems: ColorAtlasCopyItem[] = [];
+		const atlasCopySources = new Map<
+			string,
+			{
+				compute: boolean;
+				existing: FilteredTextureInfo;
+				masks: readonly WorldMaskAssignment[];
+			}
+		>();
 
 		for (const [elementId, plan] of this.activeMaskApplicationPlans) {
 			if (plan.kind !== "subtree-composite") continue;
@@ -4609,6 +4713,7 @@ export class CanvasLayer {
 				// stay out — their bake is cached (unmasked) by executeFilterPlans
 				// under the same key, and two writers per key would thrash.
 				let cacheHash: string | null = null;
+				let cacheContentHash: string | null = null;
 				let cacheDeps: ReadonlySet<string> | null = null;
 				if (
 					this.filterCacheFrame != null &&
@@ -4620,70 +4725,71 @@ export class CanvasLayer {
 					const deps = expandRenderFilter(new Set([elementId]), elementsMap);
 					if (!setsIntersect(deps, this.filterCacheFrame.overrideIds)) {
 						cacheDeps = deps;
-						cacheHash = this.computeMaskedElementHash(
+						cacheContentHash = this.computeMaskedElementContentHash(
 							element,
 							elementsMap,
 							masks,
 							bounds,
-							rasterScale,
 						);
+						cacheHash = `${rasterScale}:${cacheContentHash}`;
 					}
 				}
 				if (cacheHash != null) {
 					const entry = this.cacheManager.filteredElement.get(elementId);
 					if (entry?.hash === cacheHash) {
-						const ref = createBorrowedTextureRef(
-							entry.texture,
-							"appearance-cache",
+						filteredTextures.set(
+							elementId,
+							buildCachedMaskedTextureInfo(entry, bounds),
 						);
-						const placement = {
-							kind: "world-aabb" as const,
-							bounds: entry.bounds,
-							uvRect: entry.uvRect,
-						};
-						const semantics = {
-							role: "color" as const,
-							alphaMode: "premultiplied" as const,
-							opacityState: "intrinsic" as const,
-						};
-						filteredTextures.set(elementId, {
-							source: createRenderSurface(ref, placement, semantics),
-							output: createRenderSurface(ref, placement, semantics),
-							elementBounds: bounds,
-							textureBounds: bounds,
-						});
+						continue;
+					}
+					if (
+						cacheContentHash != null &&
+						entry &&
+						this.shouldUseStaleBake(entry, cacheContentHash, rasterScale)
+					) {
+						filteredTextures.set(
+							elementId,
+							buildCachedMaskedTextureInfo(entry, bounds),
+						);
 						continue;
 					}
 				}
+				const sharedMaskView = masks[0]?.textureView;
+				const colorAtlasReservation =
+					element.type === "path" &&
+					(element.blendMode ?? "normal") === "normal" &&
+					masks.length <= 16 &&
+					sharedMaskView &&
+					masks.every(
+						(mask) => mask.atlasRect && mask.textureView === sharedMaskView,
+					)
+						? this.offscreen.reserveColorAtlasBake(bounds, rasterScale)
+						: null;
+				if (colorAtlasReservation) {
+					atlasBakeItems.push({
+						key: elementId,
+						element,
+						elementsMap,
+						...colorAtlasReservation,
+					});
+					atlasBakeMasks.set(elementId, masks);
+					continue;
+				}
 
-				const baked = isGroup(element)
-					? this.offscreen.renderGroupToTexture(
-							encoder,
-							element,
-							bounds,
-							elementsMap,
-							this.viewportManager.getBoundsCache(),
-							rasterScale,
-						)
-					: this.offscreen.renderElementToTexture(
-							encoder,
-							element,
-							bounds,
-							elementsMap,
-							rasterScale,
-						);
-				if (!baked) continue;
-
-				const masked = this.offscreen.applyWorldMasksToTexture(
+				const baked = this.bakeElementWithWorldMasks(
 					encoder,
-					baked,
+					element,
+					bounds,
+					elementsMap,
 					masks,
 					rasterScale,
 				);
-				if (!masked) continue;
-				const output = replaceRenderSurface(baked, masked);
+				if (!baked) continue;
+				const { output } = baked;
 				if (
 					cacheHash != null &&
+					cacheContentHash != null &&
 					cacheDeps != null &&
 					output.placement.kind === "world-aabb"
 				) {
@@ -4691,6 +4797,8 @@ export class CanvasLayer {
 						encoder,
 						elementId,
 						cacheHash,
+						cacheContentHash,
+						rasterScale,
 						cacheDeps,
 						output.texture.texture,
 						output.placement.bounds,
@@ -4698,10 +4806,22 @@ export class CanvasLayer {
 					);
 				}
 				filteredTextures.set(elementId, {
-					source: baked,
+					source: baked.source,
 					output,
 					elementBounds: bounds,
 					textureBounds: bounds,
+				});
+				continue;
+			}
+
+			if (this.offscreen.canDrawSurfaceWithAtlasMasks(existing.output, masks)) {
+				atlasCopyItems.push({ key: elementId, surface: existing.output });
+				atlasCopySources.set(elementId, {
+					compute:
+						(element.blendMode ?? "normal") !== "normal" ||
+						(element.compositionMode ?? "normal") !== "normal",
+					existing,
+					masks,
 				});
 				continue;
 			}
@@ -4719,21 +4839,124 @@ export class CanvasLayer {
 				output: replaceRenderSurface(existing.output, masked),
 			});
 		}
+
+		const atlasSurfaces = this.offscreen.renderColorAtlasBatch(
+			encoder,
+			atlasBakeItems,
+		);
+		for (const item of atlasBakeItems) {
+			const masks = atlasBakeMasks.get(item.key);
+			if (!masks) continue;
+			const surface = atlasSurfaces.get(item.key);
+			if (
+				surface &&
+				this.offscreen.canDrawSurfaceWithAtlasMasks(surface, masks)
+			) {
+				filteredTextures.set(item.key, {
+					source: surface,
+					output: surface,
+					elementBounds: item.bounds,
+					textureBounds: item.bounds,
+					postMasks: masks,
+				});
+				continue;
+			}
+			const baked = this.bakeElementWithWorldMasks(
+				encoder,
+				item.element,
+				item.bounds,
+				item.elementsMap,
+				masks,
+				rasterScale,
+			);
+			if (!baked) continue;
+			filteredTextures.set(item.key, {
+				...baked,
+				elementBounds: item.bounds,
+				textureBounds: item.bounds,
+			});
+		}
+
+		const copiedSurfaces = this.offscreen.copyColorSurfacesToAtlas(
+			encoder,
+			atlasCopyItems,
+		);
+		const computeItems: AtlasMaskComputeItem[] = [];
+		const computeSources = new Map<
+			string,
+			{
+				existing: FilteredTextureInfo;
+				masks: readonly WorldMaskAssignment[];
+			}
+		>();
+		for (const [elementId, { compute, existing, masks }] of atlasCopySources) {
+			const copied = copiedSurfaces.get(elementId);
+			if (!compute) {
+				filteredTextures.set(elementId, {
+					...existing,
+					output: copied ?? existing.output,
+					postMasks: masks,
+				});
+				continue;
+			}
+			if (copied) {
+				computeItems.push({ key: elementId, source: copied, masks });
+				computeSources.set(elementId, { existing, masks });
+				continue;
+			}
+			const masked = this.offscreen.applyWorldMasksToTexture(
+				encoder,
+				existing.output,
+				masks,
+				this.getRasterScale(),
+			);
+			if (!masked) continue;
+			filteredTextures.set(elementId, {
+				...existing,
+				output: replaceRenderSurface(existing.output, masked),
+				postMasks: undefined,
+			});
+		}
+		const computedSurfaces = this.offscreen.applyAtlasMasksComputeBatch(
+			encoder,
+			computeItems,
+		);
+		for (const [elementId, { existing, masks }] of computeSources) {
+			const output = computedSurfaces.get(elementId);
+			if (output) {
+				filteredTextures.set(elementId, {
+					...existing,
+					output,
+					postMasks: undefined,
+				});
+				continue;
+			}
+			const masked = this.offscreen.applyWorldMasksToTexture(
+				encoder,
+				existing.output,
+				masks,
+				this.getRasterScale(),
+			);
+			if (!masked) continue;
+			filteredTextures.set(elementId, {
+				...existing,
+				output: replaceRenderSurface(existing.output, masked),
+				postMasks: undefined,
+			});
+		}
 	}
 
 	/** Content hash for a cached masked (unfiltered) bake — the applyPostMasks
 	 *  counterpart of computeFilteredElementHash. Push invalidation via
 	 *  dependencyIds is the primary eviction path; the hash catches async paint
 	 *  changes plus everything that reshapes the bake without an element delta.
-	 *  Masks are identified by their atlas bind-group identity: the atlas
-	 *  creates a new bind group whenever a mask's content, coverage, or zoom
-	 *  changes, so a stale-mask bake can never match. */
-	private computeMaskedElementHash(
+	 *  Mask fingerprints include content, coverage, and zoom. Shared-atlas
+	 *  entries deliberately keep one bind-group identity across those changes. */
+	private computeMaskedElementContentHash(
 		element: AnyArtObject,
 		elementsMap: Map<string, AnyArtObject>,
 		masks: readonly AssignedMask[],
 		bounds: BoundingBox,
-		rasterScale: number,
 	): string {
 		const paintHash = computePaintHash(
 			element,
@@ -4741,9 +4964,9 @@ export class CanvasLayer {
 			this.paintHashContext(),
 		);
 		const maskKey = masks
-			.map((m) => `${this.objectSerial(m.bindGroup)}i${m.inverted ? 1 : 0}`)
+			.map((m) => `${m.fingerprint}i${m.inverted ? 1 : 0}`)
 			.join(",");
-		return `masked:${rasterScale}:${Math.round(bounds.minX)},${Math.round(
+		return `masked:${Math.round(bounds.minX)},${Math.round(
 			bounds.minY,
 		)},${Math.round(bounds.width)}x${Math.round(bounds.height)}:${maskKey}:${paintHash}`;
 	}
@@ -4783,6 +5006,15 @@ export class CanvasLayer {
 			rasterScale,
 		);
 		if (info) filteredTextures.set(fp.element.id, info);
+	}
+
+	private hasIsolatedWashAppearances(elementId: string): boolean {
+		return (
+			this.activeFramePlan?.filterPlans
+				.get(elementId)
+				?.allAppearancePlans?.some((plan) => plan.washStrokeOpacity != null) ??
+			false
+		);
 	}
 
 	/**
@@ -5928,14 +6160,24 @@ export class CanvasLayer {
 					activePass.setBindGroup(2, this.dummyGradientBindGroup);
 					activePass.setBindGroup(3, this.renderState.currentMaskBindGroup);
 				} else {
-					this.composite.blitTextureToCanvas(
-						activePass,
-						filteredData.output.texture.texture,
-						filteredData.output.placement.bounds,
-						effectiveAlpha,
-						filteredData.output.placement.uvRect,
-						this.blitPipeline,
-					);
+					if (filteredData.postMasks) {
+						this.offscreen.drawSurfaceWithAtlasMasks(
+							activePass,
+							filteredData.output,
+							effectiveAlpha,
+							filteredData.postMasks,
+							this.viewportBinding.active,
+						);
+					} else {
+						this.composite.blitTextureToCanvas(
+							activePass,
+							filteredData.output.texture.texture,
+							filteredData.output.placement.bounds,
+							effectiveAlpha,
+							filteredData.output.placement.uvRect,
+							this.blitPipeline,
+						);
+					}
 					activePass.setPipeline(this.strokePipeline);
 					activePass.setBindGroup(0, this.viewportBinding.active);
 					activePass.setBindGroup(1, this.transformsBindGroup!);
@@ -7656,6 +7898,7 @@ export class CanvasLayer {
 const EMPTY_ID_SET: ReadonlySet<string> = new Set();
 /** Full-bounds cached bakes may cover at most this many canvas surfaces. */
 const FILTER_CACHE_FULL_BAKE_BUDGET_FACTOR = 4;
+const PROGRESSIVE_BAKES_PER_FRAME = 12;
 
 // ---------------------------------------------------------------------------
 // Clip mask helpers
@@ -8235,5 +8478,28 @@ function buildCachedFilteredTextureInfo(
 		output: createRenderSurface(ref, placement, semantics),
 		elementBounds: fp.bounds,
 		textureBounds: fp.textureBounds,
+	};
+}
+
+function buildCachedMaskedTextureInfo(
+	entry: FilteredElementCacheEntry,
+	bounds: WorldBBox,
+): FilteredTextureInfo {
+	const ref = createBorrowedTextureRef(entry.texture, "appearance-cache");
+	const placement = {
+		kind: "world-aabb" as const,
+		bounds: entry.bounds,
+		uvRect: entry.uvRect,
+	};
+	const semantics = {
+		role: "color" as const,
+		alphaMode: "premultiplied" as const,
+		opacityState: "intrinsic" as const,
+	};
+	return {
+		source: createRenderSurface(ref, placement, semantics),
+		output: createRenderSurface(ref, placement, semantics),
+		elementBounds: bounds,
+		textureBounds: bounds,
 	};
 }

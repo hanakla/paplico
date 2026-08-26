@@ -25,6 +25,7 @@ import {
 	type RenderState,
 	type ViewportState,
 } from "../CanvasLayerTypes";
+import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
 import { createPassLocalStencilAttachment } from "./PassLocalStencil";
 import { createBorrowedTextureRef, type TextureRef } from "./RenderSurface";
 import { quantizeSize, type TexturePool } from "./TexturePool";
@@ -70,10 +71,14 @@ export interface MaskRenderRequest {
 
 /** Result of looking up a pre-rendered mask. */
 export interface MaskEntry {
-	/** Always 0 for per-mask 2D textures. Kept for GPU transforms buffer compatibility. */
+	/** Content and coverage identity used by downstream bake caches. */
+	fingerprint: string;
+	/** Texture layer index. The current 2D atlas and standalone textures use 0. */
 	layerIndex: number;
 	/** World-space region covered by this mask texture. */
 	bounds: BoundingBox;
+	/** Pixel-space region inside the shared atlas. Undefined for standalone masks. */
+	atlasRect?: MaskAtlasRect;
 	/** BG3 bind group for this mask's texture_2d + sampler. */
 	bindGroup: GPUBindGroup;
 	/** View of the mask texture, for multi-mask chain bind groups. */
@@ -137,26 +142,65 @@ export interface MaskCoverage {
 
 interface CachedMask {
 	fingerprint: string;
-	texture: TextureRef;
+	texture: TextureRef | null;
 	entry: MaskEntry;
+	atlasRect: MaskAtlasRect | null;
 	/** Render closure of the mask's source elements at bake time. A tracked
 	 *  document change intersecting it drops the entry (the fingerprint alone
 	 *  cannot see an in-place geometry edit of a silhouette source). */
 	dependencyIds: ReadonlySet<string>;
 }
 
+interface RenderedMask {
+	entry: MaskEntry;
+	texture: TextureRef | null;
+	atlasRect: MaskAtlasRect | null;
+	batchItem?: AtlasSilhouetteBatchItem;
+}
+
+interface AtlasSilhouetteBatchItem {
+	mask: MaskRenderRequest;
+	coverage: MaskCoverage;
+	atlasRect: MaskAtlasRect;
+}
+
 export class ClipMaskAtlas {
 	private deps: ClipMaskAtlasDeps;
-	private maskTextures: GPUTexture[] = [];
 	private maskEntries = new Map<string, MaskEntry>();
 	private maskCache = new Map<string, CachedMask>();
 	private sampler: GPUSampler;
+	private readonly atlasSize: number;
+	private atlasAllocator: MaskAtlasAllocator;
+	private atlasTexture: GPUTexture | null = null;
+	private atlasTextureView: GPUTextureView | null = null;
+	private atlasBindGroup: GPUBindGroup | null = null;
+	private atlasClearTexture: GPUTexture | null = null;
+	private readonly atlasDescriptorBuffer: GPUBuffer;
+	private readonly atlasDescriptors = new Uint32Array(
+		MAX_MASK_ATLAS_ENTRIES * MASK_ATLAS_DESCRIPTOR_U32_COUNT,
+	);
+	private readonly freeAtlasDescriptorIndices: number[] = [];
+	private nextAtlasDescriptorIndex = 0;
+	private atlasDescriptorsDirty = false;
 	/** Set for the duration of each preRender; see its parameter. */
 	private sourceFilteredTextures: Map<string, FilteredTextureInfo> =
 		EMPTY_FILTERED_TEXTURES;
 
 	public constructor(deps: ClipMaskAtlasDeps) {
 		this.deps = deps;
+		this.atlasSize = Math.min(
+			MASK_ATLAS_SIZE,
+			deps.device.limits.maxTextureDimension2D,
+		);
+		this.atlasAllocator = new MaskAtlasAllocator(
+			this.atlasSize,
+			this.atlasSize,
+		);
+		this.atlasDescriptorBuffer = deps.device.createBuffer({
+			label: "Clip Mask Atlas Descriptor Buffer",
+			size: this.atlasDescriptors.byteLength,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+		});
 		this.sampler = deps.device.createSampler({
 			label: "Clip Mask Sampler",
 			magFilter: "linear",
@@ -234,6 +278,7 @@ export class ClipMaskAtlas {
 		const maxDim = this.deps.device.limits.maxTextureDimension2D;
 		const savedBounds = this.deps.viewportState.bounds;
 		const activeKeys = new Set<string>();
+		const atlasSilhouetteBatch: AtlasSilhouetteBatchItem[] = [];
 
 		for (let i = 0; i < masks.length; i++) {
 			const mask = masks[i];
@@ -257,20 +302,24 @@ export class ClipMaskAtlas {
 				continue;
 			}
 
-			if (cached) {
-				this.deps.deferDestroy(cached.texture.texture);
-				this.maskCache.delete(mask.key);
-			}
+			if (cached) this.releaseCachedMask(mask.key, cached);
 
-			this.renderMask(encoder, mask, i, elementsMap, coverage);
-
-			const entry = this.maskEntries.get(mask.key);
-			const texture = this.maskTextures[this.maskTextures.length - 1];
-			if (entry && texture) {
+			const rendered = this.renderMask(
+				encoder,
+				mask,
+				i,
+				elementsMap,
+				coverage,
+				fingerprint,
+			);
+			if (rendered) {
+				if (rendered.batchItem) atlasSilhouetteBatch.push(rendered.batchItem);
+				this.maskEntries.set(mask.key, rendered.entry);
 				this.maskCache.set(mask.key, {
 					fingerprint,
-					texture: createBorrowedTextureRef(texture, "mask-atlas"),
-					entry,
+					texture: rendered.texture,
+					entry: rendered.entry,
+					atlasRect: rendered.atlasRect,
 					dependencyIds: expandRenderFilter(
 						new Set(mask.sources.map((s) => s.id)),
 						elementsMap,
@@ -279,17 +328,24 @@ export class ClipMaskAtlas {
 			}
 		}
 
+		this.renderSilhouetteAtlasBatch(encoder, atlasSilhouetteBatch, elementsMap);
 		this.deps.viewportState.bounds = savedBounds;
+		this.flushAtlasDescriptors();
 		this.releaseStaleEntries(activeKeys);
 	}
 
 	public invalidateAll(): void {
-		for (const cached of this.maskCache.values()) {
-			this.deps.deferDestroy(cached.texture.texture);
+		for (const [key, cached] of this.maskCache) {
+			this.releaseCachedMask(key, cached);
 		}
 		this.maskCache.clear();
-		this.maskTextures = [];
 		this.maskEntries.clear();
+		this.atlasAllocator = new MaskAtlasAllocator(
+			this.atlasSize,
+			this.atlasSize,
+		);
+		this.freeAtlasDescriptorIndices.length = 0;
+		this.nextAtlasDescriptorIndex = 0;
 	}
 
 	/**
@@ -308,23 +364,37 @@ export class ClipMaskAtlas {
 				}
 			}
 			if (!hit) continue;
-			this.deps.deferDestroy(cached.texture.texture);
-			this.maskCache.delete(key);
-			this.maskEntries.delete(key);
+			this.releaseCachedMask(key, cached);
 		}
 	}
 
 	public destroy(): void {
 		this.invalidateAll();
+		if (this.atlasTexture) this.deps.deferDestroy(this.atlasTexture);
+		this.atlasTexture = null;
+		this.atlasTextureView = null;
+		this.atlasBindGroup = null;
+		this.atlasClearTexture?.destroy();
+		this.atlasClearTexture = null;
+		this.atlasDescriptorBuffer.destroy();
 	}
 
 	private releaseStaleEntries(activeIds: Set<string>): void {
 		for (const [id, cached] of this.maskCache) {
 			if (!activeIds.has(id)) {
-				this.deps.deferDestroy(cached.texture.texture);
-				this.maskCache.delete(id);
+				this.releaseCachedMask(id, cached);
 			}
 		}
+	}
+
+	private releaseCachedMask(key: string, cached: CachedMask): void {
+		if (cached.texture) this.deps.deferDestroy(cached.texture.texture);
+		if (cached.atlasRect) {
+			this.atlasAllocator.release(cached.atlasRect);
+			this.freeAtlasDescriptorIndices.push(cached.entry.layerIndex);
+		}
+		this.maskCache.delete(key);
+		this.maskEntries.delete(key);
 	}
 
 	// -----------------------------------------------------------------------
@@ -379,7 +449,8 @@ export class ClipMaskAtlas {
 		index: number,
 		elementsMap: Map<string, AnyArtObject>,
 		coverage: MaskCoverage,
-	): void {
+		fingerprint: string,
+	): RenderedMask | null {
 		const {
 			logicalWidth,
 			logicalHeight,
@@ -389,24 +460,75 @@ export class ClipMaskAtlas {
 			texHeight,
 		} = coverage;
 
-		const maskTexture = this.deps.device.createTexture({
-			label: `Clip Mask [${index}] - ${mask.key}`,
-			size: [texWidth, texHeight],
-			format: this.deps.canvasFormat,
-			usage:
-				GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-		});
-		this.maskTextures.push(maskTexture);
+		let atlasRect =
+			logicalWidth <= MAX_ATLASED_MASK_DIM &&
+			logicalHeight <= MAX_ATLASED_MASK_DIM
+				? this.atlasAllocator.allocate(logicalWidth, logicalHeight)
+				: null;
+		const atlasDescriptorIndex = atlasRect
+			? this.allocateAtlasDescriptor(atlasRect)
+			: null;
+		if (atlasRect && atlasDescriptorIndex === null) {
+			this.atlasAllocator.release(atlasRect);
+			atlasRect = null;
+		}
+		if (
+			atlasRect &&
+			atlasDescriptorIndex !== null &&
+			mask.mode === "silhouette"
+		) {
+			const atlas = this.ensureAtlasResources();
+			return {
+				entry: {
+					fingerprint,
+					layerIndex: atlasDescriptorIndex,
+					bounds: maskBoundsForCoverage(coverage),
+					atlasRect,
+					bindGroup: atlas.bindGroup,
+					textureView: atlas.textureView,
+				},
+				texture: null,
+				atlasRect,
+				batchItem: { mask, coverage, atlasRect },
+			};
+		}
+		const maskTexture = atlasRect
+			? this.deps.texturePool.acquireExact(
+					logicalWidth,
+					logicalHeight,
+					this.deps.canvasFormat,
+					1,
+					GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+					`Clip Mask Staging [${index}] - ${mask.key}`,
+				)
+			: this.deps.device.createTexture({
+					label: `Clip Mask [${index}] - ${mask.key}`,
+					size: [texWidth, texHeight],
+					format: this.deps.canvasFormat,
+					usage:
+						GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+				});
+		const targetWidth = atlasRect ? logicalWidth : texWidth;
+		const targetHeight = atlasRect ? logicalHeight : texHeight;
 
 		// Acquire temporary stencil texture from pool.
-		const stencilTexture = this.deps.texturePool.acquire(
-			texWidth,
-			texHeight,
-			"depth24plus-stencil8",
-			MSAA_SAMPLE_COUNT,
-			GPUTextureUsage.RENDER_ATTACHMENT,
-			`Clip Mask Stencil [${index}]`,
-		);
+		const stencilTexture = atlasRect
+			? this.deps.texturePool.acquireExact(
+					targetWidth,
+					targetHeight,
+					"depth24plus-stencil8",
+					MSAA_SAMPLE_COUNT,
+					GPUTextureUsage.RENDER_ATTACHMENT,
+					`Clip Mask Stencil [${index}]`,
+				)
+			: this.deps.texturePool.acquire(
+					targetWidth,
+					targetHeight,
+					"depth24plus-stencil8",
+					MSAA_SAMPLE_COUNT,
+					GPUTextureUsage.RENDER_ATTACHMENT,
+					`Clip Mask Stencil [${index}]`,
+				);
 
 		const passEncoder = encoder.beginRenderPass({
 			label: `Clip Mask Pass [${index}] - ${mask.key}`,
@@ -485,37 +607,215 @@ export class ClipMaskAtlas {
 		// Return stencil texture to the pool.
 		this.deps.texturePool.release(stencilTexture);
 
-		// Compute the actual world-space region covered by this mask texture.
-		const centerX = (coverageBounds.minX + coverageBounds.maxX) / 2;
-		const centerY = (coverageBounds.minY + coverageBounds.maxY) / 2;
-		const halfW = logicalWidth / (2 * effectiveZoom);
-		const halfH = logicalHeight / (2 * effectiveZoom);
-		const maskBounds: BoundingBox = {
-			minX: centerX - halfW,
-			minY: centerY - halfH,
-			maxX: centerX + halfW,
-			maxY: centerY + halfH,
-			width: halfW * 2,
-			height: halfH * 2,
-		};
+		const maskBounds = maskBoundsForCoverage(coverage);
 
-		// Create BG3 bind group for this mask.
+		if (atlasRect && atlasDescriptorIndex !== null) {
+			const atlas = this.ensureAtlasResources();
+			encoder.copyTextureToTexture(
+				{ texture: maskTexture },
+				{ texture: atlas.texture, origin: [atlasRect.x, atlasRect.y] },
+				[atlasRect.width, atlasRect.height],
+			);
+			this.deps.texturePool.release(maskTexture);
+			return {
+				entry: {
+					fingerprint,
+					layerIndex: atlasDescriptorIndex,
+					bounds: maskBounds,
+					atlasRect,
+					bindGroup: atlas.bindGroup,
+					textureView: atlas.textureView,
+				},
+				texture: null,
+				atlasRect,
+			};
+		}
+
 		const textureView = maskTexture.createView();
-		const bindGroup = this.deps.device.createBindGroup({
-			label: `Clip Mask Bind Group [${index}]`,
+		return {
+			entry: {
+				fingerprint,
+				layerIndex: 0,
+				bounds: maskBounds,
+				bindGroup: this.deps.device.createBindGroup({
+					label: `Clip Mask Bind Group [${index}]`,
+					layout: this.deps.maskBindGroupLayout,
+					entries: [
+						{ binding: 0, resource: textureView },
+						{ binding: 1, resource: this.sampler },
+						{ binding: 2, resource: { buffer: this.atlasDescriptorBuffer } },
+					],
+				}),
+				textureView,
+			},
+			texture: createBorrowedTextureRef(maskTexture, "mask-atlas"),
+			atlasRect: null,
+		};
+	}
+
+	private ensureAtlasResources(): {
+		texture: GPUTexture;
+		textureView: GPUTextureView;
+		bindGroup: GPUBindGroup;
+	} {
+		if (this.atlasTexture && this.atlasTextureView && this.atlasBindGroup) {
+			return {
+				texture: this.atlasTexture,
+				textureView: this.atlasTextureView,
+				bindGroup: this.atlasBindGroup,
+			};
+		}
+
+		this.atlasTexture = this.deps.device.createTexture({
+			label: "Clip Mask Shared Atlas",
+			size: [this.atlasSize, this.atlasSize],
+			format: this.deps.canvasFormat,
+			usage:
+				GPUTextureUsage.COPY_DST |
+				GPUTextureUsage.TEXTURE_BINDING |
+				GPUTextureUsage.RENDER_ATTACHMENT,
+		});
+		this.atlasTextureView = this.atlasTexture.createView();
+		this.atlasBindGroup = this.deps.device.createBindGroup({
+			label: "Clip Mask Shared Atlas Bind Group",
 			layout: this.deps.maskBindGroupLayout,
 			entries: [
-				{ binding: 0, resource: textureView },
+				{ binding: 0, resource: this.atlasTextureView },
 				{ binding: 1, resource: this.sampler },
+				{ binding: 2, resource: { buffer: this.atlasDescriptorBuffer } },
 			],
 		});
+		return {
+			texture: this.atlasTexture,
+			textureView: this.atlasTextureView,
+			bindGroup: this.atlasBindGroup,
+		};
+	}
 
-		this.maskEntries.set(mask.key, {
-			layerIndex: 0,
-			bounds: maskBounds,
-			bindGroup,
-			textureView,
+	private renderSilhouetteAtlasBatch(
+		encoder: GPUCommandEncoder,
+		items: readonly AtlasSilhouetteBatchItem[],
+		elementsMap: Map<string, AnyArtObject>,
+	): void {
+		if (items.length === 0) return;
+		const atlas = this.ensureAtlasResources();
+		const clearTexture = this.ensureAtlasClearTexture();
+		for (const { atlasRect } of items) {
+			encoder.copyTextureToTexture(
+				{ texture: clearTexture },
+				{ texture: atlas.texture, origin: [atlasRect.x, atlasRect.y] },
+				[atlasRect.width, atlasRect.height],
+			);
+		}
+
+		const transformsBindGroup = this.deps.getTransformsBindGroup();
+		if (!transformsBindGroup) return;
+		const stencilTexture = this.deps.texturePool.acquireExact(
+			this.atlasSize,
+			this.atlasSize,
+			"depth24plus-stencil8",
+			MSAA_SAMPLE_COUNT,
+			GPUTextureUsage.RENDER_ATTACHMENT,
+			"Clip Mask Atlas Stencil",
+		);
+		const pass = encoder.beginRenderPass({
+			label: `Clip Mask Atlas Batch [${items.length}]`,
+			colorAttachments: [
+				{
+					view: atlas.textureView,
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+			depthStencilAttachment: createPassLocalStencilAttachment(
+				stencilTexture.createView(),
+			),
 		});
+		pass.setPipeline(this.deps.strokePipeline);
+		pass.setBindGroup(1, transformsBindGroup);
+		pass.setBindGroup(2, this.deps.dummyGradientBindGroup);
+		pass.setBindGroup(3, this.deps.dummyMaskBindGroup);
+		this.deps.viewportState.bounds = null;
+
+		for (const { mask, coverage, atlasRect } of items) {
+			pass.setViewport(
+				atlasRect.x,
+				atlasRect.y,
+				atlasRect.width,
+				atlasRect.height,
+				0,
+				1,
+			);
+			pass.setScissorRect(
+				atlasRect.x,
+				atlasRect.y,
+				atlasRect.width,
+				atlasRect.height,
+			);
+			const tempViewport = {
+				x: (coverage.coverageBounds.minX + coverage.coverageBounds.maxX) / 2,
+				y: (coverage.coverageBounds.minY + coverage.coverageBounds.maxY) / 2,
+				zoom: coverage.effectiveZoom,
+				rotation: 0,
+			};
+			const entry = this.deps.uniformScope.acquire(
+				tempViewport,
+				coverage.logicalWidth,
+				coverage.logicalHeight,
+			);
+			this.deps.setActiveBindGroup(entry.bindGroup, entry.buffer);
+			pass.setBindGroup(0, entry.bindGroup);
+			for (const source of mask.sources) {
+				this.deps.renderState.currentTransformIndex =
+					this.deps.getTransformIndex(source.id);
+				this.deps.renderElementToMask(pass, source, elementsMap);
+			}
+			this.deps.setActiveBindGroup(null);
+		}
+
+		pass.end();
+		this.deps.texturePool.release(stencilTexture);
+	}
+
+	private ensureAtlasClearTexture(): GPUTexture {
+		this.atlasClearTexture ??= this.deps.device.createTexture({
+			label: "Clip Mask Atlas Clear Texture",
+			size: [MAX_ATLASED_MASK_DIM, MAX_ATLASED_MASK_DIM],
+			format: this.deps.canvasFormat,
+			usage: GPUTextureUsage.COPY_SRC,
+		});
+		return this.atlasClearTexture;
+	}
+
+	private allocateAtlasDescriptor(rect: MaskAtlasRect): number | null {
+		const index =
+			this.freeAtlasDescriptorIndices.pop() ?? this.nextAtlasDescriptorIndex++;
+		if (index >= MAX_MASK_ATLAS_ENTRIES) {
+			this.nextAtlasDescriptorIndex = MAX_MASK_ATLAS_ENTRIES;
+			return null;
+		}
+
+		const offset = index * MASK_ATLAS_DESCRIPTOR_U32_COUNT;
+		this.atlasDescriptors[offset] = rect.x;
+		this.atlasDescriptors[offset + 1] = rect.y;
+		this.atlasDescriptors[offset + 2] = rect.width;
+		this.atlasDescriptors[offset + 3] = rect.height;
+		this.atlasDescriptorsDirty = true;
+		return index;
+	}
+
+	private flushAtlasDescriptors(): void {
+		if (!this.atlasDescriptorsDirty) return;
+		this.deps.device.queue.writeBuffer(
+			this.atlasDescriptorBuffer,
+			0,
+			this.atlasDescriptors,
+			0,
+			this.nextAtlasDescriptorIndex *
+				MASK_ATLAS_DESCRIPTOR_U32_COUNT *
+				Uint32Array.BYTES_PER_ELEMENT,
+		);
+		this.atlasDescriptorsDirty = false;
 	}
 }
 
@@ -565,3 +865,25 @@ export function computeMaskCoverage(
 
 /** Mask sources are drawn straight from their geometry, never from a filter cache. */
 const EMPTY_FILTERED_TEXTURES: Map<string, FilteredTextureInfo> = new Map();
+
+const MASK_ATLAS_SIZE = 4096;
+const MAX_ATLASED_MASK_DIM = 256;
+const MAX_MASK_ATLAS_ENTRIES = 16_384;
+const MASK_ATLAS_DESCRIPTOR_U32_COUNT = 4;
+
+function maskBoundsForCoverage(coverage: MaskCoverage): BoundingBox {
+	const centerX =
+		(coverage.coverageBounds.minX + coverage.coverageBounds.maxX) / 2;
+	const centerY =
+		(coverage.coverageBounds.minY + coverage.coverageBounds.maxY) / 2;
+	const halfW = coverage.logicalWidth / (2 * coverage.effectiveZoom);
+	const halfH = coverage.logicalHeight / (2 * coverage.effectiveZoom);
+	return {
+		minX: centerX - halfW,
+		minY: centerY - halfH,
+		maxX: centerX + halfW,
+		maxY: centerY + halfH,
+		width: halfW * 2,
+		height: halfH * 2,
+	};
+}
