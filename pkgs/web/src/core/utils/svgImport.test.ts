@@ -574,6 +574,92 @@ describe("parseSvgToArtObjects – nested <g>", () => {
 	});
 });
 
+// --- parseSvgToArtObjects – inherited presentation attributes ---
+
+describe("parseSvgToArtObjects – inherited presentation attributes", () => {
+	const findFill = (path: Path) =>
+		path.filters?.find((f) => f.processor === "fill") as
+			| FillAppearance
+			| undefined;
+	const findStroke = (path: Path) =>
+		path.filters?.find((f) => f.processor === "stroke") as
+			| StrokeAppearance
+			| undefined;
+
+	it("inherits fill/stroke/stroke-width from ancestor <g> (Ghostscript Tiger structure)", async () => {
+		const result = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <g fill="none">
+          <g stroke-width="0.5" stroke="#000" fill="#FFF">
+            <path d="M 0 0 L 10 0 L 10 10 Z"/>
+          </g>
+        </g>
+      </svg>`,
+			0,
+			0,
+		);
+		expect(result.topLevelIds).toHaveLength(1);
+		const path = result.objects.get(result.topLevelIds[0]) as Path;
+		expect(path.type).toBe("path");
+
+		const fill = findFill(path);
+		expect(fill).toBeDefined();
+		if (fill?.paramData.params.fill.type !== "solid") {
+			throw new Error("expected solid fill");
+		}
+		// Inner g's fill="#FFF" overrides the outer fill="none"
+		expect(fill.paramData.params.fill.color).toEqual({
+			type: "rgb",
+			r: 1,
+			g: 1,
+			b: 1,
+			a: 1,
+		});
+
+		const stroke = findStroke(path);
+		expect(stroke).toBeDefined();
+		expect(
+			stroke?.paramData.params.brushSettings?.properties.size?.base,
+		).toBeCloseTo(0.5);
+	});
+
+	it("element's own attribute wins over the inherited value", async () => {
+		const result = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <g fill="#FFF">
+          <path d="M 0 0 L 10 0 L 10 10 Z" fill="#ff0000"/>
+        </g>
+      </svg>`,
+			0,
+			0,
+		);
+		const path = result.objects.get(result.topLevelIds[0]) as Path;
+		const fill = findFill(path);
+		if (fill?.paramData.params.fill.type !== "solid") {
+			throw new Error("expected solid fill");
+		}
+		const { color } = fill.paramData.params.fill;
+		if (color.type !== "rgb") throw new Error("expected rgb color");
+		expect(color.r).toBe(1);
+		expect(color.g).toBe(0);
+	});
+
+	it('inherited fill="none" suppresses the black default fill', async () => {
+		const result = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <g fill="none" stroke="#000">
+          <path d="M 0 0 L 10 0 L 10 10 Z"/>
+        </g>
+      </svg>`,
+			0,
+			0,
+		);
+		const path = result.objects.get(result.topLevelIds[0]) as Path;
+		expect(findFill(path)).toBeUndefined();
+		expect(findStroke(path)).toBeDefined();
+	});
+});
+
 // --- parseSvgToArtObjects – CSS class fill resolution ---
 
 describe("parseSvgToArtObjects – CSS class fill resolution", () => {

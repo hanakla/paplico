@@ -36,6 +36,30 @@ import {
 } from "../schema";
 import { calculateSegmentListBounds } from "./geometry/bounds";
 
+// SVG presentation attributes that inherit from ancestor elements (per the SVG
+// spec). Non-inherited properties (opacity, filter, clip-path, mix-blend-mode,
+// display) are intentionally excluded — they apply per element / per group.
+const INHERITED_PROPS = [
+	"fill",
+	"fill-opacity",
+	"fill-rule",
+	"stroke",
+	"stroke-width",
+	"stroke-opacity",
+	"stroke-linecap",
+	"stroke-linejoin",
+	"stroke-miterlimit",
+	"stroke-dasharray",
+	"stroke-dashoffset",
+	"font-family",
+	"font-size",
+	"font-weight",
+	"font-style",
+	"letter-spacing",
+	"text-anchor",
+	"writing-mode",
+] as const;
+
 const ALLOWED_IMAGE_MIMES = new Set([
 	"image/png",
 	"image/jpeg",
@@ -176,7 +200,13 @@ export async function parseSvgToArtObjects(
 		// resolution can look up already-registered defIds synchronously.
 		await materializePatternDefs(collectPatternElements(doc), state);
 
-		const topLevelIds = await processChildren(svgEl, new DOMMatrix(), state);
+		// The <svg> root itself may carry inheritable presentation attributes.
+		const topLevelIds = await processChildren(
+			svgEl,
+			new DOMMatrix(),
+			state,
+			overlayInheritedProps(makeStyleGetter(svgEl, ctx, {}), {}),
+		);
 		return {
 			objects: state.objects,
 			files: state.files,
@@ -591,7 +621,12 @@ async function materializePatternDefs(
 			files: state.files,
 			defs: state.defs,
 		};
-		const rootElementIds = await processChildren(el, new DOMMatrix(), subState);
+		const rootElementIds = await processChildren(
+			el,
+			new DOMMatrix(),
+			subState,
+			{},
+		);
 		if (rootElementIds.length === 0) {
 			state.ctx.patternFills.set(svgId, null);
 			continue;
@@ -693,10 +728,11 @@ async function processChildren(
 	parent: Element,
 	ctm: DOMMatrix,
 	state: ParseState,
+	inherited: Record<string, string>,
 ): Promise<string[]> {
 	const ids: string[] = [];
 	for (const child of parent.children) {
-		const id = await processElement(child, ctm, state);
+		const id = await processElement(child, ctm, state, inherited);
 		if (id) ids.push(id);
 	}
 	return ids;
@@ -706,6 +742,7 @@ async function processElement(
 	el: Element,
 	parentCtm: DOMMatrix,
 	state: ParseState,
+	inherited: Record<string, string>,
 ): Promise<string | null> {
 	const tag = el.tagName.toLowerCase();
 	if (
@@ -723,8 +760,8 @@ async function processElement(
 	})();
 	const ctm = parentCtm.multiply(localMatrix);
 
-	// Merged style lookup: inline style > CSS class > element attribute
-	const getElProp = makeStyleGetter(el, state.ctx);
+	// Merged style lookup: inline style > CSS class > element attribute > inherited
+	const getElProp = makeStyleGetter(el, state.ctx, inherited);
 
 	if (getElProp("display") === "none") return null;
 
@@ -742,7 +779,7 @@ async function processElement(
 			if (!d) break;
 			const segs = parseSvgPathD(d, ctm, state.ctx);
 			if (segs.length === 0) break;
-			baseId = buildPath(el, segs, opacity, ctm, state);
+			baseId = buildPath(el, segs, opacity, ctm, state, inherited);
 			break;
 		}
 		case "rect": {
@@ -750,19 +787,19 @@ async function processElement(
 			if (!d) break;
 			const segs = parseSvgPathD(d, ctm, state.ctx);
 			if (segs.length === 0) break;
-			baseId = buildPath(el, segs, opacity, ctm, state);
+			baseId = buildPath(el, segs, opacity, ctm, state, inherited);
 			break;
 		}
 		case "circle": {
 			const segs = circleToSegs(el, ctm, state.ctx);
 			if (segs.length === 0) break;
-			baseId = buildPath(el, segs, opacity, ctm, state);
+			baseId = buildPath(el, segs, opacity, ctm, state, inherited);
 			break;
 		}
 		case "ellipse": {
 			const segs = ellipseToSegs(el, ctm, state.ctx);
 			if (segs.length === 0) break;
-			baseId = buildPath(el, segs, opacity, ctm, state);
+			baseId = buildPath(el, segs, opacity, ctm, state, inherited);
 			break;
 		}
 		case "polygon":
@@ -771,7 +808,7 @@ async function processElement(
 			if (!d) break;
 			const segs = parseSvgPathD(d, ctm, state.ctx);
 			if (segs.length === 0) break;
-			baseId = buildPath(el, segs, opacity, ctm, state);
+			baseId = buildPath(el, segs, opacity, ctm, state, inherited);
 			break;
 		}
 		case "line": {
@@ -779,11 +816,16 @@ async function processElement(
 			if (!d) break;
 			const segs = parseSvgPathD(d, ctm, state.ctx);
 			if (segs.length === 0) break;
-			baseId = buildPath(el, segs, opacity, ctm, state);
+			baseId = buildPath(el, segs, opacity, ctm, state, inherited);
 			break;
 		}
 		case "g": {
-			const childIds = await processChildren(el, ctm, state);
+			const childIds = await processChildren(
+				el,
+				ctm,
+				state,
+				overlayInheritedProps(getElProp, inherited),
+			);
 			if (childIds.length === 0) break;
 			const groupFilters = buildFilterAppearances(
 				getElProp("filter"),
@@ -852,7 +894,8 @@ async function applyClipPath(
 	// clipPathUnits defaults to userSpaceOnUse: clip children use the current CTM
 	const cpTransform = clipEl.getAttribute("transform");
 	const clipCtm = cpTransform ? ctm.multiply(parseTransform(cpTransform)) : ctm;
-	const clipIds = await processChildren(clipEl, clipCtm, state);
+	// Clip shapes only contribute geometry, so no inherited paint context.
+	const clipIds = await processChildren(clipEl, clipCtm, state, {});
 	if (clipIds.length === 0) return contentId;
 
 	// Wrap clip shapes into a single node if multiple
@@ -1134,8 +1177,9 @@ function buildPath(
 	opacity: number,
 	ctm: DOMMatrix,
 	state: ParseState,
+	inherited: Record<string, string>,
 ): string {
-	const getAttr = makeStyleGetter(el, state.ctx);
+	const getAttr = makeStyleGetter(el, state.ctx, inherited);
 
 	const fillStr = getAttr("fill") ?? "black";
 	const strokeStr = getAttr("stroke") ?? "none";
@@ -1402,9 +1446,10 @@ function collectTextRuns(
 			(child as Element).tagName.toLowerCase() === "tspan"
 		) {
 			const spanEl = child as Element;
+			// Ancestor style inheritance is already carried by inheritedStyle.
 			const spanStyle = applyTextStyle(
 				inheritedStyle,
-				makeStyleGetter(spanEl, ctx),
+				makeStyleGetter(spanEl, ctx, {}),
 			);
 			collectTextRuns(spanEl, spanStyle, ctx, runs);
 		}
@@ -1414,6 +1459,7 @@ function collectTextRuns(
 function makeStyleGetter(
 	el: Element,
 	ctx: ParseCtx,
+	inherited: Record<string, string>,
 ): (name: string) => string | null {
 	const inlineStyle = parseInlineStyle(el.getAttribute("style") ?? "");
 	const classStyle: Record<string, string> = {};
@@ -1424,7 +1470,27 @@ function makeStyleGetter(
 		if (rules) Object.assign(classStyle, rules);
 	}
 	return (name) =>
-		inlineStyle[name] ?? classStyle[name] ?? el.getAttribute(name) ?? null;
+		inlineStyle[name] ??
+		classStyle[name] ??
+		el.getAttribute(name) ??
+		inherited[name] ??
+		null;
+}
+
+// Overlay the element's own values for inherited presentation attributes onto
+// the ancestor map, producing the map its children inherit.
+function overlayInheritedProps(
+	getProp: (name: string) => string | null,
+	inherited: Record<string, string>,
+): Record<string, string> {
+	let result = inherited;
+	for (const name of INHERITED_PROPS) {
+		const value = getProp(name);
+		if (value === null || value === result[name]) continue;
+		if (result === inherited) result = { ...inherited };
+		result[name] = value;
+	}
+	return result;
 }
 
 function svgWritingMode(
