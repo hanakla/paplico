@@ -356,6 +356,103 @@ describe("PathEditTool", () => {
 			expect(updatedSegments[1].cp1.y).not.toBeCloseTo(0);
 		});
 
+		it("should move only the double-tapped CP of a symmetric pair", () => {
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// Double-tap seg0.cp2 at screen(466,300): the UI delivers onDoubleClick
+			// and then onPointerDown for that second press.
+			tool.onDoubleClick(
+				ev(466, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerDown(
+				ev(466, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			// Drag it up by 20
+			tool.onPointerMove(
+				ev(466, 280),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(466, 280),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const updatedSegments = getCommittedSegments(ctx, "path-1")!;
+
+			// seg0.cp2 moved to y=20
+			expect(updatedSegments[0].cp2.y).toBeCloseTo(20);
+			// Its symmetric partner seg1.cp1 stays put
+			expect(updatedSegments[1].cp1.y).toBeCloseTo(0);
+		});
+
+		it("should mirror again on a plain drag after the double-tap drag ended", () => {
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// Double-tap seg0.cp2, then release without dragging
+			tool.onDoubleClick(
+				ev(466, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerDown(
+				ev(466, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(466, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// A later plain drag of the still-symmetric pair mirrors as before
+			tool.onPointerDown(
+				ev(466, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(466, 280),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(466, 280),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const updatedSegments = getCommittedSegments(ctx, "path-1")!;
+			expect(updatedSegments[0].cp2.y).toBeCloseTo(20);
+			expect(updatedSegments[1].cp1.y).not.toBeCloseTo(0);
+		});
+
 		it("should mirror opposite handle in world space when path has rotation transform", () => {
 			// Path with rotation=90°: local (0,0)→(100,0)→(200,0)
 			// becomes world (100,-100)→(100,0)→(100,100)

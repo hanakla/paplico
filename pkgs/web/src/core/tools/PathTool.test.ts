@@ -467,6 +467,10 @@ describe("PathTool", () => {
 			(ctx.getObjects as ReturnType<typeof vi.fn>).mockReturnValue({
 				"path-v1": straightPath,
 			});
+			// Vertex insertion only targets selected paths
+			(ctx.getSelectedElementIds as ReturnType<typeof vi.fn>).mockReturnValue([
+				"path-v1",
+			]);
 		}
 
 		it("inserts vertex on existing curve via pathUpdate", () => {
@@ -528,6 +532,17 @@ describe("PathTool", () => {
 			expect(segs[1].cp1.y).toBeCloseTo(20);
 		});
 
+		it("does not insert vertex on an unselected path's edge", () => {
+			setupVertexInsertion();
+			(ctx.getSelectedElementIds as ReturnType<typeof vi.fn>).mockReturnValue(
+				[],
+			);
+			// Midpoint of the unselected path's edge: world(50,0)=screen(450,300)
+			toolClick(tool, 450, 300);
+
+			expect(ctx.pathUpdate).toHaveBeenCalledTimes(0);
+		});
+
 		it("hit-tests against the visible curve of a moved (transformed) path", () => {
 			const movedPath = {
 				...straightPath,
@@ -541,6 +556,9 @@ describe("PathTool", () => {
 			(ctx.getObjects as ReturnType<typeof vi.fn>).mockReturnValue({
 				"path-moved": movedPath,
 			});
+			(ctx.getSelectedElementIds as ReturnType<typeof vi.fn>).mockReturnValue([
+				"path-moved",
+			]);
 
 			// Local curve (0,0)→(100,0) is offset by transform.x=200, so the visible
 			// curve spans world (200,0)→(300,0). Its midpoint is world(250,0)=screen(650,300).

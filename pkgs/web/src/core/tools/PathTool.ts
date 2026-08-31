@@ -1332,7 +1332,7 @@ export class PathTool implements Tool {
 		return (wx, wy) => inverseTransform(wx, wy, t, origin.x, origin.y);
 	}
 
-	/** Find the nearest point on any path's curve within threshold */
+	/** Find the nearest point on a selected path's curve within threshold */
 	private findCurveHitOnLayer(
 		worldPos: { x: number; y: number },
 		zoom: number,
@@ -1343,10 +1343,14 @@ export class PathTool implements Tool {
 		const objects = this.context.getObjects();
 		const toleranceWorld = PathTool.CLOSE_THRESHOLD_PX / zoom;
 
-		// Candidate paths: the layer's own paths, plus each blend's spine, which is
-		// absorbed (kept in objects, not in layer.elementIds) but is still editable.
+		// Candidate paths: only selected elements accept vertex insertion, so a
+		// click on an unselected path's edge doesn't mutate it. Selected paths on
+		// the layer, plus each selected blend's spine, which is absorbed (kept in
+		// objects, not in layer.elementIds) but is still editable.
+		const selectedIds = new Set(this.context.getSelectedElementIds());
 		const candidates: Path[] = [];
 		for (const elementId of layer.elementIds) {
+			if (!selectedIds.has(elementId)) continue;
 			const element = objects[elementId];
 			if (!element) continue;
 			if (element.type === "path") {

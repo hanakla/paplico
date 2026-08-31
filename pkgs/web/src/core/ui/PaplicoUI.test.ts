@@ -446,6 +446,62 @@ describe("PaplicoUI pen input passthrough", () => {
 	});
 });
 
+describe("PaplicoUI double click", () => {
+	it("should still deliver pointerdown so the second press can start a drag", () => {
+		const harness = createHarness("path-edit", 10);
+
+		// First click
+		dispatchPointer(harness.canvas, "pointerdown", {
+			clientX: 100,
+			clientY: 100,
+		});
+		dispatchPointer(harness.canvas, "pointerup", {
+			clientX: 100,
+			clientY: 100,
+		});
+		harness.tool.onPointerDown.mockClear();
+
+		// Second press at the same spot: recognized as a double click
+		dispatchPointer(harness.canvas, "pointerdown", {
+			clientX: 100,
+			clientY: 100,
+		});
+
+		expect(harness.tool.onDoubleClick).toHaveBeenCalledTimes(1);
+		expect(harness.tool.onPointerDown).toHaveBeenCalledTimes(1);
+
+		// The drag that follows the second press reaches the tool
+		dispatchPointer(harness.canvas, "pointermove", {
+			clientX: 100,
+			clientY: 140,
+		});
+		dispatchPointer(harness.canvas, "pointerup", {
+			clientX: 100,
+			clientY: 140,
+		});
+
+		expect(harness.tool.onPointerMove).toHaveBeenCalled();
+		expect(harness.tool.onPointerUp).toHaveBeenCalled();
+	});
+
+	it("should not report a triple click as a second double click", () => {
+		const harness = createHarness("path-edit", 10);
+
+		for (let i = 0; i < 3; i++) {
+			dispatchPointer(harness.canvas, "pointerdown", {
+				clientX: 100,
+				clientY: 100,
+			});
+			dispatchPointer(harness.canvas, "pointerup", {
+				clientX: 100,
+				clientY: 100,
+			});
+		}
+
+		expect(harness.tool.onDoubleClick).toHaveBeenCalledTimes(1);
+	});
+});
+
 describe("PaplicoUI zoom clamp", () => {
 	function dispatchCtrlWheelZoomIn(canvas: HTMLCanvasElement) {
 		// happy-dom's WheelEvent constructor does not wire up `ctrlKey` from
@@ -511,6 +567,7 @@ function createHarness(
 		onPointerDown: vi.fn(),
 		onPointerMove: vi.fn(),
 		onPointerUp: vi.fn(),
+		onDoubleClick: vi.fn(),
 		onCancel: vi.fn(),
 		getCursor: vi.fn(() => "crosshair"),
 	} satisfies Tool;

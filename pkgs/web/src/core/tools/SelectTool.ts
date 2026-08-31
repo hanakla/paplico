@@ -180,8 +180,6 @@ export class SelectTool implements Tool {
 	private lastWorldX = 0;
 	private lastWorldY = 0;
 	private lastViewport: Viewport | null = null;
-	private isPinchResizing = false;
-	private pinchResizeOriginalBounds: WorldBBox | null = null;
 
 	public constructor(context: ToolContext) {
 		this.context = context;
@@ -1409,8 +1407,6 @@ export class SelectTool implements Tool {
 
 	public onCancel(): void {
 		this.dragState = { mode: "idle" };
-		this.isPinchResizing = false;
-		this.pinchResizeOriginalBounds = null;
 		this.updateSnapLineOverlay([]);
 		this.updateMarqueeOverlay(null);
 		this.selectedBounds = null;
@@ -1803,76 +1799,9 @@ export class SelectTool implements Tool {
 		return false;
 	}
 
-	/** Expose selection bounds for PaplicoUI gesture detection */
+	/** Expose selection bounds so a gesture interrupt can restore them */
 	public getSelectionBounds(): BoundingBox | null {
 		return this.selectedBounds;
-	}
-
-	/**
-	 * Handle pinch resize (preview only - does not modify document)
-	 * Called repeatedly during gesture
-	 */
-	public handlePinchResize(
-		originalBounds: WorldBBox,
-		_centerWorld: { x: number; y: number },
-		scaleRatio: number,
-	): void {
-		if (!originalBounds) return;
-
-		if (!this.isPinchResizing) {
-			this.isPinchResizing = true;
-			this.pinchResizeOriginalBounds = brandWorldBBox({ ...originalBounds });
-		}
-
-		const centerX = (originalBounds.minX + originalBounds.maxX) / 2;
-		const centerY = (originalBounds.minY + originalBounds.maxY) / 2;
-
-		const newWidth = originalBounds.width * scaleRatio;
-		const newHeight = originalBounds.height * scaleRatio;
-
-		const newBounds = brandWorldBBox({
-			minX: centerX - newWidth / 2,
-			maxX: centerX + newWidth / 2,
-			minY: centerY - newHeight / 2,
-			maxY: centerY + newHeight / 2,
-			width: newWidth,
-			height: newHeight,
-		});
-
-		this.selectedBounds = newBounds;
-
-		const selectionUI = this.createSelectionUI(newBounds);
-		this.context.uiUpdateSelectionUI(selectionUI);
-	}
-
-	/**
-	 * Finalize pinch resize (commit to document)
-	 * Called when gesture ends
-	 */
-	public finalizePinchResize(): void {
-		if (!this.isPinchResizing) return;
-
-		const selectedIds = this.context.getSelectedElementIds();
-		if (
-			!this.selectedBounds ||
-			!this.pinchResizeOriginalBounds ||
-			selectedIds.length === 0
-		) {
-			this.isPinchResizing = false;
-			this.pinchResizeOriginalBounds = null;
-			return;
-		}
-
-		this.context.elementsResize(
-			selectedIds,
-			this.pinchResizeOriginalBounds,
-			this.selectedBounds,
-		);
-
-		this.isPinchResizing = false;
-		this.pinchResizeOriginalBounds = null;
-
-		this.refreshUI();
 	}
 }
 

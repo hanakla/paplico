@@ -50,7 +50,7 @@ interface PaplicoUICallbacks {
 	// Shortcut filter
 	filterShortcutEvents?: (event: KeyboardEvent) => false | undefined;
 
-	// For gesture-based object resize
+	// Snapshotted before tooling so a gesture interrupt can restore the selection
 	getSelectedElementIds?: () => string[];
 	getSelectionBounds?: () => BoundingBox | null;
 
@@ -139,13 +139,6 @@ type GestureViewport = {
 	prevDistance: number;
 };
 
-type GestureObjectResize = {
-	type: "object-resize";
-	startDistance: number;
-	startCenter: Point;
-	startBounds: BoundingBox | null;
-};
-
 /** Two-finger gesture claimed by the active tool (Tool.onTouchGesture). */
 type GestureToolGesture = {
 	type: "tool-gesture";
@@ -168,7 +161,6 @@ type GestureState =
 	| GestureToolSize
 	| GesturePendingTap
 	| GestureViewport
-	| GestureObjectResize
 	| GestureToolGesture
 	| GestureSafariTrackpad;
 
@@ -479,7 +471,6 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		// If already in active gesture, ignore additional pointers
 		if (
 			this.gesture.type === "viewport" ||
-			this.gesture.type === "object-resize" ||
 			this.gesture.type === "tool-gesture"
 		) {
 			e.preventDefault();
@@ -543,10 +534,12 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			}
 			this.emit("doubleClick", { event: eventData, rect });
 			this.lastClickTime = 0; // Reset to prevent triple-click
-			return;
+			// Fall through to the normal pointer-down flow: the second press must
+			// still be able to start a drag (e.g. pulling a handle out of an
+			// anchor right after double-clicking it).
+		} else {
+			this.lastClickTime = now;
 		}
-
-		this.lastClickTime = now;
 		this.lastClickX = x;
 		this.lastClickY = y;
 
@@ -645,14 +638,6 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			this.updateViewportGesture(rect);
 			return;
 		}
-		if (
-			this.gesture.type === "object-resize" &&
-			this.activePointers.size >= 2
-		) {
-			this.updateObjectResizeGesture(rect);
-			return;
-		}
-
 		// Handle panning (rotation-aware)
 		if (this.gesture.type === "pan") {
 			const g = this.gesture;
@@ -780,18 +765,11 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		// End active gesture when fewer than 2 pointers remain
 		if (
 			(this.gesture.type === "viewport" ||
-				this.gesture.type === "object-resize" ||
 				this.gesture.type === "tool-gesture") &&
 			this.activePointers.size < 2
 		) {
 			if (this.gesture.type === "tool-gesture") {
 				this.endToolGesture();
-			}
-			if (this.gesture.type === "object-resize") {
-				const tool = this.callbacks.getTool();
-				if (tool && "finalizePinchResize" in tool) {
-					(tool as any).finalizePinchResize();
-				}
 			}
 
 			this.gesture = { type: "idle" };
@@ -872,7 +850,6 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 
 		if (
 			this.gesture.type === "viewport" ||
-			this.gesture.type === "object-resize" ||
 			this.gesture.type === "pending-tap"
 		) {
 			this.gesture = { type: "idle" };
@@ -936,7 +913,6 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 
 		if (
 			(this.gesture.type === "viewport" ||
-				this.gesture.type === "object-resize" ||
 				this.gesture.type === "tool-gesture") &&
 			this.activePointers.size < 2
 		) {
@@ -1034,7 +1010,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 
 	// --- Gesture Logic ---
 
-	/** Promote pending-tap to an active gesture (viewport or object-resize) */
+	/** Promote pending-tap to a two-finger viewport gesture */
 	private promoteToActiveGesture(viewport: Viewport, rect: DOMRect): void {
 		const pointers = [...this.activePointers.values()];
 		const [p0, p1] = pointers;
@@ -1078,60 +1054,29 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			return;
 		}
 
-		// Check if we have selected elements AND all pointers are inside the selection bbox
-		const selectionBounds = this.callbacks.getSelectionBounds?.() ?? null;
-		const hasSelection =
-			tool?.name === "select" &&
-			(this.callbacks.getSelectedElementIds?.().length ?? 0) > 0 &&
-			selectionBounds != null &&
-			pointers.every((ptr) => {
-				const w = screenToWorld(
-					ptr.x,
-					ptr.y,
-					viewport,
-					rect.width,
-					rect.height,
-				);
-				return (
-					w.x >= selectionBounds.minX &&
-					w.x <= selectionBounds.maxX &&
-					w.y >= selectionBounds.minY &&
-					w.y <= selectionBounds.maxY
-				);
-			});
-
-		if (hasSelection) {
-			this.gesture = {
-				type: "object-resize",
-				startDistance: distance,
-				startCenter: centerWorld,
-				startBounds: selectionBounds,
-			};
-		} else {
-			this.gesture = {
-				type: "viewport",
-				intent: null,
-				startAngle: Math.atan2(dy, dx),
-				startDistance: distance,
-				startZoom: viewport.zoom,
-				startRotation: viewport.rotation ?? 0,
-				startViewport: {
-					x: viewport.x,
-					y: viewport.y,
-					zoom: viewport.zoom,
-					rotation: viewport.rotation ?? 0,
-				},
-				centerWorld,
-				centerScreen: { x: centerScreenX, y: centerScreenY },
-				sampleCount: 0,
-				sampleAngleSum: 0,
-				sampleCenterSum: 0,
-				sampleZoomSum: 0,
-				prevAngle: Math.atan2(dy, dx),
-				prevCenter: { x: centerScreenX, y: centerScreenY },
-				prevDistance: distance,
-			};
-		}
+		this.gesture = {
+			type: "viewport",
+			intent: null,
+			startAngle: Math.atan2(dy, dx),
+			startDistance: distance,
+			startZoom: viewport.zoom,
+			startRotation: viewport.rotation ?? 0,
+			startViewport: {
+				x: viewport.x,
+				y: viewport.y,
+				zoom: viewport.zoom,
+				rotation: viewport.rotation ?? 0,
+			},
+			centerWorld,
+			centerScreen: { x: centerScreenX, y: centerScreenY },
+			sampleCount: 0,
+			sampleAngleSum: 0,
+			sampleCenterSum: 0,
+			sampleZoomSum: 0,
+			prevAngle: Math.atan2(dy, dx),
+			prevCenter: { x: centerScreenX, y: centerScreenY },
+			prevDistance: distance,
+		};
 
 		this.canvas.style.cursor = "grabbing";
 	}
@@ -1612,38 +1557,6 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 				y: g.centerWorld.y + unrotY / viewport.zoom,
 				rotation: newRotation,
 			});
-		}
-	}
-
-	/** Update object resize during two-finger gesture */
-	private updateObjectResizeGesture(rect: DOMRect): void {
-		if (this.gesture.type !== "object-resize" || !this.gesture.startBounds)
-			return;
-
-		const pointers = [...this.activePointers.values()];
-		if (pointers.length < 2) return;
-		const [p0, p1] = pointers;
-
-		const dx = p1.x - p0.x;
-		const dy = p1.y - p0.y;
-		const currentDistance = Math.hypot(dx, dy);
-
-		const scaleRatio =
-			this.gesture.startDistance > 0
-				? currentDistance / this.gesture.startDistance
-				: 1;
-
-		const tool = this.callbacks.getTool();
-		if (tool && "handlePinchResize" in tool) {
-			const viewport = this.callbacks.getViewport();
-			(tool as any).handlePinchResize(
-				this.gesture.startBounds,
-				this.gesture.startCenter,
-				scaleRatio,
-				viewport,
-				rect.width,
-				rect.height,
-			);
 		}
 	}
 
