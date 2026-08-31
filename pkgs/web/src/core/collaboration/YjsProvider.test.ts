@@ -2274,4 +2274,89 @@ describe("YjsProvider", () => {
 			provider.destroy();
 		});
 	});
+
+	describe("duplicated element references", () => {
+		function makePath(id: string) {
+			return {
+				id,
+				type: "path" as const,
+				segments: [],
+				opacity: 1,
+				blendMode: "normal" as const,
+				transform: createIdentityTransform(),
+			};
+		}
+
+		it("should drop repeated children when loading a document", () => {
+			const provider = new YjsProvider({ callbacks });
+
+			provider.replaceDocument({
+				id: "doc-1",
+				objects: {
+					"group-1": {
+						id: "group-1",
+						type: "group",
+						childIds: ["path-1", "path-2", "path-1", "path-2"],
+						opacity: 1,
+						blendMode: "normal",
+						transform: createIdentityTransform(),
+					},
+					"path-1": makePath("path-1"),
+					"path-2": makePath("path-2"),
+				},
+				layers: [
+					{
+						id: "layer-1",
+						name: "Layer 1",
+						visible: true,
+						locked: false,
+						opacity: 1,
+						elementIds: ["group-1", "group-1"],
+					},
+				],
+				viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },
+				files: [],
+				artboards: [],
+				brushPresets: [],
+			});
+
+			const doc = extractDocumentFromYDoc(provider.ydoc);
+			expect(doc.layers[0].elementIds).toEqual(["group-1"]);
+			expect(
+				(doc.objects["group-1"] as { childIds: string[] }).childIds,
+			).toEqual(["path-1", "path-2"]);
+			provider.destroy();
+		});
+
+		it("should not add the same child to a group twice", () => {
+			const provider = new YjsProvider({ callbacks });
+
+			provider.addLayer({
+				id: "layer-1",
+				name: "Layer 1",
+				visible: true,
+				locked: false,
+				opacity: 1,
+				elementIds: [],
+			});
+			provider.addElement("layer-1", {
+				id: "group-1",
+				type: "group",
+				childIds: [],
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			});
+			provider.addElement("layer-1", makePath("path-1"));
+
+			provider.addElementToGroup("layer-1", "group-1", "path-1");
+			provider.addElementToGroup("layer-1", "group-1", "path-1");
+
+			const doc = extractDocumentFromYDoc(provider.ydoc);
+			expect(
+				(doc.objects["group-1"] as { childIds: string[] }).childIds,
+			).toEqual(["path-1"]);
+			provider.destroy();
+		});
+	});
 });

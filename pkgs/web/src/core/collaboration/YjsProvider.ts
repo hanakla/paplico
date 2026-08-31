@@ -396,6 +396,14 @@ export class YjsProvider {
 		return objectToStoredFields(element);
 	}
 
+	/**
+	 * Write a container's child list. Every write goes through here so the list
+	 * keeps its one invariant: an element appears in it once. See uniqueIds.
+	 */
+	private setChildIds(yContainer: Y.Map<unknown>, childIds: string[]): void {
+		yContainer.set("childIds", JSON.stringify(uniqueIds(childIds)));
+	}
+
 	/** Find a yLayer Y.Map by layer ID */
 	private findYLayer(layerId: string): Y.Map<unknown> | null {
 		for (let i = 0; i < this.yLayers.length; i++) {
@@ -1081,7 +1089,7 @@ export class YjsProvider {
 				const idx = childIds.indexOf(pathId);
 				if (idx !== -1) {
 					childIds.splice(idx, 1, ...newIds);
-					yObj.set("childIds", JSON.stringify(childIds));
+					this.setChildIds(yObj, childIds);
 				}
 			}
 
@@ -1206,7 +1214,7 @@ export class YjsProvider {
 						if (idxRemove !== -1) {
 							childIds.splice(idxRemove, 1);
 						}
-						yObj.set("childIds", JSON.stringify(childIds));
+						this.setChildIds(yObj, childIds);
 					}
 				}
 			}
@@ -1395,7 +1403,7 @@ export class YjsProvider {
 			const childIdsJson = yGroup.get("childIds") as string | undefined;
 			const childIds: string[] = childIdsJson ? JSON.parse(childIdsJson) : [];
 			const newChildIds = childIds.filter((id) => id !== childId);
-			yGroup.set("childIds", JSON.stringify(newChildIds));
+			this.setChildIds(yGroup, newChildIds);
 
 			const yLayer = this.findYLayer(layerId);
 			if (!yLayer) return;
@@ -1430,7 +1438,7 @@ export class YjsProvider {
 
 			const [moved] = childIds.splice(fromIndex, 1);
 			childIds.splice(toIndex, 0, moved);
-			yGroup.set("childIds", JSON.stringify(childIds));
+			this.setChildIds(yGroup, childIds);
 		});
 	}
 
@@ -1553,7 +1561,7 @@ export class YjsProvider {
 					elementId,
 				);
 			}
-			yGroup.set("childIds", JSON.stringify(childIds));
+			this.setChildIds(yGroup, childIds);
 
 			// Remove elementId from layer's elementIds
 			const yLayer = this.findYLayer(layerId);
@@ -1739,7 +1747,7 @@ export class YjsProvider {
 			).length;
 			const insertAt = minIndex - deletedBefore;
 			newChildIds.splice(insertAt, 0, groupId);
-			yParent.set("childIds", JSON.stringify(newChildIds));
+			this.setChildIds(yParent, newChildIds);
 		}, origin);
 
 		return groupId;
@@ -1982,7 +1990,7 @@ export class YjsProvider {
 		}
 		if (targetGroup && targetChildIds && targetIndex !== -1) {
 			targetChildIds.splice(targetIndex, 1, ...restoreIds);
-			targetGroup.set("childIds", JSON.stringify(targetChildIds));
+			this.setChildIds(targetGroup, targetChildIds);
 			this.yObjects.delete(containerId);
 		}
 	}
@@ -2605,7 +2613,10 @@ export class YjsProvider {
 export function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 	const yObjects = ydoc.getMap<Y.Map<unknown>>("objects");
 	for (const [id, obj] of Object.entries(doc.objects)) {
-		yObjects.set(id, storedFieldsToYMap(objectToStoredFields(obj)));
+		yObjects.set(
+			id,
+			storedFieldsToYMap(objectToStoredFields(withUniqueChildIds(obj))),
+		);
 	}
 
 	const yLayers = ydoc.getArray<Y.Map<unknown>>("layers");
@@ -2625,7 +2636,7 @@ export function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 		}
 
 		const yElementIds = new Y.Array<string>();
-		for (const id of layer.elementIds) yElementIds.push([id]);
+		for (const id of uniqueIds(layer.elementIds)) yElementIds.push([id]);
 		yLayer.set("elementIds", yElementIds);
 
 		yLayers.push([yLayer]);
@@ -2701,6 +2712,24 @@ function storedFieldsToYMap(fields: Record<string, unknown>): Y.Map<unknown> {
 	const yMap = new Y.Map<unknown>();
 	for (const [key, value] of Object.entries(fields)) yMap.set(key, value);
 	return yMap;
+}
+
+/**
+ * An element belongs to exactly one slot in exactly one list, so a repeated id
+ * is corruption: it paints the element twice and gives the layer panel two rows
+ * carrying the same identity. Keep the first occurrence, which is the position
+ * the element is painted at.
+ */
+function uniqueIds(ids: readonly string[]): string[] {
+	return [...new Set(ids)];
+}
+
+/** Repair a container whose child list carries the same element more than once. */
+function withUniqueChildIds(element: AnyArtObject): AnyArtObject {
+	if (!("childIds" in element)) return element;
+	const childIds = element.childIds as string[];
+	if (new Set(childIds).size === childIds.length) return element;
+	return { ...element, childIds: uniqueIds(childIds) };
 }
 
 /** Convert AnyArtObject to serializable key/value fields for Y.Map storage */
