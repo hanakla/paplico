@@ -11,6 +11,20 @@ export const devDocsNav: NavItem[] = [
 		],
 	},
 	{
+		title: "Brush System",
+		href: "/devdocs/brush-system",
+		children: [
+			{
+				title: "Input and Fitting",
+				href: "/devdocs/brush-system/input-and-fitting",
+			},
+			{
+				title: "Dynamics and Commit",
+				href: "/devdocs/brush-system/dynamics-and-commit",
+			},
+		],
+	},
+	{
 		title: "Tutorials",
 		href: "/devdocs/tutorials",
 		children: [
