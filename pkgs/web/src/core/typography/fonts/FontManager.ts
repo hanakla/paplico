@@ -155,13 +155,18 @@ export class FontManager extends Emitter<FontManagerEvents> {
 
 	/**
 	 * Query all fonts from Google and local sources.
+	 * Each source is settled independently so a failing one (e.g. Google Fonts
+	 * answering 403 without an API key) still lets the other one through.
 	 */
 	public async queryAllFonts(): Promise<FontMetadata[]> {
-		const [google, local] = await Promise.all([
+		const [google, local] = await Promise.allSettled([
 			this.googleLoader.queryFonts(),
 			this.localLoader.queryFonts(),
 		]);
-		return [...google, ...local];
+		return [
+			...unwrapQueriedFonts(google, "Google Fonts"),
+			...unwrapQueriedFonts(local, "local fonts"),
+		];
 	}
 
 	/**
@@ -676,4 +681,17 @@ export function getFontManager(googleFontsApiKey?: string): FontManager {
 		fontManagerInstance.setGoogleFontsApiKey(googleFontsApiKey);
 	}
 	return fontManagerInstance;
+}
+
+/**
+ * Read one settled font query, reporting a rejection instead of propagating it
+ * so that one unavailable source never hides the fonts of another.
+ */
+function unwrapQueriedFonts(
+	result: PromiseSettledResult<FontMetadata[]>,
+	sourceLabel: string,
+): FontMetadata[] {
+	if (result.status === "fulfilled") return result.value;
+	console.error(`Failed to query ${sourceLabel}:`, result.reason);
+	return [];
 }
