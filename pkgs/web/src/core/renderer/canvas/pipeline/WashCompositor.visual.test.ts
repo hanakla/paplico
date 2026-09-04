@@ -149,3 +149,51 @@ describe("WashCompositor.applyWetEdge", () => {
 		pool.destroy();
 	});
 });
+
+describe("WashCompositor.beginFrame", () => {
+	it("should reuse the blur uniform buffers on the next frame instead of allocating more", async () => {
+		const device = await getTestDevice();
+		const pool = new TexturePool(device);
+		const compositor = new WashCompositor(device, pool, "rgba8unorm");
+		const createBuffer = vi.spyOn(device, "createBuffer");
+		const blurUniformAllocations = () =>
+			createBuffer.mock.calls.filter(([desc]) =>
+				desc.label?.startsWith("Blur Pyramid Uniforms"),
+			).length;
+
+		const renderFrame = () => {
+			compositor.beginFrame();
+			const size = 64;
+			const texture = device.createTexture({
+				size: [size, size],
+				format: "rgba8unorm",
+				usage:
+					GPUTextureUsage.TEXTURE_BINDING |
+					GPUTextureUsage.COPY_DST |
+					GPUTextureUsage.RENDER_ATTACHMENT,
+			});
+			const encoder = device.createCommandEncoder();
+			const scratch = compositor.applyWetEdge(
+				encoder,
+				texture,
+				{ width: 4, intensity: 0.5, darkening: 0.6, blur: 6 },
+				1,
+				100,
+			);
+			device.queue.submit([encoder.finish()]);
+			for (const t of scratch) pool.release(t);
+			texture.destroy();
+		};
+
+		renderFrame();
+		const afterFirstFrame = blurUniformAllocations();
+		expect(afterFirstFrame).toBeGreaterThan(0);
+
+		renderFrame();
+		expect(blurUniformAllocations()).toBe(afterFirstFrame);
+
+		createBuffer.mockRestore();
+		compositor.destroy();
+		pool.destroy();
+	});
+});

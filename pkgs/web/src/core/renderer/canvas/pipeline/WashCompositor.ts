@@ -34,6 +34,11 @@ export class WashCompositor {
 		private readonly canvasFormat: GPUTextureFormat,
 	) {}
 
+	/** Rewind the rim blur's per-frame uniform pool. */
+	public beginFrame(): void {
+		this.blurBuilder?.beginFrame();
+	}
+
 	/**
 	 * Apply the wet edge to `texture` in place. `worldPerPixel` converts the
 	 * config's world-space rim width into texels; `brushSize` caps it (§9).

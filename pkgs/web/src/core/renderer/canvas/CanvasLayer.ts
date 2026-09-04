@@ -2141,6 +2141,7 @@ export class CanvasLayer {
 		// tracking (glass extrude refraction), and the shared capture/pyramid
 		// coordinator they sample through.
 		this.backdropEffectCoordinator.beginFrame();
+		this.washCompositor.beginFrame();
 		for (const driver of this.backdropDrivers) {
 			driver.beginFrame();
 		}
