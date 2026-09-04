@@ -20,11 +20,11 @@ state that is not retained to avoid work.
 
 ### `DocumentCache` is not a document-content cache
 
-`CanvasLayer` renders document content directly every frame:
-`invalidateDocumentCache()` is intentionally a no-op. The `DocumentCache` name
-refers to persistent, size-matched GPU
-auxiliary textures only. Do not design an invalidation path on the assumption
-that it stores rendered layer contents.
+`CanvasLayer` renders document content directly every frame;
+`invalidateDocumentCache()` only drops the composite frame cache that
+viewport-only frames blit and reproject. The `DocumentCache` name refers to
+persistent, size-matched GPU auxiliary textures only. Do not design an
+invalidation path on the assumption that it stores rendered layer contents.
 
 `DocumentCache` retains the main stencil texture, composite textures
 (`capture`, `layer`, `prebuf`, `canvasBase`), final-blit stencil, and backdrop

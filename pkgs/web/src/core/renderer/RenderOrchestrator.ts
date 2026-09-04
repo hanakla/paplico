@@ -772,8 +772,8 @@ export class RenderOrchestrator {
 	}
 
 	/**
-	 * Invalidate the document cache on all targets so the next render
-	 * re-draws the document layer.  Does NOT clear boundsCache or
+	 * Drop every target's cached composite frame so the next render re-draws
+	 * the document instead of blitting it.  Does NOT clear boundsCache or
 	 * geometryCache — use this for async resource loads (text paths,
 	 * brush textures) that only affect visuals, not geometry.
 	 */

@@ -91,8 +91,9 @@ Before this design, fill, stroke, and post-processing were separate properties o
 ### What DocumentCache caches
 
 `DocumentCache` does not store rendered document or layer contents. `CanvasLayer`
-renders document content directly every frame, and `invalidateDocumentCache()` is a
-no-op. The class holds only size-matched auxiliary GPU textures: stencil,
+renders document content directly every frame; `invalidateDocumentCache()` only
+drops the composite frame that viewport-only frames blit. The class holds only
+size-matched auxiliary GPU textures: stencil,
 composite, prebuffer, final-blit, and backdrop-mask resources. Recreate these when
 their descriptor changes, defer replacement destruction until in-flight GPU work is
 safe, and let `CanvasLayer` destroy the surviving resources. Full cache policy →

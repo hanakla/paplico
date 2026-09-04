@@ -7165,11 +7165,13 @@ export class CanvasLayer {
 		this.elements.invalidateTextCache(elementId);
 	}
 
-	/** No-op: every frame renders the document directly, so there is no
-	 *  content cache to invalidate. */
+	/**
+	 * Drop the cached composite frame so the next viewport-only frame
+	 * re-renders instead of blitting a stale composite (async resource load,
+	 * external content change). Document content itself is rendered every
+	 * frame and holds no cache of its own.
+	 */
 	public invalidateDocumentCache(): void {
-		// Force the next viewport-only frame to re-render instead of blitting a
-		// now-stale composite (async resource load, external content change).
 		this.compositeFrameCache.valid = false;
 	}
 
