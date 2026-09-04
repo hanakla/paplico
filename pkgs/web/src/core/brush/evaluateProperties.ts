@@ -7,7 +7,7 @@ import {
 } from "./properties";
 
 /**
- * Curve-matrix evaluation of brush properties (design §3). Every engine that
+ * Curve-matrix evaluation of brush properties. Every engine that
  * modulates a property — dabs per sample, ribbons at their segment endpoints
  * — resolves it through here, so a property's domain and clamping behave the
  * same whichever engine draws the stroke.

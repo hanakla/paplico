@@ -205,7 +205,7 @@ export class BackdropCaptureManager {
 	 *   texture sized at this fixed rasterization scale (R = rasterizationDpi/72,
 	 *   texels per world px) instead of the display-resolution region, and the
 	 *   filters run on that grid. This makes backdrop filters (frost glass,
-	 *   pixelate) invariant to viewport zoom/pan. Omit to keep the legacy
+	 *   pixelate) invariant to viewport zoom/pan. Omit for a
 	 *   display-resolution capture (e.g. glass-extrude refraction).
 	 */
 	public captureRegion(

@@ -331,7 +331,7 @@ export async function createBuiltinBrushFiles(): Promise<EmbeddedFile[]> {
 		softBlob.arrayBuffer().then((buf) => new Uint8Array(buf)),
 	]);
 
-	// Paper grain textures (design §11): value noise at two frequencies.
+	// Paper grain textures: value noise at two frequencies.
 	const [finePaperBlob, coarsePaperBlob] = await Promise.all([
 		pixelsToBlob(generatePaperGrainPixels(PAPER_SIZE, 24, 3), PAPER_SIZE),
 		pixelsToBlob(generatePaperGrainPixels(PAPER_SIZE, 8, 4), PAPER_SIZE),

@@ -38,8 +38,7 @@ function RemoteCursorsInner() {
 	useEffect(() => {
 		// getCollaboration() is not reactive, so a collaboration attached after
 		// this mounted would otherwise go unseen. Re-wiring on
-		// collaborationChanged is what picks it up — and what dropped the room
-		// id prop this used to gate on.
+		// collaborationChanged is what picks it up.
 		let awareness: ICollaboration["awareness"] | null = null;
 
 		const updateCursors = () => {

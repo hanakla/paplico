@@ -7,7 +7,7 @@ import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
 import { TRANSFORM_COMMON_WGSL } from "./transformCommon.wgsl";
 
 /**
- * Mix pass chunk compute (design §10-1). Two entry points share one bind
+ * Mix pass chunk compute. Two entry points share one bind
  * group layout:
  *
  * - cs_sample: one workgroup per dab; 64 threads average the backdrop

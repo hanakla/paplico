@@ -3,14 +3,14 @@
 Verified against `pkgs/web/src/core/` on 2026-07-21. Re-check symbol names/line
 numbers before relying on them — they drift.
 
-## Problem it solves
+## Why R exists
 
-Filter results (blur / frost-glass / drop-shadow / hanakla-kit, and the
-extrude3d 3D solid) used to wobble with viewport zoom, display DPI, and export
-scale, because filtered elements were rasterized to an offscreen sized at
-`element-bounds × viewport-zoom`. Every zoom changed the texel grid and the
-kernel discretization. Paplico introduces an Illustrator-style **fixed
-rasterization resolution R**, analogous to "Document Raster Effects Settings".
+Rasterizing a filtered element (blur / frost-glass / drop-shadow / hanakla-kit,
+and the extrude3d 3D solid) to an offscreen sized at
+`element-bounds × viewport-zoom` makes the result wobble with viewport zoom,
+display DPI, and export scale: every zoom changes the texel grid and the kernel
+discretization. Paplico uses an Illustrator-style **fixed rasterization
+resolution R** instead, analogous to "Document Raster Effects Settings".
 
 ## Definition of R
 
@@ -97,7 +97,7 @@ the display size, so the compositing/blit side is untouched.
 - **Scene3D is under R, but clamped.** `Reference3DElementRenderer` sizes scene
   textures from R through `clampReference3DRasterScale` ([0.25, 4]) with a
   2048 px side cap, since a full 3D scene is a different memory tradeoff from a
-  filter bake. Zoom no longer re-renders scenes; changing the document DPI does.
+  filter bake. Zoom never re-renders scenes; changing the document DPI does.
 - **Any new renderer that samples a filtered/rasterized intermediary** must size
   its offscreen with `getRasterScale()`, not viewport zoom, or it re-discretizes
   on zoom and reintroduces the exact wobble R was added to remove. It also has

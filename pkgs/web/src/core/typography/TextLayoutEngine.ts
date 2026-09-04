@@ -177,7 +177,7 @@ interface FlowCursor {
 }
 
 interface RegionSpec {
-	/** null = 制約なし（従来挙動: 段落=1行、原点基準アラインメント） */
+	/** null = 制約なし（段落=1行、原点基準アラインメント） */
 	provider: TextLineWidthProvider | null;
 	/** 最初の行バンドの上端Y（要素ローカル） */
 	startTop: number;
@@ -266,7 +266,7 @@ export class TextLayoutEngine {
 
 	/**
 	 * 縦書き: リージョン制約（box/inShape）があれば列ベースのフローコアで、
-	 * 無制約なら従来の layoutVertical でレイアウトする
+	 * 無制約なら layoutVertical でレイアウトする
 	 */
 	private async layoutVerticalRegionOrPlain(
 		element: TextElement,
@@ -1567,8 +1567,7 @@ export class TextLayoutEngine {
 	}
 
 	/**
-	 * 垂直書きレイアウト
-	 * 注: v1では折り返し・ボックス制約は未対応（従来挙動を維持）
+	 * 垂直書きレイアウト。折り返し・ボックス制約は扱わない
 	 */
 	private async layoutVertical(element: TextElement): Promise<LayoutResult> {
 		const { content, defaultStyle } = element;

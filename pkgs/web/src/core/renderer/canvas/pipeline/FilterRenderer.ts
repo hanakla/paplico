@@ -1113,7 +1113,7 @@ export class FilterRenderer {
 			// The leading handler produced nothing (e.g. an extrude appearance
 			// with depth 0) — finalTexture may be an untouched temp buffer (a
 			// source-ignoring handler that returns void draws nothing at all,
-			// unlike a legacy in-place filter, for which void always means "I
+			// unlike an in-place filter, for which void always means "I
 			// wrote into targetTexture"). Report back the original placeholder
 			// rather than that meaningless buffer.
 			return { texture: sourceTexture };

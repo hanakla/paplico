@@ -175,9 +175,9 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let dims = uniforms.resolution;
 	let texCoord = input.texCoord;
 
-	// Stable UV: world position normalized by the full element rect, matching
-	// the legacy texCoord domain of an unclamped bake so the noise pattern
-	// stays fixed while zooming or panning.
+	// Stable UV: world position normalized by the full element rect, the
+	// texCoord domain of an unclamped bake, so the noise pattern stays fixed
+	// while zooming or panning.
 	let stableUV = fluidWorldPos(texCoord) / uniforms.elementSize;
 
 	let distortionVec = fluidDistortion(

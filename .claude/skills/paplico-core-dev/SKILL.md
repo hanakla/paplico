@@ -88,11 +88,11 @@ Tools need to create/update elements but must not know about Yjs internals. Tool
 
 Before this design, fill, stroke, and post-processing were separate properties on `ArtObject`. This made ordering impossible — you couldn't put a drop shadow between two fills. By unifying everything as `Appearance<T>` entries in `ArtObject.filters[]`, draw order is simply array order. `ContentAppearance` acts as a marker for where the element's own content (text body, group children) renders relative to fills and strokes.
 
-### What DocumentCache caches now
+### What DocumentCache caches
 
-`DocumentCache` no longer stores rendered document or layer contents. `CanvasLayer`
+`DocumentCache` does not store rendered document or layer contents. `CanvasLayer`
 renders document content directly every frame, and `invalidateDocumentCache()` is a
-no-op. The class retains only size-matched auxiliary GPU textures: stencil,
+no-op. The class holds only size-matched auxiliary GPU textures: stencil,
 composite, prebuffer, final-blit, and backdrop-mask resources. Recreate these when
 their descriptor changes, defer replacement destruction until in-flight GPU work is
 safe, and let `CanvasLayer` destroy the surviving resources. Full cache policy →

@@ -161,8 +161,8 @@ export function deformPathSegments(
 
 		// Every segment carrying a start opens a sub-path — a glyph's next
 		// contour, a compound path's next ring — and its opening point has to
-		// travel with the rest, or that contour reaches back to where the shape
-		// used to be.
+		// travel with the rest, or that contour reaches back to the shape's
+		// undeformed position.
 		const newStart =
 			i === 0 || seg.start !== undefined ? deformPoint(origStart) : undefined;
 		// biome-ignore lint/style/noNonNullAssertion: prevDeformedEnd always exists when i>0

@@ -312,8 +312,8 @@ const MAX_REFERENCE3D_TEXTURE_SIDE = 2048;
 
 /**
  * Clamp the document rasterization scale (rasterizationDpi / 72) into the
- * texture-size sanity range [0.25, 4]. Unlike the old zoom bucketing, R is
- * fixed per document, so scene textures no longer re-render on zoom.
+ * texture-size sanity range [0.25, 4]. R is fixed per document, so scene
+ * textures never re-render on zoom.
  */
 export function clampReference3DRasterScale(scale: number): number {
 	return Math.min(Math.max(scale, 0.25), 4);

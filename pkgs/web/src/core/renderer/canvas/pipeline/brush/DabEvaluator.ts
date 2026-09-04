@@ -17,7 +17,7 @@ import { packStampPathIndex } from "./StampPacking";
 import { hardnessToLutIndex } from "./TipMaskBuilder";
 
 /**
- * DabEvaluator — curve-matrix dab generation (design §7).
+ * DabEvaluator — curve-matrix dab generation.
  *
  * Replaces StampGenerator for the dab engine: walks the stroke segments,
  * samples the inputs (pressure/speed EMAs/accel/tilt/twist/strokeT/...),
@@ -92,7 +92,7 @@ export interface DabBuffer {
 	data: Float32Array;
 	count: number;
 	/** Per-dab {colorRate, alphaRate, smudgeLength, 0} vec4s for the mix
-	 *  pass; empty unless settings.mixing.enabled (explicit gate, §H-3). */
+	 *  pass; empty unless settings.mixing.enabled (explicit gate). */
 	mixParams: Float32Array;
 	/** End state for incremental continuation (evaluateDabs `resume`). */
 	state: DabEvalState;
@@ -245,7 +245,7 @@ export function evaluateDabs(
 
 	// Color dynamics ride along as offsets, not as a resolved color: the
 	// gradient switch and the mix pass both resolve color in the shader, so a
-	// baked color here would have to duplicate them (design §5).
+	// baked color here would have to duplicate them.
 	const colorDynamic =
 		settings.properties.hueShift != null ||
 		settings.properties.satShift != null ||

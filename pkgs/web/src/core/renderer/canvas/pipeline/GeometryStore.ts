@@ -47,8 +47,7 @@ interface StoredRange {
 
 /**
  * Persistent shared vertex buffer for retained element geometry (solid
- * strokes, fill fans/fringes/covers). Replaces the per-element GPUBuffers the
- * geometry caches used to create: every cached range lives in ONE buffer,
+ * strokes, fill fans/fringes/covers). Every cached range lives in ONE buffer,
  * written only when an element's geometry actually changes, so cache-hit
  * frames bind a single vertex buffer and upload nothing.
  *

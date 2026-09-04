@@ -81,8 +81,9 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let crossDistortion = sin(crossWavePhase + uniforms.time * 0.1) * amplitudeNorm.x * uniforms.crossWave;
 
 	// The displacement is a pure offset: rotate it back into texture axes and
-	// apply it to the real bake UV. The 0.5 factor keeps the legacy magnitude
-	// from the centered [-1, 1] space this warp used to run in.
+	// apply it to the real bake UV. The 0.5 factor maps the [-1, 1] space the
+	// distortion is computed in onto UV, the magnitude saved documents were
+	// authored with.
 	let offsetUV = rotate2DAroundOrigin(vec2f(crossDistortion, distortion), -uniforms.angleRad) * 0.5;
 
 	// Clamp coordinates to prevent sampling outside texture bounds

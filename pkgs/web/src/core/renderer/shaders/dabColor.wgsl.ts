@@ -1,6 +1,6 @@
 /**
  * Path meta layout and stroke color resolution, shared by every shader that
- * reads the path meta buffer (design §10).
+ * reads the path meta buffer.
  */
 /** Float count of the PathMeta struct below; CPU writers stride by this. */
 export const PATH_META_FLOATS = 24;

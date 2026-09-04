@@ -516,7 +516,7 @@ const IMAGE_WARP_GRID_SEGMENTS = 16;
  * through the cage's Coons warp; images tessellate into a warped texture grid
  * (see MeshWarpResolution.imageWarpGrids); nested mesh containers compose
  * (inner warp first, then the outer one). Blend / Repeat / Reference3D
- * children pass through unwarped (v1 limitation).
+ * children pass through unwarped.
  *
  * Transient ids are `${mesh.id}::warp::…` so per-element GPU caches never
  * collide with the children's own (unrendered) entries, mirroring
@@ -602,7 +602,7 @@ export function warpMeshChildren(
 					: getTransform(el);
 				const childOpacity = opacityScale * el.opacity;
 				// Group-level blendMode / filters are not applied to the flattened
-				// children (v1 limitation). Clipping is: the clip path warps with
+				// children. Clipping is: the clip path warps with
 				// the group and comes back as a mask over the members instead of
 				// painting as a normal shape.
 				const firstMember = out.length;
@@ -719,7 +719,7 @@ export function warpMeshChildren(
 			}
 			default:
 				// blend / repeat / reference3d: no vector warp available — pass
-				// through unwarped so the content stays visible (v1 limitation).
+				// through unwarped so the content stays visible.
 				out.push(el);
 				break;
 		}

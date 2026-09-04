@@ -1,4 +1,4 @@
-// Wet layer diffusion step (design §13-2).
+// Wet layer diffusion step.
 //
 // One dt-normalized explicit-Euler iteration of water diffusion,
 // semi-Lagrangian pigment advection and drying. Every coefficient is read per

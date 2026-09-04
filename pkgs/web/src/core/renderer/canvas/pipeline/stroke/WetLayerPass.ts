@@ -140,13 +140,13 @@ export interface WetLayerApplyParams {
 }
 
 /**
- * The wet layer simulation (design §13): seed the fields from a stroke's dab
+ * The wet layer simulation: seed the fields from a stroke's dab
  * pass, diffuse them, and composite the result.
  *
  * The coefficients live in the fields, which is what lets one stroke behave
  * differently along its length. Everything the pass allocates is sized to the
  * simulation domain, which is resolved from the stroke's own bounds and brush
- * size (appendix B-2) and never from the viewport, so the result stays a pure
+ * size and never from the viewport, so the result stays a pure
  * function of the stroke.
  */
 export class WetLayerPass {

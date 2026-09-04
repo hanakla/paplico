@@ -348,13 +348,12 @@ points, half-widths and signed stroke widths at both ends, arc-length offset,
 UV mode, flips, tile spacing, opacity). Art brushes stretch one tile over the
 path; pattern brushes repeat with optional gaps.
 
-- Width and opacity evaluate the v2 `size` and `flow` curves **at each segment's
+- Width and opacity evaluate the `size` and `flow` curves **at each segment's
   endpoints** and interpolate between them — the granularity taper already uses.
-  A stroke with no v2 settings keeps the v1 pressure factor.
+  A stroke whose settings carry no curves keeps the flat pressure factor.
 - Tiling (stretch, UV offset, texture aspect, stamp angle) lives in the **path
-  meta**, per path. It used to be one uniform written per path but uploaded once
-  per flush, which let whichever ribbon was added last dictate the tiling of
-  every ribbon in the batch.
+  meta**, per path. A batch-wide uniform would let whichever ribbon was added
+  last dictate the tiling of every ribbon in the batch.
 - Ribbons take the wash route like dabs; nothing about the isolation is
   dab-specific.
 

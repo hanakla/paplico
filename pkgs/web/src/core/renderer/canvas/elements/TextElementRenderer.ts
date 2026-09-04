@@ -554,8 +554,8 @@ function unionWithAxisBounds(
 /**
  * Ordered per-glyph paint list resolved from the element's appearance stack.
  * "content" stands for the glyph's intrinsic fill (per-run fill, else the
- * default style fill) and paints at its stack position; legacy elements with
- * no content entry paint the intrinsic fill below the stack. Fill/stroke
+ * default style fill) and paints at its stack position; elements with no
+ * content entry paint the intrinsic fill below the stack. Fill/stroke
  * appearances overpaint in stack order and disabled entries are skipped. A
  * default-style stroke applies only while no stroke appearance exists.
  */
@@ -628,7 +628,7 @@ export function buildGlyphPaintFilters(opts: {
 	}
 
 	// Default-style stroke paints on top only while no stroke appearance
-	// overrides it (legacy behavior)
+	// overrides it.
 	if (!hasStrokeApp && defaultStroke != null) {
 		paint.push({
 			processor: "stroke",

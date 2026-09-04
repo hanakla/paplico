@@ -1,5 +1,5 @@
 /**
- * Wet-edge (watercolor rim) shaders for wash strokes (design §9).
+ * Wet-edge (watercolor rim) shaders for wash strokes.
  *
  * Two fullscreen passes over the isolated wash appearance texture:
  * 1. erode (run twice, X then Y): separable min-filter of coverage alpha —

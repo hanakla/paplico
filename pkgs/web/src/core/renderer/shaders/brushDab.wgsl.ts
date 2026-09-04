@@ -1,5 +1,5 @@
 /**
- * Brush dab shader (v2) — single template source (design §15).
+ * Brush dab shader — single template source.
  *
  * One template generates every tip variant, so the gradient sampling switch
  * exists exactly once. The DabInstance struct is generated from
@@ -46,7 +46,7 @@ const WET_COEFFICIENT_BLEND: GPUBlendState = {
  * five of them and — the reason for the split — lets each target carry its
  * own blend state. The fields accumulate additively while the
  * coefficients blend by coverage, so where dabs overlap the later one wins in
- * proportion to how much it covers (design §13-2's recency weighting) instead
+ * proportion to how much it covers instead
  * of summing into saturation.
  */
 export const WET_SEED_TARGETS: readonly GPUColorTargetState[] = [
@@ -285,7 +285,7 @@ ${
 	colorA = mixed.a;`
 		: ""
 }
-	// Paper grain (design §11): sampled at a canvas-fixed UV so the texture
+	// Paper grain: sampled at a canvas-fixed UV so the texture
 	// stays put under the stroke instead of travelling with each dab.
 	// Sampled unconditionally: implicit derivatives need uniform control
 	// flow, and a grain-less stroke binds a 1x1 white texture anyway.
@@ -323,7 +323,7 @@ ${wetSeed ? buildWetSeedWgsl(tipSample, mixedColors) : ""}
 }
 
 /**
- * Wet layer seed targets (design §13-2). The velocity field is
+ * Wet layer seed targets. The velocity field is
  * `fluidVelocity` (not `flow`, which is the flow brush property) and the
  * water/pooling field is `moisture`.
  *

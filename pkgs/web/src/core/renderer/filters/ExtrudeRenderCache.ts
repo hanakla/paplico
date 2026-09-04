@@ -156,7 +156,7 @@ export function computePaintHash(
 		case "image":
 			return `${element.fileUid}:${ctx.isImageReady(element.fileUid)}`;
 		case "repeat":
-			// Repeat is not extruded in v1 and contributes no paint of its own to
+			// Repeat is not extruded and contributes no paint of its own to
 			// an extruded ancestor, so its hash never needs to vary.
 			return "repeat";
 		default:

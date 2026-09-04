@@ -32,7 +32,7 @@ export interface RefractionParams {
  * Runs the glass refraction: the solid composited over a per-pixel refracted
  * copy of the shared backdrop sample (two Gaussian-pyramid levels bracketing
  * the effect's blur sigma, built once per batch by BackdropEffectCoordinator
- * — this compositor no longer blurs anything itself). Restricted to the
+ * — this compositor blurs nothing itself). Restricted to the
  * effect's screen rect via the viewport, and composited as a coverage-masked
  * two-draw replace (punch by 1 − coverage, then additive add) so pixels
  * outside the solid never touch the destination — the shared backdrop sample

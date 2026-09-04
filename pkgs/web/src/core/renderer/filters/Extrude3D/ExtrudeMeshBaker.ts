@@ -375,8 +375,8 @@ export class ExtrudeMeshBaker {
 
 		// Material surface pattern: tile a pattern def across the mesh as the
 		// albedo, independent of the element's own fill. Cold/missing = null.
-		// Computed here (not just before encodePass, where it used to live) since
-		// its revision feeds the render-cache hash below.
+		// Computed here, before encodePass, since its revision feeds the
+		// render-cache hash below.
 		const material = params.material;
 		const pattern = material.pattern;
 		const patternResolved = pattern?.defId

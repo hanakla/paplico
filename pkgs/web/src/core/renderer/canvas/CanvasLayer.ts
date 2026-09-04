@@ -1820,9 +1820,9 @@ export class CanvasLayer {
 		// transient set changes — even on non-full strategies. While transients
 		// exist their map mutates in place (identity never changes), so rebuild
 		// every frame; with none, there is nothing to rebuild. Normalizing to
-		// null before comparing matters: raw `undefined !== null` used to be
-		// true on EVERY transient-less frame, silently rebuilding and
-		// re-uploading all transforms during pan/zoom.
+		// null before comparing matters: a raw `undefined !== null` compare is
+		// true on EVERY transient-less frame and would silently rebuild and
+		// re-upload all transforms during pan/zoom.
 		const transients = transientElements ?? null;
 		if (transients !== this.lastTransientElements || transients != null) {
 			this.lastTransientElements = transients;
@@ -5131,7 +5131,7 @@ export class CanvasLayer {
 		for (let i = 0; i < plans.length; i++) {
 			const plan = plans[i];
 
-			// Wash strokes (design §6-3): the appearance renders flow-only into
+			// Wash strokes: the appearance renders flow-only into
 			// the isolated texture; its opacity and strokeOpacity apply exactly
 			// once at composite time below.
 			const isWash = plan.washStrokeOpacity != null;
@@ -5184,7 +5184,7 @@ export class CanvasLayer {
 				);
 			}
 
-			// Watercolor rim on the isolated wash appearance (design §9).
+			// Watercolor rim on the isolated wash appearance.
 			if (isWash && plan.washWetEdge) {
 				const scratch = this.washCompositor.applyWetEdge(
 					encoder,
@@ -5375,7 +5375,7 @@ export class CanvasLayer {
 	/**
 	 * Identity of everything drawn below `elementId` that overlaps `bounds` —
 	 * what a mixing stroke's result depends on besides its own content
-	 * (design §10-2). Document updates are immutable, so object identity IS
+	 *. Document updates are immutable, so object identity IS
 	 * content identity: a per-object serial captures a change without deep
 	 * hashing. Null when the element is not in this frame's plan, which makes
 	 * the caller skip caching rather than cache under a wrong key.
@@ -7165,10 +7165,8 @@ export class CanvasLayer {
 		this.elements.invalidateTextCache(elementId);
 	}
 
-	/**
-	 * No-op: document cache was removed — every frame renders directly.
-	 * Kept for API compatibility with RenderOrchestrator / Paplico.
-	 */
+	/** No-op: every frame renders the document directly, so there is no
+	 *  content cache to invalidate. */
 	public invalidateDocumentCache(): void {
 		// Force the next viewport-only frame to re-render instead of blitting a
 		// now-stale composite (async resource load, external content change).
@@ -7387,7 +7385,7 @@ export class CanvasLayer {
 
 	/**
 	 * Render one wet appearance: its dabs seed the simulation fields and
-	 * WetLayerPass composites the settled result (design §13).
+	 * WetLayerPass composites the settled result.
 	 *
 	 * It stands in for the normal offscreen element render inside the wash
 	 * isolation — every wet stroke is a wash stroke, since normalize forces
@@ -8368,9 +8366,9 @@ function collectPatternDefIdsInUse(
  * (their textures would have to join the rgba8unorm scatter texture array,
  * which the canvas-format def textures are not copy-compatible with).
  *
- * Def sources only exist in the modern `source` shape (legacy
- * `textureFileUid`-style settings predate defs), so reading the raw params
- * structurally — like `collectPatternDefIdsInUse` does — is sufficient.
+ * Def sources only exist in the `source` shape (`textureFileUid`-style
+ * settings never reference defs), so reading the raw params structurally —
+ * like `collectPatternDefIdsInUse` does — is sufficient.
  *
  * Used by CanvasLayer.render as a pre-pass before the main render pass so
  * brush def textures are warm by the time the stamp pipeline binds them.

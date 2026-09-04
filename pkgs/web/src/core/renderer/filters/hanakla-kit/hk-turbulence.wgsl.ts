@@ -157,9 +157,9 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let dpiScale = uniforms.dpiScale;
 
 	// Generate turbulence noise with separate X and Y components.
-	// Stable UV: world position normalized by the full element rect, matching
-	// the legacy texCoord domain of an unclamped bake so the noise pattern
-	// stays fixed while zooming or panning.
+	// Stable UV: world position normalized by the full element rect, the
+	// texCoord domain of an unclamped bake, so the noise pattern stays fixed
+	// while zooming or panning.
 	let stableUV = turbulenceWorldPos(texCoord) / uniforms.elementSize;
 	let noiseScale = uniforms.scale * 0.01;
 	let noisePosX = vec3f(

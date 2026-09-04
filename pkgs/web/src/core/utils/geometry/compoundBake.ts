@@ -19,8 +19,8 @@ export const COMPOUND_CURVE_TOLERANCE = 0.25;
  * Resolve a compound path's boolean result: sources are world-baked by their
  * own transforms, the result acts as the compound's local geometry under the
  * compound's own transform. Single definition of the sources → pathMap →
- * boolean pipeline (mirrored previously in PathElementRenderer,
- * GroupAppearanceCollector and the extrude renderer).
+ * boolean pipeline, shared by PathElementRenderer, GroupAppearanceCollector
+ * and the extrude renderer.
  */
 export function bakeCompoundPathSegments(
 	compound: CompoundPath,

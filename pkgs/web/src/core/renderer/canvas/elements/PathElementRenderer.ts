@@ -154,7 +154,7 @@ export class PathElementRenderer {
 	// GPU buffer at element-specific offsets.
 	//
 	// On the first frame the GPU buffer is null, so every element falls back
-	// to per-element writeBuffer (legacy path).  batchPeakBytes records the
+	// to per-element writeBuffer.  batchPeakBytes records the
 	// high-water mark so beginFrame() can grow the GPU buffer before the
 	// next frame — after which all elements use the batched path.
 	private batchCpuBuf = new Float32Array(16384); // 64 KB initial
@@ -408,8 +408,9 @@ export class PathElementRenderer {
 					geometryHash,
 				});
 				// Geometry changed — stencilFillCache stores vertex data
-				// derived from the old flattenedSubPaths, so it must be
-				// invalidated (it only validates by zoom, not geometry).
+				// derived from the previous flattenedSubPaths of this element,
+				// so it must be invalidated (it only validates by zoom, not
+				// geometry).
 				this.deps.stencilFillCache.delete(elementId);
 			}
 		}

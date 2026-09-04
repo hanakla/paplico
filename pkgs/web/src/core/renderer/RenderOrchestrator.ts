@@ -811,9 +811,8 @@ export class RenderOrchestrator {
 	 * Shared export rendering pipeline: renders document content to an
 	 * rgba8unorm offscreen texture for CPU readback.
 	 *
-	 * Replaces the former ExportPresenter — all export-specific pre/post
-	 * processing now lives here while the core rendering goes through
-	 * the standard CanvasLayer.render() path.
+	 * All export-specific pre/post processing lives here while the core
+	 * rendering goes through the standard CanvasLayer.render() path.
 	 */
 	private async renderExportToTexture(opts: {
 		label: string;
@@ -1335,7 +1334,7 @@ export class RenderOrchestrator {
 		if (elements.length === 0) return null;
 
 		// filterRenderer is the same instance CanvasLayer uses; when the renderer
-		// is not initialized yet, fall back to geometry bounds (legacy behavior).
+		// is not initialized yet, fall back to geometry bounds.
 		const plans = this.filterRenderer
 			? buildFilterPlansForElements(elements, elementsMap, this.filterRenderer)
 			: null;

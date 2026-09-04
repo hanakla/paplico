@@ -86,8 +86,7 @@ fn fractalNoise(p: vec2f, seed: f32) -> f32 {
 // one fixed angle. The field turns exactly once over the noise range (any
 // more reads as turbulence) and varies over a broad ~96 px wavelength so
 // nearby streaks stay coherent. The angle / horizontalEnabled /
-// verticalEnabled params are retained in documents but no longer steer the
-// smear.
+// verticalEnabled params exist in documents but do not steer the smear.
 fn huskyFlowDirection(posPx: vec2f, noiseSeed: f32) -> vec2f {
 	let dirAngle = fractalNoise(posPx / 96.0 + vec2f(2.7, 9.1), noiseSeed + 150.0) * 6.7021;
 	return vec2f(cos(dirAngle), sin(dirAngle));
@@ -103,9 +102,8 @@ fn huskyWorldPos(texCoord: vec2f) -> vec2f {
 		+ uniforms.worldOrigin;
 }
 
-// World-anchored replacement for the legacy "texCoord * 3.0" noise domain:
-// three noise periods across the full element rect, independent of viewport
-// clamping and zoom.
+// World-anchored noise domain: three noise periods across the full element
+// rect, independent of viewport clamping and zoom.
 fn huskyNoiseUV(posPx: vec2f) -> vec2f {
 	return posPx / uniforms.elementSize * 3.0;
 }

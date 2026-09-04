@@ -13,10 +13,10 @@ const MAX_EROSION_RADIUS_PX = 48;
 const UNIFORM_FLOATS = 8;
 
 /**
- * Watercolor wet-edge post pass for wash strokes (design §9): erode the
+ * Watercolor wet-edge post pass for wash strokes: erode the
  * coverage alpha of the isolated appearance texture (separable min filter),
  * treat `alpha - eroded` as the rim band, and darken/intensify it in place.
- * Wet-edge and the wet layer are exclusive (§H-4); callers gate on that.
+ * Wet-edge and the wet layer are exclusive; callers gate on that.
  */
 export class WashCompositor {
 	private erodePipeline: GPURenderPipeline | null = null;
@@ -41,7 +41,7 @@ export class WashCompositor {
 
 	/**
 	 * Apply the wet edge to `texture` in place. `worldPerPixel` converts the
-	 * config's world-space rim width into texels; `brushSize` caps it (§9).
+	 * config's world-space rim width into texels; `brushSize` caps it.
 	 * Returns the scratch textures for the caller to release after submit.
 	 */
 	public applyWetEdge(
@@ -143,7 +143,7 @@ export class WashCompositor {
 		return out;
 	}
 
-	/** Soften the rim band (§9): downsampling gaussian pyramid levels double
+	/** Soften the rim band: downsampling gaussian pyramid levels double
 	 *  their sigma per level; the level nearest the world-space blur width is
 	 *  sampled back up through the compose pass's linear filter. */
 	private blurRim(

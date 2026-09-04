@@ -142,7 +142,7 @@ export class BrushTextureManager implements DefSourceResolver {
 
 	/**
 	 * ハードエッジ円形テクスチャをプログラム生成
-	 * 従来のソリッドライン相当（グラデーションなし）
+	 * ソリッドライン相当（グラデーションなし）
 	 */
 	private createHardCircleTexture(key: string, size: number): void {
 		const data = new Uint8Array(size * size * 4);

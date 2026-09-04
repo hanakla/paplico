@@ -20,9 +20,9 @@ state that is not retained to avoid work.
 
 ### `DocumentCache` is not a document-content cache
 
-The old 1.5x layer-content cache has been removed. `CanvasLayer` renders document
-content directly every frame: `invalidateDocumentCache()` is intentionally a
-no-op. The current `DocumentCache` name refers to persistent, size-matched GPU
+`CanvasLayer` renders document content directly every frame:
+`invalidateDocumentCache()` is intentionally a no-op. The `DocumentCache` name
+refers to persistent, size-matched GPU
 auxiliary textures only. Do not design an invalidation path on the assumption
 that it stores rendered layer contents.
 

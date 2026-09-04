@@ -1,4 +1,4 @@
-// Wet layer composite (design §13-2).
+// Wet layer composite.
 //
 // Decodes the simulation's log-space pigment density into premultiplied
 // colour and shapes it with the paper and the drying rim. Edge darkening,

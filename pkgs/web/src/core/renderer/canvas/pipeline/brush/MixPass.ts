@@ -2,7 +2,7 @@ import type { BoundingBox } from "../../../../schema";
 import { compileShaderModule } from "../../../../utils/wgpu-utils";
 import { BRUSH_MIX_SHADER } from "../../../shaders/brushMix.wgsl";
 
-/** Fixed chunk length of the mix pipeline (design §10-1, appendix A). */
+/** Fixed chunk length of the mix pipeline. */
 export const MIX_CHUNK_SIZE = 64;
 
 export type MixChunkArgs = {
@@ -49,12 +49,12 @@ export type MixChunkArgs = {
 };
 
 /**
- * Chunked dab-color resolution for color mixing (design §10-1): per chunk, a
+ * Chunked dab-color resolution for color mixing: per chunk, a
  * footprint-weighted sample compute (one workgroup per dab) followed by a
  * sequential bucket scan that writes per-dab resolved colors. Chunks of one
  * stroke must be resolved in dab order — the bucket buffer carries the smudge
  * state between them, which makes the result a pure function of
- * (backdrop, dab list) per appendix A.
+ * (backdrop, dab list).
  */
 export class MixPass {
 	private readonly device: GPUDevice;

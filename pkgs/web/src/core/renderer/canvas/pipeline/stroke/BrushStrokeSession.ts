@@ -13,14 +13,14 @@ export interface BrushStrokeSessionOptions {
 export type BrushStrokeSessionOutcome = "active" | "committed" | "aborted";
 
 /**
- * Live-stroke state holder (design §8). Owns the raw point record and the
+ * Live-stroke state holder. Owns the raw point record and the
  * incremental fitter so every pointermove costs O(tail window) instead of
  * O(stroke length). The preview reads getPreviewSegments(); the committed
  * stroke re-fits the raw points through the full processStroke pipeline, so
  * the final geometry is identical to the pre-session behavior.
  *
  * commit() and abort() are the only exits — after either, the session
- * ignores all further input (appendix D lifecycle rule).
+ * ignores all further input .
  */
 export class BrushStrokeSession {
 	private readonly points: BezierPoint[] = [];

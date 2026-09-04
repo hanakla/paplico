@@ -38,8 +38,8 @@ export interface BlurPixelRect {
 /** Gaussian sigma each pyramid pass applies, in its SOURCE level's texels. */
 export const PYRAMID_PASS_SIGMA = 2.0;
 /** Max pyramid depth. σ_eff(7) ≈ 148 level-0 texels — covers frost glass's
- *  σ cap of 150 (radius cap 300 / 2); glass extrude's 48-texel legacy kernel
- *  cap only ever needs 6 levels, so its cost is unchanged. */
+ *  σ cap of 150 (radius cap 300 / 2); glass extrude's 48-texel kernel cap
+ *  only ever needs 6 levels. */
 export const MAX_PYRAMID_LEVELS = 7;
 export const PYRAMID_KERNEL_RADIUS = Math.ceil(PYRAMID_PASS_SIGMA * 3);
 

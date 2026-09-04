@@ -345,7 +345,7 @@ function collectGradients(doc: Document): Map<string, GradientDef> {
  * gradientTransform, then the same element CTM + world Y-flip as the geometry,
  * then normalize against the element's world bounding box. For objectBoundingBox
  * the coords are already bbox fractions in SVG orientation (y down), so only flip
- * Y to Paplico's y-up (gradientTransform is not applied in that mode — v1 limit).
+ * Y to Paplico's y-up (gradientTransform is not applied in that mode).
  */
 function resolveLinearGradient(
 	def: Extract<GradientDef, { kind: "linear" }>,

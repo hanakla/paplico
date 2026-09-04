@@ -159,9 +159,8 @@ export class TexturePool {
 	 * Acquire a texture at the exact requested size (no quantization).
 	 * For consumers whose UV math assumes texture size == content size
 	 * (backdrop region captures). `release()` keys by the texture's actual
-	 * dimensions, so exact-size textures pool across frames like any other —
-	 * which is the point: these used to be raw createTexture calls re-allocated
-	 * every frame.
+	 * dimensions, so exact-size textures pool across frames like any other
+	 * instead of being re-allocated every frame.
 	 */
 	public acquireExact(
 		width: number,

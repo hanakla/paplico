@@ -299,8 +299,7 @@ const PAPER_TYPES: Record<PaperTypeKey, HKPaperTypeDef> = {
 	},
 };
 
-/** Unknown keys (legacy documents stored e.g. "kent") fall back to woodfree,
- *  matching the old shader's PAPER_TYPE_MAP `?? 0` behavior. */
+/** Unknown keys (documents may store e.g. "kent") fall back to woodfree. */
 export function resolvePaperType(key: string): HKPaperTypeDef {
 	return PAPER_TYPES[key as PaperTypeKey] ?? PAPER_TYPES.woodfree;
 }

@@ -3033,9 +3033,9 @@ export class PaplicoCommands {
 					(bt.skewX ?? 0) === 0 &&
 					(bt.skewY ?? 0) === 0;
 				if (!isPureTranslate) {
-					// Scaled/rotated blend: keep the legacy behavior (move its own
-					// transform). Baking a non-translation matrix into the absorbed
-					// sources is out of scope here.
+					// Scaled/rotated blend: move its own transform. Baking a
+					// non-translation matrix into the absorbed sources is out of
+					// scope here.
 					result.push({
 						elementId,
 						updates: {

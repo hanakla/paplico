@@ -64,9 +64,8 @@ export interface ElementFilterPlan {
 	postFilters: Filter[];
 	/** Element bounds expanded by filter margins. Used for offscreen texture allocation. */
 	textureBounds: WorldBBox;
-	/** When present, ALL appearances must be rendered individually in order.
-	 *  This replaces the old base+sub approach for correct draw ordering
-	 *  when any appearance has subFilters. */
+	/** When present, ALL appearances must be rendered individually in order,
+	 *  which keeps the draw order correct when any appearance has subFilters. */
 	allAppearancePlans?: AppearancePlan[];
 }
 
@@ -88,10 +87,10 @@ interface AppearancePlan {
 	opacity: number;
 	/** Per-appearance blend mode */
 	blendMode: BlendMode;
-	/** Wash strokes only (design §6-3): strokeOpacity to apply exactly once
+	/** Wash strokes only: strokeOpacity to apply exactly once
 	 *  when compositing the isolated appearance; dabs carry flow alone. */
 	washStrokeOpacity?: number;
-	/** Watercolor rim for wash strokes (§9); absent while wet is enabled. */
+	/** Watercolor rim for wash strokes; absent while wet is enabled. */
 	washWetEdge?: WetEdgeConfig;
 	/** Brush size for the wet-edge width cap (world units). */
 	washBrushSize?: number;
@@ -1326,7 +1325,7 @@ function washInfoOf(filter: Filter): {
 } | null {
 	const settings = (filter as StrokeAppearance).paramData.params.brushSettings;
 	if (settings == null) return null;
-	// Ribbons wash too (design §12): the isolation and the single
+	// Ribbons wash too: the isolation and the single
 	// strokeOpacity application are engine-independent, and a ribbon that
 	// doubles back over itself darkens exactly like a dab stroke does.
 	if (settings.engine === "geometric") return null;
@@ -1334,7 +1333,7 @@ function washInfoOf(filter: Filter): {
 	return {
 		strokeOpacity: settings.strokeOpacity,
 		brushSize: readStoredBrushSize(settings) ?? 0,
-		// Wet edge and the wet layer are exclusive (§H-4).
+		// Wet edge and the wet layer are exclusive.
 		wetEdge: settings.wet?.enabled === true ? undefined : settings.wetEdge,
 	};
 }

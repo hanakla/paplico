@@ -1961,7 +1961,7 @@ export class PathEditTool implements Tool {
 		}
 
 		// Unselected paths' anchors are not drawn in the overlay — keep the
-		// geometric fallback (anchors only, nearest within 8px, as before).
+		// geometric fallback (anchors only, nearest within 8px).
 		return this.findUnselectedPathAnchor(worldX, worldY, viewport);
 	}
 

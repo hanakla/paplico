@@ -8,7 +8,7 @@
  * in premultiplied alpha, so its luminance already carries the mask's own
  * opacity — one dot product yields "luminance x opacity". A flat white
  * silhouette (what clip groups render) has premultiplied RGB of (1,1,1)*a, so
- * its luminance equals its alpha and clipping behaves exactly as before.
+ * its luminance equals its alpha and clipping reads the silhouette exactly.
  */
 
 export const MASK_COMMON_WGSL = /* wgsl */ `

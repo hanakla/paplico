@@ -6,7 +6,7 @@
  * - FROST_GLASS_PYRAMID_SHADER: single pass that lerps the two pre-blurred
  *   backdrop pyramid levels bracketing the blur sigma (shared batch capture),
  *   then applies scatter/saturation/tint.
- * - FROST_GLASS_SHADER: legacy self-contained separable Gaussian, used as a
+ * - FROST_GLASS_SHADER: self-contained separable Gaussian, used as a
  *   fallback when no shared pyramid is available (horizontal pass, then
  *   vertical pass with tint/saturation applied).
  *

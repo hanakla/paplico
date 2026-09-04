@@ -718,10 +718,9 @@ export class OffscreenPresenter {
 	 * This is how `ArtObject.mask` reaches elements that cannot take the inline
 	 * BG3 path: the element (or its filter output) is baked first, then masked
 	 * here. Doing it as a separate step is what puts the mask *after* filters —
-	 * blurring an element no longer smears its mask edge outward. A stacked
-	 * clip chain used to cost one pass + one intermediate texture per mask;
-	 * the chain shader samples each mask by world position, so four multiply
-	 * in a single fragment invocation.
+	 * blurring an element cannot smear its mask edge outward. The chain shader
+	 * samples each mask by world position, so a stacked clip chain of up to
+	 * four masks multiplies in a single fragment invocation.
 	 */
 	private applyMaskChainChunk(
 		encoder: GPUCommandEncoder,
@@ -1417,7 +1416,7 @@ export class OffscreenPresenter {
 				this.deps.hasIsolatedWashAppearances?.(child.id) ?? false;
 			// Wash strokes need their per-appearance isolation inside groups
 			// too — without it the inline draw below renders them buildup-dark
-			// with no strokeOpacity. Masked children keep the legacy path
+			// with no strokeOpacity. Masked children take the inline draw
 			// (mask-after-isolation is not wired yet); group pre-filters do not
 			// reach the isolated render either (accepted limitation).
 			if (

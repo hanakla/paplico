@@ -4,8 +4,7 @@ import { PROJECTIVE_QUAD_WGSL } from "./quadProjection.wgsl";
  * Glass refraction shader for the extrude appearance.
  *
  * Run by RefractionCompositor over a BackdropEffectSample (the shared capture
- * + Gaussian-pyramid levels built by BackdropEffectCoordinator — the
- * per-effect full-resolution blur this shader used to pair with is gone).
+ * + Gaussian-pyramid levels built by BackdropEffectCoordinator).
  * Samples the solid's premultiplied color, its screen-space normal
  * (+ coverage, smoothed over a 5-tap cross to soften mesh face seams), and
  * the two pyramid levels bracketing the effect's blur sigma (lerped by a
@@ -24,7 +23,7 @@ import { PROJECTIVE_QUAD_WGSL } from "./quadProjection.wgsl";
  * pixel OUTSIDE the solid untouched in the destination. This matters because
  * the backdrop sample can be OLDER than the destination (one capture shared
  * per epoch — and per FRAME during pan/zoom): rewriting the whole rect with
- * it used to roll content drawn since the capture back to the artboard
+ * it would roll content drawn since the capture back to the artboard
  * background.
  *
  * The solid is drawn as its own projected QUAD in the compose viewport's NDC,

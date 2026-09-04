@@ -813,10 +813,9 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 				height,
 			);
 		}
-		// Slide the cached underlays in beneath the glass content, reproducing
-		// the "element OVER shadow" the in-place drop-shadow pass used to
-		// produce — but from a texture that only spans the shadow's own bounds
-		// and only changes when the solid does.
+		// Slide the cached underlays in beneath the glass content, giving
+		// "element OVER shadow" from a texture that only spans the shadow's own
+		// bounds and only changes when the solid does.
 		for (const underlay of underlays) {
 			this.deps.refractionCompositor.blitUnderlay(
 				encoder,

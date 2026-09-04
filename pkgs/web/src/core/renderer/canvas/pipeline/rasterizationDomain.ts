@@ -5,7 +5,7 @@ import {
 } from "../../../utils/geometry/bounds";
 
 /**
- * Fixed-R rasterization domain (design §9, appendix B-2).
+ * Fixed-R rasterization domain.
  *
  * Paths that read neighboring texels (wet-ink seeding/diffusion, wet-edge
  * erosion/blur, mix-pass footprints) must rasterize at a resolution derived

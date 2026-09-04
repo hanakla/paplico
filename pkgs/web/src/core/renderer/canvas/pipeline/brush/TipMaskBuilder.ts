@@ -1,7 +1,7 @@
 import { evaluatePiecewiseLinear } from "../../../../brush/curves";
 
 /**
- * Procedural tip falloff LUTs (design §5-1).
+ * Procedural tip falloff LUTs.
  *
  * The dab fragment shader computes the normalized squared distance rr and
  * samples a 1D falloff LUT instead of a baked 128px texture. Hardness curves
@@ -10,7 +10,7 @@ import { evaluatePiecewiseLinear } from "../../../../brush/curves";
  */
 
 export const FALLOFF_LUT_SIZE = 256;
-/** Quantization steps for per-dab hardness (design §7: round(h * 31)). */
+/** Quantization steps for per-dab hardness (round(h * 31)). */
 export const FALLOFF_LUT_LAYERS = 32;
 
 const MIN_HARDNESS = 1e-3;

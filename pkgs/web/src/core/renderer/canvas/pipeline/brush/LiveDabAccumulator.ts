@@ -28,7 +28,7 @@ export interface LiveDabFrame {
 }
 
 /**
- * Incremental dab evaluation for the live stroke (design §8).
+ * Incremental dab evaluation for the live stroke.
  *
  * The preview fitter keeps frozen segments referentially stable, so the
  * shared object prefix between two frames is exactly the settled geometry.

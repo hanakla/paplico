@@ -1,15 +1,14 @@
 // Wet layer simulation seeding.
 //
 // Turns the dab pass's accumulated seed targets into the first state of the
-// ping-pong fields. Picking up the backdrop belongs to the mix pass (design
-// §13-4), so this is only a change of representation:
+// ping-pong fields. Picking up the backdrop belongs to the mix pass, so this
+// is only a change of representation:
 //
 //   pigment  passes through as-is (already density-encoded by the dab)
 //   moisture rg <- the accumulated direction normalized by coverage
 //            b  <- water, a <- pooling
 //
-// The fields run on a grid `scale` times coarser than the seeds (design §13-2:
-// the diffusion reaches its distance through the grid spacing, not through a
+// The fields run on a grid `scale` times coarser than the seeds (the diffusion reaches its distance through the grid spacing, not through a
 // widened stencil), so each output texel averages the scale x scale block of
 // seed texels it stands for. Averaging is what makes the coarse grid a
 // down-sampling rather than a point-sampling: dropping seed texels here would

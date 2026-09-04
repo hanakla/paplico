@@ -84,7 +84,7 @@ export interface MixStrokeRendererDeps {
 	getTransformIndex: (elementId: string) => number;
 	getTransformsBindGroup: () => GPUBindGroup | undefined;
 	getTransformsBuffer: () => GPUBuffer | null;
-	/** Identity of the composite below the stroke (design §10-2), or null when
+	/** Identity of the composite below the stroke, or null when
 	 *  it cannot be determined — the result is then not cached. */
 	getBackdropContentKey: (
 		elementId: string,
@@ -94,7 +94,7 @@ export interface MixStrokeRendererDeps {
 }
 
 /**
- * Backdrop-effect driver for color-mixing strokes (design §10). A mixing
+ * Backdrop-effect driver for color-mixing strokes. A mixing
  * stroke reads the live composite below itself, so — like glass — it draws
  * inline at its z-order: the caller ends its main pass, composeInline
  * captures the backdrop at the fixed-R grid and alternates the mix pass's
@@ -152,7 +152,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	/**
 	 * Cache key of an element's last resolved mixing result, or null when it
 	 * has none. Backdrop keys embed this so invalidation is transitive
-	 * (appendix A): a stroke that mixed from a changed element gets a new key,
+	 * a stroke that mixed from a changed element gets a new key,
 	 * which in turn changes the key of any stroke mixing from it — even when
 	 * the original change does not overlap that later stroke at all.
 	 */
@@ -231,7 +231,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		}
 		const cacheKey = keys?.key ?? null;
 
-		// Backdrop below this stroke, on the fixed-R raster grid (§B-2).
+		// Backdrop below this stroke, on the fixed-R raster grid.
 		const request: BackdropEffectRequest = {
 			bounds,
 			blurSigma: 0,
@@ -751,7 +751,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 
 	/**
 	 * Everything the resolved stroke depends on: its own geometry and
-	 * settings, the rasterization grid, the composite below it (§10-2), and
+	 * settings, the rasterization grid, the composite below it, and
 	 * the visible world rect — the backdrop capture is clamped to the canvas,
 	 * so a stroke running off screen resolves differently once panned into
 	 * view. Null when the backdrop identity is unknown.
@@ -879,7 +879,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
  * The element's mixing stroke appearance, or null when it has none.
  *
  * Only the dab engine mixes; ribbon and geometric strokes have no dabs to
- * sample under. Enablement is the explicit boolean alone (§H-3).
+ * sample under. Enablement is the explicit boolean alone.
  */
 export function resolveMixingStroke(
 	element: AnyArtObject,

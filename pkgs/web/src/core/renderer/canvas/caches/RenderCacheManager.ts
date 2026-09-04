@@ -199,8 +199,8 @@ export class RenderCacheManager {
 		// ("<blendId>::...") that resolves to the live blend id, so they survive.
 		// Stamp keys ("<id>:<scatterFp>:<aspect>:<hash>") MUST be judged here,
 		// not by baseId: they contain single colons only, so the "::" split
-		// returns the whole key, never matches a live id, and used to wipe the
-		// entire stamp cache on every full render.
+		// returns the whole key and never matches a live id, which would wipe
+		// the entire stamp cache on every full render.
 		for (const key of this.gradient.keys()) {
 			const elementId = key.slice(0, key.indexOf(":"));
 			if (elementId && !(elementId in liveObjects)) this.gradient.delete(key);

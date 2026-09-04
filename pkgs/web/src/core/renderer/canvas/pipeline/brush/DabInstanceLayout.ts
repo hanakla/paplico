@@ -1,8 +1,8 @@
 /**
  * Single source of truth for the dab instance buffer ABI.
  *
- * The layout is fixed at 24 floats (96 bytes, 16-byte aligned) from phase 1
- * on and never changes in later phases (design §7). CPU writers, the WGSL
+ * The layout is fixed at 24 floats (96 bytes, 16-byte aligned).
+ * CPU writers, the WGSL
  * struct declaration and tests all derive from this module so the two sides
  * cannot drift apart. Wet fields are written as 0 while wet is disabled.
  */
@@ -42,7 +42,7 @@ export const DAB_FIELD_OFFSETS = {
 	 * absorption, granulation, bleedSoftness, edgeDarkening, edgeRoughness.
 	 *
 	 * They share the layout's one spare slot because the 24-float ABI is
-	 * frozen (appendix C). 6 bits is 1.6% of each coefficient's 0..1 range —
+	 * frozen. 6 bits is 1.6% of each coefficient's 0..1 range —
 	 * below what a diffusion coefficient can show, and the alternative was
 	 * widening the instance for every non-wet brush.
 	 */

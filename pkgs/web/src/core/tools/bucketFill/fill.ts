@@ -67,7 +67,7 @@ export function floodFill(
 
 	// LIFO stack of flat indices. `visited` admits each pixel at most once,
 	// so `size` slots suffice and the loop allocates nothing per pixel
-	// (per-pixel arrays previously dominated GC time).
+	// (per-pixel arrays would dominate GC time).
 	const stack = new Int32Array(size);
 	let top = 0;
 	const startPos = startY * width + startX;

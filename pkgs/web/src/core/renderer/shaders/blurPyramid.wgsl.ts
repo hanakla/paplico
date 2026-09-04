@@ -14,8 +14,8 @@
  * position; source samples are scaled/clamped into the source's used region
  * (`srcCtl`), mirroring the meshUvRect clamp idiom in the refraction shader.
  *
- * Linear-sampled tap pairing matches the legacy full-resolution blur: adjacent
- * taps fold into one bilinear fetch at the weight-interpolated offset.
+ * Linear-sampled tap pairing: adjacent taps fold into one bilinear fetch at
+ * the weight-interpolated offset.
  */
 export const BLUR_PYRAMID_SHADER = /* wgsl */ `
 	struct Uniforms {

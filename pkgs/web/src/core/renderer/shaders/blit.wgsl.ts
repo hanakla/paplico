@@ -556,10 +556,9 @@ ${OUTER_CLIP_MASK_WGSL}
 /**
  * Blit With Mask Chain — applies up to 4 world-space masks in a single pass.
  *
- * Replaces chained BLIT_WITH_MASK_SHADER passes: each mask used to cost one
- * offscreen pass + one intermediate texture, so a 3-deep clip stack tripled
- * the pass count. Here every mask is sampled by world position against its
- * own bounds and the coverages multiply in one fragment invocation.
+ * Every mask is sampled by world position against its own bounds and the
+ * coverages multiply in one fragment invocation, so a 3-deep clip stack costs
+ * one pass and no intermediate textures.
  *
  * Unused mask slots carry the boundsMin == boundsMax sentinel (same as
  * applyOuterClipMask) and a white 1x1 texture, so they multiply by 1.

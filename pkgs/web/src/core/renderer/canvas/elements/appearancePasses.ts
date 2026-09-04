@@ -4,9 +4,9 @@
  *
  * Every drawing path (the inline element loop, the stamp-brush batching fast
  * path, wet-ink interleaving, per-appearance offscreen plans, group
- * appearances) used to re-derive this independently, so a rule added to one —
- * per-appearance sub-filter deformation, occlusion dropping — silently missed
- * the others. `DrawableSegments` is the contract that keeps them together:
+ * appearances) reads this from one place, so a rule — per-appearance
+ * sub-filter deformation, occlusion dropping — cannot apply to one path and
+ * silently miss the others. `DrawableSegments` is the contract that keeps them together:
  * only this module produces it, and the GPU primitives only accept it.
  */
 

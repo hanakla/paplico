@@ -199,7 +199,7 @@ export class StrokeBatchContext {
 	private blankGrainView: GPUTextureView | null = null;
 	private grainSampler: GPUSampler | null = null;
 	private falloffSampler: GPUSampler | null = null;
-	// Live-stroke dab residency (design §8): the preview path re-uses one
+	// Live-stroke dab residency: the preview path re-uses one
 	// grow-only buffer; only newly committed dabs and the volatile tail are
 	// uploaded per frame.
 	private liveDabAccumulator: LiveDabAccumulator | null = null;
@@ -1786,8 +1786,8 @@ export class StrokeBatchContext {
 		data[offset + 18] = grain.offsetX;
 		data[offset + 19] = grain.offsetY;
 
-		// Ribbon tiling used to live in one uniform shared by the whole batch,
-		// which made the last path in a run dictate every other path's tiling.
+		// Ribbon tiling is per path: a batch-wide uniform would let the last
+		// path in a run dictate every other path's tiling.
 		const ribbon = this.ribbonMetaOf(settings);
 		data[offset + 20] = ribbon.stretch;
 		data[offset + 21] = ribbon.uvOffset;
@@ -1935,7 +1935,7 @@ export class StrokeBatchContext {
 	}
 }
 
-/** Per-stroke grain parameters for the path meta (design §11). Grain is a
+/** Per-stroke grain parameters for the path meta. Grain is a
  *  stroke-level texture: only its strength varies per dab. */
 function grainMetaOf(settings: BrushSettings): {
 	mode: number;

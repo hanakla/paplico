@@ -10,8 +10,7 @@ import { type FilterRenderer, isGeometryFilter } from "./FilterRenderer";
  *
  * This is the single definition of that pipeline. The flat render and the 3D
  * solid outline both resolve geometry here, so they cannot disagree on what an
- * element's shape is — the two used to spell the same two calls out separately,
- * and fixing one left the other wrong.
+ * element's shape is.
  */
 export function resolveElementGeometry(
 	segments: CubicBezierSegment[],

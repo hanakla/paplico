@@ -561,7 +561,7 @@ export class EraserTool implements Tool {
 	): string[] {
 		const objects = this.context.getObjects();
 
-		// Mesh containers are NOT expanded (v1 limitation): their children
+		// Mesh containers are NOT expanded: their children
 		// render warped, so erasing the stored (unwarped) geometry would cut
 		// somewhere else than under the eraser.
 		const expandGroups = (ids: string[]): string[] => {

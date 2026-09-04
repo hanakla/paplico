@@ -38,7 +38,7 @@ export interface RibbonOptions {
 	/** Gap between tiles as ratio of tile width (0 = no gap; repeat mode only). */
 	tileSpacing: number;
 	/**
-	 * Settings whose size/flow curves modulate the ribbon (design §12).
+	 * Settings whose size/flow curves modulate the ribbon.
 	 * Evaluated at each segment's endpoints and interpolated in between, the
 	 * same granularity taper already uses. Absent, the flat pressure factor
 	 * applies.

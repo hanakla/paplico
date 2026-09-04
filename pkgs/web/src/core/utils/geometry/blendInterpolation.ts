@@ -71,7 +71,7 @@ import {
  * Interpolate a non-fill/stroke filter pair at fraction `t` (e.g. an
  * extrude3d appearance's depth/rotation between two blend keys). Optional —
  * callers with no renderer context (hit-testing) omit it and each
- * intermediate keeps the source key's filter unchanged, as before.
+ * intermediate keeps the source key's filter unchanged.
  */
 export type FilterInterpolator = (a: Filter, b: Filter, t: number) => Filter;
 
