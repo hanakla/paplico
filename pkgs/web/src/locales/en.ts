@@ -32,6 +32,8 @@ export const en = {
 		chatSubmenu: "Chat",
 		emulateDisconnect: "Emulate Disconnection",
 		runPerfCheck: "Run Perf Check (10s)",
+		copyLastStroke: "Copy Last Stroke",
+		sendLastStroke: "Send Last Stroke to Server",
 	},
 	licenses: {
 		title: "Licenses",

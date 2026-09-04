@@ -132,7 +132,7 @@ import { GradientTool } from "./tools/GradientTool";
 import { MeshDeformTool } from "./tools/MeshDeformTool";
 import { PathEditTool } from "./tools/PathEditTool";
 import { PathTool } from "./tools/PathTool";
-import { PenTool } from "./tools/PenTool";
+import { type PenStrokeRecord, PenTool } from "./tools/PenTool";
 import { Reference3DController } from "./tools/Reference3DController";
 import { Reference3DTool } from "./tools/Reference3DTool";
 import {
@@ -2174,6 +2174,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	public getCollaboration(): ICollaboration | null {
 		return this.collaboration;
+	}
+
+	/**
+	 * Raw input record of the last stroke drawn with the pen tool. Kept on the
+	 * tool instance, so switching tools discards it.
+	 */
+	public getLastPenStroke(): PenStrokeRecord | null {
+		return this.tool instanceof PenTool ? this.tool.getLastStroke() : null;
 	}
 
 	public get isReadonly(): boolean {

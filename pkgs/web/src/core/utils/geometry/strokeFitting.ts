@@ -666,63 +666,85 @@ function gaussianSmooth(
 ): BezierPoint[] {
 	if (stabilization <= 0 || points.length <= 2) return points;
 
+	const weights = gaussianKernelWeights(stabilization);
+	const last = points.length - 1;
+	return points.map((_point, i) => kernelMean(points, i, 0, last, weights));
+}
+
+/** Kernel weights by sample distance, `weights[d]` for d in 0..radius. */
+function gaussianKernelWeights(stabilization: number): number[] {
 	const sigma = stabilization * 4.0;
 	const radius = Math.ceil(3 * sigma);
 	const twoSigmaSq = 2 * sigma * sigma;
+	const weights: number[] = [];
+	for (let d = 0; d <= radius; d++) {
+		weights[d] = Math.exp(-(d * d) / twoSigmaSq);
+	}
+	return weights;
+}
 
-	// Pre-compute kernel weights
-	const kernelWeights: number[] = [];
-	for (let i = 0; i <= radius; i++) {
-		kernelWeights[i] = Math.exp(-(i * i) / twoSigmaSq);
+/**
+ * Weighted mean of the run [lo, hi] around index i, with `weights[d]` for
+ * each sample distance d. The kernel runs its full width even next to an
+ * end, reading points past it as the run's own trend continued (see
+ * extendedSample): truncating the window instead averages only the points on
+ * one side, which pulls every point near an end inward. Twist is angular
+ * (0–359 wraps) and is averaged through sin/cos, not the raw degrees.
+ */
+function kernelMean(
+	points: BezierPoint[],
+	i: number,
+	lo: number,
+	hi: number,
+	weights: readonly number[],
+): BezierPoint {
+	const radius = weights.length - 1;
+	let sumX = 0;
+	let sumY = 0;
+	let sumPressure = 0;
+	let sumTiltX = 0;
+	let sumTiltY = 0;
+	let sumTwistSin = 0;
+	let sumTwistCos = 0;
+	let sumDeltaTime = 0;
+	let totalWeight = 0;
+
+	for (let j = i - radius; j <= i + radius; j++) {
+		const w = weights[Math.abs(j - i)];
+		const p = extendedSample(points, j, lo, hi);
+		sumX += p.x * w;
+		sumY += p.y * w;
+		sumPressure += (p.pressure ?? 0.5) * w;
+		sumTiltX += (p.tiltX ?? 0) * w;
+		sumTiltY += (p.tiltY ?? 0) * w;
+		const twistRad = ((p.twist ?? 0) * Math.PI) / 180;
+		sumTwistSin += Math.sin(twistRad) * w;
+		sumTwistCos += Math.cos(twistRad) * w;
+		sumDeltaTime += (p.deltaTime ?? 0) * w;
+		totalWeight += w;
 	}
 
-	const result: BezierPoint[] = new Array(points.length);
-	// Preserve endpoints
-	result[0] = points[0];
-	result[points.length - 1] = points[points.length - 1];
+	const twistDeg = (Math.atan2(sumTwistSin, sumTwistCos) * 180) / Math.PI;
+	return {
+		x: sumX / totalWeight,
+		y: sumY / totalWeight,
+		pressure: sumPressure / totalWeight,
+		tiltX: sumTiltX / totalWeight,
+		tiltY: sumTiltY / totalWeight,
+		twist: ((twistDeg % 360) + 360) % 360,
+		deltaTime: sumDeltaTime / totalWeight,
+	};
+}
 
-	for (let i = 1; i < points.length - 1; i++) {
-		let sumX = 0;
-		let sumY = 0;
-		let sumPressure = 0;
-		let sumTiltX = 0;
-		let sumTiltY = 0;
-		// Twist is angular (0-359 wraps): average sin/cos, not the raw degrees.
-		let sumTwistSin = 0;
-		let sumTwistCos = 0;
-		let sumDeltaTime = 0;
-		let totalWeight = 0;
-
-		const lo = Math.max(0, i - radius);
-		const hi = Math.min(points.length - 1, i + radius);
-
-		for (let j = lo; j <= hi; j++) {
-			const w = kernelWeights[Math.abs(j - i)];
-			const p = points[j];
-			sumX += p.x * w;
-			sumY += p.y * w;
-			sumPressure += (p.pressure ?? 0.5) * w;
-			sumTiltX += (p.tiltX ?? 0) * w;
-			sumTiltY += (p.tiltY ?? 0) * w;
-			const twistRad = ((p.twist ?? 0) * Math.PI) / 180;
-			sumTwistSin += Math.sin(twistRad) * w;
-			sumTwistCos += Math.cos(twistRad) * w;
-			sumDeltaTime += (p.deltaTime ?? 0) * w;
-			totalWeight += w;
-		}
-
-		const twistDeg = (Math.atan2(sumTwistSin, sumTwistCos) * 180) / Math.PI;
-		result[i] = {
-			x: sumX / totalWeight,
-			y: sumY / totalWeight,
-			pressure: sumPressure / totalWeight,
-			tiltX: sumTiltX / totalWeight,
-			tiltY: sumTiltY / totalWeight,
-			twist: ((twistDeg % 360) + 360) % 360,
-			deltaTime: sumDeltaTime / totalWeight,
-		};
-	}
-
+/** `smoothed` with its first and last points replaced by `raw`'s. */
+function withRawEnds(
+	smoothed: BezierPoint[],
+	raw: BezierPoint[],
+): BezierPoint[] {
+	if (smoothed === raw || smoothed.length === 0) return smoothed;
+	const result = [...smoothed];
+	result[0] = raw[0];
+	result[result.length - 1] = raw[raw.length - 1];
 	return result;
 }
 
@@ -737,21 +759,120 @@ function gaussianSmoothSections(
 	cornerIdxs: number[],
 	stabilization: number,
 ): BezierPoint[] {
-	if (stabilization <= 0 || cornerIdxs.length <= 2) {
-		return gaussianSmooth(points, stabilization);
+	if (stabilization <= 0) return points;
+	// Where the pen landed and lifted is not up for smoothing, whether the
+	// run has corners or not.
+	if (cornerIdxs.length <= 2) {
+		return withRawEnds(gaussianSmooth(points, stabilization), points);
 	}
-	const result: BezierPoint[] = [];
+
+	// Each section is smoothed on its own, so no kernel averages across a
+	// corner and the turn there stays as sharp as the hand made it. The
+	// corner point itself is not pinned to its raw sample, though: the pen
+	// jitters at a turn like anywhere else, and a raw corner between two
+	// smoothed legs stands out as a spike the fitted path travels out to and
+	// back from. Each side's kernel reads its own leg continued past the
+	// corner, which leaves a straight leg's endpoint exactly where it was and
+	// pulls a wavering one onto its trend; the two sides then agree on one
+	// position for the shared corner.
+	const sections: BezierPoint[][] = [];
 	for (let c = 0; c < cornerIdxs.length - 1; c++) {
-		const section = gaussianSmooth(
-			points.slice(cornerIdxs[c], cornerIdxs[c + 1] + 1),
-			stabilization,
+		sections.push(
+			gaussianSmooth(
+				points.slice(cornerIdxs[c], cornerIdxs[c + 1] + 1),
+				stabilization,
+			),
 		);
-		// Skip the boundary point shared with the previous section.
+	}
+
+	const result: BezierPoint[] = [];
+	for (let c = 0; c < sections.length; c++) {
+		const section = sections[c];
+		if (c > 0) {
+			// The corner was pushed as the previous section's last point;
+			// settle it where the two sides agree, then continue past it.
+			result[result.length - 1] = averagePoints(
+				result[result.length - 1],
+				section[0],
+			);
+		}
 		for (let k = c === 0 ? 0 : 1; k < section.length; k++) {
 			result.push(section[k]);
 		}
 	}
-	return result;
+	return withRawEnds(result, points);
+}
+
+/** Midpoint of two samples, every per-point value included. */
+function averagePoints(a: BezierPoint, b: BezierPoint): BezierPoint {
+	const mid = (x: number | undefined, y: number | undefined) =>
+		x == null || y == null ? (x ?? y) : (x + y) / 2;
+	const aTwist = ((a.twist ?? 0) * Math.PI) / 180;
+	const bTwist = ((b.twist ?? 0) * Math.PI) / 180;
+	const twist =
+		(Math.atan2(
+			Math.sin(aTwist) + Math.sin(bTwist),
+			Math.cos(aTwist) + Math.cos(bTwist),
+		) *
+			180) /
+		Math.PI;
+	return {
+		x: (a.x + b.x) / 2,
+		y: (a.y + b.y) / 2,
+		pressure: mid(a.pressure, b.pressure),
+		tiltX: mid(a.tiltX, b.tiltX),
+		tiltY: mid(a.tiltY, b.tiltY),
+		twist: ((twist % 360) + 360) % 360,
+		deltaTime: mid(a.deltaTime, b.deltaTime),
+	};
+}
+
+/**
+ * The sample a kernel reads at index `j`, which may lie past the run's ends
+ * [lo, hi].
+ *
+ * Past an end, position and time continue the run's own trend: the point is
+ * extrapolated through the endpoint from its mirror image inside. A straight
+ * leg therefore averages to exactly where it ends, and a wavering one to the
+ * line it was following — where a plain mirror would hand the endpoint only
+ * its interior neighbours and drag it inward. The bounded values (pressure,
+ * tilt, twist) are simply mirrored; a trend has no meaning for them and an
+ * extrapolation could leave their range.
+ */
+function extendedSample(
+	points: BezierPoint[],
+	j: number,
+	lo: number,
+	hi: number,
+): BezierPoint {
+	if (j >= lo && j <= hi) return points[j];
+	if (hi <= lo) return points[lo];
+
+	const end = j < lo ? lo : hi;
+	const anchor = points[end];
+	// The mirror image may fall beyond the run's other end on a run shorter
+	// than the overshoot. Take the farthest point the run has in that
+	// direction and extend the same trend proportionally, so a straight leg
+	// still lands exactly on its own line however short it is.
+	let inside = 2 * end - j;
+	if (inside < lo) inside = lo;
+	if (inside > hi) inside = hi;
+	if (inside === end) return anchor;
+	const mirror = points[inside];
+	const reach = (j - end) / (end - inside);
+
+	const along = (a: number | undefined, m: number | undefined) =>
+		a == null || m == null ? (a ?? m) : a + (a - m) * reach;
+
+	return {
+		x: anchor.x + (anchor.x - mirror.x) * reach,
+		y: anchor.y + (anchor.y - mirror.y) * reach,
+		pressure: mirror.pressure,
+		tiltX: mirror.tiltX,
+		tiltY: mirror.tiltY,
+		twist: mirror.twist,
+		deltaTime: along(anchor.deltaTime, mirror.deltaTime),
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -936,6 +1057,22 @@ const CORNER_SPAN_DIST = 3.0;
  * decision at index i never depends on data beyond i + CORNER_MAX_SPAN_POINTS.
  */
 const CORNER_MAX_SPAN_POINTS = 24;
+/**
+ * How many samples past a cluster's best candidate the cluster stays open.
+ *
+ * Candidates cluster on chord distance, so the approach to a turn and the
+ * departure from it — a pixel apart in space, many samples apart along the
+ * stroke — can still fall into one cluster; this bounds how far the departure
+ * may trail the apex. Measured from the best candidate rather than the last:
+ * a run where every sample scores as a candidate would otherwise keep the
+ * cluster open for its whole length. Counting samples rather than distance
+ * keeps the closing final, which the incremental fitter needs — a chord test
+ * could be reopened by a stroke wandering back — and the batch detector
+ * closes on the same count so both agree on where each corner lands. It is
+ * also the bound on how late a corner is decided after its apex, which the
+ * smoothing settlement waits out.
+ */
+const CORNER_CLUSTER_CLOSE_POINTS = 8;
 /** Base apex-deviation gate (world units); scaled up with stabilization. */
 const CORNER_MIN_DEVIATION = 0.75;
 const CORNER_ANGLE_THRESHOLD_DEG = 45;
@@ -998,12 +1135,28 @@ export function detectRawCorners(
 	const opts = { ...rawCornerOptionsFor(0), ...options };
 	const corners: number[] = [0];
 	if (points.length > 2) {
-		const arc = cumulativeArcLengths(points);
 		let group: CornerCandidateGroup | null = null;
 		for (let i = 1; i < points.length - 1; i++) {
+			// A cluster is over once the walk is CORNER_CLUSTER_CLOSE_POINTS past
+			// its best member; the incremental fitter closes on the same count,
+			// so the two agree on where each corner lands. Counting from the
+			// best member, not the last, is what bounds a cluster: candidates
+			// that keep arriving would otherwise keep it open indefinitely.
+			if (group && i - group.bestIdx > CORNER_CLUSTER_CLOSE_POINTS) {
+				corners.push(group.bestIdx);
+				group = null;
+			}
 			const score = rawCornerScoreAt(points, i, opts);
 			if (score < 0) continue;
-			if (group && arc[i] - arc[group.lastIdx] <= opts.spanDistance) {
+			// Cluster on CHORD distance, the same measure the scoring walks use.
+			// A turn doubles the stroke back on itself, so the way in and the
+			// way out are metres apart in arc while sitting on top of each
+			// other in space — clustering on arc leaves one anchor per side and
+			// the corner ends up carrying a pair.
+			if (
+				group &&
+				chordDistance(points, i, group.lastIdx) <= opts.spanDistance
+			) {
 				if (score > group.bestScore) {
 					group.bestIdx = i;
 					group.bestScore = score;
@@ -1105,16 +1258,9 @@ function rawCornerScoreAt(
 	return Math.acos(Math.min(Math.max(dot, -1), 1));
 }
 
-/** Cumulative arc length per point ([0] = 0). */
-function cumulativeArcLengths(points: BezierPoint[]): number[] {
-	const arc = new Array<number>(points.length);
-	arc[0] = 0;
-	for (let i = 1; i < points.length; i++) {
-		arc[i] =
-			arc[i - 1] +
-			Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
-	}
-	return arc;
+/** Straight-line distance between two points of a run. */
+function chordDistance(points: BezierPoint[], a: number, b: number): number {
+	return Math.hypot(points[a].x - points[b].x, points[a].y - points[b].y);
 }
 
 /** Compute chord-length parameterization for points. */
@@ -1206,6 +1352,27 @@ function bezierSecondDerivative(
  * the span behave exactly as the classic adjacent-point tangent.
  */
 const TANGENT_SPAN_DIST = 2.0;
+/**
+ * Ceiling for a fitted handle, as a multiple of its segment's chord. The
+ * least-squares solve has no upper bound of its own: it minimizes distance at
+ * the sample points only, so a handle that overshoots between them costs it
+ * nothing.
+ */
+const MAX_HANDLE_TO_CHORD = 1.0;
+/**
+ * A handle pointing against its chord by less than this share of the chord
+ * is read as jitter rather than a hook: on a run this short the end tangent
+ * is noise, and such a handle folds the curve back by a fraction of a pixel
+ * where a hook's handle, pointing well against the chord, does not.
+ */
+const HANDLE_JITTER_FRACTION = 0.25;
+/**
+ * How many tangent spans long a chord must be before its end tangents are
+ * trusted to describe a hook or a U. Tangents are read over TANGENT_SPAN_DIST
+ * of input; a chord not much longer than that is a few jittered samples, and
+ * a handle pointing against it is noise, not a turn.
+ */
+const HANDLE_TREND_SPANS = 3;
 
 function computeLeftTangent(points: BezierPoint[]): [number, number] {
 	const p0 = points[0];
@@ -1372,30 +1539,68 @@ function generateBezier(
 
 	// Solve 2x2 system
 	const det = c00 * c11 - c01 * c01;
+	const segLength = Math.sqrt(
+		(p3x - p0x) * (p3x - p0x) + (p3y - p0y) * (p3y - p0y),
+	);
 	let alpha1: number;
 	let alpha2: number;
 
-	if (Math.abs(det) < 1e-12) {
-		// Degenerate: use chord length heuristic
-		const dist =
-			Math.sqrt((p3x - p0x) * (p3x - p0x) + (p3y - p0y) * (p3y - p0y)) / 3;
-		alpha1 = dist;
-		alpha2 = dist;
+	// Relative conditioning test. A near-straight run makes both tangents
+	// almost parallel, which leaves the two columns collinear and the system
+	// without a meaningful solution — but its determinant still sits far above
+	// any absolute floor at world-space magnitudes, so the solved handles come
+	// out arbitrarily long.
+	if (Math.abs(det) < 1e-9 * c00 * c11 || !(c00 > 0 && c11 > 0)) {
+		alpha1 = segLength / 3;
+		alpha2 = segLength / 3;
 	} else {
 		alpha1 = (c11 * x0 - c01 * x1) / det;
 		alpha2 = (c00 * x1 - c01 * x0) / det;
 	}
 
 	// If alpha is negative or zero, use chord-length heuristic
-	const segLength = Math.sqrt(
-		(p3x - p0x) * (p3x - p0x) + (p3y - p0y) * (p3y - p0y),
-	);
 	const epsilon = 1e-6 * segLength;
 
 	if (alpha1 < epsilon || alpha2 < epsilon) {
 		const dist = segLength / 3;
 		alpha1 = dist;
 		alpha2 = dist;
+	}
+
+	alpha1 = Math.min(alpha1, segLength * MAX_HANDLE_TO_CHORD);
+	alpha2 = Math.min(alpha2, segLength * MAX_HANDLE_TO_CHORD);
+
+	// Chord-direction speed must stay positive, or the curve leaves the start,
+	// overshoots and travels back — the visible fold-back on a stroke drawn in
+	// one direction. With the handles' chord projections a and b, the speed
+	// dips below zero exactly when segLength - a - b < -sqrt(a * b).
+	if (segLength > 0) {
+		const ux = (p3x - p0x) / segLength;
+		const uy = (p3y - p0y) / segLength;
+		const a = alpha1 * (tHat1[0] * ux + tHat1[1] * uy);
+		const b = -alpha2 * (tHat2[0] * ux + tHat2[1] * uy);
+		// Only handles that both point forward along the chord can produce the
+		// overshoot-and-return this guards against. A handle across the chord
+		// (a U) or well against it (a hook) belongs to a curve that is meant to
+		// leave the chord, and rejecting it would only force extra splits —
+		// but only once the chord is long enough for its end tangents to mean
+		// anything. On a run of a few pixels the tangents are jitter, and a
+		// handle against the chord there folds the curve back by a fraction of
+		// a pixel; so is a handle only slightly against a longer chord.
+		const tangentsMeaningful =
+			segLength >= TANGENT_SPAN_DIST * HANDLE_TREND_SPANS;
+		const backwardByJitter = (projection: number) =>
+			projection < 0 &&
+			(!tangentsMeaningful || -projection < segLength * HANDLE_JITTER_FRACTION);
+		if (
+			backwardByJitter(a) ||
+			backwardByJitter(b) ||
+			(a > 0 && b > 0 && segLength - a - b < -Math.sqrt(a * b))
+		) {
+			const dist = segLength / 3;
+			alpha1 = dist;
+			alpha2 = dist;
+		}
 	}
 
 	return [
@@ -1569,16 +1774,7 @@ function findNearestPoint(
 	x: number,
 	y: number,
 ): BezierPoint {
-	let best = points[0];
-	let bestDist = Number.POSITIVE_INFINITY;
-	for (const p of points) {
-		const d = (p.x - x) ** 2 + (p.y - y) ** 2;
-		if (d < bestDist) {
-			bestDist = d;
-			best = p;
-		}
-	}
-	return best;
+	return points[nearestIndex(points, x, y)];
 }
 
 /**
@@ -1662,9 +1858,12 @@ export function processStroke(
 		fitCubicBeziersImpl(section, tHat1, tHat2, tolerance, allBeziers);
 	}
 
-	// Step 4: Convert absolute Bézier control points to CubicBezierSegments
+	// Step 4: Merge what one cubic can carry, across the corner splits.
+	const simplified = simplifyFittedPath(allBeziers, smoothed, tolerance);
+
+	// Step 5: Convert absolute Bézier control points to CubicBezierSegments
 	// (cp1/cp2 stored as relative offsets from anchors)
-	return convertBeziersToSegments(allBeziers, smoothed, true);
+	return convertBeziersToSegments(simplified, smoothed, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1698,6 +1897,10 @@ export class IncrementalStrokeFitter {
 	private readonly tolerance: number;
 	private readonly method: SmoothingMethod;
 	private readonly gaussianRadius: number;
+	/** Kernel weights by sample distance (see gaussianKernelWeights). */
+	private readonly kernelWeights: readonly number[];
+	/** Corner detection options; fixed for the stroke's stabilization. */
+	private readonly rawCornerOptions: Required<RawCornerOptions>;
 
 	/** Deduped raw input. */
 	private readonly deduped: BezierPoint[] = [];
@@ -1726,9 +1929,6 @@ export class IncrementalStrokeFitter {
 	private cornerCheckedUpTo = 0;
 
 	// Raw-corner state (gaussian method only; mirrors detectRawCorners).
-	private readonly rawCornerOptions: Required<RawCornerOptions>;
-	/** Cumulative arc length of `deduped`. */
-	private readonly arc: number[] = [];
 	/** Confirmed raw-corner indices (deduped index space), ascending. */
 	private readonly rawCorners: number[] = [];
 	/** Highest deduped index whose corner candidacy is decided. */
@@ -1742,7 +1942,6 @@ export class IncrementalStrokeFitter {
 
 	public constructor(options: IncrementalStrokeFitterOptions) {
 		this.stabilization = options.stabilization;
-		this.rawCornerOptions = rawCornerOptionsFor(options.stabilization);
 		this.method = options.smoothingMethod ?? "smooth";
 		const baseTolerance =
 			options.stabilization <= 0 ? 0.5 : 1.0 + options.stabilization * 3.0;
@@ -1751,6 +1950,11 @@ export class IncrementalStrokeFitter {
 			this.method === "smooth" && options.stabilization > 0
 				? Math.ceil(3 * options.stabilization * 4.0)
 				: 0;
+		this.kernelWeights =
+			this.gaussianRadius > 0
+				? gaussianKernelWeights(options.stabilization)
+				: [1];
+		this.rawCornerOptions = rawCornerOptionsFor(options.stabilization);
 	}
 
 	public get frozenSegmentCount(): number {
@@ -1771,12 +1975,6 @@ export class IncrementalStrokeFitter {
 			}
 		}
 		this.floatingLast = null;
-		this.arc.push(
-			prev
-				? this.arc[this.arc.length - 1] +
-						Math.hypot(point.x - prev.x, point.y - prev.y)
-				: 0,
-		);
 		this.deduped.push(point);
 		// Corner decisions must precede smoothing settlement: a settled kernel
 		// window must never gain a section boundary afterwards.
@@ -1889,15 +2087,17 @@ export class IncrementalStrokeFitter {
 			default: {
 				// Gaussian: entries within `radius` of the end still shift as
 				// points arrive. Settle every index whose full kernel window is
-				// now in the past — held back by CORNER_MAX_SPAN_POINTS beyond
-				// the radius so every corner a settling window could touch is
-				// already decided.
+				// now in the past — held back beyond the radius by how late a
+				// corner can be decided (its scoring lookahead plus the cluster
+				// close window), so every corner a settling window could touch
+				// is already decided.
 				this.smoothed.push(point);
 				const settleUpTo =
 					this.deduped.length -
 					1 -
 					this.gaussianRadius -
-					CORNER_MAX_SPAN_POINTS;
+					CORNER_MAX_SPAN_POINTS -
+					CORNER_CLUSTER_CLOSE_POINTS;
 				for (let i = this.stableSmoothedCount; i < settleUpTo; i++) {
 					this.smoothed[i] = this.gaussianAt(i);
 					this.lastProcessedPoints += 1;
@@ -1914,60 +2114,35 @@ export class IncrementalStrokeFitter {
 	/** Gaussian-smoothed value of deduped[i] (index 0 passes through). */
 	private gaussianAt(i: number): BezierPoint {
 		const points = this.deduped;
-		if (i === 0) return points[0];
-		// Clamp the kernel window to the section between confirmed corners and
-		// pin the corners themselves (mirrors gaussianSmoothSections).
+		const last = points.length - 1;
+		if (i === 0 || i === last) return points[i];
+
+		// The section between confirmed corners that holds i, and the corner
+		// before it (mirrors gaussianSmoothSections).
 		let sectionLo = 0;
-		let sectionHi = points.length - 1;
+		let sectionHi = last;
+		let previousLo = 0;
 		for (let c = this.rawCorners.length - 1; c >= 0; c--) {
 			const cornerIdx = this.rawCorners[c];
 			if (cornerIdx <= i) {
 				sectionLo = cornerIdx;
+				previousLo = c > 0 ? this.rawCorners[c - 1] : 0;
 				break;
 			}
 			sectionHi = cornerIdx;
 		}
-		if (i === sectionLo || i === sectionHi) return points[i];
-		const radius = this.gaussianRadius;
-		const sigma = this.stabilization * 4.0;
-		const twoSigmaSq = 2 * sigma * sigma;
 
-		let sumX = 0;
-		let sumY = 0;
-		let sumPressure = 0;
-		let sumTiltX = 0;
-		let sumTiltY = 0;
-		let sumTwistSin = 0;
-		let sumTwistCos = 0;
-		let sumDeltaTime = 0;
-		let totalWeight = 0;
-		const lo = Math.max(sectionLo, i - radius);
-		const hi = Math.min(sectionHi, i + radius);
-		for (let j = lo; j <= hi; j++) {
-			const d = Math.abs(j - i);
-			const w = Math.exp(-(d * d) / twoSigmaSq);
-			const p = points[j];
-			sumX += p.x * w;
-			sumY += p.y * w;
-			sumPressure += (p.pressure ?? 0.5) * w;
-			sumTiltX += (p.tiltX ?? 0) * w;
-			sumTiltY += (p.tiltY ?? 0) * w;
-			const twistRad = ((p.twist ?? 0) * Math.PI) / 180;
-			sumTwistSin += Math.sin(twistRad) * w;
-			sumTwistCos += Math.cos(twistRad) * w;
-			sumDeltaTime += (p.deltaTime ?? 0) * w;
-			totalWeight += w;
+		// A corner belongs to both of its sections. Each side smooths it with
+		// its own leg only — a straight leg leaves it where it is, a wavering
+		// one pulls it onto the leg's trend — and the two sides then agree on
+		// one position, as gaussianSmoothSections does on commit.
+		if (i === sectionLo && i > 0) {
+			return averagePoints(
+				kernelMean(points, i, previousLo, i, this.kernelWeights),
+				kernelMean(points, i, i, sectionHi, this.kernelWeights),
+			);
 		}
-		const twistDeg = (Math.atan2(sumTwistSin, sumTwistCos) * 180) / Math.PI;
-		return {
-			x: sumX / totalWeight,
-			y: sumY / totalWeight,
-			pressure: sumPressure / totalWeight,
-			tiltX: sumTiltX / totalWeight,
-			tiltY: sumTiltY / totalWeight,
-			twist: ((twistDeg % 360) + 360) % 360,
-			deltaTime: sumDeltaTime / totalWeight,
-		};
+		return kernelMean(points, i, sectionLo, sectionHi, this.kernelWeights);
 	}
 
 	// --- raw corners -------------------------------------------------------
@@ -1985,12 +2160,21 @@ export class IncrementalStrokeFitter {
 			i <= decidableUpTo;
 			i++
 		) {
+			// Same closing rule as detectRawCorners, so preview and commit
+			// place each corner at the same sample.
+			if (
+				this.pendingCornerGroup &&
+				i - this.pendingCornerGroup.bestIdx > CORNER_CLUSTER_CLOSE_POINTS
+			) {
+				this.rawCorners.push(this.pendingCornerGroup.bestIdx);
+				this.pendingCornerGroup = null;
+			}
 			const score = rawCornerScoreAt(this.deduped, i, opts);
 			const group = this.pendingCornerGroup;
 			if (score >= 0) {
 				if (
 					group &&
-					this.arc[i] - this.arc[group.lastIdx] <= opts.spanDistance
+					chordDistance(this.deduped, i, group.lastIdx) <= opts.spanDistance
 				) {
 					if (score > group.bestScore) {
 						group.bestIdx = i;
@@ -2005,13 +2189,6 @@ export class IncrementalStrokeFitter {
 						lastIdx: i,
 					};
 				}
-			} else if (
-				group &&
-				this.arc[i] - this.arc[group.lastIdx] > opts.spanDistance
-			) {
-				// No later candidate can rejoin this cluster: finalize it.
-				this.rawCorners.push(group.bestIdx);
-				this.pendingCornerGroup = null;
 			}
 			this.rawCornerCheckedUpTo = i;
 			this.lastProcessedPoints += 1;
@@ -2021,8 +2198,9 @@ export class IncrementalStrokeFitter {
 	// --- freezing ----------------------------------------------------------
 
 	private maybeFreeze(): void {
-		// Corner freeze: a confirmed corner splits the fit exactly like
-		// processStroke's corner split, so freezing there is lossless.
+		// Corner freeze: a confirmed corner is a section boundary for the
+		// commit fit too, so the frozen prefix shares its anchors with the
+		// committed path up to whatever the commit's merge pass folds away.
 		if (this.method === "smooth") {
 			while (this.frozenCornerCount < this.rawCorners.length) {
 				const idx = this.rawCorners[this.frozenCornerCount];
@@ -2458,6 +2636,161 @@ function fitPointSequence(
 		);
 	}
 	return convertBeziersToSegments(beziers, points, isFirstOfPath);
+}
+
+type AbsoluteCubic = [
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+];
+
+/**
+ * Final pass over the fitted path: merge neighbouring cubics wherever one
+ * cubic can carry both within the fit's own tolerance.
+ *
+ * Two things put anchors on a stroke that its shape does not call for. The
+ * corner detector reads a hand wavering into a turn as several corners, and
+ * every corner is a forced section boundary — on a wavy line the crests come
+ * out studded with anchors. Then Schneider splits a section whenever it
+ * misses the tolerance and never reconsiders, so a stretch that needed three
+ * curves early in the recursion keeps all three once the later splits have
+ * left each one nearly straight.
+ *
+ * This pass decides by geometry alone, across section boundaries: a merge is
+ * kept when the merged curve stays within tolerance of the input points it
+ * spans, unless the two cubics meet at a corner-sized turn (mergeAllowed).
+ * The tolerance test on its own cannot tell a deliberate corner from a
+ * wobble once the legs are short enough for one cubic to pass within
+ * tolerance of both, so the turn the smoothing preserved is what decides.
+ * The error is always measured against the original input, never against
+ * the curves being replaced, so repeated merges cannot drift.
+ *
+ * Every surviving anchor is still an input point, so pressure, tilt, twist
+ * and time at the anchors are read back from the input exactly (see
+ * convertBeziersToSegments). Between anchors the width profile is what
+ * carries pressure and speed, and PenTool bakes that from the raw points
+ * independently of how many segments the geometry ends up with.
+ */
+function simplifyFittedPath(
+	beziers: AbsoluteCubic[],
+	points: BezierPoint[],
+	tolerance: number,
+): AbsoluteCubic[] {
+	if (beziers.length < 2) return beziers;
+
+	// Schneider interpolates its endpoints, so every anchor is one of the
+	// input points and each cubic covers a contiguous index range of them.
+	const result = [...beziers];
+	const ranges = result.map((cubic) => [
+		nearestIndex(points, cubic[0], cubic[1]),
+		nearestIndex(points, cubic[6], cubic[7]),
+	]);
+
+	let merged = true;
+	while (merged) {
+		merged = false;
+		for (let i = 0; i < result.length - 1; ) {
+			const [aStart, aEnd] = ranges[i];
+			const [bStart, bEnd] = ranges[i + 1];
+			const contiguous = aStart < aEnd && aEnd === bStart && bStart < bEnd;
+			const candidate =
+				contiguous && mergeAllowed(result[i], result[i + 1])
+					? fitAcross(points, aStart, bEnd, result[i], result[i + 1], tolerance)
+					: null;
+			if (!candidate) {
+				i++;
+				continue;
+			}
+			result.splice(i, 2, candidate);
+			ranges.splice(i, 2, [aStart, bEnd]);
+			merged = true;
+		}
+	}
+
+	return result;
+}
+
+/**
+ * One cubic through `points[from..to]` carrying `a`'s start tangent and
+ * `b`'s end tangent, or null when none stays within `tolerance`. Keeping the
+ * outer tangents means the merged curve meets its neighbours exactly as the
+ * pair it replaces did.
+ */
+function fitAcross(
+	points: BezierPoint[],
+	from: number,
+	to: number,
+	a: AbsoluteCubic,
+	b: AbsoluteCubic,
+	tolerance: number,
+): AbsoluteCubic | null {
+	const tHat1 = unitVector(a[2] - a[0], a[3] - a[1]);
+	const tHat2 = unitVector(b[4] - b[6], b[5] - b[7]);
+	if (!tHat1 || !tHat2) return null;
+
+	const section = points.slice(from, to + 1);
+	const toleranceSq = tolerance * tolerance;
+
+	let u = chordLengthParameterize(section);
+	let bezier = generateBezier(section, u, tHat1, tHat2);
+	let [maxErr] = computeMaxError(section, ...bezier, u);
+	if (maxErr <= toleranceSq) return bezier;
+
+	// Same second chance the fit itself gives a near miss.
+	if (maxErr > toleranceSq * 4) return null;
+	for (let i = 0; i < MAX_ITERATIONS; i++) {
+		u = reparameterizeNewton(section, u, ...bezier);
+		bezier = generateBezier(section, u, tHat1, tHat2);
+		[maxErr] = computeMaxError(section, ...bezier, u);
+		if (maxErr <= toleranceSq) return bezier;
+	}
+	return null;
+}
+
+/**
+ * Whether a pair may merge across the anchor they share.
+ *
+ * The tolerance test alone is not enough to keep a corner: a corner whose
+ * legs are short deviates from a single cubic by less than the tolerance,
+ * and merging it rounds a turn the hand made into a curve. What tells such
+ * a corner from a wobble the detector promoted is what the smoothing left
+ * behind — a section-preserved corner still turns sharply where its two
+ * cubics meet, a wobble no longer does. A turn at the corner threshold or
+ * beyond therefore refuses the merge, whatever the tolerance would allow.
+ */
+function mergeAllowed(a: AbsoluteCubic, b: AbsoluteCubic): boolean {
+	const inX = a[6] - a[4];
+	const inY = a[7] - a[5];
+	const outX = b[2] - b[0];
+	const outY = b[3] - b[1];
+	const lenIn = Math.hypot(inX, inY);
+	const lenOut = Math.hypot(outX, outY);
+	if (lenIn < 1e-9 || lenOut < 1e-9) return true;
+	const cos = (inX * outX + inY * outY) / (lenIn * lenOut);
+	return cos >= Math.cos((CORNER_ANGLE_THRESHOLD_DEG * Math.PI) / 180);
+}
+
+function nearestIndex(points: BezierPoint[], x: number, y: number): number {
+	let best = Number.POSITIVE_INFINITY;
+	let at = 0;
+	for (let i = 0; i < points.length; i++) {
+		const d = (points[i].x - x) ** 2 + (points[i].y - y) ** 2;
+		if (d < best) {
+			best = d;
+			at = i;
+		}
+	}
+	return at;
+}
+
+function unitVector(x: number, y: number): [number, number] | null {
+	const len = Math.hypot(x, y);
+	return len < 1e-9 ? null : [x / len, y / len];
 }
 
 /**

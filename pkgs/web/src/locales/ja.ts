@@ -32,6 +32,8 @@ export const ja = {
 		chatSubmenu: "チャット",
 		emulateDisconnect: "切断をエミュレート",
 		runPerfCheck: "パフォーマンス計測 (10秒)",
+		copyLastStroke: "直前のストロークをコピー",
+		sendLastStroke: "直前のストロークを送信",
 	},
 	licenses: {
 		title: "ライセンス",

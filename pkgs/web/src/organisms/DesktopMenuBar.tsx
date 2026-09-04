@@ -3,6 +3,7 @@
 import {
 	Bot,
 	Check,
+	ClipboardCopy,
 	ClipboardPaste,
 	Copy,
 	FileDown,
@@ -28,6 +29,7 @@ import {
 	Undo,
 	Ungroup,
 	Unplug,
+	Upload,
 	X as XIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
@@ -167,6 +169,38 @@ export function DesktopMenuBar({
 			console.log(`[perf] result sent: ${saved}`);
 		} catch (e) {
 			console.error("[perf] failed to send result:", e);
+		}
+	});
+
+	const handleCopyLastStroke = useEventCallback(async () => {
+		if (!paplico) return;
+		// Dynamic import keeps the dev-only capture out of the production bundle.
+		const { copyLastStrokeToClipboard } = await import(
+			"@/devtools/copyLastStroke"
+		);
+		const copied = await copyLastStrokeToClipboard(paplico);
+		console.log(
+			copied
+				? "[devtools] last stroke copied to clipboard"
+				: "[devtools] no pen stroke to copy",
+		);
+	});
+
+	const handleSendLastStroke = useEventCallback(async () => {
+		if (!paplico) return;
+		// Dynamic import keeps the dev-only capture out of the production bundle.
+		const { sendLastStrokeToServer } = await import(
+			"@/devtools/strokeRecorder"
+		);
+		try {
+			const saved = await sendLastStrokeToServer(paplico);
+			console.log(
+				saved
+					? `[stroke] recorded: ${saved}`
+					: "[stroke] no pen stroke to record",
+			);
+		} catch (error) {
+			console.error("[stroke] failed to record:", error);
 		}
 	});
 
@@ -441,6 +475,14 @@ export function DesktopMenuBar({
 						<Menubar.Item onClick={handleRunPerfCheck} disabled={!paplico}>
 							<Gauge size={16} />
 							{t("menubar.runPerfCheck")}
+						</Menubar.Item>
+						<Menubar.Item onClick={handleCopyLastStroke} disabled={!paplico}>
+							<ClipboardCopy size={16} />
+							{t("menubar.copyLastStroke")}
+						</Menubar.Item>
+						<Menubar.Item onClick={handleSendLastStroke} disabled={!paplico}>
+							<Upload size={16} />
+							{t("menubar.sendLastStroke")}
 						</Menubar.Item>
 					</Menubar.Menu>
 				)}

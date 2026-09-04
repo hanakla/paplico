@@ -42,6 +42,20 @@ interface PenToolOptions {
 	opacity?: number;
 }
 
+/**
+ * Raw input record of one committed stroke, kept so the exact pen input can
+ * be exported and replayed. `points` is what the fitter saw; `path` is the
+ * object the stroke produced.
+ */
+export interface PenStrokeRecord {
+	points: BezierPoint[];
+	path: Path;
+	stabilization: number;
+	smoothingMethod: SmoothingMethod;
+	/** Viewport zoom the stroke was drawn at (drives the fit tolerance). */
+	zoom: number;
+}
+
 /** Overlay channel key for perspective radial / lock guide lines. */
 const PERSPECTIVE_PEN_OVERLAY_KEY = OVERLAY_KEYS.penPerspective;
 /** Direction-lock engages once the stroke moved this many screen pixels. */
@@ -96,6 +110,7 @@ export class PenTool implements Tool {
 	private opacity: number;
 
 	private dragState: DragState = { mode: "idle" };
+	private lastStroke: PenStrokeRecord | null = null;
 
 	public constructor(context: ToolContext, options: PenToolOptions) {
 		this.context = context;
@@ -346,6 +361,14 @@ export class PenTool implements Tool {
 			strokeWidthsBaked: bakedWidths ? true : undefined,
 		};
 
+		this.lastStroke = {
+			points,
+			path,
+			stabilization: this.stabilization,
+			smoothingMethod: this.smoothingMethod,
+			zoom: viewport.zoom,
+		};
+
 		// Notify completion
 		this.context.strokeComplete(path);
 		this.dragState = { mode: "idle" };
@@ -359,6 +382,11 @@ export class PenTool implements Tool {
 
 	public getCursor(): string {
 		return "crosshair";
+	}
+
+	/** Raw input record of the last committed stroke (null before the first). */
+	public getLastStroke(): PenStrokeRecord | null {
+		return this.lastStroke;
 	}
 
 	public getCurrentStroke(): BezierPoint[] | null {

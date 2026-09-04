@@ -29,6 +29,7 @@ import {
 	splitPathByNormalizedRanges,
 	subtractEraserFromFilledPath,
 } from "../utils/geometry/pathOps";
+import { evalCubicBezier } from "../utils/geometry/pathSampling";
 import { processStroke } from "../utils/geometry/strokeFitting";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
@@ -1090,6 +1091,9 @@ function flattenPathToPolyline(path: Path): PathPolylinePoint[] {
 	return points;
 }
 
+/** Spacing of the polyline the smoothed eraser path is flattened to, in world px. */
+const ERASER_FLATTEN_STEP_PX = 2;
+
 const ERASER_SMOOTH_VIEWPORT: Viewport = {
 	x: 0,
 	y: 0,
@@ -1126,33 +1130,26 @@ function smoothEraserStroke(raw: Point[]): Point[] {
 			result.push({ x: sx, y: sy });
 		}
 
-		const c1x = sx + seg.cp1.x;
-		const c1y = sy + seg.cp1.y;
-		const c2x = seg.end.x + seg.cp2.x;
-		const c2y = seg.end.y + seg.cp2.y;
-		const ex = seg.end.x;
-		const ey = seg.end.y;
+		const p0 = { x: sx, y: sy };
+		const p1 = { x: sx + seg.cp1.x, y: sy + seg.cp1.y };
+		const p2 = { x: seg.end.x + seg.cp2.x, y: seg.end.y + seg.cp2.y };
+		const p3 = { x: seg.end.x, y: seg.end.y };
 
-		const steps = 10;
+		// Sample by length, not by a fixed count per segment: the fit merges
+		// neighbouring cubics where it can, so one segment may span a long
+		// stretch, and a fixed count would leave the intersection test with
+		// coarse polyline steps there.
+		const control =
+			Math.hypot(p1.x - p0.x, p1.y - p0.y) +
+			Math.hypot(p2.x - p1.x, p2.y - p1.y) +
+			Math.hypot(p3.x - p2.x, p3.y - p2.y);
+		const steps = Math.max(2, Math.ceil(control / ERASER_FLATTEN_STEP_PX));
 		for (let i = 1; i <= steps; i++) {
-			const t = i / steps;
-			const t1 = 1 - t;
-			result.push({
-				x:
-					t1 * t1 * t1 * sx +
-					3 * t1 * t1 * t * c1x +
-					3 * t1 * t * t * c2x +
-					t * t * t * ex,
-				y:
-					t1 * t1 * t1 * sy +
-					3 * t1 * t1 * t * c1y +
-					3 * t1 * t * t * c2y +
-					t * t * t * ey,
-			});
+			result.push(evalCubicBezier(p0, p1, p2, p3, i / steps));
 		}
 
-		prevX = ex;
-		prevY = ey;
+		prevX = p3.x;
+		prevY = p3.y;
 	}
 
 	return result.length >= 2 ? result : raw;
