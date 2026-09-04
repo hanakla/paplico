@@ -6,7 +6,7 @@
  *
  * Both pipelines consume BrushSettings: the dab pipeline evaluates the
  * curve matrix into DabEvaluator instances, and the ribbon pipeline instances
- * one bezier segment per RibbonGenerator entry with the same v2 size/flow
+ * one bezier segment per RibbonGenerator entry with the same size/flow
  * curves applied at segment endpoints.
  *
  * Ribbon strokes accumulate through beginBatch/addToBatch/flushBatch so paths
@@ -161,9 +161,9 @@ export class StrokeBatchContext {
 	// ── Resident stamp stores ──
 	// Dab instances + per-stroke path metas + color stops live in
 	// persistent stores keyed by the StampCache entry: a cache hit draws
-	// straight from the GPU with zero uploads and no per-frame pathIndex
-	// rewrite (the meta's absolute store index is baked into the dabs once,
-	// so meta/stops offsets must stay stable).
+	// straight from the GPU with zero uploads (the meta's absolute store
+	// index is baked into the dabs once, so meta/stops offsets must stay
+	// stable).
 	private readonly dabStore: BoundedStampStore;
 	private readonly metaStore: GeometryStore;
 	private readonly stopsStore: GeometryStore;
@@ -371,8 +371,8 @@ export class StrokeBatchContext {
 		this.device.queue.writeBuffer(this.ribbonUnitVertexBuffer, 0, vertexData);
 
 		// Sampler with repeat U for seamless tiling. Brush textures carry mip
-		// chains for the dab pipeline; pin this one to level 0 so ribbon output
-		// stays identical to the pre-mip behavior.
+		// chains for the dab pipeline; pin this one to level 0 so ribbons keep
+		// their full-resolution look.
 		this.ribbonSampler = this.device.createSampler({
 			label: "Ribbon Repeat Sampler",
 			magFilter: "linear",
@@ -809,10 +809,7 @@ export class StrokeBatchContext {
 		this.renderDabsV2(passEncoder, input, transformsBindGroup);
 	}
 
-	/** v2 dab pipeline — immediate (frame-pooled) draw for curve-matrix
-	 *  strokes. Residency/batching integration arrives with
-	 *  BrushStrokeSession (plan phase 2); until then every v2 dab stroke
-	 *  uploads its instances per frame. */
+	/** Dab pipeline: draws for curve-matrix strokes. */
 	/**
 	 * Draw a wet stroke's dabs into the wet layer's seed targets.
 	 *
@@ -1091,7 +1088,7 @@ export class StrokeBatchContext {
 		passEncoder.draw(6, dabCount, 0, firstDab);
 	}
 
-	/** Resolve the tip pipeline variant + texture bindings for v2 settings.
+	/** Resolve the tip pipeline variant + texture bindings for the settings.
 	 *  Shared by the plain dab draw and the mixing chunk draw. */
 	private resolveDabTipSetup(settings: BrushSettings): {
 		tipMode: DabTipMode;
@@ -1219,8 +1216,7 @@ export class StrokeBatchContext {
 			);
 		} else {
 			// Committed strokes: cache the evaluated dab buffer so pans/zooms
-			// re-upload but never re-evaluate (the pre-v2 path had the same
-			// property through StampCache + resident stamps).
+			// re-upload but never re-evaluate.
 			let fingerprint = this.v2FingerprintCache.get(settings);
 			if (!fingerprint) {
 				fingerprint = JSON.stringify(settings);
@@ -1822,8 +1818,7 @@ export class StrokeBatchContext {
 			stretch: ribbon.uvMode === "repeat" ? ribbon.tileScale - 1 : 0,
 			uvOffset: ribbon.uvMode === "repeat" ? (ribbon.uvOffset ?? 0) : 0,
 			aspectRatio: this.textureManager.getTextureAspectRatio(textureUid),
-			// The shader has always rotated the ribbon's texture by a stamp angle
-			// that nothing ever set; the v2 angle property is that value.
+			// The shader rotates the ribbon's texture by this stamp angle.
 			stampAngle: settings.properties.angle?.base ?? 0,
 		};
 	}
@@ -2102,14 +2097,14 @@ function hashStampInput(path: Path, segments: CubicBezierSegment[]): string {
 // ================================================================
 // BrushSettings -> generator input adapters
 //
-// Express v2 settings in the vocabulary RibbonGenerator consumes. The
+// Express BrushSettings in the vocabulary RibbonGenerator consumes. The
 // settings object stays the source of truth; these only reshape it.
 // They live here (rather than in core/brush) because the resulting structure
 // is purely a renderer-side concern.
 // ================================================================
 
 /** Pick the ribbon UV layout options matching the brush method. */
-/** What the ribbon geometry reads, taken off v2 settings. The width's
+/** What the ribbon geometry reads, taken off the settings. The width's
  *  pressure response is a two-point line from -k to 0; the generator wants
  *  that k back. */
 function ribbonStrokeInputOf(settings: BrushSettings): RibbonStrokeInput {
@@ -2127,7 +2122,7 @@ function ribbonStrokeInputOf(settings: BrushSettings): RibbonStrokeInput {
 	};
 }
 
-/** Ribbon options plus the v2 settings whose curves modulate width and
+/** Ribbon options plus the settings whose curves modulate width and
  *  opacity. Baked paths carry the size curves' evaluation in strokeWidths,
  *  which the ribbon applies as its side ratios; size then evaluates from the
  *  base. */

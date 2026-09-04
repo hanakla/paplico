@@ -7558,7 +7558,7 @@ export class CanvasLayer {
 		};
 	}
 
-	/** The v2 wet settings of a stroke appearance, or null. */
+	/** The wet settings of a stroke appearance, or null. */
 	private static wetStrokeOf(appearance: Filter): WetStroke | null {
 		if (appearance.processor !== "stroke") return null;
 		const { brushSettings, strokeColor } = (appearance as StrokeAppearance)

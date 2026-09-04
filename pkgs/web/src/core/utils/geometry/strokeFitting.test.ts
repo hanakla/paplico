@@ -194,12 +194,12 @@ describe("fold-back on strokes drawn in one direction", () => {
 describe("anchor count after simplification", () => {
 	// A hand-drawn wave: five crests, 120 Hz, with the jitter a hand adds.
 	// The corner detector reads the waver at each crest as a run of corners,
-	// and every corner used to become an anchor.
+	// and every corner is a forced section boundary.
 	const wave = wavyLine(5, 3);
 
 	it("should keep far fewer anchors than the corner detector proposes", () => {
 		const fitted = processStroke(wave, 0.5, viewport, "smooth");
-		// Without the merge pass this wave fits to 56 segments, one per
+		// The corner detector proposes 56 segments for this wave, one per
 		// detected corner. Five crests and five troughs need about a dozen;
 		// merging is refused wherever two cubics still meet at a corner-sized
 		// turn, which leaves 31 here. The bound keeps most of the reduction
@@ -260,8 +260,8 @@ describe("anchor count after simplification", () => {
 		// not stray further than the fit's own 0.5px tolerance allows. The fit
 		// measures that error at each point's chord parameter rather than at
 		// the true nearest point of the curve, which lets the nearest distance
-		// run a hair over — 0.5512px here, with or without merging — so the
-		// bound carries that slack rather than the merge's.
+		// run a hair over — 0.5512px here — so the bound carries that slack
+		// rather than the merge's.
 		const clean = wavyLine(5, 0);
 		const fitted = processStroke(clean, 0, viewport, "smooth");
 		const curve = samplePath(fitted, 64);
@@ -384,7 +384,7 @@ function cornerStroke(turnDeg: number, jitterAmp = 0): BezierPoint[] {
  * cornerStroke with a hand-like approach: the pen decelerates into the
  * corner (steps shrink toward the apex), jitters more while moving slowly,
  * and sits nearly still at (100, 0) for `dwellCount` samples with jitter
- * that survives dedup. Reproduces the corner-wobble misdetection.
+ * that survives dedup, so the dwell tempts the detector into several corners.
  */
 function cornerStrokeWithDwell(
 	turnDeg: number,

@@ -6,8 +6,8 @@ import { webBrushPresetsRepo } from "./brushPresetsDB.web";
 
 describe("brushPresetsDB upgrade", () => {
 	it("should convert rows written before brush v2 once when the database opens", async () => {
-		// Write a pre-v2 row through a version-1 database, the way the old app
-		// left it, before the repo opens the current version.
+		// Write a pre-v2 row through a version-1 database before the repo opens
+		// the current version.
 		const legacy = new Dexie("paplico-brush-presets");
 		legacy.version(1).stores({
 			brushPresets: "uid, updatedAt, createdAt, name, textureHash",

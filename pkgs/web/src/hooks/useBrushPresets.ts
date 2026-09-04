@@ -224,8 +224,8 @@ export function useBrushPresets() {
 				: null) ?? null;
 
 	const applyBrushPreset = useEventCallback(async (presetUid: string) => {
-		// The brush width is the user's working value, not part of the preset's
-		// character: applying a preset swaps the brush but keeps the width.
+		// A preset carries no width (see withoutStoredBrushSize), so the user's
+		// working width is carried over onto the preset's settings.
 		const currentSize = readStoredBrushSize(tools.storedBrushSettings);
 		const keepWidth = <T>(settings: T): T =>
 			currentSize != null

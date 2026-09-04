@@ -15,7 +15,7 @@ import type { Migration } from "./index";
 /**
  * Frozen default brush settings as of schema version 20260221.
  * Returns the legacy flat persisted shape; later migrations / normalizeBrushSettings
- * convert it into the current V1BrushSettings union.
+ * convert it into the V1BrushSettings union.
  */
 // Emits the pre-v2 shape on purpose: this migration runs before the brush-v2
 // one, which is what converts the whole document to BrushSettings.

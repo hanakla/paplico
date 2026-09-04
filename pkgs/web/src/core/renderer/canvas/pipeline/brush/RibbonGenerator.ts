@@ -114,7 +114,7 @@ function u32AsFloat(v: number): number {
 
 const EMPTY_F32 = new Float32Array(0);
 
-/** What the ribbon geometry needs from the brush, read off v2 settings. */
+/** What the ribbon geometry needs from the brush, read off BrushSettings. */
 export interface RibbonStrokeInput {
 	size: number;
 	opacity: number;

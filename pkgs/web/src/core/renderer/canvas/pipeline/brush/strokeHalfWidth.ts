@@ -131,9 +131,9 @@ export function polylineSegmentsFromPoints(
  * into strokeWidths ratios (actual half width ÷ base half width). The stored
  * settings are NOT touched — the committed path carries the profile plus the
  * strokeWidthsBaked flag, and renderers skip the size curves for such paths.
- * Stripping curves from the appearance instead would poison appearance
- * adoption (selection follow copies a committed appearance back into the
- * tool settings), killing pressure/speed width for every following stroke.
+ * The curves must survive on the appearance because selection follow copies
+ * a committed appearance back into the tool settings, and every following
+ * stroke takes its pressure/speed width from them.
  *
  * Pressure and timing live only on the input samples, so without the bake a
  * vertex edit (or the fit's per-segment time linearization) flattens the

@@ -328,7 +328,7 @@ ${wetSeed ? buildWetSeedWgsl(tipSample, mixedColors) : ""}
  * water/pooling field is `moisture`.
  *
  * Wetness / directionality / grain ride in on each dab, so a curve can
- * modulate them along the stroke instead of one value covering it.
+ * modulate them along the stroke.
  */
 function buildWetSeedWgsl(tipSample: string, mixedColors: boolean): string {
 	return /* wgsl */ `

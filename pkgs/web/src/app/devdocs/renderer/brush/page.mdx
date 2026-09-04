@@ -151,7 +151,7 @@ flowchart TD
 - `softnessCurve`指定時はKritaのcurve circle規約（線形距離のカーブを二乗距離インデックスへ再マップ）でLUTを作る
 - GPU側は`StrokeBatchContext.ensureFalloffLut()`がr8unorm 256×1×32の`texture_2d_array`を1枚だけ作り、Dabの`hardnessLutIndex`でレイヤを選ぶ
 
-hardnessが実行時パラメータになり、任意サイズでシャープな縁が出る。旧実装の128px焼き込み円テクスチャは撤去済みである。
+hardnessは実行時パラメータであり、任意サイズでシャープな縁が出る。
 
 ### 画像先端
 
@@ -249,7 +249,7 @@ wet層と併用した場合、ここで解決したDab色がwetシミュレー�
 
 ## wet層（WetLayerPass）
 
-`wet.enabled`のブラシはにじみ・拡散のシミュレーションを通る。旧WetInkPassの4フィールド拡散シミュレーションを、係数の供給をuniformからDab属性・場テクスチャへ移した形で移植したものである（`pipeline/stroke/WetLayerPass.ts`）。
+`wet.enabled`のブラシはにじみ・拡散のシミュレーションを通る。4フィールドの拡散シミュレーションで、係数はDab属性と場テクスチャから供給する（`pipeline/stroke/WetLayerPass.ts`）。
 
 処理は3段のシェーダで構成される。
 
@@ -289,11 +289,11 @@ wet層と併用した場合、ここで解決したDab色がwetシミュレー�
 サンプラは2本を使い分ける。
 
 - `getMipSampler()`: dab経路用。`mipmapFilter: "linear"`でミップを効かせる
-- `getSampler()`: リボン経路用。`lodMaxClamp: 0`でレベル0固定とし、ミップ導入前とビット互換を保つ
+- `getSampler()`: リボン経路用。`lodMaxClamp: 0`でレベル0固定とし、リボンをフル解像度で描く
 
 ## パフォーマンスと設計判断
 
-**Dab単位のビューポートカリングは行わない**: 旧実装の`cullStampBufferToViewport`は撤去された。カリングは`RenderPlanner`の要素単位CPUカリングのみで、画面外のDabはGPUのクリップに任せる。常駐ストアのDab列をそのまま`firstInstance`で描く現構成では、フレームごとのカリングコピーの方が高くつくためである。
+**Dab単位のビューポートカリングは行わない**: カリングは`RenderPlanner`の要素単位CPUカリングのみで、画面外のDabはGPUのクリップに任せる。常駐ストアのDab列をそのまま`firstInstance`で描く現構成では、フレームごとのカリングコピーの方が高くつくためである。
 
 **常駐ストアとフレームプールの使い分け**: 確定ストロークは`BoundedStampStore`に常駐し、フレームをまたいでアップロードが発生しない。ライブストロークと容量あふれ分だけがフレームプール（grow-onlyのGPUバッファプール）を使う。
 

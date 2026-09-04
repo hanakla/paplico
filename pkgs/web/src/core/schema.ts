@@ -1082,8 +1082,7 @@ export interface Path extends ArtObject {
 	 * True when strokeWidths carries the brush's size-curve evaluation, baked
 	 * at commit from the raw input's pressure/speed. Renderers then SKIP the
 	 * size curves and treat the profile as the width itself: dab/ribbon scale
-	 * the stamp size by the ratios (no alpha clip), geometric drops its
-	 * pressure term. The stored brush settings stay untouched, so adopting
+	 * the stamp size by the ratios, geometric drops its pressure term. The stored brush settings stay untouched, so adopting
 	 * this stroke's appearance (selection follow) keeps the live curves.
 	 * Unset/false: strokeWidths composes multiplicatively on top of the live
 	 * curve evaluation (eraser width-adjust, manual edits).

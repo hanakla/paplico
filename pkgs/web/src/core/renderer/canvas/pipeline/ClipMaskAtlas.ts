@@ -73,7 +73,7 @@ export interface MaskRenderRequest {
 export interface MaskEntry {
 	/** Content and coverage identity used by downstream bake caches. */
 	fingerprint: string;
-	/** Texture layer index. The current 2D atlas and standalone textures use 0. */
+	/** Texture layer index. The 2D atlas and standalone textures use 0. */
 	layerIndex: number;
 	/** World-space region covered by this mask texture. */
 	bounds: BoundingBox;

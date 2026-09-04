@@ -2,9 +2,9 @@
 //
 // One dt-normalized explicit-Euler iteration of water diffusion,
 // semi-Lagrangian pigment advection and drying. Every coefficient is read per
-// texel instead of from a stroke-wide uniform, so a single stroke can dry
-// faster where it slowed, granulate only where it pooled, and bleed softly at
-// one end while staying sharp at the other.
+// texel, so a single stroke can dry faster where it slowed, granulate only
+// where it pooled, and bleed softly at one end while staying sharp at the
+// other.
 //
 // Where each coefficient comes from:
 // - absorption, granulation, bleedSoftness

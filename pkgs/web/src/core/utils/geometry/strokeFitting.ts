@@ -1188,10 +1188,10 @@ function rawCornerScoreAt(
 	if (i <= 0 || i >= points.length - 1) return -1;
 
 	// Span walks measure CHORD distance (net displacement), not arc length:
-	// a pen dwelling at a corner piles up arc from jitter alone, which used
-	// to collapse the window into the dwell cluster and turn the measured
-	// directions into noise (several false corner anchors per real corner).
-	// Chord spans step across the dwell to real geometry instead.
+	// a pen dwelling at a corner piles up arc from jitter alone, so an arc
+	// window collapses into the dwell cluster and the measured directions
+	// turn into noise (several false corner anchors per real corner). Chord
+	// spans step across the dwell to real geometry.
 	let j = i - 1;
 	while (
 		j > 0 &&

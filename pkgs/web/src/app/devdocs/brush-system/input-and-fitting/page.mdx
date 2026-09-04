@@ -3,7 +3,7 @@
 > [!NOTE]
 > **親ページ:** [ブラシシステム](/devdocs/brush-system)
 
-このページは、ブラウザのPointer Eventが `CubicBezierSegment[]` へ変換されるまでの現行処理を説明する。対象はブラシツールの中心線である。Dabの生成、幅の焼き込み、Yjsへの保存は扱わない。
+このページは、ブラウザのPointer Eventが `CubicBezierSegment[]` へ変換されるまでの処理を説明する。対象はブラシツールの中心線である。Dabの生成、幅の焼き込み、Yjsへの保存は扱わない。
 
 ブラシツールは入力中とpointerup後で異なるフィッティング経路を使う。入力中は末尾だけを更新しやすい増分処理を使う。pointerup後は保存していた全raw pointsを処理し直す。両方の経路をつなぐデータはpreview segmentsではなくraw pointsである。
 

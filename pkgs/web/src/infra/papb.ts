@@ -23,8 +23,7 @@ export function serializePapb(brushPreset: PersistedBrushPreset): Uint8Array {
 		schemaVersion: PAPB_SCHEMA_VERSION,
 		brushPreset: {
 			...snapshot,
-			// Presets stored before the width-neutral rule may still carry a
-			// width; the file format never does.
+			// A stored preset may carry a width; the file format never does.
 			defaultSettings: withoutStoredBrushSize(snapshot.defaultSettings),
 		},
 	}) as Uint8Array;
@@ -69,7 +68,7 @@ function readPersistedBrushPreset(
 	return {
 		uid: record.uid,
 		name: record.name,
-		// Old files may carry a width; strip it so imports never re-record one.
+		// An imported file may carry a width; strip it so it is never re-recorded.
 		defaultSettings: withoutStoredBrushSize(
 			migrateBrushSettings
 				? migrateBrushSettingsToV2(record.defaultSettings)

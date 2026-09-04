@@ -358,7 +358,7 @@ describe("bakeStrokeWidthProfile", () => {
 			const liveHalf = readDabField(live.data, i, "sizeX") * 0.5;
 			const bakedHalf = readDabField(bakedRun.data, i, "sizeX") * 0.5;
 			expect(Math.abs(bakedHalf - liveHalf)).toBeLessThan(0.1);
-			// No alpha clip in baked mode: the width IS the stamp size.
+			// In baked mode the width IS the stamp size, so both sides stay full.
 			expect(readDabField(bakedRun.data, i, "side1Width")).toBe(1);
 			expect(readDabField(bakedRun.data, i, "side2Width")).toBe(1);
 		}

@@ -133,7 +133,7 @@ value = clamp(base * factor, propertyMin, propertyMax)
 
 各Dabの `speedFine` と `accel` は `motionSpeed` と `motionAccel` としてinstance bufferにも入る。wet brush shaderはこれらの値をmoisture fieldへ渡す。
 
-速度入力を計算するのは現行のdab engineである。ribbon engineのcurve評価はpressure、`strokeT`、fadeを設定する。`speedFine` と `speedGross` はneutral値の0に残る。geometric engineは専用のpressure幅式を使う。
+速度入力を計算するのはdab engineである。ribbon engineのcurve評価はpressure、`strokeT`、fadeを設定する。`speedFine` と `speedGross` はneutral値の0に残る。geometric engineは専用のpressure幅式を使う。
 
 参照先:
 
@@ -145,7 +145,7 @@ value = clamp(base * factor, propertyMin, propertyMax)
 
 ## sizeBySpeedとpoolingの互換変換
 
-現行のdab engineに `sizeBySpeed` と `pooling` の専用分岐はない。brush v2以前のドキュメントを開くとき、migrationがこれらの値を `speedFine` 入力のproperty curveへ変換する。
+dab engineに `sizeBySpeed` と `pooling` の専用分岐はない。brush v2以前のドキュメントを開くとき、migrationがこれらの値を `speedFine` 入力のproperty curveへ変換する。
 
 ### sizeBySpeed
 

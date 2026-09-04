@@ -1678,7 +1678,7 @@ function toFlatBrushView(raw: BrushSettings | undefined): FlatBrushView {
 }
 
 /**
- * Apply the panel's remaining flat controls onto stored v2 settings. What
+ * Apply the panel's remaining flat controls onto the stored settings. What
  * these controls touch — the engine, the tip's textures, the ribbon's
  * geometry, the dash — has no curve behind it, so each maps to one field.
  */

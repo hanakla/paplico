@@ -796,8 +796,8 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 			const settings = strokeApp.paramData.params.brushSettings as {
 				properties: { size?: { base: number; curves?: unknown[] } };
 			};
-			// Stripping the curves here would poison appearance adoption
-			// (selection follow copies this appearance back to the tool).
+			// Selection follow copies this appearance back to the tool, so the
+			// curves must survive on it.
 			expect(settings.properties.size?.curves).toHaveLength(1);
 			expect(settings.properties.size?.base).toBe(10);
 		});

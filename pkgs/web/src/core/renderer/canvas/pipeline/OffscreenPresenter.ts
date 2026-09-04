@@ -389,10 +389,10 @@ export class OffscreenPresenter {
 	/** Textures whose destroy must be deferred until after queue.submit(). */
 	private deferredDestroys: GPUTexture[] = [];
 	/** Frame-local memo of pre-rasterized (filtered + masked) group children.
-	 *  Nested group bakes re-rasterize the same child once per ancestor bake
-	 *  (measured avg 5.6x per frame on a mask-heavy document); the memo owns
-	 *  each texture for the frame and hands out borrowed refs, so consumers'
-	 *  releases stay no-ops and the textures die at the next frame reset. */
+	 *  Nested group bakes request the same child once per ancestor bake, so
+	 *  the memo rasterizes it once per frame, owns the texture for the frame
+	 *  and hands out borrowed refs; consumers' releases stay no-ops and the
+	 *  textures die at the next frame reset. */
 	private childBakeMemo = new Map<
 		string,
 		{

@@ -35,9 +35,8 @@ export interface DabEvaluateOptions {
 	/**
 	 * Path.strokeWidthsBaked: strokeWidths carries the size-curve evaluation
 	 * baked at commit. Size curves are skipped, and the profile scales the
-	 * stamp size (with its asymmetry as a normal offset) instead of clipping
-	 * alpha — a clipped full-size stamp keeps its along-stroke extent and
-	 * pokes past corners.
+	 * stamp size (with its asymmetry as a normal offset), so the mark stays a
+	 * round stamp that never pokes past corners.
 	 */
 	strokeWidthsBaked?: boolean;
 	textureAspectRatio?: number;
@@ -310,9 +309,8 @@ export function evaluateDabs(
 		if (strokeWidths) {
 			const widths = interpolateStrokeWidths(strokeWidths, fragT);
 			if (widthsBaked) {
-				// Baked profile IS the width: scale the stamp instead of clipping
-				// its alpha, so the mark stays a round stamp (clipped full-size
-				// stamps keep their along-stroke extent and poke past corners).
+				// Baked profile IS the width: scale the stamp, so the mark stays a
+				// round stamp that never pokes past corners.
 				const halfRatio = (widths.side1 + widths.side2) * 0.5;
 				if (halfRatio <= 0) return;
 				sizeX *= halfRatio;
