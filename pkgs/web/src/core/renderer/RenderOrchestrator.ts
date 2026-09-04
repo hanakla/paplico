@@ -1,6 +1,5 @@
 import { makeStructuredView } from "webgpu-utils";
 import type { SoftProofLutResult } from "../color/types";
-import type { BrushEngineKind } from "../schema";
 import {
 	type AnyArtObject,
 	type Artboard,
@@ -47,15 +46,7 @@ import {
 	buildFilterPlansForElements,
 	calculatePreFilteredElementBounds,
 } from "./canvas/pipeline/RenderPlanner";
-import { createGeometricStrokeEngine } from "./canvas/pipeline/stroke/GeometricStrokeEngine";
-import { createRibbonStrokeEngine } from "./canvas/pipeline/stroke/RibbonStrokeEngine";
-import { createStampStrokeEngine } from "./canvas/pipeline/stroke/StampStrokeEngine";
 import { StrokeBatchContext } from "./canvas/pipeline/stroke/StrokeBatchContext";
-import type {
-	EnginePipeline,
-	EnginePipelineContext,
-} from "./canvas/pipeline/stroke/StrokeEngine";
-import { StrokeEngineRegistry } from "./canvas/pipeline/stroke/StrokeEnginePicker";
 import {
 	UNIFIED_VERTEX_BYTES,
 	UNIFIED_VERTEX_OFFSETS,
@@ -158,7 +149,7 @@ interface TargetData {
 	bindGroup: GPUBindGroup;
 	canvasLayer: CanvasLayer;
 	uiLayer: UILayer;
-	strokeRegistry: StrokeEngineRegistry;
+	strokeBatchContext: StrokeBatchContext;
 	backdropCaptureManager: BackdropCaptureManager;
 	cacheManager: RenderCacheManager;
 }
@@ -456,53 +447,6 @@ export class RenderOrchestrator {
 			() => maskBindGroupRef.current,
 		);
 
-		// Construct stroke engines + registry. The stamp/ribbon engines drive
-		// the shared StrokeBatchContext that owns the stamp + ribbon
-		// pipelines; the geometric engine routes back to
-		// ElementRenderer.renderPath, which lives on CanvasLayer — we hold a
-		// forward reference and bind the real callback right after CanvasLayer
-		// is constructed.
-		const canvasLayerRef: { current: CanvasLayer | null } = { current: null };
-		const geometricEngine = createGeometricStrokeEngine(
-			(pass, path, alpha, pipelineType) => {
-				canvasLayerRef.current?.elements.renderPath(
-					pass,
-					path,
-					alpha,
-					pipelineType,
-				);
-			},
-		);
-		const stampEngine = createStampStrokeEngine(strokeBatchContext);
-		const ribbonEngine = createRibbonStrokeEngine(strokeBatchContext);
-		const engineCtx: EnginePipelineContext = {
-			device: this.device,
-			colorFormat: this.canvasFormat,
-			fieldFormat: "rgba16float",
-			sampleCount: 1,
-			bindGroupLayouts: {
-				viewport: this.bindGroupLayout,
-				transforms: this.transformsBindGroupLayout,
-				mask: this.layouts.mask,
-			},
-		};
-		const enginePipelines = new Map<BrushEngineKind, EnginePipeline>();
-		for (const engine of [geometricEngine, stampEngine, ribbonEngine]) {
-			const pipeline = engine.createPipeline(engineCtx);
-			for (const id of engine.ids) {
-				enginePipelines.set(id, pipeline);
-			}
-		}
-		const strokeRegistry = new StrokeEngineRegistry(
-			{
-				geometric: geometricEngine,
-				stamp: stampEngine,
-				ribbon: ribbonEngine,
-			},
-			strokeBatchContext,
-			enginePipelines,
-		);
-
 		const canvasLayer = new CanvasLayer(
 			this.device,
 			this.canvasFormat,
@@ -558,13 +502,11 @@ export class RenderOrchestrator {
 				pulledBindGroupLayout: this.layouts.pulled,
 				maskBindGroupRef,
 				cacheManager,
+				strokeBatchContext,
 				textRenderer: this.textRenderer ?? undefined,
 			},
 			target.id,
 		);
-
-		canvasLayerRef.current = canvasLayer;
-		canvasLayer.setStrokeRegistry(strokeRegistry);
 
 		const uiLayer = new UILayer(
 			this.device,
@@ -598,7 +540,7 @@ export class RenderOrchestrator {
 			bindGroup,
 			canvasLayer,
 			uiLayer,
-			strokeRegistry,
+			strokeBatchContext,
 			backdropCaptureManager,
 			cacheManager,
 		});
@@ -1735,7 +1677,7 @@ export class RenderOrchestrator {
 		if (td) {
 			td.canvasLayer.elements.destroyReference3DTextures();
 			td.canvasLayer.destroy();
-			td.strokeRegistry.destroy();
+			td.strokeBatchContext.destroy();
 			td.uniformBuffer.destroy();
 			td.uiLayer.destroy();
 			// The device outlives a single target, so its cache scopes have to be
@@ -1757,7 +1699,7 @@ export class RenderOrchestrator {
 		for (const td of this.targets.values()) {
 			td.canvasLayer.elements.destroyReference3DTextures();
 			td.canvasLayer.destroy();
-			td.strokeRegistry.destroy();
+			td.strokeBatchContext.destroy();
 			td.uniformBuffer.destroy();
 			td.uiLayer.destroy();
 		}

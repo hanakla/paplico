@@ -25,7 +25,7 @@ flowchart TD
 - **ribbon**: テクスチャをパスに沿ってUVマッピングする。バッチ経路（`addToBatch` / `flushBatch`）を使う唯一のエンジン
 - **geometric**: SVG風のジオメトリックストローク。`ElementRenderer.renderGeometricStroke`へ戻す
 
-エンジンの選択はStrokeEngineRegistry（`pipeline/stroke/StrokeEnginePicker.ts`）が仲介する。`StampStrokeEngine` / `RibbonStrokeEngine` / `GeometricStrokeEngine`はいずれも薄いラッパで、実体は`StrokeBatchContext`に集約されている。
+ルートを決めるのは呼び出し側である。CanvasLayer（バッチ経路）と`PathElementRenderer`（即時経路）が`resolveBrushRenderRoute()`を1回呼び、stroke appearanceから取り出した`strokeColor`と routed settings を`StrokeDrawInput`に詰めて`StrokeBatchContext`へ直接渡す。`StrokeBatchContext`は`path.filters`を読み直さない。
 
 ## モジュール概観
 

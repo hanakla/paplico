@@ -38,6 +38,7 @@ import {
 	type RawRGBA,
 	type RepeatObject,
 	type StrokeAppearance,
+	type StrokeColor,
 	type TextElement,
 	TRANSIENT_LAYER_KIND,
 	type Viewport,
@@ -212,8 +213,7 @@ import {
 	resolveTransientWashDomain,
 } from "./pipeline/rasterizationDomain";
 import { SoftProofPass } from "./pipeline/SoftProofPass";
-import { resolveStrokeStyle } from "./pipeline/stroke/resolveStrokeStyle";
-import type { StrokeEngineRegistry } from "./pipeline/stroke/StrokeEnginePicker";
+import type { StrokeBatchContext } from "./pipeline/stroke/StrokeBatchContext";
 import { WetLayerPass } from "./pipeline/stroke/WetLayerPass";
 import { TexturePool, texturePoolBudgetBytes } from "./pipeline/TexturePool";
 import { UniformScope } from "./pipeline/UniformScope";
@@ -260,6 +260,12 @@ export interface CanvasFrameTransaction {
  * read — two elements could share one texture and disagree on that.
  */
 type AssignedMask = MaskEntry & { inverted?: boolean };
+
+/** A wet-enabled dab stroke appearance, resolved for the wet layer. */
+interface WetStroke {
+	settings: BrushSettingsV2;
+	strokeColor: StrokeColor;
+}
 
 type RendererFramePlan = FramePlan & {
 	maskApplicationPlans: Map<string, MaskApplicationPlan>;
@@ -428,14 +434,14 @@ export class CanvasLayer {
 		this.viewportBinding.bufStack.push(this.viewportBinding.buffer);
 		this.viewportBinding.active = bg;
 		this.viewportBinding.buffer = buffer ?? null;
-		this.strokeRegistry?.setActiveUniformBuffer(this.viewportBinding.buffer);
+		this.strokeBatchContext.setActiveUniformBuffer(this.viewportBinding.buffer);
 	}
 
 	private popViewportBinding(): void {
 		this.viewportBinding.active =
 			this.viewportBinding.bgStack.pop() ?? this.bindGroup;
 		this.viewportBinding.buffer = this.viewportBinding.bufStack.pop() ?? null;
-		this.strokeRegistry?.setActiveUniformBuffer(this.viewportBinding.buffer);
+		this.strokeBatchContext.setActiveUniformBuffer(this.viewportBinding.buffer);
 	}
 
 	private setViewportBinding(
@@ -444,7 +450,7 @@ export class CanvasLayer {
 	): void {
 		this.viewportBinding.active = bg;
 		this.viewportBinding.buffer = buffer ?? null;
-		this.strokeRegistry?.setActiveUniformBuffer(this.viewportBinding.buffer);
+		this.strokeBatchContext.setActiveUniformBuffer(this.viewportBinding.buffer);
 	}
 
 	// -- Sub-renderers --
@@ -453,7 +459,7 @@ export class CanvasLayer {
 	public readonly offscreen!: OffscreenPresenter;
 	private filterRenderer: FilterRenderer;
 	private backdropCaptureManager: BackdropCaptureManager;
-	private strokeRegistry: StrokeEngineRegistry | null = null;
+	private readonly strokeBatchContext: StrokeBatchContext;
 	/** Request another frame (async resource loads, and tile convergence: a
 	 *  settle frame that still shows coarser/approximate tiles asks for a follow
 	 *  up so the residual misses bake to vector quality over frames). Wired via
@@ -725,6 +731,7 @@ export class CanvasLayer {
 			blitWithMaskBindGroupLayout: GPUBindGroupLayout;
 			maskChainBindGroupLayout: GPUBindGroupLayout;
 			cacheManager: RenderCacheManager;
+			strokeBatchContext: StrokeBatchContext;
 			maskBindGroupRef?: { current: GPUBindGroup };
 		},
 		canvasId: string,
@@ -777,7 +784,7 @@ export class CanvasLayer {
 
 		this.backdropCaptureManager = resources.backdropCaptureManager;
 
-		// strokeRegistry is installed post-construction via setStrokeRegistry()
+		this.strokeBatchContext = resources.strokeBatchContext;
 		this.textState.renderer = resources.textRenderer ?? null;
 
 		this.transformsBindGroupLayout = resources.transformsBindGroupLayout;
@@ -884,7 +891,7 @@ export class CanvasLayer {
 			getLocalBounds: (elementId: string) =>
 				this.viewportManager.getBoundsCache().get(elementId) ?? null,
 			getTransformsBindGroup: () => this.transformsBindGroup,
-			getStrokeRegistry: () => this.strokeRegistry,
+			strokeBatchContext: this.strokeBatchContext,
 			getCompoundPathGeometryCache: () => this.cacheManager.compoundPath,
 			getBlendCache: () => this.cacheManager.blend,
 			getMeshWarpCache: () => this.cacheManager.meshWarp,
@@ -988,7 +995,7 @@ export class CanvasLayer {
 			texturePool: this.texturePool,
 			coordinator: this.backdropEffectCoordinator,
 			uniformScope: this.uniformScope,
-			getBatchContext: () => this.strokeRegistry?.getBatchContext() ?? null,
+			strokeBatchContext: this.strokeBatchContext,
 			getTransformIndex: (elementId) =>
 				this.viewportManager.getTransformIndex(elementId),
 			getTransformsBindGroup: () => this.transformsBindGroup ?? undefined,
@@ -1094,29 +1101,16 @@ export class CanvasLayer {
 		this.clipMaskAtlas = this.createClipMaskAtlas();
 
 		this.defRasterizer = new DefRasterizer({
-			// Lazily forwarded — the stroke registry is installed after
-			// construction via setStrokeRegistry().
 			onEvicted: (textureUid) =>
-				this.strokeRegistry
-					?.getBrushTextureManager()
+				this.strokeBatchContext
+					.getTextureManager()
 					.removeDefTexture(textureUid),
 		});
-	}
 
-	/**
-	 * Install the stroke engine registry. Called by RenderOrchestrator after
-	 * both CanvasLayer (for ElementRenderer.renderPath) and the registry's
-	 * engines (which depend on ElementRenderer for the geometric wrapper)
-	 * exist — breaks a circular construction dependency.
-	 */
-	public setStrokeRegistry(registry: StrokeEngineRegistry | null): void {
-		this.strokeRegistry = registry;
-		// Sync the legacy renderer's active uniform buffer with the current
-		// viewport binding so push/pop state remains consistent.
-		registry?.setActiveUniformBuffer(this.viewportBinding.buffer);
+		this.strokeBatchContext.setActiveUniformBuffer(this.viewportBinding.buffer);
 		// A batch flush encodes stamp/ribbon draws mid-loop — the geometry run
 		// batcher must emit its pending merged draw first (paint order).
-		registry?.setOnBeforeBatchDraw(() => this.runBatcher.flush());
+		this.strokeBatchContext.onBeforeDraw = () => this.runBatcher.flush();
 	}
 
 	public setOnRequestRender(callback: () => void): void {
@@ -2135,7 +2129,7 @@ export class CanvasLayer {
 		this.gradient.textureGenerator.beginFrame();
 		this.gradient.meshTextureGenerator.beginFrame();
 		this.gradient.drawIndex = 0;
-		this.strokeRegistry?.beginFrame();
+		this.strokeBatchContext.beginFrame();
 		this.elements.beginFrame();
 		// Reset each backdrop-composite driver's per-frame pools + inline-composed
 		// tracking (glass extrude refraction), and the shared capture/pyramid
@@ -5156,12 +5150,12 @@ export class CanvasLayer {
 			// Render to isolated offscreen texture using unified element-level
 			// bounds so all appearances share the same coordinate space when
 			// composited onto the accumulator.
-			const wetSettings = CanvasLayer.wetSettingsOf(plan.appearance);
-			const appResult = wetSettings
+			const wetStroke = CanvasLayer.wetStrokeOf(plan.appearance);
+			const appResult = wetStroke
 				? this.renderWetAppearanceToTexture(
 						encoder,
 						fp.element,
-						wetSettings,
+						wetStroke,
 						isolationBounds,
 						isolationScale,
 						this.viewportManager.getTransformIndex(fp.element.id),
@@ -5788,9 +5782,9 @@ export class CanvasLayer {
 		if (!this.viewportState.current) return passEncoder;
 
 		let activePass = passEncoder;
-		const batchRegistry = compositeContext ? this.strokeRegistry : null;
+		const batchContext = compositeContext ? this.strokeBatchContext : null;
 		let currentBatchTextureUid = "";
-		if (batchRegistry) batchRegistry.beginBatch();
+		if (batchContext) batchContext.beginBatch();
 
 		for (const element of elements) {
 			// Skip invisible elements (visible === false; undefined/true means visible)
@@ -5911,8 +5905,8 @@ export class CanvasLayer {
 				continue;
 			}
 			if (backdropDriver && compositeContext) {
-				if (batchRegistry) {
-					batchRegistry.flushBatch(
+				if (batchContext) {
+					batchContext.flushBatch(
 						activePass,
 						pipelineType,
 						this.transformsBindGroup!,
@@ -6058,8 +6052,8 @@ export class CanvasLayer {
 			// Filtered textures are already rasterized snapshots; render/blit directly.
 			if (filteredData) {
 				// Preserve draw order by flushing pending batches before textured blits.
-				if (batchRegistry) {
-					batchRegistry.flushBatch(
+				if (batchContext) {
+					batchContext.flushBatch(
 						activePass,
 						pipelineType,
 						this.transformsBindGroup!,
@@ -6175,8 +6169,8 @@ export class CanvasLayer {
 				}
 				// Don't render children - they're already in the filtered texture
 			} else if (needsComposite) {
-				if (batchRegistry) {
-					batchRegistry.flushBatch(
+				if (batchContext) {
+					batchContext.flushBatch(
 						activePass,
 						pipelineType,
 						this.transformsBindGroup!,
@@ -6289,8 +6283,8 @@ export class CanvasLayer {
 				compositeContext
 			) {
 				// EraseMask path: render to offscreen with alpha subtraction
-				if (batchRegistry) {
-					batchRegistry.flushBatch(
+				if (batchContext) {
+					batchContext.flushBatch(
 						activePass,
 						pipelineType,
 						this.transformsBindGroup!,
@@ -6352,7 +6346,7 @@ export class CanvasLayer {
 					);
 				});
 				const canBatch =
-					batchRegistry &&
+					batchContext &&
 					batchableStrokes.length === enabledStrokes.length &&
 					enabledStrokes.length > 0;
 
@@ -6414,7 +6408,7 @@ export class CanvasLayer {
 						const appAlpha = effectiveAlpha * app.opacity;
 						if (app.processor === "fill") {
 							// Flush pending stroke batch before rendering fill
-							batchRegistry.flushBatch(
+							batchContext.flushBatch(
 								activePass,
 								pipelineType,
 								this.transformsBindGroup!,
@@ -6434,6 +6428,8 @@ export class CanvasLayer {
 							}
 						} else {
 							const strokeApp = app as StrokeAppearance;
+							const strokeColor = strokeApp.paramData.params.strokeColor;
+							if (!strokeColor) continue;
 							const settings = resolveBrushRenderRoute(
 								strokeApp.paramData.params.brushSettings,
 							).settings;
@@ -6441,7 +6437,7 @@ export class CanvasLayer {
 
 							const textureUid = resolveBrushTextureUid(
 								settings,
-								this.strokeRegistry?.getBrushTextureManager(),
+								this.strokeBatchContext.getTextureManager(),
 							);
 							if (
 								textureUid &&
@@ -6483,7 +6479,7 @@ export class CanvasLayer {
 								currentBatchTextureUid &&
 								effectiveTextureUid !== currentBatchTextureUid
 							) {
-								batchRegistry.flushBatch(
+								batchContext.flushBatch(
 									activePass,
 									pipelineType,
 									this.transformsBindGroup!,
@@ -6491,29 +6487,20 @@ export class CanvasLayer {
 							}
 							currentBatchTextureUid = effectiveTextureUid;
 
-							const singleStrokePath: Path = {
-								...element,
-								filters: [strokeApp],
-							};
-							const resolvedStyle = resolveStrokeStyle({
-								path: singleStrokePath,
+							batchContext.addToBatch({
+								path: element,
 								segments,
+								strokeColor,
+								settings,
 								alphaMultiplier: appAlpha,
 								transformIndex: this.renderState.currentTransformIndex,
-								strokeAppearance: strokeApp,
 							});
-							if (resolvedStyle) {
-								batchRegistry.addToBatch(
-									resolvedStyle,
-									this.renderState.currentTransformIndex,
-								);
-							}
 						}
 					}
 				} else {
 					// Non-batch path (non-batchable strokes or no strokes).
-					if (batchRegistry) {
-						batchRegistry.flushBatch(
+					if (batchContext) {
+						batchContext.flushBatch(
 							activePass,
 							pipelineType,
 							this.transformsBindGroup!,
@@ -6535,8 +6522,8 @@ export class CanvasLayer {
 					}
 				}
 			} else if (isGroup(element)) {
-				if (batchRegistry) {
-					batchRegistry.flushBatch(
+				if (batchContext) {
+					batchContext.flushBatch(
 						activePass,
 						pipelineType,
 						this.transformsBindGroup!,
@@ -6725,8 +6712,8 @@ export class CanvasLayer {
 				);
 			} else {
 				// Non-path, non-group elements: image, compound-path, text
-				if (batchRegistry) {
-					batchRegistry.flushBatch(
+				if (batchContext) {
+					batchContext.flushBatch(
 						activePass,
 						pipelineType,
 						this.transformsBindGroup!,
@@ -6749,9 +6736,9 @@ export class CanvasLayer {
 			}
 		}
 
-		if (batchRegistry) {
+		if (batchContext) {
 			// Flush any remaining batched strokes at loop end.
-			batchRegistry.flushBatch(
+			batchContext.flushBatch(
 				activePass,
 				pipelineType,
 				this.transformsBindGroup!,
@@ -7238,8 +7225,7 @@ export class CanvasLayer {
 		if (brushDefIdsInUse.size === 0) return;
 		const doc = this.activeDocument;
 		if (!doc) return;
-		const textureManager = this.strokeRegistry?.getBrushTextureManager();
-		if (!textureManager) return;
+		const textureManager = this.strokeBatchContext.getTextureManager();
 		const elementsMap =
 			this.activeElementsMap ?? new Map(Object.entries(doc.objects));
 		const zoom = this.viewportState.current?.zoom ?? 1;
@@ -7415,13 +7401,13 @@ export class CanvasLayer {
 	private renderWetAppearanceToTexture(
 		encoder: GPUCommandEncoder,
 		element: AnyArtObject,
-		settings: BrushSettingsV2,
+		{ settings, strokeColor }: WetStroke,
 		bounds: WorldBBox,
 		scale: number,
 		transformIndex: number,
 	): RasterizedRenderSurface | null {
-		const batchContext = this.strokeRegistry?.getBatchContext();
-		if (!batchContext || element.type !== "path") return null;
+		if (element.type !== "path") return null;
+		const batchContext = this.strokeBatchContext;
 		const segments = element.segments ?? [];
 		if (segments.length === 0) return null;
 		const wet = settings.wet!;
@@ -7519,6 +7505,7 @@ export class CanvasLayer {
 			batchContext.renderWetSeedDabs({
 				passEncoder: seedPass,
 				path: element,
+				strokeColor,
 				settings,
 				segments,
 				alphaMultiplier: 1,
@@ -7575,13 +7562,14 @@ export class CanvasLayer {
 	}
 
 	/** The v2 wet settings of a stroke appearance, or null. */
-	private static wetSettingsOf(appearance: Filter): BrushSettingsV2 | null {
+	private static wetStrokeOf(appearance: Filter): WetStroke | null {
 		if (appearance.processor !== "stroke") return null;
-		const raw = (appearance as StrokeAppearance).paramData.params.brushSettings;
-		if (raw == null) return null;
-		const route = resolveBrushRenderRoute(raw);
+		const { brushSettings, strokeColor } = (appearance as StrokeAppearance)
+			.paramData.params;
+		if (brushSettings == null || strokeColor == null) return null;
+		const route = resolveBrushRenderRoute(brushSettings);
 		return route.kind === "dab" && route.settings.wet?.enabled === true
-			? route.settings
+			? { settings: route.settings, strokeColor }
 			: null;
 	}
 

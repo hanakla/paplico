@@ -45,7 +45,7 @@ import {
 	type RunBatcher,
 	transformFillBoundsToWorld,
 } from "../pipeline/RunBatcher";
-import type { StrokeEngineRegistry } from "../pipeline/stroke/StrokeEnginePicker";
+import type { StrokeBatchContext } from "../pipeline/stroke/StrokeBatchContext";
 import type {
 	DrawableSegments,
 	ResolvedAppearancePass,
@@ -89,8 +89,7 @@ interface ElementRendererDeps extends SharedRenderBindings {
 	assetState: AssetState;
 	textState: TextState;
 	gradient: GradientState;
-	// May be assigned after construction, hence a nullable getter.
-	getStrokeRegistry: () => StrokeEngineRegistry | null;
+	strokeBatchContext: StrokeBatchContext;
 	getCompoundPathGeometryCache: () => CompoundPathCache;
 	getBlendCache: () => BlendCache;
 	getMeshWarpCache: () => MeshWarpCache;
@@ -192,7 +191,7 @@ export class ElementRenderer {
 			renderState: deps.renderState,
 			assetState: deps.assetState,
 			filterRenderer: deps.filterRenderer,
-			getStrokeRegistry: deps.getStrokeRegistry,
+			strokeBatchContext: deps.strokeBatchContext,
 			// Accessors, not snapshots: deps.<cache> resolves the cache manager's
 			// active document scope per access; collapsing them into fixed
 			// instances here would break document switching.
@@ -637,10 +636,7 @@ export class ElementRenderer {
 		textureFileUid: string,
 		files: EmbeddedFile[],
 	): boolean {
-		const registry = this.deps.getStrokeRegistry();
-		if (!registry) return false;
-
-		const textureManager = registry.getBrushTextureManager();
+		const textureManager = this.deps.strokeBatchContext.getTextureManager();
 		// Def-rasterized textures live only in the texture manager (there is no
 		// embedded file to load them from) — presence is managed by
 		// CanvasLayer.preRenderBrushDefs.

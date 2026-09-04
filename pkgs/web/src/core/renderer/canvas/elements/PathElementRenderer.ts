@@ -69,8 +69,7 @@ import {
 	type RunBatcher,
 	type WorldFillBounds,
 } from "../pipeline/RunBatcher";
-import { resolveStrokeStyle } from "../pipeline/stroke/resolveStrokeStyle";
-import type { StrokeEngineRegistry } from "../pipeline/stroke/StrokeEnginePicker";
+import type { StrokeBatchContext } from "../pipeline/stroke/StrokeBatchContext";
 import {
 	type DrawableSegments,
 	type ResolvedAppearancePass,
@@ -111,8 +110,7 @@ interface PathElementRendererDeps {
 	renderState: RenderState;
 	assetState: AssetState;
 	filterRenderer: FilterRenderer;
-	// May be assigned after construction, hence a nullable getter.
-	getStrokeRegistry: () => StrokeEngineRegistry | null;
+	strokeBatchContext: StrokeBatchContext;
 	// Externally-owned caches (managed by RenderCacheManager). Accessed as
 	// accessors so the active document scope resolves per access.
 	geometryCache: GeometryCache;
@@ -248,8 +246,6 @@ export class PathElementRenderer {
 		pipelineType: PipelineType = "main",
 		cacheVariant: StencilFillVariant = "normal",
 	): void {
-		let strokeRegistry: StrokeEngineRegistry | null | undefined;
-
 		for (const { appearance, segments, cacheKey } of passes) {
 			const appAlpha = alphaMultiplier * appearance.opacity;
 
@@ -303,12 +299,10 @@ export class PathElementRenderer {
 						path.pathEnd,
 					);
 				} else {
-					strokeRegistry ??= this.deps.getStrokeRegistry();
-					if (!strokeRegistry) continue;
-
+					const { strokeBatchContext } = this.deps;
 					const textureUid = resolveBrushTextureUid(
 						settings,
-						strokeRegistry.getBrushTextureManager(),
+						strokeBatchContext.getTextureManager(),
 					);
 					if (textureUid) {
 						if (
@@ -321,26 +315,19 @@ export class PathElementRenderer {
 						}
 					}
 
-					const singleStrokePath: Path = {
-						...path,
-						filters: [strokeApp],
-					};
-					const resolvedStyle = resolveStrokeStyle({
-						path: singleStrokePath,
-						segments,
-						alphaMultiplier: appAlpha,
-						transformIndex: this.deps.renderState.currentTransformIndex,
-						strokeAppearance: strokeApp,
-					});
-					if (!resolvedStyle) continue;
-
 					// Stamp renderers encode an immediate draw. Pending solid runs
 					// must be emitted first so appearance array order remains paint order.
 					this.deps.runBatcher.flush();
-					strokeRegistry.render(
+					strokeBatchContext.render(
 						passEncoder,
-						resolvedStyle,
-						pipelineType,
+						{
+							path,
+							segments,
+							strokeColor,
+							settings,
+							alphaMultiplier: appAlpha,
+							transformIndex: this.deps.renderState.currentTransformIndex,
+						},
 						this.deps.getTransformsBindGroup()!,
 					);
 				}

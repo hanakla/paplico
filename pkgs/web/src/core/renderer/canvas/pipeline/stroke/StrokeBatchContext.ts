@@ -1,11 +1,12 @@
 /**
- * StrokeBatchContext - shared GPU pipelines + batch state for the dab and
- * ribbon stroke engines.
+ * StrokeBatchContext - GPU pipelines + batch state for dab and ribbon
+ * strokes. CanvasLayer and PathElementRenderer call it directly with a
+ * StrokeDrawInput whose route and appearance they resolved once.
  *
- * Both engines consume BrushSettingsV2: the dab pipeline evaluates the curve
- * matrix into DabEvaluator instances, and the ribbon pipeline instances one
- * bezier segment per RibbonGenerator entry with the same v2 size/flow curves
- * applied at segment endpoints.
+ * Both pipelines consume BrushSettingsV2: the dab pipeline evaluates the
+ * curve matrix into DabEvaluator instances, and the ribbon pipeline instances
+ * one bezier segment per RibbonGenerator entry with the same v2 size/flow
+ * curves applied at segment endpoints.
  *
  * Ribbon strokes accumulate through beginBatch/addToBatch/flushBatch so paths
  * sharing a texture issue one draw call. Dab strokes bypass that accumulator:
@@ -19,9 +20,7 @@ import {
 	resolveOptionalSourceUid,
 	resolveScatterSourceUids,
 } from "../../../../brush/brushSource";
-import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../../../document/constants";
-import { createDefaultBrushSettings } from "../../../../document/factory";
 import type { RibbonConfig } from "../../../../schema";
 import {
 	type BrushSettingsV2,
@@ -29,7 +28,6 @@ import {
 	type CubicBezierSegment,
 	colorToRawRGBA,
 	type Path,
-	type StrokeAppearance,
 	type StrokeColor,
 } from "../../../../schema";
 import { calculateElementBounds } from "../../../../utils/geometry/bounds";
@@ -98,6 +96,23 @@ export interface StrokeBatchContextOptions {
 	 *  cap from the device limits; tests inject a small value to exercise
 	 *  the pooled fallback. */
 	maxResidentStamps?: number;
+}
+
+/**
+ * One stroke appearance, resolved by the caller. The route decision and the
+ * appearance lookup happen once at the call site; nothing here re-reads
+ * `path.filters`.
+ */
+export interface StrokeDrawInput {
+	/** Geometry owner: strokeWidths / pathStart / pathEnd, and the bounds a
+	 *  "within" gradient spans. */
+	path: Path;
+	segments: CubicBezierSegment[];
+	strokeColor: StrokeColor;
+	/** Routed settings (`resolveBrushRenderRoute(...).settings`). */
+	settings: BrushSettingsV2;
+	alphaMultiplier: number;
+	transformIndex: number;
 }
 
 /** Per-stroke draw state of the mixing route (see prepareMixedDabStroke). */
@@ -516,39 +531,14 @@ export class StrokeBatchContext {
 	 * Queue a path into the batch without drawing anything;
 	 * flushBatch() draws the whole batch at once.
 	 */
-	public addToBatch(
-		path: Path,
-		segments: CubicBezierSegment[],
-		alphaMultiplier: number,
-		transformIndex = 0,
-	): void {
-		if (segments.length === 0) return;
-
-		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
-		const route = resolveBrushRenderRoute(
-			rawBrushSettings ?? createDefaultBrushSettings(),
-		);
-
-		// Geometric stroke is rendered by ElementRenderer, not the stamp pipeline.
-		if (route.kind === "geometric") return;
-
-		// Ribbon methods (pattern/art): accumulate ribbon instances separately
-		if (route.kind === "ribbon") {
-			const ribbon = route.settings.ribbon;
-			if (!ribbon) return;
-			this.addRibbonToBatch(
-				path,
-				segments,
-				ribbonStrokeInputOf(route.settings),
-				ribbon,
-				alphaMultiplier,
-				transformIndex,
-			);
-			return;
-		}
-
-		// Dab strokes are drawn by the v2 pipeline, which the CanvasLayer
-		// filter routes to directly. Nothing reaches this batch.
+	public addToBatch(input: StrokeDrawInput): void {
+		if (input.segments.length === 0) return;
+		// Only ribbon strokes batch; dab strokes draw through render() and
+		// geometric strokes never reach this context.
+		const ribbon =
+			input.settings.engine === "ribbon" ? input.settings.ribbon : undefined;
+		if (!ribbon) return;
+		this.addRibbonToBatch(input, ribbon);
 	}
 
 	/** Resolve the brush texture and (when scatter/start/end sources are set)
@@ -607,21 +597,14 @@ export class StrokeBatchContext {
 	/**
 	 * Accumulate ribbon instances for batch rendering.
 	 */
-	private addRibbonToBatch(
-		path: Path,
-		segments: CubicBezierSegment[],
-		brushSettings: RibbonStrokeInput,
-		ribbon: RibbonConfig,
-		alphaMultiplier: number,
-		transformIndex: number,
-	): void {
-		const ribbonOpts = this.ribbonOptionsWithCurves(path, ribbon);
+	private addRibbonToBatch(input: StrokeDrawInput, ribbon: RibbonConfig): void {
+		const { path, segments, settings } = input;
 		const ribbonBuf = generateRibbonInstances(
 			segments,
-			brushSettings,
+			ribbonStrokeInputOf(settings),
 			this.batchPathCount,
 			path.strokeWidths,
-			ribbonOpts,
+			ribbonOptionsWithCurves(settings, ribbon, path.strokeWidthsBaked),
 			path.pathStart ?? 0,
 			path.pathEnd ?? 1,
 		);
@@ -648,7 +631,7 @@ export class StrokeBatchContext {
 		// Add PathMeta (shared with stamps)
 		this.ensureBatchPathMetas((this.batchPathCount + 1) * PATH_META_FLOATS);
 		const metaOff = this.batchPathCount * PATH_META_FLOATS;
-		this.writePathMeta(metaOff, path, alphaMultiplier, transformIndex);
+		this.writePathMeta(metaOff, input);
 		this.batchPathCount++;
 	}
 
@@ -806,54 +789,22 @@ export class StrokeBatchContext {
 
 	public render(
 		passEncoder: GPURenderPassEncoder,
-		path: Path,
-		alphaMultiplier: number = 1.0,
-		_pipelineType: PipelineType = "main",
-		segments?: Path["segments"],
+		input: StrokeDrawInput,
 		transformsBindGroup?: GPUBindGroup,
-		transformIndex = 0,
 	): void {
-		const actualSegments = segments ?? path.segments;
-		if (actualSegments.length === 0) return;
+		if (input.segments.length === 0) return;
 
-		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
-		const route = resolveBrushRenderRoute(
-			rawBrushSettings ?? createDefaultBrushSettings(),
-		);
-
-		// Geometric stroke is rendered by ElementRenderer, not by a stroke pipeline.
-		if (route.kind === "geometric") return;
-
-		// Ribbon engine: one instance per bezier segment, extruded on the GPU.
-		if (route.kind === "ribbon") {
-			const ribbon = route.settings.ribbon;
+		// Ribbon: one instance per bezier segment, extruded on the GPU.
+		if (input.settings.engine === "ribbon") {
+			const ribbon = input.settings.ribbon;
 			if (!ribbon) return;
-			this.renderRibbon(
-				passEncoder,
-				path,
-				actualSegments,
-				ribbonStrokeInputOf(route.settings),
-				ribbon,
-				alphaMultiplier,
-				transformsBindGroup,
-				transformIndex,
-			);
+			this.renderRibbon(passEncoder, input, ribbon, transformsBindGroup);
 			return;
 		}
 
-		// v2 dab pipeline (curve matrix + linearize + procedural tips).
-		if (route.kind === "dab") {
-			this.renderDabsV2(
-				passEncoder,
-				path,
-				route.settings,
-				actualSegments,
-				alphaMultiplier,
-				transformsBindGroup,
-				transformIndex,
-			);
-			return;
-		}
+		// Dab pipeline (curve matrix + linearize + procedural tips). Geometric
+		// strokes are drawn by PathElementRenderer and never arrive here.
+		this.renderDabsV2(passEncoder, input, transformsBindGroup);
 	}
 
 	/** v2 dab pipeline — immediate (frame-pooled) draw for curve-matrix
@@ -870,6 +821,7 @@ export class StrokeBatchContext {
 	public renderWetSeedDabs(args: {
 		passEncoder: GPURenderPassEncoder;
 		path: Path;
+		strokeColor: StrokeColor;
 		settings: BrushSettingsV2;
 		segments: CubicBezierSegment[];
 		alphaMultiplier: number;
@@ -907,17 +859,10 @@ export class StrokeBatchContext {
 		);
 
 		const singleMeta = new Float32Array(PATH_META_FLOATS);
-		this.writeSinglePathMeta(
-			singleMeta,
-			0,
-			args.path,
-			args.alphaMultiplier,
-			args.transformIndex,
-		);
+		this.writeSinglePathMeta(singleMeta, 0, args);
 		const pathMetaBuffer = this.acquirePathMetaBuffer(PATH_META_FLOATS * 4);
 		this.device.queue.writeBuffer(pathMetaBuffer, 0, singleMeta);
-		const { strokeColor } = StrokeBatchContext.extractStrokeParams(args.path);
-		const stopData = buildColorStopsData(strokeColor);
+		const stopData = buildColorStopsData(args.strokeColor);
 		const colorStopsBuffer = this.acquireColorStopsBuffer(stopData.byteLength);
 		this.device.queue.writeBuffer(colorStopsBuffer, 0, stopData);
 
@@ -942,7 +887,7 @@ export class StrokeBatchContext {
 					},
 					{ binding: 2, resource: tip.textureView },
 					{ binding: 3, resource: tip.sampler },
-					...this.grainBindings(args.path),
+					...this.grainBindings(args.settings),
 				],
 			}),
 		);
@@ -1075,6 +1020,7 @@ export class StrokeBatchContext {
 	 *  viewport uniform via setActiveUniformBuffer first. */
 	public prepareMixedDabStroke(args: {
 		path: Path;
+		strokeColor: StrokeColor;
 		settings: BrushSettingsV2;
 		dabBuffer: GPUBuffer;
 		mixedColors: GPUBuffer;
@@ -1089,17 +1035,10 @@ export class StrokeBatchContext {
 		);
 
 		const singleMeta = new Float32Array(PATH_META_FLOATS);
-		this.writeSinglePathMeta(
-			singleMeta,
-			0,
-			args.path,
-			args.alphaMultiplier,
-			args.transformIndex,
-		);
+		this.writeSinglePathMeta(singleMeta, 0, args);
 		const pathMetaBuffer = this.acquirePathMetaBuffer(PATH_META_FLOATS * 4);
 		this.device.queue.writeBuffer(pathMetaBuffer, 0, singleMeta);
-		const { strokeColor } = StrokeBatchContext.extractStrokeParams(args.path);
-		const stopData = buildColorStopsData(strokeColor);
+		const stopData = buildColorStopsData(args.strokeColor);
 		const colorStopsBuffer = this.acquireColorStopsBuffer(stopData.byteLength);
 		this.device.queue.writeBuffer(colorStopsBuffer, 0, stopData);
 
@@ -1111,7 +1050,7 @@ export class StrokeBatchContext {
 				{ binding: 1, resource: { buffer: args.dabBuffer } },
 				{ binding: 2, resource: tip.textureView },
 				{ binding: 3, resource: tip.sampler },
-				...this.grainBindings(args.path),
+				...this.grainBindings(args.settings),
 			],
 		});
 		const bindGroup1 = this.device.createBindGroup({
@@ -1218,13 +1157,10 @@ export class StrokeBatchContext {
 
 	private renderDabsV2(
 		passEncoder: GPURenderPassEncoder,
-		path: Path,
-		settings: BrushSettingsV2,
-		segments: CubicBezierSegment[],
-		alphaMultiplier: number,
+		input: StrokeDrawInput,
 		transformsBindGroup: GPUBindGroup | undefined,
-		transformIndex: number,
 	): void {
+		const { path, segments, settings } = input;
 		const tip = this.resolveDabTipSetup(settings);
 		if (!tip) return;
 		const {
@@ -1344,18 +1280,11 @@ export class StrokeBatchContext {
 		}
 
 		const singleMeta = new Float32Array(PATH_META_FLOATS);
-		this.writeSinglePathMeta(
-			singleMeta,
-			0,
-			path,
-			alphaMultiplier,
-			transformIndex,
-		);
+		this.writeSinglePathMeta(singleMeta, 0, input);
 		const pathMetaBuffer = this.acquirePathMetaBuffer(PATH_META_FLOATS * 4);
 		this.device.queue.writeBuffer(pathMetaBuffer, 0, singleMeta);
 
-		const { strokeColor } = StrokeBatchContext.extractStrokeParams(path);
-		const stopData = buildColorStopsData(strokeColor);
+		const stopData = buildColorStopsData(input.strokeColor);
 		const colorStopsBuffer = this.acquireColorStopsBuffer(stopData.byteLength);
 		this.device.queue.writeBuffer(colorStopsBuffer, 0, stopData);
 
@@ -1368,7 +1297,7 @@ export class StrokeBatchContext {
 				{ binding: 1, resource: { buffer: dabBuffer } },
 				{ binding: 2, resource: textureView },
 				{ binding: 3, resource: sampler },
-				...this.grainBindings(path),
+				...this.grainBindings(settings),
 			],
 		});
 		const bindGroup1 = this.device.createBindGroup({
@@ -1557,12 +1486,8 @@ export class StrokeBatchContext {
 
 	/** Grain texture + sampler entries for a dab bind group. Falls back to a
 	 *  1x1 white texture, which leaves every grain mode a no-op. */
-	private grainBindings(path: Path): GPUBindGroupEntry[] {
-		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
-		const grain =
-			rawBrushSettings != null
-				? resolveBrushRenderRoute(rawBrushSettings).settings.grain
-				: undefined;
+	private grainBindings(settings: BrushSettingsV2): GPUBindGroupEntry[] {
+		const grain = settings.grain;
 		let view: GPUTextureView | null = null;
 		if (grain) {
 			const uid =
@@ -1652,21 +1577,17 @@ export class StrokeBatchContext {
 	 */
 	private renderRibbon(
 		passEncoder: GPURenderPassEncoder,
-		path: Path,
-		segments: CubicBezierSegment[],
-		brushSettings: RibbonStrokeInput,
+		input: StrokeDrawInput,
 		ribbon: RibbonConfig,
-		alphaMultiplier: number,
 		transformsBindGroup: GPUBindGroup | undefined,
-		transformIndex: number,
 	): void {
-		const ribbonOpts = this.ribbonOptionsWithCurves(path, ribbon);
+		const { path, segments, settings } = input;
 		const ribbonBuf = generateRibbonInstances(
 			segments,
-			brushSettings,
+			ribbonStrokeInputOf(settings),
 			0,
 			path.strokeWidths,
-			ribbonOpts,
+			ribbonOptionsWithCurves(settings, ribbon, path.strokeWidthsBaked),
 			path.pathStart ?? 0,
 			path.pathEnd ?? 1,
 		);
@@ -1688,20 +1609,12 @@ export class StrokeBatchContext {
 
 		// PathMeta (1 entry)
 		const singleMeta = new Float32Array(PATH_META_FLOATS);
-		this.writeSinglePathMeta(
-			singleMeta,
-			0,
-			path,
-			alphaMultiplier,
-			transformIndex,
-		);
+		this.writeSinglePathMeta(singleMeta, 0, input);
 		const pathMetaBuffer = this.acquirePathMetaBuffer(PATH_META_FLOATS * 4);
 		this.device.queue.writeBuffer(pathMetaBuffer, 0, singleMeta);
 
 		// ColorStops
-		const { strokeColor: renderStrokeColor } =
-			StrokeBatchContext.extractStrokeParams(path);
-		const stopData = buildColorStopsData(renderStrokeColor);
+		const stopData = buildColorStopsData(input.strokeColor);
 		const colorStopsBuffer = this.acquireColorStopsBuffer(stopData.byteLength);
 		this.device.queue.writeBuffer(colorStopsBuffer, 0, stopData);
 
@@ -1793,21 +1706,13 @@ export class StrokeBatchContext {
 	/**
 	 * Batch PathMeta write (appends to batchPathMetas + batchColorStops).
 	 */
-	private writePathMeta(
-		metaOff: number,
-		path: Path,
-		alphaMultiplier: number,
-		transformIndex = 0,
-	): void {
-		const { strokeColor, rawBrushSettings } =
-			StrokeBatchContext.extractStrokeParams(path);
-
+	private writePathMeta(metaOff: number, input: StrokeDrawInput): void {
+		const { strokeColor, path } = input;
 		const sm = resolveStrokeColorMeta(strokeColor, path);
 		const stopOffset = this.batchColorStopCount;
-		const a = sm.a * alphaMultiplier;
 
 		// Write gradient color stops to batch buffer
-		if (strokeColor?.type === "stroke-gradient") {
+		if (strokeColor.type === "stroke-gradient") {
 			const stops = strokeColor.gradient.stops;
 			this.ensureBatchColorStops(
 				(this.batchColorStopCount + sm.stopCount) * COLOR_STOP_FLOATS,
@@ -1830,14 +1735,7 @@ export class StrokeBatchContext {
 		// path only owns the batch's shared color-stop arena. Duplicating the
 		// layout here is what left batched ribbons reading a zero texture
 		// aspect ratio when the meta grew.
-		this.writeSinglePathMeta(
-			this.batchPathMetas,
-			metaOff,
-			path,
-			alphaMultiplier,
-			transformIndex,
-			stopOffset,
-		);
+		this.writeSinglePathMeta(this.batchPathMetas, metaOff, input, stopOffset);
 	}
 
 	/**
@@ -1846,22 +1744,16 @@ export class StrokeBatchContext {
 	private writeSinglePathMeta(
 		data: Float32Array,
 		offset: number,
-		path: Path,
-		alphaMultiplier: number,
-		transformIndex = 0,
+		input: Omit<StrokeDrawInput, "segments">,
 		stopOffset = 0,
 	): void {
-		const { strokeColor, rawBrushSettings } =
-			StrokeBatchContext.extractStrokeParams(path);
-
+		const { strokeColor, settings, path, alphaMultiplier, transformIndex } =
+			input;
 		const sm = resolveStrokeColorMeta(strokeColor, path);
 		const a = sm.a * alphaMultiplier;
 
 		// Pack colorMode into upper bits of gradientMode (bit 16)
-		const colorModeBit =
-			resolveBrushRenderRoute(rawBrushSettings).settings.colorMode === "color"
-				? 1 << 16
-				: 0;
+		const colorModeBit = settings.colorMode === "color" ? 1 << 16 : 0;
 
 		const u32View = StrokeBatchContext._u32Scratch;
 		const f32View = StrokeBatchContext._f32Scratch;
@@ -1889,7 +1781,7 @@ export class StrokeBatchContext {
 
 		// Grain rides on the stroke, not the dab: mode/scale/offset are
 		// per-stroke, only its strength is modulated per dab.
-		const grain = StrokeBatchContext.grainMetaOf(path);
+		const grain = grainMetaOf(settings);
 		u32View[0] = grain.mode;
 		data[offset + 16] = f32View[0];
 		data[offset + 17] = grain.scale;
@@ -1898,48 +1790,23 @@ export class StrokeBatchContext {
 
 		// Ribbon tiling used to live in one uniform shared by the whole batch,
 		// which made the last path in a run dictate every other path's tiling.
-		const ribbon = this.ribbonMetaOf(path);
+		const ribbon = this.ribbonMetaOf(settings);
 		data[offset + 20] = ribbon.stretch;
 		data[offset + 21] = ribbon.uvOffset;
 		data[offset + 22] = ribbon.aspectRatio;
 		data[offset + 23] = ribbon.stampAngle;
 	}
 
-	/** Ribbon options plus the v2 settings whose curves modulate width and
-	 *  opacity, when the stroke is on the v2 route. */
-	private ribbonOptionsWithCurves(
-		path: Path,
-		ribbon: RibbonConfig,
-	): RibbonOptions {
-		const base = ribbonOptionsFor(ribbon);
-		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
-		if (rawBrushSettings == null) return base;
-		const route = resolveBrushRenderRoute(rawBrushSettings);
-		if (route.kind !== "ribbon") return base;
-		// Baked paths carry the size curves' evaluation in strokeWidths, which
-		// the ribbon applies as its side ratios; evaluate size from the base.
-		return {
-			...base,
-			curved: path.strokeWidthsBaked
-				? neutralizeSizeCurves(route.settings)
-				: route.settings,
-		};
-	}
-
 	/** Per-path ribbon tiling for the path meta. Zeroed for non-ribbon
 	 *  brushes, which never read these fields. */
-	private ribbonMetaOf(path: Path): {
+	private ribbonMetaOf(settings: BrushSettingsV2): {
 		stretch: number;
 		uvOffset: number;
 		aspectRatio: number;
 		stampAngle: number;
 	} {
 		const zero = { stretch: 0, uvOffset: 0, aspectRatio: 1, stampAngle: 0 };
-		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
-		if (rawBrushSettings == null) return zero;
-		const route = resolveBrushRenderRoute(rawBrushSettings);
-		if (route.kind !== "ribbon") return zero;
-		const ribbon = route.settings.ribbon;
+		const ribbon = settings.engine === "ribbon" ? settings.ribbon : undefined;
 		if (!ribbon) return zero;
 
 		const textureUid = this.resolveTextureUid(
@@ -1955,38 +1822,8 @@ export class StrokeBatchContext {
 			aspectRatio: this.textureManager.getTextureAspectRatio(textureUid),
 			// The shader has always rotated the ribbon's texture by a stamp angle
 			// that nothing ever set; the v2 angle property is that value.
-			stampAngle: route.settings.properties.angle?.base ?? 0,
+			stampAngle: settings.properties.angle?.base ?? 0,
 		};
-	}
-
-	/** Per-stroke grain parameters for the path meta (design §11). Grain is a
-	 *  stroke-level texture: only its strength varies per dab. */
-	private static grainMetaOf(path: Path): {
-		mode: number;
-		scale: number;
-		offsetX: number;
-		offsetY: number;
-	} {
-		const off = { mode: 0, scale: 1, offsetX: 0, offsetY: 0 };
-		const { rawBrushSettings } = StrokeBatchContext.extractStrokeParams(path);
-		if (rawBrushSettings == null) return off;
-		const { grain, randomSeed } =
-			resolveBrushRenderRoute(rawBrushSettings).settings;
-		if (grain == null) return off;
-		const mode = grain.mode === "subtract" ? 2 : 1;
-		if (!grain.randomOffsetPerStroke) {
-			return { mode, scale: grain.scale, offsetX: 0, offsetY: 0 };
-		}
-		// Seeded so the offset stays a pure function of the stroke's settings.
-		let state = (randomSeed ^ 0x85ebca6b) >>> 0;
-		const rand = (): number => {
-			state = (state + 0x6d2b79f5) >>> 0;
-			let t = state;
-			t = Math.imul(t ^ (t >>> 15), t | 1);
-			t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-		};
-		return { mode, scale: grain.scale, offsetX: rand(), offsetY: rand() };
 	}
 
 	// Shared scratch for u32 <-> f32 bit-casts
@@ -2099,22 +1936,32 @@ export class StrokeBatchContext {
 		}
 		return preferredUid;
 	}
+}
 
-	/** Extract stroke appearance params from path filters */
-	private static extractStrokeParams(path: Path): {
-		strokeColor: StrokeColor | undefined;
-		/** Stored value as-is — route resolution reads this, never a
-		 *  down-converted view, which drops curves, mixing and the wet layer. */
-		rawBrushSettings: unknown;
-	} {
-		const strokeApp = path.filters?.find((f) => f.processor === "stroke") as
-			| StrokeAppearance
-			| undefined;
-		return {
-			strokeColor: strokeApp?.paramData.params.strokeColor,
-			rawBrushSettings: strokeApp?.paramData.params.brushSettings,
-		};
+/** Per-stroke grain parameters for the path meta (design §11). Grain is a
+ *  stroke-level texture: only its strength varies per dab. */
+function grainMetaOf(settings: BrushSettingsV2): {
+	mode: number;
+	scale: number;
+	offsetX: number;
+	offsetY: number;
+} {
+	const { grain, randomSeed } = settings;
+	if (grain == null) return { mode: 0, scale: 1, offsetX: 0, offsetY: 0 };
+	const mode = grain.mode === "subtract" ? 2 : 1;
+	if (!grain.randomOffsetPerStroke) {
+		return { mode, scale: grain.scale, offsetX: 0, offsetY: 0 };
 	}
+	// Seeded so the offset stays a pure function of the stroke's settings.
+	let state = (randomSeed ^ 0x85ebca6b) >>> 0;
+	const rand = (): number => {
+		state = (state + 0x6d2b79f5) >>> 0;
+		let t = state;
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+	return { mode, scale: grain.scale, offsetX: rand(), offsetY: rand() };
 }
 
 // ================================================================
@@ -2278,12 +2125,21 @@ function ribbonStrokeInputOf(settings: BrushSettingsV2): RibbonStrokeInput {
 	};
 }
 
-function ribbonOptionsFor(ribbon: RibbonConfig): RibbonOptions {
+/** Ribbon options plus the v2 settings whose curves modulate width and
+ *  opacity. Baked paths carry the size curves' evaluation in strokeWidths,
+ *  which the ribbon applies as its side ratios; size then evaluates from the
+ *  base. */
+function ribbonOptionsWithCurves(
+	settings: BrushSettingsV2,
+	ribbon: RibbonConfig,
+	strokeWidthsBaked: boolean | undefined,
+): RibbonOptions {
 	return {
 		uvMode: ribbon.uvMode,
 		flipU: ribbon.flipU ?? false,
 		flipV: ribbon.flipV ?? false,
 		tileSpacing:
 			ribbon.uvMode === "stretch" ? 0 : Math.max(ribbon.tileSpacing, 0),
+		curved: strokeWidthsBaked ? neutralizeSizeCurves(settings) : settings,
 	};
 }

@@ -8,6 +8,7 @@ import type {
 	Filter,
 	Path,
 	StrokeAppearance,
+	StrokeColor,
 	Viewport,
 } from "../../../../schema";
 import { isFilterEnabled } from "../../../../schema";
@@ -80,7 +81,7 @@ export interface MixStrokeRendererDeps {
 	texturePool: TexturePool;
 	coordinator: BackdropEffectCoordinator;
 	uniformScope: UniformScope;
-	getBatchContext: () => StrokeBatchContext | null;
+	strokeBatchContext: StrokeBatchContext;
 	getTransformIndex: (elementId: string) => number;
 	getTransformsBindGroup: () => GPUBindGroup | undefined;
 	getTransformsBuffer: () => GPUBuffer | null;
@@ -178,9 +179,11 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		const path = element as Path;
 		const segments = path.segments ?? [];
 		if (segments.length === 0) return;
-		const batchContext = this.deps.getBatchContext();
-		if (!batchContext) return;
+		const batchContext = this.deps.strokeBatchContext;
 		const { settings, filter } = stroke;
+		const strokeColor = (filter as StrokeAppearance).paramData.params
+			.strokeColor;
+		if (!strokeColor) return;
 		const mixing = settings.mixing!;
 		const rasterScale = this.deps.getRasterScale();
 
@@ -325,6 +328,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		batchContext.setActiveUniformBuffer(uniformEntry.buffer);
 		const drawState = batchContext.prepareMixedDabStroke({
 			path,
+			strokeColor,
 			settings,
 			dabBuffer,
 			mixedColors,
@@ -471,6 +475,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			this.runWetLayer(encoder, {
 				element,
 				path,
+				strokeColor,
 				settings,
 				bounds,
 				// The dabs drew at the zoom the texture could hold, not the
@@ -532,6 +537,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		args: {
 			element: AnyArtObject;
 			path: Path;
+			strokeColor: StrokeColor;
 			settings: BrushSettingsV2;
 			bounds: BoundingBox;
 			scale: number;
@@ -610,6 +616,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			args.batchContext.renderWetSeedDabs({
 				passEncoder: seedPass,
 				path: args.path,
+				strokeColor: args.strokeColor,
 				settings: args.settings,
 				segments,
 				alphaMultiplier: 1,

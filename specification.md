@@ -365,7 +365,7 @@ Paplico (facade) → RenderOrchestrator → CanvasLayer (ドキュメント描�
 
 - GPUデバイスの取得・所有。`timestamp-query` が使えれば有効化し、storage buffer上限をアダプタ上限まで引き上げる
 - HDR probe: `rgba16float` が使えてHDRが有効なら canvasFormat を `rgba16float`（既定 `bgra8unorm`、colorSpace `display-p3`）
-- 複数の `CanvasTarget` を管理。CanvasLayer / UILayer / StrokeEngineRegistry / BackdropCaptureManager / RenderCacheManager はターゲット単位、パイプライン・BrushTextureManager・FilterRenderer・TextRenderer等はデバイス単位で共有
+- 複数の `CanvasTarget` を管理。CanvasLayer / UILayer / StrokeBatchContext / BackdropCaptureManager / RenderCacheManager はターゲット単位、パイプライン・BrushTextureManager・FilterRenderer・TextRenderer等はデバイス単位で共有
 - 1フレーム = 1 command encoder に CanvasLayer と UILayer を積んで1回 `queue.submit`
 - デバイスロスト復旧: 最大5回、基本遅延1秒で再初期化を試行
 - `GPUTimingProfiler` によるtimestamp queryベースのGPUパス計測
@@ -402,15 +402,15 @@ GPUステンシルバッファによるStencil-Then-Cover方式:
 
 `renderer/geometry/strokeTessellator.ts`。ポリラインサンプル化 → 可変幅・テーパーのゼロ交差でサブパス分割 → 法線計算 → 本体三角形 + AAフリンジ頂点（`[x, y, offsetX, offsetY, alpha]`、オフセットはズーム非依存の単位変位でシェーダー内で1/zoomを乗算）を出力。lineJoin（miter/round/bevel）、lineCap（butt/round/square）、破線対応。
 
-### ブラシストローク（3エンジン）
+### ブラシストローク（3ルート）
 
-`StrokeEngineRegistry` が `BrushSettings.type` でエンジンを選択:
+`resolveBrushRenderRoute()`（`core/brush/renderRoute.ts`）が `BrushSettingsV2.engine` でルートを決める。呼び出し側（CanvasLayer / PathElementRenderer）がルートと stroke appearance を1回だけ解決し、`StrokeDrawInput` として描画側へ渡す:
 
-| エンジン | 担当 | 方式 |
+| ルート | 描画側 | 方式 |
 |---|---|---|
-| GeometricStrokeEngine | `stroke` | ストロークテッセレーション + GPUストロークパイプライン |
-| StampStrokeEngine | `scatter` / `calligraphy` | ベジエ曲線に沿った等間隔スタンプ描画。calligraphyは楕円ニブをスタンプスケール+回転で表現 |
-| RibbonStrokeEngine | `art` / `pattern` | リボン頂点生成（artはUV stretch、patternはUV repeat + tileSpacing） |
+| `geometric` | `PathElementRenderer.renderGeometricStroke` | ストロークテッセレーション + GPUストロークパイプライン |
+| `dab` | `StrokeBatchContext.render` | ベジエ曲線に沿った Dab のインスタンスド描画。先端形状・ニブ楕円率・回転は `BrushSettingsV2.properties` のカーブ行列で決まる |
+| `ribbon` | `StrokeBatchContext.addToBatch` / `flushBatch` | リボン頂点生成（UV stretch / UV repeat + tileSpacing）。バッチ蓄積に乗る唯一のルート |
 
 - `StampGenerator` が筆圧からサイズ・不透明度を決定。常駐GPUリース（ResidentStamps）によりパン・ズームフレームではスタンプアップロード0
 - ビルトインブラシテクスチャ: hard circle / soft circle は128pxのプログラム生成、pencil / airbrush は同梱画像
