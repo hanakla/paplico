@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import { materializeBrushPresetTexture } from "@/hooks/useBrushPresets";
 import { createPersistedBrushPreset } from "@/repos/brushPresets";
 
@@ -8,7 +7,7 @@ describe("materializeBrushPresetTexture", () => {
 		const preset = createPersistedBrushPreset({
 			uid: "brush-preset-materialize",
 			name: "Marker",
-			defaultSettings: normalizeBrushSettingsV2({
+			defaultSettings: {
 				version: 2,
 				engine: "dab",
 				strokeOpacity: 0.9,
@@ -25,7 +24,7 @@ describe("materializeBrushPresetTexture", () => {
 					angleMode: "fixed",
 				},
 				randomSeed: 0,
-			}),
+			},
 			file: {
 				uid: "file-source",
 				name: "marker.png",

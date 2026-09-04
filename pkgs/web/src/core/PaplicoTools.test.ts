@@ -1,7 +1,6 @@
-import { normalizeBrushSettingsV2 } from "./brush/migrate";
 import { PAPLICO_MAX_ZOOM_SCALE } from "./document/constants";
 import { PaplicoTools } from "./PaplicoTools";
-import type { BrushSettingsV2 } from "./schema";
+import type { BrushSettings } from "./schema";
 import { createToolSettings } from "./tools/toolSettings";
 
 describe("PaplicoTools.setBrushSettings", () => {
@@ -17,10 +16,10 @@ describe("PaplicoTools.setBrushSettings", () => {
 
 	function storedSettings(store: ReturnType<typeof createToolSettings>) {
 		return store.strokeAppearance?.paramData.params
-			.brushSettings as unknown as BrushSettingsV2;
+			.brushSettings as unknown as BrushSettings;
 	}
 
-	it("should store BrushSettingsV2 after a flat patch", () => {
+	it("should store BrushSettings after a flat patch", () => {
 		const { store, tools } = makeTools();
 		tools.setBrushSettings({ type: "scatter", size: 24 } as Parameters<
 			typeof tools.setBrushSettings
@@ -39,7 +38,7 @@ describe("PaplicoTools.setBrushSettings", () => {
 
 	it("should preserve curve-editor curves across an unrelated flat patch", () => {
 		const { store, tools } = makeTools();
-		const withCurve = normalizeBrushSettingsV2({
+		const withCurve: BrushSettings = {
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 1,
@@ -62,7 +61,7 @@ describe("PaplicoTools.setBrushSettings", () => {
 			},
 			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 			randomSeed: 0,
-		});
+		};
 		if (!store.strokeAppearance) throw new Error("unreachable");
 		store.strokeAppearance.paramData.params.brushSettings = withCurve;
 
@@ -79,7 +78,7 @@ describe("PaplicoTools.setBrushSettings", () => {
 
 	it("should fully replace stored settings when given a complete v2 value", () => {
 		const { store, tools } = makeTools();
-		const withCurve = normalizeBrushSettingsV2({
+		const withCurve: BrushSettings = {
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 1,
@@ -100,11 +99,11 @@ describe("PaplicoTools.setBrushSettings", () => {
 			},
 			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 			randomSeed: 0,
-		});
+		};
 		if (!store.strokeAppearance) throw new Error("unreachable");
 		store.strokeAppearance.paramData.params.brushSettings = withCurve;
 
-		const preset = normalizeBrushSettingsV2({
+		const preset: BrushSettings = {
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 1,
@@ -112,7 +111,7 @@ describe("PaplicoTools.setBrushSettings", () => {
 			properties: { size: { base: 8 }, flow: { base: 1 } },
 			tip: { kind: "procedural", hardness: 0.5, angleMode: "fixed" },
 			randomSeed: 0,
-		});
+		};
 		tools.setBrushSettings(preset);
 
 		const stored = storedSettings(store);
@@ -170,10 +169,10 @@ describe("PaplicoTools.setBrushSettings with a builtin preset", () => {
 				scatter: 1.5,
 			},
 			randomSeed: 1,
-		} as BrushSettingsV2);
+		} as BrushSettings);
 
 		const stored = store.strokeAppearance?.paramData.params
-			.brushSettings as unknown as BrushSettingsV2;
+			.brushSettings as unknown as BrushSettings;
 		expect(stored.wet?.scatter).toBe(1.5);
 		expect(stored.properties.size?.curves?.[0].input).toBe("pressure");
 	});
@@ -186,10 +185,10 @@ describe("PaplicoTools.setBrushSettings with a builtin preset", () => {
 		if (!preset) throw new Error("missing blur preset");
 
 		const { store, tools } = makeTools();
-		tools.setBrushSettings(preset.settings as BrushSettingsV2);
+		tools.setBrushSettings(preset.settings as BrushSettings);
 
 		const stored = store.strokeAppearance?.paramData.params
-			.brushSettings as unknown as BrushSettingsV2;
+			.brushSettings as unknown as BrushSettings;
 		expect(stored.engine).toBe("dab");
 		expect(stored.mixing?.enabled).toBe(true);
 		expect(stored.properties.colorRate?.base).toBe(0);

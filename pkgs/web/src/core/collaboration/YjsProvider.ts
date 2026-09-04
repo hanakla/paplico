@@ -1,6 +1,5 @@
 import * as Y from "yjs";
 import { UndoManager } from "yjs";
-import { normalizeBrushPreset } from "../brush/normalize";
 import { createIdentityTransform } from "../document/factory";
 import {
 	type AnyArtObject,
@@ -2658,15 +2657,11 @@ export function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 
 	const yBrushPresets = ydoc.getMap<Y.Map<unknown>>("brushPresets");
 	for (const preset of doc.brushPresets) {
-		// Defense-in-depth: normalize in case doc.brushPresets carries a
-		// legacy v1 shape (textureFileUid + defaultSettings) from a caller
-		// other than the papf reader (which already normalizes).
-		const normalized = normalizeBrushPreset(preset);
 		const yPreset = new Y.Map<unknown>();
-		yPreset.set("uid", normalized.uid);
-		yPreset.set("name", normalized.name);
-		yPreset.set("settings", JSON.stringify(normalized.settings));
-		yBrushPresets.set(normalized.uid, yPreset);
+		yPreset.set("uid", preset.uid);
+		yPreset.set("name", preset.name);
+		yPreset.set("settings", JSON.stringify(preset.settings));
+		yBrushPresets.set(preset.uid, yPreset);
 	}
 
 	const yDefs = ydoc.getMap<Y.Map<unknown>>("defs");

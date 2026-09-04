@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBrushSettingsV2 } from "../../brush/migrate";
 import {
 	createArtboard,
 	createDefaultDocument,
 	createDefaultLayer,
 	createDefaultTransform,
 } from "../../document/factory";
-import type { Document, Path } from "../../schema";
+import type { BrushSettings, Document, Path } from "../../schema";
 import {
 	captureTexturePixels,
 	createTestRenderer,
@@ -51,8 +50,8 @@ function washBrush(overrides: {
 	paintMode: "wash" | "buildup";
 	strokeOpacity: number;
 	flow: number;
-}) {
-	return normalizeBrushSettingsV2({
+}): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: overrides.strokeOpacity,
@@ -64,7 +63,7 @@ function washBrush(overrides: {
 		},
 		tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 		randomSeed: 1,
-	});
+	};
 }
 
 /**
@@ -73,7 +72,7 @@ function washBrush(overrides: {
  * horizontal arm (world 100,0 → screen 500,300).
  */
 async function renderCrossPixels(
-	brushSettings: ReturnType<typeof washBrush>,
+	brushSettings: BrushSettings,
 	strokeRgb?: { r: number; g: number; b: number },
 ): Promise<{ atCrossing: number[]; offCrossing: number[] }> {
 	const { renderer, canvas } = await createTestRenderer();
@@ -108,7 +107,7 @@ async function renderCrossPixels(
 }
 
 function crossDoc(
-	brushSettings: ReturnType<typeof washBrush>,
+	brushSettings: BrushSettings,
 	strokeRgb: { r: number; g: number; b: number } = { r: 0, g: 0, b: 0 },
 ): Document {
 	const path: Path = {
@@ -182,7 +181,7 @@ function crossDoc(
 
 describe("Wash wet edge", () => {
 	it("should darken the stroke rim relative to its interior", async () => {
-		const brush = normalizeBrushSettingsV2({
+		const brush: BrushSettings = {
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 0.6,
@@ -195,7 +194,7 @@ describe("Wash wet edge", () => {
 			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 			wetEdge: { width: 6, intensity: 0.6, darkening: 0.6, blur: 0 },
 			randomSeed: 1,
-		});
+		};
 		// Red stroke: darkening scales the straight color, which is invisible
 		// on black; alpha sits saturated inside the buffer either way.
 		const red = { r: 1, g: 0, b: 0 };
@@ -217,17 +216,20 @@ describe("Wash on ribbon strokes", () => {
 		// grey. (Unlike a hard dab tip, a ribbon's texture is partly
 		// transparent, so the crossing does legitimately read darker than the
 		// arms — what it must not do is exceed the cap.)
-		const { atCrossing, offCrossing } = await renderCrossPixels(
-			normalizeBrushSettingsV2({
-				version: 2,
-				engine: "ribbon",
-				strokeOpacity: 0.5,
-				paintMode: "wash",
-				properties: { size: { base: 24 }, flow: { base: 1 } },
-				ribbon: { uvMode: "repeat", tileScale: 1, tileSpacing: 0 },
-				randomSeed: 1,
-			}),
-		);
+		const { atCrossing, offCrossing } = await renderCrossPixels({
+			version: 2,
+			engine: "ribbon",
+			strokeOpacity: 0.5,
+			paintMode: "wash",
+			properties: { size: { base: 24 }, flow: { base: 1 } },
+			ribbon: {
+				source: { kind: "file", fileUid: "" },
+				uvMode: "repeat",
+				tileScale: 1,
+				tileSpacing: 0,
+			},
+			randomSeed: 1,
+		});
 
 		expect(offCrossing[0]).toBeLessThan(240);
 		for (const channel of [atCrossing[0], atCrossing[1], atCrossing[2]]) {
@@ -283,7 +285,7 @@ describe("Wash inside containers (strokeOpacity applies once)", () => {
 
 describe("Wash wet edge under zoom (fixed-R)", () => {
 	it("should keep the rim visible at zoom 2", async () => {
-		const brush = normalizeBrushSettingsV2({
+		const brush: BrushSettings = {
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 0.6,
@@ -296,7 +298,7 @@ describe("Wash wet edge under zoom (fixed-R)", () => {
 			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 			wetEdge: { width: 6, intensity: 0.6, darkening: 0.6, blur: 0 },
 			randomSeed: 1,
-		});
+		};
 		const red = { r: 1, g: 0, b: 0 };
 		const { renderer, canvas } = await createTestRenderer();
 		const viewport = { x: 0, y: 0, zoom: 2, rotation: 0 };

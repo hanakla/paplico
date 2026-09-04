@@ -10,7 +10,7 @@ draws the stroke, and where in the frame that pipeline runs.** Nothing about a
 stroke's appearance is decided by the tool that made it.
 
 ```
-BrushSettingsV2
+BrushSettings
   ├── engine: "dab" | "ribbon" | "geometric"
   ├── properties: Partial<Record<BrushPropertyId, BrushPropertyConfig>>
   │                        base value + curves, evaluated per dab
@@ -23,11 +23,9 @@ Files:
 
 | Concern | Path (under `core/`) |
 | --- | --- |
-| Routing | `brush/renderRoute.ts` |
-| Settings normalization + v1 migration | `brush/migrate.ts` |
+| v1 -> v2 migration | `io/migrations/brushV2/` |
 | Property registry, domains | `brush/properties.ts` |
 | Curve baking / evaluation | `brush/curves.ts`, `brush/evaluateProperties.ts` |
-| v1-shaped view for legacy UI | `brush/toLegacy.ts` |
 | Dab generation | `renderer/canvas/pipeline/brush/DabEvaluator.ts` |
 | Dab instance ABI | `renderer/canvas/pipeline/brush/DabInstanceLayout.ts` |
 | Tip falloff LUT | `renderer/canvas/pipeline/brush/TipMaskBuilder.ts` |
@@ -39,21 +37,17 @@ Files:
 
 ## Routing
 
-`resolveBrushRenderRoute(storedSettings)` is the single routing decision, taken
-once per stroke and memoized on the stored object's identity (document updates
-are immutable, so identity implies content).
+`BrushSettings.engine` is the single routing decision, read once per stroke by
+the caller (CanvasLayer / PathElementRenderer).
 
 ```ts
-type BrushRenderRoute =
-  | { kind: "dab-v2"; settings: BrushSettingsV2 }
-  | { kind: "ribbon-legacy"; settings: BrushSettingsV2 }
-  | { kind: "geometric"; settings: BrushSettingsV2 }
+type BrushEngineKind = "dab" | "ribbon" | "geometric"
 ```
 
-**Resolve from the stored value, never from the legacy view.**
-`toLegacyBrushSettings` drops paint mode, curves and the wet/mixing config, so a
-route taken from it silently selects the wrong pipeline — the failure is a
-plausible-looking stroke, not an error.
+**Read it from the stored value, never from the flat brush-panel view.** That
+view drops paint mode, curves and the wet/mixing config, so a route taken from
+it silently selects the wrong pipeline — the failure is a plausible-looking
+stroke, not an error.
 
 ## Where in the frame a stroke is drawn
 
@@ -63,12 +57,12 @@ Four different seams, selected by the settings:
 | --- | --- | --- |
 | plain dab / ribbon | inline in the main pass | nothing to isolate |
 | `paintMode: "wash"` | per-appearance isolation texture | `strokeOpacity` must apply once, not per dab |
-| `wet.enabled` | per-appearance isolation texture | normalize forces wash (see below) |
+| `wet.enabled` | per-appearance isolation texture | migration forces wash (see below) |
 | `mixing.enabled` | `BackdropEffectDriver` inline composite | needs the composite *below* the stroke |
 
 Two consequences that are not visible from the settings:
 
-- **A wet brush is always a wash brush.** `normalizeBrushSettingsV2` forces
+- **A wet brush is always a wash brush.** The brush v2 migration forces
   `paintMode: "wash"` whenever `wet.enabled` is true, so a wet stroke always
   arrives through the isolation route and never through the inline stroke
   branch. Code that hooks wet rendering into the inline branch never runs.

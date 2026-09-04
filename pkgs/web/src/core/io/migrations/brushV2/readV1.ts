@@ -1,14 +1,11 @@
 import {
 	type BrushArtSource,
 	type BrushColorMode,
-	type BrushPreset,
 	type BrushStroking,
 	BUILTIN_BRUSH_IDS,
 	type StampRotation,
-} from "../schema";
-import { normalizeBrushSettingsV2 } from "./migrate";
+} from "../../../schema";
 import {
-	type BrushSettings,
 	type CalligraphyBrushSettings,
 	DEFAULT_CALLIGRAPHY_SPACING,
 	DEFAULT_WET_INK_ABSORPTION,
@@ -19,6 +16,7 @@ import {
 	DEFAULT_WET_INK_PICKUP_UNDERLYING_COLOR,
 	DEFAULT_WET_INK_PIGMENT_LOAD,
 	type ScatterBrushSettings,
+	type V1BrushSettings,
 	type WetInkSettings,
 } from "./v1";
 
@@ -31,7 +29,7 @@ import {
  * - everything else -> scatter
  * The removed `vectorBrushSourceId` is ignored.
  */
-export function normalizeBrushSettings(raw: unknown): BrushSettings {
+export function readV1BrushSettings(raw: unknown): V1BrushSettings {
 	const r = (raw ?? {}) as Record<string, unknown>;
 	const base: BrushSettingsCommon = {
 		size: num(r.size, 10),
@@ -94,28 +92,6 @@ export function normalizeBrushSettings(raw: unknown): BrushSettings {
 		};
 	}
 	return buildScatter(r, base, { kind: "file", fileUid: textureFileUid });
-}
-
-/**
- * Normalize a persisted brush preset into v2. Presets predating v2 stored the
- * brush as `textureFileUid` + `defaultSettings`, or as a v1 union under
- * `settings`; both are folded back into a flat record and migrated here, so
- * everything downstream of this point is v2.
- */
-export function normalizeBrushPreset(raw: unknown): BrushPreset {
-	const r = (raw ?? {}) as Record<string, unknown>;
-	const stored =
-		r.settings != null
-			? r.settings
-			: {
-					...((r.defaultSettings as Record<string, unknown>) ?? {}),
-					textureFileUid: r.textureFileUid,
-				};
-	return {
-		uid: String(r.uid),
-		name: String(r.name),
-		settings: normalizeBrushSettingsV2(stored),
-	};
 }
 
 // ---------------------------------------------------------------------------

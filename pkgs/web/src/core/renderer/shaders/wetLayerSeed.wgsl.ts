@@ -1,9 +1,8 @@
-// Wet layer simulation seeding, v2.
+// Wet layer simulation seeding.
 //
 // Turns the dab pass's accumulated seed targets into the first state of the
-// ping-pong fields. v1 did far more here — it also gathered a pickup colour
-// from the layer underneath — but in v2 picking up the backdrop belongs to
-// the mix pass (design §13-4), so this is only a change of representation:
+// ping-pong fields. Picking up the backdrop belongs to the mix pass (design
+// §13-4), so this is only a change of representation:
 //
 //   pigment  passes through as-is (already density-encoded by the dab)
 //   moisture rg <- the accumulated direction normalized by coverage

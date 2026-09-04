@@ -12,7 +12,7 @@ import type {
 	BrushEngineKind,
 	BrushPropertyConfig,
 	BrushPropertyId,
-	BrushSettingsV2,
+	BrushSettings,
 } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
@@ -32,8 +32,8 @@ export const BrushMatrixSection = memo(function BrushMatrixSection({
 	settings,
 	onChange,
 }: {
-	settings: BrushSettingsV2;
-	onChange: (next: BrushSettingsV2) => void;
+	settings: BrushSettings;
+	onChange: (next: BrushSettings) => void;
 }) {
 	const t = useTranslation();
 	const wetEnabled = settings.wet?.enabled === true;

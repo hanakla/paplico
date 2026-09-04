@@ -6,7 +6,7 @@ import {
 import { BRUSH_PROPERTY_REGISTRY } from "../../../../brush/properties";
 import type {
 	BrushInputId,
-	BrushSettingsV2,
+	BrushSettings,
 	CubicBezierSegment,
 	StrokeWidthPoint,
 } from "../../../../schema";
@@ -101,7 +101,7 @@ export interface DabBuffer {
 	totalLength: number;
 }
 
-/** Speed EMA defaults (carried over from the v1 stamp generator). */
+/** Speed EMA defaults. */
 export const DEFAULT_SPEED_FINE_TAU_MS = 25;
 export const DEFAULT_SPEED_GROSS_TAU_MS = 110;
 /** opaque_linearize strength (MyPaint default). */
@@ -116,7 +116,7 @@ const EMPTY_F32 = new Float32Array(0);
 
 export function evaluateDabs(
 	segments: CubicBezierSegment[],
-	settings: BrushSettingsV2,
+	settings: BrushSettings,
 	options: DabEvaluateOptions = {},
 ): DabBuffer {
 	const resume = options.resume;
@@ -760,7 +760,7 @@ export function evaluateDabs(
 		hasPrevEnd = true;
 	}
 
-	// Apply the end layer to the last dab (matches the v1 behavior).
+	// Apply the end layer to the last dab.
 	if ((options.endLayerIndex ?? -1) >= 0 && count > 0) {
 		const off = (count - 1) * DAB_INSTANCE_FLOATS;
 		data[off + DAB_FIELD_OFFSETS.packedMeta] = u32AsFloat(
@@ -820,7 +820,7 @@ export function measureSegmentsLength(
 }
 
 /** Neutral state for a stroke that has not emitted anything yet. */
-function initialEvalState(settings: BrushSettingsV2): DabEvalState {
+function initialEvalState(settings: BrushSettings): DabEvalState {
 	return {
 		velFast: 0,
 		velSlow: 0,

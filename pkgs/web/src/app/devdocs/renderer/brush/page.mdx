@@ -5,15 +5,15 @@
 
 Paplicoのブラシストロークは**Dabベースのインスタンスドレンダリング**で描画される。Dabはブラシ先端画像を1つ置く単位である。ベジェ曲線に沿って配置されたDab列をstorage bufferへ格納し、1回のインスタンスド描画で発行する。ストロークをメッシュにテッセレーションする方式と比較して頂点処理の負荷が桁違いに小さい。
 
-ブラシ設定は`BrushSettingsV2`（`core/schema.ts`）である。`engine`フィールドが描画エンジンを決め、`properties`のカーブ行列（入力×プロパティのカーブ変調）がDabごとのサイズ・不透明度・回転などを決める。カーブ評価の仕組み自体は`core/brush/`（`properties.ts` / `inputs.ts` / `curves.ts` / `evaluateProperties.ts`）にあり、本ページではレンダラがそれをどう消費するかに絞る。
+ブラシ設定は`BrushSettings`（`core/schema.ts`）である。`engine`フィールドが描画エンジンを決め、`properties`のカーブ行列（入力×プロパティのカーブ変調）がDabごとのサイズ・不透明度・回転などを決める。カーブ評価の仕組み自体は`core/brush/`（`properties.ts` / `inputs.ts` / `curves.ts` / `evaluateProperties.ts`）にあり、本ページではレンダラがそれをどう消費するかに絞る。
 
 ## エンジンルーティング
 
-`resolveBrushRenderRoute()`（`core/brush/renderRoute.ts`）が`BrushSettingsV2.engine`から3経路を決める。
+`BrushSettings.engine`が3経路を決める。
 
 ```mermaid
 flowchart TD
-    A[Path + BrushSettingsV2] --> B[resolveBrushRenderRoute]
+    A[Path + BrushSettings] --> B[settings.engine]
     B -->|dab| C["StrokeBatchContext.render → renderDabsV2"]
     B -->|ribbon| D["addToBatch → flushBatch（バッチ経路）"]
     B -->|geometric| E[ElementRenderer.renderGeometricStroke]
@@ -25,14 +25,14 @@ flowchart TD
 - **ribbon**: テクスチャをパスに沿ってUVマッピングする。バッチ経路（`addToBatch` / `flushBatch`）を使う唯一のエンジン
 - **geometric**: SVG風のジオメトリックストローク。`ElementRenderer.renderGeometricStroke`へ戻す
 
-ルートを決めるのは呼び出し側である。CanvasLayer（バッチ経路）と`PathElementRenderer`（即時経路）が`resolveBrushRenderRoute()`を1回呼び、stroke appearanceから取り出した`strokeColor`と routed settings を`StrokeDrawInput`に詰めて`StrokeBatchContext`へ直接渡す。`StrokeBatchContext`は`path.filters`を読み直さない。
+ルートを決めるのは呼び出し側である。CanvasLayer（バッチ経路）と`PathElementRenderer`（即時経路）が`engine`を読み、stroke appearanceから取り出した`strokeColor`と設定を`StrokeDrawInput`に詰めて`StrokeBatchContext`へ直接渡す。`StrokeBatchContext`が`Path`から読むのは幾何だけである（`strokeWidths` / `pathStart` / `pathEnd`、within グラデーションの境界）。
 
 ## モジュール概観
 
 | モジュール | 役割 |
 |---|---|
 | `StrokeBatchContext` | 全WebGPUパイプラインの所有者。dab描画・GPUバッファプール・falloff LUT・wet seed・混色チャンク描画 |
-| `DabEvaluator` | セグメント列 + `BrushSettingsV2` → Dabインスタンス列。速度EMA・カーブ評価・timed dab |
+| `DabEvaluator` | セグメント列 + `BrushSettings` → Dabインスタンス列。速度EMA・カーブ評価・timed dab |
 | `DabInstanceLayout` | 24 float/dabレイアウトのSSoT。WGSL構造体宣言を自動生成 |
 | `LiveDabAccumulator` | ライブ描画の増分評価。確定プレフィックスの差分アップロード |
 | `TipMaskBuilder` | 手続き先端のfalloff LUT生成 |
@@ -84,7 +84,7 @@ pathIndex/テクスチャレイヤのビット詰めは`StampPacking.ts`の純�
 
 `evaluateDabs(segments, settings, options)`がDab生成の本体である。`settings.engine !== "dab"`なら空バッファを返す。
 
-- **入力**: `CubicBezierSegment[]`、`BrushSettingsV2`、`DabEvaluateOptions`（`pathIndex` / `pathStart` / `pathEnd` / `strokeWidths` / `textureAspectRatio` / 散布レイヤ情報 / `resume` / `totalLength`）
+- **入力**: `CubicBezierSegment[]`、`BrushSettings`、`DabEvaluateOptions`（`pathIndex` / `pathStart` / `pathEnd` / `strokeWidths` / `textureAspectRatio` / 散布レイヤ情報 / `resume` / `totalLength`）
 - **出力**: `DabBuffer` = `{ data: Float32Array, count, mixParams, state, totalLength }`。`mixParams`はDabごとの混色パラメータ（colorRate / alphaRate / smudgeLength）で、`mixing.enabled`が明示trueのときのみ充填される
 
 1関数の中で責務が分かれている。
@@ -265,7 +265,7 @@ wet層と併用した場合、ここで解決したDab色がwetシミュレー�
 
 - `RibbonGenerator.generateRibbonInstances()`が弧長プレフィックス和込みのインスタンス列を作る
 - `uvMode: "repeat"`はパターンブラシ（`U = arcPos / tileWidth`）、`"stretch"`はアートブラシ（`U = arcPos / totalArc`）
-- `RibbonOptions.curved`に`BrushSettingsV2`を渡すと、sizeとflowのカーブがリボンにも効く。評価はセグメント端点で行い、間は線形補間する
+- `RibbonOptions.curved`に`BrushSettings`を渡すと、sizeとflowのカーブがリボンにも効く。評価はセグメント端点で行い、間は線形補間する
 - リボンはバッチ経路を使う唯一のエンジンで、`flushBatch()`はリボン専用である。wet層のMRTには対応しない
 
 ## GPUテクスチャの消費のしかた

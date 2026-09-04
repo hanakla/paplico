@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { BlurFilter } from "../../renderer/filters";
 import type {
 	BrushPreset,
-	BrushSettingsV2,
+	BrushSettings,
 	Document,
 	FillAppearance,
 	StrokeAppearance,
@@ -430,7 +430,7 @@ describe("migBrushSettings (20260224)", () => {
 						sizeBySpeed: 0,
 						pooling: 0,
 						poolingSizeRatio: 0,
-					} as unknown as BrushSettingsV2,
+					} as unknown as BrushSettings,
 				},
 			},
 		};
@@ -508,7 +508,7 @@ describe("migBrushSettings (20260224)", () => {
 						sizeBySpeed: 0,
 						pooling: 0,
 						poolingSizeRatio: 0,
-					} as unknown as BrushSettingsV2,
+					} as unknown as BrushSettings,
 				},
 			},
 		};
@@ -586,7 +586,7 @@ describe("migTiltPoolingDefaults (20260228)", () => {
 						sizeBySpeed: 0,
 						pooling: 0,
 						poolingSizeRatio: 0,
-					} as unknown as BrushSettingsV2,
+					} as unknown as BrushSettings,
 				},
 			},
 		};
@@ -647,7 +647,7 @@ describe("migTiltPoolingDefaults (20260228)", () => {
 						sizeBySpeed: 0,
 						pooling: 0,
 						poolingSizeRatio: 0.5,
-					} as unknown as BrushSettingsV2,
+					} as unknown as BrushSettings,
 				},
 			},
 		};
@@ -695,7 +695,7 @@ describe("migTiltPoolingDefaults (20260228)", () => {
 						sizeBySpeed: 0,
 						pooling: 0.6,
 						poolingSizeRatio: 0.5,
-					} as unknown as BrushSettingsV2,
+					} as unknown as BrushSettings,
 				},
 			},
 		};
@@ -1317,7 +1317,7 @@ describe("migBrushV2 (20260803)", () => {
 					opacity: 1,
 					opacityByPressure: 0,
 					randomSeed: 0,
-				} as unknown as BrushSettingsV2,
+				} as unknown as BrushSettings,
 			},
 		];
 		return doc;
@@ -1401,7 +1401,7 @@ describe("migBrushV2 (20260803)", () => {
 					const s = makeV1ScatterSettings();
 					delete s.wetInk;
 					return s;
-				})() as unknown as BrushSettingsV2,
+				})() as unknown as BrushSettings,
 			},
 		];
 

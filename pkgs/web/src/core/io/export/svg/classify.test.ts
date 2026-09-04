@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
 	AnyArtObject,
-	BrushSettingsV2,
+	BrushSettings,
 	Document,
 	FillAppearance,
 	Filter,
@@ -46,8 +46,8 @@ const solidFill = (): FillAppearance =>
 	}) as FillAppearance;
 
 const geometricBrush = (
-	partial: Partial<BrushSettingsV2> = {},
-): BrushSettingsV2 => ({
+	partial: Partial<BrushSettings> = {},
+): BrushSettings => ({
 	version: 2,
 	engine: "geometric",
 	strokeOpacity: 1,
@@ -57,7 +57,7 @@ const geometricBrush = (
 	...partial,
 });
 
-const solidStroke = (brushSettings?: BrushSettingsV2): StrokeAppearance =>
+const solidStroke = (brushSettings?: BrushSettings): StrokeAppearance =>
 	appearance("stroke", {
 		strokeColor: {
 			type: "solid",

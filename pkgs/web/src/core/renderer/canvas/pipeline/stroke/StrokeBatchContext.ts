@@ -1,9 +1,10 @@
 /**
  * StrokeBatchContext - GPU pipelines + batch state for dab and ribbon
- * strokes. CanvasLayer and PathElementRenderer call it directly with a
- * StrokeDrawInput whose route and appearance they resolved once.
+ * strokes. CanvasLayer and PathElementRenderer call it with a
+ * StrokeDrawInput: the stroke appearance's color and brush settings, plus
+ * the path geometry to draw.
  *
- * Both pipelines consume BrushSettingsV2: the dab pipeline evaluates the
+ * Both pipelines consume BrushSettings: the dab pipeline evaluates the
  * curve matrix into DabEvaluator instances, and the ribbon pipeline instances
  * one bezier segment per RibbonGenerator entry with the same v2 size/flow
  * curves applied at segment endpoints.
@@ -23,7 +24,7 @@ import {
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../../../document/constants";
 import type { RibbonConfig } from "../../../../schema";
 import {
-	type BrushSettingsV2,
+	type BrushSettings,
 	BUILTIN_BRUSH_IDS,
 	type CubicBezierSegment,
 	colorToRawRGBA,
@@ -99,9 +100,9 @@ export interface StrokeBatchContextOptions {
 }
 
 /**
- * One stroke appearance, resolved by the caller. The route decision and the
- * appearance lookup happen once at the call site; nothing here re-reads
- * `path.filters`.
+ * One stroke appearance to draw. The caller picks the appearance and its
+ * brush route; the context reads only these fields, and from `path` only
+ * its geometry.
  */
 export interface StrokeDrawInput {
 	/** Geometry owner: strokeWidths / pathStart / pathEnd, and the bounds a
@@ -109,8 +110,9 @@ export interface StrokeDrawInput {
 	path: Path;
 	segments: CubicBezierSegment[];
 	strokeColor: StrokeColor;
-	/** Routed settings (`resolveBrushRenderRoute(...).settings`). */
-	settings: BrushSettingsV2;
+	/** Stored brush settings, with the renderer default filled in when the
+	 *  appearance carries none. */
+	settings: BrushSettings;
 	alphaMultiplier: number;
 	transformIndex: number;
 }
@@ -546,7 +548,7 @@ export class StrokeBatchContext {
 	 *  paths — array builds must match the stamp generation parameters, or a
 	 *  cache entry created by one path would render wrong on another. */
 	private resolveScatterTextureSetup(
-		settings: BrushSettingsV2,
+		settings: BrushSettings,
 		getArrayBuilder: () => BrushTextureArrayBuilder,
 	): ResolvedStampTextureSetup {
 		const tip = settings.tip?.kind === "image" ? settings.tip : null;
@@ -822,7 +824,7 @@ export class StrokeBatchContext {
 		passEncoder: GPURenderPassEncoder;
 		path: Path;
 		strokeColor: StrokeColor;
-		settings: BrushSettingsV2;
+		settings: BrushSettings;
 		segments: CubicBezierSegment[];
 		alphaMultiplier: number;
 		transformsBindGroup: GPUBindGroup | undefined;
@@ -1021,7 +1023,7 @@ export class StrokeBatchContext {
 	public prepareMixedDabStroke(args: {
 		path: Path;
 		strokeColor: StrokeColor;
-		settings: BrushSettingsV2;
+		settings: BrushSettings;
 		dabBuffer: GPUBuffer;
 		mixedColors: GPUBuffer;
 		alphaMultiplier: number;
@@ -1091,7 +1093,7 @@ export class StrokeBatchContext {
 
 	/** Resolve the tip pipeline variant + texture bindings for v2 settings.
 	 *  Shared by the plain dab draw and the mixing chunk draw. */
-	private resolveDabTipSetup(settings: BrushSettingsV2): {
+	private resolveDabTipSetup(settings: BrushSettings): {
 		tipMode: DabTipMode;
 		textureView: GPUTextureView;
 		sampler: GPUSampler;
@@ -1326,7 +1328,7 @@ export class StrokeBatchContext {
 	 */
 	private uploadLiveDabs(
 		segments: CubicBezierSegment[],
-		settings: BrushSettingsV2,
+		settings: BrushSettings,
 		options: {
 			textureAspectRatio: number;
 			variantCount: number;
@@ -1486,7 +1488,7 @@ export class StrokeBatchContext {
 
 	/** Grain texture + sampler entries for a dab bind group. Falls back to a
 	 *  1x1 white texture, which leaves every grain mode a no-op. */
-	private grainBindings(settings: BrushSettingsV2): GPUBindGroupEntry[] {
+	private grainBindings(settings: BrushSettings): GPUBindGroupEntry[] {
 		const grain = settings.grain;
 		let view: GPUTextureView | null = null;
 		if (grain) {
@@ -1799,7 +1801,7 @@ export class StrokeBatchContext {
 
 	/** Per-path ribbon tiling for the path meta. Zeroed for non-ribbon
 	 *  brushes, which never read these fields. */
-	private ribbonMetaOf(settings: BrushSettingsV2): {
+	private ribbonMetaOf(settings: BrushSettings): {
 		stretch: number;
 		uvOffset: number;
 		aspectRatio: number;
@@ -1940,7 +1942,7 @@ export class StrokeBatchContext {
 
 /** Per-stroke grain parameters for the path meta (design §11). Grain is a
  *  stroke-level texture: only its strength varies per dab. */
-function grainMetaOf(settings: BrushSettingsV2): {
+function grainMetaOf(settings: BrushSettings): {
 	mode: number;
 	scale: number;
 	offsetX: number;
@@ -2098,7 +2100,7 @@ function hashStampInput(path: Path, segments: CubicBezierSegment[]): string {
 }
 
 // ================================================================
-// BrushSettingsV2 -> generator input adapters
+// BrushSettings -> generator input adapters
 //
 // Express v2 settings in the vocabulary RibbonGenerator consumes. The
 // settings object stays the source of truth; these only reshape it.
@@ -2110,7 +2112,7 @@ function hashStampInput(path: Path, segments: CubicBezierSegment[]): string {
 /** What the ribbon geometry reads, taken off v2 settings. The width's
  *  pressure response is a two-point line from -k to 0; the generator wants
  *  that k back. */
-function ribbonStrokeInputOf(settings: BrushSettingsV2): RibbonStrokeInput {
+function ribbonStrokeInputOf(settings: BrushSettings): RibbonStrokeInput {
 	const sizeCurve = settings.properties.size?.curves?.find(
 		(curve) => curve.input === "pressure",
 	);
@@ -2130,7 +2132,7 @@ function ribbonStrokeInputOf(settings: BrushSettingsV2): RibbonStrokeInput {
  *  which the ribbon applies as its side ratios; size then evaluates from the
  *  base. */
 function ribbonOptionsWithCurves(
-	settings: BrushSettingsV2,
+	settings: BrushSettings,
 	ribbon: RibbonConfig,
 	strokeWidthsBaked: boolean | undefined,
 ): RibbonOptions {

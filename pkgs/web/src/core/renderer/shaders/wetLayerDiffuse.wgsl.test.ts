@@ -11,8 +11,8 @@ const W = 8;
 const H = 8;
 
 /**
- * The v2 kernel reads every coefficient per texel (design §13-2), so beyond
- * the v1 invariants — bounded, non-creating, dt-independent — it has to show
+ * The kernel reads every coefficient per texel (design §13-2), so beyond the
+ * field invariants — bounded, non-creating, dt-independent — it has to show
  * that two halves of one field can behave differently, which a stroke-wide
  * uniform structurally could not do.
  */

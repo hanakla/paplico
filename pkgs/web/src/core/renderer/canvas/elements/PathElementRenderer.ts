@@ -1,5 +1,4 @@
 import { resolveBrushTextureUid } from "../../../brush/brushSource";
-import { resolveBrushRenderRoute } from "../../../brush/renderRoute";
 import { createStrokeBrushSettings } from "../../../document/factory";
 import {
 	type AnyArtObject,
@@ -267,10 +266,9 @@ export class PathElementRenderer {
 				const strokeColor = strokeApp.paramData.params.strokeColor;
 				if (!strokeColor) continue;
 
-				const settings = resolveBrushRenderRoute(
+				const settings =
 					strokeApp.paramData.params.brushSettings ??
-						createStrokeBrushSettings(1),
-				).settings;
+					createStrokeBrushSettings(1);
 
 				if (settings.engine === "geometric") {
 					this.renderGeometricStroke(
@@ -804,7 +802,7 @@ export class PathElementRenderer {
 			for (const { points, pressures, arcOffset } of subPolylines) {
 				if (points.length < 4) continue;
 
-				// v1 limitation: taper is disabled when a dash pattern is active —
+				// Taper is disabled when a dash pattern is active:
 				// dash sub-polylines only carry their local arc length, so tapering
 				// would shrink every dash instead of the whole stroke's ends.
 				const result = tessellateStroke({
@@ -1017,8 +1015,7 @@ export class PathElementRenderer {
 	 * the pattern shader case, matching the fill side. Solid strokes use a
 	 * dedicated fast path and never reach here.
 	 *
-	 * Brush stroke patterns are not v1; this path is reached only from
-	 * `renderGeometricStroke` (geometric stroke pipeline).
+	 * This path is reached only from `renderGeometricStroke`.
 	 */
 	private dispatchStrokeNonSolid(
 		passEncoder: GPURenderPassEncoder,

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBrushSettingsV2 } from "../../brush/migrate";
 import { createBuiltinBrushPresets } from "../../brush/presets";
 import {
 	createArtboard,
@@ -8,7 +7,7 @@ import {
 	createDefaultTransform,
 } from "../../document/factory";
 import type {
-	BrushSettingsV2,
+	BrushSettings,
 	Document,
 	Filter,
 	Path,
@@ -97,8 +96,8 @@ const SEAM_X = 400;
 const SCAN_HALF_WIDTH = 60;
 
 /** Pickup with, or without, the wet layer spreading it. */
-function diffusingBrush(wet: boolean): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function diffusingBrush(wet: boolean): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -142,15 +141,15 @@ function diffusingBrush(wet: boolean): BrushSettingsV2 {
 				}
 			: {}),
 		randomSeed: 11,
-	});
+	};
 }
 
-function blurPreset(): BrushSettingsV2 {
+function blurPreset(): BrushSettings {
 	const preset = createBuiltinBrushPresets().find(
 		(p) => p.uid === "builtin-brush-blur",
 	);
 	if (!preset) throw new Error("missing builtin blur preset");
-	return normalizeBrushSettingsV2(preset.settings);
+	return preset.settings;
 }
 
 /**
@@ -158,7 +157,7 @@ function blurPreset(): BrushSettingsV2 {
  * transition. A hard seam gives a handful of columns (antialiasing only).
  */
 async function seamTransitionWidth(
-	brushSettings: BrushSettingsV2 | null,
+	brushSettings: BrushSettings | null,
 	options: { ownLayer?: boolean } = {},
 ): Promise<number> {
 	const { renderer, canvas } = await createTestRenderer();
@@ -191,7 +190,7 @@ async function seamTransitionWidth(
 
 /** Red field | blue field, with an optional stroke along the seam. */
 function seamDoc(
-	brushSettings: BrushSettingsV2 | null,
+	brushSettings: BrushSettings | null,
 	strokeOnOwnLayer: boolean,
 	strokeWorldWidth = 300,
 ): Document {

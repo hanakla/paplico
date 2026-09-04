@@ -1,13 +1,13 @@
-import { normalizeBrushSettingsV2 } from "../../brush/migrate";
 import type { Document } from "../../schema";
+import { migrateBrushSettingsToV2 } from "./brushV2/convert";
 import type { Migration } from "./index";
 
 /**
  * Brush engine v2: convert every stored brush settings value (element stroke
- * appearances and document presets) into BrushSettingsV2.
+ * appearances and document presets) into BrushSettings.
  *
  * papf does not persist schemaVersion, so this runs on every load and must be
- * idempotent — normalizeBrushSettingsV2 returns v2 input unchanged.
+ * idempotent — migrateBrushSettingsToV2 returns v2 input unchanged.
  */
 export const migBrushV2: Migration = {
 	version: 20260803,
@@ -19,7 +19,7 @@ export const migBrushV2: Migration = {
 					| Record<string, unknown>
 					| undefined;
 				if (filter.processor !== "stroke" || !params?.brushSettings) continue;
-				params.brushSettings = normalizeBrushSettingsV2(params.brushSettings, {
+				params.brushSettings = migrateBrushSettingsToV2(params.brushSettings, {
 					fullCoverageFlow: true,
 				});
 			}
@@ -39,7 +39,7 @@ export const migBrushV2: Migration = {
 						? { textureFileUid: legacy.textureFileUid }
 						: {}),
 				} as Record<string, unknown>);
-			preset.settings = normalizeBrushSettingsV2(source);
+			preset.settings = migrateBrushSettingsToV2(source);
 			delete legacy.defaultSettings;
 			delete legacy.textureFileUid;
 		}

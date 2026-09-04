@@ -1,5 +1,4 @@
 import { withStoredBrushSize } from "../brush/access";
-import { normalizeBrushSettingsV2 } from "../brush/migrate";
 import { createIdentityTransform } from "../document/factory";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
 import {
@@ -458,10 +457,8 @@ export class PenTool implements Tool {
 	private brushHasTimedDabs(): boolean {
 		const bs =
 			this.context.getActiveStrokeAppearance()?.paramData.params.brushSettings;
-		if (!bs) return false;
-		const v2 = normalizeBrushSettingsV2(bs);
-		if (v2.engine !== "dab") return false;
-		const dps = v2.properties.dabsPerSecond;
+		if (!bs || bs.engine !== "dab") return false;
+		const dps = bs.properties.dabsPerSecond;
 		return dps != null && (dps.base > 0 || (dps.curves?.length ?? 0) > 0);
 	}
 

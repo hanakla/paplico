@@ -34,9 +34,8 @@ export class BrushTextureManager implements DefSourceResolver {
 		this.sampler = device.createSampler({
 			magFilter: "linear",
 			minFilter: "linear",
-			// Textures now carry mip chains for the dab pipeline; pin the legacy
-			// stamp/ribbon sampler to level 0 so their output stays bit-identical
-			// to the pre-mip behavior.
+			// Textures carry mip chains for the dab pipeline; the ribbon sampler
+			// stays pinned to level 0 so ribbons keep their full-resolution look.
 			lodMaxClamp: 0,
 			addressModeU: "clamp-to-edge",
 			addressModeV: "clamp-to-edge",
@@ -350,7 +349,7 @@ export class BrushTextureManager implements DefSourceResolver {
 		return this.sampler;
 	}
 
-	/** Mip-filtering sampler for the v2 dab pipeline (legacy paths keep level 0). */
+	/** Mip-filtering sampler for the dab pipeline (ribbons keep level 0). */
 	public getMipSampler(): GPUSampler {
 		return this.mipSampler;
 	}

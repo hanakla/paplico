@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type BrushSettingsV2, BUILTIN_BRUSH_IDS } from "../schema";
+import { type BrushSettings, BUILTIN_BRUSH_IDS } from "../schema";
 import {
 	type DefSourceResolver,
 	resolveBrushTextureUid,
@@ -7,7 +7,6 @@ import {
 	resolveScatterSourceUids,
 	withTextureFileUid,
 } from "./brushSource";
-import { normalizeBrushSettingsV2 } from "./migrate";
 
 describe("withTextureFileUid", () => {
 	it("should re-point the source of an image tip", () => {
@@ -103,8 +102,8 @@ describe("resolveOptionalSourceUid", () => {
 	});
 });
 
-function dabBrush(tip: BrushSettingsV2["tip"]): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function dabBrush(tip: BrushSettings["tip"]): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -112,10 +111,10 @@ function dabBrush(tip: BrushSettingsV2["tip"]): BrushSettingsV2 {
 		properties: { size: { base: 10 } },
 		tip,
 		randomSeed: 0,
-	});
+	};
 }
 
-function imageTipBrush(fileUid: string): BrushSettingsV2 {
+function imageTipBrush(fileUid: string): BrushSettings {
 	return dabBrush({
 		kind: "image",
 		sources: [{ kind: "file", fileUid }],
@@ -124,7 +123,7 @@ function imageTipBrush(fileUid: string): BrushSettingsV2 {
 	});
 }
 
-function defTipBrush(defId: string): BrushSettingsV2 {
+function defTipBrush(defId: string): BrushSettings {
 	return dabBrush({
 		kind: "image",
 		sources: [{ kind: "def", defId }],
@@ -133,12 +132,12 @@ function defTipBrush(defId: string): BrushSettingsV2 {
 	});
 }
 
-function proceduralTipBrush(): BrushSettingsV2 {
+function proceduralTipBrush(): BrushSettings {
 	return dabBrush({ kind: "procedural", hardness: 1, angleMode: "fixed" });
 }
 
-function ribbonBrush(fileUid: string): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function ribbonBrush(fileUid: string): BrushSettings {
+	return {
 		version: 2,
 		engine: "ribbon",
 		strokeOpacity: 1,
@@ -151,16 +150,16 @@ function ribbonBrush(fileUid: string): BrushSettingsV2 {
 			tileSpacing: 0,
 		},
 		randomSeed: 0,
-	});
+	};
 }
 
-function geometricBrush(): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function geometricBrush(): BrushSettings {
+	return {
 		version: 2,
 		engine: "geometric",
 		strokeOpacity: 1,
 		paintMode: "buildup",
 		properties: { size: { base: 10 } },
 		randomSeed: 0,
-	});
+	};
 }

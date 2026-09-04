@@ -257,21 +257,21 @@ is how a feature ships four times and is still broken.
 **Impact:** brush settings → assets → BrushTextureManager → the engine its route
 selects
 
-1. `core/schema.ts` — extend `BrushSettingsV2` (or add a property to
+1. `core/schema.ts` — extend `BrushSettings` (or add a property to
    `BRUSH_PROPERTY_REGISTRY` if the value should be curve-modulated)
 2. `core/assets/` or `core/brush/presets.ts` — texture, generated procedurally
    if it can be
 3. `BrushTextureManager` — register the texture
-4. the engine for the route (`core/brush/renderRoute.ts` decides): dab strokes
+4. the engine for the route (`BrushSettings.engine` decides): dab strokes
    go through `DabEvaluator` + `brushDab.wgsl`, ribbons through
    `RibbonGenerator` + `ribbonStroke.wgsl`
 
 ### Brush engine v2: what decides where a stroke is drawn
 
-`resolveBrushRenderRoute(storedSettings)` is the single routing decision, taken
-once per stroke. **Resolve it from the stored value, never from the legacy view**
-— the down-converted view drops paint mode, curves and wet/mixing config, so a
-route taken from it silently picks the wrong pipeline.
+`BrushSettings.engine` is the single routing decision, read once per stroke by
+the caller. **Read it from the stored value, never from the flat brush-panel
+view** — that view drops paint mode, curves and wet/mixing config, so a route
+taken from it silently picks the wrong pipeline.
 
 Which pipeline draws a stroke follows from its settings, and three of the four
 answers are not the inline stroke branch:
@@ -280,7 +280,7 @@ answers are not the inline stroke branch:
 - **wash paint mode** — drawn into a per-appearance isolation texture, with
   `strokeOpacity` applied once when that texture composites. This is what keeps
   a self-crossing stroke from darkening at the crossing.
-- **wet** — `normalizeBrushSettingsV2` forces a wet brush into wash paint mode,
+- **wet** — the brush v2 migration forces a wet brush into wash paint mode,
   so **every wet stroke is a wash stroke** and arrives through the isolation
   route. The wet simulation stands in for the appearance's offscreen render.
 - **mixing** — needs the composite that exists *below* the stroke, which the

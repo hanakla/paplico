@@ -428,7 +428,7 @@ export interface PathSegment extends CubicBezierSegment {
  * Side 2 = right side of the path's travel direction.
  *
  * Values are signed boundary offsets normalized by half of the base stroke width
- * (BrushSettings.size / 2):
+ * (BrushSettings.properties.size.base / 2):
  *   1.0 = the boundary is one half-width from the centerline on its own side
  *   0.0 = the boundary lies on the centerline
  *  -0.5 = the boundary crossed the centerline by half a half-width
@@ -502,7 +502,7 @@ export interface EraseMask {
 	strokeColor: StrokeColor;
 
 	/** Brush settings for rendering the mask stroke. */
-	brushSettings: BrushSettingsV2;
+	brushSettings: BrushSettings;
 
 	/**
 	 * Mask opacity (0–1). Controls hard vs soft erasing:
@@ -794,10 +794,9 @@ export interface FillAppearance extends Appearance<FillParams> {
 
 export interface StrokeParams {
 	strokeColor: StrokeColor;
-	/** Documents authored before the brush-v2 migration hold the pre-v2 shape
-	 * on disk; it is migrated on read, so anything running against a loaded
-	 * document sees v2. Route rendering through resolveBrushRenderRoute. */
-	brushSettings?: BrushSettingsV2;
+	/** Documents saved before brush v2 are migrated on read, so a loaded
+	 * document always holds this shape. */
+	brushSettings?: BrushSettings;
 }
 
 export interface StrokeAppearance extends Appearance<StrokeParams> {
@@ -1696,7 +1695,7 @@ export type BrushArtSource =
 /**
  * Small edits callers make without holding the whole brush: the base size,
  * the taper, the dash, and swapping the tip's texture. Everything with a
- * curve behind it goes through a complete BrushSettingsV2 instead.
+ * curve behind it goes through a complete BrushSettings instead.
  */
 export type BrushSettingsPatch = {
 	size?: number;
@@ -1709,7 +1708,7 @@ export type BrushSettingsPatch = {
 };
 
 /** Whether a brush uses geometric stroke expansion instead of stamp-based rendering. */
-export function isGeometricBrush(settings: BrushSettingsV2): boolean {
+export function isGeometricBrush(settings: BrushSettings): boolean {
 	return settings.engine === "geometric";
 }
 
@@ -1726,7 +1725,7 @@ export interface BrushPreset {
 	/** Optional shelf grouping for builtin presets. */
 	category?: BrushPresetCategory;
 	/** Brush settings applied when selecting this preset */
-	settings: BrushSettingsV2;
+	settings: BrushSettings;
 }
 
 // --- Brush Engine v2 Types ---
@@ -1889,7 +1888,7 @@ export interface InputDynamicsConfig {
  * Brush settings v2: curve-matrix based engine settings. See
  * .claude/memos/new-brush-engine.md for the full design.
  */
-export interface BrushSettingsV2 {
+export interface BrushSettings {
 	version: 2;
 	engine: BrushEngineKind;
 	/** Stroke-level opacity cap (wash composite). Base value only, no curves. */

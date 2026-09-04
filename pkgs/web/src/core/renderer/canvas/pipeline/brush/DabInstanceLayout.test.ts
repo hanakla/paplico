@@ -22,7 +22,7 @@ describe("DabInstanceLayout", () => {
 		);
 	});
 
-	it("should keep the legacy 16-float prefix stable", () => {
+	it("should keep the 16-float prefix stable", () => {
 		expect(DAB_FIELD_OFFSETS.positionX).toBe(0);
 		expect(DAB_FIELD_OFFSETS.positionY).toBe(1);
 		expect(DAB_FIELD_OFFSETS.sizeX).toBe(2);

@@ -1,4 +1,3 @@
-import { resolveBrushRenderRoute } from "../../../brush/renderRoute";
 import type { FilterRenderer } from "../../../renderer/canvas/pipeline/FilterRenderer";
 import { resolveElementGeometry } from "../../../renderer/canvas/pipeline/PreFilterRenderer";
 import {
@@ -336,10 +335,7 @@ function strokeAppearanceToNode(
 	if (!isVisibleStroke(appearance)) return null;
 	const paint = colorToSvgPaint(params.strokeColor.color);
 
-	const settings = params.brushSettings
-		? resolveBrushRenderRoute(params.brushSettings).settings
-		: null;
-	const stroking = settings?.stroking;
+	const stroking = params.brushSettings?.stroking;
 	const miterLimit = stroking?.miterLimit ?? 4;
 
 	return {
@@ -352,7 +348,8 @@ function strokeAppearanceToNode(
 				"stroke-opacity",
 				paint.opacity * appearance.opacity * elementAlpha,
 			),
-			"stroke-width": (settings?.properties.size?.base ?? 1) * strokeScale,
+			"stroke-width":
+				(params.brushSettings?.properties.size?.base ?? 1) * strokeScale,
 			"stroke-linecap": stroking?.lineCap ?? "round",
 			"stroke-linejoin": stroking?.lineJoin ?? "round",
 			// 4 is the SVG default
@@ -915,10 +912,7 @@ function maxStrokeWidth(element: AnyArtObject): number {
 		if (filter.processor !== "stroke") continue;
 		if (!isVisibleStroke(filter as StrokeAppearance)) continue;
 		const params = (filter as StrokeAppearance).paramData.params;
-		const settings = params.brushSettings
-			? resolveBrushRenderRoute(params.brushSettings).settings
-			: null;
-		width = Math.max(width, settings?.properties.size?.base ?? 1);
+		width = Math.max(width, params.brushSettings?.properties.size?.base ?? 1);
 	}
 	return width;
 }

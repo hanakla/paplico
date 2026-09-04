@@ -1,7 +1,6 @@
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { normalizeBrushSettingsV2 } from "../../brush/migrate";
 import {
 	createArtboard,
 	createDefaultBrushSettings,
@@ -9,7 +8,7 @@ import {
 	createDefaultLayer,
 	createStrokeBrushSettings,
 } from "../../document/factory";
-import type { BrushSettingsV2, Path, StrokeWidthPoint } from "../../schema";
+import type { BrushSettings, Path, StrokeWidthPoint } from "../../schema";
 import { loadTestFont } from "../../testUtils/fontSetup";
 import { loadTestDocument } from "../../testUtils/loadTestDocument";
 import { createMockToolContext } from "../../testUtils/mockToolContext";
@@ -895,7 +894,7 @@ describe("WebGPU Visual Regression - Mutation Detection", () => {
 });
 
 async function renderSignedWidthBrush(
-	brushSettings: BrushSettingsV2,
+	brushSettings: BrushSettings,
 	strokeWidths: StrokeWidthPoint[],
 	id: string,
 	transform?: Partial<Path["transform"]>,
@@ -943,7 +942,7 @@ async function renderSignedWidthBrush(
 }
 
 function createSignedWidthPath(
-	brushSettings: BrushSettingsV2,
+	brushSettings: BrushSettings,
 	strokeWidths: StrokeWidthPoint[],
 	id: string,
 	transform?: Partial<Path["transform"]>,
@@ -989,7 +988,7 @@ function createSignedWidthPath(
 	};
 }
 
-function signedWidthScatterSettings(): BrushSettingsV2 {
+function signedWidthScatterSettings(): BrushSettings {
 	return {
 		...createDefaultBrushSettings(),
 		strokeOpacity: 1,
@@ -1001,8 +1000,8 @@ function signedWidthScatterSettings(): BrushSettingsV2 {
 	};
 }
 
-function signedWidthCalligraphySettings(): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function signedWidthCalligraphySettings(): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -1010,16 +1009,15 @@ function signedWidthCalligraphySettings(): BrushSettingsV2 {
 		properties: {
 			size: { base: 20 },
 			flow: { base: 1 },
-			roundness: { base: 0.4 },
 			angle: { base: 45 },
 		},
 		tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 		randomSeed: 0,
-	});
+	};
 }
 
-function signedWidthPatternSettings(): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function signedWidthPatternSettings(): BrushSettings {
+	return {
 		version: 2,
 		engine: "ribbon",
 		strokeOpacity: 1,
@@ -1032,7 +1030,7 @@ function signedWidthPatternSettings(): BrushSettingsV2 {
 			tileSpacing: 0,
 		},
 		randomSeed: 0,
-	});
+	};
 }
 
 function requireCapturedPath(path: Path | null): Path {

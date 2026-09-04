@@ -1,6 +1,6 @@
 import {
 	type Artboard,
-	type BrushSettingsV2,
+	type BrushSettings,
 	type BrushStroking,
 	BUILTIN_BRUSH_IDS,
 	type Document,
@@ -252,7 +252,7 @@ export function createDefaultLineart3DParams(): Lineart3DParams {
 /**
  * Create default brush settings.
  */
-export function createDefaultBrushSettings(): BrushSettingsV2 {
+export function createDefaultBrushSettings(): BrushSettings {
 	return {
 		version: 2,
 		engine: "dab",
@@ -286,7 +286,7 @@ export function createDefaultBrushSettings(): BrushSettingsV2 {
 export function createStrokeBrushSettings(
 	width: number,
 	stroking?: BrushStroking,
-): BrushSettingsV2 {
+): BrushSettings {
 	return {
 		version: 2,
 		engine: "geometric",

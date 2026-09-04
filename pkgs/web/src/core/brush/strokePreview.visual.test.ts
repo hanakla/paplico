@@ -2,10 +2,9 @@ import { describe, expect, it } from "vitest";
 import { airBrush } from "../assets";
 import { createStrokeBrushSettings } from "../document/factory";
 import type { RenderCacheManager } from "../renderer/canvas/caches/RenderCacheManager";
-import type { BrushSettingsV2, EmbeddedFile, PathSegment } from "../schema";
+import type { BrushSettings, EmbeddedFile, PathSegment } from "../schema";
 import { BUILTIN_BRUSH_IDS } from "../schema";
 import { createTestRenderer } from "../testUtils/visualRegression";
-import { normalizeBrushSettingsV2 } from "./migrate";
 import { createBrushStrokePreviewScene } from "./strokePreview";
 
 describe("brushStrokePreview", () => {
@@ -68,7 +67,7 @@ describe("brushStrokePreview", () => {
 		const { renderer } = await createTestRenderer();
 		try {
 			const builtinFile = await createBitmapPreviewFile();
-			const drySettings: BrushSettingsV2 = {
+			const drySettings: BrushSettings = {
 				...imageTipBrush(builtinFile.uid),
 				properties: {
 					size: { base: 24 },
@@ -76,7 +75,7 @@ describe("brushStrokePreview", () => {
 					flow: { base: 1 },
 				},
 			};
-			const wetSettings: BrushSettingsV2 = {
+			const wetSettings: BrushSettings = {
 				...drySettings,
 				paintMode: "wash",
 				wet: {
@@ -133,7 +132,7 @@ describe("brushStrokePreview", () => {
 		const { renderer } = await createTestRenderer();
 		try {
 			const builtinFile = await createBitmapPreviewFile();
-			const baseSettings: BrushSettingsV2 = {
+			const baseSettings: BrushSettings = {
 				...imageTipBrush(builtinFile.uid),
 				properties: {
 					size: { base: 24 },
@@ -143,7 +142,7 @@ describe("brushStrokePreview", () => {
 			};
 			// Wider spacing plus a speed-driven size falloff: the same stroke has
 			// to come out visibly different from the flat one above.
-			const dynamicSettings: BrushSettingsV2 = {
+			const dynamicSettings: BrushSettings = {
 				...baseSettings,
 				properties: {
 					size: {
@@ -351,8 +350,8 @@ function base64ToUint8Array(base64: string): Uint8Array {
 	return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
-function imageTipBrush(fileUid: string): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function imageTipBrush(fileUid: string): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -365,5 +364,5 @@ function imageTipBrush(fileUid: string): BrushSettingsV2 {
 			angleMode: "fixed",
 		},
 		randomSeed: 0,
-	});
+	};
 }

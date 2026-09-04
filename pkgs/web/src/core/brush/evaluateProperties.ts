@@ -1,4 +1,4 @@
-import type { BrushInputId, BrushPropertyId, BrushSettingsV2 } from "../schema";
+import type { BrushInputId, BrushPropertyId, BrushSettings } from "../schema";
 import { buildCurveLut, sampleCurveLut } from "./curves";
 import {
 	BRUSH_PROPERTY_REGISTRY,
@@ -25,7 +25,7 @@ export type BakedBrushProperties = Partial<
 
 /** Bake each configured property's curves into sampling LUTs, once per stroke. */
 export function bakeBrushProperties(
-	settings: BrushSettingsV2,
+	settings: BrushSettings,
 ): BakedBrushProperties {
 	const out: BakedBrushProperties = {};
 	for (const [id, config] of Object.entries(settings.properties)) {

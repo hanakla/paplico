@@ -36,7 +36,7 @@ describe("BrushTextureManager mipmaps", () => {
 		manager.destroy();
 	});
 
-	it("should expose a mip-filtering sampler separate from the legacy one", async () => {
+	it("should expose a mip-filtering sampler separate from the ribbon one", async () => {
 		const device = await getTestDevice();
 		const manager = new BrushTextureManager(device);
 		expect(manager.getMipSampler()).not.toBe(manager.getSampler());

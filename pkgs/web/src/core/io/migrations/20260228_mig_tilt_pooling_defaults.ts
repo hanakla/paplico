@@ -36,7 +36,7 @@ const SEGMENT_DEFAULTS: Pick<
  *
  * Documents created before this migration may lack:
  *   - CubicBezierSegment tilt/deltaTime fields (added in brush-tilt-pooling)
- *   - BrushSettings rotationByTilt/aspectRatioByTilt/sizeBySpeed/pooling/poolingSizeRatio
+ *   - V1BrushSettings rotationByTilt/aspectRatioByTilt/sizeBySpeed/pooling/poolingSizeRatio
  *
  * This migration fills them with zero-defaults so the fields are always present.
  */

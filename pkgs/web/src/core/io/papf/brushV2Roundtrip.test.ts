@@ -1,4 +1,4 @@
-import type { BrushSettingsV2, Document, Viewport } from "../../schema";
+import type { BrushSettings, Document, Viewport } from "../../schema";
 import { migBrushV2 } from "../migrations/20260803_mig_brush_v2";
 import { applyMigration } from "../migrations/index";
 import { openPapf } from "./reader";
@@ -81,7 +81,7 @@ function makeV1BrushDoc(): Document {
 					opacity: 1,
 					opacityByPressure: 0,
 					randomSeed: 0,
-				} as unknown as BrushSettingsV2,
+				} as unknown as BrushSettings,
 			},
 		],
 	};

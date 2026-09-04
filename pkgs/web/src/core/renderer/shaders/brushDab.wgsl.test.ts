@@ -40,7 +40,7 @@ describe("brushDab shader single source", () => {
 		const device = await getTestDevice();
 		const code = buildBrushDabShader({ tipMode: "procedural", wetSeed: true });
 		// The wet route seeds its fields from each dab, not from one uniform
-		// per stroke as v1 did.
+		// per stroke.
 		expect(code).toContain("dab.wetness");
 		expect(code).toContain("dab.directionality");
 		// Five coefficients across three narrow targets, so each can blend by

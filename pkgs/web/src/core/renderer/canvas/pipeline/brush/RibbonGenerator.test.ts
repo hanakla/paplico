@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBrushSettingsV2 } from "../../../../brush/migrate";
-import type { BrushSettingsV2, CubicBezierSegment } from "../../../../schema";
+import type { BrushSettings, CubicBezierSegment } from "../../../../schema";
 import {
 	DEFAULT_RIBBON_OPTIONS,
 	generateRibbonInstances,
@@ -132,15 +131,15 @@ describe("generateRibbonInstances — v2 curves", () => {
 	});
 });
 
-function curvedSettings(properties: Record<string, unknown>): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function curvedSettings(properties: Record<string, unknown>): BrushSettings {
+	return {
 		version: 2,
 		engine: "ribbon",
 		strokeOpacity: 1,
 		paintMode: "buildup",
 		properties: { size: { base: 10 }, flow: { base: 1 }, ...properties },
 		randomSeed: 1,
-	});
+	};
 }
 
 function straightSegment(

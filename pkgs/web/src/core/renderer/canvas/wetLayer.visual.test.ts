@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBrushSettingsV2 } from "../../brush/migrate";
 import {
 	createArtboard,
 	createDefaultDocument,
 	createDefaultLayer,
 	createDefaultTransform,
 } from "../../document/factory";
-import type { BrushSettingsV2, Document, Filter, Path } from "../../schema";
+import type { BrushSettings, Document, Filter, Path } from "../../schema";
 import {
 	captureTexturePixels,
 	createTestRenderer,
@@ -77,9 +76,7 @@ describe("Wet layer strokes", () => {
  * A reach in whole rows quantises away most of what these values change,
  * which is why the earlier measurements read identical.
  */
-async function renderBleedMass(
-	brushSettings: BrushSettingsV2,
-): Promise<number> {
+async function renderBleedMass(brushSettings: BrushSettings): Promise<number> {
 	const pixels = await renderPixels(brushSettings);
 	let mass = 0;
 	for (let dy = 9; dy < 60; dy++) {
@@ -93,8 +90,8 @@ function wetTuned(overrides: {
 	bleedRadius?: number;
 	pigmentLoad?: number;
 	absorption?: number;
-}): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+}): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -117,11 +114,11 @@ function wetTuned(overrides: {
 			grainScale: 1,
 		},
 		randomSeed: 1,
-	});
+	};
 }
 
-function wetBrush(overrides: { enabled: boolean }): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function wetBrush(overrides: { enabled: boolean }): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -145,12 +142,12 @@ function wetBrush(overrides: { enabled: boolean }): BrushSettingsV2 {
 			grainScale: 1,
 		},
 		randomSeed: 1,
-	});
+	};
 }
 
 /** Spread of darkness along the stroke's centre line: flat paint reads 0. */
 async function renderInteriorSpread(
-	brushSettings: BrushSettingsV2,
+	brushSettings: BrushSettings,
 ): Promise<number> {
 	const pixels = await renderPixels(brushSettings);
 	let min = 255;
@@ -164,7 +161,7 @@ async function renderInteriorSpread(
 }
 
 async function renderStrokePixel(
-	brushSettings: BrushSettingsV2,
+	brushSettings: BrushSettings,
 	screenY = 300,
 ): Promise<number[]> {
 	const pixels = await renderPixels(brushSettings);
@@ -177,9 +174,7 @@ async function renderStrokePixel(
 	];
 }
 
-async function renderPixels(
-	brushSettings: BrushSettingsV2,
-): Promise<Uint8Array> {
+async function renderPixels(brushSettings: BrushSettings): Promise<Uint8Array> {
 	const { renderer, canvas } = await createTestRenderer();
 	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
 	const device = renderer.getDevice();
@@ -198,7 +193,7 @@ async function renderPixels(
 	return pixels;
 }
 
-function wetDoc(brushSettings: BrushSettingsV2): Document {
+function wetDoc(brushSettings: BrushSettings): Document {
 	const stroke: Path = {
 		id: "wet-stroke",
 		type: "path",

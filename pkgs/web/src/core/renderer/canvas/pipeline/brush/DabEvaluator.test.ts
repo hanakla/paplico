@@ -1,5 +1,4 @@
-import { normalizeBrushSettingsV2 } from "../../../../brush/migrate";
-import type { BrushSettingsV2, CubicBezierSegment } from "../../../../schema";
+import type { BrushSettings, CubicBezierSegment } from "../../../../schema";
 import { evaluateDabs } from "./DabEvaluator";
 import { DAB_INSTANCE_FLOATS, readDabField } from "./DabInstanceLayout";
 
@@ -25,8 +24,8 @@ function lineSegment(
 	};
 }
 
-function dabSettings(overrides: Record<string, unknown> = {}): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function dabSettings(overrides: Record<string, unknown> = {}): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -39,7 +38,7 @@ function dabSettings(overrides: Record<string, unknown> = {}): BrushSettingsV2 {
 		tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 		randomSeed: 1,
 		...overrides,
-	});
+	};
 }
 
 describe("evaluateDabs", () => {
@@ -121,7 +120,7 @@ describe("evaluateDabs", () => {
 	});
 
 	describe("curve matrix evaluation", () => {
-		it("should reproduce the v1 pressure-size formula on emitted dabs", () => {
+		it("should apply the two-point pressure-size curve to emitted dabs", () => {
 			const k = 0.5;
 			const settings = dabSettings({
 				properties: {
@@ -490,8 +489,8 @@ describe("evaluateDabs — incremental resume", () => {
 		] as CubicBezierSegment[];
 	}
 
-	function dynamicSettings(): BrushSettingsV2 {
-		return normalizeBrushSettingsV2({
+	function dynamicSettings(): BrushSettings {
+		return {
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 1,
@@ -545,11 +544,11 @@ describe("evaluateDabs — incremental resume", () => {
 			},
 			tip: { kind: "procedural", hardness: 0.8, angleMode: "fixed" },
 			randomSeed: 7,
-		});
+		};
 	}
 
 	function assertChunkedMatchesFull(
-		settings: BrushSettingsV2,
+		settings: BrushSettings,
 		options: { variantCount?: number } = {},
 	): void {
 		const segments = chunkSegments();
@@ -587,13 +586,13 @@ describe("evaluateDabs — incremental resume", () => {
 	});
 
 	it("should keep timed dabs deterministic across the boundary", () => {
-		const settings = normalizeBrushSettingsV2({
+		const settings = {
 			...dynamicSettings(),
 			properties: {
 				...dynamicSettings().properties,
 				dabsPerSecond: { base: 120 },
 			},
-		});
+		};
 		assertChunkedMatchesFull(settings);
 	});
 

@@ -1,6 +1,6 @@
 import { readStoredBrushSize } from "../brush/access";
 import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
-import type { BrushSettingsV2 } from "../schema";
+import type { BrushSettings } from "../schema";
 import {
 	type BoundingBox,
 	type ElementTransform,
@@ -42,7 +42,7 @@ interface EraserToolOptions {
 	/** Mask opacity (0–1). Only used in "mask" mode. Default: 1.0 */
 	maskOpacity?: number;
 	/** Brush settings for mask rendering. Only used in "mask" mode. */
-	maskBrushSettings?: BrushSettingsV2;
+	maskBrushSettings?: BrushSettings;
 	/** Erase across all unlocked layers instead of only the current layer */
 	pierceAllLayers?: boolean;
 }
@@ -463,7 +463,7 @@ export class EraserTool implements Tool {
 		if (this.currentStroke.length < 2) return;
 
 		const maskOpacity = this.options.maskOpacity ?? 1.0;
-		const brushSettings: BrushSettingsV2 = this.options.maskBrushSettings ?? {
+		const brushSettings: BrushSettings = this.options.maskBrushSettings ?? {
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 1,

@@ -1,5 +1,5 @@
 /**
- * The brush shape documents used before BrushSettingsV2, kept solely so old
+ * The brush shape documents used before BrushSettings, kept solely so old
  * files can still be opened: `migrate.ts` reads these types and emits v2, and
  * nothing else in the engine may import from here. Every runtime path — tools,
  * renderer, panel, storage — sees v2 only.
@@ -10,7 +10,7 @@ import type {
 	BrushColorMode,
 	BrushStroking,
 	StampRotation,
-} from "../schema";
+} from "../../../schema";
 
 interface BrushSettingsBase {
 	/** Base size in world units */
@@ -187,7 +187,7 @@ export interface CalligraphyBrushSettings extends BrushSettingsBase {
 
 export const DEFAULT_CALLIGRAPHY_SPACING = 0.05;
 
-export type BrushSettings =
+export type V1BrushSettings =
 	| StrokeBrushSettings
 	| ScatterBrushSettings
 	| ArtBrushSettings

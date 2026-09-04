@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_BRUSH_IDS } from "../schema";
-import { normalizeBrushPreset, normalizeBrushSettings } from "./normalize";
+import { BUILTIN_BRUSH_IDS } from "../../../schema";
+import { readV1BrushSettings } from "./readV1";
 
-describe("normalizeBrushSettings", () => {
+describe("readV1BrushSettings", () => {
 	describe("legacy flat shape (no `type` field)", () => {
 		it("should map the svg texture to a geometric stroke brush", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				textureFileUid: BUILTIN_BRUSH_IDS.svg,
 				size: 4,
 			});
@@ -15,7 +15,7 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should map renderMode 'ribbon' to a pattern brush", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				textureFileUid: "tex-a",
 				renderMode: "ribbon",
 				ribbonStretch: 0.5,
@@ -31,7 +31,7 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should map a plain textured brush to a scatter brush", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				textureFileUid: "tex-b",
 				spacing: 0.3,
 			});
@@ -43,7 +43,7 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should convert legacy scatterTextureUids into scatterSources", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				textureFileUid: "tex-main",
 				scatterTextureUids: ["tex-1", "tex-2"],
 				startTextureUid: "tex-start",
@@ -63,7 +63,7 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should discard the removed vectorBrushSourceId field", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				textureFileUid: "tex-c",
 				vectorBrushSourceId: "should-be-dropped",
 			});
@@ -74,7 +74,7 @@ describe("normalizeBrushSettings", () => {
 
 	describe("union shape (with `type` field)", () => {
 		it("should pass through a scatter brush", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				type: "scatter",
 				source: { kind: "file", fileUid: "tex-d" },
 				size: 12,
@@ -88,7 +88,7 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should pass through an art brush", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				type: "art",
 				source: { kind: "file", fileUid: "tex-art" },
 				flow: 0.8,
@@ -103,7 +103,7 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should pass through a pattern brush", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				type: "pattern",
 				source: { kind: "file", fileUid: "tex-pattern" },
 				tileScale: 1.5,
@@ -118,7 +118,7 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should pass through a calligraphy brush", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				type: "calligraphy",
 				nibAngle: 30,
 				roundness: 0.6,
@@ -135,7 +135,7 @@ describe("normalizeBrushSettings", () => {
 
 		it("should preserve a def source on scatter/art/pattern brushes", () => {
 			for (const type of ["scatter", "art", "pattern"] as const) {
-				const result = normalizeBrushSettings({
+				const result = readV1BrushSettings({
 					type,
 					source: { kind: "def", defId: "def-1" },
 				});
@@ -145,7 +145,7 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should ignore a malformed source and fall back to the softCircle texture", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				type: "scatter",
 				source: { kind: "def" }, // missing defId
 			});
@@ -159,7 +159,7 @@ describe("normalizeBrushSettings", () => {
 
 	describe("stroking normalization", () => {
 		it("should default lineCap/lineJoin/miterLimit for an empty stroking object", () => {
-			const result = normalizeBrushSettings({ type: "stroke", stroking: {} });
+			const result = readV1BrushSettings({ type: "stroke", stroking: {} });
 			if (result.type !== "stroke") throw new Error("expected stroke");
 			expect(result.stroking).toEqual({
 				lineCap: "round",
@@ -169,7 +169,7 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should preserve valid lineCap/lineJoin/miterLimit values", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				type: "stroke",
 				stroking: { lineCap: "square", lineJoin: "bevel", miterLimit: 8 },
 			});
@@ -182,7 +182,7 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should fall back to 'round' for invalid lineCap/lineJoin values", () => {
-			const result = normalizeBrushSettings({
+			const result = readV1BrushSettings({
 				type: "stroke",
 				stroking: { lineCap: "not-a-cap", lineJoin: "not-a-join" },
 			});
@@ -192,7 +192,7 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should preserve a valid dashArray/dashOffset and drop an invalid dashArray", () => {
-			const valid = normalizeBrushSettings({
+			const valid = readV1BrushSettings({
 				type: "stroke",
 				stroking: { dashArray: [2, 4], dashOffset: 1 },
 			});
@@ -200,7 +200,7 @@ describe("normalizeBrushSettings", () => {
 			expect(valid.stroking?.dashArray).toEqual([2, 4]);
 			expect(valid.stroking?.dashOffset).toBe(1);
 
-			const invalid = normalizeBrushSettings({
+			const invalid = readV1BrushSettings({
 				type: "stroke",
 				stroking: { dashArray: ["not", "numbers"] },
 			});
@@ -209,59 +209,23 @@ describe("normalizeBrushSettings", () => {
 		});
 
 		it("should return undefined stroking when no stroking object is present", () => {
-			const result = normalizeBrushSettings({ type: "stroke" });
+			const result = readV1BrushSettings({ type: "stroke" });
 			if (result.type !== "stroke") throw new Error("expected stroke");
 			expect(result.stroking).toBeUndefined();
 		});
 	});
 });
 
-describe("normalizeBrushPreset", () => {
-	it("should migrate a preset holding a v1 union into v2", () => {
-		const result = normalizeBrushPreset({
-			uid: "p1",
-			name: "Pen",
-			settings: { type: "stroke", size: 2 },
-		});
-
-		expect(result.uid).toBe("p1");
-		expect(result.name).toBe("Pen");
-		expect(result.settings.version).toBe(2);
-		expect(result.settings.engine).toBe("geometric");
-		expect(result.settings.properties.size?.base).toBe(2);
-	});
-
-	it("should migrate a pre-union preset (textureFileUid + defaultSettings) into v2", () => {
-		const result = normalizeBrushPreset({
-			uid: "p2",
-			name: "Soft",
-			textureFileUid: "tex-e",
-			defaultSettings: { spacing: 0.2 },
-		});
-
-		expect(result.uid).toBe("p2");
-		expect(result.settings.version).toBe(2);
-		expect(result.settings.engine).toBe("dab");
-		if (result.settings.tip?.kind !== "image")
-			throw new Error("expected an image tip");
-		expect(result.settings.tip.sources[0]).toEqual({
-			kind: "file",
-			fileUid: "tex-e",
-		});
-		expect(result.settings.properties.spacing?.base).toBe(0.2);
-	});
-});
-
-describe("normalizeBrushSettings — wetInk (Task#22)", () => {
+describe("readV1BrushSettings — wetInk (Task#22)", () => {
 	it("should default wetInk to undefined for legacy data", () => {
-		const result = normalizeBrushSettings({ type: "scatter", size: 4 });
+		const result = readV1BrushSettings({ type: "scatter", size: 4 });
 		expect(result.type).toBe("scatter");
 		if (result.type !== "scatter") throw new Error("expected scatter");
 		expect(result.wetInk).toBeUndefined();
 	});
 
 	it("should read wetInk on scatter brushes when provided", () => {
-		const result = normalizeBrushSettings({
+		const result = readV1BrushSettings({
 			type: "scatter",
 			size: 4,
 			wetInk: {
@@ -286,7 +250,7 @@ describe("normalizeBrushSettings — wetInk (Task#22)", () => {
 	});
 
 	it("should read wetInk on calligraphy brushes when provided", () => {
-		const result = normalizeBrushSettings({
+		const result = readV1BrushSettings({
 			type: "calligraphy",
 			size: 8,
 			roundness: 0.5,
@@ -300,7 +264,7 @@ describe("normalizeBrushSettings — wetInk (Task#22)", () => {
 	});
 
 	it("should drop wetInk objects without `enabled`", () => {
-		const result = normalizeBrushSettings({
+		const result = readV1BrushSettings({
 			type: "scatter",
 			size: 4,
 			wetInk: { bleedWidth: 0.5 },
@@ -311,9 +275,9 @@ describe("normalizeBrushSettings — wetInk (Task#22)", () => {
 	});
 });
 
-describe("normalizeBrushSettings — v2 awareness", () => {
+describe("readV1BrushSettings — v2 awareness", () => {
 	it("should keep the v1 legacy-flat path unchanged for non-v2 input", () => {
-		const result = normalizeBrushSettings({ size: 8 });
+		const result = readV1BrushSettings({ size: 8 });
 		expect(result.type).toBe("scatter");
 		expect(result.size).toBe(8);
 	});

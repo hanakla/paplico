@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBrushSettingsV2 } from "../../../../brush/migrate";
-import type { BezierPoint, CubicBezierSegment } from "../../../../schema";
+import type {
+	BezierPoint,
+	BrushSettings,
+	CubicBezierSegment,
+} from "../../../../schema";
 import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
 import { evaluateDabs } from "./DabEvaluator";
 import { readDabField } from "./DabInstanceLayout";
@@ -97,7 +100,12 @@ describe("createStrokeHalfWidthSampler", () => {
 		const sampler = createStrokeHalfWidthSampler({
 			storedBrushSettings: geometricSettings(undefined, {
 				taperStart: 100,
-				stroking: { dashArray: [10, 10] },
+				stroking: {
+					lineCap: "round",
+					lineJoin: "round",
+					miterLimit: 4,
+					dashArray: [10, 10],
+				},
 			}),
 			segments: [lineSegment(0, 0, 300, 0, { isMoved: true })],
 		})!;
@@ -108,7 +116,7 @@ describe("createStrokeHalfWidthSampler", () => {
 	// Golden test against the real evaluator: the sampler must report what the
 	// dab pipeline actually stamps, including speed-driven size modulation.
 	it("should match the dab evaluator's emitted sizes (pressure + speedFine)", () => {
-		const raw = {
+		const raw: BrushSettings = {
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 1,
@@ -161,7 +169,7 @@ describe("createStrokeHalfWidthSampler", () => {
 			storedBrushSettings: raw,
 			segments,
 		})!;
-		const buffer = evaluateDabs(segments, normalizeBrushSettingsV2(raw), {
+		const buffer = evaluateDabs(segments, raw, {
 			pathStart: 0,
 			pathEnd: 1,
 		});
@@ -181,7 +189,7 @@ describe("createStrokeHalfWidthSampler", () => {
 	// Golden test against the real generator: detects the sampler's mirrored
 	// closed-form drifting if the ribbon renderer's evaluation ever changes.
 	it("should match the ribbon generator's endpoint half widths", () => {
-		const raw = {
+		const raw: BrushSettings = {
 			version: 2,
 			engine: "ribbon",
 			strokeOpacity: 1,
@@ -205,7 +213,7 @@ describe("createStrokeHalfWidthSampler", () => {
 			taperStart: 60,
 			taperEnd: 60,
 		};
-		const settings = normalizeBrushSettingsV2(raw);
+		const settings = raw;
 		const segments = [
 			lineSegment(0, 0, 100, 0, {
 				isMoved: true,
@@ -253,7 +261,7 @@ describe("createStrokeHalfWidthSampler", () => {
 });
 
 describe("bakeStrokeWidthProfile", () => {
-	function dabSettingsWithPressureCurve(): Record<string, unknown> {
+	function dabSettingsWithPressureCurve(): BrushSettings {
 		return {
 			version: 2,
 			engine: "dab",
@@ -310,7 +318,7 @@ describe("bakeStrokeWidthProfile", () => {
 		// evaluation the renderer would have produced with the curves intact.
 		const buffer = evaluateDabs(
 			segments,
-			normalizeBrushSettingsV2({ ...raw, taperStart: undefined }),
+			{ ...raw, taperStart: undefined },
 			{},
 		);
 		const baseHalf = 10 / 2;
@@ -334,7 +342,7 @@ describe("bakeStrokeWidthProfile", () => {
 			}),
 		];
 		const profile = bakeStrokeWidthProfile(raw, segments)!;
-		const settings = normalizeBrushSettingsV2(raw);
+		const settings = raw;
 
 		// Live path: curves evaluated per dab. Baked path: curves skipped,
 		// profile scales the stamp. Both must draw the same widths.
@@ -418,7 +426,7 @@ describe("bakeStrokeWidthProfile", () => {
 	});
 
 	it("should keep ratios above 1 for width growth (size scaling has no cap)", () => {
-		const raw = {
+		const raw: BrushSettings = {
 			...dabSettingsWithPressureCurve(),
 			properties: {
 				size: {
@@ -456,38 +464,32 @@ describe("bakeStrokeWidthProfile", () => {
 
 describe("resolveGeometricSizeByPressure", () => {
 	it("should read k back off the flat slider's two-point curve", () => {
-		const settings = normalizeBrushSettingsV2(
-			geometricSettings({
-				size: {
-					base: 10,
-					curves: [
-						{
-							input: "pressure",
-							points: [
-								[0, -0.3],
-								[1, 0],
-							],
-						},
-					],
-				},
-			}),
-		);
+		const settings = geometricSettings({
+			size: {
+				base: 10,
+				curves: [
+					{
+						input: "pressure",
+						points: [
+							[0, -0.3],
+							[1, 0],
+						],
+					},
+				],
+			},
+		});
 		expect(resolveGeometricSizeByPressure(settings)).toBeCloseTo(0.3, 5);
 	});
 
 	it("should return 0 without a pressure curve", () => {
-		expect(
-			resolveGeometricSizeByPressure(
-				normalizeBrushSettingsV2(geometricSettings()),
-			),
-		).toBe(0);
+		expect(resolveGeometricSizeByPressure(geometricSettings())).toBe(0);
 	});
 });
 
 function geometricSettings(
-	properties?: Record<string, unknown>,
-	overrides?: Record<string, unknown>,
-): Record<string, unknown> {
+	properties?: BrushSettings["properties"],
+	overrides?: Partial<BrushSettings>,
+): BrushSettings {
 	return {
 		version: 2,
 		engine: "geometric",

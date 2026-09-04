@@ -1,5 +1,4 @@
 import type * as Y from "yjs";
-import { normalizeBrushPreset } from "../brush/normalize";
 import type { ProofProfileRef, RenderingIntent } from "../color/types";
 import { createIdentityTransform } from "../document/factory";
 import {
@@ -248,27 +247,15 @@ export function extractDocumentFromYDoc(ydoc: Y.Doc): Document {
 	}
 
 	// brushPresets: Y.Map<Y.Map<unknown>> → BrushPreset[]
-	// Read leniently: v2 stores `settings`, v1 stored `textureFileUid` +
-	// `defaultSettings`. normalizeBrushPreset resolves either into a union value.
 	const brushPresets: BrushPreset[] = [];
 	for (const [_uid, yPreset] of yBrushPresets.entries()) {
 		const rawSettings = yPreset.get("settings");
-		const rawDefaultSettings = yPreset.get("defaultSettings");
-		brushPresets.push(
-			normalizeBrushPreset({
-				uid: yPreset.get("uid"),
-				name: yPreset.get("name"),
-				settings:
-					typeof rawSettings === "string"
-						? JSON.parse(rawSettings)
-						: rawSettings,
-				textureFileUid: yPreset.get("textureFileUid"),
-				defaultSettings:
-					typeof rawDefaultSettings === "string"
-						? JSON.parse(rawDefaultSettings)
-						: rawDefaultSettings,
-			}),
-		);
+		brushPresets.push({
+			uid: String(yPreset.get("uid")),
+			name: String(yPreset.get("name")),
+			settings:
+				typeof rawSettings === "string" ? JSON.parse(rawSettings) : rawSettings,
+		});
 	}
 
 	// defs: Y.Map<Y.Map<unknown>> → Record<string, DefEntry>

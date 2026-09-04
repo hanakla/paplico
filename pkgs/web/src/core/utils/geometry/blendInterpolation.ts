@@ -17,7 +17,7 @@
  */
 
 import { createIdentityTransform } from "../../document/factory";
-import type { BrushSettingsV2 } from "../../schema";
+import type { BrushSettings } from "../../schema";
 import {
 	type AnyArtObject,
 	type BezierPoint,
@@ -1211,10 +1211,10 @@ function lerpStopColor(a: Color, b: Color, t: number): Color {
 /** Blend steps only interpolate the brush width; everything else is taken
  *  from the first key's brush. */
 function interpolateBrushSettings(
-	a: BrushSettingsV2 | undefined,
-	b: BrushSettingsV2 | undefined,
+	a: BrushSettings | undefined,
+	b: BrushSettings | undefined,
 	t: number,
-): BrushSettingsV2 | undefined {
+): BrushSettings | undefined {
 	if (!a) return b;
 	if (!b) return a;
 	const sizeA = a.properties.size?.base;

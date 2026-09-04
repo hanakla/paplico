@@ -1,8 +1,7 @@
-// Wet layer composite, v2 (design §13-2).
+// Wet layer composite (design §13-2).
 //
 // Decodes the simulation's log-space pigment density into premultiplied
-// colour and shapes it with the paper and the drying rim, exactly as v1 did.
-// The difference is where the shaping coefficients come from: edge darkening,
+// colour and shapes it with the paper and the drying rim. Edge darkening,
 // edge roughness, absorption and granulation are read per texel from the seed
 // pass's coefficient targets, so a single stroke can deposit a hard rim at one
 // end and none at the other.

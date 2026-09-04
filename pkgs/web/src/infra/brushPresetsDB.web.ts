@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from "dexie";
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
+import { migrateBrushSettingsToV2 } from "@/core/io/migrations/brushV2/convert";
 import { deepClone } from "@/core/utils/lang";
 import type {
 	BrushPresetsRepo,
@@ -14,6 +14,22 @@ class BrushPresetsDB extends Dexie {
 		this.version(1).stores({
 			brushPresets: "uid, updatedAt, createdAt, name, textureHash",
 		});
+		// Records written before brush v2 are converted once here, so reads
+		// never see the old shape.
+		this.version(2)
+			.stores({
+				brushPresets: "uid, updatedAt, createdAt, name, textureHash",
+			})
+			.upgrade((tx) =>
+				tx
+					.table<PersistedBrushPreset, "uid">("brushPresets")
+					.toCollection()
+					.modify((preset) => {
+						preset.defaultSettings = migrateBrushSettingsToV2(
+							preset.defaultSettings,
+						);
+					}),
+			);
 	}
 }
 
@@ -54,11 +70,7 @@ function clonePersistedBrushPreset(
 ): PersistedBrushPreset {
 	return {
 		...preset,
-		// Records written before v2 are migrated on the way out, so callers
-		// never see the old shape.
-		defaultSettings: normalizeBrushSettingsV2(
-			deepClone(preset.defaultSettings),
-		),
+		defaultSettings: deepClone(preset.defaultSettings),
 		textureBin: new Uint8Array(preset.textureBin),
 	};
 }

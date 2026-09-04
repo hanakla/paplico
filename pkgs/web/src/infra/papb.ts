@@ -1,14 +1,15 @@
 import { decode, encode } from "cbor-x";
 import { withoutStoredBrushSize } from "@/core/brush/access";
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
+import { migrateBrushSettingsToV2 } from "@/core/io/migrations/brushV2/convert";
+import type { BrushSettings } from "@/core/schema";
 import {
 	type PersistedBrushPreset,
 	snapshotPersistedBrushPreset,
 } from "@/repos/brushPresets";
 export const PAPB_SCHEMA_VERSION = 2;
 
-/** Versions parsePapb accepts. Version 1 payloads carry pre-v2 brush settings, which
- * normalizeBrushSettingsV2 still reads; new files are written as v2. */
+/** Versions parsePapb accepts. Version 1 payloads carry pre-v2 brush settings
+ * and are migrated on read; new files are written as v2. */
 const READABLE_PAPB_SCHEMA_VERSIONS = new Set([1, PAPB_SCHEMA_VERSION]);
 
 export interface PapbPayload {
@@ -42,11 +43,17 @@ export function parsePapb(source: ArrayBuffer | Uint8Array): PapbPayload {
 
 	return {
 		schemaVersion: PAPB_SCHEMA_VERSION,
-		brushPreset: normalizePersistedBrushPreset(decoded.brushPreset),
+		brushPreset: readPersistedBrushPreset(
+			decoded.brushPreset,
+			decoded.schemaVersion === 1,
+		),
 	};
 }
 
-function normalizePersistedBrushPreset(value: unknown): PersistedBrushPreset {
+function readPersistedBrushPreset(
+	value: unknown,
+	migrateBrushSettings: boolean,
+): PersistedBrushPreset {
 	if (!value || typeof value !== "object") {
 		throw new Error("Invalid papb payload: brushPreset is missing");
 	}
@@ -62,11 +69,11 @@ function normalizePersistedBrushPreset(value: unknown): PersistedBrushPreset {
 	return {
 		uid: record.uid,
 		name: record.name,
-		// Records written before v2 are migrated on the way out, so callers
-		// never see the old shape. Old files may carry a width; strip it after
-		// normalize so imports never re-record one.
+		// Old files may carry a width; strip it so imports never re-record one.
 		defaultSettings: withoutStoredBrushSize(
-			normalizeBrushSettingsV2(record.defaultSettings),
+			migrateBrushSettings
+				? migrateBrushSettingsToV2(record.defaultSettings)
+				: (record.defaultSettings as BrushSettings),
 		),
 		textureName: expectString(record.textureName, "textureName"),
 		textureMime: expectString(record.textureMime, "textureMime"),

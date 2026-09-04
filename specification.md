@@ -404,12 +404,12 @@ GPUステンシルバッファによるStencil-Then-Cover方式:
 
 ### ブラシストローク（3ルート）
 
-`resolveBrushRenderRoute()`（`core/brush/renderRoute.ts`）が `BrushSettingsV2.engine` でルートを決める。呼び出し側（CanvasLayer / PathElementRenderer）がルートと stroke appearance を1回だけ解決し、`StrokeDrawInput` として描画側へ渡す:
+`BrushSettings.engine` がルートを決める。呼び出し側（CanvasLayer / PathElementRenderer）がルートと stroke appearance を1回だけ解決し、`StrokeDrawInput` として描画側へ渡す:
 
 | ルート | 描画側 | 方式 |
 |---|---|---|
 | `geometric` | `PathElementRenderer.renderGeometricStroke` | ストロークテッセレーション + GPUストロークパイプライン |
-| `dab` | `StrokeBatchContext.render` | ベジエ曲線に沿った Dab のインスタンスド描画。先端形状・ニブ楕円率・回転は `BrushSettingsV2.properties` のカーブ行列で決まる |
+| `dab` | `StrokeBatchContext.render` | ベジエ曲線に沿った Dab のインスタンスド描画。先端形状・ニブ楕円率・回転は `BrushSettings.properties` のカーブ行列で決まる |
 | `ribbon` | `StrokeBatchContext.addToBatch` / `flushBatch` | リボン頂点生成（UV stretch / UV repeat + tileSpacing）。バッチ蓄積に乗る唯一のルート |
 
 - `StampGenerator` が筆圧からサイズ・不透明度を決定。常駐GPUリース（ResidentStamps）によりパン・ズームフレームではスタンプアップロード0

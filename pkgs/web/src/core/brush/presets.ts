@@ -11,7 +11,7 @@ import {
 	type BrushCurve,
 	type BrushPreset,
 	type BrushPresetCategory,
-	type BrushSettingsV2,
+	type BrushSettings,
 	BUILTIN_BRUSH_IDS,
 	BUILTIN_PAPER_IDS,
 	type BuiltinBrushId,
@@ -33,7 +33,7 @@ const TEXTURE_SIZE = 128;
  * authored before the brush-system rework — those references resolve via the
  * BrushTextureManager fallback chain.
  */
-export const BRUSH_PRESETS: Record<BuiltinBrushId, BrushSettingsV2> = {
+export const BRUSH_PRESETS: Record<BuiltinBrushId, BrushSettings> = {
 	[BUILTIN_BRUSH_IDS.svg]: {
 		version: 2,
 		engine: "geometric",

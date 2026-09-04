@@ -1,5 +1,4 @@
 import { readStoredBrushSize } from "../../../brush/access";
-import { resolveBrushRenderRoute } from "../../../brush/renderRoute";
 import {
 	type AnyArtObject,
 	type BlendMode,
@@ -1306,12 +1305,11 @@ function scanBlendingFlags(
 
 /** How far past its outline a wet stroke's pigment can reach, in world units. */
 function wetReachOf(filter: Filter): number {
-	const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
-	if (raw == null) return 0;
-	const route = resolveBrushRenderRoute(raw);
-	const wet = route.settings.wet;
-	if (route.kind !== "dab" || wet?.enabled !== true) return 0;
-	const brushSize = readStoredBrushSize(route.settings) ?? 0;
+	const settings = (filter as StrokeAppearance).paramData.params.brushSettings;
+	if (settings == null) return 0;
+	const wet = settings.wet;
+	if (settings.engine !== "dab" || wet?.enabled !== true) return 0;
+	const brushSize = readStoredBrushSize(settings) ?? 0;
 	return brushSize * (0.5 + Math.max(wet.bleedRadius, 0));
 }
 
@@ -1326,19 +1324,17 @@ function washInfoOf(filter: Filter): {
 	brushSize: number;
 	wetEdge: WetEdgeConfig | undefined;
 } | null {
-	const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
-	if (raw == null) return null;
-	const route = resolveBrushRenderRoute(raw);
+	const settings = (filter as StrokeAppearance).paramData.params.brushSettings;
+	if (settings == null) return null;
 	// Ribbons wash too (design §12): the isolation and the single
 	// strokeOpacity application are engine-independent, and a ribbon that
 	// doubles back over itself darkens exactly like a dab stroke does.
-	if (route.kind !== "dab" && route.kind !== "ribbon") return null;
-	if (route.settings.paintMode !== "wash") return null;
+	if (settings.engine === "geometric") return null;
+	if (settings.paintMode !== "wash") return null;
 	return {
-		strokeOpacity: route.settings.strokeOpacity,
-		brushSize: readStoredBrushSize(route.settings) ?? 0,
+		strokeOpacity: settings.strokeOpacity,
+		brushSize: readStoredBrushSize(settings) ?? 0,
 		// Wet edge and the wet layer are exclusive (§H-4).
-		wetEdge:
-			route.settings.wet?.enabled === true ? undefined : route.settings.wetEdge,
+		wetEdge: settings.wet?.enabled === true ? undefined : settings.wetEdge,
 	};
 }

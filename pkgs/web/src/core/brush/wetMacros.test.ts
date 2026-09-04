@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BrushSettingsV2 } from "../schema";
-import { normalizeBrushSettingsV2 } from "./migrate";
+import type { BrushSettings } from "../schema";
 import { applyWetMacro, readWetMacro } from "./wetMacros";
 
 /**
@@ -77,8 +76,8 @@ describe("wet macros", () => {
 	});
 });
 
-function wetBrush(): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function wetBrush(): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -87,5 +86,5 @@ function wetBrush(): BrushSettingsV2 {
 		tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 		wet: { enabled: true, bleedRadius: 0.5, pigmentLoad: 0.85, grainScale: 1 },
 		randomSeed: 7,
-	});
+	};
 }

@@ -145,7 +145,7 @@ value = clamp(base * factor, propertyMin, propertyMax)
 
 ## sizeBySpeedとpoolingの互換変換
 
-現行のdab engineに `sizeBySpeed` と `pooling` の専用分岐はない。v1のscatter brushとcalligraphy brushをv2へ読み込むとき、これらの値を `speedFine` 入力のproperty curveへ変換する。
+現行のdab engineに `sizeBySpeed` と `pooling` の専用分岐はない。brush v2以前のドキュメントを開くとき、migrationがこれらの値を `speedFine` 入力のproperty curveへ変換する。
 
 ### sizeBySpeed
 
@@ -177,8 +177,8 @@ size = baseSize * clamp(1 - k * s, 0, 8)
 
 参照先:
 
-- `pkgs/web/src/core/brush/v1.ts`
-- `pkgs/web/src/core/brush/migrate.ts`
+- `pkgs/web/src/core/io/migrations/brushV2/v1.ts`
+- `pkgs/web/src/core/io/migrations/brushV2/convert.ts`
 
 ## ライブプレビューの速度
 

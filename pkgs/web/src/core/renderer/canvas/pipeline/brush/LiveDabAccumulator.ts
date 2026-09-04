@@ -1,4 +1,4 @@
-import type { BrushSettingsV2, CubicBezierSegment } from "../../../../schema";
+import type { BrushSettings, CubicBezierSegment } from "../../../../schema";
 import {
 	type DabEvalState,
 	evaluateDabs,
@@ -49,7 +49,7 @@ export class LiveDabAccumulator {
 
 	public update(
 		segments: CubicBezierSegment[],
-		settings: BrushSettingsV2,
+		settings: BrushSettings,
 		options: LiveDabOptions,
 	): LiveDabFrame {
 		const fingerprint = JSON.stringify([

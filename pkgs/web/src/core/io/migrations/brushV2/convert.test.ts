@@ -1,9 +1,9 @@
-import { BUILTIN_BRUSH_IDS } from "../schema";
-import { evaluateBrushProperty } from "./curves";
-import { normalizeBrushSettingsV2 } from "./migrate";
+import { evaluateBrushProperty } from "../../../brush/curves";
+import { BUILTIN_BRUSH_IDS } from "../../../schema";
+import { migrateBrushSettingsToV2 } from "./convert";
 import { DEFAULT_CALLIGRAPHY_SPACING, type WetInkSettings } from "./v1";
 
-describe("normalizeBrushSettingsV2", () => {
+describe("migrateBrushSettingsToV2", () => {
 	describe("v1 stroke conversion", () => {
 		const v1 = {
 			type: "stroke",
@@ -16,7 +16,7 @@ describe("normalizeBrushSettingsV2", () => {
 		};
 
 		it("should map to the geometric engine and keep stroking", () => {
-			const v2 = normalizeBrushSettingsV2(v1);
+			const v2 = migrateBrushSettingsToV2(v1);
 			expect(v2.version).toBe(2);
 			expect(v2.engine).toBe("geometric");
 			expect(v2.stroking?.lineCap).toBe("butt");
@@ -28,7 +28,7 @@ describe("normalizeBrushSettingsV2", () => {
 		});
 
 		it("should reproduce the v1 pressure-size response exactly", () => {
-			const v2 = normalizeBrushSettingsV2(v1);
+			const v2 = migrateBrushSettingsToV2(v1);
 			for (const p of [0, 0.3, 0.7, 1]) {
 				expect(
 					evaluateBrushProperty("size", v2.properties.size, { pressure: p }),
@@ -37,7 +37,7 @@ describe("normalizeBrushSettingsV2", () => {
 		});
 
 		it("should fold opacity into flow and reproduce the pressure-opacity response", () => {
-			const v2 = normalizeBrushSettingsV2(v1);
+			const v2 = migrateBrushSettingsToV2(v1);
 			for (const p of [0, 0.5, 1]) {
 				expect(
 					evaluateBrushProperty("flow", v2.properties.flow, { pressure: p }),
@@ -67,7 +67,7 @@ describe("normalizeBrushSettingsV2", () => {
 		};
 
 		it("should map to the dab engine with an image tip", () => {
-			const v2 = normalizeBrushSettingsV2(baseScatter);
+			const v2 = migrateBrushSettingsToV2(baseScatter);
 			expect(v2.engine).toBe("dab");
 			expect(v2.tip?.kind).toBe("image");
 			if (v2.tip?.kind !== "image") throw new Error("unreachable");
@@ -75,19 +75,19 @@ describe("normalizeBrushSettingsV2", () => {
 		});
 
 		it("should fold opacity x flow into flow.base and keep strokeOpacity at 1", () => {
-			const v2 = normalizeBrushSettingsV2(baseScatter);
+			const v2 = migrateBrushSettingsToV2(baseScatter);
 			expect(v2.properties.flow?.base).toBeCloseTo(0.8 * 0.6, 10);
 			expect(v2.strokeOpacity).toBe(1);
 			expect(v2.paintMode).toBe("buildup");
 		});
 
 		it("should keep spacing as the spacing base", () => {
-			const v2 = normalizeBrushSettingsV2(baseScatter);
+			const v2 = migrateBrushSettingsToV2(baseScatter);
 			expect(v2.properties.spacing?.base).toBeCloseTo(0.12, 10);
 		});
 
 		it("should map tangent stamp rotation to the tip angle mode", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				...baseScatter,
 				stampRotation: "tangent",
 			});
@@ -95,7 +95,7 @@ describe("normalizeBrushSettingsV2", () => {
 		});
 
 		it("should map random stamp rotation to a full-turn randomPerDab angle curve", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				...baseScatter,
 				stampRotation: "random",
 			});
@@ -112,13 +112,13 @@ describe("normalizeBrushSettingsV2", () => {
 		});
 
 		it("should convert stampAngle degrees to the angle base in radians", () => {
-			const v2 = normalizeBrushSettingsV2({ ...baseScatter, stampAngle: 30 });
+			const v2 = migrateBrushSettingsToV2({ ...baseScatter, stampAngle: 30 });
 			expect(v2.properties.angle?.base).toBeCloseTo(Math.PI / 6, 10);
 		});
 
 		it("should reproduce aspectRatioByTilt exactly via a tiltMagnitude curve", () => {
 			const k = 0.6;
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				...baseScatter,
 				aspectRatioByTilt: k,
 			});
@@ -133,7 +133,7 @@ describe("normalizeBrushSettingsV2", () => {
 
 		it("should map rotationByTilt to a tiltAzimuth angle curve", () => {
 			const k = 0.5;
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				...baseScatter,
 				rotationByTilt: k,
 			});
@@ -152,7 +152,7 @@ describe("normalizeBrushSettingsV2", () => {
 		it("should translate the pooling formulas into speedFine curves", () => {
 			const p = 0.8;
 			const r = 0.25;
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				...baseScatter,
 				pooling: p,
 				poolingSizeRatio: r,
@@ -183,7 +183,7 @@ describe("normalizeBrushSettingsV2", () => {
 
 		it("should map scatter offset and size variation", () => {
 			const v = 0.4;
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				...baseScatter,
 				scatterOffset: 0.3,
 				scatterSizeVariation: v,
@@ -204,7 +204,7 @@ describe("normalizeBrushSettingsV2", () => {
 		});
 
 		it("should carry scatter variants and start/end sources into the tip", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				...baseScatter,
 				scatterSources: [{ kind: "file", fileUid: "tex-2" }],
 				startSource: { kind: "file", fileUid: "tex-s" },
@@ -237,7 +237,7 @@ describe("normalizeBrushSettingsV2", () => {
 				pickupUnderlyingColor: true,
 				pickupStrength: 0.35,
 			};
-			const v2 = normalizeBrushSettingsV2({ ...baseScatter, wetInk });
+			const v2 = migrateBrushSettingsToV2({ ...baseScatter, wetInk });
 
 			// The stroke-level four stay in WetConfig...
 			expect(v2.wet).toEqual({
@@ -283,13 +283,13 @@ describe("normalizeBrushSettingsV2", () => {
 		};
 
 		it("should map roundness and nibAngle to ratio and angle bases", () => {
-			const v2 = normalizeBrushSettingsV2(calligraphy);
+			const v2 = migrateBrushSettingsToV2(calligraphy);
 			expect(v2.properties.ratio?.base).toBeCloseTo(0.25, 10);
 			expect(v2.properties.angle?.base).toBeCloseTo(Math.PI / 4, 10);
 		});
 
 		it("should map the tilt angle mode to a fixed mode with a tiltAzimuth curve", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				...calligraphy,
 				angleMode: "tilt",
 			});
@@ -301,7 +301,7 @@ describe("normalizeBrushSettingsV2", () => {
 		});
 
 		it("should fill the default calligraphy spacing", () => {
-			const v2 = normalizeBrushSettingsV2(calligraphy);
+			const v2 = migrateBrushSettingsToV2(calligraphy);
 			expect(v2.properties.spacing?.base).toBeCloseTo(
 				DEFAULT_CALLIGRAPHY_SPACING,
 				10,
@@ -311,7 +311,7 @@ describe("normalizeBrushSettingsV2", () => {
 
 	describe("v1 ribbon conversions", () => {
 		it("should map art brushes to a stretch ribbon", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				type: "art",
 				size: 10,
 				sizeByPressure: 0,
@@ -330,7 +330,7 @@ describe("normalizeBrushSettingsV2", () => {
 		});
 
 		it("should map pattern brushes to a repeat ribbon with tiling", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				type: "pattern",
 				size: 10,
 				sizeByPressure: 0,
@@ -353,7 +353,7 @@ describe("normalizeBrushSettingsV2", () => {
 
 	describe("legacy flat conversion", () => {
 		it("should convert the legacy flat shape through the v1 pipeline", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				size: 8,
 				textureFileUid: BUILTIN_BRUSH_IDS.softCircle,
 			});
@@ -430,8 +430,8 @@ describe("normalizeBrushSettingsV2", () => {
 
 		it("should be idempotent for every conversion sample", () => {
 			for (const raw of samples) {
-				const once = normalizeBrushSettingsV2(raw);
-				const twice = normalizeBrushSettingsV2(once);
+				const once = migrateBrushSettingsToV2(raw);
+				const twice = migrateBrushSettingsToV2(once);
 				expect(twice).toEqual(once);
 			}
 		});
@@ -439,7 +439,7 @@ describe("normalizeBrushSettingsV2", () => {
 
 	describe("malformed input tolerance", () => {
 		it("should clamp out-of-range values and fill defaults", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				type: "scatter",
 				size: 20,
 				opacity: 99,
@@ -453,7 +453,7 @@ describe("normalizeBrushSettingsV2", () => {
 		});
 
 		it("should sanitize a v2 value with broken numbers", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				version: 2,
 				engine: "dab",
 				strokeOpacity: 42,
@@ -481,7 +481,7 @@ describe("normalizeBrushSettingsV2", () => {
 
 	describe("v2 invariants", () => {
 		it("should force wash paint mode when wet is enabled", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				version: 2,
 				engine: "dab",
 				strokeOpacity: 1,
@@ -500,7 +500,7 @@ describe("normalizeBrushSettingsV2", () => {
 		});
 
 		it("should fill wet config defaults", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				version: 2,
 				engine: "dab",
 				strokeOpacity: 1,
@@ -516,7 +516,7 @@ describe("normalizeBrushSettingsV2", () => {
 		});
 
 		it("should default mixing.enabled to false instead of inferring from presence", () => {
-			const v2 = normalizeBrushSettingsV2({
+			const v2 = migrateBrushSettingsToV2({
 				version: 2,
 				engine: "dab",
 				strokeOpacity: 1,
@@ -538,7 +538,7 @@ describe("normalizeBrushSettingsV2", () => {
 
 describe("wet scatter", () => {
 	it("should keep the scatter amount through normalization", () => {
-		const normalized = normalizeBrushSettingsV2({
+		const normalized = migrateBrushSettingsToV2({
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 1,
@@ -559,7 +559,7 @@ describe("wet scatter", () => {
 	});
 
 	it("should keep a scatter of zero rather than dropping the field", () => {
-		const normalized = normalizeBrushSettingsV2({
+		const normalized = migrateBrushSettingsToV2({
 			version: 2,
 			engine: "dab",
 			strokeOpacity: 1,

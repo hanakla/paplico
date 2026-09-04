@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type { BrushPreset } from "../schema";
-import { normalizeBrushSettingsV2 } from "./migrate";
 import {
 	BUILTIN_PRESET_CATEGORY_ORDER,
 	createBuiltinBrushPresets,
@@ -15,9 +14,8 @@ const WET_PRESET_UIDS = [
 ];
 
 describe("createBuiltinBrushPresets", () => {
-	// Selecting a preset hands the whole brush to the tool, which only takes
-	// v2. A preset still in the v1 shape would be read as a partial edit,
-	// apply almost nothing, and leave the brush looking unchanged.
+	// Selecting a preset hands the whole brush to the tool; a preset missing
+	// the version marker would be read as a partial edit and apply nothing.
 	it("should be authored as v2", () => {
 		for (const preset of createBuiltinBrushPresets()) {
 			expect(preset.settings.version, preset.uid).toBe(2);
@@ -27,14 +25,6 @@ describe("createBuiltinBrushPresets", () => {
 	it("should give every preset a unique uid", () => {
 		const uids = createBuiltinBrushPresets().map((preset) => preset.uid);
 		expect(new Set(uids).size).toBe(uids.length);
-	});
-
-	it("should author settings that survive normalization unchanged", () => {
-		for (const preset of createBuiltinBrushPresets()) {
-			expect(normalizeBrushSettingsV2(preset.settings), preset.uid).toEqual(
-				preset.settings,
-			);
-		}
 	});
 
 	// A blur brush carries no paint of its own: every dab takes the colour

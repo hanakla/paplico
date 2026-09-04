@@ -1,3 +1,8 @@
+import { isBrushInputId } from "../../../brush/inputs";
+import {
+	BRUSH_PROPERTY_IDS,
+	BRUSH_PROPERTY_REGISTRY,
+} from "../../../brush/properties";
 import type {
 	BrushArtSource,
 	BrushCurve,
@@ -5,7 +10,7 @@ import type {
 	BrushInputId,
 	BrushPropertyConfig,
 	BrushPropertyId,
-	BrushSettingsV2,
+	BrushSettings,
 	BrushTipConfig,
 	GrainConfig,
 	InputDynamicsConfig,
@@ -13,23 +18,21 @@ import type {
 	RibbonConfig,
 	WetConfig,
 	WetEdgeConfig,
-} from "../schema";
-import { isBrushInputId } from "./inputs";
-import { normalizeBrushSettings } from "./normalize";
-import { BRUSH_PROPERTY_IDS, BRUSH_PROPERTY_REGISTRY } from "./properties";
+} from "../../../schema";
+import { readV1BrushSettings } from "./readV1";
 import {
-	type BrushSettings,
 	DEFAULT_CALLIGRAPHY_SPACING,
 	DEFAULT_WET_INK_DIFFUSION,
+	type V1BrushSettings,
 	type WetInkSettings,
 } from "./v1";
 
 /** Max control points per curve (design §3-3). */
-export const MAX_CURVE_POINTS = 16;
+const MAX_CURVE_POINTS = 16;
 
 /**
  * Single v2 gate: accepts v1 unions, the legacy flat shape and v2 values and
- * returns a sanitized BrushSettingsV2. Idempotent — see migrate.test.ts.
+ * returns a sanitized BrushSettings. Idempotent — see migrate.test.ts.
  * Wet ink settings are NOT converted here: they are preserved verbatim in
  * the v2 wet layer (design §13-6).
  *
@@ -40,14 +43,14 @@ export const MAX_CURVE_POINTS = 16;
  * them, so their dab conversions take flow 1 with no pressure fold instead.
  * Wash (wet-ink) strokes keep the fold — wash paints flow directly.
  */
-export function normalizeBrushSettingsV2(
+export function migrateBrushSettingsToV2(
 	raw: unknown,
 	opts?: { fullCoverageFlow?: boolean },
-): BrushSettingsV2 {
+): BrushSettings {
 	const r = (raw ?? {}) as Record<string, unknown>;
 	if (r.version === 2) return sanitizeV2(r);
 	return sanitizeV2(
-		convertV1(normalizeBrushSettings(raw), opts?.fullCoverageFlow === true),
+		convertV1(readV1BrushSettings(raw), opts?.fullCoverageFlow === true),
 	);
 }
 
@@ -56,7 +59,7 @@ export function normalizeBrushSettingsV2(
 type MutableProps = Partial<Record<BrushPropertyId, BrushPropertyConfig>>;
 
 function convertV1(
-	v1: BrushSettings,
+	v1: V1BrushSettings,
 	fullCoverageFlow: boolean,
 ): Record<string, unknown> {
 	const props: MutableProps = {};
@@ -218,7 +221,7 @@ function convertV1(
 /** Speed/pooling dynamics shared by scatter and calligraphy conversions. */
 function convertDabDynamics(
 	props: MutableProps,
-	v1: Extract<BrushSettings, { type: "scatter" | "calligraphy" }>,
+	v1: Extract<V1BrushSettings, { type: "scatter" | "calligraphy" }>,
 ): void {
 	if (v1.sizeBySpeed > 0) {
 		addCurve(props, "size", "speedFine", [
@@ -339,11 +342,11 @@ function addCurve(
 
 // --- v2 sanitize ---------------------------------------------------------
 
-function sanitizeV2(r: Record<string, unknown>): BrushSettingsV2 {
+function sanitizeV2(r: Record<string, unknown>): BrushSettings {
 	const engine = isEngineKind(r.engine) ? r.engine : "dab";
 	const wet = sanitizeWet(r.wet);
 
-	const result: BrushSettingsV2 = {
+	const result: BrushSettings = {
 		version: 2,
 		engine,
 		strokeOpacity: clamp(num(r.strokeOpacity, 1), 0, 1),
@@ -476,9 +479,9 @@ function sanitizeRibbon(raw: unknown): RibbonConfig | undefined {
 	return ribbon;
 }
 
-function sanitizeStroking(raw: unknown): BrushSettingsV2["stroking"] {
+function sanitizeStroking(raw: unknown): BrushSettings["stroking"] {
 	if (!isRecord(raw)) return undefined;
-	const stroking: NonNullable<BrushSettingsV2["stroking"]> = {
+	const stroking: NonNullable<BrushSettings["stroking"]> = {
 		lineCap:
 			raw.lineCap === "butt" || raw.lineCap === "square"
 				? raw.lineCap

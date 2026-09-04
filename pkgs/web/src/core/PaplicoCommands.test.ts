@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { readStoredBrushSize } from "./brush/access";
-import { normalizeBrushSettingsV2 } from "./brush/migrate";
 import type { YjsProvider } from "./collaboration/YjsProvider";
 import {
 	createDefaultBrushSettings,
@@ -12,7 +11,7 @@ import { PaplicoCommands } from "./PaplicoCommands";
 import type {
 	AnyArtObject,
 	BlendObject,
-	BrushSettingsV2,
+	BrushSettings,
 	FillAppearance,
 	Filter,
 	Group,
@@ -119,21 +118,14 @@ describe("PaplicoCommands", () => {
 		}
 	});
 
-	it("skips brush-setting updates when selected paths already match semantically", () => {
-		// A document authored before v2 stores the brush flat. Reopening it and
-		// touching the panel must not rewrite every stroke: the migrated value
-		// is the same brush.
-		const storedFlatBrushSettings = {
-			textureFileUid: "builtin-brush-soft-circle",
-			size: 10,
-			sizeByPressure: 0.5,
-			opacity: 1,
-			opacityByPressure: 0.3,
-			spacing: 0.15,
-			flow: 1,
+	it("skips brush-setting updates when selected paths already hold the same settings", () => {
+		// Touching the panel must not rewrite every stroke that already carries
+		// the same brush.
+		const storedBrushSettings = {
+			...createDefaultBrushSettings(),
 			randomSeed: 0,
 		};
-		const brushSettings = normalizeBrushSettingsV2(storedFlatBrushSettings);
+		const brushSettings = structuredClone(storedBrushSettings);
 		const path = {
 			...createPath("path-1"),
 			filters: [
@@ -148,7 +140,7 @@ describe("PaplicoCommands", () => {
 								type: "solid",
 								color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
 							},
-							brushSettings: storedFlatBrushSettings,
+							brushSettings: storedBrushSettings,
 						},
 					},
 				},
@@ -183,10 +175,10 @@ describe("PaplicoCommands", () => {
 		expect(updateElement).not.toHaveBeenCalled();
 	});
 
-	// The panel edits v2 settings; writing them to a selected stroke has to
-	// carry the parts v1 cannot hold, or every mixing and wet value silently
-	// reverts the moment the stroke is selected.
-	it("keeps mixing and curves when writing v2 settings to the selection", () => {
+	// Writing the panel's settings to a selected stroke has to carry mixing
+	// and curves, or every mixing and wet value silently reverts the moment
+	// the stroke is selected.
+	it("keeps mixing and curves when writing settings to the selection", () => {
 		const path = {
 			...createPath("path-1"),
 			filters: [
@@ -270,7 +262,7 @@ describe("PaplicoCommands", () => {
 		];
 		const written = (
 			patch.filters[0] as unknown as {
-				paramData: { params: { brushSettings: BrushSettingsV2 } };
+				paramData: { params: { brushSettings: BrushSettings } };
 			}
 		).paramData.params.brushSettings;
 		expect(written.mixing?.enabled).toBe(true);
@@ -278,10 +270,10 @@ describe("PaplicoCommands", () => {
 		expect(written.properties.colorRate?.curves?.[0].input).toBe("pressure");
 	});
 
-	// Two settings that differ only in what v1 cannot express must not read as
-	// the same, or the write carrying them to the element is skipped and the
-	// change is lost the moment the stroke is selected again.
-	it("writes a change only the v2 shape can express", () => {
+	// Two settings that differ only in mixing must not read as the same, or
+	// the write carrying them to the element is skipped and the change is
+	// lost the moment the stroke is selected again.
+	it("writes a change that differs only in mixing", () => {
 		const base = {
 			version: 2,
 			engine: "dab",
@@ -345,7 +337,7 @@ describe("PaplicoCommands", () => {
 		commands.updateSelectedElementsBrushSettings({
 			...base,
 			wet: { ...base.wet, scatter: 2.5 },
-		} as unknown as BrushSettingsV2);
+		} as unknown as BrushSettings);
 
 		expect(updateElement).toHaveBeenCalledTimes(1);
 		const [, , patch] = updateElement.mock.calls[0] as [
@@ -355,7 +347,7 @@ describe("PaplicoCommands", () => {
 		];
 		const written = (
 			patch.filters[0] as unknown as {
-				paramData: { params: { brushSettings: BrushSettingsV2 } };
+				paramData: { params: { brushSettings: BrushSettings } };
 			}
 		).paramData.params.brushSettings;
 		expect(written.wet?.scatter).toBe(2.5);

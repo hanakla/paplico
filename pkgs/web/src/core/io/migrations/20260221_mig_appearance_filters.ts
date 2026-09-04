@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 import {
 	type ArtObject,
-	type BrushSettingsV2,
+	type BrushSettings,
 	type Document,
 	type FillAppearance,
 	type FillColor,
@@ -15,11 +15,11 @@ import type { Migration } from "./index";
 /**
  * Frozen default brush settings as of schema version 20260221.
  * Returns the legacy flat persisted shape; later migrations / normalizeBrushSettings
- * convert it into the current BrushSettings union.
+ * convert it into the current V1BrushSettings union.
  */
 // Emits the pre-v2 shape on purpose: this migration runs before the brush-v2
-// one, which is what converts the whole document to BrushSettingsV2.
-function createDefaultLineBrush(size: number): BrushSettingsV2 {
+// one, which is what converts the whole document to BrushSettings.
+function createDefaultLineBrush(size: number): BrushSettings {
 	return {
 		textureFileUid: "builtin-brush-line",
 		size,
@@ -35,7 +35,7 @@ function createDefaultLineBrush(size: number): BrushSettingsV2 {
 		sizeBySpeed: 0,
 		pooling: 0,
 		poolingSizeRatio: 0,
-	} as unknown as BrushSettingsV2;
+	} as unknown as BrushSettings;
 }
 
 /**
@@ -45,7 +45,7 @@ function createDefaultLineBrush(size: number): BrushSettingsV2 {
 interface LegacyElement extends ArtObject {
 	fill?: FillColor;
 	strokeColor?: StrokeColor;
-	brushSettings?: BrushSettingsV2;
+	brushSettings?: BrushSettings;
 }
 
 /**

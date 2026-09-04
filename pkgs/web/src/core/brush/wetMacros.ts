@@ -25,17 +25,17 @@
  * Values untouched by any macro: edgeDarkening, grainScale, pigmentLoad.
  */
 
-import type { BrushPropertyId, BrushSettingsV2 } from "../schema";
+import type { BrushPropertyId, BrushSettings } from "../schema";
 import { BRUSH_PROPERTY_REGISTRY } from "./properties";
 
 export type WetMacroKey = "bleed" | "dryness" | "paper";
 
 /** Apply a macro value (clamped to [0,1]) onto the base values it owns. */
 export function applyWetMacro(
-	current: BrushSettingsV2,
+	current: BrushSettings,
 	macro: WetMacroKey,
 	value: number,
-): BrushSettingsV2 {
+): BrushSettings {
 	const v = clamp01(value);
 	switch (macro) {
 		case "bleed":
@@ -62,7 +62,7 @@ export function applyWetMacro(
 
 /** Project the macro value back from the single value that represents it. */
 export function readWetMacro(
-	current: BrushSettingsV2,
+	current: BrushSettings,
 	macro: WetMacroKey,
 ): number {
 	switch (macro) {
@@ -76,9 +76,9 @@ export function readWetMacro(
 }
 
 function withBases(
-	current: BrushSettingsV2,
+	current: BrushSettings,
 	bases: Partial<Record<BrushPropertyId, number>>,
-): BrushSettingsV2 {
+): BrushSettings {
 	const properties = { ...current.properties };
 	for (const [id, base] of Object.entries(bases) as [
 		BrushPropertyId,
@@ -89,7 +89,7 @@ function withBases(
 	return { ...current, properties };
 }
 
-function baseOf(current: BrushSettingsV2, id: BrushPropertyId): number {
+function baseOf(current: BrushSettings, id: BrushPropertyId): number {
 	return current.properties[id]?.base ?? BRUSH_PROPERTY_REGISTRY[id].base;
 }
 

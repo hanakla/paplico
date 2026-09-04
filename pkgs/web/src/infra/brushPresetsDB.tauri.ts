@@ -1,4 +1,4 @@
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
+import { migrateBrushSettingsToV2 } from "@/core/io/migrations/brushV2/convert";
 import { deepClone } from "@/core/utils/lang";
 import type {
 	BrushPresetsRepo,
@@ -152,9 +152,39 @@ async function createBrushPresetsDatabase(): Promise<TauriDatabase> {
 	await database.execute(
 		"CREATE INDEX IF NOT EXISTS brushPresetsUpdatedAtIdx ON brushPresets(updatedAt DESC)",
 	);
+	await migrateBrushPresetRows(database as unknown as TauriDatabase);
 
 	return database as unknown as TauriDatabase;
 }
+
+/**
+ * One-shot schema upgrade tracked in SQLite's user_version. Version 1 converts
+ * rows written before brush v2, so reads never see the old shape.
+ */
+async function migrateBrushPresetRows(database: TauriDatabase): Promise<void> {
+	const [{ user_version: userVersion }] = await database.select<{
+		user_version: number;
+	}>("PRAGMA user_version");
+	if (userVersion >= BRUSH_PRESETS_USER_VERSION) return;
+
+	const rows = await database.select<
+		Pick<BrushPresetRow, "uid" | "defaultSettingsJson">
+	>("SELECT uid, defaultSettingsJson FROM brushPresets");
+	for (const row of rows) {
+		await database.execute(
+			"UPDATE brushPresets SET defaultSettingsJson = $1 WHERE uid = $2",
+			[
+				JSON.stringify(
+					migrateBrushSettingsToV2(JSON.parse(row.defaultSettingsJson)),
+				),
+				row.uid,
+			],
+		);
+	}
+	await database.execute(`PRAGMA user_version = ${BRUSH_PRESETS_USER_VERSION}`);
+}
+
+const BRUSH_PRESETS_USER_VERSION = 1;
 
 function toBrushPresetRow(preset: PersistedBrushPreset): BrushPresetRow {
 	const snapshot = clonePersistedBrushPreset(preset);
@@ -176,11 +206,7 @@ function fromBrushPresetRow(row: BrushPresetRow): PersistedBrushPreset {
 	return {
 		uid: row.uid,
 		name: row.name,
-		// Records written before v2 are migrated on the way out, so callers
-		// never see the old shape.
-		defaultSettings: normalizeBrushSettingsV2(
-			JSON.parse(row.defaultSettingsJson),
-		),
+		defaultSettings: JSON.parse(row.defaultSettingsJson),
 		textureName: row.textureName,
 		textureMime: row.textureMime,
 		textureHash: row.textureHash,

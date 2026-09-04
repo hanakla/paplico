@@ -18,7 +18,6 @@ import {
 	readStoredBrushStroking,
 	withStoredBrushSize,
 } from "@/core/brush/access";
-import { resolveBrushRenderRoute } from "@/core/brush/renderRoute";
 import type {
 	AnyArtObject,
 	BrushStroking,
@@ -202,10 +201,7 @@ function StrokeWidthControl({
 			: resolvedTaperEnd;
 
 	const firstStroke = getFirstStroke(elements[0]?.filters);
-	const firstBrush = firstStroke?.paramData.params.brushSettings;
-	const normalizedFirst = firstBrush
-		? resolveBrushRenderRoute(firstBrush).settings
-		: null;
+	const normalizedFirst = firstStroke?.paramData.params.brushSettings;
 	const showStroking = normalizedFirst?.engine === "geometric";
 	const lineCap =
 		normalizedFirst?.engine === "geometric"

@@ -7,7 +7,6 @@
  */
 
 import { decode } from "cbor-x";
-import { normalizeBrushPreset } from "../../brush/normalize";
 import { PaplicoError } from "../../errors";
 import {
 	type Document,
@@ -530,12 +529,6 @@ export class PapfFile {
 		};
 
 		applyMigrations(doc);
-
-		// Normalize brush presets after migrations (which still expect the
-		// legacy `defaultSettings` flat shape). Older papf files persist v1
-		// presets (`textureFileUid` + `defaultSettings`); without this, their
-		// settings are silently dropped when the document is re-saved.
-		doc.brushPresets = doc.brushPresets.map(normalizeBrushPreset);
 
 		// Normalize appearance fields (opacity, blendMode) that may be
 		// missing from documents saved before these fields were required.

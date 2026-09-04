@@ -5,17 +5,19 @@ import {
 	resolveScatterSourceUids,
 } from "../../brush/brushSource";
 import { BRUSH_PROPERTY_REGISTRY } from "../../brush/properties";
-import { resolveBrushRenderRoute } from "../../brush/renderRoute";
 import type { SoftProofLutResult } from "../../color/types";
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../document/constants";
-import { createIdentityTransform } from "../../document/factory";
+import {
+	createDefaultBrushSettings,
+	createIdentityTransform,
+} from "../../document/factory";
 import {
 	type AnyArtObject,
 	type Artboard,
 	type BoundingBox,
 	type BrushArtSource,
 	type BrushPropertyId,
-	type BrushSettingsV2,
+	type BrushSettings,
 	type CubicBezierSegment,
 	type DefEntry,
 	type Document,
@@ -263,7 +265,7 @@ type AssignedMask = MaskEntry & { inverted?: boolean };
 
 /** A wet-enabled dab stroke appearance, resolved for the wet layer. */
 interface WetStroke {
-	settings: BrushSettingsV2;
+	settings: BrushSettings;
 	strokeColor: StrokeColor;
 }
 
@@ -6335,15 +6337,10 @@ export class CanvasLayer {
 				const batchableStrokes = enabledStrokes.filter((s) => {
 					if (!s.paramData.params.brushSettings) return false;
 					if (!s.paramData.params.strokeColor) return false;
-					// Only the legacy ribbon path batches during the v2
-					// transition: v2 dab strokes draw immediately (their
-					// residency/batching arrives with BrushStrokeSession),
+					// Only ribbon strokes batch: dab strokes draw immediately,
 					// wet strokes keep their isolated path, and geometric
 					// strokes render through ElementRenderer.
-					return (
-						resolveBrushRenderRoute(s.paramData.params.brushSettings).kind ===
-						"ribbon"
-					);
+					return s.paramData.params.brushSettings.engine === "ribbon";
 				});
 				const canBatch =
 					batchContext &&
@@ -6430,9 +6427,9 @@ export class CanvasLayer {
 							const strokeApp = app as StrokeAppearance;
 							const strokeColor = strokeApp.paramData.params.strokeColor;
 							if (!strokeColor) continue;
-							const settings = resolveBrushRenderRoute(
-								strokeApp.paramData.params.brushSettings,
-							).settings;
+							const settings =
+								strokeApp.paramData.params.brushSettings ??
+								createDefaultBrushSettings();
 							const tip = settings.tip?.kind === "image" ? settings.tip : null;
 
 							const textureUid = resolveBrushTextureUid(
@@ -7567,9 +7564,8 @@ export class CanvasLayer {
 		const { brushSettings, strokeColor } = (appearance as StrokeAppearance)
 			.paramData.params;
 		if (brushSettings == null || strokeColor == null) return null;
-		const route = resolveBrushRenderRoute(brushSettings);
-		return route.kind === "dab" && route.settings.wet?.enabled === true
-			? { settings: route.settings, strokeColor }
+		return brushSettings.engine === "dab" && brushSettings.wet?.enabled === true
+			? { settings: brushSettings, strokeColor }
 			: null;
 	}
 

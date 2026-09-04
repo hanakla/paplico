@@ -1,13 +1,12 @@
 import { applyBrushPatch } from "./brush/access";
-import { normalizeBrushSettingsV2 } from "./brush/migrate";
 import {
 	PAPLICO_MAX_ZOOM_SCALE,
 	PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
 } from "./document/constants";
 import { createStrokeBrushSettings } from "./document/factory";
 import {
+	type BrushSettings,
 	type BrushSettingsPatch,
-	type BrushSettingsV2,
 	cloneAppearance,
 	type FillAppearance,
 	type FillColor,
@@ -62,10 +61,10 @@ export class PaplicoTools {
 
 	/** The brush as stored. Everything reads this: a down-converted view has
 	 *  nowhere to hold curves, mixing or the wet layer. */
-	public get storedBrushSettings(): BrushSettingsV2 {
-		return normalizeBrushSettingsV2(
+	public get storedBrushSettings(): BrushSettings {
+		return (
 			this.store.strokeAppearance?.paramData.params.brushSettings ??
-				createStrokeBrushSettings(2),
+			createStrokeBrushSettings(2)
 		);
 	}
 
@@ -112,22 +111,16 @@ export class PaplicoTools {
 		this.store.currentTool = tool;
 	}
 
-	public setBrushSettings(patch: BrushSettingsPatch | BrushSettingsV2): void {
+	public setBrushSettings(patch: BrushSettingsPatch | BrushSettings): void {
 		if (!this.store.strokeAppearance) return;
 
-		let updated: BrushSettingsV2;
+		let updated: BrushSettings;
 		// A whole brush replaces the stored settings outright — nothing is
 		// carried over. Presets arrive this way.
 		if ("version" in patch && patch.version === 2) {
-			updated = normalizeBrushSettingsV2(patch);
+			updated = patch;
 		} else {
-			updated = applyBrushPatch(
-				normalizeBrushSettingsV2(
-					this.store.strokeAppearance.paramData.params.brushSettings ??
-						createStrokeBrushSettings(2),
-				),
-				patch,
-			);
+			updated = applyBrushPatch(this.storedBrushSettings, patch);
 		}
 		this.store.strokeAppearance = cloneAppearance(this.store.strokeAppearance, {
 			brushSettings: updated,

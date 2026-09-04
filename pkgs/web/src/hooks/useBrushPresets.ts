@@ -6,7 +6,6 @@ import {
 	resolveBrushTextureUid,
 	withTextureFileUid,
 } from "@/core/brush/brushSource";
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import {
 	BUILTIN_BRUSH_IDS,
 	type BuiltinBrushId,
@@ -96,11 +95,13 @@ export function useBrushPresets() {
 			);
 			let hasChanges = false;
 
-			for (const legacyPreset of docSnap.document.brushPresets) {
+			// Iterate the store, not the snapshot: the persisted copy takes the
+			// settings object as stored.
+			for (const docPreset of store.document.brushPresets) {
 				if (signal.aborted) return;
-				if (migratedPresetIdsRef.current.has(legacyPreset.uid)) continue;
+				if (migratedPresetIdsRef.current.has(docPreset.uid)) continue;
 
-				const presetSettings = normalizeBrushSettingsV2(legacyPreset.settings);
+				const presetSettings = docPreset.settings;
 				const presetTextureUid = resolveBrushTextureUid(presetSettings);
 				const sourceFile = presetTextureUid
 					? (builtinFileMap.get(presetTextureUid) ??
@@ -108,19 +109,19 @@ export function useBrushPresets() {
 							(file) => file.uid === presetTextureUid,
 						))
 					: undefined;
-				migratedPresetIdsRef.current.add(legacyPreset.uid);
+				migratedPresetIdsRef.current.add(docPreset.uid);
 				if (!sourceFile || !presetTextureUid) continue;
 
 				const nextPreset = createPersistedBrushPreset({
-					uid: legacyPreset.uid,
-					name: legacyPreset.name,
+					uid: docPreset.uid,
+					name: docPreset.name,
 					defaultSettings: presetSettings,
 					file: sourceFile,
 					sourceBuiltinUid: builtinFileMap.has(presetTextureUid)
 						? (presetTextureUid as BuiltinBrushId)
 						: undefined,
 				});
-				const existingPreset = await brushPresetsRepo.get(legacyPreset.uid);
+				const existingPreset = await brushPresetsRepo.get(docPreset.uid);
 
 				if (
 					existingPreset &&
@@ -163,11 +164,11 @@ export function useBrushPresets() {
 		);
 	}, [docSnap.document.files]);
 
-	const rawBrushSettings =
-		toolSnap.strokeAppearance?.paramData.params.brushSettings;
-	const brushTextureFileUid = rawBrushSettings
-		? (resolveBrushTextureUid(normalizeBrushSettingsV2(rawBrushSettings)) ??
-			undefined)
+	// Read through the snapshot so this hook re-runs on brush edits; the
+	// getter hands back the stored settings object.
+	const brushTextureFileUid = toolSnap.strokeAppearance?.paramData.params
+		.brushSettings
+		? (resolveBrushTextureUid(tools.storedBrushSettings) ?? undefined)
 		: undefined;
 
 	const currentCustomTextureFile = useMemo(() => {

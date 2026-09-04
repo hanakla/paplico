@@ -1,11 +1,10 @@
-// Wet layer diffusion step, v2 (design §13-2).
+// Wet layer diffusion step (design §13-2).
 //
-// Same physics as the v1 wet-ink kernel — one dt-normalized explicit-Euler
-// iteration of water diffusion, semi-Lagrangian pigment advection and drying
-// — with one structural change: every coefficient is read per texel instead
-// of from a stroke-wide uniform, so a single stroke can dry faster where it
-// slowed, granulate only where it pooled, and bleed softly at one end while
-// staying sharp at the other.
+// One dt-normalized explicit-Euler iteration of water diffusion,
+// semi-Lagrangian pigment advection and drying. Every coefficient is read per
+// texel instead of from a stroke-wide uniform, so a single stroke can dry
+// faster where it slowed, granulate only where it pooled, and bleed softly at
+// one end while staying sharp at the other.
 //
 // Where each coefficient comes from:
 // - absorption, granulation, bleedSoftness
@@ -23,10 +22,9 @@
 // a coarser grid, so every seed read averages the block of seed texels the
 // field texel stands for.
 //
-// Field semantics are inherited from v1 with the v2 names: the velocity field
-// is `fluidVelocity` (v1 `flow`) and the water/pooling field is `moisture`
-// (v1 `fluid`). pigment holds rgb = color * density, a = density, in the same
-// log space the seed encodes and the finish pass decodes.
+// Fields: `fluidVelocity` is the velocity field and `moisture` the
+// water/pooling field. pigment holds rgb = color * density, a = density, in
+// the same log space the seed encodes and the finish pass decodes.
 export const WET_LAYER_DIFFUSE_SHADER = /* wgsl */ `
 struct DiffuseUniforms {
 	resolution: vec2f,
@@ -205,7 +203,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 		0.0,
 		1.0,
 	);
-	// v1 pre-baked these on the CPU from the single stroke-level absorption.
 	let absorbLambda = -log(max(1.0 - 0.85 * absorption, 1e-4));
 	let poolStepRetention = pow(0.75 - 0.35 * absorption, uniforms.dt);
 

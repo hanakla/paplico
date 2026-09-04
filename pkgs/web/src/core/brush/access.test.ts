@@ -1,4 +1,4 @@
-import type { BrushSettingsV2 } from "../schema";
+import type { BrushSettings } from "../schema";
 import {
 	readStoredBrushSize,
 	readStoredBrushStroking,
@@ -6,7 +6,7 @@ import {
 	withStoredBrushSize,
 } from "./access";
 
-const v2: BrushSettingsV2 = {
+const v2: BrushSettings = {
 	version: 2,
 	engine: "dab",
 	strokeOpacity: 1,

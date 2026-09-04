@@ -6,7 +6,6 @@
  * keeping core/ free from stores/ imports.
  */
 
-import { normalizeBrushSettingsV2 } from "./brush/migrate";
 import { createBuiltinBrushFiles } from "./brush/presets";
 import type { YjsProvider } from "./collaboration/YjsProvider";
 import {
@@ -39,7 +38,7 @@ import {
 	type BooleanOperation,
 	type BoundingBox,
 	type BrushPreset,
-	type BrushSettingsV2,
+	type BrushSettings,
 	BUILTIN_BRUSH_IDS,
 	BUILTIN_PAPER_IDS,
 	type Color,
@@ -2149,7 +2148,7 @@ export class PaplicoCommands {
 	}
 
 	public updateSelectedElementsBrushSettings(
-		brushSettings: BrushSettingsV2 | undefined,
+		brushSettings: BrushSettings | undefined,
 	): void {
 		if (this.cannotMutate()) return;
 		const layerId = this.ctx.store.currentLayerId;
@@ -2198,7 +2197,7 @@ export class PaplicoCommands {
 	 */
 	public updateSelectedElementStrokeBrushSettings(
 		filterIndex: number,
-		brushSettings: BrushSettingsV2 | undefined,
+		brushSettings: BrushSettings | undefined,
 	): void {
 		if (this.cannotMutate()) return;
 		const element = this.getSelectedElement();
@@ -4909,13 +4908,7 @@ function areBrushSettingsSemanticallyEqual(
 	right: unknown,
 ): boolean {
 	if (left == null || right == null) return left == null && right == null;
-
-	// Normalized before comparing so a stroke still holding a pre-v2 record
-	// is not rewritten just for having been saved in the old shape.
-	return (
-		JSON.stringify(normalizeBrushSettingsV2(left)) ===
-		JSON.stringify(normalizeBrushSettingsV2(right))
-	);
+	return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export class AdjustColorSession {

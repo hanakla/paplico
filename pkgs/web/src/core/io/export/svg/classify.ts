@@ -1,4 +1,3 @@
-import { resolveBrushRenderRoute } from "../../../brush/renderRoute";
 import {
 	type AnyArtObject,
 	type BlendMode,
@@ -194,9 +193,8 @@ function classifyElementInner(
 			if (uniformTransformScale(composed) === null) return "raster";
 			// No brushSettings = the renderer's constant-width geometric default.
 			if (params.brushSettings) {
-				const route = resolveBrushRenderRoute(params.brushSettings);
-				if (route.kind !== "geometric") return "raster";
-				const settings = route.settings;
+				const settings = params.brushSettings;
+				if (settings.engine !== "geometric") return "raster";
 				// Variable-width geometry (taper / size curves) has no SVG stroke
 				// equivalent; outline extraction is out of scope for now.
 				if ((settings.taperStart ?? 0) > 0 || (settings.taperEnd ?? 0) > 0) {
@@ -382,8 +380,7 @@ export function isVisibleStroke(appearance: StrokeAppearance): boolean {
 		return false;
 	}
 	if (!params.brushSettings) return true;
-	const settings = resolveBrushRenderRoute(params.brushSettings).settings;
-	return (settings.properties.size?.base ?? 1) > 0;
+	return (params.brushSettings.properties.size?.base ?? 1) > 0;
 }
 
 /** True when element-level fill/stroke appearances would paint the glyphs. */

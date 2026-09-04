@@ -3,7 +3,7 @@ import {
 	createIdentityTransform,
 } from "../document/factory";
 import type {
-	BrushSettingsV2,
+	BrushSettings,
 	Color,
 	Document,
 	EmbeddedFile,
@@ -17,7 +17,7 @@ import { deepClone } from "../utils/lang";
 import { readStoredBrushSize, readStoredWetBleedRatio } from "./access";
 
 export interface BrushStrokePreviewOptions {
-	brushSettings: BrushSettingsV2 | BrushSettingsV2;
+	brushSettings: BrushSettings | BrushSettings;
 	textureFile: EmbeddedFile | null;
 	segments: PathSegment[];
 	width: number;
@@ -93,7 +93,7 @@ export function createBrushStrokePreviewScene(
 
 export function createBrushStrokePreviewPath(
 	segments: PathSegment[],
-	brushSettings: BrushSettingsV2 | BrushSettingsV2,
+	brushSettings: BrushSettings | BrushSettings,
 	strokeColor: Color,
 ): Path {
 	return {

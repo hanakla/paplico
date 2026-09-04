@@ -107,7 +107,7 @@ describe("buildCurveLut / sampleCurveLut", () => {
 });
 
 describe("evaluateBrushProperty", () => {
-	it("should reproduce the v1 pressure-size formula exactly via a two-point curve", () => {
+	it("should scale the size linearly with pressure via a two-point curve", () => {
 		const k = 0.7;
 		const config = {
 			base: 10,

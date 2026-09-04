@@ -143,9 +143,9 @@ export interface WetLayerApplyParams {
  * The wet layer simulation (design §13): seed the fields from a stroke's dab
  * pass, diffuse them, and composite the result.
  *
- * Structurally this is v1's WetInkPass with the coefficients moved out of the
- * uniforms and into the fields, which is what lets one stroke behave
- * differently along its length. Everything the pass allocates is sized to the
+ * The coefficients live in the fields rather than in uniforms, which is what
+ * lets one stroke behave differently along its length. Everything the pass
+ * allocates is sized to the
  * simulation domain, which is resolved from the stroke's own bounds and brush
  * size (appendix B-2) and never from the viewport, so the result stays a pure
  * function of the stroke.

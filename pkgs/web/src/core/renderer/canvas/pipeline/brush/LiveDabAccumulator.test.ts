@@ -1,5 +1,4 @@
-import { normalizeBrushSettingsV2 } from "../../../../brush/migrate";
-import type { BrushSettingsV2, CubicBezierSegment } from "../../../../schema";
+import type { BrushSettings, CubicBezierSegment } from "../../../../schema";
 import { evaluateDabs } from "./DabEvaluator";
 import { DAB_FIELD_OFFSETS, DAB_INSTANCE_FLOATS } from "./DabInstanceLayout";
 import { LiveDabAccumulator } from "./LiveDabAccumulator";
@@ -28,8 +27,8 @@ function seg(
 	} as CubicBezierSegment;
 }
 
-function settingsNoStrokeT(): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function settingsNoStrokeT(): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -53,7 +52,7 @@ function settingsNoStrokeT(): BrushSettingsV2 {
 		},
 		tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 		randomSeed: 5,
-	});
+	};
 }
 
 function concatFrame(frame: {
@@ -179,10 +178,10 @@ describe("LiveDabAccumulator", () => {
 		const s0 = seg(0, 80, 0, 90, true);
 		acc.update([s0, seg(80, 120, 90, 140)], settingsNoStrokeT(), {});
 
-		const changed = normalizeBrushSettingsV2({
+		const changed = {
 			...settingsNoStrokeT(),
 			randomSeed: 99,
-		});
+		};
 		const frame = acc.update([s0, seg(80, 120, 90, 140)], changed, {});
 		// Nothing was committed yet, so no reset is reported — but the output
 		// must fully reflect the changed settings.

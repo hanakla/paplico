@@ -44,7 +44,7 @@ const WET_COEFFICIENT_BLEND: GPUBlendState = {
  * single rgba8unorm would already sit at the ceiling. Splitting the
  * coefficients across narrow rg8unorm/r8unorm targets costs 5 bytes for all
  * five of them and — the reason for the split — lets each target carry its
- * own blend state. The fields accumulate additively as in v1 while the
+ * own blend state. The fields accumulate additively while the
  * coefficients blend by coverage, so where dabs overlap the later one wins in
  * proportion to how much it covers (design §13-2's recency weighting) instead
  * of summing into saturation.
@@ -323,12 +323,12 @@ ${wetSeed ? buildWetSeedWgsl(tipSample, mixedColors) : ""}
 }
 
 /**
- * Wet layer seed targets (design §13-2). Field names follow the v2 naming:
- * the velocity field is `fluidVelocity` (the old `flow`, which collided with
- * the flow brush property) and the water/pooling field is `moisture`.
+ * Wet layer seed targets (design §13-2). The velocity field is
+ * `fluidVelocity` (not `flow`, which is the flow brush property) and the
+ * water/pooling field is `moisture`.
  *
- * Unlike v1, wetness / directionality / grain ride in on each dab, so a
- * curve can modulate them along the stroke instead of one value covering it.
+ * Wetness / directionality / grain ride in on each dab, so a curve can
+ * modulate them along the stroke instead of one value covering it.
  */
 function buildWetSeedWgsl(tipSample: string, mixedColors: boolean): string {
 	return /* wgsl */ `
@@ -414,7 +414,7 @@ ${tipSample}
 	let speed = clamp(dab.motionSpeed, 0.0, 1.0);
 	let accel = clamp(dab.motionAccel, 0.0, 1.0);
 
-	// Per-dab seeds: v1 read these from one uniform per stroke.
+	// Per-dab seeds.
 	let wetness = max(dab.wetness, 0.0);
 	let directionality = clamp(dab.directionality, 0.0, 1.0);
 	let coefficients = unpackWetCoefficients(dab.packedWetCoefficients);
@@ -422,8 +422,8 @@ ${tipSample}
 	var out: WetSeedOutput;
 	out.pigment = encodeWetPigmentMass(premultiplied);
 	out.fluidVelocity = vec4f(dir * cov * directionality, cov, 0.0);
-	// Motion rides in the channels v1 left unused; coverage divides back out
-	// in the kernel. Edge is a pure function of coverage, so it is recomputed
+	// Motion rides in the spare channels; coverage divides back out in the
+	// kernel. Edge is a pure function of coverage, so it is recomputed
 	// there rather than stored.
 	out.moisture = vec4f(
 		speed * cov,

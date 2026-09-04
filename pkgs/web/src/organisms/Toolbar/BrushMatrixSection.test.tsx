@@ -1,6 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
-import type { BrushSettingsV2 } from "@/core/schema";
+import type { BrushSettings } from "@/core/schema";
 import { setLanguage } from "@/hooks/useAppConfig";
 import { BrushMatrixSection } from "./BrushMatrixSection";
 
@@ -34,7 +33,7 @@ describe("BrushMatrixSection", () => {
 
 		fireEvent.click(switchOf("Watercolour"));
 
-		const next: BrushSettingsV2 = onChange.mock.calls[0][0];
+		const next: BrushSettings = onChange.mock.calls[0][0];
 		expect(next.wet?.enabled).toBe(true);
 		expect(next.paintMode).toBe("wash");
 	});
@@ -68,7 +67,7 @@ describe("BrushMatrixSection", () => {
 
 		fireEvent.click(switchOf("Mixing with what is underneath"));
 
-		const next: BrushSettingsV2 = onChange.mock.calls[0][0];
+		const next: BrushSettings = onChange.mock.calls[0][0];
 		expect(next.mixing).toEqual({
 			enabled: false,
 			mode: "dulling",
@@ -112,8 +111,8 @@ function switchOf(sectionTitle: string): HTMLElement {
 	return screen.getByRole("switch", { name: sectionTitle });
 }
 
-function dabBrush(): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+function dabBrush(): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -121,7 +120,7 @@ function dabBrush(): BrushSettingsV2 {
 		properties: { size: { base: 24 } },
 		tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
 		randomSeed: 3,
-	});
+	};
 }
 
 /**
@@ -141,10 +140,7 @@ describe("BrushMatrixSection with a builtin preset", () => {
 		if (!preset) throw new Error("missing blur preset");
 
 		render(
-			<BrushMatrixSection
-				settings={normalizeBrushSettingsV2(preset.settings)}
-				onChange={vi.fn()}
-			/>,
+			<BrushMatrixSection settings={preset.settings} onChange={vi.fn()} />,
 		);
 
 		const toggle = screen.getByRole("switch", {

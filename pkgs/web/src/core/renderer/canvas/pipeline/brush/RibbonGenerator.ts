@@ -14,7 +14,7 @@ import {
 import { BRUSH_PROPERTY_REGISTRY } from "../../../../brush/properties";
 import type {
 	BrushColorMode,
-	BrushSettingsV2,
+	BrushSettings,
 	CubicBezierSegment,
 	StrokeWidthPoint,
 } from "../../../../schema";
@@ -38,12 +38,12 @@ export interface RibbonOptions {
 	/** Gap between tiles as ratio of tile width (0 = no gap; repeat mode only). */
 	tileSpacing: number;
 	/**
-	 * v2 settings whose size/flow curves modulate the ribbon (design §12).
+	 * Settings whose size/flow curves modulate the ribbon (design §12).
 	 * Evaluated at each segment's endpoints and interpolated in between, the
-	 * same granularity taper already uses. Absent for legacy strokes, which
-	 * keep the flat pressure factor.
+	 * same granularity taper already uses. Absent, the flat pressure factor
+	 * applies.
 	 */
-	curved?: BrushSettingsV2;
+	curved?: BrushSettings;
 }
 
 export const DEFAULT_RIBBON_OPTIONS: RibbonOptions = {
@@ -251,7 +251,7 @@ export function generateRibbonInstances(
 		0,
 	);
 
-	// Entry/exit taper (v1: evaluated at segment endpoints, linear in between).
+	// Entry/exit taper, evaluated at segment endpoints and linear in between.
 	const taper = resolveTaper(
 		settings.taperStart,
 		settings.taperEnd,

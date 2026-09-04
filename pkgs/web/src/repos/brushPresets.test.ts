@@ -3,9 +3,7 @@ import {
 	resolveBrushTextureUid,
 	withTextureFileUid,
 } from "@/core/brush/brushSource";
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import { createDefaultBrushSettings } from "@/core/document/factory";
-import type { BrushSettingsV2 } from "@/core/schema";
 import {
 	brushPresetsDB,
 	webBrushPresetsRepo,
@@ -76,7 +74,7 @@ describe("brushPresets helpers", () => {
 			{
 				uid: "builtin-brush-airbrush",
 				name: "Airbrush",
-				settings: normalizeBrushSettingsV2({
+				settings: {
 					version: 2,
 					engine: "dab",
 					strokeOpacity: 0.8,
@@ -93,7 +91,7 @@ describe("brushPresets helpers", () => {
 						angleMode: "fixed",
 					},
 					randomSeed: 0,
-				}),
+				},
 			},
 			{
 				uid: "builtin-brush-airbrush",
@@ -157,14 +155,7 @@ describe("webBrushPresetsRepo", () => {
 
 		await webBrushPresetsRepo.save(preset);
 
-		// The stored form is width-neutral; the read path normalizes it back to a
-		// full BrushSettingsV2, filling the registry-default size base.
-		expect(await webBrushPresetsRepo.list()).toEqual([
-			{
-				...preset,
-				defaultSettings: normalizeBrushSettingsV2(preset.defaultSettings),
-			},
-		]);
+		expect(await webBrushPresetsRepo.list()).toEqual([preset]);
 
 		await webBrushPresetsRepo.rename(preset.uid, "Texture Prime");
 		expect((await webBrushPresetsRepo.get(preset.uid))?.name).toBe(
@@ -173,47 +164,5 @@ describe("webBrushPresetsRepo", () => {
 
 		await webBrushPresetsRepo.delete(preset.uid);
 		expect(await webBrushPresetsRepo.list()).toEqual([]);
-	});
-
-	it("should migrate a legacy flat defaultSettings record to v2 on read", async () => {
-		// Simulates a row written by pre-union app code: `defaultSettings` has
-		// no `type` discriminator. Written directly to the DB (bypassing
-		// webBrushPresetsRepo.save, which always normalizes on write) so the
-		// read path is what's under test.
-		await brushPresetsDB.brushPresets.put({
-			uid: "brush-preset-legacy",
-			name: "Legacy Ink",
-			defaultSettings: {
-				textureFileUid: "builtin-brush-soft-circle",
-				size: 24,
-				spacing: 0.15,
-			} as unknown as BrushSettingsV2,
-			textureName: "legacy.png",
-			textureMime: "image/png",
-			textureHash: "legacy-hash",
-			textureBin: Uint8Array.from([1, 2, 3]),
-			createdAt: 1,
-			updatedAt: 1,
-		});
-
-		const listed = await webBrushPresetsRepo.list();
-		expect(listed).toHaveLength(1);
-		expect(listed[0]?.defaultSettings.engine).toBe("dab");
-		expect(resolveBrushTextureUid(listed[0]!.defaultSettings)).toBe(
-			"builtin-brush-soft-circle",
-		);
-
-		const got = await webBrushPresetsRepo.get("brush-preset-legacy");
-		expect(got?.defaultSettings.version).toBe(2);
-		expect(got?.defaultSettings.engine).toBe("dab");
-
-		// createPersistedBrushPreviewSource routes defaultSettings through
-		// withTextureFileUid — must not blow up on a (now-normalized) record
-		// that originated from a legacy flat shape.
-		const preview = createPersistedBrushPreviewSource(got!);
-		expect(preview.brushSettings).toBeDefined();
-		expect(resolveBrushTextureUid(preview.brushSettings)).toBe(
-			preview.textureFile?.uid,
-		);
 	});
 });

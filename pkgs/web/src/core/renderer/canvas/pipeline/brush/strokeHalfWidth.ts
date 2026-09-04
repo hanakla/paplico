@@ -4,10 +4,9 @@ import {
 	createBrushInputs,
 	evalBrushProperty,
 } from "../../../../brush/evaluateProperties";
-import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
 import type {
 	BezierPoint,
-	BrushSettingsV2,
+	BrushSettings,
 	CubicBezierSegment,
 	StrokeWidthPoint,
 } from "../../../../schema";
@@ -35,8 +34,7 @@ export interface StrokeHalfWidthSampler {
 }
 
 export function createStrokeHalfWidthSampler(options: {
-	/** Raw stored brush settings; routed via resolveBrushRenderRoute. */
-	storedBrushSettings: unknown;
+	storedBrushSettings: BrushSettings | undefined;
 	/** Stored path segments (pressure source; arc lengths derived here). */
 	segments: CubicBezierSegment[];
 	pathStart?: number;
@@ -50,24 +48,24 @@ export function createStrokeHalfWidthSampler(options: {
 
 	const pathStart = options.pathStart ?? 0;
 	const pathEnd = options.pathEnd ?? 1;
-	const route = resolveBrushRenderRoute(storedBrushSettings);
+	const { engine } = storedBrushSettings;
 
 	if (options.strokeWidthsBaked) {
 		return createCurveSampler(
 			segments,
-			neutralizeSizeCurves(route.settings),
-			route.kind === "dab" ? "ribbon" : route.kind,
+			neutralizeSizeCurves(storedBrushSettings),
+			engine === "dab" ? "ribbon" : engine,
 			pathStart,
 			pathEnd,
 		);
 	}
-	if (route.kind === "dab") {
-		return createDabSampler(segments, route.settings, pathStart, pathEnd);
+	if (engine === "dab") {
+		return createDabSampler(segments, storedBrushSettings, pathStart, pathEnd);
 	}
 	return createCurveSampler(
 		segments,
-		route.settings,
-		route.kind,
+		storedBrushSettings,
+		engine,
 		pathStart,
 		pathEnd,
 	);
@@ -75,13 +73,13 @@ export function createStrokeHalfWidthSampler(options: {
 
 /**
  * The geometric engine's pressure response, read back off the flat slider's
- * two-point curve (`[[0, -k], [1, 0]]` as written by the v1 conversion).
+ * two-point curve (`[[0, -k], [1, 0]]`).
  * Multi-point or differently-shaped pressure curves are misread by this
  * inverse — a known limitation shared verbatim with the renderer so that the
  * tool display and the drawn stroke can never disagree.
  */
 export function resolveGeometricSizeByPressure(
-	settings: BrushSettingsV2,
+	settings: BrushSettings,
 ): number {
 	const sizeCurve = settings.properties.size?.curves?.find(
 		(curve) => curve.input === "pressure",
@@ -153,12 +151,11 @@ export function polylineSegmentsFromPoints(
  * a constant profile — the live curves then reproduce the same width).
  */
 export function bakeStrokeWidthProfile(
-	storedBrushSettings: unknown,
+	settings: BrushSettings | undefined,
 	segments: CubicBezierSegment[],
 ): StrokeWidthPoint[] | null {
-	if (storedBrushSettings == null || segments.length === 0) return null;
+	if (settings == null || segments.length === 0) return null;
 
-	const settings = resolveBrushRenderRoute(storedBrushSettings).settings;
 	const size = settings.properties.size;
 	if (!size || (size.curves?.length ?? 0) === 0 || size.base <= 0) return null;
 
@@ -236,7 +233,7 @@ function simplifyProfile(
 
 function createDabSampler(
 	segments: CubicBezierSegment[],
-	settings: BrushSettingsV2,
+	settings: BrushSettings,
 	pathStart: number,
 	pathEnd: number,
 ): StrokeHalfWidthSampler | null {
@@ -274,7 +271,7 @@ function createDabSampler(
 
 function createCurveSampler(
 	segments: CubicBezierSegment[],
-	settings: BrushSettingsV2,
+	settings: BrushSettings,
 	kind: "ribbon" | "geometric",
 	pathStart: number,
 	pathEnd: number,

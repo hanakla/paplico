@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBrushSettingsV2 } from "../../../../brush/migrate";
 import { createDefaultTransform } from "../../../../document/factory";
 import type { Filter, Group, Path } from "../../../../schema";
 import { resolveMixingStroke } from "./MixStrokeRenderer";
@@ -7,7 +6,7 @@ import { resolveMixingStroke } from "./MixStrokeRenderer";
 /**
  * Which strokes the mix pass owns (design §10, §13-7). Everything else must
  * stay on its existing route. Picking up the layer below belongs to the mix
- * pass alone now, which is why a converted v1 wet brush lands here.
+ * pass alone, which is why a wet brush that mixes lands here.
  */
 describe("resolveMixingStroke", () => {
 	it("should claim a dab stroke with mixing enabled", () => {
@@ -16,17 +15,19 @@ describe("resolveMixingStroke", () => {
 		expect(resolveMixingStroke(element)?.settings.mixing?.enabled).toBe(true);
 	});
 
-	it("should claim a converted v1 wet stroke that picked up colour", () => {
-		// v1's pickup migrates into mixing, so a wet brush that picked up the
-		// layer below now mixes — the wet layer no longer touches colour.
-		const element = strokePath(
-			normalizeBrushSettingsV2({
-				type: "scatter",
-				size: 20,
-				opacity: 1,
-				wetInk: { enabled: true, wetness: 0.7, pickupUnderlyingColor: true },
-			}),
-		);
+	it("should claim a wet stroke that mixes", () => {
+		// The wet layer never touches colour, so a wet brush that picks up the
+		// layer below does so through mixing.
+		const element = strokePath({
+			...mixingBrushSettings(),
+			paintMode: "wash",
+			wet: {
+				enabled: true,
+				bleedRadius: 0.5,
+				pigmentLoad: 0.85,
+				grainScale: 1,
+			},
+		});
 
 		expect(resolveMixingStroke(element)?.settings.wet?.enabled).toBe(true);
 	});
@@ -60,7 +61,7 @@ describe("resolveMixingStroke", () => {
 });
 
 function mixingBrushSettings(overrides: { enabled?: boolean } = {}) {
-	return normalizeBrushSettingsV2({
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -75,7 +76,7 @@ function mixingBrushSettings(overrides: { enabled?: boolean } = {}) {
 			blendStyle: 0,
 		},
 		randomSeed: 1,
-	});
+	};
 }
 
 function strokePath(brushSettings: unknown): Path {

@@ -7,7 +7,7 @@ import {
 } from "../../errors";
 import type {
 	BrushPreset,
-	BrushSettingsV2,
+	BrushSettings,
 	Document,
 	EmbeddedFile,
 	Viewport,
@@ -623,7 +623,7 @@ describe("PAPF format", () => {
 	});
 
 	describe("brush presets", () => {
-		it("migrates a union preset to BrushSettingsV2 and round-trips it stably", async () => {
+		it("migrates a union preset to BrushSettings and round-trips it stably", async () => {
 			const doc = makeMinimalDoc({
 				brushPresets: [
 					{
@@ -637,7 +637,7 @@ describe("PAPF format", () => {
 							opacity: 1,
 							opacityByPressure: 0.3,
 							randomSeed: 0,
-						} as unknown as BrushSettingsV2,
+						} as unknown as BrushSettings,
 					},
 				],
 			});
@@ -659,11 +659,11 @@ describe("PAPF format", () => {
 			expect(restoredTwice.brushPresets[0]).toEqual(restored.brushPresets[0]);
 		});
 
-		it("normalizes a v1 preset (textureFileUid + defaultSettings) into the settings union so it survives round-tripping", async () => {
-			// Simulates a document saved before the BrushSettings union existed.
+		it("migrates a pre-v2 preset (textureFileUid + defaultSettings) so it survives round-tripping", async () => {
+			// Simulates a document saved before the V1BrushSettings union existed.
 			// The writer always emits doc.brushPresets verbatim (it doesn't
-			// re-shape them), so injecting a v1-shaped record here exercises
-			// exactly what the reader must normalize.
+			// re-shape them), so injecting a pre-v2 record here exercises
+			// exactly what the reader's migration must convert.
 			const legacyPreset = {
 				uid: "brush-preset-legacy",
 				name: "Legacy Ink",
@@ -690,7 +690,7 @@ describe("PAPF format", () => {
 				kind: "file",
 				fileUid: "builtin-brush-soft-circle",
 			});
-			// The legacy flat fields must not survive normalization.
+			// The pre-v2 flat fields must not survive the migration.
 			expect("defaultSettings" in preset).toBe(false);
 			expect("textureFileUid" in preset).toBe(false);
 		});

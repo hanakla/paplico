@@ -1,28 +1,27 @@
 import type {
 	BrushPropertyConfig,
+	BrushSettings,
 	BrushSettingsPatch,
-	BrushSettingsV2,
 	BrushStroking,
 } from "../schema";
 import { BRUSH_PROPERTY_REGISTRY } from "./properties";
 
 /**
- * Lightweight readers/writers for stored brush settings. They avoid a full
- * normalize pass in hot paths (bounds, hit testing) and keep write sites
- * cheap. Anything richer goes through normalizeBrushSettingsV2.
+ * Lightweight readers/writers for stored brush settings, for hot paths
+ * (bounds, hit testing) and cheap write sites.
  */
 
 /** Read the effective brush size off stored settings. */
 export function readStoredBrushSize(raw: unknown): number | undefined {
 	if (!isRecord(raw)) return undefined;
-	const size = (raw as unknown as BrushSettingsV2).properties?.size;
+	const size = (raw as unknown as BrushSettings).properties?.size;
 	return size?.base ?? BRUSH_PROPERTY_REGISTRY.size.base;
 }
 
 /** Return a copy with the size replaced. */
 export function withStoredBrushSize<T>(settings: T, size: number): T {
 	if (!isRecord(settings)) return settings;
-	const v2 = settings as unknown as BrushSettingsV2;
+	const v2 = settings as unknown as BrushSettings;
 	return {
 		...v2,
 		properties: {
@@ -38,19 +37,17 @@ export function withStoredBrushSize<T>(settings: T, size: number): T {
  */
 export function readStoredWetBleedRatio(raw: unknown): number {
 	if (!isRecord(raw)) return 0;
-	const wet = (raw as unknown as BrushSettingsV2).wet;
+	const wet = (raw as unknown as BrushSettings).wet;
 	return wet?.enabled === true ? wet.bleedRadius : 0;
 }
 
 /**
  * Settings with the stored width deleted, for persistence. Presets and papb
- * files must not record the user's working width; reading them back goes
- * through normalizeBrushSettingsV2, which fills the registry default for the
- * missing base. Size curves stay — they are the brush's dynamics, not a width.
+ * files must not record the user's working width; readers fall back to the
+ * registry default for the missing base. Size curves stay — they are the
+ * brush's dynamics, not a width.
  */
-export function withoutStoredBrushSize(
-	settings: BrushSettingsV2,
-): BrushSettingsV2 {
+export function withoutStoredBrushSize(settings: BrushSettings): BrushSettings {
 	// Callers may hand in raw pre-v2 records; those carry no properties bag.
 	if (!settings.properties?.size) return settings;
 	const { size, ...rest } = settings.properties;
@@ -70,9 +67,7 @@ export function withoutStoredBrushSize(
  * carry the curves' evaluation in their strokeWidths profile, so renderers
  * evaluate size from this neutralized view to avoid applying width twice.
  */
-export function neutralizeSizeCurves(
-	settings: BrushSettingsV2,
-): BrushSettingsV2 {
+export function neutralizeSizeCurves(settings: BrushSettings): BrushSettings {
 	const size = settings.properties.size;
 	if (!size?.curves?.length) return settings;
 	return {
@@ -98,13 +93,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Apply a small edit to stored settings. Only values with no curve behind
  * them are patchable this way — anything a curve can shape is set by handing
- * over a complete BrushSettingsV2, so a patch can never silently flatten one.
+ * over a complete BrushSettings, so a patch can never silently flatten one.
  */
 export function applyBrushPatch(
-	current: BrushSettingsV2,
+	current: BrushSettings,
 	patch: BrushSettingsPatch,
-): BrushSettingsV2 {
-	const next: BrushSettingsV2 = { ...current };
+): BrushSettings {
+	const next: BrushSettings = { ...current };
 
 	if (patch.size !== undefined) {
 		next.properties = {

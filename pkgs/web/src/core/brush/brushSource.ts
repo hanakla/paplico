@@ -1,6 +1,6 @@
 import {
 	type BrushArtSource,
-	type BrushSettingsV2,
+	type BrushSettings,
 	BUILTIN_BRUSH_IDS,
 } from "../schema";
 
@@ -20,9 +20,9 @@ export interface DefSourceResolver {
  * geometric engine sample no texture and come back unchanged.
  */
 export function withTextureFileUid(
-	settings: BrushSettingsV2,
+	settings: BrushSettings,
 	fileUid: string,
-): BrushSettingsV2 {
+): BrushSettings {
 	if (settings.tip?.kind === "image") {
 		return {
 			...settings,
@@ -48,7 +48,7 @@ export function withTextureFileUid(
  * so rendering keeps working.
  */
 export function resolveBrushTextureUid(
-	s: BrushSettingsV2,
+	s: BrushSettings,
 	defResolver?: DefSourceResolver,
 ): string | null {
 	if (s.tip?.kind === "image") {

@@ -5,7 +5,6 @@ import { DashPatternControls } from "@/components/DashPatternControls";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { readStoredBrushSize } from "@/core/brush/access";
-import { resolveBrushRenderRoute } from "@/core/brush/renderRoute";
 import type { BrushStroking, LineCap, LineJoin } from "@/core/schema";
 import { appConfig } from "@/hooks/useAppConfig";
 import { useBrushEdits } from "@/hooks/useBrushEdits";
@@ -24,10 +23,8 @@ export const PenToolControls = memo(function PenToolControls() {
 	const brushPresets = useBrushPresets();
 	const toolSnap = useSnapshot(tools.state);
 
-	const rawBrush = toolSnap.strokeAppearance?.paramData.params.brushSettings;
-	const normalizedBrush = rawBrush
-		? resolveBrushRenderRoute(rawBrush).settings
-		: null;
+	const normalizedBrush =
+		toolSnap.strokeAppearance?.paramData.params.brushSettings;
 	const isGeometric = normalizedBrush?.engine === "geometric";
 	const lineCap =
 		normalizedBrush?.engine === "geometric"

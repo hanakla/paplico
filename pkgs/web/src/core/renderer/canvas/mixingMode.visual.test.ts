@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBrushSettingsV2 } from "../../brush/migrate";
 import {
 	createArtboard,
 	createDefaultDocument,
@@ -7,7 +6,7 @@ import {
 	createDefaultTransform,
 } from "../../document/factory";
 import type {
-	BrushSettingsV2,
+	BrushSettings,
 	Document,
 	Filter,
 	Path,
@@ -185,8 +184,8 @@ function mixingBrush(overrides: {
 	enabled?: boolean;
 	smudgeLength?: number;
 	hueShift?: number;
-}): BrushSettingsV2 {
-	return normalizeBrushSettingsV2({
+}): BrushSettings {
+	return {
 		version: 2,
 		engine: "dab",
 		strokeOpacity: 1,
@@ -211,7 +210,7 @@ function mixingBrush(overrides: {
 			blendStyle: 1,
 		},
 		randomSeed: 1,
-	});
+	};
 }
 
 /**
@@ -261,7 +260,7 @@ async function renderChainAcrossPan(): Promise<{
  * then draw the finished stroke on a renderer that never saw the shorter
  * ones. Returns the same pixel from each.
  */
-async function renderGrowingStroke(brushSettings: BrushSettingsV2): Promise<{
+async function renderGrowingStroke(brushSettings: BrushSettings): Promise<{
 	grown: number[];
 	whole: number[];
 }> {
@@ -318,7 +317,7 @@ async function renderGrowingStroke(brushSettings: BrushSettingsV2): Promise<{
  * new viewport. Both are read at the same world point, so a correct reuse
  * and a correct re-resolve agree.
  */
-async function renderAcrossPan(brushSettings: BrushSettingsV2): Promise<{
+async function renderAcrossPan(brushSettings: BrushSettings): Promise<{
 	duringPan: number[];
 	afterSettling: number[];
 }> {
@@ -514,7 +513,7 @@ function chainStroke(id: string, fromX: number, toX: number): Path {
  * same renderer. Returns the stroke pixel from each pass.
  */
 async function renderAcrossBackdropEdit(
-	brushSettings: BrushSettingsV2,
+	brushSettings: BrushSettings,
 ): Promise<{ before: number[]; after: number[] }> {
 	const { renderer, canvas } = await createTestRenderer();
 	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
@@ -599,7 +598,7 @@ function alongGradient(): StrokeGradient {
 
 /** Pixels near both ends of the stroke: screen x 280 and 520 at y 300. */
 async function renderStrokeEnds(
-	brushSettings: BrushSettingsV2,
+	brushSettings: BrushSettings,
 	strokeColor: StrokeGradient,
 ): Promise<{ left: number[]; right: number[] }> {
 	const pixels = await renderPixels(
@@ -618,7 +617,7 @@ async function renderStrokeEnds(
  * the pixel at world (0,0) → screen (400,300), inside both.
  */
 async function renderStrokePixel(
-	brushSettings: BrushSettingsV2,
+	brushSettings: BrushSettings,
 	viewport?: Viewport,
 ): Promise<number[]> {
 	return (
@@ -627,7 +626,7 @@ async function renderStrokePixel(
 }
 
 async function renderPixels(
-	brushSettings: BrushSettingsV2,
+	brushSettings: BrushSettings,
 	points: [number, number][],
 	strokeColor?: StrokeGradient,
 	viewportOverride?: Viewport,
@@ -662,7 +661,7 @@ async function renderPixels(
 }
 
 function mixingDoc(
-	brushSettings: BrushSettingsV2,
+	brushSettings: BrushSettings,
 	strokeColor?: StrokeGradient,
 ): Document {
 	const field: Path = {

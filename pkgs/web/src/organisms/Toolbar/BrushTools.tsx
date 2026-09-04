@@ -26,7 +26,6 @@ import {
 	resolveOptionalSourceUid,
 	resolveScatterSourceUids,
 } from "@/core/brush/brushSource";
-import { normalizeBrushSettingsV2 } from "@/core/brush/migrate";
 import { BUILTIN_PRESET_CATEGORY_ORDER } from "@/core/brush/presets";
 import { createStrokeBrushSettings } from "@/core/document/factory";
 import type {
@@ -43,7 +42,7 @@ import type {
 	StampRotation,
 } from "@/core/schema";
 import {
-	type BrushSettingsV2,
+	type BrushSettings,
 	BUILTIN_BRUSH_IDS,
 	isGeometricBrush,
 } from "@/core/schema";
@@ -71,11 +70,14 @@ function useSyncBrushSettingsWithSelection(): void {
 	const targetFilterIndex = uiSnap.brushDesignerTargetFilterIndex;
 
 	const snap = useSnapshot(paplico.tools.state);
-	// The stored settings, not the flat view: v1 has no place to hold curves,
-	// mixing or the wet layer, so writing the view back to the element drops
-	// everything the panel just edited.
-	const storedBrushSettings = snap.strokeAppearance?.paramData.params
-		.brushSettings as BrushSettingsV2 | undefined;
+	// The stored settings, not the flat view: the flat view has no place to
+	// hold curves, mixing or the wet layer, so writing it back to the element
+	// drops everything the panel just edited.
+	// Read through the snapshot so the effect below re-runs on brush edits;
+	// the getter hands back the stored settings object.
+	const storedBrushSettings =
+		snap.strokeAppearance?.paramData.params.brushSettings &&
+		paplico.tools.storedBrushSettings;
 
 	const prevSelectedIds = useRef(docSnap.selectedElementIds);
 
@@ -185,7 +187,7 @@ export const BrushSettingsPanel = memo(function BrushSettingsPanel({
 
 	const snap = useSnapshot(tools.state);
 	const brushSettings = useFlatBrushView(
-		snap.strokeAppearance?.paramData.params.brushSettings,
+		snap.strokeAppearance ? tools.storedBrushSettings : undefined,
 	);
 
 	useSyncBrushSettingsWithSelection();
@@ -362,7 +364,7 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 	const brushPresets = useBrushPresets();
 	const snap = useSnapshot(tools.state);
 	const brushSettings = useFlatBrushView(
-		snap.strokeAppearance?.paramData.params.brushSettings,
+		snap.strokeAppearance ? tools.storedBrushSettings : undefined,
 	);
 	const headerRef = useRef<HTMLDivElement>(null);
 	const [previewWidth, setPreviewWidth] = useState(440);
@@ -441,26 +443,15 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 
 	const updateBrushSettings = useEventCallback((patch: FlatBrushPatch) => {
 		setSelectedBrushPresetUid(null);
-		tools.setBrushSettings(
-			applyFlatPatch(
-				normalizeBrushSettingsV2(tools.storedBrushSettings),
-				patch,
-			),
-		);
+		tools.setBrushSettings(applyFlatPatch(tools.storedBrushSettings, patch));
 	});
 
 	// The curve matrix edits the stored settings themselves: the flat view
-	// above can only express what a v1 brush had, so anything it does not
-	// carry would be dropped by a round trip through it.
-	const matrixSettings = useMemo(
-		() =>
-			normalizeBrushSettingsV2(
-				snap.strokeAppearance?.paramData.params.brushSettings,
-			),
-		[snap.strokeAppearance?.paramData.params.brushSettings],
-	);
+	// above cannot carry curves, mixing or the wet layer, so a round trip
+	// through it would drop them.
+	const matrixSettings = brushSettings.settings;
 
-	const handleMatrixChange = useEventCallback((next: BrushSettingsV2) => {
+	const handleMatrixChange = useEventCallback((next: BrushSettings) => {
 		setSelectedBrushPresetUid(null);
 		tools.setBrushSettings(next);
 	});
@@ -1398,7 +1389,7 @@ export function BrushStrokePreview({
 	height,
 	className,
 }: {
-	brushSettings: BrushSettingsV2;
+	brushSettings: BrushSettings;
 	textureFile: EmbeddedFile | null;
 	width: number;
 	height: number;
@@ -1510,7 +1501,7 @@ export function BrushStrokePreview({
 }
 
 type BrushStrokePreviewCacheKeyInput = {
-	brushSettings: BrushSettingsV2;
+	brushSettings: BrushSettings;
 	textureHash: string;
 	width: number;
 	height: number;
@@ -1619,13 +1610,14 @@ function parseRgbColor(source: string): Color {
 // Flat brush view-model bridge (local to this panel)
 //
 // The brush UI is built on a single flat parameter object, while the
-// persisted `BrushSettings` is a tagged union. This bridge normalizes the
-// union into a flat view for reading and converts flat patches back into a
-// union for writing. It is isolated to this UI component on purpose.
+// persisted settings hold engine-specific config and a curve matrix. This
+// bridge projects the settings into a flat view for reading and converts flat
+// patches back into settings for writing. It is isolated to this UI component
+// on purpose.
 // ---------------------------------------------------------------------------
 
 type FlatBrushView = {
-	settings: BrushSettingsV2;
+	settings: BrushSettings;
 	isGeometric: boolean;
 	size: number;
 	colorMode: BrushColorMode | undefined;
@@ -1656,19 +1648,12 @@ type FlatBrushPatch = Partial<{
 	stroking: Partial<BrushStroking>;
 }>;
 
-function useFlatBrushView(raw: unknown): FlatBrushView {
-	const cacheKey = JSON.stringify(raw ?? null);
-
-	return useMemo(
-		() => toFlatBrushView(cacheKey === "null" ? null : JSON.parse(cacheKey)),
-		[cacheKey],
-	);
+function useFlatBrushView(raw: BrushSettings | undefined): FlatBrushView {
+	return useMemo(() => toFlatBrushView(raw), [raw]);
 }
 
-function toFlatBrushView(raw: unknown): FlatBrushView {
-	const settings = normalizeBrushSettingsV2(
-		raw ?? createStrokeBrushSettings(2),
-	);
+function toFlatBrushView(raw: BrushSettings | undefined): FlatBrushView {
+	const settings = raw ?? createStrokeBrushSettings(2);
 	const tip = settings.tip?.kind === "image" ? settings.tip : null;
 
 	return {
@@ -1698,12 +1683,12 @@ function toFlatBrushView(raw: unknown): FlatBrushView {
  * geometry, the dash — has no curve behind it, so each maps to one field.
  */
 function applyFlatPatch(
-	current: BrushSettingsV2,
+	current: BrushSettings,
 	patch: FlatBrushPatch,
-): BrushSettingsV2 {
+): BrushSettings {
 	// The engine decides which of the sections below apply, so it resolves
 	// first.
-	let next: BrushSettingsV2 = { ...current };
+	let next: BrushSettings = { ...current };
 	if (patch.renderMode === "ribbon" && next.engine !== "ribbon") {
 		next = {
 			...next,
@@ -1796,7 +1781,7 @@ function applyFlatPatch(
 }
 
 /** The tip's own texture, for carrying it across an engine switch. */
-function tipSourceOf(settings: BrushSettingsV2): BrushArtSource | undefined {
+function tipSourceOf(settings: BrushSettings): BrushArtSource | undefined {
 	return settings.tip?.kind === "image" ? settings.tip.sources[0] : undefined;
 }
 

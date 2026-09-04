@@ -1,10 +1,9 @@
 import { BRUSH_PROPERTY_REGISTRY } from "../../../../brush/properties";
-import { resolveBrushRenderRoute } from "../../../../brush/renderRoute";
 import type {
 	AnyArtObject,
 	BoundingBox,
 	BrushPropertyId,
-	BrushSettingsV2,
+	BrushSettings,
 	Filter,
 	Path,
 	StrokeAppearance,
@@ -538,7 +537,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 			element: AnyArtObject;
 			path: Path;
 			strokeColor: StrokeColor;
-			settings: BrushSettingsV2;
+			settings: BrushSettings;
 			bounds: BoundingBox;
 			scale: number;
 			target: GPUTextureView;
@@ -884,17 +883,16 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
  */
 export function resolveMixingStroke(
 	element: AnyArtObject,
-): { settings: BrushSettingsV2; filter: Filter } | null {
+): { settings: BrushSettings; filter: Filter } | null {
 	if (element.type !== "path") return null;
 	for (const filter of element.filters ?? []) {
 		if (!isFilterEnabled(filter) || filter.processor !== "stroke") continue;
-		const raw = (filter as StrokeAppearance).paramData.params.brushSettings;
-		if (raw == null) continue;
-		const route = resolveBrushRenderRoute(raw);
-		if (route.kind !== "dab" || route.settings.mixing?.enabled !== true) {
+		const settings = (filter as StrokeAppearance).paramData.params
+			.brushSettings;
+		if (settings?.engine !== "dab" || settings.mixing?.enabled !== true) {
 			continue;
 		}
-		return { settings: route.settings, filter };
+		return { settings, filter };
 	}
 	return null;
 }

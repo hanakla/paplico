@@ -713,10 +713,22 @@ function populateFullDocument(ydoc: Y.Doc) {
 		const yPreset = new Y.Map<unknown>();
 		yPreset.set("uid", "preset-1");
 		yPreset.set("name", "Soft Brush");
-		yPreset.set("textureFileUid", "file-1");
 		yPreset.set(
-			"defaultSettings",
-			JSON.stringify({ size: 10, opacity: 0.8, spacing: 0.2 }),
+			"settings",
+			JSON.stringify({
+				version: 2,
+				engine: "dab",
+				strokeOpacity: 1,
+				paintMode: "buildup",
+				properties: { size: { base: 10 }, spacing: { base: 0.2 } },
+				tip: {
+					kind: "image",
+					sources: [{ kind: "file", fileUid: "file-1" }],
+					selection: "random",
+					angleMode: "fixed",
+				},
+				randomSeed: 0,
+			}),
 		);
 		yBrushPresets.set("preset-1", yPreset);
 	});
@@ -781,8 +793,6 @@ describe("extractDocumentFromYDoc: full document extraction", () => {
 		expect(doc.files[0].uid).toBe("file-1");
 		expect(doc.files[0].bin).toBeInstanceOf(Uint8Array);
 
-		// Brush presets: a pre-v2 preset arrives as textureFileUid +
-		// defaultSettings and is migrated to v2 on extraction.
 		expect(doc.brushPresets).toHaveLength(1);
 		expect(doc.brushPresets[0]).toMatchObject({
 			uid: "preset-1",
