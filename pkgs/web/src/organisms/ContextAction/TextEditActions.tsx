@@ -23,6 +23,7 @@ import { FontCombobox } from "@/organisms/ActionsPanel/FontCombobox";
 import { TextCharTouchModeToggle } from "@/organisms/ActionsPanel/TextEditingControls";
 import { uiState } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
+import { FontVariationPopover } from "./FontVariationPopover";
 
 /**
  * Actions available while a text element is being edited: style controls
@@ -116,6 +117,7 @@ export function TextEditActions() {
 					className="w-14 flex-none"
 				/>
 			</Tooltip>
+			<FontVariationPopover />
 			<Popover.Root>
 				<Tooltip content={t("contextActions.textColor")} side="bottom">
 					<Popover.Trigger>

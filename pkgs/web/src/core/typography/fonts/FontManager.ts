@@ -6,7 +6,12 @@
 
 import type { Font, Glyph } from "fontkit";
 import * as fontkit from "fontkit";
-import type { CubicBezierSegment, FontSource, Point } from "@/core/schema";
+import type {
+	CubicBezierSegment,
+	FontSource,
+	Point,
+	TextStyle,
+} from "@/core/schema";
 import { DomLocalFontBackend } from "../../infra/localfonts.dom";
 import { Emitter } from "../../utils/emitter";
 import {
@@ -14,6 +19,7 @@ import {
 	type FontMetadata,
 	type LoadedFont,
 } from "./FontLoader";
+import { fontVariationKey, resolveFontVariations } from "./fontVariations";
 import { GoogleFontsLoader } from "./GoogleFontsLoader";
 import { type LocalFontBackend, LocalFontsLoader } from "./LocalFontsLoader";
 import type { FontScript } from "./os2Scripts";
@@ -64,21 +70,16 @@ export interface ShapedGlyph {
 }
 
 /**
- * Glyph cache key (code-point based).
- */
-function getGlyphCacheKeyByCodePoint(
-	postScriptName: string,
-	codePoint: number,
-): string {
-	return `${postScriptName}:cp${codePoint}`;
-}
-/**
  * FontManager - unified font management.
  */
 export class FontManager extends Emitter<FontManagerEvents> {
 	private googleLoader: GoogleFontsLoader;
 	private localLoader: LocalFontsLoader;
-	private glyphPathCache: Map<string, CubicBezierSegment[]> = new Map();
+	private glyphPathCache = new WeakMap<
+		Font,
+		Map<number, CubicBezierSegment[]>
+	>();
+	private variationCache = new WeakMap<Font, Map<string, LoadedFont>>();
 	private fallbackFont: LoadedFont | undefined;
 	private fallbackFontLoadPromise: Promise<LoadedFont> | undefined;
 
@@ -91,6 +92,41 @@ export class FontManager extends Emitter<FontManagerEvents> {
 		this.localLoader = new LocalFontsLoader(
 			localFontBackend ?? new DomLocalFontBackend(),
 		);
+	}
+
+	/** Read axes from the loaded face, rather than catalog metadata. */
+	public getVariationAxes(
+		source: FontSource,
+	): Font["variationAxes"] | undefined {
+		return this.getLoadedFont(source)?.fontkit.variationAxes;
+	}
+
+	/** Share immutable variable instances between shaping and outline extraction. */
+	public resolveFontForStyle(font: LoadedFont, style: TextStyle): LoadedFont {
+		const values = resolveFontVariations(
+			style,
+			font.fontkit.variationAxes ?? {},
+		);
+		if (Object.keys(values).length === 0) return font;
+		let cache = this.variationCache.get(font.fontkit);
+		if (!cache) {
+			cache = new Map();
+			this.variationCache.set(font.fontkit, cache);
+		}
+		const key = fontVariationKey(values);
+		const cached = cache.get(key);
+		if (cached) {
+			cache.delete(key);
+			cache.set(key, cached);
+			return cached;
+		}
+		const resolved = { ...font, fontkit: font.fontkit.getVariation(values) };
+		cache.set(key, resolved);
+		if (cache.size > 32) {
+			const oldest = cache.keys().next().value;
+			if (oldest !== undefined) cache.delete(oldest);
+		}
+		return resolved;
 	}
 
 	/**
@@ -205,35 +241,25 @@ export class FontManager extends Emitter<FontManagerEvents> {
 		});
 	}
 
-	/**
-	 * Extract glyph path for a character (em-normalized coordinates).
-	 * Returned path uses 1em = 1.0; callers scale by font size to pixels.
-	 */
-	private getGlyphPath(font: LoadedFont, char: string): CubicBezierSegment[] {
-		const codePoint = char.codePointAt(0) ?? 0;
-		const cacheKey = getGlyphCacheKeyByCodePoint(
-			font.metadata.postScriptName,
-			codePoint,
-		);
-
-		const cached = this.glyphPathCache.get(cacheKey);
-		if (cached) return cached;
-
-		const glyph = font.fontkit.glyphForCodePoint(codePoint);
+	/** Cache em-normalized outlines by the actual shaped glyph and variable face. */
+	private getGlyphPath(font: LoadedFont, glyph: Glyph): CubicBezierSegment[] {
+		let cache = this.glyphPathCache.get(font.fontkit);
+		if (!cache) {
+			cache = new Map();
+			this.glyphPathCache.set(font.fontkit, cache);
+		}
+		const cached = cache.get(glyph.id);
+		if (cached) {
+			cache.delete(glyph.id);
+			cache.set(glyph.id, cached);
+			return cached;
+		}
 		const path = this.extractGlyphPath(glyph, font.fontkit);
-
-		this.glyphPathCache.set(cacheKey, path);
-		return path;
-	}
-
-	private getNotdefGlyphPath(font: LoadedFont): CubicBezierSegment[] {
-		const cacheKey = `${font.metadata.postScriptName}:.notdef`;
-		const cached = this.glyphPathCache.get(cacheKey);
-		if (cached) return cached;
-
-		const notdefGlyph = font.fontkit.glyphForCodePoint(0);
-		const path = this.extractGlyphPath(notdefGlyph, font.fontkit);
-		this.glyphPathCache.set(cacheKey, path);
+		cache.set(glyph.id, path);
+		if (cache.size > 2_048) {
+			const oldest = cache.keys().next().value;
+			if (oldest !== undefined) cache.delete(oldest);
+		}
 		return path;
 	}
 
@@ -475,7 +501,6 @@ export class FontManager extends Emitter<FontManagerEvents> {
 
 			const glyphX = x + position.xOffset * scale;
 			const glyphY = y + position.yOffset * scale;
-			const codePoint = char.codePointAt(0) ?? 0;
 			let emPath: CubicBezierSegment[];
 			let advanceWidth = position.xAdvance * scale;
 
@@ -483,14 +508,17 @@ export class FontManager extends Emitter<FontManagerEvents> {
 
 			if (useNotdef) {
 				const fallback = await this.getFallbackFont();
-				emPath = this.getNotdefGlyphPath(fallback);
+				emPath = this.getGlyphPath(
+					fallback,
+					fallback.fontkit.glyphForCodePoint(0),
+				);
 				const fallbackScale = fontSize / fallback.fontkit.unitsPerEm;
 				const notdefGlyph = fallback.fontkit.glyphForCodePoint(0);
 				advanceWidth =
 					(notdefGlyph.advanceWidth ?? fallback.fontkit.unitsPerEm * 0.6) *
 					fallbackScale;
 			} else {
-				emPath = this.getGlyphPath(font, String.fromCodePoint(codePoint));
+				emPath = this.getGlyphPath(font, glyph);
 			}
 
 			const offsetPath = emPath.map((seg) => ({
@@ -546,12 +574,6 @@ export class FontManager extends Emitter<FontManagerEvents> {
 	): CubicBezierSegment[] | null {
 		if (!this.hasVertFeature(font)) return null;
 
-		const codePoint = char.codePointAt(0) ?? 0;
-		const cacheKey = `${font.metadata.postScriptName}:vert:cp${codePoint}`;
-
-		const cached = this.glyphPathCache.get(cacheKey);
-		if (cached) return cached;
-
 		// Enable `vert` feature and fetch substituted glyph.
 		const run = font.fontkit.layout(char, ["vert"]);
 		if (run.glyphs.length === 0) return null;
@@ -567,12 +589,7 @@ export class FontManager extends Emitter<FontManagerEvents> {
 			return null;
 		}
 
-		const path = this.extractGlyphPath(
-			font.fontkit.getGlyph(vertGlyphId),
-			font.fontkit,
-		);
-		this.glyphPathCache.set(cacheKey, path);
-		return path;
+		return this.getGlyphPath(font, run.glyphs[0]);
 	}
 
 	/**

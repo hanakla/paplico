@@ -157,6 +157,7 @@ export function useActiveFontSettings(): ActiveFontSettings {
 			// Always update textDefaultStyle
 			tools.state.textDefaultStyle.fontFamily = selectedFont.family;
 			tools.state.textDefaultStyle.fontSource = fontSource;
+			tools.state.textDefaultStyle.fontVariationSettings = {};
 
 			if (isTextEditing) {
 				const textTool = paplico.textToolController?.getTextTool();
@@ -178,6 +179,7 @@ export function useActiveFontSettings(): ActiveFontSettings {
 								...run.style,
 								fontFamily: selectedFont.family,
 								fontSource,
+								fontVariationSettings: {},
 							},
 						})),
 					})),
@@ -188,6 +190,7 @@ export function useActiveFontSettings(): ActiveFontSettings {
 						...el.defaultStyle,
 						fontFamily: selectedFont.family,
 						fontSource,
+						fontVariationSettings: {},
 					},
 					content: updatedContent,
 				});

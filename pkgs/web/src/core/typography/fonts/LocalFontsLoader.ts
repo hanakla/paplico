@@ -12,6 +12,7 @@ import {
 	type LoadedFont,
 	parseWeightString,
 } from "./FontLoader";
+import { fontFaceWeight } from "./fontVariations";
 import { detectFontScripts, type FontScript } from "./os2Scripts";
 
 const SCRIPT_RESOLVE_CONCURRENCY = 8;
@@ -247,7 +248,7 @@ export class LocalFontsLoader implements FontLoader {
 		}
 
 		// DOMでフォントを使えるようにする（@font-face登録）
-		await this.registerFontFace(fontData, data);
+		await this.registerFontFace(fontData, data, font);
 
 		const loadedFont: LoadedFont = {
 			metadata: {
@@ -274,11 +275,12 @@ export class LocalFontsLoader implements FontLoader {
 	private async registerFontFace(
 		fontData: FontData,
 		data: ArrayBuffer,
+		font: fontkit.Font,
 	): Promise<void> {
 		try {
 			// PostScriptNameをfont-familyとして登録（重複回避）
 			const fontFace = new FontFace(fontData.postScriptName, data, {
-				weight: String(this.inferWeightFromStyle(fontData.style)),
+				weight: fontFaceWeight(font, this.inferWeightFromStyle(fontData.style)),
 				style: this.inferFontStyle(fontData.style),
 			});
 

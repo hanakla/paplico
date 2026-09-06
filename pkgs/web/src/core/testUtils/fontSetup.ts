@@ -17,7 +17,27 @@ export const NOTO_SANS_JP_POST_SCRIPT_NAME = "NotoSansJP-VariableFont_wght";
  * are available via fontManager.getLoadedFont({ type: "local", postScriptName: ... }).
  */
 export function loadTestFont(fontManager: FontManager): LoadedFont {
-	const buffer = fs.readFileSync(NOTO_SANS_JP_PATH);
+	return loadFontFixture(
+		fontManager,
+		NOTO_SANS_JP_PATH,
+		NOTO_SANS_JP_POST_SCRIPT_NAME,
+	);
+}
+
+/** Load the multi-axis fixture without network access. */
+export function loadRobotoFlexFont(fontManager: FontManager): LoadedFont {
+	return loadFontFixture(
+		fontManager,
+		path.resolve(__dirname, "assets/RobotoFlex.ttf"),
+	);
+}
+
+function loadFontFixture(
+	fontManager: FontManager,
+	filePath: string,
+	postScriptName?: string,
+): LoadedFont {
+	const buffer = fs.readFileSync(filePath);
 	const fontResult = fontkit.create(buffer);
 	const fontkitFont =
 		"fonts" in fontResult
@@ -26,16 +46,16 @@ export function loadTestFont(fontManager: FontManager): LoadedFont {
 
 	const loadedFont: LoadedFont = {
 		metadata: {
-			family: "Noto Sans JP",
-			fullName: "Noto Sans JP",
-			postScriptName: NOTO_SANS_JP_POST_SCRIPT_NAME,
+			family: fontkitFont.familyName,
+			fullName: fontkitFont.fullName,
+			postScriptName: postScriptName ?? fontkitFont.postscriptName,
 			style: "Regular",
 			weight: 400,
 			source: "local",
 		},
 		fontkit: fontkitFont,
-		cssFontFamily: `"${NOTO_SANS_JP_POST_SCRIPT_NAME}", "Noto Sans JP", sans-serif`,
-		data: buffer.buffer as ArrayBuffer,
+		cssFontFamily: `"${fontkitFont.familyName}"`,
+		data: Uint8Array.from(buffer).buffer,
 	};
 
 	fontManager.registerLoadedFont(loadedFont);

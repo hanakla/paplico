@@ -93,7 +93,12 @@ function SliderRoot<T extends number | readonly number[]>({
 					<BUISlider.Indicator className={styles.indicator()} />
 					{!hideThumb &&
 						Array.from({ length: thumbCount }, (_, index) => (
-							<BUISlider.Thumb key={index} className={styles.thumb()} />
+							<BUISlider.Thumb
+								key={index}
+								className={styles.thumb()}
+								aria-label={props["aria-label"]}
+								aria-labelledby={props["aria-labelledby"]}
+							/>
 						))}
 				</BUISlider.Track>
 			</BUISlider.Control>

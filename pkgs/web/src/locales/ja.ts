@@ -255,6 +255,13 @@ export const ja = {
 		scatterTexturesEmpty: "散布テクスチャなし",
 	},
 	contextActions: {
+		variableFont: "可変フォント",
+		variableFontMixedValue: "混在",
+		variableFontMixed: "同じフォントの文字を選択してください",
+		variableFontNone: "このフォントに可変軸はありません",
+		variableFontLoadError: "フォントを読み込めませんでした",
+		variableFontReset: "既定値に戻す",
+
 		grouping: "グループ化",
 		ungroup: "グループ解除",
 		duplicate: "複製",

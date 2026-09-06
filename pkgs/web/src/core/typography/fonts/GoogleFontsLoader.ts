@@ -12,6 +12,7 @@ import {
 	type LoadedFont,
 	parseWeightString,
 } from "./FontLoader";
+import { fontFaceWeight } from "./fontVariations";
 import { googleSubsetsToScripts } from "./os2Scripts";
 
 /**
@@ -71,8 +72,8 @@ export class GoogleFontsLoader implements FontLoader {
 
 		try {
 			const url = this.apiKey
-				? `https://www.googleapis.com/webfonts/v1/webfonts?key=${this.apiKey}&sort=popularity`
-				: "https://www.googleapis.com/webfonts/v1/webfonts?sort=popularity";
+				? `https://www.googleapis.com/webfonts/v1/webfonts?key=${this.apiKey}&sort=popularity&capability=VF`
+				: "https://www.googleapis.com/webfonts/v1/webfonts?sort=popularity&capability=VF";
 
 			const response = await fetch(url);
 			if (!response.ok) {
@@ -171,7 +172,7 @@ export class GoogleFontsLoader implements FontLoader {
 				: fontResult;
 
 		// DOMでフォントを使えるようにする（@font-face登録）
-		await this.registerFontFace(family, weight, data);
+		await this.registerFontFace(family, weight, data, font);
 
 		const loadedFont: LoadedFont = {
 			metadata: {
@@ -218,10 +219,11 @@ export class GoogleFontsLoader implements FontLoader {
 		family: string,
 		weight: number,
 		data: ArrayBuffer,
+		font: fontkit.Font,
 	): Promise<void> {
 		try {
 			const fontFace = new FontFace(family, data, {
-				weight: String(weight),
+				weight: fontFaceWeight(font, weight),
 				style: "normal",
 			});
 

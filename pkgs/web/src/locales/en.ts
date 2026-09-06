@@ -254,6 +254,13 @@ export const en = {
 		scatterTexturesEmpty: "No scatter textures",
 	},
 	contextActions: {
+		variableFont: "Variable font",
+		variableFontMixedValue: "Mixed",
+		variableFontMixed: "Select text using the same font",
+		variableFontNone: "This font has no variable axes",
+		variableFontLoadError: "Could not load the font",
+		variableFontReset: "Reset to default",
+
 		grouping: "Group",
 		ungroup: "Ungroup",
 		duplicate: "Duplicate",

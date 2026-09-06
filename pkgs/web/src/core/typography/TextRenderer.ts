@@ -85,7 +85,10 @@ interface ResolvedFlowChain {
  */
 export class TextRenderer {
 	private layoutEngine: TextLayoutEngine;
-	private layoutCache: Map<string, LayoutResult> = new Map();
+	private layoutCache = new Map<
+		string,
+		{ key: string; layout?: LayoutResult }
+	>();
 	private documentResolver: TextDocumentResolver | null = null;
 
 	public constructor(layoutEngine: TextLayoutEngine) {
@@ -196,38 +199,45 @@ export class TextRenderer {
 	private async getOrComputeLayout(
 		element: TextElement,
 	): Promise<LayoutResult> {
-		// Layout is the expensive part; cache by content/style-dependent key.
-		const cacheKey = this.computeTextCacheKey(element);
-		const cached = this.layoutCache.get(cacheKey);
-		if (cached) {
-			return cached;
-		}
+		const key = this.computeTextCacheKey(element);
+		const cached = this.layoutCache.get(element.id);
+		if (cached?.key === key && cached.layout) return cached.layout;
 
 		const chain = this.resolveFlowChain(element);
-		if (chain) {
-			const results = await this.layoutEngine.layoutFlow(
-				chain.head,
-				chain.members.map((member) => ({
-					element: member,
-					geometry: this.resolveGeometry(member),
-				})),
-			);
-			for (const member of chain.members) {
-				const result = results.get(member.id);
-				if (result) {
-					this.layoutCache.set(this.computeTextCacheKey(member), result);
-				}
-			}
-			const own = results.get(element.id);
-			if (own) return own;
+		const members = chain?.members ?? [element];
+		const entries = members.map((member) => {
+			const entry: { key: string; layout?: LayoutResult } = {
+				key: this.computeTextCacheKey(member),
+			};
+			this.layoutCache.set(member.id, entry);
+			return { member, entry };
+		});
+		const results = chain
+			? await this.layoutEngine.layoutFlow(
+					chain.head,
+					members.map((member) => ({
+						element: member,
+						geometry: this.resolveGeometry(member),
+					})),
+				)
+			: new Map([
+					[
+						element.id,
+						await this.layoutEngine.layout(
+							element,
+							this.resolveGeometry(element),
+						),
+					],
+				]);
+		for (const { member, entry } of entries) {
+			// Invalidations and newer requests supersede in-flight layout work.
+			if (this.layoutCache.get(member.id) !== entry) continue;
+			if (this.computeTextCacheKey(member) !== entry.key) continue;
+			entry.layout = results.get(member.id);
 		}
-
-		const layout = await this.layoutEngine.layout(
-			element,
-			this.resolveGeometry(element),
-		);
-		this.layoutCache.set(cacheKey, layout);
-		return layout;
+		const own = results.get(element.id);
+		if (own) return own;
+		return this.layoutEngine.layout(element, this.resolveGeometry(element));
 	}
 
 	/**
@@ -336,11 +346,12 @@ export class TextRenderer {
 	 */
 	public computeTextCacheKey(element: TextElement): string {
 		const s = element.defaultStyle;
-		const base = `${element.id}:${JSON.stringify(element.content)}:${s.fontFamily}:${s.fontSize}:${s.fontWeight}:${s.fontStyle}:${s.letterSpacing}:${s.lineHeight ?? ""}:${JSON.stringify(element.layout)}:${this.boundGeometryKeyOf(element)}`;
+		const base = `${element.id}:${JSON.stringify(element.content)}:${s.fontFamily}:${JSON.stringify(s.fontSource)}:${JSON.stringify(s.fontVariationSettings ?? {})}:${s.fontSize}:${s.fontWeight}:${s.fontStyle}:${s.letterSpacing}:${s.lineHeight ?? ""}:${JSON.stringify(element.layout)}:${this.boundGeometryKeyOf(element)}`;
 		const chain = this.resolveFlowChain(element);
 		if (!chain) return base;
 		const signature = [
 			JSON.stringify(chain.head.content),
+			JSON.stringify(chain.head.defaultStyle),
 			...chain.members.map(
 				(member) =>
 					`${member.id}|${JSON.stringify(member.layout)}|${this.boundGeometryKeyOf(member)}`,
@@ -454,11 +465,7 @@ export class TextRenderer {
 	 * Invalidate layout cache for a specific element.
 	 */
 	public invalidateLayout(elementId: string): void {
-		for (const key of this.layoutCache.keys()) {
-			if (key.startsWith(`${elementId}:`)) {
-				this.layoutCache.delete(key);
-			}
-		}
+		this.layoutCache.delete(elementId);
 	}
 
 	/**
@@ -615,7 +622,11 @@ export class TextRenderer {
 
 		// Glyph ink from the cached layout only — pointer hit tests are sync,
 		// so an uncached layout just means the path/region test decides
-		const layout = this.layoutCache.get(this.computeTextCacheKey(element));
+		const cached = this.layoutCache.get(element.id);
+		const layout =
+			cached?.key === this.computeTextCacheKey(element)
+				? cached.layout
+				: undefined;
 		if (layout) {
 			const onPath = layout.lines.length === 0 && layout.chars.length > 0;
 			const anchor = onPath ? ("center" as const) : ("baselineLeft" as const);

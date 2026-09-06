@@ -1321,7 +1321,9 @@ export interface TextStyle {
 	fontFamily: string;
 	fontSource: FontSource;
 	fontSize: number; // px
-	fontWeight: number; // 100-900
+	fontWeight: number; // Variable fonts use their declared weight range.
+	/** Explicit variable coordinates other than wght, which is stored in fontWeight. */
+	fontVariationSettings?: Record<string, number>;
 	fontStyle: "normal" | "italic" | "oblique";
 	fill: FillColor | null;
 	stroke?: StrokeColor | null;

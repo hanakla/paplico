@@ -35,6 +35,11 @@ import {
 	type TextStyle,
 	type Viewport,
 } from "../schema";
+import { getFontManager } from "../typography/fonts/FontManager";
+import {
+	resolveFontVariations,
+	updateFontVariation,
+} from "../typography/fonts/fontVariations";
 import type { TextGlyphQuad } from "../typography/glyphQuad";
 import { classifyPathForTextBinding } from "../typography/regionGeometry";
 import { splitRunAt } from "../typography/textContent";
@@ -3177,10 +3182,69 @@ export class TextTool implements Tool {
 	 * Run境界で分割し、選択部分にスタイルを適用し、隣接同一スタイルRunを結合する
 	 */
 	public applyStyleToSelection(styleUpdates: Partial<TextStyle>): void {
+		this.mapSelectionStyle((style) => {
+			const updates = { ...styleUpdates };
+			if (updates.fontSource || updates.fontFamily) {
+				updates.fontVariationSettings = {};
+			} else if (updates.fontStyle !== undefined) {
+				updates.fontVariationSettings = {
+					...(style.fontVariationSettings ??
+						this.editState?.textElement.defaultStyle.fontVariationSettings),
+					...updates.fontVariationSettings,
+				};
+				delete updates.fontVariationSettings.ital;
+			}
+			return updates;
+		});
+	}
+
+	/** Change only the requested coordinate in each selected run. */
+	public changeSelectionFontVariation(tag: string, value: number | null): void {
+		this.mapSelectionStyle((style) => {
+			const effectiveStyle = {
+				...this.editState?.textElement.defaultStyle,
+				...style,
+			};
+			const axes = getFontManager().getVariationAxes(effectiveStyle.fontSource);
+			return axes ? updateFontVariation(effectiveStyle, axes, tag, value) : {};
+		});
+	}
+
+	/** Report effective per-axis values; undefined coordinates are mixed. */
+	public getSelectionFontVariations(): {
+		fontSource: FontSource | null;
+		values: Record<string, number | undefined>;
+	} | null {
+		const styles = this.getSelectionStyles();
+		if (styles.length === 0) return null;
+		const source = styles[0].fontSource;
+		if (!styles.every((style) => deepEqual(style.fontSource, source))) {
+			return { fontSource: null, values: {} };
+		}
+		const axes = getFontManager().getVariationAxes(source) ?? {};
+		const coordinates = styles.map((style) =>
+			resolveFontVariations(style, axes),
+		);
+		const values: Record<string, number | undefined> = { ...coordinates[0] };
+		for (const tag of Object.keys(values)) {
+			if (!coordinates.every((value) => value[tag] === values[tag]))
+				values[tag] = undefined;
+		}
+		return { fontSource: source, values };
+	}
+
+	private mapSelectionStyle(
+		mapStyle: (style: TextStyle) => Partial<TextStyle>,
+	): void {
 		if (!this.editState || this.editState.isComposing) return;
 		if (!this.editState.selectionRange) {
 			// No selection: stage the style for the characters typed next
-			this.pendingCaretStyle = { ...this.pendingCaretStyle, ...styleUpdates };
+			const style = this.getSelectionStyles()[0];
+			if (!style) return;
+			this.pendingCaretStyle = {
+				...this.pendingCaretStyle,
+				...mapStyle(style),
+			};
 			this.notifySelectionStyleChange();
 			return;
 		}
@@ -3192,7 +3256,7 @@ export class TextTool implements Tool {
 		const origStartAbs = this.getAbsoluteCharIndex(selectionRange.start);
 		const origEndAbs = this.getAbsoluteCharIndex(selectionRange.end);
 
-		this.mapStyleInRange(start, end, () => styleUpdates);
+		this.mapStyleInRange(start, end, mapStyle);
 
 		// Recompute the selection (keeping its original direction) AND the
 		// cursor from absolute indices: run split/merge shifts run indices,
@@ -3332,7 +3396,26 @@ export class TextTool implements Tool {
 	 * 選択範囲の共通スタイルを取得
 	 */
 	private getSelectionStyle(): Partial<TextStyle> | null {
-		if (!this.editState) return null;
+		const styles = this.getSelectionStyles();
+		if (styles.length === 0) return null;
+
+		// 共通値を計算
+		const result: Partial<TextStyle> = { ...styles[0] };
+		const keys = Object.keys(result) as (keyof TextStyle)[];
+		for (const key of keys) {
+			for (let i = 1; i < styles.length; i++) {
+				if (!deepEqual(styles[i][key], result[key])) {
+					delete result[key];
+					break;
+				}
+			}
+		}
+
+		return result;
+	}
+
+	private getSelectionStyles(): TextStyle[] {
+		if (!this.editState) return [];
 		if (!this.editState.selectionRange) {
 			// Caret only: report the style at the caret (with any staged style
 			// on top) so pickers reflect what typing would produce
@@ -3341,8 +3424,14 @@ export class TextTool implements Tool {
 				textElement.content.paragraphs[cursorPosition.paragraph]?.runs[
 					cursorPosition.run
 				];
-			if (!run && !this.pendingCaretStyle) return null;
-			return { ...run?.style, ...this.pendingCaretStyle };
+			if (!run && !this.pendingCaretStyle) return [];
+			return [
+				{
+					...textElement.defaultStyle,
+					...run?.style,
+					...this.pendingCaretStyle,
+				},
+			];
 		}
 
 		const { selectionRange, textElement } = this.editState;
@@ -3364,26 +3453,12 @@ export class TextTool implements Tool {
 					p === end.paragraph && r === end.run ? end.char : run.text.length;
 				// 空範囲は無視
 				if (charStart < charEnd) {
-					styles.push(run.style);
+					styles.push({ ...textElement.defaultStyle, ...run.style });
 				}
 			}
 		}
 
-		if (styles.length === 0) return null;
-
-		// 共通値を計算
-		const result: Partial<TextStyle> = { ...styles[0] };
-		const keys = Object.keys(result) as (keyof TextStyle)[];
-		for (const key of keys) {
-			for (let i = 1; i < styles.length; i++) {
-				if (!deepEqual(styles[i][key], result[key])) {
-					delete result[key];
-					break;
-				}
-			}
-		}
-
-		return result;
+		return styles;
 	}
 
 	/**
@@ -3597,6 +3672,16 @@ function textStyleToCss(style: TextStyle): string {
 		`font-weight: ${style.fontWeight}`,
 		`font-style: ${style.fontStyle}`,
 	];
+	const variations = Object.entries(style.fontVariationSettings ?? {})
+		.filter(
+			([tag, value]) =>
+				/^[A-Za-z0-9]{4}$/.test(tag) &&
+				tag !== "wght" &&
+				Number.isFinite(value),
+		)
+		.map(([tag, value]) => `&quot;${tag}&quot; ${value}`);
+	if (variations.length > 0)
+		parts.push(`font-variation-settings: ${variations.join(", ")}`);
 	if (style.letterSpacing) {
 		parts.push(`letter-spacing: ${style.letterSpacing}em`);
 	}
@@ -3711,6 +3796,7 @@ function areStylesEqual(a: TextStyle, b: TextStyle): boolean {
 		a.letterSpacing === b.letterSpacing &&
 		a.baselineShift === b.baselineShift &&
 		deepEqual(a.fontSource, b.fontSource) &&
+		deepEqual(a.fontVariationSettings, b.fontVariationSettings) &&
 		deepEqual(a.fill, b.fill) &&
 		deepEqual(a.stroke, b.stroke) &&
 		a.strokeWidth === b.strokeWidth &&

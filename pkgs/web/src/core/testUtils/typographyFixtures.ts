@@ -29,6 +29,7 @@ export function createMockFontManager(): FontManager {
 	return {
 		loadFont: async () => font,
 		getLoadedFont: () => font,
+		resolveFontForStyle: (loaded: LoadedFont) => loaded,
 		shapeText: (_font: unknown, text: string) =>
 			[...text].map((char, index) => ({
 				char,

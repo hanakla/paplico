@@ -455,6 +455,8 @@ export class TextLayoutEngine {
 					font = await this.fontManager.getFallbackFont();
 					fontMissing = true;
 				}
+				if (!fontMissing)
+					font = this.fontManager.resolveFontForStyle(font, runStyle);
 				const fontSize = runStyle.fontSize;
 
 				// 行の高さを更新（グリフの有無に関わらずRunごとに反映する）
@@ -1622,6 +1624,8 @@ export class TextLayoutEngine {
 					font = await this.fontManager.getFallbackFont();
 					fontMissing = true;
 				}
+				if (!fontMissing)
+					font = this.fontManager.resolveFontForStyle(font, runStyle);
 				const fontSize = runStyle.fontSize;
 
 				// 列の幅を更新
