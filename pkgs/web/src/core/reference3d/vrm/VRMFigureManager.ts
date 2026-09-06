@@ -1,9 +1,11 @@
 import {
+	MToonMaterialLoaderPlugin,
 	type VRM,
 	VRMHumanBoneName,
 	VRMLoaderPlugin,
 	VRMUtils,
 } from "@pixiv/three-vrm";
+import { MToonNodeMaterial } from "@pixiv/three-vrm/nodes";
 import type * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import type { Vec3 } from "../../schema";
@@ -150,7 +152,15 @@ export class VRMFigureManager {
 
 async function parseVrm(bytes: Uint8Array): Promise<VRM | null> {
 	const loader = new GLTFLoader();
-	loader.register((parser) => new VRMLoaderPlugin(parser));
+	loader.register(
+		(parser) =>
+			new VRMLoaderPlugin(parser, {
+				// The WebGPU renderer only accepts node materials.
+				mtoonMaterialPlugin: new MToonMaterialLoaderPlugin(parser, {
+					materialType: MToonNodeMaterial,
+				}),
+			}),
+	);
 
 	// Detached copy: parse() transfers/reads the buffer and Yjs must not see
 	// any mutation of the stored bytes.

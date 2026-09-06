@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { localAppearances } from "../../document/appearancePresets";
 import {
 	createIdentityTransform,
 	createStrokeBrushSettings,
@@ -321,13 +322,13 @@ describe("createCompoundPathRenderPath", () => {
 			true,
 		);
 
-		const renderStroke = renderPath.filters?.find(
+		const renderStroke = localAppearances(renderPath.filters).find(
 			(f) => f.processor === "stroke",
 		) as StrokeAppearance | undefined;
 		const renderFill = (
-			renderPath.filters?.find((f) => f.processor === "fill") as
-				| FillAppearance
-				| undefined
+			localAppearances(renderPath.filters).find(
+				(f) => f.processor === "fill",
+			) as FillAppearance | undefined
 		)?.paramData.params.fill;
 		expect(renderStroke).toBeUndefined();
 		expect(renderFill).toEqual({
@@ -347,21 +348,21 @@ describe("createCompoundPathRenderPath", () => {
 			"main",
 		);
 
-		const renderStroke = renderPath.filters?.find(
+		const renderStroke = localAppearances(renderPath.filters).find(
 			(f) => f.processor === "stroke",
 		) as StrokeAppearance | undefined;
 		const renderFill = (
-			renderPath.filters?.find((f) => f.processor === "fill") as
-				| FillAppearance
-				| undefined
+			localAppearances(renderPath.filters).find(
+				(f) => f.processor === "fill",
+			) as FillAppearance | undefined
 		)?.paramData.params.fill;
-		const cpStroke = compoundPath.filters?.find(
+		const cpStroke = localAppearances(compoundPath.filters).find(
 			(f) => f.processor === "stroke",
 		) as StrokeAppearance | undefined;
 		const cpFill = (
-			compoundPath.filters?.find((f) => f.processor === "fill") as
-				| FillAppearance
-				| undefined
+			localAppearances(compoundPath.filters).find(
+				(f) => f.processor === "fill",
+			) as FillAppearance | undefined
 		)?.paramData.params.fill;
 		expect(renderStroke?.paramData.params.strokeColor).toEqual(
 			cpStroke?.paramData.params.strokeColor,

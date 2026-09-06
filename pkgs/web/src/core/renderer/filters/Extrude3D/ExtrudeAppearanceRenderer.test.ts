@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { localAppearances } from "../../../document/appearancePresets";
 import type {
 	AnyArtObject,
 	BezierPoint,
@@ -125,7 +126,7 @@ describe("ExtrudeMeshBaker", () => {
 				set: (uid: string, entry: AppearanceCacheEntry) =>
 					appearanceCache.set(el.id, uid, entry),
 			};
-			for (const app of (el.filters ?? []).filter(
+			for (const app of localAppearances(el.filters).filter(
 				(f) => f.processor === "extrude3d" && f.enabled !== false,
 			)) {
 				const entry = baker.bakeAppearance(
@@ -218,7 +219,7 @@ describe("ExtrudeMeshBaker", () => {
 						appearanceCache.pruneInstances(path.id, baseUid, liveCount),
 				},
 			},
-			path.filters![0],
+			localAppearances(path.filters)[0],
 		);
 
 		const frameCopyCall = texturePool.acquire.mock.calls.find(
@@ -331,7 +332,10 @@ describe("ExtrudeMeshBaker", () => {
 		expect(getEntry("path-1", "app-1")).toBe(null);
 
 		const disabled = pathWithExtrude(20, 0);
-		disabled.filters![0] = { ...disabled.filters![0], enabled: false };
+		disabled.filters![0] = {
+			...localAppearances(disabled.filters)[0],
+			enabled: false,
+		};
 		bake(toMap(disabled), 1);
 		expect(getEntry("path-1", "app-1")).toBe(null);
 		expect(meshBufferCount(device)).toBe(0);
@@ -398,11 +402,13 @@ describe("ExtrudeMeshBaker", () => {
 			expect(renderElementToTexture).toHaveBeenCalledTimes(1);
 			const tempEl = renderElementToTexture.mock.calls[0][1] as AnyArtObject;
 			expect(tempEl.type).toBe("group");
-			expect((tempEl.filters ?? []).some((f) => f.processor === "fill")).toBe(
-				true,
-			);
 			expect(
-				(tempEl.filters ?? []).some((f) => f.processor === "extrude3d"),
+				localAppearances(tempEl.filters).some((f) => f.processor === "fill"),
+			).toBe(true);
+			expect(
+				localAppearances(tempEl.filters).some(
+					(f) => f.processor === "extrude3d",
+				),
 			).toBe(false);
 		});
 
@@ -422,7 +428,9 @@ describe("ExtrudeMeshBaker", () => {
 			expect(tempEl.id).toBe("group-1");
 			expect(tempEl.transform).toEqual(group.transform);
 			expect(
-				(tempEl.filters ?? []).some((f) => f.processor === "extrude3d"),
+				localAppearances(tempEl.filters).some(
+					(f) => f.processor === "extrude3d",
+				),
 			).toBe(false);
 		});
 
@@ -787,7 +795,9 @@ describe("ExtrudeMeshBaker", () => {
 			expect(tempEl.type).toBe("blend");
 			// The temp blend must not re-run the extrude filter on itself.
 			expect(
-				(tempEl.filters ?? []).some((f) => f.processor === "extrude3d"),
+				localAppearances(tempEl.filters).some(
+					(f) => f.processor === "extrude3d",
+				),
 			).toBe(false);
 		});
 
@@ -854,7 +864,10 @@ describe("ExtrudeMeshBaker", () => {
 				geometry,
 			};
 
-			const result = handler.postProcess(ctx, blend.filters![0] as Filter);
+			const result = handler.postProcess(
+				ctx,
+				localAppearances(blend.filters)[0] as Filter,
+			);
 
 			expect(Array.isArray(result)).toBe(true);
 			const results = result as unknown[];
@@ -939,7 +952,7 @@ describe("ExtrudeMeshBaker", () => {
 				geometry,
 			};
 
-			handler.postProcess(ctx, blend.filters![0] as Filter);
+			handler.postProcess(ctx, localAppearances(blend.filters)[0] as Filter);
 
 			// Bake order is the blit z-order (later = on top). renderOrder
 			// ["key-b","key-a"] → key-b cell first (depth 50, no trailing
@@ -1021,7 +1034,9 @@ describe("ExtrudeMeshBaker", () => {
 			expect(renderElementToTexture).toHaveBeenCalledTimes(1);
 			const tempEl = renderElementToTexture.mock.calls[0][1] as Path;
 			expect(tempEl.type).toBe("path");
-			expect(tempEl.filters!.map((f) => f.processor)).toContain("fill");
+			expect(
+				localAppearances(tempEl.filters).map((f) => f.processor),
+			).toContain("fill");
 		});
 	});
 
@@ -1036,7 +1051,7 @@ describe("ExtrudeMeshBaker", () => {
 			const tempEl = renderElementToTexture.mock.calls[0][1] as Path;
 			expect(tempEl.type).toBe("path");
 			expect(tempEl.filters).toHaveLength(1);
-			expect(tempEl.filters![0].processor).toBe("fill");
+			expect(localAppearances(tempEl.filters)[0].processor).toBe("fill");
 			// The baked texture is released with the color texture (depth is
 			// MeshPassRenderer's own internal scratch).
 			releaseFrame((tex) => released.push(tex));
@@ -1082,7 +1097,9 @@ describe("ExtrudeMeshBaker", () => {
 			expect(renderElementToTexture).toHaveBeenCalledTimes(1);
 			const tempEl = renderElementToTexture.mock.calls[0][1] as Path;
 			expect(tempEl.type).toBe("path");
-			expect(tempEl.filters!.map((f) => f.processor)).toContain("fill");
+			expect(
+				localAppearances(tempEl.filters).map((f) => f.processor),
+			).toContain("fill");
 		});
 	});
 
@@ -1104,7 +1121,7 @@ describe("ExtrudeMeshBaker", () => {
 
 			expect(renderElementToTexture).toHaveBeenCalledTimes(1);
 			const tempEl = renderElementToTexture.mock.calls[0][1] as Path;
-			expect(tempEl.filters!.map((f) => f.processor)).toEqual([
+			expect(localAppearances(tempEl.filters).map((f) => f.processor)).toEqual([
 				"fill",
 				"stroke",
 			]);
@@ -1598,7 +1615,7 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 				clipPathId: "clip-a",
 				filters: [
 					{
-						...baseGroup.filters![0],
+						...localAppearances(baseGroup.filters)[0],
 						paramData: {
 							version: "1",
 							params: {
@@ -1692,7 +1709,10 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 				}) as unknown as AnyArtObject;
 				return {
 					...path,
-					filters: [...(path.filters ?? []), appearance("drop-shadow")],
+					filters: [
+						...localAppearances(path.filters),
+						appearance("drop-shadow"),
+					],
 				} as AnyArtObject;
 			}
 
@@ -1731,7 +1751,7 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 				const stacked = {
 					...path,
 					filters: [
-						...(path.filters ?? []),
+						...localAppearances(path.filters),
 						{ ...appearance("drop-shadow"), uid: "drop-shadow-2" },
 					],
 				} as unknown as AnyArtObject;
@@ -1786,7 +1806,10 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 				}) as unknown as AnyArtObject;
 				const opaqueWithShadow = {
 					...opaque,
-					filters: [...(opaque.filters ?? []), appearance("drop-shadow")],
+					filters: [
+						...localAppearances(opaque.filters),
+						appearance("drop-shadow"),
+					],
 				} as AnyArtObject;
 
 				renderer.prepareFrame(
@@ -1996,7 +2019,10 @@ describe("hasEnabledSolidAppearance", () => {
 
 	it("should ignore a disabled appearance, another processor, or none", () => {
 		const disabled = pathWithExtrude(20, 0);
-		disabled.filters![0] = { ...disabled.filters![0], enabled: false };
+		disabled.filters![0] = {
+			...localAppearances(disabled.filters)[0],
+			enabled: false,
+		};
 		expect(hasEnabledSolidAppearance(disabled, "extrude3d")).toBe(false);
 		expect(hasEnabledSolidAppearance(pathWithExtrude(20, 0), "revolve3d")).toBe(
 			false,

@@ -220,7 +220,7 @@ export class Reference3DElementRenderer {
 
 		const promise = (async () => {
 			try {
-				const bitmap = await service.renderScene({
+				const pixels = await service.renderScene({
 					sceneId: def.id,
 					nodes: def.nodes,
 					camera: element.camera,
@@ -233,29 +233,26 @@ export class Reference3DElementRenderer {
 					getFileBytes: (fileUid) =>
 						files.find((file) => file.uid === fileUid)?.bin ?? null,
 				});
-				try {
-					const texture = this.deps.device.createTexture({
-						label: `Reference3D Texture: ${element.id}`,
-						size: { width: bitmap.width, height: bitmap.height },
-						format: "rgba8unorm",
-						usage:
-							GPUTextureUsage.TEXTURE_BINDING |
-							GPUTextureUsage.COPY_DST |
-							GPUTextureUsage.RENDER_ATTACHMENT,
-					});
-					// Same premultiplied-alpha convention as ImageElementRenderer:
-					// the blit pipeline blends with srcFactor "one".
-					this.deps.device.queue.copyExternalImageToTexture(
-						{ source: bitmap },
-						{ texture, premultipliedAlpha: true },
-						{ width: bitmap.width, height: bitmap.height },
-					);
-					cache.get(element.id)?.texture.destroy();
-					cache.set(element.id, { texture, hash });
-					this.deps.assetState.onRequestRender?.();
-				} finally {
-					bitmap.close();
-				}
+				const texture = this.deps.device.createTexture({
+					label: `Reference3D Texture: ${element.id}`,
+					size: { width: pixels.width, height: pixels.height },
+					format: "rgba8unorm",
+					usage:
+						GPUTextureUsage.TEXTURE_BINDING |
+						GPUTextureUsage.COPY_DST |
+						GPUTextureUsage.RENDER_ATTACHMENT,
+				});
+				// The scene pixels are already premultiplied — the same convention
+				// as ImageElementRenderer, whose blit pipeline blends with srcFactor "one".
+				this.deps.device.queue.writeTexture(
+					{ texture },
+					pixels.data,
+					{ bytesPerRow: pixels.width * 4 },
+					{ width: pixels.width, height: pixels.height },
+				);
+				cache.get(element.id)?.texture.destroy();
+				cache.set(element.id, { texture, hash });
+				this.deps.assetState.onRequestRender?.();
 			} catch (error) {
 				console.error(
 					`Failed to render reference3d element: ${element.id}`,

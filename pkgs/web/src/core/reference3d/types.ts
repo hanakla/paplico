@@ -27,6 +27,13 @@ export interface Reference3DRenderRequest {
 	getFileBytes?: Reference3DFileResolver;
 }
 
+/** Rendered scene view: premultiplied RGBA8, rows top-down, no row padding. */
+export interface Reference3DScenePixels {
+	width: number;
+	height: number;
+	data: Uint8Array;
+}
+
 /** Inputs for picking a scene node through a camera view. */
 export interface Reference3DRaycastRequest {
 	sceneId: string;
@@ -46,16 +53,15 @@ export interface Reference3DRaycastRequest {
  * stay off the heavy chunk and are tested against fakes of this interface.
  */
 export interface Reference3DServiceApi {
-	/**
-	 * Render a scene view and hand back the pixels. The returned bitmap is
-	 * owned by the caller (close() it after upload).
-	 */
-	renderScene(request: Reference3DRenderRequest): Promise<ImageBitmap>;
+	/** Render a scene view and hand back its pixels. */
+	renderScene(
+		request: Reference3DRenderRequest,
+	): Promise<Reference3DScenePixels>;
 	/** Pick the front-most scene node under an NDC point, or null. */
 	raycastNode(request: Reference3DRaycastRequest): string | null;
 	/**
-	 * Monotonic GL-context-loss epoch. Included in texture hashes so a lost /
-	 * restored WebGL context invalidates every cached Reference3D texture.
+	 * Monotonic GPU-device-loss epoch. Included in texture hashes so a lost
+	 * device invalidates every cached Reference3D texture.
 	 */
 	getContextEpoch(): number;
 	/**

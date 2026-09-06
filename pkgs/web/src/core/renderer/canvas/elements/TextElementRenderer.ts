@@ -1,3 +1,4 @@
+import { localAppearances } from "../../../document/appearancePresets";
 import {
 	createIdentityTransform,
 	createStrokeBrushSettings,
@@ -150,7 +151,7 @@ export class TextElementRenderer {
 		const defaultBrushWidth =
 			paintStyle.strokeWidth ?? Math.max(1, paintStyle.fontSize * 0.03);
 
-		const geometryFilters = (element.filters ?? []).filter(
+		const geometryFilters = localAppearances(element.filters).filter(
 			(f) =>
 				f.processor !== "fill" &&
 				f.processor !== "stroke" &&
@@ -183,8 +184,8 @@ export class TextElementRenderer {
 
 		const glyphPaints = paths.map((path) =>
 			buildGlyphPaintFilters({
-				elementFilters: element.filters,
-				glyphFilters: path.filters,
+				elementFilters: localAppearances(element.filters),
+				glyphFilters: localAppearances(path.filters),
 				defaultFill: paintStyle.fill ?? null,
 				defaultStroke: paintStyle.stroke ?? null,
 				defaultBrushWidth,
@@ -256,7 +257,7 @@ export class TextElementRenderer {
 		const axisPath = textRenderer?.getAxisPathObject?.(element);
 		if (!axisPath) return;
 
-		const filters = (axisPath.filters ?? []).filter(
+		const filters = localAppearances(axisPath.filters).filter(
 			(f) => f.enabled !== false && f.processor !== "content",
 		);
 		if (filters.length === 0) return;
@@ -319,8 +320,8 @@ export class TextElementRenderer {
 		return cached.paths.map((path) => ({
 			...path,
 			filters: buildGlyphPaintFilters({
-				elementFilters: element.filters,
-				glyphFilters: path.filters,
+				elementFilters: localAppearances(element.filters),
+				glyphFilters: localAppearances(path.filters),
 				defaultFill: paintStyle.fill ?? null,
 				defaultStroke: paintStyle.stroke ?? null,
 				defaultBrushWidth,

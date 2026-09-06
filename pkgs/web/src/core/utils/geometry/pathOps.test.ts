@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readStoredBrushSize } from "../../brush/access";
+import { localAppearances } from "../../document/appearancePresets";
 import { createIdentityTransform } from "../../document/factory";
 import type {
 	BezierPoint,
@@ -1387,7 +1388,9 @@ describe("splitPathAtAnchor", () => {
 		const [first, second] = result!;
 
 		const srcStroke = (
-			path.filters?.find((f) => f.processor === "stroke") as StrokeAppearance
+			localAppearances(path.filters).find(
+				(f) => f.processor === "stroke",
+			) as StrokeAppearance
 		).paramData.params;
 
 		for (const p of [first, second]) {
@@ -1395,7 +1398,9 @@ describe("splitPathAtAnchor", () => {
 			expect(p.blendMode).toBe(path.blendMode);
 
 			const stroke = (
-				p.filters?.find((f) => f.processor === "stroke") as StrokeAppearance
+				localAppearances(p.filters).find(
+					(f) => f.processor === "stroke",
+				) as StrokeAppearance
 			).paramData.params;
 			expect(readStoredBrushSize(stroke.brushSettings)).toBe(
 				readStoredBrushSize(srcStroke.brushSettings),

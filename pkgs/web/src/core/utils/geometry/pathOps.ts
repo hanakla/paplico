@@ -6,6 +6,7 @@
  */
 
 import polygonClipping from "polygon-clipping";
+import { localAppearances } from "../../document/appearancePresets";
 import {
 	type BezierPoint,
 	type CompoundPathSource,
@@ -118,7 +119,9 @@ function pathToPolygon(
 		return [];
 	}
 
-	const hasFill = path.filters?.some((f) => f.processor === "fill");
+	const hasFill = localAppearances(path.filters).some(
+		(f) => f.processor === "fill",
+	);
 	if (hasFill || isPathClosed(path.segments)) {
 		const ring: Ring = points.map((p) => [p.x, p.y]);
 		if (

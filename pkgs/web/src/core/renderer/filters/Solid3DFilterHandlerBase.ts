@@ -1,3 +1,4 @@
+import { localAppearances } from "../../document/appearancePresets";
 import { createIdentityTransform } from "../../document/factory";
 import {
 	type Color,
@@ -463,12 +464,15 @@ export abstract class Solid3DFilterHandlerBase implements FilterHandler {
 		filter: Filter,
 	): number {
 		const filterIndex =
-			element.filters?.findIndex((candidate) => candidate.uid === filter.uid) ??
-			-1;
+			localAppearances(element.filters).findIndex(
+				(candidate) => candidate.uid === filter.uid,
+			) ?? -1;
 		if (filterIndex < 0 || !this.filterRenderer) return 0;
 
 		let expansion = 0;
-		for (const downstream of (element.filters ?? []).slice(filterIndex + 1)) {
+		for (const downstream of localAppearances(element.filters).slice(
+			filterIndex + 1,
+		)) {
 			if (!isFilterEnabled(downstream)) continue;
 			const handler = this.filterRenderer.getHandler(downstream.processor);
 			if (!handler?.postProcess) continue;

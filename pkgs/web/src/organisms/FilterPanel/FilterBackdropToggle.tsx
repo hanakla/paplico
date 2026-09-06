@@ -6,6 +6,7 @@ import { usePaplico } from "@/contexts/PaplicoContext";
 import type { Filter } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
+import { useFilterStack } from "./FilterStackContext";
 
 /**
  * Common "apply to layers below" toggle shown at the top-left of a filter's
@@ -22,10 +23,11 @@ export const FilterBackdropToggle = memo(function FilterBackdropToggle({
 	filterIndex: number;
 }) {
 	const paplico = usePaplico();
+	const stack = useFilterStack();
 	const t = useTranslation();
 
 	const handleToggle = useEventCallback(() => {
-		paplico.commands.updateFilterForSelectedElement(filterIndex, {
+		stack.updateFilter(filterIndex, {
 			applyToBackdrop: !(filter.applyToBackdrop ?? false),
 		});
 	});

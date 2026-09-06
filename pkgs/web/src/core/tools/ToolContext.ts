@@ -125,6 +125,12 @@ export type ToolContextOptions = {
 	isCurrentLayerLocked: () => boolean;
 	isReadonly: () => boolean;
 	getElement: (elementId: string) => AnyArtObject | null;
+	/**
+	 * Copy of `element` with appearance preset refs expanded into concrete
+	 * filters (same reference when it has none). Read-only: never write the
+	 * resolved copy back, or the refs would be lost.
+	 */
+	resolveElementAppearance: <T extends AnyArtObject>(element: T) => T;
 	getBounds: (elementId: string) => WorldBBox | null;
 	/** World-space outline segments as drawn (blend-aware); null for non-paths. */
 	getElementWorldSegments: (elementId: string) => WorldBezierSegment[] | null;

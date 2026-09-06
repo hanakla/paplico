@@ -55,8 +55,16 @@ export default defineConfig({
 		],
 	},
 	resolve: {
-		alias: {
-			"@": path.resolve(__dirname, "./src"),
-		},
+		alias: [
+			{ find: "@", replacement: path.resolve(__dirname, "./src") },
+			// Same dedupe as next.config.ts: one three.js build for everything.
+			{
+				find: /^three$/,
+				replacement: path.resolve(
+					__dirname,
+					"./src/stubs/three-webgpu-compat.ts",
+				),
+			},
+		],
 	},
 });

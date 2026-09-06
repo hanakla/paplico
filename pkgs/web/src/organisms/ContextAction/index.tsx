@@ -13,6 +13,7 @@ import {
 	usePaplicoStore,
 } from "@/contexts/PaplicoContext";
 import { useTargetViewport } from "@/contexts/ViewIdContext";
+import { localAppearances } from "@/core/document/appearancePresets";
 import { getArtboardBounds } from "@/core/schema";
 import { worldToScreen } from "@/core/utils/geometry/geometry";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
@@ -119,7 +120,7 @@ function ContextActionsOverlayInner({
 	const hasFillOrStrokeInSelection =
 		!isReference3DNodeContext &&
 		selectedElements.some((el) =>
-			el.filters?.some(
+			localAppearances(el.filters).some(
 				(f) => f.processor === "fill" || f.processor === "stroke",
 			),
 		);

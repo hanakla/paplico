@@ -1,3 +1,4 @@
+import { localAppearances } from "../../../document/appearancePresets";
 import type { FilterRenderer } from "../../../renderer/canvas/pipeline/FilterRenderer";
 import { resolveElementGeometry } from "../../../renderer/canvas/pipeline/PreFilterRenderer";
 import {
@@ -184,7 +185,7 @@ async function serializePathLike(
 ): Promise<SvgNode | null> {
 	const geometry = resolveElementGeometry(
 		localSegments,
-		element.filters,
+		localAppearances(element.filters),
 		ctx.filterResolver,
 	);
 	if (geometry.length === 0) return null;
@@ -222,7 +223,7 @@ async function serializePathLike(
 
 	const elementAlpha = element.opacity;
 	const shapes: SvgNode[] = [];
-	for (const filter of element.filters ?? []) {
+	for (const filter of localAppearances(element.filters)) {
 		if (!isFilterEnabled(filter)) continue;
 		if (filter.processor === "fill") {
 			const fillAppearance = filter as FillAppearance;
@@ -420,7 +421,7 @@ async function collectClipPathData(
 	): string | null => {
 		const geometry = resolveElementGeometry(
 			localSegments,
-			clipSource.filters,
+			localAppearances(clipSource.filters),
 			ctx.filterResolver,
 		);
 		if (geometry.length === 0) return null;
@@ -907,7 +908,7 @@ function segmentsBoundsCenter(
 /** Widest visible stroke of the element, as the geometry-bounds cull margin. */
 function maxStrokeWidth(element: AnyArtObject): number {
 	let width = 0;
-	for (const filter of element.filters ?? []) {
+	for (const filter of localAppearances(element.filters)) {
 		if (!isFilterEnabled(filter)) continue;
 		if (filter.processor !== "stroke") continue;
 		if (!isVisibleStroke(filter as StrokeAppearance)) continue;

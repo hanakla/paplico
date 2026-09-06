@@ -2497,6 +2497,23 @@ export class TextTool implements Tool {
 		) {
 			this.options.textDelete?.(this.editState.textElement.id);
 		} else {
+			// A style picked with no selection is staged on pendingCaretStyle
+			// for the next typed character. If nothing was typed, flush it
+			// into the (still empty) run and defaultStyle so it isn't lost.
+			if (this.pendingCaretStyle) {
+				const { textElement, cursorPosition } = this.editState;
+				const run =
+					textElement.content.paragraphs[cursorPosition.paragraph]?.runs[
+						cursorPosition.run
+					];
+				if (run && run.text === "") {
+					run.style = { ...run.style, ...this.pendingCaretStyle };
+				}
+				textElement.defaultStyle = {
+					...textElement.defaultStyle,
+					...this.pendingCaretStyle,
+				};
+			}
 			this.options.textComplete?.(this.editState.textElement);
 		}
 
@@ -3370,20 +3387,6 @@ export class TextTool implements Tool {
 	}
 
 	/**
-	 * カーソル位置のRunスタイルを取得
-	 */
-	public getCursorRunStyle(): TextStyle | null {
-		if (!this.editState) return null;
-
-		const { cursorPosition, textElement } = this.editState;
-		const paragraph = textElement.content.paragraphs[cursorPosition.paragraph];
-		if (!paragraph) return null;
-
-		const run = paragraph.runs[cursorPosition.run];
-		return run?.style ?? null;
-	}
-
-	/**
 	 * 選択範囲内の全文字に対して処理を実行
 	 */
 	private forEachCharInSelection(
@@ -3498,9 +3501,10 @@ export class TextTool implements Tool {
 	 * 選択スタイル変更をコールバック通知
 	 */
 	private notifySelectionStyleChange(): void {
-		const style = this.editState?.selectionRange
-			? this.getSelectionStyle()
-			: this.getCursorRunStyle();
+		// getSelectionStyle() already covers both cases: the common style
+		// across a selection, or the caret's run style with any staged
+		// pendingCaretStyle merged on top when there is no selection.
+		const style = this.getSelectionStyle();
 		const hasSelection = !!this.editState?.selectionRange;
 		this.options.selectionStyleChange?.(style, hasSelection);
 	}

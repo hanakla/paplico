@@ -7,6 +7,7 @@
 
 import type {
 	AnyArtObject,
+	AppearancePreset,
 	Artboard,
 	BrushPreset,
 	ColorProfileSettings,
@@ -156,6 +157,8 @@ export type MetaPayload = {
 		viewport: Viewport;
 		artboards: Artboard[];
 		brushPresets: BrushPreset[];
+		/** Optional for backward compatibility — readers default to `[]`. */
+		appearancePresets?: AppearancePreset[];
 		hdr?: HdrSettings;
 		colorProfile?: ColorProfileSettings;
 		rasterizationDpi?: number;

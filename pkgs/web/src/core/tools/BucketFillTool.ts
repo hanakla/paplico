@@ -11,6 +11,7 @@ import {
 	type FillColor,
 	generateUid,
 	getArtboardBounds,
+	isAppearancePresetRef,
 	type Path,
 	type PathSegment,
 	type Viewport,
@@ -483,7 +484,7 @@ export class BucketFillTool implements Tool {
 
 			// Update FillAppearance in filters with the confirmed fill color
 			const updatedFilters = (a.cachedPath.filters ?? []).map((f) => {
-				if (f.processor === "fill") {
+				if (!isAppearancePresetRef(f) && f.processor === "fill") {
 					return {
 						...f,
 						paramData: {

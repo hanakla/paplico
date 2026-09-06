@@ -1,3 +1,4 @@
+import { localAppearances } from "../../document/appearancePresets";
 import type { BrushSettings, Document, StrokeAppearance } from "../../schema";
 import type { Migration } from "./index";
 
@@ -54,7 +55,7 @@ export const migBrushSettings: Migration = {
 			let widthApplied = false;
 
 			if (element.filters) {
-				for (const filter of element.filters) {
+				for (const filter of localAppearances(element.filters)) {
 					if (filter.processor !== "stroke") continue;
 					const stroke = filter as StrokeAppearance;
 

@@ -1,11 +1,12 @@
 import { nanoid } from "nanoid";
+import { localAppearances } from "../../document/appearancePresets";
 import {
 	type ArtObject,
 	type BrushSettings,
 	type Document,
 	type FillAppearance,
 	type FillColor,
-	type Filter,
+	type FilterEntry,
 	generateUid,
 	type StrokeAppearance,
 	type StrokeColor,
@@ -63,11 +64,12 @@ function migrateElement(element: LegacyElement): void {
 
 	if (!hasLegacyFill && !hasLegacyStroke) return;
 
-	const filters: Filter[] = element.filters ? [...element.filters] : [];
+	const filters: FilterEntry[] = element.filters ? [...element.filters] : [];
 
 	// Skip if already has appearance filters
-	const hasFillFilter = filters.some((f) => f.processor === "fill");
-	const hasStrokeFilter = filters.some((f) => f.processor === "stroke");
+	const local = localAppearances(filters);
+	const hasFillFilter = local.some((f) => f.processor === "fill");
+	const hasStrokeFilter = local.some((f) => f.processor === "stroke");
 
 	if (hasLegacyFill && !hasFillFilter) {
 		const fillApp: FillAppearance = {

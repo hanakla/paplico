@@ -1,3 +1,4 @@
+import { localAppearances } from "../../document/appearancePresets";
 import {
 	createIdentityTransform,
 	createStrokeBrushSettings,
@@ -282,21 +283,23 @@ export function createCompoundPathRenderPath(
 	isMaskRender = false,
 ): Path {
 	const cpFill = (
-		compoundPath.filters?.find(
+		localAppearances(compoundPath.filters).find(
 			(f) => f.processor === "fill" && f.enabled !== false,
 		) as FillAppearance | undefined
 	)?.paramData.params.fill;
-	const cpStroke = compoundPath.filters?.find(
+	const cpStroke = localAppearances(compoundPath.filters).find(
 		(f) => f.processor === "stroke" && f.enabled !== false,
 	) as StrokeAppearance | undefined;
-	const baseStroke = baseSourcePath?.filters?.find(
+	const baseStroke = localAppearances(baseSourcePath?.filters).find(
 		(f) => f.processor === "stroke" && f.enabled !== false,
 	) as StrokeAppearance | undefined;
 
 	const brushSettings =
 		cpStroke?.paramData.params.brushSettings ??
 		baseStroke?.paramData.params.brushSettings ??
-		createStrokeBrushSettings(getStrokeWidth(compoundPath.filters));
+		createStrokeBrushSettings(
+			getStrokeWidth(localAppearances(compoundPath.filters)),
+		);
 
 	const strokeColor = isMaskRender
 		? undefined

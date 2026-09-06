@@ -189,6 +189,7 @@ type MetaPayload = {
     viewport: Viewport;
     artboards: Artboard[];
     brushPresets: BrushPreset[];
+    appearancePresets?: AppearancePreset[];
     hdr?: HdrSettings;
     colorProfile?: ColorProfileSettings;
     rasterizationDpi?: number;
@@ -216,7 +217,7 @@ type MetaPayload = {
 
 `document.files` のバイナリは FILE セクションへ、`document.timelapse` は TMLH/TMLB セクションへ分離されるため、META には含まれない。
 
-`hdr`、`colorProfile`、`rasterizationDpi`、`defs`、`references3d` は後方互換性のため任意フィールドである。`toDocument()` は `defs` と `references3d` が存在しない場合に空オブジェクトを補う。
+`hdr`、`colorProfile`、`rasterizationDpi`、`defs`、`references3d`、`appearancePresets` は後方互換性のため任意フィールドである。`toDocument()` は `defs` と `references3d` が存在しない場合に空オブジェクトを、`appearancePresets` が存在しない場合に空配列を補う。
 
 ### バージョニング
 

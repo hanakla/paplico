@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { localAppearances } from "../document/appearancePresets";
 import type {
 	FillAppearance,
 	Group,
@@ -175,9 +176,9 @@ describe("parseSvgToArtObjects – rect", () => {
 		expect(path.type).toBe("path");
 		expect(path.segments.length).toBeGreaterThan(0);
 
-		const fill = path.filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		) as FillAppearance | undefined;
 		expect(fill).toBeDefined();
 		expect(fill?.paramData.params.fill.type).toBe("solid");
 		if (fill?.paramData.params.fill.type === "solid") {
@@ -201,12 +202,14 @@ describe("parseSvgToArtObjects – circle", () => {
 		const id = result.topLevelIds[0];
 		const path = result.objects.get(id) as Path;
 		// fill="none" → no FillAppearance
-		const fill = path.filters?.find((f) => f.processor === "fill");
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		);
 		expect(fill).toBeUndefined();
 
-		const stroke = path.filters?.find((f) => f.processor === "stroke") as
-			| StrokeAppearance
-			| undefined;
+		const stroke = localAppearances(path.filters).find(
+			(f) => f.processor === "stroke",
+		) as StrokeAppearance | undefined;
 		expect(stroke).toBeDefined();
 		const sc = stroke?.paramData.params.strokeColor;
 		expect(sc?.type).toBe("solid");
@@ -234,9 +237,9 @@ describe("parseSvgToArtObjects – linearGradient fill", () => {
 		const id = result.topLevelIds[0];
 		const path = result.objects.get(id) as Path;
 
-		const fill = path.filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		) as FillAppearance | undefined;
 		expect(fill).toBeDefined();
 
 		const fillColor = fill?.paramData.params.fill;
@@ -272,9 +275,9 @@ describe("parseSvgToArtObjects – radialGradient fill", () => {
 		const id = result.topLevelIds[0];
 		const path = result.objects.get(id) as Path;
 
-		const fill = path.filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		) as FillAppearance | undefined;
 		expect(fill).toBeDefined();
 
 		const fillColor = fill?.paramData.params.fill;
@@ -311,9 +314,9 @@ describe("parseSvgToArtObjects – userSpaceOnUse gradient", () => {
 		);
 		expect(result.topLevelIds).toHaveLength(1);
 		const path = result.objects.get(result.topLevelIds[0]) as Path;
-		const fill = path.filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		) as FillAppearance | undefined;
 		const fillColor = fill?.paramData.params.fill;
 		expect(fillColor?.type).toBe("linear");
 		if (fillColor?.type !== "linear") return;
@@ -342,9 +345,9 @@ describe("parseSvgToArtObjects – userSpaceOnUse gradient", () => {
 			0,
 		);
 		const path = result.objects.get(result.topLevelIds[0]) as Path;
-		const fill = path.filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		) as FillAppearance | undefined;
 		const fillColor = fill?.paramData.params.fill;
 		expect(fillColor?.type).toBe("linear");
 		if (fillColor?.type !== "linear") return;
@@ -370,9 +373,9 @@ describe("parseSvgToArtObjects – userSpaceOnUse gradient", () => {
 			0,
 		);
 		const path = result.objects.get(result.topLevelIds[0]) as Path;
-		const fill = path.filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		) as FillAppearance | undefined;
 		const fillColor = fill?.paramData.params.fill;
 		expect(fillColor?.type).toBe("linear");
 		if (fillColor?.type !== "linear") return;
@@ -410,9 +413,9 @@ describe("parseSvgToArtObjects – <pattern> fill", () => {
 
 		expect(result.topLevelIds).toHaveLength(1);
 		const path = result.objects.get(result.topLevelIds[0]) as Path;
-		const fill = path.filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		) as FillAppearance | undefined;
 		expect(fill).toBeDefined();
 
 		const fillColor = fill?.paramData.params.fill;
@@ -438,7 +441,9 @@ describe("parseSvgToArtObjects – <pattern> fill", () => {
 		expect(result.defs).toHaveLength(0);
 		expect(result.topLevelIds).toHaveLength(1);
 		const path = result.objects.get(result.topLevelIds[0]) as Path;
-		const fill = path.filters?.find((f) => f.processor === "fill");
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		);
 		expect(fill).toBeUndefined();
 	});
 });
@@ -578,11 +583,11 @@ describe("parseSvgToArtObjects – nested <g>", () => {
 
 describe("parseSvgToArtObjects – inherited presentation attributes", () => {
 	const findFill = (path: Path) =>
-		path.filters?.find((f) => f.processor === "fill") as
+		localAppearances(path.filters).find((f) => f.processor === "fill") as
 			| FillAppearance
 			| undefined;
 	const findStroke = (path: Path) =>
-		path.filters?.find((f) => f.processor === "stroke") as
+		localAppearances(path.filters).find((f) => f.processor === "stroke") as
 			| StrokeAppearance
 			| undefined;
 
@@ -676,9 +681,9 @@ describe("parseSvgToArtObjects – CSS class fill resolution", () => {
 		const id = result.topLevelIds[0];
 		const path = result.objects.get(id) as Path;
 
-		const fill = path.filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		) as FillAppearance | undefined;
 		expect(fill).toBeDefined();
 		expect(fill?.paramData.params.fill.type).toBe("solid");
 		if (fill?.paramData.params.fill.type !== "solid") return;
@@ -702,10 +707,12 @@ describe("parseSvgToArtObjects – CSS class fill resolution", () => {
 		const id = result.topLevelIds[0];
 		const path = result.objects.get(id) as Path;
 
-		expect(path.filters?.find((f) => f.processor === "fill")).toBeUndefined();
-		const stroke = path.filters?.find((f) => f.processor === "stroke") as
-			| StrokeAppearance
-			| undefined;
+		expect(
+			localAppearances(path.filters).find((f) => f.processor === "fill"),
+		).toBeUndefined();
+		const stroke = localAppearances(path.filters).find(
+			(f) => f.processor === "stroke",
+		) as StrokeAppearance | undefined;
 		expect(stroke).toBeDefined();
 	});
 
@@ -722,9 +729,9 @@ describe("parseSvgToArtObjects – CSS class fill resolution", () => {
 		const id = result.topLevelIds[0];
 		const path = result.objects.get(id) as Path;
 
-		const fill = path.filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		) as FillAppearance | undefined;
 		expect(fill?.paramData.params.fill.type).toBe("solid");
 		if (fill?.paramData.params.fill.type !== "solid") return;
 		// inline style (#0000ff) wins over class (#ff0000)
@@ -747,9 +754,9 @@ describe("parseSvgToArtObjects – CSS class fill resolution", () => {
 		expect(result.topLevelIds).toHaveLength(2);
 		for (const id of result.topLevelIds) {
 			const path = result.objects.get(id) as Path;
-			const fill = path.filters?.find((f) => f.processor === "fill") as
-				| FillAppearance
-				| undefined;
+			const fill = localAppearances(path.filters).find(
+				(f) => f.processor === "fill",
+			) as FillAppearance | undefined;
 			expect(fill?.paramData.params.fill.type).toBe("solid");
 			if (fill?.paramData.params.fill.type !== "solid") continue;
 			const { color } = fill.paramData.params.fill;
@@ -1094,7 +1101,9 @@ describe("parseSvgToArtObjects – filter effects", () => {
 			0,
 		);
 		const path = result.objects.get(result.topLevelIds[0]) as Path;
-		const ds = path.filters?.find((f) => f.processor === "drop-shadow");
+		const ds = localAppearances(path.filters).find(
+			(f) => f.processor === "drop-shadow",
+		);
 		expect(ds).toMatchObject({
 			processor: "drop-shadow",
 			paramData: {
@@ -1119,7 +1128,9 @@ describe("parseSvgToArtObjects – filter effects", () => {
 			0,
 		);
 		const path = result.objects.get(result.topLevelIds[0]) as Path;
-		const blur = path.filters?.find((f) => f.processor === "blur");
+		const blur = localAppearances(path.filters).find(
+			(f) => f.processor === "blur",
+		);
 		expect(blur).toMatchObject({
 			processor: "blur",
 			paramData: { params: { radius: 7 } },
@@ -1144,9 +1155,9 @@ describe("parseSvgToArtObjects – patternTransform", () => {
 			0,
 		);
 		const path = result.objects.get(result.topLevelIds[0]) as Path;
-		const fill = path.filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fill = localAppearances(path.filters).find(
+			(f) => f.processor === "fill",
+		) as FillAppearance | undefined;
 		const fillColor = fill?.paramData.params.fill;
 		expect(fillColor?.type).toBe("pattern");
 		if (fillColor?.type !== "pattern") return;

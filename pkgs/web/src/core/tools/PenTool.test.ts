@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readStoredBrushSize } from "../brush/access";
+import { localAppearances } from "../document/appearancePresets";
 import { createStrokeBrushSettings } from "../document/factory";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
 import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
@@ -201,9 +202,9 @@ describe("PenTool", () => {
 			);
 
 			const path = completedPaths[0];
-			const strokeApp = path.filters?.find((f) => f.processor === "stroke") as
-				| StrokeAppearance
-				| undefined;
+			const strokeApp = localAppearances(path.filters).find(
+				(f) => f.processor === "stroke",
+			) as StrokeAppearance | undefined;
 			expect(strokeApp).toBeDefined();
 			const strokeColor = strokeApp?.paramData.params.strokeColor;
 			expect(strokeColor?.type).toBe("solid");
@@ -235,9 +236,9 @@ describe("PenTool", () => {
 			);
 
 			const path = completedPaths[0];
-			const strokeApp = path.filters?.find((f) => f.processor === "stroke") as
-				| StrokeAppearance
-				| undefined;
+			const strokeApp = localAppearances(path.filters).find(
+				(f) => f.processor === "stroke",
+			) as StrokeAppearance | undefined;
 			expect(
 				readStoredBrushSize(strokeApp?.paramData.params.brushSettings),
 			).toBe(2);
@@ -790,7 +791,7 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 		it("should keep the committed brush settings untouched", () => {
 			drawPressureStroke(toolWith(pressureBrushAppearance()));
 
-			const strokeApp = bakedPaths[0].filters?.find(
+			const strokeApp = localAppearances(bakedPaths[0].filters).find(
 				(f) => f.processor === "stroke",
 			) as StrokeAppearance;
 			const settings = strokeApp.paramData.params.brushSettings as {
@@ -806,7 +807,7 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 			// Selection follow: after the first stroke, the tool may adopt the
 			// committed appearance. The second stroke must bake all the same.
 			drawPressureStroke(toolWith(pressureBrushAppearance()));
-			const adopted = bakedPaths[0].filters?.find(
+			const adopted = localAppearances(bakedPaths[0].filters).find(
 				(f) => f.processor === "stroke",
 			) as StrokeAppearance;
 

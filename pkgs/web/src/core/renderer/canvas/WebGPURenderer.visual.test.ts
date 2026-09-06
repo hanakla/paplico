@@ -1,6 +1,6 @@
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
 	createArtboard,
 	createDefaultBrushSettings,
@@ -8,7 +8,14 @@ import {
 	createDefaultLayer,
 	createStrokeBrushSettings,
 } from "../../document/factory";
-import type { BrushSettings, Path, StrokeWidthPoint } from "../../schema";
+import { Reference3DService } from "../../reference3d/Reference3DService";
+import type {
+	BrushSettings,
+	Document,
+	Path,
+	Reference3DElement,
+	StrokeWidthPoint,
+} from "../../schema";
 import { loadTestFont } from "../../testUtils/fontSetup";
 import { loadTestDocument } from "../../testUtils/loadTestDocument";
 import { createMockToolContext } from "../../testUtils/mockToolContext";
@@ -518,6 +525,44 @@ describe("WebGPU Visual Regression - testDocument.ts全機能", () => {
 
 		texture.destroy();
 	});
+
+	// The document's reference3d element is a flat view; the lineart case
+	// re-tags it so both three.js display modes are pinned.
+	for (const displayMode of ["flat", "lineart"] as const) {
+		it(`Artboard '3D Scene' - reference3d ${displayMode} view`, async () => {
+			const { renderer } = await createTestRenderer();
+			const service = new Reference3DService({
+				device: renderer.getDevice()!,
+			});
+			onTestFinished(() => service.destroy());
+
+			const doc = withReference3DDisplayMode(
+				await loadTestDocument(),
+				displayMode,
+			);
+			renderer.setReference3DContextProvider(() => ({
+				service,
+				references3d: doc.references3d ?? {},
+			}));
+			const artboard = doc.artboards.find((ab) => ab.name === "3D Scene")!;
+
+			const texture = await renderArtboardForTest(renderer, artboard, doc, 1);
+
+			await expectVisualMatch(
+				renderer,
+				texture,
+				texture.width,
+				texture.height,
+				`testdoc-3dscene-${displayMode}-artboard`,
+				{
+					threshold: 0.1,
+					maxDiffPercentage: MAX_DIFF_PERCENTAGE,
+				},
+			);
+
+			texture.destroy();
+		});
+	}
 });
 
 describe("WebGPU Visual Regression - Viewport Rotation Brush Stroke", () => {
@@ -1060,4 +1105,17 @@ function maxAlpha(pixels: Uint8Array): number {
 		max = Math.max(max, pixels[i]);
 	}
 	return max;
+}
+
+function withReference3DDisplayMode(
+	doc: Document,
+	displayMode: Reference3DElement["displayMode"],
+): Document {
+	const objects = Object.fromEntries(
+		Object.entries(doc.objects).map(([id, element]) => [
+			id,
+			element.type === "reference3d" ? { ...element, displayMode } : element,
+		]),
+	);
+	return { ...doc, objects };
 }

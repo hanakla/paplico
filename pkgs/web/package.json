@@ -34,7 +34,7 @@
 		"@next/mdx": "^16.2.1",
 		"@paplico/avif-hdr": "workspace:*",
 		"@paplico/syrup": "workspace:^",
-		"@pixiv/three-vrm": "3.5.5",
+		"@pixiv/three-vrm": "patch:@pixiv/three-vrm@npm%3A3.5.5#~/.yarn/patches/@pixiv-three-vrm-npm-3.5.5-d31fe7450d.patch",
 		"@saurl/tauri-plugin-safe-area-insets-css-api": "^0.1.0",
 		"@sentry/nextjs": "^10.47.0",
 		"@std/yaml": "jsr:^1.0.12",

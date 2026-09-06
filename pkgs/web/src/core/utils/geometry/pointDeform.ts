@@ -7,18 +7,19 @@
  * re-resolution after the local bounds shift, and gradient-fill tracking.
  */
 
-import type {
-	AnyArtObject,
-	BezierPoint,
-	CubicBezierSegment,
-	ElementTransform,
-	FillAppearance,
-	FreeGradient,
-	ImageObject,
-	MeshArtObject,
-	MeshGradient,
-	Path,
-	TextElement,
+import {
+	type AnyArtObject,
+	type BezierPoint,
+	type CubicBezierSegment,
+	type ElementTransform,
+	type FillAppearance,
+	type FreeGradient,
+	type ImageObject,
+	isAppearancePresetRef,
+	type MeshArtObject,
+	type MeshGradient,
+	type Path,
+	type TextElement,
 } from "../../schema";
 import type { LocalBBox } from "./bounds";
 import { defaultEdgeCP, freeGradientAdjacency } from "./freeGradient";
@@ -215,7 +216,8 @@ export function deformGradientFilters(
 	);
 	let changed = false;
 	const filters = element.filters.map((filter) => {
-		if (filter.processor !== "fill") return filter;
+		if (isAppearancePresetRef(filter) || filter.processor !== "fill")
+			return filter;
 		const appearance = filter as FillAppearance;
 		const { fill } = appearance.paramData.params;
 		if (fill.type !== "free" && fill.type !== "mesh") return filter;

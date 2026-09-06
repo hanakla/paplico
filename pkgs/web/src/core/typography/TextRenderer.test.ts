@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { localAppearances } from "../document/appearancePresets";
 import {
 	createDefaultColor,
 	createIdentityTransform,
@@ -1558,7 +1559,7 @@ describe("TextRenderer flow chains", () => {
 
 		expect(paths.length).toBeGreaterThan(0);
 		for (const path of paths) {
-			const fill = path.filters?.find(
+			const fill = localAppearances(path.filters).find(
 				(f): f is FillAppearance => f.processor === "fill",
 			);
 			expect(fill?.paramData.params.fill).toEqual(
@@ -1675,7 +1676,9 @@ describe("TextRenderer per-run fill", () => {
 		const { paths } = await renderer.textElementToPaths(element);
 		expect(paths.length).toBeGreaterThan(0);
 		for (const path of paths) {
-			const fill = path.filters?.find((f) => f.processor === "fill");
+			const fill = localAppearances(path.filters).find(
+				(f) => f.processor === "fill",
+			);
 			expect(fill).toBeDefined();
 		}
 	});

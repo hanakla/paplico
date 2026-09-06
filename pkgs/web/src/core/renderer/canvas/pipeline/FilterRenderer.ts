@@ -1,9 +1,11 @@
+import { localAppearances } from "../../../document/appearancePresets";
 import {
 	type AnyArtObject,
 	type BoundingBox,
 	type Color,
 	type CubicBezierSegment,
 	type Filter,
+	type FilterEntry,
 	isBlend,
 	isFilterEnabled,
 	type Path,
@@ -303,10 +305,10 @@ export function resolveRenderConfigure(
  * naming any specific processor.
  */
 export function isElementRenderReplaced(
-	element: { filters?: readonly Filter[] | null },
+	element: { filters?: readonly FilterEntry[] | null },
 	filterRenderer: Pick<FilterRenderer, "getHandler">,
 ): boolean {
-	for (const filter of element.filters ?? []) {
+	for (const filter of localAppearances(element.filters ?? undefined)) {
 		if (!isFilterEnabled(filter)) continue;
 		if (
 			filterRenderer
@@ -343,7 +345,7 @@ export function hoistBlendInstanceAppearances(
 		let preferred: Filter[] | null = null;
 		for (const keyId of element.objectIds) {
 			const key = elementsMap.get(keyId);
-			const replacing = (key?.filters ?? []).filter(
+			const replacing = localAppearances(key?.filters).filter(
 				(f) =>
 					isFilterEnabled(f) &&
 					filterRenderer.getHandler(f.processor)?.replacesElementRender?.(f),
@@ -365,7 +367,7 @@ export function hoistBlendInstanceAppearances(
 		if (hoisted) {
 			elementsMap.set(id, {
 				...element,
-				filters: [...(element.filters ?? []), ...hoisted],
+				filters: [...localAppearances(element.filters), ...hoisted],
 			});
 		}
 	}

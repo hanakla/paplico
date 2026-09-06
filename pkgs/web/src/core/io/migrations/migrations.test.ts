@@ -19,6 +19,7 @@ import { migDefs } from "./20260617_mig_defs";
 import { migRasterizationDpi } from "./20260705_mig_rasterization_dpi";
 import { migGradientStopMidpoint } from "./20260722_mig_gradient_stop_midpoint";
 import { migBrushV2 } from "./20260803_mig_brush_v2";
+import { migAppearancePresets } from "./20260906_mig_appearance_presets";
 import { applyMigration, applyMigrations } from "./index";
 
 const defaultViewport: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
@@ -1240,12 +1241,12 @@ describe("migGradientStopMidpoint (20260722)", () => {
 		});
 	});
 
-	it("updates schemaVersion to 20260803 via applyMigrations", () => {
+	it("updates schemaVersion to the latest migration via applyMigrations", () => {
 		const doc = makeDoc({}, 20260705);
 
 		applyMigrations(doc);
 
-		expect(doc.schemaVersion).toBe(20260803);
+		expect(doc.schemaVersion).toBe(20260906);
 	});
 });
 
@@ -1451,3 +1452,26 @@ function preV2BrushSize(brushSettings: unknown): number | undefined {
 	const size = (brushSettings as { size?: unknown } | null)?.size;
 	return typeof size === "number" ? size : undefined;
 }
+
+describe("migAppearancePresets (20260906)", () => {
+	it("should add an empty appearancePresets list to a legacy document", () => {
+		const doc = makeDoc({}, 20260803);
+
+		expect(doc.appearancePresets).toBeUndefined();
+
+		applyMigration(doc, migAppearancePresets);
+
+		expect(doc.appearancePresets).toEqual([]);
+	});
+
+	it("should keep existing appearancePresets", () => {
+		const doc = makeDoc({}, 20260803);
+		doc.appearancePresets = [{ uid: "ap-1", name: "Outline", filters: [] }];
+
+		applyMigration(doc, migAppearancePresets);
+
+		expect(doc.appearancePresets).toEqual([
+			{ uid: "ap-1", name: "Outline", filters: [] },
+		]);
+	});
+});

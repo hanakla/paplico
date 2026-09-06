@@ -16,6 +16,7 @@ Paplico のドキュメント構造は `core/schema.ts` の `Document` を基準
 | `files` | `EmbeddedFile[]` | 画像・埋め込みフォント・ブラシテクスチャのバイナリ |
 | `artboards` | `Artboard[]` | ワールド空間上のアートボード定義 |
 | `brushPresets` | `BrushPreset[]` | ブラシプリセット定義 |
+| `appearancePresets` | `AppearancePreset[]?` | アピアランスプリセット。要素の `filters` 内の `AppearancePresetRef` が参照する |
 | `timelapse` | `TimelapseData?` | タイムラプス記録。未使用時は省略 |
 | `animation` | `Animation?` | アニメーション設定。未使用時は省略 |
 | `schemaVersion` | `number?` | スキーマバージョン。`YYYYMMDD` 形式の日付番号 |
@@ -32,6 +33,9 @@ graph TD
     D --> V["viewport"]
     D --> A["artboards"]
     D --> B["brushPresets"]
+    D --> P["appearancePresets"]
+    O --> R["filters[].presetUid"]
+    R --> P
     L --> E["elementIds"]
     E --> O
     O --> G["Group.childIds"]

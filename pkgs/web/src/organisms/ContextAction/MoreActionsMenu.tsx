@@ -1,6 +1,7 @@
 import { Menu as BUIMenu } from "@base-ui/react/menu";
 import {
 	CopyPlus,
+	Crop,
 	Ellipsis,
 	Grid3x3,
 	LayoutGrid,
@@ -34,6 +35,10 @@ export function MoreActionsMenu({
 	const t = useTranslation();
 	const paplico = usePaplico();
 	const commands = usePaplicoCommands();
+
+	const handleCreateClipGroup = useEventCallback(() => {
+		commands.createClipGroupFromTopmost();
+	});
 
 	const handleOutlineText = useEventCallback(() => {
 		paplico.commands.outlineTextElements([...selectedIds]);
@@ -131,6 +136,15 @@ export function MoreActionsMenu({
 			<Menu.Portal>
 				<Menu.Positioner side="bottom" align="end" sideOffset={4}>
 					<Menu.Popup>
+						{selectedIds.length >= 2 && (
+							<>
+								<Menu.Item onClick={handleCreateClipGroup}>
+									<Crop size={14} />
+									{t("contextActions.createClipGroup")}
+								</Menu.Item>
+								<Menu.Separator />
+							</>
+						)}
 						{hasTextInSelection && (
 							<>
 								<Menu.Item onClick={handleOutlineText}>

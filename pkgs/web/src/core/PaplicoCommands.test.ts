@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readStoredBrushSize } from "./brush/access";
 import type { YjsProvider } from "./collaboration/YjsProvider";
+import { localAppearances } from "./document/appearancePresets";
 import {
 	createDefaultBrushSettings,
 	createIdentityTransform,
@@ -10,10 +11,12 @@ import type { RendererState } from "./Paplico";
 import { PaplicoCommands } from "./PaplicoCommands";
 import type {
 	AnyArtObject,
+	AppearancePreset,
 	BlendObject,
 	BrushSettings,
 	FillAppearance,
 	Filter,
+	FilterEntry,
 	Group,
 	Layer,
 	LinearGradient,
@@ -1600,7 +1603,7 @@ describe("PaplicoCommands", () => {
 
 			const [, , updates] = updateElement.mock.calls[0];
 			if (!updates.filters) throw new Error("updates must contain filters");
-			const updated = updates.filters[0];
+			const updated = localAppearances(updates.filters)[0];
 			expect(updated.paramData.params).toEqual({
 				opacity: 0.5,
 				blendMode: "under",
@@ -1630,7 +1633,7 @@ describe("PaplicoCommands", () => {
 
 			const [, , updates] = updateElement.mock.calls[0];
 			if (!updates.filters) throw new Error("updates must contain filters");
-			const updated = updates.filters[0];
+			const updated = localAppearances(updates.filters)[0];
 			expect(updated.enabled).toBe(false);
 			expect(updated.opacity).toBe(0.25);
 			expect(updated.paramData.params).toEqual({
@@ -1653,7 +1656,7 @@ describe("PaplicoCommands", () => {
 
 			const [, , updates] = updateElement.mock.calls[0];
 			if (!updates.filters) throw new Error("updates must contain filters");
-			const updated = updates.filters[0];
+			const updated = localAppearances(updates.filters)[0];
 			expect(updated.applyToBackdrop).toBe(true);
 			expect(updated.paramData).toEqual({
 				version: "1",
@@ -2601,6 +2604,240 @@ describe("deleteSelectedGradientStop", () => {
 	});
 });
 
+describe("appearance presets", () => {
+	const content: Filter = {
+		uid: "content-1",
+		processor: "content",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: { version: "1", params: {} },
+	};
+	const stroke: Filter = {
+		uid: "stroke-1",
+		processor: "stroke",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: { version: "1", params: {} },
+	};
+	const blur: Filter = {
+		uid: "blur-1",
+		processor: "blur",
+		opacity: 0.5,
+		blendMode: "normal",
+		paramData: { version: "1", params: { radius: 3 } },
+	};
+
+	describe("createAppearancePresetFromElement", () => {
+		it("should capture non-content filters and replace them with one ref in the element", () => {
+			const { commands, setAppearancePreset, batchUpdateElements } =
+				createPresetCommands({ "path-1": [content, stroke, blur] });
+
+			const uid = commands.createAppearancePresetFromElement("path-1", "Soft");
+
+			const preset = setAppearancePreset.mock.calls[0]![0];
+			expect(preset.uid).toBe(uid);
+			expect(preset.name).toBe("Soft");
+			expect(preset.filters.map((f) => f.processor)).toEqual([
+				"stroke",
+				"blur",
+			]);
+			expect(preset.filters[0]?.uid).not.toBe("stroke-1");
+
+			const filters =
+				batchUpdateElements.mock.calls[0]![0][0]!.updates.filters!;
+			expect(filters).toHaveLength(2);
+			expect(filters[0]).toBe(content);
+			expect(filters[1]).toMatchObject({ type: "preset", presetUid: uid });
+		});
+
+		it("should return null and write nothing when the element only has content", () => {
+			const { commands, setAppearancePreset } = createPresetCommands({
+				"path-1": [content],
+			});
+
+			expect(commands.createAppearancePresetFromElement("path-1", "x")).toBe(
+				null,
+			);
+			expect(setAppearancePreset).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("insertAppearancePresetRefToSelectedElements", () => {
+		it("should append a ref when no index is given and insert at the index otherwise", () => {
+			const { commands, batchUpdateElements } = createPresetCommands(
+				{ "path-1": [content, blur] },
+				[{ uid: "ap-1", name: "Soft", filters: [stroke] }],
+			);
+
+			commands.insertAppearancePresetRefToSelectedElements("ap-1");
+			commands.insertAppearancePresetRefToSelectedElements("ap-1", 1);
+
+			const appended =
+				batchUpdateElements.mock.calls[0]![0][0]!.updates.filters!;
+			expect(appended.map((e) => ("type" in e ? e.type : e.processor))).toEqual(
+				["content", "blur", "preset"],
+			);
+			const inserted =
+				batchUpdateElements.mock.calls[1]![0][0]!.updates.filters!;
+			expect(inserted.map((e) => ("type" in e ? e.type : e.processor))).toEqual(
+				["content", "preset", "blur"],
+			);
+		});
+
+		it("should do nothing for an unknown preset", () => {
+			const { commands, batchUpdateElements } = createPresetCommands({
+				"path-1": [content],
+			});
+
+			commands.insertAppearancePresetRefToSelectedElements("missing");
+
+			expect(batchUpdateElements).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("expandAppearancePresetRef", () => {
+		it("should replace the ref with fresh clones of the preset filters", () => {
+			const ref = { type: "preset" as const, uid: "ref-1", presetUid: "ap-1" };
+			const { commands, batchUpdateElements } = createPresetCommands(
+				{ "path-1": [content, ref] },
+				[{ uid: "ap-1", name: "Soft", filters: [stroke, blur] }],
+			);
+
+			commands.expandAppearancePresetRef("path-1", 1);
+
+			const filters =
+				batchUpdateElements.mock.calls[0]![0][0]!.updates.filters!;
+			expect(filters.map((e) => ("type" in e ? e.type : e.processor))).toEqual([
+				"content",
+				"stroke",
+				"blur",
+			]);
+			expect((filters[1] as Filter).uid).not.toBe("stroke-1");
+		});
+
+		it("should ignore an index that is not a ref", () => {
+			const { commands, batchUpdateElements } = createPresetCommands({
+				"path-1": [content, blur],
+			});
+
+			commands.expandAppearancePresetRef("path-1", 1);
+
+			expect(batchUpdateElements).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("deleteAppearancePreset", () => {
+		it("should expand refs in every element before deleting the preset", () => {
+			const ref = { type: "preset" as const, uid: "ref-1", presetUid: "ap-1" };
+			const {
+				commands,
+				batchUpdateElements,
+				deleteAppearancePreset,
+				transact,
+			} = createPresetCommands(
+				{
+					"path-1": [content, ref],
+					"path-2": [content],
+					"path-3": [ref, blur],
+				},
+				[{ uid: "ap-1", name: "Soft", filters: [stroke] }],
+			);
+
+			commands.deleteAppearancePreset("ap-1");
+
+			expect(transact).toHaveBeenCalledTimes(1);
+			const updates = batchUpdateElements.mock.calls[0]![0];
+			expect(updates.map((u) => u.elementId)).toEqual(["path-1", "path-3"]);
+			expect(
+				updates[1]!.updates.filters!.map((e) =>
+					"type" in e ? e.type : e.processor,
+				),
+			).toEqual(["stroke", "blur"]);
+			expect(deleteAppearancePreset.mock.calls[0]![0]).toBe("ap-1");
+		});
+	});
+
+	describe("addAppearancePreset", () => {
+		it("should reuse a document preset with the same uid instead of adding another", () => {
+			const existing = { uid: "ap-1", name: "Soft", filters: [stroke] };
+			const { commands, setAppearancePreset } = createPresetCommands(
+				{ "path-1": [content] },
+				[existing],
+			);
+
+			expect(commands.addAppearancePreset({ ...existing, name: "Again" })).toBe(
+				"ap-1",
+			);
+			expect(setAppearancePreset).not.toHaveBeenCalled();
+
+			expect(commands.addAppearancePreset({ ...existing, uid: "ap-2" })).toBe(
+				"ap-2",
+			);
+			expect(setAppearancePreset.mock.calls[0]![0].uid).toBe("ap-2");
+		});
+	});
+
+	describe("appearancePresetFilterStack", () => {
+		it("should apply stack operations to the preset instead of the element", () => {
+			const { commands, setAppearancePreset, updateElement } =
+				createPresetCommands({ "path-1": [content] }, [
+					{ uid: "ap-1", name: "Soft", filters: [stroke, blur] },
+				]);
+
+			const stack = commands.appearancePresetFilterStack("ap-1");
+			stack.updateFilter(1, { opacity: 0.1 });
+			stack.reorderFilter(0, 1);
+			stack.addFilter({ ...blur, uid: "blur-2" });
+			stack.removeFilter(0);
+
+			expect(updateElement).not.toHaveBeenCalled();
+			const written = setAppearancePreset.mock.calls.map((c) =>
+				c[0].filters.map((f) => f.uid),
+			);
+			expect(written).toEqual([
+				["stroke-1", "blur-1"],
+				["blur-1", "stroke-1"],
+				["stroke-1", "blur-1", "blur-2"],
+				["blur-1"],
+			]);
+			expect(setAppearancePreset.mock.calls[0]![0].filters[1]?.opacity).toBe(
+				0.1,
+			);
+		});
+
+		it("should do nothing for an unknown preset", () => {
+			const { commands, setAppearancePreset } = createPresetCommands(
+				{ "path-1": [content] },
+				[{ uid: "ap-1", name: "Soft", filters: [stroke] }],
+			);
+
+			commands.appearancePresetFilterStack("missing").addFilter(blur);
+
+			expect(setAppearancePreset).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("updateFilterForSelectedElement on a preset ref", () => {
+		it("should only apply the enabled flag to a ref", () => {
+			const ref = { type: "preset" as const, uid: "ref-1", presetUid: "ap-1" };
+			const { commands, batchUpdateElements, updateElement } =
+				createPresetCommands({ "path-1": [ref] }, [
+					{ uid: "ap-1", name: "Soft", filters: [stroke] },
+				]);
+
+			commands.updateFilterForSelectedElement(0, {
+				enabled: false,
+				opacity: 0.2,
+				params: { radius: 9 },
+			});
+
+			expect(batchUpdateElements).not.toHaveBeenCalled();
+			const [, , updates] = updateElement.mock.calls[0]!;
+			expect(updates.filters).toEqual([{ ...ref, enabled: false }]);
+		});
+	});
+});
+
 describe("computePerspectiveWarpUpdates (vertex bake)", () => {
 	// A 100×100 quad in TL, TR, BR, BL order.
 	const SOURCE: [Vec2, Vec2, Vec2, Vec2] = [
@@ -3139,6 +3376,62 @@ function createFilterCommands(filter: Filter, toolSettings?: ToolSettings) {
 	});
 
 	return { commands, updateElement };
+}
+
+function createPresetCommands(
+	stacks: Record<string, FilterEntry[]>,
+	appearancePresets: AppearancePreset[] = [],
+) {
+	const paths = Object.entries(stacks).map(([id, filters]) => ({
+		...createPath(id),
+		filters,
+	}));
+	const layer = createLayer(
+		"layer-1",
+		paths.map((p) => p.id),
+	);
+	const updateElement = vi.fn<YjsProvider["updateElement"]>();
+	const batchUpdateElements = vi.fn<YjsProvider["batchUpdateElements"]>();
+	const setAppearancePreset = vi.fn<YjsProvider["setAppearancePreset"]>();
+	const deleteAppearancePreset = vi.fn<YjsProvider["deleteAppearancePreset"]>();
+	const transact = vi.fn((fn: () => void) => fn());
+
+	const store = {
+		currentLayerId: layer.id,
+		selectedElementIds: [paths[0]!.id],
+		editingScopeStack: [],
+		animationMode: false,
+		document: {
+			layers: [layer],
+			objects: Object.fromEntries(paths.map((p) => [p.id, p])),
+			appearancePresets,
+		},
+	} as unknown as RendererState;
+	const commands = new PaplicoCommands({
+		store,
+		yjsProvider: {
+			updateElement,
+			batchUpdateElements,
+			setAppearancePreset,
+			deleteAppearancePreset,
+			transact,
+			isAnimationUndoMode: vi.fn(() => false),
+		} as unknown as YjsProvider,
+		spatial: {
+			isElementLocked: () => false,
+		} as unknown as SpatialIndex,
+		isReadonly: () => false,
+	});
+
+	return {
+		commands,
+		store,
+		updateElement,
+		batchUpdateElements,
+		setAppearancePreset,
+		deleteAppearancePreset,
+		transact,
+	};
 }
 
 function createMaskCommands(

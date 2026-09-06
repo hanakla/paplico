@@ -5,14 +5,15 @@ import {
 	type PaplicoError,
 	type PaplicoErrorCode,
 } from "../../errors";
-import type {
-	BrushPreset,
-	BrushSettings,
-	Document,
-	EmbeddedFile,
-	Viewport,
+import {
+	type BrushPreset,
+	type BrushSettings,
+	type Document,
+	type EmbeddedFile,
+	IDENTITY_TRANSFORM,
+	TRANSIENT_LAYER_KIND,
+	type Viewport,
 } from "../../schema";
-import { TRANSIENT_LAYER_KIND } from "../../schema";
 import type { TimelapseData } from "../../timelapse/types";
 import { openPapf, PapfFile } from "./reader";
 import { Codec, FOOTER_BYTES, SECTION_HEADER_BYTES } from "./types";
@@ -619,6 +620,52 @@ describe("PAPF format", () => {
 			const blob = await serializeDocument(doc);
 			const restored = await (await openPapf(blob)).toDocument();
 			expect(restored.references3d).toEqual({});
+		});
+	});
+
+	describe("appearance presets", () => {
+		it("roundtrips Document.appearancePresets and preset refs in element filters", async () => {
+			const doc = makeMinimalDoc({
+				appearancePresets: [
+					{
+						uid: "ap-1",
+						name: "Outline",
+						filters: [
+							{
+								uid: "f-stroke",
+								processor: "stroke",
+								opacity: 1,
+								blendMode: "normal",
+								paramData: { version: "1", params: {} },
+							},
+						],
+					},
+				],
+			});
+			doc.objects["p-1"] = {
+				id: "p-1",
+				type: "path",
+				opacity: 1,
+				blendMode: "normal",
+				transform: IDENTITY_TRANSFORM,
+				segments: [],
+				filters: [{ type: "preset", uid: "ref-1", presetUid: "ap-1" }],
+			};
+
+			const blob = await serializeDocument(doc);
+			const restored = await (await openPapf(blob)).toDocument();
+
+			expect(restored.appearancePresets).toEqual(doc.appearancePresets);
+			expect(restored.objects["p-1"]?.filters).toEqual([
+				{ type: "preset", uid: "ref-1", presetUid: "ap-1" },
+			]);
+		});
+
+		it("defaults appearancePresets to [] when reading a doc that never had the field", async () => {
+			const doc = makeMinimalDoc();
+			const blob = await serializeDocument(doc);
+			const restored = await (await openPapf(blob)).toDocument();
+			expect(restored.appearancePresets).toEqual([]);
 		});
 	});
 

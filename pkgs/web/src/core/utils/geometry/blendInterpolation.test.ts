@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { localAppearances } from "../../document/appearancePresets";
 import { createIdentityTransform } from "../../document/factory";
 import type {
 	BlendObject,
@@ -288,9 +289,9 @@ describe("computeBlendIntermediates", () => {
 			makeBlend(["a", "b"], { type: "steps", count: 1 }),
 			[a, b],
 		);
-		const fill = r[0][0].filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fill = localAppearances(r[0][0].filters).find(
+			(f) => f.processor === "fill",
+		) as FillAppearance | undefined;
 		const color = fill?.paramData.params.fill;
 		expect(color?.type).toBe("solid");
 		if (color?.type === "solid" && color.color.type === "rgb") {
@@ -589,8 +590,11 @@ describe("computeBlendIntermediates", () => {
 		});
 
 		const fillOf = (p: Path): FillColor | undefined =>
-			(p.filters?.find((f) => f.processor === "fill") as FillAppearance)
-				?.paramData.params.fill;
+			(
+				localAppearances(p.filters).find(
+					(f) => f.processor === "fill",
+				) as FillAppearance
+			)?.paramData.params.fill;
 
 		it("interpolates a solid into a linear gradient (solid as uniform)", () => {
 			const a = withFill("a", 0, { type: "solid", color: RED });

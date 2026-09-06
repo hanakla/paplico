@@ -1,3 +1,4 @@
+import { localAppearances } from "../../document/appearancePresets";
 import {
 	type AnyArtObject,
 	type BlendObject,
@@ -119,7 +120,7 @@ export function hashGroupPaintContent(
 	elementsMap: Map<string, AnyArtObject>,
 	ctx: PaintHashContext,
 ): string {
-	const ownFilters = group.filters ?? [];
+	const ownFilters = localAppearances(group.filters);
 	const hasPreFilter = ownFilters.some(
 		(f) => f.enabled !== false && ctx.hasPreProcessHandler(f.processor),
 	);
@@ -152,7 +153,7 @@ export function computePaintHash(
 		case "blend":
 			return hashBlendPaintContent(element, elementsMap, ctx);
 		case "text":
-			return `${hashLeafPaintContent(element.filters, ctx.resolvePatternTexture)}:${ctx.resolveTextOutline(element) !== null}`;
+			return `${hashLeafPaintContent(localAppearances(element.filters), ctx.resolvePatternTexture)}:${ctx.resolveTextOutline(element) !== null}`;
 		case "image":
 			return `${element.fileUid}:${ctx.isImageReady(element.fileUid)}`;
 		case "repeat":
@@ -161,7 +162,10 @@ export function computePaintHash(
 			return "repeat";
 		default:
 			// path / compound-path / mesh / reference3d: own fill/stroke filters only.
-			return hashLeafPaintContent(element.filters, ctx.resolvePatternTexture);
+			return hashLeafPaintContent(
+				localAppearances(element.filters),
+				ctx.resolvePatternTexture,
+			);
 	}
 }
 

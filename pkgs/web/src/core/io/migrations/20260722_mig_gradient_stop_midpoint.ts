@@ -1,3 +1,4 @@
+import { localAppearances } from "../../document/appearancePresets";
 import {
 	type ColorStop,
 	type Document,
@@ -21,7 +22,7 @@ export const migGradientStopMidpoint: Migration = {
 		for (const element of Object.values(doc.objects)) {
 			if (!element.filters) continue;
 
-			for (const filter of element.filters) {
+			for (const filter of localAppearances(element.filters)) {
 				if (filter.processor === "fill") {
 					const fill = (filter as FillAppearance).paramData.params.fill;
 					if (isLinearGradient(fill) || isRadialGradient(fill)) {

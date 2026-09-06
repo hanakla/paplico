@@ -8,6 +8,7 @@ import {
 import { Drawer } from "@/components/Drawer";
 import { Popover } from "@/components/Popover";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
+import { useToolbarRailOffsets } from "@/hooks/useToolbarRailOffsets";
 import { useEventCallback } from "@/utils/hooks";
 
 type AppearanceSurfaceContextValue = {
@@ -90,6 +91,7 @@ function AppearanceSurfaceContent({
 }) {
 	const { open, isSheet, onOpenChange, onSheetDismiss } =
 		useAppearanceSurfaceContext();
+	const railOffsets = useToolbarRailOffsets();
 
 	const handleOpenChange = useEventCallback((next: boolean) => {
 		if (next) return;
@@ -117,6 +119,7 @@ function AppearanceSurfaceContent({
 				modal={false}
 				mode="bottom"
 				bottomOffset="var(--mobile-tab-bar-height)"
+				{...railOffsets}
 			>
 				{title && (
 					<div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 pb-2 text-foreground text-xs font-medium">

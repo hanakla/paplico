@@ -7,6 +7,7 @@
  * - Clip group stencil masking (children → texture → stencil → blit)
  */
 
+import { localAppearances } from "../../../document/appearancePresets";
 import {
 	type AnyArtObject,
 	type BoundingBox,
@@ -1402,7 +1403,7 @@ export class OffscreenPresenter {
 
 		// Group-level pre-filters deform every child at render time; extract
 		// them up front so pre-rasterized children keep the deformation too.
-		const groupPreFilters = (group.filters ?? []).filter((f) => {
+		const groupPreFilters = localAppearances(group.filters).filter((f) => {
 			const handler = this.deps.filterRenderer.getHandler(f.processor);
 			return f.enabled !== false && !!handler?.preProcess;
 		});
@@ -1433,7 +1434,7 @@ export class OffscreenPresenter {
 					continue;
 				}
 			}
-			const childNeedsPostPass = (child.filters ?? []).some(
+			const childNeedsPostPass = localAppearances(child.filters).some(
 				(f) =>
 					f.enabled !== false &&
 					!!this.deps.filterRenderer.getHandler(f.processor)?.postProcess,
@@ -1487,7 +1488,7 @@ export class OffscreenPresenter {
 			const effectiveChild = groupPreFilters.length
 				? ({
 						...child,
-						filters: [...(child.filters ?? []), ...groupPreFilters],
+						filters: [...localAppearances(child.filters), ...groupPreFilters],
 					} as AnyArtObject)
 				: child;
 			const childBounds = calculatePreFilteredElementBounds(
@@ -1497,7 +1498,7 @@ export class OffscreenPresenter {
 				localBoundsCache,
 			);
 			const childExpansion = this.deps.filterRenderer.calculateExpansion(
-				child.filters ?? [],
+				localAppearances(child.filters),
 				childBounds,
 			);
 			const childTextureBounds = expandBounds(childBounds, childExpansion);
@@ -1552,7 +1553,7 @@ export class OffscreenPresenter {
 			if (childNeedsPostPass) {
 				const filteredTexture = this.deps.filterRenderer.applyFilters(
 					childSurface.texture.texture,
-					child.filters ?? [],
+					localAppearances(child.filters),
 					encoder,
 					undefined,
 					childOffscreenTexture.effectiveZoom,
@@ -2321,10 +2322,12 @@ export class OffscreenPresenter {
 						.filter((id) => id !== child.clipPathId)
 						.map((id) => elementsMap.get(id))
 						.filter((el): el is AnyArtObject => el !== undefined);
-					const childGroupPreFilters = (child.filters ?? []).filter((f) => {
-						const handler = this.deps.filterRenderer.getHandler(f.processor);
-						return f.enabled !== false && !!handler?.preProcess;
-					});
+					const childGroupPreFilters = localAppearances(child.filters).filter(
+						(f) => {
+							const handler = this.deps.filterRenderer.getHandler(f.processor);
+							return f.enabled !== false && !!handler?.preProcess;
+						},
+					);
 					const nestedPreFilters =
 						childGroupPreFilters.length > 0 || parentPreFilters?.length
 							? [...childGroupPreFilters, ...(parentPreFilters ?? [])]
@@ -2345,7 +2348,10 @@ export class OffscreenPresenter {
 				const effectiveChild = parentPreFilters?.length
 					? {
 							...child,
-							filters: [...(child.filters ?? []), ...parentPreFilters],
+							filters: [
+								...localAppearances(child.filters),
+								...parentPreFilters,
+							],
 						}
 					: child;
 				this.deps.dispatchElementDirect(

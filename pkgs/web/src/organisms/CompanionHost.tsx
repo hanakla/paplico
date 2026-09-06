@@ -16,6 +16,7 @@ import {
 	generateRoomId,
 	generateRoomKey,
 } from "@/core/collaboration/roomCrypto";
+import { localAppearances } from "@/core/document/appearancePresets";
 import type { Paplico } from "@/core/Paplico";
 import {
 	DEFAULT_COMPOSITION_MODE,
@@ -250,19 +251,24 @@ function useHostState(
 						blendMode: selectedElement.blendMode ?? "normal",
 						compositionMode:
 							selectedElement.compositionMode ?? DEFAULT_COMPOSITION_MODE,
-						filters: (selectedElement.filters ?? []).map((filter) => ({
-							uid: filter.uid,
-							processor: filter.processor,
-							// Absent means on, which is the host's own reading of it.
-							enabled: filter.enabled !== false,
-							opacity: filter.opacity,
-							blendMode: filter.blendMode,
-							// ParamData is `{ version, params }` — a record in all but name,
-							// which is why the structural conversion needs spelling out.
-							// The wire carries it whole because only the processor knows
-							// what is inside.
-							paramData: filter.paramData as unknown as Record<string, unknown>,
-						})),
+						filters: localAppearances(selectedElement.filters).map(
+							(filter) => ({
+								uid: filter.uid,
+								processor: filter.processor,
+								// Absent means on, which is the host's own reading of it.
+								enabled: filter.enabled !== false,
+								opacity: filter.opacity,
+								blendMode: filter.blendMode,
+								// ParamData is `{ version, params }` — a record in all but name,
+								// which is why the structural conversion needs spelling out.
+								// The wire carries it whole because only the processor knows
+								// what is inside.
+								paramData: filter.paramData as unknown as Record<
+									string,
+									unknown
+								>,
+							}),
+						),
 					}
 				: null,
 		[selectedElement, uiSnap.selectedElementIds.length],

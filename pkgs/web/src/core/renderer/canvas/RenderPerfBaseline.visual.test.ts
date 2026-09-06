@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { localAppearances } from "../../document/appearancePresets";
 import {
 	createDefaultDocument,
 	createDefaultLayer,
@@ -216,7 +217,7 @@ describe("render perf baseline", () => {
 		logFilterProcessorInventory(doc);
 		console.log(
 			`[perf] edit target ${target.id} filters=${JSON.stringify(
-				(target.filters ?? []).map((f) => f.processor),
+				localAppearances(target.filters).map((f) => f.processor),
 			)}`,
 		);
 		const { renderer } = await createTestRenderer();
@@ -481,7 +482,7 @@ function findSmallestPath(doc: Document): Path | null {
 function logFilterProcessorInventory(doc: Document): void {
 	const counts = new Map<string, number>();
 	for (const element of Object.values(doc.objects)) {
-		for (const filter of element?.filters ?? []) {
+		for (const filter of localAppearances(element?.filters)) {
 			counts.set(filter.processor, (counts.get(filter.processor) ?? 0) + 1);
 		}
 	}

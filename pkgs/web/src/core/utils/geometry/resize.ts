@@ -4,14 +4,15 @@
  */
 
 import { readStoredBrushSize, withStoredBrushSize } from "../../brush/access";
-import type {
-	BoundingBox,
-	CubicBezierSegment,
-	Filter,
-	StrokeAppearance,
-	TextContent,
-	TextLayout,
-	TextStyle,
+import {
+	type BoundingBox,
+	type CubicBezierSegment,
+	type FilterEntry,
+	isAppearancePresetRef,
+	type StrokeAppearance,
+	type TextContent,
+	type TextLayout,
+	type TextStyle,
 } from "../../schema";
 
 interface ScaleTransform {
@@ -103,11 +104,11 @@ export function scaleTextStyle(
  * so stroke widths follow element resizes. Non-stroke filters pass through.
  */
 export function scaleStrokeFilters(
-	filters: Filter[] | undefined,
+	filters: FilterEntry[] | undefined,
 	scale: number,
-): Filter[] | undefined {
+): FilterEntry[] | undefined {
 	return filters?.map((f) => {
-		if (f.processor !== "stroke") return f;
+		if (isAppearancePresetRef(f) || f.processor !== "stroke") return f;
 		const params = (f as StrokeAppearance).paramData.params;
 		const size = readStoredBrushSize(params.brushSettings);
 		if (params.brushSettings == null || size === undefined) return f;

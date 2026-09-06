@@ -1,5 +1,6 @@
 import { makeStructuredView } from "webgpu-utils";
 import type { SoftProofLutResult } from "../color/types";
+import { localAppearances } from "../document/appearancePresets";
 import {
 	type AnyArtObject,
 	type Artboard,
@@ -1363,7 +1364,7 @@ export class RenderOrchestrator {
 						)
 					: calculateElementBounds(el, elementsMap);
 				let margin = 0;
-				for (const filter of el.filters ?? []) {
+				for (const filter of localAppearances(el.filters)) {
 					if (filter.enabled === false) continue;
 					const handler = this.filterRenderer?.getHandler(filter.processor);
 					// Geometry pre-filters already deformed `base` (it comes from

@@ -1,3 +1,4 @@
+import { localAppearances } from "../../../document/appearancePresets";
 import {
 	type AnyArtObject,
 	type BlendMode,
@@ -145,7 +146,7 @@ function classifyElementInner(
 	}
 
 	let needsBake = false;
-	for (const filter of element.filters ?? []) {
+	for (const filter of localAppearances(element.filters)) {
 		if (!isFilterEnabled(filter)) continue;
 
 		if (filter.processor === "fill") {
@@ -233,7 +234,7 @@ function classifyElementInner(
 				const axisPath =
 					opts.document.objects[element.axisBinding.pathObjectId];
 				if (
-					axisPath?.filters?.some(
+					localAppearances(axisPath?.filters).some(
 						(f) =>
 							isFilterEnabled(f) &&
 							(f.processor === "fill" || f.processor === "stroke"),
@@ -385,7 +386,7 @@ export function isVisibleStroke(appearance: StrokeAppearance): boolean {
 
 /** True when element-level fill/stroke appearances would paint the glyphs. */
 function hasVisiblePaintAppearances(element: TextElement): boolean {
-	return (element.filters ?? []).some(
+	return localAppearances(element.filters).some(
 		(f) =>
 			isFilterEnabled(f) &&
 			((f.processor === "fill" && isVisibleFill(f as FillAppearance)) ||
@@ -445,7 +446,7 @@ function isBackdropDependent(
 ): boolean {
 	if (element.compositionMode === "alpha-lock") return true;
 	return (
-		element.filters?.some(
+		localAppearances(element.filters).some(
 			(f) =>
 				isFilterEnabled(f) &&
 				(f.applyToBackdrop === true || opts.filterNeedsBackdrop(f)),

@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { proxy } from "valtio";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { localAppearances } from "@/core/document/appearancePresets";
 import type {
 	AnyArtObject,
 	FillAppearance,
@@ -64,8 +65,8 @@ vi.mock("@/contexts/PaplicoContext", () => ({
 		getActiveStrokeAppearance: () => {
 			if (mockStore.selectedElementIds.length > 0) {
 				const el = mockStore.document.objects[mockStore.selectedElementIds[0]];
-				const stroke = el?.filters?.find(
-					(f: { processor: string }) => f.processor === "stroke",
+				const stroke = localAppearances(el?.filters).find(
+					(f) => f.processor === "stroke",
 				);
 				return stroke ?? null;
 			}
@@ -74,8 +75,8 @@ vi.mock("@/contexts/PaplicoContext", () => ({
 		getActiveFillAppearance: () => {
 			if (mockStore.selectedElementIds.length > 0) {
 				const el = mockStore.document.objects[mockStore.selectedElementIds[0]];
-				const fill = el?.filters?.find(
-					(f: { processor: string }) => f.processor === "fill",
+				const fill = localAppearances(el?.filters).find(
+					(f) => f.processor === "fill",
 				);
 				if (fill) return fill;
 				return null;

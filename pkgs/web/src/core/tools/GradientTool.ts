@@ -15,6 +15,7 @@ import {
 	type FillColor,
 	generateUid,
 	getTransform,
+	isAppearancePresetRef,
 	isFreeGradient,
 	isLinearGradient,
 	isMeshGradient,
@@ -24,6 +25,7 @@ import {
 	type MeshGradientVertex,
 	type Viewport,
 } from "../schema";
+import { getFirstFill } from "../utils/elementQuery";
 import {
 	defaultEdgeCP,
 	freeGradientAdjacency as delaunayAdjacency,
@@ -110,10 +112,7 @@ function worldToBoundsRelative(
 /** Extract the FillColor from an element's FillAppearance filter entry */
 function getElementFill(element: AnyArtObject | null): FillColor | undefined {
 	if (!element) return undefined;
-	const fillApp = element.filters?.find((f) => f.processor === "fill") as
-		| FillAppearance
-		| undefined;
-	return fillApp?.paramData.params.fill;
+	return getFirstFill(element.filters)?.paramData.params.fill;
 }
 
 /** The element's filters with its fill appearance carrying `fill` instead. */
@@ -122,7 +121,7 @@ function filtersWithFill(
 	fill: FillColor,
 ): NonNullable<AnyArtObject["filters"]> {
 	return (element.filters ?? []).map((f) =>
-		f.processor === "fill"
+		!isAppearancePresetRef(f) && f.processor === "fill"
 			? {
 					...f,
 					paramData: {

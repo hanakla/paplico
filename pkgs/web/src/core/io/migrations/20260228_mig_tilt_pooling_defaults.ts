@@ -1,3 +1,4 @@
+import { localAppearances } from "../../document/appearancePresets";
 import type {
 	CubicBezierSegment,
 	Document,
@@ -56,7 +57,7 @@ export const migTiltPoolingDefaults: Migration = {
 
 			// Backfill brush settings in StrokeAppearance filters
 			if (element.filters) {
-				for (const filter of element.filters) {
+				for (const filter of localAppearances(element.filters)) {
 					if (filter.processor !== "stroke") continue;
 					const stroke = filter as StrokeAppearance;
 					const bs = stroke.paramData.params.brushSettings;

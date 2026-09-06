@@ -1,12 +1,13 @@
 import type { UIPrimitive } from "../renderer/ui/primitives";
 import { type RGBA, UI_THEME } from "../renderer/ui/theme";
-import type {
-	AnyArtObject,
-	ElementTransform,
-	Extrude3DParams,
-	Revolve3DParams,
-	Solid3DBaseParams,
-	Vec3,
+import {
+	type AnyArtObject,
+	type ElementTransform,
+	type Extrude3DParams,
+	isAppearancePresetRef,
+	type Revolve3DParams,
+	type Solid3DBaseParams,
+	type Vec3,
 } from "../schema";
 import { calculateLocalElementBounds } from "../utils/geometry/bounds";
 import {
@@ -99,11 +100,13 @@ export function resolveSolid3DTarget(
 	}
 	const filterIndex = element.filters.findIndex(
 		(f) =>
+			!isAppearancePresetRef(f) &&
 			(SOLID3D_GIZMO_PROCESSORS as readonly string[]).includes(f.processor) &&
 			f.enabled !== false,
 	);
 	if (filterIndex < 0) return null;
 	const filter = element.filters[filterIndex];
+	if (!filter || isAppearancePresetRef(filter)) return null;
 	const processor = filter.processor as Solid3DGizmoProcessor;
 	const params = filter.paramData.params as Solid3DBaseParams;
 	if (processor === "extrude3d") {

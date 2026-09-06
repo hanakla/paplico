@@ -9,7 +9,6 @@ import { Eye, EyeOff, Trash2 } from "lucide-react";
 import { type CSSProperties, memo, type ReactNode } from "react";
 import { ColorSwatch } from "@/components/ColorSwatch";
 import { IconButton } from "@/components/IconButton";
-import { usePaplico } from "@/contexts/PaplicoContext";
 import type {
 	BlurFilter,
 	DropShadowFilter,
@@ -57,6 +56,7 @@ import {
 } from "./constants";
 import { FilterBackdropToggle } from "./FilterBackdropToggle";
 import { FilterEffectControls } from "./FilterEffectControls";
+import { useFilterStack } from "./FilterStackContext";
 import type { FilterDropIndicator } from "./types";
 
 export const FilterItem = memo(function FilterItem({
@@ -78,7 +78,7 @@ export const FilterItem = memo(function FilterItem({
 	onAddSubFilter: (processor: string, asSubFilter: boolean) => void;
 	dropIndicator: FilterDropIndicator;
 }) {
-	const { commands } = usePaplico();
+	const stack = useFilterStack();
 	const t = useTranslation();
 	const {
 		attributes,
@@ -128,7 +128,7 @@ export const FilterItem = memo(function FilterItem({
 	const showsInlineControls = isAppearance || filter.processor === "content";
 
 	const updateFilter = useEventCallback((params: Record<string, unknown>) =>
-		commands.updateFilterForSelectedElement(index, { params }),
+		stack.updateFilter(index, { params }),
 	);
 
 	const paramsContent = (
@@ -270,9 +270,7 @@ export const FilterItem = memo(function FilterItem({
 									<IconButton
 										$size="xs"
 										$variant="ghost"
-										onClick={() =>
-											commands.removeSubFilterFromAppearance(index, si)
-										}
+										onClick={() => stack.removeSubFilter(index, si)}
 									>
 										<Trash2 size={10} />
 									</IconButton>
@@ -280,11 +278,7 @@ export const FilterItem = memo(function FilterItem({
 								<FilterEffectControls
 									filter={sub}
 									onUpdate={(params) =>
-										commands.updateSubFilterParamsForAppearance(
-											index,
-											si,
-											params,
-										)
+										stack.updateSubFilterParams(index, si, params)
 									}
 								/>
 							</div>
@@ -346,7 +340,7 @@ export const FilterItem = memo(function FilterItem({
 										$size="xs"
 										$variant="ghost"
 										onClick={() =>
-											commands.updateFilterForSelectedElement(index, {
+											stack.updateFilter(index, {
 												enabled: filter.enabled === false,
 											})
 										}
@@ -361,9 +355,7 @@ export const FilterItem = memo(function FilterItem({
 										<IconButton
 											$size="xs"
 											$variant="ghost"
-											onClick={() =>
-												commands.removeFilterFromSelectedElement(index)
-											}
+											onClick={() => stack.removeFilter(index)}
 										>
 											<Trash2 size={12} />
 										</IconButton>
@@ -462,7 +454,7 @@ export const SubFilterRow = memo(function SubFilterRow({
 	subFilterIndex: number;
 	dropIndicator: FilterDropIndicator;
 }) {
-	const { commands } = usePaplico();
+	const stack = useFilterStack();
 	const t = useTranslation();
 	const uid = subFilter.uid;
 	const sortableId = `sf:${uid}`;
@@ -525,11 +517,9 @@ export const SubFilterRow = memo(function SubFilterRow({
 						$size="xs"
 						$variant="ghost"
 						onClick={() =>
-							commands.updateSubFilterForAppearance(
-								parentFilterIndex,
-								subFilterIndex,
-								{ enabled: subFilter.enabled === false },
-							)
+							stack.updateSubFilter(parentFilterIndex, subFilterIndex, {
+								enabled: subFilter.enabled === false,
+							})
 						}
 					>
 						{subFilter.enabled === false ? (
@@ -542,10 +532,7 @@ export const SubFilterRow = memo(function SubFilterRow({
 						$size="xs"
 						$variant="ghost"
 						onClick={() =>
-							commands.removeSubFilterFromAppearance(
-								parentFilterIndex,
-								subFilterIndex,
-							)
+							stack.removeSubFilter(parentFilterIndex, subFilterIndex)
 						}
 					>
 						<Trash2 size={12} />

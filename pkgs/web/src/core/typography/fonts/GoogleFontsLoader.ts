@@ -50,12 +50,14 @@ export class GoogleFontsLoader implements FontLoader {
 	/**
 	 * APIキーを後から設定（シングルトン初期化順序問題の対策）
 	 * フォント一覧キャッシュはクリアして再取得を促す
+	 * @returns キーが実際に変わった場合true（呼び出し側が一覧の再取得をトリガーする判断に使う）
 	 */
-	public setApiKey(apiKey: string): void {
-		if (this.apiKey === apiKey) return;
+	public setApiKey(apiKey: string): boolean {
+		if (this.apiKey === apiKey) return false;
 		this.apiKey = apiKey;
 		this.fontList = null;
 		this.fontFiles.clear();
+		return true;
 	}
 
 	/**

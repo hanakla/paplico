@@ -14,6 +14,7 @@ import type {
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
+import { useFilterStack } from "./FilterStackContext";
 
 /**
  * Compact opacity / blend mode (/ composition mode) controls embedded
@@ -124,14 +125,14 @@ export const FilterInlineControls = memo(function FilterInlineControls({
 	filter: Filter;
 	index: number;
 }) {
-	const { commands } = usePaplico();
+	const stack = useFilterStack();
 
 	const handleOpacityChange = useEventCallback((opacity: number) => {
-		commands.updateFilterForSelectedElement(index, { opacity });
+		stack.updateFilter(index, { opacity });
 	});
 
 	const handleBlendModeChange = useEventCallback((blendMode: BlendMode) => {
-		commands.updateFilterForSelectedElement(index, { blendMode });
+		stack.updateFilter(index, { blendMode });
 	});
 
 	return (

@@ -4,6 +4,7 @@ import { Drawer } from "@/components/Drawer";
 import { IconButton } from "@/components/IconButton";
 import { Menu } from "@/components/Menu";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
+import { useToolbarRailOffsets } from "@/hooks/useToolbarRailOffsets";
 import { useEventCallback } from "@/utils/hooks";
 import { AddFilterMenu } from "./AddFilterMenu";
 import { AddFilterSheet } from "./AddFilterSheet";
@@ -25,6 +26,7 @@ export const AddFilterButton = memo(function AddFilterButton({
 	iconSize: number;
 }) {
 	const isSheet = useLayoutMode() === "portrait";
+	const railOffsets = useToolbarRailOffsets();
 	const [sheetOpen, setSheetOpen] = useState(false);
 
 	const handleOpenSheet = useEventCallback(() => {
@@ -73,6 +75,7 @@ export const AddFilterButton = memo(function AddFilterButton({
 					modal={false}
 					mode="bottom"
 					bottomOffset="var(--mobile-tab-bar-height)"
+					{...railOffsets}
 					className="max-h-[50dvh]"
 				>
 					<AddFilterSheet

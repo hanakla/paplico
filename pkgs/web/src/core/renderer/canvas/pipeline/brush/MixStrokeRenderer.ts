@@ -1,4 +1,5 @@
 import { BRUSH_PROPERTY_REGISTRY } from "../../../../brush/properties";
+import { localAppearances } from "../../../../document/appearancePresets";
 import type {
 	AnyArtObject,
 	BoundingBox,
@@ -885,7 +886,7 @@ export function resolveMixingStroke(
 	element: AnyArtObject,
 ): { settings: BrushSettings; filter: Filter } | null {
 	if (element.type !== "path") return null;
-	for (const filter of element.filters ?? []) {
+	for (const filter of localAppearances(element.filters)) {
 		if (!isFilterEnabled(filter) || filter.processor !== "stroke") continue;
 		const settings = (filter as StrokeAppearance).paramData.params
 			.brushSettings;

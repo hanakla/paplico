@@ -19,6 +19,7 @@ import type {
 	StrokeWidthPoint,
 	Viewport,
 } from "../schema";
+import { getFirstStroke } from "../utils/elementQuery";
 import {
 	screenToWorld,
 	type WorldBezierSegment,
@@ -576,9 +577,7 @@ export class StrokeWidthEditTool implements Tool {
 	}
 
 	private getStrokeAppearance(): StrokeAppearance | undefined {
-		return this.targetPath?.filters?.find((f) => f.processor === "stroke") as
-			| StrokeAppearance
-			| undefined;
+		return getFirstStroke(this.targetPath?.filters);
 	}
 
 	private getBrushHalfSize(): number {

@@ -54,6 +54,12 @@ export function buildShadowRig(): ShadowRig {
 	const group = new THREE.Group();
 
 	const light = new THREE.DirectionalLight(0xffffff, 0.8);
+	// The lineart shadow pass views only the catcher's layer. The light must be
+	// collected there, and the shadow camera needs a non-default layer mask —
+	// three.js copies the view camera's mask onto a default one, which would
+	// leave every layer-0 caster out of the shadow map.
+	light.layers.enable(SHADOW_CATCHER_LAYER);
+	light.shadow.camera.layers.enable(SHADOW_CATCHER_LAYER);
 	light.castShadow = true;
 	light.shadow.mapSize.set(2048, 2048);
 	light.shadow.camera.near = 0.5;

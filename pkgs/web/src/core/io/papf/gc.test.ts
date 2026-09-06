@@ -157,6 +157,35 @@ describe("gcDocument", () => {
 		expect(result.deletedFileUids).toEqual(["orphan-file"]);
 	});
 
+	it("keeps embedded files referenced only by an appearance preset", () => {
+		const textureFile = makeFile("preset-texture", new Uint8Array([1]));
+		const doc = makeMinimalDoc({
+			files: [textureFile],
+			appearancePresets: [
+				{
+					uid: "ap-1",
+					name: "Textured",
+					filters: [
+						{
+							uid: "f-1",
+							processor: "stroke",
+							opacity: 1,
+							blendMode: "normal",
+							paramData: {
+								version: "1",
+								params: { brushSettings: { fileUid: "preset-texture" } },
+							},
+						},
+					],
+				},
+			],
+		});
+
+		const result = gcDocument(doc);
+
+		expect(result.document.files).toEqual([textureFile]);
+	});
+
 	it("keeps objects reachable only via mask.elementIds", () => {
 		const maskContent = makePath("mask-content");
 		const owner = makePath("owner", {

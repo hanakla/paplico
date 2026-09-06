@@ -24,6 +24,10 @@ type FontManagerEvents = {
 	/** Fired after a font has been parsed via fontkit and its metadata
 	 * (including any localized name records) is available. */
 	fontLoaded: undefined;
+	/** Fired when the Google Fonts API key changes, invalidating any
+	 * previously queried font list (e.g. a list fetched before the key
+	 * arrived, or fetched with a now-stale key). */
+	fontListInvalidated: undefined;
 };
 
 /**
@@ -109,7 +113,9 @@ export class FontManager extends Emitter<FontManagerEvents> {
 	 * the authenticated endpoint.
 	 */
 	public setGoogleFontsApiKey(apiKey: string): void {
-		this.googleLoader.setApiKey(apiKey);
+		if (this.googleLoader.setApiKey(apiKey)) {
+			this.emit("fontListInvalidated");
+		}
 	}
 
 	/**

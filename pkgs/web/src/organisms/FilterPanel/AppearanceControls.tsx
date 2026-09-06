@@ -26,6 +26,7 @@ import {
 	setSelectedBrushPresetUid,
 } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
+import { useFilterStack } from "./FilterStackContext";
 
 export const AppearanceBaseControls = memo(function AppearanceBaseControls({
 	filter,
@@ -36,7 +37,7 @@ export const AppearanceBaseControls = memo(function AppearanceBaseControls({
 	index: number;
 	children?: ReactNode;
 }) {
-	const { commands } = usePaplico();
+	const stack = useFilterStack();
 	const t = useTranslation();
 	const blendModeItems = useBlendModeItems();
 
@@ -57,7 +58,7 @@ export const AppearanceBaseControls = memo(function AppearanceBaseControls({
 						const parsed = Number.parseFloat(val.trim());
 						if (Number.isNaN(parsed)) return;
 						const clamped = Math.min(100, Math.max(0, parsed));
-						commands.updateFilterForSelectedElement(index, {
+						stack.updateFilter(index, {
 							opacity: clamped / 100,
 						});
 					}}
@@ -73,7 +74,7 @@ export const AppearanceBaseControls = memo(function AppearanceBaseControls({
 					items={blendModeItems}
 					value={filter.blendMode}
 					onValueChange={(value) =>
-						commands.updateFilterForSelectedElement(index, {
+						stack.updateFilter(index, {
 							blendMode: value as BlendMode,
 						})
 					}
@@ -92,11 +93,11 @@ export const FillAppearanceControls = memo(function FillAppearanceControls({
 	filter: FillAppearance;
 	index: number;
 }) {
-	const { commands } = usePaplico();
+	const stack = useFilterStack();
 	const t = useTranslation();
 	const fill = filter.paramData.params.fill;
 	const handleUpdate = useEventCallback((c: Color) =>
-		commands.updateFilterForSelectedElement(index, {
+		stack.updateFilter(index, {
 			params: {
 				fill: {
 					...fill,
@@ -131,12 +132,13 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 	filter: StrokeAppearance;
 	index: number;
 }) {
-	const { commands, tools } = usePaplico();
+	const { tools } = usePaplico();
+	const stack = useFilterStack();
 	const t = useTranslation();
 	const params = filter.paramData.params;
 	const strokeColor = params.strokeColor;
 	const handleColorUpdate = useEventCallback((c: Color) =>
-		commands.updateFilterForSelectedElement(index, {
+		stack.updateFilter(index, {
 			params: {
 				strokeColor: {
 					...strokeColor,
@@ -191,7 +193,7 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 							if (Number.isNaN(parsed)) return;
 							const clamped = Math.min(100, Math.max(0.5, parsed));
 							if (!params.brushSettings) return;
-							commands.updateFilterForSelectedElement(index, {
+							stack.updateFilter(index, {
 								params: {
 									brushSettings: withStoredBrushSize(
 										params.brushSettings,
@@ -209,7 +211,7 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 					value={readStoredBrushSize(params.brushSettings) ?? 1}
 					onValueChange={(val) => {
 						if (!params.brushSettings) return;
-						commands.updateFilterForSelectedElement(index, {
+						stack.updateFilter(index, {
 							params: {
 								brushSettings: withStoredBrushSize(params.brushSettings, val),
 							},
@@ -248,7 +250,7 @@ export const StrokeGeometryControls = memo(function StrokeGeometryControls({
 	filter: StrokeAppearance;
 	disabled: boolean;
 }) {
-	const { commands } = usePaplico();
+	const stack = useFilterStack();
 	const t = useTranslation();
 
 	const stroking =
@@ -262,7 +264,7 @@ export const StrokeGeometryControls = memo(function StrokeGeometryControls({
 	const dashOffset = stroking?.dashOffset ?? 0;
 
 	const updateStroking = useEventCallback((patch: Partial<BrushStroking>) => {
-		commands.updateFilterForSelectedElement(index, {
+		stack.updateFilter(index, {
 			params: {
 				brushSettings: {
 					...params.brushSettings,

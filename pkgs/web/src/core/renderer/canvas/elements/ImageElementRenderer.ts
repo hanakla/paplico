@@ -1,3 +1,4 @@
+import { localAppearances } from "../../../document/appearancePresets";
 import {
 	type AnyArtObject,
 	type CubicBezierSegment,
@@ -98,7 +99,7 @@ export class ImageElementRenderer {
 		const quadSegments = buildImageQuadSegments(localBounds, image.corners);
 		const deformed = applyPreFilters(
 			quadSegments,
-			image.filters,
+			localAppearances(image.filters),
 			this.deps.filterRenderer,
 		);
 

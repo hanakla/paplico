@@ -2,6 +2,7 @@ import {
 	readStoredBrushSize,
 	readStoredWetBleedRatio,
 } from "../../brush/access";
+import { localAppearances } from "../../document/appearancePresets";
 import {
 	type AnyArtObject,
 	type BezierPoint,
@@ -137,7 +138,7 @@ export function calculatePathBounds(path: Path): LocalBBox {
 	let halfWidth = 0;
 	let wetExtra = 0;
 	if (path.filters) {
-		for (const f of path.filters) {
+		for (const f of localAppearances(path.filters)) {
 			if (f.processor === "stroke" && f.enabled !== false) {
 				const brush = (f as StrokeAppearance).paramData.params.brushSettings;
 				const size = readStoredBrushSize(brush) ?? 0;
@@ -164,9 +165,10 @@ export function calculatePathBounds(path: Path): LocalBBox {
 }
 
 /**
- * Calculate bounding box for a group element
- * Note: フラット構造では子要素はchildIdsで参照されるため、
- * elementsMapを渡して子のboundsを計算する必要がある
+ * Calculate bounding box for a group element. Children are referenced by id,
+ * so elementsMap is required to resolve them. A clip group only shows what
+ * lies inside its clip path, so its bounds are the clip path's bounds rather
+ * than the union of every child.
  */
 function calculateGroupBounds(
 	group: Group,
@@ -176,6 +178,13 @@ function calculateGroupBounds(
 	// If no elementsMap provided or no children, return empty bounds
 	if (!elementsMap || group.childIds.length === 0) {
 		return { minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 };
+	}
+
+	const clipPath = group.clipPathId
+		? elementsMap.get(group.clipPathId)
+		: undefined;
+	if (clipPath) {
+		return calculateElementBounds(clipPath, elementsMap, localBoundsCache);
 	}
 
 	let minX = Number.POSITIVE_INFINITY;
@@ -986,7 +995,9 @@ export function isPointOnPath(
 	}
 
 	// If path has fill, check if point is inside the filled area
-	const hasFill = path.filters?.some((f) => f.processor === "fill");
+	const hasFill = localAppearances(path.filters).some(
+		(f) => f.processor === "fill",
+	);
 	if (hasFill) {
 		if (isPointInPath(px, py, path)) {
 			return true;
@@ -1024,7 +1035,9 @@ export function doesPathIntersectRect(
 	if (path.segments.length === 0) return false;
 
 	const halfStroke = getStrokeWidth(path.filters, 0) / 2;
-	const hasFill = path.filters?.some((f) => f.processor === "fill");
+	const hasFill = localAppearances(path.filters).some(
+		(f) => f.processor === "fill",
+	);
 
 	// Check if any sampled point on the stroke is inside the rect
 	let prevEnd: BezierPoint | null = null;

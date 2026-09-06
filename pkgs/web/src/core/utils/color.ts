@@ -5,6 +5,7 @@ import {
 	type FillColor,
 	type Filter,
 	hsvToRgb,
+	isAppearancePresetRef,
 	type RGBColor,
 	type StrokeAppearance,
 	type StrokeColor,
@@ -118,6 +119,7 @@ export function collectElementColors(
 	if (element.filters) {
 		for (let i = 0; i < element.filters.length; i++) {
 			const filter = element.filters[i];
+			if (isAppearancePresetRef(filter)) continue;
 			if (filter.processor === "stroke") {
 				const strokeApp = filter as StrokeAppearance;
 				collectStrokeColors(
@@ -306,7 +308,9 @@ export function buildElementColorUpdates(
 
 	if (element.filters) {
 		updates.filters = element.filters.map((f) =>
-			adjustFilterColors(f, adjuster, getHandler),
+			isAppearancePresetRef(f)
+				? f
+				: adjustFilterColors(f, adjuster, getHandler),
 		);
 	}
 

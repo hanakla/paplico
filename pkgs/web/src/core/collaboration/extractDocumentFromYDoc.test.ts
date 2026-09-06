@@ -823,6 +823,54 @@ describe("extractDocumentFromYDoc: full document extraction", () => {
 		expect(doc.artboards).toEqual([]);
 		expect(doc.files).toEqual([]);
 		expect(doc.brushPresets).toEqual([]);
+		expect(doc.appearancePresets).toEqual([]);
+
+		ydoc.destroy();
+	});
+
+	it("extracts appearancePresets and drops entries whose filters are not a JSON array", () => {
+		const ydoc = new Y.Doc();
+		const yPresets = ydoc.getMap<Y.Map<unknown>>("appearancePresets");
+		ydoc.transact(() => {
+			const valid = new Y.Map<unknown>();
+			valid.set("uid", "ap-1");
+			valid.set("name", "Outline");
+			valid.set(
+				"filters",
+				JSON.stringify([
+					{
+						uid: "f-1",
+						processor: "stroke",
+						paramData: { version: "1", params: {} },
+					},
+				]),
+			);
+			yPresets.set("ap-1", valid);
+
+			const broken = new Y.Map<unknown>();
+			broken.set("uid", "ap-2");
+			broken.set("name", "Broken");
+			broken.set("filters", "{not json");
+			yPresets.set("ap-2", broken);
+		});
+
+		const doc = extractDocumentFromYDoc(ydoc);
+
+		expect(doc.appearancePresets).toEqual([
+			{
+				uid: "ap-1",
+				name: "Outline",
+				filters: [
+					{
+						uid: "f-1",
+						processor: "stroke",
+						opacity: 1,
+						blendMode: "normal",
+						paramData: { version: "1", params: {} },
+					},
+				],
+			},
+		]);
 
 		ydoc.destroy();
 	});

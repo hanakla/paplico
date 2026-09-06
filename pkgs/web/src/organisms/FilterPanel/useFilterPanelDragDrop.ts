@@ -14,6 +14,10 @@ import {
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { useMemo, useState } from "react";
 import { useEventCallback } from "@/utils/hooks";
+import {
+	LIBRARY_PRESET_DRAG_PREFIX,
+	PRESET_DRAG_PREFIX,
+} from "./AppearancePresetList";
 import type { FilterDropIndicator } from "./types";
 
 export function useFilterPanelDragDrop(deps: {
@@ -29,7 +33,10 @@ export function useFilterPanelDragDrop(deps: {
 			sourceSubIndex: number,
 			targetFilterIndex: number,
 		) => void;
+		insertAppearancePresetRef: (presetUid: string, index: number) => void;
 	};
+	/** Copies a library preset into the document; returns the document uid. */
+	addLibraryPresetToDocument: (libraryUid: string) => string | null;
 	uidToIndex: Map<string, number>;
 	subFilterParent: Map<string, { filterIndex: number; subIndex: number }>;
 	selectedFilterIndex: number | null;
@@ -43,6 +50,17 @@ export function useFilterPanelDragDrop(deps: {
 			const activeId = String(args.active.id);
 
 			if (activeId.startsWith("sf:")) return pointerWithin(args);
+
+			// A preset row drops between top-level rows only.
+			if (isPresetDragId(activeId)) {
+				return closestCenter({
+					...args,
+					droppableContainers: args.droppableContainers.filter(
+						(c) =>
+							!isPresetDragId(String(c.id)) && !isSecondaryDropId(String(c.id)),
+					),
+				});
+			}
 
 			return closestCenter({
 				...args,
@@ -84,6 +102,7 @@ export function useFilterPanelDragDrop(deps: {
 	});
 
 	const handleDragEnd = useEventCallback((event: DragEndEvent) => {
+		const landedIndicator = dropIndicator;
 		setDropIndicator(null);
 
 		const { active, over } = event;
@@ -91,6 +110,25 @@ export function useFilterPanelDragDrop(deps: {
 
 		const activeId = String(active.id);
 		const overId = String(over.id);
+
+		// Preset row drag: insert a ref before / after the row it landed on
+		if (isPresetDragId(activeId)) {
+			const overIndex = deps.uidToIndex.get(overId);
+			if (overIndex == null) return;
+			const index =
+				landedIndicator?.overId === overId &&
+				landedIndicator.position === "after"
+					? overIndex + 1
+					: overIndex;
+			const presetUid = activeId.startsWith(LIBRARY_PRESET_DRAG_PREFIX)
+				? deps.addLibraryPresetToDocument(
+						activeId.slice(LIBRARY_PRESET_DRAG_PREFIX.length),
+					)
+				: activeId.slice(PRESET_DRAG_PREFIX.length);
+			if (!presetUid) return;
+			deps.commands.insertAppearancePresetRef(presetUid, index);
+			return;
+		}
 
 		// Sub-filter drag
 		if (activeId.startsWith("sf:")) {
@@ -162,6 +200,17 @@ export function useFilterPanelDragDrop(deps: {
 		customCollision,
 		clearDropIndicator,
 	};
+}
+
+function isPresetDragId(id: string): boolean {
+	return (
+		id.startsWith(PRESET_DRAG_PREFIX) ||
+		id.startsWith(LIBRARY_PRESET_DRAG_PREFIX)
+	);
+}
+
+function isSecondaryDropId(id: string): boolean {
+	return id.startsWith("sf:") || id.startsWith("drop:");
 }
 
 export const restrictFilterDragToVertical: Modifier = ({

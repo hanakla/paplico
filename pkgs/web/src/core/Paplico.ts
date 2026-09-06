@@ -10,6 +10,7 @@ import type { ICollaboration } from "./collaboration/ICollaboration";
 import { YjsProvider } from "./collaboration/YjsProvider";
 import { buildSoftProofLut } from "./color/ColorEngine";
 import type { BuiltinIccProfileId, ProofProfileRef } from "./color/types";
+import { localAppearances } from "./document/appearancePresets";
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "./document/constants";
 import { DefIndex } from "./document/DefIndex";
 import { collectEditablePaths } from "./document/editablePaths";
@@ -103,6 +104,7 @@ import {
 	getContainerChildIds,
 	getTransform,
 	type ImageObject,
+	isAppearancePresetRef,
 	isContainer,
 	isIdentityTransform,
 	isReference3D,
@@ -157,6 +159,7 @@ import { PaplicoUI } from "./ui/PaplicoUI";
 import {
 	type ExtractedAppearance,
 	extractAppearance as extractAppearanceFromArtObject,
+	getFirstFill,
 } from "./utils/elementQuery";
 import { Emitter } from "./utils/emitter";
 import { arcLengthOfNearestSpinePoint } from "./utils/geometry/blendInterpolation";
@@ -2620,6 +2623,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			},
 			isReadonly: () => this.isReadonly,
 			getElement: (id) => this.rendererStore.document.objects[id] ?? null,
+			resolveElementAppearance: (element) =>
+				this.spatialIndex.resolveAppearance(element),
 			getBounds: (id) => this.spatialIndex.getWorldBounds(id),
 			getElementWorldSegments: (id) =>
 				this.spatialIndex.getElementWorldSegments(id),
@@ -3773,9 +3778,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			if (this.rendererStore.selectedElementIds.length > 0) {
 				const firstId = this.rendererStore.selectedElementIds[0];
 				const element = this.rendererStore.document.objects[firstId];
-				const fillApp = element?.filters?.find((f) => f.processor === "fill") as
-					| FillAppearance
-					| undefined;
+				const fillApp = getFirstFill(element?.filters);
 				const fill = fillApp?.paramData.params.fill;
 				if (!fill || isSolidColor(fill)) {
 					this.selection.clear();
@@ -3935,7 +3938,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				// Copy filters (stroke, fill, effects) except "content",
 				// preserving existing uids where processor types match
 				if (copyTargets.stroke || copyTargets.fill || copyTargets.filters) {
-					const existingFilters = element.filters ?? [];
+					const existingEntries = element.filters ?? [];
+					const presetRefs = existingEntries.filter(isAppearancePresetRef);
+					const existingFilters = localAppearances(existingEntries);
 					const contentFilters = existingFilters.filter(
 						(f) => f.processor === "content",
 					);
@@ -3976,9 +3981,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 					updates.filters = [
 						...contentFilters,
+						...presetRefs,
 						...keptFilters,
 						...copiedFilters,
-					] as Filter[];
+					];
 				}
 
 				if (copyTargets.appearance) {

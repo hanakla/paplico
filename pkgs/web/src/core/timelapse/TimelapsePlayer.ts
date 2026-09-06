@@ -275,6 +275,7 @@ export class TimelapsePlayer {
 		// Extracted into the Document but never patched incrementally.
 		doc.getMap("files").observe(markOther);
 		doc.getMap("brushPresets").observe(markOther);
+		doc.getMap("appearancePresets").observe(markOther);
 		doc.getMap("defs").observeDeep(markOther);
 		doc.getMap("references3d").observeDeep(markOther);
 	}

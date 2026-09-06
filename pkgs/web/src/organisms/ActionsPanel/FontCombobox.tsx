@@ -1,7 +1,7 @@
 import { Combobox as BUICombobox } from "@base-ui/react/combobox";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Combobox2 } from "@/components/Combobox2";
 import { Spinner } from "@/components/Spinner";
 import { type FontMetadata, getFontManager } from "@/core/index";
@@ -268,11 +268,19 @@ const VirtualizedFontList = memo(function VirtualizedFontList({
 		source: string,
 	) => (el: HTMLElement | null) => void;
 }) {
-	const scrollElementRef = useRef<HTMLDivElement | null>(null);
+	// A ref alone doesn't work here: useVirtualizer reads getScrollElement()
+	// during render, but a plain ref callback fires after commit with no
+	// re-render of its own, so the virtualizer's first render permanently
+	// captures a null scroll element and never re-checks it (measure() only
+	// invalidates size caches, it doesn't refetch the element). State makes
+	// the attach itself trigger the re-render the virtualizer needs.
+	const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
+		null,
+	);
 
 	const virtualizer = useVirtualizer({
 		count: fonts.length,
-		getScrollElement: () => scrollElementRef.current,
+		getScrollElement: () => scrollElement,
 		estimateSize: () => ITEM_HEIGHT,
 		overscan: 8,
 	});
@@ -289,15 +297,6 @@ const VirtualizedFontList = memo(function VirtualizedFontList({
 		}
 	}, [open, currentFont, fonts, virtualizer]);
 
-	const handleScrollElementRef = useEventCallback(
-		(element: HTMLDivElement | null) => {
-			scrollElementRef.current = element;
-			if (element) {
-				virtualizer.measure();
-			}
-		},
-	);
-
 	const totalSize = virtualizer.getTotalSize();
 
 	if (!fonts.length) return null;
@@ -305,7 +304,7 @@ const VirtualizedFontList = memo(function VirtualizedFontList({
 	return (
 		<div
 			role="presentation"
-			ref={handleScrollElementRef}
+			ref={setScrollElement}
 			className="overflow-auto overscroll-contain outline-none h-full"
 		>
 			<div

@@ -124,7 +124,7 @@ function getObjectEdges(obj: AnyArtObject): string[] {
 
 /**
  * Recursively collects every string value stored under a `fileUid` key,
- * scanning the surviving objects plus brushPresets/colorProfile/references3d.
+ * scanning the surviving objects plus brushPresets/appearancePresets/colorProfile/references3d.
  * Binary payloads (typed arrays / ArrayBuffers) are not descended into.
  */
 function collectUsedFileUids(
@@ -135,6 +135,7 @@ function collectUsedFileUids(
 	for (const source of [
 		Object.values(survivingObjects),
 		doc.brushPresets,
+		doc.appearancePresets,
 		doc.colorProfile,
 		doc.references3d,
 	]) {

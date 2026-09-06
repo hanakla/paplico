@@ -10,6 +10,7 @@
  * only this module produces it, and the GPU primitives only accept it.
  */
 
+import { localAppearances } from "../../../document/appearancePresets";
 import {
 	type CubicBezierSegment,
 	colorToRawRGBA,
@@ -66,7 +67,7 @@ export function collectDrawableAppearances(
 	if (isElementRenderReplaced(path, filterRenderer)) return [];
 
 	return dropOccludedFills(
-		(path.filters ?? []).filter(
+		localAppearances(path.filters).filter(
 			(f) =>
 				(f.processor === "fill" || f.processor === "stroke") &&
 				isFilterEnabled(f),
@@ -90,7 +91,7 @@ export function resolveAppearancePasses(
 
 	const baseSegments = resolveElementGeometry(
 		path.segments,
-		path.filters,
+		localAppearances(path.filters),
 		filterRenderer,
 	);
 
@@ -98,7 +99,7 @@ export function resolveAppearancePasses(
 	// is also drawn as virtual elements (per-appearance offscreen plans, group
 	// appearances) whose pre-filter set differs, and those variants must not
 	// collide in the geometry cache.
-	const preFilterUids = (path.filters ?? [])
+	const preFilterUids = localAppearances(path.filters)
 		.filter(
 			(f) =>
 				f.processor !== "fill" &&

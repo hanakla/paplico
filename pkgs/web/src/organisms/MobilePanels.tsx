@@ -2,6 +2,7 @@ import { Drawer } from "@/components/Drawer";
 import { Icons } from "@/components/Icons";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
+import { useToolbarRailOffsets } from "@/hooks/useToolbarRailOffsets";
 import { ActionsPanel } from "@/organisms/ActionsPanel";
 import { FilterPanel } from "@/organisms/FilterPanel";
 import { LayerPanel } from "@/organisms/LayerPanel";
@@ -20,6 +21,7 @@ export function MobilePanels() {
 	const layoutMode = useLayoutMode();
 	const { toolbarSide, panelLayout } = useAppConfig();
 	const uiSnap = useUIState();
+	const railOffsets = useToolbarRailOffsets();
 
 	// Null is "not decided yet", which is neither desktop nor mobile: rendering
 	// the mobile surfaces on it puts them on a desktop for one frame, which is
@@ -105,6 +107,7 @@ export function MobilePanels() {
 					bottomOffset={
 						drawerMode === "bottom" ? "var(--mobile-tab-bar-height)" : 0
 					}
+					{...railOffsets}
 				>
 					<div className="flex-1 flex flex-col min-h-0 [&>div]:w-full! [&>div]:max-h-none! [&>div]:flex-1! [&>div]:rounded-none! [&>div]:shadow-none! [&>div]:bg-transparent! [&>div]:backdrop-filter-none!">
 						{uiSnap.mobilePanelOpen === "context" && <ActionsPanel />}

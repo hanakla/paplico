@@ -1,4 +1,5 @@
 import { readStoredBrushSize } from "../../../brush/access";
+import { localAppearances } from "../../../document/appearancePresets";
 import {
 	type AnyArtObject,
 	type BlendMode,
@@ -359,7 +360,9 @@ function classifyElementFilters(
 	filterPlan: ElementFilterPlan | null;
 	backdropEntry: BackdropElementEntry | null;
 } {
-	const enabledFilters = element.filters?.filter(isFilterEnabled);
+	const enabledFilters = localAppearances(element.filters).filter(
+		isFilterEnabled,
+	);
 	if (!enabledFilters || enabledFilters.length === 0) {
 		return { filterPlan: null, backdropEntry: null };
 	}
@@ -440,7 +443,7 @@ function classifyElementFilters(
 	// types have no inline per-appearance deformation, so they still need it.
 	const deformsInline = isGroup(element) || element.type === "path";
 	let hasAnySubFilters = false;
-	for (const filter of element.filters ?? []) {
+	for (const filter of localAppearances(element.filters)) {
 		if (!isFilterEnabled(filter)) continue;
 		const needsOffscreen = (filter.subFilters ?? []).some((sf) => {
 			switch (classifyFilterHandler(filterHandlers.get(sf.processor))) {
@@ -461,7 +464,7 @@ function classifyElementFilters(
 	// A render-replacing appearance (extrude3d) draws the element itself
 	// (Illustrator-style), so its fill/stroke/content appearances are
 	// suppressed from routing decisions and per-appearance plans while active.
-	const suppressFlatAppearances = (element.filters ?? []).some(
+	const suppressFlatAppearances = localAppearances(element.filters).some(
 		(f) =>
 			isFilterEnabled(f) &&
 			filterHandlers.get(f.processor)?.replacesElementRender?.(f),
@@ -473,7 +476,7 @@ function classifyElementFilters(
 	// renderGroupAppearanceFilters, so skip offscreen routing.
 	let hasNonNormalAppearanceBlend = false;
 	if (!isGroup(element)) {
-		for (const filter of element.filters ?? []) {
+		for (const filter of localAppearances(element.filters)) {
 			if (!isFilterEnabled(filter)) continue;
 			const isFlatAppearance =
 				filter.processor === "fill" ||
@@ -501,7 +504,7 @@ function classifyElementFilters(
 	// every bleed is cropped back to the dabs.
 	let wetReach = 0;
 	if (!isGroup(element) && !suppressFlatAppearances) {
-		for (const filter of element.filters ?? []) {
+		for (const filter of localAppearances(element.filters)) {
 			if (!isFilterEnabled(filter) || filter.processor !== "stroke") continue;
 			if (washStrokeOpacityOf(filter) != null) {
 				hasWashStroke = true;
@@ -542,8 +545,9 @@ function classifyElementFilters(
 	let maxSubExpansion = 0;
 	if (hasAnySubFilters || hasNonNormalAppearanceBlend || hasWashStroke) {
 		allAppearancePlans = [];
-		for (let i = 0; i < (element.filters?.length ?? 0); i++) {
-			const filter = element.filters![i];
+		const localFilters = localAppearances(element.filters);
+		for (let i = 0; i < localFilters.length; i++) {
+			const filter = localFilters[i];
 			if (!isFilterEnabled(filter)) continue;
 			if (
 				suppressFlatAppearances &&
@@ -676,7 +680,7 @@ export function calculatePreFilteredElementBounds(
 		const cached = preFilteredBoundsCache.get(element);
 		if (cached) return cached;
 
-		const groupPreFilters = (element.filters ?? []).filter((f) =>
+		const groupPreFilters = localAppearances(element.filters).filter((f) =>
 			isGeometryFilter(f, filterRenderer),
 		);
 		// Children live in group-local space (own transforms applied, the
@@ -697,7 +701,7 @@ export function calculatePreFilteredElementBounds(
 			const effectiveChild = groupPreFilters.length
 				? ({
 						...child,
-						filters: [...(child.filters ?? []), ...groupPreFilters],
+						filters: [...localAppearances(child.filters), ...groupPreFilters],
 					} as AnyArtObject)
 				: child;
 			const childBounds = calculatePreFilteredElementBounds(
@@ -721,7 +725,7 @@ export function calculatePreFilteredElementBounds(
 	}
 
 	if (element.type !== "path" && element.type !== "image") return base;
-	const hasPreFilter = (element.filters ?? []).some((f) =>
+	const hasPreFilter = localAppearances(element.filters).some((f) =>
 		isGeometryFilter(f, filterRenderer),
 	);
 	const appearancePreSubFilters =
@@ -737,7 +741,7 @@ export function calculatePreFilteredElementBounds(
 	if (element.type === "path") {
 		const segments = applyPreFilters(
 			element.segments,
-			element.filters,
+			localAppearances(element.filters),
 			filterRenderer,
 		);
 		// Deform in local space, then apply the element transform about the
@@ -838,7 +842,9 @@ function subtreeHasPreFilter(
 	filterRenderer: Parameters<typeof applyPreFilters>[2],
 ): boolean {
 	if (
-		(element.filters ?? []).some((f) => isGeometryFilter(f, filterRenderer)) ||
+		localAppearances(element.filters).some((f) =>
+			isGeometryFilter(f, filterRenderer),
+		) ||
 		collectAppearancePreSubFilters(element, filterRenderer).length > 0
 	) {
 		return true;
@@ -859,7 +865,7 @@ function collectAppearancePreSubFilters(
 	filterRenderer: Parameters<typeof applyPreFilters>[2],
 ): Filter[][] {
 	const result: Filter[][] = [];
-	for (const filter of element.filters ?? []) {
+	for (const filter of localAppearances(element.filters)) {
 		if (!isFilterEnabled(filter)) continue;
 		if (filter.processor !== "fill" && filter.processor !== "stroke") continue;
 		const subs = (filter.subFilters ?? []).filter((sf) =>
@@ -889,7 +895,7 @@ function deformedImageWorldBounds(
 	};
 	const segments = applyPreFilters(
 		buildImageQuadSegments(local),
-		image.filters,
+		localAppearances(image.filters),
 		filterRenderer,
 	);
 

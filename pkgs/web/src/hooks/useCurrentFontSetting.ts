@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { useSnapshot } from "valtio";
+import { useEffect, useMemo } from "react";
+import { proxy, useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { type FontMetadata, getFontManager } from "@/core/index";
 import type {
@@ -247,32 +247,31 @@ export function useActiveFontSettings(): ActiveFontSettings {
 }
 
 // ---------------------------------------------------------------------------
-// Font list cache (module-level singleton, shared across all components)
+// Font list cache (shared across all components, Valtio-backed like the
+// rest of this app's cross-component state — see useUserSession's authState)
 // ---------------------------------------------------------------------------
 
-let fontListCache: FontMetadata[] = [];
-let fontListLoading = true;
+const fontListState = proxy<{
+	fonts: FontMetadata[];
+	isLoading: boolean;
+	/**
+	 * Bumped whenever a font finishes loading via fontkit so that downstream
+	 * consumers (e.g. FontCombobox) can re-derive memos that depend on
+	 * `FontManager.getLocalizedNames`.
+	 */
+	loadedVersion: number;
+}>({
+	fonts: [],
+	isLoading: true,
+	loadedVersion: 0,
+});
+
 let fontListPromise: Promise<void> | null = null;
-/**
- * Bumped whenever a font finishes loading via fontkit so that downstream
- * consumers (e.g. FontCombobox) can re-derive memos that depend on
- * `FontManager.getLocalizedNames`.
- */
-let fontListLoadedVersion = 0;
-const fontListListeners = new Set<() => void>();
-
-function notifyFontListListeners() {
-	for (const listener of fontListListeners) listener();
-}
-
-function bumpLoadedVersionAndNotify() {
-	fontListLoadedVersion += 1;
-	notifyFontListListeners();
-}
 
 function ensureFontListLoaded(): void {
 	if (fontListPromise) return;
 
+	fontListState.isLoading = true;
 	fontListPromise = (async () => {
 		try {
 			const fontManager = getFontManager();
@@ -284,68 +283,62 @@ function ensureFontListLoaded(): void {
 					uniqueFamilies.set(font.family, font);
 				}
 			}
-			fontListCache = Array.from(uniqueFamilies.values());
+			fontListState.fonts = Array.from(uniqueFamilies.values());
 		} catch (err) {
 			console.error("Failed to load fonts:", err);
 		} finally {
-			fontListLoading = false;
-			notifyFontListListeners();
+			fontListState.isLoading = false;
 		}
 	})();
 }
 
 /**
- * Module-level singleton subscription to `FontManager`'s `fontLoaded` event.
- * Mounts on the first `useFontList` consumer and re-emits to all current
- * `fontListListeners` whenever a new font is parsed via fontkit.
+ * Subscribes to `FontManager`'s events exactly once for the app's lifetime —
+ * `fontListState` is a shared, app-wide store, so its subscription lifecycle
+ * is tied to that, not to any one component's mount/unmount.
+ *
+ * Handles two events:
+ * - `fontLoaded`: bumps `loadedVersion` whenever a new font is parsed via
+ *   fontkit, so localized names propagate into the list.
+ * - `fontListInvalidated`: the list can be queried (e.g. by an early-mounting
+ *   FontCombobox) before Paplico.create() finishes injecting the Google Fonts
+ *   API key, which permanently caches an incomplete (Google-fonts-less) list
+ *   since `ensureFontListLoaded` never re-runs on its own. Re-querying on
+ *   this event fixes that race.
  */
-let fontLoadedSubscription: (() => void) | null = null;
+let fontManagerSubscribed = false;
 
-function ensureFontLoadedSubscription(): void {
-	if (fontLoadedSubscription) return;
-	fontLoadedSubscription = getFontManager().on(
-		"fontLoaded",
-		bumpLoadedVersionAndNotify,
-	);
+function ensureFontManagerSubscription(): void {
+	if (fontManagerSubscribed) return;
+	fontManagerSubscribed = true;
+
+	const fontManager = getFontManager();
+	fontManager.on("fontLoaded", () => {
+		fontListState.loadedVersion += 1;
+	});
+	fontManager.on("fontListInvalidated", () => {
+		fontListPromise = null;
+		ensureFontListLoaded();
+	});
 }
 
-function subscribeFontList(callback: () => void): () => void {
-	fontListListeners.add(callback);
-	ensureFontListLoaded();
-	ensureFontLoadedSubscription();
-	return () => fontListListeners.delete(callback);
-}
-
-interface FontListSnapshot {
+export function useFontList(): {
 	fonts: FontMetadata[];
 	isLoading: boolean;
 	loadedVersion: number;
-}
-
-function getFontListSnapshot(): FontListSnapshot {
-	return {
-		fonts: fontListCache,
-		isLoading: fontListLoading,
-		loadedVersion: fontListLoadedVersion,
+} {
+	useEffect(() => {
+		ensureFontListLoaded();
+		ensureFontManagerSubscription();
+	}, []);
+	const snap = useSnapshot(fontListState);
+	// Nothing downstream mutates the font list; the cast just drops the
+	// deep-readonly wrapper useSnapshot adds around plain read access.
+	return snap as unknown as {
+		fonts: FontMetadata[];
+		isLoading: boolean;
+		loadedVersion: number;
 	};
-}
-
-// Keep a stable reference for useSyncExternalStore
-let lastSnapshot = getFontListSnapshot();
-function getSnapshot(): FontListSnapshot {
-	const current = getFontListSnapshot();
-	if (
-		current.fonts !== lastSnapshot.fonts ||
-		current.isLoading !== lastSnapshot.isLoading ||
-		current.loadedVersion !== lastSnapshot.loadedVersion
-	) {
-		lastSnapshot = current;
-	}
-	return lastSnapshot;
-}
-
-export function useFontList() {
-	return useSyncExternalStore(subscribeFontList, getSnapshot, getSnapshot);
 }
 
 // ---------------------------------------------------------------------------

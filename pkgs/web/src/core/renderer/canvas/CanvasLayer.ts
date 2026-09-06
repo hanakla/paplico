@@ -6,6 +6,10 @@ import {
 } from "../../brush/brushSource";
 import { BRUSH_PROPERTY_REGISTRY } from "../../brush/properties";
 import type { SoftProofLutResult } from "../../color/types";
+import {
+	localAppearances,
+	resolveElementsMapAppearance,
+} from "../../document/appearancePresets";
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../document/constants";
 import {
 	createDefaultBrushSettings,
@@ -669,6 +673,7 @@ export class CanvasLayer {
 		objects: Document["objects"];
 		layers: Document["layers"];
 		artboards: Document["artboards"];
+		appearancePresets: Document["appearancePresets"];
 		transients: ReadonlyMap<string, TransientElementEntry> | undefined;
 		mergedElementsMap: Map<string, AnyArtObject>;
 		structure: FramePlanStructure;
@@ -2188,6 +2193,7 @@ export class CanvasLayer {
 			cachedPlan.objects === document.objects &&
 			cachedPlan.layers === document.layers &&
 			cachedPlan.artboards === document.artboards &&
+			cachedPlan.appearancePresets === document.appearancePresets &&
 			cachedPlan.transients === transientElements
 		) {
 			mergedElementsMap = cachedPlan.mergedElementsMap;
@@ -2203,6 +2209,9 @@ export class CanvasLayer {
 				for (const [, { element }] of transientElements)
 					mergedElementsMap.set(element.id, element);
 			}
+			// Expand appearance preset refs once here so the planner, bounds,
+			// element renderers and caches only ever see concrete filters.
+			resolveElementsMapAppearance(mergedElementsMap, document);
 			// Copy a render-replacing appearance (e.g. extrude3d) from a blend's keys
 			// onto the blend so the generic filter system renders each interpolated
 			// instance through it — no extrude-specific branch in the render path.
@@ -2222,6 +2231,7 @@ export class CanvasLayer {
 					objects: document.objects,
 					layers: document.layers,
 					artboards: document.artboards,
+					appearancePresets: document.appearancePresets,
 					transients: transientElements,
 					mergedElementsMap,
 					structure: planStructure,
@@ -5067,7 +5077,7 @@ export class CanvasLayer {
 
 		// Collect pre-filters (geometry deformations like zigzag) to apply
 		// to each isolated appearance.
-		const preFilters = (fp.element.filters ?? []).filter((f) =>
+		const preFilters = localAppearances(fp.element.filters).filter((f) =>
 			isGeometryFilter(f, this.filterRenderer),
 		);
 
@@ -5467,7 +5477,7 @@ export class CanvasLayer {
 		}
 		const cached = this.washKeyCache.get(element);
 		if (cached != null) return cached;
-		const filters = element.filters ?? [];
+		const filters = localAppearances(element.filters);
 		let filtersFp = this.washFiltersFpCache.get(filters);
 		if (filtersFp == null) {
 			filtersFp = JSON.stringify(filters);
@@ -6319,7 +6329,10 @@ export class CanvasLayer {
 				const effectivePath = parentPreFilters?.length
 					? ({
 							...element,
-							filters: [...(element.filters ?? []), ...parentPreFilters],
+							filters: [
+								...localAppearances(element.filters),
+								...parentPreFilters,
+							],
 						} as Path)
 					: element;
 
@@ -6583,14 +6596,16 @@ export class CanvasLayer {
 						elementsMap,
 						this.cacheManager.compoundPath,
 					);
-					const split = splitGroupAppearances(element.filters);
+					const split = splitGroupAppearances(
+						localAppearances(element.filters),
+					);
 					beforeApps = split.before;
 					afterApps = split.after;
 				}
 
 				// Extract group-level pre-filters to propagate to children.
 				// Nested groups apply child→parent order (innermost first).
-				const groupPreFilters = (element.filters ?? []).filter((f) =>
+				const groupPreFilters = localAppearances(element.filters).filter((f) =>
 					isGeometryFilter(f, this.filterRenderer),
 				);
 				const effectivePreFilters =
@@ -6623,7 +6638,7 @@ export class CanvasLayer {
 							childAlpha,
 							pipelineType,
 							element.id,
-							element.filters,
+							localAppearances(element.filters),
 							compositeContext,
 						);
 						activePass = this.renderElements(
@@ -6646,7 +6661,7 @@ export class CanvasLayer {
 							childAlpha,
 							pipelineType,
 							element.id,
-							element.filters,
+							localAppearances(element.filters),
 							compositeContext,
 						);
 					} else {
@@ -6681,7 +6696,7 @@ export class CanvasLayer {
 					childAlpha,
 					pipelineType,
 					element.id,
-					element.filters,
+					localAppearances(element.filters),
 					compositeContext,
 				);
 				activePass = this.renderElements(
@@ -6704,7 +6719,7 @@ export class CanvasLayer {
 					childAlpha,
 					pipelineType,
 					element.id,
-					element.filters,
+					localAppearances(element.filters),
 					compositeContext,
 				);
 			} else {
@@ -6720,7 +6735,10 @@ export class CanvasLayer {
 				const effectiveElement = parentPreFilters?.length
 					? ({
 							...element,
-							filters: [...(element.filters ?? []), ...parentPreFilters],
+							filters: [
+								...localAppearances(element.filters),
+								...parentPreFilters,
+							],
 						} as AnyArtObject)
 					: element;
 				this.elements.dispatchElementDirect(

@@ -570,6 +570,7 @@ export class ClipMaskAtlas {
 
 		switch (mask.mode) {
 			case "silhouette": {
+				this.unbindMaskForMaskPass();
 				for (const source of mask.sources) {
 					this.deps.renderState.currentTransformIndex =
 						this.deps.getTransformIndex(source.id);
@@ -735,6 +736,7 @@ export class ClipMaskAtlas {
 		pass.setBindGroup(1, transformsBindGroup);
 		pass.setBindGroup(2, this.deps.dummyGradientBindGroup);
 		pass.setBindGroup(3, this.deps.dummyMaskBindGroup);
+		this.unbindMaskForMaskPass();
 		this.deps.viewportState.bounds = null;
 
 		for (const { mask, coverage, atlasRect } of items) {
@@ -775,6 +777,17 @@ export class ClipMaskAtlas {
 
 		pass.end();
 		this.deps.texturePool.release(stencilTexture);
+	}
+
+	/**
+	 * Point renderState at the dummy mask before a mask pass draws its sources.
+	 * Element renderers rebind BG3 from renderState.currentMaskBindGroup, which
+	 * still holds the last main-pass mask. When that mask lives in the shared
+	 * atlas and the atlas is the pass's color attachment, rebinding it makes
+	 * WebGPU reject the whole command buffer.
+	 */
+	private unbindMaskForMaskPass(): void {
+		this.deps.renderState.currentMaskBindGroup = this.deps.dummyMaskBindGroup;
 	}
 
 	private ensureAtlasClearTexture(): GPUTexture {

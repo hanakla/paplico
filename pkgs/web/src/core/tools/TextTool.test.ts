@@ -594,6 +594,23 @@ describe("TextTool empty region persistence", () => {
 
 		expect(textDelete).toHaveBeenCalledTimes(1);
 	});
+
+	it("should keep a font picked on empty text when exiting without typing", () => {
+		const textComplete = vi.fn();
+		const ctx = createMockToolContext({ textComplete });
+		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+
+		tool.enterEditModeForElement(emptyRegion());
+		tool.applyStyleToSelection({ fontFamily: "Noto Sans JP" });
+		tool.onCancel();
+
+		expect(textComplete).toHaveBeenCalledTimes(1);
+		const committed = textComplete.mock.calls[0][0] as TextElement;
+		expect(committed.defaultStyle.fontFamily).toBe("Noto Sans JP");
+		expect(committed.content.paragraphs[0].runs[0].style.fontFamily).toBe(
+			"Noto Sans JP",
+		);
+	});
 });
 
 describe("TextTool flow link visual feedback", () => {

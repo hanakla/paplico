@@ -1,6 +1,7 @@
 import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { Color, FillAppearance, FillColor } from "@/core/schema";
+import type { Color, FillColor, FilterEntry } from "@/core/schema";
+import { getFirstFill } from "@/core/utils/elementQuery";
 import { useEventCallback } from "@/utils/hooks";
 
 /**
@@ -28,9 +29,7 @@ export function useGradientStopColor(): {
 	const layerId = snap.currentLayerId;
 	const elementId = snap.selectedElementIds[0];
 	const element = elementId ? snap.document.objects[elementId] : null;
-	const fillApp = element?.filters?.find((f) => f.processor === "fill") as
-		| FillAppearance
-		| undefined;
+	const fillApp = getFirstFill(element?.filters as FilterEntry[] | undefined);
 	const fill = fillApp?.paramData.params.fill;
 
 	let stopColor: Color | null = null;

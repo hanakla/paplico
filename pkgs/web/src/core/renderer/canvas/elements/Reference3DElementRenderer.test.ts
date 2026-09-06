@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createIdentityTransform } from "../../../document/factory";
 import type {
 	Reference3DRenderRequest,
+	Reference3DScenePixels,
 	Reference3DServiceApi,
 } from "../../../reference3d/types";
 import type {
@@ -244,7 +245,9 @@ describe("computeReference3DTextureSize", () => {
 
 type FakeService = Reference3DServiceApi & {
 	renderScene: ReturnType<
-		typeof vi.fn<(req: Reference3DRenderRequest) => Promise<ImageBitmap>>
+		typeof vi.fn<
+			(req: Reference3DRenderRequest) => Promise<Reference3DScenePixels>
+		>
 	>;
 	bumpEpoch: () => void;
 };
@@ -252,13 +255,11 @@ type FakeService = Reference3DServiceApi & {
 function createFakeService(): FakeService {
 	let epoch = 0;
 	return {
-		renderScene: vi.fn(async (request: Reference3DRenderRequest) => {
-			return {
-				width: request.width,
-				height: request.height,
-				close: vi.fn(),
-			} as unknown as ImageBitmap;
-		}),
+		renderScene: vi.fn(async (request: Reference3DRenderRequest) => ({
+			width: request.width,
+			height: request.height,
+			data: new Uint8Array(request.width * request.height * 4),
+		})),
 		raycastNode: vi.fn(() => null),
 		getContextEpoch: () => epoch,
 		getAssetsEpoch: () => 0,
@@ -292,7 +293,7 @@ function createRenderer(options: { context?: null } = {}) {
 				() => ({ destroy: vi.fn() }) as unknown as GPUTexture,
 			),
 			queue: {
-				copyExternalImageToTexture: vi.fn(),
+				writeTexture: vi.fn(),
 			} as unknown as GPUQueue,
 		} as unknown as GPUDevice,
 		strokePipeline: {} as GPURenderPipeline,

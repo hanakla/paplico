@@ -3823,6 +3823,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@pixiv/three-vrm@patch:@pixiv/three-vrm@npm%3A3.5.5#~/.yarn/patches/@pixiv-three-vrm-npm-3.5.5-d31fe7450d.patch":
+  version: 3.5.5
+  resolution: "@pixiv/three-vrm@patch:@pixiv/three-vrm@npm%3A3.5.5#~/.yarn/patches/@pixiv-three-vrm-npm-3.5.5-d31fe7450d.patch::version=3.5.5&hash=282cce"
+  dependencies:
+    "@pixiv/three-vrm-core": "npm:3.5.5"
+    "@pixiv/three-vrm-materials-hdr-emissive-multiplier": "npm:3.5.5"
+    "@pixiv/three-vrm-materials-mtoon": "npm:3.5.5"
+    "@pixiv/three-vrm-materials-v0compat": "npm:3.5.5"
+    "@pixiv/three-vrm-node-constraint": "npm:3.5.5"
+    "@pixiv/three-vrm-springbone": "npm:3.5.5"
+  peerDependencies:
+    three: ">=0.137"
+  checksum: 10c0/225f781fb6cbd6d9d30a6cb30bb0560a2ea4d1f31378e8b5ec214a2c41e0aa93f9ece36ae266abb061bce442ab8ca74006bf6c656ff294d6dc90777e1abbe063
+  languageName: node
+  linkType: hard
+
 "@pixiv/types-vrm-0.0@npm:3.5.5":
   version: 3.5.5
   resolution: "@pixiv/types-vrm-0.0@npm:3.5.5"
@@ -15753,7 +15769,7 @@ __metadata:
     "@next/mdx": "npm:^16.2.1"
     "@paplico/avif-hdr": "workspace:*"
     "@paplico/syrup": "workspace:^"
-    "@pixiv/three-vrm": "npm:3.5.5"
+    "@pixiv/three-vrm": "patch:@pixiv/three-vrm@npm%3A3.5.5#~/.yarn/patches/@pixiv-three-vrm-npm-3.5.5-d31fe7450d.patch"
     "@resvg/resvg-js": "npm:^2.6.2"
     "@saurl/tauri-plugin-safe-area-insets-css-api": "npm:^0.1.0"
     "@sentry/nextjs": "npm:^10.47.0"

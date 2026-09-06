@@ -3,6 +3,7 @@ import type { ProofProfileRef, RenderingIntent } from "../color/types";
 import { createIdentityTransform } from "../document/factory";
 import {
 	type AnyArtObject,
+	type AppearancePreset,
 	type Artboard,
 	type BlendMode,
 	type BlendObject,
@@ -214,6 +215,7 @@ export function extractDocumentFromYDoc(ydoc: Y.Doc): Document {
 	const yArtboards = ydoc.getArray<Artboard>("artboards");
 	const yFiles = ydoc.getMap<SerializedEmbeddedFile>("files");
 	const yBrushPresets = ydoc.getMap<Y.Map<unknown>>("brushPresets");
+	const yAppearancePresets = ydoc.getMap<Y.Map<unknown>>("appearancePresets");
 	const yDefs = ydoc.getMap<Y.Map<unknown>>("defs");
 	const yReferences3d = ydoc.getMap<Y.Map<unknown>>("references3d");
 
@@ -256,6 +258,13 @@ export function extractDocumentFromYDoc(ydoc: Y.Doc): Document {
 			settings:
 				typeof rawSettings === "string" ? JSON.parse(rawSettings) : rawSettings,
 		});
+	}
+
+	// appearancePresets: Y.Map<Y.Map<unknown>> → AppearancePreset[]
+	const appearancePresets: AppearancePreset[] = [];
+	for (const [_uid, yPreset] of yAppearancePresets.entries()) {
+		const preset = yMapToAppearancePreset(yPreset);
+		if (preset) appearancePresets.push(preset);
 	}
 
 	// defs: Y.Map<Y.Map<unknown>> → Record<string, DefEntry>
@@ -324,6 +333,7 @@ export function extractDocumentFromYDoc(ydoc: Y.Doc): Document {
 		files,
 		artboards,
 		brushPresets,
+		appearancePresets,
 		hdr,
 		colorProfile,
 		rasterizationDpi,
@@ -419,6 +429,23 @@ function yMapToDefEntry(yDef: Y.Map<unknown>): DefEntry | null {
 		rootElementIds,
 		...(typeof name === "string" ? { name } : {}),
 		...(tile ? { tile } : {}),
+	};
+}
+
+function yMapToAppearancePreset(
+	yPreset: Y.Map<unknown>,
+): AppearancePreset | null {
+	const uid = yPreset.get("uid");
+	const name = yPreset.get("name");
+	const rawFilters = yPreset.get("filters");
+	if (typeof uid !== "string" || typeof name !== "string") return null;
+	if (typeof rawFilters !== "string") return null;
+	const parsed = safeJSONParse(rawFilters);
+	if (!parsed.ok || !Array.isArray(parsed.result)) return null;
+	return {
+		uid,
+		name,
+		filters: normalizeAppearanceFields(parsed.result as Filter[]),
 	};
 }
 

@@ -12,6 +12,7 @@ import type {
 	Point,
 } from "@/core/schema";
 import { toRGBColor } from "@/core/schema";
+import { localAppearances } from "../../document/appearancePresets";
 import {
 	evalEdge,
 	getVertexNeighbors,
@@ -686,7 +687,9 @@ describe("warpMeshChildren", () => {
 		});
 		const warped = transients[0];
 		expect(warped.type).toBe("path");
-		const fillFilter = warped.filters?.find((f) => f.processor === "fill");
+		const fillFilter = localAppearances(warped.filters).find(
+			(f) => f.processor === "fill",
+		);
 		const fill = (fillFilter as FillAppearance | undefined)?.paramData.params
 			.fill;
 		expect(fill?.type).toBe("free");

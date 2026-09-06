@@ -157,6 +157,7 @@ export function createDefaultDocument(id: string): Document {
 		files: [],
 		artboards: [],
 		brushPresets: [],
+		appearancePresets: [],
 		defs: {},
 	};
 }

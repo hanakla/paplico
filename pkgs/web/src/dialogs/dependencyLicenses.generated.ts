@@ -113,7 +113,7 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 	},
 	{
 		name: "@tauri-apps/api",
-		version: "2.10.1",
+		version: "2.11.1",
 		license: "Apache-2.0 OR MIT",
 		url: "https://github.com/tauri-apps/tauri",
 	},

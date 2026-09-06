@@ -7,6 +7,7 @@ import {
 	type Artboard,
 	type BlendObject,
 	type BoundingBox,
+	type Document,
 	type ElementTransform,
 	getArtboardBounds,
 	getContainerChildIds,
@@ -70,6 +71,11 @@ import {
 	repeatGridRegion,
 } from "../utils/geometry/repeatInterpolation";
 import { getWorldSegments, toWorldPath } from "../utils/geometry/segmentOps";
+import {
+	type AppearancePresetMap,
+	createAppearancePresetsMap,
+	resolveElementAppearance,
+} from "./appearancePresets";
 
 const WORLD_BOUNDS: BoundingBox = {
 	minX: -1_000_000,
@@ -123,9 +129,11 @@ export class SpatialIndex {
 
 	private parentGroupMap = new Map<string, string>();
 
-	/** Cached elementsMap; rebuilt only when document.objects reference changes. */
+	/** Cached elementsMap (preset refs resolved); rebuilt when document.objects or appearancePresets change. */
 	private cachedElementsMap: Map<string, AnyArtObject> | null = null;
 	private cachedObjectsRef: Record<string, AnyArtObject> | null = null;
+	private cachedPresetsRef: Document["appearancePresets"] | null = null;
+	private cachedPresets: AppearancePresetMap = new Map();
 
 	private unsubscribes: Array<() => void> = [];
 
@@ -173,7 +181,7 @@ export class SpatialIndex {
 
 		const elementsMap = this.getElementsMapCached();
 		const bounds = calculateElementBounds(
-			el,
+			this.resolveAppearance(el),
 			elementsMap,
 			this.localBoundsCache,
 		);
@@ -326,7 +334,7 @@ export class SpatialIndex {
 
 		const elementsMap = this.getElementsMapCached();
 		const bounds = calculateElementBounds(
-			element,
+			this.resolveAppearance(element),
 			elementsMap,
 			this.localBoundsCache,
 		);
@@ -350,7 +358,7 @@ export class SpatialIndex {
 		const quadtree = this.getOrCreateLayerQuadtree(layerId);
 		const elementsMap = this.getElementsMapCached();
 		const bounds = calculateElementBounds(
-			element,
+			this.resolveAppearance(element),
 			elementsMap,
 			this.localBoundsCache,
 		);
@@ -401,7 +409,7 @@ export class SpatialIndex {
 
 		const elementsMap = this.getElementsMapCached();
 		const bounds = calculateElementBounds(
-			element,
+			this.resolveAppearance(element),
 			elementsMap,
 			this.localBoundsCache,
 		);
@@ -789,17 +797,29 @@ export class SpatialIndex {
 
 			const clipBounds =
 				this.getBounds(clipEl.id, clipEl) ??
-				calculateElementBounds(clipEl, elementsMap, this.localBoundsCache);
+				calculateElementBounds(
+					this.resolveAppearance(clipEl),
+					elementsMap,
+					this.localBoundsCache,
+				);
 			const groupBounds =
 				this.getBounds(element.id, element) ??
-				calculateElementBounds(element, elementsMap, this.localBoundsCache);
+				calculateElementBounds(
+					this.resolveAppearance(element),
+					elementsMap,
+					this.localBoundsCache,
+				);
 
 			return boundsIntersectionBox(clipBounds, groupBounds);
 		}
 
 		return (
 			this.getBounds(element.id, element) ??
-			calculateElementBounds(element, elementsMap, this.localBoundsCache)
+			calculateElementBounds(
+				this.resolveAppearance(element),
+				elementsMap,
+				this.localBoundsCache,
+			)
 		);
 	}
 
@@ -1378,7 +1398,7 @@ export class SpatialIndex {
 		let cx: number = x;
 		let cy: number = y;
 		if (!isIdentityTransform(t)) {
-			const localBounds = calculatePathBounds(path);
+			const localBounds = calculatePathBounds(this.resolveAppearance(path));
 			const origin = computeTransformOrigin(localBounds);
 			const local = inverseTransform(x, y, t, origin.x, origin.y);
 			cx = local.x;
@@ -1391,11 +1411,39 @@ export class SpatialIndex {
 		return this.store.document.objects[elementId] ?? null;
 	}
 
-	/** Returns a cached Map of document.objects; rebuilt only when the reference changes. */
+	/**
+	 * Copy of `element` with appearance preset refs expanded (same reference
+	 * when it has none), so bounds and hit tests see preset-provided strokes
+	 * and fills.
+	 */
+	public resolveAppearance<T extends AnyArtObject>(element: T): T {
+		return resolveElementAppearance(element, this.getPresetsMapCached());
+	}
+
+	private getPresetsMapCached(): AppearancePresetMap {
+		const presets = this.store.document.appearancePresets;
+		if (this.cachedPresetsRef !== presets) {
+			this.cachedPresets = createAppearancePresetsMap(this.store.document);
+			this.cachedPresetsRef = presets;
+		}
+		return this.cachedPresets;
+	}
+
+	/** Returns a cached Map of document.objects with preset refs resolved; rebuilt when objects or presets change. */
 	private getElementsMapCached(): Map<string, AnyArtObject> {
 		const objects = this.store.document.objects;
-		if (this.cachedObjectsRef !== objects || !this.cachedElementsMap) {
-			this.cachedElementsMap = new Map(Object.entries(objects));
+		const presets = this.getPresetsMapCached();
+		if (
+			this.cachedObjectsRef !== objects ||
+			this.cachedPresetsRef !== this.store.document.appearancePresets ||
+			!this.cachedElementsMap
+		) {
+			this.cachedElementsMap = new Map(
+				Object.entries(objects).map(([id, el]) => [
+					id,
+					resolveElementAppearance(el, presets),
+				]),
+			);
 			this.cachedObjectsRef = objects;
 		}
 		return this.cachedElementsMap;
@@ -1431,7 +1479,11 @@ export class SpatialIndex {
 			const cached = this.boundsCache.get(element.id);
 			const bounds =
 				cached ??
-				calculateElementBounds(element, elementsMap, this.localBoundsCache);
+				calculateElementBounds(
+					this.resolveAppearance(element),
+					elementsMap,
+					this.localBoundsCache,
+				);
 			this.boundsCache.set(element.id, bounds);
 			quadtree.insert({ id: element.id, data: element, bounds });
 		}
@@ -1495,12 +1547,18 @@ export class SpatialIndex {
 		tolerance: number,
 	): boolean {
 		const t = getTransform(path);
-		if (isIdentityTransform(t)) return isPointOnPath(x, y, path, tolerance);
+		if (isIdentityTransform(t))
+			return isPointOnPath(x, y, this.resolveAppearance(path), tolerance);
 
-		const localBounds = calculatePathBounds(path);
+		const localBounds = calculatePathBounds(this.resolveAppearance(path));
 		const origin = computeTransformOrigin(localBounds);
 		const local = inverseTransform(x, y, t, origin.x, origin.y);
-		return isPointOnPath(local.x, local.y, path, tolerance);
+		return isPointOnPath(
+			local.x,
+			local.y,
+			this.resolveAppearance(path),
+			tolerance,
+		);
 	}
 
 	/** `x`/`y` are in the element's parent space (world for top-level elements). */
@@ -1599,7 +1657,7 @@ export class SpatialIndex {
 		tolerance: number,
 	): boolean {
 		if (isPath(element)) {
-			return isPointOnPath(x, y, element, tolerance);
+			return isPointOnPath(x, y, this.resolveAppearance(element), tolerance);
 		}
 
 		if (isMesh(element)) {
@@ -1780,7 +1838,9 @@ export class SpatialIndex {
 			let rMaxX = maxX;
 			let rMaxY = maxY;
 			if (hasTransform) {
-				const localBounds = calculatePathBounds(element);
+				const localBounds = calculatePathBounds(
+					this.resolveAppearance(element),
+				);
 				const origin = computeTransformOrigin(localBounds);
 				const tl = inverseTransform(minX, minY, t, origin.x, origin.y);
 				const br = inverseTransform(maxX, maxY, t, origin.x, origin.y);
@@ -1791,7 +1851,13 @@ export class SpatialIndex {
 				rMaxX = Math.max(tl.x, br.x, tr.x, bl.x);
 				rMaxY = Math.max(tl.y, br.y, tr.y, bl.y);
 			}
-			return doesPathIntersectRect(element, rMinX, rMinY, rMaxX, rMaxY);
+			return doesPathIntersectRect(
+				this.resolveAppearance(element),
+				rMinX,
+				rMinY,
+				rMaxX,
+				rMaxY,
+			);
 		}
 
 		if (isContainer(element)) {

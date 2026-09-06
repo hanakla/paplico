@@ -1,3 +1,4 @@
+import { localAppearances } from "../../../document/appearancePresets";
 import {
 	createDefaultColor,
 	createIdentityTransform,
@@ -195,13 +196,16 @@ export class ExtrudeMeshBaker {
 			case "path": {
 				const flatSegments = resolveElementGeometry(
 					element.segments,
-					element.filters,
+					localAppearances(element.filters),
 					this.filterRenderer,
 				);
 				// Fold the stroke's swept outline into the extruded shape so stroked
 				// paths — including open ones, which have no fill area at all —
 				// extrude their painted region, Illustrator-style.
-				const segments = buildExtrudeOutline(element.filters, flatSegments);
+				const segments = buildExtrudeOutline(
+					localAppearances(element.filters),
+					flatSegments,
+				);
 				if (segments.length === 0) return null;
 				return { segments, flatSegments, worldSpace: false };
 			}
@@ -256,7 +260,7 @@ export class ExtrudeMeshBaker {
 				// No vector geometry of its own — extrude the flat rectangular
 				// plane its texture is painted onto.
 				const segments = buildExtrudeOutline(
-					element.filters,
+					localAppearances(element.filters),
 					buildImageRectOutline(element),
 				);
 				if (segments.length === 0) return null;
@@ -274,7 +278,10 @@ export class ExtrudeMeshBaker {
 					geom.compoundPathCache,
 				);
 				if (flatSegments.length === 0) return null;
-				const segments = buildExtrudeOutline(element.filters, flatSegments);
+				const segments = buildExtrudeOutline(
+					localAppearances(element.filters),
+					flatSegments,
+				);
 				if (segments.length === 0) return null;
 				return { segments, flatSegments, worldSpace: true };
 			}
@@ -581,7 +588,7 @@ export class ExtrudeMeshBaker {
 				// group with its OWN appearances (path-union/offset pre-filters,
 				// fill/stroke) keeps them so its combined painted surface bakes to
 				// match the outline; a plain group stays filterless (raw children).
-				const groupAppearances = (element.filters ?? []).filter(
+				const groupAppearances = localAppearances(element.filters).filter(
 					(f) => !this.isRenderReplacingFilter(f),
 				);
 				const tempGroup: Group = {
@@ -603,12 +610,14 @@ export class ExtrudeMeshBaker {
 				);
 				if (baked) sink.push(baked.texture.texture);
 			} else if (element.type === "path" && bw > 0 && bh > 0) {
-				const flatApps = (element.filters ?? []).filter(
+				const flatApps = localAppearances(element.filters).filter(
 					(f) =>
 						(f.processor === "fill" || f.processor === "stroke") &&
 						f.enabled !== false,
 				);
-				const fillApp = resolveFillAppearance(element.filters);
+				const fillApp = resolveFillAppearance(
+					localAppearances(element.filters),
+				);
 				const needsBake =
 					flatApps.some((f) => f.processor === "stroke") ||
 					(fillApp !== null && fillApp.paramData.params.fill?.type !== "solid");
@@ -646,12 +655,14 @@ export class ExtrudeMeshBaker {
 				// Fill it with the element's own fill/stroke appearances (e.g. a
 				// gradient) and bake that as the surface, so a non-solid fill shows
 				// instead of collapsing to the flat first-stop base color.
-				const flatApps = (element.filters ?? []).filter(
+				const flatApps = localAppearances(element.filters).filter(
 					(f) =>
 						(f.processor === "fill" || f.processor === "stroke") &&
 						f.enabled !== false,
 				);
-				const fillApp = resolveFillAppearance(element.filters);
+				const fillApp = resolveFillAppearance(
+					localAppearances(element.filters),
+				);
 				const needsBake =
 					flatApps.some((f) => f.processor === "stroke") ||
 					(fillApp !== null && fillApp.paramData.params.fill?.type !== "solid");
@@ -682,7 +693,7 @@ export class ExtrudeMeshBaker {
 				const tempBlend: BlendObject = {
 					...element,
 					id: `${element.id}:extrude-fill:${app.uid}`,
-					filters: (element.filters ?? []).filter(
+					filters: localAppearances(element.filters).filter(
 						(f) => !this.isRenderReplacingFilter(f),
 					),
 				};
@@ -693,10 +704,15 @@ export class ExtrudeMeshBaker {
 				const albedoMap = new Map(geom.elementsMap);
 				for (const keyId of element.objectIds) {
 					const key = albedoMap.get(keyId);
-					if (key?.filters?.some((f) => this.isRenderReplacingFilter(f))) {
+					if (
+						key &&
+						localAppearances(key.filters).some((f) =>
+							this.isRenderReplacingFilter(f),
+						)
+					) {
 						albedoMap.set(keyId, {
 							...key,
-							filters: key.filters.filter(
+							filters: localAppearances(key.filters).filter(
 								(f) => !this.isRenderReplacingFilter(f),
 							),
 						});
@@ -713,8 +729,8 @@ export class ExtrudeMeshBaker {
 			}
 
 			const baseColor = colorToRawRGBA(
-				resolveFillBaseColor(element.filters) ??
-					resolveStrokeBaseColor(element.filters) ??
+				resolveFillBaseColor(localAppearances(element.filters)) ??
+					resolveStrokeBaseColor(localAppearances(element.filters)) ??
 					createDefaultColor(),
 			);
 			const lightColor = material.lightColor

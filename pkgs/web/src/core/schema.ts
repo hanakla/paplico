@@ -663,6 +663,11 @@ export interface Document {
 	artboards: Artboard[];
 	/** Brush presets (built-in + user-uploaded) */
 	brushPresets: BrushPreset[];
+	/**
+	 * Appearance presets referenced by AppearancePresetRef stack entries.
+	 * Optional for backward compatibility (treated as `[]` when absent).
+	 */
+	appearancePresets?: AppearancePreset[];
 	timelapse?: TimelapseData;
 	/** Schema version as YYYYMMDD date number. Undefined = legacy (pre-migration). */
 	schemaVersion?: number;
@@ -740,8 +745,11 @@ export function isFilterEnabled(filter: Appearance): boolean {
  * were serialized before these fields existed.
  * Mutates the array elements in place.
  */
-export function normalizeAppearanceFields<T extends Filter>(filters: T[]): T[] {
+export function normalizeAppearanceFields<T extends FilterEntry>(
+	filters: T[],
+): T[] {
 	for (const f of filters) {
+		if (isAppearancePresetRef(f)) continue;
 		// Migration: old serialized data may lack these fields despite being required in the type
 		(f as Partial<Pick<Appearance, "opacity" | "blendMode">>).opacity ??= 1;
 		(f as Partial<Pick<Appearance, "opacity" | "blendMode">>).blendMode ??=
@@ -928,6 +936,25 @@ export interface Revolve3DAppearance extends Appearance<Revolve3DParams> {
 }
 
 export type Filter<T = unknown> = Appearance<T>;
+
+/** Stack entry that pulls a document appearance preset's filters into this position. */
+export interface AppearancePresetRef {
+	type: "preset";
+	/** Entry uid (sortable key, prefix of expanded filter uids) */
+	uid: string;
+	presetUid: string;
+	/** Whether the ref is enabled (undefined = true) */
+	enabled?: boolean;
+}
+
+/** One item of an element's appearance stack: a concrete filter or a preset ref. */
+export type FilterEntry = Filter | AppearancePresetRef;
+
+export function isAppearancePresetRef(
+	entry: FilterEntry,
+): entry is AppearancePresetRef {
+	return "type" in entry && entry.type === "preset";
+}
 // --- Transform ---
 
 /**
@@ -1024,7 +1051,8 @@ export interface ArtObject {
 	visible?: boolean;
 	/** Default: false (undefined = unlocked) */
 	locked?: boolean;
-	filters?: Filter[];
+	/** Appearance stack. Preset refs are expanded at document entry points (see core/document/appearancePresets.ts). */
+	filters?: FilterEntry[];
 	/** Element transform. Applied at render time. */
 	transform: ElementTransform;
 	/** Grayscale mask applied to this element's rendered output. */
@@ -1727,6 +1755,13 @@ export interface BrushPreset {
 	settings: BrushSettings;
 }
 
+/** Document-level reusable appearance stack. Holds only concrete filters (no nested refs). */
+export interface AppearancePreset {
+	uid: string;
+	name: string;
+	filters: Filter[];
+}
+
 // --- Brush Engine v2 Types ---
 
 /**
@@ -1968,6 +2003,7 @@ export function hasGroupAppearances(group: Group): boolean {
 	return (
 		group.filters?.some(
 			(f) =>
+				!isAppearancePresetRef(f) &&
 				(f.processor === "fill" || f.processor === "stroke") &&
 				f.enabled !== false,
 		) ?? false

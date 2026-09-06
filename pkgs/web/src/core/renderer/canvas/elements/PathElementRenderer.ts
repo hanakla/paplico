@@ -1,4 +1,5 @@
 import { resolveBrushTextureUid } from "../../../brush/brushSource";
+import { localAppearances } from "../../../document/appearancePresets";
 import { createStrokeBrushSettings } from "../../../document/factory";
 import {
 	type AnyArtObject,
@@ -1700,7 +1701,7 @@ export class PathElementRenderer {
 	 * pre-filter.
 	 */
 	private bakeBlendKeyDeformation(path: Path): Path {
-		const filters = path.filters ?? [];
+		const filters = localAppearances(path.filters);
 		const isPreFilter = (f: Filter) =>
 			!!this.deps.filterRenderer.getHandler(f.processor)?.preProcess;
 		const hasEnabledPreFilter = filters.some(

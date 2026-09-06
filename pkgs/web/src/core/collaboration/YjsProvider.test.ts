@@ -2088,6 +2088,101 @@ describe("YjsProvider", () => {
 		});
 	});
 
+	describe("appearance presets", () => {
+		const preset = {
+			uid: "ap-1",
+			name: "Outline",
+			filters: [
+				{
+					uid: "f-1",
+					processor: "stroke",
+					opacity: 1,
+					blendMode: "normal" as const,
+					paramData: { version: "1", params: {} },
+				},
+			],
+		};
+
+		it("should store a preset with JSON-encoded filters", () => {
+			const provider = new YjsProvider({ callbacks });
+
+			provider.setAppearancePreset(preset);
+
+			const yPreset = provider.ydoc
+				.getMap("appearancePresets")
+				.get("ap-1") as Y.Map<unknown>;
+			expect(yPreset.get("name")).toBe("Outline");
+			expect(JSON.parse(yPreset.get("filters") as string)).toEqual(
+				preset.filters,
+			);
+
+			provider.destroy();
+		});
+
+		it("should replace a preset with the same uid and remove it on delete", () => {
+			const provider = new YjsProvider({ callbacks });
+
+			provider.setAppearancePreset(preset);
+			provider.setAppearancePreset({ ...preset, name: "Renamed" });
+			expect(extractDocumentFromYDoc(provider.ydoc).appearancePresets).toEqual([
+				{ ...preset, name: "Renamed" },
+			]);
+
+			provider.deleteAppearancePreset("ap-1");
+			expect(extractDocumentFromYDoc(provider.ydoc).appearancePresets).toEqual(
+				[],
+			);
+
+			provider.destroy();
+		});
+
+		it("should undo a preset update together with element updates made in the same transaction", () => {
+			const provider = new YjsProvider({ callbacks });
+			provider.addLayer({
+				id: "layer-1",
+				name: "Layer 1",
+				visible: true,
+				locked: false,
+				opacity: 1,
+				elementIds: [],
+			});
+			provider.addElement("layer-1", {
+				id: "path-1",
+				type: "path" as const,
+				segments: [],
+				opacity: 1,
+				blendMode: "normal" as const,
+				transform: createIdentityTransform(),
+				filters: [preset.filters[0]!],
+			});
+			provider.setAppearancePreset(preset);
+			provider.undoManager.stopCapturing();
+
+			provider.transact(() => {
+				provider.setAppearancePreset({ ...preset, name: "Changed" });
+				provider.updateElement("layer-1", "path-1", {
+					filters: [{ type: "preset", uid: "ref-1", presetUid: "ap-1" }],
+				});
+			});
+			provider.undo();
+
+			const doc = extractDocumentFromYDoc(provider.ydoc);
+			expect(doc.appearancePresets?.[0]?.name).toBe("Outline");
+			expect(doc.objects["path-1"]?.filters).toEqual(preset.filters);
+
+			provider.destroy();
+		});
+
+		it("should keep preset writes bound after resetWithFreshDoc", () => {
+			const provider = new YjsProvider({ callbacks });
+			const freshDoc = provider.resetWithFreshDoc();
+
+			provider.setAppearancePreset(preset);
+
+			expect(freshDoc.getMap("appearancePresets").has("ap-1")).toBe(true);
+		});
+	});
+
 	describe("references3d CRUD", () => {
 		function makeSceneDef(
 			overrides: Partial<Reference3DDef> = {},

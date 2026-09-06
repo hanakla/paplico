@@ -1,29 +1,34 @@
 import { readStoredBrushSize } from "../brush/access";
+import { localAppearances } from "../document/appearancePresets";
 import type {
 	AnyArtObject,
 	BlendMode,
 	FillAppearance,
 	Filter,
+	FilterEntry,
 	Layer,
 	SolidColor,
 	StrokeAppearance,
 	TextStyle,
 } from "../schema";
 
-/** Get the first StrokeAppearance from a filters array, or undefined */
+/**
+ * Get the first StrokeAppearance from a filters array, or undefined.
+ * Preset refs are ignored; callers resolve them beforehand when needed.
+ */
 export function getFirstStroke(
-	filters: Filter[] | undefined,
+	filters: readonly FilterEntry[] | undefined,
 ): StrokeAppearance | undefined {
-	return filters?.find((f) => f.processor === "stroke") as
+	return localAppearances(filters).find((f) => f.processor === "stroke") as
 		| StrokeAppearance
 		| undefined;
 }
 
 /** Get the first FillAppearance from a filters array, or undefined */
 export function getFirstFill(
-	filters: Filter[] | undefined,
+	filters: readonly FilterEntry[] | undefined,
 ): FillAppearance | undefined {
-	return filters?.find((f) => f.processor === "fill") as
+	return localAppearances(filters).find((f) => f.processor === "fill") as
 		| FillAppearance
 		| undefined;
 }
@@ -46,7 +51,7 @@ export interface ExtractedAppearance {
 export function extractAppearance(element: AnyArtObject): ExtractedAppearance {
 	const strokeAppearance = getFirstStroke(element.filters) ?? null;
 	const fillAppearance = getFirstFill(element.filters) ?? null;
-	const allFilters = (element.filters ?? []).filter(
+	const allFilters = localAppearances(element.filters).filter(
 		(f) => f.processor !== "content",
 	);
 	return {
@@ -61,10 +66,10 @@ export function extractAppearance(element: AnyArtObject): ExtractedAppearance {
 
 /** Get the stroke width from the first enabled StrokeAppearance's brushSettings.size */
 export function getStrokeWidth(
-	filters: Filter[] | undefined,
+	filters: readonly FilterEntry[] | undefined,
 	fallback = 1,
 ): number {
-	const stroke = filters?.find(
+	const stroke = localAppearances(filters).find(
 		(f) => f.processor === "stroke" && f.enabled !== false,
 	) as StrokeAppearance | undefined;
 	return (
@@ -74,10 +79,10 @@ export function getStrokeWidth(
 
 /** Get the taper-in distance from the first enabled StrokeAppearance's brushSettings.taperStart */
 export function getStrokeTaperStart(
-	filters: Filter[] | undefined,
+	filters: readonly FilterEntry[] | undefined,
 	fallback = 0,
 ): number {
-	const stroke = filters?.find(
+	const stroke = localAppearances(filters).find(
 		(f) => f.processor === "stroke" && f.enabled !== false,
 	) as StrokeAppearance | undefined;
 	return stroke?.paramData.params.brushSettings?.taperStart ?? fallback;
@@ -85,10 +90,10 @@ export function getStrokeTaperStart(
 
 /** Get the taper-out distance from the first enabled StrokeAppearance's brushSettings.taperEnd */
 export function getStrokeTaperEnd(
-	filters: Filter[] | undefined,
+	filters: readonly FilterEntry[] | undefined,
 	fallback = 0,
 ): number {
-	const stroke = filters?.find(
+	const stroke = localAppearances(filters).find(
 		(f) => f.processor === "stroke" && f.enabled !== false,
 	) as StrokeAppearance | undefined;
 	return stroke?.paramData.params.brushSettings?.taperEnd ?? fallback;

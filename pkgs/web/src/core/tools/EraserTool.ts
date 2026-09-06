@@ -1,4 +1,5 @@
 import { readStoredBrushSize } from "../brush/access";
+import { localAppearances } from "../document/appearancePresets";
 import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
 import type { BrushSettings } from "../schema";
 import {
@@ -13,10 +14,10 @@ import {
 	type Layer,
 	type Path,
 	type PathSegment,
-	type StrokeAppearance,
 	type StrokeWidthPoint,
 	type Viewport,
 } from "../schema";
+import { getFirstStroke } from "../utils/elementQuery";
 import { boundsIntersect, calculatePathBounds } from "../utils/geometry/bounds";
 import {
 	applyTransformToBounds,
@@ -286,7 +287,8 @@ export class EraserTool implements Tool {
 			const element = objects[elementId];
 			if (element?.type !== "path") continue;
 
-			const pathEl = element;
+			// Preset-provided strokes and fills decide the erase mode and reach.
+			const pathEl = this.context.resolveElementAppearance(element);
 			const composedT = resolveComposedTransform(
 				this.context,
 				elementId,
@@ -322,7 +324,7 @@ export class EraserTool implements Tool {
 			// Only a fill that actually shows pixels switches the eraser into
 			// surface-cut mode; an invisible fill (disabled / fully transparent)
 			// would silently cut a path the user perceives as stroke-only.
-			const hasFill = pathEl.filters?.some(
+			const hasFill = localAppearances(pathEl.filters).some(
 				(f) => f.processor === "fill" && isVisibleFill(f as FillAppearance),
 			);
 
@@ -1039,9 +1041,7 @@ function simplifyStrokeWidths(widths: StrokeWidthPoint[]): StrokeWidthPoint[] {
 
 /** Extract brush half-size from a path's stroke appearance filter. */
 function getBrushHalfSize(path: Path): number {
-	const strokeFilter = path.filters?.find((f) => f.processor === "stroke") as
-		| StrokeAppearance
-		| undefined;
+	const strokeFilter = getFirstStroke(path.filters);
 	const size =
 		readStoredBrushSize(strokeFilter?.paramData.params.brushSettings) ?? 2;
 	return size / 2;

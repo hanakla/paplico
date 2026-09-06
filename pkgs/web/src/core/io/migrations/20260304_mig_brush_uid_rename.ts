@@ -1,3 +1,4 @@
+import { localAppearances } from "../../document/appearancePresets";
 import type { Document } from "../../schema";
 import type { Migration } from "./index";
 
@@ -27,7 +28,7 @@ export const migBrushUidRename: Migration = {
 		for (const element of Object.values(doc.objects)) {
 			if (!element.filters) continue;
 
-			for (const filter of element.filters) {
+			for (const filter of localAppearances(element.filters)) {
 				const params = filter.paramData?.params as Record<string, any>;
 				if (!params?.brushSettings?.textureFileUid) continue;
 

@@ -95,6 +95,7 @@ export function createMockToolContext(
 		isCurrentLayerLocked: vi.fn(() => false),
 		isReadonly: vi.fn(() => false),
 		getElement: vi.fn(() => null),
+		resolveElementAppearance: vi.fn((element) => element),
 		getBounds: vi.fn(() => null),
 		getElementWorldSegments: vi.fn(() => null),
 		getAncestorTransform: vi.fn(() => null),

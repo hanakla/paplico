@@ -9,6 +9,19 @@
 import { createBuiltinBrushFiles } from "./brush/presets";
 import type { YjsProvider } from "./collaboration/YjsProvider";
 import {
+	captureAppearancePreset,
+	createAppearancePresetsMap,
+	dropDanglingPresetRefs,
+	expandAppearancePresetRef,
+	expandAppearancePresetRefs,
+	localAppearances,
+	mapLocalAppearances,
+} from "./document/appearancePresets";
+import {
+	areBrushSettingsSemanticallyEqual,
+	FilterStackCommands,
+} from "./document/FilterStackCommands";
+import {
 	createIdentityTransform,
 	createMeshWarpObject,
 	createReference3DElement,
@@ -31,6 +44,8 @@ import {
 import { setArtboardSelectionOverlay } from "./renderer/ui/overlaySink";
 import {
 	type AnyArtObject,
+	type AppearancePreset,
+	type AppearancePresetRef,
 	type Artboard,
 	type BlendMode,
 	type BlendObject,
@@ -54,12 +69,14 @@ import {
 	type FillAppearance,
 	type FillColor,
 	type Filter,
+	type FilterEntry,
 	type Group,
 	generateUid,
 	getContainerChildIds,
 	getTransform,
 	type HdrSettings,
 	type ImageObject,
+	isAppearancePresetRef,
 	isBlend,
 	isCompoundPath,
 	isContainer,
@@ -103,6 +120,7 @@ import {
 	collectElementColors,
 	type FilterHandlerLookup,
 } from "./utils/color";
+import { getFirstFill } from "./utils/elementQuery";
 import {
 	type AlignDelta,
 	type AlignItem,
@@ -1847,7 +1865,9 @@ export class PaplicoCommands {
 			if (!element) continue;
 
 			const filters = [...(element.filters ?? [])];
-			const strokeIdx = filters.findIndex((f) => f.processor === "stroke");
+			const strokeIdx = filters.findIndex(
+				(f) => !isAppearancePresetRef(f) && f.processor === "stroke",
+			);
 
 			if (strokeColor) {
 				const strokeApp =
@@ -1900,7 +1920,9 @@ export class PaplicoCommands {
 			if (!element) continue;
 
 			const filters = [...(element.filters ?? [])];
-			const fillIdx = filters.findIndex((f) => f.processor === "fill");
+			const fillIdx = filters.findIndex(
+				(f) => !isAppearancePresetRef(f) && f.processor === "fill",
+			);
 
 			if (fill) {
 				const fillApp =
@@ -1948,9 +1970,7 @@ export class PaplicoCommands {
 		const element = elementId
 			? this.ctx.store.document.objects[elementId]
 			: null;
-		const fillApp = element?.filters?.find((f) => f.processor === "fill") as
-			| FillAppearance
-			| undefined;
+		const fillApp = getFirstFill(element?.filters);
 		const fill = fillApp?.paramData.params.fill;
 		if (!fill) return false;
 
@@ -2036,8 +2056,12 @@ export class PaplicoCommands {
 			if (!element) continue;
 
 			const filters = [...(element.filters ?? [])];
-			const strokeIdx = filters.findIndex((f) => f.processor === "stroke");
-			const fillIdx = filters.findIndex((f) => f.processor === "fill");
+			const strokeIdx = filters.findIndex(
+				(f) => !isAppearancePresetRef(f) && f.processor === "stroke",
+			);
+			const fillIdx = filters.findIndex(
+				(f) => !isAppearancePresetRef(f) && f.processor === "fill",
+			);
 
 			const strokeApp =
 				strokeIdx >= 0 ? (filters[strokeIdx] as StrokeAppearance) : undefined;
@@ -2077,7 +2101,9 @@ export class PaplicoCommands {
 			}
 
 			// Fill → Stroke (recalculate strokeIdx after possible splice)
-			const newStrokeIdx = filters.findIndex((f) => f.processor === "stroke");
+			const newStrokeIdx = filters.findIndex(
+				(f) => !isAppearancePresetRef(f) && f.processor === "stroke",
+			);
 			if (oldFillColor) {
 				const newStrokeColor: StrokeColor =
 					oldFillColor.type === "linear"
@@ -2160,7 +2186,9 @@ export class PaplicoCommands {
 			if (!element) continue;
 
 			const filters = [...(element.filters ?? [])];
-			const strokeIdx = filters.findIndex((f) => f.processor === "stroke");
+			const strokeIdx = filters.findIndex(
+				(f) => !isAppearancePresetRef(f) && f.processor === "stroke",
+			);
 			if (strokeIdx < 0) continue;
 
 			const strokeApp = filters[strokeIdx] as StrokeAppearance;
@@ -2190,355 +2218,83 @@ export class PaplicoCommands {
 	}
 
 	/**
-	 * Update the brush settings of the stroke appearance at `filterIndex` on
-	 * the selected element. Unlike updateSelectedElementsBrushSettings (which
-	 * always targets the first stroke), this addresses one specific stroke
-	 * appearance of a multi-stroke element.
+	 * Stack operations bound to the selected element's `filters`. Read it
+	 * fresh per use: the selection may change between calls.
 	 */
+	public selectedElementFilterStack(): FilterStackCommands {
+		return new FilterStackCommands(
+			() => {
+				if (this.cannotMutate()) return null;
+				const element = this.getSelectedElement();
+				if (
+					!element ||
+					!this.ctx.store.currentLayerId ||
+					this.isElementLocked(element.id)
+				)
+					return null;
+				return element.filters ?? [];
+			},
+			(filters) => {
+				const element = this.getSelectedElement();
+				const layerId = this.ctx.store.currentLayerId;
+				if (!element || !layerId) return;
+				this.updateElement(layerId, element.id, { filters });
+			},
+		);
+	}
+
+	/**
+	 * Stack operations bound to a document appearance preset's `filters`.
+	 * Presets hold no refs, so a ref written into one is dropped.
+	 */
+	public appearancePresetFilterStack(presetUid: string): FilterStackCommands {
+		return new FilterStackCommands(
+			() =>
+				this.cannotMutate()
+					? null
+					: (this.getAppearancePreset(presetUid)?.filters ?? null),
+			(filters) => {
+				const preset = this.getAppearancePreset(presetUid);
+				if (!preset) return;
+				this.ctx.yjsProvider.setAppearancePreset(
+					{ ...preset, filters: localAppearances(filters) },
+					this.getMutationOrigin(),
+				);
+			},
+		);
+	}
+
+	/** @see FilterStackCommands.updateStrokeBrushSettings */
 	public updateSelectedElementStrokeBrushSettings(
 		filterIndex: number,
 		brushSettings: BrushSettings | undefined,
 	): void {
-		if (this.cannotMutate()) return;
-		const element = this.getSelectedElement();
-		if (!element?.filters || !this.ctx.store.currentLayerId) return;
-		if (this.isElementLocked(element.id)) return;
-
-		const filter = element.filters[filterIndex];
-		if (filter?.processor !== "stroke") return;
-
-		const strokeApp = filter as StrokeAppearance;
-		if (
-			areBrushSettingsSemanticallyEqual(
-				strokeApp.paramData.params.brushSettings,
-				brushSettings,
-			)
-		) {
-			return;
-		}
-
-		this.updateFilterForSelectedElement(filterIndex, {
-			params: { brushSettings },
-		});
+		this.selectedElementFilterStack().updateStrokeBrushSettings(
+			filterIndex,
+			brushSettings,
+		);
 	}
 
-	// --- Filter Operations ---
+	// --- Filter Operations (selected element) ---
 
 	public addFilterToSelectedElement(filter: Filter): void {
-		if (this.cannotMutate()) return;
-		const element = this.getSelectedElement();
-		if (!element || !this.ctx.store.currentLayerId) return;
-		if (this.isElementLocked(element.id)) return;
-
-		const newFilters = [...(element.filters ?? []), filter];
-		this.updateElement(this.ctx.store.currentLayerId, element.id, {
-			filters: newFilters,
-		});
+		this.selectedElementFilterStack().addFilter(filter);
 	}
 
 	public removeFilterFromSelectedElement(filterIndex: number): void {
-		if (this.cannotMutate()) return;
-		const element = this.getSelectedElement();
-		if (!element?.filters || !this.ctx.store.currentLayerId) return;
-		if (this.isElementLocked(element.id)) return;
-
-		// The content appearance is structural (renders the element's own
-		// content) and must not be deletable — it can only be toggled hidden.
-		if (element.filters[filterIndex]?.processor === "content") return;
-
-		const newFilters = element.filters.filter((_, i) => i !== filterIndex);
-		this.updateElement(this.ctx.store.currentLayerId, element.id, {
-			filters: newFilters,
-		});
+		this.selectedElementFilterStack().removeFilter(filterIndex);
 	}
 
-	/**
-	 * Update a filter at the given index.
-	 * - Top-level Appearance properties (`enabled`, `opacity`, `blendMode`,
-	 *   `applyToBackdrop`) are merged at the filter root.
-	 * - Processor-specific parameters go through `updates.params`, merged into `paramData.params`.
-	 */
+	/** @see FilterStackCommands.updateFilter */
 	public updateFilterForSelectedElement(
 		filterIndex: number,
-		updates: Partial<
-			Pick<Filter, "enabled" | "opacity" | "blendMode" | "applyToBackdrop">
-		> & {
-			/** Processor-specific params, merged into paramData.params. */
-			params?: Record<string, unknown>;
-		},
+		updates: Parameters<FilterStackCommands["updateFilter"]>[1],
 	): void {
-		if (this.cannotMutate()) return;
-		const element = this.getSelectedElement();
-		if (!element?.filters || !this.ctx.store.currentLayerId) return;
-		if (this.isElementLocked(element.id)) return;
-
-		if (filterIndex < 0 || filterIndex >= element.filters.length) return;
-
-		const { params, ...topUpdates } = updates;
-
-		const newFilters = element.filters.map((filter, i) => {
-			if (i !== filterIndex) return filter;
-			if (!params) return { ...filter, ...topUpdates };
-
-			const currentParams = filter.paramData.params;
-			return {
-				...filter,
-				...topUpdates,
-				paramData: {
-					...filter.paramData,
-					params: {
-						...(typeof currentParams === "object" && currentParams !== null
-							? currentParams
-							: {}),
-						...params,
-					},
-				},
-			};
-		});
-
-		this.updateElement(this.ctx.store.currentLayerId, element.id, {
-			filters: newFilters,
-		});
+		this.selectedElementFilterStack().updateFilter(filterIndex, updates);
 	}
 
-	/** Add a sub-filter to an appearance (fill/stroke) at the given filter index */
-	public addSubFilterToAppearance(
-		filterIndex: number,
-		subFilter: Filter,
-	): void {
-		if (this.cannotMutate()) return;
-		const element = this.getSelectedElement();
-		if (!element?.filters || !this.ctx.store.currentLayerId) return;
-		if (this.isElementLocked(element.id)) return;
-		if (filterIndex < 0 || filterIndex >= element.filters.length) return;
-
-		const target = element.filters[filterIndex];
-		if (target.processor !== "fill" && target.processor !== "stroke") return;
-
-		const newFilters = element.filters.map((filter, i) => {
-			if (i !== filterIndex) return filter;
-			return {
-				...filter,
-				subFilters: [...(filter.subFilters ?? []), subFilter],
-			} as Filter;
-		});
-
-		this.updateElement(this.ctx.store.currentLayerId, element.id, {
-			filters: newFilters,
-		});
-	}
-
-	/** Remove a sub-filter from an appearance at the given filter/sub-filter indices */
-	public removeSubFilterFromAppearance(
-		filterIndex: number,
-		subFilterIndex: number,
-	): void {
-		if (this.cannotMutate()) return;
-		const element = this.getSelectedElement();
-		if (!element?.filters || !this.ctx.store.currentLayerId) return;
-		if (this.isElementLocked(element.id)) return;
-		if (filterIndex < 0 || filterIndex >= element.filters.length) return;
-
-		const target = element.filters[filterIndex];
-		if (!target.subFilters) return;
-
-		const newFilters = element.filters.map((filter, i) => {
-			if (i !== filterIndex) return filter;
-			return {
-				...filter,
-				subFilters: filter.subFilters?.filter((_, si) => si !== subFilterIndex),
-			} as Filter;
-		});
-
-		this.updateElement(this.ctx.store.currentLayerId, element.id, {
-			filters: newFilters,
-		});
-	}
-
-	/** Update top-level fields (e.g. enabled) of a sub-filter within an appearance */
-	public updateSubFilterForAppearance(
-		filterIndex: number,
-		subFilterIndex: number,
-		updates: Partial<{ enabled: boolean }>,
-	): void {
-		if (this.cannotMutate()) return;
-		const element = this.getSelectedElement();
-		if (!element?.filters || !this.ctx.store.currentLayerId) return;
-		if (this.isElementLocked(element.id)) return;
-		if (filterIndex < 0 || filterIndex >= element.filters.length) return;
-
-		const target = element.filters[filterIndex];
-		if (!target.subFilters) return;
-
-		const newFilters = element.filters.map((filter, i) => {
-			if (i !== filterIndex) return filter;
-			return {
-				...filter,
-				subFilters: filter.subFilters?.map((sub, si) =>
-					si === subFilterIndex ? { ...sub, ...updates } : sub,
-				),
-			} as Filter;
-		});
-
-		this.updateElement(this.ctx.store.currentLayerId, element.id, {
-			filters: newFilters,
-		});
-	}
-
-	/** Update paramData.params of a sub-filter within an appearance */
-	public updateSubFilterParamsForAppearance(
-		filterIndex: number,
-		subFilterIndex: number,
-		paramUpdates: Record<string, unknown>,
-	): void {
-		if (this.cannotMutate()) return;
-		const element = this.getSelectedElement();
-		if (!element?.filters || !this.ctx.store.currentLayerId) return;
-		if (this.isElementLocked(element.id)) return;
-		if (filterIndex < 0 || filterIndex >= element.filters.length) return;
-
-		const target = element.filters[filterIndex];
-		if (!target.subFilters) return;
-
-		const newFilters = element.filters.map((filter, i) => {
-			if (i !== filterIndex) return filter;
-			return {
-				...filter,
-				subFilters: filter.subFilters?.map((sub, si) => {
-					if (si !== subFilterIndex) return sub;
-					const existing = sub as {
-						paramData?: { version: string; params: Record<string, unknown> };
-					};
-					if (!existing.paramData) return sub;
-					return {
-						...sub,
-						paramData: {
-							...existing.paramData,
-							params: { ...existing.paramData.params, ...paramUpdates },
-						},
-					};
-				}),
-			} as Filter;
-		});
-
-		this.updateElement(this.ctx.store.currentLayerId, element.id, {
-			filters: newFilters,
-		});
-	}
-
-	/** Reorder a filter within the selected element's filters array */
 	public reorderFilter(fromIndex: number, toIndex: number): void {
-		if (this.cannotMutate()) return;
-		const element = this.getSelectedElement();
-		if (!element?.filters || !this.ctx.store.currentLayerId) return;
-		if (this.isElementLocked(element.id)) return;
-		if (fromIndex === toIndex) return;
-		if (
-			fromIndex < 0 ||
-			fromIndex >= element.filters.length ||
-			toIndex < 0 ||
-			toIndex >= element.filters.length
-		)
-			return;
-
-		const newFilters = [...element.filters];
-		const [moved] = newFilters.splice(fromIndex, 1);
-		newFilters.splice(toIndex, 0, moved);
-
-		this.updateElement(this.ctx.store.currentLayerId, element.id, {
-			filters: newFilters,
-		});
-	}
-
-	public reorderSubFilter(
-		filterIndex: number,
-		fromSubIndex: number,
-		toSubIndex: number,
-	): void {
-		if (this.cannotMutate()) return;
-		const element = this.getSelectedElement();
-		if (!element?.filters || !this.ctx.store.currentLayerId) return;
-		if (this.isElementLocked(element.id)) return;
-		if (fromSubIndex === toSubIndex) return;
-		if (filterIndex < 0 || filterIndex >= element.filters.length) return;
-
-		const target = element.filters[filterIndex];
-		if (!target.subFilters) return;
-		if (
-			fromSubIndex < 0 ||
-			fromSubIndex >= target.subFilters.length ||
-			toSubIndex < 0 ||
-			toSubIndex >= target.subFilters.length
-		)
-			return;
-
-		const newSubFilters = [...target.subFilters];
-		const [moved] = newSubFilters.splice(fromSubIndex, 1);
-		newSubFilters.splice(toSubIndex, 0, moved);
-
-		const newFilters = element.filters.map((filter, i) => {
-			if (i !== filterIndex) return filter;
-			return { ...filter, subFilters: newSubFilters } as Filter;
-		});
-
-		this.updateElement(this.ctx.store.currentLayerId, element.id, {
-			filters: newFilters,
-		});
-	}
-
-	public moveSubFilter(
-		fromFilterIndex: number,
-		subFilterIndex: number,
-		toFilterIndex: number,
-	): void {
-		if (this.cannotMutate()) return;
-		const element = this.getSelectedElement();
-		if (!element?.filters || !this.ctx.store.currentLayerId) return;
-		if (this.isElementLocked(element.id)) return;
-		if (fromFilterIndex === toFilterIndex) return;
-		if (
-			fromFilterIndex < 0 ||
-			fromFilterIndex >= element.filters.length ||
-			toFilterIndex < 0 ||
-			toFilterIndex >= element.filters.length
-		)
-			return;
-
-		const source = element.filters[fromFilterIndex];
-		const target = element.filters[toFilterIndex];
-		if (!source.subFilters) return;
-		if (
-			target.processor !== "fill" &&
-			target.processor !== "stroke" &&
-			target.processor !== "content"
-		)
-			return;
-		if (subFilterIndex < 0 || subFilterIndex >= source.subFilters.length)
-			return;
-
-		const moved = source.subFilters[subFilterIndex];
-
-		const newFilters = element.filters.map((filter, i) => {
-			if (i === fromFilterIndex) {
-				return {
-					...filter,
-					subFilters: filter.subFilters?.filter(
-						(_, si) => si !== subFilterIndex,
-					),
-				} as Filter;
-			}
-			if (i === toFilterIndex) {
-				return {
-					...filter,
-					subFilters: [...(filter.subFilters ?? []), moved],
-				} as Filter;
-			}
-			return filter;
-		});
-
-		this.updateElement(this.ctx.store.currentLayerId, element.id, {
-			filters: newFilters,
-		});
+		this.selectedElementFilterStack().reorderFilter(fromIndex, toIndex);
 	}
 
 	// --- Artboard Operations ---
@@ -2774,18 +2530,17 @@ export class PaplicoCommands {
 
 		// Common properties that apply to all element types
 		const commonUpdates: Record<string, unknown> = {};
-		if (element.filters?.length && this.ctx.scaleFilters) {
-			commonUpdates.filters = this.ctx.scaleFilters(
-				element.filters,
-				scaleX,
-				scaleY,
+		const scaleFilters = this.ctx.scaleFilters;
+		if (element.filters?.length && scaleFilters) {
+			commonUpdates.filters = mapLocalAppearances(element.filters, (filters) =>
+				scaleFilters(filters, scaleX, scaleY),
 			);
 		}
 		// Stroke appearance widths for geometry-baking kinds (path, compound-path,
 		// blend). Composed on top of the renderer-scaled filters so neither pass
 		// overwrites the other.
 		const strokeScaledFilters = scaleStrokeFilters(
-			(commonUpdates.filters as Filter[] | undefined) ?? element.filters,
+			(commonUpdates.filters as FilterEntry[] | undefined) ?? element.filters,
 			uniformScale,
 		);
 
@@ -3593,6 +3348,134 @@ export class PaplicoCommands {
 		this.ctx.yjsProvider.addBrushPreset(preset);
 	}
 
+	// --- Appearance Preset Operations ---
+
+	/**
+	 * Capture the element's resolved appearance as a new document preset and
+	 * make the element reference it. Returns the preset uid, or null when the
+	 * element has no appearance to capture.
+	 */
+	public createAppearancePresetFromElement(
+		elementId: string,
+		name: string,
+	): string | null {
+		if (this.cannotMutate() || this.isElementLocked(elementId)) return null;
+		const element = this.ctx.store.document.objects[elementId];
+		if (!element) return null;
+
+		const captured = captureAppearancePreset(
+			element,
+			name,
+			createAppearancePresetsMap(this.ctx.store.document),
+		);
+		if (!captured) return null;
+
+		const origin = this.getMutationOrigin();
+		this.ctx.yjsProvider.transact(() => {
+			this.ctx.yjsProvider.setAppearancePreset(captured.preset, origin);
+			this.ctx.yjsProvider.batchUpdateElements(
+				[{ elementId, updates: { filters: captured.filters } }],
+				origin,
+			);
+		}, origin);
+		return captured.preset.uid;
+	}
+
+	/** Insert a ref to the preset into each selected element's stack (at the end when `index` is omitted). */
+	public insertAppearancePresetRefToSelectedElements(
+		presetUid: string,
+		index?: number,
+	): void {
+		if (this.cannotMutate() || !this.getAppearancePreset(presetUid)) return;
+
+		const updates = this.ctx.store.selectedElementIds.flatMap((elementId) => {
+			const element = this.ctx.store.document.objects[elementId];
+			if (!element || this.isElementLocked(elementId)) return [];
+			const filters = [...(element.filters ?? [])];
+			const ref: AppearancePresetRef = {
+				type: "preset",
+				uid: generateUid("app"),
+				presetUid,
+			};
+			filters.splice(index ?? filters.length, 0, ref);
+			return [{ elementId, updates: { filters } }];
+		});
+		if (updates.length === 0) return;
+		this.ctx.yjsProvider.batchUpdateElements(updates, this.getMutationOrigin());
+	}
+
+	/** Replace the preset ref at `entryIndex` with copies of the preset's filters. */
+	public expandAppearancePresetRef(
+		elementId: string,
+		entryIndex: number,
+	): void {
+		if (this.cannotMutate() || this.isElementLocked(elementId)) return;
+		const element = this.ctx.store.document.objects[elementId];
+		const entry = element?.filters?.[entryIndex];
+		if (!element || !entry || !isAppearancePresetRef(entry)) return;
+		const preset = this.getAppearancePreset(entry.presetUid);
+		if (!preset) return;
+
+		const filters = [...element.filters!];
+		filters.splice(entryIndex, 1, ...expandAppearancePresetRef(entry, preset));
+		this.ctx.yjsProvider.batchUpdateElements(
+			[{ elementId, updates: { filters } }],
+			this.getMutationOrigin(),
+		);
+	}
+
+	public renameAppearancePreset(presetUid: string, name: string): void {
+		if (this.cannotMutate()) return;
+		const preset = this.getAppearancePreset(presetUid);
+		if (!preset || preset.name === name) return;
+		this.ctx.yjsProvider.setAppearancePreset(
+			{ ...preset, name },
+			this.getMutationOrigin(),
+		);
+	}
+
+	/**
+	 * Add a preset (library / JSON import). A preset the document already has
+	 * under the same uid is reused as-is, so repeated imports do not pile up.
+	 * Returns the document uid.
+	 */
+	public addAppearancePreset(preset: AppearancePreset): string | null {
+		if (this.cannotMutate()) return null;
+		if (this.getAppearancePreset(preset.uid)) return preset.uid;
+		this.ctx.yjsProvider.setAppearancePreset(preset, this.getMutationOrigin());
+		return preset.uid;
+	}
+
+	/** Delete a preset after expanding every ref to it, so referencing elements keep their look. */
+	public deleteAppearancePreset(presetUid: string): void {
+		if (this.cannotMutate()) return;
+		const preset = this.getAppearancePreset(presetUid);
+		if (!preset) return;
+
+		const updates = Object.values(this.ctx.store.document.objects).flatMap(
+			(element) => {
+				const filters = expandAppearancePresetRefs(element.filters, preset);
+				if (!filters || this.isElementLocked(element.id)) return [];
+				return [{ elementId: element.id, updates: { filters } }];
+			},
+		);
+		const origin = this.getMutationOrigin();
+		this.ctx.yjsProvider.transact(() => {
+			if (updates.length > 0) {
+				this.ctx.yjsProvider.batchUpdateElements(updates, origin);
+			}
+			this.ctx.yjsProvider.deleteAppearancePreset(presetUid, origin);
+		}, origin);
+	}
+
+	private getAppearancePreset(presetUid: string): AppearancePreset | null {
+		return (
+			this.ctx.store.document.appearancePresets?.find(
+				(p) => p.uid === presetUid,
+			) ?? null
+		);
+	}
+
 	/**
 	 * Ensure built-in brush files exist in the document.
 	 * Called during project initialization.
@@ -4178,6 +4061,13 @@ export class PaplicoCommands {
 			mintId: (el) =>
 				`${el.type}-${now}-${Math.random().toString(36).slice(2, 9)}`,
 		});
+		// A ref to a preset this document does not have (cross-document paste)
+		// has nothing to draw, so it is dropped.
+		const presets = createAppearancePresetsMap(this.ctx.store.document);
+		for (const element of cloned) {
+			const filters = dropDanglingPresetRefs(element.filters, presets);
+			if (filters) element.filters = filters;
+		}
 		const clonedById = new Map<string, AnyArtObject>();
 		for (let i = 0; i < elements.length; i++) {
 			clonedById.set(elements[i]!.id, cloned[i]!);
@@ -4901,14 +4791,6 @@ export class PaplicoCommands {
 			this.getMutationOrigin(),
 		);
 	}
-}
-
-function areBrushSettingsSemanticallyEqual(
-	left: unknown,
-	right: unknown,
-): boolean {
-	if (left == null || right == null) return left == null && right == null;
-	return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export class AdjustColorSession {

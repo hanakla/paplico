@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { localAppearances } from "../../../document/appearancePresets";
 import { createIdentityTransform } from "../../../document/factory";
 import type {
 	BoundingBox,
@@ -87,14 +88,14 @@ describe("TextElementRenderer", () => {
 				worldBounds,
 			);
 
-			expect(leftPath.filters?.map((filter) => filter.processor)).toEqual([
-				"fill",
-			]);
-			expect(rightPath.filters?.map((filter) => filter.processor)).toEqual([
-				"fill",
-			]);
-			expect(leftPath.filters?.[0]).toEqual(makeFill("left"));
-			expect(rightPath.filters?.[0]).toEqual(makeFill("right"));
+			expect(
+				localAppearances(leftPath.filters).map((filter) => filter.processor),
+			).toEqual(["fill"]);
+			expect(
+				localAppearances(rightPath.filters).map((filter) => filter.processor),
+			).toEqual(["fill"]);
+			expect(localAppearances(leftPath.filters)[0]).toEqual(makeFill("left"));
+			expect(localAppearances(rightPath.filters)[0]).toEqual(makeFill("right"));
 			expect(leftPath.opacity).toBe(0.75);
 			expect(rightPath.opacity).toBe(0.75);
 			expect(leftPath.segments).toEqual(
@@ -132,10 +133,9 @@ describe("TextElementRenderer", () => {
 			// go — that is the unit the geometry filter then runs over.
 			expect(drawn.segments).toHaveLength(2);
 			expect(drawn.segments[1].isMoved).toBe(true);
-			expect(drawn.filters?.map((filter) => filter.processor)).toEqual([
-				"path-union",
-				"fill",
-			]);
+			expect(
+				localAppearances(drawn.filters).map((filter) => filter.processor),
+			).toEqual(["path-union", "fill"]);
 		});
 
 		it("should keep glyphs painted differently in separate runs", () => {
@@ -160,8 +160,8 @@ describe("TextElementRenderer", () => {
 			expect(renderPath).toHaveBeenCalledTimes(2);
 			const first = renderPath.mock.calls[0]?.[1] as Path;
 			const second = renderPath.mock.calls[1]?.[1] as Path;
-			expect(first.filters?.[1]).toEqual(makeFill("left"));
-			expect(second.filters?.[1]).toEqual(makeFill("right"));
+			expect(localAppearances(first.filters)[1]).toEqual(makeFill("left"));
+			expect(localAppearances(second.filters)[1]).toEqual(makeFill("right"));
 		});
 	});
 

@@ -43,7 +43,7 @@ import {
 	type Color,
 	type CubicBezierSegment,
 	type Document,
-	type Filter,
+	type FilterEntry,
 	generateUid,
 	type Layer,
 	type Path,
@@ -237,7 +237,7 @@ function createBrushStroke(
 		});
 	}
 
-	const allFilters: Filter[] = [
+	const allFilters: FilterEntry[] = [
 		{
 			uid: nanoid(),
 			processor: "stroke",

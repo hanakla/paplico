@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { localAppearances } from "../../../document/appearancePresets";
 import type {
 	BezierPoint,
 	BlendMode,
@@ -82,7 +83,7 @@ describe("RenderPlanner frame planning", () => {
 			const element = pathWithExtrude("normal");
 			element.filters = [
 				fillAppearance("multiply"),
-				{ ...element.filters![0], enabled: false },
+				{ ...localAppearances(element.filters)[0], enabled: false },
 			];
 			const plan = buildViewOf(makeDocument(element));
 
@@ -436,7 +437,7 @@ function pathWithExtrude(blendMode: BlendMode): Path {
 
 /** Turn the element's extrude appearance into distortion glass (ior > 1). */
 function makeGlass(element: Path): void {
-	const params = element.filters![0].paramData.params as {
+	const params = localAppearances(element.filters)[0].paramData.params as {
 		material: { refraction?: number };
 	};
 	params.material.refraction = 1.5;

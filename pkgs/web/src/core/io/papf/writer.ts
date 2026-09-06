@@ -419,6 +419,7 @@ function buildMetaPayload(
 			viewport: doc.viewport,
 			artboards: doc.artboards,
 			brushPresets: doc.brushPresets,
+			appearancePresets: doc.appearancePresets,
 			hdr: doc.hdr,
 			colorProfile: doc.colorProfile,
 			rasterizationDpi: doc.rasterizationDpi,

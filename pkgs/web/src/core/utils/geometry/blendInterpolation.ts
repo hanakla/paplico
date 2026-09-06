@@ -16,6 +16,7 @@
  * must be baked into the segment coordinates here.
  */
 
+import { localAppearances } from "../../document/appearancePresets";
 import { createIdentityTransform } from "../../document/factory";
 import type { BrushSettings } from "../../schema";
 import {
@@ -456,8 +457,8 @@ function computePairIntermediates(
 		const t = i / (steps + 1);
 		let segments = interpolateSubPaths(subPathPairs, t);
 		const filters = interpolateFilters(
-			source.filters ?? [],
-			target.filters ?? [],
+			localAppearances(source.filters),
+			localAppearances(target.filters),
 			t,
 			interpolateOtherFilter,
 		);
@@ -1344,9 +1345,9 @@ function clamp01(v: number): number {
 }
 
 function extractFillRgb(path: Path): RGBColor | null {
-	const fill = path.filters?.find((f) => f.processor === "fill") as
-		| FillAppearance
-		| undefined;
+	const fill = localAppearances(path.filters).find(
+		(f) => f.processor === "fill",
+	) as FillAppearance | undefined;
 	if (!fill) return null;
 	const fillColor = fill.paramData.params.fill;
 	if (fillColor.type !== "solid") return null;

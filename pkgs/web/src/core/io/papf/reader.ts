@@ -520,6 +520,7 @@ export class PapfFile {
 			files,
 			artboards: docMeta.artboards,
 			brushPresets: docMeta.brushPresets,
+			appearancePresets: docMeta.appearancePresets ?? [],
 			...(timelapse ? { timelapse } : {}),
 			hdr: docMeta.hdr,
 			colorProfile: docMeta.colorProfile,
@@ -534,6 +535,9 @@ export class PapfFile {
 		// missing from documents saved before these fields were required.
 		for (const element of Object.values(doc.objects)) {
 			if (element.filters) normalizeAppearanceFields(element.filters);
+		}
+		for (const preset of doc.appearancePresets ?? []) {
+			normalizeAppearanceFields(preset.filters);
 		}
 
 		return doc;

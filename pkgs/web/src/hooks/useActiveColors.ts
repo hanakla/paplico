@@ -3,13 +3,12 @@ import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import {
 	type AnyArtObject,
-	type FillAppearance,
 	type FillColor,
 	isSolidColor,
-	type StrokeAppearance,
 	type StrokeColor,
 	type StrokeGradientMode,
 } from "@/core/schema";
+import { getFirstFill, getFirstStroke } from "@/core/utils/elementQuery";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
 import { useEventCallback } from "@/utils/hooks";
 import { deepClone } from "@/utils/lang";
@@ -81,9 +80,7 @@ export function useActiveColors(): ActiveColors {
 		} | null> = [];
 
 		for (const element of selectedElements) {
-			const strokeApp = element.filters?.find(
-				(f): f is StrokeAppearance => f.processor === "stroke",
-			);
+			const strokeApp = getFirstStroke(element.filters);
 			const color = strokeApp?.paramData.params.strokeColor;
 			if (color === undefined) {
 				strokeColors.push(null);
@@ -94,9 +91,7 @@ export function useActiveColors(): ActiveColors {
 				}
 			}
 
-			const fillApp = element.filters?.find(
-				(f): f is FillAppearance => f.processor === "fill",
-			);
+			const fillApp = getFirstFill(element.filters);
 			const fill = fillApp?.paramData.params.fill;
 			if (fill === undefined) {
 				fillColors.push(null);
@@ -170,9 +165,7 @@ export function useActiveColors(): ActiveColors {
 	// Resolve current stroke gradient mode
 	const currentStrokeGradientMode = useMemo((): StrokeGradientMode => {
 		if (selectedElements.length === 0) return "within";
-		const strokeApp = selectedElements[0]?.filters?.find(
-			(f): f is StrokeAppearance => f.processor === "stroke",
-		);
+		const strokeApp = getFirstStroke(selectedElements[0]?.filters);
 		const sc = strokeApp?.paramData.params.strokeColor as
 			| StrokeColor
 			| undefined;
@@ -219,9 +212,7 @@ export function useActiveColors(): ActiveColors {
 	const handleStrokeGradientModeChange = useEventCallback(
 		(mode: StrokeGradientMode) => {
 			if (selectedElements.length === 0) return;
-			const strokeApp = selectedElements[0]?.filters?.find(
-				(f): f is StrokeAppearance => f.processor === "stroke",
-			);
+			const strokeApp = getFirstStroke(selectedElements[0]?.filters);
 			const sc = strokeApp?.paramData.params.strokeColor as
 				| StrokeColor
 				| undefined;

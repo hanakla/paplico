@@ -1,3 +1,4 @@
+import { resolveElementsMapAppearance } from "../../document/appearancePresets";
 import { classifyFilterHandler } from "../../renderer/canvas/pipeline/FilterRenderer";
 import type { RenderOrchestrator } from "../../renderer/RenderOrchestrator";
 import {
@@ -168,9 +169,13 @@ export class PaplicoSVGExporter {
 					?.getRenderConfigure?.(filter).needsBackdrop ?? false,
 		};
 
+		// Expand appearance preset refs once so serialization only sees concrete filters.
+		const elementsMap = new Map(Object.entries(doc.objects));
+		resolveElementsMapAppearance(elementsMap, doc);
+
 		return {
 			document: doc,
-			elementsMap: new Map(Object.entries(doc.objects)),
+			elementsMap,
 			builder,
 			mapper: createCoordMapper(artboard),
 			viewBox: { width: artboard.width, height: artboard.height },

@@ -3,6 +3,7 @@ import { UndoManager } from "yjs";
 import { createIdentityTransform } from "../document/factory";
 import {
 	type AnyArtObject,
+	type AppearancePreset,
 	type Artboard,
 	type BlendObject,
 	type BrushPreset,
@@ -198,6 +199,7 @@ export class YjsProvider {
 	private yArtboards!: Y.Array<Artboard>;
 	private yFiles!: Y.Map<SerializedEmbeddedFile>;
 	private yBrushPresets!: Y.Map<Y.Map<unknown>>;
+	private yAppearancePresets!: Y.Map<Y.Map<unknown>>;
 	private yDefs!: Y.Map<Y.Map<unknown>>;
 	private yReferences3d!: Y.Map<Y.Map<unknown>>;
 	private callbacks: YjsProviderCallbacks;
@@ -289,6 +291,9 @@ export class YjsProvider {
 		this.yBrushPresets.observe(() => {
 			this.needsFullSync = true;
 		});
+		this.yAppearancePresets.observe(() => {
+			this.needsFullSync = true;
+		});
 		this.yDefs.observeDeep(() => {
 			// def CRUD is rare; route through the full-sync path (same flow as
 			// yArtboards / yMeta). Element-level edits to def members live in
@@ -339,6 +344,7 @@ export class YjsProvider {
 				this.yArtboards,
 				this.yDefs,
 				this.yReferences3d,
+				this.yAppearancePresets,
 			],
 			{
 				captureTimeout: 500,
@@ -703,6 +709,9 @@ export class YjsProvider {
 			this.yBrushPresets.forEach((_, key) => {
 				this.yBrushPresets.delete(key);
 			});
+			this.yAppearancePresets.forEach((_, key) => {
+				this.yAppearancePresets.delete(key);
+			});
 			this.yDefs.forEach((_, key) => {
 				this.yDefs.delete(key);
 			});
@@ -747,6 +756,9 @@ export class YjsProvider {
 			});
 			this.yBrushPresets.forEach((_, key) => {
 				this.yBrushPresets.delete(key);
+			});
+			this.yAppearancePresets.forEach((_, key) => {
+				this.yAppearancePresets.delete(key);
 			});
 			this.yDefs.forEach((_, key) => {
 				this.yDefs.delete(key);
@@ -2290,6 +2302,21 @@ export class YjsProvider {
 		});
 	}
 
+	// --- Appearance Preset Operations ---
+
+	/** Add or replace a document appearance preset (keyed by uid). */
+	public setAppearancePreset(preset: AppearancePreset, origin?: unknown): void {
+		this.ydoc.transact(() => {
+			this.yAppearancePresets.set(preset.uid, appearancePresetToYMap(preset));
+		}, origin);
+	}
+
+	public deleteAppearancePreset(uid: string, origin?: unknown): void {
+		this.ydoc.transact(() => {
+			this.yAppearancePresets.delete(uid);
+		}, origin);
+	}
+
 	/** Wrap multiple operations in a single undo step. */
 	public transact(fn: () => void, origin?: unknown): void {
 		this.ydoc.transact(fn, origin);
@@ -2308,6 +2335,7 @@ export class YjsProvider {
 		this.yArtboards = this.ydoc.getArray("artboards");
 		this.yFiles = this.ydoc.getMap("files");
 		this.yBrushPresets = this.ydoc.getMap("brushPresets");
+		this.yAppearancePresets = this.ydoc.getMap("appearancePresets");
 		this.yDefs = this.ydoc.getMap("defs");
 		this.yReferences3d = this.ydoc.getMap("references3d");
 	}
@@ -2664,6 +2692,11 @@ export function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 		yBrushPresets.set(preset.uid, yPreset);
 	}
 
+	const yAppearancePresets = ydoc.getMap<Y.Map<unknown>>("appearancePresets");
+	for (const preset of doc.appearancePresets ?? []) {
+		yAppearancePresets.set(preset.uid, appearancePresetToYMap(preset));
+	}
+
 	const yDefs = ydoc.getMap<Y.Map<unknown>>("defs");
 	for (const [defId, entry] of Object.entries(doc.defs ?? {})) {
 		yDefs.set(defId, defEntryToYMap(entry));
@@ -2701,6 +2734,14 @@ export function reference3DDefToYMap(def: Reference3DDef): Y.Map<unknown> {
 	if (def.name !== undefined) yMap.set("name", def.name);
 	yMap.set("nodes", JSON.stringify(def.nodes));
 	return yMap;
+}
+
+function appearancePresetToYMap(preset: AppearancePreset): Y.Map<unknown> {
+	const yPreset = new Y.Map<unknown>();
+	yPreset.set("uid", preset.uid);
+	yPreset.set("name", preset.name);
+	yPreset.set("filters", JSON.stringify(preset.filters));
+	return yPreset;
 }
 
 function storedFieldsToYMap(fields: Record<string, unknown>): Y.Map<unknown> {

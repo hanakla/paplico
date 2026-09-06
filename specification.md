@@ -157,6 +157,7 @@ interface Document {
 	files: EmbeddedFile[];       // 埋め込みファイル（画像・ブラシテクスチャ）
 	artboards: Artboard[];
 	brushPresets: BrushPreset[];
+	appearancePresets?: AppearancePreset[]; // アピアランスプリセット（AppearancePresetRef が参照）
 	timelapse?: TimelapseData;
 	schemaVersion?: number;      // YYYYMMDD形式。undefined = マイグレーション前のlegacy
 	hdr?: HdrSettings;           // { enabled, exposure(EV) }
@@ -579,6 +580,7 @@ Y.Doc
 ├─ "artboards"    (Y.Array)
 ├─ "files"        (Y.Map)           EmbeddedFile
 ├─ "brushPresets" (Y.Map<Y.Map>)
+├─ "appearancePresets" (Y.Map<Y.Map>)
 ├─ "defs"         (Y.Map<Y.Map>)
 └─ "references3d" (Y.Map<Y.Map>)
 ```

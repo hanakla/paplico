@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "three/webgpu";
 import { createDefaultLineart3DParams } from "../document/factory";
 import type { Reference3DCamera, Reference3DNode } from "../schema";
 import { LineartPipeline } from "./lineart/LineartPipeline";
@@ -21,11 +21,17 @@ import type {
 	Reference3DFileResolver,
 	Reference3DRaycastRequest,
 	Reference3DRenderRequest,
+	Reference3DScenePixels,
 	Reference3DServiceApi,
 } from "./types";
 import type { IKRigData } from "./vrm/ikSolver";
 import { toThreeVrmPose } from "./vrm/pose";
 import { VRMFigureManager } from "./vrm/VRMFigureManager";
+
+interface Reference3DServiceOptions {
+	/** GPU device to render with. Absent: three.js requests its own. */
+	device?: GPUDevice;
+}
 
 // Clip planes framed for room-scale scenes (1 unit = 1 m).
 const CAMERA_NEAR = 0.05;
@@ -33,16 +39,17 @@ const CAMERA_FAR = 200;
 
 /**
  * three.js runtime behind the Reference3DServiceApi boundary. Owns a single
- * WebGLRenderer on one OffscreenCanvas: render requests are served
- * sequentially with a per-request setSize, so no per-element GL context is
- * ever created (browsers cap live WebGL contexts per page).
+ * WebGPURenderer that draws every request into an offscreen render target
+ * and reads the pixels back — no canvas is ever involved, which keeps the
+ * runtime usable outside a browser (Node tests) and off the per-page context
+ * limits.
  */
 export class Reference3DService implements Reference3DServiceApi {
-	private canvas: OffscreenCanvas | HTMLCanvasElement | null = null;
-	private renderer: THREE.WebGLRenderer | null = null;
+	private rendererPromise: Promise<THREE.WebGPURenderer> | null = null;
 	private contextEpoch = 0;
 	private assetsEpoch = 0;
 	private lineartPipeline: LineartPipeline | null = null;
+	private flatTarget: THREE.RenderTarget | null = null;
 	private flatLight: THREE.HemisphereLight | null = null;
 	private shadowRig: ShadowRig | null = null;
 	private readonly vrmManager = new VRMFigureManager({
@@ -71,11 +78,14 @@ export class Reference3DService implements Reference3DServiceApi {
 		THREE.Object3D
 	>(this.adapter);
 
+	public constructor(
+		private readonly options: Reference3DServiceOptions = {},
+	) {}
+
 	public async renderScene(
 		request: Reference3DRenderRequest,
-	): Promise<ImageBitmap> {
-		const renderer = this.ensureRenderer();
-		renderer.setSize(request.width, request.height, false);
+	): Promise<Reference3DScenePixels> {
+		const renderer = await this.ensureRenderer();
 
 		this.adapter.setFileResolver(request.getFileBytes ?? null);
 		const scene = this.sceneStore.sync(request.sceneId, request.nodes);
@@ -91,10 +101,11 @@ export class Reference3DService implements Reference3DServiceApi {
 		);
 		scene.add(this.shadowRig.group);
 
+		let target: THREE.RenderTarget;
 		try {
 			if (request.displayMode === "lineart") {
 				this.lineartPipeline ??= new LineartPipeline();
-				this.lineartPipeline.render(renderer, scene, camera, {
+				target = this.lineartPipeline.render(renderer, scene, camera, {
 					width: request.width,
 					height: request.height,
 					rasterScale: request.rasterScale,
@@ -109,9 +120,8 @@ export class Reference3DService implements Reference3DServiceApi {
 				this.flatLight ??= new THREE.HemisphereLight(0xffffff, 0x665f55, 3);
 				scene.add(this.flatLight);
 				camera.layers.enable(SHADOW_CATCHER_LAYER);
-				renderer.setRenderTarget(null);
-				renderer.setClearColor(0x000000, 0);
-				renderer.clear();
+				target = this.ensureFlatTarget(request.width, request.height);
+				renderer.setRenderTarget(target);
 				renderer.render(scene, camera);
 				camera.layers.disable(SHADOW_CATCHER_LAYER);
 				scene.remove(this.flatLight);
@@ -120,7 +130,18 @@ export class Reference3DService implements Reference3DServiceApi {
 			scene.remove(this.shadowRig.group);
 		}
 
-		return this.captureBitmap(request.width, request.height);
+		const padded = (await renderer.readRenderTargetPixelsAsync(
+			target,
+			0,
+			0,
+			request.width,
+			request.height,
+		)) as Uint8Array;
+		return {
+			width: request.width,
+			height: request.height,
+			data: unpackRows(padded, request.width, request.height),
+		};
 	}
 
 	public raycastNode(request: Reference3DRaycastRequest): string | null {
@@ -163,6 +184,22 @@ export class Reference3DService implements Reference3DServiceApi {
 		this.vrmManager.disposeScene(sceneId);
 	}
 
+	public destroy(): void {
+		this.sceneStore.disposeAll();
+		this.vrmManager.disposeAll();
+		this.glbCache.disposeAll();
+		this.lineartPipeline?.dispose();
+		this.lineartPipeline = null;
+		this.flatTarget?.dispose();
+		this.flatTarget = null;
+		if (this.shadowRig) {
+			disposeObject3D(this.shadowRig.group);
+			this.shadowRig = null;
+		}
+		void this.rendererPromise?.then((renderer) => renderer.dispose());
+		this.rendererPromise = null;
+	}
+
 	/** Free VRM instances for figure nodes removed from the scene. */
 	private pruneFigures(
 		sceneId: string,
@@ -175,65 +212,66 @@ export class Reference3DService implements Reference3DServiceApi {
 		this.vrmManager.retainForScene(sceneId, liveIds);
 	}
 
-	public destroy(): void {
-		this.sceneStore.disposeAll();
-		this.vrmManager.disposeAll();
-		this.glbCache.disposeAll();
-		this.lineartPipeline?.dispose();
-		this.lineartPipeline = null;
-		if (this.shadowRig) {
-			disposeObject3D(this.shadowRig.group);
-			this.shadowRig = null;
-		}
-		this.renderer?.dispose();
-		this.renderer = null;
-		this.canvas = null;
+	private ensureRenderer(): Promise<THREE.WebGPURenderer> {
+		this.rendererPromise ??= this.createRenderer();
+		return this.rendererPromise;
 	}
 
-	private ensureRenderer(): THREE.WebGLRenderer {
-		if (this.renderer) return this.renderer;
-
-		// OffscreenCanvas is supported in all targets (Safari 16.4+); the
-		// hidden HTMLCanvasElement fallback covers non-browser test hosts.
-		const canvas =
-			typeof OffscreenCanvas !== "undefined"
-				? new OffscreenCanvas(1, 1)
-				: document.createElement("canvas");
-		canvas.addEventListener("webglcontextlost", (event) => {
-			// preventDefault allows the browser to restore the context later.
-			event.preventDefault();
+	private async createRenderer(): Promise<THREE.WebGPURenderer> {
+		const renderer = new THREE.WebGPURenderer({
+			device: this.options.device,
+			// Fixed byte output type keeps the renderer off navigator.gpu's
+			// preferred canvas format query (there is no canvas).
+			outputType: THREE.UnsignedByteType,
+		});
+		renderer.onDeviceLost = () => {
+			// Renders issued on the lost device produced blank output under the
+			// old epoch; the next request builds a fresh renderer and re-renders.
 			this.contextEpoch++;
-		});
-		canvas.addEventListener("webglcontextrestored", () => {
-			// Renders issued while the context was lost produced blank output
-			// under the lost-epoch hash; bumping again forces regeneration.
-			this.contextEpoch++;
-		});
-		this.canvas = canvas;
-
-		this.renderer = new THREE.WebGLRenderer({
-			canvas: canvas as HTMLCanvasElement,
-			alpha: true,
-			antialias: true,
-			premultipliedAlpha: true,
-		});
-		this.renderer.setPixelRatio(1);
-		this.renderer.shadowMap.enabled = true;
-		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-		return this.renderer;
+			this.rendererPromise = null;
+			renderer.dispose();
+		};
+		renderer.setPixelRatio(1);
+		renderer.setClearColor(0x000000, 0);
+		renderer.shadowMap.enabled = true;
+		renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+		await renderer.init();
+		return renderer;
 	}
 
-	private captureBitmap(width: number, height: number): Promise<ImageBitmap> {
-		const canvas = this.canvas;
-		if (!canvas) throw new Error("Reference3DService renderer not initialized");
-		if ("transferToImageBitmap" in canvas) {
-			return Promise.resolve(canvas.transferToImageBitmap());
+	private ensureFlatTarget(width: number, height: number): THREE.RenderTarget {
+		if (this.flatTarget?.width === width && this.flatTarget.height === height) {
+			return this.flatTarget;
 		}
-		return createImageBitmap(canvas, 0, 0, width, height);
+		this.flatTarget?.dispose();
+		// sRGB target: the hardware applies the display transfer on write, the
+		// same as the canvas output of a screen-space render.
+		this.flatTarget = new THREE.RenderTarget(width, height, {
+			samples: 4,
+			colorSpace: THREE.SRGBColorSpace,
+		});
+		return this.flatTarget;
 	}
 }
 
 // Helpers
+
+/** Readback rows are padded to 256 bytes; repack them tightly. */
+function unpackRows(
+	padded: Uint8Array,
+	width: number,
+	height: number,
+): Uint8Array {
+	const rowBytes = width * 4;
+	const paddedRowBytes = Math.ceil(rowBytes / 256) * 256;
+	if (paddedRowBytes === rowBytes) return padded;
+	const data = new Uint8Array(rowBytes * height);
+	for (let y = 0; y < height; y++) {
+		const src = y * paddedRowBytes;
+		data.set(padded.subarray(src, src + rowBytes), y * rowBytes);
+	}
+	return data;
+}
 
 class ThreeSceneAdapter
 	implements SceneRuntimeAdapter<THREE.Scene, THREE.Object3D>

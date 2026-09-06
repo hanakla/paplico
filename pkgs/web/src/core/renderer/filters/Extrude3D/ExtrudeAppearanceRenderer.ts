@@ -7,6 +7,7 @@ import {
 	readStoredBrushSize,
 	readStoredBrushStroking,
 } from "../../../brush/access";
+import { localAppearances } from "../../../document/appearancePresets";
 import { createIdentityTransform } from "../../../document/factory";
 import {
 	type AnyArtObject,
@@ -18,6 +19,7 @@ import {
 	type ElementTransform,
 	type FillAppearance,
 	type Filter,
+	type FilterEntry,
 	type Group,
 	getTransform,
 	hasGroupAppearances,
@@ -402,7 +404,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 		profiler?: GPUTimingProfiler | null,
 	): void {
 		const { meshPass, baker } = this.deps;
-		const apps = (element.filters ?? []).filter(
+		const apps = localAppearances(element.filters).filter(
 			(f) => f.processor === this.deps.processor && isFilterEnabled(f),
 		);
 		const geom = this.geometryContext(element, elementsMap);
@@ -456,7 +458,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 		profiler?: GPUTimingProfiler | null,
 	): boolean {
 		const { meshPass, baker, filterRenderer, processor } = this.deps;
-		const glassApp = (blend.filters ?? []).find(
+		const glassApp = localAppearances(blend.filters).find(
 			(f) =>
 				f.processor === processor &&
 				isFilterEnabled(f) &&
@@ -928,7 +930,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 		chained: Filter[];
 	} {
 		const appearanceIndex =
-			element.filters?.findIndex(
+			localAppearances(element.filters).findIndex(
 				(filter) =>
 					filter.processor === this.deps.processor &&
 					isFilterEnabled(filter) &&
@@ -939,7 +941,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 			) ?? -1;
 		if (appearanceIndex < 0) return { underlay: [], chained: [] };
 
-		const downstream = (element.filters ?? [])
+		const downstream = localAppearances(element.filters)
 			.slice(appearanceIndex + 1)
 			.filter((filter) => {
 				if (!isFilterEnabled(filter)) return false;
@@ -1204,7 +1206,7 @@ export function hasEnabledSolidAppearance(
 	processor: string,
 ): boolean {
 	return (
-		element.filters?.some(
+		localAppearances(element.filters).some(
 			(f) => f.processor === processor && isFilterEnabled(f),
 		) ?? false
 	);
@@ -1366,7 +1368,7 @@ export function collectGroupExtrudeOutline(
 	const ancestor = isIdentityTransform(worldTransform)
 		? undefined
 		: worldTransform;
-	const groupPreFilters = (group.filters ?? []).filter(
+	const groupPreFilters = localAppearances(group.filters).filter(
 		(f) =>
 			f.enabled !== false &&
 			!!filterRenderer.getHandler(f.processor)?.preProcess,
@@ -1401,7 +1403,9 @@ export function collectGroupExtrudeOutline(
 			},
 			ancestor,
 		);
-		append(buildExtrudeOutline(group.filters, world.segments));
+		append(
+			buildExtrudeOutline(localAppearances(group.filters), world.segments),
+		);
 		return result;
 	}
 
@@ -1414,7 +1418,7 @@ export function collectGroupExtrudeOutline(
 	): Path => {
 		const flatSegments = resolveElementGeometry(
 			path.segments,
-			path.filters,
+			localAppearances(path.filters),
 			filterRenderer,
 		);
 		return toWorldPath({ ...path, segments: flatSegments }, nodeTransform);
@@ -1432,7 +1436,12 @@ export function collectGroupExtrudeOutline(
 			switch (child.type) {
 				case "path": {
 					const world = toFlatWorldPath(child, nodeTransform);
-					append(buildExtrudeOutline(child.filters, world.segments));
+					append(
+						buildExtrudeOutline(
+							localAppearances(child.filters),
+							world.segments,
+						),
+					);
 					break;
 				}
 				case "compound-path": {
@@ -1483,7 +1492,12 @@ export function collectGroupExtrudeOutline(
 						} as unknown as Path,
 						nodeTransform,
 					);
-					append(buildExtrudeOutline(child.filters, world.segments));
+					append(
+						buildExtrudeOutline(
+							localAppearances(child.filters),
+							world.segments,
+						),
+					);
 					break;
 				}
 				case "mesh":
@@ -1551,7 +1565,7 @@ function resolveBlendItems(
 	// Bake pre-filters (zigzag, etc.) into each key, matching
 	// ElementRenderer.bakeBlendKeyDeformation.
 	const deformedKeys = keys.map((key) => {
-		const filters = key.filters ?? [];
+		const filters = localAppearances(key.filters);
 		const isPreFilter = (f: Filter) =>
 			!!filterRenderer.getHandler(f.processor)?.preProcess;
 		const hasEnabledPreFilter = filters.some(
@@ -1644,9 +1658,11 @@ export function collectBlendExtrudeOutline(
 		appendSubpath(result, outline);
 	};
 
-	for (const key of worldKeys) appendItem(key.filters, key.segments);
+	for (const key of worldKeys)
+		appendItem(localAppearances(key.filters), key.segments);
 	for (const pair of intermediatePairs) {
-		for (const inter of pair) appendItem(inter.filters, inter.segments);
+		for (const inter of pair)
+			appendItem(localAppearances(inter.filters), inter.segments);
 	}
 	return result;
 }
@@ -1749,9 +1765,9 @@ export function collectBlendExtrudeInstances(
 		emitted.add(i);
 		const key = worldKeys[i];
 		if (!key) return;
-		addItem(key.filters, key.segments);
+		addItem(localAppearances(key.filters), key.segments);
 		for (const inter of intermediatePairs[i] ?? []) {
-			addItem(inter.filters, inter.segments);
+			addItem(localAppearances(inter.filters), inter.segments);
 		}
 	};
 	for (const id of blend.renderOrder ?? blend.objectIds) {
@@ -1785,7 +1801,7 @@ export function collectBlendExtrudeInstances(
  */
 export function buildTextGlyphOutline(
 	cached: { paths: Path[] },
-	element: { x: number; y: number; filters?: Filter[] },
+	element: { x: number; y: number; filters?: FilterEntry[] },
 	filterRenderer: Pick<FilterRenderer, "getHandler">,
 ): TextGlyphOutline {
 	// The stroke sweep polygon-clips every sub-path of the whole text at once,
@@ -1821,7 +1837,7 @@ interface TextGlyphOutline {
 const textOutlineMemo = new WeakMap<
 	object,
 	{
-		filters: Filter[] | undefined;
+		filters: FilterEntry[] | undefined;
 		x: number;
 		y: number;
 		outline: TextGlyphOutline;
@@ -1830,7 +1846,7 @@ const textOutlineMemo = new WeakMap<
 
 function computeTextGlyphOutline(
 	cached: { paths: Path[] },
-	element: { x: number; y: number; filters?: Filter[] },
+	element: { x: number; y: number; filters?: FilterEntry[] },
 	filterRenderer: Pick<FilterRenderer, "getHandler">,
 ): TextGlyphOutline {
 	const ox = element.x;
@@ -1848,11 +1864,14 @@ function computeTextGlyphOutline(
 	);
 	const flatSegments = buildTextGeometry(
 		glyphFills,
-		element.filters,
+		localAppearances(element.filters),
 		filterRenderer,
 	);
 	return {
-		segments: buildExtrudeOutline(element.filters, flatSegments),
+		segments: buildExtrudeOutline(
+			localAppearances(element.filters),
+			flatSegments,
+		),
 		flatSegments,
 	};
 }

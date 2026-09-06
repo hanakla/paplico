@@ -6,6 +6,7 @@
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-border: var(--border);
+	--color-border-dim: var(--border-dim);
 	--color-border-active: var(--border-active);
 
 	--color-accent: var(--accent);
@@ -112,6 +113,7 @@
 		--background: var(--color-gray-100);
 		--foreground: var(--color-gray-900);
 		--border: var(--color-gray-300);
+		--border-dim: color-mix(in srgb, var(--color-gray-300) 60%, transparent);
 		--border-active: var(--color-sky-500);
 
 		--accent: var(--color-sky-600);
@@ -149,6 +151,7 @@
 			--background: var(--color-slate-700);
 			--foreground: var(--color-white);
 			--border: var(--color-slate-600);
+			--border-dim: color-mix(in srgb, var(--color-slate-600) 60%, transparent);
 			--border-active: var(--color-sky-600);
 
 			--accent: var(--color-sky-600);
@@ -185,6 +188,7 @@
 		--background: var(--color-slate-800);
 		--foreground: var(--color-white);
 		--border: var(--color-slate-500);
+		--border-dim: color-mix(in srgb, var(--color-slate-600) 60%, transparent);
 		--border-active: var(--color-sky-600);
 
 		--accent: var(--color-sky-600);
@@ -220,6 +224,7 @@
 		--background: var(--color-slate-50);
 		--foreground: var(--color-slate-900);
 		--border: color-mix(in srgb, var(--color-rose-400) 40%, transparent);
+		--border-dim: color-mix(in srgb, var(--color-rose-400) 30%, transparent);
 		--border-active: color-mix(in srgb, var(--color-rose-500) 60%, transparent);
 
 		--accent: color-mix(in srgb, var(--color-pink-500) 80%, transparent);
@@ -254,7 +259,7 @@
 	.lime {
 		--background: var(--color-zinc-50);
 		--foreground: var(--color-stone-900);
-		--border: color-mix(in srgb, var(--color-lime-300) 40%, transparent);
+		--border: color-mix(in srgb, var(--color-lime-300) 60%, transparent);
 		--border-active: var(--color-lime-400);
 
 		--accent: var(--color-lime-600);
@@ -290,6 +295,7 @@
 		--background: var(--color-zinc-50);
 		--foreground: var(--color-zinc-950);
 		--border: var(--color-violet-200);
+		--border-dim: color-mix(in srgb, var(--color-violet-200) 60%, transparent);
 		--border-active: var(--color-violet-400);
 
 		--accent: var(--color-violet-500);
@@ -325,6 +331,7 @@
 		--background: var(--color-zinc-900);
 		--foreground: var(--color-zinc-100);
 		--border: var(--color-zinc-600);
+		--border-dim: color-mix(in srgb, var(--color-zinc-600) 80%, transparent);
 		--border-active: var(--color-zinc-500);
 
 		--accent: var(--color-zinc-300);
@@ -360,6 +367,7 @@
 		--background: var(--color-white);
 		--foreground: var(--color-gray-900);
 		--border: var(--color-gray-200);
+		--border-dim: color-mix(in srgb, var(--color-gray-200) 80%, transparent);
 		--border-active: var(--color-gray-500);
 
 		--accent: var(--color-gray-800);

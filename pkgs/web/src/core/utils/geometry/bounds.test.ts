@@ -3,6 +3,7 @@ import { createIdentityTransform } from "../../document/factory";
 import type {
 	AnyArtObject,
 	BoundingBox,
+	Group,
 	Path,
 	Reference3DElement,
 	StrokeAppearance,
@@ -549,6 +550,63 @@ describe("bounds utilities", () => {
 			);
 			expect(bounds.minX).toBe(0);
 			expect(bounds.maxX).toBe(0);
+		});
+	});
+
+	describe("calculateElementBounds for group", () => {
+		const makePath = (id: string, min: number, max: number): Path => ({
+			type: "path",
+			id,
+			segments: closedRectSegments(min, min, max, max),
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		});
+		const makeGroup = (childIds: string[], clipPathId?: string): Group => ({
+			type: "group",
+			id: "group",
+			childIds,
+			clipPathId,
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		});
+
+		it("returns the union of children for a plain group", () => {
+			const group = makeGroup(["small", "large"]);
+			const map = new Map<string, AnyArtObject>([
+				["small", makePath("small", -10, 10)],
+				["large", makePath("large", -50, 50)],
+				["group", group],
+			]);
+			const bounds = calculateElementBounds(group, map);
+			expect(bounds.minX).toBe(-50);
+			expect(bounds.maxX).toBe(50);
+		});
+
+		it("returns the clip path bounds for a clip group even when children extend past it", () => {
+			const group = makeGroup(["clip", "content"], "clip");
+			const map = new Map<string, AnyArtObject>([
+				["clip", makePath("clip", -10, 10)],
+				["content", makePath("content", -50, 50)],
+				["group", group],
+			]);
+			const bounds = calculateElementBounds(group, map);
+			expect(bounds.minX).toBe(-10);
+			expect(bounds.minY).toBe(-10);
+			expect(bounds.maxX).toBe(10);
+			expect(bounds.maxY).toBe(10);
+		});
+
+		it("falls back to the children union when the clip path is missing", () => {
+			const group = makeGroup(["content"], "missing");
+			const map = new Map<string, AnyArtObject>([
+				["content", makePath("content", -50, 50)],
+				["group", group],
+			]);
+			const bounds = calculateElementBounds(group, map);
+			expect(bounds.minX).toBe(-50);
+			expect(bounds.maxX).toBe(50);
 		});
 	});
 
