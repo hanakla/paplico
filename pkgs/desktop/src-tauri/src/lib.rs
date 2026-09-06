@@ -20,6 +20,7 @@ pub fn run() {
         .manage(AutomationFileSystemState::default())
         .invoke_handler(tauri::generate_handler![
             fonts::load_font_data,
+            fonts::read_font_range,
             automation_file_system::automation_open_files,
             automation_file_system::automation_save_file,
             automation_file_system::automation_register_document_directory,

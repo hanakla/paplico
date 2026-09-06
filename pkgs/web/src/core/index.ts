@@ -26,8 +26,8 @@ export {
 } from "./document/factory";
 
 // Fonts
-export type { FontMetadata } from "./typography/fonts";
-export { getFontManager } from "./typography/fonts";
+export type { FontMetadata, FontScript } from "./typography/fonts";
+export { FONT_SCRIPT_ORDER, getFontManager } from "./typography/fonts";
 
 // Utilities
 export { worldToScreen } from "./utils/geometry/geometry";

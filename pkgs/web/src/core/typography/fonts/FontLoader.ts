@@ -4,6 +4,7 @@
  */
 
 import type { Font } from "fontkit";
+import type { FontScript } from "./os2Scripts";
 
 /**
  * Catalog-level metadata for a font, shared between Google Fonts and the
@@ -29,6 +30,11 @@ export interface FontMetadata {
 	localizedFamily?: string;
 	/** Localized full name resolved from the font's `name` table, if any. */
 	localizedFullName?: string;
+	/**
+	 * Writing systems the font covers. Known at query time for Google Fonts;
+	 * resolved lazily from the `OS/2` table for local fonts.
+	 */
+	scripts?: FontScript[];
 }
 
 /**

@@ -12,6 +12,7 @@ import {
 	type LoadedFont,
 	parseWeightString,
 } from "./FontLoader";
+import { googleSubsetsToScripts } from "./os2Scripts";
 
 /**
  * Google Fonts API レスポンス型
@@ -90,6 +91,7 @@ export class GoogleFontsLoader implements FontLoader {
 					weight: 400,
 					source: "google" as const,
 					variants: item.variants,
+					scripts: googleSubsetsToScripts(item.subsets),
 				};
 			});
 

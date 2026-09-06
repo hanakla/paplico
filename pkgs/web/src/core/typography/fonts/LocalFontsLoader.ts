@@ -12,6 +12,10 @@ import {
 	type LoadedFont,
 	parseWeightString,
 } from "./FontLoader";
+import { detectFontScripts, type FontScript } from "./os2Scripts";
+
+const SCRIPT_RESOLVE_CONCURRENCY = 8;
+const SCRIPT_PROGRESS_INTERVAL_MS = 200;
 
 /**
  * Local Font Access APIの型定義
@@ -22,6 +26,8 @@ export interface FontData {
 	postScriptName: string;
 	style: string;
 	blob(): Promise<Blob>;
+	/** Read a byte range of the font file without materializing the whole file. */
+	readRange(offset: number, length: number): Promise<ArrayBuffer>;
 }
 
 /**
@@ -42,6 +48,8 @@ export class LocalFontsLoader implements FontLoader {
 	private fontList: FontMetadata[] | null = null;
 	private loadingPromises: Map<string, Promise<LoadedFont | null>> = new Map();
 	private fontDataCache: Map<string, FontData> = new Map();
+	private scripts: Map<string, FontScript[]> = new Map();
+	private scriptsResolution: Promise<void> | null = null;
 
 	public constructor(backend: LocalFontBackend) {
 		this.backend = backend;
@@ -116,6 +124,50 @@ export class LocalFontsLoader implements FontLoader {
 			console.error("Failed to query local fonts:", error);
 			return [];
 		}
+	}
+
+	/**
+	 * Scripts detected for a queried font, or null while still unresolved.
+	 */
+	public getScripts(identifier: string): FontScript[] | null {
+		return this.scripts.get(identifier) ?? null;
+	}
+
+	/**
+	 * Detect writing systems for every queried font by reading only font
+	 * headers. Runs once per loader; `onProgress` is throttled and always
+	 * called after the last font so listeners can refresh their view.
+	 */
+	public resolveScripts(onProgress: () => void): Promise<void> {
+		this.scriptsResolution ??= this.doResolveScripts(onProgress);
+		return this.scriptsResolution;
+	}
+
+	private async doResolveScripts(onProgress: () => void): Promise<void> {
+		const pending = [...this.fontDataCache.entries()].filter(
+			([key]) => !this.scripts.has(key),
+		);
+		let lastProgress = 0;
+		const resolveOne = async ([key, fontData]: [string, FontData]) => {
+			this.scripts.set(
+				key,
+				await detectFontScripts(fontData.readRange).catch(() => []),
+			);
+			const now = performance.now();
+			if (now - lastProgress < SCRIPT_PROGRESS_INTERVAL_MS) return;
+			lastProgress = now;
+			onProgress();
+		};
+		const workers = Array.from(
+			{ length: SCRIPT_RESOLVE_CONCURRENCY },
+			async () => {
+				for (let entry = pending.pop(); entry; entry = pending.pop()) {
+					await resolveOne(entry);
+				}
+			},
+		);
+		await Promise.all(workers);
+		onProgress();
 	}
 
 	/**

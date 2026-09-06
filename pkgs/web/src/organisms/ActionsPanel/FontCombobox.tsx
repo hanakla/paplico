@@ -4,7 +4,13 @@ import { Check } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import { Combobox2 } from "@/components/Combobox2";
 import { Spinner } from "@/components/Spinner";
-import { type FontMetadata, getFontManager } from "@/core/index";
+import {
+	FONT_SCRIPT_ORDER,
+	type FontMetadata,
+	type FontScript,
+	getFontManager,
+} from "@/core/index";
+import { useAppConfig } from "@/hooks/useAppConfig";
 import { isFontEqual, useFontList } from "@/hooks/useCurrentFontSetting";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
@@ -38,6 +44,7 @@ export const FontCombobox = memo(function FontCombobox({
 	placeholder?: string;
 }) {
 	const t = useTranslation();
+	const { language } = useAppConfig();
 	const [activeTab, setActiveTab] = useState<FontTab>("all");
 	const [query, setQuery] = useState("");
 	const [open, setOpen] = useState(false);
@@ -81,10 +88,10 @@ export const FontCombobox = memo(function FontCombobox({
 		return localized?.localizedFullName ?? font.fullName;
 	});
 
-	// Merge any localized names that have become available via fontkit since
-	// the font catalog was first queried. `loadedVersion` is included so the
-	// memo re-runs whenever a new font is parsed via fontkit and exposes
-	// previously unavailable localized name records.
+	// Merge any localized names and detected scripts that have become
+	// available since the font catalog was first queried. `loadedVersion` is
+	// included so the memo re-runs whenever a font is parsed via fontkit or a
+	// batch of local font headers has been read.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: loadedVersion is the explicit re-derivation trigger
 	const enrichedFonts = useMemo(() => {
 		const fontManager = getFontManager();
@@ -93,9 +100,10 @@ export const FontCombobox = memo(function FontCombobox({
 			const source = buildFontSource(f);
 			if (!source) return f;
 			const localized = fontManager.getLocalizedNames(source);
-			if (!localized) return f;
+			const scripts = fontManager.getFontScripts(source);
+			if (!localized && !scripts) return f;
 			changed = true;
-			return { ...f, ...localized };
+			return { ...f, ...localized, ...(scripts ? { scripts } : {}) };
 		});
 		return changed ? result : fonts;
 	}, [fonts, loadedVersion]);
@@ -122,8 +130,8 @@ export const FontCombobox = memo(function FontCombobox({
 					(f.localizedFullName?.toLowerCase().includes(q) ?? false),
 			);
 		}
-		return list;
-	}, [enrichedFonts, activeTab, query]);
+		return sortFontsByScript(list, language === "ja" ? "japanese" : "latin");
+	}, [enrichedFonts, activeTab, query, language]);
 
 	return (
 		<BUICombobox.Root
@@ -411,3 +419,38 @@ const GoogleFontsIcon = memo(function GoogleFontsIcon() {
 		</svg>
 	);
 });
+
+// ---------------------------------------------------------------------------
+// Ordering
+// ---------------------------------------------------------------------------
+
+type FontGroup = FontScript | "other";
+
+/**
+ * Order fonts by writing system, keeping the catalog order within each
+ * group. The UI language's script leads, then the fixed script order, then
+ * fonts whose scripts are unknown. Fonts still awaiting header detection
+ * are treated as Latin for now.
+ */
+function sortFontsByScript(
+	fonts: FontMetadata[],
+	primary: FontScript,
+): FontMetadata[] {
+	const order: FontGroup[] = [
+		primary,
+		...FONT_SCRIPT_ORDER.filter((s) => s !== primary),
+		"other",
+	];
+	const grouped = Object.groupBy(fonts, (font) => fontGroupOf(font, primary));
+	return order.flatMap((group) => grouped[group] ?? []);
+}
+
+function fontGroupOf(font: FontMetadata, primary: FontScript): FontGroup {
+	const scripts = font.scripts;
+	if (!scripts) return "latin";
+	if (scripts.includes(primary)) return primary;
+	return (
+		FONT_SCRIPT_ORDER.find((s) => s !== "latin" && scripts.includes(s)) ??
+		(scripts.includes("latin") ? "latin" : "other")
+	);
+}

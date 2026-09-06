@@ -81,6 +81,8 @@ export class TauriLocalFontBackend implements LocalFontBackend {
 			postScriptName: sf.fontName,
 			style: buildStyleString(sf.weight, sf.style),
 			blob: () => this.loadFontBlob(sf.path),
+			readRange: (offset, length) =>
+				this.readFontRange(sf.path, offset, length),
 		};
 	}
 
@@ -88,5 +90,19 @@ export class TauriLocalFontBackend implements LocalFontBackend {
 		const { invoke } = await import("@tauri-apps/api/core");
 		const bytes: number[] = await invoke("load_font_data", { path });
 		return new Blob([new Uint8Array(bytes)]);
+	}
+
+	private async readFontRange(
+		path: string,
+		offset: number,
+		length: number,
+	): Promise<ArrayBuffer> {
+		const { invoke } = await import("@tauri-apps/api/core");
+		const bytes: number[] = await invoke("read_font_range", {
+			path,
+			offset,
+			length,
+		});
+		return new Uint8Array(bytes).buffer;
 	}
 }

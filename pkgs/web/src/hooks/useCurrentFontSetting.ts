@@ -297,9 +297,11 @@ function ensureFontListLoaded(): void {
  * `fontListState` is a shared, app-wide store, so its subscription lifecycle
  * is tied to that, not to any one component's mount/unmount.
  *
- * Handles two events:
+ * Handles three events:
  * - `fontLoaded`: bumps `loadedVersion` whenever a new font is parsed via
  *   fontkit, so localized names propagate into the list.
+ * - `fontScriptsResolved`: bumps `loadedVersion` as local font scripts are
+ *   detected, so the list can regroup by writing system.
  * - `fontListInvalidated`: the list can be queried (e.g. by an early-mounting
  *   FontCombobox) before Paplico.create() finishes injecting the Google Fonts
  *   API key, which permanently caches an incomplete (Google-fonts-less) list
@@ -313,9 +315,11 @@ function ensureFontManagerSubscription(): void {
 	fontManagerSubscribed = true;
 
 	const fontManager = getFontManager();
-	fontManager.on("fontLoaded", () => {
+	const bumpLoadedVersion = () => {
 		fontListState.loadedVersion += 1;
-	});
+	};
+	fontManager.on("fontLoaded", bumpLoadedVersion);
+	fontManager.on("fontScriptsResolved", bumpLoadedVersion);
 	fontManager.on("fontListInvalidated", () => {
 		fontListPromise = null;
 		ensureFontListLoaded();

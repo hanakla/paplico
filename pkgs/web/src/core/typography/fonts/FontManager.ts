@@ -16,6 +16,7 @@ import {
 } from "./FontLoader";
 import { GoogleFontsLoader } from "./GoogleFontsLoader";
 import { type LocalFontBackend, LocalFontsLoader } from "./LocalFontsLoader";
+import type { FontScript } from "./os2Scripts";
 
 /**
  * Events emitted by FontManager.
@@ -28,6 +29,9 @@ type FontManagerEvents = {
 	 * previously queried font list (e.g. a list fetched before the key
 	 * arrived, or fetched with a now-stale key). */
 	fontListInvalidated: undefined;
+	/** Fired while local font scripts are being detected from font headers,
+	 * throttled, and once more after the last font is resolved. */
+	fontScriptsResolved: undefined;
 };
 
 /**
@@ -108,6 +112,16 @@ export class FontManager extends Emitter<FontManagerEvents> {
 	}
 
 	/**
+	 * Scripts detected for a local font from its `OS/2` table, or null while
+	 * detection is still pending. Google fonts carry scripts on their catalog
+	 * metadata instead.
+	 */
+	public getFontScripts(source: FontSource): FontScript[] | null {
+		if (source.type !== "local") return null;
+		return this.localLoader.getScripts(source.postScriptName);
+	}
+
+	/**
 	 * Inject API key after singleton creation without a key.
 	 * This also resets GoogleFontsLoader list cache so the next query uses
 	 * the authenticated endpoint.
@@ -156,7 +170,9 @@ export class FontManager extends Emitter<FontManagerEvents> {
 	 * Query local fonts catalog.
 	 */
 	public async queryLocalFonts(): Promise<FontMetadata[]> {
-		return this.localLoader.queryFonts();
+		const fonts = await this.localLoader.queryFonts();
+		this.startScriptResolution();
+		return fonts;
 	}
 
 	/**
@@ -169,10 +185,24 @@ export class FontManager extends Emitter<FontManagerEvents> {
 			this.googleLoader.queryFonts(),
 			this.localLoader.queryFonts(),
 		]);
+		this.startScriptResolution();
 		return [
 			...unwrapQueriedFonts(google, "Google Fonts"),
 			...unwrapQueriedFonts(local, "local fonts"),
 		];
+	}
+
+	/**
+	 * Kick off header-only script detection for the queried local fonts.
+	 * Not awaited: the catalog is usable immediately and listeners refresh
+	 * through `fontScriptsResolved`.
+	 */
+	private startScriptResolution(): void {
+		const loader = this.localLoader;
+		void loader.resolveScripts(() => {
+			// A backend swap replaces the loader; results from the old one are stale.
+			if (this.localLoader === loader) this.emit("fontScriptsResolved");
+		});
 	}
 
 	/**
