@@ -9,11 +9,11 @@
  * Instance data: storage buffer with per-segment metadata (24 floats)
  */
 
+import { GRADIENT_COMMON_WGSL } from "../../../../shaders/gradientCommon.wgsl";
+import { MASK_COMMON_WGSL } from "../../../../shaders/maskCommon.wgsl";
+import { TRANSFORM_COMMON_WGSL } from "../../../../shaders/transformCommon.wgsl";
 import { PATH_META_WGSL } from "./dabColor.wgsl";
-import { GRADIENT_COMMON_WGSL } from "./gradientCommon.wgsl";
-import { MASK_COMMON_WGSL } from "./maskCommon.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
-import { TRANSFORM_COMMON_WGSL } from "./transformCommon.wgsl";
 
 export const RIBBON_STROKE_SHADER = /* wgsl */ `
 struct Uniforms {

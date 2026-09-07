@@ -366,7 +366,7 @@ Paplico (facade) → RenderOrchestrator → CanvasLayer (ドキュメント描�
 
 - GPUデバイスの取得・所有。`timestamp-query` が使えれば有効化し、storage buffer上限をアダプタ上限まで引き上げる
 - HDR probe: `rgba16float` が使えてHDRが有効なら canvasFormat を `rgba16float`（既定 `bgra8unorm`、colorSpace `display-p3`）
-- 複数の `CanvasTarget` を管理。CanvasLayer / UILayer / StrokeBatchContext / BackdropCaptureManager / RenderCacheManager はターゲット単位、パイプライン・BrushTextureManager・FilterRenderer・TextRenderer等はデバイス単位で共有
+- 複数の `CanvasTarget` を管理。CanvasLayer / UILayer / BackdropCaptureManager / RenderCacheManager はターゲット単位で、BrushRenderer は CanvasLayer が持つ、パイプライン・BrushTextureManager・FilterRenderer・TextRenderer等はデバイス単位で共有
 - 1フレーム = 1 command encoder に CanvasLayer と UILayer を積んで1回 `queue.submit`
 - デバイスロスト復旧: 最大5回、基本遅延1秒で再初期化を試行
 - `GPUTimingProfiler` によるtimestamp queryベースのGPUパス計測
@@ -410,10 +410,10 @@ GPUステンシルバッファによるStencil-Then-Cover方式:
 | ルート | 描画側 | 方式 |
 |---|---|---|
 | `geometric` | `PathElementRenderer.renderGeometricStroke` | ストロークテッセレーション + GPUストロークパイプライン |
-| `dab` | `StrokeBatchContext.render` | ベジエ曲線に沿った Dab のインスタンスド描画。先端形状・ニブ楕円率・回転は `BrushSettings.properties` のカーブ行列で決まる |
-| `ribbon` | `StrokeBatchContext.addToBatch` / `flushBatch` | リボン頂点生成（UV stretch / UV repeat + tileSpacing）。バッチ蓄積に乗る唯一のルート |
+| `dab` | `BrushRenderer.render` が `DabRenderer.render` へ振り分ける | ベジエ曲線に沿った Dab のインスタンスド描画。先端形状・ニブ楕円率・回転は `BrushSettings.properties` のカーブ行列で決まる |
+| `ribbon` | `RibbonRenderer.enqueue` / `flush`。即時描画は `BrushRenderer.render` | リボン頂点生成（UV stretch / UV repeat + tileSpacing）。バッチ蓄積に乗る唯一のルート |
 
-- `StampGenerator` が筆圧からサイズ・不透明度を決定。常駐GPUリース（ResidentStamps）によりパン・ズームフレームではスタンプアップロード0
+- `DabEvaluator` がカーブ行列からDabごとのサイズ・不透明度を決定。`BoundedStampStore` の常駐GPUリースによりパン・ズームフレームではDabのアップロード0
 - ビルトインブラシテクスチャ: hard circle / soft circle は128pxのプログラム生成、pencil / airbrush は同梱画像
 - カスタムブラシテクスチャ: アップロード時に長辺基準で **1024 / 768 / 512 / 256 / 128** px の段階へアスペクト比保持でリサイズ（`utils/embeddedFile.ts`）
 

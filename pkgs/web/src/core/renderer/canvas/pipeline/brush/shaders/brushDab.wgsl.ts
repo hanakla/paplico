@@ -9,16 +9,16 @@
  * instead of burning inter-stage locations.
  */
 
-import { generateDabInstanceWgsl } from "../canvas/pipeline/brush/DabInstanceLayout";
+import { GRADIENT_COMMON_WGSL } from "../../../../shaders/gradientCommon.wgsl";
+import { MASK_COMMON_WGSL } from "../../../../shaders/maskCommon.wgsl";
+import { TRANSFORM_COMMON_WGSL } from "../../../../shaders/transformCommon.wgsl";
+import { generateDabInstanceWgsl } from "../DabInstanceLayout";
 import {
 	STAMP_META_INDEX_MASK,
 	STAMP_TEXTURE_LAYER_SHIFT,
-} from "../canvas/pipeline/brush/StampPacking";
+} from "../StampPacking";
 import { buildDabColorWgsl, PATH_META_WGSL } from "./dabColor.wgsl";
-import { GRADIENT_COMMON_WGSL } from "./gradientCommon.wgsl";
-import { MASK_COMMON_WGSL } from "./maskCommon.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
-import { TRANSFORM_COMMON_WGSL } from "./transformCommon.wgsl";
 
 /** Overlapping dabs add up, as the density encoding expects. */
 const WET_FIELD_BLEND: GPUBlendState = {

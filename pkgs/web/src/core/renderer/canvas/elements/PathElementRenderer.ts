@@ -59,6 +59,10 @@ import type {
 	StencilFillVariant,
 } from "../caches/StencilFillCache";
 import type { StrokeCache } from "../caches/StrokeCache";
+import type {
+	BrushDrawBindings,
+	BrushRenderer,
+} from "../pipeline/brush/BrushRenderer";
 import { resolveGeometricSizeByPressure } from "../pipeline/brush/strokeHalfWidth";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
 import type { GeometryStore } from "../pipeline/GeometryStore";
@@ -69,7 +73,6 @@ import {
 	type RunBatcher,
 	type WorldFillBounds,
 } from "../pipeline/RunBatcher";
-import type { StrokeBatchContext } from "../pipeline/stroke/StrokeBatchContext";
 import {
 	type DrawableSegments,
 	type ResolvedAppearancePass,
@@ -110,7 +113,9 @@ interface PathElementRendererDeps {
 	renderState: RenderState;
 	assetState: AssetState;
 	filterRenderer: FilterRenderer;
-	strokeBatchContext: StrokeBatchContext;
+	brushRenderer: BrushRenderer;
+	/** The viewport uniform / transforms / mask a brush draw binds right now. */
+	getBrushDrawBindings: () => BrushDrawBindings;
 	// Externally-owned caches (managed by RenderCacheManager). Accessed as
 	// accessors so the active document scope resolves per access.
 	geometryCache: GeometryCache;
@@ -298,10 +303,9 @@ export class PathElementRenderer {
 						path.pathEnd,
 					);
 				} else {
-					const { strokeBatchContext } = this.deps;
 					const textureUid = resolveBrushTextureUid(
 						settings,
-						strokeBatchContext.getTextureManager(),
+						this.deps.brushRenderer.textures,
 					);
 					if (textureUid) {
 						if (
@@ -317,7 +321,7 @@ export class PathElementRenderer {
 					// Stamp renderers encode an immediate draw. Pending solid runs
 					// must be emitted first so appearance array order remains paint order.
 					this.deps.runBatcher.flush();
-					strokeBatchContext.render(
+					this.deps.brushRenderer.render(
 						passEncoder,
 						{
 							path,
@@ -327,7 +331,7 @@ export class PathElementRenderer {
 							alphaMultiplier: appAlpha,
 							transformIndex: this.deps.renderState.currentTransformIndex,
 						},
-						this.deps.getTransformsBindGroup()!,
+						this.deps.getBrushDrawBindings(),
 					);
 				}
 			}

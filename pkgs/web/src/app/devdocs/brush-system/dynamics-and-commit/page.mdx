@@ -58,7 +58,7 @@ timed Dab対応ブラシは、ペンが動かない間も25ミリ秒周期で最
 
 - `pkgs/web/src/core/ui/PaplicoUI.ts`
 - `pkgs/web/src/core/tools/PenTool.ts`
-- `pkgs/web/src/core/renderer/canvas/pipeline/stroke/BrushStrokeSession.ts`
+- `pkgs/web/src/core/brush/BrushStrokeSession.ts`
 
 ## DabEvaluatorが速度を求める
 
@@ -192,7 +192,7 @@ size = baseSize * clamp(1 - k * s, 0, 8)
 
 - `pkgs/web/src/core/utils/geometry/strokeFitting.ts`
 - `pkgs/web/src/core/renderer/canvas/pipeline/brush/LiveDabAccumulator.ts`
-- `pkgs/web/src/core/renderer/canvas/pipeline/stroke/StrokeBatchContext.ts`
+- `pkgs/web/src/core/renderer/canvas/pipeline/brush/DabRenderer.ts`
 
 ## 確定幅をPathへ焼き込む
 
@@ -274,7 +274,7 @@ Yjsのobject deltaを受けた `DocumentChangeSubscriber.syncObjectsDelta` は�
 
 - `pkgs/web/src/core/renderer/DocumentChangeSubscriber.ts`
 - `pkgs/web/src/core/renderer/RenderScheduler.ts`
-- `pkgs/web/src/core/renderer/canvas/pipeline/stroke/StrokeBatchContext.ts`
+- `pkgs/web/src/core/renderer/canvas/pipeline/brush/DabRenderer.ts`
 
 > [!TIP]
 > **戻る:** [ブラシシステム](/devdocs/brush-system)

@@ -42,11 +42,12 @@ Paplico.ts (facade — public API boundary)
           ├── ElementRenderer (elements/ — element-type dispatch)
           │   ├── GradientRenderer / ImageElementRenderer / TextElementRenderer / MeshElementRenderer
           │   └── Reference3DElementRenderer (blits the three.js scene texture)
-          └── pipeline/brush/ + pipeline/stroke/ — stroke engines
+          └── pipeline/brush/ — stroke engines; brush shaders live in pipeline/brush/shaders/
+              ├── BrushRenderer — owns DabRenderer, RibbonRenderer, WetStrokeRenderer and BrushFrameBuffers; dispatches by engine
               ├── DabEvaluator (curve matrix -> dab instances) + TipMaskBuilder
               ├── RibbonGenerator (bezier ribbon instances)
               ├── MixPass / MixStrokeRenderer (colour mixing off the live backdrop)
-              └── WetLayerPass (watercolour field simulation)
+              └── WetStrokeRenderer — drives WetLayerPass, the watercolour field simulation
 
 renderer/filters/ (FilterHandlers + their WGSL)
   ├── Solid3DFilterHandlerBase   (shared 3D-solid core; Extrude3D/Revolve3D
@@ -107,9 +108,9 @@ WebGPU reads uniform buffer values at `queue.submit()` time, not at draw call ti
 
 Not all changes need the same rendering work. A cursor move needs only the overlay redrawn (`overlayOnly`). A pan during interaction can skip expensive backdrop filters (`fullInteraction`). Only a document change needs a full re-render (`full`). Without this, every mouse move would trigger a full pipeline pass, killing frame rate.
 
-### Why BrushStrokeRenderer uses batching + stamp caching
+### Why the brush renderers cache dabs and batch ribbons
 
-Each brush stroke is composed of hundreds of stamp sprites. Issuing a draw call per stamp would be far too slow. BrushStrokeRenderer accumulates stamps from multiple paths into a single vertex buffer, grouped by texture, and issues one draw per texture type. Cached stamp positions for unchanged paths skip the recomputation entirely.
+Each brush stroke is composed of hundreds of dab sprites. Evaluating them every frame would be far too slow, so DabRenderer caches a committed stroke's dab list in StampCache and keeps it resident in BoundedStampStore; a pan or zoom re-draws without re-evaluating. Ribbons are one instance per bezier segment, and RibbonRenderer accumulates consecutive ribbons that share a pass, bindings and texture into one instanced draw.
 
 ### Why CubicBezierSegment stores cp1/cp2 as relative offsets
 
@@ -307,7 +308,7 @@ definition:
   snorm). Widening the instance would cost every non-wet brush the same bytes.
   Pack signed values as snorm, not as offset unorm, so an unwritten dab decodes
   to zero rather than to a maximum-magnitude offset.
-- **`shaders/dabColor.wgsl.ts`** — `PATH_META_WGSL` (the struct) and
+- **`pipeline/brush/shaders/dabColor.wgsl.ts`** — `PATH_META_WGSL` (the struct) and
   `PATH_META_FLOATS` (its stride). Every shader that indexes the path meta
   buffer includes the former; every CPU writer strides by the latter. **A second
   copy of the struct, or a second hand-written CPU writer, desynchronizes the

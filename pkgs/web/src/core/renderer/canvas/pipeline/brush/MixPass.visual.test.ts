@@ -1,7 +1,7 @@
 import { getTestDevice } from "../../../../testUtils/shaderTestHarness";
-import { PATH_META_FLOATS } from "../../../shaders/dabColor.wgsl";
 import { DAB_INSTANCE_FLOATS, writeDabField } from "./DabInstanceLayout";
 import { MIX_CHUNK_SIZE, MixPass } from "./MixPass";
+import { PATH_META_FLOATS } from "./shaders/dabColor.wgsl";
 
 /**
  * Direct GPU tests of the mix pass chunk compute (design §10-1):

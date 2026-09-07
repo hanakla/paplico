@@ -223,11 +223,11 @@ Canvas要素のラッパー。ResizeObserverとビューポート状態を保持
 
 → [エレメントレンダリング](/devdocs/renderer/elements#elementrenderer)
 
-### BrushStrokeRenderer
+### BrushRenderer
 
-スタンプベースのインスタンスド描画でブラシストロークを描画するモジュール。同一テクスチャのパスをバッチにまとめ、テクスチャ種別数分のdraw callに削減する。
+キャンバス1つ分のブラシ描画の所有者。Dabの `DabRenderer`、リボンの `RibbonRenderer`、wet層の `WetStrokeRenderer` を持ち、`engine` で振り分ける。
 
-→ [ブラシレンダリング](/devdocs/renderer/brush#brushstrokerenderer)
+→ [ブラシレンダリング](/devdocs/renderer/brush)
 
 ### FilterRenderer
 
@@ -287,9 +287,9 @@ UILayerの描画内容を駆動する構造体。各ツールがポインタイ�
 
 ### バッチ描画
 
-複数の描画命令をまとめて少数のGPUコマンドに集約する最適化。`BrushStrokeRenderer` は同一テクスチャのパスをバッチにまとめ、テクスチャ種別数分のdraw callに削減する。
+複数の描画命令をまとめて少数のGPUコマンドに集約する最適化。`RibbonRenderer` は同じパス・bindings・テクスチャのリボンを1回のインスタンスド描画にまとめる。
 
-→ [エレメントレンダリング](/devdocs/renderer/elements#brushstrokerenderer)
+→ [ブラシレンダリング](/devdocs/renderer/brush)
 
 ### Stencil-then-Cover
 

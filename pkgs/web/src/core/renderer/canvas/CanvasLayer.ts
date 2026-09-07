@@ -1,10 +1,9 @@
-import { readStoredBrushSize } from "../../brush/access";
+import { resolveBrushRenderRequirements } from "../../brush/access";
 import {
 	resolveBrushTextureUid,
 	resolveOptionalSourceUid,
 	resolveScatterSourceUids,
 } from "../../brush/brushSource";
-import { BRUSH_PROPERTY_REGISTRY } from "../../brush/properties";
 import type { SoftProofLutResult } from "../../color/types";
 import {
 	localAppearances,
@@ -20,7 +19,6 @@ import {
 	type Artboard,
 	type BoundingBox,
 	type BrushArtSource,
-	type BrushPropertyId,
 	type BrushSettings,
 	type CubicBezierSegment,
 	type DefEntry,
@@ -55,7 +53,6 @@ import {
 	boundsIntersectionBox,
 	brandWorldBBox,
 	calculateElementBounds,
-	calculatePathBounds,
 	calculateRepeatSourceUnion,
 	expandBounds,
 	type LocalBBox,
@@ -64,7 +61,6 @@ import {
 } from "../../utils/geometry/bounds";
 import {
 	applyTransformToBounds,
-	boundsFullyInsideViewport,
 	composeTransforms,
 	getVisibleWorldBounds,
 } from "../../utils/geometry/geometry";
@@ -88,7 +84,6 @@ import type { GradientTextureGenerator } from "../generators/GradientTextureGene
 import type { MeshGradientTextureGenerator } from "../generators/MeshGradientTextureGenerator";
 import { createFullscreenPipeline } from "../PipelineFactory";
 import { RenderStrategy } from "../RenderOrchestrator";
-import { WET_SEED_TARGETS } from "../shaders/brushDab.wgsl";
 import { DOT_GRID_SHADER } from "../shaders/dotGrid.wgsl";
 import {
 	type FrameRequest,
@@ -141,6 +136,11 @@ import {
 	BackdropEffectCoordinator,
 	type BackdropEffectRequest,
 } from "./pipeline/BackdropEffectCoordinator";
+import {
+	type BrushDrawBindings,
+	BrushRenderer,
+} from "./pipeline/brush/BrushRenderer";
+import type { BrushTextureManager } from "./pipeline/brush/BrushTextureManager";
 import { MixStrokeRenderer } from "./pipeline/brush/MixStrokeRenderer";
 import {
 	type ClipGroupEntry,
@@ -214,13 +214,8 @@ import {
 	replaceRenderSurface,
 } from "./pipeline/RenderSurface";
 import { RunBatcher } from "./pipeline/RunBatcher";
-import {
-	resolveSimulationDomain,
-	resolveTransientWashDomain,
-} from "./pipeline/rasterizationDomain";
+import { resolveTransientWashDomain } from "./pipeline/rasterizationDomain";
 import { SoftProofPass } from "./pipeline/SoftProofPass";
-import type { StrokeBatchContext } from "./pipeline/stroke/StrokeBatchContext";
-import { WetLayerPass } from "./pipeline/stroke/WetLayerPass";
 import { TexturePool, texturePoolBudgetBytes } from "./pipeline/TexturePool";
 import { UniformScope } from "./pipeline/UniformScope";
 import { ViewportManager } from "./pipeline/ViewportManager";
@@ -398,7 +393,6 @@ export class CanvasLayer {
 	private dummyGradientBindGroup: GPUBindGroup;
 	private dummyMaskBindGroup: GPUBindGroup;
 	private maskBindGroupLayout: GPUBindGroupLayout;
-	private maskBindGroupRef: { current: GPUBindGroup } | null = null;
 	/** Intermediate texture shared by the exposure and soft proof passes. */
 	private postProcessIntermediate: GPUTexture | null = null;
 	private softProofPass: SoftProofPass;
@@ -440,14 +434,12 @@ export class CanvasLayer {
 		this.viewportBinding.bufStack.push(this.viewportBinding.buffer);
 		this.viewportBinding.active = bg;
 		this.viewportBinding.buffer = buffer ?? null;
-		this.strokeBatchContext.setActiveUniformBuffer(this.viewportBinding.buffer);
 	}
 
 	private popViewportBinding(): void {
 		this.viewportBinding.active =
 			this.viewportBinding.bgStack.pop() ?? this.bindGroup;
 		this.viewportBinding.buffer = this.viewportBinding.bufStack.pop() ?? null;
-		this.strokeBatchContext.setActiveUniformBuffer(this.viewportBinding.buffer);
 	}
 
 	private setViewportBinding(
@@ -456,7 +448,18 @@ export class CanvasLayer {
 	): void {
 		this.viewportBinding.active = bg;
 		this.viewportBinding.buffer = buffer ?? null;
-		this.strokeBatchContext.setActiveUniformBuffer(this.viewportBinding.buffer);
+	}
+
+	/** Where a brush draw lands right now: the viewport uniform of the pass
+	 *  being encoded plus the transforms and mask bind groups of the current
+	 *  element. Outside any override the uniform is the main buffer. */
+	private brushDrawBindings(): BrushDrawBindings {
+		return {
+			uniformBuffer:
+				this.viewportBinding.buffer ?? this.viewportManager.uniformBuffer,
+			transformsBindGroup: this.transformsBindGroup ?? undefined,
+			maskBindGroup: this.renderState.currentMaskBindGroup,
+		};
 	}
 
 	// -- Sub-renderers --
@@ -465,7 +468,7 @@ export class CanvasLayer {
 	public readonly offscreen!: OffscreenPresenter;
 	private filterRenderer: FilterRenderer;
 	private backdropCaptureManager: BackdropCaptureManager;
-	private readonly strokeBatchContext: StrokeBatchContext;
+	private readonly brushRenderer: BrushRenderer;
 	/** Request another frame (async resource loads, and tile convergence: a
 	 *  settle frame that still shows coarser/approximate tiles asks for a follow
 	 *  up so the residual misses bake to vector quality over frames). Wired via
@@ -537,7 +540,6 @@ export class CanvasLayer {
 	 *  knowing the concrete filter behind each. */
 	private backdropDrivers: BackdropEffectDriver[] = [];
 	private mixStrokeRenderer: MixStrokeRenderer | null = null;
-	private wetLayerPass: WetLayerPass | null = null;
 	/** Object identity -> serial, for backdrop content keys (see
 	 *  backdropContentKeyFor). */
 	private readonly objectSerials = new WeakMap<object, number>();
@@ -738,8 +740,7 @@ export class CanvasLayer {
 			blitWithMaskBindGroupLayout: GPUBindGroupLayout;
 			maskChainBindGroupLayout: GPUBindGroupLayout;
 			cacheManager: RenderCacheManager;
-			strokeBatchContext: StrokeBatchContext;
-			maskBindGroupRef?: { current: GPUBindGroup };
+			brushTextureManager: BrushTextureManager;
 		},
 		canvasId: string,
 	) {
@@ -791,7 +792,6 @@ export class CanvasLayer {
 
 		this.backdropCaptureManager = resources.backdropCaptureManager;
 
-		this.strokeBatchContext = resources.strokeBatchContext;
 		this.textState.renderer = resources.textRenderer ?? null;
 
 		this.transformsBindGroupLayout = resources.transformsBindGroupLayout;
@@ -799,7 +799,6 @@ export class CanvasLayer {
 		this.dummyMaskBindGroup = resources.dummyMaskBindGroup;
 		this.renderState.currentMaskBindGroup = this.dummyMaskBindGroup;
 		this.maskBindGroupLayout = resources.maskBindGroupLayout;
-		this.maskBindGroupRef = resources.maskBindGroupRef ?? null;
 		this.cacheManager = resources.cacheManager;
 		this.blitWithMaskBindGroupLayout = resources.blitWithMaskBindGroupLayout;
 		this.maskChainBindGroupLayout = resources.maskChainBindGroupLayout;
@@ -848,6 +847,21 @@ export class CanvasLayer {
 			this.device,
 			resources.pulledBindGroupLayout,
 		);
+
+		this.texturePool = new TexturePool(this.device);
+		this.brushRenderer = new BrushRenderer({
+			device: this.device,
+			canvasFormat: this.canvasFormat,
+			textures: resources.brushTextureManager,
+			transformsBindGroupLayout: this.transformsBindGroupLayout,
+			maskBindGroupLayout: this.maskBindGroupLayout,
+			// Thunk, not the instance: the manager swaps its active document
+			// scope between frames, so the stamp cache must be re-resolved per use.
+			getStampCache: () => this.cacheManager.stamp,
+			texturePool: this.texturePool,
+			uniformScope: this.uniformScope,
+			deferDestroy: (texture) => this.offscreen.deferDestroy(texture),
+		});
 
 		// Cache fields below are accessor properties, not construction-time
 		// snapshots: the cache manager swaps its active document scope between
@@ -898,7 +912,8 @@ export class CanvasLayer {
 			getLocalBounds: (elementId: string) =>
 				this.viewportManager.getBoundsCache().get(elementId) ?? null,
 			getTransformsBindGroup: () => this.transformsBindGroup,
-			strokeBatchContext: this.strokeBatchContext,
+			brushRenderer: this.brushRenderer,
+			getBrushDrawBindings: () => this.brushDrawBindings(),
 			getCompoundPathGeometryCache: () => this.cacheManager.compoundPath,
 			getBlendCache: () => this.cacheManager.blend,
 			getMeshWarpCache: () => this.cacheManager.meshWarp,
@@ -945,7 +960,6 @@ export class CanvasLayer {
 			onBeforeDraw: () => this.runBatcher.flush(),
 		});
 
-		this.texturePool = new TexturePool(this.device);
 		this.washCompositor = new WashCompositor(
 			this.device,
 			this.texturePool,
@@ -1002,10 +1016,11 @@ export class CanvasLayer {
 			texturePool: this.texturePool,
 			coordinator: this.backdropEffectCoordinator,
 			uniformScope: this.uniformScope,
-			strokeBatchContext: this.strokeBatchContext,
+			brush: this.brushRenderer,
 			getTransformIndex: (elementId) =>
 				this.viewportManager.getTransformIndex(elementId),
 			getTransformsBindGroup: () => this.transformsBindGroup ?? undefined,
+			getMaskBindGroup: () => this.renderState.currentMaskBindGroup,
 			getTransformsBuffer: () => this.viewportManager.transformsStorageBuffer,
 			getBackdropContentKey: (elementId, bounds) =>
 				this.backdropContentKeyFor(elementId, bounds),
@@ -1109,15 +1124,12 @@ export class CanvasLayer {
 
 		this.defRasterizer = new DefRasterizer({
 			onEvicted: (textureUid) =>
-				this.strokeBatchContext
-					.getTextureManager()
-					.removeDefTexture(textureUid),
+				this.brushRenderer.textures.removeDefTexture(textureUid),
 		});
 
-		this.strokeBatchContext.setActiveUniformBuffer(this.viewportBinding.buffer);
-		// A batch flush encodes stamp/ribbon draws mid-loop — the geometry run
+		// A batch flush encodes ribbon draws mid-loop — the geometry run
 		// batcher must emit its pending merged draw first (paint order).
-		this.strokeBatchContext.onBeforeDraw = () => this.runBatcher.flush();
+		this.brushRenderer.ribbons.onBeforeDraw = () => this.runBatcher.flush();
 	}
 
 	public setOnRequestRender(callback: () => void): void {
@@ -2096,6 +2108,7 @@ export class CanvasLayer {
 		this.backdropEffectCoordinator.releaseFrame((tex) =>
 			this.offscreen.deferDestroy(tex),
 		);
+		this.brushRenderer.endFrame();
 		// Per-frame release for filter handlers that own GPU resources (e.g.
 		// extrude's opaque bake/normal textures) — mirrors the startFrame loop.
 		for (const handler of this.filterRenderer.getHandlers().values()) {
@@ -2136,7 +2149,7 @@ export class CanvasLayer {
 		this.gradient.textureGenerator.beginFrame();
 		this.gradient.meshTextureGenerator.beginFrame();
 		this.gradient.drawIndex = 0;
-		this.strokeBatchContext.beginFrame();
+		this.brushRenderer.beginFrame();
 		this.elements.beginFrame();
 		// Reset each backdrop-composite driver's per-frame pools + inline-composed
 		// tracking (glass extrude refraction), and the shared capture/pyramid
@@ -5794,9 +5807,7 @@ export class CanvasLayer {
 		if (!this.viewportState.current) return passEncoder;
 
 		let activePass = passEncoder;
-		const batchContext = compositeContext ? this.strokeBatchContext : null;
-		let currentBatchTextureUid = "";
-		if (batchContext) batchContext.beginBatch();
+		const ribbons = compositeContext ? this.brushRenderer.ribbons : null;
 
 		for (const element of elements) {
 			// Skip invisible elements (visible === false; undefined/true means visible)
@@ -5883,9 +5894,6 @@ export class CanvasLayer {
 			this.renderState.currentMaskBindGroup =
 				this.inlineMaskEntries.get(element.id)?.bindGroup ??
 				this.dummyMaskBindGroup;
-			if (this.maskBindGroupRef) {
-				this.maskBindGroupRef.current = this.renderState.currentMaskBindGroup;
-			}
 
 			const elementOpacity = element.opacity ?? 1.0;
 			const effectiveAlpha = alphaMultiplier * elementOpacity;
@@ -5917,14 +5925,7 @@ export class CanvasLayer {
 				continue;
 			}
 			if (backdropDriver && compositeContext) {
-				if (batchContext) {
-					batchContext.flushBatch(
-						activePass,
-						pipelineType,
-						this.transformsBindGroup!,
-					);
-					currentBatchTextureUid = "";
-				}
+				ribbons?.flush();
 				const wasBatching = this.runBatcher.pauseBatching();
 				activePass.end();
 				// A glass solid composes against the live backdrop, so it can never
@@ -6064,14 +6065,7 @@ export class CanvasLayer {
 			// Filtered textures are already rasterized snapshots; render/blit directly.
 			if (filteredData) {
 				// Preserve draw order by flushing pending batches before textured blits.
-				if (batchContext) {
-					batchContext.flushBatch(
-						activePass,
-						pipelineType,
-						this.transformsBindGroup!,
-					);
-					currentBatchTextureUid = "";
-				}
+				ribbons?.flush();
 
 				if (filteredData.overrideLayers) {
 					// Self-sized extrude solids: blit each appearance layer at its
@@ -6181,14 +6175,7 @@ export class CanvasLayer {
 				}
 				// Don't render children - they're already in the filtered texture
 			} else if (needsComposite) {
-				if (batchContext) {
-					batchContext.flushBatch(
-						activePass,
-						pipelineType,
-						this.transformsBindGroup!,
-					);
-					currentBatchTextureUid = "";
-				}
+				ribbons?.flush();
 				const compositeCtx = compositeContext!;
 				const captureTexture = this.compositeState.captureTexture!;
 
@@ -6295,14 +6282,7 @@ export class CanvasLayer {
 				compositeContext
 			) {
 				// EraseMask path: render to offscreen with alpha subtraction
-				if (batchContext) {
-					batchContext.flushBatch(
-						activePass,
-						pipelineType,
-						this.transformsBindGroup!,
-					);
-					currentBatchTextureUid = "";
-				}
+				ribbons?.flush();
 				{
 					// renderWithEraseMasks ends and re-creates the active pass.
 					const wasBatching = this.runBatcher.pauseBatching();
@@ -6356,7 +6336,7 @@ export class CanvasLayer {
 					return s.paramData.params.brushSettings.engine === "ribbon";
 				});
 				const canBatch =
-					batchContext &&
+					ribbons &&
 					batchableStrokes.length === enabledStrokes.length &&
 					enabledStrokes.length > 0;
 
@@ -6366,64 +6346,12 @@ export class CanvasLayer {
 						this.filterRenderer,
 					);
 
-					let viewportBounds = this.viewportState.bounds ?? undefined;
-					// When rendering inside a group, adjust viewport bounds to
-					// account for parentTransform so stamp culling uses correct
-					// local-space bounds.
-					if (viewportBounds && parentTransform) {
-						if (
-							parentTransform.rotation === 0 &&
-							parentTransform.scaleX === 1 &&
-							parentTransform.scaleY === 1 &&
-							(parentTransform.skewX ?? 0) === 0 &&
-							(parentTransform.skewY ?? 0) === 0
-						) {
-							viewportBounds = {
-								minX: viewportBounds.minX - parentTransform.x,
-								minY: viewportBounds.minY - parentTransform.y,
-								maxX: viewportBounds.maxX - parentTransform.x,
-								maxY: viewportBounds.maxY - parentTransform.y,
-								width: viewportBounds.width,
-								height: viewportBounds.height,
-							};
-						} else {
-							// Parent has rotation/scale — disable stamp culling
-							// (same strategy as addToBatch's existing guard).
-							viewportBounds = undefined;
-						}
-					}
-
-					const fullyInsideViewport =
-						viewportBounds != null
-							? elementBounds.minX >= viewportBounds.minX &&
-								elementBounds.maxX <= viewportBounds.maxX &&
-								elementBounds.minY >= viewportBounds.minY &&
-								elementBounds.maxY <= viewportBounds.maxY
-							: boundsFullyInsideViewport(
-									elementBounds.minX,
-									elementBounds.minY,
-									elementBounds.maxX,
-									elementBounds.maxY,
-									this.viewportState.current,
-									this.viewportState.width,
-									this.viewportState.height,
-								);
-
-					if (viewportBounds && fullyInsideViewport) {
-						viewportBounds = undefined;
-					}
-
 					// Render appearances in filters array order
 					for (const { appearance: app, segments, cacheKey } of passes) {
 						const appAlpha = effectiveAlpha * app.opacity;
 						if (app.processor === "fill") {
 							// Flush pending stroke batch before rendering fill
-							batchContext.flushBatch(
-								activePass,
-								pipelineType,
-								this.transformsBindGroup!,
-							);
-							currentBatchTextureUid = "";
+							ribbons.flush();
 
 							const fill = (app as FillAppearance).paramData.params.fill;
 							if (fill) {
@@ -6447,7 +6375,7 @@ export class CanvasLayer {
 
 							const textureUid = resolveBrushTextureUid(
 								settings,
-								this.strokeBatchContext.getTextureManager(),
+								this.brushRenderer.textures,
 							);
 							if (
 								textureUid &&
@@ -6483,40 +6411,23 @@ export class CanvasLayer {
 								}
 							}
 
-							const effectiveTextureUid = textureUid ?? "";
-
-							if (
-								currentBatchTextureUid &&
-								effectiveTextureUid !== currentBatchTextureUid
-							) {
-								batchContext.flushBatch(
-									activePass,
-									pipelineType,
-									this.transformsBindGroup!,
-								);
-							}
-							currentBatchTextureUid = effectiveTextureUid;
-
-							batchContext.addToBatch({
-								path: element,
-								segments,
-								strokeColor,
-								settings,
-								alphaMultiplier: appAlpha,
-								transformIndex: this.renderState.currentTransformIndex,
-							});
+							ribbons.enqueue(
+								activePass,
+								{
+									path: element,
+									segments,
+									strokeColor,
+									settings,
+									alphaMultiplier: appAlpha,
+									transformIndex: this.renderState.currentTransformIndex,
+								},
+								this.brushDrawBindings(),
+							);
 						}
 					}
 				} else {
 					// Non-batch path (non-batchable strokes or no strokes).
-					if (batchContext) {
-						batchContext.flushBatch(
-							activePass,
-							pipelineType,
-							this.transformsBindGroup!,
-						);
-						currentBatchTextureUid = "";
-					}
+					ribbons?.flush();
 					const passes = resolveAppearancePasses(
 						effectivePath,
 						this.filterRenderer,
@@ -6532,14 +6443,7 @@ export class CanvasLayer {
 					}
 				}
 			} else if (isGroup(element)) {
-				if (batchContext) {
-					batchContext.flushBatch(
-						activePass,
-						pipelineType,
-						this.transformsBindGroup!,
-					);
-					currentBatchTextureUid = "";
-				}
+				ribbons?.flush();
 				// An appearance that replaces the element's render (e.g. extrude3d)
 				// composites the group itself via the filter system — opaque from
 				// its filtered texture, glass via the refraction interrupt — so skip
@@ -6724,14 +6628,7 @@ export class CanvasLayer {
 				);
 			} else {
 				// Non-path, non-group elements: image, compound-path, text
-				if (batchContext) {
-					batchContext.flushBatch(
-						activePass,
-						pipelineType,
-						this.transformsBindGroup!,
-					);
-					currentBatchTextureUid = "";
-				}
+				ribbons?.flush();
 				const effectiveElement = parentPreFilters?.length
 					? ({
 							...element,
@@ -6751,14 +6648,8 @@ export class CanvasLayer {
 			}
 		}
 
-		if (batchContext) {
-			// Flush any remaining batched strokes at loop end.
-			batchContext.flushBatch(
-				activePass,
-				pipelineType,
-				this.transformsBindGroup!,
-			);
-		}
+		// Flush any remaining batched strokes at loop end.
+		ribbons?.flush();
 
 		return activePass;
 	}
@@ -7240,7 +7131,7 @@ export class CanvasLayer {
 		if (brushDefIdsInUse.size === 0) return;
 		const doc = this.activeDocument;
 		if (!doc) return;
-		const textureManager = this.strokeBatchContext.getTextureManager();
+		const textureManager = this.brushRenderer.textures;
 		const elementsMap =
 			this.activeElementsMap ?? new Map(Object.entries(doc.objects));
 		const zoom = this.viewportState.current?.zoom ?? 1;
@@ -7404,14 +7295,9 @@ export class CanvasLayer {
 	}
 
 	/**
-	 * Render one wet appearance: its dabs seed the simulation fields and
-	 * WetLayerPass composites the settled result.
-	 *
-	 * It stands in for the normal offscreen element render inside the wash
-	 * isolation — every wet stroke is a wash stroke, since normalize forces
-	 * the paint mode — so the surface it returns is shaped like that one and
-	 * the accumulator blit applies opacity exactly as it does for any other
-	 * appearance.
+	 * Render one wet appearance through the wet layer, in place of the normal
+	 * offscreen element render inside the wash isolation — every wet stroke is
+	 * a wash stroke, since normalize forces the paint mode.
 	 */
 	private renderWetAppearanceToTexture(
 		encoder: GPUCommandEncoder,
@@ -7422,158 +7308,25 @@ export class CanvasLayer {
 		transformIndex: number,
 	): RasterizedRenderSurface | null {
 		if (element.type !== "path") return null;
-		const batchContext = this.strokeBatchContext;
-		const segments = element.segments ?? [];
-		if (segments.length === 0) return null;
-		const wet = settings.wet!;
-		const brushSize = Math.max(readStoredBrushSize(settings) ?? 10, 1);
-
-		const width = Math.max(1, Math.ceil(bounds.width * scale));
-		const height = Math.max(1, Math.ceil(bounds.height * scale));
-		const result = this.texturePool.acquireExact(
-			width,
-			height,
-			this.canvasFormat,
-			1,
-			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-			"Wet Appearance",
-		);
-		const clear = encoder.beginRenderPass({
-			label: "Wet Appearance Clear",
-			colorAttachments: [
-				{
-					view: result.createView(),
-					clearValue: { r: 0, g: 0, b: 0, a: 0 },
-					loadOp: "clear",
-					storeOp: "store",
-				},
-			],
-		});
-		clear.end();
-
-		const composedTransform =
-			this.viewportManager.getComposedTransformCache().get(element.id) ??
-			getTransform(element);
-		const effectBounds = applyTransformToBounds(
-			expandBounds(
-				calculatePathBounds({ ...element, segments, filters: [] }),
-				brushSize * (0.5 + wet.bleedRadius),
-			),
-			composedTransform,
-		);
-		const domain = resolveSimulationDomain(
-			effectBounds,
-			brushSize,
-			this.device.limits.maxTextureDimension2D,
-		);
-		const base = (id: BrushPropertyId): number =>
-			settings.properties[id]?.base ?? BRUSH_PROPERTY_REGISTRY[id].base;
-		// Coefficient targets clear to the stroke's own bases so texels no dab
-		// covers still carry sane coefficients; the fields clear to nothing.
-		const clearValues = [
-			{ r: 0, g: 0, b: 0, a: 0 },
-			{ r: 0, g: 0, b: 0, a: 0 },
-			{ r: 0, g: 0, b: 0, a: 0 },
-			{ r: base("absorption"), g: base("granulation"), b: 0, a: 0 },
-			{ r: base("bleedSoftness"), g: base("edgeDarkening"), b: 0, a: 0 },
-			{ r: base("edgeRoughness"), g: 0, b: 0, a: 0 },
-		];
-
-		this.wetLayerPass ??= new WetLayerPass(this.device, this.canvasFormat);
-		for (const tile of domain.tiles) {
-			const tileW = tile.textureSize.width;
-			const tileH = tile.textureSize.height;
-			if (tileW <= 0 || tileH <= 0) continue;
-
-			const seeds = WET_SEED_TARGETS.map((seedTarget, index) =>
-				this.texturePool.acquireExact(
-					tileW,
-					tileH,
-					seedTarget.format,
-					1,
-					GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-					`Wet Seed ${index}`,
-				),
-			);
-			const seedPass = encoder.beginRenderPass({
-				label: "Wet Layer Seed Pass",
-				colorAttachments: seeds.map((texture, index) => ({
-					view: texture.createView(),
-					clearValue: clearValues[index],
-					loadOp: "clear" as const,
-					storeOp: "store" as const,
-				})),
-			});
-
-			// Dabs draw in the domain's own space: one texel per domain pixel.
-			const entry = this.uniformScope.acquire(
-				{
-					x: tile.worldOrigin.x + (tileW * domain.worldPerPixel) / 2,
-					y: tile.worldOrigin.y - (tileH * domain.worldPerPixel) / 2,
-					zoom: 1 / domain.worldPerPixel,
-					rotation: 0,
-				},
-				tileW,
-				tileH,
-			);
-			batchContext.setActiveUniformBuffer(entry.buffer);
-			batchContext.renderWetSeedDabs({
-				passEncoder: seedPass,
+		return this.brushRenderer.wet.renderAppearance(
+			encoder,
+			{
 				path: element,
+				segments: element.segments ?? [],
 				strokeColor,
 				settings,
-				segments,
 				alphaMultiplier: 1,
-				transformsBindGroup: this.transformsBindGroup ?? undefined,
 				transformIndex,
-			});
-			batchContext.setActiveUniformBuffer(null);
-			seedPass.end();
-
-			this.wetLayerPass.apply(encoder, {
-				seeds: {
-					pigment: seeds[0],
-					fluidVelocity: seeds[1],
-					moisture: seeds[2],
-					absorptionGranulation: seeds[3],
-					softnessEdgeDarkening: seeds[4],
-					edgeRoughness: seeds[5],
-				},
-				domain: { width: tileW, height: tileH },
-				domainWorldOrigin: tile.worldOrigin,
-				domainWorldPerPixel: domain.worldPerPixel,
-				target: result.createView(),
-				targetResolution: { width, height },
-				targetWorldOrigin: { x: bounds.minX, y: bounds.maxY },
-				targetWorldPerPixel: 1 / scale,
-				brushRadiusPx: Math.max(brushSize * 0.5, 1) / domain.worldPerPixel,
-				bleedRadius: wet.bleedRadius,
-				pigmentLoad: wet.pigmentLoad,
-				grainScale: wet.grainScale,
-				randomSeed: settings.randomSeed,
-				paperGrain: base("grainAmount"),
-				scatter:
-					(wet.scatter ?? 0) *
-					(Math.max(brushSize * 0.5, 1) / domain.worldPerPixel),
-			});
-
-			for (const texture of seeds) this.offscreen.deferDestroy(texture);
-		}
-
-		return {
-			...createRenderSurface(
-				createFrameTextureRef(result, (texture) =>
-					this.offscreen.deferDestroy(texture),
-				),
-				{ kind: "world-aabb", bounds, uvRect: FULL_BLIT_UV_RECT },
-				{
-					role: "color",
-					alphaMode: "premultiplied",
-					opacityState: "intrinsic",
-				},
-			),
-			effectiveZoom: scale,
-		};
+			},
+			this.viewportManager.getComposedTransformCache().get(element.id) ??
+				getTransform(element),
+			bounds,
+			scale,
+			{
+				transformsBindGroup: this.transformsBindGroup ?? undefined,
+				maskBindGroup: this.renderState.currentMaskBindGroup,
+			},
+		);
 	}
 
 	/** The wet settings of a stroke appearance, or null. */
@@ -7582,7 +7335,7 @@ export class CanvasLayer {
 		const { brushSettings, strokeColor } = (appearance as StrokeAppearance)
 			.paramData.params;
 		if (brushSettings == null || strokeColor == null) return null;
-		return brushSettings.engine === "dab" && brushSettings.wet?.enabled === true
+		return resolveBrushRenderRequirements(brushSettings).wetEnabled
 			? { settings: brushSettings, strokeColor }
 			: null;
 	}
@@ -7809,6 +7562,7 @@ export class CanvasLayer {
 		}
 		this.mixStrokeRenderer?.destroy();
 		this.mixStrokeRenderer = null;
+		this.brushRenderer.destroy();
 		this.backdropDrivers = [];
 
 		// Cleanup viewport manager (transforms buffer)

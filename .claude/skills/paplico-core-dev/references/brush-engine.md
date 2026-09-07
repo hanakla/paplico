@@ -31,9 +31,17 @@ Files:
 | Tip falloff LUT | `renderer/canvas/pipeline/brush/TipMaskBuilder.ts` |
 | Ribbon geometry | `renderer/canvas/pipeline/brush/RibbonGenerator.ts` |
 | Colour mixing | `renderer/canvas/pipeline/brush/MixPass.ts`, `MixStrokeRenderer.ts` |
-| Wet layer | `renderer/canvas/pipeline/stroke/WetLayerPass.ts` |
-| Draw plumbing | `renderer/canvas/pipeline/stroke/StrokeBatchContext.ts` |
-| Shaders | `renderer/shaders/brushDab.wgsl.ts`, `dabColor.wgsl.ts`, `brushMix.wgsl.ts`, `wetLayer*.wgsl.ts`, `ribbonStroke.wgsl.ts` |
+| Wet layer driver, both entrances | `renderer/canvas/pipeline/brush/WetStrokeRenderer.ts` |
+| Wet layer simulation | `renderer/canvas/pipeline/brush/WetLayerPass.ts` |
+| Owner of the brush routes per canvas, draw entry / dispatch | `renderer/canvas/pipeline/brush/BrushRenderer.ts` |
+| Dab route | `renderer/canvas/pipeline/brush/DabRenderer.ts` |
+| Dab GPU residency | `renderer/canvas/pipeline/brush/BoundedStampStore.ts` |
+| Ribbon route + batching | `renderer/canvas/pipeline/brush/RibbonRenderer.ts` |
+| Frame buffer pools | `renderer/canvas/pipeline/brush/BrushFrameBuffers.ts` |
+| PathMeta / ColorStops writer | `renderer/canvas/pipeline/brush/strokeMeta.ts` |
+| Render requirements of a settings object | `brush/access.ts` |
+| Live stroke input session | `brush/BrushStrokeSession.ts` |
+| Shaders | `renderer/canvas/pipeline/brush/shaders/{brushDab,dabColor,brushMix,colorMix,strokeWidthCommon,wetEdge,wetLayerSeed,wetLayerDiffuse,wetLayerFinish,ribbonStroke}.wgsl.ts` |
 
 ## Routing
 
@@ -48,6 +56,34 @@ type BrushEngineKind = "dab" | "ribbon" | "geometric"
 view drops paint mode, curves and the wet/mixing config, so a route taken from
 it silently selects the wrong pipeline — the failure is a plausible-looking
 stroke, not an error.
+
+`resolveBrushRenderRequirements(settings)` in `brush/access.ts`
+is the one place that derives what the renderer must arrange from the
+settings. It returns `engine`, `requiresIsolation`, `wetEnabled`,
+`mixingEnabled`, `strokeOpacity` and `wetEdge`. `requiresIsolation` is true
+for wash paint mode on any non-geometric engine. `wetEnabled` and
+`mixingEnabled` are true for dab strokes only. `wetEdge` is undefined
+whenever the stored `wet.enabled` is true, whichever engine the settings
+name. RenderPlanner, CanvasLayer's wet route and
+MixStrokeRenderer all read this function.
+
+Every brush draw takes two arguments. `StrokeDrawInput` is the stroke.
+`BrushDrawBindings` is where it lands: the pass's viewport uniform buffer, the
+transforms bind group and the mask bind group. CanvasLayer's viewport stack
+supplies the bindings per call through `CanvasLayer.brushDrawBindings()`. The
+wet and mixing routes pass the `UniformScope` buffer they acquired.
+
+```
+BrushRenderer.render(pass, input, bindings)   immediate: dab or ribbon by engine
+RibbonRenderer.enqueue(pass, input, bindings) batch; flushes itself when pass,
+                                              bindings or resolved texture differ
+RibbonRenderer.flush()                        CanvasLayer calls it before fills,
+                                              non-batchable elements, groups,
+                                              offscreen composites, loop end
+DabRenderer.renderWetSeeds(pass, input, bindings, mixed?)
+DabRenderer.prepareMixed(input, mixed, bindings)  builds the mixing draw state
+DabRenderer.drawMixedChunk(pass, state, first, count)
+```
 
 ## Where in the frame a stroke is drawn
 
@@ -160,8 +196,10 @@ desynchronizes the stride the moment either side gains a field.** Index 0 still
 lines up, so the symptom only appears with two or more paths in a batch: later
 paths pick up a neighbour's colour, gradient and transform index.
 
-Both CPU writers go through `writeSinglePathMeta`; the batch writer owns only
-the shared colour-stop arena and delegates the fields.
+Every CPU writer goes through `strokeMeta.writeSinglePathMeta`. Single-stroke
+routes reach it via `uploadSingleStrokeMeta`. The ribbon batch writer owns only
+the shared colour-stop arena and delegates the fields. `RibbonRenderer`
+resolves the ribbon texture aspect and passes it in.
 
 ## Colour resolution
 
@@ -249,7 +287,8 @@ Mixing reads the composite below the stroke, so it runs on the
      rgb    = styleMix(bucket.rgb, brushColor.rgb, colorRate²)   // Krita's squared rate
      alpha  = mix(bucket.a, brushColor.a, alphaRate)
      ```
-   - a ranged dab draw with the resolved colours (`drawMixedDabChunk`).
+   - a ranged dab draw with the resolved colours, `DabRenderer.drawMixedChunk`.
+     It uses the bind groups `prepareMixed` built.
 4. Blit the stroke buffer back through the restarted main pass.
 
 `blendStyle` interpolates vivid (OkLCH, chroma-preserving) against muted (OkLAB,
@@ -273,7 +312,14 @@ so they mix like solid ones.
 
 ## Wet layer
 
-A watercolour field simulation (`WetLayerPass`), run per stroke:
+A watercolour field simulation, `WetLayerPass`, run per stroke by
+`WetStrokeRenderer`. `WetStrokeRenderer` has two entrances.
+`renderAppearance` is the isolation route of a plain wet stroke and returns
+the isolated surface. `renderMixed` composites a mixing stroke's pigment onto
+MixStrokeRenderer's wash texture. The two differ only in how they compute the
+effect bounds and the target's world origin. Tiling, seeding, diffusion and
+release are one private path. CanvasLayer owns the single instance and hands
+it to MixStrokeRenderer. The steps:
 
 1. **Seed** — the dabs rasterize into six colour attachments (`WET_SEED_TARGETS`
    in `brushDab.wgsl.ts`, fragment entry `fs_wet`).
@@ -365,11 +411,27 @@ path; pattern brushes repeat with optional gaps.
 | GPU dab residency | cache entry lease | `BoundedStampStore` ("Resident Dab Instances") |
 | Wash results | geometry + settings + transform + raster scale + texture bounds | `CanvasLayer.washResultCache` |
 | Mixing results | the above + visible rect + backdrop content key | `MixStrokeRenderer` |
-| Tip falloff LUT | hardness quantized to 32 layers | `TipMaskBuilder` |
+| Tip falloff LUT data | hardness quantized to 32 layers | `TipMaskBuilder` |
+| Tip falloff LUT GPU texture | one per DabRenderer | `DabRenderer` |
+| Frame GPU buffer pools: instances, PathMeta, ColorStops | frame slot | `BrushFrameBuffers`, rewound by `BrushRenderer.beginFrame` |
+| Ribbon batch CPU arrays | grow-only `FloatArena`, rewound per flush | `RibbonRenderer` |
+| Ribbon batch group(1) bind group | pooled buffer identity | `RibbonRenderer` |
 
 Committed strokes re-upload but never re-evaluate; pans and zooms hit the caches.
 A live preview deliberately bypasses them (its geometry hash changes on every
 pointermove) and uses a frame-pooled buffer instead.
+
+Frame release order. `BrushRenderer.beginFrame` rewinds the pools. It then
+lets `DabRenderer` return evicted residency ranges and destroy retired live
+buffers. Both happen one frame late, after the previous submit.
+`CanvasLayer.releaseFrameResources` calls `BrushRenderer.endFrame` once,
+which calls `WetStrokeRenderer.releaseFrame`. That retires WetLayerPass's
+frame buffers and fields. Seed textures go back through
+`OffscreenPresenter.deferDestroy`. On canvas disposal `CanvasLayer.destroy`
+destroys the `BrushRenderer`, which destroys the wet, dab and ribbon renderers
+and the pools. CanvasLayer creates the `BrushRenderer`; RenderOrchestrator
+passes only the device-wide `BrushTextureManager`, which outlives every
+canvas and is read through `brushRenderer.textures`.
 
 ## Testing
 

@@ -1,5 +1,5 @@
-import type { BezierPoint } from "../../../../schema";
-import { processStroke } from "../../../../utils/geometry/strokeFitting";
+import type { BezierPoint } from "../schema";
+import { processStroke } from "../utils/geometry/strokeFitting";
 import { BrushStrokeSession } from "./BrushStrokeSession";
 
 function point(x: number, y: number, deltaTime: number): BezierPoint {

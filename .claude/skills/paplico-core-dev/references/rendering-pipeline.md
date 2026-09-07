@@ -105,7 +105,7 @@ in-flight GPU work is safe. The complete policy is in
 
 ElementRenderer.dispatchElementDirect branches on element type and routes to the appropriate renderer:
 
-- Path with stroke → BrushStrokeRenderer (stamp-based instanced rendering)
+- Path with dab / ribbon stroke → BrushRenderer (instanced dab or ribbon rendering); geometric strokes tessellate in PathElementRenderer
 - Path with fill → ElementRenderer.renderSimpleFill or GradientRenderer (triangulated fill)
 - Image → ImageElementRenderer (texture sampling)
 - Text → TextElementRenderer (glyph path triangulation via TextRenderer)

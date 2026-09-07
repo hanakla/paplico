@@ -1,8 +1,8 @@
-import type { BezierPoint, CubicBezierSegment } from "../../../../schema";
+import type { BezierPoint, CubicBezierSegment } from "../schema";
 import {
 	IncrementalStrokeFitter,
 	type SmoothingMethod,
-} from "../../../../utils/geometry/strokeFitting";
+} from "../utils/geometry/strokeFitting";
 
 export interface BrushStrokeSessionOptions {
 	stabilization: number;

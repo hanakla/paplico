@@ -74,7 +74,7 @@ has its own key and resource lifetime.
 ### Current `StampCache` pruning behavior
 
 `RenderCacheManager.onDocumentChange()` derives an object ID by splitting only
-on `::`, while `StrokeBatchContext` creates stamp keys with a single `:` after
+on `::`, while `DabRenderer` creates stamp keys with a single `:` after
 the path ID. Consequently, an `onDocumentChange()` prune does not match a stamp
 key to a live object ID and removes those entries. Treat the stamp cache as
 document-change-invalidated in the current implementation; do not rely on it
@@ -84,7 +84,7 @@ Sources: `renderer/canvas/caches/RenderCacheManager.ts`,
 `renderer/canvas/caches/{Geometry,Stroke,StencilFill,Gradient,CompoundPath,GroupPath,Blend,Stamp,Appearance,BindGroup}Cache.ts`,
 `renderer/canvas/elements/ElementRenderer.ts`,
 `renderer/canvas/elements/GradientRenderer.ts`,
-`renderer/canvas/pipeline/stroke/StrokeBatchContext.ts`.
+`renderer/canvas/pipeline/brush/DabRenderer.ts`.
 
 ## GPU resource reuse and pools
 
@@ -117,19 +117,21 @@ Sources: `renderer/canvas/pipeline/{TexturePool,ClipMaskAtlas,ViewportManager,Un
 - `BrushTextureArrayBuilder` caches `texture_2d_array` resources by the sorted,
   deduplicated brush UID set joined with `|`. Source texture revision is not in
   the key. The builder owns all arrays until `destroy()`.
-- `StrokeBatchContext` pools stamp/path-meta/color-stop GPU buffers by frame slot,
-  preallocates CPU arrays from the previous peak, caches views by UID, and keeps
-  the immediately previous normal-brush bind-group tuple. Its `destroy()` frees
-  those resources and the array builder.
-- `WetInkPass` has separate result caches: `simCache` (128 entries / 192 MiB
-  LRU), `driedCache` (512 MiB, insertion-order eviction because hits do not
-  refresh recency), and `groupResultCache` (48 entries / 128 MiB; true LRU on
-  hits). Ping-pong pigment/water textures are quantized and grow-only; its uniform
-  pool returns buffers only after submit completion and uses a generation guard
-  against post-destroy callbacks.
+- `BrushFrameBuffers` pools instance/path-meta/color-stop GPU buffers by frame
+  slot. `BrushRenderer.beginFrame` rewinds them. A slot's buffer grows when
+  the need exceeds it and is replaced by a smaller one when the need drops
+  two power-of-two steps. `RibbonRenderer` keeps its batch CPU arrays as
+  grow-only `FloatArena`s, caches texture views by UID and keeps the previous
+  group(1) bind group.
+  `DabRenderer` caches views by UID and owns the falloff LUT, the blank grain
+  texture and the array builder. `BrushRenderer.destroy()` frees all of it.
+- `WetLayerPass` keeps its ping-pong field textures grow-only. It retires the
+  frame's uniform buffers and field textures one frame late, in
+  `WetStrokeRenderer.releaseFrame`, which `BrushRenderer.endFrame` calls from
+  `CanvasLayer.releaseFrameResources`.
 
 Sources: `renderer/canvas/pipeline/brush/{BrushTextureManager,BrushTextureArrayBuilder}.ts`,
-`renderer/canvas/pipeline/stroke/{StrokeBatchContext,WetInkPass}.ts`.
+`renderer/canvas/pipeline/brush/{BrushRenderer,BrushFrameBuffers,DabRenderer,RibbonRenderer,WetStrokeRenderer,WetLayerPass}.ts`.
 
 ### Fill and gradient resources
 

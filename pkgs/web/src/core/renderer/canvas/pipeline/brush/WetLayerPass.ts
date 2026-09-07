@@ -1,7 +1,7 @@
 import { compileShaderModule } from "../../../../utils/wgpu-utils";
-import { WET_LAYER_DIFFUSE_SHADER } from "../../../shaders/wetLayerDiffuse.wgsl";
-import { WET_LAYER_FINISH_SHADER } from "../../../shaders/wetLayerFinish.wgsl";
-import { WET_LAYER_SEED_SHADER } from "../../../shaders/wetLayerSeed.wgsl";
+import { WET_LAYER_DIFFUSE_SHADER } from "./shaders/wetLayerDiffuse.wgsl";
+import { WET_LAYER_FINISH_SHADER } from "./shaders/wetLayerFinish.wgsl";
+import { WET_LAYER_SEED_SHADER } from "./shaders/wetLayerSeed.wgsl";
 
 /**
  * Iterations a stroke runs when its bleed asks for nothing in particular, and

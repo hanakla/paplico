@@ -20,11 +20,11 @@ describe("PathElementRenderer", () => {
 			assetState: { currentFiles: [] },
 			ensureBrushTexture: () => true,
 			filterRenderer: { getHandler: () => undefined },
-			strokeBatchContext: {
-				getTextureManager: () => undefined,
+			brushRenderer: {
 				render: vi.fn(() => calls.push("textured")),
+				textures: undefined,
 			},
-			getTransformsBindGroup: () => ({}) as GPUBindGroup,
+			getBrushDrawBindings: () => ({}),
 			renderState: { currentTransformIndex: 0 },
 			runBatcher: { flush: vi.fn(() => calls.push("flush")) },
 		} as never);

@@ -2184,8 +2184,8 @@ export class OffscreenPresenter {
 		const entry = this.deps.uniformScope.acquire(tempViewport, texW, texH);
 
 		// Switch the active bind group so that all sub-modules (ElementRenderer,
-		// CompositeRenderer, StrokeBatchContext) use the per-pass uniform buffer
-		// instead of the main one.
+		// CompositeRenderer, the brush draw bindings) use the per-pass uniform
+		// buffer instead of the main one.
 		this.deps.setActiveBindGroup(entry.bindGroup, entry.buffer);
 
 		// Sub-content of this offscreen is culled/clamped against THIS pass's

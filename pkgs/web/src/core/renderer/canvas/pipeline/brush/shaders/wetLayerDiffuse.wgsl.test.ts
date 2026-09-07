@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { WET_LAYER_DIFFUSE_SHADER } from "@/core/renderer/shaders/wetLayerDiffuse.wgsl";
 import {
 	centerDotTexture,
 	fillTexture,
 	setupComputeShaderTest,
 } from "@/core/testUtils/shaderTestHarness";
 import type { StructuredView } from "@/core/utils/wgpu-utils";
+import { WET_LAYER_DIFFUSE_SHADER } from "./wetLayerDiffuse.wgsl";
 
 const W = 8;
 const H = 8;

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	getTestDevice,
 	setupComputeShaderTest,
-} from "../../testUtils/shaderTestHarness";
+} from "../../../../../testUtils/shaderTestHarness";
 import { buildBrushDabShader, DAB_TIP_MODES } from "./brushDab.wgsl";
 import { RIBBON_STROKE_SHADER } from "./ribbonStroke.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";

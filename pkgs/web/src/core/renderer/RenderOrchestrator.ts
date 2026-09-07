@@ -47,7 +47,6 @@ import {
 	buildFilterPlansForElements,
 	calculatePreFilteredElementBounds,
 } from "./canvas/pipeline/RenderPlanner";
-import { StrokeBatchContext } from "./canvas/pipeline/stroke/StrokeBatchContext";
 import {
 	UNIFIED_VERTEX_BYTES,
 	UNIFIED_VERTEX_OFFSETS,
@@ -150,7 +149,6 @@ interface TargetData {
 	bindGroup: GPUBindGroup;
 	canvasLayer: CanvasLayer;
 	uiLayer: UILayer;
-	strokeBatchContext: StrokeBatchContext;
 	backdropCaptureManager: BackdropCaptureManager;
 	cacheManager: RenderCacheManager;
 }
@@ -430,24 +428,6 @@ export class RenderOrchestrator {
 
 		const cacheManager = new RenderCacheManager();
 
-		// Mutable holder for the current mask bind group.
-		// Initialized to the dummy (no-mask) bind group; CanvasLayer updates it
-		// per-element before rendering via the maskBindGroupRef setter.
-		const maskBindGroupRef = { current: this.pipelines.dummyMaskBindGroup };
-
-		const strokeBatchContext = new StrokeBatchContext(
-			this.device,
-			this.canvasFormat,
-			uniformBuffer,
-			this.brushTextureManager,
-			this.transformsBindGroupLayout,
-			// Thunk, not the instance: the manager swaps its active document
-			// scope between frames, so the stamp cache must be re-resolved per use.
-			() => cacheManager.stamp,
-			this.layouts.mask,
-			() => maskBindGroupRef.current,
-		);
-
 		const canvasLayer = new CanvasLayer(
 			this.device,
 			this.canvasFormat,
@@ -501,9 +481,8 @@ export class RenderOrchestrator {
 				dummyMaskBindGroup: this.pipelines.dummyMaskBindGroup,
 				maskBindGroupLayout: this.layouts.mask,
 				pulledBindGroupLayout: this.layouts.pulled,
-				maskBindGroupRef,
 				cacheManager,
-				strokeBatchContext,
+				brushTextureManager: this.brushTextureManager,
 				textRenderer: this.textRenderer ?? undefined,
 			},
 			target.id,
@@ -541,7 +520,6 @@ export class RenderOrchestrator {
 			bindGroup,
 			canvasLayer,
 			uiLayer,
-			strokeBatchContext,
 			backdropCaptureManager,
 			cacheManager,
 		});
@@ -1677,7 +1655,6 @@ export class RenderOrchestrator {
 		if (td) {
 			td.canvasLayer.elements.destroyReference3DTextures();
 			td.canvasLayer.destroy();
-			td.strokeBatchContext.destroy();
 			td.uniformBuffer.destroy();
 			td.uiLayer.destroy();
 			// The device outlives a single target, so its cache scopes have to be
@@ -1699,7 +1676,6 @@ export class RenderOrchestrator {
 		for (const td of this.targets.values()) {
 			td.canvasLayer.elements.destroyReference3DTextures();
 			td.canvasLayer.destroy();
-			td.strokeBatchContext.destroy();
 			td.uniformBuffer.destroy();
 			td.uiLayer.destroy();
 		}

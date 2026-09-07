@@ -495,7 +495,7 @@ pkgs/web/
     │   │   ├── PipelineFactory.ts     # Shared GPU pipeline construction helpers
     │   │   ├── canvas/        # Document render layer (CanvasLayer + its helpers/types)
     │   │   │   ├── pipeline/  # Internal graphics machinery (ViewportManager, DocumentCache, CompositeRenderer, OffscreenPresenter, FilterRenderer, RenderPlanner, TexturePool, ClipMaskAtlas)
-    │   │   │   │   └── brush/ # Stamp-based brush stroke rendering (BrushStrokeRenderer, BrushTextureManager, StampGenerator)
+    │   │   │   │   └── brush/ # Brush rendering (BrushRenderer, DabRenderer, RibbonRenderer, WetStrokeRenderer, DabEvaluator, BrushTextureManager) + shaders/
     │   │   │   ├── elements/  # Element renderers (ElementRenderer dispatch, Gradient/Image/Mesh/Text)
     │   │   │   └── caches/    # Render caches (geometry, gradient, stamp, stroke, stencil)
     │   │   ├── ui/            # UI render layer (UILayer: selection overlay, cursor, guides) + types.ts (UI overlay data types) + constants.ts (UI colors)
@@ -524,7 +524,7 @@ pkgs/web/
     ├── auth/              # Authentication utilities (Supabase session, OAuth providers, Tauri auth)
     ├── automation/        # Automation script catalog (builtin + user scripts, repository, shared types)
     ├── scripting/         # Syrup host integration: API declarations + runtime bindings (api.ts), Paplico bridge (dom.ts), runtime factory, worker entry
-    ├── components/        # Reusable UI components (Button, Slider, Dialog, etc.)
+    ├── components/        # Reusable only UI components (Button, Slider, Dialog, etc.)
     ├── dialogs/           # Modal dialogs (SignInDialog, OAuth providers, etc.)
     ├── hooks/             # Domain-logic hooks ONLY (useUserSession, useFontPreview, etc.). Generic UI utility hooks go in utils/hooks.ts
     ├── infra/             # App-level platform-dependent infrastructure: native fs/dialog/path access, IndexedDB (documents, brush presets), Supabase, OS-installed resource enumeration (e.g. system ICC profiles). Tauri-vs-browser impls split via `.tauri.ts`/`.web.ts` suffixes or dynamic import. core/ business logic (color, renderer, tools, …) must NOT enumerate/read files itself — it receives bytes from here

@@ -220,7 +220,7 @@ ndcY = 1 - (screenY / canvasHeight) * 2;
 | (root) | CanvasTarget | Canvas要素のラッパー。ResizeObserver、ビューポート（画面に表示されている領域）状態を保持 |
 | [pipeline/](/devdocs/renderer/pipeline) | CanvasLayer, ViewportManager, RenderPlanner, CompositeRenderer, OffscreenPresenter, DocumentCache, TexturePool, UniformScope, ClipMaskAtlas, BackdropCaptureManager, FilterRenderer, PreFilterRenderer | キャンバス単位のパイプライン統括、クリップマスク事前生成、バックドロップキャプチャ、フィルター実行 |
 | [elements/](/devdocs/renderer/elements) | ElementRenderer, GradientRenderer 等 | 要素種別ごとのレンダリングディスパッチ |
-| [brush/](/devdocs/renderer/brush) | BrushStrokeRenderer, StampGenerator | スタンプベースのインスタンスドブラシ描画 |
+| [brush/](/devdocs/renderer/brush) | BrushRenderer, DabRenderer, RibbonRenderer, WetStrokeRenderer, DabEvaluator | Dabベースのインスタンスドブラシ描画とリボン・wet層 |
 | [filters/](/devdocs/renderer/filters) | Blur / Drop Shadow / Frost Glass / Pixelate / Zigzag / hanakla-kit handlers | 個別フィルターハンドラーと拡張フィルターパック |
 | [caches/](/devdocs/renderer/caches) | RenderCacheManager, GeometryCache 等 | テッセレーション（曲線パスを描画可能なジオメトリに変換する処理）・テクスチャ・BindGroup（GPUリソースをシェーダーにバインドする単位）の再利用キャッシュ |
 | [ui/](/devdocs/renderer/ui) | UILayer | 選択オーバーレイ、カーソル、ガイドの描画 |
@@ -246,7 +246,7 @@ graph TD
     CL --> CR[CompositeRenderer]
     CL --> OP[OffscreenPresenter]
     CL --> DC[DocumentCache]
-    ER --> BSR[BrushStrokeRenderer]
+    ER --> BR[BrushRenderer]
     ER --> GR[GradientRenderer]
     ER --> TER[TextElementRenderer]
     ER --> IER[ImageElementRenderer]
@@ -309,7 +309,7 @@ flowchart TB
 
 - **GPUデバイス**: `navigator.gpu.requestAdapter()` → `requestDevice()` によるデバイス初期化
 - **GPUパイプライン**（シェーダーやレンダリング設定を組み合わせた描画手順の定義）: ジオメトリパイプライン（unified, bezierPath）、フルスクリーンパイプライン（blit, composite, filter）の生成と保持
-- **CanvasTarget**: キャンバスごとの TargetData（GPUコンテキスト、uniform buffer、CanvasLayer、UILayer、BrushStrokeRenderer、RenderCacheManager）を管理
+- **CanvasTarget**: キャンバスごとの TargetData（GPUコンテキスト、uniform buffer、CanvasLayer、UILayer、RenderCacheManager）を管理。ブラシ描画の BrushRenderer は CanvasLayer が持つ
 - **フィルターハンドラー**: FilterRenderer にビルトイン・hanakla-kitフィルターを登録
 - **render()メソッド**: RenderStrategy を受け取り、各ターゲットの CanvasLayer と UILayer を実行
 
@@ -328,7 +328,7 @@ RenderOrchestratorがGPUデバイスとパイプラインを一元管理する�
 
 毎フレーム全ての要素をゼロから計算し直すのは非効率である。パスのテッセレーション結果、ブラシのスタンプデータ、グラデーションテクスチャなど、要素が変更されない限り再利用できるデータは多い。キャッシュシステムはこれらの中間生成物を保持し、変更があった要素だけを再構築することでレンダリング性能を維持する。
 
-RenderCacheManager が全キャッシュを統合管理する。RenderOrchestrator がキャンバスターゲットごとに1インスタンスを所有し、CanvasLayer・ElementRenderer・BrushStrokeRenderer に渡す。
+RenderCacheManager が全キャッシュを統合管理する。RenderOrchestrator がキャンバスターゲットごとに1インスタンスを所有し、CanvasLayer・ElementRenderer・BrushRenderer に渡す。
 
 | キャッシュ | 内容 | キー |
 |---|---|---|

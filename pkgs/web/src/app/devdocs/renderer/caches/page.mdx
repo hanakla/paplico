@@ -34,7 +34,7 @@ graph TD
 
 ## RenderCacheManager
 
-`caches/RenderCacheManager.ts` に実装。RenderOrchestratorがキャンバスターゲットごとに1インスタンスを所有し、CanvasLayer・ElementRenderer・BrushStrokeRendererに渡される。
+`caches/RenderCacheManager.ts` に実装。RenderOrchestratorがキャンバスターゲットごとに1インスタンスを所有し、CanvasLayer・ElementRenderer・BrushRendererに渡される。
 
 6つのキャッシュを公開プロパティとして保持する。
 
@@ -87,7 +87,7 @@ graph TD
 
 `caches/StampCache.ts` に実装。ブラシストローク描画時のスタンプ生成結果（`StampBuffer`）をキャッシュする。キーは `elementId`。
 
-`StampBuffer` は `brush/StampGenerator` で生成されるデータ構造で、ブラシテクスチャの形状・密度・回転パラメータから計算されたバッファである。要素のブラシ設定やストロークポイントが変わらない限り、スタンプの再計算を省略できる。GPUリソースは直接保持しないため、削除時のリソース解放は不要である。
+`StampBuffer` は `DabEvaluator` が生成したDab列を `DabRenderer` が格納するデータ構造で、ブラシ設定のカーブ行列から計算されたバッファである。要素のブラシ設定やストロークポイントが変わらない限り、スタンプの再計算を省略できる。GPUリソースは直接保持しないため、削除時のリソース解放は不要である。
 
 ## GradientCache
 

@@ -1,6 +1,6 @@
 import type { BoundingBox } from "../../../../schema";
 import { compileShaderModule } from "../../../../utils/wgpu-utils";
-import { BRUSH_MIX_SHADER } from "../../../shaders/brushMix.wgsl";
+import { BRUSH_MIX_SHADER } from "./shaders/brushMix.wgsl";
 
 /** Fixed chunk length of the mix pipeline. */
 export const MIX_CHUNK_SIZE = 64;

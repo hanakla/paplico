@@ -1,10 +1,10 @@
-import { generateDabInstanceWgsl } from "../canvas/pipeline/brush/DabInstanceLayout";
-import { STAMP_META_INDEX_MASK } from "../canvas/pipeline/brush/StampPacking";
+import { GRADIENT_COMMON_WGSL } from "../../../../shaders/gradientCommon.wgsl";
+import { TRANSFORM_COMMON_WGSL } from "../../../../shaders/transformCommon.wgsl";
+import { generateDabInstanceWgsl } from "../DabInstanceLayout";
+import { STAMP_META_INDEX_MASK } from "../StampPacking";
 import { COLOR_MIX_WGSL } from "./colorMix.wgsl";
 import { buildDabColorWgsl, PATH_META_WGSL } from "./dabColor.wgsl";
-import { GRADIENT_COMMON_WGSL } from "./gradientCommon.wgsl";
 import { STROKE_WIDTH_COMMON_WGSL } from "./strokeWidthCommon.wgsl";
-import { TRANSFORM_COMMON_WGSL } from "./transformCommon.wgsl";
 
 /**
  * Mix pass chunk compute. Two entry points share one bind

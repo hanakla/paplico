@@ -41,7 +41,7 @@ const MAX_SCOPES = 4;
  * the main document's entries.
  *
  * Owned by RenderOrchestrator (one instance per canvas target) and passed
- * to CanvasLayer, ElementRenderer, and the StrokeBatchContext.
+ * to CanvasLayer, ElementRenderer, and the BrushRenderer.
  *
  * The cache properties resolve the ACTIVE document's scope on every access.
  * Never capture them at construction time (no `const g = manager.geometry`

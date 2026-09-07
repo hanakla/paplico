@@ -1,4 +1,4 @@
-import type { StampHandle } from "../pipeline/stroke/BoundedStampStore";
+import type { StampHandle } from "../pipeline/brush/BoundedStampStore";
 
 /** One stroke's evaluated dab instances, ready to upload. */
 export interface StampBuffer {

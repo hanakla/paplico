@@ -39,13 +39,16 @@ import type { GradientCache } from "../caches/GradientCache";
 import type { MeshWarpCache } from "../caches/MeshWarpCache";
 import type { StencilFillCache } from "../caches/StencilFillCache";
 import type { StrokeCache } from "../caches/StrokeCache";
+import type {
+	BrushDrawBindings,
+	BrushRenderer,
+} from "../pipeline/brush/BrushRenderer";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
 import type { GeometryStore } from "../pipeline/GeometryStore";
 import {
 	type RunBatcher,
 	transformFillBoundsToWorld,
 } from "../pipeline/RunBatcher";
-import type { StrokeBatchContext } from "../pipeline/stroke/StrokeBatchContext";
 import type {
 	DrawableSegments,
 	ResolvedAppearancePass,
@@ -89,7 +92,9 @@ interface ElementRendererDeps extends SharedRenderBindings {
 	assetState: AssetState;
 	textState: TextState;
 	gradient: GradientState;
-	strokeBatchContext: StrokeBatchContext;
+	brushRenderer: BrushRenderer;
+	/** The viewport uniform / transforms / mask a brush draw binds right now. */
+	getBrushDrawBindings: () => BrushDrawBindings;
 	getCompoundPathGeometryCache: () => CompoundPathCache;
 	getBlendCache: () => BlendCache;
 	getMeshWarpCache: () => MeshWarpCache;
@@ -191,7 +196,8 @@ export class ElementRenderer {
 			renderState: deps.renderState,
 			assetState: deps.assetState,
 			filterRenderer: deps.filterRenderer,
-			strokeBatchContext: deps.strokeBatchContext,
+			brushRenderer: deps.brushRenderer,
+			getBrushDrawBindings: deps.getBrushDrawBindings,
 			// Accessors, not snapshots: deps.<cache> resolves the cache manager's
 			// active document scope per access; collapsing them into fixed
 			// instances here would break document switching.
@@ -636,7 +642,7 @@ export class ElementRenderer {
 		textureFileUid: string,
 		files: EmbeddedFile[],
 	): boolean {
-		const textureManager = this.deps.strokeBatchContext.getTextureManager();
+		const textureManager = this.deps.brushRenderer.textures;
 		// Def-rasterized textures live only in the texture manager (there is no
 		// embedded file to load them from) — presence is managed by
 		// CanvasLayer.preRenderBrushDefs.

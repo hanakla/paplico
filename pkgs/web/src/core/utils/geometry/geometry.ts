@@ -179,39 +179,6 @@ export function isInViewport(
 }
 
 /**
- * バウンディングボックスがビューポートに完全に収まっているか
- */
-export function boundsFullyInsideViewport(
-	minX: number,
-	minY: number,
-	maxX: number,
-	maxY: number,
-	viewport: Viewport,
-	canvasWidth: number,
-	canvasHeight: number,
-): boolean {
-	const rotation = viewport.rotation ?? 0;
-	if (rotation === 0) {
-		const halfW = canvasWidth / 2 / viewport.zoom;
-		const halfH = canvasHeight / 2 / viewport.zoom;
-		return (
-			minX >= viewport.x - halfW &&
-			maxX <= viewport.x + halfW &&
-			minY >= viewport.y - halfH &&
-			maxY <= viewport.y + halfH
-		);
-	}
-
-	const bounds = getVisibleWorldBounds(viewport, canvasWidth, canvasHeight);
-	return (
-		minX >= bounds.left &&
-		maxX <= bounds.right &&
-		minY >= bounds.bottom &&
-		maxY <= bounds.top
-	);
-}
-
-/**
  * バウンディングボックスがビューポートと交差しているか
  */
 export function boundsIntersectViewport(

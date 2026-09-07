@@ -1,4 +1,7 @@
-import { readStoredBrushSize } from "../../../brush/access";
+import {
+	readStoredBrushSize,
+	resolveBrushRenderRequirements,
+} from "../../../brush/access";
 import { localAppearances } from "../../../document/appearancePresets";
 import {
 	type AnyArtObject,
@@ -506,9 +509,7 @@ function classifyElementFilters(
 	if (!isGroup(element) && !suppressFlatAppearances) {
 		for (const filter of localAppearances(element.filters)) {
 			if (!isFilterEnabled(filter) || filter.processor !== "stroke") continue;
-			if (washStrokeOpacityOf(filter) != null) {
-				hasWashStroke = true;
-			}
+			if (washInfoOf(filter) != null) hasWashStroke = true;
 			wetReach = Math.max(wetReach, wetReachOf(filter));
 		}
 	}
@@ -1312,15 +1313,9 @@ function scanBlendingFlags(
 function wetReachOf(filter: Filter): number {
 	const settings = (filter as StrokeAppearance).paramData.params.brushSettings;
 	if (settings == null) return 0;
-	const wet = settings.wet;
-	if (settings.engine !== "dab" || wet?.enabled !== true) return 0;
+	if (!resolveBrushRenderRequirements(settings).wetEnabled) return 0;
 	const brushSize = readStoredBrushSize(settings) ?? 0;
-	return brushSize * (0.5 + Math.max(wet.bleedRadius, 0));
-}
-
-/** strokeOpacity of a wash-routed stroke appearance, or null otherwise. */
-function washStrokeOpacityOf(filter: Filter): number | null {
-	return washInfoOf(filter)?.strokeOpacity ?? null;
+	return brushSize * (0.5 + Math.max(settings.wet!.bleedRadius, 0));
 }
 
 /** Wash routing info of a stroke appearance, or null for other routes. */
@@ -1331,15 +1326,11 @@ function washInfoOf(filter: Filter): {
 } | null {
 	const settings = (filter as StrokeAppearance).paramData.params.brushSettings;
 	if (settings == null) return null;
-	// Ribbons wash too: the isolation and the single
-	// strokeOpacity application are engine-independent, and a ribbon that
-	// doubles back over itself darkens exactly like a dab stroke does.
-	if (settings.engine === "geometric") return null;
-	if (settings.paintMode !== "wash") return null;
+	const requirements = resolveBrushRenderRequirements(settings);
+	if (!requirements.requiresIsolation) return null;
 	return {
-		strokeOpacity: settings.strokeOpacity,
+		strokeOpacity: requirements.strokeOpacity,
 		brushSize: readStoredBrushSize(settings) ?? 0,
-		// Wet edge and the wet layer are exclusive.
-		wetEdge: settings.wet?.enabled === true ? undefined : settings.wetEdge,
+		wetEdge: requirements.wetEdge,
 	};
 }

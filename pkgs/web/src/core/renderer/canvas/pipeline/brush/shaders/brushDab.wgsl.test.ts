@@ -1,5 +1,5 @@
-import { getTestDevice } from "../../testUtils/shaderTestHarness";
-import { compileShaderModule } from "../../utils/wgpu-utils";
+import { getTestDevice } from "../../../../../testUtils/shaderTestHarness";
+import { compileShaderModule } from "../../../../../utils/wgpu-utils";
 import {
 	buildBrushDabShader,
 	DAB_TIP_MODES,

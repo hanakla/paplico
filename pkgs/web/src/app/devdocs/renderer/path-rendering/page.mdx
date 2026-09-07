@@ -86,7 +86,7 @@ Paplicoにおけるパス要素（Path）は、3次ベジエ曲線の配列と�
   {/* Textured */}
   <rect x="585" y="155" width="160" height="65" rx="4" fill="#1e1e2e" stroke="#cba6f7" strokeWidth="0.8"/>
   <text x="665" y="172" textAnchor="middle" fill="#cba6f7" fontSize="10" fontWeight="bold">Textured</text>
-  <text x="665" y="187" textAnchor="middle" fill="#a6adc8" fontSize="9">StampGenerator</text>
+  <text x="665" y="187" textAnchor="middle" fill="#a6adc8" fontSize="9">DabEvaluator</text>
   <text x="665" y="200" textAnchor="middle" fill="#a6adc8" fontSize="9">Arc-length等間隔配置</text>
   <text x="665" y="213" textAnchor="middle" fill="#a6adc8" fontSize="9">インスタンスドレンダリング</text>
 
@@ -186,7 +186,7 @@ Cover Passの後、パス輪郭に沿って1ピクセル幅のフリンジスト
 
 ## Stroke: テクスチャブラシ
 
-テクスチャブラシ（airbrush、pencil等）は `StampGenerator` でスタンプを生成し、`BrushStrokeRenderer` でインスタンスドレンダリングする。詳細は[ブラシレンダリング](/devdocs/renderer/brush)ページを参照。
+テクスチャブラシ（airbrush、pencil等）は `DabEvaluator` でDab列を生成し、`BrushRenderer` から `DabRenderer` がインスタンスドレンダリングする。詳細は[ブラシレンダリング](/devdocs/renderer/brush)ページを参照。
 
 処理の概要:
 1. ベジエ曲線上を Arc-length parameterization で等間隔に走査

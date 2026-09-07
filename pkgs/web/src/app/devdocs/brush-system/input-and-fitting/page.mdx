@@ -73,7 +73,7 @@ sequenceDiagram
 参照先:
 
 - `pkgs/web/src/core/tools/PenTool.ts`
-- `pkgs/web/src/core/renderer/canvas/pipeline/stroke/BrushStrokeSession.ts`
+- `pkgs/web/src/core/brush/BrushStrokeSession.ts`
 
 ## fit用点列をdedupeする
 
@@ -261,7 +261,7 @@ flowchart LR
 | Pointer Eventの正規化 | `pkgs/web/src/core/ui/PaplicoUI.ts` |
 | ツール入力型 | `pkgs/web/src/core/tools/Tool.ts` |
 | 入力開始、継続、pointerup | `pkgs/web/src/core/tools/PenTool.ts` |
-| raw pointsと増分fitの状態 | `pkgs/web/src/core/renderer/canvas/pipeline/stroke/BrushStrokeSession.ts` |
+| raw pointsと増分fitの状態 | `pkgs/web/src/core/brush/BrushStrokeSession.ts` |
 | dedupe、stabilization、corner、fit | `pkgs/web/src/core/utils/geometry/strokeFitting.ts` |
 | stabilizationのUI設定 | `pkgs/web/src/organisms/ActionsPanel/PenToolControls.tsx` |
 | stabilizationの初期値 | `pkgs/web/src/core/tools/toolSettings.ts` |

@@ -14,24 +14,50 @@ Paplicoのブラシストロークは**Dabベースのインスタンスドレ�
 ```mermaid
 flowchart TD
     A[Path + BrushSettings] --> B[settings.engine]
-    B -->|dab| C["StrokeBatchContext.render → renderDabsV2"]
-    B -->|ribbon| D["addToBatch → flushBatch（バッチ経路）"]
+    B -->|dab| C["BrushRenderer.render が DabRenderer.render を呼ぶ"]
+    B -->|ribbon| D["RibbonRenderer.enqueue で蓄積し flush で描く"]
     B -->|geometric| E[ElementRenderer.renderGeometricStroke]
     C --> F[インスタンスド描画]
     D --> F
 ```
 
-- **dab**: 既定。CanvasLayerのフィルタ経路から`StrokeBatchContext.render()`へ直行し、`renderDabsV2()`が描く。**バッチ蓄積には乗らない**
-- **ribbon**: テクスチャをパスに沿ってUVマッピングする。バッチ経路（`addToBatch` / `flushBatch`）を使う唯一のエンジン
+- **dab**: 既定。`BrushRenderer.render()`が`DabRenderer.render()`へ振り分けて描く。**バッチ蓄積には乗らない**
+- **ribbon**: テクスチャをパスに沿ってUVマッピングする。バッチ経路を使う唯一のエンジンで、入口は`RibbonRenderer.enqueue` / `flush`である。即時経路では`BrushRenderer.render()`が`RibbonRenderer.render()`へ振り分ける
 - **geometric**: SVG風のジオメトリックストローク。`ElementRenderer.renderGeometricStroke`へ戻す
 
-ルートを決めるのは呼び出し側である。CanvasLayer（バッチ経路）と`PathElementRenderer`（即時経路）が`engine`を読み、stroke appearanceから取り出した`strokeColor`と設定を`StrokeDrawInput`に詰めて`StrokeBatchContext`へ直接渡す。`StrokeBatchContext`が`Path`から読むのは幾何だけである（`strokeWidths` / `pathStart` / `pathEnd`、within グラデーションの境界）。
+ルートを決めるのは呼び出し側である。バッチ経路のCanvasLayerと即時経路の`PathElementRenderer`が`engine`を読む。どちらもstroke appearanceから取り出した`strokeColor`と設定を`StrokeDrawInput`に詰めて渡す。描画側が`Path`から読むのは幾何だけである。幾何とは`strokeWidths` / `pathStart` / `pathEnd`と、within グラデーションの境界を指す。
+
+### 呼び出し経路と描画先
+
+描画側は呼び出しごとに`BrushDrawBindings`で描画先を受け取る。
+
+```ts
+interface BrushDrawBindings {
+	uniformBuffer: GPUBuffer; // 今エンコード中のパスのviewport uniform
+	transformsBindGroup: GPUBindGroup | undefined;
+	maskBindGroup: GPUBindGroup;
+}
+```
+
+| 呼び出し元 | 入口 | bindingsの出所 |
+|---|---|---|
+| CanvasLayerのバッチ経路 `renderElements` | `RibbonRenderer.enqueue(pass, input, bindings)` | `CanvasLayer.brushDrawBindings()`。viewport stackの現在のbufferと、現在要素のtransforms / maskを返す。override中のbufferはUniformScopeのもので、通常はメインbufferである |
+| `PathElementRenderer`の即時経路 | `BrushRenderer.render(pass, input, bindings)` | 同上を`getBrushDrawBindings`経由で取得 |
+| `WetStrokeRenderer`のwet層seed | `DabRenderer.renderWetSeeds(pass, input, bindings, mixed?)` | タイルごとに`UniformScope`から取得したbuffer |
+| `MixStrokeRenderer`の混色 | `DabRenderer.prepareMixed(input, mixed, bindings)`で準備し`drawMixedChunk`で描く | ストロークバッファ用に`UniformScope`から取得したbuffer。chunk描画は準備時のbind groupを使う |
+
+オフスクリーンパスがviewport uniformを差し替えると、CanvasLayerのviewport stackがその現在のbufferを持つ。`brushDrawBindings()`はそれを引数に載せる。
 
 ## モジュール概観
 
 | モジュール | 役割 |
 |---|---|
-| `StrokeBatchContext` | 全WebGPUパイプラインの所有者。dab描画・GPUバッファプール・falloff LUT・wet seed・混色チャンク描画 |
+| `BrushRenderer` | キャンバス1つ分のブラシ描画の所有者。`DabRenderer` / `RibbonRenderer` / `WetStrokeRenderer` / `BrushFrameBuffers`と共通のPathMeta用bind group layoutを持ち、`engine`で振り分ける。`beginFrame` / `endFrame` / `destroy`を一括で行う。CanvasLayerが生成する |
+| `DabRenderer` | dab描画パイプライン一式。常駐ストア・ライブdabバッファ・falloff LUT・紙目・texture array・wet seed・混色チャンク描画 |
+| `RibbonRenderer` | ribbon描画パイプライン。バッチ蓄積と互換性判定。互換性はpass / uniform / bind group / 解決済みtextureで決まる |
+| `BrushFrameBuffers` | フレーム単位で巻き戻すGPUバッファプール。instance / PathMeta / ColorStopsの3種でdab・ribbon共用 |
+| `strokeMeta` | PathMeta / ColorStopsの書き込み。`writeSinglePathMeta` / `uploadSingleStrokeMeta`が全経路の唯一の書き手 |
+| `WetStrokeRenderer` | wet層の駆動。通常水彩の`renderAppearance`と混色後の`renderMixed`の二入口が同じタイル処理へ入る。`WetLayerPass`を1つ所有 |
 | `DabEvaluator` | セグメント列 + `BrushSettings` → Dabインスタンス列。速度EMA・カーブ評価・timed dab |
 | `DabInstanceLayout` | 24 float/dabレイアウトのSSoT。WGSL構造体宣言を自動生成 |
 | `LiveDabAccumulator` | ライブ描画の増分評価。確定プレフィックスの差分アップロード |
@@ -39,13 +65,13 @@ flowchart TD
 | `BrushTextureManager` | 先端テクスチャの読み込み・ミップ生成・defテクスチャ登録 |
 | `BrushTextureArrayBuilder` | 散布用に複数テクスチャを`texture_2d_array`へ構築 |
 | `MixPass` / `MixStrokeRenderer` | 混色（smudge）のチャンクcomputeとインライン合成 |
-| `WetLayerPass` | wet層の拡散シミュレーション |
+| `WetLayerPass` | wet層の拡散シミュレーション本体。seed / diffuse / finishのcompute・render |
 | `WashCompositor` | washストロークの水彩ウェットエッジ後処理 |
 | `RibbonGenerator` | リボンのセグメントインスタンス生成 |
 | `StampCache` / `BoundedStampStore` | 確定ストロークのCPU/GPU 2層キャッシュ |
 | `strokeHalfWidth` | UI向けの実効半幅サンプラ（描画経路ではない） |
 
-配置は`core/renderer/canvas/pipeline/brush/`と`core/renderer/canvas/pipeline/stroke/`である。シェーダは`core/renderer/shaders/`の`brushDab.wgsl.ts`・`dabColor.wgsl.ts`・`brushMix.wgsl.ts`・`wetEdge.wgsl.ts`・`wetLayer*.wgsl.ts`・`ribbonStroke.wgsl.ts`。
+上記のうち`WashCompositor`は`core/renderer/canvas/pipeline/`、`StampCache`は`core/renderer/canvas/caches/`にあり、それ以外は`core/renderer/canvas/pipeline/brush/`にある。ブラシ専用シェーダは`pipeline/brush/shaders/`にある。対象は`brushDab.wgsl.ts`・`dabColor.wgsl.ts`・`brushMix.wgsl.ts`・`colorMix.wgsl.ts`・`strokeWidthCommon.wgsl.ts`・`wetEdge.wgsl.ts`・`wetLayer*.wgsl.ts`・`ribbonStroke.wgsl.ts`である。入力側の`BrushStrokeSession`は`core/brush/`にある。
 
 ## Dabインスタンスレイアウト
 
@@ -116,11 +142,11 @@ over合成では最終濃度が「1画素を覆うDab数」に依存するため
 
 ## Dab供給の3系統とキャッシュ
 
-`renderDabsV2()`はDabデータの供給元を3系統に分ける。
+`DabRenderer.render()`はDabデータの供給元を3系統に分ける。
 
 ```mermaid
 flowchart TD
-    A[renderDabsV2] --> B{ストローク種別}
+    A[DabRenderer.render] --> B{ストローク種別}
     B -->|ライブ buildup| C[LiveDabAccumulator.update]
     B -->|ライブ wash| D[毎フレーム evaluateDabs 全評価]
     B -->|確定ストローク| E[StampCache 参照]
@@ -128,7 +154,7 @@ flowchart TD
     E -->|miss| G[evaluateDabs → cache set]
     G --> F
     F -->|容量不足| H[フレームプールへフォールバック]
-    C --> I["draw(4, dabCount, 0, firstInstance)"]
+    C --> I["draw(6, dabCount, 0, firstInstance)"]
     D --> I
     F --> I
     H --> I
@@ -138,7 +164,7 @@ flowchart TD
 - **ライブwash**: 毎フレーム全評価してフレームプールのバッファへアップロードする
 - **確定ストローク**: settingsのフィンガープリント + `hashStampInput(path, segments)`の幾何ハッシュをキーに`StampCache`（CPU側、LRU）を引く。ヒットしたDab列は`BoundedStampStore`で常駐化を試みる
 
-`BoundedStampStore`（`pipeline/stroke/BoundedStampStore.ts`）は単一GPUBufferの常駐アロケータである。上限は`min(maxStorageBufferBindingSize, maxBufferSize, 128MiB)`。リースの`firstStamp`オフセットは成長後も不変で、描画は`draw`の`firstInstance`にこの値を渡すだけでよい。解放はフレーム境界へ遅延され、描画中のバッファを壊さない。常駐化されたDab列は`StampCache`のCPUミラーとバッファを共有するため、キャッシュ済みデータの書き換えは禁止である。
+`BoundedStampStore`は単一GPUBufferの常駐アロケータである。配置は`pipeline/brush/BoundedStampStore.ts`である。所有者は`DabRenderer`で、常駐化とライブdabの増分状態は`DabRenderer`だけが持つ。上限は`min(maxStorageBufferBindingSize, maxBufferSize, 128MiB)`。リースの`firstStamp`オフセットは成長後も不変で、描画は`draw`の`firstInstance`にこの値を渡すだけでよい。解放はフレーム境界へ遅延され、描画中のバッファを壊さない。常駐化されたDab列は`StampCache`のCPUミラーとバッファを共有するため、キャッシュ済みデータの書き換えは禁止である。
 
 ## 先端システム
 
@@ -149,7 +175,7 @@ flowchart TD
 - LUTは`TipMaskBuilder.ts`が生成する。`FALLOFF_LUT_SIZE = 256`、hardness量子化`FALLOFF_LUT_LAYERS = 32`
 - falloff式はMyPaintの2セグメント式。`rr < h`なら`1 + rr(h-1)/h`、それ以外は`h/(1-h)·(1-rr)`
 - `softnessCurve`指定時はKritaのcurve circle規約（線形距離のカーブを二乗距離インデックスへ再マップ）でLUTを作る
-- GPU側は`StrokeBatchContext.ensureFalloffLut()`がr8unorm 256×1×32の`texture_2d_array`を1枚だけ作り、Dabの`hardnessLutIndex`でレイヤを選ぶ
+- GPU側は`DabRenderer`がr8unorm 256×1×32の`texture_2d_array`を1枚だけ作り、Dabの`hardnessLutIndex`でレイヤを選ぶ。`MixPass`には`getFalloffLutTexture()`で同じテクスチャを渡す
 
 hardnessは実行時パラメータであり、任意サイズでシャープな縁が出る。
 
@@ -174,7 +200,7 @@ hardnessは実行時パラメータであり、任意サイズでシャープな
 
 Dab描画のシェーダは`brushDab.wgsl.ts`の`buildBrushDabShader({tipMode, wetSeed?, mixedColors?})`が単一テンプレートから生成する。`tipMode`は`procedural` / `image` / `imageArray`の3種で、差分はテクスチャ宣言のみ。エントリポイントは`vs_main` / `fs_main`と、wet seed用の`fs_wet`である。
 
-頂点バッファは持たない。`vs_main`が`vertex_index`からクアッドを構成し、`draw(4, dabCount, 0, firstInstance)`でインスタンスごとに`dabs[instanceIndex]`を読んで配置・スケーリング・回転する。
+頂点バッファは持たない。`vs_main`が`vertex_index`から2三角形のクアッドを構成し、`draw(6, dabCount, 0, firstInstance)`でインスタンスごとに`dabs[instanceIndex]`を読んで配置・スケーリング・回転する。
 
 ### Bind Group
 
@@ -223,7 +249,7 @@ washストロークは`RenderPlanner`がwashプランとして分離し、Canvas
 2. `rim = alpha - eroded`が縁帯。ぼかし幅指定時はBlurPyramidで平滑化する
 3. rimに応じて暗くする・アルファを上げることで、水彩の縁溜まりを表現する
 
-`wetEdge`設定とwet層は排他である。`wet.enabled`がtrueのとき`RenderPlanner`は`wetEdge`を破棄し、縁の表現はwet層側の`edgeDarkening` / `edgeRoughness`が担う。
+`wetEdge`設定とwet層は排他である。`resolveBrushRenderRequirements`は保存済みの`wet.enabled`がtrueのとき`wetEdge`をundefinedにし、`RenderPlanner`はその値を読む。縁の表現はwet層側の`edgeDarkening` / `edgeRoughness`が担う。
 
 ## 混色（MixPass / MixStrokeRenderer）
 
@@ -236,7 +262,7 @@ flowchart LR
     A[チャンクのDab列] --> B["cs_sample: workgroup=1dab<br/>足元のfootprint加重平均色を並列リダクション"]
     B --> C["cs_scan: バケットを逐次更新<br/>smudgeLength / colorRate / alphaRate"]
     C --> D[per-dab解決済み色バッファ]
-    D --> E["drawMixedDabChunk: 解決済み色で<br/>ストロークバッファへ描画"]
+    D --> E["DabRenderer.drawMixedChunk: 解決済み色で<br/>ストロークバッファへ描画"]
     E -->|次チャンク| A
 ```
 
@@ -249,7 +275,7 @@ wet層と併用した場合、ここで解決したDab色がwetシミュレー�
 
 ## wet層（WetLayerPass）
 
-`wet.enabled`のブラシはにじみ・拡散のシミュレーションを通る。4フィールドの拡散シミュレーションで、係数はDab属性と場テクスチャから供給する（`pipeline/stroke/WetLayerPass.ts`）。
+`wet.enabled`のブラシはにじみ・拡散のシミュレーションを通る。4フィールドの拡散シミュレーションで、係数はDab属性と場テクスチャから供給する。実装は`pipeline/brush/WetLayerPass.ts`である。
 
 処理は3段のシェーダで構成される。
 
@@ -257,7 +283,21 @@ wet層と併用した場合、ここで解決したDab色がwetシミュレー�
 2. **diffuse**（`wetLayerDiffuse.wgsl.ts`）: pigment / moistureをping-pongで拡散する。既定32反復。係数テクスチャは全反復でread-onlyの固定バインドである
 3. **finish**（`wetLayerFinish.wgsl.ts`）: 拡散結果を可視色へ変換して合成する
 
-拡散の到達距離は格子間隔と反復数の組で決まる（`resolveWetBleedReach` / `resolveWetIterations`）。ステンシル幅を広げると格子が独立サブラティスに割れてブロブ状になるため、必ずこの組み合わせで距離を稼ぐ設計である。駆動は`MixStrokeRenderer.runWetLayer()`が行い、seed描画は`StrokeBatchContext.renderWetSeedDabs()`が担う。
+拡散の到達距離は格子間隔と反復数の組で決まる（`resolveWetBleedReach` / `resolveWetIterations`）。ステンシル幅を広げると格子が独立サブラティスに割れてブロブ状になるため、必ずこの組み合わせで距離を稼ぐ設計である。
+
+駆動は`WetStrokeRenderer`が行う。入口は2つで、どちらも同じ非公開のタイル処理へ入る。タイル処理の順序は次のとおりである。
+
+1. seed textureを確保する
+2. 係数のclear valueを作る
+3. タイル用uniformを取得する
+4. `DabRenderer.renderWetSeeds()`を呼ぶ
+5. `WetLayerPass.apply()`を呼ぶ
+6. seedを解放待ちへ移す
+
+- `renderAppearance`: 通常水彩。CanvasLayerの`renderIsolatedAppearances`から呼ばれ、パスの合成済みtransformを効果領域へ適用し、isolation boundsに合わせた出力テクスチャを確保して`RasterizedRenderSurface`を返す
+- `renderMixed`: 混色後。`MixStrokeRenderer`から呼ばれ、混色済みdab bufferと解決色を`mixed`として渡す。出力先は`MixStrokeRenderer`が確保したwashテクスチャで、解像度上限後の原点計算はこの入口が持つ
+
+`WetStrokeRenderer`は`BrushRenderer`が1つ生成し、`brushRenderer.wet`として公開する。CanvasLayerと`MixStrokeRenderer`は同じインスタンスを使う。`WetLayerPass`はこの1つだけが所有する。
 
 ## リボン
 
@@ -266,7 +306,8 @@ wet層と併用した場合、ここで解決したDab色がwetシミュレー�
 - `RibbonGenerator.generateRibbonInstances()`が弧長プレフィックス和込みのインスタンス列を作る
 - `uvMode: "repeat"`はパターンブラシ（`U = arcPos / tileWidth`）、`"stretch"`はアートブラシ（`U = arcPos / totalArc`）
 - `RibbonOptions.curved`に`BrushSettings`を渡すと、sizeとflowのカーブがリボンにも効く。評価はセグメント端点で行い、間は線形補間する
-- リボンはバッチ経路を使う唯一のエンジンで、`flushBatch()`はリボン専用である。wet層のMRTには対応しない
+- リボンはバッチ経路を使う唯一のエンジンである。`RibbonRenderer.enqueue()`は保留中のバッチと「pass encoder・uniform buffer・transforms / mask bind group・解決済みtexture」を比較し、どれかが違えば先に`flush()`してから蓄積する。CanvasLayerは塗り・バッチ対象外要素・グループ進入・offscreen合成・ループ終了の前に`flush()`を呼ぶ
+- バッチのPathMetaは`strokeMeta.writeSinglePathMeta`が書き、`RibbonRenderer`はColorStopsの共有アリーナへの追記だけを担う。wet層のMRTには対応しない
 
 ## GPUテクスチャの消費のしかた
 
@@ -276,26 +317,35 @@ wet層と併用した場合、ここで解決したDab色がwetシミュレー�
 |---|---|---|---|---|
 | ブラシ先端画像 | `BrushTextureManager` | rgba8unorm + ミップ | dabパイプライン group(0) binding(2) | Manager内キャッシュ。UID単位 |
 | 散布用texture array | `BrushTextureArrayBuilder` | rgba8unorm array + ミップ | 同上（imageArrayバリアント） | UIDハッシュでキャッシュ |
-| falloff LUT | `StrokeBatchContext.ensureFalloffLut()` | r8unorm 256×1×32 array | 手続き先端のgroup(0) binding(2)。`MixPass`のフットプリント重みにも渡る | 生成後は常駐 |
+| falloff LUT | `DabRenderer` | r8unorm 256×1×32 array | 手続き先端のgroup(0) binding(2)。`MixPass`のフットプリント重みにも渡る | 生成後は常駐 |
 | 紙目（grain） | `BrushTextureManager` | rgba8unorm | dabパイプライン group(0) binding(4) | Manager内キャッシュ |
 | defテクスチャ | `DefRasterizer` → `registerDefTexture()` | canvas形式 | 先端として単体消費。array化不可 | ソース要素の変更で無効化 |
 | マスクアトラス | ClipMaskAtlas | — | dabパイプライン group(3) binding(0) | 既存のアトラス管理に従う |
 | washストロークバッファ | TexturePoolから取得 | canvasFormat | dab描画のレンダーターゲット → `WashCompositor` → 合成blit | フレーム内。結果キャッシュへ昇格あり |
-| wet seed MRT 6枚 | `renderWetSeedDabs()`のレンダーターゲット | rgba16float×3 + rg8unorm×2 + r8unorm | `WetLayerPass`の拡散入力。反復中はread-only固定バインド | ストローク処理内 |
+| wet seed MRT 6枚 | `WetStrokeRenderer`が確保し`DabRenderer.renderWetSeeds()`が描く | rgba16float×3 + rg8unorm×2 + r8unorm | `WetLayerPass`の拡散入力。反復中はread-only固定バインド | ストローク処理内 |
 | wet拡散ping-pong | `WetLayerPass` | rgba16float | diffuse反復の読み書き交互 | ストローク処理内 |
 | 混色below snapshot | 背景キャプチャ | canvasFormat | `MixPass.cs_sample`のサンプル元 | チャンク処理中 |
 | 混色stroke現況 | ストロークバッファ | canvasFormat | `MixPass.cs_sample`のサンプル元 | チャンク処理中 |
 
 サンプラは2本を使い分ける。
 
-- `getMipSampler()`: dab経路用。`mipmapFilter: "linear"`でミップを効かせる
-- `getSampler()`: リボン経路用。`lodMaxClamp: 0`でレベル0固定とし、リボンをフル解像度で描く
+- `BrushTextureManager.getMipSampler()`: dab経路用。`mipmapFilter: "linear"`でミップを効かせる
+- `RibbonRenderer`が持つ`Ribbon Repeat Sampler`: リボン経路用。`lodMaxClamp: 0`でレベル0固定とし、U方向repeatでタイルをつなぐ
+
+## フレーム内の解放手順
+
+| タイミング | 呼び出し | 内容 |
+|---|---|---|
+| フレーム開始 | `BrushRenderer.beginFrame()` | `BrushFrameBuffers`の3プールを巻き戻す。続いて`DabRenderer.beginFrame()`が、evictされた`StampCache`エントリの常駐領域を`BoundedStampStore`へ返し、成長で退役したライブdabバッファを破棄する。どちらも前フレームのsubmitが済んだこの地点まで遅延される |
+| 要素ループ終了 | `RibbonRenderer.flush()` | 保留中のribbonバッチを描き切る |
+| フレーム終了 | `CanvasLayer.releaseFrameResources()`が`BrushRenderer.endFrame()`を呼び、それが`WetStrokeRenderer.releaseFrame()`を呼ぶ | `WetLayerPass`が今フレーム参照したuniform / 場テクスチャを1フレーム遅れで破棄する。seedテクスチャは`OffscreenPresenter.deferDestroy`経由で返る |
+| キャンバス破棄 | `CanvasLayer.destroy()`が`BrushRenderer.destroy()`を呼ぶ | wet / dab / ribbon / buffersの順に破棄する。`DabRenderer`はfalloff LUT・blank grain・texture array builderも破棄する。`BrushTextureManager`はデバイス単位で、キャンバスより長く生きる |
 
 ## パフォーマンスと設計判断
 
 **Dab単位のビューポートカリングは行わない**: カリングは`RenderPlanner`の要素単位CPUカリングのみで、画面外のDabはGPUのクリップに任せる。常駐ストアのDab列をそのまま`firstInstance`で描く現構成では、フレームごとのカリングコピーの方が高くつくためである。
 
-**常駐ストアとフレームプールの使い分け**: 確定ストロークは`BoundedStampStore`に常駐し、フレームをまたいでアップロードが発生しない。ライブストロークと容量あふれ分だけがフレームプール（grow-onlyのGPUバッファプール）を使う。
+**常駐ストアとフレームプールの使い分け**: 確定ストロークは`BoundedStampStore`に常駐し、フレームをまたいでアップロードが発生しない。ライブストロークと容量あふれ分だけがフレームプール`BrushFrameBuffers`を使う。プールのバッファは要求量に足りなければ拡張し、要求量より2段以上大きければ小さく作り直す。
 
 **決定論の維持**: シード付き乱数・`DabEvalState`のresume・コラボ断片の`pathStart` / `pathEnd`により、同一入力から同一Dab列が常に再現される。キャッシュ・コラボ・VRTの前提である。
 

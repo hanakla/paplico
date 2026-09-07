@@ -1,8 +1,10 @@
 import type {
+	BrushEngineKind,
 	BrushPropertyConfig,
 	BrushSettings,
 	BrushSettingsPatch,
 	BrushStroking,
+	WetEdgeConfig,
 } from "../schema";
 import { BRUSH_PROPERTY_REGISTRY } from "./properties";
 
@@ -131,4 +133,38 @@ export function applyBrushPatch(
 			: undefined;
 	}
 	return next;
+}
+
+interface BrushRenderRequirements {
+	engine: BrushEngineKind;
+	/** Wash strokes accumulate flow in an isolated texture and apply
+	 *  strokeOpacity once at composite time. Ribbons wash too: the isolation
+	 *  is engine-independent, and a ribbon that doubles back over itself
+	 *  darkens exactly like a dab stroke does. */
+	requiresIsolation: boolean;
+	/** The wet layer simulation; dab strokes only. */
+	wetEnabled: boolean;
+	/** Colour pick-up from the composite below; dab strokes only. */
+	mixingEnabled: boolean;
+	strokeOpacity: number;
+	/** The watercolor rim. Suppressed whenever the stored wet config is on,
+	 *  whichever engine the settings name. */
+	wetEdge: WetEdgeConfig | undefined;
+}
+
+export function resolveBrushRenderRequirements(
+	settings: BrushSettings,
+): BrushRenderRequirements {
+	const wetEnabled =
+		settings.engine === "dab" && settings.wet?.enabled === true;
+	return {
+		engine: settings.engine,
+		requiresIsolation:
+			settings.engine !== "geometric" && settings.paintMode === "wash",
+		wetEnabled,
+		mixingEnabled:
+			settings.engine === "dab" && settings.mixing?.enabled === true,
+		strokeOpacity: settings.strokeOpacity,
+		wetEdge: settings.wet?.enabled === true ? undefined : settings.wetEdge,
+	};
 }
