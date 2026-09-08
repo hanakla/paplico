@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { lineSeg } from "../../testUtils/segmentFactory";
+import { flattenBezierPathWithPressure } from "./bezierFlatten";
 import {
 	applyDashPattern,
 	type StrokeTessellateInput,
@@ -22,6 +24,43 @@ function makeInput(
 }
 
 describe("tessellateStroke", () => {
+	it.each([
+		"round",
+		"bevel",
+		"miter",
+	] as const)("should cover the interior of an SVG curve with %s joins", (lineJoin) => {
+		const { points, pressures } = flattenBezierPathWithPressure(
+			[
+				lineSeg({ x: 0, y: 0 }, { start: { x: 0, y: -24 } }),
+				lineSeg(
+					{ x: -8.7, y: 8.7 },
+					{
+						cp1: { x: 0, y: 4.81 },
+						cp2: { x: 4.8, y: 0 },
+					},
+				),
+				lineSeg({ x: -32, y: 8.7 }),
+			],
+			{ curveTolerance: 0.0625 },
+		);
+		for (const direction of [1, -1]) {
+			const mirrored = points.map((value, index) =>
+				index % 2 === 0 ? value * direction : value,
+			);
+			const { vertices } = tessellateStroke(
+				makeInput({ points: mirrored, pressures, baseWidth: 2.66, lineJoin }),
+			);
+			for (let i = 2; i < mirrored.length - 2; i += 2) {
+				for (const dx of [-0.5, 0, 0.5]) {
+					for (const dy of [-0.5, 0, 0.5]) {
+						expect(
+							coversPoint(vertices, mirrored[i] + dx, mirrored[i + 1] + dy),
+						).toBe(true);
+					}
+				}
+			}
+		}
+	});
 	it("should return empty result for fewer than 2 points", () => {
 		const single = tessellateStroke(
 			makeInput({ points: [0, 0], pressures: [1] }),
@@ -132,10 +171,8 @@ describe("tessellateStroke", () => {
 			}),
 		);
 
-		// 2 segments × 2 triangles = 4 body triangles, meeting at the inner
-		// offset intersection, + 1 bevel join triangle (outer) = 5 total
-		// = 15 vertices
-		expect(result.count).toBe(15);
+		expect(coversPoint(result.vertices, 99, 1)).toBe(true);
+		expect(coversPoint(result.vertices, 101, -1)).toBe(true);
 	});
 
 	describe("join side", () => {
@@ -855,3 +892,23 @@ describe("tessellateStroke gradient params", () => {
 		expect(Math.max(...ts)).toBeCloseTo(0.75, 5);
 	});
 });
+
+function coversPoint(vertices: number[], x: number, y: number): boolean {
+	for (let i = 0; i < vertices.length; i += 6) {
+		const crosses = [0, 2, 4].map((offset, index) => {
+			const next = ((index + 1) % 3) * 2;
+			return (
+				(vertices[i + next] - vertices[i + offset]) *
+					(y - vertices[i + offset + 1]) -
+				(vertices[i + next + 1] - vertices[i + offset + 1]) *
+					(x - vertices[i + offset])
+			);
+		});
+		if (
+			crosses.every((value) => value >= -1e-10) ||
+			crosses.every((value) => value <= 1e-10)
+		)
+			return true;
+	}
+	return false;
+}

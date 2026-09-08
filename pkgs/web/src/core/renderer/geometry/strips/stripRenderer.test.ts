@@ -181,7 +181,12 @@ describe("StripRasterizer", () => {
 			SIZE,
 			SIZE,
 		);
-		expectMatchesReference(coverage, trianglePolygons(triangles));
+		expectMatchesReference(coverage, [
+			[
+				4.5, 20.5, 12.5, 20.5, 12.5, 6.5, 20.5, 6.5, 20.5, 24.5, 16.5, 28.5,
+				4.5, 28.5,
+			],
+		]);
 	});
 
 	it("should reuse scratch across rasterize calls without leaking lines", () => {
@@ -225,14 +230,6 @@ function addPolygon(
 			CLIP,
 		);
 	}
-}
-
-function trianglePolygons(triangles: Float32Array): ReferencePolygon[] {
-	const polygons: ReferencePolygon[] = [];
-	for (let i = 0; i + 5 < triangles.length; i += 6) {
-		polygons.push(Array.from(triangles.subarray(i, i + 6)));
-	}
-	return polygons;
 }
 
 function expectMatchesReference(

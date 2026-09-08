@@ -469,6 +469,34 @@ function tessellateVisibleSubpath(
 		const segB = segments[(index + 1) % segments.length];
 		const joinIndex = segA.i1;
 		const groupStart = vertices.length;
+		if (innerTrimmed[index]) {
+			// Trimming moves the body ends away from the join's center fan.
+			// Bridge both ends without overlapping the trimmed inner edge.
+			const inner = segA.dx * segB.dy - segA.dy * segB.dx > 0 ? 4 : 6;
+			const outer = inner === 4 ? 6 : 4;
+			const a = corners[index];
+			const b = corners[(index + 1) % segments.length];
+			const cx = points[joinIndex * 2];
+			const cy = points[joinIndex * 2 + 1];
+			pushTriangle(
+				vertices,
+				a[inner],
+				a[inner + 1],
+				a[outer],
+				a[outer + 1],
+				cx,
+				cy,
+			);
+			pushTriangle(
+				vertices,
+				a[inner],
+				a[inner + 1],
+				cx,
+				cy,
+				b[outer - 4],
+				b[outer - 3],
+			);
+		}
 		emitJoin(
 			vertices,
 			lineJoin,
