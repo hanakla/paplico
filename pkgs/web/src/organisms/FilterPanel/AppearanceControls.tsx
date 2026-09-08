@@ -26,6 +26,7 @@ import {
 	setSelectedBrushPresetUid,
 } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
+import { useAppearanceSurfaceClose } from "./AppearanceSurface";
 import { useFilterStack } from "./FilterStackContext";
 
 export const AppearanceBaseControls = memo(function AppearanceBaseControls({
@@ -148,7 +149,9 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 		}),
 	);
 
+	const closeSurface = useAppearanceSurfaceClose();
 	const handleEditBrush = useEventCallback(() => {
+		closeSurface();
 		// Load this appearance's brush as the designer's working copy, then
 		// bind the designer to this filter index so edits flow back here
 		// instead of into the element's first stroke appearance.

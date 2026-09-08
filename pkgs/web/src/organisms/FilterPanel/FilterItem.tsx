@@ -64,8 +64,9 @@ export const FilterItem = memo(function FilterItem({
 	index,
 	sortableId,
 	isSelected,
+	isOpen,
 	onSelect,
-	onDeselect,
+	onCloseSurface,
 	onAddSubFilter,
 	dropIndicator,
 }: {
@@ -73,8 +74,9 @@ export const FilterItem = memo(function FilterItem({
 	index: number;
 	sortableId: string;
 	isSelected: boolean;
+	isOpen: boolean;
 	onSelect: (index: number) => void;
-	onDeselect: () => void;
+	onCloseSurface: () => void;
 	onAddSubFilter: (processor: string, asSubFilter: boolean) => void;
 	dropIndicator: FilterDropIndicator;
 }) {
@@ -304,8 +306,8 @@ export const FilterItem = memo(function FilterItem({
 					className="rounded"
 				>
 					<AppearanceSurface.Root
-						open={isSelected && !isDragging}
-						onSheetDismiss={onDeselect}
+						open={isOpen && !isDragging}
+						onSheetDismiss={onCloseSurface}
 					>
 						<AppearanceSurface.Trigger>
 							<div

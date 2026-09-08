@@ -50,7 +50,9 @@ export function FilterPanel() {
 	const [selectedFilterIndex, setSelectedFilterIndex] = useState<number | null>(
 		null,
 	);
-	const [elementPopoverOpen, setElementPopoverOpen] = useState(false);
+	// Whether the selected row's settings surface is showing. Kept apart from
+	// the selection so closing the surface leaves the row highlighted.
+	const [surfaceOpen, setSurfaceOpen] = useState(false);
 	const [presetsDialogOpen, setPresetsDialogOpen] = useState(false);
 	const library = useAppearancePresets();
 	// Snapshots are deeply readonly; presets are only read here.
@@ -74,7 +76,7 @@ export function FilterPanel() {
 	// biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset on element change
 	useEffect(() => {
 		setSelectedFilterIndex(null);
-		setElementPopoverOpen(false);
+		setSurfaceOpen(false);
 	}, [selectedElementId, editingPreset?.uid]);
 
 	const sensors = useFilterPanelSensors();
@@ -109,7 +111,7 @@ export function FilterPanel() {
 
 	const handleSelectElementHeader = useEventCallback(() => {
 		setSelectedFilterIndex(null);
-		setElementPopoverOpen(true);
+		setSurfaceOpen(true);
 	});
 
 	const handleEditMask = useEventCallback(() => {
@@ -118,12 +120,12 @@ export function FilterPanel() {
 	});
 
 	const handleSelectFilter = useEventCallback((index: number) => {
-		setSelectedFilterIndex((prev) => (prev === index ? null : index));
-		setElementPopoverOpen(false);
+		setSurfaceOpen(selectedFilterIndex !== index || !surfaceOpen);
+		setSelectedFilterIndex(index);
 	});
 
-	const handleDeselectFilter = useEventCallback(() => {
-		setSelectedFilterIndex(null);
+	const handleCloseSurface = useEventCallback(() => {
+		setSurfaceOpen(false);
 	});
 
 	const handleApplyDocumentPreset = useEventCallback((uid: string) => {
@@ -324,8 +326,8 @@ export function FilterPanel() {
 						{/* Element type header (non-sortable, always first) */}
 						{selectedElement && !editingPreset && (
 							<AppearanceSurface.Root
-								open={elementPopoverOpen}
-								onOpenChange={setElementPopoverOpen}
+								open={surfaceOpen && selectedFilterIndex === null}
+								onOpenChange={setSurfaceOpen}
 							>
 								<div className="w-full">
 									<div
@@ -424,8 +426,11 @@ export function FilterPanel() {
 										index={originalIndex}
 										sortableId={sortableIds[i]}
 										isSelected={selectedFilterIndex === originalIndex}
+										isOpen={
+											surfaceOpen && selectedFilterIndex === originalIndex
+										}
 										onSelect={handleSelectFilter}
-										onDeselect={handleDeselectFilter}
+										onCloseSurface={handleCloseSurface}
 										onAddSubFilter={handleAddFilter}
 										dropIndicator={dropIndicator}
 									/>

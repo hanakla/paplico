@@ -89,14 +89,12 @@ function AppearanceSurfaceContent({
 	title?: ReactNode;
 	children: ReactNode;
 }) {
-	const { open, isSheet, onOpenChange, onSheetDismiss } =
-		useAppearanceSurfaceContext();
+	const { open, isSheet } = useAppearanceSurfaceContext();
 	const railOffsets = useToolbarRailOffsets();
+	const close = useAppearanceSurfaceClose();
 
 	const handleOpenChange = useEventCallback((next: boolean) => {
-		if (next) return;
-		onOpenChange?.(false);
-		onSheetDismiss?.();
+		if (!next) close();
 	});
 
 	if (!isSheet) {
@@ -130,6 +128,19 @@ function AppearanceSurfaceContent({
 			</Drawer.Content>
 		</Drawer.Root>
 	);
+}
+
+/**
+ * Closes the enclosing surface. For controls inside the content that finish a
+ * task somewhere else, such as handing a brush over to the designer.
+ */
+export function useAppearanceSurfaceClose() {
+	const { onOpenChange, onSheetDismiss } = useAppearanceSurfaceContext();
+
+	return useEventCallback(() => {
+		onOpenChange?.(false);
+		onSheetDismiss?.();
+	});
 }
 
 function useAppearanceSurfaceContext() {
