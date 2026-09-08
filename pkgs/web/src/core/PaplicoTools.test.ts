@@ -177,7 +177,7 @@ describe("PaplicoTools.setBrushSettings with a builtin preset", () => {
 		expect(stored.properties.size?.curves?.[0].input).toBe("pressure");
 	});
 
-	it("should keep mixing enabled after applying the blur preset", async () => {
+	it("should keep the backdrop blur enabled after applying the blur preset", async () => {
 		const { getBuiltinBrushPresets } = await import("@/repos/brushPresets");
 		const preset = getBuiltinBrushPresets().find(
 			(p) => p.uid === "builtin-brush-blur",
@@ -190,8 +190,7 @@ describe("PaplicoTools.setBrushSettings with a builtin preset", () => {
 		const stored = store.strokeAppearance?.paramData.params
 			.brushSettings as unknown as BrushSettings;
 		expect(stored.engine).toBe("dab");
-		expect(stored.mixing?.enabled).toBe(true);
-		expect(stored.properties.colorRate?.base).toBe(0);
+		expect(stored.backdropBlur?.enabled).toBe(true);
 	});
 });
 

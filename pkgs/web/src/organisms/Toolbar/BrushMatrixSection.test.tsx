@@ -77,6 +77,32 @@ describe("BrushMatrixSection", () => {
 		});
 	});
 
+	it("should switch mixing and watercolour off when the backdrop blur goes on", () => {
+		const onChange = vi.fn();
+		const settings = dabBrush();
+		settings.mixing = {
+			enabled: true,
+			mode: "dulling",
+			sampleRadius: 1,
+			sampleTrail: 1,
+			blendStyle: 0,
+		};
+		settings.wet = {
+			enabled: true,
+			bleedRadius: 0.5,
+			pigmentLoad: 0.85,
+			grainScale: 1,
+		};
+		render(<BrushMatrixSection settings={settings} onChange={onChange} />);
+
+		fireEvent.click(switchOf("Blur what is underneath"));
+
+		const next: BrushSettings = onChange.mock.calls[0][0];
+		expect(next.backdropBlur?.enabled).toBe(true);
+		expect(next.mixing?.enabled).toBe(false);
+		expect(next.wet?.enabled).toBe(false);
+	});
+
 	it("should not offer watercolour or mixing to engines that ignore them", () => {
 		for (const engine of ["ribbon", "geometric"] as const) {
 			const settings = dabBrush();
@@ -91,6 +117,9 @@ describe("BrushMatrixSection", () => {
 				screen.queryByRole("switch", {
 					name: "Mixing with what is underneath",
 				}),
+			).toBeNull();
+			expect(
+				screen.queryByRole("switch", { name: "Blur what is underneath" }),
 			).toBeNull();
 			unmount();
 		}
@@ -124,15 +153,15 @@ function dabBrush(): BrushSettings {
 }
 
 /**
- * The panel is what tells someone whether a preset's mixing is on. A preset
- * that carries it must show it as on the moment it is applied.
+ * The panel is what tells someone whether a preset's backdrop blur is on. A
+ * preset that carries it must show it as on the moment it is applied.
  */
 describe("BrushMatrixSection with a builtin preset", () => {
 	beforeEach(() => {
 		setLanguage("en");
 	});
 
-	it("should show mixing as on for the blur preset", async () => {
+	it("should show the backdrop blur as on for the blur preset", async () => {
 		const { getBuiltinBrushPresets } = await import("@/repos/brushPresets");
 		const preset = getBuiltinBrushPresets().find(
 			(p) => p.uid === "builtin-brush-blur",
@@ -144,7 +173,7 @@ describe("BrushMatrixSection with a builtin preset", () => {
 		);
 
 		const toggle = screen.getByRole("switch", {
-			name: "Mixing with what is underneath",
+			name: "Blur what is underneath",
 		});
 		expect(toggle.getAttribute("aria-checked")).toBe("true");
 	});

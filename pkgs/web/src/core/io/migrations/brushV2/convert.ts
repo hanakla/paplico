@@ -4,6 +4,7 @@ import {
 	BRUSH_PROPERTY_REGISTRY,
 } from "../../../brush/properties";
 import type {
+	BackdropBlurConfig,
 	BrushArtSource,
 	BrushCurve,
 	BrushEngineKind,
@@ -373,6 +374,8 @@ function sanitizeV2(r: Record<string, unknown>): BrushSettings {
 	const mixing = sanitizeMixing(r.mixing);
 	if (mixing) result.mixing = mixing;
 	if (wet) result.wet = wet;
+	const backdropBlur = sanitizeBackdropBlur(r.backdropBlur);
+	if (backdropBlur) result.backdropBlur = backdropBlur;
 	const inputDynamics = sanitizeInputDynamics(r.inputDynamics);
 	if (inputDynamics) result.inputDynamics = inputDynamics;
 
@@ -542,6 +545,14 @@ function sanitizeWet(raw: unknown): WetConfig | undefined {
 		...(raw.scatter != null
 			? { scatter: clamp(num(raw.scatter, 0), 0, 4) }
 			: {}),
+	};
+}
+
+function sanitizeBackdropBlur(raw: unknown): BackdropBlurConfig | undefined {
+	if (!isRecord(raw)) return undefined;
+	return {
+		enabled: raw.enabled === true,
+		radius: clamp(num(raw.radius, 0.5), 0, 4),
 	};
 }
 

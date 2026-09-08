@@ -1077,11 +1077,10 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 		},
 	};
 
-	// Softens what is already on the layer instead of adding paint: each dab
-	// takes the average colour under its own footprint, so a dense trail of
-	// wide-footprint dabs reads as a blur that deepens as it is gone over
-	// again. Paint amount stays at zero — any of the brush's own colour would
-	// tint the very thing it smooths.
+	// Softens what is already on the layer instead of adding paint: the
+	// composite below the stroke is blurred and shown through the stroke's
+	// coverage, so at full flow the backdrop under the stroke is exactly its
+	// blurred self. Light pressure lets the sharp picture show through.
 	const blur: BrushPreset = {
 		uid: "builtin-brush-blur",
 		name: "Blur",
@@ -1096,56 +1095,30 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 					base: 40,
 					curves: [speedThinning()],
 				},
-				spacing: { base: 0.03 },
+				spacing: { base: 0.05 },
 				hardness: { base: 0.4 },
 				flow: {
-					base: 0.7,
+					base: 1,
 					curves: [
 						{
 							input: "pressure",
 							points: [
-								[0, -0.6],
+								[0, -0.8],
 								[1, 0],
 							],
 						},
 					],
 				},
-				colorRate: { base: 0 },
-				alphaRate: { base: 0 },
-				smudgeLength: { base: 0.15 },
-				wetness: { base: 1.1 },
-				absorption: { base: 0.12 },
-				bleedSoftness: { base: 0.9 },
-				granulation: { base: 0 },
-				grainAmount: { base: 0 },
-				edgeDarkening: { base: 0 },
 			},
 			tip: { kind: "procedural", hardness: 0.4, angleMode: "fixed" },
-			mixing: {
-				enabled: true,
-				mode: "dulling",
-				sampleRadius: 1.2,
-				sampleTrail: 0,
-				// Averaging colours in OkLAB keeps a blur from gaining the
-				// saturation that the vivid path would push into it.
-				blendStyle: 1,
-			},
-			// The pickup is spread by the wet layer rather than left as a disc
-			// of averaged colour: diffusion is what softens an edge instead of
-			// repainting it. Little absorption so it keeps running.
-			wet: {
-				enabled: true,
-				bleedRadius: 1,
-				pigmentLoad: 0.9,
-				grainScale: 1,
-			},
+			backdropBlur: { enabled: true, radius: 0.5 },
 			randomSeed: 53,
 		},
 	};
 
-	// The same pickup, thrown off the stroke line: each dab lands somewhere
-	// around where the pointer went and drops what it found there, so edges
-	// break into grain rather than dissolving evenly.
+	// The same blur, thrown off the stroke line: each dab lands somewhere
+	// around where the pointer went, so the coverage breaks into grain and
+	// the blurred picture shows through in specks rather than a smooth band.
 	const scatterBlur: BrushPreset = {
 		uid: "builtin-brush-scatter-blur",
 		name: "Scatter Blur",
@@ -1169,36 +1142,14 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 						},
 					],
 				},
-				spacing: { base: 0.05 },
+				spacing: { base: 0.08 },
 				hardness: { base: 0.25 },
-				flow: { base: 0.55 },
-				colorRate: { base: 0 },
-				alphaRate: { base: 0 },
-				smudgeLength: { base: 0.35 },
-				wetness: { base: 0.8 },
-				absorption: { base: 0.5 },
-				bleedSoftness: { base: 0.4 },
-				granulation: { base: 0.7 },
-				grainAmount: { base: 0.5 },
-				edgeRoughness: { base: 0.6 },
+				flow: { base: 0.7 },
+				scatterOffset: { base: 0.8 },
+				scatterAlong: { base: 0.4 },
 			},
 			tip: { kind: "procedural", hardness: 0.25, angleMode: "fixed" },
-			mixing: {
-				enabled: true,
-				mode: "dulling",
-				sampleRadius: 1,
-				sampleTrail: 0.4,
-				blendStyle: 1,
-			},
-			wet: {
-				enabled: true,
-				bleedRadius: 0.8,
-				pigmentLoad: 1,
-				grainScale: 0.7,
-				// Displaces each texel's pigment on the way out, which is what
-				// breaks the bleed into grain instead of smoothing it.
-				scatter: 0.45,
-			},
+			backdropBlur: { enabled: true, radius: 0.6 },
 			randomSeed: 59,
 		},
 	};

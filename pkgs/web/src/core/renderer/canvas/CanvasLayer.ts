@@ -135,6 +135,7 @@ import {
 	BackdropEffectCoordinator,
 	type BackdropEffectRequest,
 } from "./pipeline/BackdropEffectCoordinator";
+import { BlurStrokeRenderer } from "./pipeline/brush/BlurStrokeRenderer";
 import {
 	type BrushDrawBindings,
 	BrushRenderer,
@@ -543,6 +544,7 @@ export class CanvasLayer {
 	 *  knowing the concrete filter behind each. */
 	private backdropDrivers: BackdropEffectDriver[] = [];
 	private mixStrokeRenderer: MixStrokeRenderer | null = null;
+	private blurStrokeRenderer: BlurStrokeRenderer | null = null;
 	/** Object identity -> serial, for backdrop content keys (see
 	 *  backdropContentKeyFor). */
 	private readonly objectSerials = new WeakMap<object, number>();
@@ -1007,11 +1009,26 @@ export class CanvasLayer {
 				this.backdropContentKeyFor(elementId, bounds),
 			getRasterScale: () => this.getRasterScale(),
 		});
+		// Blur strokes read the composite below them the same way.
+		this.blurStrokeRenderer = new BlurStrokeRenderer({
+			device: this.device,
+			canvasFormat: this.canvasFormat,
+			texturePool: this.texturePool,
+			coordinator: this.backdropEffectCoordinator,
+			uniformScope: this.uniformScope,
+			brush: this.brushRenderer,
+			getTransformIndex: (elementId) =>
+				this.viewportManager.getTransformIndex(elementId),
+			getTransformsBindGroup: () => this.transformsBindGroup ?? undefined,
+			getMaskBindGroup: () => this.renderState.currentMaskBindGroup,
+			getRasterScale: () => this.getRasterScale(),
+		});
 		this.backdropDrivers = [
 			...[...this.filterRenderer.getHandlers().values()]
 				.map((h) => h.getBackdropEffectDriver?.(this.canvasId) ?? null)
 				.filter((d): d is BackdropEffectDriver => d !== null),
 			this.mixStrokeRenderer,
+			this.blurStrokeRenderer,
 		];
 
 		this.offscreen = new OffscreenPresenter({
@@ -7388,6 +7405,8 @@ export class CanvasLayer {
 		}
 		this.mixStrokeRenderer?.destroy();
 		this.mixStrokeRenderer = null;
+		this.blurStrokeRenderer?.destroy();
+		this.blurStrokeRenderer = null;
 		this.brushRenderer.destroy();
 		this.backdropDrivers = [];
 

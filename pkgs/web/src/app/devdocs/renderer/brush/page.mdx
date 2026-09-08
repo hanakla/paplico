@@ -273,6 +273,19 @@ flowchart LR
 
 wet層と併用した場合、ここで解決したDab色がwetシミュレーションのpigmentシードへ渡る。下地色の取得は混色の専任責務で、wet層は色を拾わない。
 
+## 下地ぼかし（BlurStrokeRenderer）
+
+`backdropBlur.enabled`のブラシは絵の具を置かず、ストロークの下にある合成結果をぼかして見せる。混色と同じく下地を読むため、`BlurStrokeRenderer`が`BackdropEffectDriver`としてz順のインライン合成を行う。
+
+1. Dab列を`DabRenderer.render`でcoverageテクスチャへ描く。色は使わずアルファだけを使う
+2. `BackdropEffectCoordinator.acquireFixedRRegion`で固定R格子の下地を取得し、`sampleBlur(sigma)`で共有ピラミッドからsigmaを挟む2レベルを受け取る。sigmaは`backdropBlur.radius × ブラシサイズ / 2`をR倍したものである
+3. `blurStroke.wgsl`のフルスクリーンパスが、2レベルを補間したぼかし画をcoverageで乗算して結果テクスチャへ書く
+4. 結果は`BlitLayer`として返り、`coverage`にcoverageテクスチャを載せる。CanvasLayerはcoverage分だけ下地を打ち抜いてから合成するので、coverageが1の場所ではぼけた下地がそのまま置き換わる
+
+同じブラシで`mixing`や`wet`が有効でも、`resolveBrushRenderRequirements`はぼかしを優先して両者をfalseにする。ぼかしは色を持たないため、混ぜる色も広げる顔料もないからである。
+
+`prepareFrame`で当該フレームの全ぼかしストロークの要求を`planFrame`に登録し、共有バッチのピラミッドが最大sigmaを賄えるようにする。ライブプレビューなど登録前に捕捉されたバッチにあたった場合は、バッチを捨てて自分を対象に再捕捉する。
+
 ## wet層（WetLayerPass）
 
 `wet.enabled`のブラシはにじみ・拡散のシミュレーションを通る。4フィールドの拡散シミュレーションで、係数はDab属性と場テクスチャから供給する。実装は`pipeline/brush/WetLayerPass.ts`である。

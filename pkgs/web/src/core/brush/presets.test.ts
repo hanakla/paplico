@@ -27,25 +27,39 @@ describe("createBuiltinBrushPresets", () => {
 		expect(new Set(uids).size).toBe(uids.length);
 	});
 
-	// A blur brush carries no paint of its own: every dab takes the colour
-	// already on the layer, averaged over its footprint. Anything above zero
-	// in the paint amount would tint what it is meant to smear.
-	it("should paint no colour of its own on the blur presets", () => {
+	// A blur brush carries no paint of its own: the stroke shows the blurred
+	// picture below it through its coverage. Mixing or the wet layer on the
+	// same preset would lay pigment over the very thing it is meant to soften.
+	it("should blur the backdrop and paint nothing of its own on the blur presets", () => {
 		const presets = createBuiltinBrushPresets();
 		for (const uid of BLUR_PRESET_UIDS) {
 			const settings = findPreset(presets, uid).settings;
-			expect(settings.properties.colorRate?.base, uid).toBe(0);
-			expect(settings.properties.alphaRate?.base, uid).toBe(0);
-			expect(settings.mixing?.enabled, uid).toBe(true);
+			expect(settings.backdropBlur?.enabled, uid).toBe(true);
+			expect(settings.backdropBlur?.radius, uid).toBeGreaterThan(0);
+			expect(settings.mixing?.enabled ?? false, uid).toBe(false);
+			expect(settings.wet?.enabled ?? false, uid).toBe(false);
 		}
 	});
 
-	it("should displace its texels on the scattering blur preset", () => {
+	// Full pressure has to blur the backdrop completely, so the coverage a
+	// dab lays down must reach 1 there.
+	it("should reach full flow at full pressure on the blur presets", () => {
+		const presets = createBuiltinBrushPresets();
+		for (const uid of BLUR_PRESET_UIDS) {
+			const flow = findPreset(presets, uid).settings.properties.flow;
+			expect(flow?.base, uid).toBeGreaterThan(0);
+			for (const curve of flow?.curves ?? []) {
+				expect(curve.points.at(-1)?.[1], uid).toBe(0);
+			}
+		}
+	});
+
+	it("should throw its dabs off the line on the scattering blur preset", () => {
 		const settings = findPreset(
 			createBuiltinBrushPresets(),
 			"builtin-brush-scatter-blur",
 		).settings;
-		expect(settings.wet?.scatter ?? 0).toBeGreaterThan(0);
+		expect(settings.properties.scatterOffset?.base ?? 0).toBeGreaterThan(0);
 	});
 
 	it("should put every preset on a shelf the panel actually shows", () => {

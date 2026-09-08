@@ -1,15 +1,11 @@
-import { resolveBrushRenderRequirements } from "../../../../brush/access";
-import { localAppearances } from "../../../../document/appearancePresets";
 import type {
 	AnyArtObject,
 	BoundingBox,
-	BrushSettings,
 	Filter,
 	Path,
 	StrokeAppearance,
 	Viewport,
 } from "../../../../schema";
-import { isFilterEnabled } from "../../../../schema";
 import {
 	calculateElementBounds,
 	expandBounds,
@@ -25,7 +21,11 @@ import type { BackdropEffectDriver } from "../FilterRenderer";
 import { createFrameTextureRef, createRenderSurface } from "../RenderSurface";
 import type { TexturePool } from "../TexturePool";
 import type { UniformScope } from "../UniformScope";
-import type { BrushRenderer } from "./BrushRenderer";
+import {
+	type BrushRenderer,
+	findStrokeAppearance,
+	type ResolvedStrokeAppearance,
+} from "./BrushRenderer";
 import { evaluateDabs } from "./DabEvaluator";
 import { DAB_INSTANCE_FLOATS } from "./DabInstanceLayout";
 import { MIX_CHUNK_SIZE, MixPass } from "./MixPass";
@@ -713,15 +713,6 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
  */
 export function resolveMixingStroke(
 	element: AnyArtObject,
-): { settings: BrushSettings; filter: Filter } | null {
-	if (element.type !== "path") return null;
-	for (const filter of localAppearances(element.filters)) {
-		if (!isFilterEnabled(filter) || filter.processor !== "stroke") continue;
-		const settings = (filter as StrokeAppearance).paramData.params
-			.brushSettings;
-		if (settings == null) continue;
-		if (!resolveBrushRenderRequirements(settings).mixingEnabled) continue;
-		return { settings, filter };
-	}
-	return null;
+): ResolvedStrokeAppearance | null {
+	return findStrokeAppearance(element, (r) => r.mixingEnabled);
 }

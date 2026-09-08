@@ -1908,6 +1908,17 @@ export interface WetConfig {
 }
 
 /**
+ * Backdrop blur stroke-level config. The stroke's dab coverage masks a
+ * Gaussian blur of the composite below it; the brush lays down no colour.
+ * `enabled` is the only activation gate.
+ */
+export interface BackdropBlurConfig {
+	enabled: boolean;
+	/** Blur radius as a ratio of the brush size. */
+	radius: number;
+}
+
+/**
  * Non-modulated settings that feed input computation itself. These must not
  * be curve targets (a speed curve wired into speedRef would recurse).
  * Undefined fields mean "auto/engine default"; speedRef auto derives from
@@ -1939,6 +1950,7 @@ export interface BrushSettings {
 	wetEdge?: WetEdgeConfig;
 	mixing?: MixingConfig;
 	wet?: WetConfig;
+	backdropBlur?: BackdropBlurConfig;
 	inputDynamics?: InputDynamicsConfig;
 	randomSeed: number;
 	taperStart?: number;

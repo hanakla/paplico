@@ -135,7 +135,7 @@ export function applyBrushPatch(
 	return next;
 }
 
-interface BrushRenderRequirements {
+export interface BrushRenderRequirements {
 	engine: BrushEngineKind;
 	/** Wash strokes accumulate flow in an isolated texture and apply
 	 *  strokeOpacity once at composite time. Ribbons wash too: the isolation
@@ -146,6 +146,10 @@ interface BrushRenderRequirements {
 	wetEnabled: boolean;
 	/** Colour pick-up from the composite below; dab strokes only. */
 	mixingEnabled: boolean;
+	/** Blurring the composite below under the stroke's coverage; dab strokes
+	 *  only. A blur stroke paints no pigment, so it takes the place of the
+	 *  wet layer and of mixing rather than combining with them. */
+	backdropBlurEnabled: boolean;
 	strokeOpacity: number;
 	/** The watercolor rim. Suppressed whenever the stored wet config is on,
 	 *  whichever engine the settings name. */
@@ -155,15 +159,22 @@ interface BrushRenderRequirements {
 export function resolveBrushRenderRequirements(
 	settings: BrushSettings,
 ): BrushRenderRequirements {
+	const backdropBlurEnabled =
+		settings.engine === "dab" && settings.backdropBlur?.enabled === true;
 	const wetEnabled =
-		settings.engine === "dab" && settings.wet?.enabled === true;
+		settings.engine === "dab" &&
+		settings.wet?.enabled === true &&
+		!backdropBlurEnabled;
 	return {
 		engine: settings.engine,
 		requiresIsolation:
 			settings.engine !== "geometric" && settings.paintMode === "wash",
 		wetEnabled,
 		mixingEnabled:
-			settings.engine === "dab" && settings.mixing?.enabled === true,
+			settings.engine === "dab" &&
+			settings.mixing?.enabled === true &&
+			!backdropBlurEnabled,
+		backdropBlurEnabled,
 		strokeOpacity: settings.strokeOpacity,
 		wetEdge: settings.wet?.enabled === true ? undefined : settings.wetEdge,
 	};

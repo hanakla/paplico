@@ -60,9 +60,11 @@ stroke, not an error.
 `resolveBrushRenderRequirements(settings)` in `brush/access.ts`
 is the one place that derives what the renderer must arrange from the
 settings. It returns `engine`, `requiresIsolation`, `wetEnabled`,
-`mixingEnabled`, `strokeOpacity` and `wetEdge`. `requiresIsolation` is true
-for wash paint mode on any non-geometric engine. `wetEnabled` and
-`mixingEnabled` are true for dab strokes only. `wetEdge` is undefined
+`mixingEnabled`, `backdropBlurEnabled`, `strokeOpacity` and `wetEdge`.
+`requiresIsolation` is true for wash paint mode on any non-geometric engine.
+`wetEnabled`, `mixingEnabled` and `backdropBlurEnabled` are true for dab
+strokes only, and the blur takes precedence: a blur stroke paints no pigment,
+so `wetEnabled` and `mixingEnabled` are false whenever it is on. `wetEdge` is undefined
 whenever the stored `wet.enabled` is true, whichever engine the settings
 name. RenderPlanner, CanvasLayer's wet route and
 MixStrokeRenderer all read this function.
@@ -95,6 +97,7 @@ Four different seams, selected by the settings:
 | `paintMode: "wash"` | per-appearance isolation texture | `strokeOpacity` must apply once, not per dab |
 | `wet.enabled` | per-appearance isolation texture | migration forces wash (see below) |
 | `mixing.enabled` | `BackdropEffectDriver` inline composite | needs the composite *below* the stroke |
+| `backdropBlur.enabled` | `BackdropEffectDriver` inline composite | shows the composite *below* the stroke, blurred, through the dab coverage |
 
 Two consequences that are not visible from the settings:
 
@@ -309,6 +312,26 @@ only the lower stroke reads leaves the upper one serving a stale texture.
 
 Gradient and pattern stroke colours resolve per dab through `resolveDabColor`,
 so they mix like solid ones.
+
+## Backdrop blur
+
+A blur stroke (`backdropBlur.enabled`) paints nothing of its own. It runs on
+the same `BackdropEffectDriver` seam as mixing (`BlurStrokeRenderer`):
+
+1. Draw the dabs into a coverage texture through `DabRenderer.render`; only
+   the alpha is used.
+2. `acquireFixedRRegion` for the backdrop, then `sampleBlur(sigma)` for the
+   two shared-pyramid levels bracketing `sigma = radius × size / 2 × R`.
+3. One fullscreen pass (`blurStroke.wgsl`) lerps the levels and multiplies
+   the coverage in.
+4. The result is a `BlitLayer` with `coverage` set, so CanvasLayer punches
+   the destination by the coverage before the src-over blit: where coverage
+   is 1 the blurred backdrop replaces the sharp one outright.
+
+`prepareFrame` plans every blur stroke's request with the coordinator so the
+shared batch's pyramid is deep enough for the largest sigma. A batch captured
+before the stroke was planned (a live preview) is dropped and recaptured with
+the stroke as its target.
 
 ## Wet layer
 

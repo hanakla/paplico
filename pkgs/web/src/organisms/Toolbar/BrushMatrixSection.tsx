@@ -38,6 +38,7 @@ export const BrushMatrixSection = memo(function BrushMatrixSection({
 	const t = useTranslation();
 	const wetEnabled = settings.wet?.enabled === true;
 	const mixingEnabled = settings.mixing?.enabled === true;
+	const backdropBlurEnabled = settings.backdropBlur?.enabled === true;
 
 	const handlePropertyChange = useEventCallback(
 		(propertyId: BrushPropertyId, next: BrushPropertyConfig) => {
@@ -70,6 +71,41 @@ export const BrushMatrixSection = memo(function BrushMatrixSection({
 			},
 		});
 	});
+
+	const handleBackdropBlurToggle = useEventCallback((checked: boolean) => {
+		// A blur stroke paints no pigment, so there is nothing for the wet
+		// layer to run or for mixing to pick up: the renderer gives the blur
+		// precedence, and the panel says so by switching the two off.
+		onChange({
+			...settings,
+			backdropBlur: {
+				...DEFAULT_BACKDROP_BLUR_CONFIG,
+				...settings.backdropBlur,
+				enabled: checked,
+			},
+			mixing:
+				checked && settings.mixing
+					? { ...settings.mixing, enabled: false }
+					: settings.mixing,
+			wet:
+				checked && settings.wet
+					? { ...settings.wet, enabled: false }
+					: settings.wet,
+		});
+	});
+
+	const handleBackdropBlurRadiusChange = useEventCallback(
+		(_key: string, value: number) => {
+			onChange({
+				...settings,
+				backdropBlur: {
+					...DEFAULT_BACKDROP_BLUR_CONFIG,
+					...settings.backdropBlur,
+					radius: value,
+				},
+			});
+		},
+	);
 
 	const handleWetValueChange = useEventCallback(
 		(
@@ -167,11 +203,30 @@ export const BrushMatrixSection = memo(function BrushMatrixSection({
 				</div>
 			))}
 
-			{/* Only the dab engine runs the mix pass and the wet layer: the
-			    solid-line and ribbon renderers ignore both, so their switches
-			    would do nothing. */}
+			{/* Only the dab engine runs the mix pass, the wet layer and the
+			    backdrop blur: the solid-line and ribbon renderers ignore them
+			    all, so their switches would do nothing. */}
 			{settings.engine !== "dab" ? null : (
 				<>
+					<GatedSection
+						title={t("brushGroup.backdropBlur")}
+						enabled={backdropBlurEnabled}
+						onToggle={handleBackdropBlurToggle}
+					>
+						<PlainRow
+							label={t("toolbar.backdropBlurRadius")}
+							min={0.05}
+							max={4}
+							step={0.05}
+							value={
+								settings.backdropBlur?.radius ??
+								DEFAULT_BACKDROP_BLUR_CONFIG.radius
+							}
+							valueKey="radius"
+							onValueChange={handleBackdropBlurRadiusChange}
+						/>
+					</GatedSection>
+
 					<GatedSection
 						title={t("brushGroup.mixing")}
 						enabled={mixingEnabled}
@@ -304,6 +359,11 @@ const DEFAULT_WET_CONFIG = {
 	bleedRadius: 0.5,
 	pigmentLoad: 0.85,
 	grainScale: 1,
+} as const;
+
+const DEFAULT_BACKDROP_BLUR_CONFIG = {
+	enabled: false,
+	radius: 0.5,
 } as const;
 
 const DEFAULT_MIXING_CONFIG = {

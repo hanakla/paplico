@@ -7,12 +7,21 @@
  * arrive here: they are tessellated and drawn by PathElementRenderer.
  */
 
+import {
+	type BrushRenderRequirements,
+	resolveBrushRenderRequirements,
+} from "../../../../brush/access";
+import { localAppearances } from "../../../../document/appearancePresets";
 import type {
+	AnyArtObject,
 	BrushSettings,
 	CubicBezierSegment,
+	Filter,
 	Path,
+	StrokeAppearance,
 	StrokeColor,
 } from "../../../../schema";
+import { isFilterEnabled } from "../../../../schema";
 import type { StampCache } from "../../caches/StampCache";
 import type { TexturePool } from "../TexturePool";
 import type { UniformScope } from "../UniformScope";
@@ -168,4 +177,32 @@ function createStrokeMetaBindGroupLayout(
 			},
 		],
 	});
+}
+
+/** A stroke appearance together with the brush settings it draws with. */
+export interface ResolvedStrokeAppearance {
+	settings: BrushSettings;
+	filter: Filter;
+}
+
+/**
+ * The element's first enabled stroke appearance whose render requirements
+ * satisfy `accept`, or null. Backdrop-reading brush routes use this to claim
+ * a path: only the dab engine has dabs to sample or mask with, which the
+ * requirements already encode.
+ */
+export function findStrokeAppearance(
+	element: AnyArtObject,
+	accept: (requirements: BrushRenderRequirements) => boolean,
+): ResolvedStrokeAppearance | null {
+	if (element.type !== "path") return null;
+	for (const filter of localAppearances(element.filters)) {
+		if (!isFilterEnabled(filter) || filter.processor !== "stroke") continue;
+		const settings = (filter as StrokeAppearance).paramData.params
+			.brushSettings;
+		if (settings == null) continue;
+		if (!accept(resolveBrushRenderRequirements(settings))) continue;
+		return { settings, filter };
+	}
+	return null;
 }
