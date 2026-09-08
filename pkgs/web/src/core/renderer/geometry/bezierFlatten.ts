@@ -13,7 +13,10 @@ export type FlattenBezierPathOptions = FlattenCubicBezierOptions & {
 
 const DEFAULT_CURVE_TOLERANCE = 0.25;
 const DEFAULT_MAX_FLATTEN_DEPTH = 9;
-const MIN_CURVE_TOLERANCE = 0.01;
+// Only guards against a zero tolerance; callers at high zoom legitimately
+// ask for far less than a hundredth of a world unit, and maxDepth bounds
+// the subdivision either way.
+const MIN_CURVE_TOLERANCE = 1e-6;
 const MIN_MAX_FLATTEN_DEPTH = 1;
 
 /** Flatten one cubic Bézier with absolute control points to [x, y, x, y, ...]. */

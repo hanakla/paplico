@@ -23,7 +23,7 @@ import type { CompoundPathCache } from "../caches/CompoundPathCache";
  * Recursively collect all path segments from a group's children
  * as a single multi-subpath path in world space.
  * All closed subpaths are normalized to CCW winding so that
- * overlapping subpaths add (rather than cancel) in the stencil buffer.
+ * overlapping subpaths add (rather than cancel) under nonzero winding.
  * CompoundPaths are resolved via cache. ImageObject/TextElement are skipped.
  */
 export function collectGroupSegments(
@@ -94,7 +94,7 @@ function collectRecursive(
  * Append segments to result, normalizing closed subpaths to CCW winding.
  * Splits input into subpaths (by isMoved), checks winding of each closed
  * subpath, and reverses CW subpaths so all subpaths use CCW winding.
- * This prevents overlapping shapes from canceling in the stencil buffer.
+ * This prevents overlapping shapes from canceling under nonzero winding.
  */
 function appendNormalized(
 	segments: CubicBezierSegment[],

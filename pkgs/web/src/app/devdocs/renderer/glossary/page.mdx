@@ -25,7 +25,7 @@ GPU上に保持される画像データ。レンダリングのソースやタ�
 
 ### GPUパイプライン
 
-シェーダーやレンダリング設定（ブレンド、デプスステンシル、トポロジ等）を組み合わせた描画手順の定義。ジオメトリパイプラインとフルスクリーンパイプラインの2種に分類される。シェーダーコンパイルとパイプライン生成は高コストであるため、`RenderOrchestrator` が1回だけ生成して全ターゲットで共有する。
+シェーダーやレンダリング設定（ブレンド、トポロジ等）を組み合わせた描画手順の定義。ジオメトリパイプラインとフルスクリーンパイプラインの2種に分類される。シェーダーコンパイルとパイプライン生成は高コストであるため、`RenderOrchestrator` が1回だけ生成して全ターゲットで共有する。
 
 → [レンダラーアーキテクチャ](/devdocs/renderer#renderorchestrator), [パイプライン](/devdocs/renderer/pipeline#pipelinefactory)
 
@@ -37,7 +37,7 @@ GPUが1回の描画操作で実行する命令セット。メインのキャン�
 
 ### オフスクリーンレンダーパス
 
-メイン画面ではなく一時テクスチャに対する描画パス。フィルター処理、グループ合成、クリップグループのステンシルマスキングで使用される。`OffscreenPresenter` が生成とライフサイクル管理を担当する。
+メイン画面ではなく一時テクスチャに対する描画パス。フィルター処理、グループ合成、クリップグループのマスク合成で使用される。`OffscreenPresenter` が生成とライフサイクル管理を担当する。
 
 → [パイプライン](/devdocs/renderer/pipeline#offscreenpresenter)
 
@@ -89,11 +89,11 @@ GPU上でピクセルごとの色計算を行うプログラム。インライ�
 
 → [パイプライン](/devdocs/renderer/pipeline#compositerenderer)
 
-### ステンシルバッファ
+### 被覆率（coverage）
 
-ピクセルの描画可否を制御するGPUの補助バッファ。`depth24plus-stencil8` フォーマットのテクスチャとして使用され、stencil-then-coverアルゴリズムやクリップマスクの生成に利用される。
+ピクセルのうち形状が占める面積の割合。Paplico はパスの塗りと線の被覆率を CPU の面積積分で求め、GPU で alpha として掛ける。輪郭の AA はこの値そのものである。
 
-→ [クリッピング方式](/devdocs/renderer/clipping#ステンシルテクスチャ)
+→ [パス描画フロー](/devdocs/renderer/path-rendering)
 
 ### loadOp
 
@@ -183,7 +183,7 @@ Canvas要素のラッパー。ResizeObserverとビューポート状態を保持
 
 ### DocumentCache
 
-ステンシル、composite、prebuffer、final-blit、backdrop-mask用テクスチャの遅延生成と再利用を管理するモジュール。リソースのサイズ一致時は再利用し、変更時のみ再生成する。描画済みドキュメント内容やタイルを保持するキャッシュではない。
+composite、prebuffer、final-blit、backdrop-mask用テクスチャの遅延生成と再利用を管理するモジュール。リソースのサイズ一致時は再利用し、変更時のみ再生成する。描画済みドキュメント内容やタイルを保持するキャッシュではない。
 
 → [パイプライン](/devdocs/renderer/pipeline#documentcache)
 
@@ -291,15 +291,15 @@ UILayerの描画内容を駆動する構造体。各ツールがポインタイ�
 
 → [ブラシレンダリング](/devdocs/renderer/brush)
 
-### Stencil-then-Cover
+### Sparse strips
 
-ステンシルバッファで形状の内外を判定し、内側だけに色を出力する2パスアルゴリズム。Fan Writeパスで三角ファンのステンシル値を加減算し、Coverパスで非ゼロのピクセルに色を出力する。三角形分割に依存せず、複合パスや自己交差を安定して処理できる。
+被覆率のある行を 4px 高の帯（strip）として持つ表現。各 strip は alpha スロットの列を指し、完全に覆われた区間は alpha を持たない。Vello GPU 方式に由来し、`renderer/geometry/strips/` が生成、`StripFrame` が GPU へ渡す。
 
-→ [クリッピング方式](/devdocs/renderer/clipping#ステンシルテクスチャ)
+→ [パス描画フロー](/devdocs/renderer/path-rendering)
 
 ### 三角ファン
 
-1つの中心点（重心）から放射状に三角形を形成するジオメトリ構造。stencil-then-coverのFan Writeパスで使用され、各サブパスの巻き方向に応じてステンシル値を加減算する。
+1つの中心点から放射状に三角形を形成するジオメトリ構造。ストロークの round join や round cap が扇形を作るときに使う。
 
 → [クリッピング方式](/devdocs/renderer/clipping#2パス処理)
 
@@ -351,11 +351,11 @@ UILayerの描画内容を駆動する構造体。各ツールがポインタイ�
 
 → [ブラシレンダリング](/devdocs/renderer/brush#ベクターブラシ)
 
-### ステンシルベースフィル
+### 非ゼロ巻き数
 
-ステンシルバッファを使って任意形状を正確に塗りつぶす手法。stencil-then-coverアルゴリズムにより、自己交差パスやコンパウンドパスの穴も安定して処理できる。
+ある点を囲む輪郭の巻き数が 0 でなければ内側とみなす塗りつぶし規則。同じ向きで重なる輪郭は union、逆向きは穴になる。Paplico の塗りと線はこの規則で被覆率を求める。
 
-→ [エレメントレンダリング](/devdocs/renderer/elements#パス描画フロー), [クリッピング方式](/devdocs/renderer/clipping#ステンシルテクスチャ)
+→ [エレメントレンダリング](/devdocs/renderer/elements#パス描画フロー), [パス描画フロー](/devdocs/renderer/path-rendering)
 
 ### ラスタライズ
 

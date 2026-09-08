@@ -21,14 +21,12 @@ interface GeometryPipelineOpts {
 	topology: GPUPrimitiveTopology;
 	targetFormat: GPUTextureFormat;
 	blend?: GPUBlendState;
-	depthStencil?: GPUDepthStencilState;
 	multisampleCount?: number;
-	colorWriteMask?: number;
 	vertexEntryPoint?: string;
 	fragmentEntryPoint?: string;
 }
 
-/** Create a render pipeline with vertex buffers (stroke/fill/gradient/stencil/UI families). */
+/** Create a render pipeline with vertex buffers (stroke/fill/gradient/UI families). */
 export function createGeometryPipeline(
 	opts: GeometryPipelineOpts,
 ): GPURenderPipeline {
@@ -52,12 +50,10 @@ export function createGeometryPipeline(
 				{
 					format: opts.targetFormat,
 					blend: opts.blend,
-					writeMask: opts.colorWriteMask,
 				},
 			],
 		},
 		primitive: { topology: opts.topology },
-		depthStencil: opts.depthStencil,
 		multisample: { count: multisampleCount },
 	});
 }
@@ -70,7 +66,6 @@ interface FullscreenPipelineOpts {
 	targetFormat: GPUTextureFormat;
 	fragmentEntryPoint?: string;
 	blend?: GPUBlendState;
-	depthStencil?: GPUDepthStencilState;
 	multisampleCount?: number;
 }
 
@@ -98,7 +93,6 @@ export function createFullscreenPipeline(
 			],
 		},
 		primitive: { topology: "triangle-list" },
-		depthStencil: opts.depthStencil,
 		multisample: { count: multisampleCount },
 	});
 }

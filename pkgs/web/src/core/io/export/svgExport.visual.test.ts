@@ -1,10 +1,4 @@
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	unlinkSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import pixelmatch from "pixelmatch";
@@ -24,7 +18,7 @@ import {
 	type Path,
 	type PathSegment,
 } from "../../schema";
-import { loadTestFont, NOTO_SANS_JP_PATH } from "../../testUtils/fontSetup";
+import { loadTestFont } from "../../testUtils/fontSetup";
 import { loadTestDocument } from "../../testUtils/loadTestDocument";
 import {
 	createTestRenderer,
@@ -71,7 +65,6 @@ const ARTBOARDS: ReadonlyArray<[artboardName: string, maxDiff: number]> = [
 ];
 
 let originalOffscreenCanvas: typeof globalThis.OffscreenCanvas | undefined;
-let originalFetch: typeof globalThis.fetch;
 
 beforeAll(() => {
 	loadTestFont(getFontManager());
@@ -80,21 +73,11 @@ beforeAll(() => {
 	originalOffscreenCanvas = globalThis.OffscreenCanvas;
 	globalThis.OffscreenCanvas =
 		TestOffscreenCanvas as unknown as typeof globalThis.OffscreenCanvas;
-	// FontManager's fallback font fetches an app-served asset; answer it from
-	// the bundled test asset so outlining text never touches the network.
-	originalFetch = globalThis.fetch;
-	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-		if (String(input).includes("/assets/fonts/NotoSansJP")) {
-			return new Response(new Uint8Array(readFileSync(NOTO_SANS_JP_PATH)));
-		}
-		return originalFetch(input, init);
-	}) as typeof globalThis.fetch;
 });
 
 afterAll(() => {
 	globalThis.OffscreenCanvas =
 		originalOffscreenCanvas as typeof globalThis.OffscreenCanvas;
-	globalThis.fetch = originalFetch;
 });
 
 describe("SVG Export vs GPU render - testDocument artboards", () => {

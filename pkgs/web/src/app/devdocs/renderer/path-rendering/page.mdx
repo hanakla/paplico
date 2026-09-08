@@ -7,96 +7,65 @@ Paplicoにおけるパス要素（Path）は、3次ベジエ曲線の配列と�
 
 ## 全体フロー
 
-パス描画は以下の4段階で処理される:
+パス描画は4段階で処理される。GPU に渡るのは三角形メッシュではなく、CPU で求めた**被覆率**（ピクセルのうち形状が占める面積の割合）である。
 
-<svg viewBox="0 0 780 320" xmlns="http://www.w3.org/2000/svg" style={{fontSize: "11px", fontFamily: "system-ui, sans-serif"}}>
-  {/* Background */}
-  <rect x="0" y="0" width="780" height="320" rx="8" fill="#1e1e2e"/>
+<svg viewBox="0 0 780 300" xmlns="http://www.w3.org/2000/svg" style={{fontSize: "11px", fontFamily: "system-ui, sans-serif"}}>
+  <rect x="0" y="0" width="780" height="300" rx="8" fill="#1e1e2e"/>
 
-  {/* Stage 1: Data */}
   <rect x="20" y="20" width="170" height="60" rx="6" fill="#181825" stroke="#89b4fa" strokeWidth="1.5"/>
-  <text x="105" y="42" textAnchor="middle" fill="#89b4fa" fontWeight="bold" fontSize="12">1. データ構造</text>
-  <text x="105" y="58" textAnchor="middle" fill="#cdd6f4" fontSize="10">CubicBezierSegment[]</text>
-  <text x="105" y="70" textAnchor="middle" fill="#a6adc8" fontSize="9">相対オフセット表現</text>
+  <text x="105" y="42" textAnchor="middle" fill="#89b4fa" fontWeight="bold" fontSize="12">1. アウトライン</text>
+  <text x="105" y="58" textAnchor="middle" fill="#cdd6f4" fontSize="10">要素ローカル空間</text>
+  <text x="105" y="70" textAnchor="middle" fill="#a6adc8" fontSize="9">OutlineCache</text>
 
-  {/* Arrow 1→2 */}
   <line x1="190" y1="50" x2="220" y2="50" stroke="#a6adc8" strokeWidth="1.5"/>
   <polygon points="220,45 230,50 220,55" fill="#a6adc8"/>
 
-  {/* Stage 2: Flatten */}
   <rect x="230" y="20" width="170" height="60" rx="6" fill="#181825" stroke="#a6e3a1" strokeWidth="1.5"/>
-  <text x="315" y="42" textAnchor="middle" fill="#a6e3a1" fontWeight="bold" fontSize="12">2. フラッテニング</text>
-  <text x="315" y="58" textAnchor="middle" fill="#cdd6f4" fontSize="10">de Casteljau二分割</text>
-  <text x="315" y="70" textAnchor="middle" fill="#a6adc8" fontSize="9">既定許容度 0.25</text>
+  <text x="315" y="42" textAnchor="middle" fill="#a6e3a1" fontWeight="bold" fontSize="12">2. 線分化とタイル分配</text>
+  <text x="315" y="58" textAnchor="middle" fill="#cdd6f4" fontSize="10">パスのテクセル空間</text>
+  <text x="315" y="70" textAnchor="middle" fill="#a6adc8" fontSize="9">4×4 px タイル</text>
 
-  {/* Arrow 2→3 */}
   <line x1="400" y1="50" x2="430" y2="50" stroke="#a6adc8" strokeWidth="1.5"/>
   <polygon points="430,45 440,50 430,55" fill="#a6adc8"/>
 
-  {/* Stage 3: Tessellation / Stencil */}
   <rect x="440" y="20" width="170" height="60" rx="6" fill="#181825" stroke="#f9e2af" strokeWidth="1.5"/>
-  <text x="525" y="42" textAnchor="middle" fill="#f9e2af" fontWeight="bold" fontSize="12">3. メッシュ化</text>
-  <text x="525" y="58" textAnchor="middle" fill="#cdd6f4" fontSize="10">Tessellation / Stencil</text>
-  <text x="525" y="70" textAnchor="middle" fill="#a6adc8" fontSize="9">三角形メッシュ生成</text>
+  <text x="525" y="42" textAnchor="middle" fill="#f9e2af" fontWeight="bold" fontSize="12">3. strip 生成</text>
+  <text x="525" y="58" textAnchor="middle" fill="#cdd6f4" fontSize="10">面積積分で被覆率</text>
+  <text x="525" y="70" textAnchor="middle" fill="#a6adc8" fontSize="9">StripCache</text>
 
-  {/* Arrow 3→4 */}
   <line x1="610" y1="50" x2="640" y2="50" stroke="#a6adc8" strokeWidth="1.5"/>
   <polygon points="640,45 650,50 640,55" fill="#a6adc8"/>
 
-  {/* Stage 4: GPU */}
   <rect x="650" y="20" width="110" height="60" rx="6" fill="#181825" stroke="#cba6f7" strokeWidth="1.5"/>
   <text x="705" y="42" textAnchor="middle" fill="#cba6f7" fontWeight="bold" fontSize="12">4. GPU描画</text>
-  <text x="705" y="58" textAnchor="middle" fill="#cdd6f4" fontSize="10">unified.wgsl</text>
-  <text x="705" y="70" textAnchor="middle" fill="#a6adc8" fontSize="9">シェーダー実行</text>
+  <text x="705" y="58" textAnchor="middle" fill="#cdd6f4" fontSize="10">strip.wgsl</text>
+  <text x="705" y="70" textAnchor="middle" fill="#a6adc8" fontSize="9">インスタンス描画</text>
 
-  {/* Branch: Fill vs Stroke */}
-  <text x="390" y="105" textAnchor="middle" fill="#cdd6f4" fontWeight="bold" fontSize="12">フラッテニング後の分岐</text>
+  <text x="390" y="105" textAnchor="middle" fill="#cdd6f4" fontWeight="bold" fontSize="12">アウトラインの作り方</text>
 
-  {/* Fill branch */}
-  <rect x="40" y="120" width="320" height="180" rx="6" fill="#181825" stroke="#89b4fa" strokeWidth="1"/>
+  <rect x="40" y="120" width="320" height="160" rx="6" fill="#181825" stroke="#89b4fa" strokeWidth="1"/>
   <text x="200" y="142" textAnchor="middle" fill="#89b4fa" fontWeight="bold" fontSize="12">Fill（塗りつぶし）</text>
+  <rect x="60" y="152" width="280" height="36" rx="4" fill="#1e1e2e" stroke="#a6e3a1" strokeWidth="0.8"/>
+  <text x="200" y="167" textAnchor="middle" fill="#a6e3a1" fontSize="10">flattenBezierPath()</text>
+  <text x="200" y="180" textAnchor="middle" fill="#a6adc8" fontSize="9">閉じたポリライン。許容誤差は画面 0.25px 相当</text>
+  <rect x="60" y="200" width="280" height="30" rx="4" fill="#1e1e2e" stroke="#585b70" strokeWidth="0.5"/>
+  <text x="200" y="220" textAnchor="middle" fill="#a6adc8" fontSize="10">非ゼロ巻き数。自己交差と穴を厳密に処理</text>
+  <rect x="60" y="240" width="280" height="25" rx="4" fill="#1e1e2e" stroke="#a6e3a1" strokeWidth="0.5"/>
+  <text x="200" y="257" textAnchor="middle" fill="#a6adc8" fontSize="10">AA は被覆率そのもの。フリンジ不要</text>
 
-  <rect x="60" y="152" width="130" height="36" rx="4" fill="#1e1e2e" stroke="#a6e3a1" strokeWidth="0.8"/>
-  <text x="125" y="167" textAnchor="middle" fill="#a6e3a1" fontSize="10">Fan Pass</text>
-  <text x="125" y="180" textAnchor="middle" fill="#a6adc8" fontSize="9">重心→三角ファン</text>
-
-  <text x="205" y="172" fill="#a6adc8" fontSize="14">→</text>
-
-  <rect x="220" y="152" width="130" height="36" rx="4" fill="#1e1e2e" stroke="#f9e2af" strokeWidth="0.8"/>
-  <text x="285" y="167" textAnchor="middle" fill="#f9e2af" fontSize="10">Cover Pass</text>
-  <text x="285" y="180" textAnchor="middle" fill="#a6adc8" fontSize="9">BBox quad描画</text>
-
-  <rect x="60" y="200" width="290" height="30" rx="4" fill="#1e1e2e" stroke="#585b70" strokeWidth="0.5"/>
-  <text x="205" y="220" textAnchor="middle" fill="#a6adc8" fontSize="10">ステンシルバッファで自己交差・穴を正確に処理</text>
-
-  <rect x="60" y="240" width="290" height="25" rx="4" fill="#1e1e2e" stroke="#a6e3a1" strokeWidth="0.5"/>
-  <text x="205" y="257" textAnchor="middle" fill="#a6adc8" fontSize="10">Fringe AA: エッジに1pxフリンジ追加</text>
-
-  {/* Stroke branch */}
-  <rect x="400" y="120" width="360" height="180" rx="6" fill="#181825" stroke="#f38ba8" strokeWidth="1"/>
+  <rect x="400" y="120" width="360" height="160" rx="6" fill="#181825" stroke="#f38ba8" strokeWidth="1"/>
   <text x="580" y="142" textAnchor="middle" fill="#f38ba8" fontWeight="bold" fontSize="12">Stroke（線）</text>
-
-  {/* Geometric */}
   <rect x="415" y="155" width="155" height="65" rx="4" fill="#1e1e2e" stroke="#f9e2af" strokeWidth="0.8"/>
   <text x="492" y="172" textAnchor="middle" fill="#f9e2af" fontSize="10" fontWeight="bold">Geometric</text>
   <text x="492" y="187" textAnchor="middle" fill="#a6adc8" fontSize="9">tessellateStroke()</text>
-  <text x="492" y="200" textAnchor="middle" fill="#a6adc8" fontSize="9">法線拡張→三角形メッシュ</text>
-  <text x="492" y="213" textAnchor="middle" fill="#a6adc8" fontSize="9">Join + Cap + Fringe AA</text>
-
-  {/* Textured */}
+  <text x="492" y="200" textAnchor="middle" fill="#a6adc8" fontSize="9">三角形スープを非ゼロ塗り</text>
+  <text x="492" y="213" textAnchor="middle" fill="#a6adc8" fontSize="9">Join + Cap + Dash</text>
   <rect x="585" y="155" width="160" height="65" rx="4" fill="#1e1e2e" stroke="#cba6f7" strokeWidth="0.8"/>
   <text x="665" y="172" textAnchor="middle" fill="#cba6f7" fontSize="10" fontWeight="bold">Textured</text>
   <text x="665" y="187" textAnchor="middle" fill="#a6adc8" fontSize="9">DabEvaluator</text>
   <text x="665" y="200" textAnchor="middle" fill="#a6adc8" fontSize="9">Arc-length等間隔配置</text>
   <text x="665" y="213" textAnchor="middle" fill="#a6adc8" fontSize="9">インスタンスドレンダリング</text>
-
-  <text x="580" y="250" textAnchor="middle" fill="#a6adc8" fontSize="10">isGeometricBrush() で分岐</text>
-
-  {/* Labels */}
-  <rect x="415" y="268" width="155" height="22" rx="3" fill="#f9e2af" opacity="0.1" stroke="#f9e2af" strokeWidth="0.5"/>
-  <text x="492" y="283" textAnchor="middle" fill="#f9e2af" fontSize="9">ジオメトリックブラシ（SVGブラシ）</text>
-  <rect x="585" y="268" width="160" height="22" rx="3" fill="#cba6f7" opacity="0.1" stroke="#cba6f7" strokeWidth="0.5"/>
-  <text x="665" y="283" textAnchor="middle" fill="#cba6f7" fontSize="9">テクスチャブラシ（airbrush等）</text>
+  <text x="580" y="250" textAnchor="middle" fill="#a6adc8" fontSize="10">BrushSettings.engine で分岐</text>
 </svg>
 
 ## データ構造
@@ -122,47 +91,56 @@ cp1_world = { x: start.x + cp1.x, y: start.y + cp1.y }
 cp2_world = { x: end.x + cp2.x, y: end.y + cp2.y }
 ```
 
-## フラッテニング
+## アウトライン: 要素ローカル空間での平坦化
 
 フラッテニングとは、ベジエ曲線を十分に細かい直線の列（ポリライン）に近似する処理である。GPU はベジエ曲線を直接ラスタライズできないため、すべてのパス描画はこの段階を経る。
 
-実装は `flattenBezierPath()`（`CanvasLayer.helpers.ts`）にあり、**de Casteljau の再帰二分割法**を使用する:
+実装は `flattenBezierPath()`（`renderer/geometry/bezierFlatten.ts`）にあり、**de Casteljau の再帰二分割法**を使用する:
 
 1. ベジエ曲線の4制御点 (p0, p1, p2, p3) を受け取る
 2. 曲線が十分に「平ら」かを判定（制御点が始点-終点の直線からどれだけ離れているか）
 3. 平らでなければ、中点で2つのベジエ曲線に分割して再帰処理
 4. 平らなら、終点を直線セグメントとして出力
 
-既定の許容度は **0.25**、最大再帰深度は **9** である。どちらもオプションで上書きでき、許容度には下限 `0.01` が適用される。この結果、`number[]` 形式の座標列 `[x0, y0, x1, y1, ...]` が得られる。
+許容誤差は**画面上のピクセル**で決まる。`deviceScaleBucket()` が要素の合成変換とパスのズームから 2 のべき乗の「スケールバケット」を求め、ローカル空間の許容誤差を `0.25px / 2^bucket` にする。こうして曲線は最大ズーム 640 倍でも画面上 0.25px 以内の誤差で追従し、同じバケット内のズームではアウトラインを再計算しない。
+
+結果は `OutlineCache` に要素ごとに保持される。塗りは閉じたポリライン、線は `tessellateStroke()` の三角形リストである。どちらも要素ローカル空間なので、パンや要素の移動では作り直さない。
 
 筆圧情報が必要な場合は `flattenBezierPathWithPressure()` を使用する。この関数は各分割点でのベジエパラメータ `t` を記録し、セグメントの `startPressure` / `endPressure` から圧力を線形補間して返す。
 
-## Fill: Stencil-Then-Cover
+## strip 生成: 被覆率をタイルで積算する
 
-塗りつぶしは **Stencil-Then-Cover** 方式で行う。この方式は自己交差するパスや穴（サブパス）を持つ複雑な形状を正確に処理できる。
+アウトラインは描画先パスのテクセル空間（prebuf、オフスクリーン、マスクアトラス、書き出し先のいずれか）へ変換されてから線分になる。実装は `renderer/geometry/strips/` にあり、Vello GPU の sparse strips 方式を TypeScript に移したものである。
 
-### Fan Pass（ステンシル書き込み）
+1. **クリップ** — パス矩形の外の線分は捨てる。ただし左側にはみ出た部分は左端へ射影した縦線として残す。右側のピクセルに与える巻き数を保つためである
+2. **タイル分配** — 各線分が通る 4×4px タイルを列挙し、`(行, 列)` で基数ソートする。水平線も巻き数は変えないがタイルを作る。頂点の高さで行ごとの巻き数が変わる区間を、空の隙間と区別するためである
+3. **面積積分** — タイルを行帯ごとに走査し、線分がピクセル内に作る台形面積を巻き数の変化として積算する。線分の右側のピクセルには線分の高さ分がそのまま加わる
+4. **strip 出力** — 連続するタイルを 1 本の strip にまとめ、8bit の alpha をスロット列に書く。形状に完全に覆われた隙間は alpha を持たない「fill gap」として幅だけ伸ばす
 
-各サブパスに対して:
+被覆率は `min(1, |巻き数の積分|)` である。同じ向きで重なる部分は union、逆向きは穴になる。ストロークは `tessellateStroke()` の三角形を全て同じ向きに揃えて流し込むので、結合部や自己交差で重なった三角形も 1 回だけ塗られる。半透明の線が交点で濃くならないのはこのためである。
 
-1. **重心を計算** — サブパスの全頂点の平均座標
-2. **三角ファンを生成** — 重心と隣接する2頂点で三角形を構成 (center, v[i], v[i+1])
-3. **ステンシルバッファに描画** — 表面向き三角形では `increment-wrap`、裏面向き三角形では `decrement-wrap` を行う。最終的にステンシル値が非ゼロの領域をパスの内側とみなす
+結果は `StripCache` に `(要素, パス種別)` ごとに保持される。キーは変換の線形部分とサブピクセル位相なので、整数テクセルのパンでは再利用し、ズームや変形の変更で作り直す。
 
-### Cover Pass（カラー書き込み）
+## GPU描画
 
-パス全体のバウンディングボックスを覆うquad（2三角形）を描画する。ステンシルテストを `not-equal`（ステンシル値 ≠ 0）に設定することで、パス内側の領域だけが着色される。
+`StripFrame` がフレーム内の strip インスタンスと alpha ページを集め、submit の直前に 1 回だけアップロードする。描画は strip 1 本につき 1 インスタンスの矩形で、`strip.wgsl` が担当する。
 
-### フリンジAA
+**Vertex Shader:**
+1. インスタンスの `x, y, width, height` からパス空間のピクセル矩形を作り、NDC に変換する
+2. ビューポートと要素変換を逆に辿り、ペイント用のローカル座標とマスク用のワールド座標を復元する
 
-Cover Passの後、パス輪郭に沿って1ピクセル幅のフリンジストリップを描画する。輪郭上の頂点は alpha=1.0、法線方向に1px外側の頂点は alpha=0.0 として、エッジのジャギーを滑らかにする。
+**Fragment Shader:**
+1. 自分のピクセル列に対応するスロットから alpha を `textureLoad` する。dense 領域の外は 1.0
+2. `paintCommon.wgsl` の `paintColor()` でペイントを解決する。`gradientType` で分岐し、`0` ソリッド、`1` 線形、`2` 放射状、`3` フリー、`4` メッシュ、`5` パターンを扱う
+3. alpha を掛けてから `applyClipMask()` でクリップマスクを適用する
 
-> [!TIP]
-> Stencil-Then-Coverを採用する理由は、earcut等のポリゴン三角形分割アルゴリズムが自己交差パスを正しく処理できないためである。ステンシルバッファを利用すれば、パスの形状に関係なくGPUが正確な塗りつぶし領域を判定できる。
+線のグラデーションが `along` / `across` のときは、CPU が三角形の重心座標から画素ごとの `(t, u)` を rg8 の params ページへ書き、フラグメントはそれを読んでストップを引く。
+
+ソリッド色はインスタンスに直接乗る。不透明度の変更は strip を作り直さず、インスタンスの色だけを更新する。
 
 ## Stroke: ジオメトリックブラシ
 
-ジオメトリックブラシ（SVGブラシ）によるストロークは `tessellateStroke()` で三角形メッシュに変換される。
+ジオメトリックブラシによるストロークは `tessellateStroke()` で三角形メッシュに変換される。
 
 ### テッセレーション処理
 
@@ -171,14 +149,15 @@ Cover Passの後、パス輪郭に沿って1ピクセル幅のフリンジスト
 3. **セグメント構築** — 各辺の方向ベクトル (dx, dy) と法線ベクトル (nx, ny) を計算
 4. **三角形化** — 各辺について、法線方向に半幅だけ拡張した2つの三角形を生成
 5. **Join処理** — 辺の接続部で `lineJoin` 設定に応じた処理:
-   - `round`: 扇形の三角形群で丸く接続
+   - `round`: 扇形の三角形群で丸く接続。分割数はスケールバケットの画面誤差 0.25px から決める
    - `bevel`: 1つの三角形で斜めに接続
    - `miter`: 延長線の交点まで尖らせる（ミターリミット 4.0 超過時はbevelにフォールバック）
 6. **Cap処理** — 始点・終点で `lineCap` 設定に応じた処理:
    - `round`: 半円の三角形群
    - `square`: 半幅分の矩形延長
    - `butt`: 延長なし
-7. **フリンジAA** — ストローク外周に1pxのフリンジを追加（内側 alpha=1.0、外側 alpha=0.0）
+
+三角形は互いに重なってよい。strip 生成が非ゼロ巻き数で union を取るため、AA 用のフリンジや内側へのインセットは要らない。
 
 ### ダッシュパターン
 
@@ -194,36 +173,14 @@ Cover Passの後、パス輪郭に沿って1ピクセル幅のフリンジスト
 3. 全スタンプデータを `Float32Array` にパックしてGPUバッファに転送
 4. テクスチャ別にバッチ化し、インスタンスドレンダリングで一括描画
 
-## シェーダー
-
-### Unified Geometry Shader
-
-`unified.wgsl.ts` がストロークとフィルの両方の描画を担当する。
-
-**Vertex Shader:**
-1. Storage BufferからElement transform（平行移動・回転・スケール）を読み取り適用
-2. オフセット（フリンジAA用）を `1/zoom` でスケーリングして加算
-3. ワールド座標をビューポート相対座標に変換し、回転を適用
-4. NDC（-1〜1）に正規化して出力
-
-**Fragment Shader:**
-- `gradientType` で分岐:
-  - `0`: ソリッドカラー
-  - `1`: 線形グラデーション — OKLab色空間で知覚的に補間
-  - `2`: 放射状グラデーション — 楕円+回転対応
-  - `3`: フリーグラデーション — Coons Patchテクスチャサンプリング
-- Premultiplied alphaで出力
-- クリップマスクがある場合はマスクテクスチャをサンプリングして適用
-
 ## キャッシュ戦略
 
 パス描画の各段階で生成される中間データはキャッシュされ、要素が変更されない限り再利用される:
 
 | キャッシュ | 内容 | 無効化条件 |
 |---|---|---|
-| GeometryCache | フラッテニング結果 | `geometryHash` 変化 |
-| StrokeCache | ストローク頂点バッファ | `geometryHash` またはキャッシュキー変化 |
-| StencilFillCache | Fan三角形 + フリンジバッファ | `geometryHash` or `transformIndex` 変化 |
+| OutlineCache | ローカル空間のポリラインまたは三角形 | `geometryHash` またはスケールバケットの変化 |
+| StripCache | strip と alpha スロット | 変換の線形部分、サブピクセル位相、`geometryHash` の変化 |
 | StampCache | スタンプデータ配列 | セグメント変化 |
 | GradientCache | グラデーションGPUリソース | グラデーション設定または `geometryHash` 変化 |
 

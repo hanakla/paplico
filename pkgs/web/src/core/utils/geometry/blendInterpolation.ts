@@ -489,8 +489,8 @@ function computePairIntermediates(
 		}
 
 		result.push({
-			// Deterministic id derived from the (live) blend id so per-id GPU
-			// caches (stencil fill, geometry) are stable across frames and not
+			// Deterministic id derived from the (live) blend id so per-id render
+			// caches (outline, strips) are stable across frames and not
 			// destroyed mid-flight by stale-entry pruning. "::" separates the
 			// live base id used by RenderCacheManager.onDocumentChange.
 			id: `${blendId}::s${pairIndex}_${i}`,

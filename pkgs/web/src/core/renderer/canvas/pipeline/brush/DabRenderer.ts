@@ -744,25 +744,6 @@ export class DabRenderer {
 				targets: [{ format: this.canvasFormat, blend: blendState }],
 			},
 			primitive: { topology: "triangle-list", cullMode: "none" },
-			depthStencil: {
-				format: "depth24plus-stencil8",
-				depthWriteEnabled: false,
-				depthCompare: "always",
-				stencilFront: {
-					compare: "always",
-					passOp: "keep",
-					failOp: "keep",
-					depthFailOp: "keep",
-				},
-				stencilBack: {
-					compare: "always",
-					passOp: "keep",
-					failOp: "keep",
-					depthFailOp: "keep",
-				},
-				stencilWriteMask: 0x00,
-				stencilReadMask: 0x00,
-			},
 			multisample: { count: RENDER_SAMPLE_COUNT },
 		});
 

@@ -16,7 +16,7 @@ Paplicoのドキュメントは、パス・画像・テキスト・グループ�
 
 | ディレクトリ | モジュール | 役割 |
 |---|---|---|
-| elements/ | `ElementRenderer` | 要素種別ディスパッチ、パスのストローク/フィル描画、ステンシルベースフィル、バッチ頂点バッファ管理 |
+| elements/ | `ElementRenderer` | 要素種別ディスパッチ。パスの塗りと線は `PathElementRenderer` が被覆率 strip で描く |
 | elements/ | `GradientRenderer` | グラデーションフィル描画（linear / radial / free）。フィンガープリントベースのキャッシュ対応 |
 | elements/ | `TextElementRenderer` | テキスト要素→パスへの変換とキャッシュ。グリフパスを `renderPath` に委譲して描画 |
 | elements/ | `ImageElementRenderer` | 画像要素の `GPUTexture` ロードと blit 描画。祖先グループのトランスフォーム合成 |
@@ -54,14 +54,14 @@ flowchart TD
     D -->|stroke geometric| F[renderGeometricStroke]
     D -->|stroke dab / ribbon| G["BrushRenderer.render"]
     E --> E1{fill type}
-    E1 -->|solid| E2[ステンシルfan+coverで塗りつぶし]
-    E1 -->|gradient| E3["GradientRenderer.renderGradientFillWithPipeline"]
+    E1 -->|solid| E2[被覆率 strip で塗りつぶし]
+    E1 -->|gradient| E3["GradientRenderer.acquirePaintBindGroup で BG2 を用意し strip で塗る"]
 ```
 
 1. **角丸処理**: `applyCornerRadius` でフィレットを適用
 2. **プリフィルター**: `applyPreFilters` でジグザグ等のジオメトリ変形を適用
 3. **アピアランス走査**: 要素の `filters` 配列（**アピアランス**、すなわちフィル（塗り）やストローク（線）など見た目を定義する設定の列）を順に処理し、`fill` と `stroke` の各アピアランスを描画する。1つの要素に複数のフィルやストロークを重ねることで、影付き文字や多重輪郭などの表現が可能になる
-4. **フィル描画**: **ステンシルベースフィル**（ステンシルバッファを使って任意形状を正確に塗りつぶす手法）の fan/cover アルゴリズムでパスを塗りつぶす。グラデーションの場合は `GradientRenderer` に委譲
+4. **フィル描画**: 非ゼロ巻き数の被覆率を CPU で求め、strip としてインスタンス描画する。グラデーションの場合はペイント用の bind group を `GradientRenderer` から受け取る
 5. **ストローク描画**: ブラシ種別に応じて分岐
    - **ジオメトリックブラシ** (`isGeometricBrush`): `renderGeometricStroke` でテッセレーション済みストロークを描画。ダッシュパターン・可変幅に対応
    - **dab / ribbonブラシ**: `BrushRenderer.render` へ即時描画を委譲する。ribbonだけが使うCanvasLayer側のバッチ経路を含む詳細は[ブラシレンダリング](/devdocs/renderer/brush)を参照
@@ -76,7 +76,7 @@ flowchart TD
 
 ## GradientRenderer
 
-パスのフィルには単色だけでなくグラデーション（色が連続的に変化する塗り）を指定できる。`GradientRenderer` はこのグラデーションフィルの描画を担当するモジュールである。`renderGradientFillWithPipeline` が唯一の公開メソッドで、ステンシル cover パスのパイプラインを受け取ってグラデーション付きフィルを描画する。
+パスのフィルには単色だけでなくグラデーション（色が連続的に変化する塗り）を指定できる。`GradientRenderer` はこのグラデーションのペイント bind group（BG2）を組み立てるモジュールである。`acquirePaintBindGroup` が唯一の公開メソッドで、strip 描画がそのまま BG2 に束ねて塗る。
 
 ### 対応グラデーション型
 

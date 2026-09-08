@@ -46,7 +46,7 @@ export type DrawableSegments = CubicBezierSegment[] &
 export interface ResolvedAppearancePass {
 	appearance: FillAppearance | StrokeAppearance;
 	segments: DrawableSegments;
-	/** Geometry/stencil cache key, distinct per deformation variant. */
+	/** Outline/strip cache key, distinct per deformation variant. */
 	cacheKey: string;
 }
 
@@ -150,8 +150,8 @@ function collectPreSubFilters(
 
 /**
  * Coverage blending is not occlusion: painting the same geometry twice leaks
- * the lower fill's color at AA-fringe pixels (the α(1−α) term), which
- * dominates when zoomed out. A later fully-opaque solid fill (appearance
+ * the lower fill's color at partially covered edge pixels (the α(1−α) term),
+ * which dominates when zoomed out. A later fully-opaque solid fill (appearance
  * opacity 1, normal blend, alpha-1 color) hides every earlier fill entirely,
  * so drop them instead of painting-then-overpainting. Strokes straddle the
  * outline and are kept.

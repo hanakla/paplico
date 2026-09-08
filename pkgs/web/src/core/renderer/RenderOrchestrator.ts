@@ -47,6 +47,7 @@ import {
 	buildFilterPlansForElements,
 	calculatePreFilteredElementBounds,
 } from "./canvas/pipeline/RenderPlanner";
+import { STRIP_INSTANCE_LAYOUT } from "./canvas/pipeline/strips/stripInstanceLayout";
 import {
 	UNIFIED_VERTEX_BYTES,
 	UNIFIED_VERTEX_OFFSETS,
@@ -108,8 +109,8 @@ import {
 import { COMPOSITE_SHADER } from "./shaders/composite.wgsl";
 import { COONS_PATCH_COMPUTE_SHADER } from "./shaders/coonsPatchCompute.wgsl";
 import { GRADIENT_FILL_SHADER } from "./shaders/gradientFill.wgsl";
+import { STRIP_SHADER } from "./shaders/strip.wgsl";
 import { UNIFIED_GEOMETRY_SHADER } from "./shaders/unified.wgsl";
-import { UNIFIED_PULLED_GEOMETRY_SHADER } from "./shaders/unifiedPulled.wgsl";
 import type { FrameRequest, UIOverlayState } from "./types";
 import { UILayer } from "./ui/UILayer";
 
@@ -156,15 +157,11 @@ interface TargetData {
 interface Pipelines {
 	strokePipeline: GPURenderPipeline;
 	fillPipeline: GPURenderPipeline;
+	/** Sparse-strip coverage draw for document paths (strip.wgsl). */
+	stripPipeline: GPURenderPipeline;
 	gradientFillPipeline: GPURenderPipeline;
 	dummyGradientBindGroup: GPUBindGroup;
 	dummyMaskBindGroup: GPUBindGroup;
-	stencilFanWritePipeline: GPURenderPipeline;
-	stencilCoverPipeline: GPURenderPipeline;
-	strokeUnionPipeline: GPURenderPipeline;
-	stencilZeroPipeline: GPURenderPipeline;
-	pulledGeometryPipeline: GPURenderPipeline;
-	pulledStencilFanWritePipeline: GPURenderPipeline;
 	blitPipeline: GPURenderPipeline;
 	blitPipelineRgba8: GPURenderPipeline;
 	blitPipelineRgba32Float: GPURenderPipeline;
@@ -190,8 +187,8 @@ interface Layouts {
 	gradient: GPUBindGroupLayout;
 	transforms: GPUBindGroupLayout;
 	mask: GPUBindGroupLayout;
-	/** BG2 of the vertex-pulling pipelines: vertex store + run table. */
-	pulled: GPUBindGroupLayout;
+	/** BG1 of the strip pipeline: transforms + alpha page + params page. */
+	stripGeometry: GPUBindGroupLayout;
 }
 
 export class RenderOrchestrator {
@@ -434,13 +431,7 @@ export class RenderOrchestrator {
 			{
 				strokePipeline: this.pipelines.strokePipeline,
 				fillPipeline: this.pipelines.fillPipeline,
-				stencilFanWritePipeline: this.pipelines.stencilFanWritePipeline,
-				stencilCoverPipeline: this.pipelines.stencilCoverPipeline,
-				strokeUnionPipeline: this.pipelines.strokeUnionPipeline,
-				stencilZeroPipeline: this.pipelines.stencilZeroPipeline,
-				pulledGeometryPipeline: this.pipelines.pulledGeometryPipeline,
-				pulledStencilFanWritePipeline:
-					this.pipelines.pulledStencilFanWritePipeline,
+				stripPipeline: this.pipelines.stripPipeline,
 				gradientFillPipeline: this.pipelines.gradientFillPipeline,
 				blitPipeline: this.pipelines.blitPipeline,
 				blitPipelineRgba8: this.pipelines.blitPipelineRgba8,
@@ -480,7 +471,7 @@ export class RenderOrchestrator {
 				dummyGradientBindGroup: this.pipelines.dummyGradientBindGroup,
 				dummyMaskBindGroup: this.pipelines.dummyMaskBindGroup,
 				maskBindGroupLayout: this.layouts.mask,
-				pulledBindGroupLayout: this.layouts.pulled,
+				stripGeometryBindGroupLayout: this.layouts.stripGeometry,
 				cacheManager,
 				brushTextureManager: this.brushTextureManager,
 				textRenderer: this.textRenderer ?? undefined,
@@ -1817,26 +1808,6 @@ export class RenderOrchestrator {
 			},
 		};
 
-		const noopStencil: GPUDepthStencilState = {
-			format: "depth24plus-stencil8",
-			depthWriteEnabled: false,
-			depthCompare: "always",
-			stencilFront: {
-				compare: "always",
-				passOp: "keep",
-				failOp: "keep",
-				depthFailOp: "keep",
-			},
-			stencilBack: {
-				compare: "always",
-				passOp: "keep",
-				failOp: "keep",
-				depthFailOp: "keep",
-			},
-			stencilWriteMask: 0x00,
-			stencilReadMask: 0x00,
-		};
-
 		const gradientBindGroupLayout = this.device.createBindGroupLayout({
 			label: "Gradient Bind Group Layout",
 			entries: [
@@ -1902,6 +1873,48 @@ export class RenderOrchestrator {
 			],
 		});
 
+		const stripGeometryBindGroupLayout = this.device.createBindGroupLayout({
+			label: "Strip Geometry Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.VERTEX,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: { sampleType: "float" },
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: { sampleType: "float" },
+				},
+			],
+		});
+		const stripLayout = this.device.createPipelineLayout({
+			bindGroupLayouts: [
+				bindGroupLayout,
+				stripGeometryBindGroupLayout,
+				gradientBindGroupLayout,
+				maskBindGroupLayout,
+			],
+		});
+		const stripPipeline = createGeometryPipeline({
+			device: this.device,
+			label: "Strip Pipeline",
+			shaderModule: compileShaderModule(this.device, {
+				label: "Strip Shader",
+				code: STRIP_SHADER,
+			}).module,
+			vertexBufferLayout: STRIP_INSTANCE_LAYOUT,
+			pipelineLayout: stripLayout,
+			topology: "triangle-strip",
+			targetFormat: this.canvasFormat,
+			blend: premultipliedBlend,
+		});
+
 		const unifiedLayout = this.device.createPipelineLayout({
 			bindGroupLayouts: [
 				bindGroupLayout,
@@ -1934,168 +1947,7 @@ export class RenderOrchestrator {
 			...baseUnified,
 			label: "Unified Geometry Pipeline",
 			targetFormat: this.canvasFormat,
-			depthStencil: noopStencil,
 		});
-		// Stencil-Then-Cover fill pipelines
-		const fanWriteStencil: GPUDepthStencilState = {
-			format: "depth24plus-stencil8",
-			depthWriteEnabled: false,
-			depthCompare: "always",
-			stencilFront: {
-				compare: "always",
-				passOp: "increment-wrap",
-				failOp: "keep",
-				depthFailOp: "keep",
-			},
-			stencilBack: {
-				compare: "always",
-				passOp: "decrement-wrap",
-				failOp: "keep",
-				depthFailOp: "keep",
-			},
-			stencilWriteMask: 0xff,
-			stencilReadMask: 0x00,
-		};
-		const stencilFanWritePipeline = createGeometryPipeline({
-			...baseUnified,
-			label: "Stencil Fan Write Pipeline",
-			targetFormat: this.canvasFormat,
-			blend: undefined,
-			colorWriteMask: 0,
-			depthStencil: fanWriteStencil,
-		});
-		const stencilCoverPipeline = createGeometryPipeline({
-			...baseUnified,
-			label: "Stencil Cover Pipeline",
-			targetFormat: this.canvasFormat,
-			depthStencil: {
-				format: "depth24plus-stencil8",
-				depthWriteEnabled: false,
-				depthCompare: "always",
-				stencilFront: {
-					compare: "not-equal",
-					passOp: "zero",
-					failOp: "keep",
-					depthFailOp: "keep",
-				},
-				stencilBack: {
-					compare: "not-equal",
-					passOp: "zero",
-					failOp: "keep",
-					depthFailOp: "keep",
-				},
-				stencilWriteMask: 0xff,
-				stencilReadMask: 0xff,
-			},
-		});
-
-		// Semi-transparent stroke pipelines. A stroke tessellation overlaps
-		// itself at every join and self-intersection, so blending it in one pass
-		// composites those pixels twice and they come out darker. "First
-		// fragment wins" keeps the union: the stencil starts at 0 (the shared
-		// invariant — everyone zeroes after themselves), so only the first
-		// fragment to reach a pixel passes `equal`, and its increment locks the
-		// pixel for the rest of the draw. The reference value stays 0, so no
-		// setStencilReference is needed anywhere.
-		const firstWinsStencilFace: GPUStencilFaceState = {
-			compare: "equal",
-			passOp: "increment-clamp",
-			failOp: "keep",
-			depthFailOp: "keep",
-		};
-		const strokeUnionPipeline = createGeometryPipeline({
-			...baseUnified,
-			label: "Stroke Union Pipeline",
-			targetFormat: this.canvasFormat,
-			depthStencil: {
-				format: "depth24plus-stencil8",
-				depthWriteEnabled: false,
-				depthCompare: "always",
-				stencilFront: firstWinsStencilFace,
-				stencilBack: firstWinsStencilFace,
-				stencilWriteMask: 0xff,
-				stencilReadMask: 0xff,
-			},
-		});
-		// Restores the invariant by re-drawing the same geometry with color
-		// writes off — exact down to the AA fringe, which a bounding-box quad
-		// would leave behind.
-		const zeroStencilFace: GPUStencilFaceState = {
-			compare: "always",
-			passOp: "zero",
-			failOp: "keep",
-			depthFailOp: "keep",
-		};
-		const stencilZeroPipeline = createGeometryPipeline({
-			...baseUnified,
-			label: "Stencil Zero Pipeline",
-			targetFormat: this.canvasFormat,
-			blend: undefined,
-			colorWriteMask: 0,
-			depthStencil: {
-				format: "depth24plus-stencil8",
-				depthWriteEnabled: false,
-				depthCompare: "always",
-				stencilFront: zeroStencilFace,
-				stencilBack: zeroStencilFace,
-				stencilWriteMask: 0xff,
-				stencilReadMask: 0xff,
-			},
-		});
-
-		// Vertex-pulling variants: no vertex buffer — the RunBatcher's merged
-		// solid runs pull unified vertices from the GeometryStore bound as
-		// storage at BG2 (repurposed from the gradient group; solid geometry
-		// never samples gradients). See unifiedPulled.wgsl.ts.
-		const pulledBindGroupLayout = this.device.createBindGroupLayout({
-			label: "Pulled Geometry Bind Group Layout",
-			entries: [
-				{
-					binding: 0,
-					visibility: GPUShaderStage.VERTEX,
-					buffer: { type: "read-only-storage" },
-				},
-				{
-					binding: 1,
-					visibility: GPUShaderStage.VERTEX,
-					buffer: { type: "read-only-storage" },
-				},
-			],
-		});
-		const pulledLayout = this.device.createPipelineLayout({
-			bindGroupLayouts: [
-				bindGroupLayout,
-				transformsBindGroupLayout,
-				pulledBindGroupLayout,
-				maskBindGroupLayout,
-			],
-		});
-		const { module: pulledShaderModule } = compileShaderModule(this.device, {
-			label: "Unified Pulled Geometry Shader",
-			code: UNIFIED_PULLED_GEOMETRY_SHADER,
-		});
-		const basePulled = {
-			device: this.device,
-			shaderModule: pulledShaderModule,
-			pipelineLayout: pulledLayout,
-			blend: premultipliedBlend,
-			topology: "triangle-list" as const,
-		};
-		const pulledGeometryPipeline = createGeometryPipeline({
-			...basePulled,
-			label: "Pulled Geometry Pipeline",
-			targetFormat: this.canvasFormat,
-			depthStencil: noopStencil,
-		});
-		const pulledStencilFanWritePipeline = createGeometryPipeline({
-			...basePulled,
-			label: "Pulled Stencil Fan Write Pipeline",
-			targetFormat: this.canvasFormat,
-			blend: undefined,
-			colorWriteMask: 0,
-			depthStencil: fanWriteStencil,
-		});
-
 		// Dummy gradient bind group (gradientType=0 → solid fill, fragment uses vertex color)
 		const dummyGradientUniformBuffer = this.device.createBuffer({
 			label: "Dummy Gradient Uniform",
@@ -2202,7 +2054,6 @@ export class RenderOrchestrator {
 		const blitPipeline = createFullscreenPipeline({
 			...baseBlit,
 			label: "Blit Pipeline",
-			depthStencil: noopStencil,
 		});
 		const blitPipelineRgba8 = createFullscreenPipeline({
 			...baseBlit,
@@ -2227,7 +2078,6 @@ export class RenderOrchestrator {
 			...baseBlit,
 			label: "Quad Blit Pipeline",
 			shaderModule: quadBlitShaderModule,
-			depthStencil: noopStencil,
 		});
 
 		// --- Mesh blit pipeline (tessellated texture warp for mesh containers) ---
@@ -2260,7 +2110,6 @@ export class RenderOrchestrator {
 				targets: [{ format: this.canvasFormat, blend: premultipliedBlend }],
 			},
 			primitive: { topology: "triangle-list" },
-			depthStencil: noopStencil,
 			multisample: { count: RENDER_SAMPLE_COUNT },
 		});
 
@@ -2361,7 +2210,6 @@ export class RenderOrchestrator {
 			...compositeBaseOpts,
 			label: "Composite Pipeline",
 			targetFormat: this.canvasFormat,
-			depthStencil: noopStencil,
 		});
 
 		// Blit-with-mask bind group layout: same as blit but adds a mask texture
@@ -2411,7 +2259,6 @@ export class RenderOrchestrator {
 			pipelineLayout: blitWithMaskPipelineLayout,
 			targetFormat: this.canvasFormat,
 			blend: premultipliedBlend,
-			depthStencil: noopStencil,
 		});
 
 		// Glass punch: destination scale-down before the glass intermediate
@@ -2434,7 +2281,6 @@ export class RenderOrchestrator {
 				color: { srcFactor: "zero", dstFactor: "one-minus-src-alpha" },
 				alpha: { srcFactor: "zero", dstFactor: "one-minus-src-alpha" },
 			},
-			depthStencil: noopStencil,
 		});
 
 		const { module: blitWithEraseMaskShaderModule } = compileShaderModule(
@@ -2452,7 +2298,6 @@ export class RenderOrchestrator {
 			pipelineLayout: blitWithMaskPipelineLayout,
 			targetFormat: this.canvasFormat,
 			blend: premultipliedBlend,
-			depthStencil: noopStencil,
 		});
 
 		// Mask-chain layout: 4 world-space mask slots applied in one pass.
@@ -2494,7 +2339,6 @@ export class RenderOrchestrator {
 			}),
 			targetFormat: this.canvasFormat,
 			blend: premultipliedBlend,
-			depthStencil: noopStencil,
 		});
 
 		const { module: blitBackdropWithMaskShaderModule } = compileShaderModule(
@@ -2522,7 +2366,6 @@ export class RenderOrchestrator {
 				color: { srcFactor: "zero", dstFactor: "one-minus-src-alpha" },
 				alpha: { srcFactor: "zero", dstFactor: "one-minus-src-alpha" },
 			},
-			depthStencil: noopStencil,
 		});
 
 		const blitBackdropWithMaskPipeline = createFullscreenPipeline({
@@ -2535,21 +2378,15 @@ export class RenderOrchestrator {
 				color: { srcFactor: "one", dstFactor: "one" },
 				alpha: { srcFactor: "one", dstFactor: "one" },
 			},
-			depthStencil: noopStencil,
 		});
 
 		this.pipelines = {
 			strokePipeline: unifiedGeometryPipeline,
 			fillPipeline: unifiedGeometryPipeline,
+			stripPipeline,
 			gradientFillPipeline: unifiedGeometryPipeline,
 			dummyGradientBindGroup,
 			dummyMaskBindGroup,
-			stencilFanWritePipeline,
-			stencilCoverPipeline,
-			strokeUnionPipeline,
-			stencilZeroPipeline,
-			pulledGeometryPipeline,
-			pulledStencilFanWritePipeline,
 			blitPipeline,
 			blitPipelineRgba8,
 			blitPipelineRgba32Float,
@@ -2574,7 +2411,7 @@ export class RenderOrchestrator {
 			gradient: gradientBindGroupLayout,
 			transforms: transformsBindGroupLayout,
 			mask: maskBindGroupLayout,
-			pulled: pulledBindGroupLayout,
+			stripGeometry: stripGeometryBindGroupLayout,
 		};
 
 		// Filter renderer

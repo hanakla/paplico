@@ -10,37 +10,22 @@ import type {
 	PathSegment,
 	StrokeAppearance,
 } from "../../../schema";
-import { StrokeCache } from "../caches/StrokeCache";
+import { IDENTITY_GPU_TRANSFORM } from "../../../utils/geometry/geometry";
+import { OutlineCache } from "../caches/OutlineCache";
+import { StripCache } from "../caches/StripCache";
 import { PathElementRenderer } from "./PathElementRenderer";
 
 describe("PathElementRenderer", () => {
-	it("should flush pending solid runs before an immediate textured brush draw", () => {
-		const calls: string[] = [];
-		const renderer = new PathElementRenderer({
-			assetState: { currentFiles: [] },
-			ensureBrushTexture: () => true,
-			filterRenderer: { getHandler: () => undefined },
-			brushRenderer: {
-				render: vi.fn(() => calls.push("textured")),
-				textures: undefined,
-			},
-			getBrushDrawBindings: () => ({}),
-			renderState: { currentTransformIndex: 0 },
-			runBatcher: { flush: vi.fn(() => calls.push("flush")) },
-		} as never);
-		Reflect.set(
-			renderer,
-			"renderGeometricStroke",
-			vi.fn(() => calls.push("solid")),
-		);
+	it("should draw appearances in array order across strip and brush routes", () => {
+		const { renderer, calls } = createProbe();
 
-		renderer.renderPath({} as GPURenderPassEncoder, appearanceOrderPath());
+		renderer.renderPath(passEncoderStub(), appearanceOrderPath());
 
-		expect(calls).toEqual(["solid", "flush", "textured", "solid"]);
+		expect(calls).toEqual(["strip", "textured", "strip"]);
 	});
 
-	it("should re-bake the vertex alpha when a stroke appearance's opacity changes", () => {
-		const { renderer, allocatedAlphas } = createStrokeAlphaProbe();
+	it("should carry an opacity change into the instance colour without re-rasterizing", () => {
+		const { renderer, colors, rasterized } = createProbe();
 		const path = singleStrokePath();
 
 		renderer.renderPath(passEncoderStub(), path);
@@ -48,20 +33,70 @@ describe("PathElementRenderer", () => {
 			...path,
 			filters: [{ ...(path.filters![0] as StrokeAppearance), opacity: 0.5 }],
 		});
+		renderer.renderPath(passEncoderStub(), path, 0.25);
 
-		expect(allocatedAlphas).toEqual([1, 0.5]);
+		expect(colors.map((c) => c[3])).toEqual([1, 0.5, 0.25]);
+		expect(rasterized.value).toBe(1);
 	});
 
-	it("should re-bake the vertex alpha when the element's own opacity changes", () => {
-		const { renderer, allocatedAlphas } = createStrokeAlphaProbe();
+	it("should re-rasterize when the element moves by a fraction of a pixel", () => {
+		const { renderer, rasterized, transform } = createProbe();
 		const path = singleStrokePath();
 
 		renderer.renderPath(passEncoderStub(), path);
-		renderer.renderPath(passEncoderStub(), path, 0.25);
+		transform.tx = 3;
+		renderer.renderPath(passEncoderStub(), path);
+		transform.tx = 3.5;
+		renderer.renderPath(passEncoderStub(), path);
 
-		expect(allocatedAlphas).toEqual([1, 0.25]);
+		expect(rasterized.value).toBe(2);
 	});
 });
+
+function createProbe() {
+	const calls: string[] = [];
+	const colors: (readonly number[])[] = [];
+	const rasterized = { value: 0 };
+	const transform = { ...IDENTITY_GPU_TRANSFORM };
+	const stripCache = new StripCache();
+	const originalSet = stripCache.set.bind(stripCache);
+	stripCache.set = (id, variant, entry) => {
+		rasterized.value++;
+		originalSet(id, variant, entry);
+	};
+	const renderer = new PathElementRenderer({
+		stripFrame: {
+			append: vi.fn((_batch, _ax, _ay, _w, _h, _slot, color) => {
+				calls.push("strip");
+				colors.push(color);
+				return [{}];
+			}),
+			draw: vi.fn(),
+		},
+		dummyGradientBindGroup: {},
+		getBindGroup: () => ({}),
+		getTransformsBuffer: () => ({}),
+		getMaskBindGroup: () => ({}),
+		getRasterFrame: () => ({
+			viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },
+			width: 64,
+			height: 64,
+		}),
+		getGpuTransform: () => transform,
+		renderState: { currentTransformIndex: 0 },
+		assetState: { currentFiles: [] },
+		filterRenderer: { getHandler: () => undefined },
+		brushRenderer: {
+			render: vi.fn(() => calls.push("textured")),
+			textures: undefined,
+		},
+		getBrushDrawBindings: () => ({}),
+		outlineCache: new OutlineCache(),
+		stripCache,
+		ensureBrushTexture: () => true,
+	} as never);
+	return { renderer, calls, colors, rasterized, transform };
+}
 
 function appearanceOrderPath(): Path {
 	return {
@@ -96,39 +131,6 @@ function stroke(uid: string, brushSettings: BrushSettings): StrokeAppearance {
 			},
 		},
 	};
-}
-
-/**
- * Renderer wired to a real StrokeCache, reporting the alpha each tessellation
- * baked into its vertices. UNIFIED_VERTEX_FLOATS = 9 with alpha at index 5.
- */
-function createStrokeAlphaProbe(): {
-	renderer: PathElementRenderer;
-	allocatedAlphas: number[];
-} {
-	const allocatedAlphas: number[] = [];
-	const renderer = new PathElementRenderer({
-		device: { queue: { writeBuffer: vi.fn() } },
-		filterRenderer: { getHandler: () => undefined },
-		renderState: { currentTransformIndex: 0 },
-		strokeCache: new StrokeCache(),
-		geometryStore: {
-			alloc: (data: Float32Array) => {
-				allocatedAlphas.push(data[5]);
-				return { byteOffset: 0, firstVertex: 0, release: vi.fn() };
-			},
-			buffer: () => ({}),
-		},
-		runBatcher: { flush: vi.fn(), append: vi.fn() },
-		getBindGroup: () => ({}),
-		getTransformsBindGroup: () => ({}),
-		getMaskBindGroup: () => ({}),
-		dummyGradientBindGroup: {},
-		pulledGeometryPipeline: {},
-		strokeUnionPipeline: {},
-		stencilZeroPipeline: {},
-	} as never);
-	return { renderer, allocatedAlphas };
 }
 
 function passEncoderStub(): GPURenderPassEncoder {

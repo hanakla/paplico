@@ -290,9 +290,7 @@ function appendPolyline(
 	});
 
 	const g = Math.min(255, Math.max(0, gray)) / 255;
-	// Core vertices are [x, y, offsetX, offsetY]; the sub-pixel AA inset is
-	// irrelevant for CPU fiber rasterization, so only positions are read.
-	for (let i = 0; i < vertices.length; i += 4) {
+	for (let i = 0; i < vertices.length; i += 2) {
 		out.push(vertices[i], vertices[i + 1], g);
 	}
 }

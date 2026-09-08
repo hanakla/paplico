@@ -37,8 +37,9 @@ Paplico.ts (facade — public API boundary)
           ├── OffscreenPresenter      (offscreen passes, clip groups, group/element bake)
           ├── BackdropCaptureManager + BackdropEffectCoordinator (backdrop capture/pyramid)
           ├── ClipMaskAtlas / TexturePool / UniformScope (GPU resource machinery)
-          ├── RenderCacheManager (caches/) — AppearanceCache, GeometryCache,
-          │       StencilFillCache, StampCache, Compound/GroupPathCache, ...
+          ├── RenderCacheManager (caches/) — AppearanceCache, OutlineCache,
+          │       StripCache, StampCache, Compound/GroupPathCache, ...
+          ├── pipeline/strips/StripFrame — per-frame strip instances + coverage pages
           ├── ElementRenderer (elements/ — element-type dispatch)
           │   ├── GradientRenderer / ImageElementRenderer / TextElementRenderer / MeshElementRenderer
           │   └── Reference3DElementRenderer (blits the three.js scene texture)
@@ -94,7 +95,7 @@ Before this design, fill, stroke, and post-processing were separate properties o
 `DocumentCache` does not store rendered document or layer contents. `CanvasLayer`
 renders document content directly every frame; `invalidateDocumentCache()` only
 drops the composite frame that viewport-only frames blit. The class holds only
-size-matched auxiliary GPU textures: stencil,
+size-matched auxiliary GPU textures:
 composite, prebuffer, final-blit, and backdrop-mask resources. Recreate these when
 their descriptor changes, defer replacement destruction until in-flight GPU work is
 safe, and let `CanvasLayer` destroy the surviving resources. Full cache policy →
@@ -111,6 +112,30 @@ Not all changes need the same rendering work. A cursor move needs only the overl
 ### Why the brush renderers cache dabs and batch ribbons
 
 Each brush stroke is composed of hundreds of dab sprites. Evaluating them every frame would be far too slow, so DabRenderer caches a committed stroke's dab list in StampCache and keeps it resident in BoundedStampStore; a pan or zoom re-draws without re-evaluating. Ribbons are one instance per bezier segment, and RibbonRenderer accumulates consecutive ribbons that share a pass, bindings and texture into one instanced draw.
+
+### Why paths rasterize on the CPU as coverage strips
+
+Path fills and geometric strokes do not go through the GPU rasterizer as
+triangles. `PathElementRenderer` flattens the outline once per scale bucket in
+element-local space (`OutlineCache`), maps it into the texel space of the pass
+being encoded, and `renderer/geometry/strips/` integrates the nonzero winding
+per pixel into 4-px-tall strips with 8-bit alphas (the Vello GPU sparse-strips
+scheme). `StripFrame` uploads every strip of the frame once before the submit
+and `strip.wgsl` draws one quad per strip, multiplying the alpha into the paint
+stage shared with `unified.wgsl` (`paintCommon.wgsl`).
+
+This buys three things at once. The flattening tolerance is a screen-pixel
+budget, so curves stay smooth at any zoom. Coverage is exact area, so there is
+no fringe geometry, no MSAA and no stencil attachment anywhere in the document
+passes. And a stroke is the nonzero union of its tessellation triangles, so a
+semi-transparent stroke never darkens where it overlaps itself.
+
+The price is CPU work on frames that change the raster key: zoom, rotation, a
+transform edit, or a sub-pixel pan. Whole-texel pans and paint changes reuse
+the cached strips. Anything that needs the pass's texel space reads it from
+`getRasterFrame()`, which follows the viewport binding stack (`UniformEntry.frame`);
+a pass that binds a viewport uniform without going through
+`setActiveBindGroup` / `pushViewportBinding` will rasterize into the wrong space.
 
 ### Why CubicBezierSegment stores cp1/cp2 as relative offsets
 
@@ -488,8 +513,8 @@ Paplico has two independent 3D features — **do not conflate them**:
   for any cross-frame per-appearance GPU resource (the extrude mesh is its first
   user).
 - **Never single-slot-cache a texture whose size alternates within a frame.**
-  A "recreate when the size differs" cache (old filter temps, drop-shadow copy,
-  DocumentCache stencils) churns hundreds of MB of zero-initialized allocations
+  A "recreate when the size differs" cache (old filter temps, drop-shadow copy)
+  churns hundreds of MB of zero-initialized allocations
   per second when differently-sized chains run each frame — the GPU **process
   CPU** saturates on allocation while the JS profiler and the pass-level GPU
   trace both look idle. Keep a small per-size map (FIFO/LRU-capped, deferred

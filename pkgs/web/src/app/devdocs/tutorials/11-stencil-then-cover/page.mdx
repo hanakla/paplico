@@ -34,7 +34,7 @@ import Playground from "./playground";
 
 これらは **Ear Clipping だけだと正しく塗れない**。Stencil-then-cover なら、複雑な形でも 1 回でしれっと塗れるよ。
 
-Paplico の path-rendering もこの方式を使っているんだ。
+Paplico の path-rendering は、いまはこの方式ではなく **CPU で被覆率を積算する sparse strips** を使っているよ。でも「巻き数が 0 かどうかで内外を決める」という考え方はまったく同じ。ここで身につく感覚はそのまま使えるんだ。
 
 ## どうやって動くのか — ステップで見ていこう
 
@@ -90,7 +90,7 @@ GPU で各ファン三角形を描くとき、**色は出さずに、ステン�
 - **偶奇規則 (even-odd)**: 巻数の偶奇で判定。`stencil & 1` で「中」を判定 (XOR)
 - **非ゼロ規則 (nonzero)**: 巻数 ≠ 0 で「中」と判定。SVG / PDF / Canvas2D のデフォルト
 
-非ゼロ規則は、三角形の **向き** (時計回り or 反時計回り) を考慮する。`stencil_op` を `increment_wrap` / `decrement_wrap` にして、両方サポートするのが Paplico のやり方。
+非ゼロ規則は、三角形の **向き** (時計回り or 反時計回り) を考慮する。Paplico の path-rendering はこの非ゼロ規則で、ステンシルの代わりに CPU が巻き数を積分して被覆率にしているよ。
 
 </details>
 
@@ -107,6 +107,6 @@ GPU で各ファン三角形を描くとき、**色は出さずに、ステン�
 
 ## もっと知りたい人へ
 
-- Paplico の本格実装: stencil-then-cover (path-rendering)
+- Paplico の本格実装: 被覆率 strip による塗りつぶし → [パス描画フロー](/devdocs/renderer/path-rendering)
 - 前の章 → [第10章: 多角形の三角形分割](/devdocs/tutorials/10-ear-clipping)
 - 次の章 → [第12章: メッシュグラデーション](/devdocs/tutorials/12-coons-patch)

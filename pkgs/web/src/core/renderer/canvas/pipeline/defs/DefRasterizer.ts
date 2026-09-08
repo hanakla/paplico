@@ -8,7 +8,7 @@
  * The actual rendering of def contents into a texture is delegated to a
  * `renderFn` supplied by CanvasLayer; the rasterizer itself only handles
  * caching, invalidation, and resolution banding so that the GPU plumbing
- * (uniform scope, viewport overrides, MSAA stencil) stays where it is.
+ * (uniform scope, viewport overrides) stays where it is.
  */
 
 export interface DefRasterizerOptions {

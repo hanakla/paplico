@@ -111,7 +111,7 @@ export class AppearanceCache {
 	 * in-flight command buffers no longer reference their GPU resources.
 	 * Destroying synchronously on eviction is unsafe: a set() while the frame's
 	 * encoder is still recording would destroy resources an earlier draw in the
-	 * same encoder already referenced (same rationale as StencilFillCache).
+	 * same encoder already referenced.
 	 */
 	public flushPendingDestroy(): void {
 		for (const entry of this.pendingDestroy) entry.destroy();

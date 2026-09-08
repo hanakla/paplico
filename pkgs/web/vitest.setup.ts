@@ -1,4 +1,6 @@
 import "fake-indexeddb/auto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { createDeflate, createInflate } from "node:zlib";
 import { beforeAll } from "vitest";
 import { ensureWebGPUGlobals } from "./src/core/testUtils/visualRegression";
@@ -7,15 +9,23 @@ import { ensureWebGPUGlobals } from "./src/core/testUtils/visualRegression";
  * Tests must not reach the network for fonts: whether Google Fonts answers
  * flips the rendered text — and everything sampling it, like backdrop
  * filters — between runs, which poisons visual baselines. Every run takes
- * the same offline fallback (the bundled Noto Sans JP) instead.
+ * the same offline fallback (the bundled Noto Sans JP) instead, and the
+ * fallback itself is answered from public/ because no app server is
+ * listening at the document origin.
  */
 const realFetch = globalThis.fetch;
+const APP_FONT_ASSET_URL = /\/assets\/fonts\/([^/?#]+)$/;
 globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 	const url = String(input instanceof Request ? input.url : input);
 	if (
 		/fonts\.(?:googleapis|gstatic)\.com|googleapis\.com\/webfonts/.test(url)
 	) {
 		return Promise.resolve(new Response(null, { status: 403 }));
+	}
+	const asset = APP_FONT_ASSET_URL.exec(url);
+	if (asset) {
+		const file = path.join(__dirname, "public/assets/fonts", asset[1]);
+		return Promise.resolve(new Response(readFileSync(file)));
 	}
 	return realFetch(input, init);
 }) as typeof fetch;

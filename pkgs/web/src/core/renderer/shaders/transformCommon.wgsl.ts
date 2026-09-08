@@ -1,7 +1,7 @@
 /**
  * Transform Common WGSL - Element transform struct and apply function
  *
- * Shared by stroke, gradientFill, stencil, and brushDab shaders.
+ * Shared by the unified, strip, gradientFill, and brushDab shaders.
  * Each element's transform is stored in a Storage Buffer indexed by elementIndex.
  *
  * GPU struct layout: 56 bytes (14 × 4-byte values)

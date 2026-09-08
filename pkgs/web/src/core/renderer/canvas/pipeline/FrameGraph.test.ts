@@ -1,10 +1,5 @@
-import { describe, expect, expectTypeOf, it, vi } from "vitest";
-import {
-	type FGScratchAttachmentHandle,
-	type FGTextureDesc,
-	type FGTextureHandle,
-	FrameGraph,
-} from "./FrameGraph";
+import { describe, expect, it, vi } from "vitest";
+import { type FGTextureDesc, FrameGraph } from "./FrameGraph";
 import type { TexturePool } from "./TexturePool";
 
 describe("FrameGraph", () => {
@@ -77,78 +72,6 @@ describe("FrameGraph", () => {
 		expect(created).toHaveLength(1);
 		expect(resolved).toBe(created[0]);
 		expect(released).toEqual(created);
-	});
-
-	it("should resolve scratch attachments only for a surviving declaring pass", () => {
-		const graph = new FrameGraph();
-		const scratch = graph.createScratchAttachment(scratchDesc("stencil"));
-		const root = graph.importTexture({ label: "swapchain" } as GPUTexture);
-		let resolved: GPUTextureView | null = null;
-		graph.addPass("draw", {
-			reads: [],
-			writes: [root],
-			scratchAttachments: [scratch],
-			execute: (ctx) => {
-				resolved = ctx.scratchView(scratch);
-			},
-		});
-
-		const { pool, created, released } = mockPool();
-		graph.execute(mockEncoder(), pool);
-
-		expectTypeOf(scratch).toMatchTypeOf<FGScratchAttachmentHandle>();
-		expectTypeOf(scratch).not.toMatchTypeOf<FGTextureHandle>();
-		expect(resolved).not.toBeNull();
-		expect(created[0].createView).toHaveBeenCalledTimes(1);
-		expect(released).toEqual(created);
-	});
-
-	it("should resolve an imported scratch attachment without pool ownership", () => {
-		const graph = new FrameGraph();
-		const view = {} as GPUTextureView;
-		const texture = {
-			label: "persistent-stencil",
-			createView: vi.fn(() => view),
-		} as unknown as GPUTexture;
-		const scratch = graph.importScratchAttachment(texture);
-		const root = graph.importTexture({ label: "swapchain" } as GPUTexture);
-		let resolved: GPUTextureView | null = null;
-		graph.addPass("draw", {
-			reads: [],
-			writes: [root],
-			scratchAttachments: [scratch],
-			execute: (ctx) => {
-				resolved = ctx.scratchView(scratch);
-			},
-		});
-
-		const { pool, created, released } = mockPool();
-		graph.execute(mockEncoder(), pool);
-
-		expect(resolved).toBe(view);
-		expect(texture.createView).toHaveBeenCalledTimes(1);
-		expect(created).toHaveLength(0);
-		expect(released).toHaveLength(0);
-	});
-
-	it("should not keep a pass alive for a scratch attachment alone", () => {
-		const graph = new FrameGraph();
-		const scratch = graph.createScratchAttachment(scratchDesc("stencil"));
-		let ran = false;
-		graph.addPass("dead", {
-			reads: [],
-			writes: [],
-			scratchAttachments: [scratch],
-			execute: () => {
-				ran = true;
-			},
-		});
-
-		const { pool, created } = mockPool();
-		graph.execute(mockEncoder(), pool);
-
-		expect(ran).toBe(false);
-		expect(created).toHaveLength(0);
 	});
 
 	it("should alias created textures with disjoint pass ranges onto one pool texture", () => {
@@ -309,23 +232,6 @@ describe("FrameGraph", () => {
 
 		expect(() => graph.execute(mockEncoder(), mockPool().pool)).toThrow(
 			/pass "restricted" accessed undeclared handle/,
-		);
-	});
-
-	it("should reject access to an undeclared scratch attachment", () => {
-		const graph = new FrameGraph();
-		const declared = graph.createScratchAttachment(scratchDesc("declared"));
-		const undeclared = graph.createScratchAttachment(scratchDesc("undeclared"));
-		graph.addPass("restricted", {
-			reads: [],
-			writes: [],
-			scratchAttachments: [declared],
-			neverCull: true,
-			execute: (ctx) => ctx.scratchView(undeclared),
-		});
-
-		expect(() => graph.execute(mockEncoder(), mockPool().pool)).toThrow(
-			/accessed undeclared scratch attachment/,
 		);
 	});
 

@@ -17,7 +17,9 @@ import type {
 	TextElement,
 } from "../../../schema";
 import { brandWorldBBox, type WorldBBox } from "../../../utils/geometry/bounds";
+import type { GPUTransformAffine } from "../../../utils/geometry/geometry";
 import type { MeshWarpResolution } from "../../../utils/geometry/meshWarp";
+import type { RasterFrame } from "../../geometry/strips/stripTypes";
 import {
 	type AssetState,
 	BLEND_MODE_ORDER,
@@ -34,21 +36,16 @@ import {
 } from "../CanvasLayerTypes";
 import type { BlendCache } from "../caches/BlendCache";
 import type { CompoundPathCache } from "../caches/CompoundPathCache";
-import type { GeometryCache } from "../caches/GeometryCache";
 import type { GradientCache } from "../caches/GradientCache";
 import type { MeshWarpCache } from "../caches/MeshWarpCache";
-import type { StencilFillCache } from "../caches/StencilFillCache";
-import type { StrokeCache } from "../caches/StrokeCache";
+import type { OutlineCache } from "../caches/OutlineCache";
+import type { StripCache } from "../caches/StripCache";
 import type {
 	BrushDrawBindings,
 	BrushRenderer,
 } from "../pipeline/brush/BrushRenderer";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
-import type { GeometryStore } from "../pipeline/GeometryStore";
-import {
-	type RunBatcher,
-	transformFillBoundsToWorld,
-} from "../pipeline/RunBatcher";
+import type { StripFrame } from "../pipeline/strips/StripFrame";
 import type {
 	DrawableSegments,
 	ResolvedAppearancePass,
@@ -75,14 +72,13 @@ interface ElementRendererDeps extends SharedRenderBindings {
 	getComposedTransform: (elementId: string) => ElementTransform;
 	/** The local bounds the element's GPU transform entry takes its origin from. */
 	getLocalBounds: (elementId: string) => BoundingBox | null;
-	stencilFanWritePipeline: GPURenderPipeline;
-	stencilCoverPipeline: GPURenderPipeline;
-	/** First-fragment-wins / stencil-restore pair for semi-transparent strokes. */
-	strokeUnionPipeline: GPURenderPipeline;
-	stencilZeroPipeline: GPURenderPipeline;
-	/** Vertex-pulling variants used by the run batcher's merged draws. */
-	pulledGeometryPipeline: GPURenderPipeline;
-	pulledStencilFanWritePipeline: GPURenderPipeline;
+	/** Strip instances / coverage pages of the frame (one per canvas target). */
+	stripFrame: StripFrame;
+	getTransformsBuffer: () => GPUBuffer | null;
+	/** Texel space of the pass being encoded. */
+	getRasterFrame: () => RasterFrame;
+	/** Affine part of a transform slot, as the GPU reads it. */
+	getGpuTransform: (slot: number) => GPUTransformAffine;
 	filterRenderer: FilterRenderer;
 	/** Document rasterization scale R (rasterizationDpi / 72). */
 	getRasterScale: () => number;
@@ -99,17 +95,9 @@ interface ElementRendererDeps extends SharedRenderBindings {
 	getBlendCache: () => BlendCache;
 	getMeshWarpCache: () => MeshWarpCache;
 	// Externally-owned caches (managed by RenderCacheManager)
-	geometryCache: GeometryCache;
-	strokeCache: StrokeCache;
-	stencilFillCache: StencilFillCache;
+	outlineCache: OutlineCache;
+	stripCache: StripCache;
 	gradientCache: GradientCache;
-	/** Persistent shared vertex buffer the caches lease ranges from (one per
-	 *  canvas target, document-scope agnostic — plain value, not an accessor). */
-	geometryStore: GeometryStore;
-	/** Merges consecutive same-state solid draws into one drawIndexed. Every
-	 *  draw issued through any OTHER path must flush() it first (see
-	 *  RunBatcher's ordering contract). Plain value, one per canvas target. */
-	runBatcher: RunBatcher;
 	// Lookup transform index for an element (from CanvasLayer.transformIndexMap)
 	getTransformIndex: (elementId: string) => number;
 	// Callback: blit texture (from CompositeRenderer, injected later)
@@ -159,40 +147,17 @@ export class ElementRenderer {
 			get gradientCache() {
 				return deps.gradientCache;
 			},
-			getMaskBindGroup: deps.getMaskBindGroup,
-			getBindGroup: deps.getBindGroup,
-			getTransformsBindGroup: deps.getTransformsBindGroup,
 		});
 		// Constructed after gradientRenderer — the path fill/stroke chain routes
 		// gradient and pattern draws through that shared instance.
 		this.pathRenderer = new PathElementRenderer({
-			device: deps.device,
-			strokePipeline: deps.strokePipeline,
-			stencilFanWritePipeline: deps.stencilFanWritePipeline,
-			stencilCoverPipeline: deps.stencilCoverPipeline,
-			strokeUnionPipeline: deps.strokeUnionPipeline,
-			stencilZeroPipeline: deps.stencilZeroPipeline,
-			pulledGeometryPipeline: deps.pulledGeometryPipeline,
-			pulledStencilFanWritePipeline: deps.pulledStencilFanWritePipeline,
+			stripFrame: deps.stripFrame,
 			dummyGradientBindGroup: deps.dummyGradientBindGroup,
 			getBindGroup: deps.getBindGroup,
-			getTransformsBindGroup: deps.getTransformsBindGroup,
+			getTransformsBuffer: deps.getTransformsBuffer,
 			getMaskBindGroup: deps.getMaskBindGroup,
-			resolveWorldFillBounds: (elementId, bounds) => {
-				const localBounds = deps.getLocalBounds(elementId);
-				if (
-					!localBounds ||
-					deps.getTransformIndex(elementId) !==
-						deps.renderState.currentTransformIndex
-				) {
-					return null;
-				}
-				return transformFillBoundsToWorld(
-					bounds,
-					deps.getComposedTransform(elementId),
-					localBounds,
-				);
-			},
+			getRasterFrame: deps.getRasterFrame,
+			getGpuTransform: deps.getGpuTransform,
 			renderState: deps.renderState,
 			assetState: deps.assetState,
 			filterRenderer: deps.filterRenderer,
@@ -201,19 +166,14 @@ export class ElementRenderer {
 			// Accessors, not snapshots: deps.<cache> resolves the cache manager's
 			// active document scope per access; collapsing them into fixed
 			// instances here would break document switching.
-			get geometryCache() {
-				return deps.geometryCache;
+			get outlineCache() {
+				return deps.outlineCache;
 			},
-			get strokeCache() {
-				return deps.strokeCache;
-			},
-			get stencilFillCache() {
-				return deps.stencilFillCache;
+			get stripCache() {
+				return deps.stripCache;
 			},
 			getCompoundPathGeometryCache: deps.getCompoundPathGeometryCache,
 			getBlendCache: deps.getBlendCache,
-			geometryStore: deps.geometryStore,
-			runBatcher: deps.runBatcher,
 			gradientRenderer: this.gradientRenderer,
 			resolvePatternTexture: deps.resolvePatternTexture,
 			ensureBrushTexture: (uid, files) => this.ensureBrushTexture(uid, files),
@@ -276,21 +236,6 @@ export class ElementRenderer {
 			getParentGroupMap: deps.getParentGroupMap,
 			getReference3DContext: () => deps.getReference3DContext?.() ?? null,
 		});
-	}
-
-	/** Reset per-frame pool indices. Call at the start of each render frame. */
-	public beginFrame(): void {
-		// The fill-vertex batch machinery lives in the path renderer.
-		this.pathRenderer.beginFrame();
-	}
-
-	/**
-	 * Upload all accumulated fill vertex data to the GPU in a single
-	 * writeBuffer call.  Must be called after the render pass ends but
-	 * before queue.submit().
-	 */
-	public flushFillBatch(): void {
-		this.pathRenderer.flushFillBatch();
 	}
 
 	// ── Pure utility methods ──────────────────────────────────────────────
@@ -462,16 +407,14 @@ export class ElementRenderer {
 		segments: DrawableSegments,
 		fill: FillColor,
 		alphaMultiplier: number,
-		pipelineType: PipelineType = "main",
-		elementId?: string,
+		cacheKey: string,
 	): void {
 		this.pathRenderer.renderPathFill(
 			passEncoder,
 			segments,
 			fill,
 			alphaMultiplier,
-			pipelineType,
-			elementId,
+			cacheKey,
 		);
 	}
 

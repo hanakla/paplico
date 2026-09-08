@@ -628,6 +628,12 @@ export function inverseTransformVector(
 	};
 }
 
+/** The affine part of a GPU transform entry: what maps local space to world. */
+export type GPUTransformAffine = Pick<
+	GPUElementTransform,
+	"tx" | "ty" | "originX" | "originY" | "m00" | "m01" | "m10" | "m11"
+>;
+
 /** GPU-ready pre-computed transform data (56 bytes / 14 values) */
 export interface GPUElementTransform {
 	tx: number;

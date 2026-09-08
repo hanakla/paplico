@@ -16,6 +16,7 @@ import {
 import {
 	composeTransforms,
 	GPU_TRANSFORM_VALUES,
+	type GPUTransformAffine,
 	getVisibleWorldBounds,
 	IDENTITY_GPU_TRANSFORM,
 	MASK_ATLAS_BIT,
@@ -140,6 +141,27 @@ export class ViewportManager {
 
 	public getTransformIndex(elementId: string): number {
 		return this.transformIndexMap.get(elementId) ?? 0;
+	}
+
+	/**
+	 * The affine part of a transform slot as the GPU sees it, read from the
+	 * CPU mirror of the storage buffer so CPU rasterization applies the same
+	 * numbers the vertex stage does. Slot 0 is the identity.
+	 */
+	public getGpuTransform(slot: number): GPUTransformAffine {
+		const f32 = this.cachedF32;
+		const offset = slot * GPU_TRANSFORM_VALUES;
+		if (!f32 || offset + 8 > f32.length) return IDENTITY_GPU_TRANSFORM;
+		return {
+			tx: f32[offset],
+			ty: f32[offset + 1],
+			originX: f32[offset + 2],
+			originY: f32[offset + 3],
+			m00: f32[offset + 4],
+			m01: f32[offset + 5],
+			m10: f32[offset + 6],
+			m11: f32[offset + 7],
+		};
 	}
 
 	/**

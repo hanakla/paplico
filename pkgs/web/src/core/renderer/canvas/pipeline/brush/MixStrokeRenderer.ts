@@ -298,17 +298,8 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				GPUTextureUsage.COPY_DST,
 			"Mix Stroke Buffer",
 		);
-		const depthTex = this.deps.texturePool.acquireExact(
-			texW,
-			texH,
-			"depth24plus-stencil8",
-			1,
-			GPUTextureUsage.RENDER_ATTACHMENT,
-			"Mix Stroke Stencil",
-		);
-		this.frameTextures.push(strokeTex, depthTex);
+		this.frameTextures.push(strokeTex);
 		const strokeView = strokeTex.createView();
-		const depthView = depthTex.createView();
 
 		// Dab draws target the stroke texture's own world viewport.
 		const uniformEntry = this.deps.uniformScope.acquire(
@@ -405,15 +396,6 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 						storeOp: "store",
 					},
 				],
-				depthStencilAttachment: {
-					view: depthView,
-					depthClearValue: 1,
-					depthLoadOp: "clear",
-					depthStoreOp: "discard",
-					stencilClearValue: 0,
-					stencilLoadOp: "clear",
-					stencilStoreOp: "discard",
-				},
 			});
 			this.deps.brush.dabs.drawMixedChunk(pass, drawState, firstDab, chunkLen);
 			pass.end();

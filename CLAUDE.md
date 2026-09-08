@@ -335,7 +335,7 @@ Paplico (facade) → RenderOrchestrator → CanvasLayer (document layer, rendere
 ```
 
 - **RenderOrchestrator** — Owns the GPU device, manages multiple CanvasTargets, dispatches render calls. External code accesses rendering only through Paplico facade methods.
-- **CanvasLayer** — Per-canvas document rendering pipeline. Manages render passes, stencil textures, and orchestrates the internal graphics machinery in `renderer/canvas/pipeline/`. Its peer UILayer (`renderer/ui/`) renders tool overlays in the same encoder pass; each layer owns its GPU pipelines.
+- **CanvasLayer** — Per-canvas document rendering pipeline. Manages render passes and orchestrates the internal graphics machinery in `renderer/canvas/pipeline/`. Its peer UILayer (`renderer/ui/`) renders tool overlays in the same encoder pass; each layer owns its GPU pipelines.
 - **DocumentCache** — Document-cache texture management. Tracks dirty layers, renders to cache textures, blits cached content to avoid re-rendering unchanged layers.
 - **ElementRenderer** — Dispatches rendering for each element type (path stroke/fill, image, text, group, compound path). Type-specific renderers live in `renderer/canvas/elements/`.
 - **CompositeRenderer / OffscreenPresenter** — Handle offscreen render passes for blend modes, clip groups, and rotation-corrected blit operations.
@@ -497,7 +497,7 @@ pkgs/web/
     │   │   │   ├── pipeline/  # Internal graphics machinery (ViewportManager, DocumentCache, CompositeRenderer, OffscreenPresenter, FilterRenderer, RenderPlanner, TexturePool, ClipMaskAtlas)
     │   │   │   │   └── brush/ # Brush rendering (BrushRenderer, DabRenderer, RibbonRenderer, WetStrokeRenderer, DabEvaluator, BrushTextureManager) + shaders/
     │   │   │   ├── elements/  # Element renderers (ElementRenderer dispatch, Gradient/Image/Mesh/Text)
-    │   │   │   └── caches/    # Render caches (geometry, gradient, stamp, stroke, stencil)
+    │   │   │   └── caches/    # Render caches (outline, strip, gradient, stamp, compound/group path)
     │   │   ├── ui/            # UI render layer (UILayer: selection overlay, cursor, guides) + types.ts (UI overlay data types) + constants.ts (UI colors)
     │   │   ├── filters/       # Filter processors + their WGSL shaders + filterCatalog + userland type barrel (index.ts)
     │   │   ├── generators/    # Texture generators (gradient, mesh gradient, corner radius)

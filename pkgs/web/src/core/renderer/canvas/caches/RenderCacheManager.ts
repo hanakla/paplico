@@ -2,19 +2,17 @@ import { AppearanceCache } from "./AppearanceCache";
 import { BlendCache } from "./BlendCache";
 import { CompoundPathCache } from "./CompoundPathCache";
 import { FilteredElementCache } from "./FilteredElementCache";
-import { GeometryCache } from "./GeometryCache";
 import { GradientCache } from "./GradientCache";
 import { GroupPathCache } from "./GroupPathCache";
 import { MeshWarpCache } from "./MeshWarpCache";
+import { OutlineCache } from "./OutlineCache";
 import { StampCache } from "./StampCache";
-import { StencilFillCache } from "./StencilFillCache";
-import { StrokeCache } from "./StrokeCache";
+import { StripCache } from "./StripCache";
 
 /** All element caches for one document, swapped as a unit. */
 interface DocumentCacheScope {
-	geometry: GeometryCache;
-	stroke: StrokeCache;
-	stencilFill: StencilFillCache;
+	outline: OutlineCache;
+	strip: StripCache;
 	compoundPath: CompoundPathCache;
 	groupPath: GroupPathCache;
 	meshWarp: MeshWarpCache;
@@ -44,12 +42,12 @@ const MAX_SCOPES = 4;
  * to CanvasLayer, ElementRenderer, and the BrushRenderer.
  *
  * The cache properties resolve the ACTIVE document's scope on every access.
- * Never capture them at construction time (no `const g = manager.geometry`
+ * Never capture them at construction time (no `const g = manager.outline`
  * kept across frames, no object-literal snapshot) — a held instance pins
  * whichever document was active when it was read. Pass accessors/thunks
  * instead.
  */
-export interface RenderCacheManagerOptions {
+interface RenderCacheManagerOptions {
 	stampCacheMaxBytes?: number;
 }
 
@@ -62,14 +60,11 @@ export class RenderCacheManager {
 		this.scopes.set(DEFAULT_SCOPE_ID, this.active);
 	}
 
-	public get geometry(): GeometryCache {
-		return this.active.geometry;
+	public get outline(): OutlineCache {
+		return this.active.outline;
 	}
-	public get stroke(): StrokeCache {
-		return this.active.stroke;
-	}
-	public get stencilFill(): StencilFillCache {
-		return this.active.stencilFill;
+	public get strip(): StripCache {
+		return this.active.strip;
 	}
 	public get compoundPath(): CompoundPathCache {
 		return this.active.compoundPath;
@@ -135,9 +130,7 @@ export class RenderCacheManager {
 	}
 
 	/** Flush deferred GPU destroys of EVERY scope (not just the active one —
-	 *  a scope deactivated mid-frame must still release its evicted buffers).
-	 *  stencilFill/stroke need no flushing here: their vertices live in the
-	 *  shared GeometryStore, which defers released ranges on its own. */
+	 *  a scope deactivated mid-frame must still release its evicted buffers). */
 	public flushPendingDestroy(): void {
 		for (const scope of this.scopes.values()) {
 			scope.appearance.flushPendingDestroy();
@@ -156,59 +149,62 @@ export class RenderCacheManager {
 		// "<elementId>::<appearanceUid>"). Liveness is checked on the
 		// base id (the part before "::") so their GPU buffers are not destroyed
 		// mid-flight by stale-entry pruning every full render; deletion still uses
-		// the full key. Prefilter geometry keys use a single ":" and are NOT
-		// collapsed here — their orphans must still be pruned when the uid changes.
+		// the full key.
 		const baseId = (key: string): string => {
 			const i = key.indexOf("::");
 			return i === -1 ? key : key.slice(0, i);
 		};
 
-		// Per-id caches (geometry/stencil/compound/group/blend/appearance).
-		// Each is scanned independently since stroke-only elements lack geometry
-		// entries.
+		// Per-id caches (outline/strip/compound/group/blend/appearance).
+		// Each is scanned independently since not every element populates all.
 		const staleIds: string[] = [];
-		const collectStale = (keys: Iterable<string>): void => {
+		const collectStale = (
+			keys: Iterable<string>,
+			liveId: (key: string) => string = baseId,
+		): void => {
 			for (const key of keys) {
-				if (!(baseId(key) in liveObjects)) staleIds.push(key);
+				if (!(liveId(key) in liveObjects)) staleIds.push(key);
 			}
 		};
-		collectStale(this.geometry.keys());
-		collectStale(this.stencilFill.keys());
+		// Outline and strip keys are pre-filter composites
+		// ("<elementId>:<filterUid>[,...][:<appearanceUid>:<subFilterUids>]"),
+		// extrude fills ("<elementId>:extrude-fill:<appearanceUid>") or group
+		// appearances ("<groupId>:group-app:..."). They are judged on the id
+		// before the first ":" so a full render keeps them. A variant whose
+		// pre-filter set changed stays until its element is deleted.
+		collectStale(this.outline.keys(), compositeElementId);
+		collectStale(this.strip.keys(), compositeElementId);
 		collectStale(this.compoundPath.keys());
 		collectStale(this.groupPath.keys());
 		collectStale(this.meshWarp.keys());
 		collectStale(this.blend.keys());
 		collectStale(this.appearance.keys());
-		collectStale(this.stroke.keys());
 		collectStale(this.filteredElement.keys());
 
 		if (staleIds.length > 0) {
-			this.geometry.deleteMany(staleIds);
-			this.stencilFill.deleteMany(staleIds);
+			this.outline.deleteMany(staleIds);
+			this.strip.deleteMany(staleIds);
 			this.compoundPath.deleteMany(staleIds);
 			this.groupPath.deleteMany(staleIds);
 			this.meshWarp.deleteMany(staleIds);
 			this.blend.deleteMany(staleIds);
 			this.appearance.deleteMany(staleIds);
-			this.stroke.deleteMany(staleIds);
 			this.filteredElement.deleteMany(staleIds);
 		}
 
 		// Gradient and stamp caches use composite keys "elementId:...".
 		// The element id is the substring before the first ":"; for blend keys
 		// ("<blendId>::...") that resolves to the live blend id, so they survive.
-		// Stamp keys ("<id>:<scatterFp>:<aspect>:<hash>") MUST be judged here,
-		// not by baseId: they contain single colons only, so the "::" split
+		// Stamp keys ("<id>:<scatterFp>:<aspect>:<hash>") MUST be judged this
+		// way, not by baseId: they contain single colons only, so the "::" split
 		// returns the whole key and never matches a live id, which would wipe
 		// the entire stamp cache on every full render.
 		for (const key of this.gradient.keys()) {
-			const elementId = key.slice(0, key.indexOf(":"));
-			if (elementId && !(elementId in liveObjects)) this.gradient.delete(key);
+			if (!(compositeElementId(key) in liveObjects)) this.gradient.delete(key);
 		}
 		const staleStampKeys: string[] = [];
 		for (const key of this.stamp.keys()) {
-			const elementId = key.slice(0, key.indexOf(":"));
-			if (elementId && !(elementId in liveObjects)) staleStampKeys.push(key);
+			if (!(compositeElementId(key) in liveObjects)) staleStampKeys.push(key);
 		}
 		if (staleStampKeys.length > 0) this.stamp.deleteMany(staleStampKeys);
 	}
@@ -241,9 +237,8 @@ export class RenderCacheManager {
 
 function createScope(stampCacheMaxBytes?: number): DocumentCacheScope {
 	return {
-		geometry: new GeometryCache(),
-		stroke: new StrokeCache(),
-		stencilFill: new StencilFillCache(),
+		outline: new OutlineCache(),
+		strip: new StripCache(),
 		compoundPath: new CompoundPathCache(),
 		groupPath: new GroupPathCache(),
 		meshWarp: new MeshWarpCache(),
@@ -258,9 +253,8 @@ function createScope(stampCacheMaxBytes?: number): DocumentCacheScope {
 /** Release a scope's entries including their GPU resources — every cache's
  *  clear() destroys (or flushes deferred destroys of) what it owns. */
 function destroyScope(scope: DocumentCacheScope): void {
-	scope.geometry.clear();
-	scope.stroke.clear();
-	scope.stencilFill.clear();
+	scope.outline.clear();
+	scope.strip.clear();
 	scope.compoundPath.clear();
 	scope.groupPath.clear();
 	scope.meshWarp.clear();
@@ -270,4 +264,10 @@ function destroyScope(scope: DocumentCacheScope): void {
 	scope.appearance.clear();
 	scope.filteredElement.clear();
 	scope.filteredElement.flushPendingDestroy();
+}
+
+/** The element id a composite cache key belongs to: the part before the first ":". */
+function compositeElementId(key: string): string {
+	const i = key.indexOf(":");
+	return i === -1 ? key : key.slice(0, i);
 }

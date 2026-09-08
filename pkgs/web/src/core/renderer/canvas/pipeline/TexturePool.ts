@@ -1,9 +1,9 @@
 /**
  * Per-frame GPU texture pool.
  *
- * Offscreen render passes create and destroy many transient textures every
- * frame (color, MSAA resolve, stencil).  TexturePool recycles them across
- * frames so the GPU memory allocator is only hit on the first few frames.
+ * Offscreen render passes create and destroy many transient colour textures
+ * every frame. TexturePool recycles them across frames so the GPU memory
+ * allocator is only hit on the first few frames.
  *
  * Pool keys use SIZE_QUANTUM-quantized dimensions so that textures of
  * similar (but not identical) sizes share the same bucket, improving reuse.
@@ -52,7 +52,6 @@ function textureBytes(
 			break;
 		case "rgba8unorm":
 		case "bgra8unorm":
-		case "depth24plus-stencil8":
 			bytesPerTexel = 4;
 			break;
 		default:
@@ -66,7 +65,7 @@ const MAX_POOL_BYTES_CEILING = 1024 * 1024 * 1024;
 
 /**
  * Pool budget for a given canvas size. A frame's transient working set
- * (offscreen colors/stencils, glass composites, backdrop captures) scales
+ * (offscreen colours, glass composites, backdrop captures) scales
  * with the canvas surface; a fixed budget below that working set makes
  * resetFrame evict canvas-sized textures every frame just to re-allocate
  * them the next one.

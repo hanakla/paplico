@@ -38,28 +38,4 @@ describe("hashGradientDraw", () => {
 
 		expect(h1).toBe(h2);
 	});
-
-	it("changes fingerprint when the alpha baked into the vertices changes", () => {
-		const gradient = makeLinearGradient(0.5);
-		const opaque = hashGradientDraw(
-			gradient,
-			[0, 0],
-			[1, 1],
-			0,
-			0,
-			undefined,
-			1,
-		);
-		const dimmed = hashGradientDraw(
-			gradient,
-			[0, 0],
-			[1, 1],
-			0,
-			0,
-			undefined,
-			0.3,
-		);
-
-		expect(opaque).not.toBe(dimmed);
-	});
 });

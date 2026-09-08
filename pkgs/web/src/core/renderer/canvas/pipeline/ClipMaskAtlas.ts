@@ -16,20 +16,18 @@ import type { AnyArtObject, BoundingBox } from "../../../schema";
 import { boundsIntersectionBox } from "../../../utils/geometry/bounds";
 import { neverReached } from "../../../utils/lang";
 import { expandRenderFilter } from "../CanvasLayer.helpers";
-import {
-	type FilteredTextureInfo,
-	type GPUCoreResources,
-	MSAA_SAMPLE_COUNT,
-	type RenderElementsFn,
-	type RenderElementToMaskFn,
-	type RenderState,
-	type ViewportState,
+import type {
+	FilteredTextureInfo,
+	GPUCoreResources,
+	RenderElementsFn,
+	RenderElementToMaskFn,
+	RenderState,
+	ViewportState,
 } from "../CanvasLayerTypes";
 import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
-import { createPassLocalStencilAttachment } from "./PassLocalStencil";
 import { createBorrowedTextureRef, type TextureRef } from "./RenderSurface";
 import { quantizeSize, type TexturePool } from "./TexturePool";
-import type { UniformScope } from "./UniformScope";
+import type { UniformEntry, UniformScope } from "./UniformScope";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -119,11 +117,9 @@ interface ClipMaskAtlasDeps extends GPUCoreResources {
 	) => string;
 	viewportState: ViewportState;
 	renderState: RenderState;
-	setActiveBindGroup: (
-		bindGroup: GPUBindGroup | null,
-		uniformBuffer?: GPUBuffer | null,
-		replace?: boolean,
-	) => void;
+	/** Push (or with `replace`, swap) the viewport binding of the pass being
+	 *  encoded; null pops back to the previous one. */
+	setActiveBindGroup: (entry: UniformEntry | null, replace?: boolean) => void;
 	deferDestroy: (texture: GPUTexture) => void;
 }
 
@@ -508,28 +504,6 @@ export class ClipMaskAtlas {
 					usage:
 						GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
 				});
-		const targetWidth = atlasRect ? logicalWidth : texWidth;
-		const targetHeight = atlasRect ? logicalHeight : texHeight;
-
-		// Acquire temporary stencil texture from pool.
-		const stencilTexture = atlasRect
-			? this.deps.texturePool.acquireExact(
-					targetWidth,
-					targetHeight,
-					"depth24plus-stencil8",
-					MSAA_SAMPLE_COUNT,
-					GPUTextureUsage.RENDER_ATTACHMENT,
-					`Clip Mask Stencil [${index}]`,
-				)
-			: this.deps.texturePool.acquire(
-					targetWidth,
-					targetHeight,
-					"depth24plus-stencil8",
-					MSAA_SAMPLE_COUNT,
-					GPUTextureUsage.RENDER_ATTACHMENT,
-					`Clip Mask Stencil [${index}]`,
-				);
-
 		const passEncoder = encoder.beginRenderPass({
 			label: `Clip Mask Pass [${index}] - ${mask.key}`,
 			colorAttachments: [
@@ -540,9 +514,6 @@ export class ClipMaskAtlas {
 					storeOp: "store",
 				},
 			],
-			depthStencilAttachment: createPassLocalStencilAttachment(
-				stencilTexture.createView(),
-			),
 		});
 
 		// Set up a per-mask viewport centred on the coverage bounds.
@@ -558,7 +529,7 @@ export class ClipMaskAtlas {
 			logicalWidth,
 			logicalHeight,
 		);
-		this.deps.setActiveBindGroup(entry.bindGroup, entry.buffer);
+		this.deps.setActiveBindGroup(entry);
 		this.deps.viewportState.bounds = null;
 
 		// Pipeline and bind groups — same layout as the main geometry passes.
@@ -604,9 +575,6 @@ export class ClipMaskAtlas {
 
 		// Pop the viewport binding pushed by setActiveBindGroup above.
 		this.deps.setActiveBindGroup(null);
-
-		// Return stencil texture to the pool.
-		this.deps.texturePool.release(stencilTexture);
 
 		const maskBounds = maskBoundsForCoverage(coverage);
 
@@ -711,14 +679,6 @@ export class ClipMaskAtlas {
 
 		const transformsBindGroup = this.deps.getTransformsBindGroup();
 		if (!transformsBindGroup) return;
-		const stencilTexture = this.deps.texturePool.acquireExact(
-			this.atlasSize,
-			this.atlasSize,
-			"depth24plus-stencil8",
-			MSAA_SAMPLE_COUNT,
-			GPUTextureUsage.RENDER_ATTACHMENT,
-			"Clip Mask Atlas Stencil",
-		);
 		const pass = encoder.beginRenderPass({
 			label: `Clip Mask Atlas Batch [${items.length}]`,
 			colorAttachments: [
@@ -728,9 +688,6 @@ export class ClipMaskAtlas {
 					storeOp: "store",
 				},
 			],
-			depthStencilAttachment: createPassLocalStencilAttachment(
-				stencilTexture.createView(),
-			),
 		});
 		pass.setPipeline(this.deps.strokePipeline);
 		pass.setBindGroup(1, transformsBindGroup);
@@ -765,7 +722,7 @@ export class ClipMaskAtlas {
 				coverage.logicalWidth,
 				coverage.logicalHeight,
 			);
-			this.deps.setActiveBindGroup(entry.bindGroup, entry.buffer);
+			this.deps.setActiveBindGroup(entry);
 			pass.setBindGroup(0, entry.bindGroup);
 			for (const source of mask.sources) {
 				this.deps.renderState.currentTransformIndex =
@@ -776,7 +733,6 @@ export class ClipMaskAtlas {
 		}
 
 		pass.end();
-		this.deps.texturePool.release(stencilTexture);
 	}
 
 	/**

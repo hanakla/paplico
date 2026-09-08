@@ -45,27 +45,7 @@ describe("tessellateStroke", () => {
 
 		// 2 triangles for the body segment, no caps
 		expect(result.count).toBe(6); // 2 triangles × 3 vertices
-		expect(result.vertices).toHaveLength(24); // 6 vertices × 4 floats (x, y, ox, oy)
-	});
-
-	it("should inset open butt end corners inward on both axes", () => {
-		const result = tessellateStroke(
-			makeInput({
-				points: [0, 0, 100, 0],
-				pressures: [1, 1],
-				baseWidth: 10,
-				lineCap: "butt",
-			}),
-		);
-
-		// Horizontal butt rectangle: every corner is an outline corner, so the
-		// AA offset pulls half a pixel inward laterally (y) and along the cap
-		// direction (x).
-		const verts = result.vertices;
-		for (let i = 0; i < verts.length; i += 4) {
-			expect(verts[i + 2]).toBeCloseTo(verts[i] === 0 ? 0.5 : -0.5, 5);
-			expect(verts[i + 3]).toBeCloseTo(verts[i + 1] > 0 ? -0.5 : 0.5, 5);
-		}
+		expect(result.vertices).toHaveLength(12); // 6 vertices × 2 floats
 	});
 
 	it("should produce additional geometry for round caps", () => {
@@ -108,8 +88,8 @@ describe("tessellateStroke", () => {
 			}),
 		);
 
-		const xValues = result.vertices.filter((_, i) => i % 4 === 0);
-		const buttXValues = butt.vertices.filter((_, i) => i % 4 === 0);
+		const xValues = result.vertices.filter((_, i) => i % 2 === 0);
+		const buttXValues = butt.vertices.filter((_, i) => i % 2 === 0);
 
 		// Butt cap: x stays within [0, 100]
 		expect(Math.min(...buttXValues)).toBeCloseTo(0, 5);
@@ -152,10 +132,10 @@ describe("tessellateStroke", () => {
 			}),
 		);
 
-		// 2 segments × 2 triangles = 4 body triangles
-		// + 1 bevel join triangle (outer) + 1 inner fill triangle = 6 total
-		// = 18 vertices
-		expect(result.count).toBe(18);
+		// 2 segments × 2 triangles = 4 body triangles, meeting at the inner
+		// offset intersection, + 1 bevel join triangle (outer) = 5 total
+		// = 15 vertices
+		expect(result.count).toBe(15);
 	});
 
 	describe("join side", () => {
@@ -172,21 +152,42 @@ describe("tessellateStroke", () => {
 				makeInput({ ...leftTurn, baseWidth: 20, lineJoin: "miter" }),
 			);
 			expect(hasBodyVertexNear(left, 110, -10)).toBe(true);
-			expect(hasBodyVertexNear(left, 90, 10)).toBe(false);
 
 			const right = tessellateStroke(
 				makeInput({ ...rightTurn, baseWidth: 20, lineJoin: "miter" }),
 			);
 			expect(hasBodyVertexNear(right, 110, 10)).toBe(true);
-			expect(hasBodyVertexNear(right, 90, -10)).toBe(false);
 		});
 
-		it("should emit the miter fringe on the outer side of the corner", () => {
-			const result = tessellateStroke(
-				makeInput({ ...leftTurn, baseWidth: 20, lineJoin: "miter" }),
+		it("should meet the body quads at the inner offset intersection", () => {
+			const left = tessellateStroke(
+				makeInput({ ...leftTurn, baseWidth: 20, lineJoin: "bevel" }),
 			);
-			expect(hasFringeVertexNear(result, 110, -10)).toBe(true);
-			expect(hasFringeVertexNear(result, 90, 10)).toBe(false);
+			expect(hasBodyVertexNear(left, 90, 10)).toBe(true);
+			expect(hasBodyVertexNear(left, 100, 10)).toBe(false);
+			expect(hasBodyVertexNear(left, 90, 0)).toBe(false);
+
+			const right = tessellateStroke(
+				makeInput({ ...rightTurn, baseWidth: 20, lineJoin: "bevel" }),
+			);
+			expect(hasBodyVertexNear(right, 90, -10)).toBe(true);
+			expect(hasBodyVertexNear(right, 100, -10)).toBe(false);
+			expect(hasBodyVertexNear(right, 90, 0)).toBe(false);
+		});
+
+		it("should leave the bodies untrimmed when the inner intersection lies beyond a segment", () => {
+			// The second segment is shorter than the inner offset reach.
+			const result = tessellateStroke(
+				makeInput({
+					points: [0, 0, 100, 0, 100, 5],
+					pressures: [1, 1, 1],
+					baseWidth: 20,
+					lineJoin: "bevel",
+					lineCap: "butt",
+				}),
+			);
+			expect(hasBodyVertexNear(result, 100, 10)).toBe(true);
+			expect(hasBodyVertexNear(result, 90, 0)).toBe(true);
 		});
 
 		it("should emit the round fan on the outer side of the corner", () => {
@@ -197,8 +198,8 @@ describe("tessellateStroke", () => {
 			// the corner: x > 100 and y < 0.
 			const fan: Array<[number, number]> = [];
 			for (let i = 0; i < result.count; i++) {
-				const x = result.vertices[i * 4];
-				const y = result.vertices[i * 4 + 1];
+				const x = result.vertices[i * 2];
+				const y = result.vertices[i * 2 + 1];
 				if (x > 100 + 1e-6 && y < -1e-6) fan.push([x, y]);
 			}
 			expect(fan.length).toBeGreaterThan(0);
@@ -241,8 +242,8 @@ describe("tessellateStroke", () => {
 				// around the corner, outer quadrant including both arc ends).
 				const angles: number[] = [];
 				for (let i = 0; i < result.count; i++) {
-					const dx = result.vertices[i * 4] - 100;
-					const dy = result.vertices[i * 4 + 1];
+					const dx = result.vertices[i * 2] - 100;
+					const dy = result.vertices[i * 2 + 1];
 					if (
 						Math.abs(Math.hypot(dx, dy) - 10) < 1e-6 &&
 						dx > -1e-6 &&
@@ -270,8 +271,8 @@ describe("tessellateStroke", () => {
 			);
 			let fan = 0;
 			for (let i = 0; i < result.count; i++) {
-				const x = result.vertices[i * 4];
-				const y = result.vertices[i * 4 + 1];
+				const x = result.vertices[i * 2];
+				const y = result.vertices[i * 2 + 1];
 				if (x > 100 + 1e-6 && y < -1e-6) fan++;
 			}
 			return fan;
@@ -401,13 +402,13 @@ describe("tessellateStroke", () => {
 		);
 
 		const verts = result.vertices;
-		for (let i = 0; i < verts.length; i += 12) {
+		for (let i = 0; i < verts.length; i += 6) {
 			const ax = verts[i];
 			const ay = verts[i + 1];
-			const bx = verts[i + 4];
-			const by = verts[i + 5];
-			const cx = verts[i + 8];
-			const cy = verts[i + 9];
+			const bx = verts[i + 2];
+			const by = verts[i + 3];
+			const cx = verts[i + 4];
+			const cy = verts[i + 5];
 			const cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
 			expect(cross).toBeGreaterThanOrEqual(0);
 		}
@@ -426,11 +427,10 @@ describe("tessellateStroke", () => {
 			}),
 		);
 
-		const yValues = result.vertices.filter((_, index) => index % 4 === 1);
+		const yValues = result.vertices.filter((_, index) => index % 2 === 1);
 		expect(Math.min(...yValues)).toBeCloseTo(5, 5);
 		expect(Math.max(...yValues)).toBeCloseTo(10, 5);
 		expect(result.vertices.every(Number.isFinite)).toBe(true);
-		expect(result.fringeVertices.every(Number.isFinite)).toBe(true);
 	});
 
 	it("should omit a stroke whose signed half width is non-positive", () => {
@@ -446,7 +446,6 @@ describe("tessellateStroke", () => {
 		);
 
 		expect(result.count).toBe(0);
-		expect(result.fringeCount).toBe(0);
 	});
 
 	it("should split visible regions at interpolated zero crossings", () => {
@@ -461,7 +460,6 @@ describe("tessellateStroke", () => {
 
 		expect(result.count).toBeGreaterThan(0);
 		expectTrianglesDoNotCrossXGap(result.vertices, 25, 75);
-		expectFringeTrianglesDoNotCrossXGap(result.fringeVertices, 25, 75);
 	});
 
 	it("should split a curved polyline without bridging its invisible region", () => {
@@ -475,9 +473,7 @@ describe("tessellateStroke", () => {
 		);
 
 		expect(result.vertices.every(Number.isFinite)).toBe(true);
-		expect(result.fringeVertices.every(Number.isFinite)).toBe(true);
 		expectTrianglesDoNotCrossXGap(result.vertices, 25, 75);
-		expectFringeTrianglesDoNotCrossXGap(result.fringeVertices, 25, 75);
 	});
 
 	it("should keep joins and caps finite when one signed side is negative", () => {
@@ -495,9 +491,7 @@ describe("tessellateStroke", () => {
 		);
 
 		expect(result.count).toBeGreaterThan(12);
-		expect(result.fringeCount).toBeGreaterThan(0);
 		expect(result.vertices.every(Number.isFinite)).toBe(true);
-		expect(result.fringeVertices.every(Number.isFinite)).toBe(true);
 	});
 
 	it("should keep a signed asymmetric closed-path seam continuous", () => {
@@ -516,125 +510,18 @@ describe("tessellateStroke", () => {
 		const result = tessellateStroke(input);
 		const buttResult = tessellateStroke({ ...input, lineCap: "butt" });
 
-		const firstCenter = getBodySegmentEndpointCenter(result.vertices, 0, 0, 0);
-		const closingCenter = getBodySegmentEndpointCenter(
-			result.vertices,
-			3,
-			0,
-			0,
+		// The closing body's end and the first body's start meet at the inner
+		// offset intersection, so the seam has no gap.
+		const firstStart = getBodySegmentEndpoints(result.vertices, 0, 0, 0);
+		const closingEnd = getBodySegmentEndpoints(result.vertices, 3, 0, 0);
+		const shared = firstStart.filter((a) =>
+			closingEnd.some((b) => a.x === b.x && a.y === b.y),
 		);
 
-		expect(firstCenter.x).toBeCloseTo(closingCenter.x, 8);
-		expect(firstCenter.y).toBeCloseTo(closingCenter.y, 8);
+		expect(shared).toHaveLength(1);
 		expect(result.count).toBeGreaterThan(0);
-		expect(result.fringeCount).toBeGreaterThan(0);
 		expect(result.vertices.every(Number.isFinite)).toBe(true);
-		expect(result.fringeVertices.every(Number.isFinite)).toBe(true);
 		expect(result).toEqual(buttResult);
-	});
-});
-
-describe("tessellateStroke fringe AA", () => {
-	it("should always produce fringe geometry for a valid stroke", () => {
-		const result = tessellateStroke(
-			makeInput({
-				points: [0, 0, 100, 0],
-				pressures: [1, 1],
-				baseWidth: 10,
-				lineCap: "butt",
-			}),
-		);
-		expect(result.fringeCount).toBeGreaterThan(0);
-		// 5 floats per vertex (x, y, offsetX, offsetY, alpha)
-		expect(result.fringeVertices).toHaveLength(result.fringeCount * 5);
-		// Triangles: count must be a multiple of 3
-		expect(result.fringeCount % 3).toBe(0);
-	});
-
-	it("should have only 0 or 1 alpha values in fringe vertices", () => {
-		const result = tessellateStroke(
-			makeInput({
-				points: [0, 0, 100, 0],
-				pressures: [1, 1],
-				baseWidth: 10,
-				lineCap: "butt",
-			}),
-		);
-		const verts = result.fringeVertices;
-		// Extract alpha (every 5th float starting at index 4)
-		for (let i = 4; i < verts.length; i += 5) {
-			const alpha = verts[i];
-			expect(alpha === 0 || alpha === 1).toBe(true);
-		}
-		// Both inner (1) and outer (0) vertices must exist
-		const alphas = new Set(
-			Array.from({ length: verts.length / 5 }, (_, k) => verts[k * 5 + 4]),
-		);
-		expect(alphas.has(0)).toBe(true);
-		expect(alphas.has(1)).toBe(true);
-	});
-
-	it("body vertices should use full half-widths (no shrink)", () => {
-		// baseWidth=10 (hw=5), body should extend to ±5
-		const result = tessellateStroke(
-			makeInput({
-				points: [0, 0, 100, 0],
-				pressures: [1, 1],
-				baseWidth: 10,
-				lineCap: "butt",
-			}),
-		);
-
-		// Horizontal line: normal (0, 1), body should extend to ±5
-		const yValues = result.vertices.filter((_, i) => i % 4 === 1);
-		const maxY = Math.max(...yValues);
-		const minY = Math.min(...yValues);
-
-		expect(maxY).toBeCloseTo(5, 5);
-		expect(minY).toBeCloseTo(-5, 5);
-	});
-
-	it("fringe vertices should carry offset fields for zoom-independent displacement", () => {
-		const result = tessellateStroke(
-			makeInput({
-				points: [0, 0, 100, 0],
-				pressures: [1, 1],
-				baseWidth: 10,
-				lineCap: "butt",
-			}),
-		);
-		const verts = result.fringeVertices;
-
-		// Verify that offset fields (indices 2,3 per vertex) are non-zero for at least some vertices
-		let hasNonZeroOffset = false;
-		for (let i = 0; i < verts.length; i += 5) {
-			const ox = verts[i + 2];
-			const oy = verts[i + 3];
-			if (Math.abs(ox) > 1e-10 || Math.abs(oy) > 1e-10) {
-				hasNonZeroOffset = true;
-				break;
-			}
-		}
-		expect(hasNonZeroOffset).toBe(true);
-	});
-
-	it("should produce more fringe triangles with round caps than butt caps", () => {
-		const butt = tessellateStroke(
-			makeInput({
-				points: [0, 0, 100, 0],
-				pressures: [1, 1],
-				lineCap: "butt",
-			}),
-		);
-		const round = tessellateStroke(
-			makeInput({
-				points: [0, 0, 100, 0],
-				pressures: [1, 1],
-				lineCap: "round",
-			}),
-		);
-		// Round caps add fringe geometry at each endpoint
-		expect(round.fringeCount).toBeGreaterThan(butt.fringeCount);
 	});
 });
 
@@ -657,7 +544,7 @@ describe("tessellateStroke taper", () => {
 		// Endpoint vertices (x≈0 and x≈100) collapse onto the centerline
 		const verts = result.vertices;
 		let maxAbsY = 0;
-		for (let i = 0; i < verts.length; i += 4) {
+		for (let i = 0; i < verts.length; i += 2) {
 			const x = verts[i];
 			const y = verts[i + 1];
 			if (Math.abs(x) < 1e-6 || Math.abs(x - 100) < 1e-6) {
@@ -834,26 +721,8 @@ function hasBodyVertexNear(
 ): boolean {
 	for (let i = 0; i < result.count; i++) {
 		if (
-			Math.hypot(result.vertices[i * 4] - x, result.vertices[i * 4 + 1] - y) <
+			Math.hypot(result.vertices[i * 2] - x, result.vertices[i * 2 + 1] - y) <
 			1e-6
-		) {
-			return true;
-		}
-	}
-	return false;
-}
-
-function hasFringeVertexNear(
-	result: { fringeVertices: number[]; fringeCount: number },
-	x: number,
-	y: number,
-): boolean {
-	for (let i = 0; i < result.fringeCount; i++) {
-		if (
-			Math.hypot(
-				result.fringeVertices[i * 5] - x,
-				result.fringeVertices[i * 5 + 1] - y,
-			) < 1e-6
 		) {
 			return true;
 		}
@@ -866,41 +735,32 @@ function expectTrianglesDoNotCrossXGap(
 	gapStart: number,
 	gapEnd: number,
 ): void {
-	for (let index = 0; index < vertices.length; index += 12) {
-		const xs = [vertices[index], vertices[index + 4], vertices[index + 8]];
+	for (let index = 0; index < vertices.length; index += 6) {
+		const xs = [vertices[index], vertices[index + 2], vertices[index + 4]];
 		expect(Math.min(...xs) < gapStart && Math.max(...xs) > gapEnd).toBe(false);
 	}
 }
 
-function expectFringeTrianglesDoNotCrossXGap(
-	vertices: number[],
-	gapStart: number,
-	gapEnd: number,
-): void {
-	for (let index = 0; index < vertices.length; index += 15) {
-		const xs = [vertices[index], vertices[index + 5], vertices[index + 10]];
-		expect(Math.min(...xs) < gapStart && Math.max(...xs) > gapEnd).toBe(false);
-	}
-}
-
-function getBodySegmentEndpointCenter(
+/** The two body corners of a segment nearest to a target point. */
+function getBodySegmentEndpoints(
 	vertices: number[],
 	segmentIndex: number,
 	targetX: number,
 	targetY: number,
-): { x: number; y: number } {
-	const offset = segmentIndex * 24;
+): { x: number; y: number }[] {
+	const offset = segmentIndex * 12;
 	const uniqueVertices = new Map<string, { x: number; y: number }>();
-	for (let index = offset; index < offset + 24; index += 4) {
+	for (let index = offset; index < offset + 12; index += 2) {
 		const point = { x: vertices[index], y: vertices[index + 1] };
 		uniqueVertices.set(`${point.x},${point.y}`, point);
 	}
-	const [first, second] = [...uniqueVertices.values()].toSorted(
-		(a, b) =>
-			Math.hypot(a.x - targetX, a.y - targetY) -
-			Math.hypot(b.x - targetX, b.y - targetY),
-	);
-	return { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+	return [...uniqueVertices.values()]
+		.toSorted(
+			(a, b) =>
+				Math.hypot(a.x - targetX, a.y - targetY) -
+				Math.hypot(b.x - targetX, b.y - targetY),
+		)
+		.slice(0, 2);
 }
 
 describe("applyDashPattern arc offsets", () => {
@@ -924,7 +784,6 @@ describe("tessellateStroke gradient params", () => {
 		);
 
 		expect(result.vertexParams).toEqual([]);
-		expect(result.fringeParams).toEqual([]);
 	});
 
 	it("should emit one (t, u) pair per vertex when arcParams is requested", () => {
@@ -938,7 +797,6 @@ describe("tessellateStroke gradient params", () => {
 
 		expect(result.count).toBeGreaterThan(0);
 		expect(result.vertexParams.length).toBe(result.count * 2);
-		expect(result.fringeParams.length).toBe(result.fringeCount * 2);
 	});
 
 	it("should map t from the arc ratio and u from the stroke side", () => {
@@ -950,10 +808,10 @@ describe("tessellateStroke gradient params", () => {
 			}),
 		);
 
-		for (let i = 0; i < result.vertices.length; i += 4) {
+		for (let i = 0; i < result.vertices.length; i += 2) {
 			const x = result.vertices[i];
 			const y = result.vertices[i + 1];
-			const pi = i / 2;
+			const pi = i;
 			expect(result.vertexParams[pi]).toBeCloseTo(x / 100, 5);
 			expect(result.vertexParams[pi + 1]).toBeCloseTo(y > 0 ? 1 : 0, 5);
 		}

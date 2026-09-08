@@ -82,6 +82,7 @@ import { computePaintHash } from "../filters/ExtrudeRenderCache";
 import type { GPUTimingProfiler } from "../GPUTimingProfiler";
 import type { GradientTextureGenerator } from "../generators/GradientTextureGenerator";
 import type { MeshGradientTextureGenerator } from "../generators/MeshGradientTextureGenerator";
+import type { RasterFrame } from "../geometry/strips/stripTypes";
 import { createFullscreenPipeline } from "../PipelineFactory";
 import { RenderStrategy } from "../RenderOrchestrator";
 import { DOT_GRID_SHADER } from "../shaders/dotGrid.wgsl";
@@ -113,10 +114,8 @@ import {
 	type FilteredTextureInfo,
 	FULL_BLIT_UV_RECT,
 	type GradientState,
-	MSAA_SAMPLE_COUNT,
 	type PipelineType,
 	type RenderState,
-	type StencilState,
 	type TextState,
 	type ViewportState,
 	type WorldMaskAssignment,
@@ -155,11 +154,7 @@ import {
 	createBlendBackdrop,
 	createCompositeSourceSurface,
 } from "./pipeline/CompositeRenderer";
-import {
-	boundsAlmostEqual,
-	DocumentCache,
-	destroyStencilState,
-} from "./pipeline/DocumentCache";
+import { boundsAlmostEqual, DocumentCache } from "./pipeline/DocumentCache";
 import { DefRasterizer } from "./pipeline/defs/DefRasterizer";
 import {
 	type BackdropEffectCanvasResources,
@@ -176,7 +171,6 @@ import {
 	type FGTextureHandle,
 	FrameGraph,
 } from "./pipeline/FrameGraph";
-import { GeometryStore } from "./pipeline/GeometryStore";
 import {
 	type GroupCompositionPlan,
 	groupPlanRequiresSurface,
@@ -191,7 +185,6 @@ import {
 	type ColorAtlasCopyItem,
 	OffscreenPresenter,
 } from "./pipeline/OffscreenPresenter";
-import { createPassLocalStencilAttachment } from "./pipeline/PassLocalStencil";
 import {
 	type BackdropElementEntry,
 	buildFilterPlansForElements,
@@ -213,11 +206,11 @@ import {
 	releaseRenderSurface,
 	replaceRenderSurface,
 } from "./pipeline/RenderSurface";
-import { RunBatcher } from "./pipeline/RunBatcher";
 import { resolveTransientWashDomain } from "./pipeline/rasterizationDomain";
 import { SoftProofPass } from "./pipeline/SoftProofPass";
+import { StripFrame } from "./pipeline/strips/StripFrame";
 import { TexturePool, texturePoolBudgetBytes } from "./pipeline/TexturePool";
-import { UniformScope } from "./pipeline/UniformScope";
+import { type UniformEntry, UniformScope } from "./pipeline/UniformScope";
 import { ViewportManager } from "./pipeline/ViewportManager";
 import { WashCompositor } from "./pipeline/WashCompositor";
 
@@ -278,6 +271,11 @@ type RendererFramePlan = FramePlan & {
  * Note: CanvasLayer doesn't implement RenderLayer because it requires
  * additional parameters (document, elementOverrides, etc.) for rendering.
  */
+/** A viewport binding on the encode stack; the main canvas has no scoped buffer. */
+type ViewportBindingEntry = Omit<UniformEntry, "buffer"> & {
+	buffer: GPUBuffer | null;
+};
+
 export class CanvasLayer {
 	// -- GPU core --
 	private device: GPUDevice;
@@ -362,10 +360,7 @@ export class CanvasLayer {
 	// -- Render pipelines --
 	private strokePipeline: GPURenderPipeline;
 	private fillPipeline: GPURenderPipeline;
-	private stencilFanWritePipeline: GPURenderPipeline;
-	private stencilCoverPipeline: GPURenderPipeline;
-	private strokeUnionPipeline: GPURenderPipeline;
-	private stencilZeroPipeline: GPURenderPipeline;
+	private stripPipeline: GPURenderPipeline;
 	private blitPipeline: GPURenderPipeline;
 	private blitPipelineRgba8: GPURenderPipeline;
 	private blitPipelineRgba32Float: GPURenderPipeline;
@@ -390,6 +385,7 @@ export class CanvasLayer {
 	private exposureBindGroup: GPUBindGroup | null = null;
 	private exposureBindGroupSourceView: GPUTextureView | null = null;
 	private transformsBindGroupLayout: GPUBindGroupLayout;
+	private stripGeometryBindGroupLayout: GPUBindGroupLayout;
 	private dummyGradientBindGroup: GPUBindGroup;
 	private dummyMaskBindGroup: GPUBindGroup;
 	private maskBindGroupLayout: GPUBindGroupLayout;
@@ -408,15 +404,14 @@ export class CanvasLayer {
 	private bindGroup: GPUBindGroup;
 
 	/**
-	 * Active viewport bind group + uniform buffer for the stroke engine
-	 * registry's stamp / ribbon shaders. Always update via
-	 * pushViewportBinding / popViewportBinding / setViewportBinding.
+	 * The viewport uniform of the pass being encoded: its bind group, buffer
+	 * and raster frame. Always update via pushViewportBinding /
+	 * popViewportBinding / setViewportBinding. Outside any override the
+	 * main-canvas entry is active, whose frame follows the live viewport.
 	 */
 	private readonly viewportBinding = {
-		active: null! as GPUBindGroup,
-		buffer: null as GPUBuffer | null,
-		bgStack: [] as GPUBindGroup[],
-		bufStack: [] as (GPUBuffer | null)[],
+		active: null! as ViewportBindingEntry,
+		stack: [] as ViewportBindingEntry[],
 	};
 
 	private get viewportState(): ViewportState {
@@ -426,28 +421,39 @@ export class CanvasLayer {
 		return this.viewportManager.transformsBindGroup;
 	}
 
-	private pushViewportBinding(
-		bg: GPUBindGroup,
-		buffer?: GPUBuffer | null,
-	): void {
-		this.viewportBinding.bgStack.push(this.viewportBinding.active);
-		this.viewportBinding.bufStack.push(this.viewportBinding.buffer);
-		this.viewportBinding.active = bg;
-		this.viewportBinding.buffer = buffer ?? null;
+	private pushViewportBinding(entry: ViewportBindingEntry): void {
+		this.viewportBinding.stack.push(this.viewportBinding.active);
+		this.viewportBinding.active = entry;
 	}
 
 	private popViewportBinding(): void {
 		this.viewportBinding.active =
-			this.viewportBinding.bgStack.pop() ?? this.bindGroup;
-		this.viewportBinding.buffer = this.viewportBinding.bufStack.pop() ?? null;
+			this.viewportBinding.stack.pop() ?? this.mainViewportBinding;
 	}
 
-	private setViewportBinding(
-		bg: GPUBindGroup,
-		buffer?: GPUBuffer | null,
-	): void {
-		this.viewportBinding.active = bg;
-		this.viewportBinding.buffer = buffer ?? null;
+	private setViewportBinding(entry: ViewportBindingEntry): void {
+		this.viewportBinding.active = entry;
+	}
+
+	/** The texel space of the pass being encoded right now. */
+	private getRasterFrame(): RasterFrame {
+		return this.viewportBinding.active.frame;
+	}
+
+	/** The main-canvas binding; its frame is the live viewport of this frame. */
+	private get mainViewportBinding(): ViewportBindingEntry {
+		const canvas = this;
+		return {
+			bindGroup: this.bindGroup,
+			buffer: null,
+			get frame(): RasterFrame {
+				return {
+					viewport: canvas.viewportState.current!,
+					width: canvas.viewportState.width,
+					height: canvas.viewportState.height,
+				};
+			},
+		};
 	}
 
 	/** Where a brush draw lands right now: the viewport uniform of the pass
@@ -456,7 +462,8 @@ export class CanvasLayer {
 	private brushDrawBindings(): BrushDrawBindings {
 		return {
 			uniformBuffer:
-				this.viewportBinding.buffer ?? this.viewportManager.uniformBuffer,
+				this.viewportBinding.active.buffer ??
+				this.viewportManager.uniformBuffer,
 			transformsBindGroup: this.transformsBindGroup ?? undefined,
 			maskBindGroup: this.renderState.currentMaskBindGroup,
 		};
@@ -525,13 +532,9 @@ export class CanvasLayer {
 	/** Element -> content key (elements update immutably; the key also
 	 *  embeds scale/bounds, revalidated cheaply by string comparison). */
 	private readonly washKeyCache = new WeakMap<object, string>();
-	/** Persistent shared vertex buffer for retained element geometry. One per
-	 *  canvas target, shared across document cache scopes (entries own their
-	 *  leased ranges and release them when their cache scope drops). */
-	private geometryStore!: GeometryStore;
-	/** Merges consecutive same-state solid draws into one drawIndexed. Every
-	 *  pass.end() and every non-batched draw path must flush() it first. */
-	private runBatcher!: RunBatcher;
+	/** Strip instances and coverage pages of the frame being encoded. One per
+	 *  canvas target, uploaded once per frame before the submit. */
+	private stripFrame!: StripFrame;
 	/** Stable id used to register this canvas with backdrop-composite filter
 	 *  handlers (e.g. glass extrude), keyed per canvas target. */
 	private readonly canvasId: string;
@@ -569,9 +572,7 @@ export class CanvasLayer {
 		layerTexture: null,
 		prebufTexture: null,
 		canvasBaseTexture: null,
-		finalBlitStencil: { texture: null, width: 0, height: 0 },
 		backdropMask: { texture: null, width: 0, height: 0 },
-		backdropMaskStencil: { texture: null, width: 0, height: 0 },
 		width: 0,
 		height: 0,
 	};
@@ -606,9 +607,6 @@ export class CanvasLayer {
 	/** Bounds inputs captured while assigning masks, reused by
 	 *  {@link applyPostMasks} to size the bake of an unfiltered element. */
 	private maskBoundsContext: WorldBoundsContext | null = null;
-
-	// -- Document cache & textures --
-	private stencil: StencilState = { texture: null, width: 0, height: 0 };
 
 	// -- Frame-transient --
 	/** The command encoder for the current frame, set during render(). */
@@ -693,12 +691,7 @@ export class CanvasLayer {
 		pipelines: {
 			strokePipeline: GPURenderPipeline;
 			fillPipeline: GPURenderPipeline;
-			stencilFanWritePipeline: GPURenderPipeline;
-			stencilCoverPipeline: GPURenderPipeline;
-			strokeUnionPipeline: GPURenderPipeline;
-			stencilZeroPipeline: GPURenderPipeline;
-			pulledGeometryPipeline: GPURenderPipeline;
-			pulledStencilFanWritePipeline: GPURenderPipeline;
+			stripPipeline: GPURenderPipeline;
 			gradientFillPipeline: GPURenderPipeline;
 			blitPipeline: GPURenderPipeline;
 			blitPipelineRgba8: GPURenderPipeline;
@@ -736,7 +729,7 @@ export class CanvasLayer {
 			dummyGradientBindGroup: GPUBindGroup;
 			dummyMaskBindGroup: GPUBindGroup;
 			maskBindGroupLayout: GPUBindGroupLayout;
-			pulledBindGroupLayout: GPUBindGroupLayout;
+			stripGeometryBindGroupLayout: GPUBindGroupLayout;
 			blitWithMaskBindGroupLayout: GPUBindGroupLayout;
 			maskChainBindGroupLayout: GPUBindGroupLayout;
 			cacheManager: RenderCacheManager;
@@ -751,10 +744,7 @@ export class CanvasLayer {
 
 		this.strokePipeline = pipelines.strokePipeline;
 		this.fillPipeline = pipelines.fillPipeline;
-		this.stencilFanWritePipeline = pipelines.stencilFanWritePipeline;
-		this.stencilCoverPipeline = pipelines.stencilCoverPipeline;
-		this.strokeUnionPipeline = pipelines.strokeUnionPipeline;
-		this.stencilZeroPipeline = pipelines.stencilZeroPipeline;
+		this.stripPipeline = pipelines.stripPipeline;
 		this.blitPipeline = pipelines.blitPipeline;
 		this.blitPipelineRgba8 = pipelines.blitPipelineRgba8;
 		this.blitPipelineRgba32Float = pipelines.blitPipelineRgba32Float;
@@ -770,7 +760,7 @@ export class CanvasLayer {
 		this.meshBlitPipeline = pipelines.meshBlitPipeline;
 
 		this.bindGroup = resources.bindGroup;
-		this.viewportBinding.active = resources.bindGroup;
+		this.viewportBinding.active = this.mainViewportBinding;
 		this.uniformScope = new UniformScope(
 			device,
 			resources.viewportBindGroupLayout,
@@ -795,6 +785,7 @@ export class CanvasLayer {
 		this.textState.renderer = resources.textRenderer ?? null;
 
 		this.transformsBindGroupLayout = resources.transformsBindGroupLayout;
+		this.stripGeometryBindGroupLayout = resources.stripGeometryBindGroupLayout;
 		this.dummyGradientBindGroup = resources.dummyGradientBindGroup;
 		this.dummyMaskBindGroup = resources.dummyMaskBindGroup;
 		this.renderState.currentMaskBindGroup = this.dummyMaskBindGroup;
@@ -836,16 +827,15 @@ export class CanvasLayer {
 		this.cache = new DocumentCache({
 			device: this.device,
 			canvasFormat: this.canvasFormat,
-			stencil: this.stencil,
 			compositeState: this.compositeState,
 			viewportState: this.viewportState,
 			deferDestroy: (tex) => this.offscreen.deferDestroy(tex),
 		});
 
-		this.geometryStore = new GeometryStore(this.device);
-		this.runBatcher = new RunBatcher(
+		this.stripFrame = new StripFrame(
 			this.device,
-			resources.pulledBindGroupLayout,
+			this.stripPipeline,
+			this.stripGeometryBindGroupLayout,
 		);
 
 		this.texturePool = new TexturePool(this.device);
@@ -870,16 +860,10 @@ export class CanvasLayer {
 		this.elements = new ElementRenderer({
 			device: this.device,
 			canvasFormat: this.canvasFormat,
-			getBindGroup: () => this.viewportBinding.active,
+			getBindGroup: () => this.viewportBinding.active.bindGroup,
 			sampler: this.sampler,
 			strokePipeline: this.strokePipeline,
 			fillPipeline: this.fillPipeline,
-			stencilFanWritePipeline: this.stencilFanWritePipeline,
-			stencilCoverPipeline: this.stencilCoverPipeline,
-			strokeUnionPipeline: this.strokeUnionPipeline,
-			stencilZeroPipeline: this.stencilZeroPipeline,
-			pulledGeometryPipeline: pipelines.pulledGeometryPipeline,
-			pulledStencilFanWritePipeline: pipelines.pulledStencilFanWritePipeline,
 			blitBindGroupLayout: this.blitBindGroupLayout,
 			filterRenderer: this.filterRenderer,
 			viewportState: this.viewportState,
@@ -889,16 +873,16 @@ export class CanvasLayer {
 			gradient: this.gradient,
 			dummyGradientBindGroup: this.dummyGradientBindGroup,
 			dummyMaskBindGroup: this.dummyMaskBindGroup,
-			geometryStore: this.geometryStore,
-			runBatcher: this.runBatcher,
-			get geometryCache() {
-				return cacheManager.geometry;
+			stripFrame: this.stripFrame,
+			getTransformsBuffer: () => this.viewportManager.transformsStorageBuffer,
+			getRasterFrame: () => this.getRasterFrame(),
+			getGpuTransform: (slot: number) =>
+				this.viewportManager.getGpuTransform(slot),
+			get outlineCache() {
+				return cacheManager.outline;
 			},
-			get strokeCache() {
-				return cacheManager.stroke;
-			},
-			get stencilFillCache() {
-				return cacheManager.stencilFill;
+			get stripCache() {
+				return cacheManager.strip;
 			},
 			get gradientCache() {
 				return cacheManager.gradient;
@@ -933,7 +917,7 @@ export class CanvasLayer {
 		this.composite = new CompositeRenderer({
 			device: this.device,
 			canvasFormat: this.canvasFormat,
-			getBindGroup: () => this.viewportBinding.active,
+			getBindGroup: () => this.viewportBinding.active.bindGroup,
 			sampler: this.sampler,
 			nearestSampler: this.nearestSampler,
 			blitPipeline: this.blitPipeline,
@@ -951,13 +935,10 @@ export class CanvasLayer {
 			getCache: () => this.cache,
 			writeViewportUniformsToGPU: (vp, w, h) =>
 				this.writeViewportUniformsToGPU(vp, w, h),
-			renderPath: (pass, path, alpha, pt) =>
-				this.elements.renderPath(pass, path, alpha, pt),
 			getBlendModeIndex: (bm) => this.elements.getBlendModeIndex(bm),
 			getCompositionModeIndex: (cm) =>
 				this.elements.getCompositionModeIndex(cm),
 			deferDestroy: (tex) => this.offscreen.deferDestroy(tex),
-			onBeforeDraw: () => this.runBatcher.flush(),
 		});
 
 		this.washCompositor = new WashCompositor(
@@ -1038,7 +1019,7 @@ export class CanvasLayer {
 			canvasFormat: this.canvasFormat,
 			viewportBindGroupLayout: resources.viewportBindGroupLayout,
 			sampler: this.sampler,
-			getBindGroup: () => this.viewportBinding.active,
+			getBindGroup: () => this.viewportBinding.active.bindGroup,
 			blitBindGroupLayout: this.blitBindGroupLayout,
 			getTransformsBindGroup: () => this.transformsBindGroup,
 			strokePipeline: this.strokePipeline,
@@ -1057,12 +1038,12 @@ export class CanvasLayer {
 			texturePool: this.texturePool,
 			getTransformIndex: (elementId: string) =>
 				this.viewportManager.getTransformIndex(elementId),
-			setActiveBindGroup: (bg, uniformBuffer, replace) => {
-				if (bg) {
+			setActiveBindGroup: (entry, replace) => {
+				if (entry) {
 					if (replace) {
-						this.setViewportBinding(bg, uniformBuffer);
+						this.setViewportBinding(entry);
 					} else {
-						this.pushViewportBinding(bg, uniformBuffer);
+						this.pushViewportBinding(entry);
 					}
 				} else {
 					this.popViewportBinding();
@@ -1116,7 +1097,6 @@ export class CanvasLayer {
 					)?.source ?? null
 				);
 			},
-			onBeforeDraw: () => this.runBatcher.flush(),
 			getRasterScale: () => this.getRasterScale(),
 		});
 
@@ -1129,7 +1109,6 @@ export class CanvasLayer {
 
 		// A batch flush encodes ribbon draws mid-loop — the geometry run
 		// batcher must emit its pending merged draw first (paint order).
-		this.brushRenderer.ribbons.onBeforeDraw = () => this.runBatcher.flush();
 	}
 
 	public setOnRequestRender(callback: () => void): void {
@@ -1169,9 +1148,6 @@ export class CanvasLayer {
 		height: number,
 	): void {
 		this.setViewportUniforms(viewport, width, height);
-
-		// Ensure stencil texture matches canvas size
-		this.cache.ensureStencilTexture(width, height);
 	}
 
 	/**
@@ -1229,7 +1205,7 @@ export class CanvasLayer {
 				);
 			}
 			pass.setPipeline(this.strokePipeline);
-			pass.setBindGroup(0, this.viewportBinding.active);
+			pass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 			// biome-ignore lint/style/noNonNullAssertion: bound for the whole run.
 			pass.setBindGroup(1, this.transformsBindGroup!);
 			pass.setBindGroup(2, this.dummyGradientBindGroup);
@@ -1871,7 +1847,7 @@ export class CanvasLayer {
 				: null;
 		}
 		// Full document updates invalidate brush stamp caches and transform
-		// buffer. Geometry caches (flatten, stroke, stencil fill) are
+		// buffer. Geometry caches (flatten, stroke, fill) are
 		// self-validating so only stale entries for deleted elements are pruned.
 		// The prune scans every cache key, and only deletions give it work — a
 		// tracked change set with no deletions proves there are none, so the
@@ -2047,8 +2023,7 @@ export class CanvasLayer {
 		// Unpin the previous frame's filtered bakes so budget eviction can
 		// reach them again.
 		this.cacheManager.filteredElement.beginFrame();
-		this.geometryStore.flushPendingReleases();
-		this.runBatcher.beginFrame();
+		this.stripFrame.beginFrame();
 		this.backdropBlitPool.index = 0;
 	}
 
@@ -2114,9 +2089,9 @@ export class CanvasLayer {
 		for (const handler of this.filterRenderer.getHandlers().values()) {
 			handler.releaseFrame?.((tex) => this.offscreen.deferDestroy(tex));
 		}
-		// Upload this frame's accumulated run indices (and reset the batcher) —
-		// after every pass is encoded, before the orchestrator submits.
-		this.runBatcher.finishFrame();
+		// Upload this frame's strip instances and coverage pages — after every
+		// pass is encoded, before the orchestrator submits.
+		this.stripFrame.finishFrame();
 		this.offscreen.finishFrame();
 	}
 
@@ -2150,7 +2125,6 @@ export class CanvasLayer {
 		this.gradient.meshTextureGenerator.beginFrame();
 		this.gradient.drawIndex = 0;
 		this.brushRenderer.beginFrame();
-		this.elements.beginFrame();
 		// Reset each backdrop-composite driver's per-frame pools + inline-composed
 		// tracking (glass extrude refraction), and the shared capture/pyramid
 		// coordinator they sample through.
@@ -2600,9 +2574,6 @@ export class CanvasLayer {
 		// compositing path is separately guarded by `anyLayerNeedsCompositing`.
 		this.cache.ensureCompositeTextures(prebufWidth, prebufHeight);
 
-		// Ensure stencil texture is available before any render pass uses it
-		this.cache.ensureStencilTexture(prebufWidth, prebufHeight);
-
 		const prebufTexture = this.compositeState.prebufTexture!;
 		const savedViewportCurrent = this.viewportState.current;
 		const savedViewportWidth = this.viewportState.width;
@@ -2635,7 +2606,7 @@ export class CanvasLayer {
 					? prebufViewportBounds
 					: visibleBoundsToBox(prebufVisibleBounds);
 			this.viewportState.drawRegion = prebufViewportBounds;
-			this.pushViewportBinding(prebufEntry.bindGroup, prebufEntry.buffer);
+			this.pushViewportBinding(prebufEntry);
 			prebufBounds = this.elements.getCurrentRenderTargetBounds();
 		};
 
@@ -2676,14 +2647,11 @@ export class CanvasLayer {
 						storeOp: "store",
 					},
 				],
-				depthStencilAttachment: createPassLocalStencilAttachment(
-					ctx.scratchView(stencilHandle),
-				),
 				timestampWrites: profiler?.timestampWrites(`Elements #${passSeq++}`),
 			};
 			const pass = ctx.encoder.beginRenderPass(desc);
 			pass.setPipeline(this.strokePipeline);
-			pass.setBindGroup(0, this.viewportBinding.active);
+			pass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 			pass.setBindGroup(1, this.transformsBindGroup!);
 			pass.setBindGroup(2, this.dummyGradientBindGroup);
 			pass.setBindGroup(3, this.renderState.currentMaskBindGroup);
@@ -2714,16 +2682,8 @@ export class CanvasLayer {
 		};
 
 		// Everything after the layer passes still needs the prebuf viewport:
-		// fill-batch upload, isolation dim, backdrop fallback, then viewport
-		// restore + final blit. The graph declares each as its own pass.
-		const encodeFillBatchUpload = (): void => {
-			// Upload all batched fill vertex data in a single writeBuffer call.
-			// Must happen after the render pass (all draw calls recorded) and
-			// before queue.submit() so the GPU buffer contains the data when
-			// the command buffer executes.
-			this.elements.flushFillBatch();
-		};
-
+		// isolation dim, backdrop fallback, then viewport restore + final blit.
+		// The graph declares each as its own pass.
 		const encodeBackdropFlush = (ctx: FGExecuteContext): void => {
 			// Backdrop-composite fallback: warp the finished backdrop under any
 			// distortion-glass extrudes not composed inline at their z-order (a
@@ -2764,9 +2724,6 @@ export class CanvasLayer {
 						storeOp: "store",
 					},
 				],
-				depthStencilAttachment: createPassLocalStencilAttachment(
-					ctx.scratchView(finalStencilHandle),
-				),
 			});
 			// Dot background sits behind the document: draw it after the white
 			// clear and before blitting the (transparent-background) prebuf, so
@@ -2798,15 +2755,6 @@ export class CanvasLayer {
 		// procedural tail as a single pass (split further in later steps).
 		const { graph } = fg;
 		const prebufHandle = graph.importTexture(prebufTexture, "prebuf");
-		const stencilHandle = graph.importScratchAttachment(
-			this.stencil.texture!,
-			"stencil",
-		);
-		this.cache.ensureFinalBlitStencilTexture(realCanvasWidth, realCanvasHeight);
-		const finalStencilHandle = graph.importScratchAttachment(
-			this.compositeState.finalBlitStencil.texture!,
-			"final-blit-stencil",
-		);
 		// The layer-composite scratch textures are shared by every
 		// compositing layer (and the dim overlay reuses the capture), so
 		// import each once — importing the same GPUTexture twice would
@@ -2831,7 +2779,6 @@ export class CanvasLayer {
 		graph.addPass("Canvas Clear", {
 			reads: [],
 			writes: [prebufHandle],
-			scratchAttachments: [stencilHandle],
 			execute: (ctx) =>
 				withGraphContext(ctx, () => {
 					bindPrebufViewport();
@@ -2870,7 +2817,6 @@ export class CanvasLayer {
 		): void => {
 			if (
 				bdElem.element.visible === false ||
-				!this.stencil.texture ||
 				(elementFilter && !elementFilter.has(bdElem.element.id))
 			) {
 				return;
@@ -2878,7 +2824,6 @@ export class CanvasLayer {
 			graph.addPass(`Backdrop ${bdElem.element.id}`, {
 				reads: [prebufHandle],
 				writes: [targetHandle],
-				scratchAttachments: [stencilHandle],
 				// The coordinator's capture/dirty bookkeeping is a side effect
 				// the graph cannot see.
 				neverCull: true,
@@ -2891,7 +2836,6 @@ export class CanvasLayer {
 						bdElem,
 						elementsMap,
 						alphaMultiplier,
-						ctx.scratchView(stencilHandle),
 						backdropFilterRequests.get(bdElem.element.id),
 					);
 					// The blit rewrote part of the capture source when the target
@@ -2990,12 +2934,11 @@ export class CanvasLayer {
 			return false;
 		};
 
-		// Plain layers write the same two attachments with nothing in between,
-		// and the stencil they use is already per-element (the cover step's
-		// passOp is "zero", which is what makes stencilStoreOp discard sound).
+		// Plain layers write the same colour attachment with nothing in between.
 		// Giving each its own render pass therefore buys nothing and costs a
-		// full-surface colour store plus reload at every boundary — the largest
-		// single item in the frame. Runs accumulate here and open one pass.
+		// full-surface colour store plus reload at every boundary. That store is
+		// the largest single item in the frame. Runs accumulate here and open
+		// one pass.
 		//
 		// Opacity stays per layer: it is an argument to renderElements, applied
 		// per element, so the run is replayed group by group inside the one
@@ -3008,11 +2951,9 @@ export class CanvasLayer {
 			graph.addPass("Layer Elements", {
 				reads: [prebufHandle],
 				writes: [prebufHandle],
-				scratchAttachments: [stencilHandle],
 				execute: (ctx) =>
 					withGraphContext(ctx, () => {
 						let pass = startNewPass(false);
-						this.runBatcher.setBatching(true);
 						for (const run of runs) {
 							pass = this.renderElements(
 								pass,
@@ -3027,7 +2968,6 @@ export class CanvasLayer {
 								localBoundsCache,
 							);
 						}
-						this.runBatcher.setBatching(false);
 						pass.end();
 					}),
 			});
@@ -3046,11 +2986,9 @@ export class CanvasLayer {
 					graph.addPass(name, {
 						reads: [prebufHandle],
 						writes: [prebufHandle],
-						scratchAttachments: [stencilHandle],
 						execute: (ctx) =>
 							withGraphContext(ctx, () => {
 								let pass = startNewPass(false);
-								this.runBatcher.setBatching(true);
 								pass = this.renderElements(
 									pass,
 									segmentElements,
@@ -3063,7 +3001,6 @@ export class CanvasLayer {
 									mainCompositeContext,
 									localBoundsCache,
 								);
-								this.runBatcher.setBatching(false);
 								pass.end();
 							}),
 					});
@@ -3174,15 +3111,12 @@ export class CanvasLayer {
 							storeOp: "store",
 						},
 					],
-					depthStencilAttachment: createPassLocalStencilAttachment(
-						ctx.scratchView(stencilHandle),
-					),
 					timestampWrites: timed
 						? profiler?.timestampWrites(`LayerComposite #${layerPassSeq++}`)
 						: undefined,
 				});
 				pass.setPipeline(this.strokePipeline);
-				pass.setBindGroup(0, this.viewportBinding.active);
+				pass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 				pass.setBindGroup(1, this.transformsBindGroup!);
 				pass.setBindGroup(2, this.dummyGradientBindGroup);
 				pass.setBindGroup(3, this.renderState.currentMaskBindGroup);
@@ -3222,7 +3156,6 @@ export class CanvasLayer {
 			graph.addPass("Layer Clear", {
 				reads: [],
 				writes: [layerTextureHandle!],
-				scratchAttachments: [stencilHandle],
 				execute: (ctx) =>
 					withGraphContext(ctx, () => {
 						// Untimed: a draw-free clear pass yields begin/end timestamps
@@ -3239,11 +3172,9 @@ export class CanvasLayer {
 					// snapshot; composite intermediates read back the prebuf.
 					reads: [prebufHandle, canvasBaseHandle!],
 					writes: [layerTextureHandle!],
-					scratchAttachments: [stencilHandle],
 					execute: (ctx) =>
 						withGraphContext(ctx, () => {
 							let pass = startLayerPass(false);
-							this.runBatcher.setBatching(true);
 							pass = this.renderElements(
 								pass,
 								segmentElements,
@@ -3256,7 +3187,6 @@ export class CanvasLayer {
 								layerCompositeContext,
 								localBoundsCache,
 							);
-							this.runBatcher.setBatching(false);
 							pass.end();
 						}),
 				});
@@ -3304,7 +3234,6 @@ export class CanvasLayer {
 			graph.addPass("Layer Composite", {
 				reads: [layerTextureHandle!, captureHandle!],
 				writes: [prebufHandle],
-				scratchAttachments: [stencilHandle],
 				execute: (ctx) =>
 					withGraphContext(ctx, () => {
 						const pass = startNewPass(false);
@@ -3338,14 +3267,6 @@ export class CanvasLayer {
 		// The document can end on plain layers, whose run is still open.
 		flushPendingRuns();
 
-		graph.addPass("Batched Fill Upload", {
-			reads: [],
-			writes: [],
-			// A queue.writeBuffer for every fill draw the layer passes
-			// recorded — no texture IO, but the frame is blank without it.
-			neverCull: true,
-			execute: encodeFillBatchUpload,
-		});
 		if (
 			captureHandle &&
 			(this.renderState.editingScopeStack.length > 0 ||
@@ -3356,7 +3277,6 @@ export class CanvasLayer {
 				// the dimmed scene plus the editing subtree back over it.
 				reads: [prebufHandle, captureHandle],
 				writes: [prebufHandle, captureHandle],
-				scratchAttachments: [stencilHandle],
 				neverCull: true,
 				execute: (ctx) =>
 					withGraphContext(ctx, () =>
@@ -3384,7 +3304,6 @@ export class CanvasLayer {
 		graph.addPass("Final Blit", {
 			reads: [prebufHandle],
 			writes: [fg.renderTarget],
-			scratchAttachments: [finalStencilHandle],
 			// Also restores the real viewport after the frame's passes.
 			neverCull: true,
 			execute: encodeFinalBlit,
@@ -3486,15 +3405,9 @@ export class CanvasLayer {
 
 		const graph = new FrameGraph();
 		const renderTarget = graph.importTexture(canvasTexture, "render-target");
-		this.cache.ensureFinalBlitStencilTexture(realCanvasWidth, realCanvasHeight);
-		const finalStencilHandle = graph.importScratchAttachment(
-			this.compositeState.finalBlitStencil.texture!,
-			"final-blit-stencil",
-		);
 		graph.addPass("Viewport Blit", {
 			reads: [],
 			writes: [renderTarget],
-			scratchAttachments: [finalStencilHandle],
 			neverCull: true,
 			execute: (ctx) => {
 				const pass = ctx.encoder.beginRenderPass({
@@ -3507,9 +3420,6 @@ export class CanvasLayer {
 							storeOp: "store",
 						},
 					],
-					depthStencilAttachment: createPassLocalStencilAttachment(
-						ctx.scratchView(finalStencilHandle),
-					),
 					timestampWrites: profiler?.timestampWrites("Viewport Blit"),
 				});
 				// The cached prebuf is transparent; reproduce the final-blit
@@ -3826,7 +3736,7 @@ export class CanvasLayer {
 
 				// Restore stroke pipeline state for element rendering
 				dimPass.setPipeline(this.strokePipeline);
-				dimPass.setBindGroup(0, this.viewportBinding.active);
+				dimPass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 				dimPass.setBindGroup(1, this.transformsBindGroup!);
 				dimPass.setBindGroup(2, this.dummyGradientBindGroup);
 				dimPass.setBindGroup(3, this.dummyMaskBindGroup);
@@ -3939,7 +3849,6 @@ export class CanvasLayer {
 					);
 				}
 				dimPass.end();
-				this.elements.flushFillBatch();
 			}
 		}
 	}
@@ -5129,15 +5038,6 @@ export class CanvasLayer {
 		accWidth = accTexture.width;
 		accHeight = accTexture.height;
 
-		const accStencilTexture = this.texturePool.acquire(
-			accWidth,
-			accHeight,
-			"depth24plus-stencil8",
-			MSAA_SAMPLE_COUNT,
-			GPUTextureUsage.RENDER_ATTACHMENT,
-			"Per-Appearance Accumulator Stencil",
-		);
-
 		// Viewport for blit passes targeting the accumulator
 		const effectiveZoom = Math.min(
 			accWidth / isolationBounds.width,
@@ -5222,7 +5122,7 @@ export class CanvasLayer {
 			// Blit appearance result onto accumulator
 			// (appTexture now contains filtered result via copyTextureToTexture)
 			const entry = this.uniformScope.acquire(accViewport, accWidth, accHeight);
-			this.pushViewportBinding(entry.bindGroup, entry.buffer);
+			this.pushViewportBinding(entry);
 
 			if (plan.blendMode !== "normal" && i > 0) {
 				// Non-normal blend requires reading the accumulator as dest texture.
@@ -5252,15 +5152,6 @@ export class CanvasLayer {
 							storeOp: "store",
 						},
 					],
-					depthStencilAttachment: {
-						view: accStencilTexture.createView(),
-						depthClearValue: 1.0,
-						depthLoadOp: "clear",
-						depthStoreOp: "discard",
-						stencilClearValue: 0,
-						stencilLoadOp: "clear",
-						stencilStoreOp: "discard",
-					},
 				});
 
 				const source = createCompositeSourceSurface(appTexture, {
@@ -5292,15 +5183,6 @@ export class CanvasLayer {
 							storeOp: "store",
 						},
 					],
-					depthStencilAttachment: {
-						view: accStencilTexture.createView(),
-						depthClearValue: 1.0,
-						depthLoadOp: "clear",
-						depthStoreOp: "discard",
-						stencilClearValue: 0,
-						stencilLoadOp: "clear",
-						stencilStoreOp: "discard",
-					},
 				});
 
 				this.composite.blitTextureToCanvas(
@@ -5331,8 +5213,6 @@ export class CanvasLayer {
 				isolationBounds,
 			);
 		}
-
-		this.offscreen.deferDestroy(accStencilTexture);
 
 		// Compute blit UV rect to crop pool quantization margin.
 		const accUsedW = isolationBounds.width * effectiveZoom;
@@ -5590,8 +5470,8 @@ export class CanvasLayer {
 	/**
 	 * Process a single backdrop filter element (e.g., FrostGlass).
 	 * Obtains the element's region from the coordinator's shared fixed-R
-	 * capture, applies filters, and blits the result using stencil buffer for
-	 * clipping.
+	 * capture, applies filters, and blits the result through a mask texture
+	 * that clips it to the element shape.
 	 */
 	private processBackdropElement(
 		encoder: GPUCommandEncoder,
@@ -5601,7 +5481,6 @@ export class CanvasLayer {
 		bdElem: BackdropElementEntry,
 		elementsMap: Map<string, AnyArtObject>,
 		alphaMultiplier: number,
-		stencilView: GPUTextureView,
 		backdropRequest?: BackdropEffectRequest,
 	): void {
 		if (!this.viewportState.current) return;
@@ -5665,7 +5544,6 @@ export class CanvasLayer {
 		const { width: cw, height: ch } = this.viewportState;
 		this.cache.ensureBackdropMaskTextures(cw, ch);
 		const maskTexture = this.compositeState.backdropMask.texture!;
-		const maskStencilTexture = this.compositeState.backdropMaskStencil.texture!;
 
 		const maskPass = encoder.beginRenderPass({
 			label: `Mask Render Pass: ${element.id}`,
@@ -5677,12 +5555,9 @@ export class CanvasLayer {
 					storeOp: "store",
 				},
 			],
-			depthStencilAttachment: createPassLocalStencilAttachment(
-				maskStencilTexture.createView(),
-			),
 		});
 		maskPass.setPipeline(this.strokePipeline);
-		maskPass.setBindGroup(0, this.viewportBinding.active);
+		maskPass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 		maskPass.setBindGroup(1, this.transformsBindGroup!);
 		maskPass.setBindGroup(2, this.dummyGradientBindGroup);
 		maskPass.setBindGroup(3, this.dummyMaskBindGroup);
@@ -5740,11 +5615,10 @@ export class CanvasLayer {
 					storeOp: "store",
 				},
 			],
-			depthStencilAttachment: createPassLocalStencilAttachment(stencilView),
 		});
 		// Two-draw replace composite: punch dst by (1 - mask·opacity), then
 		// add the filtered backdrop (see blitBackdropPunchPipeline).
-		blitPass.setBindGroup(0, this.viewportBinding.active);
+		blitPass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 		blitPass.setBindGroup(1, blitBindGroup);
 		blitPass.setBindGroup(2, this.dummyMaskBindGroup);
 		blitPass.setPipeline(this.blitBackdropPunchPipeline);
@@ -5926,7 +5800,6 @@ export class CanvasLayer {
 			}
 			if (backdropDriver && compositeContext) {
 				ribbons?.flush();
-				const wasBatching = this.runBatcher.pauseBatching();
 				activePass.end();
 				// A glass solid composes against the live backdrop, so it can never
 				// be pre-baked like the other filtered outputs — its mask has to go
@@ -6012,7 +5885,6 @@ export class CanvasLayer {
 					}
 				}
 				activePass = compositeContext.restartPass();
-				this.runBatcher.resumeBatching(wasBatching);
 				if (filteredComposite) {
 					const blitOpacity = effectiveAlpha * (filteredComposite.opacity ?? 1);
 					// Glass intermediate content replaces the backdrop within its
@@ -6092,7 +5964,7 @@ export class CanvasLayer {
 							);
 						}
 						activePass.setPipeline(this.strokePipeline);
-						activePass.setBindGroup(0, this.viewportBinding.active);
+						activePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 						activePass.setBindGroup(1, this.transformsBindGroup!);
 						activePass.setBindGroup(2, this.dummyGradientBindGroup);
 						activePass.setBindGroup(3, this.renderState.currentMaskBindGroup);
@@ -6100,7 +5972,6 @@ export class CanvasLayer {
 				} else if (needsComposite) {
 					const compositeCtx = compositeContext!;
 					const captureTexture = this.compositeState.captureTexture!;
-					const wasBatching = this.runBatcher.pauseBatching();
 					activePass.end();
 					compositeCtx.encoder.copyTextureToTexture(
 						{
@@ -6122,7 +5993,6 @@ export class CanvasLayer {
 						},
 					);
 					activePass = compositeCtx.restartPass();
-					this.runBatcher.resumeBatching(wasBatching);
 					const source = createCompositeSourceSurface(
 						filteredData.output.texture.texture,
 						{
@@ -6144,7 +6014,7 @@ export class CanvasLayer {
 						compositionMode,
 					});
 					activePass.setPipeline(this.strokePipeline);
-					activePass.setBindGroup(0, this.viewportBinding.active);
+					activePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 					activePass.setBindGroup(1, this.transformsBindGroup!);
 					activePass.setBindGroup(2, this.dummyGradientBindGroup);
 					activePass.setBindGroup(3, this.renderState.currentMaskBindGroup);
@@ -6155,7 +6025,7 @@ export class CanvasLayer {
 							filteredData.output,
 							effectiveAlpha,
 							filteredData.postMasks,
-							this.viewportBinding.active,
+							this.viewportBinding.active.bindGroup,
 						);
 					} else {
 						this.composite.blitTextureToCanvas(
@@ -6168,7 +6038,7 @@ export class CanvasLayer {
 						);
 					}
 					activePass.setPipeline(this.strokePipeline);
-					activePass.setBindGroup(0, this.viewportBinding.active);
+					activePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 					activePass.setBindGroup(1, this.transformsBindGroup!);
 					activePass.setBindGroup(2, this.dummyGradientBindGroup);
 					activePass.setBindGroup(3, this.renderState.currentMaskBindGroup);
@@ -6180,7 +6050,6 @@ export class CanvasLayer {
 				const captureTexture = this.compositeState.captureTexture!;
 
 				// End the active pass before offscreen rendering on the same encoder
-				const wasBatching = this.runBatcher.pauseBatching();
 				activePass.end();
 
 				let sourceSurface: RenderSurface | null;
@@ -6221,7 +6090,6 @@ export class CanvasLayer {
 				}
 				if (!sourceSurface) {
 					activePass = compositeCtx.restartPass();
-					this.runBatcher.resumeBatching(wasBatching);
 					continue;
 				}
 
@@ -6248,7 +6116,6 @@ export class CanvasLayer {
 					},
 				);
 				activePass = compositeCtx.restartPass();
-				this.runBatcher.resumeBatching(wasBatching);
 				const source = createCompositeSourceSurface(
 					sourceSurface.texture.texture,
 					{
@@ -6271,7 +6138,7 @@ export class CanvasLayer {
 				});
 				releaseRenderSurface(sourceSurface);
 				activePass.setPipeline(this.strokePipeline);
-				activePass.setBindGroup(0, this.viewportBinding.active);
+				activePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 				activePass.setBindGroup(1, this.transformsBindGroup!);
 				activePass.setBindGroup(2, this.dummyGradientBindGroup);
 				activePass.setBindGroup(3, this.renderState.currentMaskBindGroup);
@@ -6283,23 +6150,19 @@ export class CanvasLayer {
 			) {
 				// EraseMask path: render to offscreen with alpha subtraction
 				ribbons?.flush();
-				{
-					// renderWithEraseMasks ends and re-creates the active pass.
-					const wasBatching = this.runBatcher.pauseBatching();
-					activePass = this.offscreen.renderWithEraseMasks(
-						this.activeEncoder!,
-						activePass,
-						element,
-						elementsMap,
-						effectiveAlpha,
-						elementBounds,
-						compositeContext,
-					);
-					this.runBatcher.resumeBatching(wasBatching);
-				}
+				// renderWithEraseMasks ends and re-creates the active pass.
+				activePass = this.offscreen.renderWithEraseMasks(
+					this.activeEncoder!,
+					activePass,
+					element,
+					elementsMap,
+					effectiveAlpha,
+					elementBounds,
+					compositeContext,
+				);
 				this.restoreViewportUniformsToGPU();
 				activePass.setPipeline(this.strokePipeline);
-				activePass.setBindGroup(0, this.viewportBinding.active);
+				activePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 				activePass.setBindGroup(1, this.transformsBindGroup!);
 				activePass.setBindGroup(2, this.dummyGradientBindGroup);
 				activePass.setBindGroup(3, this.renderState.currentMaskBindGroup);
@@ -6360,7 +6223,6 @@ export class CanvasLayer {
 									segments,
 									fill,
 									appAlpha,
-									pipelineType,
 									cacheKey,
 								);
 							}
@@ -6461,7 +6323,6 @@ export class CanvasLayer {
 					) &&
 					compositeContext
 				) {
-					const wasBatching = this.runBatcher.pauseBatching();
 					activePass.end();
 					const isolated = this.offscreen.renderGroupToTexture(
 						this.activeEncoder!,
@@ -6471,7 +6332,6 @@ export class CanvasLayer {
 						localBoundsCache,
 					);
 					activePass = compositeContext.restartPass();
-					this.runBatcher.resumeBatching(wasBatching);
 					if (isolated) {
 						this.composite.blitTextureToCanvas(
 							activePass,
@@ -6570,7 +6430,6 @@ export class CanvasLayer {
 						);
 					} else {
 						const outerMasks = this.resolveSubtreeMasks(element.id);
-						const wasBatching = this.runBatcher.pauseBatching();
 						try {
 							activePass = this.offscreen.renderClipGroup(
 								this.activeEncoder!,
@@ -6588,7 +6447,6 @@ export class CanvasLayer {
 								outerMasks,
 							);
 						} finally {
-							this.runBatcher.resumeBatching(wasBatching);
 						}
 					}
 					continue;
@@ -6782,14 +6640,12 @@ export class CanvasLayer {
 				if (groupTransform) {
 					bounds = applyTransformToBounds(bounds, groupTransform);
 				}
-				const wasBatching = this.runBatcher.pauseBatching();
 				activePass.end();
 				const result = this.offscreen.renderElementToTexture(
 					this.activeEncoder,
 					offscreenPath as unknown as AnyArtObject,
 					bounds,
 				);
-				this.runBatcher.resumeBatching(wasBatching);
 				if (result) {
 					this.restoreViewportUniformsToGPU();
 					const captureTexture = this.compositeState.captureTexture!;
@@ -6832,7 +6688,7 @@ export class CanvasLayer {
 						compositionMode: "normal",
 					});
 					activePass.setPipeline(this.strokePipeline);
-					activePass.setBindGroup(0, this.viewportBinding.active);
+					activePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 					activePass.setBindGroup(1, this.transformsBindGroup!);
 					activePass.setBindGroup(2, this.dummyGradientBindGroup);
 					activePass.setBindGroup(3, this.renderState.currentMaskBindGroup);
@@ -6958,13 +6814,6 @@ export class CanvasLayer {
 					operation: "add",
 				},
 			},
-			// The final blit pass carries a depth24plus-stencil8 attachment; a no-op
-			// depth/stencil keeps this pipeline compatible with it.
-			depthStencil: {
-				format: "depth24plus-stencil8",
-				depthWriteEnabled: false,
-				depthCompare: "always",
-			},
 			multisampleCount: 1,
 		});
 	}
@@ -7034,12 +6883,12 @@ export class CanvasLayer {
 				computePaintHash(element, elementsMap, this.paintHashContext()),
 			viewportState: this.viewportState,
 			renderState: this.renderState,
-			setActiveBindGroup: (bg, uniformBuffer, replace) => {
-				if (bg) {
+			setActiveBindGroup: (entry, replace) => {
+				if (entry) {
 					if (replace) {
-						this.setViewportBinding(bg, uniformBuffer);
+						this.setViewportBinding(entry);
 					} else {
-						this.pushViewportBinding(bg, uniformBuffer);
+						this.pushViewportBinding(entry);
 					}
 				} else {
 					this.popViewportBinding();
@@ -7395,19 +7244,6 @@ export class CanvasLayer {
 				GPUTextureUsage.COPY_DST,
 		});
 
-		// Sized to match the colour target exactly. The pool would round
-		// up to its quantization step and produce a depth attachment whose
-		// width / height disagree with the colour attachment, which the
-		// renderpass validator rejects (the colour texture is created at
-		// the exact `width × height` requested by the caller).
-		const stencilTexture = this.device.createTexture({
-			label: `Def Rasterize Stencil (${defId})`,
-			size: [width, height, 1],
-			format: "depth24plus-stencil8",
-			sampleCount: MSAA_SAMPLE_COUNT,
-			usage: GPUTextureUsage.RENDER_ATTACHMENT,
-		});
-
 		// Pattern defs need seamless wrap so elements that straddle the tile
 		// boundary appear on the opposite side. We achieve this by drawing
 		// the element set into nine adjacent tile cells (center + 8
@@ -7486,7 +7322,7 @@ export class CanvasLayer {
 				width,
 				height,
 			);
-			this.pushViewportBinding(entryUniform.bindGroup, entryUniform.buffer);
+			this.pushViewportBinding(entryUniform);
 
 			const passEncoder = encoder.beginRenderPass({
 				label: `Def Rasterize Pass (${defId}) [${i === 0 ? "center" : `wrap ${dx},${dy}`}]`,
@@ -7500,15 +7336,6 @@ export class CanvasLayer {
 						storeOp: "store",
 					},
 				],
-				depthStencilAttachment: {
-					view: stencilTexture.createView(),
-					depthClearValue: 1.0,
-					depthLoadOp: "clear",
-					depthStoreOp: "discard",
-					stencilClearValue: 0,
-					stencilLoadOp: "clear",
-					stencilStoreOp: "discard",
-				},
 			});
 
 			renderCell(passEncoder, entryUniform.bindGroup, tempViewport);
@@ -7516,7 +7343,6 @@ export class CanvasLayer {
 			this.popViewportBinding();
 		}
 
-		this.offscreen.deferDestroy(stencilTexture);
 		this.viewportState.current = savedViewport;
 		this.viewportState.width = savedViewportWidth;
 		this.viewportState.height = savedViewportHeight;
@@ -7583,13 +7409,9 @@ export class CanvasLayer {
 		this.washResultCache.clear();
 		this.washResultCacheBytes = 0;
 		this.texturePool.destroy();
-		this.geometryStore.destroy();
-		this.runBatcher.destroy();
+		this.stripFrame.destroy();
 		for (const buf of this.backdropBlitPool.buffers) buf.destroy();
 		this.backdropBlitPool.buffers.length = 0;
-
-		// Cleanup stencil textures (every size generation the slots hold)
-		destroyStencilState(this.stencil);
 
 		this.compositeState.captureTexture?.destroy();
 		this.compositeState.captureTexture = null;
@@ -7599,12 +7421,10 @@ export class CanvasLayer {
 		this.compositeState.prebufTexture = null;
 		this.compositeState.canvasBaseTexture?.destroy();
 		this.compositeState.canvasBaseTexture = null;
-		destroyStencilState(this.compositeState.finalBlitStencil);
 		this.compositeState.backdropMask.texture?.destroy();
 		this.compositeState.backdropMask.texture = null;
 		this.compositeState.backdropMask.width = 0;
 		this.compositeState.backdropMask.height = 0;
-		destroyStencilState(this.compositeState.backdropMaskStencil);
 		this.compositeState.width = 0;
 		this.compositeState.height = 0;
 
@@ -7629,7 +7449,6 @@ export class CanvasLayer {
 		for (const entry of this.gradient.bufferPool) {
 			entry.uniformBuffer.destroy();
 			entry.stopsBuffer.destroy();
-			entry.vertexBuffer.destroy();
 		}
 		this.gradient.bufferPool.length = 0;
 

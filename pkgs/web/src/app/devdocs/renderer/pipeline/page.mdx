@@ -22,7 +22,8 @@
 | `RenderPlanner` | ドキュメントからFramePlan（1フレーム分の描画手順をまとめたデータ構造）を構築する純粋関数群 |
 | `CompositeRenderer` | ブレンドモード合成とテクスチャblit（テクスチャを別のテクスチャにコピー描画する操作） |
 | `OffscreenPresenter` | オフスクリーンレンダーパス（メイン画面ではなく一時テクスチャに対する描画パス）の生成とクリップグループ描画 |
-| `DocumentCache` | ステンシル・composite・prebuffer・final-blit・backdrop-mask用テクスチャの遅延生成と再利用 |
+| `DocumentCache` | composite・prebuffer・final-blit・backdrop-mask用テクスチャの遅延生成と再利用 |
+| `strips/StripFrame` | フレーム内の strip インスタンスと被覆率ページを集め、submit 前に一括アップロードして描画する |
 | `TexturePool` | フレーム間のGPUテクスチャプーリング。available textureの推定メモリ予算に基づくeviction |
 | `UniformScope` | パスごとのビューポートuniform buffer / bind group（GPUリソースをシェーダーにバインドする単位）ペアのプール |
 | `ClipMaskAtlas` | クリップパスの白マスクを事前レンダリングし、インラインマスキング用に再利用 |
@@ -116,9 +117,9 @@ GPUバッファとバインドグループはプールで管理される。`rese
 
 ## OffscreenPresenter
 
-フィルター処理やグループ合成、クリップグループのステンシルマスキングでは、最終的なキャンバスに直接描画するのではなく、一時的なテクスチャに描画してから結果を合成する必要がある。たとえば、ぼかしフィルターを適用するには、まず要素をオフスクリーンテクスチャに描画し、そのテクスチャにフィルター処理を施してからキャンバスにblitする。`OffscreenPresenter` がこのオフスクリーンレンダーパスの生成とライフサイクル管理を担当する。
+フィルター処理やグループ合成、クリップグループのマスク合成では、最終的なキャンバスに直接描画するのではなく、一時的なテクスチャに描画してから結果を合成する必要がある。たとえば、ぼかしフィルターを適用するには、まず要素をオフスクリーンテクスチャに描画し、そのテクスチャにフィルター処理を施してからキャンバスにblitする。`OffscreenPresenter` がこのオフスクリーンレンダーパスの生成とライフサイクル管理を担当する。
 
-`createOffscreenPass()` が中核のプライベートメソッドで、指定されたワールド空間バウンズに対応するオフスクリーンテクスチャ・ステンシルテクスチャ・レンダーパスを生成する。テクスチャサイズはバウンズにビューポートzoomを乗じて算出し、GPU最大テクスチャサイズでクランプする。`TexturePool` から取得したテクスチャは128px単位量子化（SIZE_QUANTUM: サイズを128pxの倍数に切り上げること）されるため、実際のコンテンツ領域をUV矩形（`blitUvRect`）で切り出す。
+`createOffscreenPass()` が中核のプライベートメソッドで、指定されたワールド空間バウンズに対応するオフスクリーンテクスチャとレンダーパスを生成する。テクスチャサイズはバウンズにビューポートzoomを乗じて算出し、GPU最大テクスチャサイズでクランプする。`TexturePool` から取得したテクスチャは128px単位量子化（SIZE_QUANTUM: サイズを128pxの倍数に切り上げること）されるため、実際のコンテンツ領域をUV矩形（`blitUvRect`）で切り出す。
 
 主要な公開メソッド:
 - `renderElementToTexture()` — 単一要素をオフスクリーンテクスチャに描画
@@ -132,10 +133,9 @@ GPUバッファとバインドグループはプールで管理される。`rese
 
 ## DocumentCache
 
-ステンシル、composite、prebuffer、final-blit、backdrop-mask用テクスチャの遅延生成と再利用を管理する。名前に反して描画済みドキュメント内容やタイルを保持するキャッシュではない。
+composite、prebuffer、final-blit、backdrop-mask用テクスチャの遅延生成と再利用を管理する。名前に反して描画済みドキュメント内容やタイルを保持するキャッシュではない。
 
-3つの `ensure*` メソッドを提供する:
-- `ensureStencilTexture()` — `depth24plus-stencil8` フォーマットのステンシルテクスチャ
+2つの `ensure*` メソッドを提供する:
 - `ensurePreviewOverlayTexture()` — プレビューパス用オーバーレイテクスチャ
 - `ensureCompositeTextures()` — 合成パス用の4枚のテクスチャ（capture, layer, prebuf, canvasBase）
 
@@ -168,7 +168,7 @@ available / idle状態のテクスチャについて推定したメモリ量が�
 WebGPUレンダーパイプラインの生成を簡略化するファクトリ関数群。`RenderOrchestrator` でのパイプライン初期化コードの重複を排除する。
 
 2つの関数を提供する:
-- `createGeometryPipeline()` — 頂点バッファを持つパイプライン（stroke, fill, gradient, stencil系）。`GPUVertexBufferLayout` の単一/複数指定、トポロジ、ブレンド、デプスステンシル、マルチサンプル等をオプションで受け取る
+- `createGeometryPipeline()` — 頂点バッファを持つパイプライン（unified, strip, UI系）。`GPUVertexBufferLayout` の単一/複数指定、トポロジ、ブレンド、マルチサンプル等をオプションで受け取る
 - `createFullscreenPipeline()` — 頂点バッファなしのパイプライン（blit, composite系）。頂点シェーダーがNDC三角形を生成するためバッファ不要
 
 > [!TIP]

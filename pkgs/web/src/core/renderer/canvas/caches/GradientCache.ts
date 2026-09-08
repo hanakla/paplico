@@ -10,24 +10,14 @@ import {
 interface GradientCacheEntry {
 	uniformBuffer: GPUBuffer;
 	stopsBuffer: GPUBuffer;
-	vertexBuffer: GPUBuffer;
-	vertexBufferSize: number;
 	bindGroup: GPUBindGroup;
-	vertexCount: number;
 	fingerprint: number;
 }
 
 /**
- * Caches gradient GPU resources (uniform/stops/vertex buffers + bind group)
- * per element draw. Validated by a numeric fingerprint derived from gradient
+ * Caches gradient GPU resources (uniform/stops buffers + bind group) per
+ * element draw. Validated by a numeric fingerprint derived from gradient
  * parameters, bounds, and geometry hash. Cache hits skip all writeBuffer calls.
- *
- * The cached `vertexBuffer` has the draw's resolved alpha baked into its
- * vertices (appearance × element × layer opacity, folded together upstream),
- * so that alpha has to be part of the fingerprint. Leaving it out makes an
- * opacity change reuse the previous frame's vertices and never appear on
- * screen — the same trap `StrokeCache` and `StencilFillCache` each had to
- * grow a paint key for.
  */
 export class GradientCache {
 	private cache = new Map<string, GradientCacheEntry>();
@@ -63,7 +53,6 @@ export class GradientCache {
 		if (!entry) return;
 		entry.uniformBuffer.destroy();
 		entry.stopsBuffer.destroy();
-		entry.vertexBuffer.destroy();
 	}
 }
 
@@ -96,19 +85,10 @@ export function hashGradientDraw(
 	 * is edited without DefRasterizer having to push.
 	 */
 	patternDefRevision?: number,
-	/**
-	 * Alpha the caller baked into the vertices it is about to hand over. Part
-	 * of the fingerprint because the cached vertex buffer carries it; see the
-	 * class doc.
-	 */
-	alphaMultiplier?: number,
 ): number {
 	let h = geometryHash;
 	if (transformIndex != null) {
 		h = (h * 31 + transformIndex) | 0;
-	}
-	if (alphaMultiplier != null) {
-		h = (h * 31 + floatBits(alphaMultiplier)) | 0;
 	}
 	h =
 		(h * 31 +

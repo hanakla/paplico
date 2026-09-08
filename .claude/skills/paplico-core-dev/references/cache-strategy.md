@@ -26,9 +26,9 @@ viewport-only frames blit and reproject. The `DocumentCache` name refers to
 persistent, size-matched GPU auxiliary textures only. Do not design an
 invalidation path on the assumption that it stores rendered layer contents.
 
-`DocumentCache` retains the main stencil texture, composite textures
-(`capture`, `layer`, `prebuf`, `canvasBase`), final-blit stencil, and backdrop
-mask color/stencil textures. A hit requires the corresponding textures to exist
+`DocumentCache` retains composite textures
+(`capture`, `layer`, `prebuf`, `canvasBase`), the final-blit and backdrop
+mask color textures. A hit requires the corresponding textures to exist
 with the requested width and height; a size mismatch replaces the resources.
 `CanvasLayer` owns their final destruction, while replaced resources are deferred
 through `OffscreenPresenter` so an in-flight command buffer can finish safely.
@@ -60,10 +60,9 @@ has its own key and resource lifetime.
 
 | Cache | Retained value and key | Validity / invalidation | Ownership |
 | --- | --- | --- | --- |
-| `GeometryCache` | Flattened subpaths, world offset, geometry hash keyed by element ID | Reused only when geometry hash and offset match; removed-object prune. A geometry miss removes the stencil-fill entry. | CPU-only; `RenderCacheManager` |
-| `StrokeCache` | CPU tessellation plus solid-stroke GPU buffer, geometry/color hashes, gradient bounds, transform index; key `elementId:stroke[:filterUIDs]` | Geometry/color/transform/resource checks determine a hit. Replacement, deletion, and clear destroy its buffer immediately. | `StrokeCache` |
-| `StencilFillCache` | Fan/fringe GPU buffers, fringe data, bounds, solid flag, transform index, geometry hash; key element ID | Geometry hash and transform index must match. Replaced/deleted buffers are queued until next frame start. | `StencilFillCache` plus `CanvasLayer` frame flush |
-| `GradientCache` | Dedicated uniform/stops/vertex buffers and bind group for linear/radial gradients | Caller key plus gradient/bounds/geometry/transform fingerprint. Replace/delete/clear destroys all owned buffers. | `GradientCache` |
+| `OutlineCache` | Element-local fill polylines or stroke triangles, geometry hash, scale bucket, local bounds; key `(elementId, variant)`, 6 variants per element | Geometry hash and scale bucket must match; removed-object prune. | CPU-only; `RenderCacheManager` |
+| `StripCache` | Coverage strips and alphas in anchor-relative device px, raster key (linear transform, sub-pixel phase, geometry hash, params mode), coverage rect; key `(elementId, "<variant>:<cacheKey>")` | Raster key must match and the pass rect must lie inside the coverage rect; whole-texel pans reuse. Paint is not part of the key. | CPU-only; `RenderCacheManager` |
+| `GradientCache` | Dedicated uniform/stops buffers and BG2 bind group for linear/radial gradients | Caller key plus gradient/bounds/geometry/transform fingerprint. Replace/delete/clear destroys all owned buffers. | `GradientCache` |
 | `CompoundPathCache` | Boolean-operation segments keyed by compound-path ID | Fingerprint includes source filters, transforms, and segments. Removed-object prune or clear. | CPU-only |
 | `GroupPathCache` | Recursive group appearance segments keyed by group ID | Recursive child structure/segments/transforms fingerprint. Removed-object prune or clear. | CPU-only |
 | `BlendCache` | Blend intermediates keyed by blend ID | Blend settings and source/spine filters, transforms, segments, opacity fingerprint. Removed-object prune or clear. | CPU-only |
@@ -81,7 +80,7 @@ document-change-invalidated in the current implementation; do not rely on it
 surviving a full render.
 
 Sources: `renderer/canvas/caches/RenderCacheManager.ts`,
-`renderer/canvas/caches/{Geometry,Stroke,StencilFill,Gradient,CompoundPath,GroupPath,Blend,Stamp,Appearance,BindGroup}Cache.ts`,
+`renderer/canvas/caches/{Outline,Strip,Gradient,CompoundPath,GroupPath,Blend,Stamp,Appearance,BindGroup}Cache.ts`,
 `renderer/canvas/elements/ElementRenderer.ts`,
 `renderer/canvas/elements/GradientRenderer.ts`,
 `renderer/canvas/pipeline/brush/DabRenderer.ts`.
@@ -90,8 +89,9 @@ Sources: `renderer/canvas/caches/RenderCacheManager.ts`,
 
 | Component | Reuse key / mechanism | Eviction and destruction |
 | --- | --- | --- |
+| `StripFrame` | Per-frame strip instance chunks (16k instances each) and coverage pages (4096 × 1024 r8unorm alpha, rg8unorm params on demand); a full chunk or page opens the next | Rewound at frame start; GPU objects persist across frames and are uploaded once in `finishFrame` before the submit. `CanvasLayer.destroy()` destroys them. |
 | `TexturePool` | Quantized `width × height × format × sampleCount × usage`; dimensions round to 128 px buckets | Returned pool-owned textures are available next frame. At frame start, pool memory over 128 MiB is evicted by bucket/Map insertion order, not a global LRU. `CanvasLayer.destroy()` destroys the pool. |
-| `ClipMaskAtlas` | `clipPathId` plus fingerprint of quantized texture size, effective zoom, and coverage bounds | Matching clip masks skip rerasterization. Full/full-transform strategies invalidate all; inactive entries release. Large groups use padded, snapped coverage to reduce pan churn. Color masks persist across frames; temporary stencil leases come from `TexturePool`. |
+| `ClipMaskAtlas` | `clipPathId` plus fingerprint of quantized texture size, effective zoom, and coverage bounds | Matching clip masks skip rerasterization. Full/full-transform strategies invalidate all; inactive entries release. Large groups use padded, snapped coverage to reduce pan churn. Color masks persist across frames. |
 | `ViewportManager` | Element-ID bounds cache; composed transform/parent-group data; grow-only transform GPU buffer, bind group, `ArrayBuffer`, and typed arrays | Full transform invalidation clears all derived state; preview geometry invalidates the element and ancestor groups. Buffers grow only when capacity is insufficient and are destroyed by `ViewportManager`. |
 | `UniformScope` | No descriptor key: each offscreen/export/clip pass receives the next frame-local slot | Resets the slot index every frame and grows to peak concurrent passes. No budget eviction; `CanvasLayer` destroys all buffers. |
 | `CompositeRenderer` | Frame-indexed pools for blit/quad/composite uniform buffers | Reuse by slot after frame reset; destroy releases buffers and the dummy base texture. |

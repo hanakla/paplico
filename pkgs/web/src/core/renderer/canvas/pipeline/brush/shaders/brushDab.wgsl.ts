@@ -111,10 +111,21 @@ export function buildBrushDabShader({
 	let texRgb = vec3f(0.0);
 	let colorMode = 0u; // procedural tips are always tinted`
 			: /* wgsl */ `
+	// Trilinear minification averages the tip over each pixel, which dilutes
+	// a small dab into a faint blob and, from the 2×2 level, a jagged one.
+	// Never sample below MIN_TIP_TEXELS across the tip so the profile keeps
+	// its shape; the levels above that still filter large tips.
+	let tipDims = vec2f(textureDimensions(brushTexture, 0));
+	let tipExtent = max(tipDims.x, tipDims.y);
+	let tipLod = clamp(
+		log2(tipExtent / max(in.tipPx, 1e-3)),
+		0.0,
+		max(log2(tipExtent / MIN_TIP_TEXELS), 0.0),
+	);
 	${
 		tipMode === "image"
-			? "let texColor = textureSample(brushTexture, tipSampler, in.uv);"
-			: "let texColor = textureSample(brushTexture, tipSampler, in.uv, i32(textureLayerOf(dab)));"
+			? "let texColor = textureSampleLevel(brushTexture, tipSampler, in.uv, tipLod);"
+			: "let texColor = textureSampleLevel(brushTexture, tipSampler, in.uv, i32(textureLayerOf(dab)), tipLod);"
 	}
 	let colorMode = (pm.gradientMode >> 16u) & 1u;
 	var texAlpha: f32;
@@ -187,7 +198,12 @@ struct VertexOutput {
 	@location(9) @interpolate(flat) maskIndex: u32,
 	@location(10) maskBoundsMin: vec2f,
 	@location(11) maskBoundsMax: vec2f,
+	/** Larger dab axis in device pixels; picks the tip mip level. */
+	@location(12) tipPx: f32,
 }
+
+/** Smallest tip resolution (texels across) a dab is ever sampled at. */
+const MIN_TIP_TEXELS: f32 = 8.0;
 
 @vertex
 fn vs_main(
@@ -255,6 +271,7 @@ fn vs_main(
 	out.maskIndex = et.maskIndex;
 	out.maskBoundsMin = et.maskBoundsMin;
 	out.maskBoundsMax = et.maskBoundsMax;
+	out.tipPx = max(effectiveSize, effectiveSizeY) * uniforms.zoom;
 	return out;
 }
 

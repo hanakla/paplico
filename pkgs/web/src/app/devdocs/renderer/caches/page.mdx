@@ -3,7 +3,7 @@
 > [!TIP]
 > **前提ページ:** [レンダラーアーキテクチャ](/devdocs/renderer)
 
-WebGPUレンダラーは毎フレーム、パスのテッセレーション・グラデーションのGPUバッファ生成・ブラシスタンプの計算・ステンシルフィルの頂点生成・複合パスのブーリアン演算など、多数の中間生成物を必要とする。これらを毎フレームゼロから再構築すると、フレーム時間の大部分がCPU側の計算とGPUバッファ転送に消費される。
+WebGPUレンダラーは毎フレーム、パスの平坦化・被覆率 strip の生成・グラデーションのGPUバッファ生成・ブラシスタンプの計算・複合パスのブーリアン演算など、多数の中間生成物を必要とする。これらを毎フレームゼロから再構築すると、フレーム時間の大部分がCPU側の計算とGPUバッファ転送に消費される。
 
 キャッシュシステムは、要素が変更されない限りこれらの中間生成物をフレーム間で再利用し、変更があった要素だけを再構築することでレンダリング性能を維持する。設計上の中核方針は以下の3点である。
 
@@ -15,9 +15,8 @@ WebGPUレンダラーは毎フレーム、パスのテッセレーション・�
 
 ```mermaid
 graph TD
-    RCM[RenderCacheManager] --> GC[GeometryCache]
-    RCM --> SC[StrokeCache]
-    RCM --> SFC[StencilFillCache]
+    RCM[RenderCacheManager] --> OC[OutlineCache]
+    RCM --> STC[StripCache]
     RCM --> CPC[CompoundPathCache]
     RCM --> STC[StampCache]
     RCM --> GRC[GradientCache]
@@ -40,48 +39,47 @@ graph TD
 
 | プロパティ | クラス | 用途 |
 |---|---|---|
-| `geometry` | `GeometryCache` | パステッセレーション結果 |
-| `stroke` | `StrokeCache` | ストローク頂点データ + GPUバッファ |
-| `stencilFill` | `StencilFillCache` | ステンシルフィルの頂点データ + GPUバッファ |
+| `outline` | `OutlineCache` | ローカル空間のアウトライン（塗りのポリライン、線の三角形） |
+| `strip` | `StripCache` | パスのテクセル空間へラスタライズした strip と alpha |
 | `compoundPath` | `CompoundPathCache` | 複合パスのブーリアン演算結果 |
 | `stamp` | `StampCache` | ブラシスタンプ生成結果 |
 | `gradient` | `GradientCache` | グラデーションGPUリソース一式 |
 
 主要メソッド:
 
-- **`onDocumentChange(liveObjects)`** — 全キャッシュのキーを集約し、`liveObjects` に存在しない要素のエントリを一括削除する。`geometry`, `stencilFill`, `compoundPath`, `stamp` は `elementId` をキーとするため `deleteMany()` で直接削除する。`stroke` と `gradient` は `"elementId:..."` の複合キーを使用するため、キーの先頭からelement IDを抽出して照合する。`RenderStrategy.full` 時に呼び出される。
+- **`onDocumentChange(liveObjects)`** — 全キャッシュのキーを集約し、`liveObjects` に存在しない要素のエントリを一括削除する。`outline`, `strip`, `compoundPath`, `stamp` は `elementId` をキーとするため `deleteMany()` で直接削除する。`gradient` は `"elementId:..."` の複合キーを使用するため、キーの先頭からelement IDを抽出して照合する。`RenderStrategy.full` 時に呼び出される。
 - **`clearAll()`** — 全キャッシュを完全クリアする。デバイスロスト時やターゲット破棄時に使用。
 
-## GeometryCache
+## OutlineCache
 
-`caches/GeometryCache.ts` に実装。パスのベジエ曲線をフラットニングした結果（`flattenedSubPaths: number[][]`）をキャッシュする。
+`caches/OutlineCache.ts` に実装。要素ローカル空間のアウトラインをキャッシュする。塗りは `flattenBezierPath()` の閉じたポリライン、線は `tessellateStroke()` の三角形リストである。
 
-キーは `elementId`。エントリの `GeometryCacheEntry` は以下のフィールドを持つ。
-
-| フィールド | 型 | 用途 |
-|---|---|---|
-| `flattenedSubPaths` | `number[][]` | サブパスごとの座標配列 |
-| `worldOffsetX`, `worldOffsetY` | `number` | ワールド空間オフセット |
-| `geometryHash` | `number` | セグメント数・エンドポイント・ミッドポイントから算出したハッシュ |
-
-`geometryHash` はself-validationに使用される。呼び出し側がキャッシュ取得後にハッシュを照合し、不一致であればエントリを破棄して再計算する。GPUリソースを保持しないため、エントリの削除は単純な `Map.delete()` で完結する。
-
-## StrokeCache
-
-`caches/StrokeCache.ts` に実装。ストロークのテッセレーション済み頂点データとGPUバッファをキャッシュする。
-
-キーは `"elementId:stroke[:filterUIDs]"` 形式の複合キー。フィルター構成が変わるとストロークの拡張マージンが変わるため、フィルターUIDもキーに含まれる。エントリの `StrokeCacheEntry` は以下のフィールドを持つ。
+キーは `(elementId, variantKey)`。プリフィルターの uid やストロークアピアランスごとに variant が分かれ、要素あたり 6 件を古い順に退避する。エントリは以下のフィールドを持つ。
 
 | フィールド | 型 | 用途 |
 |---|---|---|
-| `gpuData` | `Float32Array` | テッセレーション済み頂点データ |
-| `vertexCount` | `number` | 頂点数 |
+| `kind` | `"fill" \| "stroke"` | ポリラインか三角形か |
 | `geometryHash` | `number` | ジオメトリ検証用ハッシュ |
-| `gradientBounds` | `[number, number, number, number] \| null` | グラデーションバウンズ |
-| `gpuBuffer` | `GPUBuffer \| null` | GPU頂点バッファ |
-| `transformIndex` | `number` | トランスフォームインデックス |
+| `scaleBucket` | `number` | 平坦化の許容誤差を決めたスケールバケット |
+| `localBounds` | `[number, number, number, number]` | ペイントの UV 基準になるローカル境界 |
+| `points` / `subpathOffsets` | `Float32Array` / `Int32Array` | 塗りのポリライン |
+| `triangles` / `params` | `Float32Array` / `Float32Array \| null` | 線の三角形と、along/across 用の (t, u) |
 
-`GPUBuffer` を保持するため、`set()` は既存エントリの `gpuBuffer?.destroy()` を呼んでから上書きする。`clear()` も全エントリのGPUバッファを破棄する。
+`geometryHash` と `scaleBucket` でself-validationを行う。GPUリソースを保持しないため、エントリの削除は単純な `Map.delete()` で完結する。
+
+## StripCache
+
+`caches/StripCache.ts` に実装。アウトラインを描画先パスのテクセル空間へラスタライズした strip 列と alpha スロットをキャッシュする。
+
+キーは `(elementId, "<variant>:<cacheKey>")`。variant は通常描画かマスク描画かで、パスのテクセル空間が違うため分けている。エントリは以下のフィールドを持つ。
+
+| フィールド | 型 | 用途 |
+|---|---|---|
+| `key` | `StripRasterKey` | 変換の線形部分、サブピクセル位相、`geometryHash`、params の有無 |
+| `coverage` | `ClipRect` | strip を生成した範囲。パス矩形の 3 倍で、この中にあるパスは再利用する |
+| `batch` | `StripBatch` | strip、alpha スロット、params |
+
+strip はデバイス変換の整数部分をアンカーとした相対座標なので、整数テクセルのパンではアンカーが動くだけで再生成しない。ペイントはインスタンス側に乗り、キーに含まれない。
 
 ## StampCache
 
@@ -99,35 +97,12 @@ graph TD
 |---|---|---|
 | `uniformBuffer` | `GPUBuffer` | グラデーションパラメータ |
 | `stopsBuffer` | `GPUBuffer` | カラーストップ配列 |
-| `vertexBuffer` | `GPUBuffer` | テッセレーション済み頂点 |
-| `vertexBufferSize` | `number` | 頂点バッファサイズ |
 | `bindGroup` | `GPUBindGroup` | バインドグループ |
-| `vertexCount` | `number` | 頂点数 |
 | `fingerprint` | `number` | 数値フィンガープリント |
 
 `fingerprint` は `hashGradientDraw()` で算出される数値ハッシュである。グラデーションの種類（linear/radial/free）、座標パラメータ、カラーストップのoffset・RGBA値、バウンズ、`geometryHash` を `h = (h * 31 + value) | 0` の連鎖で畳み込む。浮動小数点値は `floatBits()` でビットパターンに変換してから畳み込むことで、丸め誤差による偽キャッシュミスを防いでいる。
 
-キャッシュヒット時、`fingerprint` が一致すれば全ての `writeBuffer` 呼び出しをスキップできる。3つの `GPUBuffer` を保持するため、`set()`・`delete()`・`clear()` 時に全バッファを `destroy()` する。
-
-## StencilFillCache
-
-`caches/StencilFillCache.ts` に実装。ステンシルフィルの頂点データ（ファン三角形 + AAフリンジ）をキャッシュする。
-
-キーは `elementId`。エントリの `StencilFillCacheEntry` は以下のフィールドを持つ。
-
-| フィールド | 型 | 用途 |
-|---|---|---|
-| `fanBuffer` | `GPUBuffer` | ファン三角形頂点 |
-| `fanVertexCount` | `number` | ファン頂点数 |
-| `fringeBuffer` | `GPUBuffer \| null` | AAフリンジ頂点 |
-| `fringeData` | `Float32Array` | フリンジCPUデータ |
-| `fringeVertexCount` | `number` | フリンジ頂点数 |
-| `bounds` | `[number, number, number, number]` | バウンズ |
-| `isSolidFill` | `boolean` | ソリッドフィルフラグ |
-| `transformIndex` | `number` | トランスフォームインデックス |
-| `geometryHash` | `number` | ジオメトリ検証用ハッシュ |
-
-`transformIndex` と `geometryHash` の組でself-validationを行う。`fanBuffer` と `fringeBuffer` のGPUリソースは `set()`・`delete()`・`clear()` 時に破棄される。
+キャッシュヒット時、`fingerprint` が一致すれば全ての `writeBuffer` 呼び出しをスキップできる。2つの `GPUBuffer` を保持するため、`set()`・`delete()`・`clear()` 時に全バッファを `destroy()` する。
 
 ## CompoundPathCache
 
@@ -171,13 +146,12 @@ evictionは個々の `release()` ではなく `resetFrame()` に集約される�
 
 ## DocumentCache
 
-`pipeline/DocumentCache.ts` に実装。ステンシル・composite・prebuffer・final-blit・backdrop-mask用テクスチャの遅延生成と再利用を管理する。TexturePoolとは異なり、フレーム間で永続的に保持されるテクスチャが対象である。描画済みドキュメント内容やタイルを保持するキャッシュではない。
+`pipeline/DocumentCache.ts` に実装。composite・prebuffer・final-blit・backdrop-mask用テクスチャの遅延生成と再利用を管理する。TexturePoolとは異なり、フレーム間で永続的に保持されるテクスチャが対象である。描画済みドキュメント内容やタイルを保持するキャッシュではない。
 
-3つの `ensure*` メソッドを提供する。
+2つの `ensure*` メソッドを提供する。
 
 | メソッド | フォーマット | 用途 |
 |---|---|---|
-| `ensureStencilTexture(w, h)` | `depth24plus-stencil8` (MSAA) | ステンシルフィルの深度・ステンシルアタッチメント |
 | `ensurePreviewOverlayTexture(w, h)` | canvasFormat | プレビューパスのオーバーレイ描画先 |
 | `ensureCompositeTextures(w, h)` | canvasFormat | 合成パスの3枚テクスチャ (capture, layer, canvasBase) |
 
@@ -194,7 +168,7 @@ evictionは個々の `release()` ではなく `resetFrame()` に集約される�
 1. `clipGroups` を `clipPathId` で重複排除し、同一クリップパスを共有するグループのバウンズを和集合にマージする
 2. 各マスクについて `computeCoverage()` でテクスチャサイズを決定する。グループバウンズ * zoomがGPU最大テクスチャサイズに収まる場合はそのまま使用し、超える場合はビューポートにクリップした領域（パディング付き）を使用する
 3. `computeMaskFingerprint()` でフィンガープリント文字列を生成し、`maskCache` と照合する。一致すればレンダリングをスキップしてキャッシュ済みエントリを再利用する
-4. ミスの場合、`renderMask()` で専用レンダーパスを起動し、クリップパスを白マスクとしてテクスチャに描画する。ステンシルテクスチャは `TexturePool` から借りて返却する
+4. ミスの場合、`renderMask()` で専用レンダーパスを起動し、クリップパスを白マスクとしてテクスチャに描画する
 5. 完了後、`releaseStaleEntries()` でアクティブでないクリップパスのキャッシュを遅延破棄する
 
 ### キャッシュ無効化
@@ -215,9 +189,8 @@ evictionは個々の `release()` ではなく `resetFrame()` に集約される�
 
 | キャッシュ | フィンガープリントの種類 |
 |---|---|
-| GeometryCache | `geometryHash`（数値: セグメント数 + エンドポイント + ミッドポイント） |
-| StrokeCache | `geometryHash`（数値） |
-| StencilFillCache | `transformIndex` + `geometryHash`（数値ペア） |
+| OutlineCache | `geometryHash` + `scaleBucket`（数値ペア） |
+| StripCache | `StripRasterKey`（変換の線形部分、サブピクセル位相、`geometryHash`） |
 | CompoundPathCache | JSON文字列（ソースパスのid, op, filters, transform, segments） |
 | GradientCache | `fingerprint`（数値: `hashGradientDraw()` による畳み込みハッシュ） |
 | ClipMaskAtlas | 文字列（clipPathId, テクスチャサイズ, zoom, カバレッジバウンズ） |

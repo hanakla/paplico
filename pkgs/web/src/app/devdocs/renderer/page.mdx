@@ -222,11 +222,11 @@ ndcY = 1 - (screenY / canvasHeight) * 2;
 | [elements/](/devdocs/renderer/elements) | ElementRenderer, GradientRenderer 等 | 要素種別ごとのレンダリングディスパッチ |
 | [brush/](/devdocs/renderer/brush) | BrushRenderer, DabRenderer, RibbonRenderer, WetStrokeRenderer, DabEvaluator | Dabベースのインスタンスドブラシ描画とリボン・wet層 |
 | [filters/](/devdocs/renderer/filters) | Blur / Drop Shadow / Frost Glass / Pixelate / Zigzag / hanakla-kit handlers | 個別フィルターハンドラーと拡張フィルターパック |
-| [caches/](/devdocs/renderer/caches) | RenderCacheManager, GeometryCache 等 | テッセレーション（曲線パスを描画可能なジオメトリに変換する処理）・テクスチャ・BindGroup（GPUリソースをシェーダーにバインドする単位）の再利用キャッシュ |
+| [caches/](/devdocs/renderer/caches) | RenderCacheManager, OutlineCache, StripCache 等 | テッセレーション（曲線パスを描画可能なジオメトリに変換する処理）・テクスチャ・BindGroup（GPUリソースをシェーダーにバインドする単位）の再利用キャッシュ |
 | [ui/](/devdocs/renderer/ui) | UILayer | 選択オーバーレイ、カーソル、ガイドの描画 |
 | [shaders/](#シェーダー) | `*.wgsl.ts` | WGSLシェーダーソース |
 | generators/ | GradientTextureGenerator | グラデーションテクスチャ生成 |
-| geometry/ | strokeTessellator, CornerRadiusProcessor | パステッセレーション、角丸処理 |
+| geometry/ | strokeTessellator, bezierFlatten, strips/ | ストロークテッセレーション、平坦化、被覆率 strip の生成 |
 
 以下の図は、モジュール間の依存関係を示している。最上位の Paplico ファサードから RenderOrchestrator を経由して各モジュールに処理が流れる構造になっている。
 
@@ -308,7 +308,7 @@ flowchart TB
 レンダリングエンジンのトップレベルオーケストレータ。以下を所有・管理する:
 
 - **GPUデバイス**: `navigator.gpu.requestAdapter()` → `requestDevice()` によるデバイス初期化
-- **GPUパイプライン**（シェーダーやレンダリング設定を組み合わせた描画手順の定義）: ジオメトリパイプライン（unified, bezierPath）、フルスクリーンパイプライン（blit, composite, filter）の生成と保持
+- **GPUパイプライン**（シェーダーやレンダリング設定を組み合わせた描画手順の定義）: ジオメトリパイプライン（unified, strip, bezierPath）、フルスクリーンパイプライン（blit, composite, filter）の生成と保持
 - **CanvasTarget**: キャンバスごとの TargetData（GPUコンテキスト、uniform buffer、CanvasLayer、UILayer、RenderCacheManager）を管理。ブラシ描画の BrushRenderer は CanvasLayer が持つ
 - **フィルターハンドラー**: FilterRenderer にビルトイン・hanakla-kitフィルターを登録
 - **render()メソッド**: RenderStrategy を受け取り、各ターゲットの CanvasLayer と UILayer を実行
@@ -332,9 +332,8 @@ RenderCacheManager が全キャッシュを統合管理する。RenderOrchestrat
 
 | キャッシュ | 内容 | キー |
 |---|---|---|
-| GeometryCache | パステッセレーション結果（頂点バッファ） | elementId |
-| StrokeCache | ストロークメタデータ | elementId:strokeIndex |
-| StencilFillCache | ファンベースフィルのステンシルデータ | elementId |
+| OutlineCache | ローカル空間のアウトライン（塗りのポリライン、線の三角形） | elementId + variant |
+| StripCache | パスのテクセル空間へラスタライズした strip と alpha | elementId + variant |
 | CompoundPathCache | 複合パスジオメトリ | elementId |
 | StampCache | ブラシスタンプデータ | elementId |
 | GradientCache | グラデーションテクスチャ | elementId:gradientHash |
@@ -354,7 +353,9 @@ RenderCacheManager が全キャッシュを統合管理する。RenderOrchestrat
 
 | シェーダー | 用途 |
 |---|---|
-| unified.wgsl | ジオメトリレンダリング（ストローク/フィル共通） |
+| unified.wgsl | 頂点バッファ入力のジオメトリレンダリング（アートボード背景など） |
+| strip.wgsl | 被覆率 strip のインスタンス描画（パスの塗りと線） |
+| paintCommon.wgsl | unified と strip が共有するペイント段（ソリッド / グラデーション / パターン） |
 | bezierPath.wgsl | ベジエパスレンダリング |
 | brushDab.wgsl | ブラシDabのインスタンスドレンダリング |
 | gradientFill.wgsl | グラデーションフィル |

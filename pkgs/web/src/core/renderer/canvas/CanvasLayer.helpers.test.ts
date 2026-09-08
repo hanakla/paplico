@@ -285,7 +285,7 @@ describe("flattenCubicBezier", () => {
 });
 
 describe("createCompoundPathRenderPath", () => {
-	it("disables stroke and injects white fill for stencil mask rendering", () => {
+	it("disables stroke and injects white fill for mask rendering", () => {
 		const segments = createSimpleSegments();
 		const baseBrush = createStrokeBrushSettings(9);
 		const baseSourcePath: Path = {

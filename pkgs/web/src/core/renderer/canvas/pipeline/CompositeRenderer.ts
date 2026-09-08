@@ -3,7 +3,6 @@ import { computeQuadProjectiveWeights } from "../../../utils/geometry/quadProjec
 import {
 	type BlitUVRect,
 	FULL_BLIT_UV_RECT,
-	type RenderPathFn,
 	type SharedRenderBindings,
 	type ViewportState,
 	type WriteViewportUniformsFn,
@@ -72,13 +71,9 @@ interface CompositeRendererDeps extends SharedRenderBindings {
 	getCache: () => DocumentCache;
 	// Callbacks for cross-module operations
 	writeViewportUniformsToGPU: WriteViewportUniformsFn;
-	renderPath: RenderPathFn;
 	getBlendModeIndex: (blendMode: BlendMode) => number;
 	getCompositionModeIndex: (compositionMode: CompositionMode) => number;
 	deferDestroy: (texture: GPUTexture | null | undefined) => void;
-	/** Called before every blit/composite draw so the run batcher can emit
-	 *  its pending merged draw first (paint-order contract — see RunBatcher). */
-	onBeforeDraw: () => void;
 }
 
 export type PremultipliedColorSurface<
@@ -276,7 +271,6 @@ export class CompositeRenderer {
 		pipeline: GPURenderPipeline = this.deps.blitPipeline,
 		sampling: "linear" | "nearest" = "linear",
 	): void {
-		this.deps.onBeforeDraw();
 		const f = this.blitF32;
 		f[0] = bounds.minX;
 		f[1] = bounds.minY;
@@ -331,7 +325,6 @@ export class CompositeRenderer {
 		opacity: number = 1.0,
 		uvRect: BlitUVRect = FULL_BLIT_UV_RECT,
 	): void {
-		this.deps.onBeforeDraw();
 		const f = this.blitF32;
 		f[0] = bounds.minX;
 		f[1] = bounds.minY;
@@ -384,7 +377,6 @@ export class CompositeRenderer {
 		opacity: number = 1.0,
 		uvRect: BlitUVRect = FULL_BLIT_UV_RECT,
 	): void {
-		this.deps.onBeforeDraw();
 		const f = this.quadBlitF32;
 		const q = computeQuadProjectiveWeights(corners);
 		f[0] = corners[0].x;
@@ -449,7 +441,6 @@ export class CompositeRenderer {
 	): void {
 		const vertexCount = vertexData.length / MESH_BLIT_FLOATS_PER_VERTEX;
 		if (vertexCount < 3) return;
-		this.deps.onBeforeDraw();
 
 		const f = this.meshBlitF32;
 		f[0] = opacity;
@@ -535,7 +526,6 @@ export class CompositeRenderer {
 		compositionMode?: CompositionMode,
 		baseTexture?: GPUTexture,
 	): void {
-		this.deps.onBeforeDraw();
 		const f = this.compositeF32;
 		const u = this.compositeU32;
 

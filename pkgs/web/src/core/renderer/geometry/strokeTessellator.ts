@@ -35,16 +35,12 @@ export interface StrokeTessellateInput {
 
 interface StrokeTessellateResult {
 	/**
-	 * Core body vertices: [x, y, offsetX, offsetY, ...] (4 floats per vertex).
-	 * Outline vertices carry a half-pixel inward offset so the body stops at
-	 * coverage 0.5 of the fringe ramp; interior vertices carry (0, 0). Offsets
-	 * are zoom-independent unit displacements scaled by 1/zoom in the shader.
+	 * Body triangles as [x, y, ...] (2 floats per vertex, 3 vertices per
+	 * triangle). Triangles overlap at joins and self-crossings; the stroke is
+	 * their nonzero union.
 	 */
 	vertices: number[];
 	count: number;
-	/** Fringe vertices for AA: [x, y, offsetX, offsetY, alpha, ...] (5 floats per vertex). alpha is 0.0 (outer) or 1.0 (inner edge). Offsets are zoom-independent unit displacements scaled by 1/zoom in the shader. */
-	fringeVertices: number[];
-	fringeCount: number;
 	/**
 	 * Per-vertex gradient params [t, u, ...] (2 floats per vertex), aligned
 	 * with `vertices`. t = whole-stroke arc ratio (remapped by
@@ -52,8 +48,6 @@ interface StrokeTessellateResult {
 	 * carry their sample's t. Empty unless `arcParams` was requested.
 	 */
 	vertexParams: number[];
-	/** Same as `vertexParams`, aligned with `fringeVertices`. */
-	fringeParams: number[];
 }
 
 export function tessellateStroke(
@@ -80,14 +74,7 @@ export function tessellateStroke(
 	const pointCount = points.length / 2;
 
 	if (pointCount < 2) {
-		return {
-			vertices: [],
-			count: 0,
-			fringeVertices: [],
-			fringeCount: 0,
-			vertexParams: [],
-			fringeParams: [],
-		};
+		return { vertices: [], count: 0, vertexParams: [] };
 	}
 
 	// Compute base half-widths from pressure
@@ -142,10 +129,7 @@ export function tessellateStroke(
 	const result: StrokeTessellateResult = {
 		vertices: [],
 		count: 0,
-		fringeVertices: [],
-		fringeCount: 0,
 		vertexParams: [],
-		fringeParams: [],
 	};
 
 	// Maps a sample's local arc ratio into the whole stroke's t range.
@@ -171,13 +155,10 @@ export function tessellateStroke(
 				: undefined,
 		);
 		appendNumbers(result.vertices, subpathResult.vertices);
-		appendNumbers(result.fringeVertices, subpathResult.fringeVertices);
 		appendNumbers(result.vertexParams, subpathResult.vertexParams);
-		appendNumbers(result.fringeParams, subpathResult.fringeParams);
 	}
 
-	result.count = result.vertices.length / 4;
-	result.fringeCount = result.fringeVertices.length / 5;
+	result.count = result.vertices.length / 2;
 	return result;
 }
 
@@ -438,82 +419,44 @@ function tessellateVisibleSubpath(
 	lineJoin: LineJoin,
 	miterLimit: number,
 	zoom: number,
-	/** Whole-stroke t per sample; enables vertexParams/fringeParams emission. */
+	/** Whole-stroke t per sample; enables vertexParams emission. */
 	globalTs?: number[],
 ): StrokeTessellateResult {
 	const { points, halfWidths } = centered;
 	const segments = buildSegments(points, points.length / 2);
 	if (segments.length === 0) {
-		return {
-			vertices: [],
-			count: 0,
-			fringeVertices: [],
-			fringeCount: 0,
-			vertexParams: [],
-			fringeParams: [],
-		};
+		return { vertices: [], count: 0, vertexParams: [] };
 	}
 
 	const vertices: number[] = [];
 	const vertexParams: number[] = [];
-	// Open butt ends expose the segment's end cross-section as an outline, so
-	// those corners also inset along the cap direction. Round/square caps own
-	// their end outline instead (the segment/cap seam stays interior).
-	const buttEnds = !isClosed && lineCap === "butt";
-	for (let segIndex = 0; segIndex < segments.length; segIndex++) {
-		const seg = segments[segIndex];
-		const hw0 = halfWidths[seg.i0];
-		const hw1 = halfWidths[seg.i1];
-		const lx0 = seg.x0 + seg.nx * hw0;
-		const ly0 = seg.y0 + seg.ny * hw0;
-		const rx0 = seg.x0 - seg.nx * hw0;
-		const ry0 = seg.y0 - seg.ny * hw0;
-		const lx1 = seg.x1 + seg.nx * hw1;
-		const ly1 = seg.y1 + seg.ny * hw1;
-		const rx1 = seg.x1 - seg.nx * hw1;
-		const ry1 = seg.y1 - seg.ny * hw1;
-		// Half-pixel inward inset on each lateral outline vertex; the fringe
-		// straddles the outline (±0.5px) so the body must stop at its midpoint.
-		const inx = seg.nx * 0.5;
-		const iny = seg.ny * 0.5;
-		// Cap-direction inset at open butt ends (outward is -d at the start
-		// end and +d at the end end, so the inward pull flips accordingly).
-		const startCapped = buttEnds && segIndex === 0;
-		const endCapped = buttEnds && segIndex === segments.length - 1;
-		const e0x = startCapped ? seg.dx * 0.5 : 0;
-		const e0y = startCapped ? seg.dy * 0.5 : 0;
-		const e1x = endCapped ? -seg.dx * 0.5 : 0;
-		const e1y = endCapped ? -seg.dy * 0.5 : 0;
-		pushTriangle(
-			vertices,
-			lx0,
-			ly0,
-			-inx + e0x,
-			-iny + e0y,
-			rx0,
-			ry0,
-			inx + e0x,
-			iny + e0y,
-			lx1,
-			ly1,
-			-inx + e1x,
-			-iny + e1y,
+	const corners = segments.map((seg) =>
+		bodyCorners(seg, halfWidths[seg.i0], halfWidths[seg.i1]),
+	);
+
+	// Adjacent bodies overlap on the inside of a turn. Coverage accumulates
+	// area, so an overlap would double the partial pixels along the inner
+	// edge; meeting the bodies at the inner offset intersection instead keeps
+	// the union exact wherever both segments reach that point.
+	const joinCount = isClosed ? segments.length : segments.length - 1;
+	const innerTrimmed: boolean[] = [];
+	for (let index = 0; index < joinCount; index++) {
+		const next = (index + 1) % segments.length;
+		innerTrimmed.push(
+			trimInnerCorner(
+				segments[index],
+				segments[next],
+				corners[index],
+				corners[next],
+			),
 		);
-		pushTriangle(
-			vertices,
-			rx0,
-			ry0,
-			inx + e0x,
-			iny + e0y,
-			rx1,
-			ry1,
-			inx + e1x,
-			iny + e1y,
-			lx1,
-			ly1,
-			-inx + e1x,
-			-iny + e1y,
-		);
+	}
+
+	for (let index = 0; index < segments.length; index++) {
+		const seg = segments[index];
+		const [lx0, ly0, rx0, ry0, lx1, ly1, rx1, ry1] = corners[index];
+		pushTriangle(vertices, lx0, ly0, rx0, ry0, lx1, ly1);
+		pushTriangle(vertices, rx0, ry0, rx1, ry1, lx1, ly1);
 		if (globalTs) {
 			const t0 = globalTs[seg.i0];
 			const t1 = globalTs[seg.i1];
@@ -521,7 +464,6 @@ function tessellateVisibleSubpath(
 		}
 	}
 
-	const joinCount = isClosed ? segments.length : segments.length - 1;
 	for (let index = 0; index < joinCount; index++) {
 		const segA = segments[index];
 		const segB = segments[(index + 1) % segments.length];
@@ -538,13 +480,13 @@ function tessellateVisibleSubpath(
 			halfWidths[joinIndex],
 			halfWidths[joinIndex],
 			zoom,
+			!innerTrimmed[index],
 		);
 		if (globalTs) {
 			appendJoinGroupParams(
 				vertices,
 				groupStart,
 				vertexParams,
-				4,
 				globalTs[joinIndex],
 				points[joinIndex * 2],
 				points[joinIndex * 2 + 1],
@@ -576,7 +518,6 @@ function tessellateVisibleSubpath(
 				vertices,
 				groupStart,
 				vertexParams,
-				4,
 				globalTs[first.i0],
 				first.x0,
 				first.y0,
@@ -605,7 +546,6 @@ function tessellateVisibleSubpath(
 				vertices,
 				groupStart,
 				vertexParams,
-				4,
 				globalTs[last.i1],
 				last.x1,
 				last.y1,
@@ -616,176 +556,7 @@ function tessellateVisibleSubpath(
 		}
 	}
 
-	const fringeVertices: number[] = [];
-	const fringeParams: number[] = [];
-	for (const seg of segments) {
-		const hw0 = halfWidths[seg.i0];
-		const hw1 = halfWidths[seg.i1];
-		const lx0 = seg.x0 + seg.nx * hw0;
-		const ly0 = seg.y0 + seg.ny * hw0;
-		const lx1 = seg.x1 + seg.nx * hw1;
-		const ly1 = seg.y1 + seg.ny * hw1;
-		let groupStart = fringeVertices.length;
-		pushFringeQuad(
-			fringeVertices,
-			lx0,
-			ly0,
-			lx1,
-			ly1,
-			seg.nx,
-			seg.ny,
-			seg.nx,
-			seg.ny,
-		);
-		if (globalTs) {
-			appendFringeQuadParams(
-				fringeVertices,
-				groupStart,
-				fringeParams,
-				lx0,
-				ly0,
-				globalTs[seg.i0],
-				lx1,
-				ly1,
-				globalTs[seg.i1],
-				1,
-			);
-		}
-
-		const rx0 = seg.x0 - seg.nx * hw0;
-		const ry0 = seg.y0 - seg.ny * hw0;
-		const rx1 = seg.x1 - seg.nx * hw1;
-		const ry1 = seg.y1 - seg.ny * hw1;
-		groupStart = fringeVertices.length;
-		pushFringeQuad(
-			fringeVertices,
-			rx0,
-			ry0,
-			rx1,
-			ry1,
-			-seg.nx,
-			-seg.ny,
-			-seg.nx,
-			-seg.ny,
-		);
-		if (globalTs) {
-			appendFringeQuadParams(
-				fringeVertices,
-				groupStart,
-				fringeParams,
-				rx0,
-				ry0,
-				globalTs[seg.i0],
-				rx1,
-				ry1,
-				globalTs[seg.i1],
-				0,
-			);
-		}
-	}
-
-	for (let index = 0; index < joinCount; index++) {
-		const segA = segments[index];
-		const segB = segments[(index + 1) % segments.length];
-		const joinIndex = segA.i1;
-		const groupStart = fringeVertices.length;
-		emitJoinFringe(
-			fringeVertices,
-			lineJoin,
-			miterLimit,
-			segA,
-			segB,
-			points[joinIndex * 2],
-			points[joinIndex * 2 + 1],
-			halfWidths[joinIndex],
-			halfWidths[joinIndex],
-			zoom,
-		);
-		if (globalTs) {
-			appendJoinGroupParams(
-				fringeVertices,
-				groupStart,
-				fringeParams,
-				5,
-				globalTs[joinIndex],
-				points[joinIndex * 2],
-				points[joinIndex * 2 + 1],
-				segA,
-				segB,
-				halfWidths[joinIndex],
-			);
-		}
-	}
-
-	if (!isClosed) {
-		const first = segments[0];
-		let groupStart = fringeVertices.length;
-		emitCapFringe(
-			fringeVertices,
-			lineCap,
-			first.x0,
-			first.y0,
-			-first.dx,
-			-first.dy,
-			first.nx,
-			first.ny,
-			halfWidths[first.i0],
-			halfWidths[first.i0],
-			zoom,
-		);
-		if (globalTs) {
-			appendGroupParams(
-				fringeVertices,
-				groupStart,
-				fringeParams,
-				5,
-				globalTs[first.i0],
-				first.x0,
-				first.y0,
-				first.nx,
-				first.ny,
-				halfWidths[first.i0],
-			);
-		}
-		const last = segments.at(-1)!;
-		groupStart = fringeVertices.length;
-		emitCapFringe(
-			fringeVertices,
-			lineCap,
-			last.x1,
-			last.y1,
-			last.dx,
-			last.dy,
-			last.nx,
-			last.ny,
-			halfWidths[last.i1],
-			halfWidths[last.i1],
-			zoom,
-		);
-		if (globalTs) {
-			appendGroupParams(
-				fringeVertices,
-				groupStart,
-				fringeParams,
-				5,
-				globalTs[last.i1],
-				last.x1,
-				last.y1,
-				last.nx,
-				last.ny,
-				halfWidths[last.i1],
-			);
-		}
-	}
-
-	return {
-		vertices,
-		count: vertices.length / 2,
-		fringeVertices,
-		fringeCount: fringeVertices.length / 5,
-		vertexParams,
-		fringeParams,
-	};
+	return { vertices, count: vertices.length / 2, vertexParams };
 }
 
 /** Total arc length of a flat [x, y, ...] polyline. */
@@ -1002,7 +773,6 @@ function appendGroupParams(
 	out: number[],
 	startLength: number,
 	params: number[],
-	stride: number,
 	t: number,
 	cx: number,
 	cy: number,
@@ -1010,7 +780,7 @@ function appendGroupParams(
 	ny: number,
 	halfWidth: number,
 ): void {
-	for (let i = startLength; i < out.length; i += stride) {
+	for (let i = startLength; i < out.length; i += 2) {
 		params.push(
 			t,
 			crossStrokeU(out[i] - cx, out[i + 1] - cy, nx, ny, halfWidth),
@@ -1023,7 +793,6 @@ function appendJoinGroupParams(
 	out: number[],
 	startLength: number,
 	params: number[],
-	stride: number,
 	t: number,
 	cx: number,
 	cy: number,
@@ -1041,47 +810,7 @@ function appendJoinGroupParams(
 		nx = segA.nx;
 		ny = segA.ny;
 	}
-	appendGroupParams(
-		out,
-		startLength,
-		params,
-		stride,
-		t,
-		cx,
-		cy,
-		nx,
-		ny,
-		halfWidth,
-	);
-}
-
-/**
- * Append (t, u) for a segment-edge fringe quad: each fringe vertex sits on
- * one of the two edge endpoints, so t picks the nearer endpoint's value and
- * u is the quad's side (1 = left edge, 0 = right edge).
- */
-function appendFringeQuadParams(
-	fringe: number[],
-	startLength: number,
-	params: number[],
-	x0: number,
-	y0: number,
-	t0: number,
-	x1: number,
-	y1: number,
-	t1: number,
-	sideU: number,
-): void {
-	for (let i = startLength; i < fringe.length; i += 5) {
-		const d0x = fringe[i] - x0;
-		const d0y = fringe[i + 1] - y0;
-		const d1x = fringe[i] - x1;
-		const d1y = fringe[i + 1] - y1;
-		params.push(
-			d0x * d0x + d0y * d0y <= d1x * d1x + d1y * d1y ? t0 : t1,
-			sideU,
-		);
-	}
+	appendGroupParams(out, startLength, params, t, cx, cy, nx, ny, halfWidth);
 }
 
 // --- Helper types ---
@@ -1097,6 +826,83 @@ interface Segment {
 	dy: number;
 	nx: number;
 	ny: number;
+}
+
+/** Body quad corners: left start, right start, left end, right end. */
+type BodyCorners = [
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+	number,
+];
+
+function bodyCorners(seg: Segment, hw0: number, hw1: number): BodyCorners {
+	return [
+		seg.x0 + seg.nx * hw0,
+		seg.y0 + seg.ny * hw0,
+		seg.x0 - seg.nx * hw0,
+		seg.y0 - seg.ny * hw0,
+		seg.x1 + seg.nx * hw1,
+		seg.y1 + seg.ny * hw1,
+		seg.x1 - seg.nx * hw1,
+		seg.y1 - seg.ny * hw1,
+	];
+}
+
+/**
+ * Move the inner end corner of `a` and the inner start corner of `b` to the
+ * intersection of their inner offset edges. Returns false, leaving both
+ * bodies untouched, when the turn is straight or the intersection lies
+ * beyond either segment.
+ */
+function trimInnerCorner(
+	segA: Segment,
+	segB: Segment,
+	a: BodyCorners,
+	b: BodyCorners,
+): boolean {
+	const cross = segA.dx * segB.dy - segA.dy * segB.dx;
+	if (Math.abs(cross) < 1e-10) return false;
+
+	// Left-hand normals: on a left (CCW) turn the left side is the inside.
+	const start = cross > 0 ? 0 : 2;
+	const end = cross > 0 ? 4 : 6;
+	const adx = a[end] - a[start];
+	const ady = a[end + 1] - a[start + 1];
+	const bdx = b[end] - b[start];
+	const bdy = b[end + 1] - b[start + 1];
+	const hit = lineLineIntersect(
+		a[start],
+		a[start + 1],
+		adx,
+		ady,
+		b[start],
+		b[start + 1],
+		bdx,
+		bdy,
+	);
+	if (hit === null) return false;
+
+	const [px, py] = hit;
+	const alongA =
+		((px - a[start]) * adx + (py - a[start + 1]) * ady) /
+		(adx * adx + ady * ady);
+	const alongB =
+		((px - b[start]) * bdx + (py - b[start + 1]) * bdy) /
+		(bdx * bdx + bdy * bdy);
+	if (!(alongA >= 0 && alongA <= 1 && alongB >= 0 && alongB <= 1)) {
+		return false;
+	}
+
+	a[end] = px;
+	a[end + 1] = py;
+	b[start] = px;
+	b[start + 1] = py;
+	return true;
 }
 
 // --- Segment construction ---
@@ -1150,7 +956,7 @@ function arcAngleStep(radius: number, zoom: number): number {
 	return 2 * Math.acos(radius / (radius + ARC_TOLERANCE_PX / zoom));
 }
 
-/** Semicircle subdivision for round caps; body and fringe must agree. */
+/** Semicircle subdivision for round caps. */
 function roundCapSteps(side1Hw: number, side2Hw: number, zoom: number): number {
 	return Math.max(
 		2,
@@ -1169,6 +975,8 @@ function emitJoin(
 	side1Hw: number,
 	side2Hw: number,
 	zoom: number,
+	/** Bridge the inner-side gap between untrimmed bodies. */
+	fillInnerGap: boolean,
 ): void {
 	const cross = segA.dx * segB.dy - segA.dy * segB.dx;
 
@@ -1183,24 +991,17 @@ function emitJoin(
 	const outerHw = isLeftTurn ? side2Hw : side1Hw;
 	const innerSign = isLeftTurn ? 1 : -1;
 
-	// Fill the inner-side gap between the two strip segments. The two outline
-	// vertices inset inward (opposite their outward normals); the centerline
-	// vertex is interior and stays put.
-	pushTriangle(
-		out,
-		cx,
-		cy,
-		0,
-		0,
-		cx + segA.nx * innerHw * innerSign,
-		cy + segA.ny * innerHw * innerSign,
-		-segA.nx * innerSign * 0.5,
-		-segA.ny * innerSign * 0.5,
-		cx + segB.nx * innerHw * innerSign,
-		cy + segB.ny * innerHw * innerSign,
-		-segB.nx * innerSign * 0.5,
-		-segB.ny * innerSign * 0.5,
-	);
+	if (fillInnerGap) {
+		pushTriangle(
+			out,
+			cx,
+			cy,
+			cx + segA.nx * innerHw * innerSign,
+			cy + segA.ny * innerHw * innerSign,
+			cx + segB.nx * innerHw * innerSign,
+			cy + segB.ny * innerHw * innerSign,
+		);
+	}
 
 	if (joinType === "miter") {
 		emitMiterJoin(out, miterLimit, segA, segB, cx, cy, outerHw, isLeftTurn);
@@ -1253,43 +1054,8 @@ function emitMiterJoin(
 		return;
 	}
 
-	const miterOx = (-miterDx / miterLen) * 0.5;
-	const miterOy = (-miterDy / miterLen) * 0.5;
-	const insetAx = -segA.nx * sign * 0.5;
-	const insetAy = -segA.ny * sign * 0.5;
-	const insetBx = -segB.nx * sign * 0.5;
-	const insetBy = -segB.ny * sign * 0.5;
-
-	pushTriangle(
-		out,
-		cx,
-		cy,
-		0,
-		0,
-		outerA_x,
-		outerA_y,
-		insetAx,
-		insetAy,
-		ix[0],
-		ix[1],
-		miterOx,
-		miterOy,
-	);
-	pushTriangle(
-		out,
-		cx,
-		cy,
-		0,
-		0,
-		ix[0],
-		ix[1],
-		miterOx,
-		miterOy,
-		outerB_x,
-		outerB_y,
-		insetBx,
-		insetBy,
-	);
+	pushTriangle(out, cx, cy, outerA_x, outerA_y, ix[0], ix[1]);
+	pushTriangle(out, cx, cy, ix[0], ix[1], outerB_x, outerB_y);
 }
 
 function emitRoundJoin(
@@ -1338,16 +1104,10 @@ function emitRoundJoin(
 			out,
 			cx,
 			cy,
-			0,
-			0,
 			cx + cos0 * hw,
 			cy + sin0 * hw,
-			-cos0 * 0.5,
-			-sin0 * 0.5,
 			cx + cos1 * hw,
 			cy + sin1 * hw,
-			-cos1 * 0.5,
-			-sin1 * 0.5,
 		);
 	}
 }
@@ -1368,21 +1128,7 @@ function emitBevelJoin(
 	const outerB_x = cx + segB.nx * hw * sign;
 	const outerB_y = cy + segB.ny * hw * sign;
 
-	pushTriangle(
-		out,
-		cx,
-		cy,
-		0,
-		0,
-		outerA_x,
-		outerA_y,
-		-segA.nx * sign * 0.5,
-		-segA.ny * sign * 0.5,
-		outerB_x,
-		outerB_y,
-		-segB.nx * sign * 0.5,
-		-segB.ny * sign * 0.5,
-	);
+	pushTriangle(out, cx, cy, outerA_x, outerA_y, outerB_x, outerB_y);
 }
 
 // --- Cap emitters ---
@@ -1431,43 +1177,8 @@ function emitSquareCap(
 	const erx = rx + dx * extHw;
 	const ery = ry + dy * extHw;
 
-	// Lateral inset on all corners; the tip corners additionally inset along
-	// the (outward) cap direction because the extension's end face is an
-	// outline edge with its own straddling fringe.
-	const inx = nx * 0.5;
-	const iny = ny * 0.5;
-	const edx = dx * 0.5;
-	const edy = dy * 0.5;
-	pushTriangle(
-		out,
-		lx,
-		ly,
-		-inx,
-		-iny,
-		rx,
-		ry,
-		inx,
-		iny,
-		elx,
-		ely,
-		-inx - edx,
-		-iny - edy,
-	);
-	pushTriangle(
-		out,
-		rx,
-		ry,
-		inx,
-		iny,
-		erx,
-		ery,
-		inx - edx,
-		iny - edy,
-		elx,
-		ely,
-		-inx - edx,
-		-iny - edy,
-	);
+	pushTriangle(out, lx, ly, rx, ry, elx, ely);
+	pushTriangle(out, rx, ry, erx, ery, elx, ely);
 }
 
 function emitRoundCap(
@@ -1507,48 +1218,32 @@ function emitRoundCap(
 			out,
 			px,
 			py,
-			0,
-			0,
 			px + cos0 * r0,
 			py + sin0 * r0,
-			-cos0 * 0.5,
-			-sin0 * 0.5,
 			px + cos1 * r1,
 			py + sin1 * r1,
-			-cos1 * 0.5,
-			-sin1 * 0.5,
 		);
 	}
 }
 
 // --- Geometry utilities ---
 
-/**
- * Push a core triangle as [x, y, offsetX, offsetY] per vertex. Offsets are
- * half-pixel inward displacements on outline vertices (0 on interior ones),
- * applied in the shader as px/zoom so cached geometry stays zoom-independent.
- */
+/** Push a triangle as [x, y] per vertex with a consistent winding. */
 function pushTriangle(
 	out: number[],
 	ax: number,
 	ay: number,
-	aox: number,
-	aoy: number,
 	bx: number,
 	by: number,
-	box_: number,
-	boy: number,
 	cx: number,
 	cy: number,
-	cox: number,
-	coy: number,
 ): void {
 	const cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
 
 	if (cross >= 0) {
-		out.push(ax, ay, aox, aoy, bx, by, box_, boy, cx, cy, cox, coy);
+		out.push(ax, ay, bx, by, cx, cy);
 	} else {
-		out.push(ax, ay, aox, aoy, cx, cy, cox, coy, bx, by, box_, boy);
+		out.push(ax, ay, cx, cy, bx, by);
 	}
 }
 
@@ -1567,468 +1262,6 @@ function lineLineIntersect(
 
 	const t = ((bx - ax) * bdy - (by - ay) * bdx) / denom;
 	return [ax + adx * t, ay + ady * t];
-}
-
-// --- Fringe AA utilities ---
-
-function pushFringeTriangle(
-	out: number[],
-	ax: number,
-	ay: number,
-	aox: number,
-	aoy: number,
-	aa: number,
-	bx: number,
-	by: number,
-	box_: number,
-	boy: number,
-	ba: number,
-	cx: number,
-	cy: number,
-	cox: number,
-	coy: number,
-	ca: number,
-): void {
-	const cross = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-	if (cross >= 0) {
-		out.push(ax, ay, aox, aoy, aa, bx, by, box_, boy, ba, cx, cy, cox, coy, ca);
-	} else {
-		out.push(ax, ay, aox, aoy, aa, cx, cy, cox, coy, ca, bx, by, box_, boy, ba);
-	}
-}
-
-function pushFringeQuad(
-	out: number[],
-	baseX0: number,
-	baseY0: number,
-	baseX1: number,
-	baseY1: number,
-	nx0: number,
-	ny0: number,
-	nx1: number,
-	ny1: number,
-): void {
-	// Inner: offset = (-nx*0.5, -ny*0.5), alpha=1
-	// Outer: offset = (+nx*0.5, +ny*0.5), alpha=0
-	pushFringeTriangle(
-		out,
-		baseX0,
-		baseY0,
-		-nx0 * 0.5,
-		-ny0 * 0.5,
-		1,
-		baseX0,
-		baseY0,
-		nx0 * 0.5,
-		ny0 * 0.5,
-		0,
-		baseX1,
-		baseY1,
-		-nx1 * 0.5,
-		-ny1 * 0.5,
-		1,
-	);
-	pushFringeTriangle(
-		out,
-		baseX0,
-		baseY0,
-		nx0 * 0.5,
-		ny0 * 0.5,
-		0,
-		baseX1,
-		baseY1,
-		nx1 * 0.5,
-		ny1 * 0.5,
-		0,
-		baseX1,
-		baseY1,
-		-nx1 * 0.5,
-		-ny1 * 0.5,
-		1,
-	);
-}
-
-// --- Fringe emitters for joins ---
-
-function emitJoinFringe(
-	out: number[],
-	joinType: LineJoin,
-	miterLimit: number,
-	segA: Segment,
-	segB: Segment,
-	cx: number,
-	cy: number,
-	side1Hw: number,
-	side2Hw: number,
-	zoom: number,
-): void {
-	const cross = segA.dx * segB.dy - segA.dy * segB.dx;
-	if (Math.abs(cross) < 1e-10) return;
-
-	const isLeftTurn = cross > 0;
-	// Same outer-side convention as emitJoin: outer = -normal on a left turn.
-	const outerHw = isLeftTurn ? side2Hw : side1Hw;
-
-	if (joinType === "miter") {
-		emitMiterJoinFringe(
-			out,
-			miterLimit,
-			segA,
-			segB,
-			cx,
-			cy,
-			outerHw,
-			isLeftTurn,
-		);
-	} else if (joinType === "round") {
-		emitRoundJoinFringe(out, segA, segB, cx, cy, outerHw, isLeftTurn, zoom);
-	} else {
-		emitBevelJoinFringe(out, segA, segB, cx, cy, outerHw, isLeftTurn);
-	}
-}
-
-function emitBevelJoinFringe(
-	out: number[],
-	segA: Segment,
-	segB: Segment,
-	cx: number,
-	cy: number,
-	hw: number,
-	isLeftTurn: boolean,
-): void {
-	const sign = isLeftTurn ? -1 : 1;
-
-	const outerA_x = cx + segA.nx * hw * sign;
-	const outerA_y = cy + segA.ny * hw * sign;
-	const outerB_x = cx + segB.nx * hw * sign;
-	const outerB_y = cy + segB.ny * hw * sign;
-
-	pushFringeQuad(
-		out,
-		outerA_x,
-		outerA_y,
-		outerB_x,
-		outerB_y,
-		segA.nx * sign,
-		segA.ny * sign,
-		segB.nx * sign,
-		segB.ny * sign,
-	);
-}
-
-function emitMiterJoinFringe(
-	out: number[],
-	miterLimit: number,
-	segA: Segment,
-	segB: Segment,
-	cx: number,
-	cy: number,
-	hw: number,
-	isLeftTurn: boolean,
-): void {
-	const sign = isLeftTurn ? -1 : 1;
-
-	const outerA_x = cx + segA.nx * hw * sign;
-	const outerA_y = cy + segA.ny * hw * sign;
-	const outerB_x = cx + segB.nx * hw * sign;
-	const outerB_y = cy + segB.ny * hw * sign;
-
-	const ix = lineLineIntersect(
-		outerA_x,
-		outerA_y,
-		segA.dx,
-		segA.dy,
-		outerB_x,
-		outerB_y,
-		segB.dx,
-		segB.dy,
-	);
-
-	if (ix === null) {
-		emitBevelJoinFringe(out, segA, segB, cx, cy, hw, isLeftTurn);
-		return;
-	}
-
-	const miterDx = ix[0] - cx;
-	const miterDy = ix[1] - cy;
-	const miterLen = Math.sqrt(miterDx * miterDx + miterDy * miterDy);
-
-	if (miterLen / hw > miterLimit) {
-		emitBevelJoinFringe(out, segA, segB, cx, cy, hw, isLeftTurn);
-		return;
-	}
-
-	const miterNx = miterDx / miterLen;
-	const miterNy = miterDy / miterLen;
-
-	pushFringeQuad(
-		out,
-		outerA_x,
-		outerA_y,
-		ix[0],
-		ix[1],
-		segA.nx * sign,
-		segA.ny * sign,
-		miterNx,
-		miterNy,
-	);
-	pushFringeQuad(
-		out,
-		ix[0],
-		ix[1],
-		outerB_x,
-		outerB_y,
-		miterNx,
-		miterNy,
-		segB.nx * sign,
-		segB.ny * sign,
-	);
-}
-
-function emitRoundJoinFringe(
-	out: number[],
-	segA: Segment,
-	segB: Segment,
-	cx: number,
-	cy: number,
-	hw: number,
-	isLeftTurn: boolean,
-	zoom: number,
-): void {
-	const sign = isLeftTurn ? -1 : 1;
-
-	const nAx = segA.nx * sign;
-	const nAy = segA.ny * sign;
-	const nBx = segB.nx * sign;
-	const nBy = segB.ny * sign;
-
-	const angleA = Math.atan2(nAy, nAx);
-	const angleB = Math.atan2(nBy, nBx);
-
-	let angleDiff = angleB - angleA;
-	if (isLeftTurn) {
-		if (angleDiff < 0) angleDiff += Math.PI * 2;
-	} else {
-		if (angleDiff > 0) angleDiff -= Math.PI * 2;
-	}
-
-	const steps = Math.max(
-		2,
-		Math.ceil(Math.abs(angleDiff) / arcAngleStep(hw, zoom)),
-	);
-	const angleStep = angleDiff / steps;
-
-	for (let s = 0; s < steps; s++) {
-		const a0 = angleA + angleStep * s;
-		const a1 = angleA + angleStep * (s + 1);
-		const cos0 = Math.cos(a0);
-		const sin0 = Math.sin(a0);
-		const cos1 = Math.cos(a1);
-		const sin1 = Math.sin(a1);
-
-		pushFringeQuad(
-			out,
-			cx + cos0 * hw,
-			cy + sin0 * hw,
-			cx + cos1 * hw,
-			cy + sin1 * hw,
-			cos0,
-			sin0,
-			cos1,
-			sin1,
-		);
-	}
-}
-
-// --- Fringe emitters for caps ---
-
-function emitCapFringe(
-	out: number[],
-	capType: LineCap,
-	px: number,
-	py: number,
-	dx: number,
-	dy: number,
-	nx: number,
-	ny: number,
-	side1Hw: number,
-	side2Hw: number,
-	zoom: number,
-): void {
-	if (capType === "square") {
-		emitSquareCapFringe(out, px, py, dx, dy, nx, ny, side1Hw, side2Hw);
-	} else if (capType === "round") {
-		emitRoundCapFringe(out, px, py, dx, dy, side1Hw, side2Hw, zoom);
-	} else {
-		emitButtCapFringe(out, px, py, dx, dy, nx, ny, side1Hw, side2Hw);
-	}
-}
-
-function emitButtCapFringe(
-	out: number[],
-	px: number,
-	py: number,
-	dx: number,
-	dy: number,
-	nx: number,
-	ny: number,
-	side1Hw: number,
-	side2Hw: number,
-): void {
-	const lx = px + nx * side1Hw;
-	const ly = py + ny * side1Hw;
-	const rx = px - nx * side2Hw;
-	const ry = py - ny * side2Hw;
-
-	// End edge fringe (outward normal is cap direction dx, dy)
-	pushFringeQuad(out, lx, ly, rx, ry, dx, dy, dx, dy);
-
-	// Corner triangles
-	pushFringeTriangle(
-		out,
-		lx,
-		ly,
-		-nx * 0.5,
-		-ny * 0.5,
-		1,
-		lx,
-		ly,
-		nx * 0.5,
-		ny * 0.5,
-		0,
-		lx,
-		ly,
-		dx * 0.5,
-		dy * 0.5,
-		0,
-	);
-	pushFringeTriangle(
-		out,
-		rx,
-		ry,
-		nx * 0.5,
-		ny * 0.5,
-		1,
-		rx,
-		ry,
-		dx * 0.5,
-		dy * 0.5,
-		0,
-		rx,
-		ry,
-		-nx * 0.5,
-		-ny * 0.5,
-		0,
-	);
-}
-
-function emitSquareCapFringe(
-	out: number[],
-	px: number,
-	py: number,
-	dx: number,
-	dy: number,
-	nx: number,
-	ny: number,
-	side1Hw: number,
-	side2Hw: number,
-): void {
-	const lx = px + nx * side1Hw;
-	const ly = py + ny * side1Hw;
-	const rx = px - nx * side2Hw;
-	const ry = py - ny * side2Hw;
-	const extHw = Math.max(side1Hw, side2Hw);
-	const elx = lx + dx * extHw;
-	const ely = ly + dy * extHw;
-	const erx = rx + dx * extHw;
-	const ery = ry + dy * extHw;
-
-	// Left edge of cap extension (outward normal is +normal)
-	pushFringeQuad(out, lx, ly, elx, ely, nx, ny, nx, ny);
-
-	// Right edge of cap extension (outward normal is -normal)
-	pushFringeQuad(out, rx, ry, erx, ery, -nx, -ny, -nx, -ny);
-
-	// End edge of cap extension (outward normal is cap direction)
-	pushFringeQuad(out, elx, ely, erx, ery, dx, dy, dx, dy);
-
-	// Corner triangles at cap tip
-	pushFringeTriangle(
-		out,
-		elx,
-		ely,
-		-nx * 0.5,
-		-ny * 0.5,
-		1,
-		elx,
-		ely,
-		nx * 0.5,
-		ny * 0.5,
-		0,
-		elx,
-		ely,
-		dx * 0.5,
-		dy * 0.5,
-		0,
-	);
-	pushFringeTriangle(
-		out,
-		erx,
-		ery,
-		nx * 0.5,
-		ny * 0.5,
-		1,
-		erx,
-		ery,
-		dx * 0.5,
-		dy * 0.5,
-		0,
-		erx,
-		ery,
-		-nx * 0.5,
-		-ny * 0.5,
-		0,
-	);
-}
-
-function emitRoundCapFringe(
-	out: number[],
-	px: number,
-	py: number,
-	dx: number,
-	dy: number,
-	side1Hw: number,
-	side2Hw: number,
-	zoom: number,
-): void {
-	const steps = roundCapSteps(side1Hw, side2Hw, zoom);
-	const startAngle = Math.atan2(dx, -dy);
-	const angleStep = -Math.PI / steps;
-
-	for (let s = 0; s < steps; s++) {
-		const a0 = startAngle + angleStep * s;
-		const a1 = startAngle + angleStep * (s + 1);
-		const t0 = s / steps;
-		const t1 = (s + 1) / steps;
-		const r0 = side1Hw + (side2Hw - side1Hw) * t0;
-		const r1 = side1Hw + (side2Hw - side1Hw) * t1;
-		const cos0 = Math.cos(a0);
-		const sin0 = Math.sin(a0);
-		const cos1 = Math.cos(a1);
-		const sin1 = Math.sin(a1);
-
-		pushFringeQuad(
-			out,
-			px + cos0 * r0,
-			py + sin0 * r0,
-			px + cos1 * r1,
-			py + sin1 * r1,
-			cos0,
-			sin0,
-			cos1,
-			sin1,
-		);
-	}
 }
 
 /**

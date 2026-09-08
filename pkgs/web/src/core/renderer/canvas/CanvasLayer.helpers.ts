@@ -19,7 +19,7 @@ import {
 import { getStrokeWidth } from "../../utils/elementQuery";
 import type { PipelineType } from "./CanvasLayerTypes";
 
-const STENCIL_MASK_FILL: FillColor = {
+const MASK_FILL: FillColor = {
 	type: "solid",
 	color: { type: "rgb", r: 1, g: 1, b: 1, a: 1 },
 };
@@ -307,7 +307,7 @@ export function createCompoundPathRenderPath(
 				type: "solid" as const,
 				color: { type: "rgb" as const, r: 0, g: 0, b: 0, a: 1 },
 			});
-	const fill = isMaskRender ? (cpFill ?? STENCIL_MASK_FILL) : cpFill;
+	const fill = isMaskRender ? (cpFill ?? MASK_FILL) : cpFill;
 
 	const filters: Filter[] = [];
 	if (strokeColor) {

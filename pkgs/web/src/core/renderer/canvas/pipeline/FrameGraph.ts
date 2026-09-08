@@ -22,16 +22,8 @@ import type { TexturePool } from "./TexturePool";
  */
 
 declare const FG_TEXTURE_BRAND: unique symbol;
-declare const FG_SCRATCH_ATTACHMENT_BRAND: unique symbol;
 /** Opaque virtual-texture id. Resolve to a GPUTexture via ctx.get(). */
 export type FGTextureHandle = number & { readonly [FG_TEXTURE_BRAND]: true };
-/** Opaque pass-local attachment id. Its contents never form a data dependency
- *  and are available only through ctx.scratchView(). */
-export type FGScratchAttachmentHandle = number & {
-	readonly [FG_SCRATCH_ATTACHMENT_BRAND]: true;
-};
-
-type FGHandle = FGTextureHandle | FGScratchAttachmentHandle;
 
 export interface FGTextureDesc {
 	label: string;
@@ -54,17 +46,11 @@ export interface FGExecuteContext {
 	/** A fresh default view of the handle's texture. Same validity rules as
 	 *  get(); not cached, so a created texture's view never outlives its pass. */
 	view(handle: FGTextureHandle): GPUTextureView;
-	/** Resolve a pass-local scratch attachment. A scratch handle must be
-	 *  declared by the current pass and cannot be read as a texture. */
-	scratchView(handle: FGScratchAttachmentHandle): GPUTextureView;
 }
 
-export interface FGPassDesc {
+interface FGPassDesc {
 	reads: readonly FGTextureHandle[];
 	writes: readonly FGTextureHandle[];
-	/** Exclusive, pass-local attachments. Their previous and resulting
-	 *  contents are never dependencies and do not keep a pass alive. */
-	scratchAttachments?: readonly FGScratchAttachmentHandle[];
 	/** Protect from dead-pass culling (G3): side effects the graph cannot
 	 *  see, e.g. wet-ink simulation updates or cache bakes. */
 	neverCull?: boolean;
@@ -95,14 +81,6 @@ export class FrameGraph {
 		return (this.slots.length - 1) as FGTextureHandle;
 	}
 
-	/** Declare a frame-transient pass-local attachment. */
-	public createScratchAttachment(
-		desc: FGTextureDesc,
-	): FGScratchAttachmentHandle {
-		this.slots.push({ kind: "created", desc, texture: null });
-		return (this.slots.length - 1) as FGScratchAttachmentHandle;
-	}
-
 	/** Wrap an externally-owned texture (prebuf, swapchain, persistent
 	 *  caches). The graph never acquires or releases it. */
 	public importTexture(texture: GPUTexture, label?: string): FGTextureHandle {
@@ -114,25 +92,8 @@ export class FrameGraph {
 		return (this.slots.length - 1) as FGTextureHandle;
 	}
 
-	/** Wrap an externally-owned pass-local attachment. */
-	public importScratchAttachment(
-		texture: GPUTexture,
-		label?: string,
-	): FGScratchAttachmentHandle {
-		this.slots.push({
-			kind: "imported",
-			texture,
-			label: label ?? texture.label,
-		});
-		return (this.slots.length - 1) as FGScratchAttachmentHandle;
-	}
-
 	public addPass(name: string, desc: FGPassDesc): void {
-		for (const handle of [
-			...desc.reads,
-			...desc.writes,
-			...(desc.scratchAttachments ?? []),
-		]) {
+		for (const handle of [...desc.reads, ...desc.writes]) {
 			if (this.slots[handle] === undefined) {
 				throw new Error(
 					`FrameGraph: pass "${name}" uses unknown handle ${handle}`,
@@ -177,27 +138,23 @@ export class FrameGraph {
 
 		// Lifetime intervals over the surviving passes only — a texture used
 		// exclusively by culled passes is never acquired.
-		const acquireAt: FGHandle[][] = this.passes.map(() => []);
-		const lastUse = new Map<FGHandle, number>();
+		const acquireAt: FGTextureHandle[][] = this.passes.map(() => []);
+		const lastUse = new Map<FGTextureHandle, number>();
 		this.passes.forEach((pass, i) => {
 			if (!alive[i]) return;
-			for (const handle of [
-				...pass.desc.reads,
-				...pass.desc.writes,
-				...(pass.desc.scratchAttachments ?? []),
-			]) {
+			for (const handle of [...pass.desc.reads, ...pass.desc.writes]) {
 				if (this.slots[handle]?.kind !== "created") continue;
 				if (!lastUse.has(handle)) acquireAt[i].push(handle);
 				lastUse.set(handle, i);
 			}
 		});
-		const releaseAt: FGHandle[][] = this.passes.map(() => []);
+		const releaseAt: FGTextureHandle[][] = this.passes.map(() => []);
 		for (const [handle, i] of lastUse) {
 			releaseAt[i].push(handle);
 		}
 
 		const slots = this.slots;
-		const resolve = (handle: FGHandle): GPUTexture => {
+		const resolve = (handle: FGTextureHandle): GPUTexture => {
 			const slot = slots[handle];
 			if (!slot) throw new Error(`FrameGraph: unknown handle ${handle}`);
 			if (slot.kind === "imported") return slot.texture;
@@ -226,7 +183,6 @@ export class FrameGraph {
 
 				const pass = this.passes[i];
 				const declared = new Set([...pass.desc.reads, ...pass.desc.writes]);
-				const declaredScratch = new Set(pass.desc.scratchAttachments ?? []);
 				const resolveForPass = (handle: FGTextureHandle): GPUTexture => {
 					if (!declared.has(handle)) {
 						throw new Error(
@@ -235,21 +191,10 @@ export class FrameGraph {
 					}
 					return resolve(handle);
 				};
-				const resolveScratchForPass = (
-					handle: FGScratchAttachmentHandle,
-				): GPUTexture => {
-					if (!declaredScratch.has(handle)) {
-						throw new Error(
-							`FrameGraph: pass "${pass.name}" accessed undeclared scratch attachment ${handle}`,
-						);
-					}
-					return resolve(handle);
-				};
 				pass.desc.execute({
 					encoder,
 					get: resolveForPass,
 					view: (handle) => resolveForPass(handle).createView(),
-					scratchView: (handle) => resolveScratchForPass(handle).createView(),
 				});
 				for (const handle of releaseAt[i]) {
 					const slot = slots[handle];

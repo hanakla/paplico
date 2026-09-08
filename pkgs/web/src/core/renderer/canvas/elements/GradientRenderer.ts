@@ -1,35 +1,25 @@
 /**
- * Handles gradient fill rendering extracted from ElementRenderer.
- * Manages per-draw buffer pool, gradient uniform setup, and draw dispatch.
- * Supports fingerprint-based caching to skip writeBuffer on cache hits.
+ * Builds the BG2 paint bind group for textured fills: gradient uniforms,
+ * colour stops, free/pattern texture and mesh buffers. Fingerprint caching
+ * skips the buffer writes when nothing changed.
  */
 
 import { colorToRawRGBA, type TexturedFill } from "../../../schema";
 import type { GradientState } from "../CanvasLayerTypes";
 import { type GradientCache, hashGradientDraw } from "../caches/GradientCache";
-import type { ElementVertexBuffer } from "./ElementVertexBuffer";
 
 interface GradientRendererDeps {
 	device: GPUDevice;
 	gradient: GradientState;
 	gradientCache: GradientCache;
-	getMaskBindGroup: () => GPUBindGroup;
-	getBindGroup: () => GPUBindGroup;
-	getTransformsBindGroup: () => GPUBindGroup | null;
 }
 
 /** Everything a gradient draw needs beyond its geometry and paint. */
-export interface GradientDrawOptions {
+interface GradientDrawOptions {
 	/** Enables caching together with `geometryHash`; omit for uncacheable draws. */
 	cacheKey?: string;
 	geometryHash?: number;
 	transformIndex?: number;
-	/**
-	 * Alpha already baked into `buf`'s vertices. Part of the cache
-	 * fingerprint — see GradientCache's doc for why leaving it out makes
-	 * opacity changes invisible.
-	 */
-	alphaMultiplier?: number;
 	/**
 	 * Resolved pattern source texture for `PatternFill`. Required when
 	 * `fill.type === "pattern"` — pattern sampling falls back to the
@@ -43,14 +33,8 @@ export interface GradientDrawOptions {
 	 */
 	patternTileWorldSize?: { width: number; height: number };
 	/**
-	 * World-space anchor for the pattern tile grid — the element's tight
-	 * geometry top-left. Defaults to the bounds top-left, which is correct
-	 * for callers whose bounds are not fringe-expanded (stroke patterns).
-	 */
-	patternAnchor?: [number, number];
-	/**
 	 * StrokeGradientMode for geometric strokes (0 = within / 1 = along /
-	 * 2 = across). along/across sample the stops from the per-vertex
+	 * 2 = across). along/across sample the stops from the per-pixel
 	 * (t, u) params instead of the bounds-space coordinates.
 	 */
 	strokeGradientMode?: number;
@@ -64,28 +48,23 @@ export class GradientRenderer {
 	}
 
 	/**
-	 * Render gradient fill with an explicit pipeline (for stencil cover pass).
-	 * When cacheKey and geometryHash are provided, dedicated GPU resources
-	 * are cached and reused on subsequent frames if the gradient fingerprint
-	 * matches. Free gradients and mesh gradients are not cached.
+	 * The paint bind group for a textured fill over `boundsMin..boundsMax`
+	 * (local space). When cacheKey and geometryHash are provided, dedicated
+	 * GPU resources are cached and reused while the fingerprint matches. Free,
+	 * mesh and pattern fills are not cached.
 	 */
-	public renderGradientFillWithPipeline(
-		passEncoder: GPURenderPassEncoder,
-		buf: ElementVertexBuffer,
+	public acquirePaintBindGroup(
 		fill: TexturedFill,
 		boundsMin: [number, number],
 		boundsMax: [number, number],
-		pipeline: GPURenderPipeline,
 		options: GradientDrawOptions = {},
-	): void {
+	): GPUBindGroup {
 		const {
 			cacheKey,
 			geometryHash,
 			transformIndex,
-			alphaMultiplier,
 			patternTexture,
 			patternTileWorldSize,
-			patternAnchor,
 			strokeGradientMode,
 		} = options;
 
@@ -106,29 +85,13 @@ export class GradientRenderer {
 					boundsMax,
 					(geometryHash * 31 + modeValue) | 0,
 					transformIndex,
-					undefined,
-					alphaMultiplier,
 				)
 			: 0;
 
-		// Try cache hit
 		if (cacheable) {
 			const cached = this.deps.gradientCache.get(cacheKey);
-			if (cached && cached.fingerprint === fingerprint) {
-				passEncoder.setPipeline(pipeline);
-				passEncoder.setBindGroup(0, this.deps.getBindGroup());
-				passEncoder.setBindGroup(1, this.deps.getTransformsBindGroup()!);
-				passEncoder.setBindGroup(2, cached.bindGroup);
-				passEncoder.setBindGroup(3, this.deps.getMaskBindGroup());
-				passEncoder.setVertexBuffer(0, cached.vertexBuffer);
-				passEncoder.draw(cached.vertexCount, 1, 0, 0);
-				return;
-			}
+			if (cached && cached.fingerprint === fingerprint) return cached.bindGroup;
 		}
-
-		// Prepare uniform/stops data
-		const triangulatedVertices = buf.toFloat32Array();
-		const vertexCount = buf.vertexCount;
 
 		const uv = this.deps.gradient.uniformView;
 		const isPattern = fill.type === "pattern";
@@ -162,9 +125,7 @@ export class GradientRenderer {
 					? Math.max(1e-6, patternTileWorldSize.height)
 					: 1,
 			_pad1: 0,
-			patternAnchor: isPattern
-				? (patternAnchor ?? [boundsMin[0], boundsMax[1]])
-				: [0, 0],
+			patternAnchor: isPattern ? [boundsMin[0], boundsMax[1]] : [0, 0],
 		});
 
 		const sv = this.deps.gradient.stopsView;
@@ -196,7 +157,6 @@ export class GradientRenderer {
 
 		let uniformBuffer: GPUBuffer;
 		let stopsBuffer: GPUBuffer;
-		let vertexBuffer: GPUBuffer;
 
 		if (cacheable) {
 			// Create dedicated buffers owned by the gradient cache
@@ -209,11 +169,6 @@ export class GradientRenderer {
 				label: `Gradient Cache Stops [${cacheKey}]`,
 				size: sv.arrayBuffer.byteLength,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-			});
-			vertexBuffer = this.deps.device.createBuffer({
-				label: `Gradient Cache Vertex [${cacheKey}]`,
-				size: Math.max(triangulatedVertices.byteLength, 4096),
-				usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
 			});
 		} else {
 			// Use pool for uncacheable draws (free gradients, no cacheKey)
@@ -230,41 +185,17 @@ export class GradientRenderer {
 						size: sv.arrayBuffer.byteLength,
 						usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 					}),
-					vertexBuffer: this.deps.device.createBuffer({
-						label: `Gradient Vertex #${this.deps.gradient.drawIndex}`,
-						size: Math.max(triangulatedVertices.byteLength, 4096),
-						usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-					}),
-					vertexBufferSize: Math.max(triangulatedVertices.byteLength, 4096),
 				};
 				this.deps.gradient.bufferPool.push(entry);
 			}
 
-			const neededSize = triangulatedVertices.byteLength;
-			if (entry.vertexBufferSize < neededSize) {
-				entry.vertexBuffer.destroy();
-				const allocSize = Math.max(neededSize, 4096);
-				entry.vertexBuffer = this.deps.device.createBuffer({
-					label: `Gradient Vertex #${this.deps.gradient.drawIndex}`,
-					size: allocSize,
-					usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-				});
-				entry.vertexBufferSize = allocSize;
-			}
-
 			uniformBuffer = entry.uniformBuffer;
 			stopsBuffer = entry.stopsBuffer;
-			vertexBuffer = entry.vertexBuffer;
 			this.deps.gradient.drawIndex++;
 		}
 
 		this.deps.device.queue.writeBuffer(uniformBuffer, 0, uv.arrayBuffer);
 		this.deps.device.queue.writeBuffer(stopsBuffer, 0, sv.arrayBuffer);
-		this.deps.device.queue.writeBuffer(
-			vertexBuffer,
-			0,
-			triangulatedVertices as GPUAllowSharedBufferSource,
-		);
 
 		const meshPreparedData =
 			fill.type === "mesh"
@@ -328,21 +259,12 @@ export class GradientRenderer {
 			this.deps.gradientCache.set(cacheKey, {
 				uniformBuffer,
 				stopsBuffer,
-				vertexBuffer,
-				vertexBufferSize: Math.max(triangulatedVertices.byteLength, 4096),
 				bindGroup: gradientBindGroup,
-				vertexCount,
 				fingerprint,
 			});
 		}
 
-		passEncoder.setPipeline(pipeline);
-		passEncoder.setBindGroup(0, this.deps.getBindGroup());
-		passEncoder.setBindGroup(1, this.deps.getTransformsBindGroup()!);
-		passEncoder.setBindGroup(2, gradientBindGroup);
-		passEncoder.setBindGroup(3, this.deps.getMaskBindGroup());
-		passEncoder.setVertexBuffer(0, vertexBuffer);
-		passEncoder.draw(vertexCount, 1, 0, 0);
+		return gradientBindGroup;
 	}
 }
 

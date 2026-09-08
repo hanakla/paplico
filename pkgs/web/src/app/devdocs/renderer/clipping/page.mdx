@@ -7,7 +7,7 @@
 
 Paplicoでは、パフォーマンスと表現力のバランスを取るために3つの手法を使い分けている。単純なケースはGPU負荷の低いインラインマスキング（メイン描画パス内でマスクテクスチャを参照する方式で、追加のレンダーパスが不要）で処理し、ネストや特殊ブレンドモードが絡むケースではオフスクリーンフォールバック（メインパスでは対応できないケースで一時テクスチャに迂回する方式）に切り替え、バックドロップフィルター（要素の背後にあるキャンバス内容にフィルター効果を適用する機能、CSSの`backdrop-filter`に類似）には専用のキャプチャパイプラインを用意している。1つの手法では足りない理由は、単純なマスク参照だけでは複数マスクの交差やブレンドモード合成を表現できず、かといって全てをオフスクリーンで処理すると不要なGPUコストが発生するためである。
 
-このページでは、ステンシルバッファによるパス塗りつぶしの基礎から、3つのクリッピング手法それぞれの仕組みと使い分けの条件までを解説する。
+このページでは、被覆率によるパス塗りつぶしの基礎から、3つのクリッピング手法それぞれの仕組みと使い分けの条件までを解説する。
 
 ### 設計意図
 
@@ -41,111 +41,15 @@ flowchart TD
 
 条件を満たさない場合は `OffscreenPresenter.renderClipGroup` によるオフスクリーンフォールバックが使用される。
 
-## ステンシルテクスチャ
+## 被覆率による塗りつぶし
 
 クリッピングの前提として、パスの塗りつぶし（fill）がどのように実装されているかを理解する必要がある。
 
-単純な凸形状であれば三角形分割（triangulation）で塗りつぶせるが、自己交差パスやコンパウンドパスの穴（フォントグリフの「O」の内側の空洞など）を安定して処理するのは難しい。earcut等のtriangulationアルゴリズムはこれらのケースで追加の前処理を要しやすく、CPUコストも無視できない。Paplicoでは代わりに **stencil-then-cover**（ステンシルバッファ（ピクセルの描画可否を制御するGPUの補助バッファ）で形状の内外を判定し、内側だけに色を出力する2パスアルゴリズム）を採用している。このアルゴリズムは三角形分割を前提にせず、複合パスや自己交差を含むケースでも安定して塗りつぶし判定を行える。
+単純な凸形状であれば三角形分割（triangulation）で塗りつぶせるが、自己交差パスやコンパウンドパスの穴（フォントグリフの「O」の内側の空洞など）を安定して処理するのは難しい。Paplicoでは CPU が各ピクセルの**被覆率**を非ゼロ巻き数の面積積分で求め、GPU はそれを alpha として掛けるだけにしている。三角形分割を前提にせず、複合パスや自己交差を含むケースでも塗りつぶし判定が厳密で、輪郭の AA も被覆率そのものになる。仕組みの詳細は[パス描画フロー](/devdocs/renderer/path-rendering)を参照。
 
-WebGPU の `depth24plus-stencil8` フォーマットのステンシルテクスチャを使用し、以下の2パスで処理が行われる。
+マスクの生成も同じ経路を使う。マスク用のパスは白い塗りとして、マスクテクスチャのテクセル空間で strip にラスタライズされる。ステンシルバッファは使わないので、マスクパスにも要素パスにも深度・ステンシルアタッチメントは無い。
 
-### 2パス処理
-
-以下の図は、星形パスを例にstencil-then-coverの各段階を示している。左から順に、三角ファン（1つの中心点から放射状に三角形を形成するジオメトリ構造）の書き込み、ステンシルバッファの状態、最終的な色の出力である。
-
-<svg viewBox="0 0 780 240" xmlns="http://www.w3.org/2000/svg" style={{fontSize: "11px", fontFamily: "system-ui, sans-serif"}}>
-  {/* Pass 1: Fan Write */}
-  <rect x="0" y="0" width="240" height="240" rx="8" fill="#1e1e2e" stroke="#585b70" strokeWidth="1"/>
-  <text x="120" y="22" textAnchor="middle" fill="#cdd6f4" fontWeight="bold" fontSize="12">Pass 1: Fan Write</text>
-
-  {/* Star-shaped path outline */}
-  <polygon points="120,45 138,95 190,95 148,125 165,175 120,148 75,175 92,125 50,95 102,95"
-    fill="none" stroke="#89b4fa" strokeWidth="1.5" strokeDasharray="4,2"/>
-
-  {/* Centroid */}
-  <circle cx="120" cy="115" r="4" fill="#f38ba8"/>
-  <text x="120" y="108" textAnchor="middle" fill="#f38ba8" fontSize="9">centroid</text>
-
-  {/* Triangle fan lines from centroid to vertices */}
-  <line x1="120" y1="115" x2="120" y2="45" stroke="#a6e3a1" strokeWidth="0.7" opacity="0.6"/>
-  <line x1="120" y1="115" x2="138" y2="95" stroke="#a6e3a1" strokeWidth="0.7" opacity="0.6"/>
-  <line x1="120" y1="115" x2="190" y2="95" stroke="#a6e3a1" strokeWidth="0.7" opacity="0.6"/>
-  <line x1="120" y1="115" x2="148" y2="125" stroke="#a6e3a1" strokeWidth="0.7" opacity="0.6"/>
-  <line x1="120" y1="115" x2="165" y2="175" stroke="#a6e3a1" strokeWidth="0.7" opacity="0.6"/>
-  <line x1="120" y1="115" x2="120" y2="148" stroke="#a6e3a1" strokeWidth="0.7" opacity="0.6"/>
-  <line x1="120" y1="115" x2="75" y2="175" stroke="#a6e3a1" strokeWidth="0.7" opacity="0.6"/>
-  <line x1="120" y1="115" x2="92" y2="125" stroke="#a6e3a1" strokeWidth="0.7" opacity="0.6"/>
-  <line x1="120" y1="115" x2="50" y2="95" stroke="#a6e3a1" strokeWidth="0.7" opacity="0.6"/>
-  <line x1="120" y1="115" x2="102" y2="95" stroke="#a6e3a1" strokeWidth="0.7" opacity="0.6"/>
-
-  {/* Triangle fan fill (a few sample triangles) */}
-  <polygon points="120,115 120,45 138,95" fill="#a6e3a1" opacity="0.15"/>
-  <polygon points="120,115 138,95 190,95" fill="#a6e3a1" opacity="0.25"/>
-  <polygon points="120,115 190,95 148,125" fill="#a6e3a1" opacity="0.15"/>
-  <polygon points="120,115 148,125 165,175" fill="#a6e3a1" opacity="0.25"/>
-  <polygon points="120,115 165,175 120,148" fill="#a6e3a1" opacity="0.15"/>
-  <polygon points="120,115 120,148 75,175" fill="#a6e3a1" opacity="0.25"/>
-  <polygon points="120,115 75,175 92,125" fill="#a6e3a1" opacity="0.15"/>
-  <polygon points="120,115 92,125 50,95" fill="#a6e3a1" opacity="0.25"/>
-  <polygon points="120,115 50,95 102,95" fill="#a6e3a1" opacity="0.15"/>
-  <polygon points="120,115 102,95 120,45" fill="#a6e3a1" opacity="0.25"/>
-
-  <text x="120" y="210" textAnchor="middle" fill="#a6e3a1" fontSize="10">各三角形がステンシル値を ±1</text>
-  <text x="120" y="225" textAnchor="middle" fill="#a6e3a1" fontSize="10">巻き数が0かどうかで内外を判定</text>
-
-  {/* Arrow */}
-  <line x1="248" y1="120" x2="268" y2="120" stroke="#585b70" strokeWidth="1.5" markerEnd="url(#arrow)"/>
-  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#585b70"/></marker></defs>
-
-  {/* Stencil Buffer */}
-  <rect x="270" y="0" width="240" height="240" rx="8" fill="#1e1e2e" stroke="#585b70" strokeWidth="1"/>
-  <text x="390" y="22" textAnchor="middle" fill="#cdd6f4" fontWeight="bold" fontSize="12">Stencil Buffer</text>
-
-  {/* Grid showing stencil values */}
-  <rect x="310" y="35" width="160" height="160" fill="#313244"/>
-
-  {/* Inner area (non-zero stencil = inside) */}
-  <polygon points="390,50 408,100 460,100 418,130 435,180 390,153 345,180 362,130 320,100 372,100"
-    fill="#f9e2af" opacity="0.5"/>
-
-  {/* Stencil value labels */}
-  <text x="340" y="65" textAnchor="middle" fill="#6c7086" fontSize="10">0</text>
-  <text x="390" y="90" textAnchor="middle" fill="#f9e2af" fontWeight="bold" fontSize="10">1</text>
-  <text x="440" y="135" textAnchor="middle" fill="#6c7086" fontSize="10">0</text>
-  <text x="390" y="135" textAnchor="middle" fill="#f9e2af" fontWeight="bold" fontSize="10">1</text>
-  <text x="460" y="65" textAnchor="middle" fill="#6c7086" fontSize="10">0</text>
-
-  <text x="390" y="215" textAnchor="middle" fill="#f9e2af" fontSize="10">黄色 = 非0（内側）</text>
-  <text x="390" y="230" textAnchor="middle" fill="#6c7086" fontSize="10">灰色 = 0（外側）</text>
-
-  {/* Arrow */}
-  <line x1="518" y1="120" x2="538" y2="120" stroke="#585b70" strokeWidth="1.5" markerEnd="url(#arrow)"/>
-
-  {/* Pass 2: Cover */}
-  <rect x="540" y="0" width="240" height="240" rx="8" fill="#1e1e2e" stroke="#585b70" strokeWidth="1"/>
-  <text x="660" y="22" textAnchor="middle" fill="#cdd6f4" fontWeight="bold" fontSize="12">Pass 2: Cover</text>
-
-  {/* Bounding box quad (full area) */}
-  <rect x="580" y="35" width="160" height="160" fill="#45475a" opacity="0.3" stroke="#585b70" strokeWidth="1" strokeDasharray="4,2"/>
-  <text x="660" y="48" textAnchor="middle" fill="#585b70" fontSize="9">bounding box quad</text>
-
-  {/* Only stencil-passing pixels get color */}
-  <polygon points="660,50 678,100 730,100 688,130 705,180 660,153 615,180 632,130 590,100 642,100"
-    fill="#89b4fa" opacity="0.7"/>
-
-  <text x="660" y="215" textAnchor="middle" fill="#89b4fa" fontSize="10">ステンシルテストを通過した</text>
-  <text x="660" y="230" textAnchor="middle" fill="#89b4fa" fontSize="10">ピクセルのみに色を出力</text>
-</svg>
-
-1. **Fan Write パス** (`stencilFanWritePipeline`): 各サブパスの頂点を重心からの三角ファンとして描画し、表面向きでは `increment-wrap`、裏面向きでは `decrement-wrap` を行う。最終的にステンシル値が0でなければ内側とみなす非ゼロワインディング判定を使うため、コンパウンドパスの穴（フォントグリフ等）も扱える。
-2. **Cover パス** (`stencilCoverPipeline`): バウンディングボックス全体を覆うクアッドを描画し、ステンシル値が非ゼロのピクセルのみ色を出力する。図の右端に示すように、星形の内側だけに色が描画される。
-
-ステンシルテクスチャはキャンバスサイズと一致するよう `ensureStencilTexture` で管理され、メインレンダーパスとオフスクリーンパスの両方で `depthStencilAttachment` として使われる。
-オフスクリーンパスでは `TexturePool` から一時ステンシルテクスチャが取得される。
-
-stencil-then-coverアルゴリズムを採用する理由は、三角形分割に強く依存せず、複合パスや自己交差を含むケースでも非ゼロワインディングで塗りつぶし判定できるためである。fan write では三角ファンと巻き方向だけを用い、CPU側で複雑なテッセレーション結果を組み立てる負担を抑えられる。
-
-ここまでがパス塗りつぶしの基礎である。以降のセクションでは、このステンシル機構を利用してクリップマスクを生成・適用する3つの手法を順に解説する。
+以降のセクションでは、この塗りつぶしを使ってクリップマスクを生成・適用する3つの手法を順に解説する。
 
 ## インラインマスキング
 
@@ -173,7 +77,7 @@ stencil-then-coverアルゴリズムを採用する理由は、三角形分割�
 各マスクは `renderMask` メソッドで生成される。
 
 - テクスチャサイズはグループバウンズ `*` ビューポートズームで決定する。GPU の `maxTextureDimension2D` を超える場合はビューポートクリッピングでカバレッジを制限する。
-- 一時的な `depth24plus-stencil8` ステンシルテクスチャを `TexturePool` から取得し、stencil-then-cover でクリップパス形状をレンダリングする。
+- クリップパス形状を白い塗りとして、マスクテクスチャのテクセル空間で strip にラスタライズしてレンダリングする。
 - 結果は BG3（Bind Group 3）として格納され、`maskBoundsMin/Max` がワールド座標からテクスチャ UV `[0,1]` へのマッピングを定義する。
 
 #### キャッシュ
@@ -269,7 +173,7 @@ flowchart LR
 `createOffscreenPass` は以下を行う:
 
 - ビューポートカリング（完全に画面外の要素はスキップ）
-- `TexturePool` からカラーテクスチャとステンシルテクスチャを取得
+- `TexturePool` からカラーテクスチャを取得
 - カバレッジ領域中心にビューポートを設定（`UniformScope.acquire`）
 - テクスチャプールの量子化マージンを `blitUvRect` で補正
 

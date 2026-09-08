@@ -4,7 +4,7 @@
  * Handles creating temporary offscreen textures and render passes for:
  * - Filter pre-processing (element → texture → filter → blit)
  * - Group compositing (group children → texture → composite)
- * - Clip group stencil masking (children → texture → stencil → blit)
+ * - Clip group masking (children → texture → mask texture → blit)
  */
 
 import { localAppearances } from "../../../document/appearancePresets";
@@ -43,7 +43,7 @@ import {
 	type DispatchElementDirectFn,
 	type FilteredTextureInfo,
 	FULL_BLIT_UV_RECT,
-	MSAA_SAMPLE_COUNT,
+	RENDER_SAMPLE_COUNT,
 	type RenderElementsFn,
 	type RenderElementToMaskFn,
 	type RenderState,
@@ -55,7 +55,6 @@ import { MaskedBlitBindGroupCache } from "../caches/BindGroupCache";
 import type { FilterRenderer } from "./FilterRenderer";
 import { FrameUniformPool } from "./FrameUniformPool";
 import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
-import { createPassLocalStencilAttachment } from "./PassLocalStencil";
 import { calculatePreFilteredElementBounds } from "./RenderPlanner";
 import {
 	type ColorRenderSurface,
@@ -93,11 +92,9 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 	uniformScope: UniformScope;
 
 	getTransformIndex: (elementId: string) => number;
-	setActiveBindGroup: (
-		bindGroup: GPUBindGroup | null,
-		uniformBuffer?: GPUBuffer | null,
-		replace?: boolean,
-	) => void;
+	/** Push (or with `replace`, swap) the viewport binding of the pass being
+	 *  encoded; null pops back to the previous one. */
+	setActiveBindGroup: (entry: UniformEntry | null, replace?: boolean) => void;
 
 	texturePool: TexturePool;
 
@@ -126,7 +123,6 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 		bounds: BoundingBox;
 		inverted?: boolean;
 	}[];
-	onBeforeDraw: () => void;
 	/** The document rasterization scale R (see references/rasterization-dpi.md).
 	 *  A dep rather than a `rasterScale` argument so that a pass re-baking an
 	 *  R-rasterized intermediary cannot fall back to the zoom by omission. */
@@ -509,14 +505,7 @@ export class OffscreenPresenter {
 				],
 			},
 			primitive: { topology: "triangle-list" },
-			depthStencil: {
-				format: "depth24plus-stencil8",
-				depthWriteEnabled: false,
-				depthCompare: "always",
-				stencilFront: { compare: "always", passOp: "keep" },
-				stencilBack: { compare: "always", passOp: "keep" },
-			},
-			multisample: { count: MSAA_SAMPLE_COUNT },
+			multisample: { count: RENDER_SAMPLE_COUNT },
 		});
 		this.atlasMaskComputeData = new Float32Array(
 			MAX_COLOR_ATLAS_MASK_DRAWS * ATLAS_MASK_COMPUTE_F32_COUNT,
@@ -764,7 +753,6 @@ export class OffscreenPresenter {
 		);
 		pass.end();
 
-		this.deferDestroy(ctx.offscreenStencilTexture);
 		this.deps.setActiveBindGroup(null);
 		this.deps.viewportState.bounds = ctx.savedViewportBounds;
 
@@ -794,7 +782,6 @@ export class OffscreenPresenter {
 		masks: readonly WorldMaskAssignment[],
 		viewportBindGroup: GPUBindGroup,
 	): void {
-		this.deps.onBeforeDraw();
 		if (
 			this.tryDrawColorAtlasSurfaceWithMasks(
 				pass,
@@ -918,7 +905,6 @@ export class OffscreenPresenter {
 		if (!this.canDrawSurfaceWithAtlasMasks(surface, masks)) return false;
 		const placement = surface.placement;
 		if (placement.kind !== "world-aabb") return false;
-		this.deps.onBeforeDraw();
 		return this.tryDrawColorAtlasSurfaceWithMasks(
 			pass,
 			surface.texture.texture,
@@ -1049,7 +1035,6 @@ export class OffscreenPresenter {
 		);
 		ctx.passEncoder.end();
 
-		this.deferDestroy(ctx.offscreenStencilTexture);
 		this.deps.setActiveBindGroup(null);
 		this.deps.viewportState.bounds = ctx.savedViewportBounds;
 
@@ -1132,7 +1117,6 @@ export class OffscreenPresenter {
 
 		const {
 			offscreenTexture,
-			offscreenStencilTexture,
 			passEncoder: offscreenPassEncoder,
 			savedViewportBounds,
 			effectiveZoom,
@@ -1177,7 +1161,6 @@ export class OffscreenPresenter {
 		}
 
 		activePass.end();
-		this.deferDestroy(offscreenStencilTexture);
 		this.deps.setActiveBindGroup(null);
 		this.deps.viewportState.bounds = savedViewportBounds;
 
@@ -1299,7 +1282,6 @@ export class OffscreenPresenter {
 		}
 
 		maskCtx.passEncoder.end();
-		this.deferDestroy(maskCtx.offscreenStencilTexture);
 		this.deps.setActiveBindGroup(null);
 		this.deps.viewportState.bounds = maskCtx.savedViewportBounds;
 
@@ -1658,7 +1640,6 @@ export class OffscreenPresenter {
 
 		const {
 			offscreenTexture,
-			offscreenStencilTexture,
 			entry,
 			passEncoder: offscreenPassEncoder,
 			savedViewportBounds,
@@ -1666,10 +1647,11 @@ export class OffscreenPresenter {
 			blitUvRect: groupBlitUvRect,
 		} = ctx;
 
-		const {
-			stencilTex: groupStencilTex,
-			compositeContext: groupCompositeContext,
-		} = this.buildOffscreenCompositeContext(encoder, offscreenTexture, entry);
+		const groupCompositeContext = this.buildOffscreenCompositeContext(
+			encoder,
+			offscreenTexture,
+			entry,
+		);
 
 		const { savedCaptureTexture, offscreenCaptureTexture } =
 			this.swapCaptureTexture(offscreenTexture.width, offscreenTexture.height);
@@ -1696,8 +1678,6 @@ export class OffscreenPresenter {
 		this.deps.compositeState.captureTexture = savedCaptureTexture;
 		this.deferDestroy(offscreenCaptureTexture);
 
-		this.deferDestroy(groupStencilTex);
-		this.deferDestroy(offscreenStencilTexture);
 		this.deps.setActiveBindGroup(null);
 		this.deps.viewportState.bounds = savedViewportBounds;
 
@@ -1842,7 +1822,6 @@ export class OffscreenPresenter {
 		);
 		this.deps.renderElementToMask(maskCtx.passEncoder, clipPath, elementsMap);
 		maskCtx.passEncoder.end();
-		this.deferDestroy(maskCtx.offscreenStencilTexture);
 		this.deps.setActiveBindGroup(null);
 		this.deps.viewportState.bounds = maskCtx.savedViewportBounds;
 
@@ -1915,7 +1894,6 @@ export class OffscreenPresenter {
 
 		releaseRenderSurface(sourceResult);
 		this.deferDestroy(maskCtx.offscreenTexture);
-		this.deferDestroy(finalCtx.offscreenStencilTexture);
 		this.deps.setActiveBindGroup(null);
 		this.deps.viewportState.bounds = finalCtx.savedViewportBounds;
 
@@ -1954,56 +1932,33 @@ export class OffscreenPresenter {
 	/**
 	 * Build a CompositeRenderContext for an offscreen pass, enabling
 	 * mask-based clip group masking within it.
-	 *
-	 * The caller is responsible for calling `stencilTex?.destroy()` after
-	 * the render pass ends.
 	 */
 	private buildOffscreenCompositeContext(
 		encoder: GPUCommandEncoder,
 		offscreenTexture: GPUTexture,
 		entry: UniformEntry,
-	): {
-		stencilTex: GPUTexture | null;
-		compositeContext: CompositeRenderContext | undefined;
-	} {
-		const stencilTex = this.deps.texturePool.acquire(
-			offscreenTexture.width,
-			offscreenTexture.height,
-			"depth24plus-stencil8",
-			MSAA_SAMPLE_COUNT,
-			GPUTextureUsage.RENDER_ATTACHMENT,
-			"Offscreen Composite Stencil",
-		);
-
-		const offscreenView = offscreenTexture.createView();
-		const stencilView = stencilTex.createView();
-
+	): CompositeRenderContext {
 		const colorAttachment: GPURenderPassColorAttachment = {
-			view: offscreenView,
+			view: offscreenTexture.createView(),
 			loadOp: "load",
 			storeOp: "store",
 		};
 
 		return {
-			stencilTex,
-			compositeContext: {
-				encoder,
-				targetTexture: offscreenTexture,
-				restartPass: () => {
-					this.deps.setActiveBindGroup(entry.bindGroup, entry.buffer, true);
-					const p = encoder.beginRenderPass({
-						label: `${offscreenTexture.label || "Offscreen"} Composite Pass`,
-						colorAttachments: [colorAttachment],
-						depthStencilAttachment:
-							createPassLocalStencilAttachment(stencilView),
-					});
-					p.setPipeline(this.deps.strokePipeline);
-					p.setBindGroup(0, entry.bindGroup);
-					p.setBindGroup(1, this.deps.getTransformsBindGroup()!);
-					p.setBindGroup(2, this.deps.dummyGradientBindGroup);
-					p.setBindGroup(3, this.deps.dummyMaskBindGroup);
-					return p;
-				},
+			encoder,
+			targetTexture: offscreenTexture,
+			restartPass: () => {
+				this.deps.setActiveBindGroup(entry, true);
+				const p = encoder.beginRenderPass({
+					label: `${offscreenTexture.label || "Offscreen"} Composite Pass`,
+					colorAttachments: [colorAttachment],
+				});
+				p.setPipeline(this.deps.strokePipeline);
+				p.setBindGroup(0, entry.bindGroup);
+				p.setBindGroup(1, this.deps.getTransformsBindGroup()!);
+				p.setBindGroup(2, this.deps.dummyGradientBindGroup);
+				p.setBindGroup(3, this.deps.dummyMaskBindGroup);
+				return p;
 			},
 		};
 	}
@@ -2041,7 +1996,6 @@ export class OffscreenPresenter {
 		fullBoundsBake: { density: number } | null = null,
 	): {
 		offscreenTexture: GPUTexture;
-		offscreenStencilTexture: GPUTexture;
 		entry: UniformEntry;
 		coverageBounds: BoundingBox;
 		passEncoder: GPURenderPassEncoder;
@@ -2137,15 +2091,6 @@ export class OffscreenPresenter {
 		const texW = offscreenTexture.width;
 		const texH = offscreenTexture.height;
 
-		const offscreenStencilTexture = pool.acquire(
-			texW,
-			texH,
-			"depth24plus-stencil8",
-			MSAA_SAMPLE_COUNT,
-			GPUTextureUsage.RENDER_ATTACHMENT,
-			`Offscreen ${label} Stencil Texture`,
-		);
-
 		const passEncoder = encoder.beginRenderPass({
 			label: `Offscreen ${label} Pass`,
 			colorAttachments: [
@@ -2156,9 +2101,6 @@ export class OffscreenPresenter {
 					storeOp: "store",
 				},
 			],
-			depthStencilAttachment: createPassLocalStencilAttachment(
-				offscreenStencilTexture.createView(),
-			),
 		});
 
 		// Recompute effective zoom against actual texture size.
@@ -2186,7 +2128,7 @@ export class OffscreenPresenter {
 		// Switch the active bind group so that all sub-modules (ElementRenderer,
 		// CompositeRenderer, the brush draw bindings) use the per-pass uniform
 		// buffer instead of the main one.
-		this.deps.setActiveBindGroup(entry.bindGroup, entry.buffer);
+		this.deps.setActiveBindGroup(entry);
 
 		// Sub-content of this offscreen is culled/clamped against THIS pass's
 		// region, not the main viewport: nested offscreens then size to what
@@ -2223,7 +2165,6 @@ export class OffscreenPresenter {
 
 		return {
 			offscreenTexture,
-			offscreenStencilTexture,
 			entry,
 			passEncoder,
 			savedViewportBounds,
@@ -2248,9 +2189,9 @@ export class OffscreenPresenter {
 		ancestorTransform?: ElementTransform | null,
 		parentPreFilters?: Filter[],
 	): GPURenderPassEncoder {
-		// activePass tracks the current render pass encoder. renderClipGroup may end the
-		// current pass and open new passes (stencil write → stencil blit → restart), so
-		// we use its return value for subsequent iterations.
+		// activePass tracks the current render pass encoder. renderClipGroup may
+		// end the current pass to bake a mask and then open a fresh one, so its
+		// return value is used for the following iterations.
 		let activePass = passEncoder;
 		for (const child of children) {
 			this.deps.renderState.currentMaskBindGroup =
@@ -2291,7 +2232,7 @@ export class OffscreenPresenter {
 				activePass.setBindGroup(3, this.deps.dummyMaskBindGroup);
 			} else if (isGroup(child)) {
 				if (child.clipPathId != null && compositeContext != null) {
-					// Nested ClipGroup: render with stencil masking
+					// Nested ClipGroup: render through a mask texture
 					const clipChildren = child.childIds
 						.filter((id) => id !== child.clipPathId)
 						.map((id) => elementsMap.get(id))
@@ -2445,7 +2386,6 @@ export class OffscreenPresenter {
 		if (!transformsBindGroup) return surfaces;
 		const atlas = this.ensureColorBakeAtlas();
 		const clearTexture = this.ensureColorBakeClearTexture();
-		this.deps.onBeforeDraw();
 		for (const { atlasRect } of items) {
 			encoder.copyTextureToTexture(
 				{ texture: clearTexture },
@@ -2454,14 +2394,6 @@ export class OffscreenPresenter {
 			);
 		}
 
-		const stencilTexture = this.deps.texturePool.acquireExact(
-			COLOR_BAKE_ATLAS_SIZE,
-			COLOR_BAKE_ATLAS_SIZE,
-			"depth24plus-stencil8",
-			MSAA_SAMPLE_COUNT,
-			GPUTextureUsage.RENDER_ATTACHMENT,
-			"Color Bake Atlas Stencil",
-		);
 		const pass = encoder.beginRenderPass({
 			label: `Color Bake Atlas Batch [${items.length}]`,
 			colorAttachments: [
@@ -2471,14 +2403,10 @@ export class OffscreenPresenter {
 					storeOp: "store",
 				},
 			],
-			depthStencilAttachment: createPassLocalStencilAttachment(
-				stencilTexture.createView(),
-			),
 		});
 		const savedViewportBounds = this.deps.viewportState.bounds;
 
 		for (const item of items) {
-			this.deps.onBeforeDraw();
 			pass.setViewport(
 				item.atlasRect.x,
 				item.atlasRect.y,
@@ -2503,7 +2431,7 @@ export class OffscreenPresenter {
 				item.atlasRect.width,
 				item.atlasRect.height,
 			);
-			this.deps.setActiveBindGroup(entry.bindGroup, entry.buffer);
+			this.deps.setActiveBindGroup(entry);
 			this.deps.viewportState.bounds = item.bounds;
 			this.deps.renderState.currentTransformIndex = this.deps.getTransformIndex(
 				item.element.id,
@@ -2521,7 +2449,6 @@ export class OffscreenPresenter {
 				1,
 				"offscreen",
 			);
-			this.deps.onBeforeDraw();
 			this.deps.setActiveBindGroup(null);
 
 			const placement = {
@@ -2556,7 +2483,6 @@ export class OffscreenPresenter {
 		pass.end();
 		this.deps.viewportState.bounds = savedViewportBounds;
 		this.deps.renderState.currentMaskBindGroup = this.deps.dummyMaskBindGroup;
-		this.deps.texturePool.release(stencilTexture);
 		return surfaces;
 	}
 
@@ -2871,16 +2797,16 @@ export class OffscreenPresenter {
 
 		const {
 			offscreenTexture,
-			offscreenStencilTexture,
 			entry,
 			passEncoder: offscreenPassEncoder,
 			savedViewportBounds,
 		} = ctx;
 
-		const {
-			stencilTex: clipStencilTex,
-			compositeContext: offscreenCompositeContext,
-		} = this.buildOffscreenCompositeContext(encoder, offscreenTexture, entry);
+		const offscreenCompositeContext = this.buildOffscreenCompositeContext(
+			encoder,
+			offscreenTexture,
+			entry,
+		);
 
 		// Swap captureTexture to offscreen-sized one so that blend mode
 		// compositing inside this offscreen pass uses the correct dimensions.
@@ -2905,8 +2831,6 @@ export class OffscreenPresenter {
 		this.deps.compositeState.captureTexture = savedCaptureTexture;
 		this.deferDestroy(offscreenCaptureTexture);
 
-		this.deferDestroy(clipStencilTex);
-		this.deferDestroy(offscreenStencilTexture);
 		this.deps.setActiveBindGroup(null);
 		this.deps.viewportState.bounds = savedViewportBounds;
 		return createRenderSurface(

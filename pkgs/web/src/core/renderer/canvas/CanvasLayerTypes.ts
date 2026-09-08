@@ -33,17 +33,6 @@ import type { RenderSurface, TextureRef } from "./pipeline/RenderSurface";
 // State interfaces
 // ---------------------------------------------------------------------------
 
-/** Stencil texture state for backdrop filter clipping. */
-export interface StencilState {
-	texture: GPUTexture | null;
-	width: number;
-	height: number;
-	/** Per-size textures kept alive so render targets whose sizes alternate
-	 *  within a frame (canvas prebuf vs cache texture) don't recreate the
-	 *  MSAA stencil on every switch. `texture` always points into this map. */
-	pool?: Map<string, GPUTexture>;
-}
-
 export interface TextureState {
 	texture: GPUTexture | null;
 	width: number;
@@ -64,8 +53,6 @@ export interface GradientState {
 	bufferPool: Array<{
 		uniformBuffer: GPUBuffer;
 		stopsBuffer: GPUBuffer;
-		vertexBuffer: GPUBuffer;
-		vertexBufferSize: number;
 	}>;
 	drawIndex: number;
 }
@@ -135,9 +122,7 @@ export interface CompositeState {
 	/** Canvas snapshot taken before an offscreen layer starts, used as
 	 *  blend mode base for elements composited within that layer. */
 	canvasBaseTexture: GPUTexture | null;
-	finalBlitStencil: StencilState;
 	backdropMask: TextureState;
-	backdropMaskStencil: StencilState;
 	width: number;
 	height: number;
 }
@@ -269,11 +254,9 @@ export interface SharedRenderBindings extends GPUCoreResources {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Sample count for render targets. Set to 1 (no MSAA) — AA is handled by fringe strips and analytical methods. */
+/** Sample count for document render targets. It is 1 because coverage strips
+ *  and analytical methods provide the anti-aliasing. */
 export const RENDER_SAMPLE_COUNT = 1;
-
-/** @deprecated Use `RENDER_SAMPLE_COUNT` instead. This alias is kept for backward compatibility. */
-export const MSAA_SAMPLE_COUNT = RENDER_SAMPLE_COUNT;
 
 /** Format of the secondary field attachment used by wet-ink stamp dynamics. */
 export const LAYER_FIELD_FORMAT: GPUTextureFormat = "rgba16float";
@@ -373,14 +356,6 @@ export type BlitMeshToCanvasFn = (
 	vertexData: Float32Array,
 	opacity?: number,
 	uvRect?: BlitUVRect,
-) => void;
-
-/** Signature of CanvasLayer.renderPath — injected into CompositeRenderer. */
-export type RenderPathFn = (
-	passEncoder: GPURenderPassEncoder,
-	path: Path,
-	alphaMultiplier?: number,
-	pipelineType?: PipelineType,
 ) => void;
 
 /**

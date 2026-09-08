@@ -72,10 +72,6 @@ interface RibbonPipeline {
 }
 
 export class RibbonRenderer {
-	/** Called right before a batch's draw is encoded, so the geometry run
-	 *  batcher can emit its pending merged draw first (paint order). */
-	public onBeforeDraw: (() => void) | null = null;
-
 	private readonly device: GPUDevice;
 	private readonly canvasFormat: GPUTextureFormat;
 	private readonly textureManager: BrushTextureManager;
@@ -219,8 +215,6 @@ export class RibbonRenderer {
 			this.resetBatch();
 			return;
 		}
-
-		this.onBeforeDraw?.();
 
 		const pathMetas = batch.pathMetas.view();
 		const pathMetaBuffer = this.buffers.acquirePathMetaBuffer(
@@ -513,25 +507,6 @@ export class RibbonRenderer {
 				targets: [{ format: this.canvasFormat, blend: blendState }],
 			},
 			primitive: { topology: "triangle-list", cullMode: "none" },
-			depthStencil: {
-				format: "depth24plus-stencil8",
-				depthWriteEnabled: false,
-				depthCompare: "always",
-				stencilFront: {
-					compare: "always",
-					passOp: "keep",
-					failOp: "keep",
-					depthFailOp: "keep",
-				},
-				stencilBack: {
-					compare: "always",
-					passOp: "keep",
-					failOp: "keep",
-					depthFailOp: "keep",
-				},
-				stencilWriteMask: 0x00,
-				stencilReadMask: 0x00,
-			},
 			multisample: { count: RENDER_SAMPLE_COUNT },
 		});
 

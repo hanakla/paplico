@@ -1,9 +1,12 @@
 import type { Viewport } from "../../../schema";
 import type { StructuredView } from "../../../utils/wgpu-utils";
+import type { RasterFrame } from "../../geometry/strips/stripTypes";
 
 export interface UniformEntry {
 	buffer: GPUBuffer;
 	bindGroup: GPUBindGroup;
+	/** The texel space the uniform describes; CPU rasterization targets it. */
+	frame: RasterFrame;
 }
 
 /**
@@ -42,6 +45,7 @@ export class UniformScope {
 		}
 
 		const entry = this.pool[this.index++];
+		entry.frame = { viewport: { ...viewport }, width, height };
 
 		this.viewportUniformView.set({
 			viewportX: viewport.x,
@@ -87,6 +91,14 @@ export class UniformScope {
 			entries: [{ binding: 0, resource: { buffer } }],
 		});
 
-		return { buffer, bindGroup };
+		return {
+			buffer,
+			bindGroup,
+			frame: {
+				viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },
+				width: 1,
+				height: 1,
+			},
+		};
 	}
 }

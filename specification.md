@@ -390,18 +390,19 @@ DirtyReason（10種）: `document` / `viewport` / `preview` / `selection` / `edi
 
 `CanvasLayer.compositeFrameCache` がprebufと同サイズの合成結果テクスチャを保持し、`viewportBlit` 戦略時にpan/zoom/rotationを再投影blitで賄う。ダーティ追跡はレイヤー単位ではなく**要素ID単位**（`changedElements` の added/updated/deleted セット）で行い、変更要素とbounds連動する祖先・子孫のみ再合成する。
 
-### パスフィル描画（Stencil-Then-Cover）
+### パス描画（Sparse Strips）
 
-GPUステンシルバッファによるStencil-Then-Cover方式:
+Vello GPU 方式の被覆率ラスタライザ。ステンシルも MSAA も使わない:
 
-1. **fan write** — 三角形ファンを `increment-wrap` / `decrement-wrap` で描き、巻き数をステンシルに書く（nonzero相当）。カラー書き込みなし
-2. **cover** — `compare: "not-equal"` で非ゼロ領域を塗り、ステンシルを0に戻す
+1. **アウトライン** — `OutlineCache`。塗りは `flattenBezierPath` の閉じたポリライン、線は `tessellateStroke` の三角形。要素ローカル空間で、許容誤差はスケールバケット（`deviceScaleBucket`）から画面 0.25px 相当に決める
+2. **strip 生成** — `renderer/geometry/strips/`。パスのテクセル空間へ変換した線分を 4×4px タイルに分配し、非ゼロ巻き数の面積積分で画素ごとの被覆率を求め、4px 高の strip と 8bit alpha スロットにする。左側にはみ出た線分は左端へ射影して巻き数を保つ。`StripCache` が変換の線形部分とサブピクセル位相をキーに保持し、整数テクセルのパンでは再利用する
+3. **描画** — `StripFrame` がフレームの strip インスタンスと alpha ページを集め、submit 前に一括アップロードする。`strip.wgsl` が strip ごとの矩形をインスタンス描画し、alpha を `paintCommon.wgsl` のペイント段に掛ける。ペイントはインスタンス側なので不透明度の変更で再ラスタライズしない
 
-自己交差・穴・複合パスをCPU側クリッピングなしで処理する。AAは輪郭に沿ったフリンジ（縁取り三角形）で行う。
+自己交差・穴・複合パスは巻き数で処理する。線の三角形は向きを揃えて流し込むので結合部の重なりが 1 回だけ塗られ、半透明の線が交点で濃くならない。along/across のストロークグラデーションは CPU が画素ごとの (t, u) を params ページに書く。
 
 ### ストロークテッセレーション
 
-`renderer/geometry/strokeTessellator.ts`。ポリラインサンプル化 → 可変幅・テーパーのゼロ交差でサブパス分割 → 法線計算 → 本体三角形 + AAフリンジ頂点（`[x, y, offsetX, offsetY, alpha]`、オフセットはズーム非依存の単位変位でシェーダー内で1/zoomを乗算）を出力。lineJoin（miter/round/bevel）、lineCap（butt/round/square）、破線対応。
+`renderer/geometry/strokeTessellator.ts`。ポリラインサンプル化 → 可変幅・テーパーのゼロ交差でサブパス分割 → 法線計算 → 本体三角形（`[x, y]`）を出力。lineJoin（miter/round/bevel）、lineCap（butt/round/square）、破線対応。三角形は重なってよく、strip 生成が union を取る。
 
 ### ブラシストローク（3ルート）
 
@@ -439,7 +440,7 @@ GPUステンシルバッファによるStencil-Then-Cover方式:
 
 ### レンダーキャッシュ
 
-`RenderCacheManager` がドキュメント単位のスコープで10種のキャッシュを束ねる: `geometry`（平坦化済みベジエ）/ `stroke`（テッセレーション頂点）/ `stencilFill`（ファン+フリンジ、要素あたり最大6エントリ）/ `compoundPath` / `groupPath` / `meshWarp` / `stamp`（既定96MiB）/ `gradient`（GPUリソース束）/ `appearance` / `blend`。
+`RenderCacheManager` がドキュメント単位のスコープで10種のキャッシュを束ねる: `outline`（ローカル空間のポリラインと三角形、要素あたり最大6 variant）/ `strip`（被覆率 strip、要素あたり最大6 variant）/ `compoundPath` / `groupPath` / `meshWarp` / `stamp`（既定96MiB）/ `gradient`（GPUリソース束）/ `appearance` / `blend`。
 
 ### generators/
 

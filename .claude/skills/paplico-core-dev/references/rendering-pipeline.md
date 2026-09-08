@@ -62,8 +62,8 @@ it once via `CanvasLayer.executeFrame`.
 ### Integration in CanvasLayer
 
 `render` imports the render target (`"render-target"`, and `"swapchain"` for
-the post-process blit), threads the graph plus imported prebuf/stencil
-handles into `renderDocument`, then `executeFrame` runs
+the post-process blit), threads the graph plus the imported prebuf
+handle into `renderDocument`, then `executeFrame` runs
 `graph.execute(encoder, texturePool)` and is the **single owner of frame
 commit/abort/release**: it returns a `CanvasFrameTransaction` whose
 `commit`/`abort` settle the frame transaction, and releases per-frame
@@ -95,7 +95,7 @@ Each CanvasLayer runs these phases per frame:
 ### 1. Auxiliary-resource check (`DocumentCache`)
 
 The renderer renders document content directly every frame. `DocumentCache`
-holds size-matched stencil, composite, prebuffer, final-blit, and backdrop-mask GPU
+holds size-matched composite, prebuffer, final-blit, and backdrop-mask GPU
 textures. A descriptor hit reuses the resource; a size mismatch replaces it.
 `CanvasLayer` owns final destruction and replacement destruction is deferred until
 in-flight GPU work is safe. The complete policy is in
@@ -105,12 +105,12 @@ in-flight GPU work is safe. The complete policy is in
 
 ElementRenderer.dispatchElementDirect branches on element type and routes to the appropriate renderer:
 
-- Path with dab / ribbon stroke → BrushRenderer (instanced dab or ribbon rendering); geometric strokes tessellate in PathElementRenderer
-- Path with fill → ElementRenderer.renderSimpleFill or GradientRenderer (triangulated fill)
+- Path with dab / ribbon stroke → BrushRenderer (instanced dab or ribbon rendering); geometric strokes tessellate in PathElementRenderer and rasterize as coverage strips
+- Path with fill → PathElementRenderer (CPU coverage strips drawn by strip.wgsl; GradientRenderer supplies the paint bind group)
 - Image → ImageElementRenderer (texture sampling)
-- Text → TextElementRenderer (glyph path triangulation via TextRenderer)
+- Text → TextElementRenderer (glyph paths handed to PathElementRenderer via TextRenderer)
 - Group → Recursive dispatch of children
-- CompoundPath → Stencil-based boolean operations on child paths
+- CompoundPath → CompoundPathCache resolves the boolean outline, then the same strip fill
 
 When adding a new element type, this is the dispatch point that must be extended.
 
@@ -128,14 +128,14 @@ Elements with non-normal blend modes or clip groups cannot be rendered directly 
 
 OffscreenPresenter creates a temporary texture (from the `TexturePool`) sized to the element bounds, renders the element into it, then CompositeRenderer blits it onto the canvas with the correct blend mode. This is expensive (texture allocation + extra render pass), which is why normal-blend elements bypass this entirely. Note: an offscreen pass sets `viewportState.bounds = null`; treat that as "skip viewport culling", since the null-bounds cull path otherwise falls back to the canvas viewport and drops off-view content (see SKILL.md "Renderer gotchas").
 
-Clip groups use stencil operations: the clip path writes to the stencil buffer, then children render with stencil test enabled.
+Clip groups use texture masks: the clip path is rasterized as a white fill into a mask texture (ClipMaskAtlas), which the children's shaders sample.
 
 ## GPU resource ownership and destroy() chain
 
 Every class that allocates GPU resources must release them. The ownership chain:
 
 - RenderOrchestrator owns: GPU device, BrushTextureManager, FilterRenderer, and per-target CanvasLayers
-- CanvasLayer owns: ViewportManager, DocumentCache textures, stencil texture, all sub-renderers
+- CanvasLayer owns: ViewportManager, DocumentCache textures, StripFrame, all sub-renderers
 - ViewportManager owns: uniform buffer, transform storage buffer
 
 `destroy()` must call children's `destroy()` before releasing own resources. Missing a child destroy causes GPU memory leaks that are silent until the device runs out of memory.

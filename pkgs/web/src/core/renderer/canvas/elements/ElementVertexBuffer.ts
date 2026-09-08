@@ -58,44 +58,6 @@ export class ElementVertexBuffer {
 		this.writeOffset += UNIFIED_VERTEX_FLOATS;
 	}
 
-	public pushGradient(
-		x: number,
-		y: number,
-		alpha: number,
-		offsetX = 0,
-		offsetY = 0,
-	): void {
-		this.pushGradientTU(x, y, 0, 0, alpha, offsetX, offsetY);
-	}
-
-	/**
-	 * Gradient vertex carrying stroke-gradient params in the unused color
-	 * channels: t (along-stroke arc ratio) in r, u (cross-stroke 0..1) in g.
-	 * The shader reads them only when strokeGradientMode is along/across.
-	 */
-	public pushGradientTU(
-		x: number,
-		y: number,
-		t: number,
-		u: number,
-		alpha: number,
-		offsetX = 0,
-		offsetY = 0,
-	): void {
-		this.ensureCapacity(UNIFIED_VERTEX_FLOATS);
-		const off = this.writeOffset;
-		this.buf[off] = x;
-		this.buf[off + 1] = y;
-		this.buf[off + 2] = t;
-		this.buf[off + 3] = u;
-		this.buf[off + 4] = 0;
-		this.buf[off + 5] = alpha;
-		this.buf[off + 6] = offsetX;
-		this.buf[off + 7] = offsetY;
-		this.buf[off + 8] = this.ei;
-		this.writeOffset += UNIFIED_VERTEX_FLOATS;
-	}
-
 	public get vertexCount(): number {
 		return this.writeOffset / UNIFIED_VERTEX_FLOATS;
 	}
@@ -111,17 +73,5 @@ export class ElementVertexBuffer {
 	/** Copy the written vertices for storage beyond the next buffer build. */
 	public toOwnedFloat32Array(): Float32Array {
 		return this.buf.slice(0, this.writeOffset);
-	}
-
-	/** Wrap a previously cached Float32Array as a read-only vertex buffer. */
-	public static fromFloat32Array(
-		data: Float32Array,
-		vertexCount: number,
-		transformIndex: number,
-	): ElementVertexBuffer {
-		const buf = new ElementVertexBuffer(transformIndex);
-		buf.buf = data;
-		buf.writeOffset = vertexCount * UNIFIED_VERTEX_FLOATS;
-		return buf;
 	}
 }

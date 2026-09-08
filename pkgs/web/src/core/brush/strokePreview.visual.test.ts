@@ -36,6 +36,58 @@ describe("brushStrokePreview", () => {
 		}
 	});
 
+	it("should keep a 2px soft-circle stroke two pixels wide", async () => {
+		// A small dab used to sample its tip from the 2×2 mip level, which
+		// smeared the profile into a faint, three-pixel-wide blob.
+		const { renderer } = await createTestRenderer();
+		try {
+			const scene = createBrushStrokePreviewScene({
+				brushSettings: {
+					...imageTipBrush(BUILTIN_BRUSH_IDS.softCircle),
+					properties: { size: { base: 2 }, flow: { base: 1 } },
+				},
+				textureFile: null,
+				segments: createTestSegments().map((segment) => ({
+					...segment,
+					startPressure: 1,
+					endPressure: 1,
+				})),
+				// Sized to the test stroke's bounds so the preview renders at 1:1.
+				width: 218,
+				height: 18,
+			});
+
+			const imageData = await renderer.renderElementsToImageData(
+				[scene.pathId],
+				scene.document,
+				scene.bounds,
+				scene.scale,
+				scene.backgroundColor,
+			);
+
+			expect(imageData).not.toBeNull();
+			if (!imageData) throw new Error("Expected soft-circle stroke image");
+			const { width, height, data } = imageData;
+			for (
+				let x = Math.floor(width / 3);
+				x < Math.floor((width * 2) / 3);
+				x++
+			) {
+				let covered = 0;
+				let peak = 0;
+				for (let y = 0; y < height; y++) {
+					const alpha = data[(y * width + x) * 4 + 3];
+					if (alpha > 64) covered++;
+					peak = Math.max(peak, alpha);
+				}
+				expect(covered).toBeLessThanOrEqual(2);
+				expect(peak).toBeGreaterThan(128);
+			}
+		} finally {
+			renderer.destroy();
+		}
+	});
+
 	it("should render a non-empty preview for a geometric brush", async () => {
 		const { renderer } = await createTestRenderer();
 		try {
@@ -242,12 +294,11 @@ describe("brushStrokePreview", () => {
 });
 
 /** Total entries in the ACTIVE scope across the caches a stroke render can
- *  populate (stroke-only paths have no geometry entries, texture brushes go
- *  to the stamp cache — sum them so the check is route-agnostic). */
+ *  populate (geometric strokes fill the outline cache, texture brushes the
+ *  stamp cache — sum them so the check is route-agnostic). */
 function countScopeEntries(cacheManager: RenderCacheManager): number {
 	return (
-		[...cacheManager.geometry.keys()].length +
-		[...cacheManager.stroke.keys()].length +
+		[...cacheManager.outline.keys()].length +
 		[...cacheManager.stamp.keys()].length
 	);
 }
