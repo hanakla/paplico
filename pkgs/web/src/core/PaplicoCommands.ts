@@ -154,6 +154,7 @@ import {
 	demoteMeshColorVertexToDerived,
 	syncDerivedVertices,
 } from "./utils/geometry/meshGradient";
+import { closePathAtEndpoints } from "./utils/geometry/pathOps";
 import {
 	createLocalPointDeformer,
 	type DeformFrame,
@@ -4711,6 +4712,17 @@ export class PaplicoCommands {
 		const layerId = this.ctx.store.currentLayerId;
 		if (!layerId) return;
 		this.splitPath(layerId, pathId, segmentIndex, pointType);
+	}
+
+	/** Close an open path with a straight segment from its end anchor to its start anchor. */
+	public closePath(pathId: string): void {
+		const layerId = this.ctx.store.currentLayerId;
+		if (!layerId) return;
+		const element = this.ctx.store.document.objects[pathId];
+		if (element?.type !== "path") return;
+		const segments = closePathAtEndpoints(element.segments);
+		if (!segments) return;
+		this.updateElement(layerId, pathId, { segments });
 	}
 
 	public mergePaths(

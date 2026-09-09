@@ -3157,9 +3157,12 @@ export class PathEditTool implements Tool {
 			const path = this.selectedPaths.get(pathId);
 			if (!path) continue;
 
+			// A closed path already links its last end back to its first start,
+			// so neither counts as an endpoint that could be joined.
 			const isEndpoint =
-				(segmentIndex === 0 && pointType === "start") ||
-				(segmentIndex === path.segments.length - 1 && pointType === "end");
+				!path.segments.at(-1)?.isClosed &&
+				((segmentIndex === 0 && pointType === "start") ||
+					(segmentIndex === path.segments.length - 1 && pointType === "end"));
 
 			selectedAnchors.push({
 				pathId,

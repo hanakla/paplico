@@ -262,6 +262,26 @@ function midpoint(a: BezierPoint, b: BezierPoint): BezierPoint {
 	};
 }
 
+/** A straight segment continuing the current subpath from `from` to `to`. */
+function straightSegment(
+	from: BezierPoint,
+	to: BezierPoint,
+): CubicBezierSegment {
+	return {
+		start: { ...from },
+		cp1: { x: 0, y: 0 },
+		cp2: { x: 0, y: 0 },
+		end: { ...to },
+		startTiltX: 0,
+		startTiltY: 0,
+		endTiltX: 0,
+		endTiltY: 0,
+		startDeltaTime: 0,
+		endDeltaTime: 0,
+		isMoved: false,
+	};
+}
+
 function isCubicFlatEnough(
 	p0: BezierPoint,
 	p1: BezierPoint,
@@ -1947,7 +1967,26 @@ function computeSegmentLengths(segments: CubicBezierSegment[]): number[] {
 }
 
 /**
+ * Close an open path with a straight segment from its end anchor back to its
+ * start anchor. Both anchors stay in place.
+ * Returns null when the path is already closed.
+ */
+export function closePathAtEndpoints(
+	segments: CubicBezierSegment[],
+): CubicBezierSegment[] | null {
+	const first = segments[0];
+	const last = segments.at(-1);
+	if (!first?.start || !last || last.isClosed) return null;
+
+	return [
+		...segments,
+		{ ...straightSegment(last.end, first.start), isClosed: true },
+	];
+}
+
+/**
  * Merge two paths at their specified endpoints into a single continuous path.
+ * A straight segment bridges the two endpoints, so both anchors stay in place.
  * By default the result inherits ArtObject properties from whichever path
  * provides the first segment run (determined by connection direction).
  * Pass `propertyDonor` to override this — e.g. to use the frontmost path's
@@ -1998,14 +2037,12 @@ export function mergePathsAtEndpoints(
 		swFirstReversed = true;
 	}
 
-	// Join: set second[0].start to first[last].end, clear isMoved
+	// Join: bridge the two endpoints with a straight segment
 	const lastOfFirst = segsFirst[segsFirst.length - 1];
+	const startOfSecond = getStartAnchor(segsSecond[0], lastOfFirst.end);
 	const joinedSecond: CubicBezierSegment[] = [
-		{
-			...segsSecond[0],
-			start: { ...lastOfFirst.end },
-			isMoved: false,
-		},
+		straightSegment(lastOfFirst.end, startOfSecond),
+		{ ...segsSecond[0], start: undefined, isMoved: false },
 		...segsSecond.slice(1),
 	];
 

@@ -11,8 +11,10 @@ import type {
 	StrokeAppearance,
 } from "../../schema";
 import {
+	closePathAtEndpoints,
 	computeBooleanOperation,
 	evalBezier,
+	mergePathsAtEndpoints,
 	splitPathAtAnchor,
 	splitPathByEraser,
 	splitPathByNormalizedRanges,
@@ -1298,6 +1300,58 @@ describe("subtractEraserFromFilledPath", () => {
 // ============================================================================
 // splitPathAtAnchor
 // ============================================================================
+
+describe("closePathAtEndpoints", () => {
+	it("終点から始点へ直線セグメントを足して閉じ、両端の頂点はそのまま残る", () => {
+		const path = twoSegmentPath();
+		const first = path.segments[0];
+		const last = path.segments.at(-1)!;
+
+		const closed = closePathAtEndpoints(path.segments);
+
+		expect(closed).not.toBeNull();
+		expect(closed).toHaveLength(path.segments.length + 1);
+		expect(closed![0].start).toEqual(first.start);
+		const bridge = closed!.at(-1)!;
+		expect(bridge.start).toEqual(last.end);
+		expect(bridge.end).toEqual(first.start);
+		expect(bridge.isClosed).toBe(true);
+		expect(bridge.isMoved).toBe(false);
+	});
+
+	it("すでに閉じたパスはnullが返る", () => {
+		const closed = closePathAtEndpoints(twoSegmentPath().segments)!;
+		expect(closePathAtEndpoints(closed)).toBeNull();
+	});
+});
+
+describe("mergePathsAtEndpoints", () => {
+	it("2つの端点を直線セグメントでつなぎ、両端の頂点はそのまま残る", () => {
+		const pathA = straightPath({ id: "a" });
+		const pathB = straightPath({
+			id: "b",
+			segments: [
+				{
+					...straightPath().segments[0],
+					start: { x: 100, y: 40 },
+					end: { x: 200, y: 40 },
+				},
+			],
+		});
+		const endA = pathA.segments.at(-1)!.end;
+		const startB = pathB.segments[0].start!;
+
+		const merged = mergePathsAtEndpoints(pathA, "end", pathB, "start");
+
+		expect(merged.segments).toHaveLength(3);
+		expect(merged.segments[0].end).toEqual(endA);
+		expect(merged.segments[1].start).toEqual(endA);
+		expect(merged.segments[1].end).toEqual(startB);
+		expect(merged.segments[2].start).toBeUndefined();
+		expect(merged.segments[2].end).toEqual(pathB.segments[0].end);
+		expect(merged.segments[2].isMoved).toBe(false);
+	});
+});
 
 describe("splitPathAtAnchor", () => {
 	it("単一セグメントパスでは先頭(start)も末尾(end)も分割できずnullが返る", () => {

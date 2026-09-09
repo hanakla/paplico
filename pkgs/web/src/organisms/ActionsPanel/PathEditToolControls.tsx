@@ -29,10 +29,9 @@ export const PathEditToolControls = memo(function PathEditToolControls() {
 		if (selectedAnchors.length === 0)
 			return { canMerge: false, canSplit: false };
 
-		// Merge: exactly 2 endpoints from different paths
+		// Merge: exactly 2 endpoints. Two paths join into one; one path closes.
 		const endpoints = selectedAnchors.filter((a) => a.isEndpoint);
-		const uniquePathIds = new Set(endpoints.map((a) => a.pathId));
-		const mergeEnabled = endpoints.length === 2 && uniquePathIds.size === 2;
+		const mergeEnabled = endpoints.length === 2;
 
 		// Split: exactly 1 non-endpoint anchor
 		const nonEndpoints = selectedAnchors.filter((a) => !a.isEndpoint);
@@ -46,20 +45,18 @@ export const PathEditToolControls = memo(function PathEditToolControls() {
 		if (endpoints.length !== 2) return;
 
 		const [a, b] = endpoints;
-		const endpointA =
-			a.segmentIndex === 0 && a.pointType === "start" ? "start" : "end";
-		const endpointB =
-			b.segmentIndex === 0 && b.pointType === "start" ? "start" : "end";
+		if (a.pathId === b.pathId) {
+			commands.closePath(a.pathId);
+		} else {
+			const endpointA =
+				a.segmentIndex === 0 && a.pointType === "start" ? "start" : "end";
+			const endpointB =
+				b.segmentIndex === 0 && b.pointType === "start" ? "start" : "end";
+			commands.mergePaths(a.pathId, endpointA, b.pathId, endpointB);
+		}
 
-		commands.mergePaths(
-			a.pathId,
-			endpointA as "start" | "end",
-			b.pathId,
-			endpointB as "start" | "end",
-		);
-
-		// Reset tool state: the original paths are now deleted and replaced by a
-		// merged path, so selectedPaths/selectedHandles are stale.
+		// Reset tool state: the joined path replaced the selected paths,
+		// so selectedPaths/selectedHandles are stale.
 		tools.getCurrentTool()?.onCancel();
 	});
 
