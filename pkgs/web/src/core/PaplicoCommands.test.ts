@@ -392,6 +392,90 @@ describe("PaplicoCommands", () => {
 		expect(written.wet?.scatter).toBe(2.5);
 	});
 
+	describe("deleteElements", () => {
+		const createDeleteHarness = (
+			layerElementIds: string[],
+			objects: Record<string, AnyArtObject>,
+		) => {
+			const layer = createLayer("layer-1", layerElementIds);
+			const deleteElements = vi.fn();
+			const updateElement = vi.fn();
+			const store = {
+				currentLayerId: layer.id,
+				selectedElementIds: [],
+				editingScopeStack: [],
+				document: { layers: [layer], objects },
+			} as unknown as RendererState;
+			const commands = new PaplicoCommands({
+				store,
+				yjsProvider: {
+					deleteElements,
+					updateElement,
+					transact: vi.fn((fn: () => void) => fn()),
+					isAnimationUndoMode: vi.fn(() => false),
+				} as unknown as YjsProvider,
+				spatial: {
+					isElementLocked: () => false,
+					getAncestorTransform: () => null,
+				} as unknown as SpatialIndex,
+				isReadonly: () => false,
+			});
+			return { commands, deleteElements, updateElement };
+		};
+
+		it("deletes a group's whole subtree so no grandchild is left behind as an orphan", () => {
+			const grandchild = createPath("gc-1");
+			const sibling = createPath("sib-1");
+			const inner = createGroup("inner-1", ["gc-1"]);
+			const outer = createGroup("outer-1", ["inner-1", "sib-1"]);
+			const { commands, deleteElements, updateElement } = createDeleteHarness(
+				["outer-1"],
+				{
+					"outer-1": outer,
+					"inner-1": inner,
+					"gc-1": grandchild,
+					"sib-1": sibling,
+				},
+			);
+
+			commands.deleteElements(["outer-1"]);
+
+			const [byLayer] = deleteElements.mock.calls[0] as [
+				Record<string, string[]>,
+			];
+			expect(Object.values(byLayer).flat().sort()).toEqual([
+				"gc-1",
+				"inner-1",
+				"outer-1",
+				"sib-1",
+			]);
+			// The inner group is going away too, so its childIds need no edit.
+			expect(updateElement).not.toHaveBeenCalled();
+		});
+
+		it("deletes an element's mask content along with the element", () => {
+			const owner = {
+				...createPath("owner"),
+				mask: { elementIds: ["mask-shape"] },
+			};
+			const maskShape = createPath("mask-shape");
+			const { commands, deleteElements } = createDeleteHarness(["owner"], {
+				owner: owner as AnyArtObject,
+				"mask-shape": maskShape,
+			});
+
+			commands.deleteElements(["owner"]);
+
+			const [byLayer] = deleteElements.mock.calls[0] as [
+				Record<string, string[]>,
+			];
+			expect(Object.values(byLayer).flat().sort()).toEqual([
+				"mask-shape",
+				"owner",
+			]);
+		});
+	});
+
 	describe("moveElementForward / moveElementBackward", () => {
 		it("reorders a group member among its siblings while the group is being edited", () => {
 			const first = createPath("child-1");

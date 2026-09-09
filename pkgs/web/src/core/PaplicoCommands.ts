@@ -483,10 +483,26 @@ export class PaplicoCommands {
 		elementIds = elementIds.filter((id) => !this.isElementLocked(id));
 		if (elementIds.length === 0) return;
 
-		const deleteSet = new Set(
-			elementIds.filter((id) => this.ctx.store.document.objects[id]),
-		);
+		const objects = this.ctx.store.document.objects;
+		const deleteSet = new Set(elementIds.filter((id) => objects[id]));
 		if (deleteSet.size === 0) return;
+
+		// A container's children and an element's mask content are absorbed:
+		// they live only in document.objects and are reachable only through
+		// their owner, so they go with it or they linger as orphans.
+		const stack = [...deleteSet];
+		for (let id = stack.pop(); id !== undefined; id = stack.pop()) {
+			const obj = objects[id];
+			if (!obj) continue;
+			for (const ownedId of [
+				...(getContainerChildIds(obj) ?? []),
+				...(obj.mask?.elementIds ?? []),
+			]) {
+				if (deleteSet.has(ownedId)) continue;
+				deleteSet.add(ownedId);
+				stack.push(ownedId);
+			}
+		}
 
 		const origin = this.getMutationOrigin();
 
@@ -505,11 +521,12 @@ export class PaplicoCommands {
 		const foundInLayer = new Set(Object.values(byLayer).flat());
 		const remaining = [...deleteSet].filter((id) => !foundInLayer.has(id));
 
+		// Surviving groups drop the deleted ids from their childIds.
 		const byGroup: Record<string, string[]> = {};
 		if (remaining.length > 0) {
 			const remainSet = new Set(remaining);
-			for (const obj of Object.values(this.ctx.store.document.objects)) {
-				if (!obj || !isGroup(obj)) continue;
+			for (const obj of Object.values(objects)) {
+				if (!obj || !isGroup(obj) || deleteSet.has(obj.id)) continue;
 				const matched = obj.childIds.filter((id) => remainSet.has(id));
 				if (matched.length > 0) {
 					byGroup[obj.id] = matched;
@@ -537,15 +554,13 @@ export class PaplicoCommands {
 
 		// Delete objects from yDoc + remove from layer elementIds
 		// yjsProvider.deleteElements deletes from yObjects for ALL ids,
-		// and removes from layer.elementIds where found (no-op for group children)
+		// and removes from layer.elementIds where found (no-op for absorbed ids)
 		const currentLayerId = this.ctx.store.currentLayerId ?? "";
 		const allByLayer = { ...byLayer };
-		const groupChildIds = Object.values(byGroup).flat();
-		if (groupChildIds.length > 0) {
-			allByLayer[currentLayerId] ??= [];
+		if (remaining.length > 0) {
 			allByLayer[currentLayerId] = [
-				...allByLayer[currentLayerId],
-				...groupChildIds,
+				...(allByLayer[currentLayerId] ?? []),
+				...remaining,
 			];
 		}
 
