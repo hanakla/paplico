@@ -228,7 +228,7 @@ describe("PaplicoUI touch draw offset", () => {
 		});
 		dispatchPointer(harness.canvas, "pointermove", {
 			pointerType: "touch",
-			clientX: 100,
+			clientX: 120,
 			clientY: 300,
 			width: 40,
 			height: 40,
@@ -240,7 +240,7 @@ describe("PaplicoUI touch draw offset", () => {
 			y: 240,
 		});
 		expect(harness.tool.onPointerMove.mock.calls.at(-1)?.[0]).toMatchObject({
-			x: 100,
+			x: 120,
 			y: 240,
 		});
 	});
@@ -254,6 +254,11 @@ describe("PaplicoUI touch draw offset", () => {
 			clientY: 300,
 			width: 40,
 			height: 40,
+		});
+		dispatchPointer(harness.canvas, "pointerup", {
+			pointerType: "touch",
+			clientX: 100,
+			clientY: 300,
 		});
 
 		expect(harness.tool.onPointerDown.mock.calls[0][0]).toMatchObject({
@@ -276,14 +281,14 @@ describe("PaplicoUI touch draw offset", () => {
 		});
 		dispatchPointer(harness.canvas, "pointermove", {
 			pointerType: "touch",
-			clientX: 100,
+			clientX: 120,
 			clientY: 300,
 			width: 40,
 			height: 40,
 		});
 		dispatchPointer(harness.canvas, "pointermove", {
 			pointerType: "touch",
-			clientX: 100,
+			clientX: 140,
 			clientY: 300,
 			width: 60,
 			height: 60,
@@ -323,6 +328,11 @@ describe("PaplicoUI touch draw offset", () => {
 			width: 40,
 			height: 40,
 		});
+		dispatchPointer(harness.canvas, "pointerup", {
+			pointerType: "touch",
+			clientX: 100,
+			clientY: 300,
+		});
 
 		expect(harness.tool.onPointerDown.mock.calls[0][0]).toMatchObject({
 			x: 100,
@@ -348,6 +358,76 @@ describe("PaplicoUI touch draw offset", () => {
 			worldX: 0,
 			worldY: 60,
 		});
+	});
+});
+
+describe("PaplicoUI multi-finger tap", () => {
+	it.each([
+		["select", 2],
+		["select", 3],
+		["pen", 2],
+		["path-edit", 3],
+	] as const)("should keep a %s-finger tap away from the %s tool", (toolName, fingers) => {
+		const harness = createHarness(toolName, 50);
+
+		for (let id = 1; id <= fingers; id++) {
+			dispatchPointer(harness.canvas, "pointerdown", {
+				pointerType: "touch",
+				pointerId: id,
+				clientX: 100 + id * 40,
+				clientY: 300,
+			});
+		}
+		for (let id = 1; id <= fingers; id++) {
+			dispatchPointer(harness.canvas, "pointerup", {
+				pointerType: "touch",
+				pointerId: id,
+				clientX: 100 + id * 40,
+				clientY: 300,
+			});
+		}
+
+		expect(harness.tool.onPointerDown).not.toHaveBeenCalled();
+		expect(harness.tool.onPointerUp).not.toHaveBeenCalled();
+		expect(harness.tool.onCancel).not.toHaveBeenCalled();
+	});
+
+	it("should deliver a single-finger tap as a down/up pair", () => {
+		const harness = createHarness("select", 50);
+
+		dispatchPointer(harness.canvas, "pointerdown", {
+			pointerType: "touch",
+			clientX: 100,
+			clientY: 300,
+		});
+		expect(harness.tool.onPointerDown).not.toHaveBeenCalled();
+
+		dispatchPointer(harness.canvas, "pointerup", {
+			pointerType: "touch",
+			clientX: 100,
+			clientY: 300,
+		});
+
+		expect(harness.tool.onPointerDown).toHaveBeenCalledTimes(1);
+		expect(harness.tool.onPointerUp).toHaveBeenCalledTimes(1);
+	});
+
+	it("should deliver the press once the finger is held still long enough", () => {
+		vi.useFakeTimers();
+		try {
+			const harness = createHarness("pen", 50);
+
+			dispatchPointer(harness.canvas, "pointerdown", {
+				pointerType: "touch",
+				clientX: 100,
+				clientY: 300,
+			});
+			vi.advanceTimersByTime(150);
+
+			expect(harness.tool.onPointerDown).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });
 

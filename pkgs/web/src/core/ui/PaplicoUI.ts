@@ -112,6 +112,18 @@ type GestureToolSize = {
 	startWidth: number;
 };
 
+/**
+ * First finger held back from the tool until it is clear that no second
+ * finger follows, so a multi-finger tap never reaches the tool as a click.
+ */
+type GesturePendingTouch = {
+	type: "pending-touch";
+	pointerId: number;
+	event: PointerEvent;
+	start: Point;
+	timer: ReturnType<typeof setTimeout>;
+};
+
 type GesturePendingTap = {
 	type: "pending-tap";
 	startTime: number;
@@ -159,6 +171,7 @@ type GestureState =
 	| GestureTooling
 	| GesturePan
 	| GestureToolSize
+	| GesturePendingTouch
 	| GesturePendingTap
 	| GestureViewport
 	| GestureToolGesture
@@ -166,6 +179,7 @@ type GestureState =
 
 const MULTI_FINGER_TAP_THRESHOLD = 300; // ms
 const TAP_MOVE_THRESHOLD = 10; // px
+const TOUCH_SETTLE_MS = 100; // wait for a possible second finger before tooling
 const MAX_CONTACT_SIZE_PX = 100; // palm rejection threshold (CSS pixels)
 const TOUCH_DRAW_OFFSET_BASE_PX = 60; // touch draw offset at scale 1 (CSS pixels)
 
@@ -383,6 +397,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 	 */
 	public destroy(): void {
 		this.unlistenAbortController?.abort();
+		this.dropPendingTouch();
 	}
 
 	// --- Pointer Events ---
@@ -431,6 +446,11 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			this.activePointers.delete(this.gesture.pointerId);
 			this.gesture = { type: "idle" };
 		}
+		if (e.pointerType === "pen" && this.gesture.type === "pending-touch") {
+			this.rejectedPointers.add(this.gesture.pointerId);
+			this.activePointers.delete(this.gesture.pointerId);
+			this.dropPendingTouch();
+		}
 
 		// Track active pointers for multi-touch gesture detection
 		this.activePointers.set(e.pointerId, {
@@ -441,7 +461,9 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		// Two-finger detected: enter pending-tap state (defer gesture until movement)
 		if (
 			this.activePointers.size === 2 &&
-			(this.gesture.type === "idle" || this.gesture.type === "tooling")
+			(this.gesture.type === "idle" ||
+				this.gesture.type === "tooling" ||
+				this.gesture.type === "pending-touch")
 		) {
 			// Cancel any in-progress tool operation from the first finger
 			// and restore selection that onPointerDown may have cleared.
@@ -449,6 +471,9 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 				tool.onCancel();
 				this.callbacks.setDrawing(false);
 				this.restorePreToolingSnapshot(tool);
+			}
+			if (this.gesture.type === "pending-touch") {
+				clearTimeout(this.gesture.timer);
 			}
 
 			this.gesture = {
@@ -516,6 +541,39 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			return;
 		}
 
+		// Touch sends no hover moves before the press, so without this the
+		// cursor would only appear once the finger has started moving.
+		const pressed = this.createPointerEventData(e, rect);
+		this.updateToolCursor(
+			screenToWorld(pressed.x, pressed.y, viewport, rect.width, rect.height),
+		);
+
+		if (e.pointerType === "touch") {
+			this.gesture = {
+				type: "pending-touch",
+				pointerId: e.pointerId,
+				event: e,
+				start: { x: e.clientX - rect.left, y: e.clientY - rect.top },
+				timer: setTimeout(() => this.commitPendingTouch(), TOUCH_SETTLE_MS),
+			};
+			try {
+				this.canvas.setPointerCapture(e.pointerId);
+			} catch {
+				// Ignore pointer capture errors
+			}
+			return;
+		}
+
+		this.startTooling(e, tool, rect, viewport);
+	}
+
+	/** Hand the press to the tool and enter the tooling gesture. */
+	private startTooling(
+		e: PointerEvent,
+		tool: Tool,
+		rect: DOMRect,
+		viewport: Viewport,
+	): void {
 		// Double-click detection
 		const now = Date.now();
 		const x = e.clientX - rect.left;
@@ -559,19 +617,35 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			// Ignore pointer capture errors
 		}
 
-		const eventData = this.createPointerEventData(e, rect);
-		// Touch sends no hover moves before the press, so without this the
-		// cursor would only appear once the finger has started moving.
-		this.updateToolCursor(
-			screenToWorld(
-				eventData.x,
-				eventData.y,
-				viewport,
-				rect.width,
-				rect.height,
-			),
+		tool.onPointerDown(
+			this.createPointerEventData(e, rect),
+			viewport,
+			rect.width,
+			rect.height,
 		);
-		tool.onPointerDown(eventData, viewport, rect.width, rect.height);
+	}
+
+	/** Deliver the held-back touch press once it is known to be a single finger. */
+	private commitPendingTouch(): void {
+		if (this.gesture.type !== "pending-touch") return;
+		const { event } = this.gesture;
+		this.dropPendingTouch();
+
+		const tool = this.callbacks.getTool();
+		if (!tool) return;
+		this.startTooling(
+			event,
+			tool,
+			this.canvas.getBoundingClientRect(),
+			this.callbacks.getViewport(),
+		);
+	}
+
+	/** Forget the held-back touch press without telling the tool. */
+	private dropPendingTouch(): void {
+		if (this.gesture.type !== "pending-touch") return;
+		clearTimeout(this.gesture.timer);
+		this.gesture = { type: "idle" };
 	}
 
 	private handlePointerMove(e: PointerEvent): void {
@@ -593,6 +667,17 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 				x: e.clientX - rect.left,
 				y: e.clientY - rect.top,
 			});
+		}
+
+		if (this.gesture.type === "pending-touch") {
+			if (this.gesture.pointerId !== e.pointerId) return;
+			const moved =
+				Math.hypot(
+					e.clientX - rect.left - this.gesture.start.x,
+					e.clientY - rect.top - this.gesture.start.y,
+				) > TAP_MOVE_THRESHOLD;
+			if (!moved) return;
+			this.commitPendingTouch();
 		}
 
 		// Fallback: cancel tooling if multiple pointers detected in move
@@ -750,16 +835,19 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		// Remove from active pointer tracking
 		this.activePointers.delete(e.pointerId);
 
-		// pending-tap: check if this completes a multi-finger tap
-		if (this.gesture.type === "pending-tap" && this.activePointers.size === 0) {
+		// A single finger lifted before the settle timer: deliver the press now
+		// so the tool sees the tap as a normal down/up pair.
+		this.commitPendingTouch();
+
+		// pending-tap: fingers of a multi-finger tap never reach the tool
+		if (this.gesture.type === "pending-tap") {
+			if (this.activePointers.size > 0) return;
 			const elapsed = Date.now() - this.gesture.startTime;
 			if (elapsed < MULTI_FINGER_TAP_THRESHOLD) {
 				this.handleMultiFingerTap(this.gesture.fingerCount);
-				this.gesture = { type: "idle" };
-				return;
 			}
-
 			this.gesture = { type: "idle" };
+			return;
 		}
 
 		// End active gesture when fewer than 2 pointers remain
@@ -829,6 +917,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		}
 
 		this.activePointers.delete(e.pointerId);
+		this.dropPendingTouch();
 
 		if (this.gesture.type === "tool-size") {
 			this.endToolSizeGesture(e.pointerId);
@@ -890,6 +979,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		}
 
 		this.rejectedPointers.delete(e.pointerId);
+		this.dropPendingTouch();
 
 		if (this.gesture.type === "tool-size") {
 			this.endToolSizeGesture(e.pointerId);
