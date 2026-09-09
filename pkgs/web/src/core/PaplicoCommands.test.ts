@@ -39,6 +39,42 @@ import { TextRenderer } from "./typography/TextRenderer";
 import { calculateElementBounds } from "./utils/geometry/bounds";
 
 describe("PaplicoCommands", () => {
+	describe("createClipGroupFromTopmost", () => {
+		it("uses the frontmost selected element as the clip path and keeps it on top of the group", () => {
+			const back = createPath("back");
+			const front = createPath("front");
+			const layer = createLayer("layer-1", [back.id, front.id]);
+			const groupElements = vi.fn<YjsProvider["groupElements"]>(
+				() => "group-1",
+			);
+			const setClipPath = vi.fn<YjsProvider["setClipPath"]>();
+			const store = {
+				currentLayerId: layer.id,
+				selectedElementIds: [front.id, back.id],
+				editingScopeStack: [],
+				document: {
+					layers: [layer],
+					objects: { [back.id]: back, [front.id]: front },
+				},
+			} as unknown as RendererState;
+			const commands = new PaplicoCommands({
+				store,
+				yjsProvider: {
+					groupElements,
+					setClipPath,
+					transact: vi.fn((fn: () => void) => fn()),
+					isAnimationUndoMode: vi.fn(() => false),
+				} as unknown as YjsProvider,
+				spatial: { isElementLocked: () => false } as unknown as SpatialIndex,
+				isReadonly: () => false,
+			});
+
+			expect(commands.createClipGroupFromTopmost()).toBe("group-1");
+			expect(groupElements.mock.calls[0][1]).toEqual([back.id, front.id]);
+			expect(setClipPath.mock.calls[0][2]).toBe(front.id);
+		});
+	});
+
 	it("copy/paste keeps cp offsets while translating only anchors", () => {
 		const sourcePath = createPath("path-1");
 		const layer = createLayer("layer-1", [sourcePath.id]);

@@ -1675,9 +1675,9 @@ export class PaplicoCommands {
 
 			selectedWithIndex.sort((a, b) => a.index - b.index);
 
-			const topmostId = selectedWithIndex[selectedWithIndex.length - 1].id;
-			const otherIds = selectedWithIndex.slice(0, -1).map((item) => item.id);
-			const orderedIds = [topmostId, ...otherIds];
+			// Keep stacking order so the clip path ends up on top of the group.
+			const orderedIds = selectedWithIndex.map((item) => item.id);
+			const topmostId = orderedIds.at(-1)!;
 
 			const groupId = this.ctx.yjsProvider.groupElementsInGroup(
 				editingScopeId,
@@ -1706,9 +1706,9 @@ export class PaplicoCommands {
 
 		selectedWithIndex.sort((a, b) => a.index - b.index);
 
-		const topmostId = selectedWithIndex[selectedWithIndex.length - 1].id;
-		const otherIds = selectedWithIndex.slice(0, -1).map((item) => item.id);
-		const orderedIds = [topmostId, ...otherIds];
+		// Keep stacking order so the clip path ends up on top of the group.
+		const orderedIds = selectedWithIndex.map((item) => item.id);
+		const topmostId = orderedIds.at(-1)!;
 
 		const groupId = this.ctx.yjsProvider.groupElements(
 			layerId,
