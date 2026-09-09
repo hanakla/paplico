@@ -1280,6 +1280,11 @@ export class CanvasLayer {
 		encoder: GPUCommandEncoder,
 		elementsMap: Map<string, AnyArtObject>,
 		framePlan: RendererFramePlan,
+		/** The region this frame draws. A viewport-driven frame bakes the whole
+		 *  margined store, so masks are culled against that and not the visible
+		 *  viewport — an owner in the margin otherwise draws unmasked, and a
+		 *  later pan blits it into view that way. Null disables culling. */
+		drawRegion: BoundingBox | null,
 		filter?: ReadonlySet<string>,
 	): void {
 		const filterPlanIds = new Set(framePlan.filterPlans.keys());
@@ -1322,35 +1327,27 @@ export class CanvasLayer {
 			composedTransformCache: this.viewportManager.getComposedTransformCache(),
 		};
 		let clipGroups = this.viewportManager.hasClipGroups
-			? collectClipGroups(
-					boundsContext,
-					this.viewportState.bounds,
-					(element, union) => {
-						// A group filter (or baked solid) paints past the group's flat
-						// bounds; count that so a spill into view is not culled.
-						const plan = framePlan.filterPlans.get(element.id);
-						if (plan) union(plan.textureBounds);
-						for (const driver of this.backdropDrivers) {
-							driver.unionSolidBounds(element, union);
-						}
-					},
-				)
+			? collectClipGroups(boundsContext, drawRegion, (element, union) => {
+					// A group filter (or baked solid) paints past the group's flat
+					// bounds; count that so a spill into view is not culled.
+					const plan = framePlan.filterPlans.get(element.id);
+					if (plan) union(plan.textureBounds);
+					for (const driver of this.backdropDrivers) {
+						driver.unionSolidBounds(element, union);
+					}
+				})
 			: [];
 		let objectMasks = this.viewportManager.hasObjectMasks
-			? collectObjectMasks(
-					boundsContext,
-					this.viewportState.bounds,
-					(element, union) => {
-						// A filtered element paints into its expanded texture bounds,
-						// and a baked solid paints its projection — both past the
-						// element bounds the mask texture would otherwise be sized to.
-						const plan = framePlan.filterPlans.get(element.id);
-						if (plan) union(plan.textureBounds);
-						for (const driver of this.backdropDrivers) {
-							driver.unionSolidBounds(element, union);
-						}
-					},
-				)
+			? collectObjectMasks(boundsContext, drawRegion, (element, union) => {
+					// A filtered element paints into its expanded texture bounds,
+					// and a baked solid paints its projection — both past the
+					// element bounds the mask texture would otherwise be sized to.
+					const plan = framePlan.filterPlans.get(element.id);
+					if (plan) union(plan.textureBounds);
+					for (const driver of this.backdropDrivers) {
+						driver.unionSolidBounds(element, union);
+					}
+				})
 			: [];
 
 		// Export/copy: keep only masks owned by an element inside the target
@@ -1429,6 +1426,7 @@ export class CanvasLayer {
 			encoder,
 			requests,
 			elementsMap,
+			drawRegion,
 			maskFilteredTextures,
 		);
 		// Drawing the mask content baked whatever solids it contains, exactly as
@@ -2589,6 +2587,7 @@ export class CanvasLayer {
 					ctx.encoder,
 					elementsMap,
 					framePlan,
+					prebufViewportBounds,
 					effectiveFilter,
 				);
 			},

@@ -237,6 +237,12 @@ export class ClipMaskAtlas {
 		encoder: GPUCommandEncoder,
 		requests: MaskRenderRequest[],
 		elementsMap: Map<string, AnyArtObject>,
+		/** World region the frame draws, which a mask's texture is cropped to.
+		 *  On a viewport-driven frame that is the whole margined store, not the
+		 *  visible viewport: an owner in the margin is drawn this frame, and a
+		 *  mask cropped to the viewport would come out empty and be dropped.
+		 *  Null disables the crop. */
+		drawRegion: BoundingBox | null,
 		/** Filtered results for the sources, so an appearance that replaces an
 		 *  element's render (a 3D solid) contributes its solid rather than the
 		 *  flat look it suppressed. */
@@ -305,7 +311,12 @@ export class ClipMaskAtlas {
 			const mask = masks[i];
 			activeKeys.add(mask.key);
 
-			const coverage = this.computeCoverage(mask.coverBounds, zoom, maxDim);
+			const coverage = computeMaskCoverage(
+				mask.coverBounds,
+				drawRegion,
+				zoom,
+				maxDim,
+			);
 			if (!coverage) continue;
 
 			const parent = mask.parentKey
@@ -431,25 +442,6 @@ export class ClipMaskAtlas {
 	// -----------------------------------------------------------------------
 	// Private
 	// -----------------------------------------------------------------------
-
-	/**
-	 * A mask is sampled at the size it appears on screen, so it is drawn at the
-	 * viewport zoom. R is for kernels — a mask has none, and baking one at a
-	 * fixed scale only costs its edge the resolution the screen is showing it
-	 * at. Growth is bounded by shrinking what the texture covers instead.
-	 */
-	private computeCoverage(
-		bounds: BoundingBox,
-		zoom: number,
-		maxDim: number,
-	): MaskCoverage | null {
-		return computeMaskCoverage(
-			bounds,
-			this.deps.viewportState.bounds,
-			zoom,
-			maxDim,
-		);
-	}
 
 	private computeMaskFingerprint(
 		mask: MaskRenderRequest,
@@ -839,6 +831,12 @@ export class ClipMaskAtlas {
 	}
 }
 
+/**
+ * A mask is sampled at the size it appears on screen, so it is drawn at the
+ * viewport zoom. R is for kernels — a mask has none, and baking one at a
+ * fixed scale only costs its edge the resolution the screen is showing it
+ * at. Growth is bounded by shrinking what the texture covers instead.
+ */
 export function computeMaskCoverage(
 	maskBounds: BoundingBox,
 	renderTargetCoverage: BoundingBox | null,

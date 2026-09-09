@@ -7,7 +7,9 @@ import {
 	createDefaultTransform,
 } from "../../../document/factory";
 import {
+	type Document,
 	type EmbeddedFile,
+	type Extrude3DAppearance,
 	type FillAppearance,
 	type Filter,
 	type Group,
@@ -15,12 +17,15 @@ import {
 	type ImageObject,
 	type Path,
 	type PathSegment,
+	type Viewport,
 } from "../../../schema";
 import {
 	captureTexturePixels,
 	createTestRenderer,
 	renderWithViewport,
 } from "../../../testUtils/visualRegression";
+import type { RenderOrchestrator } from "../../RenderOrchestrator";
+import type { ChangedElements } from "../../types";
 
 // A group-level pre-filter (3d-rotate) must survive the offscreen route that
 // a raster post filter forces the group through: the deformation propagates
@@ -107,6 +112,27 @@ describe("Top-level atlas masking", () => {
 		expect(box.height).toBeGreaterThanOrEqual(55);
 		expect(box.height).toBeLessThanOrEqual(65);
 	});
+
+	// A viewport-driven frame bakes the whole margined store, so an owner
+	// outside the viewport is drawn in that frame too. Its mask must be built
+	// for the store as well, or the pan that blits it into view shows it
+	// unmasked.
+	it.each([
+		["a flat owner", false],
+		["a glass extrude owner", true],
+	])(
+		"keeps the object mask on %s baked in the store margin and panned into view",
+		async (_name, glass) => {
+			const pixels = await renderMarginMaskedOwnerPannedIntoView(glass);
+
+			// Screen columns of the owner at the panned viewport: the mask keeps
+			// the left half (670..720) and hides the right half (720..770). The
+			// mask edge itself is sampled bilinearly, so a few columns are skipped.
+			expect(countNonBackdrop(pixels, 670, 716)).toBeGreaterThan(0);
+			expect(countNonBackdrop(pixels, 724, 770)).toBe(0);
+		},
+		240_000,
+	);
 });
 
 describe("Offscreen pixel alignment", () => {
@@ -518,6 +544,139 @@ function createNestedAtlasMaskedGroupDoc() {
 	doc.layers = [layer];
 	doc.artboards.push(createArtboard("ab", "AB", 0, 0, 400, 220));
 	return doc;
+}
+
+const UNCHANGED: ChangedElements = { upserted: new Set(), deleted: new Set() };
+
+/**
+ * Three content frames at x=0 (the owner is outside the 800px viewport but
+ * inside the store margin), then two pans: the first re-centres the store
+ * with a full-store bake, the second blits from it with the owner in view.
+ */
+async function renderMarginMaskedOwnerPannedIntoView(glass: boolean) {
+	const { renderer, canvas } = await createTestRenderer();
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const doc = createMarginMaskedOwnerDoc(glass);
+	for (let i = 0; i < 3; i++) {
+		renderInteractive(
+			renderer,
+			doc,
+			{ x: 0, y: 0, zoom: 1, rotation: 0 },
+			"full",
+		);
+		await device.queue.onSubmittedWorkDone();
+	}
+	renderInteractive(
+		renderer,
+		doc,
+		{ x: 100, y: 0, zoom: 1, rotation: 0 },
+		"viewportBlit",
+	);
+	await device.queue.onSubmittedWorkDone();
+	renderInteractive(
+		renderer,
+		doc,
+		{ x: 300, y: 0, zoom: 1, rotation: 0 },
+		"viewportBlit",
+	);
+	await device.queue.onSubmittedWorkDone();
+	const presented = (
+		canvas as unknown as { _context: GPUCanvasContext }
+	)._context.getCurrentTexture();
+	return captureTexturePixels(device, presented, 800, 600);
+}
+
+/** The interactive frame path — the only one that keeps and blits the store. */
+function renderInteractive(
+	renderer: RenderOrchestrator,
+	doc: Document,
+	viewport: Viewport,
+	strategy: "full" | "viewportBlit",
+) {
+	renderer.render(
+		{ viewport, document: doc, strategy, changedElements: UNCHANGED },
+		{},
+	);
+}
+
+/** Pixels in the screen column range [x0, x1) that differ from the backdrop,
+ *  sampled at the top-left corner, which only the backdrop fill covers. */
+function countNonBackdrop(pixels: Uint8Array, x0: number, x1: number) {
+	let count = 0;
+	for (let y = 0; y < 600; y++) {
+		for (let x = x0; x < x1; x++) {
+			const i = (y * 800 + x) * 4;
+			if (
+				Math.abs(pixels[i] - pixels[0]) > 2 ||
+				Math.abs(pixels[i + 1] - pixels[1]) > 2 ||
+				Math.abs(pixels[i + 2] - pixels[2]) > 2
+			) {
+				count++;
+			}
+		}
+	}
+	return count;
+}
+
+/**
+ * A backdrop the glass can refract, and a masked owner at world x 570..670:
+ * outside the viewport at x=0, inside the 256px store margin. The mask keeps
+ * only the owner's left half.
+ */
+function createMarginMaskedOwnerDoc(glass: boolean) {
+	const doc = createDefaultDocument("margin-masked-owner-vrt");
+	const layer = createDefaultLayer("layer-bg", "Background");
+	const backdrop: Path = {
+		type: "path",
+		id: generateUid("backdrop"),
+		opacity: 1,
+		blendMode: "normal",
+		segments: rectSegments(0, 0, 2000, 2000),
+		filters: [solidFill(0.1, 0.2, 0.7)],
+		transform: createDefaultTransform(),
+	};
+	const owner: Path = {
+		type: "path",
+		id: generateUid("owner"),
+		opacity: 1,
+		blendMode: "normal",
+		segments: rectSegments(0, 0, 100, 100),
+		filters: [solidFill(0.9, 0.2, 0.2), ...(glass ? [glassExtrude()] : [])],
+		transform: { ...createDefaultTransform(), x: 620 },
+	};
+	const mask: Path = {
+		...owner,
+		id: generateUid("mask"),
+		segments: rectSegments(-30, 0, 60, 120),
+		filters: [solidFill(1, 1, 1)],
+		transform: createDefaultTransform(),
+	};
+	owner.mask = { elementIds: [mask.id] };
+	doc.objects[backdrop.id] = backdrop;
+	doc.objects[mask.id] = mask;
+	doc.objects[owner.id] = owner;
+	layer.elementIds.push(backdrop.id, owner.id);
+	doc.layers = [layer];
+	return doc;
+}
+
+function glassExtrude(): Extrude3DAppearance {
+	return {
+		uid: generateUid("extrude"),
+		processor: "extrude3d",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: {
+			version: "1",
+			params: {
+				depth: 40,
+				rotationDeg: [25, -30, 0],
+				perspective: 20,
+				material: { shading: "lambert", lightDir: [0, 0, 1], refraction: 1.5 },
+			},
+		},
+	};
 }
 
 function createTopLevelAtlasMaskedPathDoc(blendMode: Path["blendMode"]) {
