@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import type { AppearancePreset } from "@/core/schema";
+import { deepClone } from "@/core/utils/lang";
 import {
 	parseAppearancePresetJson,
 	serializeAppearancePresetJson,
@@ -43,6 +44,28 @@ export function useAppearancePresets() {
 		const preset = persistedPresets.find((p) => p.uid === libraryUid);
 		if (!preset) return null;
 		return commands.addAppearancePreset(toDocumentAppearancePreset(preset));
+	});
+
+	/**
+	 * Writes a document preset's name and filters back to its library entry.
+	 * Presets edited in the panel keep their library uid, so this is what keeps
+	 * the library from going stale while one of them is being edited.
+	 */
+	const updateInLibrary = useEventCallback(async (preset: AppearancePreset) => {
+		const existing = persistedPresets.find((p) => p.uid === preset.uid);
+		if (!existing || !isPortableAppearancePreset(preset)) return;
+		if (
+			existing.name === preset.name &&
+			JSON.stringify(existing.filters) === JSON.stringify(preset.filters)
+		) {
+			return;
+		}
+		await appearancePresetsRepo.save({
+			...existing,
+			name: preset.name,
+			filters: deepClone(preset.filters),
+		});
+		await refresh();
 	});
 
 	const renameInLibrary = useEventCallback(
@@ -90,6 +113,7 @@ export function useAppearancePresets() {
 	return {
 		persistedPresets,
 		saveToLibrary,
+		updateInLibrary,
 		addToDocument,
 		renameInLibrary,
 		deleteFromLibrary,

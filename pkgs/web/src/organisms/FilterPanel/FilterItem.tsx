@@ -1,4 +1,9 @@
-import { useDndContext, useDroppable } from "@dnd-kit/core";
+import {
+	type DragEndEvent,
+	useDndContext,
+	useDndMonitor,
+	useDroppable,
+} from "@dnd-kit/core";
 import {
 	SortableContext,
 	useSortable,
@@ -6,7 +11,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Eye, EyeOff, Trash2 } from "lucide-react";
-import { type CSSProperties, memo, type ReactNode } from "react";
+import { type CSSProperties, memo, type ReactNode, useRef } from "react";
 import { ColorSwatch } from "@/components/ColorSwatch";
 import { IconButton } from "@/components/IconButton";
 import type {
@@ -91,7 +96,22 @@ export const FilterItem = memo(function FilterItem({
 		isDragging,
 	} = useSortable({ id: sortableId });
 
+	// The mouseup that drops this row also fires a click on it. Selecting on
+	// that click would toggle the surface as if the row had been tapped.
+	const skipNextClickRef = useRef(false);
+	const markDropClick = useEventCallback(
+		({ active, activatorEvent }: DragEndEvent) => {
+			if (active.id !== sortableId) return;
+			skipNextClickRef.current = activatorEvent instanceof MouseEvent;
+		},
+	);
+	useDndMonitor({ onDragEnd: markDropClick, onDragCancel: markDropClick });
+
 	const handleSelect = useEventCallback((e: React.MouseEvent) => {
+		if (skipNextClickRef.current) {
+			skipNextClickRef.current = false;
+			return;
+		}
 		if (
 			e.target instanceof Node &&
 			e.currentTarget instanceof Node &&
@@ -134,9 +154,7 @@ export const FilterItem = memo(function FilterItem({
 	);
 
 	const paramsContent = (
-		// Stop pointer events from bubbling to dnd-kit listeners on FilterItem
-		// to prevent drag activation when interacting with sliders/inputs in the popover
-		<div className="space-y-2" onPointerDown={(e) => e.stopPropagation()}>
+		<div className="space-y-2">
 			<FilterBackdropToggle filter={filter} filterIndex={index} />
 
 			{filter.processor === "fill" && (

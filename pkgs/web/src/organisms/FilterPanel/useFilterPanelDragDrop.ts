@@ -20,6 +20,12 @@ import {
 } from "./AppearancePresetList";
 import type { FilterDropIndicator } from "./types";
 
+/**
+ * Droppable id of the whole stack. A preset dropped here lands at the end,
+ * which is the only way in when the stack has no rows to aim at.
+ */
+export const STACK_DROP_ID = "drop:stack";
+
 export function useFilterPanelDragDrop(deps: {
 	commands: {
 		reorderFilter: (fromIndex: number, toIndex: number) => void;
@@ -51,13 +57,21 @@ export function useFilterPanelDragDrop(deps: {
 
 			if (activeId.startsWith("sf:")) return pointerWithin(args);
 
-			// A preset row drops between top-level rows only.
+			// A preset row drops between top-level rows, and onto the stack
+			// itself when there is no row to aim at.
 			if (isPresetDragId(activeId)) {
-				return closestCenter({
+				const rows = closestCenter({
 					...args,
 					droppableContainers: args.droppableContainers.filter(
 						(c) =>
 							!isPresetDragId(String(c.id)) && !isSecondaryDropId(String(c.id)),
+					),
+				});
+				if (rows.length > 0) return rows;
+				return pointerWithin({
+					...args,
+					droppableContainers: args.droppableContainers.filter(
+						(c) => c.id === STACK_DROP_ID,
 					),
 				});
 			}
@@ -111,15 +125,11 @@ export function useFilterPanelDragDrop(deps: {
 		const activeId = String(active.id);
 		const overId = String(over.id);
 
-		// Preset row drag: insert a ref before / after the row it landed on
+		// Preset row drag: insert a ref before / after the row it landed on,
+		// or at the end when it landed on the stack itself
 		if (isPresetDragId(activeId)) {
-			const overIndex = deps.uidToIndex.get(overId);
-			if (overIndex == null) return;
-			const index =
-				landedIndicator?.overId === overId &&
-				landedIndicator.position === "after"
-					? overIndex + 1
-					: overIndex;
+			const index = presetDropIndex(overId, landedIndicator, deps.uidToIndex);
+			if (index == null) return;
 			const presetUid = activeId.startsWith(LIBRARY_PRESET_DRAG_PREFIX)
 				? deps.addLibraryPresetToDocument(
 						activeId.slice(LIBRARY_PRESET_DRAG_PREFIX.length),
@@ -200,6 +210,20 @@ export function useFilterPanelDragDrop(deps: {
 		customCollision,
 		clearDropIndicator,
 	};
+}
+
+function presetDropIndex(
+	overId: string,
+	landedIndicator: FilterDropIndicator | null,
+	uidToIndex: Map<string, number>,
+): number | null {
+	if (overId === STACK_DROP_ID) return uidToIndex.size;
+	const overIndex = uidToIndex.get(overId);
+	if (overIndex == null) return null;
+	return landedIndicator?.overId === overId &&
+		landedIndicator.position === "after"
+		? overIndex + 1
+		: overIndex;
 }
 
 function isPresetDragId(id: string): boolean {

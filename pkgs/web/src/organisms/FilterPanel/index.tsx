@@ -1,4 +1,4 @@
-import { DndContext } from "@dnd-kit/core";
+import { DndContext, useDroppable } from "@dnd-kit/core";
 import {
 	SortableContext,
 	verticalListSortingStrategy,
@@ -6,26 +6,29 @@ import {
 import {
 	Bookmark,
 	Check,
-	Ellipsis,
 	PaintBucket,
 	Pen,
 	Plus,
 	Sparkles,
 	Squircle,
+	X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
+import { FakeInput } from "@/components/FakeInput";
 import { IconButton } from "@/components/IconButton";
 import { Separator } from "@/components/Separator";
 import { toastManager } from "@/components/Toast";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { type AppearancePreset, isAppearancePresetRef } from "@/core/schema";
+import { deepClone } from "@/core/utils/lang";
 import { AppearancePresetsDialog } from "@/dialogs/AppearancePresetsDialog";
 import { useFirstSelectedElement } from "@/hooks/paplico/useFirstSelectedElement";
 import { useAppearancePresets } from "@/hooks/useAppearancePresets";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
+import { twm } from "@/utils/tailwind";
 import { AddFilterButton } from "./AddFilterButton";
 import { ElementInlineControls } from "./AppearanceInlineControls";
 import { AppearancePresetList } from "./AppearancePresetList";
@@ -39,6 +42,7 @@ import { FilterStackProvider } from "./FilterStackContext";
 import { PresetRefItem } from "./PresetRefItem";
 import {
 	FILTER_DND_MODIFIERS,
+	STACK_DROP_ID,
 	useFilterPanelDragDrop,
 	useFilterPanelSensors,
 } from "./useFilterPanelDragDrop";
@@ -63,6 +67,14 @@ export function FilterPanel() {
 	const [editingPresetUid, setEditingPresetUid] = useState<string | null>(null);
 	const editingPreset =
 		documentPresets.find((p) => p.uid === editingPresetUid) ?? null;
+	// What the preset looked like when the edit began, for "discard".
+	const editStartPresetRef = useRef<AppearancePreset | null>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: captured once per edit session
+	useEffect(() => {
+		editStartPresetRef.current = editingPreset
+			? deepClone(editingPreset)
+			: null;
+	}, [editingPreset?.uid]);
 	const stack = useMemo(
 		() =>
 			editingPreset
@@ -124,6 +136,18 @@ export function FilterPanel() {
 		setSelectedFilterIndex(index);
 	});
 
+	// Library presets live outside the document, so editing one means editing
+	// the copy that lands in the document, the same way applying one does.
+	const handleEditLibraryPreset = useEventCallback((libraryUid: string) => {
+		const uid = library.addToDocument(libraryUid);
+		if (uid) setEditingPresetUid(uid);
+	});
+
+	const handleRenameEditingPreset = useEventCallback((name: string) => {
+		if (!editingPreset || !name) return;
+		commands.renameAppearancePreset(editingPreset.uid, name);
+	});
+
 	const handleCloseSurface = useEventCallback(() => {
 		setSurfaceOpen(false);
 	});
@@ -157,7 +181,17 @@ export function FilterPanel() {
 		},
 	);
 
+	// A preset opened from the library edits the library entry, so finishing
+	// the edit is when the document copy goes back to the library.
 	const handleEndPresetEdit = useEventCallback(() => {
+		if (editingPreset) void library.updateInLibrary(editingPreset);
+		setEditingPresetUid(null);
+	});
+
+	const handleCancelPresetEdit = useEventCallback(() => {
+		if (editStartPresetRef.current) {
+			commands.restoreAppearancePreset(editStartPresetRef.current);
+		}
 		setEditingPresetUid(null);
 	});
 
@@ -233,9 +267,6 @@ export function FilterPanel() {
 					<IconButton $size="xs" $variant="ghost" disabled>
 						<Plus size={14} />
 					</IconButton>
-					<IconButton $size="xs" $variant="ghost" disabled>
-						<Ellipsis size={14} />
-					</IconButton>
 				</div>
 				<p className="text-muted-foreground text-xs p-3">
 					{t("filterPanel.selectElementToApplyFilters")}
@@ -256,40 +287,33 @@ export function FilterPanel() {
 			>
 				<div className="w-52 bg-background/80 backdrop-liquid rounded-lg shadow-lg flex flex-col overflow-hidden">
 					<div className="px-3 py-1 border-b border-border flex items-center gap-1.5">
-						{editingPreset ? (
-							<Bookmark className="text-accent" size={14} />
-						) : (
-							<Sparkles className="text-accent" size={14} />
-						)}
+						<Sparkles className="text-accent" size={14} />
 
-						<span
-							className={`min-w-0 flex-1 truncate text-xs font-medium ${
-								editingPreset
-									? "text-foreground"
-									: "text-muted-foreground uppercase tracking-wide"
-							}`}
-							title={editingPreset ? t("filterPanel.presetEditing") : undefined}
-						>
-							{editingPreset ? editingPreset.name : t("filterPanel.appearance")}
+						<span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground uppercase tracking-wide">
+							{t("filterPanel.appearance")}
 						</span>
 
-						<IconButton
-							$size="xs"
-							$variant="ghost"
-							title={t("filterPanel.fill")}
-							onClick={() => handleAddFilter("fill", false)}
-						>
-							<PaintBucket size={14} />
-						</IconButton>
+						{!editingPreset && (
+							<>
+								<IconButton
+									$size="xs"
+									$variant="ghost"
+									title={t("filterPanel.fill")}
+									onClick={() => handleAddFilter("fill", false)}
+								>
+									<PaintBucket size={14} />
+								</IconButton>
 
-						<IconButton
-							$size="xs"
-							$variant="ghost"
-							title={t("filterPanel.stroke")}
-							onClick={() => handleAddFilter("stroke", false)}
-						>
-							<Pen size={14} />
-						</IconButton>
+								<IconButton
+									$size="xs"
+									$variant="ghost"
+									title={t("filterPanel.stroke")}
+									onClick={() => handleAddFilter("stroke", false)}
+								>
+									<Pen size={14} />
+								</IconButton>
+							</>
+						)}
 
 						<AddFilterButton
 							isSubFilter={isAppearanceSelected}
@@ -298,31 +322,51 @@ export function FilterPanel() {
 							iconSize={14}
 						/>
 
-						{editingPreset ? (
-							<Tooltip content={t("filterPanel.presetEditDone")}>
-								<IconButton
-									$size="xs"
-									$variant="ghost"
-									className="text-accent"
-									aria-label={t("filterPanel.presetEditDone")}
-									onClick={handleEndPresetEdit}
-								>
-									<Check size={14} />
-								</IconButton>
-							</Tooltip>
-						) : (
-							selectedElement && (
-								<AppearancePresetMenu
-									element={selectedElement}
-									library={library}
-									onManage={handleOpenPresetsDialog}
-									iconSize={14}
-								/>
-							)
+						{editingPreset && (
+							<>
+								<Tooltip content={t("filterPanel.presetEditCancel")}>
+									<IconButton
+										$size="xs"
+										$variant="ghost"
+										aria-label={t("filterPanel.presetEditCancel")}
+										onClick={handleCancelPresetEdit}
+									>
+										<X size={14} />
+									</IconButton>
+								</Tooltip>
+								<Tooltip content={t("filterPanel.presetEditDone")}>
+									<IconButton
+										$size="xs"
+										$variant="ghost"
+										className="text-accent"
+										aria-label={t("filterPanel.presetEditDone")}
+										onClick={handleEndPresetEdit}
+									>
+										<Check size={14} />
+									</IconButton>
+								</Tooltip>
+							</>
 						)}
 					</div>
 
 					<div className="flex-1 overflow-y-auto p-2 space-y-1">
+						{editingPreset && (
+							<div
+								className="flex items-center gap-1.5 px-2"
+								title={t("filterPanel.presetEditing")}
+							>
+								<Bookmark className="shrink-0 text-accent" size={14} />
+								<FakeInput
+									value={editingPreset.name}
+									onChange={handleRenameEditingPreset}
+									$behaviour="click"
+									$size="xs"
+									$side="start"
+									className="min-w-0 flex-1"
+								/>
+							</div>
+						)}
+
 						{/* Element type header (non-sortable, always first) */}
 						{selectedElement && !editingPreset && (
 							<AppearanceSurface.Root
@@ -395,50 +439,53 @@ export function FilterPanel() {
 							<Separator className="my-1" />
 						)}
 
-						{filters.length === 0 && (
-							<p className="text-muted-foreground text-xs">
-								{t("filterPanel.noFiltersApplied")}
-							</p>
-						)}
-						<SortableContext
-							items={sortableIds}
-							strategy={verticalListSortingStrategy}
-						>
-							{reversedFilters.map(({ filter, originalIndex }, i) =>
-								isAppearancePresetRef(filter) ? (
-									<PresetRefItem
-										key={filter.uid}
-										entry={filter}
-										preset={
-											documentPresets.find((p) => p.uid === filter.presetUid) ??
-											null
-										}
-										index={originalIndex}
-										elementId={selectedElement?.id ?? ""}
-										sortableId={sortableIds[i]}
-										dropIndicator={dropIndicator}
-										onEdit={setEditingPresetUid}
-									/>
-								) : (
-									<FilterItem
-										key={filter.uid}
-										filter={filter}
-										index={originalIndex}
-										sortableId={sortableIds[i]}
-										isSelected={selectedFilterIndex === originalIndex}
-										isOpen={
-											surfaceOpen && selectedFilterIndex === originalIndex
-										}
-										onSelect={handleSelectFilter}
-										onCloseSurface={handleCloseSurface}
-										onAddSubFilter={handleAddFilter}
-										dropIndicator={dropIndicator}
-									/>
-								),
+						<StackDropZone>
+							{filters.length === 0 && (
+								<p className="text-muted-foreground text-xs">
+									{t("filterPanel.noFiltersApplied")}
+								</p>
 							)}
-						</SortableContext>
+							<SortableContext
+								items={sortableIds}
+								strategy={verticalListSortingStrategy}
+							>
+								{reversedFilters.map(({ filter, originalIndex }, i) =>
+									isAppearancePresetRef(filter) ? (
+										<PresetRefItem
+											key={filter.uid}
+											entry={filter}
+											preset={
+												documentPresets.find(
+													(p) => p.uid === filter.presetUid,
+												) ?? null
+											}
+											index={originalIndex}
+											elementId={selectedElement?.id ?? ""}
+											sortableId={sortableIds[i]}
+											dropIndicator={dropIndicator}
+											onEdit={setEditingPresetUid}
+										/>
+									) : (
+										<FilterItem
+											key={filter.uid}
+											filter={filter}
+											index={originalIndex}
+											sortableId={sortableIds[i]}
+											isSelected={selectedFilterIndex === originalIndex}
+											isOpen={
+												surfaceOpen && selectedFilterIndex === originalIndex
+											}
+											onSelect={handleSelectFilter}
+											onCloseSurface={handleCloseSurface}
+											onAddSubFilter={handleAddFilter}
+											dropIndicator={dropIndicator}
+										/>
+									),
+								)}
+							</SortableContext>
+						</StackDropZone>
 
-						{!editingPreset && (
+						{!editingPreset && selectedElement && (
 							<>
 								<Separator className="my-1" />
 
@@ -447,8 +494,18 @@ export function FilterPanel() {
 									libraryPresets={library.persistedPresets}
 									onApplyDocumentPreset={handleApplyDocumentPreset}
 									onApplyLibraryPreset={handleApplyLibraryPreset}
+									onEditDocumentPreset={setEditingPresetUid}
+									onEditLibraryPreset={handleEditLibraryPreset}
 									onSaveToLibrary={handleSaveToLibrary}
 									onExportJson={handleExportJson}
+									menu={
+										<AppearancePresetMenu
+											element={selectedElement}
+											library={library}
+											onManage={handleOpenPresetsDialog}
+											iconSize={12}
+										/>
+									}
 								/>
 							</>
 						)}
@@ -462,5 +519,22 @@ export function FilterPanel() {
 				/>
 			</DndContext>
 		</FilterStackProvider>
+	);
+}
+
+/** Catches preset drops that miss every row, so an empty stack still accepts one. */
+function StackDropZone({ children }: { children: ReactNode }) {
+	const { setNodeRef, isOver } = useDroppable({ id: STACK_DROP_ID });
+
+	return (
+		<div
+			ref={setNodeRef}
+			className={twm(
+				"space-y-1 rounded transition-colors",
+				isOver ? "bg-accent/20 ring-1 ring-accent/30" : "",
+			)}
+		>
+			{children}
+		</div>
 	);
 }

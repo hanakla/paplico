@@ -873,8 +873,8 @@ export const en = {
 		presetSaveToLibrary: "Save to library",
 		presetAddFromLibrary: "Add from library",
 		presetLibraryEmpty: "-",
-		presetExportJson: "Export preset as JSON",
-		presetImportJson: "Import preset from JSON…",
+		presetExportJson: "Export as JSON",
+		presetImportJson: "Import from JSON…",
 		presetImportError: "Could not read the preset file",
 		presetLocalRefsError:
 			"This preset uses files or patterns that only exist in this document",
@@ -889,8 +889,10 @@ export const en = {
 		presetListLibrary: "Library",
 		presetMissing: "Missing preset",
 		presetEdit: "Edit preset",
+		presetMenuEdit: "Edit",
 		presetEditing: "Editing preset",
 		presetEditDone: "Done",
+		presetEditCancel: "Discard and go back",
 		compositionModes: {
 			normal: "Unlocked",
 			"alpha-lock": "Alpha Lock",

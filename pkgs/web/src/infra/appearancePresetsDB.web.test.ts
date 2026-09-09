@@ -54,4 +54,14 @@ describe("webAppearancePresetsRepo", () => {
 		await webAppearancePresetsRepo.delete("a");
 		expect(await webAppearancePresetsRepo.get("a")).toBe(null);
 	});
+
+	it("should keep the list order when a preset is renamed", async () => {
+		await webAppearancePresetsRepo.save(preset("old", 1));
+		await webAppearancePresetsRepo.save(preset("new", 2));
+
+		await webAppearancePresetsRepo.rename("old", "Renamed");
+
+		const listed = await webAppearancePresetsRepo.list();
+		expect(listed.map((p) => p.uid)).toEqual(["new", "old"]);
+	});
 });

@@ -7,8 +7,9 @@ import {
 	Ellipsis,
 	FileDown,
 	Library,
+	Pencil,
 } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, type ReactNode, useState } from "react";
 import { IconButton } from "@/components/IconButton";
 import { Menu } from "@/components/Menu";
 import type { AppearancePreset } from "@/core/schema";
@@ -27,15 +28,22 @@ export const AppearancePresetList = memo(function AppearancePresetList({
 	libraryPresets,
 	onApplyDocumentPreset,
 	onApplyLibraryPreset,
+	onEditDocumentPreset,
+	onEditLibraryPreset,
 	onSaveToLibrary,
 	onExportJson,
+	menu,
 }: {
 	documentPresets: readonly AppearancePreset[];
 	libraryPresets: readonly AppearancePreset[];
 	onApplyDocumentPreset: (uid: string) => void;
 	onApplyLibraryPreset: (uid: string) => void;
+	onEditDocumentPreset: (uid: string) => void;
+	onEditLibraryPreset: (uid: string) => void;
 	onSaveToLibrary: (preset: AppearancePreset) => void;
 	onExportJson: (preset: AppearancePreset) => void;
+	/** Rendered at the right end of the section header. */
+	menu: ReactNode;
 }) {
 	const t = useTranslation();
 	const [open, setOpen] = useState(true);
@@ -46,14 +54,17 @@ export const AppearancePresetList = memo(function AppearancePresetList({
 
 	return (
 		<div>
-			<button
-				type="button"
-				className="flex w-full items-center gap-1 px-1 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
-				onClick={handleToggle}
-			>
-				{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-				{t("filterPanel.presetList")}
-			</button>
+			<div className="flex items-center">
+				<button
+					type="button"
+					className="flex min-w-0 flex-1 items-center gap-1 px-1 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+					onClick={handleToggle}
+				>
+					{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+					{t("filterPanel.presetList")}
+				</button>
+				{menu}
+			</div>
 			{open && (
 				<div className="space-y-1">
 					<PresetGroup
@@ -62,6 +73,7 @@ export const AppearancePresetList = memo(function AppearancePresetList({
 						presets={documentPresets}
 						dragPrefix={PRESET_DRAG_PREFIX}
 						onApply={onApplyDocumentPreset}
+						onEdit={onEditDocumentPreset}
 						onSaveToLibrary={onSaveToLibrary}
 						onExportJson={onExportJson}
 					/>
@@ -71,6 +83,7 @@ export const AppearancePresetList = memo(function AppearancePresetList({
 						presets={libraryPresets}
 						dragPrefix={LIBRARY_PRESET_DRAG_PREFIX}
 						onApply={onApplyLibraryPreset}
+						onEdit={onEditLibraryPreset}
 						onExportJson={onExportJson}
 					/>
 				</div>
@@ -85,6 +98,7 @@ function PresetGroup({
 	presets,
 	dragPrefix,
 	onApply,
+	onEdit,
 	onSaveToLibrary,
 	onExportJson,
 }: {
@@ -93,6 +107,7 @@ function PresetGroup({
 	presets: readonly AppearancePreset[];
 	dragPrefix: string;
 	onApply: (uid: string) => void;
+	onEdit: (uid: string) => void;
 	/** Document presets only: offers "save to library" on the row menu. */
 	onSaveToLibrary?: (preset: AppearancePreset) => void;
 	onExportJson: (preset: AppearancePreset) => void;
@@ -111,6 +126,7 @@ function PresetGroup({
 						preset={preset}
 						dragId={`${dragPrefix}${preset.uid}`}
 						onApply={onApply}
+						onEdit={onEdit}
 						onSaveToLibrary={onSaveToLibrary}
 						onExportJson={onExportJson}
 					/>
@@ -124,12 +140,14 @@ function PresetRow({
 	preset,
 	dragId,
 	onApply,
+	onEdit,
 	onSaveToLibrary,
 	onExportJson,
 }: {
 	preset: AppearancePreset;
 	dragId: string;
 	onApply: (uid: string) => void;
+	onEdit: (uid: string) => void;
 	onSaveToLibrary?: (preset: AppearancePreset) => void;
 	onExportJson: (preset: AppearancePreset) => void;
 }) {
@@ -175,6 +193,10 @@ function PresetRow({
 				<Menu.Portal>
 					<Menu.Positioner side="right" sideOffset={4}>
 						<Menu.Popup>
+							<Menu.Item onClick={() => onEdit(preset.uid)}>
+								<Pencil size={14} />
+								{t("filterPanel.presetMenuEdit")}
+							</Menu.Item>
 							{onSaveToLibrary && (
 								<Menu.Item onClick={() => onSaveToLibrary(preset)}>
 									<Library size={14} />

@@ -39,14 +39,10 @@ export const ElementAppearanceControls = memo(
 			});
 		});
 
-		const handleStopPropagation = useEventCallback((e: React.PointerEvent) => {
-			e.stopPropagation();
-		});
-
 		const opacityPercent = Math.round(element.opacity * 100);
 
 		return (
-			<div className="space-y-2" onPointerDown={handleStopPropagation}>
+			<div className="space-y-2">
 				<div className="flex items-center justify-between text-muted-foreground text-xs">
 					<span>{t("filterPanel.opacity")}</span>
 					<FakeInput

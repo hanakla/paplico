@@ -38,6 +38,8 @@ export const webAppearancePresetsRepo: AppearancePresetsRepo = {
 		);
 	},
 
+	// Lists sort by updatedAt, so a rename leaves it alone: bumping it would
+	// move the row and make the rename look like it landed on another preset.
 	async rename(uid, name) {
 		// `modify` with a function sidesteps Dexie's UpdateSpec mapped type,
 		// which cannot express Filter.subFilters' recursion.
@@ -46,7 +48,6 @@ export const webAppearancePresetsRepo: AppearancePresetsRepo = {
 			.equals(uid)
 			.modify((preset) => {
 				preset.name = name;
-				preset.updatedAt = Date.now();
 			});
 	},
 

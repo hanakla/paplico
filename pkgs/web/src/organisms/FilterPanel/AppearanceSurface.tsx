@@ -97,9 +97,16 @@ function AppearanceSurfaceContent({
 		if (!next) close();
 	});
 
+	// The sheet is portaled, but React events still bubble to the sortable row
+	// that owns it. Stop them here so dragging a slider inside the sheet never
+	// starts a row drag. `Popover.Content` already does the same for itself.
+	const stopPointerDown = useEventCallback((e: React.PointerEvent) => {
+		e.stopPropagation();
+	});
+
 	if (!isSheet) {
 		return (
-			<Popover.Content side="left" sideOffset={8} className="min-w-64 p-3">
+			<Popover.Content side="left" sideOffset={16} className="min-w-64 p-3">
 				{children}
 			</Popover.Content>
 		);
@@ -124,7 +131,12 @@ function AppearanceSurfaceContent({
 						{title}
 					</div>
 				)}
-				<div className="flex-1 min-h-0 overflow-y-auto p-3">{children}</div>
+				<div
+					className="flex-1 min-h-0 overflow-y-auto p-3"
+					onPointerDown={stopPointerDown}
+				>
+					{children}
+				</div>
 			</Drawer.Content>
 		</Drawer.Root>
 	);

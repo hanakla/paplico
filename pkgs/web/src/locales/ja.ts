@@ -874,8 +874,8 @@ export const ja = {
 		presetSaveToLibrary: "ライブラリに保存",
 		presetAddFromLibrary: "ライブラリから追加",
 		presetLibraryEmpty: "-",
-		presetExportJson: "プリセットを JSON に書き出し",
-		presetImportJson: "JSON からプリセットを読み込み…",
+		presetExportJson: "JSON に書き出し",
+		presetImportJson: "JSON から読み込み",
 		presetImportError: "プリセットファイルを読み込めませんでした",
 		presetLocalRefsError:
 			"このプリセットはこのドキュメントにしかないファイルやパターンを使っています",
@@ -890,8 +890,10 @@ export const ja = {
 		presetListLibrary: "ライブラリ",
 		presetMissing: "見つからないプリセット",
 		presetEdit: "プリセットを編集",
+		presetMenuEdit: "編集",
 		presetEditing: "プリセットを編集中",
 		presetEditDone: "完了",
+		presetEditCancel: "保存せずにもどる",
 		compositionModes: {
 			normal: "ロックなし",
 			"alpha-lock": "アルファロック",

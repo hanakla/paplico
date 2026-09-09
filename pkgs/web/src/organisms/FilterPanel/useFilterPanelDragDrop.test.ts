@@ -1,7 +1,10 @@
 import type { DragEndEvent, DragOverEvent } from "@dnd-kit/core";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { useFilterPanelDragDrop } from "./useFilterPanelDragDrop";
+import {
+	STACK_DROP_ID,
+	useFilterPanelDragDrop,
+} from "./useFilterPanelDragDrop";
 
 function setup() {
 	const commands = {
@@ -89,6 +92,19 @@ describe("useFilterPanelDragDrop preset drags", () => {
 		expect(commands.insertAppearancePresetRef.mock.calls[0]).toEqual([
 			"doc-uid",
 			0,
+		]);
+	});
+
+	it("should append the preset when dropped on the stack itself", () => {
+		const { commands, hook } = setup();
+
+		act(() =>
+			hook.result.current.handleDragEnd(dragEnd("preset:ap-1", STACK_DROP_ID)),
+		);
+
+		expect(commands.insertAppearancePresetRef.mock.calls[0]).toEqual([
+			"ap-1",
+			2,
 		]);
 	});
 

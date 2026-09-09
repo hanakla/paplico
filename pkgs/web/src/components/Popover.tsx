@@ -85,16 +85,27 @@ function PopoverContent({
 					onMouseDown={stopPropagation}
 					onPointerDown={stopPropagation}
 					className={twm(
-						"max-w-(--available-width) rounded-lg border border-border/50 bg-background/80 backdrop-liquid p-3 shadow-lg outline-none",
+						"isolate max-w-(--available-width) rounded-lg p-3 shadow-lg outline-none",
 						"origin-(--transform-origin) transition-[transform,scale,opacity] duration-150 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
 						"data-starting-style:opacity-0 data-starting-style:scale-50",
 						"data-ending-style:opacity-0 data-ending-style:scale-50",
 						className,
 					)}
 				>
+					{/* The glass lives on a child, not on Popup itself: backdrop-filter
+					    clips to the border box of the nearest filtered ancestor, so a
+					    frosted Popup would leave the protruding arrow unfrosted. */}
+					<div
+						aria-hidden="true"
+						className="absolute inset-0 -z-10 rounded-lg border border-border/50 bg-background/80 backdrop-liquid"
+					/>
+					{/* Plain blur instead of `backdrop-liquid`: its displacement
+					    reaches 30px, which on a 10px element drags in dark samples
+					    from outside the box. The clip keeps the frosting to the
+					    arrow shape. */}
 					<BUIPopover.Arrow
 						className={twm(
-							"backdrop-liquid",
+							"backdrop-blur-[20px] backdrop-saturate-[1.8] [clip-path:polygon(0_8px,10px_0,20px_8px,20px_10px,0_10px)]",
 							"data-[side=bottom]:top-[-8px]",
 							"data-[side=top]:bottom-[-8px] data-[side=top]:rotate-180",
 							"data-[side=left]:right-[-13px] data-[side=left]:rotate-90",

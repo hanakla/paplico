@@ -13,7 +13,7 @@ import type { useAppearancePresets } from "@/hooks/useAppearancePresets";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 
-/** `…` menu of the appearance panel header: save the selection as a preset, import a JSON preset, manage presets. */
+/** `…` menu of the preset section: save the selection as a preset, import a JSON preset, manage presets. */
 export const AppearancePresetMenu = memo(function AppearancePresetMenu({
 	element,
 	library,

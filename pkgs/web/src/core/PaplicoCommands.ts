@@ -3464,6 +3464,12 @@ export class PaplicoCommands {
 		);
 	}
 
+	/** Put a preset back to an earlier state, e.g. when an edit is abandoned. */
+	public restoreAppearancePreset(preset: AppearancePreset): void {
+		if (this.cannotMutate() || !this.getAppearancePreset(preset.uid)) return;
+		this.ctx.yjsProvider.setAppearancePreset(preset, this.getMutationOrigin());
+	}
+
 	public renameAppearancePreset(presetUid: string, name: string): void {
 		if (this.cannotMutate()) return;
 		const preset = this.getAppearancePreset(presetUid);

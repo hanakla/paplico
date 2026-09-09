@@ -59,12 +59,14 @@ export const tauriAppearancePresetsRepo: AppearancePresetsRepo = {
 		);
 	},
 
+	// Lists sort by updatedAt, so a rename leaves it alone: bumping it would
+	// move the row and make the rename look like it landed on another preset.
 	async rename(uid, name) {
 		const db = await getAppearancePresetsDatabase();
-		await db.execute(
-			"UPDATE appearancePresets SET name = ?, updatedAt = ? WHERE uid = ?",
-			[name, Date.now(), uid],
-		);
+		await db.execute("UPDATE appearancePresets SET name = ? WHERE uid = ?", [
+			name,
+			uid,
+		]);
 	},
 
 	async delete(uid) {
