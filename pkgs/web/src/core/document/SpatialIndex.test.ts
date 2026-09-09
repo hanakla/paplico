@@ -1049,6 +1049,23 @@ describe("SpatialIndex", () => {
 			expect(idx.findPathAtPoint("layer-1", 0, 0, 5, true)).toBe(pathChild);
 		});
 
+		it("findPathAtPoint with deepSearch returns the frontmost overlapping path inside a group", () => {
+			// childIds[0] is backmost, last is frontmost — same as layer.elementIds.
+			const back = makePath("back");
+			const front = makePath("front");
+			const group = makeGroup("group-1", ["back", "front"]);
+			const layer = makeLayer("layer-1", ["group-1"]);
+			const store = makeStore([layer], {
+				"group-1": group,
+				back,
+				front,
+			});
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+
+			expect(idx.findPathAtPoint("layer-1", 0, 0, 5, true)).toBe(front);
+		});
+
 		it("findPathAtPoint with deepSearch still respects clip path rejection", () => {
 			const clipShape = makeClosedPath("clip-shape");
 			const pathChild = makePath("path-a");

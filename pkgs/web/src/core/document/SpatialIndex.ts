@@ -1305,7 +1305,10 @@ export class SpatialIndex {
 		y: LocalCoord,
 		tolerance: number,
 	): Path | null {
-		for (const childId of childIds) {
+		// childIds[0] draws backmost, so walk from the end to hit the frontmost
+		// path first, matching the layer-level Z-order resolution.
+		for (let i = childIds.length - 1; i >= 0; i--) {
+			const childId = childIds[i];
 			const child = this.store.document.objects[childId];
 			if (!child || !isElementVisible(child) || this.isElementLocked(childId))
 				continue;
