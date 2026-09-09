@@ -980,6 +980,101 @@ describe("parseSvgToArtObjects – <image> element", () => {
 	});
 });
 
+// --- parseSvgToArtObjects – <use> element ---
+
+describe("parseSvgToArtObjects – <use> element", () => {
+	const PNG_1X1 =
+		"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+	it("<use> of a defs <image> places the image at the use position", async () => {
+		// Image 100x100 at (0,0), use x/y (50,50) → SVG center (100,100) → world (0,0)
+		const result = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 200 200">
+        <defs><image id="img" width="100" height="100" xlink:href="${PNG_1X1}"/></defs>
+        <use x="50" y="50" xlink:href="#img"/>
+      </svg>`,
+			0,
+			0,
+		);
+		expect(result.topLevelIds).toHaveLength(1);
+		const imageObj = result.objects.get(result.topLevelIds[0]);
+		expect(imageObj?.type).toBe("image");
+		if (imageObj?.type !== "image") return;
+		expect(imageObj.x).toBeCloseTo(0);
+		expect(imageObj.y).toBeCloseTo(0);
+		expect(result.files).toHaveLength(1);
+	});
+
+	it("two <use> of the same image share one embedded file", async () => {
+		const result = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 200 200">
+        <defs><image id="img" width="10" height="10" xlink:href="${PNG_1X1}"/></defs>
+        <use href="#img"/>
+        <use x="20" href="#img"/>
+      </svg>`,
+			0,
+			0,
+		);
+		expect(result.topLevelIds).toHaveLength(2);
+		expect(result.files).toHaveLength(1);
+	});
+
+	it("<use transform> is applied before the x/y translation", async () => {
+		// rect 10x10 at origin; use scale(2) then x=5 → SVG rect spans (10..30, 0..20)
+		const result = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <defs><rect id="r" width="10" height="10"/></defs>
+        <use x="5" transform="scale(2)" href="#r"/>
+      </svg>`,
+			0,
+			0,
+		);
+		expect(result.topLevelIds).toHaveLength(1);
+		const path = result.objects.get(result.topLevelIds[0]) as Path;
+		const xs = path.segments.map((seg) => seg.end.x);
+		const ys = path.segments.map((seg) => seg.end.y);
+		// viewBox center (50,50): SVG x 10..30 → world -40..-20, SVG y 0..20 → world 50..30
+		expect(Math.min(...xs)).toBeCloseTo(-40);
+		expect(Math.max(...xs)).toBeCloseTo(-20);
+		expect(Math.min(...ys)).toBeCloseTo(30);
+		expect(Math.max(...ys)).toBeCloseTo(50);
+	});
+
+	it("<use> mix-blend-mode wraps the referenced element in a group", async () => {
+		const result = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <style>.blend { mix-blend-mode: screen; }</style>
+        <defs><rect id="r" width="10" height="10"/></defs>
+        <use class="blend" href="#r"/>
+      </svg>`,
+			0,
+			0,
+		);
+		expect(result.topLevelIds).toHaveLength(1);
+		const group = result.objects.get(result.topLevelIds[0]) as Group;
+		expect(group.type).toBe("group");
+		expect(group.blendMode).toBe("screen");
+		expect(group.childIds).toHaveLength(1);
+		expect(result.objects.get(group.childIds[0])?.type).toBe("path");
+	});
+
+	it("a self-referencing <use> expands once and stops", async () => {
+		const result = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <g id="loop"><use href="#loop"/><rect width="10" height="10"/></g>
+      </svg>`,
+			0,
+			0,
+		);
+		// The <use> expands #loop once; inside that expansion the nested <use>
+		// is cut off, so the outer group ends up with the expanded rect and its own.
+		expect(result.topLevelIds).toHaveLength(1);
+		const group = result.objects.get(result.topLevelIds[0]) as Group;
+		expect(group.type).toBe("group");
+		expect(group.childIds).toHaveLength(2);
+	});
+});
+
 // --- parseSvgToArtObjects – <text> element ---
 
 describe("parseSvgToArtObjects – <text> element", () => {
@@ -1083,6 +1178,58 @@ describe("parseSvgToArtObjects – text writing-mode and dx/dy", () => {
 });
 
 // --- parseSvgToArtObjects – filter effects ---
+
+describe("parseSvgToArtObjects – vertical text columns", () => {
+	it("shifts a vertical text anchor left by half the font size", async () => {
+		const horizontal = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <text x="40" y="10" font-size="10">縦</text>
+      </svg>`,
+			0,
+			0,
+		);
+		const vertical = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <text x="40" y="10" font-size="10" writing-mode="tb">縦</text>
+      </svg>`,
+			0,
+			0,
+		);
+		const h = horizontal.objects.get(horizontal.topLevelIds[0]) as TextElement;
+		const v = vertical.objects.get(vertical.topLevelIds[0]) as TextElement;
+		expect(v.x).toBeCloseTo(h.x - 5);
+		expect(v.y).toBeCloseTo(h.y);
+	});
+
+	it("splits vertical <tspan x> into columns with a lineHeight matching the x delta", async () => {
+		const result = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <text x="40" y="10" font-size="10" writing-mode="tb"><tspan x="0">一列目</tspan><tspan x="-12.9">二列目</tspan></text>
+      </svg>`,
+			0,
+			0,
+		);
+		const text = result.objects.get(result.topLevelIds[0]) as TextElement;
+		const paragraphs = text.content.paragraphs;
+		expect(paragraphs).toHaveLength(2);
+		expect(paragraphs[0].runs[0].text).toBe("一列目");
+		expect(paragraphs[1].runs[0].text).toBe("二列目");
+		expect(paragraphs[1].runs[0].style.lineHeight).toBeCloseTo(1.29);
+	});
+
+	it("keeps horizontal <tspan x> in a single paragraph", async () => {
+		const result = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <text x="0" y="10" font-size="10"><tspan x="0">a</tspan><tspan x="20">b</tspan></text>
+      </svg>`,
+			0,
+			0,
+		);
+		const text = result.objects.get(result.topLevelIds[0]) as TextElement;
+		expect(text.content.paragraphs).toHaveLength(1);
+		expect(text.content.paragraphs[0].runs).toHaveLength(2);
+	});
+});
 
 describe("parseSvgToArtObjects – filter effects", () => {
 	it("feOffset+feFlood+feGaussianBlur → drop-shadow (Y-flipped offset)", async () => {

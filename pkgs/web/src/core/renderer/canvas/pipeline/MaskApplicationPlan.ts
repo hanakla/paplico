@@ -20,6 +20,10 @@ export interface MaskApplicationFacts {
 	outputPlacement: SurfacePlacement["kind"];
 	hasPostFilter: boolean;
 	requiresSubtreeBoundary: boolean;
+	/** A subtree whose children draw straight onto the target (a passthrough
+	 *  group, or a clip group drawn through its effective mask). Its children
+	 *  carry their own inline masks, so the subtree itself needs no plan. */
+	inlineContainer?: boolean;
 }
 
 export type GroupIsolationReason = "mask" | "clip" | "opacity" | "filter";
@@ -44,6 +48,14 @@ export function planMaskApplication(
 	facts: MaskApplicationFacts,
 ): MaskApplicationPlan {
 	if (facts.masks.length === 0) return { kind: "none" };
+	if (
+		facts.node === "subtree" &&
+		facts.inlineContainer &&
+		!facts.hasPostFilter &&
+		!facts.requiresSubtreeBoundary
+	) {
+		return { kind: "none" };
+	}
 
 	const [firstMask] = facts.masks;
 	if (

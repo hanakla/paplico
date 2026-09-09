@@ -1,3 +1,4 @@
+import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
 import {
 	createArtboard,
@@ -6,10 +7,12 @@ import {
 	createDefaultTransform,
 } from "../../../document/factory";
 import {
+	type EmbeddedFile,
 	type FillAppearance,
 	type Filter,
 	type Group,
 	generateUid,
+	type ImageObject,
 	type Path,
 	type PathSegment,
 } from "../../../schema";
@@ -103,6 +106,53 @@ describe("Top-level atlas masking", () => {
 		expect(box.width).toBeLessThanOrEqual(65);
 		expect(box.height).toBeGreaterThanOrEqual(55);
 		expect(box.height).toBeLessThanOrEqual(65);
+	});
+});
+
+describe("Offscreen pixel alignment", () => {
+	it("keeps edges crisp through nested clip groups with fractional bounds", async () => {
+		// Each offscreen bake snaps to the target's pixel grid; without that a
+		// 0.37px clip offset blurs the content edge by ~2px per nesting level.
+		const gray = await renderNestedFractionalClipsAndMeasureEdge();
+		expect(gray).toBe(0);
+	});
+});
+
+describe("Clip groups are not isolated", () => {
+	it("multiplies a nested clip group's child against the document beneath", async () => {
+		const { inside, outside } = await renderNestedClipMultiplyAndSample();
+		// Blue × red under multiply is black; a composited (isolated) group would
+		// leave the child blue.
+		expect(inside[0]).toBeLessThan(20);
+		expect(inside[2]).toBeLessThan(20);
+		// The nested clip still cuts the child: past its clip the red shows.
+		expect(outside[0]).toBeGreaterThan(235);
+		expect(outside[2]).toBeLessThan(20);
+	});
+
+	it("still clips an image inside a blended group nested in clip groups", async () => {
+		// A screen-blended group composites as one layer, so its own bake must
+		// carry the inherited clips: the wide image inside must not paint past
+		// the inner clip.
+		const { inside, outside } = await renderNestedClipMultiplyAndSample(
+			1,
+			"screen",
+			"image",
+		);
+		expect(inside[0]).toBeGreaterThan(235);
+		expect(inside[2]).toBeGreaterThan(235);
+		expect(outside[0]).toBeGreaterThan(235);
+		expect(outside[2]).toBeLessThan(20);
+	});
+
+	it("keeps that behaviour when the clip group is drawn inside an offscreen bake", async () => {
+		// The enclosing group's opacity forces an offscreen bake; the multiply
+		// child must still see the red rect drawn earlier in that bake. Black at
+		// half opacity over white reads mid-grey; blue would keep a high blue.
+		const { inside } = await renderNestedClipMultiplyAndSample(0.5);
+		expect(inside[0]).toBeGreaterThan(100);
+		expect(inside[0]).toBeLessThan(160);
+		expect(inside[2]).toBeLessThan(160);
 	});
 });
 
@@ -241,6 +291,187 @@ function createAtlasMaskedGroupDoc() {
 	return doc;
 }
 
+async function renderNestedFractionalClipsAndMeasureEdge() {
+	const { renderer, canvas } = await createTestRenderer();
+	const doc = createNestedFractionalClipDoc();
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	texture.destroy();
+	// Content spans world x -150..150 → screen 250..550. Count intermediate
+	// values along the row through the centre where it crosses the left edge.
+	let gray = 0;
+	for (let x = 240; x < 260; x++) {
+		const v = pixels[(300 * 800 + x) * 4];
+		if (v > 12 && v < 243) gray++;
+	}
+	return gray;
+}
+
+function createNestedFractionalClipDoc() {
+	const doc = createDefaultDocument("fractional-clip-vrt");
+	const layer = createDefaultLayer("layer-bg", "Background");
+	const child: Path = {
+		type: "path",
+		id: generateUid("path"),
+		opacity: 1,
+		blendMode: "normal",
+		segments: rectSegments(0, 0, 300, 300),
+		filters: [solidFill(0, 0, 0)],
+		transform: createDefaultTransform(),
+	};
+	doc.objects[child.id] = child;
+	let contentId = child.id;
+	// Clips larger than the content (so its edge stays visible) and larger
+	// than the mask atlas limit, offset by a fractional amount per level.
+	for (let level = 0; level < 4; level++) {
+		const offset = 0.37 * (level + 1);
+		const size = 320 + level * 10;
+		const clipPath: Path = {
+			...child,
+			id: generateUid("clip-path"),
+			segments: rectSegments(offset, -offset, size, size),
+			filters: [solidFill(1, 1, 1)],
+		};
+		const group: Group = {
+			type: "group",
+			id: generateUid("group"),
+			opacity: 1,
+			blendMode: "normal",
+			childIds: [contentId, clipPath.id],
+			clipPathId: clipPath.id,
+			transform: createDefaultTransform(),
+			filters: [],
+		};
+		doc.objects[clipPath.id] = clipPath;
+		doc.objects[group.id] = group;
+		contentId = group.id;
+	}
+	layer.elementIds.push(contentId);
+	doc.layers = [layer];
+	return doc;
+}
+
+async function renderNestedClipMultiplyAndSample(
+	outerOpacity = 1,
+	innerGroupBlend: Group["blendMode"] = "normal",
+	content: "path" | "image" = "path",
+) {
+	const { renderer, canvas } = await createTestRenderer();
+	const doc = createNestedClipMultiplyDoc(
+		outerOpacity,
+		innerGroupBlend,
+		content,
+	);
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	texture.destroy();
+	const at = (x: number, y: number) => {
+		const i = (y * 800 + x) * 4;
+		return [pixels[i], pixels[i + 1], pixels[i + 2]] as const;
+	};
+	// Blue child covers world x -100..100 clipped to x -50..50 (screen 350..450).
+	return { inside: at(400, 300), outside: at(470, 300) };
+}
+
+/**
+ * Red rect under a clip group nested in another clip group whose child is a
+ * blue multiply rect. Wrapping everything in a group with `outerOpacity` < 1
+ * routes the whole thing through an offscreen bake. `innerGroupBlend` wraps
+ * the blue rect in a group with that blend mode between the two clips.
+ */
+function createNestedClipMultiplyDoc(
+	outerOpacity: number,
+	innerGroupBlend: Group["blendMode"] = "normal",
+	content: "path" | "image" = "path",
+) {
+	const doc = createDefaultDocument("nested-clip-multiply-vrt");
+	const layer = createDefaultLayer("layer-bg", "Background");
+	const red: Path = {
+		type: "path",
+		id: generateUid("red"),
+		opacity: 1,
+		blendMode: "normal",
+		segments: rectSegments(0, 0, 400, 300),
+		filters: [solidFill(1, 0, 0)],
+		transform: createDefaultTransform(),
+	};
+	const bluePath: Path = {
+		...red,
+		id: generateUid("blue"),
+		blendMode: "multiply",
+		segments: rectSegments(0, 0, 200, 100),
+		filters: [solidFill(0, 0, 1)],
+	};
+	const blueImage = solidImage("blue-image", 0, 0, 1, 200, 100);
+	doc.files.push(blueImage.file);
+	const blue: Path | ImageObject =
+		content === "image" ? blueImage.image : bluePath;
+	const innerClip: Path = {
+		...red,
+		id: generateUid("inner-clip"),
+		segments: rectSegments(0, 0, 100, 200),
+		filters: [solidFill(1, 1, 1)],
+	};
+	const blended: Group = {
+		type: "group",
+		id: generateUid("blended"),
+		opacity: 1,
+		blendMode: innerGroupBlend,
+		childIds: [blue.id],
+		transform: createDefaultTransform(),
+		filters: [],
+	};
+	const inner: Group = {
+		...blended,
+		id: generateUid("inner"),
+		blendMode: "normal",
+		childIds: [
+			innerClip.id,
+			innerGroupBlend === "normal" ? blue.id : blended.id,
+		],
+		clipPathId: innerClip.id,
+	};
+	const outerClip: Path = {
+		...innerClip,
+		id: generateUid("outer-clip"),
+		segments: rectSegments(0, 0, 300, 300),
+	};
+	const outer: Group = {
+		...inner,
+		id: generateUid("outer"),
+		childIds: [outerClip.id, inner.id],
+		clipPathId: outerClip.id,
+	};
+	const wrapper: Group = {
+		...inner,
+		id: generateUid("wrapper"),
+		opacity: outerOpacity,
+		childIds: [red.id, outer.id],
+		clipPathId: undefined,
+	};
+	for (const el of [
+		red,
+		blue,
+		blended,
+		innerClip,
+		inner,
+		outerClip,
+		outer,
+		wrapper,
+	]) {
+		doc.objects[el.id] = el;
+	}
+	layer.elementIds.push(wrapper.id);
+	doc.layers = [layer];
+	return doc;
+}
+
 function createNestedAtlasMaskedGroupDoc() {
 	const doc = createDefaultDocument("nested-atlas-mask-vrt");
 	const layer = createDefaultLayer("layer-bg", "Background");
@@ -314,6 +545,45 @@ function createTopLevelAtlasMaskedPathDoc(blendMode: Path["blendMode"]) {
 	doc.layers = [layer];
 	doc.artboards.push(createArtboard("ab", "AB", 0, 0, 400, 220));
 	return doc;
+}
+
+/** A 4×4 solid PNG embedded file plus an ImageObject that stretches it. */
+function solidImage(
+	id: string,
+	r: number,
+	g: number,
+	b: number,
+	width: number,
+	height: number,
+): { file: EmbeddedFile; image: ImageObject } {
+	const png = new PNG({ width: 4, height: 4 });
+	for (let i = 0; i < png.data.length; i += 4) {
+		png.data[i] = Math.round(r * 255);
+		png.data[i + 1] = Math.round(g * 255);
+		png.data[i + 2] = Math.round(b * 255);
+		png.data[i + 3] = 255;
+	}
+	const file: EmbeddedFile = {
+		uid: `${id}-file`,
+		name: `${id}.png`,
+		type: "image/png",
+		hash: id,
+		bin: new Uint8Array(PNG.sync.write(png)),
+	};
+	const image: ImageObject = {
+		type: "image",
+		id: generateUid(id),
+		fileUid: file.uid,
+		x: 0,
+		y: 0,
+		width,
+		height,
+		opacity: 1,
+		blendMode: "normal",
+		transform: createDefaultTransform(),
+		filters: [],
+	};
+	return { file, image };
 }
 
 function solidFill(r: number, g: number, b: number): FillAppearance {

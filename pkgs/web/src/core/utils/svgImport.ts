@@ -149,6 +149,8 @@ interface ParseState {
 	objects: Map<string, AnyArtObject>;
 	files: EmbeddedFile[];
 	defs: DefEntry[];
+	/** ids of <use> targets currently being expanded, to cut reference cycles. */
+	activeUseIds: Set<string>;
 }
 
 // --- Entry Point ---
@@ -194,6 +196,7 @@ export async function parseSvgToArtObjects(
 			objects: new Map(),
 			files: [],
 			defs: [],
+			activeUseIds: new Set(),
 		};
 
 		// Materialize <pattern> defs before element processing so fill/stroke
@@ -620,6 +623,7 @@ async function materializePatternDefs(
 			objects: state.objects,
 			files: state.files,
 			defs: state.defs,
+			activeUseIds: state.activeUseIds,
 		};
 		const rootElementIds = await processChildren(
 			el,
@@ -827,34 +831,18 @@ async function processElement(
 				overlayInheritedProps(getElProp, inherited),
 			);
 			if (childIds.length === 0) break;
-			const groupFilters = buildFilterAppearances(
-				getElProp("filter"),
-				state.ctx,
-			);
-			const groupBlend =
-				resolveBlendMode(getElProp("mix-blend-mode")) ?? "normal";
-			// Single child with opacity=1, normal blend and no filter: skip the
-			// wrapping group. A filter must keep the group so it applies to the subtree.
-			if (
-				childIds.length === 1 &&
-				opacity === 1 &&
-				groupBlend === "normal" &&
-				groupFilters.length === 0
-			) {
-				baseId = childIds[0];
-				break;
-			}
-			const group: Group = {
-				type: "group",
-				id: generateUid("obj"),
-				childIds,
+			baseId = wrapChildren(childIds, opacity, getElProp, state);
+			break;
+		}
+		case "use": {
+			baseId = await buildUseReference(
+				el,
+				ctm,
 				opacity,
-				blendMode: groupBlend,
-				transform: createIdentityTransform(),
-				filters: groupFilters,
-			};
-			state.objects.set(group.id, group);
-			baseId = group.id;
+				getElProp,
+				state,
+				inherited,
+			);
 			break;
 		}
 		case "image": {
@@ -930,6 +918,81 @@ async function applyClipPath(
 	};
 	state.objects.set(wrapperGroup.id, wrapperGroup);
 	return wrapperGroup.id;
+}
+
+/**
+ * Group `childIds` under one Group carrying the element's own opacity, blend
+ * mode and effect filters. A single child with opacity 1, normal blend and no
+ * filter needs no wrapper; a filter always keeps the group so it applies to
+ * the whole subtree.
+ */
+function wrapChildren(
+	childIds: string[],
+	opacity: number,
+	getElProp: (name: string) => string | null,
+	state: ParseState,
+): string {
+	const filters = buildFilterAppearances(getElProp("filter"), state.ctx);
+	const blendMode = resolveBlendMode(getElProp("mix-blend-mode")) ?? "normal";
+	if (
+		childIds.length === 1 &&
+		opacity === 1 &&
+		blendMode === "normal" &&
+		filters.length === 0
+	) {
+		return childIds[0];
+	}
+	const group: Group = {
+		type: "group",
+		id: generateUid("obj"),
+		childIds,
+		opacity,
+		blendMode,
+		transform: createIdentityTransform(),
+		filters,
+	};
+	state.objects.set(group.id, group);
+	return group.id;
+}
+
+/**
+ * Expand a <use> by processing its referenced element under the use's CTM
+ * (`parent × transform × translate(x, y)`), inheriting the use's presentation
+ * attributes. The use's own opacity / blend / filter wrap the result.
+ */
+async function buildUseReference(
+	el: Element,
+	ctm: DOMMatrix,
+	opacity: number,
+	getElProp: (name: string) => string | null,
+	state: ParseState,
+	inherited: Record<string, string>,
+): Promise<string | null> {
+	const href =
+		el.getAttributeNS("http://www.w3.org/1999/xlink", "href") ??
+		el.getAttribute("href") ??
+		"";
+	const refId = href.startsWith("#") ? href.slice(1) : null;
+	if (!refId || state.activeUseIds.has(refId)) return null;
+	const referenced = el.ownerDocument.getElementById(refId);
+	if (!referenced) return null;
+
+	const x = parseFloat(el.getAttribute("x") ?? "0") || 0;
+	const y = parseFloat(el.getAttribute("y") ?? "0") || 0;
+
+	state.activeUseIds.add(refId);
+	try {
+		const childId = await processElement(
+			referenced,
+			ctm.translate(x, y),
+			state,
+			overlayInheritedProps(getElProp, inherited),
+		);
+		if (!childId) return null;
+		return wrapChildren([childId], opacity, getElProp, state);
+	} finally {
+		state.activeUseIds.delete(refId);
+	}
 }
 
 async function buildImageObject(
@@ -1301,26 +1364,37 @@ function buildTextElement(
 	// positioning) is not represented — runs are concatenated at the anchor.
 	const dx = parseFloat(el.getAttribute("dx") ?? "0");
 	const dy = parseFloat(el.getAttribute("dy") ?? "0");
+	const baseStyle = applyTextStyle(createBaseTextStyle(), getElProp);
+	const writingMode = svgWritingMode(getElProp("writing-mode"));
+	const vertical = writingMode !== "horizontal-tb";
+	// SVG centers a vertical column on x; layoutVertical puts the glyph's left
+	// edge on the column x, so shift the anchor half an em to compensate.
+	const columnOffset = vertical ? baseStyle.fontSize / 2 : 0;
 	const anchor = ctmAndFlip(
-		(Number.isNaN(svgX) ? 0 : svgX) + (Number.isNaN(dx) ? 0 : dx),
+		(Number.isNaN(svgX) ? 0 : svgX) +
+			(Number.isNaN(dx) ? 0 : dx) -
+			columnOffset,
 		(Number.isNaN(svgY) ? 0 : svgY) + (Number.isNaN(dy) ? 0 : dy),
 		ctm,
 		state.ctx,
 	);
 
-	const baseStyle = applyTextStyle(createBaseTextStyle(), getElProp);
-
-	const runs: TextRun[] = [];
-	collectTextRuns(el, baseStyle, state.ctx, runs);
-	if (runs.length === 0) return "";
-
-	const paragraph: TextParagraph = {
-		runs,
-		alignment: svgTextAnchorToAlignment(getElProp("text-anchor")),
-		lineHeight: 1.2,
-		indent: 0,
-		spacing: { before: 0, after: 0 },
-	};
+	const alignment = svgTextAnchorToAlignment(getElProp("text-anchor"));
+	const paragraphs = collectTextParagraphs(
+		el,
+		baseStyle,
+		state.ctx,
+		vertical,
+	).map(
+		(runs): TextParagraph => ({
+			runs,
+			alignment,
+			lineHeight: 1.2,
+			indent: 0,
+			spacing: { before: 0, after: 0 },
+		}),
+	);
+	if (paragraphs.length === 0) return "";
 
 	const textEl: TextElement = {
 		type: "text",
@@ -1330,10 +1404,10 @@ function buildTextElement(
 		transform: createIdentityTransform(),
 		opacity,
 		blendMode: resolveBlendMode(getElProp("mix-blend-mode")) ?? "normal",
-		content: { paragraphs: [paragraph] },
+		content: { paragraphs },
 		defaultStyle: baseStyle,
 		layout: {
-			writingMode: svgWritingMode(getElProp("writing-mode")),
+			writingMode,
 			boxWidth: "auto",
 			boxHeight: "auto",
 			overflow: "visible",
@@ -1431,29 +1505,63 @@ function applyTextStyle(
 	return style;
 }
 
-function collectTextRuns(
-	node: Element,
-	inheritedStyle: TextStyle,
+/**
+ * Collect the runs of a <text>, grouped into paragraphs. Horizontal text is a
+ * single paragraph. In vertical text a <tspan x> starts a new column: each
+ * becomes its own paragraph, and the run styles carry a lineHeight derived
+ * from the x delta so layoutVertical advances the column by exactly that far.
+ */
+function collectTextParagraphs(
+	el: Element,
+	baseStyle: TextStyle,
 	ctx: ParseCtx,
-	runs: TextRun[],
-): void {
-	for (const child of node.childNodes) {
-		if (child.nodeType === Node.TEXT_NODE) {
-			const text = collapseWhitespace(child.textContent ?? "");
-			if (text) runs.push({ text, style: inheritedStyle });
-		} else if (
-			child.nodeType === Node.ELEMENT_NODE &&
-			(child as Element).tagName.toLowerCase() === "tspan"
-		) {
+	vertical: boolean,
+): TextRun[][] {
+	const columns: { x: number | null; runs: TextRun[] }[] = [
+		{ x: null, runs: [] },
+	];
+	const visit = (node: Element, inheritedStyle: TextStyle) => {
+		for (const child of node.childNodes) {
+			if (child.nodeType === Node.TEXT_NODE) {
+				const text = collapseWhitespace(child.textContent ?? "");
+				if (text) columns.at(-1)!.runs.push({ text, style: inheritedStyle });
+				continue;
+			}
+			if (
+				child.nodeType !== Node.ELEMENT_NODE ||
+				(child as Element).tagName.toLowerCase() !== "tspan"
+			) {
+				continue;
+			}
 			const spanEl = child as Element;
+			const spanX = parseFloat(spanEl.getAttribute("x") ?? "");
+			if (vertical && !Number.isNaN(spanX)) {
+				const current = columns.at(-1)!;
+				if (current.runs.length === 0) current.x = spanX;
+				else columns.push({ x: spanX, runs: [] });
+			}
 			// Ancestor style inheritance is already carried by inheritedStyle.
-			const spanStyle = applyTextStyle(
-				inheritedStyle,
-				makeStyleGetter(spanEl, ctx, {}),
+			visit(
+				spanEl,
+				applyTextStyle(inheritedStyle, makeStyleGetter(spanEl, ctx, {})),
 			);
-			collectTextRuns(spanEl, spanStyle, ctx, runs);
 		}
-	}
+	};
+	visit(el, baseStyle);
+
+	return columns
+		.filter((column) => column.runs.length > 0)
+		.map((column, i, all) => {
+			const prev = i > 0 ? all[i - 1] : null;
+			if (prev?.x == null || column.x == null || column.x === prev.x) {
+				return column.runs;
+			}
+			const advance = Math.abs(column.x - prev.x);
+			return column.runs.map((run) => ({
+				...run,
+				style: { ...run.style, lineHeight: advance / run.style.fontSize },
+			}));
+		});
 }
 
 function makeStyleGetter(

@@ -119,6 +119,20 @@ describe("planMaskApplication", () => {
 		).toMatchObject({ kind: "subtree-composite" });
 	});
 
+	it("needs no plan for a group that draws its children inline", () => {
+		const plan = planMaskApplication({
+			node: "subtree",
+			masks: [mask("outer")],
+			outputPlacement: "world-aabb",
+			hasPostFilter: false,
+			requiresSubtreeBoundary: false,
+			inlineContainer: true,
+		});
+
+		expect(plan).toEqual({ kind: "none" });
+		expect(maskPlanRequiresSurface(plan)).toBe(false);
+	});
+
 	it("uses subtree compositing for a Group boundary", () => {
 		expect(
 			planMaskApplication({

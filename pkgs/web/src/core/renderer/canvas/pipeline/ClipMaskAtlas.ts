@@ -28,6 +28,7 @@ import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
 import { createBorrowedTextureRef, type TextureRef } from "./RenderSurface";
 import { quantizeSize, type TexturePool } from "./TexturePool";
 import type { UniformEntry, UniformScope } from "./UniformScope";
+import type { GPUMaskInfo } from "./ViewportManager";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -40,6 +41,11 @@ export interface ClipGroupEntry {
 	clipPathId: string;
 	clipPath: AnyArtObject;
 	groupBounds: BoundingBox;
+	/** Key of this group's effective mask: its clip path intersected with the
+	 *  enclosing clip group's effective mask, so nested clips need one mask. */
+	maskKey: string;
+	/** Effective mask key of the nearest enclosing clip group, if any. */
+	parentMaskKey?: string;
 }
 
 /**
@@ -65,6 +71,10 @@ export interface MaskRenderRequest {
 	/** World-space area the mask texture must cover. */
 	coverBounds: BoundingBox;
 	mode: MaskRenderMode;
+	/** Effective mask this one is intersected with while it is drawn: the
+	 *  sources sample that mask through the regular inline clip path, so the
+	 *  result already carries every enclosing clip. Rendered before this one. */
+	parentKey?: string;
 }
 
 /** Result of looking up a pre-rendered mask. */
@@ -83,9 +93,11 @@ export interface MaskEntry {
 	textureView: GPUTextureView;
 }
 
-/** Cache key for the mask a clip path produces. */
-export function clipMaskKey(clipPathId: string): string {
-	return `clip:${clipPathId}`;
+/** Cache key for the mask a clip path produces. A nested clip group's mask
+ *  is specific to the enclosing effective mask it was intersected with. */
+export function clipMaskKey(clipPathId: string, parentKey?: string): string {
+	const own = `clip:${clipPathId}`;
+	return parentKey ? `${own}|${parentKey}` : own;
 }
 
 /** Cache key for the mask attached to an element via `ArtObject.mask`. */
@@ -106,6 +118,9 @@ interface ClipMaskAtlasDeps extends GPUCoreResources {
 	dummyMaskBindGroup: GPUBindGroup;
 	getTransformsBindGroup: () => GPUBindGroup | null;
 	getTransformIndex: (elementId: string) => number;
+	/** Point the given elements' transform slots at a mask, so drawing them
+	 *  samples it through the inline clip path. */
+	writeMaskInfo: (masks: ReadonlyMap<string, GPUMaskInfo>) => void;
 	renderElementToMask: RenderElementToMaskFn;
 	renderElements: RenderElementsFn;
 	/** How the element currently paints — fill, stroke, referenced pattern
@@ -269,7 +284,17 @@ export class ClipMaskAtlas {
 			};
 		}
 
-		const masks = Array.from(uniqueMasks.values());
+		// A nested mask samples its parent's texture while it is drawn, so
+		// parents must be rendered first. Keys nest as `own|parent|...`, so the
+		// separator count is the nesting depth.
+		const masks = Array.from(uniqueMasks.values()).sort(
+			(a, b) => nestingDepth(a.key) - nestingDepth(b.key),
+		);
+		// The atlas batch is encoded after this loop, so a mask another one
+		// samples as its parent must be drawn in loop order instead.
+		const parentKeys = new Set(
+			masks.flatMap((mask) => (mask.parentKey ? [mask.parentKey] : [])),
+		);
 		const zoom = this.deps.viewportState.current?.zoom ?? 1;
 		const maxDim = this.deps.device.limits.maxTextureDimension2D;
 		const savedBounds = this.deps.viewportState.bounds;
@@ -283,14 +308,17 @@ export class ClipMaskAtlas {
 			const coverage = this.computeCoverage(mask.coverBounds, zoom, maxDim);
 			if (!coverage) continue;
 
-			const fingerprint = this.computeMaskFingerprint(
+			const parent = mask.parentKey
+				? (this.maskCache.get(mask.parentKey) ?? null)
+				: null;
+			const fingerprint = `${this.computeMaskFingerprint(
 				mask,
 				coverage.texWidth,
 				coverage.texHeight,
 				coverage.effectiveZoom,
 				coverage.coverageBounds,
 				elementsMap,
-			);
+			)}${parent ? `<${parent.fingerprint}` : ""}`;
 
 			const cached = this.maskCache.get(mask.key);
 			if (cached && cached.fingerprint === fingerprint) {
@@ -307,19 +335,26 @@ export class ClipMaskAtlas {
 				elementsMap,
 				coverage,
 				fingerprint,
+				parent?.entry ?? null,
+				parentKeys.has(mask.key),
 			);
 			if (rendered) {
 				if (rendered.batchItem) atlasSilhouetteBatch.push(rendered.batchItem);
 				this.maskEntries.set(mask.key, rendered.entry);
+				// A change to any enclosing clip path re-bakes the nested mask too.
+				const dependencyIds = new Set(
+					expandRenderFilter(
+						new Set(mask.sources.map((s) => s.id)),
+						elementsMap,
+					),
+				);
+				for (const id of parent?.dependencyIds ?? []) dependencyIds.add(id);
 				this.maskCache.set(mask.key, {
 					fingerprint,
 					texture: rendered.texture,
 					entry: rendered.entry,
 					atlasRect: rendered.atlasRect,
-					dependencyIds: expandRenderFilter(
-						new Set(mask.sources.map((s) => s.id)),
-						elementsMap,
-					),
+					dependencyIds,
 				});
 			}
 		}
@@ -446,6 +481,8 @@ export class ClipMaskAtlas {
 		elementsMap: Map<string, AnyArtObject>,
 		coverage: MaskCoverage,
 		fingerprint: string,
+		parent: MaskEntry | null,
+		isParent: boolean,
 	): RenderedMask | null {
 		const {
 			logicalWidth,
@@ -468,10 +505,15 @@ export class ClipMaskAtlas {
 			this.atlasAllocator.release(atlasRect);
 			atlasRect = null;
 		}
+		// The atlas batch is drawn after every staged mask and straight into the
+		// atlas, so a nested silhouette (which samples its parent) and any mask
+		// that is itself a parent take the staging route below.
 		if (
 			atlasRect &&
 			atlasDescriptorIndex !== null &&
-			mask.mode === "silhouette"
+			mask.mode === "silhouette" &&
+			!parent &&
+			!isParent
 		) {
 			const atlas = this.ensureAtlasResources();
 			return {
@@ -533,20 +575,29 @@ export class ClipMaskAtlas {
 		this.deps.viewportState.bounds = null;
 
 		// Pipeline and bind groups — same layout as the main geometry passes.
+		// Drawing the sources with the parent mask in their transform slots
+		// clips them by it, so the texture holds the intersection.
+		const inheritedMask = parent?.bindGroup ?? this.deps.dummyMaskBindGroup;
+		if (parent) {
+			this.deps.writeMaskInfo(
+				new Map(mask.sources.map((source) => [source.id, parent])),
+			);
+		}
 		passEncoder.setPipeline(this.deps.strokePipeline);
 		passEncoder.setBindGroup(0, entry.bindGroup);
 		passEncoder.setBindGroup(1, this.deps.getTransformsBindGroup()!);
 		passEncoder.setBindGroup(2, this.deps.dummyGradientBindGroup);
-		passEncoder.setBindGroup(3, this.deps.dummyMaskBindGroup);
+		passEncoder.setBindGroup(3, inheritedMask);
 
 		switch (mask.mode) {
 			case "silhouette": {
-				this.unbindMaskForMaskPass();
+				this.deps.renderState.currentMaskBindGroup = inheritedMask;
 				for (const source of mask.sources) {
 					this.deps.renderState.currentTransformIndex =
 						this.deps.getTransformIndex(source.id);
 					this.deps.renderElementToMask(passEncoder, source, elementsMap);
 				}
+				this.unbindMaskForMaskPass();
 				passEncoder.end();
 				break;
 			}
@@ -830,6 +881,11 @@ export function computeMaskCoverage(
 		texWidth: Math.min(quantizeSize(logicalWidth), maxDim),
 		texHeight: Math.min(quantizeSize(logicalHeight), maxDim),
 	};
+}
+
+/** Nesting depth encoded in a mask key — see clipMaskKey. */
+function nestingDepth(key: string): number {
+	return key.split("|").length;
 }
 
 /** Mask sources are drawn straight from their geometry, never from a filter cache. */

@@ -111,9 +111,11 @@ if (typeof globalThis.ImageData === "undefined") {
 
 /**
  * Polyfill createImageBitmap for Node.js environment
- * BrushTextureManager uses this to load base64 PNG textures
+ * BrushTextureManager uses this to load base64 PNG textures.
+ * happy-dom ships its own createImageBitmap that rejects Node Blobs, so the
+ * polyfill replaces it unconditionally.
  */
-if (typeof globalThis.createImageBitmap === "undefined") {
+{
 	(globalThis as any).createImageBitmap = async (
 		blob: Blob,
 	): Promise<ImageBitmap> => {

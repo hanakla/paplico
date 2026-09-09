@@ -594,6 +594,8 @@ export class CanvasLayer {
 
 	/** BG3 adapter for planner-approved inline-leaf masks and mesh transients. */
 	private inlineMaskEntries = new Map<string, AssignedMask>();
+	/** Clip group id → key of its effective (ancestor-intersected) mask. */
+	private clipGroupMaskKeys = new Map<string, string>();
 
 	/** Planner output owned by the active frame plan. This field is only an
 	 *  alias so recursive render paths do not need to thread the frame plan. */
@@ -1097,6 +1099,7 @@ export class CanvasLayer {
 				this.inlineMaskEntries.get(elementId)?.bindGroup ??
 				this.dummyMaskBindGroup,
 			getElementPostMasks: (elementId) => this.resolveSubtreeMasks(elementId),
+			hasInlineClipMask: (groupId) => this.hasInlineClipMask(groupId),
 			hasIsolatedWashAppearances: (elementId) =>
 				this.hasIsolatedWashAppearances(elementId),
 			renderIsolatedWashAppearances: (encoder, elementId) => {
@@ -1254,6 +1257,12 @@ export class CanvasLayer {
 		);
 	}
 
+	/** Whether a clip group's effective mask is available for inline drawing. */
+	private hasInlineClipMask(groupId: string): boolean {
+		const key = this.clipGroupMaskKeys.get(groupId);
+		return key != null && this.clipMaskAtlas.getMaskEntry(key) !== null;
+	}
+
 	private resolveSubtreeMasks(elementId: string): readonly AssignedMask[] {
 		const plan = this.activeMaskApplicationPlans.get(elementId);
 		if (plan?.kind !== "subtree-composite") return [];
@@ -1302,6 +1311,7 @@ export class CanvasLayer {
 			framePlan.maskApplicationPlans.clear();
 			this.maskEntriesByKey.clear();
 			this.inlineMaskEntries.clear();
+			this.clipGroupMaskKeys.clear();
 			return;
 		}
 
@@ -1372,10 +1382,11 @@ export class CanvasLayer {
 
 		const requests: MaskRenderRequest[] = [
 			...clipGroups.map((entry) => ({
-				key: clipMaskKey(entry.clipPathId),
+				key: entry.maskKey,
 				sources: [entry.clipPath],
 				coverBounds: entry.groupBounds,
 				mode: "silhouette" as const,
+				parentKey: entry.parentMaskKey,
 			})),
 			...meshClipGroups.map((entry) => ({
 				key: clipMaskKey(entry.id),
@@ -1444,6 +1455,10 @@ export class CanvasLayer {
 
 		this.inlineMaskEntries.clear();
 		this.maskEntriesByKey.clear();
+		this.clipGroupMaskKeys.clear();
+		for (const entry of clipGroups) {
+			this.clipGroupMaskKeys.set(entry.groupId, entry.maskKey);
+		}
 
 		if (requests.length === 0) {
 			framePlan.maskApplicationPlans.clear();
@@ -4039,6 +4054,7 @@ export class CanvasLayer {
 							rasterScale,
 							fpFilterMargin,
 							cacheHash != null ? { density: cacheDensity } : null,
+							fp.postFilters.length === 0,
 						)
 					: this.offscreen.renderElementToTexture(
 							encoder,
@@ -4050,6 +4066,7 @@ export class CanvasLayer {
 							fpFilterMargin,
 							undefined,
 							cacheHash != null ? { density: cacheDensity } : null,
+							fp.postFilters.length === 0,
 						);
 
 			if (!rendersOwnSource && !offscreenResult) continue;
@@ -4534,6 +4551,9 @@ export class CanvasLayer {
 					elementsMap,
 					this.viewportManager.getBoundsCache(),
 					rasterScale,
+					null,
+					null,
+					true,
 				)
 			: this.offscreen.renderElementToTexture(
 					encoder,
@@ -4541,6 +4561,11 @@ export class CanvasLayer {
 					bounds,
 					elementsMap,
 					rasterScale,
+					false,
+					null,
+					undefined,
+					null,
+					true,
 				);
 		if (!baked) return null;
 		const masked = this.offscreen.applyWorldMasksToTexture(
@@ -6400,16 +6425,14 @@ export class CanvasLayer {
 					compositeContext !== undefined &&
 					element.clipPathId != null;
 				if (canRenderClipped) {
-					// If the mask is in the atlas, blend mode is normal, and
-					// this group is NOT nested inside another clip group,
-					// render children inline — the fragment shader samples the
-					// mask texture.  Otherwise fall back to the offscreen flow.
-					const hasMaskInAtlas =
-						this.clipMaskAtlas.getMaskEntry(element.clipPathId!) !== null;
+					// A clip alone does not isolate the group: with its effective
+					// mask rendered and a normal blend, the children draw inline
+					// (the fragment shader samples the mask), so their own blend
+					// modes see the document underneath just as they would
+					// outside the clip. A blended group falls back to the
+					// offscreen flow, which composites it as one layer.
 					if (
-						hasMaskInAtlas &&
-						this.activeMaskApplicationPlans.get(element.id)?.kind !==
-							"subtree-composite" &&
+						this.hasInlineClipMask(element.id) &&
 						(element.blendMode === "normal" || element.blendMode === undefined)
 					) {
 						activePass = this.renderGroupAppearanceFilters(
@@ -6893,6 +6916,7 @@ export class CanvasLayer {
 			getTransformsBindGroup: () => this.transformsBindGroup,
 			getTransformIndex: (elementId: string) =>
 				this.viewportManager.getTransformIndex(elementId),
+			writeMaskInfo: (masks) => this.viewportManager.writeMaskInfoOnly(masks),
 			renderElementToMask: (...args) =>
 				this.elements.renderElementToMask(...args),
 			renderElements: (...args) => this.renderElements(...args),
@@ -7568,6 +7592,21 @@ function collectClipGroups(
 	const { elementsMap } = ctx;
 	const parentGroupMap = resolveParentGroupMap(ctx);
 
+	// Effective mask key per clip group: own clip path intersected with the
+	// nearest enclosing clip group's effective mask, recursively.
+	const maskKeys = new Map<string, string>();
+	const effectiveMaskKey = (group: Group): string => {
+		const cached = maskKeys.get(group.id);
+		if (cached) return cached;
+		const parent = enclosingClipGroup(group.id, elementsMap, parentGroupMap);
+		const key = clipMaskKey(
+			group.clipPathId!,
+			parent ? effectiveMaskKey(parent) : undefined,
+		);
+		maskKeys.set(group.id, key);
+		return key;
+	};
+
 	const groups: ClipGroupEntry[] = [];
 	for (const [, element] of elementsMap) {
 		if (!isGroup(element) || element.clipPathId == null) continue;
@@ -7591,14 +7630,32 @@ function collectClipGroups(
 			continue;
 		}
 
+		const parent = enclosingClipGroup(element.id, elementsMap, parentGroupMap);
 		groups.push({
 			groupId: element.id,
 			clipPathId: element.clipPathId,
 			clipPath,
 			groupBounds,
+			maskKey: effectiveMaskKey(element),
+			parentMaskKey: parent ? effectiveMaskKey(parent) : undefined,
 		});
 	}
 	return groups;
+}
+
+/** The nearest ancestor group that carries a clip path, if any. */
+function enclosingClipGroup(
+	elementId: string,
+	elementsMap: Map<string, AnyArtObject>,
+	parentGroupMap: ReadonlyMap<string, string>,
+): Group | null {
+	let parentId = parentGroupMap.get(elementId);
+	while (parentId != null) {
+		const parent = elementsMap.get(parentId);
+		if (parent && isGroup(parent) && parent.clipPathId != null) return parent;
+		parentId = parentGroupMap.get(parentId);
+	}
+	return null;
 }
 
 /**
@@ -7795,17 +7852,17 @@ function buildMaskAssignment(
 			getGroupDepth(b.groupId, parentGroupMap),
 	);
 	for (const entry of sortedClipGroups) {
-		const key = clipMaskKey(entry.clipPathId);
+		const key = entry.maskKey;
 		const maskEntry = atlas.getMaskEntry(key);
 		if (!maskEntry) continue;
 		masksByKey.set(key, maskEntry);
 
 		const group = elementsMap.get(entry.groupId);
 		if (!group || !isGroup(group)) continue;
-		const stack = [
-			...(maskStacks.get(group.id) ?? []),
-			plannedMask(key, maskEntry),
-		];
+		// The effective mask already carries every enclosing clip, so the
+		// children need just this one — which keeps them on the inline path.
+		// The group itself keeps the inherited stack for the offscreen fallback.
+		const stack = [plannedMask(key, maskEntry)];
 		for (const childId of group.childIds) {
 			if (childId === group.clipPathId) continue;
 			assignMaskStackRecursive(childId, stack, elementsMap, maskStacks);
@@ -7841,12 +7898,29 @@ function buildMaskAssignment(
 		);
 	}
 
+	const clipMaskKeyByGroup = new Map(
+		clipGroups.map((entry) => [entry.groupId, entry.maskKey]),
+	);
 	for (const [elementId, masks] of maskStacks) {
 		const element = elementsMap.get(elementId);
 		if (!element) continue;
 		const groupPlan = isGroup(element)
 			? groupCompositionPlans.get(elementId)
 			: undefined;
+		// A group draws its children inline when nothing composites it as one
+		// layer: a normal blend, and either no plan at all or a clip as the
+		// only reason with its effective mask rendered. Its children then keep
+		// their own inline masks and blend against the document like resvg
+		// does. A blended group is baked and composited whole, so it keeps the
+		// subtree plan that masks that bake.
+		const inlineContainer =
+			groupPlan != null &&
+			(element.blendMode ?? "normal") === "normal" &&
+			(element.compositionMode ?? "normal") === "normal" &&
+			(groupPlan.kind === "passthrough" ||
+				(groupPlan.kind === "isolated" &&
+					groupPlan.reasons.every((reason) => reason === "clip") &&
+					masksByKey.has(clipMaskKeyByGroup.get(elementId) ?? "")));
 		const plan = planMaskApplication({
 			node: isGroup(element) ? "subtree" : "leaf",
 			masks,
@@ -7854,7 +7928,10 @@ function buildMaskAssignment(
 			hasPostFilter: filterPlanIds.has(element.id),
 			requiresSubtreeBoundary:
 				drawsViaTexture(element) ||
-				(groupPlan != null && groupPlanRequiresSurface(groupPlan)),
+				(!inlineContainer &&
+					groupPlan != null &&
+					groupPlanRequiresSurface(groupPlan)),
+			inlineContainer,
 		});
 		maskApplicationPlans.set(elementId, plan);
 		if (plan.kind !== "inline-leaf") continue;

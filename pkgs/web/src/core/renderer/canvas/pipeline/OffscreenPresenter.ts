@@ -19,6 +19,7 @@ import {
 	isIdentityTransform,
 	type Path,
 	type StrokeAppearance,
+	type Viewport,
 } from "../../../schema";
 import {
 	boundsIntersect,
@@ -105,6 +106,8 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 	blitQuadToCanvas: BlitQuadToCanvasFn;
 	/** The inline mask assigned to an element this frame, or the dummy when none. */
 	getElementMaskBindGroup: (elementId: string) => GPUBindGroup;
+	/** Whether a clip group's effective mask is available for inline drawing. */
+	hasInlineClipMask: (groupId: string) => boolean;
 	/** The ordered post-mask stack assigned to an element. Group
 	 *  children are baked into the group's texture through their own path, which
 	 *  the main pass's inline BG3 and applyPostMasks both miss — so a masked
@@ -731,12 +734,17 @@ export class OffscreenPresenter {
 		}
 
 		// skipCull: the caller already decided this element is on screen, and
-		// culling again here would drop masks during offscreen bakes.
+		// culling again here would drop masks during offscreen bakes. The bake
+		// only resamples `source`, so aligning it to the target grid is safe:
+		// it moves the one fractional resample here instead of the final blit.
 		const ctx = this.createOffscreenPass(
 			encoder,
 			"Object Mask",
 			bakeBounds,
 			Math.max(sourceScale, this.deps.getRasterScale()),
+			true,
+			null,
+			null,
 			true,
 		);
 		if (!ctx) return null;
@@ -1103,6 +1111,8 @@ export class OffscreenPresenter {
 		filteredTextures?: Map<string, FilteredTextureInfo>,
 		/** Full-bounds bake at a caller-keyed density — see createOffscreenPass. */
 		fullBoundsBake: { density: number } | null = null,
+		/** Snap to the target's pixel grid — see createOffscreenPass. */
+		alignToTargetGrid = false,
 	): RasterizedRenderSurface | null {
 		const ctx = this.createOffscreenPass(
 			encoder,
@@ -1112,6 +1122,7 @@ export class OffscreenPresenter {
 			skipCull,
 			filterMargin,
 			fullBoundsBake,
+			alignToTargetGrid,
 		);
 		if (!ctx) return null;
 
@@ -1367,6 +1378,8 @@ export class OffscreenPresenter {
 		filterMargin: number | null = null,
 		/** Full-bounds bake at a caller-keyed density — see createOffscreenPass. */
 		fullBoundsBake: { density: number } | null = null,
+		/** Snap to the target's pixel grid — see createOffscreenPass. */
+		alignToTargetGrid = false,
 	): RasterizedRenderSurface | null {
 		if (
 			Math.ceil(textureBounds.width) <= 0 ||
@@ -1517,6 +1530,8 @@ export class OffscreenPresenter {
 						localBoundsCache,
 						rasterScale,
 						childExpansion,
+						null,
+						!childNeedsPostPass,
 					)
 				: this.renderElementToTexture(
 						encoder,
@@ -1526,6 +1541,9 @@ export class OffscreenPresenter {
 						rasterScale,
 						false,
 						childExpansion,
+						undefined,
+						null,
+						!childNeedsPostPass,
 					);
 			if (!childOffscreenTexture) continue;
 
@@ -1635,6 +1653,7 @@ export class OffscreenPresenter {
 			false,
 			filterMargin,
 			fullBoundsBake,
+			alignToTargetGrid,
 		);
 		if (!ctx) return null;
 
@@ -1811,6 +1830,8 @@ export class OffscreenPresenter {
 			// No spreading filter on the clip shape: clamp to the visible output
 			// so the mask is not allocated to the full (off-screen) group bounds.
 			0,
+			null,
+			true,
 		);
 		if (!maskCtx) {
 			releaseRenderSurface(sourceResult);
@@ -1835,6 +1856,8 @@ export class OffscreenPresenter {
 			// Content composited from already-baked source × mask at world
 			// positions; clamp to the visible output.
 			0,
+			null,
+			true,
 		);
 		if (!finalCtx) {
 			releaseRenderSurface(sourceResult);
@@ -1994,6 +2017,10 @@ export class OffscreenPresenter {
 		 *  on that density, so it is passed in rather than re-derived here —
 		 *  the hash and the texture can never disagree. */
 		fullBoundsBake: { density: number } | null = null,
+		/** Snap the baked region to the target's pixel grid — see below. Only
+		 *  for bakes without raster filters: a filter's output is anchored to
+		 *  its texture, so its phase must not follow the viewport. */
+		alignToTargetGrid = false,
 	): {
 		offscreenTexture: GPUTexture;
 		entry: UniformEntry;
@@ -2037,7 +2064,7 @@ export class OffscreenPresenter {
 				? (this.deps.viewportState.drawRegion ?? this.deps.viewportState.bounds)
 				: null;
 		const clampBounds = fullBoundsBake ? null : interactiveBounds;
-		const effectiveBounds: BoundingBox = clampBounds
+		const clampedBounds: BoundingBox = clampBounds
 			? (boundsIntersectionBox(
 					textureBounds,
 					expandBounds(brandWorldBBox(clampBounds), filterMargin ?? 0),
@@ -2057,6 +2084,28 @@ export class OffscreenPresenter {
 					? Math.min(rasterZoom, zoomBucket)
 					: zoomBucket
 				: rasterZoom;
+
+		// A filter-free bake at the target's own density is snapped outward to
+		// the target's pixel grid so its texels land 1:1 on the target's pixels
+		// (and on any enclosing offscreen, which snaps to the same grid). A
+		// fractional offset makes the blit bilinear-mix neighbouring texels,
+		// and nested clip groups compound that into visible blur. Bakes at
+		// another density are resampled anyway, a rotated viewport has no
+		// axis-aligned grid in world space, and cached full-bounds bakes keep
+		// their own bounds so a sub-pixel pan does not re-bake them.
+		const effectiveBounds =
+			!alignToTargetGrid ||
+			fullBoundsBake ||
+			bakeZoom !== zoom ||
+			!vp ||
+			vp.rotation !== 0
+				? clampedBounds
+				: snapBoundsToPixelGrid(
+						clampedBounds,
+						vp,
+						this.deps.viewportState.width,
+						this.deps.viewportState.height,
+					);
 
 		// Texture covers effectiveBounds, clamped only by GPU max.
 		const width = Math.min(Math.ceil(effectiveBounds.width * bakeZoom), maxDim);
@@ -2116,9 +2165,23 @@ export class OffscreenPresenter {
 			bakeZoom,
 		);
 
+		// When the pool quantises the texture larger than requested, the
+		// rendered content occupies a centred sub-region. A grid-aligned bake
+		// puts that region's top-left corner on a whole texel instead (a centred
+		// placement sits half a texel off whenever the margin is odd), so its
+		// texels stay on the target pixel grid the bounds were snapped to.
+		const usedW = coverageBounds.width * effectiveZoom;
+		const usedH = coverageBounds.height * effectiveZoom;
+		const snapped = effectiveBounds !== clampedBounds;
+		const marginX = snapped
+			? Math.floor((texW - usedW) / 2)
+			: (texW - usedW) / 2;
+		const marginY = snapped
+			? Math.floor((texH - usedH) / 2)
+			: (texH - usedH) / 2;
 		const tempViewport = {
-			x: (coverageBounds.minX + coverageBounds.maxX) / 2,
-			y: (coverageBounds.minY + coverageBounds.maxY) / 2,
+			x: coverageBounds.minX + (texW / 2 - marginX) / effectiveZoom,
+			y: coverageBounds.maxY - (texH / 2 - marginY) / effectiveZoom,
 			zoom: effectiveZoom,
 			rotation: 0,
 		};
@@ -2146,21 +2209,15 @@ export class OffscreenPresenter {
 		passEncoder.setBindGroup(2, this.deps.dummyGradientBindGroup);
 		passEncoder.setBindGroup(3, this.deps.dummyMaskBindGroup);
 
-		// When the pool quantises textures larger than requested, the
-		// rendered content occupies a centred sub-region. Compute UV rect
-		// to crop out the margin during blit.
-		const usedW = coverageBounds.width * effectiveZoom;
-		const usedH = coverageBounds.height * effectiveZoom;
-		const uHalf = usedW / (2 * texW);
-		const vHalf = usedH / (2 * texH);
+		// UV rect cropping the margin out during blit (V = 0 is the top row).
 		const blitUvRect: BlitUVRect =
 			usedW >= texW && usedH >= texH
 				? FULL_BLIT_UV_RECT
 				: {
-						minU: 0.5 - uHalf,
-						minV: 0.5 - vHalf,
-						maxU: 0.5 + uHalf,
-						maxV: 0.5 + vHalf,
+						minU: marginX / texW,
+						minV: marginY / texH,
+						maxU: (marginX + usedW) / texW,
+						maxV: (marginY + usedH) / texH,
 					};
 
 		return {
@@ -2232,7 +2289,6 @@ export class OffscreenPresenter {
 				activePass.setBindGroup(3, this.deps.dummyMaskBindGroup);
 			} else if (isGroup(child)) {
 				if (child.clipPathId != null && compositeContext != null) {
-					// Nested ClipGroup: render through a mask texture
 					const clipChildren = child.childIds
 						.filter((id) => id !== child.clipPathId)
 						.map((id) => elementsMap.get(id))
@@ -2240,6 +2296,26 @@ export class OffscreenPresenter {
 					const childWorldTransform = ancestorTransform
 						? composeTransforms(ancestorTransform, getTransform(child))
 						: getTransform(child);
+					// A clip alone does not isolate the group: draw its children
+					// inline through the effective mask so their blend modes see
+					// what this bake has drawn so far, as in the main pass.
+					if (
+						this.deps.hasInlineClipMask(child.id) &&
+						(child.blendMode === "normal" || child.blendMode === undefined)
+					) {
+						activePass = this.deps.renderElements(
+							activePass,
+							clipChildren,
+							new Map(),
+							elementsMap,
+							childAlpha,
+							childWorldTransform,
+							undefined,
+							"offscreen",
+							compositeContext,
+						);
+						continue;
+					}
 					activePass = this.renderClipGroup(
 						encoder,
 						activePass,
@@ -2792,6 +2868,8 @@ export class OffscreenPresenter {
 			// at world positions, so clamping the group content to the visible
 			// output only drops fully off-screen pixels.
 			0,
+			null,
+			true,
 		);
 		if (!ctx) return null;
 
@@ -2913,4 +2991,29 @@ function subUvRect(
 			(whole.maxY - part.minY) / whole.height,
 		),
 	};
+}
+
+/**
+ * Expand `bounds` outward to the pixel grid of a render target `width` ×
+ * `height` px viewing `viewport` (unrotated), following worldToScreen:
+ * `sx = width / 2 + (x - vx) * zoom`, `sy = height / 2 + (vy - y) * zoom`.
+ */
+function snapBoundsToPixelGrid(
+	bounds: BoundingBox,
+	viewport: Viewport,
+	width: number,
+	height: number,
+): BoundingBox {
+	const { zoom } = viewport;
+	// Guard against floating error pushing an already-integral edge one px out.
+	const eps = 1e-6;
+	const toScreenX = (x: number) => width / 2 + (x - viewport.x) * zoom;
+	const toScreenY = (y: number) => height / 2 + (viewport.y - y) * zoom;
+	const fromScreenX = (sx: number) => viewport.x + (sx - width / 2) / zoom;
+	const fromScreenY = (sy: number) => viewport.y - (sy - height / 2) / zoom;
+	const minX = fromScreenX(Math.floor(toScreenX(bounds.minX) + eps));
+	const maxX = fromScreenX(Math.ceil(toScreenX(bounds.maxX) - eps));
+	const maxY = fromScreenY(Math.floor(toScreenY(bounds.maxY) + eps));
+	const minY = fromScreenY(Math.ceil(toScreenY(bounds.minY) - eps));
+	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }

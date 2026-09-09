@@ -555,6 +555,19 @@ export class ViewportManager {
 
 		const affected = new Set<string>(dirty);
 
+		// A clip path is referenced, not parented, yet the owner's local bounds
+		// are cut by it (calculateElementBounds), so an edited clip path must
+		// evict its owners' bounds too or the clip mask keeps its old coverage.
+		for (const element of elementsMap.values()) {
+			if (
+				(element.type === "group" || element.type === "text") &&
+				element.clipPathId != null &&
+				dirty.has(element.clipPathId)
+			) {
+				affected.add(element.id);
+			}
+		}
+
 		// Sync parentGroupMap for dirty/deleted parents. Children that left a
 		// group (or joined one) change their composed transforms too, as does
 		// mask content moving between owners.
