@@ -30,6 +30,7 @@ function makeMinimalDoc(overrides: Partial<Document> = {}): Document {
 		files: [],
 		artboards: [],
 		brushPresets: [],
+		units: "px",
 		...overrides,
 	};
 }

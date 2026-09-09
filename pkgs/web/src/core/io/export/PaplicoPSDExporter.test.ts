@@ -57,6 +57,7 @@ describe("PaplicoPSDExporter", () => {
 			},
 		] as Artboard[],
 		brushPresets: [],
+		units: "px",
 	});
 
 	beforeEach(() => {

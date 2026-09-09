@@ -826,8 +826,10 @@ export class RenderOrchestrator {
 		}
 		const device = this.device;
 
-		const width = Math.ceil(opts.worldWidth * opts.scale);
-		const height = Math.ceil(opts.worldHeight * opts.scale);
+		// Round like the export dialog's size readout so a physical page size
+		// lands on its standard pixel size (A4 at 300 dpi = 2480 x 3508).
+		const width = Math.round(opts.worldWidth * opts.scale);
+		const height = Math.round(opts.worldHeight * opts.scale);
 		if (width <= 0 || height <= 0) return null;
 
 		const maxDim = this.device.limits.maxTextureDimension2D;

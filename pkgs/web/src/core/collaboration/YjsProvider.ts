@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 import { UndoManager } from "yjs";
 import { createIdentityTransform } from "../document/factory";
+import type { LengthUnit } from "../document/units";
 import {
 	type AnyArtObject,
 	type AppearancePreset,
@@ -2361,6 +2362,11 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 		this.yMeta.set("rasterizationDpi", dpi);
 	}
 
+	/** Update the display length unit on the document. */
+	public setUnits(units: LengthUnit): void {
+		this.yMeta.set("units", units);
+	}
+
 	// --- Defs (off-canvas ArtObject definitions) ---
 	//
 	// yDefs holds DefEntry metadata (id, kind, name, tile, rootElementIds). The
@@ -2678,6 +2684,7 @@ export function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 		JSON.stringify(doc.colorProfile ?? { workingSpace: "display-p3" }),
 	);
 	yMeta.set("rasterizationDpi", doc.rasterizationDpi ?? 72);
+	yMeta.set("units", doc.units);
 }
 
 export function defEntryToYMap(entry: DefEntry): Y.Map<unknown> {

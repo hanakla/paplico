@@ -7,6 +7,7 @@
  */
 
 import { decode } from "cbor-x";
+import { DEFAULT_LENGTH_UNIT } from "../../document/units";
 import { PaplicoError } from "../../errors";
 import {
 	type Document,
@@ -525,6 +526,7 @@ export class PapfFile {
 			hdr: docMeta.hdr,
 			colorProfile: docMeta.colorProfile,
 			rasterizationDpi: docMeta.rasterizationDpi,
+			units: docMeta.units ?? DEFAULT_LENGTH_UNIT,
 			defs: docMeta.defs ?? {},
 			references3d: docMeta.references3d ?? {},
 		};

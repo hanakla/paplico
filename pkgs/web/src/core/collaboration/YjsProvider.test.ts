@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import * as Y from "yjs";
 import { createIdentityTransform } from "../document/factory";
-import type { BrushSettings, Reference3DDef } from "../schema";
+import type { BrushSettings, Document, Reference3DDef } from "../schema";
 import { extractDocumentFromYDoc } from "./extractDocumentFromYDoc";
 import { YjsProvider, type YjsProviderCallbacks } from "./YjsProvider";
 
@@ -56,7 +56,7 @@ describe("YjsProvider", () => {
 	});
 
 	describe("replaceDocument", () => {
-		function makeDocument(id: string, objectId: string) {
+		function makeDocument(id: string, objectId: string): Document {
 			return {
 				id,
 				objects: {
@@ -84,6 +84,7 @@ describe("YjsProvider", () => {
 				files: [],
 				artboards: [],
 				brushPresets: [],
+				units: "px",
 			};
 		}
 
@@ -1955,6 +1956,7 @@ describe("YjsProvider", () => {
 				files: [],
 				artboards: [],
 				brushPresets: [],
+				units: "px",
 				hdr: { enabled: true, exposure: 1.0 },
 			});
 
@@ -1996,6 +1998,7 @@ describe("YjsProvider", () => {
 				files: [],
 				artboards: [],
 				brushPresets: [],
+				units: "px",
 				colorProfile: { workingSpace: "srgb" },
 			});
 
@@ -2378,6 +2381,7 @@ describe("YjsProvider", () => {
 				files: [],
 				artboards: [],
 				brushPresets: [],
+				units: "px",
 				references3d: { "scene-import": def },
 			});
 
@@ -2430,6 +2434,7 @@ describe("YjsProvider", () => {
 				files: [],
 				artboards: [],
 				brushPresets: [],
+				units: "px",
 			});
 
 			const doc = extractDocumentFromYDoc(provider.ydoc);

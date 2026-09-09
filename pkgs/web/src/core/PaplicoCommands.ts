@@ -28,6 +28,7 @@ import {
 	createRepeatObject,
 } from "./document/factory";
 import type { SpatialIndex } from "./document/SpatialIndex";
+import { isLengthUnit, type LengthUnit } from "./document/units";
 import { Clipboard, PAPLICO_ELEMENTS_MIME } from "./infra/Clipboard";
 import type { RendererState } from "./Paplico";
 import type { PaplicoSelection } from "./PaplicoSelection";
@@ -3156,6 +3157,12 @@ export class PaplicoCommands {
 		if (this.cannotMutate()) return;
 		if (!Number.isFinite(dpi) || dpi <= 0) return;
 		this.ctx.yjsProvider.setRasterizationDpi(dpi);
+	}
+
+	public setUnits(units: LengthUnit): void {
+		if (this.cannotMutate()) return;
+		if (!isLengthUnit(units)) return;
+		this.ctx.yjsProvider.setUnits(units);
 	}
 
 	// --- Defs (off-canvas ArtObject definitions) ---

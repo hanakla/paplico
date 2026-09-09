@@ -29,7 +29,6 @@ import {
 	type ReactNode,
 	type PointerEvent as ReactPointerEvent,
 	useEffect,
-	useId,
 	useMemo,
 	useRef,
 	useState,
@@ -39,7 +38,6 @@ import { Button } from "@/components/Button";
 import { ColorPickerThin } from "@/components/ColorPicker2";
 import { FillStrokeSwatchPicker } from "@/components/FillStrokeSwatchPicker";
 import { IconButton } from "@/components/IconButton";
-import { Input } from "@/components/Input";
 import { Popover } from "@/components/Popover";
 import { Portal } from "@/components/Portal";
 import { Resizable } from "@/components/Resizable";
@@ -614,23 +612,16 @@ export function Toolbar({
 
 					<Separator orientation="horizontal" />
 
-					<Popover.Root open={snap.currentTool === "artboard"}>
-						<Tooltip content={t("toolbar.artboardTool")} side={outwardSide}>
-							<Popover.Trigger>
-								<IconButton
-									$size="md"
-									$variant="ghost"
-									$pressed={snap.currentTool === "artboard"}
-									onClick={() => tools.setCurrentTool("artboard")}
-								>
-									<Frame size={16} />
-								</IconButton>
-							</Popover.Trigger>
-						</Tooltip>
-						<Popover.Content side={outwardSide} sideOffset={8} align="center">
-							<ArtboardInfoPanel />
-						</Popover.Content>
-					</Popover.Root>
+					<Tooltip content={t("toolbar.artboardTool")} side={outwardSide}>
+						<IconButton
+							$size="md"
+							$variant="ghost"
+							$pressed={snap.currentTool === "artboard"}
+							onClick={() => tools.setCurrentTool("artboard")}
+						>
+							<Frame size={16} />
+						</IconButton>
+					</Tooltip>
 
 					<Separator orientation="horizontal" />
 
@@ -844,199 +835,6 @@ function ToolbarEdgeSlot({
 			)}
 		>
 			{children}
-		</div>
-	);
-}
-
-function ArtboardInfoPanel() {
-	const t = useTranslation();
-	const paplico = usePaplico();
-	const commands = paplico.commands;
-	const store = paplico.uiState;
-
-	const docSnap = useSnapshot(store);
-	const selectedArtboard = docSnap.document.artboards.find(
-		(a) => a.id === docSnap.selectedArtboardId,
-	);
-
-	const [localValues, setLocalValues] = useState({
-		name: "",
-		width: "",
-		height: "",
-		x: "",
-		y: "",
-	});
-
-	// Sync local values when selection changes
-	useEffect(() => {
-		if (selectedArtboard) {
-			setLocalValues({
-				name: selectedArtboard.name,
-				width: selectedArtboard.width.toFixed(2),
-				height: selectedArtboard.height.toFixed(2),
-				x: selectedArtboard.x.toFixed(2),
-				y: selectedArtboard.y.toFixed(2),
-			});
-		}
-	}, [selectedArtboard]);
-
-	const handleNameChange = useEventCallback((value: string) => {
-		setLocalValues((prev) => ({ ...prev, name: value }));
-	});
-
-	const handleNameBlur = useEventCallback(() => {
-		if (docSnap.selectedArtboardId && localValues.name.trim()) {
-			commands.updateArtboard(docSnap.selectedArtboardId, {
-				name: localValues.name,
-			});
-		}
-	});
-
-	const handleDimensionChange = useEventCallback(
-		(field: "width" | "height" | "x" | "y", value: string) => {
-			setLocalValues((prev) => ({ ...prev, [field]: value }));
-		},
-	);
-
-	const handleDimensionBlur = useEventCallback(
-		(field: "width" | "height" | "x" | "y") => {
-			if (!docSnap.selectedArtboardId) return;
-
-			const numValue = Number.parseFloat(localValues[field]);
-			if (Number.isNaN(numValue)) {
-				// Reset to original value
-				if (selectedArtboard) {
-					setLocalValues((prev) => ({
-						...prev,
-						[field]: selectedArtboard[field].toFixed(2),
-					}));
-				}
-				return;
-			}
-
-			// Validate minimum size for width/height
-			if ((field === "width" || field === "height") && numValue < 10) {
-				setLocalValues((prev) => ({ ...prev, [field]: (10).toFixed(2) }));
-				commands.updateArtboard(docSnap.selectedArtboardId, { [field]: 10 });
-				return;
-			}
-
-			commands.updateArtboard(docSnap.selectedArtboardId, {
-				[field]: numValue,
-			});
-		},
-	);
-
-	const handleKeyDown = useEventCallback(
-		(
-			e: React.KeyboardEvent<HTMLInputElement>,
-			_field: "name" | "width" | "height" | "x" | "y",
-		) => {
-			if (e.key === "Enter") {
-				e.currentTarget.blur();
-			}
-		},
-	);
-
-	const dimensionInputId = useId();
-
-	if (!selectedArtboard) {
-		return (
-			<div className="w-44 p-2">
-				<p className="text-[10px] text-muted-foreground text-center leading-tight">
-					{t("toolbar.artboardSelectOrCreate")}
-				</p>
-			</div>
-		);
-	}
-
-	return (
-		<div className="w-44 flex flex-col gap-2">
-			<Input
-				$size="xs"
-				value={localValues.name}
-				onChange={(e) => handleNameChange(e.target.value)}
-				onBlur={handleNameBlur}
-				onKeyDown={(e) => handleKeyDown(e, "name")}
-			/>
-
-			<div className="grid grid-cols-2 gap-1.5">
-				<div className="flex items-center gap-1">
-					<label
-						htmlFor={`${dimensionInputId}-width`}
-						className="text-[10px] text-muted-foreground w-3"
-					>
-						W
-					</label>
-					<Input
-						id={`${dimensionInputId}-width`}
-						type="number"
-						$size="xs"
-						value={localValues.width}
-						onChange={(e) => handleDimensionChange("width", e.target.value)}
-						onBlur={() => handleDimensionBlur("width")}
-						onKeyDown={(e) => handleKeyDown(e, "width")}
-						className="font-mono tabular-nums"
-					/>
-				</div>
-				<div className="flex items-center gap-1">
-					<label
-						htmlFor={`${dimensionInputId}-height`}
-						className="text-[10px] text-muted-foreground w-3"
-					>
-						H
-					</label>
-					<Input
-						id={`${dimensionInputId}-height`}
-						type="number"
-						$size="xs"
-						value={localValues.height}
-						onChange={(e) => handleDimensionChange("height", e.target.value)}
-						onBlur={() => handleDimensionBlur("height")}
-						onKeyDown={(e) => handleKeyDown(e, "height")}
-						className="font-mono tabular-nums"
-					/>
-				</div>
-			</div>
-
-			<div className="grid grid-cols-2 gap-1.5">
-				<div className="flex items-center gap-1">
-					<label
-						htmlFor={`${dimensionInputId}-x`}
-						className="text-[10px] text-muted-foreground w-3"
-					>
-						X
-					</label>
-					<Input
-						id={`${dimensionInputId}-x`}
-						type="number"
-						$size="xs"
-						value={localValues.x}
-						onChange={(e) => handleDimensionChange("x", e.target.value)}
-						onBlur={() => handleDimensionBlur("x")}
-						onKeyDown={(e) => handleKeyDown(e, "x")}
-						className="font-mono tabular-nums"
-					/>
-				</div>
-				<div className="flex items-center gap-1">
-					<label
-						htmlFor={`${dimensionInputId}-y`}
-						className="text-[10px] text-muted-foreground w-3"
-					>
-						Y
-					</label>
-					<Input
-						id={`${dimensionInputId}-y`}
-						type="number"
-						$size="xs"
-						value={localValues.y}
-						onChange={(e) => handleDimensionChange("y", e.target.value)}
-						onBlur={() => handleDimensionBlur("y")}
-						onKeyDown={(e) => handleKeyDown(e, "y")}
-						className="font-mono tabular-nums"
-					/>
-				</div>
-			</div>
 		</div>
 	);
 }

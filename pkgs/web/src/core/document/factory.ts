@@ -159,6 +159,7 @@ export function createDefaultDocument(id: string): Document {
 		brushPresets: [],
 		appearancePresets: [],
 		defs: {},
+		units: "px",
 	};
 }
 

@@ -47,6 +47,7 @@ describe("PaplicoTIFFExporter", () => {
 				},
 			] as Artboard[],
 			brushPresets: [],
+			units: "px",
 		}) as Document;
 
 	beforeEach(() => {

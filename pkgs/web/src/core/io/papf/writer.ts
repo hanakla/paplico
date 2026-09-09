@@ -423,6 +423,7 @@ function buildMetaPayload(
 			hdr: doc.hdr,
 			colorProfile: doc.colorProfile,
 			rasterizationDpi: doc.rasterizationDpi,
+			units: doc.units,
 			defs: doc.defs,
 			references3d: doc.references3d,
 		},

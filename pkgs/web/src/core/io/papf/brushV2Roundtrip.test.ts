@@ -84,6 +84,7 @@ function makeV1BrushDoc(): Document {
 				} as unknown as BrushSettings,
 			},
 		],
+		units: "px",
 	};
 }
 

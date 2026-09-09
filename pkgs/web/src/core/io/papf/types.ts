@@ -5,6 +5,7 @@
  * See the format specification for full binary layout details.
  */
 
+import type { LengthUnit } from "../../document/units";
 import type {
 	AnyArtObject,
 	AppearancePreset,
@@ -162,6 +163,7 @@ export type MetaPayload = {
 		hdr?: HdrSettings;
 		colorProfile?: ColorProfileSettings;
 		rasterizationDpi?: number;
+		units?: LengthUnit;
 		/**
 		 * Off-canvas ArtObject definitions (patterns / vector brushes). Optional
 		 * for backward compatibility — readers should default to `{}` when

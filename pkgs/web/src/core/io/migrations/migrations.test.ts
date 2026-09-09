@@ -20,6 +20,7 @@ import { migRasterizationDpi } from "./20260705_mig_rasterization_dpi";
 import { migGradientStopMidpoint } from "./20260722_mig_gradient_stop_midpoint";
 import { migBrushV2 } from "./20260803_mig_brush_v2";
 import { migAppearancePresets } from "./20260906_mig_appearance_presets";
+import { migUnits } from "./20260910_mig_units";
 import { applyMigration, applyMigrations } from "./index";
 
 const defaultViewport: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
@@ -36,6 +37,7 @@ function makeDoc(
 		files: [],
 		artboards: [],
 		brushPresets: [],
+		units: "px",
 		...(schemaVersion != null ? { schemaVersion } : {}),
 	};
 }
@@ -1246,7 +1248,7 @@ describe("migGradientStopMidpoint (20260722)", () => {
 
 		applyMigrations(doc);
 
-		expect(doc.schemaVersion).toBe(20260906);
+		expect(doc.schemaVersion).toBe(20260910);
 	});
 });
 
@@ -1473,5 +1475,27 @@ describe("migAppearancePresets (20260906)", () => {
 		expect(doc.appearancePresets).toEqual([
 			{ uid: "ap-1", name: "Outline", filters: [] },
 		]);
+	});
+});
+
+describe("migUnits (20260910)", () => {
+	it("should give a legacy document px units", () => {
+		const doc = makeDoc({}, 20260906);
+		Reflect.deleteProperty(doc, "units");
+
+		expect(doc.units).toBeUndefined();
+
+		applyMigration(doc, migUnits);
+
+		expect(doc.units).toBe("px");
+	});
+
+	it("should keep existing units", () => {
+		const doc = makeDoc({}, 20260906);
+		doc.units = "mm";
+
+		applyMigration(doc, migUnits);
+
+		expect(doc.units).toBe("mm");
 	});
 });

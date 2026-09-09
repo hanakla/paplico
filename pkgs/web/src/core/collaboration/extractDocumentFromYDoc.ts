@@ -1,6 +1,7 @@
 import type * as Y from "yjs";
 import type { ProofProfileRef, RenderingIntent } from "../color/types";
 import { createIdentityTransform } from "../document/factory";
+import { DEFAULT_LENGTH_UNIT, isLengthUnit } from "../document/units";
 import {
 	type AnyArtObject,
 	type AppearancePreset,
@@ -325,6 +326,9 @@ export function extractDocumentFromYDoc(ydoc: Y.Doc): Document {
 			? rawRasterizationDpi
 			: 72;
 
+	const rawUnits = yMeta.get("units");
+	const units = isLengthUnit(rawUnits) ? rawUnits : DEFAULT_LENGTH_UNIT;
+
 	return {
 		id: (yMeta.get("id") as string) ?? "",
 		objects,
@@ -337,6 +341,7 @@ export function extractDocumentFromYDoc(ydoc: Y.Doc): Document {
 		hdr,
 		colorProfile,
 		rasterizationDpi,
+		units,
 		defs,
 		references3d,
 	};

@@ -5,6 +5,7 @@
 import { nanoid } from "nanoid";
 import { deepClone } from "@/utils/lang";
 import type { ProofProfileRef, RenderingIntent } from "./color/types";
+import type { LengthUnit } from "./document/units";
 import type { TimelapseData } from "./timelapse/types";
 
 // --- Color Types ---
@@ -677,6 +678,8 @@ export interface Document {
 	colorProfile?: ColorProfileSettings;
 	/** Filter rasterization resolution in DPI. 72 = 1 texel per world px. Defaults to 72 when undefined. */
 	rasterizationDpi?: number;
+	/** Length unit used for display and input. Coordinates stay in world units. */
+	units: LengthUnit;
 	/**
 	 * Off-canvas ArtObject definitions referenced by patterns and brush sources.
 	 * Each DefEntry holds rootElementIds into document.objects (absorbed-reference

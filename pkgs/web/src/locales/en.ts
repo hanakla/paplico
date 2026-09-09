@@ -150,7 +150,6 @@ export const en = {
 		wetMacroBleed: "Bleed",
 		wetMacroDryness: "Dryness",
 		wetMacroPaper: "Paper",
-		artboardSelectOrCreate: "Select an artboard or<br/>drag to create new",
 		rectangle: "Rectangle",
 		ellipse: "Ellipse",
 		line: "Line",
@@ -319,6 +318,7 @@ export const en = {
 	},
 	actionsPanel: {
 		actions: "Actions",
+		artboardSelectOrCreate: "Select an artboard or drag to create new",
 		clearSelection: "Clear Selection",
 		font: "Font",
 		loading: "Loading...",
@@ -1190,6 +1190,9 @@ export const en = {
 		invalidIccFile: "The selected file is not a valid ICC profile.",
 		loadCmykHint: "Load a CMYK ICC profile to use print color preview.",
 		renderingSection: "Rendering",
+		units: "Units",
+		unitsHint:
+			"Unit used to show and type sizes such as artboard dimensions.<br/>Changing it does not move or resize anything.",
 		rasterizationDpi: "Filter Resolution",
 		rasterizationDpiHint:
 			"Resolution used to rasterize filter effects (blur, etc.).<br/>Higher values sharpen zoomed-in filters but use more memory.",

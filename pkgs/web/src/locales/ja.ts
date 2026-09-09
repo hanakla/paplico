@@ -151,7 +151,6 @@ export const ja = {
 		wetMacroBleed: "にじみ",
 		wetMacroDryness: "乾き",
 		wetMacroPaper: "紙質",
-		artboardSelectOrCreate: "アートボードを選択するか<br/>ドラッグして新規作成",
 		rectangle: "矩形",
 		ellipse: "楕円",
 		line: "直線",
@@ -320,6 +319,7 @@ export const ja = {
 	},
 	actionsPanel: {
 		actions: "アクション",
+		artboardSelectOrCreate: "アートボードを選択するか、ドラッグして新規作成",
 		clearSelection: "選択解除",
 		font: "フォント",
 		loading: "読み込み中...",
@@ -1192,6 +1192,9 @@ export const ja = {
 		loadCmykHint:
 			"印刷色プレビューを使うにはCMYK ICCプロファイルを読み込んでください。",
 		renderingSection: "レンダリング",
+		units: "単位",
+		unitsHint:
+			"アートボードのサイズなどを表示・入力するときの単位です。<br/>変更しても図形の位置や大きさは変わりません。",
 		rasterizationDpi: "フィルター解像度",
 		rasterizationDpiHint:
 			"フィルター効果(ぼかし等)をラスタライズする解像度です。<br/>値を大きくするとズーム時のフィルターが鮮明になりますが、メモリ使用量が増えます。",

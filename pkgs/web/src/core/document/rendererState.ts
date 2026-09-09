@@ -27,6 +27,7 @@ export function createRendererState(): RendererState {
 			artboards: [],
 			brushPresets: [],
 			appearancePresets: [],
+			units: "px",
 		},
 		currentLayerId: null,
 		canUndo: false,

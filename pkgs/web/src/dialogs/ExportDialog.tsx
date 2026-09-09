@@ -16,6 +16,7 @@ import { BASE_DPI, RASTERIZATION_DPI_PRESETS } from "@/configs";
 import { inspectIccProfile } from "@/core/color/IccProfileRegistry";
 import type { BuiltinIccProfileId } from "@/core/color/types";
 import { createEmbeddedFileFromBytes } from "@/core/document/factory";
+import { DEFAULT_LENGTH_UNIT, formatLength } from "@/core/document/units";
 import type { Paplico } from "@/core/Paplico";
 import type { Artboard, EmbeddedFile } from "@/core/schema";
 import { useSystemIccProfiles } from "@/hooks/useSystemIccProfiles";
@@ -251,7 +252,8 @@ export const ExportDialog = memo(function ExportDialog({
 	const getOutputSize = useEventCallback((artboard: Artboard) => {
 		// SVG output is vector: the viewBox always matches the artboard size.
 		if (format === "svg") {
-			return `${Math.round(artboard.width)} × ${Math.round(artboard.height)}px`;
+			const units = document?.units ?? DEFAULT_LENGTH_UNIT;
+			return `${formatLength(artboard.width, units, 0)} × ${formatLength(artboard.height, units, 0)}${units}`;
 		}
 		if (isCustomDpi && !customDpiValid) return "—";
 		return `${Math.round(artboard.width * scale)} × ${Math.round(artboard.height * scale)}px`;

@@ -332,6 +332,9 @@ export default function Page() {
 		if (result.hdr?.enabled) {
 			p.commands.setHdr({ enabled: true });
 		}
+		if (result.units) {
+			p.commands.setUnits(result.units);
+		}
 	});
 
 	const handlePrimaryCanvasReady = useEventCallback(
@@ -392,6 +395,9 @@ export default function Page() {
 						}
 						if (sizeResult.hdr?.enabled) {
 							p.commands.setHdr({ enabled: true });
+						}
+						if (sizeResult.units) {
+							p.commands.setUnits(sizeResult.units);
 						}
 					}
 				}

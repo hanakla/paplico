@@ -372,6 +372,7 @@ function makeDocument(element: Reference3DElement): Document {
 		files: [],
 		artboards: [],
 		brushPresets: [],
+		units: "px",
 		references3d: { "scene-1": makeSceneDef() },
 	};
 }

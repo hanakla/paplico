@@ -11,6 +11,7 @@ import { migRasterizationDpi } from "./20260705_mig_rasterization_dpi";
 import { migGradientStopMidpoint } from "./20260722_mig_gradient_stop_midpoint";
 import { migBrushV2 } from "./20260803_mig_brush_v2";
 import { migAppearancePresets } from "./20260906_mig_appearance_presets";
+import { migUnits } from "./20260910_mig_units";
 
 export interface Migration {
 	/** Schema version date (YYYYMMDD) this migration upgrades TO */
@@ -33,6 +34,7 @@ const migrations: Migration[] = [
 	migGradientStopMidpoint,
 	migBrushV2,
 	migAppearancePresets,
+	migUnits,
 ];
 
 /**

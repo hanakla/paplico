@@ -5,6 +5,7 @@ import { isReference3D } from "@/core/schema";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
 import { useTranslation } from "@/locales";
 import { uiState } from "@/stores/uiStore";
+import { ArtboardToolControls } from "./ArtboardToolControls";
 import { BlendOperations } from "./BlendOperations";
 import {
 	AlignmentControl,
@@ -54,6 +55,7 @@ export function ActionsPanel() {
 	const isTextTool = toolSnap.currentTool === "text";
 	const isCharTouchMode = isTextTool && toolSnap.textCharTouchMode;
 	const isReference3DTool = toolSnap.currentTool === "reference3d";
+	const isArtboardTool = toolSnap.currentTool === "artboard";
 
 	// Selection-derived inputs are deferred so the heavy control sections
 	// mount outside the discrete selection event's sync render.
@@ -93,6 +95,8 @@ export function ActionsPanel() {
 			<div className="flex-1 min-h-0 p-2 flex gap-1 items-center overflow-auto">
 				{isGradientStopSelected ? null : isTextEditing ? (
 					<TextEditingControls />
+				) : isArtboardTool ? (
+					<ArtboardToolControls />
 				) : isEraserTool ? (
 					<EraserToolControls />
 				) : isEyedropperTool ? (

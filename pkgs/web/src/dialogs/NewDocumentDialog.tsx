@@ -5,6 +5,14 @@ import { Button } from "@/components/Button";
 import { Checkbox } from "@/components/Checkbox";
 import { Dialog } from "@/components/Dialog";
 import { Input } from "@/components/Input";
+import { SimpleSelect } from "@/components/SimpleSelect";
+import {
+	DEFAULT_LENGTH_UNIT,
+	isLengthUnit,
+	LENGTH_UNITS,
+	type LengthUnit,
+	unitToWorld,
+} from "@/core/document/units";
 import { FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import { useEventCallback, useMediaDynamicRange } from "@/utils/hooks";
@@ -85,6 +93,7 @@ type NewDocumentSizeResult =
 			size: { width: number; height: number } | null;
 			imageFile?: File;
 			hdr?: { enabled: boolean; exposure: number };
+			units?: LengthUnit;
 	  }
 	| { ok: false };
 
@@ -101,6 +110,7 @@ export const NewDocumentDialog = createCallable<
 	>("1920x1080");
 	const [customWidth, setCustomWidth] = useState("1920");
 	const [customHeight, setCustomHeight] = useState("1080");
+	const [units, setUnits] = useState<LengthUnit>(DEFAULT_LENGTH_UNIT);
 	const [hdrEnabled, setHdrEnabled] = useState(false);
 
 	const screenPresets = DOCUMENT_PRESETS.filter((p) => p.category === "screen");
@@ -130,6 +140,12 @@ export const NewDocumentDialog = createCallable<
 		},
 	);
 
+	const handleUnitsChange = useEventCallback((value: string) => {
+		if (!isLengthUnit(value)) return;
+		setUnits(value);
+		setSelectedPreset("custom");
+	});
+
 	const handleCustomHeightChange = useEventCallback(
 		(e: React.ChangeEvent<HTMLInputElement>) => {
 			setCustomHeight(e.target.value);
@@ -151,8 +167,8 @@ export const NewDocumentDialog = createCallable<
 		let height: number;
 
 		if (selectedPreset === "custom") {
-			width = Number(customWidth);
-			height = Number(customHeight);
+			width = unitToWorld(Number(customWidth), units);
+			height = unitToWorld(Number(customHeight), units);
 		} else {
 			const preset = DOCUMENT_PRESETS.find((p) => p.key === selectedPreset)!;
 			width = preset.width;
@@ -163,6 +179,7 @@ export const NewDocumentDialog = createCallable<
 			ok: true,
 			size: { width, height },
 			hdr: hdrEnabled ? { enabled: true, exposure: 0 } : undefined,
+			units,
 		});
 	});
 
@@ -360,6 +377,13 @@ export const NewDocumentDialog = createCallable<
 										value={customHeight}
 										onChange={handleCustomHeightChange}
 										placeholder={t("newDocumentDialog.height")}
+									/>
+									<SimpleSelect
+										$size="sm"
+										items={LENGTH_UNITS.map((u) => ({ label: u, value: u }))}
+										value={units}
+										onValueChange={handleUnitsChange}
+										className="w-16"
 									/>
 								</>
 							)}

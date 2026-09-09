@@ -18,6 +18,7 @@ import { inspectIccProfile } from "@/core/color/IccProfileRegistry";
 import type { ProofProfileRef } from "@/core/color/types";
 import { createEmbeddedFileFromBytes } from "@/core/document/factory";
 import { createRendererState } from "@/core/document/rendererState";
+import { isLengthUnit, LENGTH_UNITS } from "@/core/document/units";
 import type { Paplico, PublicUIState } from "@/core/Paplico";
 import type { EmbeddedFile } from "@/core/schema";
 import { useSystemIccProfiles } from "@/hooks/useSystemIccProfiles";
@@ -80,6 +81,7 @@ export const DocumentSettingsDialog = memo(function DocumentSettingsDialog({
 	const workingSpace = colorProfile?.workingSpace ?? "display-p3";
 	const proofProfile = colorProfile?.proofProfile;
 	const rasterizationDpi = snap.document.rasterizationDpi ?? 72;
+	const units = snap.document.units;
 	const iccProfiles = listIccProfiles(snap.document.files);
 	const selectedProofUid =
 		proofProfile?.kind === "builtin"
@@ -146,6 +148,11 @@ export const DocumentSettingsDialog = memo(function DocumentSettingsDialog({
 		paplico.commands.setColorProfile({
 			workingSpace: value as "srgb" | "display-p3",
 		});
+	});
+
+	const handleUnitsChange = useEventCallback((value: string) => {
+		if (!isLengthUnit(value)) return;
+		paplico?.commands.setUnits(value);
 	});
 
 	const handleDpiSelectChange = useEventCallback((value: string) => {
@@ -441,6 +448,29 @@ export const DocumentSettingsDialog = memo(function DocumentSettingsDialog({
 					<div className="border-t border-border/30 pt-4 space-y-4">
 						<div className="text-xs font-medium">
 							{t("documentSettings.renderingSection")}
+						</div>
+
+						{/* Length unit for displayed and typed dimensions */}
+						<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+							<div className="flex items-center gap-1 shrink-0">
+								<div className="text-xs font-medium">
+									{t("documentSettings.units")}
+								</div>
+								<Tooltip content={t("documentSettings.unitsHint")}>
+									<Info
+										size={13}
+										className="text-muted-foreground cursor-help"
+									/>
+								</Tooltip>
+							</div>
+							<SimpleSelect
+								$size="sm"
+								items={LENGTH_UNITS.map((u) => ({ label: u, value: u }))}
+								value={units}
+								onValueChange={handleUnitsChange}
+								disabled={!paplico}
+								className="w-[160px]"
+							/>
 						</div>
 
 						{/* Filter Rasterization Resolution */}
