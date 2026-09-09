@@ -13,7 +13,7 @@ export const ja = {
 		openDocument: "ドキュメントを開く",
 		saveDocument: "ドキュメントを保存",
 		loadImage: "画像を読み込む",
-		exportPng: "イメージに書き出し",
+		exportPng: "画像に書き出し",
 		timelapse: "タイムラプス",
 		undo: "元に戻す",
 		redo: "やり直し",
@@ -1088,7 +1088,7 @@ export const ja = {
 		copied: "コピーしました！",
 	},
 	exportDialog: {
-		pngExport: "イメージに書き出し",
+		pngExport: "画像に書き出し",
 		psdExport: "PSD書き出し",
 		avifHdrExport: "AVIF HDR エクスポート",
 		jpeg: "JPEG",
