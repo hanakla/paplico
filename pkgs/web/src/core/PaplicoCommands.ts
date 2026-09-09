@@ -1668,14 +1668,18 @@ export class PaplicoCommands {
 
 	// --- Clipping Path Operations ---
 
-	private setClipPathForGroup(
-		groupId: string,
-		clipPathId: string | null,
-	): void {
+	/**
+	 * Assign the group's clip path and strip that element's appearance: a clip
+	 * path only contributes its shape, so its fills and strokes must not paint.
+	 */
+	private setClipPathForGroup(groupId: string, clipPathId: string): void {
 		const layerId = this.ctx.store.currentLayerId;
 		if (!layerId) return;
 
-		this.ctx.yjsProvider.setClipPath(layerId, groupId, clipPathId);
+		this.ctx.yjsProvider.transact(() => {
+			this.ctx.yjsProvider.setClipPath(layerId, groupId, clipPathId);
+			this.updateElement(layerId, clipPathId, { filters: [] });
+		});
 	}
 
 	public createClipGroupFromTopmost(): string | null {

@@ -40,7 +40,7 @@ import { calculateElementBounds } from "./utils/geometry/bounds";
 
 describe("PaplicoCommands", () => {
 	describe("createClipGroupFromTopmost", () => {
-		it("uses the frontmost selected element as the clip path and keeps it on top of the group", () => {
+		it("uses the frontmost selected element as the clip path, keeps it on top, and strips its appearance", () => {
 			const back = createPath("back");
 			const front = createPath("front");
 			const layer = createLayer("layer-1", [back.id, front.id]);
@@ -48,6 +48,7 @@ describe("PaplicoCommands", () => {
 				() => "group-1",
 			);
 			const setClipPath = vi.fn<YjsProvider["setClipPath"]>();
+			const updateElement = vi.fn<YjsProvider["updateElement"]>();
 			const store = {
 				currentLayerId: layer.id,
 				selectedElementIds: [front.id, back.id],
@@ -62,6 +63,7 @@ describe("PaplicoCommands", () => {
 				yjsProvider: {
 					groupElements,
 					setClipPath,
+					updateElement,
 					transact: vi.fn((fn: () => void) => fn()),
 					isAnimationUndoMode: vi.fn(() => false),
 				} as unknown as YjsProvider,
@@ -72,6 +74,9 @@ describe("PaplicoCommands", () => {
 			expect(commands.createClipGroupFromTopmost()).toBe("group-1");
 			expect(groupElements.mock.calls[0][1]).toEqual([back.id, front.id]);
 			expect(setClipPath.mock.calls[0][2]).toBe(front.id);
+			// The clip path keeps only its shape.
+			expect(updateElement.mock.calls[0][1]).toBe(front.id);
+			expect(updateElement.mock.calls[0][2]).toEqual({ filters: [] });
 		});
 	});
 
