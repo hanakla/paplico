@@ -12,6 +12,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+	title: "Paplico",
 	appleWebApp: {
 		capable: true,
 		statusBarStyle: "black-translucent",
