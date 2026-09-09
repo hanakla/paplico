@@ -439,10 +439,10 @@ function tessellateVisibleSubpath(
 	// edge; meeting the bodies at the inner offset intersection instead keeps
 	// the union exact wherever both segments reach that point.
 	const joinCount = isClosed ? segments.length : segments.length - 1;
-	const innerTrimmed: boolean[] = [];
+	const innerCorners: ReturnType<typeof trimInnerCorner>[] = [];
 	for (let index = 0; index < joinCount; index++) {
 		const next = (index + 1) % segments.length;
-		innerTrimmed.push(
+		innerCorners.push(
 			trimInnerCorner(
 				segments[index],
 				segments[next],
@@ -469,15 +469,15 @@ function tessellateVisibleSubpath(
 		const segB = segments[(index + 1) % segments.length];
 		const joinIndex = segA.i1;
 		const groupStart = vertices.length;
-		if (innerTrimmed[index]) {
+		const cx = points[joinIndex * 2];
+		const cy = points[joinIndex * 2 + 1];
+		const inner = innerCorners[index];
+		if (inner !== null) {
 			// Trimming moves the body ends away from the join's center fan.
 			// Bridge both ends without overlapping the trimmed inner edge.
-			const inner = segA.dx * segB.dy - segA.dy * segB.dx > 0 ? 4 : 6;
 			const outer = inner === 4 ? 6 : 4;
 			const a = corners[index];
 			const b = corners[(index + 1) % segments.length];
-			const cx = points[joinIndex * 2];
-			const cy = points[joinIndex * 2 + 1];
 			pushTriangle(
 				vertices,
 				a[inner],
@@ -503,12 +503,12 @@ function tessellateVisibleSubpath(
 			miterLimit,
 			segA,
 			segB,
-			points[joinIndex * 2],
-			points[joinIndex * 2 + 1],
+			cx,
+			cy,
 			halfWidths[joinIndex],
 			halfWidths[joinIndex],
 			zoom,
-			!innerTrimmed[index],
+			inner === null,
 		);
 		if (globalTs) {
 			appendJoinGroupParams(
@@ -516,8 +516,8 @@ function tessellateVisibleSubpath(
 				groupStart,
 				vertexParams,
 				globalTs[joinIndex],
-				points[joinIndex * 2],
-				points[joinIndex * 2 + 1],
+				cx,
+				cy,
 				segA,
 				segB,
 				halfWidths[joinIndex],
@@ -883,18 +883,18 @@ function bodyCorners(seg: Segment, hw0: number, hw1: number): BodyCorners {
 
 /**
  * Move the inner end corner of `a` and the inner start corner of `b` to the
- * intersection of their inner offset edges. Returns false, leaving both
- * bodies untouched, when the turn is straight or the intersection lies
- * beyond either segment.
+ * intersection of their inner offset edges. Returns the inner end index of
+ * `a`, or null without changing either body when no intersection lies
+ * within both segments.
  */
 function trimInnerCorner(
 	segA: Segment,
 	segB: Segment,
 	a: BodyCorners,
 	b: BodyCorners,
-): boolean {
+): 4 | 6 | null {
 	const cross = segA.dx * segB.dy - segA.dy * segB.dx;
-	if (Math.abs(cross) < 1e-10) return false;
+	if (Math.abs(cross) < 1e-10) return null;
 
 	// Left-hand normals: on a left (CCW) turn the left side is the inside.
 	const start = cross > 0 ? 0 : 2;
@@ -913,7 +913,7 @@ function trimInnerCorner(
 		bdx,
 		bdy,
 	);
-	if (hit === null) return false;
+	if (hit === null) return null;
 
 	const [px, py] = hit;
 	const alongA =
@@ -923,14 +923,14 @@ function trimInnerCorner(
 		((px - b[start]) * bdx + (py - b[start + 1]) * bdy) /
 		(bdx * bdx + bdy * bdy);
 	if (!(alongA >= 0 && alongA <= 1 && alongB >= 0 && alongB <= 1)) {
-		return false;
+		return null;
 	}
 
 	a[end] = px;
 	a[end + 1] = py;
 	b[start] = px;
 	b[start + 1] = py;
-	return true;
+	return end;
 }
 
 // --- Segment construction ---
