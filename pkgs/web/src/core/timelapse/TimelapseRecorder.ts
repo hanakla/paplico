@@ -1,3 +1,4 @@
+import * as Y from "yjs";
 import type { BoundingBox } from "../schema";
 import {
 	TimelapseBoundsLedger,
@@ -11,8 +12,16 @@ import type {
 } from "./types";
 
 /**
- * Yjs update をタイムスタンプ付きで記録し、併せて各更新が変化させた
- * ワールド矩形を残す。矩形は再生時にアートボード外の更新を弾くために使う。
+ * How long (ms) updates that keep touching the same objects are folded into
+ * one entry. Playback advances one entry per fixed interval, so recording a
+ * tool that writes every frame of a drag as-is would play back several times
+ * longer than the drag took.
+ */
+const COALESCE_WINDOW_MS = 300;
+
+/**
+ * Records Yjs updates with timestamps, along with the world rect each update
+ * changed. Playback uses the rects to skip updates outside the artboard.
  */
 export class TimelapseRecorder {
 	private entries: TimelapseEntry[] = [];
@@ -21,31 +30,54 @@ export class TimelapseRecorder {
 	private baselines: number[] = [];
 	private startedAt = Date.now();
 	private readonly ledger = new TimelapseBoundsLedger();
+	/** The entry still accepting updates that touch the same objects. */
+	private openGroup: { index: number; key: string } | null = null;
 
 	public constructor(
 		private readonly getWorldBounds: (id: string) => BoundingBox | null,
 	) {}
 
 	/**
-	 * ydoc.on("update") から呼ばれる。
-	 * `changes` が null の更新（full sync / replaceDocument / レイヤーのみの変更）は
-	 * 影響範囲不明として記録し、再生時は常に描画される。
+	 * Called from ydoc.on("update").
+	 * An update whose `changes` is null (full sync, replaceDocument, layer-only
+	 * changes) is recorded with an unknown affected area and is always drawn
+	 * during playback.
+	 *
+	 * An update that touches exactly the objects of the previous entry, and
+	 * arrives within COALESCE_WINDOW_MS of that entry's start, is merged into
+	 * it instead of opening a new entry. A deletion or an update to different
+	 * objects closes the entry.
 	 */
 	public onYjsUpdate(
 		update: Uint8Array,
 		changes: TimelapseChangeSet | null,
 	): void {
-		this.entries.push({
-			t: Date.now() - this.startedAt,
-			u: update,
-		});
-		this.rects.push(this.ledger.track(changes, this.getWorldBounds));
+		const t = Date.now() - this.startedAt;
+		const rect = this.ledger.track(changes, this.getWorldBounds);
+		const key = coalesceKey(changes);
+
+		const group = this.openGroup;
+		if (
+			key !== null &&
+			group?.key === key &&
+			t - this.entries[group.index].t < COALESCE_WINDOW_MS
+		) {
+			const entry = this.entries[group.index];
+			entry.u = Y.mergeUpdates([entry.u, update]);
+			this.rects[group.index] = unionDirtyRect(this.rects[group.index], rect);
+			return;
+		}
+
+		this.entries.push({ t, u: update });
+		this.rects.push(rect);
+		this.openGroup =
+			key === null ? null : { index: this.entries.length - 1, key };
 	}
 
 	/**
-	 * ドキュメントが丸ごと差し替わった後に台帳を張り直す。
-	 * 張り直さないと、差し替え前から存在する要素の「移動前の位置」を見失い、
-	 * アートボードから出ていく更新を取りこぼす。
+	 * Reseeds the ledger after the document was swapped wholesale.
+	 * Without it, the "before" position of elements that predate the swap is
+	 * lost, and updates that move them out of the artboard go unrecorded.
 	 */
 	public seedBounds(elementIds: Iterable<string>): void {
 		this.ledger.seed(elementIds, this.getWorldBounds);
@@ -62,12 +94,13 @@ export class TimelapseRecorder {
 	}
 
 	/**
-	 * 読み込んだドキュメントが持っていた記録を引き継ぐ。
-	 * Recorder はドキュメントより長く生きるので、記録を持たないドキュメントに
-	 * 切り替わったときは undefined を渡す。渡さないと前のドキュメントの履歴が
-	 * そのまま再生されてしまう。
+	 * Carries over the recording a loaded document brought with it.
+	 * The recorder outlives the document, so pass undefined when switching to
+	 * a document without a recording. Otherwise the previous document's history
+	 * would play back as this one's.
 	 */
 	public restoreFrom(data: TimelapseData | undefined): void {
+		this.openGroup = null;
 		this.entries = data ? [...data.entries] : [];
 		this.rects = data?.index
 			? [...data.index.rects]
@@ -78,25 +111,29 @@ export class TimelapseRecorder {
 	}
 
 	/**
-	 * ドキュメントが差し替わったので、ここから先を新しい区切りとして記録する。
+	 * The document was replaced, so everything from here on is recorded as a
+	 * new segment.
 	 *
-	 * `baseline` はドキュメントの内容から作った、それ単体で完結した更新。差し替えが
-	 * 出す更新をそのまま使ってはいけない。あれは直前まで存在していたアイテムを
-	 * 前提にした差分で、空の Y.Doc に再生しても Yjs が統合できない。
+	 * `baseline` is a self-contained update built from the document's content.
+	 * The update emitted by the replacement itself must not be used: it is a
+	 * diff against the items that existed just before, and Yjs cannot integrate
+	 * it into an empty Y.Doc.
 	 *
-	 * 引き継いだ記録は消さない。再生側がこの位置で replay ドキュメントを作り直す
-	 * ので、前の記録と繋げても同じレイヤーが二重に積まれることはない。
+	 * The carried-over recording is kept. Playback recreates its replay document
+	 * at this position, so appending to the previous recording never stacks the
+	 * same layer twice.
 	 */
 	public appendBaseline(baseline: Uint8Array): void {
+		this.openGroup = null;
 		this.baselines.push(this.entries.length);
 		this.entries.push({ t: Date.now() - this.startedAt, u: baseline });
 		this.rects.push(null);
 	}
 
 	/**
-	 * インデックスの無い録画から再構築した矩形を受け取り、未知のままだった
-	 * ぶんだけを埋める。再構築中に追記されたエントリの矩形は記録済みなので
-	 * 触らない。
+	 * Takes the rects rebuilt from a recording without an index and fills in
+	 * only the ones still unknown. Entries appended during the rebuild already
+	 * have their rects and are left alone.
 	 */
 	public adoptRebuiltIndex(index: TimelapseIndex): void {
 		const count = Math.min(index.rects.length, this.rects.length);
@@ -104,4 +141,26 @@ export class TimelapseRecorder {
 			this.rects[i] ??= index.rects[i];
 		}
 	}
+}
+
+/**
+ * Identity of "which objects this update touched", or null when the update
+ * must stay its own entry: unknown scope, or a deletion.
+ */
+function coalesceKey(changes: TimelapseChangeSet | null): string | null {
+	if (!changes || changes.deleted.size > 0) return null;
+	return [...changes.upserted].sort().join("\0");
+}
+
+function unionDirtyRect(
+	a: TimelapseDirtyRect | null,
+	b: TimelapseDirtyRect | null,
+): TimelapseDirtyRect | null {
+	if (!a || !b) return null;
+	return [
+		Math.min(a[0], b[0]),
+		Math.min(a[1], b[1]),
+		Math.max(a[2], b[2]),
+		Math.max(a[3], b[3]),
+	];
 }
