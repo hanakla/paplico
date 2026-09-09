@@ -322,6 +322,22 @@ export class SpatialIndex {
 		this.localBoundsCache.delete(elementId);
 	}
 
+	/**
+	 * Clear the cached bounds of an element and of every container above it.
+	 * A container's bounds are derived from its children's cached bounds, so a
+	 * change deep inside a nested group has to drop the whole chain or the
+	 * containers in between keep reporting the pre-change extent.
+	 */
+	public clearBoundsCacheWithAncestors(elementId: string): void {
+		for (
+			let id: string | undefined = elementId;
+			id;
+			id = this.parentGroupMap.get(id)
+		) {
+			this.clearBoundsCache(id);
+		}
+	}
+
 	/** Recalculate bounds and sync the Quadtree entry. Falls back to cache-only deletion if element is not found. */
 	public invalidateBounds(elementId: string): void {
 		this.localBoundsCache.delete(elementId);

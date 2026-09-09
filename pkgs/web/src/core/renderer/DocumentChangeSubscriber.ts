@@ -246,7 +246,7 @@ export class DocumentChangeSubscriber {
 		}
 
 		for (const [id] of delta.updated) {
-			spatialIndex.clearBoundsCache(id);
+			spatialIndex.clearBoundsCacheWithAncestors(id);
 
 			const owner = resolveTopLevelOwner(id);
 			if (!owner) continue;

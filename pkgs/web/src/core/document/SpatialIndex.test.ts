@@ -325,6 +325,39 @@ describe("SpatialIndex", () => {
 			expect(idx.getBounds("img-1")).toBe(bounds);
 		});
 
+		it("clearBoundsCacheWithAncestors makes nested groups follow a grandchild change", () => {
+			const grandchild = makeImage("gc-1", 0, 0, 40, 40);
+			const inner = makeGroup("inner-1", ["gc-1"]);
+			const outer = makeGroup("outer-1", ["inner-1"]);
+			const layer = makeLayer("layer-1", ["outer-1"]);
+			const store = makeStore([layer], {
+				"outer-1": outer,
+				"inner-1": inner,
+				"gc-1": grandchild,
+			});
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+			expect(idx.getBounds("inner-1")).toEqual(
+				expect.objectContaining({ maxX: 20, maxY: 20 }),
+			);
+
+			const grown = makeImage("gc-1", 0, 0, 200, 200);
+			store.document.objects["gc-1"] = grown;
+			idx.applyObjectsDelta({
+				added: new Map(),
+				updated: new Map([["gc-1", grown]]),
+				deleted: new Set(),
+			});
+			idx.clearBoundsCacheWithAncestors("gc-1");
+
+			expect(idx.getBounds("inner-1")).toEqual(
+				expect.objectContaining({ maxX: 100, maxY: 100 }),
+			);
+			expect(idx.getBounds("outer-1")).toEqual(
+				expect.objectContaining({ maxX: 100, maxY: 100 }),
+			);
+		});
+
 		it("setBounds updates the cache and quadtree", () => {
 			const img = makeImage("img-1", 0, 0, 100, 60);
 			const layer = makeLayer("layer-1", ["img-1"]);

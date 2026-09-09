@@ -427,7 +427,7 @@ export class PaplicoCommands {
 		if (!element) return;
 
 		// Save accurate text bounds BEFORE Yjs sync. The Yjs update handler
-		// fires syncObjectsDelta → clearBoundsCache(id) synchronously, so
+		// fires syncObjectsDelta → clearBoundsCacheWithAncestors(id) synchronously, so
 		// reading after yjsProvider.updateElement would always return null.
 		const existingTextBounds =
 			element.type === "text" ? this.ctx.spatial.getBounds(elementId) : null;

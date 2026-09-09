@@ -34,7 +34,7 @@ function createRuntimeMocks() {
 		getParentGroupId: vi.fn(() => null),
 		insertElement: vi.fn(),
 		invalidateBounds: vi.fn(),
-		clearBoundsCache: vi.fn(),
+		clearBoundsCacheWithAncestors: vi.fn(),
 		removeElement: vi.fn(),
 		updateElement: vi.fn(),
 		rebuildParentGroupMap: vi.fn(),
@@ -235,9 +235,9 @@ describe("DocumentChangeSubscriber", () => {
 		coordinator.syncObjectsDelta(delta, store.document.layers, deletedSnapshot);
 
 		expect(runtime.spatialIndex.insertElement).not.toHaveBeenCalled();
-		expect(runtime.spatialIndex.clearBoundsCache).toHaveBeenCalledWith(
-			updatedId,
-		);
+		expect(
+			runtime.spatialIndex.clearBoundsCacheWithAncestors,
+		).toHaveBeenCalledWith(updatedId);
 		expect(runtime.spatialIndex.updateElement).toHaveBeenCalledWith(
 			layer.id,
 			updatedObject,
