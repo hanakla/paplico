@@ -57,9 +57,9 @@ frame          RenderOrchestrator.render        // whole CPU frame
 
 `request.strategy` (a `RenderStrategy`) is the first-arg field on both
 `RenderOrchestrator.render` and `CanvasLayer.render`, so bucket frame cost by it
-to see *which* strategy is slow — during zoom the scheduler resolves to
-`fullInteraction` / `fullTransformOnly`, and comparing those buckets tells you
-whether interaction fast-paths are actually engaging.
+to see *which* strategy is slow — during pan/zoom the scheduler resolves to
+`viewportBlit` (or `fullInteraction` when a preview rides along), and comparing
+those buckets tells you whether interaction fast-paths are actually engaging.
 
 `RenderScheduler.markDirty(reason)` is the frame-request entry point; counting
 its `reason` argument shows what keeps requesting frames during the gesture

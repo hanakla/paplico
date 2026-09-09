@@ -280,11 +280,12 @@ flowchart TB
 | Strategy | 説明 | トリガーとなる DirtyReason |
 |---|---|---|
 | `full` | ドキュメント全体を再レンダリング | `document`, `editingScope`, `resize`, `collaboration`, `animation` |
-| `fullInteraction` | ドキュメントを再レンダリングするがバックドロップフィルター等の高コスト処理をスキップ | `viewport`(操作中), `render`(非同期リソース読込) |
+| `fullInteraction` | ビューポート操作中に blit できないフレームの再レンダリング。描画パスは `full` と同じ | `viewport`(操作中) に `preview` / `render` が同乗、または transient 要素・override が存在 |
 | `fullTransformOnly` | バウンズキャッシュを保持したまま再レンダリング。移動・ペースト・複製等の形状非変更操作用 | `elementMove` |
-| `overlayOnly` | キャッシュされたドキュメントテクスチャをblit（テクスチャを別のテクスチャにコピー描画する操作）し、プレビュー/UIのみ再描画 | `preview`, `selection`, `cursor` |
+| `viewportBlit` | ドキュメント描画をスキップし、キャッシュ済みの合成フレームを現ビューポートへ再投影blit（テクスチャを別のテクスチャにコピー描画する操作）。UIレイヤーだけ再描画 | `viewport`(操作中), `selection` / `cursor` のみ |
+| `overlayOnly` | boundsCache などを捨てずにドキュメントを再レンダリング | `preview`, `render`(非同期リソース読込), settle 後の `viewport` |
 
-ビューポート操作中は `fullInteraction` を使用し、操作完了後100ms debounceで `full` に昇格する。これにより操作中のフレームレートを維持しつつ、停止後にフル品質でレンダリングする。
+ビューポート操作中は `viewportBlit` でキャッシュ済みフレームを blit し、操作完了後100ms debounceで `overlayOnly` によりフル品質で再レンダリングする。選択やカーソルの変化もドキュメントの画素を変えないので `viewportBlit` になる。CanvasLayer は有効なキャッシュを持たないときに通常の再レンダリングへフォールバックする。
 
 この多段階のStrategy設計は、「何が変わったか」（DirtyReason）と「どう再描画するか」（RenderStrategy）を分離するためにある。ツール側は `markDirty("selection")` のように意味的なイベントだけを投げればよく、最適な描画戦略の解決はスケジューラが一元的に担う。これにより、新しいDirtyReasonの追加やStrategy最適化が独立して行える。
 
@@ -322,7 +323,7 @@ RenderOrchestratorがGPUデバイスとパイプラインを一元管理する�
 - **DirtyReason の収集**: `markDirty(reason)` で汚れた理由を蓄積
 - **rAFバッチング**: 同一フレーム内の複数呼び出しを1回のレンダリングに合体
 - **RenderStrategy の解決**: `resolveStrategy()` で蓄積された DirtyReason から最適な Strategy を決定
-- **インタラクション判定**: ビューポート操作中は `fullInteraction`、100ms settle後に `full` へ昇格
+- **インタラクション判定**: ビューポート操作中は `viewportBlit`、100ms settle後に `overlayOnly` でフル品質再レンダリング
 
 ## キャッシュシステム
 

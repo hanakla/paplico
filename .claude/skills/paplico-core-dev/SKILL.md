@@ -20,7 +20,7 @@ Paplico.ts (facade — public API boundary)
   └── RenderOrchestrator (renderer/)
       ├── CanvasTarget           (DOM canvas wrapper, resize, viewport state)
       ├── RenderScheduler        (rAF scheduling, dirty → full/fullTransformOnly/
-      │                            fullInteraction/overlayOnly)
+      │                            fullInteraction/viewportBlit/overlayOnly)
       ├── FilterRenderer         (registered FilterHandlers — pipeline/FilterRenderer.ts;
       │                            owns per-size ping-pong temp pairs reused across frames)
       ├── UILayer                (renderer/ui/ — overlays, gizmos, guides, cursors)
@@ -107,7 +107,7 @@ WebGPU reads uniform buffer values at `queue.submit()` time, not at draw call ti
 
 ### Why RenderScheduler resolves dirty reasons into strategies
 
-Not all changes need the same rendering work. A cursor move needs only the overlay redrawn (`overlayOnly`). A pan during interaction can skip expensive backdrop filters (`fullInteraction`). Only a document change needs a full re-render (`full`). Without this, every mouse move would trigger a full pipeline pass, killing frame rate.
+Not all changes need the same rendering work. A cursor move or a pan during interaction blits the cached composite frame and redraws only the overlay (`viewportBlit`). An async resource load re-renders the document while keeping its caches (`overlayOnly`). Only a document change needs a full re-render (`full`). Without this, every mouse move would trigger a full pipeline pass, killing frame rate.
 
 ### Why the brush renderers cache dabs and batch ribbons
 

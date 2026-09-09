@@ -135,7 +135,7 @@ GPUに描画命令を1回発行すること。回数が多いほどオーバー�
 
 ### RenderStrategy
 
-DirtyReasonから解決された再描画戦略。`full`（全体再レンダリング）、`fullInteraction`（高コスト処理スキップ）、`fullTransformOnly`（形状非変更操作用）、`overlayOnly`（UI/プレビューのみ再描画）の4段階がある。
+DirtyReasonから解決された再描画戦略。`full`（全体再レンダリング）、`fullInteraction`（操作中に blit できないフレームの再レンダリング）、`fullTransformOnly`（形状非変更操作用）、`viewportBlit`（キャッシュ済み合成フレームの blit、UIのみ再描画）、`overlayOnly`（キャッシュを捨てずに再レンダリング）の5段階がある。
 
 → [レンダラーアーキテクチャ](/devdocs/renderer#renderstrategy)
 
@@ -261,7 +261,7 @@ UILayerの描画内容を駆動する構造体。各ツールがポインタイ�
 
 ### UIオーバーレイ
 
-ドキュメントの描画結果の上に重ねて表示されるインターフェース要素。選択枠、カーソル、ガイドなど。ドキュメントとは独立した更新頻度を持ち、`overlayOnly` 戦略でドキュメント再描画なしに更新できる。
+ドキュメントの描画結果の上に重ねて表示されるインターフェース要素。選択枠、カーソル、ガイドなど。ドキュメントとは独立した更新頻度を持ち、`viewportBlit` 戦略でドキュメント再描画なしに更新できる。
 
 → [UILayer](/devdocs/renderer/ui)
 

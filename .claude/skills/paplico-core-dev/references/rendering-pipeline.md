@@ -15,8 +15,10 @@ The renderer must handle thousands of elements across multiple layers with blend
 RenderScheduler collects dirty reasons (document change, viewport change, preview update, etc.) and resolves them into a strategy:
 
 - `full` — Re-render everything. Triggered by document mutation, resize, collaboration sync, animation tick
-- `fullInteraction` — Re-render but skip backdrop filters. Triggered by viewport change during active interaction. Backdrop filters (frost glass) are expensive and produce no visible difference during a fast pan
-- `overlayOnly` — Only redraw UILayer (selection handles, cursor, guides). Triggered by preview path update, selection change, hover change
+- `fullTransformOnly` — Re-render keeping boundsCache. Triggered by shape-preserving changes (move, paste, duplicate)
+- `viewportBlit` — Skip the document render: blit the cached composite frame through the current viewport and redraw only UILayer. Triggered by viewport change during active interaction and by selection / cursor changes. CanvasLayer falls back to a normal render when no valid cache exists
+- `fullInteraction` — Re-render with the same passes as `full`. Triggered by a viewport change during interaction that cannot blit (a preview or async resource rides along, or transient / override content exists)
+- `overlayOnly` — Re-render the document without invalidating boundsCache / geometryCache. Triggered by preview path update, async resource load, and the full-quality settle frame after a viewport gesture
 
 The strategy resolution exists because a naive "re-render everything on every change" approach drops to ~15fps during pan/zoom on complex documents.
 

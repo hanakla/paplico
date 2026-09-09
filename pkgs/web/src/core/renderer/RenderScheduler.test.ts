@@ -180,6 +180,51 @@ describe("RenderScheduler", () => {
 			expect(lastCall(callback)[0]).toBe("viewportBlit");
 		});
 
+		it("should blit the cached frame for a selection-only change", () => {
+			const callback = vi.fn();
+			const scheduler = new RenderScheduler(callback);
+
+			// A hover highlight or selection change leaves the document pixels
+			// untouched, so the cached composite is still exact.
+			scheduler.markDirty("selection");
+			flushFrame();
+
+			expect(lastCall(callback)[0]).toBe("viewportBlit");
+		});
+
+		it("should blit the cached frame for a cursor-only change", () => {
+			const callback = vi.fn();
+			const scheduler = new RenderScheduler(callback);
+
+			scheduler.markDirty("cursor");
+			flushFrame();
+
+			expect(lastCall(callback)[0]).toBe("viewportBlit");
+		});
+
+		it("should re-render a selection-only change while volatile content exists", () => {
+			const callback = vi.fn();
+			const scheduler = new RenderScheduler(callback, () => true);
+
+			// Transient previews / overrides are never in the composite cache,
+			// so blitting would hide them.
+			scheduler.markDirty("selection");
+			flushFrame();
+
+			expect(lastCall(callback)[0]).toBe("overlayOnly");
+		});
+
+		it("should re-render when a render dirt rides with a selection change", () => {
+			const callback = vi.fn();
+			const scheduler = new RenderScheduler(callback);
+
+			scheduler.markDirty("selection");
+			scheduler.markDirty("render");
+			flushFrame();
+
+			expect(lastCall(callback)[0]).toBe("overlayOnly");
+		});
+
 		it("should fall back to fullInteraction when a preview rides with a viewport change", () => {
 			const callback = vi.fn();
 			const scheduler = new RenderScheduler(callback);

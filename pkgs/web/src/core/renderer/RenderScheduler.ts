@@ -34,6 +34,13 @@ const FULL_RENDER_REASONS: ReadonlySet<DirtyReason> = new Set([
 	"collaboration",
 ]);
 
+/** Dirty reasons that touch only the overlay layer. The document pixels are
+ *  unchanged, so the cached composite frame is still exact for them. */
+const OVERLAY_ONLY_REASONS: ReadonlySet<DirtyReason> = new Set([
+	"selection",
+	"cursor",
+]);
+
 /** Dirty reasons that mean DOCUMENT CONTENT changed. Arriving without an
  *  element-id change set, they void the frame's tracking (every element may
  *  have changed); any other reason leaves the tracked set untouched. */
@@ -216,28 +223,37 @@ export class RenderScheduler {
 			return RenderStrategy.fullTransformOnly;
 		}
 
+		// The composite blit reproduces the cached document pixels, which is
+		// wrong only when this frame needs pixels the cache lacks: "preview"
+		// (in-progress draw geometry) and "render" (async resource /
+		// post-process) need real document pixels, and volatile content
+		// (transient previews / overrides) is never captured into the cache.
+		const canBlit =
+			!this.dirtyReasons.has("preview") &&
+			!this.dirtyReasons.has("render") &&
+			!this.hasVolatileContent();
+
 		if (this.dirtyReasons.has("viewport") && this.isInteracting) {
 			// Any viewport interaction (pan/zoom/rotate) tries the composite
 			// blit; CanvasLayer falls through to a re-render when the cached
 			// frame no longer covers the visible world (e.g. a pan past the
 			// store margin). Overlay-only reasons (selection/cursor) ride along
-			// because the overlay layer re-renders every frame anyway. "preview"
-			// (in-progress draw geometry) and "render" (async resource /
-			// post-process) need real document pixels, so those re-render.
-			// Volatile content (transient previews / overrides) is never in the
-			// composite cache, so blitting while it exists would hide it.
-			if (
-				!this.dirtyReasons.has("preview") &&
-				!this.dirtyReasons.has("render") &&
-				!this.hasVolatileContent()
-			) {
-				return RenderStrategy.viewportBlit;
-			}
-			return RenderStrategy.fullInteraction;
+			// because the overlay layer re-renders every frame anyway.
+			return canBlit
+				? RenderStrategy.viewportBlit
+				: RenderStrategy.fullInteraction;
+		}
+
+		// Selection / cursor changes leave the document untouched, so the
+		// cached composite is still exact: blit it and let the overlay layer
+		// redraw on top. CanvasLayer re-renders when it holds no valid cache.
+		if (canBlit && this.dirtyReasons.isSubsetOf(OVERLAY_ONLY_REASONS)) {
+			return RenderStrategy.viewportBlit;
 		}
 
 		// "render" reason: async resource loaded (text path, brush texture), a
 		// post-process change (HDR / soft proof), or a tile-convergence follow-up.
+		// The settle "viewport" after an interaction lands here as well.
 		// overlayOnly re-renders the document (to show the result) without full
 		// cache invalidation (boundsCache, geometryCache), and stays
 		// non-interacting — so a tile-convergence follow-up bakes at the settle

@@ -380,11 +380,12 @@ DirtyReason（10種）: `document` / `viewport` / `preview` / `selection` / `edi
 1. `document` / `editingScope` / `resize` / `collaboration` を含む → **`full`**（全再描画）
 2. `elementMove` を含む → **`fullTransformOnly`**（boundsCacheを保持したまま再描画。移動・複製など形状不変の変更）
 3. `viewport` かつインタラクション中:
-   - ズーム変更のみ → **`viewportBlit`**（ドキュメント描画をスキップし、キャッシュ済みcompositeを現ビューポートで再投影blit）
-   - それ以外（パン等） → **`fullInteraction`**（backdropフィルタをスキップして再描画）
-4. それ以外 → **`overlayOnly`**
+   - `preview` / `render` が無く、transient 要素・override も無い → **`viewportBlit`**（ドキュメント描画をスキップし、キャッシュ済みcompositeを現ビューポートで再投影blit）
+   - それ以外 → **`fullInteraction`**（`full` と同じパスで再描画）
+4. `selection` / `cursor` だけで、blit を妨げる要因が無い → **`viewportBlit`**
+5. それ以外 → **`overlayOnly`**（boundsCache などを保持したまま再描画。`preview` / `render`、settle 後の `viewport`）
 
-パンはキャッシュblitしない（画面サイズキャッシュの平行移動は未描画の端を露出させるため）。ビューポート操作は100msのsettleデバウンス後にフル品質で再描画する。
+CanvasLayer は有効な compositeFrameCache が無いか、キャッシュがビューポートを覆わないときに通常の再描画へフォールバックする。ビューポート操作は100msのsettleデバウンス後にフル品質で再描画する。
 
 ### フレームキャッシュ
 
@@ -721,8 +722,7 @@ service/, monaco/ — LanguageService（補完・ホバー・シグネチャ・�
 1. **レンダリング**
    - ビューポートカリング（可視範囲のみ描画）
    - 要素ID単位のダーティ追跡と差分再合成
-   - ズーム操作中のcompositeフレームキャッシュblit（`viewportBlit`）
-   - インタラクション中のbackdropフィルタスキップ（`fullInteraction`）
+   - ビューポート操作中と選択・カーソル更新時のcompositeフレームキャッシュblit（`viewportBlit`）
    - GPUリソースのプール/リング再利用（TexturePool・FrameUniformPool・GeometryStore）と常駐スタンプ
 2. **データ転送**
    - papfのDeflate圧縮 + CBOR

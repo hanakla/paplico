@@ -128,11 +128,15 @@ export const RenderStrategy = {
 	/** Re-render document keeping boundsCache (shape-preserving changes: moves, paste, duplicate) */
 	fullTransformOnly: "fullTransformOnly",
 	/** Skip the document render entirely: blit the cached composite frame and
-	 *  reproject it through the current viewport (pan/zoom during a gesture).
-	 *  The overlay layer still re-renders, so gizmos/selection stay crisp. */
+	 *  reproject it through the current viewport. Used for pan/zoom during a
+	 *  gesture and for selection / cursor changes, which leave the document
+	 *  pixels untouched. The overlay layer still re-renders, so gizmos and
+	 *  selection stay crisp. CanvasLayer falls back to a normal render when
+	 *  it holds no valid cache. */
 	viewportBlit: "viewportBlit",
 	/** Re-render document + overlay without full cache invalidation (async
-	 *  resource load, post-process toggle, tile-convergence follow-up) */
+	 *  resource load, post-process toggle, tile-convergence follow-up, the
+	 *  full-quality settle frame after a viewport gesture) */
 	overlayOnly: "overlayOnly",
 } as const;
 export type RenderStrategy = keyof typeof RenderStrategy;
