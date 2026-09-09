@@ -194,8 +194,8 @@ function startSession() {
 		},
 	});
 
-	// Registered after the provider's own update listener, as Paplico does.
-	provider.ydoc.on("update", (update: Uint8Array) => {
+	// Same hookup as Paplico: the provider delivers updates after its own sync.
+	provider.on("update", (update) => {
 		const changes = pendingChanges;
 		pendingChanges = null;
 		recorder.onYjsUpdate(update, changes);

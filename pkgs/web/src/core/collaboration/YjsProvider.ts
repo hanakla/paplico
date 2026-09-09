@@ -24,6 +24,7 @@ import {
 	type Reference3DNode,
 	type RepeatObject,
 } from "../schema";
+import { Emitter } from "../utils/emitter";
 import { composeTransforms } from "../utils/geometry/geometry";
 import {
 	createPathsFromSegmentLists,
@@ -161,6 +162,15 @@ interface YjsProviderOptions {
 	callbacks: YjsProviderCallbacks;
 }
 
+type YjsProviderEventMap = {
+	/**
+	 * Every Yjs update applied to the current Y.Doc, delivered after the
+	 * provider has synced it to Valtio. Subscriptions outlive
+	 * resetWithFreshDoc, unlike a listener attached to `ydoc` directly.
+	 */
+	update: Uint8Array;
+};
+
 /**
  * Yjs Collaboration Provider
  * Manages document state with Yjs CRDT
@@ -190,7 +200,7 @@ interface YjsProviderOptions {
  * Disconnect: Toast with reconnect action.
  * Explicit leave (handleDisconnectRoom): clears reconnectInfo.
  */
-export class YjsProvider {
+export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	public ydoc: Y.Doc;
 	// Bound by bindSharedTypes() (constructor + resetWithFreshDoc).
 	private yLayers!: Y.Array<Y.Map<unknown>>;
@@ -231,6 +241,7 @@ export class YjsProvider {
 	private valtioUnsubscribe: (() => void) | null = null;
 
 	public constructor(options: YjsProviderOptions) {
+		super();
 		this.callbacks = options.callbacks;
 		try {
 			this.ydoc = new Y.Doc();
@@ -310,7 +321,7 @@ export class YjsProvider {
 		});
 
 		// Listen to Yjs changes and sync to Valtio
-		this.ydoc.on("update", (_update: Uint8Array, _origin: unknown) => {
+		this.ydoc.on("update", (update: Uint8Array) => {
 			try {
 				// Sync all updates to Valtio (both local and remote)
 				// No circular update risk since Valtio->Yjs sync is disabled
@@ -321,6 +332,7 @@ export class YjsProvider {
 					console.error("Stack trace:", error.stack);
 				}
 			}
+			this.emit("update", update);
 		});
 	}
 
@@ -693,37 +705,6 @@ export class YjsProvider {
 	}
 
 	/**
-	 * Clear all document data from Yjs.
-	 * Used before connecting to a collaboration room to discard local document state.
-	 */
-	public clearDocument(): void {
-		this.ydoc.transact(() => {
-			this.yObjects.forEach((_, key) => {
-				this.yObjects.delete(key);
-			});
-			while (this.yLayers.length > 0) this.yLayers.delete(0);
-			while (this.yArtboards.length > 0) this.yArtboards.delete(0);
-			this.yFiles.forEach((_, key) => {
-				this.yFiles.delete(key);
-			});
-			this.yBrushPresets.forEach((_, key) => {
-				this.yBrushPresets.delete(key);
-			});
-			this.yAppearancePresets.forEach((_, key) => {
-				this.yAppearancePresets.delete(key);
-			});
-			this.yDefs.forEach((_, key) => {
-				this.yDefs.delete(key);
-			});
-			this.yReferences3d.forEach((_, key) => {
-				this.yReferences3d.delete(key);
-			});
-		});
-
-		this.clearUndoHistory();
-	}
-
-	/**
 	 * Initialize Yjs from a complete Document (objects + layers).
 	 * Used for local-only mode to sync the initial document into Yjs in a single transaction.
 	 */
@@ -739,38 +720,19 @@ export class YjsProvider {
 	 * Used by importDocument to keep Yjs in sync with Valtio.
 	 */
 	public replaceDocument(doc: Document): void {
+		// A fresh Y.Doc holds nothing but the incoming document. Deleting the
+		// old entries in place would keep their content alive: the UndoManager
+		// captures the deletes and pins the deleted items against GC, so every
+		// later encodeStateAsUpdate (timelapse baseline, export) would still
+		// carry the previous document.
+		this.resetWithFreshDoc();
+
 		// Suppress object tracking and syncYjsToValtio during the transaction.
 		// The caller already has the Document — re-extracting from Yjs is redundant.
 		this.suppressObjectTracking = true;
 		this.suppressSync = true;
 
 		this.ydoc.transact(() => {
-			// Clear existing data
-			this.yObjects.forEach((_, key) => {
-				this.yObjects.delete(key);
-			});
-			while (this.yLayers.length > 0) this.yLayers.delete(0);
-			while (this.yArtboards.length > 0) this.yArtboards.delete(0);
-			this.yFiles.forEach((_, key) => {
-				this.yFiles.delete(key);
-			});
-			this.yBrushPresets.forEach((_, key) => {
-				this.yBrushPresets.delete(key);
-			});
-			this.yAppearancePresets.forEach((_, key) => {
-				this.yAppearancePresets.delete(key);
-			});
-			this.yDefs.forEach((_, key) => {
-				this.yDefs.delete(key);
-			});
-			this.yReferences3d.forEach((_, key) => {
-				this.yReferences3d.delete(key);
-			});
-			this.yMeta.delete("hdr");
-			this.yMeta.delete("colorProfile");
-			this.yMeta.delete("rasterizationDpi");
-
-			// Populate with new document
 			this.populateYjsFromDocument(doc);
 		});
 
@@ -2341,9 +2303,11 @@ export class YjsProvider {
 	}
 
 	/**
-	 * Replace the current Y.Doc with a fresh, empty one.
-	 * Used when connecting to an existing room (non-reconnect) so that
-	 * the Yjs merge produces no duplicates — the fresh doc has no state.
+	 * Replace the current Y.Doc with a fresh, empty one. Every document swap
+	 * goes through here: joining an existing room (so the Yjs merge produces
+	 * no duplicates) and replaceDocument / loadYjsState (so nothing of the
+	 * outgoing document survives in the encoded state). `update` subscriptions
+	 * on the provider carry over; listeners on the old `ydoc` do not.
 	 */
 	public resetWithFreshDoc(): Y.Doc {
 		// Tear down old state

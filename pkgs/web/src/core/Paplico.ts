@@ -927,7 +927,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			new PaplicoSVGExporter(this.renderer, () => this.rendererStore.document);
 		this.toolContext = this.createToolContext();
 		// Timelapse recording
-		this.yjsProvider.ydoc.on("update", (update: Uint8Array) => {
+		this.yjsProvider.on("update", (update) => {
 			const changes = this.pendingTimelapseChanges;
 			this.pendingTimelapseChanges = null;
 			this.timelapseRecorder.onYjsUpdate(update, changes);
@@ -4256,10 +4256,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	// ===== Document Persistence =====
 
-	public getYjsDoc(): Y.Doc {
-		return this.yjsProvider.ydoc;
-	}
-
 	public getYjsState(): Uint8Array {
 		return Y.encodeStateAsUpdate(this.yjsProvider.ydoc);
 	}
@@ -4284,7 +4280,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		const outgoingDocumentId = this.rendererStore.document.id;
 
 		// Replace Yjs state
-		this.yjsProvider.clearDocument();
+		this.yjsProvider.resetWithFreshDoc();
 		Y.applyUpdate(this.yjsProvider.ydoc, yjsState);
 
 		if (outgoingDocumentId !== this.rendererStore.document.id) {

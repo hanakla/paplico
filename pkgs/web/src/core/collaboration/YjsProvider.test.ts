@@ -55,6 +55,70 @@ describe("YjsProvider", () => {
 		});
 	});
 
+	describe("replaceDocument", () => {
+		function makeDocument(id: string, objectId: string) {
+			return {
+				id,
+				objects: {
+					[objectId]: {
+						id: objectId,
+						type: "path" as const,
+						segments: [],
+						opacity: 1,
+						blendMode: "normal" as const,
+						transform: createIdentityTransform(),
+					},
+				},
+				layers: [
+					{
+						id: `${id}-layer`,
+						name: "Layer 1",
+						visible: true,
+						locked: false,
+						opacity: 1,
+						blendMode: "normal" as const,
+						elementIds: [objectId],
+					},
+				],
+				viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },
+				files: [],
+				artboards: [],
+				brushPresets: [],
+			};
+		}
+
+		it("should leave nothing of the previous document in the encoded state", () => {
+			const provider = new YjsProvider({ callbacks });
+			provider.replaceDocument(makeDocument("doc-old", "path-old"));
+			provider.replaceDocument(makeDocument("doc-new", "path-new"));
+
+			const fresh = new YjsProvider({ callbacks });
+			fresh.replaceDocument(makeDocument("doc-new", "path-new"));
+
+			const state = Y.encodeStateAsUpdate(provider.ydoc);
+			expect(new TextDecoder("latin1").decode(state)).not.toContain("path-old");
+			expect(state.byteLength).toBe(
+				Y.encodeStateAsUpdate(fresh.ydoc).byteLength,
+			);
+			provider.destroy();
+			fresh.destroy();
+		});
+
+		it("should keep update subscriptions across the document swap", () => {
+			const provider = new YjsProvider({ callbacks });
+			const onUpdate = vi.fn();
+			provider.on("update", onUpdate);
+
+			provider.replaceDocument(makeDocument("doc-new", "path-new"));
+			const callsAfterReplace = onUpdate.mock.calls.length;
+			provider.updateLayerAttributes("doc-new-layer", { name: "Renamed" });
+
+			expect(callsAfterReplace).toBeGreaterThan(0);
+			expect(onUpdate.mock.calls.length).toBeGreaterThan(callsAfterReplace);
+			provider.destroy();
+		});
+	});
+
 	describe("addLayer", () => {
 		it("should add a new layer to yLayers", () => {
 			const provider = new YjsProvider({ callbacks });

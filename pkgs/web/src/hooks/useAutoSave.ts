@@ -32,8 +32,6 @@ export function useAutoSave(): { save: () => void } {
 		if (initialized || !paplico || !documentId) return;
 		initialized = true;
 
-		const ydoc = paplico.getYjsDoc();
-
 		const handler = () => {
 			pendingRef.current = true;
 
@@ -51,11 +49,11 @@ export function useAutoSave(): { save: () => void } {
 			}, DEBOUNCE_MS);
 		};
 
-		ydoc.on("update", handler);
+		const unsubscribe = paplico.getYjsProvider().on("update", handler);
 
 		return () => {
 			initialized = false;
-			ydoc.off("update", handler);
+			unsubscribe();
 
 			if (timerRef.current) {
 				clearTimeout(timerRef.current);
