@@ -392,6 +392,65 @@ describe("PaplicoCommands", () => {
 		expect(written.wet?.scatter).toBe(2.5);
 	});
 
+	describe("moveElementForward / moveElementBackward", () => {
+		it("reorders a group member among its siblings while the group is being edited", () => {
+			const first = createPath("child-1");
+			const second = createPath("child-2");
+			const group = {
+				id: "group-1",
+				type: "group",
+				childIds: ["child-1", "child-2"],
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			} as unknown as AnyArtObject;
+			const layer = createLayer("layer-1", ["group-1"]);
+			const reorderElements = vi.fn();
+			const reorderGroupChildren = vi.fn();
+			const store = {
+				currentLayerId: "layer-1",
+				selectedElementIds: ["child-1"],
+				editingScopeStack: ["group-1"],
+				document: {
+					layers: [layer],
+					objects: { "group-1": group, "child-1": first, "child-2": second },
+				},
+			} as unknown as RendererState;
+			const commands = new PaplicoCommands({
+				store,
+				yjsProvider: {
+					reorderElements,
+					reorderGroupChildren,
+					transact: vi.fn((fn: () => void) => fn()),
+					isAnimationUndoMode: vi.fn(() => false),
+				} as unknown as YjsProvider,
+				spatial: {
+					isElementLocked: () => false,
+					getAncestorTransform: () => null,
+				} as unknown as SpatialIndex,
+				isReadonly: () => false,
+			});
+
+			commands.moveElementForward("child-1");
+
+			expect(reorderElements).not.toHaveBeenCalled();
+			const [groupId, fromIndex, toIndex] = reorderGroupChildren.mock
+				.calls[0] as [string, number, number];
+			expect(groupId).toBe("group-1");
+			expect(fromIndex).toBe(0);
+			expect(toIndex).toBe(1);
+
+			commands.moveElementBackward("child-2");
+			const [, backFrom, backTo] = reorderGroupChildren.mock.calls[1] as [
+				string,
+				number,
+				number,
+			];
+			expect(backFrom).toBe(1);
+			expect(backTo).toBe(0);
+		});
+	});
+
 	describe("pasteElements", () => {
 		it("pastes in place when no position is given (offset = 0,0)", () => {
 			const sourcePath = createPath("path-1");
@@ -450,22 +509,22 @@ describe("PaplicoCommands", () => {
 			expect(pastedPath.segments[0].cp1).toEqual(sourcePath.segments[0].cp1);
 		});
 
-		it('placement "back" reorders pasted elements to index 0', () => {
-			const existing = createPath("existing");
-			const sourcePath = createPath("path-1");
-			const layer = createLayer("layer-1", [existing.id, sourcePath.id]);
+		it('placement "back" puts the paste right behind the selected element', () => {
+			const below = createPath("below");
+			const selected = createPath("selected");
+			const above = createPath("above");
+			const layer = createLayer("layer-1", [below.id, selected.id, above.id]);
 			const { commands, reorderElements } = createCommands(
 				layer,
-				{ [existing.id]: existing, [sourcePath.id]: sourcePath },
-				[sourcePath.id],
+				{ [below.id]: below, [selected.id]: selected, [above.id]: above },
+				[selected.id],
 			);
 
-			const pastedIds = commands.pasteElements([sourcePath], {
+			const pastedIds = commands.pasteElements([selected], {
 				placement: "back",
 			});
 			expect(pastedIds).toHaveLength(1);
 
-			// reorderElements must have been called once to move pasted element to front of array
 			expect(reorderElements).toHaveBeenCalledTimes(1);
 			const [layerId, fromIndex, toIndex] = reorderElements.mock.calls[0] as [
 				string,
@@ -473,8 +532,106 @@ describe("PaplicoCommands", () => {
 				number,
 			];
 			expect(layerId).toBe(layer.id);
+			expect(fromIndex).toBe(3);
+			expect(toIndex).toBe(1);
+		});
+
+		it('placement "back" goes behind everything when nothing is selected', () => {
+			const existing = createPath("existing");
+			const sourcePath = createPath("path-1");
+			const layer = createLayer("layer-1", [existing.id]);
+			const { commands, reorderElements } = createCommands(
+				layer,
+				{ [existing.id]: existing },
+				[],
+			);
+
+			commands.pasteElements([sourcePath], { placement: "back" });
+
+			const [, fromIndex, toIndex] = reorderElements.mock.calls[0] as [
+				string,
+				number,
+				number,
+			];
+			expect(fromIndex).toBe(1);
 			expect(toIndex).toBe(0);
-			expect(fromIndex).toBeGreaterThan(0);
+		});
+
+		it('placement "front" puts the paste right in front of the selected element', () => {
+			const selected = createPath("selected");
+			const above = createPath("above");
+			const layer = createLayer("layer-1", [selected.id, above.id]);
+			const { commands, reorderElements } = createCommands(
+				layer,
+				{ [selected.id]: selected, [above.id]: above },
+				[selected.id],
+			);
+
+			commands.pasteElements([selected], { placement: "front" });
+
+			const [, fromIndex, toIndex] = reorderElements.mock.calls[0] as [
+				string,
+				number,
+				number,
+			];
+			expect(fromIndex).toBe(2);
+			expect(toIndex).toBe(1);
+		});
+
+		it('placement "back" goes right behind the member selected in the group being edited', () => {
+			const below = createPath("below");
+			const existing = createPath("existing");
+			const sourcePath = createPath("path-1");
+			const group = {
+				id: "group-1",
+				type: "group",
+				childIds: ["below", "existing"],
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			} as unknown as AnyArtObject;
+			const layer = createLayer("layer-1", ["group-1"]);
+			const reorderElements = vi.fn();
+			const reorderGroupChildren = vi.fn();
+			const store = {
+				currentLayerId: "layer-1",
+				selectedElementIds: ["existing"],
+				editingScopeStack: ["group-1"],
+				document: {
+					layers: [layer],
+					objects: { "group-1": group, below, existing, "path-1": sourcePath },
+				},
+			} as unknown as RendererState;
+			const commands = new PaplicoCommands({
+				store,
+				yjsProvider: {
+					addElement: vi.fn(),
+					addElementToGroup: vi.fn(),
+					reorderElements,
+					reorderGroupChildren,
+					transact: vi.fn((fn: () => void) => fn()),
+					isAnimationUndoMode: vi.fn(() => false),
+				} as unknown as YjsProvider,
+				spatial: {
+					insertElement: vi.fn(),
+					isElementLocked: () => false,
+					getAncestorTransform: () => null,
+					getParentGroupId: () => null,
+				} as unknown as SpatialIndex,
+				isReadonly: () => false,
+			});
+
+			const pastedIds = commands.pasteElements([sourcePath], {
+				placement: "back",
+			});
+			expect(pastedIds).toHaveLength(1);
+
+			expect(reorderElements).not.toHaveBeenCalled();
+			const [groupId, fromIndex, toIndex] = reorderGroupChildren.mock
+				.calls[0] as [string, number, number];
+			expect(groupId).toBe("group-1");
+			expect(fromIndex).toBe(2);
+			expect(toIndex).toBe(1);
 		});
 
 		it('placement "front" does not call reorderElements', () => {

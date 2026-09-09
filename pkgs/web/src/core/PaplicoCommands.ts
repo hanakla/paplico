@@ -330,18 +330,7 @@ export class PaplicoCommands {
 		elementType: string,
 		currentTransform: ElementTransform,
 	): void {
-		const editingScopeId = this.ctx.store.editingScopeStack.at(-1);
-		if (!editingScopeId) return;
-
-		const scopeElement = this.ctx.store.document.objects[editingScopeId];
-		if (!scopeElement) return;
-
-		// Single-element scope: new elements go to the scope element's own
-		// parent — its ancestor container, or the layer root where addElement
-		// already placed them (in which case there is nothing to move).
-		const targetContainerId = isContainer(scopeElement)
-			? editingScopeId
-			: this.ctx.spatial.getParentGroupId(editingScopeId);
+		const targetContainerId = this.getEditingScopeContainerId();
 		if (!targetContainerId) return;
 
 		const container = this.ctx.store.document.objects[targetContainerId];
@@ -378,6 +367,25 @@ export class PaplicoCommands {
 			);
 		}
 		// CompoundPath + non-path: element stays at layer root untouched
+	}
+
+	/**
+	 * The container that receives elements added while an editing scope is
+	 * active, or null when they stay at the layer root.
+	 */
+	private getEditingScopeContainerId(): string | null {
+		const editingScopeId = this.ctx.store.editingScopeStack.at(-1);
+		if (!editingScopeId) return null;
+
+		const scopeElement = this.ctx.store.document.objects[editingScopeId];
+		if (!scopeElement) return null;
+
+		// Single-element scope: new elements go to the scope element's own
+		// parent — its ancestor container, or the layer root where addElement
+		// already placed them (in which case there is nothing to move).
+		return isContainer(scopeElement)
+			? editingScopeId
+			: this.ctx.spatial.getParentGroupId(editingScopeId);
 	}
 
 	private applyCompensatingTransform(
@@ -761,29 +769,38 @@ export class PaplicoCommands {
 	// --- Movement Operations ---
 
 	public moveElementForward(elementId: string): void {
-		if (this.cannotMutate()) return;
-		const layerId = this.ctx.store.currentLayerId;
-		if (!layerId) return;
-		const layer = this.ctx.store.document.layers.find((l) => l.id === layerId);
-		if (!layer) return;
-		const elementIndex = layer.elementIds.indexOf(elementId);
-		if (elementIndex < 0 || elementIndex >= layer.elementIds.length - 1) return;
-		if (this.isElementLocked(elementId)) return;
-
-		this.reorderElements(layerId, elementIndex, elementIndex + 1);
+		this.moveElementBy(elementId, 1);
 	}
 
 	public moveElementBackward(elementId: string): void {
-		if (this.cannotMutate()) return;
-		const layerId = this.ctx.store.currentLayerId;
-		if (!layerId) return;
-		const layer = this.ctx.store.document.layers.find((l) => l.id === layerId);
-		if (!layer) return;
-		const elementIndex = layer.elementIds.indexOf(elementId);
-		if (elementIndex <= 0 || elementIndex >= layer.elementIds.length) return;
-		if (this.isElementLocked(elementId)) return;
+		this.moveElementBy(elementId, -1);
+	}
 
-		this.reorderElements(layerId, elementIndex, elementIndex - 1);
+	/**
+	 * Swap the element with its neighbor inside whatever holds it directly, so
+	 * arranging keeps working on a group member while that group is being edited.
+	 */
+	private moveElementBy(elementId: string, delta: 1 | -1): void {
+		if (this.cannotMutate()) return;
+		if (this.isElementLocked(elementId)) return;
+		const document = this.ctx.store.document;
+		const containerId = findDirectContainerId(document, elementId);
+		if (containerId == null) return;
+		const siblingIds = containerChildIds(document, containerId);
+		const elementIndex = siblingIds.indexOf(elementId);
+		const targetIndex = elementIndex + delta;
+		if (elementIndex < 0 || targetIndex < 0) return;
+		if (targetIndex >= siblingIds.length) return;
+
+		if (document.layers.some((l) => l.id === containerId)) {
+			this.reorderElements(containerId, elementIndex, targetIndex);
+			return;
+		}
+		this.ctx.yjsProvider.reorderGroupChildren(
+			containerId,
+			elementIndex,
+			targetIndex,
+		);
 	}
 
 	public extractSourceFromCompoundPath(
@@ -3847,6 +3864,29 @@ export class PaplicoCommands {
 		return [];
 	}
 
+	/**
+	 * Index in the container's stacking order where a paste should go: right
+	 * behind or right in front of the selected siblings, or at the container's
+	 * back / top when none of the selection lives there.
+	 */
+	private resolvePasteInsertIndex(
+		placement: "front" | "back" | undefined,
+		containerId: string,
+		existingCount: number,
+	): number {
+		if (!placement) return existingCount;
+		const siblingIds = containerChildIds(this.ctx.store.document, containerId);
+		const selectedIndexes = this.ctx.store.selectedElementIds
+			.map((id) => siblingIds.indexOf(id))
+			.filter((index) => index >= 0);
+		if (selectedIndexes.length === 0) {
+			return placement === "back" ? 0 : existingCount;
+		}
+		return placement === "back"
+			? Math.min(...selectedIndexes)
+			: Math.max(...selectedIndexes) + 1;
+	}
+
 	private collectSelectedElements(): {
 		elementIds: string[];
 		artObjects: AnyArtObject[];
@@ -4017,8 +4057,11 @@ export class PaplicoCommands {
 	 *   elements. The combined bounding box of all pasted elements is computed and each
 	 *   anchor point is translated so that the bbox center lands exactly on this position.
 	 *   Omit to paste in place (no translation applied).
-	 * @param opt.placement - `"back"` moves pasted elements to index 0 of the layer so they
-	 *   appear behind all existing elements. Defaults to `"front"` (appended on top).
+	 * @param opt.placement - Where the paste lands in its container's stacking
+	 *   order. `"back"` puts it right behind the selected element, or behind
+	 *   everything when nothing is selected. `"front"` puts it right in front of
+	 *   the selected element, or on top of everything when nothing is selected.
+	 *   Omit to append on top.
 	 * @returns IDs of the newly created elements.
 	 */
 	public pasteElements(
@@ -4047,11 +4090,27 @@ export class PaplicoCommands {
 			offsetY = opt.viewport.y - (bbox.minY + bbox.maxY) / 2;
 		}
 
-		const layer = this.ctx.store.document.layers.find(
-			(l) => l.id === this.ctx.store.currentLayerId,
+		// Placement is resolved against whatever the paste lands in: the editing
+		// scope's group when one is active, otherwise the layer. Pasted elements
+		// are appended, so their indexes follow the existing ones until they are
+		// moved to the resolved insertion point.
+		const scopeContainerId = this.getEditingScopeContainerId();
+		const scopeContainer = scopeContainerId
+			? this.ctx.store.document.objects[scopeContainerId]
+			: undefined;
+		const landingContainerId =
+			scopeContainer && isGroup(scopeContainer)
+				? scopeContainer.id
+				: this.ctx.store.currentLayerId;
+		const existingCount = containerChildIds(
+			this.ctx.store.document,
+			landingContainerId,
+		).length;
+		const insertAt = this.resolvePasteInsertIndex(
+			opt?.placement,
+			landingContainerId,
+			existingCount,
 		);
-		const existingCount =
-			opt?.placement === "back" ? (layer?.elementIds.length ?? 0) : 0;
 
 		// Centralize deep-clone + ID remap (containers / blend / compound-path /
 		// text path-binding) in cloneElementsWithIdRemap. Preserve the original
@@ -4246,14 +4305,22 @@ export class PaplicoCommands {
 		// Select pasted elements
 		this.ctx.store.selectedElementIds = newTopLevelIds;
 
-		if (opt?.placement === "back") {
+		if (insertAt !== existingCount) {
 			for (let i = 0; i < newTopLevelIds.length; i++) {
-				this.ctx.yjsProvider.reorderElements(
-					this.ctx.store.currentLayerId!,
-					existingCount + i,
-					i,
-					this.getMutationOrigin(),
-				);
+				if (landingContainerId === this.ctx.store.currentLayerId) {
+					this.ctx.yjsProvider.reorderElements(
+						landingContainerId,
+						existingCount + i,
+						insertAt + i,
+						this.getMutationOrigin(),
+					);
+				} else {
+					this.ctx.yjsProvider.reorderGroupChildren(
+						landingContainerId,
+						existingCount + i,
+						insertAt + i,
+					);
+				}
 			}
 		}
 
