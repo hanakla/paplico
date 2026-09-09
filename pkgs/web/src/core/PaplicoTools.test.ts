@@ -194,6 +194,37 @@ describe("PaplicoTools.setBrushSettings with a builtin preset", () => {
 	});
 });
 
+describe("PaplicoTools.swapColors", () => {
+	const black = {
+		type: "solid" as const,
+		color: { type: "rgb" as const, r: 0, g: 0, b: 0, a: 1 },
+	};
+
+	it("should move the stroke color to fill and clear the stroke when fill is empty", () => {
+		const store = createToolSettings();
+		const tools = new PaplicoTools(store, { getCurrentTool: () => null });
+		tools.setStrokeColor(black);
+		tools.setFillColor(null);
+
+		tools.swapColors();
+
+		expect(tools.fillColor).toEqual(black);
+		expect(tools.strokeColor).toBeNull();
+	});
+
+	it("should move the fill color to stroke and clear the fill when stroke is empty", () => {
+		const store = createToolSettings();
+		const tools = new PaplicoTools(store, { getCurrentTool: () => null });
+		tools.setStrokeColor(null);
+		tools.setFillColor(black);
+
+		tools.swapColors();
+
+		expect(tools.strokeColor).toEqual(black);
+		expect(tools.fillColor).toBeNull();
+	});
+});
+
 describe("PaplicoTools.setMaxZoomScale", () => {
 	function makeTools() {
 		const store = createToolSettings();

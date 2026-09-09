@@ -168,13 +168,7 @@ export class PaplicoTools {
 		const prevStrokeColor = this.strokeColor;
 		const prevFillColor = this.fillColor;
 
-		// Fill → Stroke (skip if fill is null — stroke must always have a color)
-		const newStrokeColor = fillColorToStrokeColor(prevFillColor);
-		if (newStrokeColor) {
-			this.setStrokeColor(newStrokeColor);
-		}
-
-		// Stroke → Fill
+		this.setStrokeColor(fillColorToStrokeColor(prevFillColor));
 		this.setFillColor(strokeColorToFillColor(prevStrokeColor));
 	}
 
