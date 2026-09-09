@@ -74,10 +74,13 @@ export function Toolbar({
 	side = "left",
 	mobileMenuProps,
 	adjacentPanel,
+	edgeAccessory,
 }: {
 	className?: string;
 	side?: "left" | "right";
 	mobileMenuProps?: MobileMenuSheet.Props;
+	/** Floats just outside the toolbar, or outside the docked panel while one is open. */
+	edgeAccessory?: ReactNode;
 	/** Panel docked next to the toolbar; the toolbar owns its frame and resizing. */
 	adjacentPanel?: {
 		desktop: ReactNode;
@@ -691,6 +694,7 @@ export function Toolbar({
 					minWidth={BRUSH_DESIGNER_PANEL_MIN_WIDTH}
 					maxWidth={BRUSH_DESIGNER_PANEL_MAX_WIDTH}
 					onWidthChange={setBrushDesignerPanelWidth}
+					edgeAccessory={edgeAccessory}
 					mobile={
 						<BrushDesignerPanel
 							variant="mobile"
@@ -716,10 +720,13 @@ export function Toolbar({
 					minWidth={adjacentPanel.minWidth}
 					maxWidth={adjacentPanel.maxWidth}
 					onWidthChange={adjacentPanel.onWidthChange}
+					edgeAccessory={edgeAccessory}
 					mobile={adjacentPanel.mobile ?? adjacentPanel.desktop}
 					desktop={adjacentPanel.desktop}
 				/>
-			) : null}
+			) : (
+				<ToolbarEdgeSlot side={side}>{edgeAccessory}</ToolbarEdgeSlot>
+			)}
 
 			{mobileMenuProps && menuSheetOpen && (
 				<Portal>
@@ -758,6 +765,7 @@ function ToolbarAdjacentPanel({
 	minWidth,
 	maxWidth,
 	onWidthChange,
+	edgeAccessory,
 	mobile,
 	desktop,
 }: {
@@ -766,6 +774,7 @@ function ToolbarAdjacentPanel({
 	minWidth: number;
 	maxWidth: number;
 	onWidthChange: (width: number) => void;
+	edgeAccessory: ReactNode;
 	mobile: ReactNode;
 	desktop: ReactNode;
 }) {
@@ -779,15 +788,18 @@ function ToolbarAdjacentPanel({
 
 	if (layoutMode != null && layoutMode !== "desktop") {
 		return (
-			<Portal>
-				{/* The background covers the whole screen; the panel inside it does not. */}
-				<div
-					className="fixed inset-0 z-50 bg-background pointer-events-auto flex flex-col pt-safe-top pr-safe-right pb-safe-bottom pl-safe-left"
-					onPointerDown={handlePointerDown}
-				>
-					{mobile}
-				</div>
-			</Portal>
+			<>
+				<Portal>
+					{/* The background covers the whole screen; the panel inside it does not. */}
+					<div
+						className="fixed inset-0 z-50 bg-background pointer-events-auto flex flex-col pt-safe-top pr-safe-right pb-safe-bottom pl-safe-left"
+						onPointerDown={handlePointerDown}
+					>
+						{mobile}
+					</div>
+				</Portal>
+				<ToolbarEdgeSlot side={side}>{edgeAccessory}</ToolbarEdgeSlot>
+			</>
 		);
 	}
 
@@ -811,6 +823,27 @@ function ToolbarAdjacentPanel({
 			>
 				{desktop}
 			</Resizable>
+			<ToolbarEdgeSlot side={side}>{edgeAccessory}</ToolbarEdgeSlot>
+		</div>
+	);
+}
+
+/** Anchors its child to the outer edge of whatever it is placed in. */
+function ToolbarEdgeSlot({
+	side,
+	children,
+}: {
+	side: "left" | "right";
+	children: ReactNode;
+}) {
+	return (
+		<div
+			className={twm(
+				"absolute bottom-16 pointer-events-none",
+				side === "left" ? "left-full ml-4" : "right-full mr-4",
+			)}
+		>
+			{children}
 		</div>
 	);
 }

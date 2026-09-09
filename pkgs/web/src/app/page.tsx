@@ -140,6 +140,10 @@ export default function Page() {
 	const uiSnap = useUIState();
 	const documentSessionSnap = useSnapshot(documentSessionState);
 	const layoutMode = useLayoutMode();
+	// The side panel column sits next to the toolbar, so anything floating
+	// beside the toolbar has to clear the column's width as well.
+	const sidePanelsBesideToolbar =
+		layoutMode === "desktop" && appSnap.panelLayout === "together";
 	const notchSide = useNotchSide();
 	useAutoSave();
 	const t = useTranslation();
@@ -996,18 +1000,14 @@ export default function Page() {
 											appSnap.toolbarSide === "left" ? "left-0" : "right-0",
 										)}
 									>
-										<ShiftButtonOverlay
-											className={twm(
-												"absolute bottom-16",
-												appSnap.toolbarSide === "left"
-													? "left-[calc(4rem+var(--notch-left))]"
-													: "right-[calc(4rem+var(--notch-right))]",
-											)}
-										/>
-
 										<Toolbar
 											className="pointer-events-auto"
 											side={appSnap.toolbarSide}
+											edgeAccessory={
+												sidePanelsBesideToolbar ? undefined : (
+													<ShiftButtonOverlay />
+												)
+											}
 											adjacentPanel={
 												automationDialogOpen
 													? {
@@ -1069,7 +1069,7 @@ export default function Page() {
 								layoutMode === "desktop" &&
 								(() => {
 									const isToolbarLeft = appSnap.toolbarSide === "left";
-									const isTogether = appSnap.panelLayout === "together";
+									const isTogether = sidePanelsBesideToolbar;
 
 									// together: panels on the same side as toolbar (next to it)
 									// split: panels on the opposite side from toolbar (spread to both ends)
@@ -1115,6 +1115,16 @@ export default function Page() {
 											<div className="contents pointer-events-auto">
 												<FilterPanel />
 											</div>
+											{isTogether && (
+												<ShiftButtonOverlay
+													className={twm(
+														"absolute bottom-13",
+														isToolbarLeft
+															? "left-full ml-4"
+															: "right-full mr-4",
+													)}
+												/>
+											)}
 										</div>
 									);
 								})()}

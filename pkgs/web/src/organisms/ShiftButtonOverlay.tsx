@@ -44,8 +44,8 @@ export function ShiftButtonOverlay({ className }: { className?: string }) {
 		<button
 			type="button"
 			className={twm(
-				"flex items-center justify-center px-6 py-6",
-				"aspect-square rounded-full text-base backdrop-liquid drop-shadow-md transition-all duration-150 select-none touch-none pointer-events-auto",
+				"flex items-center justify-center size-18",
+				"rounded-full text-base backdrop-liquid drop-shadow-md transition-all duration-150 select-none touch-none pointer-events-auto",
 				"outline-4 outline-offset-0 outline-transparent",
 				pressed
 					? "bg-virtual-shiftkey text-virtual-shiftkey-foreground/60 outline-virtual-shiftkey outline-offset-4"
