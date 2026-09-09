@@ -4114,6 +4114,12 @@ export class PaplicoCommands {
 				const clonedGroup = clonedById.get(element.id) as Group;
 				const layerId = this.ctx.store.currentLayerId!;
 				const clonedChildren: AnyArtObject[] = [];
+				// Everything below a direct child (a nested group's members, a
+				// nested mesh's warped children) is absorbed: reachable only
+				// through its own container's childIds, never listed in a layer.
+				// Untranslated — their coordinates are container-local and the
+				// direct child carries the paste offset.
+				const nestedDescendants: AnyArtObject[] = [];
 
 				// Clone children before transaction because `elements` is a Valtio proxy
 				// that may mutate during transact() via syncYjsToValtio.
@@ -4121,9 +4127,24 @@ export class PaplicoCommands {
 					const childClone = clonedById.get(childId);
 					if (!childClone) continue;
 					clonedChildren.push(translate(childClone));
+					const original = byId.get(childId);
+					if (!original) continue;
+					nestedDescendants.push(
+						...collectClonedDescendants(
+							getContainerChildIds(original) ?? [],
+							byId,
+							clonedById,
+						),
+					);
 				}
 
 				this.ctx.yjsProvider.transact(() => {
+					for (const descendant of nestedDescendants) {
+						this.ctx.yjsProvider.addObjectOnly(
+							descendant,
+							this.getMutationOrigin(),
+						);
+					}
 					this.ctx.yjsProvider.addElement(
 						layerId,
 						clonedGroup,
@@ -4161,21 +4182,11 @@ export class PaplicoCommands {
 				// absorbed: reachable only through childIds, never listed in a
 				// layer. Untranslated — their coordinates are container-local
 				// and the container carries the paste offset.
-				const descendants: AnyArtObject[] = [];
-				const childStack = [...element.childIds];
-				for (
-					let id = childStack.pop();
-					id !== undefined;
-					id = childStack.pop()
-				) {
-					const childClone = clonedById.get(id);
-					if (childClone) descendants.push(childClone);
-					const original = byId.get(id);
-					if (!original) continue;
-					for (const cid of getContainerChildIds(original) ?? []) {
-						childStack.push(cid);
-					}
-				}
+				const descendants = collectClonedDescendants(
+					element.childIds,
+					byId,
+					clonedById,
+				);
 				this.ctx.yjsProvider.transact(() => {
 					for (const descendant of descendants) {
 						this.ctx.yjsProvider.addObjectOnly(
@@ -4997,7 +5008,41 @@ function translateClonedElement(
 	if (element.type === "image" || element.type === "text") {
 		return { ...element, x: element.x + offsetX, y: element.y + offsetY };
 	}
+	if (element.type === "group" || element.type === "mesh") {
+		const transform = getTransform(element);
+		return {
+			...element,
+			transform: {
+				...transform,
+				x: transform.x + offsetX,
+				y: transform.y + offsetY,
+			},
+		};
+	}
 	return element;
+}
+
+/**
+ * Clones of the given ids and of everything reachable below them through
+ * container childIds, so a pasted container brings its whole subtree.
+ */
+function collectClonedDescendants(
+	rootIds: readonly string[],
+	byId: Map<string, AnyArtObject>,
+	clonedById: Map<string, AnyArtObject>,
+): AnyArtObject[] {
+	const descendants: AnyArtObject[] = [];
+	const stack = [...rootIds];
+	for (let id = stack.pop(); id !== undefined; id = stack.pop()) {
+		const clone = clonedById.get(id);
+		if (clone) descendants.push(clone);
+		const original = byId.get(id);
+		if (!original) continue;
+		for (const childId of getContainerChildIds(original) ?? []) {
+			stack.push(childId);
+		}
+	}
+	return descendants;
 }
 
 /** Absolute area of a quad (shoelace formula). */

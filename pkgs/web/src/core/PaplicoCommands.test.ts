@@ -773,6 +773,78 @@ describe("PaplicoCommands", () => {
 			expect(addElementToGroup).toHaveBeenCalled();
 		});
 
+		it("clones a nested group's members so the copy owns its grandchildren", () => {
+			const grandchild = createPath("grandchild-1");
+			const inner = {
+				id: "inner-1",
+				type: "group",
+				childIds: ["grandchild-1"],
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			} as unknown as AnyArtObject;
+			const outer = {
+				id: "outer-1",
+				type: "group",
+				childIds: ["inner-1"],
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			} as unknown as AnyArtObject;
+			const layer = createLayer("layer-1", ["outer-1"]);
+			const addElement = vi.fn();
+			const addElementToGroup = vi.fn();
+			const addObjectOnly = vi.fn();
+			const store = {
+				currentLayerId: "layer-1",
+				selectedElementIds: ["outer-1"],
+				editingScopeStack: [],
+				document: {
+					layers: [layer],
+					objects: {
+						"outer-1": outer,
+						"inner-1": inner,
+						"grandchild-1": grandchild,
+					},
+				},
+			} as unknown as RendererState;
+			const commands = new PaplicoCommands({
+				store,
+				yjsProvider: {
+					addElement,
+					addElementToGroup,
+					addObjectOnly,
+					transact: vi.fn((fn: () => void) => fn()),
+					reorderElements: vi.fn(),
+					isAnimationUndoMode: vi.fn(() => false),
+				} as unknown as YjsProvider,
+				spatial: {
+					insertElement: vi.fn(),
+					isElementLocked: () => false,
+					getAncestorTransform: () => null,
+				} as unknown as SpatialIndex,
+				isReadonly: () => false,
+			});
+
+			commands.duplicateElements();
+
+			// The outer clone is added first, then its direct children.
+			const [, innerAdd] = addElement.mock.calls.filter(
+				(c) => (c[1] as AnyArtObject).type === "group",
+			);
+			const clonedInner = innerAdd?.[1] as Group;
+			expect(clonedInner.id).not.toBe("inner-1");
+			expect(clonedInner.childIds).toHaveLength(1);
+			expect(clonedInner.childIds).not.toContain("grandchild-1");
+
+			// The grandchild is absorbed by the inner group: registered as an
+			// object under the inner clone's fresh id, never in a layer.
+			const grandchildAdd = addObjectOnly.mock.calls.find(
+				(c) => (c[0] as AnyArtObject).type === "path",
+			);
+			expect((grandchildAdd?.[0] as Path).id).toBe(clonedInner.childIds[0]);
+		});
+
 		it("clones a mesh container's children with fresh ids and re-links them", () => {
 			const child = createPath("child-1");
 			const mesh = {
