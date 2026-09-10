@@ -1,4 +1,5 @@
 import type { Quat, Vec3, VRMPoseData } from "../../schema";
+import { clamp } from "../../utils/math";
 
 /**
  * CCD IK solver on VRM normalized bones.
@@ -288,7 +289,7 @@ export function applyIKConstraint(
 		// Normalize into (-π, π] before clamping the mechanical range.
 		if (angle > Math.PI) angle -= 2 * Math.PI;
 		if (angle < -Math.PI) angle += 2 * Math.PI;
-		const clamped = clampNumber(
+		const clamped = clamp(
 			angle,
 			(constraint.minDeg * Math.PI) / 180,
 			(constraint.maxDeg * Math.PI) / 180,
@@ -400,8 +401,4 @@ export function distanceVec3(a: Vec3, b: Vec3): number {
 export function normalizeVec3(a: Vec3): Vec3 {
 	const len = lengthVec3(a);
 	return len < 1e-12 ? [0, 0, 0] : scaleVec3(a, 1 / len);
-}
-
-function clampNumber(value: number, min: number, max: number): number {
-	return Math.min(Math.max(value, min), max);
 }

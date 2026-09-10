@@ -10,6 +10,7 @@ import type {
 	CubicBezierSegment,
 	StrokeWidthPoint,
 } from "../../../../schema";
+import { clamp01 } from "../../../../utils/math";
 import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
 import { resolveTaper, taperFactor } from "../../../geometry/taper";
 import { DAB_FIELD_OFFSETS, DAB_INSTANCE_FLOATS } from "./DabInstanceLayout";
@@ -944,8 +945,4 @@ function pack2x16snorm(a: number, b: number): number {
 	const enc = (value: number) =>
 		Math.round(Math.min(Math.max(value, -1), 1) * 32767) & 0xffff;
 	return ((enc(b) << 16) | enc(a)) >>> 0;
-}
-
-function clamp01(value: number): number {
-	return Math.min(Math.max(value, 0), 1);
 }

@@ -4,6 +4,7 @@ import type {
 	PathSegment,
 } from "../../schema";
 import { resolveSegment } from "../../utils/geometry/segmentOps";
+import { clamp, lerp } from "../../utils/math";
 
 const { PI, acos, tan, sqrt, min } = Math;
 const ANGLE_THRESHOLD = (170 * PI) / 180;
@@ -562,12 +563,4 @@ function dist(
 	const dx = a.x - b.x;
 	const dy = a.y - b.y;
 	return sqrt(dx * dx + dy * dy);
-}
-
-function lerp(a: number, b: number, t: number): number {
-	return a + (b - a) * t;
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-	return v < lo ? lo : v > hi ? hi : v;
 }

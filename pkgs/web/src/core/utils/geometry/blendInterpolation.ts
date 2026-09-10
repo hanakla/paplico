@@ -44,7 +44,7 @@ import {
 	type StrokeGradient,
 } from "../../schema";
 import { srgbEotf, srgbOetf } from "../color";
-import { lerp } from "./bezierBool";
+import { clamp01, lerp } from "../math";
 import { calculatePathBounds } from "./bounds";
 import { composeTransforms, type WorldBezierSegment } from "./geometry";
 import { computeBooleanOperation, splitBezierAtT } from "./pathOps";
@@ -1339,10 +1339,6 @@ function oklabDistance(a: OklabColor, b: OklabColor): number {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
-
-function clamp01(v: number): number {
-	return v < 0 ? 0 : v > 1 ? 1 : v;
-}
 
 function extractFillRgb(path: Path): RGBColor | null {
 	const fill = localAppearances(path.filters).find(

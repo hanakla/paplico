@@ -49,6 +49,7 @@ import {
 	type Viewport,
 } from "../schema";
 import { composeTransforms, screenToWorld } from "../utils/geometry/geometry";
+import { clamp } from "../utils/math";
 import {
 	type GizmoProjectFn,
 	meanTransformScale,
@@ -1839,10 +1840,6 @@ const ROTATE_COLORS = {
 	"rotate-y": UI_THEME.colors.reference3dAxisY,
 	"rotate-z": UI_THEME.colors.reference3dAxisZ,
 } as const;
-
-function clamp(value: number, min: number, max: number): number {
-	return Math.min(Math.max(value, min), max);
-}
 
 /** Element-local vector produced by moving +1 world-3D unit along `axis`. */
 function axisLocalVector(

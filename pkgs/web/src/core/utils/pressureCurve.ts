@@ -3,6 +3,7 @@
  * through user-editable control points interpolated with a Fritsch–Carlson
  * monotone cubic (never overshoots the control points).
  */
+import { clamp01 } from "./math";
 
 export type PressureCurvePoint = {
 	x: number;
@@ -181,8 +182,4 @@ function evaluateMonotoneCubic(
 			h01 * p1.y +
 			h11 * h * tangents[seg + 1],
 	);
-}
-
-function clamp01(value: number): number {
-	return Math.min(1, Math.max(0, value));
 }

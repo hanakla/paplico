@@ -26,6 +26,7 @@ import {
 } from "../utils/geometry/geometry";
 import { evalBezier } from "../utils/geometry/pathOps";
 import { getWorldSegments } from "../utils/geometry/segmentOps";
+import { clamp } from "../utils/math";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
@@ -796,8 +797,4 @@ function resolveDraggedSides(
 		Math.max(0, MAX_SIDE - Math.max(initial.side1, initial.side2)),
 	);
 	return { side1: initial.side1 + delta, side2: initial.side2 + delta };
-}
-
-function clamp(value: number, min: number, max: number): number {
-	return Math.max(min, Math.min(max, value));
 }

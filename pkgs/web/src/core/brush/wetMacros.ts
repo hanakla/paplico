@@ -26,6 +26,7 @@
  */
 
 import type { BrushPropertyId, BrushSettings } from "../schema";
+import { clamp, clamp01 } from "../utils/math";
 import { BRUSH_PROPERTY_REGISTRY } from "./properties";
 
 export type WetMacroKey = "bleed" | "dryness" | "paper";
@@ -91,12 +92,4 @@ function withBases(
 
 function baseOf(current: BrushSettings, id: BrushPropertyId): number {
 	return current.properties[id]?.base ?? BRUSH_PROPERTY_REGISTRY[id].base;
-}
-
-function clamp01(v: number): number {
-	return Math.min(1, Math.max(0, v));
-}
-
-function clamp(v: number, min: number, max: number): number {
-	return Math.min(max, Math.max(min, v));
 }

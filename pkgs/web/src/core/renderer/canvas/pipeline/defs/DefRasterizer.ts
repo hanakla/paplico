@@ -10,6 +10,7 @@
  * caching, invalidation, and resolution banding so that the GPU plumbing
  * (uniform scope, viewport overrides) stays where it is.
  */
+import { clamp } from "../../../../utils/math";
 
 export interface DefRasterizerOptions {
 	/**
@@ -215,10 +216,6 @@ export class DefRasterizer {
 }
 
 // Helpers
-
-function clamp(value: number, min: number, max: number): number {
-	return Math.min(max, Math.max(min, value));
-}
 
 function pow2Ceil(value: number): number {
 	if (value <= 1) return 1;

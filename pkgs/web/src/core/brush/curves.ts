@@ -3,6 +3,7 @@ import type {
 	BrushPropertyConfig,
 	BrushPropertyId,
 } from "../schema";
+import { clamp } from "../utils/math";
 import { BRUSH_PROPERTY_REGISTRY, MAX_SCALE_FACTOR } from "./properties";
 
 /** LUT resolution for curve evaluation (Krita floatTransfer(256) equivalent). */
@@ -77,11 +78,7 @@ export function evaluateBrushProperty(
 
 	if (spec.domain === "scale") {
 		const factor = Math.min(Math.max(1 + sum, 0), MAX_SCALE_FACTOR);
-		return clampToRange(base * factor, spec.min, spec.max);
+		return clamp(base * factor, spec.min, spec.max);
 	}
-	return clampToRange(base + sum, spec.min, spec.max);
-}
-
-function clampToRange(value: number, min: number, max: number): number {
-	return Math.min(Math.max(value, min), max);
+	return clamp(base + sum, spec.min, spec.max);
 }

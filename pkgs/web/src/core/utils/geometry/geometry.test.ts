@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ElementTransform, Viewport } from "../../schema";
-import { degToRad } from "../../testUtils/pointerEvent";
+import { degToRad } from "../math";
 import {
 	applyTransformToPoint,
 	applyWorldAffineToTransform,

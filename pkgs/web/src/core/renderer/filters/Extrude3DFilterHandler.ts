@@ -1,5 +1,5 @@
 import type { Extrude3DParams, Filter } from "../../schema";
-import { lerp } from "../../utils/geometry/bezierBool";
+import { lerp } from "../../utils/math";
 import {
 	EXTRUDE_SOLID_STRATEGY,
 	type Solid3DMeshStrategy,

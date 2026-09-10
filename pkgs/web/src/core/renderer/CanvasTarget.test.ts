@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultViewport } from "../document/factory";
-import { degToRad } from "../testUtils/pointerEvent";
+import { degToRad } from "../utils/math";
 import { CanvasTarget } from "./CanvasTarget";
 
 function createCanvas(): HTMLCanvasElement {

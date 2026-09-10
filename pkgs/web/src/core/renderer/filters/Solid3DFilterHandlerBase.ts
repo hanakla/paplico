@@ -11,7 +11,7 @@ import {
 	toRGBColor,
 } from "../../schema";
 import { lerpOptionalRGBColor, lerpOptionalScalar } from "../../utils/color";
-import { lerp } from "../../utils/geometry/bezierBool";
+import { lerp } from "../../utils/math";
 import type { BlitUVRect } from "../canvas/CanvasLayerTypes";
 import { instanceAppearanceUid } from "../canvas/caches/AppearanceCache";
 import type {

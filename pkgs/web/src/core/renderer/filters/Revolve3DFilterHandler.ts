@@ -1,5 +1,5 @@
 import type { Filter, Revolve3DParams } from "../../schema";
-import { lerp } from "../../utils/geometry/bezierBool";
+import { lerp } from "../../utils/math";
 import { buildRevolveMesh } from "../geometry/revolveMesh";
 import type { Solid3DMeshStrategy } from "./Extrude3D/ExtrudeMeshBaker";
 import {

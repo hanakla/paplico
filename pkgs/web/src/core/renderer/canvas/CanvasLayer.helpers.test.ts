@@ -14,7 +14,7 @@ import type {
 	StrokeAppearance,
 	Viewport,
 } from "../../schema";
-import { degToRad } from "../../testUtils/pointerEvent";
+import { degToRad } from "../../utils/math";
 import {
 	flattenBezierPath,
 	flattenCubicBezier,

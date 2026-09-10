@@ -4,12 +4,9 @@
  * Original: https://github.com/velipso/polybool
  * SPDX-License-Identifier: 0BSD
  */
+import { lerp } from "../math";
 
 export type Vec2 = [number, number];
-
-export function lerp(a: number, b: number, t: number) {
-	return a + (b - a) * t;
-}
 
 export function lerpVec2(a: Vec2, b: Vec2, t: number): Vec2 {
 	return [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];

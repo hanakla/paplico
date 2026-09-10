@@ -35,6 +35,7 @@ import {
 	applyTransformToBounds,
 	composeTransforms,
 } from "../../../utils/geometry/geometry";
+import { lerp } from "../../../utils/math";
 import { interactiveBakeDensity } from "../CanvasLayer.helpers";
 import {
 	type BlitQuadToCanvasFn,
@@ -2977,7 +2978,6 @@ function subUvRect(
 	part: BoundingBox,
 ): BlitUVRect {
 	if (whole.width <= 0 || whole.height <= 0) return uvRect;
-	const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 	return {
 		minU: lerp(
 			uvRect.minU,

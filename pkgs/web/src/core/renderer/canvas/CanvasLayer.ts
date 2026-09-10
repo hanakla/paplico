@@ -74,6 +74,7 @@ import {
 	repeatGridRegion,
 } from "../../utils/geometry/repeatInterpolation";
 import { hashSegmentsWithMetadata } from "../../utils/geometry/segmentOps";
+import { lerp } from "../../utils/math";
 import {
 	compileShaderModule,
 	type StructuredView,
@@ -4499,7 +4500,6 @@ export class CanvasLayer {
 			y: (union.minY + union.maxY) / 2,
 		};
 		const uv = baked.placement.uvRect;
-		const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 		const layers: BlitLayer[] = [];
 		for (const inst of computeRepeatInstances(repeat, center)) {
 			// Grid instances are pure translations; e/f carry the tile offset.

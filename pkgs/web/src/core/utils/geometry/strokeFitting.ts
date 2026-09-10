@@ -10,6 +10,7 @@
  */
 
 import type { BezierPoint, CubicBezierSegment, Viewport } from "../../schema";
+import { lerp } from "../math";
 
 // Bézier Path Simplification
 //
@@ -2420,7 +2421,6 @@ export function subdivideSegmentsAtTimeKnots(
 			const isFirst = pi === 0;
 			const isLast = pi === pieces.length - 1;
 			const endFraction = piece.endFraction;
-			const lerp = (a: number, b: number, f: number) => a + (b - a) * f;
 			result.push({
 				start:
 					isFirst && segment.start

@@ -36,6 +36,7 @@ import {
 	type TextStyle,
 } from "../schema";
 import { calculateSegmentListBounds } from "./geometry/bounds";
+import { clamp01 } from "./math";
 import { parseSvgFilterElement } from "./svgFilterImport";
 
 // SVG presentation attributes that inherit from ancestor elements (per the SVG
@@ -1923,10 +1924,6 @@ export function parseSvgColor(str: string): RGBColor | null {
 	}
 
 	return null;
-}
-
-function clamp01(n: number): number {
-	return Math.max(0, Math.min(1, n));
 }
 
 /** Parse "rgb", "rgba", "rrggbb" or "rrggbbaa" hex digits (no leading "#"). */

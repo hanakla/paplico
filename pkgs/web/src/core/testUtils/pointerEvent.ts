@@ -2,7 +2,6 @@ import type { Viewport } from "../schema";
 import type { PointerEventData, Tool } from "../tools/Tool";
 
 /** Degrees to radians for test readability */
-export const degToRad = (deg: number) => (deg * Math.PI) / 180;
 
 /** テスト用デフォルトviewport */
 export const testViewport: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };

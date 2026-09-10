@@ -20,6 +20,7 @@ import type {
 	WetConfig,
 	WetEdgeConfig,
 } from "../../../schema";
+import { clamp } from "../../../utils/math";
 import { readV1BrushSettings } from "./readV1";
 import {
 	DEFAULT_CALLIGRAPHY_SPACING,
@@ -598,8 +599,4 @@ function numOpt(value: unknown): number | undefined {
 	if (value === undefined || value === null) return undefined;
 	const n = Number(value);
 	return Number.isFinite(n) ? n : undefined;
-}
-
-function clamp(value: number, min: number, max: number): number {
-	return Math.min(Math.max(value, min), max);
 }

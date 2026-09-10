@@ -14,6 +14,7 @@ import type {
 	CubicBezierSegment,
 	Filter,
 } from "../../schema";
+import { degToRad } from "../../utils/math";
 import type { FilterHandler } from "../canvas/pipeline/FilterRenderer";
 import {
 	type Point,
@@ -120,9 +121,9 @@ export function createRotate3DProjectionContext(
 ): Rotate3DProjectionContext | null {
 	if (segments.length === 0) return null;
 
-	const rx = toRadians(params.rotateX);
-	const ry = -toRadians(params.rotateY);
-	const rz = -toRadians(params.rotateZ);
+	const rx = degToRad(params.rotateX);
+	const ry = -degToRad(params.rotateY);
+	const rz = -degToRad(params.rotateZ);
 
 	if (Math.abs(rx) < 1e-9 && Math.abs(ry) < 1e-9 && Math.abs(rz) < 1e-9) {
 		return null;
@@ -174,10 +175,6 @@ export function applyRotate3DWithContext(
 // ---------------------------------------------------------------------------
 // Rotation / projection helpers
 // ---------------------------------------------------------------------------
-
-function toRadians(deg: number): number {
-	return (deg * Math.PI) / 180.0;
-}
 
 /** Build composed rotation matrix R = Rz * Ry * Rx (row-major). */
 function buildRotationMatrix(rx: number, ry: number, rz: number): Mat3 {
@@ -274,7 +271,7 @@ function computePerspectiveDistance(
 	halfDiag: number,
 ): number {
 	const clampedPerspective = Math.min(Math.max(perspective, 1), 179);
-	const fovRad = toRadians(clampedPerspective);
+	const fovRad = degToRad(clampedPerspective);
 	return halfDiag / Math.tan(fovRad / 2);
 }
 

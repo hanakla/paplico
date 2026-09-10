@@ -18,6 +18,7 @@ import type {
 	CubicBezierSegment,
 	StrokeWidthPoint,
 } from "../../../../schema";
+import { lerp } from "../../../../utils/math";
 import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
 import { resolveTaper, taperFactor } from "../../../geometry/taper";
 
@@ -226,12 +227,16 @@ export function generateRibbonInstances(
 			const relativeCurveT =
 				(curveT - previousCurveT) / Math.max(1 - previousCurveT, 1e-6);
 			const [piece, remainder] = splitCubic(remainingCurve, relativeCurveT);
-			const startPressure = mix(
+			const startPressure = lerp(
 				source.startPressure,
 				source.endPressure,
 				previousCurveT,
 			);
-			const endPressure = mix(source.startPressure, source.endPressure, curveT);
+			const endPressure = lerp(
+				source.startPressure,
+				source.endPressure,
+				curveT,
+			);
 			resolved.push({
 				curve: piece,
 				arcLength: approximateCubicLength(piece),
@@ -437,12 +442,12 @@ function findCubicParameterAtArcFraction(
 
 function splitCubic(curve: CubicCurve, t: number): [CubicCurve, CubicCurve] {
 	const [p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y] = curve;
-	const p01 = [mix(p0x, p1x, t), mix(p0y, p1y, t)] as const;
-	const p12 = [mix(p1x, p2x, t), mix(p1y, p2y, t)] as const;
-	const p23 = [mix(p2x, p3x, t), mix(p2y, p3y, t)] as const;
-	const p012 = [mix(p01[0], p12[0], t), mix(p01[1], p12[1], t)] as const;
-	const p123 = [mix(p12[0], p23[0], t), mix(p12[1], p23[1], t)] as const;
-	const split = [mix(p012[0], p123[0], t), mix(p012[1], p123[1], t)] as const;
+	const p01 = [lerp(p0x, p1x, t), lerp(p0y, p1y, t)] as const;
+	const p12 = [lerp(p1x, p2x, t), lerp(p1y, p2y, t)] as const;
+	const p23 = [lerp(p2x, p3x, t), lerp(p2y, p3y, t)] as const;
+	const p012 = [lerp(p01[0], p12[0], t), lerp(p01[1], p12[1], t)] as const;
+	const p123 = [lerp(p12[0], p23[0], t), lerp(p12[1], p23[1], t)] as const;
+	const split = [lerp(p012[0], p123[0], t), lerp(p012[1], p123[1], t)] as const;
 	return [
 		[p0x, p0y, p01[0], p01[1], p012[0], p012[1], split[0], split[1]],
 		[split[0], split[1], p123[0], p123[1], p23[0], p23[1], p3x, p3y],
@@ -464,10 +469,6 @@ function cubicPoint(curve: CubicCurve, t: number): [number, number] {
 			3 * inverseT * tSquared * p2y +
 			tSquared * t * p3y,
 	];
-}
-
-function mix(start: number, end: number, t: number): number {
-	return start + (end - start) * t;
 }
 
 function pointsEqual(ax: number, ay: number, bx: number, by: number): boolean {

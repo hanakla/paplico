@@ -1,3 +1,4 @@
+import { clamp } from "../../../utils/math";
 import { growUint32, type LineArena } from "./lineArena";
 import { TILE_SIZE } from "./stripTypes";
 
@@ -107,11 +108,11 @@ export function tileLines(
 			// the tiles it crosses. A line on the tile grid separates two bands
 			// and touches neither.
 			if (y0 % TILE_SIZE === 0) continue;
-			const ty = clampInt(Math.floor(y0 / TILE_SIZE), 0, maxTy);
+			const ty = clamp(Math.floor(y0 / TILE_SIZE), 0, maxTy);
 			const left = Math.min(x0, x1);
 			const right = Math.max(x0, x1);
-			const txStart = clampInt(Math.floor(left / TILE_SIZE), 0, maxTx);
-			const txEnd = clampInt(Math.ceil(right / TILE_SIZE) - 1, txStart, maxTx);
+			const txStart = clamp(Math.floor(left / TILE_SIZE), 0, maxTx);
+			const txEnd = clamp(Math.ceil(right / TILE_SIZE) - 1, txStart, maxTx);
 			for (let tx = txStart; tx <= txEnd; tx++) {
 				tiles.push((ty << 16) | tx, i);
 			}
@@ -120,8 +121,8 @@ export function tileLines(
 
 		const topY = Math.min(y0, y1);
 		const bottomY = Math.max(y0, y1);
-		const tyStart = clampInt(Math.floor(topY / TILE_SIZE), 0, maxTy);
-		const tyEnd = clampInt(Math.ceil(bottomY / TILE_SIZE) - 1, tyStart, maxTy);
+		const tyStart = clamp(Math.floor(topY / TILE_SIZE), 0, maxTy);
+		const tyEnd = clamp(Math.ceil(bottomY / TILE_SIZE) - 1, tyStart, maxTy);
 		const xSlope = (x1 - x0) / (y1 - y0);
 
 		for (let ty = tyStart; ty <= tyEnd; ty++) {
@@ -131,15 +132,11 @@ export function tileLines(
 			const xb = x0 + (rowBottom - y0) * xSlope;
 			const left = Math.min(xa, xb);
 			const right = Math.max(xa, xb);
-			const txStart = clampInt(Math.floor(left / TILE_SIZE), 0, maxTx);
-			const txEnd = clampInt(Math.ceil(right / TILE_SIZE) - 1, txStart, maxTx);
+			const txStart = clamp(Math.floor(left / TILE_SIZE), 0, maxTx);
+			const txEnd = clamp(Math.ceil(right / TILE_SIZE) - 1, txStart, maxTx);
 			for (let tx = txStart; tx <= txEnd; tx++) {
 				tiles.push((ty << 16) | tx, i);
 			}
 		}
 	}
-}
-
-function clampInt(v: number, lo: number, hi: number): number {
-	return v < lo ? lo : v > hi ? hi : v;
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BoundingBox, Viewport } from "../../../schema";
-import { degToRad } from "../../../testUtils/pointerEvent";
 import { worldToScreen } from "../../../utils/geometry/geometry";
+import { degToRad } from "../../../utils/math";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
 import {
 	BackdropCaptureManager,
