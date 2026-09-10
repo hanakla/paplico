@@ -103,7 +103,7 @@ export interface ResolvedTextRegionGeometry {
 /**
  * layoutFlow の流し込み先リージョン指定
  */
-export interface TextFlowRegion {
+interface TextFlowRegion {
 	element: TextElement;
 	geometry?: ResolvedTextRegionGeometry;
 }

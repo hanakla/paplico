@@ -53,7 +53,7 @@ const PREVIEW_OPACITY_SCALE = 0.32;
 /** Generic overlay channel key for the tile-guide rectangle. */
 const PATTERN_EDIT_OVERLAY_KEY = OVERLAY_KEYS.patternEditTile;
 
-export interface PatternEditSession {
+interface PatternEditSession {
 	readonly defId: string;
 	/**
 	 * Yjs IDs of every working-copy clone created for this session, captured
@@ -74,7 +74,7 @@ export interface PatternEditSession {
 	readonly expansionOffset: { x: number; y: number };
 }
 
-export interface PaplicoPatternEditOptions {
+interface PaplicoPatternEditOptions {
 	store: RendererState;
 	yjsProvider: YjsProvider;
 	getViewportCenter?: () => { x: number; y: number } | null;

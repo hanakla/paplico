@@ -375,7 +375,7 @@ export interface ScriptArtObject
 	readonly includeInExport?: Reference3DElement["includeInExport"];
 }
 
-export type ScriptTransform = ElementTransform;
+type ScriptTransform = ElementTransform;
 
 export interface ScriptLayer extends Omit<Layer, "id"> {
 	readonly uid: string;
@@ -412,7 +412,7 @@ export type ScriptAutomationFile = AutomationFile;
 export type ScriptDocumentDirectory = AutomationDirectory;
 export type ScriptFileSystem = AutomationFileSystem;
 
-export interface ScriptPrompt {
+interface ScriptPrompt {
 	alert(message: string): Promise<void>;
 	confirm(message: string): Promise<boolean>;
 	string(message: string, defaultValue?: string): Promise<string | null>;

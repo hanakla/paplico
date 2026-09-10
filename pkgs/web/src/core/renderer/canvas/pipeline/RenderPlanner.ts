@@ -108,7 +108,7 @@ interface LayerSegment {
 }
 
 /** Per-layer rendering plan. */
-export interface LayerPlan {
+interface LayerPlan {
 	layerIndex: number;
 	layerId: string;
 	elements: AnyArtObject[];
@@ -146,13 +146,13 @@ export interface FramePlan {
 
 /** A pass break declared at plan time: the main pass ends here, something
  *  composites offscreen, and the pass restarts. */
-export type SegmentBreak =
+type SegmentBreak =
 	| { kind: "backdrop"; entry: BackdropElementEntry }
 	| { kind: "compositeElement"; elementId: string }
 	| { kind: "inlineBackdropCompose"; elementId: string };
 
 /** Contiguous element run the main pass can encode without a break. */
-export interface PassSegment {
+interface PassSegment {
 	elements: AnyArtObject[];
 	breakAfter: SegmentBreak | null;
 }

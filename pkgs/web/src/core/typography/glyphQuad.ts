@@ -3,7 +3,7 @@ import type { LayoutedChar } from "./TextLayoutEngine";
 /** Ascent portion of the em box above the baseline (descent = 1 - this) */
 const ASCENT_RATIO = 0.8;
 
-export interface TextGlyphQuadPoint {
+interface TextGlyphQuadPoint {
 	x: number;
 	y: number;
 }
@@ -36,7 +36,7 @@ export interface TextGlyphQuad {
 }
 
 /** Touch-type rotation pivot: midpoint of the advance on the baseline */
-export function getGlyphPivot(
+function getGlyphPivot(
 	x: number,
 	y: number,
 	advanceWidth: number,

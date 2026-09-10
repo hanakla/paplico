@@ -1078,7 +1078,7 @@ const CORNER_CLUSTER_CLOSE_POINTS = 8;
 const CORNER_MIN_DEVIATION = 0.75;
 const CORNER_ANGLE_THRESHOLD_DEG = 45;
 
-export interface RawCornerOptions {
+interface RawCornerOptions {
 	/** One-sided arc-length span for turn measurement (world units). */
 	spanDistance?: number;
 	/** Index cap for span walks (bounds the data a decision depends on). */
@@ -1871,7 +1871,7 @@ export function processStroke(
 // Incremental fitting (live preview)
 // ---------------------------------------------------------------------------
 
-export interface IncrementalStrokeFitterOptions {
+interface IncrementalStrokeFitterOptions {
 	stabilization: number;
 	zoom: number;
 	smoothingMethod?: SmoothingMethod;

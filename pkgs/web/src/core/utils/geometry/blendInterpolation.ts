@@ -1238,7 +1238,7 @@ function interpolateColor(
 	return lerpOklab(colorToRgb(a), colorToRgb(b), t);
 }
 
-export function colorToRgb(c: SolidColor["color"]): RGBColor {
+function colorToRgb(c: SolidColor["color"]): RGBColor {
 	if (c.type === "rgb") return c;
 	const i = Math.floor(c.h * 6);
 	const f = c.h * 6 - i;
@@ -1273,7 +1273,7 @@ export function colorToRgb(c: SolidColor["color"]): RGBColor {
 // ── OKLab color space ─────────────────────────────────────────────────────
 // Matrix constants match renderer/filters/hanakla-kit/wgsl-includes.ts.
 
-export interface OklabColor {
+interface OklabColor {
 	L: number;
 	a: number;
 	b: number;

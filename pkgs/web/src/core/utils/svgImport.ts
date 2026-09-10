@@ -93,7 +93,7 @@ interface ViewBox {
  * does; the importer applies it with the element's CTM scale, which the path
  * coordinates absorb but the filter parameters do not.
  */
-export type ScaleFilter = (filter: Filter, scale: [number, number]) => Filter;
+type ScaleFilter = (filter: Filter, scale: [number, number]) => Filter;
 
 export interface ParseCtx {
 	viewBox: ViewBox;

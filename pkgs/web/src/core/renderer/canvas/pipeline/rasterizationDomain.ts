@@ -21,7 +21,7 @@ const MIN_SIMULATION_WORLD_PER_TEXEL = 0.125;
 const MAX_SIMULATION_TEXTURE_SIDE = 2048;
 const TILE_OVERLAP_TEXELS = 48;
 
-export type SimulationDomainTile = {
+type SimulationDomainTile = {
 	worldOrigin: { x: number; y: number };
 	textureSize: { width: number; height: number };
 	innerOffset: { x: number; y: number };

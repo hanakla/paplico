@@ -12,7 +12,7 @@ export const PAPB_SCHEMA_VERSION = 2;
  * and are migrated on read; new files are written as v2. */
 const READABLE_PAPB_SCHEMA_VERSIONS = new Set([1, PAPB_SCHEMA_VERSION]);
 
-export interface PapbPayload {
+interface PapbPayload {
 	schemaVersion: number;
 	brushPreset: PersistedBrushPreset;
 }

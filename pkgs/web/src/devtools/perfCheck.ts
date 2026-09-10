@@ -7,7 +7,7 @@ import type { Paplico } from "@/core/Paplico";
  * the aggregated result JSON.
  */
 
-export interface PerfCheckResult {
+interface PerfCheckResult {
 	durationMs: number;
 	renders: number;
 	fps: number;
@@ -20,7 +20,7 @@ export interface PerfCheckResult {
 }
 
 /** Document / viewport / GPU conditions the measurement ran under. */
-export interface PerfCheckContext {
+interface PerfCheckContext {
 	rasterizationDpi: number | null;
 	rasterScale: number | null;
 	viewportAtStart: unknown;

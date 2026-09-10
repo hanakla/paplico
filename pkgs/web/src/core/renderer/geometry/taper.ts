@@ -5,7 +5,7 @@
  * RibbonGenerator. Lengths are expressed in world units.
  */
 
-export interface ResolvedTaper {
+interface ResolvedTaper {
 	/** Taper-in length in world units (0 = no entry taper). */
 	taperIn: number;
 	/** Taper-out length in world units (0 = no exit taper). */

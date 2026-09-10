@@ -6,7 +6,7 @@ import type { BrushPropertyId } from "../schema";
  * - offset: value = base + sum(curves)
  * Both results are clamped to [min, max].
  */
-export type BrushPropertyDomain = "scale" | "offset";
+type BrushPropertyDomain = "scale" | "offset";
 
 export type BrushPropertyGroup =
 	| "size"

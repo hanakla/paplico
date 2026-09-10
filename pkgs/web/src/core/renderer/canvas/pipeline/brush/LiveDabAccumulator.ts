@@ -6,14 +6,14 @@ import {
 } from "./DabEvaluator";
 import { DAB_INSTANCE_FLOATS } from "./DabInstanceLayout";
 
-export interface LiveDabOptions {
+interface LiveDabOptions {
 	textureAspectRatio?: number;
 	variantCount?: number;
 	startLayerIndex?: number;
 	color?: { r: number; g: number; b: number; a: number };
 }
 
-export interface LiveDabFrame {
+interface LiveDabFrame {
 	/** Backing store of the committed prefix (read count*FLOATS floats). */
 	committedData: Float32Array;
 	committedCount: number;

@@ -333,7 +333,7 @@ export function computeReference3DTextureSize(
 }
 
 /** FNV-1a hash over every input that affects the rendered scene texture. */
-export function computeReference3DTextureHash(inputs: {
+function computeReference3DTextureHash(inputs: {
 	nodes: Reference3DDef["nodes"];
 	camera: Reference3DElement["camera"];
 	displayMode: Reference3DElement["displayMode"];

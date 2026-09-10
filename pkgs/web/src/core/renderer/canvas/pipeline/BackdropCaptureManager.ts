@@ -18,7 +18,7 @@ interface CapturedBackdrop {
 	filtered: boolean;
 }
 
-export interface BackdropCaptureRegion {
+interface BackdropCaptureRegion {
 	copyOrigin: { x: number; y: number };
 	copySize: { width: number; height: number };
 	actualBounds: BoundingBox;
@@ -32,11 +32,11 @@ export interface BackdropPixelRect {
 	height: number;
 }
 
-export type BackdropCaptureDomain =
+type BackdropCaptureDomain =
 	| { kind: "display-density"; density?: number }
 	| { kind: "fixed-r"; rasterScale: number };
 
-export interface BackdropCaptureDestination {
+interface BackdropCaptureDestination {
 	texture: GPUTexture;
 	/** Atlas slot or caller-owned texture origin, in destination texels. */
 	origin: { x: number; y: number };
@@ -44,7 +44,7 @@ export interface BackdropCaptureDestination {
 	contentRect: BackdropPixelRect;
 }
 
-export interface BackdropCaptureIntoRequest {
+interface BackdropCaptureIntoRequest {
 	sourceTexture: GPUTexture;
 	sourceWorldBounds: BoundingBox;
 	viewport: BackdropCaptureViewport;
@@ -55,7 +55,7 @@ export interface BackdropCaptureIntoRequest {
 	profiler?: GPUTimingProfiler | null;
 }
 
-export interface CapturedBackdropInto {
+interface CapturedBackdropInto {
 	actualBounds: BoundingBox;
 	sourceUV: { minU: number; minV: number; maxU: number; maxV: number };
 	writtenRect: BackdropPixelRect;
@@ -427,7 +427,7 @@ export class BackdropCaptureManager {
 		};
 	}
 
-	public supportsCaptureSize(width: number, height: number): boolean {
+	private supportsCaptureSize(width: number, height: number): boolean {
 		const maxDimension = this.device.limits.maxTextureDimension2D;
 		return (
 			width > 0 && height > 0 && width <= maxDimension && height <= maxDimension

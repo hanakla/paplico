@@ -152,7 +152,7 @@ interface GroupChildSurface {
 	deferredMasks?: readonly WorldMaskAssignment[];
 }
 
-export interface ColorAtlasBakeReservation {
+interface ColorAtlasBakeReservation {
 	bounds: WorldBBox;
 	effectiveZoom: number;
 	atlasRect: MaskAtlasRect;

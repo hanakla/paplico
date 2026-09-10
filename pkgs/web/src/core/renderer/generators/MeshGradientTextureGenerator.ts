@@ -16,7 +16,7 @@ interface PreparedCacheEntry {
 	lastUsedFrame: number;
 }
 
-export interface PreparedMeshGradientData {
+interface PreparedMeshGradientData {
 	vertexBuffer: GPUBuffer;
 	faceBuffer: GPUBuffer;
 	edgeCurveBuffer: GPUBuffer;

@@ -47,7 +47,7 @@ import type {
  * every overlay is visible on an 800×600 canvas at both zoom 1 and zoom 2
  * (viewport centered at origin).
  */
-export interface UIOverlayFixture {
+interface UIOverlayFixture {
 	/** Baseline file name suffix (ui-overlay-<name>-zoom<z>.png) */
 	name: string;
 	state: UIOverlayState;

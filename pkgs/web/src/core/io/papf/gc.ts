@@ -22,7 +22,7 @@ import {
 } from "../../schema";
 import { neverReached } from "../../utils/lang";
 
-export interface GcResult {
+interface GcResult {
 	document: Document;
 	deletedObjectIds: string[];
 	deletedFileUids: string[];

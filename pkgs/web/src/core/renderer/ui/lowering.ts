@@ -50,7 +50,7 @@ export interface LoweredRun {
  * Persistent grow-only Float32Array scratch for instance data.
  * Grows 1.5x on demand; never shrinks, so steady-state frames allocate nothing.
  */
-export class InstanceScratch {
+class InstanceScratch {
 	private buf: Float32Array<ArrayBuffer>;
 	private floats = 0;
 

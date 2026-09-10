@@ -73,7 +73,7 @@ export function googleSubsetsToScripts(subsets: string[]): FontScript[] {
  * For TrueType collections the first face's directory is used, which may
  * require one extra read when it sits beyond the initial header window.
  */
-export async function locateOs2Table(
+async function locateOs2Table(
 	head: ArrayBuffer,
 	readRange: FontRangeReader,
 ): Promise<{ offset: number; length: number } | null> {

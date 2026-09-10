@@ -10,9 +10,9 @@ import { quatFromAxisAngle, quatMultiply } from "./ikSolver";
  * world-aligned normalized rig (left arm +X, right arm -X, forward -Z).
  */
 
-export type PresetPoseId = "stand" | "walk" | "run" | "sit" | "crouch";
+type PresetPoseId = "stand" | "walk" | "run" | "sit" | "crouch";
 
-export interface PresetPose {
+interface PresetPose {
 	id: PresetPoseId;
 	name: string;
 	pose: VRMPoseData;

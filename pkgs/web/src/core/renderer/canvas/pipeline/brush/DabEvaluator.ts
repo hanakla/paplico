@@ -28,7 +28,7 @@ import { hardnessToLutIndex } from "./TipMaskBuilder";
  * reset on every emitted dab.
  */
 
-export interface DabEvaluateOptions {
+interface DabEvaluateOptions {
 	pathIndex?: number;
 	pathStart?: number;
 	pathEnd?: number;
@@ -89,7 +89,7 @@ export interface DabEvalState {
 	rngState: number;
 }
 
-export interface DabBuffer {
+interface DabBuffer {
 	data: Float32Array;
 	count: number;
 	/** Per-dab {colorRate, alphaRate, smudgeLength, 0} vec4s for the mix

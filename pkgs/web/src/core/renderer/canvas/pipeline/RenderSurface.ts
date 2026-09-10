@@ -3,13 +3,13 @@ import type { BlitQuad, BlitUVRect } from "../CanvasLayerTypes";
 
 export type TextureRef = FrameTextureRef | BorrowedTextureRef;
 
-export type RenderSurfaceRole =
+type RenderSurfaceRole =
 	| "color"
 	| "destination-snapshot"
 	| "parent-backdrop"
 	| "coverage";
 
-export type RenderSurfaceAlpha = "premultiplied" | "straight" | "scalar";
+type RenderSurfaceAlpha = "premultiplied" | "straight" | "scalar";
 
 export type RenderSurfaceOpacity = "intrinsic" | "placement-baked";
 
@@ -19,13 +19,13 @@ export type PlacementOpacity = number & {
 	readonly [placementOpacityBrand]: "PlacementOpacity";
 };
 
-export interface FrameTextureRef {
+interface FrameTextureRef {
 	kind: "frame-owned";
 	texture: GPUTexture;
 	release: () => void;
 }
 
-export interface BorrowedTextureRef {
+interface BorrowedTextureRef {
 	kind: "borrowed";
 	texture: GPUTexture;
 	owner:

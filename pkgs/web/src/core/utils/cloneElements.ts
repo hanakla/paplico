@@ -13,7 +13,7 @@ import { deepClone, neverReached } from "./lang";
 /**
  * Options for {@link cloneElementsWithIdRemap}.
  */
-export interface CloneElementsOptions {
+interface CloneElementsOptions {
 	/**
 	 * When provided, used to mint new IDs for each input element. Receives the
 	 * source element and must return a fresh unique ID. Defaults to
@@ -25,7 +25,7 @@ export interface CloneElementsOptions {
 /**
  * Result of {@link cloneElementsWithIdRemap}.
  */
-export interface CloneElementsResult {
+interface CloneElementsResult {
 	/** Deeply cloned elements in input order, with new IDs and remapped internal refs. */
 	cloned: AnyArtObject[];
 	/** Mapping from old element ID → new element ID. */

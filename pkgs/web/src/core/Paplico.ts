@@ -1097,18 +1097,18 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		}
 	}
 
-	public setElementOverride(elementId: string, element: AnyArtObject): void {
+	private setElementOverride(elementId: string, element: AnyArtObject): void {
 		this.rendererStore.elementOverrides.set(elementId, element);
 		this.markDirty("preview");
 	}
 
-	public clearElementOverride(elementId: string): void {
+	private clearElementOverride(elementId: string): void {
 		if (this.rendererStore.elementOverrides.delete(elementId)) {
 			this.markDirty("preview");
 		}
 	}
 
-	public addTransientElement(layerId: string, element: AnyArtObject): void {
+	private addTransientElement(layerId: string, element: AnyArtObject): void {
 		// Replace the map with a fresh ref rather than mutating in place: the
 		// frame-plan structure cache keys transient elements by map identity, so
 		// an in-place set would leave the live preview frozen at its first frame.
@@ -1118,7 +1118,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.markDirty("preview");
 	}
 
-	public clearTransientElement(elementId: string): void {
+	private clearTransientElement(elementId: string): void {
 		if (!this.rendererStore.transientElements.has(elementId)) return;
 		const next = new Map(this.rendererStore.transientElements);
 		next.delete(elementId);
@@ -1126,7 +1126,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.markDirty("preview");
 	}
 
-	public clearAllOverrides(): void {
+	private clearAllOverrides(): void {
 		const hadOverrides = this.rendererStore.elementOverrides.size > 0;
 		const hadTransients = this.rendererStore.transientElements.size > 0;
 		this.rendererStore.elementOverrides.clear();
@@ -1377,7 +1377,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	 * vanishing points from. Guides recompute on every camera / transform
 	 * change of the source element and clear automatically when it vanishes.
 	 */
-	public setPerspectiveGuideSource(elementId: string | null): void {
+	private setPerspectiveGuideSource(elementId: string | null): void {
 		this.perspectiveGuideSourceId = elementId;
 		this.refreshPerspectiveGuides();
 	}
@@ -4311,11 +4311,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	// ===== Document Persistence =====
 
-	public getYjsState(): Uint8Array {
+	private getYjsState(): Uint8Array {
 		return Y.encodeStateAsUpdate(this.yjsProvider.ydoc);
 	}
 
-	public loadYjsState(
+	private loadYjsState(
 		yjsState: Uint8Array,
 		viewport?: { x: number; y: number; zoom: number; rotation: number },
 	): void {

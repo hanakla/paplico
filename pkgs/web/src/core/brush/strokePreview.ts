@@ -26,7 +26,7 @@ export interface BrushStrokePreviewOptions {
 	backgroundColor?: RawRGBA;
 }
 
-export interface BrushStrokePreviewScene {
+interface BrushStrokePreviewScene {
 	document: Document;
 	pathId: string;
 	bounds: {
@@ -91,7 +91,7 @@ export function createBrushStrokePreviewScene(
 	};
 }
 
-export function createBrushStrokePreviewPath(
+function createBrushStrokePreviewPath(
 	segments: PathSegment[],
 	brushSettings: BrushSettings | BrushSettings,
 	strokeColor: Color,

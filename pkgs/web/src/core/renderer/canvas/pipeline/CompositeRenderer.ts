@@ -105,7 +105,7 @@ export type BlendBackdrop =
 			parent: ParentBackdropSurface;
 	  };
 
-export interface CompositeSurfaceRequest {
+interface CompositeSurfaceRequest {
 	passEncoder: GPURenderPassEncoder;
 	source: CompositeSourceSurface;
 	backdrop: BlendBackdrop;

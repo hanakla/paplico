@@ -105,7 +105,7 @@ export function buildFontMissingOutlines(
 	return prims;
 }
 
-export interface TextRegionPreviewData {
+interface TextRegionPreviewData {
 	/** World-space drag rectangle corners (any orientation) */
 	x0: number;
 	y0: number;
@@ -140,7 +140,7 @@ export interface WorldBounds {
 	maxY: number;
 }
 
-export interface TextFlowLinkPreviewData {
+interface TextFlowLinkPreviewData {
 	/** World-space source handle position */
 	from: { x: number; y: number };
 	/** World-space cursor position */
@@ -195,7 +195,7 @@ export function buildTextFlowLinkPreview(
 	return prims;
 }
 
-export interface TextFlowChainLink {
+interface TextFlowChainLink {
 	/** World-space start (upstream region's out corner) */
 	from: { x: number; y: number };
 	/** World-space end (downstream region's in corner) */

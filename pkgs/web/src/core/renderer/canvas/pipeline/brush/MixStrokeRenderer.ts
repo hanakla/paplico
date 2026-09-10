@@ -70,7 +70,7 @@ interface MixResultCacheEntry {
 	uvRect: { minU: number; minV: number; maxU: number; maxV: number };
 }
 
-export interface MixStrokeRendererDeps {
+interface MixStrokeRendererDeps {
 	device: GPUDevice;
 	canvasFormat: GPUTextureFormat;
 	texturePool: TexturePool;

@@ -1881,9 +1881,7 @@ function approximateBezierArcLength(
  * then converted back to relative offsets for the reversed parameterization.
  * Pressure, tilt, and deltaTime fields are swapped to match the new direction.
  */
-export function reverseSegments(
-	segments: CubicBezierSegment[],
-): CubicBezierSegment[] {
+function reverseSegments(segments: CubicBezierSegment[]): CubicBezierSegment[] {
 	if (segments.length === 0) return [];
 
 	const lastIdx = segments.length - 1;

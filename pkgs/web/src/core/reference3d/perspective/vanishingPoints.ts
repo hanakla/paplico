@@ -26,9 +26,9 @@ import {
  * elements.
  */
 
-export type WorldAxis3 = "x" | "y" | "z";
+type WorldAxis3 = "x" | "y" | "z";
 
-export type PerspectiveAxisGuide =
+type PerspectiveAxisGuide =
 	| { axis: WorldAxis3; kind: "finite"; point: Vec2 }
 	| { axis: WorldAxis3; kind: "infinite"; direction: Vec2 };
 
@@ -41,7 +41,7 @@ export interface PerspectiveGuideData {
 	horizon: { point: Vec2; direction: Vec2 } | null;
 }
 
-export interface PerspectiveGuideInput {
+interface PerspectiveGuideInput {
 	elementId: string;
 	camera: Reference3DCamera;
 	/** Element placement rect (untransformed local canvas coordinates). */

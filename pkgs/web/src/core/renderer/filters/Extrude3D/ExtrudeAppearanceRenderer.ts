@@ -627,7 +627,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 	}
 
 	/** Frame entries carrying glass distortion (composited post-pass). */
-	public getRefractionEntries(): ExtrudeFrameEntry[] {
+	private getRefractionEntries(): ExtrudeFrameEntry[] {
 		const result: ExtrudeFrameEntry[] = [];
 		for (const list of this.elementEntries.values()) {
 			for (const entry of list) if (entry.refraction) result.push(entry);
@@ -1669,7 +1669,7 @@ export function collectBlendExtrudeOutline(
 
 /** One blend instance's (a key or an interpolated intermediate) own solid
  *  outline, flat (pre-sweep) fill/stroke source, and 3D-solid params. */
-export interface BlendExtrudeInstance {
+interface BlendExtrudeInstance {
 	/** Stroke-swept outline (mesh silhouette). */
 	segments: CubicBezierSegment[];
 	/** Flat geometry without the stroke sweep, paired with `filters` to bake

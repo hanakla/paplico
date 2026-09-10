@@ -23,7 +23,7 @@ const SKEW_ICON_HALF_LEN_PX = 6;
 /** Thickness of the "/" skew icon (screen px) */
 const SKEW_ICON_THICKNESS_PX = 3;
 
-export interface TextCharTouchOverlayData {
+interface TextCharTouchOverlayData {
 	/** World-space quads of the selected glyphs */
 	quads: readonly TextGlyphQuad[];
 	/** World-space AABB spanning all selected quads */

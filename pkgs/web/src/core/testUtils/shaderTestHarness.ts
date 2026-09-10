@@ -19,7 +19,7 @@ export async function getTestDevice(): Promise<GPUDevice> {
 	return cachedDevice;
 }
 
-export interface ComputeShaderTestSetup {
+interface ComputeShaderTestSetup {
 	device: GPUDevice;
 	pipeline: GPUComputePipeline;
 	uniformViews: Record<string, StructuredView>;
@@ -259,7 +259,7 @@ export async function setupComputeShaderTest(
 	};
 }
 
-export type RGBA = [number, number, number, number];
+type RGBA = [number, number, number, number];
 
 export function fillTexture(
 	width: number,

@@ -13,11 +13,11 @@ import type { ScriptFileSystem } from "./api";
 import { createScriptPrompt, registerPaplicoScriptingApi } from "./api";
 import { PaplicoAutomationDom } from "./dom";
 
-export interface AutomationRunResult {
+interface AutomationRunResult {
 	readonly diagnostics: Diagnostic[];
 }
 
-export interface PaplicoAutomationRuntime {
+interface PaplicoAutomationRuntime {
 	run(source: string): Promise<AutomationRunResult>;
 	stop(): void;
 	dispose(): void;

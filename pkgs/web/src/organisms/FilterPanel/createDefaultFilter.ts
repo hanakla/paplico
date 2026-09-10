@@ -33,7 +33,7 @@ import {
 } from "@/core/schema";
 
 /** What the catalog hands back for a processor the panel knows how to add. */
-export type DefaultFilter =
+type DefaultFilter =
 	| BlurFilter
 	| FrostGlassFilter
 	| ZigzagFilter

@@ -49,7 +49,7 @@ export const DAB_FIELD_OFFSETS = {
 	packedWetCoefficients: 23,
 } as const;
 
-export type DabFieldName = keyof typeof DAB_FIELD_OFFSETS;
+type DabFieldName = keyof typeof DAB_FIELD_OFFSETS;
 
 export const DAB_INSTANCE_FLOATS = 24;
 export const DAB_INSTANCE_STRIDE_BYTES = DAB_INSTANCE_FLOATS * 4;

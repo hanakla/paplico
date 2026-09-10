@@ -63,7 +63,7 @@ export function useMediaDynamicRange(): "high" | "standard" {
 // Uses screen.orientation.type when available, falls back to
 // matchMedia + window dimensions for iOS Safari < 16.4.
 // Returns null in portrait.
-export type NotchSide = "left" | "right" | null;
+type NotchSide = "left" | "right" | null;
 
 function getNotchSide(): NotchSide {
 	if (typeof window === "undefined") return null;

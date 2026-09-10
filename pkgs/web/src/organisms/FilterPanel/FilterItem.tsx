@@ -447,7 +447,7 @@ export const FilterItem = memo(function FilterItem({
 	);
 });
 
-export function SubFilterDropZone({
+function SubFilterDropZone({
 	filterUid,
 	hasSubFilters,
 	children,

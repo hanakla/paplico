@@ -247,7 +247,7 @@ export function edgeKey(a: number, b: number): string {
  * Returns the set of undirected edges (as "min:max" strings) that appear in
  * exactly one face — i.e. the outer boundary of the mesh.
  */
-export function getBoundaryEdgeSet(faces: readonly MeshFace[]): Set<string> {
+function getBoundaryEdgeSet(faces: readonly MeshFace[]): Set<string> {
 	const counts = new Map<string, number>();
 	for (const face of faces) {
 		const vs = face.verts;
@@ -651,7 +651,7 @@ export function getEffectiveMeshEdgeCurve(
 	);
 }
 
-export function getRootSegmentSubcurve(
+function getRootSegmentSubcurve(
 	vertices: readonly MeshVertexLike[],
 	faces: readonly MeshFace[],
 	i: number,
