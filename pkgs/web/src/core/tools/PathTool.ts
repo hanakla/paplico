@@ -917,15 +917,18 @@ export class PathTool implements Tool {
 		}
 
 		const previewAnchors = this.buildPreviewAnchors();
+		const closed =
+			this.isClosingDrag || (this.isNearFirstVertex && !this.isDragging);
 		let previewSegments: CubicBezierSegment[] | undefined;
 
 		if (this.hasDraftPath) {
+			// The committed part already lives on the layer as the draft path, so
+			// the transient preview covers only the tail to avoid a double stroke.
 			const tailPreviewAnchors = this.buildTailPreviewAnchors(previewAnchors);
 			if (tailPreviewAnchors) {
 				previewSegments = buildSegments(tailPreviewAnchors, false);
 			}
 		} else if (previewAnchors.length >= 2) {
-			const closed = this.isNearFirstVertex && !this.isDragging;
 			previewSegments = buildSegments(previewAnchors, closed);
 		}
 
@@ -936,8 +939,12 @@ export class PathTool implements Tool {
 			this.context.previewUpdate(null);
 		}
 
-		// Emit pathEditUI for anchor/handle visualization
-		this.emitPathEditUI(previewAnchors, previewSegments);
+		// The UI outline spans the whole path being drawn, not just the tail.
+		const outlineSegments =
+			previewAnchors.length >= 2
+				? buildSegments(previewAnchors, closed)
+				: undefined;
+		this.emitPathEditUI(previewAnchors, outlineSegments);
 	}
 
 	private syncDraftPath(): void {
