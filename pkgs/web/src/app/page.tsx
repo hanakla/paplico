@@ -104,6 +104,7 @@ import {
 } from "@/stores/uiStore";
 import { codeFromError, reportError } from "@/utils/errorReporting";
 import { useEventCallback, useNotchSide } from "@/utils/hooks";
+import { resolveDefaultFontForLanguage } from "@/utils/paplico";
 import {
 	detectMacOSTauri,
 	detectSafariBrowser,
@@ -363,6 +364,10 @@ export default function Page() {
 					p.shortcuts.importConfig(appConfig.shortcutOverrides);
 				}
 
+				Object.assign(
+					p.tools.state.textDefaultStyle,
+					resolveDefaultFontForLanguage(appConfig.language),
+				);
 				p.tools.state.selectStrokeAfterDraw = appConfig.selectStrokeAfterDraw;
 				p.tools.state.selectSelectionMode = appConfig.selectSelectionMode;
 				p.tools.state.pathEditSelectionMode = appConfig.pathEditSelectionMode;
