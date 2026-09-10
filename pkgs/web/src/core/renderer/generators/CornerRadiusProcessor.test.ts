@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CubicBezierSegment } from "../../schema";
+import type { CubicBezierSegment, PathSegment } from "../../schema";
 import { applyCornerRadius } from "./CornerRadiusProcessor";
 
 /**
@@ -113,6 +113,14 @@ describe("CornerRadiusProcessor", () => {
 			// trimOut should be at (100, 50) = vertex - 50 along outgoing edge
 			expect(filletSeg.end.x).toBeCloseTo(100, 0);
 			expect(filletSeg.end.y).toBeCloseTo(50, 0);
+		});
+
+		it("closes the subpath after the wrap-around fillet, not before it", () => {
+			const segments = makeRectSegments();
+			for (const seg of segments) (seg as PathSegment).cornerRadius = 10;
+			const result = applyCornerRadius(segments);
+			expect(result.at(-1)?.isClosed).toBe(true);
+			expect(result.filter((s) => s.isClosed).length).toBe(1);
 		});
 
 		it("preserves isMoved and isClosed flags in output", () => {

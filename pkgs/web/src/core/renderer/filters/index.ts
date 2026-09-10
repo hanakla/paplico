@@ -142,6 +142,76 @@ export type {
 	Rotate3DFilter,
 	Rotate3DParams,
 } from "./Rotate3DFilterProcessor";
+// --- SVG filter primitives ---
+export type {
+	SvgBlendFilter,
+	SvgBlendParams,
+} from "./svg/SvgBlendHandler";
+export {
+	SVG_COLOR_FUNCTIONS,
+	type SvgColorFunction,
+	type SvgColorFunctionFilter,
+	type SvgColorFunctionParams,
+} from "./svg/SvgColorFunctionHandler";
+export {
+	SVG_COLOR_MATRIX_IDENTITY,
+	type SvgColorMatrixFilter,
+	type SvgColorMatrixParams,
+	type SvgColorMatrixType,
+} from "./svg/SvgColorMatrixHandler";
+export type {
+	SvgComponentTransferFilter,
+	SvgComponentTransferParams,
+	SvgTransferFunction,
+} from "./svg/SvgComponentTransferHandler";
+export type {
+	SvgCompositeFilter,
+	SvgCompositeOperator,
+	SvgCompositeParams,
+} from "./svg/SvgCompositeHandler";
+export type {
+	SvgConvolveMatrixFilter,
+	SvgConvolveMatrixParams,
+} from "./svg/SvgConvolveMatrixHandler";
+export type {
+	SvgChannelSelector,
+	SvgDisplacementMapFilter,
+	SvgDisplacementMapParams,
+} from "./svg/SvgDisplacementMapHandler";
+export type {
+	SvgDropShadowFilter,
+	SvgDropShadowParams,
+} from "./svg/SvgDropShadowHandler";
+export type {
+	SvgFilterGraphFilter,
+	SvgFilterGraphParams,
+	SvgFilterNode,
+} from "./svg/SvgFilterGraphHandler";
+export type {
+	SvgFloodFilter,
+	SvgFloodParams,
+} from "./svg/SvgFloodHandler";
+export type {
+	SvgGaussianBlurFilter,
+	SvgGaussianBlurParams,
+} from "./svg/SvgGaussianBlurHandler";
+export type {
+	SvgMorphologyFilter,
+	SvgMorphologyParams,
+} from "./svg/SvgMorphologyHandler";
+export type {
+	SvgOffsetFilter,
+	SvgOffsetParams,
+} from "./svg/SvgOffsetHandler";
+export type {
+	SvgTurbulenceFilter,
+	SvgTurbulenceParams,
+} from "./svg/SvgTurbulenceHandler";
+export {
+	type SvgFilterInput,
+	svgInputNodeRef,
+	svgNodeRefInput,
+} from "./svg/svgFilterInput";
 // --- Pre-Filters (Geometry) ---
 export type {
 	ZigzagFilter,

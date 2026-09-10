@@ -131,6 +131,36 @@ describe("WebGPU Visual Regression - testDocument.ts全機能", () => {
 		texture.destroy();
 	});
 
+	it("Artboard 'SVG Filters' - graphs, node references and color functions", async () => {
+		const { renderer } = await createTestRenderer();
+
+		const doc = await loadTestDocument();
+		const artboard = doc.artboards.find((ab) => ab.name === "SVG Filters")!;
+
+		const texture = await renderArtboardForTest(renderer, artboard, doc, 1, {
+			r: 1,
+			g: 1,
+			b: 1,
+			a: 1,
+		});
+
+		if (!texture) throw new Error("Failed to render artboard");
+
+		await expectVisualMatch(
+			renderer,
+			texture,
+			texture.width,
+			texture.height,
+			"testdoc-svgfilters-artboard",
+			{
+				threshold: 0.1,
+				maxDiffPercentage: MAX_DIFF_PERCENTAGE,
+			},
+		);
+
+		texture.destroy();
+	});
+
 	it("Artboard 'Filters' @2x - fixed-resolution filter rasterization", async () => {
 		const { renderer } = await createTestRenderer();
 

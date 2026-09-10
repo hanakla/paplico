@@ -3,6 +3,7 @@ import {
 	createIdentityTransform,
 	createStrokeBrushSettings,
 } from "../document/factory";
+import type { SvgFilterNode } from "../renderer/filters/svg/SvgFilterGraphHandler";
 import {
 	type AnyArtObject,
 	type BlendMode,
@@ -35,6 +36,7 @@ import {
 	type TextStyle,
 } from "../schema";
 import { calculateSegmentListBounds } from "./geometry/bounds";
+import { parseSvgFilterElement } from "./svgFilterImport";
 
 // SVG presentation attributes that inherit from ancestor elements (per the SVG
 // spec). Non-inherited properties (opacity, filter, clip-path, mix-blend-mode,
@@ -85,10 +87,18 @@ interface ViewBox {
 	height: number;
 }
 
+/**
+ * Rescales a filter's spatial parameters, the way FilterHandler.onScaleFilter
+ * does; the importer applies it with the element's CTM scale, which the path
+ * coordinates absorb but the filter parameters do not.
+ */
+export type ScaleFilter = (filter: Filter, scale: [number, number]) => Filter;
+
 export interface ParseCtx {
 	viewBox: ViewBox;
 	pasteWorldX: number;
 	pasteWorldY: number;
+	scaleFilter?: ScaleFilter;
 	gradients: Map<string, GradientDef>;
 	cssClasses: Map<string, Record<string, string>>;
 	clipPaths: Map<string, Element>;
@@ -99,8 +109,8 @@ export interface ParseCtx {
 	 * as "no paint" without reprocessing.
 	 */
 	patternFills: Map<string, PatternFill | null>;
-	/** Resolved SVG <filter> id -> parsed blur / drop-shadow, or null if unsupported. */
-	filters: Map<string, ParsedSvgFilter | null>;
+	/** Resolved SVG <filter> id -> its `svg:filter` graph nodes, or null if nothing is supported. */
+	filters: Map<string, SvgFilterNode[] | null>;
 }
 
 // --- Internal Types ---
@@ -131,19 +141,6 @@ type GradientDef =
 			stops: ColorStop[];
 	  };
 
-// Parsed SVG <filter> reduced to the two effects Paplico has first-class support
-// for: gaussian blur and drop shadow.
-type ParsedSvgFilter =
-	| { kind: "blur"; stdDeviation: number }
-	| {
-			kind: "drop-shadow";
-			dx: number;
-			dy: number;
-			stdDeviation: number;
-			color: RGBColor | null;
-			opacity: number;
-	  };
-
 interface ParseState {
 	ctx: ParseCtx;
 	objects: Map<string, AnyArtObject>;
@@ -159,6 +156,7 @@ export async function parseSvgToArtObjects(
 	svgString: string,
 	pasteWorldX: number,
 	pasteWorldY: number,
+	{ scaleFilter }: { scaleFilter?: ScaleFilter } = {},
 ): Promise<SvgImportResult> {
 	const empty: SvgImportResult = {
 		objects: new Map(),
@@ -189,6 +187,7 @@ export async function parseSvgToArtObjects(
 			clipPaths,
 			patternFills: new Map(),
 			filters: collectSvgFilters(doc),
+			scaleFilter,
 		};
 
 		const state: ParseState = {
@@ -463,95 +462,47 @@ function collectClipPaths(doc: Document): Map<string, Element> {
 
 // --- Filter Collection ---
 
-function collectSvgFilters(doc: Document): Map<string, ParsedSvgFilter | null> {
-	const map = new Map<string, ParsedSvgFilter | null>();
+function collectSvgFilters(doc: Document): Map<string, SvgFilterNode[] | null> {
+	const map = new Map<string, SvgFilterNode[] | null>();
 	for (const el of doc.querySelectorAll("filter")) {
 		const id = el.getAttribute("id");
-		if (id) map.set(id, parseSvgFilter(el));
+		if (id) map.set(id, parseSvgFilterElement(el, parseSvgColor));
 	}
 	return map;
 }
 
-// Reduce a <filter> to a blur or drop-shadow, the two effects Paplico supports.
-// Recognizes the feDropShadow shorthand and the classic
-// feOffset+feFlood+feGaussianBlur(+feComposite) drop-shadow chain; a lone
-// feGaussianBlur becomes a blur. Anything else is unsupported (null).
-function parseSvgFilter(el: Element): ParsedSvgFilter | null {
-	const attrNum = (node: Element | null, name: string, fallback: number) => {
-		const n = parseFloat((node?.getAttribute(name) ?? "").split(/[\s,]+/)[0]);
-		return Number.isNaN(n) ? fallback : n;
-	};
-
-	const dropShadow = el.querySelector("feDropShadow");
-	if (dropShadow) {
-		return {
-			kind: "drop-shadow",
-			dx: attrNum(dropShadow, "dx", 2),
-			dy: attrNum(dropShadow, "dy", 2),
-			stdDeviation: attrNum(dropShadow, "stdDeviation", 2),
-			color: parseSvgColor(dropShadow.getAttribute("flood-color") ?? "black"),
-			opacity: attrNum(dropShadow, "flood-opacity", 1),
-		};
-	}
-
-	const blur = el.querySelector("feGaussianBlur");
-	const offset = el.querySelector("feOffset");
-	if (blur && offset) {
-		const flood = el.querySelector("feFlood");
-		return {
-			kind: "drop-shadow",
-			dx: attrNum(offset, "dx", 0),
-			dy: attrNum(offset, "dy", 0),
-			stdDeviation: attrNum(blur, "stdDeviation", 2),
-			color: parseSvgColor(flood?.getAttribute("flood-color") ?? "black"),
-			opacity: attrNum(flood, "flood-opacity", 1),
-		};
-	}
-	if (blur) {
-		return { kind: "blur", stdDeviation: attrNum(blur, "stdDeviation", 2) };
-	}
-	return null;
-}
-
-// Build the Paplico filter appearance(s) for an element's `filter` reference.
+// Build the Paplico filter appearance for an element's `filter` reference:
+// one `svg:filter` graph holding the <filter>'s primitives, with its spatial
+// parameters scaled by the element's CTM like the geometry already is.
 function buildFilterAppearances(
 	filterRef: string | null,
 	ctx: ParseCtx,
+	ctm: DOMMatrix,
 ): Filter[] {
 	const refId = matchUrlRef(filterRef);
-	const parsed = refId ? ctx.filters.get(refId) : null;
-	if (!parsed) return [];
-
-	if (parsed.kind === "blur") {
-		return [
-			{
-				uid: generateUid("app"),
-				processor: "blur",
-				opacity: 1,
-				blendMode: "normal",
-				paramData: { version: "1", params: { radius: parsed.stdDeviation } },
-			},
-		];
-	}
-	return [
-		{
-			uid: generateUid("app"),
-			processor: "drop-shadow",
-			opacity: 1,
-			blendMode: "normal",
-			paramData: {
-				version: "1",
-				params: {
-					offsetX: parsed.dx,
-					// SVG feOffset dy is downward-positive; world Y is up.
-					offsetY: -parsed.dy,
-					blurRadius: parsed.stdDeviation,
-					shadowColor: parsed.color ?? { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
-					shadowOpacity: parsed.opacity,
-				},
+	const nodes = refId ? ctx.filters.get(refId) : null;
+	if (!nodes) return [];
+	const graph: Filter = {
+		uid: generateUid("app"),
+		processor: "svg:filter",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: {
+			version: "1",
+			params: {
+				nodes: nodes.map((node) => ({ ...node, params: { ...node.params } })),
 			},
 		},
+	};
+	const scale: [number, number] = [
+		Math.hypot(ctm.a, ctm.b),
+		Math.hypot(ctm.c, ctm.d),
 	];
+	const scaled =
+		ctx.scaleFilter && (scale[0] !== 1 || scale[1] !== 1)
+			? ctx.scaleFilter(graph, scale)
+			: graph;
+	return [scaled];
 }
 
 // --- Pattern Collection ---
@@ -831,7 +782,7 @@ async function processElement(
 				overlayInheritedProps(getElProp, inherited),
 			);
 			if (childIds.length === 0) break;
-			baseId = wrapChildren(childIds, opacity, getElProp, state);
+			baseId = wrapChildren(childIds, opacity, getElProp, state, ctm);
 			break;
 		}
 		case "use": {
@@ -931,8 +882,9 @@ function wrapChildren(
 	opacity: number,
 	getElProp: (name: string) => string | null,
 	state: ParseState,
+	ctm: DOMMatrix,
 ): string {
-	const filters = buildFilterAppearances(getElProp("filter"), state.ctx);
+	const filters = buildFilterAppearances(getElProp("filter"), state.ctx, ctm);
 	const blendMode = resolveBlendMode(getElProp("mix-blend-mode")) ?? "normal";
 	if (
 		childIds.length === 1 &&
@@ -989,7 +941,7 @@ async function buildUseReference(
 			overlayInheritedProps(getElProp, inherited),
 		);
 		if (!childId) return null;
-		return wrapChildren([childId], opacity, getElProp, state);
+		return wrapChildren([childId], opacity, getElProp, state, ctm);
 	} finally {
 		state.activeUseIds.delete(refId);
 	}
@@ -1328,8 +1280,8 @@ function buildPath(
 		filters.push(sa);
 	}
 
-	// Element effect filters (blur / drop-shadow) apply on top of fill/stroke.
-	filters.push(...buildFilterAppearances(getAttr("filter"), state.ctx));
+	// The element's <filter> graph applies on top of fill/stroke.
+	filters.push(...buildFilterAppearances(getAttr("filter"), state.ctx, ctm));
 
 	const path: Path = {
 		type: "path",
@@ -1347,8 +1299,8 @@ function buildPath(
 // --- Text Builder ---
 
 // Supports single <text> with x/y, element-level dx/dy, font-size,
-// font-family/weight/style, fill, text-anchor, writing-mode and blur/drop-shadow
-// filters. <tspan> children contribute their own runs with per-span style
+// font-family/weight/style, fill, text-anchor, writing-mode and <filter>
+// graphs. <tspan> children contribute their own runs with per-span style
 // overrides. Not handled (v1): per-<tspan> dx/dy positioning, rotate, per-glyph
 // positioning, textPath, and gradient/pattern text fill (solid colors only).
 function buildTextElement(
@@ -1414,7 +1366,7 @@ function buildTextElement(
 			wordWrap: false,
 		},
 		// Content appearance marker: anchor for per-glyph paint (mirrors TextTool),
-		// followed by any element effect filters (blur / drop-shadow).
+		// followed by the element's <filter> graph.
 		filters: [
 			{
 				uid: generateUid("app"),
@@ -1423,7 +1375,7 @@ function buildTextElement(
 				blendMode: "normal",
 				paramData: { version: "1", params: {} },
 			},
-			...buildFilterAppearances(getElProp("filter"), state.ctx),
+			...buildFilterAppearances(getElProp("filter"), state.ctx, ctm),
 		],
 	};
 	state.objects.set(textEl.id, textEl);

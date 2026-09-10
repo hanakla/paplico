@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BoundingBox } from "../../../schema";
+import { snapBoundsToRasterGrid } from "../../../utils/geometry/bounds";
 import {
 	type BackdropCaptureManager,
 	type BackdropPixelRect,
@@ -13,7 +14,6 @@ import {
 	planBatchBounds,
 	planPyramidDirtyUpdate,
 	shouldRebuildFullPyramid,
-	snapBoundsToRasterGrid,
 } from "./BackdropEffectCoordinator";
 import {
 	MAX_PYRAMID_LEVELS,

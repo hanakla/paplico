@@ -1,6 +1,7 @@
 import { localAppearances } from "../../../document/appearancePresets";
 import type { FilterRenderer } from "../../../renderer/canvas/pipeline/FilterRenderer";
 import { resolveElementGeometry } from "../../../renderer/canvas/pipeline/PreFilterRenderer";
+import { calculatePreFilteredElementBounds } from "../../../renderer/canvas/pipeline/RenderPlanner";
 import {
 	type AnyArtObject,
 	type BoundingBox,
@@ -30,7 +31,10 @@ import {
 	expandBounds,
 } from "../../../utils/geometry/bounds";
 import { bakeCompoundPathSegments } from "../../../utils/geometry/compoundBake";
-import { composeTransforms } from "../../../utils/geometry/geometry";
+import {
+	applyTransformToBounds,
+	composeTransforms,
+} from "../../../utils/geometry/geometry";
 import {
 	reconstructSegmentsFromWorld,
 	transformSegmentsToWorld,
@@ -51,6 +55,7 @@ import {
 	composeWorldAffine,
 	createCoordMapper,
 	elementTransformToWorldAffine,
+	formatNumber,
 	type SvgCoordMapper,
 	segmentsToPathData,
 	svgMatrixToString,
@@ -59,6 +64,10 @@ import {
 } from "./pathData";
 import type { RasterChunkResult } from "./rasterChunk";
 import type { SvgDocumentBuilder, SvgNode } from "./svgBuilder";
+import {
+	collectSvgFilterChain,
+	svgFilterPrimitives,
+} from "./svgFilterPrimitives";
 
 /** Everything element serialization needs, wired once by the exporter. */
 export interface SerializeContext {
@@ -76,7 +85,7 @@ export interface SerializeContext {
 	 * it are dropped instead of shipping invisible markup.
 	 */
 	cullBounds: BoundingBox;
-	filterResolver: Pick<FilterRenderer, "getHandler">;
+	filterResolver: Pick<FilterRenderer, "getHandler" | "calculateExpansion">;
 	outlineText(element: TextElement): Promise<{
 		outlinedPaths: Array<{
 			path: Path;
@@ -199,6 +208,7 @@ async function serializePathLike(
 
 	const worldBounds = calculateSegmentListBounds(worldSegments);
 	if (!worldBounds) return null;
+	const svgFilter = registerSvgFilter(element, ctx, ancestorTransform);
 
 	// The renderer evaluates gradient/pattern uv in the element's LOCAL
 	// (pre-transform) space (gradientFill.wgsl), so paints must ride the
@@ -209,19 +219,19 @@ async function serializePathLike(
 	// non-uniform/skewed transform is classified as raster before reaching here.
 	const strokeScale = uniformTransformScale(composed) ?? 1;
 
-	// Cull elements whose painted area (geometry + stroke reach) cannot touch
-	// the visible region — invisible markup must not ship in the export.
+	// Cull elements whose painted area (geometry + stroke reach, or the whole
+	// filter region when a filter can move paint) cannot touch the visible
+	// region — invisible markup must not ship in the export.
 	const cullMargin = maxStrokeWidth(element) * strokeScale;
-	if (
-		!boundsIntersect(
-			cullMargin > 0 ? expandBounds(worldBounds, cullMargin) : worldBounds,
-			ctx.cullBounds,
-		)
-	) {
-		return null;
-	}
+	const paintedBounds =
+		svgFilter?.region ??
+		(cullMargin > 0 ? expandBounds(worldBounds, cullMargin) : worldBounds);
+	if (!boundsIntersect(paintedBounds, ctx.cullBounds)) return null;
 
-	const elementAlpha = element.opacity;
+	// With a filter the element opacity must apply AFTER the filter (the
+	// renderer composites the filtered result at element alpha), so it rides
+	// the wrapper instead of each shape's paint.
+	const elementAlpha = svgFilter ? 1 : element.opacity;
 	const shapes: SvgNode[] = [];
 	for (const filter of localAppearances(element.filters)) {
 		if (!isFilterEnabled(filter)) continue;
@@ -268,7 +278,8 @@ async function serializePathLike(
 		ctx,
 		composed,
 		{},
-		false,
+		svgFilter !== null,
+		svgFilter,
 	);
 }
 
@@ -378,7 +389,14 @@ async function serializeGroup(
 ): Promise<SvgNode | null> {
 	const composed = composeAncestor(ancestorTransform, getTransform(group));
 	const childIds = group.childIds.filter((id) => id !== group.clipPathId);
-	const children = await serializePlanItems(childIds, ctx, composed);
+	const svgFilter = registerSvgFilter(group, ctx, ancestorTransform);
+	const childCullBounds = innerCullBounds(svgFilter, ctx.cullBounds);
+	if (childCullBounds === null) return null;
+	const children = await serializePlanItems(
+		childIds,
+		{ ...ctx, cullBounds: childCullBounds },
+		composed,
+	);
 	if (children.length === 0) return null;
 
 	const attrs: Record<string, string | number> = {};
@@ -390,7 +408,7 @@ async function serializeGroup(
 		}
 	}
 
-	return wrapElement(children, group, ctx, composed, attrs);
+	return wrapElement(children, group, ctx, composed, attrs, true, svgFilter);
 }
 
 async function registerClipPath(
@@ -493,7 +511,10 @@ async function serializeImage(
 	);
 
 	const cornerBounds = affineRectBounds(worldAffine, image.width, image.height);
-	if (!boundsIntersect(cornerBounds, ctx.cullBounds)) return null;
+	const svgFilter = registerSvgFilter(image, ctx, ancestorTransform);
+	if (!boundsIntersect(svgFilter?.region ?? cornerBounds, ctx.cullBounds)) {
+		return null;
+	}
 
 	const node: SvgNode = {
 		tag: "image",
@@ -507,7 +528,7 @@ async function serializeImage(
 			href: bytesToDataUrl(file.bin, file.type),
 		},
 	};
-	return wrapElement([node], image, ctx, composed);
+	return wrapElement([node], image, ctx, composed, {}, true, svgFilter);
 }
 
 // --- Text ---
@@ -525,11 +546,20 @@ async function serializeText(
 	const origin = boundsCenter(outline.bounds);
 	const localToWorld = elementTransformToWorldAffine(composed, origin);
 	const strokeScale = uniformTransformScale(composed) ?? 1;
-	const elementAlpha = element.opacity;
+
+	const glyphs = outline.outlinedPaths.map((glyph) => ({
+		...glyph,
+		worldSegments: transformWorldGlyph(glyph.path.segments, composed, origin),
+	}));
+	const svgFilter = registerSvgFilter(element, ctx, ancestorTransform);
+	// Element opacity rides the wrapper when a filter must run first (see
+	// serializePathLike); otherwise it rides each glyph shape.
+	const elementAlpha = svgFilter ? 1 : element.opacity;
+	const glyphCullBounds = innerCullBounds(svgFilter, ctx.cullBounds);
+	if (glyphCullBounds === null) return null;
 
 	const glyphNodes: SvgNode[] = [];
-	for (const { path, runIndex, paragraphIndex } of outline.outlinedPaths) {
-		const worldSegments = transformWorldGlyph(path.segments, composed, origin);
+	for (const { path, runIndex, paragraphIndex, worldSegments } of glyphs) {
 		const d = segmentsToPathData(worldSegments, ctx.mapper);
 		if (!d) continue;
 
@@ -549,7 +579,7 @@ async function serializeText(
 			!glyphWorldBounds ||
 			!boundsIntersect(
 				stroke ? expandBounds(glyphWorldBounds, strokeWidth) : glyphWorldBounds,
-				ctx.cullBounds,
+				glyphCullBounds,
 			)
 		) {
 			continue;
@@ -597,8 +627,15 @@ async function serializeText(
 	}
 	if (glyphNodes.length === 0) return null;
 
-	// Element opacity rides each glyph shape (see serializePathLike).
-	return wrapElement(glyphNodes, element, ctx, composed, {}, false);
+	return wrapElement(
+		glyphNodes,
+		element,
+		ctx,
+		composed,
+		{},
+		svgFilter !== null,
+		svgFilter,
+	);
 }
 
 /** Glyph outlines are already world-positioned; apply only a non-identity element transform. */
@@ -749,8 +786,78 @@ async function registerPatternBase(
 	return id;
 }
 
-// --- Element wrapper (opacity / blend / mask) ---
+// --- Element wrapper (filter / opacity / blend / mask) ---
 
+/** A registered `<filter>` def and the world-space region it covers. */
+interface SvgFilterRef {
+	id: string;
+	region: BoundingBox;
+}
+
+/**
+ * Register the element's `svg:*` chain as one `<filter>` def. The region
+ * mirrors the renderer's offscreen allocation: the element's bounds expanded
+ * by the largest expansion margin among its enabled appearances.
+ */
+function registerSvgFilter(
+	element: AnyArtObject,
+	ctx: SerializeContext,
+	ancestorTransform: ElementTransform | undefined,
+): SvgFilterRef | null {
+	const chain = collectSvgFilterChain(element.filters);
+	if (chain.length === 0) return null;
+
+	// The renderer sizes the filter texture from the element's own
+	// (pre-filtered, stroke-inclusive) bounds; ancestors only move it.
+	const ownBounds = calculatePreFilteredElementBounds(
+		element,
+		ctx.elementsMap,
+		ctx.filterResolver,
+	);
+	const worldBounds = ancestorTransform
+		? applyTransformToBounds(ownBounds, ancestorTransform)
+		: ownBounds;
+
+	const region = expandBounds(
+		worldBounds,
+		ctx.filterResolver.calculateExpansion(
+			localAppearances(element.filters),
+			worldBounds,
+		),
+	);
+
+	const id = ctx.builder.allocId("filter");
+	ctx.builder.addDef({
+		tag: "filter",
+		attrs: {
+			id,
+			filterUnits: "userSpaceOnUse",
+			primitiveUnits: "userSpaceOnUse",
+			x: 0,
+			y: 0,
+			width: region.width,
+			height: region.height,
+			// The GPU primitives operate on sRGB-encoded values; the SVG
+			// default (linearRGB) would diverge on every midtone.
+			"color-interpolation-filters": "sRGB",
+		},
+		children: chain.flatMap(svgFilterPrimitives),
+	});
+	return { id, region };
+}
+
+/**
+ * Wrap serialized shapes with the element's filter, opacity, blend, clip
+ * and mask.
+ *
+ * With an SVG filter the wrapper is three groups. The innermost moves the
+ * content to a user space whose origin is the filter region's top-left; the
+ * middle one carries the filter and moves that space back, so
+ * region-relative primitives (turbulence noise coordinates, the 0/0 region
+ * attrs) line up with the GPU pass; the outermost holds the clip-path,
+ * mask, opacity and blend, which the renderer all applies to the filtered
+ * result.
+ */
 async function wrapElement(
 	nodes: SvgNode[],
 	element: AnyArtObject,
@@ -758,6 +865,7 @@ async function wrapElement(
 	composedTransform: ElementTransform,
 	extraAttrs: Record<string, string | number> = {},
 	includeOpacity = true,
+	svgFilter: SvgFilterRef | null = null,
 ): Promise<SvgNode | null> {
 	const attrs: Record<string, string | number> = { ...extraAttrs };
 	if (includeOpacity && element.opacity < 1) attrs.opacity = element.opacity;
@@ -776,12 +884,40 @@ async function wrapElement(
 		}
 	}
 
-	if (Object.keys(attrs).length === 0) {
-		return nodes.length === 1
-			? nodes[0]
-			: { tag: "g", attrs: {}, children: nodes };
+	let content = nodes;
+	if (svgFilter) {
+		const origin = ctx.mapper.point({
+			x: svgFilter.region.minX,
+			y: svgFilter.region.maxY,
+		});
+		content = [
+			{
+				tag: "g",
+				attrs: {
+					transform: `translate(${formatNumber(origin.x)} ${formatNumber(origin.y)})`,
+					filter: `url(#${svgFilter.id})`,
+				},
+				children: [
+					{
+						tag: "g",
+						attrs: {
+							transform: `translate(${formatNumber(-origin.x)} ${formatNumber(-origin.y)})`,
+						},
+						children: nodes,
+					},
+				],
+			},
+		];
+		if (Object.keys(attrs).length === 0) return content[0];
+		return { tag: "g", attrs, children: content };
 	}
-	return { tag: "g", attrs, children: nodes };
+
+	if (Object.keys(attrs).length === 0) {
+		return content.length === 1
+			? content[0]
+			: { tag: "g", attrs: {}, children: content };
+	}
+	return { tag: "g", attrs, children: content };
 }
 
 async function registerMask(
@@ -872,6 +1008,20 @@ function composeAncestor(
 }
 
 /** Cull rect used where nothing may be culled (mask content). */
+/**
+ * Cull bounds for the parts inside a filtered element. A filter may move
+ * paint into view from outside the region, so the parts are then culled as a
+ * whole against the filter region: null when the region is out of view,
+ * unbounded when it is in view.
+ */
+function innerCullBounds(
+	svgFilter: SvgFilterRef | null,
+	cullBounds: BoundingBox,
+): BoundingBox | null {
+	if (!svgFilter) return cullBounds;
+	return boundsIntersect(svgFilter.region, cullBounds) ? UNBOUNDED_CULL : null;
+}
+
 const UNBOUNDED_CULL: BoundingBox = {
 	minX: Number.NEGATIVE_INFINITY,
 	minY: Number.NEGATIVE_INFINITY,

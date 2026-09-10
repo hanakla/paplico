@@ -151,9 +151,43 @@ export const FILTER_CATALOG: FilterCatalogEntry[] = [
 		category: "Texture",
 		canBeSubFilter: true,
 	},
+	// SVG filter primitives: exported 1:1 as <fe*> elements. A sub-filter
+	// position would rasterize on export, so they are top-level only.
+	{ processor: "svg:gaussian-blur", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:offset", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:flood", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:color-matrix", category: "SVG", canBeSubFilter: false },
+	{
+		processor: "svg:component-transfer",
+		category: "SVG",
+		canBeSubFilter: false,
+	},
+	{ processor: "svg:morphology", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:convolve-matrix", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:turbulence", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:displacement-map", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:composite", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:blend", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:drop-shadow", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:saturate", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:hue-rotate", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:grayscale", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:sepia", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:invert", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:brightness", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:contrast", category: "SVG", canBeSubFilter: false },
+	{ processor: "svg:filter", category: "SVG", canBeSubFilter: false },
 ];
 
 /** Unique category names in display order */
 export const FILTER_CATEGORIES = [
 	...new Set(FILTER_CATALOG.map((e) => e.category)),
 ];
+
+/** Whether a processor may sit under a fill / stroke as a sub-filter; unlisted processors may. */
+export function canBeSubFilter(processor: string): boolean {
+	return (
+		FILTER_CATALOG.find((entry) => entry.processor === processor)
+			?.canBeSubFilter ?? true
+	);
+}

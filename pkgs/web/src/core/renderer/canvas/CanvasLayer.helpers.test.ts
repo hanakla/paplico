@@ -146,6 +146,17 @@ describe("interactiveBakeDensity", () => {
 		expect(interactiveBakeDensity(4, 0.6)).toBe(1);
 	});
 
+	it("should cap the bucket by the element's bake budget, never below the raster scale", () => {
+		// 500x500 world px at 16 texels/px is 64M texels; 8 texels/px fits.
+		expect(interactiveBakeDensity(4, 10, { width: 500, height: 500 })).toBe(8);
+		// A small element keeps the full bucket.
+		expect(interactiveBakeDensity(4, 10, { width: 50, height: 50 })).toBe(16);
+		// A huge element never drops under the document raster scale.
+		expect(interactiveBakeDensity(4, 10, { width: 8000, height: 8000 })).toBe(
+			4,
+		);
+	});
+
 	it("should never go below the display density", () => {
 		for (const zoom of [0.13, 0.3, 0.77, 1.9, 3.2]) {
 			expect(interactiveBakeDensity(4, zoom)).toBeGreaterThanOrEqual(zoom);

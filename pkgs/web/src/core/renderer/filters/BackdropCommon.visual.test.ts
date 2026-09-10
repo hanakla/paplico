@@ -1,5 +1,6 @@
 import pixelmatch from "pixelmatch";
 import { beforeAll, describe, expect, it } from "vitest";
+import { localAppearances } from "../../document/appearancePresets";
 import {
 	createArtboard,
 	createDefaultDocument,
@@ -24,6 +25,7 @@ import type { BlurFilter } from "./BlurFilterProcessor";
 import type { FrostGlassFilter } from "./FrostGlassFilterProcessor";
 import type { HKVhsInterlaceFilter } from "./hanakla-kit/HKVhsInterlaceHandler";
 import type { PixelateFilter } from "./PixelateFilterProcessor";
+import type { SvgFilterGraphFilter } from "./svg/SvgFilterGraphHandler";
 
 beforeAll(() => {
 	loadTestFont(getFontManager());
@@ -99,6 +101,72 @@ describe("Common applyToBackdrop flag", () => {
 			flagged.width,
 			flagged.height,
 			"backdrop-common-blur",
+			{ threshold: 0.1, maxDiffPercentage: 0.5 },
+		);
+
+		flagged.destroy();
+		unflagged.destroy();
+	});
+
+	it("should run an svg:filter graph on the backdrop inside the element shape", async () => {
+		const { renderer, canvas } = await createTestRenderer();
+		const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+
+		const flagged = await renderWithViewport(
+			renderer,
+			canvas,
+			createBackdropSvgDoc(),
+			viewport,
+		);
+		const unflagged = await renderWithViewport(
+			renderer,
+			canvas,
+			createBackdropSvgDoc({ applyToBackdrop: false }),
+			viewport,
+		);
+
+		const device = renderer.getDevice();
+		if (!device) throw new Error("Test renderer has no GPU device");
+		const flaggedPixels = await captureTexturePixels(
+			device,
+			flagged,
+			flagged.width,
+			flagged.height,
+		);
+		const unflaggedPixels = await captureTexturePixels(
+			device,
+			unflagged,
+			unflagged.width,
+			unflagged.height,
+		);
+
+		const inside = regionDiffPercentage(
+			flaggedPixels,
+			unflaggedPixels,
+			flagged.width,
+			300,
+			240,
+			500,
+			360,
+		);
+		const outside = regionDiffPercentage(
+			flaggedPixels,
+			unflaggedPixels,
+			flagged.width,
+			10,
+			10,
+			200,
+			160,
+		);
+		expect(inside).toBeGreaterThan(1);
+		expect(outside).toBe(0);
+
+		await expectVisualMatch(
+			renderer,
+			flagged,
+			flagged.width,
+			flagged.height,
+			"backdrop-common-svg-filter",
 			{ threshold: 0.1, maxDiffPercentage: 0.5 },
 		);
 
@@ -436,6 +504,70 @@ function createBackdropBlurDoc({ applyToBackdrop = true } = {}) {
 		layer.elementIds.push(el.id);
 	}
 	doc.layers = [layer];
+	return doc;
+}
+
+/** The blur scene with the pane carrying an `svg:filter` graph instead:
+ *  with the flag, SourceGraphic is the captured backdrop. */
+function createBackdropSvgDoc({ applyToBackdrop = true } = {}) {
+	const doc = createBackdropBlurDoc({ applyToBackdrop });
+	const pane = Object.values(doc.objects).find(
+		(el) =>
+			el.type === "path" &&
+			localAppearances(el.filters).some((f) => f.processor === "blur"),
+	) as Path;
+	const graph: SvgFilterGraphFilter = {
+		uid: generateUid("filter"),
+		processor: "svg:filter",
+		opacity: 1,
+		blendMode: "normal",
+		enabled: true,
+		applyToBackdrop,
+		paramData: {
+			version: "1",
+			params: {
+				nodes: [
+					{
+						id: "blur",
+						processor: "svg:gaussian-blur",
+						params: { in: "SourceGraphic", stdDeviationX: 4, stdDeviationY: 4 },
+					},
+					{
+						id: "hue",
+						processor: "svg:hue-rotate",
+						params: { in: "previous", amount: 180 },
+					},
+					{
+						id: "edge",
+						processor: "svg:morphology",
+						params: {
+							in: "SourceAlpha",
+							operator: "erode",
+							radiusX: 6,
+							radiusY: 6,
+						},
+					},
+					{
+						id: "out",
+						processor: "svg:composite",
+						params: {
+							in: "ref:hue",
+							in2: "ref:edge",
+							operator: "in",
+							k1: 0,
+							k2: 0,
+							k3: 0,
+							k4: 0,
+						},
+					},
+				],
+			},
+		},
+	};
+	pane.filters = [
+		...localAppearances(pane.filters).filter((f) => f.processor !== "blur"),
+		graph,
+	];
 	return doc;
 }
 

@@ -3898,7 +3898,10 @@ export class PaplicoCommands {
 		const worldY = viewport?.y ?? 0;
 
 		try {
-			const result = await parseSvgToArtObjects(svgString, worldX, worldY);
+			const result = await parseSvgToArtObjects(svgString, worldX, worldY, {
+				scaleFilter: (filter, [scaleX, scaleY]) =>
+					this.ctx.scaleFilters?.([filter], scaleX, scaleY)[0] ?? filter,
+			});
 			if (result.topLevelIds.length > 0) {
 				const ids = this.addSvgImport(result);
 				this.ctx.store.selectedElementIds = ids;

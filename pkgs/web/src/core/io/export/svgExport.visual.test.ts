@@ -1,31 +1,21 @@
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { Resvg } from "@resvg/resvg-js";
-import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import { createArtboard, createDefaultDocument } from "../../document/factory";
-import type { RenderOrchestrator } from "../../renderer/RenderOrchestrator";
 import {
 	type AnyArtObject,
 	type Artboard,
 	type Document,
 	type EmbeddedFile,
-	type FillAppearance,
 	type Filter,
 	generateUid,
 	type ImageObject,
-	type Path,
-	type PathSegment,
 } from "../../schema";
 import { loadTestFont } from "../../testUtils/fontSetup";
 import { loadTestDocument } from "../../testUtils/loadTestDocument";
-import {
-	createTestRenderer,
-	expectPngBufferMatch,
-} from "../../testUtils/visualRegression";
+import { rectPath, solidFillAppearance } from "../../testUtils/svgFixtures";
+import { expectSvgMatchesGpu } from "../../testUtils/svgGpuParity";
+import { createTestRenderer } from "../../testUtils/visualRegression";
 import { getFontManager } from "../../typography/fonts";
-import { PaplicoSVGExporter } from "./PaplicoSVGExporter";
 
 /**
  * SVG export fidelity tests. Each artboard is exported to SVG and rasterized
@@ -62,6 +52,7 @@ const ARTBOARDS: ReadonlyArray<[artboardName: string, maxDiff: number]> = [
 	["Mesh Object", 1],
 	["Complex Text Flows", 3],
 	["Patterns", 1],
+	["SVG Filters", 3],
 ];
 
 let originalOffscreenCanvas: typeof globalThis.OffscreenCanvas | undefined;
@@ -111,167 +102,242 @@ describe("SVG Export vs GPU render - 3D effects", () => {
 	});
 });
 
-// --- GPU comparison ---
-
-async function expectSvgMatchesGpu(
-	renderer: RenderOrchestrator,
-	artboard: Artboard,
-	doc: Document,
-	name: string,
-	maxDiffPercentage: number,
-): Promise<void> {
-	const white = { r: 1, g: 1, b: 1, a: 1 };
-	const testName = `svg-vs-gpu-${name}`;
-
-	const gpu = await renderer.renderArtboardToImageData(artboard, doc, 1, white);
-	if (!gpu) throw new Error("GPU render failed");
-
-	const exporter = new PaplicoSVGExporter(renderer, () => doc);
-	const result = await exporter.renderArtboardToSVG(artboard.id, {
-		backgroundColor: white,
+describe("SVG Export vs GPU render - native SVG filter primitives", () => {
+	it("exact primitives match the PNG render", async () => {
+		const { renderer } = await createTestRenderer();
+		const { doc, artboard } = buildSvgFilterExactDocument();
+		await expectSvgMatchesGpu(renderer, artboard, doc, "svg-filters-exact", 1);
 	});
-	if (!result) throw new Error("SVG export failed");
 
-	const svgPngBuffer = Buffer.from(
-		new Resvg(result.svg, {
-			fitTo: { mode: "width", value: gpu.width },
-		})
-			.render()
-			.asPng(),
-	);
-	const svgPng = PNG.sync.read(svgPngBuffer);
-
-	// Baseline VRT of the resvg rasterization itself: pixel-tight regression
-	// tracking of the SVG output, independent of the looser GPU tolerance.
-	expectPngBufferMatch(svgPngBuffer, `svg-export-${name}`);
-
-	// Fractional artboard sizes may round one pixel apart between the two
-	// rasterizers; anything larger is a real geometry bug.
-	if (
-		Math.abs(svgPng.width - gpu.width) > 1 ||
-		Math.abs(svgPng.height - gpu.height) > 1
-	) {
-		throw new Error(
-			`SVG/GPU size mismatch: svg ${svgPng.width}x${svgPng.height} vs gpu ${gpu.width}x${gpu.height}`,
-		);
-	}
-
-	const width = Math.min(svgPng.width, gpu.width);
-	const height = Math.min(svgPng.height, gpu.height);
-	const svgPixels = cropRgba(svgPng.data, svgPng.width, width, height);
-	const gpuPixels = cropRgba(gpu.data, gpu.width, width, height);
-
-	const diff = new PNG({ width, height });
-	pixelmatch(svgPixels, gpuPixels, diff.data, width, height, {
-		threshold: 0.15,
+	it("blur and noise primitives match the PNG render", async () => {
+		const { renderer } = await createTestRenderer();
+		const { doc, artboard } = buildSvgFilterNoiseDocument();
+		// resvg approximates its Gaussian (IIR / box) and displaces with a
+		// nearest fetch, so these get more slack than the exact primitives.
+		await expectSvgMatchesGpu(renderer, artboard, doc, "svg-filters-noise", 3);
 	});
-	// Two-stage judgement: a raw pixelmatch diff that has a matching color
-	// within 1px in BOTH directions is a sub-pixel edge shift (outlined text
-	// AA vs the GPU's text rendering) — content that is simply MISSING on one
-	// side has no nearby match and stays a real difference.
-	let realDiffPixels = 0;
-	for (let y = 0; y < height; y++) {
-		for (let x = 0; x < width; x++) {
-			const i = (y * width + x) * 4;
-			// pixelmatch writes red (255,0,0) into flagged pixels.
-			if (!(diff.data[i] === 255 && diff.data[i + 1] === 0)) continue;
-			if (
-				!hasNearbyMatch(gpuPixels, svgPixels, x, y, width, height) ||
-				!hasNearbyMatch(svgPixels, gpuPixels, x, y, width, height)
-			) {
-				realDiffPixels++;
-			} else {
-				// Downgrade shifted-edge pixels in the saved diff for eyeballing.
-				diff.data[i] = 255;
-				diff.data[i + 1] = 220;
-				diff.data[i + 2] = 0;
-			}
-		}
-	}
-	// Measure against the CONTENT the GPU actually painted, not the canvas
-	// area: on a mostly-empty artboard a whole-canvas percentage hides a
-	// completely broken element inside the whitespace.
-	let contentPixels = 0;
-	for (let i = 0; i < gpuPixels.length; i += 4) {
-		if (
-			!(gpuPixels[i] > 245 && gpuPixels[i + 1] > 245 && gpuPixels[i + 2] > 245)
-		) {
-			contentPixels++;
-		}
-	}
-	const diffPercentage = (realDiffPixels / Math.max(contentPixels, 1)) * 100;
+});
 
-	const diffDir = join(__dirname, "../../../__visual_diffs__");
-	if (diffPercentage <= maxDiffPercentage) {
-		for (const suffix of [".svg.png", ".gpu.png", ".diff.png", ".svg"]) {
-			const stale = join(diffDir, `${testName}${suffix}`);
-			if (existsSync(stale)) unlinkSync(stale);
-		}
-		return;
-	}
-	mkdirSync(diffDir, { recursive: true });
-	const svgOut = new PNG({ width, height });
-	svgOut.data = Buffer.from(svgPixels);
-	const gpuOut = new PNG({ width, height });
-	gpuOut.data = Buffer.from(gpuPixels);
-	writeFileSync(join(diffDir, `${testName}.svg.png`), PNG.sync.write(svgOut));
-	writeFileSync(join(diffDir, `${testName}.gpu.png`), PNG.sync.write(gpuOut));
-	writeFileSync(join(diffDir, `${testName}.diff.png`), PNG.sync.write(diff));
-	writeFileSync(join(diffDir, `${testName}.svg`), result.svg);
-	throw new Error(
-		`SVG export diverges from the GPU render: ${realDiffPixels} of ${contentPixels} content pixels differ ` +
-			`(${diffPercentage.toFixed(2)}% > ${maxDiffPercentage}%, edge shifts excluded)\n` +
-			`SVG rendering / diff saved under: ${diffDir}/${testName}.*`,
+// --- Synthetic SVG filter fixtures ---
+
+/** Integer-aligned squares carrying the primitives resvg reproduces exactly. */
+function buildSvgFilterExactDocument(): { doc: Document; artboard: Artboard } {
+	const doc = createDefaultDocument("doc-svg-filters-exact");
+	const artboard = createArtboard(
+		"ab-svg-exact",
+		"SvgFiltersExact",
+		0,
+		0,
+		480,
+		360,
 	);
+	doc.artboards = [artboard];
+
+	const cell = (index: number): { x: number; y: number } => ({
+		x: -180 + (index % 4) * 120,
+		y: 90 - Math.floor(index / 4) * 120,
+	});
+	const elements: AnyArtObject[] = [
+		rectPath("el-offset", cell(0), 60, 60, [
+			solidFillAppearance(0.9, 0.3, 0.2),
+			svgFilter("svg:offset", { in: "previous", dx: 12, dy: -8 }),
+		]),
+		rectPath("el-flood", cell(1), 60, 60, [
+			solidFillAppearance(0.2, 0.4, 0.9),
+			svgFilter("svg:flood", {
+				color: { type: "rgb", r: 0.1, g: 0.7, b: 0.3, a: 1 },
+				opacity: 0.6,
+			}),
+		]),
+		rectPath("el-color-matrix", cell(2), 60, 60, [
+			solidFillAppearance(0.9, 0.5, 0.1),
+			svgFilter("svg:color-matrix", {
+				in: "previous",
+				type: "hueRotate",
+				values: [200],
+			}),
+		]),
+		rectPath("el-transfer", cell(3), 60, 60, [
+			solidFillAppearance(0.3, 0.6, 0.8),
+			svgFilter("svg:component-transfer", {
+				in: "previous",
+				r: { type: "gamma", amplitude: 1, exponent: 2, offset: 0 },
+				g: { type: "discrete", tableValues: [0.2, 0.9] },
+				b: { type: "linear", slope: 0.5, intercept: 0.4 },
+				a: { type: "identity" },
+			}),
+		]),
+		rectPath("el-morphology", cell(4), 60, 60, [
+			solidFillAppearance(0.5, 0.2, 0.7),
+			svgFilter("svg:morphology", {
+				in: "previous",
+				operator: "dilate",
+				radiusX: 6,
+				radiusY: 3,
+			}),
+		]),
+		rectPath("el-convolve", cell(5), 60, 60, [
+			solidFillAppearance(0.2, 0.7, 0.5),
+			svgFilter("svg:convolve-matrix", {
+				in: "previous",
+				order: 3,
+				kernelMatrix: [0, -1, 0, -1, 5, -1, 0, -1, 0],
+				divisor: null,
+				bias: 0,
+				edgeMode: "duplicate",
+				preserveAlpha: true,
+			}),
+		]),
+		rectPath("el-masked-flood", cell(6), 60, 60, [
+			solidFillAppearance(0.9, 0.2, 0.5),
+			svgFilter("svg:flood", {
+				color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+				opacity: 1,
+			}),
+		]),
+		rectPath(
+			"el-mask-shape",
+			{ x: cell(6).x + 15, y: cell(6).y - 15 },
+			60,
+			60,
+			[solidFillAppearance(1, 1, 1)],
+		),
+		rectPath("el-composite", cell(7), 60, 60, [
+			solidFillAppearance(0.9, 0.6, 0.2),
+			svgFilter("svg:flood", {
+				color: { type: "rgb", r: 0.1, g: 0.2, b: 0.8, a: 1 },
+				opacity: 1,
+			}),
+			svgFilter("svg:composite", {
+				in: "previous",
+				in2: "SourceAlpha",
+				operator: "in",
+				k1: 0,
+				k2: 0,
+				k3: 0,
+				k4: 0,
+			}),
+		]),
+		rectPath("el-blend", cell(8), 60, 60, [
+			solidFillAppearance(0.9, 0.6, 0.2),
+			svgFilter("svg:flood", {
+				color: { type: "rgb", r: 0.2, g: 0.5, b: 0.9, a: 1 },
+				opacity: 1,
+			}),
+			svgFilter("svg:blend", {
+				in: "previous",
+				in2: "SourceGraphic",
+				mode: "multiply",
+			}),
+		]),
+		rectPath("el-chain", cell(9), 60, 60, [
+			solidFillAppearance(0.3, 0.3, 0.9),
+			svgFilter("svg:offset", { in: "SourceAlpha", dx: 10, dy: -10 }),
+			svgFilter("svg:color-matrix", {
+				in: "previous",
+				type: "matrix",
+				values: [
+					0, 0, 0, 0, 0.8, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0.1, 0, 0, 0, 1, 0,
+				],
+			}),
+			svgFilter("svg:composite", {
+				in: "SourceGraphic",
+				in2: "previous",
+				operator: "over",
+				k1: 0,
+				k2: 0,
+				k3: 0,
+				k4: 0,
+			}),
+		]),
+	];
+	const masked = elements[6];
+	masked.opacity = 0.5;
+	masked.mask = { elementIds: ["el-mask-shape"] };
+
+	for (const el of elements) doc.objects[el.id] = el;
+	doc.layers[0].elementIds = elements
+		.map((el) => el.id)
+		.filter((id) => id !== "el-mask-shape");
+	return { doc, artboard };
 }
 
-/**
- * True when `expected`'s pixel at (x, y) has a color within pixelmatch-like
- * tolerance somewhere in `actual`'s 3×3 neighborhood — i.e. the flagged pixel
- * is explained by a ≤1px edge shift rather than by missing content.
- */
-function hasNearbyMatch(
-	expected: Uint8Array,
-	actual: Uint8Array,
-	x: number,
-	y: number,
-	width: number,
-	height: number,
-): boolean {
-	const e = (y * width + x) * 4;
-	for (let dy = -1; dy <= 1; dy++) {
-		for (let dx = -1; dx <= 1; dx++) {
-			const nx = x + dx;
-			const ny = y + dy;
-			if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-			const a = (ny * width + nx) * 4;
-			// 96 also absorbs the AA-density gap between the GPU's text
-			// compositing and resvg's path AA (same coverage renders ~60 apart),
-			// while missing content against the background stays >96 apart.
-			if (
-				Math.abs(expected[e] - actual[a]) < 96 &&
-				Math.abs(expected[e + 1] - actual[a + 1]) < 96 &&
-				Math.abs(expected[e + 2] - actual[a + 2]) < 96
-			) {
-				return true;
-			}
-		}
-	}
-	return false;
+/** Blur / noise primitives, kept at sigmas resvg still resolves analytically. */
+function buildSvgFilterNoiseDocument(): { doc: Document; artboard: Artboard } {
+	const doc = createDefaultDocument("doc-svg-filters-noise");
+	const artboard = createArtboard(
+		"ab-svg-noise",
+		"SvgFiltersNoise",
+		0,
+		0,
+		480,
+		200,
+	);
+	doc.artboards = [artboard];
+
+	const turbulence = {
+		type: "fractalNoise",
+		baseFrequencyX: 0.02,
+		baseFrequencyY: 0.02,
+		numOctaves: 2,
+		seed: 3,
+		stitchTiles: false,
+	};
+	const elements: AnyArtObject[] = [
+		rectPath("el-blur", { x: -180, y: 0 }, 70, 70, [
+			solidFillAppearance(0.9, 0.3, 0.2),
+			svgFilter("svg:gaussian-blur", {
+				in: "previous",
+				stdDeviationX: 1.5,
+				stdDeviationY: 1.5,
+			}),
+		]),
+		rectPath("el-shadow", { x: -60, y: 0 }, 70, 70, [
+			solidFillAppearance(0.2, 0.5, 0.9),
+			svgFilter("svg:drop-shadow", {
+				in: "previous",
+				dx: 6,
+				dy: -6,
+				stdDeviation: 2,
+				color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+				opacity: 0.6,
+			}),
+		]),
+		rectPath("el-turbulence", { x: 60, y: 0 }, 70, 70, [
+			solidFillAppearance(0.5, 0.5, 0.5),
+			svgFilter("svg:turbulence", turbulence),
+		]),
+		rectPath("el-displacement", { x: 180, y: 0 }, 70, 70, [
+			solidFillAppearance(0.3, 0.7, 0.3),
+			svgFilter("svg:turbulence", turbulence),
+			// An opaque map: resvg reads the map premultiplied, against the spec.
+			svgFilter("svg:color-matrix", {
+				in: "previous",
+				type: "matrix",
+				values: [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1],
+			}),
+			svgFilter("svg:displacement-map", {
+				in: "SourceGraphic",
+				in2: "previous",
+				scale: 12,
+				xChannelSelector: "R",
+				yChannelSelector: "G",
+			}),
+		]),
+	];
+	for (const el of elements) doc.objects[el.id] = el;
+	doc.layers[0].elementIds = elements.map((el) => el.id);
+	return { doc, artboard };
 }
 
-function cropRgba(
-	data: Uint8Array | Uint8ClampedArray | Buffer,
-	sourceWidth: number,
-	width: number,
-	height: number,
-): Uint8Array {
-	const out = new Uint8Array(width * height * 4);
-	for (let y = 0; y < height; y++) {
-		const src = y * sourceWidth * 4;
-		out.set(data.subarray(src, src + width * 4), y * width * 4);
-	}
-	return out;
+function svgFilter(processor: string, params: object): Filter {
+	return {
+		uid: generateUid("filter"),
+		processor,
+		opacity: 1,
+		blendMode: "normal",
+		paramData: { version: "1", params },
+	};
 }
 
 // --- Synthetic 3D fixtures ---
@@ -338,65 +404,6 @@ function buildSolid3DDocument(): { doc: Document; artboard: Artboard } {
 	doc.layers[0].elementIds = [extruded.id, rotated.id, image.id];
 
 	return { doc, artboard };
-}
-
-function rectPath(
-	id: string,
-	center: { x: number; y: number },
-	width: number,
-	height: number,
-	filters: Filter[],
-): Path {
-	const seg = (partial: Partial<PathSegment>): PathSegment => ({
-		cp1: { x: 0, y: 0 },
-		cp2: { x: 0, y: 0 },
-		end: { x: 0, y: 0 },
-		startTiltX: 0,
-		startTiltY: 0,
-		endTiltX: 0,
-		endTiltY: 0,
-		startDeltaTime: 0,
-		endDeltaTime: 0,
-		isMoved: false,
-		...partial,
-	});
-	const halfW = width / 2;
-	const halfH = height / 2;
-	return {
-		type: "path",
-		id,
-		opacity: 1,
-		blendMode: "normal",
-		transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
-		segments: [
-			seg({
-				start: { x: center.x - halfW, y: center.y + halfH },
-				end: { x: center.x + halfW, y: center.y + halfH },
-				isMoved: true,
-			}),
-			seg({ end: { x: center.x + halfW, y: center.y - halfH } }),
-			seg({
-				end: { x: center.x - halfW, y: center.y - halfH },
-				isClosed: true,
-			}),
-		],
-		filters,
-	};
-}
-
-function solidFillAppearance(r: number, g: number, b: number): FillAppearance {
-	return {
-		uid: generateUid("app"),
-		processor: "fill",
-		opacity: 1,
-		blendMode: "normal",
-		paramData: {
-			version: "1",
-			params: {
-				fill: { type: "solid", color: { type: "rgb", r, g, b, a: 1 } },
-			},
-		},
-	};
 }
 
 function checkerImage(

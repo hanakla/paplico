@@ -183,6 +183,8 @@ export class PaplicoSVGExporter {
 			cullBounds: artboardBounds,
 			filterResolver: {
 				getHandler: (processor) => this.renderer.getFilterHandler(processor),
+				calculateExpansion: (filters, bounds) =>
+					this.renderer.calculateFilterExpansion(filters, bounds),
 			},
 			outlineText: (element) =>
 				textRenderer

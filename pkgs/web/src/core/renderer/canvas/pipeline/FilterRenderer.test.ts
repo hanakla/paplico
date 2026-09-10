@@ -228,6 +228,102 @@ describe("FilterRenderer.applyFilters", () => {
 		expect(copies.every((copy) => copy.source !== copy.destination)).toBe(true);
 	});
 
+	describe("a handler that reads SourceGraphic", () => {
+		function sourceGraphicHandler(
+			postProcess: NonNullable<FilterHandler["postProcess"]>,
+		): RegisterableFilterHandler {
+			return {
+				...createMockPostHandler(postProcess),
+				getRenderConfigure: () => ({ needsSourceGraphic: true }),
+			};
+		}
+
+		it("receives a copy of the chain input that earlier passes cannot overwrite", () => {
+			const device = createMockDevice();
+			const renderer = new FilterRenderer(device);
+			const first = vi.fn();
+			const second = vi.fn();
+			renderer.registerHandler("blur", createMockPostHandler(first));
+			renderer.registerHandler("svg:composite", sourceGraphicHandler(second));
+
+			const sourceTexture = createMockTexture(
+				"Offscreen Element Texture",
+				240,
+				180,
+				"rgba8unorm",
+			);
+			const copies: CopyCall[] = [];
+			const encoder = createMockEncoder(copies);
+			const filters: Filter[] = [
+				{
+					uid: "sg-1",
+					processor: "blur",
+					opacity: 1,
+					blendMode: "normal" as const,
+					paramData: { version: "1", params: { radius: 2 } },
+				},
+				{
+					uid: "sg-2",
+					processor: "svg:composite",
+					opacity: 1,
+					blendMode: "normal" as const,
+					paramData: {
+						version: "1",
+						params: { in: "previous", in2: "SourceGraphic" },
+					},
+				},
+			];
+			renderer.applyFilters(sourceTexture, filters, encoder);
+
+			const firstCtx = first.mock.calls[0][0] as FilterProcessorContext;
+			const secondCtx = second.mock.calls[0][0] as FilterProcessorContext;
+			const copy = secondCtx.sourceGraphicTexture;
+			expect(copy).toBeDefined();
+			// The copy is made from the chain input before any pass runs and is
+			// never used as a ping-pong target.
+			expect(copies[0]).toEqual({ source: sourceTexture, destination: copy });
+			expect(copy).not.toBe(firstCtx.targetTexture);
+			expect(copy).not.toBe(secondCtx.sourceTexture);
+			expect(copy).not.toBe(secondCtx.targetTexture);
+			expect(firstCtx.sourceGraphicTexture).toBe(copy);
+		});
+
+		it("does not copy the chain input when no handler asks for it", () => {
+			const device = createMockDevice();
+			const renderer = new FilterRenderer(device);
+			const postProcess = vi.fn();
+			renderer.registerHandler("blur", createMockPostHandler(postProcess));
+
+			const sourceTexture = createMockTexture(
+				"Offscreen Element Texture",
+				240,
+				180,
+				"rgba8unorm",
+			);
+			const copies: CopyCall[] = [];
+			renderer.applyFilters(
+				sourceTexture,
+				[
+					{
+						uid: "sg-3",
+						processor: "blur",
+						opacity: 1,
+						blendMode: "normal" as const,
+						paramData: { version: "1", params: { radius: 2 } },
+					},
+				],
+				createMockEncoder(copies),
+			);
+
+			const ctx = postProcess.mock.calls[0][0] as FilterProcessorContext;
+			expect(ctx.sourceGraphicTexture).toBeUndefined();
+			// Only the in-place chain's copy-back touches the source texture.
+			expect(
+				copies.filter((copy) => copy.source === sourceTexture),
+			).toHaveLength(0);
+		});
+	});
+
 	describe("a source-ignoring leading handler (e.g. extrude3d)", () => {
 		function geometryFilter(uid: string): Filter {
 			return {

@@ -5,6 +5,7 @@ import type {
 	Document,
 	FillAppearance,
 	Filter,
+	Group,
 	Layer,
 	Path,
 	PathSegment,
@@ -94,13 +95,41 @@ const makeDocument = (
 		rasterizationDpi,
 	}) as unknown as Document;
 
-const makeMockRenderer = (): RenderOrchestrator =>
-	({
+const makeMockRenderer = (): RenderOrchestrator => {
+	const getFilterHandler = (processor: string) => {
+		if (processor === "blur") return { postProcess: () => {} };
+		if (processor.startsWith("svg:")) {
+			return {
+				postProcess: () => {},
+				// An offset reaches as far as it moves; other primitives get a
+				// flat margin so region sizes stay easy to assert.
+				getExpansionMargin: (filter: Filter) => {
+					if (filter.processor !== "svg:offset") return 4;
+					const { dx, dy } = filter.paramData.params as {
+						dx: number;
+						dy: number;
+					};
+					return Math.max(Math.abs(dx), Math.abs(dy));
+				},
+			};
+		}
+		return undefined;
+	};
+	return {
 		getTextRenderer: () => null,
-		getFilterHandler: (processor: string) =>
-			processor === "blur" ? { postProcess: () => {} } : undefined,
+		getFilterHandler,
+		calculateFilterExpansion: (filters: Filter[]) =>
+			Math.max(
+				0,
+				...filters.map(
+					(filter) =>
+						getFilterHandler(filter.processor)?.getExpansionMargin?.(filter) ??
+						0,
+				),
+			),
 		ensureTextDocumentResolver: () => () => {},
-	}) as unknown as RenderOrchestrator;
+	} as unknown as RenderOrchestrator;
+};
 
 describe("PaplicoSVGExporter", () => {
 	beforeEach(() => {
@@ -481,6 +510,98 @@ describe("PaplicoSVGExporter", () => {
 		expect(result?.svg).toContain("#00ff00");
 	});
 
+	describe("native SVG filter primitives", () => {
+		it("should emit one sRGB <filter> per element over its expanded bounds", async () => {
+			const el = path("svg1", {
+				filters: [solidFill(1, 0, 0), svgOffset("previous"), svgFlood()],
+			});
+			const doc = makeDocument([el], [{ elementIds: ["svg1"] }]);
+			const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+			const result = await exporter.renderArtboardToSVG("artboard1");
+			const svg = result?.svg ?? "";
+
+			// Square -10..10 expanded by the margin 4 → 28x28 region.
+			expect(svg).toContain(
+				`<filter id="filter0" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" x="0" y="0" width="28" height="28" color-interpolation-filters="sRGB">`,
+			);
+			expect(svg).toContain(
+				`<feOffset in="SourceGraphic" dx="4" dy="4" result="s0"/>`,
+			);
+			expect(svg).toContain(
+				`<feFlood flood-color="#0000ff" flood-opacity="1" result="s1"/>`,
+			);
+			expect(svg).not.toContain("<image");
+			// Region top-left is world (-14, 14) → viewBox (36, 36) on the 100x100 artboard.
+			expect(svg).toContain(
+				`<g transform="translate(36 36)" filter="url(#filter0)">`,
+			);
+			expect(svg).toContain(`<g transform="translate(-36 -36)">`);
+		});
+
+		it("should keep a group's out-of-view children that its filter moves into view", async () => {
+			// The child sits right of the artboard; the group's offset pulls it back in.
+			const child = path("far", {
+				filters: [solidFill(1, 0, 0)],
+				transform: { x: 100, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+			});
+			const group = {
+				type: "group",
+				id: "g1",
+				opacity: 1,
+				blendMode: "normal",
+				transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+				childIds: ["far"],
+				filters: [
+					{
+						...svgOffset("previous"),
+						paramData: {
+							version: "1",
+							params: { in: "previous", dx: -100, dy: 0 },
+						},
+					},
+				],
+			} as unknown as Group;
+			const doc = makeDocument([group, child], [{ elementIds: ["g1"] }]);
+			const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+			const result = await exporter.renderArtboardToSVG("artboard1");
+			const svg = result?.svg ?? "";
+
+			expect(svg).toContain(`<feOffset in="SourceGraphic" dx="-100" dy="0"`);
+			expect(svg).toContain("#ff0000");
+		});
+
+		it("should apply the mask and element opacity after the filter", async () => {
+			const maskShape = path("mask-shape", { filters: [solidFill(1, 1, 1)] });
+			const el = path("svg2", {
+				opacity: 0.5,
+				filters: [solidFill(1, 0, 0), svgOffset("SourceAlpha")],
+				mask: { elementIds: ["mask-shape"] },
+			});
+			const doc = makeDocument([el, maskShape], [{ elementIds: ["svg2"] }]);
+			const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+			const result = await exporter.renderArtboardToSVG("artboard1");
+			const svg = result?.svg ?? "";
+
+			expect(svg).toContain(
+				`<g opacity="0.5" mask="url(#mask0)">\n\t\t\t<g transform="translate(36 36)" filter="url(#filter0)">`,
+			);
+			expect(svg).not.toContain(`fill-opacity="0.5"`);
+			expect(svg).toContain(`<feOffset in="SourceAlpha"`);
+		});
+
+		it("should still rasterize when a non-native raster filter joins the chain", async () => {
+			const el = path("svg3", {
+				filters: [solidFill(1, 0, 0), svgOffset("previous"), blurFilter()],
+			});
+			const doc = makeDocument([el], [{ elementIds: ["svg3"] }]);
+			const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+			const result = await exporter.renderArtboardToSVG("artboard1");
+
+			expect(result?.svg).toContain("<image");
+			expect(result?.svg).not.toContain("<filter");
+		});
+	});
+
 	it("should return null for an unknown artboard", async () => {
 		const doc = makeDocument([], []);
 		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
@@ -489,6 +610,29 @@ describe("PaplicoSVGExporter", () => {
 });
 
 // --- Helpers ---
+
+function svgOffset(input: string): Filter {
+	return {
+		uid: "svg-offset-1",
+		processor: "svg:offset",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: { version: "1", params: { in: input, dx: 4, dy: -4 } },
+	};
+}
+
+function svgFlood(): Filter {
+	return {
+		uid: "svg-flood-1",
+		processor: "svg:flood",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: {
+			version: "1",
+			params: { color: { type: "rgb", r: 0, g: 0, b: 1, a: 1 }, opacity: 1 },
+		},
+	};
+}
 
 function blurFilter(): Filter {
 	return {

@@ -1,4 +1,5 @@
 import type { BoundingBox, Filter, Viewport } from "../../../schema";
+import { snapBoundsToRasterGrid } from "../../../utils/geometry/bounds";
 import { compileShaderModule } from "../../../utils/wgpu-utils";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
 import { createFullscreenPipeline } from "../../PipelineFactory";
@@ -565,24 +566,6 @@ export class BackdropCaptureManager {
 		});
 		this.resampleFormat = format;
 	}
-}
-
-function snapBoundsToRasterGrid(
-	bounds: BoundingBox,
-	rasterScale: number,
-): BoundingBox {
-	const minX = Math.floor(bounds.minX * rasterScale) / rasterScale;
-	const minY = Math.floor(bounds.minY * rasterScale) / rasterScale;
-	const maxX = Math.ceil(bounds.maxX * rasterScale) / rasterScale;
-	const maxY = Math.ceil(bounds.maxY * rasterScale) / rasterScale;
-	return {
-		minX,
-		minY,
-		maxX,
-		maxY,
-		width: maxX - minX,
-		height: maxY - minY,
-	};
 }
 
 function worldBoundsToPrebufUV(

@@ -1,3 +1,4 @@
+import { canBeSubFilter } from "../renderer/filters/filterCatalog";
 import {
 	type BrushSettings,
 	type Filter,
@@ -140,6 +141,7 @@ export class FilterStackCommands {
 		const target = filters[filterIndex];
 		if (isAppearancePresetRef(target)) return;
 		if (target.processor !== "fill" && target.processor !== "stroke") return;
+		if (!canBeSubFilter(subFilter.processor)) return;
 
 		const newFilters = filters.map((filter, i) => {
 			if (i !== filterIndex || isAppearancePresetRef(filter)) return filter;

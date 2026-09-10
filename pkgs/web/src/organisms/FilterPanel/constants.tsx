@@ -5,6 +5,7 @@ import {
 	Diamond,
 	Droplets,
 	Expand,
+	FileCode,
 	Filter,
 	Grip,
 	Image,
@@ -68,6 +69,26 @@ export const FILTER_TEXT_KEYS = {
 	"hk:husky": "filterPanel.hk.husky",
 	"hk:kaleidoscope": "filterPanel.hk.kaleidoscope",
 	"hk:pixel-sort": "filterPanel.hk.pixelSort",
+	"svg:gaussian-blur": "filterPanel.svg.gaussianBlur",
+	"svg:offset": "filterPanel.svg.offset",
+	"svg:flood": "filterPanel.svg.flood",
+	"svg:color-matrix": "filterPanel.svg.colorMatrix",
+	"svg:component-transfer": "filterPanel.svg.componentTransfer",
+	"svg:morphology": "filterPanel.svg.morphology",
+	"svg:convolve-matrix": "filterPanel.svg.convolveMatrix",
+	"svg:turbulence": "filterPanel.svg.turbulence",
+	"svg:displacement-map": "filterPanel.svg.displacementMap",
+	"svg:composite": "filterPanel.svg.composite",
+	"svg:blend": "filterPanel.svg.blend",
+	"svg:drop-shadow": "filterPanel.svg.dropShadow",
+	"svg:saturate": "filterPanel.svg.saturate",
+	"svg:hue-rotate": "filterPanel.svg.hueRotate",
+	"svg:grayscale": "filterPanel.svg.grayscale",
+	"svg:sepia": "filterPanel.svg.sepia",
+	"svg:invert": "filterPanel.svg.invert",
+	"svg:brightness": "filterPanel.svg.brightness",
+	"svg:contrast": "filterPanel.svg.contrast",
+	"svg:filter": "filterPanel.svg.filter",
 } as const;
 
 /** Raster filter categories share one icon each; Appearance / Geometry / 3D
@@ -78,6 +99,7 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
 	Stylize: Sparkles,
 	Distortion: Waves,
 	Texture: Grip,
+	SVG: FileCode,
 };
 
 const PROCESSOR_CATEGORIES = new Map(

@@ -83,6 +83,57 @@ describe("filter output is invariant to rasterization DPI", () => {
 				blurStrength: 1,
 			}),
 		],
+		[
+			"svg:gaussian-blur",
+			appearance("svg:gaussian-blur", {
+				in: "previous",
+				stdDeviationX: 12,
+				stdDeviationY: 12,
+			}),
+		],
+		[
+			"svg:morphology (dilate)",
+			appearance("svg:morphology", {
+				in: "previous",
+				operator: "dilate",
+				radiusX: 10,
+				radiusY: 10,
+			}),
+		],
+		[
+			"svg:drop-shadow",
+			appearance("svg:drop-shadow", {
+				in: "previous",
+				dx: 16,
+				dy: -16,
+				stdDeviation: 10,
+				color: { type: "rgb", r: 0.1, g: 0.1, b: 0.9, a: 1 },
+				opacity: 1,
+			}),
+		],
+		[
+			"svg:convolve-matrix",
+			appearance("svg:convolve-matrix", {
+				in: "previous",
+				order: 5,
+				kernelMatrix: Array.from({ length: 25 }, () => 1),
+				divisor: null,
+				bias: 0,
+				edgeMode: "duplicate",
+				preserveAlpha: false,
+			}),
+		],
+		[
+			"svg:turbulence",
+			appearance("svg:turbulence", {
+				type: "fractalNoise",
+				baseFrequencyX: 0.03,
+				baseFrequencyY: 0.03,
+				numOctaves: 3,
+				seed: 5,
+				stitchTiles: false,
+			}),
+		],
 	] as const)("should render %s the same at 72 and 300 DPI", async (_name, filter) => {
 		const low = await renderAtDpi(filter, LOW_DPI);
 		const high = await renderAtDpi(filter, HIGH_DPI);

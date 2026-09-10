@@ -212,6 +212,47 @@ describe("classifyElement", () => {
 		).toBe("raster");
 	});
 
+	it("should keep native SVG filter primitives vector and rasterize mixed chains", () => {
+		const svgBlur = appearance("svg:gaussian-blur", {
+			in: "previous",
+			stdDeviationX: 2,
+			stdDeviationY: 2,
+		});
+		const opts = makeOptions([]);
+		expect(
+			classifyElement(basePath({ filters: [solidFill(), svgBlur] }), opts),
+		).toBe("pure");
+		expect(
+			classifyElement(
+				basePath({ filters: [solidFill(), svgBlur, appearance("blur")] }),
+				opts,
+			),
+		).toBe("raster");
+		expect(
+			classifyElement(
+				basePath({ filters: [{ ...svgBlur, applyToBackdrop: true }] }),
+				opts,
+			),
+		).toBe("raster");
+		expect(
+			classifyElement(
+				basePath({ filters: [{ ...svgBlur, blendMode: "multiply" }] }),
+				opts,
+			),
+		).toBe("raster");
+		expect(
+			classifyElement(
+				basePath({
+					filters: [{ ...svgBlur, subFilters: [appearance("blur")] }],
+				}),
+				opts,
+			),
+		).toBe("raster");
+
+		const text = textElement({ filters: [appearance("svg:flood", {})] });
+		expect(classifyElement(text, makeOptions([text]))).toBe("bake");
+	});
+
 	it("should ignore disabled filters", () => {
 		const el = basePath({
 			filters: [{ ...appearance("blur"), enabled: false }, solidFill()],
@@ -390,6 +431,17 @@ describe("classifyElement", () => {
 
 		const plainGroup = group({});
 		expect(classifyElement(plainGroup, makeOptions([plainGroup]))).toBe("pure");
+
+		const svgFilterGroup = group({
+			filters: [appearance("svg:offset", { in: "previous", dx: 1, dy: 1 })],
+		});
+		expect(classifyElement(svgFilterGroup, makeOptions([svgFilterGroup]))).toBe(
+			"pure",
+		);
+		const svgFilterImage = { ...image, filters: [appearance("svg:flood", {})] };
+		expect(classifyElement(svgFilterImage, makeOptions([svgFilterImage]))).toBe(
+			"pure",
+		);
 
 		const appearanceGroup = group({ filters: [solidFill()] });
 		expect(

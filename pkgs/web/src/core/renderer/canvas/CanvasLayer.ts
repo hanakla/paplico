@@ -3909,17 +3909,22 @@ export class CanvasLayer {
 	): void {
 		const { elementsMap, filterPlans, layerPlans } = framePlan;
 		const rasterScale = this.getRasterScale();
-		// Single density for this frame's cacheable bakes: the hash, the byte
-		// budget, and the bake itself all consume this exact value. Live frames
-		// follow the display density; exports keep the rasterizationDpi ceiling
-		// so display-quality decisions never change exported pixels.
-		const zoomBucket = interactiveBakeDensity(
-			rasterScale,
-			this.viewportState.current?.zoom ?? 1,
-		);
-		const cacheDensity = this.renderState.isExport
-			? Math.min(rasterScale, zoomBucket)
-			: zoomBucket;
+		// Single density per cacheable bake: the hash, the byte budget, and the
+		// bake itself all consume this exact value. Live frames follow the
+		// display density capped by the element's bake budget; exports keep the
+		// rasterizationDpi ceiling so display-quality decisions never change
+		// exported pixels.
+		const viewportZoom = this.viewportState.current?.zoom ?? 1;
+		const cacheDensityFor = (bounds: { width: number; height: number }) => {
+			const zoomBucket = interactiveBakeDensity(
+				rasterScale,
+				viewportZoom,
+				bounds,
+			);
+			return this.renderState.isExport
+				? Math.min(rasterScale, zoomBucket)
+				: zoomBucket;
+		};
 		let plans: readonly ElementFilterPlan[];
 		if (selectedPlans) {
 			plans = selectedPlans;
@@ -3947,6 +3952,7 @@ export class CanvasLayer {
 
 		for (const fp of plans) {
 			const element = fp.element;
+			const cacheDensity = cacheDensityFor(fp.textureBounds);
 
 			if (fp.allAppearancePlans) {
 				// Per-appearance accumulator path: each appearance rendered
@@ -4127,8 +4133,23 @@ export class CanvasLayer {
 					undefined,
 					rendersOwnSource ? rasterScale : offscreenResult!.effectiveZoom,
 					// The bake may be clamped smaller than fp.textureBounds, so the
-					// filter must scale against the actual baked coverage.
-					bakedBounds,
+					// filter must scale against the actual baked coverage. A grid-
+					// aligned bake sits at a whole texel rather than centred, so
+					// hand over where the content actually starts.
+					{
+						width: bakedBounds.width,
+						height: bakedBounds.height,
+						texelOffset: rendersOwnSource
+							? undefined
+							: {
+									x:
+										offscreenResult!.placement.uvRect.minU *
+										offscreenResult!.texture.texture.width,
+									y:
+										offscreenResult!.placement.uvRect.minV *
+										offscreenResult!.texture.texture.height,
+								},
+					},
 					geometry
 						? { elementId: element.id, cache: this.cacheManager.appearance }
 						: undefined,

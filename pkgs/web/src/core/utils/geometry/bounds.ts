@@ -1290,3 +1290,20 @@ export function pointInPolygon(
 	}
 	return inside;
 }
+
+/**
+ * Expand `bounds` outward onto the world grid of `rasterScale` texels per
+ * world px, so bakes and captures of one region land on the same texels.
+ * An edge already on the grid stays put despite floating error.
+ */
+export function snapBoundsToRasterGrid(
+	bounds: BoundingBox,
+	rasterScale: number,
+): BoundingBox {
+	const eps = 1e-6;
+	const minX = Math.floor(bounds.minX * rasterScale + eps) / rasterScale;
+	const maxX = Math.ceil(bounds.maxX * rasterScale - eps) / rasterScale;
+	const minY = Math.floor(bounds.minY * rasterScale + eps) / rasterScale;
+	const maxY = Math.ceil(bounds.maxY * rasterScale - eps) / rasterScale;
+	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}

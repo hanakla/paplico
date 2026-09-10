@@ -114,7 +114,7 @@ function PopoverContent({
 					>
 						<PopoverArrowSvg />
 					</BUIPopover.Arrow>
-					<div className="max-h-[calc(var(--available-height,100dvh)-1.5rem)]">
+					<div className="max-h-[calc(var(--available-height,100dvh)-1.5rem)] overflow-y-auto">
 						{children}
 					</div>
 				</BUIPopover.Popup>

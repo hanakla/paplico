@@ -20,6 +20,7 @@ import {
 } from "../../../utils/geometry/bounds";
 import { composeTransforms } from "../../../utils/geometry/geometry";
 import { uniformTransformScale } from "./pathData";
+import { isSvgNativeFilter } from "./svgFilterPrimitives";
 
 /**
  * How an element travels into the SVG output:
@@ -165,6 +166,10 @@ function classifyElementInner(
 		// appearances; SVG has no equivalent below the element level.
 		// (?? guards documents that predate the blendMode backfill.)
 		if ((filter.blendMode ?? "normal") !== "normal") return "raster";
+
+		// Native SVG filter primitives are emitted as <filter> defs by the
+		// serializer, so they never force rasterization on their own.
+		if (isSvgNativeFilter(filter.processor)) continue;
 
 		const kind = opts.filterKind(filter);
 		if (kind === "raster") return "raster";

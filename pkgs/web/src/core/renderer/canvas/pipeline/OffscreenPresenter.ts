@@ -28,6 +28,7 @@ import {
 	calculateElementBounds,
 	expandBounds,
 	type LocalBoundsCache,
+	snapBoundsToRasterGrid,
 	type WorldBBox,
 } from "../../../utils/geometry/bounds";
 import {
@@ -2076,7 +2077,7 @@ export class OffscreenPresenter {
 		// display-quality decisions never change exported pixels. A cached
 		// full-bounds bake uses the caller-provided density verbatim (the caller
 		// derived it from the same rule and keys its cache on it).
-		const zoomBucket = interactiveBakeDensity(rasterZoom, zoom);
+		const zoomBucket = interactiveBakeDensity(rasterZoom, zoom, textureBounds);
 		const bakeZoom = fullBoundsBake
 			? fullBoundsBake.density
 			: interactiveBounds
@@ -2085,6 +2086,12 @@ export class OffscreenPresenter {
 					: zoomBucket
 				: rasterZoom;
 
+		// A viewport-clamped filter bake is snapped outward to the world-space
+		// texel grid of its density, so a pan never changes where the content
+		// falls on the bake's texels: kernels, offsets and displacement reads
+		// then see the same texels frame after frame. Grid-aligned bakes
+		// (clip groups, masks) keep the target-pixel snap below instead.
+		//
 		// A filter-free bake at the target's own density is snapped outward to
 		// the target's pixel grid so its texels land 1:1 on the target's pixels
 		// (and on any enclosing offscreen, which snaps to the same grid). A
@@ -2094,18 +2101,20 @@ export class OffscreenPresenter {
 		// axis-aligned grid in world space, and cached full-bounds bakes keep
 		// their own bounds so a sub-pixel pan does not re-bake them.
 		const effectiveBounds =
-			!alignToTargetGrid ||
-			fullBoundsBake ||
-			bakeZoom !== zoom ||
-			!vp ||
-			vp.rotation !== 0
-				? clampedBounds
-				: snapBoundsToPixelGrid(
-						clampedBounds,
-						vp,
-						this.deps.viewportState.width,
-						this.deps.viewportState.height,
-					);
+			clampBounds && !alignToTargetGrid
+				? snapBoundsToRasterGrid(clampedBounds, bakeZoom)
+				: !alignToTargetGrid ||
+						fullBoundsBake ||
+						bakeZoom !== zoom ||
+						!vp ||
+						vp.rotation !== 0
+					? clampedBounds
+					: snapBoundsToPixelGrid(
+							clampedBounds,
+							vp,
+							this.deps.viewportState.width,
+							this.deps.viewportState.height,
+						);
 
 		// Texture covers effectiveBounds, clamped only by GPU max.
 		const width = Math.min(Math.ceil(effectiveBounds.width * bakeZoom), maxDim);

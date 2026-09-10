@@ -49,6 +49,7 @@ export class PixelateFilterProcessor implements FilterHandler {
 		return {
 			needsBackdrop: f.paramData.params.applyToBackdrop ?? false,
 			needsSourceTexture: true,
+			needsSourceGraphic: false,
 		};
 	}
 

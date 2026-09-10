@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { localAppearances } from "../document/appearancePresets";
+import {
+	SvgFilterGraphHandler,
+	type SvgFilterNode,
+} from "../renderer/filters/svg/SvgFilterGraphHandler";
+import { SvgOffsetHandler } from "../renderer/filters/svg/SvgOffsetHandler";
 import type {
 	FillAppearance,
 	Group,
@@ -1232,14 +1237,16 @@ describe("parseSvgToArtObjects – vertical text columns", () => {
 });
 
 describe("parseSvgToArtObjects – filter effects", () => {
-	it("feOffset+feFlood+feGaussianBlur → drop-shadow (Y-flipped offset)", async () => {
+	it("imports a <filter> as an svg:filter graph wired by result names", async () => {
 		const result = await parseSvgToArtObjects(
 			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
         <defs>
           <filter id="ds">
-            <feOffset dx="3" dy="5"/>
+            <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur"/>
+            <feOffset dx="3" dy="5" result="shadow"/>
             <feFlood flood-color="red" flood-opacity="0.6"/>
-            <feGaussianBlur stdDeviation="4"/>
+            <feComposite in2="shadow" operator="in"/>
+            <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
           </filter>
         </defs>
         <rect x="10" y="10" width="20" height="20" fill="blue" filter="url(#ds)"/>
@@ -1248,40 +1255,82 @@ describe("parseSvgToArtObjects – filter effects", () => {
 			0,
 		);
 		const path = result.objects.get(result.topLevelIds[0]) as Path;
-		const ds = localAppearances(path.filters).find(
-			(f) => f.processor === "drop-shadow",
+		const graph = localAppearances(path.filters).find(
+			(f) => f.processor === "svg:filter",
 		);
-		expect(ds).toMatchObject({
-			processor: "drop-shadow",
-			paramData: {
-				params: {
-					offsetX: 3,
-					offsetY: -5,
-					blurRadius: 4,
-					shadowOpacity: 0.6,
-					shadowColor: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
+		const nodes = (graph?.paramData.params as { nodes: SvgFilterNode[] }).nodes;
+		expect(nodes.map((n) => [n.processor, n.params])).toEqual([
+			[
+				"svg:gaussian-blur",
+				{ in: "SourceAlpha", stdDeviationX: 4, stdDeviationY: 4 },
+			],
+			["svg:offset", { in: "previous", dx: 3, dy: -5 }],
+			[
+				"svg:flood",
+				{ color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 }, opacity: 0.6 },
+			],
+			[
+				"svg:composite",
+				{
+					in: "previous",
+					in2: `ref:${nodes[1].id}`,
+					operator: "in",
+					k1: 0,
+					k2: 0,
+					k3: 0,
+					k4: 0,
 				},
-			},
-		});
+			],
+			[
+				"svg:composite",
+				{
+					in: "SourceGraphic",
+					in2: "previous",
+					operator: "over",
+					k1: 0,
+					k2: 0,
+					k3: 0,
+					k4: 0,
+				},
+			],
+		]);
 	});
 
-	it("lone feGaussianBlur → blur", async () => {
+	it("scales the filter's spatial parameters with the element's CTM", async () => {
+		const graph = new SvgFilterGraphHandler(
+			new Map([["svg:offset", new SvgOffsetHandler()]]),
+		);
 		const result = await parseSvgToArtObjects(
 			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-        <defs><filter id="b"><feGaussianBlur stdDeviation="7"/></filter></defs>
-        <rect x="0" y="0" width="20" height="20" fill="blue" filter="url(#b)"/>
+        <defs><filter id="f"><feOffset dx="10" dy="4"/></filter></defs>
+        <rect x="0" y="0" width="10" height="10" fill="blue" transform="scale(2 3)" filter="url(#f)"/>
+      </svg>`,
+			0,
+			0,
+			{ scaleFilter: (filter, scale) => graph.onScaleFilter(filter, scale) },
+		);
+		const path = result.objects.get(result.topLevelIds[0]) as Path;
+		const filter = localAppearances(path.filters).find(
+			(f) => f.processor === "svg:filter",
+		);
+		const nodes = (filter?.paramData.params as { nodes: SvgFilterNode[] })
+			.nodes;
+		expect(nodes[0].params).toEqual({ in: "previous", dx: 20, dy: -12 });
+	});
+
+	it("ignores a <filter> with no supported primitive", async () => {
+		const result = await parseSvgToArtObjects(
+			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <defs><filter id="f"><feImage href="x.png"/></filter></defs>
+        <rect x="0" y="0" width="20" height="20" fill="blue" filter="url(#f)"/>
       </svg>`,
 			0,
 			0,
 		);
 		const path = result.objects.get(result.topLevelIds[0]) as Path;
-		const blur = localAppearances(path.filters).find(
-			(f) => f.processor === "blur",
-		);
-		expect(blur).toMatchObject({
-			processor: "blur",
-			paramData: { params: { radius: 7 } },
-		});
+		expect(
+			localAppearances(path.filters).some((f) => f.processor === "svg:filter"),
+		).toBe(false);
 	});
 });
 

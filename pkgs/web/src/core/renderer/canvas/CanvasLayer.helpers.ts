@@ -194,6 +194,13 @@ function applyStoreMargin(
 }
 
 /**
+ * Texel budget for one interactive filter bake. Every filter of a chain runs
+ * a fullscreen pass over the bake, so this bounds the per-frame cost of a
+ * long chain at any zoom.
+ */
+const INTERACTIVE_BAKE_TEXEL_BUDGET = 16 * 1024 * 1024;
+
+/**
  * Interactive bake density (texels per world px): the power-of-two bucket at
  * or above the viewport zoom, so bakes follow what the display actually needs
  * — sharper as the user zooms in, coarser zoomed out (Inkscape bakes its
@@ -201,13 +208,27 @@ function applyStoreMargin(
  * exports, not the screen). The bucket is quantized because downstream caches
  * key on the resulting density and would miss on every frame of a continuous
  * zoom. Degenerate zoom values fall back to the document's raster scale.
+ *
+ * With `bakeBounds` (the element's full bake rect in world px) the bucket is
+ * capped at the power of two that keeps that rect under the texel budget,
+ * never below the raster scale. A zoomed-in filter bake covers the viewport
+ * plus the filter margin, and the margin is in world px, so at 16 texels per
+ * world px a margin of a few hundred px alone reaches tens of millions of
+ * texels per pass. The cap comes from the element's own rect so it holds
+ * still while the view pans and whether or not the bake is cached.
  */
 export function interactiveBakeDensity(
 	rasterZoom: number,
 	viewportZoom: number,
+	bakeBounds?: { width: number; height: number },
 ): number {
 	if (!Number.isFinite(viewportZoom) || viewportZoom <= 0) return rasterZoom;
-	return 2 ** Math.ceil(Math.log2(viewportZoom));
+	const bucket = 2 ** Math.ceil(Math.log2(viewportZoom));
+	if (!bakeBounds) return bucket;
+	const area = Math.max(1, bakeBounds.width * bakeBounds.height);
+	const budgetDensity =
+		2 ** Math.floor(Math.log2(Math.sqrt(INTERACTIVE_BAKE_TEXEL_BUDGET / area)));
+	return Math.min(bucket, Math.max(rasterZoom, budgetDensity));
 }
 
 /**

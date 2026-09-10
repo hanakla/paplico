@@ -87,6 +87,24 @@ import { PixelateFilterProcessor } from "./filters/PixelateFilterProcessor";
 import { PuckerBloatFilterHandler } from "./filters/PuckerBloatFilterProcessor";
 import { Revolve3DFilterHandler } from "./filters/Revolve3DFilterHandler";
 import { Rotate3DFilterProcessor } from "./filters/Rotate3DFilterProcessor";
+import { ScratchTexturePool } from "./filters/ScratchTexturePool";
+import { SvgBlendHandler } from "./filters/svg/SvgBlendHandler";
+import {
+	SVG_COLOR_FUNCTIONS,
+	SvgColorFunctionHandler,
+} from "./filters/svg/SvgColorFunctionHandler";
+import { SvgColorMatrixHandler } from "./filters/svg/SvgColorMatrixHandler";
+import { SvgComponentTransferHandler } from "./filters/svg/SvgComponentTransferHandler";
+import { SvgCompositeHandler } from "./filters/svg/SvgCompositeHandler";
+import { SvgConvolveMatrixHandler } from "./filters/svg/SvgConvolveMatrixHandler";
+import { SvgDisplacementMapHandler } from "./filters/svg/SvgDisplacementMapHandler";
+import { SvgDropShadowHandler } from "./filters/svg/SvgDropShadowHandler";
+import { SvgFilterGraphHandler } from "./filters/svg/SvgFilterGraphHandler";
+import { SvgFloodHandler } from "./filters/svg/SvgFloodHandler";
+import { SvgGaussianBlurHandler } from "./filters/svg/SvgGaussianBlurHandler";
+import { SvgMorphologyHandler } from "./filters/svg/SvgMorphologyHandler";
+import { SvgOffsetHandler } from "./filters/svg/SvgOffsetHandler";
+import { SvgTurbulenceHandler } from "./filters/svg/SvgTurbulenceHandler";
 import { ZigzagFilterHandler } from "./filters/ZigzagFilterProcessor";
 import { GPUTimingProfiler } from "./GPUTimingProfiler";
 import { GradientTextureGenerator } from "./generators/GradientTextureGenerator";
@@ -1548,6 +1566,14 @@ export class RenderOrchestrator {
 		return this.filterRenderer?.getHandler(processor);
 	}
 
+	/** Expansion margin of a filter chain, as the filter texture is sized. */
+	public calculateFilterExpansion(
+		filters: readonly Filter[],
+		bounds?: { width: number; height: number },
+	): number {
+		return this.filterRenderer?.calculateExpansion(filters, bounds) ?? 0;
+	}
+
 	/** Whether the common Appearance.applyToBackdrop toggle is meaningful for
 	 *  this filter (see FilterRenderer.canApplyToBackdrop). False until the
 	 *  GPU device and filter handlers are initialized. */
@@ -2469,7 +2495,7 @@ export class RenderOrchestrator {
 		filterRenderer.registerHandler("revolve3d", revolve3dHandler);
 
 		// Hanakla Kit filters
-		const hkHandlers: [string, RegisterableFilterHandler][] = [
+		const filterHandlers: [string, RegisterableFilterHandler][] = [
 			["hk:bloom", new HKBloomHandler()],
 			["hk:directional-blur", new HKDirectionalBlurHandler()],
 			["hk:kirakira", new HKKirakiraHandler()],
@@ -2497,14 +2523,41 @@ export class RenderOrchestrator {
 			["hk:pixel-sort", new HKPixelSortHandler()],
 		];
 
+		// SVG filter primitives; the `svg:filter` graph runs its nodes through
+		// these same instances, and they all draw intermediates from one pool.
+		const svgScratch = new ScratchTexturePool();
+		const svgPrimitives = new Map<string, RegisterableFilterHandler>([
+			["svg:gaussian-blur", new SvgGaussianBlurHandler(svgScratch)],
+			["svg:offset", new SvgOffsetHandler(svgScratch)],
+			["svg:flood", new SvgFloodHandler(svgScratch)],
+			["svg:color-matrix", new SvgColorMatrixHandler(svgScratch)],
+			["svg:component-transfer", new SvgComponentTransferHandler(svgScratch)],
+			["svg:morphology", new SvgMorphologyHandler(svgScratch)],
+			["svg:convolve-matrix", new SvgConvolveMatrixHandler(svgScratch)],
+			["svg:turbulence", new SvgTurbulenceHandler(svgScratch)],
+			["svg:displacement-map", new SvgDisplacementMapHandler(svgScratch)],
+			["svg:composite", new SvgCompositeHandler(svgScratch)],
+			["svg:blend", new SvgBlendHandler(svgScratch)],
+			["svg:drop-shadow", new SvgDropShadowHandler(svgScratch)],
+			...SVG_COLOR_FUNCTIONS.map((fn): [string, RegisterableFilterHandler] => [
+				`svg:${fn}`,
+				new SvgColorFunctionHandler(fn, svgScratch),
+			]),
+		]);
+		filterHandlers.push(...svgPrimitives);
+		filterHandlers.push([
+			"svg:filter",
+			new SvgFilterGraphHandler(svgPrimitives, svgScratch),
+		]);
+
 		const device = this.device as GPUDevice;
 		await Promise.all(
-			hkHandlers.map(([, handler]) =>
+			filterHandlers.map(([, handler]) =>
 				handler.initialize(device, this.canvasFormat),
 			),
 		);
 
-		for (const [id, handler] of hkHandlers) {
+		for (const [id, handler] of filterHandlers) {
 			filterRenderer.registerHandler(id, handler);
 		}
 

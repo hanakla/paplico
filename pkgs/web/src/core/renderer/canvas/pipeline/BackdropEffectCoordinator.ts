@@ -1,4 +1,5 @@
 import type { BoundingBox, Viewport } from "../../../schema";
+import { snapBoundsToRasterGrid } from "../../../utils/geometry/bounds";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
 import {
 	type BackdropCaptureManager,
@@ -814,20 +815,6 @@ function unionBounds(a: BoundingBox, b: BoundingBox): BoundingBox {
 	const minY = Math.min(a.minY, b.minY);
 	const maxX = Math.max(a.maxX, b.maxX);
 	const maxY = Math.max(a.maxY, b.maxY);
-	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
-}
-
-/** Expand bounds outward onto the fixed-R world grid (R texels per world px),
- *  mirroring BackdropCaptureManager's R-path snapping so batch and request
- *  rects land on the same grid. */
-export function snapBoundsToRasterGrid(
-	bounds: BoundingBox,
-	rasterScale: number,
-): BoundingBox {
-	const minX = Math.floor(bounds.minX * rasterScale) / rasterScale;
-	const maxX = Math.ceil(bounds.maxX * rasterScale) / rasterScale;
-	const minY = Math.floor(bounds.minY * rasterScale) / rasterScale;
-	const maxY = Math.ceil(bounds.maxY * rasterScale) / rasterScale;
 	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
 

@@ -2,11 +2,29 @@ import {
 	createDefaultColor,
 	createStrokeBrushSettings,
 } from "@/core/document/factory";
-import type {
-	BlurFilter,
-	DropShadowFilter,
-	FrostGlassFilter,
-	ZigzagFilter,
+import {
+	type BlurFilter,
+	type DropShadowFilter,
+	type FrostGlassFilter,
+	SVG_COLOR_FUNCTIONS,
+	SVG_COLOR_MATRIX_IDENTITY,
+	type SvgBlendFilter,
+	type SvgColorFunction,
+	type SvgColorFunctionFilter,
+	type SvgColorMatrixFilter,
+	type SvgComponentTransferFilter,
+	type SvgCompositeFilter,
+	type SvgConvolveMatrixFilter,
+	type SvgDisplacementMapFilter,
+	type SvgDropShadowFilter,
+	type SvgFilterGraphFilter,
+	type SvgFloodFilter,
+	type SvgGaussianBlurFilter,
+	type SvgMorphologyFilter,
+	type SvgOffsetFilter,
+	type SvgTransferFunction,
+	type SvgTurbulenceFilter,
+	type ZigzagFilter,
 } from "@/core/renderer/filters";
 import {
 	type FillAppearance,
@@ -20,6 +38,20 @@ export type DefaultFilter =
 	| FrostGlassFilter
 	| ZigzagFilter
 	| DropShadowFilter
+	| SvgGaussianBlurFilter
+	| SvgOffsetFilter
+	| SvgFloodFilter
+	| SvgColorMatrixFilter
+	| SvgComponentTransferFilter
+	| SvgMorphologyFilter
+	| SvgConvolveMatrixFilter
+	| SvgTurbulenceFilter
+	| SvgDisplacementMapFilter
+	| SvgCompositeFilter
+	| SvgBlendFilter
+	| SvgDropShadowFilter
+	| SvgColorFunctionFilter
+	| SvgFilterGraphFilter
 	| FillAppearance
 	| StrokeAppearance;
 
@@ -611,4 +643,184 @@ const FILTER_DEFS: Record<string, () => ReturnType<typeof Object>> = {
 			},
 		},
 	}),
+	// SVG filter primitives
+	"svg:gaussian-blur": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:gaussian-blur",
+		paramData: {
+			version: "1",
+			params: { in: "previous", stdDeviationX: 3, stdDeviationY: 3 },
+		},
+	}),
+	"svg:offset": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:offset",
+		paramData: { version: "1", params: { in: "previous", dx: 4, dy: -4 } },
+	}),
+	"svg:flood": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:flood",
+		paramData: {
+			version: "1",
+			params: { color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 }, opacity: 1 },
+		},
+	}),
+	"svg:color-matrix": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:color-matrix",
+		paramData: {
+			version: "1",
+			params: {
+				in: "previous",
+				type: "matrix",
+				values: [...SVG_COLOR_MATRIX_IDENTITY],
+			},
+		},
+	}),
+	"svg:component-transfer": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:component-transfer",
+		paramData: {
+			version: "1",
+			params: {
+				in: "previous",
+				r: identityTransferFunction(),
+				g: identityTransferFunction(),
+				b: identityTransferFunction(),
+				a: identityTransferFunction(),
+			},
+		},
+	}),
+	"svg:morphology": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:morphology",
+		paramData: {
+			version: "1",
+			params: { in: "previous", operator: "erode", radiusX: 1, radiusY: 1 },
+		},
+	}),
+	"svg:convolve-matrix": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:convolve-matrix",
+		paramData: {
+			version: "1",
+			params: {
+				in: "previous",
+				order: 3,
+				kernelMatrix: identityKernel(3),
+				divisor: null,
+				bias: 0,
+				edgeMode: "duplicate",
+				preserveAlpha: false,
+			},
+		},
+	}),
+	"svg:turbulence": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:turbulence",
+		paramData: {
+			version: "1",
+			params: {
+				type: "fractalNoise",
+				baseFrequencyX: 0.05,
+				baseFrequencyY: 0.05,
+				numOctaves: 2,
+				seed: 0,
+				stitchTiles: false,
+			},
+		},
+	}),
+	"svg:displacement-map": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:displacement-map",
+		paramData: {
+			version: "1",
+			params: {
+				in: "SourceGraphic",
+				in2: "previous",
+				scale: 20,
+				xChannelSelector: "R",
+				yChannelSelector: "G",
+			},
+		},
+	}),
+	"svg:composite": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:composite",
+		paramData: {
+			version: "1",
+			params: {
+				in: "previous",
+				in2: "SourceGraphic",
+				operator: "over",
+				k1: 0,
+				k2: 0,
+				k3: 0,
+				k4: 0,
+			},
+		},
+	}),
+	"svg:blend": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:blend",
+		paramData: {
+			version: "1",
+			params: { in: "previous", in2: "SourceGraphic", mode: "multiply" },
+		},
+	}),
+	...Object.fromEntries(
+		SVG_COLOR_FUNCTIONS.map((fn) => [
+			`svg:${fn}`,
+			() => ({
+				uid: generateUid("filter"),
+				processor: `svg:${fn}`,
+				paramData: {
+					version: "1",
+					params: { in: "previous", amount: SVG_COLOR_FUNCTION_DEFAULTS[fn] },
+				},
+			}),
+		]),
+	),
+	"svg:filter": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:filter",
+		paramData: { version: "1", params: { nodes: [] } },
+	}),
+	"svg:drop-shadow": () => ({
+		uid: generateUid("filter"),
+		processor: "svg:drop-shadow",
+		paramData: {
+			version: "1",
+			params: {
+				in: "previous",
+				dx: 4,
+				dy: -4,
+				stdDeviation: 3,
+				color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+				opacity: 0.5,
+			},
+		},
+	}),
 };
+
+/** The CSS color functions at the argument that leaves the image unchanged. */
+const SVG_COLOR_FUNCTION_DEFAULTS: Record<SvgColorFunction, number> = {
+	saturate: 1,
+	"hue-rotate": 0,
+	grayscale: 0,
+	sepia: 0,
+	invert: 0,
+	brightness: 1,
+	contrast: 1,
+};
+
+/** An order×order convolution kernel that leaves the image unchanged. */
+export function identityKernel(order: number): number[] {
+	const kernel = new Array<number>(order * order).fill(0);
+	kernel[Math.floor(order / 2) * order + Math.floor(order / 2)] = 1;
+	return kernel;
+}
+
+function identityTransferFunction(): SvgTransferFunction {
+	return { type: "identity" };
+}

@@ -23,6 +23,7 @@ import type {
 	PixelateFilter,
 	PuckerBloatFilter,
 	Rotate3DFilter,
+	SvgFilterGraphFilter,
 	ZigzagFilter,
 } from "@/core/renderer/filters";
 import type {
@@ -53,6 +54,7 @@ import { PixelateFilterControls } from "./ControlsPixelate";
 import { PuckerBloatFilterControls } from "./ControlsPuckerBloat";
 import { Revolve3DFilterControls } from "./ControlsRevolve3D";
 import { Rotate3DFilterControls } from "./ControlsRotate3D";
+import { SvgFilterGraphControls } from "./ControlsSvgFilter";
 import { ZigzagFilterControls } from "./ControlsZigzag";
 import {
 	FILTER_TEXT_KEYS,
@@ -62,6 +64,7 @@ import {
 import { FilterBackdropToggle } from "./FilterBackdropToggle";
 import { FilterEffectControls } from "./FilterEffectControls";
 import { useFilterStack } from "./FilterStackContext";
+import { SvgPrimitiveControls } from "./SvgPrimitiveControls";
 import type { FilterDropIndicator } from "./types";
 
 export const FilterItem = memo(function FilterItem({
@@ -229,6 +232,17 @@ export const FilterItem = memo(function FilterItem({
 					filter={filter as PuckerBloatFilter}
 					onUpdate={updateFilter}
 				/>
+			)}
+
+			{filter.processor === "svg:filter" ? (
+				<SvgFilterGraphControls
+					filter={filter as SvgFilterGraphFilter}
+					onUpdate={updateFilter}
+				/>
+			) : (
+				filter.processor.startsWith("svg:") && (
+					<SvgPrimitiveControls filter={filter} onUpdate={updateFilter} />
+				)
 			)}
 
 			{filter.processor.startsWith("hk:") && (

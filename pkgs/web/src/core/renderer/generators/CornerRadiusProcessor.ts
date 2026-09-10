@@ -268,13 +268,18 @@ function buildResult(
 			};
 		}
 
-		result.push(trimmedSeg);
-
-		// Append fillet curve(s) if this segment's end has a fillet
+		// The fillet curves continue the subpath past this segment, so a
+		// closing flag has to ride the last of them, not the trimmed segment.
 		if (filletAtEnd != null) {
-			for (const fs of filletAtEnd.filletSegs) {
-				result.push(fs);
+			result.push({ ...trimmedSeg, isClosed: undefined });
+			const last = filletAtEnd.filletSegs.length - 1;
+			for (const [j, fs] of filletAtEnd.filletSegs.entries()) {
+				result.push(
+					j === last && trimmedSeg.isClosed ? { ...fs, isClosed: true } : fs,
+				);
 			}
+		} else {
+			result.push(trimmedSeg);
 		}
 	}
 

@@ -179,6 +179,13 @@ export interface FilterProcessorContext {
 	 * pyramid is planned deep enough.
 	 */
 	backdropBlur?: (sigma: number) => BackdropBlurLevels | null;
+	/**
+	 * The chain's untouched input (SVG's SourceGraphic): the content-sized
+	 * source as it was before the first pass ran. Present only when a handler
+	 * in the chain declared needsSourceGraphic, and only until a self-sizing
+	 * pass replaces the working texture (the sizes no longer correspond).
+	 */
+	sourceGraphicTexture?: GPUTexture;
 }
 
 /**
@@ -269,11 +276,19 @@ export interface FilterRenderRequirements {
 	 * invoking it, since that render would be discarded.
 	 */
 	needsSourceTexture: boolean;
+	/**
+	 * postProcess reads ctx.sourceGraphicTexture (the chain input, SVG's
+	 * SourceGraphic) in addition to, or instead of, the previous pass output.
+	 * The renderer then keeps a copy of the chain input alive for the whole
+	 * chain; earlier passes may overwrite the working textures freely.
+	 */
+	needsSourceGraphic: boolean;
 }
 
 const DEFAULT_RENDER_REQUIREMENTS: FilterRenderRequirements = {
 	needsBackdrop: false,
 	needsSourceTexture: true,
+	needsSourceGraphic: false,
 };
 
 /** A plain in-place image filter (no getRenderConfigure) needs the
@@ -729,7 +744,13 @@ export class FilterRenderer {
 	 */
 	private tempPairs = new Map<
 		string,
-		{ t1: GPUTexture; t2: GPUTexture; lastUsedFrame: number }
+		{
+			t1: GPUTexture;
+			t2: GPUTexture;
+			/** Chain-input copy for needsSourceGraphic chains; created on demand. */
+			src?: GPUTexture;
+			lastUsedFrame: number;
+		}
 	>();
 	private frameIndex = 0;
 
@@ -808,6 +829,7 @@ export class FilterRenderer {
 		for (const [key, pair] of this.tempPairs) {
 			if (this.frameIndex - pair.lastUsedFrame > TEMP_PAIR_IDLE_FRAMES) {
 				this.pendingDestroy.push(pair.t1, pair.t2);
+				if (pair.src) this.pendingDestroy.push(pair.src);
 				this.tempPairs.delete(key);
 			}
 		}
@@ -840,6 +862,7 @@ export class FilterRenderer {
 				if (lruKey) {
 					const lru = this.tempPairs.get(lruKey)!;
 					this.pendingDestroy.push(lru.t1, lru.t2);
+					if (lru.src) this.pendingDestroy.push(lru.src);
 					this.tempPairs.delete(lruKey);
 				}
 			}
@@ -866,6 +889,20 @@ export class FilterRenderer {
 		this.textureSize = { width, height };
 	}
 
+	/** The chain-input copy texture for the current temp pair. */
+	private ensureSourceGraphicTexture(): GPUTexture {
+		const { width, height } = this.textureSize;
+		const format = this.tempTexture1!.format;
+		const pair = this.tempPairs.get(`${width}x${height}:${format}`)!;
+		pair.src ??= this.device.createTexture({
+			label: `Filter SourceGraphic ${width}x${height}`,
+			size: { width, height },
+			format,
+			usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+		});
+		return pair.src;
+	}
+
 	/**
 	 * @param maskTexture - Defines the region where backdrop filters are applied.
 	 * @param dpiScale - Rasterization scale (texels per world px) of the source
@@ -875,6 +912,8 @@ export class FilterRenderer {
 	 * @param contentBounds - Content dimensions in world units.
 	 *   When the source texture includes pool padding, filters run on
 	 *   content-sized intermediaries so UV [0,1] maps exactly to content.
+	 *   `texelOffset` is the content's top-left texel in the source texture;
+	 *   without it the content is assumed centred.
 	 * @param appearanceScope - Element identity of the filtered content plus the
 	 *   engine AppearanceCache. When provided, handlers receive an
 	 *   element-scoped `appearanceCache` accessor on their context.
@@ -885,7 +924,11 @@ export class FilterRenderer {
 		encoder: GPUCommandEncoder,
 		maskTexture?: GPUTexture,
 		dpiScale: number = 1.0,
-		contentBounds?: { width: number; height: number },
+		contentBounds?: {
+			width: number;
+			height: number;
+			texelOffset?: { x: number; y: number };
+		},
 		appearanceScope?: { elementId: string; cache: AppearanceCache },
 		geometry?: FilterGeometryContext,
 		backdropBlur?: (sigma: number) => BackdropBlurLevels | null,
@@ -978,6 +1021,25 @@ export class FilterRenderer {
 			currentTarget = this.tempTexture1;
 		}
 
+		// Keep the chain input alive for handlers that read SourceGraphic: the
+		// ping-pong textures are overwritten pass by pass, and in-place handlers
+		// may also write back into currentSource (the two-pass blur does).
+		let sourceGraphicTexture: GPUTexture | undefined;
+		if (
+			!firstIgnoresSource &&
+			activeFilters.some(
+				({ filter, handler }) =>
+					resolveRenderConfigure(handler, filter).needsSourceGraphic,
+			)
+		) {
+			sourceGraphicTexture = this.ensureSourceGraphicTexture();
+			encoder.copyTextureToTexture(
+				{ texture: currentSource },
+				{ texture: sourceGraphicTexture },
+				{ width: cw, height: ch },
+			);
+		}
+
 		const sceneInfo: FilterSceneInfo = {
 			textureSize: { width: cw, height: ch },
 			dpiScale,
@@ -1012,18 +1074,19 @@ export class FilterRenderer {
 			? { width: contentBounds.width, height: contentBounds.height }
 			: undefined;
 		// Fractional texel position of the content's top-left corner: offscreen
-		// passes centre the content, and the padding strip copies at an integer
-		// origin, so the content sits a DPI-dependent sub-texel amount off the
-		// texture origin. In-place passes preserve positions, so the offset
-		// stays valid down the chain until a self-sizing pass replaces it.
+		// passes centre the content unless they say where they put it, and the
+		// padding strip copies at an integer origin, so the content sits a
+		// DPI-dependent sub-texel amount off the texture origin. In-place
+		// passes preserve positions, so the offset stays valid down the chain
+		// until a self-sizing pass replaces it.
+		const placedOffset = contentBounds?.texelOffset ?? {
+			x: contentBounds ? (srcW - contentBounds.width * dpiScale) / 2 : 0,
+			y: contentBounds ? (srcH - contentBounds.height * dpiScale) / 2 : 0,
+		};
 		let sourceContentOffset = contentBounds
 			? {
-					x:
-						(srcW - contentBounds.width * dpiScale) / 2 -
-						(isPadded ? padOffX : 0),
-					y:
-						(srcH - contentBounds.height * dpiScale) / 2 -
-						(isPadded ? padOffY : 0),
+					x: placedOffset.x - (isPadded ? padOffX : 0),
+					y: placedOffset.y - (isPadded ? padOffY : 0),
 				}
 			: undefined;
 		let currentCoordinateSpace = coordinateSpace;
@@ -1047,6 +1110,7 @@ export class FilterRenderer {
 				sourceContentOffset,
 				coordinateSpace: currentCoordinateSpace,
 				backdropBlur,
+				sourceGraphicTexture,
 			};
 			const context: FilterProcessorContext | BackdropFilterProcessorContext =
 				maskTexture && resolveRenderConfigure(handler, filter).needsBackdrop
@@ -1083,6 +1147,7 @@ export class FilterRenderer {
 					sourceWorldSize = undefined;
 					sourceContentOffset = undefined;
 					currentCoordinateSpace = undefined;
+					sourceGraphicTexture = undefined;
 				}
 			} else {
 				finalTexture = currentTarget;
@@ -1144,6 +1209,7 @@ export class FilterRenderer {
 		for (const pair of this.tempPairs.values()) {
 			pair.t1.destroy();
 			pair.t2.destroy();
+			pair.src?.destroy();
 		}
 		this.tempPairs.clear();
 		this.tempTexture1 = null;

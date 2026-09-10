@@ -51,6 +51,7 @@ import {
 	DROP_SHADOW_SPREAD_SHADER,
 } from "./dropShadow.wgsl";
 import { JumpFloodDistanceField } from "./JumpFloodDistanceField";
+import { ScratchTexturePool } from "./ScratchTexturePool";
 
 export interface DropShadowParams {
 	/** Horizontal shadow offset in world pixels */
@@ -85,9 +86,6 @@ export const PYRAMID_BLUR_MIN_RADIUS = 8;
 
 /** Longest allowed side of a self-sized underlay texture, in texels. */
 const MAX_UNDERLAY_TEXTURE_SIDE = 4096;
-
-/** Distinct sizes the scratch pool keeps before retiring the oldest. */
-const MAX_SCRATCH_TEXTURES = 24;
 
 export class DropShadowFilterProcessor implements FilterHandler {
 	private pipeline: GPURenderPipeline | null = null;
@@ -1328,85 +1326,4 @@ function interpolateDropShadowParams(
 		shadowOpacity: lerpOptionalScalar(a.shadowOpacity, b.shadowOpacity, t, 0.5),
 		spreadRadius: lerpOptionalScalar(a.spreadRadius, b.spreadRadius, t, 0),
 	};
-}
-
-/**
- * Size-keyed pool for the shadow's blur intermediates.
- *
- * A texture stays checked out until `releaseAll()`, so one chain never gets
- * the same texture twice (a pyramid level and its own source would otherwise
- * collide when a level's size repeats). Across chains reuse is safe: passes
- * execute in encode order, so the next chain's writes land after the previous
- * chain's reads.
- */
-class ScratchTexturePool {
-	private free = new Map<string, GPUTexture[]>();
-	private busy: Array<{ key: string; texture: GPUTexture }> = [];
-	private total = 0;
-	private pendingDestroy: GPUTexture[] = [];
-
-	public acquire(
-		device: GPUDevice,
-		width: number,
-		height: number,
-		format: GPUTextureFormat,
-		usage: GPUTextureUsageFlags,
-		label: string,
-	): GPUTexture {
-		const key = `${width}x${height}:${format}:${usage}`;
-		const pooled = this.free.get(key)?.pop();
-		if (pooled) {
-			this.busy.push({ key, texture: pooled });
-			return pooled;
-		}
-		if (this.total >= MAX_SCRATCH_TEXTURES) this.retireOldestFree();
-		const texture = device.createTexture({
-			label,
-			size: { width, height },
-			format,
-			usage,
-		});
-		this.total++;
-		this.busy.push({ key, texture });
-		return texture;
-	}
-
-	/** Return every texture handed out since the last call. */
-	public releaseAll(): void {
-		for (const { key, texture } of this.busy) {
-			const list = this.free.get(key);
-			if (list) list.push(texture);
-			else this.free.set(key, [texture]);
-		}
-		this.busy.length = 0;
-	}
-
-	/** Destroy textures retired on a previous frame. Called once per frame,
-	 *  after the previous frame's submit completed. */
-	public flushPendingDestroy(): void {
-		for (const texture of this.pendingDestroy) texture.destroy();
-		this.pendingDestroy.length = 0;
-	}
-
-	public destroy(): void {
-		this.releaseAll();
-		for (const list of this.free.values()) {
-			for (const texture of list) texture.destroy();
-		}
-		this.free.clear();
-		this.total = 0;
-		this.flushPendingDestroy();
-	}
-
-	private retireOldestFree(): void {
-		for (const [key, list] of this.free) {
-			const texture = list.pop();
-			if (!texture) continue;
-			if (list.length === 0) this.free.delete(key);
-			// Deferred: passes encoded this frame may still reference it.
-			this.pendingDestroy.push(texture);
-			this.total--;
-			return;
-		}
-	}
 }
