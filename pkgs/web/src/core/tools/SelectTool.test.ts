@@ -113,6 +113,79 @@ describe("SelectTool", () => {
 	});
 });
 
+describe("SelectTool resize flipping", () => {
+	it("mirrors the element when a handle is dragged past the opposite edge", () => {
+		const elementId = "path-1";
+		const layer: Layer = {
+			id: "layer-1",
+			name: "Layer 1",
+			visible: true,
+			locked: false,
+			opacity: 1,
+			blendMode: "normal",
+			elementIds: [elementId],
+		};
+		const bounds = brandWorldBBox({
+			minX: -100,
+			minY: -100,
+			maxX: 100,
+			maxY: 100,
+			width: 200,
+			height: 200,
+		});
+		const element: AnyArtObject = {
+			id: elementId,
+			type: "path",
+			segments: [],
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		};
+
+		const context = createMockToolContext({
+			getCurrentLayer: () => layer,
+			getSelectedElementIds: () => [elementId],
+			findElementAtPoint: () => element,
+			getBounds: () => bounds,
+			snapElements: (_ids, _bounds, proposedDeltaX, proposedDeltaY) => ({
+				deltaX: proposedDeltaX,
+				deltaY: proposedDeltaY,
+				snapLines: [],
+			}),
+		});
+		const tool = new SelectTool(context);
+		tool.refreshUI();
+
+		// Grab the west handle at world (-100, 0) and drag it to world (200, 0),
+		// past the east edge.
+		tool.onPointerDown(
+			ev(300, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerMove(
+			ev(600, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(
+			ev(600, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(context.elementsResize).toHaveBeenCalledTimes(1);
+		const [ids, , newBounds, flip] = context.elementsResize.mock.calls[0];
+		expect(ids).toEqual([elementId]);
+		expect(newBounds.minX).toBe(100);
+		expect(newBounds.maxX).toBe(200);
+		expect(flip).toEqual({ x: true, y: false });
+	});
+});
+
 describe("SelectTool extrude gizmo", () => {
 	const EXTRUDE_KEY = "select/extrude-gizmo";
 

@@ -201,7 +201,7 @@ export class ArtboardTool implements Tool {
 				worldY,
 				ds.startX,
 				ds.startY,
-				ds.constrainAspect,
+				{ constrainAspect: ds.constrainAspect },
 			);
 			const snapped = this.snapResizeBounds(
 				rawBounds,
@@ -313,7 +313,7 @@ export class ArtboardTool implements Tool {
 					worldY,
 					ds.startX,
 					ds.startY,
-					ds.constrainAspect,
+					{ constrainAspect: ds.constrainAspect },
 				);
 				const { bounds: newBounds } = this.snapResizeBounds(
 					rawBounds,

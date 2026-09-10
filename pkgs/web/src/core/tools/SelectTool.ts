@@ -70,6 +70,7 @@ import {
 	getResizeSnapTargets,
 	hitTestResizeHandle,
 	hitTestRotationHandle,
+	type ResizedBounds,
 	type ResizeHandle,
 } from "./resizeHandleHelper";
 import type { PointerEventData, Tool } from "./Tool";
@@ -100,7 +101,7 @@ type DragState =
 			dragStartY: number;
 			originalBounds: WorldBBox;
 			activeHandle: ResizeHandle;
-			lastPreviewBounds: BoundingBox | null;
+			lastPreviewBounds: ResizedBounds | null;
 	  }
 	| {
 			mode: "rotate";
@@ -985,8 +986,11 @@ export class SelectTool implements Tool {
 			worldY,
 			state.dragStartX,
 			state.dragStartY,
-			this.shiftKey,
-			this.altKey,
+			{
+				constrainAspect: this.shiftKey,
+				anchorCenter: this.altKey,
+				allowFlip: true,
+			},
 		);
 		const snapped = this.snapResizedBounds(
 			rawBounds,
@@ -1007,14 +1011,18 @@ export class SelectTool implements Tool {
 	 * the snap targets via snapElements.
 	 */
 	private snapResizedBounds(
-		rawBounds: BoundingBox,
+		rawBounds: ResizedBounds,
 		handle: ResizeHandle,
 		zoom: number,
-	): { bounds: BoundingBox; snapLines: SnapLine[] } {
+	): { bounds: ResizedBounds; snapLines: SnapLine[] } {
 		const selectedIds = this.context.getSelectedElementIds();
-		const targets = getResizeSnapTargets(handle);
+		const targets = getResizeSnapTargets(
+			handle,
+			rawBounds.flipX,
+			rawBounds.flipY,
+		);
 		const snapLines: SnapLine[] = [];
-		const bounds: BoundingBox = { ...rawBounds };
+		const bounds: ResizedBounds = { ...rawBounds };
 
 		if (targets.x !== "none") {
 			const edge = targets.x === "min" ? bounds.minX : bounds.maxX;
@@ -1319,8 +1327,11 @@ export class SelectTool implements Tool {
 					worldY,
 					state.dragStartX,
 					state.dragStartY,
-					this.shiftKey,
-					this.altKey,
+					{
+						constrainAspect: this.shiftKey,
+						anchorCenter: this.altKey,
+						allowFlip: true,
+					},
 				),
 				state.activeHandle,
 				viewport.zoom,
@@ -1332,6 +1343,7 @@ export class SelectTool implements Tool {
 			selectedIds,
 			state.originalBounds,
 			newWorldBounds,
+			{ x: newBounds.flipX, y: newBounds.flipY },
 		);
 
 		this.selectedBounds = newWorldBounds;

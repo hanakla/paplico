@@ -2515,8 +2515,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					}
 				}
 			},
-			elementsResize: (ids, originalBounds, newBounds) => {
-				this.commands.resizeElements(ids, originalBounds, newBounds);
+			elementsResize: (ids, originalBounds, newBounds, flip) => {
+				this.commands.resizeElements(ids, originalBounds, newBounds, flip);
 			},
 			elementsRotate: (ids, angleDeg, cx, cy) => {
 				this.commands.rotateElements(ids, angleDeg, cx, cy);

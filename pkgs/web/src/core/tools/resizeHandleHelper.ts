@@ -69,18 +69,37 @@ export function hitTestResizeHandle(
 	return null;
 }
 
+export type ResizedBounds = BoundingBox & {
+	/** True when the dragged edge crossed its anchor, mirroring that axis. */
+	flipX: boolean;
+	/** True when the dragged edge crossed its anchor, mirroring that axis. */
+	flipY: boolean;
+};
+
+type ResizeBoundsOptions = {
+	/** Keep the original aspect ratio. */
+	constrainAspect?: boolean;
+	/** Grow from the original center instead of the opposite edge. */
+	anchorCenter?: boolean;
+	/** Let the dragged edge cross its anchor, mirroring that axis. */
+	allowFlip?: boolean;
+	/** Minimum width/height. Ignored once allowFlip lets the edge cross. */
+	minSize?: number;
+};
+
 /**
  * Calculate resized bounds when dragging a resize handle.
  *
- * @param original        Original bounding box before drag started
- * @param handle          Which handle is being dragged
- * @param worldX          Current pointer X in world coordinates
- * @param worldY          Current pointer Y in world coordinates
- * @param dragStartX      World X where the drag began
- * @param dragStartY      World Y where the drag began
- * @param constrainAspect If true, maintain the original aspect ratio
- * @param anchorCenter    If true, resize from the center of the bounding box
- * @param minSize         Minimum width/height (default 10)
+ * Each axis grows from an anchor toward the dragged edge, so the size is
+ * tracked signed: it turns negative once the edge crosses the anchor, which
+ * the returned flip flags report. The bounds themselves stay normalized.
+ *
+ * @param original   Original bounding box before drag started
+ * @param handle     Which handle is being dragged
+ * @param worldX     Current pointer X in world coordinates
+ * @param worldY     Current pointer Y in world coordinates
+ * @param dragStartX World X where the drag began
+ * @param dragStartY World Y where the drag began
  */
 export function calculateResizedBounds(
 	original: BoundingBox,
@@ -89,167 +108,62 @@ export function calculateResizedBounds(
 	worldY: number,
 	dragStartX: number,
 	dragStartY: number,
-	constrainAspect = false,
-	anchorCenter = false,
-	minSize = 10,
-): BoundingBox {
-	let { minX, minY, maxX, maxY } = original;
-	const originalAspect = original.width / original.height;
+	{
+		constrainAspect = false,
+		anchorCenter = false,
+		allowFlip = false,
+		minSize = 10,
+	}: ResizeBoundsOptions = {},
+): ResizedBounds {
+	const targets = getResizeSnapTargets(handle);
+	const centerX = (original.minX + original.maxX) / 2;
+	const centerY = (original.minY + original.maxY) / 2;
 
-	const deltaX = worldX - dragStartX;
-	const deltaY = worldY - dragStartY;
-	const isPrimaryHorizontal = Math.abs(deltaX) > Math.abs(deltaY);
+	// An axis the handle does not drag keeps its size around the original
+	// center, which is also where anchorCenter pins every axis.
+	const centeredX = anchorCenter || targets.x === "none";
+	const centeredY = anchorCenter || targets.y === "none";
+	const dirX = targets.x === "min" ? -1 : 1;
+	const dirY = targets.y === "min" ? -1 : 1;
+	const anchorX = targets.x === "min" ? original.maxX : original.minX;
+	const anchorY = targets.y === "min" ? original.maxY : original.minY;
 
-	switch (handle) {
-		case "nw":
-			if (constrainAspect) {
-				if (isPrimaryHorizontal) {
-					minX = Math.min(worldX, maxX - minSize);
-					const newWidth = maxX - minX;
-					const newHeight = newWidth / originalAspect;
-					maxY = minY + newHeight;
-				} else {
-					maxY = Math.max(worldY, minY + minSize);
-					const newHeight = maxY - minY;
-					const newWidth = newHeight * originalAspect;
-					minX = maxX - newWidth;
-				}
-			} else {
-				minX = Math.min(worldX, maxX - minSize);
-				maxY = Math.max(worldY, minY + minSize);
-			}
-			break;
-		case "n":
-			maxY = Math.max(worldY, minY + minSize);
-			if (constrainAspect) {
-				const newHeight = maxY - minY;
-				const newWidth = newHeight * originalAspect;
-				const centerX = (minX + maxX) / 2;
-				minX = centerX - newWidth / 2;
-				maxX = centerX + newWidth / 2;
-			}
-			break;
-		case "ne":
-			if (constrainAspect) {
-				if (isPrimaryHorizontal) {
-					maxX = Math.max(worldX, minX + minSize);
-					const newWidth = maxX - minX;
-					const newHeight = newWidth / originalAspect;
-					maxY = minY + newHeight;
-				} else {
-					maxY = Math.max(worldY, minY + minSize);
-					const newHeight = maxY - minY;
-					const newWidth = newHeight * originalAspect;
-					maxX = minX + newWidth;
-				}
-			} else {
-				maxX = Math.max(worldX, minX + minSize);
-				maxY = Math.max(worldY, minY + minSize);
-			}
-			break;
-		case "e":
-			maxX = Math.max(worldX, minX + minSize);
-			if (constrainAspect) {
-				const newWidth = maxX - minX;
-				const newHeight = newWidth / originalAspect;
-				const centerY = (minY + maxY) / 2;
-				minY = centerY - newHeight / 2;
-				maxY = centerY + newHeight / 2;
-			}
-			break;
-		case "se":
-			if (constrainAspect) {
-				if (isPrimaryHorizontal) {
-					maxX = Math.max(worldX, minX + minSize);
-					const newWidth = maxX - minX;
-					const newHeight = newWidth / originalAspect;
-					minY = maxY - newHeight;
-				} else {
-					minY = Math.min(worldY, maxY - minSize);
-					const newHeight = maxY - minY;
-					const newWidth = newHeight * originalAspect;
-					maxX = minX + newWidth;
-				}
-			} else {
-				maxX = Math.max(worldX, minX + minSize);
-				minY = Math.min(worldY, maxY - minSize);
-			}
-			break;
-		case "s":
-			minY = Math.min(worldY, maxY - minSize);
-			if (constrainAspect) {
-				const newHeight = maxY - minY;
-				const newWidth = newHeight * originalAspect;
-				const centerX = (minX + maxX) / 2;
-				minX = centerX - newWidth / 2;
-				maxX = centerX + newWidth / 2;
-			}
-			break;
-		case "sw":
-			if (constrainAspect) {
-				if (isPrimaryHorizontal) {
-					minX = Math.min(worldX, maxX - minSize);
-					const newWidth = maxX - minX;
-					const newHeight = newWidth / originalAspect;
-					minY = maxY - newHeight;
-				} else {
-					minY = Math.min(worldY, maxY - minSize);
-					const newHeight = maxY - minY;
-					const newWidth = newHeight * originalAspect;
-					minX = maxX - newWidth;
-				}
-			} else {
-				minX = Math.min(worldX, maxX - minSize);
-				minY = Math.min(worldY, maxY - minSize);
-			}
-			break;
-		case "w":
-			minX = Math.min(worldX, maxX - minSize);
-			if (constrainAspect) {
-				const newWidth = maxX - minX;
-				const newHeight = newWidth / originalAspect;
-				const centerY = (minY + maxY) / 2;
-				minY = centerY - newHeight / 2;
-				maxY = centerY + newHeight / 2;
-			}
-			break;
+	// Pinning the anchor at the center doubles the pointer distance, since the
+	// opposite edge moves the same amount the other way.
+	let sizeX = axisSize(
+		targets.x,
+		worldX,
+		centeredX ? centerX : anchorX,
+		dirX,
+		centeredX,
+		original.width,
+	);
+	let sizeY = axisSize(
+		targets.y,
+		worldY,
+		centeredY ? centerY : anchorY,
+		dirY,
+		centeredY,
+		original.height,
+	);
+
+	if (targets.x !== "none") sizeX = clampSize(sizeX, minSize, allowFlip);
+	if (targets.y !== "none") sizeY = clampSize(sizeY, minSize, allowFlip);
+
+	// The dominant pointer axis drives the ratio; the other one only keeps the
+	// direction it was dragged in.
+	if (constrainAspect) {
+		const aspect = original.width / original.height;
+		const drivenByX =
+			targets.y === "none" ||
+			(targets.x !== "none" &&
+				Math.abs(worldX - dragStartX) > Math.abs(worldY - dragStartY));
+		if (drivenByX) sizeY = signOf(sizeY) * (Math.abs(sizeX) / aspect);
+		else sizeX = signOf(sizeX) * (Math.abs(sizeY) * aspect);
 	}
 
-	if (anchorCenter) {
-		const cx = (original.minX + original.maxX) / 2;
-		const cy = (original.minY + original.maxY) / 2;
-
-		// Mirror the edge deltas around the original center
-		const dMinX = minX - original.minX;
-		const dMaxX = maxX - original.maxX;
-		const dMinY = minY - original.minY;
-		const dMaxY = maxY - original.maxY;
-
-		minX = original.minX + dMinX - dMaxX;
-		maxX = original.maxX + dMaxX - dMinX;
-		minY = original.minY + dMinY - dMaxY;
-		maxY = original.maxY + dMaxY - dMinY;
-
-		// Re-center to keep the original center
-		const newCx = (minX + maxX) / 2;
-		const newCy = (minY + maxY) / 2;
-		const offsetX = cx - newCx;
-		const offsetY = cy - newCy;
-		minX += offsetX;
-		maxX += offsetX;
-		minY += offsetY;
-		maxY += offsetY;
-
-		// Enforce minimum size
-		if (maxX - minX < minSize) {
-			minX = cx - minSize / 2;
-			maxX = cx + minSize / 2;
-		}
-		if (maxY - minY < minSize) {
-			minY = cy - minSize / 2;
-			maxY = cy + minSize / 2;
-		}
-	}
+	const [minX, maxX] = axisRange(centerX, anchorX, dirX, sizeX, centeredX);
+	const [minY, maxY] = axisRange(centerY, anchorY, dirY, sizeY, centeredY);
 
 	return {
 		minX,
@@ -258,6 +172,8 @@ export function calculateResizedBounds(
 		maxY,
 		width: maxX - minX,
 		height: maxY - minY,
+		flipX: sizeX < 0,
+		flipY: sizeY < 0,
 	};
 }
 
@@ -294,27 +210,16 @@ export type ResizeSnapTargets = {
 
 /**
  * Which world-space bounds edges a handle drags (and thus may snap).
- * World Y is up, so the "n" (screen-top) handles drag maxY.
+ * World Y is up, so the "n" (screen-top) handles drag maxY. A mirrored axis
+ * moves its dragged edge to the other side of the bounds.
  */
-export function getResizeSnapTargets(handle: ResizeHandle): ResizeSnapTargets {
-	switch (handle) {
-		case "nw":
-			return { x: "min", y: "max" };
-		case "n":
-			return { x: "none", y: "max" };
-		case "ne":
-			return { x: "max", y: "max" };
-		case "e":
-			return { x: "max", y: "none" };
-		case "se":
-			return { x: "max", y: "min" };
-		case "s":
-			return { x: "none", y: "min" };
-		case "sw":
-			return { x: "min", y: "min" };
-		case "w":
-			return { x: "min", y: "none" };
-	}
+export function getResizeSnapTargets(
+	handle: ResizeHandle,
+	flipX = false,
+	flipY = false,
+): ResizeSnapTargets {
+	const { x, y } = resizeSnapTargetsOf(handle);
+	return { x: flipX ? oppositeEdge(x) : x, y: flipY ? oppositeEdge(y) : y };
 }
 
 export function getResizeCursor(handle: ResizeHandle): string {
@@ -333,5 +238,68 @@ export function getResizeCursor(handle: ResizeHandle): string {
 			return "ew-resize";
 		default:
 			return "default";
+	}
+}
+
+/** Signed size of one axis, measured from its anchor toward the pointer. */
+function axisSize(
+	target: ResizeSnapAxisTarget,
+	world: number,
+	anchor: number,
+	dir: number,
+	centered: boolean,
+	originalSize: number,
+): number {
+	if (target === "none") return originalSize;
+	return (world - anchor) * dir * (centered ? 2 : 1);
+}
+
+/** Hold a size at the minimum, unless the edge is allowed to cross. */
+function clampSize(size: number, minSize: number, allowFlip: boolean): number {
+	return allowFlip ? size : Math.max(size, minSize);
+}
+
+function signOf(value: number): number {
+	return value < 0 ? -1 : 1;
+}
+
+/** Normalized [min, max] edge pair for one axis. */
+function axisRange(
+	center: number,
+	anchor: number,
+	dir: number,
+	size: number,
+	centered: boolean,
+): [number, number] {
+	const [a, b] = centered
+		? [center - size / 2, center + size / 2]
+		: [anchor, anchor + dir * size];
+	return [Math.min(a, b), Math.max(a, b)];
+}
+
+function oppositeEdge(target: ResizeSnapAxisTarget): ResizeSnapAxisTarget {
+	if (target === "min") return "max";
+	if (target === "max") return "min";
+	return "none";
+}
+
+function resizeSnapTargetsOf(handle: ResizeHandle): ResizeSnapTargets {
+	switch (handle) {
+		case "nw":
+			return { x: "min", y: "max" };
+		case "n":
+			return { x: "none", y: "max" };
+		case "ne":
+			return { x: "max", y: "max" };
+		case "e":
+			return { x: "max", y: "none" };
+		case "se":
+			return { x: "max", y: "min" };
+		case "s":
+			return { x: "none", y: "min" };
+		case "sw":
+			return { x: "min", y: "min" };
+		case "w":
+			return { x: "min", y: "none" };
 	}
 }

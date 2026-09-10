@@ -113,33 +113,17 @@ describe("calculateResizedBounds", () => {
 
 	describe("minimum size enforcement", () => {
 		it("prevents width from going below minSize", () => {
-			const result = calculateResizedBounds(
-				box100,
-				"e",
-				5,
-				50,
-				100,
-				50,
-				false,
-				false,
-				10,
-			);
+			const result = calculateResizedBounds(box100, "e", 5, 50, 100, 50, {
+				minSize: 10,
+			});
 			expect(result.maxX).toBe(10);
 			expect(result.width).toBe(10);
 		});
 
 		it("prevents height from going below minSize", () => {
-			const result = calculateResizedBounds(
-				box100,
-				"n",
-				50,
-				5,
-				50,
-				100,
-				false,
-				false,
-				10,
-			);
+			const result = calculateResizedBounds(box100, "n", 50, 5, 50, 100, {
+				minSize: 10,
+			});
 			expect(result.maxY).toBe(10);
 			expect(result.height).toBe(10);
 		});
@@ -154,7 +138,7 @@ describe("calculateResizedBounds", () => {
 				100,
 				250,
 				100,
-				true,
+				{ constrainAspect: true },
 			);
 			// width goes from 200 to 250, aspect = 2:1, so height = 125
 			expect(result.width).toBe(250);
@@ -164,15 +148,9 @@ describe("calculateResizedBounds", () => {
 		});
 
 		it("ne handle: horizontal dominant preserves aspect via width", () => {
-			const result = calculateResizedBounds(
-				box100,
-				"ne",
-				150,
-				105,
-				100,
-				100,
-				true,
-			);
+			const result = calculateResizedBounds(box100, "ne", 150, 105, 100, 100, {
+				constrainAspect: true,
+			});
 			// deltaX=50, deltaY=5 → horizontal dominant
 			expect(result.maxX).toBe(150);
 			expect(result.width).toBe(150);
@@ -180,18 +158,75 @@ describe("calculateResizedBounds", () => {
 		});
 	});
 
+	describe("mirroring (allowFlip=true)", () => {
+		it("w: dragging past the right edge mirrors the bounds", () => {
+			const result = calculateResizedBounds(box100, "w", 150, 50, 0, 50, {
+				allowFlip: true,
+			});
+			expect(result.flipX).toBe(true);
+			expect(result.minX).toBe(100);
+			expect(result.maxX).toBe(150);
+			expect(result.width).toBe(50);
+		});
+
+		it("w: the same drag only shrinks to minSize without allowFlip", () => {
+			const result = calculateResizedBounds(box100, "w", 150, 50, 0, 50, {
+				minSize: 10,
+			});
+			expect(result.flipX).toBe(false);
+			expect(result.minX).toBe(90);
+			expect(result.maxX).toBe(100);
+		});
+
+		it("follows the pointer through the crossing without a dead zone", () => {
+			const result = calculateResizedBounds(box100, "w", 102, 50, 0, 50, {
+				allowFlip: true,
+				minSize: 10,
+			});
+			expect(result.flipX).toBe(true);
+			expect(result.width).toBeCloseTo(2);
+		});
+
+		it("se: dragging past the opposite corner mirrors both axes", () => {
+			const result = calculateResizedBounds(box100, "se", -40, 160, 100, 0, {
+				allowFlip: true,
+			});
+			expect(result.flipX).toBe(true);
+			expect(result.flipY).toBe(true);
+			expect(result.minX).toBe(-40);
+			expect(result.maxX).toBe(0);
+			expect(result.minY).toBe(100);
+			expect(result.maxY).toBe(160);
+		});
+
+		it("keeps the aspect ratio while mirrored", () => {
+			const result = calculateResizedBounds(box100, "w", 150, 50, 0, 50, {
+				constrainAspect: true,
+				allowFlip: true,
+			});
+			expect(result.flipX).toBe(true);
+			expect(result.width).toBe(50);
+			expect(result.height).toBe(50);
+			expect((result.minY + result.maxY) / 2).toBeCloseTo(50);
+		});
+
+		it("mirrors around the center under anchorCenter", () => {
+			const result = calculateResizedBounds(box100, "w", 90, 50, 0, 50, {
+				anchorCenter: true,
+				allowFlip: true,
+			});
+			expect(result.flipX).toBe(true);
+			expect(result.minX).toBe(10);
+			expect(result.maxX).toBe(90);
+			expect((result.minX + result.maxX) / 2).toBeCloseTo(50);
+		});
+	});
+
 	describe("anchorCenter - center-anchored resize", () => {
 		it("e handle: expands symmetrically from center", () => {
-			const result = calculateResizedBounds(
-				box100,
-				"e",
-				130,
-				50,
-				100,
-				50,
-				false,
-				true,
-			);
+			const result = calculateResizedBounds(box100, "e", 130, 50, 100, 50, {
+				anchorCenter: true,
+			});
 			// Normal: maxX moves from 100 to 130, dMaxX = +30
 			// anchorCenter mirrors: minX also moves by -30
 			expect(result.maxX).toBe(130);
@@ -202,16 +237,9 @@ describe("calculateResizedBounds", () => {
 		});
 
 		it("w handle: expands symmetrically from center", () => {
-			const result = calculateResizedBounds(
-				box100,
-				"w",
-				-20,
-				50,
-				0,
-				50,
-				false,
-				true,
-			);
+			const result = calculateResizedBounds(box100, "w", -20, 50, 0, 50, {
+				anchorCenter: true,
+			});
 			// Normal: minX moves from 0 to -20, dMinX = -20
 			// anchorCenter mirrors: maxX also moves by +20
 			expect(result.minX).toBe(-20);
@@ -221,16 +249,9 @@ describe("calculateResizedBounds", () => {
 		});
 
 		it("n handle: expands symmetrically from center vertically", () => {
-			const result = calculateResizedBounds(
-				box100,
-				"n",
-				50,
-				140,
-				50,
-				100,
-				false,
-				true,
-			);
+			const result = calculateResizedBounds(box100, "n", 50, 140, 50, 100, {
+				anchorCenter: true,
+			});
 			// Normal: maxY moves from 100 to 140, dMaxY = +40
 			// anchorCenter mirrors: minY also moves by -40
 			expect(result.maxY).toBe(140);
@@ -240,16 +261,9 @@ describe("calculateResizedBounds", () => {
 		});
 
 		it("se corner: expands both axes symmetrically", () => {
-			const result = calculateResizedBounds(
-				box100,
-				"se",
-				120,
-				-10,
-				100,
-				0,
-				false,
-				true,
-			);
+			const result = calculateResizedBounds(box100, "se", 120, -10, 100, 0, {
+				anchorCenter: true,
+			});
 			// Normal: maxX 100→120 (+20), minY 0→-10 (-10)
 			// anchorCenter: minX also -20, maxY also +10
 			expect(result.maxX).toBe(120);
@@ -261,16 +275,9 @@ describe("calculateResizedBounds", () => {
 		});
 
 		it("nw corner: expands both axes symmetrically", () => {
-			const result = calculateResizedBounds(
-				box100,
-				"nw",
-				-15,
-				120,
-				0,
-				100,
-				false,
-				true,
-			);
+			const result = calculateResizedBounds(box100, "nw", -15, 120, 0, 100, {
+				anchorCenter: true,
+			});
 			// Normal: minX 0→-15 (-15), maxY 100→120 (+20)
 			// anchorCenter: maxX also +15, minY also -20
 			expect(result.minX).toBe(-15);
@@ -282,17 +289,10 @@ describe("calculateResizedBounds", () => {
 		});
 
 		it("enforces minimum size around center", () => {
-			const result = calculateResizedBounds(
-				box100,
-				"e",
-				51,
-				50,
-				100,
-				50,
-				false,
-				true,
-				10,
-			);
+			const result = calculateResizedBounds(box100, "e", 51, 50, 100, 50, {
+				anchorCenter: true,
+				minSize: 10,
+			});
 			// Normal: maxX clamps to minX + minSize = 10
 			// anchorCenter: result should be centered at 50 with minSize
 			expect(result.width).toBeGreaterThanOrEqual(10);
@@ -308,16 +308,9 @@ describe("calculateResizedBounds", () => {
 				width: 200,
 				height: 200,
 			};
-			const result = calculateResizedBounds(
-				box,
-				"e",
-				350,
-				300,
-				300,
-				300,
-				false,
-				true,
-			);
+			const result = calculateResizedBounds(box, "e", 350, 300, 300, 300, {
+				anchorCenter: true,
+			});
 			// Center at (200, 300). maxX: 300→350 (+50), mirror minX: 100→50 (-50)
 			expect(result.maxX).toBe(350);
 			expect(result.minX).toBe(50);
@@ -332,8 +325,7 @@ describe("calculateResizedBounds", () => {
 				100,
 				250,
 				100,
-				true,
-				true,
+				{ constrainAspect: true, anchorCenter: true },
 			);
 			// Center at (150, 100)
 			expect((result.minX + result.maxX) / 2).toBeCloseTo(150);

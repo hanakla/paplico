@@ -148,6 +148,7 @@ import {
 	applyWorldAffineToTransform,
 	composeTransforms,
 	computeInverseCompositionTransform,
+	mirrorTransform,
 	solveChildTransform,
 } from "./utils/geometry/geometry";
 import {
@@ -165,6 +166,7 @@ import {
 	resolveStoredTransform,
 } from "./utils/geometry/pointDeform";
 import {
+	type AxisFlip,
 	createScaleTransform,
 	scaleSegments,
 	scaleStrokeFilters,
@@ -2506,6 +2508,7 @@ export class PaplicoCommands {
 		elementIds: string[],
 		originalBounds: BoundingBox,
 		newBounds: BoundingBox,
+		flip: AxisFlip = { x: false, y: false },
 	): void {
 		if (this.cannotMutate()) return;
 
@@ -2515,7 +2518,7 @@ export class PaplicoCommands {
 		// full-document sync per element.
 		this.transact(() => {
 			for (const id of targetIds) {
-				this.applyElementResize(id, originalBounds, newBounds);
+				this.applyElementResize(id, originalBounds, newBounds, flip);
 				// updateElement syncs the store and clears stale cache entries
 				// synchronously, so recomputing here reads the resized geometry in
 				// the element's parent space — pushing the world-space selection
@@ -2550,6 +2553,7 @@ export class PaplicoCommands {
 		elementId: string,
 		originalBounds: BoundingBox,
 		newBounds: BoundingBox,
+		flip: AxisFlip,
 	): void {
 		const currentLayerId = this.ctx.store.currentLayerId;
 		if (!currentLayerId) return;
@@ -2562,16 +2566,18 @@ export class PaplicoCommands {
 		const element = this.ctx.store.document.objects[elementId];
 		if (!element) return;
 
-		const transform = createScaleTransform(originalBounds, newBounds);
+		const transform = createScaleTransform(originalBounds, newBounds, flip);
 		const { scaleX, scaleY, mapX, mapY } = transform;
-		const uniformScale = Math.sqrt(scaleX * scaleY);
+		// Sizes and radii follow the magnitude of the resize; a mirror is carried
+		// by the element transform instead of by a negative width or brush size.
+		const uniformScale = Math.sqrt(Math.abs(scaleX * scaleY));
 
 		// Common properties that apply to all element types
 		const commonUpdates: Record<string, unknown> = {};
 		const scaleFilters = this.ctx.scaleFilters;
 		if (element.filters?.length && scaleFilters) {
 			commonUpdates.filters = mapLocalAppearances(element.filters, (filters) =>
-				scaleFilters(filters, scaleX, scaleY),
+				scaleFilters(filters, Math.abs(scaleX), Math.abs(scaleY)),
 			);
 		}
 		// Stroke appearance widths for geometry-baking kinds (path, compound-path,
@@ -2602,7 +2608,7 @@ export class PaplicoCommands {
 		} else if (element.type === "compound-path") {
 			// Source paths are recursively resized.
 			for (const { id: sourceId } of element.sources) {
-				this.applyElementResize(sourceId, originalBounds, newBounds);
+				this.applyElementResize(sourceId, originalBounds, newBounds, flip);
 			}
 			this.updateElement(currentLayerId, elementId, {
 				...commonUpdates,
@@ -2629,13 +2635,14 @@ export class PaplicoCommands {
 				// (x/y) stays put, but the bounds mapping is world-space — bake the
 				// translation into the rect first (same spirit as the path branch)
 				// so resizing a moved element keeps its anchor. Rotation about the
-				// rect center commutes with this baking.
+				// rect center commutes with this baking, and so does a mirror: x/y
+				// is that center, and the renderer mirrors the pixels around it.
 				this.updateElement(currentLayerId, elementId, {
 					x: mapX(element.x + t.x),
 					y: mapY(element.y + t.y),
-					width: element.width * scaleX,
-					height: element.height * scaleY,
-					transform: { ...t, x: 0, y: 0 },
+					width: element.width * Math.abs(scaleX),
+					height: element.height * Math.abs(scaleY),
+					transform: { ...mirrorTransform(t, flip.x, flip.y), x: 0, y: 0 },
 					...commonUpdates,
 				});
 			}
@@ -2656,13 +2663,16 @@ export class PaplicoCommands {
 				});
 			} else {
 				// Same translation baking as the image/reference3d branch above.
+				// x/y is the text anchor rather than its center, so a mirror has to
+				// move it to the other side of the box.
+				const anchor = mapResizedAnchor(element, t, transform);
 				this.updateElement(currentLayerId, elementId, {
-					x: mapX(element.x + t.x),
-					y: mapY(element.y + t.y),
+					x: anchor.x,
+					y: anchor.y,
 					layout: scaleTextLayout(element.layout, transform, newBounds),
 					defaultStyle: scaleTextStyle(element.defaultStyle, uniformScale),
 					content: scaleTextContent(element.content, uniformScale),
-					transform: { ...t, x: 0, y: 0 },
+					transform: { ...mirrorTransform(t, flip.x, flip.y), x: 0, y: 0 },
 					...commonUpdates,
 				});
 			}
@@ -2670,20 +2680,21 @@ export class PaplicoCommands {
 			this.ctx.invalidateTextCache?.(elementId);
 		} else if (element.type === "group") {
 			for (const childId of element.childIds) {
-				this.applyElementResize(childId, originalBounds, newBounds);
+				this.applyElementResize(childId, originalBounds, newBounds, flip);
 			}
 		} else if (isBlend(element)) {
 			// Keys and the absorbed spine live in objects (not in any layer); resize
 			// them recursively so the whole blend scales. Intermediates recompute
 			// from the scaled keys/spine.
 			for (const keyId of element.objectIds) {
-				this.applyElementResize(keyId, originalBounds, newBounds);
+				this.applyElementResize(keyId, originalBounds, newBounds, flip);
 			}
 			if (element.spineSourceId) {
 				this.applyElementResize(
 					element.spineSourceId,
 					originalBounds,
 					newBounds,
+					flip,
 				);
 			}
 			this.updateElement(currentLayerId, elementId, {
@@ -5179,4 +5190,28 @@ function containerChildIds(
 	if (layer) return layer.elementIds;
 	const container = document.objects[containerId];
 	return container && isGroup(container) ? container.childIds : [];
+}
+
+/**
+ * Where a rect element's anchor lands under a resize. The element transform
+ * carries the mirror and the renderer applies it around the element's own
+ * center, so the center follows the resize while the anchor keeps its scaled
+ * offset from it.
+ */
+function mapResizedAnchor(
+	element: TextElement,
+	t: ElementTransform,
+	transform: ReturnType<typeof createScaleTransform>,
+): { x: number; y: number } {
+	const localBounds = calculateLocalElementBounds(element);
+	const centerX = (localBounds.minX + localBounds.maxX) / 2 + t.x;
+	const centerY = (localBounds.minY + localBounds.maxY) / 2 + t.y;
+	return {
+		x:
+			transform.mapX(centerX) +
+			(element.x + t.x - centerX) * Math.abs(transform.scaleX),
+		y:
+			transform.mapY(centerY) +
+			(element.y + t.y - centerY) * Math.abs(transform.scaleY),
+	};
 }

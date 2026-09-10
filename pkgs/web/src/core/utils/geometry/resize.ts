@@ -22,21 +22,29 @@ interface ScaleTransform {
 	mapY: (y: number) => number;
 }
 
+/** Which axes a resize mirrored, as reported by the dragged resize handle. */
+export type AxisFlip = { x: boolean; y: boolean };
+
 /**
  * Create a scale transform that maps coordinates from originalBounds to newBounds.
+ * A mirrored axis gets a negative scale and maps from the far edge, so the
+ * original min edge lands on the new max edge.
  */
 export function createScaleTransform(
 	originalBounds: BoundingBox,
 	newBounds: BoundingBox,
+	flip: AxisFlip = { x: false, y: false },
 ): ScaleTransform {
-	const scaleX = newBounds.width / originalBounds.width;
-	const scaleY = newBounds.height / originalBounds.height;
+	const scaleX = (newBounds.width / originalBounds.width) * (flip.x ? -1 : 1);
+	const scaleY = (newBounds.height / originalBounds.height) * (flip.y ? -1 : 1);
+	const baseX = flip.x ? newBounds.maxX : newBounds.minX;
+	const baseY = flip.y ? newBounds.maxY : newBounds.minY;
 
 	return {
 		scaleX,
 		scaleY,
-		mapX: (x: number) => newBounds.minX + (x - originalBounds.minX) * scaleX,
-		mapY: (y: number) => newBounds.minY + (y - originalBounds.minY) * scaleY,
+		mapX: (x: number) => baseX + (x - originalBounds.minX) * scaleX,
+		mapY: (y: number) => baseY + (y - originalBounds.minY) * scaleY,
 	};
 }
 
@@ -70,13 +78,14 @@ export function scaleTextLayout(
 	newBounds: BoundingBox,
 ): TextLayout {
 	const newLayout = { ...layout };
+	// A mirror carries a negative scale, but the box itself stays positive.
 	if (typeof newLayout.boxWidth === "number") {
-		newLayout.boxWidth = newLayout.boxWidth * transform.scaleX;
+		newLayout.boxWidth = newLayout.boxWidth * Math.abs(transform.scaleX);
 	} else {
 		newLayout.boxWidth = newBounds.width;
 	}
 	if (typeof newLayout.boxHeight === "number") {
-		newLayout.boxHeight = newLayout.boxHeight * transform.scaleY;
+		newLayout.boxHeight = newLayout.boxHeight * Math.abs(transform.scaleY);
 	} else {
 		newLayout.boxHeight = newBounds.height;
 	}

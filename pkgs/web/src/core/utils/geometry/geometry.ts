@@ -570,6 +570,27 @@ export function applyWorldAffineToTransform(
 }
 
 /**
+ * Fold an axis mirror into an element transform. A reflection does not commute
+ * with rotation or shear, so it is composed on the matrix and decomposed back
+ * rather than applied by negating the scale factors.
+ */
+export function mirrorTransform(
+	t: ElementTransform,
+	flipX: boolean,
+	flipY: boolean,
+): ElementTransform {
+	if (!flipX && !flipY) return t;
+	return linearMatrixToTransform(
+		multiplyLinearMatrix(
+			{ m00: flipX ? -1 : 1, m01: 0, m10: 0, m11: flipY ? -1 : 1 },
+			transformLinearMatrix(t),
+		),
+		t.x,
+		t.y,
+	);
+}
+
+/**
  * Forward-transform a local-space point into world space.
  * Applies SRT (scale → rotate → translate) around the given origin.
  */

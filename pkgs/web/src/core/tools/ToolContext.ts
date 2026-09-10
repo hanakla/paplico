@@ -37,6 +37,7 @@ import type {
 import type { TextGlyphQuad } from "../typography/glyphQuad";
 import type { WorldBBox } from "../utils/geometry/bounds";
 import type { WorldBezierSegment } from "../utils/geometry/geometry";
+import type { AxisFlip } from "../utils/geometry/resize";
 import type { Reference3DController } from "./Reference3DController";
 import type { TextToolController } from "./TextToolController";
 import type { BucketFillLeakState } from "./toolSettings";
@@ -76,6 +77,7 @@ export type ToolContextOptions = {
 		elementIds: string[],
 		originalBounds: WorldBBox,
 		newBounds: WorldBBox,
+		flip?: AxisFlip,
 	) => void;
 	elementsRotate: (
 		elementIds: string[],

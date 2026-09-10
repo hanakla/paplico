@@ -101,6 +101,23 @@ function makeStrokeAppearance(size: number): StrokeAppearance {
 
 // --- Tests ---
 
+describe("createScaleTransform", () => {
+	it("should map the original min edge onto the new max edge when mirrored", () => {
+		const original = makeBounds(0, 0, 100, 100);
+		const newBounds = makeBounds(200, 0, 300, 100);
+		const transform = createScaleTransform(original, newBounds, {
+			x: true,
+			y: false,
+		});
+
+		expect(transform.scaleX).toBe(-1);
+		expect(transform.scaleY).toBe(1);
+		expect(transform.mapX(0)).toBe(300);
+		expect(transform.mapX(100)).toBe(200);
+		expect(transform.mapY(0)).toBe(0);
+	});
+});
+
 describe("scaleStrokeFilters", () => {
 	it("should scale brushSettings.size of stroke filters", () => {
 		const result = scaleStrokeFilters([makeStrokeAppearance(10)], 2);

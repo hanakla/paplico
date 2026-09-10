@@ -11,6 +11,7 @@ import {
 	inverseTransformVector,
 	isInViewport,
 	linearMatrixToTransform,
+	mirrorTransform,
 	screenToWorld,
 	solveChildTransform,
 	transformLinearMatrix,
@@ -425,6 +426,37 @@ describe("inverseTransformPoint", () => {
 		const zero = { ...t, scaleX: 0 };
 		expect(inverseTransformPoint(3, 4, zero, 0, 0)).toEqual({ x: 3, y: 4 });
 		expect(inverseTransformVector(3, 4, zero)).toEqual({ x: 3, y: 4 });
+	});
+});
+
+describe("mirrorTransform", () => {
+	const origin = { x: 30, y: 20 };
+
+	it("should mirror points around the transform origin on the X axis", () => {
+		const t = { x: 0, y: 0, rotation: Math.PI / 6, scaleX: 2, scaleY: 0.5 };
+		const local = { x: 44, y: 9 };
+		const before = applyTransformToPoint(
+			local.x,
+			local.y,
+			t,
+			origin.x,
+			origin.y,
+		);
+		const after = applyTransformToPoint(
+			local.x,
+			local.y,
+			mirrorTransform(t, true, false),
+			origin.x,
+			origin.y,
+		);
+
+		expect(after.x).toBeCloseTo(2 * origin.x - before.x);
+		expect(after.y).toBeCloseTo(before.y);
+	});
+
+	it("should return the same transform when no axis is mirrored", () => {
+		const t = { x: 3, y: 4, rotation: 1, scaleX: 2, scaleY: 2 };
+		expect(mirrorTransform(t, false, false)).toBe(t);
 	});
 });
 
