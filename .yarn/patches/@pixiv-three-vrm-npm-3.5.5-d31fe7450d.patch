@@ -1,0 +1,26 @@
+diff --git a/lib/nodes/index.cjs b/lib/nodes/index.cjs
+index 353fd912ee056301f8c02832b9b4dc65194f3ec5..4f60b90f17f70e74439d144108c0e8d31dca2481 100644
+--- a/lib/nodes/index.cjs
++++ b/lib/nodes/index.cjs
+@@ -125,7 +125,7 @@ var FnCompat = (jsFunc) => {
+   if (threeRevision2 >= 168) {
+     return THREE_TSL.Fn(jsFunc);
+   } else {
+-    return THREE_WEBGPU.tslFn(jsFunc);
++    throw new Error("@pixiv/three-vrm/nodes requires three r168 or newer");
+   }
+ };
+ var linearstep = FnCompat(
+diff --git a/lib/nodes/index.module.js b/lib/nodes/index.module.js
+index 9d9c8bac8803e282570a212852df0824ba4a1e72..29b73675471492f620cda5e354b581a0506ea1a7 100644
+--- a/lib/nodes/index.module.js
++++ b/lib/nodes/index.module.js
+@@ -103,7 +103,7 @@ var FnCompat = (jsFunc) => {
+   if (threeRevision2 >= 168) {
+     return THREE_TSL.Fn(jsFunc);
+   } else {
+-    return THREE_WEBGPU.tslFn(jsFunc);
++    throw new Error("@pixiv/three-vrm/nodes requires three r168 or newer");
+   }
+ };
+ var linearstep = FnCompat(
