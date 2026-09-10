@@ -58,8 +58,7 @@ describe("lowering", () => {
 				],
 				2,
 			);
-			// 4 quarter arcs; instance 0 starts at (cx + radius, cy)
-			expect(out.length).toBe(4 * BEZIER_INSTANCE_FLOATS);
+			// The first stroke instance starts at (cx + radius, cy).
 			expect(out[0]).toBe(48.25);
 			expect(out[1]).toBe(0);
 		});
@@ -378,6 +377,125 @@ describe("lowering", () => {
 			expect(runs).toEqual([
 				{ kind: "fill", firstInstance: 0, instanceCount: 2 },
 			]);
+		});
+	});
+
+	describe("bezier stroke lowering", () => {
+		const wideArc: UIPrimitive = {
+			kind: "bezierPath",
+			stroke: { color: BLUE, width: { screen: 1 } },
+			segments: [
+				{
+					start: { x: 0, y: 0 },
+					cp1: { x: 0, y: 400 },
+					cp2: { x: 600, y: 400 },
+					end: { x: 600, y: 0 },
+				},
+			],
+		};
+
+		it("should lower a straight segment to a single line instance", () => {
+			const strokes = lower([
+				{
+					kind: "bezierPath",
+					stroke: { color: BLUE, width: { screen: 1 } },
+					segments: [straightBezier(0, 0, 5000, 0)],
+				},
+			]);
+			expect(strokes.length).toBe(BEZIER_INSTANCE_FLOATS);
+		});
+
+		it("should flatten a curved segment into more line instances as zoom grows", () => {
+			const at1 = lower([wideArc], 1).length / BEZIER_INSTANCE_FLOATS;
+			const at4 = lower([wideArc], 4).length / BEZIER_INSTANCE_FLOATS;
+			expect(at1).toBeGreaterThan(1);
+			expect(at4).toBeGreaterThan(at1);
+		});
+
+		it("should chain line pieces end to start along the original curve", () => {
+			const strokes = lower([wideArc], 4);
+			const count = strokes.length / BEZIER_INSTANCE_FLOATS;
+			expect([strokes[0], strokes[1]]).toEqual([0, 0]);
+			for (let i = 1; i < count; i++) {
+				const prev = (i - 1) * BEZIER_INSTANCE_FLOATS;
+				const cur = i * BEZIER_INSTANCE_FLOATS;
+				expect(strokes[cur]).toBeCloseTo(strokes[prev + 6]);
+				expect(strokes[cur + 1]).toBeCloseTo(strokes[prev + 7]);
+				// Every piece starts on the curve, which peaks at y = 300.
+				expect(strokes[cur + 1]).toBeLessThanOrEqual(300);
+			}
+			const last = (count - 1) * BEZIER_INSTANCE_FLOATS;
+			expect([strokes[last + 6], strokes[last + 7]]).toEqual([600, 0]);
+		});
+	});
+
+	describe("polyline joint lowering", () => {
+		const MITER = 14;
+		const F = BEZIER_INSTANCE_FLOATS;
+		const polyline = (
+			points: { x: number; y: number }[],
+			closed = false,
+		): UIPrimitive => ({
+			kind: "polyline",
+			points,
+			closed,
+			stroke: { color: BLUE, width: { screen: 1 } },
+		});
+
+		it("should share one miter vector between segments meeting at a joint", () => {
+			const out = lower([
+				polyline([
+					{ x: 0, y: 0 },
+					{ x: 10, y: 0 },
+					{ x: 10, y: 10 },
+				]),
+			]);
+			expect([out[MITER + 2], out[MITER + 3]]).toEqual([
+				out[F + MITER],
+				out[F + MITER + 1],
+			]);
+			// The miter reaches the half-width offset of both segments.
+			expect(out[MITER + 3]).toBeCloseTo(1);
+			expect(-out[F + MITER]).toBeCloseTo(1);
+		});
+
+		it("should use each segment's own normal at open ends", () => {
+			const out = lower([
+				polyline([
+					{ x: 0, y: 0 },
+					{ x: 10, y: 0 },
+				]),
+			]);
+			expect([out[MITER], out[MITER + 1]]).toEqual([0, 1]);
+			expect([out[MITER + 2], out[MITER + 3]]).toEqual([0, 1]);
+		});
+
+		it("should keep each segment's own normal past the miter limit", () => {
+			const out = lower([
+				polyline([
+					{ x: 0, y: 0 },
+					{ x: 10, y: 0 },
+					{ x: 0, y: 0.5 },
+				]),
+			]);
+			expect([out[MITER + 2], out[MITER + 3]]).toEqual([0, 1]);
+		});
+
+		it("should not emit a zero-length closing segment for a closed contour", () => {
+			const strokes = lower([
+				{
+					kind: "bezierPath",
+					closed: true,
+					stroke: { color: BLUE, width: { screen: 1 } },
+					segments: [
+						straightBezier(0, 0, 10, 0),
+						straightBezier(10, 0, 10, 10),
+						straightBezier(10, 10, 0, 10),
+						straightBezier(0, 10, 0, 0),
+					],
+				},
+			]);
+			expect(strokes.length).toBe(4 * F);
 		});
 	});
 

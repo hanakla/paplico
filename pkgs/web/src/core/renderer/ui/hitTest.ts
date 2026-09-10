@@ -1,5 +1,6 @@
 import type { Viewport } from "../../schema";
 import { screenToWorld } from "../../utils/geometry/geometry";
+import { DEVICE_CURVE_TOLERANCE_PX } from "../geometry/strips/deviceGeometry";
 import { flattenBezierContour, isPointInFillContour } from "./fillTessellation";
 import {
 	resolveScreenOffset,
@@ -228,7 +229,12 @@ function hitTestBezierPath(
 		prim.fill &&
 		prim.closed &&
 		isPointInFillContour(
-			flattenBezierContour(prim.segments, 0, 0, 0.25 / zoom),
+			flattenBezierContour(
+				prim.segments,
+				0,
+				0,
+				DEVICE_CURVE_TOLERANCE_PX / zoom,
+			),
 			x,
 			y,
 		)

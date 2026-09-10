@@ -1,3 +1,4 @@
+import { DEVICE_CURVE_TOLERANCE_PX } from "../geometry/strips/deviceGeometry";
 import {
 	type FillPoint,
 	flattenBezierContour,
@@ -21,11 +22,17 @@ import type { RGBA } from "./theme";
  * Lowering: pure functions turning UIPrimitives into ordered fill-triangle and
  * stroke-bezier instance streams.
  *
- * Instance layout (14 floats): p0(2) cp1(2) cp2(2) p1(2) color(4)
- * halfWidth0(1) halfWidth1(1).
+ * Instance layout (18 floats): p0(2) cp1(2) cp2(2) p1(2) color(4)
+ * halfWidth0(1) halfWidth1(1) miter0(2) miter1(2). A zero miter keeps the
+ * curve normal; polyline joints store a shared miter vector instead.
  */
 
-export const BEZIER_INSTANCE_FLOATS = 14;
+export const BEZIER_INSTANCE_FLOATS = 18;
+const MITER_OFFSET = 14;
+// SVG's default miter limit. Sharper joints keep each segment's own normal.
+const MITER_LIMIT = 4;
+// A miter vector (na + nb) / (1 + na·nb) has length sqrt(2 / (1 + na·nb)).
+const MIN_MITER_DENOMINATOR = 2 / MITER_LIMIT ** 2;
 export const FILL_TRIANGLE_INSTANCE_FLOATS = 11;
 
 // Cubic Bezier approximation of a quarter circle: k = 4/3 × (√2 − 1)
@@ -512,45 +519,15 @@ function lowerPolyline(
 		);
 	}
 	if (prim.stroke) {
-		const [r, g, b, a] = prim.stroke.color;
-		const hw = resolveStrokeHalfWidth(prim.stroke.width, zoom);
-		const segCount = prim.closed ? points.length : points.length - 1;
-		const off = scratch.allocStroke(segCount);
-		const d = scratch.strokes.data;
-		for (let i = 0; i < points.length - 1; i++) {
-			const p0 = points[i];
-			const p1 = points[i + 1];
-			writeLineInstance(
-				d,
-				off + i * BEZIER_INSTANCE_FLOATS,
-				p0.x + ox,
-				p0.y + oy,
-				p1.x + ox,
-				p1.y + oy,
-				r,
-				g,
-				b,
-				a,
-				hw,
-			);
-		}
-		if (prim.closed) {
-			const first = points[0];
-			const last = points.at(-1)!;
-			writeLineInstance(
-				d,
-				off + (segCount - 1) * BEZIER_INSTANCE_FLOATS,
-				last.x + ox,
-				last.y + oy,
-				first.x + ox,
-				first.y + oy,
-				r,
-				g,
-				b,
-				a,
-				hw,
-			);
-		}
+		writePolylineStroke(
+			scratch,
+			points,
+			prim.closed ?? false,
+			prim.stroke.color,
+			resolveStrokeHalfWidth(prim.stroke.width, zoom),
+			ox,
+			oy,
+		);
 	}
 }
 
@@ -561,44 +538,28 @@ function lowerBezierPath(
 	oy: number,
 	scratch: LoweringScratch,
 ): void {
-	const segments = prim.segments;
-	if (segments.length === 0) return;
+	if (prim.segments.length === 0) return;
 
-	if (prim.fill && prim.closed) {
-		writeFillContour(
-			scratch,
-			flattenBezierContour(segments, ox, oy, 0.25 / zoom),
-			prim.fill.color,
-		);
-	}
-	if (!prim.stroke) return;
-
-	const [r, g, b, a] = prim.stroke.color;
-	const hw = resolveStrokeHalfWidth(prim.stroke.width, zoom);
-	const off = scratch.allocStroke(segments.length);
-	const d = scratch.strokes.data;
-	let prevEnd: { x: number; y: number } | null = null;
-
-	for (let i = 0; i < segments.length; i++) {
-		const seg = segments[i];
-		const p0 = seg.start ?? prevEnd ?? seg.end;
-		const base = off + i * BEZIER_INSTANCE_FLOATS;
-		d[base] = p0.x + ox;
-		d[base + 1] = p0.y + oy;
-		d[base + 2] = seg.cp1.x + ox;
-		d[base + 3] = seg.cp1.y + oy;
-		d[base + 4] = seg.cp2.x + ox;
-		d[base + 5] = seg.cp2.y + oy;
-		d[base + 6] = seg.end.x + ox;
-		d[base + 7] = seg.end.y + oy;
-		d[base + 8] = r;
-		d[base + 9] = g;
-		d[base + 10] = b;
-		d[base + 11] = a;
-		d[base + 12] = hw;
-		d[base + 13] = hw;
-		prevEnd = seg.end;
-	}
+	// Flatten on the CPU with the canvas layer's device-space tolerance, so
+	// overlay outlines match document paths at every zoom.
+	lowerPolyline(
+		{
+			kind: "polyline",
+			points: flattenBezierContour(
+				prim.segments,
+				ox,
+				oy,
+				DEVICE_CURVE_TOLERANCE_PX / zoom,
+			),
+			closed: prim.closed,
+			fill: prim.closed ? prim.fill : undefined,
+			stroke: prim.stroke,
+		},
+		zoom,
+		0,
+		0,
+		scratch,
+	);
 }
 
 function lowerArc(
@@ -677,6 +638,7 @@ function lowerArc(
 		d[base + 11] = a;
 		d[base + 12] = hw;
 		d[base + 13] = hw;
+		d.fill(0, base + MITER_OFFSET, base + BEZIER_INSTANCE_FLOATS);
 	}
 }
 
@@ -880,6 +842,87 @@ function writeLineInstance(
 	data[offset + 11] = a;
 	data[offset + 12] = halfWidth;
 	data[offset + 13] = halfWidth;
+	data.fill(0, offset + MITER_OFFSET, offset + BEZIER_INSTANCE_FLOATS);
+}
+
+/**
+ * Write a polyline as line instances whose ends meet on shared miter edges,
+ * so adjacent segments leave no uncovered wedge on the outer side of a joint.
+ */
+function writePolylineStroke(
+	scratch: LoweringScratch,
+	points: ReadonlyArray<FillPoint>,
+	closed: boolean,
+	color: RGBA,
+	hw: number,
+	ox: number,
+	oy: number,
+): void {
+	const pts = points.filter(
+		(p, i) => i === 0 || p.x !== points[i - 1].x || p.y !== points[i - 1].y,
+	);
+	const last = pts.at(-1);
+	if (closed && pts.length > 2 && last?.x === pts[0].x && last.y === pts[0].y) {
+		pts.pop();
+	}
+	if (pts.length < 2) return;
+
+	const segCount = closed ? pts.length : pts.length - 1;
+	const normals = Array.from({ length: segCount }, (_, i) => {
+		const p0 = pts[i];
+		const p1 = pts[(i + 1) % pts.length];
+		const len = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+		return { x: (p0.y - p1.y) / len, y: (p1.x - p0.x) / len };
+	});
+
+	const [r, g, b, a] = color;
+	const off = scratch.allocStroke(segCount);
+	const d = scratch.strokes.data;
+	for (let i = 0; i < segCount; i++) {
+		const p0 = pts[i];
+		const p1 = pts[(i + 1) % pts.length];
+		const base = off + i * BEZIER_INSTANCE_FLOATS;
+		writeLineInstance(
+			d,
+			base,
+			p0.x + ox,
+			p0.y + oy,
+			p1.x + ox,
+			p1.y + oy,
+			r,
+			g,
+			b,
+			a,
+			hw,
+		);
+		const prev = i > 0 ? normals[i - 1] : closed ? normals.at(-1) : undefined;
+		const next =
+			i < segCount - 1 ? normals[i + 1] : closed ? normals[0] : undefined;
+		writeMiter(d, base + MITER_OFFSET, normals[i], prev);
+		writeMiter(d, base + MITER_OFFSET + 2, normals[i], next);
+	}
+}
+
+/**
+ * Offset direction at one end of a segment. The miter projects to exactly one
+ * onto both segment normals, so both neighbours reach the same edge corner.
+ */
+function writeMiter(
+	data: Float32Array,
+	offset: number,
+	own: FillPoint,
+	neighbor: FillPoint | undefined,
+): void {
+	const denominator = neighbor
+		? 1 + own.x * neighbor.x + own.y * neighbor.y
+		: 0;
+	if (!neighbor || denominator < MIN_MITER_DENOMINATOR) {
+		data[offset] = own.x;
+		data[offset + 1] = own.y;
+		return;
+	}
+	data[offset] = (own.x + neighbor.x) / denominator;
+	data[offset + 1] = (own.y + neighbor.y) / denominator;
 }
 
 /** Write 4 cubic bezier instances approximating a full ellipse with rotation. */
@@ -935,5 +978,6 @@ function writeFullEllipseInstances(
 		data[base + 11] = a;
 		data[base + 12] = halfWidth;
 		data[base + 13] = halfWidth;
+		data.fill(0, base + MITER_OFFSET, base + BEZIER_INSTANCE_FLOATS);
 	}
 }

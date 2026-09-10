@@ -329,6 +329,8 @@ export class UILayer {
 				{ shaderLocation: 5, offset: 32, format: "float32x4" }, // color
 				{ shaderLocation: 6, offset: 48, format: "float32" }, // halfWidth0
 				{ shaderLocation: 7, offset: 52, format: "float32" }, // halfWidth1
+				{ shaderLocation: 8, offset: 56, format: "float32x2" }, // miter0
+				{ shaderLocation: 9, offset: 64, format: "float32x2" }, // miter1
 			],
 		};
 		return createGeometryPipeline({

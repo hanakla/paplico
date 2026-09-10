@@ -16,11 +16,14 @@
  *   - t:    parametric position along the curve (0..1)
  *   - side: lateral offset direction (-1 or +1)
  *
- * Vertex buffer 1 (stepMode: instance): per bezier segment data (14 floats).
+ * Vertex buffer 1 (stepMode: instance): per bezier segment data (18 floats).
  *   - halfWidth0/halfWidth1 enable variable-width strokes:
  *     - Constant width (outlines): halfWidth0 == halfWidth1
  *     - Tapered fills (diamonds):  halfWidth0 != halfWidth1
  *     - Thick fills (rectangles, circles): halfWidth = shape extent
+ *   - miter0/miter1 replace the curve normal at polyline joints. Adjacent line
+ *     instances store the same miter vector at their shared vertex, so their
+ *     quads meet on one edge. A zero vector keeps the curve normal.
  *
  * All UI shapes (outlines, filled rectangles, filled circles, diamonds) are
  * represented as cubic bezier segments and rendered through this single pipeline.
@@ -50,6 +53,8 @@ struct InstanceInput {
   @location(5) color:      vec4<f32>,
   @location(6) halfWidth0: f32,       // half-width at t=0 (start)
   @location(7) halfWidth1: f32,       // half-width at t=1 (end)
+  @location(8) miter0:     vec2<f32>, // offset direction at t=0, or zero
+  @location(9) miter1:     vec2<f32>, // offset direction at t=1, or zero
 }
 
 struct VertexOutput {
@@ -112,7 +117,17 @@ fn vertexMain(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
   // (edge ±0.5px) completes before the geometry is clipped.
   let quadHwPx = coreHwPx + 1.0;
 
-  let worldPos = pos + normal * side * (quadHwPx / uniforms.zoom);
+  // A line instance (cp1 = p0, cp2 = p1) places its vertex along the chord
+  // with this weight. Blending the miters by the same weight keeps the quad's
+  // side edges straight, parallel to the chord at the stroke half-width.
+  let chordWeight = 3.0 * mt * t2 + t3;
+  let miter = mix(instance.miter0, instance.miter1, chordWeight);
+  var offsetDir = normal;
+  if (dot(miter, miter) > 0.0) {
+    offsetDir = miter;
+  }
+
+  let worldPos = pos + offsetDir * side * (quadHwPx / uniforms.zoom);
 
   let relX = (worldPos.x - uniforms.viewportX) * uniforms.zoom;
   let relY = (worldPos.y - uniforms.viewportY) * uniforms.zoom;
