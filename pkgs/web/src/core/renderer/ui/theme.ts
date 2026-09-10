@@ -43,8 +43,10 @@ export const UI_THEME = {
 	strokeWidth: {
 		/** Default stroke width for UI outlines */
 		default: 1.5,
-		/** Stroke width for selection/hover bezier path outlines */
+		/** Stroke width for selection bezier path outlines */
 		path: 2.0,
+		/** Stroke width for hover highlights, thicker so they read at a glance */
+		hover: 3.0,
 		/** Stroke width for white mesh vertex outlines */
 		meshVertexOutline: 2.5,
 		/** Stroke width for the linear-gradient axis line */

@@ -987,7 +987,7 @@ exports[`UI overlay builders > should build hover primitives from the VRT fixtur
         1,
         0.6,
       ],
-      "width": 2,
+      "width": 3,
     },
   },
   {
@@ -1019,7 +1019,7 @@ exports[`UI overlay builders > should build hover primitives from the VRT fixtur
         1,
         0.6,
       ],
-      "width": 2,
+      "width": 3,
     },
   },
 ]

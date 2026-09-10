@@ -919,6 +919,22 @@ const SortableElementItem = memo(function SortableElementItem({
 		opacity: isDragging ? 0.5 : 1,
 	};
 
+	const handlePointerEnter = useEventCallback(() => {
+		if (isDragging) return;
+		paplico.setHoveredElement(element.id);
+	});
+
+	const handlePointerLeave = useEventCallback(() => {
+		paplico.clearHoveredElement(element.id);
+	});
+
+	// A reorder drag or an unmount (deletion, list rebuild) ends the hover
+	// without a pointerleave, which would leave the highlight on canvas forever.
+	useEffect(() => {
+		if (isDragging) paplico.clearHoveredElement(element.id);
+		return () => paplico.clearHoveredElement(element.id);
+	}, [paplico, element.id, isDragging]);
+
 	const handleToggleVisibility = useEventCallback((e: React.MouseEvent) => {
 		e.stopPropagation();
 		onToggleVisibility(layerId, element.id);
@@ -990,6 +1006,8 @@ const SortableElementItem = memo(function SortableElementItem({
 						: "bg-muted/30 text-muted-foreground hover:bg-accent/20"
 				}`}
 				onClick={(e) => onSelectFromList(element, layerId, e.nativeEvent)}
+				onPointerEnter={handlePointerEnter}
+				onPointerLeave={handlePointerLeave}
 			>
 				<div className="flex items-center justify-between gap-2">
 					<div className="flex-1 truncate">

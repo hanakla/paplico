@@ -41,6 +41,7 @@ export const OVERLAY_KEYS = {
 	sysCursor: "sys/cursor",
 	sysEraser: "sys/eraser",
 	sysSelection: "sys/selection",
+	sysHoverHighlight: "sys/hover",
 	sysArtboardSelection: "sys/artboard-selection",
 	sysTextEdit: "sys/text-edit",
 	sysTextOverflow: "sys/text-overflow",

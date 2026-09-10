@@ -76,6 +76,7 @@ import { OVERLAY_KEYS, type OverlayKey } from "./renderer/ui/overlayKeys";
 import {
 	setArtboardSelectionOverlay,
 	setFontMissingOverlay,
+	setHoverOverlay,
 	setOverlayEntry,
 	setSelectionOverlay,
 	setTextOverflowOverlay,
@@ -344,6 +345,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private perspectiveGuideSourceId: string | null = null;
 	/** Cached guide data for tools (recomputed on source changes). */
 	private perspectiveGuides: PerspectiveGuideData | null = null;
+
+	/** Element highlighted from outside the canvas (layer panel row hover). */
+	private hoveredElementId: string | null = null;
 
 	private filterShortcutEvents:
 		| ((event: KeyboardEvent) => false | undefined)
@@ -1313,6 +1317,57 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.tool.refreshUI();
 		}
 		return true;
+	}
+
+	// ===== Hover highlight =====
+
+	/**
+	 * Highlight (or stop highlighting) an element from outside the canvas, such
+	 * as a hovered layer panel row. React can only read the overlay state, so
+	 * building the overlay and scheduling the frame has to happen here.
+	 */
+	public setHoveredElement(elementId: string | null): void {
+		if (this.hoveredElementId === elementId) return;
+		this.hoveredElementId = elementId;
+		this.refreshHoverUI();
+	}
+
+	/**
+	 * Drop the highlight only when it still belongs to this element, so a row
+	 * unmounting after another row took the hover does not clear the new one.
+	 */
+	public clearHoveredElement(elementId: string): void {
+		if (this.hoveredElementId !== elementId) return;
+		this.setHoveredElement(null);
+	}
+
+	/** Rebuild the "sys/hover" overlay from the hovered element. */
+	private refreshHoverUI(): void {
+		const id = this.hoveredElementId;
+		const element = id ? this.rendererStore.document.objects[id] : undefined;
+		if (!id || !element) {
+			this.hoveredElementId = null;
+			setHoverOverlay(this.rendererStore.uiOverlayState, null);
+			this.markDirty("selection");
+			return;
+		}
+
+		const outlines = collectSelectionOutlines(
+			element,
+			(oid) => this.rendererStore.document.objects[oid],
+			(oid) => this.spatialIndex.getAncestorTransform(oid),
+			(oid) => this.spatialIndex.getElementWorldSegments(oid),
+		);
+
+		// Images, text and compound paths have no outline of their own, so they
+		// fall back to their bounding box.
+		setHoverOverlay(
+			this.rendererStore.uiOverlayState,
+			outlines.length > 0
+				? { pathSegments: outlines }
+				: { bounds: this.spatialIndex.getWorldBounds(id) ?? undefined },
+		);
+		this.markDirty("selection");
 	}
 
 	// ===== Perspective ruler =====

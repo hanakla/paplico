@@ -12,7 +12,7 @@ export function buildHoverOverlay(
 		return data.pathSegments.map((segments) => ({
 			kind: "bezierPath",
 			segments,
-			stroke: { color: theme.colors.hover, width: theme.strokeWidth.path },
+			stroke: { color: theme.colors.hover, width: theme.strokeWidth.hover },
 		}));
 	}
 
@@ -26,7 +26,7 @@ export function buildHoverOverlay(
 					data.bounds.maxX,
 					data.bounds.maxY,
 				),
-				stroke: { color: theme.colors.hover, width: theme.strokeWidth.default },
+				stroke: { color: theme.colors.hover, width: theme.strokeWidth.hover },
 			},
 		];
 	}

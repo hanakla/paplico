@@ -1,6 +1,7 @@
 import { ref } from "valtio";
 import type { UIOverlayState } from "../types";
 import { buildArtboardOverlay } from "./builders/artboard";
+import { buildHoverOverlay } from "./builders/hover";
 import { buildSelectionOverlay } from "./builders/selection";
 import {
 	buildFontMissingOutlines,
@@ -11,7 +12,11 @@ import {
 import { OVERLAY_KEYS, type OverlayKey } from "./overlayKeys";
 import type { UIOverlay } from "./primitives";
 import { OVERLAY_Z, UI_THEME } from "./theme";
-import type { ArtboardSelectionUIData, SelectionUIData } from "./types";
+import type {
+	ArtboardSelectionUIData,
+	HoverUIData,
+	SelectionUIData,
+} from "./types";
 
 /**
  * Producer-side sink for the generic overlay channel
@@ -54,6 +59,23 @@ export function setSelectionOverlay(
 			? {
 					zIndex: OVERLAY_Z.selection,
 					primitives: buildSelectionOverlay(ui, UI_THEME),
+				}
+			: null,
+	);
+}
+
+/** Hover highlight for the element pointed at outside the canvas (layer panel). */
+export function setHoverOverlay(
+	uiState: UIOverlayState,
+	ui: HoverUIData | null,
+): void {
+	setOverlayEntry(
+		uiState,
+		OVERLAY_KEYS.sysHoverHighlight,
+		ui
+			? {
+					zIndex: OVERLAY_Z.hover,
+					primitives: buildHoverOverlay(ui, UI_THEME),
 				}
 			: null,
 	);
