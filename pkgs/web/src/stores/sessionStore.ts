@@ -1,6 +1,6 @@
 const RECONNECT_KEY = "paplico:reconnectInfo";
 
-interface ReconnectInfo {
+export interface ReconnectInfo {
 	roomId: string;
 	documentId: string;
 }

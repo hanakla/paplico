@@ -28,7 +28,7 @@ export interface BlurPyramidLevel {
 }
 
 /** A rectangle of texels, in a level's own pixel coordinates. */
-interface BlurPixelRect {
+export interface BlurPixelRect {
 	x: number;
 	y: number;
 	width: number;

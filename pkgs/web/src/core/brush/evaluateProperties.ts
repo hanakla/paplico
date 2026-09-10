@@ -19,7 +19,9 @@ interface BakedProperty {
 	curves: { input: BrushInputId; lut: Float32Array }[];
 }
 
-type BakedBrushProperties = Partial<Record<BrushPropertyId, BakedProperty>>;
+export type BakedBrushProperties = Partial<
+	Record<BrushPropertyId, BakedProperty>
+>;
 
 /** Bake each configured property's curves into sampling LUTs, once per stroke. */
 export function bakeBrushProperties(

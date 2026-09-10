@@ -270,7 +270,9 @@ function signedContourArea(contour: Segment[]): number {
 
 const defaultGeo = new GeometryEpsilon();
 
-function cubicSegmentsToContour(subPath: CubicBezierSegment[]): Segment[] {
+export function cubicSegmentsToContour(
+	subPath: CubicBezierSegment[],
+): Segment[] {
 	const contour: Segment[] = [];
 	const geo = defaultGeo;
 
@@ -315,7 +317,9 @@ function cubicSegmentsToContour(subPath: CubicBezierSegment[]): Segment[] {
 	return contour;
 }
 
-function contourToCubicSegments(contour: Segment[]): CubicBezierSegment[] {
+export function contourToCubicSegments(
+	contour: Segment[],
+): CubicBezierSegment[] {
 	const result: CubicBezierSegment[] = [];
 
 	// Filter out zero-length segments produced by boolean operations

@@ -24,8 +24,8 @@ export type Theme =
 export type Language = "ja" | "en";
 export type ToolbarSide = "left" | "right";
 export type PanelLayout = "together" | "split";
-type LayerPanelMode = "simple" | "detailed";
-type FilterMenuView = "category" | "list";
+export type LayerPanelMode = "simple" | "detailed";
+export type FilterMenuView = "category" | "list";
 
 interface AppConfig {
 	theme: Theme;

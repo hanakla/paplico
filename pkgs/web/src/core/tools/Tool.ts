@@ -25,7 +25,7 @@ export interface PointerEventData {
 }
 
 /** One raw input sample from PointerEvent.getCoalescedEvents(). */
-interface CoalescedPointerSample {
+export interface CoalescedPointerSample {
 	x: number; // screen coordinates
 	y: number;
 	pressure: number;

@@ -18,7 +18,7 @@ export type AppErrorCode =
 	| "ROOM_CREATE_FAILED"
 	| "PAPLICO_INIT_FAILED";
 
-interface ReportErrorOptions {
+export interface ReportErrorOptions {
 	code: AppErrorCode;
 	/** Original thrown value, forwarded to console and Sentry */
 	cause?: unknown;

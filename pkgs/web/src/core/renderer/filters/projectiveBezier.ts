@@ -25,14 +25,19 @@ export interface Point {
 }
 
 /** Projects a source-space point to its deformed position. */
-type ProjectFn = (x: number, y: number) => Point;
+export type ProjectFn = (x: number, y: number) => Point;
 
 /**
  * Extra "keep subdividing" test evaluated on the four *source* control points,
  * on top of the projected-midpoint error. Rotate3D uses it for rotated-z
  * variance; a plain homography needs none. Returns true to force a split.
  */
-type ExtraSubdivideFn = (p0: Point, p1: Point, p2: Point, p3: Point) => boolean;
+export type ExtraSubdivideFn = (
+	p0: Point,
+	p1: Point,
+	p2: Point,
+	p3: Point,
+) => boolean;
 
 const MAX_SUBDIVISION_DEPTH = 8;
 

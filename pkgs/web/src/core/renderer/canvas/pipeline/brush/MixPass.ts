@@ -5,7 +5,7 @@ import { BRUSH_MIX_SHADER } from "./shaders/brushMix.wgsl";
 /** Fixed chunk length of the mix pipeline. */
 export const MIX_CHUNK_SIZE = 64;
 
-type MixChunkArgs = {
+export type MixChunkArgs = {
 	/** DabInstanceLayout instance buffer holding the whole stroke. */
 	dabBuffer: GPUBuffer;
 	/** Absolute index of the chunk's first dab inside dabBuffer. */

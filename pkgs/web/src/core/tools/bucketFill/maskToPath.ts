@@ -34,7 +34,7 @@ import { type FillRasterSpace, rasterToWorld } from "./rasterSpace";
 
 /** Colour data to extract a sub-pixel contour from (the raster the fill ran
  *  on, its seed colour and tolerance). */
-interface SubpixelSource {
+export interface SubpixelSource {
 	imageData: ImageData;
 	seedColor: SeedColor;
 	tolerance: number;

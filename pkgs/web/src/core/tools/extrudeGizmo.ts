@@ -79,9 +79,9 @@ const ROTATE_AXES: ReadonlyArray<{
 
 /** The 3D solid processors the gizmo serves, in appearance-priority order. */
 const SOLID3D_GIZMO_PROCESSORS = ["extrude3d", "revolve3d"] as const;
-type Solid3DGizmoProcessor = (typeof SOLID3D_GIZMO_PROCESSORS)[number];
+export type Solid3DGizmoProcessor = (typeof SOLID3D_GIZMO_PROCESSORS)[number];
 
-interface Solid3DGizmoTarget {
+export interface Solid3DGizmoTarget {
 	filterIndex: number;
 	processor: Solid3DGizmoProcessor;
 	params: Solid3DBaseParams;

@@ -12,7 +12,7 @@
  */
 import { clamp } from "../../../../utils/math";
 
-interface DefRasterizerOptions {
+export interface DefRasterizerOptions {
 	/**
 	 * Optional cap on cached entries. When exceeded the least-recently-used
 	 * entry is evicted. Defaults to 32, which comfortably covers a handful of
@@ -27,14 +27,14 @@ interface DefRasterizerOptions {
 	onEvicted?: (textureUid: string) => void;
 }
 
-type DefRasterRenderFn = (
+export type DefRasterRenderFn = (
 	defId: string,
 	width: number,
 	height: number,
 ) => GPUTexture | null;
 
 /** Resolution banding mode. Each consumer picks the band that matches its use. */
-type DefResolutionMode =
+export type DefResolutionMode =
 	| {
 			/** scatter / vector brush source: long edge clamped to pow2(64..1024). */
 			kind: "scatter";

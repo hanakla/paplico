@@ -1,6 +1,6 @@
 import { compressDeflate } from "../binaryUtils";
 
-interface TiffEncodeOptions {
+export interface TiffEncodeOptions {
 	/** Pixel color model: "rgb" (3 samples/pixel) or "cmyk" (4 samples/pixel). */
 	colorModel: "rgb" | "cmyk";
 	/**

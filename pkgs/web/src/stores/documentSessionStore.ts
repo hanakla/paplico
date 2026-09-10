@@ -1,13 +1,13 @@
 import { proxy } from "valtio";
 import type { FileHandle } from "@/infra/filesystem";
 
-type DocumentSessionSource =
+export type DocumentSessionSource =
 	| { kind: "initial" }
 	| { kind: "internal"; documentId: string }
 	| { kind: "external" }
 	| { kind: "snapshot" };
 
-interface DocumentSession {
+export interface DocumentSession {
 	identity: string;
 	source: DocumentSessionSource;
 	fileHandle: FileHandle | null;

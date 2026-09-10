@@ -75,7 +75,7 @@ export type CompanionFilter = {
 	paramData: Record<string, unknown>;
 };
 
-type CompanionLanguage = "ja" | "en";
+export type CompanionLanguage = "ja" | "en";
 
 export type CompanionLayer = {
 	id: string;

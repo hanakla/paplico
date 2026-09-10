@@ -33,7 +33,7 @@ export interface Rotate3DFilter extends Appearance<Rotate3DParams> {
 	processor: "3d-rotate";
 }
 
-interface Rotate3DProjectionContext {
+export interface Rotate3DProjectionContext {
 	R: Mat3;
 	d: number;
 	cx: number;

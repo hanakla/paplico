@@ -17,7 +17,7 @@ import {
 } from "./svg/serializeElement";
 import { SvgDocumentBuilder } from "./svg/svgBuilder";
 
-interface SVGExportOptions {
+export interface SVGExportOptions {
 	/** Background rect color. Defaults to opaque white, matching PNG export. */
 	backgroundColor?: RawRGBA;
 }

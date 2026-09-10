@@ -25,7 +25,7 @@
  * 2.83 px): laid lines run at about a 1 mm pitch, chain lines every ~30 mm.
  */
 
-type PaperTypeKey =
+export type PaperTypeKey =
 	| "woodfree"
 	| "art"
 	| "coated"

@@ -7,7 +7,7 @@ export interface FillPoint {
 	y: number;
 }
 
-interface FillTriangle {
+export interface FillTriangle {
 	p0: FillPoint;
 	p1: FillPoint;
 	p2: FillPoint;

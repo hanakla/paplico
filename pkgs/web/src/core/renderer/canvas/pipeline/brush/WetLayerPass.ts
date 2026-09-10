@@ -17,7 +17,7 @@ export const WET_LAYER_ITERATIONS = 32;
  * stepping the stencil out, which splits the grid into that many independent
  * lattices and prints them as a grid of blobs.
  */
-function resolveWetBleedReach(
+export function resolveWetBleedReach(
 	bleedRadius: number,
 	brushRadiusPx: number,
 ): number {
@@ -34,7 +34,7 @@ function resolveWetBleedReach(
  * to resolve the stroke itself, so it stops where the brush would span only a
  * handful of cells and the iteration count takes over from there.
  */
-function resolveWetFieldScale(
+export function resolveWetFieldScale(
 	bleedRadius: number,
 	brushRadiusPx: number,
 ): number {
@@ -53,7 +53,7 @@ function resolveWetFieldScale(
  * without raising this is what left the top of the bleed slider inert: past
  * the cap every value resolved to the same grid and therefore the same reach.
  */
-function resolveWetIterations(reach: number, scale: number): number {
+export function resolveWetIterations(reach: number, scale: number): number {
 	const cells = reach / scale;
 	const needed = Math.ceil((cells * cells) / (2 * WET_DIFFUSION_STEP));
 	return Math.min(
@@ -70,7 +70,7 @@ function resolveWetIterations(reach: number, scale: number): number {
  * Left alone a very wet stroke buries whatever it was dragged over instead of
  * blending into it.
  */
-function resolveWetSpreadDilution(
+export function resolveWetSpreadDilution(
 	reach: number,
 	brushRadiusPx: number,
 ): number {
@@ -114,7 +114,7 @@ export interface WetLayerSeedTextures {
 	edgeRoughness: GPUTexture;
 }
 
-interface WetLayerApplyParams {
+export interface WetLayerApplyParams {
 	seeds: WetLayerSeedTextures;
 	/** Simulation domain size in texels. */
 	domain: { width: number; height: number };

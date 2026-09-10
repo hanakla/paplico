@@ -24,7 +24,7 @@ export interface LeakPoint {
 	gapWidthWorld: number;
 }
 
-interface LeakResult {
+export interface LeakResult {
 	leaks: LeakPoint[];
 	/** True when nothing meaningfully encloses the seed (e.g. a click on a
 	 *  blank area) — "leak location" is not a useful concept there. */
@@ -50,7 +50,7 @@ const CHAMFER_DIAG = 4;
  * ~3 × pixel. Barrier pixels get 0; a raster with no barrier stays at
  * CHAMFER_INF everywhere.
  */
-function chamferDistanceTransform(
+export function chamferDistanceTransform(
 	fillable: Uint8Array,
 	width: number,
 	height: number,

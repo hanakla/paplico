@@ -7,7 +7,7 @@ export interface NotificationAction {
 	onClick: () => void;
 }
 
-interface BannerEntry {
+export interface BannerEntry {
 	/** Stable identity used for upsert / resolve (the reported error code) */
 	key: AppErrorCode;
 	titleKey: LocalizeKeys;
@@ -15,7 +15,7 @@ interface BannerEntry {
 	action?: NotificationAction;
 }
 
-interface FatalErrorState {
+export interface FatalErrorState {
 	code: AppErrorCode;
 	titleKey: LocalizeKeys;
 	descriptionKey?: LocalizeKeys;

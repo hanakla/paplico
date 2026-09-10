@@ -56,7 +56,7 @@ export interface ClipGroupEntry {
  * partial opacity survive into the mask's luminance — this is what gives
  * object masks their soft edges.
  */
-type MaskRenderMode = "silhouette" | "appearance";
+export type MaskRenderMode = "silhouette" | "appearance";
 
 /** One mask to pre-render this frame. */
 export interface MaskRenderRequest {
@@ -142,7 +142,7 @@ interface ClipMaskAtlasDeps extends GPUCoreResources {
 // Implementation
 // ---------------------------------------------------------------------------
 
-interface MaskCoverage {
+export interface MaskCoverage {
 	logicalWidth: number;
 	logicalHeight: number;
 	effectiveZoom: number;

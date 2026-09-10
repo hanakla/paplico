@@ -22,7 +22,7 @@ export interface IKRigData {
 	bones: IKRigBone[];
 }
 
-type IKConstraint =
+export type IKConstraint =
 	| {
 			type: "hinge";
 			/** Rotation axis in the bone's local (= world-aligned rest) space. */
@@ -44,7 +44,7 @@ export interface RootTransform {
 	rotation: Quat;
 }
 
-interface WorldJoint {
+export interface WorldJoint {
 	position: Vec3;
 	rotation: Quat;
 }
@@ -370,7 +370,7 @@ export function rotateVec3(q: Quat, v: Vec3): Vec3 {
 	return addVec3(v, t);
 }
 
-function addVec3(a: Vec3, b: Vec3): Vec3 {
+export function addVec3(a: Vec3, b: Vec3): Vec3 {
 	return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 }
 
@@ -378,11 +378,11 @@ export function subVec3(a: Vec3, b: Vec3): Vec3 {
 	return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 }
 
-function scaleVec3(a: Vec3, s: number): Vec3 {
+export function scaleVec3(a: Vec3, s: number): Vec3 {
 	return [a[0] * s, a[1] * s, a[2] * s];
 }
 
-function crossVec3(a: Vec3, b: Vec3): Vec3 {
+export function crossVec3(a: Vec3, b: Vec3): Vec3 {
 	return [
 		a[1] * b[2] - a[2] * b[1],
 		a[2] * b[0] - a[0] * b[2],
@@ -390,7 +390,7 @@ function crossVec3(a: Vec3, b: Vec3): Vec3 {
 	];
 }
 
-function lengthVec3(a: Vec3): number {
+export function lengthVec3(a: Vec3): number {
 	return Math.hypot(a[0], a[1], a[2]);
 }
 

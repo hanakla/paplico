@@ -155,7 +155,7 @@ export class TextToolController {
 		this.syncTextEditUI();
 	}
 
-	private toggleCursorBlink(): void {
+	public toggleCursorBlink(): void {
 		this.state.cursorVisible = !this.state.cursorVisible;
 		this.syncTextEditUI();
 	}

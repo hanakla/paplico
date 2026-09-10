@@ -40,7 +40,7 @@ import {
 	solveChildTransform,
 } from "../utils/geometry/geometry";
 
-interface MaskEditSession {
+export interface MaskEditSession {
 	/** Element whose mask is being edited. */
 	readonly ownerId: string;
 	/** Layer lending the mask content a place the tools can reach. */
@@ -49,7 +49,7 @@ interface MaskEditSession {
 	readonly ownerWorldTransform: ElementTransform;
 }
 
-interface PaplicoMaskEditOptions {
+export interface PaplicoMaskEditOptions {
 	store: RendererState;
 	yjsProvider: YjsProvider;
 	/** The element's transform with every ancestor composed in. */

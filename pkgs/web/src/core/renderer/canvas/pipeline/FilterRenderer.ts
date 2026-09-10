@@ -115,7 +115,7 @@ export interface FilterGeometryContext {
  * the complete element region, so filter shaders need not account for
  * viewport clipping or canvas-size clamping.
  */
-interface FilterCoordinateSpace {
+export interface FilterCoordinateSpace {
 	worldSize: { width: number; height: number };
 	sourceOffset: { x: number; y: number };
 }
@@ -246,7 +246,7 @@ export interface UnderlayResult {
  * Extended context for backdrop filters (like FrostGlass)
  * These filters need access to what's already been rendered
  */
-interface BackdropFilterProcessorContext extends FilterProcessorContext {
+export interface BackdropFilterProcessorContext extends FilterProcessorContext {
 	/** Texture containing the current canvas content (backdrop) */
 	backdropTexture: GPUTexture;
 	/** The mask texture defining where the effect should be applied */
@@ -660,22 +660,22 @@ export interface FilterHandler {
  * where "does this appearance deform its geometry?" and "does this appearance
  * have any sub-filter at all?" quietly drift apart.
  */
-type FilterKind = "geometry" | "raster";
+export type FilterKind = "geometry" | "raster";
 
 /** Deforms the path before rasterization (zigzag, path-offset, …). */
-type GeometryFilterHandler = FilterHandler & {
+export type GeometryFilterHandler = FilterHandler & {
 	preProcess: NonNullable<FilterHandler["preProcess"]>;
 	postProcess?: never;
 };
 
 /** Post-processes the rasterized texture (blur, drop-shadow, …). */
-type RasterFilterHandler = FilterHandler & {
+export type RasterFilterHandler = FilterHandler & {
 	preProcess?: never;
 	postProcess: NonNullable<FilterHandler["postProcess"]>;
 };
 
 /** Neither — the appearance processors (fill / stroke / content). */
-type PassiveFilterHandler = FilterHandler & {
+export type PassiveFilterHandler = FilterHandler & {
 	preProcess?: never;
 	postProcess?: never;
 };

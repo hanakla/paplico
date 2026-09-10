@@ -570,7 +570,7 @@ export const TRANSIENT_LAYER_KIND = {
 	MASK_EDIT: "mask-edit",
 } as const;
 
-type TransientLayerKind =
+export type TransientLayerKind =
 	(typeof TRANSIENT_LAYER_KIND)[keyof typeof TRANSIENT_LAYER_KIND];
 
 /**
@@ -878,7 +878,7 @@ export interface Material3D {
 }
 
 /** Rounded bevel applied to the extrusion cap edges. */
-interface ExtrudeBevel {
+export interface ExtrudeBevel {
 	/** Bevel radius in world units (clamped to half the depth at render time). */
 	size: number;
 }
@@ -1420,7 +1420,7 @@ export interface TextOnPathBinding extends TextAxisBindingBase {
 }
 
 /** Flowing text inside a closed path (area text) */
-interface TextInShapeBinding extends TextAxisBindingBase {
+export interface TextInShapeBinding extends TextAxisBindingBase {
 	mode: "inShape";
 	/** Inset from the inner edge of the shape (px) */
 	inset?: number;
@@ -1428,7 +1428,7 @@ interface TextInShapeBinding extends TextAxisBindingBase {
 
 export type TextAxisBinding = TextOnPathBinding | TextInShapeBinding;
 
-interface TextFlow {
+export interface TextFlow {
 	/** ID of the TextElement that overflowing text flows into */
 	nextTextElementId?: string;
 }

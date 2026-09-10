@@ -981,7 +981,7 @@ export class Reference3DTool implements Tool {
 	}
 
 	/** Apply a built-in preset pose to the figure being posed (one undo step). */
-	private applyPresetPose(presetIndex: number): void {
+	public applyPresetPose(presetIndex: number): void {
 		const controller = this.context.reference3dController;
 		const state = this.getEditState();
 		const nodeId = controller?.getPoseNodeId();
@@ -2012,7 +2012,7 @@ export function getCameraOrbitAngles(camera: Reference3DCamera): {
 }
 
 /** Set the camera-to-target distance to an absolute value, clamped to sane range. For ActionsPanel and the camera UI overlay. */
-function setCameraDistance(
+export function setCameraDistance(
 	camera: Reference3DCamera,
 	distance: number,
 ): Reference3DCamera {
@@ -2025,7 +2025,7 @@ function setCameraDistance(
 }
 
 /** Set the camera's orbit angles around the target to absolute values (see getCameraOrbitAngles). For ActionsPanel. */
-function setCameraOrbitAngles(
+export function setCameraOrbitAngles(
 	camera: Reference3DCamera,
 	yawDeg: number,
 	pitchDeg: number,

@@ -6,7 +6,7 @@ export const BRUSH_WIDTH_STEP = 0.1;
 // --- Mixed value sentinel ---
 
 export const MIXED = Symbol("mixed");
-type MaybeM<T> = T | typeof MIXED;
+export type MaybeM<T> = T | typeof MIXED;
 
 /** Aggregate value from multiple elements. Returns the value if all match, MIXED otherwise */
 export function resolveValue<E, V>(

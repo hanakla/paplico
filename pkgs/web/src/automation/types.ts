@@ -13,7 +13,7 @@ export type AutomationDiagnostic = {
 	column?: number;
 };
 
-type AutomationRunResult = {
+export type AutomationRunResult = {
 	diagnostics: AutomationDiagnostic[];
 };
 

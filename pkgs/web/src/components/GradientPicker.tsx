@@ -110,7 +110,7 @@ function createDefaultStops(baseColor: RGBColor): ColorStop[] {
 	];
 }
 
-function createDefaultMeshGradient(baseColor: RGBColor): MeshGradient {
+export function createDefaultMeshGradient(baseColor: RGBColor): MeshGradient {
 	const white = rgbToHSVColor(1, 1, 1, 1);
 	const mid = rgbToHSVColor(
 		baseColor.r * 0.5 + 0.5,

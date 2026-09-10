@@ -8,7 +8,7 @@ export interface SvgNode {
 	text?: string;
 }
 
-type SvgDefIdPrefix = "grad" | "pat" | "clip" | "mask" | "filter";
+export type SvgDefIdPrefix = "grad" | "pat" | "clip" | "mask" | "filter";
 
 /**
  * Assembles an SVG document: collects defs with deterministic id allocation,

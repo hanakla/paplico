@@ -1,12 +1,12 @@
 import type { CubicBezierSegment, Point } from "../../schema";
 import { resolveSegment } from "../../utils/geometry/segmentOps";
 
-type FlattenCubicBezierOptions = {
+export type FlattenCubicBezierOptions = {
 	curveTolerance?: number;
 	maxDepth?: number;
 };
 
-type FlattenBezierPathOptions = FlattenCubicBezierOptions & {
+export type FlattenBezierPathOptions = FlattenCubicBezierOptions & {
 	/** Subtract this offset from all output points (applied after curve resolution). */
 	worldOffset?: Point;
 };

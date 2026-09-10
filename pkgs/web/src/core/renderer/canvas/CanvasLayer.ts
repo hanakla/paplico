@@ -7000,7 +7000,7 @@ export class CanvasLayer {
 	 * pattern case. Uses the pattern-band resolution policy (tile world size ×
 	 * target scale, clamped 64..2048).
 	 */
-	private preRenderPatternDefs(
+	public preRenderPatternDefs(
 		encoder: GPUCommandEncoder,
 		patternDefIdsInUse: ReadonlySet<string>,
 	): void {
@@ -7256,7 +7256,7 @@ export class CanvasLayer {
 	 * resolved yet (still missing renderer wiring for off-canvas viewport
 	 * pushes; the production path is wired up by the pattern feature).
 	 */
-	private renderDefToTexture(
+	public renderDefToTexture(
 		encoder: GPUCommandEncoder,
 		defId: string,
 		width: number,

@@ -11,7 +11,7 @@ import {
 } from "../schema";
 import { composeTransforms } from "../utils/geometry/geometry";
 
-type EditablePath = {
+export type EditablePath = {
 	path: Path;
 	ancestorTransform: ElementTransform | null;
 };

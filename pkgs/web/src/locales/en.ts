@@ -274,7 +274,6 @@ export const en = {
 		distributeHorizontal: "Distribute Horizontally",
 		distributeVertical: "Distribute Vertically",
 		createClipGroup: "Create Clip Group",
-		convertToClipObject: "Convert to Clip Object",
 		outlineText: "Outline Text",
 		charAngle: "Angle",
 		charSkewX: "Skew X",

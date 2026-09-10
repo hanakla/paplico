@@ -65,7 +65,7 @@ export interface MeshPassParams {
 	patternOpacity?: number;
 }
 
-interface MeshPassPbr {
+export interface MeshPassPbr {
 	/** Analytic-env reflection sharpness (0 = mirror, 1 = flat). */
 	roughness: number;
 	/** 0 = dielectric, 1 = metal. */
@@ -76,7 +76,7 @@ interface MeshPassPbr {
 	glass: number;
 }
 
-interface MeshPassFresnel {
+export interface MeshPassFresnel {
 	/** Rim color (rgb; alpha is ignored — presence is the enable). */
 	color: [number, number, number];
 	bias: number;

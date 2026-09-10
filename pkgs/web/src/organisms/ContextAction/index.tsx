@@ -136,7 +136,6 @@ function ContextActionsOverlayInner({
 		selectedElements.length === 1 && !selectedElements[0].mask
 			? selectedElements[0].id
 			: null;
-	const singleSelectedId = hasSingleSelection ? selectedIds[0] : null;
 
 	const handleDelete = useEventCallback(() => {
 		if (hasArtboardSelection) {
@@ -286,7 +285,6 @@ function ContextActionsOverlayInner({
 					selectedIds={selectedIds}
 					hasTextInSelection={hasTextInSelection}
 					maskTargetId={maskTargetId}
-					singleSelectedId={singleSelectedId}
 					meshWarpIdsInSelection={meshWarpIdsInSelection}
 				/>
 			)}

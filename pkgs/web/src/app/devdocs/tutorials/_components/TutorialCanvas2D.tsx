@@ -16,7 +16,7 @@ export type AABB = {
 	max: Vec2;
 };
 
-type DrawOpts = {
+export type DrawOpts = {
 	color?: string;
 	width?: number;
 };

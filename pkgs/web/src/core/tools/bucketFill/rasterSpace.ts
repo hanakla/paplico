@@ -60,7 +60,7 @@ export function rasterToWorld(
 // --- Expanding-window helpers ---
 
 /** Raster-edge contact of a fill mask (raster top = world +Y). */
-interface TouchedEdges {
+export interface TouchedEdges {
 	left: boolean;
 	right: boolean;
 	top: boolean;

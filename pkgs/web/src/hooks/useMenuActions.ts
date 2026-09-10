@@ -14,7 +14,7 @@ import {
 import { codeFromError, reportError } from "@/utils/errorReporting";
 import { useEventCallback } from "@/utils/hooks";
 
-type MenuActions = {
+export type MenuActions = {
 	handleUndo: () => void;
 	handleRedo: () => void;
 	handleCopy: () => void;

@@ -124,7 +124,7 @@ export function buildFiberVertices(input: FiberPlanInput): Float32Array {
 }
 
 /** Deterministic PRNG ported verbatim from the original plugin. */
-class SeededRandom {
+export class SeededRandom {
 	private seed: number;
 
 	public constructor(seed: number) {

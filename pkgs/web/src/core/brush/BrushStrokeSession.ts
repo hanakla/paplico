@@ -4,13 +4,13 @@ import {
 	type SmoothingMethod,
 } from "../utils/geometry/strokeFitting";
 
-interface BrushStrokeSessionOptions {
+export interface BrushStrokeSessionOptions {
 	stabilization: number;
 	zoom: number;
 	smoothingMethod?: SmoothingMethod;
 }
 
-type BrushStrokeSessionOutcome = "active" | "committed" | "aborted";
+export type BrushStrokeSessionOutcome = "active" | "committed" | "aborted";
 
 /**
  * Live-stroke state holder. Owns the raw point record and the

@@ -10,6 +10,7 @@ import {
 	Scope,
 	type SourceFile,
 	SyntaxKind,
+	ts,
 } from "ts-morph";
 
 const __dir = import.meta.dirname ?? dirname(fileURLToPath(import.meta.url));
@@ -56,6 +57,13 @@ function hasIgnoreComment(node: {
 		.some((c) => c.getText().includes(IGNORE_COMMENT));
 }
 
+function canUnexport(node: {
+	isExported(): boolean;
+	isDefaultExport(): boolean;
+}): boolean {
+	return node.isExported() && !node.isDefaultExport();
+}
+
 function isContractMember(cls: ClassDeclaration, name: string): boolean {
 	for (const impl of cls.getImplements()) {
 		try {
@@ -72,6 +80,74 @@ function isContractMember(cls: ClassDeclaration, name: string): boolean {
 
 type Usage = "unused" | "private-only" | "used";
 type PropertyAccessIndex = Map<string, Set<string>>;
+
+type ReferenceSite = { file: string; classStart: number };
+/** Maps a declaration node to every identifier in the project that resolves to it. */
+type ReferenceIndex = Map<ts.Node, ReferenceSite[]>;
+
+/**
+ * Resolves every identifier once through the type checker so that usage
+ * can be decided without a per-symbol findReferences() project walk.
+ * It only ever proves that a reference exists; it never proves absence,
+ * so callers fall back to findReferences() when it reports nothing useful.
+ */
+function buildReferenceIndex(
+	project: Project,
+	files: SourceFile[],
+): ReferenceIndex {
+	const checker = project.getTypeChecker().compilerObject;
+	const index: ReferenceIndex = new Map();
+
+	for (const sf of files) {
+		const file = sf.getFilePath();
+		const classStack: number[] = [];
+
+		const visit = (node: ts.Node) => {
+			const isClass = ts.isClassDeclaration(node);
+			if (isClass) classStack.push(node.getStart());
+
+			if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) {
+				const site = { file, classStart: classStack.at(-1) ?? -1 };
+				for (const decl of resolveDeclarations(checker, node)) {
+					if ((decl as { name?: ts.Node }).name === node) continue;
+					const sites = index.get(decl);
+					if (sites) sites.push(site);
+					else index.set(decl, [site]);
+				}
+			}
+
+			ts.forEachChild(node, visit);
+			if (isClass) classStack.pop();
+		};
+		visit(sf.compilerNode);
+	}
+
+	return index;
+}
+
+function resolveDeclarations(
+	checker: ts.TypeChecker,
+	node: ts.Identifier | ts.PrivateIdentifier,
+): readonly ts.Declaration[] {
+	let symbol =
+		ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node
+			? checker.getShorthandAssignmentValueSymbol(node.parent)
+			: checker.getSymbolAtLocation(node);
+	if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+		symbol = checker.getAliasedSymbol(symbol);
+	}
+	return symbol?.getDeclarations() ?? [];
+}
+
+function indexedUsage(
+	index: ReferenceIndex,
+	decl: ts.Node,
+	isExternal: (site: ReferenceSite) => boolean,
+): Usage {
+	const sites = index.get(decl);
+	if (!sites) return "unused";
+	return sites.some(isExternal) ? "used" : "private-only";
+}
 
 function buildPropertyAccessIndex(files: SourceFile[]): PropertyAccessIndex {
 	const index: PropertyAccessIndex = new Map();
@@ -125,11 +201,29 @@ function hasExternalPropertyAccess(
 	return false;
 }
 
-function analyzeUsage(node: {
-	findReferences(): ReferencedSymbol[];
-	getSourceFile(): { getFilePath(): string };
-}): Usage {
+/**
+ * privateOnlyIsFinal: the caller reacts to "unused" only, so an index hit
+ * inside the declaring file already settles the verdict.
+ */
+function analyzeUsage(
+	node: {
+		compilerNode: ts.Node;
+		findReferences(): ReferencedSymbol[];
+		getSourceFile(): { getFilePath(): string };
+	},
+	index: ReferenceIndex,
+	privateOnlyIsFinal: boolean,
+): Usage {
 	const declFile = node.getSourceFile().getFilePath();
+
+	const indexed = indexedUsage(
+		index,
+		node.compilerNode,
+		(site) => site.file !== declFile,
+	);
+	if (indexed === "used") return "used";
+	if (indexed === "private-only" && privateOnlyIsFinal) return "private-only";
+
 	let hasAnyRef = false;
 	let allRefsLocal = true;
 
@@ -152,10 +246,24 @@ function analyzeUsage(node: {
 
 function analyzeMemberUsage(
 	node: {
+		compilerNode: ts.Node;
 		findReferences(): ReferencedSymbol[];
 	},
 	owningClass: ClassDeclaration,
+	index: ReferenceIndex,
+	privateOnlyIsFinal: boolean,
 ): Usage {
+	const classFile = owningClass.getSourceFile().getFilePath();
+	const classStart = owningClass.getStart();
+
+	const indexed = indexedUsage(
+		index,
+		node.compilerNode,
+		(site) => site.file !== classFile || site.classStart !== classStart,
+	);
+	if (indexed === "used") return "used";
+	if (indexed === "private-only" && privateOnlyIsFinal) return "private-only";
+
 	let hasAnyRef = false;
 	let allRefsInsideOwningClass = true;
 
@@ -205,14 +313,13 @@ async function main() {
 		tsConfigFilePath: `${PROJECT}/tsconfig.json`,
 	});
 
-	const files = project
+	const projectFiles = project
 		.getSourceFiles()
-		.filter(
-			(sf) =>
-				sf.getFilePath().startsWith(`${PROJECT}/`) &&
-				!shouldSkipFile(sf.getFilePath()),
-		);
+		.filter((sf) => sf.getFilePath().startsWith(`${PROJECT}/`));
+	const files = projectFiles.filter((sf) => !shouldSkipFile(sf.getFilePath()));
 	const propertyAccessIndex = buildPropertyAccessIndex(files);
+	// Skipped files still reference the lint targets, so index all of them.
+	const referenceIndex = buildReferenceIndex(project, projectFiles);
 
 	const result: Record<string, string[]> = {};
 	const originalSources = new Map<string, string>();
@@ -236,7 +343,7 @@ async function main() {
 		for (const iface of sf.getInterfaces()) {
 			if (hasIgnoreComment(iface)) continue;
 
-			const usage = analyzeUsage(iface);
+			const usage = analyzeUsage(iface, referenceIndex, !canUnexport(iface));
 			if (usage === "unused") {
 				if (APPLY_MODE) {
 					rememberOriginal(sf);
@@ -247,11 +354,7 @@ async function main() {
 				entries.push(
 					`[unused] interface ${iface.getName()}: L${iface.getStartLineNumber()}`,
 				);
-			} else if (
-				usage === "private-only" &&
-				iface.isExported() &&
-				!iface.isDefaultExport()
-			) {
+			} else if (usage === "private-only" && canUnexport(iface)) {
 				if (APPLY_MODE) {
 					rememberOriginal(sf);
 					iface.setIsExported(false);
@@ -268,7 +371,7 @@ async function main() {
 		for (const ta of sf.getTypeAliases()) {
 			if (hasIgnoreComment(ta)) continue;
 
-			const usage = analyzeUsage(ta);
+			const usage = analyzeUsage(ta, referenceIndex, !canUnexport(ta));
 			if (usage === "unused") {
 				if (APPLY_MODE) {
 					rememberOriginal(sf);
@@ -279,11 +382,7 @@ async function main() {
 				entries.push(
 					`[unused] type ${ta.getName()}: L${ta.getStartLineNumber()}`,
 				);
-			} else if (
-				usage === "private-only" &&
-				ta.isExported() &&
-				!ta.isDefaultExport()
-			) {
+			} else if (usage === "private-only" && canUnexport(ta)) {
 				if (APPLY_MODE) {
 					rememberOriginal(sf);
 					ta.setIsExported(false);
@@ -301,7 +400,7 @@ async function main() {
 			if (hasIgnoreComment(cls)) continue;
 
 			const className = cls.getName() ?? "(anonymous)";
-			const clsUsage = analyzeUsage(cls);
+			const clsUsage = analyzeUsage(cls, referenceIndex, !canUnexport(cls));
 
 			if (clsUsage === "unused") {
 				if (APPLY_MODE) {
@@ -316,11 +415,7 @@ async function main() {
 				continue;
 			}
 
-			if (
-				clsUsage === "private-only" &&
-				cls.isExported() &&
-				!cls.isDefaultExport()
-			) {
+			if (clsUsage === "private-only" && canUnexport(cls)) {
 				if (APPLY_MODE) {
 					rememberOriginal(sf);
 					cls.setIsExported(false);
@@ -346,12 +441,17 @@ async function main() {
 				if (SKIP_NAMES.has(name)) continue;
 				if (isContractMember(cls, name)) continue;
 
-				const usage = analyzeMemberUsage(member, cls);
-				if (usage === "used") continue;
-
 				const scope = name.startsWith("#")
 					? "private"
 					: (member.getScope() ?? "public");
+				const usage = analyzeMemberUsage(
+					member,
+					cls,
+					referenceIndex,
+					scope === "private",
+				);
+				if (usage === "used") continue;
+
 				if (
 					scope !== "private" &&
 					hasExternalPropertyAccess(propertyAccessIndex, name, sf.getFilePath())
@@ -390,7 +490,7 @@ async function main() {
 			if (hasIgnoreComment(fn)) continue;
 			const name = fn.getName();
 			if (!name) continue;
-			const usage = analyzeUsage(fn);
+			const usage = analyzeUsage(fn, referenceIndex, !canUnexport(fn));
 			if (usage === "unused") {
 				if (APPLY_MODE) {
 					rememberOriginal(sf);
@@ -399,11 +499,7 @@ async function main() {
 					continue;
 				}
 				entries.push(`[unused] function ${name}: L${fn.getStartLineNumber()}`);
-			} else if (
-				usage === "private-only" &&
-				fn.isExported() &&
-				!fn.isDefaultExport()
-			) {
+			} else if (usage === "private-only" && canUnexport(fn)) {
 				if (APPLY_MODE) {
 					rememberOriginal(sf);
 					fn.setIsExported(false);

@@ -2,7 +2,7 @@ import type { JsColorEngineModule, JscProfile } from "jscolorengine";
 import { buildLutGridRgb, packRgbToRgba } from "./softProofLut";
 import type { RenderingIntent, SoftProofLutResult } from "./types";
 
-interface BuildSoftProofLutOptions {
+export interface BuildSoftProofLutOptions {
 	displaySpace: "srgb" | "display-p3";
 	proofProfileBytes: Uint8Array;
 	intent: RenderingIntent;
@@ -12,7 +12,7 @@ interface BuildSoftProofLutOptions {
 	displayProfileBytes: Uint8Array;
 }
 
-interface ConvertImageToCmykOptions {
+export interface ConvertImageToCmykOptions {
 	srcSpace: "srgb" | "display-p3";
 	profileBytes: Uint8Array;
 	intent: RenderingIntent;
@@ -20,7 +20,7 @@ interface ConvertImageToCmykOptions {
 	srcProfileBytes: Uint8Array;
 }
 
-interface ConvertImageRgbToRgbOptions {
+export interface ConvertImageRgbToRgbOptions {
 	srcProfileBytes: Uint8Array;
 	dstProfileBytes: Uint8Array;
 	intent: RenderingIntent;
