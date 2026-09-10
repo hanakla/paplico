@@ -20,9 +20,9 @@
 
 import { type InviteTarget, parseInvite } from "./inviteUrl";
 
-export type SessionCodeKind = "room" | "companion";
+type SessionCodeKind = "room" | "companion";
 
-export type SessionCode = InviteTarget & {
+type SessionCode = InviteTarget & {
 	kind: SessionCodeKind;
 	/** Codes are useless without the key, so this one is not optional. */
 	encodedKey: string;

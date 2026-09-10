@@ -7,7 +7,7 @@ import type { Quat, Vec3, VRMPoseData } from "../../schema";
  */
 
 /** three-vrm VRMPose shape (structural — no runtime three-vrm import). */
-export type ThreeVrmPoseLike = Record<
+type ThreeVrmPoseLike = Record<
 	string,
 	{
 		rotation?: [number, number, number, number];

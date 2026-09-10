@@ -8,7 +8,7 @@
  * credit is owed but no license text applies.
  */
 
-export interface ThirdPartyLicense {
+interface ThirdPartyLicense {
 	name: string;
 	/** Short license label, SPDX identifier where one exists. */
 	license: string;
@@ -19,7 +19,7 @@ export interface ThirdPartyLicense {
 	body: string;
 }
 
-export interface AlgorithmReference {
+interface AlgorithmReference {
 	name: string;
 	license: string;
 	url: string;

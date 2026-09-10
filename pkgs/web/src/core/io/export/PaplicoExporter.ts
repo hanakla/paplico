@@ -209,7 +209,7 @@ export class PaplicoExporter {
 	 * Transparent pixels are composited over the background color
 	 * because JPEG has no alpha channel.
 	 */
-	public async renderArtboardToJPEG(
+	private async renderArtboardToJPEG(
 		artboardId: string,
 		options: ExportOptions & { quality?: number } = {},
 	): Promise<ExportResult | null> {
@@ -293,7 +293,7 @@ export class PaplicoExporter {
 	/**
 	 * Export an artboard to AVIF HDR blob without downloading.
 	 */
-	public async renderArtboardToAvifHdr(
+	private async renderArtboardToAvifHdr(
 		artboardId: string,
 		options: ExportOptions = {},
 	): Promise<ExportResult | null> {

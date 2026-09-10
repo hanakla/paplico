@@ -18,7 +18,7 @@ import {
  * and selection state from the selected-variant fill colors.
  */
 
-export interface RestoredControlPoint {
+interface RestoredControlPoint {
 	type: ControlPointHandle["type"];
 	pathId: string;
 	segmentIndex: number;

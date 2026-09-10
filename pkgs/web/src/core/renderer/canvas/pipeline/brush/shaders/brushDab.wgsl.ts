@@ -67,7 +67,7 @@ export const WET_SEED_TARGETS: readonly GPUColorTargetState[] = [
 export const DAB_TIP_MODES = ["procedural", "image", "imageArray"] as const;
 export type DabTipMode = (typeof DAB_TIP_MODES)[number];
 
-export interface BrushDabShaderOptions {
+interface BrushDabShaderOptions {
 	tipMode: DabTipMode;
 	/** Emit the wet layer's seed MRT (fs_wet) alongside the normal fragment
 	 *  entry point. Only the wet route builds a pipeline against it. */

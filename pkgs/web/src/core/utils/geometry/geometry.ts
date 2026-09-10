@@ -281,7 +281,7 @@ export function computeTransformOrigin(localBounds: LocalBBox): {
 }
 
 /** Row-major 2×2 linear part of an element transform: [[m00 m01],[m10 m11]]. */
-export interface LinearMatrix2x2 {
+interface LinearMatrix2x2 {
 	m00: number;
 	m01: number;
 	m10: number;

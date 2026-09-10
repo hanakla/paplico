@@ -20,7 +20,7 @@ export type MockToolContext = {
 		: ToolContextOptions[K];
 } & ToolContext & { mockCommands: MockCommands };
 
-export type MockCommands = {
+type MockCommands = {
 	deleteElements: Mock;
 	addPaths: Mock;
 	addPathsToGroup: Mock;

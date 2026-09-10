@@ -151,7 +151,7 @@ export interface YjsProviderCallbacks {
  * onUndoStackMetaPopped so the owner can restore it. Add keys here as more
  * commands need undo-time restoration.
  */
-export interface UndoStackMeta {
+interface UndoStackMeta {
 	/** Path-edit anchor handle keys destroyed by a vertex deletion. */
 	pathEditSelection?: string[];
 }
@@ -2607,7 +2607,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
  * extractDocumentFromYDoc, and the single description of how a Document is
  * laid out in Yjs — YjsProvider populates through here too.
  */
-export function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
+function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 	const yObjects = ydoc.getMap<Y.Map<unknown>>("objects");
 	for (const [id, obj] of Object.entries(doc.objects)) {
 		yObjects.set(
@@ -2687,7 +2687,7 @@ export function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 	yMeta.set("units", doc.units);
 }
 
-export function defEntryToYMap(entry: DefEntry): Y.Map<unknown> {
+function defEntryToYMap(entry: DefEntry): Y.Map<unknown> {
 	const yMap = new Y.Map<unknown>();
 	yMap.set("id", entry.id);
 	yMap.set("kind", entry.kind);
@@ -2699,7 +2699,7 @@ export function defEntryToYMap(entry: DefEntry): Y.Map<unknown> {
 	return yMap;
 }
 
-export function reference3DDefToYMap(def: Reference3DDef): Y.Map<unknown> {
+function reference3DDefToYMap(def: Reference3DDef): Y.Map<unknown> {
 	const yMap = new Y.Map<unknown>();
 	yMap.set("id", def.id);
 	if (def.name !== undefined) yMap.set("name", def.name);

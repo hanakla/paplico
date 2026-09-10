@@ -202,7 +202,7 @@ export function hitTestRotationHandle(
 	return dx * dx + dy * dy <= hitRadius * hitRadius;
 }
 
-export type ResizeSnapAxisTarget = "none" | "min" | "max";
+type ResizeSnapAxisTarget = "none" | "min" | "max";
 
 export type ResizeSnapTargets = {
 	x: ResizeSnapAxisTarget;

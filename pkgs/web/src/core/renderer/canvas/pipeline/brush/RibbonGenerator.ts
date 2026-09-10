@@ -30,7 +30,7 @@ import { resolveTaper, taperFactor } from "../../../geometry/taper";
  * - "stretch" (art brush): map the texture exactly once along the path;
  *   U = arcPos / totalArcLength, clamped to [0,1].
  */
-export type RibbonUvMode = "repeat" | "stretch";
+type RibbonUvMode = "repeat" | "stretch";
 
 export interface RibbonOptions {
 	uvMode: RibbonUvMode;
@@ -78,7 +78,7 @@ export const DEFAULT_RIBBON_OPTIONS: RibbonOptions = {
  */
 export const RIBBON_FLOATS_PER_INSTANCE = 28;
 
-export interface RibbonBuffer {
+interface RibbonBuffer {
 	data: Float32Array;
 	segmentCount: number;
 	totalArcLength: number;

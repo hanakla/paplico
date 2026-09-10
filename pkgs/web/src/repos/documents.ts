@@ -23,7 +23,7 @@ export interface DocumentsFileIO {
 	): Promise<FileHandle | null>;
 }
 
-export interface DocumentsRepo extends DocumentsFileIO {
+interface DocumentsRepo extends DocumentsFileIO {
 	list(): Promise<DocumentMeta[]>;
 	load(id: string): Promise<DocumentData | null>;
 	create(name: string): Promise<string>;

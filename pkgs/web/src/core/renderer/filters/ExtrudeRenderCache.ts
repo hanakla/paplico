@@ -22,7 +22,7 @@ import {
  * so the hash's "combined vs plain" branch never diverges from what the
  * outline/albedo actually render.
  */
-export interface PaintHashContext {
+interface PaintHashContext {
 	resolvePatternTexture: (defId: string) => { revision: number } | null;
 	resolveTextOutline: (element: TextElement) => unknown | null;
 	isImageReady: (fileUid: string) => boolean;
@@ -57,7 +57,7 @@ export function hashRenderParams(
  * filters with enabled !== false). Used directly for path/text/compound-path/
  * image leaves, and for a "compound object" group's own combined appearances.
  */
-export function hashLeafPaintContent(
+function hashLeafPaintContent(
 	filters: readonly Filter[] | undefined,
 	resolvePatternTexture: PaintHashContext["resolvePatternTexture"],
 ): string {
@@ -84,7 +84,7 @@ export function hashLeafPaintContent(
 
 /** blend: each key hashed recursively (a key can itself be any element type,
  *  including a nested group). */
-export function hashBlendPaintContent(
+function hashBlendPaintContent(
 	blend: BlendObject,
 	elementsMap: Map<string, AnyArtObject>,
 	ctx: PaintHashContext,
@@ -115,7 +115,7 @@ export function hashBlendPaintContent(
  *    accepted (low probability, low blast radius: some other change to the
  *    scene typically invalidates the cache regardless).
  */
-export function hashGroupPaintContent(
+function hashGroupPaintContent(
 	group: Group,
 	elementsMap: Map<string, AnyArtObject>,
 	ctx: PaintHashContext,

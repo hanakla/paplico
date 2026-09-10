@@ -111,6 +111,7 @@ import {
 	type TextElement,
 	type Vec2,
 } from "./schema";
+import { generateRectangleSegments } from "./tools/ShapeTool";
 import type { ToolSettings } from "./tools/toolSettings";
 import type { TextRenderer } from "./typography/TextRenderer";
 import { splitTextContentAt } from "./typography/textContent";
@@ -184,11 +185,11 @@ import { parseSvgToArtObjects, type SvgImportResult } from "./utils/svgImport";
  * rejection ("different-parent": sources span multiple layers/groups) from a
  * silent no-op precondition ("invalid": locked, or fewer than two paths).
  */
-export type CreateBlendResult =
+type CreateBlendResult =
 	| { ok: true; blendId: string }
 	| { ok: false; reason: "invalid" | "different-parent" };
 
-export interface CommandContext {
+interface CommandContext {
 	store: RendererState;
 	yjsProvider: YjsProvider;
 	spatial: SpatialIndex;
@@ -956,7 +957,7 @@ export class PaplicoCommands {
 
 	// --- Group Operations ---
 
-	public addSvgImport(result: SvgImportResult): string[] {
+	private addSvgImport(result: SvgImportResult): string[] {
 		if (this.cannotMutate()) return [];
 		if (!this.ctx.store.currentLayerId || result.topLevelIds.length === 0)
 			return [];
@@ -1076,7 +1077,7 @@ export class PaplicoCommands {
 	 * Replace a text element with a group containing outlined paths.
 	 * Delegates the atomic Yjs mutation to YjsProvider.
 	 */
-	public outlineTextElement(
+	private outlineTextElement(
 		layerId: string,
 		textElementId: string,
 		paths: Path[],
@@ -1761,6 +1762,92 @@ export class PaplicoCommands {
 		this.setClipPathForGroup(groupId, topmostId);
 		this.ctx.store.selectedElementIds = [groupId];
 
+		return groupId;
+	}
+
+	/**
+	 * Convert a single element into a clip group: a new rectangle inherits the
+	 * element's appearance and sits sized to its bounds, while the original
+	 * element becomes the clip path that defines the visible shape. This
+	 * decouples "what paints" from "what shape it's cut to".
+	 */
+	public convertToClipObject(elementId: string): string | null {
+		if (this.cannotMutate() || this.isElementLocked(elementId)) return null;
+		const layerId = this.ctx.store.currentLayerId;
+		if (!layerId) return null;
+
+		const element = this.ctx.store.document.objects[elementId];
+		if (!element) return null;
+
+		const elementsMap = new Map(
+			Object.entries(this.ctx.store.document.objects),
+		);
+		const bounds = calculateElementBounds(element, elementsMap);
+		if (bounds.width <= 0 || bounds.height <= 0) return null;
+
+		const rect: Path = {
+			type: "path",
+			id: `path-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+			transform: createIdentityTransform(),
+			opacity: element.opacity,
+			blendMode: element.blendMode,
+			segments: generateRectangleSegments(
+				{ x: bounds.minX, y: bounds.minY },
+				{ x: bounds.maxX, y: bounds.maxY },
+			),
+			filters: deepClone(element.filters ?? []),
+		};
+
+		const editingScopeId = this.ctx.store.editingScopeStack.at(-1);
+		let groupId: string | null = null;
+
+		if (editingScopeId) {
+			const parentGroup = this.ctx.store.document.objects[editingScopeId];
+			if (!parentGroup || !isGroup(parentGroup)) return null;
+			const index = parentGroup.childIds.indexOf(elementId);
+			if (index === -1) return null;
+
+			this.ctx.yjsProvider.transact(() => {
+				this.ctx.yjsProvider.addObjectOnly(rect, this.getMutationOrigin());
+				this.ctx.yjsProvider.addElementToGroup(
+					layerId,
+					editingScopeId,
+					rect.id,
+					this.getMutationOrigin(),
+					index,
+				);
+				groupId = this.ctx.yjsProvider.groupElementsInGroup(
+					editingScopeId,
+					[rect.id, elementId],
+					this.getMutationOrigin(),
+				);
+				if (groupId) this.setClipPathForGroup(groupId, elementId);
+			}, this.getMutationOrigin());
+		} else {
+			const layer = this.ctx.store.document.layers.find(
+				(l) => l.id === layerId,
+			);
+			if (!layer) return null;
+			const index = layer.elementIds.indexOf(elementId);
+			if (index === -1) return null;
+
+			this.ctx.yjsProvider.transact(() => {
+				this.ctx.yjsProvider.addElement(
+					layerId,
+					rect,
+					this.getMutationOrigin(),
+					index,
+				);
+				groupId = this.ctx.yjsProvider.groupElements(
+					layerId,
+					[rect.id, elementId],
+					this.getMutationOrigin(),
+				);
+				if (groupId) this.setClipPathForGroup(groupId, elementId);
+			}, this.getMutationOrigin());
+		}
+
+		if (groupId) this.ctx.store.selectedElementIds = [groupId];
 		return groupId;
 	}
 
@@ -4795,7 +4882,7 @@ export class PaplicoCommands {
 		return node;
 	}
 
-	public splitPath(
+	private splitPath(
 		layerId: string,
 		pathId: string,
 		segmentIndex: number,

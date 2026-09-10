@@ -23,12 +23,15 @@ export function MoreActionsMenu({
 	selectedIds,
 	hasTextInSelection,
 	maskTargetId,
+	singleSelectedId,
 	meshWarpIdsInSelection,
 }: {
 	selectedIds: readonly string[];
 	hasTextInSelection: boolean;
 	/** The lone selected element that has no mask yet, or null. */
 	maskTargetId: string | null;
+	/** The lone selected element, or null when the selection isn't exactly one element. */
+	singleSelectedId: string | null;
 	/** Selected mesh warp container ids (release targets). */
 	meshWarpIdsInSelection: readonly string[];
 }) {
@@ -38,6 +41,11 @@ export function MoreActionsMenu({
 
 	const handleCreateClipGroup = useEventCallback(() => {
 		commands.createClipGroupFromTopmost();
+	});
+
+	const handleConvertToClipObject = useEventCallback(() => {
+		if (!singleSelectedId) return;
+		commands.convertToClipObject(singleSelectedId);
 	});
 
 	const handleOutlineText = useEventCallback(() => {
@@ -136,6 +144,15 @@ export function MoreActionsMenu({
 			<Menu.Portal>
 				<Menu.Positioner side="bottom" align="end" sideOffset={4}>
 					<Menu.Popup>
+						{singleSelectedId && (
+							<>
+								<Menu.Item onClick={handleConvertToClipObject}>
+									<Crop size={14} />
+									{t("contextActions.convertToClipObject")}
+								</Menu.Item>
+								<Menu.Separator />
+							</>
+						)}
 						{selectedIds.length >= 2 && (
 							<>
 								<Menu.Item onClick={handleCreateClipGroup}>

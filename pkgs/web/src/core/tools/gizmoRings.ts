@@ -13,7 +13,7 @@ export type GizmoProjectFn = (point: Vec3) => { x: number; y: number } | null;
 export const GIZMO_RING_SEGMENTS = 32;
 
 /** Right-handed orthonormal basis of the plane perpendicular to `axis`. */
-export function ringBasis(axis: Vec3): { u: Vec3; v: Vec3 } {
+function ringBasis(axis: Vec3): { u: Vec3; v: Vec3 } {
 	const ref: Vec3 = Math.abs(axis[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0];
 	const u = normalize3(cross3(axis, ref));
 	return { u, v: cross3(axis, u) };

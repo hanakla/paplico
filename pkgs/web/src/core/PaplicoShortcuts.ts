@@ -415,7 +415,7 @@ export const CODE_DISPLAY_MAP: Record<string, string> = {
 	PageDown: "PgDn",
 };
 
-export function codeToDisplayName(code: string): string {
+function codeToDisplayName(code: string): string {
 	if (CODE_DISPLAY_MAP[code]) return CODE_DISPLAY_MAP[code];
 	if (code.startsWith("Key")) return code.slice(3);
 	if (code.startsWith("Digit")) return code.slice(5);

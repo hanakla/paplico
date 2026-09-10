@@ -12,14 +12,14 @@ import { screenToWorld } from "../utils/geometry/geometry";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
-export interface EyedropperPickData {
+interface EyedropperPickData {
 	strokeAppearance: StrokeAppearance | null;
 	fillAppearance: FillAppearance | null;
 	/** Solid color picked from empty area (artboard bg or black) */
 	pickedColor?: ExtractedAppearance["pickedColor"];
 }
 
-export interface EyedropperToolCallbacks {
+interface EyedropperToolCallbacks {
 	/** Pick appearance from target and apply to selected elements */
 	onPickForSelection: (target: AnyArtObject, selectedIds: string[]) => void;
 	/** Apply picked appearance to tool settings */

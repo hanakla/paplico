@@ -54,7 +54,7 @@ export function computeRepeatInstances(
 const GRID_MAX_PER_AXIS = 200;
 
 /** Row / column count that fills `size` at `spacing` (at least 1). */
-export function gridCountForSize(size: number, spacing: number): number {
+function gridCountForSize(size: number, spacing: number): number {
 	if (spacing <= 0) return 1;
 	return Math.min(
 		GRID_MAX_PER_AXIS,

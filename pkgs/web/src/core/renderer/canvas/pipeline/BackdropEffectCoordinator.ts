@@ -81,7 +81,7 @@ export interface BackdropEffectSample {
 	backdropRemap: readonly [number, number, number, number];
 }
 
-export interface BackdropCoordinatorStats {
+interface BackdropCoordinatorStats {
 	frameLocalFallbacks: number;
 	frameLocalCaptures: number;
 	pyramidBuilds: number;
@@ -90,7 +90,7 @@ export interface BackdropCoordinatorStats {
 
 export const FULL_PYRAMID_REBUILD_THRESHOLD = 0.5;
 
-export interface PyramidDirtyUpdate {
+interface PyramidDirtyUpdate {
 	sharp: BackdropPixelRect[];
 	levels: Array<{
 		horizontal: BackdropPixelRect[];
@@ -849,7 +849,7 @@ function makeBlurSampler(
 }
 
 /** Prebuf-space UV rect for world bounds (world Y up flips to V down). */
-export function worldBoundsToPrebufUV(
+function worldBoundsToPrebufUV(
 	bounds: BoundingBox,
 	viewport: Pick<Viewport, "x" | "y" | "zoom">,
 	canvasWidth: number,

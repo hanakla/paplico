@@ -80,6 +80,114 @@ describe("PaplicoCommands", () => {
 		});
 	});
 
+	describe("convertToClipObject", () => {
+		it("inserts a rectangle sharing the element's appearance, groups them, and clips to the original element", () => {
+			const path = createPath("orig");
+			path.filters = [
+				{
+					uid: "fill-1",
+					processor: "fill",
+					opacity: 1,
+					blendMode: "normal",
+					paramData: { version: "1", params: {} },
+				} as unknown as FilterEntry,
+			];
+			const layer = createLayer("layer-1", [path.id]);
+			const addElement = vi.fn<YjsProvider["addElement"]>();
+			const groupElements = vi.fn<YjsProvider["groupElements"]>(
+				() => "group-1",
+			);
+			const setClipPath = vi.fn<YjsProvider["setClipPath"]>();
+			const updateElement = vi.fn<YjsProvider["updateElement"]>();
+			const store = {
+				currentLayerId: layer.id,
+				selectedElementIds: [path.id],
+				editingScopeStack: [],
+				document: {
+					layers: [layer],
+					objects: { [path.id]: path },
+				},
+			} as unknown as RendererState;
+			const commands = new PaplicoCommands({
+				store,
+				yjsProvider: {
+					addElement,
+					groupElements,
+					setClipPath,
+					updateElement,
+					transact: vi.fn((fn: () => void) => fn()),
+					isAnimationUndoMode: vi.fn(() => false),
+				} as unknown as YjsProvider,
+				spatial: { isElementLocked: () => false } as unknown as SpatialIndex,
+				isReadonly: () => false,
+			});
+
+			expect(commands.convertToClipObject(path.id)).toBe("group-1");
+
+			// The rectangle is inserted right before the original element.
+			expect(addElement.mock.calls[0][0]).toBe(layer.id);
+			const rect = addElement.mock.calls[0][1] as Path;
+			expect(rect.type).toBe("path");
+			expect(rect.filters).toEqual(path.filters);
+			expect(addElement.mock.calls[0][3]).toBe(0);
+
+			// The two are grouped with the original on top, and it becomes the clip path.
+			expect(groupElements.mock.calls[0][1]).toEqual([rect.id, path.id]);
+			expect(setClipPath.mock.calls[0][2]).toBe(path.id);
+			expect(updateElement.mock.calls[0][1]).toBe(path.id);
+			expect(updateElement.mock.calls[0][2]).toEqual({ filters: [] });
+		});
+
+		it("groups inside the active editing scope instead of the layer root", () => {
+			const path = createPath("orig");
+			const parentGroup = createGroup("scope-1", [path.id]);
+			const layer = createLayer("layer-1", [parentGroup.id]);
+			const addObjectOnly = vi.fn<YjsProvider["addObjectOnly"]>();
+			const addElementToGroup = vi.fn<YjsProvider["addElementToGroup"]>();
+			const groupElementsInGroup = vi.fn<YjsProvider["groupElementsInGroup"]>(
+				() => "group-2",
+			);
+			const setClipPath = vi.fn<YjsProvider["setClipPath"]>();
+			const updateElement = vi.fn<YjsProvider["updateElement"]>();
+			const store = {
+				currentLayerId: layer.id,
+				selectedElementIds: [path.id],
+				editingScopeStack: [parentGroup.id],
+				document: {
+					layers: [layer],
+					objects: { [path.id]: path, [parentGroup.id]: parentGroup },
+				},
+			} as unknown as RendererState;
+			const commands = new PaplicoCommands({
+				store,
+				yjsProvider: {
+					addObjectOnly,
+					addElementToGroup,
+					groupElementsInGroup,
+					setClipPath,
+					updateElement,
+					transact: vi.fn((fn: () => void) => fn()),
+					isAnimationUndoMode: vi.fn(() => false),
+				} as unknown as YjsProvider,
+				spatial: { isElementLocked: () => false } as unknown as SpatialIndex,
+				isReadonly: () => false,
+			});
+
+			expect(commands.convertToClipObject(path.id)).toBe("group-2");
+
+			const rect = addObjectOnly.mock.calls[0][0] as Path;
+			expect(addElementToGroup.mock.calls[0]).toEqual([
+				layer.id,
+				parentGroup.id,
+				rect.id,
+				undefined,
+				0,
+			]);
+			expect(groupElementsInGroup.mock.calls[0][1]).toEqual([rect.id, path.id]);
+			expect(setClipPath.mock.calls[0][2]).toBe(path.id);
+		});
+	});
+
 	it("copy/paste keeps cp offsets while translating only anchors", () => {
 		const sourcePath = createPath("path-1");
 		const layer = createLayer("layer-1", [sourcePath.id]);

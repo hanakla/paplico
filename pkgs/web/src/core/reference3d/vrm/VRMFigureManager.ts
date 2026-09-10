@@ -12,7 +12,7 @@ import type { Vec3 } from "../../schema";
 import type { IKRigBone, IKRigData } from "./ikSolver";
 
 /** Parses VRM bytes into a model. Injectable for loader-free unit tests. */
-export type VrmParser = (bytes: Uint8Array) => Promise<VRM | null>;
+type VrmParser = (bytes: Uint8Array) => Promise<VRM | null>;
 
 interface FigureEntry {
 	fileUid: string;

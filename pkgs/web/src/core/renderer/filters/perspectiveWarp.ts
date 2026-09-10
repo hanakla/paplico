@@ -15,7 +15,7 @@ import type { BoundingBox } from "../../schema";
 import type { Point } from "./projectiveBezier";
 
 /** Row-major 3x3 homography [ h0 h1 h2 ; h3 h4 h5 ; h6 h7 h8 ]. */
-export type Homography = [
+type Homography = [
 	number,
 	number,
 	number,

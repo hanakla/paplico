@@ -160,7 +160,7 @@ export const RenderStrategy = {
 export type RenderStrategy = keyof typeof RenderStrategy;
 
 /** Per-call overrides for the offscreen export render path. */
-export interface ExportRenderOptions {
+interface ExportRenderOptions {
 	/** Draw through this target so the caller keeps its own cache scope. */
 	targetId?: string;
 }

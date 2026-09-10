@@ -17,7 +17,7 @@ export interface WorldAffine {
 }
 
 /** SVG `matrix(a b c d e f)` coefficients: (x, y) → (a·x + c·y + e, b·x + d·y + f). */
-export interface SvgMatrix {
+interface SvgMatrix {
 	a: number;
 	b: number;
 	c: number;

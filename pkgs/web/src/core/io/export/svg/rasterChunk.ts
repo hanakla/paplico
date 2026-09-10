@@ -11,7 +11,7 @@ interface ExportBounds {
 }
 
 /** The two RenderOrchestrator methods a raster chunk render needs. */
-export interface RasterChunkRenderer {
+interface RasterChunkRenderer {
 	computeElementsExportBounds(
 		elementIds: readonly string[],
 		document: Document,

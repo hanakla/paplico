@@ -6,16 +6,13 @@
  */
 import { lerp } from "../math";
 
-export type Vec2 = [number, number];
+type Vec2 = [number, number];
 
-export function lerpVec2(a: Vec2, b: Vec2, t: number): Vec2 {
+function lerpVec2(a: Vec2, b: Vec2, t: number): Vec2 {
 	return [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];
 }
 
-export function boundingBoxesIntersect(
-	bbox1: [Vec2, Vec2],
-	bbox2: [Vec2, Vec2],
-) {
+function boundingBoxesIntersect(bbox1: [Vec2, Vec2], bbox2: [Vec2, Vec2]) {
 	const [b1min, b1max] = bbox1;
 	const [b2min, b2max] = bbox2;
 	return !(
@@ -41,7 +38,7 @@ abstract class Geometry {
 }
 
 export class GeometryEpsilon extends Geometry {
-	public readonly epsilon: number;
+	private readonly epsilon: number;
 
 	public constructor(epsilon = 0.0000000001) {
 		super();
@@ -177,8 +174,8 @@ interface SegmentTRangePairs {
 }
 
 class SegmentTValuesBuilder {
-	public tValues: number[] = [];
-	public geo: Geometry;
+	private tValues: number[] = [];
+	private geo: Geometry;
 
 	public constructor(geo: Geometry) {
 		this.geo = geo;
@@ -214,9 +211,9 @@ class SegmentTValuesBuilder {
 }
 
 class SegmentTValuePairsBuilder {
-	public tValuePairs: Vec2[] = [];
-	public allowOutOfRange: boolean;
-	public geo: Geometry;
+	private tValuePairs: Vec2[] = [];
+	private allowOutOfRange: boolean;
+	private geo: Geometry;
 
 	public constructor(allowOutOfRange: boolean, geo: Geometry) {
 		this.allowOutOfRange = allowOutOfRange;
@@ -500,7 +497,7 @@ export class SegmentCurve extends SegmentBase<SegmentCurve> {
 		];
 	}
 
-	public boundingTValues() {
+	private boundingTValues() {
 		const result = new SegmentTValuesBuilder(this.geo);
 		const bounds = (x0: number, x1: number, x2: number, x3: number) => {
 			const a = 3 * x3 - 9 * x2 + 9 * x1 - 3 * x0;
@@ -1078,7 +1075,7 @@ class Intersecter {
 		this.geo = geo;
 	}
 
-	public compareEvents(
+	private compareEvents(
 		aStart: boolean,
 		a1: Vec2,
 		a2: Vec2,
@@ -1112,7 +1109,7 @@ class Intersecter {
 		return this.compareSegments(bSeg, aSeg);
 	}
 
-	public addEvent(ev: EventBool) {
+	private addEvent(ev: EventBool) {
 		this.events.insertBefore(ev, (here: EventBool) => {
 			if (here === ev) {
 				return 0;
@@ -1130,7 +1127,7 @@ class Intersecter {
 		});
 	}
 
-	public divideEvent(ev: EventBool, t: number, p: Vec2) {
+	private divideEvent(ev: EventBool, t: number, p: Vec2) {
 		const [left, right] = ev.seg.data.split([t]) as [Segment, Segment];
 
 		// set the *exact* intersection point
@@ -1216,7 +1213,7 @@ class Intersecter {
 		}
 	}
 
-	public compareSegments(seg1: Segment, seg2: Segment): number {
+	private compareSegments(seg1: Segment, seg2: Segment): number {
 		// TODO:
 		//  This is where some of the curve instability comes from... we need to reliably sort
 		//  segments, but this is surprisingly hard when it comes to curves.
@@ -1300,7 +1297,7 @@ class Intersecter {
 		return Math.sign((Bx - Ax) * (Cy - Ay) - (By - Ay) * (Cx - Ax));
 	}
 
-	public statusFindSurrounding(ev: EventBool) {
+	private statusFindSurrounding(ev: EventBool) {
 		return this.status.findTransition(ev, (here: EventBool) => {
 			if (ev === here) {
 				return 0;
@@ -1310,7 +1307,7 @@ class Intersecter {
 		});
 	}
 
-	public checkIntersection(ev1: EventBool, ev2: EventBool): EventBool | null {
+	private checkIntersection(ev1: EventBool, ev2: EventBool): EventBool | null {
 		// returns the segment equal to ev1, or null if nothing equal
 		const seg1 = ev1.seg;
 		const seg2 = ev2.seg;

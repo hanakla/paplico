@@ -29,7 +29,7 @@ import type { BrushPropertyId, BrushSettings } from "../schema";
 import { clamp, clamp01 } from "../utils/math";
 import { BRUSH_PROPERTY_REGISTRY } from "./properties";
 
-export type WetMacroKey = "bleed" | "dryness" | "paper";
+type WetMacroKey = "bleed" | "dryness" | "paper";
 
 /** Apply a macro value (clamped to [0,1]) onto the base values it owns. */
 export function applyWetMacro(

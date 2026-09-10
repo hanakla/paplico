@@ -3,7 +3,7 @@ import type { TextElement } from "../schema";
 import type { LoadedFont } from "../typography/fonts/FontLoader";
 import type { FontManager } from "../typography/fonts/FontManager";
 
-export function createMockFont(): LoadedFont {
+function createMockFont(): LoadedFont {
 	return {
 		metadata: {
 			family: "Mock Sans",

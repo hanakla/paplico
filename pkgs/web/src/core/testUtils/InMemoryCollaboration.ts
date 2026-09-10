@@ -100,7 +100,7 @@ export class InMemoryRoom {
 
 // ---- InMemoryCollaboration ----
 
-export interface InMemoryCollaborationConfig {
+interface InMemoryCollaborationConfig {
 	room: InMemoryRoom;
 	user?: { name?: string; color?: string };
 	isOwner?: boolean;

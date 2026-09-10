@@ -1,7 +1,7 @@
 import type { BuiltinIccProfileId } from "@/core/color/types";
 
 /** Metadata for an ICC profile bundled under /assets/icc/. */
-export interface BuiltinIccProfileInfo {
+interface BuiltinIccProfileInfo {
 	id: BuiltinIccProfileId;
 	fileName: string;
 	/**

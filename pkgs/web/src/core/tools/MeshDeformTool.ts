@@ -786,7 +786,7 @@ interface MeshEdge {
 	y2: number;
 }
 
-export interface TriangleMesh {
+interface TriangleMesh {
 	vertices: MeshVertex[];
 	triangles: MeshTriangle[];
 }
@@ -797,7 +797,7 @@ export interface TriangleMesh {
  * バウンディングボックスを cols x rows のグリッドに分割し、
  * 各セルを2つの三角形に分割した三角形メッシュを生成する。
  */
-export function createTriangleMesh(
+function createTriangleMesh(
 	bounds: {
 		minX: number;
 		minY: number;
@@ -852,7 +852,7 @@ export function createTriangleMesh(
  * 三角形メッシュからユニークなエッジ（頂点インデックスペア）を抽出する。
  * 各エッジは共有する三角形の数に関係なく1回だけ含まれる。
  */
-export function getUniqueEdges(mesh: TriangleMesh): Array<[number, number]> {
+function getUniqueEdges(mesh: TriangleMesh): Array<[number, number]> {
 	const seen = new Set<string>();
 	const edges: Array<[number, number]> = [];
 
@@ -868,7 +868,7 @@ export function getUniqueEdges(mesh: TriangleMesh): Array<[number, number]> {
 /**
  * 頂点インデックスペアのエッジ配列を、現在の頂点座標を使った座標ペアに変換する。
  */
-export function buildEdgeLines(
+function buildEdgeLines(
 	mesh: TriangleMesh,
 	edges: Array<[number, number]>,
 ): MeshEdge[] {
@@ -912,7 +912,7 @@ interface RBFHandle {
 	readonly currentY: number;
 }
 
-export class RBFDeformer {
+class RBFDeformer {
 	public readonly isIdentity: boolean;
 
 	private readonly originX: Float64Array;

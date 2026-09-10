@@ -8,7 +8,7 @@ import type { RenderOrchestrator } from "../../renderer/RenderOrchestrator";
 import type { Document, RawRGBA } from "../../schema";
 import { encodeTiff } from "./tiffWriter";
 
-export interface TIFFExportOptions {
+interface TIFFExportOptions {
 	/** Scale factor (1 = 100%, 2 = 200% / @2x) */
 	scale?: number;
 	/** Background color (default: white) */

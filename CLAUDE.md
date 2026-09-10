@@ -530,6 +530,8 @@ pkgs/web/
     ├── infra/             # App-level platform-dependent infrastructure: native fs/dialog/path access, IndexedDB (documents, brush presets), Supabase, OS-installed resource enumeration (e.g. system ICC profiles). Tauri-vs-browser impls split via `.tauri.ts`/`.web.ts` suffixes or dynamic import. core/ business logic (color, renderer, tools, …) must NOT enumerate/read files itself — it receives bytes from here
     ├── locales/           # i18n translations (en.ts, ja.ts)
     ├── organisms/         # Page-level compositions (Canvas, Toolbar, LayerPanel, etc.)
+    │   ├── ContextAction/     # Selection-time floating action bar (index.tsx: ContextActionsOverlay, ContextActionsBar.tsx: bar presentation/drag, ElementActions.tsx: structural ops as IconButtons, MoreActionsMenu.tsx: overflow "…" Menu.Item list, TextEditActions.tsx)
+    │   └── ActionsPanel/      # Right-side tool settings panel (index.tsx, TransformControls.tsx, BlendOperations.tsx, RepeatControls.tsx, Reference3DToolControls.tsx)
     ├── contexts/          # React contexts (PaplicoContext)
     ├── stores/            # Valtio stores (documentStore, uiStore, appSettings)
     └── utils/             # App-level utilities (hooks.ts contains domain-independent hooks only, testDocument)

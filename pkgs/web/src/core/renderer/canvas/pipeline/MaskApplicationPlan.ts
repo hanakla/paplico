@@ -7,14 +7,14 @@ export interface PlannedMask {
 	inverted: boolean;
 }
 
-export type NonEmptyMaskStack = readonly [PlannedMask, ...PlannedMask[]];
+type NonEmptyMaskStack = readonly [PlannedMask, ...PlannedMask[]];
 
 export type MaskApplicationPlan =
 	| { kind: "none" }
 	| { kind: "inline-leaf"; mask: PlannedMask }
 	| { kind: "subtree-composite"; masks: NonEmptyMaskStack };
 
-export interface MaskApplicationFacts {
+interface MaskApplicationFacts {
 	node: "leaf" | "subtree";
 	masks: readonly PlannedMask[];
 	outputPlacement: SurfacePlacement["kind"];
@@ -26,7 +26,7 @@ export interface MaskApplicationFacts {
 	inlineContainer?: boolean;
 }
 
-export type GroupIsolationReason = "mask" | "clip" | "opacity" | "filter";
+type GroupIsolationReason = "mask" | "clip" | "opacity" | "filter";
 
 export type GroupCompositionPlan =
 	| { kind: "passthrough" }

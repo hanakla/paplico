@@ -317,7 +317,7 @@ export class SpatialIndex {
 	}
 
 	/** Clear a single element's bounds cache entry without touching the quadtree. */
-	public clearBoundsCache(elementId: string): void {
+	private clearBoundsCache(elementId: string): void {
 		this.boundsCache.delete(elementId);
 		this.localBoundsCache.delete(elementId);
 	}
@@ -543,7 +543,7 @@ export class SpatialIndex {
 
 	// ===== Artboard Index =====
 
-	public insertArtboard(artboard: Artboard): void {
+	private insertArtboard(artboard: Artboard): void {
 		const bounds = getArtboardBounds(artboard);
 		this.artboardQuadtree.insert({ id: artboard.id, data: artboard, bounds });
 	}

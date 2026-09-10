@@ -30,7 +30,7 @@ import { isSvgNativeFilter } from "./svgFilterPrimitives";
  * - "raster": must be rendered to a PNG chunk
  * - "skip": excluded from export entirely
  */
-export type SvgElementClass = "pure" | "bake" | "raster" | "skip";
+type SvgElementClass = "pure" | "bake" | "raster" | "skip";
 
 /** Renderer-derived predicates injected so this module stays a pure function. */
 export interface ClassifyOptions {
@@ -60,14 +60,14 @@ export function collectTextAxisPathIds(document: Document): Set<string> {
 	return ids;
 }
 
-export interface VectorItem {
+interface VectorItem {
 	kind: "vector";
 	elementId: string;
 	class: "pure" | "bake";
 }
 
 /** A z-consecutive chunk of raster-only elements rendered into one PNG. */
-export interface RasterRun {
+interface RasterRun {
 	kind: "raster";
 	/** Element ids in z order (bottom to top). */
 	elementIds: string[];
@@ -75,7 +75,7 @@ export interface RasterRun {
 	blendMode?: BlendMode;
 }
 
-export type LayerPlanItem = VectorItem | RasterRun;
+type LayerPlanItem = VectorItem | RasterRun;
 
 /** Recursion guards threaded through nested classification walks. */
 interface ClassifyVisitState {
