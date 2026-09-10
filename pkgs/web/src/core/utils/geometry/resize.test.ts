@@ -102,6 +102,16 @@ function makeStrokeAppearance(size: number): StrokeAppearance {
 // --- Tests ---
 
 describe("createScaleTransform", () => {
+	it("should translate a flat axis instead of dividing by its zero extent", () => {
+		const original = makeBounds(0, 50, 100, 50);
+		const newBounds = makeBounds(0, 20, 100, 130);
+		const transform = createScaleTransform(original, newBounds);
+
+		expect(transform.scaleY).toBe(1);
+		expect(transform.mapY(50)).toBe(20);
+		expect(transform.mapX(50)).toBe(50);
+	});
+
 	it("should map the original min edge onto the new max edge when mirrored", () => {
 		const original = makeBounds(0, 0, 100, 100);
 		const newBounds = makeBounds(200, 0, 300, 100);

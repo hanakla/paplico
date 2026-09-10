@@ -151,9 +151,10 @@ export function calculateResizedBounds(
 	if (targets.y !== "none") sizeY = clampSize(sizeY, minSize, allowFlip);
 
 	// The dominant pointer axis drives the ratio; the other one only keeps the
-	// direction it was dragged in.
-	if (constrainAspect) {
-		const aspect = original.width / original.height;
+	// direction it was dragged in. A degenerate original extent, such as a
+	// straight horizontal path, holds no ratio to keep.
+	const aspect = original.width / original.height;
+	if (constrainAspect && Number.isFinite(aspect) && aspect > 0) {
 		const drivenByX =
 			targets.y === "none" ||
 			(targets.x !== "none" &&

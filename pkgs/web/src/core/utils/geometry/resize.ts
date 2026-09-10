@@ -35,8 +35,8 @@ export function createScaleTransform(
 	newBounds: BoundingBox,
 	flip: AxisFlip = { x: false, y: false },
 ): ScaleTransform {
-	const scaleX = (newBounds.width / originalBounds.width) * (flip.x ? -1 : 1);
-	const scaleY = (newBounds.height / originalBounds.height) * (flip.y ? -1 : 1);
+	const scaleX = axisScale(originalBounds.width, newBounds.width, flip.x);
+	const scaleY = axisScale(originalBounds.height, newBounds.height, flip.y);
 	const baseX = flip.x ? newBounds.maxX : newBounds.minX;
 	const baseY = flip.y ? newBounds.maxY : newBounds.minY;
 
@@ -154,4 +154,18 @@ export function scaleTextContent(
 			})),
 		})),
 	};
+}
+
+/**
+ * Scale factor for one axis. An extent of zero carries no shape to scale, and
+ * dividing by it would send every coordinate to Infinity, so such an axis is
+ * only translated onto the new bounds.
+ */
+function axisScale(
+	originalSize: number,
+	newSize: number,
+	flipped: boolean,
+): number {
+	if (originalSize === 0) return 1;
+	return (newSize / originalSize) * (flipped ? -1 : 1);
 }

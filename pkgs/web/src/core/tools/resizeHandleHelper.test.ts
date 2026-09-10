@@ -158,6 +158,26 @@ describe("calculateResizedBounds", () => {
 		});
 	});
 
+	describe("degenerate bounds", () => {
+		const flatBox: BoundingBox = {
+			minX: 0,
+			minY: 50,
+			maxX: 100,
+			maxY: 50,
+			width: 100,
+			height: 0,
+		};
+
+		it("keeps the bounds finite when a flat selection is resized", () => {
+			const result = calculateResizedBounds(flatBox, "n", 50, 130, 50, 50, {
+				constrainAspect: true,
+			});
+			expect(result.minY).toBe(50);
+			expect(result.maxY).toBe(130);
+			expect(result.width).toBe(100);
+		});
+	});
+
 	describe("mirroring (allowFlip=true)", () => {
 		it("w: dragging past the right edge mirrors the bounds", () => {
 			const result = calculateResizedBounds(box100, "w", 150, 50, 0, 50, {
