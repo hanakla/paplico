@@ -3,7 +3,12 @@ import { readStoredBrushSize } from "../../brush/access";
 import type {
 	BoundingBox,
 	CubicBezierSegment,
+	FillAppearance,
+	FillColor,
+	FreeGradient,
+	MeshGradient,
 	Path,
+	RadialGradient,
 	StrokeAppearance,
 	TextContent,
 	TextLayout,
@@ -12,6 +17,7 @@ import type {
 import { computeInverseCompositionTransform } from "./geometry";
 import {
 	createScaleTransform,
+	mirrorGradientFilters,
 	scaleSegments,
 	scaleStrokeFilters,
 	scaleTextContent,
@@ -73,6 +79,16 @@ function makeTextContent(
 	};
 }
 
+function makeFillAppearance(fill: FillColor): FillAppearance {
+	return {
+		uid: "app-fill",
+		processor: "fill",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: { version: "1", params: { fill } },
+	};
+}
+
 function makeStrokeAppearance(size: number): StrokeAppearance {
 	return {
 		uid: "app-stroke",
@@ -125,6 +141,141 @@ describe("createScaleTransform", () => {
 		expect(transform.mapX(0)).toBe(300);
 		expect(transform.mapX(100)).toBe(200);
 		expect(transform.mapY(0)).toBe(0);
+	});
+});
+
+describe("mirrorGradientFilters", () => {
+	it("should move a linear gradient's endpoints to the other side", () => {
+		const [filter] = mirrorGradientFilters(
+			[
+				makeFillAppearance({
+					type: "linear",
+					x1: 0,
+					y1: 0.25,
+					x2: 1,
+					y2: 0.25,
+					stops: [],
+				}),
+			],
+			{ x: true, y: false },
+		);
+
+		expect((filter as FillAppearance).paramData.params.fill).toMatchObject({
+			x1: 1,
+			y1: 0.25,
+			x2: 0,
+			y2: 0.25,
+		});
+	});
+
+	it("should turn a radial gradient's rotation the other way", () => {
+		const radial: RadialGradient = {
+			type: "radial",
+			cx: 0.25,
+			cy: 0.5,
+			radiusX: 0.4,
+			radiusY: 0.2,
+			rotation: 0.3,
+			stops: [],
+		};
+		const [mirroredX] = mirrorGradientFilters([makeFillAppearance(radial)], {
+			x: true,
+			y: false,
+		});
+		const [mirroredBoth] = mirrorGradientFilters([makeFillAppearance(radial)], {
+			x: true,
+			y: true,
+		});
+
+		expect((mirroredX as FillAppearance).paramData.params.fill).toMatchObject({
+			cx: 0.75,
+			cy: 0.5,
+			radiusX: 0.4,
+			rotation: -0.3,
+		});
+		// A mirror on both axes is a half turn, which leaves the ellipse as it was.
+		expect(
+			(mirroredBoth as FillAppearance).paramData.params.fill,
+		).toMatchObject({ cx: 0.75, cy: 0.5, rotation: 0.3 });
+	});
+
+	it("should move a free gradient's stops and their edge control points", () => {
+		const [filter] = mirrorGradientFilters(
+			[
+				makeFillAppearance({
+					type: "free",
+					stops: [
+						{
+							id: "a",
+							x: 0.2,
+							y: 0.5,
+							color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+							edgeCPs: { b: { x: 0.4, y: 0.5 } },
+						},
+					],
+				}),
+			],
+			{ x: true, y: false },
+		);
+
+		const fill = (filter as FillAppearance).paramData.params
+			.fill as FreeGradient;
+		expect(fill.stops[0]).toMatchObject({ x: 0.8, y: 0.5 });
+		expect(fill.stops[0].edgeCPs?.b).toEqual({ x: 0.6, y: 0.5 });
+	});
+
+	it("should move a mesh gradient's vertices and their handles", () => {
+		const [filter] = mirrorGradientFilters(
+			[
+				makeFillAppearance({
+					type: "mesh",
+					vertices: [
+						{
+							x: 0.25,
+							y: 0.75,
+							color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+							colorMode: "explicit",
+							handles: { 1: { x: 0.5, y: 0.75 } },
+						},
+					],
+					faces: [],
+				}),
+			],
+			{ x: false, y: true },
+		);
+
+		const fill = (filter as FillAppearance).paramData.params
+			.fill as MeshGradient;
+		expect(fill.vertices[0]).toMatchObject({ x: 0.25, y: 0.25 });
+		expect(fill.vertices[0].handles[1]).toEqual({ x: 0.5, y: 0.25 });
+	});
+
+	it("should leave a solid fill alone", () => {
+		const filters = [
+			makeFillAppearance({
+				type: "solid",
+				color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
+			}),
+		];
+		expect(mirrorGradientFilters(filters, { x: true, y: true })).toEqual(
+			filters,
+		);
+	});
+
+	it("should return the stack untouched when nothing is mirrored", () => {
+		const filters = [
+			makeFillAppearance({
+				type: "linear",
+				x1: 0,
+				y1: 0,
+				x2: 1,
+				y2: 0,
+				stops: [],
+			}),
+		];
+		expect(mirrorGradientFilters(filters, { x: false, y: false })).toBe(
+			filters,
+		);
 	});
 });
 

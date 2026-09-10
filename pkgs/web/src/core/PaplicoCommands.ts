@@ -168,6 +168,7 @@ import {
 import {
 	type AxisFlip,
 	createScaleTransform,
+	mirrorGradientFilters,
 	scaleSegments,
 	scaleStrokeFilters,
 	scaleTextContent,
@@ -2578,6 +2579,14 @@ export class PaplicoCommands {
 		if (element.filters?.length && scaleFilters) {
 			commonUpdates.filters = mapLocalAppearances(element.filters, (filters) =>
 				scaleFilters(filters, Math.abs(scaleX), Math.abs(scaleY)),
+			);
+		}
+		// Gradients are placed relative to the element's bounds, so a mirror has
+		// to turn them over on their own.
+		if (element.filters?.length && (flip.x || flip.y)) {
+			commonUpdates.filters = mapLocalAppearances(
+				(commonUpdates.filters as FilterEntry[] | undefined) ?? element.filters,
+				(filters) => mirrorGradientFilters(filters, flip),
 			);
 		}
 		// Stroke appearance widths for geometry-baking kinds (path, compound-path,

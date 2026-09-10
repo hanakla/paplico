@@ -7,8 +7,15 @@ import { readStoredBrushSize, withStoredBrushSize } from "../../brush/access";
 import {
 	type BoundingBox,
 	type CubicBezierSegment,
+	type FillAppearance,
+	type FillColor,
+	type Filter,
 	type FilterEntry,
+	type FreeGradient,
 	isAppearancePresetRef,
+	type LinearGradient,
+	type MeshGradient,
+	type RadialGradient,
 	type StrokeAppearance,
 	type TextContent,
 	type TextLayout,
@@ -46,6 +53,40 @@ export function createScaleTransform(
 		mapX: (x: number) => baseX + (x - originalBounds.minX) * scaleX,
 		mapY: (y: number) => baseY + (y - originalBounds.minY) * scaleY,
 	};
+}
+
+/**
+ * Mirror the gradients of an appearance stack. A gradient's geometry is stored
+ * relative to the element's bounds, and a mirror leaves those bounds where they
+ * were, so without this the fill would stay put while the shape it fills turns
+ * over. Patterns keep their tiling: the shader reads their scale by magnitude,
+ * so a mirrored tile has nothing to ride on.
+ */
+export function mirrorGradientFilters(
+	filters: Filter[],
+	flip: AxisFlip,
+): Filter[] {
+	if (!flip.x && !flip.y) return filters;
+	return filters.map((filter) => {
+		if (filter.processor === "fill") {
+			const fillFilter = filter as FillAppearance;
+			return withParams(fillFilter, {
+				fill: mirrorFill(fillFilter.paramData.params.fill, flip),
+			});
+		}
+		if (filter.processor === "stroke") {
+			const strokeFilter = filter as StrokeAppearance;
+			const { strokeColor } = strokeFilter.paramData.params;
+			if (strokeColor.type !== "stroke-gradient") return filter;
+			return withParams(strokeFilter, {
+				strokeColor: {
+					...strokeColor,
+					gradient: mirrorLinearGradient(strokeColor.gradient, flip),
+				},
+			});
+		}
+		return filter;
+	});
 }
 
 /**
@@ -168,4 +209,112 @@ function axisScale(
 ): number {
 	if (originalSize === 0) return 1;
 	return (newSize / originalSize) * (flipped ? -1 : 1);
+}
+
+function mirrorFill(fill: FillColor, flip: AxisFlip): FillColor {
+	switch (fill.type) {
+		case "linear":
+			return mirrorLinearGradient(fill, flip);
+		case "radial":
+			return mirrorRadialGradient(fill, flip);
+		case "free":
+			return mirrorFreeGradient(fill, flip);
+		case "mesh":
+			return mirrorMeshGradient(fill, flip);
+		default:
+			return fill;
+	}
+}
+
+function mirrorLinearGradient(
+	gradient: LinearGradient,
+	flip: AxisFlip,
+): LinearGradient {
+	const start = mirrorPoint({ x: gradient.x1, y: gradient.y1 }, flip);
+	const end = mirrorPoint({ x: gradient.x2, y: gradient.y2 }, flip);
+	return { ...gradient, x1: start.x, y1: start.y, x2: end.x, y2: end.y };
+}
+
+/**
+ * The radii are lengths and survive a mirror. The rotation does not: mirroring
+ * one axis turns the ellipse the other way, while mirroring both is a half
+ * turn, which leaves it as it was.
+ */
+function mirrorRadialGradient(
+	gradient: RadialGradient,
+	flip: AxisFlip,
+): RadialGradient {
+	const center = mirrorPoint({ x: gradient.cx, y: gradient.cy }, flip);
+	return {
+		...gradient,
+		cx: center.x,
+		cy: center.y,
+		rotation: flip.x !== flip.y ? -gradient.rotation : gradient.rotation,
+	};
+}
+
+function mirrorFreeGradient(
+	gradient: FreeGradient,
+	flip: AxisFlip,
+): FreeGradient {
+	return {
+		...gradient,
+		stops: gradient.stops.map((stop) => ({
+			...stop,
+			...mirrorPoint(stop, flip),
+			...(stop.edgeCPs
+				? { edgeCPs: mirrorPointRecord(stop.edgeCPs, flip) }
+				: {}),
+		})),
+	};
+}
+
+function mirrorMeshGradient(
+	gradient: MeshGradient,
+	flip: AxisFlip,
+): MeshGradient {
+	return {
+		...gradient,
+		vertices: gradient.vertices.map((vertex) => ({
+			...vertex,
+			...mirrorPoint(vertex, flip),
+			handles: mirrorPointRecord(vertex.handles, flip),
+		})),
+	};
+}
+
+function mirrorPointRecord<K extends string | number>(
+	points: Record<K, { x: number; y: number }>,
+	flip: AxisFlip,
+): Record<K, { x: number; y: number }> {
+	return Object.fromEntries(
+		Object.entries<{ x: number; y: number }>(points).map(([key, point]) => [
+			key,
+			mirrorPoint(point, flip),
+		]),
+	) as Record<K, { x: number; y: number }>;
+}
+
+/** Mirror one bounds-relative point, where 0 and 1 are the opposite edges. */
+function mirrorPoint(
+	point: { x: number; y: number },
+	flip: AxisFlip,
+): { x: number; y: number } {
+	return {
+		x: flip.x ? 1 - point.x : point.x,
+		y: flip.y ? 1 - point.y : point.y,
+	};
+}
+
+function withParams<T extends object>(
+	filter: Filter<T>,
+	params: Partial<T>,
+): Filter<T> {
+	return {
+		...filter,
+		paramData: {
+			...filter.paramData,
+			params: { ...filter.paramData.params, ...params },
+		},
+	};
 }
