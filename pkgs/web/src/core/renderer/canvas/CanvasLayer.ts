@@ -5144,7 +5144,10 @@ export class CanvasLayer {
 						fp.element,
 						wetStroke,
 						isolationBounds,
-						isolationScale,
+						// The wet route allocates a texture spanning the whole isolation
+						// at this scale, so it must follow the accumulator's capped
+						// size or a huge stroke exceeds the GPU texture limit.
+						effectiveZoom,
 						this.viewportManager.getTransformIndex(fp.element.id),
 					)
 				: this.offscreen.renderElementToTexture(
