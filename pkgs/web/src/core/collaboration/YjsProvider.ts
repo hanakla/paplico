@@ -1750,20 +1750,23 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	// --- Compound Path Operations ---
 
 	/**
-	 * Create a compound path
+	 * Create a compound path. Absorbs its sources from their parent container
+	 * (a layer id or a group id) and inserts the compound at the topmost
+	 * absorbed element's position.
 	 */
-	public createCompoundPath(layerId: string, compoundPath: CompoundPath): void {
+	public createCompoundPath(
+		parentId: string,
+		compoundPath: CompoundPath,
+		origin?: unknown,
+	): void {
 		this.ydoc.transact(() => {
 			this.yObjects.set(compoundPath.id, this.objectToYMap(compoundPath));
-
-			const yLayer = this.findYLayer(layerId);
-			if (!yLayer) return;
-
-			const yElementIds = this.getYElementIds(yLayer);
-			if (yElementIds) {
-				yElementIds.push([compoundPath.id]);
-			}
-		});
+			this.absorbIntoContainer(
+				parentId,
+				new Set(compoundPath.sources.map((s) => s.id)),
+				compoundPath.id,
+			);
+		}, origin);
 	}
 
 	// --- Blend Operations ---

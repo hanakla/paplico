@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { readStoredBrushSize } from "./brush/access";
-import type { YjsProvider } from "./collaboration/YjsProvider";
+import { extractDocumentFromYDoc } from "./collaboration/extractDocumentFromYDoc";
+import {
+	YjsProvider,
+	type YjsProviderCallbacks,
+} from "./collaboration/YjsProvider";
 import { localAppearances } from "./document/appearancePresets";
 import {
 	createDefaultBrushSettings,
@@ -962,6 +966,53 @@ describe("PaplicoCommands", () => {
 			];
 			expect(parentId).toBe("layer-1");
 			expect(blend.objectIds).toEqual(["a", "b", "c"]);
+		});
+	});
+
+	describe("createCompoundPathFromSelection", () => {
+		it("should replace layer-root sources with the compound at their position", () => {
+			const { provider, store, commands, sync } = createProviderCommands();
+			for (const id of ["below", "a", "b", "above"]) {
+				provider.addElement("layer", createPath(id));
+			}
+			sync();
+
+			store.selectedElementIds = ["a", "b"];
+			const compoundId = commands.createCompoundPathFromSelection("union");
+			sync();
+
+			expect(store.document.layers[0].elementIds).toEqual([
+				"below",
+				compoundId,
+				"above",
+			]);
+		});
+
+		it("should make the compound the new clip when uniting a clip group's clip path with a child path", () => {
+			const { store, commands, sync, groupId } = createClipGroupCommands();
+
+			store.editingScopeStack = [groupId];
+			store.selectedElementIds = ["clip", "a"];
+			const compoundId = commands.createCompoundPathFromSelection("union");
+			sync();
+
+			const group = store.document.objects[groupId] as Group;
+			expect(store.document.layers[0].elementIds).toEqual([groupId]);
+			expect(group.childIds).toEqual([compoundId, "other"]);
+			expect(group.clipPathId).toBe(compoundId);
+		});
+
+		it("should keep the clip path when uniting only non-clip children", () => {
+			const { store, commands, sync, groupId } = createClipGroupCommands();
+
+			store.editingScopeStack = [groupId];
+			store.selectedElementIds = ["a", "other"];
+			const compoundId = commands.createCompoundPathFromSelection("union");
+			sync();
+
+			const group = store.document.objects[groupId] as Group;
+			expect(group.childIds).toEqual(["clip", compoundId]);
+			expect(group.clipPathId).toBe("clip");
 		});
 	});
 
@@ -3768,6 +3819,57 @@ function createLayer(id: string, elementIds: string[]): Layer {
 		blendMode: "normal",
 		elementIds,
 	};
+}
+
+/** Commands backed by a real YjsProvider holding one empty layer "layer". */
+function createProviderCommands() {
+	let store!: RendererState;
+	const callbacks: YjsProviderCallbacks = {
+		onDocumentUpdate: (doc) => {
+			store.document = doc;
+		},
+		onLayersUpdate: () => {},
+		getCurrentLayerId: () => store.currentLayerId,
+		setCurrentLayerId: (id) => {
+			store.currentLayerId = id;
+		},
+	};
+	const provider = new YjsProvider({ callbacks });
+	store = {
+		currentLayerId: "layer",
+		editingScopeStack: [] as string[],
+		selectedElementIds: [] as string[],
+		document: extractDocumentFromYDoc(provider.ydoc),
+	} as unknown as RendererState;
+	const sync = () => {
+		store.document = extractDocumentFromYDoc(provider.ydoc);
+	};
+	const commands = new PaplicoCommands({
+		store,
+		yjsProvider: provider,
+		spatial: {
+			isElementLocked: () => false,
+		} as unknown as SpatialIndex,
+		isReadonly: () => false,
+	});
+
+	provider.addLayer(createLayer("layer", []));
+	return { provider, store, commands, sync };
+}
+
+/** A clip group of "clip" (its clip path), "a" and "other" in layer "layer". */
+function createClipGroupCommands() {
+	const fixture = createProviderCommands();
+	const { provider, sync } = fixture;
+	for (const id of ["clip", "a", "other"]) {
+		provider.addElement("layer", createPath(id));
+	}
+	sync();
+	const groupId = provider.groupElements("layer", ["clip", "a", "other"]);
+	if (!groupId) throw new Error("group should be created");
+	provider.setClipPath("layer", groupId, "clip");
+	sync();
+	return { ...fixture, groupId };
 }
 
 function createCommands(

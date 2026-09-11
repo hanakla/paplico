@@ -1188,11 +1188,6 @@ export class PaplicoCommands {
 		operation: BooleanOperation,
 	): string | null {
 		if (this.cannotMutate()) return null;
-		const layerId = this.ctx.store.currentLayerId;
-		if (!layerId) return null;
-
-		const layer = this.ctx.store.document.layers.find((l) => l.id === layerId);
-		if (!layer) return null;
 
 		const selectedPaths = this.ctx.store.selectedElementIds
 			.filter((id) => !this.isElementLocked(id))
@@ -1203,6 +1198,12 @@ export class PaplicoCommands {
 			console.warn("Need at least 2 paths to create compound path");
 			return null;
 		}
+
+		const owner = resolveBlendSourceContainer(
+			this.ctx.store.document,
+			selectedPaths.map((p) => p.id),
+		);
+		if (!owner.ok) return null;
 
 		const sources = selectedPaths.map((p) => ({ id: p.id, op: operation }));
 		const firstPath = selectedPaths[0];
@@ -1218,7 +1219,24 @@ export class PaplicoCommands {
 			transform: createIdentityTransform(),
 		};
 
-		this.ctx.yjsProvider.createCompoundPath(layerId, compoundPath);
+		const parent = this.ctx.store.document.objects[owner.parentId];
+		const origin = this.getMutationOrigin();
+		this.ctx.yjsProvider.transact(() => {
+			this.ctx.yjsProvider.createCompoundPath(
+				owner.parentId,
+				compoundPath,
+				origin,
+			);
+			// Absorbing the clip path would leave the group clipped by an element
+			// that no longer sits in it, so the compound takes over the clip.
+			if (
+				parent &&
+				isGroup(parent) &&
+				sources.some((s) => s.id === parent.clipPathId)
+			) {
+				this.setClipPathForGroup(parent.id, compoundPathId);
+			}
+		}, origin);
 		this.ctx.store.selectedElementIds = [compoundPathId];
 
 		return compoundPathId;
