@@ -1,4 +1,4 @@
-import type { Font } from "fontkit";
+import type { Font } from "@cantoo/fontkit";
 import { Ellipsis, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { subscribe } from "valtio";
@@ -138,7 +138,7 @@ function VariationAxisControl({
 	onChange,
 }: {
 	tag: string;
-	axis: NonNullable<Font["variationAxes"][string]>;
+	axis: Font["variationAxes"][string];
 	value: number | undefined;
 	onChange: (tag: string, value: number | null) => void;
 }) {

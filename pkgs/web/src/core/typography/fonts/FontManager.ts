@@ -4,8 +4,8 @@
  * Provides glyph path extraction and text shaping helpers.
  */
 
-import type { Font, Glyph } from "fontkit";
-import * as fontkit from "fontkit";
+import type { Font, Glyph } from "@cantoo/fontkit";
+import * as fontkit from "@cantoo/fontkit";
 import type {
 	CubicBezierSegment,
 	FontSource,
@@ -103,10 +103,7 @@ export class FontManager extends Emitter<FontManagerEvents> {
 
 	/** Share immutable variable instances between shaping and outline extraction. */
 	public resolveFontForStyle(font: LoadedFont, style: TextStyle): LoadedFont {
-		const values = resolveFontVariations(
-			style,
-			font.fontkit.variationAxes ?? {},
-		);
+		const values = resolveFontVariations(style, font.fontkit.variationAxes);
 		if (Object.keys(values).length === 0) return font;
 		let cache = this.variationCache.get(font.fontkit);
 		if (!cache) {
@@ -271,7 +268,6 @@ export class FontManager extends Emitter<FontManagerEvents> {
 		// Keep geometry in em space for cache reuse across font sizes.
 		const scale = 1 / unitsPerEm;
 
-		// Read Fontkit path commands.
 		const glyphPath = glyph.path;
 
 		if (!glyphPath) {
@@ -283,14 +279,7 @@ export class FontManager extends Emitter<FontManagerEvents> {
 		let startPoint: Point = { x: 0, y: 0 };
 		let markNextAsMoved = true; // first segment always starts a subpath
 
-		// Parse Fontkit path commands.
-		const commands = (
-			glyphPath as unknown as {
-				commands: { command: string; args: number[] }[];
-			}
-		).commands;
-
-		for (const cmd of commands) {
+		for (const cmd of glyphPath.commands) {
 			switch (cmd.command) {
 				case "moveTo":
 					currentPoint = {
@@ -483,9 +472,14 @@ export class FontManager extends Emitter<FontManagerEvents> {
 		// several source characters (fontkit exposes them via glyph.codePoints)
 		let cleanCursor = 0;
 
-		for (let i = 0; i < run.glyphs.length; i++) {
-			const glyph = run.glyphs[i];
-			const position = run.positions[i];
+		const { glyphs, positions } = run;
+		if (!positions) {
+			throw new Error("layout() returned a run without glyph positions");
+		}
+
+		for (let i = 0; i < glyphs.length; i++) {
+			const glyph = glyphs[i];
+			const position = positions[i];
 
 			const span = Math.max(glyph.codePoints?.length ?? 1, 1);
 			const cleanIndex = cleanCursor;
@@ -508,15 +502,13 @@ export class FontManager extends Emitter<FontManagerEvents> {
 
 			if (useNotdef) {
 				const fallback = await this.getFallbackFont();
-				emPath = this.getGlyphPath(
-					fallback,
-					fallback.fontkit.glyphForCodePoint(0),
-				);
-				const fallbackScale = fontSize / fallback.fontkit.unitsPerEm;
 				const notdefGlyph = fallback.fontkit.glyphForCodePoint(0);
+				if (!notdefGlyph) {
+					throw new Error("Fallback font has no .notdef glyph");
+				}
+				emPath = this.getGlyphPath(fallback, notdefGlyph);
 				advanceWidth =
-					(notdefGlyph.advanceWidth ?? fallback.fontkit.unitsPerEm * 0.6) *
-					fallbackScale;
+					(notdefGlyph.advanceWidth * fontSize) / fallback.fontkit.unitsPerEm;
 			} else {
 				emPath = this.getGlyphPath(font, glyph);
 			}
@@ -560,7 +552,7 @@ export class FontManager extends Emitter<FontManagerEvents> {
 	 * Check whether a font provides OpenType `vert` feature.
 	 */
 	private hasVertFeature(font: LoadedFont): boolean {
-		return font.fontkit.availableFeatures?.includes("vert") ?? false;
+		return font.fontkit.availableFeatures.includes("vert");
 	}
 
 	/**
@@ -624,13 +616,8 @@ export class FontManager extends Emitter<FontManagerEvents> {
 			}
 			const data = await response.arrayBuffer();
 
-			const fontResult = fontkit.create(
-				new Uint8Array(data) as unknown as Buffer,
-			);
-			const font =
-				"fonts" in fontResult
-					? (fontResult as { fonts: fontkit.Font[] }).fonts[0]
-					: fontResult;
+			const fontResult = fontkit.create(new Uint8Array(data));
+			const font = "fonts" in fontResult ? fontResult.fonts[0] : fontResult;
 
 			if (typeof document !== "undefined") {
 				try {

@@ -14,7 +14,7 @@ Paplico用のテキストツールの包括的な設計。Google Fonts・ロー�
 |-----------|--------|--------------|---------|
 | [opentype.js](https://opentype.js.org/) | ~440KB | 標準 | 定番、ドキュメント豊富 |
 | [Typr.js](https://github.com/photopea/Typr.js) | ~110KB | 2-5x高速 | Photopea採用、軽量 |
-| [Fontkit](https://github.com/foliojs/fontkit) | ~200KB | 標準 | WOFF2対応、AAT対応 |
+| [@cantoo/fontkit](https://github.com/cantoo-scribe/fontkit) | ~200KB | 標準 | WOFF2対応、AAT対応 |
 | [harfbuzz.js](https://github.com/harfbuzz/harfbuzzjs) | ~1MB(WASM) | 高速 | 複雑スクリプト最高 |
 
 ### 2.2 推奨構成
@@ -1631,7 +1631,7 @@ class YjsProvider {
 ### フォントライブラリ
 - [opentype.js](https://opentype.js.org/)
 - [Typr.js](https://github.com/photopea/Typr.js)
-- [Fontkit](https://github.com/foliojs/fontkit)
+- [@cantoo/fontkit](https://github.com/cantoo-scribe/fontkit)
 - [HarfBuzz.js](https://github.com/harfbuzz/harfbuzzjs)
 
 ### API・仕様

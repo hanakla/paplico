@@ -182,7 +182,7 @@ describe("variable font rendering", () => {
 		for (const codePoint of base.fontkit.characterSet) {
 			if (codePoint < 0x4e00) continue;
 			const glyph = base.fontkit.glyphForCodePoint(codePoint);
-			if (!glyph.id || ids.has(glyph.id)) continue;
+			if (!glyph?.id || ids.has(glyph.id)) continue;
 			ids.add(glyph.id);
 			characters.push(String.fromCodePoint(codePoint));
 			if (characters.length === 2_048) break;

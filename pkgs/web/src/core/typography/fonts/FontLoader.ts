@@ -3,7 +3,7 @@
  * Google FontsとLocal Fontsで統一されたAPIを提供
  */
 
-import type { Font } from "fontkit";
+import type { Font } from "@cantoo/fontkit";
 import type { FontScript } from "./os2Scripts";
 
 /**
@@ -49,7 +49,6 @@ export function extractLocalizedNames(
 	localizedFamily?: string;
 	localizedFullName?: string;
 } {
-	// fontkit v2: getName(key, lang) returns null when the language record is absent.
 	const family = font.getName("fontFamily", lang);
 	const fullName = font.getName("fullName", lang);
 	return {

@@ -16,6 +16,18 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 		url: "https://github.com/mui/base-ui",
 	},
 	{
+		name: "@cantoo/fontkit",
+		version: "2.0.12",
+		license: "MIT",
+		url: "https://github.com/cantoo-scribe/fontkit",
+	},
+	{
+		name: "@cantoo/pdf-lib",
+		version: "2.11.0",
+		license: "MIT",
+		url: "https://github.com/cantoo-scribe/pdf-lib",
+	},
+	{
 		name: "@dnd-kit/core",
 		version: "6.3.1",
 		license: "MIT",
@@ -212,12 +224,6 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 		version: "1.45.1",
 		license: "MIT",
 		url: "https://github.com/toss/es-toolkit",
-	},
-	{
-		name: "fontkit",
-		version: "2.0.4",
-		license: "MIT",
-		url: "https://github.com/foliojs/fontkit",
 	},
 	{
 		name: "jscolorengine",

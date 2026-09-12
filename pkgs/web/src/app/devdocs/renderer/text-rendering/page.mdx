@@ -104,7 +104,7 @@ Paplicoにおけるテキストレンダリングは、`TextElement` のデー�
 
 1. **スタイルマージ** — `defaultStyle` と各 `run.style` をマージし、フォントサイズ・ウェイト・色などを決定
 2. **フォント読み込み** — `FontManager` 経由でフォントを取得。読み込み失敗時は **Noto Sans JP**（アプリケーション埋め込みのフォールバックフォント）にフォールバック
-3. **テキストシェイピング** — `FontManager` がfontkit（HarfBuzzベースのテキストシェイピングライブラリ）を使用してテキストをシェイピングし、`ShapedGlyph[]` を返す。シェイピングはグリフID・アドバンス幅・グリフパスを含む
+3. **テキストシェイピング** — `FontManager` が`@cantoo/fontkit`（OpenType/AATシェイピングを内蔵したフォントエンジン）を使用してテキストをシェイピングし、`ShapedGlyph[]` を返す。シェイピングはグリフID・アドバンス幅・グリフパスを含む
 4. **CharOverride適用** — 文字単位のオーバーライド（`kerningAdjust`、`sizeMultiplier`、`baselineShift`、`rotation`）を適用
 5. **グリフ配置** — レイアウトモードに応じた位置計算とアライメント（`left`、`center`、`right`）を適用
 6. **バウンズ計算** — インクバウンズ（実際のグリフの描画領域）とフォントメトリクス（ascender/descender）からバウンディングボックスを算出
@@ -135,9 +135,9 @@ Paplicoにおけるテキストレンダリングは、`TextElement` のデー�
 
 フォントファイルからグリフのアウトラインを抽出し、Paplicoのパス形式（`CubicBezierSegment[]`）に変換する処理である。
 
-### FontKitのパスコマンド
+### fontkitのパスコマンド
 
-FontKitは以下のパスコマンドでグリフアウトラインを表現する:
+fontkitは以下のパスコマンドでグリフアウトラインを表現する:
 
 | コマンド | 説明 |
 |---|---|
@@ -149,7 +149,7 @@ FontKitは以下のパスコマンドでグリフアウトラインを表現す�
 
 ### 2次→3次ベジエ変換
 
-FontKitの `quadraticCurveTo` は2次ベジエ曲線を返すが、Paplicoのパスデータは3次ベジエ（`CubicBezierSegment`）で統一されている。以下の変換公式で2次を3次に昇格する:
+fontkitの `quadraticCurveTo` は2次ベジエ曲線を返すが、Paplicoのパスデータは3次ベジエ（`CubicBezierSegment`）で統一されている。以下の変換公式で2次を3次に昇格する:
 
 ```
 cp1 = start + 2/3 * (qcp - start)
@@ -188,11 +188,11 @@ cp2 = -(end - start) / 3      // relative offset from end
 
 ### テキストシェイピング
 
-`FontManager` はfontkitの `layout()` メソッドを呼び出してテキストシェイピングを実行する。fontkit内部ではHarfBuzzベースのシェイピングエンジンが動作し、グリフID・アドバンス幅を算出する。その結果からグリフパスを抽出し、`ShapedGlyph[]` として返す。
+`FontManager` は `@cantoo/fontkit` の `layout()` メソッドを呼び出してテキストシェイピングを実行する。fontkitは自前のGSUB/GPOS・AATシェイパーでグリフID・アドバンス幅を算出する。その結果からグリフパスを抽出し、`ShapedGlyph[]` として返す。
 
 ### グリフパスキャッシュ
 
-グリフパスは `${postScriptName}:cp${codePoint}` をキーとしてキャッシュされる。同一フォント・同一コードポイントのグリフパスは1度だけ抽出され、以降はキャッシュから返される。パスはEm正規化されているため、フォントサイズに依存しない。
+グリフパスはフォントインスタンスごとの `WeakMap` にグリフIDをキーとしてキャッシュされる。同一フォントインスタンス・同一グリフIDのグリフパスは1度だけ抽出され、以降はキャッシュから返される。パスはEm正規化されているため、フォントサイズに依存しない。
 
 ## テキストの座標系
 

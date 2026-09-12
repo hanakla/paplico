@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as fontkit from "fontkit";
+import * as fontkit from "@cantoo/fontkit";
 import type { LoadedFont } from "../typography/fonts/FontLoader";
 import type { FontManager } from "../typography/fonts/FontManager";
 
@@ -40,16 +40,13 @@ function loadFontFixture(
 ): LoadedFont {
 	const buffer = fs.readFileSync(filePath);
 	const fontResult = fontkit.create(buffer);
-	const fontkitFont =
-		"fonts" in fontResult
-			? (fontResult as { fonts: fontkit.Font[] }).fonts[0]
-			: (fontResult as fontkit.Font);
+	const fontkitFont = "fonts" in fontResult ? fontResult.fonts[0] : fontResult;
 
 	const loadedFont: LoadedFont = {
 		metadata: {
-			family: names.family ?? fontkitFont.familyName,
-			fullName: names.family ?? fontkitFont.fullName,
-			postScriptName: names.postScriptName ?? fontkitFont.postscriptName,
+			family: names.family ?? fontkitFont.familyName ?? "",
+			fullName: names.family ?? fontkitFont.fullName ?? "",
+			postScriptName: names.postScriptName ?? fontkitFont.postscriptName ?? "",
 			style: "Regular",
 			weight: 400,
 			source: "local",

@@ -3,7 +3,7 @@
  * Google Fonts APIを使用してフォントを読み込み
  */
 
-import * as fontkit from "fontkit";
+import * as fontkit from "@cantoo/fontkit";
 import {
 	extractLocalizedNames,
 	type FontLoader,
@@ -161,15 +161,8 @@ export class GoogleFontsLoader implements FontLoader {
 
 		const data = await response.arrayBuffer();
 
-		// Fontkitでパース（ブラウザではUint8Arrayを使用）
-		const fontResult = fontkit.create(
-			new Uint8Array(data) as unknown as Buffer,
-		);
-		// 単一フォントを想定（FontCollectionではない）
-		const font =
-			"fonts" in fontResult
-				? (fontResult as { fonts: fontkit.Font[] }).fonts[0]
-				: fontResult;
+		const fontResult = fontkit.create(new Uint8Array(data));
+		const font = "fonts" in fontResult ? fontResult.fonts[0] : fontResult;
 
 		// DOMでフォントを使えるようにする（@font-face登録）
 		await this.registerFontFace(family, weight, data, font);

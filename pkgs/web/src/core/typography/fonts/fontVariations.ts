@@ -1,4 +1,4 @@
-import type { Font } from "fontkit";
+import type { Font } from "@cantoo/fontkit";
 import type { TextStyle } from "../../schema";
 
 /** Resolve coordinates without changing the document's stored style. */
@@ -69,6 +69,6 @@ export function fontVariationKey(values: Record<string, number>): string {
 
 /** FontFace needs the complete weight range to expose variable weights to DOM text. */
 export function fontFaceWeight(font: Font, weight: number): string {
-	const axis = font.variationAxes?.wght;
+	const axis = font.variationAxes.wght;
 	return axis ? `${axis.min} ${axis.max}` : String(weight);
 }

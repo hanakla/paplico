@@ -3,7 +3,7 @@
  * Local Font Access APIを使用してローカルフォントを読み込み
  */
 
-import * as fontkit from "fontkit";
+import * as fontkit from "@cantoo/fontkit";
 import {
 	extractLocalizedNames,
 	type FontLoader,
@@ -233,19 +233,13 @@ export class LocalFontsLoader implements FontLoader {
 		const blob = await fontData.blob();
 		const data = await blob.arrayBuffer();
 
-		// Fontkitでパース
-		const fontResult = fontkit.create(Buffer.from(data));
+		const fontResult = fontkit.create(new Uint8Array(data));
 		// TTC (TrueType Collection) の場合はpostScriptNameでマッチ
-		let font: fontkit.Font;
-		if ("fonts" in fontResult) {
-			const matched = (fontResult as { fonts: fontkit.Font[] }).fonts.find(
-				(f) => f.postscriptName === postScriptName,
-			);
-			if (!matched) return null;
-			font = matched;
-		} else {
-			font = fontResult;
-		}
+		const font =
+			"fonts" in fontResult
+				? fontResult.fonts.find((f) => f.postscriptName === postScriptName)
+				: fontResult;
+		if (!font) return null;
 
 		// DOMでフォントを使えるようにする（@font-face登録）
 		await this.registerFontFace(fontData, data, font);

@@ -643,6 +643,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@cantoo/fontkit@npm:^2.0.12":
+  version: 2.0.12
+  resolution: "@cantoo/fontkit@npm:2.0.12"
+  dependencies:
+    brotli: "npm:^1.3.2"
+    dfa: "npm:^1.2.0"
+    fflate: "npm:^0.8.3"
+    restructure: "npm:^3.0.0"
+  checksum: 10c0/4924631917d191c60f9510f62027d8bdb03bc3a025161fa6f9e1992b8801ed15cf25bc741969c5d385f552a4120c5d222dee186b0c64c27898e4b1f365eb7c40
+  languageName: node
+  linkType: hard
+
 "@cantoo/pdf-lib@npm:^2.11.0":
   version: 2.11.0
   resolution: "@cantoo/pdf-lib@npm:2.11.0"
@@ -5711,15 +5723,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@swc/helpers@npm:^0.5.12":
-  version: 0.5.18
-  resolution: "@swc/helpers@npm:0.5.18"
-  dependencies:
-    tslib: "npm:^2.8.0"
-  checksum: 10c0/cb32d72e32f775c30287bffbcf61c89ea3a963608cb3a4a675a3f9af545b8b3ab0bc9930432a5520a7307daaa87538158e253584ae1cf39f3e7e6e83408a2d51
-  languageName: node
-  linkType: hard
-
 "@swc/jest@npm:^0.2.38":
   version: 0.2.39
   resolution: "@swc/jest@npm:0.2.39"
@@ -6643,15 +6646,6 @@ __metadata:
   version: 0.0.33
   resolution: "@types/filewriter@npm:0.0.33"
   checksum: 10c0/363ef9a658a961ceae04f52934562e4ebdcdc3a2564dd8544f593d77113c16574938b6ba4fea0bee418c37bda0668c1e03dfedb6adf00d55853f51fb3a59247b
-  languageName: node
-  linkType: hard
-
-"@types/fontkit@npm:^2":
-  version: 2.0.9
-  resolution: "@types/fontkit@npm:2.0.9"
-  dependencies:
-    "@types/node": "npm:*"
-  checksum: 10c0/a17af3b16b41fe8e03a65cf98aa9667bbc3d08377090b2e7c208122d8a8a113c1a31e7c3f6a1fce24c1703d3fc9297571a997aa6769e947a771f6bf7ed3c525d
   languageName: node
   linkType: hard
 
@@ -8223,7 +8217,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"base64-js@npm:1.5.1, base64-js@npm:^1.1.2, base64-js@npm:^1.3.0, base64-js@npm:^1.3.1":
+"base64-js@npm:1.5.1, base64-js@npm:^1.1.2, base64-js@npm:^1.3.1":
   version: 1.5.1
   resolution: "base64-js@npm:1.5.1"
   checksum: 10c0/f23823513b63173a001030fae4f2dabe283b99a9d324ade3ad3d148e218134676f1ee8568c877cd79ec1c53158dcf2d2ba527a97c606618928ba99dd930102bf
@@ -8866,13 +8860,6 @@ __metadata:
     strip-ansi: "npm:^6.0.1"
     wrap-ansi: "npm:^7.0.0"
   checksum: 10c0/4bda0f09c340cbb6dfdc1ed508b3ca080f12992c18d68c6be4d9cf51756033d5266e61ec57529e610dacbf4da1c634423b0c1b11037709cc6b09045cbd815df5
-  languageName: node
-  linkType: hard
-
-"clone@npm:^2.1.2":
-  version: 2.1.2
-  resolution: "clone@npm:2.1.2"
-  checksum: 10c0/ed0601cd0b1606bc7d82ee7175b97e68d1dd9b91fd1250a3617b38d34a095f8ee0431d40a1a611122dcccb4f93295b4fdb94942aa763392b5fe44effa50c2d5e
   languageName: node
   linkType: hard
 
@@ -10883,13 +10870,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"fast-deep-equal@npm:^3.1.3":
-  version: 3.1.3
-  resolution: "fast-deep-equal@npm:3.1.3"
-  checksum: 10c0/40dedc862eb8992c54579c66d914635afbec43350afbbe991235fdcb4e3a8d5af1b23ae7e79bef7d4882d0ecee06c3197488026998fb19f72dc95acff1d1b1d0
-  languageName: node
-  linkType: hard
-
 "fast-glob@npm:^3.3.3":
   version: 3.3.3
   resolution: "fast-glob@npm:3.3.3"
@@ -10954,7 +10934,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"fflate@npm:~0.8.2":
+"fflate@npm:^0.8.3, fflate@npm:~0.8.2":
   version: 0.8.3
   resolution: "fflate@npm:0.8.3"
   checksum: 10c0/eab181ca37f5348ae76d4b6f840e0026e30220e33153289ac942222d8b9638237d486507dbcc09878d724095bd354993a2ee48bbee99c8f2c6440d4448719aa7
@@ -11078,23 +11058,6 @@ __metadata:
     debug:
       optional: true
   checksum: 10c0/d301f430542520a54058d4aeeb453233c564aaccac835d29d15e050beb33f339ad67d9bddbce01739c5dc46a6716dbe3d9d0d5134b1ca203effa11a7ef092343
-  languageName: node
-  linkType: hard
-
-"fontkit@npm:^2.0.4":
-  version: 2.0.4
-  resolution: "fontkit@npm:2.0.4"
-  dependencies:
-    "@swc/helpers": "npm:^0.5.12"
-    brotli: "npm:^1.3.2"
-    clone: "npm:^2.1.2"
-    dfa: "npm:^1.2.0"
-    fast-deep-equal: "npm:^3.1.3"
-    restructure: "npm:^3.0.0"
-    tiny-inflate: "npm:^1.0.3"
-    unicode-properties: "npm:^1.4.0"
-    unicode-trie: "npm:^2.0.0"
-  checksum: 10c0/e68940a0801daa53a4bd160fc49814eeea5eab4dc67225b43064548d35939be9f14de17213bc1a88064adf81b6dfbdb53bda7189df1d07a3ad044482e7fd55e4
   languageName: node
   linkType: hard
 
@@ -15809,13 +15772,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"pako@npm:^0.2.5":
-  version: 0.2.9
-  resolution: "pako@npm:0.2.9"
-  checksum: 10c0/79c1806ebcf325b60ae599e4d7227c2e346d7b829dc20f5cf24cef07c934079dc3a61c5b3c8278a2f7a190c4a613e343ea11e5302dbe252efd11712df4b6b041
-  languageName: node
-  linkType: hard
-
 "pako@npm:^1.0.5, pako@npm:~1.0.2":
   version: 1.0.11
   resolution: "pako@npm:1.0.11"
@@ -15828,6 +15784,7 @@ __metadata:
   resolution: "pap@workspace:pkgs/web"
   dependencies:
     "@base-ui/react": "npm:^1.3.0"
+    "@cantoo/fontkit": "npm:^2.0.12"
     "@cantoo/pdf-lib": "npm:^2.11.0"
     "@dnd-kit/core": "npm:^6.3.1"
     "@dnd-kit/sortable": "npm:^10.0.0"
@@ -15860,7 +15817,6 @@ __metadata:
     "@testing-library/dom": "npm:^10.4.1"
     "@testing-library/react": "npm:^16.3.2"
     "@types/earcut": "npm:3.0.0"
-    "@types/fontkit": "npm:^2"
     "@types/mdx": "npm:^2.0.14"
     "@types/node": "npm:25.5.2"
     "@types/pixelmatch": "npm:^5.2.6"
@@ -15880,7 +15836,6 @@ __metadata:
     earcut: "npm:3.2.3"
     es-toolkit: "npm:^1.45.1"
     fake-indexeddb: "npm:^6.2.4"
-    fontkit: "npm:^2.0.4"
     happy-dom: "npm:^20.11.2"
     jscolorengine: "npm:^1.4.4"
     lucide-react: "npm:^0.562.0"
@@ -18708,13 +18663,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tiny-inflate@npm:^1.0.0, tiny-inflate@npm:^1.0.3":
-  version: 1.0.3
-  resolution: "tiny-inflate@npm:1.0.3"
-  checksum: 10c0/fab687537254f6ec44c9a2e880048fe70da3542aba28f73cda3e74c95cabf342a339372f2a6c032e322324f01accc03ca26c04ba2bad9b3eb8cf3ee99bba7f9b
-  languageName: node
-  linkType: hard
-
 "tiny-invariant@npm:^1.3.3":
   version: 1.3.3
   resolution: "tiny-invariant@npm:1.3.3"
@@ -19269,26 +19217,6 @@ __metadata:
     pathe: "npm:^1.1.2"
     ufo: "npm:^1.5.4"
   checksum: 10c0/87e2d8485ce17ba8342cbd65072c3ed5b19aea695bff4033bd3e1bc673aa9a8f9aec3ebf5a396be70953a948a269da1ad01935c7d89f1a3c392105447dd4a8aa
-  languageName: node
-  linkType: hard
-
-"unicode-properties@npm:^1.4.0":
-  version: 1.4.1
-  resolution: "unicode-properties@npm:1.4.1"
-  dependencies:
-    base64-js: "npm:^1.3.0"
-    unicode-trie: "npm:^2.0.0"
-  checksum: 10c0/1d140b7945664fb0ef53de955170821e077b949eef377c6e4905902f07e339039271bfa2a005e4f4c6074b080d3420b486c52dc905e11f924949a04d1fb47ffd
-  languageName: node
-  linkType: hard
-
-"unicode-trie@npm:^2.0.0":
-  version: 2.0.0
-  resolution: "unicode-trie@npm:2.0.0"
-  dependencies:
-    pako: "npm:^0.2.5"
-    tiny-inflate: "npm:^1.0.0"
-  checksum: 10c0/2422368645249f315640a1c9e9506046aa7738fc9c5d59e15c207cdd6ec66101c35b0b9f75dc3ac28fe7be19aaf1efc898bbea074fa1e8e295ef736aeb7904bb
   languageName: node
   linkType: hard
 
