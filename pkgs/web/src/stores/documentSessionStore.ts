@@ -1,11 +1,12 @@
 import { proxy } from "valtio";
 import type { Paplico } from "@/core/Paplico";
+import { generateUid } from "@/core/schema";
 import { setLastDocumentId } from "@/hooks/useAppConfig";
 import type { FileHandle } from "@/infra/filesystem";
 import {
-	createDocument,
 	documentManagerState,
 	saveDocument,
+	upsertDocument,
 } from "./documentStore";
 
 type DocumentSessionSource =
@@ -44,8 +45,9 @@ export function setSnapshotDocumentSession(): void {
 
 /**
  * Opens a document from a file. A handle keeps the file as the target of
- * manual saves; a bare file has no such target. A copy in IndexedDB gives
- * the document auto save and revisions either way.
+ * manual saves; a bare file has no such target. The document is stored
+ * under its own id so auto save and revisions cover it, and a file that
+ * came from this store lands back on its existing record.
  */
 export async function openDocumentFile(
 	paplico: Paplico,
@@ -58,7 +60,9 @@ export async function openDocumentFile(
 
 	const file = source instanceof File ? source : source.file;
 	await paplico.importDocument(file);
-	const id = await createDocument(
+	const id = paplico.uiState.document.id || generateUid("doc");
+	await upsertDocument(
+		id,
 		file.name.replace(/\.papf$/i, ""),
 		await paplico.exportDocument(),
 	);
