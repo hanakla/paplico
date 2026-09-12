@@ -153,7 +153,7 @@ export function useMenuActions(
 		if (!p) return;
 
 		try {
-			await openDocumentFile(p, result.file, result);
+			await openDocumentFile(p, result);
 		} catch (error) {
 			reportError({
 				code: codeFromError(error, "IMPORT_FAILED"),

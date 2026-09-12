@@ -88,7 +88,7 @@ import { Toolbar } from "@/organisms/Toolbar";
 import { createPaplicoAutomationRuntime } from "@/scripting/runtime";
 import {
 	documentSessionState,
-	openDocumentFile as openDocumentFromFile,
+	openDocumentFile,
 	setInternalDocumentSession,
 } from "@/stores/documentSessionStore";
 import {
@@ -313,13 +313,13 @@ export default function Page() {
 	);
 
 	/** Loads a document the user picked out of the filesystem. */
-	const openDocumentFile = useEventCallback(
-		async (file: File, handle: FileHandle | null) => {
+	const handleOpenDocumentFile = useEventCallback(
+		async (handle: FileHandle) => {
 			const p = paplicoRef.current;
 			if (!p) return;
 
 			try {
-				await openDocumentFromFile(p, file, handle);
+				await openDocumentFile(p, handle);
 			} catch (error) {
 				reportError({
 					code: codeFromError(error, "DOCUMENT_OPEN_FAILED"),
@@ -341,7 +341,7 @@ export default function Page() {
 			}
 
 			if (result.action === "openFile") {
-				await openDocumentFile(result.handle.file, result.handle);
+				await handleOpenDocumentFile(result.handle);
 				return;
 			}
 
@@ -640,7 +640,9 @@ export default function Page() {
 			)
 				return;
 
-			await openDocumentFile(papfFile, fileHandle ?? null);
+			await handleOpenDocumentFile(
+				fileHandle ?? ({ handle: null, file: papfFile } as FileHandle),
+			);
 		},
 	);
 
@@ -685,13 +687,13 @@ export default function Page() {
 				return;
 			}
 
-			await openDocumentFile(handle.file, handle);
+			await handleOpenDocumentFile(handle);
 			NewDocumentDialog.end({ action: "cancel" });
 		};
 
 		window.addEventListener("tauri-open-files", handler);
 		return () => window.removeEventListener("tauri-open-files", handler);
-	}, [handleDropFiles, openDocumentFile]);
+	}, [handleDropFiles, handleOpenDocumentFile]);
 
 	// Persist shortcut overrides to appConfig on change
 	useEffect(() => {
