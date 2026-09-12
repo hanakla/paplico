@@ -1,5 +1,6 @@
 import { proxy } from "valtio";
 import { createDefaultDocument } from "@/core/document/factory";
+import { openPapf } from "@/core/io/papf/reader";
 import { serializeDocument } from "@/core/io/papf/writer";
 import { generateUid } from "@/core/schema";
 import { type DocumentData, type DocumentMeta, db } from "@/infra/documentDB";
@@ -177,6 +178,12 @@ export async function duplicateDocument(
 
 	const newId = generateUid("doc");
 	const now = Date.now();
+	// The copy carries its own id inside the document too, so a file saved
+	// from it lands on the copy's record and not on the original's.
+	const document = await serializeDocument({
+		...(await (await openPapf(data.document)).toDocument()),
+		id: newId,
+	});
 
 	await db.transaction("rw", db.documentMeta, db.documentData, async () => {
 		await db.documentMeta.add({
@@ -188,7 +195,7 @@ export async function duplicateDocument(
 		});
 		await db.documentData.add({
 			id: newId,
-			document: data.document,
+			document,
 			thumbnail: data.thumbnail ?? null,
 			createdAt: now,
 		});
