@@ -56,6 +56,7 @@ import {
 	useAppConfig,
 } from "@/hooks/useAppConfig";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { useCanvasObstacle } from "@/hooks/useCanvasObstacle";
 import { getEncryptedRoomCredentials, useCollab } from "@/hooks/useCollab";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useMenuActions } from "@/hooks/useMenuActions";
@@ -144,6 +145,7 @@ export default function Page() {
 	const uiSnap = useUIState();
 	const documentSessionSnap = useSnapshot(documentSessionState);
 	const layoutMode = useLayoutMode();
+	const sidePanelsObstacleRef = useCanvasObstacle("sidePanels");
 	// The side panel column sits next to the toolbar, so anything floating
 	// beside the toolbar has to clear the column's width as well.
 	const sidePanelsBesideToolbar =
@@ -989,6 +991,7 @@ export default function Page() {
 
 									return (
 										<div
+											ref={sidePanelsObstacleRef}
 											className={twm(colCls, panelSideCls)}
 											style={panelSideStyle}
 										>

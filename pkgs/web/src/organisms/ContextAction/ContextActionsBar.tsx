@@ -1,10 +1,11 @@
 import { GripVertical } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
 import { useAppConfig } from "@/hooks/useAppConfig";
-import { uiState } from "@/stores/uiStore";
+import { type CanvasObstacleRect, uiState } from "@/stores/uiStore";
 import { useEventCallback, useMediaQuery } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
+import { clampBarPosition } from "./clampBarPosition";
 
 /**
  * Chrome of the floating context actions bar: placement, the mobile edge fade
@@ -58,6 +59,52 @@ export function ContextActionsBar({
 	useEffect(() => {
 		updateBarFade();
 	});
+
+	// Placement needs the bar's own box and the pane it floats in, both of which
+	// only the DOM knows. Measuring in a layout effect keeps the first paint
+	// from showing the unclamped position.
+	const [placement, setPlacement] = useState<{
+		barSize: { width: number; height: number };
+		paneRect: CanvasObstacleRect;
+	} | null>(null);
+	const measurePlacement = useEventCallback(() => {
+		const pane = barEl?.offsetParent;
+		if (isMobile || !barEl || !(pane instanceof HTMLElement)) return;
+
+		const bar = barEl.getBoundingClientRect();
+		const paneBox = pane.getBoundingClientRect();
+		setPlacement((prev) =>
+			prev &&
+			prev.barSize.width === bar.width &&
+			prev.barSize.height === bar.height &&
+			prev.paneRect.left === paneBox.left &&
+			prev.paneRect.top === paneBox.top &&
+			prev.paneRect.right === paneBox.right &&
+			prev.paneRect.bottom === paneBox.bottom
+				? prev
+				: {
+						barSize: { width: bar.width, height: bar.height },
+						paneRect: {
+							left: paneBox.left,
+							top: paneBox.top,
+							right: paneBox.right,
+							bottom: paneBox.bottom,
+						},
+					},
+		);
+	});
+	// The bar's content swaps with the tool context without resizing its
+	// container, so re-measure after every render.
+	useLayoutEffect(() => {
+		measurePlacement();
+	});
+	// biome-ignore lint/correctness/useExhaustiveDependencies: measurePlacement is stable (useEventCallback)
+	useLayoutEffect(() => {
+		if (!barEl || isMobile) return;
+		const observer = new ResizeObserver(measurePlacement);
+		observer.observe(barEl);
+		return () => observer.disconnect();
+	}, [barEl, isMobile]);
 
 	const dragStateRef = useRef<{
 		pointerId: number;
@@ -126,11 +173,23 @@ export function ContextActionsBar({
 					"[mask-image:linear-gradient(to_right,black_calc(100%-12px),transparent)]",
 			)
 		: "pointer-events-auto absolute flex touch-none items-center gap-1 rounded-md border border-border bg-background px-1 py-0.5 shadow-md";
+	const clamped =
+		!isMobile && placement
+			? clampBarPosition({
+					anchor,
+					offset: uiSnap.contextActionsOffset,
+					barSize: placement.barSize,
+					paneRect: placement.paneRect,
+					obstacles: Object.values(uiSnap.canvasObstacles).filter(
+						(rect) => rect != null,
+					),
+				})
+			: null;
 	const barStyle = isMobile
 		? undefined
 		: {
-				left: anchor.x + uiSnap.contextActionsOffset.x,
-				top: anchor.y + uiSnap.contextActionsOffset.y,
+				left: clamped ? clamped.left : anchor.x + uiSnap.contextActionsOffset.x,
+				top: clamped ? clamped.top : anchor.y + uiSnap.contextActionsOffset.y,
 				transform: "translate(-50%, -100%)",
 				transformOrigin: "center bottom",
 			};
@@ -139,7 +198,7 @@ export function ContextActionsBar({
 		<div className="pointer-events-none absolute inset-0">
 			<div
 				data-context-actions-root
-				ref={isMobile ? setBarEl : undefined}
+				ref={setBarEl}
 				className={barClassName}
 				style={barStyle}
 			>

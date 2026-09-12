@@ -39,6 +39,7 @@ import { Menu } from "@/components/Menu";
 import { Menubar } from "@/components/Menubar";
 import type { Paplico } from "@/core/Paplico";
 import { LicensesDialog } from "@/dialogs/LicensesDialog";
+import { useCanvasObstacle } from "@/hooks/useCanvasObstacle";
 import { useCurrentCanvasTargetResolver } from "@/hooks/useCurrentCanvasTarget";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useMenuActions } from "@/hooks/useMenuActions";
@@ -96,6 +97,7 @@ export function DesktopMenuBar({
 	onToggleSplitView: () => void;
 }) {
 	const layoutMode = useLayoutMode();
+	const menuBarObstacleRef = useCanvasObstacle("menubar");
 	const t = useTranslation();
 	const { getCurrentCanvasTarget } = useCurrentCanvasTargetResolver();
 
@@ -221,6 +223,7 @@ export function DesktopMenuBar({
 
 	return (
 		<div
+			ref={menuBarObstacleRef}
 			data-tauri-drag-region
 			className={twm(
 				"min-h-10 bg-background/80 backdrop-liquid flex items-center px-3 pointer-events-auto pt-safe-top",

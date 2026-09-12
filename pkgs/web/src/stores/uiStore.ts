@@ -6,6 +6,22 @@ import {
 
 type ColorTarget = "stroke" | "fill";
 
+/** Floating UI that overlaps the canvas and must not be covered by the
+ *  context actions bar. */
+export type CanvasObstacleKey =
+	| "menubar"
+	| "toolbar"
+	| "dockedPanel"
+	| "sidePanels";
+
+/** Client-space rect of an obstacle, as measured from the DOM. */
+export type CanvasObstacleRect = {
+	left: number;
+	top: number;
+	right: number;
+	bottom: number;
+};
+
 interface UIState {
 	/** ID of the last focused CanvasTarget */
 	currentTargetId: string | null;
@@ -35,6 +51,10 @@ interface UIState {
 	softProofEnabled: boolean;
 	/** Whether pixel preview (rasterization-DPI display) is enabled (UI-only, not synced) */
 	pixelPreviewEnabled: boolean;
+	/** Measured rects of the floating UI overlapping the canvas, keyed per UI.
+	 *  Only the CSS describes where those sit, so the placement of the context
+	 *  actions bar reads the measured values from here. */
+	canvasObstacles: Partial<Record<CanvasObstacleKey, CanvasObstacleRect>>;
 }
 
 const BRUSH_DESIGNER_PANEL_DEFAULT_WIDTH = 480;
@@ -61,7 +81,31 @@ export const uiState = proxy<UIState>({
 	mobilePanelOpen: null,
 	softProofEnabled: false,
 	pixelPreviewEnabled: false,
+	canvasObstacles: {},
 });
+
+export function setCanvasObstacleRect(
+	key: CanvasObstacleKey,
+	rect: CanvasObstacleRect,
+): void {
+	const current = uiState.canvasObstacles[key];
+	// Measuring runs on every render of the obstacle, so an unchanged rect must
+	// not write and wake its subscribers.
+	if (
+		current &&
+		current.left === rect.left &&
+		current.top === rect.top &&
+		current.right === rect.right &&
+		current.bottom === rect.bottom
+	) {
+		return;
+	}
+	uiState.canvasObstacles[key] = rect;
+}
+
+export function clearCanvasObstacleRect(key: CanvasObstacleKey): void {
+	delete uiState.canvasObstacles[key];
+}
 
 export function toggleActiveColorTarget(): void {
 	uiState.activeColorTarget =
