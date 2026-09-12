@@ -14,6 +14,11 @@ export function detectSafariBrowser(): boolean {
 	return isSafariTokenPresent && !isExcludedBrowser;
 }
 
+/** Tells whether the app runs in the iOS or Android Tauri build. */
+export function detectTauriMobile(): boolean {
+	return IS_TAURI_ENV && /iPhone|iPad|Android/.test(navigator.userAgent);
+}
+
 export function detectMacOSTauri(): boolean {
 	return (
 		navigator.userAgent.includes("PaplicoDesktop") &&

@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { Clock, FolderOpen, ImageIcon, X } from "lucide-react";
 import { useState } from "react";
 import { createCallable } from "react-call";
 import { Button } from "@/components/Button";
@@ -13,7 +13,7 @@ import {
 	type LengthUnit,
 	unitToWorld,
 } from "@/core/document/units";
-import { FileSystem } from "@/infra/filesystem";
+import { type FileHandle, FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import { useEventCallback, useMediaDynamicRange } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
@@ -87,19 +87,22 @@ const DOCUMENT_PRESETS = [
 
 type PresetKey = (typeof DOCUMENT_PRESETS)[number]["key"];
 
-type NewDocumentSizeResult =
+/** What the dialog was closed for. Opening leaves the creation to no one. */
+export type NewDocumentDialogResult =
 	| {
-			ok: true;
+			action: "create";
 			size: { width: number; height: number } | null;
 			imageFile?: File;
 			hdr?: { enabled: boolean; exposure: number };
 			units?: LengthUnit;
 	  }
-	| { ok: false };
+	| { action: "openRecents" }
+	| { action: "openFile"; handle: FileHandle }
+	| { action: "cancel" };
 
 export const NewDocumentDialog = createCallable<
 	{ hdrSupported?: boolean },
-	NewDocumentSizeResult
+	NewDocumentDialogResult
 >(({ call, hdrSupported: hdrSupportedProp }) => {
 	const t = useTranslation();
 	const hdrSupported = hdrSupportedProp ?? false;
@@ -127,7 +130,7 @@ export const NewDocumentDialog = createCallable<
 	const handleDoubleClickPreset = useEventCallback(
 		(preset: (typeof DOCUMENT_PRESETS)[number]) => {
 			call.end({
-				ok: true,
+				action: "create",
 				size: { width: preset.width, height: preset.height },
 			});
 		},
@@ -156,7 +159,7 @@ export const NewDocumentDialog = createCallable<
 	const handleCreate = useEventCallback(() => {
 		if (selectedPreset === "free") {
 			call.end({
-				ok: true,
+				action: "create",
 				size: null,
 				hdr: hdrEnabled ? { enabled: true, exposure: 0 } : undefined,
 			});
@@ -176,7 +179,7 @@ export const NewDocumentDialog = createCallable<
 		}
 
 		call.end({
-			ok: true,
+			action: "create",
 			size: { width, height },
 			hdr: hdrEnabled ? { enabled: true, exposure: 0 } : undefined,
 			units,
@@ -200,15 +203,34 @@ export const NewDocumentDialog = createCallable<
 		bitmap.close();
 
 		call.end({
-			ok: true,
+			action: "create",
 			size: { width, height },
 			imageFile: handle.file,
 			hdr: hdrEnabled ? { enabled: true, exposure: 0 } : undefined,
 		});
 	});
 
+	const handleOpenRecents = useEventCallback(() => {
+		call.end({ action: "openRecents" });
+	});
+
+	const handleOpenFile = useEventCallback(async () => {
+		const handle = await FileSystem.openFileDialog({
+			id: "papf-open",
+			types: [
+				{
+					description: "Paplico",
+					accept: { "application/octet-stream": [".papf"] },
+				},
+			],
+		});
+		if (!handle) return;
+
+		call.end({ action: "openFile", handle });
+	});
+
 	const handleCancel = useEventCallback(() => {
-		call.end({ ok: false });
+		call.end({ action: "cancel" });
 	});
 
 	const isCreateDisabled =
@@ -225,7 +247,7 @@ export const NewDocumentDialog = createCallable<
 	});
 
 	const onOpenChange = useEventCallback(
-		(open: boolean) => !open && call.end({ ok: false }),
+		(open: boolean) => !open && call.end({ action: "cancel" }),
 	);
 
 	const handlePresetClick = useEventCallback(
@@ -238,7 +260,7 @@ export const NewDocumentDialog = createCallable<
 	);
 
 	const handleDoubleClickFree = useEventCallback(() => {
-		call.end({ ok: true, size: null });
+		call.end({ action: "create", size: null });
 	});
 
 	const handleSelectCustom = useEventCallback(() => {
@@ -417,13 +439,35 @@ export const NewDocumentDialog = createCallable<
 							</span>
 						)}
 					</div>
+
+					{/* Starting from something that already exists */}
+					<div className="pt-4 border-t border-border/30">
+						<span className="text-xs text-muted-foreground block mb-2">
+							{t("newDocumentDialog.open")}
+						</span>
+						<div className="flex flex-wrap items-center gap-2">
+							<Button
+								$variant="secondary"
+								$size="sm"
+								onClick={handleOpenRecents}
+							>
+								<Clock size={14} />
+								{t("documentList.title")}
+							</Button>
+							<Button $variant="secondary" $size="sm" onClick={handleOpenFile}>
+								<FolderOpen size={14} />
+								{t("newDocumentDialog.openFile")}
+							</Button>
+							<Button $variant="secondary" $size="sm" onClick={handleLoadImage}>
+								<ImageIcon size={14} />
+								{t("newDocumentDialog.loadImage")}
+							</Button>
+						</div>
+					</div>
 				</div>
 
 				{/* Footer */}
-				<div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border/30">
-					<Button $variant="ghost" $size="sm" onClick={handleLoadImage}>
-						{t("newDocumentDialog.loadImage")}
-					</Button>
+				<div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border/30">
 					<div className="flex items-center gap-2">
 						<Button $variant="ghost" $size="sm" onClick={handleCancel}>
 							{t("newDocumentDialog.cancel")}

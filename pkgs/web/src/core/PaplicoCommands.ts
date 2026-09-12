@@ -24,6 +24,7 @@ import {
 import {
 	createIdentityTransform,
 	createMeshWarpObject,
+	createMeshWarpObjectFromGeometry,
 	createReference3DElement,
 	createRepeatObject,
 } from "./document/factory";
@@ -32,6 +33,8 @@ import { isLengthUnit, type LengthUnit } from "./document/units";
 import { Clipboard, PAPLICO_ELEMENTS_MIME } from "./infra/Clipboard";
 import type { RendererState } from "./Paplico";
 import type { PaplicoSelection } from "./PaplicoSelection";
+import type { FilterRenderer } from "./renderer/canvas/pipeline/FilterRenderer";
+import { resolveElementGeometry } from "./renderer/canvas/pipeline/PreFilterRenderer";
 import {
 	cornersFromBounds,
 	projectionErrorThreshold,
@@ -61,6 +64,7 @@ import {
 	type ColorProfileSettings,
 	type CompoundPath,
 	type CubicBezierSegment,
+	cloneAppearance,
 	createDefaultContentAppearance,
 	type DefEntry,
 	type DefKind,
@@ -146,17 +150,28 @@ import {
 	translateBounds,
 } from "./utils/geometry/bounds";
 import {
+	applyTransformToPoint,
 	applyWorldAffineToTransform,
+	composePivotedTransforms,
 	composeTransforms,
 	computeInverseCompositionTransform,
+	computeTransformOrigin,
 	mirrorTransform,
 	solveChildTransform,
+	transformLinearMatrix,
 } from "./utils/geometry/geometry";
 import {
 	deleteMeshVertex,
 	demoteMeshColorVertexToDerived,
 	syncDerivedVertices,
 } from "./utils/geometry/meshGradient";
+import { isMeshWarpPassthrough } from "./utils/geometry/meshWarp";
+import {
+	buildWarpGeometryFromContour,
+	mapWarpGeometryPositions,
+	remapWarpGeometrySrc,
+	type WarpGeometry,
+} from "./utils/geometry/meshWarpShape";
 import { closePathAtEndpoints } from "./utils/geometry/pathOps";
 import {
 	createLocalPointDeformer,
@@ -176,7 +191,13 @@ import {
 	scaleTextLayout,
 	scaleTextStyle,
 } from "./utils/geometry/resize";
-import { toWorldPath, translateSegments } from "./utils/geometry/segmentOps";
+import {
+	getMeshWorldBoundarySegments,
+	toRelativeCP1,
+	toRelativeCP2,
+	toWorldPath,
+	translateSegments,
+} from "./utils/geometry/segmentOps";
 import { deepClone, neverReached } from "./utils/lang";
 import { parseSvgToArtObjects, type SvgImportResult } from "./utils/svgImport";
 
@@ -189,6 +210,23 @@ type CreateBlendResult =
 	| { ok: true; blendId: string }
 	| { ok: false; reason: "invalid" | "different-parent" };
 
+/**
+ * Why createMeshWarpFromShapeSelection refused. Each reason maps to its own
+ * user-facing message.
+ */
+export type MeshWarpFromShapeFailure =
+	| "readonly"
+	| "invalid-selection"
+	| "locked"
+	| "different-parent"
+	| "invalid-shape"
+	| "unsupported-content"
+	| "invalid-bounds";
+
+type MeshWarpFromShapeResult =
+	| { ok: true; meshId: string }
+	| { ok: false; reason: MeshWarpFromShapeFailure };
+
 interface CommandContext {
 	store: RendererState;
 	yjsProvider: YjsProvider;
@@ -197,7 +235,7 @@ interface CommandContext {
 	renderElementsToPNG?: (
 		elementIds: string[],
 	) => Promise<{ blob: Blob } | null>;
-	filterHandlerLookup?: FilterHandlerLookup;
+	filterHandlerLookup?: FilterRenderer["getHandler"];
 	toolSettings?: ToolSettings;
 	getTextRenderer?: () => TextRenderer | null;
 	selection?: PaplicoSelection;
@@ -225,6 +263,7 @@ interface CommandContext {
 	getSessionHistory?: () => {
 		undo: () => boolean;
 		redo: () => boolean;
+		stopCapture: () => void;
 	} | null;
 }
 
@@ -1566,28 +1605,12 @@ export class PaplicoCommands {
 			selectedChildren,
 		);
 
-		const elementsMap = new Map(
-			Object.entries(this.ctx.store.document.objects),
-		);
-		let minX = Infinity;
-		let minY = Infinity;
-		let maxX = -Infinity;
-		let maxY = -Infinity;
-		for (const child of orderedChildren) {
-			const bounds = calculateElementBounds(child, elementsMap);
-			minX = Math.min(minX, bounds.minX);
-			minY = Math.min(minY, bounds.minY);
-			maxX = Math.max(maxX, bounds.maxX);
-			maxY = Math.max(maxY, bounds.maxY);
-		}
-		if (!Number.isFinite(minX)) return null;
-		// A zero-area cage would make the warp parametrization degenerate.
-		if (maxX - minX < 1) maxX = minX + 1;
-		if (maxY - minY < 1) maxY = minY + 1;
+		const cage = this.meshContentBounds(orderedChildren.map((s) => s.id));
+		if (!cage) return null;
 
 		const mesh = createMeshWarpObject(
 			orderedChildren.map((s) => s.id),
-			{ minX, minY, maxX, maxY },
+			cage,
 		);
 
 		const origin = this.getMutationOrigin();
@@ -1607,8 +1630,239 @@ export class PaplicoCommands {
 		if (this.cannotMutate() || this.isElementLocked(meshId)) return;
 		const mesh = this.ctx.store.document.objects[meshId];
 		if (!mesh || !isMesh(mesh)) return;
-		this.ctx.yjsProvider.releaseMeshWarp(meshId);
-		this.ctx.store.selectedElementIds = [...mesh.childIds];
+		const objects = this.ctx.store.document.objects;
+		const elementsMap = new Map(Object.entries(objects));
+		const outline = this.buildMeshOutlinePath(mesh, objects);
+		this.ctx.yjsProvider.releaseMeshWarp(
+			meshId,
+			releasedChildTransforms(mesh, elementsMap),
+			outline ?? undefined,
+		);
+		const ids = outline ? [outline.id, ...mesh.childIds] : [...mesh.childIds];
+		if (this.ctx.selection) this.ctx.selection.selectMultiple(ids);
+		else this.ctx.store.selectedElementIds = ids;
+	}
+
+	/**
+	 * The cage's outer boundary as a path in the parent's space. Null for a
+	 * mesh that did not come from a shape. The look comes straight from the
+	 * tool settings: the active appearance would be read off the selection,
+	 * which at this point is the mesh being released.
+	 */
+	private buildMeshOutlinePath(
+		mesh: MeshArtObject,
+		objects: Record<string, AnyArtObject>,
+	): Path | null {
+		if (!mesh.outlineOnRelease) return null;
+		const world = getMeshWorldBoundarySegments(mesh, (id) => objects[id]);
+		if (world.length === 0) return null;
+		const segments: CubicBezierSegment[] = world.map((seg, i) => {
+			const start = seg.start ?? world[i - 1].end;
+			return {
+				...(i === 0 ? { start: { x: start.x, y: start.y } } : {}),
+				cp1: toRelativeCP1({ x: seg.cp1.x, y: seg.cp1.y }, start),
+				cp2: toRelativeCP2({ x: seg.cp2.x, y: seg.cp2.y }, seg.end),
+				end: { x: seg.end.x, y: seg.end.y },
+				startTiltX: 0,
+				startTiltY: 0,
+				endTiltX: 0,
+				endTiltY: 0,
+				startDeltaTime: 0,
+				endDeltaTime: 0,
+				isMoved: i === 0,
+				...(i === world.length - 1 ? { isClosed: true } : {}),
+			};
+		});
+		return {
+			id: generateUid("path"),
+			type: "path",
+			segments,
+			filters: [
+				this.ctx.toolSettings?.strokeAppearance,
+				this.ctx.toolSettings?.fillAppearance,
+			]
+				.filter((appearance) => appearance != null)
+				.map((appearance) => cloneAppearance(appearance)),
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		};
+	}
+
+	/**
+	 * Warp the selection into one of its members: the key object (or the first
+	 * selected element) becomes the cage shape, the rest become the mesh
+	 * content. The shape is replaced by the new mesh; an existing mesh warp
+	 * used as the shape keeps its cage and releases its former content.
+	 */
+	public createMeshWarpFromShapeSelection(): MeshWarpFromShapeResult {
+		if (this.cannotMutate()) return { ok: false, reason: "readonly" };
+		const { store } = this.ctx;
+		const selectedIds = store.selectedElementIds;
+		const shapeId = store.keyObjectId ?? selectedIds[0];
+		if (shapeId === undefined || !selectedIds.includes(shapeId)) {
+			return { ok: false, reason: "invalid-selection" };
+		}
+		const objects = store.document.objects;
+		const shape = objects[shapeId];
+		const contents = selectedIds
+			.filter((id) => id !== shapeId)
+			.map((id) => objects[id]);
+		if (!shape || contents.length === 0 || contents.some((c) => !c)) {
+			return { ok: false, reason: "invalid-selection" };
+		}
+		if (selectedIds.some((id) => this.isElementLocked(id))) {
+			return { ok: false, reason: "locked" };
+		}
+		const owner = resolveBlendSourceContainer(store.document, selectedIds);
+		if (!owner.ok) return { ok: false, reason: "different-parent" };
+		const parent = objects[owner.parentId];
+		if (
+			parent &&
+			isGroup(parent) &&
+			parent.clipPathId != null &&
+			selectedIds.includes(parent.clipPathId)
+		) {
+			return { ok: false, reason: "invalid-selection" };
+		}
+		if (contents.some((c) => hasPassthroughDescendant(c, objects))) {
+			return { ok: false, reason: "unsupported-content" };
+		}
+		const orderedIds = orderSourcesByContainer(
+			store.document,
+			owner.parentId,
+			contents,
+		).map((c) => c.id);
+
+		const contentBounds = this.meshContentBounds(orderedIds);
+		if (!contentBounds) return { ok: false, reason: "invalid-bounds" };
+
+		let geometry = this.buildShapeWarpGeometry(shape, contentBounds);
+		if (!geometry) return { ok: false, reason: "invalid-shape" };
+
+		const elementsMap = new Map(Object.entries(objects));
+		const shapeTransform = getTransform(shape);
+		if (!isIdentityTransform(shapeTransform)) {
+			const origin = computeTransformOrigin(
+				calculateLocalElementBounds(shape, elementsMap),
+			);
+			geometry = mapWarpGeometryPositions(geometry, (p) =>
+				applyTransformToPoint(p.x, p.y, shapeTransform, origin.x, origin.y),
+			);
+		}
+		const mesh = createMeshWarpObjectFromGeometry(orderedIds, geometry);
+		// A rectangle cage reused as the shape keeps releasing without a path.
+		mesh.outlineOnRelease = isMesh(shape) ? shape.outlineOnRelease : true;
+
+		// A group pivots on the centre of its local bounds, so swapping a child
+		// for one with different bounds moves the pivot and shifts every child
+		// on canvas. Read the pivot before and after, and move the group's
+		// translation by (P - I)(after - before) so nothing moves.
+		const parentPivot =
+			parent && isGroup(parent) && !isIdentityTransform(getTransform(parent))
+				? computeTransformOrigin(
+						calculateLocalElementBounds(parent, elementsMap),
+					)
+				: null;
+
+		const origin = this.getMutationOrigin();
+		this.stopUndoCapture();
+		const replaced = this.ctx.yjsProvider.replaceShapeWithMeshWarp(
+			owner.parentId,
+			shapeId,
+			mesh,
+			isMesh(shape)
+				? releasedChildTransforms(shape, elementsMap)
+				: new Map<string, ElementTransform>(),
+			origin,
+		);
+		if (!replaced) return { ok: false, reason: "invalid-selection" };
+		this.cleanupTextReferencesForDelete(new Set([shapeId]), origin);
+		if (parent && parentPivot) {
+			const after = this.ctx.store.document.objects[parent.id];
+			if (after) {
+				const pivot = computeTransformOrigin(
+					calculateLocalElementBounds(
+						after,
+						new Map(Object.entries(this.ctx.store.document.objects)),
+					),
+				);
+				const t = getTransform(parent);
+				const m = transformLinearMatrix(t);
+				const dx = pivot.x - parentPivot.x;
+				const dy = pivot.y - parentPivot.y;
+				this.ctx.yjsProvider.updateElement(
+					owner.parentId,
+					parent.id,
+					{
+						transform: {
+							...t,
+							x: t.x + (m.m00 * dx + m.m01 * dy - dx),
+							y: t.y + (m.m10 * dx + m.m11 * dy - dy),
+						},
+					},
+					origin,
+				);
+			}
+		}
+		this.stopUndoCapture();
+
+		if (this.ctx.selection) {
+			this.ctx.selection.selectElement(mesh.id);
+			this.ctx.selection.updateSelectionBounds();
+		} else {
+			store.selectedElementIds = [mesh.id];
+			store.keyObjectId = null;
+		}
+		return { ok: true, meshId: mesh.id };
+	}
+
+	/**
+	 * The union of the elements' bounds, at least one unit on each side: a
+	 * zero-area source grid would make the warp parametrization degenerate.
+	 */
+	private meshContentBounds(ids: readonly string[]): BoundingBox | null {
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+		for (const id of ids) {
+			const bounds = this.ctx.spatial.getBounds(id);
+			if (!bounds) return null;
+			minX = Math.min(minX, bounds.minX);
+			minY = Math.min(minY, bounds.minY);
+			maxX = Math.max(maxX, bounds.maxX);
+			maxY = Math.max(maxY, bounds.maxY);
+		}
+		if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
+		if (maxX - minX < 1) maxX = minX + 1;
+		if (maxY - minY < 1) maxY = minY + 1;
+		return {
+			minX,
+			minY,
+			maxX,
+			maxY,
+			width: maxX - minX,
+			height: maxY - minY,
+		};
+	}
+
+	/** Cage geometry for a shape element, in the shape's own local space. */
+	private buildShapeWarpGeometry(
+		shape: AnyArtObject,
+		contentBounds: BoundingBox,
+	): WarpGeometry | null {
+		if (isMesh(shape)) return remapWarpGeometrySrc(shape, contentBounds);
+		if (!isPath(shape)) return null;
+		const contour = resolveElementGeometry(
+			shape.segments,
+			localAppearances(shape.filters),
+			{
+				getHandler: (processor) => this.ctx.filterHandlerLookup?.(processor),
+			},
+		);
+		const result = buildWarpGeometryFromContour(contour, contentBounds);
+		return result.ok ? result.geometry : null;
 	}
 
 	/**
@@ -3217,15 +3471,8 @@ export class PaplicoCommands {
 			} else if (element.type === "mesh") {
 				// Warp cage vertices + handles only; `src` must stay untouched so
 				// the source parametrization (and therefore the children's warp)
-				// follows the moved cage. Twin of MeshDeformTool's mesh branch.
-				const vertices = element.vertices.map((vertex) => {
-					const point = deformPoint(vertex);
-					const handles: Record<number, { x: number; y: number }> = {};
-					for (const [key, handle] of Object.entries(vertex.handles)) {
-						handles[Number(key)] = deformPoint(handle);
-					}
-					return { ...vertex, ...point, handles };
-				});
+				// follows the moved cage.
+				const { vertices } = mapWarpGeometryPositions(element, deformPoint);
 				const newLocalBounds = brandLocalBBox(
 					calculateMeshCoordinateBounds(vertices),
 				);
@@ -4972,8 +5219,11 @@ export class PaplicoCommands {
 		);
 	}
 
+	/** Close the open history entry, in the editing session when one is open. */
 	public stopUndoCapture(): void {
-		this.ctx.yjsProvider.stopUndoCapture();
+		const session = this.ctx.getSessionHistory?.();
+		if (session) session.stopCapture();
+		else this.ctx.yjsProvider.stopUndoCapture();
 	}
 
 	public addPaths(
@@ -5222,6 +5472,55 @@ function findDirectContainerId(
 		if (isGroup(obj) && obj.childIds.includes(id)) return obj.id;
 	}
 	return null;
+}
+
+/** True when `element` or any descendant would pass through the cage unwarped. */
+function hasPassthroughDescendant(
+	element: AnyArtObject,
+	objects: Record<string, AnyArtObject>,
+	visited = new Set<string>(),
+): boolean {
+	if (visited.has(element.id)) return false;
+	visited.add(element.id);
+	if (isMeshWarpPassthrough(element)) return true;
+	return (getContainerChildIds(element) ?? []).some((id) => {
+		const child = objects[id];
+		return (
+			child !== undefined && hasPassthroughDescendant(child, objects, visited)
+		);
+	});
+}
+
+/**
+ * The transforms a released mesh's children need in the parent's space to
+ * stay where the mesh drew them. The mesh pivots on its full local bounds and
+ * each child on its own, so the composition has to honour both pivots. Empty
+ * when the mesh transform is identity and nothing moves.
+ */
+function releasedChildTransforms(
+	mesh: MeshArtObject,
+	elementsMap: ReadonlyMap<string, AnyArtObject>,
+): Map<string, ElementTransform> {
+	const result = new Map<string, ElementTransform>();
+	const meshTransform = getTransform(mesh);
+	if (isIdentityTransform(meshTransform)) return result;
+	const meshPivot = computeTransformOrigin(
+		calculateLocalElementBounds(mesh, elementsMap),
+	);
+	for (const id of mesh.childIds) {
+		const child = elementsMap.get(id);
+		if (!child) continue;
+		result.set(
+			id,
+			composePivotedTransforms(
+				meshTransform,
+				meshPivot,
+				getTransform(child),
+				computeTransformOrigin(calculateLocalElementBounds(child, elementsMap)),
+			),
+		);
+	}
+	return result;
 }
 
 /**

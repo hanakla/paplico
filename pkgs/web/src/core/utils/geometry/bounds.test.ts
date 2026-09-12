@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { createIdentityTransform } from "../../document/factory";
+import {
+	createIdentityTransform,
+	createStrokeBrushSettings,
+} from "../../document/factory";
 import type {
 	AnyArtObject,
 	BoundingBox,
 	Group,
 	Path,
 	Reference3DElement,
+	StrokeAlign,
 	StrokeAppearance,
 } from "../../schema";
 import { closedRectSegments } from "../../testUtils/segmentFactory";
@@ -75,6 +79,23 @@ describe("bounds utilities", () => {
 			expect(bounds.maxY).toBe(105);
 			expect(bounds.width).toBe(110);
 			expect(bounds.height).toBe(110);
+		});
+
+		it("should reach a full stroke width out for an outside-aligned stroke", () => {
+			const bounds = calculatePathBounds(alignedRectPath("outside"));
+
+			expect([bounds.minX, bounds.minY, bounds.maxX, bounds.maxY]).toEqual([
+				-10, -10, 110, 110,
+			]);
+		});
+
+		it("should keep the half-width margin for an inside-aligned stroke", () => {
+			// Open subpaths still render centered, so the margin must not shrink.
+			const bounds = calculatePathBounds(alignedRectPath("inside"));
+
+			expect([bounds.minX, bounds.minY, bounds.maxX, bounds.maxY]).toEqual([
+				-5, -5, 105, 105,
+			]);
 		});
 
 		it("should include size and wet bleed margin for stored v2 settings", () => {
@@ -678,3 +699,35 @@ describe("bounds utilities", () => {
 		});
 	});
 });
+
+/** Closed 100×100 rectangle with a 10px geometric stroke at `align`. */
+function alignedRectPath(align: StrokeAlign): Path {
+	return {
+		type: "path",
+		id: "aligned-rect",
+		opacity: 1,
+		blendMode: "normal",
+		transform: createIdentityTransform(),
+		segments: closedRectSegments(0, 0, 100, 100),
+		filters: [
+			{
+				processor: "stroke",
+				paramData: {
+					version: "1",
+					params: {
+						strokeColor: {
+							type: "solid",
+							color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+						},
+						brushSettings: createStrokeBrushSettings(10, {
+							lineCap: "butt",
+							lineJoin: "miter",
+							miterLimit: 4,
+							align,
+						}),
+					},
+				},
+			} as unknown as StrokeAppearance,
+		],
+	};
+}

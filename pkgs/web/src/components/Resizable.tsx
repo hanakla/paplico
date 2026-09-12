@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
 
@@ -30,14 +30,19 @@ export function Resizable({
 	defaultSize,
 	minSize = 80,
 	maxSize = 600,
+	limit = "size",
 	className,
 	onSizeChange,
 	children,
 }: {
 	dir: Direction;
-	defaultSize: number;
+	/** null leaves the box to its content until the user drags it */
+	defaultSize: number | null;
 	minSize?: number;
 	maxSize?: number;
+	/** "size" pins the box to the dragged value; "max" caps it there, so content
+	 *  smaller than the value keeps the size it asks for */
+	limit?: "size" | "max";
 	className?: string;
 	onSizeChange?: (size: number) => void;
 	children: ReactNode;
@@ -50,13 +55,22 @@ export function Resizable({
 		sign: number;
 	} | null>(null);
 
+	// A size restored from persisted settings can land after the first render.
+	useEffect(() => {
+		if (dragRef.current) return;
+		setSize(defaultSize);
+	}, [defaultSize]);
+
 	const handlePointerDown = useEventCallback((e: React.PointerEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 
+		// The rendered size, not the stored one: under "max" the box can be
+		// smaller than the value the drag is nominally continuing from.
+		const rect = containerRef.current?.getBoundingClientRect();
 		dragRef.current = {
 			startPos: isHorizontal(dir) ? e.clientX : e.clientY,
-			startSize: size,
+			startSize: (isHorizontal(dir) ? rect?.width : rect?.height) ?? minSize,
 			sign: dir === "top" || dir === "left" ? -1 : 1,
 		};
 
@@ -90,7 +104,14 @@ export function Resizable({
 		document.body.style.userSelect = "";
 	});
 
-	const sizeStyle = isHorizontal(dir) ? { width: size } : { height: size };
+	const sizeProperty = isHorizontal(dir)
+		? limit === "max"
+			? "maxWidth"
+			: "width"
+		: limit === "max"
+			? "maxHeight"
+			: "height";
+	const sizeStyle = size == null ? undefined : { [sizeProperty]: size };
 
 	return (
 		<div

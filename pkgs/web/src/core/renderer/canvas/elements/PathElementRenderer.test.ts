@@ -8,10 +8,15 @@ import type {
 	BrushSettings,
 	Path,
 	PathSegment,
+	StrokeAlign,
 	StrokeAppearance,
 } from "../../../schema";
 import { IDENTITY_GPU_TRANSFORM } from "../../../utils/geometry/geometry";
-import { OutlineCache } from "../caches/OutlineCache";
+import {
+	type LocalBounds,
+	OutlineCache,
+	type OutlineEntry,
+} from "../caches/OutlineCache";
 import { StripCache } from "../caches/StripCache";
 import { PathElementRenderer } from "./PathElementRenderer";
 
@@ -53,6 +58,153 @@ describe("PathElementRenderer", () => {
 	});
 });
 
+describe("PathElementRenderer stroke alignment", () => {
+	function strokeBoundsFor(path: Path): LocalBounds {
+		const { renderer, outlines } = createProbe();
+		renderer.renderPath(passEncoderStub(), path);
+		const outline = outlines.find((entry) => entry.kind === "stroke");
+		if (!outline) throw new Error("no stroke outline was tessellated");
+		return outline.localBounds;
+	}
+
+	it("should leave an open subpath centered even when aligned outside", () => {
+		expect(
+			strokeBoundsFor(squarePath({ align: "outside", closed: false })),
+		).toEqual(strokeBoundsFor(squarePath({ closed: false })));
+	});
+
+	it("should push a closed ring's band outside the path", () => {
+		expect(strokeBoundsFor(squarePath({ align: "outside" }))).toEqual([
+			-4, -4, 14, 14,
+		]);
+	});
+
+	it("should pull a closed ring's band inside the path", () => {
+		expect(strokeBoundsFor(squarePath({ align: "inside" }))).toEqual([
+			0, 0, 10, 10,
+		]);
+	});
+
+	it("should keep aligning a closed ring that a dash pattern splits into fragments", () => {
+		const dashArray = [3, 3];
+
+		expect(
+			strokeBoundsFor(squarePath({ align: "outside", dashArray })),
+		).toEqual([-4, -4, 14, 14]);
+	});
+
+	it("should read the winding of each subpath separately", () => {
+		// One counter-clockwise ring and one clockwise ring. Resolving the sign
+		// once for the whole element would shrink the second one instead.
+		const twoRings = squarePath({ align: "outside" });
+		twoRings.segments = [
+			...twoRings.segments,
+			...squareSegments(20, 30, "clockwise"),
+		];
+
+		expect(strokeBoundsFor(twoRings)).toEqual([-4, -4, 34, 34]);
+	});
+
+	it("should reuse the cached outline for center and an absent alignment", () => {
+		const { renderer, outlines } = createProbe();
+		const absent = squarePath();
+		renderer.renderPath(passEncoderStub(), absent);
+		renderer.renderPath(passEncoderStub(), squarePath({ align: "center" }));
+
+		const hashes = outlines
+			.filter((entry) => entry.kind === "stroke")
+			.map((entry) => entry.geometryHash);
+		expect(new Set(hashes).size).toBe(1);
+	});
+
+	it("should tessellate a separate outline for inside and outside", () => {
+		const { renderer, outlines } = createProbe();
+		renderer.renderPath(passEncoderStub(), squarePath({ align: "inside" }));
+		renderer.renderPath(passEncoderStub(), squarePath({ align: "outside" }));
+
+		const hashes = outlines
+			.filter((entry) => entry.kind === "stroke")
+			.map((entry) => entry.geometryHash);
+		expect(new Set(hashes).size).toBe(2);
+	});
+});
+
+/** Axis-aligned square ring in world px, as one closed subpath. */
+function squareSegments(
+	min: number,
+	max: number,
+	winding: "counter-clockwise" | "clockwise" = "counter-clockwise",
+	closed = true,
+): PathSegment[] {
+	const ring =
+		winding === "counter-clockwise"
+			? [
+					[min, min],
+					[max, min],
+					[max, max],
+					[min, max],
+				]
+			: [
+					[min, min],
+					[min, max],
+					[max, max],
+					[max, min],
+				];
+	return ring.map(([x, y], index) => {
+		const [nextX, nextY] = ring[(index + 1) % ring.length];
+		return {
+			start: { x, y },
+			cp1: { x: 0, y: 0 },
+			cp2: { x: 0, y: 0 },
+			end: { x: nextX, y: nextY },
+			startPressure: 1,
+			endPressure: 1,
+			startTiltX: 0,
+			startTiltY: 0,
+			endTiltX: 0,
+			endTiltY: 0,
+			startDeltaTime: 0,
+			endDeltaTime: 0,
+			isMoved: index === 0,
+			isClosed: closed && index === ring.length - 1,
+		};
+	});
+}
+
+function squarePath(
+	options: {
+		align?: StrokeAlign;
+		dashArray?: readonly number[];
+		closed?: boolean;
+	} = {},
+): Path {
+	return {
+		id: "square",
+		type: "path",
+		opacity: 1,
+		blendMode: "normal",
+		transform: createDefaultTransform(),
+		segments: squareSegments(
+			0,
+			10,
+			"counter-clockwise",
+			options.closed ?? true,
+		),
+		filters: [
+			stroke(
+				"aligned",
+				createStrokeBrushSettings(4, {
+					lineCap: "butt",
+					lineJoin: "miter",
+					miterLimit: 4,
+					align: options.align,
+					dashArray: options.dashArray,
+				}),
+			),
+		],
+	};
+}
+
 function createProbe() {
 	const calls: string[] = [];
 	const colors: (readonly number[])[] = [];
@@ -63,6 +215,13 @@ function createProbe() {
 	stripCache.set = (id, variant, entry) => {
 		rasterized.value++;
 		originalSet(id, variant, entry);
+	};
+	const outlines: OutlineEntry[] = [];
+	const outlineCache = new OutlineCache();
+	const originalOutlineSet = outlineCache.set.bind(outlineCache);
+	outlineCache.set = (id, variant, entry) => {
+		outlines.push(entry);
+		originalOutlineSet(id, variant, entry);
 	};
 	const renderer = new PathElementRenderer({
 		stripFrame: {
@@ -91,11 +250,11 @@ function createProbe() {
 			textures: undefined,
 		},
 		getBrushDrawBindings: () => ({}),
-		outlineCache: new OutlineCache(),
+		outlineCache,
 		stripCache,
 		ensureBrushTexture: () => true,
 	} as never);
-	return { renderer, calls, colors, rasterized, transform };
+	return { renderer, calls, colors, rasterized, transform, outlines };
 }
 
 function appearanceOrderPath(): Path {

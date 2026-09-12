@@ -92,7 +92,10 @@ export function ActionsPanel() {
 					{t("actionsPanel.actions")}
 				</span>
 			</div>
-			<div className="flex-1 min-h-0 p-2 flex gap-1 items-center overflow-auto">
+			{/* Controls taller than the panel have to start at the top edge.
+			    Centered overflow reaches past the scroll origin, where
+			    scrolling cannot follow. */}
+			<div className="flex-1 min-h-0 p-2 flex gap-1 items-center-safe overflow-auto">
 				{isGradientStopSelected ? null : isTextEditing ? (
 					<TextEditingControls />
 				) : isArtboardTool ? (

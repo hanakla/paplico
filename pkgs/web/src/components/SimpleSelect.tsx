@@ -52,8 +52,8 @@ function SimpleSelectRoot<T, Multiple extends boolean>({
 				<Select.Positioner>
 					<Select.Popup>
 						{items.map((item) => (
-							<Select.Item key={item.value} value={item.value}>
-								<Select.ItemIndicator />
+							<Select.Item key={item.value} value={item.value} $size={$size}>
+								<Select.ItemIndicator $size={$size} />
 								<BUISelect.ItemText className="col-start-2">
 									{item.label}
 								</BUISelect.ItemText>

@@ -243,7 +243,7 @@ export function LayerPanel() {
 			onDragEnd={handleDragEnd}
 			onDragCancel={clearDropIndicator}
 		>
-			<div className="w-52 max-h-[30dvh] bg-background/80 backdrop-liquid rounded-lg shadow-lg flex flex-col overflow-hidden">
+			<div className="w-52 bg-background/80 backdrop-liquid rounded-lg shadow-lg flex flex-col overflow-hidden">
 				<div className="px-3 py-1 border-b border-border flex items-center justify-between shrink-0">
 					{scopeElement ? (
 						<EditingScopeHeader

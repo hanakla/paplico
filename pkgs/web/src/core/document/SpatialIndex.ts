@@ -1631,21 +1631,24 @@ export class SpatialIndex {
 		y: LocalCoord,
 		tolerance: number,
 	): boolean {
-		const src = this.getMeshWarpInverse(element)({ x, y });
-		if (!src) return false;
-		return element.childIds.some((id) => {
-			const child = this.store.document.objects[id];
-			return (
-				child != null &&
-				isElementVisible(child) &&
-				this.isPointOnElement(
-					child,
-					src.x as LocalCoord,
-					src.y as LocalCoord,
-					tolerance,
-				)
-			);
-		});
+		// A folded cage maps several source points onto (x, y); accept the first
+		// one that lands on a child.
+		const hit = this.getMeshWarpInverse(element)({ x, y }, (src) =>
+			element.childIds.some((id) => {
+				const child = this.store.document.objects[id];
+				return (
+					child != null &&
+					isElementVisible(child) &&
+					this.isPointOnElement(
+						child,
+						src.x as LocalCoord,
+						src.y as LocalCoord,
+						tolerance,
+					)
+				);
+			}),
+		);
+		return hit !== null;
 	}
 
 	/**

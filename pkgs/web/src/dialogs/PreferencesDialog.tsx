@@ -43,6 +43,7 @@ import {
 	useAppConfig,
 } from "@/hooks/useAppConfig";
 import { useUserSession } from "@/hooks/useUserSession";
+import { confirmDialog } from "@/infra/confirmDialog";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
@@ -479,7 +480,7 @@ const AccountSection = memo(function AccountSection() {
 	});
 
 	const handleDeleteAccount = useEventCallback(async () => {
-		if (!(await confirm(t("preferences.deleteAccountConfirm")))) return;
+		if (!(await confirmDialog(t("preferences.deleteAccountConfirm")))) return;
 
 		setIsDeleting(true);
 		try {

@@ -28,6 +28,7 @@ const WARP_GHOST_ALPHA = 0.1;
 const EMPTY_RESOLUTION: MeshWarpResolution = {
 	transients: [],
 	imageWarpGrids: new Map(),
+	imageWarps: new Map(),
 	clipGroups: [],
 };
 

@@ -72,7 +72,7 @@ export async function generateDocumentThumbnail(
 		if (doc.artboards.length > 0) {
 			const artboard = doc.artboards[0];
 			const scale = computeThumbnailScale(artboard.width, artboard.height);
-			const result = await exporter.renderArtboardToPNG(artboard.id, {
+			const result = await exporter.toPNG(artboard.id, {
 				scale,
 				backgroundColor: { r: 0.95, g: 0.95, b: 0.95, a: 1 },
 			});

@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { handleAuthDeepLink } from "@/auth/tauriAuth";
 import type { FileHandle } from "@/infra/filesystem";
-import { IS_TAURI_ENV } from "@/utils/platform";
+import { detectTauriMobile, IS_TAURI_ENV } from "@/utils/platform";
 
 export type TauriFileDropDetail = {
 	files: File[];
@@ -15,9 +15,11 @@ export const TauriInit = IS_TAURI_ENV
 			useEffect(() => {
 				if (!IS_TAURI_ENV) return;
 
-				import("@saurl/tauri-plugin-safe-area-insets-css-api").catch(() => {
-					// Plugin's registerListener command is unavailable on desktop
-				});
+				// The plugin subscribes to keyboard events on import, and that
+				// subscription command exists only in the mobile builds
+				if (!detectTauriMobile()) return;
+
+				import("@saurl/tauri-plugin-safe-area-insets-css-api");
 			}, []);
 
 			// Listen for reload events from the native menu (emitted from Rust side)

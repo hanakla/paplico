@@ -2236,6 +2236,117 @@ describe("PathEditTool", () => {
 		});
 	});
 
+	describe("Vertex selection handover to SelectTool", () => {
+		const testPath2: Path = {
+			id: "path-2",
+			type: "path",
+			opacity: 1,
+			blendMode: "normal",
+			segments: [
+				{
+					start: { x: 0, y: 100 },
+					cp1: { x: 33, y: 0 },
+					cp2: { x: -34, y: 0 },
+					end: { x: 100, y: 100 },
+					startTiltX: 0,
+					startTiltY: 0,
+					endTiltX: 0,
+					endTiltY: 0,
+					startDeltaTime: 0,
+					endDeltaTime: 0,
+					isMoved: false,
+				},
+			],
+			transform: createIdentityTransform(),
+		};
+
+		it("should return no element ids while nothing is selected", () => {
+			expect(tool.getVertexSelectedElementIds()).toEqual([]);
+		});
+
+		it("should return only the clicked path when one of its anchors is selected", () => {
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// Click end0 anchor at screen(500,300)
+			tool.onPointerDown(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(tool.getVertexSelectedElementIds()).toEqual(["path-1"]);
+		});
+
+		it("should return every path a marquee touched", () => {
+			const path1 = cloneTestPath();
+			const path2 = clonePath(testPath2);
+
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path: path1, ancestorTransform: null },
+				{ path: path2, ancestorTransform: null },
+			]);
+			ctx.pathEditGetSelectionMode.mockReturnValue("rectangle");
+			ctx.findPathAtPoint.mockReturnValue(null);
+
+			tool.initWithSelectedPaths(
+				[path1, path2],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// Marquee over path1 start at screen(400,300) and path2 start at screen(400,200)
+			tool.onPointerDown(
+				ev(390, 190),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(410, 310),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(410, 310),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(tool.getVertexSelectedElementIds().sort()).toEqual([
+				"path-1",
+				"path-2",
+			]);
+		});
+
+		function clonePath(p: Path): Path {
+			return {
+				...p,
+				segments: p.segments.map((seg) => ({
+					...seg,
+					start: seg.start ? { ...seg.start } : undefined,
+					cp1: { ...seg.cp1 },
+					cp2: { ...seg.cp2 },
+					end: { ...seg.end },
+				})),
+			};
+		}
+	});
+
 	describe("Mesh cage editing", () => {
 		function makeMesh(id = "mesh-1"): MeshArtObject {
 			return {

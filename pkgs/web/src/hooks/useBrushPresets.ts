@@ -7,6 +7,7 @@ import {
 	withTextureFileUid,
 } from "@/core/brush/brushSource";
 import {
+	type BrushSettings,
 	BUILTIN_BRUSH_IDS,
 	type BuiltinBrushId,
 	type EmbeddedFile,
@@ -24,6 +25,7 @@ import {
 	createEmbeddedFileFromBrushPreset,
 	createPersistedBrushPreset,
 	createPersistedBrushPreviewSource,
+	findMatchingBrushPresetUid,
 	getBuiltinBrushFiles,
 	getBuiltinBrushPresets,
 	isSamePersistedBrushPreset,
@@ -186,14 +188,35 @@ export function useBrushPresets() {
 		);
 	}, [customTextureFiles, brushTextureFileUid]);
 
+	// Settings equal to a preset are that preset, however they got there —
+	// picked from the list, synced in from a selected element, or loaded with
+	// the document. Only settings matching nothing leave the list showing none.
+	const matchedPresetUid = useMemo(
+		() =>
+			toolSnap.strokeAppearance?.paramData.params.brushSettings
+				? findMatchingBrushPresetUid({
+						brushSettings: tools.storedBrushSettings,
+						builtinPresets,
+						persistedPresets,
+						documentFiles: docSnap.document.files,
+					})
+				: null,
+		// Read through the snapshot so this re-runs on brush edits; the getter
+		// hands back the stored settings object.
+		[
+			toolSnap.strokeAppearance,
+			tools,
+			builtinPresets,
+			persistedPresets,
+			docSnap.document.files,
+		],
+	);
+	const selectedPresetUid = uiSnap.selectedBrushPresetUid ?? matchedPresetUid;
+
 	const activePersistedPreset =
-		persistedPresets.find(
-			(preset) => preset.uid === uiSnap.selectedBrushPresetUid,
-		) ?? null;
+		persistedPresets.find((preset) => preset.uid === selectedPresetUid) ?? null;
 	const activeBuiltinPreset =
-		builtinPresets.find(
-			(preset) => preset.uid === uiSnap.selectedBrushPresetUid,
-		) ?? null;
+		builtinPresets.find((preset) => preset.uid === selectedPresetUid) ?? null;
 	const builtinPresetPreviewSources = useMemo(() => {
 		return new Map(
 			builtinPresets.map((preset) => {
@@ -232,12 +255,20 @@ export function useBrushPresets() {
 				? withStoredBrushSize(settings, currentSize)
 				: settings;
 
+		// Drawing takes its appearance from the selection while one exists, so a
+		// preset that only reached the tool settings would not show up on the
+		// next stroke.
+		const applySettings = (settings: BrushSettings): void => {
+			tools.setBrushSettings(settings);
+			commands.updateSelectedElementsBrushSettings(tools.storedBrushSettings);
+		};
+
 		const builtinPreset = builtinPresets.find(
 			(preset) => preset.uid === presetUid,
 		);
 		if (builtinPreset) {
 			// Builtin preset settings already reference their builtin texture source.
-			tools.setBrushSettings(keepWidth(builtinPreset.settings));
+			applySettings(keepWidth(builtinPreset.settings));
 			setSelectedBrushPresetUid(builtinPreset.uid);
 			return;
 		}
@@ -252,7 +283,7 @@ export function useBrushPresets() {
 			addEmbeddedFile: (file) => commands.addEmbeddedFile(file),
 		});
 
-		tools.setBrushSettings(
+		applySettings(
 			keepWidth(withTextureFileUid(preset.defaultSettings, textureFileUid)),
 		);
 		setSelectedBrushPresetUid(preset.uid);
@@ -395,7 +426,7 @@ export function useBrushPresets() {
 	const deleteBrushPreset = useEventCallback(async (presetUid: string) => {
 		await brushPresetsRepo.delete(presetUid);
 		await refreshPersistedPresets();
-		if (uiSnap.selectedBrushPresetUid === presetUid) {
+		if (selectedPresetUid === presetUid) {
 			setSelectedBrushPresetUid(null);
 		}
 	});
@@ -462,7 +493,7 @@ export function useBrushPresets() {
 		activePersistedPreset,
 		activeBuiltinPreset,
 		activePresetPreviewSource,
-		selectedBrushPresetUid: uiSnap.selectedBrushPresetUid,
+		selectedBrushPresetUid: selectedPresetUid,
 		applyBrushPreset,
 		applyBuiltinTexture,
 		importCustomTexture,

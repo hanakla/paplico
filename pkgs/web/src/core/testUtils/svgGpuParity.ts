@@ -30,7 +30,7 @@ export async function expectSvgMatchesGpu(
 	if (!gpu) throw new Error("GPU render failed");
 
 	const exporter = new PaplicoSVGExporter(renderer, () => doc);
-	const result = await exporter.renderArtboardToSVG(artboard.id, {
+	const result = await exporter.toSVG(artboard.id, {
 		backgroundColor: white,
 	});
 	if (!result) throw new Error("SVG export failed");

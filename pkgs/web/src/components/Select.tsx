@@ -23,6 +23,24 @@ const selectTriggerVariants = tv({
 	},
 });
 
+const selectItemVariants = tv({
+	base: [
+		"grid cursor-default items-center outline-none select-none",
+		"data-highlighted:bg-accent/10 data-highlighted:text-foreground",
+	],
+	variants: {
+		$size: {
+			xs: "grid-cols-[0.75rem_1fr] gap-1.5 py-1 px-1.5 text-xs",
+			sm: "grid-cols-[1rem_1fr] gap-2 py-2 px-3 text-sm/none",
+			md: "grid-cols-[1rem_1fr] gap-2 py-2 px-3 text-sm/none",
+			lg: "grid-cols-[1rem_1fr] gap-2 py-2 px-3 text-sm/none",
+		},
+	},
+	defaultVariants: {
+		$size: "md",
+	},
+});
+
 export type SelectSize = keyof typeof selectTriggerVariants.variants.$size;
 
 export const Select = {
@@ -112,18 +130,16 @@ function SelectItem({
 	className,
 	children,
 	value,
+	$size,
 }: {
 	className?: string;
 	children: ReactNode;
 	value: string;
+	$size?: SelectSize;
 }) {
 	return (
 		<BUISelect.Item
-			className={twm(
-				"grid cursor-default grid-cols-[1rem_1fr] items-center gap-2 py-2 px-3 text-sm/none outline-none select-none",
-				"data-highlighted:bg-accent/10 data-highlighted:text-foreground",
-				className,
-			)}
+			className={twm(selectItemVariants({ $size }), className)}
 			value={value}
 		>
 			{children}
@@ -131,12 +147,18 @@ function SelectItem({
 	);
 }
 
-function SelectItemIndicator({ className }: { className?: string }) {
+function SelectItemIndicator({
+	className,
+	$size,
+}: {
+	className?: string;
+	$size?: SelectSize;
+}) {
 	return (
 		<BUISelect.ItemIndicator
 			className={twm("col-start-1 text-accent", className)}
 		>
-			<Check size={12} />
+			<Check size={$size === "xs" ? 10 : 12} />
 		</BUISelect.ItemIndicator>
 	);
 }

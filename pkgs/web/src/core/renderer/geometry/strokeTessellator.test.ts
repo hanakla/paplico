@@ -621,6 +621,119 @@ describe("tessellateStroke taper", () => {
 	});
 });
 
+describe("tessellateStroke alignment", () => {
+	// Counter-clockwise square (positive signed area), so the left-of-travel
+	// normal points inward and a negative alignShift is the outward one.
+	const ccwSquare = [0, 0, 10, 0, 10, 10, 0, 10, 0, 0];
+	const pressures = [1, 1, 1, 1, 1];
+
+	function alignedBounds(overrides: Partial<StrokeTessellateInput>) {
+		const { vertices } = tessellateStroke(
+			makeInput({
+				points: ccwSquare,
+				pressures,
+				baseWidth: 4,
+				isClosed: true,
+				...overrides,
+			}),
+		);
+		return verticesBounds(vertices);
+	}
+
+	it("should straddle the path when alignShift is 0", () => {
+		expect(alignedBounds({ alignShift: 0 })).toEqual([-2, -2, 12, 12]);
+	});
+
+	it("should put the whole band outside a counter-clockwise ring", () => {
+		expect(alignedBounds({ alignShift: -1 })).toEqual([-4, -4, 14, 14]);
+	});
+
+	it("should put the whole band inside a counter-clockwise ring", () => {
+		expect(alignedBounds({ alignShift: 1 })).toEqual([0, 0, 10, 10]);
+	});
+
+	it("should put the band outside a clockwise ring with the opposite sign", () => {
+		const clockwise = [0, 0, 0, 10, 10, 10, 10, 0, 0, 0];
+
+		expect(alignedBounds({ points: clockwise, alignShift: 1 })).toEqual([
+			-4, -4, 14, 14,
+		]);
+	});
+
+	it("should shift by the visible half width when strokeWidths narrow the band", () => {
+		// Half the width on both sides: the band is 2 wide, and its inner edge
+		// must land on the path rather than overshooting by the base half width.
+		expect(
+			alignedBounds({
+				alignShift: -1,
+				strokeWidths: [
+					{ t: 0, side1: 0.5, side2: 0.5 },
+					{ t: 1, side1: 0.5, side2: 0.5 },
+				],
+			}),
+		).toEqual([-2, -2, 12, 12]);
+	});
+
+	it("should keep a wide outside band on a sharp corner of a dense ring", () => {
+		// An equilateral triangle sampled every unit: the stroke is far wider
+		// than any segment, and each corner turns 120 degrees. The band must
+		// reach every path point, and its miter tip must still reach the
+		// intersection of the outer edges, 2 widths out along the bisector.
+		const corners = [
+			[0, 0],
+			[100, 0],
+			[50, 86.6],
+		];
+		const points: number[] = [];
+		for (let side = 0; side < 3; side++) {
+			const [ax, ay] = corners[side];
+			const [bx, by] = corners[(side + 1) % 3];
+			for (let step = 0; step < 100; step++) {
+				points.push(
+					ax + ((bx - ax) * step) / 100,
+					ay + ((by - ay) * step) / 100,
+				);
+			}
+		}
+		points.push(0, 0);
+		const pressures = new Array(points.length / 2).fill(1);
+
+		const { vertices } = tessellateStroke(
+			makeInput({
+				points,
+				pressures,
+				baseWidth: 20,
+				lineJoin: "miter",
+				miterLimit: 4,
+				isClosed: true,
+				alignShift: -1,
+			}),
+		);
+
+		for (let index = 0; index < points.length; index += 2) {
+			expect(coversPoint(vertices, points[index], points[index + 1])).toBe(
+				true,
+			);
+		}
+		expect(verticesBounds(vertices)[2]).toBeCloseTo(
+			100 + 40 * Math.cos(Math.PI / 6),
+			2,
+		);
+	});
+
+	it("should leave an open polyline untouched when alignShift is 0", () => {
+		const points = [0, 0, 10, 0, 10, 10];
+		const baseline = tessellateStroke(
+			makeInput({ points, pressures: [1, 1, 1] }),
+		);
+		const explicitZero = tessellateStroke(
+			makeInput({ points, pressures: [1, 1, 1], alignShift: 0 }),
+		);
+
+		expect(explicitZero).toEqual(baseline);
+	});
+});
+
 describe("applyDashPattern", () => {
 	it("should return input as-is for empty dashArray", () => {
 		const points = [0, 0, 100, 0];
@@ -911,4 +1024,21 @@ function coversPoint(vertices: number[], x: number, y: number): boolean {
 			return true;
 	}
 	return false;
+}
+
+/** [minX, minY, maxX, maxY] of a triangle soup, rounded to hide FP noise. */
+function verticesBounds(vertices: number[]): number[] {
+	let minX = Number.POSITIVE_INFINITY;
+	let minY = Number.POSITIVE_INFINITY;
+	let maxX = Number.NEGATIVE_INFINITY;
+	let maxY = Number.NEGATIVE_INFINITY;
+	for (let i = 0; i < vertices.length; i += 2) {
+		minX = Math.min(minX, vertices[i]);
+		maxX = Math.max(maxX, vertices[i]);
+		minY = Math.min(minY, vertices[i + 1]);
+		maxY = Math.max(maxY, vertices[i + 1]);
+	}
+	return [minX, minY, maxX, maxY].map((value) =>
+		Math.abs(value) < 1e-9 ? 0 : Number(value.toFixed(6)),
+	);
 }

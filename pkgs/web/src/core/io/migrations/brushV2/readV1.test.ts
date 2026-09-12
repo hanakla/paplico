@@ -181,6 +181,26 @@ describe("readV1BrushSettings", () => {
 			});
 		});
 
+		it("should preserve a valid align value", () => {
+			const result = readV1BrushSettings({
+				type: "stroke",
+				stroking: { align: "outside" },
+			});
+			if (result.type !== "stroke") throw new Error("expected stroke");
+			expect(result.stroking?.align).toBe("outside");
+		});
+
+		it("should omit align for 'center' and for an invalid value", () => {
+			for (const align of ["center", "not-an-align"]) {
+				const result = readV1BrushSettings({
+					type: "stroke",
+					stroking: { align },
+				});
+				if (result.type !== "stroke") throw new Error("expected stroke");
+				expect(result.stroking).not.toHaveProperty("align");
+			}
+		});
+
 		it("should fall back to 'round' for invalid lineCap/lineJoin values", () => {
 			const result = readV1BrushSettings({
 				type: "stroke",

@@ -175,6 +175,11 @@ export class PaplicoPatternEdit {
 		return true;
 	}
 
+	/** Close the open session history entry so the next edit starts a new one. */
+	public stopCapture(): void {
+		this.sessionUndoManager?.stopCapturing();
+	}
+
 	/**
 	 * Enter a pattern-edit session for the given def. The def's member
 	 * elements are deep-cloned with new IDs, translated by `expansionOffset`

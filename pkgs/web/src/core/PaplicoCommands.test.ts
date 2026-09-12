@@ -2666,7 +2666,11 @@ describe("flow-aware cut of chain members", () => {
 
 describe("undo/redo routing", () => {
 	function makeCommands(
-		session: { undo: () => boolean; redo: () => boolean } | null,
+		session: {
+			undo: () => boolean;
+			redo: () => boolean;
+			stopCapture: () => void;
+		} | null,
 	) {
 		const providerUndo = vi.fn();
 		const providerRedo = vi.fn();
@@ -2697,7 +2701,11 @@ describe("undo/redo routing", () => {
 		// A session's edits carry an origin the main UndoManager does not track,
 		// so sending undo to the document would skip past them and revert an
 		// unrelated earlier edit instead.
-		const session = { undo: vi.fn(() => true), redo: vi.fn(() => true) };
+		const session = {
+			undo: vi.fn(() => true),
+			redo: vi.fn(() => true),
+			stopCapture: vi.fn(),
+		};
 		const { commands, providerUndo } = makeCommands(session);
 
 		commands.undo();
@@ -2707,7 +2715,11 @@ describe("undo/redo routing", () => {
 	});
 
 	it("should redo the session, not the document, while one is open", () => {
-		const session = { undo: vi.fn(() => true), redo: vi.fn(() => true) };
+		const session = {
+			undo: vi.fn(() => true),
+			redo: vi.fn(() => true),
+			stopCapture: vi.fn(),
+		};
 		const { commands, providerRedo } = makeCommands(session);
 
 		commands.redo();

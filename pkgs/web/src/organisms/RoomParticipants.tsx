@@ -4,6 +4,7 @@ import { UserX } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
+import { confirmDialog } from "@/infra/confirmDialog";
 import { useTranslation } from "@/locales";
 
 interface RoomUser {
@@ -68,7 +69,9 @@ function RoomParticipantsInner({ isOwner }: { isOwner: boolean }) {
 	const handleKick = async (user: RoomUser) => {
 		if (!collaboration) return;
 		if (
-			!(await confirm(t("connectRoomDialog.kickConfirm", { name: user.name })))
+			!(await confirmDialog(
+				t("connectRoomDialog.kickConfirm", { name: user.name }),
+			))
 		)
 			return;
 		collaboration.kickUser(user.clientId);

@@ -2,6 +2,7 @@ import type React from "react";
 import { memo, useEffect, useRef, useState } from "react";
 import { tv } from "tailwind-variants";
 import { useEventCallback } from "@/utils/hooks";
+import { evaluateNumberExpression } from "@/utils/numberExpression";
 import { toHalfWidth } from "@/utils/string";
 import { Clickable } from "./Clickable";
 import { Input } from "./Input";
@@ -109,12 +110,21 @@ function FakeInputRoot({
 	const finishEdit = useEventCallback(() => {
 		setIsEditing(false);
 		const trimmed = editValue.trim();
-		if (trimmed && trimmed !== value) {
-			onChange(trimmed);
-		} else if (!trimmed && value) {
+		const next = trimmed && isNumber ? resolveNumberInput(trimmed) : trimmed;
+
+		// A numeric field takes numbers only, so a typo like `12px` restores the
+		// current value rather than reaching the callback.
+		if (next == null) {
+			setEditValue(value ?? "");
+			return;
+		}
+
+		if (next && next !== value) {
+			onChange(next);
+		} else if (!next && value) {
 			onChange(undefined);
 		}
-		setEditValue(trimmed || value || "");
+		setEditValue(next || value || "");
 	});
 
 	const startEdit = useEventCallback(() => {
@@ -325,4 +335,16 @@ function FakeInputRoot({
 			)}
 		</Clickable>
 	);
+}
+
+/**
+ * Turn a numeric field's raw text into the value to commit, so a typed
+ * expression like `12*3` lands as its result. Returns null when the text does
+ * not read as a number.
+ */
+function resolveNumberInput(input: string): string | null {
+	const evaluated = evaluateNumberExpression(input);
+	if (evaluated == null) return null;
+
+	return String(Number(evaluated.toFixed(6)));
 }

@@ -19,6 +19,7 @@ import {
 	type Viewport,
 } from "../schema";
 import { createWarpCageFromRect } from "../utils/geometry/meshWarp";
+import type { WarpGeometry } from "../utils/geometry/meshWarpShape";
 
 export async function createEmbeddedImageFile(
 	file: File,
@@ -124,13 +125,23 @@ export function createMeshWarpObject(
 	childIds: string[],
 	cageRect: { minX: number; minY: number; maxX: number; maxY: number },
 ): MeshArtObject {
-	const { vertices, faces } = createWarpCageFromRect(cageRect);
+	return createMeshWarpObjectFromGeometry(
+		childIds,
+		createWarpCageFromRect(cageRect),
+	);
+}
+
+/** Create a mesh warp container around a prepared cage. */
+export function createMeshWarpObjectFromGeometry(
+	childIds: string[],
+	geometry: WarpGeometry,
+): MeshArtObject {
 	return {
 		id: generateUid("mesh"),
 		type: "mesh",
 		childIds,
-		vertices,
-		faces,
+		vertices: geometry.vertices,
+		faces: geometry.faces,
 		opacity: 1,
 		blendMode: "normal",
 		transform: createIdentityTransform(),

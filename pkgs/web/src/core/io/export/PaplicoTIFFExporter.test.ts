@@ -71,9 +71,9 @@ describe("PaplicoTIFFExporter", () => {
 		);
 	});
 
-	describe("renderArtboardToTIFF", () => {
+	describe("toTIFF", () => {
 		it("should pass flattened opaque pixels and conversion options to convertImageToCmyk", async () => {
-			await exporter.renderArtboardToTIFF("artboard1", {
+			await exporter.toTIFF("artboard1", {
 				profile: { data: profile },
 				srcSpace: "srgb",
 				intent: "perceptual",
@@ -93,7 +93,7 @@ describe("PaplicoTIFFExporter", () => {
 		});
 
 		it("should default to display-p3 source and relative-colorimetric intent", async () => {
-			await exporter.renderArtboardToTIFF("artboard1", {
+			await exporter.toTIFF("artboard1", {
 				profile: { data: profile },
 			});
 
@@ -104,7 +104,7 @@ describe("PaplicoTIFFExporter", () => {
 
 		it("should pass the rendered artboard and background color to the renderer", async () => {
 			const backgroundColor = { r: 0, g: 0, b: 0, a: 1 };
-			await exporter.renderArtboardToTIFF("artboard1", {
+			await exporter.toTIFF("artboard1", {
 				profile: { data: profile },
 				backgroundColor,
 				scale: 2,
@@ -118,7 +118,7 @@ describe("PaplicoTIFFExporter", () => {
 		});
 
 		it("should produce a Blob with the little-endian TIFF signature", async () => {
-			const result = await exporter.renderArtboardToTIFF("artboard1", {
+			const result = await exporter.toTIFF("artboard1", {
 				profile: { data: profile },
 			});
 
@@ -132,7 +132,7 @@ describe("PaplicoTIFFExporter", () => {
 		});
 
 		it("should write an RGB TIFF without converting to CMYK when no profile is given", async () => {
-			const result = await exporter.renderArtboardToTIFF("artboard1", {});
+			const result = await exporter.toTIFF("artboard1", {});
 
 			expect(vi.mocked(convertImageToCmyk).mock.calls).toHaveLength(0);
 			expect(vi.mocked(convertImageRgbToRgb).mock.calls).toHaveLength(0);
@@ -143,7 +143,7 @@ describe("PaplicoTIFFExporter", () => {
 		});
 
 		it("should convert through an RGB profile and embed it as an RGB TIFF", async () => {
-			const result = await exporter.renderArtboardToTIFF("artboard1", {
+			const result = await exporter.toTIFF("artboard1", {
 				profile: { data: rgbProfile },
 			});
 
@@ -155,7 +155,7 @@ describe("PaplicoTIFFExporter", () => {
 		});
 
 		it("should return null when the artboard is not found", async () => {
-			const result = await exporter.renderArtboardToTIFF("nonexistent", {
+			const result = await exporter.toTIFF("nonexistent", {
 				profile: { data: profile },
 			});
 
@@ -168,21 +168,11 @@ describe("PaplicoTIFFExporter", () => {
 				null,
 			);
 
-			const result = await exporter.renderArtboardToTIFF("artboard1", {
+			const result = await exporter.toTIFF("artboard1", {
 				profile: { data: profile },
 			});
 
 			expect(result).toBeNull();
-		});
-	});
-
-	describe("asTIFF", () => {
-		it("should return false for non-existent artboard", async () => {
-			const result = await exporter.asTIFF("nonexistent", {
-				profile: { data: profile },
-			});
-
-			expect(result).toBe(false);
 		});
 	});
 });

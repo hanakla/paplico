@@ -11,10 +11,11 @@ import { DashPatternControls } from "@/components/DashPatternControls";
 import { IconButton } from "@/components/IconButton";
 import { Input } from "@/components/Input";
 import { Slider } from "@/components/Slider";
-import { ToggleGroup } from "@/components/ToggleGroup";
+import { StrokeGeometryFields } from "@/components/StrokeGeometryFields";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import {
+	mergeBrushStroking,
 	readStoredBrushStroking,
 	withStoredBrushSize,
 } from "@/core/brush/access";
@@ -22,8 +23,6 @@ import type {
 	AnyArtObject,
 	BrushStroking,
 	CompoundPath,
-	LineCap,
-	LineJoin,
 	Path,
 	TextElement,
 } from "@/core/schema";
@@ -159,14 +158,7 @@ function StrokeWidthControl({
 								...stroke.paramData.params,
 								brushSettings: {
 									...bs,
-									stroking: {
-										lineCap: prev?.lineCap ?? "round",
-										lineJoin: prev?.lineJoin ?? "round",
-										miterLimit: prev?.miterLimit ?? 4,
-										dashArray: prev?.dashArray,
-										dashOffset: prev?.dashOffset,
-										...patch,
-									},
+									stroking: mergeBrushStroking(prev, patch),
 								},
 							},
 						},
@@ -203,14 +195,10 @@ function StrokeWidthControl({
 	const firstStroke = getFirstStroke(elements[0]?.filters);
 	const normalizedFirst = firstStroke?.paramData.params.brushSettings;
 	const showStroking = normalizedFirst?.engine === "geometric";
-	const lineCap =
+	const stroking =
 		normalizedFirst?.engine === "geometric"
-			? (normalizedFirst.stroking?.lineCap ?? "round")
-			: "round";
-	const lineJoin =
-		normalizedFirst?.engine === "geometric"
-			? (normalizedFirst.stroking?.lineJoin ?? "round")
-			: "round";
+			? normalizedFirst.stroking
+			: undefined;
 
 	return (
 		<>
@@ -238,76 +226,13 @@ function StrokeWidthControl({
 
 			{showStroking && (
 				<>
-					<div className="flex flex-col gap-1">
-						<span className="text-[10px] text-muted-foreground">
-							{t("filterPanel.lineCap")}
-						</span>
-						<ToggleGroup.Root
-							value={[lineCap]}
-							onValueChange={(value) => {
-								const cap = value[0] as LineCap | undefined;
-								if (cap) updateStrokingForAll({ lineCap: cap });
-							}}
-						>
-							<ToggleGroup.Item
-								value="butt"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.capButt")}
-							</ToggleGroup.Item>
-							<ToggleGroup.Item
-								value="round"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.capRound")}
-							</ToggleGroup.Item>
-							<ToggleGroup.Item
-								value="square"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.capSquare")}
-							</ToggleGroup.Item>
-						</ToggleGroup.Root>
-					</div>
-
-					<div className="flex flex-col gap-1">
-						<span className="text-[10px] text-muted-foreground">
-							{t("filterPanel.joinType")}
-						</span>
-						<ToggleGroup.Root
-							value={[lineJoin]}
-							onValueChange={(value) => {
-								const join = value[0] as LineJoin | undefined;
-								if (join) updateStrokingForAll({ lineJoin: join });
-							}}
-						>
-							<ToggleGroup.Item
-								value="miter"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.joinMiter")}
-							</ToggleGroup.Item>
-							<ToggleGroup.Item
-								value="round"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.joinRound")}
-							</ToggleGroup.Item>
-							<ToggleGroup.Item
-								value="bevel"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.joinBevel")}
-							</ToggleGroup.Item>
-						</ToggleGroup.Root>
-					</div>
+					<StrokeGeometryFields
+						stroking={stroking}
+						onChange={updateStrokingForAll}
+					/>
 
 					<DashPatternControls
-						stroking={
-							normalizedFirst?.engine === "geometric"
-								? normalizedFirst.stroking
-								: undefined
-						}
+						stroking={stroking}
 						strokeWidth={isMixed ? 1 : resolvedWidth}
 						onChange={updateStrokingForAll}
 					/>

@@ -88,6 +88,24 @@ export function readStoredBrushStroking(
 		: undefined;
 }
 
+/**
+ * Merge a partial stroking edit onto stored stroking, filling the defaults a
+ * complete BrushStroking needs. `prev` is spread first so fields the calling
+ * control knows nothing about survive its edit.
+ */
+export function mergeBrushStroking(
+	prev: BrushStroking | undefined,
+	patch: Partial<BrushStroking>,
+): BrushStroking {
+	return {
+		...prev,
+		lineCap: prev?.lineCap ?? "round",
+		lineJoin: prev?.lineJoin ?? "round",
+		miterLimit: prev?.miterLimit ?? 4,
+		...patch,
+	};
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }

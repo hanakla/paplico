@@ -1,4 +1,7 @@
-import { createIdentityTransform } from "@/core/document/factory";
+import {
+	createIdentityTransform,
+	createMeshWarpObjectFromGeometry,
+} from "@/core/document/factory";
 import type {
 	FillAppearance,
 	FreeGradientStop,
@@ -10,6 +13,7 @@ import type {
 	Path,
 	PathSegment,
 	Point,
+	TextElement,
 } from "@/core/schema";
 import { toRGBColor } from "@/core/schema";
 import { localAppearances } from "../../document/appearancePresets";
@@ -934,6 +938,189 @@ describe("subdivideWarpFace", () => {
 // --- Test helpers ---
 
 /** Cage with a dragged corner and a bent bottom edge. */
+describe("warpMeshChildren across face boundaries", () => {
+	/** Two faces side by side; the shared edge at src x=50 is bent upward. */
+	function bentTwoFaceCage(): {
+		vertices: MeshGeometryVertex[];
+		faces: MeshFace[];
+	} {
+		const cage = createWarpCageFromRect(RECT);
+		const split = subdivideWarpFace(cage.vertices, cage.faces, 0, 0.5, 0.5, {
+			u: true,
+		});
+		if (!split) throw new Error("subdivision failed");
+		const vertices = split.vertices.map((v) =>
+			v.src.x === 50 ? { ...v, y: v.y + 30, positionSource: undefined } : v,
+		);
+		return { vertices, faces: split.faces };
+	}
+
+	function meshOf(
+		cage: { vertices: MeshGeometryVertex[]; faces: MeshFace[] },
+		childIds: string[],
+	): MeshArtObject {
+		return {
+			...createMeshWarpObjectFromGeometry(childIds, cage),
+			id: "mesh-1",
+		};
+	}
+
+	it("should cut a glyph edge at the face boundary so it follows the bend", () => {
+		const cage = bentTwoFaceCage();
+		const warp = createMeshWarpSampler(cage.vertices, cage.faces);
+		const glyph: Path = {
+			id: "glyph",
+			type: "path",
+			segments: [
+				straightSegment({ x: 10, y: 10 }, { x: 90, y: 10 }, true),
+				straightSegment({ x: 90, y: 10 }, { x: 90, y: 20 }),
+				straightSegment({ x: 90, y: 20 }, { x: 10, y: 20 }),
+				{
+					...straightSegment({ x: 10, y: 20 }, { x: 10, y: 10 }),
+					isClosed: true,
+				},
+			],
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		};
+		const text: TextElement = {
+			id: "text-1",
+			type: "text",
+			x: 0,
+			y: 0,
+			content: [],
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		} as unknown as TextElement;
+
+		const { transients } = warpMeshChildren(meshOf(cage, ["text-1"]), {
+			resolve: (id) => (id === "text-1" ? text : null),
+			getTextGlyphPaths: () => [glyph],
+		});
+
+		expect(transients).toHaveLength(1);
+		const warped = transients[0];
+		if (warped.type !== "path") throw new Error("expected a path");
+		const boundary = warp({ x: 50, y: 10 });
+		const naive = {
+			x: (warp({ x: 10, y: 10 }).x + warp({ x: 90, y: 10 }).x) / 2,
+			y: (warp({ x: 10, y: 10 }).y + warp({ x: 90, y: 10 }).y) / 2,
+		};
+		expect(
+			Math.hypot(naive.x - boundary.x, naive.y - boundary.y),
+		).toBeGreaterThan(1);
+		const anchors = warped.segments.map((seg) => seg.end);
+		expect(
+			anchors.some(
+				(a) => Math.hypot(a.x - boundary.x, a.y - boundary.y) < 1e-6,
+			),
+		).toBe(true);
+		expect(
+			warped.segments.filter((seg) => seg.start || seg.isMoved),
+		).toHaveLength(1);
+		expect(warped.segments.filter((seg) => seg.isClosed)).toHaveLength(1);
+	});
+
+	it("should keep image grid positions consistent with their UVs across the boundary", () => {
+		const cage = bentTwoFaceCage();
+		const warp = createMeshWarpSampler(cage.vertices, cage.faces);
+		const image: ImageObject = {
+			id: "img-1",
+			type: "image",
+			fileUid: "file-1",
+			x: 50,
+			y: 50,
+			width: 100,
+			height: 100,
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		};
+
+		const { imageWarpGrids } = warpMeshChildren(meshOf(cage, ["img-1"]), {
+			resolve: (id) => (id === "img-1" ? image : null),
+			getTextGlyphPaths: () => null,
+		});
+
+		const grid = imageWarpGrids.get("mesh-1::warp::img-1");
+		if (!grid) throw new Error("missing grid");
+		let onBoundary = 0;
+		for (let i = 0; i < grid.length; i += 4) {
+			const u = grid[i + 2];
+			const v = grid[i + 3];
+			// UV (0,0) is TL; image spans (0..100, 0..100) with y up.
+			const expected = warp({ x: u * 100, y: 100 - v * 100 });
+			expect(grid[i]).toBeCloseTo(expected.x, 4);
+			expect(grid[i + 1]).toBeCloseTo(expected.y, 4);
+			if (u === 0.5) onBoundary++;
+		}
+		expect(onBoundary).toBeGreaterThan(0);
+	});
+});
+
+describe("createMeshWarpInverse on a folded cage", () => {
+	it("should offer every source point that lands on the query and let the caller pick", () => {
+		const cage = foldedCage();
+		const warp = createMeshWarpSampler(cage.vertices, cage.faces);
+		const inverse = createMeshWarpInverse(cage.vertices, cage.faces);
+
+		let folded = 0;
+		for (const p of gridPoints(5, 95, 18)) {
+			const target = warp(p);
+			const candidates: Point[] = [];
+			inverse(target, (src) => {
+				candidates.push(src);
+				return false;
+			});
+			expect(candidates.length).toBeGreaterThan(0);
+			for (const src of candidates) {
+				const back = warp(src);
+				expect(back.x).toBeCloseTo(target.x, 3);
+				expect(back.y).toBeCloseTo(target.y, 3);
+			}
+			if (candidates.length > 1) folded++;
+		}
+		expect(folded).toBeGreaterThan(0);
+	});
+
+	it("should return the accepted candidate rather than the first", () => {
+		const cage = foldedCage();
+		const warp = createMeshWarpSampler(cage.vertices, cage.faces);
+		const inverse = createMeshWarpInverse(cage.vertices, cage.faces);
+		const p = gridPoints(5, 95, 18).find((q) => {
+			const candidates: Point[] = [];
+			inverse(warp(q), (src) => {
+				candidates.push(src);
+				return false;
+			});
+			return candidates.length > 1;
+		});
+		if (!p) throw new Error("no folded point found");
+		const first = inverse(warp(p));
+		if (!first) throw new Error("no candidate");
+		const second = inverse(
+			warp(p),
+			(src) => Math.hypot(src.x - first.x, src.y - first.y) > 1,
+		);
+		expect(second).not.toBeNull();
+		expect(
+			Math.hypot((second?.x ?? 0) - first.x, (second?.y ?? 0) - first.y),
+		).toBeGreaterThan(1);
+	});
+});
+
+/** A cage whose top-right corner is pulled inside, folding the patch over itself. */
+function foldedCage(): {
+	vertices: MeshGeometryVertex[];
+	faces: ReturnType<typeof createWarpCageFromRect>["faces"];
+} {
+	const cage = createWarpCageFromRect(RECT);
+	cage.vertices[2] = { ...cage.vertices[2], x: 30, y: 30 };
+	return cage;
+}
+
 function deformedCage(): {
 	vertices: MeshGeometryVertex[];
 	faces: ReturnType<typeof createWarpCageFromRect>["faces"];

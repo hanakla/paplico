@@ -7,6 +7,7 @@ import {
 	LayoutGrid,
 	Paintbrush,
 	RemoveFormatting,
+	Shapes,
 	Squircle,
 	Ungroup,
 } from "lucide-react";
@@ -14,6 +15,7 @@ import { IconButton } from "@/components/IconButton";
 import { Menu } from "@/components/Menu";
 import { toastManager } from "@/components/Toast";
 import { usePaplico, usePaplicoCommands } from "@/contexts/PaplicoContext";
+import type { MeshWarpFromShapeFailure } from "@/core";
 import { useTranslation } from "@/locales";
 import { setSelectedBrushPresetUid } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
@@ -79,6 +81,19 @@ export function MoreActionsMenu({
 			toastManager.add({
 				title: t("contextActions.meshWarpErrorTitle"),
 				description: t("contextActions.meshWarpErrorEmpty"),
+			});
+			return;
+		}
+		// The cage is edited with the vertex edit tool.
+		paplico.tools.setCurrentTool("path-edit");
+	});
+
+	const handleWarpToShape = useEventCallback(() => {
+		const result = commands.createMeshWarpFromShapeSelection();
+		if (!result.ok) {
+			toastManager.add({
+				title: t("contextActions.warpToShapeErrorTitle"),
+				description: t(WARP_TO_SHAPE_ERROR_KEYS[result.reason]),
 			});
 			return;
 		}
@@ -159,6 +174,10 @@ export function MoreActionsMenu({
 									<Crop size={14} />
 									{t("contextActions.createClipGroup")}
 								</Menu.Item>
+								<Menu.Item onClick={handleWarpToShape}>
+									<Shapes size={14} />
+									{t("contextActions.warpToShape")}
+								</Menu.Item>
 								<Menu.Separator />
 							</>
 						)}
@@ -208,3 +227,13 @@ export function MoreActionsMenu({
 		</Menu.Root>
 	);
 }
+
+const WARP_TO_SHAPE_ERROR_KEYS = {
+	readonly: "contextActions.warpToShapeErrorReadonly",
+	"invalid-selection": "contextActions.warpToShapeErrorInvalidSelection",
+	locked: "contextActions.warpToShapeErrorLocked",
+	"different-parent": "contextActions.warpToShapeErrorDifferentParent",
+	"invalid-shape": "contextActions.warpToShapeErrorInvalidShape",
+	"unsupported-content": "contextActions.warpToShapeErrorUnsupportedContent",
+	"invalid-bounds": "contextActions.warpToShapeErrorInvalidBounds",
+} as const satisfies Record<MeshWarpFromShapeFailure, string>;

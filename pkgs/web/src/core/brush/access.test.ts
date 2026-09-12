@@ -1,5 +1,6 @@
 import type { BrushSettings } from "../schema";
 import {
+	mergeBrushStroking,
 	readStoredBrushSize,
 	readStoredBrushStroking,
 	readStoredWetBleedRatio,
@@ -88,5 +89,29 @@ describe("readStoredBrushStroking", () => {
 
 	it("should read stroking from a stored v2 brush", () => {
 		expect(readStoredBrushStroking({ ...v2, stroking })).toEqual(stroking);
+	});
+});
+
+describe("mergeBrushStroking", () => {
+	it("should fill the defaults when nothing is stored yet", () => {
+		expect(mergeBrushStroking(undefined, { lineCap: "butt" })).toEqual({
+			lineCap: "butt",
+			lineJoin: "round",
+			miterLimit: 4,
+		});
+	});
+
+	it("should keep fields the caller did not mention", () => {
+		const prev = {
+			lineCap: "butt",
+			lineJoin: "miter",
+			miterLimit: 2,
+			align: "outside",
+		} as const;
+
+		expect(mergeBrushStroking(prev, { lineJoin: "bevel" })).toEqual({
+			...prev,
+			lineJoin: "bevel",
+		});
 	});
 });

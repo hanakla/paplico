@@ -5,6 +5,7 @@ import {
 } from "@/core/document/factory";
 import type { Paplico } from "@/core/Paplico";
 import { isGroup } from "@/core/schema";
+import { confirmDialog } from "@/infra/confirmDialog";
 import { FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import {
@@ -37,7 +38,6 @@ export function useMenuActions(
 	dialogs: {
 		setExportDialogOpen: (v: boolean) => void;
 		setDocumentSettingsDialogOpen: (v: boolean) => void;
-		setExportingMessage: (v: string | null) => void;
 	},
 ): MenuActions {
 	const t = useTranslation();
@@ -105,12 +105,7 @@ export function useMenuActions(
 			if (!blob) return;
 
 			const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement("a");
-			a.href = url;
-			a.download = `paplico-${timestamp}.papf`;
-			a.click();
-			URL.revokeObjectURL(url);
+			await FileSystem.exportFile(blob, `paplico-${timestamp}.papf`);
 		} catch (cause) {
 			reportError({
 				code: "EXPORT_FAILED",
@@ -140,7 +135,7 @@ export function useMenuActions(
 	});
 
 	const handleImport = useEventCallback(async () => {
-		const discard = await confirm(t("menubar.saveAndCloseConfirm"));
+		const discard = await confirmDialog(t("menubar.saveAndCloseConfirm"));
 		if (!discard) return;
 
 		const result = await FileSystem.openFileDialog({

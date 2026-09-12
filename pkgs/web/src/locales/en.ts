@@ -312,6 +312,19 @@ export const en = {
 		meshWarpErrorTitle: "Cannot create mesh warp",
 		meshWarpErrorEmpty:
 			"Select at least one element in the same layer or group to warp with a mesh.",
+		warpToShape: "Warp to object shape",
+		warpToShapeErrorTitle: "Cannot warp to the object shape",
+		warpToShapeErrorReadonly: "The document is read-only.",
+		warpToShapeErrorInvalidSelection:
+			"Select a shape and at least one element to put inside it. The group's clip path cannot be used.",
+		warpToShapeErrorLocked: "Unlock every selected element first.",
+		warpToShapeErrorDifferentParent:
+			"Select elements in the same layer or group.",
+		warpToShapeErrorInvalidShape:
+			"The shape must be one closed path that does not cross itself, or an existing mesh warp.",
+		warpToShapeErrorUnsupportedContent:
+			"Blends, repeats and 3D references cannot be warped.",
+		warpToShapeErrorInvalidBounds: "The content has no size to warp.",
 		moreActions: "More actions",
 		delete: "Delete",
 		gradientStopColor: "Stop color",
@@ -502,6 +515,10 @@ export const en = {
 		capRound: "Round",
 		capSquare: "Square",
 		miterLimit: "Miter Limit",
+		strokeAlign: "Align",
+		strokeAlignInside: "Inside",
+		strokeAlignCenter: "Center",
+		strokeAlignOutside: "Outside",
 		dashPattern: "Dash",
 		dashOffset: "Dash Offset",
 		dashPresetNone: "None",
@@ -1273,6 +1290,8 @@ export const en = {
 		cancel: "Cancel",
 		create: "Create",
 		loadImage: "Load Image",
+		open: "Open",
+		openFile: "Open from File",
 	},
 	documentSettings: {
 		title: "Document Settings",

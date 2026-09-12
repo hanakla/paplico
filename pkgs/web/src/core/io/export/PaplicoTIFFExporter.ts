@@ -47,42 +47,8 @@ export class PaplicoTIFFExporter {
 		) => Promise<Uint8Array>,
 	) {}
 
-	/**
-	 * Export an artboard to TIFF and trigger download.
-	 */
-	public async asTIFF(
-		artboardId: string,
-		options: TIFFExportOptions & { filename?: string },
-	): Promise<boolean> {
-		const { filename, ...exportOpts } = options;
-		const result = await this.renderArtboardToTIFF(artboardId, exportOpts);
-		if (!result) return false;
-
-		const artboard = this.getDocument().artboards.find(
-			(a) => a.id === artboardId,
-		);
-		const defaultFilename = artboard
-			? `${artboard.name.replace(/[^a-zA-Z0-9-_]/g, "_")}.tif`
-			: "export.tif";
-
-		const url = URL.createObjectURL(result.blob);
-		const link = globalThis.document.createElement("a");
-		link.href = url;
-		link.download = filename ?? defaultFilename;
-		link.click();
-		URL.revokeObjectURL(url);
-
-		console.log(
-			`📥 Downloaded: ${link.download} (${result.width}x${result.height})`,
-		);
-
-		return true;
-	}
-
-	/**
-	 * Export an artboard to a TIFF blob without downloading.
-	 */
-	public async renderArtboardToTIFF(
+	/** Renders an artboard to a TIFF blob. */
+	public async toTIFF(
 		artboardId: string,
 		options: TIFFExportOptions,
 	): Promise<ExportResult | null> {

@@ -49,6 +49,7 @@ export function collectSelectionOutlines(
 	if (isMesh(element)) {
 		const segs = getMeshWorldBoundarySegments(
 			element,
+			getElement,
 			getAncestorTransform(element.id) ?? undefined,
 		);
 		return segs.length > 0 ? [segs] : [];

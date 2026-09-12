@@ -1059,7 +1059,10 @@ describe("MeshDeformTool", () => {
 					mesh.vertices[index].src,
 				);
 			}
-			const deformedBoundary = getMeshWorldBoundarySegments(updatedMesh);
+			const deformedBoundary = getMeshWorldBoundarySegments(
+				updatedMesh,
+				() => undefined,
+			);
 			const movedMesh: MeshArtObject = {
 				...updatedMesh,
 				transform: {
@@ -1068,7 +1071,10 @@ describe("MeshDeformTool", () => {
 					y: updatedMesh.transform.y - 10,
 				},
 			};
-			const movedBoundary = getMeshWorldBoundarySegments(movedMesh);
+			const movedBoundary = getMeshWorldBoundarySegments(
+				movedMesh,
+				() => undefined,
+			);
 			for (let index = 0; index < deformedBoundary.length; index++) {
 				const deformedSegment = deformedBoundary[index];
 				const movedSegment = movedBoundary[index];

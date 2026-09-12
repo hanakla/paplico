@@ -84,8 +84,10 @@ fn cs_sample(
 	let dab = dabs[u.firstDab + wg.x];
 	let radius = max(max(dab.sizeX, dab.sizeY) * 0.5 * u.sampleRadiusRatio, 0.5);
 	let dir = vec2f(dab.strokeDirX, dab.strokeDirY);
+	// Behind the dab: the pickup has to be carried along the stroke, so a dab
+	// takes its color from where the stroke has already been.
 	let center = vec2f(dab.positionX, dab.positionY)
-		+ dir * (u.sampleTrail * radius);
+		- dir * (u.sampleTrail * radius);
 	let cell = vec2f(f32(li % FOOT), f32(li / FOOT));
 	let off = ((cell + vec2f(0.5)) / f32(FOOT)) * 2.0 - vec2f(1.0);
 	let r = length(off);

@@ -2,10 +2,11 @@ import { memo } from "react";
 import { useSnapshot } from "valtio";
 import { Checkbox } from "@/components/Checkbox";
 import { DashPatternControls } from "@/components/DashPatternControls";
+import { StrokeGeometryFields } from "@/components/StrokeGeometryFields";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { readStoredBrushSize } from "@/core/brush/access";
-import type { BrushStroking, LineCap, LineJoin } from "@/core/schema";
+import { mergeBrushStroking, readStoredBrushSize } from "@/core/brush/access";
+import type { BrushStroking } from "@/core/schema";
 import { appConfig } from "@/hooks/useAppConfig";
 import { useBrushEdits } from "@/hooks/useBrushEdits";
 import { useBrushPresets } from "@/hooks/useBrushPresets";
@@ -26,14 +27,10 @@ export const PenToolControls = memo(function PenToolControls() {
 	const normalizedBrush =
 		toolSnap.strokeAppearance?.paramData.params.brushSettings;
 	const isGeometric = normalizedBrush?.engine === "geometric";
-	const lineCap =
+	const stroking =
 		normalizedBrush?.engine === "geometric"
-			? (normalizedBrush.stroking?.lineCap ?? "round")
-			: "round";
-	const lineJoin =
-		normalizedBrush?.engine === "geometric"
-			? (normalizedBrush.stroking?.lineJoin ?? "round")
-			: "round";
+			? normalizedBrush.stroking
+			: undefined;
 
 	const handleWidthChange = useEventCallback((value: number) => {
 		brushEdits.setBrushSize(value);
@@ -69,29 +66,12 @@ export const PenToolControls = memo(function PenToolControls() {
 	const updateStroking = useEventCallback((patch: Partial<BrushStroking>) => {
 		const current = tools.storedBrushSettings;
 		if (current.engine !== "geometric") return;
-		const stroking: BrushStroking = {
-			lineCap: current.stroking?.lineCap ?? "round",
-			lineJoin: current.stroking?.lineJoin ?? "round",
-			miterLimit: current.stroking?.miterLimit ?? 4,
-			dashArray: current.stroking?.dashArray,
-			dashOffset: current.stroking?.dashOffset,
-			...patch,
-		};
+		const stroking = mergeBrushStroking(current.stroking, patch);
 		tools.setBrushSettings({ stroking });
 		// Keep the selected element in sync: drawing resolves its appearance
 		// from the selection when one exists, and stroke completion syncs the
 		// selection's appearance back into the tool settings.
 		commands.updateSelectedElementsBrushSettings({ ...current, stroking });
-	});
-
-	const handleLineCapChange = useEventCallback((value: string[]) => {
-		const cap = value[0] as LineCap | undefined;
-		if (cap) updateStroking({ lineCap: cap });
-	});
-
-	const handleLineJoinChange = useEventCallback((value: string[]) => {
-		const join = value[0] as LineJoin | undefined;
-		if (join) updateStroking({ lineJoin: join });
 	});
 
 	const handleSelectStrokeToggle = useEventCallback((checked: boolean) => {
@@ -195,70 +175,10 @@ export const PenToolControls = memo(function PenToolControls() {
 
 			{isGeometric && (
 				<>
-					<div className="flex flex-col gap-1">
-						<span className="text-[10px] text-muted-foreground">
-							{t("filterPanel.lineCap")}
-						</span>
-						<ToggleGroup.Root
-							value={[lineCap]}
-							onValueChange={handleLineCapChange}
-						>
-							<ToggleGroup.Item
-								value="butt"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.capButt")}
-							</ToggleGroup.Item>
-							<ToggleGroup.Item
-								value="round"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.capRound")}
-							</ToggleGroup.Item>
-							<ToggleGroup.Item
-								value="square"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.capSquare")}
-							</ToggleGroup.Item>
-						</ToggleGroup.Root>
-					</div>
-
-					<div className="flex flex-col gap-1">
-						<span className="text-[10px] text-muted-foreground">
-							{t("filterPanel.joinType")}
-						</span>
-						<ToggleGroup.Root
-							value={[lineJoin]}
-							onValueChange={handleLineJoinChange}
-						>
-							<ToggleGroup.Item
-								value="miter"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.joinMiter")}
-							</ToggleGroup.Item>
-							<ToggleGroup.Item
-								value="round"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.joinRound")}
-							</ToggleGroup.Item>
-							<ToggleGroup.Item
-								value="bevel"
-								className="h-5 w-auto px-1.5 text-[10px]"
-							>
-								{t("filterPanel.joinBevel")}
-							</ToggleGroup.Item>
-						</ToggleGroup.Root>
-					</div>
+					<StrokeGeometryFields stroking={stroking} onChange={updateStroking} />
 
 					<DashPatternControls
-						stroking={
-							normalizedBrush?.engine === "geometric"
-								? normalizedBrush.stroking
-								: undefined
-						}
+						stroking={stroking}
 						strokeWidth={normalizedBrush?.properties.size?.base ?? 2}
 						onChange={updateStroking}
 					/>

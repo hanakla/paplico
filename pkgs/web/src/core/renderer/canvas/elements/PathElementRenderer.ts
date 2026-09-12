@@ -15,6 +15,7 @@ import {
 	type LineCap,
 	type LineJoin,
 	type Path,
+	type StrokeAlign,
 	type StrokeAppearance,
 	type StrokeColor,
 	type StrokeWidthPoint,
@@ -54,6 +55,7 @@ import {
 import { hashStrokeGeometry } from "../../helpers";
 import {
 	cleanupPolygonPoints,
+	computePolylineSignedArea,
 	createCompoundPathRenderPath,
 	splitIntoSubPaths,
 } from "../CanvasLayer.helpers";
@@ -241,6 +243,7 @@ export class PathElementRenderer {
 						settings.taperEnd,
 						path.pathStart,
 						path.pathEnd,
+						settings.stroking?.align,
 					);
 				} else {
 					const textureUid = resolveBrushTextureUid(
@@ -476,6 +479,7 @@ export class PathElementRenderer {
 		taperEnd?: number,
 		pathStart?: number,
 		pathEnd?: number,
+		strokeAlign?: StrokeAlign,
 	): void {
 		if (segments.length === 0) return;
 		const frame = this.deps.getRasterFrame();
@@ -498,6 +502,7 @@ export class PathElementRenderer {
 			pathStart,
 			pathEnd,
 			scaleBucket,
+			strokeAlign,
 		);
 		// Along/across stroke gradients need per-pixel arc params; the outline
 		// carries them only when asked, so the mode is part of its key.
@@ -532,6 +537,7 @@ export class PathElementRenderer {
 					taperEnd,
 					pathStart,
 					pathEnd,
+					strokeAlign,
 					wantArcParams: paramsMode !== 0,
 					zoom: 2 ** scaleBucket,
 				},
@@ -845,6 +851,7 @@ interface StrokeOutlineOptions {
 	taperEnd?: number;
 	pathStart?: number;
 	pathEnd?: number;
+	strokeAlign?: StrokeAlign;
 	wantArcParams: boolean;
 	zoom: number;
 }
@@ -867,6 +874,13 @@ function tessellateStrokeOutline(
 		if (flatPoints.length < 4) continue;
 
 		const isClosed = subPath.at(-1)!.isClosed === true;
+		// Resolved here, before the dash split turns a ring into open
+		// fragments that no longer carry the winding the sign comes from.
+		const alignShift = resolveAlignShift(
+			options.strokeAlign,
+			isClosed,
+			flatPoints,
+		);
 		let dashPoints = flatPoints;
 		let dashPressures = flatPressures;
 		// For closed paths with dash, close the polyline before splitting.
@@ -915,6 +929,7 @@ function tessellateStrokeOutline(
 				taperEnd: hasDash ? undefined : options.taperEnd,
 				pathStart: options.pathStart,
 				pathEnd: options.pathEnd,
+				alignShift,
 				arcParams: options.wantArcParams
 					? { arcOffset, totalArcLength: subPathArcTotal }
 					: undefined,
@@ -935,6 +950,22 @@ function tessellateStrokeOutline(
 		triangles: Float32Array.from(triangles),
 		params: options.wantArcParams ? Float32Array.from(params) : null,
 	};
+}
+
+/**
+ * Turn a stroke alignment into the tessellator's signed centerline shift.
+ * Only closed subpaths move: an open one has no inside to align to.
+ */
+function resolveAlignShift(
+	align: StrokeAlign | undefined,
+	isClosed: boolean,
+	flatPoints: number[],
+): number {
+	if (!isClosed || !align || align === "center") return 0;
+	// A positive area (CCW) leaves the left-of-travel normal pointing inward,
+	// so the outward shift is the negative one.
+	const outward = computePolylineSignedArea(flatPoints) >= 0 ? -1 : 1;
+	return align === "outside" ? outward : -outward;
 }
 
 function boundsOf(points: readonly number[]): LocalBounds {

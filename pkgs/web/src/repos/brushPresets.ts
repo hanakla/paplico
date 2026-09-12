@@ -202,3 +202,67 @@ export function isSamePersistedBrushPreset(
 		left.textureBin.every((value, index) => value === right.textureBin[index])
 	);
 }
+
+/**
+ * The preset the given brush settings came from, or null when they match none.
+ * The working width is left out of the comparison: a preset records no width,
+ * so widening a brush does not turn it into a different preset.
+ *
+ * A persisted preset carries its texture as a bin. That texture reaches the
+ * document as an embedded file under a uid the preset cannot know, so the file
+ * is found back by hash and the preset is compared holding the uid the current
+ * settings actually carry.
+ */
+export function findMatchingBrushPresetUid({
+	brushSettings,
+	builtinPresets,
+	persistedPresets,
+	documentFiles,
+}: {
+	brushSettings: BrushSettings;
+	builtinPresets: readonly BrushPreset[];
+	persistedPresets: readonly PersistedBrushPreset[];
+	documentFiles: readonly EmbeddedFile[];
+}): string | null {
+	const current = comparableBrushSettings(brushSettings);
+
+	const persisted = persistedPresets.find((preset) => {
+		const textureFile = documentFiles.find(
+			(file) => file.hash === preset.textureHash,
+		);
+		if (!textureFile) return false;
+		return (
+			comparableBrushSettings(
+				withTextureFileUid(preset.defaultSettings, textureFile.uid),
+			) === current
+		);
+	});
+	if (persisted) return persisted.uid;
+
+	return (
+		builtinPresets.find(
+			(preset) => comparableBrushSettings(preset.settings) === current,
+		)?.uid ?? null
+	);
+}
+
+/** A brush reduced to what makes it one preset rather than another. */
+function comparableBrushSettings(settings: BrushSettings): string {
+	return stableStringify(
+		withoutStoredBrushSize({ ...settings, randomSeed: 0 }),
+	);
+}
+
+/** JSON with object keys in a fixed order, so two equal brushes built in a
+ *  different order still produce the same string. */
+function stableStringify(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+	if (value !== null && typeof value === "object") {
+		const entries = Object.entries(value)
+			.filter(([, entryValue]) => entryValue !== undefined)
+			.sort(([left], [right]) => (left < right ? -1 : 1))
+			.map(([key, entryValue]) => `${key}:${stableStringify(entryValue)}`);
+		return `{${entries.join(",")}}`;
+	}
+	return JSON.stringify(value) ?? "null";
+}

@@ -33,3 +33,4 @@ export { FONT_SCRIPT_ORDER, getFontManager } from "./typography/fonts";
 export { worldToScreen } from "./utils/geometry/geometry";
 export { ColorAdjustStrategies } from "./utils/color";
 export { AdjustColorSession } from "./PaplicoCommands";
+export type { MeshWarpFromShapeFailure } from "./PaplicoCommands";

@@ -2,6 +2,7 @@ import type {
 	CubicBezierSegment,
 	LineCap,
 	LineJoin,
+	StrokeAlign,
 	StrokeWidthPoint,
 } from "../schema";
 import { floatBits, hashSegments } from "../utils/geometry/segmentOps";
@@ -25,6 +26,7 @@ export function hashStrokeGeometry(
 	pathStart?: number,
 	pathEnd?: number,
 	zoomBucket?: number,
+	strokeAlign?: StrokeAlign,
 ): number {
 	let h = hashSegments(segments);
 	h = (h * 31 + floatBits(strokeWidth)) | 0;
@@ -56,5 +58,12 @@ export function hashStrokeGeometry(
 	// cached geometry must be split per zoom bucket or zooming in would keep
 	// serving the coarser tessellation.
 	h = (h * 31 + (zoomBucket ?? 0)) | 0;
+	// An absent align and an explicit "center" must collide: the UI writes the
+	// explicit value, and splitting them would throw away every cached outline
+	// the moment the panel is touched.
+	h =
+		(h * 31 +
+			(strokeAlign === "outside" ? 1 : strokeAlign === "inside" ? 2 : 0)) |
+		0;
 	return h;
 }

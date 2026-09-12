@@ -274,6 +274,10 @@ function asStroking(v: unknown): BrushStroking | undefined {
 		lineJoin:
 			s.lineJoin === "miter" || s.lineJoin === "bevel" ? s.lineJoin : "round",
 		miterLimit: num(s.miterLimit, 4),
+		// "center" is spelled by leaving the key out, so it stays the one state.
+		...(s.align === "inside" || s.align === "outside"
+			? { align: s.align }
+			: {}),
 		...(Array.isArray(s.dashArray) &&
 		s.dashArray.every((n) => typeof n === "number")
 			? { dashArray: s.dashArray as number[] }

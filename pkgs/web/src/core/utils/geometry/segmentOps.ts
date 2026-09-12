@@ -1,19 +1,17 @@
 import { createIdentityTransform } from "../../document/factory";
 import {
+	type AnyArtObject,
 	type BezierPoint,
 	type CubicBezierSegment,
 	type ElementTransform,
+	getContainerChildIds,
 	getTransform,
 	isIdentityTransform,
 	type MeshArtObject,
 	type Path,
 	type PathSegment,
 } from "../../schema";
-import {
-	brandLocalBBox,
-	calculateMeshCoordinateBounds,
-	calculatePathBounds,
-} from "./bounds";
+import { calculateLocalElementBounds, calculatePathBounds } from "./bounds";
 import {
 	applyTransformToPoint,
 	composeTransforms,
@@ -237,6 +235,7 @@ export function transformSegmentsToWorld(
  */
 export function getMeshWorldBoundarySegments(
 	mesh: MeshArtObject,
+	getElement: (id: string) => AnyArtObject | undefined,
 	ancestorTransform?: ElementTransform,
 ): WorldBezierSegment[] {
 	const curves = getRootBoundaryCurves(mesh.vertices, mesh.faces);
@@ -247,10 +246,11 @@ export function getMeshWorldBoundarySegments(
 		? composeTransforms(ancestorTransform, elementT)
 		: elementT;
 	const identity = isIdentityTransform(t);
-	const localBounds = brandLocalBBox(
-		calculateMeshCoordinateBounds(mesh.vertices),
+	// The renderer pivots the mesh on its full local bounds, children
+	// included, so the outline has to pivot on the same point.
+	const origin = computeTransformOrigin(
+		calculateLocalElementBounds(mesh, collectDescendants(mesh, getElement)),
 	);
-	const origin = computeTransformOrigin(localBounds);
 
 	const tp = (p: { x: number; y: number }) => {
 		if (identity) return toWorld(p.x, p.y);
@@ -445,4 +445,22 @@ export function hashSegmentsWithMetadata(
 		h = (h * 31 + (s.isClosed ? 1 : 0)) | 0;
 	}
 	return h;
+}
+
+/** `container` and every descendant, keyed by id, for bounds computation. */
+function collectDescendants(
+	container: AnyArtObject,
+	getElement: (id: string) => AnyArtObject | undefined,
+): Map<string, AnyArtObject> {
+	const result = new Map<string, AnyArtObject>([[container.id, container]]);
+	const stack = [...(getContainerChildIds(container) ?? [])];
+	while (stack.length > 0) {
+		const id = stack.pop() as string;
+		if (result.has(id)) continue;
+		const el = getElement(id);
+		if (!el) continue;
+		result.set(id, el);
+		stack.push(...(getContainerChildIds(el) ?? []));
+	}
+	return result;
 }

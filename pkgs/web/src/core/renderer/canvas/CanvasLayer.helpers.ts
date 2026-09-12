@@ -436,7 +436,7 @@ export function splitIntoSubPaths(
  * Compute signed area of a polygon (shoelace formula).
  * Positive = counter-clockwise, Negative = clockwise.
  */
-function computeSignedArea(points: number[]): number {
+export function computePolylineSignedArea(points: number[]): number {
 	let area = 0;
 	const n = points.length / 2;
 	for (let i = 0; i < n; i++) {
@@ -528,7 +528,7 @@ export function groupSubPathsByContainment(
 
 	const metas: Meta[] = subPaths.map((points, index) => {
 		const bounds = computePolygonBounds(points);
-		const area = computeSignedArea(points);
+		const area = computePolylineSignedArea(points);
 		return {
 			index,
 			points,

@@ -74,6 +74,7 @@ export const SCALAR_FIELDS = new Set([
 	"displayMode",
 	"includeInExport",
 	"mode",
+	"outlineOnRelease",
 ]);
 
 /** Complex fields stored as JSON strings. @see SCALAR_FIELDS */
@@ -1838,20 +1839,90 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	}
 
 	/**
+	 * Replace `shapeId` in `parentId` with `mesh`, absorbing `mesh.childIds` as
+	 * its content. A shape that is itself a mesh warp hands its former children
+	 * back to the parent, right before the new mesh and untouched by the warp;
+	 * `restoredTransforms` are their transforms in the parent's space, solved
+	 * by the caller with the real pivots. Returns false without writing when
+	 * the parent, the shape or any content element is missing.
+	 */
+	public replaceShapeWithMeshWarp(
+		parentId: string,
+		shapeId: string,
+		mesh: MeshArtObject,
+		restoredTransforms: ReadonlyMap<string, ElementTransform>,
+		origin?: unknown,
+	): boolean {
+		const yShape = this.yObjects.get(shapeId);
+		const yLayer = this.findYLayer(parentId);
+		const yGroup = yLayer ? null : this.yObjects.get(parentId);
+		if (!yShape || (!yLayer && !yGroup)) return false;
+		if (!mesh.childIds.every((id) => this.yObjects.has(id))) return false;
+
+		const parentIds: string[] = yLayer
+			? this.getYElementIds(yLayer).toArray()
+			: JSON.parse((yGroup?.get("childIds") as string | undefined) ?? "[]");
+		if (!parentIds.includes(shapeId)) return false;
+
+		const content = new Set(mesh.childIds);
+		const restoreIds: string[] =
+			yShape.get("type") === "mesh"
+				? JSON.parse((yShape.get("childIds") as string | undefined) ?? "[]")
+				: [];
+		const replacement = [...restoreIds, mesh.id];
+
+		this.ydoc.transact(() => {
+			this.writeTransforms(restoredTransforms);
+			this.yObjects.set(mesh.id, this.objectToYMap(mesh));
+			if (yLayer) {
+				const yElementIds = this.getYElementIds(yLayer);
+				for (let i = yElementIds.length - 1; i >= 0; i--) {
+					const id = yElementIds.get(i);
+					if (id === shapeId) {
+						yElementIds.delete(i, 1);
+						yElementIds.insert(i, replacement);
+					} else if (content.has(id)) {
+						yElementIds.delete(i, 1);
+					}
+				}
+			} else if (yGroup) {
+				this.setChildIds(
+					yGroup,
+					parentIds.flatMap((id) =>
+						id === shapeId ? replacement : content.has(id) ? [] : [id],
+					),
+				);
+			}
+			this.yObjects.delete(shapeId);
+		}, origin);
+		return true;
+	}
+
+	/**
 	 * Release a mesh warp container: restore its absorbed children (untouched —
 	 * the warp is non-destructive) and delete the container, mirroring
-	 * releaseRepeat.
+	 * releaseRepeat. `childTransforms` are the children's transforms in the
+	 * parent's space, solved by the caller with the real pivots. `outline`,
+	 * already in the parent's space, is registered and placed right below the
+	 * children.
 	 */
-	public releaseMeshWarp(meshId: string): void {
+	public releaseMeshWarp(
+		meshId: string,
+		childTransforms: ReadonlyMap<string, ElementTransform>,
+		outline?: Path,
+	): void {
 		this.ydoc.transact(() => {
 			const yMesh = this.yObjects.get(meshId);
 			if (!yMesh) return;
 			const childIdsRaw = yMesh.get("childIds") as string | undefined;
 			const restoreIds: string[] = childIdsRaw ? JSON.parse(childIdsRaw) : [];
-			const meshTransform = yMesh.has("transform")
-				? (JSON.parse(yMesh.get("transform") as string) as ElementTransform)
-				: null;
-			this.restoreAbsorbedAndDeleteContainer(meshId, restoreIds, meshTransform);
+			this.writeTransforms(childTransforms);
+			if (outline) this.yObjects.set(outline.id, this.objectToYMap(outline));
+			this.restoreAbsorbedAndDeleteContainer(
+				meshId,
+				outline ? [outline.id, ...restoreIds] : restoreIds,
+				null,
+			);
 		});
 	}
 
@@ -1900,6 +1971,15 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 				blendTransform,
 			);
 		});
+	}
+
+	/** Store each element's transform as given. */
+	private writeTransforms(
+		transforms: ReadonlyMap<string, ElementTransform>,
+	): void {
+		for (const [id, transform] of transforms) {
+			this.yObjects.get(id)?.set("transform", JSON.stringify(transform));
+		}
 	}
 
 	/**
@@ -2809,6 +2889,7 @@ export function objectToStoredFields(
 			fields.childIds = JSON.stringify(element.childIds);
 			fields.vertices = JSON.stringify(element.vertices);
 			fields.faces = JSON.stringify(element.faces);
+			fields.outlineOnRelease = element.outlineOnRelease;
 			if (element.name) fields.name = element.name;
 			break;
 		case "blend":

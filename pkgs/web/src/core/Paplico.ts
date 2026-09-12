@@ -3678,6 +3678,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		toolType: ToolType,
 		previousToolType = this.currentToolType,
 	): void {
+		// Collected before onCancel below wipes the path-edit vertex selection
+		const vertexSelectedElementIds =
+			toolType === "select" && this.tool instanceof PathEditTool
+				? this.tool.getVertexSelectedElementIds()
+				: [];
+
 		if (previousToolType !== toolType) {
 			if (
 				previousToolType === "mesh-deform" &&
@@ -3743,6 +3749,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				pierceAllLayers: this.toolSettings.eraserPierceAllLayers,
 			});
 		} else if (toolType === "select") {
+			// Objects whose vertices were being edited stay selected
+			if (vertexSelectedElementIds.length > 0) {
+				this.selection.selectMultiple(vertexSelectedElementIds);
+			}
+
 			this.tool = new SelectTool(this.toolContext);
 
 			if (this.rendererStore.selectedElementIds.length > 0) {

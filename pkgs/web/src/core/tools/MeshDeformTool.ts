@@ -27,6 +27,7 @@ import {
 	screenToWorld,
 	solveChildTransform,
 } from "../utils/geometry/geometry";
+import { mapWarpGeometryPositions } from "../utils/geometry/meshWarpShape";
 import {
 	createLocalPointDeformer,
 	type DeformableElement,
@@ -683,14 +684,7 @@ export class MeshDeformTool implements Tool {
 				// Warp cage vertices + handles only; `src` must stay untouched so
 				// the source parametrization (and therefore the children's warp)
 				// follows the moved cage.
-				const vertices = element.vertices.map((vertex) => {
-					const point = deformPoint(vertex);
-					const handles: Record<number, { x: number; y: number }> = {};
-					for (const [key, handle] of Object.entries(vertex.handles)) {
-						handles[Number(key)] = deformPoint(handle);
-					}
-					return { ...vertex, ...point, handles };
-				});
+				const { vertices } = mapWarpGeometryPositions(element, deformPoint);
 				const newLocalBounds = brandLocalBBox(
 					calculateMeshCoordinateBounds(vertices),
 				);

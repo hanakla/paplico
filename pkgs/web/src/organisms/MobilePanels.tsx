@@ -109,7 +109,7 @@ export function MobilePanels() {
 					}
 					{...railOffsets}
 				>
-					<div className="flex-1 flex flex-col min-h-0 [&>div]:w-full! [&>div]:max-h-none! [&>div]:flex-1! [&>div]:rounded-none! [&>div]:shadow-none! [&>div]:bg-transparent! [&>div]:backdrop-filter-none!">
+					<div className="flex-1 flex flex-col min-h-0 [&>div]:w-full! [&>div]:flex-1! [&>div]:rounded-none! [&>div]:shadow-none! [&>div]:bg-transparent! [&>div]:backdrop-filter-none!">
 						{uiSnap.mobilePanelOpen === "context" && <ActionsPanel />}
 						{uiSnap.mobilePanelOpen === "layers" && <LayerPanel />}
 						{uiSnap.mobilePanelOpen === "filters" && <FilterPanel />}

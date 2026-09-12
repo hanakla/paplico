@@ -301,6 +301,19 @@ export class PathEditTool implements Tool {
 		}
 	}
 
+	/** Element ids holding at least one selected vertex, to hand the selection
+	 *  back to SelectTool on tool switch. */
+	public getVertexSelectedElementIds(): string[] {
+		const ids = new Set<string>();
+		for (const handleKey of this.selectedHandles) {
+			ids.add(handleKey.split(":")[0]);
+		}
+		for (const vertexKey of this.selectedMeshVertices) {
+			ids.add(vertexKey.split(":")[0]);
+		}
+		return [...ids];
+	}
+
 	private getHandleKey(handle: ControlPointHandle): string {
 		return `${handle.pathId}:${handle.segmentIndex}:${handle.pointType}`;
 	}

@@ -27,6 +27,14 @@ export type PanelLayout = "together" | "split";
 type LayerPanelMode = "simple" | "detailed";
 type FilterMenuView = "category" | "list";
 
+/** Panels of the desktop side panel column whose height the user can drag */
+export type SidePanelId = "actions" | "layers" | "filters";
+const SIDE_PANEL_IDS: SidePanelId[] = ["actions", "layers", "filters"];
+
+/** Range a side panel height limit can be dragged within, in px */
+export const SIDE_PANEL_MIN_HEIGHT = 80;
+export const SIDE_PANEL_MAX_HEIGHT = 1600;
+
 interface AppConfig {
 	theme: Theme;
 	language: Language;
@@ -45,6 +53,10 @@ interface AppConfig {
 	panelLayout: PanelLayout;
 	/** Layer panel display mode: simple shows only layers, detailed shows elements too */
 	layerPanelMode: LayerPanelMode;
+	/** Height limit the user dragged each side panel to, in px. A panel holding
+	 *  less than its limit keeps the height its content asks for, and a panel
+	 *  with no entry is left entirely to its content. */
+	sidePanelHeights: Partial<Record<SidePanelId, number>>;
 	/** Add-filter menu display: category submenus or a flat list */
 	filterMenuView: FilterMenuView;
 	/** Whether to auto-select the stroke after drawing */
@@ -140,6 +152,7 @@ export const appConfig = proxy<AppConfig>({
 	toolbarSide: "left",
 	panelLayout: "together",
 	layerPanelMode: "simple",
+	sidePanelHeights: {},
 	filterMenuView: "category",
 	selectStrokeAfterDraw: true,
 	pressureCurvePoints: [...DEFAULT_PRESSURE_CURVE],
@@ -162,6 +175,7 @@ subscribe(appConfig, () => {
 		toolbarSide: appConfig.toolbarSide,
 		panelLayout: appConfig.panelLayout,
 		layerPanelMode: appConfig.layerPanelMode,
+		sidePanelHeights: { ...appConfig.sidePanelHeights },
 		filterMenuView: appConfig.filterMenuView,
 		selectStrokeAfterDraw: appConfig.selectStrokeAfterDraw,
 		pressureCurvePoints: appConfig.pressureCurvePoints.map((p) => ({ ...p })),
@@ -198,6 +212,13 @@ export function setPanelLayout(layout: PanelLayout): void {
 
 export function setLayerPanelMode(mode: LayerPanelMode): void {
 	appConfig.layerPanelMode = mode;
+}
+
+export function setSidePanelHeight(id: SidePanelId, height: number): void {
+	appConfig.sidePanelHeights = {
+		...appConfig.sidePanelHeights,
+		[id]: clampSidePanelHeight(height),
+	};
 }
 
 export function setFilterMenuView(view: FilterMenuView): void {
@@ -241,6 +262,24 @@ export function setMaxZoomScale(scale: number): void {
 	);
 }
 
+function clampSidePanelHeight(height: number): number {
+	return Math.max(
+		SIDE_PANEL_MIN_HEIGHT,
+		Math.min(SIDE_PANEL_MAX_HEIGHT, height),
+	);
+}
+
+function sanitizeSidePanelHeights(
+	stored: Partial<Record<string, number>>,
+): Partial<Record<SidePanelId, number>> {
+	return Object.fromEntries(
+		SIDE_PANEL_IDS.flatMap((id) => {
+			const height = stored[id];
+			return height === undefined ? [] : [[id, clampSidePanelHeight(height)]];
+		}),
+	);
+}
+
 // --- Init ---
 
 let initialized = false;
@@ -269,6 +308,10 @@ export async function initAppConfig(): Promise<void> {
 		appConfig.panelLayout = stored.panelLayout as PanelLayout;
 	if (stored.layerPanelMode !== undefined)
 		appConfig.layerPanelMode = stored.layerPanelMode as LayerPanelMode;
+	if (stored.sidePanelHeights !== undefined)
+		appConfig.sidePanelHeights = sanitizeSidePanelHeights(
+			stored.sidePanelHeights,
+		);
 	if (stored.filterMenuView !== undefined)
 		appConfig.filterMenuView = stored.filterMenuView as FilterMenuView;
 	if (stored.selectStrokeAfterDraw !== undefined)

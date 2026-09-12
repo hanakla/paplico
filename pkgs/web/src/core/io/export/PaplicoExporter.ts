@@ -41,102 +41,8 @@ export class PaplicoExporter {
 		private getDocument: () => Document,
 	) {}
 
-	/**
-	 * Export an artboard to PNG and trigger download.
-	 */
-	public async asPNG(
-		artboardId: string,
-		options: ExportOptions & { filename?: string } = {},
-	): Promise<boolean> {
-		const { filename, ...exportOpts } = options;
-		const result = await this.renderArtboardToPNG(artboardId, exportOpts);
-		if (!result) return false;
-
-		const artboard = this.getDocument().artboards.find(
-			(a) => a.id === artboardId,
-		);
-		const defaultFilename = artboard
-			? `${artboard.name.replace(/[^a-zA-Z0-9-_]/g, "_")}.png`
-			: "export.png";
-
-		const url = URL.createObjectURL(result.blob);
-		const link = globalThis.document.createElement("a");
-		link.href = url;
-		link.download = filename ?? defaultFilename;
-		link.click();
-		URL.revokeObjectURL(url);
-
-		console.log(
-			`📥 Downloaded: ${link.download} (${result.width}x${result.height})`,
-		);
-
-		return true;
-	}
-
-	/**
-	 * Export an artboard to JPEG and trigger download.
-	 */
-	public async asJPEG(
-		artboardId: string,
-		options: ExportOptions & { quality?: number; filename?: string } = {},
-	): Promise<boolean> {
-		const { filename, ...exportOpts } = options;
-		const result = await this.renderArtboardToJPEG(artboardId, exportOpts);
-		if (!result) return false;
-
-		const artboard = this.getDocument().artboards.find(
-			(a) => a.id === artboardId,
-		);
-		const defaultFilename = artboard
-			? `${artboard.name.replace(/[^a-zA-Z0-9-_]/g, "_")}.jpg`
-			: "export.jpg";
-
-		const url = URL.createObjectURL(result.blob);
-		const link = globalThis.document.createElement("a");
-		link.href = url;
-		link.download = filename ?? defaultFilename;
-		link.click();
-		URL.revokeObjectURL(url);
-
-		console.log(
-			`📥 Downloaded: ${link.download} (${result.width}x${result.height})`,
-		);
-
-		return true;
-	}
-
-	/**
-	 * Export an artboard to AVIF HDR and trigger download.
-	 */
-	public async asAvifHdr(
-		artboardId: string,
-		options: ExportOptions & { filename?: string } = {},
-	): Promise<boolean> {
-		const { filename, ...exportOpts } = options;
-		const result = await this.renderArtboardToAvifHdr(artboardId, exportOpts);
-		if (!result) return false;
-
-		const artboard = this.getDocument().artboards.find(
-			(a) => a.id === artboardId,
-		);
-		const defaultFilename = artboard
-			? `${artboard.name.replace(/[^a-zA-Z0-9-_]/g, "_")}.avif`
-			: "export.avif";
-
-		const url = URL.createObjectURL(result.blob);
-		const link = globalThis.document.createElement("a");
-		link.href = url;
-		link.download = filename ?? defaultFilename;
-		link.click();
-		URL.revokeObjectURL(url);
-
-		return true;
-	}
-
-	/**
-	 * Export an artboard to PNG blob without downloading.
-	 */
-	public async renderArtboardToPNG(
+	/** Renders an artboard to a PNG blob. */
+	public async toPNG(
 		artboardId: string,
 		options: ExportOptions = {},
 	): Promise<ExportResult | null> {
@@ -205,11 +111,10 @@ export class PaplicoExporter {
 	}
 
 	/**
-	 * Export an artboard to JPEG blob without downloading.
-	 * Transparent pixels are composited over the background color
-	 * because JPEG has no alpha channel.
+	 * Renders an artboard to a JPEG blob. Transparent pixels are composited
+	 * over the background color because JPEG has no alpha channel.
 	 */
-	private async renderArtboardToJPEG(
+	public async toJPEG(
 		artboardId: string,
 		options: ExportOptions & { quality?: number } = {},
 	): Promise<ExportResult | null> {
@@ -290,10 +195,8 @@ export class PaplicoExporter {
 		return { blob, width, height };
 	}
 
-	/**
-	 * Export an artboard to AVIF HDR blob without downloading.
-	 */
-	private async renderArtboardToAvifHdr(
+	/** Renders an artboard to an AVIF HDR blob. */
+	public async toAvifHdr(
 		artboardId: string,
 		options: ExportOptions = {},
 	): Promise<ExportResult | null> {

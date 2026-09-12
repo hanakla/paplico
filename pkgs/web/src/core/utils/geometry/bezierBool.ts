@@ -4,7 +4,9 @@
  * Original: https://github.com/velipso/polybool
  * SPDX-License-Identifier: 0BSD
  */
+import type { CubicBezierSegment } from "../../schema";
 import { lerp } from "../math";
+import { resolveSegment } from "./segmentOps";
 
 type Vec2 = [number, number];
 
@@ -504,7 +506,9 @@ export class SegmentCurve extends SegmentBase<SegmentCurve> {
 			const b = 6 * x0 - 12 * x1 + 6 * x2;
 			const c = 3 * x1 - 3 * x0;
 			if (this.geo.snap0(a) === 0) {
-				result.add(-c / b);
+				// A linear coordinate has no interior extremum; dividing by zero
+				// here would put NaN into the bounding box.
+				if (this.geo.snap0(b) !== 0) result.add(-c / b);
 			} else {
 				const disc = b * b - 4 * a * c;
 				if (disc >= 0) {
@@ -916,7 +920,7 @@ function segmentCurveIntersectSegmentCurve(
 //                         note: a T value pair is returned even if it's just a shared vertex!
 //   SegmentTRangePairs => the segments are coincident (on top of each other), and intersect along a
 //                         segment, ranged by T values
-function segmentsIntersect(
+export function segmentsIntersect(
 	segA: Segment,
 	segB: Segment,
 	allowOutOfRange: boolean,
@@ -2161,4 +2165,52 @@ function addSegmentBool(
 			? new SegmentBoolLine(data, seg.myFill, seg.closed)
 			: new SegmentBoolCurve(data as SegmentCurve, seg.myFill, seg.closed);
 	inter.addSegment(ns, primary);
+}
+
+/**
+ * One sub-path as boolean-op segments: collinear control points become a
+ * line, and an open sub-path is bridged with a line so it encloses a region.
+ */
+export function cubicSegmentsToContour(
+	subPath: CubicBezierSegment[],
+	geo: GeometryEpsilon,
+): Segment[] {
+	const contour: Segment[] = [];
+
+	for (let i = 0; i < subPath.length; i++) {
+		const seg = subPath[i];
+		const prevEnd = i > 0 ? subPath[i - 1].end : undefined;
+		const resolved = resolveSegment(seg, prevEnd);
+
+		const p0: Vec2 = [resolved.start.x, resolved.start.y];
+		const cp1: Vec2 = [resolved.cp1.x, resolved.cp1.y];
+		const cp2: Vec2 = [resolved.cp2.x, resolved.cp2.y];
+		const p3: Vec2 = [resolved.end.x, resolved.end.y];
+
+		const isLine =
+			Math.abs(
+				(cp1[0] - p0[0]) * (p3[1] - p0[1]) - (cp1[1] - p0[1]) * (p3[0] - p0[0]),
+			) < 0.01 &&
+			Math.abs(
+				(cp2[0] - p0[0]) * (p3[1] - p0[1]) - (cp2[1] - p0[1]) * (p3[0] - p0[0]),
+			) < 0.01;
+
+		if (isLine) {
+			contour.push(new SegmentLine(p0, p3, geo));
+		} else {
+			contour.push(new SegmentCurve(p0, cp1, cp2, p3, geo));
+		}
+	}
+
+	if (contour.length > 0) {
+		const first = contour[0].start();
+		const last = contour[contour.length - 1].end();
+		if (Math.hypot(first[0] - last[0], first[1] - last[1]) > 1e-6) {
+			contour.push(
+				new SegmentLine([last[0], last[1]], [first[0], first[1]], geo),
+			);
+		}
+	}
+
+	return contour;
 }

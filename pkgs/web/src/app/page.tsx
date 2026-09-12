@@ -1,13 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
 import type { TauriFileDropDetail } from "@/app/TauriInit";
 import { ToastContainer } from "@/app/ToastContainer";
 import { createAutomationScriptRepository } from "@/automation/repository";
 import type { AutomationRuntimeFactory } from "@/automation/types";
 import { ConfirmDialog } from "@/components/AlertDialog";
+import { Resizable } from "@/components/Resizable";
 import { PaplicoProvider } from "@/contexts/PaplicoContext";
 import { Paplico, TextToolController } from "@/core";
 import {
@@ -29,10 +30,12 @@ import { ConnectRoomDialog } from "@/dialogs/ConnectRoomDialog";
 import { DisconnectedDialog } from "@/dialogs/DisconnectedDialog";
 import { DocumentListDialog } from "@/dialogs/DocumentListDialog";
 import { DocumentSettingsDialog } from "@/dialogs/DocumentSettingsDialog";
-import type { IccExportChoice } from "@/dialogs/ExportDialog";
 import { ExportDialog } from "@/dialogs/ExportDialog";
 import { LicensesDialog } from "@/dialogs/LicensesDialog";
-import { NewDocumentDialog } from "@/dialogs/NewDocumentDialog";
+import {
+	NewDocumentDialog,
+	type NewDocumentDialogResult,
+} from "@/dialogs/NewDocumentDialog";
 import { PreferencesDialog } from "@/dialogs/PreferencesDialog";
 import { PublishRoomDialog } from "@/dialogs/PublishRoomDialog";
 import { ScanInviteDialog } from "@/dialogs/ScanInviteDialog";
@@ -44,8 +47,12 @@ import {
 	applyThemeToDOM,
 	initAppConfig,
 	resolveTouchDrawOffsetScale,
+	SIDE_PANEL_MAX_HEIGHT,
+	SIDE_PANEL_MIN_HEIGHT,
+	type SidePanelId,
 	setLastDocumentId,
 	setShortcutOverrides,
+	setSidePanelHeight,
 	useAppConfig,
 } from "@/hooks/useAppConfig";
 import { useAutoSave } from "@/hooks/useAutoSave";
@@ -53,10 +60,7 @@ import { getEncryptedRoomCredentials, useCollab } from "@/hooks/useCollab";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useMenuActions } from "@/hooks/useMenuActions";
 import { createAutomationFileSystem } from "@/infra/automationFileSystem";
-import {
-	BUILTIN_ICC_PROFILES,
-	getBuiltinProfileBytes,
-} from "@/infra/builtinIccProfiles";
+import { getBuiltinProfileBytes } from "@/infra/builtinIccProfiles";
 import { runDBMigrations } from "@/infra/dbMigrations";
 import { db } from "@/infra/documentDB";
 import {
@@ -131,7 +135,6 @@ export default function Page() {
 	const [preferencesDialogOpen, setPreferencesDialogOpen] = useState(false);
 	const [documentListDialogOpen, setDocumentListDialogOpen] = useState(false);
 	const [automationDialogOpen, setAutomationDialogOpen] = useState(false);
-	const [exportingMessage, setExportingMessage] = useState<string | null>(null);
 	const [initialRoomId, setInitialRoomId] = useState<string | null>(null);
 	/** Invite carrying a key: connects on its own, no dialog to fill in. */
 	const [pendingInvite, setPendingInvite] = useState<InviteTarget | null>(null);
@@ -309,6 +312,48 @@ export default function Page() {
 		},
 	);
 
+	/** Loads a document the user picked out of the filesystem. */
+	const openDocumentFile = useEventCallback(async (handle: FileHandle) => {
+		try {
+			await paplicoRef.current?.importDocument(handle.file);
+			setExternalDocumentSession(handle);
+		} catch (error) {
+			reportError({
+				code: codeFromError(error, "DOCUMENT_OPEN_FAILED"),
+				cause: error,
+			});
+		}
+	});
+
+	/** Applies what the new document dialog was closed for. */
+	const applyNewDocumentResult = useEventCallback(
+		async (result: NewDocumentDialogResult) => {
+			const p = paplicoRef.current;
+			if (!p) return;
+
+			if (result.action === "openRecents") {
+				setDocumentListDialogOpen(true);
+				return;
+			}
+
+			if (result.action === "openFile") {
+				await openDocumentFile(result.handle);
+				return;
+			}
+
+			if (result.action === "cancel") return;
+
+			await createDocumentWithArtboard(result.size, result.imageFile);
+
+			if (result.hdr?.enabled) {
+				p.commands.setHdr({ enabled: true });
+			}
+			if (result.units) {
+				p.commands.setUnits(result.units);
+			}
+		},
+	);
+
 	const handleNewDocument = useEventCallback(async () => {
 		const p = paplicoRef.current;
 		if (!p) return;
@@ -323,18 +368,11 @@ export default function Page() {
 		const result = await NewDocumentDialog.call({
 			hdrSupported: p.uiState.hdrSupported,
 		});
-		if (!result.ok) return;
+
 		try {
-			await createDocumentWithArtboard(result.size, result.imageFile);
+			await applyNewDocumentResult(result);
 		} catch (cause) {
 			reportError({ code: "DOCUMENT_CREATE_FAILED", cause });
-			return;
-		}
-		if (result.hdr?.enabled) {
-			p.commands.setHdr({ enabled: true });
-		}
-		if (result.units) {
-			p.commands.setUnits(result.units);
 		}
 	});
 
@@ -383,26 +421,25 @@ export default function Page() {
 				if (!roomParam && !devDoc) {
 					// Show new document dialog repeatedly until a document is loaded
 					while (!documentManagerState.currentDocumentId) {
-						const sizeResult = await NewDocumentDialog.call({
+						const result = await NewDocumentDialog.call({
 							hdrSupported: p.uiState.hdrSupported,
 						});
-						if (!sizeResult.ok) continue;
+
+						// Opening hands the choice to another dialog or to a file,
+						// neither of which this loop should talk over
+						if (
+							result.action === "openRecents" ||
+							result.action === "openFile"
+						) {
+							await applyNewDocumentResult(result);
+							break;
+						}
 
 						try {
-							await createDocumentWithArtboard(
-								sizeResult.size,
-								sizeResult.imageFile,
-							);
+							await applyNewDocumentResult(result);
 						} catch (cause) {
 							// The loop re-opens the dialog while no document is loaded
 							reportError({ code: "DOCUMENT_CREATE_FAILED", cause });
-							continue;
-						}
-						if (sizeResult.hdr?.enabled) {
-							p.commands.setHdr({ enabled: true });
-						}
-						if (sizeResult.units) {
-							p.commands.setUnits(sizeResult.units);
 						}
 					}
 				}
@@ -427,7 +464,6 @@ export default function Page() {
 	const menuActions = useMenuActions(paplicoRef, {
 		setExportDialogOpen,
 		setDocumentSettingsDialogOpen,
-		setExportingMessage,
 	});
 
 	const handlePublishRoom = useEventCallback(async (readonly: boolean) => {
@@ -562,190 +598,6 @@ export default function Page() {
 	const handleToggleSplitView = useEventCallback(() => {
 		setIsSplitView((prev) => !prev);
 	});
-
-	const handleExportPNG = useEventCallback(
-		async (artboardIds: string[], scale: number, icc: IccExportChoice) => {
-			const p = paplicoRef.current;
-			if (!p) return;
-
-			const iccProfile = await resolveIccProfile(p, icc);
-			const sourceProfileBytes = await resolveSourceProfileBytes(
-				p,
-				icc,
-				iccProfile,
-			);
-			setExportingMessage(t("exportDialog.exporting"));
-			try {
-				for (const artboardId of artboardIds) {
-					try {
-						await p.exporter.asPNG(artboardId, {
-							scale,
-							backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
-							iccProfile,
-							sourceProfileBytes,
-						});
-					} catch (error) {
-						console.error(`Failed to export artboard: ${artboardId}`, error);
-					}
-				}
-			} finally {
-				setExportingMessage(null);
-			}
-		},
-	);
-
-	const handleExportJPEG = useEventCallback(
-		async (
-			artboardIds: string[],
-			scale: number,
-			quality: number,
-			icc: IccExportChoice,
-		) => {
-			const p = paplicoRef.current;
-			if (!p) return;
-
-			const iccProfile = await resolveIccProfile(p, icc);
-			const sourceProfileBytes = await resolveSourceProfileBytes(
-				p,
-				icc,
-				iccProfile,
-			);
-			setExportingMessage(t("exportDialog.exporting"));
-			try {
-				for (const artboardId of artboardIds) {
-					try {
-						await p.exporter.asJPEG(artboardId, {
-							scale,
-							quality,
-							backgroundColor: { r: 1, g: 1, b: 1, a: 1 },
-							iccProfile,
-							sourceProfileBytes,
-						});
-					} catch (error) {
-						console.error(
-							`Failed to export artboard as JPEG: ${artboardId}`,
-							error,
-						);
-					}
-				}
-			} finally {
-				setExportingMessage(null);
-			}
-		},
-	);
-
-	const handleExportPSD = useEventCallback(
-		async (artboardIds: string[], embedIcc: boolean) => {
-			const p = paplicoRef.current;
-			if (!p) return;
-
-			const iccProfile = embedIcc
-				? await resolveWorkingSpaceProfile(p)
-				: undefined;
-			setExportingMessage(t("exportDialog.exporting"));
-			try {
-				for (const artboardId of artboardIds) {
-					try {
-						await p.psdExporter.asPSD(artboardId, {
-							backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
-							iccProfile: iccProfile && { data: iccProfile.data },
-						});
-					} catch (error) {
-						console.error(
-							`Failed to export artboard as PSD: ${artboardId}`,
-							error,
-						);
-					}
-				}
-			} finally {
-				setExportingMessage(null);
-			}
-		},
-	);
-
-	const handleExportTiff = useEventCallback(
-		async (artboardIds: string[], scale: number, profileValue: string) => {
-			const p = paplicoRef.current;
-			if (!p) return;
-
-			// Empty value = RGB TIFF without ICC; the exporter picks RGB/CMYK output
-			// from the resolved profile's color space.
-			const profileBytes = await resolveTiffProfileBytes(p, profileValue);
-
-			setExportingMessage(t("exportDialog.exporting"));
-			try {
-				for (const artboardId of artboardIds) {
-					try {
-						await p.tiffExporter.asTIFF(artboardId, {
-							scale,
-							backgroundColor: { r: 1, g: 1, b: 1, a: 1 },
-							profile: profileBytes ? { data: profileBytes } : undefined,
-							srcSpace: p.uiState.document.colorProfile?.workingSpace,
-							dpi: scale * 72,
-						});
-					} catch (error) {
-						console.error(
-							`Failed to export artboard as TIFF: ${artboardId}`,
-							error,
-						);
-					}
-				}
-			} finally {
-				setExportingMessage(null);
-			}
-		},
-	);
-
-	const handleExportSVG = useEventCallback(async (artboardIds: string[]) => {
-		const p = paplicoRef.current;
-		if (!p) return;
-
-		setExportingMessage(t("exportDialog.exporting"));
-		try {
-			for (const artboardId of artboardIds) {
-				try {
-					await p.svgExporter.asSVG(artboardId, {
-						backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
-					});
-				} catch (error) {
-					console.error(
-						`Failed to export artboard as SVG: ${artboardId}`,
-						error,
-					);
-				}
-			}
-		} finally {
-			setExportingMessage(null);
-		}
-	});
-
-	const handleExportAvifHdr = useEventCallback(
-		async (artboardIds: string[], scale: number) => {
-			const p = paplicoRef.current;
-			if (!p) return;
-
-			setExportingMessage(t("exportDialog.exporting"));
-			try {
-				for (const artboardId of artboardIds) {
-					try {
-						await p.exporter.asAvifHdr(artboardId, {
-							scale,
-							backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
-							srcSpace:
-								p.uiState.document.colorProfile?.workingSpace ?? "display-p3",
-						});
-					} catch (error) {
-						console.error(
-							`Failed to export artboard as AVIF HDR: ${artboardId}`,
-							error,
-						);
-					}
-				}
-			} finally {
-				setExportingMessage(null);
-			}
-		},
-	);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: menuActions.handleSave is stable (useEventCallback)
 	useEffect(() => {
@@ -1117,14 +969,34 @@ export default function Page() {
 											<div className="contents pointer-events-auto">
 												<EditingScopeBreadcrumb />
 											</div>
-											<div className="contents pointer-events-auto">
-												<ActionsPanel />
-											</div>
-											<div className="contents pointer-events-auto">
-												<LayerPanel />
-											</div>
-											<div className="contents pointer-events-auto">
-												<FilterPanel />
+											{/* Only the panels scroll. The breadcrumb and the shift
+											    button deliberately reach outside the column's width,
+											    which a scroll container would clip. The bottom
+											    padding keeps the last panel's resize handle, which
+											    straddles its edge, from making the column scrollable
+											    on its own. */}
+											<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-1">
+												<ResizableSidePanel
+													id="actions"
+													height={appSnap.sidePanelHeights.actions ?? null}
+												>
+													<ActionsPanel />
+												</ResizableSidePanel>
+												<ResizableSidePanel
+													id="layers"
+													height={appSnap.sidePanelHeights.layers ?? null}
+													// Default limit: the layer list has to leave room
+													// for the panels under it.
+													className="max-h-[30dvh]"
+												>
+													<LayerPanel />
+												</ResizableSidePanel>
+												<ResizableSidePanel
+													id="filters"
+													height={appSnap.sidePanelHeights.filters ?? null}
+												>
+													<FilterPanel />
+												</ResizableSidePanel>
 											</div>
 											{isTogether && (
 												<ShiftButtonOverlay
@@ -1151,13 +1023,7 @@ export default function Page() {
 						onOpenChange={setExportDialogOpen}
 						artboards={artboards}
 						paplico={paplico ?? null}
-						onExportPNG={handleExportPNG}
-						onExportJPEG={handleExportJPEG}
-						onExportPSD={handleExportPSD}
 						isHdrEnabled={!!paplico?.uiState.document.hdr?.enabled}
-						onExportAvifHdr={handleExportAvifHdr}
-						onExportTiff={handleExportTiff}
-						onExportSVG={handleExportSVG}
 					/>
 
 					{/* Document Settings Dialog */}
@@ -1171,12 +1037,6 @@ export default function Page() {
 					<NewDocumentDialog.Root />
 					<ConfirmDialog.Root />
 					<LicensesDialog.Root />
-
-					{/* Export Spinner */}
-					<SpinnerDialog
-						open={exportingMessage != null}
-						message={exportingMessage ?? undefined}
-					/>
 
 					{/* Stays up until the document lands, not just until the socket
 					    opens: an empty canvas and a synced one look the same, so
@@ -1252,6 +1112,37 @@ export default function Page() {
 }
 
 /**
+ * Slot in the desktop side panel column. The height dragged on its bottom edge
+ * is a limit rather than a fixed size, so a panel holding less than that keeps
+ * the height its content asks for.
+ */
+function ResizableSidePanel({
+	id,
+	height,
+	className,
+	children,
+}: {
+	id: SidePanelId;
+	height: number | null;
+	className?: string;
+	children: ReactNode;
+}) {
+	return (
+		<Resizable
+			dir="bottom"
+			limit="max"
+			defaultSize={height}
+			minSize={SIDE_PANEL_MIN_HEIGHT}
+			maxSize={SIDE_PANEL_MAX_HEIGHT}
+			onSizeChange={(size) => setSidePanelHeight(id, size)}
+			className={twm("flex shrink-0 flex-col pointer-events-auto", className)}
+		>
+			{children}
+		</Resizable>
+	);
+}
+
+/**
  * Suppresses app shortcuts while the event originates inside a subtree marked
  * with `data-app-shortcuts="off"`. Editors that own their own keybindings
  * (Monaco) receive keys through elements the engine cannot recognize as text
@@ -1262,62 +1153,4 @@ function ignoreShortcutsInOptedOutSubtree(
 ): false | undefined {
 	if (!(event.target instanceof HTMLElement)) return undefined;
 	return event.target.closest('[data-app-shortcuts="off"]') ? false : undefined;
-}
-
-/** Resolves a TIFF profile selection (builtin id / embedded uid / "") to bytes. */
-async function resolveTiffProfileBytes(
-	paplico: Paplico,
-	value: string,
-): Promise<Uint8Array | undefined> {
-	if (!value) return undefined;
-	const builtin = BUILTIN_ICC_PROFILES.find((p) => p.id === value);
-	if (builtin) return getBuiltinProfileBytes(builtin.id);
-	return paplico.uiState.document.files.find((f) => f.uid === value)?.bin;
-}
-
-/** Resolves an RGB ICC export choice into embeddable profile bytes. */
-async function resolveIccProfile(
-	paplico: Paplico,
-	choice: IccExportChoice,
-): Promise<{ data: Uint8Array; name: string } | undefined> {
-	if (choice.kind === "none") return undefined;
-
-	if (choice.kind === "builtin") {
-		const info = BUILTIN_ICC_PROFILES.find((p) => p.id === choice.id);
-		const data = await getBuiltinProfileBytes(choice.id);
-		return { data, name: info?.label ?? choice.id };
-	}
-
-	const file = paplico.uiState.document.files.find((f) => f.uid === choice.uid);
-	if (!file) return undefined;
-	return { data: file.bin, name: file.name };
-}
-
-/**
- * Resolves the working-space ICC bytes used as the conversion source for image
- * export. Returns undefined when no real conversion is needed: either nothing is
- * embedded (`iccProfile` undefined), or the chosen profile already is the
- * working space's builtin profile.
- */
-async function resolveSourceProfileBytes(
-	paplico: Paplico,
-	choice: IccExportChoice,
-	iccProfile: { data: Uint8Array; name: string } | undefined,
-): Promise<Uint8Array | undefined> {
-	if (!iccProfile) return undefined;
-
-	const workingSpace =
-		paplico.uiState.document.colorProfile?.workingSpace ?? "display-p3";
-	if (choice.kind === "builtin" && choice.id === workingSpace) return undefined;
-
-	return getBuiltinProfileBytes(workingSpace);
-}
-
-/** Resolves the builtin RGB profile matching the document's working space. */
-async function resolveWorkingSpaceProfile(
-	paplico: Paplico,
-): Promise<{ data: Uint8Array; name: string } | undefined> {
-	const workingSpace =
-		paplico.uiState.document.colorProfile?.workingSpace ?? "display-p3";
-	return resolveIccProfile(paplico, { kind: "builtin", id: workingSpace });
 }

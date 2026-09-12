@@ -1530,6 +1530,11 @@ export interface MeshArtObject extends ArtObject {
 	vertices: MeshGeometryVertex[];
 	/** Faces referencing the vertex array by index (quad only). */
 	faces: MeshFace[];
+	/**
+	 * Set on a mesh built from a shape: releasing it rebuilds the cage's outer
+	 * boundary as a path, so the shape comes back with the cage edits.
+	 */
+	outlineOnRelease?: boolean;
 }
 
 // --- 3D Types (Reference3D subsystem) ---
@@ -1706,6 +1711,9 @@ export type BrushColorMode = "tinting" | "color";
 export type LineCap = "butt" | "round" | "square";
 export type LineJoin = "miter" | "round" | "bevel";
 
+/** Where the stroke band sits relative to the path. */
+export type StrokeAlign = "center" | "inside" | "outside";
+
 /**
  * SVG stroke geometry settings.
  * Only effective when the brush is SVG (textureFileUid === BUILTIN_BRUSH_IDS.svg).
@@ -1715,6 +1723,12 @@ export interface BrushStroking {
 	lineCap: LineCap;
 	lineJoin: LineJoin;
 	miterLimit: number;
+	/**
+	 * Stroke placement on closed subpaths. Absent means "center", so documents
+	 * written before this setting existed keep their look. Open subpaths have
+	 * no inside, and always render centered.
+	 */
+	align?: StrokeAlign;
 	dashArray?: readonly number[];
 	dashOffset?: number;
 }
@@ -1885,7 +1899,8 @@ export interface MixingConfig {
 	enabled: boolean;
 	mode: "dulling";
 	sampleRadius: number;
-	/** Sample position trail along stroke direction (-2..2, forward positive). */
+	/** Sample position offset, -2..2. A positive value trails the dab along
+	 *  the stroke direction. */
 	sampleTrail: number;
 	/** 0 = vivid (OkLCH), 1 = muted (OkLAB). */
 	blendStyle: number;

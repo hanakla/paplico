@@ -43,6 +43,14 @@ describe("Yjs field coverage", () => {
 		{ ...base, type: "compound-path", sources: [] },
 		{
 			...base,
+			type: "mesh",
+			childIds: [],
+			vertices: [],
+			faces: [],
+			outlineOnRelease: true,
+		},
+		{
+			...base,
 			type: "repeat",
 			sourceIds: ["s1"],
 			mode: "grid",

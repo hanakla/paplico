@@ -14,6 +14,7 @@ export interface PersistedConfig {
 	toolbarSide?: string;
 	panelLayout?: string;
 	layerPanelMode?: string;
+	sidePanelHeights?: Partial<Record<string, number>>;
 	filterMenuView?: string;
 	selectStrokeAfterDraw?: boolean;
 	pressureCurvePoints?: PressureCurvePoint[];
@@ -52,6 +53,7 @@ const configSchema = z.object({
 	toolbarSide: fallback(z.optional(z.string())),
 	panelLayout: fallback(z.optional(z.string())),
 	layerPanelMode: fallback(z.optional(z.string())),
+	sidePanelHeights: fallback(z.optional(z.record(z.string(), z.number()))),
 	filterMenuView: fallback(z.optional(z.string())),
 	selectStrokeAfterDraw: fallback(z.optional(z.boolean())),
 	pressureCurvePoints: fallback(

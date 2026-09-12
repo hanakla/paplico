@@ -28,6 +28,7 @@ import { Accordion } from "@/components/Accordion";
 import type { Paplico } from "@/core/Paplico";
 import { useCurrentCanvasTargetResolver } from "@/hooks/useCurrentCanvasTarget";
 import { useMenuActions } from "@/hooks/useMenuActions";
+import { confirmDialog } from "@/infra/confirmDialog";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { IS_TAURI_ENV } from "@/utils/platform";
@@ -99,7 +100,6 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 	} = useMenuActions(paplicoRef, {
 		setExportDialogOpen: () => onOpenExportDialog(),
 		setDocumentSettingsDialogOpen: () => onOpenDocumentSettingsDialog(),
-		setExportingMessage: () => {},
 	});
 
 	const wrap = (action: () => void) => () => {
@@ -259,7 +259,7 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors disabled:opacity-50"
 					disabled={connectedRoomId != null}
 					onClick={async () => {
-						if (await confirm(t("menubar.saveAndCloseConfirm"))) {
+						if (await confirmDialog(t("menubar.saveAndCloseConfirm"))) {
 							window.location.replace(window.location.pathname);
 						}
 					}}

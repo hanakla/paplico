@@ -436,6 +436,46 @@ export function applyTransformToBounds(
 }
 
 /**
+ * Compose two transforms that each pivot on their own point into one that
+ * pivots on `childPivot`. Applying the result to a point equals applying
+ * `child` around `childPivot`, then `parent` around `parentPivot`.
+ */
+export function composePivotedTransforms(
+	parent: ElementTransform,
+	parentPivot: { x: number; y: number },
+	child: ElementTransform,
+	childPivot: { x: number; y: number },
+): ElementTransform {
+	const composed = composeTransforms(
+		pivotToOrigin(parent, parentPivot),
+		pivotToOrigin(child, childPivot),
+	);
+	const m = transformLinearMatrix(composed);
+	return {
+		...composed,
+		x:
+			composed.x -
+			(childPivot.x - (m.m00 * childPivot.x + m.m01 * childPivot.y)),
+		y:
+			composed.y -
+			(childPivot.y - (m.m10 * childPivot.x + m.m11 * childPivot.y)),
+	};
+}
+
+/** The same mapping as `t` around `pivot`, expressed as a transform around the origin. */
+function pivotToOrigin(
+	t: ElementTransform,
+	pivot: { x: number; y: number },
+): ElementTransform {
+	const m = transformLinearMatrix(t);
+	return {
+		...t,
+		x: t.x + pivot.x - (m.m00 * pivot.x + m.m01 * pivot.y),
+		y: t.y + pivot.y - (m.m10 * pivot.x + m.m11 * pivot.y),
+	};
+}
+
+/**
  * Compose two transforms: result = parent ∘ child.
  * Applying the result to a point is equivalent to first applying child, then parent.
  *

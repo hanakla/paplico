@@ -1,4 +1,5 @@
 import { localAppearances } from "../../../document/appearancePresets";
+import { splitIntoSubPaths } from "../../../renderer/canvas/CanvasLayer.helpers";
 import type { FilterRenderer } from "../../../renderer/canvas/pipeline/FilterRenderer";
 import { resolveElementGeometry } from "../../../renderer/canvas/pipeline/PreFilterRenderer";
 import { calculatePreFilteredElementBounds } from "../../../renderer/canvas/pipeline/RenderPlanner";
@@ -222,6 +223,8 @@ async function serializePathLike(
 	// Cull elements whose painted area (geometry + stroke reach, or the whole
 	// filter region when a filter can move paint) cannot touch the visible
 	// region — invisible markup must not ship in the export.
+	// Outside-aligned strokes reach a full width out, and maxStrokeWidth already
+	// reports the width itself rather than half of it.
 	const cullMargin = maxStrokeWidth(element) * strokeScale;
 	const paintedBounds =
 		svgFilter?.region ??
@@ -258,13 +261,16 @@ async function serializePathLike(
 				},
 			});
 		} else if (filter.processor === "stroke") {
-			const node = strokeAppearanceToNode(
-				filter as StrokeAppearance,
-				d,
-				strokeScale,
-				elementAlpha,
+			shapes.push(
+				...strokeAppearanceToNodes(
+					filter as StrokeAppearance,
+					d,
+					worldSegments,
+					strokeScale,
+					elementAlpha,
+					ctx,
+				),
 			);
-			if (node) shapes.push(node);
 		}
 	}
 	if (shapes.length === 0) return null;
@@ -297,7 +303,10 @@ function mergeFillStrokePairs(shapes: SvgNode[]): SvgNode[] {
 			prev &&
 			prev.tag === "path" &&
 			shape.tag === "path" &&
-			prev.attrs.d === shape.attrs.d
+			prev.attrs.d === shape.attrs.d &&
+			// A clipped or masked stroke must not hand its clip to the fill.
+			!isClipped(prev) &&
+			!isClipped(shape)
 		) {
 			if (isFillOnlyPath(prev) && isStrokeOnlyPath(shape)) {
 				const { d: _d, fill: _none, ...strokeAttrs } = shape.attrs;
@@ -313,6 +322,10 @@ function mergeFillStrokePairs(shapes: SvgNode[]): SvgNode[] {
 		merged.push(shape);
 	}
 	return merged;
+}
+
+function isClipped(node: SvgNode): boolean {
+	return node.attrs["clip-path"] !== undefined || node.attrs.mask !== undefined;
 }
 
 function isFillOnlyPath(node: SvgNode): boolean {
@@ -336,7 +349,101 @@ function compoundTransformOrigin(
 	return boundsCenter(bounds);
 }
 
-function strokeAppearanceToNode(
+/**
+ * Paint one stroke appearance. An inside- or outside-aligned stroke has no SVG
+ * attribute of its own, so it is drawn at twice the width with half of it
+ * clipped away. Open subpaths render centered and are split into a node of
+ * their own, since a clip covering the whole element would trim them too.
+ */
+function strokeAppearanceToNodes(
+	appearance: StrokeAppearance,
+	d: string,
+	worldSegments: CubicBezierSegment[],
+	strokeScale: number,
+	elementAlpha: number,
+	ctx: SerializeContext,
+): SvgNode[] {
+	const align = appearance.paramData.params.brushSettings?.stroking?.align;
+	if (!align || align === "center") {
+		const node = strokeNode(appearance, d, strokeScale, elementAlpha);
+		return node ? [node] : [];
+	}
+
+	const subPaths = splitIntoSubPaths(worldSegments);
+	const closed = subPaths.filter((sub) => sub.at(-1)?.isClosed === true);
+	if (closed.length === 0) {
+		const node = strokeNode(appearance, d, strokeScale, elementAlpha);
+		return node ? [node] : [];
+	}
+
+	const closedD = segmentsToPathData(closed.flat(), ctx.mapper);
+	const alignedNode = strokeNode(
+		appearance,
+		closedD,
+		strokeScale * 2,
+		elementAlpha,
+	);
+	if (!alignedNode) return [];
+	alignedNode.attrs[align === "inside" ? "clip-path" : "mask"] = `url(#${
+		align === "inside"
+			? registerPathClip(closedD, ctx)
+			: registerPathHoleMask(closedD, ctx)
+	})`;
+
+	const open = subPaths.filter((sub) => sub.at(-1)?.isClosed !== true);
+	if (open.length === 0) return [alignedNode];
+
+	const openNode = strokeNode(
+		appearance,
+		segmentsToPathData(open.flat(), ctx.mapper),
+		strokeScale,
+		elementAlpha,
+	);
+	return openNode ? [alignedNode, openNode] : [alignedNode];
+}
+
+/** Keep only what the path encloses. */
+function registerPathClip(d: string, ctx: SerializeContext): string {
+	const id = ctx.builder.allocId("clip");
+	ctx.builder.addDef({
+		tag: "clipPath",
+		attrs: { id, clipPathUnits: "userSpaceOnUse" },
+		children: [{ tag: "path", attrs: { d } }],
+	});
+	return id;
+}
+
+/** Keep everything the path does NOT enclose. */
+function registerPathHoleMask(d: string, ctx: SerializeContext): string {
+	const id = ctx.builder.allocId("mask");
+	ctx.builder.addDef({
+		tag: "mask",
+		attrs: {
+			id,
+			maskUnits: "userSpaceOnUse",
+			x: 0,
+			y: 0,
+			width: ctx.viewBox.width,
+			height: ctx.viewBox.height,
+		},
+		children: [
+			{
+				tag: "rect",
+				attrs: {
+					x: 0,
+					y: 0,
+					width: ctx.viewBox.width,
+					height: ctx.viewBox.height,
+					fill: "#ffffff",
+				},
+			},
+			{ tag: "path", attrs: { d, fill: "#000000" } },
+		],
+	});
+	return id;
+}
+
+function strokeNode(
 	appearance: StrokeAppearance,
 	d: string,
 	strokeScale: number,

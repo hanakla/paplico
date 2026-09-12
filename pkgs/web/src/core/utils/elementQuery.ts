@@ -1,4 +1,4 @@
-import { readStoredBrushSize } from "../brush/access";
+import { readStoredBrushSize, readStoredBrushStroking } from "../brush/access";
 import { localAppearances } from "../document/appearancePresets";
 import type {
 	AnyArtObject,
@@ -8,6 +8,7 @@ import type {
 	FilterEntry,
 	Layer,
 	SolidColor,
+	StrokeAlign,
 	StrokeAppearance,
 	TextStyle,
 } from "../schema";
@@ -97,6 +98,29 @@ export function getStrokeTaperEnd(
 		(f) => f.processor === "stroke" && f.enabled !== false,
 	) as StrokeAppearance | undefined;
 	return stroke?.paramData.params.brushSettings?.taperEnd ?? fallback;
+}
+
+/** Get the stroke placement from the first enabled StrokeAppearance's brushSettings.stroking */
+export function getStrokeAlign(
+	filters: readonly FilterEntry[] | undefined,
+	fallback: StrokeAlign = "center",
+): StrokeAlign {
+	const stroke = localAppearances(filters).find(
+		(f) => f.processor === "stroke" && f.enabled !== false,
+	) as StrokeAppearance | undefined;
+	return (
+		readStoredBrushStroking(stroke?.paramData.params.brushSettings)?.align ??
+		fallback
+	);
+}
+
+/**
+ * How far a stroke reaches from the path on its widest side. An outside-aligned
+ * stroke puts the whole width on one side; inside keeps the half-width budget
+ * because open subpaths in the same element still render centered.
+ */
+export function strokeOuterReach(width: number, align: StrokeAlign): number {
+	return align === "outside" ? width : width / 2;
 }
 
 /**

@@ -496,6 +496,10 @@ function sanitizeStroking(raw: unknown): BrushSettings["stroking"] {
 				: "round",
 		miterLimit: num(raw.miterLimit, 4),
 	};
+	// "center" is spelled by leaving the key out, so it stays the one state.
+	if (raw.align === "inside" || raw.align === "outside") {
+		stroking.align = raw.align;
+	}
 	if (Array.isArray(raw.dashArray)) {
 		const dashArray = raw.dashArray.map(Number).filter(Number.isFinite);
 		if (dashArray.length > 0) stroking.dashArray = dashArray;

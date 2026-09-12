@@ -19,7 +19,14 @@ import {
 	brandWorldBBox,
 	type WorldBBox,
 } from "../utils/geometry/bounds";
-import { createIdentityTransform } from "./factory";
+import {
+	createMeshWarpInverse,
+	createMeshWarpSampler,
+} from "../utils/geometry/meshWarp";
+import {
+	createIdentityTransform,
+	createMeshWarpObjectFromGeometry,
+} from "./factory";
 import { SpatialIndex } from "./SpatialIndex";
 
 // ===== Test helpers =====
@@ -1433,19 +1440,16 @@ describe("mesh warp container hit testing", () => {
 		draggedCorner: { x: number; y: number },
 	): MeshArtObject {
 		return {
-			type: "mesh",
+			...createMeshWarpObjectFromGeometry(childIds, {
+				vertices: [
+					{ x: 0, y: 0, src: { x: 0, y: 0 }, handles: {} },
+					{ x: 100, y: 0, src: { x: 100, y: 0 }, handles: {} },
+					{ ...draggedCorner, src: { x: 100, y: 100 }, handles: {} },
+					{ x: 0, y: 100, src: { x: 0, y: 100 }, handles: {} },
+				],
+				faces: [{ type: "quad", verts: [0, 1, 2, 3] }],
+			}),
 			id,
-			childIds,
-			opacity: 1,
-			blendMode: "normal",
-			transform: createIdentityTransform(),
-			vertices: [
-				{ x: 0, y: 0, src: { x: 0, y: 0 }, handles: {} },
-				{ x: 100, y: 0, src: { x: 100, y: 0 }, handles: {} },
-				{ ...draggedCorner, src: { x: 100, y: 100 }, handles: {} },
-				{ x: 0, y: 100, src: { x: 0, y: 100 }, handles: {} },
-			],
-			faces: [{ type: "quad", verts: [0, 1, 2, 3] }],
 		};
 	}
 
@@ -1477,5 +1481,41 @@ describe("mesh warp container hit testing", () => {
 		// longer does.
 		expect(idx.findElementAtPoint("layer-1", 80, 80)).toBeNull();
 		expect(idx.findElementAtPoint("layer-1", 20, 20)).toBe(mesh);
+	});
+
+	it("should hit content that only the second fold of the cage maps onto the point", () => {
+		// Pull the top-right corner inside the cage so the patch folds over itself.
+		const mesh = makeMesh("mesh-1", [], { x: 30, y: 30 });
+		const warp = createMeshWarpSampler(mesh.vertices, mesh.faces);
+		const inverse = createMeshWarpInverse(mesh.vertices, mesh.faces);
+		let folded: {
+			target: { x: number; y: number };
+			sources: { x: number; y: number }[];
+		} | null = null;
+		for (let x = 5; x <= 95 && !folded; x += 5) {
+			for (let y = 5; y <= 95 && !folded; y += 5) {
+				const target = warp({ x, y });
+				const sources: { x: number; y: number }[] = [];
+				inverse(target, (src) => {
+					sources.push(src);
+					return false;
+				});
+				if (sources.length > 1) folded = { target, sources };
+			}
+		}
+		if (!folded) throw new Error("no folded point found");
+		// A small child at the second source only.
+		const second = folded.sources[1];
+		const child = makeImage("child-1", second.x, second.y, 4, 4);
+		mesh.childIds = ["child-1"];
+		const layer = makeLayer("layer-1", ["mesh-1"]);
+		const idx = new SpatialIndex(
+			makeStore([layer], { "mesh-1": mesh, "child-1": child }),
+		);
+		idx.rebuildAllIndices();
+
+		expect(
+			idx.findElementAtPoint("layer-1", folded.target.x, folded.target.y),
+		).toBe(mesh);
 	});
 });

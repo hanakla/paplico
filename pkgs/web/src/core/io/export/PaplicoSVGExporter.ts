@@ -42,38 +42,8 @@ export class PaplicoSVGExporter {
 		private getDocument: () => Document,
 	) {}
 
-	/**
-	 * Export an artboard to SVG and trigger download.
-	 */
-	public async asSVG(
-		artboardId: string,
-		options: SVGExportOptions & { filename?: string } = {},
-	): Promise<boolean> {
-		const { filename, ...exportOpts } = options;
-		const result = await this.renderArtboardToSVG(artboardId, exportOpts);
-		if (!result) return false;
-
-		const artboard = this.getDocument().artboards.find(
-			(a) => a.id === artboardId,
-		);
-		const defaultFilename = artboard
-			? `${artboard.name.replace(/[^a-zA-Z0-9-_]/g, "_")}.svg`
-			: "export.svg";
-
-		const url = URL.createObjectURL(result.blob);
-		const link = globalThis.document.createElement("a");
-		link.href = url;
-		link.download = filename ?? defaultFilename;
-		link.click();
-		URL.revokeObjectURL(url);
-
-		return true;
-	}
-
-	/**
-	 * Export an artboard to an SVG string/blob without downloading.
-	 */
-	public async renderArtboardToSVG(
+	/** Renders an artboard to an SVG string and blob. */
+	public async toSVG(
 		artboardId: string,
 		options: SVGExportOptions = {},
 	): Promise<SVGExportResult | null> {
@@ -90,13 +60,13 @@ export class PaplicoSVGExporter {
 		const restoreTextDocumentResolver =
 			this.renderer.ensureTextDocumentResolver(doc);
 		try {
-			return await this.renderArtboardToSVGInner(doc, artboard, options);
+			return await this.renderInner(doc, artboard, options);
 		} finally {
 			restoreTextDocumentResolver();
 		}
 	}
 
-	private async renderArtboardToSVGInner(
+	private async renderInner(
 		doc: Document,
 		artboard: Document["artboards"][number],
 		options: SVGExportOptions,

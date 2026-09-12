@@ -313,6 +313,19 @@ export const ja = {
 		meshWarpErrorTitle: "メッシュワープを作成できません",
 		meshWarpErrorEmpty:
 			"メッシュで変形する要素を、同じレイヤーまたはグループ内で1つ以上選択してください。",
+		warpToShape: "オブジェクトの形状で変形",
+		warpToShapeErrorTitle: "オブジェクトの形状で変形できません",
+		warpToShapeErrorReadonly: "このドキュメントは読み取り専用です。",
+		warpToShapeErrorInvalidSelection:
+			"形状にするオブジェクトと、その中に入れる要素を1つ以上選択してください。グループのクリップパスは使えません。",
+		warpToShapeErrorLocked: "選択した要素のロックを先に解除してください。",
+		warpToShapeErrorDifferentParent:
+			"同じレイヤーまたはグループ内の要素を選択してください。",
+		warpToShapeErrorInvalidShape:
+			"形状には、自身と交差しない1つの閉じたパスか、既存のメッシュワープを使ってください。",
+		warpToShapeErrorUnsupportedContent:
+			"ブレンド・リピート・3D参照は変形できません。",
+		warpToShapeErrorInvalidBounds: "変形する内容に大きさがありません。",
 		moreActions: "その他の操作",
 		delete: "削除",
 		gradientStopColor: "ストップの色",
@@ -503,6 +516,10 @@ export const ja = {
 		capRound: "ラウンド",
 		capSquare: "スクエア",
 		miterLimit: "マイター制限",
+		strokeAlign: "線の位置",
+		strokeAlignInside: "内側",
+		strokeAlignCenter: "中央",
+		strokeAlignOutside: "外側",
 		dashPattern: "破線",
 		dashOffset: "破線オフセット",
 		dashPresetNone: "なし",
@@ -1274,6 +1291,8 @@ export const ja = {
 		cancel: "キャンセル",
 		create: "作成",
 		loadImage: "画像を読み込む",
+		open: "開く",
+		openFile: "ファイルから開く",
 	},
 	documentSettings: {
 		title: "ドキュメント設定",

@@ -21,6 +21,7 @@ import { InfiniteSlider, Slider } from "@/components/Slider";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
+import { mergeBrushStroking } from "@/core/brush/access";
 import {
 	resolveBrushTextureUid,
 	resolveOptionalSourceUid,
@@ -1766,15 +1767,11 @@ function applyFlatPatch(
 		patch.lineJoin !== undefined ||
 		patch.stroking !== undefined
 	) {
-		const prev = next.stroking;
-		next.stroking = {
-			lineCap: patch.lineCap ?? prev?.lineCap ?? "round",
-			lineJoin: patch.lineJoin ?? prev?.lineJoin ?? "round",
-			miterLimit: prev?.miterLimit ?? 4,
-			dashArray: prev?.dashArray,
-			dashOffset: prev?.dashOffset,
+		next.stroking = mergeBrushStroking(next.stroking, {
+			...(patch.lineCap !== undefined ? { lineCap: patch.lineCap } : {}),
+			...(patch.lineJoin !== undefined ? { lineJoin: patch.lineJoin } : {}),
 			...patch.stroking,
-		};
+		});
 	}
 
 	return next;

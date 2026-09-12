@@ -1,5 +1,6 @@
 import {
 	readStoredBrushSize,
+	readStoredBrushStroking,
 	readStoredWetBleedRatio,
 } from "../../brush/access";
 import { localAppearances } from "../../document/appearancePresets";
@@ -22,7 +23,11 @@ import {
 	type StrokeAppearance,
 	type TextElement,
 } from "../../schema";
-import { getStrokeWidth } from "../elementQuery";
+import {
+	getStrokeAlign,
+	getStrokeWidth,
+	strokeOuterReach,
+} from "../elementQuery";
 import type { Brand } from "../lang";
 import { applyTransformToBounds } from "./geometry";
 // Cycle note: meshWarp.ts imports helpers from this module too. Both sides
@@ -135,20 +140,23 @@ export function calculatePathBounds(path: Path): LocalBBox {
 	// Inline getStrokeWidth to avoid closure allocation in hot path.
 	// Wet-ink extends the bound by `bleedWidth × size` so the wet-edge
 	// halo and diffusion region are not culled by the viewport / cache.
-	let halfWidth = 0;
+	let strokeReach = 0;
 	let wetExtra = 0;
 	if (path.filters) {
 		for (const f of localAppearances(path.filters)) {
 			if (f.processor === "stroke" && f.enabled !== false) {
 				const brush = (f as StrokeAppearance).paramData.params.brushSettings;
 				const size = readStoredBrushSize(brush) ?? 0;
-				halfWidth = size / 2;
+				strokeReach = strokeOuterReach(
+					size,
+					readStoredBrushStroking(brush)?.align ?? "center",
+				);
 				wetExtra = size * readStoredWetBleedRatio(brush);
 				break;
 			}
 		}
 	}
-	const margin = halfWidth + wetExtra;
+	const margin = strokeReach + wetExtra;
 	minX -= margin;
 	minY -= margin;
 	maxX += margin;
@@ -1005,7 +1013,11 @@ export function isPointOnPath(
 	}
 
 	// Calculate hit tolerance: half stroke width + extra tolerance
-	const hitTolerance = getStrokeWidth(path.filters, 0) / 2 + extraTolerance;
+	const hitTolerance =
+		strokeOuterReach(
+			getStrokeWidth(path.filters, 0),
+			getStrokeAlign(path.filters),
+		) + extraTolerance;
 
 	// Check distance to each segment
 	let prevEnd: BezierPoint | null = null;
@@ -1034,7 +1046,10 @@ export function doesPathIntersectRect(
 ): boolean {
 	if (path.segments.length === 0) return false;
 
-	const halfStroke = getStrokeWidth(path.filters, 0) / 2;
+	const strokeReach = strokeOuterReach(
+		getStrokeWidth(path.filters, 0),
+		getStrokeAlign(path.filters),
+	);
 	const hasFill = localAppearances(path.filters).some(
 		(f) => f.processor === "fill",
 	);
@@ -1051,10 +1066,10 @@ export function doesPathIntersectRect(
 		for (let i = 0; i <= numSamples; i++) {
 			const pt = evaluateCubicBezier(start, cp1, cp2, end, i / numSamples);
 			if (
-				pt.x + halfStroke >= rectMinX &&
-				pt.x - halfStroke <= rectMaxX &&
-				pt.y + halfStroke >= rectMinY &&
-				pt.y - halfStroke <= rectMaxY
+				pt.x + strokeReach >= rectMinX &&
+				pt.x - strokeReach <= rectMaxX &&
+				pt.y + strokeReach >= rectMinY &&
+				pt.y - strokeReach <= rectMaxY
 			) {
 				return true;
 			}

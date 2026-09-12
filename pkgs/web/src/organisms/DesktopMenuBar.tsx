@@ -146,7 +146,6 @@ export function DesktopMenuBar({
 	} = useMenuActions(paplicoRef, {
 		setExportDialogOpen: () => onOpenExportDialog(),
 		setDocumentSettingsDialogOpen: () => onOpenDocumentSettingsDialog(),
-		setExportingMessage: () => {},
 	});
 
 	const handleEmulateDisconnect = useEventCallback(() => {

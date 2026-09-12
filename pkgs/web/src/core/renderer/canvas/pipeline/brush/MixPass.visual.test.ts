@@ -120,16 +120,16 @@ describe("MixPass.resolveChunk", () => {
 		expect(MIX_CHUNK_SIZE).toBe(64);
 	});
 
-	it("should sample ahead of the dab when sampleTrail is positive", async () => {
-		// Dab sits exactly on the green/blue boundary (x=0) pointing +x; trail
-		// 1.5 moves the footprint center to x=6 so it lies fully in blue
-		// (radius 4 → footprint spans x 2..10).
+	it("should sample behind the dab when sampleTrail is positive", async () => {
+		// Dab sits exactly on the green/blue boundary at x=0 pointing +x. Trail
+		// 1.5 moves the footprint center back to x=-6, so with radius 4 the
+		// footprint spans x -10..-2 and lies fully in green.
 		const [colors] = await runMixChunks([[dab(0, 0)]], {
 			brushColor: RED,
 			params: { colorRate: 0, alphaRate: 0, smudge: 0 },
 			sampleTrail: 1.5,
 		});
-		expectVec4Close(colors[0], BLUE, 2 / 255);
+		expectVec4Close(colors[0], GREEN, 2 / 255);
 	});
 });
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { withStoredBrushSize } from "@/core/brush/access";
 import {
 	resolveBrushTextureUid,
 	withTextureFileUid,
@@ -14,6 +15,8 @@ import {
 	createBuiltinBrushPreviewSource,
 	createPersistedBrushPreset,
 	createPersistedBrushPreviewSource,
+	findMatchingBrushPresetUid,
+	getBuiltinBrushPresets,
 } from "@/repos/brushPresets";
 
 describe("brushPresets helpers", () => {
@@ -131,6 +134,66 @@ describe("brushPresets helpers", () => {
 		expect(preview.brushSettings.randomSeed).toBe(0x41c6_4e6d);
 		expect(preview.textureFile?.uid).toBe("brush-preview-texture");
 		expect(preview.textureFile?.bin).toEqual(Uint8Array.from([9, 8, 7]));
+	});
+});
+
+describe("findMatchingBrushPresetUid", () => {
+	it("should match a builtin preset the brush was widened from", () => {
+		const builtinPresets = getBuiltinBrushPresets();
+		const preset = builtinPresets[0];
+
+		const matched = findMatchingBrushPresetUid({
+			brushSettings: withStoredBrushSize(preset.settings, 137),
+			builtinPresets,
+			persistedPresets: [],
+			documentFiles: [],
+		});
+
+		expect(matched).toBe(preset.uid);
+	});
+
+	it("should match a persisted preset through the document file holding its texture", () => {
+		const textureFile = {
+			uid: "file-in-document",
+			name: "grain.png",
+			type: "image/png",
+			hash: "grain-hash",
+			bin: Uint8Array.from([1, 2, 3]),
+		};
+		const preset = createPersistedBrushPreset({
+			uid: "brush-preset-grain",
+			name: "Grain",
+			defaultSettings: createBrushPresetDefaults(createDefaultBrushSettings()),
+			file: { ...textureFile, uid: "file-when-saved" },
+		});
+
+		const matched = findMatchingBrushPresetUid({
+			brushSettings: withTextureFileUid(
+				preset.defaultSettings,
+				textureFile.uid,
+			),
+			builtinPresets: getBuiltinBrushPresets(),
+			persistedPresets: [preset],
+			documentFiles: [textureFile],
+		});
+
+		expect(matched).toBe(preset.uid);
+	});
+
+	it("should match nothing when the brush differs from every preset", () => {
+		const builtinPresets = getBuiltinBrushPresets();
+
+		const matched = findMatchingBrushPresetUid({
+			brushSettings: {
+				...builtinPresets[0].settings,
+				strokeOpacity: 0.12345,
+			},
+			builtinPresets,
+			persistedPresets: [],
+			documentFiles: [],
+		});
+
+		expect(matched).toBeNull();
 	});
 });
 

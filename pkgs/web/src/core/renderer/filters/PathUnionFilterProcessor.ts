@@ -12,13 +12,14 @@ import type { Appearance, CubicBezierSegment, Filter } from "../../schema";
 import {
 	type BooleanOp,
 	booleanOp,
+	cubicSegmentsToContour,
 	GeometryEpsilon,
 	type Segment,
 	SegmentCurve,
 	SegmentLine,
 } from "../../utils/geometry/bezierBool";
 import { groupRingsByContainment } from "../../utils/geometry/ringContainment";
-import { hashSegments, resolveSegment } from "../../utils/geometry/segmentOps";
+import { hashSegments } from "../../utils/geometry/segmentOps";
 import { splitIntoSubPaths } from "../canvas/CanvasLayer.helpers";
 import type { FilterHandler } from "../canvas/pipeline/FilterRenderer";
 
@@ -108,7 +109,7 @@ function applyPathBoolFilter(
 	// (Illustrator's pathfinder does the same) instead of being passed through
 	const closedContours: Segment[][] = [];
 	for (const sub of subPaths) {
-		const contour = cubicSegmentsToContour(sub);
+		const contour = cubicSegmentsToContour(sub, defaultGeo);
 		if (contour.length > 0) {
 			closedContours.push(contour);
 		}
@@ -269,51 +270,6 @@ function signedContourArea(contour: Segment[]): number {
 }
 
 const defaultGeo = new GeometryEpsilon();
-
-function cubicSegmentsToContour(subPath: CubicBezierSegment[]): Segment[] {
-	const contour: Segment[] = [];
-	const geo = defaultGeo;
-
-	for (let i = 0; i < subPath.length; i++) {
-		const seg = subPath[i];
-		const prevEnd = i > 0 ? subPath[i - 1].end : undefined;
-		const resolved = resolveSegment(seg, prevEnd);
-
-		const p0: [number, number] = [resolved.start.x, resolved.start.y];
-		const cp1: [number, number] = [resolved.cp1.x, resolved.cp1.y];
-		const cp2: [number, number] = [resolved.cp2.x, resolved.cp2.y];
-		const p3: [number, number] = [resolved.end.x, resolved.end.y];
-
-		// Check if this is effectively a line (all control points collinear)
-		const isLine =
-			Math.abs(
-				(cp1[0] - p0[0]) * (p3[1] - p0[1]) - (cp1[1] - p0[1]) * (p3[0] - p0[0]),
-			) < 0.01 &&
-			Math.abs(
-				(cp2[0] - p0[0]) * (p3[1] - p0[1]) - (cp2[1] - p0[1]) * (p3[0] - p0[0]),
-			) < 0.01;
-
-		if (isLine) {
-			contour.push(new SegmentLine(p0, p3, geo));
-		} else {
-			contour.push(new SegmentCurve(p0, cp1, cp2, p3, geo));
-		}
-	}
-
-	// Boolean operands must be closed regions: bridge the endpoints of open
-	// subpaths with a line (implicit close)
-	if (contour.length > 0) {
-		const first = contour[0].start();
-		const last = contour[contour.length - 1].end();
-		if (Math.hypot(first[0] - last[0], first[1] - last[1]) > 1e-6) {
-			contour.push(
-				new SegmentLine([last[0], last[1]], [first[0], first[1]], geo),
-			);
-		}
-	}
-
-	return contour;
-}
 
 function contourToCubicSegments(contour: Segment[]): CubicBezierSegment[] {
 	const result: CubicBezierSegment[] = [];

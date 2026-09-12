@@ -31,6 +31,15 @@ export interface StrokeTessellateInput {
 	 * device-space error budget. Defaults to 1 (world units = screen px).
 	 */
 	zoom?: number;
+	/**
+	 * Where the band sits across the path, as a signed fraction of its half
+	 * width: 0 straddles the path, 1 puts the whole width on the left of
+	 * travel, -1 on the right. Stroke alignment is resolved into this scalar
+	 * by the caller: dash fragments and zero-width fragments no longer carry
+	 * their ring's closedness, so only the caller can read the winding it
+	 * comes from.
+	 */
+	alignShift?: number;
 }
 
 interface StrokeTessellateResult {
@@ -69,6 +78,7 @@ export function tessellateStroke(
 		pathEnd = 1,
 		arcParams,
 		zoom = 1,
+		alignShift = 0,
 	} = input;
 
 	const pointCount = points.length / 2;
@@ -144,7 +154,7 @@ export function tessellateStroke(
 
 	for (const subpath of visibleSubpaths) {
 		const subpathResult = tessellateVisibleSubpath(
-			centerStrokeSamples(subpath.samples, subpath.isClosed),
+			centerStrokeSamples(subpath.samples, subpath.isClosed, alignShift),
 			subpath.isClosed,
 			lineCap,
 			lineJoin,
@@ -179,7 +189,10 @@ interface VisibleSubpath {
 
 interface CenteredStrokeSamples {
 	points: number[];
-	halfWidths: Float64Array;
+	/** Band width on the left of travel, per point. */
+	leftHalfWidths: Float64Array;
+	/** Band width on the right of travel, per point. */
+	rightHalfWidths: Float64Array;
 }
 
 function buildStrokeSamples(
@@ -334,28 +347,39 @@ function interpolateZeroCrossing(
 function centerStrokeSamples(
 	samples: StrokeSample[],
 	isClosed: boolean,
+	alignShift: number,
 ): CenteredStrokeSamples {
 	const points = samples.flatMap(({ x, y }) => [x, y]);
 	const normals = computePointNormals(points, isClosed);
 	const centeredPoints: number[] = [];
-	const visibleHalfWidths = new Float64Array(samples.length);
+	const leftHalfWidths = new Float64Array(samples.length);
+	const rightHalfWidths = new Float64Array(samples.length);
 
 	for (let index = 0; index < samples.length; index++) {
 		const sample = samples[index];
+		// The centerRatio term shifts the centerline along the bisector: it
+		// shapes dense brush polylines, where that agrees with the segment
+		// normals. Alignment must not shift the centerline. Moving a corner
+		// point out to the offset intersection stretches the two segments
+		// meeting there, and their bands then stop short of the corner on
+		// the path side. The band is asymmetric instead: each segment keeps
+		// its inner edge on the path, and the join at the original corner
+		// takes the full outer width, so a miter tip still reaches the
+		// intersection of the outer edges.
 		const centerOffset = sample.baseHalfWidth * sample.centerRatio;
 		centeredPoints.push(
 			sample.x + normals[index * 2] * centerOffset,
 			sample.y + normals[index * 2 + 1] * centerOffset,
 		);
-		visibleHalfWidths[index] = Math.max(
-			0,
-			sample.baseHalfWidth * sample.halfRatio,
-		);
+		const halfVisible = Math.max(0, sample.baseHalfWidth * sample.halfRatio);
+		leftHalfWidths[index] = halfVisible * (1 + alignShift);
+		rightHalfWidths[index] = halfVisible * (1 - alignShift);
 	}
 
-	return { points: centeredPoints, halfWidths: visibleHalfWidths };
+	return { points: centeredPoints, leftHalfWidths, rightHalfWidths };
 }
 
+/** Per-point bisector normals of a polyline. */
 function computePointNormals(
 	points: number[],
 	isClosed: boolean,
@@ -422,7 +446,7 @@ function tessellateVisibleSubpath(
 	/** Whole-stroke t per sample; enables vertexParams emission. */
 	globalTs?: number[],
 ): StrokeTessellateResult {
-	const { points, halfWidths } = centered;
+	const { points, leftHalfWidths: left, rightHalfWidths: right } = centered;
 	const segments = buildSegments(points, points.length / 2);
 	if (segments.length === 0) {
 		return { vertices: [], count: 0, vertexParams: [] };
@@ -431,7 +455,7 @@ function tessellateVisibleSubpath(
 	const vertices: number[] = [];
 	const vertexParams: number[] = [];
 	const corners = segments.map((seg) =>
-		bodyCorners(seg, halfWidths[seg.i0], halfWidths[seg.i1]),
+		bodyCorners(seg, left[seg.i0], right[seg.i0], left[seg.i1], right[seg.i1]),
 	);
 
 	// Adjacent bodies overlap on the inside of a turn. Coverage accumulates
@@ -505,8 +529,8 @@ function tessellateVisibleSubpath(
 			segB,
 			cx,
 			cy,
-			halfWidths[joinIndex],
-			halfWidths[joinIndex],
+			left[joinIndex],
+			right[joinIndex],
 			zoom,
 			inner === null,
 		);
@@ -520,7 +544,8 @@ function tessellateVisibleSubpath(
 				cy,
 				segA,
 				segB,
-				halfWidths[joinIndex],
+				left[joinIndex],
+				right[joinIndex],
 			);
 		}
 	}
@@ -537,8 +562,8 @@ function tessellateVisibleSubpath(
 			-first.dy,
 			first.nx,
 			first.ny,
-			halfWidths[first.i0],
-			halfWidths[first.i0],
+			left[first.i0],
+			right[first.i0],
 			zoom,
 		);
 		if (globalTs) {
@@ -551,7 +576,8 @@ function tessellateVisibleSubpath(
 				first.y0,
 				first.nx,
 				first.ny,
-				halfWidths[first.i0],
+				left[first.i0],
+				right[first.i0],
 			);
 		}
 		const last = segments.at(-1)!;
@@ -565,8 +591,8 @@ function tessellateVisibleSubpath(
 			last.dy,
 			last.nx,
 			last.ny,
-			halfWidths[last.i1],
-			halfWidths[last.i1],
+			left[last.i1],
+			right[last.i1],
 			zoom,
 		);
 		if (globalTs) {
@@ -579,7 +605,8 @@ function tessellateVisibleSubpath(
 				last.y1,
 				last.nx,
 				last.ny,
-				halfWidths[last.i1],
+				left[last.i1],
+				right[last.i1],
 			);
 		}
 	}
@@ -779,16 +806,21 @@ export function applyDashPattern(
 
 // --- Gradient param (t, u) helpers ---
 
-/** Cross-stroke position 0..1 from a signed offset along the sample normal. */
+/**
+ * Cross-stroke position from a signed offset along the sample normal: 0 on
+ * the right edge, 1 on the left edge.
+ */
 function crossStrokeU(
 	dx: number,
 	dy: number,
 	nx: number,
 	ny: number,
-	halfWidth: number,
+	leftHw: number,
+	rightHw: number,
 ): number {
-	if (halfWidth <= 0) return 0.5;
-	const u = 0.5 + (dx * nx + dy * ny) / (2 * halfWidth);
+	const width = leftHw + rightHw;
+	if (width <= 0) return 0.5;
+	const u = (dx * nx + dy * ny + rightHw) / width;
 	return u < 0 ? 0 : u > 1 ? 1 : u;
 }
 
@@ -806,12 +838,13 @@ function appendGroupParams(
 	cy: number,
 	nx: number,
 	ny: number,
-	halfWidth: number,
+	leftHw: number,
+	rightHw: number,
 ): void {
 	for (let i = startLength; i < out.length; i += 2) {
 		params.push(
 			t,
-			crossStrokeU(out[i] - cx, out[i + 1] - cy, nx, ny, halfWidth),
+			crossStrokeU(out[i] - cx, out[i + 1] - cy, nx, ny, leftHw, rightHw),
 		);
 	}
 }
@@ -826,7 +859,8 @@ function appendJoinGroupParams(
 	cy: number,
 	segA: Segment,
 	segB: Segment,
-	halfWidth: number,
+	leftHw: number,
+	rightHw: number,
 ): void {
 	let nx = segA.nx + segB.nx;
 	let ny = segA.ny + segB.ny;
@@ -838,7 +872,18 @@ function appendJoinGroupParams(
 		nx = segA.nx;
 		ny = segA.ny;
 	}
-	appendGroupParams(out, startLength, params, t, cx, cy, nx, ny, halfWidth);
+	appendGroupParams(
+		out,
+		startLength,
+		params,
+		t,
+		cx,
+		cy,
+		nx,
+		ny,
+		leftHw,
+		rightHw,
+	);
 }
 
 // --- Helper types ---
@@ -868,16 +913,22 @@ type BodyCorners = [
 	number,
 ];
 
-function bodyCorners(seg: Segment, hw0: number, hw1: number): BodyCorners {
+function bodyCorners(
+	seg: Segment,
+	left0: number,
+	right0: number,
+	left1: number,
+	right1: number,
+): BodyCorners {
 	return [
-		seg.x0 + seg.nx * hw0,
-		seg.y0 + seg.ny * hw0,
-		seg.x0 - seg.nx * hw0,
-		seg.y0 - seg.ny * hw0,
-		seg.x1 + seg.nx * hw1,
-		seg.y1 + seg.ny * hw1,
-		seg.x1 - seg.nx * hw1,
-		seg.y1 - seg.ny * hw1,
+		seg.x0 + seg.nx * left0,
+		seg.y0 + seg.ny * left0,
+		seg.x0 - seg.nx * right0,
+		seg.y0 - seg.ny * right0,
+		seg.x1 + seg.nx * left1,
+		seg.y1 + seg.ny * left1,
+		seg.x1 - seg.nx * right1,
+		seg.y1 - seg.ny * right1,
 	];
 }
 

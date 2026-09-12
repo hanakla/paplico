@@ -187,10 +187,10 @@ describe("PaplicoPSDExporter", () => {
 		});
 	});
 
-	describe("asPSD", () => {
-		it("should return false for non-existent artboard", async () => {
-			const result = await exporter.asPSD("nonexistent");
-			expect(result).toBe(false);
+	describe("toPSD", () => {
+		it("should return null for non-existent artboard", async () => {
+			const result = await exporter.toPSD("nonexistent");
+			expect(result).toBeNull();
 		});
 	});
 });

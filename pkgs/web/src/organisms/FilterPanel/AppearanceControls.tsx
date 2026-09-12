@@ -5,17 +5,19 @@ import { DashPatternControls } from "@/components/DashPatternControls";
 import { FakeInput } from "@/components/FakeInput";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
-import { ToggleGroup } from "@/components/ToggleGroup";
+import { StrokeGeometryFields } from "@/components/StrokeGeometryFields";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { readStoredBrushSize, withStoredBrushSize } from "@/core/brush/access";
+import {
+	mergeBrushStroking,
+	readStoredBrushSize,
+	withStoredBrushSize,
+} from "@/core/brush/access";
 import type {
 	BlendMode,
 	BrushStroking,
 	Color,
 	FillAppearance,
 	Filter,
-	LineCap,
-	LineJoin,
 	StrokeAppearance,
 } from "@/core/schema";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
@@ -260,9 +262,6 @@ export const StrokeGeometryControls = memo(function StrokeGeometryControls({
 		params.brushSettings?.engine === "geometric"
 			? params.brushSettings.stroking
 			: undefined;
-	const lineCap = stroking?.lineCap ?? "round";
-	const lineJoin = stroking?.lineJoin ?? "round";
-	const miterLimit = stroking?.miterLimit ?? 4;
 	const dashArray = stroking?.dashArray ?? [];
 	const dashOffset = stroking?.dashOffset ?? 0;
 
@@ -271,113 +270,24 @@ export const StrokeGeometryControls = memo(function StrokeGeometryControls({
 			params: {
 				brushSettings: {
 					...params.brushSettings,
-					stroking: {
-						lineCap,
-						lineJoin,
-						miterLimit,
+					stroking: mergeBrushStroking(stroking, {
 						dashArray: dashArray.length ? dashArray : undefined,
 						dashOffset: dashOffset || undefined,
 						...patch,
-					},
+					}),
 				},
 			},
 		});
 	});
 
-	const handleLineCapChange = useEventCallback((values: string[]) => {
-		const value = values[0] as LineCap | undefined;
-		if (!value) return;
-		updateStroking({ lineCap: value });
-	});
-
-	const handleLineJoinChange = useEventCallback((values: string[]) => {
-		const value = values[0] as LineJoin | undefined;
-		if (!value) return;
-		updateStroking({ lineJoin: value });
-	});
-
-	const handleMiterLimitChange = useEventCallback((val: number) => {
-		updateStroking({ miterLimit: val });
-	});
-
 	return (
 		<div className="flex flex-col gap-2" data-disabled={disabled || undefined}>
-			<div className="flex flex-col gap-1">
-				<span className="text-muted-foreground text-[10px]">
-					{t("filterPanel.lineCap")}
-				</span>
-				<ToggleGroup.Root
-					value={[lineCap]}
-					onValueChange={handleLineCapChange}
-					disabled={disabled}
-				>
-					<ToggleGroup.Item
-						value="butt"
-						className="h-6 w-auto px-1.5 text-[10px]"
-					>
-						{t("filterPanel.capButt")}
-					</ToggleGroup.Item>
-					<ToggleGroup.Item
-						value="round"
-						className="h-6 w-auto px-1.5 text-[10px]"
-					>
-						{t("filterPanel.capRound")}
-					</ToggleGroup.Item>
-					<ToggleGroup.Item
-						value="square"
-						className="h-6 w-auto px-1.5 text-[10px]"
-					>
-						{t("filterPanel.capSquare")}
-					</ToggleGroup.Item>
-				</ToggleGroup.Root>
-			</div>
-
-			<div className="flex flex-col gap-1">
-				<span className="text-muted-foreground text-[10px]">
-					{t("filterPanel.joinType")}
-				</span>
-				<ToggleGroup.Root
-					value={[lineJoin]}
-					onValueChange={handleLineJoinChange}
-					disabled={disabled}
-				>
-					<ToggleGroup.Item
-						value="miter"
-						className="h-6 w-auto px-1.5 text-[10px]"
-					>
-						{t("filterPanel.joinMiter")}
-					</ToggleGroup.Item>
-					<ToggleGroup.Item
-						value="round"
-						className="h-6 w-auto px-1.5 text-[10px]"
-					>
-						{t("filterPanel.joinRound")}
-					</ToggleGroup.Item>
-					<ToggleGroup.Item
-						value="bevel"
-						className="h-6 w-auto px-1.5 text-[10px]"
-					>
-						{t("filterPanel.joinBevel")}
-					</ToggleGroup.Item>
-				</ToggleGroup.Root>
-			</div>
-
-			{lineJoin === "miter" && (
-				/* biome-ignore lint/a11y/noLabelWithoutControl: custom slider component */
-				<label className="text-muted-foreground text-xs data-disabled:opacity-50">
-					<div>
-						{t("filterPanel.miterLimit")}: {miterLimit.toFixed(1)}
-					</div>
-					<Slider
-						min={1}
-						max={10}
-						step={0.5}
-						value={miterLimit}
-						onValueChange={handleMiterLimitChange}
-						disabled={disabled}
-					/>
-				</label>
-			)}
+			<StrokeGeometryFields
+				stroking={stroking}
+				disabled={disabled}
+				showMiterLimit
+				onChange={updateStroking}
+			/>
 
 			<DashPatternControls
 				stroking={stroking}

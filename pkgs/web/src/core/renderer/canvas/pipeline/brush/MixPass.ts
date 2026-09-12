@@ -34,7 +34,8 @@ type MixChunkArgs = {
 	transforms: GPUBuffer;
 	/** Footprint radius as a ratio of the dab radius (MixingConfig.sampleRadius). */
 	sampleRadiusRatio: number;
-	/** Sample offset along the stroke direction in footprint radii (-2..2). */
+	/** Sample offset in footprint radii, -2..2. A positive value trails the
+	 *  dab along the stroke direction. */
 	sampleTrail: number;
 	/** 0 = vivid (OkLCH), 1 = muted (OkLAB). */
 	blendStyle: number;

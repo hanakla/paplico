@@ -20,6 +20,7 @@ import { createIdentityTransform } from "../../document/factory";
 import {
 	type AnyArtObject,
 	type BezierPoint,
+	type BlendObject,
 	type CubicBezierSegment,
 	type ElementTransform,
 	getTransform,
@@ -30,10 +31,13 @@ import {
 	type MeshGeometryVertex,
 	type Path,
 	type Point,
+	type Reference3DElement,
+	type RepeatObject,
 	type TextElement,
 	type Vec2,
 } from "../../schema";
-import { deepClone } from "../lang";
+import { deepClone, neverReached } from "../lang";
+import { GeometryEpsilon } from "./bezierBool";
 import { resolveBlendSourcePath } from "./blendInterpolation";
 import { brandLocalBBox, calculateSegmentListBounds } from "./bounds";
 import { applyTransformToPoint, composeTransforms } from "./geometry";
@@ -49,7 +53,6 @@ import {
 	getEffectiveMeshEdgeCurve,
 	getVertexNeighbors,
 	isPromotedMeshVertex,
-	pointInBezierFace,
 	resolveMeshVertexOwningEdge,
 	splitCurve,
 	subdivideFace,
@@ -112,41 +115,105 @@ export function createMeshWarpSampler(
 export function createMeshWarpInverse(
 	vertices: readonly MeshGeometryVertex[],
 	faces: readonly MeshFace[],
-): (p: Point) => Point | null {
+): (p: Point, accept?: (src: Point) => boolean) => Point | null {
 	const warpFaces = buildWarpFaces(vertices, faces);
-	return (p) => {
+	return (p, accept) => {
+		const seen: Point[] = [];
 		for (const wf of warpFaces) {
-			if (!pointInBezierFace(vertices, faces, wf.face, p.x, p.y)) continue;
-			let { u, v } = bilinearUV(vertices, wf.face.verts, p.x, p.y);
-			for (let iter = 0; iter < 15; iter++) {
-				const s = coonsPoint(wf, u, v);
-				const rx = s.x - p.x;
-				const ry = s.y - p.y;
-				if (rx * rx + ry * ry < 1e-18) break;
-				const h = 1e-4;
-				const su = coonsPoint(wf, u + h, v);
-				const sv = coonsPoint(wf, u, v + h);
-				const j00 = (su.x - s.x) / h;
-				const j10 = (su.y - s.y) / h;
-				const j01 = (sv.x - s.x) / h;
-				const j11 = (sv.y - s.y) / h;
-				const det = j00 * j11 - j01 * j10;
-				if (Math.abs(det) < 1e-12) break;
-				u -= (j11 * rx - j01 * ry) / det;
-				v -= (-j10 * rx + j00 * ry) / det;
-				// Keep Newton from escaping the face while still allowing slight
-				// overshoot at the shared-edge boundary.
-				u = Math.max(-0.25, Math.min(1.25, u));
-				v = Math.max(-0.25, Math.min(1.25, v));
+			// A folded face spills past its own boundary curves, so only the
+			// hull of the curves' control points can reject a point up front.
+			if (p.x < wf.minX || p.x > wf.maxX || p.y < wf.minY || p.y > wf.maxY) {
+				continue;
 			}
-			const cu = Math.max(0, Math.min(1, u));
-			const cv = Math.max(0, Math.min(1, v));
-			return {
-				x: wf.srcOrigin.x + cu * wf.eU.x + cv * wf.eV.x,
-				y: wf.srcOrigin.y + cu * wf.eU.y + cv * wf.eV.y,
-			};
+			// A folded face maps several source points onto `p`; the bilinear
+			// seed finds one, the fixed seeds reach the others.
+			const seeds = [
+				bilinearUV(vertices, wf.face.verts, p.x, p.y),
+				...INVERSE_SEEDS,
+			];
+			for (const seed of seeds) {
+				const src = invertInFace(wf, p, seed.u, seed.v);
+				if (!src) continue;
+				if (
+					seen.some(
+						(q) =>
+							Math.hypot(q.x - src.x, q.y - src.y) < INVERSE_MERGE_DISTANCE,
+					)
+				) {
+					continue;
+				}
+				seen.push(src);
+				if (!accept || accept(src)) return src;
+			}
 		}
 		return null;
+	};
+}
+
+/** Extra Newton seeds per face, in (u, v). */
+const INVERSE_SEEDS = [
+	{ u: 0.5, v: 0.5 },
+	{ u: 0.25, v: 0.25 },
+	{ u: 0.75, v: 0.25 },
+	{ u: 0.75, v: 0.75 },
+	{ u: 0.25, v: 0.75 },
+];
+/** Residual (mesh-local units) below which Newton counts as converged. */
+const INVERSE_RESIDUAL = 1e-3;
+/** (u, v) overshoot still attributed to the face, for shared edges. */
+const INVERSE_UV_SLACK = 1e-3;
+/** Two source candidates closer than this are the same solution. */
+const INVERSE_MERGE_DISTANCE = 1e-6;
+
+/**
+ * Newton-solve (u, v) of `p` inside one face from a seed. Returns the
+ * source-space point, or null when the iteration leaves the face or fails to
+ * converge.
+ */
+function invertInFace(
+	wf: WarpFace,
+	p: Point,
+	u: number,
+	v: number,
+): Point | null {
+	let residual = Number.POSITIVE_INFINITY;
+	for (let iter = 0; iter < 15; iter++) {
+		const s = coonsPoint(wf, u, v);
+		const rx = s.x - p.x;
+		const ry = s.y - p.y;
+		residual = Math.hypot(rx, ry);
+		if (residual < 1e-9) break;
+		const h = 1e-4;
+		const su = coonsPoint(wf, u + h, v);
+		const sv = coonsPoint(wf, u, v + h);
+		const j00 = (su.x - s.x) / h;
+		const j10 = (su.y - s.y) / h;
+		const j01 = (sv.x - s.x) / h;
+		const j11 = (sv.y - s.y) / h;
+		const det = j00 * j11 - j01 * j10;
+		if (Math.abs(det) < 1e-12) break;
+		u -= (j11 * rx - j01 * ry) / det;
+		v -= (-j10 * rx + j00 * ry) / det;
+		// Keep Newton from escaping the face while still allowing slight
+		// overshoot at the shared-edge boundary.
+		u = Math.max(-0.25, Math.min(1.25, u));
+		v = Math.max(-0.25, Math.min(1.25, v));
+	}
+	const s = coonsPoint(wf, u, v);
+	if (Math.hypot(s.x - p.x, s.y - p.y) > INVERSE_RESIDUAL) return null;
+	if (
+		u < -INVERSE_UV_SLACK ||
+		u > 1 + INVERSE_UV_SLACK ||
+		v < -INVERSE_UV_SLACK ||
+		v > 1 + INVERSE_UV_SLACK
+	) {
+		return null;
+	}
+	const cu = Math.max(0, Math.min(1, u));
+	const cv = Math.max(0, Math.min(1, v));
+	return {
+		x: wf.srcOrigin.x + cu * wf.eU.x + cv * wf.eV.x,
+		y: wf.srcOrigin.y + cu * wf.eU.y + cv * wf.eV.y,
 	};
 }
 
@@ -471,6 +538,18 @@ function srcParameterOnEdge(src: Point, from: Point, to: Point): number | null {
 	return Math.abs(dy) > SRC_SPAN_EPSILON ? (src.y - from.y) / dy : null;
 }
 
+/**
+ * Children the cage cannot deform: they have no vector form to warp, so the
+ * warp draws them unwarped and the shape command refuses them as content.
+ */
+export function isMeshWarpPassthrough(
+	el: AnyArtObject,
+): el is BlendObject | RepeatObject | Reference3DElement {
+	return (
+		el.type === "blend" || el.type === "repeat" || el.type === "reference3d"
+	);
+}
+
 /** Dependencies for warping a mesh container's children into transients. */
 export interface WarpChildrenDeps {
 	resolve: (id: string) => AnyArtObject | null;
@@ -502,12 +581,28 @@ export interface MeshWarpResolution {
 	 * and the no-texture fallback.
 	 */
 	imageWarpGrids: Map<string, Float32Array>;
+	/**
+	 * Transient image id → how its texture reaches the mesh's local space. An
+	 * outer mesh composes this with its own warp and re-tessellates, so nested
+	 * warps never lose resolution.
+	 */
+	imageWarps: Map<string, ImageWarpSource>;
 	/** Clip groups among the children, warped with their members. */
 	clipGroups: MeshWarpClipGroup[];
 }
 
-/** Grid segments per axis when tessellating an image child's interior. */
+/** An image's texture quad and its mapping into a mesh's local space. */
+interface ImageWarpSource {
+	/** TL, TR, BR, BL of the texture quad in the image's own space. */
+	corners: readonly [Vec2, Vec2, Vec2, Vec2];
+	/** Image-space point → mesh-local point. */
+	map: (x: number, y: number) => Point;
+}
+
+/** Initial grid segments per axis when tessellating an image child's interior. */
 const IMAGE_WARP_GRID_SEGMENTS = 16;
+/** Grid segments per axis the tolerance-driven refinement stops at. */
+const IMAGE_WARP_GRID_MAX_SEGMENTS = 64;
 
 /**
  * Resolve a mesh container's children into render-ready transient elements in
@@ -527,10 +622,15 @@ export function warpMeshChildren(
 	deps: WarpChildrenDeps,
 ): MeshWarpResolution {
 	const warp = createMeshWarpSampler(mesh.vertices, mesh.faces);
+	const gridLines = collectSourceGridLines(mesh.vertices);
 	const out: AnyArtObject[] = [];
 	const imageWarpGrids = new Map<string, Float32Array>();
+	const imageWarps = new Map<string, ImageWarpSource>();
 	const clipGroups: MeshWarpClipGroup[] = [];
 	const visited = new Set<string>([mesh.id]);
+
+	const warpSegments = (segments: CubicBezierSegment[]): CubicBezierSegment[] =>
+		deformPathSegments(refineSegmentsForWarp(segments, warp, gridLines), warp);
 
 	const warpPath = (
 		path: Path,
@@ -541,10 +641,7 @@ export function warpMeshChildren(
 		const baked = parentT ? toWorldPath(path, parentT) : toWorldPath(path);
 		const oldBounds = calculateSegmentListBounds(baked.segments);
 		if (!oldBounds) return null;
-		const segments = deformPathSegments(
-			refineSegmentsForWarp(baked.segments, warp),
-			warp,
-		);
+		const segments = warpSegments(baked.segments);
 		const newBounds = calculateSegmentListBounds(segments);
 		if (!newBounds) return null;
 		const filters = deformGradientFilters(
@@ -582,6 +679,10 @@ export function warpMeshChildren(
 		const el = deps.resolve(childId);
 		if (!el || el.visible === false) return;
 		visited.add(childId);
+		if (isMeshWarpPassthrough(el)) {
+			out.push(el);
+			return;
+		}
 		const tid = `${mesh.id}::warp::${el.id}`;
 
 		switch (el.type) {
@@ -634,16 +735,18 @@ export function warpMeshChildren(
 					if (inner.type === "path") {
 						emitPath(inner, childT, innerId, childOpacity);
 					} else if (inner.type === "image") {
-						const { transient, grid } = warpImageChild(
+						const { transient, grid, source } = warpImageChild(
 							inner,
 							childT,
 							innerId,
 							childOpacity,
 							warp,
-							innerResolution.imageWarpGrids.get(inner.id),
+							gridLines,
+							innerResolution.imageWarps.get(inner.id),
 						);
 						out.push(transient);
 						imageWarpGrids.set(innerId, grid);
+						imageWarps.set(innerId, source);
 					} else {
 						out.push(inner);
 					}
@@ -662,15 +765,17 @@ export function warpMeshChildren(
 				break;
 			}
 			case "image": {
-				const { transient, grid } = warpImageChild(
+				const { transient, grid, source } = warpImageChild(
 					el,
 					parentT,
 					tid,
 					opacityScale,
 					warp,
+					gridLines,
 				);
 				out.push(transient);
 				imageWarpGrids.set(tid, grid);
+				imageWarps.set(tid, source);
 				break;
 			}
 			case "text": {
@@ -692,25 +797,25 @@ export function warpMeshChildren(
 				const originY = inkBounds
 					? (inkBounds.minY + inkBounds.maxY) / 2 + el.y
 					: el.y;
-				const mapPoint = (p: Point): Point => {
+				// Placing is affine, so mapping the control points is exact; the
+				// warp then goes through the same refinement as a path.
+				const place = (p: Point): Point => {
 					const positioned = { x: p.x + el.x, y: p.y + el.y };
-					return warp(
-						identity
-							? positioned
-							: applyTransformToPoint(
-									positioned.x,
-									positioned.y,
-									composed,
-									originX,
-									originY,
-								),
-					);
+					return identity
+						? positioned
+						: applyTransformToPoint(
+								positioned.x,
+								positioned.y,
+								composed,
+								originX,
+								originY,
+							);
 				};
 				for (const [index, glyph] of glyphs.entries()) {
 					out.push({
 						...glyph,
 						id: `${tid}::g${index}`,
-						segments: deformPathSegments(glyph.segments, mapPoint),
+						segments: warpSegments(deformPathSegments(glyph.segments, place)),
 						transform: createIdentityTransform(),
 						opacity: glyph.opacity * opacityScale,
 					});
@@ -718,15 +823,12 @@ export function warpMeshChildren(
 				break;
 			}
 			default:
-				// blend / repeat / reference3d: no vector warp available — pass
-				// through unwarped so the content stays visible.
-				out.push(el);
-				break;
+				neverReached(el);
 		}
 	};
 
 	for (const childId of mesh.childIds) visit(childId, undefined, 1);
-	return { transients: out, imageWarpGrids, clipGroups };
+	return { transients: out, imageWarpGrids, imageWarps, clipGroups };
 }
 
 // --- Helpers ---
@@ -754,6 +856,7 @@ const SRC_SPAN_EPSILON = 1e-9;
 function refineSegmentsForWarp(
 	segments: CubicBezierSegment[],
 	warp: (p: Point) => Point,
+	gridLines: SourceGridLines,
 ): CubicBezierSegment[] {
 	const result: CubicBezierSegment[] = [];
 	let prevEnd: BezierPoint | undefined;
@@ -762,8 +865,15 @@ function refineSegmentsForWarp(
 		const abs = resolveSegment(segment, prevEnd);
 		prevEnd = segment.end;
 
+		// Each face is its own Coons patch, so a curve is only smooth within
+		// one face: cut at the face boundaries first, then refine each piece.
 		const pieces: CubicCurve[] = [];
-		splitCurveForWarp([abs.start, abs.cp1, abs.cp2, abs.end], warp, 0, pieces);
+		for (const piece of splitCurveAtGridLines(
+			[abs.start, abs.cp1, abs.cp2, abs.end],
+			gridLines,
+		)) {
+			splitCurveForWarp(piece, warp, 0, pieces);
+		}
 		if (pieces.length === 1) {
 			result.push(segment);
 			continue;
@@ -793,6 +903,92 @@ function refineSegmentsForWarp(
 		});
 	}
 	return result;
+}
+
+/** Constant-x and constant-y lines of the source grid: the face boundaries. */
+interface SourceGridLines {
+	xs: number[];
+	ys: number[];
+}
+
+const CUBIC_SOLVER = new GeometryEpsilon();
+const GRID_LINE_EPSILON = 1e-9;
+const GRID_CUT_T_EPSILON = 1e-6;
+
+function collectSourceGridLines(
+	vertices: readonly MeshGeometryVertex[],
+): SourceGridLines {
+	const unique = (values: number[]): number[] => {
+		const sorted = [...values].sort((a, b) => a - b);
+		const result: number[] = [];
+		for (const value of sorted) {
+			const prev = result[result.length - 1];
+			if (prev !== undefined && value - prev < GRID_LINE_EPSILON) continue;
+			result.push(value);
+		}
+		return result;
+	};
+	return {
+		xs: unique(vertices.map((v) => v.src.x)),
+		ys: unique(vertices.map((v) => v.src.y)),
+	};
+}
+
+/** Cut a source-space curve wherever it crosses a grid line. */
+function splitCurveAtGridLines(
+	curve: CubicCurve,
+	gridLines: SourceGridLines,
+): CubicCurve[] {
+	const ts: number[] = [];
+	for (const x of gridLines.xs) {
+		collectAxisCrossings(
+			curve.map((p) => p.x),
+			x,
+			ts,
+		);
+	}
+	for (const y of gridLines.ys) {
+		collectAxisCrossings(
+			curve.map((p) => p.y),
+			y,
+			ts,
+		);
+	}
+	if (ts.length === 0) return [curve];
+	ts.sort((a, b) => a - b);
+	const cuts = [0];
+	for (const t of ts) {
+		if (t - cuts[cuts.length - 1] > GRID_CUT_T_EPSILON) cuts.push(t);
+	}
+	if (1 - cuts[cuts.length - 1] > GRID_CUT_T_EPSILON) cuts.push(1);
+	else cuts[cuts.length - 1] = 1;
+	const pieces: CubicCurve[] = [];
+	for (let i = 0; i < cuts.length - 1; i++) {
+		pieces.push(getCurveInterval(curve, cuts[i], cuts[i + 1]));
+	}
+	return pieces;
+}
+
+/** Parameters where one coordinate of a cubic equals `value`, strictly inside (0, 1). */
+function collectAxisCrossings(
+	coords: number[],
+	value: number,
+	out: number[],
+): void {
+	const [p0, p1, p2, p3] = coords;
+	// The control polygon bounds the curve, so a line outside it never cuts.
+	if (value <= Math.min(p0, p1, p2, p3) || value >= Math.max(p0, p1, p2, p3)) {
+		return;
+	}
+	const roots = CUBIC_SOLVER.solveCubic(
+		-p0 + 3 * p1 - 3 * p2 + p3,
+		3 * p0 - 6 * p1 + 3 * p2,
+		-3 * p0 + 3 * p1,
+		p0 - value,
+	);
+	for (const t of roots) {
+		if (t > GRID_CUT_T_EPSILON && t < 1 - GRID_CUT_T_EPSILON) out.push(t);
+	}
 }
 
 /** Recursive halving until the mapped control points fit the warped curve. */
@@ -855,6 +1051,11 @@ interface WarpFace {
 	top: CubicCurve; // i01 → i11, parameter u at v=1
 	left: CubicCurve; // i00 → i01, parameter v at u=0
 	right: CubicCurve; // i10 → i11, parameter v at u=1
+	/** Deformed-space hull of the boundary curves' control points. */
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
 }
 
 function buildWarpFaces(
@@ -874,6 +1075,11 @@ function buildWarpFaces(
 		const lenU2 = eU.x * eU.x + eU.y * eU.y;
 		const lenV2 = eV.x * eV.x + eV.y * eV.y;
 		if (lenU2 === 0 || lenV2 === 0) continue;
+		const bottom = getEffectiveMeshEdgeCurve(vertices, faces, i00, i10);
+		const top = getEffectiveMeshEdgeCurve(vertices, faces, i01, i11);
+		const left = getEffectiveMeshEdgeCurve(vertices, faces, i00, i01);
+		const right = getEffectiveMeshEdgeCurve(vertices, faces, i10, i11);
+		const hull = [...bottom, ...top, ...left, ...right];
 		result.push({
 			face,
 			srcOrigin: s00,
@@ -885,10 +1091,14 @@ function buildWarpFaces(
 			srcMinY: Math.min(s00.y, s10.y, s11.y, s01.y),
 			srcMaxX: Math.max(s00.x, s10.x, s11.x, s01.x),
 			srcMaxY: Math.max(s00.y, s10.y, s11.y, s01.y),
-			bottom: getEffectiveMeshEdgeCurve(vertices, faces, i00, i10),
-			top: getEffectiveMeshEdgeCurve(vertices, faces, i01, i11),
-			left: getEffectiveMeshEdgeCurve(vertices, faces, i00, i01),
-			right: getEffectiveMeshEdgeCurve(vertices, faces, i10, i11),
+			bottom,
+			top,
+			left,
+			right,
+			minX: Math.min(...hull.map((q) => q.x)),
+			minY: Math.min(...hull.map((q) => q.y)),
+			maxX: Math.max(...hull.map((q) => q.x)),
+			maxY: Math.max(...hull.map((q) => q.y)),
 		});
 	}
 	return result;
@@ -924,10 +1134,10 @@ function findSourceFace(warpFaces: WarpFace[], p: Point): WarpFace {
 /**
  * Warp an image child: bake its 4 corners (existing free-transform corners or
  * the plain rectangle) through the composed transform + cage warp for bounds,
- * and tessellate the quad into a warped (x, y, u, v) triangle grid so the
- * interior bends along the cage. When `innerGrid` is given (image already
- * warped by an inner mesh container), its positions are re-mapped instead of
- * re-tessellating — the inner warp is preserved and composed with this one.
+ * and tessellate the texture quad into a warped (x, y, u, v) triangle grid so
+ * the interior bends along the cage. `innerSource` (image already warped by an
+ * inner mesh container) supplies the original texture quad and the inner
+ * mapping, so the grid is re-tessellated through both warps at once.
  */
 function warpImageChild(
 	image: ImageObject,
@@ -935,8 +1145,9 @@ function warpImageChild(
 	id: string,
 	opacityScale: number,
 	warp: (p: Point) => Point,
-	innerGrid?: Float32Array,
-): { transient: ImageObject; grid: Float32Array } {
+	gridLines: SourceGridLines,
+	innerSource?: ImageWarpSource,
+): { transient: ImageObject; grid: Float32Array; source: ImageWarpSource } {
 	const composed = parentT
 		? composeTransforms(parentT, getTransform(image))
 		: getTransform(image);
@@ -963,14 +1174,12 @@ function warpImageChild(
 	const originX = (minX + maxX) / 2;
 	const originY = (minY + maxY) / 2;
 	const identity = isIdentityTransform(composed);
-	const mapPoint = (x: number, y: number): Point =>
-		warp(
-			identity
-				? { x, y }
-				: applyTransformToPoint(x, y, composed, originX, originY),
-		);
+	const toSource = (x: number, y: number): Point =>
+		identity
+			? { x, y }
+			: applyTransformToPoint(x, y, composed, originX, originY);
 	const corners = baseCorners.map(([x, y]) => {
-		const w = mapPoint(x, y);
+		const w = warp(toSource(x, y));
 		return [w.x, w.y] as Vec2;
 	}) as [Vec2, Vec2, Vec2, Vec2];
 	const centerX =
@@ -978,19 +1187,16 @@ function warpImageChild(
 	const centerY =
 		(corners[0][1] + corners[1][1] + corners[2][1] + corners[3][1]) / 4;
 
-	let grid: Float32Array;
-	if (innerGrid) {
-		grid = new Float32Array(innerGrid.length);
-		for (let i = 0; i < innerGrid.length; i += 4) {
-			const w = mapPoint(innerGrid[i], innerGrid[i + 1]);
-			grid[i] = w.x;
-			grid[i + 1] = w.y;
-			grid[i + 2] = innerGrid[i + 2];
-			grid[i + 3] = innerGrid[i + 3];
-		}
-	} else {
-		grid = buildImageWarpGrid(baseCorners, mapPoint);
-	}
+	const textureToSource = innerSource
+		? (x: number, y: number): Point => {
+				const inner = innerSource.map(x, y);
+				return toSource(inner.x, inner.y);
+			}
+		: toSource;
+	const source: ImageWarpSource = {
+		corners: innerSource?.corners ?? baseCorners,
+		map: (x, y) => warp(textureToSource(x, y)),
+	};
 
 	return {
 		transient: {
@@ -1002,23 +1208,84 @@ function warpImageChild(
 			transform: createIdentityTransform(),
 			opacity: image.opacity * opacityScale,
 		},
-		grid,
+		grid: buildImageWarpGrid(source.corners, textureToSource, warp, gridLines),
+		source,
 	};
 }
 
+/** One tessellation vertex: source-space position plus texture coordinate. */
+interface GridVertex {
+	x: number;
+	y: number;
+	u: number;
+	v: number;
+}
+
 /**
- * Tessellate the (possibly free-transformed) image quad into a warped
+ * Tessellate the (possibly free-transformed) texture quad into a warped
  * triangle-list grid. Interior points interpolate the base corners
- * bilinearly and map through `mapPoint`; UVs run (0,0) at TL to (1,1) at BR,
- * matching the quad blit's texture orientation.
+ * bilinearly, map through `toSource` into the cage's source space, get cut
+ * along the face boundaries so no triangle straddles two patches, and finally
+ * map through `warp`. The grid is refined uniformly until the warp of every
+ * edge midpoint stays within tolerance of the straight edge, so neighbouring
+ * triangles always share their split points. UVs run (0,0) at TL to (1,1) at
+ * BR, matching the quad blit's texture orientation.
  */
 function buildImageWarpGrid(
 	baseCorners: readonly [Vec2, Vec2, Vec2, Vec2],
-	mapPoint: (x: number, y: number) => Point,
+	toSource: (x: number, y: number) => Point,
+	warp: (p: Point) => Point,
+	gridLines: SourceGridLines,
 ): Float32Array {
-	const n = IMAGE_WARP_GRID_SEGMENTS;
+	let n = IMAGE_WARP_GRID_SEGMENTS;
+	let tessellation = tessellateImageQuad(baseCorners, toSource, n);
+	while (
+		n < IMAGE_WARP_GRID_MAX_SEGMENTS &&
+		exceedsWarpTolerance(tessellation, warp)
+	) {
+		n *= 2;
+		tessellation = tessellateImageQuad(baseCorners, toSource, n);
+	}
+
+	const triangles: GridVertex[][] = [];
+	for (const [a, b, c] of tessellation.triangles) {
+		const polygons = [
+			[tessellation.points[a], tessellation.points[b], tessellation.points[c]],
+		];
+		for (const polygon of cutPolygonsAtGridLines(polygons, gridLines)) {
+			for (let i = 1; i < polygon.length - 1; i++) {
+				triangles.push([polygon[0], polygon[i], polygon[i + 1]]);
+			}
+		}
+	}
+
+	const grid = new Float32Array(triangles.length * 3 * 4);
+	let offset = 0;
+	for (const triangle of triangles) {
+		for (const vertex of triangle) {
+			const w = warp(vertex);
+			grid[offset++] = w.x;
+			grid[offset++] = w.y;
+			grid[offset++] = vertex.u;
+			grid[offset++] = vertex.v;
+		}
+	}
+	return grid;
+}
+
+interface ImageTessellation {
+	points: GridVertex[];
+	/** Index triples into `points`. */
+	triangles: [number, number, number][];
+}
+
+function tessellateImageQuad(
+	baseCorners: readonly [Vec2, Vec2, Vec2, Vec2],
+	toSource: (x: number, y: number) => Point,
+	n: number,
+): ImageTessellation {
 	const [tl, tr, br, bl] = baseCorners;
-	const points: Point[] = new Array((n + 1) * (n + 1));
+	const points: GridVertex[] = new Array((n + 1) * (n + 1));
 	for (let row = 0; row <= n; row++) {
 		const t = row / n;
 		const lx = tl[0] + (bl[0] - tl[0]) * t;
@@ -1027,33 +1294,118 @@ function buildImageWarpGrid(
 		const ry = tr[1] + (br[1] - tr[1]) * t;
 		for (let col = 0; col <= n; col++) {
 			const s = col / n;
-			points[row * (n + 1) + col] = mapPoint(
-				lx + (rx - lx) * s,
-				ly + (ry - ly) * s,
-			);
+			const p = toSource(lx + (rx - lx) * s, ly + (ry - ly) * s);
+			points[row * (n + 1) + col] = { x: p.x, y: p.y, u: s, v: t };
 		}
 	}
-
-	const grid = new Float32Array(n * n * 6 * 4);
-	let offset = 0;
-	const push = (row: number, col: number): void => {
-		const p = points[row * (n + 1) + col];
-		grid[offset++] = p.x;
-		grid[offset++] = p.y;
-		grid[offset++] = col / n;
-		grid[offset++] = row / n;
-	};
+	const triangles: [number, number, number][] = [];
+	const at = (row: number, col: number): number => row * (n + 1) + col;
 	for (let row = 0; row < n; row++) {
 		for (let col = 0; col < n; col++) {
-			push(row, col);
-			push(row, col + 1);
-			push(row + 1, col);
-			push(row + 1, col);
-			push(row, col + 1);
-			push(row + 1, col + 1);
+			triangles.push([at(row, col), at(row, col + 1), at(row + 1, col)]);
+			triangles.push([
+				at(row + 1, col),
+				at(row, col + 1),
+				at(row + 1, col + 1),
+			]);
 		}
 	}
-	return grid;
+	return { points, triangles };
+}
+
+/** True when some triangle edge, warped straight, misses the warped midpoint. */
+function exceedsWarpTolerance(
+	tessellation: ImageTessellation,
+	warp: (p: Point) => Point,
+): boolean {
+	const warped = tessellation.points.map((p) => warp(p));
+	const checked = new Set<string>();
+	for (const triangle of tessellation.triangles) {
+		for (let e = 0; e < 3; e++) {
+			const a = triangle[e];
+			const b = triangle[(e + 1) % 3];
+			const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+			if (checked.has(key)) continue;
+			checked.add(key);
+			const pa = tessellation.points[a];
+			const pb = tessellation.points[b];
+			const expected = warp({ x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 });
+			const actual = {
+				x: (warped[a].x + warped[b].x) / 2,
+				y: (warped[a].y + warped[b].y) / 2,
+			};
+			if (
+				Math.hypot(actual.x - expected.x, actual.y - expected.y) >
+				WARP_FIT_TOLERANCE
+			) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+/** Split convex polygons along every grid line they straddle. */
+function cutPolygonsAtGridLines(
+	polygons: GridVertex[][],
+	gridLines: SourceGridLines,
+): GridVertex[][] {
+	let result = polygons;
+	for (const x of gridLines.xs)
+		result = result.flatMap((p) => cutPolygon(p, "x", x));
+	for (const y of gridLines.ys)
+		result = result.flatMap((p) => cutPolygon(p, "y", y));
+	return result;
+}
+
+/** Cut one convex polygon at `axis = value` into the part below and above. */
+function cutPolygon(
+	polygon: GridVertex[],
+	axis: "x" | "y",
+	value: number,
+): GridVertex[][] {
+	const sides = polygon.map((p) => p[axis] - value);
+	if (sides.every((d) => d <= GRID_LINE_EPSILON)) return [polygon];
+	if (sides.every((d) => d >= -GRID_LINE_EPSILON)) return [polygon];
+	const below: GridVertex[] = [];
+	const above: GridVertex[] = [];
+	for (let i = 0; i < polygon.length; i++) {
+		const a = polygon[i];
+		const b = polygon[(i + 1) % polygon.length];
+		const da = sides[i];
+		const db = sides[(i + 1) % polygon.length];
+		if (da <= 0) below.push(a);
+		if (da >= 0) above.push(a);
+		if ((da < 0 && db > 0) || (da > 0 && db < 0)) {
+			const cut = cutVertexOnLine(a, b, axis, value);
+			below.push(cut);
+			above.push(cut);
+		}
+	}
+	return [below, above].filter((p) => p.length >= 3);
+}
+
+/**
+ * The point where edge a–b crosses `axis = value`. Endpoints are ordered
+ * canonically first, so both triangles sharing the edge get bit-identical
+ * results and the cut leaves no seam.
+ */
+function cutVertexOnLine(
+	a: GridVertex,
+	b: GridVertex,
+	axis: "x" | "y",
+	value: number,
+): GridVertex {
+	const [p, q] = a.x < b.x || (a.x === b.x && a.y < b.y) ? [a, b] : [b, a];
+	const t = (value - p[axis]) / (q[axis] - p[axis]);
+	const cut = {
+		x: p.x + (q.x - p.x) * t,
+		y: p.y + (q.y - p.y) * t,
+		u: p.u + (q.u - p.u) * t,
+		v: p.v + (q.v - p.v) * t,
+	};
+	cut[axis] = value;
+	return cut;
 }
 
 /** Coons blend of the face's cached boundary curves. */

@@ -1,6 +1,10 @@
 import { PNG } from "pngjs";
 import { afterAll, beforeAll, describe, it } from "vitest";
-import { createArtboard, createDefaultDocument } from "../../document/factory";
+import {
+	createArtboard,
+	createDefaultDocument,
+	createStrokeBrushSettings,
+} from "../../document/factory";
 import {
 	type AnyArtObject,
 	type Artboard,
@@ -99,6 +103,18 @@ describe("SVG Export vs GPU render - 3D effects", () => {
 		// must keep its perspective — both blow far past this threshold when
 		// broken (measured residual: 0.00%).
 		await expectSvgMatchesGpu(renderer, artboard, doc, "solid3d", 1);
+	});
+});
+
+describe("SVG Export vs GPU render - stroke alignment", () => {
+	it("inside, center and outside strokes match the PNG render", async () => {
+		const { renderer } = await createTestRenderer();
+		const { doc, artboard } = buildStrokeAlignDocument();
+
+		// SVG has no alignment attribute, so the export emulates it with a
+		// doubled width plus a clip or a mask. A broken emulation misses or
+		// doubles half of every stroke, far past this threshold.
+		await expectSvgMatchesGpu(renderer, artboard, doc, "stroke-align", 1);
 	});
 });
 
@@ -402,6 +418,46 @@ function buildSolid3DDocument(): { doc: Document; artboard: Artboard } {
 		doc.objects[el.id] = el;
 	}
 	doc.layers[0].elementIds = [extruded.id, rotated.id, image.id];
+
+	return { doc, artboard };
+}
+
+/** Three filled squares strokes thickly, one per alignment, plus an open path. */
+function buildStrokeAlignDocument(): { doc: Document; artboard: Artboard } {
+	const doc = createDefaultDocument("doc-stroke-align");
+	const artboard = createArtboard("ab-align", "StrokeAlign", 0, 0, 400, 300);
+	doc.artboards = [artboard];
+
+	const elements = (["inside", "center", "outside"] as const).map(
+		(align, index) =>
+			rectPath(`el-${align}`, { x: -110 + index * 110, y: 0 }, 70, 70, [
+				solidFillAppearance(0.95, 0.85, 0.3),
+				{
+					uid: generateUid("app"),
+					processor: "stroke",
+					opacity: 1,
+					blendMode: "normal",
+					paramData: {
+						version: "1",
+						params: {
+							strokeColor: {
+								type: "solid",
+								color: { type: "rgb", r: 0.1, g: 0.2, b: 0.6, a: 1 },
+							},
+							brushSettings: createStrokeBrushSettings(16, {
+								lineCap: "butt",
+								lineJoin: "miter",
+								miterLimit: 4,
+								align,
+							}),
+						},
+					},
+				},
+			]),
+	);
+
+	for (const el of elements as AnyArtObject[]) doc.objects[el.id] = el;
+	doc.layers[0].elementIds = elements.map((el) => el.id);
 
 	return { doc, artboard };
 }

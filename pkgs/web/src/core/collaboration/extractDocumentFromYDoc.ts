@@ -146,6 +146,7 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 				childIds: JSON.parse(yMap.get("childIds") as string),
 				vertices: JSON.parse(yMap.get("vertices") as string),
 				faces: JSON.parse(yMap.get("faces") as string),
+				outlineOnRelease: yMap.get("outlineOnRelease") as boolean | undefined,
 			} satisfies MeshArtObject;
 
 		case "blend": {

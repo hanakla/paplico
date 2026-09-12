@@ -29,7 +29,6 @@ import { useBrushEdits } from "@/hooks/useBrushEdits";
 import { useBrushPresets } from "@/hooks/useBrushPresets";
 import { getEncryptedRoomCredentials, inviteOrigin } from "@/hooks/useCollab";
 import { createDefaultFilter } from "@/organisms/FilterPanel/createDefaultFilter";
-import { useUIState } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
 
 /**
@@ -235,11 +234,10 @@ type BrushPresetsApi = ReturnType<typeof useBrushPresets>;
 /** What this device would tell a companion if asked right now. */
 function useHostState(
 	paplico: Paplico,
-	{ builtinPresets, persistedPresets }: BrushPresetsApi,
+	{ builtinPresets, persistedPresets, selectedBrushPresetUid }: BrushPresetsApi,
 ): CompanionState {
 	const toolSnap = useSnapshot(paplico.tools.state);
 	const uiSnap = useSnapshot(paplico.uiState);
-	const appUiSnap = useUIState();
 	const selectedElement = useFirstSelectedElement(paplico.uiState);
 
 	const selection = useMemo(
@@ -341,7 +339,7 @@ function useHostState(
 			opacity: toolSnap.opacity,
 			stabilization: toolSnap.stabilization,
 			presets,
-			selectedPresetUid: appUiSnap.selectedBrushPresetUid,
+			selectedPresetUid: selectedBrushPresetUid,
 			canUndo: uiSnap.canUndo,
 			canRedo: uiSnap.canRedo,
 			language,
@@ -357,7 +355,7 @@ function useHostState(
 			strokeColor,
 			fillColor,
 			presets,
-			appUiSnap.selectedBrushPresetUid,
+			selectedBrushPresetUid,
 			uiSnap.canUndo,
 			uiSnap.canRedo,
 			language,

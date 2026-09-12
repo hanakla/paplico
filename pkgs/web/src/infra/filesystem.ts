@@ -7,6 +7,15 @@ export type FileHandle = Brand<typeof FILE_HANDLE_SYMBOL> & {
 	file: File;
 };
 
+/** One file to write out: the encoded bytes and the name to save them under. */
+export interface ExportedFile {
+	blob: Blob;
+	filename: string;
+}
+
+/** Writes one exported file where the user asked the export to go. */
+export type ExportFileWriter = (file: ExportedFile) => Promise<void>;
+
 interface IFileSystem {
 	canOpenFileDialog(): boolean;
 	openFileDialog(option: {
@@ -15,6 +24,13 @@ interface IFileSystem {
 	}): Promise<FileHandle | null>;
 	overwrite(handle: FileHandle, blob: Blob): Promise<void>;
 	exportFile(blob: Blob, filename: string): Promise<void>;
+	/**
+	 * Settles where a batch of exported files goes before the first one is
+	 * rendered. `null` means the user called the export off.
+	 */
+	requestExportDestination(
+		documentHandle: FileHandle | null,
+	): Promise<ExportFileWriter | null>;
 	fileHandleFromDrop(
 		item: DataTransferItem,
 		file: File,
@@ -79,6 +95,27 @@ const tauriFS: IFileSystem = new (class TauriFS implements IFileSystem {
 		await writeFile(path, bytes);
 	}
 
+	public async requestExportDestination(documentHandle: FileHandle | null) {
+		const { open } = await import("@tauri-apps/plugin-dialog");
+
+		const directory = await open({
+			directory: true,
+			defaultPath:
+				(await resolveDefaultExportDirectory(documentHandle)) ?? undefined,
+		});
+		if (typeof directory !== "string") return null;
+
+		// Writing is permitted because the folder came back from the dialog,
+		// which grants the filesystem scope for it
+		return async (file: ExportedFile) => {
+			const { join } = await import("@tauri-apps/api/path");
+			const { writeFile } = await import("@tauri-apps/plugin-fs");
+
+			const bytes = new Uint8Array(await file.blob.arrayBuffer());
+			await writeFile(await join(directory, file.filename), bytes);
+		};
+	}
+
 	public async fileHandleFromDrop() {
 		return null;
 	}
@@ -116,6 +153,11 @@ const domFS: IFileSystem = new (class DomFS implements IFileSystem {
 		URL.revokeObjectURL(url);
 	}
 
+	// The browser has no folder to name, so there is nothing to ask about
+	public async requestExportDestination() {
+		return (file: ExportedFile) => this.exportFile(file.blob, file.filename);
+	}
+
 	public async fileHandleFromDrop(item: DataTransferItem, file: File) {
 		if (!("getAsFileSystemHandle" in item)) return null;
 
@@ -144,4 +186,35 @@ export async function domFSFileHandleFromTransferItem(
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * Picks the folder the export dialog opens on: the one holding the document,
+ * then the download folder, then the documents folder.
+ */
+async function resolveDefaultExportDirectory(
+	documentHandle: FileHandle | null,
+): Promise<string | null> {
+	const { dirname, documentDir, downloadDir } = await import(
+		"@tauri-apps/api/path"
+	);
+
+	const documentPath = documentHandle?.handle;
+	if (typeof documentPath === "string") {
+		try {
+			return await dirname(documentPath);
+		} catch {
+			// A document that never came from a file leaves the folder unresolved
+		}
+	}
+
+	for (const resolve of [downloadDir, documentDir]) {
+		try {
+			return await resolve();
+		} catch {
+			// Not every platform has both folders
+		}
+	}
+
+	return null;
 }

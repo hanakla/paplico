@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import * as Y from "yjs";
-import { createIdentityTransform } from "../document/factory";
+import {
+	createIdentityTransform,
+	createMeshWarpObjectFromGeometry,
+} from "../document/factory";
 import type { BrushSettings, Document, Reference3DDef } from "../schema";
 import { extractDocumentFromYDoc } from "./extractDocumentFromYDoc";
 import { YjsProvider, type YjsProviderCallbacks } from "./YjsProvider";
@@ -96,10 +99,19 @@ describe("YjsProvider", () => {
 			const fresh = new YjsProvider({ callbacks });
 			fresh.replaceDocument(makeDocument("doc-new", "path-new"));
 
-			const state = Y.encodeStateAsUpdate(provider.ydoc);
-			expect(new TextDecoder("latin1").decode(state)).not.toContain("path-old");
-			expect(state.byteLength).toBe(
-				Y.encodeStateAsUpdate(fresh.ydoc).byteLength,
+			const update = Y.encodeStateAsUpdate(provider.ydoc);
+			expect(new TextDecoder("latin1").decode(update)).not.toContain(
+				"path-old",
+			);
+
+			// Tombstones of the discarded document surface as a non-empty delete set
+			// and as extra structs. Byte length cannot stand in for that count: the
+			// clientID is random, and its varint encoding differs in length between
+			// the two docs.
+			const state = Y.decodeUpdate(update);
+			expect(state.ds.clients.size).toBe(0);
+			expect(state.structs.length).toBe(
+				Y.decodeUpdate(Y.encodeStateAsUpdate(fresh.ydoc)).structs.length,
 			);
 			provider.destroy();
 			fresh.destroy();
@@ -795,6 +807,220 @@ describe("YjsProvider", () => {
 				"c",
 				"a",
 			]);
+		});
+	});
+
+	describe("replaceShapeWithMeshWarp", () => {
+		const makePath = (id: string) => ({
+			id,
+			type: "path" as const,
+			segments: [],
+			opacity: 1,
+			blendMode: "normal" as const,
+			transform: createIdentityTransform(),
+		});
+		const makeMesh = (id: string, childIds: string[]) => ({
+			...createMeshWarpObjectFromGeometry(childIds, {
+				vertices: [],
+				faces: [],
+			}),
+			id,
+		});
+		const setup = (provider: YjsProvider) => {
+			provider.addLayer({
+				id: "layer-1",
+				name: "L",
+				visible: true,
+				locked: false,
+				opacity: 1,
+				elementIds: [],
+			});
+			for (const id of ["a", "shape", "b", "c"]) {
+				provider.addElement("layer-1", makePath(id));
+			}
+		};
+		const layerIds = (provider: YjsProvider): string[] => {
+			const yLayer = provider.ydoc.getArray("layers").get(0) as Y.Map<unknown>;
+			return (yLayer.get("elementIds") as Y.Array<string>).toArray();
+		};
+		const objectIds = (provider: YjsProvider): string[] =>
+			[...provider.ydoc.getMap("objects").keys()].sort();
+
+		it("should put the mesh where the shape was and absorb the content", () => {
+			const provider = new YjsProvider({ callbacks });
+			setup(provider);
+
+			const ok = provider.replaceShapeWithMeshWarp(
+				"layer-1",
+				"shape",
+				makeMesh("mesh-1", ["a", "c"]),
+				new Map(),
+			);
+
+			expect(ok).toBe(true);
+			expect(layerIds(provider)).toEqual(["mesh-1", "b"]);
+			expect(objectIds(provider)).toEqual(["a", "b", "c", "mesh-1"]);
+		});
+
+		it("should hand a replaced mesh's children back to the parent before the new mesh", () => {
+			const provider = new YjsProvider({ callbacks });
+			setup(provider);
+			provider.addElement("layer-1", makePath("old-1"));
+			provider.addElement("layer-1", makePath("old-2"));
+			provider.createMeshWarp(
+				"layer-1",
+				makeMesh("old-mesh", ["old-1", "old-2"]),
+			);
+			provider.updateElement("layer-1", "old-mesh", {
+				transform: { ...createIdentityTransform(), x: 10 },
+			});
+			expect(layerIds(provider)).toEqual(["a", "shape", "b", "c", "old-mesh"]);
+
+			const ok = provider.replaceShapeWithMeshWarp(
+				"layer-1",
+				"old-mesh",
+				makeMesh("mesh-1", ["b"]),
+				new Map([["old-1", { ...createIdentityTransform(), x: 10 }]]),
+			);
+
+			expect(ok).toBe(true);
+			expect(layerIds(provider)).toEqual([
+				"a",
+				"shape",
+				"c",
+				"old-1",
+				"old-2",
+				"mesh-1",
+			]);
+			expect(objectIds(provider)).toEqual([
+				"a",
+				"b",
+				"c",
+				"mesh-1",
+				"old-1",
+				"old-2",
+				"shape",
+			]);
+			const yOld1 = provider.ydoc
+				.getMap("objects")
+				.get("old-1") as Y.Map<unknown>;
+			expect(JSON.parse(yOld1.get("transform") as string)).toMatchObject({
+				x: 10,
+			});
+		});
+
+		it("should replace inside a group's childIds", () => {
+			const provider = new YjsProvider({ callbacks });
+			setup(provider);
+			const groupId = provider.groupElements("layer-1", ["shape", "b", "c"]);
+			if (!groupId) throw new Error("group not created");
+
+			const ok = provider.replaceShapeWithMeshWarp(
+				groupId,
+				"shape",
+				makeMesh("mesh-1", ["c"]),
+				new Map(),
+			);
+
+			expect(ok).toBe(true);
+			const yGroup = provider.ydoc
+				.getMap("objects")
+				.get(groupId) as Y.Map<unknown>;
+			expect(JSON.parse(yGroup.get("childIds") as string)).toEqual([
+				"mesh-1",
+				"b",
+			]);
+			expect(layerIds(provider)).toEqual(["a", groupId]);
+		});
+
+		it("should write nothing when the parent, shape or content is missing", () => {
+			const provider = new YjsProvider({ callbacks });
+			setup(provider);
+			const before = layerIds(provider);
+
+			expect(
+				provider.replaceShapeWithMeshWarp(
+					"nope",
+					"shape",
+					makeMesh("m", ["a"]),
+					new Map(),
+				),
+			).toBe(false);
+			expect(
+				provider.replaceShapeWithMeshWarp(
+					"layer-1",
+					"nope",
+					makeMesh("m", ["a"]),
+					new Map(),
+				),
+			).toBe(false);
+			expect(
+				provider.replaceShapeWithMeshWarp(
+					"layer-1",
+					"shape",
+					makeMesh("m", ["nope"]),
+					new Map(),
+				),
+			).toBe(false);
+			expect(layerIds(provider)).toEqual(before);
+			expect(provider.ydoc.getMap("objects").has("m")).toBe(false);
+		});
+
+		it("should undo the replacement in one step", () => {
+			const provider = new YjsProvider({ callbacks });
+			setup(provider);
+			provider.stopUndoCapture();
+			provider.replaceShapeWithMeshWarp(
+				"layer-1",
+				"shape",
+				makeMesh("mesh-1", ["a", "c"]),
+				new Map(),
+			);
+			provider.stopUndoCapture();
+
+			provider.undo();
+
+			expect(layerIds(provider)).toEqual(["a", "shape", "b", "c"]);
+			expect(provider.ydoc.getMap("objects").has("mesh-1")).toBe(false);
+			provider.redo();
+			expect(layerIds(provider)).toEqual(["mesh-1", "b"]);
+		});
+
+		it("should place a release outline right below the restored children", () => {
+			const provider = new YjsProvider({ callbacks });
+			setup(provider);
+			provider.replaceShapeWithMeshWarp(
+				"layer-1",
+				"shape",
+				makeMesh("mesh-1", ["a", "c"]),
+				new Map(),
+			);
+
+			provider.releaseMeshWarp("mesh-1", new Map(), makePath("outline"));
+
+			expect(layerIds(provider)).toEqual(["outline", "a", "c", "b"]);
+			expect(objectIds(provider)).toEqual(["a", "b", "c", "outline"]);
+		});
+
+		it("should record into a session undo manager when given its origin", () => {
+			const provider = new YjsProvider({ callbacks });
+			setup(provider);
+			provider.clearUndoHistory();
+			const origin = Symbol("session");
+			const session = provider.createSessionUndoManager(new Set([origin]));
+
+			provider.replaceShapeWithMeshWarp(
+				"layer-1",
+				"shape",
+				makeMesh("mesh-1", ["a"]),
+				new Map(),
+				origin,
+			);
+
+			expect(session.canUndo()).toBe(true);
+			expect(provider.canUndo()).toBe(false);
+			session.undo();
+			expect(layerIds(provider)).toEqual(["a", "shape", "b", "c"]);
 		});
 	});
 
