@@ -3730,7 +3730,7 @@ __metadata:
     react-dom: "npm:^19.2.4"
     tailwindcss: "npm:^4.2.1"
     typescript: "npm:^6.0.3"
-    valtio: "npm:^2.3.1"
+    valtio: "npm:^2.3.2"
     vite: "npm:^8.1.5"
     wxt: "npm:^0.20.18"
   languageName: unknown
@@ -15843,7 +15843,7 @@ __metadata:
     three: "npm:0.185.1"
     typescript: "npm:6.0.3"
     unified: "npm:^11.0.0"
-    valtio: "npm:^2.3.1"
+    valtio: "npm:^2.3.2"
     vite: "npm:^8.1.5"
     vitest: "npm:^4.1.2"
     webgpu: "npm:^0.4.0"
@@ -19496,9 +19496,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"valtio@npm:^2.3.1":
-  version: 2.3.1
-  resolution: "valtio@npm:2.3.1"
+"valtio@npm:^2.3.2":
+  version: 2.3.2
+  resolution: "valtio@npm:2.3.2"
   dependencies:
     proxy-compare: "npm:^3.0.1"
   peerDependencies:
@@ -19509,7 +19509,7 @@ __metadata:
       optional: true
     react:
       optional: true
-  checksum: 10c0/1538ae7c13893ed6f0009bfd89fec9cbe9ad4c5982d3d8403a6c85c68c363ac20d794857a51d170712d83e18e5c90e025a8c8e59a6180edf26c9fa8a3d5d9abf
+  checksum: 10c0/2004709a61be8751bea34d5539f79f737be8ee8d328d65e0df5924bae25b8b6156c682e07119a51d2509daefc2a714f1a9e42ec80d7ee02fff53b3f7b5888002
   languageName: node
   linkType: hard
 
