@@ -43,26 +43,27 @@ export function setSnapshotDocumentSession(): void {
 }
 
 /**
- * Opens a document from a file. The file stays the target of manual saves
- * when the handle can reach it; a copy in IndexedDB gives the document auto
- * save and revisions either way.
+ * Opens a document from a file. A handle keeps the file as the target of
+ * manual saves; a bare file has no such target. A copy in IndexedDB gives
+ * the document auto save and revisions either way.
  */
 export async function openDocumentFile(
 	paplico: Paplico,
-	handle: FileHandle,
+	source: File | FileHandle,
 ): Promise<void> {
 	const currentId = documentManagerState.currentDocumentId;
 	if (currentId) {
 		await saveDocument(currentId, await paplico.exportDocument());
 	}
 
-	await paplico.importDocument(handle.file);
+	const file = source instanceof File ? source : source.file;
+	await paplico.importDocument(file);
 	const id = await createDocument(
-		handle.file.name.replace(/\.papf$/i, ""),
+		file.name.replace(/\.papf$/i, ""),
 		await paplico.exportDocument(),
 	);
 	documentManagerState.currentDocumentId = id;
-	setExternalDocumentSession(handle.handle == null ? null : handle);
+	setExternalDocumentSession(source instanceof File ? null : source);
 	setLastDocumentId(id);
 }
 

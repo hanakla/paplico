@@ -314,12 +314,12 @@ export default function Page() {
 
 	/** Loads a document the user picked out of the filesystem. */
 	const handleOpenDocumentFile = useEventCallback(
-		async (handle: FileHandle) => {
+		async (source: File | FileHandle) => {
 			const p = paplicoRef.current;
 			if (!p) return;
 
 			try {
-				await openDocumentFile(p, handle);
+				await openDocumentFile(p, source);
 			} catch (error) {
 				reportError({
 					code: codeFromError(error, "DOCUMENT_OPEN_FAILED"),
@@ -640,9 +640,7 @@ export default function Page() {
 			)
 				return;
 
-			await handleOpenDocumentFile(
-				fileHandle ?? ({ handle: null, file: papfFile } as FileHandle),
-			);
+			await handleOpenDocumentFile(fileHandle ?? papfFile);
 		},
 	);
 
