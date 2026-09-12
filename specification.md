@@ -626,9 +626,12 @@ Y.Doc
 
 ### papf形式（PAPF: Paplico Packed Format v1）
 
-実装場所：`pkgs/web/src/core/io/papf/`
+実装場所：`pkgs/web/src/core/io/papf/`。詳細は `docs/papl-format.md`
 
-リトルエンディアンのセクション型バイナリコンテナ:
+`.papf` は 2 層。外側は PDF コンテナで、内側が papf バイト列。
+
+- **外側: PDF コンテナ**。実装は `pdfContainer.ts` と `@cantoo/pdf-lib`。ディスク上のファイルは正当な PDF。目的はファイルビューアやファイル共有サービスで中身をプレビューできるようにすることで、印刷用途は現状では想定していない。アートボードごとに JPEG プレビューのページを持ち、papf バイト列を Catalog の `/PieceInfo /Paplico /Private` ストリームに無加工で格納する。読み込みは先頭マジックで PDF と裸の papf バイト列を判別する。IndexedDB への自動保存は PDF に包まない
+- **内側: papf バイト列**。リトルエンディアンのセクション型バイナリコンテナ:
 
 ```
 ファイルヘッダ "PAPF" (32B: magic, formatMajor=1, formatMinor=0, fileFlags, createdAt)

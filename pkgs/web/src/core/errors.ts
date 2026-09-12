@@ -10,6 +10,7 @@ export type PaplicoErrorCode =
 	| "PAPF_UNSUPPORTED_VERSION" // format/toc version newer than reader
 	| "PAPF_CORRUPTED" // crc mismatch, decode failure, out-of-bounds
 	| "PAPF_MISSING_FILE_ENTRY" // referenced embedded file not found
+	| "PAPF_NOT_FOUND_IN_PDF" // PDF carries no Paplico data (re-saved by another app)
 	| "WEBGPU_UNSUPPORTED" // navigator.gpu missing
 	| "WEBGPU_INIT_FAILED" // adapter/device request failed
 	| "WEBGPU_DEVICE_LOST"; // device lost, recovery failed

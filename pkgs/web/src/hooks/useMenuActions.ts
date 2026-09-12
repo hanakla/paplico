@@ -101,7 +101,7 @@ export function useMenuActions(
 
 	const handleExport = useEventCallback(async () => {
 		try {
-			const blob = await paplicoRef.current?.exportDocument();
+			const blob = await paplicoRef.current?.exportDocumentFile();
 			if (!blob) return;
 
 			const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -123,7 +123,7 @@ export function useMenuActions(
 			return;
 		}
 
-		const blob = await paplicoRef.current?.exportDocument();
+		const blob = await paplicoRef.current?.exportDocumentFile();
 		if (!blob) return;
 
 		try {

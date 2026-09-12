@@ -643,6 +643,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@cantoo/pdf-lib@npm:^2.11.0":
+  version: 2.11.0
+  resolution: "@cantoo/pdf-lib@npm:2.11.0"
+  dependencies:
+    culori: "npm:>=4"
+    fflate: "npm:^0.8.2"
+    node-html-better-parser: "npm:>=1.5.9"
+    tslib: "npm:>=2"
+  peerDependencies:
+    html-entities: ">=2.3.2"
+  checksum: 10c0/7be84a99ddb0d80a601ec1886c8565bc5aa83905e9738a79c5046424fecf8344b6dcc95643970f3c684f86b6c3662be841a1d4d9a4ffe7a279565feb643c1018
+  languageName: node
+  linkType: hard
+
 "@cbor-extract/cbor-extract-darwin-arm64@npm:2.2.2":
   version: 2.2.2
   resolution: "@cbor-extract/cbor-extract-darwin-arm64@npm:2.2.2"
@@ -9149,6 +9163,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"culori@npm:>=4":
+  version: 4.0.2
+  resolution: "culori@npm:4.0.2"
+  checksum: 10c0/5d3c952b947ac5915409bab513e1d2e8bd813caa491af8ded0c769fdc1186a5ff61fb3c59fc8edf5393237d92074dbc54a492e6e99cb039dd6535d5d96106bfe
+  languageName: node
+  linkType: hard
+
 "cwd@npm:^0.10.0":
   version: 0.10.0
   resolution: "cwd@npm:0.10.0"
@@ -11728,6 +11749,13 @@ __metadata:
   version: 6.1.1
   resolution: "hookable@npm:6.1.1"
   checksum: 10c0/bb46cd9ffc0a997af21febd97835da4e59a6989adec73dc3c215fcc44c7ac01de4781f251c3d420bf45862d2592a695f5f0de095b6f5df52db8afb5166938212
+  languageName: node
+  linkType: hard
+
+"html-entities@npm:^2.3.2":
+  version: 2.6.0
+  resolution: "html-entities@npm:2.6.0"
+  checksum: 10c0/7c8b15d9ea0cd00dc9279f61bab002ba6ca8a7a0f3c36ed2db3530a67a9621c017830d1d2c1c65beb9b8e3436ea663e9cf8b230472e0e413359399413b27c8b7
   languageName: node
   linkType: hard
 
@@ -15198,6 +15226,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"node-html-better-parser@npm:>=1.5.9":
+  version: 1.5.9
+  resolution: "node-html-better-parser@npm:1.5.9"
+  dependencies:
+    html-entities: "npm:^2.3.2"
+  checksum: 10c0/e3847e9a66847983b405d4573e9a2be45aef94bdf603f49d26a6905cae589d43d2e7e549232f08dcf39c0e9855c4584c934a953df170de4f4cac0a285a3b5223
+  languageName: node
+  linkType: hard
+
 "node-int64@npm:^0.4.0":
   version: 0.4.0
   resolution: "node-int64@npm:0.4.0"
@@ -15791,6 +15828,7 @@ __metadata:
   resolution: "pap@workspace:pkgs/web"
   dependencies:
     "@base-ui/react": "npm:^1.3.0"
+    "@cantoo/pdf-lib": "npm:^2.11.0"
     "@dnd-kit/core": "npm:^6.3.1"
     "@dnd-kit/sortable": "npm:^10.0.0"
     "@fabianlars/tauri-plugin-oauth": "npm:2"
@@ -18916,7 +18954,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"tslib@npm:2.8.1, tslib@npm:^2.0.0, tslib@npm:^2.0.1, tslib@npm:^2.1.0, tslib@npm:^2.2.0, tslib@npm:^2.4.0, tslib@npm:^2.8.0, tslib@npm:^2.8.1":
+"tslib@npm:2.8.1, tslib@npm:>=2, tslib@npm:^2.0.0, tslib@npm:^2.0.1, tslib@npm:^2.1.0, tslib@npm:^2.2.0, tslib@npm:^2.4.0, tslib@npm:^2.8.0, tslib@npm:^2.8.1":
   version: 2.8.1
   resolution: "tslib@npm:2.8.1"
   checksum: 10c0/9c4759110a19c53f992d9aae23aac5ced636e99887b51b9e61def52611732872ff7668757d4e4c61f19691e36f4da981cd9485e869b4a7408d689f6bf1f14e62

@@ -17,6 +17,9 @@ export default defineConfig({
 		globals: true,
 		setupFiles: ["./vitest.setup.ts"],
 		exclude: BASE_EXCLUDE,
+		// The ESM build imports JSON without an import attribute, which Node
+		// rejects when the package is loaded externally; let Vite transform it.
+		server: { deps: { inline: ["@cantoo/pdf-lib"] } },
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "json", "html"],

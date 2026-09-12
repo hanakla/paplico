@@ -4,6 +4,7 @@ import type { RenderOrchestrator } from "../../renderer/RenderOrchestrator";
 import { HDR_EDR_HEADROOM, HDR_MAX_NITS } from "../../renderer/types";
 import type { Document, RawRGBA } from "../../schema";
 import { pqOetf, srgbEotf, srgbOetf } from "../../utils/color";
+import type { PdfPreviewPage } from "../papf/pdfContainer";
 import { embedIccProfileInJpeg } from "./jpegIcc";
 import { imageDataToBlob } from "./pngEncode";
 import { embedIccProfileInPng, sanitizeIccProfileName } from "./pngIcc";
@@ -195,6 +196,38 @@ export class PaplicoExporter {
 		return { blob, width, height };
 	}
 
+	/**
+	 * Renders every artboard as a JPEG preview page for the PDF container.
+	 * Pages are rasterized at a fixed 72 dpi, one pixel per PDF point, since
+	 * the preview only serves file viewers. A page whose render fails is
+	 * emitted blank so saving never depends on the GPU state.
+	 */
+	public async renderPdfPreviewPages(): Promise<PdfPreviewPage[]> {
+		return Promise.all(
+			this.getDocument().artboards.map(async ({ id, width, height }) => ({
+				width,
+				height,
+				jpeg: await this.renderPdfPreviewJpeg(id),
+			})),
+		);
+	}
+
+	private async renderPdfPreviewJpeg(
+		artboardId: string,
+	): Promise<Uint8Array | null> {
+		try {
+			const result = await this.toJPEG(artboardId, {
+				scale: 1,
+				quality: PDF_PREVIEW_JPEG_QUALITY,
+			});
+			if (!result) return null;
+			return new Uint8Array(await result.blob.arrayBuffer());
+		} catch (error) {
+			console.error("Failed to render PDF preview page", error);
+			return null;
+		}
+	}
+
 	/** Renders an artboard to an AVIF HDR blob. */
 	public async toAvifHdr(
 		artboardId: string,
@@ -293,6 +326,8 @@ export class PaplicoExporter {
 		return { blob, width: imageData.width, height: imageData.height };
 	}
 }
+
+const PDF_PREVIEW_JPEG_QUALITY = 0.85;
 
 /** Format a RawRGBA (0-1 floats) as an opaque CSS rgb() color. */
 function rawRgbaToCssRgb(color: RawRGBA): string {

@@ -33,7 +33,6 @@ import { PaplicoPSDExporter } from "./io/export/PaplicoPSDExporter";
 import { PaplicoSVGExporter } from "./io/export/PaplicoSVGExporter";
 import { PaplicoTIFFExporter } from "./io/export/PaplicoTIFFExporter";
 import { gcDocument } from "./io/papf/gc";
-import { openPapf } from "./io/papf/reader";
 import { serializeDocument } from "./io/papf/writer";
 import { PaplicoCommands } from "./PaplicoCommands";
 import { PaplicoSelection } from "./PaplicoSelection";
@@ -2306,10 +2305,28 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		return serializeDocument(gcedDoc);
 	}
 
+	/**
+	 * Serializes the document as a PDF-compatible file: a valid PDF with one
+	 * preview page per artboard that embeds the full papf data.
+	 * Preview rendering never blocks the save; a failed page is left blank.
+	 */
+	public async exportDocumentFile(): Promise<Blob> {
+		const [papf, pages, { wrapPapfInPdf }] = await Promise.all([
+			this.exportDocument(),
+			this.exporter.renderPdfPreviewPages(),
+			import("./io/papf/pdfContainer"),
+		]);
+		return wrapPapfInPdf(new Uint8Array(await papf.arrayBuffer()), pages);
+	}
+
 	public async importDocument(source: Blob | Document): Promise<void> {
 		const doc =
 			source instanceof Blob
-				? await (await openPapf(source)).toDocument()
+				? await (
+						await (
+							await import("./io/papf/pdfContainer")
+						).openPapfContainer(source)
+					).toDocument()
 				: source;
 
 		// Disconnect collaboration before replacing document to avoid broadcasting empty document

@@ -1442,6 +1442,8 @@ export const ja = {
 			"このドキュメントは新しいバージョンのPaplicoで保存されているため開けません",
 		papfCorrupted: "ドキュメントファイルが破損しています",
 		papfMissingFileEntry: "ドキュメントに埋め込まれたファイルが見つかりません",
+		papfNotFoundInPdf:
+			"このPDFにはPaplicoのデータがありません。他のアプリで保存し直された可能性があります",
 		webgpuUnsupported: "このブラウザはWebGPUに対応していません",
 		webgpuUnsupportedDescription:
 			"Paplicoの利用にはWebGPUが必要です。最新のChromeやEdgeなど、WebGPU対応ブラウザをご利用ください",

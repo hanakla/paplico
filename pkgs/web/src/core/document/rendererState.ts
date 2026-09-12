@@ -62,9 +62,9 @@ export function createRendererState(): RendererState {
 export async function loadDevDocument(): Promise<Document | null> {
 	if (process.env.NODE_ENV !== "development") return null;
 
-	const { openPapf } = await import("../io/papf/reader");
+	const { openPapfContainer } = await import("../io/papf/pdfContainer");
 	const res = await fetch("/api/dev/test-document");
 	const blob = await res.blob();
-	const papf = await openPapf(blob);
+	const papf = await openPapfContainer(blob);
 	return papf.toDocument();
 }

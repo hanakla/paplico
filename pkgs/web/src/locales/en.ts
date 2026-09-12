@@ -1443,6 +1443,8 @@ export const en = {
 			"This document was saved by a newer version of Paplico and cannot be opened",
 		papfCorrupted: "The document file is corrupted",
 		papfMissingFileEntry: "A file embedded in the document is missing",
+		papfNotFoundInPdf:
+			"This PDF has no Paplico data. It may have been re-saved by another app",
 		webgpuUnsupported: "WebGPU is not supported in this browser",
 		webgpuUnsupportedDescription:
 			"Paplico requires WebGPU. Please use a recent version of Chrome, Edge, or another WebGPU-enabled browser",
