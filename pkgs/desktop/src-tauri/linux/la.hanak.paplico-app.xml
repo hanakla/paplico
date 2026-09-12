@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A .papf is a PDF carrying Paplico's data, so PDF thumbnailers apply to it. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+	<mime-type type="application/x-paplico">
+		<comment>Paplico Document</comment>
+		<sub-class-of type="application/pdf"/>
+		<glob pattern="*.papf"/>
+	</mime-type>
+</mime-info>

@@ -419,8 +419,12 @@ export default function Page() {
 				);
 
 				if (!roomParam && !devDoc) {
-					// Show new document dialog repeatedly until a document is loaded
-					while (!documentManagerState.currentDocumentId) {
+					// Show new document dialog repeatedly until a document is loaded,
+					// here or by a file the OS handed to the app
+					while (
+						!documentManagerState.currentDocumentId &&
+						documentSessionState.source.kind === "initial"
+					) {
 						const result = await NewDocumentDialog.call({
 							hdrSupported: p.uiState.hdrSupported,
 						});
@@ -670,6 +674,28 @@ export default function Page() {
 		window.addEventListener("tauri-file-drop", handler);
 		return () => window.removeEventListener("tauri-file-drop", handler);
 	}, [handleDropFiles]);
+
+	// Documents the OS opened through the .papf association. Before anything
+	// is loaded there is nothing to confirm closing, and the startup dialog
+	// gives way to the file.
+	useEffect(() => {
+		const handler = async (e: Event) => {
+			const { files, handles } = (e as CustomEvent<TauriFileDropDetail>).detail;
+			const handle = handles[files.findIndex((f) => f.name.endsWith(".papf"))];
+			if (!handle) return;
+
+			if (documentSessionState.source.kind !== "initial") {
+				handleDropFiles(files, handle);
+				return;
+			}
+
+			await openDocumentFile(handle);
+			NewDocumentDialog.end({ action: "cancel" });
+		};
+
+		window.addEventListener("tauri-open-files", handler);
+		return () => window.removeEventListener("tauri-open-files", handler);
+	}, [handleDropFiles, openDocumentFile]);
 
 	// Persist shortcut overrides to appConfig on change
 	useEffect(() => {

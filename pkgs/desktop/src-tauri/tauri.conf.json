@@ -38,6 +38,29 @@
 	"bundle": {
 		"active": true,
 		"targets": "all",
+		"fileAssociations": [
+			{
+				"ext": ["papf"],
+				"name": "Paplico Document",
+				"description": "Paplico Document",
+				"mimeType": "application/x-paplico",
+				"contentTypes": ["la.hanak.paplico.document"],
+				"role": "Editor",
+				"rank": "Owner",
+				"exportedType": {
+					"identifier": "la.hanak.paplico.document",
+					"conformsTo": ["com.adobe.pdf"]
+				}
+			}
+		],
+		"linux": {
+			"deb": {
+				"files": {
+					"/usr/share/mime/packages/la.hanak.paplico-app.xml": "linux/la.hanak.paplico-app.xml"
+				},
+				"postInstallScript": "linux/postinst.sh"
+			}
+		},
 		"icon": [
 			"icons/32x32.png",
 			"icons/128x128.png",

@@ -48,31 +48,11 @@ export const TauriInit = IS_TAURI_ENV
 					const { getCurrentWebviewWindow } = await import(
 						"@tauri-apps/api/webviewWindow"
 					);
-					const { readFile } = await import("@tauri-apps/plugin-fs");
 
 					const unlisten = await getCurrentWebviewWindow().onDragDropEvent(
 						async (event) => {
 							if (event.payload.type !== "drop") return;
-
-							const paths = event.payload.paths;
-							const files: File[] = [];
-							const handles: FileHandle[] = [];
-
-							for (const path of paths) {
-								const name = path.split("/").pop() ?? path;
-								const data = await readFile(path);
-								const file = new File([data], name);
-								files.push(file);
-								handles.push({ handle: path, file } as FileHandle);
-							}
-
-							if (files.length > 0) {
-								window.dispatchEvent(
-									new CustomEvent<TauriFileDropDetail>("tauri-file-drop", {
-										detail: { files, handles },
-									}),
-								);
-							}
+							await dispatchTauriFiles("tauri-file-drop", event.payload.paths);
 						},
 					);
 
@@ -81,6 +61,32 @@ export const TauriInit = IS_TAURI_ENV
 
 				return () => cleanup?.();
 				// eslint-disable-next-line react-hooks/exhaustive-deps
+			}, []);
+
+			// Documents the OS opened through the .papf file association. The
+			// Rust side buffers those that arrived before this listener existed.
+			useEffect(() => {
+				if (!IS_TAURI_ENV) return;
+
+				let cleanup: (() => void) | undefined;
+
+				(async () => {
+					const { invoke } = await import("@tauri-apps/api/core");
+					const { listen } = await import("@tauri-apps/api/event");
+
+					const unlisten = await listen<string[]>(
+						"paplico:open-files",
+						(event) => dispatchTauriFiles("tauri-open-files", event.payload),
+					);
+					cleanup = unlisten;
+
+					await dispatchTauriFiles(
+						"tauri-open-files",
+						await invoke<string[]>("take_launch_files"),
+					);
+				})();
+
+				return () => cleanup?.();
 			}, []);
 
 			// Deep link listener for OAuth callback (paplico://auth/callback)
@@ -140,3 +146,28 @@ export const TauriInit = IS_TAURI_ENV
 	: function NoTauriInit() {
 			return null;
 		};
+
+/** Reads native paths and hands them to the page as File objects. */
+async function dispatchTauriFiles(
+	eventName: "tauri-file-drop" | "tauri-open-files",
+	paths: string[],
+): Promise<void> {
+	if (paths.length === 0) return;
+	const { readFile } = await import("@tauri-apps/plugin-fs");
+
+	const files: File[] = [];
+	const handles: FileHandle[] = [];
+	for (const path of paths) {
+		const name = path.split("/").pop() ?? path;
+		const data = await readFile(path);
+		const file = new File([data], name);
+		files.push(file);
+		handles.push({ handle: path, file } as FileHandle);
+	}
+
+	window.dispatchEvent(
+		new CustomEvent<TauriFileDropDetail>(eventName, {
+			detail: { files, handles },
+		}),
+	);
+}

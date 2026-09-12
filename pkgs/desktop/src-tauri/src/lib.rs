@@ -1,7 +1,9 @@
 mod automation_file_system;
 mod fonts;
+mod launch_files;
 
 use automation_file_system::AutomationFileSystemState;
+use launch_files::LaunchFilesState;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::Emitter;
 use tauri::Manager;
@@ -18,6 +20,7 @@ pub fn run() {
         .plugin(tauri_plugin_oauth::init())
         .plugin(tauri_plugin_system_fonts::init())
         .manage(AutomationFileSystemState::default())
+        .manage(LaunchFilesState::default())
         .invoke_handler(tauri::generate_handler![
             fonts::load_font_data,
             fonts::read_font_range,
@@ -28,7 +31,8 @@ pub fn run() {
             automation_file_system::automation_write_file,
             automation_file_system::automation_create_directory,
             automation_file_system::automation_directory_file,
-            automation_file_system::automation_revoke_access
+            automation_file_system::automation_revoke_access,
+            launch_files::take_launch_files
         ])
         .setup(|app| {
             let app_menu = SubmenuBuilder::new(app, &app.package_info().name)
@@ -83,6 +87,8 @@ pub fn run() {
 
             app.set_menu(menu)?;
 
+            launch_files::open_files(app.handle(), launch_files::command_line_documents());
+
             app.on_menu_event(move |app, event| {
                 let id = event.id().0.as_str();
                 match id {
@@ -107,6 +113,17 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                launch_files::open_files(
+                    app,
+                    urls.into_iter().filter_map(|url| url.to_file_path().ok()),
+                );
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }

@@ -43,7 +43,7 @@ IndexedDB への自動保存は内側の papf バイト列を PDF に包まず�
 - オブジェクトストリームは使わない。papf ストリームを圧縮も再配置もしないため
 - プレビューは `/DeviceRGB` の JPEG。ラスタライズ解像度は 72 dpi 固定で、1 world 単位 = 1 pt = 1 px になる
 - アートボードが無い場合は空白ページを 1 枚置く。PDF はページ 0 枚を許さないため
-- 拡張子は `.papf` のままなので、Finder は PDF ビューアに関連付けない。「このアプリケーションで開く」か `.pdf` へのリネームで開ける
+- 拡張子は `.papf` のままなので、OS は拡張子だけでは PDF と判定しない。デスクトップ版は `pkgs/desktop/src-tauri/tauri.conf.json` の `fileAssociations` で `.papf` の UTI を `com.adobe.pdf` に準拠させ、macOS の Quick Look と Finder のサムネイルに標準の PDF プレビューアを使わせる。Linux は deb に同梱する shared-mime-info の XML で `application/pdf` のサブクラスとして登録する。ブラウザ版で保存したファイルは「このアプリケーションで開く」か `.pdf` へのリネームでプレビューアに渡せる
 
 ### 内側: papf バイト列
 
