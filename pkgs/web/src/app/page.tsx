@@ -56,7 +56,6 @@ import {
 	useAppConfig,
 } from "@/hooks/useAppConfig";
 import { useAutoSave } from "@/hooks/useAutoSave";
-import { useCanvasObstacle } from "@/hooks/useCanvasObstacle";
 import { getEncryptedRoomCredentials, useCollab } from "@/hooks/useCollab";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useMenuActions } from "@/hooks/useMenuActions";
@@ -89,7 +88,7 @@ import { Toolbar } from "@/organisms/Toolbar";
 import { createPaplicoAutomationRuntime } from "@/scripting/runtime";
 import {
 	documentSessionState,
-	setExternalDocumentSession,
+	openDocumentFile as openDocumentFromFile,
 	setInternalDocumentSession,
 } from "@/stores/documentSessionStore";
 import {
@@ -145,7 +144,6 @@ export default function Page() {
 	const uiSnap = useUIState();
 	const documentSessionSnap = useSnapshot(documentSessionState);
 	const layoutMode = useLayoutMode();
-	const sidePanelsObstacleRef = useCanvasObstacle("sidePanels");
 	// The side panel column sits next to the toolbar, so anything floating
 	// beside the toolbar has to clear the column's width as well.
 	const sidePanelsBesideToolbar =
@@ -315,17 +313,21 @@ export default function Page() {
 	);
 
 	/** Loads a document the user picked out of the filesystem. */
-	const openDocumentFile = useEventCallback(async (handle: FileHandle) => {
-		try {
-			await paplicoRef.current?.importDocument(handle.file);
-			setExternalDocumentSession(handle);
-		} catch (error) {
-			reportError({
-				code: codeFromError(error, "DOCUMENT_OPEN_FAILED"),
-				cause: error,
-			});
-		}
-	});
+	const openDocumentFile = useEventCallback(
+		async (file: File, handle: FileHandle | null) => {
+			const p = paplicoRef.current;
+			if (!p) return;
+
+			try {
+				await openDocumentFromFile(p, file, handle);
+			} catch (error) {
+				reportError({
+					code: codeFromError(error, "DOCUMENT_OPEN_FAILED"),
+					cause: error,
+				});
+			}
+		},
+	);
 
 	/** Applies what the new document dialog was closed for. */
 	const applyNewDocumentResult = useEventCallback(
@@ -339,7 +341,7 @@ export default function Page() {
 			}
 
 			if (result.action === "openFile") {
-				await openDocumentFile(result.handle);
+				await openDocumentFile(result.handle.file, result.handle);
 				return;
 			}
 
@@ -638,15 +640,7 @@ export default function Page() {
 			)
 				return;
 
-			try {
-				await paplicoRef.current?.importDocument(papfFile);
-				setExternalDocumentSession(fileHandle ?? null);
-			} catch (error) {
-				reportError({
-					code: codeFromError(error, "DOCUMENT_OPEN_FAILED"),
-					cause: error,
-				});
-			}
+			await openDocumentFile(papfFile, fileHandle ?? null);
 		},
 	);
 
@@ -691,7 +685,7 @@ export default function Page() {
 				return;
 			}
 
-			await openDocumentFile(handle);
+			await openDocumentFile(handle.file, handle);
 			NewDocumentDialog.end({ action: "cancel" });
 		};
 
@@ -991,7 +985,6 @@ export default function Page() {
 
 									return (
 										<div
-											ref={sidePanelsObstacleRef}
 											className={twm(colCls, panelSideCls)}
 											style={panelSideStyle}
 										>

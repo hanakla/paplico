@@ -1,5 +1,12 @@
 import { proxy } from "valtio";
+import type { Paplico } from "@/core/Paplico";
+import { setLastDocumentId } from "@/hooks/useAppConfig";
 import type { FileHandle } from "@/infra/filesystem";
+import {
+	createDocument,
+	documentManagerState,
+	saveDocument,
+} from "./documentStore";
 
 type DocumentSessionSource =
 	| { kind: "initial" }
@@ -33,6 +40,30 @@ export function setExternalDocumentSession(
 
 export function setSnapshotDocumentSession(): void {
 	replaceDocumentSession({ kind: "snapshot" }, null);
+}
+
+/**
+ * Opens a document from a file. The file stays the target of manual saves;
+ * a copy in IndexedDB gives it auto save and revisions.
+ */
+export async function openDocumentFile(
+	paplico: Paplico,
+	file: File,
+	handle: FileHandle | null,
+): Promise<void> {
+	const currentId = documentManagerState.currentDocumentId;
+	if (currentId) {
+		await saveDocument(currentId, await paplico.exportDocument());
+	}
+
+	await paplico.importDocument(file);
+	const id = await createDocument(
+		file.name.replace(/\.papf$/i, ""),
+		await paplico.exportDocument(),
+	);
+	documentManagerState.currentDocumentId = id;
+	setExternalDocumentSession(handle);
+	setLastDocumentId(id);
 }
 
 function replaceDocumentSession(

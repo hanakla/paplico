@@ -17,10 +17,13 @@ export const documentManagerState = proxy<{
 
 // --- CRUD ---
 
-export async function createDocument(name: string): Promise<string> {
+export async function createDocument(
+	name: string,
+	document?: Blob,
+): Promise<string> {
 	const id = generateUid("doc");
 	const now = Date.now();
-	const document = await serializeDocument(createDefaultDocument(id));
+	document ??= await serializeDocument(createDefaultDocument(id));
 
 	await db.transaction("rw", db.documentMeta, db.documentData, async () => {
 		await db.documentMeta.add({
