@@ -10,7 +10,7 @@ import { FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import {
 	documentSessionState,
-	setExternalDocumentSession,
+	openDocumentFile,
 } from "@/stores/documentSessionStore";
 import { codeFromError, reportError } from "@/utils/errorReporting";
 import { useEventCallback } from "@/utils/hooks";
@@ -149,9 +149,11 @@ export function useMenuActions(
 		});
 		if (!result) return;
 
+		const p = paplicoRef.current;
+		if (!p) return;
+
 		try {
-			await paplicoRef.current?.importDocument(result.file);
-			setExternalDocumentSession(result);
+			await openDocumentFile(p, result);
 		} catch (error) {
 			reportError({
 				code: codeFromError(error, "IMPORT_FAILED"),

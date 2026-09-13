@@ -1,5 +1,13 @@
 import { proxy } from "valtio";
+import type { Paplico } from "@/core/Paplico";
+import { generateUid } from "@/core/schema";
+import { setLastDocumentId } from "@/hooks/useAppConfig";
 import type { FileHandle } from "@/infra/filesystem";
+import {
+	documentManagerState,
+	saveDocument,
+	upsertDocument,
+} from "./documentStore";
 
 type DocumentSessionSource =
 	| { kind: "initial" }
@@ -33,6 +41,34 @@ export function setExternalDocumentSession(
 
 export function setSnapshotDocumentSession(): void {
 	replaceDocumentSession({ kind: "snapshot" }, null);
+}
+
+/**
+ * Opens a document from a file. A handle keeps the file as the target of
+ * manual saves; a bare file has no such target. The document is stored
+ * under its own id so auto save and revisions cover it, and a file that
+ * came from this store lands back on its existing record.
+ */
+export async function openDocumentFile(
+	paplico: Paplico,
+	source: File | FileHandle,
+): Promise<void> {
+	const currentId = documentManagerState.currentDocumentId;
+	if (currentId) {
+		await saveDocument(currentId, await paplico.exportDocument());
+	}
+
+	const file = source instanceof File ? source : source.file;
+	await paplico.importDocument(file);
+	const id = paplico.uiState.document.id || generateUid("doc");
+	await upsertDocument(
+		id,
+		file.name.replace(/\.papf$/i, ""),
+		await paplico.exportDocument(),
+	);
+	documentManagerState.currentDocumentId = id;
+	setExternalDocumentSession(source instanceof File ? null : source);
+	setLastDocumentId(id);
 }
 
 function replaceDocumentSession(
