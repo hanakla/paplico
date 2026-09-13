@@ -50,7 +50,6 @@ import { createDefaultColor } from "@/core/document/factory";
 import type { Color } from "@/core/schema";
 import { BucketFillTool } from "@/core/tools/BucketFillTool";
 import { useActiveColors } from "@/hooks/useActiveColors";
-import { useCanvasObstacle } from "@/hooks/useCanvasObstacle";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useTranslation } from "@/locales";
 import {
@@ -92,7 +91,6 @@ export function Toolbar({
 }) {
 	const t = useTranslation();
 	const layoutMode = useLayoutMode();
-	const railObstacleRef = useCanvasObstacle("toolbar");
 	const [menuSheetOpen, setMenuSheetOpen] = useState(false);
 	const paplico = usePaplico();
 	const tools = paplico.tools;
@@ -355,7 +353,6 @@ export function Toolbar({
 	return (
 		<div className="relative h-full isolate overflow-visible">
 			<div
-				ref={railObstacleRef}
 				className={twm(
 					"relative min-w-12 w-fit h-full bg-background/80 backdrop-liquid",
 					"flex flex-col items-center gap-1 overflow-y-auto z-[10]",
@@ -773,7 +770,6 @@ function ToolbarAdjacentPanel({
 	desktop: ReactNode;
 }) {
 	const layoutMode = useLayoutMode();
-	const panelObstacleRef = useCanvasObstacle("dockedPanel");
 
 	const handlePointerDown = useEventCallback(
 		(event: ReactPointerEvent<HTMLDivElement>) => {
@@ -800,7 +796,6 @@ function ToolbarAdjacentPanel({
 
 	return (
 		<div
-			ref={panelObstacleRef}
 			className={twm(
 				"absolute inset-y-0 z-0 h-full pointer-events-auto",
 				side === "left"

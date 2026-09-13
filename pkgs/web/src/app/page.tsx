@@ -56,7 +56,6 @@ import {
 	useAppConfig,
 } from "@/hooks/useAppConfig";
 import { useAutoSave } from "@/hooks/useAutoSave";
-import { useCanvasObstacle } from "@/hooks/useCanvasObstacle";
 import { getEncryptedRoomCredentials, useCollab } from "@/hooks/useCollab";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useMenuActions } from "@/hooks/useMenuActions";
@@ -89,7 +88,7 @@ import { Toolbar } from "@/organisms/Toolbar";
 import { createPaplicoAutomationRuntime } from "@/scripting/runtime";
 import {
 	documentSessionState,
-	openDocumentFile,
+	setExternalDocumentSession,
 	setInternalDocumentSession,
 } from "@/stores/documentSessionStore";
 import {
@@ -145,7 +144,6 @@ export default function Page() {
 	const uiSnap = useUIState();
 	const documentSessionSnap = useSnapshot(documentSessionState);
 	const layoutMode = useLayoutMode();
-	const sidePanelsObstacleRef = useCanvasObstacle("sidePanels");
 	// The side panel column sits next to the toolbar, so anything floating
 	// beside the toolbar has to clear the column's width as well.
 	const sidePanelsBesideToolbar =
@@ -315,21 +313,17 @@ export default function Page() {
 	);
 
 	/** Loads a document the user picked out of the filesystem. */
-	const handleOpenDocumentFile = useEventCallback(
-		async (source: File | FileHandle) => {
-			const p = paplicoRef.current;
-			if (!p) return;
-
-			try {
-				await openDocumentFile(p, source);
-			} catch (error) {
-				reportError({
-					code: codeFromError(error, "DOCUMENT_OPEN_FAILED"),
-					cause: error,
-				});
-			}
-		},
-	);
+	const openDocumentFile = useEventCallback(async (handle: FileHandle) => {
+		try {
+			await paplicoRef.current?.importDocument(handle.file);
+			setExternalDocumentSession(handle);
+		} catch (error) {
+			reportError({
+				code: codeFromError(error, "DOCUMENT_OPEN_FAILED"),
+				cause: error,
+			});
+		}
+	});
 
 	/** Applies what the new document dialog was closed for. */
 	const applyNewDocumentResult = useEventCallback(
@@ -343,7 +337,7 @@ export default function Page() {
 			}
 
 			if (result.action === "openFile") {
-				await handleOpenDocumentFile(result.handle);
+				await openDocumentFile(result.handle);
 				return;
 			}
 
@@ -642,7 +636,15 @@ export default function Page() {
 			)
 				return;
 
-			await handleOpenDocumentFile(fileHandle ?? papfFile);
+			try {
+				await paplicoRef.current?.importDocument(papfFile);
+				setExternalDocumentSession(fileHandle ?? null);
+			} catch (error) {
+				reportError({
+					code: codeFromError(error, "DOCUMENT_OPEN_FAILED"),
+					cause: error,
+				});
+			}
 		},
 	);
 
@@ -687,13 +689,13 @@ export default function Page() {
 				return;
 			}
 
-			await handleOpenDocumentFile(handle);
+			await openDocumentFile(handle);
 			NewDocumentDialog.end({ action: "cancel" });
 		};
 
 		window.addEventListener("tauri-open-files", handler);
 		return () => window.removeEventListener("tauri-open-files", handler);
-	}, [handleDropFiles, handleOpenDocumentFile]);
+	}, [handleDropFiles, openDocumentFile]);
 
 	// Persist shortcut overrides to appConfig on change
 	useEffect(() => {
@@ -987,7 +989,6 @@ export default function Page() {
 
 									return (
 										<div
-											ref={sidePanelsObstacleRef}
 											className={twm(colCls, panelSideCls)}
 											style={panelSideStyle}
 										>

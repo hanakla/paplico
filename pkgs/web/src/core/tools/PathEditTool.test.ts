@@ -356,7 +356,8 @@ describe("PathEditTool", () => {
 			expect(updatedSegments[1].cp1.y).not.toBeCloseTo(0);
 		});
 
-		it("should move only the double-tapped CP of a symmetric pair", () => {
+		it("should move only the long-pressed CP of a symmetric pair", () => {
+			const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1000);
 			tool.initWithSelectedPaths(
 				[cloneTestPath()],
 				testViewport,
@@ -364,20 +365,14 @@ describe("PathEditTool", () => {
 				testCanvasHeight,
 			);
 
-			// Double-tap seg0.cp2 at screen(466,300): the UI delivers onDoubleClick
-			// and then onPointerDown for that second press.
-			tool.onDoubleClick(
-				ev(466, 300),
-				testViewport,
-				testCanvasWidth,
-				testCanvasHeight,
-			);
+			// Press seg0.cp2 at screen(466,300) and hold past LONG_PRESS_MS
 			tool.onPointerDown(
 				ev(466, 300),
 				testViewport,
 				testCanvasWidth,
 				testCanvasHeight,
 			);
+			nowSpy.mockReturnValue(1500);
 			// Drag it up by 20
 			tool.onPointerMove(
 				ev(466, 280),
@@ -391,6 +386,7 @@ describe("PathEditTool", () => {
 				testCanvasWidth,
 				testCanvasHeight,
 			);
+			nowSpy.mockRestore();
 
 			const updatedSegments = getCommittedSegments(ctx, "path-1")!;
 
@@ -400,7 +396,8 @@ describe("PathEditTool", () => {
 			expect(updatedSegments[1].cp1.y).toBeCloseTo(0);
 		});
 
-		it("should mirror again on a plain drag after the double-tap drag ended", () => {
+		it("should mirror again on a plain drag after the long-press drag ended", () => {
+			const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1000);
 			tool.initWithSelectedPaths(
 				[cloneTestPath()],
 				testViewport,
@@ -408,19 +405,14 @@ describe("PathEditTool", () => {
 				testCanvasHeight,
 			);
 
-			// Double-tap seg0.cp2, then release without dragging
-			tool.onDoubleClick(
-				ev(466, 300),
-				testViewport,
-				testCanvasWidth,
-				testCanvasHeight,
-			);
+			// Long-press seg0.cp2, then release without dragging
 			tool.onPointerDown(
 				ev(466, 300),
 				testViewport,
 				testCanvasWidth,
 				testCanvasHeight,
 			);
+			nowSpy.mockReturnValue(1500);
 			tool.onPointerUp(
 				ev(466, 300),
 				testViewport,
@@ -429,12 +421,14 @@ describe("PathEditTool", () => {
 			);
 
 			// A later plain drag of the still-symmetric pair mirrors as before
+			nowSpy.mockReturnValue(2000);
 			tool.onPointerDown(
 				ev(466, 300),
 				testViewport,
 				testCanvasWidth,
 				testCanvasHeight,
 			);
+			nowSpy.mockReturnValue(2050);
 			tool.onPointerMove(
 				ev(466, 280),
 				testViewport,
@@ -447,6 +441,7 @@ describe("PathEditTool", () => {
 				testCanvasWidth,
 				testCanvasHeight,
 			);
+			nowSpy.mockRestore();
 
 			const updatedSegments = getCommittedSegments(ctx, "path-1")!;
 			expect(updatedSegments[0].cp2.y).toBeCloseTo(20);

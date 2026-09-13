@@ -109,15 +109,7 @@ type DraggingStateBase = {
 };
 
 type DragState =
-	| {
-			mode: "idle";
-			/**
-			 * CP handle just double-tapped. The press that follows drags it free
-			 * of the mirror; any pointerDown replaces this state, so it never
-			 * outlives that one press.
-			 */
-			mirrorBreakKey?: string;
-	  }
+	| { mode: "idle" }
 	| (DraggingStateBase & {
 			mode: "controlPointDrag";
 			/** Whether to mirror cp1/cp2 (determined at pointerDown) */
@@ -327,12 +319,6 @@ export class PathEditTool implements Tool {
 		if (this.context.isReadonly()) return;
 
 		this.pointerDownTime = Date.now();
-
-		// A CP double-tap only frees the press that immediately follows it
-		const mirrorBreakKey =
-			this.dragState.mode === "idle"
-				? this.dragState.mirrorBreakKey
-				: undefined;
 
 		const world = screenToWorld(
 			event.x,
@@ -571,15 +557,9 @@ export class PathEditTool implements Tool {
 						startSuperellipseKs.set(key, seg.cornerSuperellipseN ?? 2);
 					}
 
-					// Pre-compute mirror flag for CP handles at pointerDown time.
-					// A double-tapped CP drags alone, leaving its partner in place.
+					// Pre-compute mirror flag for CP handles at pointerDown time
 					if (h.pointType === "cp1" || h.pointType === "cp2") {
-						mirrorFlags.set(
-							key,
-							key === mirrorBreakKey
-								? false
-								: this.shouldMirrorHandle(pathEntry, h),
-						);
+						mirrorFlags.set(key, this.shouldMirrorHandle(pathEntry, h));
 					}
 				}
 			}
@@ -643,10 +623,12 @@ export class PathEditTool implements Tool {
 					mirrorSources,
 				};
 
-				// Start long-press timer for anchor handles
+				// Long-press feedback for anchors (delete / CP creation) and CPs (mirror break)
 				if (
-					handle.type === "anchor" &&
-					(handle.pointType === "start" || handle.pointType === "end")
+					handle.pointType === "start" ||
+					handle.pointType === "end" ||
+					handle.pointType === "cp1" ||
+					handle.pointType === "cp2"
 				) {
 					this.startLongPressTimer(
 						handle.worldX,
@@ -968,12 +950,23 @@ export class PathEditTool implements Tool {
 			ds.hasMoved = true;
 			this.cancelLongPressTimer();
 
-			// Long-press + drag → Alt+drag equivalent (reset CPs and enter CP creation)
 			if (ds.mode === "controlPointDrag") {
 				const elapsed = Date.now() - this.pointerDownTime;
 				const handle = ds.handles.get(ds.clickedHandleKey);
+				const isLongPress = elapsed >= PathEditTool.LONG_PRESS_MS;
+
+				// Long-press + drag on one CP of a symmetric pair frees it from the
+				// mirror, so that handle can be shaped on its own.
 				if (
-					elapsed >= PathEditTool.LONG_PRESS_MS &&
+					isLongPress &&
+					(handle?.pointType === "cp1" || handle?.pointType === "cp2")
+				) {
+					ds.mirrorFlags.set(ds.clickedHandleKey, false);
+				}
+
+				// Long-press + drag → Alt+drag equivalent (reset CPs and enter CP creation)
+				if (
+					isLongPress &&
 					!ds.anchorCPCreation &&
 					handle?.type === "anchor" &&
 					(handle.pointType === "start" || handle.pointType === "end")
@@ -1482,17 +1475,6 @@ export class PathEditTool implements Tool {
 		);
 
 		if (!handle) return;
-
-		// Double-tapping one CP of a symmetric pair frees it from the mirror for
-		// the drag that follows, so that handle can be shaped on its own. The
-		// press right after this double-click consumes the flag.
-		if (handle.pointType === "cp1" || handle.pointType === "cp2") {
-			this.dragState = {
-				mode: "idle",
-				mirrorBreakKey: this.getHandleKey(handle),
-			};
-			return;
-		}
 
 		// Only reset CPs for anchor handles (start/end)
 		if (handle.type !== "anchor") return;

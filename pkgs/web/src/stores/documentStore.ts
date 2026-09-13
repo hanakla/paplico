@@ -1,6 +1,5 @@
 import { proxy } from "valtio";
 import { createDefaultDocument } from "@/core/document/factory";
-import { openPapf } from "@/core/io/papf/reader";
 import { serializeDocument } from "@/core/io/papf/writer";
 import { generateUid } from "@/core/schema";
 import { type DocumentData, type DocumentMeta, db } from "@/infra/documentDB";
@@ -40,36 +39,6 @@ export async function createDocument(name: string): Promise<string> {
 	});
 
 	return id;
-}
-
-/**
- * Stores a document under its own id. A record that already exists keeps
- * its name and creation time and only takes the new content, so opening a
- * file that came from this store does not add a second copy.
- */
-export async function upsertDocument(
-	id: string,
-	name: string,
-	document: Blob,
-): Promise<void> {
-	const now = Date.now();
-
-	await db.transaction("rw", db.documentMeta, db.documentData, async () => {
-		const meta = await db.documentMeta.get(id);
-		await db.documentMeta.put({
-			id,
-			name: meta?.name ?? name,
-			createdAt: meta?.createdAt ?? now,
-			updatedAt: now,
-			thumbnail: meta?.thumbnail ?? null,
-		});
-		await db.documentData.put({
-			id,
-			document,
-			thumbnail: null,
-			createdAt: now,
-		});
-	});
 }
 
 export async function saveDocument(
@@ -178,12 +147,6 @@ export async function duplicateDocument(
 
 	const newId = generateUid("doc");
 	const now = Date.now();
-	// The copy carries its own id inside the document too, so a file saved
-	// from it lands on the copy's record and not on the original's.
-	const document = await serializeDocument({
-		...(await (await openPapf(data.document)).toDocument()),
-		id: newId,
-	});
 
 	await db.transaction("rw", db.documentMeta, db.documentData, async () => {
 		await db.documentMeta.add({
@@ -195,7 +158,7 @@ export async function duplicateDocument(
 		});
 		await db.documentData.add({
 			id: newId,
-			document,
+			document: data.document,
 			thumbnail: data.thumbnail ?? null,
 			createdAt: now,
 		});
