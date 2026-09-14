@@ -6,7 +6,7 @@
  * initialization without a GPU device).
  */
 
-import { airBrush, pencil } from "../assets";
+import { airBrush, bacon, pencil } from "../assets";
 import {
 	type BrushCurve,
 	type BrushPreset,
@@ -298,6 +298,75 @@ export const BRUSH_PRESETS: Record<BuiltinBrushId, BrushSettings> = {
 			angleMode: "fixed",
 		},
 	},
+	[BUILTIN_BRUSH_IDS.bacon]: {
+		version: 2,
+		engine: "dab",
+		strokeOpacity: 1,
+		paintMode: "buildup",
+		properties: {
+			size: {
+				base: 10,
+				curves: [
+					{
+						input: "speedFine",
+						points: [
+							[0, 0],
+							[1, -0.5],
+						],
+					},
+				],
+			},
+			ratio: {
+				base: 1,
+			},
+			flow: {
+				base: 1,
+				curves: [
+					{
+						input: "pressure",
+						points: [
+							[0, -0.3348],
+							[1, 0.3103],
+						],
+					},
+					{
+						input: "speedFine",
+						points: [
+							[0, 0.0694],
+							[1, -0.1265],
+						],
+					},
+				],
+			},
+			spacing: {
+				base: 0.1692,
+			},
+			angle: {
+				base: 0,
+				curves: [
+					{
+						input: "twist",
+						points: [
+							[0, -4.6572],
+							[1, 3.2592],
+						],
+					},
+				],
+			},
+		},
+		randomSeed: 0,
+		tip: {
+			kind: "image",
+			sources: [
+				{
+					kind: "file",
+					fileUid: "builtin-brush-bacon",
+				},
+			],
+			selection: "random",
+			angleMode: "tangent",
+		},
+	},
 };
 
 /** Shelf order of the builtin preset list. A preset whose category is not
@@ -348,14 +417,17 @@ export async function createBuiltinBrushFiles(): Promise<EmbeddedFile[]> {
 	// Decode base64 asset brushes
 	const pencilBin = base64ToUint8Array(pencil);
 	const airbrushBin = base64ToUint8Array(airBrush);
+	const baconBin = base64ToUint8Array(bacon);
 
 	// Compute hashes in parallel
-	const [hardHash, softHash, pencilHash, airbrushHash] = await Promise.all([
-		computeHash(hardBin),
-		computeHash(softBin),
-		computeHash(pencilBin),
-		computeHash(airbrushBin),
-	]);
+	const [hardHash, softHash, pencilHash, airbrushHash, baconHash] =
+		await Promise.all([
+			computeHash(hardBin),
+			computeHash(softBin),
+			computeHash(pencilBin),
+			computeHash(airbrushBin),
+			computeHash(baconBin),
+		]);
 
 	return [
 		{
@@ -385,6 +457,13 @@ export async function createBuiltinBrushFiles(): Promise<EmbeddedFile[]> {
 			type: "image/png",
 			hash: airbrushHash,
 			bin: airbrushBin,
+		},
+		{
+			uid: BUILTIN_BRUSH_IDS.bacon,
+			name: "Bacon",
+			type: "image/png",
+			hash: baconHash,
+			bin: baconBin,
 		},
 		{
 			uid: BUILTIN_PAPER_IDS.finePaper,
@@ -432,6 +511,7 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 			name: "Airbrush",
 			category: "airbrush",
 		},
+		{ builtinId: BUILTIN_BRUSH_IDS.bacon, name: "Bacon", category: "pen" },
 	];
 
 	const builtins: BrushPreset[] = presets.map(

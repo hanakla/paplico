@@ -5,7 +5,7 @@
  * ブラシタイプごとにキャッシュする
  */
 
-import { airBrush, pencil } from "../../../../assets";
+import { airBrush, bacon, pencil } from "../../../../assets";
 import type { DefSourceResolver } from "../../../../brush/brushSource";
 import { BUILTIN_BRUSH_IDS } from "../../../../schema";
 import {
@@ -59,6 +59,7 @@ export class BrushTextureManager implements DefSourceResolver {
 			await Promise.all([
 				this.loadFromBase64(BUILTIN_BRUSH_IDS.pencil, pencil),
 				this.loadFromBase64(BUILTIN_BRUSH_IDS.airbrush, airBrush),
+				this.loadFromBase64(BUILTIN_BRUSH_IDS.bacon, bacon),
 			]);
 		} catch (error) {
 			// In Node.js test environment, createImageBitmap and copyExternalImageToTexture may not be fully supported
