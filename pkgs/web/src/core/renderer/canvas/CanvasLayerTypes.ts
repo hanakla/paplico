@@ -13,6 +13,7 @@ import type {
 	CubicBezierSegment,
 	ElementTransform,
 	EmbeddedFile,
+	Group,
 	Path,
 	Viewport,
 } from "../../schema";
@@ -304,6 +305,21 @@ export type RenderElementsFn = (
 	pipelineType?: PipelineType,
 	compositeContext?: CompositeRenderContext,
 	localBoundsCache?: LocalBoundsCache,
+) => GPURenderPassEncoder;
+
+/** Which of a group's own appearances to draw: those below its content or
+ *  those above it. */
+export type GroupAppearancePhase = "before" | "after";
+
+/** Signature of CanvasLayer.renderGroupAppearances — injected into OffscreenPresenter. */
+export type RenderGroupAppearancesFn = (
+	passEncoder: GPURenderPassEncoder,
+	group: Group,
+	phase: GroupAppearancePhase,
+	alpha: number,
+	pipelineType: PipelineType,
+	elementsMap: Map<string, AnyArtObject>,
+	compositeContext: CompositeRenderContext | undefined,
 ) => GPURenderPassEncoder;
 
 /** Signature of CanvasLayer.dispatchElementDirect — injected into OffscreenPresenter. */

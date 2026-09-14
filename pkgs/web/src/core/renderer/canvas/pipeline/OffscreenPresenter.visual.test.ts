@@ -5,6 +5,7 @@ import {
 	createDefaultDocument,
 	createDefaultLayer,
 	createDefaultTransform,
+	createStrokeBrushSettings,
 } from "../../../document/factory";
 import {
 	type Document,
@@ -17,6 +18,7 @@ import {
 	type ImageObject,
 	type Path,
 	type PathSegment,
+	type StrokeAppearance,
 	type Viewport,
 } from "../../../schema";
 import {
@@ -179,6 +181,90 @@ describe("Clip groups are not isolated", () => {
 		expect(inside[0]).toBeGreaterThan(100);
 		expect(inside[0]).toBeLessThan(160);
 		expect(inside[2]).toBeLessThan(160);
+	});
+
+	it("multiplies a child against the document when the clip group has several children", async () => {
+		// Two children route the clip group through an offscreen bake; the
+		// multiply child must still see the red rect beneath the group, not the
+		// bake's transparent background.
+		const { inside, sibling } = await renderMultiChildClipMultiplyAndSample();
+		expect(inside[0]).toBeLessThan(20);
+		expect(inside[2]).toBeLessThan(20);
+		expect(sibling[1]).toBeGreaterThan(235);
+	});
+
+	it("keeps that behaviour for a multi-child clip group nested in another clip group", async () => {
+		// The enclosing clip draws inline and hands the nested group its mask;
+		// the nested group still composites offscreen at draw time, masked by
+		// its effective mask once, with its children blending against the red.
+		const { inside, sibling } = await renderMultiChildClipMultiplyAndSample(
+			1,
+			true,
+		);
+		expect(inside[0]).toBeLessThan(20);
+		expect(inside[2]).toBeLessThan(20);
+		expect(sibling[1]).toBeGreaterThan(235);
+	});
+
+	it("keeps that behaviour for a multi-child clip group inside an offscreen bake", async () => {
+		// The enclosing group's opacity bakes everything at the bake's own
+		// texel space; the clip group's backdrop must be projected into it.
+		const { inside } = await renderMultiChildClipMultiplyAndSample(0.5);
+		expect(inside[0]).toBeGreaterThan(100);
+		expect(inside[0]).toBeLessThan(160);
+		expect(inside[2]).toBeLessThan(160);
+	});
+
+	it("keeps that behaviour for a nested multi-child clip group inside an offscreen bake", async () => {
+		// Inside a bake the nested clip group is a masked child of the outer
+		// group; it must still composite at draw time rather than be
+		// pre-rasterized without its blend modes.
+		const { inside, sibling } = await renderMultiChildClipMultiplyAndSample(
+			0.5,
+			true,
+		);
+		expect(inside[0]).toBeGreaterThan(100);
+		expect(inside[0]).toBeLessThan(160);
+		expect(inside[2]).toBeLessThan(160);
+		expect(sibling[1]).toBeGreaterThan(200);
+	});
+
+	it.each([
+		["direct children", false],
+		["children in a passthrough group", true],
+	])("keeps a lower child from showing through the upper one on the clip edge (%s)", async (_name, wrapped) => {
+		// The light rect fully covers the dark rect where both cross the
+		// clip edge at column 500.5, so the edge column must read between
+		// the light rect and the white document, and the columns past it
+		// must be white. Masking each child on its own lets the dark rect
+		// through the light rect's partial-coverage edge pixel.
+		const { inside, edge, outside } =
+			await renderOverlappingClippedChildrenAndSampleEdge(wrapped);
+		for (const [, g] of inside) expect(g).toBeLessThanOrEqual(246);
+		const [r, g, b] = edge;
+		expect(g).toBeGreaterThanOrEqual(243);
+		expect(g).toBeLessThanOrEqual(252);
+		expect(r).toBeGreaterThanOrEqual(g);
+		expect(b).toBe(g);
+		for (const px of outside) expect(px).toEqual([255, 255, 255]);
+	});
+});
+
+describe("Appearance blend modes inside containers", () => {
+	it.each([
+		["a passthrough group", "group"],
+		["a clip group with one child", "clip-single"],
+		["a clip group with two children", "clip-multi"],
+	] as const)("multiplies a stroke appearance against the element's fill inside %s", async (_name, container) => {
+		// A blend on an appearance composites against the element's own
+		// earlier appearances: the blue multiply stroke over the green fill
+		// reads black, as it does for an element placed directly on the layer.
+		const { stroke, fill } =
+			await renderContainedStrokeBlendAndSample(container);
+		expect(stroke[0]).toBeLessThan(20);
+		expect(stroke[1]).toBeLessThan(20);
+		expect(stroke[2]).toBeLessThan(20);
+		expect(fill[1]).toBeGreaterThan(235);
 	});
 });
 
@@ -403,6 +489,265 @@ async function renderNestedClipMultiplyAndSample(
 	};
 	// Blue child covers world x -100..100 clipped to x -50..50 (screen 350..450).
 	return { inside: at(400, 300), outside: at(470, 300) };
+}
+
+/**
+ * Red rect under a container holding a path with a green fill and a 40px blue
+ * multiply stroke on a 100x100 rect centred at world (100, 0). Samples the
+ * stroke on the rect's right edge, inside the clip, and the fill's centre.
+ */
+async function renderContainedStrokeBlendAndSample(
+	container: "group" | "clip-single" | "clip-multi",
+) {
+	const { renderer, canvas } = await createTestRenderer();
+	const doc = createDefaultDocument("contained-stroke-blend-vrt");
+	const layer = createDefaultLayer("layer-bg", "Background");
+	const red: Path = {
+		type: "path",
+		id: generateUid("red"),
+		opacity: 1,
+		blendMode: "normal",
+		segments: rectSegments(0, 0, 400, 300),
+		filters: [solidFill(1, 0, 0)],
+		transform: createDefaultTransform(),
+	};
+	const stroked: Path = {
+		...red,
+		id: generateUid("stroked"),
+		segments: rectSegments(100, 0, 100, 100),
+		filters: [solidFill(0, 1, 0), multiplyStroke(0, 0, 1, 40)],
+	};
+	const sibling: Path = {
+		...red,
+		id: generateUid("sibling"),
+		segments: rectSegments(-100, 0, 100, 100),
+		filters: [solidFill(0, 1, 0)],
+	};
+	const clipPath: Path = {
+		...red,
+		id: generateUid("clip"),
+		segments: rectSegments(0, 0, 400, 300),
+		filters: [],
+	};
+	const children =
+		container === "clip-multi" ? [stroked.id, sibling.id] : [stroked.id];
+	const group: Group = {
+		type: "group",
+		id: generateUid("group"),
+		opacity: 1,
+		blendMode: "normal",
+		childIds: container === "group" ? children : [...children, clipPath.id],
+		clipPathId: container === "group" ? undefined : clipPath.id,
+		transform: createDefaultTransform(),
+		filters: [],
+	};
+	for (const el of [red, stroked, sibling, clipPath, group]) {
+		doc.objects[el.id] = el;
+	}
+	layer.elementIds.push(red.id, group.id);
+	doc.layers = [layer];
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	texture.destroy();
+	const at = (x: number, y: number) => {
+		const i = (y * 800 + x) * 4;
+		return [pixels[i], pixels[i + 1], pixels[i + 2]] as const;
+	};
+	return { stroke: at(545, 300), fill: at(500, 300) };
+}
+
+function multiplyStroke(
+	r: number,
+	g: number,
+	b: number,
+	width: number,
+): StrokeAppearance {
+	return {
+		uid: generateUid("stroke"),
+		processor: "stroke",
+		opacity: 1,
+		blendMode: "multiply",
+		paramData: {
+			version: "1",
+			params: {
+				strokeColor: {
+					type: "solid",
+					color: { type: "rgb", r, g, b, a: 1 },
+				},
+				brushSettings: createStrokeBrushSettings(width),
+			},
+		},
+	};
+}
+
+/**
+ * Red rect under a clip group holding a green normal rect on the left and a
+ * blue multiply rect on the right, both inside the clip. Wrapping everything
+ * in a group with `outerOpacity` < 1 routes the whole thing through an
+ * offscreen bake; `nestedInClip` wraps the clip group in another clip group
+ * with the same clip shape. Samples the blue rect's centre and the green
+ * rect's centre.
+ */
+async function renderMultiChildClipMultiplyAndSample(
+	outerOpacity = 1,
+	nestedInClip = false,
+) {
+	const { renderer, canvas } = await createTestRenderer();
+	const doc = createDefaultDocument("multi-child-clip-multiply-vrt");
+	const layer = createDefaultLayer("layer-bg", "Background");
+	const red: Path = {
+		type: "path",
+		id: generateUid("red"),
+		opacity: 1,
+		blendMode: "normal",
+		segments: rectSegments(0, 0, 400, 300),
+		filters: [solidFill(1, 0, 0)],
+		transform: createDefaultTransform(),
+	};
+	const green: Path = {
+		...red,
+		id: generateUid("green"),
+		segments: rectSegments(-100, 0, 100, 100),
+		filters: [solidFill(0, 1, 0)],
+	};
+	const blue: Path = {
+		...red,
+		id: generateUid("blue"),
+		blendMode: "multiply",
+		segments: rectSegments(100, 0, 100, 100),
+		filters: [solidFill(0, 0, 1)],
+	};
+	const clipPath: Path = {
+		...red,
+		id: generateUid("clip"),
+		segments: rectSegments(0, 0, 300, 300),
+		filters: [],
+	};
+	const group: Group = {
+		type: "group",
+		id: generateUid("group"),
+		opacity: 1,
+		blendMode: "normal",
+		childIds: [green.id, blue.id, clipPath.id],
+		clipPathId: clipPath.id,
+		transform: createDefaultTransform(),
+		filters: [],
+	};
+	const outerClipPath: Path = { ...clipPath, id: generateUid("outer-clip") };
+	const outerClip: Group = {
+		...group,
+		id: generateUid("outer-clip-group"),
+		childIds: [group.id, outerClipPath.id],
+		clipPathId: outerClipPath.id,
+	};
+	const outer: Group = {
+		...group,
+		id: generateUid("outer"),
+		opacity: outerOpacity,
+		childIds: [red.id, nestedInClip ? outerClip.id : group.id],
+		clipPathId: undefined,
+	};
+	for (const el of [
+		red,
+		green,
+		blue,
+		clipPath,
+		group,
+		...(nestedInClip ? [outerClipPath, outerClip] : []),
+		outer,
+	]) {
+		doc.objects[el.id] = el;
+	}
+	layer.elementIds.push(outer.id);
+	doc.layers = [layer];
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	texture.destroy();
+	const at = (x: number, y: number) => {
+		const i = (y * 800 + x) * 4;
+		return [pixels[i], pixels[i + 1], pixels[i + 2]] as const;
+	};
+	return { inside: at(500, 300), sibling: at(300, 300) };
+}
+
+/**
+ * A dark rect filling the whole clip square under a light rect that crosses
+ * the clip's right edge (world x 100.5, halfway through screen column 500),
+ * over a white rect. With `wrapped` the two rects sit in a passthrough group
+ * inside the clip group, the shape svgImport produces. Returns the row through
+ * the crossing: columns 496..499, column 500, and columns 501..504.
+ */
+async function renderOverlappingClippedChildrenAndSampleEdge(wrapped: boolean) {
+	const { renderer, canvas } = await createTestRenderer();
+	const doc = createDefaultDocument("overlapping-clipped-children-vrt");
+	const layer = createDefaultLayer("layer-bg", "Background");
+	const white: Path = {
+		type: "path",
+		id: generateUid("white"),
+		opacity: 1,
+		blendMode: "normal",
+		segments: rectSegments(0, 0, 800, 600),
+		filters: [solidFill(1, 1, 1)],
+		transform: createDefaultTransform(),
+	};
+	const dark: Path = {
+		...white,
+		id: generateUid("dark"),
+		segments: rectSegments(0.5, 0, 200, 200),
+		filters: [solidFill(0.58, 0.38, 0.38)],
+	};
+	const light: Path = {
+		...white,
+		id: generateUid("light"),
+		segments: rectSegments(150, 0, 200, 100),
+		filters: [solidFill(1, 0.95, 0.95)],
+	};
+	const clipPath: Path = {
+		...dark,
+		id: generateUid("clip"),
+		filters: [],
+	};
+	const inner: Group = {
+		type: "group",
+		id: generateUid("inner"),
+		opacity: 1,
+		blendMode: "normal",
+		childIds: [dark.id, light.id],
+		transform: createDefaultTransform(),
+		filters: [],
+	};
+	const group: Group = {
+		...inner,
+		id: generateUid("group"),
+		childIds: [...(wrapped ? [inner.id] : [dark.id, light.id]), clipPath.id],
+		clipPathId: clipPath.id,
+	};
+	for (const el of [white, dark, light, clipPath, inner, group]) {
+		doc.objects[el.id] = el;
+	}
+	layer.elementIds.push(white.id, group.id);
+	doc.layers = [layer];
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	texture.destroy();
+	const at = (x: number) => {
+		const o = (300 * 800 + x) * 4;
+		return [pixels[o], pixels[o + 1], pixels[o + 2]] as const;
+	};
+	return {
+		inside: [496, 497, 498, 499].map(at),
+		edge: at(500),
+		outside: [501, 502, 503, 504].map(at),
+	};
 }
 
 /**

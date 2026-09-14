@@ -1284,7 +1284,7 @@ export function buildFramePlanView(
 }
 
 /** Check whether any element (including group children) has non-normal compositionMode. */
-function scanBlendingFlags(
+export function scanBlendingFlags(
 	elements: AnyArtObject[],
 	elementsMap: Map<string, AnyArtObject>,
 ): { hasCompositionModeElement: boolean; hasBlendingElement: boolean } {

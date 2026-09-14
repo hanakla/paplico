@@ -34,8 +34,10 @@ import {
 import {
 	applyTransformToBounds,
 	composeTransforms,
+	screenToWorld,
 } from "../../../utils/geometry/geometry";
 import { lerp } from "../../../utils/math";
+import type { RasterFrame } from "../../geometry/strips/stripTypes";
 import { interactiveBakeDensity } from "../CanvasLayer.helpers";
 import {
 	type BlitQuadToCanvasFn,
@@ -49,6 +51,7 @@ import {
 	RENDER_SAMPLE_COUNT,
 	type RenderElementsFn,
 	type RenderElementToMaskFn,
+	type RenderGroupAppearancesFn,
 	type RenderState,
 	type SharedRenderBindings,
 	type ViewportState,
@@ -58,7 +61,10 @@ import { MaskedBlitBindGroupCache } from "../caches/BindGroupCache";
 import type { FilterRenderer } from "./FilterRenderer";
 import { FrameUniformPool } from "./FrameUniformPool";
 import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
-import { calculatePreFilteredElementBounds } from "./RenderPlanner";
+import {
+	calculatePreFilteredElementBounds,
+	scanBlendingFlags,
+} from "./RenderPlanner";
 import {
 	type ColorRenderSurface,
 	createBorrowedTextureRef,
@@ -108,8 +114,16 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 	blitQuadToCanvas: BlitQuadToCanvasFn;
 	/** The inline mask assigned to an element this frame, or the dummy when none. */
 	getElementMaskBindGroup: (elementId: string) => GPUBindGroup;
-	/** Whether a clip group's effective mask is available for inline drawing. */
-	hasInlineClipMask: (groupId: string) => boolean;
+	/** Whether this frame draws a clip group's child inline through its mask. */
+	drawsClipGroupInline: (groupId: string) => boolean;
+	renderGroupAppearances: RenderGroupAppearancesFn;
+	/** The texel space of the pass being encoded right now. */
+	getRasterFrame: () => RasterFrame;
+	/** The effective mask of the clip group enclosing `groupId`, or null at the
+	 *  top of a clip chain. The atlas draws a nested clip path through this
+	 *  mask by writing it into the path's transform slot, and that slot keeps
+	 *  it for the whole frame, so every draw of the path must bind it. */
+	getClipParentMask: (groupId: string) => WorldMaskAssignment | null;
 	/** The ordered post-mask stack assigned to an element. Group
 	 *  children are baked into the group's texture through their own path, which
 	 *  the main pass's inline BG3 and applyPostMasks both miss — so a masked
@@ -1443,10 +1457,15 @@ export class OffscreenPresenter {
 				childMasks.length === 1 &&
 				this.deps.getElementMaskBindGroup(child.id) !==
 					this.deps.dummyMaskBindGroup;
+			// A clip group composites at draw time (renderClipGroup), which
+			// applies its stack to a bake drawn over what this group holds so
+			// far; pre-rasterizing it here would blind its children's blend
+			// modes to that.
+			const drawsClippedAtDrawTime = isGroup(child) && child.clipPathId != null;
 			if (
 				!childNeedsPostPass &&
 				!needsWashIsolation &&
-				(childMasks.length === 0 || hasInlineMask)
+				(childMasks.length === 0 || hasInlineMask || drawsClippedAtDrawTime)
 			) {
 				continue;
 			}
@@ -1756,6 +1775,7 @@ export class OffscreenPresenter {
 			skipElementIds,
 			localBoundsCache,
 			outerMasks,
+			compositeContext,
 		);
 		const blitPass = compositeContext.restartPass();
 		if (!clipped) return blitPass;
@@ -1771,9 +1791,11 @@ export class OffscreenPresenter {
 	}
 
 	/**
-	 * Render a clip group to an offscreen texture and return it.
-	 * Used when a group has both clipPathId and a non-normal blendMode:
-	 * the clip is applied here; the blend mode is applied during compositing.
+	 * Render a clip group to an offscreen texture and return it: the clip is
+	 * applied here, and the caller composites the result. A clip alone does
+	 * not isolate the group, so with `parentContext` the children blend
+	 * against what the parent target holds beneath them; without it (a
+	 * blended group, composited as one layer) they see only each other.
 	 */
 	public renderClipGroupToTexture(
 		encoder: GPUCommandEncoder,
@@ -1786,6 +1808,7 @@ export class OffscreenPresenter {
 		skipElementIds?: ReadonlySet<string>,
 		localBoundsCache?: LocalBoundsCache,
 		outerMasks: readonly WorldMaskAssignment[] = [],
+		parentContext?: CompositeRenderContext,
 	): ColorRenderSurface | null {
 		if (!group.clipPathId) return null;
 
@@ -1809,6 +1832,7 @@ export class OffscreenPresenter {
 		// Step 1: Render children to offscreen texture
 		const sourceResult = this.renderElementsToOffscreenTexture(
 			encoder,
+			group,
 			children,
 			groupBounds,
 			filteredTextures,
@@ -1816,7 +1840,7 @@ export class OffscreenPresenter {
 			1,
 			parentTransform,
 			skipElementIds,
-			undefined,
+			parentContext,
 			localBoundsCache,
 		);
 		if (!sourceResult) return null;
@@ -1840,10 +1864,17 @@ export class OffscreenPresenter {
 			return null;
 		}
 
+		// The clip path's transform slot carries the enclosing clip's mask, so
+		// drawing it through that mask yields the group's effective mask: the
+		// clip intersected with every enclosing clip, at the bake's density.
+		const parentMask = this.deps.getClipParentMask(group.id);
 		this.deps.renderState.currentTransformIndex = this.deps.getTransformIndex(
 			clipPath.id,
 		);
+		this.deps.renderState.currentMaskBindGroup =
+			parentMask?.bindGroup ?? this.deps.dummyMaskBindGroup;
 		this.deps.renderElementToMask(maskCtx.passEncoder, clipPath, elementsMap);
+		this.deps.renderState.currentMaskBindGroup = this.deps.dummyMaskBindGroup;
 		maskCtx.passEncoder.end();
 		this.deps.setActiveBindGroup(null);
 		this.deps.viewportState.bounds = maskCtx.savedViewportBounds;
@@ -1937,11 +1968,14 @@ export class OffscreenPresenter {
 				opacityState: "intrinsic",
 			},
 		);
-		if (outerMasks.length > 0) {
+		// The enclosing clip is already in the mask above; only the rest of
+		// the inherited stack (object masks) still applies.
+		const remainingMasks = outerMasks.filter((mask) => mask !== parentMask);
+		if (remainingMasks.length > 0) {
 			const masked = this.applyWorldMasksToTexture(
 				encoder,
 				surface,
-				outerMasks,
+				remainingMasks,
 				this.deps.getRasterScale(),
 			);
 			if (masked) {
@@ -1956,12 +1990,15 @@ export class OffscreenPresenter {
 
 	/**
 	 * Build a CompositeRenderContext for an offscreen pass, enabling
-	 * mask-based clip group masking within it.
+	 * mask-based clip group masking within it. `baseTexture` is what lies
+	 * beneath the pass in its own texel space, so blend modes inside it see
+	 * through to the parent target.
 	 */
 	private buildOffscreenCompositeContext(
 		encoder: GPUCommandEncoder,
 		offscreenTexture: GPUTexture,
 		entry: UniformEntry,
+		baseTexture?: GPUTexture,
 	): CompositeRenderContext {
 		const colorAttachment: GPURenderPassColorAttachment = {
 			view: offscreenTexture.createView(),
@@ -1972,6 +2009,7 @@ export class OffscreenPresenter {
 		return {
 			encoder,
 			targetTexture: offscreenTexture,
+			baseTexture,
 			restartPass: () => {
 				this.deps.setActiveBindGroup(entry, true);
 				const p = encoder.beginRenderPass({
@@ -2306,13 +2344,10 @@ export class OffscreenPresenter {
 					const childWorldTransform = ancestorTransform
 						? composeTransforms(ancestorTransform, getTransform(child))
 						: getTransform(child);
-					// A clip alone does not isolate the group: draw its children
-					// inline through the effective mask so their blend modes see
-					// what this bake has drawn so far, as in the main pass.
-					if (
-						this.deps.hasInlineClipMask(child.id) &&
-						(child.blendMode === "normal" || child.blendMode === undefined)
-					) {
+					// A clip alone does not isolate the group: an inline clip group
+					// draws its child through the effective mask so its blend mode
+					// sees what this bake has drawn so far, as in the main pass.
+					if (this.deps.drawsClipGroupInline(child.id)) {
 						activePass = this.deps.renderElements(
 							activePass,
 							clipChildren,
@@ -2341,6 +2376,8 @@ export class OffscreenPresenter {
 						ancestorTransform ?? null,
 						undefined,
 						compositeContext,
+						undefined,
+						this.deps.getElementPostMasks(child.id),
 					);
 				} else {
 					// Nested groups: render their children recursively,
@@ -2858,6 +2895,7 @@ export class OffscreenPresenter {
 	 */
 	private renderElementsToOffscreenTexture(
 		encoder: GPUCommandEncoder,
+		group: Group,
 		elements: AnyArtObject[],
 		textureBounds: WorldBBox,
 		filteredTextures: Map<string, FilteredTextureInfo>,
@@ -2865,9 +2903,15 @@ export class OffscreenPresenter {
 		alphaMultiplier: number,
 		parentTransform: ElementTransform | null,
 		skipElementIds?: ReadonlySet<string>,
-		_compositeContext?: CompositeRenderContext,
+		parentContext?: CompositeRenderContext,
 		localBoundsCache?: LocalBoundsCache,
 	): ColorRenderSurface | null {
+		// Read the parent's texel space before this pass pushes its own.
+		const parentFrame =
+			parentContext &&
+			scanBlendingFlags(elements, elementsMap).hasBlendingElement
+				? this.deps.getRasterFrame()
+				: null;
 		const ctx = this.createOffscreenPass(
 			encoder,
 			"Clip Group",
@@ -2883,26 +2927,49 @@ export class OffscreenPresenter {
 		);
 		if (!ctx) return null;
 
-		const {
-			offscreenTexture,
-			entry,
-			passEncoder: offscreenPassEncoder,
-			savedViewportBounds,
-		} = ctx;
+		const { offscreenTexture, entry, savedViewportBounds } = ctx;
+		let offscreenPassEncoder = ctx.passEncoder;
 
+		// Only one pass can be open on the encoder: the bake pass yields
+		// while the parent's backdrop is projected into the bake's texel space.
+		let baseTexture: GPUTexture | undefined;
+		if (parentContext && parentFrame) {
+			offscreenPassEncoder.end();
+			baseTexture = this.projectParentBackdrop(
+				encoder,
+				parentContext,
+				parentFrame,
+				offscreenTexture,
+			);
+		}
 		const offscreenCompositeContext = this.buildOffscreenCompositeContext(
 			encoder,
 			offscreenTexture,
 			entry,
+			baseTexture,
 		);
+		if (baseTexture) {
+			offscreenPassEncoder = offscreenCompositeContext.restartPass();
+		}
 
 		// Swap captureTexture to offscreen-sized one so that blend mode
 		// compositing inside this offscreen pass uses the correct dimensions.
 		const { savedCaptureTexture, offscreenCaptureTexture } =
 			this.swapCaptureTexture(offscreenTexture.width, offscreenTexture.height);
 
-		const finalPassEncoder = this.deps.renderElements(
+		// The group's own appearances wrap its children here as they do in
+		// the main pass, so a clipped group keeps its fill and stroke.
+		const beforePass = this.deps.renderGroupAppearances(
 			offscreenPassEncoder,
+			group,
+			"before",
+			alphaMultiplier,
+			"offscreen",
+			elementsMap,
+			offscreenCompositeContext,
+		);
+		const childrenPass = this.deps.renderElements(
+			beforePass,
 			elements,
 			filteredTextures,
 			elementsMap,
@@ -2913,9 +2980,21 @@ export class OffscreenPresenter {
 			offscreenCompositeContext,
 			localBoundsCache,
 		);
+		const finalPassEncoder = this.deps.renderGroupAppearances(
+			childrenPass,
+			group,
+			"after",
+			alphaMultiplier,
+			"offscreen",
+			elementsMap,
+			offscreenCompositeContext,
+		);
 
 		finalPassEncoder.end();
 
+		// The base is read until the bake's last composite; releasing it earlier
+		// would let a nested bake's projection acquire it as its own target.
+		this.deferDestroy(baseTexture);
 		this.deps.compositeState.captureTexture = savedCaptureTexture;
 		this.deferDestroy(offscreenCaptureTexture);
 
@@ -2936,6 +3015,55 @@ export class OffscreenPresenter {
 				opacityState: "intrinsic",
 			},
 		);
+	}
+
+	/**
+	 * Draw what the parent target shows beneath a bake (its own base, then
+	 * its content) into a texture in the bake's texel space, for the bake's
+	 * composite context to use as the blend-mode base. The parent texture's
+	 * world corners come from the parent frame, so a rotated or resampled
+	 * parent projects correctly.
+	 */
+	private projectParentBackdrop(
+		encoder: GPUCommandEncoder,
+		parentContext: CompositeRenderContext,
+		parentFrame: RasterFrame,
+		bakeTexture: GPUTexture,
+	): GPUTexture {
+		const { viewport, width, height } = parentFrame;
+		const corner = (x: number, y: number) =>
+			screenToWorld(x, y, viewport, width, height);
+		const corners = [
+			corner(0, 0),
+			corner(width, 0),
+			corner(width, height),
+			corner(0, height),
+		] as const;
+		const texture = this.deps.texturePool.acquire(
+			bakeTexture.width,
+			bakeTexture.height,
+			this.deps.canvasFormat,
+			1,
+			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+			"Offscreen Backdrop Texture",
+		);
+		const pass = encoder.beginRenderPass({
+			label: "Offscreen Backdrop Pass",
+			colorAttachments: [
+				{
+					view: texture.createView(),
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+			],
+		});
+		if (parentContext.baseTexture) {
+			this.deps.blitQuadToCanvas(pass, parentContext.baseTexture, corners);
+		}
+		this.deps.blitQuadToCanvas(pass, parentContext.targetTexture, corners);
+		pass.end();
+		return texture;
 	}
 
 	/**
