@@ -5,7 +5,7 @@
 
 このページは、ブラウザのPointer Eventが `CubicBezierSegment[]` へ変換されるまでの処理を説明する。対象はブラシツールの中心線である。Dabの生成、幅の焼き込み、Yjsへの保存は扱わない。
 
-ブラシツールは入力中とpointerup後で異なるフィッティング経路を使う。入力中は末尾だけを更新しやすい増分処理を使う。pointerup後は保存していた全raw pointsを処理し直す。両方の経路をつなぐデータはpreview segmentsではなくraw pointsである。
+ブラシツールは入力中に増分フィッティングを行う。pointerup後は同じフィット結果からinput knotを除いたsegment列を保存する。表示中の中心線を確定時に再フィットしない。
 
 ```mermaid
 flowchart TD
@@ -16,9 +16,7 @@ flowchart TD
     E -->|入力中| F[IncrementalStrokeFitter]
     F --> G[frozen prefixとmutable tail]
     G --> H[preview segments]
-    E -->|pointerup| I[全raw points]
-    I --> J[processStroke]
-    J --> K[committed segments]
+    H -->|pointerup| K[knotを除いた同じfitを保存]
 ```
 
 ## Pointer入力をツールへ渡す
@@ -62,11 +60,15 @@ sequenceDiagram
 
 透視スナップが有効な場合はワールド座標のXとYを射影する。pressure、tilt、twistは入力値を維持する。
 
-`PenTool` は `BrushStrokeSession` を作る。最初のraw pointは `deltaTime: 0` で追加する。ストロークの開始時刻は `performance.now()` で保持する。
+`PenTool` は `BrushStrokeSession` を作る。最初のraw pointは `deltaTime: 0` で追加する。ストロークの開始時刻は `pointerdown` イベントの `timeStamp` で保持する。最初の `pointermove` のcoalesced sampleはハンドラより前の時刻を持つためである。
 
-各raw pointはワールド座標、pressure、tiltX、tiltY、twist、ストローク開始からの `deltaTime` を持つ。coalesced sampleの時刻には `sample.timeStamp - startTime` を使う。coalesced sampleがない場合は `performance.now() - startTime` を使う。
+各raw pointはワールド座標、pressure、tiltX、tiltY、twist、ストローク開始からの `deltaTime` を持つ。coalesced sampleの時刻には `sample.timeStamp - startTime` を使う。coalesced sampleがない場合は `event.timeStamp - startTime` を使う。
 
-`BrushStrokeSession.append` はraw pointをストローク全体の配列へ保存する。同じ点を `IncrementalStrokeFitter.push` にも渡す。増分フィッター内のdedupeは作業用点列だけを削減する。sessionが持つraw pointsは削除しない。
+`BrushStrokeSession.append` は入力点をストローク全体の配列へ保存する。接触後100ミリ秒までは元の筆圧も保持する。一度3画面px以上動いた後は、最新の筆圧を基準に接触部分の突出を補正し続ける。移動距離だけでは補正期間を終了しない。
+
+補正対象は、基準筆圧との差が `max(0.01, reference * 0.25)` を超える場合である。1点あたりの下げ幅は0.5までとする。100ミリ秒以内に3画面px動かずに離した点描は記録どおり確定する。100ミリ秒に達したサンプルで補正を確定する。
+
+補正期間中もプレビューを表示する。各更新で元の筆圧から再計算する。補正済みの短い点列からフィッターを再構築する。補正が確定した後は `IncrementalStrokeFitter.push` へ新しい点だけを渡す。増分フィッター内のdedupeは作業用点列だけを削減する。sessionが持つ入力点は削除しない。
 
 一部のDabブラシは、ペンが動いていない間も時間経過でDabを生成する。timed dabが有効な場合は25ミリ秒周期で最後の座標を追加する。座標と入力属性は維持する。`deltaTime` だけを進める。
 
@@ -114,7 +116,7 @@ weightはindex距離 `d` から求める。
 weight = exp(-d² / (2 * sigma²))
 ```
 
-X、Y、pressure、tilt、`deltaTime` を同じkernelで平均する。twistは角度の不連続を避けるため、sinとcosを平均する。strokeの先頭と末尾はraw値を維持する。
+X、Y、tilt、`deltaTime` を同じkernelで平均する。pressureは入力値を維持する。twistはsinとcosを平均する。角度の不連続を避けるためである。strokeの先頭と末尾はraw値を維持する。
 
 cornerをまたいで平均すると意図した角まで丸くなる。このため、平滑化前のraw pointsでcornerを先に検出する。各corner間を独立して平滑化する。cornerは各sectionの端点になる。Gaussian kernelはsection境界を越えない。
 
@@ -202,7 +204,7 @@ stableなtailが128点を超えた場合は、末尾16点を残して前方をpr
 
 tailのfitでは、現在の平滑化点へ隣接3点の45度corner detectionを実行する。frozen prefixとfitし直したtailを連結した結果がpreview segmentsになる。
 
-ライブsegmentは入力時刻の変化も保持する。端点間を線形補間した時刻から8ミリ秒を超えて外れるraw pointがある場合は、de Casteljau subdivisionでsegmentを分割する。最大16個のtime knotを追加する。geometryは変更しない。segment端の時間密度だけを増やす。
+ライブsegmentは入力時刻と筆圧の変化も保持する。端点間を線形補間した時刻から8ミリ秒、または筆圧から0.05を超えて外れるraw pointがある場合は、de Casteljau subdivisionでsegmentを分割する。最大16個のinput knotを追加する。geometryは変更しない。segment端の時刻と筆圧の密度だけを増やす。
 
 `PenTool.updatePreview` はpreview segmentsから一時的な `Path` を作る。このPathはtransient elementとして描画する。Yjsには保存しない。次の入力で置き換える。ストロークを確定または中断すると削除する。
 
@@ -212,47 +214,17 @@ tailのfitでは、現在の平滑化点へ隣接3点の45度corner detectionを
 - `pkgs/web/src/core/Paplico.ts`
 - `pkgs/web/src/core/renderer/RenderScheduler.ts`
 
-## pointerup時に全体をprocessStrokeする
+## pointerup時に同じfitを保存する
 
 `PaplicoUI.handlePointerUp` はpointer captureを解放した後に `PenTool.onPointerUp` を呼ぶ。
 
-`BrushStrokeSession.commit` は保存していた全raw pointsを返す。raw pointsが2点未満の場合はPathを作らない。
+`BrushStrokeSession.commit` は記録用の入力点を返す。入力点が2点未満の場合はPathを作らない。
 
-2点以上の場合は `processStroke` が全raw pointsを処理する。入力中に作ったpreview segmentsは再利用しない。
+`PenTool` は `IncrementalStrokeFitter.getPlainSegments` からPathを作る。frozen prefixとtailのfitはプレビューと同じで、input knotだけを含まない。幅プロファイルとアピアランスはプレビューと同じ値を保存する。
 
-```mermaid
-flowchart LR
-    A[全raw points] --> B[0.5 world unitでdedupe]
-    B --> C[最後のraw pointを保証]
-    C --> D[選択中のstabilization]
-    D --> E[corner detection]
-    E --> F[各sectionをrecursive fit]
-    F --> G[committed segments]
-```
+増分fitの人工的なsection境界は保存される。パス編集ではこれもアンカーとして扱う。input knotを除くと、筆圧をアンカーから読む性質はアンカー間で線形補間になる。幅は焼き込んだプロファイルから読む。幅は変わらない。
 
-`processStroke` はストローク全体を次の順で処理する。
-
-1. 連続する近接点を0.5 world unitでdedupeする。
-2. 最後のraw pointを必ず残す。
-3. 選択中のsmoothing methodで点列を安定化する。
-4. corner detectionでsection境界を決める。
-5. 各sectionをcubic Bézierへ再帰的にfitする。
-6. absolute cubicを `CubicBezierSegment[]` へ変換する。
-
-確定処理には、プレビューのfrozen prefix、128点の強制freeze、time knot subdivisionがない。全raw pointsを使ってストローク全体を構成する。
-
-## プレビューと確定処理の違い
-
-| 観点 | ライブプレビュー | pointerup後 |
-|---|---|---|
-| 入力 | 現在までのraw points | 全raw points |
-| fit | `IncrementalStrokeFitter` | `processStroke` |
-| 更新範囲 | frozen prefix以外のtail | ストローク全体 |
-| 人工的なsection境界 | stable tailが128点を超えた位置 | なし |
-| time knot | 最大16個を追加する | 追加しない |
-| 出力 | 一時Pathのsegments | 確定Pathへ渡すsegments |
-
-入力中の形と保存後の形をつなぐデータは `BrushStrokeSession` が保持するraw pointsである。
+幅プロファイルの生成は[ブラシ動特性と確定処理](/devdocs/brush-system/dynamics-and-commit)で説明する。
 
 ## ソースコード案内
 

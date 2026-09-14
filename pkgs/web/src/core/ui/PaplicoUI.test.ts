@@ -432,6 +432,56 @@ describe("PaplicoUI multi-finger tap", () => {
 });
 
 describe("PaplicoUI pen input passthrough", () => {
+	it("should distinguish repeated DOM events from separate input sources", () => {
+		const first = createHarness("pen", 50);
+		const second = createHarness("pen", 50);
+		for (const harness of [first, second]) {
+			dispatchPointer(harness.canvas, "pointerdown", {
+				clientX: 100,
+				clientY: 100,
+				pointerType: "pen",
+			});
+		}
+		const move = new PointerEvent("pointermove", {
+			bubbles: true,
+			pointerId: 1,
+			pointerType: "pen",
+			buttons: 1,
+			clientX: 120,
+			clientY: 100,
+			pressure: 0.5,
+		});
+		Object.defineProperty(move, "isTrusted", { value: true });
+		first.canvas.dispatchEvent(move);
+		first.canvas.dispatchEvent(move);
+		second.canvas.dispatchEvent(move);
+		const original = first.tool.onPointerMove.mock.calls[0][0].diagnostics;
+		const repeated = first.tool.onPointerMove.mock.calls[1][0].diagnostics;
+		const otherSource = second.tool.onPointerMove.mock.calls[0][0].diagnostics;
+		expect(first.tool.onPointerMove.mock.calls[0][0].timeStamp).toBe(
+			move.timeStamp,
+		);
+		expect(original).toMatchObject({
+			type: "pointermove",
+			pointerId: 1,
+			buttons: 1,
+			isTrusted: true,
+		});
+		expect(repeated.eventId).toBe(original.eventId);
+		expect(repeated.sourceId).toBe(original.sourceId);
+		expect(otherSource.eventId).toBe(original.eventId);
+		expect(otherSource.sourceId).not.toBe(original.sourceId);
+		expect(repeated.receivedAt).toBeGreaterThanOrEqual(original.receivedAt);
+		dispatchPointer(first.canvas, "pointermove", {
+			clientX: 120,
+			clientY: 100,
+			pointerType: "pen",
+		});
+		expect(
+			first.tool.onPointerMove.mock.calls[2][0].diagnostics.eventId,
+		).not.toBe(original.eventId);
+	});
+
 	it("should forward PointerEvent.twist to the tool event data", () => {
 		const harness = createHarness("pen", 50);
 

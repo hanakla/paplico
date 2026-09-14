@@ -598,6 +598,161 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 		expect(penTool.getCurrentStroke()).toHaveLength(4);
 	});
 
+	it("should discard an identical consecutive coalesced batch", () => {
+		penTool.onPointerDown(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		const now = performance.now();
+		const move = {
+			...ev(440, 300),
+			diagnostics: {
+				eventId: 1,
+				sourceId: 2,
+				type: "pointermove",
+				pointerId: 3,
+				buttons: 1,
+				isTrusted: true,
+				timeStamp: now + 8,
+				receivedAt: now + 10,
+			},
+			coalesced: [
+				coalescedSample(420, 300, now + 4),
+				coalescedSample(440, 300, now + 8),
+			],
+		};
+		penTool.onPointerMove(
+			move,
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		penTool.onPointerMove(
+			{
+				...move,
+				diagnostics: { ...move.diagnostics, eventId: 2 },
+				coalesced: move.coalesced.map((sample) => ({ ...sample })),
+			},
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		penTool.onPointerUp(
+			ev(440, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		const record = penTool.getLastStroke();
+		expect(record?.points).toHaveLength(3);
+		expect(
+			record?.diagnostics?.events.map(
+				({ phase, pointStartIndex, pointEndIndex, discardedDuplicate }) => [
+					phase,
+					pointStartIndex,
+					pointEndIndex,
+					discardedDuplicate,
+				],
+			),
+		).toEqual([
+			["down", 0, 1, false],
+			["move", 1, 3, false],
+			["move", 3, 3, true],
+			["up", 3, 3, false],
+		]);
+		const batch = record?.diagnostics?.events[1];
+		expect(batch?.event).toEqual(move);
+		expect(record?.diagnostics?.events[2].event.diagnostics?.eventId).toBe(2);
+		expect(batch?.viewport).toEqual(testViewport);
+		expect(batch?.canvasWidth).toBe(testCanvasWidth);
+		expect(batch?.canvasHeight).toBe(testCanvasHeight);
+		expect(record?.points[1].deltaTime).toBeCloseTo(
+			now + 4 - (record?.diagnostics?.startTime ?? 0),
+		);
+		move.coalesced[0].x = 999;
+		expect(batch?.event.coalesced?.[0].x).toBe(420);
+		penTool.onPointerDown(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		penTool.onPointerMove(
+			ev(420, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		penTool.onPointerUp(
+			ev(420, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		expect(penTool.getLastStroke()?.diagnostics?.events).toHaveLength(3);
+		expect(record?.diagnostics?.events).toHaveLength(4);
+	});
+
+	it("should retain a consecutive coalesced batch when any sample changes", () => {
+		penTool.onPointerDown(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		const now = performance.now();
+		const samples = [
+			coalescedSample(420, 300, now + 4),
+			coalescedSample(440, 300, now + 8),
+		];
+		penTool.onPointerMove(
+			{ ...ev(440, 300), coalesced: samples },
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		penTool.onPointerMove(
+			{
+				...ev(440, 301),
+				coalesced: [samples[0], { ...samples[1], y: 301 }],
+			},
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(penTool.getCurrentStroke()).toHaveLength(5);
+	});
+
+	it("should omit the input trace in production", () => {
+		vi.stubEnv("NODE_ENV", "production");
+		try {
+			penTool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			penTool.onPointerMove(
+				ev(420, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			penTool.onPointerUp(
+				ev(420, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			expect(penTool.getLastStroke()?.diagnostics).toBeUndefined();
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
 	it("should reuse frozen preview segments across moves", () => {
 		penTool.onPointerDown(
 			ev(100, 300),
@@ -608,7 +763,9 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 		// Long wavy motion: enough points to trigger the forced freeze.
 		for (let i = 1; i <= 400; i++) {
 			penTool.onPointerMove(
-				ev(100 + i, 300 + Math.sin(i * 0.08) * 20),
+				ev(100 + i, 300 + Math.sin(i * 0.08) * 20, {
+					timeStamp: performance.now() + i * 8,
+				}),
 				testViewport,
 				testCanvasWidth,
 				testCanvasHeight,
@@ -700,9 +857,11 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 
 	describe("strokeWidths baking on commit", () => {
 		let bakedPaths: Path[] = [];
+		let previewPaths: Path[] = [];
 
 		beforeEach(() => {
 			bakedPaths = [];
+			previewPaths = [];
 		});
 
 		function toolWith(appearance: StrokeAppearance): PenTool {
@@ -710,6 +869,9 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 				createMockToolContext({
 					strokeComplete: (path) => {
 						bakedPaths.push(path);
+					},
+					previewUpdate: (path) => {
+						if (path) previewPaths.push(path);
 					},
 					getActiveStrokeAppearance: () => appearance,
 				}),
@@ -788,6 +950,26 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 			expect(widths[0].side1).toBeGreaterThan(widths[widths.length - 1].side1);
 		});
 
+		it("should commit the displayed width without the preview's input knots", () => {
+			drawPressureStroke(toolWith(pressureBrushAppearance()));
+			const preview = previewPaths.at(-1);
+			if (!preview?.strokeWidths) throw new Error("Missing pen preview");
+			const committed = bakedPaths[0];
+			if (!committed.strokeWidths) throw new Error("Missing committed widths");
+			expect(committed.filters).toBe(preview.filters);
+			expect(committed.segments.length).toBeLessThanOrEqual(
+				preview.segments.length,
+			);
+			for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+				expect(
+					interpolateStrokeWidths(committed.strokeWidths, t).side1,
+				).toBeCloseTo(
+					interpolateStrokeWidths(preview.strokeWidths, t).side1,
+					2,
+				);
+			}
+		});
+
 		it("should keep the committed brush settings untouched", () => {
 			drawPressureStroke(toolWith(pressureBrushAppearance()));
 
@@ -862,9 +1044,10 @@ describe("PenTool incremental live stroke (BrushStrokeSession)", () => {
 					testCanvasWidth,
 					testCanvasHeight,
 				);
-				// Fast half: 25px every 2ms. Slow half: 25px every 60ms.
+				// Fast half: 25px every 2ms. Slow half: 25px every 200ms, well
+				// past the contact speed window.
 				for (let i = 1; i <= 16; i++) {
-					vi.advanceTimersByTime(i <= 8 ? 2 : 60);
+					vi.advanceTimersByTime(i <= 8 ? 2 : 200);
 					tool.onPointerMove(
 						ev(200 + i * 25, 300, { pressure: 0.5 }),
 						testViewport,

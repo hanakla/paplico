@@ -396,6 +396,81 @@ describe("evaluateDabs", () => {
 		});
 	});
 
+	describe("contact speed window", () => {
+		const speedSizeSettings = () =>
+			dabSettings({
+				properties: {
+					size: {
+						base: 10,
+						curves: [
+							{
+								input: "speedFine",
+								points: [
+									[0, 0],
+									[1, -0.5],
+								],
+							},
+						],
+					},
+					spacing: { base: 0.2 },
+					flow: { base: 1 },
+				},
+			});
+		// 1px per 10ms while the stylus lingers, then 20px per 10ms.
+		const lingerThenRun = (lingerMs: number): CubicBezierSegment[] => {
+			const segments: CubicBezierSegment[] = [];
+			let x = 0;
+			for (let t = 0; t < lingerMs + 400; t += 10) {
+				const step = t < lingerMs ? 1 : 20;
+				segments.push(
+					lineSegment({
+						start: segments.length === 0 ? { x: 0, y: 0 } : undefined,
+						cp1: { x: step / 3, y: 0 },
+						cp2: { x: -step / 3, y: 0 },
+						end: { x: x + step, y: 0 },
+						startDeltaTime: t,
+						endDeltaTime: t + 10,
+						isMoved: segments.length === 0,
+					}),
+				);
+				x += step;
+			}
+			return segments;
+		};
+
+		it("should draw a lingering contact at the speed the hand reaches", () => {
+			const buffer = evaluateDabs(lingerThenRun(100), speedSizeSettings());
+			const first = readDabField(buffer.data, 0, "sizeX");
+			const running = readDabField(buffer.data, buffer.count - 1, "sizeX");
+			expect(first).toBeCloseTo(running, 1);
+			expect(first).toBeLessThan(6);
+		});
+
+		it("should leave a slowdown after the window at its own speed", () => {
+			const settings = speedSizeSettings();
+			const segments = lingerThenRun(0);
+			// Slow down again well after the window.
+			let x = segments[segments.length - 1].end.x;
+			for (let t = 400; t < 600; t += 10) {
+				segments.push(
+					lineSegment({
+						start: undefined,
+						cp1: { x: 1 / 3, y: 0 },
+						cp2: { x: -1 / 3, y: 0 },
+						end: { x: x + 1, y: 0 },
+						startDeltaTime: t,
+						endDeltaTime: t + 10,
+						isMoved: false,
+					}),
+				);
+				x += 1;
+			}
+			const buffer = evaluateDabs(segments, settings);
+			const last = readDabField(buffer.data, buffer.count - 1, "sizeX");
+			expect(last).toBeGreaterThan(9);
+		});
+	});
+
 	describe("wet gate", () => {
 		it("should write wet seed fields only while wet is enabled", () => {
 			const wetOn = dabSettings({
@@ -555,11 +630,12 @@ describe("evaluateDabs — incremental resume", () => {
 		const full = evaluateDabs(segments, settings, options);
 		expect(full.count).toBeGreaterThan(10);
 
-		const chunk1 = evaluateDabs([segments[0]], settings, {
+		// The first chunk ends at 210ms, past the contact speed window.
+		const chunk1 = evaluateDabs([segments[0], segments[1]], settings, {
 			...options,
 			totalLength: full.totalLength,
 		});
-		const chunk2 = evaluateDabs([segments[1], segments[2]], settings, {
+		const chunk2 = evaluateDabs([segments[2]], settings, {
 			...options,
 			totalLength: full.totalLength,
 			resume: chunk1.state,

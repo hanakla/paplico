@@ -21,8 +21,6 @@ export function hashStrokeGeometry(
 	dashArray?: readonly number[],
 	dashOffset?: number,
 	strokeWidths?: StrokeWidthPoint[],
-	taperStart?: number,
-	taperEnd?: number,
 	pathStart?: number,
 	pathEnd?: number,
 	zoomBucket?: number,
@@ -50,8 +48,6 @@ export function hashStrokeGeometry(
 			h = (h * 31 + floatBits(sw.side2)) | 0;
 		}
 	}
-	h = (h * 31 + floatBits(taperStart ?? 0)) | 0;
-	h = (h * 31 + floatBits(taperEnd ?? 0)) | 0;
 	h = (h * 31 + floatBits(pathStart ?? 0)) | 0;
 	h = (h * 31 + floatBits(pathEnd ?? 1)) | 0;
 	// Round join/cap subdivision follows the device-space error budget, so

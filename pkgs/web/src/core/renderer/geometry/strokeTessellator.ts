@@ -1,5 +1,4 @@
 import type { LineCap, LineJoin, StrokeWidthPoint } from "../../schema";
-import { resolveTaper, taperFactor } from "./taper";
 
 export interface StrokeTessellateInput {
 	points: number[];
@@ -11,10 +10,6 @@ export interface StrokeTessellateInput {
 	miterLimit: number;
 	isClosed: boolean;
 	strokeWidths?: StrokeWidthPoint[];
-	/** Entry taper length in world units (0/undefined = off). Ignored for closed paths. */
-	taperStart?: number;
-	/** Exit taper length in world units (0/undefined = off). Ignored for closed paths. */
-	taperEnd?: number;
 	/** Fragment range covered by `points` within the whole stroke (defaults 0..1). */
 	pathStart?: number;
 	/** @see pathStart */
@@ -72,8 +67,6 @@ export function tessellateStroke(
 		miterLimit,
 		isClosed,
 		strokeWidths,
-		taperStart,
-		taperEnd,
 		pathStart = 0,
 		pathEnd = 1,
 		arcParams,
@@ -95,14 +88,11 @@ export function tessellateStroke(
 	}
 
 	const hasStrokeWidths = strokeWidths != null && strokeWidths.length > 0;
-	// Taper never applies to closed paths (they have no start/end).
-	const taperRequested =
-		!isClosed && ((taperStart ?? 0) > 0 || (taperEnd ?? 0) > 0);
 
 	// Arc-length parameterization (matches StampGenerator's pathT = cumulativeDist / totalLength)
 	let arcLengths: Float64Array | null = null;
 	let totalArcLength = 0;
-	if (hasStrokeWidths || taperRequested || arcParams) {
+	if (hasStrokeWidths || arcParams) {
 		arcLengths = new Float64Array(pointCount);
 		for (let i = 1; i < pointCount; i++) {
 			const dx = points[i * 2] - points[(i - 1) * 2];
@@ -110,22 +100,6 @@ export function tessellateStroke(
 			arcLengths[i] = arcLengths[i - 1] + Math.sqrt(dx * dx + dy * dy);
 		}
 		totalArcLength = arcLengths[pointCount - 1];
-	}
-
-	// Apply the taper before per-side profile derivation so side1/side2 scale with it.
-	if (arcLengths && taperRequested) {
-		const taper = resolveTaper(
-			taperStart,
-			taperEnd,
-			totalArcLength / Math.max(pathEnd - pathStart, 1e-6),
-			pathStart,
-			pathEnd,
-		);
-		if (taper) {
-			for (let i = 0; i < pointCount; i++) {
-				halfWidths[i] *= taperFactor(taper, arcLengths[i], totalArcLength);
-			}
-		}
 	}
 
 	const samples = buildStrokeSamples(

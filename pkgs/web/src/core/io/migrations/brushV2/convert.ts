@@ -96,8 +96,6 @@ function convertV1(
 		strokeOpacity: 1,
 		paintMode: "buildup",
 		randomSeed: v1.randomSeed,
-		taperStart: v1.taperStart,
-		taperEnd: v1.taperEnd,
 		colorMode: v1.colorMode,
 	};
 
@@ -380,10 +378,6 @@ function sanitizeV2(r: Record<string, unknown>): BrushSettings {
 	const inputDynamics = sanitizeInputDynamics(r.inputDynamics);
 	if (inputDynamics) result.inputDynamics = inputDynamics;
 
-	const taperStart = numOpt(r.taperStart);
-	if (taperStart !== undefined) result.taperStart = Math.max(taperStart, 0);
-	const taperEnd = numOpt(r.taperEnd);
-	if (taperEnd !== undefined) result.taperEnd = Math.max(taperEnd, 0);
 	if (r.colorMode === "tinting" || r.colorMode === "color") {
 		result.colorMode = r.colorMode;
 	}

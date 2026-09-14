@@ -38,8 +38,6 @@ export function readV1BrushSettings(raw: unknown): V1BrushSettings {
 		opacityByPressure: num(r.opacityByPressure, 0.3),
 		randomSeed: num(r.randomSeed, 0),
 		colorMode: asColorMode(r.colorMode),
-		taperStart: asNumberOpt(r.taperStart),
-		taperEnd: asNumberOpt(r.taperEnd),
 	};
 
 	switch (r.type) {
@@ -105,8 +103,6 @@ type BrushSettingsCommon = {
 	opacityByPressure: number;
 	randomSeed: number;
 	colorMode?: BrushColorMode;
-	taperStart?: number;
-	taperEnd?: number;
 };
 
 function buildScatter(

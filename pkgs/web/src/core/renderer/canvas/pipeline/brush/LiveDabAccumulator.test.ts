@@ -157,9 +157,11 @@ describe("LiveDabAccumulator", () => {
 		// state is discarded and the fresh stroke still evaluates correctly.
 		const s0 = seg(0, 80, 0, 90, true);
 		const s1 = seg(80, 150, 90, 200);
+		const s2 = seg(150, 230, 200, 320);
 		acc.update([s0, seg(80, 120, 90, 140)], settings, {});
+		acc.update([s0, s1, s2, seg(230, 270, 320, 360)], settings, {});
 		const committedFrame = acc.update(
-			[s0, s1, seg(150, 190, 200, 250)],
+			[s0, s1, s2, seg(230, 300, 320, 400)],
 			settings,
 			{},
 		);
@@ -213,5 +215,115 @@ describe("LiveDabAccumulator", () => {
 				: appendedTotal + frame.appendedCommitted;
 			expect(frame.committedCount).toBe(appendedTotal);
 		}
+	});
+
+	describe("width profile", () => {
+		const widths = (count: number, until = 1) =>
+			Array.from({ length: count }, (_, i) => ({
+				t: (i / Math.max(count - 1, 1)) * until,
+				side1: 1 - i * 0.05,
+				side2: 1 - i * 0.05,
+			}));
+		// The contact speed window must be closed before anything freezes.
+		const s0 = seg(0, 80, 0, 90, true);
+		const s1 = seg(80, 150, 90, 200);
+		const s2 = seg(150, 230, 200, 320);
+		const s3 = seg(230, 300, 320, 400);
+
+		it("should keep committed dabs while the profile's provisional end moves", () => {
+			const settings = settingsNoStrokeT();
+			const acc = new LiveDabAccumulator();
+			acc.update([s0, s1, s2, seg(230, 250, 320, 340)], settings, {
+				strokeWidths: widths(6),
+				strokeWidthsBaked: true,
+			});
+			const frame1 = acc.update(
+				[s0, s1, s2, seg(230, 270, 320, 360)],
+				settings,
+				{
+					strokeWidths: widths(6),
+					strokeWidthsBaked: true,
+				},
+			);
+			expect(frame1.committedCount).toBeGreaterThan(0);
+			const committed = frame1.committedData.slice(
+				0,
+				frame1.committedCount * DAB_INSTANCE_FLOATS,
+			);
+			// Same early points at slightly smaller t since the raw length grew,
+			// a replaced provisional end and a new point after it.
+			const grown = [
+				...widths(6)
+					.slice(0, 5)
+					.map((point) => ({ ...point, t: point.t * 0.97 })),
+				{ t: 0.9, side1: 0.5, side2: 0.5 },
+				{ t: 1, side1: 0.4, side2: 0.4 },
+			];
+			const frame2 = acc.update(
+				[s0, s1, s2, s3, seg(300, 340, 400, 440)],
+				settings,
+				{
+					strokeWidths: grown,
+					strokeWidthsBaked: true,
+				},
+			);
+			expect(frame2.reset).toBe(false);
+			expect(frame2.committedCount).toBeGreaterThanOrEqual(
+				frame1.committedCount,
+			);
+			expect(
+				Array.from(
+					frame2.committedData.subarray(
+						0,
+						frame1.committedCount * DAB_INSTANCE_FLOATS,
+					),
+				),
+			).toEqual(Array.from(committed));
+		});
+
+		it("should drop the prefix when a committed width point is rewritten", () => {
+			const settings = settingsNoStrokeT();
+			const acc = new LiveDabAccumulator();
+			acc.update([s0, s1, s2, seg(230, 270, 320, 360)], settings, {
+				strokeWidths: widths(6),
+				strokeWidthsBaked: true,
+			});
+			const frame1 = acc.update(
+				[s0, s1, s2, s3, seg(300, 340, 400, 440)],
+				settings,
+				{
+					strokeWidths: widths(6),
+					strokeWidthsBaked: true,
+				},
+			);
+			expect(frame1.committedCount).toBeGreaterThan(0);
+			const rewritten = widths(6).map((point, i) =>
+				i === 0 ? { ...point, side1: 0.3, side2: 0.3 } : point,
+			);
+			const segments = [s0, s1, s2, s3, seg(300, 340, 400, 440)];
+			const frame2 = acc.update(segments, settings, {
+				strokeWidths: rewritten,
+				strokeWidthsBaked: true,
+			});
+			expect(frame2.reset).toBe(true);
+			const full = evaluateDabs(segments, settings, {
+				strokeWidths: rewritten,
+				strokeWidthsBaked: true,
+			});
+			expect(frame2.committedCount + frame2.tailCount).toBe(full.count);
+		});
+
+		it("should not freeze anything while the contact speed window is open", () => {
+			const settings = settingsNoStrokeT();
+			const acc = new LiveDabAccumulator();
+			const early = acc.update([s0, s1, seg(150, 190, 200, 230)], settings, {});
+			expect(early.committedCount).toBe(0);
+			const later = acc.update(
+				[s0, s1, s2, seg(230, 270, 320, 360)],
+				settings,
+				{},
+			);
+			expect(later.committedCount).toBeGreaterThan(0);
+		});
 	});
 });

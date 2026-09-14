@@ -16,7 +16,7 @@ BrushSettings
   │                        base value + curves, evaluated per dab
   ├── tip / stroking / grain / wetEdge / mixing / wet / inputDynamics
   ├── paintMode: "buildup" | "wash"
-  └── strokeOpacity, randomSeed, taperStart/End
+  └── strokeOpacity, randomSeed
 ```
 
 Files:
@@ -418,7 +418,7 @@ UV mode, flips, tile spacing, opacity). Art brushes stretch one tile over the
 path; pattern brushes repeat with optional gaps.
 
 - Width and opacity evaluate the `size` and `flow` curves **at each segment's
-  endpoints** and interpolate between them — the granularity taper already uses.
+  endpoints** and interpolate between them.
   A stroke whose settings carry no curves keeps the flat pressure factor.
 - Tiling (stretch, UV offset, texture aspect, stamp angle) lives in the **path
   meta**, per path. A batch-wide uniform would let whichever ribbon was added

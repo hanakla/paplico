@@ -1,4 +1,7 @@
-import { neutralizeSizeCurves } from "../../../../brush/access";
+import {
+	neutralizeSizeCurves,
+	usesStrokeProgress,
+} from "../../../../brush/access";
 import {
 	bakeBrushProperties,
 	createBrushInputs,
@@ -11,8 +14,12 @@ import type {
 	StrokeWidthPoint,
 } from "../../../../schema";
 import { buildArcLengthTable } from "../../../../utils/geometry/pathSampling";
-import { resolveTaper, taperFactor } from "../../../geometry/taper";
-import { evaluateDabs } from "./DabEvaluator";
+import {
+	CONTACT_SPEED_WINDOW_MS,
+	type DabEvalState,
+	evaluateDabs,
+	measureSegmentsLength,
+} from "./DabEvaluator";
 import { readDabField } from "./DabInstanceLayout";
 
 /**
@@ -28,8 +35,8 @@ import { readDabField } from "./DabInstanceLayout";
  * stamp bounds) and wet bleed spread.
  */
 export interface StrokeHalfWidthSampler {
-	/** Pressure/taper-evaluated half width (before side1/side2 ratios) at
-	 * whole-stroke arc ratio t, in stored-segment units. */
+	/** Pressure-evaluated half width at whole-stroke arc ratio t, in
+	 * stored-segment units, before the side1/side2 ratios apply. */
 	halfWidthAt(t: number): number;
 }
 
@@ -55,20 +62,12 @@ export function createStrokeHalfWidthSampler(options: {
 			segments,
 			neutralizeSizeCurves(storedBrushSettings),
 			engine === "dab" ? "ribbon" : engine,
-			pathStart,
-			pathEnd,
 		);
 	}
 	if (engine === "dab") {
 		return createDabSampler(segments, storedBrushSettings, pathStart, pathEnd);
 	}
-	return createCurveSampler(
-		segments,
-		storedBrushSettings,
-		engine,
-		pathStart,
-		pathEnd,
-	);
+	return createCurveSampler(segments, storedBrushSettings, engine);
 }
 
 /**
@@ -144,9 +143,6 @@ export function polylineSegmentsFromPoints(
  * not the fitted geometry: fitting fuses samples into few cubics whose
  * linearized timing erases speed-driven width within each segment.
  *
- * Taper is NOT baked — it stays in the settings and keeps applying live on
- * top of the profile, exactly as it composes with size curves today.
- *
  * Returns null when there is nothing to bake (no size curves, no length, or
  * a constant profile — the live curves then reproduce the same width).
  */
@@ -159,18 +155,165 @@ export function bakeStrokeWidthProfile(
 	const size = settings.properties.size;
 	if (!size || (size.curves?.length ?? 0) === 0 || size.base <= 0) return null;
 
-	// Sample without taper so the profile carries only the curve modulation.
 	const sampler = createStrokeHalfWidthSampler({
-		storedBrushSettings: {
-			...settings,
-			taperStart: undefined,
-			taperEnd: undefined,
-		},
+		storedBrushSettings: settings,
 		segments,
 	});
 	if (!sampler) return null;
 
-	const baseHalf = size.base / 2;
+	return bakeSamplerProfile(sampler, size.base);
+}
+
+/**
+ * Width profile of the live stroke, keyed by raw arc distance and grown as
+ * samples arrive. Dabs are evaluated on the raw polyline in one running
+ * pass, and the profile keeps only the dabs a linear interpolation cannot
+ * reproduce within BAKE_TOLERANCE, so entries before the last one are
+ * final. The last dab and an end point at the polyline's length are
+ * provisional and replaced on the next update. While the contact speed
+ * window is still open every update evaluates from scratch, since the dabs
+ * inside it depend on the speed reached later in that window.
+ *
+ * Brushes whose width depends on the whole stroke, such as strokeT curves,
+ * and the non-dab engines are re-baked in full on every update.
+ */
+export class StrokeWidthProfileBuilder {
+	private run: {
+		settings: BrushSettings;
+		firstPoint: BezierPoint;
+		lastPoint: BezierPoint;
+		pointCount: number;
+		state: DabEvalState;
+		length: number;
+		kept: StrokeWidthPoint[];
+		pending: StrokeWidthPoint[];
+	} | null = null;
+
+	/**
+	 * The profile with `t` in raw arc distance and the polyline's length to
+	 * normalize it by, or null without size curves.
+	 */
+	public update(
+		settings: BrushSettings | undefined,
+		points: BezierPoint[],
+	): { widths: StrokeWidthPoint[]; length: number } | null {
+		const size = settings?.properties.size;
+		if (
+			!settings ||
+			!size?.curves?.length ||
+			size.base <= 0 ||
+			points.length < 2
+		) {
+			this.run = null;
+			return null;
+		}
+		if (settings.engine !== "dab" || usesStrokeProgress(settings)) {
+			this.run = null;
+			const segments = polylineSegmentsFromPoints(points);
+			const length = measureSegmentsLength(segments);
+			const baked = bakeStrokeWidthProfile(settings, segments);
+			return baked
+				? {
+						widths: baked.map((point) => ({ ...point, t: point.t * length })),
+						length,
+					}
+				: null;
+		}
+
+		const elapsed =
+			(points[points.length - 1].deltaTime ?? 0) - (points[0].deltaTime ?? 0);
+		if (elapsed < CONTACT_SPEED_WINDOW_MS) this.run = null;
+		if (
+			this.run &&
+			(this.run.settings !== settings ||
+				this.run.firstPoint !== points[0] ||
+				this.run.lastPoint !== points[this.run.pointCount - 1])
+		)
+			this.run = null;
+
+		const run = this.run;
+		const segments = polylineSegmentsFromPoints(
+			points.slice(run ? run.pointCount - 1 : 0),
+		);
+		const kept = run?.kept ?? [];
+		const pending = run?.pending ?? [];
+		let length = run?.length ?? 0;
+		let state = run?.state;
+		if (segments.length > 0) {
+			if (run) segments[0].isMoved = false;
+			length += measureSegmentsLength(segments);
+			// Normalizing by one records absolute dab distances, which stay
+			// valid when later input extends the stroke.
+			const result = evaluateDabs(segments, settings, {
+				resume: state,
+				totalLength: 1,
+			});
+			state = result.state;
+			const baseHalf = size.base / 2;
+			for (let i = 0; i < result.count; i++) {
+				const ratio = readDabField(result.data, i, "sizeX") / 2 / baseHalf;
+				appendProfilePoint(kept, pending, {
+					t: readDabField(result.data, i, "pathT"),
+					side1: ratio,
+					side2: ratio,
+				});
+			}
+		}
+		if (state && elapsed >= CONTACT_SPEED_WINDOW_MS) {
+			this.run = {
+				settings,
+				firstPoint: points[0],
+				lastPoint: points[points.length - 1],
+				pointCount: points.length,
+				state,
+				length,
+				kept,
+				pending,
+			};
+		}
+		const last = pending[pending.length - 1];
+		if (!last || length <= 0) return null;
+		// The last dab is provisional; the profile then holds its ratio to the
+		// end of the polyline so the stroke does not fade back to the base.
+		const widths = [...kept, last];
+		if (last.t < length) widths.push({ ...last, t: length });
+		return { widths, length };
+	}
+}
+
+/**
+ * Online greedy simplification: a dab joins `pending` while the line from
+ * the last kept point to it still reproduces every pending dab within
+ * BAKE_TOLERANCE; otherwise the previous dab becomes the next kept point.
+ */
+function appendProfilePoint(
+	kept: StrokeWidthPoint[],
+	pending: StrokeWidthPoint[],
+	point: StrokeWidthPoint,
+): void {
+	const anchor = kept[kept.length - 1];
+	if (!anchor) {
+		kept.push(point);
+		return;
+	}
+	const span = point.t - anchor.t;
+	const fits = pending.every((sample) => {
+		const f = span > 1e-9 ? (sample.t - anchor.t) / span : 0;
+		const expected = anchor.side1 + (point.side1 - anchor.side1) * f;
+		return Math.abs(sample.side1 - expected) <= BAKE_TOLERANCE;
+	});
+	if (!fits) {
+		kept.push(pending[pending.length - 1]);
+		pending.length = 0;
+	}
+	pending.push(point);
+}
+
+function bakeSamplerProfile(
+	sampler: StrokeHalfWidthSampler,
+	baseSize: number,
+): StrokeWidthPoint[] | null {
+	const baseHalf = baseSize / 2;
 	const ts = new Float64Array(BAKE_SAMPLES + 1);
 	const ratios = new Float64Array(BAKE_SAMPLES + 1);
 	let constant = true;
@@ -237,7 +380,7 @@ function createDabSampler(
 	pathStart: number,
 	pathEnd: number,
 ): StrokeHalfWidthSampler | null {
-	// No textureAspectRatio option, so sizeX is exactly sizeVal * taperF.
+	// No textureAspectRatio option, so sizeX is exactly sizeVal.
 	const buffer = evaluateDabs(segments, settings, { pathStart, pathEnd });
 	if (buffer.count === 0) return null;
 
@@ -248,23 +391,26 @@ function createDabSampler(
 		halves[i] = readDabField(buffer.data, i, "sizeX") * 0.5;
 	}
 
-	return {
-		halfWidthAt(t: number): number {
-			if (t <= ts[0]) return halves[0];
-			if (t >= ts[ts.length - 1]) return halves[halves.length - 1];
+	return { halfWidthAt: (t) => sampleWidth(ts, halves, t) };
+}
 
-			let low = 0;
-			let high = ts.length - 1;
-			while (low < high - 1) {
-				const mid = (low + high) >> 1;
-				if (ts[mid] <= t) low = mid;
-				else high = mid;
-			}
-			const span = ts[high] - ts[low];
-			const mixT = span > 1e-9 ? (t - ts[low]) / span : 0;
-			return halves[low] + (halves[high] - halves[low]) * mixT;
-		},
-	};
+function sampleWidth(
+	ts: ArrayLike<number>,
+	halves: ArrayLike<number>,
+	t: number,
+): number {
+	if (t <= ts[0]) return halves[0];
+	if (t >= ts[ts.length - 1]) return halves[halves.length - 1];
+	let low = 0;
+	let high = ts.length - 1;
+	while (low < high - 1) {
+		const mid = (low + high) >> 1;
+		if (ts[mid] <= t) low = mid;
+		else high = mid;
+	}
+	const span = ts[high] - ts[low];
+	const mixT = span > 1e-9 ? (t - ts[low]) / span : 0;
+	return halves[low] + (halves[high] - halves[low]) * mixT;
 }
 
 // --- ribbon / geometric routes: mirror the closed-form evaluation ----------
@@ -273,27 +419,10 @@ function createCurveSampler(
 	segments: CubicBezierSegment[],
 	settings: BrushSettings,
 	kind: "ribbon" | "geometric",
-	pathStart: number,
-	pathEnd: number,
 ): StrokeHalfWidthSampler | null {
 	const arcTable = buildArcLengthTable(segments);
 	const totalLength = arcTable[arcTable.length - 1]?.cumulativeLength ?? 0;
 	if (totalLength <= 0) return null;
-
-	// The geometric renderer drops taper for closed paths and dashed strokes.
-	const taperless =
-		kind === "geometric" &&
-		(segments.some((segment) => segment.isClosed) ||
-			(settings.stroking?.dashArray?.length ?? 0) > 0);
-	const taper = taperless
-		? null
-		: resolveTaper(
-				settings.taperStart,
-				settings.taperEnd,
-				totalLength / Math.max(pathEnd - pathStart, 1e-6),
-				pathStart,
-				pathEnd,
-			);
 
 	const pressureAt = (t: number): number => {
 		const target = Math.min(Math.max(t, 0), 1) * totalLength;
@@ -342,11 +471,7 @@ function createCurveSampler(
 
 	return {
 		halfWidthAt(t: number): number {
-			const clamped = Math.min(Math.max(t, 0), 1);
-			const taperF = taper
-				? taperFactor(taper, clamped * totalLength, totalLength)
-				: 1;
-			return widthAt(clamped) * taperF;
+			return widthAt(Math.min(Math.max(t, 0), 1));
 		},
 	};
 }

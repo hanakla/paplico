@@ -1,3 +1,4 @@
+import { usesStrokeProgress } from "../../../../brush/access";
 /**
  * DabRenderer - the dab route of the brush engine. Evaluates a stroke's curve
  * matrix into dab instances and draws them with the dab pipelines: the plain
@@ -21,6 +22,7 @@ import {
 	BUILTIN_BRUSH_IDS,
 	type CubicBezierSegment,
 	type Path,
+	type StrokeWidthPoint,
 } from "../../../../schema";
 import {
 	floatBits,
@@ -215,32 +217,29 @@ export class DabRenderer {
 		let dabBuffer: GPUBuffer;
 		let dabCount: number;
 		let dabFirstInstance = 0;
-		if (
-			path.id === PREVIEW_ELEMENT_SENTINEL_ID &&
-			// Wash previews draw into a fresh per-frame offscreen texture (the
-			// per-appearance plan), so the live buffer's cross-frame delta
-			// model does not apply — they take the frame-pooled path below.
-			settings.paintMode !== "wash" &&
-			(path.pathStart ?? 0) === 0 &&
-			(path.pathEnd ?? 1) === 1 &&
-			path.strokeWidths == null
-		) {
+		if (canAccumulateLiveDabs(input, endLayerIndex)) {
 			const live = this.uploadLiveDabs(segments, settings, {
 				textureAspectRatio,
 				variantCount,
 				startLayerIndex,
+				strokeWidths: path.strokeWidths,
+				strokeWidthsBaked: path.strokeWidthsBaked,
 			});
 			if (!live) return;
 			dabBuffer = live.buffer;
 			dabCount = live.count;
 		} else if (path.id === PREVIEW_ELEMENT_SENTINEL_ID) {
-			// Wash previews: fresh evaluation into the frame pool. Caching would
-			// churn StampCache (the geometry hash changes every pointermove) and
-			// residency would leak lease turnover for a one-frame buffer.
+			// Whole-stroke inputs can revise the prefix every frame. Frame
+			// pooling avoids retaining these transient evaluations.
 			const dabs = evaluateDabs(segments, settings, {
+				pathStart: path.pathStart ?? 0,
+				pathEnd: path.pathEnd ?? 1,
+				strokeWidths: path.strokeWidths,
+				strokeWidthsBaked: path.strokeWidthsBaked,
 				textureAspectRatio,
 				variantCount,
 				startLayerIndex,
+				endLayerIndex,
 			});
 			if (dabs.count === 0) return;
 			dabBuffer = this.uploadFrameDabs(dabs.data, dabs.count);
@@ -527,6 +526,8 @@ export class DabRenderer {
 			textureAspectRatio: number;
 			variantCount: number;
 			startLayerIndex: number;
+			strokeWidths: StrokeWidthPoint[] | undefined;
+			strokeWidthsBaked: boolean | undefined;
 		},
 	): { buffer: GPUBuffer; count: number } | null {
 		const { live } = this;
@@ -970,4 +971,28 @@ function hashStampInput(path: Path, segments: CubicBezierSegment[]): string {
 		}
 	}
 	return h.toString(36);
+}
+
+/**
+ * Whether the live preview can grow its dab buffer frame by frame. Every
+ * input the committed prefix depends on must be settled once evaluated:
+ * wash previews redraw into a fresh texture, an end tip lands on the last
+ * dab, an along gradient and strokeT curves read the whole stroke's length.
+ */
+function canAccumulateLiveDabs(
+	input: StrokeDrawInput,
+	endLayerIndex: number,
+): boolean {
+	const { path, settings } = input;
+	const alongGradient =
+		input.strokeColor.type !== "solid" && input.strokeColor.mode === "along";
+	return (
+		path.id === PREVIEW_ELEMENT_SENTINEL_ID &&
+		settings.paintMode !== "wash" &&
+		(path.pathStart ?? 0) === 0 &&
+		(path.pathEnd ?? 1) === 1 &&
+		endLayerIndex < 0 &&
+		!alongGradient &&
+		!usesStrokeProgress(settings)
+	);
 }

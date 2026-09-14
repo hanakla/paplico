@@ -16,15 +16,13 @@ flowchart TD
     A["Pointer samples"] --> B["raw points<br/>x, y, pressure, deltaTime"]
     B --> C["IncrementalStrokeFitter"]
     C --> D["preview segments"]
-    D --> E["DabEvaluator"]
-    E --> F["transient preview"]
-    B --> G["processStroke"]
-    G --> H["committed segments"]
+    D --> F["preview Path"]
     B --> I["raw point polyline"]
-    I --> J["bakeStrokeWidthProfile"]
+    I --> J["StrokeWidthProfileBuilder"]
     J --> K["strokeWidths"]
-    H --> L["committed Path"]
-    K --> L
+    K --> F
+    F --> E["DabEvaluator"]
+    F -->|pointerup| L["same fit without input knots + same widths"]
     L --> M["PaplicoCommands.addPath"]
     M --> N["Yjs transaction"]
     N --> O["document invalidation"]
@@ -32,11 +30,11 @@ flowchart TD
     P --> Q["committed stroke render"]
 ```
 
-プレビューと確定Pathは別のsegment列を使う。共通の入力は `BrushStrokeSession` が保持するraw pointsである。
+プレビューと確定Pathは同じfitから作る。確定Pathはそのfitからinput knotを除いたsegment列と、プレビューと同じ幅プロファイルを持つ。
 
 ## 時刻をraw pointへ残す
 
-`PenTool.onPointerDown` は `performance.now()` をストローク開始時刻として保持する。最初のraw pointの `deltaTime` は0ミリ秒である。
+`PenTool.onPointerDown` は `pointerdown` イベントの `timeStamp` をストローク開始時刻として保持する。最初の `pointermove` のcoalesced sampleはハンドラより前の時刻を持つためである。最初のraw pointの `deltaTime` は0ミリ秒である。
 
 `getCoalescedEvents()` から受け取ったsampleは次の式を使う。結果が負になる場合は0へclampする。
 
@@ -47,7 +45,7 @@ deltaTime = max(sample.timeStamp - strokeStartTime, 0)
 coalesced eventがない `pointermove` は次の式を使う。
 
 ```text
-deltaTime = performance.now() - strokeStartTime
+deltaTime = event.timeStamp - strokeStartTime
 ```
 
 `deltaTime` の単位はミリ秒である。時計originを変換する別の正規化関数はない。`PointerEvent.timeStamp` と `performance.now()` が持つ時計をそのまま使う。
@@ -182,11 +180,13 @@ size = baseSize * clamp(1 - k * s, 0, 8)
 
 ## ライブプレビューの速度
 
-`IncrementalStrokeFitter` はraw pointsからプレビュー用segmentを作る。smooth方式は座標と同じGaussian kernelで `deltaTime` も平滑化する。先頭と末尾の時刻はraw値を保つ。
+`IncrementalStrokeFitter` はraw pointsからプレビュー用segmentを作る。smooth方式は座標と同じGaussian kernelで `deltaTime` も平滑化する。先頭と末尾の時刻はraw値を保つ。筆圧は平滑化せずraw値のまま通す。サイズの幅プロファイルは補正済みraw samplesから生成する。
 
-曲線fitが複数の入力点を1本のsegmentへまとめると、端点時刻の線形補間だけでは途中の速度変化が消える。ライブtailは、線形時刻から8ミリ秒を超えて外れる入力点にtime knotを追加する。最大16個である。de Casteljau subdivisionはgeometryを変えない。segment端の時刻密度だけを増やす。
+曲線fitが複数の入力点を1本のsegmentへまとめると、端点時刻の線形補間だけでは途中の速度変化が消える。ライブtailは、線形時刻から8ミリ秒、または線形筆圧から0.05を超えて外れる入力点にinput knotを追加する。最大16個である。de Casteljau subdivisionはgeometryを変えない。segment端の時刻と筆圧の密度だけを増やす。
 
-ダブエンジンのプレビューは、このsegment列を `evaluateDabs` へ渡す。buildupプレビューは `LiveDabAccumulator` で確定済みprefixの評価結果を再利用できる。washプレビューは毎frame評価し、frame poolのGPU bufferへ送る。
+ダブエンジンのプレビューは、このsegment列と幅プロファイルを `evaluateDabs` へ渡す。buildupプレビューは `LiveDabAccumulator` で確定済みprefixの評価結果を再利用する。確定済みDabは評価時の幅を保つ。プロファイルの `t` はraw polylineの全長で正規化している。ストロークが伸びると、fit後の弧長比に対して少しずれる。これは `pathT` と同じく許容する近似である。確定済み弧長より手前のプロファイル点が書き換わった場合は、prefixを捨てて評価し直す。接触速度の窓が閉じるまでは何も凍結しない。
+
+prefix再利用は、過去部分の評価が全長に依存しないbuildupプレビューに限る。`strokeT` カーブ、along方向の色、終端tipがある場合は全体を評価する。結果はframe poolのGPU bufferへ送る。washプレビューも全体を評価する。
 
 参照先:
 
@@ -194,13 +194,19 @@ size = baseSize * clamp(1 - k * s, 0, 8)
 - `pkgs/web/src/core/renderer/canvas/pipeline/brush/LiveDabAccumulator.ts`
 - `pkgs/web/src/core/renderer/canvas/pipeline/brush/DabRenderer.ts`
 
-## 確定幅をPathへ焼き込む
+## プレビューと確定で幅を共有する
 
-pointerup後、`PenTool` はraw pointsを `processStroke` へ渡して確定用segmentを作る。プレビューsegmentは再利用しない。
+`PenTool.createStrokePath` はプレビュー更新時に幅プロファイルを作る。pointerup後は同じfitからinput knotを除いたsegment列と同じ幅プロファイルでPathを作る。幾何と幅を確定時に再計算しない。
+
+スタイラスは接触してから動き出すまで低速で留まる。`DabEvaluator` はpointerdownから200ミリ秒の窓の中で、fineとgrossの速度EMAをそれぞれがその窓で到達した最大値で下限クランプする。速度入力だけが対象で、筆圧は触らない。窓が閉じた後は各EMAが自分の値から続く。意図した減速は太いまま残る。定数は `CONTACT_SPEED_WINDOW_MS` である。窓の最大値はその評価に渡されたsegment列から求める。knot付きのプレビューとknotなしの確定では、速度駆動のflowやspacingが窓の中で少し違いうる。幅は焼き込んだプロファイルから読む。この差は幅には出ない。
+
+`StrokeWidthProfileBuilder` はダブエンジンの評価状態を保持する。通常は追加されたraw samplesだけを評価する。プロファイルはraw polylineの弧長距離をキーに後ろへ伸びる。線形補間で0.01以内に再現できるDabは保存しない。末尾のDabと、polylineの終端に置く同じ幅比の点は暫定である。次の更新で置き換わる。接触速度の窓が閉じるまでは毎回最初から評価する。始点筆圧の補正で既存sampleが変わった場合も最初から評価する。`strokeT` カーブがある場合とダブ以外のエンジンでは `bakeStrokeWidthProfile` で全体を評価する。
+
+`PenTool.createStrokePath` は、この距離キーのプロファイルをraw polylineの全長で割って `strokeWidths` にする。レンダラはfit後の弧長比で読む。プロファイルの両端は描画するsegment列の両端に一致する。
 
 確定segmentはfitした曲線の端点に入力時刻を持つ。そのsegmentだけを幅評価へ使うと、1本のsegment内の速度変化は線形化する。`bakeStrokeWidthProfile` はraw pointsを直線segment列へ変換し、入力時のpressureと `deltaTime` を保ったまま幅を評価する。
 
-dab routeは実際の `evaluateDabs` を実行する。各Dabの `sizeX / 2` をpath上のhalf widthとして補間する。taperはベイク対象に含めない。
+`bakeStrokeWidthProfile` のdab routeは実際の `evaluateDabs` を実行する。各Dabの `sizeX / 2` をpath上のhalf widthとして補間する。
 
 path上の0から1を256分割する。端点を含む257点で次の幅比を評価する。
 
@@ -210,9 +216,9 @@ widthRatio = halfWidth / (size.base / 2)
 
 全比率が先頭値から0.001以内なら幅は一定である。この場合はprofileを保存しない。変化がある場合は、線形補間誤差が0.01以内になるまでprofileを簡略化する。出力は左右が同値の `StrokeWidthPoint[]` である。
 
-確定Pathは `strokeWidths` にprofileを持つ。profileを作った場合は `strokeWidthsBaked` がtrueになる。確定PathのDabを再生成するときはsize curveをneutralizeし、保存した幅比で `sizeX` と `sizeY` をscaleする。size curveによる幅変化は二重適用しない。
+プレビューと確定Pathは `strokeWidths` に同じprofileを持つ。profileを作った場合は `strokeWidthsBaked` がtrueになる。確定PathのDabを再生成するときはsize curveをneutralizeする。保存した幅比で `sizeX` と `sizeY` をscaleする。size curveによる幅変化は二重適用しない。
 
-size以外のspeed curveはprofileへ焼き込まない。確定用segmentの時刻を使って描画時に再評価する。
+size以外のspeed curveはprofileへ焼き込まない。共有するsegmentの時刻を使って描画時に再評価する。
 
 参照先:
 
@@ -234,8 +240,6 @@ Paplicoの `strokeComplete` は一時overrideを消し、`commands.addPath` を�
 sequenceDiagram
     participant Tool as PenTool
     participant Session as BrushStrokeSession
-    participant Fit as processStroke
-    participant Width as bakeStrokeWidthProfile
     participant Commands as PaplicoCommands
     participant Yjs as YjsProvider
     participant Changes as DocumentChangeSubscriber
@@ -243,10 +247,7 @@ sequenceDiagram
 
     Tool->>Session: commit()
     Session-->>Tool: raw points
-    Tool->>Fit: processStroke(raw points)
-    Fit-->>Tool: committed segments
-    Tool->>Width: bake(raw point polyline)
-    Width-->>Tool: strokeWidths
+    Tool->>Tool: assign persistent ID to last preview Path
     Tool->>Commands: addPath(committed Path)
     Commands->>Yjs: addElement in transaction
     Yjs-->>Changes: object delta

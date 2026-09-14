@@ -25,10 +25,6 @@ interface BrushSettingsBase {
 	randomSeed: number;
 	/** Texture color processing mode. "tinting" uses luminance as alpha (default), "color" uses texture RGB directly */
 	colorMode?: BrushColorMode;
-	/** Entry taper length in world units. 0/undefined = off */
-	taperStart?: number;
-	/** Exit taper length in world units. 0/undefined = off */
-	taperEnd?: number;
 }
 
 /** Geometric stroke pen (formerly the SVG brush). */

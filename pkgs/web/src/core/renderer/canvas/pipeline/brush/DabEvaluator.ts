@@ -10,9 +10,8 @@ import type {
 	CubicBezierSegment,
 	StrokeWidthPoint,
 } from "../../../../schema";
-import { clamp01 } from "../../../../utils/math";
+import { clamp01, mulberry32 } from "../../../../utils/math";
 import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
-import { resolveTaper, taperFactor } from "../../../geometry/taper";
 import { DAB_FIELD_OFFSETS, DAB_INSTANCE_FLOATS } from "./DabInstanceLayout";
 import { packStampPathIndex } from "./StampPacking";
 import { hardnessToLutIndex } from "./TipMaskBuilder";
@@ -48,12 +47,14 @@ interface DabEvaluateOptions {
 	/**
 	 * Continue from a previous chunk's end state. The chunked result is
 	 * bit-identical to a full evaluation as long as every chunk receives the
-	 * same `totalLength` (see the incremental-resume tests).
+	 * same `totalLength` and the first chunk reaches past the contact speed
+	 * window, whose floor is read off the segments the first chunk sees. The
+	 * incremental-resume tests cover this.
 	 */
 	resume?: DabEvalState;
 	/**
 	 * Full-stroke arc length when `segments` is only a fragment of the
-	 * stroke. strokeT/fade normalization and taper use this instead of the
+	 * stroke. strokeT/fade normalization uses this instead of the
 	 * fragment's own length.
 	 */
 	totalLength?: number;
@@ -66,6 +67,10 @@ interface DabEvaluateOptions {
 export interface DabEvalState {
 	velFast: number;
 	velSlow: number;
+	/** Floors of the fine and gross speed EMAs until contactUntil, per CONTACT_SPEED_WINDOW_MS. */
+	contactFineSpeed: number;
+	contactGrossSpeed: number;
+	contactUntil: number;
 	speedFine: number;
 	speedGross: number;
 	accel: number;
@@ -104,6 +109,16 @@ interface DabBuffer {
 /** Speed EMA defaults. */
 export const DEFAULT_SPEED_FINE_TAU_MS = 25;
 export const DEFAULT_SPEED_GROSS_TAU_MS = 110;
+/**
+ * A stylus lingers on the glass before the hand gets going, so the speed
+ * inputs would report a crawl for the first samples and a speed-driven size
+ * would bulge at the start. Inside this window after pen-down each speed
+ * EMA is floored at the fastest value it reaches within the window, so the
+ * start is drawn at the speed the hand was about to reach and the EMAs
+ * continue from their own values once the window closes. Pressure and every
+ * other input pass through untouched.
+ */
+export const CONTACT_SPEED_WINDOW_MS = 200;
 /** opaque_linearize strength (MyPaint default). */
 export const OPAQUE_LINEARIZE = 0.9;
 /** fade input saturates after this many brush sizes of travel. */
@@ -195,17 +210,6 @@ export function evaluateDabs(
 			totalLength: 0,
 		};
 	}
-
-	const taper =
-		(settings.taperStart ?? 0) > 0 || (settings.taperEnd ?? 0) > 0
-			? resolveTaper(
-					settings.taperStart,
-					settings.taperEnd,
-					totalLength / Math.max(pathEnd - pathStart, 1e-6),
-					pathStart,
-					pathEnd,
-				)
-			: null;
 
 	const speedRef =
 		settings.inputDynamics?.speedRef ??
@@ -300,8 +304,7 @@ export function evaluateDabs(
 		const hardnessVal = evalBrushProperty(baked, "hardness", inputs);
 		const grainVal = evalBrushProperty(baked, "grainStrength", inputs);
 
-		const taperF = taper ? taperFactor(taper, fragDistance, totalLength) : 1;
-		let sizeX = sizeVal * taperF * Math.max(textureAspectRatio, 1);
+		let sizeX = sizeVal * Math.max(textureAspectRatio, 1);
 		let sizeY = (sizeX * ratioVal) / textureAspectRatio;
 
 		let side1 = 1;
@@ -316,8 +319,7 @@ export function evaluateDabs(
 				if (halfRatio <= 0) return;
 				sizeX *= halfRatio;
 				sizeY *= halfRatio;
-				bakedNormalOffset =
-					(widths.side1 - widths.side2) * 0.25 * sizeVal * taperF;
+				bakedNormalOffset = (widths.side1 - widths.side2) * 0.25 * sizeVal;
 			} else {
 				side1 = widths.side1;
 				side2 = widths.side2;
@@ -350,7 +352,7 @@ export function evaluateDabs(
 			alpha = flowVal;
 		} else {
 			// Overlap counts the dab's actual stamped diameter, not the
-			// configured base size: a size or taper modulation that shrinks a
+			// configured base size: a size modulation that shrinks a
 			// dab thins its overlap in equal measure, and assuming 1/spacing
 			// here left pressure-shrunk strokes far lighter than their flow.
 			// sizeX / max(aspect, 1) recovers that diameter including the baked
@@ -464,6 +466,14 @@ export function evaluateDabs(
 	// --- walk --------------------------------------------------------------
 	let velFast: number;
 	let velSlow: number;
+	let contactFineSpeed = 0;
+	let contactGrossSpeed = 0;
+	let contactUntil = Number.NEGATIVE_INFINITY;
+	const floorContactSpeed = (time: number): void => {
+		if (time > contactUntil) return;
+		velFast = Math.max(velFast, contactFineSpeed);
+		velSlow = Math.max(velSlow, contactGrossSpeed);
+	};
 	let accDist: number;
 	let accTime: number;
 	let spacingWorld: number;
@@ -482,6 +492,9 @@ export function evaluateDabs(
 	if (resume) {
 		velFast = resume.velFast;
 		velSlow = resume.velSlow;
+		contactFineSpeed = resume.contactFineSpeed;
+		contactGrossSpeed = resume.contactGrossSpeed;
+		contactUntil = resume.contactUntil;
 		inputs.speedFine = resume.speedFine;
 		inputs.speedGross = resume.speedGross;
 		inputs.accel = resume.accel;
@@ -503,15 +516,20 @@ export function evaluateDabs(
 		const firstSeg = segments[0];
 		velFast = 0;
 		velSlow = 0;
-		{
-			// Seed velocity from the first segment's timing so speed curves do
-			// not ramp from zero on every stroke. Mid-stroke fragments seed both
-			// EMAs equally (ramp-in suppression).
+		if (pathStart > 0) {
+			// Mid-stroke fragments seed both EMAs from the first segment so
+			// speed curves do not ramp from zero: ramp-in suppression.
 			const duration = firstSeg.endDeltaTime - firstSeg.startDeltaTime;
 			if (duration > 0 && segLengths[0] > 0) {
 				velFast = segLengths[0] / duration;
-				velSlow = pathStart > 0 ? velFast : 0;
+				velSlow = velFast;
 			}
+		} else {
+			contactFineSpeed = peakContactSpeed(segments, segLengths, fineTau);
+			contactGrossSpeed = peakContactSpeed(segments, segLengths, grossTau);
+			contactUntil = firstSeg.startDeltaTime + CONTACT_SPEED_WINDOW_MS;
+			velFast = contactFineSpeed;
+			velSlow = contactGrossSpeed;
 		}
 
 		const [fsx, fsy, , , , , fex, fey] = resolveSegment(firstSeg, 0, 0);
@@ -609,6 +627,7 @@ export function evaluateDabs(
 				const decay = 1 - Math.exp(-heldTime / fineTau);
 				velFast += (0 - velFast) * decay;
 				velSlow += (0 - velSlow) * (1 - Math.exp(-heldTime / grossTau));
+				floorContactSpeed(segment.endDeltaTime);
 				inputs.speedFine = Math.min(velFast / speedRef, 1);
 				inputs.speedGross = Math.min(velSlow / speedRef, 1);
 				inputs.accel = 0;
@@ -691,6 +710,7 @@ export function evaluateDabs(
 					(stepVelocity - velFast) * (1 - Math.exp(-stepTime / fineTau));
 				velSlow +=
 					(stepVelocity - velSlow) * (1 - Math.exp(-stepTime / grossTau));
+				floorContactSpeed(deltaTime);
 				const turnAmount = Math.min(
 					Math.max(0, 1 - (prevDirX * dirX + prevDirY * dirY)) * 0.5,
 					1,
@@ -770,6 +790,9 @@ export function evaluateDabs(
 	const state: DabEvalState = {
 		velFast,
 		velSlow,
+		contactFineSpeed,
+		contactGrossSpeed,
+		contactUntil,
 		speedFine: inputs.speedFine,
 		speedGross: inputs.speedGross,
 		accel: inputs.accel,
@@ -823,6 +846,9 @@ function initialEvalState(settings: BrushSettings): DabEvalState {
 	return {
 		velFast: 0,
 		velSlow: 0,
+		contactFineSpeed: 0,
+		contactGrossSpeed: 0,
+		contactUntil: Number.NEGATIVE_INFINITY,
 		speedFine: 0,
 		speedGross: 0,
 		accel: 0,
@@ -846,6 +872,34 @@ function initialEvalState(settings: BrushSettings): DabEvalState {
 }
 
 // --- helpers --------------------------------------------------------------
+
+/**
+ * Fastest speed an EMA with the given time constant reaches inside the
+ * contact window, walked over the segment endpoints of the stroke's first
+ * subpath. A segment that crosses the window's end counts only for the
+ * part inside it.
+ */
+function peakContactSpeed(
+	segments: CubicBezierSegment[],
+	segLengths: Float64Array,
+	tau: number,
+): number {
+	const windowEnd = segments[0].startDeltaTime + CONTACT_SPEED_WINDOW_MS;
+	let ema = 0;
+	let peak = 0;
+	for (let si = 0; si < segments.length; si++) {
+		const segment = segments[si];
+		if (si > 0 && segment.isMoved) break;
+		const duration = segment.endDeltaTime - segment.startDeltaTime;
+		const inside = Math.min(duration, windowEnd - segment.startDeltaTime);
+		if (inside > 0.001 && segLengths[si] > 0.001) {
+			ema += (segLengths[si] / duration - ema) * (1 - Math.exp(-inside / tau));
+			peak = Math.max(peak, ema);
+		}
+		if (segment.endDeltaTime >= windowEnd) break;
+	}
+	return peak;
+}
 
 function resolveSegment(
 	segment: CubicBezierSegment,
@@ -898,17 +952,6 @@ function approximateCubicLength(
 		py = y;
 	}
 	return length;
-}
-
-function mulberry32(seed: number): () => number {
-	let state = seed >>> 0;
-	return () => {
-		state = (state + 0x6d2b79f5) >>> 0;
-		let t = state;
-		t = Math.imul(t ^ (t >>> 15), t | 1);
-		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-	};
 }
 
 const _bitView = new DataView(new ArrayBuffer(4));

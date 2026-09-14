@@ -187,7 +187,5 @@ function patternSettings(): RibbonStrokeInput {
 		flow: 1,
 		sizeByPressure: 0,
 		colorMode: undefined,
-		taperStart: undefined,
-		taperEnd: undefined,
 	};
 }

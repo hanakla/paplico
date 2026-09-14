@@ -201,11 +201,8 @@ function classifyElementInner(
 			if (params.brushSettings) {
 				const settings = params.brushSettings;
 				if (settings.engine !== "geometric") return "raster";
-				// Variable-width geometry (taper / size curves) has no SVG stroke
+				// Variable-width geometry, such as size curves, has no SVG stroke
 				// equivalent; outline extraction is out of scope for now.
-				if ((settings.taperStart ?? 0) > 0 || (settings.taperEnd ?? 0) > 0) {
-					return "raster";
-				}
 				if (settings.properties.size?.curves?.length) return "raster";
 			}
 		}

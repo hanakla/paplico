@@ -184,7 +184,7 @@ fn vs_main(
 	let pxPerSideUnit = hw * latScale * uniforms.zoom;
 	// Expand the quad 1px outward so the symmetric coverage ramp (edge
 	// ±0.5px) completes before the geometry is clipped. hw cancels in the
-	// world offset, so taper tips stay bounded.
+	// world offset, so near-zero widths stay bounded.
 	let padSideUnits = 1.0 / max(pxPerSideUnit, 1e-6);
 	let expandedSide = normalizedSide + side * padSideUnits;
 	let localPos = pos + normal * hw * expandedSide;

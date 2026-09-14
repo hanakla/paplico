@@ -78,28 +78,6 @@ export function getStrokeWidth(
 	);
 }
 
-/** Get the taper-in distance from the first enabled StrokeAppearance's brushSettings.taperStart */
-export function getStrokeTaperStart(
-	filters: readonly FilterEntry[] | undefined,
-	fallback = 0,
-): number {
-	const stroke = localAppearances(filters).find(
-		(f) => f.processor === "stroke" && f.enabled !== false,
-	) as StrokeAppearance | undefined;
-	return stroke?.paramData.params.brushSettings?.taperStart ?? fallback;
-}
-
-/** Get the taper-out distance from the first enabled StrokeAppearance's brushSettings.taperEnd */
-export function getStrokeTaperEnd(
-	filters: readonly FilterEntry[] | undefined,
-	fallback = 0,
-): number {
-	const stroke = localAppearances(filters).find(
-		(f) => f.processor === "stroke" && f.enabled !== false,
-	) as StrokeAppearance | undefined;
-	return stroke?.paramData.params.brushSettings?.taperEnd ?? fallback;
-}
-
 /** Get the stroke placement from the first enabled StrokeAppearance's brushSettings.stroking */
 export function getStrokeAlign(
 	filters: readonly FilterEntry[] | undefined,

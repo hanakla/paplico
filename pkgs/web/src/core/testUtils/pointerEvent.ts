@@ -36,6 +36,7 @@ export function ev(
 		ctrlKey: false,
 		altKey: false,
 		metaKey: false,
+		timeStamp: performance.now(),
 		...overrides,
 	};
 }

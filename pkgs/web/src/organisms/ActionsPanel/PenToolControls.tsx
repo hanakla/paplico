@@ -14,7 +14,6 @@ import { useTranslation } from "@/locales";
 import { PresetSelect } from "@/organisms/Toolbar/BrushTools";
 import { useEventCallback } from "@/utils/hooks";
 import { StrokeWidthField } from "./StrokeWidthField";
-import { TaperRangeField } from "./TaperRangeField";
 import { BRUSH_WIDTH_STEP } from "./utils";
 
 export const PenToolControls = memo(function PenToolControls() {
@@ -35,17 +34,6 @@ export const PenToolControls = memo(function PenToolControls() {
 	const handleWidthChange = useEventCallback((value: number) => {
 		brushEdits.setBrushSize(value);
 	});
-
-	const handleTaperChange = useEventCallback(
-		(taperStart: number, taperEnd: number) => {
-			tools.setBrushSettings({ taperStart, taperEnd });
-			commands.updateSelectedElementsBrushSettings({
-				...tools.storedBrushSettings,
-				taperStart,
-				taperEnd,
-			});
-		},
-	);
 
 	const handleStabilizationChange = useEventCallback((value: number) => {
 		tools.setStabilization(value);
@@ -105,16 +93,6 @@ export const PenToolControls = memo(function PenToolControls() {
 				range={50}
 				step={BRUSH_WIDTH_STEP}
 				onValueChange={handleWidthChange}
-			/>
-			<TaperRangeField
-				startLabel={t("actionsPanel.taperStart")}
-				endLabel={t("actionsPanel.taperEnd")}
-				startValue={normalizedBrush?.taperStart ?? 0}
-				endValue={normalizedBrush?.taperEnd ?? 0}
-				min={0}
-				max={1000}
-				step={1}
-				onValueChange={handleTaperChange}
 			/>
 			<StrokeWidthField
 				label={t("actionsPanel.stabilization")}

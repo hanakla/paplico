@@ -3,9 +3,14 @@ import type {
 	BezierPoint,
 	BrushSettings,
 	CubicBezierSegment,
+	StrokeWidthPoint,
 } from "../../../../schema";
 import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
-import { evaluateDabs } from "./DabEvaluator";
+import {
+	CONTACT_SPEED_WINDOW_MS,
+	evaluateDabs,
+	measureSegmentsLength,
+} from "./DabEvaluator";
 import { readDabField } from "./DabInstanceLayout";
 import {
 	DEFAULT_RIBBON_OPTIONS,
@@ -18,6 +23,7 @@ import {
 	createStrokeHalfWidthSampler,
 	polylineSegmentsFromPoints,
 	resolveGeometricSizeByPressure,
+	StrokeWidthProfileBuilder,
 } from "./strokeHalfWidth";
 
 describe("createStrokeHalfWidthSampler", () => {
@@ -75,42 +81,6 @@ describe("createStrokeHalfWidthSampler", () => {
 		expect(sampler.halfWidthAt(0)).toBeCloseTo(5, 4);
 		expect(sampler.halfWidthAt(0.5)).toBeCloseTo(2.5, 4);
 		expect(sampler.halfWidthAt(1)).toBeCloseTo(0, 4);
-	});
-
-	it("should taper to zero at the start and suppress the entry taper mid-stroke", () => {
-		const settings = geometricSettings(undefined, { taperStart: 100 });
-		const segments = [lineSegment(0, 0, 300, 0, { isMoved: true })];
-
-		const fullStroke = createStrokeHalfWidthSampler({
-			storedBrushSettings: settings,
-			segments,
-		})!;
-		expect(fullStroke.halfWidthAt(0)).toBeCloseTo(0, 5);
-		expect(fullStroke.halfWidthAt(1)).toBeCloseTo(5, 5);
-
-		const midStrokeFragment = createStrokeHalfWidthSampler({
-			storedBrushSettings: settings,
-			segments,
-			pathStart: 0.5,
-		})!;
-		expect(midStrokeFragment.halfWidthAt(0)).toBeCloseTo(5, 5);
-	});
-
-	it("should ignore taper when a dash pattern is active on the geometric route", () => {
-		const sampler = createStrokeHalfWidthSampler({
-			storedBrushSettings: geometricSettings(undefined, {
-				taperStart: 100,
-				stroking: {
-					lineCap: "round",
-					lineJoin: "round",
-					miterLimit: 4,
-					dashArray: [10, 10],
-				},
-			}),
-			segments: [lineSegment(0, 0, 300, 0, { isMoved: true })],
-		})!;
-
-		expect(sampler.halfWidthAt(0)).toBeCloseTo(5, 5);
 	});
 
 	// Golden test against the real evaluator: the sampler must report what the
@@ -210,8 +180,6 @@ describe("createStrokeHalfWidthSampler", () => {
 				flow: { base: 1 },
 			},
 			randomSeed: 1,
-			taperStart: 60,
-			taperEnd: 60,
 		};
 		const settings = raw;
 		const segments = [
@@ -229,8 +197,6 @@ describe("createStrokeHalfWidthSampler", () => {
 			flow: 1,
 			sizeByPressure: 0,
 			colorMode: undefined,
-			taperStart: 60,
-			taperEnd: 60,
 		};
 
 		const sampler = createStrokeHalfWidthSampler({
@@ -286,7 +252,6 @@ describe("bakeStrokeWidthProfile", () => {
 			},
 			randomSeed: 0,
 			tip: { kind: "procedural", hardness: 1, angleMode: "fixed" },
-			taperStart: 50,
 		};
 	}
 
@@ -314,13 +279,9 @@ describe("bakeStrokeWidthProfile", () => {
 		expect(profile).not.toBeNull();
 		expect(profile.length).toBeGreaterThanOrEqual(2);
 
-		// Reconstructed width (base × profile) must match the taper-less dab
-		// evaluation the renderer would have produced with the curves intact.
-		const buffer = evaluateDabs(
-			segments,
-			{ ...raw, taperStart: undefined },
-			{},
-		);
+		// The reconstructed width, base times profile, must match the dab evaluation
+		// the renderer would have produced with the curves intact.
+		const buffer = evaluateDabs(segments, raw, {});
 		const baseHalf = 10 / 2;
 		for (let i = 0; i < buffer.count; i++) {
 			const pathT = readDabField(buffer.data, i, "pathT");
@@ -331,7 +292,7 @@ describe("bakeStrokeWidthProfile", () => {
 	});
 
 	it("should render a baked path identically to the live curve evaluation", () => {
-		const raw = { ...dabSettingsWithPressureCurve(), taperStart: undefined };
+		const raw = dabSettingsWithPressureCurve();
 		const segments = [
 			lineSegment(0, 0, 300, 0, {
 				isMoved: true,
@@ -412,7 +373,6 @@ describe("bakeStrokeWidthProfile", () => {
 					flow: { base: 1 },
 					spacing: { base: 0.05 },
 				},
-				taperStart: undefined,
 			},
 			polylineSegmentsFromPoints(points),
 		)!;
@@ -423,6 +383,89 @@ describe("bakeStrokeWidthProfile", () => {
 		// The fast half must bake meaningfully thinner than the slow half.
 		expect(fastSide).toBeLessThan(slowSide * 0.7);
 		expect(slowSide).toBeGreaterThan(0.9);
+	});
+
+	it("should grow a distance-keyed profile that follows the full bake", () => {
+		const settings = dabSettingsWithPressureCurve();
+		settings.properties.size?.curves?.push({
+			input: "speedFine",
+			points: [
+				[0, 0],
+				[1, -0.5],
+			],
+		});
+		const builder = new StrokeWidthProfileBuilder();
+		let points: BezierPoint[] = [];
+		let previous: StrokeWidthPoint[] | null = null;
+		for (let i = 0; i < 180; i++) {
+			points.push({
+				x: i * 3,
+				y: Math.sin(i * 0.2) * 10,
+				pressure: 0.5 + Math.sin(i * 0.13) * 0.2,
+				deltaTime: i < 80 ? i * 4 : 320 + (i - 80) * 20,
+			});
+			if (i === 15)
+				points = points.map((point) => ({ ...point, pressure: 0.2 }));
+			if (i % 13 !== 0) continue;
+			const actual = builder.update(settings, points);
+			const segments = polylineSegmentsFromPoints(points);
+			const expected = bakeStrokeWidthProfile(settings, segments);
+			if (!expected) {
+				expect(actual).toBeNull();
+				continue;
+			}
+			if (!actual) throw new Error("Missing width profile");
+			expect(actual.length).toBeCloseTo(measureSegmentsLength(segments), 6);
+			expect(actual.widths.at(-1)?.t).toBeCloseTo(actual.length, 6);
+			// Both sides simplify within BAKE_TOLERANCE, so they agree within
+			// twice that.
+			for (let j = 0; j <= 256; j++) {
+				const t = j / 256;
+				expect(
+					Math.abs(
+						interpolateStrokeWidths(actual.widths, t * actual.length).side1 -
+							interpolateStrokeWidths(expected, t).side1,
+					),
+				).toBeLessThan(0.02);
+			}
+			// Once the contact window has passed, the points before the
+			// provisional end are final.
+			const elapsed =
+				(points.at(-1)?.deltaTime ?? 0) - (points[0].deltaTime ?? 0);
+			if (previous && elapsed >= CONTACT_SPEED_WINDOW_MS + 100) {
+				expect(actual.widths.slice(0, previous.length - 2)).toEqual(
+					previous.slice(0, previous.length - 2),
+				);
+			}
+			previous = elapsed >= CONTACT_SPEED_WINDOW_MS ? actual.widths : null;
+		}
+	});
+
+	it("should re-bake every update for strokeT curves, keyed by distance", () => {
+		const settings = dabSettingsWithPressureCurve();
+		settings.properties.size?.curves?.push({
+			input: "strokeT",
+			points: [
+				[0, -0.5],
+				[1, 0],
+			],
+		});
+		const builder = new StrokeWidthProfileBuilder();
+		const points: BezierPoint[] = [];
+		for (let i = 0; i < 20; i++) {
+			points.push({ x: i * 5, y: 0, pressure: 0.5, deltaTime: i * 8 });
+			const segments = polylineSegmentsFromPoints(points);
+			const length = measureSegmentsLength(segments);
+			const baked = bakeStrokeWidthProfile(settings, segments);
+			expect(builder.update(settings, points)).toEqual(
+				baked
+					? {
+							widths: baked.map((point) => ({ ...point, t: point.t * length })),
+							length,
+						}
+					: null,
+			);
+		}
 	});
 
 	it("should keep ratios above 1 for width growth (size scaling has no cap)", () => {
@@ -445,7 +488,6 @@ describe("bakeStrokeWidthProfile", () => {
 				flow: { base: 1 },
 				spacing: { base: 0.05 },
 			},
-			taperStart: undefined,
 		};
 		const profile = bakeStrokeWidthProfile(raw, [
 			lineSegment(0, 0, 300, 0, {

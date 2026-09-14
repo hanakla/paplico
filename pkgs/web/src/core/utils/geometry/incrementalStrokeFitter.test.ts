@@ -4,7 +4,7 @@ import {
 	IncrementalStrokeFitter,
 	processStroke,
 	type SmoothingMethod,
-	subdivideSegmentsAtTimeKnots,
+	subdivideSegmentsAtInputKnots,
 } from "./strokeFitting";
 
 const METHODS: SmoothingMethod[] = ["smooth", "pulled-string", "inertia"];
@@ -289,7 +289,7 @@ describe("IncrementalStrokeFitter", () => {
 				{ x: 0, y: 0, zoom: 1, rotation: 0 },
 				"smooth",
 			);
-			const subdivided = subdivideSegmentsAtTimeKnots(fitted, points);
+			const subdivided = subdivideSegmentsAtInputKnots(fitted, points);
 
 			expect(subdivided.length).toBeGreaterThan(fitted.length);
 			for (const sample of sampleSegments(subdivided)) {
@@ -297,6 +297,41 @@ describe("IncrementalStrokeFitter", () => {
 					distanceToPolyline(sample.x, sample.y, sampleSegments(fitted)),
 				).toBeLessThan(0.01);
 			}
+		});
+
+		it("should keep a pressure drop inside a segment readable", () => {
+			// Straight line at constant speed: pressure 0.9 for the first 5
+			// samples, then 0.4. No time knot applies, so only pressure can
+			// split the single fitted segment.
+			const points: BezierPoint[] = [];
+			for (let i = 0; i <= 40; i++) {
+				points.push({
+					x: i * 3,
+					y: 0,
+					pressure: i < 5 ? 0.9 : 0.4,
+					deltaTime: i * 8,
+				});
+			}
+			const fitter = makeFitter("smooth");
+			for (const p of points) fitter.push(p);
+			const segments = fitter.getSegments();
+
+			// Pressure at x=60 is read off the segment containing it. Without a
+			// knot it would interpolate between 0.9 at x=0 and 0.4 at x=120.
+			let prevEnd = { x: 0, y: 0 };
+			let pressureAt60 = Number.NaN;
+			for (const seg of segments) {
+				const sx = seg.start?.x ?? prevEnd.x;
+				if (sx <= 60 && seg.end.x >= 60) {
+					const f = (60 - sx) / Math.max(seg.end.x - sx, 1e-9);
+					pressureAt60 =
+						(seg.startPressure ?? 0.5) +
+						((seg.endPressure ?? 0.5) - (seg.startPressure ?? 0.5)) * f;
+					break;
+				}
+				prevEnd = seg.end;
+			}
+			expect(pressureAt60).toBeLessThan(0.5);
 		});
 	});
 });

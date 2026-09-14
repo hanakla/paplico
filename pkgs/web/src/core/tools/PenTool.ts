@@ -2,15 +2,13 @@ import { withStoredBrushSize } from "../brush/access";
 import { BrushStrokeSession } from "../brush/BrushStrokeSession";
 import { createIdentityTransform } from "../document/factory";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
-import {
-	bakeStrokeWidthProfile,
-	polylineSegmentsFromPoints,
-} from "../renderer/canvas/pipeline/brush/strokeHalfWidth";
+import { StrokeWidthProfileBuilder } from "../renderer/canvas/pipeline/brush/strokeHalfWidth";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import type { UIPrimitive } from "../renderer/ui/primitives";
 import { OVERLAY_Z, UI_THEME } from "../renderer/ui/theme";
 import {
 	type BezierPoint,
+	type CubicBezierSegment,
 	cloneAppearance,
 	colorToRawRGBA,
 	type Filter,
@@ -21,11 +19,8 @@ import {
 	type Viewport,
 } from "../schema";
 import { screenToWorld } from "../utils/geometry/geometry";
-import {
-	processStroke,
-	type SmoothingMethod,
-} from "../utils/geometry/strokeFitting";
-import type { PointerEventData, Tool } from "./Tool";
+import type { SmoothingMethod } from "../utils/geometry/strokeFitting";
+import type { CoalescedPointerSample, PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
 interface PenToolOptions {
@@ -53,6 +48,22 @@ export interface PenStrokeRecord {
 	smoothingMethod: SmoothingMethod;
 	/** Viewport zoom the stroke was drawn at (drives the fit tolerance). */
 	zoom: number;
+	diagnostics?: {
+		startedAt: string;
+		startTime: number;
+		events: {
+			phase: "down" | "move" | "up";
+			receivedAt: number;
+			event: PointerEventData;
+			viewport: Viewport;
+			canvasWidth: number;
+			canvasHeight: number;
+			/** Half-open range in points; gaps identify timer-injected hold points. */
+			pointStartIndex: number;
+			pointEndIndex: number;
+			discardedDuplicate: boolean;
+		}[];
+	};
 }
 
 /** Overlay channel key for perspective radial / lock guide lines. */
@@ -80,7 +91,12 @@ type DragState =
 	| {
 			mode: "drawing";
 			session: BrushStrokeSession;
+			/** Appearances resolved once at pen-down; every preview and the commit share them. */
+			filters: Filter[];
+			widthProfile: StrokeWidthProfileBuilder;
 			startTime: number;
+			diagnostics: PenStrokeRecord["diagnostics"];
+			lastCoalescedBatch: PointerEventData["coalesced"];
 			/** Long-press timer (null after threshold exceeded or timer expired) */
 			longPressTimer: ReturnType<typeof setTimeout> | null;
 			/** Airbrush hold-point timer (null for brushes without timed dabs) */
@@ -172,10 +188,22 @@ export class PenTool implements Tool {
 			deltaTime: 0,
 		});
 
+		const stroke = this.resolveStroke();
+		const fill = this.context.getActiveFillAppearance();
+		const filters: Filter[] = [];
+		if (stroke) filters.push(stroke);
+		if (fill) filters.push(cloneAppearance(fill));
+
 		this.dragState = {
 			mode: "drawing",
 			session,
-			startTime: performance.now(),
+			filters,
+			widthProfile: new StrokeWidthProfileBuilder(),
+			// The event's own clock, which the first pointermove's coalesced
+			// samples share: they carry timestamps from before this handler ran.
+			startTime: event.timeStamp,
+			diagnostics: undefined,
+			lastCoalescedBatch: undefined,
 			longPressTimer: setTimeout(
 				() => this.triggerLongPress(),
 				PenTool.LONG_PRESS_DURATION,
@@ -191,6 +219,21 @@ export class PenTool implements Tool {
 				lock: null,
 			},
 		};
+		if (process.env.NODE_ENV !== "production") {
+			this.dragState.diagnostics = {
+				startedAt: new Date().toISOString(),
+				startTime: this.dragState.startTime,
+				events: [],
+			};
+		}
+		this.recordInputEvent(
+			"down",
+			event,
+			viewport,
+			canvasWidth,
+			canvasHeight,
+			0,
+		);
 	}
 
 	public onPointerMove(
@@ -205,6 +248,26 @@ export class PenTool implements Tool {
 		}
 
 		if (this.dragState.mode === "drawing") {
+			const samples =
+				event.coalesced && event.coalesced.length > 0 ? event.coalesced : null;
+			const pointStartIndex = this.dragState.session.pointCount;
+			if (
+				samples &&
+				areCoalescedBatchesEqual(this.dragState.lastCoalescedBatch, samples)
+			) {
+				this.recordInputEvent(
+					"move",
+					event,
+					viewport,
+					canvasWidth,
+					canvasHeight,
+					pointStartIndex,
+					true,
+				);
+				return;
+			}
+			this.dragState.lastCoalescedBatch = samples ?? undefined;
+
 			// Cancel long-press if pointer moved beyond threshold
 			if (this.dragState.longPressTimer) {
 				const dist = Math.hypot(
@@ -219,8 +282,6 @@ export class PenTool implements Tool {
 
 			// Fast strokes deliver several raw samples per pointermove; append
 			// them all so the fit sees the full input.
-			const samples =
-				event.coalesced && event.coalesced.length > 0 ? event.coalesced : null;
 			let lastWorldPos: { x: number; y: number } | null = null;
 			if (samples) {
 				for (const sample of samples) {
@@ -268,21 +329,29 @@ export class PenTool implements Tool {
 					tiltX: event.tiltX,
 					tiltY: event.tiltY,
 					twist: event.twist,
-					deltaTime: performance.now() - this.dragState.startTime,
+					deltaTime: event.timeStamp - this.dragState.startTime,
 				});
 				lastWorldPos = worldPos;
 			}
 
+			this.recordInputEvent(
+				"move",
+				event,
+				viewport,
+				canvasWidth,
+				canvasHeight,
+				pointStartIndex,
+			);
 			if (lastWorldPos) this.updatePerspectiveOverlay(lastWorldPos);
 			this.updatePreview();
 		}
 	}
 
 	public onPointerUp(
-		_event: PointerEventData,
+		event: PointerEventData,
 		viewport: Viewport,
-		_canvasWidth: number,
-		_canvasHeight: number,
+		canvasWidth: number,
+		canvasHeight: number,
 	): void {
 		if (this.dragState.mode === "picking") {
 			this.dragState = { mode: "idle" };
@@ -301,8 +370,15 @@ export class PenTool implements Tool {
 
 		this.context.uiSetOverlay(PERSPECTIVE_PEN_OVERLAY_KEY, null);
 
-		// Exit 1 (commit): the raw record re-fits through the full pipeline,
-		// so the committed geometry is identical to the pre-session behavior.
+		this.recordInputEvent(
+			"up",
+			event,
+			viewport,
+			canvasWidth,
+			canvasHeight,
+			this.dragState.session.pointCount,
+		);
+
 		const points = this.dragState.session.commit();
 		if (points.length < 2) {
 			this.dragState = { mode: "idle" };
@@ -310,55 +386,23 @@ export class PenTool implements Tool {
 			return;
 		}
 
-		const segments = processStroke(
+		// The preview fit without its input knots, with the width profile the
+		// preview drew, so the committed stroke keeps the displayed ink.
+		const path = this.createStrokePath(
+			this.dragState.session.getCommitSegments(),
 			points,
-			this.stabilization,
-			viewport,
-			this.smoothingMethod,
+			generateUid("obj"),
 		);
-
-		// Build filters from current appearances
-		const stroke = this.resolveStroke();
-		const fill = this.context.getActiveFillAppearance();
-
-		// Materialize the size-curve width profile into strokeWidths, evaluated
-		// on the raw input polyline: the fitted segments carry time only at
-		// their endpoints, so speed-driven width would flatten to the segment
-		// average, and a later vertex edit would drop pressure data too. The
-		// appearance itself stays untouched — renderers skip the size curves
-		// via strokeWidthsBaked.
-		const bakedWidths = stroke
-			? bakeStrokeWidthProfile(
-					stroke.paramData.params.brushSettings,
-					polylineSegmentsFromPoints(points),
-				)
-			: null;
-
-		const filters: Filter[] = [];
-		if (stroke) filters.push(stroke);
-		if (fill) filters.push(cloneAppearance(fill));
-
-		if (filters.length === 0) {
+		if (!path) {
 			this.dragState = { mode: "idle" };
+			this.context.previewUpdate(null);
 			return;
 		}
-
-		// Create path object
-		const path: Path = {
-			type: "path",
-			id: generateUid("obj"),
-			transform: createIdentityTransform(),
-			opacity: this.opacity,
-			blendMode: "normal",
-			segments,
-			filters,
-			strokeWidths: bakedWidths ?? undefined,
-			strokeWidthsBaked: bakedWidths ? true : undefined,
-		};
 
 		this.lastStroke = {
 			points,
 			path,
+			diagnostics: this.dragState.diagnostics,
 			stabilization: this.stabilization,
 			smoothingMethod: this.smoothingMethod,
 			zoom: viewport.zoom,
@@ -392,6 +436,32 @@ export class PenTool implements Tool {
 
 	public dispose(): void {
 		this.cancelDrag();
+	}
+
+	private recordInputEvent(
+		phase: NonNullable<
+			PenStrokeRecord["diagnostics"]
+		>["events"][number]["phase"],
+		event: PointerEventData,
+		viewport: Viewport,
+		canvasWidth: number,
+		canvasHeight: number,
+		pointStartIndex: number,
+		discardedDuplicate = false,
+	): void {
+		if (this.dragState.mode !== "drawing" || !this.dragState.diagnostics)
+			return;
+		this.dragState.diagnostics.events.push({
+			phase,
+			receivedAt: performance.now(),
+			event: structuredClone(event),
+			viewport: { ...viewport },
+			canvasWidth,
+			canvasHeight,
+			pointStartIndex,
+			pointEndIndex: this.dragState.session.pointCount,
+			discardedDuplicate,
+		});
 	}
 
 	private triggerLongPress(): void {
@@ -430,23 +500,52 @@ export class PenTool implements Tool {
 		const segments = this.dragState.session.getPreviewSegments();
 		if (segments.length === 0) return;
 
-		const stroke = this.resolveStroke();
-		const fill = this.context.getActiveFillAppearance();
-		const filters: Filter[] = [];
-		if (stroke) filters.push(stroke);
-		if (fill) filters.push(cloneAppearance(fill));
-		if (filters.length === 0) return;
+		this.context.previewUpdate(
+			this.createStrokePath(
+				segments,
+				this.dragState.session.rawPoints,
+				"preview",
+			),
+		);
+	}
 
-		const previewPath: Path = {
+	/**
+	 * The stroke as a Path over `segments`. The width profile is evaluated on
+	 * the raw samples, whose timing drives speed-driven width independently
+	 * of the fit. It is normalized by the raw polyline's length, so both ends
+	 * of the profile land on both ends of the drawn segments.
+	 */
+	private createStrokePath(
+		segments: CubicBezierSegment[],
+		points: BezierPoint[],
+		id: string,
+	): Path | null {
+		if (this.dragState.mode !== "drawing") return null;
+		const { filters, widthProfile } = this.dragState;
+		if (filters.length === 0) return null;
+
+		const stroke = filters.find(
+			(filter): filter is StrokeAppearance => filter.processor === "stroke",
+		);
+		const profile = widthProfile.update(
+			stroke?.paramData.params.brushSettings,
+			points,
+		);
+		const widths = profile?.widths.map((point) => ({
+			...point,
+			t: point.t / profile.length,
+		}));
+		return {
 			type: "path",
-			id: "preview",
+			id,
 			transform: createIdentityTransform(),
 			opacity: this.opacity,
 			blendMode: "normal",
 			segments,
 			filters,
+			strokeWidths: widths,
+			strokeWidthsBaked: widths ? true : undefined,
 		};
-		this.context.previewUpdate(previewPath);
 	}
 
 	/** Whether the active brush emits timed dabs (airbrush hold applies). */
@@ -458,6 +557,11 @@ export class PenTool implements Tool {
 		return dps != null && (dps.base > 0 || (dps.curves?.length ?? 0) > 0);
 	}
 
+	/**
+	 * Timer-driven, so there is no event to read a timestamp from;
+	 * performance.now() shares the clock of PointerEvent.timeStamp, which
+	 * the stroke's startTime was taken from.
+	 */
 	private injectHoldPoint(): void {
 		if (this.dragState.mode !== "drawing") return;
 		this.dragState.session.injectHold(
@@ -584,6 +688,30 @@ export class PenTool implements Tool {
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
+
+/** Every field of a coalesced sample; a new field must be listed here to be compared. */
+const COALESCED_SAMPLE_KEYS = Object.keys({
+	x: true,
+	y: true,
+	pressure: true,
+	tiltX: true,
+	tiltY: true,
+	twist: true,
+	timeStamp: true,
+} satisfies Record<
+	keyof CoalescedPointerSample,
+	true
+>) as (keyof CoalescedPointerSample)[];
+
+function areCoalescedBatchesEqual(
+	previous: PointerEventData["coalesced"],
+	current: NonNullable<PointerEventData["coalesced"]>,
+): boolean {
+	if (!previous || previous.length !== current.length) return false;
+	return previous.every((sample, index) =>
+		COALESCED_SAMPLE_KEYS.every((key) => sample[key] === current[index][key]),
+	);
+}
 
 /**
  * Pick the guide direction closest in angle to the initial stroke motion,

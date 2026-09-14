@@ -16,16 +16,28 @@ export interface PointerEventData {
 	ctrlKey: boolean;
 	altKey: boolean;
 	metaKey: boolean;
+	/** DOMHighResTimeStamp of the event, on the performance.now() clock. */
+	timeStamp: number;
 	/**
 	 * getCoalescedEvents() samples for this pointermove, oldest first (the
 	 * last one matches the dispatched event). Drawing tools append every
 	 * sample so fast strokes lose no input between frames.
 	 */
 	coalesced?: readonly CoalescedPointerSample[];
+	/** Development-only identity and timing for diagnosing duplicate input delivery. */
+	diagnostics?: {
+		eventId: number;
+		sourceId: number;
+		type: string;
+		pointerId: number;
+		buttons: number;
+		isTrusted: boolean;
+		receivedAt: number;
+	};
 }
 
 /** One raw input sample from PointerEvent.getCoalescedEvents(). */
-interface CoalescedPointerSample {
+export interface CoalescedPointerSample {
 	x: number; // screen coordinates
 	y: number;
 	pressure: number;

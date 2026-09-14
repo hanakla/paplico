@@ -15,7 +15,15 @@ export async function sendLastStrokeToServer(
 	const res = await fetch("/api/dev/stroke-record", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(record),
+		body: JSON.stringify({
+			...record,
+			formatVersion: 2,
+			environment: {
+				userAgent: navigator.userAgent,
+				devicePixelRatio: window.devicePixelRatio,
+				timeOrigin: performance.timeOrigin,
+			},
+		}),
 	});
 	const { saved } = await res.json();
 	return saved ?? null;

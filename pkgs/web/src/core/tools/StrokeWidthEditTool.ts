@@ -59,7 +59,7 @@ export class StrokeWidthEditTool implements Tool {
 	private segArcLengths: Float64Array = new Float64Array(0);
 	private totalArcLength = 0;
 	/**
-	 * Actual rendered half width per t (pressure/taper evaluated). Rebuilt only
+	 * Actual rendered half width per t with pressure evaluated. Rebuilt only
 	 * with the world segments: a strokeWidths edit recreates the Path object
 	 * (and its segments array) on every pointer move, so identity-keyed caching
 	 * would miss each time, while segments/brush settings never change here.
@@ -325,9 +325,8 @@ export class StrokeWidthEditTool implements Tool {
 
 		// Ratio conversion divides by the actual rendered half width at this t,
 		// floored at 5% of the base half size: below that a 1px drag would blow
-		// the ratio up 20x+ (or become 0/0 at a taper tip). The display keeps
-		// the raw half width, so handles near a taper tip intentionally do not
-		// track the pointer 1:1.
+		// the ratio up 20x+. The display keeps the raw half width, so handles
+		// near a vanishing width intentionally do not track the pointer 1:1.
 		const denom = Math.max(this.effectiveHalfAt(pointT), brushHalf * 0.05);
 
 		const sides = resolveDraggedSides(

@@ -332,7 +332,7 @@ type BrushSettings =
 	| CalligraphyBrushSettings // 楕円ニブ（nibAngle/roundness/angleMode）
 ```
 
-共通フィールド: `size`（ワールド単位）, `sizeByPressure`, `opacity`, `opacityByPressure`, `randomSeed`, `taperStart?`/`taperEnd?` 等。テクスチャソースは `BrushArtSource = {kind:"file"} | {kind:"def"}`。ビルトインブラシIDは `BUILTIN_BRUSH_IDS`（svg / hardCircle / softCircle / pencil / airbrush / calligraphy）。
+共通フィールド: `size`, `sizeByPressure`, `opacity`, `opacityByPressure`, `randomSeed` 等。`size` の単位はワールド単位。テクスチャソースは `BrushArtSource = {kind:"file"} | {kind:"def"}`。ビルトインブラシIDは `BUILTIN_BRUSH_IDS` で、svg / hardCircle / softCircle / pencil / airbrush / calligraphy を持つ。
 
 ### Artboard / EmbeddedFile
 
@@ -500,26 +500,25 @@ interface Tool {
 
 ## ストローク処理（ペンツール）
 
-実装場所：`pkgs/web/src/core/utils/geometry/strokeFitting.ts` の `processStroke()`
+実装場所：
+
+- `pkgs/web/src/core/utils/geometry/strokeFitting.ts` の `IncrementalStrokeFitter` と `processStroke()`
+- `pkgs/web/src/core/brush/BrushStrokeSession.ts`
+- `pkgs/web/src/core/tools/PenTool.ts`
+
+入力中は `IncrementalStrokeFitter` が増分でフィットする。確定はそのフィットからinput knotを除いたsegment列を保存する。`processStroke()` は同じパイプラインを全raw pointsに対して一括で走らせる。保存済みpointsの再フィットに使う。
 
 処理パイプライン:
 
-1. **重複除去** — 0.5ワールド単位未満の連続点を間引く（終点は常に保持）
-2. **スムージング** — `smoothingMethod` で選択:
-   - `"smooth"`（既定）: ガウシアン加重移動平均。`sigma = stabilization × 4.0`。x/y/筆圧/傾き/deltaTimeを同一カーネルで平滑化。端点保持
-   - `"pulled-string"`: 紐引きずり方式。紐長 = `stabilization × 20.0` ワールド単位
-   - `"inertia"`: バネ-ダンパ（臨界減衰）。`stiffness = 4.0 × (1 - stabilization × 0.8)`
-3. **コーナー検出** — 45°の角度閾値でポリラインを分割
-4. **Schneider法による最小二乗三次ベジエフィッティング** — Newton-Raphson再パラメータ化（最大4回）。許容誤差はズーム反比例:
-
-   ```
-   baseTolerance = stabilization <= 0 ? 0.5 : 1.0 + stabilization * 3.0
-   tolerance     = baseTolerance / viewport.zoom
-   ```
-
+1. **重複除去** — 連続する近接点を間引く。終点は常に保持する
+2. **スムージング** — `smoothingMethod` で `"smooth"`、`"pulled-string"`、`"inertia"` から選択。`"smooth"` はガウシアン。筆圧は入力値のまま
+3. **コーナー検出** — 角度閾値でポリラインを分割
+4. **Schneider法による最小二乗三次ベジエフィッティング** — 許容誤差はズーム反比例
 5. **セグメント出力** — cp1/cp2をアンカー相対オフセットで格納。筆圧・傾き・deltaTimeは最寄りのスムージング済み点から転記
 
-`deltaTime` は `onPointerDown` の `performance.now()` を起点とした累積経過msを各点に記録する。筆圧カーブ変換は `PaplicoUI` 側でマウス以外のポインタにのみ適用する。ライブプレビュー（`onPointerMove`）と確定（`onPointerUp`）の両方で同じ `processStroke` を通す。
+接地時の筆圧補正、速度EMAの接触窓、幅プロファイルの焼き込み、各段の定数と式はdevdocsのブラシシステムに記載する。パスは `/devdocs/brush-system`。
+
+`deltaTime` は `pointerdown` イベントの `timeStamp` を起点とした累積経過msを各点に記録する。筆圧カーブ変換は `PaplicoUI` 側でマウス以外のポインタにのみ適用する。
 
 ペンツールはこの他に、長押し（500ms）カラーピック、パースペクティブ定規への方向ロック（Altでバイパス）を持つ。
 

@@ -162,14 +162,6 @@ describe("classifyElement", () => {
 		expect(
 			classifyElement(
 				basePath({
-					filters: [solidStroke(geometricBrush({ taperEnd: 0.5 }))],
-				}),
-				opts,
-			),
-		).toBe("raster");
-		expect(
-			classifyElement(
-				basePath({
 					filters: [
 						solidStroke(
 							geometricBrush({

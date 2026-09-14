@@ -592,8 +592,6 @@ function ribbonStrokeInputOf(settings: BrushSettings): RibbonStrokeInput {
 		flow: settings.properties.flow?.base ?? 1,
 		sizeByPressure: sizeCurve ? -(sizeCurve.points[0][1] ?? 0) : 0,
 		colorMode: settings.colorMode,
-		taperStart: settings.taperStart,
-		taperEnd: settings.taperEnd,
 	};
 }
 

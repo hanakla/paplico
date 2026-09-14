@@ -702,7 +702,6 @@ function kernelMean(
 	const radius = weights.length - 1;
 	let sumX = 0;
 	let sumY = 0;
-	let sumPressure = 0;
 	let sumTiltX = 0;
 	let sumTiltY = 0;
 	let sumTwistSin = 0;
@@ -715,7 +714,6 @@ function kernelMean(
 		const p = extendedSample(points, j, lo, hi);
 		sumX += p.x * w;
 		sumY += p.y * w;
-		sumPressure += (p.pressure ?? 0.5) * w;
 		sumTiltX += (p.tiltX ?? 0) * w;
 		sumTiltY += (p.tiltY ?? 0) * w;
 		const twistRad = ((p.twist ?? 0) * Math.PI) / 180;
@@ -726,10 +724,12 @@ function kernelMean(
 	}
 
 	const twistDeg = (Math.atan2(sumTwistSin, sumTwistCos) * 180) / Math.PI;
+	// Pressure stays raw: the committed width is baked from the raw samples,
+	// and a smoothed preview pressure would drift from it at every peak.
 	return {
 		x: sumX / totalWeight,
 		y: sumY / totalWeight,
-		pressure: sumPressure / totalWeight,
+		pressure: points[i].pressure,
 		tiltX: sumTiltX / totalWeight,
 		tiltY: sumTiltY / totalWeight,
 		twist: ((twistDeg % 360) + 360) % 360,
@@ -1871,7 +1871,7 @@ export function processStroke(
 // Incremental fitting (live preview)
 // ---------------------------------------------------------------------------
 
-interface IncrementalStrokeFitterOptions {
+export interface IncrementalStrokeFitterOptions {
 	stabilization: number;
 	zoom: number;
 	smoothingMethod?: SmoothingMethod;
@@ -1924,6 +1924,8 @@ export class IncrementalStrokeFitter {
 	private inertiaVelY = 0;
 
 	private frozen: CubicBezierSegment[] = [];
+	/** The frozen fits before input-knot subdivision; getPlainSegments returns them. */
+	private frozenPlain: CubicBezierSegment[] = [];
 	/** Smoothed index where the live tail begins (= last freeze boundary). */
 	private tailStart = 0;
 	/** Highest smoothed index already checked for a freezable corner. */
@@ -1987,20 +1989,35 @@ export class IncrementalStrokeFitter {
 	public getSegments(): CubicBezierSegment[] {
 		if (this.cachedSegments) return this.cachedSegments;
 
-		const tailPts = this.buildTailPoints();
-		this.lastProcessedPoints += tailPts.length;
-		// Time-knot subdivision keeps the live tail's speed readable: one fit
-		// over the whole tail would linearize its timing and flatten
-		// speed-driven brush width until the next freeze.
-		const tail =
-			tailPts.length >= 2
-				? subdivideSegmentsAtTimeKnots(
-						fitPointSequence(tailPts, this.tolerance, this.frozen.length === 0),
-						tailPts,
-					)
-				: [];
-		this.cachedSegments = [...this.frozen, ...tail];
+		const { points, fitted } = this.fitTail();
+		this.lastProcessedPoints += points.length;
+		// Input-knot subdivision keeps the live tail's speed and pressure
+		// readable: one fit over the whole tail would linearize both and
+		// flatten the brush width until the next freeze.
+		this.cachedSegments = [
+			...this.frozen,
+			...subdivideSegmentsAtInputKnots(fitted, points),
+		];
 		return this.cachedSegments;
+	}
+
+	/**
+	 * The same fit as getSegments() without the input-knot subdivision: what
+	 * the committed path stores, so path editing shows only the fit's own
+	 * anchors. Width lives in the baked profile; only anchor-read inputs such
+	 * as pressure-driven flow lose the knots' resolution.
+	 */
+	public getPlainSegments(): CubicBezierSegment[] {
+		return [...this.frozenPlain, ...this.fitTail().fitted];
+	}
+
+	private fitTail(): { points: BezierPoint[]; fitted: CubicBezierSegment[] } {
+		const points = this.buildTailPoints();
+		const fitted =
+			points.length >= 2
+				? fitPointSequence(points, this.tolerance, this.frozen.length === 0)
+				: [];
+		return { points, fitted };
 	}
 
 	// --- smoothing ---------------------------------------------------------
@@ -2233,11 +2250,16 @@ export class IncrementalStrokeFitter {
 		this.lastProcessedPoints += section.length;
 		// Subdivided once here, then immutable — the live dab accumulator's
 		// frozen prefix keeps stable segment identities.
-		const fitted = subdivideSegmentsAtTimeKnots(
-			fitPointSequence(section, this.tolerance, this.frozen.length === 0),
+		const plain = fitPointSequence(
 			section,
+			this.tolerance,
+			this.frozen.length === 0,
 		);
-		this.frozen = [...this.frozen, ...fitted];
+		this.frozenPlain = [...this.frozenPlain, ...plain];
+		this.frozen = [
+			...this.frozen,
+			...subdivideSegmentsAtInputKnots(plain, section),
+		];
 		this.tailStart = index;
 	}
 
@@ -2278,21 +2300,24 @@ export class IncrementalStrokeFitter {
 	}
 }
 
-/** Max time knots inserted per subdivided section. */
-const TIME_KNOT_MAX = 16;
+/** Max input knots inserted per subdivided section. */
+const INPUT_KNOT_MAX = 16;
 /** Deviation from the section-linear time schedule that earns a knot (ms). */
 const TIME_KNOT_TOLERANCE_MS = 8;
+/** Deviation from the section-linear pressure schedule that earns a knot. */
+const PRESSURE_KNOT_TOLERANCE = 0.05;
 
 /**
- * Subdivide fitted segments at points where the input's timing deviates from
- * the segments' endpoint-linear time schedule. The geometry is unchanged (de
- * Casteljau splits); only the anchors' time/pressure resolution grows, so the
- * dab evaluator can read real speed instead of a whole-fit average. Serves
- * the live preview — committed strokes carry their speed in the baked
- * strokeWidths profile and stay unsplit (extra stored anchors would surface
- * in path editing).
+ * Subdivide fitted segments at points where the input's timing or pressure
+ * deviates from the segments' endpoint-linear schedule. The geometry is
+ * unchanged, since the splits are de Casteljau splits; only the anchors'
+ * time/pressure resolution grows, so the dab evaluator reads real speed and
+ * pressure instead of a whole-fit average. Serves the live preview; the
+ * committed path stores the fit before subdivision, taken from
+ * IncrementalStrokeFitter.getPlainSegments, with the width baked into
+ * strokeWidths, so path editing shows only the fit's own anchors.
  */
-export function subdivideSegmentsAtTimeKnots(
+export function subdivideSegmentsAtInputKnots(
 	segments: CubicBezierSegment[],
 	sourcePoints: BezierPoint[],
 ): CubicBezierSegment[] {
@@ -2315,7 +2340,7 @@ export function subdivideSegmentsAtTimeKnots(
 	const totalArc = arcs[arcs.length - 1];
 	if (totalArc <= 0) return segments;
 
-	const knotIndices = pickTimeKnotIndices(arcs, sourcePoints);
+	const knotIndices = pickInputKnotIndices(arcs, sourcePoints);
 	if (knotIndices.length === 0) return segments;
 
 	// Resolve fitted segments to absolute cubics + their arc spans.
@@ -2473,12 +2498,13 @@ export function subdivideSegmentsAtTimeKnots(
 }
 
 /**
- * Indices of source points whose time deviates most from the endpoint-linear
- * schedule (greedy max-error refinement, same shape as the profile
- * simplification in strokeHalfWidth). Ascending order, capped at
- * TIME_KNOT_MAX by keeping the largest deviations.
+ * Indices of source points whose time or pressure deviates most from the
+ * endpoint-linear schedule, by a greedy max-error refinement shaped like the
+ * profile simplification in strokeHalfWidth. Each deviation is measured in
+ * units of its own tolerance so the two inputs compete on equal terms.
+ * Ascending order, capped at INPUT_KNOT_MAX by keeping the largest deviations.
  */
-function pickTimeKnotIndices(
+function pickInputKnotIndices(
 	arcs: Float64Array,
 	points: BezierPoint[],
 ): number[] {
@@ -2492,13 +2518,21 @@ function pickTimeKnotIndices(
 		if (arcSpan <= 1e-9) continue;
 		const timeA = points[a].deltaTime ?? 0;
 		const timeB = points[b].deltaTime ?? 0;
+		const pressureA = points[a].pressure ?? 0.5;
+		const pressureB = points[b].pressure ?? 0.5;
 		let worst = -1;
-		let worstError = TIME_KNOT_TOLERANCE_MS;
+		let worstError = 1;
 		for (let i = a + 1; i < b; i++) {
 			const f = (arcs[i] - arcs[a]) / arcSpan;
-			const error = Math.abs(
-				(points[i].deltaTime ?? 0) - (timeA + (timeB - timeA) * f),
-			);
+			const timeError =
+				Math.abs((points[i].deltaTime ?? 0) - (timeA + (timeB - timeA) * f)) /
+				TIME_KNOT_TOLERANCE_MS;
+			const pressureError =
+				Math.abs(
+					(points[i].pressure ?? 0.5) -
+						(pressureA + (pressureB - pressureA) * f),
+				) / PRESSURE_KNOT_TOLERANCE;
+			const error = Math.max(timeError, pressureError);
 			if (error > worstError) {
 				worstError = error;
 				worst = i;
@@ -2511,7 +2545,7 @@ function pickTimeKnotIndices(
 	}
 	return chosen
 		.sort((a, b) => b.error - a.error)
-		.slice(0, TIME_KNOT_MAX)
+		.slice(0, INPUT_KNOT_MAX)
 		.map((entry) => entry.idx)
 		.sort((a, b) => a - b);
 }

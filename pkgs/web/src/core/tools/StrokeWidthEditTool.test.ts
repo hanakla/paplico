@@ -593,7 +593,7 @@ describe("StrokeWidthEditTool", () => {
 		});
 	});
 
-	describe("actual rendered width (pressure / taper)", () => {
+	describe("actual rendered width (pressure)", () => {
 		function pressureHalvedSettings(pressureCurveDepth: number) {
 			return {
 				version: 2,
@@ -648,25 +648,6 @@ describe("StrokeWidthEditTool", () => {
 
 			expect(handleY(ctx, "-1:side1")).toBeCloseTo(10, 4);
 			expect(handleY(ctx, "-2:side1")).toBeCloseTo(10, 4);
-		});
-
-		it("should collapse the handle to the centerline at a taper tip", () => {
-			initTool(
-				createBrushTestPath({
-					brushSettings: {
-						version: 2,
-						engine: "geometric",
-						strokeOpacity: 1,
-						paintMode: "buildup",
-						properties: { size: { base: 40 } },
-						randomSeed: 0,
-						taperStart: 100,
-					},
-				}),
-			);
-
-			expect(handleY(ctx, "-1:side1")).toBeCloseTo(0, 4);
-			expect(handleY(ctx, "-2:side1")).toBeCloseTo(20, 4);
 		});
 
 		it("should follow the dab evaluator's sizes on a dab brush", () => {

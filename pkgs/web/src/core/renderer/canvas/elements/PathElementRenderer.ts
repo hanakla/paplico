@@ -239,8 +239,6 @@ export class PathElementRenderer {
 						settings.stroking?.dashArray,
 						settings.stroking?.dashOffset,
 						path.strokeWidths,
-						settings.taperStart,
-						settings.taperEnd,
 						path.pathStart,
 						path.pathEnd,
 						settings.stroking?.align,
@@ -475,8 +473,6 @@ export class PathElementRenderer {
 		dashArray?: readonly number[],
 		dashOffset?: number,
 		strokeWidths?: StrokeWidthPoint[],
-		taperStart?: number,
-		taperEnd?: number,
 		pathStart?: number,
 		pathEnd?: number,
 		strokeAlign?: StrokeAlign,
@@ -497,8 +493,6 @@ export class PathElementRenderer {
 			dashArray,
 			dashOffset,
 			strokeWidths,
-			taperStart,
-			taperEnd,
 			pathStart,
 			pathEnd,
 			scaleBucket,
@@ -533,8 +527,6 @@ export class PathElementRenderer {
 					dashArray,
 					dashOffset,
 					strokeWidths,
-					taperStart,
-					taperEnd,
 					pathStart,
 					pathEnd,
 					strokeAlign,
@@ -847,8 +839,6 @@ interface StrokeOutlineOptions {
 	dashArray?: readonly number[];
 	dashOffset?: number;
 	strokeWidths?: StrokeWidthPoint[];
-	taperStart?: number;
-	taperEnd?: number;
 	pathStart?: number;
 	pathEnd?: number;
 	strokeAlign?: StrokeAlign;
@@ -912,9 +902,6 @@ function tessellateStrokeOutline(
 
 		for (const { points, pressures, arcOffset } of subPolylines) {
 			if (points.length < 4) continue;
-			// Taper is disabled when a dash pattern is active: dash sub-polylines
-			// only carry their local arc length, so tapering would shrink every
-			// dash instead of the whole stroke's ends.
 			const result = tessellateStroke({
 				points,
 				pressures,
@@ -925,8 +912,6 @@ function tessellateStrokeOutline(
 				miterLimit: options.miterLimit,
 				isClosed: hasDash ? false : isClosed,
 				strokeWidths: options.strokeWidths,
-				taperStart: hasDash ? undefined : options.taperStart,
-				taperEnd: hasDash ? undefined : options.taperEnd,
 				pathStart: options.pathStart,
 				pathEnd: options.pathEnd,
 				alignShift,

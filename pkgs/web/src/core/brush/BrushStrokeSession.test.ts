@@ -2,8 +2,13 @@ import type { BezierPoint } from "../schema";
 import { processStroke } from "../utils/geometry/strokeFitting";
 import { BrushStrokeSession } from "./BrushStrokeSession";
 
-function point(x: number, y: number, deltaTime: number): BezierPoint {
-	return { x, y, pressure: 0.5, tiltX: 0, tiltY: 0, twist: 0, deltaTime };
+function point(
+	x: number,
+	y: number,
+	deltaTime: number,
+	pressure = 0.5,
+): BezierPoint {
+	return { x, y, pressure, tiltX: 0, tiltY: 0, twist: 0, deltaTime };
 }
 
 function makeSession() {
@@ -34,6 +39,113 @@ describe("BrushStrokeSession", () => {
 			point(6, 0, 12),
 		]);
 		expect(session.pointCount).toBe(4);
+	});
+
+	describe("impact spike at pen-down", () => {
+		function pressures(session: BrushStrokeSession): number[] {
+			return session.rawPoints.map((p) => +(p.pressure ?? -1).toFixed(6));
+		}
+
+		it("should lower a spike that the following sample does not explain", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.95));
+			session.append(point(0.5, 0, 8, 0.8));
+			session.append(point(1, 0, 16, 0.6));
+			// The settled sample supplies the reference pressure.
+			session.append(point(1.5, 0, 100, 0.4));
+
+			expect(pressures(session)).toEqual([0.45, 0.4, 0.4, 0.4]);
+		});
+
+		it("should keep pressure that stays high after the window", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.95));
+			session.append(point(0.5, 0, 8, 0.9));
+			session.append(point(1.5, 0, 100, 0.85));
+
+			expect(pressures(session)).toEqual([0.95, 0.9, 0.85]);
+		});
+
+		it("should ignore an excess below the threshold", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.6));
+			session.append(point(1.5, 0, 100, 0.5));
+
+			expect(pressures(session)).toEqual([0.6, 0.5]);
+		});
+
+		it("should correct a moving stroke before the contact window ends", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.95));
+			session.append(point(4, 0, 8, 0.4));
+
+			expect(pressures(session)).toEqual([0.45, 0.4]);
+		});
+
+		it("should preserve the same tap radius at every zoom", () => {
+			const session = new BrushStrokeSession({
+				stabilization: 0.5,
+				zoom: 2,
+				smoothingMethod: "smooth",
+			});
+			session.append(point(0, 0, 0, 0.95));
+			// This motion leaves the tap radius at zoom 2.
+			session.append(point(2, 0, 8, 0.4));
+
+			expect(pressures(session)).toEqual([0.45, 0.4]);
+		});
+
+		it("should show the stroke while contact pressure is still settling", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.95));
+			session.append(point(1, 0, 8, 0.5));
+			expect(session.getPreviewSegments().length).toBeGreaterThan(0);
+
+			session.append(point(10, 0, 16, 0.5));
+			expect(session.getPreviewSegments().length).toBeGreaterThan(0);
+		});
+
+		it("should continue correcting after a fast contact has crossed the tap radius", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.9));
+			session.append(point(5, 0, 8, 0.85));
+			session.append(point(20, 0, 40, 0.8));
+			session.append(point(50, 0, 100, 0.4));
+			expect(pressures(session)).toEqual([0.4, 0.4, 0.4, 0.4]);
+			expect(session.getPreviewSegments()[0].startPressure).toBe(0.4);
+		});
+
+		it("should correct a contact spike when the entire stroke uses light pressure", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.06));
+			session.append(point(5, 0, 8, 0.06));
+			session.append(point(50, 0, 100, 0.02));
+			expect(pressures(session)).toEqual([0.02, 0.02, 0.02]);
+		});
+
+		it("should reconsider original pressures rather than compound a provisional correction", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.9));
+			session.append(point(5, 0, 8, 0.4));
+			session.append(point(10, 0, 100, 0.9));
+			expect(pressures(session)).toEqual([0.9, 0.4, 0.9]);
+		});
+
+		it("should keep correcting after the pointer returns inside the tap radius", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.95));
+			session.append(point(4, 0, 8, 0.4));
+			session.append(point(2, 0, 16, 0.4));
+			expect(pressures(session)).toEqual([0.45, 0.4, 0.4]);
+		});
+
+		it("should commit a tap that ends inside the window untouched", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.95));
+			session.append(point(1, 0, 8, 0.5));
+
+			expect(session.commit().map((p) => p.pressure)).toEqual([0.95, 0.5]);
+		});
 	});
 
 	describe("airbrush hold points", () => {

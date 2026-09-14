@@ -562,65 +562,6 @@ describe("tessellateStroke", () => {
 	});
 });
 
-describe("tessellateStroke taper", () => {
-	// Straight 3-point line so a mid point exists between the taper zones
-	const points = [0, 0, 50, 0, 100, 0];
-	const pressures = [1, 1, 1];
-
-	it("should shrink endpoint widths to ~0 while keeping the middle intact", () => {
-		const result = tessellateStroke(
-			makeInput({
-				points,
-				pressures,
-				baseWidth: 10,
-				taperStart: 20,
-				taperEnd: 20,
-			}),
-		);
-
-		// Endpoint vertices (x≈0 and x≈100) collapse onto the centerline
-		const verts = result.vertices;
-		let maxAbsY = 0;
-		for (let i = 0; i < verts.length; i += 2) {
-			const x = verts[i];
-			const y = verts[i + 1];
-			if (Math.abs(x) < 1e-6 || Math.abs(x - 100) < 1e-6) {
-				expect(Math.abs(y)).toBeLessThan(1e-6);
-			}
-			maxAbsY = Math.max(maxAbsY, Math.abs(y));
-		}
-		// Mid point (arc dist 50, beyond both 20-unit tapers) keeps full half-width
-		expect(maxAbsY).toBeCloseTo(5, 5);
-	});
-
-	it("should deep-equal the baseline when taper is 0 or undefined", () => {
-		const baseline = tessellateStroke(makeInput({ points, pressures }));
-		const zero = tessellateStroke(
-			makeInput({ points, pressures, taperStart: 0, taperEnd: 0 }),
-		);
-		const explicitUndefined = tessellateStroke(
-			makeInput({
-				points,
-				pressures,
-				taperStart: undefined,
-				taperEnd: undefined,
-			}),
-		);
-
-		expect(zero).toEqual(baseline);
-		expect(explicitUndefined).toEqual(baseline);
-	});
-
-	it("should not shrink the start when pathStart is 0.5 (mid-stroke fragment)", () => {
-		const baseline = tessellateStroke(makeInput({ points, pressures }));
-		const suppressed = tessellateStroke(
-			makeInput({ points, pressures, taperStart: 20, pathStart: 0.5 }),
-		);
-
-		expect(suppressed).toEqual(baseline);
-	});
-});
-
 describe("tessellateStroke alignment", () => {
 	// Counter-clockwise square (positive signed area), so the left-of-travel
 	// normal points inward and a negative alignShift is the outward one.

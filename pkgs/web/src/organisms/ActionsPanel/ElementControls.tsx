@@ -26,12 +26,7 @@ import type {
 	Path,
 	TextElement,
 } from "@/core/schema";
-import {
-	getFirstStroke,
-	getStrokeTaperEnd,
-	getStrokeTaperStart,
-	getStrokeWidth,
-} from "@/core/utils/elementQuery";
+import { getFirstStroke, getStrokeWidth } from "@/core/utils/elementQuery";
 import { useActiveFontSettings } from "@/hooks/useCurrentFontSetting";
 import { useFontPreview } from "@/hooks/useFontPreview";
 import { useTranslation } from "@/locales";
@@ -39,7 +34,6 @@ import { useEventCallback } from "@/utils/hooks";
 import { assertNonNull } from "@/utils/lang";
 import { FontCombobox } from "./FontCombobox";
 import { StrokeWidthField } from "./StrokeWidthField";
-import { TaperRangeField } from "./TaperRangeField";
 import { BRUSH_WIDTH_STEP, MIXED, resolveValue } from "./utils";
 
 export const ElementControls = memo(function ElementControls({
@@ -108,36 +102,6 @@ function StrokeWidthControl({
 		}
 	});
 
-	const handleTaperChange = useEventCallback(
-		(taperStart: number, taperEnd: number) => {
-			assertNonNull(layerId);
-
-			for (const el of elements) {
-				const stroke = getFirstStroke(el.filters);
-				if (!stroke?.paramData.params.brushSettings) continue;
-
-				const newFilters = el.filters?.map((f) => {
-					if (f !== stroke) return f;
-					return {
-						...f,
-						paramData: {
-							...f.paramData,
-							params: {
-								...stroke.paramData.params,
-								brushSettings: {
-									...stroke.paramData.params.brushSettings!,
-									taperStart,
-									taperEnd,
-								},
-							},
-						},
-					};
-				});
-				commands.updateElement(layerId, el.id, { filters: newFilters });
-			}
-		},
-	);
-
 	const updateStrokingForAll = useEventCallback(
 		(patch: Partial<BrushStroking>) => {
 			assertNonNull(layerId);
@@ -176,22 +140,6 @@ function StrokeWidthControl({
 	);
 	const isMixed = resolvedWidth === MIXED;
 
-	const resolvedTaperStart = resolveValue(elements, (el) =>
-		getStrokeTaperStart(el.filters),
-	);
-	const taperStartValue =
-		resolvedTaperStart === MIXED
-			? getStrokeTaperStart(elements[0]?.filters)
-			: resolvedTaperStart;
-
-	const resolvedTaperEnd = resolveValue(elements, (el) =>
-		getStrokeTaperEnd(el.filters),
-	);
-	const taperEndValue =
-		resolvedTaperEnd === MIXED
-			? getStrokeTaperEnd(elements[0]?.filters)
-			: resolvedTaperEnd;
-
 	const firstStroke = getFirstStroke(elements[0]?.filters);
 	const normalizedFirst = firstStroke?.paramData.params.brushSettings;
 	const showStroking = normalizedFirst?.engine === "geometric";
@@ -211,17 +159,6 @@ function StrokeWidthControl({
 				range={100}
 				step={BRUSH_WIDTH_STEP}
 				onValueChange={handleWidthChange}
-			/>
-
-			<TaperRangeField
-				startLabel={t("actionsPanel.taperStart")}
-				endLabel={t("actionsPanel.taperEnd")}
-				startValue={taperStartValue}
-				endValue={taperEndValue}
-				min={0}
-				max={1000}
-				step={1}
-				onValueChange={handleTaperChange}
 			/>
 
 			{showStroking && (

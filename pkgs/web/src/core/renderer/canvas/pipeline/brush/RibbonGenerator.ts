@@ -20,7 +20,6 @@ import type {
 } from "../../../../schema";
 import { lerp } from "../../../../utils/math";
 import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
-import { resolveTaper, taperFactor } from "../../../geometry/taper";
 
 /**
  * UV layout mode for ribbon rendering.
@@ -40,9 +39,8 @@ export interface RibbonOptions {
 	tileSpacing: number;
 	/**
 	 * Settings whose size/flow curves modulate the ribbon.
-	 * Evaluated at each segment's endpoints and interpolated in between, the
-	 * same granularity taper already uses. Absent, the flat pressure factor
-	 * applies.
+	 * Evaluated at each segment's endpoints and interpolated in between.
+	 * Absent, the flat pressure factor applies.
 	 */
 	curved?: BrushSettings;
 }
@@ -123,8 +121,6 @@ export interface RibbonStrokeInput {
 	/** Pressure response of the width, 0..1 as the flat layer expressed it. */
 	sizeByPressure: number;
 	colorMode: BrushColorMode | undefined;
-	taperStart: number | undefined;
-	taperEnd: number | undefined;
 }
 
 export function generateRibbonInstances(
@@ -256,15 +252,6 @@ export function generateRibbonInstances(
 		0,
 	);
 
-	// Entry/exit taper, evaluated at segment endpoints and linear in between.
-	const taper = resolveTaper(
-		settings.taperStart,
-		settings.taperEnd,
-		totalArcLength / Math.max(pathEnd - pathStart, 1e-6),
-		pathStart,
-		pathEnd,
-	);
-
 	// Compute start/end tangent angles for junction blending
 	const startAngles: number[] = [];
 	const endAngles: number[] = [];
@@ -330,10 +317,6 @@ export function generateRibbonInstances(
 			const pf1 = 1 - settings.sizeByPressure + settings.sizeByPressure * p1;
 			hw0 = brushHalfWidth * pf0;
 			hw1 = brushHalfWidth * pf1;
-		}
-		if (taper) {
-			hw0 *= taperFactor(taper, arcLengthOffset, totalArcLength);
-			hw1 *= taperFactor(taper, arcLengthOffset + segArcLen, totalArcLength);
 		}
 
 		data[off] = sx;

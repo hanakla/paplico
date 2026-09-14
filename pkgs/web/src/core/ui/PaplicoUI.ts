@@ -188,6 +188,11 @@ const TOUCH_DRAW_OFFSET_BASE_PX = 60; // touch draw offset at scale 1 (CSS pixel
  * Manages pointer, keyboard, wheel, and drag & drop interactions
  */
 export class PaplicoUI extends Emitter<PaplicoUIEvents> {
+	private static readonly inputEventIds = new WeakMap<PointerEvent, number>();
+	private static nextInputEventId = 0;
+	private static nextInputSourceId = 0;
+	private readonly inputSourceId = ++PaplicoUI.nextInputSourceId;
+
 	private canvas: HTMLCanvasElement;
 	private callbacks: PaplicoUICallbacks;
 
@@ -1050,7 +1055,25 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			ctrlKey: e.ctrlKey,
 			altKey: e.altKey,
 			metaKey: e.metaKey,
+			timeStamp: e.timeStamp,
 		};
+
+		if (process.env.NODE_ENV !== "production") {
+			let eventId = PaplicoUI.inputEventIds.get(e);
+			if (eventId === undefined) {
+				eventId = ++PaplicoUI.nextInputEventId;
+				PaplicoUI.inputEventIds.set(e, eventId);
+			}
+			data.diagnostics = {
+				eventId,
+				sourceId: this.inputSourceId,
+				type: e.type,
+				pointerId: e.pointerId,
+				buttons: e.buttons,
+				isTrusted: e.isTrusted,
+				receivedAt: performance.now(),
+			};
+		}
 
 		// Raw input samples between frames (drawing tools append them all).
 		if (

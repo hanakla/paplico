@@ -78,6 +78,13 @@ export function neutralizeSizeCurves(settings: BrushSettings): BrushSettings {
 	};
 }
 
+/** Whether extending a stroke can change dynamics along its existing length. */
+export function usesStrokeProgress(settings: BrushSettings): boolean {
+	return Object.values(settings.properties).some((property) =>
+		property.curves?.some((curve) => curve.input === "strokeT"),
+	);
+}
+
 /** Read geometric stroking config (line cap/join, miter, dash). */
 export function readStoredBrushStroking(
 	raw: unknown,
@@ -127,8 +134,6 @@ export function applyBrushPatch(
 			size: { ...next.properties.size, base: patch.size },
 		};
 	}
-	if (patch.taperStart !== undefined) next.taperStart = patch.taperStart;
-	if (patch.taperEnd !== undefined) next.taperEnd = patch.taperEnd;
 	if (patch.colorMode !== undefined) next.colorMode = patch.colorMode;
 	if (patch.stroking !== undefined) {
 		next.stroking = { ...next.stroking, ...patch.stroking };
