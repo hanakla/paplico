@@ -7,7 +7,10 @@ import { Popover } from "@/components/Popover";
 import { Slider } from "@/components/Slider";
 import { evaluatePiecewiseLinear } from "@/core/brush/curves";
 import { BRUSH_INPUT_IDS } from "@/core/brush/inputs";
-import { BRUSH_PROPERTY_REGISTRY } from "@/core/brush/properties";
+import {
+	BRUSH_PROPERTY_REGISTRY,
+	type BrushPropertyDomain,
+} from "@/core/brush/properties";
 import type {
 	BrushCurve,
 	BrushInputId,
@@ -88,9 +91,7 @@ export const BrushPropertyRow = memo(function BrushPropertyRow({
 	);
 
 	const uiRange = UI_RANGES[propertyId] ?? [spec.min, spec.max];
-	// Curve output is a delta on the base, so the plot spans both directions of
-	// the property's own range.
-	const curveSpan = uiRange[1] - uiRange[0];
+	const curveYRange = curveOutputRange(spec.domain, uiRange);
 
 	return (
 		<div className="flex items-center gap-3 px-3 py-1.5">
@@ -144,7 +145,7 @@ export const BrushPropertyRow = memo(function BrushPropertyRow({
 						<InfluenceCurve
 							key={curve.input}
 							curve={curve}
-							span={curveSpan}
+							yRange={curveYRange}
 							onChange={handleCurveChange}
 							onRemove={handleToggleInput}
 						/>
@@ -165,6 +166,20 @@ const UI_RANGES: Partial<Record<BrushPropertyId, readonly [number, number]>> = {
 	dabsPerSecond: [0, 200],
 	angle: [-Math.PI, Math.PI],
 };
+
+/**
+ * Vertical axis of a curve plot, in the units the evaluator reads: a scale
+ * property's curve is a fraction of the base (+1 doubles, -1 zeroes), an
+ * offset property's curve is added in the property's own units.
+ */
+function curveOutputRange(
+	domain: BrushPropertyDomain,
+	uiRange: readonly [number, number],
+): readonly [number, number] {
+	if (domain === "scale") return [-1, 1];
+	const span = uiRange[1] - uiRange[0];
+	return [-span, span];
+}
 
 function formatValue(value: number): string {
 	return Math.abs(value) >= 100 ? value.toFixed(0) : value.toFixed(2);
@@ -197,12 +212,12 @@ const InputToggle = memo(function InputToggle({
 
 const InfluenceCurve = memo(function InfluenceCurve({
 	curve,
-	span,
+	yRange,
 	onChange,
 	onRemove,
 }: {
 	curve: BrushCurve;
-	span: number;
+	yRange: readonly [number, number];
 	onChange: (input: BrushInputId, points: CurvePoint[]) => void;
 	onRemove: (input: BrushInputId) => void;
 }) {
@@ -235,7 +250,7 @@ const InfluenceCurve = memo(function InfluenceCurve({
 				value={curve.points.map(([x, y]) => ({ x, y }))}
 				onChange={handleChange}
 				evaluate={evaluateCurvePoints}
-				yRange={[-span, span]}
+				yRange={yRange}
 				showIdentity={false}
 				label={t(`brushInput.${curve.input}`)}
 			/>
