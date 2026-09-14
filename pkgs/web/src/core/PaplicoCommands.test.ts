@@ -13,6 +13,7 @@ import {
 import type { SpatialIndex } from "./document/SpatialIndex";
 import type { RendererState } from "./Paplico";
 import { PaplicoCommands } from "./PaplicoCommands";
+import type { PaplicoSelection } from "./PaplicoSelection";
 import type {
 	AnyArtObject,
 	AppearancePreset,
@@ -833,6 +834,122 @@ describe("PaplicoCommands", () => {
 			expect(groupId).toBe("group-1");
 			expect(fromIndex).toBe(2);
 			expect(toIndex).toBe(1);
+		});
+
+		it('placement "front" pulls the paste into the group of a member selected without entering it', () => {
+			const {
+				commands,
+				addElementToGroup,
+				reorderElements,
+				reorderGroupChildren,
+			} = createGroupPasteCommands({
+				selectedElementIds: ["below"],
+				editingScopeStack: [],
+			});
+
+			const pastedIds = commands.pasteElements([createPath("path-1")], {
+				placement: "front",
+			});
+			expect(pastedIds).toHaveLength(1);
+
+			const [, groupId, movedId] = addElementToGroup.mock.calls[0] as [
+				string,
+				string,
+				string,
+			];
+			expect(groupId).toBe("group-1");
+			expect(movedId).toBe(pastedIds[0]);
+			expect(reorderElements).not.toHaveBeenCalled();
+			const [reorderedGroupId, fromIndex, toIndex] = reorderGroupChildren.mock
+				.calls[0] as [string, number, number];
+			expect(reorderedGroupId).toBe("group-1");
+			expect(fromIndex).toBe(2);
+			expect(toIndex).toBe(1);
+		});
+
+		it("lands on top of the group entered with the select tool when nothing is selected", () => {
+			const {
+				commands,
+				addElementToGroup,
+				reorderElements,
+				reorderGroupChildren,
+			} = createGroupPasteCommands({
+				selectedElementIds: [],
+				editingScopeStack: ["group-1"],
+			});
+
+			const pastedIds = commands.pasteElements([createPath("path-1")]);
+			expect(pastedIds).toHaveLength(1);
+
+			const [, groupId, movedId] = addElementToGroup.mock.calls[0] as [
+				string,
+				string,
+				string,
+			];
+			expect(groupId).toBe("group-1");
+			expect(movedId).toBe(pastedIds[0]);
+			expect(reorderElements).not.toHaveBeenCalled();
+			expect(reorderGroupChildren).not.toHaveBeenCalled();
+		});
+
+		it('placement "front" goes right in front of the member selected in the group entered with the select tool', () => {
+			const {
+				commands,
+				addElementToGroup,
+				reorderElements,
+				reorderGroupChildren,
+			} = createGroupPasteCommands({
+				selectedElementIds: ["below"],
+				editingScopeStack: ["group-1"],
+			});
+
+			const pastedIds = commands.pasteElements([createPath("path-1")], {
+				placement: "front",
+			});
+			expect(pastedIds).toHaveLength(1);
+
+			const [, groupId] = addElementToGroup.mock.calls[0] as [string, string];
+			expect(groupId).toBe("group-1");
+			expect(reorderElements).not.toHaveBeenCalled();
+			const [reorderedGroupId, fromIndex, toIndex] = reorderGroupChildren.mock
+				.calls[0] as [string, number, number];
+			expect(reorderedGroupId).toBe("group-1");
+			expect(fromIndex).toBe(2);
+			expect(toIndex).toBe(1);
+		});
+
+		it("selects every pasted object through the selection so its bounds follow", () => {
+			const first = createPath("path-1");
+			const second = createPath("path-2");
+			const layer = createLayer("layer-1", []);
+			const selectMultiple = vi.fn();
+			const commands = new PaplicoCommands({
+				store: {
+					currentLayerId: "layer-1",
+					selectedElementIds: [],
+					editingScopeStack: [],
+					document: { layers: [layer], objects: {} },
+				} as unknown as RendererState,
+				yjsProvider: {
+					addElement: vi.fn(),
+					transact: vi.fn((fn: () => void) => fn()),
+					isAnimationUndoMode: vi.fn(() => false),
+				} as unknown as YjsProvider,
+				spatial: {
+					insertElement: vi.fn(),
+					isElementLocked: () => false,
+					getAncestorTransform: () => null,
+					getParentGroupId: () => null,
+				} as unknown as SpatialIndex,
+				selection: { selectMultiple } as unknown as PaplicoSelection,
+				isReadonly: () => false,
+			});
+
+			const pastedIds = commands.pasteElements([first, second]);
+			expect(pastedIds).toHaveLength(2);
+
+			const [selectedIds] = selectMultiple.mock.calls[0] as [string[]];
+			expect(selectedIds).toEqual(pastedIds);
 		});
 
 		it('placement "front" does not call reorderElements', () => {
@@ -3916,11 +4033,70 @@ function createCommands(
 			insertElement,
 			isElementLocked: () => false,
 			getAncestorTransform: () => null,
+			getParentGroupId: () => null,
 		} as unknown as SpatialIndex,
 		isReadonly: () => false,
 	});
 
 	return { commands, store, addElement, reorderElements, insertElement };
+}
+
+/**
+ * Commands over a layer holding one group with members "below" and "above",
+ * for paste tests that vary the selection and the editing scope.
+ */
+function createGroupPasteCommands({
+	selectedElementIds,
+	editingScopeStack,
+}: {
+	selectedElementIds: string[];
+	editingScopeStack: string[];
+}) {
+	const below = createPath("below");
+	const above = createPath("above");
+	const childIds = ["below", "above"];
+	const group = {
+		id: "group-1",
+		type: "group",
+		childIds,
+		opacity: 1,
+		blendMode: "normal",
+		transform: createIdentityTransform(),
+	} as unknown as AnyArtObject;
+	const layer = createLayer("layer-1", ["group-1"]);
+	const addElementToGroup = vi.fn();
+	const reorderElements = vi.fn();
+	const reorderGroupChildren = vi.fn();
+	const store = {
+		currentLayerId: "layer-1",
+		selectedElementIds,
+		editingScopeStack,
+		document: {
+			layers: [layer],
+			objects: { "group-1": group, below, above },
+		},
+	} as unknown as RendererState;
+	const commands = new PaplicoCommands({
+		store,
+		yjsProvider: {
+			addElement: vi.fn(),
+			addElementToGroup,
+			reorderElements,
+			reorderGroupChildren,
+			transact: vi.fn((fn: () => void) => fn()),
+			isAnimationUndoMode: vi.fn(() => false),
+		} as unknown as YjsProvider,
+		spatial: {
+			insertElement: vi.fn(),
+			isElementLocked: () => false,
+			getAncestorTransform: () => null,
+			getParentGroupId: (id: string) =>
+				childIds.includes(id) ? "group-1" : null,
+		} as unknown as SpatialIndex,
+		isReadonly: () => false,
+	});
+
+	return { commands, addElementToGroup, reorderElements, reorderGroupChildren };
 }
 
 function createFilterCommands(filter: Filter, toolSettings?: ToolSettings) {

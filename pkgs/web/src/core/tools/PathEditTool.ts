@@ -254,7 +254,50 @@ export class PathEditTool implements Tool {
 		this.context = context;
 	}
 
-	/** Carries over selection from SelectTool on tool switch */
+	/** Takes the element selection as this tool's own path / mesh selection.
+	 *  A selected bound text hands its (invisible) axis path over so the guide
+	 *  geometry stays editable through the text. */
+	public onSelectionHandedOver(): void {
+		const vp = this.context.getViewport();
+		if (!vp) return;
+
+		const paths: Path[] = [];
+		const meshes: MeshArtObject[] = [];
+		for (const id of this.context.getSelectedElementIds()) {
+			const element = this.context.getElement(id);
+			if (!element) continue;
+			if (isPath(element)) {
+				paths.push(element);
+				continue;
+			}
+			if (isMesh(element)) {
+				meshes.push(element);
+				continue;
+			}
+			if (element.type !== "text" || !element.axisBinding) continue;
+			const axisPath = this.context.getPathById(
+				element.axisBinding.pathObjectId,
+			);
+			if (
+				axisPath &&
+				!axisPath.locked &&
+				!paths.some((p) => p.id === axisPath.id)
+			) {
+				paths.push(axisPath);
+			}
+		}
+		if (paths.length === 0 && meshes.length === 0) return;
+
+		this.initWithSelectedPaths(
+			paths,
+			vp.viewport,
+			vp.canvasWidth,
+			vp.canvasHeight,
+			meshes,
+		);
+	}
+
+	/** Selects the given paths / meshes as this tool's own selection. */
 	public initWithSelectedPaths(
 		paths: Path[],
 		viewport: Viewport,

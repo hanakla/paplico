@@ -160,6 +160,12 @@ export interface Tool {
 	refreshUI?(): void;
 
 	/**
+	 * Called when a selection made outside the tool is handed over to it: the
+	 * selection carried over on tool switch, or the elements a paste selected.
+	 */
+	onSelectionHandedOver?(): void;
+
+	/**
 	 * Called when a tool is disposed.
 	 * TODO: Requiring
 	 */

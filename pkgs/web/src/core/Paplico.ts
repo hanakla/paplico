@@ -110,7 +110,6 @@ import {
 	isReference3D,
 	isSolidColor,
 	type Layer,
-	type MeshArtObject,
 	type Path,
 	type Reference3DDef,
 	type Reference3DElement,
@@ -493,7 +492,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		});
 
 		s.registerCommand(Cmds["paplico.pasteToFront"], "Edit", () => {
-			void this.commands.pasteFromSystemClipboard({ placement: "front" });
+			void this.pasteFromSystemClipboard("front");
 			return true;
 		});
 		s.registerDefaultKeybinding(Cmds["paplico.pasteToFront"], {
@@ -502,7 +501,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		});
 
 		s.registerCommand(Cmds["paplico.pasteToBack"], "Edit", () => {
-			void this.commands.pasteFromSystemClipboard({ placement: "back" });
+			void this.pasteFromSystemClipboard("back");
 			return true;
 		});
 		s.registerDefaultKeybinding(Cmds["paplico.pasteToBack"], {
@@ -1554,6 +1553,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			switch (data.type) {
 				case "artobject":
 					this.commands.pasteElements(data.elements, { viewport });
+					this.tool?.onSelectionHandedOver?.();
 					break;
 				case "svg":
 					void this.commands.pasteSvgString(
@@ -3657,6 +3657,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						currentSnapshot.currentTool,
 						previousState.currentTool,
 					);
+					this.tool?.onSelectionHandedOver?.();
 					previousState = currentSnapshot;
 					return;
 				}
@@ -3689,6 +3690,15 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				previousState = currentSnapshot;
 			}),
 		);
+	}
+
+	/** Pastes the system clipboard beside the selection, then hands the pasted
+	 *  elements over to the active tool. */
+	private async pasteFromSystemClipboard(
+		placement: "front" | "back",
+	): Promise<void> {
+		await this.commands.pasteFromSystemClipboard({ placement });
+		this.tool?.onSelectionHandedOver?.();
 	}
 
 	private createTool(
@@ -3781,52 +3791,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			setSelectionOverlay(this.rendererStore.uiOverlayState, null);
 
 			this.tool = new PathEditTool(this.toolContext);
-
-			// Carry over selected paths from SelectTool
-			if (this.rendererStore.selectedElementIds.length > 0) {
-				const selectedPaths: Path[] = [];
-				const selectedMeshes: MeshArtObject[] = [];
-				for (const id of this.rendererStore.selectedElementIds) {
-					const obj = this.rendererStore.document.objects[id];
-					if (obj?.type === "path") {
-						selectedPaths.push(obj);
-						continue;
-					}
-					// A selected mesh warp container hands its cage over for editing
-					if (obj?.type === "mesh") {
-						selectedMeshes.push(obj);
-						continue;
-					}
-					// A selected bound text hands its (invisible) axis path over
-					// so the guide geometry stays editable through the text
-					if (obj?.type === "text" && obj.axisBinding) {
-						const axisPath =
-							this.rendererStore.document.objects[obj.axisBinding.pathObjectId];
-						if (
-							axisPath?.type === "path" &&
-							!axisPath.locked &&
-							!selectedPaths.some((p) => p.id === axisPath.id)
-						) {
-							selectedPaths.push(axisPath);
-						}
-					}
-				}
-
-				const primaryTarget = this.getPrimaryTarget();
-				if (
-					this.tool instanceof PathEditTool &&
-					primaryTarget &&
-					(selectedPaths.length > 0 || selectedMeshes.length > 0)
-				) {
-					this.tool.initWithSelectedPaths(
-						selectedPaths,
-						primaryTarget.getViewport(),
-						primaryTarget.width,
-						primaryTarget.height,
-						selectedMeshes,
-					);
-				}
-			}
 		} else if (toolType === "artboard") {
 			this.selection.setArtboardEditMode(true);
 			this.tool = new ArtboardTool(this.toolContext);

@@ -370,11 +370,31 @@ export class PaplicoCommands {
 	 */
 	private moveIntoEditingScope(
 		layerId: string,
-		elementId: string,
-		elementType: string,
-		currentTransform: ElementTransform,
+		movedElementId: string,
+		movedElementType: AnyArtObject["type"],
+		movedElementTransform: ElementTransform,
 	): void {
-		const targetContainerId = this.getEditingScopeContainerId();
+		this.moveIntoContainer(
+			layerId,
+			movedElementId,
+			movedElementType,
+			movedElementTransform,
+			this.getEditingScopeContainerId(),
+		);
+	}
+
+	/**
+	 * Moves a layer-root element into the given container, compensating its
+	 * transform so its world-space appearance is preserved. A null container
+	 * leaves the element at the layer root.
+	 */
+	private moveIntoContainer(
+		layerId: string,
+		movedElementId: string,
+		movedElementType: AnyArtObject["type"],
+		movedElementTransform: ElementTransform,
+		targetContainerId: string | null,
+	): void {
 		if (!targetContainerId) return;
 
 		const container = this.ctx.store.document.objects[targetContainerId];
@@ -382,31 +402,31 @@ export class PaplicoCommands {
 
 		const scopeWorldT = this.getEditingScopeWorldTransform(targetContainerId);
 
-		if (isCompoundPath(container) && elementType === "path") {
+		if (isCompoundPath(container) && movedElementType === "path") {
 			this.applyCompensatingTransform(
 				layerId,
-				elementId,
-				currentTransform,
+				movedElementId,
+				movedElementTransform,
 				scopeWorldT,
 			);
 			this.ctx.yjsProvider.addSourceToCompoundPath(
 				layerId,
 				targetContainerId,
-				elementId,
+				movedElementId,
 				"union",
 				this.getMutationOrigin(),
 			);
 		} else if (!isCompoundPath(container)) {
 			this.applyCompensatingTransform(
 				layerId,
-				elementId,
-				currentTransform,
+				movedElementId,
+				movedElementTransform,
 				scopeWorldT,
 			);
 			this.ctx.yjsProvider.addElementToGroup(
 				layerId,
 				targetContainerId,
-				elementId,
+				movedElementId,
 				this.getMutationOrigin(),
 			);
 		}
@@ -4497,18 +4517,13 @@ export class PaplicoCommands {
 			offsetY = opt.viewport.y - (bbox.minY + bbox.maxY) / 2;
 		}
 
-		// Placement is resolved against whatever the paste lands in: the editing
-		// scope's group when one is active, otherwise the layer. Pasted elements
-		// are appended, so their indexes follow the existing ones until they are
+		// Placement is resolved against whatever the paste lands in: the group
+		// the paste is pulled into, otherwise the layer. Pasted elements are
+		// appended, so their indexes follow the existing ones until they are
 		// moved to the resolved insertion point.
-		const scopeContainerId = this.getEditingScopeContainerId();
-		const scopeContainer = scopeContainerId
-			? this.ctx.store.document.objects[scopeContainerId]
-			: undefined;
-		const landingContainerId =
-			scopeContainer && isGroup(scopeContainer)
-				? scopeContainer.id
-				: this.ctx.store.currentLayerId;
+		const pasteGroupId = this.resolvePasteGroupId(opt?.placement);
+		const targetContainerId = pasteGroupId ?? this.getEditingScopeContainerId();
+		const landingContainerId = pasteGroupId ?? this.ctx.store.currentLayerId;
 		const existingCount = containerChildIds(
 			this.ctx.store.document,
 			landingContainerId,
@@ -4632,12 +4647,13 @@ export class PaplicoCommands {
 						);
 					}
 
-					// Move the pasted group into the editing group (after children are settled)
-					this.moveIntoEditingScope(
+					// Move the pasted group into its container (after children are settled)
+					this.moveIntoContainer(
 						layerId,
 						newId,
 						"group",
 						getTransform(clonedGroup),
+						targetContainerId,
 					);
 				}, this.getMutationOrigin());
 
@@ -4666,11 +4682,12 @@ export class PaplicoCommands {
 						clonedMesh,
 						this.getMutationOrigin(),
 					);
-					this.moveIntoEditingScope(
+					this.moveIntoContainer(
 						layerId,
 						newId,
 						"mesh",
 						getTransform(clonedMesh),
+						targetContainerId,
 					);
 				}, this.getMutationOrigin());
 				newTopLevelIds.push(newId);
@@ -4704,13 +4721,13 @@ export class PaplicoCommands {
 				newTopLevelIds.push(newId);
 			} else {
 				const clone = clonedById.get(element.id)!;
-				this.addElementByType(translate(clone));
+				this.addElementInto(translate(clone), targetContainerId);
 				newTopLevelIds.push(newId);
 			}
 		}
 
-		// Select pasted elements
-		this.ctx.store.selectedElementIds = newTopLevelIds;
+		if (this.ctx.selection) this.ctx.selection.selectMultiple(newTopLevelIds);
+		else this.ctx.store.selectedElementIds = newTopLevelIds;
 
 		if (insertAt !== existingCount) {
 			for (let i = 0; i < newTopLevelIds.length; i++) {
@@ -4817,38 +4834,50 @@ export class PaplicoCommands {
 		return { minX, minY, maxX, maxY };
 	}
 
-	private addElementByType(element: AnyArtObject): void {
-		switch (element.type) {
-			case "path":
-				this.addPath(element);
-				break;
-			case "image":
-				this.addImage(element);
-				break;
-			case "text":
-				this.addText(element);
-				break;
-			default: {
-				// compound-path, group, etc. - add directly via yjsProvider
-				if (!this.ctx.store.currentLayerId) return;
-				const layerId = this.ctx.store.currentLayerId;
-				const currentT = getTransform(element);
-				this.ctx.yjsProvider.transact(() => {
-					this.ctx.yjsProvider.addElement(
-						layerId,
-						element,
-						this.getMutationOrigin(),
-					);
-					this.moveIntoEditingScope(
-						layerId,
-						element.id,
-						element.type,
-						currentT,
-					);
-				}, this.getMutationOrigin());
-				break;
+	/**
+	 * The group a paste lands in. A placed paste joins the group its selected
+	 * element lives in: a member selected directly inside a group (path edit
+	 * tool) is not a layer sibling, so placing the paste beside it means
+	 * entering its group. Otherwise the editing scope's group, when one is
+	 * active.
+	 */
+	private resolvePasteGroupId(
+		placement: "front" | "back" | undefined,
+	): string | null {
+		if (placement) {
+			for (const id of this.ctx.store.selectedElementIds) {
+				const parentGroupId = this.ctx.spatial.getParentGroupId(id);
+				if (parentGroupId) return parentGroupId;
 			}
 		}
+		const scopeContainerId = this.getEditingScopeContainerId();
+		if (!scopeContainerId) return null;
+		const scopeContainer = this.ctx.store.document.objects[scopeContainerId];
+		return scopeContainer && isGroup(scopeContainer) ? scopeContainerId : null;
+	}
+
+	/** Adds a pasted element to the current layer, then into its container. */
+	private addElementInto(
+		element: AnyArtObject,
+		targetContainerId: string | null,
+	): void {
+		if (!this.ctx.store.currentLayerId) return;
+		const layerId = this.ctx.store.currentLayerId;
+		const currentT = getTransform(element);
+		this.ctx.yjsProvider.transact(() => {
+			this.ctx.yjsProvider.addElement(
+				layerId,
+				element,
+				this.getMutationOrigin(),
+			);
+			this.moveIntoContainer(
+				layerId,
+				element.id,
+				element.type,
+				currentT,
+				targetContainerId,
+			);
+		}, this.getMutationOrigin());
 	}
 
 	// --- Undo/Redo ---
