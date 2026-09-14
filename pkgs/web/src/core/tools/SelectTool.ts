@@ -73,7 +73,11 @@ import {
 	type ResizedBounds,
 	type ResizeHandle,
 } from "./resizeHandleHelper";
-import type { PointerEventData, Tool } from "./Tool";
+import {
+	dragStartThresholdScreenPx,
+	type PointerEventData,
+	type Tool,
+} from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
 type DragState =
@@ -83,7 +87,6 @@ type DragState =
 			hitElement: { id: string; bounds: WorldBBox } | null;
 			dragStartX: number;
 			dragStartY: number;
-			pointerType: "mouse" | "pen" | "touch";
 	  }
 	| {
 			mode: "move";
@@ -178,6 +181,8 @@ export class SelectTool implements Tool {
 	private hoveredExtrudeHandle: ExtrudeGizmoHandle | null = null;
 	private shiftKey = false;
 	private altKey = false;
+	/** Drag start threshold of the current press, from its pointer type */
+	private dragStartThresholdPx = 0;
 	private lastWorldX = 0;
 	private lastWorldY = 0;
 	private lastViewport: Viewport | null = null;
@@ -194,6 +199,7 @@ export class SelectTool implements Tool {
 	): void {
 		this.shiftKey = event.shiftKey;
 		this.altKey = event.altKey;
+		this.dragStartThresholdPx = dragStartThresholdScreenPx(event.pointerType);
 
 		const world = screenToWorld(
 			event.x,
@@ -307,7 +313,6 @@ export class SelectTool implements Tool {
 				hitElement,
 				dragStartX: worldX,
 				dragStartY: worldY,
-				pointerType: event.pointerType,
 			};
 		} else {
 			if (!event.shiftKey) {
@@ -320,7 +325,6 @@ export class SelectTool implements Tool {
 				hitElement: null,
 				dragStartX: worldX,
 				dragStartY: worldY,
-				pointerType: event.pointerType,
 			};
 		}
 	}
@@ -798,14 +802,11 @@ export class SelectTool implements Tool {
 		if (this.dragState.mode === "pending") {
 			const deltaX = worldX - this.dragState.dragStartX;
 			const deltaY = worldY - this.dragState.dragStartY;
-			const thresholdWorld = this.calculateDragThreshold(
-				this.dragState.pointerType,
-				viewport.zoom,
-			);
-			const movedEnough =
-				Math.abs(deltaX) > thresholdWorld || Math.abs(deltaY) > thresholdWorld;
-
-			if (!movedEnough) return;
+			if (
+				Math.hypot(deltaX, deltaY) * viewport.zoom <=
+				this.dragStartThresholdPx
+			)
+				return;
 
 			const selectedIds = this.context.getSelectedElementIds();
 			if (
@@ -1682,14 +1683,6 @@ export class SelectTool implements Tool {
 
 	private calculateTolerance(viewport: Viewport, minScreenPx = 2): number {
 		return minScreenPx / viewport.zoom;
-	}
-
-	private calculateDragThreshold(
-		pointerType: "mouse" | "pen" | "touch",
-		zoom: number,
-	): number {
-		const screenPx = pointerType === "mouse" ? 3 : 8;
-		return screenPx / zoom;
 	}
 
 	private updateSnapLineOverlay(lines: SnapLine[]): void {

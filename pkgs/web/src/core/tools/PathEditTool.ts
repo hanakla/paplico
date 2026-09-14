@@ -87,7 +87,11 @@ import {
 	type PathCutPosition,
 	resetAnchorSegmentCPs,
 } from "./pathNodeEditHelpers";
-import type { PointerEventData, Tool } from "./Tool";
+import {
+	dragStartThresholdScreenPx,
+	type PointerEventData,
+	type Tool,
+} from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
 /** Shared fields for all handle-drag modes */
@@ -99,13 +103,12 @@ type DraggingStateBase = {
 	clickedHandleKey: string;
 	shiftKey: boolean;
 	hasMoved: boolean;
-	/** Drag start world coordinates (for touch device threshold) */
+	/** Drag start world coordinates */
 	startX: number;
 	startY: number;
 	/** Drag start screen coordinates */
 	startScreenX: number;
 	startScreenY: number;
-	pointerType: "mouse" | "pen" | "touch";
 };
 
 type DragState =
@@ -139,7 +142,6 @@ type DragState =
 			mode: "faceDragPending";
 			startX: number;
 			startY: number;
-			pointerType: "mouse" | "pen" | "touch";
 			/** Alt held at pointerDown: duplicate the whole path on first move */
 			altKey: boolean;
 	  }
@@ -227,12 +229,12 @@ export class PathEditTool implements Tool {
 	private static MESH_EDGE_SPLIT_TOLERANCE_PX = 8;
 	/** Screen-px within which a cut snaps to an existing anchor instead of a segment */
 	private static CUT_ANCHOR_TOLERANCE_SCREEN_PX = 8;
-	/** Screen-px the pointer must travel before a cage drag starts moving */
-	private static DRAG_THRESHOLD_SCREEN_PX = 3;
 
 	public readonly name = "path-edit";
 
 	private context: ToolContext;
+	/** Drag start threshold of the current press, from its pointer type */
+	private dragStartThresholdPx = 0;
 	private selectedPaths = new Map<string, Path>();
 	private selectedHandles = new Set<string>();
 	private pathAncestorTransforms = new Map<string, ElementTransform | null>();
@@ -362,6 +364,7 @@ export class PathEditTool implements Tool {
 		if (this.context.isReadonly()) return;
 
 		this.pointerDownTime = Date.now();
+		this.dragStartThresholdPx = dragStartThresholdScreenPx(event.pointerType);
 
 		const world = screenToWorld(
 			event.x,
@@ -523,7 +526,6 @@ export class PathEditTool implements Tool {
 						startY: world.y,
 						startScreenX: event.x,
 						startScreenY: event.y,
-						pointerType: event.pointerType,
 						anchorCPCreation: {
 							pathId: handle.pathId,
 							segmentIndex: handle.segmentIndex,
@@ -618,7 +620,6 @@ export class PathEditTool implements Tool {
 				startY: world.y,
 				startScreenX: event.x,
 				startScreenY: event.y,
-				pointerType: event.pointerType,
 			} satisfies DraggingStateBase;
 
 			if (clickedType === "corner-radius") {
@@ -701,7 +702,6 @@ export class PathEditTool implements Tool {
 					mode: "faceDragPending",
 					startX: world.x,
 					startY: world.y,
-					pointerType: event.pointerType,
 					altKey: event.altKey,
 				};
 				this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
@@ -841,7 +841,11 @@ export class PathEditTool implements Tool {
 		if (ds.mode === "elementDrag") {
 			const dx = world.x - ds.startX;
 			const dy = world.y - ds.startY;
-			if (!ds.hasMoved && Math.hypot(dx, dy) * viewport.zoom < 3) return;
+			if (
+				!ds.hasMoved &&
+				Math.hypot(dx, dy) * viewport.zoom <= this.dragStartThresholdPx
+			)
+				return;
 			ds.hasMoved = true;
 			// Yjs-free preview; the single commit happens on release.
 			this.context.previewDeformation([
@@ -894,11 +898,9 @@ export class PathEditTool implements Tool {
 
 		// Promote faceDragPending → faceDrag on threshold
 		if (ds.mode === "faceDragPending") {
-			const screenPx = ds.pointerType === "mouse" ? 0 : 8;
-			const thresholdWorld = screenPx / viewport.zoom;
 			const dx = world.x - ds.startX;
 			const dy = world.y - ds.startY;
-			if (Math.abs(dx) <= thresholdWorld && Math.abs(dy) <= thresholdWorld)
+			if (Math.hypot(dx, dy) * viewport.zoom <= this.dragStartThresholdPx)
 				return;
 			this.dragState = {
 				mode: "faceDrag",
@@ -913,6 +915,12 @@ export class PathEditTool implements Tool {
 		// Face drag mode: move all segments of selected paths by delta
 		if (this.dragState.mode === "faceDrag") {
 			const ds = this.dragState;
+			if (
+				!ds.hasMoved &&
+				Math.hypot(world.x - ds.startX, world.y - ds.startY) * viewport.zoom <=
+					this.dragStartThresholdPx
+			)
+				return;
 
 			// Alt+drag: duplicate the whole path on the first move, then drag the
 			// copies (originals stay put). Mirrors SelectTool's alt-drag duplicate.
@@ -982,14 +990,9 @@ export class PathEditTool implements Tool {
 			return;
 
 		if (!ds.hasMoved) {
-			const thresholdPx = ds.pointerType === "mouse" ? 0 : 8;
 			const screenDx = event.x - ds.startScreenX;
 			const screenDy = event.y - ds.startScreenY;
-			if (
-				Math.abs(screenDx) <= thresholdPx &&
-				Math.abs(screenDy) <= thresholdPx
-			)
-				return;
+			if (Math.hypot(screenDx, screenDy) <= this.dragStartThresholdPx) return;
 			ds.hasMoved = true;
 			this.cancelLongPressTimer();
 
@@ -3403,8 +3406,7 @@ export class PathEditTool implements Tool {
 			const deltaY = local.y - ds.startY;
 			if (
 				!ds.hasMoved &&
-				Math.hypot(deltaX, deltaY) * viewport.zoom <
-					PathEditTool.DRAG_THRESHOLD_SCREEN_PX
+				Math.hypot(deltaX, deltaY) * viewport.zoom <= this.dragStartThresholdPx
 			) {
 				// Pointer jitter during a click is not a drag.
 				return;

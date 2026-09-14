@@ -1,5 +1,15 @@
 import type { Viewport } from "../schema";
 
+/**
+ * Screen-px the pointer must travel past before a press becomes a drag.
+ * A pen or finger contact wobbles more than a mouse, so it gets more room.
+ */
+export function dragStartThresholdScreenPx(
+	pointerType: PointerEventData["pointerType"],
+): number {
+	return pointerType === "mouse" ? 3 : 8;
+}
+
 export interface PointerEventData {
 	x: number; // screen coordinates
 	y: number;

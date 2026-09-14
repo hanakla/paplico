@@ -39,51 +39,7 @@ import { createDefaultTextStyle } from "./TextTool";
 
 describe("SelectTool", () => {
 	it("commits the last preview delta even when pointerup coordinates are stale", () => {
-		const elementId = "path-1";
-		const layer: Layer = {
-			id: "layer-1",
-			name: "Layer 1",
-			visible: true,
-			locked: false,
-			opacity: 1,
-			blendMode: "normal",
-			elementIds: [elementId],
-		};
-		const bounds = brandWorldBBox({
-			minX: -100,
-			minY: -100,
-			maxX: 100,
-			maxY: 100,
-			width: 200,
-			height: 200,
-		});
-		const element: AnyArtObject = {
-			id: elementId,
-			type: "path",
-			segments: [],
-			opacity: 1,
-			blendMode: "normal",
-			transform: createIdentityTransform(),
-		};
-
-		const context = createMockToolContext({
-			getCurrentLayer: () => layer,
-			getSelectedElementIds: () => [elementId],
-			findElementAtPoint: () => element,
-			getBounds: () => bounds,
-			snapElements: (
-				_ids,
-				_originalBounds,
-				proposedDeltaX,
-				proposedDeltaY,
-			) => ({
-				deltaX: proposedDeltaX,
-				deltaY: proposedDeltaY,
-				snapLines: [],
-			}),
-		});
-		const tool = new SelectTool(context);
-		tool.refreshUI();
+		const { context, tool, elementId } = setupSelectedElementDrag();
 
 		tool.onPointerDown(
 			ev(400, 300),
@@ -111,7 +67,77 @@ describe("SelectTool", () => {
 		expect(deltaX).toBe(100);
 		expect(deltaY).toBe(0);
 	});
+
+	it("does not move the element when a mouse travels 3px or less on screen", () => {
+		const { context, tool } = setupSelectedElementDrag();
+
+		tool.onPointerDown(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerMove(
+			ev(403, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(
+			ev(403, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(context.elementsMove).not.toHaveBeenCalled();
+	});
 });
+
+/** A selected 200×200 path centered on the origin, ready to be dragged. */
+function setupSelectedElementDrag() {
+	const elementId = "path-1";
+	const layer: Layer = {
+		id: "layer-1",
+		name: "Layer 1",
+		visible: true,
+		locked: false,
+		opacity: 1,
+		blendMode: "normal",
+		elementIds: [elementId],
+	};
+	const bounds = brandWorldBBox({
+		minX: -100,
+		minY: -100,
+		maxX: 100,
+		maxY: 100,
+		width: 200,
+		height: 200,
+	});
+	const element: AnyArtObject = {
+		id: elementId,
+		type: "path",
+		segments: [],
+		opacity: 1,
+		blendMode: "normal",
+		transform: createIdentityTransform(),
+	};
+
+	const context = createMockToolContext({
+		getCurrentLayer: () => layer,
+		getSelectedElementIds: () => [elementId],
+		findElementAtPoint: () => element,
+		getBounds: () => bounds,
+		snapElements: (_ids, _originalBounds, proposedDeltaX, proposedDeltaY) => ({
+			deltaX: proposedDeltaX,
+			deltaY: proposedDeltaY,
+			snapLines: [],
+		}),
+	});
+	const tool = new SelectTool(context);
+	tool.refreshUI();
+	return { context, tool, elementId };
+}
 
 describe("SelectTool resize flipping", () => {
 	it("mirrors the element when a handle is dragged past the opposite edge", () => {

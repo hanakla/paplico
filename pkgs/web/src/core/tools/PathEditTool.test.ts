@@ -274,6 +274,36 @@ describe("PathEditTool", () => {
 			expect(updatedSegments[0].end.y).toBeCloseTo(20);
 		});
 
+		it("should not move the anchor when a mouse travels 3px or less on screen", () => {
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			tool.onPointerDown(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(503, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(503, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.batchPathUpdate).not.toHaveBeenCalled();
+		});
+
 		it("should keep cp1/cp2 relative offsets unchanged when anchor moves", () => {
 			tool.initWithSelectedPaths(
 				[cloneTestPath()],
@@ -788,6 +818,39 @@ describe("PathEditTool", () => {
 			// seg1.end was (200,0), should move to (230,20)
 			expect(updatedSegments[1].end.x).toBeCloseTo(230);
 			expect(updatedSegments[1].end.y).toBeCloseTo(20);
+		});
+
+		it("should not translate the path when a mouse travels 3px or less on screen", () => {
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			ctx.findPathAtPoint.mockReturnValue(
+				(tool as any).selectedPaths.get("path-1")!,
+			);
+
+			tool.onPointerDown(
+				ev(450, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(453, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(453, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.batchPathUpdate).not.toHaveBeenCalled();
 		});
 
 		it("should translate a rotated path straight along a multi-step world-space drag", () => {
