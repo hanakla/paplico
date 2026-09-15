@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { SquareDashed, Trash2 } from "lucide-react";
 import { useDeferredValue, useEffect, useRef } from "react";
 import { useSnapshot } from "valtio";
 import { FillStrokeSwatchPicker } from "@/components/FillStrokeSwatchPicker";
@@ -137,6 +137,10 @@ function ContextActionsOverlayInner({
 			? selectedElements[0].id
 			: null;
 	const singleSelectedId = hasSingleSelection ? selectedIds[0] : null;
+
+	const handleDeselectAll = useEventCallback(() => {
+		paplico.shortcuts.executeCommand("paplico.deselectAll");
+	});
 
 	const handleDelete = useEventCallback(() => {
 		if (hasArtboardSelection) {
@@ -279,6 +283,18 @@ function ContextActionsOverlayInner({
 					selectedElements={selectedElements}
 					hasElementSelection={hasElementSelection}
 				/>
+			)}
+			{!isTextEditing && hasElementSelection && (
+				<Tooltip content={t("contextActions.deselectAll")} side="bottom">
+					<IconButton
+						$size="md"
+						$variant="ghost"
+						className="text-foreground"
+						onClick={handleDeselectAll}
+					>
+						<SquareDashed size={18} />
+					</IconButton>
+				</Tooltip>
 			)}
 			{!isTextEditing && hasElementSelection && <AdjustColorAction />}
 			{!isTextEditing && hasElementSelection && (

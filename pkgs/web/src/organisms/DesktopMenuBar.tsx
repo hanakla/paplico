@@ -25,6 +25,7 @@ import {
 	ScrollText,
 	Settings,
 	Share2,
+	SquareDashed,
 	Timer,
 	Undo,
 	Ungroup,
@@ -123,6 +124,7 @@ export function DesktopMenuBar({
 	const pasteShortcut = useShortcutBinding("paplico.paste");
 	const pasteToFrontShortcut = useShortcutBinding("paplico.pasteToFront");
 	const pasteToBackShortcut = useShortcutBinding("paplico.pasteToBack");
+	const deselectAllShortcut = useShortcutBinding("paplico.deselectAll");
 	const groupShortcut = useShortcutBinding("paplico.group");
 	const ungroupShortcut = useShortcutBinding("paplico.ungroup");
 	const resetZoomShortcut = useShortcutBinding("paplico.resetZoom");
@@ -140,6 +142,7 @@ export function DesktopMenuBar({
 		handlePaste,
 		handlePasteToFront,
 		handlePasteToBack,
+		handleDeselectAll,
 		handleGroup,
 		handleUngroup,
 		handleImport,
@@ -416,6 +419,15 @@ export function DesktopMenuBar({
 					>
 						<ClipboardPaste size={16} />
 						{t("menubar.pasteToBack")}
+					</Menubar.Item>
+					<Menubar.Separator />
+					<Menubar.Item
+						onClick={handleDeselectAll}
+						shortcut={deselectAllShortcut}
+						disabled={!paplico || uiState.selectedElementIds.length === 0}
+					>
+						<SquareDashed size={16} />
+						{t("menubar.deselectAll")}
 					</Menubar.Item>
 					<Menubar.Separator />
 					<Menubar.Item onClick={handleGroup} shortcut={groupShortcut}>

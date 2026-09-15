@@ -23,6 +23,7 @@ type MenuActions = {
 	handlePaste: () => void;
 	handlePasteToFront: () => void;
 	handlePasteToBack: () => void;
+	handleDeselectAll: () => void;
 	handleGroup: () => void;
 	handleUngroup: () => void;
 	handleImport: () => Promise<void>;
@@ -70,6 +71,10 @@ export function useMenuActions(
 
 	const handlePasteToBack = useEventCallback(() => {
 		paplicoRef.current?.shortcuts.executeCommand("paplico.pasteToBack");
+	});
+
+	const handleDeselectAll = useEventCallback(() => {
+		paplicoRef.current?.shortcuts.executeCommand("paplico.deselectAll");
 	});
 
 	const handleGroup = useEventCallback(() => {
@@ -211,6 +216,7 @@ export function useMenuActions(
 		handlePaste,
 		handlePasteToFront,
 		handlePasteToBack,
+		handleDeselectAll,
 		handleGroup,
 		handleUngroup,
 		handleImport,
