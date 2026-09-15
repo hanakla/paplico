@@ -369,6 +369,8 @@ export class WetLayerPass {
 		diffused: { pigment: GPUTexture; moisture: GPUTexture },
 		field: WetFieldGrid,
 	): void {
+		const scissor = domainScissorRect(params);
+		if (scissor == null) return;
 		const view = pipelines.uniformViews.finish;
 		view.set({
 			targetResolution: [
@@ -405,6 +407,10 @@ export class WetLayerPass {
 				{ view: params.target, loadOp: "load", storeOp: "store" },
 			],
 		});
+		// The shader writes nothing outside the domain, and a tiled stroke
+		// composites once per tile, so shading the whole target each time
+		// would scale with tiles times target area.
+		pass.setScissorRect(scissor.x, scissor.y, scissor.width, scissor.height);
 		pass.setPipeline(pipelines.finish);
 		pass.setBindGroup(
 			0,
@@ -634,4 +640,33 @@ export class WetLayerPass {
 		};
 		return this.pipelines;
 	}
+}
+
+/** The target pixels the domain covers, or null when it misses the target.
+ *  Rounded outward so every pixel whose centre falls inside is kept. */
+function domainScissorRect(
+	params: WetLayerApplyParams,
+): { x: number; y: number; width: number; height: number } | null {
+	const { domain, domainWorldOrigin, domainWorldPerPixel } = params;
+	const { targetResolution, targetWorldOrigin, targetWorldPerPixel } = params;
+	const toTargetX = (worldX: number) =>
+		(worldX - targetWorldOrigin.x) / targetWorldPerPixel;
+	const toTargetY = (worldY: number) =>
+		(targetWorldOrigin.y - worldY) / targetWorldPerPixel;
+	const minX = Math.max(0, Math.floor(toTargetX(domainWorldOrigin.x)));
+	const minY = Math.max(0, Math.floor(toTargetY(domainWorldOrigin.y)));
+	const maxX = Math.min(
+		targetResolution.width,
+		Math.ceil(
+			toTargetX(domainWorldOrigin.x + domain.width * domainWorldPerPixel),
+		),
+	);
+	const maxY = Math.min(
+		targetResolution.height,
+		Math.ceil(
+			toTargetY(domainWorldOrigin.y - domain.height * domainWorldPerPixel),
+		),
+	);
+	if (maxX <= minX || maxY <= minY) return null;
+	return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
