@@ -852,6 +852,21 @@ export class OffscreenPresenter {
 			],
 		});
 
+		pass.setPipeline(this.deps.blitWithMaskChainPipeline);
+		pass.setBindGroup(0, viewportBindGroup);
+		pass.setBindGroup(1, blitBindGroup);
+		pass.setBindGroup(2, this.createMaskChainBindGroup(masks));
+		pass.draw(6);
+	}
+
+	/**
+	 * Mask-chain bind group for at most {@link MASK_CHAIN_SLOTS} masks, for any
+	 * pipeline that samples its masks by world position at group 2. Unused slots
+	 * keep the bounds sentinel and the white texture, so they multiply by 1.
+	 */
+	public createMaskChainBindGroup(
+		masks: readonly WorldMaskAssignment[],
+	): GPUBindGroup {
 		const chain = this.maskChainF32;
 		chain.fill(0);
 		for (let i = 0; i < masks.length; i++) {
@@ -875,7 +890,7 @@ export class OffscreenPresenter {
 		this.deps.device.queue.writeBuffer(chainUniformBuffer, 0, chain);
 
 		const whiteView = this.getWhiteMaskView();
-		const chainBindGroup = this.deps.device.createBindGroup({
+		return this.deps.device.createBindGroup({
 			label: "Mask Chain Bind Group",
 			layout: this.deps.maskChainBindGroupLayout,
 			entries: [
@@ -887,12 +902,6 @@ export class OffscreenPresenter {
 				{ binding: 5, resource: this.deps.sampler },
 			],
 		});
-
-		pass.setPipeline(this.deps.blitWithMaskChainPipeline);
-		pass.setBindGroup(0, viewportBindGroup);
-		pass.setBindGroup(1, blitBindGroup);
-		pass.setBindGroup(2, chainBindGroup);
-		pass.draw(6);
 	}
 
 	public canDrawSurfaceWithAtlasMasks(

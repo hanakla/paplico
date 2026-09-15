@@ -2359,17 +2359,19 @@ export class RenderOrchestrator {
 			},
 		);
 
+		const blitWithMaskChainPipelineLayout = this.device.createPipelineLayout({
+			bindGroupLayouts: [
+				bindGroupLayout,
+				blitWithMaskBindGroupLayout,
+				maskChainBindGroupLayout,
+			],
+		});
+
 		const blitWithMaskChainPipeline = createFullscreenPipeline({
 			device: this.device,
 			label: "Blit With Mask Chain Pipeline",
 			shaderModule: blitWithMaskChainShaderModule,
-			pipelineLayout: this.device.createPipelineLayout({
-				bindGroupLayouts: [
-					bindGroupLayout,
-					blitWithMaskBindGroupLayout,
-					maskChainBindGroupLayout,
-				],
-			}),
+			pipelineLayout: blitWithMaskChainPipelineLayout,
 			targetFormat: this.canvasFormat,
 			blend: premultipliedBlend,
 		});
@@ -2392,7 +2394,7 @@ export class RenderOrchestrator {
 			device: this.device,
 			label: "Blit Backdrop Punch Pipeline",
 			shaderModule: blitBackdropWithMaskShaderModule,
-			pipelineLayout: blitWithMaskPipelineLayout,
+			pipelineLayout: blitWithMaskChainPipelineLayout,
 			targetFormat: this.canvasFormat,
 			fragmentEntryPoint: "fragmentPunch",
 			blend: {
@@ -2405,7 +2407,7 @@ export class RenderOrchestrator {
 			device: this.device,
 			label: "Blit Backdrop With Mask Pipeline",
 			shaderModule: blitBackdropWithMaskShaderModule,
-			pipelineLayout: blitWithMaskPipelineLayout,
+			pipelineLayout: blitWithMaskChainPipelineLayout,
 			targetFormat: this.canvasFormat,
 			blend: {
 				color: { srcFactor: "one", dstFactor: "one" },

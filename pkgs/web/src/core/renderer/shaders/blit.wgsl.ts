@@ -47,6 +47,75 @@ const OUTER_CLIP_MASK_WGSL = /* wgsl */ `
 	}
 `;
 
+/**
+ * World-space mask chain sampling, shared by every blit shader whose group(2)
+ * is the mask-chain layout: up to four masks, each sampled by world position,
+ * multiplied in one fragment invocation. Needs `worldPos` from the vertex stage.
+ */
+const MASK_CHAIN_WGSL = /* wgsl */ `
+	struct MaskChainUniforms {
+		// One vec4f (minX, minY, maxX, maxY) per mask slot, world space.
+		bounds0: vec4f,
+		bounds1: vec4f,
+		bounds2: vec4f,
+		bounds3: vec4f,
+		// 1 = invert that slot's coverage, 0 = leave as-is.
+		inverts: vec4f,
+		// Pixel-space atlas rects (x, y, width, height). Zero size = full texture.
+		rect0: vec4f,
+		rect1: vec4f,
+		rect2: vec4f,
+		rect3: vec4f,
+	}
+
+	@group(2) @binding(0) var<uniform> maskChain: MaskChainUniforms;
+	@group(2) @binding(1) var maskTexture0: texture_2d<f32>;
+	@group(2) @binding(2) var maskTexture1: texture_2d<f32>;
+	@group(2) @binding(3) var maskTexture2: texture_2d<f32>;
+	@group(2) @binding(4) var maskTexture3: texture_2d<f32>;
+	@group(2) @binding(5) var maskSampler: sampler;
+
+	// Mirrors applyOuterClipMask in OUTER_CLIP_MASK_WGSL: premultiplied mask,
+	// luminance = brightness x opacity, empty-outside semantics for inversion.
+	fn maskCoverage(sampled: vec4f, bounds: vec4f, worldPos: vec2f, invert: f32) -> f32 {
+		if (bounds.x == bounds.z && bounds.y == bounds.w) {
+			return 1.0;
+		}
+		let rawUV = (worldPos - bounds.xy) / (bounds.zw - bounds.xy);
+		let maskUV = vec2f(rawUV.x, 1.0 - rawUV.y);
+		let inBounds = step(0.0, maskUV.x) * step(maskUV.x, 1.0)
+		             * step(0.0, maskUV.y) * step(maskUV.y, 1.0);
+		let covered = dot(sampled.rgb, vec3f(0.2126, 0.7152, 0.0722)) * inBounds;
+		return mix(covered, 1.0 - covered, invert);
+	}
+
+	fn maskUVFor(bounds: vec4f, rect: vec4f, textureSize: vec2f, worldPos: vec2f) -> vec2f {
+		// Sentinel slots divide by zero here; the result is discarded by
+		// maskCoverage's early return, and the sample itself is well-defined
+		// (clamped UV into a white texture).
+		let safeSize = max(bounds.zw - bounds.xy, vec2f(1e-6));
+		let rawUV = (worldPos - bounds.xy) / safeSize;
+		let clampedUV = clamp(vec2f(rawUV.x, 1.0 - rawUV.y), vec2f(0.0), vec2f(1.0));
+		if (rect.z > 0.0 && rect.w > 0.0) {
+			return (rect.xy + vec2f(0.5) + clampedUV * max(rect.zw - vec2f(1.0), vec2f(0.0))) / textureSize;
+		}
+		return clampedUV;
+	}
+
+	fn maskChainCoverage(worldPos: vec2f) -> f32 {
+		// textureSampleLevel needs no derivatives, so sentinel slots sampling a
+		// white 1x1 dummy stay well-defined.
+		let s0 = textureSampleLevel(maskTexture0, maskSampler, maskUVFor(maskChain.bounds0, maskChain.rect0, vec2f(textureDimensions(maskTexture0)), worldPos), 0.0);
+		let s1 = textureSampleLevel(maskTexture1, maskSampler, maskUVFor(maskChain.bounds1, maskChain.rect1, vec2f(textureDimensions(maskTexture1)), worldPos), 0.0);
+		let s2 = textureSampleLevel(maskTexture2, maskSampler, maskUVFor(maskChain.bounds2, maskChain.rect2, vec2f(textureDimensions(maskTexture2)), worldPos), 0.0);
+		let s3 = textureSampleLevel(maskTexture3, maskSampler, maskUVFor(maskChain.bounds3, maskChain.rect3, vec2f(textureDimensions(maskTexture3)), worldPos), 0.0);
+		return maskCoverage(s0, maskChain.bounds0, worldPos, maskChain.inverts.x)
+		     * maskCoverage(s1, maskChain.bounds1, worldPos, maskChain.inverts.y)
+		     * maskCoverage(s2, maskChain.bounds2, worldPos, maskChain.inverts.z)
+		     * maskCoverage(s3, maskChain.bounds3, worldPos, maskChain.inverts.w);
+	}
+`;
+
 export const QUAD_BLIT_SHADER = /* wgsl */ `
 ${PROJECTIVE_QUAD_WGSL}
 
@@ -600,32 +669,11 @@ export const BLIT_WITH_MASK_CHAIN_SHADER = /* wgsl */ `
 		outerMaskMaxY: f32,
 	}
 
-	struct MaskChainUniforms {
-		// One vec4f (minX, minY, maxX, maxY) per mask slot, world space.
-		bounds0: vec4f,
-		bounds1: vec4f,
-		bounds2: vec4f,
-		bounds3: vec4f,
-		// 1 = invert that slot's coverage, 0 = leave as-is.
-		inverts: vec4f,
-		// Pixel-space atlas rects (x, y, width, height). Zero size = full texture.
-		rect0: vec4f,
-		rect1: vec4f,
-		rect2: vec4f,
-		rect3: vec4f,
-	}
-
 	@group(0) @binding(0) var<uniform> uniforms: Uniforms;
 	@group(1) @binding(0) var<uniform> blitUniforms: BlitUniforms;
 	@group(1) @binding(1) var texSampler: sampler;
 	@group(1) @binding(2) var sourceTexture: texture_2d<f32>;
 	@group(1) @binding(3) var unusedMaskTexture: texture_2d<f32>;
-	@group(2) @binding(0) var<uniform> maskChain: MaskChainUniforms;
-	@group(2) @binding(1) var maskTexture0: texture_2d<f32>;
-	@group(2) @binding(2) var maskTexture1: texture_2d<f32>;
-	@group(2) @binding(3) var maskTexture2: texture_2d<f32>;
-	@group(2) @binding(4) var maskTexture3: texture_2d<f32>;
-	@group(2) @binding(5) var maskSampler: sampler;
 
 	struct VertexOutput {
 		@builtin(position) position: vec4f,
@@ -633,32 +681,7 @@ export const BLIT_WITH_MASK_CHAIN_SHADER = /* wgsl */ `
 		@location(1) worldPos: vec2f,
 	}
 
-	// Mirrors applyOuterClipMask in OUTER_CLIP_MASK_WGSL: premultiplied mask,
-	// luminance = brightness x opacity, empty-outside semantics for inversion.
-	fn maskCoverage(sampled: vec4f, bounds: vec4f, worldPos: vec2f, invert: f32) -> f32 {
-		if (bounds.x == bounds.z && bounds.y == bounds.w) {
-			return 1.0;
-		}
-		let rawUV = (worldPos - bounds.xy) / (bounds.zw - bounds.xy);
-		let maskUV = vec2f(rawUV.x, 1.0 - rawUV.y);
-		let inBounds = step(0.0, maskUV.x) * step(maskUV.x, 1.0)
-		             * step(0.0, maskUV.y) * step(maskUV.y, 1.0);
-		let covered = dot(sampled.rgb, vec3f(0.2126, 0.7152, 0.0722)) * inBounds;
-		return mix(covered, 1.0 - covered, invert);
-	}
-
-	fn maskUVFor(bounds: vec4f, rect: vec4f, textureSize: vec2f, worldPos: vec2f) -> vec2f {
-		// Sentinel slots divide by zero here; the result is discarded by
-		// maskCoverage's early return, and the sample itself is well-defined
-		// (clamped UV into a white texture).
-		let safeSize = max(bounds.zw - bounds.xy, vec2f(1e-6));
-		let rawUV = (worldPos - bounds.xy) / safeSize;
-		let clampedUV = clamp(vec2f(rawUV.x, 1.0 - rawUV.y), vec2f(0.0), vec2f(1.0));
-		if (rect.z > 0.0 && rect.w > 0.0) {
-			return (rect.xy + vec2f(0.5) + clampedUV * max(rect.zw - vec2f(1.0), vec2f(0.0))) / textureSize;
-		}
-		return clampedUV;
-	}
+${MASK_CHAIN_WGSL}
 
 	@vertex
 	fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
@@ -705,17 +728,7 @@ export const BLIT_WITH_MASK_CHAIN_SHADER = /* wgsl */ `
 	@fragment
 	fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 		let color = textureSample(sourceTexture, texSampler, input.texCoord);
-		// textureSampleLevel needs no derivatives, so sentinel slots sampling a
-		// white 1x1 dummy stay well-defined.
-		let s0 = textureSampleLevel(maskTexture0, maskSampler, maskUVFor(maskChain.bounds0, maskChain.rect0, vec2f(textureDimensions(maskTexture0)), input.worldPos), 0.0);
-		let s1 = textureSampleLevel(maskTexture1, maskSampler, maskUVFor(maskChain.bounds1, maskChain.rect1, vec2f(textureDimensions(maskTexture1)), input.worldPos), 0.0);
-		let s2 = textureSampleLevel(maskTexture2, maskSampler, maskUVFor(maskChain.bounds2, maskChain.rect2, vec2f(textureDimensions(maskTexture2)), input.worldPos), 0.0);
-		let s3 = textureSampleLevel(maskTexture3, maskSampler, maskUVFor(maskChain.bounds3, maskChain.rect3, vec2f(textureDimensions(maskTexture3)), input.worldPos), 0.0);
-		let coverage = maskCoverage(s0, maskChain.bounds0, input.worldPos, maskChain.inverts.x)
-		             * maskCoverage(s1, maskChain.bounds1, input.worldPos, maskChain.inverts.y)
-		             * maskCoverage(s2, maskChain.bounds2, input.worldPos, maskChain.inverts.z)
-		             * maskCoverage(s3, maskChain.bounds3, input.worldPos, maskChain.inverts.w);
-		return color * (coverage * blitUniforms.opacity);
+		return color * (maskChainCoverage(input.worldPos) * blitUniforms.opacity);
 	}
 	`;
 
@@ -730,6 +743,9 @@ export const BLIT_WITH_MASK_CHAIN_SHADER = /* wgsl */ `
  *     (via sourceMinU/V/MaxU/V in BlitUniforms — identical to the old
  *     BLIT_WITH_STENCIL_SHADER UV derivation)
  *   - maskUV: (screenU, screenV) sampling the prebuf-sized mask texture
+ *
+ * The element's ArtObject.mask stack arrives at group(2) as a mask chain,
+ * sampled by world position so it stays put under viewport rotation.
  *
  * BlitUniforms layout (same 12-float layout as other blit shaders):
  *   [0..3]  boundsMinX, boundsMinY, boundsMaxX, boundsMaxY  (world coords)
@@ -754,18 +770,13 @@ export const BLIT_BACKDROP_WITH_MASK_SHADER = /* wgsl */ `
 		boundsMaxX: f32,
 		boundsMaxY: f32,
 		opacity: f32,
-		/** 1 = invert the outer mask, 0 = leave it as-is. */
-		outerMaskInvert: f32,
+		_pad0: f32,
 		_pad1: f32,
 		_pad2: f32,
 		sourceMinU: f32,
 		sourceMinV: f32,
 		sourceMaxU: f32,
 		sourceMaxV: f32,
-		outerMaskMinX: f32,
-		outerMaskMinY: f32,
-		outerMaskMaxX: f32,
-		outerMaskMaxY: f32,
 	}
 
 	@group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -773,8 +784,6 @@ export const BLIT_BACKDROP_WITH_MASK_SHADER = /* wgsl */ `
 	@group(1) @binding(1) var texSampler: sampler;
 	@group(1) @binding(2) var sourceTexture: texture_2d<f32>;
 	@group(1) @binding(3) var maskTexture: texture_2d<f32>;
-	@group(2) @binding(0) var outerMaskAtlas: texture_2d<f32>;
-	@group(2) @binding(1) var outerMaskSampler: sampler;
 
 	struct VertexOutput {
 		@builtin(position) position: vec4f,
@@ -783,7 +792,7 @@ export const BLIT_BACKDROP_WITH_MASK_SHADER = /* wgsl */ `
 		@location(2) worldPos: vec2f,
 	}
 
-${OUTER_CLIP_MASK_WGSL}
+${MASK_CHAIN_WGSL}
 
 	@vertex
 	fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
@@ -841,8 +850,7 @@ ${OUTER_CLIP_MASK_WGSL}
 	fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 		let color = textureSample(sourceTexture, texSampler, input.sourceUV);
 		let mask = textureSample(maskTexture, texSampler, input.maskUV);
-		let masked = color * mask.r * blitUniforms.opacity;
-		return applyOuterClipMask(masked, vec2f(blitUniforms.outerMaskMinX, blitUniforms.outerMaskMinY), vec2f(blitUniforms.outerMaskMaxX, blitUniforms.outerMaskMaxY), input.worldPos, blitUniforms.outerMaskInvert);
+		return color * (mask.r * maskChainCoverage(input.worldPos) * blitUniforms.opacity);
 	}
 
 	// Punch entry for the two-draw backdrop composite: outputs only the mask
@@ -854,8 +862,7 @@ ${OUTER_CLIP_MASK_WGSL}
 	@fragment
 	fn fragmentPunch(input: VertexOutput) -> @location(0) vec4f {
 		let mask = textureSample(maskTexture, texSampler, input.maskUV);
-		let coverage = vec4f(0.0, 0.0, 0.0, mask.r * blitUniforms.opacity);
-		return applyOuterClipMask(coverage, vec2f(blitUniforms.outerMaskMinX, blitUniforms.outerMaskMinY), vec2f(blitUniforms.outerMaskMaxX, blitUniforms.outerMaskMaxY), input.worldPos, blitUniforms.outerMaskInvert);
+		return vec4f(0.0, 0.0, 0.0, mask.r * maskChainCoverage(input.worldPos) * blitUniforms.opacity);
 	}
 	`;
 

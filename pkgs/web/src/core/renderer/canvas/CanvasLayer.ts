@@ -690,7 +690,7 @@ export class CanvasLayer {
 		structure: FramePlanStructure;
 	} | null = null;
 	private readonly backdropBlitPool = {
-		f32: new Float32Array(16),
+		f32: new Float32Array(12),
 		buffers: [] as GPUBuffer[],
 		index: 0,
 	};
@@ -1256,9 +1256,13 @@ export class CanvasLayer {
 	private drawsViaTexture(
 		element: AnyArtObject,
 		filterPlanIds: ReadonlySet<string>,
+		backdropElementIds: ReadonlySet<string>,
 	): boolean {
 		if (element.type === "image") return true;
 		if (filterPlanIds.has(element.id)) return true;
+		// A backdrop-filter element composites its filtered backdrop through
+		// processBackdropElement's blit, which applies the subtree masks itself.
+		if (backdropElementIds.has(element.id)) return true;
 		// Glass solids are deliberately kept out of the filter plans — they
 		// compose against the live backdrop mid-pass instead — so the plan set
 		// alone does not see them.
@@ -1487,7 +1491,12 @@ export class CanvasLayer {
 				objectMasks,
 				elementsMap,
 				this.clipMaskAtlas,
-				(element) => this.drawsViaTexture(element, filterPlanIds),
+				(element) =>
+					this.drawsViaTexture(
+						element,
+						filterPlanIds,
+						framePlan.backdropElementIds,
+					),
 				(element) =>
 					this.backdropDrivers.some((driver) =>
 						driver.hasInlineComposite(element),
@@ -4660,6 +4669,9 @@ export class CanvasLayer {
 
 		for (const [elementId, plan] of this.activeMaskApplicationPlans) {
 			if (plan.kind !== "subtree-composite") continue;
+			// processBackdropElement masks its composite at draw time; a bake
+			// here would never be drawn.
+			if (this.activeFramePlan?.backdropElementIds.has(elementId)) continue;
 			const element = elementsMap.get(elementId);
 			if (!element) continue;
 			const existing = filteredTextures.get(elementId);
@@ -5687,11 +5699,6 @@ export class CanvasLayer {
 		f[9] = 0;
 		f[10] = 1;
 		f[11] = 1;
-		// No outer mask for backdrop filters — sentinel zeros
-		f[12] = 0;
-		f[13] = 0;
-		f[14] = 0;
-		f[15] = 0;
 
 		const bufIdx = this.backdropBlitPool.index;
 		const blitUniformBuffer = this.acquireBackdropBlitBuffer();
@@ -5727,7 +5734,12 @@ export class CanvasLayer {
 		// add the filtered backdrop (see blitBackdropPunchPipeline).
 		blitPass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 		blitPass.setBindGroup(1, blitBindGroup);
-		blitPass.setBindGroup(2, this.dummyMaskBindGroup);
+		blitPass.setBindGroup(
+			2,
+			this.offscreen.createMaskChainBindGroup(
+				this.resolveSubtreeMasks(element.id),
+			),
+		);
 		blitPass.setPipeline(this.blitBackdropPunchPipeline);
 		blitPass.draw(6);
 		blitPass.setPipeline(this.blitBackdropWithMaskPipeline);
@@ -7542,7 +7554,7 @@ export class CanvasLayer {
 		}
 		const buf = this.device.createBuffer({
 			label: `Backdrop Blit Uniform Buffer [pool ${this.backdropBlitPool.buffers.length}]`,
-			size: 16 * 4, // 16 floats (12 base + 4 outer mask bounds)
+			size: 12 * 4,
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 		});
 		this.backdropBlitPool.buffers.push(buf);

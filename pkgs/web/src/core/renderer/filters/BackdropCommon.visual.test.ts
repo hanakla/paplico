@@ -374,6 +374,44 @@ describe("Common applyToBackdrop flag", () => {
 // Backdrop compositing that keys on the blurred backdrop's alpha instead of
 // the mask leaks the sharp backdrop wherever blur softens an alpha edge,
 // which only opaque backgrounds hide.
+describe("Backdrop filter with an object mask", () => {
+	it("should draw the frosted backdrop only where the object mask keeps the pane", async () => {
+		const { renderer, canvas } = await createTestRenderer();
+		const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+		const device = renderer.getDevice();
+		if (!device) throw new Error("Test renderer has no GPU device");
+		const capture = async (doc: ReturnType<typeof createDefaultDocument>) => {
+			const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+			const pixels = await captureTexturePixels(
+				device,
+				texture,
+				texture.width,
+				texture.height,
+			);
+			texture.destroy();
+			return pixels;
+		};
+
+		const masked = await capture(createMaskedFrostGlassDoc());
+		const unmasked = await capture(
+			createMaskedFrostGlassDoc({ masked: false }),
+		);
+		const unfrosted = await capture(
+			createMaskedFrostGlassDoc({ frost: false }),
+		);
+
+		// Pane covers world [-350,350]x[-250,250] → texels [50,750]x[50,550]; the
+		// mask keeps its left half. The columns around the mask edge are skipped.
+		const kept = [60, 60, 380, 540] as const;
+		const hidden = [420, 60, 740, 540] as const;
+		expect(
+			regionDiffPercentage(unmasked, unfrosted, 800, ...kept),
+		).toBeGreaterThan(1);
+		expect(regionDiffPercentage(masked, unmasked, 800, ...kept)).toBe(0);
+		expect(regionDiffPercentage(masked, unfrosted, 800, ...hidden)).toBe(0);
+	});
+});
+
 describe("Backdrop export background equivalence", () => {
 	it("should flatten a transparent-background export over white to match the opaque-white export", async () => {
 		const { renderer } = await createTestRenderer();
@@ -692,6 +730,42 @@ function createBackdropFrostGlassDoc({
 		`backdrop-frost-glass-${scatter > 0 ? "scatter" : "pyramid"}-clipping-vrt`,
 		frostGlass,
 	);
+}
+
+/** The frost glass scene with an object mask keeping the pane's left half. */
+function createMaskedFrostGlassDoc({ frost = true, masked = true } = {}) {
+	const frostGlass: FrostGlassFilter = {
+		uid: generateUid("filter"),
+		processor: "frost-glass",
+		opacity: 1,
+		blendMode: "normal",
+		enabled: frost,
+		applyToBackdrop: true,
+		paramData: {
+			version: "1",
+			params: { radius: 8, scatter: 0, scatterGrain: 1 },
+		},
+	};
+	const doc = createBackdropEffectDoc(
+		"backdrop-frost-glass-masked-vrt",
+		frostGlass,
+	);
+	if (!masked) return doc;
+
+	const pane = Object.values(doc.objects).find(
+		(el) =>
+			el.type === "path" &&
+			localAppearances(el.filters).some((f) => f.processor === "frost-glass"),
+	) as Path;
+	const mask = createFilledPath(rectSegments(-175, 0, 350, 600), {
+		r: 1,
+		g: 1,
+		b: 1,
+		a: 1,
+	});
+	doc.objects[mask.id] = mask;
+	pane.mask = { elementIds: [mask.id] };
+	return doc;
 }
 
 function createBackdropEffectDoc(
