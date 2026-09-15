@@ -105,6 +105,7 @@ import { SvgGaussianBlurHandler } from "./filters/svg/SvgGaussianBlurHandler";
 import { SvgMorphologyHandler } from "./filters/svg/SvgMorphologyHandler";
 import { SvgOffsetHandler } from "./filters/svg/SvgOffsetHandler";
 import { SvgTurbulenceHandler } from "./filters/svg/SvgTurbulenceHandler";
+import { TransformFilterHandler } from "./filters/TransformFilterProcessor";
 import { ZigzagFilterHandler } from "./filters/ZigzagFilterProcessor";
 import { GPUTimingProfiler } from "./GPUTimingProfiler";
 import { GradientTextureGenerator } from "./generators/GradientTextureGenerator";
@@ -2479,6 +2480,10 @@ export class RenderOrchestrator {
 		const puckerBloatHandler = new PuckerBloatFilterHandler();
 		await puckerBloatHandler.initialize(this.device, this.canvasFormat);
 		filterRenderer.registerHandler("pucker-bloat", puckerBloatHandler);
+
+		const transformHandler = new TransformFilterHandler();
+		await transformHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("transform", transformHandler);
 
 		const rotate3dProcessor = new Rotate3DFilterProcessor();
 		await rotate3dProcessor.initialize(this.device, this.canvasFormat);

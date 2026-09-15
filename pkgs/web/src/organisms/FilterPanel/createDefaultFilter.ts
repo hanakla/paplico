@@ -166,6 +166,28 @@ const FILTER_DEFS: Record<string, () => ReturnType<typeof Object>> = {
 			params: { amount: 0 },
 		},
 	}),
+	transform: () => ({
+		uid: generateUid("filter"),
+		processor: "transform",
+		paramData: {
+			version: "1",
+			params: {
+				scaleX: 1,
+				scaleY: 1,
+				moveX: 0,
+				moveY: 0,
+				angle: 0,
+				reflectX: false,
+				reflectY: false,
+				copies: 0,
+				origin: "center" as const,
+				random: false,
+				seed: 42,
+				transformPatterns: false,
+				scaleStrokes: false,
+			},
+		},
+	}),
 	extrude3d: () => ({
 		uid: generateUid("app"),
 		processor: "extrude3d",

@@ -157,25 +157,31 @@ export function scaleStrokeFilters(
 	filters: FilterEntry[] | undefined,
 	scale: number,
 ): FilterEntry[] | undefined {
-	return filters?.map((f) => {
-		if (isAppearancePresetRef(f) || f.processor !== "stroke") return f;
-		const params = (f as StrokeAppearance).paramData.params;
-		const size = readStoredBrushSize(params.brushSettings);
-		if (params.brushSettings == null || size === undefined) return f;
-		return {
-			...f,
-			paramData: {
-				...f.paramData,
-				params: {
-					...params,
-					brushSettings: withStoredBrushSize(
-						params.brushSettings,
-						size * scale,
-					),
-				},
+	return filters?.map((f) =>
+		isAppearancePresetRef(f) || f.processor !== "stroke"
+			? f
+			: scaleStrokeAppearance(f as StrokeAppearance, scale),
+	);
+}
+
+/** The stroke with its brush size multiplied by `scale`; untouched without brush settings. */
+export function scaleStrokeAppearance(
+	stroke: StrokeAppearance,
+	scale: number,
+): StrokeAppearance {
+	const params = stroke.paramData.params;
+	const size = readStoredBrushSize(params.brushSettings);
+	if (params.brushSettings == null || size === undefined) return stroke;
+	return {
+		...stroke,
+		paramData: {
+			...stroke.paramData,
+			params: {
+				...params,
+				brushSettings: withStoredBrushSize(params.brushSettings, size * scale),
 			},
-		};
-	});
+		},
+	};
 }
 
 /**

@@ -21,15 +21,18 @@ import {
 	type Path,
 	type StrokeAppearance,
 } from "../../../schema";
+import { calculateSegmentListBounds } from "../../../utils/geometry/bounds";
+import type { Affine2D } from "../../../utils/geometry/repeatInterpolation";
 import type { Brand } from "../../../utils/lang";
 import {
+	appearancePaintsPattern,
 	type FilterRenderer,
 	isElementRenderReplaced,
 	isGeometryFilter,
 } from "../pipeline/FilterRenderer";
 import {
-	applyPreFilters,
-	resolveElementGeometry,
+	applyPreFiltersToGeometry,
+	resolveAppearanceGeometries,
 } from "../pipeline/PreFilterRenderer";
 
 declare const DrawableSegmentsBrand: unique symbol;
@@ -42,12 +45,23 @@ declare const DrawableSegmentsBrand: unique symbol;
 export type DrawableSegments = CubicBezierSegment[] &
 	Brand<typeof DrawableSegmentsBrand>;
 
+/** Where a pattern paint's tile grid sits on the geometry it fills. */
+export interface PatternPlacement {
+	/** Tile-grid origin: the flat outline's top-left, in local coordinates. */
+	anchor: [number, number];
+	/** Sampling affine of a copy placed by a geometry filter (the inverse of
+	 *  its placement), so the pattern follows the copy. */
+	transform?: Affine2D;
+}
+
 /** One appearance and the geometry it draws. */
 export interface ResolvedAppearancePass {
 	appearance: FillAppearance | StrokeAppearance;
 	segments: DrawableSegments;
 	/** Outline/strip cache key, distinct per deformation variant. */
 	cacheKey: string;
+	/** Set when the appearance paints a pattern. */
+	pattern?: PatternPlacement;
 }
 
 type DrawableAppearance = FillAppearance | StrokeAppearance;
@@ -89,12 +103,6 @@ export function resolveAppearancePasses(
 	const appearances = collectDrawableAppearances(path, filterRenderer);
 	if (appearances.length === 0) return [];
 
-	const baseSegments = resolveElementGeometry(
-		path.segments,
-		localAppearances(path.filters),
-		filterRenderer,
-	);
-
 	// The base cache key carries the active pre-filter uids: the same element
 	// is also drawn as virtual elements (per-appearance offscreen plans, group
 	// appearances) whose pre-filter set differs, and those variants must not
@@ -113,30 +121,57 @@ export function resolveAppearancePasses(
 			? `${path.id}:${preFilterUids.join(",")}`
 			: path.id;
 
-	return appearances.map((appearance) => {
+	// Pattern paints anchor their tile grid to the flat outline.
+	const patternAnchor = appearances.some(appearancePaintsPattern)
+		? flatOutlineAnchor(path.segments)
+		: null;
+	const geometries = resolveAppearanceGeometries(
+		appearances,
+		path.segments,
+		localAppearances(path.filters),
+		filterRenderer,
+	);
+
+	return appearances.flatMap((appearance, i): ResolvedAppearancePass[] => {
 		const preSubFilters = collectPreSubFilters(appearance, filterRenderer);
-		if (preSubFilters.length === 0) {
-			return {
-				appearance,
-				segments: baseSegments as DrawableSegments,
-				cacheKey: baseCacheKey,
-			};
-		}
-		return {
-			appearance,
-			segments: applyPreFilters(
-				baseSegments,
+		const subKey =
+			preSubFilters.length === 0
+				? ""
+				: `:${appearance.uid}:${preSubFilters.map((sf) => sf.uid).join(",")}`;
+		// The appearance's own sub-filters run on each of its geometries with
+		// the appearance attached, so they can split or rewrite it as well.
+		const own = geometries[i].flatMap((geometry) =>
+			applyPreFiltersToGeometry(
+				{ ...geometry, appearance: geometry.appearance ?? appearance },
 				preSubFilters,
 				filterRenderer,
-			) as DrawableSegments,
-			cacheKey: `${baseCacheKey}:${appearance.uid}:${preSubFilters
-				.map((sf) => sf.uid)
-				.join(",")}`,
-		};
+			),
+		);
+		return own.map((geometry, k) => ({
+			appearance: geometry.appearance!,
+			segments: geometry.segments as DrawableSegments,
+			cacheKey: `${baseCacheKey}${subKey}${own.length > 1 ? `:copy${k}` : ""}`,
+			...(patternAnchor && appearancePaintsPattern(appearance)
+				? {
+						pattern: {
+							anchor: patternAnchor,
+							...(geometry.patternTransform
+								? { transform: geometry.patternTransform }
+								: {}),
+						},
+					}
+				: {}),
+		}));
 	});
 }
 
 // --- Helpers ---
+
+/** Top-left of the flat outline, the tile-grid origin every pass shares. */
+function flatOutlineAnchor(segments: CubicBezierSegment[]): [number, number] {
+	const bounds = calculateSegmentListBounds(segments);
+	return bounds ? [bounds.minX, bounds.maxY] : [0, 0];
+}
 
 /** An appearance's enabled geometry-deforming sub-filters, in order. */
 function collectPreSubFilters(

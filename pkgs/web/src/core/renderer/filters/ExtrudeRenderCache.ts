@@ -11,6 +11,10 @@ import {
 	type StrokeAppearance,
 	type TextElement,
 } from "../../schema";
+import {
+	type FilterRenderer,
+	isGeometryFilter,
+} from "../canvas/pipeline/FilterRenderer";
 
 /**
  * Callback bundle a render-cache fingerprint needs to fold in descendant
@@ -26,7 +30,7 @@ interface PaintHashContext {
 	resolvePatternTexture: (defId: string) => { revision: number } | null;
 	resolveTextOutline: (element: TextElement) => unknown | null;
 	isImageReady: (fileUid: string) => boolean;
-	hasPreProcessHandler: (processor: string) => boolean;
+	filterRenderer: Pick<FilterRenderer, "getHandler">;
 }
 
 /**
@@ -121,8 +125,8 @@ function hashGroupPaintContent(
 	ctx: PaintHashContext,
 ): string {
 	const ownFilters = localAppearances(group.filters);
-	const hasPreFilter = ownFilters.some(
-		(f) => f.enabled !== false && ctx.hasPreProcessHandler(f.processor),
+	const hasPreFilter = ownFilters.some((f) =>
+		isGeometryFilter(f, ctx.filterRenderer),
 	);
 	if (hasGroupAppearances(group) || hasPreFilter) {
 		return `combined:${hashLeafPaintContent(ownFilters, ctx.resolvePatternTexture)}:${group.clipPathId ?? ""}`;

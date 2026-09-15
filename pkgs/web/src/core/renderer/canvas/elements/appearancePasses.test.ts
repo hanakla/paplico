@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultTransform } from "../../../document/factory";
-import type { Filter, Path, PathSegment } from "../../../schema";
+import type {
+	Filter,
+	Path,
+	PathSegment,
+	StrokeAppearance,
+} from "../../../schema";
+import {
+	type AppearanceGeometry,
+	appearancePaintsPattern,
+} from "../pipeline/FilterRenderer";
 import {
 	collectDrawableAppearances,
 	resolveAppearancePasses,
@@ -8,6 +17,9 @@ import {
 
 // "zigzag" stands in for a geometry-deforming (preProcess) handler; "blur" for
 // a post-process-only one, which leaves the appearance's coverage intact.
+// "copier" stands in for a copy-placing handler (transform) whose pattern
+// paints follow the copy; "shrinker" for one that scales stroke widths
+// instead. Both emit the input plus one copy moved by +20 in x.
 const filterRenderer = {
 	getHandler: (processor: string) =>
 		processor === "zigzag"
@@ -15,7 +27,68 @@ const filterRenderer = {
 					preProcess: (segments: PathSegment[]) =>
 						segments.map((s) => ({ ...s, end: { ...s.end, y: s.end.y + 5 } })),
 				}
-			: undefined,
+			: processor === "copier"
+				? {
+						preProcess: (segments: PathSegment[]) => [
+							...segments,
+							...moveSegments(segments, 20),
+						],
+						preProcessAppearance: (g: AppearanceGeometry) =>
+							appearancePaintsPattern(g.appearance)
+								? [
+										{
+											...g,
+											patternTransform: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+										},
+										{
+											...g,
+											segments: moveSegments(g.segments as PathSegment[], 20),
+											patternTransform: {
+												a: 1,
+												b: 0,
+												c: 0,
+												d: 1,
+												e: -20,
+												f: 0,
+											},
+										},
+									]
+								: [
+										{
+											...g,
+											segments: [
+												...g.segments,
+												...moveSegments(g.segments as PathSegment[], 20),
+											],
+										},
+									],
+					}
+				: processor === "shrinker"
+					? {
+							preProcess: (segments: PathSegment[]) => [
+								...segments,
+								...moveSegments(segments, 20),
+							],
+							preProcessAppearance: (g: AppearanceGeometry) =>
+								g.appearance?.processor === "stroke"
+									? [
+											g,
+											{
+												appearance: withStrokeWidth(g.appearance, 1.5),
+												segments: moveSegments(g.segments as PathSegment[], 20),
+											},
+										]
+									: [
+											{
+												...g,
+												segments: [
+													...g.segments,
+													...moveSegments(g.segments as PathSegment[], 20),
+												],
+											},
+										],
+						}
+					: undefined,
 } as never;
 
 describe("collectDrawableAppearances", () => {
@@ -139,6 +212,69 @@ describe("resolveAppearancePasses", () => {
 	it("should return no passes for a path without drawable appearances", () => {
 		expect(resolveAppearancePasses(pathWith([]), filterRenderer)).toEqual([]);
 	});
+
+	it("should anchor a pattern fill to the flat outline top-left", () => {
+		const path = pathWith([patternFill("pat"), subFilter("zz", "zigzag")]);
+
+		const [pass] = resolveAppearancePasses(path, filterRenderer);
+
+		expect(pass.segments[0].end.y).toBe(5);
+		expect(pass.pattern).toEqual({ anchor: [0, 0] });
+	});
+
+	it("should draw a pattern fill once per copy with the filter's pattern transform", () => {
+		const path = pathWith([
+			solidFill("solid", { colorAlpha: 0.5 }),
+			patternFill("pat"),
+			subFilter("cp", "copier"),
+		]);
+
+		const passes = resolveAppearancePasses(path, filterRenderer);
+
+		expect(passes.map((p) => p.appearance.uid)).toEqual([
+			"solid",
+			"pat",
+			"pat",
+		]);
+		expect(passes[0].segments).toHaveLength(2);
+		expect(passes[0].pattern).toBeUndefined();
+		expect(passes[1].segments[0].end.x).toBe(10);
+		expect(passes[1].pattern?.transform).toMatchObject({ e: 0 });
+		expect(passes[2].segments[0].end.x).toBe(30);
+		expect(passes[2].pattern?.transform).toMatchObject({ e: -20 });
+		expect(passes[1].cacheKey).not.toBe(passes[2].cacheKey);
+	});
+
+	it("should let a sub-filter below a pattern fill split it per copy too", () => {
+		const path = pathWith([
+			patternFill("pat", { subFilters: [subFilter("cp", "copier")] }),
+		]);
+
+		const passes = resolveAppearancePasses(path, filterRenderer);
+
+		expect(passes.map((p) => p.appearance.uid)).toEqual(["pat", "pat"]);
+		expect(passes[1].segments[0].end.x).toBe(30);
+		expect(passes[1].pattern?.transform).toMatchObject({ e: -20 });
+	});
+
+	it("should draw a stroke once per copy with the filter's rewritten width", () => {
+		const path = pathWith([
+			patternFill("pat"),
+			stroke("line"),
+			subFilter("sh", "shrinker"),
+		]);
+
+		const passes = resolveAppearancePasses(path, filterRenderer);
+
+		expect(passes.map((p) => p.appearance.uid)).toEqual([
+			"pat",
+			"line",
+			"line",
+		]);
+		expect(passes[0].pattern).toEqual({ anchor: [0, 0] });
+		expect(strokeWidthOf(passes[1])).toBe(3);
+		expect(strokeWidthOf(passes[2])).toBe(1.5);
+	});
 });
 
 // ===== Test helpers =====
@@ -191,6 +327,64 @@ function solidFill(
 	} as Filter;
 }
 
+function patternFill(
+	uid: string,
+	{ subFilters }: { subFilters?: Filter[] } = {},
+): Filter {
+	return {
+		uid,
+		processor: "fill",
+		opacity: 1,
+		blendMode: "normal",
+		subFilters,
+		paramData: {
+			version: "1",
+			params: {
+				fill: {
+					type: "pattern",
+					defId: "def-1",
+					scaleX: 1,
+					scaleY: 1,
+					rotation: 0,
+					offsetX: 0,
+					offsetY: 0,
+				},
+			},
+		},
+	} as Filter;
+}
+
+function moveSegments(segments: PathSegment[], dx: number): PathSegment[] {
+	return segments.map((s) => ({
+		...s,
+		...(s.start ? { start: { ...s.start, x: s.start.x + dx } } : {}),
+		end: { ...s.end, x: s.end.x + dx },
+	}));
+}
+
+function withStrokeWidth(stroke: Filter, width: number): StrokeAppearance {
+	const app = stroke as StrokeAppearance;
+	const settings = app.paramData.params.brushSettings!;
+	return {
+		...app,
+		paramData: {
+			...app.paramData,
+			params: {
+				...app.paramData.params,
+				brushSettings: {
+					...settings,
+					properties: { ...settings.properties, size: { base: width } },
+				},
+			},
+		},
+	};
+}
+
+function strokeWidthOf(pass: { appearance: Filter }): number | undefined {
+	return (pass.appearance as StrokeAppearance).paramData.params.brushSettings
+		?.properties.size?.base;
+}
+
 function stroke(uid: string): Filter {
 	return {
 		uid,
@@ -200,6 +394,14 @@ function stroke(uid: string): Filter {
 		paramData: {
 			version: "1",
 			params: {
+				brushSettings: {
+					version: 2,
+					engine: "geometric",
+					strokeOpacity: 1,
+					paintMode: "buildup",
+					properties: { size: { base: 3 }, flow: { base: 1 } },
+					randomSeed: 0,
+				},
 				strokeColor: {
 					type: "solid",
 					color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },

@@ -59,6 +59,7 @@ import {
 } from "../CanvasLayerTypes";
 import { MaskedBlitBindGroupCache } from "../caches/BindGroupCache";
 import type { FilterRenderer } from "./FilterRenderer";
+import { isGeometryFilter } from "./FilterRenderer";
 import { FrameUniformPool } from "./FrameUniformPool";
 import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
 import {
@@ -1414,10 +1415,9 @@ export class OffscreenPresenter {
 
 		// Group-level pre-filters deform every child at render time; extract
 		// them up front so pre-rasterized children keep the deformation too.
-		const groupPreFilters = localAppearances(group.filters).filter((f) => {
-			const handler = this.deps.filterRenderer.getHandler(f.processor);
-			return f.enabled !== false && !!handler?.preProcess;
-		});
+		const groupPreFilters = localAppearances(group.filters).filter((f) =>
+			isGeometryFilter(f, this.deps.filterRenderer),
+		);
 
 		// Pre-rasterize only children whose own filters need a post-process
 		// pass; everything else renders inline in renderGroupChildrenToTexture,
@@ -2387,10 +2387,7 @@ export class OffscreenPresenter {
 						.map((id) => elementsMap.get(id))
 						.filter((el): el is AnyArtObject => el !== undefined);
 					const childGroupPreFilters = localAppearances(child.filters).filter(
-						(f) => {
-							const handler = this.deps.filterRenderer.getHandler(f.processor);
-							return f.enabled !== false && !!handler?.preProcess;
-						},
+						(f) => isGeometryFilter(f, this.deps.filterRenderer),
 					);
 					const nestedPreFilters =
 						childGroupPreFilters.length > 0 || parentPreFilters?.length

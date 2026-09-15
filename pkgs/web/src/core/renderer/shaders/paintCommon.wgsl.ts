@@ -24,18 +24,13 @@ struct GradientUniforms {
 	radialRotation: f32,
 	boundsMin: vec2f,
 	boundsMax: vec2f,
-	// Pattern fill parameters (gradientType == 5). World-space transform applied
-	// before sampling the tile texture; tile size determines the wrap period.
-	patternOffset: vec2f,
-	patternScale: vec2f,
-	patternRotation: f32,
+	// Pattern fill parameters (gradientType == 5). Affine from local geometry
+	// coordinates to tile space, as columns; tile size sets the wrap period.
+	patternMatrixCol0: vec2f,
+	patternMatrixCol1: vec2f,
+	patternMatrixCol2: vec2f,
 	patternTileWidth: f32,
 	patternTileHeight: f32,
-	_pad1: f32,
-	// Tile-grid anchor: the element's tight geometry top-left in world space.
-	// boundsMin/Max arrive fringe-expanded for fills, so the anchor is
-	// carried separately.
-	patternAnchor: vec2f,
 }
 
 struct MeshFace {
@@ -455,21 +450,13 @@ fn paintColor(worldPos: vec2f, solid: vec4f, tu: vec2f) -> vec4f {
 			let clampedUV = clamp(uv, vec2f(0.0), vec2f(1.0));
 			color = sampleMeshGradient(clampedUV);
 		}
-		// Pattern fill — tile from the element's top-left corner.
-		// Uses pre-transform local coords so the pattern moves with the object.
+		// Pattern fill — the CPU-side affine maps local geometry coordinates
+		// (pre element transform, so the pattern moves with the object) to
+		// tile space.
 		case 5u: {
-			let local = worldPos - gradient.patternAnchor;
-			// Flip Y so screen-downward is positive (tile rows top→bottom)
-			let objectRel = vec2f(local.x, -local.y) - gradient.patternOffset;
-			let cosR = cos(-gradient.patternRotation);
-			let sinR = sin(-gradient.patternRotation);
-			let rotated = vec2f(
-				objectRel.x * cosR - objectRel.y * sinR,
-				objectRel.x * sinR + objectRel.y * cosR,
-			);
-			let sx = max(abs(gradient.patternScale.x), 1e-6);
-			let sy = max(abs(gradient.patternScale.y), 1e-6);
-			let scaled = vec2f(rotated.x / sx, rotated.y / sy);
+			let scaled = gradient.patternMatrixCol0 * worldPos.x
+				+ gradient.patternMatrixCol1 * worldPos.y
+				+ gradient.patternMatrixCol2;
 			let tw = max(gradient.patternTileWidth, 1e-6);
 			let th = max(gradient.patternTileHeight, 1e-6);
 			let tileUV = vec2f(fract(scaled.x / tw), fract(scaled.y / th));

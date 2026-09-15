@@ -33,6 +33,7 @@ import type {
 	PixelateFilter,
 	PuckerBloatFilter,
 	Rotate3DFilter,
+	TransformFilter,
 	ZigzagFilter,
 } from "@/core/renderer/filters";
 import type {
@@ -72,6 +73,7 @@ import { Rotate3DFilterControls } from "./ControlsRotate3D";
 import { SelectiveCorrectionFilterControls } from "./ControlsSelectiveCorrection";
 import { SmearFilterControls } from "./ControlsSmear";
 import { SprayingFilterControls } from "./ControlsSpraying";
+import { TransformFilterControls } from "./ControlsTransform";
 import { TurbulenceFilterControls } from "./ControlsTurbulence";
 import { VhsInterlaceFilterControls } from "./ControlsVhsInterlace";
 import { WaveFilterControls } from "./ControlsWave";
@@ -141,6 +143,14 @@ export const FilterEffectControls = memo(function FilterEffectControls({
 		return (
 			<PuckerBloatFilterControls
 				filter={filter as PuckerBloatFilter}
+				onUpdate={onUpdate}
+			/>
+		);
+	}
+	if (filter.processor === "transform") {
+		return (
+			<TransformFilterControls
+				filter={filter as TransformFilter}
 				onUpdate={onUpdate}
 			/>
 		);

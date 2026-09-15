@@ -194,6 +194,7 @@ import {
 	buildFramePlanStructure,
 	buildFramePlanView,
 	buildPassPlan,
+	calculatePreFilteredElementBounds,
 	type ElementFilterPlan,
 	type FramePlan,
 	type FramePlanStructure,
@@ -2966,7 +2967,7 @@ export class CanvasLayer {
 				// out at the viewport edge.
 				const cull = this.expandBoundsForRenderedOutput(
 					element,
-					bounds,
+					this.deformedWorldBounds(element, bounds, elementsMap),
 					filteredTextures.get(element.id),
 				);
 				if (
@@ -4283,8 +4284,7 @@ export class CanvasLayer {
 			resolvePatternTexture: (defId) => this.resolvePatternTexture(defId),
 			resolveTextOutline: (el) => this.resolveTextOutline(el),
 			isImageReady: (fileUid) => this.assetState.imageTextureCache.has(fileUid),
-			hasPreProcessHandler: (processor) =>
-				!!this.filterRenderer.getHandler(processor)?.preProcess,
+			filterRenderer: this.filterRenderer,
 		};
 	}
 
@@ -5149,13 +5149,21 @@ export class CanvasLayer {
 			// grid is already viewport-independent at this scale; a
 			// brush-derived fixed-R blowup produced multi-hundred-MB
 			// accumulators on large strokes.
-			// Virtual element with element-level pre-filters + per-appearance pre sub-filters + this single appearance
+			// Virtual element with element-level pre-filters, this appearance's
+			// pre sub-filters promoted next to them, and the single appearance.
+			// The appearance keeps only its post sub-filters: the promoted ones
+			// would otherwise deform the geometry a second time when the path
+			// resolves its appearance passes.
 			const virtualElement = {
 				...fp.element,
 				filters: [
 					...preFilters,
 					...plan.preSubFilters,
-					isWash ? { ...plan.appearance, opacity: 1 } : plan.appearance,
+					{
+						...plan.appearance,
+						subFilters: plan.postSubFilters,
+						...(isWash ? { opacity: 1 } : {}),
+					},
 				],
 			} as AnyArtObject;
 
@@ -5814,9 +5822,12 @@ export class CanvasLayer {
 					: this.renderState.boundsCache?.get(element.id)) ??
 				calculateElementBounds(element, elementsMap, localBoundsCache);
 
-			if (parentTransform) {
-				elementBounds = applyTransformToBounds(elementBounds, parentTransform);
-			}
+			elementBounds = this.deformedWorldBounds(
+				element,
+				elementBounds,
+				elementsMap,
+				parentTransform,
+			);
 			// An extrude appearance projects a 3D solid that extends past the flat
 			// footprint (depth/rotation/perspective); cull against the solid's
 			// world AABB too, or it pops out when the flat bounds leave the
@@ -6318,7 +6329,12 @@ export class CanvasLayer {
 					);
 
 					// Render appearances in filters array order
-					for (const { appearance: app, segments, cacheKey } of passes) {
+					for (const {
+						appearance: app,
+						segments,
+						cacheKey,
+						pattern,
+					} of passes) {
 						const appAlpha = effectiveAlpha * app.opacity;
 						if (app.processor === "fill") {
 							// Flush pending stroke batch before rendering fill
@@ -6332,6 +6348,7 @@ export class CanvasLayer {
 									fill,
 									appAlpha,
 									cacheKey,
+									pattern,
 								);
 							}
 						} else {
@@ -6591,6 +6608,47 @@ export class CanvasLayer {
 		ribbons?.flush();
 
 		return activePass;
+	}
+
+	/**
+	 * `flat` unioned with where the element's geometry filters move its outline
+	 * (copies a transform places, an offset's growth), in the parent's space
+	 * like `flat`. Culling and the partial-redraw bounds need the deformed
+	 * reach, or a shape whose flat outline leaves the view drops its copies.
+	 */
+	private deformedWorldBounds(
+		element: AnyArtObject,
+		flat: WorldBBox,
+		elementsMap: Map<string, AnyArtObject>,
+		parentTransform?: ElementTransform | null,
+	): WorldBBox {
+		const deforms = localAppearances(element.filters).some((f) =>
+			isGeometryFilter(f, this.filterRenderer),
+		);
+		const own = parentTransform
+			? applyTransformToBounds(flat, parentTransform)
+			: flat;
+		if (!deforms) return own;
+		let deformed = calculatePreFilteredElementBounds(
+			element,
+			elementsMap,
+			this.filterRenderer,
+		);
+		if (parentTransform) {
+			deformed = applyTransformToBounds(deformed, parentTransform);
+		}
+		const minX = Math.min(own.minX, deformed.minX);
+		const minY = Math.min(own.minY, deformed.minY);
+		const maxX = Math.max(own.maxX, deformed.maxX);
+		const maxY = Math.max(own.maxY, deformed.maxY);
+		return brandWorldBBox({
+			minX,
+			minY,
+			maxX,
+			maxY,
+			width: maxX - minX,
+			height: maxY - minY,
+		});
 	}
 
 	/**

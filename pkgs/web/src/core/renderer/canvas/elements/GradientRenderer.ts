@@ -4,7 +4,16 @@
  * skips the buffer writes when nothing changed.
  */
 
-import { colorToRawRGBA, type TexturedFill } from "../../../schema";
+import {
+	colorToRawRGBA,
+	type PatternFill,
+	type TexturedFill,
+} from "../../../schema";
+import {
+	type Affine2D,
+	composeAffine,
+	IDENTITY_AFFINE,
+} from "../../../utils/geometry/repeatInterpolation";
 import type { GradientState } from "../CanvasLayerTypes";
 import { type GradientCache, hashGradientDraw } from "../caches/GradientCache";
 
@@ -32,6 +41,18 @@ interface GradientDrawOptions {
 	 * value to derive normalized tile UV with `fract()`.
 	 */
 	patternTileWorldSize?: { width: number; height: number };
+	/**
+	 * Tile-grid origin for `PatternFill` in local geometry coordinates: the
+	 * element's flat outline top-left, so the grid stays put while geometry
+	 * filters deform or copy the outline. Falls back to the bounds top-left.
+	 */
+	patternAnchor?: [number, number];
+	/**
+	 * Local-space affine applied to the sampled position before the pattern
+	 * placement, so a copy placed by a geometry filter samples the pattern
+	 * transformed the same way (the inverse of the copy's placement).
+	 */
+	patternLocalTransform?: Affine2D;
 	/**
 	 * StrokeGradientMode for geometric strokes (0 = within / 1 = along /
 	 * 2 = across). along/across sample the stops from the per-pixel
@@ -65,6 +86,8 @@ export class GradientRenderer {
 			transformIndex,
 			patternTexture,
 			patternTileWorldSize,
+			patternAnchor,
+			patternLocalTransform,
 			strokeGradientMode,
 		} = options;
 
@@ -96,7 +119,14 @@ export class GradientRenderer {
 		const uv = this.deps.gradient.uniformView;
 		const isPattern = fill.type === "pattern";
 		// Pattern tile world size is passed in by the caller (CanvasLayer),
-		// which reads it from the def entry. patternScale stretches on top.
+		// which reads it from the def entry. The fill's own scale stretches on top.
+		const patternMatrix = isPattern
+			? patternTileMatrix(
+					fill,
+					patternAnchor ?? [boundsMin[0], boundsMax[1]],
+					patternLocalTransform,
+				)
+			: IDENTITY_AFFINE;
 		uv.set({
 			gradientType: GRADIENT_TYPE_INDEX[fill.type] ?? 0,
 			stopCount:
@@ -113,9 +143,9 @@ export class GradientRenderer {
 			radialRotation: fill.type === "radial" ? fill.rotation : 0,
 			boundsMin,
 			boundsMax,
-			patternOffset: isPattern ? [fill.offsetX, fill.offsetY] : [0, 0],
-			patternScale: isPattern ? [fill.scaleX, fill.scaleY] : [1, 1],
-			patternRotation: isPattern ? fill.rotation : 0,
+			patternMatrixCol0: [patternMatrix.a, patternMatrix.b],
+			patternMatrixCol1: [patternMatrix.c, patternMatrix.d],
+			patternMatrixCol2: [patternMatrix.e, patternMatrix.f],
 			patternTileWidth:
 				isPattern && patternTileWorldSize
 					? Math.max(1e-6, patternTileWorldSize.width)
@@ -124,8 +154,6 @@ export class GradientRenderer {
 				isPattern && patternTileWorldSize
 					? Math.max(1e-6, patternTileWorldSize.height)
 					: 1,
-			_pad1: 0,
-			patternAnchor: isPattern ? [boundsMin[0], boundsMax[1]] : [0, 0],
 		});
 
 		const sv = this.deps.gradient.stopsView;
@@ -275,3 +303,33 @@ const GRADIENT_TYPE_INDEX: Record<TexturedFill["type"], number> = {
 	mesh: 4,
 	pattern: 5,
 };
+
+/**
+ * Affine from local geometry coordinates to tile space: anchor the grid at
+ * `anchor`, flip Y so tile rows run top to bottom, then apply the fill's
+ * offset, rotation and scale. `localTransform` runs first when given.
+ */
+function patternTileMatrix(
+	fill: PatternFill,
+	anchor: [number, number],
+	localTransform: Affine2D | undefined,
+): Affine2D {
+	const cos = Math.cos(-fill.rotation);
+	const sin = Math.sin(-fill.rotation);
+	const sx = 1 / Math.max(Math.abs(fill.scaleX), 1e-6);
+	const sy = 1 / Math.max(Math.abs(fill.scaleY), 1e-6);
+	// scale(1/s) · rotate(-r) · translate(-offset) · flipY · translate(-anchor)
+	const placement: Affine2D = {
+		a: sx * cos,
+		b: sy * sin,
+		c: sx * sin,
+		d: -sy * cos,
+		e:
+			sx *
+			(cos * (-anchor[0] - fill.offsetX) - sin * (anchor[1] - fill.offsetY)),
+		f:
+			sy *
+			(sin * (-anchor[0] - fill.offsetX) + cos * (anchor[1] - fill.offsetY)),
+	};
+	return localTransform ? composeAffine(placement, localTransform) : placement;
+}

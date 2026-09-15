@@ -82,7 +82,10 @@ import type {
 	UnderlayCoverage,
 	UnderlayResult,
 } from "../../canvas/pipeline/FilterRenderer";
-import { resolveRenderConfigure } from "../../canvas/pipeline/FilterRenderer";
+import {
+	isGeometryFilter,
+	resolveRenderConfigure,
+} from "../../canvas/pipeline/FilterRenderer";
 import { collectGroupSegments } from "../../canvas/pipeline/GroupAppearanceCollector";
 import type { MeshPassRenderer } from "../../canvas/pipeline/MeshPassRenderer";
 import {
@@ -1368,10 +1371,8 @@ export function collectGroupExtrudeOutline(
 	const ancestor = isIdentityTransform(worldTransform)
 		? undefined
 		: worldTransform;
-	const groupPreFilters = localAppearances(group.filters).filter(
-		(f) =>
-			f.enabled !== false &&
-			!!filterRenderer.getHandler(f.processor)?.preProcess,
+	const groupPreFilters = localAppearances(group.filters).filter((f) =>
+		isGeometryFilter(f, filterRenderer),
 	);
 	const shouldUseCombinedGroupShape =
 		hasGroupAppearances(group) || groupPreFilters.length > 0;
@@ -1566,16 +1567,14 @@ function resolveBlendItems(
 	// ElementRenderer.bakeBlendKeyDeformation.
 	const deformedKeys = keys.map((key) => {
 		const filters = localAppearances(key.filters);
-		const isPreFilter = (f: Filter) =>
-			!!filterRenderer.getHandler(f.processor)?.preProcess;
-		const hasEnabledPreFilter = filters.some(
-			(f) => f.enabled !== false && isPreFilter(f),
+		const hasEnabledPreFilter = filters.some((f) =>
+			isGeometryFilter(f, filterRenderer),
 		);
 		if (!hasEnabledPreFilter) return key;
 		return {
 			...key,
 			segments: applyPreFilters(key.segments, filters, filterRenderer),
-			filters: filters.filter((f) => !isPreFilter(f)),
+			filters: filters.filter((f) => !isGeometryFilter(f, filterRenderer)),
 		};
 	});
 

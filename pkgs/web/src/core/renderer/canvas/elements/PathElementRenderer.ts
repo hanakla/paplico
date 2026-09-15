@@ -85,10 +85,12 @@ import type {
 } from "../pipeline/brush/BrushRenderer";
 import { resolveGeometricSizeByPressure } from "../pipeline/brush/strokeHalfWidth";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
+import { isGeometryFilter } from "../pipeline/FilterRenderer";
 import { applyPreFilters } from "../pipeline/PreFilterRenderer";
 import type { StripColor, StripFrame } from "../pipeline/strips/StripFrame";
 import {
 	type DrawableSegments,
+	type PatternPlacement,
 	type ResolvedAppearancePass,
 	resolveAppearancePasses,
 } from "./appearancePasses";
@@ -194,7 +196,7 @@ export class PathElementRenderer {
 		pipelineType: PipelineType = "main",
 		cacheVariant: StripCacheVariant = "normal",
 	): void {
-		for (const { appearance, segments, cacheKey } of passes) {
+		for (const { appearance, segments, cacheKey, pattern } of passes) {
 			const appAlpha = alphaMultiplier * appearance.opacity;
 
 			if (appearance.processor === "fill") {
@@ -207,6 +209,7 @@ export class PathElementRenderer {
 						appAlpha,
 						cacheKey,
 						cacheVariant,
+						pattern,
 					);
 				}
 			} else {
@@ -242,6 +245,7 @@ export class PathElementRenderer {
 						path.pathStart,
 						path.pathEnd,
 						settings.stroking?.align,
+						pattern,
 					);
 				} else {
 					const textureUid = resolveBrushTextureUid(
@@ -287,6 +291,7 @@ export class PathElementRenderer {
 		alphaMultiplier: number,
 		cacheKey: string,
 		cacheVariant: StripCacheVariant = "normal",
+		pattern?: PatternPlacement,
 	): void {
 		if (segments.length === 0) return;
 		const frame = this.deps.getRasterFrame();
@@ -311,6 +316,7 @@ export class PathElementRenderer {
 				: this.texturedPaint(fill, outline.localBounds, alphaMultiplier, {
 						cacheKey: `${cacheKey}:fill`,
 						geometryHash,
+						pattern,
 					});
 		if (!paint) return;
 
@@ -476,6 +482,7 @@ export class PathElementRenderer {
 		pathStart?: number,
 		pathEnd?: number,
 		strokeAlign?: StrokeAlign,
+		pattern?: PatternPlacement,
 	): void {
 		if (segments.length === 0) return;
 		const frame = this.deps.getRasterFrame();
@@ -548,7 +555,7 @@ export class PathElementRenderer {
 				strokeColor.pattern,
 				outline.localBounds,
 				alphaMultiplier,
-				{ geometryHash },
+				{ geometryHash, pattern },
 			);
 		} else {
 			paint = this.texturedPaint(
@@ -717,6 +724,7 @@ export class PathElementRenderer {
 			cacheKey?: string;
 			geometryHash: number;
 			strokeGradientMode?: number;
+			pattern?: PatternPlacement;
 		},
 	): StripPaint | null {
 		const boundsMin: [number, number] = [bounds[0], bounds[1]];
@@ -740,6 +748,8 @@ export class PathElementRenderer {
 						transformIndex,
 						patternTexture: resolved?.texture ?? null,
 						patternTileWorldSize: resolved?.tileWorldSize,
+						patternAnchor: options.pattern?.anchor,
+						patternLocalTransform: options.pattern?.transform,
 					},
 				),
 			};
@@ -767,10 +777,8 @@ export class PathElementRenderer {
 	private bakeBlendKeyDeformation(path: Path): Path {
 		const filters = localAppearances(path.filters);
 		const isPreFilter = (f: Filter) =>
-			!!this.deps.filterRenderer.getHandler(f.processor)?.preProcess;
-		const hasEnabledPreFilter = filters.some(
-			(f) => f.enabled !== false && isPreFilter(f),
-		);
+			isGeometryFilter(f, this.deps.filterRenderer);
+		const hasEnabledPreFilter = filters.some(isPreFilter);
 		if (!hasEnabledPreFilter) return path;
 		return {
 			...path,

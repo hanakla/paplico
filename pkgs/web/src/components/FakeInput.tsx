@@ -166,21 +166,24 @@ function FakeInputRoot({
 	});
 
 	// type="number": drag horizontally to scrub the value. A move past the
-	// threshold becomes a scrub (and cancels the long-press edit); a stationary
-	// press still long-presses / double-clicks into the text editor.
+	// threshold becomes a scrub; a stationary press still opens the editor
+	// (long press / double click in default mode, a click in click mode).
+	const beginScrub = useEventCallback((e: React.PointerEvent) => {
+		if (!isNumber) return;
+		const base = Number(value);
+		scrubStart.current = {
+			x: e.clientX,
+			value: Number.isFinite(base) ? base : 0,
+			fine: e.ctrlKey,
+		};
+		didScrub.current = false;
+		try {
+			(e.currentTarget as Element).setPointerCapture(e.pointerId);
+		} catch {}
+	});
+
 	const handleNumberPointerDown = useEventCallback((e: React.PointerEvent) => {
-		if (isNumber) {
-			const base = Number(value);
-			scrubStart.current = {
-				x: e.clientX,
-				value: Number.isFinite(base) ? base : 0,
-				fine: e.ctrlKey,
-			};
-			didScrub.current = false;
-			try {
-				(e.currentTarget as Element).setPointerCapture(e.pointerId);
-			} catch {}
-		}
+		beginScrub(e);
 		handlePointerDown();
 	});
 
@@ -228,9 +231,15 @@ function FakeInputRoot({
 		startEdit();
 	});
 
+	// A click that ended a scrub already changed the value; only a plain
+	// click opens the editor.
 	const handleClickPointerUp = useEventCallback(
 		(e: React.MouseEvent | React.PointerEvent) => {
 			e.stopPropagation();
+			if (didScrub.current) {
+				didScrub.current = false;
+				return;
+			}
 			startEdit();
 		},
 	);
@@ -294,11 +303,13 @@ function FakeInputRoot({
 			onKeyDown={handleKeydown}
 			onDoubleClick={disabled || isClickMode ? undefined : handleDoubleClick}
 			onPointerDown={
-				disabled || isClickMode ? undefined : handleNumberPointerDown
+				disabled
+					? undefined
+					: isClickMode
+						? beginScrub
+						: handleNumberPointerDown
 			}
-			onPointerMove={
-				disabled || isClickMode || !isNumber ? undefined : handlePointerMove
-			}
+			onPointerMove={disabled || !isNumber ? undefined : handlePointerMove}
 			onPointerUp={disabled ? undefined : handleNumberPointerUp}
 			onPointerLeave={disabled || isClickMode ? undefined : clearLongPress}
 		>

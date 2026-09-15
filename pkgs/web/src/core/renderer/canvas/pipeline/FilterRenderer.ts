@@ -4,16 +4,19 @@ import {
 	type BoundingBox,
 	type Color,
 	type CubicBezierSegment,
+	type FillAppearance,
 	type Filter,
 	type FilterEntry,
 	isBlend,
 	isFilterEnabled,
 	type Path,
+	type StrokeAppearance,
 	type TextElement,
 	type Viewport,
 } from "../../../schema";
 import type { WorldBBox } from "../../../utils/geometry/bounds";
 import type { QuadCorners } from "../../../utils/geometry/quadProjection";
+import type { Affine2D } from "../../../utils/geometry/repeatInterpolation";
 import type { ExtrudeMeshBaker } from "../../filters/Extrude3D/ExtrudeMeshBaker";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
 import type { BlitLayer, BlitUVRect } from "../CanvasLayerTypes";
@@ -513,10 +516,38 @@ export interface BackdropEffectDriver {
 }
 
 /**
+ * Geometry on its way through the pre-filters, with what its paint has to
+ * follow: the appearance drawing it (a filter may hand back a rewritten one,
+ * e.g. a scaled stroke width) and the local affine a pattern paint samples
+ * through (unset = as authored). `appearance` is absent when only the shape
+ * is wanted — bounds, export, outlines — and a filter then returns one
+ * geometry holding everything it would draw.
+ */
+export interface AppearanceGeometry {
+	appearance?: FillAppearance | StrokeAppearance;
+	segments: CubicBezierSegment[];
+	patternTransform?: Affine2D;
+}
+
+/** Whether the appearance's paint is a pattern, which follows a copy's
+ *  placement through `AppearanceGeometry.patternTransform`. */
+export function appearancePaintsPattern(
+	appearance: AppearanceGeometry["appearance"],
+): boolean {
+	if (!appearance) return false;
+	if (appearance.processor === "fill") {
+		return appearance.paramData.params.fill?.type === "pattern";
+	}
+	return appearance.paramData.params.strokeColor?.type === "stroke-pattern";
+}
+
+/**
  * Interface for all filter implementations (pre- and post-filters).
  *
- * Pre-filters (`preProcess`) transform geometry segments before rasterization —
- * e.g. zigzag deformation applied to path vertices.
+ * Pre-filters transform geometry before rasterization through one of two
+ * hooks: `preProcess` for a plain shape deformation (zigzag on path
+ * vertices), or `preProcessAppearance` when the filter changes the
+ * appearance it outputs. A handler implements one of the two.
  * Post-filters (`postProcess`) run one or more WebGPU compute/render passes on
  * the already-rasterized element texture — e.g. blur, drop shadow, frost glass.
  */
@@ -605,6 +636,15 @@ export interface FilterHandler {
 		filter: Filter,
 	): CubicBezierSegment[];
 
+	/** Pre-filter that changes the appearance it outputs — a copy-placing
+	 *  transform that scales the copies' stroke widths or carries pattern
+	 *  paints along. One geometry in, the geometries to draw out; with
+	 *  no appearance on the input it returns the whole deformed shape. */
+	preProcessAppearance?(
+		geometry: AppearanceGeometry,
+		filter: Filter,
+	): AppearanceGeometry[];
+
 	/** Post-filter: apply image processing to the rendered texture. A handler
 	 *  that produces its own sized texture returns a PostProcessResult (the
 	 *  renderer blits it at those bounds) — or an array when one appearance
@@ -663,20 +703,27 @@ export interface FilterHandler {
 type FilterKind = "geometry" | "raster";
 
 /** Deforms the path before rasterization (zigzag, path-offset, …). */
-type GeometryFilterHandler = FilterHandler & {
-	preProcess: NonNullable<FilterHandler["preProcess"]>;
-	postProcess?: never;
-};
+type GeometryFilterHandler = FilterHandler &
+	(
+		| { preProcess: NonNullable<FilterHandler["preProcess"]> }
+		| {
+				preProcessAppearance: NonNullable<
+					FilterHandler["preProcessAppearance"]
+				>;
+		  }
+	) & { postProcess?: never };
 
 /** Post-processes the rasterized texture (blur, drop-shadow, …). */
 type RasterFilterHandler = FilterHandler & {
 	preProcess?: never;
+	preProcessAppearance?: never;
 	postProcess: NonNullable<FilterHandler["postProcess"]>;
 };
 
 /** Neither — the appearance processors (fill / stroke / content). */
 type PassiveFilterHandler = FilterHandler & {
 	preProcess?: never;
+	preProcessAppearance?: never;
 	postProcess?: never;
 };
 
@@ -696,7 +743,7 @@ export type RegisterableFilterHandler =
 export function classifyFilterHandler(
 	handler: FilterHandler | undefined,
 ): FilterKind | null {
-	if (handler?.preProcess) return "geometry";
+	if (handler?.preProcess || handler?.preProcessAppearance) return "geometry";
 	if (handler?.postProcess) return "raster";
 	return null;
 }

@@ -42,6 +42,48 @@ describe("FakeInput", () => {
 		});
 	});
 
+	describe("when a numeric field opens on click", () => {
+		it("should scrub the value on a horizontal drag without opening the editor", () => {
+			const onChange = vi.fn();
+			const view = render(
+				<FakeInput
+					type="number"
+					step={1}
+					value="10"
+					onChange={onChange}
+					$behaviour="click"
+				/>,
+			);
+			const field = view.getByText("10");
+
+			fireEvent.pointerDown(field, { clientX: 0, pointerId: 1 });
+			fireEvent.pointerMove(field, { clientX: 30, pointerId: 1 });
+			fireEvent.pointerUp(field, { clientX: 30, pointerId: 1 });
+			fireEvent.click(field);
+
+			expect(onChange.mock.calls.at(-1)?.[0]).toBe("20");
+			expect(view.queryByRole("textbox")).toBeNull();
+		});
+
+		it("should open the editor on a plain click", () => {
+			const view = render(
+				<FakeInput
+					type="number"
+					value="10"
+					onChange={vi.fn()}
+					$behaviour="click"
+				/>,
+			);
+			const field = view.getByText("10");
+
+			fireEvent.pointerDown(field, { clientX: 0, pointerId: 1 });
+			fireEvent.pointerUp(field, { clientX: 0, pointerId: 1 });
+			fireEvent.click(field);
+
+			expect(view.getByRole("textbox")).toBeTruthy();
+		});
+	});
+
 	describe("when the field is textual", () => {
 		it("should commit the typed text as it is", () => {
 			const onChange = vi.fn();

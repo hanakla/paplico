@@ -11,6 +11,7 @@ import {
 	Image,
 	type LucideIcon,
 	Merge,
+	Move3d,
 	PaintBucket,
 	Palette,
 	Pen,
@@ -41,6 +42,7 @@ export const FILTER_TEXT_KEYS = {
 	"path-offset": "filterPanel.pathOffset",
 	"path-union": "filterPanel.pathUnion",
 	"pucker-bloat": "filterPanel.puckerBloat",
+	transform: "filterPanel.transform",
 	"3d-rotate": "filterPanel.rotate3d",
 	extrude3d: "filterPanel.extrude3d",
 	revolve3d: "filterPanel.revolve3d",
@@ -128,6 +130,8 @@ export function getFilterIcon(processor: string) {
 			return <Merge size={12} className="text-muted-foreground" />;
 		case "pucker-bloat":
 			return <Diamond size={12} className="text-muted-foreground" />;
+		case "transform":
+			return <Move3d size={12} className="text-muted-foreground" />;
 		case "extrude3d":
 			return <Box size={12} className="text-muted-foreground" />;
 		case "revolve3d":

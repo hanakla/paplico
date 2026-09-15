@@ -108,7 +108,7 @@ public postProcess(context: FilterProcessorContext, filter: Filter): void {
 
 ### `preProcess` -- プリフィルター（ジオメトリ変形）の実装
 
-`preProcess` は、ラスタライズ前に `CubicBezierSegment[]` を受け取り、変形した新しい配列を返す純粋関数である。GPU は使用しない。
+`preProcess` は、ラスタライズ前に `CubicBezierSegment[]` を受け取り、変形した新しい配列を返す純粋関数である。GPU は使用しない。出力アピアランスを変更しないフィルターはこちらを実装する。
 
 実装上の要点:
 
@@ -134,6 +134,18 @@ public preProcess(
   return reconstructBezierSegments(offsetPoints);
 }
 ```
+
+### `preProcessAppearance` -- 出力アピアランスを変更するプリフィルターの実装
+
+出力アピアランスを変更するプリフィルターは、`preProcess` の代わりに `preProcessAppearance` を実装する。入力は `AppearanceGeometry`（`segments` と、あれば `appearance`、パターン用の `patternTransform`）で、描画するジオメトリの配列を返す。1つの入力から複数のジオメトリを返せば、それぞれが別の描画パスになる。
+
+実装上の要点:
+
+- `appearance` が無い呼び出し（バウンズ計算・書き出し・アウトライン化）では、描画する形状全体を1つのジオメトリで返す。
+- アピアランスを分けて描く必要が無いときは連結した1つのジオメトリを返す。nonzero ルールで重なりが合成されるのはこの場合だけである。
+- 線幅を変えるときは `appearance` を書き換えたものを返す。パターンをコピーに追従させるときは、コピーの配置の逆変換を `patternTransform` に合成する。
+
+`TransformFilterHandler` が実装例である。
 
 ### `requiresBackdrop` -- バックドロップフィルターのフラグ
 

@@ -24,6 +24,7 @@ import type {
 	PuckerBloatFilter,
 	Rotate3DFilter,
 	SvgFilterGraphFilter,
+	TransformFilter,
 	ZigzagFilter,
 } from "@/core/renderer/filters";
 import type {
@@ -55,6 +56,7 @@ import { PuckerBloatFilterControls } from "./ControlsPuckerBloat";
 import { Revolve3DFilterControls } from "./ControlsRevolve3D";
 import { Rotate3DFilterControls } from "./ControlsRotate3D";
 import { SvgFilterGraphControls } from "./ControlsSvgFilter";
+import { TransformFilterControls } from "./ControlsTransform";
 import { ZigzagFilterControls } from "./ControlsZigzag";
 import {
 	FILTER_TEXT_KEYS,
@@ -230,6 +232,13 @@ export const FilterItem = memo(function FilterItem({
 			{filter.processor === "pucker-bloat" && (
 				<PuckerBloatFilterControls
 					filter={filter as PuckerBloatFilter}
+					onUpdate={updateFilter}
+				/>
+			)}
+
+			{filter.processor === "transform" && (
+				<TransformFilterControls
+					filter={filter as TransformFilter}
 					onUpdate={updateFilter}
 				/>
 			)}

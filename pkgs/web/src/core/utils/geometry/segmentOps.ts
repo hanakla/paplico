@@ -464,3 +464,66 @@ function collectDescendants(
 	}
 	return result;
 }
+
+/**
+ * Reverse a subpath's winding direction by reversing segment order
+ * and swapping start/end + cp1/cp2 within each segment.
+ */
+export function reverseSubPath(
+	segments: CubicBezierSegment[],
+): CubicBezierSegment[] {
+	const reversed: CubicBezierSegment[] = [];
+
+	for (let i = segments.length - 1; i >= 0; i--) {
+		const seg = segments[i];
+		const prevEnd = i > 0 ? segments[i - 1].end : undefined;
+		const resolved = resolveSegment(seg, prevEnd);
+
+		const newSeg: CubicBezierSegment = {
+			// cp1 is relative to start: old cp2 (relative to old end) becomes new cp1
+			cp1: {
+				x: seg.cp2.x,
+				y: seg.cp2.y,
+				pressure: seg.endPressure,
+			},
+			// cp2 is relative to end: old cp1 (relative to old start) becomes new cp2
+			cp2: {
+				x: seg.cp1.x,
+				y: seg.cp1.y,
+				pressure: seg.startPressure,
+			},
+			end: {
+				x: resolved.start.x,
+				y: resolved.start.y,
+				pressure: seg.startPressure,
+			},
+			startPressure: seg.endPressure,
+			endPressure: seg.startPressure,
+			startTiltX: seg.endTiltX ?? 0,
+			startTiltY: seg.endTiltY ?? 0,
+			endTiltX: seg.startTiltX ?? 0,
+			endTiltY: seg.startTiltY ?? 0,
+			startDeltaTime: seg.endDeltaTime ?? 0,
+			endDeltaTime: seg.startDeltaTime ?? 0,
+			isMoved: false,
+		};
+
+		if (i === segments.length - 1) {
+			// First segment of reversed path gets explicit start
+			newSeg.start = {
+				x: resolved.end.x,
+				y: resolved.end.y,
+				pressure: seg.endPressure,
+			};
+		}
+
+		reversed.push(newSeg);
+	}
+
+	// Carry isClosed from the original last segment to the new last segment
+	if (segments.at(-1)?.isClosed && reversed.length > 0) {
+		reversed.at(-1)!.isClosed = true;
+	}
+
+	return reversed;
+}

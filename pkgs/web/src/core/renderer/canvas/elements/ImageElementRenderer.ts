@@ -110,49 +110,23 @@ export class ImageElementRenderer {
 			(deformed !== quadSegments &&
 				!hasSameSegmentGeometry(deformed, quadSegments))
 		) {
-			const localCorners = extractQuadCorners(deformed);
-			if (localCorners) {
+			const quads = extractQuads(deformed);
+			if (quads) {
 				const originX = (localBounds.minX + localBounds.maxX) / 2;
 				const originY = (localBounds.minY + localBounds.maxY) / 2;
-				const worldCorners: QuadCorners = isIdentityTransform(t)
-					? localCorners
-					: [
-							applyTransformToPoint(
-								localCorners[0].x,
-								localCorners[0].y,
-								t,
-								originX,
-								originY,
-							),
-							applyTransformToPoint(
-								localCorners[1].x,
-								localCorners[1].y,
-								t,
-								originX,
-								originY,
-							),
-							applyTransformToPoint(
-								localCorners[2].x,
-								localCorners[2].y,
-								t,
-								originX,
-								originY,
-							),
-							applyTransformToPoint(
-								localCorners[3].x,
-								localCorners[3].y,
-								t,
-								originX,
-								originY,
-							),
-						];
-
-				this.deps.blitQuadToCanvas(
-					passEncoder,
-					texture,
-					worldCorners,
-					alphaMultiplier,
-				);
+				for (const localCorners of quads) {
+					const worldCorners: QuadCorners = isIdentityTransform(t)
+						? localCorners
+						: (localCorners.map((c) =>
+								applyTransformToPoint(c.x, c.y, t, originX, originY),
+							) as unknown as QuadCorners);
+					this.deps.blitQuadToCanvas(
+						passEncoder,
+						texture,
+						worldCorners,
+						alphaMultiplier,
+					);
+				}
 
 				this.restoreStrokePipeline(passEncoder);
 				return;
@@ -376,16 +350,15 @@ export function buildImageQuadSegments(
 }
 
 /**
- * Extract the 4 deformed corners from preProcess output. Each input side is an
- * isMoved sub-path, so the output splits into 4 sub-paths whose first segments
- * carry the deformed corner as `start`. Returns null if the split produced an
- * unexpected shape (e.g. a filter collapsed a sub-path).
+ * Extract the deformed quads from pre-filter output. Each input side is an
+ * isMoved sub-path, so the output splits into groups of 4 sub-paths — one
+ * group per copy a filter placed — whose first segments carry the deformed
+ * corners as `start`. Returns null if the split produced an unexpected shape
+ * (e.g. a filter collapsed a sub-path).
  */
-function extractQuadCorners(
-	segments: CubicBezierSegment[],
-): QuadCorners | null {
+function extractQuads(segments: CubicBezierSegment[]): QuadCorners[] | null {
 	const subPaths = splitIntoSubPaths(segments);
-	if (subPaths.length !== 4) return null;
+	if (subPaths.length === 0 || subPaths.length % 4 !== 0) return null;
 
 	const corners: { x: number; y: number }[] = [];
 	for (const sp of subPaths) {
@@ -394,7 +367,16 @@ function extractQuadCorners(
 		corners.push({ x: anchor.x, y: anchor.y });
 	}
 
-	return [corners[0], corners[1], corners[2], corners[3]] as const;
+	return Array.from(
+		{ length: corners.length / 4 },
+		(_, i) =>
+			[
+				corners[i * 4],
+				corners[i * 4 + 1],
+				corners[i * 4 + 2],
+				corners[i * 4 + 3],
+			] as const,
+	);
 }
 
 function hasSameSegmentGeometry(

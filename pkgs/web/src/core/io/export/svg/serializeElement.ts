@@ -245,7 +245,12 @@ async function serializePathLike(
 			const fill = fillAppearance.paramData.params.fill;
 			const paint = await resolveFillPaint(
 				fill,
-				{ localBounds, localToWorld },
+				{
+					localBounds,
+					patternAnchorBounds:
+						calculateSegmentListBounds(localSegments) ?? localBounds,
+					localToWorld,
+				},
 				ctx,
 			);
 			if (paint.paint === "none") continue;
@@ -699,7 +704,11 @@ async function serializeText(
 			if (glyphLocalBounds) {
 				const paint = await resolveFillPaint(
 					fill,
-					{ localBounds: glyphLocalBounds, localToWorld },
+					{
+						localBounds: glyphLocalBounds,
+						patternAnchorBounds: glyphLocalBounds,
+						localToWorld,
+					},
 					ctx,
 				);
 				if (paint.paint !== "none") {
@@ -768,6 +777,8 @@ function transformWorldGlyph(
  */
 interface PaintSpace {
 	localBounds: BoundingBox;
+	/** Where a pattern's tile grid starts: the flat outline, as on canvas. */
+	patternAnchorBounds: BoundingBox;
 	localToWorld: WorldAffine;
 }
 
@@ -819,8 +830,8 @@ async function patternToSvgPaint(
 		m01: -sin * sy,
 		m10: -sin * sx,
 		m11: -cos * sy,
-		tx: space.localBounds.minX + fill.offsetX,
-		ty: space.localBounds.maxY - fill.offsetY,
+		tx: space.patternAnchorBounds.minX + fill.offsetX,
+		ty: space.patternAnchorBounds.maxY - fill.offsetY,
 	};
 	const tileToWorld = composeWorldAffine(space.localToWorld, tileToLocal);
 

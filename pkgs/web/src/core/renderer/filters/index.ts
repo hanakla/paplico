@@ -212,6 +212,11 @@ export {
 	svgInputNodeRef,
 	svgNodeRefInput,
 } from "./svg/svgFilterInput";
+export type {
+	TransformFilter,
+	TransformOrigin,
+	TransformParams,
+} from "./TransformFilterProcessor";
 // --- Pre-Filters (Geometry) ---
 export type {
 	ZigzagFilter,

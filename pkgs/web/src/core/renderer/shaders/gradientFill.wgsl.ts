@@ -28,18 +28,13 @@ struct GradientUniforms {
 	radialRotation: f32,
 	boundsMin: vec2f,
 	boundsMax: vec2f,
-	// Pattern fill parameters (gradientType == 5). World-space transform applied
-	// before sampling the tile texture; tile size determines the wrap period.
-	patternOffset: vec2f,
-	patternScale: vec2f,
-	patternRotation: f32,
+	// Pattern fill parameters (gradientType == 5). Affine from local geometry
+	// coordinates to tile space, as columns; tile size sets the wrap period.
+	patternMatrixCol0: vec2f,
+	patternMatrixCol1: vec2f,
+	patternMatrixCol2: vec2f,
 	patternTileWidth: f32,
 	patternTileHeight: f32,
-	_pad1: f32,
-	// Tile-grid anchor: the element's tight geometry top-left in world space.
-	// boundsMin/Max arrive fringe-expanded for fills, so the anchor is
-	// carried separately.
-	patternAnchor: vec2f,
 }
 
 struct MeshFace {

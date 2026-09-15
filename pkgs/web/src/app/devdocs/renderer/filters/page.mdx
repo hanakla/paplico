@@ -40,6 +40,9 @@ interface FilterHandler {
   // Pre-filter: geometry transformation before rasterization
   preProcess?(segments: CubicBezierSegment[], filter: Filter): CubicBezierSegment[];
 
+  // Pre-filter that changes the appearance it outputs
+  preProcessAppearance?(geometry: AppearanceGeometry, filter: Filter): AppearanceGeometry[];
+
   // Post-filter: GPU image processing after rasterization
   postProcess?(context: FilterProcessorContext, filter: Filter): void;
 
@@ -54,6 +57,7 @@ interface FilterHandler {
 |---|---|
 | `initialize` | GPUパイプライン・シェーダーモジュールの初期化。プリフィルターはno-op |
 | `preProcess` | ラスタライズ前に CubicBezierSegment（3次ベジェ曲線の1セグメントを表すデータ構造）の配列を変形して返す |
+| `preProcessAppearance` | アピアランス（塗り・線）付きのジオメトリを受け取り、描画するジオメトリの配列を返す。コピーごとに線幅を書き換えたりパターンの変換を持たせたりできる。`preProcess` とはどちらか一方を実装する |
 | `postProcess` | ラスタライズ済みテクスチャに対してGPUレンダーパスを実行 |
 | `getExpansionMargin` | Expansion Margin（フィルター効果（ブラーの広がり等）がはみ出す範囲）をワールド単位で返す。オフスクリーンテクスチャ確保時に使用 |
 | `onScaleFilter` | 要素リサイズ時にフィルターパラメータをスケーリング |
@@ -146,6 +150,7 @@ Paplicoには以下のフィルターが組み込まれている。それぞれ�
 | `pixelate` | `PixelateFilterProcessor` | post/backdrop | 要素ラスターをブロックグリッドにダウンサンプリングしてモザイク化。「背面に適用」ON時はバックドロップに適用（`requiresBackdrop` はパラメータ依存） |
 | `3d-rotate` | `Rotate3DFilterProcessor` | post | パースペクティブ付き3D回転。ミップマップ生成によるアンチエイリアシングサンプリング |
 | `zigzag` | `ZigzagFilterHandler` | pre | パスを弧長パラメータ化し、法線方向に三角波でオフセットしてジグザグ変形 |
+| `transform` | `TransformFilterHandler` | pre | 拡大縮小・移動・回転・反転を基準点まわりに適用し、累積コピーを配置する。`preProcessAppearance` でコピーごとの線幅スケールとパターン追従を返す |
 | `path-offset` | `PathOffsetFilterHandler` | pre | パスを法線方向に指定距離オフセット。適応的分割 + マイター接合。自己交差パスは `polygon-clipping` で分割 |
 
 > [!TIP]

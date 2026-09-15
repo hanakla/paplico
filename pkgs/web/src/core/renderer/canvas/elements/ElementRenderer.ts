@@ -48,6 +48,7 @@ import type { FilterRenderer } from "../pipeline/FilterRenderer";
 import type { StripFrame } from "../pipeline/strips/StripFrame";
 import type {
 	DrawableSegments,
+	PatternPlacement,
 	ResolvedAppearancePass,
 } from "./appearancePasses";
 import { GradientRenderer } from "./GradientRenderer";
@@ -408,6 +409,7 @@ export class ElementRenderer {
 		fill: FillColor,
 		alphaMultiplier: number,
 		cacheKey: string,
+		pattern?: PatternPlacement,
 	): void {
 		this.pathRenderer.renderPathFill(
 			passEncoder,
@@ -415,6 +417,8 @@ export class ElementRenderer {
 			fill,
 			alphaMultiplier,
 			cacheKey,
+			"normal",
+			pattern,
 		);
 	}
 
