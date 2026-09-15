@@ -12,6 +12,7 @@ import {
 	type FillColor,
 	type Filter,
 	getContainerChildIds,
+	isGroup,
 	type Path,
 	type StrokeAppearance,
 	type Viewport,
@@ -294,6 +295,63 @@ export function expandRenderFilter(
 		}
 	}
 	return result;
+}
+
+/**
+ * Render filter for an export whose targets may sit inside groups. Extends
+ * expandRenderFilter with every ancestor group of the targets (so their
+ * clips, masks and transforms still apply) and reports the ancestors'
+ * other children as `skipIds`, so the group draws only the requested branch.
+ */
+export function expandRenderFilterWithAncestors(
+	topLevel: ReadonlySet<string>,
+	elementsMap: ReadonlyMap<string, AnyArtObject>,
+): { filter: Set<string>; skipIds: Set<string> } {
+	const filter = expandRenderFilter(topLevel, elementsMap);
+	const parentGroupMap = buildParentGroupMap(elementsMap);
+	const ancestors = new Set<string>();
+	for (const id of topLevel) {
+		for (
+			let parentId = parentGroupMap.get(id);
+			parentId != null && !ancestors.has(parentId);
+			parentId = parentGroupMap.get(parentId)
+		) {
+			ancestors.add(parentId);
+		}
+	}
+	for (const ancestorId of ancestors) {
+		const ancestor = elementsMap.get(ancestorId);
+		if (!ancestor || !isGroup(ancestor)) continue;
+		filter.add(ancestorId);
+		// The clip path and mask sources shape the branch even though they are
+		// not requested — keep them and everything they reference.
+		const shapeSources = new Set<string>(ancestor.mask?.elementIds ?? []);
+		if (ancestor.clipPathId) shapeSources.add(ancestor.clipPathId);
+		for (const id of expandRenderFilter(shapeSources, elementsMap)) {
+			filter.add(id);
+		}
+	}
+	const skipIds = new Set<string>();
+	for (const ancestorId of ancestors) {
+		const ancestor = elementsMap.get(ancestorId);
+		if (!ancestor || !isGroup(ancestor)) continue;
+		for (const childId of ancestor.childIds) {
+			if (!filter.has(childId)) skipIds.add(childId);
+		}
+	}
+	return { filter, skipIds };
+}
+
+/** child id → containing group id, for every group in `elementsMap`. */
+export function buildParentGroupMap(
+	elementsMap: ReadonlyMap<string, AnyArtObject>,
+): Map<string, string> {
+	const built = new Map<string, string>();
+	for (const el of elementsMap.values()) {
+		if (!isGroup(el)) continue;
+		for (const childId of el.childIds) built.set(childId, el.id);
+	}
+	return built;
 }
 
 export function createCompoundPathRenderPath(

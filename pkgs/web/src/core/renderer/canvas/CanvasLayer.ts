@@ -95,10 +95,12 @@ import {
 } from "../types";
 import {
 	aabbOfQuad,
+	buildParentGroupMap,
 	calculatePrebufDimensions,
 	collectExternallyReferencedIds,
 	computeDotGridPhase,
 	expandRenderFilter,
+	expandRenderFilterWithAncestors,
 	interactiveBakeDensity,
 	STORE_MARGIN_PX,
 	splitGroupAppearances,
@@ -2433,15 +2435,22 @@ export class CanvasLayer {
 						height: drawRegionSource.height,
 					};
 
-		// Expand the top-level export selection to its full render subtree so the
-		// pre-passes that walk the whole elementsMap (glass bake, clip/object
-		// masks, per-element filter plans) keep the selection's descendants but
-		// drop front siblings. Undefined for normal renders (no elementFilter),
-		// which keeps every pre-pass byte-for-byte unchanged.
-		const effectiveFilter =
+		// Expand the top-level export selection to its full render subtree plus
+		// its ancestor groups so the pre-passes that walk the whole elementsMap
+		// (glass bake, clip/object masks, per-element filter plans) keep the
+		// selection's descendants and containing groups but drop front siblings.
+		// Undefined for normal renders (no elementFilter), which keeps every
+		// pre-pass byte-for-byte unchanged.
+		const exportSelection =
 			elementFilter != null
-				? expandRenderFilter(elementFilter, elementsMap)
+				? expandRenderFilterWithAncestors(elementFilter, elementsMap)
 				: undefined;
+		const effectiveFilter = exportSelection?.filter;
+		// A target nested in a group draws through its ancestor groups; the
+		// ancestors' other children are skipped instead of dropped by the filter.
+		const skipElementIds = exportSelection?.skipIds.size
+			? new Set([...backdropElementIds, ...exportSelection.skipIds])
+			: backdropElementIds;
 
 		// Filter layer plans to include only target elements (for clipboard
 		// export). `elements` (the flat per-layer array executeFilterPlans reads)
@@ -3012,7 +3021,7 @@ export class CanvasLayer {
 								elementsMap,
 								run.opacity,
 								null,
-								backdropElementIds,
+								skipElementIds,
 								"main",
 								mainCompositeContext,
 								localBoundsCache,
@@ -3046,7 +3055,7 @@ export class CanvasLayer {
 									elementsMap,
 									layerPlan.opacity,
 									null,
-									backdropElementIds,
+									skipElementIds,
 									"main",
 									mainCompositeContext,
 									localBoundsCache,
@@ -3232,7 +3241,7 @@ export class CanvasLayer {
 								elementsMap,
 								1.0,
 								null,
-								backdropElementIds,
+								skipElementIds,
 								"main",
 								layerCompositeContext,
 								localBoundsCache,
@@ -7858,13 +7867,7 @@ function resolveParentGroupMap(
 	if (ctx.parentGroupMap && ctx.parentGroupMap.size > 0) {
 		return ctx.parentGroupMap;
 	}
-	const built = new Map<string, string>();
-	for (const [, el] of ctx.elementsMap) {
-		if (isGroup(el)) {
-			for (const childId of el.childIds) built.set(childId, el.id);
-		}
-	}
-	return built;
+	return buildParentGroupMap(ctx.elementsMap);
 }
 
 /**
