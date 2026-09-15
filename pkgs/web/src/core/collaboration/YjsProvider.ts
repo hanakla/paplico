@@ -1556,8 +1556,8 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 
 	/**
 	 * Add an element as a source to a CompoundPath.
-	 * Appends to sources with default op="union" and removes the element from
-	 * the layer's elementIds.
+	 * Inserts into sources (appends without insertIndex) with default op="union"
+	 * and removes the element from the layer's elementIds.
 	 */
 	public addSourceToCompoundPath(
 		layerId: string,
@@ -1565,6 +1565,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 		elementId: string,
 		op: string = "union",
 		origin?: unknown,
+		insertIndex?: number,
 	): void {
 		this.ydoc.transact(() => {
 			const yCompound = this.yObjects.get(compoundPathId);
@@ -1574,7 +1575,11 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 			const sources: Array<{ id: string; op: string }> = sourcesJson
 				? JSON.parse(sourcesJson)
 				: [];
-			sources.push({ id: elementId, op });
+			sources.splice(
+				Math.max(0, Math.min(insertIndex ?? sources.length, sources.length)),
+				0,
+				{ id: elementId, op },
+			);
 			yCompound.set("sources", JSON.stringify(sources));
 
 			// Remove elementId from layer's elementIds

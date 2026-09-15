@@ -23,7 +23,7 @@ export type MockToolContext = {
 type MockCommands = {
 	deleteElements: Mock;
 	addPaths: Mock;
-	addPathsToGroup: Mock;
+	addPathsToContainer: Mock;
 	updateElement: Mock;
 	addEraseMask: Mock;
 	updateRepeatGrid: Mock;
@@ -36,7 +36,7 @@ export function createMockToolContext(
 	const mockCommands: MockCommands = {
 		deleteElements: vi.fn(),
 		addPaths: vi.fn(),
-		addPathsToGroup: vi.fn(),
+		addPathsToContainer: vi.fn(),
 		updateElement: vi.fn(),
 		addEraseMask: vi.fn(),
 		updateRepeatGrid: vi.fn(),

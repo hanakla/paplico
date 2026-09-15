@@ -584,35 +584,48 @@ export class PaplicoCommands {
 		const foundInLayer = new Set(Object.values(byLayer).flat());
 		const remaining = [...deleteSet].filter((id) => !foundInLayer.has(id));
 
-		// Surviving groups drop the deleted ids from their childIds.
-		const byGroup: Record<string, string[]> = {};
+		// Surviving groups, meshes and compound paths drop the deleted ids from
+		// their child lists.
+		const byContainer: Record<string, string[]> = {};
 		if (remaining.length > 0) {
 			const remainSet = new Set(remaining);
 			for (const obj of Object.values(objects)) {
-				if (!obj || !isGroup(obj) || deleteSet.has(obj.id)) continue;
-				const matched = obj.childIds.filter((id) => remainSet.has(id));
+				if (!obj || deleteSet.has(obj.id)) continue;
+				const childIds =
+					isGroup(obj) || isMesh(obj)
+						? obj.childIds
+						: isCompoundPath(obj)
+							? obj.sources.map((s) => s.id)
+							: [];
+				const matched = childIds.filter((id) => remainSet.has(id));
 				if (matched.length > 0) {
-					byGroup[obj.id] = matched;
+					byContainer[obj.id] = matched;
 					for (const id of matched) remainSet.delete(id);
 				}
 				if (remainSet.size === 0) break;
 			}
 		}
 
-		if (Object.keys(byLayer).length === 0 && Object.keys(byGroup).length === 0)
+		if (
+			Object.keys(byLayer).length === 0 &&
+			Object.keys(byContainer).length === 0
+		)
 			return;
 
-		// Update parent groups' childIds before deleting objects
-		for (const [groupId, ids] of Object.entries(byGroup)) {
-			const group = this.ctx.store.document.objects[groupId] as Group;
+		// Update parent containers' child lists before deleting objects
+		for (const [containerId, ids] of Object.entries(byContainer)) {
+			const container = this.ctx.store.document.objects[containerId];
 			const idsToRemove = new Set(ids);
-			const newChildIds = group.childIds.filter((id) => !idsToRemove.has(id));
-			this.ctx.yjsProvider.updateElement(
-				"",
-				groupId,
-				{ childIds: newChildIds } as Partial<AnyArtObject>,
-				origin,
-			);
+			const updates: Partial<AnyArtObject> = isCompoundPath(container)
+				? {
+						sources: container.sources.filter((s) => !idsToRemove.has(s.id)),
+					}
+				: {
+						childIds: (container as Group | MeshArtObject).childIds.filter(
+							(id) => !idsToRemove.has(id),
+						),
+					};
+			this.ctx.yjsProvider.updateElement("", containerId, updates, origin);
 		}
 
 		// Delete objects from yDoc + remove from layer elementIds
@@ -5283,27 +5296,47 @@ export class PaplicoCommands {
 		}
 	}
 
-	public addPathsToGroup(
+	/**
+	 * Add paths as children of a group or mesh, or as sources of a compound
+	 * path. `sourceOp` is the boolean operation given to compound path sources.
+	 */
+	public addPathsToContainer(
 		paths: Path[],
-		groupId: string,
+		containerId: string,
 		insertIndex?: number,
 		targetLayerId?: string,
+		sourceOp: BooleanOperation = "union",
 	): void {
 		if (this.cannotMutate() || this.isCurrentContextLocked()) return;
 		const layerId = targetLayerId ?? this.ctx.store.currentLayerId;
 		if (!layerId) return;
+		const container = this.ctx.store.document.objects[containerId];
+		if (!container) return;
 		const origin = this.getMutationOrigin();
 
 		this.ctx.yjsProvider.transact(() => {
 			for (const [offset, path] of paths.entries()) {
+				const index =
+					insertIndex === undefined ? undefined : insertIndex + offset;
 				this.ctx.yjsProvider.addElement(layerId, path, origin);
-				this.ctx.yjsProvider.addElementToGroup(
-					layerId,
-					groupId,
-					path.id,
-					origin,
-					insertIndex === undefined ? undefined : insertIndex + offset,
-				);
+				if (isCompoundPath(container)) {
+					this.ctx.yjsProvider.addSourceToCompoundPath(
+						layerId,
+						containerId,
+						path.id,
+						sourceOp,
+						origin,
+						index,
+					);
+				} else {
+					this.ctx.yjsProvider.addElementToGroup(
+						layerId,
+						containerId,
+						path.id,
+						origin,
+						index,
+					);
+				}
 			}
 		}, origin);
 	}

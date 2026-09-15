@@ -480,6 +480,99 @@ describe("EraserTool", () => {
 		});
 	});
 
+	describe("Split placement", () => {
+		it("should put every split piece back into the parent group", () => {
+			const scopeGroup: Group = {
+				id: "g1",
+				type: "group",
+				opacity: 1,
+				blendMode: "normal",
+				childIds: ["path-1"],
+				transform: createIdentityTransform(),
+			};
+			const splitCtx = createMockToolContext({
+				getCurrentLayer: vi.fn(() => ({ ...testLayer, elementIds: ["g1"] })),
+				getEditingScopeId: vi.fn(() => "g1"),
+				getObjects: vi.fn(() => ({ g1: scopeGroup, "path-1": testPath })),
+			});
+
+			eraseMiddleOfTestPath(splitCtx);
+
+			expect(splitCtx.mockCommands.deleteElements.mock.calls[0][0]).toEqual([
+				"path-1",
+			]);
+			expect(splitCtx.mockCommands.addPaths).not.toHaveBeenCalled();
+			const [pieces, containerId] =
+				splitCtx.mockCommands.addPathsToContainer.mock.calls[0];
+			expect(pieces).toHaveLength(2);
+			expect(containerId).toBe("g1");
+		});
+
+		it("should put split pieces back into the compound path with the source's operation", () => {
+			const base = {
+				...testPath,
+				id: "base",
+				transform: { ...createIdentityTransform(), y: 500 },
+			};
+			const compound = {
+				id: "cp1",
+				type: "compound-path",
+				opacity: 1,
+				blendMode: "normal",
+				sources: [
+					{ id: "base", op: "union" },
+					{ id: "path-1", op: "subtract" },
+				],
+				transform: createIdentityTransform(),
+			} as unknown as AnyArtObject;
+			const splitCtx = createMockToolContext({
+				getCurrentLayer: vi.fn(() => ({ ...testLayer, elementIds: ["cp1"] })),
+				getEditingScopeId: vi.fn(() => "cp1"),
+				getObjects: vi.fn(() => ({ cp1: compound, base, "path-1": testPath })),
+			});
+
+			eraseMiddleOfTestPath(splitCtx);
+
+			expect(splitCtx.mockCommands.deleteElements.mock.calls[0][0]).toEqual([
+				"path-1",
+			]);
+			const [pieces, containerId, insertIndex, , sourceOp] =
+				splitCtx.mockCommands.addPathsToContainer.mock.calls[0];
+			expect(pieces).toHaveLength(2);
+			expect(containerId).toBe("cp1");
+			expect(insertIndex).toBe(1);
+			expect(sourceOp).toBe("subtract");
+		});
+
+		it("should put every split piece back into the mesh", () => {
+			const mesh = {
+				id: "m1",
+				type: "mesh",
+				opacity: 1,
+				blendMode: "normal",
+				childIds: ["path-1"],
+				vertices: [],
+				faces: [],
+				transform: createIdentityTransform(),
+			} as unknown as AnyArtObject;
+			const splitCtx = createMockToolContext({
+				getCurrentLayer: vi.fn(() => ({ ...testLayer, elementIds: ["m1"] })),
+				getEditingScopeId: vi.fn(() => "m1"),
+				getObjects: vi.fn(() => ({ m1: mesh, "path-1": testPath })),
+			});
+
+			eraseMiddleOfTestPath(splitCtx);
+
+			expect(splitCtx.mockCommands.deleteElements.mock.calls[0][0]).toEqual([
+				"path-1",
+			]);
+			const [pieces, containerId] =
+				splitCtx.mockCommands.addPathsToContainer.mock.calls[0];
+			expect(pieces).toHaveLength(2);
+			expect(containerId).toBe("m1");
+		});
+	});
+
 	describe("Fill visibility", () => {
 		/** Erase inside the square's area, far from its outline stroke:
 		 *  a visible fill face-cuts, an invisible fill leaves it untouched. */
@@ -1730,4 +1823,27 @@ function fillFilter(alpha: number, enabled?: boolean): FillAppearance {
 			},
 		},
 	} as unknown as FillAppearance;
+}
+
+/** Drag a width-10 slice eraser across world(45,0)→(55,0), the middle of testPath. */
+function eraseMiddleOfTestPath(ctx: ReturnType<typeof createMockToolContext>) {
+	const eraser = new EraserTool(ctx, { width: 10, mode: "slice" });
+	eraser.onPointerDown(
+		ev(445, 300),
+		testViewport,
+		testCanvasWidth,
+		testCanvasHeight,
+	);
+	eraser.onPointerMove(
+		ev(455, 300),
+		testViewport,
+		testCanvasWidth,
+		testCanvasHeight,
+	);
+	eraser.onPointerUp(
+		ev(455, 300),
+		testViewport,
+		testCanvasWidth,
+		testCanvasHeight,
+	);
 }

@@ -1,15 +1,17 @@
 import { readStoredBrushSize } from "../brush/access";
 import { localAppearances } from "../document/appearancePresets";
 import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
-import type { BrushSettings } from "../schema";
+import type { BooleanOperation, BrushSettings } from "../schema";
 import {
 	type BoundingBox,
 	type ElementTransform,
 	type EraseMask,
 	type FillAppearance,
 	getContainerChildIds,
+	isCompoundPath,
 	isGroup,
 	isIdentityTransform,
+	isMesh,
 	isVisibleFill,
 	type Layer,
 	type Path,
@@ -389,40 +391,52 @@ export class EraserTool implements Tool {
 		);
 		const splitLocations = new Map<
 			string,
-			{ parentGroupId: string | null; index: number }
+			{ parentId: string | null; index: number; sourceOp?: BooleanOperation }
 		>();
 		for (const { id, layerId } of sliceResults) {
 			for (const obj of Object.values(objects)) {
-				if (!obj || !isGroup(obj)) continue;
-				const index = obj.childIds.indexOf(id);
-				if (index !== -1) {
-					splitLocations.set(id, { parentGroupId: obj.id, index });
+				if (!obj) continue;
+				if (isGroup(obj) || isMesh(obj)) {
+					const index = obj.childIds.indexOf(id);
+					if (index === -1) continue;
+					splitLocations.set(id, { parentId: obj.id, index });
+					break;
+				}
+				if (isCompoundPath(obj)) {
+					const index = obj.sources.findIndex((s) => s.id === id);
+					if (index === -1) continue;
+					// Pieces of the base source union with each other; its own op is ignored.
+					const sourceOp = index === 0 ? "union" : obj.sources[index].op;
+					splitLocations.set(id, { parentId: obj.id, index, sourceOp });
 					break;
 				}
 			}
 			if (!splitLocations.has(id)) {
 				const index = layerById.get(layerId)?.elementIds.indexOf(id) ?? -1;
 				if (index !== -1) {
-					splitLocations.set(id, { parentGroupId: null, index });
+					splitLocations.set(id, { parentId: null, index });
 				}
 			}
 		}
-		const orderedSliceResults = [...sliceResults].sort((a, b) => {
-			const aLocation = splitLocations.get(a.id);
-			const bLocation = splitLocations.get(b.id);
-			const aParent = aLocation?.parentGroupId ?? a.layerId;
-			const bParent = bLocation?.parentGroupId ?? b.layerId;
-			return (
-				aParent.localeCompare(bParent) ||
-				(aLocation?.index ?? 0) - (bLocation?.index ?? 0)
-			);
-		});
+		// A path whose parent cannot take the pieces back is left uncut.
+		const orderedSliceResults = sliceResults
+			.filter(({ id }) => splitLocations.has(id))
+			.sort((a, b) => {
+				const aLocation = splitLocations.get(a.id);
+				const bLocation = splitLocations.get(b.id);
+				const aParent = aLocation?.parentId ?? a.layerId;
+				const bParent = bLocation?.parentId ?? b.layerId;
+				return (
+					aParent.localeCompare(bParent) ||
+					(aLocation?.index ?? 0) - (bLocation?.index ?? 0)
+				);
+			});
 
 		this.context.transact((commands) => {
 			// Delete all sliced elements in one batch to avoid stale Valtio reads
-			// overwriting Yjs childIds when multiple group children are processed
-			if (sliceResults.length > 0) {
-				commands.deleteElements(sliceResults.map(({ id }) => id));
+			// overwriting Yjs child lists when multiple container children are processed
+			if (orderedSliceResults.length > 0) {
+				commands.deleteElements(orderedSliceResults.map(({ id }) => id));
 			}
 
 			const insertionOffsets = new Map<
@@ -433,18 +447,19 @@ export class EraserTool implements Tool {
 				const location = splitLocations.get(id);
 				if (!location) continue;
 
-				const parentKey = location.parentGroupId ?? layerId;
+				const parentKey = location.parentId ?? layerId;
 				const offsets = insertionOffsets.get(parentKey) ?? {
 					removed: 0,
 					inserted: 0,
 				};
 				const insertIndex = location.index - offsets.removed + offsets.inserted;
-				if (location.parentGroupId) {
-					commands.addPathsToGroup(
+				if (location.parentId) {
+					commands.addPathsToContainer(
 						splitPaths,
-						location.parentGroupId,
+						location.parentId,
 						insertIndex,
 						layerId,
+						location.sourceOp,
 					);
 				} else {
 					commands.addPaths(splitPaths, insertIndex, layerId);

@@ -19,12 +19,14 @@ import type {
 	AppearancePreset,
 	BlendObject,
 	BrushSettings,
+	CompoundPath,
 	FillAppearance,
 	Filter,
 	FilterEntry,
 	Group,
 	Layer,
 	LinearGradient,
+	MeshArtObject,
 	MeshGradient,
 	ObjectMask,
 	Path,
@@ -591,6 +593,70 @@ describe("PaplicoCommands", () => {
 				"mask-shape",
 				"owner",
 			]);
+		});
+	});
+
+	describe("deleteElements on container children", () => {
+		it("should drop a deleted source from its compound path", () => {
+			const { store, commands, sync, compoundId } = createCompoundCommands();
+
+			commands.deleteElements(["a"]);
+			sync();
+
+			const compound = store.document.objects[compoundId] as CompoundPath;
+			expect(compound.sources.map((s) => s.id)).toEqual(["b"]);
+			expect(store.document.objects.a).toBeUndefined();
+		});
+
+		it("should drop a deleted child from its mesh", () => {
+			const { store, commands, sync, meshId } = createMeshCommands();
+
+			commands.deleteElements(["a"]);
+			sync();
+
+			const mesh = store.document.objects[meshId] as MeshArtObject;
+			expect(mesh.childIds).toEqual(["b"]);
+			expect(store.document.objects.a).toBeUndefined();
+		});
+	});
+
+	describe("addPathsToContainer", () => {
+		it("should insert paths into a compound path's sources with the given operation", () => {
+			const { store, commands, sync, compoundId } = createCompoundCommands();
+
+			commands.addPathsToContainer(
+				[createPath("p1"), createPath("p2")],
+				compoundId,
+				1,
+				"layer",
+				"subtract",
+			);
+			sync();
+
+			const compound = store.document.objects[compoundId] as CompoundPath;
+			expect(compound.sources.map(({ id, op }) => [id, op])).toEqual([
+				["a", "union"],
+				["p1", "subtract"],
+				["p2", "subtract"],
+				["b", "union"],
+			]);
+			expect(store.document.layers[0].elementIds).toEqual([compoundId]);
+		});
+
+		it("should insert paths into a mesh's children", () => {
+			const { store, commands, sync, meshId } = createMeshCommands();
+
+			commands.addPathsToContainer(
+				[createPath("p1"), createPath("p2")],
+				meshId,
+				1,
+				"layer",
+			);
+			sync();
+
+			const mesh = store.document.objects[meshId] as MeshArtObject;
+			expect(mesh.childIds).toEqual(["a", "p1", "p2", "b"]);
+			expect(store.document.layers[0].elementIds).toEqual([meshId]);
 		});
 	});
 
@@ -3999,6 +4065,43 @@ function createClipGroupCommands() {
 	provider.setClipPath("layer", groupId, "clip");
 	sync();
 	return { ...fixture, groupId };
+}
+
+/** A compound path of sources "a" and "b" in layer "layer". */
+function createCompoundCommands() {
+	const fixture = createProviderCommands();
+	const { provider, store, commands, sync } = fixture;
+	for (const id of ["a", "b"]) {
+		provider.addElement("layer", createPath(id));
+	}
+	sync();
+	store.selectedElementIds = ["a", "b"];
+	const compoundId = commands.createCompoundPathFromSelection("union");
+	if (!compoundId) throw new Error("compound path should be created");
+	sync();
+	return { ...fixture, compoundId };
+}
+
+/** A mesh holding "a" and "b" in layer "layer". */
+function createMeshCommands() {
+	const fixture = createProviderCommands();
+	const { provider, sync } = fixture;
+	const mesh: MeshArtObject = {
+		type: "mesh",
+		id: "mesh",
+		childIds: ["a", "b"],
+		vertices: [],
+		faces: [],
+		opacity: 1,
+		blendMode: "normal",
+		transform: createIdentityTransform(),
+	};
+	for (const id of mesh.childIds) {
+		provider.addObjectOnly(createPath(id));
+	}
+	provider.addElement("layer", mesh);
+	sync();
+	return { ...fixture, meshId: mesh.id };
 }
 
 function createCommands(
