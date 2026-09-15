@@ -1,14 +1,30 @@
 "use client";
 
-import Editor, { type BeforeMount, type OnMount } from "@monaco-editor/react";
+import Editor, {
+	type BeforeMount,
+	loader,
+	type OnMount,
+} from "@monaco-editor/react";
 import {
 	createScriptHost,
 	registerSyrup,
 	SYRUP_LANGUAGE_ID,
 } from "@paplico/syrup";
+import * as monaco from "monaco-editor";
 import { useEffect, useRef } from "react";
 import { registerPaplicoScriptingApi } from "@/scripting/api";
 import { useEventCallback } from "@/utils/hooks";
+
+// Serve Monaco from the bundle instead of the default CDN, which the Tauri CSP
+// blocks and which is unreachable offline.
+self.MonacoEnvironment = {
+	getWorker: () =>
+		new Worker(
+			new URL("monaco-editor/esm/vs/editor/editor.worker", import.meta.url),
+			{ type: "module" },
+		),
+};
+loader.config({ monaco });
 
 // lint-unused-ignore: loaded through next/dynamic, which the linter can't follow
 export default function AutomationCodeEditor({
