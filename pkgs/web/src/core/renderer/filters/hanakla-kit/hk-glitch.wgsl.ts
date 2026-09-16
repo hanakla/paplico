@@ -54,7 +54,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
 	if (uniforms.intensity > 0.0) {
 		// Calculate diagonal slices based on angle
-		let angle = uniforms.angle * 3.14159;
+		let angle = uniforms.angle * 3.14159265359 / 180.0;
 
 		// Determine slice using rotated coordinate in element-rect UV, so the
 		// slicing stays anchored to the element instead of the bake rect
