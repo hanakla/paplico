@@ -147,7 +147,6 @@ export const en = {
 		stampRotation: "Stamp Direction",
 		rotationNone: "None",
 		rotationTangent: "Tangent",
-		rotationRandom: "Random",
 		wetMacroBleed: "Bleed",
 		wetMacroDryness: "Dryness",
 		wetMacroPaper: "Paper",

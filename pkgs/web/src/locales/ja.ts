@@ -148,7 +148,6 @@ export const ja = {
 		stampRotation: "スタンプの方向",
 		rotationNone: "なし",
 		rotationTangent: "接線",
-		rotationRandom: "ランダム",
 		wetMacroBleed: "にじみ",
 		wetMacroDryness: "乾き",
 		wetMacroPaper: "紙質",

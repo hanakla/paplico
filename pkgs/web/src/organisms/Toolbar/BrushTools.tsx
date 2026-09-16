@@ -879,12 +879,6 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 														>
 															{t("toolbar.rotationTangent")}
 														</ToggleGroup.Item>
-														<ToggleGroup.Item
-															value="random"
-															className="h-5 w-auto px-1.5 text-[10px]"
-														>
-															{t("toolbar.rotationRandom")}
-														</ToggleGroup.Item>
 													</ToggleGroup.Root>
 												</div>
 											</>
