@@ -167,7 +167,7 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 	},
 	{
 		name: "@webgpu/types",
-		version: "0.1.69",
+		version: "0.1.72",
 		license: "BSD-3-Clause",
 		url: "https://github.com/gpuweb/types",
 	},

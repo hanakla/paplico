@@ -3761,7 +3761,7 @@ __metadata:
     "@tailwindcss/vite": "npm:^4.2.2"
     "@types/react": "npm:^19.0.0"
     "@types/react-dom": "npm:^19.0.0"
-    "@webgpu/types": "npm:^0.1.51"
+    "@webgpu/types": "npm:^0.1.72"
     "@wxt-dev/module-react": "npm:^1.1.5"
     lucide-react: "npm:^0.475.0"
     react: "npm:^19.0.0"
@@ -7570,10 +7570,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@webgpu/types@npm:^0.1.51, @webgpu/types@npm:^0.1.69":
+"@webgpu/types@npm:^0.1.69":
   version: 0.1.69
   resolution: "@webgpu/types@npm:0.1.69"
   checksum: 10c0/52b95a176de5ee918fd1d7132103c35029006a0b4eb321767479a9e430560d272926c0994c3795a5bbaa22cebcc7dce71e66ba8b6496e01c90c0d179a02bd968
+  languageName: node
+  linkType: hard
+
+"@webgpu/types@npm:^0.1.72":
+  version: 0.1.72
+  resolution: "@webgpu/types@npm:0.1.72"
+  checksum: 10c0/f03af4f3db0543158bbc39810d57a01269cc315e9ba5c1f8690a6c6f3c969d1c1cc53bc55899c5aa2f9d3702fa866682c3cd33129d614487d4a763f0dbea72c0
   languageName: node
   linkType: hard
 
@@ -15826,7 +15833,7 @@ __metadata:
     "@types/wicg-file-system-access": "npm:^2023.10.7"
     "@types/ws": "npm:^8.5.13"
     "@vitest/ui": "npm:^4.1.0"
-    "@webgpu/types": "npm:^0.1.51"
+    "@webgpu/types": "npm:^0.1.72"
     ag-psd: "npm:^31.0.2"
     babel-plugin-react-compiler: "npm:^1.0.0"
     cbor-x: "npm:^1.6.4"

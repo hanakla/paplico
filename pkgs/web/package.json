@@ -50,7 +50,7 @@
 		"@tauri-apps/plugin-opener": "^2.3.0",
 		"@tauri-apps/plugin-sql": "^2.4.0",
 		"@types/mdx": "^2.0.14",
-		"@webgpu/types": "^0.1.51",
+		"@webgpu/types": "^0.1.72",
 		"ag-psd": "^31.0.2",
 		"babel-plugin-react-compiler": "^1.0.0",
 		"cbor-x": "^1.6.4",

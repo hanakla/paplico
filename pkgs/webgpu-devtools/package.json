@@ -22,7 +22,7 @@
 		"@tailwindcss/vite": "^4.2.2",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
-		"@webgpu/types": "^0.1.51",
+		"@webgpu/types": "^0.1.72",
 		"@wxt-dev/module-react": "^1.1.5",
 		"tailwindcss": "^4.2.1",
 		"typescript": "^6.0.3",
