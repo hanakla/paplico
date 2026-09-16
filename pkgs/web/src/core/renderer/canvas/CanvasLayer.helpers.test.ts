@@ -1,16 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { localAppearances } from "../../document/appearancePresets";
-import {
-	createIdentityTransform,
-	createStrokeBrushSettings,
-} from "../../document/factory";
+import { createIdentityTransform } from "../../document/factory";
 import type {
 	AnyArtObject,
 	BoundingBox,
 	CompoundPath,
 	CubicBezierSegment,
 	FillAppearance,
-	Path,
 	StrokeAppearance,
 	Viewport,
 } from "../../schema";
@@ -298,38 +294,12 @@ describe("flattenCubicBezier", () => {
 describe("createCompoundPathRenderPath", () => {
 	it("disables stroke and injects white fill for mask rendering", () => {
 		const segments = createSimpleSegments();
-		const baseBrush = createStrokeBrushSettings(9);
-		const baseSourcePath: Path = {
-			type: "path",
-			id: "base",
-			segments,
-			filters: [
-				{
-					processor: "stroke",
-					paramData: {
-						version: "1",
-						params: {
-							strokeColor: {
-								type: "solid",
-								color: { type: "rgb", r: 0.1, g: 0.2, b: 0.3, a: 1 },
-							},
-							brushSettings: baseBrush,
-						},
-					},
-				} as unknown as StrokeAppearance,
-			],
-			opacity: 1,
-			blendMode: "normal",
-			transform: createIdentityTransform(),
-		};
 		const compoundPath = createCompoundPath();
 		compoundPath.filters = [];
 
 		const renderPath = createCompoundPathRenderPath(
 			compoundPath,
 			segments,
-			baseSourcePath,
-			"offscreen",
 			true,
 		);
 
@@ -352,12 +322,7 @@ describe("createCompoundPathRenderPath", () => {
 		const segments = createSimpleSegments();
 		const compoundPath = createCompoundPath();
 
-		const renderPath = createCompoundPathRenderPath(
-			compoundPath,
-			segments,
-			undefined,
-			"main",
-		);
+		const renderPath = createCompoundPathRenderPath(compoundPath, segments);
 
 		const renderStroke = localAppearances(renderPath.filters).find(
 			(f) => f.processor === "stroke",
@@ -379,6 +344,24 @@ describe("createCompoundPathRenderPath", () => {
 			cpStroke?.paramData.params.strokeColor,
 		);
 		expect(renderFill).toEqual(cpFill);
+	});
+
+	it("renders no stroke when the compound path has no stroke appearance", () => {
+		const compoundPath = createCompoundPath();
+		compoundPath.filters = localAppearances(compoundPath.filters).filter(
+			(f) => f.processor !== "stroke",
+		);
+
+		const renderPath = createCompoundPathRenderPath(
+			compoundPath,
+			createSimpleSegments(),
+		);
+
+		expect(
+			localAppearances(renderPath.filters).some(
+				(f) => f.processor === "stroke",
+			),
+		).toBe(false);
 	});
 });
 

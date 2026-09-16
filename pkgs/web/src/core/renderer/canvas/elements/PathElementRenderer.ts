@@ -346,11 +346,9 @@ export class PathElementRenderer {
 
 		const pathMap = new Map<string, Path>();
 		const validSources: CompoundPath["sources"] = [];
-		let baseSourcePath: Path | undefined;
 		for (const source of compoundPath.sources) {
 			const el = elementsMap.get(source.id);
 			if (!el || !isPath(el)) continue;
-			baseSourcePath ??= el;
 			pathMap.set(source.id, toWorldPath(el));
 			validSources.push(source);
 		}
@@ -372,8 +370,6 @@ export class PathElementRenderer {
 		const tempPath = createCompoundPathRenderPath(
 			compoundPath,
 			segments,
-			baseSourcePath,
-			pipelineType,
 			isMaskRender,
 		);
 

@@ -1,8 +1,5 @@
 import { localAppearances } from "../../document/appearancePresets";
-import {
-	createIdentityTransform,
-	createStrokeBrushSettings,
-} from "../../document/factory";
+import { createIdentityTransform } from "../../document/factory";
 import {
 	type AnyArtObject,
 	type BoundingBox,
@@ -17,8 +14,6 @@ import {
 	type StrokeAppearance,
 	type Viewport,
 } from "../../schema";
-import { getStrokeWidth } from "../../utils/elementQuery";
-import type { PipelineType } from "./CanvasLayerTypes";
 
 const MASK_FILL: FillColor = {
 	type: "solid",
@@ -357,8 +352,6 @@ export function buildParentGroupMap(
 export function createCompoundPathRenderPath(
 	compoundPath: CompoundPath,
 	segments: CubicBezierSegment[],
-	baseSourcePath: Path | undefined,
-	_pipelineType: PipelineType,
 	isMaskRender = false,
 ): Path {
 	const cpFill = (
@@ -366,38 +359,20 @@ export function createCompoundPathRenderPath(
 			(f) => f.processor === "fill" && f.enabled !== false,
 		) as FillAppearance | undefined
 	)?.paramData.params.fill;
-	const cpStroke = localAppearances(compoundPath.filters).find(
-		(f) => f.processor === "stroke" && f.enabled !== false,
-	) as StrokeAppearance | undefined;
-	const baseStroke = localAppearances(baseSourcePath?.filters).find(
-		(f) => f.processor === "stroke" && f.enabled !== false,
-	) as StrokeAppearance | undefined;
-
-	const brushSettings =
-		cpStroke?.paramData.params.brushSettings ??
-		baseStroke?.paramData.params.brushSettings ??
-		createStrokeBrushSettings(
-			getStrokeWidth(localAppearances(compoundPath.filters)),
-		);
-
-	const strokeColor = isMaskRender
+	const cpStroke = isMaskRender
 		? undefined
-		: (cpStroke?.paramData.params.strokeColor ?? {
-				type: "solid" as const,
-				color: { type: "rgb" as const, r: 0, g: 0, b: 0, a: 1 },
-			});
+		: (localAppearances(compoundPath.filters).find(
+				(f) => f.processor === "stroke" && f.enabled !== false,
+			) as StrokeAppearance | undefined);
 	const fill = isMaskRender ? (cpFill ?? MASK_FILL) : cpFill;
 
 	const filters: Filter[] = [];
-	if (strokeColor) {
+	if (cpStroke) {
 		filters.push({
 			processor: "stroke",
 			opacity: 1,
 			blendMode: "normal",
-			paramData: {
-				version: "1",
-				params: { strokeColor, brushSettings },
-			},
+			paramData: { version: "1", params: cpStroke.paramData.params },
 		} as StrokeAppearance);
 	}
 	if (fill) {
