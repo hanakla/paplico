@@ -27,6 +27,7 @@ export function useCanvasObstacle(
 		});
 	});
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: measure is stable (useEventCallback)
 	useLayoutEffect(() => {
 		if (!el) return;
 
@@ -39,7 +40,6 @@ export function useCanvasObstacle(
 			window.removeEventListener("resize", measure);
 			clearCanvasObstacleRect(key);
 		};
-		// biome-ignore lint/correctness/useExhaustiveDependencies: measure is stable (useEventCallback)
 	}, [el, key]);
 
 	// A move that keeps the size (panels swapping sides, a docked panel opening)
