@@ -4009,14 +4009,24 @@ export class CanvasLayer {
 					return plan ? [plan] : [];
 				}),
 			);
-			// Wash plans on group children never appear in layerPlan.elements
-			// (only top-level elements do): execute them here too, so the
-			// inline group recursion can blit the isolated wash result from
-			// filteredTextures instead of drawing the dabs buildup-dark.
+			// Group children never appear in layerPlan.elements (only top-level
+			// elements do). Two kinds of child plans still have to run here:
+			// wash plans, so the inline group recursion can blit the isolated
+			// wash result from filteredTextures instead of drawing the dabs
+			// buildup-dark; and plans of children that applyPostMasks composites
+			// (a clip group child), because it would otherwise bake the child
+			// unfiltered and that bake, once in filteredTextures, keeps the
+			// draw-time bake of the plan from ever running.
 			const seen = new Set(base.map((plan) => plan.elementId));
 			for (const plan of filterPlans.values()) {
 				if (seen.has(plan.elementId)) continue;
-				if (plan.allAppearancePlans?.some((p) => p.washStrokeOpacity != null)) {
+				const hasWash = plan.allAppearancePlans?.some(
+					(p) => p.washStrokeOpacity != null,
+				);
+				const maskedByPostMasks =
+					this.activeMaskApplicationPlans.get(plan.elementId)?.kind ===
+					"subtree-composite";
+				if (hasWash || maskedByPostMasks) {
 					base.push(plan);
 					seen.add(plan.elementId);
 				}

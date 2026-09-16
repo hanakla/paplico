@@ -137,6 +137,21 @@ describe("Top-level atlas masking", () => {
 	);
 });
 
+describe("Clip group child post filters", () => {
+	// The child of an inline clip group is masked in applyPostMasks before its
+	// own (draw-time) filter plan runs; masking an unfiltered bake there would
+	// leave the child's blur out of the frame entirely.
+	it("keeps a child's blur inside a single-child clip group", async () => {
+		const row = await renderClippedBlurredChildAndSampleRow();
+		expect(row.soft).toBeGreaterThan(10);
+	});
+
+	it("still clips the blurred child", async () => {
+		const row = await renderClippedBlurredChildAndSampleRow();
+		expect(row.pastClip).toBe(0);
+	});
+});
+
 describe("Offscreen pixel alignment", () => {
 	it("keeps edges crisp through nested clip groups with fractional bounds", async () => {
 		// Each offscreen bake snaps to the target's pixel grid; without that a
@@ -420,6 +435,64 @@ async function renderNestedFractionalClipsAndMeasureEdge() {
 		if (v > 12 && v < 243) gray++;
 	}
 	return gray;
+}
+
+async function renderClippedBlurredChildAndSampleRow() {
+	const { renderer, canvas } = await createTestRenderer();
+	const doc = createClippedBlurredChildDoc();
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	texture.destroy();
+	// Row through the centre: the red rect spans screen x 350..450 and its
+	// blur softens the edges; the clip ends at screen x 430.
+	let soft = 0;
+	let pastClip = 0;
+	for (let x = 300; x < 500; x++) {
+		const i = (300 * 800 + x) * 4;
+		const g = pixels[i + 1];
+		if (g > 30 && g < 225) soft++;
+		if (x >= 432 && g < 225) pastClip++;
+	}
+	return { soft, pastClip };
+}
+
+function createClippedBlurredChildDoc() {
+	const doc = createDefaultDocument("clip-child-post-filter-vrt");
+	const layer = createDefaultLayer("layer-bg", "Background");
+	const child: Path = {
+		type: "path",
+		id: generateUid("path"),
+		opacity: 1,
+		blendMode: "normal",
+		segments: rectSegments(-50, -50, 100, 100),
+		filters: [solidFill(1, 0, 0), blur(10)],
+		transform: createDefaultTransform(),
+	};
+	const clipPath: Path = {
+		...child,
+		id: generateUid("clip-path"),
+		segments: rectSegments(-150, -150, 180, 300),
+		filters: [solidFill(1, 1, 1)],
+	};
+	const group: Group = {
+		type: "group",
+		id: generateUid("group"),
+		opacity: 1,
+		blendMode: "normal",
+		childIds: [child.id, clipPath.id],
+		clipPathId: clipPath.id,
+		transform: createDefaultTransform(),
+		filters: [],
+	};
+	doc.objects[child.id] = child;
+	doc.objects[clipPath.id] = clipPath;
+	doc.objects[group.id] = group;
+	layer.elementIds.push(group.id);
+	doc.layers = [layer];
+	return doc;
 }
 
 function createNestedFractionalClipDoc() {
