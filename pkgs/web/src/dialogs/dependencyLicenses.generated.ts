@@ -83,7 +83,7 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 	},
 	{
 		name: "@next/mdx",
-		version: "16.2.1",
+		version: "16.3.5",
 		license: "MIT",
 		url: "https://github.com/vercel/next.js",
 	},
@@ -275,7 +275,7 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 	},
 	{
 		name: "next",
-		version: "16.2.2",
+		version: "16.3.5",
 		license: "MIT",
 		url: "https://github.com/vercel/next.js",
 	},
@@ -305,9 +305,9 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 	},
 	{
 		name: "react",
-		version: "19.2.4",
+		version: "19.3.0",
 		license: "MIT",
-		url: "https://github.com/facebook/react",
+		url: "https://github.com/react/react",
 	},
 	{
 		name: "react-call",
@@ -317,9 +317,9 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 	},
 	{
 		name: "react-dom",
-		version: "19.2.4",
+		version: "19.3.0",
 		license: "MIT",
-		url: "https://github.com/facebook/react",
+		url: "https://github.com/react/react",
 	},
 	{
 		name: "react-qr-code",
