@@ -12,6 +12,7 @@ import { migGradientStopMidpoint } from "./20260722_mig_gradient_stop_midpoint";
 import { migBrushV2 } from "./20260803_mig_brush_v2";
 import { migAppearancePresets } from "./20260906_mig_appearance_presets";
 import { migUnits } from "./20260910_mig_units";
+import { migFilterBackdropFlag } from "./20260917_mig_filter_backdrop_flag";
 
 export interface Migration {
 	/** Schema version date (YYYYMMDD) this migration upgrades TO */
@@ -35,6 +36,7 @@ const migrations: Migration[] = [
 	migBrushV2,
 	migAppearancePresets,
 	migUnits,
+	migFilterBackdropFlag,
 ];
 
 /**

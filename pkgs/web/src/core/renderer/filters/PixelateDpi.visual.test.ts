@@ -98,7 +98,6 @@ function createPixelateDoc() {
 				blockHeight: 12,
 				linkAxes: true,
 				mode: "bilinear",
-				applyToBackdrop: false,
 			},
 		},
 	});

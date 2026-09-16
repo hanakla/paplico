@@ -1,5 +1,4 @@
 import { memo } from "react";
-import { Checkbox } from "@/components/Checkbox";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import type { HKPixelSortFilter } from "@/core/renderer/filters";
@@ -48,9 +47,6 @@ export const PixelSortFilterControls = memo(function PixelSortFilterControls({
 	const handleOrderChange = useEventCallback((value: string) => {
 		onUpdate({ ascending: value === "dark-to-bright" });
 	});
-	const handleApplyToBackdropChange = useEventCallback((checked: boolean) => {
-		onUpdate({ applyToBackdrop: checked });
-	});
 
 	return (
 		<FilterSliders
@@ -95,14 +91,6 @@ export const PixelSortFilterControls = memo(function PixelSortFilterControls({
 					onValueChange={handleOrderChange}
 				/>
 			</div>
-			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-			<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
-				<Checkbox
-					checked={params.applyToBackdrop ?? false}
-					onCheckedChange={handleApplyToBackdropChange}
-				/>
-				{t("filterPanel.pixelSortApplyToBackdrop")}
-			</label>
 		</FilterSliders>
 	);
 });

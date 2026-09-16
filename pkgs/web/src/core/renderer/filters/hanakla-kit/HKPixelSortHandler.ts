@@ -4,7 +4,6 @@ import { compileShaderModule } from "../../../utils/wgpu-utils";
 import type {
 	FilterHandler,
 	FilterProcessorContext,
-	FilterRenderRequirements,
 } from "../../canvas/pipeline/FilterRenderer";
 import { FrameUniformPool } from "../../canvas/pipeline/FrameUniformPool";
 import {
@@ -20,8 +19,6 @@ export interface HKPixelSortParams {
 	ascending: boolean;
 	thresholdMin: number;
 	thresholdMax: number;
-	/** Sort the captured backdrop instead of the element raster */
-	applyToBackdrop: boolean;
 }
 export interface HKPixelSortFilter extends Appearance<HKPixelSortParams> {
 	processor: "hk:pixel-sort";
@@ -122,15 +119,6 @@ export class HKPixelSortHandler implements FilterHandler {
 			},
 			primitive: { topology: "triangle-list" },
 		});
-	}
-
-	public getRenderConfigure(filter: Filter): FilterRenderRequirements {
-		const f = filter as HKPixelSortFilter;
-		return {
-			needsBackdrop: f.paramData.params.applyToBackdrop ?? false,
-			needsSourceTexture: true,
-			needsSourceGraphic: false,
-		};
 	}
 
 	public postProcess(context: FilterProcessorContext, filter: Filter): void {
@@ -270,7 +258,6 @@ export class HKPixelSortHandler implements FilterHandler {
 			ascending: t < 0.5 ? a.ascending : b.ascending,
 			thresholdMin: a.thresholdMin + (b.thresholdMin - a.thresholdMin) * t,
 			thresholdMax: a.thresholdMax + (b.thresholdMax - a.thresholdMax) * t,
-			applyToBackdrop: t < 0.5 ? a.applyToBackdrop : b.applyToBackdrop,
 		};
 	}
 

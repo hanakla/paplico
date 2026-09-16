@@ -496,7 +496,6 @@ export const ja = {
 		pixelSortOrder: "並び順",
 		pixelSortOrderDarkToBright: "暗 → 明",
 		pixelSortOrderBrightToDark: "明 → 暗",
-		pixelSortApplyToBackdrop: "背面に適用",
 		pathOffset: "パスオフセット",
 		puckerBloat: "パンク・膨張",
 		puckerBloatAmount: "量",

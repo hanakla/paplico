@@ -11,7 +11,6 @@ import { compileShaderModule } from "../../utils/wgpu-utils";
 import type {
 	FilterHandler,
 	FilterProcessorContext,
-	FilterRenderRequirements,
 } from "../canvas/pipeline/FilterRenderer";
 import { PIXELATE_SHADER } from "./pixelate.wgsl";
 
@@ -22,9 +21,6 @@ export interface PixelateParams {
 	blockHeight: number;
 	linkAxes: boolean;
 	mode: "bilinear" | "bicubic";
-	/** @deprecated Legacy documents only — new documents use the common
-	 *  Appearance.applyToBackdrop flag (ORed with this in getRenderConfigure). */
-	applyToBackdrop?: boolean;
 }
 
 export interface PixelateFilter extends Appearance<PixelateParams> {
@@ -36,22 +32,6 @@ export class PixelateFilterProcessor implements FilterHandler {
 	private bindGroupLayout: GPUBindGroupLayout | null = null;
 	private uniformView: StructuredView | null = null;
 	private canvasFormat: GPUTextureFormat = "rgba8unorm";
-
-	/**
-	 * With applyToBackdrop, pixelate requires backdrop capture - it
-	 * pixelates what's behind the element (the mask is applied afterwards
-	 * by the backdrop pipeline). Reads the deprecated per-filter param for
-	 * legacy documents; new documents use the common Appearance flag, which
-	 * resolveRenderConfigure ORs on top of this.
-	 */
-	public getRenderConfigure(filter: Filter): FilterRenderRequirements {
-		const f = filter as PixelateFilter;
-		return {
-			needsBackdrop: f.paramData.params.applyToBackdrop ?? false,
-			needsSourceTexture: true,
-			needsSourceGraphic: false,
-		};
-	}
 
 	public async initialize(
 		device: GPUDevice,
@@ -214,7 +194,6 @@ export class PixelateFilterProcessor implements FilterHandler {
 			blockHeight: a.blockHeight + (b.blockHeight - a.blockHeight) * t,
 			linkAxes: t < 0.5 ? a.linkAxes : b.linkAxes,
 			mode: t < 0.5 ? a.mode : b.mode,
-			applyToBackdrop: t < 0.5 ? a.applyToBackdrop : b.applyToBackdrop,
 		};
 	}
 

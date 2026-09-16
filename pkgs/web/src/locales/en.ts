@@ -495,7 +495,6 @@ export const en = {
 		pixelSortOrder: "Order",
 		pixelSortOrderDarkToBright: "Dark to Bright",
 		pixelSortOrderBrightToDark: "Bright to Dark",
-		pixelSortApplyToBackdrop: "Apply to Layers Below",
 		pathOffset: "Path Offset",
 		puckerBloat: "Pucker & Bloat",
 		puckerBloatAmount: "Amount",

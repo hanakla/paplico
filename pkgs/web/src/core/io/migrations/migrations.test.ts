@@ -6,6 +6,7 @@ import type {
 	BrushSettings,
 	Document,
 	FillAppearance,
+	Filter,
 	StrokeAppearance,
 	Viewport,
 } from "../../schema";
@@ -21,6 +22,7 @@ import { migGradientStopMidpoint } from "./20260722_mig_gradient_stop_midpoint";
 import { migBrushV2 } from "./20260803_mig_brush_v2";
 import { migAppearancePresets } from "./20260906_mig_appearance_presets";
 import { migUnits } from "./20260910_mig_units";
+import { migFilterBackdropFlag } from "./20260917_mig_filter_backdrop_flag";
 import { applyMigration, applyMigrations } from "./index";
 
 const defaultViewport: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
@@ -1248,7 +1250,7 @@ describe("migGradientStopMidpoint (20260722)", () => {
 
 		applyMigrations(doc);
 
-		expect(doc.schemaVersion).toBe(20260910);
+		expect(doc.schemaVersion).toBe(20260917);
 	});
 });
 
@@ -1499,3 +1501,66 @@ describe("migUnits (20260910)", () => {
 		expect(doc.units).toBe("mm");
 	});
 });
+
+describe("migFilterBackdropFlag (20260917)", () => {
+	it("should move a per-filter applyToBackdrop onto the common flag", () => {
+		const doc = makeDoc(
+			{
+				p1: makeLegacyPath({
+					filters: [
+						legacyBackdropFilter("pixelate", true),
+						legacyBackdropFilter("hk:pixel-sort", false),
+					],
+				}),
+			},
+			20260910,
+		);
+
+		applyMigration(doc, migFilterBackdropFlag);
+
+		const [pixelate, pixelSort] = doc.objects.p1.filters as Filter[];
+		expect(pixelate.applyToBackdrop).toBe(true);
+		expect(pixelate.paramData.params).toEqual({ blockWidth: 8 });
+		expect(pixelSort.applyToBackdrop).toBeUndefined();
+		expect(pixelSort.paramData.params).toEqual({ blockWidth: 8 });
+	});
+
+	it("should migrate sub-filters and appearance presets", () => {
+		const doc = makeDoc(
+			{
+				p1: makeLegacyPath({
+					filters: [
+						{
+							...legacyBackdropFilter("fill", false),
+							subFilters: [legacyBackdropFilter("hk:pixel-sort", true)],
+						},
+					],
+				}),
+			},
+			20260910,
+		);
+		doc.appearancePresets = [
+			{
+				uid: "ap-1",
+				name: "Mosaic",
+				filters: [legacyBackdropFilter("pixelate", true)],
+			},
+		];
+
+		applyMigration(doc, migFilterBackdropFlag);
+
+		const [fill] = doc.objects.p1.filters as Filter[];
+		expect(fill.subFilters?.[0].applyToBackdrop).toBe(true);
+		expect(doc.appearancePresets[0].filters[0].applyToBackdrop).toBe(true);
+	});
+});
+
+function legacyBackdropFilter(processor: string, applyToBackdrop: boolean) {
+	return {
+		uid: `f-${processor}`,
+		processor,
+		opacity: 1,
+		blendMode: "normal" as const,
+		paramData: { version: "1", params: { blockWidth: 8, applyToBackdrop } },
+	};
+}

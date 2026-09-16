@@ -668,7 +668,6 @@ const FILTER_DEFS: Record<string, () => ReturnType<typeof Object>> = {
 				ascending: true,
 				thresholdMin: 0,
 				thresholdMax: 1,
-				applyToBackdrop: false,
 			},
 		},
 	}),
