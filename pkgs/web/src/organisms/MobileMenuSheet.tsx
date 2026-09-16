@@ -15,6 +15,7 @@ import {
 	PanelLeftClose,
 	Redo,
 	RotateCcw,
+	Save,
 	Settings,
 	Share2,
 	Timer,
@@ -24,12 +25,14 @@ import {
 	XIcon,
 } from "lucide-react";
 import { memo, type ReactNode, useEffect, useRef } from "react";
+import { useSnapshot } from "valtio";
 import { Accordion } from "@/components/Accordion";
 import type { Paplico } from "@/core/Paplico";
 import { useCurrentCanvasTargetResolver } from "@/hooks/useCurrentCanvasTarget";
 import { useMenuActions } from "@/hooks/useMenuActions";
 import { confirmDialog } from "@/infra/confirmDialog";
 import { useTranslation } from "@/locales";
+import { documentSessionState } from "@/stores/documentSessionStore";
 import { useEventCallback } from "@/utils/hooks";
 import { IS_TAURI_ENV } from "@/utils/platform";
 
@@ -83,6 +86,7 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 }: MobileMenuProps & { onClose: () => void }) {
 	const t = useTranslation();
 	const { getCurrentCanvasTarget } = useCurrentCanvasTargetResolver();
+	const { fileHandle } = useSnapshot(documentSessionState);
 
 	const paplicoRef = useRef<Paplico | null>(paplico);
 	useEffect(() => {
@@ -96,6 +100,7 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 		handleUngroup,
 		handleImport,
 		handleExport,
+		handleSave,
 		handleLoadImageToDocument,
 	} = useMenuActions(paplicoRef, {
 		setExportDialogOpen: () => onOpenExportDialog(),
@@ -119,6 +124,7 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 	const handleAutomation = useEventCallback(wrap(onOpenAutomationDialog));
 	const handleDocumentList = useEventCallback(wrap(onOpenDocumentListDialog));
 	const handleImportAndClose = useEventCallback(wrap(handleImport));
+	const handleSaveAndClose = useEventCallback(wrap(handleSave));
 	const handleExportAndClose = useEventCallback(wrap(handleExport));
 	const handleExportDialog = useEventCallback(wrap(onOpenExportDialog));
 	const handleLoadImage = useEventCallback(wrap(handleLoadImageToDocument));
@@ -284,6 +290,15 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 				>
 					<FileUp size={16} />
 					{t("menubar.openDocument")}
+				</button>
+				<button
+					type="button"
+					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors disabled:opacity-50"
+					disabled={fileHandle == null}
+					onClick={handleSaveAndClose}
+				>
+					<Save size={16} />
+					{t("menubar.overwriteDocument")}
 				</button>
 				<button
 					type="button"

@@ -23,7 +23,12 @@ interface IFileSystem {
 		types?: FilePickerAcceptType[];
 	}): Promise<FileHandle | null>;
 	overwrite(handle: FileHandle, blob: Blob): Promise<void>;
-	exportFile(blob: Blob, filename: string): Promise<void>;
+	/**
+	 * Writes a file to a place the user picks. The result is a handle that
+	 * later saves can overwrite, or `null` when the user called it off or the
+	 * platform only hands the file over as a download.
+	 */
+	exportFile(blob: Blob, filename: string): Promise<FileHandle | null>;
 	/**
 	 * Settles where a batch of exported files goes before the first one is
 	 * rendered. `null` means the user called the export off.
@@ -89,10 +94,13 @@ const tauriFS: IFileSystem = new (class TauriFS implements IFileSystem {
 			],
 		});
 
-		if (!path) return;
+		if (!path) return null;
 
 		const bytes = new Uint8Array(await blob.arrayBuffer());
 		await writeFile(path, bytes);
+
+		const name = path.split("/").pop() ?? path;
+		return { handle: path, file: new File([bytes], name) } as FileHandle;
 	}
 
 	public async requestExportDestination(documentHandle: FileHandle | null) {
@@ -151,11 +159,14 @@ const domFS: IFileSystem = new (class DomFS implements IFileSystem {
 		a.download = filename;
 		a.click();
 		URL.revokeObjectURL(url);
+		return null;
 	}
 
 	// The browser has no folder to name, so there is nothing to ask about
 	public async requestExportDestination() {
-		return (file: ExportedFile) => this.exportFile(file.blob, file.filename);
+		return async (file: ExportedFile) => {
+			await this.exportFile(file.blob, file.filename);
+		};
 	}
 
 	public async fileHandleFromDrop(item: DataTransferItem, file: File) {

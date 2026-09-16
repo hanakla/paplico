@@ -11,7 +11,10 @@ export const ja = {
 		saveAndContinue: "保存してつづける",
 		new: "新規",
 		openDocument: "ドキュメントを開く",
+		overwriteDocument: "上書き保存",
 		saveDocument: "ドキュメントを保存",
+		savingDocument: "保存中…",
+		documentSaved: "保存しました",
 		loadImage: "画像を読み込む",
 		exportPng: "画像に書き出し",
 		timelapse: "タイムラプス",
@@ -1476,6 +1479,7 @@ export const ja = {
 		autosaveFailedDescription:
 			"最近の変更が失われる可能性があります。ファイルに書き出して保護してください",
 		exportFailed: "書き出しに失敗しました",
+		saveFailed: "ファイルへの保存に失敗しました",
 		importFailed: "ファイルの読み込みに失敗しました",
 		documentOpenFailed: "ドキュメントを開けませんでした",
 		documentCreateFailed: "ドキュメントの作成に失敗しました",

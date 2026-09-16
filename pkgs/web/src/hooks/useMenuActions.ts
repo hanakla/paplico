@@ -1,4 +1,5 @@
 import type React from "react";
+import { toastManager } from "@/components/Toast";
 import {
 	createEmbeddedImageFile,
 	createImageObject,
@@ -11,6 +12,7 @@ import { useTranslation } from "@/locales";
 import {
 	documentSessionState,
 	openDocumentFile,
+	setDocumentFileHandle,
 } from "@/stores/documentSessionStore";
 import { codeFromError, reportError } from "@/utils/errorReporting";
 import { useEventCallback } from "@/utils/hooks";
@@ -110,7 +112,14 @@ export function useMenuActions(
 			if (!blob) return;
 
 			const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-			await FileSystem.exportFile(blob, `paplico-${timestamp}.papf`);
+			const handle = await FileSystem.exportFile(
+				blob,
+				`paplico-${timestamp}.papf`,
+			);
+			if (!handle) return;
+
+			setDocumentFileHandle(handle);
+			toastManager.add({ title: t("menubar.documentSaved") });
 		} catch (cause) {
 			reportError({
 				code: "EXPORT_FAILED",
@@ -122,19 +131,29 @@ export function useMenuActions(
 	});
 
 	const handleSave = useEventCallback(async () => {
+		const p = paplicoRef.current;
+		if (!p) return;
+
 		const handle = documentSessionState.fileHandle;
 		if (!handle) {
 			await handleExport();
 			return;
 		}
 
-		const blob = await paplicoRef.current?.exportDocumentFile();
-		if (!blob) return;
+		const toastId = toastManager.add({
+			title: t("menubar.savingDocument"),
+			type: "loading",
+		});
 
 		try {
-			await FileSystem.overwrite(handle, blob);
+			await FileSystem.overwrite(handle, await p.exportDocumentFile());
+			toastManager.update(toastId, {
+				title: t("menubar.documentSaved"),
+				type: "success",
+			});
 		} catch (error) {
-			console.error("Failed to overwrite file:", error);
+			toastManager.close(toastId);
+			reportError({ code: "SAVE_FAILED", cause: error });
 			await handleExport();
 		}
 	});

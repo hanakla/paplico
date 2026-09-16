@@ -1,6 +1,7 @@
 import type { FileHandle } from "@/infra/filesystem";
 import {
 	documentSessionState,
+	setDocumentFileHandle,
 	setExternalDocumentSession,
 	setInternalDocumentSession,
 	setSnapshotDocumentSession,
@@ -46,6 +47,18 @@ describe("documentSessionStore", () => {
 
 		expect(documentSessionState.identity).not.toBe(identity);
 		expect(documentSessionState.revision).toBe(revision + 1);
+	});
+
+	it("should keep its identity when a saved file becomes the save target", () => {
+		setInternalDocumentSession("internal-document");
+		const identity = documentSessionState.identity;
+
+		setDocumentFileHandle(createFileHandle("saved.papf"));
+
+		expect(documentSessionState.fileHandle?.handle).toBe(
+			"/documents/saved.papf",
+		);
+		expect(documentSessionState.identity).toBe(identity);
 	});
 });
 

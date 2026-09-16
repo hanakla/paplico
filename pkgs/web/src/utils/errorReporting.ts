@@ -12,6 +12,7 @@ export type AppErrorCode =
 	| PaplicoErrorCode
 	| "AUTOSAVE_FAILED"
 	| "EXPORT_FAILED"
+	| "SAVE_FAILED"
 	| "IMPORT_FAILED"
 	| "DOCUMENT_OPEN_FAILED"
 	| "DOCUMENT_CREATE_FAILED"
@@ -117,6 +118,7 @@ const ERROR_TEXTS: Record<
 		descriptionKey: "errors.autosaveFailedDescription",
 	},
 	EXPORT_FAILED: { titleKey: "errors.exportFailed" },
+	SAVE_FAILED: { titleKey: "errors.saveFailed" },
 	IMPORT_FAILED: { titleKey: "errors.importFailed" },
 	DOCUMENT_OPEN_FAILED: { titleKey: "errors.documentOpenFailed" },
 	DOCUMENT_CREATE_FAILED: { titleKey: "errors.documentCreateFailed" },

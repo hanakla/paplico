@@ -21,6 +21,7 @@ import {
 	PanelLeftClose,
 	Redo,
 	RotateCcw,
+	Save,
 	Scissors,
 	ScrollText,
 	Settings,
@@ -48,6 +49,7 @@ import { useShortcutBinding } from "@/hooks/useShortcutBinding";
 import { useTranslation } from "@/locales";
 import { RoomParticipants } from "@/organisms/RoomParticipants";
 import { UserMenu } from "@/organisms/UserMenu";
+import { documentSessionState } from "@/stores/documentSessionStore";
 import { setPixelPreviewEnabled, useUIState } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
 import { IS_TAURI_ENV } from "@/utils/platform";
@@ -115,6 +117,7 @@ export function DesktopMenuBar({
 		[],
 	);
 	const uiState = useSnapshot(paplico?.uiState ?? fallbackUiState);
+	const { fileHandle } = useSnapshot(documentSessionState);
 	const appUiState = useUIState();
 
 	const undoShortcut = useShortcutBinding("paplico.undo");
@@ -147,6 +150,7 @@ export function DesktopMenuBar({
 		handleUngroup,
 		handleImport,
 		handleExport,
+		handleSave,
 		handleLoadImageToDocument,
 	} = useMenuActions(paplicoRef, {
 		setExportDialogOpen: () => onOpenExportDialog(),
@@ -342,6 +346,14 @@ export function DesktopMenuBar({
 					>
 						<FileUp size={16} />
 						{t("menubar.openDocument")}
+					</Menubar.Item>
+					<Menubar.Item
+						onClick={handleSave}
+						shortcut="⌘S"
+						disabled={fileHandle == null}
+					>
+						<Save size={16} />
+						{t("menubar.overwriteDocument")}
 					</Menubar.Item>
 					<Menubar.Item onClick={handleExport} shortcut="⇧⌘S">
 						<FileDown size={16} />

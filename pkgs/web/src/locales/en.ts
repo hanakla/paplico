@@ -11,7 +11,10 @@ export const en = {
 		saveAndContinue: "Save and continue",
 		new: "New",
 		openDocument: "Open Document",
+		overwriteDocument: "Save",
 		saveDocument: "Save Document",
+		savingDocument: "Saving…",
+		documentSaved: "Saved",
 		loadImage: "Load Image",
 		exportPng: "Export Image",
 		timelapse: "Timelapse",
@@ -1477,6 +1480,7 @@ export const en = {
 		autosaveFailedDescription:
 			"Recent changes may be lost. Export your work to a file to keep it safe",
 		exportFailed: "Failed to export",
+		saveFailed: "Failed to save to the file",
 		importFailed: "Failed to import the file",
 		documentOpenFailed: "Failed to open the document",
 		documentCreateFailed: "Failed to create the document",

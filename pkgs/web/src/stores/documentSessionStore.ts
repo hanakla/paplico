@@ -44,6 +44,14 @@ export function setSnapshotDocumentSession(): void {
 }
 
 /**
+ * Makes a newly written file the target of manual saves. The document stays
+ * the same, so the session identity is kept.
+ */
+export function setDocumentFileHandle(fileHandle: FileHandle): void {
+	documentSessionState.fileHandle = fileHandle;
+}
+
+/**
  * Opens a document from a file. A handle keeps the file as the target of
  * manual saves; a bare file has no such target. The document is stored
  * under its own id so auto save and revisions cover it, and a file that
