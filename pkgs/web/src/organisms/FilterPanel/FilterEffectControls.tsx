@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type {
 	BlurFilter,
+	ClipToShapeFilter,
 	DropShadowFilter,
 	FrostGlassFilter,
 	HKBloomFilter,
@@ -45,6 +46,7 @@ import { BloomFilterControls } from "./ControlsBloom";
 import { BlurFilterControls } from "./ControlsBlur";
 import { BlushStrokeFilterControls } from "./ControlsBlushStroke";
 import { ChromaticAberrationFilterControls } from "./ControlsChromaticAberration";
+import { ClipToShapeFilterControls } from "./ControlsClipToShape";
 import { ColorReplacementFilterControls } from "./ControlsColorReplacement";
 import { ComicToneFilterControls } from "./ControlsComicTone";
 import { DirectionalBlurFilterControls } from "./ControlsDirectionalBlur";
@@ -127,6 +129,14 @@ export const FilterEffectControls = memo(function FilterEffectControls({
 		return (
 			<PathOffsetFilterControls
 				filter={filter as PathOffsetFilter}
+				onUpdate={onUpdate}
+			/>
+		);
+	}
+	if (filter.processor === "clip-to-shape") {
+		return (
+			<ClipToShapeFilterControls
+				filter={filter as ClipToShapeFilter}
 				onUpdate={onUpdate}
 			/>
 		);

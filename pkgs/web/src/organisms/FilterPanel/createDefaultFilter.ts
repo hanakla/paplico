@@ -4,6 +4,7 @@ import {
 } from "@/core/document/factory";
 import {
 	type BlurFilter,
+	type ClipToShapeFilter,
 	type DropShadowFilter,
 	type FrostGlassFilter,
 	SVG_COLOR_FUNCTIONS,
@@ -38,6 +39,7 @@ type DefaultFilter =
 	| FrostGlassFilter
 	| ZigzagFilter
 	| DropShadowFilter
+	| ClipToShapeFilter
 	| SvgGaussianBlurFilter
 	| SvgOffsetFilter
 	| SvgFloodFilter
@@ -141,6 +143,11 @@ const FILTER_DEFS: Record<string, () => ReturnType<typeof Object>> = {
 				mode: "bilinear",
 			},
 		},
+	}),
+	"clip-to-shape": () => ({
+		uid: generateUid("filter"),
+		processor: "clip-to-shape",
+		paramData: { version: "1", params: { invert: false } },
 	}),
 	"path-offset": () => ({
 		uid: generateUid("filter"),

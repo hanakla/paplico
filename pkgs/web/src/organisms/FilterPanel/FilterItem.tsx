@@ -16,6 +16,7 @@ import { ColorSwatch } from "@/components/ColorSwatch";
 import { IconButton } from "@/components/IconButton";
 import type {
 	BlurFilter,
+	ClipToShapeFilter,
 	DropShadowFilter,
 	FrostGlassFilter,
 	PathOffsetFilter,
@@ -46,6 +47,7 @@ import {
 import { FilterInlineControls } from "./AppearanceInlineControls";
 import { AppearanceSurface } from "./AppearanceSurface";
 import { BlurFilterControls } from "./ControlsBlur";
+import { ClipToShapeFilterControls } from "./ControlsClipToShape";
 import { DropShadowFilterControls } from "./ControlsDropShadow";
 import { Extrude3DFilterControls } from "./ControlsExtrude3D";
 import { FrostGlassFilterControls } from "./ControlsFrostGlass";
@@ -218,6 +220,13 @@ export const FilterItem = memo(function FilterItem({
 			{filter.processor === "path-offset" && (
 				<PathOffsetFilterControls
 					filter={filter as PathOffsetFilter}
+					onUpdate={updateFilter}
+				/>
+			)}
+
+			{filter.processor === "clip-to-shape" && (
+				<ClipToShapeFilterControls
+					filter={filter as ClipToShapeFilter}
 					onUpdate={updateFilter}
 				/>
 			)}

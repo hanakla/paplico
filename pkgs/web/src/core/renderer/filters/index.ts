@@ -8,6 +8,10 @@ export type {
 	BlurParams,
 } from "./BlurFilterProcessor";
 export type {
+	ClipToShapeFilter,
+	ClipToShapeParams,
+} from "./ClipToShapeFilterProcessor";
+export type {
 	DropShadowFilter,
 	DropShadowParams,
 } from "./DropShadowFilterProcessor";

@@ -1,6 +1,7 @@
 import {
 	Activity,
 	Box,
+	Crop,
 	Cylinder,
 	Diamond,
 	Droplets,
@@ -43,6 +44,7 @@ export const FILTER_TEXT_KEYS = {
 	"path-union": "filterPanel.pathUnion",
 	"pucker-bloat": "filterPanel.puckerBloat",
 	transform: "filterPanel.transform",
+	"clip-to-shape": "filterPanel.clipToShape",
 	"3d-rotate": "filterPanel.rotate3d",
 	extrude3d: "filterPanel.extrude3d",
 	revolve3d: "filterPanel.revolve3d",
@@ -101,6 +103,7 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
 	Stylize: Sparkles,
 	Distortion: Waves,
 	Texture: Grip,
+	Mask: Crop,
 	SVG: FileCode,
 };
 

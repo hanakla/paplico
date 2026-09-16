@@ -148,6 +148,7 @@ Paplicoには以下のフィルターが組み込まれている。それぞれ�
 | `drop-shadow` | `DropShadowFilterProcessor` | post | 要素の背後に影を落とす効果。オフセット + スプレッド（膨張/収縮）+ 2パスガウシアンブラー + 元テクスチャ合成の3パス |
 | `frost-glass` | `FrostGlassFilterProcessor` | post/backdrop | 要素の背後をすりガラスのようにぼかす効果。バックドロップを散布（ランダム変位）＋ぼかしし、彩度調整・ティント適用。`requiresBackdrop = true` |
 | `pixelate` | `PixelateFilterProcessor` | post/backdrop | 要素ラスターをブロックグリッドにダウンサンプリングしてモザイク化。「背面に適用」ON時はバックドロップに適用（`requiresBackdrop` はパラメータ依存） |
+| `clip-to-shape` | `ClipToShapeFilterHandler` | post | チェーンの現在の結果を、ジオメトリフィルター適用後の要素形状（SourceAlpha）でクリップする。`svg:composite` の `in` / `out` 演算を固定パラメータで流す薄いハンドラーで、SVG出力では同じパラメータから `feComposite` を出す |
 | `3d-rotate` | `Rotate3DFilterProcessor` | post | パースペクティブ付き3D回転。ミップマップ生成によるアンチエイリアシングサンプリング |
 | `zigzag` | `ZigzagFilterHandler` | pre | パスを弧長パラメータ化し、法線方向に三角波でオフセットしてジグザグ変形 |
 | `transform` | `TransformFilterHandler` | pre | 拡大縮小・移動・回転・反転を基準点まわりに適用し、累積コピーを配置する。`preProcessAppearance` でコピーごとの線幅スケールとパターン追従を返す |

@@ -6,6 +6,10 @@
  */
 
 import { localAppearances } from "../../../document/appearancePresets";
+import {
+	type ClipToShapeParams,
+	clipToShapeComposite,
+} from "../../../renderer/filters/ClipToShapeFilterProcessor";
 import type { SvgBlendParams } from "../../../renderer/filters/svg/SvgBlendHandler";
 import {
 	colorFunctionMatrix,
@@ -119,6 +123,26 @@ export function svgFilterPrimitives(filter: Filter, index: number): SvgNode[] {
 	return [node];
 }
 
+/** feComposite; the k coefficients only apply to the arithmetic operator. */
+function composite(p: SvgCompositeParams, inputOf: InputResolver): SvgNode {
+	return {
+		tag: "feComposite",
+		attrs: {
+			in: inputOf(p.in),
+			in2: inputOf(p.in2),
+			operator: p.operator,
+			...(p.operator === "arithmetic"
+				? {
+						k1: formatNumber(p.k1),
+						k2: formatNumber(p.k2),
+						k3: formatNumber(p.k3),
+						k4: formatNumber(p.k4),
+					}
+				: {}),
+		},
+	};
+}
+
 /** An `svg:filter` graph with no enabled node emits nothing, like a disabled filter. */
 function isEmptySvgFilterGraph(filter: Filter): boolean {
 	return (
@@ -225,22 +249,9 @@ const SVG_PRIMITIVE_EMITTERS: Record<string, PrimitiveEmitter> = {
 			yChannelSelector: p.yChannelSelector,
 		},
 	}),
-	"svg:composite": (p: SvgCompositeParams, inputOf) => ({
-		tag: "feComposite",
-		attrs: {
-			in: inputOf(p.in),
-			in2: inputOf(p.in2),
-			operator: p.operator,
-			...(p.operator === "arithmetic"
-				? {
-						k1: formatNumber(p.k1),
-						k2: formatNumber(p.k2),
-						k3: formatNumber(p.k3),
-						k4: formatNumber(p.k4),
-					}
-				: {}),
-		},
-	}),
+	"svg:composite": composite,
+	"clip-to-shape": (p: ClipToShapeParams, inputOf) =>
+		composite(clipToShapeComposite(p), inputOf),
 	"svg:blend": (p: SvgBlendParams, inputOf) => ({
 		tag: "feBlend",
 		attrs: {

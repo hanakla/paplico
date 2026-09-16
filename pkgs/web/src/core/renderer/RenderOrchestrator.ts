@@ -55,6 +55,7 @@ import {
 } from "./canvas/pipeline/unifiedVertexLayout";
 import { buildParentedMap } from "./canvas/pipeline/ViewportManager";
 import { BlurFilterProcessor } from "./filters/BlurFilterProcessor";
+import { ClipToShapeFilterHandler } from "./filters/ClipToShapeFilterProcessor";
 import { DropShadowFilterProcessor } from "./filters/DropShadowFilterProcessor";
 import { Extrude3DFilterHandler } from "./filters/Extrude3DFilterHandler";
 import { FrostGlassFilterProcessor } from "./filters/FrostGlassFilterProcessor";
@@ -2546,6 +2547,7 @@ export class RenderOrchestrator {
 			["hk:husky", new HKHuskyHandler()],
 			["hk:kaleidoscope", new HKKaleidoscopeHandler()],
 			["hk:pixel-sort", new HKPixelSortHandler()],
+			["clip-to-shape", new ClipToShapeFilterHandler()],
 		];
 
 		// SVG filter primitives; the `svg:filter` graph runs its nodes through

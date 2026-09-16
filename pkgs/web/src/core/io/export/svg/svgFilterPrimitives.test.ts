@@ -21,6 +21,7 @@ describe("isSvgNativeFilter", () => {
 	it("should recognize every svg:* processor and nothing else", () => {
 		expect(isSvgNativeFilter("svg:gaussian-blur")).toBe(true);
 		expect(isSvgNativeFilter("svg:composite")).toBe(true);
+		expect(isSvgNativeFilter("clip-to-shape")).toBe(true);
 		expect(isSvgNativeFilter("blur")).toBe(false);
 		expect(isSvgNativeFilter("hk:bloom")).toBe(false);
 	});
@@ -76,6 +77,29 @@ describe("svgFilterPrimitive", () => {
 			operator: "dilate",
 			radius: "1 2",
 			result: "s1",
+		});
+	});
+
+	it("should clip the previous result to SourceAlpha for clip-to-shape", () => {
+		const node = svgFilterPrimitive(
+			filter("clip-to-shape", { invert: false }),
+			1,
+		);
+		expect(node.tag).toBe("feComposite");
+		expect(node.attrs).toMatchObject({
+			in: "s0",
+			in2: "SourceAlpha",
+			operator: "in",
+			result: "s1",
+		});
+
+		const inverted = svgFilterPrimitive(
+			filter("clip-to-shape", { invert: true }),
+			0,
+		);
+		expect(inverted.attrs).toMatchObject({
+			in: "SourceGraphic",
+			operator: "out",
 		});
 	});
 

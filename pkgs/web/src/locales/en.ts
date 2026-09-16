@@ -479,6 +479,8 @@ export const en = {
 		editBrush: "Edit Brush",
 		appearances: "Appearances",
 		effects: "Effects",
+		clipToShape: "Clip to Shape",
+		clipToShapeInvert: "Invert",
 		pixelate: "Pixelate",
 		pixelateBlockWidth: "Block Width",
 		pixelateBlockHeight: "Block Height",
@@ -819,6 +821,7 @@ export const en = {
 			Distortion: "Distortion",
 			Stylize: "Stylize",
 			Texture: "Texture",
+			Mask: "Mask",
 			SVG: "SVG",
 		},
 		hk: {

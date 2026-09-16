@@ -480,6 +480,8 @@ export const ja = {
 		editBrush: "ブラシを編集",
 		appearances: "アピアランス",
 		effects: "エフェクト",
+		clipToShape: "形状でクリップ",
+		clipToShapeInvert: "反転",
 		pixelate: "ピクセレート",
 		pixelateBlockWidth: "ブロック幅",
 		pixelateBlockHeight: "ブロック高さ",
@@ -820,6 +822,7 @@ export const ja = {
 			Distortion: "歪み",
 			Stylize: "スタイライズ",
 			Texture: "テクスチャ",
+			Mask: "マスク",
 			SVG: "SVG",
 		},
 		hk: {
