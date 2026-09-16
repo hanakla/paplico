@@ -124,6 +124,36 @@ function makeStraightPath(id: string, xs: number[]): Path {
 	};
 }
 
+/** Closed triangle (0,0) -> (100,0) -> (0,100) -> back to (0,0). */
+function makeClosedTriangle(id: string): Path {
+	const ends = [
+		{ x: 100, y: 0 },
+		{ x: 0, y: 100 },
+		{ x: 0, y: 0 },
+	];
+	return {
+		id,
+		type: "path",
+		opacity: 1,
+		blendMode: "normal",
+		segments: ends.map((end, i) => ({
+			start: i === 0 ? { x: 0, y: 0 } : undefined,
+			cp1: { x: 0, y: 0 },
+			cp2: { x: 0, y: 0 },
+			end,
+			startTiltX: 0,
+			startTiltY: 0,
+			endTiltX: 0,
+			endTiltY: 0,
+			startDeltaTime: 0,
+			endDeltaTime: 0,
+			isMoved: i === 0,
+			isClosed: i === ends.length - 1 ? true : undefined,
+		})),
+		transform: createIdentityTransform(),
+	};
+}
+
 /** Extract committed segments for a pathId from batchPathUpdate mock calls */
 function getCommittedSegments(
 	ctx: MockToolContext,
@@ -3931,37 +3961,258 @@ describe("PathEditTool", () => {
 		});
 	});
 
-	describe("cutting a path", () => {
-		/** Closed triangle (0,0) -> (100,0) -> (0,100) -> back to (0,0). */
-		function makeClosedTriangle(id: string): Path {
-			const ends = [
-				{ x: 100, y: 0 },
-				{ x: 0, y: 100 },
-				{ x: 0, y: 0 },
-			];
-			return {
-				id,
-				type: "path",
-				opacity: 1,
-				blendMode: "normal",
-				segments: ends.map((end, i) => ({
-					start: i === 0 ? { x: 0, y: 0 } : undefined,
-					cp1: { x: 0, y: 0 },
-					cp2: { x: 0, y: 0 },
-					end,
-					startTiltX: 0,
-					startTiltY: 0,
-					endTiltX: 0,
-					endTiltY: 0,
-					startDeltaTime: 0,
-					endDeltaTime: 0,
-					isMoved: i === 0,
-					isClosed: i === ends.length - 1 ? true : undefined,
-				})),
-				transform: createIdentityTransform(),
-			};
+	describe("Segment bend drag", () => {
+		function drag(from: [number, number], to: [number, number]) {
+			tool.onPointerDown(
+				ev(...from),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(...to),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(...to),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
 		}
 
+		it("should bend the grabbed segment so its curve passes through the pointer", () => {
+			const path = makeStraightPath("path-1", [0, 100, 200]);
+			tool.initWithSelectedPaths(
+				[path],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+
+			// Grab the middle of the first segment at world(50,0), pull to (50,20)
+			drag([450, 300], [450, 280]);
+
+			const segments = getCommittedSegments(ctx, "path-1")!;
+			expect(segments).toHaveLength(2);
+			const [seg0, seg1] = segments;
+			expect(seg0.start).toEqual({ x: 0, y: 0 });
+			expect(seg0.end).toEqual({ x: 100, y: 0 });
+			// At t=0.5 both control points carry the same weight (3/8), so the
+			// pull is shared evenly: cp.y = 20 * 0.375 / (2 * 0.375^2)
+			expect(seg0.cp1.y).toBeCloseTo(26.667, 2);
+			expect(seg0.cp2.y).toBeCloseTo(26.667, 2);
+			// The curve point at t=0.5 lands on the pointer
+			expect(0.375 * seg0.cp1.y + 0.375 * seg0.cp2.y).toBeCloseTo(20, 5);
+			expect(seg1.cp1).toEqual({ x: 0, y: 0 });
+			expect(seg1.cp2).toEqual({ x: 0, y: 0 });
+			expect(seg1.end).toEqual({ x: 200, y: 0 });
+		});
+
+		it("should keep the anchor between two curved segments smooth", () => {
+			const path = cloneTestPath();
+			tool.initWithSelectedPaths(
+				[path],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+
+			// Grab the first segment near world(50,0), pull to (50,20)
+			drag([450, 300], [450, 280]);
+
+			const [seg0, seg1] = getCommittedSegments(ctx, "path-1")!;
+			// seg1.cp1 sits 33 away from anchor (100,0): it turns to keep pointing
+			// opposite to seg0.cp2, and stays 33 away
+			expect(seg0.cp2.y).toBeGreaterThan(0);
+			const bentLength = Math.hypot(seg0.cp2.x, seg0.cp2.y);
+			expect(seg1.cp1.x).toBeCloseTo((-seg0.cp2.x * 33) / bentLength, 5);
+			expect(seg1.cp1.y).toBeCloseTo((-seg0.cp2.y * 33) / bentLength, 5);
+			expect(seg1.cp2).toEqual({ x: -34, y: 0 });
+		});
+
+		it("should bend the closing segment of a closed path", () => {
+			const path = makeClosedTriangle("path-c");
+			tool.initWithSelectedPaths(
+				[path],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+
+			// The closing segment runs (0,100) -> (0,0); grab world(0,50), pull to (-20,50)
+			drag([400, 250], [380, 250]);
+
+			const segments = getCommittedSegments(ctx, "path-c")!;
+			expect(segments).toHaveLength(3);
+			expect(segments[2].cp1.x).toBeCloseTo(-26.667, 2);
+			expect(segments[2].cp2.x).toBeCloseTo(-26.667, 2);
+			expect(segments[2].end).toEqual({ x: 0, y: 0 });
+			expect(segments[2].isClosed).toBe(true);
+			expect(segments[0].start).toEqual({ x: 0, y: 0 });
+		});
+
+		it("should still move the whole path when dragging its face away from the edges", () => {
+			const path = makeClosedTriangle("path-c");
+			tool.initWithSelectedPaths(
+				[path],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+			ctx.findPathAtPoint.mockReturnValue(path);
+
+			// world(20,20) is inside the triangle, 20 units from every edge
+			drag([420, 280], [430, 270]);
+
+			const segments = getCommittedSegments(ctx, "path-c")!;
+			expect(segments[0].start).toEqual({ x: 10, y: 10 });
+			expect(segments[0].end).toEqual({ x: 110, y: 10 });
+			expect(segments[0].cp1).toEqual({ x: 0, y: 0 });
+		});
+
+		it("should not commit anything when the pointer is released without moving", () => {
+			const path = makeStraightPath("path-1", [0, 100, 200]);
+			tool.initWithSelectedPaths(
+				[path],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+
+			drag([450, 300], [450, 300]);
+
+			expect(ctx.batchPathUpdate).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("Inserting an anchor by double-click", () => {
+		function doubleClick(screenX: number, screenY: number) {
+			tool.onDoubleClick(
+				ev(screenX, screenY),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		}
+
+		it("should split the segment under the cursor into two at that point", () => {
+			const path = makeStraightPath("path-1", [0, 100, 200]);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+
+			// world(50,0) is the middle of the first segment
+			doubleClick(450, 300);
+
+			expect(ctx.pathUpdate).toHaveBeenCalledTimes(1);
+			const [pathId, segments] = ctx.pathUpdate.mock.calls[0];
+			expect(pathId).toBe("path-1");
+			expect(segments).toHaveLength(3);
+			expect(segments[0].end).toEqual({ x: 50, y: 0 });
+			expect(segments[1].end).toEqual({ x: 100, y: 0 });
+			expect(segments[2].end).toEqual({ x: 200, y: 0 });
+		});
+
+		it("should keep the curve shape by splitting the control points", () => {
+			const path = cloneTestPath();
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+
+			// seg0 runs (0,0)-(33,0)-(66,0)-(100,0); its midpoint sits near x=50
+			doubleClick(450, 300);
+
+			const [, segments] = ctx.pathUpdate.mock.calls[0];
+			expect(segments).toHaveLength(3);
+			// De Casteljau at t≈0.5: left cp1 = 33*t, right cp2 = 66+34*t - 100
+			expect(Math.abs(segments[0].end.x - 50)).toBeLessThan(1);
+			expect(Math.abs(segments[0].cp1.x - 16.5)).toBeLessThan(1);
+			expect(Math.abs(segments[1].cp2.x - -17)).toBeLessThan(1);
+			expect(segments[1].cp1.x).toBeGreaterThan(0);
+			expect(segments[0].cp2.x).toBeLessThan(0);
+		});
+
+		it("should keep the path closed when inserting on its closing segment", () => {
+			const path = makeClosedTriangle("path-c");
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+
+			// The closing segment runs (0,100) -> (0,0); world(0,50) is its middle
+			doubleClick(400, 250);
+
+			const [, segments] = ctx.pathUpdate.mock.calls[0];
+			expect(segments).toHaveLength(4);
+			expect(segments[2].end).toEqual({ x: 0, y: 50 });
+			expect(segments[2].isClosed).toBeUndefined();
+			expect(segments[3].end).toEqual({ x: 0, y: 0 });
+			expect(segments[3].isClosed).toBe(true);
+		});
+
+		it("should select only the inserted anchor", () => {
+			const path = makeStraightPath("path-1", [0, 100, 200]);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+			ctx.getPathById.mockImplementation(() => ({
+				...path,
+				segments: ctx.pathUpdate.mock.calls[0][1],
+			}));
+
+			doubleClick(450, 300);
+
+			const selected = getControlPoints(ctx, HANDLES_KEY).filter(
+				(cp) => cp.selected,
+			);
+			expect(selected).toHaveLength(1);
+			expect(selected[0].segmentIndex).toBe(0);
+			expect(selected[0].pointType).toBe("end");
+			expect(selected[0].worldX).toBe(50);
+		});
+
+		it("should not insert an anchor when double-clicking an existing anchor", () => {
+			const path = makeStraightPath("path-1", [0, 100, 200]);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+
+			// world(100,0) is the middle anchor
+			doubleClick(500, 300);
+
+			expect(ctx.pathUpdate).not.toHaveBeenCalled();
+		});
+
+		it("should not insert an anchor when double-clicking away from any path", () => {
+			const path = makeStraightPath("path-1", [0, 100, 200]);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+
+			doubleClick(450, 400);
+
+			expect(ctx.pathUpdate).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("cutting a path", () => {
 		/** alt+shift-click at a screen point, the cut shortcut. */
 		function cutClick(screenX: number, screenY: number) {
 			tool.onPointerDown(

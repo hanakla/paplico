@@ -40,6 +40,7 @@ import {
 	composeTransforms,
 	computeTransformOrigin,
 	inverseTransform,
+	inverseTransformVector,
 	screenToWorld,
 	type WorldBezierSegment,
 	worldToScreen,
@@ -72,6 +73,7 @@ import {
 	reconstructSegmentsFromWorld,
 	resolveCP1,
 	resolveCP2,
+	splitSegmentAtIndex,
 	toRelativeCP1,
 	toRelativeCP2,
 } from "../utils/geometry/segmentOps";
@@ -79,6 +81,7 @@ import { matchKey } from "../utils/keyboard";
 import { deepClone } from "../utils/lang";
 import {
 	applyAnchorCPDrag,
+	bendSegmentAtT,
 	breakDeleteAnchorsFromPath,
 	cutPathSegments,
 	deleteAnchorFromPath,
@@ -138,6 +141,21 @@ type DragState =
 			/** Initial K values at drag start */
 			startSuperellipseKs: Map<string, number>;
 	  })
+	| {
+			mode: "segmentBendDrag";
+			/** Drag a segment's curve: bend it so the grabbed point follows */
+			pathId: string;
+			segmentIndex: number;
+			/** Bezier parameter of the grabbed point */
+			t: number;
+			/** Segments at pointerDown; each move bends from these */
+			originalSegments: CubicBezierSegment[];
+			startX: number;
+			startY: number;
+			startScreenX: number;
+			startScreenY: number;
+			hasMoved: boolean;
+	  }
 	| {
 			mode: "faceDragPending";
 			startX: number;
@@ -688,8 +706,33 @@ export class PathEditTool implements Tool {
 			return;
 		}
 
-		// No handle clicked - check if clicking on a selected path's face (for face drag)
+		// No handle clicked - a selected path's curve under the cursor bends
+		// on drag, and its face moves the whole path.
 		if (this.selectedPaths.size > 0) {
+			const site = this.findCurveSiteAt(
+				world,
+				viewport,
+				this.context
+					.getAllEditablePaths()
+					.filter(({ path }) => this.selectedPaths.has(path.id)),
+			);
+			if (site?.position.kind === "edge") {
+				this.dragState = {
+					mode: "segmentBendDrag",
+					pathId: site.path.id,
+					segmentIndex: site.segmentIndex,
+					t: site.position.t,
+					originalSegments: site.path.segments,
+					startX: world.x,
+					startY: world.y,
+					startScreenX: event.x,
+					startScreenY: event.y,
+					hasMoved: false,
+				};
+				this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+				return;
+			}
+
 			const hitPath = this.context.findPathAtPoint(
 				world.x,
 				world.y,
@@ -892,6 +935,41 @@ export class PathEditTool implements Tool {
 
 		if (ds.mode === "lasso") {
 			ds.path.push({ x: world.x, y: world.y });
+			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+			return;
+		}
+
+		if (ds.mode === "segmentBendDrag") {
+			if (
+				!ds.hasMoved &&
+				Math.hypot(event.x - ds.startScreenX, event.y - ds.startScreenY) <=
+					this.dragStartThresholdPx
+			)
+				return;
+			ds.hasMoved = true;
+
+			const path = this.selectedPaths.get(ds.pathId);
+			if (!path) return;
+
+			// cp1/cp2 live in the path's local space, so the pointer offset must
+			// be pulled through the inverse of the composed linear transform.
+			const ancestorT = this.pathAncestorTransforms.get(ds.pathId) ?? null;
+			const t = getTransform(path);
+			const delta = inverseTransformVector(
+				world.x - ds.startX,
+				world.y - ds.startY,
+				ancestorT ? composeTransforms(ancestorT, t) : t,
+			);
+			const newSegments = bendSegmentAtT(
+				ds.originalSegments,
+				ds.segmentIndex,
+				ds.t,
+				delta.x,
+				delta.y,
+			);
+			this.selectedPaths.set(ds.pathId, { ...path, segments: newSegments });
+			this.context.previewSegments?.(ds.pathId, newSegments);
+			this.cachedControlPoints.delete(ds.pathId);
 			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
 			return;
 		}
@@ -1335,6 +1413,22 @@ export class PathEditTool implements Tool {
 			return;
 		}
 
+		if (ds.mode === "segmentBendDrag") {
+			if (ds.hasMoved) {
+				const path = this.selectedPaths.get(ds.pathId);
+				if (path) {
+					this.context.batchPathUpdate([[ds.pathId, path.segments]]);
+					const updatedPath = this.context.getPathById(ds.pathId);
+					if (updatedPath) {
+						this.selectedPaths.set(ds.pathId, updatedPath);
+					}
+				}
+			}
+			this.dragState = { mode: "idle" };
+			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+			return;
+		}
+
 		if (ds.mode === "faceDragPending") {
 			// Released before threshold: treat as click on fill
 			this.selectedHandles.clear();
@@ -1520,7 +1614,11 @@ export class PathEditTool implements Tool {
 			canvasHeight,
 		);
 
-		if (!handle) return;
+		// Nothing under the cursor but the curve itself: give it a new anchor.
+		if (!handle) {
+			this.tryInsertAnchorAt(world, viewport, canvasWidth, canvasHeight);
+			return;
+		}
 
 		// Only reset CPs for anchor handles (start/end)
 		if (handle.type !== "anchor") return;
@@ -1815,7 +1913,7 @@ export class PathEditTool implements Tool {
 		canvasWidth: number,
 		canvasHeight: number,
 	): boolean {
-		const target = this.findCutTarget(world, viewport);
+		const target = this.findCurveSiteAt(world, viewport);
 		if (!target) return false;
 
 		const runs = cutPathSegments(
@@ -1856,18 +1954,59 @@ export class PathEditTool implements Tool {
 		return true;
 	}
 
-	/** Nearest cut site under the cursor: an anchor when close, else a segment point. */
-	private findCutTarget(
+	/**
+	 * Add an anchor where the cursor meets a segment, keeping the curve's
+	 * shape: the segment is split at that point and the new anchor becomes
+	 * the selection. Returns whether an anchor was inserted.
+	 */
+	private tryInsertAnchorAt(
 		world: { x: number; y: number },
 		viewport: Viewport,
+		canvasWidth: number,
+		canvasHeight: number,
+	): boolean {
+		const target = this.findCurveSiteAt(world, viewport);
+		if (target?.position.kind !== "edge") return false;
+
+		const pathId = target.path.id;
+		this.context.stashPathEditUndoSelection([...this.selectedHandles]);
+		this.cachedControlPoints.delete(pathId);
+		this.context.pathUpdate(
+			pathId,
+			splitSegmentAtIndex(
+				target.path.segments,
+				target.segmentIndex,
+				target.position.t,
+			),
+		);
+		const updatedPath = this.context.getPathById(pathId);
+		if (updatedPath) {
+			this.selectedPaths.set(pathId, updatedPath);
+		}
+
+		// Handle keys past the split index now point at shifted segments.
+		this.selectedHandles.clear();
+		this.selectedHandles.add(`${pathId}:${target.segmentIndex}:end`);
+		this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+		return true;
+	}
+
+	/**
+	 * Nearest point of a path under the cursor: an anchor when close, else a
+	 * segment point. Searches every editable path unless `candidates` narrows it.
+	 */
+	private findCurveSiteAt(
+		world: { x: number; y: number },
+		viewport: Viewport,
+		candidates = this.context.getAllEditablePaths(),
 	): {
 		path: Path;
 		segmentIndex: number;
 		position: PathCutPosition;
 	} | null {
-		const editable = this.context
-			.getAllEditablePaths()
-			.filter(({ path }) => !this.context.isElementLocked(path.id));
+		const editable = candidates.filter(
+			({ path }) => !this.context.isElementLocked(path.id),
+		);
 
 		let best: {
 			path: Path;

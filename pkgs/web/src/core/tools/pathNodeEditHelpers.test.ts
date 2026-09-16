@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CubicBezierSegment } from "../schema";
 import { getStartAnchor } from "../utils/geometry/segmentOps";
-import { cutPathSegments } from "./pathNodeEditHelpers";
+import { bendSegmentAtT, cutPathSegments } from "./pathNodeEditHelpers";
 
 describe("cutPathSegments", () => {
 	describe("when the path is open", () => {
@@ -113,6 +113,90 @@ describe("cutPathSegments", () => {
 });
 
 /** Anchor x coordinates of a run, from its start anchor through every end. */
+describe("bendSegmentAtT", () => {
+	it("should turn the next segment's cp1 with the bent cp2 and keep its length", () => {
+		const segments = openPath([0, 100, 200]);
+		segments[0].cp2 = { x: -30, y: 0 };
+		segments[1].cp1 = { x: 30, y: 0 };
+
+		const result = bendSegmentAtT(segments, 0, 0.5, 0, 20);
+
+		const bent = result[0].cp2;
+		const far = result[1].cp1;
+		expect(bent.y).toBeCloseTo(26.667, 2);
+		// Opposite direction to the bent handle, still 30 away from the anchor
+		expect(Math.hypot(far.x, far.y)).toBeCloseTo(30);
+		expect(far.x * bent.y - far.y * bent.x).toBeCloseTo(0);
+		expect(far.x * bent.x + far.y * bent.y).toBeLessThan(0);
+	});
+
+	it("should leave the previous segment's cp2 in place across the closing join when the bent cp1 only grows", () => {
+		const segments = closedPath([0, 100, 200]);
+		segments[0].cp1 = { x: 0, y: 30 };
+		segments[2].cp2 = { x: 0, y: -30 };
+
+		const result = bendSegmentAtT(segments, 0, 0.5, 0, 20);
+
+		expect(result[0].cp1.y).toBeCloseTo(56.667, 2);
+		expect(result[2].cp2.x).toBeCloseTo(0);
+		expect(result[2].cp2.y).toBeCloseTo(-30);
+	});
+
+	it("should turn the previous segment's cp2 across the closing join", () => {
+		const segments = closedPath([0, 100, 200]);
+		segments[0].cp1 = { x: 30, y: 0 };
+		segments[2].cp2 = { x: -30, y: 0 };
+
+		const result = bendSegmentAtT(segments, 0, 0.5, 0, 20);
+
+		const bent = result[0].cp1;
+		const far = result[2].cp2;
+		expect(Math.hypot(far.x, far.y)).toBeCloseTo(30);
+		expect(far.x * bent.y - far.y * bent.x).toBeCloseTo(0);
+		expect(far.x * bent.x + far.y * bent.y).toBeLessThan(0);
+	});
+
+	it("should turn the first segment's cp1 when the closing segment is bent", () => {
+		const segments = closedPath([0, 100, 200]);
+		segments[2].cp2 = { x: 30, y: 0 };
+		segments[0].cp1 = { x: -30, y: 0 };
+
+		const result = bendSegmentAtT(segments, 2, 0.5, 0, 20);
+
+		const bent = result[2].cp2;
+		const far = result[0].cp1;
+		expect(bent.y).toBeCloseTo(26.667, 2);
+		expect(Math.hypot(far.x, far.y)).toBeCloseTo(30);
+		expect(far.x * bent.y - far.y * bent.x).toBeCloseTo(0);
+		expect(far.x * bent.x + far.y * bent.y).toBeLessThan(0);
+	});
+
+	it("should turn both handles of the other segment in a two-segment closed path", () => {
+		const segments = closedPath([0, 100]);
+		segments[0].cp1 = { x: 0, y: 30 };
+		segments[0].cp2 = { x: 0, y: 30 };
+		segments[1].cp1 = { x: 0, y: -30 };
+		segments[1].cp2 = { x: 0, y: -30 };
+
+		const result = bendSegmentAtT(segments, 0, 0.5, 20, 0);
+
+		// Both bent handles lean toward +x, so both far handles lean toward -x
+		expect(result[1].cp1.x).toBeLessThan(0);
+		expect(result[1].cp2.x).toBeLessThan(0);
+		expect(Math.hypot(result[1].cp1.x, result[1].cp1.y)).toBeCloseTo(30);
+		expect(Math.hypot(result[1].cp2.x, result[1].cp2.y)).toBeCloseTo(30);
+	});
+
+	it("should leave the far handle alone when the bent handle had no direction", () => {
+		const segments = openPath([0, 100, 200]);
+		segments[1].cp1 = { x: 30, y: 0 };
+
+		const result = bendSegmentAtT(segments, 0, 0.5, 0, 20);
+
+		expect(result[1].cp1).toEqual({ x: 30, y: 0 });
+	});
+});
+
 function anchorXs(segments: CubicBezierSegment[]): number[] {
 	return [
 		getStartAnchor(segments[0]).x,

@@ -304,6 +304,58 @@ export function cutPathSegments(
 	return [head, tail];
 }
 
+/**
+ * Bend a segment so the curve point at parameter `t` moves by (dx, dy) in the
+ * path's local space while both anchors stay put. The offset is spread over
+ * cp1 and cp2 in proportion to their Bernstein weights at `t`, which is the
+ * least-norm control-point change that lands the point exactly on target.
+ * The handles on the far side of each anchor (the previous segment's cp2 and
+ * the next segment's cp1) turn with the bent handle at that anchor and keep
+ * their length, so a smooth anchor stays smooth.
+ */
+export function bendSegmentAtT(
+	segments: CubicBezierSegment[],
+	segmentIndex: number,
+	t: number,
+	dx: number,
+	dy: number,
+): CubicBezierSegment[] {
+	const u = 1 - t;
+	const w1 = 3 * u * u * t;
+	const w2 = 3 * u * t * t;
+	const k = 1 / (w1 * w1 + w2 * w2);
+	const segment = segments[segmentIndex];
+	const cp1 = {
+		x: segment.cp1.x + w1 * k * dx,
+		y: segment.cp1.y + w1 * k * dy,
+	};
+	const cp2 = {
+		x: segment.cp2.x + w2 * k * dx,
+		y: segment.cp2.y + w2 * k * dy,
+	};
+
+	const isClosed = segments.at(-1)?.isClosed === true;
+	const prevIndex =
+		segmentIndex > 0 ? segmentIndex - 1 : isClosed ? segments.length - 1 : -1;
+	const nextIndex =
+		segmentIndex < segments.length - 1 ? segmentIndex + 1 : isClosed ? 0 : -1;
+
+	return segments.map((other, index) => {
+		if (index === segmentIndex) return { ...cloneSegment(other), cp1, cp2 };
+		if (index !== prevIndex && index !== nextIndex) return other;
+
+		// A closed path of two segments has the same neighbor on both sides.
+		const neighbor = cloneSegment(other);
+		if (index === prevIndex) {
+			neighbor.cp2 = followHandle(other.cp2, segment.cp1, cp1);
+		}
+		if (index === nextIndex) {
+			neighbor.cp1 = followHandle(other.cp1, segment.cp2, cp2);
+		}
+		return neighbor;
+	});
+}
+
 /** Map path-edit handles to unique anchor indices (closed join wraps to 0). */
 function collectAnchorIndices(
 	handles: ReadonlyArray<{
@@ -559,6 +611,27 @@ function anchorAtBoundary(
 	const anchor =
 		index === 0 ? getStartAnchor(segments[0]) : segments[index - 1].end;
 	return { ...anchor };
+}
+
+/**
+ * Turn `handle` by the angle between `before` and `after`, all three being
+ * anchor-relative offsets. Its length stays as it is. A handle whose partner
+ * had no direction before the change is left alone, since there is no angle
+ * to follow.
+ */
+function followHandle(
+	handle: { x: number; y: number },
+	before: { x: number; y: number },
+	after: { x: number; y: number },
+): { x: number; y: number } {
+	if (Math.hypot(before.x, before.y) < 1e-6) return { ...handle };
+	const angle = Math.atan2(after.y, after.x) - Math.atan2(before.y, before.x);
+	const cos = Math.cos(angle);
+	const sin = Math.sin(angle);
+	return {
+		x: handle.x * cos - handle.y * sin,
+		y: handle.x * sin + handle.y * cos,
+	};
 }
 
 function cloneSegment(segment: CubicBezierSegment): CubicBezierSegment {
