@@ -40,6 +40,8 @@ import {
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
+const PICK_TOLERANCE_SCREEN_PX = 6;
+
 // --- Types ---
 
 interface DragTarget {
@@ -100,7 +102,8 @@ export class MeshDeformTool implements Tool {
 	private uniqueEdges: Array<[number, number]> = [];
 	private handles: MeshDeformHandle[] = [];
 
-	private initialized = false;
+	/** False once the tool is finalized, guarding double commit/cancel. */
+	private initialized = true;
 
 	private lastClick: { handleId: string; time: number } | null = null;
 	private longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -110,11 +113,20 @@ export class MeshDeformTool implements Tool {
 	public constructor(context: ToolContext) {
 		this.context = context;
 
-		const selectedIds = context.getSelectedElementIds();
-		if (selectedIds.length === 0) {
-			context.complete();
-			return;
-		}
+		// Stay active even with no selection so the user can click an object
+		// to build the mesh on it without pre-selecting.
+		this.refreshUI();
+	}
+
+	/**
+	 * Build the mesh from the selection once one exists. The mesh stays bound to
+	 * its first targets: rebuilding would discard placed handles and previews.
+	 */
+	public refreshUI(): void {
+		if (!this.initialized || this.mesh) return;
+
+		const selectedIds = this.context.getSelectedElementIds();
+		if (selectedIds.length === 0) return;
 
 		// Collect elements and compute combined bounds
 		let combinedMinX = Infinity;
@@ -122,18 +134,18 @@ export class MeshDeformTool implements Tool {
 		let combinedMaxX = -Infinity;
 		let combinedMaxY = -Infinity;
 
-		// グループを再帰的にflattenしてリーフ要素IDを収集
-		const leafIds = flattenElementIds(selectedIds, context.getElement);
+		// Flatten groups recursively to collect leaf element ids
+		const leafIds = flattenElementIds(selectedIds, this.context.getElement);
 
 		for (const id of leafIds) {
-			const element = context.getElement(id);
-			const bounds = context.getBounds(id);
+			const element = this.context.getElement(id);
+			const bounds = this.context.getBounds(id);
 			if (!element || !bounds) continue;
 
 			this.elementIds.push(id);
 
 			if (isDeformableElement(element)) {
-				const ancestorTransform = context.getAncestorTransform(id);
+				const ancestorTransform = this.context.getAncestorTransform(id);
 				this.originalGeometries.push({
 					element: deepClone(element),
 					ancestorTransform,
@@ -151,10 +163,7 @@ export class MeshDeformTool implements Tool {
 			combinedMaxY = Math.max(combinedMaxY, bounds.maxY);
 		}
 
-		if (this.elementIds.length === 0) {
-			context.complete();
-			return;
-		}
+		if (this.elementIds.length === 0) return;
 
 		this.combinedBounds = {
 			minX: combinedMinX,
@@ -171,7 +180,6 @@ export class MeshDeformTool implements Tool {
 
 		// Build initial UI (no initial handles — user adds them manually)
 		this.updateUI();
-		this.initialized = true;
 	}
 
 	public onPointerDown(
@@ -182,7 +190,6 @@ export class MeshDeformTool implements Tool {
 	): void {
 		if (!this.initialized) return;
 		if (this.context.isReadonly()) return;
-		if (this.elementIds.some((id) => this.context.isElementLocked(id))) return;
 
 		const world = screenToWorld(
 			event.x,
@@ -191,6 +198,24 @@ export class MeshDeformTool implements Tool {
 			canvasWidth,
 			canvasHeight,
 		);
+
+		// Without a mesh the press picks the object to deform.
+		if (!this.mesh) {
+			const tolerance = PICK_TOLERANCE_SCREEN_PX / viewport.zoom;
+			const picked = this.context.findElementAtPoint(
+				world.x,
+				world.y,
+				tolerance,
+			);
+			if (!picked || !this.context.isElementEditable(picked.id)) return;
+			const bounds = this.context.getBounds(picked.id);
+			if (!bounds) return;
+			this.context.elementSelect(picked.id, bounds);
+			this.refreshUI();
+			return;
+		}
+
+		if (this.elementIds.some((id) => this.context.isElementLocked(id))) return;
 
 		// Hit-test existing handles via the overlay channel (hitId = handle.id)
 		const hit = this.context.uiHitTest({ x: event.x, y: event.y });

@@ -1,18 +1,31 @@
 import { subscribeKey } from "valtio/utils";
 import type { ObjectsChangeDelta } from "../collaboration/YjsProvider";
 import type { RendererState } from "../Paplico";
+import { resolveImageGeometry } from "../renderer/canvas/elements/ImageElementRenderer";
+import type { FilterRenderer } from "../renderer/canvas/pipeline/FilterRenderer";
+import {
+	childPreFilters,
+	geometryFilters,
+	resolvePathGeometryVariants,
+	subtreeHasPreFilter,
+	withInheritedPreFilters,
+} from "../renderer/canvas/pipeline/PreFilterRenderer";
+import { calculatePreFilteredElementBounds } from "../renderer/canvas/pipeline/RenderPlanner";
 import type { SnapLine, SnapResult } from "../renderer/ui/types";
 import {
 	type AnyArtObject,
 	type Artboard,
 	type BlendObject,
 	type BoundingBox,
+	type CubicBezierSegment,
 	type Document,
 	type ElementTransform,
+	type Filter,
 	getArtboardBounds,
 	getContainerChildIds,
 	getTransform,
 	IDENTITY_TRANSFORM,
+	type ImageObject,
 	isBlend,
 	isContainer,
 	isGroup,
@@ -42,7 +55,9 @@ import {
 	calculatePathBounds,
 	calculateRepeatSourceUnion,
 	doesPathIntersectRect,
+	expandBounds,
 	isPointInPath,
+	isPointNearSegments,
 	isPointOnPath,
 	type LocalBBox,
 	type LocalBoundsCache,
@@ -127,6 +142,29 @@ export class SpatialIndex {
 		this.textHitTester = fn;
 	}
 
+	/**
+	 * Injected filter handlers, so hit tests see paths and images the way
+	 * geometry filters deform them at render time. Wired by the engine facade;
+	 * without it hit tests use the stored geometry.
+	 */
+	private filterHandlers: Pick<FilterRenderer, "getHandler"> | null = null;
+
+	/** Deformed outlines per element; see resolveDeformedGeometries. */
+	private deformedGeometryCache = new WeakMap<
+		AnyArtObject,
+		{
+			inheritedPreFilters: readonly Filter[];
+			presets: Document["appearancePresets"];
+			geometries: CubicBezierSegment[][] | null;
+		}
+	>();
+
+	public setFilterHandlerLookup(
+		getHandler: FilterRenderer["getHandler"],
+	): void {
+		this.filterHandlers = { getHandler };
+	}
+
 	private parentGroupMap = new Map<string, string>();
 
 	/** Cached elementsMap (preset refs resolved); rebuilt when document.objects or appearancePresets change. */
@@ -207,7 +245,7 @@ export class SpatialIndex {
 			this.localBoundsCache,
 		);
 		const composedT = composeTransforms(ancestorT, getTransform(el));
-		return applyTransformToBounds(localBounds, composedT);
+		return brandWorldBBox(applyTransformToBounds(localBounds, composedT));
 	}
 
 	/** The blend that directly absorbs this element, or null. */
@@ -265,7 +303,7 @@ export class SpatialIndex {
 
 		for (const [, quadtree] of this.layerQuadtrees) {
 			if (quadtree.remove(elementId)) {
-				quadtree.insert({ id: elementId, data: element, bounds });
+				this.insertIntoQuadtree(quadtree, element, bounds);
 				break;
 			}
 		}
@@ -358,7 +396,7 @@ export class SpatialIndex {
 
 		for (const [, quadtree] of this.layerQuadtrees) {
 			if (quadtree.remove(elementId)) {
-				quadtree.insert({ id: elementId, data: element, bounds });
+				this.insertIntoQuadtree(quadtree, element, bounds);
 				break;
 			}
 		}
@@ -379,7 +417,7 @@ export class SpatialIndex {
 			this.localBoundsCache,
 		);
 		this.boundsCache.set(element.id, bounds);
-		quadtree.insert({ id: element.id, data: element, bounds });
+		this.insertIntoQuadtree(quadtree, element, bounds);
 
 		// Register children of container elements in the reverse index.
 		const insertedChildIds = getContainerChildIds(element);
@@ -430,7 +468,7 @@ export class SpatialIndex {
 			this.localBoundsCache,
 		);
 		this.boundsCache.set(element.id, bounds);
-		quadtree.insert({ id: element.id, data: element, bounds });
+		this.insertIntoQuadtree(quadtree, element, bounds);
 
 		const updatedChildIds = getContainerChildIds(element);
 		if (updatedChildIds) {
@@ -970,7 +1008,7 @@ export class SpatialIndex {
 					.map((id) => this.store.document.objects[id])
 					.filter((el): el is AnyArtObject => {
 						if (!el) return false;
-						const elBounds = this.getBounds(el.id, el);
+						const elBounds = this.getHitCandidateBounds(el.id, el);
 						if (!elBounds) return false;
 						return (
 							elBounds.minX <= bounds.maxX &&
@@ -987,7 +1025,10 @@ export class SpatialIndex {
 
 			// Single-element scope: the scope element itself is the only candidate.
 			if (!containerChildIds) {
-				const elBounds = this.getWorldBounds(editingScopeId);
+				const elBounds = this.getHitCandidateBounds(
+					editingScopeId,
+					scopeElement,
+				);
 				if (!elBounds) return [];
 				const intersects =
 					elBounds.minX <= bounds.maxX &&
@@ -1005,7 +1046,7 @@ export class SpatialIndex {
 				.map((id) => this.store.document.objects[id])
 				.filter((el): el is AnyArtObject => {
 					if (!el) return false;
-					const elBounds = this.getWorldBounds(el.id);
+					const elBounds = this.getHitCandidateBounds(el.id, el);
 					if (!elBounds) return false;
 					return (
 						elBounds.minX <= bounds.maxX &&
@@ -1065,7 +1106,15 @@ export class SpatialIndex {
 					candidate.id,
 					candidate,
 				);
-				if (this.isPointOnElementLocal(candidate, localX, localY, tolerance)) {
+				if (
+					this.isPointOnElementLocal(
+						candidate,
+						localX,
+						localY,
+						tolerance,
+						this.collectInheritedPreFilters(candidate.id),
+					)
+				) {
 					// The scope element itself must never be promoted to an
 					// ancestor clip group, or it would become unselectable
 					// inside its own scope.
@@ -1082,7 +1131,13 @@ export class SpatialIndex {
 		// space IS world space, so the world point doubles as the parent-local
 		// point isPointOnElement expects.
 		const hitElements = visibleCandidates.filter((el) =>
-			this.isPointOnElement(el, asLocalCoord(x), asLocalCoord(y), tolerance),
+			this.isPointOnElement(
+				el,
+				asLocalCoord(x),
+				asLocalCoord(y),
+				tolerance,
+				[],
+			),
 		);
 		if (hitElements.length === 0) return null;
 
@@ -1189,6 +1244,10 @@ export class SpatialIndex {
 				localX,
 				localY,
 				tolerance,
+				this.getChildPreFilters(
+					element,
+					this.collectInheritedPreFilters(element.id),
+				),
 			);
 		}
 
@@ -1217,11 +1276,202 @@ export class SpatialIndex {
 		).filter((el) => isElementVisible(el) && !this.isElementLocked(el.id));
 
 		return candidates.filter((el) =>
-			this.isElementInRect(el, minX, minY, maxX, maxY),
+			this.isElementInRect(
+				el,
+				minX,
+				minY,
+				maxX,
+				maxY,
+				this.collectInheritedPreFilters(el.id),
+			),
 		);
 	}
 
 	// ===== Internal =====
+
+	/**
+	 * Index an element under its bounds widened to where geometry filters draw
+	 * it, so a click on a deformed outline reaches the hit test while
+	 * boundsCache keeps the flat box for selection frames and snapping.
+	 */
+	private insertIntoQuadtree(
+		quadtree: Quadtree<AnyArtObject>,
+		element: AnyArtObject,
+		bounds: WorldBBox,
+	): void {
+		const margin = this.getDeformationMargin(element, []);
+		quadtree.insert({
+			id: element.id,
+			data: element,
+			bounds: margin > 0 ? expandBounds(bounds, margin) : bounds,
+		});
+	}
+
+	/**
+	 * World bounds for picking hit-test candidates: the flat world bounds
+	 * widened by the geometry filter deformation. The widening is measured in
+	 * the parent space and grown by the ancestor transform's reach, so the box
+	 * stays conservative under rotation and scale.
+	 */
+	private getHitCandidateBounds(
+		elementId: string,
+		element: AnyArtObject,
+	): WorldBBox | null {
+		const flat = this.getWorldBounds(elementId);
+		if (!flat) return null;
+		const margin = this.getDeformationMargin(
+			element,
+			this.collectInheritedPreFilters(elementId),
+		);
+		if (margin === 0) return flat;
+		const m = transformLinearMatrix(this.resolveWorldTransform(elementId));
+		const reach = Math.max(
+			Math.abs(m.m00) + Math.abs(m.m01),
+			Math.abs(m.m10) + Math.abs(m.m11),
+		);
+		return expandBounds(flat, margin * reach);
+	}
+
+	/**
+	 * How far geometry filters push an element past its flat bounds, in its
+	 * parent space. `inheritedPreFilters` are the ancestor groups' geometry
+	 * filters the renderer appends to the element's own.
+	 */
+	private getDeformationMargin(
+		element: AnyArtObject,
+		inheritedPreFilters: readonly Filter[],
+	): number {
+		if (!this.filterHandlers) return 0;
+		const effective = withInheritedPreFilters(
+			this.resolveAppearance(element),
+			inheritedPreFilters,
+		);
+		const elementsMap = this.getElementsMapCached();
+		// Index rebuilds run this for every element on each document change,
+		// so elements nothing deforms must not pay for two bounds passes.
+		if (!subtreeHasPreFilter(effective, elementsMap, this.filterHandlers)) {
+			return 0;
+		}
+		const flat = calculateElementBounds(
+			effective,
+			elementsMap,
+			this.localBoundsCache,
+		);
+		const deformed = calculatePreFilteredElementBounds(
+			effective,
+			elementsMap,
+			this.filterHandlers,
+			this.localBoundsCache,
+		);
+		return Math.max(
+			0,
+			flat.minX - deformed.minX,
+			flat.minY - deformed.minY,
+			deformed.maxX - flat.maxX,
+			deformed.maxY - flat.maxY,
+		);
+	}
+
+	private isClipPath(elementId: string): boolean {
+		const parentId = this.parentGroupMap.get(elementId);
+		const parent = parentId ? this.store.document.objects[parentId] : null;
+		return parent != null && isGroup(parent) && parent.clipPathId === elementId;
+	}
+
+	/**
+	 * Geometry filters an element inherits from its ancestor groups, innermost
+	 * group first — the order the renderer appends them in. Propagation stops
+	 * at the first non-group container, as it does when rendering.
+	 */
+	private collectInheritedPreFilters(elementId: string): Filter[] {
+		const inherited: Filter[] = [];
+		for (
+			let ancestorId = this.parentGroupMap.get(elementId);
+			ancestorId;
+			ancestorId = this.parentGroupMap.get(ancestorId)
+		) {
+			const ancestor = this.store.document.objects[ancestorId];
+			if (!ancestor || !isGroup(ancestor)) break;
+			inherited.push(...this.getOwnPreFilters(ancestor));
+		}
+		return inherited;
+	}
+
+	/**
+	 * Geometry filters a container hands down to its children: a group
+	 * prepends its own to what it inherited; other containers hand down none.
+	 */
+	private getChildPreFilters(
+		container: AnyArtObject,
+		inheritedPreFilters: readonly Filter[],
+	): readonly Filter[] {
+		if (!isGroup(container) || !this.filterHandlers) return [];
+		return (
+			childPreFilters(
+				this.resolveAppearance(container),
+				inheritedPreFilters,
+				this.filterHandlers,
+			) ?? []
+		);
+	}
+
+	/** Geometry filters the element carries itself, presets expanded. */
+	private getOwnPreFilters(element: AnyArtObject): Filter[] {
+		if (!this.filterHandlers) return [];
+		return geometryFilters(
+			this.resolveAppearance(element),
+			this.filterHandlers,
+		);
+	}
+
+	/**
+	 * Outlines a path or image is drawn with once geometry filters (its own
+	 * and the inherited ones) deform it, in the element's local space: one per
+	 * path appearance variant, or the image's deformed quad. Null when nothing
+	 * deforms the element, so callers keep testing the stored geometry.
+	 */
+	private resolveDeformedGeometries(
+		element: Path | ImageObject,
+		inheritedPreFilters: readonly Filter[],
+	): CubicBezierSegment[][] | null {
+		const filterHandlers = this.filterHandlers;
+		if (!filterHandlers) return null;
+		// A clip path is drawn as a flat mask: the renderer drops its own
+		// filters and hands it no group filters.
+		if (this.isClipPath(element.id)) return null;
+
+		const presets = this.store.document.appearancePresets;
+		const cached = this.deformedGeometryCache.get(element);
+		if (
+			cached &&
+			cached.presets === presets &&
+			cached.inheritedPreFilters.length === inheritedPreFilters.length &&
+			cached.inheritedPreFilters.every((f, i) => f === inheritedPreFilters[i])
+		) {
+			return cached.geometries;
+		}
+
+		const effective = withInheritedPreFilters(
+			this.resolveAppearance(element),
+			inheritedPreFilters,
+		);
+		let geometries: CubicBezierSegment[][] | null;
+		if (isPath(effective)) {
+			geometries = resolvePathGeometryVariants(effective, filterHandlers);
+		} else {
+			const { quad, deformed } = resolveImageGeometry(
+				effective,
+				filterHandlers,
+			);
+			geometries = deformed === quad ? null : [deformed];
+		}
+		this.deformedGeometryCache.set(element, {
+			inheritedPreFilters,
+			presets,
+			geometries,
+		});
+		return geometries;
+	}
 
 	/**
 	 * Resolve the composed world-space transform for an element
@@ -1320,6 +1570,7 @@ export class SpatialIndex {
 		x: LocalCoord,
 		y: LocalCoord,
 		tolerance: number,
+		inheritedPreFilters: readonly Filter[],
 	): Path | null {
 		// childIds[0] draws backmost, so walk from the end to hit the frontmost
 		// path first, matching the layer-level Z-order resolution.
@@ -1335,7 +1586,10 @@ export class SpatialIndex {
 				// local space. Blend sources keep their own transforms (the positional
 				// offset is the whole point of a blend), so without this a body click on
 				// a blend's inner object never hits.
-				if (this.isPointOnPathLocal(child, x, y, tolerance)) return child;
+				if (
+					this.isPointOnPathLocal(child, x, y, tolerance, inheritedPreFilters)
+				)
+					return child;
 				continue;
 			}
 
@@ -1360,7 +1614,13 @@ export class SpatialIndex {
 				continue;
 			}
 
-			const found = this.findPathInChildren(nestedChildIds, lx, ly, tolerance);
+			const found = this.findPathInChildren(
+				nestedChildIds,
+				lx,
+				ly,
+				tolerance,
+				this.getChildPreFilters(child, inheritedPreFilters),
+			);
 			if (found) return found;
 		}
 		return null;
@@ -1504,7 +1764,7 @@ export class SpatialIndex {
 					this.localBoundsCache,
 				);
 			this.boundsCache.set(element.id, bounds);
-			quadtree.insert({ id: element.id, data: element, bounds });
+			this.insertIntoQuadtree(quadtree, element, bounds);
 		}
 		this.layerQuadtrees.set(layer.id, quadtree);
 	}
@@ -1564,19 +1824,48 @@ export class SpatialIndex {
 		x: LocalCoord,
 		y: LocalCoord,
 		tolerance: number,
+		inheritedPreFilters: readonly Filter[],
 	): boolean {
 		const t = getTransform(path);
 		if (isIdentityTransform(t))
-			return isPointOnPath(x, y, this.resolveAppearance(path), tolerance);
+			return this.isPointOnPathGeometry(
+				path,
+				x,
+				y,
+				tolerance,
+				inheritedPreFilters,
+			);
 
 		const localBounds = calculatePathBounds(this.resolveAppearance(path));
 		const origin = computeTransformOrigin(localBounds);
 		const local = inverseTransform(x, y, t, origin.x, origin.y);
-		return isPointOnPath(
+		return this.isPointOnPathGeometry(
+			path,
 			local.x,
 			local.y,
-			this.resolveAppearance(path),
 			tolerance,
+			inheritedPreFilters,
+		);
+	}
+
+	/**
+	 * Hit-test a path in its local segment space against every outline it is
+	 * drawn with, so geometry filters move the hit area along with the ink.
+	 */
+	private isPointOnPathGeometry(
+		path: Path,
+		x: number,
+		y: number,
+		tolerance: number,
+		inheritedPreFilters: readonly Filter[],
+	): boolean {
+		const resolved = this.resolveAppearance(path);
+		const geometries = this.resolveDeformedGeometries(
+			path,
+			inheritedPreFilters,
+		) ?? [resolved.segments];
+		return geometries.some((segments) =>
+			isPointOnPath(x, y, { ...resolved, segments }, tolerance),
 		);
 	}
 
@@ -1586,12 +1875,19 @@ export class SpatialIndex {
 		x: LocalCoord,
 		y: LocalCoord,
 		tolerance: number,
+		inheritedPreFilters: readonly Filter[],
 	): boolean {
 		const t = getTransform(element);
 		const hasTransform = !isIdentityTransform(t);
 
 		if (isPath(element)) {
-			return this.isPointOnPathLocal(element, x, y, tolerance);
+			return this.isPointOnPathLocal(
+				element,
+				x,
+				y,
+				tolerance,
+				inheritedPreFilters,
+			);
 		}
 
 		// A repeat's instances are synthetic (only the sources live in
@@ -1616,7 +1912,13 @@ export class SpatialIndex {
 			lx = local.x;
 			ly = local.y;
 		}
-		return this.isPointOnElementLocal(element, lx, ly, tolerance);
+		return this.isPointOnElementLocal(
+			element,
+			lx,
+			ly,
+			tolerance,
+			inheritedPreFilters,
+		);
 	}
 
 	/**
@@ -1644,6 +1946,7 @@ export class SpatialIndex {
 						src.x as LocalCoord,
 						src.y as LocalCoord,
 						tolerance,
+						[],
 					)
 				);
 			}),
@@ -1677,9 +1980,31 @@ export class SpatialIndex {
 		x: LocalCoord,
 		y: LocalCoord,
 		tolerance: number,
+		inheritedPreFilters: readonly Filter[],
 	): boolean {
 		if (isPath(element)) {
-			return isPointOnPath(x, y, this.resolveAppearance(element), tolerance);
+			return this.isPointOnPathGeometry(
+				element,
+				x,
+				y,
+				tolerance,
+				inheritedPreFilters,
+			);
+		}
+
+		if (element.type === "image") {
+			const quad = this.resolveDeformedGeometries(
+				element,
+				inheritedPreFilters,
+			)?.[0];
+			// Interior plus the same forgiveness a stroke gets, so a deformed
+			// image is no harder to click at its edge than a flat one.
+			if (quad) {
+				return (
+					isPointInPath(x, y, { segments: quad }) ||
+					isPointNearSegments(x, y, quad, tolerance)
+				);
+			}
 		}
 
 		if (isMesh(element)) {
@@ -1710,7 +2035,13 @@ export class SpatialIndex {
 				return (
 					child != null &&
 					isElementVisible(child) &&
-					this.isPointOnElement(child, x, y, tolerance)
+					this.isPointOnElement(
+						child,
+						x,
+						y,
+						tolerance,
+						this.getChildPreFilters(element, inheritedPreFilters),
+					)
 				);
 			});
 			if (hitChild) return true;
@@ -1838,7 +2169,7 @@ export class SpatialIndex {
 			for (const id of repeat.sourceIds) {
 				const source = this.store.document.objects[id];
 				if (!source || !isElementVisible(source)) continue;
-				if (this.isPointOnElement(source, lx, ly, tolerance)) return true;
+				if (this.isPointOnElement(source, lx, ly, tolerance, [])) return true;
 			}
 		}
 		return false;
@@ -1850,35 +2181,30 @@ export class SpatialIndex {
 		minY: number,
 		maxX: number,
 		maxY: number,
+		inheritedPreFilters: readonly Filter[],
 	): boolean {
-		const t = getTransform(element);
-		const hasTransform = !isIdentityTransform(t);
-
 		if (isPath(element)) {
-			let rMinX = minX;
-			let rMinY = minY;
-			let rMaxX = maxX;
-			let rMaxY = maxY;
-			if (hasTransform) {
-				const localBounds = calculatePathBounds(
-					this.resolveAppearance(element),
-				);
-				const origin = computeTransformOrigin(localBounds);
-				const tl = inverseTransform(minX, minY, t, origin.x, origin.y);
-				const br = inverseTransform(maxX, maxY, t, origin.x, origin.y);
-				const tr = inverseTransform(maxX, minY, t, origin.x, origin.y);
-				const bl = inverseTransform(minX, maxY, t, origin.x, origin.y);
-				rMinX = Math.min(tl.x, br.x, tr.x, bl.x);
-				rMinY = Math.min(tl.y, br.y, tr.y, bl.y);
-				rMaxX = Math.max(tl.x, br.x, tr.x, bl.x);
-				rMaxY = Math.max(tl.y, br.y, tr.y, bl.y);
-			}
-			return doesPathIntersectRect(
-				this.resolveAppearance(element),
-				rMinX,
-				rMinY,
-				rMaxX,
-				rMaxY,
+			const path = this.resolveAppearance(element);
+			const rect = this.toElementLocalRect(
+				element,
+				calculatePathBounds(path),
+				minX,
+				minY,
+				maxX,
+				maxY,
+			);
+			const geometries = this.resolveDeformedGeometries(
+				element,
+				inheritedPreFilters,
+			) ?? [path.segments];
+			return geometries.some((segments) =>
+				doesPathIntersectRect(
+					{ ...path, segments },
+					rect.minX,
+					rect.minY,
+					rect.maxX,
+					rect.maxY,
+				),
 			);
 		}
 
@@ -1886,39 +2212,101 @@ export class SpatialIndex {
 			const childIds = getContainerChildIds(element);
 			if (!childIds || childIds.length === 0) return false;
 
-			let rMinX = minX;
-			let rMinY = minY;
-			let rMaxX = maxX;
-			let rMaxY = maxY;
-			if (hasTransform) {
-				const localBounds = calculateLocalElementBounds(
+			const rect = this.toElementLocalRect(
+				element,
+				calculateLocalElementBounds(
 					element,
 					this.getElementsMapCached(),
 					this.localBoundsCache,
-				);
-				const origin = computeTransformOrigin(localBounds);
-				const tl = inverseTransform(minX, minY, t, origin.x, origin.y);
-				const br = inverseTransform(maxX, maxY, t, origin.x, origin.y);
-				const tr = inverseTransform(maxX, minY, t, origin.x, origin.y);
-				const bl = inverseTransform(minX, maxY, t, origin.x, origin.y);
-				rMinX = Math.min(tl.x, br.x, tr.x, bl.x);
-				rMinY = Math.min(tl.y, br.y, tr.y, bl.y);
-				rMaxX = Math.max(tl.x, br.x, tr.x, bl.x);
-				rMaxY = Math.max(tl.y, br.y, tr.y, bl.y);
-			}
-
+				),
+				minX,
+				minY,
+				maxX,
+				maxY,
+			);
+			const childPreFilters = this.getChildPreFilters(
+				element,
+				inheritedPreFilters,
+			);
 			return childIds.some((id) => {
 				const child = this.store.document.objects[id];
 				return (
 					child != null &&
 					isElementVisible(child) &&
-					this.isElementInRect(child, rMinX, rMinY, rMaxX, rMaxY)
+					this.isElementInRect(
+						child,
+						rect.minX,
+						rect.minY,
+						rect.maxX,
+						rect.maxY,
+						childPreFilters,
+					)
 				);
 			});
 		}
 
+		// A deformed image intersects where its quad does: an edge inside the
+		// rect, or the rect lying inside the quad.
+		if (element.type === "image") {
+			const quad = this.resolveDeformedGeometries(
+				element,
+				inheritedPreFilters,
+			)?.[0];
+			if (quad) {
+				const rect = this.toElementLocalRect(
+					element,
+					calculateLocalElementBounds(
+						element,
+						this.getElementsMapCached(),
+						this.localBoundsCache,
+					),
+					minX,
+					minY,
+					maxX,
+					maxY,
+				);
+				return (
+					doesPathIntersectRect(
+						{ segments: quad, filters: [] },
+						rect.minX,
+						rect.minY,
+						rect.maxX,
+						rect.maxY,
+					) || isPointInPath(rect.minX, rect.minY, { segments: quad })
+				);
+			}
+		}
+
 		// Other elements (ImageObject, TextElement): AABB is accurate
 		return true;
+	}
+
+	/**
+	 * Map a parent-space rect into an element's local space by undoing its
+	 * transform around the origin `localBounds` gives, and re-box the result.
+	 */
+	private toElementLocalRect(
+		element: AnyArtObject,
+		localBounds: LocalBBox,
+		minX: number,
+		minY: number,
+		maxX: number,
+		maxY: number,
+	): { minX: number; minY: number; maxX: number; maxY: number } {
+		const t = getTransform(element);
+		if (isIdentityTransform(t)) return { minX, minY, maxX, maxY };
+
+		const origin = computeTransformOrigin(localBounds);
+		const tl = inverseTransform(minX, minY, t, origin.x, origin.y);
+		const br = inverseTransform(maxX, maxY, t, origin.x, origin.y);
+		const tr = inverseTransform(maxX, minY, t, origin.x, origin.y);
+		const bl = inverseTransform(minX, maxY, t, origin.x, origin.y);
+		return {
+			minX: Math.min(tl.x, br.x, tr.x, bl.x),
+			minY: Math.min(tl.y, br.y, tr.y, bl.y),
+			maxX: Math.max(tl.x, br.x, tr.x, bl.x),
+			maxY: Math.max(tl.y, br.y, tr.y, bl.y),
+		};
 	}
 }
 

@@ -16,7 +16,6 @@ import {
 	type Group,
 	getTransform,
 	isGroup,
-	isIdentityTransform,
 	type Path,
 	type StrokeAppearance,
 	type Viewport,
@@ -25,14 +24,12 @@ import {
 	boundsIntersect,
 	boundsIntersectionBox,
 	brandWorldBBox,
-	calculateElementBounds,
 	expandBounds,
 	type LocalBoundsCache,
 	snapBoundsToRasterGrid,
 	type WorldBBox,
 } from "../../../utils/geometry/bounds";
 import {
-	applyTransformToBounds,
 	composeTransforms,
 	screenToWorld,
 } from "../../../utils/geometry/geometry";
@@ -59,13 +56,14 @@ import {
 } from "../CanvasLayerTypes";
 import { MaskedBlitBindGroupCache } from "../caches/BindGroupCache";
 import type { FilterRenderer } from "./FilterRenderer";
-import { isGeometryFilter } from "./FilterRenderer";
 import { FrameUniformPool } from "./FrameUniformPool";
 import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
 import {
-	calculatePreFilteredElementBounds,
-	scanBlendingFlags,
-} from "./RenderPlanner";
+	childPreFilters,
+	geometryFilters,
+	withInheritedPreFilters,
+} from "./PreFilterRenderer";
+import { planBoundsOf, scanBlendingFlags } from "./RenderPlanner";
 import {
 	type ColorRenderSurface,
 	createBorrowedTextureRef,
@@ -102,6 +100,8 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 	uniformScope: UniformScope;
 
 	getTransformIndex: (elementId: string) => number;
+	/** World transform of an element with every ancestor composed in. */
+	getComposedTransform: (elementId: string) => ElementTransform;
 	/** Push (or with `replace`, swap) the viewport binding of the pass being
 	 *  encoded; null pops back to the previous one. */
 	setActiveBindGroup: (entry: UniformEntry | null, replace?: boolean) => void;
@@ -1424,9 +1424,10 @@ export class OffscreenPresenter {
 
 		// Group-level pre-filters deform every child at render time; extract
 		// them up front so pre-rasterized children keep the deformation too.
-		const groupPreFilters = localAppearances(group.filters).filter((f) =>
-			isGeometryFilter(f, this.deps.filterRenderer),
-		);
+		const groupPreFilters = geometryFilters(group, this.deps.filterRenderer);
+		// Child bounds come out in the group's space; the bakes below draw the
+		// children through their world transforms.
+		const groupWorldTransform = this.deps.getComposedTransform(group.id);
 
 		// Pre-rasterize only children whose own filters need a post-process
 		// pass; everything else renders inline in renderGroupChildrenToTexture,
@@ -1510,17 +1511,13 @@ export class OffscreenPresenter {
 				continue;
 			}
 
-			const effectiveChild = groupPreFilters.length
-				? ({
-						...child,
-						filters: [...localAppearances(child.filters), ...groupPreFilters],
-					} as AnyArtObject)
-				: child;
-			const childBounds = calculatePreFilteredElementBounds(
+			const effectiveChild = withInheritedPreFilters(child, groupPreFilters);
+			const childBounds = planBoundsOf(
 				effectiveChild,
 				elementsMap,
 				this.deps.filterRenderer,
 				localBoundsCache,
+				groupWorldTransform,
 			);
 			const childExpansion = this.deps.filterRenderer.calculateExpansion(
 				localAppearances(child.filters),
@@ -1825,16 +1822,13 @@ export class OffscreenPresenter {
 		if (!clipPath) return null;
 		if (children.length === 0) return null;
 
-		let groupBounds = calculateElementBounds(
+		const groupBounds = planBoundsOf(
 			group,
 			elementsMap,
+			null,
 			localBoundsCache,
+			ancestorTransform,
 		);
-		if (ancestorTransform && !isIdentityTransform(ancestorTransform)) {
-			groupBounds = brandWorldBBox(
-				applyTransformToBounds(groupBounds, ancestorTransform),
-			);
-		}
 		if (Math.ceil(groupBounds.width) <= 0 || Math.ceil(groupBounds.height) <= 0)
 			return null;
 
@@ -2395,13 +2389,11 @@ export class OffscreenPresenter {
 						.filter((id) => id !== child.clipPathId)
 						.map((id) => elementsMap.get(id))
 						.filter((el): el is AnyArtObject => el !== undefined);
-					const childGroupPreFilters = localAppearances(child.filters).filter(
-						(f) => isGeometryFilter(f, this.deps.filterRenderer),
+					const nestedPreFilters = childPreFilters(
+						child,
+						parentPreFilters,
+						this.deps.filterRenderer,
 					);
-					const nestedPreFilters =
-						childGroupPreFilters.length > 0 || parentPreFilters?.length
-							? [...childGroupPreFilters, ...(parentPreFilters ?? [])]
-							: undefined;
 					activePass = this.renderGroupChildrenToTexture(
 						encoder,
 						activePass,
@@ -2415,18 +2407,9 @@ export class OffscreenPresenter {
 					);
 				}
 			} else {
-				const effectiveChild = parentPreFilters?.length
-					? {
-							...child,
-							filters: [
-								...localAppearances(child.filters),
-								...parentPreFilters,
-							],
-						}
-					: child;
 				this.deps.dispatchElementDirect(
 					activePass,
-					effectiveChild as AnyArtObject,
+					withInheritedPreFilters(child, parentPreFilters),
 					elementsMap,
 					childAlpha,
 					"offscreen",

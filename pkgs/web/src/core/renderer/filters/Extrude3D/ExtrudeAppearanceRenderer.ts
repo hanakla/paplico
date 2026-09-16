@@ -90,6 +90,7 @@ import { collectGroupSegments } from "../../canvas/pipeline/GroupAppearanceColle
 import type { MeshPassRenderer } from "../../canvas/pipeline/MeshPassRenderer";
 import {
 	applyPreFilters,
+	geometryFilters,
 	resolveElementGeometry,
 } from "../../canvas/pipeline/PreFilterRenderer";
 import {
@@ -1371,9 +1372,7 @@ export function collectGroupExtrudeOutline(
 	const ancestor = isIdentityTransform(worldTransform)
 		? undefined
 		: worldTransform;
-	const groupPreFilters = localAppearances(group.filters).filter((f) =>
-		isGeometryFilter(f, filterRenderer),
-	);
+	const groupPreFilters = geometryFilters(group, filterRenderer);
 	const shouldUseCombinedGroupShape =
 		hasGroupAppearances(group) || groupPreFilters.length > 0;
 
@@ -1946,25 +1945,6 @@ function collectTextExtrudeOutline(
 		nodeTransform,
 	);
 	return world.segments;
-}
-
-/** Append `segments` as a new sub-path (marking its first segment isMoved)
- *  onto `result`, in place. No-op for an empty `segments`. */
-/** Compose a group's own transform with all its ancestor group transforms. */
-export function composeAncestorTransform(
-	element: AnyArtObject,
-	elementsMap: Map<string, AnyArtObject>,
-	parentGroupMap: ReadonlyMap<string, string>,
-): ElementTransform {
-	let transform = getTransform(element);
-	let parentId = parentGroupMap.get(element.id);
-	while (parentId) {
-		const ancestor = elementsMap.get(parentId);
-		if (ancestor)
-			transform = composeTransforms(getTransform(ancestor), transform);
-		parentId = parentGroupMap.get(parentId);
-	}
-	return transform;
 }
 
 /** The element's first enabled stroke appearance carrying a stroke color. */

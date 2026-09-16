@@ -1,19 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { localAppearances } from "../../../document/appearancePresets";
-import type {
-	BezierPoint,
-	BlendMode,
-	CubicBezierSegment,
-	Document,
-	Filter,
-	Path,
+import { createIdentityTransform } from "../../../document/factory";
+import {
+	type BezierPoint,
+	type BlendMode,
+	type CubicBezierSegment,
+	type Document,
+	type ElementTransform,
+	type Filter,
+	getTransform,
+	type Path,
 } from "../../../schema";
+import {
+	mockDocument,
+	mockGroup,
+	mockLayer,
+	mockPath,
+} from "../../../testUtils/mockElements";
+import { closedRectSegments } from "../../../testUtils/segmentFactory";
 import { Extrude3DFilterHandler } from "../../filters/Extrude3DFilterHandler";
 import type { FilterHandler } from "./FilterRenderer";
 import {
+	buildFilterPlansForElements,
 	buildFramePlanStructure,
 	buildFramePlanView,
 	buildPassPlan,
+	planBoundsOf,
 } from "./RenderPlanner";
 
 describe("RenderPlanner frame planning", () => {
@@ -328,6 +340,117 @@ describe("transient element bounds", () => {
 		expect(plan!.textureBounds.width).toBeGreaterThan(250);
 	});
 });
+
+describe("group child filter plans", () => {
+	it("should place a moved group's child plan at the child's world position", () => {
+		const { child, document } = groupedChild({ x: 500, y: 0 });
+
+		const plan = planFor(document, child.id, { x: 520, y: 20 });
+		expect(plan.textureBounds.minX).toBeCloseTo(500);
+		expect(plan.textureBounds.maxX).toBeCloseTo(540);
+	});
+
+	it("should pivot a rotated group's child on the child's own centre", () => {
+		// Child square at 0..40 shifted by x:100 under a group rotated 90°. The
+		// GPU rotates about the child's own centre (20,20) and adds the rotated
+		// offset (0,100), so the square lands at x 0..40, y 100..140. Rotating
+		// the already-shifted box about its centre would land it at x 100..140,
+		// y 0..40 instead.
+		const { child, document } = groupedChild(
+			{ x: 0, y: 0, rotation: Math.PI / 2 },
+			{ x: 100, y: 0 },
+		);
+
+		const plan = planFor(document, child.id, { x: 20, y: 120 });
+		expect(plan.textureBounds.minX).toBeCloseTo(0);
+		expect(plan.textureBounds.maxX).toBeCloseTo(40);
+		expect(plan.textureBounds.minY).toBeCloseTo(100);
+		expect(plan.textureBounds.maxY).toBeCloseTo(140);
+	});
+
+	it("should size a standalone plan from the parent transform it is given", () => {
+		const child = blendedSquare("child-1");
+		const document = mockDocument([child], [mockLayer("layer-1", [child.id])]);
+
+		const plans = buildFilterPlansForElements(
+			[child],
+			new Map(Object.entries(document.objects)),
+			{
+				getHandler: (processor) => makeFilterHandlers().get(processor),
+				getHandlers: () => makeFilterHandlers(),
+			},
+			undefined,
+			() => ({ ...createIdentityTransform(), x: 500 }),
+		);
+
+		const plan = plans.get(child.id);
+		expect(plan).toBeDefined();
+		expect(plan!.textureBounds.minX).toBeCloseTo(500);
+		expect(plan!.textureBounds.maxX).toBeCloseTo(540);
+	});
+});
+
+describe("planBoundsOf", () => {
+	it("should pivot a rotated group's child on the child's own centre without a filter renderer", () => {
+		// The flat-bounds form every mask, clip and backdrop box goes through:
+		// the same child square as above, read with no geometry filters.
+		const { child, document } = groupedChild(
+			{ x: 0, y: 0, rotation: Math.PI / 2 },
+			{ x: 100, y: 0 },
+		);
+		const group = document.objects["group-1"];
+
+		const bounds = planBoundsOf(
+			child,
+			new Map(Object.entries(document.objects)),
+			null,
+			undefined,
+			getTransform(group),
+		);
+		expect(bounds.minX).toBeCloseTo(0);
+		expect(bounds.maxX).toBeCloseTo(40);
+		expect(bounds.minY).toBeCloseTo(100);
+		expect(bounds.maxY).toBeCloseTo(140);
+	});
+});
+
+/** A 40x40 square with a multiply fill, so it always gets a filter plan. */
+function blendedSquare(id: string, transform: Partial<ElementTransform> = {}) {
+	const path = mockPath(id);
+	path.segments = closedRectSegments(0, 0, 40, 40);
+	path.filters = [fillAppearance("multiply")];
+	path.transform = { ...createIdentityTransform(), ...transform };
+	return path;
+}
+
+function groupedChild(
+	groupTransform: Partial<ElementTransform>,
+	childTransform: Partial<ElementTransform> = {},
+) {
+	const child = blendedSquare("child-1", childTransform);
+	const group = mockGroup("group-1", [child.id], groupTransform);
+	const document = mockDocument(
+		[child, group],
+		[mockLayer("layer-1", [group.id])],
+	);
+	return { child, document };
+}
+
+function planFor(
+	document: Document,
+	elementId: string,
+	viewportCenter: { x: number; y: number },
+) {
+	const view = buildFramePlanView(
+		buildFramePlanStructure(document, makeFilterHandlers(), false),
+		{ ...viewportCenter, zoom: 1, rotation: 0 },
+		800,
+		600,
+	);
+	const plan = view.filterPlans.get(elementId);
+	expect(plan).toBeDefined();
+	return plan!;
+}
 
 function plainPath(): Path {
 	const element = pathWithExtrude("normal");

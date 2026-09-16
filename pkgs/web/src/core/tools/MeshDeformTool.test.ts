@@ -545,18 +545,57 @@ describe("MeshDeformTool", () => {
 		});
 	});
 
-	describe("初期化", () => {
-		it("選択要素がない場合、completeが即座に呼ばれる", () => {
+	describe("initialization", () => {
+		it("should stay active without showing a mesh when nothing is selected", () => {
 			const ctx = createMockToolContext({
 				getSelectedElementIds: vi.fn(() => []),
 				getCurrentLayerId: vi.fn(() => "layer-1"),
 			});
-			const tool = new MeshDeformTool(ctx);
-			expect(ctx.complete).toHaveBeenCalledTimes(1);
-			expect(tool.name).toBe("mesh-deform");
+			new MeshDeformTool(ctx);
+			expect(ctx.complete).not.toHaveBeenCalled();
+			expect(lastDeformOverlay(ctx)).toBeNull();
 		});
 
-		it("パスを選択した状態でツールを起動すると、ハンドルなしのメッシュUIが生成される", () => {
+		it("should select a clicked object and build its mesh when nothing is selected", () => {
+			const path = createSquarePath();
+			const reg = createElementRegistry([path]);
+			let selectedIds: string[] = [];
+			const ctx = createMockToolContext({
+				getSelectedElementIds: vi.fn(() => selectedIds),
+				getElement: vi.fn((id) => reg.getElement(id)),
+				getBounds: vi.fn((id) => reg.getBounds(id)),
+				getCurrentLayerId: vi.fn(() => "layer-1"),
+				findElementAtPoint: vi.fn(() => path),
+				elementSelect: vi.fn((id) => {
+					selectedIds = [id];
+				}),
+			});
+			const tool = new MeshDeformTool(ctx);
+
+			// world(50,50) = screen(450,250)
+			tool.onPointerDown(
+				ev(450, 250),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(450, 250),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.elementSelect.mock.calls[0][0]).toBe(path.id);
+			const rect = lastDeformOverlay(ctx)?.primitives.find(
+				(p) => p.kind === "rect",
+			);
+			expect(rect).toMatchObject({ cx: 50, cy: 50, width: 100, height: 100 });
+			// The selecting click must not also place a handle
+			expect(getHandles(ctx)).toHaveLength(0);
+		});
+
+		it("should build a mesh without handles when activated with a path selected", () => {
 			const path = createSquarePath();
 			const reg = createElementRegistry([path]);
 			const ctx = createMockToolContext({

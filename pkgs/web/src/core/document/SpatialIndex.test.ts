@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { RendererState } from "../Paplico";
+import type { FilterHandler } from "../renderer/canvas/pipeline/FilterRenderer";
 import type {
 	AnyArtObject,
+	AppearancePreset,
 	Artboard,
 	BlendObject,
+	CubicBezierSegment,
+	Filter,
 	Group,
 	ImageObject,
 	Layer,
@@ -274,6 +278,69 @@ function makeBounds(
 		width: maxX - minX,
 		height: maxY - minY,
 	});
+}
+
+/** How far the "shift-up" test geometry filter moves every point up. */
+const SHIFT_Y = 200;
+
+function shiftUpFilter(): Filter {
+	return {
+		uid: "shift-up",
+		processor: "shift-up",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: { params: {} },
+	} as Filter;
+}
+
+/** The "double-y" test geometry filter doubles every y coordinate. */
+function doubleYFilter(): Filter {
+	return { ...shiftUpFilter(), uid: "double-y", processor: "double-y" };
+}
+
+function mapSegmentY(
+	segments: CubicBezierSegment[],
+	fn: (y: number) => number,
+): CubicBezierSegment[] {
+	return segments.map((segment) => ({
+		...segment,
+		start: segment.start && { x: segment.start.x, y: fn(segment.start.y) },
+		end: { ...segment.end, y: fn(segment.end.y) },
+	}));
+}
+
+/** Index over one layer with the "shift-up" and "double-y" geometry filters wired. */
+function createFilteredIndex(
+	elementIds: string[],
+	objects: Record<string, AnyArtObject>,
+	{
+		editingScopeStack = [],
+		appearancePresets,
+	}: {
+		editingScopeStack?: string[];
+		appearancePresets?: AppearancePreset[];
+	} = {},
+): SpatialIndex {
+	const store = makeStore(
+		[makeLayer("layer-1", elementIds)],
+		objects,
+		editingScopeStack,
+	);
+	store.document.appearancePresets = appearancePresets;
+	const idx = new SpatialIndex(store);
+	const handlers: Record<string, FilterHandler> = {
+		"shift-up": {
+			preProcess: (segments: CubicBezierSegment[]) =>
+				mapSegmentY(segments, (y) => y + SHIFT_Y),
+		} as unknown as FilterHandler,
+		"double-y": {
+			preProcess: (segments: CubicBezierSegment[]) =>
+				mapSegmentY(segments, (y) => y * 2),
+		} as unknown as FilterHandler,
+	};
+	idx.setFilterHandlerLookup((processor) => handlers[processor]);
+	idx.rebuildAllIndices();
+	return idx;
 }
 
 // ===== Tests =====
@@ -1517,5 +1584,180 @@ describe("mesh warp container hit testing", () => {
 		expect(
 			idx.findElementAtPoint("layer-1", folded.target.x, folded.target.y),
 		).toBe(mesh);
+	});
+});
+
+describe("geometry filter hit testing", () => {
+	it("should hit a path where a geometry filter moved its outline", () => {
+		const path: Path = { ...makePath("path-1"), filters: [shiftUpFilter()] };
+		const idx = createFilteredIndex(["path-1"], { "path-1": path });
+
+		expect(idx.findElementAtPoint("layer-1", 0, SHIFT_Y)).toBe(path);
+		expect(idx.findElementAtPoint("layer-1", 0, 0)).toBeNull();
+	});
+
+	it("should hit the stored outline when no filter handlers are injected", () => {
+		const path: Path = { ...makePath("path-1"), filters: [shiftUpFilter()] };
+		const idx = new SpatialIndex(
+			makeStore([makeLayer("layer-1", ["path-1"])], { "path-1": path }),
+		);
+		idx.rebuildAllIndices();
+
+		expect(idx.findElementAtPoint("layer-1", 0, 0)).toBe(path);
+		expect(idx.findElementAtPoint("layer-1", 0, SHIFT_Y)).toBeNull();
+	});
+
+	it("should place the deformed outline with the path's own transform", () => {
+		// Deform first (y → SHIFT_Y), then scale ×2 about the flat centre and
+		// move right, exactly as the renderer places the outline.
+		const path: Path = {
+			...makePath("path-1"),
+			filters: [shiftUpFilter()],
+			transform: { x: 100, y: 0, rotation: 0, scaleX: 2, scaleY: 1 },
+		};
+		const idx = createFilteredIndex(["path-1"], { "path-1": path });
+
+		expect(idx.findElementAtPoint("layer-1", 150, SHIFT_Y)).toBe(path);
+		expect(idx.findElementAtPoint("layer-1", 150, 0)).toBeNull();
+		expect(idx.findElementAtPoint("layer-1", 250, SHIFT_Y)).toBeNull();
+	});
+
+	it("should hit every outline an appearance sub-filter adds", () => {
+		const path: Path = {
+			...makePath("path-1"),
+			filters: [
+				{
+					uid: "fill",
+					processor: "fill",
+					opacity: 1,
+					blendMode: "normal",
+					paramData: { params: {} },
+					subFilters: [shiftUpFilter()],
+				} as Filter,
+			],
+		};
+		const idx = createFilteredIndex(["path-1"], { "path-1": path });
+
+		expect(idx.findElementAtPoint("layer-1", 0, 0)).toBe(path);
+		expect(idx.findElementAtPoint("layer-1", 0, SHIFT_Y)).toBe(path);
+	});
+
+	it("should apply a group's geometry filters to its children", () => {
+		const child = makePath("child-1");
+		const group = makeGroup("group-1", ["child-1"], {
+			filters: [shiftUpFilter()],
+		});
+		const idx = createFilteredIndex(["group-1"], {
+			"group-1": group,
+			"child-1": child,
+		});
+
+		expect(idx.findElementAtPoint("layer-1", 0, SHIFT_Y)).toBe(group);
+		expect(idx.findElementAtPoint("layer-1", 0, 0)).toBeNull();
+	});
+
+	it("should apply a group's geometry filters that come from an appearance preset", () => {
+		const child = makePath("child-1");
+		const group = makeGroup("group-1", ["child-1"], {
+			filters: [{ type: "preset", uid: "ref", presetUid: "preset-1" }],
+		});
+		const idx = createFilteredIndex(
+			["group-1"],
+			{ "group-1": group, "child-1": child },
+			{
+				appearancePresets: [
+					{ uid: "preset-1", name: "shift", filters: [shiftUpFilter()] },
+				],
+			},
+		);
+
+		expect(idx.findElementAtPoint("layer-1", 0, SHIFT_Y)).toBe(group);
+		expect(idx.findElementAtPoint("layer-1", 0, 0)).toBeNull();
+	});
+
+	it("should apply nested group filters innermost first", () => {
+		// y=10 → inner doubles to 20 → outer shifts to 20 + SHIFT_Y. The
+		// reverse order would land at 2 × (10 + SHIFT_Y).
+		const child: Path = {
+			...makePath("child-1"),
+			segments: makePath("child-1").segments.map((seg) => ({
+				...seg,
+				start: { x: -50, y: 10 },
+				end: { x: 50, y: 10 },
+			})),
+		};
+		const inner = makeGroup("inner", ["child-1"], {
+			filters: [doubleYFilter()],
+		});
+		const outer = makeGroup("outer", ["inner"], {
+			filters: [shiftUpFilter()],
+		});
+		const idx = createFilteredIndex(["outer"], {
+			outer,
+			inner,
+			"child-1": child,
+		});
+
+		expect(idx.findElementAtPoint("layer-1", 0, 20 + SHIFT_Y)).toBe(outer);
+		expect(idx.findElementAtPoint("layer-1", 0, 2 * (10 + SHIFT_Y))).toBeNull();
+	});
+
+	it("should hit a group child through the group's filters inside its editing scope", () => {
+		const child = makePath("child-1");
+		const group = makeGroup("group-1", ["child-1"], {
+			filters: [shiftUpFilter()],
+		});
+		const idx = createFilteredIndex(
+			["group-1"],
+			{ "group-1": group, "child-1": child },
+			{ editingScopeStack: ["group-1"] },
+		);
+
+		expect(idx.findElementAtPoint("layer-1", 0, SHIFT_Y)).toBe(child);
+		expect(idx.findPathAtPoint("layer-1", 0, SHIFT_Y)).toBe(child);
+		expect(idx.findElementAtPoint("layer-1", 0, 0)).toBeNull();
+	});
+
+	it("should hit an image where a geometry filter moved its quad", () => {
+		const image = makeImage("img-1", 0, 0, 40, 40, {
+			filters: [shiftUpFilter()],
+		});
+		const idx = createFilteredIndex(["img-1"], { "img-1": image });
+
+		expect(idx.findElementAtPoint("layer-1", 0, SHIFT_Y)).toBe(image);
+		expect(idx.findElementAtPoint("layer-1", 0, 0)).toBeNull();
+	});
+
+	it("should give a deformed image the same click forgiveness at its edge as a flat one", () => {
+		const image = makeImage("img-1", 0, 0, 40, 40, {
+			filters: [shiftUpFilter()],
+		});
+		const idx = createFilteredIndex(["img-1"], { "img-1": image });
+
+		// 3 units outside the right edge, inside the default tolerance of 5.
+		expect(idx.findElementAtPoint("layer-1", 23, SHIFT_Y)).toBe(image);
+		expect(idx.findElementAtPoint("layer-1", 30, SHIFT_Y)).toBeNull();
+	});
+
+	it("should select a path by a rect that only touches its deformed outline", () => {
+		const path: Path = { ...makePath("path-1"), filters: [shiftUpFilter()] };
+		const idx = createFilteredIndex(["path-1"], { "path-1": path });
+
+		expect(
+			idx.findElementsInRect("layer-1", -10, SHIFT_Y - 10, 10, SHIFT_Y + 10),
+		).toEqual([path]);
+		expect(idx.findElementsInRect("layer-1", -10, -10, 10, 10)).toEqual([]);
+	});
+
+	it("should select a deformed image by a rect lying inside its quad", () => {
+		const image = makeImage("img-1", 0, 0, 40, 40, {
+			filters: [shiftUpFilter()],
+		});
+		const idx = createFilteredIndex(["img-1"], { "img-1": image });
+
+		expect(
+			idx.findElementsInRect("layer-1", -5, SHIFT_Y - 5, 5, SHIFT_Y + 5),
+		).toEqual([image]);
+		expect(idx.findElementsInRect("layer-1", -5, -5, 5, 5)).toEqual([]);
 	});
 });

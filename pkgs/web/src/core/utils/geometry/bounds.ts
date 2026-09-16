@@ -18,6 +18,7 @@ import {
 	type MeshArtObject,
 	type MeshGeometryVertex,
 	type Path,
+	type PathSegment,
 	type Reference3DElement,
 	type RepeatObject,
 	type StrokeAppearance,
@@ -1018,18 +1019,22 @@ export function isPointOnPath(
 			getStrokeWidth(path.filters, 0),
 			getStrokeAlign(path.filters),
 		) + extraTolerance;
+	return isPointNearSegments(px, py, path.segments, hitTolerance);
+}
 
-	// Check distance to each segment
+/** True when the point lies within `tolerance` of any segment's curve. */
+export function isPointNearSegments(
+	px: number,
+	py: number,
+	segments: readonly PathSegment[],
+	tolerance: number,
+): boolean {
 	let prevEnd: BezierPoint | null = null;
-
-	for (const segment of path.segments) {
-		const { distance: dist } = distanceToSegment(px, py, segment, prevEnd);
-		if (dist <= hitTolerance) {
-			return true;
-		}
+	for (const segment of segments) {
+		const { distance } = distanceToSegment(px, py, segment, prevEnd);
+		if (distance <= tolerance) return true;
 		prevEnd = segment.end;
 	}
-
 	return false;
 }
 
@@ -1038,7 +1043,7 @@ export function isPointOnPath(
  * Used for marquee selection to avoid false positives from AABB-only checks.
  */
 export function doesPathIntersectRect(
-	path: Path,
+	path: Pick<Path, "segments" | "filters">,
 	rectMinX: number,
 	rectMinY: number,
 	rectMaxX: number,
@@ -1100,7 +1105,11 @@ export function doesPathIntersectRect(
  * @param path The path to test against
  * @returns true if the point is inside the filled area
  */
-export function isPointInPath(px: number, py: number, path: Path): boolean {
+export function isPointInPath(
+	px: number,
+	py: number,
+	path: Pick<Path, "segments">,
+): boolean {
 	if (path.segments.length === 0) return false;
 
 	let windingNumber = 0;

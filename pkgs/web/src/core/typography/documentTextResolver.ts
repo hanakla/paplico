@@ -14,7 +14,6 @@ import {
 	type Document,
 	type ElementTransform,
 	getContainerChildIds,
-	getTransform,
 	isContainer,
 	isIdentityTransform,
 	isPath,
@@ -22,6 +21,7 @@ import {
 } from "../schema";
 import { calculateLocalElementBounds } from "../utils/geometry/bounds";
 import {
+	composeAncestorTransform,
 	composeTransforms,
 	computeTransformOrigin,
 } from "../utils/geometry/geometry";
@@ -32,9 +32,10 @@ export function buildDocumentTextResolver(
 	document: Document,
 ): TextDocumentResolver {
 	const objects: Record<string, AnyArtObject> = document.objects;
+	const elementsMap = new Map(Object.entries(objects));
 
 	const parentOf = new Map<string, string>();
-	for (const [id, el] of Object.entries(objects)) {
+	for (const [id, el] of elementsMap) {
 		if (!isContainer(el)) continue;
 		for (const childId of getContainerChildIds(el) ?? []) {
 			parentOf.set(childId, id);
@@ -42,17 +43,10 @@ export function buildDocumentTextResolver(
 	}
 
 	function ancestorTransform(id: string): ElementTransform | null {
-		let t: ElementTransform | null = null;
-		let ancestorId = parentOf.get(id);
-		while (ancestorId) {
-			const ancestor = objects[ancestorId];
-			if (ancestor) {
-				const at = getTransform(ancestor);
-				t = t ? composeTransforms(at, t) : at;
-			}
-			ancestorId = parentOf.get(ancestorId);
-		}
-		return t;
+		const parent = elementsMap.get(parentOf.get(id) ?? "");
+		return parent
+			? composeAncestorTransform(parent, elementsMap, parentOf)
+			: null;
 	}
 
 	return {

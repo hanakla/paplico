@@ -7,8 +7,8 @@ import type {
 	Viewport,
 } from "../../../../schema";
 import {
-	calculateElementBounds,
 	expandBounds,
+	type WorldBBox,
 } from "../../../../utils/geometry/bounds";
 import { compileShaderModule } from "../../../../utils/wgpu-utils";
 import type { GPUTimingProfiler } from "../../../GPUTimingProfiler";
@@ -48,6 +48,8 @@ interface BlurStrokeRendererDeps {
 	getTransformsBindGroup: () => GPUBindGroup | undefined;
 	getMaskBindGroup: () => GPUBindGroup;
 	getRasterScale: () => number;
+	/** Where the stroke is drawn: its bounds through the containers above it. */
+	getWorldBounds: (element: AnyArtObject) => WorldBBox;
 }
 
 /**
@@ -153,7 +155,11 @@ export class BlurStrokeRenderer implements BackdropEffectDriver {
 			if (!stroke) continue;
 			this.frameRequests.set(
 				element.id,
-				blurRequestOf(element, stroke.settings, rasterScale),
+				blurRequestOf(
+					this.deps.getWorldBounds(element),
+					stroke.settings,
+					rasterScale,
+				),
 			);
 		}
 		this.deps.coordinator.planFrame([...this.frameRequests.values()]);
@@ -187,7 +193,7 @@ export class BlurStrokeRenderer implements BackdropEffectDriver {
 
 		const request =
 			this.frameRequests.get(element.id) ??
-			blurRequestOf(element, settings, rasterScale);
+			blurRequestOf(this.deps.getWorldBounds(element), settings, rasterScale);
 		const { bounds, blurSigma } = request;
 		const below = this.acquireBlurredBackdrop(
 			encoder,
@@ -438,23 +444,20 @@ export function resolveBackdropBlurStroke(
 }
 
 /**
- * The backdrop the stroke reads: its own bounds padded by the brush reach
+ * The backdrop the stroke reads: its world bounds padded by the brush reach
  * and by the blur kernel, so the blurred pixels under the coverage never
  * sample past the capture edge. Sigma is in fixed-R texels; the radius the
  * settings hold is world px, halved to a sigma the way the blur filter does.
  */
 function blurRequestOf(
-	element: AnyArtObject,
+	strokeBounds: WorldBBox,
 	settings: BrushSettings,
 	rasterScale: number,
 ): BackdropEffectRequest {
 	const sizeBase = readStoredBrushSize(settings) ?? 10;
 	const sigmaWorld = (sizeBase * settings.backdropBlur!.radius) / 2;
 	return {
-		bounds: expandBounds(
-			calculateElementBounds(element),
-			sizeBase + sigmaWorld * 3,
-		),
+		bounds: expandBounds(strokeBounds, sizeBase + sigmaWorld * 3),
 		blurSigma: sigmaWorld * rasterScale,
 		rasterScale,
 	};

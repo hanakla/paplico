@@ -13,6 +13,7 @@ import type {
 	StrokeGradient,
 	Viewport,
 } from "../../schema";
+import { mockGroup } from "../../testUtils/mockElements";
 import { closedRectSegments } from "../../testUtils/segmentFactory";
 import {
 	captureTexturePixels,
@@ -35,6 +36,20 @@ describe("Mixing strokes", () => {
 		// Sampled from the green field, not the red brush.
 		expect(pixel[1]).toBeGreaterThan(120);
 		expect(pixel[0]).toBeLessThan(pixel[1] - 40);
+	});
+
+	it("should land the mixed stroke under a moved group where it is drawn", async () => {
+		// The stroke sits 300 units left in its own coordinates and a group
+		// carries it onto the field. The backdrop it reads and the result it
+		// lays back down are both bounded by where the group puts it.
+		const pixel = await renderStrokePixel(
+			mixingBrush({ colorRate: 1 }),
+			undefined,
+			300,
+		);
+
+		expect(pixel[0]).toBeGreaterThan(120);
+		expect(pixel[1]).toBeLessThan(pixel[0] - 40);
 	});
 
 	it("should paint the brush color when colorRate is 1", async () => {
@@ -619,9 +634,16 @@ async function renderStrokeEnds(
 async function renderStrokePixel(
 	brushSettings: BrushSettings,
 	viewport?: Viewport,
+	strokeGroupOffsetX = 0,
 ): Promise<number[]> {
 	return (
-		await renderPixels(brushSettings, [[400, 300]], undefined, viewport)
+		await renderPixels(
+			brushSettings,
+			[[400, 300]],
+			undefined,
+			viewport,
+			strokeGroupOffsetX,
+		)
 	)[0];
 }
 
@@ -630,13 +652,14 @@ async function renderPixels(
 	points: [number, number][],
 	strokeColor?: StrokeGradient,
 	viewportOverride?: Viewport,
+	strokeGroupOffsetX = 0,
 ): Promise<number[][]> {
 	const { renderer, canvas } = await createTestRenderer();
 	const viewport = viewportOverride ?? { x: 0, y: 0, zoom: 1, rotation: 0 };
 	const device = renderer.getDevice();
 	if (!device) throw new Error("Test renderer has no GPU device");
 
-	const doc = mixingDoc(brushSettings, strokeColor);
+	const doc = mixingDoc(brushSettings, strokeColor, strokeGroupOffsetX);
 	// Warm caches on identical frames before asserting (render cache rule).
 	await renderWithViewport(renderer, canvas, doc, viewport);
 	await renderWithViewport(renderer, canvas, doc, viewport);
@@ -660,9 +683,13 @@ async function renderPixels(
 	return read;
 }
 
+/** A green field with a red mixing stroke across its middle. With
+ *  `strokeGroupOffsetX` the stroke is drawn that far left and wrapped in a
+ *  group moved that far right, so it lands on the field through the group. */
 function mixingDoc(
 	brushSettings: BrushSettings,
 	strokeColor?: StrokeGradient,
+	strokeGroupOffsetX = 0,
 ): Document {
 	const field: Path = {
 		id: "mixing-field",
@@ -698,10 +725,10 @@ function mixingDoc(
 		transform: createDefaultTransform(),
 		segments: [
 			{
-				start: { x: -150, y: 0 },
+				start: { x: -150 - strokeGroupOffsetX, y: 0 },
 				cp1: { x: 0, y: 0 },
 				cp2: { x: 0, y: 0 },
-				end: { x: 150, y: 0 },
+				end: { x: 150 - strokeGroupOffsetX, y: 0 },
 				startPressure: 1,
 				endPressure: 1,
 				startTiltX: 0,
@@ -735,9 +762,18 @@ function mixingDoc(
 
 	const doc = createDefaultDocument("mixing-mode");
 	const layer = createDefaultLayer("mixing-mode-layer", "Strokes");
-	layer.elementIds.push(field.id, stroke.id);
 	doc.objects[field.id] = field;
 	doc.objects[stroke.id] = stroke;
+	layer.elementIds.push(field.id);
+	if (strokeGroupOffsetX === 0) {
+		layer.elementIds.push(stroke.id);
+	} else {
+		const group = mockGroup("mixing-stroke-group", [stroke.id], {
+			x: strokeGroupOffsetX,
+		});
+		doc.objects[group.id] = group;
+		layer.elementIds.push(group.id);
+	}
 	doc.layers.push(layer);
 	doc.artboards.push(createArtboard("mixing-ab", "Main", 0, 0, 800, 600));
 	return doc;

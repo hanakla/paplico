@@ -13,6 +13,7 @@ import type {
 	Path,
 	Viewport,
 } from "../../schema";
+import { mockGroup } from "../../testUtils/mockElements";
 import { closedRectSegments } from "../../testUtils/segmentFactory";
 import {
 	captureTexturePixels,
@@ -92,6 +93,17 @@ describe("Blur brush", () => {
 		expect(await roughness(3)).toBeGreaterThan((await roughness(0)) + 20);
 	});
 
+	it("should blur under a moved group where the stroke is drawn", async () => {
+		// The stroke sits 300 units left in its own coordinates and a group
+		// carries it back onto the seam; the backdrop it reads has to be taken
+		// from where the group puts it.
+		const blurred = await seamTransitionWidth(blurPreset(), {
+			strokeGroupOffsetX: 300,
+		});
+
+		expect(blurred).toBeGreaterThan(8);
+	});
+
 	it("should reach the artwork on the layer below it", async () => {
 		// What someone actually does: the drawing sits on one layer and the
 		// blur stroke goes on a fresh one above it.
@@ -142,6 +154,9 @@ interface SeamOptions {
 	ownLayer?: boolean;
 	/** The field right of the seam; null leaves empty canvas there. */
 	rightField?: { r: number; g: number; b: number } | null;
+	/** Wrap the stroke in a group moved this far right, with the stroke drawn
+	 *  that far left so it still lands on the seam. */
+	strokeGroupOffsetX?: number;
 }
 
 /**
@@ -218,6 +233,7 @@ function seamDoc(
 	strokeWorldWidth = 300,
 ): Document {
 	const strokeOnOwnLayer = options.ownLayer ?? false;
+	const groupOffsetX = options.strokeGroupOffsetX ?? 0;
 	const left = filledRect("seam-left", -200, -120, 0, 120, {
 		r: 0.8,
 		g: 0,
@@ -239,10 +255,10 @@ function seamDoc(
 		transform: createDefaultTransform(),
 		segments: [
 			{
-				start: { x: -strokeWorldWidth / 2, y: 0 },
+				start: { x: -strokeWorldWidth / 2 - groupOffsetX, y: 0 },
 				cp1: { x: 0, y: 0 },
 				cp2: { x: 0, y: 0 },
-				end: { x: strokeWorldWidth / 2, y: 0 },
+				end: { x: strokeWorldWidth / 2 - groupOffsetX, y: 0 },
 				startPressure: 1,
 				endPressure: 1,
 				startTiltX: 0,
@@ -285,12 +301,20 @@ function seamDoc(
 	doc.layers.push(layer);
 	if (brushSettings) {
 		doc.objects[stroke.id] = stroke;
+		let strokeRootId = stroke.id;
+		if (groupOffsetX !== 0) {
+			const group = mockGroup("blur-stroke-group", [stroke.id], {
+				x: groupOffsetX,
+			});
+			doc.objects[group.id] = group;
+			strokeRootId = group.id;
+		}
 		if (strokeOnOwnLayer) {
 			const above = createDefaultLayer("blur-stroke-layer", "Blur");
-			above.elementIds.push(stroke.id);
+			above.elementIds.push(strokeRootId);
 			doc.layers.push(above);
 		} else {
-			layer.elementIds.push(stroke.id);
+			layer.elementIds.push(strokeRootId);
 		}
 	}
 	doc.artboards.push(createArtboard("blur-seam-ab", "Main", 0, 0, 800, 600));

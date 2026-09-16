@@ -21,7 +21,7 @@ import {
 } from "../../../utils/geometry/bounds";
 import {
 	applyTransformToPoint,
-	composeTransforms,
+	composeAncestorTransform,
 } from "../../../utils/geometry/geometry";
 import {
 	mat4Multiply,
@@ -66,7 +66,6 @@ import {
 	collectBlendExtrudeOutline,
 	collectCompoundPathFillOutline,
 	collectGroupExtrudeOutline,
-	composeAncestorTransform,
 	computeToleranceBucket,
 	type ExtrudeFrameEntry,
 	ensureExtrudePerspectiveDistance,
@@ -340,23 +339,13 @@ export class ExtrudeMeshBaker {
 		// bounds center. The blit follows it so the 3D result moves exactly like
 		// the flat geometry would. World-space outlines (groups) already have
 		// every transform baked in, so they stay at identity.
-		let composedTransform = worldSpace
+		const composedTransform = worldSpace
 			? createIdentityTransform()
-			: getTransform(element);
-		if (!worldSpace) {
-			const parentGroupMap = geom.getParentGroupMap();
-			let parentId = parentGroupMap.get(element.id);
-			while (parentId) {
-				const ancestor = geom.elementsMap.get(parentId);
-				if (ancestor) {
-					composedTransform = composeTransforms(
-						getTransform(ancestor),
-						composedTransform,
-					);
-				}
-				parentId = parentGroupMap.get(parentId);
-			}
-		}
+			: composeAncestorTransform(
+					element,
+					geom.elementsMap,
+					geom.getParentGroupMap(),
+				);
 		const hasTransform = !isIdentityTransform(composedTransform);
 		let originX = 0;
 		let originY = 0;

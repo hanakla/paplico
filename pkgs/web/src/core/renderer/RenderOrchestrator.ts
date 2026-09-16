@@ -5,6 +5,7 @@ import {
 	type AnyArtObject,
 	type Artboard,
 	type Document,
+	type ElementTransform,
 	type Filter,
 	getArtboardBounds,
 	type RawRGBA,
@@ -19,11 +20,11 @@ import {
 } from "../typography";
 import { getFontManager } from "../typography/fonts";
 import {
-	calculateElementBounds,
 	expandBounds,
 	type LocalBBox,
 	type WorldBBox,
 } from "../utils/geometry/bounds";
+import { composeAncestorTransform } from "../utils/geometry/geometry";
 import {
 	compileShaderModule,
 	type ShaderDataDefinitions,
@@ -45,13 +46,14 @@ import {
 } from "./canvas/pipeline/FilterRenderer";
 import {
 	buildFilterPlansForElements,
-	calculatePreFilteredElementBounds,
+	planBoundsOf,
 } from "./canvas/pipeline/RenderPlanner";
 import { STRIP_INSTANCE_LAYOUT } from "./canvas/pipeline/strips/stripInstanceLayout";
 import {
 	UNIFIED_VERTEX_BYTES,
 	UNIFIED_VERTEX_OFFSETS,
 } from "./canvas/pipeline/unifiedVertexLayout";
+import { buildParentedMap } from "./canvas/pipeline/ViewportManager";
 import { BlurFilterProcessor } from "./filters/BlurFilterProcessor";
 import { DropShadowFilterProcessor } from "./filters/DropShadowFilterProcessor";
 import { Extrude3DFilterHandler } from "./filters/Extrude3DFilterHandler";
@@ -1328,10 +1330,26 @@ export class RenderOrchestrator {
 			.filter((el): el is AnyArtObject => el != null);
 		if (elements.length === 0) return null;
 
+		// Element bounds come out in the parent's space; the export draws the
+		// subtree through every ancestor's transform, so compose them in.
+		const parentById = buildParentedMap(elementsMap);
+		const parentTransformOf = (id: string): ElementTransform | null => {
+			const parent = elementsMap.get(parentById.get(id) ?? "");
+			return parent
+				? composeAncestorTransform(parent, elementsMap, parentById)
+				: null;
+		};
+
 		// filterRenderer is the same instance CanvasLayer uses; when the renderer
 		// is not initialized yet, fall back to geometry bounds.
 		const plans = this.filterRenderer
-			? buildFilterPlansForElements(elements, elementsMap, this.filterRenderer)
+			? buildFilterPlansForElements(
+					elements,
+					elementsMap,
+					this.filterRenderer,
+					undefined,
+					parentTransformOf,
+				)
 			: null;
 
 		let minX = Infinity;
@@ -1342,27 +1360,27 @@ export class RenderOrchestrator {
 			// textureBounds already includes this element's post-process reach;
 			// otherwise use the pre-filtered bounds so geometry pre-filters that
 			// deform the shape (3d-rotate, zigzag, …) are not clipped to the flat
-			// outline. calculatePreFilteredElementBounds returns plain geometry
-			// bounds when the element has no pre-filter.
+			// outline. planBoundsOf returns plain geometry bounds when the
+			// element has no pre-filter.
 			// Some filters never get a plan yet still reach beyond the flat
 			// outline — a glass 3D solid (needsBackdrop) routes through the
 			// mid-pass refraction path and self-sizes at draw time — so the
 			// fallback must still apply the handlers' expansion margins.
 			let b = plans?.get(el.id)?.textureBounds;
 			if (!b) {
-				const base = this.filterRenderer
-					? calculatePreFilteredElementBounds(
-							el,
-							elementsMap,
-							this.filterRenderer,
-						)
-					: calculateElementBounds(el, elementsMap);
+				const base = planBoundsOf(
+					el,
+					elementsMap,
+					this.filterRenderer ?? null,
+					undefined,
+					parentTransformOf(el.id),
+				);
 				let margin = 0;
 				for (const filter of localAppearances(el.filters)) {
 					if (filter.enabled === false) continue;
 					const handler = this.filterRenderer?.getHandler(filter.processor);
 					// Geometry pre-filters already deformed `base` (it comes from
-					// calculatePreFilteredElementBounds); adding their margin on
+					// planBoundsOf); adding their margin on
 					// top would double-count the deformation. FilterRenderer.
 					// calculateExpansion cannot be reused here for that reason.
 					if (classifyFilterHandler(handler) === "geometry") continue;

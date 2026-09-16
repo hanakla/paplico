@@ -1,9 +1,9 @@
 import { localAppearances } from "../../../document/appearancePresets";
 import {
 	type AnyArtObject,
+	type BoundingBox,
 	type CubicBezierSegment,
 	type EmbeddedFile,
-	getTransform,
 	type ImageObject,
 	isIdentityTransform,
 	type Vec2,
@@ -11,7 +11,7 @@ import {
 import {
 	applyTransformToBounds,
 	applyTransformToPoint,
-	composeTransforms,
+	composeAncestorTransform,
 } from "../../../utils/geometry/geometry";
 import { getStartAnchor } from "../../../utils/geometry/segmentOps";
 import { splitIntoSubPaths } from "../CanvasLayer.helpers";
@@ -64,52 +64,19 @@ export class ImageElementRenderer {
 			return;
 		}
 
-		// Calculate image bounds in world space, applying element transform
-		const halfWidth = image.width / 2;
-		const halfHeight = image.height / 2;
-		const localBounds = {
-			minX: image.x - halfWidth,
-			minY: image.y - halfHeight,
-			maxX: image.x + halfWidth,
-			maxY: image.y + halfHeight,
-			width: image.width,
-			height: image.height,
-		};
-		const selfT = getTransform(image);
-
-		// Compose ancestor group transforms using the cached parentGroupMap
-		// (avoids O(N) parentMap rebuild that resolveAncestorTransform does).
-		let ancestorT = selfT;
-		const parentGroupMap = this.deps.getParentGroupMap();
-		let pid = parentGroupMap.get(image.id);
-		while (pid) {
-			const ancestor = elementsMap.get(pid);
-			if (ancestor) {
-				ancestorT = composeTransforms(getTransform(ancestor), ancestorT);
-			}
-			pid = parentGroupMap.get(pid);
-		}
-		const t = ancestorT;
-
-		// Attempt preProcess filter path (e.g. 3D rotate). The image rectangle is
-		// treated as a 4-sided closed sub-path so geometry filters can deform
-		// its corners. applyPreFilters returns the input by reference when no
-		// enabled preProcess filter applies, so reference equality is the cheapest
-		// way to detect the common no-op case.
-		const quadSegments = buildImageQuadSegments(localBounds, image.corners);
-		const deformed = applyPreFilters(
-			quadSegments,
-			localAppearances(image.filters),
+		const { localBounds, quad, deformed } = resolveImageGeometry(
+			image,
 			this.deps.filterRenderer,
+		);
+		const t = composeAncestorTransform(
+			image,
+			elementsMap,
+			this.deps.getParentGroupMap(),
 		);
 
 		// Warped corner vertices need the perspective quad blit even when no
 		// geometry filter deformed the quad further.
-		if (
-			image.corners !== undefined ||
-			(deformed !== quadSegments &&
-				!hasSameSegmentGeometry(deformed, quadSegments))
-		) {
+		if (image.corners !== undefined || deformed !== quad) {
 			const quads = extractQuads(deformed);
 			if (quads) {
 				const originX = (localBounds.minX + localBounds.maxX) / 2;
@@ -286,6 +253,48 @@ type QuadCorners = readonly [
 	{ x: number; y: number },
 	{ x: number; y: number },
 ];
+
+/**
+ * The rectangle an image is drawn as, in its local space, before and after its
+ * geometry filters: `quad` traces the (possibly free-transformed) corners as
+ * a 4-sided path, `deformed` is that quad after the filters — the same
+ * reference as `quad` when nothing deforms it. `localBounds` is the flat
+ * rect, the origin the transform pivots around. Rendering, bounds and hit
+ * testing all read the image shape here.
+ */
+export function resolveImageGeometry(
+	image: ImageObject,
+	filterRenderer: Pick<FilterRenderer, "getHandler">,
+): {
+	localBounds: BoundingBox;
+	quad: CubicBezierSegment[];
+	deformed: CubicBezierSegment[];
+} {
+	const halfWidth = image.width / 2;
+	const halfHeight = image.height / 2;
+	const localBounds = {
+		minX: image.x - halfWidth,
+		minY: image.y - halfHeight,
+		maxX: image.x + halfWidth,
+		maxY: image.y + halfHeight,
+		width: image.width,
+		height: image.height,
+	};
+	const quad = buildImageQuadSegments(localBounds, image.corners);
+	// applyPreFilters returns the input by reference when no enabled geometry
+	// filter applies; a filter that leaves the geometry unchanged is treated
+	// as no deformation either.
+	const filtered = applyPreFilters(
+		quad,
+		localAppearances(image.filters),
+		filterRenderer,
+	);
+	const deformed =
+		filtered === quad || hasSameSegmentGeometry(filtered, quad)
+			? quad
+			: filtered;
+	return { localBounds, quad, deformed };
+}
 
 /**
  * Build 4 separate cubic bezier sub-paths (one per side) tracing TL→TR→BR→BL→TL.

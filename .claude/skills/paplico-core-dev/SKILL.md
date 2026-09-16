@@ -469,12 +469,15 @@ Paplico has two independent 3D features — **do not conflate them**:
   (`Pattern Defs`, `Brush Defs`), or it renders before those textures exist and
   bakes the wrong thing. Ordering bugs here produce plausible-looking output,
   not errors.
-- **`composeTransforms` is not associative.** It scales the rotated offset along
-  the *parent's* axes, so `compose(compose(a,b),c) ≠ compose(a,compose(b,c))`
-  as soon as `a` rotates. Re-parenting an element by folding its old parent's
-  local transform into it is therefore only correct when the new parent is the
-  identity — with a rotated group two levels up it lands tens of units away. Go
-  through the composed transform and back down with `solveChildTransform`.
+- **A child's transform is read through its parent.** `composeTransforms` is
+  a true affine composition, but the GPU applies the composed chain once,
+  pivoted on the child's flat local centre. Re-parenting an element by folding
+  its old parent's transform into it is therefore only correct when the new
+  parent is the identity — with a rotated group two levels up it lands tens of
+  units away. Go through the composed transform and back down with
+  `solveChildTransform`. Bounds follow the same rule: apply the composed chain
+  to the local box once (`planBoundsOf`), never a parent transform on top of an
+  already transformed box.
 - **A group is not a coordinate-space scaffold.** A group's transform pivots on
   the centre of its children's local bounds, so resizing any child moves the
   origin and shifts everything under it by `originDelta * (1 - scale)`. Parenting

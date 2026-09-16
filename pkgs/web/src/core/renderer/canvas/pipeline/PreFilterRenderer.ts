@@ -1,5 +1,13 @@
 import { deepClone } from "../../../../utils/lang";
-import type { CubicBezierSegment, Filter } from "../../../schema";
+import { localAppearances } from "../../../document/appearancePresets";
+import {
+	type AnyArtObject,
+	type CubicBezierSegment,
+	type Filter,
+	isFilterEnabled,
+	isGroup,
+	type Path,
+} from "../../../schema";
 import { applyCornerRadius } from "../../generators/CornerRadiusProcessor";
 import {
 	type AppearanceGeometry,
@@ -23,6 +31,115 @@ export function resolveElementGeometry(
 	filterRenderer: Pick<FilterRenderer, "getHandler">,
 ): CubicBezierSegment[] {
 	return applyPreFilters(applyCornerRadius(segments), filters, filterRenderer);
+}
+
+/** The enabled geometry filters among an element's own concrete filters. */
+export function geometryFilters(
+	element: Pick<AnyArtObject, "filters">,
+	filterRenderer: Pick<FilterRenderer, "getHandler">,
+): Filter[] {
+	return localAppearances(element.filters).filter((f) =>
+		isGeometryFilter(f, filterRenderer),
+	);
+}
+
+/**
+ * The geometry filters a group hands down to its children: its own first,
+ * then the ones it inherited, so nested groups deform innermost first.
+ * Undefined when there is nothing to hand down.
+ */
+export function childPreFilters(
+	group: Pick<AnyArtObject, "filters">,
+	inheritedPreFilters: readonly Filter[] | undefined,
+	filterRenderer: Pick<FilterRenderer, "getHandler">,
+): Filter[] | undefined {
+	const own = geometryFilters(group, filterRenderer);
+	if (own.length === 0) {
+		return inheritedPreFilters?.length ? [...inheritedPreFilters] : undefined;
+	}
+	return [...own, ...(inheritedPreFilters ?? [])];
+}
+
+/**
+ * `element` with the geometry filters inherited from its ancestor groups
+ * appended to its own, the way the renderer sees it. Same reference when
+ * there is nothing to inherit.
+ */
+export function withInheritedPreFilters<T extends AnyArtObject>(
+	element: T,
+	inheritedPreFilters: readonly Filter[] | undefined,
+): T {
+	if (!inheritedPreFilters?.length) return element;
+	return {
+		...element,
+		filters: [...localAppearances(element.filters), ...inheritedPreFilters],
+	};
+}
+
+/**
+ * Every outline one path is drawn with: the element geometry, plus one
+ * further deformation per fill/stroke appearance carrying geometry
+ * sub-filters. Bounds and hit testing read this list so they cover exactly
+ * the shapes the renderer draws. Null when no geometry filter deforms the
+ * path, so callers keep using the stored segments.
+ */
+export function resolvePathGeometryVariants(
+	path: Path,
+	filterRenderer: Pick<FilterRenderer, "getHandler">,
+): CubicBezierSegment[][] | null {
+	const own = geometryFilters(path, filterRenderer);
+	const subFilters = collectAppearancePreSubFilters(path, filterRenderer);
+	if (own.length === 0 && subFilters.length === 0) return null;
+	const segments = resolveElementGeometry(path.segments, own, filterRenderer);
+	return [
+		segments,
+		...subFilters.map((subs) =>
+			applyPreFilters(segments, subs, filterRenderer),
+		),
+	];
+}
+
+/**
+ * True when the element or any group descendant carries an enabled geometry
+ * filter, including appearance sub-filters — the gate for deformed-bounds
+ * and deformed-hit-test work.
+ */
+export function subtreeHasPreFilter(
+	element: AnyArtObject,
+	elementsMap: ReadonlyMap<string, AnyArtObject>,
+	filterRenderer: Pick<FilterRenderer, "getHandler">,
+): boolean {
+	if (
+		geometryFilters(element, filterRenderer).length > 0 ||
+		collectAppearancePreSubFilters(element, filterRenderer).length > 0
+	) {
+		return true;
+	}
+	if (!isGroup(element)) return false;
+	return element.childIds.some((id) => {
+		const child = elementsMap.get(id);
+		return child
+			? subtreeHasPreFilter(child, elementsMap, filterRenderer)
+			: false;
+	});
+}
+
+/** Enabled geometry sub-filters of each enabled fill/stroke appearance —
+ *  these deform geometry inline per appearance (see PathElementRenderer). */
+function collectAppearancePreSubFilters(
+	element: AnyArtObject,
+	filterRenderer: Pick<FilterRenderer, "getHandler">,
+): Filter[][] {
+	const result: Filter[][] = [];
+	for (const filter of localAppearances(element.filters)) {
+		if (!isFilterEnabled(filter)) continue;
+		if (filter.processor !== "fill" && filter.processor !== "stroke") continue;
+		const subs = (filter.subFilters ?? []).filter((sf) =>
+			isGeometryFilter(sf, filterRenderer),
+		);
+		if (subs.length > 0) result.push(subs);
+	}
+	return result;
 }
 
 /**

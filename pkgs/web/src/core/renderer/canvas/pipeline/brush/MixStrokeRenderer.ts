@@ -7,8 +7,8 @@ import type {
 	Viewport,
 } from "../../../../schema";
 import {
-	calculateElementBounds,
 	expandBounds,
+	type WorldBBox,
 } from "../../../../utils/geometry/bounds";
 import { hashSegmentsWithMetadata } from "../../../../utils/geometry/segmentOps";
 import type { GPUTimingProfiler } from "../../../GPUTimingProfiler";
@@ -90,6 +90,8 @@ interface MixStrokeRendererDeps {
 		bounds: BoundingBox,
 	) => string | null;
 	getRasterScale: () => number;
+	/** Where the stroke is drawn: its bounds through the containers above it. */
+	getWorldBounds: (element: AnyArtObject) => WorldBBox;
 }
 
 /**
@@ -188,7 +190,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		// Snapped outward: a stroke being drawn grows a little every frame, and
 		// an exact fit would move the texture — and throw away everything
 		// carried over — on each of them.
-		const bounds = expandBounds(calculateElementBounds(element), sizeBase);
+		const bounds = expandBounds(this.deps.getWorldBounds(element), sizeBase);
 
 		// The stroke still paints into the target on a cache hit, so report it
 		// either way — other backdrop consumers key off this.

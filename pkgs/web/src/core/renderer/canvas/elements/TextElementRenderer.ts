@@ -417,7 +417,7 @@ export class TextElementRenderer {
 		// Apply element.transform so the BBox matches the vertex-shader rendering position.
 		const transformedBounds = isIdentityTransform(element.transform)
 			? worldBounds
-			: applyTransformToBounds(worldBounds, element.transform);
+			: brandWorldBBox(applyTransformToBounds(worldBounds, element.transform));
 		const cachedBounds = this.deps.renderState.boundsCache.get(element.id);
 		if (cachedBounds && boundsAlmostEqual(cachedBounds, transformedBounds)) {
 			return;

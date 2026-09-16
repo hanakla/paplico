@@ -3,14 +3,13 @@ import {
 	type AnyArtObject,
 	type Document,
 	type EmbeddedFile,
-	getTransform,
 	isIdentityTransform,
 	type Reference3DDef,
 	type Reference3DElement,
 } from "../../../schema";
 import {
 	applyTransformToPoint,
-	composeTransforms,
+	composeAncestorTransform,
 } from "../../../utils/geometry/geometry";
 import type {
 	AssetState,
@@ -102,19 +101,11 @@ export class Reference3DElementRenderer {
 			height: element.height,
 		};
 
-		let composedTransform = getTransform(element);
-		const parentGroupMap = this.deps.getParentGroupMap();
-		let parentId = parentGroupMap.get(element.id);
-		while (parentId) {
-			const ancestor = elementsMap.get(parentId);
-			if (ancestor) {
-				composedTransform = composeTransforms(
-					getTransform(ancestor),
-					composedTransform,
-				);
-			}
-			parentId = parentGroupMap.get(parentId);
-		}
+		const composedTransform = composeAncestorTransform(
+			element,
+			elementsMap,
+			this.deps.getParentGroupMap(),
+		);
 
 		if (isIdentityTransform(composedTransform)) {
 			this.deps.blitTextureToCanvas(

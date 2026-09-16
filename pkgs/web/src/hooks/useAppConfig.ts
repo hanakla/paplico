@@ -154,7 +154,7 @@ export const appConfig = proxy<AppConfig>({
 	layerPanelMode: "simple",
 	sidePanelHeights: {},
 	filterMenuView: "category",
-	selectStrokeAfterDraw: true,
+	selectStrokeAfterDraw: false,
 	pressureCurvePoints: [...DEFAULT_PRESSURE_CURVE],
 	touchDrawOffsetEnabled: true,
 	touchDrawOffsetScale: 1,

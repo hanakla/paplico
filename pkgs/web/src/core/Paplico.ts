@@ -834,6 +834,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		(this as { spatialIndex: SpatialIndex }).spatialIndex = new SpatialIndex(
 			this.rendererStore,
 		);
+		// Before start(): its first index build already needs the handlers to
+		// size candidate boxes around filter-deformed shapes.
+		this.spatialIndex.setFilterHandlerLookup((processor) =>
+			this.renderer.getFilterHandler(processor),
+		);
 		this.spatialIndex.start();
 		this.wireTextHitTester();
 		(this as { selection: PaplicoSelection }).selection = new PaplicoSelection(
@@ -3840,11 +3845,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			setSelectionOverlay(this.rendererStore.uiOverlayState, null);
 
 			const currentLayerId = this.rendererStore.currentLayerId;
-			if (
-				!currentLayerId ||
-				this.rendererStore.selectedElementIds.length === 0
-			) {
-				// No selection, switch back to select
+			if (!currentLayerId) {
 				this.tools.setCurrentTool("select");
 				return;
 			}

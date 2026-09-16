@@ -61,6 +61,7 @@ import {
 } from "../../utils/geometry/bounds";
 import {
 	applyTransformToBounds,
+	composeAncestorTransform,
 	composeTransforms,
 	getVisibleWorldBounds,
 } from "../../utils/geometry/geometry";
@@ -191,6 +192,10 @@ import {
 	OffscreenPresenter,
 } from "./pipeline/OffscreenPresenter";
 import {
+	childPreFilters,
+	withInheritedPreFilters,
+} from "./pipeline/PreFilterRenderer";
+import {
 	type BackdropElementEntry,
 	buildFilterPlansForElements,
 	buildFramePlanStructure,
@@ -201,6 +206,7 @@ import {
 	type FramePlan,
 	type FramePlanStructure,
 	type LayerPassPlan,
+	planBoundsOf,
 } from "./pipeline/RenderPlanner";
 import {
 	createBorrowedTextureRef,
@@ -901,9 +907,7 @@ export class CanvasLayer {
 			getMaskBindGroup: () => this.renderState.currentMaskBindGroup,
 			getTransientMaskBindGroup: (transientId: string) =>
 				this.inlineMaskEntries.get(transientId)?.bindGroup ?? null,
-			getComposedTransform: (elementId: string) =>
-				this.viewportManager.getComposedTransformCache().get(elementId) ??
-				createIdentityTransform(),
+			getComposedTransform: this.getComposedTransform,
 			getLocalBounds: (elementId: string) =>
 				this.viewportManager.getBoundsCache().get(elementId) ?? null,
 			getTransformsBindGroup: () => this.transformsBindGroup,
@@ -1017,6 +1021,7 @@ export class CanvasLayer {
 			getBackdropContentKey: (elementId, bounds) =>
 				this.backdropContentKeyFor(elementId, bounds),
 			getRasterScale: () => this.getRasterScale(),
+			getWorldBounds: this.worldBoundsOf,
 		});
 		// Blur strokes read the composite below them the same way.
 		this.blurStrokeRenderer = new BlurStrokeRenderer({
@@ -1031,6 +1036,7 @@ export class CanvasLayer {
 			getTransformsBindGroup: () => this.transformsBindGroup ?? undefined,
 			getMaskBindGroup: () => this.renderState.currentMaskBindGroup,
 			getRasterScale: () => this.getRasterScale(),
+			getWorldBounds: this.worldBoundsOf,
 		});
 		this.backdropDrivers = [
 			...[...this.filterRenderer.getHandlers().values()]
@@ -1064,6 +1070,7 @@ export class CanvasLayer {
 			texturePool: this.texturePool,
 			getTransformIndex: (elementId: string) =>
 				this.viewportManager.getTransformIndex(elementId),
+			getComposedTransform: this.getComposedTransform,
 			setActiveBindGroup: (entry, replace) => {
 				if (entry) {
 					if (replace) {
@@ -1425,6 +1432,11 @@ export class CanvasLayer {
 		const maskContentIds = collectMaskContentIds(objectMasks, elementsMap);
 		const maskFilteredTextures = new Map<string, FilteredTextureInfo>();
 		if (maskContentIds.size > 0) {
+			// Mask content is stored in its owner's space and drawn through the
+			// owner's world transform, so its plans are sized from there too.
+			const parentGroupMap = this.viewportManager.getParentGroupMap();
+			const composedTransforms =
+				this.viewportManager.getComposedTransformCache();
 			const maskPlans = buildFilterPlansForElements(
 				[...maskContentIds]
 					.map((id) => elementsMap.get(id))
@@ -1432,6 +1444,12 @@ export class CanvasLayer {
 				elementsMap,
 				this.filterRenderer,
 				this.viewportManager.getBoundsCache(),
+				(elementId) => {
+					const parentId = parentGroupMap.get(elementId);
+					return parentId == null
+						? null
+						: (composedTransforms.get(parentId) ?? null);
+				},
 			);
 			if (maskPlans.size > 0) {
 				this.executeFilterPlans(encoder, maskFilteredTextures, framePlan, [
@@ -1529,6 +1547,25 @@ export class CanvasLayer {
 			this.inlineMaskEntries.set(elementId, maskInfo);
 		}
 	}
+
+	/** World transform of an element with every ancestor composed in; identity
+	 *  for ids the transform buffer does not know (transient previews). */
+	private getComposedTransform = (elementId: string): ElementTransform =>
+		this.viewportManager.getComposedTransformCache().get(elementId) ??
+		createIdentityTransform();
+
+	/** Where an element is drawn this frame: its bounds carried through the
+	 *  containers above it, as the transform buffer composes them. */
+	private worldBoundsOf = (element: AnyArtObject): WorldBBox => {
+		const parentId = this.viewportManager.getParentGroupMap().get(element.id);
+		return planBoundsOf(
+			element,
+			this.activeFramePlan!.elementsMap,
+			null,
+			this.viewportManager.getBoundsCache(),
+			parentId ? this.getComposedTransform(parentId) : null,
+		);
+	};
 
 	/** Clip groups living inside mesh warp containers, warped with their members. */
 	private collectMeshWarpClipGroups(
@@ -6309,15 +6346,10 @@ export class CanvasLayer {
 			} else if (isPath(element)) {
 				// A group's pre-filters propagate to every child, so fold them in
 				// before anything inspects or resolves this path.
-				const effectivePath = parentPreFilters?.length
-					? ({
-							...element,
-							filters: [
-								...localAppearances(element.filters),
-								...parentPreFilters,
-							],
-						} as Path)
-					: element;
+				const effectivePath = withInheritedPreFilters(
+					element,
+					parentPreFilters,
+				);
 
 				// Routing only needs the appearance set; resolving the geometry
 				// is deferred to the branch that actually draws.
@@ -6497,13 +6529,11 @@ export class CanvasLayer {
 
 				// Extract group-level pre-filters to propagate to children.
 				// Nested groups apply child→parent order (innermost first).
-				const groupPreFilters = localAppearances(element.filters).filter((f) =>
-					isGeometryFilter(f, this.filterRenderer),
+				const effectivePreFilters = childPreFilters(
+					element,
+					parentPreFilters,
+					this.filterRenderer,
 				);
-				const effectivePreFilters =
-					groupPreFilters.length > 0 || parentPreFilters?.length
-						? [...groupPreFilters, ...(parentPreFilters ?? [])]
-						: undefined;
 
 				const canRenderClipped =
 					groupCompositionPlan?.kind === "isolated" &&
@@ -6606,15 +6636,10 @@ export class CanvasLayer {
 			} else {
 				// Non-path, non-group elements: image, compound-path, text
 				ribbons?.flush();
-				const effectiveElement = parentPreFilters?.length
-					? ({
-							...element,
-							filters: [
-								...localAppearances(element.filters),
-								...parentPreFilters,
-							],
-						} as AnyArtObject)
-					: element;
+				const effectiveElement = withInheritedPreFilters(
+					element,
+					parentPreFilters,
+				);
 				this.elements.dispatchElementDirect(
 					activePass,
 					effectiveElement,
@@ -6633,9 +6658,10 @@ export class CanvasLayer {
 
 	/**
 	 * `flat` unioned with where the element's geometry filters move its outline
-	 * (copies a transform places, an offset's growth), in the parent's space
-	 * like `flat`. Culling and the partial-redraw bounds need the deformed
-	 * reach, or a shape whose flat outline leaves the view drops its copies.
+	 * (copies a transform places, an offset's growth), carried into world
+	 * space through `parentTransform`. Culling and the partial-redraw bounds
+	 * need the deformed reach, or a shape whose flat outline leaves the view
+	 * drops its copies.
 	 */
 	private deformedWorldBounds(
 		element: AnyArtObject,
@@ -6646,22 +6672,28 @@ export class CanvasLayer {
 		const deforms = localAppearances(element.filters).some((f) =>
 			isGeometryFilter(f, this.filterRenderer),
 		);
-		const own = parentTransform
-			? applyTransformToBounds(flat, parentTransform)
-			: flat;
-		if (!deforms) return own;
-		let deformed = calculatePreFilteredElementBounds(
+		// Under a transformed container the box is rebuilt from the local
+		// bounds: the composed chain pivots on the flat local centre, which a
+		// parent transform applied on top of `flat` would miss.
+		if (parentTransform && !isIdentityTransform(parentTransform)) {
+			return planBoundsOf(
+				element,
+				elementsMap,
+				deforms ? this.filterRenderer : null,
+				this.viewportManager.getBoundsCache(),
+				parentTransform,
+			);
+		}
+		if (!deforms) return flat;
+		const deformed = calculatePreFilteredElementBounds(
 			element,
 			elementsMap,
 			this.filterRenderer,
 		);
-		if (parentTransform) {
-			deformed = applyTransformToBounds(deformed, parentTransform);
-		}
-		const minX = Math.min(own.minX, deformed.minX);
-		const minY = Math.min(own.minY, deformed.minY);
-		const maxX = Math.max(own.maxX, deformed.maxX);
-		const maxY = Math.max(own.maxY, deformed.maxY);
+		const minX = Math.min(flat.minX, deformed.minX);
+		const minY = Math.min(flat.minY, deformed.minY);
+		const maxX = Math.max(flat.maxX, deformed.maxX);
+		const maxY = Math.max(flat.maxY, deformed.maxY);
 		return brandWorldBBox({
 			minX,
 			minY,
@@ -6830,7 +6862,9 @@ export class CanvasLayer {
 					.getComposedTransformCache()
 					.get(groupId);
 				if (groupTransform) {
-					bounds = applyTransformToBounds(bounds, groupTransform);
+					bounds = brandWorldBBox(
+						applyTransformToBounds(bounds, groupTransform),
+					);
 				}
 				activePass.end();
 				const result = this.offscreen.renderElementToTexture(
@@ -7931,31 +7965,19 @@ function computeWorldBounds(
 	ctx: WorldBoundsContext,
 	parentGroupMap: ReadonlyMap<string, string>,
 ): BoundingBox {
-	let bounds = calculateElementBounds(
+	const parentId = parentGroupMap.get(element.id);
+	const parent = parentId ? ctx.elementsMap.get(parentId) : undefined;
+	const parentTransform = parent
+		? (ctx.composedTransformCache?.get(parent.id) ??
+			composeAncestorTransform(parent, ctx.elementsMap, parentGroupMap))
+		: null;
+	return planBoundsOf(
 		element,
 		ctx.elementsMap,
+		null,
 		ctx.localBoundsCache,
+		parentTransform,
 	);
-	const parentId = parentGroupMap.get(element.id);
-	if (parentId && ctx.composedTransformCache) {
-		const parentComposed = ctx.composedTransformCache.get(parentId);
-		if (parentComposed && !isIdentityTransform(parentComposed)) {
-			bounds = applyTransformToBounds(bounds, parentComposed);
-		}
-		return bounds;
-	}
-	let ancestorId = parentId;
-	while (ancestorId) {
-		const ancestor = ctx.elementsMap.get(ancestorId);
-		if (ancestor) {
-			const t = getTransform(ancestor);
-			if (!isIdentityTransform(t)) {
-				bounds = applyTransformToBounds(bounds, t);
-			}
-		}
-		ancestorId = parentGroupMap.get(ancestorId);
-	}
-	return bounds;
 }
 
 /**

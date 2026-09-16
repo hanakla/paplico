@@ -8,13 +8,15 @@
  */
 
 import {
+	type AnyArtObject,
 	type BoundingBox,
 	type ElementTransform,
+	getTransform,
 	isIdentityTransform,
 	type Viewport,
 } from "../../schema";
 import type { Brand } from "../lang";
-import { brandWorldBBox, type LocalBBox, type WorldBBox } from "./bounds";
+import type { LocalBBox } from "./bounds";
 
 /**
  * スクリーン座標 → ワールド座標
@@ -390,22 +392,23 @@ export function linearMatrixToTransform(
 /**
  * Apply transform to an AABB, producing a new enclosing AABB.
  * Transforms all 4 corners and computes the axis-aligned bounding box.
+ * The result is in whatever space `t` maps into; callers brand it themselves.
  */
 export function applyTransformToBounds(
-	localBounds: BoundingBox,
+	bounds: BoundingBox,
 	t: ElementTransform,
-): WorldBBox {
-	if (isIdentityTransform(t)) return brandWorldBBox(localBounds);
+): BoundingBox {
+	if (isIdentityTransform(t)) return bounds;
 
-	const cx = (localBounds.minX + localBounds.maxX) / 2;
-	const cy = (localBounds.minY + localBounds.maxY) / 2;
+	const cx = (bounds.minX + bounds.maxX) / 2;
+	const cy = (bounds.minY + bounds.maxY) / 2;
 	const m = transformLinearMatrix(t);
 
 	const corners = [
-		[localBounds.minX, localBounds.minY],
-		[localBounds.maxX, localBounds.minY],
-		[localBounds.maxX, localBounds.maxY],
-		[localBounds.minX, localBounds.maxY],
+		[bounds.minX, bounds.minY],
+		[bounds.maxX, bounds.minY],
+		[bounds.maxX, bounds.maxY],
+		[bounds.minX, bounds.maxY],
 	] as const;
 
 	let minX = Infinity;
@@ -424,15 +427,14 @@ export function applyTransformToBounds(
 		maxY = Math.max(maxY, ry);
 	}
 
-	// Brand boundary: applying the transform produces world-space bounds
-	return brandWorldBBox({
+	return {
 		minX,
 		minY,
 		maxX,
 		maxY,
 		width: maxX - minX,
 		height: maxY - minY,
-	});
+	};
 }
 
 /**
@@ -498,15 +500,32 @@ export function composeTransforms(
 	return linearMatrixToTransform(linear, tx, ty);
 }
 
+/** Compose an element's own transform with all its ancestor group transforms. */
+export function composeAncestorTransform(
+	element: AnyArtObject,
+	elementsMap: ReadonlyMap<string, AnyArtObject>,
+	parentGroupMap: ReadonlyMap<string, string>,
+): ElementTransform {
+	let transform = getTransform(element);
+	let parentId = parentGroupMap.get(element.id);
+	while (parentId) {
+		const ancestor = elementsMap.get(parentId);
+		if (ancestor)
+			transform = composeTransforms(getTransform(ancestor), transform);
+		parentId = parentGroupMap.get(parentId);
+	}
+	return transform;
+}
+
 /**
  * Invert {@link composeTransforms} in its second argument: returns the child
  * transform `c` for which `composeTransforms(parent, c)` equals `composed`.
  *
- * Use it when an element changes parent but must stay put on screen. Note that
- * `composeTransforms` is not associative — re-parenting by composing the old
- * parent's local transform into the child only lands correctly when the new
- * parent is the identity — so moving between transformed containers has to go
- * through the composed transform and back.
+ * Use it when an element changes parent but must stay put on screen. A child's
+ * transform is always read through its new parent, so folding the old
+ * parent's transform into the child only lands correctly when the new parent
+ * is the identity — moving between transformed containers has to go through
+ * the composed transform and back.
  */
 export function solveChildTransform(
 	parent: ElementTransform,

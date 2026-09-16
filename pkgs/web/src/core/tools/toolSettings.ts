@@ -193,7 +193,7 @@ export function createToolSettings(): ToolSettings {
 		pathEditCutMode: false,
 		selectSelectionMode: "rectangle",
 		pathEditSelectedAnchors: [],
-		selectStrokeAfterDraw: true,
+		selectStrokeAfterDraw: false,
 		pressureCurvePoints: [...DEFAULT_PRESSURE_CURVE],
 		touchDrawOffsetScale: 1,
 		perspectiveSnap: true,

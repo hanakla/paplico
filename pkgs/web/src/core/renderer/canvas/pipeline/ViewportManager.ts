@@ -14,6 +14,7 @@ import {
 	type LocalBoundsCache,
 } from "../../../utils/geometry/bounds";
 import {
+	composeAncestorTransform,
 	composeTransforms,
 	GPU_TRANSFORM_VALUES,
 	type GPUTransformAffine,
@@ -442,23 +443,11 @@ export class ViewportManager {
 		composedCache.clear();
 
 		for (const [id, element] of elementsMap) {
-			let t = getTransform(element);
 			const parentId = parentGroupMap.get(id);
-			if (parentId) {
-				const cachedParent = composedCache.get(parentId);
-				if (cachedParent) {
-					t = composeTransforms(cachedParent, t);
-				} else {
-					let ancestorId: string | undefined = parentId;
-					while (ancestorId) {
-						const ancestor = elementsMap.get(ancestorId);
-						if (ancestor) {
-							t = composeTransforms(getTransform(ancestor), t);
-						}
-						ancestorId = parentGroupMap.get(ancestorId);
-					}
-				}
-			}
+			const cachedParent = parentId ? composedCache.get(parentId) : undefined;
+			const t = cachedParent
+				? composeTransforms(cachedParent, getTransform(element))
+				: composeAncestorTransform(element, elementsMap, parentGroupMap);
 			composedCache.set(id, t);
 
 			let localBounds = this.boundsCache.get(id);
@@ -670,13 +659,11 @@ export class ViewportManager {
 			// Walk the ancestor chain directly: affected entries in the composed
 			// cache are stale until rewritten here, and the set's iteration
 			// order gives no parent-before-child guarantee.
-			let t = getTransform(element);
-			let ancestorId = this.parentGroupMap.get(id);
-			while (ancestorId != null) {
-				const ancestor = elementsMap.get(ancestorId);
-				if (ancestor) t = composeTransforms(getTransform(ancestor), t);
-				ancestorId = this.parentGroupMap.get(ancestorId);
-			}
+			const t = composeAncestorTransform(
+				element,
+				elementsMap,
+				this.parentGroupMap,
+			);
 			this._composedTransformCache.set(id, t);
 
 			let localBounds = this.boundsCache.get(id);
@@ -888,6 +875,20 @@ function maskIndexWord(mask: GPUMaskInfo): number {
  *
  * Returns null when the element parents nothing, so callers can skip work.
  */
+/** Child → parent edges of every element that parents others, as the
+ *  transform buffer composes them. */
+export function buildParentedMap(
+	elementsMap: ReadonlyMap<string, AnyArtObject>,
+): Map<string, string> {
+	const parentById = new Map<string, string>();
+	for (const element of elementsMap.values()) {
+		for (const childId of parentedChildIds(element) ?? []) {
+			parentById.set(childId, element.id);
+		}
+	}
+	return parentById;
+}
+
 function parentedChildIds(element: AnyArtObject): readonly string[] | null {
 	const maskIds = element.mask?.elementIds;
 	// A mesh container holds its children in its own space just as a group
