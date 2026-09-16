@@ -21,11 +21,11 @@ flowchart TD
 
 ## Pointer入力をツールへ渡す
 
-`CanvasPane` はDOM canvasを `Paplico.addCanvasTarget` へ渡す。`PaplicoUI.attach` はcanvasへ `pointerdown`、`pointermove`、`pointerup`、`pointercancel` を登録する。
+`CanvasPane` はDOM canvasを `Paplico.addCanvasTarget` へ渡す。`Paplico` はcanvasごとに `PaplicoUI` を作る。`PaplicoUI` のconstructorは `setupEventListeners` を呼ぶ。`setupEventListeners` はcanvasへ `pointerdown`、`pointermove`、`pointerup`、`pointercancel`、`pointerleave` を登録する。
 
-`PaplicoUI.createPointerEventData` はブラウザの `PointerEvent` を `PointerEventData` へ変換する。変換後のデータには、canvas左上を基準にした画面座標、pressure、tilt、twist、接触領域、修飾キーが入る。
+`PaplicoUI.createPointerEventData` はブラウザの `PointerEvent` を `PointerEventData` へ変換する。変換後のデータには、canvas左上を基準にした画面座標、pressure、tilt、twist、接触領域、修飾キー、`timeStamp` が入る。mouse以外のpressureは `transformPressure` callbackを通した値である。ペンツールと消しゴムツールのtouch入力は、指で隠れないようにY座標を上へずらす。ずらす量はユーザー設定の倍率に比例する。
 
-ブラウザが `getCoalescedEvents()` を提供する場合は、1回の `pointermove` に複数の入力サンプルが含まれる。`PaplicoUI` はサンプルを古い順に保持する。`PenTool.onPointerMove` は全サンプルを順番に処理する。
+ブラウザが `getCoalescedEvents()` を提供する場合は、1回の `pointermove` に複数の入力サンプルが含まれる。`PaplicoUI` はサンプルを古い順に保持する。`PenTool.onPointerMove` は全サンプルを順番に処理する。直前の `pointermove` と全フィールドが一致するcoalesced batchは重複として捨てる。
 
 ```mermaid
 sequenceDiagram
@@ -58,11 +58,11 @@ sequenceDiagram
 
 `PenTool.onPointerDown` は画面座標を `screenToWorld` でワールド座標へ変換する。viewportの移動、回転、拡大率はこの段階で反映される。
 
-透視スナップが有効な場合はワールド座標のXとYを射影する。pressure、tilt、twistは入力値を維持する。
+透視スナップは `pointermove` の各sampleへ適用する。最初の点には適用しない。ストロークが開始点から8画面pxを超えて動いた時点で、進行方向との角度が10度以内で最も近いガイド方向へロックする。ロック後の点はXとYをその直線へ射影する。pressure、tilt、twistは入力値を維持する。Altキーを押している間は判定も射影も行わない。
 
 `PenTool` は `BrushStrokeSession` を作る。最初のraw pointは `deltaTime: 0` で追加する。ストロークの開始時刻は `pointerdown` イベントの `timeStamp` で保持する。最初の `pointermove` のcoalesced sampleはハンドラより前の時刻を持つためである。
 
-各raw pointはワールド座標、pressure、tiltX、tiltY、twist、ストローク開始からの `deltaTime` を持つ。coalesced sampleの時刻には `sample.timeStamp - startTime` を使う。coalesced sampleがない場合は `event.timeStamp - startTime` を使う。
+各raw pointはワールド座標、pressure、tiltX、tiltY、twist、ストローク開始からの `deltaTime` を持つ。coalesced sampleの時刻には `max(sample.timeStamp - startTime, 0)` を使う。coalesced sampleがない場合は `event.timeStamp - startTime` を使う。
 
 `BrushStrokeSession.append` は入力点をストローク全体の配列へ保存する。接触後100ミリ秒までは元の筆圧も保持する。一度3画面px以上動いた後は、最新の筆圧を基準に接触部分の突出を補正し続ける。移動距離だけでは補正期間を終了しない。
 
@@ -94,7 +94,7 @@ dedupeは直前に採用した点との距離で判定する。距離が0.5 worl
 
 ライブプレビューは除外した最新点を `floatingLast` として保持する。`floatingLast` はtailの終点へ戻す。これにより、細かな点を増やさずに現在のペン位置を表示へ反映する。
 
-`processStroke` も0.5 world unitを閾値に使う。先頭点は常に残す。最後のraw pointも必ず残す。最後の点を残すことで、確定した中心線がpen-up位置へ到達する。
+`processStroke` は同じ処理を全点へ一括で行う関数である。消しゴムツールが軌跡をsegmentへ変換するために使う。ブラシツールの確定では使わない。`processStroke` も0.5 world unitを閾値に使う。先頭点は常に残す。最後のraw pointも必ず残す。
 
 ## 点列を安定化する
 
@@ -102,7 +102,7 @@ dedupeは直前に採用した点との距離で判定する。距離が0.5 worl
 
 | 方式 | 処理 | 出力の特徴 |
 |---|---|---|
-| `smooth` | Gaussian kernelで点列を平均する | 手ぶれを抑える。stroke端とcornerは固定する |
+| `smooth` | Gaussian kernelで点列を平均する | 手ぶれを抑える。stroke端はraw値に固定する。cornerの角度は保つ |
 | `pulled-string` | 固定長の糸でcursorがanchorを引く | 方向転換を比較的鋭く保つ |
 | `inertia` | critical dampingのspringで位置を追従させる | 速度の慣性を残す |
 
@@ -118,7 +118,9 @@ weight = exp(-d² / (2 * sigma²))
 
 X、Y、tilt、`deltaTime` を同じkernelで平均する。pressureは入力値を維持する。twistはsinとcosを平均する。角度の不連続を避けるためである。strokeの先頭と末尾はraw値を維持する。
 
-cornerをまたいで平均すると意図した角まで丸くなる。このため、平滑化前のraw pointsでcornerを先に検出する。各corner間を独立して平滑化する。cornerは各sectionの端点になる。Gaussian kernelはsection境界を越えない。
+kernelは区間の端の近くでも全幅で走る。端の外側は、端点を挟んだ鏡像の点から区間の傾向を外挿した点として読む。窓を切り詰めると端の近くの点が内側へ引かれるためである。外挿するのはX、Y、`deltaTime` である。pressure、tilt、twistは鏡像の点の値をそのまま使う。
+
+cornerをまたいで平均すると意図した角まで丸くなる。このため、平滑化前のraw pointsでcornerを先に検出する。各corner間を独立して平滑化する。cornerは各sectionの端点になる。Gaussian kernelはsection境界を越えない。corner自体はraw値へ固定しない。前後のsectionがそれぞれ自分の側の点だけで平滑化した値を求め、その平均をcornerの位置にする。
 
 ### pulled-string
 
@@ -150,7 +152,7 @@ cornerはBézier fittingの区切りになる。鋭い角の前後を別々にfi
 
 turn angleが45度を超える点だけが候補になる。候補windowのchordからの最大apex deviationも判定する。必要な距離は `0.75 * (1 + stabilization)` world unitsである。
 
-3 world units以内に候補が複数ある場合はclusterへまとめる。cluster内ではturn angleが最大の点だけをcornerとして残す。
+候補は直前の候補からのchord distanceが3 world units以内ならclusterへまとめる。cluster内ではturn angleが最大の点だけをcornerとして残す。走査がその最大の点から8 indicesを超えて進むとclusterを閉じる。
 
 ### pulled-stringとinertiaのcorner detection
 
@@ -173,9 +175,15 @@ stabilization > 0: tolerance = (1 + stabilization * 3) / zoom
 
 2点だけのsectionは1本のcubicになる。handle lengthには端点間距離の3分の1を使う。
 
-3点以上のsectionはchord-length parameterizationを作る。Schneider法のleast-squaresで始点側と終点側のhandle lengthを解く。行列が退化した場合はchord lengthの3分の1へfallbackする。handle lengthが負またはほぼ0の場合も同じfallbackを使う。
+3点以上のsectionはchord-length parameterizationを作る。Schneider法のleast-squaresで始点側と終点側のhandle lengthを解く。行列の退化は、行列式が対角成分の積に対して十分小さいかどうかで判定する。退化した場合はchord lengthの3分の1へfallbackする。handle lengthが負またはほぼ0の場合も同じfallbackを使う。
+
+handle lengthはchord lengthを上限にclampする。least-squaresはsample点での距離だけを最小化する。sample間でhandleが伸びすぎても誤差に現れないためである。
+
+clampした後に曲線の折り返しを検査する。両方のhandleがchordと同じ向きで、chord方向の速度が途中で負になる解は、chord lengthの3分の1へfallbackする。chordと逆向きのhandleは、次のどちらかに当てはまるとき同じfallbackを使う。chord lengthが6 world units未満である。または、handleのchord方向の成分がchord lengthの4分の1未満である。
 
 生成した曲線と入力点の最大誤差がtolerance以内なら、その曲線を採用する。誤差がtoleranceの2倍未満なら、Newton-Raphson法でparameterを最大4回更新する。許容誤差へ収まらない場合は、最大誤差点でsectionを分割して左右を再帰的にfitする。
+
+`processStroke` は全sectionをfitした後に、隣り合うcubicを1本へまとめる。まとめた曲線が、その範囲の平滑化点からtolerance以内に収まることが条件である。接続点で45度を超えて曲がる組はまとめない。増分fitはこの処理を行わない。
 
 absolute control pointsは `CubicBezierSegment[]` へ変換する。`cp1` と `cp2` は各anchorからのrelative offsetとして格納する。pressure、tilt、twist、`deltaTime` は近い平滑化点からsegment端へ付与する。最後のsegmentは最後の入力点のmetadataを使う。
 
@@ -196,13 +204,13 @@ flowchart TD
     H --> I
 ```
 
-`smooth` の末尾には、Gaussian kernelとcorner判定に必要な未来の点がまだ存在しない。増分フィッターはこの範囲を未確定tailとして残す。Gaussian radiusと24点のcorner lookaheadを過ぎた点だけをstableとして扱う。
+`smooth` の末尾には、Gaussian kernelとcorner判定に必要な未来の点がまだ存在しない。増分フィッターはこの範囲を未確定tailとして残す。Gaussian radius、24点のcorner lookahead、8点のcluster close windowを過ぎた点だけをstableとして扱う。
 
 `pulled-string` と `inertia` はcausalな処理である。追加済みの平滑化点は確定値として扱う。
 
 stableなtailが128点を超えた場合は、末尾16点を残して前方をprefixへ移す。cornerが確定した場合も、そのcornerまでをprefixへ移す。prefixへ移したsegmentは後続入力で再fitしない。
 
-tailのfitでは、現在の平滑化点へ隣接3点の45度corner detectionを実行する。frozen prefixとfitし直したtailを連結した結果がpreview segmentsになる。
+tailのfitでは、現在の平滑化点へ隣接3点の45度corner detectionを実行する。prefixへ移す区間のfitも同じ手順を使う。frozen prefixとfitし直したtailを連結した結果がpreview segmentsになる。
 
 ライブsegmentは入力時刻と筆圧の変化も保持する。端点間を線形補間した時刻から8ミリ秒、または筆圧から0.05を超えて外れるraw pointがある場合は、de Casteljau subdivisionでsegmentを分割する。最大16個のinput knotを追加する。geometryは変更しない。segment端の時刻と筆圧の密度だけを増やす。
 
@@ -220,7 +228,7 @@ tailのfitでは、現在の平滑化点へ隣接3点の45度corner detectionを
 
 `BrushStrokeSession.commit` は記録用の入力点を返す。入力点が2点未満の場合はPathを作らない。
 
-`PenTool` は `IncrementalStrokeFitter.getPlainSegments` からPathを作る。frozen prefixとtailのfitはプレビューと同じで、input knotだけを含まない。幅プロファイルとアピアランスはプレビューと同じ値を保存する。
+`PenTool` は `BrushStrokeSession.getCommitSegments` からPathを作る。このメソッドは `IncrementalStrokeFitter.getPlainSegments` の結果を返す。frozen prefixとtailのfitはプレビューと同じで、input knotだけを含まない。幅プロファイルとアピアランスはプレビューと同じ値を保存する。
 
 増分fitの人工的なsection境界は保存される。パス編集ではこれもアンカーとして扱う。input knotを除くと、筆圧をアンカーから読む性質はアンカー間で線形補間になる。幅は焼き込んだプロファイルから読む。幅は変わらない。
 

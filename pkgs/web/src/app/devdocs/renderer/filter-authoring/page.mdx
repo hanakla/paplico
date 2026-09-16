@@ -3,11 +3,11 @@
 > [!TIP]
 > **前提ページ:** [フィルターシステム](/devdocs/renderer/filters)。フィルターアーキテクチャの全体像、プリフィルターとポストフィルターの違い、テクスチャピンポンの仕組みを先に把握しておくと読みやすい。
 
-このページでは、Paplico のフィルターシステムに新しいカスタムフィルターを追加する具体的な手順を解説する。`FilterHandler` インターフェースの各メソッドの実装方法、WGSL シェーダーの書き方、`RenderOrchestrator` への登録方法をステップバイステップで示す。
+このページでは、Paplico のフィルターシステムに新しいカスタムフィルターを追加する具体的な手順を解説する。`FilterHandler` インターフェースの各メソッドの実装方法、WGSL シェーダーの書き方、`RenderOrchestrator` への登録方法、フィルターパネルから追加できるようにするための登録をステップバイステップで示す。
 
 ## `FilterHandler` インターフェース
 
-すべてのフィルターは `FilterHandler` を実装する。以下がインターフェースの全容である。
+すべてのフィルターは `FilterHandler` を実装する。定義は `renderer/canvas/pipeline/FilterRenderer.ts` にある。以下は、通常のフィルターが実装するメンバーである。
 
 ```typescript
 interface FilterHandler {
@@ -18,13 +18,16 @@ interface FilterHandler {
   onScaleFilter(params: Filter, scale: [number, number]): Filter;
 
   // フィルター効果がはみ出す範囲をワールド単位で返す。
-  getExpansionMargin(filter: Filter): number;
+  getExpansionMargin(
+    filter: Filter,
+    bounds?: { width: number; height: number },
+  ): number;
 
   // リソース解放（任意）。
   destroy?(): void;
 
-  // true の場合、レンダラーがバックドロップテクスチャをキャプチャして渡す。
-  readonly requiresBackdrop?: boolean;
+  // 描画要件の宣言（任意）。省略時は通常の in-place 画像フィルターとして扱われる。
+  getRenderConfigure?(filter: Filter): Partial<FilterRenderRequirements>;
 
   // プリフィルター: ラスタライズ前にジオメトリを変形する。
   preProcess?(
@@ -32,13 +35,29 @@ interface FilterHandler {
     filter: Filter,
   ): CubicBezierSegment[];
 
-  // ポストフィルター: ラスタライズ済みテクスチャに GPU 処理を適用する。
-  postProcess?(context: FilterProcessorContext, filter: Filter): void;
+  // プリフィルター: 出力するアピアランスも変える。
+  preProcessAppearance?(
+    geometry: AppearanceGeometry,
+    filter: Filter,
+  ): AppearanceGeometry[];
 
-  // アニメーションキーフレーム間のパラメータ補間（任意）。
+  // ポストフィルター: ラスタライズ済みテクスチャに GPU 処理を適用する。
+  postProcess?(
+    context: FilterProcessorContext,
+    filter: Filter,
+  ): PostProcessResult | PostProcessResult[] | void;
+
+  // 2組のパラメータの補間（任意）。
   onInterpolate?(paramsA: unknown, paramsB: unknown, t: number): unknown;
+
+  // パラメータ内の全ての色を adjustColor に通す（任意）。
+  onAdjustColor?(params: unknown, adjustColor: (color: Color) => Color): unknown;
 }
 ```
+
+1つのハンドラーが実装できるのは、プリフィルターのメソッド（`preProcess` か `preProcessAppearance` のどちらか一方）か `postProcess` のどちらかである。両方を持つハンドラーは `registerHandler` の引数型 `RegisterableFilterHandler` に当てはまらず、コンパイルエラーになる。両方が必要なときは2つのハンドラーに分けて登録する。
+
+このほかに、3Dソリッドのように自前でジオメトリを組み立てるハンドラー向けのメンバー（`startFrame`, `releaseFrame`, `replacesElementRender`, `collectReferencedDefIds`, `getBackdropEffectDriver` など）と、被覆率だけから下敷きを作る `postProcessUnderlay` がある。通常の画像フィルターでは実装しない。
 
 ### `postProcess` -- ポストフィルターの実装
 
@@ -50,32 +69,57 @@ interface FilterProcessorContext {
   sourceTexture: GPUTexture;   // 入力テクスチャ（前段フィルターの出力）
   targetTexture: GPUTexture;   // 出力先テクスチャ（ここに描画結果を書き込む）
   commandEncoder: GPUCommandEncoder;
+  profiler?: GPUTimingProfiler | null;
+  timingLabel?: string;
   sceneInfo: {
     textureSize: { width: number; height: number };
-    zoom: number;                // ビューポートズーム倍率
-    canvasRotationDeg: number;   // キャンバス回転角度
-    worldOrigin?: [number, number];
+    dpiScale: number;            // sourceTexture のラスタライズ倍率（ワールド1pxあたりのテクセル数）
   };
+  sourceWorldSize?: { width: number; height: number };
+  sourceContentOffset?: { x: number; y: number };
+  coordinateSpace?: {
+    worldSize: { width: number; height: number };
+    sourceOffset: { x: number; y: number };
+  };
+  sourceGraphicTexture?: GPUTexture;
+  backdropBlur?: (sigma: number) => BackdropBlurLevels | null;
+  appearanceCache?: { /* get / set / pruneInstances */ };
+  geometry?: FilterGeometryContext;
 }
 ```
+
+| フィールド | 用途 |
+|---|---|
+| `sceneInfo.textureSize` | `sourceTexture` の幅と高さ。プールのパディングが除去された後の内容サイズである |
+| `sceneInfo.dpiScale` | 空間パラメータ（ぼかし半径など）に掛ける倍率 |
+| `sourceWorldSize` | UV [0,1] が対応する内容領域の正確なワールドサイズ。テクスチャ寸法の切り上げの影響を受けないため、テクスチャ内のパターンをワールドpxで組むときに使う |
+| `sourceContentOffset` | `sourceTexture` の中で内容の左上が置かれているテクセル位置（小数）。グリッドやパターンを内容に固定するフィルター（`pixelate`）が使う |
+| `coordinateSpace` | `sourceTexture` が領域全体の一部しか含まないときの、切り取られていない座標空間。`sourceOffset` は、その一部分の左上のワールドpx位置である。要素に固定した模様を描くフィルター（`hk:glitch`, `hk:paper-v2` など）が使う |
+| `sourceGraphicTexture` | チェーンの入力そのもの。`needsSourceGraphic` を宣言したハンドラーがチェーンにあるときだけ渡される |
+| `backdropBlur` | バックドロップ経路でだけ渡される、共有ブラーピラミッドへのアクセサ |
+| `appearanceCache` | 処理中の要素に束縛された `AppearanceCache` のビュー。自分のアピアランス uid のエントリだけに届く |
+| `geometry` | 自前でジオメトリを組み立てるハンドラー（`extrude3d`）向けの、要素とシーンへのアクセス |
+| `profiler` / `timingLabel` | GPUタイミング計測用。レンダーパスの `timestampWrites` に渡す |
 
 実装上の要点:
 
 - `sourceTexture` からサンプリングし、`targetTexture` に描画する。**source と target が同一テクスチャであることはないため**、読み書きの競合を気にする必要はない。
-- 空間パラメータ（ぼかし半径など）は `sceneInfo.zoom` でスケーリングすること。ズーム倍率が異なってもフィルター効果の見た目が一定になるようにするためである。
-- `commandEncoder` に対して `beginRenderPass` でレンダーパスを発行する。`queue.submit` は呼ばない（`FilterRenderer` が一括で送信する）。
+- 空間パラメータ（ぼかし半径など）は `sceneInfo.dpiScale` でスケーリングすること。パラメータはワールド単位であり、テクスチャはワールド1pxあたり `dpiScale` テクセルでラスタライズされているためである。
+- `commandEncoder` に対して `beginRenderPass` でレンダーパスを発行する。`queue.submit` は呼ばない。エンコーダーは呼び出し元のものであり、フレームの他のパスと一緒に送信される。
+- テクスチャの色はプリマルチプライドアルファである。
 
 以下は `BlurFilterProcessor` から抜粋したポストフィルターの実装パターンである。2パス分離型ガウシアンブラーの水平パスを示す。
 
 ```typescript
 public postProcess(context: FilterProcessorContext, filter: Filter): void {
   const { device, sourceTexture, targetTexture, commandEncoder,
-          sceneInfo: { textureSize, zoom } } = context;
-  const scaledRadius = (filter as BlurFilter).paramData.params.radius * zoom;
+          sceneInfo: { textureSize, dpiScale } } = context;
+  const scaledRadius = (filter as BlurFilter).paramData.params.radius * dpiScale;
 
   // ユニフォームバッファを作成・書き込み
   const uniformBuffer = this.createUniformBuffer(
     device,
+    "Blur Uniform Buffer (Horizontal)",
     [textureSize.width, textureSize.height],
     [1.0, 0.0],  // horizontal direction
     scaledRadius,
@@ -112,26 +156,31 @@ public postProcess(context: FilterProcessorContext, filter: Filter): void {
 
 実装上の要点:
 
-- 入力セグメントは `PreFilterRenderer` が `deepClone` 済みのコピーを渡すため、破壊的変更が許可されている。ただし慣例として新しい配列を返す実装が推奨される。
+- 入力セグメントは `PreFilterRenderer.ts` の関数が `deepClone` 済みのコピーを渡すため、破壊的変更が許可されている。フィルター自体も `deepClone` されたコピーが渡される。ただし慣例として新しい配列を返す実装が推奨される。
+- グループのジオメトリフィルターは子要素に引き継がれる。`preProcess` は子のセグメントに対しても呼ばれる。
 - `initialize` は no-op で良い（GPU パイプライン不要）。
 
-以下は `ZigzagFilterHandler` の `preProcess` の概要である。
+以下は `ZigzagFilterHandler` の `preProcess` である。サブパスごとに変形し、各サブパスの先頭セグメントに `isMoved` を立て直している。
 
 ```typescript
 public preProcess(
   segments: CubicBezierSegment[],
   filter: Filter,
 ): CubicBezierSegment[] {
-  const { frequency, amplitude, phase } = (filter as ZigzagFilter).paramData.params;
+  const subPaths = splitIntoSubPaths(segments);
+  const result: CubicBezierSegment[] = [];
 
-  // 1. パスを弧長パラメータ化してサンプリング
-  const sampledPoints = samplePathAtRegularIntervals(segments, frequency);
+  for (const sub of subPaths) {
+    // 弧長に沿ってサンプリングし、法線方向に三角波でオフセットする
+    const processed = applyZigzagFilter(sub, filter as ZigzagFilter);
+    if (processed.length === 0) continue;
+    result.push({ ...processed[0], isMoved: true });
+    for (let i = 1; i < processed.length; i++) {
+      result.push(processed[i]);
+    }
+  }
 
-  // 2. 法線方向に三角波でオフセット
-  const offsetPoints = applyZigzagOffset(sampledPoints, amplitude, phase);
-
-  // 3. オフセット済み点列からベジエセグメントを再構築
-  return reconstructBezierSegments(offsetPoints);
+  return result;
 }
 ```
 
@@ -147,30 +196,48 @@ public preProcess(
 
 `TransformFilterHandler` が実装例である。
 
-### `requiresBackdrop` -- バックドロップフィルターのフラグ
+### `getRenderConfigure` -- 描画要件の宣言
 
-`requiresBackdrop` を `true` に設定すると、レンダラーは以下の追加処理を行う。
-
-1. **`RenderPlanner`** がフレームプラン構築時にバックドロップフィルターを持つ要素を検出し、レイヤーをセグメント分割する。これにより、バックドロップキャプチャが正しい描画順序で実行される。
-2. **`BackdropCaptureManager`** が要素描画前にキャンバスの現在内容をキャプチャする。
-3. `postProcess` に渡されるコンテキストが `BackdropFilterProcessorContext` に拡張され、`backdropTexture` フィールドが追加される。
-4. フィルター処理後、**`FilterRenderer`** が `backdropMask.wgsl` シェーダーで要素形状のマスクを自動的に適用する。
+`getRenderConfigure` は、このフィルターの `postProcess` をどう呼ぶべきかをフィルターごとに返す。パラメータに応じて値を変えてよい。省略した項目は既定値になる。
 
 ```typescript
-interface BackdropFilterProcessorContext extends FilterProcessorContext {
-  backdropTexture: GPUTexture;  // キャンバス上の既存描画内容
+interface FilterRenderRequirements {
+  needsBackdrop: boolean;       // 既定値 false
+  needsSourceTexture: boolean;  // 既定値 true
+  needsSourceGraphic: boolean;  // 既定値 false
 }
 ```
 
-バックドロップフィルターの `postProcess` では `backdropTexture` をサンプリングして加工する。マスク合成は `FilterRenderer` が自動で行うため、ハンドラー側でマスク処理を実装する必要はない。
+| 項目 | 真のときの意味 |
+|---|---|
+| `needsBackdrop` | フィルターの実行前に、レンダラーが要素の背後の内容をキャプチャする |
+| `needsSourceTexture` | `postProcess` が `sourceTexture` を読む。偽を返すのは、`context.geometry` だけから自前の出力を作るハンドラーである |
+| `needsSourceGraphic` | `postProcess` がチェーンの入力そのものを `context.sourceGraphicTexture` から読む。レンダラーはチェーン入力のコピーをチェーンの間保持するので、前段のフィルターがピンポン用テクスチャを上書きしても失われない |
+
+`ClipToShapeFilterHandler` は `{ needsSourceGraphic: true }` を返す。チェーンの現在の結果を、チェーン入力のアルファで切り抜くためである。
+
+#### バックドロップに適用する
+
+`postProcess` を持つフィルターは、アピアランス共通のフラグ `applyToBackdrop` が立つと要素の背後にかかる。ハンドラー側の対応は要らない。`resolveRenderConfigure` がこのフラグを見て `needsBackdrop` を真にする。要素の描画を置き換えるフィルター（`replacesElementRender` が真）にはこのフラグは効かない。
+
+`needsBackdrop` が真のとき、レンダラーは以下の処理を行う。
+
+1. **`RenderPlanner`** がフレームプラン構築時にバックドロップフィルターを持つ要素を検出し、レイヤーをセグメント分割する。これにより、バックドロップキャプチャが正しい描画順序で実行される。
+2. **`BackdropEffectCoordinator`** が、要素の領域を切り出したテクスチャを用意する。キャプチャは同じフレームのバックドロップ要素どうしで共有される。領域はドキュメントのラスタライズ倍率（`rasterizationDpi / 72`）のグリッドに再サンプリングされる。
+3. 切り出したテクスチャが `sourceTexture` として `postProcess` に渡される。`sceneInfo.dpiScale` はラスタライズ倍率である。
+4. フィルター処理後、**`CanvasLayer.processBackdropElement`** が要素形状のマスクを描き、フィルター結果をマスクで切り抜いてキャンバスに合成する。
+
+バックドロップ経路でも `postProcess` が読むのは `sourceTexture` である。通常経路との違いはテクスチャの中身だけなので、多くのフィルターは同じ実装のまま両方の経路で動く。マスク合成はレンダラーが行うため、ハンドラー側でマスク処理を実装する必要はない。
+
+バックドロップをぼかすフィルターは、共有ブラーピラミッドを使える。`getBackdropBlurSigma(filter, rasterScale)` で必要なガウスシグマをキャプチャのテクセル単位で宣言し、`postProcess` の中で `context.backdropBlur(sigma)` を呼ぶ。戻り値は、そのシグマを挟む2つのピラミッド段と補間係数である。`null` が返ったときは自前でぼかす。`FrostGlassFilterProcessor` が実装例である。
 
 ### `getExpansionMargin` -- 描画領域の拡張量
 
-`getExpansionMargin` は、フィルター効果が要素の元の境界からはみ出す量をワールド単位で返す。`RenderPlanner` がオフスクリーンテクスチャのサイズを決定する際に使用する。
+`getExpansionMargin` は、フィルター効果が要素の元の境界からはみ出す量をワールド単位で返す。`RenderPlanner` がオフスクリーンテクスチャのサイズを決定する際に使用する。第2引数 `bounds` には内容の幅と高さが渡されることがある。はみ出す量が内容の大きさに比例するフィルター（ズームブラーや回転ブラー）はこれを読む。
 
 - **ブラー**: 半径の3倍を返す（ガウス分布の99.7%がカバーされる範囲）。
 - **ジグザグ**: 振幅をそのまま返す（法線方向の最大オフセット量）。
-- **バックドロップフィルター**: 通常 `0` を返す（要素形状内で完結するため）。
+- **バックドロップ経路**: 効果は要素形状の内側で完結するため、はみ出しは要らない。`FrostGlassFilterProcessor` は `filter.applyToBackdrop` が真なら `0` を、偽なら `radius + scatter` を返す。
 
 ```typescript
 // BlurFilterProcessor の例
@@ -204,9 +271,9 @@ public onScaleFilter(params: Filter, [scaleX, scaleY]: [number, number]): Filter
 }
 ```
 
-### `onInterpolate` -- アニメーション補間
+### `onInterpolate` -- パラメータの補間
 
-アニメーションキーフレーム間でフィルターパラメータを補間するメソッドである。引数 `t` はベジエイージング適用済みの補間係数で、`[0, 1]` の範囲を超えることがある。
+2組のフィルターパラメータを補間するメソッドである。ブレンドオブジェクトが中間インスタンスを作るとき、2つのキーが持つ同じ processor のアピアランスを補間するのに使われる。引数 `t` は `[0, 1]` の範囲を超えることがある。実装しないフィルターは、補間されずに片方のキーの値がそのまま使われる。
 
 ```typescript
 public onInterpolate(paramsA: unknown, paramsB: unknown, t: number): unknown {
@@ -216,14 +283,22 @@ public onInterpolate(paramsA: unknown, paramsB: unknown, t: number): unknown {
 }
 ```
 
+### `onAdjustColor` -- パラメータ内の色
+
+パラメータに色を持つフィルターは `onAdjustColor` を実装する。パラメータ内の全ての色を `adjustColor` に通し、その結果で置き換えたパラメータを返す。色を集めたい呼び出し側は、色を記録するだけの恒等関数を渡す。色を調整したい呼び出し側は、実際の変換関数を渡す。
+
 ## ステップバイステップ: 新しいフィルターの追加手順
 
-### 1. Filter 型を定義する
+レンダラーへの登録（手順1〜4）で、`filters` 配列に入ったフィルターが描画されるようになる。フィルターパネルから追加・編集できるようにするには、カタログとUIへの登録（手順5〜7）も要る。`clip-to-shape` フィルターが、これらの手順を一通り踏んだ小さな実例である。
 
-`pkgs/web/src/core/schema.ts` に新しいフィルター型を追加し、`Filter` ユニオン型に加える。
+### 1. ハンドラーのファイルに Filter 型を定義する
+
+フィルターの Params 型と Filter 型は、ハンドラーのファイル自身が持つ。`pkgs/web/src/core/renderer/filters/` に新しいファイルを作り、`Appearance<Params>` を継承した型を定義する。`schema.ts` の `Filter` は `Appearance` の別名であり、フィルターごとのユニオンではないため、`schema.ts` を変更する必要はない。
 
 ```typescript
-// schema.ts
+// renderer/filters/MyCustomFilterProcessor.ts
+import type { Appearance } from "../../schema";
+
 export interface MyCustomParams {
   intensity: number;
 }
@@ -231,24 +306,31 @@ export interface MyCustomParams {
 export interface MyCustomFilter extends Appearance<MyCustomParams> {
   processor: "my-custom";
 }
+```
 
-export type Filter =
-  | ZigzagFilter
-  | BlurFilter
-  // ...existing filters...
-  | MyCustomFilter;
+`core/` の外（フィルターパネルなど）から使う型は、`renderer/filters/index.ts` から再エクスポートする。`core/` の中のコードは、ハンドラーのファイルから直接 import する。
+
+```typescript
+// renderer/filters/index.ts
+export type {
+  MyCustomFilter,
+  MyCustomParams,
+} from "./MyCustomFilterProcessor";
 ```
 
 ### 2. `FilterHandler` を実装するクラスを作成する
 
-`renderer/filters/` ディレクトリに新しいファイルを作成する。
+同じファイルにハンドラークラスを書く。
 
 ```typescript
 // renderer/filters/MyCustomFilterProcessor.ts
-import type { Filter } from "../../schema";
-import type { FilterHandler, FilterProcessorContext } from "../pipeline/FilterRenderer";
+import type { Appearance, Filter } from "../../schema";
 import { compileShaderModule } from "../../utils/wgpu-utils";
-import { MY_CUSTOM_SHADER } from "../shaders/myCustom.wgsl";
+import type {
+  FilterHandler,
+  FilterProcessorContext,
+} from "../canvas/pipeline/FilterRenderer";
+import { MY_CUSTOM_SHADER } from "./myCustom.wgsl";
 
 export class MyCustomFilterProcessor implements FilterHandler {
   private pipeline: GPURenderPipeline | null = null;
@@ -315,10 +397,10 @@ export class MyCustomFilterProcessor implements FilterHandler {
 
 ### 3. WGSL シェーダーを作成する
 
-`renderer/shaders/` ディレクトリにシェーダーファイルを作成する。Paplico のポストフィルターシェーダーは全画面三角形（full-screen triangle）パターンを使用する。頂点シェーダーでクリップ空間を覆う1枚の三角形を生成し、フラグメントシェーダーでテクスチャをサンプリングして加工する。
+ハンドラーと同じ `renderer/filters/` ディレクトリに、`*.wgsl.ts` のシェーダーファイルを作成する。`renderer/shaders/` は複数のパイプラインが共有するシェーダーの置き場であり、フィルター固有の WGSL は置かない。Paplico のポストフィルターシェーダーは全画面三角形（full-screen triangle）パターンを使用する。頂点シェーダーでクリップ空間を覆う1枚の三角形を生成し、フラグメントシェーダーでテクスチャをサンプリングして加工する。
 
 ```wgsl
-// renderer/shaders/myCustom.wgsl.ts にエクスポートする文字列として定義
+// renderer/filters/myCustom.wgsl.ts で `export const MY_CUSTOM_SHADER` の文字列として定義
 struct Uniforms {
   resolution: vec2f,
   intensity: f32,
@@ -362,35 +444,96 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 
 ### 4. `RenderOrchestrator` に登録する
 
-`RenderOrchestrator.ts` の初期化処理で `filterRenderer.registerHandler` を呼ぶ。processor ID は `schema.ts` の `processor` フィールドと一致させること。
+`RenderOrchestrator.ts` の初期化処理にある `filterHandlers` 配列にエントリを足す。配列のハンドラーは `Promise.all` でまとめて `initialize` され、続けて `filterRenderer.registerHandler` で登録される。processor ID は Filter 型の `processor` フィールドと一致させること。
 
 ```typescript
 // RenderOrchestrator.ts の初期化処理内
-const myCustomProcessor = new MyCustomFilterProcessor();
-await myCustomProcessor.initialize(this.device, this.canvasFormat);
-filterRenderer.registerHandler("my-custom", myCustomProcessor);
+const filterHandlers: [string, RegisterableFilterHandler][] = [
+  // ...existing handlers...
+  ["my-custom", new MyCustomFilterProcessor()],
+];
 ```
 
-これだけで `FilterRenderer` と `RenderPlanner` が新しいフィルターを認識し、要素の `filters` 配列に `{ processor: "my-custom", ... }` が含まれていれば自動的に適用される。
+これで `FilterRenderer` と `RenderPlanner` が新しいフィルターを認識し、要素の `filters` 配列に `{ processor: "my-custom", ... }` が含まれていれば描画に適用される。
+
+### 5. カタログに登録する
+
+`renderer/filters/filterCatalog.ts` の `FILTER_CATALOG` にエントリを足す。`category` はフィルター追加メニューでの分類になる。`canBeSubFilter` は、塗りや線のアピアランスの下にサブフィルターとして置けるかどうかである。
+
+```typescript
+// renderer/filters/filterCatalog.ts
+{ processor: "my-custom", category: "Stylize", canBeSubFilter: true },
+```
+
+新しいカテゴリを作る場合は、`locales/en.ts` と `locales/ja.ts` の `filterPanel.category` にカテゴリ名の訳を足す。ラスター系のカテゴリは `organisms/FilterPanel/constants.tsx` の `CATEGORY_ICONS` でアイコンを共有するので、そこにも足す。
+
+### 6. フィルターパネルに登録する
+
+`pkgs/web/src/organisms/FilterPanel/` の以下のファイルを更新する。
+
+| ファイル | 追加するもの |
+|---|---|
+| `constants.tsx` | `FILTER_TEXT_KEYS` に、processor ID から表示名の翻訳キーへの対応 |
+| `createDefaultFilter.ts` | `FILTER_DEFS` に、追加直後のフィルターを作るファクトリ。`DefaultFilter` ユニオンに Filter 型も足す。`createDefaultFilter.test.ts` は、カタログの全エントリにファクトリがあることを検査する |
+| `Controls<名前>.tsx` | パラメータを編集するコントロール。`filter` と `onUpdate` を props に取る |
+| `FilterItem.tsx` | トップレベルのフィルター行で、processor ID に応じてコントロールを出す分岐 |
+| `FilterEffectControls.tsx` | サブフィルター行で、processor ID に応じてコントロールを出す分岐 |
+
+```typescript
+// createDefaultFilter.ts の FILTER_DEFS
+"my-custom": () => ({
+  uid: generateUid("filter"),
+  processor: "my-custom",
+  paramData: { version: "1", params: { intensity: 1 } },
+}),
+```
+
+### 7. 翻訳を足す
+
+`locales/en.ts` と `locales/ja.ts` の `filterPanel` に、フィルターの表示名とコントロールのラベルを足す。キーは手順6で `FILTER_TEXT_KEYS` に書いたものと一致させる。
+
+### 8. SVG 書き出しでネイティブに出力する（任意）
+
+何もしなければ、フィルターのかかった要素は SVG 書き出しでラスタライズされる。フィルターが SVG のフィルタープリミティブで正確に表現できる場合は、`core/io/export/svg/svgFilterPrimitives.ts` の `SVG_PRIMITIVE_EMITTERS` にエミッターを足すと、`<fe*>` 要素として出力される。
+
+`clip-to-shape` はこの形を取っている。`clipToShapeComposite` 関数がパラメータを `feComposite` のパラメータに変換し、GPU のパスと SVG のエミッターの両方がこの関数を通る。2つの出力が食い違わないようにするためである。
 
 ## テクスチャピンポン: 入出力テクスチャの扱い
 
 `FilterRenderer` は2枚のテンポラリテクスチャ間でピンポンしながらフィルターチェーンを実行する。各フィルターハンドラーの `postProcess` が守るべきルールは以下の通りである。
 
 1. **`sourceTexture` から読み取り、`targetTexture` に書き込む。** この2つは必ず別のテクスチャである。
-2. **`commandEncoder` にレンダーパスを追加するだけで、`queue.submit` は呼ばない。** `FilterRenderer` がすべてのフィルターのパスを1つの `CommandBuffer` にまとめて送信する。
-3. **複数パスが必要な場合**（ブラーの水平/垂直パスなど）、1パス目で `source -> target` に書き込んだ後、`copyTextureToTexture` で `target` の内容を `source` にコピーし、2パス目で再び `source -> target` に書き込む。`FilterRenderer` のピンポンは各ハンドラーの呼び出し間でのみ切り替わるため、ハンドラー内部の複数パスは自前で管理する。
+2. **`commandEncoder` にレンダーパスを追加するだけで、`queue.submit` は呼ばない。** エンコーダーは呼び出し元のものであり、フィルターのパスはフレームの他のパスと同じ `CommandBuffer` に入る。
+3. **複数パスが必要な場合**、`FilterRenderer` のピンポンは各ハンドラーの呼び出し間でのみ切り替わるため、ハンドラー内部の中間結果は自前で管理する。既存のハンドラーには2つのやり方がある。
 
 ```
 FilterRenderer のピンポン:
   Filter A: source=tex1, target=tex2   (Filter A の postProcess が tex1→tex2 に書き込む)
   Filter B: source=tex2, target=tex1   (Filter B の postProcess が tex2→tex1 に書き込む)
   Filter C: source=tex1, target=tex2   (...)
+```
 
-Filter A 内部の複数パス (e.g. blur):
+### source に書き戻す
+
+`BlurFilterProcessor` は、1パス目で `source -> target` に書き込んだ後、`copyTextureToTexture` で `target` の内容を `source` にコピーし、2パス目で再び `source -> target` に書き込む。追加のテクスチャを確保しない。
+
+```
+Filter A 内部の複数パス (blur):
   Pass 1: source(tex1) → target(tex2)
   copy:   tex2 → tex1  (source に書き戻す)
   Pass 2: source(tex1) → target(tex2)
+```
+
+### `ScratchTexturePool` から中間テクスチャを借りる
+
+`svg:*` のハンドラーは、`renderer/filters/ScratchTexturePool.ts` のプールから中間テクスチャを借りる。`acquireLike(device, target, label)` で `target` と同じフォーマット・サイズのテクスチャを受け取り、使い終わったら `release(texture)` で返す。借りている間、同じテクスチャが同じチェーンに二重に渡ることはない。`RenderOrchestrator` は1つのプールを全 SVG ハンドラーで共有させており、同じサイズのテクスチャがプリミティブごとに保持されることを避けている。
+
+```
+SvgDropShadowHandler 内部:
+  scratch = pool.acquireLike(target)
+  ぼかし: 入力 → scratch
+  合成:   scratch + 入力 → target
+  pool.release(scratch)
 ```
 
 > [!TIP]
@@ -398,16 +541,18 @@ Filter A 内部の複数パス (e.g. blur):
 > - フィルターが何も効果を出さない場合、まず `postProcess` 内で `sourceTexture` と `targetTexture` の `width`/`height` をログ出力し、テクスチャサイズが 0 でないことを確認する。
 > - シェーダーのコンパイルエラーは `device.createShaderModule` 時にコンソールに出力される。Chrome DevTools の Console タブを確認すること。
 > - `getExpansionMargin` が小さすぎてフィルター効果がクリップされる場合、要素の境界にフィルター効果が不自然に途切れる症状として現れる。
-> - `sceneInfo.zoom` でパラメータをスケーリングし忘れると、ズームインしたときにフィルター効果が弱く見える（またはズームアウトで過剰に見える）。
+> - `sceneInfo.dpiScale` でパラメータをスケーリングし忘れると、ラスタライズ倍率が変わったときにフィルター効果の強さが変わって見える。
 > - `webgpu-utils` の `compileShaderModule` を使うと、ユニフォームバッファのパディングとアライメントが自動計算される。手動でバッファレイアウトを計算する必要はない。
 
 ## よくある落とし穴
 
-- **`queue.submit` をハンドラー内で呼んでしまう。** `FilterRenderer` が最終的にまとめて送信するため、ハンドラー内で `submit` を呼ぶとコマンドの実行順序が壊れる。
+- **`queue.submit` をハンドラー内で呼んでしまう。** エンコーダーは呼び出し元がフレームの他のパスと一緒に送信するため、ハンドラー内で `submit` を呼ぶとコマンドの実行順序が壊れる。
 - **`sourceTexture` に書き込んでしまう。** `sourceTexture` は読み取り専用として扱うこと。書き込み先は常に `targetTexture` である（ハンドラー内部の複数パスで `copyTextureToTexture` を使う場合を除く）。
 - **`getExpansionMargin` で 0 を返しているのにフィルター効果が要素境界をはみ出す。** ブラーやドロップシャドウなど、効果が元の境界の外に広がるフィルターでは、はみ出し量を正確に計算して返す必要がある。返却値が不足するとテクスチャ境界で効果がクリップされる。
-- **`sceneInfo.zoom` を無視する。** ズーム倍率を空間パラメータに乗算しないと、ズームレベルによってフィルター効果の見た目が変わってしまう。キャプチャされたテクスチャはズーム済みサイズであるため、半径やオフセット量には `zoom` を掛ける。
-- **processor ID の不一致。** `schema.ts` の `processor` フィールドと `registerHandler` の第1引数が一致しないと、フィルターが無視される。
+- **`sceneInfo.dpiScale` を無視する。** 空間パラメータはワールド単位であり、テクスチャはワールド1pxあたり `dpiScale` テクセルでラスタライズされている。半径やオフセット量には `dpiScale` を掛ける。
+- **processor ID の不一致。** Filter 型の `processor` フィールド、`registerHandler` の第1引数、`FILTER_CATALOG`、`FILTER_TEXT_KEYS`、`FILTER_DEFS` のキーはすべて同じ文字列にする。ハンドラーが登録されていない processor は、警告を出して無視される。
+- **プリフィルターと `postProcess` を1つのハンドラーに同居させる。** `registerHandler` の型で弾かれる。2つのハンドラーに分ける。
+- **カタログに足したのにファクトリが無い。** `createDefaultFilter` が `null` を返し、`createDefaultFilter.test.ts` が失敗する。
 - **`onScaleFilter` で元のオブジェクトを変更する。** イミュータブルに新しいオブジェクトを返すこと。スプレッド構文で浅いコピーを作り、変更したいフィールドだけ上書きするパターンが標準的である。
 
 > [!TIP]

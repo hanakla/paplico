@@ -1886,9 +1886,9 @@ const FITTER_DEDUPE_DIST_SQ = 0.5 * 0.5;
 /**
  * Incremental variant of processStroke for live drawing: sections behind the
  * last settled corner (or beyond the tail window) are fitted once and frozen;
- * every push only re-smooths and re-fits the tail. The committed stroke is
- * still produced by the full processStroke — this class only serves the
- * preview, so its output may differ from the final fit in the tail region.
+ * every push only re-smooths and re-fits the tail. It serves both the live
+ * preview (getSegments) and the committed brush stroke (getPlainSegments),
+ * which stores this same fit without the input knots.
  */
 export class IncrementalStrokeFitter {
 	/** Points touched by the last push+getSegments cycle (instrumentation). */
@@ -2153,7 +2153,7 @@ export class IncrementalStrokeFitter {
 		// A corner belongs to both of its sections. Each side smooths it with
 		// its own leg only — a straight leg leaves it where it is, a wavering
 		// one pulls it onto the leg's trend — and the two sides then agree on
-		// one position, as gaussianSmoothSections does on commit.
+		// one position, as gaussianSmoothSections does for the batch fit.
 		if (i === sectionLo && i > 0) {
 			return averagePoints(
 				kernelMean(points, i, previousLo, i, this.kernelWeights),
@@ -2216,9 +2216,8 @@ export class IncrementalStrokeFitter {
 	// --- freezing ----------------------------------------------------------
 
 	private maybeFreeze(): void {
-		// Corner freeze: a confirmed corner is a section boundary for the
-		// commit fit too, so the frozen prefix shares its anchors with the
-		// committed path up to whatever the commit's merge pass folds away.
+		// Corner freeze: a confirmed corner is a section boundary no later
+		// input can move, so everything up to it can be fitted once and kept.
 		if (this.method === "smooth") {
 			while (this.frozenCornerCount < this.rawCorners.length) {
 				const idx = this.rawCorners[this.frozenCornerCount];

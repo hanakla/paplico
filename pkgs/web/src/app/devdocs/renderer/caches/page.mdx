@@ -18,41 +18,54 @@ graph TD
     RCM[RenderCacheManager] --> OC[OutlineCache]
     RCM --> STC[StripCache]
     RCM --> CPC[CompoundPathCache]
-    RCM --> STC[StampCache]
+    RCM --> GPC[GroupPathCache]
+    RCM --> MWC[MeshWarpCache]
+    RCM --> BLC[BlendCache]
+    RCM --> STM[StampCache]
     RCM --> GRC[GradientCache]
+    RCM --> APC[AppearanceCache]
+    RCM --> FEC[FilteredElementCache]
     TP[TexturePool] -.->|"transient textures"| OP[OffscreenPresenter]
-    TP -.->|"transient textures"| CMA[ClipMaskAtlas]
+    TP -.->|"staging textures"| CMA[ClipMaskAtlas]
     DC[DocumentCache] -.->|"attachments, not document content"| CL[CanvasLayer]
     BGC["BindGroupCache\n(Blit / Masked / Triple)"] -.->|"bind groups"| CR[CompositeRenderer]
 ```
 
-`RenderCacheManager` 配下の6つのキャッシュは要素単位の中間生成物を保持する。`TexturePool`・`DocumentCache`・`ClipMaskAtlas` は用途別のGPUテクスチャの再利用とライフサイクルを管理する。`BindGroupCache` はGPUバインドグループの再生成を抑制する。
+`RenderCacheManager` 配下の10個のキャッシュは要素単位の中間生成物を保持する。`TexturePool`・`DocumentCache`・`ClipMaskAtlas` は用途別のGPUテクスチャの再利用とライフサイクルを管理する。`BindGroupCache` はGPUバインドグループの再生成を抑制する。
 
 > [!NOTE]
 > `TexturePool`・`DocumentCache`・`ClipMaskAtlas` の詳細は[パイプライン](/devdocs/renderer/pipeline)でも解説されている。このページではキャッシュ/無効化の観点から掘り下げる。
 
 ## RenderCacheManager
 
-`caches/RenderCacheManager.ts` に実装。RenderOrchestratorがキャンバスターゲットごとに1インスタンスを所有し、CanvasLayer・ElementRenderer・BrushRendererに渡される。
+`canvas/caches/RenderCacheManager.ts` に実装。RenderOrchestratorがキャンバスターゲットごとに1インスタンスを所有し、CanvasLayer・ElementRenderer・BrushRendererに渡される。
 
-6つのキャッシュを公開プロパティとして保持する。
+キャッシュ一式はドキュメント ID ごとのスコープに分かれている。`CanvasLayer.render()` は冒頭で `setActiveDocument(document.id)` を呼び、描画するドキュメントのスコープに切り替える。ブラシプレビューやエクスポート用の一時ドキュメントを描いても、メインのドキュメントのエントリは刈り込まれない。スコープは最大4つ（`MAX_SCOPES`）で、超えた分は最後に有効化された時刻が古い順に破棄される。`dropDocument()` は指定したドキュメントのスコープをGPUリソースごと破棄する。
+
+10個のキャッシュを公開プロパティとして保持する。各プロパティはアクセスのたびにアクティブなスコープを解決する。取得したインスタンスをフレームをまたいで保持してはならない。
 
 | プロパティ | クラス | 用途 |
 |---|---|---|
 | `outline` | `OutlineCache` | ローカル空間のアウトライン（塗りのポリライン、線の三角形） |
 | `strip` | `StripCache` | パスのテクセル空間へラスタライズした strip と alpha |
 | `compoundPath` | `CompoundPathCache` | 複合パスのブーリアン演算結果 |
+| `groupPath` | `GroupPathCache` | fill / stroke アピアランスを持つグループの合成パス |
+| `meshWarp` | `MeshWarpCache` | メッシュコンテナのワープ済み一時要素 |
 | `stamp` | `StampCache` | ブラシスタンプ生成結果 |
 | `gradient` | `GradientCache` | グラデーションGPUリソース一式 |
+| `blend` | `BlendCache` | ブレンドの中間オブジェクト |
+| `appearance` | `AppearanceCache` | アピアランスのハンドラーが作るGPU中間物（押し出しのバッファなど） |
+| `filteredElement` | `FilteredElementCache` | ポストフィルターのベイク結果 |
 
 主要メソッド:
 
-- **`onDocumentChange(liveObjects)`** — 全キャッシュのキーを集約し、`liveObjects` に存在しない要素のエントリを一括削除する。`outline`, `strip`, `compoundPath`, `stamp` は `elementId` をキーとするため `deleteMany()` で直接削除する。`gradient` は `"elementId:..."` の複合キーを使用するため、キーの先頭からelement IDを抽出して照合する。`RenderStrategy.full` 時に呼び出される。
-- **`clearAll()`** — 全キャッシュを完全クリアする。デバイスロスト時やターゲット破棄時に使用。
+- **`onDocumentChange(liveObjects)`** — アクティブなスコープの全キャッシュのキーを走査し、`liveObjects` に存在しない要素のエントリを一括削除する。キーの形はキャッシュごとに違うので、要素 ID の取り出し方も分かれる。`outline`・`strip`・`gradient`・`stamp` は `"elementId:..."` の複合キーを持ち、最初の `:` より前を要素 ID とみなす。それ以外のキャッシュは、`"elementId::..."` の合成キーなら `::` より前を、そうでなければキー全体を要素 ID とみなす。`RenderStrategy.full` と `RenderStrategy.fullTransformOnly` のフレームで呼び出される。変更要素 ID が追跡できていて削除要素が無いフレームは、呼び出しを省略する。
+- **`flushPendingDestroy()`** — `appearance` と `filteredElement` が遅延破棄に回したGPUリソースを、全スコープについて破棄する。フレームの開始時に呼ばれる。
+- **`clearAll()`** — 全スコープの全キャッシュを完全クリアする。デバイスロスト時やターゲット破棄時に使用。
 
 ## OutlineCache
 
-`caches/OutlineCache.ts` に実装。要素ローカル空間のアウトラインをキャッシュする。塗りは `flattenBezierPath()` の閉じたポリライン、線は `tessellateStroke()` の三角形リストである。
+`canvas/caches/OutlineCache.ts` に実装。要素ローカル空間のアウトラインをキャッシュする。塗りは `flattenBezierPath()` の閉じたポリライン、線は `tessellateStroke()` の三角形リストである。
 
 キーは `(elementId, variantKey)`。プリフィルターの uid やストロークアピアランスごとに variant が分かれ、要素あたり 6 件を古い順に退避する。エントリは以下のフィールドを持つ。
 
@@ -69,13 +82,13 @@ graph TD
 
 ## StripCache
 
-`caches/StripCache.ts` に実装。アウトラインを描画先パスのテクセル空間へラスタライズした strip 列と alpha スロットをキャッシュする。
+`canvas/caches/StripCache.ts` に実装。アウトラインを描画先パスのテクセル空間へラスタライズした strip 列と alpha スロットをキャッシュする。
 
-キーは `(elementId, "<variant>:<cacheKey>")`。variant は通常描画かマスク描画かで、パスのテクセル空間が違うため分けている。エントリは以下のフィールドを持つ。
+キーは `(elementId, "<variant>:<パス幅>x<パス高さ>:<suffix>")`。variant は通常描画（`normal`）かマスク描画（`mask`）かで、パスのテクセル空間が違うため分けている。パスのピクセルサイズを含めるのは、同じ要素が1フレームの中で複数のパスに描かれるためである。アトラスのセルと単独のマスクテクスチャがその例で、それぞれサブピクセル位相が違う。エントリを共有すると毎フレーム互いを追い出す。`OutlineCache` と同じく、要素あたり 6 件を古い順に退避する。エントリは以下のフィールドを持つ。
 
 | フィールド | 型 | 用途 |
 |---|---|---|
-| `key` | `StripRasterKey` | 変換の線形部分、サブピクセル位相、`geometryHash`、params の有無 |
+| `key` | `StripRasterKey` | `geometryHash`、スケールバケット、変換の線形部分、1/256px に量子化したサブピクセル位相、params の有無 |
 | `coverage` | `ClipRect` | strip を生成した範囲。パス矩形の 3 倍で、この中にあるパスは再利用する |
 | `batch` | `StripBatch` | strip、alpha スロット、params |
 
@@ -83,15 +96,17 @@ strip はデバイス変換の整数部分をアンカーとした相対座標�
 
 ## StampCache
 
-`caches/StampCache.ts` に実装。ブラシストローク描画時のスタンプ生成結果（`StampBuffer`）をキャッシュする。キーは `elementId`。
+`canvas/caches/StampCache.ts` に実装。ブラシストローク描画時のスタンプ生成結果（`StampBuffer`）をキャッシュする。キーは `"elementId:..."` の複合キーで、ジオメトリのハッシュとブラシのフィンガープリントを含む。パスを編集するとキーそのものが変わる。同じ要素が新しいキーで `set()` されると、その要素の古いキーのエントリは削除される。
 
-`StampBuffer` は `DabEvaluator` が生成したDab列を `DabRenderer` が格納するデータ構造で、ブラシ設定のカーブ行列から計算されたバッファである。要素のブラシ設定やストロークポイントが変わらない限り、スタンプの再計算を省略できる。GPUリソースは直接保持しないため、削除時のリソース解放は不要である。
+`StampBuffer` は `DabEvaluator` が生成したDab列を `DabRenderer` が格納するデータ構造で、ブラシ設定のカーブ行列から計算されたバッファである。要素のブラシ設定やストロークポイントが変わらない限り、スタンプの再計算を省略できる。
+
+エントリは、常駐 dab ストアのGPUリース（`residentDab`）を持つことがある。エントリの削除時にこのリースを解放する。キャッシュ全体にはバイト予算（既定 96 MiB）があり、超えた分は最後に使われた時刻が古い順に退避する。
 
 ## GradientCache
 
-`caches/GradientCache.ts` に実装。グラデーション描画に必要なGPUリソース一式をキャッシュする。
+`canvas/caches/GradientCache.ts` に実装。グラデーション描画に必要なGPUリソース一式をキャッシュする。対象は `linear` と `radial` である。`free`・`mesh`・`pattern` はこのキャッシュを通らない。
 
-キーは `"elementId:gradientType"` 等の複合キー。エントリの `GradientCacheEntry` は以下のフィールドを持つ。
+キーは描画単位ごとの複合キーで、塗りは `"<cacheKey>:fill"`、geometric ストロークは `"<cacheKey>:stroke:grad"` である。`<cacheKey>` はアピアランスの解決時に決まり、要素 ID で始まる。エントリの `GradientCacheEntry` は以下のフィールドを持つ。
 
 | フィールド | 型 | 用途 |
 |---|---|---|
@@ -100,21 +115,49 @@ strip はデバイス変換の整数部分をアンカーとした相対座標�
 | `bindGroup` | `GPUBindGroup` | バインドグループ |
 | `fingerprint` | `number` | 数値フィンガープリント |
 
-`fingerprint` は `hashGradientDraw()` で算出される数値ハッシュである。グラデーションの種類（linear/radial/free）、座標パラメータ、カラーストップのoffset・RGBA値、バウンズ、`geometryHash` を `h = (h * 31 + value) | 0` の連鎖で畳み込む。浮動小数点値は `floatBits()` でビットパターンに変換してから畳み込むことで、丸め誤差による偽キャッシュミスを防いでいる。
+`fingerprint` は `hashGradientDraw()` で算出される数値ハッシュである。`geometryHash`（ストロークのグラデーションモードを混ぜ込んだもの）、トランスフォームのスロット番号、ペイントの種類、座標パラメータ、カラーストップのoffset・midpoint・RGBA値、バウンズを `h = (h * 31 + value) | 0` の連鎖で畳み込む。浮動小数点値は `floatBits()` でビットパターンに変換してから畳み込むことで、丸め誤差による偽キャッシュミスを防いでいる。
 
 キャッシュヒット時、`fingerprint` が一致すれば全ての `writeBuffer` 呼び出しをスキップできる。2つの `GPUBuffer` を保持するため、`set()`・`delete()`・`clear()` 時に全バッファを `destroy()` する。
 
 ## CompoundPathCache
 
-`caches/CompoundPathCache.ts` に実装。複合パス（CompoundPath）のブーリアン演算結果をキャッシュする。
+`canvas/caches/CompoundPathCache.ts` に実装。複合パス（CompoundPath）のブーリアン演算結果をキャッシュする。
 
 他のキャッシュとは異なり、`resolve()` メソッドがキャッシュの取得と計算を一体化したインターフェースを提供する。`resolve(compoundPath, pathMap)` はフィンガープリントを照合し、ヒットすればキャッシュされた `CubicBezierSegment[]` を返し、ミスすれば `computeBooleanOperation()` を実行して結果をキャッシュする。
 
 フィンガープリントは `createFingerprint()` で生成されるJSON文字列である。各ソースパスの `id`, `op`, `filters`, `transform`, `segments` をJSON.stringifyした結果で、パスの形状やトランスフォームが変わるとフィンガープリントが変化する。数値ハッシュではなくJSON文字列を使用するのは、ソースパスの構造が複雑で衝突リスクを排除する必要があるためと考えられる。
 
+## GroupPathCache / MeshWarpCache / BlendCache
+
+いずれも `canvas/caches/` に実装。`CompoundPathCache` と同じ形で、要素 ID をキーにし、JSON文字列のフィンガープリントで自己検証する。
+
+| クラス | 保持するもの | フィンガープリントの入力 |
+|---|---|---|
+| `GroupPathCache` | fill / stroke アピアランスを持つグループの合成パス | 子パスのジオメトリとトランスフォーム |
+| `MeshWarpCache` | メッシュコンテナのワープ済み一時要素 | ケージのジオメトリと全子孫のデータ。テキストの子孫では、非同期のグリフレイアウトが使えるかどうかも含む |
+| `BlendCache` | ブレンドの中間オブジェクト | ブレンドのパラメータと、ソースオブジェクトのジオメトリ・トランスフォーム・フィルター |
+
+## AppearanceCache
+
+`canvas/caches/AppearanceCache.ts` に実装。アピアランスのハンドラーが要素ごとに作る中間物を保持する。押し出しアピアランスが作るGPUバッファがその例である。中身はハンドラーのもので、エンジンはライフサイクル（退避、削除要素の刈り込み、破棄）だけを扱う。キーは `"${elementId}::${appearanceUid}"` である。上書き・削除されたエントリのGPUリソースは遅延破棄に回り、`flushPendingDestroy()` で破棄される。
+
+## FilteredElementCache
+
+`canvas/caches/FilteredElementCache.ts` に実装。要素のポストフィルターのベイク結果をキャッシュする。パンなどビューポートだけが変わるフレームが、フィルターチェーンを再実行せずに済む。キーは要素 ID である。
+
+エントリは、ビューポートに依存しない `textureBounds` の全体を、バケット化した密度でベイクしたテクスチャである。自己検証はキャッシュ自身ではなく呼び出し側が行う。CanvasLayer が毎フレーム、フィルターチェーンのフィンガープリント・ペイントのハッシュ・密度・サイズからなる `hash` を照合する。
+
+無効化は次の経路で行われる。
+
+- **変更要素による追い出し**: `evictChanged()` が、変更要素の描画クロージャに含まれるエントリと、`dependencyIds` に変更要素を含むエントリを削除する。`dependencyIds` は、そのベイクが描いた全要素（自身、グループの子、マスクや複合パスやブレンドのソース）である
+- **全消去**: 変更要素 ID が追跡できない `full` / `fullTransformOnly` のフレームと、共有 def のリビジョンが変わったフレームは `clear()` する
+- **予算による退避**: バイト予算（既定 256 MiB）を超えると、最後に使われた時刻が古い順に退避する。現在のフレームで使われたエントリは退避しない。予算の 1/4 を超えるエントリは `set()` が拒否する
+
+要素を絞った描画、編集スコープ、要素の孤立表示のフレームはこのキャッシュを使わない。ツールのプレビューで上書きされている要素に関わるベイクは、要素単位でキャッシュを迂回する。テクスチャの破棄は `flushPendingDestroy()` まで遅延される。
+
 ## BindGroupCache
 
-`caches/BindGroupCache.ts` に実装。GPUバインドグループの再生成を抑制するためのプールインデックスベースのキャッシュ群である。3つのクラスを提供する。
+`canvas/caches/BindGroupCache.ts` に実装。GPUバインドグループの再生成を抑制するためのプールインデックスベースのキャッシュ群である。3つのクラスを提供する。
 
 | クラス | キー | 用途 |
 |---|---|---|
@@ -126,15 +169,15 @@ strip はデバイス変換の整数部分をアンカーとした相対座標�
 
 ## TexturePool
 
-`pipeline/TexturePool.ts` に実装。オフスクリーンレンダーパスで使用される一時GPUテクスチャをフレーム間で再利用するプールである。
+`canvas/pipeline/TexturePool.ts` に実装。オフスクリーンレンダーパスで使用される一時GPUテクスチャをフレーム間で再利用するプールである。
 
 ### 量子化
 
-リクエストされたテクスチャサイズは `SIZE_QUANTUM`（128px）の倍数に切り上げられ、`"${qw}x${qh}x${format}x${sampleCount}x${usage}"` をバケットキーとして使用する。ズーム中にサイズが300→301→302pxと微小に変化しても、すべて384pxバケットにマッピングされるため同一テクスチャが再利用される。`acquire()` で確保したテクスチャは量子化済みサイズで割り当てられるため、同一バケット内のリクエストは完全一致する。
+リクエストされたテクスチャサイズは `SIZE_QUANTUM`（128px）の倍数に切り上げられ、`"${qw}x${qh}x${format}x${sampleCount}x${usage}"` をバケットキーとして使用する。ズーム中にサイズが300→301→302pxと微小に変化しても、すべて384pxバケットにマッピングされるため同一テクスチャが再利用される。`acquire()` で確保したテクスチャは量子化済みサイズで割り当てられるため、同一バケット内のリクエストは完全一致する。`acquireExact()` は量子化せず、要求どおりのサイズをキーにする。バックドロップの領域キャプチャとマスクのステージングが使う。
 
 ### LRU eviction
 
-available / idle状態のプールテクスチャについて推定した合計メモリが `MAX_POOL_BYTES`（384 MiB）を超えた場合、`resetFrame()` 時に `evictUntilUnderBudget()` が起動する。Mapのbucket挿入順に走査し、各bucketの先頭から `destroy()` して予算内に収める。全bucket横断の厳密なLRUではない。空になったbucketはMapから削除される。この予算はプールへ返却済みテクスチャの推定値であり、使用中のテクスチャや他のGPUリソースを含む総GPUメモリ上限ではない。
+予算は `texturePoolBudgetBytes()` が prebuf のサイズから決める。値は prebuf のバイト数の16倍で、下限は `MAX_POOL_BYTES`（384 MiB）、上限は 1 GiB である。CanvasLayer が毎フレーム `setBudgetBytes()` で設定する。available / idle状態のプールテクスチャについて推定した合計メモリがこの予算を超えた場合、`resetFrame()` 時に `evictUntilUnderBudget()` が起動する。Mapのbucket挿入順に走査し、各bucketの先頭から `destroy()` して予算内に収める。全bucket横断の厳密なLRUではない。空になったbucketはMapから削除される。この予算はプールへ返却済みテクスチャの推定値であり、使用中のテクスチャや他のGPUリソースを含む総GPUメモリ上限ではない。
 
 evictionは個々の `release()` ではなく `resetFrame()` に集約される。現行実装は `queue.onSubmittedWorkDone()` によるGPU完了確認を行わず、次フレーム境界でidle textureを破棄する。
 
@@ -146,38 +189,44 @@ evictionは個々の `release()` ではなく `resetFrame()` に集約される�
 
 ## DocumentCache
 
-`pipeline/DocumentCache.ts` に実装。composite・prebuffer・final-blit・backdrop-mask用テクスチャの遅延生成と再利用を管理する。TexturePoolとは異なり、フレーム間で永続的に保持されるテクスチャが対象である。描画済みドキュメント内容やタイルを保持するキャッシュではない。
+`canvas/pipeline/DocumentCache.ts` に実装。composite・prebuffer・backdrop-mask用テクスチャの遅延生成と再利用を管理する。TexturePoolとは異なり、フレーム間で永続的に保持されるテクスチャが対象である。描画済みドキュメント内容やタイルを保持するキャッシュではない。
 
 2つの `ensure*` メソッドを提供する。
 
 | メソッド | フォーマット | 用途 |
 |---|---|---|
-| `ensurePreviewOverlayTexture(w, h)` | canvasFormat | プレビューパスのオーバーレイ描画先 |
-| `ensureCompositeTextures(w, h)` | canvasFormat | 合成パスの3枚テクスチャ (capture, layer, canvasBase) |
+| `ensureCompositeTextures(w, h)` | canvasFormat | 合成パスの4枚テクスチャ (capture, layer, prebuf, canvasBase) |
+| `ensureBackdropMaskTextures(w, h)` | canvasFormat | バックドロップ要素の形状マスクの描画先 |
 
-いずれも「現在のサイズと一致するなら何もしない」ガード条件を先頭に持つ。サイズが変わった場合にのみ古いテクスチャを `deferDestroy()` で遅延破棄し、新しいテクスチャを生成する。キャンバスリサイズ時（ResizeObserverのコールバック）にサイズ変更が発生する。
+いずれも「現在のサイズと一致するなら何もしない」ガード条件を先頭に持つ。サイズが変わった場合にのみ古いテクスチャを `deferDestroy()` で遅延破棄し、新しいテクスチャを生成する。サイズは prebuf のサイズに従う。
+
+`viewportBlit` が転写する合成フレームキャッシュのテクスチャは、DocumentCache ではなく CanvasLayer が持つ。
 
 ## ClipMaskAtlas
 
-`pipeline/ClipMaskAtlas.ts` に実装。クリップグループのマスクパスを事前レンダリングし、メインレンダーパスでインラインマスキングに使用するための個別 `texture_2d` テクスチャを管理する。
+`canvas/pipeline/ClipMaskAtlas.ts` に実装。クリップグループのクリップパスと、要素のオブジェクトマスク（`ArtObject.mask`）を事前レンダリングし、マスクテクスチャをフレーム間で保持する。マスクの使われ方は[クリッピング方式](/devdocs/renderer/clipping)を参照。
 
 ### レンダリングフロー
 
-`preRender(encoder, clipGroups, elementsMap)` がメインレンダーパス開始前に呼び出される。
+`preRender(encoder, requests, elementsMap, drawRegion, sourceFilteredTextures)` がメインレンダーパス開始前に呼び出される。
 
-1. `clipGroups` を `clipPathId` で重複排除し、同一クリップパスを共有するグループのバウンズを和集合にマージする
-2. 各マスクについて `computeCoverage()` でテクスチャサイズを決定する。グループバウンズ * zoomがGPU最大テクスチャサイズに収まる場合はそのまま使用し、超える場合はビューポートにクリップした領域（パディング付き）を使用する
-3. `computeMaskFingerprint()` でフィンガープリント文字列を生成し、`maskCache` と照合する。一致すればレンダリングをスキップしてキャッシュ済みエントリを再利用する
-4. ミスの場合、`renderMask()` で専用レンダーパスを起動し、クリップパスを白マスクとしてテクスチャに描画する
-5. 完了後、`releaseStaleEntries()` でアクティブでないクリップパスのキャッシュを遅延破棄する
+1. `requests` をマスクキーで重複排除し、同一キーを共有する要求のバウンズを和集合にマージする
+2. ネストの浅い順に並べる。ネストしたマスクは親マスクをサンプリングしながら描くので、親が先に要る
+3. 各マスクについて `computeMaskCoverage()` でテクスチャサイズを決定する。カバレッジはマスクのバウンズとフレームの描画領域（`drawRegion`）の交差で、ビューポートの zoom で解像する。GPU最大テクスチャサイズを超える場合は、収まるところまで解像度を下げる
+4. `computeMaskFingerprint()` でフィンガープリント文字列を生成し、`maskCache` と照合する。一致すればレンダリングをスキップしてキャッシュ済みエントリを再利用する
+5. ミスの場合、`renderMask()` がマスクを描く。一辺が256px以下のマスクは共有アトラス（4096×4096）の矩形に入り、それより大きいマスクは専用のテクスチャになる
+6. 完了後、`releaseStaleEntries()` でアクティブでないマスクのキャッシュを遅延破棄する
 
 ### キャッシュ無効化
 
-- **フィンガープリント不一致**: テクスチャサイズ、zoom、カバレッジバウンズの変化で自動的に再レンダリングされる
-- **`invalidateAll()`**: ドキュメント変更時に全マスクキャッシュを破棄する
-- **`releaseStaleEntries()`**: フレームのクリップグループリストに含まれないマスクを遅延破棄する
+- **フィンガープリント不一致**: マスクキー、ソース要素、テクスチャサイズ、zoom、カバレッジバウンズ、親マスクのフィンガープリントの変化で自動的に再レンダリングされる。見た目で描くマスク（オブジェクトマスク）では、ソースごとのペイントハッシュもフィンガープリントに入る
+- **`invalidateChanged(changedIds)`**: 変更要素 ID が追跡できているフレームで呼ばれる。エントリの `dependencyIds`（ソース要素の描画クロージャと、親マスクの依存）に変更要素を含むマスクだけを破棄する。白シルエットのマスクはソースのジオメトリが変わってもフィンガープリントが変わらないので、この経路が要る。変更の無いマスクはテクスチャも bind group も保つ
+- **`invalidateAll()`**: 変更要素 ID が追跡できない `full` / `fullTransformOnly` のフレームで、全マスクキャッシュを破棄する
+- **`releaseStaleEntries()`**: フレームのマスク要求に含まれないマスクを遅延破棄する
 
-パン操作時のマスク再生成を抑制するため、ビューポート中心を `padX`/`padY` グリッドにスナップしている。グリッド線を越えない限りフィンガープリントは変化せず、マスクの再レンダリングが発生しない。
+マスクはフレームの描画領域にクロップされる。ビューポート駆動のフレームでは、描画領域は余白つきの prebuf 全体である。パンの間は、可視範囲が余白の内側にある限りフレームが blit で済み、マスクの再生成も起きない。
+
+エクスポートは `withExportClipMaskAtlas()` で別インスタンスのアトラスに切り替わる。エクスポートの描画が、ライブキャンバス用アトラスのテクスチャを書き換えたり破棄したりしないようにするためである。
 
 ## キャッシュ無効化戦略
 
@@ -190,14 +239,16 @@ evictionは個々の `release()` ではなく `resetFrame()` に集約される�
 | キャッシュ | フィンガープリントの種類 |
 |---|---|
 | OutlineCache | `geometryHash` + `scaleBucket`（数値ペア） |
-| StripCache | `StripRasterKey`（変換の線形部分、サブピクセル位相、`geometryHash`） |
+| StripCache | `StripRasterKey`（`geometryHash`、スケールバケット、変換の線形部分、サブピクセル位相、params の有無） |
 | CompoundPathCache | JSON文字列（ソースパスのid, op, filters, transform, segments） |
+| GroupPathCache / MeshWarpCache / BlendCache | JSON文字列 |
+| FilteredElementCache | 文字列の `hash`。呼び出し側の CanvasLayer が照合する |
 | GradientCache | `fingerprint`（数値: `hashGradientDraw()` による畳み込みハッシュ） |
-| ClipMaskAtlas | 文字列（clipPathId, テクスチャサイズ, zoom, カバレッジバウンズ） |
+| ClipMaskAtlas | 文字列（マスクキー, ソース要素, テクスチャサイズ, zoom, カバレッジバウンズ, 親マスクのフィンガープリント） |
 
 ### 2. onDocumentChange（削除要素の刈り込み）
 
-`RenderCacheManager.onDocumentChange(liveObjects)` は `RenderStrategy.full` 時に呼び出される。全キャッシュのキーを走査して `liveObjects` に存在しない要素のエントリを一括削除する。これはself-validatingでは検知できない「要素がドキュメントから削除された」ケースをカバーする。
+`RenderCacheManager.onDocumentChange(liveObjects)` は `RenderStrategy.full` と `RenderStrategy.fullTransformOnly` のフレームで呼び出される。変更要素 ID が追跡できていて削除要素が無いフレームは、走査を省略する。全キャッシュのキーを走査して `liveObjects` に存在しない要素のエントリを一括削除する。これはself-validatingでは検知できない「要素がドキュメントから削除された」ケースをカバーする。
 
 ### 3. 全クリア
 

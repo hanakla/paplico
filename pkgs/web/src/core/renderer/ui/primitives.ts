@@ -14,8 +14,9 @@ import type { RGBA } from "./theme";
  * - Size fields (radius, width, height, halfSize, head sizes, line fill
  *   width): bare number = world units. `screen` resolves as `px / zoom`.
  * - Stroke width fields (`StrokeStyle.width`): bare number = screen pixels.
- *   `screen` resolves with the AA-compensated half-width formula
- *   `(px + 1) / 2 / zoom`; `world` resolves as `w / 2` (exact, no padding).
+ *   Both spaces resolve to an exact half-width: `screen` as `px / 2 / zoom`,
+ *   `world` as `w / 2`. The bezier shader's analytic AA places the coverage
+ *   edge at that half-width, so no padding is added.
  * - Object form may combine both spaces; components are summed after
  *   resolution (e.g. `{ world: r, screen: 0.5 }` = r + 0.5px outset).
  */

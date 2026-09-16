@@ -3,26 +3,30 @@
 > [!TIP]
 > **前提ページ:** [パイプライン](/devdocs/renderer/pipeline)
 
-Paplicoのドキュメントは、パス・画像・テキスト・グループといった**要素（Element）**（ドキュメントを構成する描画オブジェクト）の集合で構成される。これらの要素はそれぞれ描画に必要な処理が根本的に異なる。パスは曲線を三角形メッシュに変換するテッセレーション（曲線パスを描画可能なジオメトリに変換する処理）を経る必要があり、画像はGPUへのテクスチャ転送、テキストはフォントからのグリフパス抽出が前提となる。このページでは、`core/renderer/elements/` と `core/renderer/brush/` に実装された各要素の描画パイプラインを、ディスパッチの仕組みから個別の描画戦略まで順に解説する。
+Paplicoのドキュメントは、パス・画像・テキスト・グループといった**要素（Element）**（ドキュメントを構成する描画オブジェクト）の集合で構成される。これらの要素はそれぞれ描画に必要な処理が根本的に異なる。パスは曲線を平坦化してピクセルごとの被覆率を求める必要があり、画像はGPUへのテクスチャ転送、テキストはフォントからのグリフパス抽出が前提となる。このページでは、`core/renderer/canvas/elements/` と `core/renderer/canvas/pipeline/brush/` に実装された各要素の描画パイプラインを、ディスパッチの仕組みから個別の描画戦略まで順に解説する。
 
 > [!NOTE]
 > 本ページは [パイプライン](/devdocs/renderer/pipeline) の内容を前提とする。各要素の描画は `CanvasLayer` から呼び出され、必要に応じて `CompositeRenderer` や `OffscreenPresenter` に委譲される。
 
 ### 設計意図
 
-要素レンダリングを種別ごとの**ディスパッチテーブル**（要素の型に応じて処理関数を振り分けるルックアップテーブル）で実装する理由は、各要素型の描画ロジックを独立させ、新しい要素型の追加が既存コードに影響しないためである。`group` 型をテーブルから除外する設計は、グループの子要素がCanvasLayer側でフラット化されて個別にディスパッチされるため、再帰的なグループ描画よりもバッチ効率が高い。
+要素レンダリングを種別ごとの**ディスパッチテーブル**（要素の型に応じて処理関数を振り分けるルックアップテーブル）で実装する理由は、各要素型の描画ロジックを独立させ、新しい要素型の追加が既存コードに影響しないためである。`group` 型はテーブルに登録しない。グループの描画には、クリップ、マスク、不透明度による isolate、グループアピアランス、子へ継承するプリフィルターの判断が要る。これらは `CanvasLayer.renderElements` が持ち、グループを再帰的にたどりながら子要素を個別にディスパッチする。
 
 ## モジュール概観
 
 | ディレクトリ | モジュール | 役割 |
 |---|---|---|
-| elements/ | `ElementRenderer` | 要素種別ディスパッチ。パスの塗りと線は `PathElementRenderer` が被覆率 strip で描く |
-| elements/ | `GradientRenderer` | グラデーションフィル描画（linear / radial / free）。フィンガープリントベースのキャッシュ対応 |
-| elements/ | `TextElementRenderer` | テキスト要素→パスへの変換とキャッシュ。グリフパスを `renderPath` に委譲して描画 |
-| elements/ | `ImageElementRenderer` | 画像要素の `GPUTexture` ロードと blit 描画。祖先グループのトランスフォーム合成 |
-| brush/ | `BrushRenderer` | dab / ribbonブラシ描画の入口。`DabRenderer` と `RibbonRenderer` へ振り分ける |
-| brush/ | `BrushTextureManager` | ブラシテクスチャの読み込み・プログラム生成・キャッシュ管理 |
-| brush/ | `DabEvaluator` | ベジェ曲線に沿ったDab位置の計算。カーブ行列で筆圧・チルト・速度をDabごとに反映 |
+| canvas/elements/ | `ElementRenderer` | 要素種別ディスパッチと、要素をマスクへ描く `renderElementToMask` |
+| canvas/elements/ | `PathElementRenderer` | パス・複合パス・ブレンドの描画。塗りと geometric ストロークを被覆率 strip で描く |
+| canvas/elements/ | `appearancePasses` | パスの `filters` 配列を、アピアランスごとの描画ジオメトリ（`ResolvedAppearancePass`）に解決する唯一の場所 |
+| canvas/elements/ | `GradientRenderer` | グラデーションとパターンのペイント bind group の組み立て。フィンガープリントベースのキャッシュ対応 |
+| canvas/elements/ | `TextElementRenderer` | テキスト要素→パスへの変換とキャッシュ。グリフパスを `renderPath` に委譲して描画 |
+| canvas/elements/ | `ImageElementRenderer` | 画像要素の `GPUTexture` ロードと blit 描画。祖先グループのトランスフォーム合成 |
+| canvas/elements/ | `MeshElementRenderer` | メッシュワープのコンテナ。子をワープ済みの一時要素に解決し、通常の要素レンダラーへディスパッチする |
+| canvas/elements/ | `Reference3DElementRenderer` | 3D参照要素。three.js 側が描いたテクスチャを blit する |
+| canvas/pipeline/brush/ | `BrushRenderer` | dab / ribbonブラシ描画の入口。`DabRenderer` と `RibbonRenderer` へ振り分ける |
+| canvas/pipeline/brush/ | `BrushTextureManager` | ブラシテクスチャの読み込み・プログラム生成・キャッシュ管理 |
+| canvas/pipeline/brush/ | `DabEvaluator` | ベジェ曲線に沿ったDab位置の計算。カーブ行列で筆圧・チルト・速度をDabごとに反映 |
 
 以降のセクションでは、まず全要素型の入口となる `ElementRenderer` のディスパッチ構造とパス描画フローを説明し、次にグラデーション・テキスト・画像の各専門レンダラー、最後にブラシストロークの描画パイプラインを解説する。
 
@@ -34,12 +38,17 @@ Paplicoのドキュメントは、パス・画像・テキスト・グループ�
 
 | 要素型 | ハンドラー |
 |---|---|
-| `path` | `ElementRenderer.renderPath()` |
+| `path` | `PathElementRenderer.renderPath()` |
 | `image` | `ImageElementRenderer.renderImage()` |
-| `compound-path` | `ElementRenderer.renderCompoundPath()` |
+| `compound-path` | `PathElementRenderer.renderCompoundPath()` |
 | `text` | `TextElementRenderer.renderText()` |
+| `mesh` | `MeshElementRenderer.render()` |
+| `blend` | `PathElementRenderer.renderBlend()` |
+| `reference3d` | `Reference3DElementRenderer.renderReference3D()` |
 
-`group` 型はディスパッチテーブルに登録されていない。グループの子要素は `CanvasLayer` 側でフラット化されて個別にディスパッチされる。
+`reference3d` は画像エクスポート中、要素の `includeInExport` が `true` のときだけ描く。
+
+`group` 型はディスパッチテーブルに登録されていない。`CanvasLayer.renderElements` がグループを再帰的にたどり、子要素・親トランスフォーム・継承するプリフィルターを渡しながら個別にディスパッチする。
 
 ### パス描画フロー
 
@@ -47,63 +56,72 @@ Paplicoのドキュメントは、パス・画像・テキスト・グループ�
 
 ```mermaid
 flowchart TD
-    A[renderPath] --> B[applyCornerRadius]
-    B --> C[applyPreFilters]
-    C --> D{filters 走査}
+    A[renderPath] --> B["resolveAppearancePasses\n（角丸・プリフィルター・アピアランス別サブフィルター）"]
+    B --> C[renderAppearancePasses]
+    C --> D{アピアランスを順に描画}
     D -->|fill| E[renderPathFill]
     D -->|stroke geometric| F[renderGeometricStroke]
     D -->|stroke dab / ribbon| G["BrushRenderer.render"]
     E --> E1{fill type}
     E1 -->|solid| E2[被覆率 strip で塗りつぶし]
-    E1 -->|gradient| E3["GradientRenderer.acquirePaintBindGroup で BG2 を用意し strip で塗る"]
+    E1 -->|gradient / pattern| E3["GradientRenderer.acquirePaintBindGroup で BG2 を用意し strip で塗る"]
 ```
 
-1. **角丸処理**: `applyCornerRadius` でフィレットを適用
-2. **プリフィルター**: `applyPreFilters` でジグザグ等のジオメトリ変形を適用
-3. **アピアランス走査**: 要素の `filters` 配列（**アピアランス**、すなわちフィル（塗り）やストローク（線）など見た目を定義する設定の列）を順に処理し、`fill` と `stroke` の各アピアランスを描画する。1つの要素に複数のフィルやストロークを重ねることで、影付き文字や多重輪郭などの表現が可能になる
-4. **フィル描画**: 非ゼロ巻き数の被覆率を CPU で求め、strip としてインスタンス描画する。グラデーションの場合はペイント用の bind group を `GradientRenderer` から受け取る
+1. **アピアランスの解決**: `resolveAppearancePasses`（`appearancePasses.ts`）が要素の `filters` 配列（**アピアランス**、すなわちフィル（塗り）やストローク（線）など見た目を定義する設定の列）を、アピアランスごとの描画ジオメトリに解決する。角丸のフィレット化、要素のプリフィルター（ジグザグ等のジオメトリ変形）、アピアランス自身のジオメトリサブフィルターは、この中で `PreFilterRenderer` が適用する。プリフィルターがジオメトリを複数のコピーに分けた場合は、コピーごとに1つの `ResolvedAppearancePass` になる
+2. **描画しないアピアランスの除外**: 要素の描画を置き換えるアピアランス（extrude3d など）が有効な要素は、平面のジオメトリを何も描かない。後ろにある完全に不透明なソリッド fill に隠れる fill も描かない。重ね塗りすると、部分被覆の縁で下の fill の色が漏れるためである
+3. **アピアランス走査**: `renderAppearancePasses` が解決済みの `ResolvedAppearancePass` を順に処理し、`fill` と `stroke` の各アピアランスを描画する。1つの要素に複数のフィルやストロークを重ねることで、影付き文字や多重輪郭などの表現が可能になる。パターンを塗るアピアランスには、タイルの原点（変形前のアウトラインの左上）が付く。ジオメトリフィルターが配置したコピーには、コピーごとのサンプリング変換も付く
+4. **フィル描画**: 非ゼロ巻き数の被覆率を CPU で求め、strip としてインスタンス描画する。グラデーションとパターンの場合はペイント用の bind group を `GradientRenderer` から受け取る
 5. **ストローク描画**: ブラシ種別に応じて分岐
-   - **ジオメトリックブラシ** (`isGeometricBrush`): `renderGeometricStroke` でテッセレーション済みストロークを描画。ダッシュパターン・可変幅に対応
+   - **ジオメトリックブラシ** (`engine === "geometric"`): `renderGeometricStroke` でテッセレーション済みストロークを描画。ダッシュパターン・可変幅に対応
    - **dab / ribbonブラシ**: `BrushRenderer.render` へ即時描画を委譲する。ribbonだけが使うCanvasLayer側のバッチ経路を含む詳細は[ブラシレンダリング](/devdocs/renderer/brush)を参照
 
-### バッチ頂点バッファ
+### strip のフレームバッファ
 
-フィル描画の頂点データはフレーム全体で1つのCPUバッファに蓄積され、`flushFillBatch()` で1回の **writeBuffer**（CPU側のデータをGPUバッファにコピーするAPI呼び出し）でGPUにアップロードされる。各要素の **draw call**（GPUに描画命令を1回発行すること。回数が多いほどオーバーヘッドが増加する）はこの共有GPUバッファのオフセットを参照する。初回フレームではフォールバックとしてプール管理されたper-element バッファを使用し、2フレーム目以降はピーク使用量に基づいてバッチバッファを確保する。
+塗りと geometric ストロークの strip は、`StripFrame` がフレーム単位で集める。`PathElementRenderer` は `StripCache` の strip を `StripFrame.append()` でフレームのバッファへ詰め、返ってきた範囲ごとに **draw call**（GPUに描画命令を1回発行すること。回数が多いほどオーバーヘッドが増加する）を記録する。strip 1本が1インスタンスになる。
 
-フィル頂点データを1つのバッチバッファに集約する理由は、`device.queue.writeBuffer()` の呼び出し回数を削減するためである。要素ごとに個別のwriteBufferを発行すると、数百要素で数百回のCPU→GPUコピーが発生する。バッチ化により1回のwriteBufferで全要素のデータを転送でき、CPU-GPUバス帯域の効率が大幅に向上する。
+インスタンスは固定容量のチャンク（16,384 インスタンス）に、被覆率の alpha は固定サイズのページ（r8 テクスチャ）に詰める。どちらも埋まると次のチャンク・ページを開く。1回の draw は1つのチャンクと1つのページに収まる範囲で、アウトラインがそれをまたぐと draw が分かれる。
 
-初回フレームでper-elementバッファにフォールバックする理由は、バッチバッファのサイズ決定にピーク使用量の観測が必要なためである。ドキュメントの複雑さは事前に予測できないため、初回フレームで実際の使用量を計測し、2フレーム目以降は `2 × peakBytes` の余裕を持たせたバッファを確保する。この「計測→事前確保」パターンにより、通常フレームではアロケーションが完全に不要になる。
+チャンクとページはフレームをまたいで保持される。`finishFrame()` が、フレーム内で使った分だけを **writeBuffer**（CPU側のデータをGPUバッファにコピーするAPI呼び出し） / `writeTexture` でアップロードする。この呼び出しは全パスのエンコードが終わった後、submit の前に1回だけ走る。WebGPUはバッファの内容を submit 時点で読むので、先に記録した draw もこのデータを参照できる。
+
+要素ごとに個別のアップロードを発行すると、数百要素で数百回のCPU→GPUコピーが発生する。フレーム単位でまとめることで、コピーの回数をチャンク数とページ数に抑えている。
 
 ## GradientRenderer
 
-パスのフィルには単色だけでなくグラデーション（色が連続的に変化する塗り）を指定できる。`GradientRenderer` はこのグラデーションのペイント bind group（BG2）を組み立てるモジュールである。`acquirePaintBindGroup` が唯一の公開メソッドで、strip 描画がそのまま BG2 に束ねて塗る。
+パスのフィルには単色だけでなくグラデーション（色が連続的に変化する塗り）を指定できる。`GradientRenderer` はこのグラデーションとパターンのペイント bind group（BG2）を組み立てるモジュールである。`acquirePaintBindGroup` が唯一の公開メソッドで、strip 描画がそのまま BG2 に束ねて塗る。
 
-### 対応グラデーション型
+### 対応するペイント型
 
-| 型 | `gradientType` 値 | キャッシュ |
-|---|---|---|
-| `linear` | 1 | 対応（フィンガープリントベース） |
-| `radial` | 2 | 対応（フィンガープリントベース） |
-| `free` (メッシュ) | 3 | 非対応（毎フレームテクスチャ再生成） |
+| 型 | `gradientType` 値 | `GradientCache` | テクスチャ / バッファ |
+|---|---|---|---|
+| `linear` | 1 | 対応（フィンガープリントベース） | なし |
+| `radial` | 2 | 対応（フィンガープリントベース） | なし |
+| `free` | 3 | 非対応 | `GradientTextureGenerator` が生成する 256×256 のテクスチャ |
+| `mesh` | 4 | 非対応 | `MeshGradientTextureGenerator` が用意する頂点・面・エッジ曲線の storage buffer |
+| `pattern` | 5 | 非対応 | パターン def をラスタライズしたタイルテクスチャ |
+
+ソリッド色は `gradientType` 0 で、`GradientRenderer` を通らない。
 
 ### キャッシュ戦略
 
-`linear` / `radial` グラデーションでは `hashGradientDraw` で**フィンガープリント**（データの同一性を高速に判定するためのハッシュ値）を算出し、`GradientCache` に専用のGPUバッファ（uniform / stops / vertex）と `GPUBindGroup` をキャッシュする。キャッシュヒット時はバッファ書き込みを完全にスキップし、キャッシュ済みリソースでそのまま draw call を発行する。
+`linear` / `radial` グラデーションでは `hashGradientDraw` で**フィンガープリント**（データの同一性を高速に判定するためのハッシュ値）を算出し、`GradientCache` に専用のGPUバッファ（uniform / stops）と `GPUBindGroup` をキャッシュする。キャッシュヒット時はバッファ書き込みを完全にスキップし、キャッシュ済みの bind group をそのまま返す。
 
-`free` グラデーション（メッシュ）は `GradientTextureGenerator.generateMeshTexture` でCPU側にテクスチャを毎フレーム生成するため、キャッシュ非対応。バッファプール方式で一時リソースを確保する。
+`free`・`mesh`・`pattern` は `GradientCache` の対象外で、uniform / stops バッファをフレーム内のバッファプールから確保する。`free` のテクスチャは `GradientTextureGenerator.generateMeshTexture` がコンピュートシェーダーで生成し、グラデーション定義のハッシュをキーにジェネレーター内でキャッシュする。`mesh` のバッファも `MeshGradientTextureGenerator` が内部でキャッシュする。`pattern` のテクスチャは呼び出し側が解決して渡す。未解決のパターンは何も描かない。
 
-`linear`/`radial` グラデーションをフィンガープリントベースでキャッシュする理由は、グラデーション描画に必要なGPUリソース（uniformバッファ、ストップバッファ、頂点バッファ、バインドグループ）の生成コストが高いためである。同一グラデーションが繰り返し描画される場合（選択移動中、ビューポート操作中等）、バッファ書き込みを完全にスキップできる。`free`（メッシュ）グラデーションがキャッシュ非対応なのは、フリーグラデーションの仕様がまだ未確定であり、キャッシュ戦略の設計が確定していないためである。
+`linear`/`radial` グラデーションをフィンガープリントベースでキャッシュする理由は、グラデーション描画に必要なGPUリソース（uniformバッファ、ストップバッファ、バインドグループ）の生成コストが高いためである。同一グラデーションが繰り返し描画される場合（選択移動中、ビューポート操作中等）、バッファ書き込みを完全にスキップできる。
 
 ### Uniform構造
 
 グラデーション uniform は以下のフィールドを持つ:
 
 - `gradientType`, `stopCount`
+- `meshFaceCount` (mesh用)
+- `strokeGradientMode` (geometric ストロークのグラデーション用。0 = within、1 = along、2 = across)
 - `linearStart`, `linearEnd` (linear用)
 - `radialCenter`, `radialRadiusX`, `radialRadiusY`, `radialRotation` (radial用)
-- `boundsMin`, `boundsMax` (要素バウンディングボックス)
+- `boundsMin`, `boundsMax` (アウトラインのローカルバウンディングボックス)
+- `patternMatrixCol0`〜`patternMatrixCol2`, `patternTileWidth`, `patternTileHeight` (pattern用。ローカル座標からタイル空間へのアフィン変換と、タイルのワールドサイズ)
 
-カラーストップは最大16個まで対応し、**storage buffer**（GPUが読み書きできる大容量バッファ）に `offset`, `r`, `g`, `b`, `a` の5フィールドで格納される。
+カラーストップは最大16個まで対応し、**storage buffer**（GPUが読み書きできる大容量バッファ）に `offset`, `r`, `g`, `b`, `a`, `midpoint` の6フィールドで格納される。
 
 ## TextElementRenderer
 
@@ -136,12 +154,14 @@ flowchart TD
 
 1. **ファイル検索**: `EmbeddedFile` 配列から `image.fileUid` に一致するファイルを検索
 2. **テクスチャ取得**: `AssetState.imageTextureCache` からキャッシュ済みテクスチャを同期的に取得。未ロードの場合は非同期ロードを開始し、次フレームで描画
-3. **祖先トランスフォーム合成**: `parentGroupMap` を辿って祖先グループのトランスフォームを合成。`composeTransforms` で累積行列を計算
-4. **blit描画**: 算出したワールド空間バウンズとテクスチャを `blitTextureToCanvas` に渡して描画
+3. **祖先トランスフォーム合成**: `composeAncestorTransform` が `parentGroupMap` を辿って祖先グループのトランスフォームを合成する
+4. **blit描画**: 算出したワールド空間バウンズとテクスチャを `blitTextureToCanvas` に渡して描画。画像が変形した4隅（`corners`）を持つ場合と、ジオメトリフィルターが四辺形を変形した場合は、`blitQuadToCanvas` で四辺形へ射影 blit する
+
+メッシュワープの中の画像は `renderImageWarped` が描く。呼び出し側がワープ済みの三角形リストを渡し、`blitMeshToCanvas` がテクスチャをケージに沿って曲げる。
 
 ### テクスチャロード
 
-`loadImageTexture` は `EmbeddedFile` のバイナリデータから以下の手順でテクスチャを生成する:
+`ensureImageTexture` は `EmbeddedFile` のバイナリデータから以下の手順でテクスチャを生成する:
 
 1. `Blob` → `createImageBitmap` でデコード
 2. `copyExternalImageToTexture` でGPUにアップロード（premultiplied alpha）
@@ -158,12 +178,13 @@ flowchart TD
 
 ### BrushTextureManager
 
-ブラシテクスチャの読み込みとキャッシュを管理する。以下の4種のビルトインブラシを初期化時にロードする:
+ブラシテクスチャの読み込みとキャッシュを管理する。以下の5種のビルトインブラシを初期化時にロードする:
 
 | ブラシID | 生成方法 | 特徴 |
 |---|---|---|
 | `pencil` | Base64 PNG → `createImageBitmap` → `copyExternalImageToTexture` | アセット画像からロード |
 | `airbrush` | Base64 PNG → 同上 | アセット画像からロード |
+| `bacon` | Base64 PNG → 同上 | アセット画像からロード |
 | `hardCircle` | プログラム生成（128x128） | ハードエッジの円形。半径内は完全不透明 |
 | `softCircle` | プログラム生成（128x128） | ガウシアン風フォールオフ（sigma=0.4）の円形グラデーション |
 

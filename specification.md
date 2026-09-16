@@ -12,13 +12,13 @@ Paplicoは、リアルタイム共同編集機能を備えた無限キャンバ�
 - 📐 ベクターパス編集（ベジエパス、ブーリアン演算、可変線幅、非破壊消去マスク）
 - 📝 テキスト（縦書き・横書き、パス上配置、クローズパス内流し込み、複数リージョン連結）
 - 🎨 レイヤー・グループ・クリッピングマスク・オブジェクトマスク
-- 🪄 アピアランス/フィルタ（fill/stroke/3D押し出し/回転体/ブラー/スタイライズ等 44種）
+- 🪄 アピアランス/フィルタ（fill/stroke/3D押し出し/回転体/パス変形/クリップ/ブラー/スタイライズ/SVGフィルタ等 60種）
 - 🔁 リピート（グリッド/放射/ミラー）、ブレンド（Illustratorのブレンド相当）、メッシュ変形
-- 🧊 3Dリファレンス（ポーズ人形・プリミティブのライン画/フラット表示）
+- 🧊 3Dリファレンス（ポーズ人形・プリミティブ・glTFメッシュのライン画/フラット表示）
 - 👥 リアルタイム共同編集（local / cloud / E2EE の3モード）
 - ⏱️ タイムラプス記録・再生・MP4書き出し
 - 🤖 Syrup言語によるユーザー自動化スクリプト（Workerサンドボックス実行）
-- 💾 papf（CBORベース独自バイナリ形式）での保存、PNG/JPEG/AVIF HDR/PSD/TIFF書き出し
+- 💾 papf（CBORベース独自バイナリ形式）での保存、PNG/JPEG/AVIF HDR/PSD/TIFF/SVG書き出し
 - 🖥️ Tauri v2によるデスクトップ/iOSアプリ
 - ↩️ Undo/Redo（Yjs UndoManager）
 
@@ -140,7 +140,7 @@ worldToNDC(worldX, worldY, viewport, canvasW, canvasH) ->
   return { x: (s.x / canvasW) * 2 - 1, y: 1 - (s.y / canvasH) * 2 }
 ```
 
-可視範囲判定として `getVisibleWorldBounds`（rotation=0はfast path、回転時は4隅をscreenToWorldしてAABB化）、`isInViewport`、`boundsFullyInsideViewport`、`boundsIntersectViewport` を同ファイルで提供する。
+可視範囲判定として `getVisibleWorldBounds`（rotation=0はfast path、回転時は4隅をscreenToWorldしてAABB化）、`isInViewport`、`boundsIntersectViewport` を同ファイルで提供する。
 
 ## データ構造
 
@@ -163,8 +163,9 @@ interface Document {
 	hdr?: HdrSettings;           // { enabled, exposure(EV) }
 	colorProfile?: ColorProfileSettings; // { workingSpace: "srgb"|"display-p3", proofProfile?, proofIntent? }
 	rasterizationDpi?: number;   // フィルタのラスタライズ解像度。72 = 1 texel/world px
+	units: LengthUnit;           // 表示・入力用の長さ単位（"px"|"pt"|"mm"|"cm"|"in"、core/document/units.ts）。座標は常にワールド単位
 	defs?: Record<string, DefEntry>;       // オフキャンバス定義（pattern / vector-brush）
-	references3d?: Record<string, Reference3DDef>; // 3Dリファレンスシーン
+	references3d?: Record<string, Reference3DDef>; // 3Dリファレンスシーン（ノードは primitive / figure / mesh）
 }
 
 interface Layer {
@@ -186,15 +187,15 @@ interface Layer {
 
 | 型 | `type` | 概要 |
 |---|---|---|
-| `Path` | `"path"` | ベジエパス。`segments`, `isGuide?`, `pathStart?`/`pathEnd?`（分割ストロークのテーパー抑制）, `strokeWidths?`（可変線幅）, `eraseMasks?`（非破壊消去） |
+| `Path` | `"path"` | ベジエパス。`segments`, `isGuide?`, `pathStart?`/`pathEnd?`（分割ストロークのテーパー抑制）, `strokeWidths?`（可変線幅）, `strokeWidthsBaked?`（strokeWidthsがブラシのサイズカーブ評価を焼き込み済み）, `eraseMasks?`（非破壊消去） |
 | `Group` | `"group"` | `childIds`, `collapsed?`, `clipPathId?`（childIdsの1つをクリップパスに） |
 | `CompoundPath` | `"compound-path"` | `sources: {id, op}[]`。op = `"union" \| "subtract" \| "intersect" \| "exclude"` |
 | `ImageObject` | `"image"` | `fileUid`（EmbeddedFile参照）, 中心座標とサイズ, `corners?`（自由変形4隅） |
 | `TextElement` | `"text"` | `content`, `defaultStyle`, `layout`, `axisBinding?`（パス上/シェイプ内）, `flow?`（リージョン連結）, `clipPathId?` |
-| `MeshArtObject` | `"mesh"` | Coonsパッチケージによる非破壊ワープコンテナ。`childIds`, `vertices`, `faces`（quadのみ） |
-| `BlendObject` | `"blend"` | オブジェクト間ブレンド。`objectIds`(≥2), `spacing`（steps/distance/smooth）, `spineSourceId?`, `tiltToSpine?` |
-| `RepeatObject` | `"repeat"` | `mode: "grid" \| "radial" \| "mirror"`。3モードのパラメータを常時保持 |
-| `Reference3DElement` | `"reference3d"` | 3Dシーン参照。`sceneId`, `camera`, `displayMode: "lineart" \| "flat"`, `includeInExport?` |
+| `MeshArtObject` | `"mesh"` | Coonsパッチケージによる非破壊ワープコンテナ。`childIds`, `vertices`, `faces`（quadのみ）, `outlineOnRelease?`（解除時にケージ外周をパスとして再構築） |
+| `BlendObject` | `"blend"` | オブジェクト間ブレンド。`objectIds`(≥2), `renderOrder?`（キーの描画順。objectIdsの順列）, `spacing`（steps/distance/smooth）, `spineSourceId?`, `tiltToSpine?` |
+| `RepeatObject` | `"repeat"` | `sourceIds`(≥1、吸収したソース要素), `mode: "grid" \| "radial" \| "mirror"`。3モードのパラメータを常時保持 |
+| `Reference3DElement` | `"reference3d"` | 3Dシーン参照。`sceneId`, `camera`, 中心座標とサイズ, `displayMode: "lineart" \| "flat"`, `lineart?`（ライン抽出パラメータ）, `lightDir?`（影を落とすキーライト方向）, `includeInExport?` |
 
 ### ArtObject 共通基底
 
@@ -207,7 +208,7 @@ interface ArtObject {
 	compositionMode?: CompositionMode; // "normal" | "alpha-lock"
 	visible?: boolean;            // undefined = true
 	locked?: boolean;             // undefined = false
-	filters?: Filter[];           // アピアランススタック
+	filters?: FilterEntry[];      // アピアランススタック（Filter またはプリセット参照）
 	transform: ElementTransform;  // { x, y, rotation, scaleX, scaleY, skewX?, skewY? }
 	mask?: ObjectMask | null;     // グレースケールマスク（マスク要素の輝度がアルファを駆動）
 }
@@ -224,12 +225,13 @@ interface BezierPoint {
 	pressure?: number;  // 0.0-1.0
 	tiltX?: number;     // -90〜90（度）
 	tiltY?: number;
+	twist?: number;     // ペン軸回転 0〜359（度、PointerEvent.twist）
 	deltaTime?: number; // ストローク開始からの累積経過ms
 }
 
 // 三次ベジエセグメント。start/endはワールド絶対座標のアンカー、
 // cp1/cp2はアンカーからの相対オフセット（ワールド空間ベクトル）。
-// 絶対座標への解決は utils/segmentOps.ts の resolveSegment() を使う。
+// 絶対座標への解決は utils/geometry/segmentOps.ts の resolveSegment() を使う。
 interface CubicBezierSegment {
 	start?: BezierPoint;    // サブパス最初のセグメントのみ。以降は前セグメントのendを始点に使う
 	cp1: BezierPoint;       // startアンカーからの相対オフセット
@@ -241,6 +243,8 @@ interface CubicBezierSegment {
 	startTiltY: number;
 	endTiltX: number;
 	endTiltY: number;
+	startTwist?: number;    // ペン軸回転 0〜359（度）
+	endTwist?: number;
 	startDeltaTime: number; // ms。必須
 	endDeltaTime: number;
 	isMoved: boolean;       // 新サブパスの開始（SVG moveTo相当）
@@ -278,7 +282,7 @@ type TexturedFill = LinearGradient | RadialGradient | FreeGradient | MeshGradien
 type FillColor = SolidColor | TexturedFill;
 ```
 
-- `LinearGradient` — `x1,y1,x2,y2`（ワールド座標）+ stops
+- `LinearGradient` — `x1,y1,x2,y2`（バウンディングボックス相対0-1）+ stops
 - `RadialGradient` — `cx,cy,radiusX,radiusY`（バウンディングボックス相対0-1）+ `rotation` + stops
 - `FreeGradient` — フリーフォームグラデーション。stops（bbox相対座標 + `edgeCPs?`）をDelaunay三角形分割し、三角形Coonsパッチ + OKLab補間でGPUレンダリング
 - `MeshGradient` — 自己完結型メッシュグラデーション（vertices/faces/handles、分割・派生色対応）
@@ -316,23 +320,50 @@ interface Appearance<T = unknown> {
 	subFilters?: Filter[];
 }
 type Filter<T = unknown> = Appearance<T>;
+
+// ドキュメントのアピアランスプリセットのfiltersをこの位置に展開するスタックエントリ
+interface AppearancePresetRef {
+	type: "preset";
+	uid: string;
+	presetUid: string;        // Document.appearancePresets の uid
+	enabled?: boolean;        // undefined = true
+}
+type FilterEntry = Filter | AppearancePresetRef;
 ```
 
-pre-filter（ジオメトリ変形）かpost-filter（テクスチャ処理）かは、FilterHandlerが `preProcess` / `postProcess` のどちらを実装するかで決まる（型レベルで排他）。processorは `fill` / `stroke` のアピアランス、3D（`extrude3d` / `revolve3d` / `3d-rotate`）、Geometry（`zigzag` / `path-offset` / `path-union` / `pucker-bloat`）、Blur / Color / Stylize / Distortion / Texture の `hk:*` シリーズ等、計44種が `renderer/filters/filterCatalog.ts` に登録されている。
+pre-filter（ジオメトリ変形）かpost-filter（テクスチャ処理）かは、FilterHandlerが実装するメソッドで決まる。`preProcess` または `preProcessAppearance` を実装すればジオメトリ、`postProcess` を実装すればラスタ、どちらも実装しなければパッシブ（`fill` / `stroke` / `content` のアピアランス）となる。ジオメトリとラスタは型レベルで排他。processorは `fill` / `stroke` のアピアランス、3D（`extrude3d` / `revolve3d` / `3d-rotate`）、Geometry（`zigzag` / `path-offset` / `path-union` / `pucker-bloat` / `transform`）、Mask（`clip-to-shape`）、Blur / Color / Stylize / Distortion / Texture（`hk:*` シリーズほか）、SVGフィルタプリミティブ（`svg:*` 20種）の計60種が `renderer/filters/filterCatalog.ts` に登録されている。
 
-### BrushSettings（5系統の判別ユニオン）
+### BrushSettings（v2：カーブマトリクス）
 
 ```typescript
-type BrushType = "stroke" | "scatter" | "art" | "pattern" | "calligraphy";
-type BrushSettings =
-	| StrokeBrushSettings      // 幾何ストローク展開（lineCap/lineJoin/dash）
-	| ScatterBrushSettings     // スタンプ散布（spacing/flow/stampRotation/wetInk等）
-	| ArtBrushSettings         // リボン引き伸ばし
-	| PatternBrushSettings     // リボンタイル
-	| CalligraphyBrushSettings // 楕円ニブ（nibAngle/roundness/angleMode）
+type BrushEngineKind = "dab" | "ribbon" | "geometric";
+
+interface BrushSettings {
+	version: 2;
+	engine: BrushEngineKind;      // dab = スタンプ / ribbon = リボン（art/pattern） / geometric = 幾何ストローク展開
+	strokeOpacity: number;        // ストローク単位の不透明度上限（wash合成）。カーブなし
+	paintMode: "buildup" | "wash";
+	properties: Partial<Record<BrushPropertyId, BrushPropertyConfig>>; // カーブ変調可能な値
+	tip?: BrushTipConfig;         // dabエンジンのチップ（procedural | image）。ribbon/geometricでは持たない
+	ribbon?: RibbonConfig;        // ribbonエンジン設定（source, uvMode: "repeat"|"stretch", tileScale, tileSpacing 等）
+	stroking?: BrushStroking;     // lineCap/lineJoin/miterLimit/align?/dashArray?/dashOffset?
+	grain?: GrainConfig;          // 紙目（キャンバス固定UV）
+	wetEdge?: WetEdgeConfig;      // 水彩境界。wet.enabled 中は無視
+	mixing?: MixingConfig;        // 混色。enabled のみが有効化条件
+	wet?: WetConfig;              // ウェットレイヤ。enabled のみが有効化条件
+	backdropBlur?: BackdropBlurConfig; // 下地ぼかし。enabled のみが有効化条件
+	inputDynamics?: InputDynamicsConfig; // 入力計算そのものの設定（カーブ対象外）
+	randomSeed: number;
+	colorMode?: BrushColorMode;   // "tinting" | "color"
+}
+
+interface BrushPropertyConfig { base: number; curves?: BrushCurve[] }
+interface BrushCurve { input: BrushInputId; points: [number, number][] } // 区分線形、最大16点
 ```
 
-共通フィールド: `size`, `sizeByPressure`, `opacity`, `opacityByPressure`, `randomSeed` 等。`size` の単位はワールド単位。テクスチャソースは `BrushArtSource = {kind:"file"} | {kind:"def"}`。ビルトインブラシIDは `BUILTIN_BRUSH_IDS` で、svg / hardCircle / softCircle / pencil / airbrush / calligraphy を持つ。
+`BrushInputId` は13種（`pressure` / `speedFine` / `speedGross` / `accel` / `tiltMagnitude` / `tiltAzimuth` / `twist` / `direction` / `strokeT` / `fade` / `distance` / `randomPerDab` / `randomPerStroke`）で、すべて0..1に正規化してからカーブを評価する。`BrushPropertyId` は24種（`size` / `ratio` / `angle` / `flow` / `spacing` / `scatterOffset` / `scatterAlong` / `hueShift` / `satShift` / `valShift` / `grainStrength` / `hardness` / `colorRate` / `alphaRate` / `smudgeLength` / `dabsPerSecond` / `wetness` / `directionality` / `grainAmount` / `absorption` / `granulation` / `bleedSoftness` / `edgeDarkening` / `edgeRoughness`）。各プロパティの評価ドメイン（scale / offset）・既定base・クランプ範囲は `brush/properties.ts` の `BRUSH_PROPERTY_REGISTRY` が持つ。
+
+ブラシサイズは `properties.size.base` で、単位はワールド単位。テクスチャソースは `BrushArtSource = {kind:"file"} | {kind:"def"}`。ビルトインブラシIDは `BUILTIN_BRUSH_IDS` で、svg / hardCircle / softCircle / pencil / airbrush / calligraphy / bacon を持つ。ビルトイン紙目テクスチャIDは `BUILTIN_PAPER_IDS` で、finePaper / coarsePaper を持つ。
 
 ### Artboard / EmbeddedFile
 
@@ -365,10 +396,10 @@ Paplico (facade) → RenderOrchestrator → CanvasLayer (ドキュメント描�
 ### RenderOrchestrator
 
 - GPUデバイスの取得・所有。`timestamp-query` が使えれば有効化し、storage buffer上限をアダプタ上限まで引き上げる
-- HDR probe: `rgba16float` が使えてHDRが有効なら canvasFormat を `rgba16float`（既定 `bgra8unorm`、colorSpace `display-p3`）
+- HDR probe: `rgba16float` が使えてHDRが有効なら canvasFormat を `rgba16float`、それ以外は `navigator.gpu.getPreferredCanvasFormat()` の値にする（colorSpace の既定は `display-p3`）
 - 複数の `CanvasTarget` を管理。CanvasLayer / UILayer / BackdropCaptureManager / RenderCacheManager はターゲット単位で、BrushRenderer は CanvasLayer が持つ、パイプライン・BrushTextureManager・FilterRenderer・TextRenderer等はデバイス単位で共有
 - 1フレーム = 1 command encoder に CanvasLayer と UILayer を積んで1回 `queue.submit`
-- デバイスロスト復旧: 最大5回、基本遅延1秒で再初期化を試行
+- デバイスロスト復旧: 最大5回、1秒から試行ごとに倍になる指数バックオフで再初期化を試行
 - `GPUTimingProfiler` によるtimestamp queryベースのGPUパス計測
 
 ### RenderScheduler（レンダリング戦略）
@@ -389,7 +420,7 @@ CanvasLayer は有効な compositeFrameCache が無いか、キャッシュが�
 
 ### フレームキャッシュ
 
-`CanvasLayer.compositeFrameCache` がprebufと同サイズの合成結果テクスチャを保持し、`viewportBlit` 戦略時にpan/zoom/rotationを再投影blitで賄う。ダーティ追跡はレイヤー単位ではなく**要素ID単位**（`changedElements` の added/updated/deleted セット）で行い、変更要素とbounds連動する祖先・子孫のみ再合成する。
+`CanvasLayer.compositeFrameCache` がprebufと同サイズの合成結果テクスチャを保持し、`viewportBlit` 戦略時にpan/zoom/rotationを再投影blitで賄う。ダーティ追跡はレイヤー単位ではなく**要素ID単位**（`changedElements` の upserted / deleted セット）で行い、変更要素とbounds連動する祖先・子孫のみ再合成する。
 
 ### パス描画（Sparse Strips）
 
@@ -411,12 +442,15 @@ Vello GPU 方式の被覆率ラスタライザ。ステンシルも MSAA も使�
 
 | ルート | 描画側 | 方式 |
 |---|---|---|
-| `geometric` | `PathElementRenderer.renderGeometricStroke` | ストロークテッセレーション + GPUストロークパイプライン |
+| `geometric` | `PathElementRenderer.renderGeometricStroke` | ストロークテッセレーションの三角形を `OutlineCache` に置き、Sparse Strips で描画 |
 | `dab` | `BrushRenderer.render` が `DabRenderer.render` へ振り分ける | ベジエ曲線に沿った Dab のインスタンスド描画。先端形状・ニブ楕円率・回転は `BrushSettings.properties` のカーブ行列で決まる |
 | `ribbon` | `RibbonRenderer.enqueue` / `flush`。即時描画は `BrushRenderer.render` | リボン頂点生成（UV stretch / UV repeat + tileSpacing）。バッチ蓄積に乗る唯一のルート |
 
 - `DabEvaluator` がカーブ行列からDabごとのサイズ・不透明度を決定。`BoundedStampStore` の常駐GPUリースによりパン・ズームフレームではDabのアップロード0
-- ビルトインブラシテクスチャ: hard circle / soft circle は128pxのプログラム生成、pencil / airbrush は同梱画像
+- dab ルートは `resolveBrushRenderRequirements`（`brush/access.ts`）の結果で追加の経路を取る。`wet` は `WetStrokeRenderer`（BrushRenderer が所有）のウェットレイヤーシミュレーション、`mixing` は `MixStrokeRenderer`、`backdropBlur` は `BlurStrokeRenderer`（どちらも CanvasLayer が所有する backdrop effect driver）。`backdropBlur` が有効なら `wet` と `mixing` は無効
+- `mixing` / `backdropBlur` のストロークは下の合成結果を読むため、メインパスを区切って自身のz順でインライン描画し、結果を `BlitLayer` として戻す
+- `paintMode: "wash"` の dab / ribbon は隔離テクスチャに蓄積し、合成時に `strokeOpacity` を1回だけ掛ける。`WashCompositor` がその隔離テクスチャに wet edge（縁の濃淡）を適用する。wet edge と `wet` は排他
+- ビルトインブラシテクスチャ: hard circle / soft circle は128pxのプログラム生成、pencil / airbrush / bacon は同梱画像
 - カスタムブラシテクスチャ: アップロード時に長辺基準で **1024 / 768 / 512 / 256 / 128** px の段階へアスペクト比保持でリサイズ（`utils/embeddedFile.ts`）
 
 ### ブレンドモード合成
@@ -433,7 +467,7 @@ Vello GPU 方式の被覆率ラスタライザ。ステンシルも MSAA も使�
 
 - `OffscreenPresenter` — 要素/グループ/クリップグループのオフスクリーンテクスチャへの焼き込み、消去マスク適用、遅延テクスチャ破棄
 - `CompositeRenderer` — 焼き上がったテクスチャのcanvasへのblit（通常/射影クアッド/メッシュ）とブレンド合成
-- `ClipMaskAtlas` — フレーム冒頭に全クリップパスを白マスクとしてプリレンダし、メインパス中に要素ごとにバインド
+- `ClipMaskAtlas` — フレーム冒頭に全クリップパスを白マスクとしてプリレンダし、メインパス中に要素ごとにバインド。ネストしたクリップグループは、自身のクリップパスと外側のクリップグループの実効マスクを交差させた1枚の実効マスクを持つ。クリップグループの子はその実効マスクを通して描画先へ直接描ける
 - `TexturePool` — オフスクリーンテクスチャの再利用プール（予算 `min(1GiB, max(384MiB, canvasBytes×16))`、LRU退避）
 - `FrameUniformPool` — フレーム毎uniformバッファのリング再利用
 - `RenderPlanner` — GPU参照を持たない純データのフレーム計画（レイヤー合成要否、backdropによるパス分割宣言）を実行前に構築
@@ -441,13 +475,13 @@ Vello GPU 方式の被覆率ラスタライザ。ステンシルも MSAA も使�
 
 ### レンダーキャッシュ
 
-`RenderCacheManager` がドキュメント単位のスコープで10種のキャッシュを束ねる: `outline`（ローカル空間のポリラインと三角形、要素あたり最大6 variant）/ `strip`（被覆率 strip、要素あたり最大6 variant）/ `compoundPath` / `groupPath` / `meshWarp` / `stamp`（既定96MiB）/ `gradient`（GPUリソース束）/ `appearance` / `blend`。
+`RenderCacheManager` がドキュメント単位のスコープで10種のキャッシュを束ねる: `outline`（ローカル空間のポリラインと三角形、要素あたり最大6 variant）/ `strip`（被覆率 strip、要素あたり最大6 variant）/ `compoundPath` / `groupPath` / `meshWarp` / `stamp`（既定96MiB）/ `gradient`（GPUリソース束）/ `appearance` / `blend` / `filteredElement`（post-filter適用済みの要素テクスチャ。既定256MiBのLRUで、パンなどビューポートだけが変わるフレームはフィルタチェーンを再実行せずに再利用する）。
 
 ### generators/
 
 - `GradientTextureGenerator` — FreeGradientのDelaunay分割 + 三角形Coonsパッチcomputeシェーダー
 - `MeshGradientTextureGenerator` — メッシュグラデーションのテクスチャ生成（2段キャッシュ）
-- `CornerRadiusProcessor` — cornerRadius頂点への2パスフィレット適用（対象0個なら元配列をそのまま返す）
+- `CornerRadiusProcessor.ts` の `applyCornerRadius` — cornerRadius頂点への2パスフィレット適用（対象0個なら元配列をそのまま返す）
 
 ### UILayer
 
@@ -473,11 +507,12 @@ interface Tool {
 	saveInterruptibleState?(): unknown;
 	restoreFromInterrupt?(state: unknown): void;
 	refreshUI?(): void;
+	onSelectionHandedOver?(): void; // ツール外で作られた選択（ツール切替で持ち越した選択、ペーストで選択された要素）を引き継いだとき
 	dispose?(): void;
 }
 ```
 
-`PointerEventData` はスクリーン座標・筆圧・傾き（度）・pointerType・接触サイズ・修飾キーを持つ。
+`PointerEventData` はスクリーン座標・筆圧・傾き（度）・twist（ペン軸の回転、度）・pointerType・button・接触サイズ・修飾キー・timeStamp を持つ。`coalesced` には `getCoalescedEvents()` のサンプル列が古い順に入る。
 
 **ツール一覧（16種）**: `pen` / `path` / `path-edit` / `select` / `eraser` / `shape` / `text` / `gradient` / `mesh-deform` / `free-transform` / `skew` / `artboard` / `bucket-fill` / `eyedropper` / `stroke-width-edit` / `reference3d`
 
@@ -489,9 +524,9 @@ interface Tool {
 
 - **Pointer Events API**を使用（筆圧・傾き対応）。ジェスチャは単一の判別ユニオンstate machineで管理
 - **パン**: 中クリック、またはSpace+ドラッグ（回転対応）
-- **ズーム**: Ctrl+ホイール（macOSトラックパッドのピンチはctrlKey付きwheelとして届く）。カーソル下のワールド点を固定して補正。倍率は0.9/1.1固定、0.1〜640にクランプ
+- **ズーム**: Ctrl+ホイール（macOSトラックパッドのピンチはctrlKey付きwheelとして届く）。カーソル下のワールド点を固定して補正。倍率は0.9/1.1固定。下限0.1、上限 `toolSettings.maxZoomScale` にクランプ（エンジン既定640。アプリは `appConfig.maxZoomScale` を渡し、既定100、設定範囲1〜640）
 - **ホイール（修飾なし）**: deltaX/deltaYによるパン（回転対応）
-- **2本指ジェスチャ**: 移動量サンプリングでpan-zoomと回転を判別。選択ツールで全指が選択bbox内ならオブジェクトのピンチリサイズ
+- **2本指ジェスチャ**: 移動量サンプリングでpan-zoomと回転を判別。アクティブツールが `onTouchGesture` の `"start"` で true を返すと、そのジェスチャはツールが占有する（Reference3DTool のカメラ操作）
 - **マルチフィンガータップ**: 2本指タップ = Undo、3本指タップ = Redo
 - **Alt+ドラッグ**（pen/eraser時）: ブラシサイズ変更
 - **パームリジェクション**: ペン使用中のタッチ拒否、接触サイズ100px超の拒否。タッチ描画中にペンが来たらタッチストロークをキャンセルして復元
@@ -506,13 +541,13 @@ interface Tool {
 - `pkgs/web/src/core/brush/BrushStrokeSession.ts`
 - `pkgs/web/src/core/tools/PenTool.ts`
 
-入力中は `IncrementalStrokeFitter` が増分でフィットする。確定はそのフィットからinput knotを除いたsegment列を保存する。`processStroke()` は同じパイプラインを全raw pointsに対して一括で走らせる。保存済みpointsの再フィットに使う。
+入力中は `IncrementalStrokeFitter` が増分でフィットする。確定はそのフィットからinput knotを除いたsegment列を保存する。`processStroke()` は同じパイプラインを全raw pointsに対して一括で走らせる。加えて、フィット後に1本の三次曲線で表せる隣接区間をマージする段（`simplifyFittedPath`）を持つ。呼び出し元は `EraserTool` の消しゴムストロークのスムージング。
 
 処理パイプライン:
 
 1. **重複除去** — 連続する近接点を間引く。終点は常に保持する
-2. **スムージング** — `smoothingMethod` で `"smooth"`、`"pulled-string"`、`"inertia"` から選択。`"smooth"` はガウシアン。筆圧は入力値のまま
-3. **コーナー検出** — 角度閾値でポリラインを分割
+2. **スムージング** — `smoothingMethod` で `"smooth"`、`"pulled-string"`、`"inertia"` から選択。`"smooth"` はガウシアンで、コーナーで区切った区間ごとに掛ける。筆圧は入力値のまま
+3. **コーナー検出** — ポリラインを分割する。`"smooth"` はスムージング前の入力点から検出する。他の2方式はスムージング後の点列を45度の閾値で検出する
 4. **Schneider法による最小二乗三次ベジエフィッティング** — 許容誤差はズーム反比例
 5. **セグメント出力** — cp1/cp2をアンカー相対オフセットで格納。筆圧・傾き・deltaTimeは最寄りのスムージング済み点から転記
 
@@ -530,7 +565,7 @@ interface Tool {
 
 - `V`: 選択 / `P`: パス / `B`: ペン / `E`: 消しゴム / `A`: パス編集 / `T`: テキスト / `G`: グラデーション / `I`: スポイト
 - `M`: 矩形シェイプ / `L`: 楕円シェイプ / `Shift+W`: 線幅編集
-- `D`: 変形ツールのサイクル（free-transform → mesh-deform → skew）
+- `D`: 変形ツールのサイクル（free-transform → mesh-deform → skew。選択が無いときは mesh-deform を飛ばす）
 
 **グローバル（CtrlOrMeta = macはCmd / winはCtrl）:**
 
@@ -571,7 +606,7 @@ interface Tool {
 
 ### Yjsデータモデル（正規化モデル）
 
-Y.Docのトップレベルは8本:
+Y.Docのトップレベルは9本:
 
 ```
 Y.Doc
@@ -588,10 +623,12 @@ Y.Doc
 
 - 要素Y.Mapのフィールドは「スカラー直書き」（`SCALAR_FIELDS`）と「JSON文字列」（`JSON_FIELDS`）の2系統。どちらの集合にも無いキーは `updateElement` で黙って捨てられるため、schema拡張時は必ず追加する（`yjsFieldCoverage.test.ts` が検査）
 - **viewportはY.Docに含めない**。ローカル状態（`RendererState.viewports`、CanvasTarget IDキー）で管理する
+- ドキュメントの差し替え（既存ルームへの参加、`replaceDocument`、`loadYjsState`）は `YjsProvider.resetWithFreshDoc()` を通り、Y.DocとUndoManagerを作り直す。provider への `update` 購読は引き継がれ、古い `ydoc` に直接付けたリスナーは引き継がれない
 
 ### Undo/Redo
 
-- Yjs本体の `UndoManager` を使用。追跡ルートは `[yObjects, yLayers, yArtboards, yDefs, yReferences3d]`、`captureTimeout: 500ms`
+- Yjs本体の `UndoManager` を使用。追跡ルートは `[yObjects, yLayers, yArtboards, yDefs, yReferences3d, yAppearancePresets]`、`captureTimeout: 500ms`
+- `createSessionUndoManager(trackedOrigins)` は編集セッション専用のUndoManagerを作る。指定originの操作だけを追跡し、メインのUndoManagerはそれらを記録しない。ルートは `[yObjects, yLayers, yArtboards, yDefs]`。`PaplicoPatternEdit` が使う
 - イベント `stack-item-added` / `stack-item-updated` / `stack-item-popped` でUI状態（`canUndo`/`canRedo`）とメタ（パス編集選択の復元）を更新
 - `stopUndoCapture()` でグルーピングを打ち切り、1ドラッグ=1 undo stepを保証
 - **規約: 全てのドキュメント変更はYjsProviderメソッド経由で行う。**Valtioのドキュメントデータを直接mutateしない
@@ -619,7 +656,7 @@ Y.Doc
 全リアクティブステートはValtioで管理する。
 
 - **`RendererState`**（`core/document/rendererState.ts` で生成、型は `Paplico.ts`）: document / currentLayerId / canUndo・canRedo / elementOverrides・transientElements（`ref()` でプロキシ化回避）/ 選択状態 / uiOverlayState / 編集セッション / editingScopeStack / viewports 等を一括保持。外部へは読み取り専用の `PublicUIState`（`Paplico.uiState`）として公開
-- **`stores/`**: `uiStore`（パネル開閉・アクティブターゲット等）、`documentStore`（Dexie/IndexedDBへのドキュメントCRUD）、`documentSessionStore`、`autoSave`、`notificationStore`、`hooks/useAppConfig.ts` の `appConfig`
+- **`stores/`**: `uiStore`（パネル開閉・アクティブターゲット等）、`documentStore`（Dexie/IndexedDBへのドキュメントCRUD）、`documentSessionStore`、`sessionStore`（sessionStorageの再接続情報 `paplico:reconnectInfo`）、`autoSave`、`notificationStore`、`hooks/useAppConfig.ts` の `appConfig`
 
 ## ファイル入出力
 
@@ -659,6 +696,7 @@ Y.Doc
 - **AVIF HDR** — `@paplico/avif-hdr`（Pure TypeScriptエンコーダ、WASM・ネイティブ依存なし。10/12bit、PQ/HLG、BT.2020）
 - **PSD** — `ag-psd` の `writePsd`。ICCはimage resource 1039に注入
 - **TIFF** — 自前 `tiffWriter`。CMYK/RGB変換とレンダリングインテント指定に対応
+- **SVG** — `PaplicoSVGExporter`。SVGで表現できる要素はベクターマークアップで出力する（テキストは常にアウトライン化）。ラスタライズが必要な要素はz順で連続するまとまりごとにドキュメントのラスタライズDPIで描画し、PNGのdata URLとして埋め込む
 - **MP4（タイムラプス）** — WebCodecs + MediaBunny（後述）
 
 ## タイポグラフィ
@@ -670,13 +708,16 @@ Y.Doc
   - **パス上配置**（`axisBinding.mode === "onPath"`）: openパスを軸としてグリフを配置（パス全長で打ち切り）
   - **シェイプ内流し込み**（`"inShape"`）: closedパス内部へスキャンライン方式で流し込み（even-odd、穴対応）
   - **複数リージョン連結**（`layoutFlow` + `TextElement.flow`）: あふれたテキストを次のTextElementへ流す
+- **可変フォント軸** — `TextStyle.fontVariationSettings`（軸タグ → 値）に保持する。`fonts/fontVariations.ts` の `resolveFontVariations` が描画時の座標を解決する。`wght` は `fontWeight`、値の指定が無い `ital` は `fontStyle`、その他の軸は指定値か軸の既定値を使い、軸の min〜max にクランプする
 - **TextRenderer** — グリフのベジエパスを通常のパス描画パイプラインに変換してレンダリング
 
 ## タイムラプス
 
 実装場所：`pkgs/web/src/core/timelapse/`
 
-- **TimelapseRecorder** — `ydoc.on("update")` のYjs updateを相対タイムスタンプ付きで記録（`TimelapseEntry { t, u }`）。papf import時は既存データに追記継続
+- **TimelapseRecorder** — `YjsProvider` の `update` イベントで届くYjs updateを相対タイムスタンプ付きで記録（`TimelapseEntry { t, u }`）。papf import時は既存データに追記継続
+  - 直前のエントリと同じオブジェクト群への更新が、そのエントリの開始から300ms以内に届いたら `Y.mergeUpdates` で1エントリに畳む。削除と別オブジェクトへの更新はエントリを閉じる
+  - `TimelapseData`（`version: 2`）は `entries` の他に、エントリごとの変更ワールド矩形 `index.rects`（アートボード絞り込み用、`null` は範囲不明）と、ドキュメント差し替え位置 `baselines` を持つ。差し替え時はドキュメント全体から作った自己完結updateをbaselineとして追記し、再生側はその位置でreplayドキュメントを作り直す
 - **TimelapsePlayer** — updateを順次適用して再生。パス描画アニメーション、キーフレームスナップショット、再生速度（1/2/5/10x）、アートボード絞り込み
 - **TimelapseExporter** — WebCodecs（VideoEncoder）+ MediaBunnyでMP4書き出し。冒頭に完成形表示400ms → 白フェード300ms → 先頭から再生
 
@@ -709,13 +750,14 @@ service/, monaco/ — LanguageService（補完・ホバー・シグネチャ・�
 `pkgs/desktop/` がNext.jsの静的出力（`pkgs/web/out`）をTauri v2でラップする。iOSターゲットあり。
 
 - UserAgent `"PaplicoDesktop"` を設定し、`IS_TAURI_ENV`（`pkgs/web/src/utils/platform.ts`）が主分岐フラグ
-- Rustプラグイン: fs / dialog / sql / deep-link / oauth / system-fonts / safe-area-insets-css 等。自動化用ファイルアクセスコマンド群（`automation_*`）とネイティブメニューを提供
+- Rustプラグイン: fs / dialog / sql / deep-link / opener / oauth / system-fonts / safe-area-insets-css 等。自動化用ファイルアクセスコマンド群（`automation_*`）とネイティブメニューを提供
+- `.papf` のファイル関連付け（`tauri.conf.json` の `fileAssociations`）。OSから渡されたパスは `launch_files.rs` が受ける（macOSは `RunEvent::Opened`、Windows / Linuxは起動引数）。webviewが購読する前のパスは `take_launch_files` コマンドで、以降は `paplico:open-files` イベントで渡し、`TauriInit.tsx` が `tauri-open-files` DOMイベントとして再dispatchする
 - プラットフォーム依存コードは `infra/` に隔離: `core/infra/`（エンジンが必要とするクリップボード・ローカルフォント）、`src/infra/`（filesystem / IndexedDB / Supabase / システムICCプロファイル）。実装は `.tauri.ts` / `.dom.ts` / `.web.ts` のファイル分割またはdynamic importで切り替える
 - OAuth認証はシステムブラウザで実施し、dev時はlocalhostコールバック、本番は `paplico://` ディープリンクでトークンをアプリへ中継する
 
 ## エラーハンドリングとリカバリー
 
-- **WebGPUデバイスロスト**: `device.lost` を監視し、最大5回・基本遅延1秒でデバイス再取得とレンダラー再初期化を試行
+- **WebGPUデバイスロスト**: `device.lost` を監視し、最大5回・1秒から試行ごとに倍になる遅延でデバイス再取得とレンダラー再初期化を試行
 - **WebSocket切断**: localモードはy-websocketのExponential backoff（maxBackoffTime 10秒に上書き）+ 30秒ごとの再同期。E2EEモードは同期タイムアウト15秒で `syncTimeout` イベントを発火
 - **再接続の判定**: sessionStorageの `paplico:reconnectInfo` とサーバーmetaのdocumentId一致で再接続と判断し、同期後に `deduplicateLayers()` を1回実行
 
@@ -725,7 +767,7 @@ service/, monaco/ — LanguageService（補完・ホバー・シグネチャ・�
    - ビューポートカリング（可視範囲のみ描画）
    - 要素ID単位のダーティ追跡と差分再合成
    - ビューポート操作中と選択・カーソル更新時のcompositeフレームキャッシュblit（`viewportBlit`）
-   - GPUリソースのプール/リング再利用（TexturePool・FrameUniformPool・GeometryStore）と常駐スタンプ
+   - GPUリソースのプール/リング再利用（TexturePool・FrameUniformPool・BrushFrameBuffers）と常駐スタンプ（BoundedStampStore）
 2. **データ転送**
    - papfのDeflate圧縮 + CBOR
    - Yjsの差分同期（変更分のみ送信）

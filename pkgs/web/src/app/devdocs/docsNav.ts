@@ -69,6 +69,7 @@ export const devDocsNav: NavItem[] = [
 			{ title: "UI", href: "/devdocs/renderer/ui" },
 			{ title: "Filters", href: "/devdocs/renderer/filters" },
 			{ title: "Filter Authoring", href: "/devdocs/renderer/filter-authoring" },
+			{ title: "HDR", href: "/devdocs/renderer/hdr" },
 			{ title: "Glossary", href: "/devdocs/renderer/glossary" },
 		],
 	},

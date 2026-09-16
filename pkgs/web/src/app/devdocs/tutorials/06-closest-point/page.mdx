@@ -28,7 +28,7 @@ import Playground from "./playground";
 - **消しゴム**: ペン先と曲線の距離を測って、近すぎたら消す
 - **ヒットテスト**: 「点 P が曲線から離れすぎていたら、まず無視」という早期判定
 
-Paplico の `bounds.ts` の中で、点とベジェの距離計算がここで作る関数とほぼ同じ流れで動いているよ。
+Paplico の `bounds.ts` の `distanceToSegment` が、ここで作る関数とほぼ同じ流れで点とベジェの距離を計算しているよ。
 
 ## どうやって動くのか — ステップで見ていこう
 
@@ -138,6 +138,6 @@ t_new = t - g(t) / g'(t)
 
 ## もっと知りたい人へ
 
-- Paplico の本格実装: [`pkgs/web/src/core/utils/bounds.ts`](https://github.com/) — もっと最適化された距離計算
+- Paplico の本格実装: [`pkgs/web/src/core/utils/geometry/bounds.ts`](https://github.com/) の `distanceToSegment` — 20 等分のサンプリングと 5 回の絞り込みという軽めの設定で、距離と t を返すよ
 - 前の章 → [第5章: ベジェ曲線を真ん中で 2 つに切る](/devdocs/tutorials/05-bezier-split)
 - 次の章 → [第7章: ぐにゃぐにゃの線をなめらかにする (スムージング)](/devdocs/tutorials/07-smoothing)

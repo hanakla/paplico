@@ -27,9 +27,9 @@ import Playground from "./playground";
 
 ## どこで使われている？
 
-ペンで描いた線、ブラシ、消しゴムの軌跡、選択ツールの lasso、レイアウトのガイド線 — **画面に出る線はぜんぶ** 三角形になっているよ。
+ペンで描いた線、ブラシ、消しゴムの軌跡、選択ツールの lasso、レイアウトのガイド線 — 線を GPU の三角形で描くときは、**どれもこの変換が出発点** になるよ。
 
-Paplico の `BrushRenderer` (テクスチャブラシ) と `path-rendering` (図形ストローク) も、最終的にはこの章でやることをやっているよ。
+Paplico の図形ストローク (`tessellateStroke`) も、この章と同じ「左右に半幅ずらして三角形の帯にする」ところから始まるよ。ただし、できた三角形をそのまま GPU に描かせるのではなく、「ピクセルをどれくらい覆っているか」の計算に渡している。くわしくは [パス描画フロー](/devdocs/renderer/path-rendering) を見てね。テクスチャブラシ (`BrushRenderer`) は、スタンプを並べる方式や、GPU の中で帯を作る方式で描いていて、CPU では帯を作らないよ。
 
 ## どうやって動くのか — ステップで見ていこう
 
@@ -154,6 +154,6 @@ Paplico はもっと洗練された tessellator を使っているけど、出�
 
 ## もっと知りたい人へ
 
-- Paplico の本格実装: [`pkgs/web/src/core/renderer/`](https://github.com/) の strokeTessellator
+- Paplico の本格実装: [`pkgs/web/src/core/renderer/geometry/strokeTessellator.ts`](https://github.com/) の `tessellateStroke`
 - 前の章 → [第8章: ベジェフィッティング](/devdocs/tutorials/08-bezier-fitting)
 - 次の章 → [第10章: 多角形を三角形に分ける (Ear Clipping)](/devdocs/tutorials/10-ear-clipping)

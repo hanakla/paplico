@@ -51,7 +51,7 @@ GPUシェーダーに渡す定数パラメータのバッファ。ビューポ�
 
 GPUが読み書きできる大容量バッファで、Uniform Bufferより大きいデータ向け。要素のワールド変換行列やブラシスタンプデータの格納に使用される。
 
-→ [パイプライン](/devdocs/renderer/pipeline#viewportmanager), [エレメントレンダリング](/devdocs/renderer/elements#gpuバッファ構造)
+→ [パイプライン](/devdocs/renderer/pipeline#viewportmanager), [エレメントレンダリング](/devdocs/renderer/elements)
 
 ### Bind Group
 
@@ -105,13 +105,13 @@ GPU上でピクセルごとの色計算を行うプログラム。インライ�
 
 CPU側のデータをGPUバッファにコピーするAPI呼び出し。フィル頂点データをバッチバッファに集約することで、writeBufferの呼び出し回数を削減しCPU-GPUバス帯域の効率を向上させる。
 
-→ [エレメントレンダリング](/devdocs/renderer/elements#バッチ頂点バッファ)
+→ [エレメントレンダリング](/devdocs/renderer/elements)
 
 ### Draw Call
 
 GPUに描画命令を1回発行すること。回数が多いほどオーバーヘッドが増加する。バッチ描画やインスタンスドレンダリングにより削減される。
 
-→ [エレメントレンダリング](/devdocs/renderer/elements#バッチ頂点バッファ)
+→ [エレメントレンダリング](/devdocs/renderer/elements)
 
 ## Paplico固有用語
 
@@ -189,7 +189,7 @@ composite、prebuffer、final-blit、backdrop-mask用テクスチャの遅延生
 
 ### TexturePool
 
-フレーム間のGPUテクスチャプーリングを行うモジュール。テクスチャサイズをSIZE_QUANTUM（128px）の倍数に切り上げてバケット化し、同一バケットのテクスチャを再利用する。available / idle状態のテクスチャについて推定したメモリ量が384 MiBを超えた場合はLRU evictionで古いテクスチャを破棄する。この値は総GPUメモリ上限ではない。
+フレーム間のGPUテクスチャプーリングを行うモジュール。テクスチャサイズをSIZE_QUANTUM（128px）の倍数に切り上げてバケット化し、同一バケットのテクスチャを再利用する。available / idle状態のテクスチャについて推定したメモリ量が予算を超えた場合はLRU evictionで古いテクスチャを破棄する。予算は `texturePoolBudgetBytes` がキャンバスの大きさから決め、キャンバス面積×4バイト×16を、384 MiB以上1 GiB以下に収めた値になる。この値は総GPUメモリ上限ではない。
 
 → [パイプライン](/devdocs/renderer/pipeline#texturepool)
 
@@ -201,19 +201,19 @@ composite、prebuffer、final-blit、backdrop-mask用テクスチャの遅延生
 
 ### ClipMaskAtlas
 
-クリップパスの白マスクを事前レンダリングし、インラインマスキング用に再利用するモジュール。フレーム開始時にドキュメント内の全クリップグループを一括走査し、各クリップパスを個別の `texture_2d` に焼き込む。
+クリップパスやオブジェクトマスクを事前レンダリングし、インラインマスキング用に再利用するモジュール。フレーム開始時にドキュメント内の全クリップグループを一括走査する。各マスクは1枚のアトラステクスチャの中の矩形（`MaskAtlasAllocator` が割り当てる）に焼き込まれ、シェーダーはマスク番号から矩形を引いてサンプリングする。入れ子のクリップグループは、外側のクリップと交差済みの「実効マスク」を1つ持つ。
 
-→ [クリッピング方式](/devdocs/renderer/clipping#clipmaskatlas)
+→ [クリッピング方式](/devdocs/renderer/clipping#マスクテクスチャclipmaskatlas)
 
 ### BackdropCaptureManager
 
 バックドロップフィルター用にキャンバス内容をスクリーン空間で切り出してキャプチャするモジュール。ビューポート回転に対応するため、ワールド座標の4隅をスクリーン空間に変換しAABBを算出する。
 
-→ [クリッピング方式](/devdocs/renderer/clipping#backdropcapturemanager)
+→ [クリッピング方式](/devdocs/renderer/clipping#バックドロップフィルター)
 
 ### UILayer
 
-選択枠、リサイズハンドル、ブラシカーソル、スナップガイドなどのUIオーバーレイを描画するモジュール。全図形を単一のインスタンスド3次ベジェquad-stripパイプラインで描画する。
+選択枠、リサイズハンドル、ブラシカーソル、スナップガイドなどのUIオーバーレイを描画するモジュール。`UIPrimitive` の列を受け取り、線をインスタンスド3次ベジェquad-stripパイプラインで、塗りをインスタンスド三角形パイプラインで描画する。
 
 → [UILayer](/devdocs/renderer/ui)
 
@@ -231,13 +231,13 @@ composite、prebuffer、final-blit、backdrop-mask用テクスチャの遅延生
 
 ### FilterRenderer
 
-ポストフィルターの実行を担当するクラス。ハンドラーレジストリの管理、テクスチャピンポンによるフィルターチェーン実行、バックドロップマスク合成を行う。
+ポストフィルターの実行を担当するクラス。ハンドラーレジストリの管理と、テクスチャピンポンによるフィルターチェーン実行を行う。
 
 → [フィルターシステム](/devdocs/renderer/filters#filterrenderer)
 
 ### FilterHandler
 
-すべてのフィルターが実装するインターフェース。`preProcess`（ジオメトリ変形）と `postProcess`（GPU画像処理）のメソッドを持ち、ハンドラーレジストリに登録することでレンダラーから呼び出される。
+すべてのフィルターが実装するインターフェース。`preProcess` / `preProcessAppearance`（ジオメトリ変形）と `postProcess`（GPU画像処理）のメソッドを持ち、ハンドラーレジストリに登録することでレンダラーから呼び出される。1つのハンドラーはジオメトリ変形かGPU画像処理のどちらか一方だけを実装する。
 
 → [フィルターシステム](/devdocs/renderer/filters#filterhandler-インターフェース)
 
@@ -249,7 +249,7 @@ composite、prebuffer、final-blit、backdrop-mask用テクスチャの遅延生
 
 ### UIOverlayState
 
-UILayerの描画内容を駆動する構造体。各ツールがポインタイベントハンドラ内でフィールドにデータを設定し、UILayerが毎フレーム参照して対応するUI要素を描画する。全フィールドがオプショナルで、nullの場合は描画がスキップされる。
+UILayerの描画内容を駆動する構造体。`overlays` フィールドが、`OVERLAY_KEYS` に登録されたキーごとに1つの `UIOverlay`（`UIPrimitive` の列と基準z）を持つ。ツールは `ToolContext.uiSetOverlay` で、エンジンは `overlaySink.ts` の関数でエントリを設定する。`overlays` が空で、アートボード編集モードのアートボード枠も無い場合は描画がスキップされる。
 
 → [UILayer](/devdocs/renderer/ui#uioverlaystate)
 
@@ -269,9 +269,9 @@ UILayerの描画内容を駆動する構造体。各ツールがポインタイ�
 
 ### テッセレーション
 
-曲線パスを描画可能なジオメトリ（三角形メッシュ）に変換する処理。結果は `GeometryCache` にキャッシュされ、要素が変更されない限り再利用される。
+曲線パスを描画可能なジオメトリに変換する処理。塗りは平坦化した折れ線に、線の本体は三角形になる。結果は要素ローカル空間のアウトラインとして `OutlineCache` にキャッシュされ、要素が変更されない限り再利用される。
 
-→ [レンダラーアーキテクチャ](/devdocs/renderer#キャッシュシステム), [エレメントレンダリング](/devdocs/renderer/elements)
+→ [キャッシュと無効化](/devdocs/renderer/caches#outlinecache), [パス描画フロー](/devdocs/renderer/path-rendering)
 
 ### Blit
 
@@ -283,7 +283,7 @@ UILayerの描画内容を駆動する構造体。各ツールがポインタイ�
 
 1つのジオメトリテンプレートをGPUが複数回複製して描画する手法。ブラシストロークのスタンプ描画では、1つのunit quadを数千インスタンスで複製して配置する。UILayerでは3次ベジェquad-stripをインスタンスドレンダリングで描画する。
 
-→ [レンダラーアーキテクチャ](/devdocs/renderer#設計原則), [エレメントレンダリング](/devdocs/renderer/elements#brushstrokerenderer), [UILayer](/devdocs/renderer/ui#統一パイプライン-instanced-cubic-bezier-quad-strip)
+→ [レンダラーアーキテクチャ](/devdocs/renderer#設計原則), [ブラシレンダリング](/devdocs/renderer/brush), [UILayer](/devdocs/renderer/ui#ストローク-instanced-cubic-bezier-quad-strip)
 
 ### バッチ描画
 
@@ -301,7 +301,7 @@ UILayerの描画内容を駆動する構造体。各ツールがポインタイ�
 
 1つの中心点から放射状に三角形を形成するジオメトリ構造。ストロークの round join や round cap が扇形を作るときに使う。
 
-→ [クリッピング方式](/devdocs/renderer/clipping#2パス処理)
+→ [パス描画フロー](/devdocs/renderer/path-rendering)
 
 ### インラインマスキング
 
@@ -311,9 +311,9 @@ UILayerの描画内容を駆動する構造体。各ツールがポインタイ�
 
 ### オフスクリーンフォールバック
 
-インラインマスキングでは対応できないケース（ネストされたクリップグループ、非normalブレンドモード）で、一時テクスチャに迂回して処理する方式。`OffscreenPresenter.renderClipGroup` が3パスで処理する。
+インラインマスキングで描けないクリップグループを、一時テクスチャに迂回して処理する方式。グループを1枚のレイヤーとして合成し、そのレイヤーにマスクを1回だけかける。インラインで描けるのは、グループが分離される理由がクリップだけであり、編集スコープの対象でなく、`blendMode` と `compositionMode` がともに normal で、クリップされる描画がちょうど1つの場合に限られる。入れ子であること自体は迂回の理由にならない。`OffscreenPresenter.renderClipGroup` が処理する。
 
-→ [クリッピング方式](/devdocs/renderer/clipping#オフスクリーンフォールバック)
+→ [クリッピング方式](/devdocs/renderer/clipping#クリップグループのオフスクリーン描画)
 
 ### テクスチャピンポン
 
@@ -325,31 +325,31 @@ UILayerの描画内容を駆動する構造体。各ツールがポインタイ�
 
 ブラシの形状画像（スタンプ）をパスに沿って等間隔に並べる描画方式。ストロークの三角形テッセレーションと比較して頂点処理の負荷が低く、筆圧・回転・チルト・不透明度などのパラメータをインスタンスデータで個別制御できる。
 
-→ [エレメントレンダリング](/devdocs/renderer/elements#ブラシレンダリング)
+→ [ブラシレンダリング](/devdocs/renderer/brush)
 
 ### リボンタイリング
 
 テクスチャをパスに沿ってUVマッピングする描画モード。ベジェセグメントインスタンシング方式でGPU頂点シェーダーが曲線を直接評価し、法線方向に押し出してクアッドストリップを生成する。スタンプ方式と異なりUVが完全に連続し、テクスチャがシームレスにタイリングされる。
 
-→ [ブラシレンダリング](/devdocs/renderer/brush#リボンタイリング)
+→ [ブラシレンダリング](/devdocs/renderer/brush)
 
 ### カラーモード
 
 ブラシテクスチャの色処理方式。`"tinting"` はテクスチャのルミナンスをアルファに変換してブラシカラーで着色する方式。`"color"` はテクスチャのRGBをそのまま出力する。
 
-→ [ブラシレンダリング](/devdocs/renderer/brush#カラーモード)
+→ [ブラシレンダリング](/devdocs/renderer/brush)
 
 ### 散布
 
 複数のテクスチャバリアントからスタンプごとにランダム選択する描画機能。`texture_2d_array` で複数テクスチャを格納し、位置ジッターとサイズジッターを組み合わせて自然な散布パターンを生成する。始端・終端テクスチャの個別指定にも対応する。
 
-→ [ブラシレンダリング](/devdocs/renderer/brush#マルチテクスチャ散布)
+→ [ブラシレンダリング](/devdocs/renderer/brush)
 
 ### ベクターブラシ
 
-キャンバス上の要素（Path、Group等）をGPUテクスチャにオンデマンドでラスタライズし、ブラシ先端として使用する機能。`VectorBrushRasterizer` がキャッシュ管理と循環参照防止を担当する。
+ドキュメントの def（キャンバスの外に置かれた要素ツリー）をGPUテクスチャにラスタライズし、ブラシ先端として使用する機能。`DefRasterizer` が def ID・リビジョン・サイズをキーに長寿命のテクスチャとしてキャッシュし、上限を超えると最も長く使われていないものから破棄する。
 
-→ [ブラシレンダリング](/devdocs/renderer/brush#ベクターブラシ)
+→ [ブラシレンダリング](/devdocs/renderer/brush)
 
 ### 非ゼロ巻き数
 
@@ -371,7 +371,7 @@ UILayerの描画内容を駆動する構造体。各ツールがポインタイ�
 
 ### LRU Eviction
 
-最も長く使われていないものから破棄するキャッシュ戦略。`TexturePool` は384 MiBを超えたavailable / idle textureをbucketの挿入順で刈り込むため、全texture横断の厳密なLRUではない。
+最も長く使われていないものから破棄するキャッシュ戦略。`TexturePool` は予算を超えたavailable / idle textureをbucketの挿入順で刈り込むため、全texture横断の厳密なLRUではない。
 
 → [パイプライン](/devdocs/renderer/pipeline#texturepool)
 
@@ -389,9 +389,9 @@ GPUテクスチャやバッファをin-flightのコマンドバッファの完�
 
 ### アンチエイリアシング
 
-図形の端をぼかして階段状のギザギザ（ジャギー）を目立たなくする技法。UILayerのquad-stripでは、端のエッジ減衰が切れるのを防ぐため+1pxのパディング補正が行われる。
+図形の端をぼかして階段状のギザギザ（ジャギー）を目立たなくする技法。UILayerのストロークでは、頂点シェーダーが quad を縁の1ピクセル外側まで広げ、フラグメントシェーダーが真の縁までのピクセル距離から被覆率を求める。塗りでは、輪郭にあたる三角形の辺だけをぼかす。
 
-→ [UILayer](/devdocs/renderer/ui#スクリーンピクセル固定サイズ)
+→ [UILayer](/devdocs/renderer/ui#描画パイプライン)
 
 ### rAF (requestAnimationFrame)
 
@@ -403,11 +403,11 @@ GPUテクスチャやバッファをin-flightのコマンドバッファの完�
 
 四角形を帯状に繋げたジオメトリ。UILayerでは、ベジェ曲線の各点で法線方向に幅を持たせることで曲線に沿った帯状のポリゴンを形成する。
 
-→ [UILayer](/devdocs/renderer/ui#統一パイプライン-instanced-cubic-bezier-quad-strip)
+→ [UILayer](/devdocs/renderer/ui#ストローク-instanced-cubic-bezier-quad-strip)
 
 ### 退化ベジェ曲線
 
-制御点を端点に一致させて直線にした特殊なベジェ曲線。`cp1 = p0, cp2 = p1` と設定することで3次ベジェ曲線を直線として扱い、UILayerでは矩形や直線もベジェパイプラインで描画できる。
+制御点を端点に一致させて直線にした特殊なベジェ曲線。`cp1 = p0, cp2 = p1` と設定することで3次ベジェ曲線を直線として扱い、UILayerでは直線や矩形の辺もベジェのストロークパイプラインで描画できる。
 
 → [UILayer](/devdocs/renderer/ui#図形の表現)
 
@@ -415,7 +415,7 @@ GPUテクスチャやバッファをin-flightのコマンドバッファの完�
 
 軸に平行な矩形境界。バックドロップキャプチャでは、ワールド座標の4隅をスクリーン空間に変換してAABBを算出し、回転ビューポートでも正確なキャプチャを行う。
 
-→ [クリッピング方式](/devdocs/renderer/clipping#backdropcapturemanager)
+→ [クリッピング方式](/devdocs/renderer/clipping#バックドロップフィルター)
 
 ### Expansion Margin
 
@@ -433,7 +433,7 @@ GPUに送信済みだがまだ実行完了していないコマンド。テク�
 
 ### 要素 (Element)
 
-ドキュメントを構成する描画オブジェクト。`path`, `image`, `text`, `group`, `compound-path` の5型があり、すべて `ArtObject` 基底インターフェースを継承する。`ElementRenderer` のディスパッチテーブルで型ごとに描画処理が振り分けられる。
+ドキュメントを構成する描画オブジェクト。`path`, `group`, `image`, `compound-path`, `text`, `mesh`, `blend`, `repeat`, `reference3d` の9型があり、すべて `ArtObject` 基底インターフェースを継承する。`ElementRenderer` のディスパッチテーブルで型ごとに描画処理が振り分けられる。
 
 → [エレメントレンダリング](/devdocs/renderer/elements)
 
@@ -457,19 +457,19 @@ GPUに送信済みだがまだ実行完了していないコマンド。テク�
 
 ### クリップグループ
 
-`clipPathId` を持つGroup要素で、子要素をクリップパスの形で切り抜く。インラインマスキング、オフスクリーンフォールバック、バックドロップキャプチャの3手法で処理される。
+`clipPathId` を持つGroup要素で、子要素をクリップパスの形で切り抜く。インラインマスキングで描けるグループはメイン描画パス内で切り抜き、それ以外はオフスクリーンフォールバックで1枚にまとめてから切り抜く。
 
 → [クリッピング方式](/devdocs/renderer/clipping)
 
 ### バックドロップフィルター
 
-要素の背後にあるキャンバス内容にフィルター効果を適用する機能。CSSの `backdrop-filter` に類似する。`BackdropCaptureManager` がキャンバス内容をキャプチャし、`FilterRenderer` がフィルターを適用する。
+要素の背後にあるキャンバス内容にフィルター効果を適用する機能。CSSの `backdrop-filter` に類似する。`BackdropEffectCoordinator` が `BackdropCaptureManager` を使って要素の領域を切り出し、`FilterRenderer` がフィルターを適用し、`CanvasLayer` が要素の形のマスクで切り抜いて合成する。
 
-→ [クリッピング方式](/devdocs/renderer/clipping#backdropcapturemanager), [フィルターシステム](/devdocs/renderer/filters#バックドロップフィルター)
+→ [クリッピング方式](/devdocs/renderer/clipping#バックドロップフィルター), [フィルターシステム](/devdocs/renderer/filters#バックドロップフィルター)
 
 ### プリフィルター
 
-ラスタライズ前にパスの形状を変形するフィルター。CPU上でCubicBezierSegmentの配列を変形する純粋関数として実行される。zigzag、path-offsetなどが該当する。
+ラスタライズ前にパスの形状を変形するフィルター。CPU上でCubicBezierSegmentの配列を変形する純粋関数として実行される。zigzag、path-offset、path-union、pucker-bloat、transform、3d-rotateが該当する。
 
 → [フィルターシステム](/devdocs/renderer/filters#applyprefilters)
 
@@ -481,7 +481,7 @@ GPUに送信済みだがまだ実行完了していないコマンド。テク�
 
 ### ディスパッチテーブル
 
-要素の型に応じて処理関数を振り分けるルックアップテーブル。`ElementRenderer` が持ち、`path`, `image`, `compound-path`, `text` のキーに描画関数を対応付ける。`group` はテーブルに登録されず、CanvasLayer側でフラット化される。
+要素の型に応じて処理関数を振り分けるルックアップテーブル。`ElementRenderer` が持ち、`path`, `image`, `compound-path`, `text`, `mesh`, `blend`, `reference3d` のキーに描画関数を対応付ける。`group` と `repeat` はテーブルに登録されず、CanvasLayer側で処理される。
 
 → [エレメントレンダリング](/devdocs/renderer/elements#ディスパッチテーブル)
 
@@ -505,6 +505,6 @@ GPUに送信済みだがまだ実行完了していないコマンド。テク�
 
 ### GC圧力
 
-JavaScriptのガベージコレクションによるフレームレートへの悪影響。スタンプ生成のホットパスでは、ベジエ評価のインライン展開と共有出力バッファによりオブジェクトアロケーションをゼロに抑え、GC圧力を回避している。
+JavaScriptのガベージコレクションによるフレームレートへの悪影響。毎フレーム走る処理では、配列やオブジェクトの確保を避けることで回避する。たとえばUILayerのインスタンス配列（`LoweringScratch`）は拡張するだけで縮まず、フレームをまたいで使い回されるため、定常状態のフレームでは確保が起きない。
 
-→ [エレメントレンダリング](/devdocs/renderer/elements#stampgenerator)
+→ [UILayer](/devdocs/renderer/ui#run-の再生)

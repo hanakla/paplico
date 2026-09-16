@@ -39,7 +39,7 @@ import Playground from "./playground";
 
 WebGPU や OpenGL みたいな GPU は、**三角形しか直接描けない** んだ。だから、曲線を画面に出すには、まず曲線を直線にバラして、直線を三角形のリボンで太くして、と段階を踏む必要があるよ。フラット化はその一番最初のステップ。
 
-Paplico でも、ベジェ曲線で描かれたあらゆる図形 (パス、文字、ストロークなど) は、最終的にこのフラット化を通って三角形になっていくよ。
+Paplico でも、ベジェ曲線で描かれたあらゆる図形 (パス、文字、ストロークなど) は、まずこのフラット化を通るよ。そのあと、塗りは折れ線のまま、ストロークは三角形の帯にしてから、「ピクセルをどれくらい覆っているか」の計算に渡されるんだ。くわしくは [パス描画フロー](/devdocs/renderer/path-rendering) を見てね。
 
 ## どうやって動くのか — ステップで見ていこう
 
@@ -174,6 +174,6 @@ m0123  = (m012 + m123) / 2          ← 中央点
 
 ## もっと知りたい人へ
 
-- Paplico の本格実装: [`pkgs/web/src/core/utils/pathOps.ts`](https://github.com/) の `isCubicFlatEnough`
+- Paplico の本格実装: [`pkgs/web/src/core/renderer/geometry/bezierFlatten.ts`](https://github.com/) の `flattenBezierPath` (真っ直ぐ判定は同じファイルの `isCubicFlatEnough`)
 - 前の章 → [第3章: ヒットテスト](/devdocs/tutorials/03-hit-test)
 - 次の章 → [第5章: ベジェ曲線を真ん中で 2 つに切る](/devdocs/tutorials/05-bezier-split)

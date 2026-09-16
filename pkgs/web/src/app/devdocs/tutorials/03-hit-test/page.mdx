@@ -24,7 +24,7 @@ Canvas にぐにゃっとした図形を描いた。点 A は中、点 B は外�
 
 ペンや消しゴムで「どの絵に当たった？」を判定するとき、選択ツールで「投げ縄で囲んだ範囲に入っている絵はどれ？」を判定するとき、塗りつぶしツールで「この点を塗ると、どの領域がいっぱいになる？」を判定するとき。**お絵かきソフトはヒットテストだらけ** だよ。
 
-Paplico では、選択ツール (rectangle / lasso) や PathEditTool など、**ほぼすべてのツールがこの判定を使っている** よ。
+Paplico では、選択ツール・PathEditTool・MeshDeformTool の **投げ縄 (lasso) 選択がこの判定を使っている** よ。パスの塗りをクリックしたときの判定 (`isPointInPath`) は、下の折りたたみで紹介する Winding Number 法で動いているよ。
 
 ## どうやって動くのか — ステップで見ていこう
 
@@ -131,6 +131,6 @@ Ray Casting とは別に、**Winding Number 法** っていうのもあるよ。
 
 ## もっと知りたい人へ
 
-- Paplico の本格実装: [`pkgs/web/src/core/utils/bounds.ts`](https://github.com/) の `pointInPolygon`
+- Paplico の本格実装: [`pkgs/web/src/core/utils/geometry/bounds.ts`](https://github.com/) の `pointInPolygon`
 - 前の章 → [第2章: AABB](/devdocs/tutorials/02-bounds)
 - 次の章 → [第4章: ベジェ曲線をまっすぐな線に分ける](/devdocs/tutorials/04-bezier-flatten)

@@ -36,9 +36,9 @@ import Playground from "./playground";
 
 ## どこで使われている？
 
-塗りつぶしツール、塗ったストローク、メッシュグラデーション、文字の中身 — **「中身がある形」** を画面に出すには、すべて三角形分割が要るよ。
+塗りつぶした図形、文字の中身 — **「中身がある形」** を GPU の三角形で出すには、三角形分割が要るよ。
 
-Paplico の本格実装は `earcut` ライブラリを使っているけど、その心はこの章でやる **耳切り (Ear Clipping)** とまったく同じ。
+Paplico では、ハンドルや選択範囲のようにキャンバスの上へ重ねて出す UI の塗り (`renderer/ui/fillTessellation.ts`) と、3D 押し出しのフタの面 (`renderer/geometry/extrudeMesh.ts`) が `earcut` ライブラリを使っているけど、その心はこの章でやる **耳切り (Ear Clipping)** とまったく同じ。ちなみに、キャンバス上のパスの塗りは、三角形に分けずに「ピクセルをどれくらい覆っているか」で塗る別の方式だよ。くわしくは [パス描画フロー](/devdocs/renderer/path-rendering) を見てね。
 
 ## どうやって動くのか — ステップで見ていこう
 
@@ -127,6 +127,6 @@ industry standard の `earcut` ライブラリは、
 
 ## もっと知りたい人へ
 
-- Paplico は `earcut` ライブラリを使っている (高速化版)
+- Paplico は UI の塗りと 3D 押し出しのフタの面で `earcut` ライブラリを使っている (高速化版)
 - 前の章 → [第9章: ストロークの三角形メッシュ](/devdocs/tutorials/09-stroke-mesh)
 - 次の章 → [第11章: ステンシルを使った塗りつぶし](/devdocs/tutorials/11-stencil-then-cover)

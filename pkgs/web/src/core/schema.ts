@@ -369,7 +369,7 @@ export interface BezierPoint {
  * - cp1: offset from the start anchor (start ?? prevSegment.end)
  * - cp2: offset from the end anchor
  *
- * Use resolveSegment() in utils/segmentOps.ts to obtain absolute world-space coordinates.
+ * Use resolveSegment() in utils/geometry/segmentOps.ts to obtain absolute world-space coordinates.
  */
 export interface CubicBezierSegment {
 	/** Start anchor in world space. Only present on the first segment of a subpath;

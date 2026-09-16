@@ -1,11 +1,18 @@
 /**
- * ClipMaskAtlas — Pre-renders clip masks into individual texture_2d textures.
+ * ClipMaskAtlas — Pre-renders clip-path and object masks before the main pass.
  *
- * At frame start, all clip groups in the document are collected, and each
- * clip path is rendered as a white-on-transparent mask into its own
- * GPU texture_2d.  Each mask is sized to cover only its visible portion
- * at the main viewport zoom, so memory usage scales with on-screen area
- * rather than with the number of clip groups.
+ * Each request is drawn either as a flat white silhouette (clip paths) or
+ * with its sources' real appearance (object masks, read by luminance). A
+ * nested clip group's mask is drawn while sampling its parent's effective
+ * mask, so the texture already holds the intersection of every enclosing
+ * clip and the masked elements need a single mask.
+ *
+ * A mask covers its bounds cropped to the frame's draw region at the main
+ * viewport zoom, so memory scales with the drawn area rather than with the
+ * number of masks. Masks up to MAX_ATLASED_MASK_DIM per side share one
+ * texture_2d atlas whose rects live in a descriptor storage buffer; larger
+ * ones get a standalone texture. Entries are cached by fingerprint and
+ * dropped per changed dependency, wholesale, or when no request names them.
  *
  * The per-element `maskBoundsMin/Max` in the ElementTransform storage buffer
  * maps world-space coordinates to [0,1] UV for correct sampling.  BG3 is

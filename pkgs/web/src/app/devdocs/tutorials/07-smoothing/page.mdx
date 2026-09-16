@@ -27,11 +27,11 @@ import Playground from "./playground";
 
 ## どこで使われている？
 
-- ペンタブやマウスの入力点列を、Paplico の `processStroke` で受け取った直後
+- ペンタブやマウスの入力点列を、Paplico の `IncrementalStrokeFitter` (ペン) や `processStroke` (消しゴムの軌跡) が受け取った直後
 - ジェスチャー認識 (波線か直線か判定する前に)
 - 手書き図形の **角を丸める** 効果
 
-Paplico の `strokeFitting.ts` には、このスムージングが他のもっと高度な処理 (フィッティング、コーナー検出) の **第 1 段階** として入っているよ。
+Paplico の `strokeFitting.ts` では、まず生の点列から **角 (コーナー)** を見つけて、角と角のあいだの区間ごとにこのスムージングをかけてから、フィッティングに渡しているよ。角をまたいで平均すると、角が丸まってしまうからだよ。
 
 ## どうやって動くのか — ステップで見ていこう
 
@@ -115,6 +115,6 @@ Paplico の本物の `strokeFitting.ts` には 3 種類のスムージングが�
 
 ## もっと知りたい人へ
 
-- Paplico の本格実装: [`pkgs/web/src/core/utils/strokeFitting.ts`](https://github.com/) の `gaussianSmooth`
+- Paplico の本格実装: [`pkgs/web/src/core/utils/geometry/strokeFitting.ts`](https://github.com/) の `gaussianSmooth`
 - 前の章 → [第6章: ベジェ曲線上の最近点](/devdocs/tutorials/06-closest-point)
 - 次の章 → [第8章: たくさんの点をベジェ曲線にフィッティング](/devdocs/tutorials/08-bezier-fitting)

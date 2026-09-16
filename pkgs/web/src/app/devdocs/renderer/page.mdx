@@ -14,10 +14,10 @@ Paplicoはブラウザ上で動作する無限キャンバスのドローイン�
 
 1. `RenderScheduler` が DirtyReason を集約し、そのフレームで使う `RenderStrategy` を決める。
 2. `RenderOrchestrator` が各 `CanvasTarget` に描画を配布し、共有GPUリソースとターゲットごとの状態を引き渡す。
-3. `RenderPlanner` と `CanvasLayer` が可視レイヤー・要素・バックドロップ対象を整理し、`ClipMaskAtlas` が必要なクリップマスクを事前生成する。
-4. `CanvasLayer` はタイルキャッシュを介さず要素を直接描画する。バックドロップフィルターを要する要素はフレーム内で共有キャプチャした背景からGaussianピラミッドを構築し、必要な範囲をクロップして合成する。ガラスの屈折合成（frost glass等）はメインパスの内側でインラインに処理する。
+3. `RenderPlanner` が可視レイヤー・要素・バックドロップ対象を整理する。`CanvasLayer` はメインパスの前に、`ClipMaskAtlas` によるマスクの事前生成と、`FilterRenderer` による要素フィルターのオフスクリーンベイクを済ませる。
+4. `CanvasLayer` はタイルキャッシュを介さず要素を直接描画する。バックドロップフィルターを要する要素はフレーム内で共有キャプチャした背景からGaussianピラミッドを構築し、必要な範囲をクロップして合成する。ガラスの押し出し（glass extrude）の屈折合成は、メインパスを要素の位置で中断して処理する。
 5. インラインで処理できないクリップや特殊合成は `OffscreenPresenter` に委譲する。
-6. `FilterRenderer` と `CompositeRenderer` がフィルター・ブレンドモード・プレビュー合成を処理し、必要な blit を行う。
+6. `CompositeRenderer` がベイク済みテクスチャの blit とブレンドモード合成を処理する。
 7. `UILayer` が選択枠やカーソルなどのオーバーレイを重ね、最終結果をキャンバスへ出力する。
 
 ## 座標系
@@ -183,7 +183,7 @@ Paplicoはブラウザ上で動作する無限キャンバスのドローイン�
 2. **保存**: ドキュメント、要素、選択、同期データはワールド座標で保持する。これによりズームやスクロールが変わってもデータそのものは不変になる。
 3. **描画**: レンダラーは `worldToScreen()` でズームと回転を適用してスクリーン座標へ戻し、`worldToNDC()` で `[-1, 1]` のNDCへ正規化してGPUに渡す。
 
-代表的な式は次のとおりである。実装は `pkgs/web/src/core/utils/coordinates.ts` にある。
+代表的な式は次のとおりである。実装は `pkgs/web/src/core/utils/geometry/geometry.ts` にある。
 
 ```ts
 worldX = viewport.x + unrotX / viewport.zoom;
@@ -207,7 +207,7 @@ ndcY = 1 - (screenY / canvasHeight) * 2;
 - **量子化による時間的再利用**: テクスチャサイズを128px単位に切り上げることで、ズーム中の微小なサイズ変動でも同一バケットのテクスチャを再利用できる
 - **スタックベースの状態管理**: オフスクリーンパスのネストに対応するため、ビューポートuniform（GPUシェーダーに渡す定数パラメータのバッファ）をグローバル上書きではなくpush/popスタックで管理する
 - **自己検証キャッシュ**: 明示的な無効化通知を不要にするため、キャッシュエントリがフィンガープリント（キャッシュの有効性を検証するためのハッシュ値）を保持し、ヒット時に自動検証する
-- **インスタンシング + バッチ**: 要素ごとのdraw callをインスタンスドレンダリング（1つのジオメトリをGPUが複数回複製して描画する手法）とテクスチャ別バッチに置き換えることで、GPU描画コマンドの発行回数を最小化する
+- **インスタンシング + バッチ**: パスの strip とブラシの dab は、1本・1個を1インスタンスとするインスタンスドレンダリング（1つのジオメトリをGPUが複数回複製して描画する手法）で描く。strip のインスタンスと被覆率ページはフレーム内で集め、submit の前に1回でアップロードする。ribbon ストロークはキューに積み、まとめて1回のインスタンス描画で flush する
 
 ## モジュール概観
 
@@ -218,22 +218,24 @@ ndcY = 1 - (screenY / canvasHeight) * 2;
 | (root) | RenderOrchestrator | GPUデバイス初期化、パイプライン生成、キャンバスターゲット管理、レンダーディスパッチ |
 | (root) | RenderScheduler | DirtyReason の収集と RenderStrategy への解決、rAFによるフレームスケジューリング |
 | (root) | CanvasTarget | Canvas要素のラッパー。ResizeObserver、ビューポート（画面に表示されている領域）状態を保持 |
-| [pipeline/](/devdocs/renderer/pipeline) | CanvasLayer, ViewportManager, RenderPlanner, CompositeRenderer, OffscreenPresenter, DocumentCache, TexturePool, UniformScope, ClipMaskAtlas, BackdropCaptureManager, FilterRenderer, PreFilterRenderer | キャンバス単位のパイプライン統括、クリップマスク事前生成、バックドロップキャプチャ、フィルター実行 |
-| [elements/](/devdocs/renderer/elements) | ElementRenderer, GradientRenderer 等 | 要素種別ごとのレンダリングディスパッチ |
-| [brush/](/devdocs/renderer/brush) | BrushRenderer, DabRenderer, RibbonRenderer, WetStrokeRenderer, DabEvaluator | Dabベースのインスタンスドブラシ描画とリボン・wet層 |
-| [filters/](/devdocs/renderer/filters) | Blur / Drop Shadow / Frost Glass / Pixelate / Zigzag / hanakla-kit handlers | 個別フィルターハンドラーと拡張フィルターパック |
-| [caches/](/devdocs/renderer/caches) | RenderCacheManager, OutlineCache, StripCache 等 | テッセレーション（曲線パスを描画可能なジオメトリに変換する処理）・テクスチャ・BindGroup（GPUリソースをシェーダーにバインドする単位）の再利用キャッシュ |
+| (root) | PipelineFactory | GPUパイプライン生成の共通ヘルパー |
+| canvas/ | CanvasLayer, CanvasLayerTypes | キャンバス単位のパイプライン統括と、パイプライン内の共有型 |
+| [canvas/pipeline/](/devdocs/renderer/pipeline) | ViewportManager, RenderPlanner, FrameGraph, CompositeRenderer, OffscreenPresenter, DocumentCache, TexturePool, UniformScope, ClipMaskAtlas, MaskApplicationPlan, BackdropCaptureManager, BackdropEffectCoordinator, BlurPyramid, FilterRenderer, PreFilterRenderer, strips/StripFrame | フレームの組み立て、マスクの事前生成と適用計画、バックドロップキャプチャ、フィルター実行、strip の描画 |
+| [canvas/elements/](/devdocs/renderer/elements) | ElementRenderer, PathElementRenderer, GradientRenderer 等 | 要素種別ごとのレンダリングディスパッチ |
+| [canvas/pipeline/brush/](/devdocs/renderer/brush) | BrushRenderer, DabRenderer, RibbonRenderer, WetStrokeRenderer, DabEvaluator | Dabベースのインスタンスドブラシ描画とリボン・wet層 |
+| [filters/](/devdocs/renderer/filters) | 個別フィルターハンドラー | ラスター・ジオメトリ・3D・hanakla-kit・SVG の各フィルター。一覧は[フィルター](/devdocs/renderer/filters)を参照 |
+| [canvas/caches/](/devdocs/renderer/caches) | RenderCacheManager, OutlineCache, StripCache 等 | アウトライン・strip・テクスチャ・BindGroup（GPUリソースをシェーダーにバインドする単位）の再利用キャッシュ |
 | [ui/](/devdocs/renderer/ui) | UILayer | 選択オーバーレイ、カーソル、ガイドの描画 |
-| [shaders/](#シェーダー) | `*.wgsl.ts` | WGSLシェーダーソース |
-| generators/ | GradientTextureGenerator | グラデーションテクスチャ生成 |
+| [shaders/](#シェーダー) | `*.wgsl.ts` | 共有のWGSLシェーダーソース。フィルター専用のWGSLは filters/、ブラシ専用のWGSLは canvas/pipeline/brush/shaders/ にある |
+| generators/ | GradientTextureGenerator, MeshGradientTextureGenerator, CornerRadiusProcessor | グラデーションテクスチャ生成と角丸の適用 |
 | geometry/ | strokeTessellator, bezierFlatten, strips/ | ストロークテッセレーション、平坦化、被覆率 strip の生成 |
 
-以下の図は、モジュール間の依存関係を示している。最上位の Paplico ファサードから RenderOrchestrator を経由して各モジュールに処理が流れる構造になっている。
+以下の図は、モジュール間の依存関係を示している。最上位の Paplico ファサードから RenderOrchestrator を経由して各モジュールに処理が流れる構造になっている。RenderScheduler は Paplico ファサードがキャンバスターゲットごとに生成する。
 
 ```mermaid
 graph TD
     P["Paplico (facade)"] --> RO[RenderOrchestrator]
-    RO --> RS[RenderScheduler]
+    P --> RS[RenderScheduler]
     RO --> CL[CanvasLayer]
     RO --> UI[UILayer]
     RO --> RCM[RenderCacheManager]
@@ -262,13 +264,14 @@ flowchart TB
     B --> C[rAFでバッチ]
     C --> D[resolveStrategy]
     D --> E[RenderOrchestrator.render]
-    E --> F[RenderPlanner.buildFramePlan]
+    E --> H[CanvasLayer.render]
+    H --> F["RenderPlanner: buildFramePlanStructure → buildFramePlanView"]
     F --> G[ViewportManager.updateTransformsBuffer]
-    G --> H[CanvasLayer.render]
-    H --> I["clear → レイヤー走査 → 要素ディスパッチ"]
-    I --> J[FilterRenderer: フィルター適用]
-    J --> K[CompositeRenderer: ブレンドモード合成]
-    K --> L[UILayer: オーバーレイ描画]
+    G --> M["事前パス: パターン / ブラシ def → マスク → 要素フィルターのベイク"]
+    M --> I["prebuf を clear → レイヤー走査 → 要素ディスパッチ"]
+    I --> K["CompositeRenderer: ベイク結果の blit とブレンドモード合成"]
+    K --> N["Final Blit: prebuf をキャンバスへ"]
+    N --> L[UILayer: オーバーレイ描画]
 ```
 
 ### RenderStrategy
@@ -279,13 +282,17 @@ flowchart TB
 
 | Strategy | 説明 | トリガーとなる DirtyReason |
 |---|---|---|
-| `full` | ドキュメント全体を再レンダリング | `document`, `editingScope`, `resize`, `collaboration`, `animation` |
+| `full` | ドキュメント全体を再レンダリング | `document`, `editingScope`, `resize`, `collaboration` |
 | `fullInteraction` | ビューポート操作中に blit できないフレームの再レンダリング。描画パスは `full` と同じ | `viewport`(操作中) に `preview` / `render` が同乗、または transient 要素・override が存在 |
 | `fullTransformOnly` | バウンズキャッシュを保持したまま再レンダリング。移動・ペースト・複製等の形状非変更操作用 | `elementMove` |
 | `viewportBlit` | ドキュメント描画をスキップし、キャッシュ済みの合成フレームを現ビューポートへ再投影blit（テクスチャを別のテクスチャにコピー描画する操作）。UIレイヤーだけ再描画 | `viewport`(操作中), `selection` / `cursor` のみ |
 | `overlayOnly` | boundsCache などを捨てずにドキュメントを再レンダリング | `preview`, `render`(非同期リソース読込), settle 後の `viewport` |
 
 ビューポート操作中は `viewportBlit` でキャッシュ済みフレームを blit し、操作完了後100ms debounceで `overlayOnly` によりフル品質で再レンダリングする。選択やカーソルの変化もドキュメントの画素を変えないので `viewportBlit` になる。CanvasLayer は有効なキャッシュを持たないときに通常の再レンダリングへフォールバックする。
+
+`viewportBlit` が転写するのは合成フレームキャッシュである。CanvasLayer は回転なしの prebuf にドキュメントを描き、完成した prebuf をこのキャッシュへコピーする。エクスポート、要素を絞った描画、ツールのプレビュー（`elementOverrides` / `transientElements`）を含むフレームはキャッシュに取り込まない。ライブキャンバスの prebuf はビューポートの各辺に `STORE_MARGIN_PX`（256px）の余白を持つ。同じズームでのパンは、可視範囲がベイク済みの領域に収まっている間 blit で済む。領域を出たフレーム、HDR 露出またはソフトプルーフを要するフレームは通常の再レンダリングになる。
+
+`full` と `fullTransformOnly` のフレームは、変更要素 ID が追跡できていれば変更領域だけを描き直し、残りをキャッシュから復元する。編集スコープ・要素の孤立表示・HDR 露出・ソフトプルーフ・ピクセルプレビューのいずれかが有効なフレームと、バックドロップ要素またはガラスの押し出しを含むフレームは全体を描き直す。可否は `CanvasLayer.planPartialRedraw()` が判定し、条件を満たさないフレームは全体の描画にフォールバックする。
 
 この多段階のStrategy設計は、「何が変わったか」（DirtyReason）と「どう再描画するか」（RenderStrategy）を分離するためにある。ツール側は `markDirty("selection")` のように意味的なイベントだけを投げればよく、最適な描画戦略の解決はスケジューラが一元的に担う。これにより、新しいDirtyReasonの追加やStrategy最適化が独立して行える。
 
@@ -297,10 +304,13 @@ flowchart TB
 2. **ディスパッチ**: RenderOrchestrator が各 CanvasTarget に対してレンダリングを実行
 3. **フレームプラン**: RenderPlanner がドキュメントを走査し、可視要素・フィルター分類・合成ニーズを分析
 4. **トランスフォーム**: ViewportManager が要素のワールド変換行列をStorageBufferに書き込み
-5. **描画**: CanvasLayer がレイヤーごとに要素を描画。ElementRenderer が要素種別に応じてディスパッチ
-6. **フィルター**: FilterRenderer がプリフィルター/ポストフィルターを適用
-7. **合成**: CompositeRenderer がブレンドモード別にオフスクリーンパスで合成
-8. **UI**: UILayer が選択ハイライト・カーソル・ツールオーバーレイを描画
+5. **事前パス**: CanvasLayer がパターンとブラシの def、マスク、要素フィルターの順にオフスクリーンで用意する。要素フィルターは FilterRenderer がここでベイクし、マスクはそのベイク結果に後から掛かる
+6. **描画**: CanvasLayer が prebuf にレイヤーごとに要素を描画。ElementRenderer が要素種別に応じてディスパッチする。フィルター済みの要素は、ベイク済みテクスチャの blit になる
+7. **合成**: CompositeRenderer がブレンドモードを持つ要素とレイヤーを合成する
+8. **最終 blit**: prebuf をビューポートの回転を掛けてキャンバスへ転写する。HDR 露出またはソフトプルーフが有効なフレームは、中間テクスチャを経由して後処理パスを通す
+9. **UI**: UILayer が選択ハイライト・カーソル・ツールオーバーレイを描画
+
+CanvasLayer はこれらを `FrameGraph` のパスとして宣言し、宣言順に実行する。
 
 ## コアモジュール
 
@@ -309,16 +319,16 @@ flowchart TB
 レンダリングエンジンのトップレベルオーケストレータ。以下を所有・管理する:
 
 - **GPUデバイス**: `navigator.gpu.requestAdapter()` → `requestDevice()` によるデバイス初期化
-- **GPUパイプライン**（シェーダーやレンダリング設定を組み合わせた描画手順の定義）: ジオメトリパイプライン（unified, strip, bezierPath）、フルスクリーンパイプライン（blit, composite, filter）の生成と保持
-- **CanvasTarget**: キャンバスごとの TargetData（GPUコンテキスト、uniform buffer、CanvasLayer、UILayer、RenderCacheManager）を管理。ブラシ描画の BrushRenderer は CanvasLayer が持つ
-- **フィルターハンドラー**: FilterRenderer にビルトイン・hanakla-kitフィルターを登録
-- **render()メソッド**: RenderStrategy を受け取り、各ターゲットの CanvasLayer と UILayer を実行
+- **GPUパイプライン**（シェーダーやレンダリング設定を組み合わせた描画手順の定義）: ジオメトリパイプライン（unified, strip）と gradientFill、blit 系（マスク付き・マスクチェーン・消しゴムマスク・バックドロップ・quad・mesh の各バリアント）、composite、exposure の生成と保持。フィルター専用のパイプラインは各フィルターハンドラーが持つ
+- **CanvasTarget**: キャンバスごとの TargetData（GPUコンテキスト、uniform buffer、CanvasLayer、UILayer、BackdropCaptureManager、RenderCacheManager）を管理。ブラシ描画の BrushRenderer は CanvasLayer が持つ
+- **フィルターハンドラー**: FilterRenderer に全フィルターハンドラーを登録する。内訳は[フィルター](/devdocs/renderer/filters)を参照
+- **render()メソッド**: `FrameRequest`（viewport、document、strategy、changedElements など）と `UIOverlayState` を受け取り、アクティブなターゲットの CanvasLayer と UILayer を同じコマンドエンコーダーで実行して submit する
 
 RenderOrchestratorがGPUデバイスとパイプラインを一元管理する理由は、WebGPUのシェーダーコンパイルとパイプライン生成が高コストであるため。デバイスレベルのリソース（シェーダーモジュール、バインドグループレイアウト、パイプライン）を1回だけ生成し、全キャンバスターゲットで共有することで、GPUメモリとコンパイル時間を削減する。一方、キャンバスごとのリソース（uniformバッファ、キャッシュ、UILayer）はTargetDataとして分離し、将来の複数キャンバス対応と独立したキャッシュライフサイクルを可能にしている。
 
 ### RenderScheduler
 
-オンデマンドレンダリングのスケジューラ。以下の責務を持つ:
+オンデマンドレンダリングのスケジューラ。Paplico ファサードがキャンバスターゲットごとに生成し、解決した Strategy と変更要素 ID をコールバックで描画側へ渡す。以下の責務を持つ:
 
 - **DirtyReason の収集**: `markDirty(reason)` で汚れた理由を蓄積
 - **rAFバッチング**: 同一フレーム内の複数呼び出しを1回のレンダリングに合体
@@ -327,23 +337,27 @@ RenderOrchestratorがGPUデバイスとパイプラインを一元管理する�
 
 ## キャッシュシステム
 
-毎フレーム全ての要素をゼロから計算し直すのは非効率である。パスのテッセレーション結果、ブラシのスタンプデータ、グラデーションテクスチャなど、要素が変更されない限り再利用できるデータは多い。キャッシュシステムはこれらの中間生成物を保持し、変更があった要素だけを再構築することでレンダリング性能を維持する。
+毎フレーム全ての要素をゼロから計算し直すのは非効率である。パスのアウトラインと strip、ブラシのスタンプデータ、グラデーションのGPUリソースなど、要素が変更されない限り再利用できるデータは多い。キャッシュシステムはこれらの中間生成物を保持し、変更があった要素だけを再構築することでレンダリング性能を維持する。
 
-RenderCacheManager が全キャッシュを統合管理する。RenderOrchestrator がキャンバスターゲットごとに1インスタンスを所有し、CanvasLayer・ElementRenderer・BrushRenderer に渡す。
+RenderCacheManager が要素単位のキャッシュを統合管理する。RenderOrchestrator がキャンバスターゲットごとに1インスタンスを所有し、CanvasLayer・ElementRenderer・BrushRenderer に渡す。キャッシュ一式はドキュメント ID ごとのスコープに分かれており、`CanvasLayer.render()` の冒頭で描画対象のドキュメントのスコープに切り替わる。
 
-| キャッシュ | 内容 | キー |
-|---|---|---|
-| OutlineCache | ローカル空間のアウトライン（塗りのポリライン、線の三角形） | elementId + variant |
-| StripCache | パスのテクセル空間へラスタライズした strip と alpha | elementId + variant |
-| CompoundPathCache | 複合パスジオメトリ | elementId |
-| StampCache | ブラシスタンプデータ | elementId |
-| GradientCache | グラデーションテクスチャ | elementId:gradientHash |
+代表的なキャッシュは次のとおりである。全キャッシュの一覧、キー、予算は[キャッシュと無効化](/devdocs/renderer/caches)にまとめている。
+
+| キャッシュ | 内容 |
+|---|---|
+| OutlineCache | ローカル空間のアウトライン（塗りのポリライン、線の三角形） |
+| StripCache | パスのテクセル空間へラスタライズした strip と alpha |
+| StampCache | ブラシスタンプデータ |
+| GradientCache | グラデーションの uniform / stops バッファと BindGroup |
+| FilteredElementCache | ポストフィルターのベイク結果 |
 
 ### キャッシュ無効化
 
-`RenderStrategy.full` の場合、`RenderCacheManager.onDocumentChange()` がドキュメント内に存在しない要素のキャッシュエントリを削除する。各キャッシュは内部でバージョンチェックを行い、要素が変更された場合にのみ再構築する（self-validating）。
+各キャッシュはエントリにフィンガープリントを保持し、ヒット時に現在の要素データと照合する（self-validating）。要素が変更された場合にのみ再構築する。
 
-`RenderStrategy.fullTransformOnly` の場合、バウンズキャッシュは保持される。移動・複製等の操作では要素形状が変わらないため、テッセレーション結果を再利用できる。
+`RenderStrategy.full` と `RenderStrategy.fullTransformOnly` のフレームでは、`RenderCacheManager.onDocumentChange()` がドキュメント内に存在しない要素のキャッシュエントリを削除する。変更要素 ID が追跡できていて削除要素が無いフレームは、この走査を省略する。
+
+変更要素 ID が追跡できているフレームは、どちらの Strategy も変更要素のトランスフォームだけを部分更新する。追跡が失われたフレームでのみ両者に差が出る。`full` はバウンズキャッシュを破棄し、`fullTransformOnly` は保持する。移動・複製等の操作では要素形状が変わらないため、ローカルバウンズを再利用できる。
 
 ## シェーダー
 
@@ -357,21 +371,28 @@ RenderCacheManager が全キャッシュを統合管理する。RenderOrchestrat
 | unified.wgsl | 頂点バッファ入力のジオメトリレンダリング（アートボード背景など） |
 | strip.wgsl | 被覆率 strip のインスタンス描画（パスの塗りと線） |
 | paintCommon.wgsl | unified と strip が共有するペイント段（ソリッド / グラデーション / パターン） |
-| bezierPath.wgsl | ベジエパスレンダリング |
-| brushDab.wgsl | ブラシDabのインスタンスドレンダリング |
-| gradientFill.wgsl | グラデーションフィル |
-| blit.wgsl | テクスチャ転写（マスク付きバリアント含む） |
-| simpleBlit.wgsl | シンプルなテクスチャ転写 |
-| composite.wgsl | ブレンドモード合成 |
-| backdropMask.wgsl | バックドロップフィルター用マスク |
-| mask.wgsl | クリップマスク |
+| maskCommon.wgsl | クリップマスクとオブジェクトマスクのサンプリング。unified、strip、ブラシの各シェーダーが共有する |
 | transformCommon.wgsl | トランスフォーム共通ユーティリティ |
 | gradientCommon.wgsl | グラデーション共通ユーティリティ |
-| blur.wgsl | ぼかしフィルター |
-| dropShadow.wgsl | ドロップシャドウフィルター |
-| frostGlass.wgsl | フロストガラスフィルター |
-| pixelate.wgsl | ピクセレートフィルター |
-| coonsPatchCompute.wgsl | Coons Patch変形（コンピュートシェーダー） |
+| gradientFill.wgsl | グラデーションフィル |
+| blit.wgsl | テクスチャ転写。マスク付き、マスクチェーン、消しゴムマスク、バックドロップ、quad、mesh、exposure の各バリアントを含む |
+| quadProjection.wgsl | quad blit が共有する射影補正 |
+| uvRectBlit.wgsl | テクスチャの一部矩形をフルスクリーンに転写 |
+| simpleBlit.wgsl | フォーマット変換つきのフルスクリーン転写。UILayer が使う |
+| bezierPath.wgsl | UIオーバーレイ図形の描画。UILayer が使う |
+| fillTriangle.wgsl | UIオーバーレイの塗り三角形のインスタンス描画。UILayer が使う |
+| composite.wgsl | ブレンドモード合成 |
+| blendModes.wgsl | ブレンドモード関数。composite と SVG の feBlend が共有する |
+| blurPyramid.wgsl | バックドロップ用 Gaussian ピラミッドの1段を作るダウンサンプル |
+| extrudeRefraction.wgsl | 押し出しアピアランスのガラス屈折合成 |
+| meshLit.wgsl | 押し出しメッシュのライティング描画 |
+| softProofBlit.wgsl | ソフトプルーフの 3D LUT を掛ける最終表示パス |
+| dotGrid.wgsl | アートボードが無いドキュメントのドット背景 |
+| worldCellHash.wgsl | ワールド空間グリッドのセル乱数。散布系フィルターが共有する |
+| coonsPatchCompute.wgsl | フリーグラデーションのテクスチャ生成（コンピュートシェーダー） |
+| meshGradientCompute.wgsl | メッシュグラデーションのテクスチャ生成（コンピュートシェーダー） |
+
+上の表は `shaders/` にある共有シェーダーである。ブラシのシェーダー（`brushDab.wgsl` など）は `canvas/pipeline/brush/shaders/` に、フィルターのシェーダー（`blur.wgsl`、`dropShadow.wgsl`、`frostGlass.wgsl`、`pixelate.wgsl` など）は `filters/` にある。クリップマスク専用のシェーダーは無い。マスクは要素に白のソリッド Fill を与えて strip パイプラインで描く。
 
 > [!TIP]
 > **次に読むページ:** [パイプライン](/devdocs/renderer/pipeline)

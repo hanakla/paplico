@@ -43,7 +43,7 @@ import Playground from "./playground";
 - Figma のグラデーション (4 stops の色をブレンド)
 - 3D のテクスチャマッピング (頂点ごとの UV/色を補間)
 
-Paplico のメッシュグラデーションも、まずこの bilinear ブレンドを各四角形パッチで計算して、それを compute shader で全ピクセルに展開しているよ。
+Paplico のメッシュグラデーションも、各ピクセルが「どの四角形パッチの、どの (u, v) にいるか」をシェーダーの中で求めてから、この bilinear ブレンドで 4 隅の色を混ぜているよ。色は OKLab という、見た目どおりに混ざりやすい色の表し方で混ぜているんだ。
 
 ## どうやって動くのか — ステップで見ていこう
 
@@ -106,7 +106,7 @@ S(u, v) = Lc(u, v) + Ld(u, v) − B(u, v)
 - `Ld(u, v)` : 左右辺の u 補間
 - `B(u, v)`  : 4 隅の双線形補間 (この章のやつ)
 
-つまり、**この章の bilinear が引き算項** として登場する。Paplico の `meshGradient.ts` の `coonsSurfacePoint` がこれを実装しているよ。
+つまり、**この章の bilinear が引き算項** として登場する。Paplico の `meshGradient.ts` の `coonsPatchPoint` がこれを実装しているよ。
 
 </details>
 
@@ -124,7 +124,7 @@ S(u, v) = Lc(u, v) + Ld(u, v) − B(u, v)
 
 ## もっと知りたい人へ
 
-- Paplico の本格実装: [`pkgs/web/src/core/utils/meshGradient.ts`](https://github.com/) の Coons patch / 逆双線形 UV
+- Paplico の本格実装: [`pkgs/web/src/core/utils/geometry/meshGradient.ts`](https://github.com/) の Coons patch (`coonsPatchPoint`) / 逆双線形 UV (`bilinearUV`)
 - 前の章 → [第11章: Stencil-then-Cover](/devdocs/tutorials/11-stencil-then-cover)
 
 🎉 **これでチュートリアル完走！** Paplico の中で動いている幾何学の旅、お疲れ様でした。

@@ -37,7 +37,7 @@ import Playground from "./playground";
 
 ペンタブで描いた線って、**1 秒間に 100 個以上の点** をブラウザに送ってくる。これをそのまま保存すると重い。1 本のベジェに **要約** すれば、データはずっと小さくなって、後の編集 (引っ張る、伸ばす) もしやすくなるよ。
 
-Paplico の `processStroke` の最終段階がまさにこれ。実装では Schneider's algorithm を元に、誤差が大きいところで分割しながら複数のベジェにしている。この章では最初の 1 歩として、**1 本の cubic にフィットする部分**だけを作るよ。
+Paplico では、`strokeFitting.ts` の `IncrementalStrokeFitter` (ペン) と `processStroke` (消しゴムの軌跡) が、スムージングのあとにまさにこれをやっている。実装では Schneider's algorithm を元に、誤差が大きいところで分割しながら複数のベジェにしている。この章では最初の 1 歩として、**1 本の cubic にフィットする部分**だけを作るよ。
 
 ## どうやって動くのか — ステップで見ていこう
 
@@ -133,7 +133,7 @@ Paul Schneider が 1990 年に出した方法は:
 3. **誤差** が許容を超えていたら、誤差最大の点で曲線を分割し、左右別々にフィッティング (再帰)
 4. 各分割した区間で **Newton-Raphson 反復** で `t_i` を曲線に正確に投影しなおして再フィット
 
-Newton 反復は「いまのベジェ曲線に一番近い場所へ `t_i` を置きなおす」処理だよ。第6章の最近点探索に近い話なので、この章では発展として眺めるだけで OK。Paplico の `strokeFitting.ts` の `fitCubicBeziers` がこの流れを本格的に使っているんだ。
+Newton 反復は「いまのベジェ曲線に一番近い場所へ `t_i` を置きなおす」処理だよ。第6章の最近点探索に近い話なので、この章では発展として眺めるだけで OK。Paplico の `strokeFitting.ts` では、手書き線用の `fitCubicBeziersImpl` と `generateBezier` がこの流れをそのまま使っているんだ。同じファイルの `fitCubicBeziers` は、バケツ塗りの輪郭などに使う別バージョンで、ハンドルの長さを「面積が合うように」決める工夫が入っているよ。
 
 </details>
 
@@ -161,6 +161,6 @@ Newton 反復は「いまのベジェ曲線に一番近い場所へ `t_i` を置
 
 ## もっと知りたい人へ
 
-- Paplico の本格実装: [`pkgs/web/src/core/utils/strokeFitting.ts`](https://github.com/) の `fitCubicBeziers` (Schneider + Newton-Raphson + 再分割)
+- Paplico の本格実装: [`pkgs/web/src/core/utils/geometry/strokeFitting.ts`](https://github.com/) の `fitCubicBeziersImpl` と `generateBezier` (Schneider + Newton-Raphson + 再分割)
 - 前の章 → [第7章: スムージング](/devdocs/tutorials/07-smoothing)
 - 次の章 → [第9章: ストロークの三角形メッシュ生成](/devdocs/tutorials/09-stroke-mesh)

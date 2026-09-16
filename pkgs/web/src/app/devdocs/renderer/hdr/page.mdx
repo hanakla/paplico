@@ -96,16 +96,34 @@ P3 → BT.2020 変換では色域が広がる方向のため、P3 の色は BT.2
 ### Canvas 表示パス
 
 ```
-シェーダー出力 (gamma-encoded Display-P3 値 [0,1])
+シェーダー出力 (gamma-encoded な作業色空間の値 [0,1])
     ↓
 rgba16float テクスチャに格納 (値はそのまま、自動 linearize なし)
     ↓
-[exposure > 0 の場合] Exposure Post-Process Pass: RGB × pow(2, exposure)
+[ドキュメントの HDR が有効な場合] Exposure Post-Process Pass
     ↓
-Canvas (display-p3, toneMapping: "extended")
+Canvas (colorSpace: 作業色空間, toneMapping: "extended")
     ↓
 OS カラーマネジメント → ディスプレイ
 ```
+
+`rgba16float` と `toneMapping: "extended"` が使われるのは、HDR が有効で、かつ GPU が `rgba16float` の canvas に対応している場合である。それ以外では `navigator.gpu.getPreferredCanvasFormat()` のフォーマットが使われ、`toneMapping` は指定されない。canvas の `colorSpace` はドキュメントの作業色空間（`srgb` または `display-p3`）に合わせて `RenderOrchestrator.setColorSpace()` が切り替える。
+
+Exposure Post-Process Pass は、ドキュメントの `hdr.enabled` が真のときに実行される。exposure が 0 でも実行される。シェーダー（`EXPOSURE_BLIT_SHADER`）は AVIF HDR エクスポートと同じ経路をなぞり、canvas のプレビューを AVIF の表示結果に一致させる。
+
+```
+premultiplied → straight alpha
+    ↓
+sRGB EOTF で linearize
+    ↓
+RGB × pow(2, exposure)
+    ↓
+EDR headroom でクランプ → PQ OETF (maxNits) → 10-bit 量子化 → PQ EOTF
+    ↓
+sRGB OETF で再エンコード → premultiplied に戻す
+```
+
+ソフトプルーフ（印刷シミュレーションの 3D LUT を適用する最終パス）と Exposure パスは排他である。印刷シミュレーションは本質的に SDR であるため、両方が要求された場合は Exposure が優先され、プルーフはスキップされる。
 
 > [!IMPORTANT]
 > **シェーダーは `-srgb` suffix の texture format を使っていない。** そのため sampler による自動 sRGB→linear 変換は行われず、シェーダーの出力値はユーザーが指定した色値（sRGB gamma 空間）がそのまま格納される。
@@ -121,11 +139,16 @@ CanvasLayer.render() (exposure pass 含む)
     ↓
 convertToRgba32Float blit → GPU readback (Float32Array)
     ↓
-[exposure = 0] sRGB OETF で gamma encode → convertFloat32ToP3Yuv (BT.709 YCbCr)
-[exposure > 0] EDR headroom でクリップ → PQ OETF (maxNits) → convertFloat32ToP3Yuv (BT.709 YCbCr)
+convertFloat32ToP3Yuv (BT.709 YCbCr)
+  [HDR 無効: transfer = "srgb"] [0,1] にクランプ → sRGB OETF
+  [HDR 有効: transfer = "pq"]   sRGB EOTF で linearize → EDR headroom でクリップ → PQ OETF (maxNits)
     ↓
-encodeAvifHdr (PlanarYuvData) → AVIF (colorPrimaries: display-p3, matrixCoefficients: bt709)
+encodeAvifHdr (PlanarYuvData) → AVIF (colorPrimaries: srcSpace に対応, matrixCoefficients: bt709)
 ```
+
+分岐は exposure の値ではなく、ドキュメントの `hdr.enabled` で決まる。readback した値は gamma-encoded であるため、PQ 側では先に sRGB EOTF で linearize してから PQ にエンコードする。
+
+`colorPrimaries` は、エクスポートオプションの `srcSpace`（既定値は `display-p3`）で決まる。`display-p3` なら `display-p3`、`srgb` なら `bt709` になる。sRGB は BT.709 と同じ primaries と白色点を持つためである。BT.709 の YCbCr 行列はどちらの色域でも使われる。
 
 ### EDR Headroom とクリッピング
 
@@ -150,7 +173,7 @@ EDR headroom はディスプレイと輝度設定に依存する（画面輝度�
 macOS の `NSScreen.maximumExtendedDynamicRangeColorComponentValue` で実効 headroom が取得できるが、Web API からは取得不可能。プライバシー上の理由で headroom 値はブラウザが意図的に非公開としている。
 
 > [!WARNING]
-> 現状 EDR headroom はハードコードされている。Web API から取得する標準的な手段は存在しない（[gpuweb #4919](https://github.com/gpuweb/gpuweb/issues/4919) で議論中）。
+> 現状 EDR headroom はハードコードされている。値は `core/renderer/types.ts` の `HDR_EDR_HEADROOM = 1600 / HDR_MAX_NITS`（約 7.88）で、MacBook Pro XDR のピーク輝度 1,600 nits を覆う。Web API から取得する標準的な手段は存在しない（[gpuweb #4919](https://github.com/gpuweb/gpuweb/issues/4919) で議論中）。
 
 ### maxNits パラメータ
 
@@ -163,6 +186,8 @@ pqOetf(linearValue × maxNits)
 - `maxNits = 203`: ITU-R BT.2408 SDR reference white。標準的だが macOS HDR ディスプレイの SDR white (≈500 nits) より低い。
 - `maxNits = 1600`: MacBook Pro のピーク輝度相当。exposure で 1.0 超の値がディスプレイのフル輝度域にマッピングされる。
 
+Paplico は `maxNits = 203` を使う。値は `core/renderer/types.ts` の `HDR_MAX_NITS` で、Exposure パスのシェーダーと AVIF エクスポーターが同じ定数を共有する。片方だけを変えると canvas と AVIF の色が一致しなくなる。
+
 maxNits の選択は「linear 1.0 がディスプレイ上でどの明るさか」を決定し、HDR headroom の使い方に直結する。
 
 CSS Color HDR 仕様 (W3C) では **203 cd/m² を reference white** として定義しているが、WebGPU canvas の `toneMapping:extended` における linear 1.0 はディスプレイの SDR white 輝度にマッピングされ、macOS では 400–500 cd/m² になる。このギャップにより `maxNits=203` は canvas 表示より暗くなる。
@@ -173,6 +198,6 @@ CSS Color HDR 仕様 (W3C) では **203 cd/m² を reference white** として�
 
 ## 既知の制限と注意点
 
-1. **EDR headroom がハードコード。** ディスプレイによって異なるため、異なる環境では白飛びの閾値がずれる。将来的には platform API から動的取得すべき。
-2. **シェーダー出力は gamma-encoded。** `rgba16float` canvas でも値は linear ではない。エクスポート時の linearize が必要な場合がある。
-3. **PQ maxNits の調整が必要。** Canvas 表示の明るさと AVIF 出力を一致させるには、ディスプレイの SDR white nits に合わせた maxNits 設定が必要。
+1. **EDR headroom がハードコード。** 値は `HDR_EDR_HEADROOM`（1600 / 203）である。ディスプレイによって異なるため、異なる環境では白飛びの閾値がずれる。将来的には platform API から動的取得すべき。
+2. **シェーダー出力は gamma-encoded。** `rgba16float` canvas でも値は linear ではない。Exposure パスと PQ エクスポートは、どちらも先に sRGB EOTF で linearize している。
+3. **PQ maxNits は 203 に固定。** `HDR_MAX_NITS` を Exposure パスのシェーダーと AVIF エクスポーターが共有する。前述のとおり、ディスプレイの SDR white がこれより明るい環境では、AVIF の表示は canvas の表示より暗くなる。

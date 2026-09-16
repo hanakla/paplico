@@ -5,7 +5,7 @@ RenderPlannerは、ドキュメントデータから1フレーム分の描画計
 レンダリングパイプラインにおけるRenderPlannerの位置づけは、RenderSchedulerが「いつ描画するか」を決め、RenderPlannerが「何を描画するか」を決め、CanvasLayerが「実際にGPUで描画する」という分業の中間層である。
 
 > [!NOTE]
-> このページは[パイプライン概要](/devdocs/renderer/pipeline)の内容を前提とする。`CanvasLayer` が `buildFramePlan()` を呼び出す流れを先に把握しておくと理解しやすい。
+> このページは[パイプライン概要](/devdocs/renderer/pipeline)の内容を前提とする。`CanvasLayer` が `buildFramePlanStructure()` と `buildFramePlanView()` を呼び出す流れを先に把握しておくと理解しやすい。
 
 ## なぜ計画と実行を分離するか
 
@@ -88,7 +88,7 @@ RenderPlannerはこれらの情報を事前に収集・分類し、FramePlanと�
   <line x1="175" y1="155" x2="400" y2="175" stroke="#f38ba8" strokeWidth="1" strokeDasharray="4,2" opacity="0.5"/>
 </svg>
 
-`buildFramePlan()` が返すFramePlanは、1フレームの描画に必要な全情報を含む:
+`buildFramePlanView()` が返すFramePlanは、1フレームの描画に必要な全情報を含む:
 
 | フィールド | 型 | 役割 |
 |---|---|---|
@@ -104,9 +104,14 @@ RenderPlannerはこれらの情報を事前に収集・分類し、FramePlanと�
 | `clearColor` | `GPUColorDict` | 最初のレンダーパスのクリアカラー |
 | `localBoundsCache` | `LocalBoundsCache` | ViewportManagerから渡されるバウンズキャッシュ。O(N)再計算の回避用 |
 
+CanvasLayer はこの FramePlan に、マスクの適用計画（`maskApplicationPlans`）とグループの合成計画（`groupCompositionPlans`）を足して使う。どちらもマスクの事前パスが埋める。詳細は[クリッピング方式](/devdocs/renderer/clipping)を参照。
+
 ## 構築の流れ
 
-`buildFramePlan()` は以下の4段階で計画を構築する:
+計画は2つの関数で作られる。
+
+- `buildFramePlanStructure()` — ドキュメントだけから決まる部分（`FramePlanStructure`）を作る。下の段階1〜3がこれに当たる。ビューポートに依存しないため、CanvasLayer は `document.objects`・`layers`・`artboards`・`appearancePresets` と transient 要素の参照が変わるまで結果を再利用する。ツールのオーバーライド（`elementOverrides`）があるフレームは再利用しない。
+- `buildFramePlanView()` — 毎フレーム、`FramePlanStructure` の候補をビューポートでカリングし、段階4のセグメント分割を行って `FramePlan` を返す。コストは O(候補数 + レイヤー数) で、全要素の走査を含まない。
 
 ### 1. レイヤー要素キャッシュの構築
 
@@ -120,7 +125,7 @@ RenderPlannerはこれらの情報を事前に収集・分類し、FramePlanと�
 
 ### 3. フィルター分類
 
-`collectFilterPlans()` が各レイヤーの要素を走査し、要素ごとのフィルターを分類する。これがRenderPlannerの中核処理である。
+`collectPlanCandidates()` が各レイヤーの要素を走査し、要素ごとのフィルターを分類する。これがRenderPlannerの中核処理である。分類結果は、ワールド空間のバウンズを添えた候補（`PlanCandidate`）として `FramePlanStructure` に積まれる。グループ自身がフィルター計画を持つ場合は子へ再帰しない。その子のフィルターは、グループをテクスチャに描く経路が処理する。Repeat 要素では、レイヤーに属さないソース要素もここで分類する。
 
 各要素に対して `classifyElementFilters()` が呼ばれ、以下の判定を行う:
 
@@ -131,10 +136,10 @@ graph TD
     HasFilters -->|Yes| SplitBD["バックドロップ / 通常に分離"]
     SplitBD --> HasBD{バックドロップフィルターがあるか}
     HasBD -->|Yes| BDEntry["BackdropElementEntry を生成"]
-    HasBD -->|No| CheckPost{"postProcessを持つフィルターがあるか\nまたはサブフィルターがあるか\nまたは非normalブレンドのアピアランスがあるか"}
+    HasBD -->|No| CheckPost{"ラスターフィルターがあるか\nまたはオフスクリーンを要するサブフィルターがあるか\nまたは非normalブレンドのアピアランスがあるか\nまたは wash ストロークがあるか"}
     CheckPost -->|No| Inline["インライン描画（計画不要）"]
     CheckPost -->|Yes| BuildPlan["ElementFilterPlan を生成"]
-    BuildPlan --> HasSubFilters{アピアランスにサブフィルターがあるか}
+    BuildPlan --> HasSubFilters{"サブフィルター / 非normalブレンド /\nwash ストロークのいずれかがあるか"}
     HasSubFilters -->|Yes| AppPlans["AppearancePlan[] を生成\n（アピアランスごとのオフスクリーン描画計画）"]
     HasSubFilters -->|No| Done["完了"]
     AppPlans --> Done
@@ -142,19 +147,28 @@ graph TD
 
 #### バックドロップフィルターの分離
 
-フィルターハンドラーの `requiresBackdrop` フラグでバックドロップフィルター（frost-glass等）と通常フィルターを分離する。バックドロップフィルターを持つ要素は `BackdropElementEntry` として記録され、通常の要素描画フローから外れる。
+フィルターハンドラーの `getRenderConfigure()` が返す `needsBackdrop` でバックドロップフィルター（frost-glass等）と通常フィルターを分離する。フィルターに `applyToBackdrop` が付いている場合は、`postProcess` を持つフィルターもバックドロップ側に入る。要素の描画を置き換えるアピアランス（ガラスの押し出し）は、`needsBackdrop` であっても通常フィルター側に残る。このアピアランスはメインパスの途中で自前の合成を行うためである。バックドロップフィルターを持つ要素は `BackdropElementEntry` として記録され、通常の要素描画フローから外れる。
+
+フィルターの段は `classifyFilterHandler()` が決める。`preProcess` または `preProcessAppearance` を持つハンドラーは geometry、`postProcess` を持つハンドラーは raster である。
 
 #### Expansion Marginの計算
 
-オフスクリーン描画が必要な要素について、フィルターハンドラーの `getExpansionMargin()` から必要な拡張量を取得し、要素バウンズを拡張してテクスチャサイズ（`textureBounds`）を決定する。ぼかしフィルターなど、要素の境界を超えて描画効果が及ぶフィルターに対応するためである。
+オフスクリーン描画が必要な要素について、フィルターハンドラーの `getExpansionMargin()` から必要な拡張量を取得し、要素バウンズを拡張してテクスチャサイズ（`textureBounds`）を決定する。ぼかしフィルターなど、要素の境界を超えて描画効果が及ぶフィルターに対応するためである。wet が有効なストロークでは、顔料がアウトラインの外へにじむ距離もここに加える。
 
 #### AppearancePlanの生成
 
-要素のアピアランス（fill/stroke）にサブフィルター（zigzag変形等）が設定されている場合、または非normalブレンドモードが指定されている場合、アピアランスごとに個別のオフスクリーン描画が必要になる。`AppearancePlan` はアピアランス単位の描画計画であり、プリサブフィルター（ジオメトリ変形）とポストサブフィルター（画像処理）を分離して保持する。
+次のいずれかに当たる要素は、アピアランスごとに個別のオフスクリーン描画が必要になる。
+
+- アピアランス（fill/stroke）にラスターのサブフィルターがある
+- path でも group でもない要素のアピアランスに、ジオメトリのサブフィルター（zigzag変形等）がある。path と group はジオメトリのサブフィルターをインラインで変形するため、これだけではオフスクリーンにならない
+- グループ以外の要素で、アピアランスに非normalブレンドモードが指定されている
+- 単独のテクスチャに分離して描く必要があるストローク（wash ストローク）がある
+
+`AppearancePlan` はアピアランス単位の描画計画であり、プリサブフィルター（ジオメトリ変形）とポストサブフィルター（画像処理）を分離して保持する。wash ストロークでは、合成時に1回だけ掛けるストローク不透明度（`washStrokeOpacity`）、wet edge の設定（`washWetEdge`）、ブラシサイズ（`washBrushSize`）も保持する。
 
 ### 4. レイヤーセグメントの構築
 
-`buildLayerSegments()` が各レイヤーの要素列をバックドロップ要素の位置で分割し、`LayerSegment` の配列を生成する。
+`buildFramePlanView()` は候補のバウンズをビューポートと照合し、交差する候補のフィルター計画とバックドロップエントリだけを採用する。続いて `buildLayerSegments()` が各レイヤーの要素列を、採用されたバックドロップ要素の位置で分割し、`LayerSegment` の配列を生成する。
 
 バックドロップフィルターは「自分より前に描画された内容」を入力とするため、要素列を区切って「通常要素の描画 → バックドロップ要素の処理」というサイクルを作る必要がある。
 
@@ -229,6 +243,7 @@ CanvasLayerはセグメント順に処理する: Segment[0]のE0, E1を描画 �
 
 | フィールド | 説明 |
 |---|---|
+| `layerIndex` / `layerId` | ドキュメント内でのレイヤーの位置とID |
 | `elements` | レイヤー内の可視要素配列 |
 | `opacity` | レイヤー不透明度 |
 | `blendMode` | レイヤーのブレンドモード |
@@ -241,16 +256,18 @@ CanvasLayerはセグメント順に処理する: Segment[0]のE0, E1を描画 �
 
 | フィールド | 説明 |
 |---|---|
+| `elementId` / `element` | 対象の要素 |
+| `bounds` | 要素のワールド空間バウンズ |
 | `enabledFilters` | 有効な全フィルター |
 | `postFilters` | ポストフィルター（blur, drop-shadow等。オフスクリーン描画が必要） |
 | `textureBounds` | フィルターマージンで拡張済みのバウンズ。オフスクリーンテクスチャサイズの決定に使用 |
-| `allAppearancePlans` | アピアランスごとの個別描画計画（サブフィルターまたは非normalブレンド時のみ） |
+| `allAppearancePlans` | アピアランスごとの個別描画計画（サブフィルター、非normalブレンド、wash ストロークのいずれかがあるときのみ） |
 
 ## 設計上の判断
 
 ### 純粋関数としての実装
 
-RenderPlannerはクラスではなく、`buildFramePlan()` を頂点とする純粋関数群として実装されている。GPUリソースへの参照を持たず、フィルターハンドラーのメタデータ（`requiresBackdrop`, `getExpansionMargin()`, `preProcess`/`postProcess` の有無）だけを参照する。
+RenderPlannerはクラスではなく、`buildFramePlanStructure()` と `buildFramePlanView()` を頂点とする純粋関数群として実装されている。GPUリソースへの参照を持たず、フィルターハンドラーのメタデータ（`getRenderConfigure()` の `needsBackdrop`, `getExpansionMargin()`, `preProcess`/`postProcess` の有無）だけを参照する。
 
 この設計により:
 - ユニットテストでGPUデバイスのモックが不要になる
@@ -259,10 +276,22 @@ RenderPlannerはクラスではなく、`buildFramePlan()` を頂点とする純
 
 ### ビューポートカリング
 
-`collectFilterPlans()` はフィルター分類の前に `boundsIntersectViewport()` でビューポート外の要素をスキップする。画面外の要素にフィルター計画を生成してもオフスクリーンテクスチャの無駄な確保につながるため、この段階で除外する。
+分類はカリングせずに全要素に対して行い、`buildFramePlanView()` が候補単位で `boundsIntersectViewport()` を適用する。画面外の要素のフィルター計画を採用するとオフスクリーンテクスチャの無駄な確保につながるため、この段階で除外する。分類をビューポートから切り離してあるので、パンやズームのフレームは分類をやり直さない。Repeat のソース要素のフィルター計画は `skipCull` でカリングの対象外になる。Repeat はビューポートに関係なく全インスタンスをベイクするためである。
+
+レイヤーに属さない要素のフィルター計画は `buildFilterPlansForElements()` が作る。オブジェクトマスクの中身がこれに当たる。マスクの中には背後のドキュメントが無いので、この経路はバックドロップフィルターを扱わない。
+
+### パス中断の事前宣言
+
+`buildPassPlan()` は `LayerSegment` をさらに細かく切り、メインパスを中断する位置を宣言する。中断の種類（`SegmentBreak`）は3つある。
+
+- `backdrop` — バックドロップ要素の処理
+- `compositeElement` — 非normalの blendMode または compositionMode を持つ要素の合成
+- `inlineBackdropCompose` — ガラスの押し出しのインライン合成
+
+中断を起こす要素は `elements` ではなく `breakAfter` に入る。ここではビューポートカリングを適用しない。
 
 > [!TIP]
-> FramePlanは毎フレーム再構築されるが、構築コスト自体は小さい。全処理がCPU上の配列走査とMap操作であり、GPUコマンドの発行やバッファ書き込みは一切行わない。実際のGPUリソース確保は `CanvasLayer` がFramePlanを消費する段階で行われる。
+> 毎フレーム実行される `buildFramePlanView()` の構築コストは小さい。全処理がCPU上の配列走査とMap操作であり、GPUコマンドの発行やバッファ書き込みは一切行わない。実際のGPUリソース確保は `CanvasLayer` がFramePlanを消費する段階で行われる。
 
 > [!TIP]
 > **次に読むページ:** [キャッシュと無効化](/devdocs/renderer/caches)

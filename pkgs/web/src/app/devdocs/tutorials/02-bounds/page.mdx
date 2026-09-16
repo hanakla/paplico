@@ -136,6 +136,6 @@ B'(t) = 3(1−t)² (p1 − p0) + 6(1−t) t (p2 − p1) + 3 t² (p3 − p2)
 
 ## もっと知りたい人へ
 
-- Paplico の本格実装: [`pkgs/web/src/core/utils/bounds.ts`](https://github.com/) — 極値計算もした tight な AABB を返す
+- Paplico の本格実装: [`pkgs/web/src/core/utils/geometry/bounds.ts`](https://github.com/) の `calculateSegmentListBounds` — この章と同じく制御点の min / max で箱を作るよ。`calculatePathBounds` がその箱を線の太さのぶんだけ外へ広げているよ
 - 前の章 → [第1章: 座標系の話](/devdocs/tutorials/01-coordinates)
 - 次の章 → [第3章: ヒットテスト基礎](/devdocs/tutorials/03-hit-test)

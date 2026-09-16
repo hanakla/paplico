@@ -1,8 +1,8 @@
 # ブラシシステム
 
-ブラシツールの線は、Pointer Eventの座標列をそのまま保存したものではない。入力中は反応速度を優先して増分処理する。ペンを離した時点で全入力を処理し直し、永続化する `Path` を作る。
+ブラシツールの線は、Pointer Eventの座標列をそのまま保存したものではない。入力中は増分fitでプレビューを更新する。ペンを離した時点では再fitしない。増分fitからinput knotを除いたsegment列を、永続化する `Path` にする。
 
-この二段構成によって、入力中の追従性と確定後の形状品質を両立している。
+プレビューと確定Pathは同じfitを共有する。表示していた中心線と保存する中心線は同じ形になる。
 
 ## 処理の全体像
 
@@ -12,7 +12,7 @@ flowchart LR
     B --> C[PenTool]
     C --> D[BrushStrokeSession]
     D --> E[ライブプレビュー]
-    D --> F[確定用の全体処理]
+    D --> F[knotを除いた同じfit]
     E --> G[一時Path]
     F --> H[確定Path]
     H --> I[Yjsドキュメント]
@@ -25,7 +25,7 @@ flowchart LR
 
 ## 読むページ
 
-### [入力とcurve fitting](/devdocs/brush-system/input-and-fitting)
+### [ストローク入力と曲線フィッティング](/devdocs/brush-system/input-and-fitting)
 
 Pointer Eventからライブプレビューと確定segmentを作るまでを扱う。
 
@@ -35,9 +35,9 @@ Pointer Eventからライブプレビューと確定segmentを作るまでを扱
 - `smooth`、`pulled-string`、`inertia`
 - corner detection
 - cubic Bézier fitting
-- 増分fitと全体fitの違い
+- 増分fitと、確定時に保存するknotなしsegment
 
-### [速度特性と確定処理](/devdocs/brush-system/dynamics-and-commit)
+### [ブラシ動特性と確定処理](/devdocs/brush-system/dynamics-and-commit)
 
 segmentからDabを生成し、Pathを保存して再描画するまでを扱う。
 
@@ -68,9 +68,9 @@ segmentからDabを生成し、Pathを保存して再描画するまでを扱う
 | `CanvasPane` | DOM canvasをPaplicoへ接続する |
 | `PaplicoUI` | Pointer Eventをツール用の入力形式へ変換する |
 | `PenTool` | ブラシ操作の開始、継続、確定を制御する |
-| `BrushStrokeSession` | 1本のストロークに属するraw pointsと増分fitの状態を保持する |
-| `IncrementalStrokeFitter` | 入力中のraw pointsからプレビュー用segmentを生成する |
-| `processStroke` | 全raw pointsから確定用segmentを生成する |
+| `BrushStrokeSession` | 1本のストロークに属するraw pointsと増分fitの状態を保持する。接触直後の筆圧の突出を補正する |
+| `IncrementalStrokeFitter` | raw pointsを増分fitする。プレビュー用segmentと、input knotを除いた確定用segmentを返す |
+| `StrokeWidthProfileBuilder` | raw pointsから幅プロファイルを作る。プレビューと確定Pathが同じ値を使う |
 | `DabEvaluator` | segmentを歩き、速度とproperty curveからDabを生成する |
 | `PaplicoCommands` | 確定PathをYjsトランザクションへ渡す |
 | `YjsProvider` | Path本体とレイヤー内の参照を保存する |
@@ -82,13 +82,14 @@ segmentからDabを生成し、Pathを保存して再描画するまでを扱う
 | 観点 | ライブプレビュー | 確定Path |
 |---|---|---|
 | 目的 | 入力へすぐ追従する | 保存する形状を作る |
-| 入力 | 現在までのraw points | 全raw points |
-| fit | `IncrementalStrokeFitter` | `processStroke` |
-| 更新範囲 | 主に末尾のtail | ストローク全体 |
+| 入力 | 現在までのraw points | pointerupまでのraw points |
+| fit | `IncrementalStrokeFitter.getSegments` | `IncrementalStrokeFitter.getPlainSegments` |
+| input knot | 含む | 含まない |
+| 更新範囲 | 主に末尾のtail | 再fitしない |
 | データの寿命 | 入力中だけ | ドキュメント内で永続化 |
 | 保存先 | transient element | Yjs document |
-| 描画要求 | pointermove後 | document invalidation後 |
+| 描画要求 | pointermoveとhold timerの後 | document invalidation後 |
 
-一本のストロークには、入力中の形と保存後の形がある。両者をつないでいるのはpreview segmentsではない。`BrushStrokeSession` が保持するraw pointsである。
+一本のストロークには、入力中のPathと保存後のPathがある。両者は `BrushStrokeSession` が持つ同じ増分fitから作る。幅プロファイルはraw pointsから作る。これもプレビューと確定Pathで同じ値を使う。
 
 確定PathをDabとしてGPU描画する処理は[ブラシレンダリング](/devdocs/renderer/brush)を参照。

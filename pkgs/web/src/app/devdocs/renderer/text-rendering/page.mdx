@@ -6,7 +6,7 @@
 Paplicoにおけるテキストレンダリングは、`TextElement` のデータをマルチステージパイプラインを通じてWebGPU描画可能なグリフパスに変換する処理である。WebGPUには文字列を直接描画する仕組みが存在しないため、フォントファイルから各グリフのアウトラインをベクターパスとして抽出し、既存のパス描画パイプラインに流す方式を採用している。
 
 > [!NOTE]
-> テキストはテクスチャアトラスではなくパスとして描画される。各グリフが `renderPath` に委譲されるため、パスと同じアピアランス（フィル・ストローク・フィルター）を適用できる。
+> テキストはテクスチャアトラスではなくパスとして描画される。グリフのパスが `renderPath` に委譲されるため、パスと同じアピアランス（フィル・ストローク・フィルター）を適用できる。通常はグリフごとに1回 `renderPath` を呼ぶ。要素がジオメトリフィルターを持つときは、グリフを連結して1つのパスとして渡す。ジオメトリフィルターはグリフ単位ではなくテキスト全体にかかるものだからである。`3d-rotate` は、テキスト全体で共有する1つの投影を使う。
 
 ## モジュール概観
 
@@ -91,22 +91,27 @@ Paplicoにおけるテキストレンダリングは、`TextElement` のデー�
 
 ### レイアウトモード
 
-3種類のレイアウトモードに対応する:
+書字方向は `layout.writingMode` で、パスへの束縛は `axisBinding` で指定する:
 
-| モード | `layout` 値 | 説明 |
+| モード | 指定 | 説明 |
 |---|---|---|
-| 横書き | `horizontal-tb` | 左→右に文字を配置、行は上→下に進行 |
-| 縦書き（右→左） | `vertical-rl` | 上→下に文字を配置、列は右→左に進行 |
-| 縦書き（左→右） | `vertical-lr` | 上→下に文字を配置、列は左→右に進行 |
-| パスに沿ったテキスト | `axisBinding` (mode: "onPath") 指定時 | ベジエ曲線パスに沿って文字を配置 |
+| 横書き | `layout.writingMode: "horizontal-tb"` | 左→右に文字を配置、行は上→下に進行 |
+| 縦書き（右→左） | `layout.writingMode: "vertical-rl"` | 上→下に文字を配置、列は右→左に進行 |
+| 縦書き（左→右） | `layout.writingMode: "vertical-lr"` | 上→下に文字を配置、列は左→右に進行 |
+| パスに沿ったテキスト | `axisBinding` (mode: "onPath") | 開いたベジエ曲線パスに沿って文字を配置 |
+| エリアテキスト | `axisBinding` (mode: "inShape") | 閉じたパスの内側に文字を流し込む |
+
+`layout` はこのほかに、ボックスの大きさ（`boxWidth` / `boxHeight`）、あふれたときの扱い（`overflow`: `visible` / `hidden` / `ellipsis`）、折り返しの有無（`wordWrap`）を持つ。折り返し位置は `lineBreak.ts` が決める。CJK 文字の間ではどこでも改行でき、行頭禁則・行末禁則に従い、ラテン文字の単語の途中では改行しない。
+
+入口は2つある。`layout()` は1つの `TextElement` をレイアウトする。`layoutFlow()` は、`flow.nextTextElementId` でつながったテキスト要素の連なり（フローチェーン）を一度にレイアウトする。チェーンでは先頭の要素だけが内容を持ち、あふれた文字が次の要素のリージョンへ流れ込む。
 
 ### 文字配置フロー
 
 1. **スタイルマージ** — `defaultStyle` と各 `run.style` をマージし、フォントサイズ・ウェイト・色などを決定
-2. **フォント読み込み** — `FontManager` 経由でフォントを取得。読み込み失敗時は **Noto Sans JP**（アプリケーション埋め込みのフォールバックフォント）にフォールバック
+2. **フォント読み込み** — `FontManager` 経由でフォントを取得。読み込み失敗時は **Noto Sans JP**（アプリケーション埋め込みのフォールバックフォント）にフォールバック。可変フォントでは、スタイルの `fontWeight` と `fontVariationSettings` から軸の値を求め、その値のインスタンスを使う
 3. **テキストシェイピング** — `FontManager` が`@cantoo/fontkit`（OpenType/AATシェイピングを内蔵したフォントエンジン）を使用してテキストをシェイピングし、`ShapedGlyph[]` を返す。シェイピングはグリフID・アドバンス幅・グリフパスを含む
-4. **CharOverride適用** — 文字単位のオーバーライド（`kerningAdjust`、`sizeMultiplier`、`baselineShift`、`rotation`）を適用
-5. **グリフ配置** — レイアウトモードに応じた位置計算とアライメント（`left`、`center`、`right`）を適用
+4. **CharOverride適用** — 文字単位のオーバーライド（`kerningAdjust`、`sizeMultiplier`、`baselineShift`、`rotation`、`skewX` / `skewY`、`offsetX` / `offsetY`）を適用
+5. **グリフ配置** — レイアウトモードに応じた位置計算とアライメント（`left`、`center`、`right`、`justify`）を適用
 6. **バウンズ計算** — インクバウンズ（実際のグリフの描画領域）とフォントメトリクス（ascender/descender）からバウンディングボックスを算出
 
 ### 縦書きサポート
@@ -122,6 +127,8 @@ Paplicoにおけるテキストレンダリングは、`TextElement` のデー�
 | normal | そのまま縦方向に配置 | 漢字、かな、アルファベット |
 
 列は右から左へ進行する（`vertical-rl` の場合）。
+
+ラン単位の `tateChuYoko`（縦中横）を立てると、そのランの文字は縦書きの中で1文字分のセルに横組みで収められる。
 
 ### パスに沿ったテキスト
 
@@ -182,17 +189,21 @@ cp2 = -(end - start) / 3      // relative offset from end
 
 | ルート | モジュール | 説明 |
 |---|---|---|
-| Google Fonts | `GoogleFontsLoader` | Google Fonts APIからWOFF2フォントを取得し、FontManagerに登録 |
+| Google Fonts | `GoogleFontsLoader` | Google Fonts APIのレスポンスに含まれるウェイト別のフルTTFを取得し、FontManagerに登録。CSS2 APIのサブセット化ではCJKフォントのグリフが欠けるため、サブセットではないファイルを使う |
 | ローカルフォント | `LocalFontsLoader` | Local Font Access API経由でOSにインストール済みのフォントを利用 |
 | 埋め込みフォールバック | — | Noto Sans JPがアプリケーションに埋め込まれており、他のルートが失敗した場合のフォールバックとして使用 |
 
 ### テキストシェイピング
 
-`FontManager` は `@cantoo/fontkit` の `layout()` メソッドを呼び出してテキストシェイピングを実行する。fontkitは自前のGSUB/GPOS・AATシェイパーでグリフID・アドバンス幅を算出する。その結果からグリフパスを抽出し、`ShapedGlyph[]` として返す。
+`FontManager` は `@cantoo/fontkit` の `layout()` メソッドを呼び出してテキストシェイピングを実行する。fontkitは自前のGSUB/GPOS・AATシェイパーでグリフID・アドバンス幅を算出する。その結果からグリフパスを抽出し、`ShapedGlyph[]` として返す。合字では1つのグリフが複数の文字を受け持つため、`ShapedGlyph` は元テキスト内の位置（`charIndex`）と受け持つ長さ（`charLength`）を持つ。
+
+### 可変フォント
+
+可変フォントの軸の値は `TextStyle` が持つ。`wght` 軸は `fontWeight` に、それ以外の軸は `fontVariationSettings` に入る。`FontManager.resolveFontForStyle` がスタイルから軸の値を求め、fontkit の `getVariation()` でその値のフォントインスタンスを作る。インスタンスは元のフォントごとにキャッシュされ（最大32件、超えると古いものから捨てる）、シェイピングとグリフパス抽出で共有される。読み込んだフォントが持つ軸は `FontManager.getVariationAxes` で取得できる。
 
 ### グリフパスキャッシュ
 
-グリフパスはフォントインスタンスごとの `WeakMap` にグリフIDをキーとしてキャッシュされる。同一フォントインスタンス・同一グリフIDのグリフパスは1度だけ抽出され、以降はキャッシュから返される。パスはEm正規化されているため、フォントサイズに依存しない。
+グリフパスはフォントインスタンスごとの `WeakMap` にグリフIDをキーとしてキャッシュされる。同一フォントインスタンス・同一グリフIDのグリフパスはキャッシュにある限り再抽出されない。パスはEm正規化されているため、フォントサイズに依存しない。1つのフォントインスタンスにつき2,048グリフを上限とし、超えると最も長く使われていないものから捨てる。
 
 ## テキストの座標系
 
@@ -221,11 +232,11 @@ cp2 = -(end - start) / 3      // relative offset from end
   <rect x="30" y="45" width="720" height="65" rx="6" fill="#181825" stroke="#89b4fa" strokeWidth="1.5"/>
   <text x="50" y="65" fill="#89b4fa" fontWeight="bold" fontSize="12">L1: Glyph Path Cache</text>
   <text x="50" y="80" fill="#a6adc8" fontSize="10">Owner: FontManager</text>
-  <text x="50" y="95" fill="#cdd6f4" fontSize="10">Em-normalized paths, keyed by $&#123;postScriptName&#125;:cp$&#123;codePoint&#125;</text>
-  <text x="620" y="80" textAnchor="end" fill="#a6e3a1" fontSize="10">Lifetime: app</text>
+  <text x="50" y="95" fill="#cdd6f4" fontSize="10">Em-normalized paths, WeakMap per font instance, keyed by glyph ID</text>
+  <text x="620" y="80" textAnchor="end" fill="#a6e3a1" fontSize="10">Lifetime: font instance</text>
   <rect x="630" y="55" width="110" height="45" rx="4" fill="#a6e3a1" opacity="0.1" stroke="#a6e3a1" strokeWidth="0.5"/>
   <text x="685" y="77" textAnchor="middle" fill="#a6e3a1" fontSize="10" fontWeight="bold">invalidation:</text>
-  <text x="685" y="92" textAnchor="middle" fill="#a6e3a1" fontSize="9">none (immutable)</text>
+  <text x="685" y="92" textAnchor="middle" fill="#a6e3a1" fontSize="9">LRU (2,048 / font)</text>
 
   {/* Arrow */}
   <line x1="390" y1="110" x2="390" y2="125" stroke="#585b70" strokeWidth="1" strokeDasharray="4,3"/>
@@ -235,7 +246,7 @@ cp2 = -(end - start) / 3      // relative offset from end
   <rect x="30" y="135" width="720" height="65" rx="6" fill="#181825" stroke="#f9e2af" strokeWidth="1.5"/>
   <text x="50" y="155" fill="#f9e2af" fontWeight="bold" fontSize="12">L2: Layout Cache</text>
   <text x="50" y="170" fill="#a6adc8" fontSize="10">Owner: TextRenderer</text>
-  <text x="50" y="185" fill="#cdd6f4" fontSize="10">LayoutResult keyed by content + style hash</text>
+  <text x="50" y="185" fill="#cdd6f4" fontSize="10">LayoutResult per element ID, validated by text cache key</text>
   <rect x="630" y="145" width="110" height="45" rx="4" fill="#f9e2af" opacity="0.1" stroke="#f9e2af" strokeWidth="0.5"/>
   <text x="685" y="167" textAnchor="middle" fill="#f9e2af" fontSize="10" fontWeight="bold">invalidation:</text>
   <text x="685" y="182" textAnchor="middle" fill="#f9e2af" fontSize="9">text edit / style change</text>
@@ -248,7 +259,7 @@ cp2 = -(end - start) / 3      // relative offset from end
   <rect x="30" y="225" width="720" height="65" rx="6" fill="#181825" stroke="#fab387" strokeWidth="1.5"/>
   <text x="50" y="245" fill="#fab387" fontWeight="bold" fontSize="12">L3: Path Cache</text>
   <text x="50" y="260" fill="#a6adc8" fontSize="10">Owner: TextElementRenderer</text>
-  <text x="50" y="275" fill="#cdd6f4" fontSize="10">Path[] per element, used by renderText() for cache-hit rendering</text>
+  <text x="50" y="275" fill="#cdd6f4" fontSize="10">Path[] per text cache key, used by renderText() for cache-hit rendering</text>
   <rect x="630" y="235" width="110" height="45" rx="4" fill="#fab387" opacity="0.1" stroke="#fab387" strokeWidth="0.5"/>
   <text x="685" y="257" textAnchor="middle" fill="#fab387" fontSize="10" fontWeight="bold">invalidation:</text>
   <text x="685" y="272" textAnchor="middle" fill="#fab387" fontSize="9">text edit / style change</text>
@@ -268,22 +279,26 @@ cp2 = -(end - start) / 3      // relative offset from end
 
 | レベル | キャッシュ | 所有者 | キー | ライフタイム |
 |---|---|---|---|---|
-| L1 | Glyph Path Cache | `FontManager` | `${postScriptName}:cp${codePoint}` | アプリケーション全体（不変） |
-| L2 | Layout Cache | `TextRenderer` | content + style hash | テキスト編集時に無効化 |
-| L3 | Path Cache | `TextElementRenderer` | element ID | テキスト編集時に無効化 |
+| L1 | Glyph Path Cache | `FontManager` | フォントインスタンス（`WeakMap`）→ グリフID | フォントインスタンスが生きている間。フォントごとに2,048件のLRU |
+| L2 | Layout Cache | `TextRenderer` | element ID。エントリがテキストキャッシュキーを持ち、一致したときだけヒットする | キーが変わると再計算 |
+| L3 | Path Cache | `TextElementRenderer` | テキストキャッシュキー | `invalidateTextCache` で無効化。無効化されたエントリは stale キャッシュへ移る |
 | L4 | Bounds Cache | — | element ID | テキスト編集・移動時に無効化 |
 
-L1のGlyph Path Cacheは不変（immutable）である。同一フォント・同一コードポイントのグリフ形状は変化しないため、アプリケーションの起動中は一度キャッシュすれば無効化の必要がない。
+L1のGlyph Path Cacheのエントリは不変（immutable）である。同一フォントインスタンス・同一グリフIDのグリフ形状は変化しないため、内容の無効化は必要ない。エントリが消えるのは、LRUの上限を超えたときと、フォントインスタンスが解放されたときだけである。
+
+テキストキャッシュキーは `TextRenderer.computeTextCacheKey` が作る文字列である。要素ID、内容、既定スタイルのフォント関連の値（ファミリー、ソース、可変軸、サイズ、ウェイト、スタイル、字間、行の高さ）、`layout`、軸バインディングの情報からなる。軸バインディングの情報には、束縛先パスのジオメトリのリビジョンと、要素の位置・変形が入る。フローチェーンに属する要素では、先頭要素の内容とスタイル、各メンバーの `layout` と軸バインディングもキーに入る。要素のワールド位置は、軸バインディングが無ければキーに入らない。位置は描画時にローカルのグリフパスをずらして適用するためである。
 
 ## 非同期レンダリングパターン
 
 テキストレンダリングでは、レイアウト計算とグリフパス抽出が数十ミリ秒を要しうる（特にCJKテキストでは文字数が多く、フォントパースの負荷が高い）。レンダリングフレームをブロックしないよう、非同期ファーストのレンダリングパターンを採用している。
 
-1. `renderText()` が呼び出され、`pathCache` をチェック
-2. **キャッシュヒット**: キャッシュ済みパスで即座に `renderPath()` を呼び出し、各グリフを描画
-3. **キャッシュミス**: `requestTextPathCache()` を非同期で発火し、フレームの描画を待たずにreturn
+1. `renderText()` が呼び出され、テキストキャッシュキーで `pathCache` をチェック
+2. **キャッシュヒット**: キャッシュ済みパスで即座に `renderPath()` を呼び出して描画。その要素の stale エントリは消す
+3. **キャッシュミス**: `requestTextPathCache()` を非同期で発火する。`stalePathCache` に同じキー、または同じ要素IDの古いエントリがあれば、それで描画してからreturnする。無ければ何も描かずにreturnする
 4. **非同期解決**: パス抽出が完了すると `pathCache` に格納し、再レンダリングを要求
-5. **次フレーム**: キャッシュヒットとなり、全グリフパスが描画される
+5. **次フレーム**: キャッシュヒットとなり、新しいグリフパスが描画される
+
+stale キャッシュは、ちらつきを防ぐためにある。`invalidateTextCache` で `pathCache` から外されたエントリは `stalePathCache` に移る。新しいパスが届くまでのフレームは、その古いパスで描かれる。
 
 `pendingPathCacheKeys` セットが重複リクエストを防止する。同一要素に対する `requestTextPathCache()` が複数フレームにわたって重複発火されることを防ぎ、不要な計算を回避する。
 
@@ -296,10 +311,32 @@ L1のGlyph Path Cacheは不変（immutable）である。同一フォント・�
 ```typescript
 interface TextElement extends ArtObject {
   type: "text"
+  x: number                     // world coordinates
+  y: number
   content: TextContent
   defaultStyle: TextStyle
-  layout: "horizontal-tb" | "vertical-rl" | "vertical-lr"
+  layout: TextLayout
   axisBinding?: TextAxisBinding // pathObjectId で軸パスを参照
+  flow?: TextFlow               // フローチェーンのリンク
+  clipPathId?: string | null
+}
+
+interface TextLayout {
+  writingMode: "horizontal-tb" | "vertical-rl" | "vertical-lr"
+  boxWidth: number | "auto"
+  boxHeight: number | "auto"
+  overflow: "visible" | "hidden" | "ellipsis"
+  wordWrap: boolean
+}
+
+type TextAxisBinding =
+  | { mode: "onPath"; pathObjectId: string; startOffset: number; offset?: number;
+      alignment: "left" | "center" | "right"; offsetDistance: number;
+      orientation: "upright" | "rotate" }
+  | { mode: "inShape"; pathObjectId: string; inset?: number }
+
+interface TextFlow {
+  nextTextElementId?: string    // あふれた文字の流し込み先
 }
 ```
 
@@ -308,7 +345,7 @@ interface TextElement extends ArtObject {
 ```typescript
 interface TextContent {
   paragraphs: TextParagraph[]
-  charOverrides?: Map<number, CharOverride>
+  charOverrides?: CharOverride[]
 }
 ```
 
@@ -317,14 +354,39 @@ interface TextContent {
 ```typescript
 interface TextParagraph {
   runs: TextRun[]
-  alignment: "left" | "center" | "right"
-  lineHeight: number
+  alignment: "left" | "center" | "right" | "justify"
+  lineHeight: number            // 1.0 = 100%
+  indent: number                // first-line indent (px)
+  spacing: { before: number; after: number }
 }
 
 interface TextRun {
   text: string
-  style?: Partial<TextStyle>
-  charOverrides?: Map<number, CharOverride>
+  style: TextStyle
+  charOverrides?: CharOverride[]
+}
+```
+
+### TextStyle
+
+```typescript
+interface TextStyle {
+  fontFamily: string
+  fontSource: FontSource
+  fontSize: number              // px
+  fontWeight: number            // 可変フォントでは wght 軸の値
+  fontVariationSettings?: Record<string, number> // wght 以外の可変軸
+  fontStyle: "normal" | "italic" | "oblique"
+  fill: FillColor | null
+  stroke?: StrokeColor | null
+  strokeWidth?: number
+  underline: boolean
+  strikethrough: boolean
+  letterSpacing: number         // em
+  lineHeight?: number
+  baselineShift: number         // px
+  tateChuYoko?: boolean         // 縦中横
+  openTypeFeatures?: Record<string, boolean>
 }
 ```
 
@@ -332,10 +394,15 @@ interface TextRun {
 
 ```typescript
 interface CharOverride {
-  kerningAdjust?: number      // inter-character spacing adjustment (px)
+  charIndex: number
+  kerningAdjust?: number      // inter-character spacing adjustment (em)
   sizeMultiplier?: number     // relative size multiplier (1.0 = default)
   baselineShift?: number      // vertical offset from baseline (px)
-  rotation?: number           // per-character rotation (radians)
+  rotation?: number           // per-character rotation (degrees)
+  skewX?: number              // horizontal shear angle (degrees)
+  skewY?: number              // vertical shear angle (degrees)
+  offsetX?: number            // visual offset (px, element-local axes, Y-up)
+  offsetY?: number
 }
 ```
 
@@ -344,11 +411,34 @@ interface CharOverride {
 ```typescript
 interface LayoutedChar {
   char: string
-  position: { x: number; y: number }
-  rotation: number
+  charIndex: number           // index within the content
+  runIndex: number
+  paragraphIndex: number
+  x: number
+  y: number
+  rotation: number            // radians, used for path placement
   fontSize: number
+  font: LoadedFont
   glyphPath: CubicBezierSegment[]
   advanceWidth: number
+  kerningOffset: number
+  sizeScale: number
+  override?: CharOverride
+  tateChuYoko?: boolean
+  synthetic?: boolean         // ellipsis など、内容に存在しない合成グリフ
+  charLength?: number         // このグリフが受け持つ文字数（合字では 1 より大きい）
+}
+```
+
+### LayoutResult
+
+```typescript
+interface LayoutResult {
+  lines: LayoutedLine[]
+  bounds: BoundingBox
+  chars: LayoutedChar[]        // flat list
+  hasOverflow: boolean         // リージョンやパスに収まらなかった文字があるか
+  overflowStartIndex?: number  // 収まらなかった最初の文字の charIndex
 }
 ```
 

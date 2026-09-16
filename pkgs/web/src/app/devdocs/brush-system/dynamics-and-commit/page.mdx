@@ -82,7 +82,7 @@ velocity += (stepVelocity - velocity) * alpha
 | fast | `velFast` | 25 ms | `speedFine` |
 | slow | `velSlow` | 110 ms | `speedGross` |
 
-ストローク先頭では、最初のsegmentの長さを所要時間で割った速度でfast EMAをseedする。ストローク途中のfragmentから評価を再開する場合は、slow EMAも同じ値でseedする。通常のストローク開始ではslow EMAを0から始める。
+通常のストローク開始では、fast EMAとslow EMAを接触速度の窓から求めた値でseedする。seedする値は、各EMAがその窓の内側で到達する最大値である。窓の扱いは「プレビューと確定で幅を共有する」で説明する。`pathStart` が0より大きいfragmentでは、最初のsegmentの長さを所要時間で割った速度で両方のEMAをseedする。`resume` stateを渡した評価は、前のchunkのEMAをそのまま引き継ぐ。
 
 ### speedRef
 
@@ -93,13 +93,13 @@ speedFine = min(velFast / speedRef, 1)
 speedGross = min(velSlow / speedRef, 1)
 ```
 
-`inputDynamics.speedRef` が設定されていればその正数値を使う。未設定なら、ブラシのbase sizeから自動値を求める。
+`inputDynamics.speedRef` が設定されていればその値を使う。未設定なら、ブラシのbase sizeから自動値を求める。
 
 ```text
 speedRef = clamp(sizeBase * 0.06, 0.5, 2.0)
 ```
 
-速度が `speedRef` 以上になると `speedFine` と `speedGross` は1へ飽和する。`inputDynamics.speedFineTau` と `inputDynamics.speedGrossTau` はそれぞれの時定数を上書きする。正数だけが有効な設定として残る。
+速度が `speedRef` 以上になると `speedFine` と `speedGross` は1へ飽和する。`inputDynamics.speedFineTau` と `inputDynamics.speedGrossTau` はそれぞれの時定数を上書きする。brush v2へのmigrationは、これら3つの値のうち正数だけを設定として残す。`evaluateDabs` は値を検査しない。
 
 ### accelと静止時の減衰
 
@@ -116,7 +116,7 @@ segment長が0.001 world unit未満な場合は静止segmentとして扱う。fa
 
 - `pkgs/web/src/core/renderer/canvas/pipeline/brush/DabEvaluator.ts`
 - `pkgs/web/src/core/schema.ts`
-- `pkgs/web/src/core/brush/migrate.ts`
+- `pkgs/web/src/core/io/migrations/brushV2/convert.ts`
 
 ## 速度をproperty curveへ渡す
 
@@ -230,9 +230,11 @@ size以外のspeed curveはprofileへ焼き込まない。共有するsegmentの
 
 確定Pathには中心線の `segments`、描画設定の `filters`、ベイクした `strokeWidths`、`strokeWidthsBaked` が入る。`PenTool` はこのPathを `context.strokeComplete` へ渡す。
 
-Paplicoの `strokeComplete` は一時overrideを消し、`commands.addPath` を呼ぶ。`PaplicoCommands.addPath` はreadonly状態、現在のlayer、lock状態を確認する。書き込み可能な場合はYjsトランザクション内で `YjsProvider.addElement` を呼ぶ。
+Paplicoの `strokeComplete` は一時overrideを消し、`commands.addPath` を呼ぶ。`PaplicoCommands.addPath` はreadonly状態、現在のlayer、lock状態を確認する。書き込み可能な場合はYjsトランザクション内で `YjsProvider.addElement` を呼ぶ。同じトランザクション内で `moveIntoEditingScope` も呼ぶ。グループなどの編集スコープに入っている場合に、Pathをそのスコープへ移すためである。
 
 `YjsProvider.addElement` はPath本体を `yObjects` へ保存する。対象layerの `elementIds` にPath IDを追加する。Pathとlayer参照は同じYjs transactionで更新する。
+
+`addPath` の後、`strokeComplete` は `spatialIndex.invalidateBounds` でPathのboundsを計算し直す。`selectStrokeAfterDraw` が有効な場合はそのPathを選択する。
 
 `strokeComplete` が戻った後、`PenTool` は描画状態をidleへ戻す。`previewUpdate(null)` はtransient previewを削除する。
 
@@ -247,11 +249,13 @@ sequenceDiagram
 
     Tool->>Session: commit()
     Session-->>Tool: raw points
-    Tool->>Tool: assign persistent ID to last preview Path
+    Tool->>Session: getCommitSegments()
+    Session-->>Tool: fit without input knots
+    Tool->>Tool: build Path with new ID and same widths
     Tool->>Commands: addPath(committed Path)
     Commands->>Yjs: addElement in transaction
-    Yjs-->>Changes: object delta
-    Changes->>Scheduler: invalidate document with Path ID
+    Yjs-->>Changes: full document sync
+    Changes->>Scheduler: invalidate document without change set
     Scheduler->>Scheduler: coalesce until next animation frame
 ```
 
@@ -263,9 +267,11 @@ sequenceDiagram
 
 ## 確定後の再描画
 
-Yjsのobject deltaを受けた `DocumentChangeSubscriber.syncObjectsDelta` は空間インデックスを更新する。追加したPath IDを `ChangedElements.upserted` に入れ、document invalidationへ渡す。
+`addElement` は `yObjects` とlayerの `elementIds` を同じトランザクションで変える。objectとlayerが同時に変わった更新を、`YjsProvider.syncYjsToValtio` はfull syncとして扱う。`extractDocumentFromYDoc` でdocument全体を作り直し、`onDocumentUpdate` へ渡す。Paplicoはstoreのdocumentを差し替える。`SpatialIndex` はこの差し替えを購読していて、`rebuildAllIndices` で全indexを作り直す。続いて `DocumentChangeSubscriber.syncFullDocument` がツールUIを更新する。
 
-`RenderScheduler.markDirty` は同じframe内のdirty reasonとelement IDをまとめる。document変更はfull render strategyである。次の `requestAnimationFrame` でrender callbackを呼ぶ。
+最後に `DocumentChangeSubscriber.onSyncApplied` がdocument invalidationを出す。full syncは変更した要素のIDを持たない。このためchange setを渡さない。
+
+`RenderScheduler.markDirty` は同じframe内のdirty reasonとelement IDをまとめる。change setのないdocument変更を受けると、そのframeの変更追跡を破棄する。render callbackにはchange setを渡さない。document変更はfull render strategyである。次の `requestAnimationFrame` でrender callbackを呼ぶ。
 
 確定したdab strokeは `evaluateDabs` の結果をStampCacheへ保存する。後続のpanとzoomはGPU bufferを再uploadすることがある。Dabのproperty評価は繰り返さない。
 
