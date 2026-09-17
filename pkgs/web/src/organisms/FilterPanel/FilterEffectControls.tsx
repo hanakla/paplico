@@ -29,6 +29,7 @@ import type {
 	HKTurbulenceFilter,
 	HKVhsInterlaceFilter,
 	HKWaveFilter,
+	NoiseFilter,
 	PathOffsetFilter,
 	PathUnionFilter,
 	PixelateFilter,
@@ -61,6 +62,7 @@ import { HuskyFilterControls } from "./ControlsHusky";
 import { InnerGlowFilterControls } from "./ControlsInnerGlow";
 import { KaleidoscopeFilterControls } from "./ControlsKaleidoscope";
 import { KirakiraFilterControls } from "./ControlsKirakira";
+import { NoiseFilterControls } from "./ControlsNoise";
 import { OutlineFilterControls } from "./ControlsOutline";
 import { PaperTextureFilterControls } from "./ControlsPaperTexture";
 import { PathOffsetFilterControls } from "./ControlsPathOffset";
@@ -275,6 +277,11 @@ export const FilterEffectControls = memo(function FilterEffectControls({
 				filter={filter as HKPaperV2Filter}
 				onUpdate={onUpdate}
 			/>
+		);
+	}
+	if (filter.processor === "noise") {
+		return (
+			<NoiseFilterControls filter={filter as NoiseFilter} onUpdate={onUpdate} />
 		);
 	}
 	if (filter.processor === "hk:pixel-sort") {

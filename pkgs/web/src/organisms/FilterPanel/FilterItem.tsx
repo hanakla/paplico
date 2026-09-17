@@ -14,25 +14,10 @@ import { Eye, EyeOff, Trash2 } from "lucide-react";
 import { type CSSProperties, memo, type ReactNode, useRef } from "react";
 import { ColorSwatch } from "@/components/ColorSwatch";
 import { IconButton } from "@/components/IconButton";
+import type { SvgFilterGraphFilter } from "@/core/renderer/filters";
 import type {
-	BlurFilter,
-	ClipToShapeFilter,
-	DropShadowFilter,
-	FrostGlassFilter,
-	PathOffsetFilter,
-	PathUnionFilter,
-	PixelateFilter,
-	PuckerBloatFilter,
-	Rotate3DFilter,
-	SvgFilterGraphFilter,
-	TransformFilter,
-	ZigzagFilter,
-} from "@/core/renderer/filters";
-import type {
-	Extrude3DAppearance,
 	FillAppearance,
 	Filter as FilterType,
-	Revolve3DAppearance,
 	StrokeAppearance,
 } from "@/core/schema";
 import { useTranslation } from "@/locales";
@@ -46,20 +31,7 @@ import {
 } from "./AppearanceControls";
 import { FilterInlineControls } from "./AppearanceInlineControls";
 import { AppearanceSurface } from "./AppearanceSurface";
-import { BlurFilterControls } from "./ControlsBlur";
-import { ClipToShapeFilterControls } from "./ControlsClipToShape";
-import { DropShadowFilterControls } from "./ControlsDropShadow";
-import { Extrude3DFilterControls } from "./ControlsExtrude3D";
-import { FrostGlassFilterControls } from "./ControlsFrostGlass";
-import { PathOffsetFilterControls } from "./ControlsPathOffset";
-import { PathUnionFilterControls } from "./ControlsPathUnion";
-import { PixelateFilterControls } from "./ControlsPixelate";
-import { PuckerBloatFilterControls } from "./ControlsPuckerBloat";
-import { Revolve3DFilterControls } from "./ControlsRevolve3D";
-import { Rotate3DFilterControls } from "./ControlsRotate3D";
 import { SvgFilterGraphControls } from "./ControlsSvgFilter";
-import { TransformFilterControls } from "./ControlsTransform";
-import { ZigzagFilterControls } from "./ControlsZigzag";
 import {
 	FILTER_TEXT_KEYS,
 	getAppearanceColor,
@@ -182,75 +154,7 @@ export const FilterItem = memo(function FilterItem({
 				<AppearanceBaseControls filter={filter} index={index} />
 			)}
 
-			{filter.processor === "blur" && (
-				<BlurFilterControls
-					filter={filter as BlurFilter}
-					onUpdate={updateFilter}
-				/>
-			)}
-
-			{filter.processor === "frost-glass" && (
-				<FrostGlassFilterControls
-					filter={filter as FrostGlassFilter}
-					onUpdate={updateFilter}
-				/>
-			)}
-
-			{filter.processor === "zigzag" && (
-				<ZigzagFilterControls
-					filter={filter as ZigzagFilter}
-					onUpdate={updateFilter}
-				/>
-			)}
-
-			{filter.processor === "drop-shadow" && (
-				<DropShadowFilterControls
-					filter={filter as DropShadowFilter}
-					onUpdate={updateFilter}
-				/>
-			)}
-
-			{filter.processor === "pixelate" && (
-				<PixelateFilterControls
-					filter={filter as PixelateFilter}
-					onUpdate={updateFilter}
-				/>
-			)}
-
-			{filter.processor === "path-offset" && (
-				<PathOffsetFilterControls
-					filter={filter as PathOffsetFilter}
-					onUpdate={updateFilter}
-				/>
-			)}
-
-			{filter.processor === "clip-to-shape" && (
-				<ClipToShapeFilterControls
-					filter={filter as ClipToShapeFilter}
-					onUpdate={updateFilter}
-				/>
-			)}
-
-			{filter.processor === "path-union" && (
-				<PathUnionFilterControls
-					filter={filter as PathUnionFilter}
-					onUpdate={updateFilter}
-				/>
-			)}
-
-			{filter.processor === "pucker-bloat" && (
-				<PuckerBloatFilterControls
-					filter={filter as PuckerBloatFilter}
-					onUpdate={updateFilter}
-				/>
-			)}
-
-			{filter.processor === "transform" && (
-				<TransformFilterControls
-					filter={filter as TransformFilter}
-					onUpdate={updateFilter}
-				/>
-			)}
+			<FilterEffectControls filter={filter} onUpdate={updateFilter} />
 
 			{filter.processor === "svg:filter" ? (
 				<SvgFilterGraphControls
@@ -263,32 +167,7 @@ export const FilterItem = memo(function FilterItem({
 				)
 			)}
 
-			{filter.processor.startsWith("hk:") && (
-				<FilterEffectControls filter={filter} onUpdate={updateFilter} />
-			)}
-
 			{/* Sub-filters for appearances: expanded flat (no indent) in Popover */}
-			{filter.processor === "3d-rotate" && (
-				<Rotate3DFilterControls
-					filter={filter as Rotate3DFilter}
-					onUpdate={updateFilter}
-				/>
-			)}
-
-			{filter.processor === "extrude3d" && (
-				<Extrude3DFilterControls
-					filter={filter as Extrude3DAppearance}
-					onUpdate={updateFilter}
-				/>
-			)}
-
-			{filter.processor === "revolve3d" && (
-				<Revolve3DFilterControls
-					filter={filter as Revolve3DAppearance}
-					onUpdate={updateFilter}
-				/>
-			)}
-
 			{isAppearance && (
 				<div className="space-y-3">
 					<div className="border-t border-border/50" />

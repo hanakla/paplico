@@ -84,6 +84,7 @@ import { HKSprayingHandler } from "./filters/hanakla-kit/HKSprayingHandler";
 import { HKTurbulenceHandler } from "./filters/hanakla-kit/HKTurbulenceHandler";
 import { HKVhsInterlaceHandler } from "./filters/hanakla-kit/HKVhsInterlaceHandler";
 import { HKWaveHandler } from "./filters/hanakla-kit/HKWaveHandler";
+import { NoiseFilterProcessor } from "./filters/NoiseFilterProcessor";
 import { PathOffsetFilterHandler } from "./filters/PathOffsetFilterProcessor";
 import { PathUnionFilterHandler } from "./filters/PathUnionFilterProcessor";
 import { PixelateFilterProcessor } from "./filters/PixelateFilterProcessor";
@@ -2485,6 +2486,10 @@ export class RenderOrchestrator {
 		const pixelateProcessor = new PixelateFilterProcessor();
 		await pixelateProcessor.initialize(this.device, this.canvasFormat);
 		filterRenderer.registerHandler("pixelate", pixelateProcessor);
+
+		const noiseProcessor = new NoiseFilterProcessor();
+		await noiseProcessor.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("noise", noiseProcessor);
 
 		const zigzagHandler = new ZigzagFilterHandler();
 		await zigzagHandler.initialize(this.device, this.canvasFormat);

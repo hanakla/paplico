@@ -40,6 +40,7 @@ export const FILTER_TEXT_KEYS = {
 	zigzag: "filterPanel.zigzag",
 	"drop-shadow": "filterPanel.dropShadow",
 	pixelate: "filterPanel.pixelate",
+	noise: "filterPanel.noise",
 	"path-offset": "filterPanel.pathOffset",
 	"path-union": "filterPanel.pathUnion",
 	"pucker-bloat": "filterPanel.puckerBloat",

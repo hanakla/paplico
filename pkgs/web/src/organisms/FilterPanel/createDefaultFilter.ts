@@ -601,6 +601,18 @@ const FILTER_DEFS: Record<string, () => ReturnType<typeof Object>> = {
 			},
 		},
 	}),
+	noise: () => ({
+		uid: generateUid("filter"),
+		processor: "noise",
+		paramData: {
+			version: "1",
+			params: {
+				mixRate: 1,
+				seed: 42,
+				colorMode: "monochrome",
+			},
+		},
+	}),
 	// Hanakla Kit — Other
 	"hk:husky": () => ({
 		uid: generateUid("filter"),

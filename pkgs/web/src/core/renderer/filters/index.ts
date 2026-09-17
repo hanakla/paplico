@@ -126,6 +126,10 @@ export type {
 	HKWaveParams,
 } from "./hanakla-kit/HKWaveHandler";
 export type {
+	NoiseFilter,
+	NoiseParams,
+} from "./NoiseFilterProcessor";
+export type {
 	PathOffsetFilter,
 	PathOffsetParams,
 } from "./PathOffsetFilterProcessor";

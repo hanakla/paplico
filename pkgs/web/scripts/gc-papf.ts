@@ -12,10 +12,16 @@
  *    `doc.brushPresets`, `doc.colorProfile`, or `doc.references3d`.
  *
  * Optionally clears all timelapse data with `--clear-timelapse`.
+ *
+ * The result is saved as a PDF container like the app saves documents. Its
+ * pages are blank, since the artboard previews need the GPU renderer.
  */
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { gcDocument } from "../src/core/io/papf/gc";
-import { openPapf } from "../src/core/io/papf/reader";
+import {
+	openPapfContainer,
+	wrapPapfInPdf,
+} from "../src/core/io/papf/pdfContainer";
 import { serializeDocument } from "../src/core/io/papf/writer";
 import type { Document } from "../src/core/schema";
 
@@ -33,8 +39,7 @@ async function main() {
 	}
 
 	const beforeBytes = (await stat(filePath)).size;
-	const blob = new Blob([await readFile(filePath)]);
-	const papf = await openPapf(blob);
+	const papf = await openPapfContainer(new Blob([await readFile(filePath)]));
 	const doc = await papf.toDocument();
 
 	// 1 & 2. Sweep unreachable ArtObjects and unreferenced embedded files.
@@ -83,7 +88,15 @@ async function main() {
 		gcedDoc.timelapse = undefined;
 	}
 
-	const outBlob = await serializeDocument(gcedDoc);
+	const papfBlob = await serializeDocument(gcedDoc);
+	const outBlob = await wrapPapfInPdf(
+		new Uint8Array(await papfBlob.arrayBuffer()),
+		gcedDoc.artboards.map(({ width, height }) => ({
+			width,
+			height,
+			jpeg: null,
+		})),
+	);
 	const afterBytes = outBlob.size;
 	await writeFile(filePath, Buffer.from(await outBlob.arrayBuffer()));
 

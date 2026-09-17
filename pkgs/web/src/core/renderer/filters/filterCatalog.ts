@@ -153,6 +153,7 @@ export const FILTER_CATALOG: FilterCatalogEntry[] = [
 		category: "Texture",
 		canBeSubFilter: true,
 	},
+	{ processor: "noise", category: "Texture", canBeSubFilter: true },
 	// SVG filter primitives: exported 1:1 as <fe*> elements. A sub-filter
 	// position would rasterize on export, so they are top-level only.
 	{ processor: "svg:gaussian-blur", category: "SVG", canBeSubFilter: false },
