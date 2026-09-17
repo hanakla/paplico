@@ -91,6 +91,7 @@ import { PixelateFilterProcessor } from "./filters/PixelateFilterProcessor";
 import { PuckerBloatFilterHandler } from "./filters/PuckerBloatFilterProcessor";
 import { Revolve3DFilterHandler } from "./filters/Revolve3DFilterHandler";
 import { Rotate3DFilterProcessor } from "./filters/Rotate3DFilterProcessor";
+import { RoughFilterHandler } from "./filters/RoughFilterProcessor";
 import { ScratchTexturePool } from "./filters/ScratchTexturePool";
 import { SvgBlendHandler } from "./filters/svg/SvgBlendHandler";
 import {
@@ -2494,6 +2495,10 @@ export class RenderOrchestrator {
 		const zigzagHandler = new ZigzagFilterHandler();
 		await zigzagHandler.initialize(this.device, this.canvasFormat);
 		filterRenderer.registerHandler("zigzag", zigzagHandler);
+
+		const roughHandler = new RoughFilterHandler();
+		await roughHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("rough", roughHandler);
 
 		const pathOffsetHandler = new PathOffsetFilterHandler();
 		await pathOffsetHandler.initialize(this.device, this.canvasFormat);

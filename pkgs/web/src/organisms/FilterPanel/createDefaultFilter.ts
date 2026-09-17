@@ -7,6 +7,7 @@ import {
 	type ClipToShapeFilter,
 	type DropShadowFilter,
 	type FrostGlassFilter,
+	type RoughFilter,
 	SVG_COLOR_FUNCTIONS,
 	SVG_COLOR_MATRIX_IDENTITY,
 	type SvgBlendFilter,
@@ -38,6 +39,7 @@ type DefaultFilter =
 	| BlurFilter
 	| FrostGlassFilter
 	| ZigzagFilter
+	| RoughFilter
 	| DropShadowFilter
 	| ClipToShapeFilter
 	| SvgGaussianBlurFilter
@@ -116,6 +118,14 @@ const FILTER_DEFS: Record<string, () => ReturnType<typeof Object>> = {
 		paramData: {
 			version: "1",
 			params: { frequency: 10, amplitude: 5 },
+		},
+	}),
+	rough: () => ({
+		uid: generateUid("filter"),
+		processor: "rough",
+		paramData: {
+			version: "1",
+			params: { size: 5, detail: 10 },
 		},
 	}),
 	"drop-shadow": () => ({

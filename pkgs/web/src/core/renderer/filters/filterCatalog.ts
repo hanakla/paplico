@@ -14,6 +14,7 @@ export const FILTER_CATALOG: FilterCatalogEntry[] = [
 	{ processor: "revolve3d", category: "3D", canBeSubFilter: false },
 	{ processor: "3d-rotate", category: "3D", canBeSubFilter: true },
 	{ processor: "zigzag", category: "Geometry", canBeSubFilter: true },
+	{ processor: "rough", category: "Geometry", canBeSubFilter: true },
 	{ processor: "path-offset", category: "Geometry", canBeSubFilter: true },
 	{ processor: "path-union", category: "Geometry", canBeSubFilter: true },
 	{ processor: "pucker-bloat", category: "Geometry", canBeSubFilter: true },

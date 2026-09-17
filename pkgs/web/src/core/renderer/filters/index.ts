@@ -150,6 +150,8 @@ export type {
 	Rotate3DFilter,
 	Rotate3DParams,
 } from "./Rotate3DFilterProcessor";
+// --- Pre-Filters (Geometry) ---
+export type { RoughFilter, RoughParams } from "./RoughFilterProcessor";
 // --- SVG filter primitives ---
 export type {
 	SvgBlendFilter,
@@ -225,7 +227,6 @@ export type {
 	TransformOrigin,
 	TransformParams,
 } from "./TransformFilterProcessor";
-// --- Pre-Filters (Geometry) ---
 export type {
 	ZigzagFilter,
 	ZigzagParams,

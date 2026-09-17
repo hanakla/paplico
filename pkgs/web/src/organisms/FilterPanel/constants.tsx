@@ -1,5 +1,6 @@
 import {
 	Activity,
+	AudioWaveform,
 	Box,
 	Crop,
 	Cylinder,
@@ -38,6 +39,7 @@ export const FILTER_TEXT_KEYS = {
 	blur: "filterPanel.blur",
 	"frost-glass": "filterPanel.frostGlass",
 	zigzag: "filterPanel.zigzag",
+	rough: "filterPanel.rough",
 	"drop-shadow": "filterPanel.dropShadow",
 	pixelate: "filterPanel.pixelate",
 	noise: "filterPanel.noise",
@@ -128,6 +130,8 @@ export function getFilterIcon(processor: string) {
 			return <Type size={12} className="text-muted-foreground" />;
 		case "zigzag":
 			return <Activity size={12} className="text-muted-foreground" />;
+		case "rough":
+			return <AudioWaveform size={12} className="text-muted-foreground" />;
 		case "path-offset":
 			return <Expand size={12} className="text-muted-foreground" />;
 		case "path-union":

@@ -35,6 +35,7 @@ import type {
 	PixelateFilter,
 	PuckerBloatFilter,
 	Rotate3DFilter,
+	RoughFilter,
 	TransformFilter,
 	ZigzagFilter,
 } from "@/core/renderer/filters";
@@ -74,6 +75,7 @@ import { PuckerBloatFilterControls } from "./ControlsPuckerBloat";
 import { RadialRotDirFilterControls } from "./ControlsRadialRotDir";
 import { Revolve3DFilterControls } from "./ControlsRevolve3D";
 import { Rotate3DFilterControls } from "./ControlsRotate3D";
+import { RoughFilterControls } from "./ControlsRough";
 import { SelectiveCorrectionFilterControls } from "./ControlsSelectiveCorrection";
 import { SmearFilterControls } from "./ControlsSmear";
 import { SprayingFilterControls } from "./ControlsSpraying";
@@ -109,6 +111,11 @@ export const FilterEffectControls = memo(function FilterEffectControls({
 				filter={filter as ZigzagFilter}
 				onUpdate={onUpdate}
 			/>
+		);
+	}
+	if (filter.processor === "rough") {
+		return (
+			<RoughFilterControls filter={filter as RoughFilter} onUpdate={onUpdate} />
 		);
 	}
 	if (filter.processor === "drop-shadow") {
