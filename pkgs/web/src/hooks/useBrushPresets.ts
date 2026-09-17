@@ -537,6 +537,7 @@ const BUILTIN_BRUSH_PRESET_NAME_KEYS: Record<string, LocalizeKeys> = {
 	"builtin-brush-ink": "builtinBrushPreset.ink",
 	"builtin-brush-soft-airbrush": "builtinBrushPreset.softAirbrush",
 	"builtin-brush-mixing": "builtinBrushPreset.mixing",
+	"builtin-brush-smudge": "builtinBrushPreset.smudge",
 	"builtin-brush-blur": "builtinBrushPreset.blur",
 	"builtin-brush-scatter-blur": "builtinBrushPreset.scatterBlur",
 };

@@ -1235,6 +1235,53 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 		},
 	};
 
+	// Lays down no colour of its own: every dab carries only what the brush
+	// picked up from the layer, so the picture is dragged along the stroke
+	// like paint pushed with a fingertip. Pressure decides how far it drags.
+	const smudge: BrushPreset = {
+		uid: "builtin-brush-smudge",
+		name: "Smudge",
+		category: "effect",
+		settings: {
+			version: 2,
+			engine: "dab",
+			strokeOpacity: 1,
+			paintMode: "wash",
+			properties: {
+				size: {
+					base: 30,
+					curves: [speedThinning()],
+				},
+				spacing: { base: 0.05 },
+				flow: { base: 0.8 },
+				hardness: { base: 0.3 },
+				colorRate: { base: 0 },
+				alphaRate: { base: 0 },
+				smudgeLength: {
+					base: 0.95,
+					curves: [
+						{
+							input: "pressure",
+							points: [
+								[0, -0.3],
+								[1, 0],
+							],
+						},
+					],
+				},
+			},
+			tip: { kind: "procedural", hardness: 0.3, angleMode: "fixed" },
+			mixing: {
+				enabled: true,
+				mode: "dulling",
+				sampleRadius: 1,
+				sampleTrail: 1,
+				blendStyle: 0.35,
+			},
+			randomSeed: 47,
+		},
+	};
+
 	// Softens what is already on the layer instead of adding paint: the
 	// composite below the stroke is blurred and shown through the stroke's
 	// coverage, so at full flow the backdrop under the stroke is exactly its
@@ -1322,6 +1369,7 @@ export function createBuiltinBrushPresets(): BrushPreset[] {
 		ink,
 		softAirbrush,
 		mixingBrush,
+		smudge,
 		blur,
 		scatterBlur,
 	];

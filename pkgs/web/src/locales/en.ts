@@ -1574,6 +1574,7 @@ export const en = {
 		ink: "Ink",
 		softAirbrush: "Soft Airbrush",
 		mixing: "Mixing Brush",
+		smudge: "Smudge",
 		blur: "Blur",
 		scatterBlur: "Scatter Blur",
 	},

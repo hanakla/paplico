@@ -1573,6 +1573,7 @@ export const ja = {
 		ink: "インク",
 		softAirbrush: "ソフトエアブラシ",
 		mixing: "混色ブラシ",
+		smudge: "指先",
 		blur: "ぼかし",
 		scatterBlur: "拡散ぼかし",
 	},
