@@ -173,20 +173,39 @@ function compensateAmplitude(
 	if (amplitude < 1e-8 || totalCycles < 1e-8) return amplitude;
 
 	const halfCycleLen = totalLength / (2 * totalCycles);
-	const edgeLen = Math.hypot(halfCycleLen, 2 * amplitude);
-	const cutback = (roundCorners * edgeLen) / 2;
 
-	const dot =
-		(halfCycleLen * halfCycleLen - 4 * amplitude * amplitude) /
-		(halfCycleLen * halfCycleLen + 4 * amplitude * amplitude);
-	const halfAngle = Math.acos(Math.max(-1, Math.min(1, dot))) / 2;
+	// The rounded peak height grows monotonically with the offset and is at
+	// least offset * (1 - roundCorners), which bounds the search. At
+	// roundCorners = 1 the height saturates at halfCycleLen / 2, so the cap
+	// keeps unreachable amplitudes finite.
+	let lo = amplitude;
+	let hi = amplitude / Math.max(1 - roundCorners, 1e-3);
+	for (let i = 0; i < 50; i++) {
+		const mid = (lo + hi) / 2;
+		if (roundedPeakHeight(mid, halfCycleLen, roundCorners) < amplitude) {
+			lo = mid;
+		} else {
+			hi = mid;
+		}
+	}
+	return hi;
+}
 
-	if (halfAngle < 1e-8) return amplitude;
-
-	const r = cutback * Math.tan(halfAngle);
-	const reduction = r * (1 / Math.sin(halfAngle) - 1);
-
-	return amplitude + reduction;
+/**
+ * Height of a peak offset by `offset` after its corner is rounded with an arc
+ * inscribed between edges of length hypot(halfCycleLen, 2 * offset).
+ */
+function roundedPeakHeight(
+	offset: number,
+	halfCycleLen: number,
+	roundCorners: number,
+): number {
+	const edgeLen = Math.hypot(halfCycleLen, 2 * offset);
+	// cutback * (1 - sin(halfAngle)) / cos(halfAngle), with
+	// sin(halfAngle) = halfCycleLen / edgeLen and cos(halfAngle) = 2 * offset / edgeLen
+	const reduction =
+		(roundCorners * edgeLen * (edgeLen - halfCycleLen)) / (4 * offset);
+	return offset - reduction;
 }
 
 // ---------------------------------------------------------------------------
@@ -373,13 +392,16 @@ function buildRoundedZigzag(
 	const cornerStart = closed ? 0 : 1;
 	const cornerEnd = closed ? n : n - 1;
 	const cutbacks = new Map<number, number>();
+	// An edge shared by two corners gives each half its length. An edge ending
+	// at an open path's anchor belongs to one corner only, so that corner may
+	// use all of it and rounds like the interior corners.
 	for (let i = cornerStart; i < cornerEnd; i++) {
-		const prevEdge = closed
-			? edgeLengths[(i - 1 + edgeCount) % edgeCount]
-			: edgeLengths[i - 1];
-		const nextEdge = edgeLengths[i % edgeCount];
-		const minEdge = Math.min(prevEdge, nextEdge);
-		cutbacks.set(i, (roundCorners * minEdge) / 2);
+		const prevBudget = closed
+			? edgeLengths[(i - 1 + edgeCount) % edgeCount] / 2
+			: edgeLengths[i - 1] / (i === 1 ? 1 : 2);
+		const nextBudget =
+			edgeLengths[i % edgeCount] / (!closed && i === n - 2 ? 1 : 2);
+		cutbacks.set(i, roundCorners * Math.min(prevBudget, nextBudget));
 	}
 
 	const result: CubicBezierSegment[] = [];
