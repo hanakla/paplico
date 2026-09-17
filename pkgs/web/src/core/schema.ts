@@ -1684,6 +1684,7 @@ export const BUILTIN_BRUSH_IDS = {
 	airbrush: "builtin-brush-airbrush",
 	calligraphy: "builtin-brush-calligraphy",
 	bacon: "builtin-brush-bacon",
+	grainy: "builtin-brush-grainy",
 } as const;
 
 export type BuiltinBrushId =
