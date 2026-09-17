@@ -787,8 +787,10 @@ export default function Page() {
 				if (pixelPick) {
 					if (uiState.activeColorTarget === "stroke") {
 						paplico.tools.setStrokeColor(strokeColor);
+						paplico.commands.updateSelectedElementsStrokeColor(strokeColor);
 					} else {
 						paplico.tools.setFillColor(fillColor);
+						paplico.commands.updateSelectedElementsFill(fillColor);
 					}
 				} else {
 					paplico.tools.setStrokeColor(strokeColor);
