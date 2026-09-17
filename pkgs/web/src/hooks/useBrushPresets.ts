@@ -16,7 +16,7 @@ import {
 import { createBrushTextureFile } from "@/core/utils/embeddedFile";
 import { FileSystem } from "@/infra/filesystem";
 import { parsePapb, serializePapb } from "@/infra/papb";
-import { useTranslation } from "@/locales";
+import { type LocalizeKeys, useTranslation } from "@/locales";
 import {
 	brushPresetsRepo,
 	clonePersistedBrushPreset,
@@ -48,7 +48,14 @@ export function useBrushPresets() {
 	const docManagerSnap = useSnapshot(documentManagerState);
 	const currentDocumentId = docManagerSnap.currentDocumentId;
 
-	const builtinPresets = useMemo(() => getBuiltinBrushPresets(), []);
+	const builtinPresets = useMemo(
+		() =>
+			getBuiltinBrushPresets().map((preset) => ({
+				...preset,
+				name: t(BUILTIN_BRUSH_PRESET_NAME_KEYS[preset.uid]),
+			})),
+		[t],
+	);
 	const [builtinFiles, setBuiltinFiles] = useState<EmbeddedFile[]>([]);
 	const [persistedPresets, setPersistedPresets] = useState<
 		PersistedBrushPreset[]
@@ -511,6 +518,28 @@ export function useBrushPresets() {
 			persistedPresetPreviewSources.get(presetUid) ?? null,
 	};
 }
+
+/** Locale keys of the builtin preset names, keyed by preset uid. */
+const BUILTIN_BRUSH_PRESET_NAME_KEYS: Record<string, LocalizeKeys> = {
+	[BUILTIN_BRUSH_IDS.svg]: "builtinBrushPreset.pen",
+	[BUILTIN_BRUSH_IDS.hardCircle]: "builtinBrushPreset.hardRound",
+	[BUILTIN_BRUSH_IDS.calligraphy]: "builtinBrushPreset.calligraphy",
+	[BUILTIN_BRUSH_IDS.softCircle]: "builtinBrushPreset.softCircle",
+	[BUILTIN_BRUSH_IDS.pencil]: "builtinBrushPreset.pencil",
+	[BUILTIN_BRUSH_IDS.airbrush]: "builtinBrushPreset.airbrush",
+	[BUILTIN_BRUSH_IDS.bacon]: "builtinBrushPreset.bacon",
+	[BUILTIN_BRUSH_IDS.grainy]: "builtinBrushPreset.grainy",
+	"builtin-brush-watercolor": "builtinBrushPreset.watercolor",
+	"builtin-brush-dry-brush": "builtinBrushPreset.dryBrush",
+	"builtin-brush-bleed-watercolor": "builtinBrushPreset.bleedWatercolor",
+	"builtin-brush-g-pen": "builtinBrushPreset.gPen",
+	"builtin-brush-marker": "builtinBrushPreset.marker",
+	"builtin-brush-ink": "builtinBrushPreset.ink",
+	"builtin-brush-soft-airbrush": "builtinBrushPreset.softAirbrush",
+	"builtin-brush-mixing": "builtinBrushPreset.mixing",
+	"builtin-brush-blur": "builtinBrushPreset.blur",
+	"builtin-brush-scatter-blur": "builtinBrushPreset.scatterBlur",
+};
 
 export function materializeBrushPresetTexture({
 	preset,
