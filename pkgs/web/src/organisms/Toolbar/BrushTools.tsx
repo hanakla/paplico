@@ -6,6 +6,7 @@ import {
 	Download,
 	ImagePlus,
 	Import,
+	MoreHorizontal,
 	Trash2,
 	X,
 } from "lucide-react";
@@ -15,9 +16,11 @@ import { Button } from "@/components/Button";
 import { DashPatternControls } from "@/components/DashPatternControls";
 import { FakeInput } from "@/components/FakeInput";
 import { IconButton } from "@/components/IconButton";
+import { Menu } from "@/components/Menu";
 import { Select } from "@/components/Select";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { InfiniteSlider, Slider } from "@/components/Slider";
+import { SwipeAction } from "@/components/SwipeAction";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
@@ -201,6 +204,10 @@ export const BrushSettingsPanel = memo(function BrushSettingsPanel({
 		await brushPresets.duplicateBrushPreset(presetUid);
 	});
 
+	const handleDeletePreset = useEventCallback(async (presetUid: string) => {
+		await brushPresets.deleteBrushPreset(presetUid);
+	});
+
 	const handleSizeChange = useEventCallback((size: number) => {
 		brushEdits.setBrushSize(size);
 	});
@@ -255,7 +262,7 @@ export const BrushSettingsPanel = memo(function BrushSettingsPanel({
 								{t("toolbar.emptyPresetLibrary")}
 							</div>
 						) : (
-							<div className="space-y-2">
+							<div className="overflow-hidden rounded-lg border border-border/20">
 								{brushPresets.persistedPresets.map((preset) => (
 									<BrushPresetCard
 										key={preset.uid}
@@ -268,6 +275,7 @@ export const BrushSettingsPanel = memo(function BrushSettingsPanel({
 										}
 										onClick={() => void handlePresetSelect(preset.uid)}
 										onDuplicate={() => void handleDuplicatePreset(preset.uid)}
+										onDelete={() => void handleDeletePreset(preset.uid)}
 									/>
 								))}
 							</div>
@@ -283,7 +291,7 @@ export const BrushSettingsPanel = memo(function BrushSettingsPanel({
 								<p className="text-[11px] text-muted-foreground">
 									{t(BRUSH_CATEGORY_LABEL_KEYS[group.category])}
 								</p>
-								<div className="space-y-2">
+								<div className="overflow-hidden rounded-lg border border-border/20">
 									{group.presets.map((preset) => (
 										<BrushPresetCard
 											key={preset.uid}
@@ -1123,12 +1131,14 @@ export const BrushPresetCard = memo(function BrushPresetCard({
 	isActive,
 	onClick,
 	onDuplicate,
+	onDelete,
 }: {
 	name: string;
 	preview: BrushStrokePreviewSource | null;
 	isActive: boolean;
 	onClick: () => void;
 	onDuplicate?: () => void;
+	onDelete?: () => void;
 }) {
 	const t = useTranslation();
 
@@ -1136,52 +1146,89 @@ export const BrushPresetCard = memo(function BrushPresetCard({
 		onClick();
 	});
 
-	const handleDuplicate = useEventCallback((e: React.MouseEvent) => {
-		e.stopPropagation();
-		onDuplicate?.();
-	});
-
 	return (
-		<button
-			type="button"
-			className={twm(
-				"group flex w-full flex-col gap-1 overflow-auto rounded-lg border px-2.5 py-1.5 text-left transition-colors",
-				isActive
-					? "border-accent/40 bg-accent/10"
-					: "border-border/20 bg-background/60 hover:bg-foreground/[0.04]",
-			)}
-			onClick={handleClick}
+		<SwipeAction.Root
+			className="border-b border-border/20 last:border-b-0"
+			disabled={!onDuplicate && !onDelete}
 		>
-			<div className="flex w-full items-center gap-1">
-				<p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
-					{name}
-				</p>
+			<SwipeAction.Content className="relative">
+				<button
+					type="button"
+					className={twm(
+						"flex w-full flex-col gap-1 overflow-auto py-1.5 pr-8 pl-2.5 text-left transition-colors",
+						isActive
+							? "bg-accent/10 ring-1 ring-accent/40 ring-inset"
+							: "bg-background/60 hover:bg-foreground/[0.04]",
+					)}
+					onClick={handleClick}
+				>
+					<p className="w-full truncate text-xs font-medium text-foreground">
+						{name}
+					</p>
 
-				{onDuplicate ? (
-					<Tooltip content={t("toolbar.duplicatePreset")} side="top">
-						<button
-							type="button"
-							className="shrink-0 rounded-md p-1 opacity-0 transition-opacity hover:bg-foreground/10 group-hover:opacity-100"
-							onClick={handleDuplicate}
-						>
-							<Copy size={12} />
-						</button>
-					</Tooltip>
+					{preview ? (
+						<BrushStrokePreview
+							brushSettings={preview.brushSettings}
+							textureFile={preview.textureFile}
+							width={144}
+							height={28}
+							className="w-full rounded border-0 bg-transparent"
+						/>
+					) : (
+						<div className="h-7 w-full rounded bg-background/70" />
+					)}
+				</button>
+
+				{onDuplicate || onDelete ? (
+					<Menu.Root>
+						<Menu.Trigger className="absolute top-1/2 right-1 -translate-y-1/2 rounded p-1 text-foreground hover:bg-foreground/10">
+							<MoreHorizontal size={14} />
+						</Menu.Trigger>
+						<Menu.Portal>
+							<Menu.Positioner side="bottom" align="end" sideOffset={4}>
+								<Menu.Popup>
+									{onDuplicate ? (
+										<Menu.Item onClick={onDuplicate}>
+											<Copy size={12} />
+											{t("toolbar.duplicateBrush")}
+										</Menu.Item>
+									) : null}
+									{onDuplicate && onDelete ? <Menu.Separator /> : null}
+									{onDelete ? (
+										<Menu.Item
+											onClick={onDelete}
+											className="text-danger data-highlighted:bg-danger/10"
+										>
+											<Trash2 size={12} />
+											{t("toolbar.deleteBrush")}
+										</Menu.Item>
+									) : null}
+								</Menu.Popup>
+							</Menu.Positioner>
+						</Menu.Portal>
+					</Menu.Root>
 				) : null}
-			</div>
+			</SwipeAction.Content>
 
-			{preview ? (
-				<BrushStrokePreview
-					brushSettings={preview.brushSettings}
-					textureFile={preview.textureFile}
-					width={144}
-					height={28}
-					className="w-full rounded border-0 bg-transparent"
-				/>
-			) : (
-				<div className="h-7 w-full rounded bg-background/70" />
-			)}
-		</button>
+			<SwipeAction.Actions>
+				{onDuplicate ? (
+					<SwipeAction.Action
+						onClick={onDuplicate}
+						className="bg-accent text-accent-foreground"
+					>
+						<Copy size={14} />
+					</SwipeAction.Action>
+				) : null}
+				{onDelete ? (
+					<SwipeAction.Action
+						onClick={onDelete}
+						className="bg-danger text-danger-foreground"
+					>
+						<Trash2 size={14} />
+					</SwipeAction.Action>
+				) : null}
+			</SwipeAction.Actions>
+		</SwipeAction.Root>
 	);
 });
 
