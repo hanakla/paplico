@@ -3,8 +3,8 @@ import type {
 	CubicBezierSegment,
 	PathSegment,
 } from "../../schema";
-import { resolveSegment } from "../../utils/geometry/segmentOps";
-import { clamp, lerp } from "../../utils/math";
+import { clamp, lerp } from "../math";
+import { resolveSegment } from "./segmentOps";
 
 const { PI, acos, tan, sqrt, min } = Math;
 const ANGLE_THRESHOLD = (170 * PI) / 180;

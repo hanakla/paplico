@@ -13,8 +13,8 @@ import {
 import {
 	computeSubPathSignedArea,
 	resolveSegment,
+	splitIntoSubPaths,
 } from "../../utils/geometry/segmentOps";
-import { splitIntoSubPaths } from "../canvas/CanvasLayer.helpers";
 import type { FilterHandler } from "../canvas/pipeline/FilterRenderer";
 
 export interface PathOffsetParams {

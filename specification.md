@@ -481,7 +481,6 @@ Vello GPU 方式の被覆率ラスタライザ。ステンシルも MSAA も使�
 
 - `GradientTextureGenerator` — FreeGradientのDelaunay分割 + 三角形Coonsパッチcomputeシェーダー
 - `MeshGradientTextureGenerator` — メッシュグラデーションのテクスチャ生成（2段キャッシュ）
-- `CornerRadiusProcessor.ts` の `applyCornerRadius` — cornerRadius頂点への2パスフィレット適用（対象0個なら元配列をそのまま返す）
 
 ### UILayer
 

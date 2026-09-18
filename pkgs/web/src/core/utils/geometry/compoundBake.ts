@@ -9,13 +9,6 @@ import { computeBooleanOperation } from "./pathOps";
 import { toWorldPath } from "./segmentOps";
 
 /**
- * Bezier sampling tolerance every consumer of a compound path's boolean
- * result uses. A consumer with its own value would drift the baked shape
- * apart from the on-canvas render.
- */
-export const COMPOUND_CURVE_TOLERANCE = 0.25;
-
-/**
  * Resolve a compound path's boolean result: sources are world-baked by their
  * own transforms, the result acts as the compound's local geometry under the
  * compound's own transform. Single definition of the sources → pathMap →
@@ -35,7 +28,5 @@ export function bakeCompoundPathSegments(
 		validSources.push(source);
 	}
 	if (validSources.length === 0) return [];
-	return computeBooleanOperation(validSources, pathMap, {
-		curveTolerance: COMPOUND_CURVE_TOLERANCE,
-	});
+	return computeBooleanOperation(validSources, pathMap);
 }

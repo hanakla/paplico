@@ -31,9 +31,9 @@ import { scaleStrokeAppearance } from "../../utils/geometry/resize";
 import {
 	getStartAnchor,
 	reverseSubPath,
+	splitIntoSubPaths,
 } from "../../utils/geometry/segmentOps";
 import { degToRad, lerp, mulberry32 } from "../../utils/math";
-import { splitIntoSubPaths } from "../canvas/CanvasLayer.helpers";
 import {
 	type AppearanceGeometry,
 	appearancePaintsPattern,

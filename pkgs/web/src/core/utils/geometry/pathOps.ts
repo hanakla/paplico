@@ -6,7 +6,6 @@
  */
 
 import polygonClipping from "polygon-clipping";
-import { localAppearances } from "../../document/appearancePresets";
 import {
 	type BezierPoint,
 	type CompoundPathSource,
@@ -16,12 +15,22 @@ import {
 	type PathSegment,
 	type StrokeWidthPoint,
 } from "../../schema";
-import { getStrokeWidth } from "../elementQuery";
+import {
+	type BooleanOp,
+	booleanOp,
+	contourToCubicSegments,
+	cubicSegmentsToContour,
+	GeometryEpsilon,
+	normalizeWinding,
+	type Segment,
+} from "./bezierBool";
+import { applyCornerRadius } from "./cornerRadius";
 import {
 	getStartAnchor,
 	resolveCP1,
 	resolveCP2,
 	resolveSegment,
+	splitIntoSubPaths,
 	toRelativeCP1,
 	toRelativeCP2,
 } from "./segmentOps";
@@ -36,230 +45,57 @@ type Ring = Coord[];
 type Polygon = Ring[];
 type MultiPolygon = Polygon[];
 
-interface ComputeBooleanOperationOptions {
-	curveTolerance?: number;
-	maxFlattenDepth?: number;
-	minEdgeLength?: number;
-}
-
 const EPSILON = 0.001;
-const DEFAULT_CURVE_TOLERANCE = 0.25;
-const DEFAULT_MAX_FLATTEN_DEPTH = 10;
-const DEFAULT_MIN_EDGE_LENGTH = 0.05;
 
-const MIN_CURVE_TOLERANCE = 0.01;
-const MIN_MAX_FLATTEN_DEPTH = 1;
-const MIN_EDGE_LENGTH = 0.001;
-
-type NormalizedComputeOptions = {
-	curveToleranceSquared: number;
-	maxFlattenDepth: number;
-	minEdgeLength: number;
+const BOOLEAN_OP_BY_SOURCE_OP: Record<CompoundPathSource["op"], BooleanOp> = {
+	union: "union",
+	subtract: "difference",
+	intersect: "intersect",
+	exclude: "xor",
 };
 
 /**
  * Compute boolean operations on multiple paths using per-source operations.
  * Each source (except the first) specifies its own boolean operation against
- * the accumulated result. Returns the resulting bezier segments.
+ * the accumulated result. Curves stay curves: the result is exact at any zoom.
+ * Only the outline of each source takes part, so an open sub-path is closed
+ * with a straight line and stroke width plays no role.
  */
 export function computeBooleanOperation(
 	sources: CompoundPathSource[],
 	pathMap: Map<string, Path>,
-	options: ComputeBooleanOperationOptions = {},
 ): CubicBezierSegment[] {
 	if (sources.length === 0) return [];
 
-	const normalizedOptions = normalizeOptions(options);
 	const firstPath = pathMap.get(sources[0].id);
 	if (!firstPath) return [];
 	if (sources.length === 1) return firstPath.segments ?? [];
 
-	let result: MultiPolygon = pathToPolygon(firstPath, normalizedOptions);
+	const geo = new GeometryEpsilon();
+	let result = pathToContours(firstPath, geo);
 	if (result.length === 0) return [];
 
-	for (let i = 1; i < sources.length; i++) {
-		const path = pathMap.get(sources[i].id);
-		if (!path) continue;
+	try {
+		for (const source of sources.slice(1)) {
+			const path = pathMap.get(source.id);
+			if (!path) continue;
 
-		const poly = pathToPolygon(path, normalizedOptions);
-		if (poly.length === 0) continue;
+			const contours = pathToContours(path, geo);
+			if (contours.length === 0) continue;
 
-		switch (sources[i].op) {
-			case "union":
-				result = polygonClipping.union(result, poly);
-				break;
-			case "subtract":
-				result = polygonClipping.difference(result, poly);
-				break;
-			case "intersect":
-				result = polygonClipping.intersection(result, poly);
-				break;
-			case "exclude":
-				result = polygonClipping.xor(result, poly);
-				break;
-			default:
-				throw new Error(`Unknown boolean operation: ${sources[i].op}`);
+			result = booleanOp(result, contours, BOOLEAN_OP_BY_SOURCE_OP[source.op]);
 		}
-	}
-
-	return multiPolygonToSegments(result, normalizedOptions.minEdgeLength);
-}
-
-/**
- * Convert a Path to a MultiPolygon for polygon-clipping.
- * Handles both stroked paths and filled paths differently.
- */
-function pathToPolygon(
-	path: Path,
-	options: NormalizedComputeOptions,
-): MultiPolygon {
-	const points = sampleBezierPath(path.segments, options);
-
-	if (points.length < 3) {
+	} catch {
 		return [];
 	}
 
-	const hasFill = localAppearances(path.filters).some(
-		(f) => f.processor === "fill",
-	);
-	if (hasFill || isPathClosed(path.segments)) {
-		const ring: Ring = points.map((p) => [p.x, p.y]);
-		if (
-			ring.length > 0 &&
-			(ring[0][0] !== ring[ring.length - 1][0] ||
-				ring[0][1] !== ring[ring.length - 1][1])
-		) {
-			ring.push([...ring[0]]);
-		}
-		return [[ring]];
-	}
-
-	return createStrokeOutline(points, getStrokeWidth(path.filters));
+	return normalizeWinding(result).flatMap(contourToCubicSegments);
 }
 
-/**
- * Sample bezier path into discrete points via adaptive flattening.
- */
-function sampleBezierPath(
-	segments: CubicBezierSegment[],
-	options: NormalizedComputeOptions,
-): BezierPoint[] {
-	const points: BezierPoint[] = [];
-
-	for (let segIdx = 0; segIdx < segments.length; segIdx++) {
-		const segment = segments[segIdx];
-		const prevEnd = segIdx > 0 ? segments[segIdx - 1].end : undefined;
-		const { start, cp1, cp2, end } = resolveSegment(segment, prevEnd);
-
-		appendAdaptiveFlattenedSegment(
-			points,
-			start,
-			cp1,
-			cp2,
-			end,
-			options.curveToleranceSquared,
-			options.maxFlattenDepth,
-		);
-	}
-
-	return points;
-}
-
-function appendAdaptiveFlattenedSegment(
-	points: BezierPoint[],
-	start: BezierPoint,
-	cp1: BezierPoint,
-	cp2: BezierPoint,
-	end: BezierPoint,
-	curveToleranceSquared: number,
-	maxFlattenDepth: number,
-): void {
-	if (points.length === 0 || !pointsEqual(points[points.length - 1], start)) {
-		points.push(start);
-	}
-
-	subdivideCubicBezier(
-		points,
-		start,
-		cp1,
-		cp2,
-		end,
-		curveToleranceSquared,
-		maxFlattenDepth,
-		0,
-	);
-}
-
-function subdivideCubicBezier(
-	points: BezierPoint[],
-	p0: BezierPoint,
-	p1: BezierPoint,
-	p2: BezierPoint,
-	p3: BezierPoint,
-	curveToleranceSquared: number,
-	maxFlattenDepth: number,
-	depth: number,
-): void {
-	if (
-		depth >= maxFlattenDepth ||
-		isCubicFlatEnough(p0, p1, p2, p3, curveToleranceSquared)
-	) {
-		if (!pointsEqual(points[points.length - 1], p3)) {
-			points.push(p3);
-		}
-		return;
-	}
-
-	const [left, right] = splitCubicBezierHalf(p0, p1, p2, p3);
-	subdivideCubicBezier(
-		points,
-		left[0],
-		left[1],
-		left[2],
-		left[3],
-		curveToleranceSquared,
-		maxFlattenDepth,
-		depth + 1,
-	);
-	subdivideCubicBezier(
-		points,
-		right[0],
-		right[1],
-		right[2],
-		right[3],
-		curveToleranceSquared,
-		maxFlattenDepth,
-		depth + 1,
-	);
-}
-
-function splitCubicBezierHalf(
-	p0: BezierPoint,
-	p1: BezierPoint,
-	p2: BezierPoint,
-	p3: BezierPoint,
-): [
-	[BezierPoint, BezierPoint, BezierPoint, BezierPoint],
-	[BezierPoint, BezierPoint, BezierPoint, BezierPoint],
-] {
-	const p01 = midpoint(p0, p1);
-	const p12 = midpoint(p1, p2);
-	const p23 = midpoint(p2, p3);
-	const p012 = midpoint(p01, p12);
-	const p123 = midpoint(p12, p23);
-	const p0123 = midpoint(p012, p123);
-
-	return [
-		[p0, p01, p012, p0123],
-		[p0123, p123, p23, p3],
-	];
-}
-
-function midpoint(a: BezierPoint, b: BezierPoint): BezierPoint {
-	return {
-		x: (a.x + b.x) * 0.5,
-		y: (a.y + b.y) * 0.5,
-	};
+function pathToContours(path: Path, geo: GeometryEpsilon): Segment[][] {
+	return splitIntoSubPaths(applyCornerRadius(path.segments))
+		.map((subPath) => cubicSegmentsToContour(subPath, geo))
+		.filter((contour) => contour.length > 0);
 }
 
 /** A straight segment continuing the current subpath from `from` to `to`. */
@@ -279,252 +115,6 @@ function straightSegment(
 		startDeltaTime: 0,
 		endDeltaTime: 0,
 		isMoved: false,
-	};
-}
-
-function isCubicFlatEnough(
-	p0: BezierPoint,
-	p1: BezierPoint,
-	p2: BezierPoint,
-	p3: BezierPoint,
-	curveToleranceSquared: number,
-): boolean {
-	const chordX = p3.x - p0.x;
-	const chordY = p3.y - p0.y;
-	const chordLengthSquared = chordX * chordX + chordY * chordY;
-
-	if (chordLengthSquared <= Number.EPSILON) {
-		return (
-			Math.max(
-				distanceSquared(p0, p1),
-				distanceSquared(p0, p2),
-				distanceSquared(p0, p3),
-			) <= curveToleranceSquared
-		);
-	}
-
-	const dist1Squared = signedDoubleAreaSquared(p0, p3, p1) / chordLengthSquared;
-	const dist2Squared = signedDoubleAreaSquared(p0, p3, p2) / chordLengthSquared;
-	return Math.max(dist1Squared, dist2Squared) <= curveToleranceSquared;
-}
-
-function signedDoubleAreaSquared(
-	a: BezierPoint,
-	b: BezierPoint,
-	p: BezierPoint,
-): number {
-	const dx = b.x - a.x;
-	const dy = b.y - a.y;
-	const cross = dx * (a.y - p.y) - dy * (a.x - p.x);
-	return cross * cross;
-}
-
-/**
- * Check if two points are approximately equal.
- */
-function pointsEqual(
-	a: BezierPoint,
-	b: BezierPoint,
-	epsilon = EPSILON,
-): boolean {
-	return Math.abs(a.x - b.x) < epsilon && Math.abs(a.y - b.y) < epsilon;
-}
-
-function distanceSquared(a: BezierPoint, b: BezierPoint): number {
-	const dx = a.x - b.x;
-	const dy = a.y - b.y;
-	return dx * dx + dy * dy;
-}
-
-/**
- * Check if a path is closed (first point equals last point).
- */
-function isPathClosed(segments: CubicBezierSegment[]): boolean {
-	if (segments.length === 0) return false;
-	return segments[segments.length - 1].isClosed === true;
-}
-
-/**
- * Create an outline polygon from a stroked path.
- * This creates a "thick line" polygon for boolean operations.
- */
-function createStrokeOutline(
-	points: BezierPoint[],
-	strokeWidth: number,
-): MultiPolygon {
-	if (points.length < 2) return [];
-
-	const halfWidth = strokeWidth / 2;
-	const leftSide: Coord[] = [];
-	const rightSide: Coord[] = [];
-
-	for (let i = 0; i < points.length; i++) {
-		const curr = points[i];
-		const prev = points[i - 1] ?? curr;
-		const next = points[i + 1] ?? curr;
-
-		const dx1 = curr.x - prev.x;
-		const dy1 = curr.y - prev.y;
-		const dx2 = next.x - curr.x;
-		const dy2 = next.y - curr.y;
-
-		let dx = dx1 + dx2;
-		let dy = dy1 + dy2;
-		const len = Math.sqrt(dx * dx + dy * dy);
-
-		if (len < 0.0001) {
-			dx = dy1 !== 0 ? 1 : 0;
-			dy = dx1 !== 0 ? 1 : 0;
-		} else {
-			dx /= len;
-			dy /= len;
-		}
-
-		const nx = -dy;
-		const ny = dx;
-		leftSide.push([curr.x + nx * halfWidth, curr.y + ny * halfWidth]);
-		rightSide.push([curr.x - nx * halfWidth, curr.y - ny * halfWidth]);
-	}
-
-	const ring: Ring = [...leftSide, ...rightSide.reverse()];
-	ring.push([...ring[0]]);
-
-	return [[ring]];
-}
-
-/**
- * Convert a MultiPolygon result back to bezier segments.
- * Uses linear segments with point cleanup to reduce jagged noise.
- */
-function multiPolygonToSegments(
-	multiPoly: MultiPolygon,
-	minEdgeLength: number,
-): CubicBezierSegment[] {
-	const segments: CubicBezierSegment[] = [];
-	const minEdgeLengthSquared = minEdgeLength * minEdgeLength;
-
-	for (const polygon of multiPoly) {
-		for (const ring of polygon) {
-			const ringPoints = normalizeRingPoints(ring, minEdgeLengthSquared);
-			if (ringPoints.length < 3) continue;
-
-			const ringSegments: CubicBezierSegment[] = [];
-			let isFirstSegment = true;
-
-			for (let i = 0; i < ringPoints.length; i++) {
-				const start = ringPoints[i];
-				const end = ringPoints[(i + 1) % ringPoints.length];
-
-				if (distanceSquared(start, end) < minEdgeLengthSquared) continue;
-
-				const dx = end.x - start.x;
-				const dy = end.y - start.y;
-				const cp1: BezierPoint = {
-					x: dx / 3,
-					y: dy / 3,
-				};
-				const cp2: BezierPoint = {
-					x: -dx / 3,
-					y: -dy / 3,
-				};
-
-				ringSegments.push({
-					start: isFirstSegment ? start : undefined,
-					cp1,
-					cp2,
-					end,
-					startTiltX: 0,
-					startTiltY: 0,
-					endTiltX: 0,
-					endTiltY: 0,
-					startDeltaTime: 0,
-					endDeltaTime: 0,
-					isMoved: isFirstSegment,
-				});
-
-				isFirstSegment = false;
-			}
-
-			if (ringSegments.length === 0) continue;
-			const lastIndex = ringSegments.length - 1;
-			ringSegments[lastIndex] = {
-				...ringSegments[lastIndex],
-				isClosed: true,
-			};
-			segments.push(...ringSegments);
-		}
-	}
-
-	return segments;
-}
-
-function normalizeRingPoints(
-	ring: Ring,
-	minEdgeLengthSquared: number,
-): BezierPoint[] {
-	if (ring.length < 3) return [];
-
-	const deduped: BezierPoint[] = [];
-	for (const coord of ring) {
-		const point: BezierPoint = { x: coord[0], y: coord[1] };
-		if (
-			deduped.length === 0 ||
-			!pointsEqual(deduped[deduped.length - 1], point)
-		) {
-			deduped.push(point);
-		}
-	}
-
-	if (
-		deduped.length > 1 &&
-		pointsEqual(deduped[0], deduped[deduped.length - 1])
-	) {
-		deduped.pop();
-	}
-
-	if (deduped.length < 3) return [];
-
-	const filtered: BezierPoint[] = [deduped[0]];
-	for (let i = 1; i < deduped.length; i++) {
-		const prev = filtered[filtered.length - 1];
-		const curr = deduped[i];
-		if (distanceSquared(prev, curr) >= minEdgeLengthSquared) {
-			filtered.push(curr);
-		}
-	}
-
-	while (
-		filtered.length >= 2 &&
-		distanceSquared(filtered[0], filtered[filtered.length - 1]) <
-			minEdgeLengthSquared
-	) {
-		filtered.pop();
-	}
-
-	if (filtered.length < 3) return [];
-	return filtered;
-}
-
-function normalizeOptions(
-	options: ComputeBooleanOperationOptions,
-): NormalizedComputeOptions {
-	const curveTolerance = Math.max(
-		options.curveTolerance ?? DEFAULT_CURVE_TOLERANCE,
-		MIN_CURVE_TOLERANCE,
-	);
-	const maxFlattenDepth = Math.max(
-		Math.floor(options.maxFlattenDepth ?? DEFAULT_MAX_FLATTEN_DEPTH),
-		MIN_MAX_FLATTEN_DEPTH,
-	);
-	const minEdgeLength = Math.max(
-		options.minEdgeLength ?? DEFAULT_MIN_EDGE_LENGTH,
-		MIN_EDGE_LENGTH,
-	);
-
-	return {
-		curveToleranceSquared: curveTolerance * curveTolerance,
-		maxFlattenDepth,
-		minEdgeLength,
 	};
 }
 
@@ -1217,7 +807,7 @@ function sampleBezierSegments(segments: CubicBezierSegment[]): Point[] {
  *
  * sampleBezierSegments emits many points along each bezier segment.
  * After polygon boolean operations, these dense intermediate points inflate
- * the segment count. CornerRadiusProcessor clamps the fillet radius to
+ * the segment count. applyCornerRadius clamps the fillet radius to
  * half the adjacent segment chord length, so short segments effectively
  * suppress corner rounding. This function merges consecutive collinear
  * points back into longer edges, preserving direction-change vertices

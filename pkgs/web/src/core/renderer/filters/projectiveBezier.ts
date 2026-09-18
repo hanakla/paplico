@@ -16,8 +16,8 @@ import {
 	getStartAnchor,
 	resolveCP1,
 	resolveCP2,
+	splitIntoSubPaths,
 } from "../../utils/geometry/segmentOps";
-import { splitIntoSubPaths } from "../canvas/CanvasLayer.helpers";
 
 export interface Point {
 	x: number;

@@ -1,5 +1,4 @@
 import { localAppearances } from "../../../document/appearancePresets";
-import { splitIntoSubPaths } from "../../../renderer/canvas/CanvasLayer.helpers";
 import type { FilterRenderer } from "../../../renderer/canvas/pipeline/FilterRenderer";
 import { resolveElementGeometry } from "../../../renderer/canvas/pipeline/PreFilterRenderer";
 import { calculatePreFilteredElementBounds } from "../../../renderer/canvas/pipeline/RenderPlanner";
@@ -38,6 +37,7 @@ import {
 } from "../../../utils/geometry/geometry";
 import {
 	reconstructSegmentsFromWorld,
+	splitIntoSubPaths,
 	transformSegmentsToWorld,
 } from "../../../utils/geometry/segmentOps";
 import {

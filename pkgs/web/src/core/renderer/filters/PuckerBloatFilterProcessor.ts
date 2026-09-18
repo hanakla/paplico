@@ -22,8 +22,8 @@ import {
 	getStartAnchor,
 	resolveCP1,
 	resolveCP2,
+	splitIntoSubPaths,
 } from "../../utils/geometry/segmentOps";
-import { splitIntoSubPaths } from "../canvas/CanvasLayer.helpers";
 import type { FilterHandler } from "../canvas/pipeline/FilterRenderer";
 
 export interface PuckerBloatParams {

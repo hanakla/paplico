@@ -12,8 +12,8 @@ import { applyAffineToPoint } from "../../utils/geometry/repeatInterpolation";
 import {
 	computeSubPathSignedArea,
 	resolveSegment,
+	splitIntoSubPaths,
 } from "../../utils/geometry/segmentOps";
-import { splitIntoSubPaths } from "../canvas/CanvasLayer.helpers";
 import {
 	TransformFilterHandler,
 	type TransformParams,

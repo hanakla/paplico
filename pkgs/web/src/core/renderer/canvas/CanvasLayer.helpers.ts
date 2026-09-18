@@ -438,34 +438,6 @@ export function cleanupPolygonPoints(points: number[]): number[] {
 }
 
 /**
- * Split bezier segments into sub-paths at `isMoved` boundaries.
- */
-export function splitIntoSubPaths(
-	segments: CubicBezierSegment[],
-): CubicBezierSegment[][] {
-	if (segments.length === 0) return [];
-
-	const subPaths: CubicBezierSegment[][] = [];
-	let currentSubPath: CubicBezierSegment[] = [];
-
-	for (const segment of segments) {
-		// isMovedがtrueなら新しいサブパスを開始
-		if (segment.isMoved && currentSubPath.length > 0) {
-			subPaths.push(currentSubPath);
-			currentSubPath = [];
-		}
-		currentSubPath.push(segment);
-	}
-
-	// 最後のサブパスを追加
-	if (currentSubPath.length > 0) {
-		subPaths.push(currentSubPath);
-	}
-
-	return subPaths;
-}
-
-/**
  * Compute signed area of a polygon (shoelace formula).
  * Positive = counter-clockwise, Negative = clockwise.
  */

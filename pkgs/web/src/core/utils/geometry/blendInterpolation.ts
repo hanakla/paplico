@@ -289,9 +289,7 @@ export function resolveBlendSourcePath(
 			if (child && isPath(child)) pathMap.set(s.id, child);
 		}
 		if (pathMap.size === 0) return null;
-		const segments = computeBooleanOperation(source.sources, pathMap, {
-			curveTolerance: 0.25,
-		});
+		const segments = computeBooleanOperation(source.sources, pathMap);
 		if (segments.length === 0) return null;
 		return {
 			type: "path",

@@ -21,7 +21,7 @@ import {
 	buildRoundedPolyline,
 	buildStraightPolyline,
 } from "../../utils/geometry/polylineRounding";
-import { splitIntoSubPaths } from "../canvas/CanvasLayer.helpers";
+import { splitIntoSubPaths } from "../../utils/geometry/segmentOps";
 import type { FilterHandler } from "../canvas/pipeline/FilterRenderer";
 
 export interface ZigzagParams {

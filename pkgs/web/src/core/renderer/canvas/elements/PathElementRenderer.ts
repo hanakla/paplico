@@ -26,7 +26,11 @@ import {
 	resolveBlendSpinePath,
 } from "../../../utils/geometry/blendInterpolation";
 import type { GPUTransformAffine } from "../../../utils/geometry/geometry";
-import { hashSegments, toWorldPath } from "../../../utils/geometry/segmentOps";
+import {
+	hashSegments,
+	splitIntoSubPaths,
+	toWorldPath,
+} from "../../../utils/geometry/segmentOps";
 import {
 	flattenBezierPath,
 	flattenBezierPathWithPressure,
@@ -57,7 +61,6 @@ import {
 	cleanupPolygonPoints,
 	computePolylineSignedArea,
 	createCompoundPathRenderPath,
-	splitIntoSubPaths,
 } from "../CanvasLayer.helpers";
 import type {
 	AssetState,

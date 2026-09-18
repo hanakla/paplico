@@ -13,8 +13,10 @@ import {
 	applyTransformToPoint,
 	composeAncestorTransform,
 } from "../../../utils/geometry/geometry";
-import { getStartAnchor } from "../../../utils/geometry/segmentOps";
-import { splitIntoSubPaths } from "../CanvasLayer.helpers";
+import {
+	getStartAnchor,
+	splitIntoSubPaths,
+} from "../../../utils/geometry/segmentOps";
 import type {
 	AssetState,
 	BlitMeshToCanvasFn,

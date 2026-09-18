@@ -8,7 +8,7 @@ import {
 	isGroup,
 	type Path,
 } from "../../../schema";
-import { applyCornerRadius } from "../../generators/CornerRadiusProcessor";
+import { applyCornerRadius } from "../../../utils/geometry/cornerRadius";
 import {
 	type AppearanceGeometry,
 	type FilterHandler,

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getStartAnchor } from "../../utils/geometry/segmentOps";
-import { splitIntoSubPaths } from "../canvas/CanvasLayer.helpers";
+import {
+	getStartAnchor,
+	splitIntoSubPaths,
+} from "../../utils/geometry/segmentOps";
 import { buildImageQuadSegments } from "../canvas/elements/ImageElementRenderer";
 import {
 	cornersFromBounds,

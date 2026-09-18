@@ -500,7 +500,7 @@ pkgs/web/
     │   │   │   └── caches/    # Render caches (outline, strip, gradient, stamp, compound/group path)
     │   │   ├── ui/            # UI render layer (UILayer: selection overlay, cursor, guides) + types.ts (UI overlay data types) + constants.ts (UI colors)
     │   │   ├── filters/       # Filter processors + their WGSL shaders + filterCatalog + userland type barrel (index.ts)
-    │   │   ├── generators/    # Texture generators (gradient, mesh gradient, corner radius)
+    │   │   ├── generators/    # Texture generators (gradient, mesh gradient)
     │   │   ├── geometry/      # Stroke tessellation
     │   │   └── shaders/       # Shared pipeline WGSL shaders (filter-specific WGSL lives in filters/)
     │   ├── tools/             # Drawing tools (Pen, Path, Shape, Text, Select, Eraser, Gradient, MeshDeform, PathEdit, Artboard) + ToolContext (tool -> engine bridge) + TextToolController
@@ -519,7 +519,7 @@ pkgs/web/
     │   ├── timelapse/         # Timelapse recording/playback/export
     │   ├── testUtils/         # Shared test helpers (pointerEvent.ts, visualRegression.ts)
     │   └── utils/             # General helpers (color, emitter, keyboard, lang, svgImport, wgpu-utils)
-    │       └── geometry/      # Geometry domain (bezierBool, bounds, geometry, meshGradient, pathOps, Quadtree, resize, segmentOps, strokeFitting)
+    │       └── geometry/      # Geometry domain (bezierBool, bounds, cornerRadius, geometry, meshGradient, pathOps, Quadtree, resize, segmentOps, strokeFitting)
     ├── app/               # Next.js 16 app directory
     ├── auth/              # Authentication utilities (Supabase session, OAuth providers, Tauri auth)
     ├── automation/        # Automation script catalog (builtin + user scripts, repository, shared types)

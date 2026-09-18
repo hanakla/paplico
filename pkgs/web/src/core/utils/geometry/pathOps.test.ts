@@ -35,29 +35,112 @@ const RED_FILL = {
 const KAPPA = 0.552284749831;
 
 describe("computeBooleanOperation", () => {
-	it("increases edge detail for curved union when curveTolerance is smaller", () => {
+	it("keeps the union of two circles on the circles instead of flattening it", () => {
 		const pathA = createCirclePath("a", 0, 0, 100);
 		const pathB = createCirclePath("b", 80, 0, 100);
-		const pathMap = new Map<string, Path>([
-			[pathA.id, pathA],
-			[pathB.id, pathB],
-		]);
-		const sources: CompoundPathSource[] = [
-			{ id: pathA.id, op: "union" },
-			{ id: pathB.id, op: "union" },
-		];
 
-		const coarse = computeBooleanOperation(sources, pathMap, {
-			curveTolerance: 2.0,
-			maxFlattenDepth: 8,
-		});
-		const fine = computeBooleanOperation(sources, pathMap, {
-			curveTolerance: 0.1,
-			maxFlattenDepth: 12,
-		});
+		const segments = computeBooleanOperation(
+			[
+				{ id: pathA.id, op: "union" },
+				{ id: pathB.id, op: "union" },
+			],
+			new Map<string, Path>([
+				[pathA.id, pathA],
+				[pathB.id, pathB],
+			]),
+		);
 
-		expect(fine.length).toBeGreaterThan(coarse.length);
-		expect(maxEdgeLength(fine)).toBeLessThan(maxEdgeLength(coarse));
+		expect(segments.length).toBe(8);
+		let prevEnd: BezierPoint | undefined;
+		for (const segment of segments) {
+			const { start, cp1, cp2, end } = resolveSegment(segment, prevEnd);
+			const mid = evalBezier(start, cp1, cp2, end, 0.5);
+			const offCircle = Math.min(
+				Math.abs(Math.hypot(mid.x, mid.y) - 100),
+				Math.abs(Math.hypot(mid.x - 80, mid.y) - 100),
+			);
+			expect(offCircle).toBeLessThan(0.1);
+			prevEnd = segment.end;
+		}
+	});
+
+	it("ignores the stroke width of an open source and closes it with a straight line", () => {
+		const base = createCirclePath("a", 0, 0, 100);
+		const openHalf: Path = {
+			...createCirclePath("b", 0, 0, 100),
+			segments: createCirclePath("b", 0, 0, 100).segments.slice(0, 2),
+			filters: [
+				{
+					processor: "stroke",
+					paramData: {
+						version: "1",
+						params: {
+							strokeColor: { type: "solid", color: BLACK },
+							brushSettings: { type: "line", size: 40, opacity: 1 },
+						},
+					},
+				} as unknown as StrokeAppearance,
+			],
+		};
+
+		const segments = computeBooleanOperation(
+			[
+				{ id: base.id, op: "union" },
+				{ id: openHalf.id, op: "intersect" },
+			],
+			new Map<string, Path>([
+				[base.id, base],
+				[openHalf.id, openHalf],
+			]),
+		);
+
+		const bounds = segmentsBounds(segments);
+		expect(bounds.width).toBeCloseTo(200, 0);
+		expect(bounds.height).toBeCloseTo(100, 0);
+	});
+
+	it("rounds the corners of a source that has corner radii", () => {
+		const rect = createFilledRect(0, 0, 100, 100);
+		const rounded: Path = {
+			...rect,
+			id: "rounded",
+			segments: rect.segments.map((segment) => ({
+				...segment,
+				cornerRadius: 20,
+			})),
+		};
+		const cover: Path = {
+			...createFilledRect(-50, -50, 200, 200),
+			id: "cover",
+		};
+
+		const segments = computeBooleanOperation(
+			[
+				{ id: rounded.id, op: "union" },
+				{ id: cover.id, op: "intersect" },
+			],
+			new Map<string, Path>([
+				[rounded.id, rounded],
+				[cover.id, cover],
+			]),
+		);
+
+		const bounds = segmentsBounds(segments);
+		expect(bounds.width).toBeCloseTo(100, 0);
+		expect(bounds.height).toBeCloseTo(100, 0);
+		for (const corner of [
+			{ x: 0, y: 0 },
+			{ x: 100, y: 0 },
+			{ x: 100, y: 100 },
+			{ x: 0, y: 100 },
+		]) {
+			const nearest = Math.min(
+				...segments.map((segment) =>
+					Math.hypot(segment.end.x - corner.x, segment.end.y - corner.y),
+				),
+			);
+			expect(nearest).toBeGreaterThan(5);
+		}
 	});
 
 	it("returns valid geometry for subtract/intersect/exclude", () => {
@@ -228,20 +311,6 @@ function makeSegment(
 		endDeltaTime: 0,
 		isMoved,
 	};
-}
-
-function maxEdgeLength(segments: CubicBezierSegment[]): number {
-	let prevEnd: BezierPoint | undefined;
-	let maxLen = 0;
-	for (const seg of segments) {
-		const { start, end } = resolveSegment(seg, prevEnd);
-		const dx = end.x - start.x;
-		const dy = end.y - start.y;
-		const len = Math.hypot(dx, dy);
-		if (len > maxLen) maxLen = len;
-		prevEnd = seg.end;
-	}
-	return maxLen;
 }
 
 function segmentHasFiniteCoordinates(segment: CubicBezierSegment): boolean {

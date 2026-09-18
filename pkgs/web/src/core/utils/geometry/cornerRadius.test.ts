@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CubicBezierSegment, PathSegment } from "../../schema";
-import { applyCornerRadius } from "./CornerRadiusProcessor";
+import { applyCornerRadius } from "./cornerRadius";
 
 /**
  * Creates a closed rectangle using the same structure as ShapeTool's createClosedPolygonSegments.
@@ -56,7 +56,7 @@ function withCornerRadius(
 	});
 }
 
-describe("CornerRadiusProcessor", () => {
+describe("applyCornerRadius", () => {
 	describe("applyCornerRadius", () => {
 		it("returns same reference when no cornerRadius is set", () => {
 			const segs = makeRectSegments();

@@ -20,8 +20,8 @@ import {
 	buildRoundedPolyline,
 	buildStraightPolyline,
 } from "../../utils/geometry/polylineRounding";
+import { splitIntoSubPaths } from "../../utils/geometry/segmentOps";
 import { mulberry32 } from "../../utils/math";
-import { splitIntoSubPaths } from "../canvas/CanvasLayer.helpers";
 import type { FilterHandler } from "../canvas/pipeline/FilterRenderer";
 
 export interface RoughParams {

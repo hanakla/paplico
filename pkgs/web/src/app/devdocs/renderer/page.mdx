@@ -227,7 +227,7 @@ ndcY = 1 - (screenY / canvasHeight) * 2;
 | [canvas/caches/](/devdocs/renderer/caches) | RenderCacheManager, OutlineCache, StripCache 等 | アウトライン・strip・テクスチャ・BindGroup（GPUリソースをシェーダーにバインドする単位）の再利用キャッシュ |
 | [ui/](/devdocs/renderer/ui) | UILayer | 選択オーバーレイ、カーソル、ガイドの描画 |
 | [shaders/](#シェーダー) | `*.wgsl.ts` | 共有のWGSLシェーダーソース。フィルター専用のWGSLは filters/、ブラシ専用のWGSLは canvas/pipeline/brush/shaders/ にある |
-| generators/ | GradientTextureGenerator, MeshGradientTextureGenerator, CornerRadiusProcessor | グラデーションテクスチャ生成と角丸の適用 |
+| generators/ | GradientTextureGenerator, MeshGradientTextureGenerator | グラデーションテクスチャ生成 |
 | geometry/ | strokeTessellator, bezierFlatten, strips/ | ストロークテッセレーション、平坦化、被覆率 strip の生成 |
 
 以下の図は、モジュール間の依存関係を示している。最上位の Paplico ファサードから RenderOrchestrator を経由して各モジュールに処理が流れる構造になっている。RenderScheduler は Paplico ファサードがキャンバスターゲットごとに生成する。

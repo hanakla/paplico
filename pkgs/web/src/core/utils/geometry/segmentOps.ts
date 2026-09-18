@@ -527,3 +527,30 @@ export function reverseSubPath(
 
 	return reversed;
 }
+
+/**
+ * Split bezier segments into sub-paths at `isMoved` boundaries.
+ */
+export function splitIntoSubPaths(
+	segments: CubicBezierSegment[],
+): CubicBezierSegment[][] {
+	if (segments.length === 0) return [];
+
+	const subPaths: CubicBezierSegment[][] = [];
+	let currentSubPath: CubicBezierSegment[] = [];
+
+	for (const segment of segments) {
+		// isMoved is a pen lift (SVG M): the segment opens the next sub-path.
+		if (segment.isMoved && currentSubPath.length > 0) {
+			subPaths.push(currentSubPath);
+			currentSubPath = [];
+		}
+		currentSubPath.push(segment);
+	}
+
+	if (currentSubPath.length > 0) {
+		subPaths.push(currentSubPath);
+	}
+
+	return subPaths;
+}

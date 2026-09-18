@@ -5,7 +5,7 @@ import polygonClipping, {
 	type Ring,
 } from "polygon-clipping";
 import type { CubicBezierSegment } from "../../schema";
-import { splitIntoSubPaths } from "../canvas/CanvasLayer.helpers";
+import { splitIntoSubPaths } from "../../utils/geometry/segmentOps";
 import { flattenBezierPath } from "./bezierFlatten";
 
 /**

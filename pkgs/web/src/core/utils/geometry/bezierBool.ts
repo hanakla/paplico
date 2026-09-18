@@ -6,6 +6,7 @@
  */
 import type { CubicBezierSegment } from "../../schema";
 import { lerp } from "../math";
+import { groupRingsByContainment } from "./ringContainment";
 import { resolveSegment } from "./segmentOps";
 
 type Vec2 = [number, number];
@@ -274,7 +275,7 @@ abstract class SegmentBase<T> {
 	public abstract draw<TRecv extends SegmentDrawReceiver>(ctx: TRecv): TRecv;
 }
 
-export class SegmentLine extends SegmentBase<SegmentLine> {
+class SegmentLine extends SegmentBase<SegmentLine> {
 	public p0: Vec2;
 	public p1: Vec2;
 	public geo: Geometry;
@@ -375,7 +376,7 @@ export class SegmentLine extends SegmentBase<SegmentLine> {
 	}
 }
 
-export class SegmentCurve extends SegmentBase<SegmentCurve> {
+class SegmentCurve extends SegmentBase<SegmentCurve> {
 	public p0: Vec2;
 	public p1: Vec2;
 	public p2: Vec2;
@@ -2213,4 +2214,133 @@ export function cubicSegmentsToContour(
 	}
 
 	return contour;
+}
+
+/**
+ * Re-wind a disjoint contour set so holes wind against their solids.
+ *
+ * booleanOp does not encode solid-vs-hole in the winding it returns — two
+ * rectangles come back with the counter reversed, the same shapes drawn with
+ * curves come back both the same way — while everything downstream reads
+ * exactly that: the non-zero fill and buildExtrudeMesh's dominant-winding rule.
+ * The contours are disjoint by this point, so containment is unambiguous and
+ * settles it.
+ */
+export function normalizeWinding(contours: Segment[][]): Segment[][] {
+	if (contours.length < 2) return contours;
+
+	const holes = new Set<number>();
+	for (const group of groupRingsByContainment(contours.map(contourRing))) {
+		for (const index of group.slice(1)) holes.add(index);
+	}
+	if (holes.size === 0) return contours;
+
+	const areas = contours.map(signedContourArea);
+	// Solids keep the direction most of their own area already has, so a result
+	// that was already consistent comes back untouched.
+	const solidTotal = areas.reduce(
+		(sum, area, i) => (holes.has(i) ? sum : sum + area),
+		0,
+	);
+	const solidSign = solidTotal >= 0 ? 1 : -1;
+	return contours.map((contour, i) => {
+		const wanted = holes.has(i) ? -solidSign : solidSign;
+		return Math.sign(areas[i]) === wanted ? contour : reverseContour(contour);
+	});
+}
+
+/** Signed area of a contour's anchor polygon; the sign carries the winding. */
+export function signedContourArea(contour: Segment[]): number {
+	let sum = 0;
+	for (const seg of contour) {
+		const [x1, y1] = seg.start();
+		const [x2, y2] = seg.end();
+		sum += x1 * y2 - x2 * y1;
+	}
+	return sum / 2;
+}
+
+export function contourToCubicSegments(
+	contour: Segment[],
+): CubicBezierSegment[] {
+	const result: CubicBezierSegment[] = [];
+
+	// Filter out zero-length segments produced by boolean operations
+	const filtered = contour.filter((seg) => {
+		const s = seg.start();
+		const e = seg.end();
+		return Math.hypot(e[0] - s[0], e[1] - s[1]) > 1e-6;
+	});
+
+	for (let i = 0; i < filtered.length; i++) {
+		const seg = filtered[i];
+		const isFirst = i === 0;
+		const isLast = i === filtered.length - 1;
+
+		const startPt = seg.start();
+		const endPt = seg.end();
+
+		let cp1: { x: number; y: number; pressure?: number };
+		let cp2: { x: number; y: number; pressure?: number };
+
+		if (seg instanceof SegmentCurve) {
+			// Relative control points
+			cp1 = { x: seg.p1[0] - startPt[0], y: seg.p1[1] - startPt[1] };
+			cp2 = { x: seg.p2[0] - endPt[0], y: seg.p2[1] - endPt[1] };
+		} else {
+			// Line: place control points at 1/3 and 2/3 along the segment
+			// so that the cubic bezier derivative is non-zero (avoids degenerate
+			// tangent at endpoints which breaks curveNormal in PathOffset).
+			const dx = endPt[0] - startPt[0];
+			const dy = endPt[1] - startPt[1];
+			cp1 = { x: dx / 3, y: dy / 3 };
+			cp2 = { x: -dx / 3, y: -dy / 3 };
+		}
+
+		const cubicSeg: CubicBezierSegment = {
+			cp1,
+			cp2,
+			end: { x: endPt[0], y: endPt[1], pressure: 1 },
+			startPressure: 1,
+			endPressure: 1,
+			startTiltX: 0,
+			startTiltY: 0,
+			endTiltX: 0,
+			endTiltY: 0,
+			startDeltaTime: 0,
+			endDeltaTime: 0,
+			isMoved: isFirst,
+			isClosed: isLast ? true : undefined,
+		};
+
+		if (isFirst) {
+			cubicSeg.start = {
+				x: startPt[0],
+				y: startPt[1],
+				pressure: 1,
+			};
+		}
+
+		result.push(cubicSeg);
+	}
+
+	return result;
+}
+
+/**
+ * A contour's polygon approximation. Curve segments contribute interior samples
+ * as well as their anchor: chaining bare anchors chords every curve, and a chord
+ * cuts inside a bulging outline far enough that a counter hugging that outline
+ * reads as outside it.
+ */
+function contourRing(contour: Segment[]): [number, number][] {
+	return contour.flatMap((seg) =>
+		seg instanceof SegmentCurve
+			? [seg.start(), seg.point(1 / 3), seg.point(2 / 3)]
+			: [seg.start()],
+	);
+}
+
+function reverseContour(contour: Segment[]): Segment[] {
+	return [...contour].reverse().map((seg) => seg.reverse());
 }

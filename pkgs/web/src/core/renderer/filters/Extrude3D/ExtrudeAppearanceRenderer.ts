@@ -45,6 +45,7 @@ import {
 	calculatePathBounds,
 	type WorldBBox,
 } from "../../../utils/geometry/bounds";
+import { applyCornerRadius } from "../../../utils/geometry/cornerRadius";
 import { composeTransforms } from "../../../utils/geometry/geometry";
 import { type Mat4, mat4TransformPoint } from "../../../utils/geometry/mat4";
 import {
@@ -55,14 +56,12 @@ import { groupRingsByContainment } from "../../../utils/geometry/ringContainment
 import {
 	appendSubpath,
 	reconstructSegmentsFromWorld,
+	splitIntoSubPaths,
 	toWorldPath,
 	transformSegmentsToWorld,
 } from "../../../utils/geometry/segmentOps";
 import { neverReached } from "../../../utils/lang";
-import {
-	aabbOfQuad,
-	splitIntoSubPaths,
-} from "../../canvas/CanvasLayer.helpers";
+import { aabbOfQuad } from "../../canvas/CanvasLayer.helpers";
 import type { BlitLayer, BlitUVRect } from "../../canvas/CanvasLayerTypes";
 import {
 	type AppearanceCache,
@@ -101,7 +100,6 @@ import {
 } from "../../canvas/pipeline/RenderSurface";
 import type { TexturePool } from "../../canvas/pipeline/TexturePool";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
-import { applyCornerRadius } from "../../generators/CornerRadiusProcessor";
 import { flattenBezierPath } from "../../geometry/bezierFlatten";
 import {
 	type ExtrudeMeshBaker,
