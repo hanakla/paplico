@@ -7,6 +7,7 @@ import type {
 	CompoundPath,
 	CubicBezierSegment,
 	FillAppearance,
+	Filter,
 	StrokeAppearance,
 	Viewport,
 } from "../../schema";
@@ -300,6 +301,7 @@ describe("createCompoundPathRenderPath", () => {
 		const renderPath = createCompoundPathRenderPath(
 			compoundPath,
 			segments,
+			[],
 			true,
 		);
 
@@ -322,7 +324,7 @@ describe("createCompoundPathRenderPath", () => {
 		const segments = createSimpleSegments();
 		const compoundPath = createCompoundPath();
 
-		const renderPath = createCompoundPathRenderPath(compoundPath, segments);
+		const renderPath = createCompoundPathRenderPath(compoundPath, segments, []);
 
 		const renderStroke = localAppearances(renderPath.filters).find(
 			(f) => f.processor === "stroke",
@@ -355,6 +357,7 @@ describe("createCompoundPathRenderPath", () => {
 		const renderPath = createCompoundPathRenderPath(
 			compoundPath,
 			createSimpleSegments(),
+			[],
 		);
 
 		expect(
@@ -362,6 +365,24 @@ describe("createCompoundPathRenderPath", () => {
 				(f) => f.processor === "stroke",
 			),
 		).toBe(false);
+	});
+
+	it("carries the given geometry filters so the result is drawn deformed", () => {
+		const zigzag = {
+			uid: "zigzag-1",
+			processor: "zigzag",
+			opacity: 1,
+			blendMode: "normal",
+			paramData: { version: "1", params: {} },
+		} as Filter;
+
+		const renderPath = createCompoundPathRenderPath(
+			createCompoundPath(),
+			createSimpleSegments(),
+			[zigzag],
+		);
+
+		expect(localAppearances(renderPath.filters)).toContain(zigzag);
 	});
 });
 

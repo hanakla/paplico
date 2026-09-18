@@ -2,13 +2,18 @@ import { deepClone } from "../../../../utils/lang";
 import { localAppearances } from "../../../document/appearancePresets";
 import {
 	type AnyArtObject,
+	type CompoundPath,
 	type CubicBezierSegment,
+	type ElementTransform,
 	type Filter,
+	isCompoundPath,
 	isFilterEnabled,
 	isGroup,
 	type Path,
 } from "../../../schema";
 import { applyCornerRadius } from "../../../utils/geometry/cornerRadius";
+import { toWorldPath } from "../../../utils/geometry/segmentOps";
+import { createCompoundPathRenderPath } from "../CanvasLayer.helpers";
 import {
 	type AppearanceGeometry,
 	type FilterHandler,
@@ -31,6 +36,26 @@ export function resolveElementGeometry(
 	filterRenderer: Pick<FilterRenderer, "getHandler">,
 ): CubicBezierSegment[] {
 	return applyPreFilters(applyCornerRadius(segments), filters, filterRenderer);
+}
+
+/**
+ * A compound path source as it takes part in the boolean operation: the
+ * outline it is drawn with, in world space.
+ */
+export function toCompoundSourceWorldPath(
+	path: Path,
+	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	ancestorTransform?: ElementTransform,
+): Path {
+	return toWorldPath(
+		path,
+		ancestorTransform,
+		resolveElementGeometry(
+			path.segments,
+			geometryFilters(path, filterRenderer),
+			filterRenderer,
+		),
+	);
 }
 
 /** The enabled geometry filters among an element's own concrete filters. */
@@ -100,9 +125,32 @@ export function resolvePathGeometryVariants(
 }
 
 /**
- * True when the element or any group descendant carries an enabled geometry
- * filter, including appearance sub-filters — the gate for deformed-bounds
- * and deformed-hit-test work.
+ * A compound path as it is drawn, in its local space: `segments` (its boolean
+ * result) carrying the compound's fill and stroke, plus every outline those
+ * are drawn with once geometry filters deform the result. A clip path is
+ * drawn as a flat mask, so it gets no geometry filters.
+ */
+export function resolveCompoundDrawnShape(
+	compound: CompoundPath,
+	segments: CubicBezierSegment[],
+	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	isClipPath: boolean,
+): { path: Path; geometries: CubicBezierSegment[][] } {
+	const path = createCompoundPathRenderPath(
+		compound,
+		segments,
+		isClipPath ? [] : geometryFilters(compound, filterRenderer),
+	);
+	return {
+		path,
+		geometries: resolvePathGeometryVariants(path, filterRenderer) ?? [segments],
+	};
+}
+
+/**
+ * True when the element, any group descendant or any compound path source
+ * carries an enabled geometry filter, including appearance sub-filters — the
+ * gate for deformed-bounds and deformed-hit-test work.
  */
 export function subtreeHasPreFilter(
 	element: AnyArtObject,
@@ -115,8 +163,12 @@ export function subtreeHasPreFilter(
 	) {
 		return true;
 	}
-	if (!isGroup(element)) return false;
-	return element.childIds.some((id) => {
+	const childIds = isGroup(element)
+		? element.childIds
+		: isCompoundPath(element)
+			? element.sources.map((source) => source.id)
+			: [];
+	return childIds.some((id) => {
 		const child = elementsMap.get(id);
 		return child
 			? subtreeHasPreFilter(child, elementsMap, filterRenderer)

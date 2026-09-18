@@ -352,6 +352,7 @@ export function buildParentGroupMap(
 export function createCompoundPathRenderPath(
 	compoundPath: CompoundPath,
 	segments: CubicBezierSegment[],
+	preFilters: readonly Filter[],
 	isMaskRender = false,
 ): Path {
 	const cpFill = (
@@ -366,7 +367,7 @@ export function createCompoundPathRenderPath(
 			) as StrokeAppearance | undefined);
 	const fill = isMaskRender ? (cpFill ?? MASK_FILL) : cpFill;
 
-	const filters: Filter[] = [];
+	const filters: Filter[] = [...preFilters];
 	if (cpStroke) {
 		filters.push({
 			processor: "stroke",

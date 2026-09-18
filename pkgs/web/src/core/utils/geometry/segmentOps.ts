@@ -161,10 +161,15 @@ const ORIGIN_ZERO = { x: 0, y: 0 } as const;
  * Convert element segments to world-space coordinates.
  * Segment-level equivalent of calculateElementBounds().
  * Skips SRT computation when transform is identity.
+ *
+ * `geometry` stands in for the element's segments when the drawn outline is
+ * a deformed one. The pivot still comes from the stored segments, which is
+ * where the renderer pivots a deformed element.
  */
 export function getWorldSegments(
 	element: Path,
 	ancestorTransform?: ElementTransform,
+	geometry: readonly PathSegment[] = element.segments,
 ): WorldBezierSegment[] {
 	const elementT = getTransform(element);
 	const t = ancestorTransform
@@ -173,7 +178,7 @@ export function getWorldSegments(
 	const origin = isIdentityTransform(t)
 		? ORIGIN_ZERO
 		: computeTransformOrigin(calculatePathBounds(element));
-	return transformSegmentsToWorld(element.segments, t, origin);
+	return transformSegmentsToWorld(geometry, t, origin);
 }
 
 /**
@@ -268,14 +273,16 @@ export function getMeshWorldBoundarySegments(
 
 /**
  * Convert a path to world-space geometry while preserving segment metadata.
- * Returned path always has identity transform.
+ * Returned path always has identity transform. `geometry` is forwarded to
+ * getWorldSegments.
  */
 export function toWorldPath(
 	path: Path,
 	ancestorTransform?: ElementTransform,
+	geometry: readonly PathSegment[] = path.segments,
 ): Path {
-	const worldSegments = getWorldSegments(path, ancestorTransform);
-	const segments = reconstructSegmentsFromWorld(worldSegments, path.segments);
+	const worldSegments = getWorldSegments(path, ancestorTransform, geometry);
+	const segments = reconstructSegmentsFromWorld(worldSegments, geometry);
 
 	return {
 		...path,

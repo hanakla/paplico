@@ -1,11 +1,15 @@
 import {
+	type AnyArtObject,
 	type CompoundPath,
 	type CubicBezierSegment,
 	getTransform,
 	type Path,
 } from "../../../schema";
+import { collectCompoundSources } from "../../../utils/geometry/compoundBake";
 import { computeBooleanOperation } from "../../../utils/geometry/pathOps";
 import type { CompoundPathGeometryCacheEntry } from "../CanvasLayerTypes";
+import type { FilterRenderer } from "../pipeline/FilterRenderer";
+import { toCompoundSourceWorldPath } from "../pipeline/PreFilterRenderer";
 
 /**
  * Caches boolean operation results for compound paths. Self-validating
@@ -27,6 +31,21 @@ export class CompoundPathCache {
 		const segments = computeBooleanOperation(compoundPath.sources, pathMap);
 		this.cache.set(compoundPath.id, { fingerprint, segments });
 		return segments;
+	}
+
+	/** Boolean result of the sources that resolve to a path, as they are drawn. */
+	public resolveDrawn(
+		compoundPath: CompoundPath,
+		resolveElement: (id: string) => AnyArtObject | undefined,
+		filterRenderer: Pick<FilterRenderer, "getHandler">,
+	): CubicBezierSegment[] {
+		const { sources, pathMap } = collectCompoundSources(
+			compoundPath,
+			resolveElement,
+			(path) => toCompoundSourceWorldPath(path, filterRenderer),
+		);
+		if (sources.length === 0) return [];
+		return this.resolve({ ...compoundPath, sources }, pathMap);
 	}
 
 	public clear(): void {

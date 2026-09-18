@@ -1894,7 +1894,7 @@ export function buildImageRectOutline(element: {
 
 /**
  * A standalone CompoundPath's world-space fill outline: every source path is
- * folded to world via its own transform (toWorldPath) and boolean-combined,
+ * folded to world as it is drawn (toCompoundSourceWorldPath) and boolean-combined,
  * exactly as normal compound-path rendering does (renderCompoundPath) — the
  * compound's own transform is ignored, since the sources already define the
  * world position. Empty when no source resolves to a path.
@@ -1903,14 +1903,13 @@ export function collectCompoundPathFillOutline(
 	compound: CompoundPath,
 	elementsMap: Map<string, AnyArtObject>,
 	compoundPathCache: CompoundPathCache,
+	filterRenderer: FilterRenderer,
 ): CubicBezierSegment[] {
-	const pathMap = new Map<string, Path>();
-	for (const source of compound.sources) {
-		const el = elementsMap.get(source.id);
-		if (el && isPath(el)) pathMap.set(source.id, toWorldPath(el));
-	}
-	if (pathMap.size === 0) return [];
-	return compoundPathCache.resolve(compound, pathMap);
+	return compoundPathCache.resolveDrawn(
+		compound,
+		(id) => elementsMap.get(id),
+		filterRenderer,
+	);
 }
 
 /**

@@ -1,6 +1,9 @@
 import { localAppearances } from "../../../document/appearancePresets";
 import type { FilterRenderer } from "../../../renderer/canvas/pipeline/FilterRenderer";
-import { resolveElementGeometry } from "../../../renderer/canvas/pipeline/PreFilterRenderer";
+import {
+	resolveElementGeometry,
+	toCompoundSourceWorldPath,
+} from "../../../renderer/canvas/pipeline/PreFilterRenderer";
 import { calculatePreFilteredElementBounds } from "../../../renderer/canvas/pipeline/RenderPlanner";
 import {
 	type AnyArtObject,
@@ -168,7 +171,11 @@ async function serializeVectorElement(
 		case "compound-path":
 			return serializePathLike(
 				element,
-				bakeCompoundPathSegments(element, (id) => ctx.document.objects[id]),
+				bakeCompoundPathSegments(
+					element,
+					(id) => ctx.document.objects[id],
+					(path) => toCompoundSourceWorldPath(path, ctx.filterResolver),
+				),
 				ctx,
 				ancestorTransform,
 				compoundTransformOrigin(element, ctx),
@@ -574,7 +581,11 @@ async function collectClipPathData(
 	}
 	if (clipSource.type === "compound-path") {
 		const d = bakeToD(
-			bakeCompoundPathSegments(clipSource, (id) => ctx.document.objects[id]),
+			bakeCompoundPathSegments(
+				clipSource,
+				(id) => ctx.document.objects[id],
+				(path) => toCompoundSourceWorldPath(path, ctx.filterResolver),
+			),
 			compoundTransformOrigin(clipSource, ctx),
 		);
 		return d ? [d] : [];

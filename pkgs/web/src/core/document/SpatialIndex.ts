@@ -1,11 +1,13 @@
 import { subscribeKey } from "valtio/utils";
 import type { ObjectsChangeDelta } from "../collaboration/YjsProvider";
 import type { RendererState } from "../Paplico";
+import { CompoundPathCache } from "../renderer/canvas/caches/CompoundPathCache";
 import { resolveImageGeometry } from "../renderer/canvas/elements/ImageElementRenderer";
 import type { FilterRenderer } from "../renderer/canvas/pipeline/FilterRenderer";
 import {
 	childPreFilters,
 	geometryFilters,
+	resolveCompoundDrawnShape,
 	resolvePathGeometryVariants,
 	subtreeHasPreFilter,
 	withInheritedPreFilters,
@@ -17,6 +19,7 @@ import {
 	type Artboard,
 	type BlendObject,
 	type BoundingBox,
+	type CompoundPath,
 	type CubicBezierSegment,
 	type Document,
 	type ElementTransform,
@@ -27,6 +30,7 @@ import {
 	IDENTITY_TRANSFORM,
 	type ImageObject,
 	isBlend,
+	isCompoundPath,
 	isContainer,
 	isGroup,
 	isIdentityTransform,
@@ -150,6 +154,8 @@ export class SpatialIndex {
 	private filterHandlers: Pick<FilterRenderer, "getHandler"> | null = null;
 
 	/** Deformed outlines per element; see resolveDeformedGeometries. */
+	private compoundPathCache = new CompoundPathCache();
+
 	private deformedGeometryCache = new WeakMap<
 		AnyArtObject,
 		{
@@ -380,6 +386,7 @@ export class SpatialIndex {
 	public invalidateBounds(elementId: string): void {
 		this.localBoundsCache.delete(elementId);
 		this.meshInverseCache.delete(elementId);
+		this.compoundPathCache.deleteMany([elementId]);
 		const element = this.findElement(elementId);
 		if (!element) {
 			this.boundsCache.delete(elementId);
@@ -1474,6 +1481,33 @@ export class SpatialIndex {
 	}
 
 	/**
+	 * resolveCompoundDrawnShape over the cached boolean result. Null when no
+	 * source resolves to a path.
+	 */
+	private resolveCompoundDrawnShape(
+		compound: CompoundPath,
+		inheritedPreFilters: readonly Filter[],
+	): { path: Path; geometries: CubicBezierSegment[][] } | null {
+		const filterHandlers = this.filterHandlers ?? NO_FILTER_HANDLERS;
+		const segments = this.compoundPathCache.resolveDrawn(
+			compound,
+			(id) => this.store.document.objects[id],
+			filterHandlers,
+		);
+		if (segments.length === 0) return null;
+
+		return resolveCompoundDrawnShape(
+			withInheritedPreFilters(
+				this.resolveAppearance(compound),
+				inheritedPreFilters,
+			),
+			segments,
+			filterHandlers,
+			this.isClipPath(compound.id),
+		);
+	}
+
+	/**
 	 * Resolve the composed world-space transform for an element
 	 * by walking up the ancestor Group chain via parentGroupMap.
 	 */
@@ -2011,6 +2045,18 @@ export class SpatialIndex {
 			return this.isPointOnMeshLocal(element, x, y, tolerance);
 		}
 
+		if (isCompoundPath(element)) {
+			const drawn = this.resolveCompoundDrawnShape(
+				element,
+				inheritedPreFilters,
+			);
+			return (
+				drawn?.geometries.some((segments) =>
+					isPointOnPath(x, y, { ...drawn.path, segments }, tolerance),
+				) ?? false
+			);
+		}
+
 		// Axis-bound texts hit on their path + glyph ink, not the whole AABB
 		if (element.type === "text" && element.axisBinding && this.textHitTester) {
 			const hit = this.textHitTester(element, x, y, tolerance);
@@ -2208,6 +2254,35 @@ export class SpatialIndex {
 			);
 		}
 
+		if (isCompoundPath(element)) {
+			const drawn = this.resolveCompoundDrawnShape(
+				element,
+				inheritedPreFilters,
+			);
+			if (!drawn) return false;
+			const rect = this.toElementLocalRect(
+				element,
+				calculateLocalElementBounds(
+					element,
+					this.getElementsMapCached(),
+					this.localBoundsCache,
+				),
+				minX,
+				minY,
+				maxX,
+				maxY,
+			);
+			return drawn.geometries.some((segments) =>
+				doesPathIntersectRect(
+					{ ...drawn.path, segments },
+					rect.minX,
+					rect.minY,
+					rect.maxX,
+					rect.maxY,
+				),
+			);
+		}
+
 		if (isContainer(element)) {
 			const childIds = getContainerChildIds(element);
 			if (!childIds || childIds.length === 0) return false;
@@ -2324,6 +2399,11 @@ function addDescendantIds(
 		addDescendantIds(child, objects, out);
 	}
 }
+
+/** Stands in until the renderer registers its handlers: no filter deforms anything. */
+const NO_FILTER_HANDLERS: Pick<FilterRenderer, "getHandler"> = {
+	getHandler: () => undefined,
+};
 
 function isElementVisible(element: AnyArtObject): boolean {
 	return element.visible !== false;

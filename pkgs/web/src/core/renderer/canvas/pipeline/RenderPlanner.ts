@@ -12,6 +12,7 @@ import {
 	type ElementTransform,
 	type Filter,
 	getTransform,
+	isCompoundPath,
 	isFilterEnabled,
 	isGroup,
 	isIdentityTransform,
@@ -28,6 +29,7 @@ import {
 	type LocalBoundsCache,
 	type WorldBBox,
 } from "../../../utils/geometry/bounds";
+import { bakeCompoundPathSegments } from "../../../utils/geometry/compoundBake";
 import {
 	applyTransformToBounds,
 	applyTransformToPoint,
@@ -44,8 +46,10 @@ import {
 } from "./FilterRenderer";
 import {
 	geometryFilters,
+	resolveCompoundDrawnShape,
 	resolvePathGeometryVariants,
 	subtreeHasPreFilter,
+	toCompoundSourceWorldPath,
 	withInheritedPreFilters,
 } from "./PreFilterRenderer";
 
@@ -768,6 +772,35 @@ function calculatePreFilteredLocalBounds(
 					filterRenderer,
 					localBoundsCache,
 				),
+			);
+		}
+		const result = { deformed, flat };
+		preFilteredLocalBoundsCache.set(element, result);
+		return result;
+	}
+
+	if (isCompoundPath(element)) {
+		if (!subtreeHasPreFilter(element, elementsMap, filterRenderer)) {
+			return { deformed: flat, flat };
+		}
+		const cached = preFilteredLocalBoundsCache.get(element);
+		if (cached) return cached;
+
+		const { path, geometries } = resolveCompoundDrawnShape(
+			element,
+			bakeCompoundPathSegments(
+				element,
+				(id) => elementsMap.get(id),
+				(source) => toCompoundSourceWorldPath(source, filterRenderer),
+			),
+			filterRenderer,
+			false,
+		);
+		let deformed: BoundingBox = flat;
+		for (const segments of geometries) {
+			deformed = unionBoxes(
+				deformed,
+				calculateLocalElementBounds({ ...path, segments }, elementsMap),
 			);
 		}
 		const result = { deformed, flat };

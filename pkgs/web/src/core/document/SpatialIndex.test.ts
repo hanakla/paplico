@@ -6,6 +6,7 @@ import type {
 	AppearancePreset,
 	Artboard,
 	BlendObject,
+	CompoundPath,
 	CubicBezierSegment,
 	Filter,
 	Group,
@@ -1584,6 +1585,104 @@ describe("mesh warp container hit testing", () => {
 		expect(
 			idx.findElementAtPoint("layer-1", folded.target.x, folded.target.y),
 		).toBe(mesh);
+	});
+});
+
+describe("compound path hit testing", () => {
+	/** A (x -50..50) minus B (x 0..100): the face that remains is x -50..0. */
+	function makeSubtractedCompound(
+		overrides: { base?: Partial<Path>; compound?: Partial<CompoundPath> } = {},
+	): Record<string, AnyArtObject> {
+		const base: Path = { ...makeClosedPath("base"), ...overrides.base };
+		const cutter: Path = {
+			...makeClosedPath("cutter"),
+			transform: { ...createIdentityTransform(), x: 50 },
+		};
+		const compound: CompoundPath = {
+			type: "compound-path",
+			id: "compound-1",
+			sources: [
+				{ id: "base", op: "union" },
+				{ id: "cutter", op: "subtract" },
+			],
+			filters: [
+				{
+					uid: "fill",
+					processor: "fill",
+					opacity: 1,
+					blendMode: "normal",
+					paramData: {
+						version: "1",
+						params: {
+							fill: {
+								type: "solid",
+								color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+							},
+						},
+					},
+				} as Filter,
+			],
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+			...overrides.compound,
+		};
+		return { "compound-1": compound, base, cutter };
+	}
+
+	it("should hit only where the boolean result has a face", () => {
+		const objects = makeSubtractedCompound();
+		const idx = createFilteredIndex(["compound-1"], objects);
+
+		expect(idx.findElementAtPoint("layer-1", -25, 0, 0)).toBe(
+			objects["compound-1"],
+		);
+		expect(idx.findElementAtPoint("layer-1", 25, 0, 0)).toBeNull();
+		expect(idx.findElementAtPoint("layer-1", 75, 0, 0)).toBeNull();
+	});
+
+	it("should marquee-select only where the boolean result has a face", () => {
+		const objects = makeSubtractedCompound();
+		const idx = createFilteredIndex(["compound-1"], objects);
+
+		expect(idx.findElementsInRect("layer-1", -40, -10, -10, 10)).toContain(
+			objects["compound-1"],
+		);
+		expect(idx.findElementsInRect("layer-1", 60, -10, 90, 10)).toHaveLength(0);
+	});
+
+	it("should hit where a source's geometry filter moved its outline", () => {
+		const objects = makeSubtractedCompound({
+			base: { filters: [shiftUpFilter()] },
+		});
+		const idx = createFilteredIndex(["compound-1"], objects);
+
+		// The base moved up out of the cutter's reach, so all of it remains.
+		expect(idx.findElementAtPoint("layer-1", 25, SHIFT_Y, 0)).toBe(
+			objects["compound-1"],
+		);
+		expect(idx.findElementAtPoint("layer-1", -25, 0, 0)).toBeNull();
+	});
+
+	it("should hit where the compound's own geometry filter moved the result", () => {
+		const objects = makeSubtractedCompound();
+		const compound = objects["compound-1"] as CompoundPath;
+		compound.filters = [...(compound.filters ?? []), shiftUpFilter()];
+		const idx = createFilteredIndex(["compound-1"], objects);
+
+		expect(idx.findElementAtPoint("layer-1", -25, SHIFT_Y, 0)).toBe(compound);
+		expect(idx.findElementAtPoint("layer-1", -25, 0, 0)).toBeNull();
+		expect(idx.findElementAtPoint("layer-1", 25, SHIFT_Y, 0)).toBeNull();
+	});
+
+	it("should still select a source on its own inside the compound's scope", () => {
+		const objects = makeSubtractedCompound();
+		const idx = createFilteredIndex(["compound-1"], objects, {
+			editingScopeStack: ["compound-1"],
+		});
+
+		// The cutter has no fill, so it is picked by its outline (x = 100).
+		expect(idx.findElementAtPoint("layer-1", 100, 0, 2)).toBe(objects.cutter);
 	});
 });
 

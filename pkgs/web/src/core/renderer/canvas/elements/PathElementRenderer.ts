@@ -11,7 +11,6 @@ import {
 	type FillAppearance,
 	type FillColor,
 	type Filter,
-	isPath,
 	type LineCap,
 	type LineJoin,
 	type Path,
@@ -89,7 +88,10 @@ import type {
 import { resolveGeometricSizeByPressure } from "../pipeline/brush/strokeHalfWidth";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
 import { isGeometryFilter } from "../pipeline/FilterRenderer";
-import { applyPreFilters } from "../pipeline/PreFilterRenderer";
+import {
+	applyPreFilters,
+	geometryFilters,
+} from "../pipeline/PreFilterRenderer";
 import type { StripColor, StripFrame } from "../pipeline/strips/StripFrame";
 import {
 	type DrawableSegments,
@@ -343,28 +345,13 @@ export class PathElementRenderer {
 		pipelineType: PipelineType = "main",
 		isMaskRender = false,
 	): void {
-		if (compoundPath.sources.length === 0) {
-			return;
-		}
-
-		const pathMap = new Map<string, Path>();
-		const validSources: CompoundPath["sources"] = [];
-		for (const source of compoundPath.sources) {
-			const el = elementsMap.get(source.id);
-			if (!el || !isPath(el)) continue;
-			pathMap.set(source.id, toWorldPath(el));
-			validSources.push(source);
-		}
-
-		if (validSources.length === 0) return;
-
-		const targetCompoundPath =
-			validSources.length === compoundPath.sources.length
-				? compoundPath
-				: { ...compoundPath, sources: validSources };
 		const segments = this.deps
 			.getCompoundPathGeometryCache()
-			.resolve(targetCompoundPath, pathMap);
+			.resolveDrawn(
+				compoundPath,
+				(id) => elementsMap.get(id),
+				this.deps.filterRenderer,
+			);
 
 		if (segments.length === 0) {
 			return;
@@ -373,6 +360,9 @@ export class PathElementRenderer {
 		const tempPath = createCompoundPathRenderPath(
 			compoundPath,
 			segments,
+			isMaskRender
+				? []
+				: geometryFilters(compoundPath, this.deps.filterRenderer),
 			isMaskRender,
 		);
 

@@ -275,6 +275,7 @@ export class ExtrudeMeshBaker {
 					element,
 					geom.elementsMap,
 					geom.compoundPathCache,
+					this.filterRenderer,
 				);
 				if (flatSegments.length === 0) return null;
 				const segments = buildExtrudeOutline(

@@ -1007,7 +1007,7 @@ describe("ExtrudeMeshBaker", () => {
 
 	describe("standalone compound-path extrude", () => {
 		const fakeCompoundCache = {
-			resolve: () => squareSegments(),
+			resolveDrawn: () => squareSegments(),
 		} as unknown as CompoundPathCache;
 
 		it("should extrude a compound-path by boolean-combining its sources", () => {
