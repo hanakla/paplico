@@ -1118,6 +1118,28 @@ export type BlendSpacing =
 	| { type: "smooth" };
 
 /**
+ * Easing curve that remaps a blend pair's 0..1 progress. A custom curve is a
+ * chain of cubic Bézier segments through its nodes.
+ */
+export type BlendEasing =
+	| { type: "linear" | "ease-in" | "ease-out" | "ease-in-out" }
+	| { type: "custom"; nodes: BlendEasingNode[] };
+
+/**
+ * A node of a custom blend easing curve, sorted by x. The first node sits at
+ * (0, 0) and the last at (1, 1). Handles are offsets from the node; each
+ * handle's x stays within the segment it shapes so the curve is a function of x.
+ */
+export interface BlendEasingNode {
+	x: number;
+	y: number;
+	inX: number;
+	inY: number;
+	outX: number;
+	outY: number;
+}
+
+/**
  * Blend - Non-destructive interpolation between multiple Path objects.
  * Generates intermediate shapes at render time; editing a source object
  * triggers automatic re-computation via cache fingerprint invalidation.
@@ -1139,6 +1161,10 @@ export interface BlendObject extends ArtObject {
 	renderOrder?: string[];
 	/** Spacing mode. For "steps", count is applied per adjacent pair. */
 	spacing: BlendSpacing;
+	/** Easing of the intermediates' position and shape morph within each pair. */
+	placementEasing: BlendEasing;
+	/** Easing of the intermediates' filters and opacity within each pair. */
+	appearanceEasing: BlendEasing;
 	/**
 	 * ID of the absorbed spine source path (kept in document.objects but removed
 	 * from layer.elementIds, like a group's clipPathId). Intermediate centers are

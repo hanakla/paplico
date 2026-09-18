@@ -125,6 +125,8 @@ describe("cloneElementsWithIdRemap", () => {
 			transform: IDENTITY_TRANSFORM,
 			objectIds: ["s1", "s2"],
 			spacing: { type: "smooth" },
+			placementEasing: { type: "linear" },
+			appearanceEasing: { type: "linear" },
 			spineSourceId: "spine",
 		};
 		const s1 = basePath("s1");

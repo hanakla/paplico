@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { localAppearances } from "../../document/appearancePresets";
 import { createIdentityTransform } from "../../document/factory";
 import type {
+	BlendEasingNode,
 	BlendObject,
 	CompoundPath,
 	FillAppearance,
@@ -142,6 +143,8 @@ function makeBlend(
 		id: "blend-1",
 		objectIds,
 		spacing,
+		placementEasing: { type: "linear" },
+		appearanceEasing: { type: "linear" },
 		opacity: 1,
 		blendMode: "normal",
 		transform: createIdentityTransform(),
@@ -508,6 +511,67 @@ describe("computeBlendIntermediates", () => {
 		expect(fwdFirst).toBeDefined();
 		expect(revFirst).toBeDefined();
 		expect((fwdFirst as number) < (revFirst as number)).toBe(true);
+	});
+
+	describe("easing", () => {
+		// One intermediate sits at progress 0.5, so its values read the curve
+		// there directly. Key a's first anchor is x=-25, key b's is x=75.
+		const keys = [
+			makeRect("a", 0, 0, 50),
+			{ ...makeRect("b", 100, 0, 50), opacity: 0 },
+		];
+		const midpointBlend = (
+			easings: Partial<
+				Pick<BlendObject, "placementEasing" | "appearanceEasing">
+			>,
+		): BlendObject => ({
+			...makeBlend(["a", "b"], { type: "steps", count: 1 }),
+			...easings,
+		});
+
+		it("should place and shade at the even midpoint when both are linear", () => {
+			const [[mid]] = computeBlendIntermediates(midpointBlend({}), keys);
+			expect(mid.segments[0].start?.x).toBeCloseTo(25);
+			expect(mid.opacity).toBeCloseTo(0.5);
+		});
+
+		it("should pull intermediates toward the first key with an ease-in placement", () => {
+			const [[mid]] = computeBlendIntermediates(
+				midpointBlend({ placementEasing: { type: "ease-in" } }),
+				keys,
+			);
+			expect(mid.segments[0].start?.x).toBeCloseTo(-12.5);
+			expect(mid.opacity).toBeCloseTo(0.5);
+		});
+
+		it("should advance only the appearance with an ease-out appearance", () => {
+			const [[mid]] = computeBlendIntermediates(
+				midpointBlend({ appearanceEasing: { type: "ease-out" } }),
+				keys,
+			);
+			expect(mid.segments[0].start?.x).toBeCloseTo(25);
+			expect(mid.opacity).toBeCloseTo(0.125);
+		});
+
+		it("should pass through the nodes of a custom curve", () => {
+			const [[mid]] = computeBlendIntermediates(
+				midpointBlend({
+					placementEasing: { type: "custom", nodes: curveThrough(0.2) },
+				}),
+				keys,
+			);
+			expect(mid.segments[0].start?.x).toBeCloseTo(-5);
+		});
+
+		it("should place intermediates past the next key when a custom curve rises above 1", () => {
+			const [[mid]] = computeBlendIntermediates(
+				midpointBlend({
+					placementEasing: { type: "custom", nodes: curveThrough(1.2) },
+				}),
+				keys,
+			);
+			expect(mid.segments[0].start?.x).toBeCloseTo(95);
+		});
 	});
 
 	describe("compound (holey) source blending", () => {
@@ -899,3 +963,12 @@ describe("relocateSpineAnchorsToKeys", () => {
 		expect(out[1].end).toEqual({ x: 100, y: 0 }); // key 2
 	});
 });
+
+/** A custom easing curve from (0, 0) through (0.5, y) with flat handles to (1, 1). */
+function curveThrough(y: number): BlendEasingNode[] {
+	return [
+		{ x: 0, y: 0, inX: 0, inY: 0, outX: 1 / 6, outY: 0 },
+		{ x: 0.5, y, inX: -1 / 6, inY: 0, outX: 1 / 6, outY: 0 },
+		{ x: 1, y: 1, inX: -1 / 6, inY: 0, outX: 0, outY: 0 },
+	];
+}

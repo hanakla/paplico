@@ -68,6 +68,8 @@ function createFingerprint(
 		id: blend.id,
 		objectIds: blend.objectIds,
 		spacing: blend.spacing,
+		placementEasing: blend.placementEasing,
+		appearanceEasing: blend.appearanceEasing,
 		spineSourceId: blend.spineSourceId,
 		tiltToSpine: blend.tiltToSpine,
 		// Spine geometry so editing the spine source invalidates the cache.

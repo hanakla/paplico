@@ -278,6 +278,8 @@ describe("PaplicoCommands.createMeshWarpFromShapeSelection", () => {
 			type: "blend",
 			objectIds: ["a", "b"],
 			spacing: { type: "steps", count: 2 },
+			placementEasing: { type: "linear" },
+			appearanceEasing: { type: "linear" },
 			opacity: 1,
 			blendMode: "normal",
 			transform: createIdentityTransform(),

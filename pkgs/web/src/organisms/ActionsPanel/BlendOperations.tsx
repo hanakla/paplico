@@ -1,20 +1,24 @@
 import {
 	ArrowDownUp,
+	ChartSpline,
 	GitCommitHorizontal,
 	Shuffle,
 	Unlink,
 } from "lucide-react";
 import { memo, useId } from "react";
 import { useSnapshot } from "valtio";
+import { BezierCurveEditor } from "@/components/BezierCurveEditor";
 import { Checkbox } from "@/components/Checkbox";
 import { FakeInput } from "@/components/FakeInput";
 import { IconButton } from "@/components/IconButton";
+import { Popover } from "@/components/Popover";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import { toastManager } from "@/components/Toast";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplicoCommands, usePaplicoStore } from "@/contexts/PaplicoContext";
-import { isBlend } from "@/core/schema";
+import { type BlendEasing, type BlendEasingNode, isBlend } from "@/core/schema";
+import { createLinearBezierEasing } from "@/core/utils/bezierEasing";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 
@@ -92,6 +96,20 @@ export const BlendOperations = memo(function BlendOperations() {
 			spacing: Math.max(1, value),
 		});
 	});
+
+	const handlePlacementEasingChange = useEventCallback(
+		(easing: BlendEasing) => {
+			if (!singleBlend) return;
+			commands.updateBlendEasing(singleBlend.id, "placementEasing", easing);
+		},
+	);
+
+	const handleAppearanceEasingChange = useEventCallback(
+		(easing: BlendEasing) => {
+			if (!singleBlend) return;
+			commands.updateBlendEasing(singleBlend.id, "appearanceEasing", easing);
+		},
+	);
 
 	const handleTiltChange = useEventCallback((checked: boolean) => {
 		if (!singleBlend) return;
@@ -189,6 +207,16 @@ export const BlendOperations = memo(function BlendOperations() {
 							</span>
 						</div>
 					)}
+					<EasingField
+						label={t("actionsPanel.blendPlacementEasing")}
+						value={singleBlend.placementEasing}
+						onChange={handlePlacementEasingChange}
+					/>
+					<EasingField
+						label={t("actionsPanel.blendAppearanceEasing")}
+						value={singleBlend.appearanceEasing}
+						onChange={handleAppearanceEasingChange}
+					/>
 					<label
 						htmlFor={tiltId}
 						className="flex items-center gap-2 text-[10px] text-muted-foreground cursor-pointer select-none"
@@ -202,6 +230,84 @@ export const BlendOperations = memo(function BlendOperations() {
 					</label>
 				</div>
 			)}
+		</div>
+	);
+});
+
+/** Preset picker for one blend easing, with a curve editor for custom curves. */
+const EasingField = memo(function EasingField({
+	label,
+	value,
+	onChange,
+}: {
+	label: string;
+	value: BlendEasing;
+	onChange: (easing: BlendEasing) => void;
+}) {
+	const t = useTranslation();
+
+	const handleTypeChange = useEventCallback((type: BlendEasing["type"]) => {
+		onChange(
+			type === "custom"
+				? { type, nodes: createLinearBezierEasing() }
+				: { type },
+		);
+	});
+
+	const handleCurveChange = useEventCallback((nodes: BlendEasingNode[]) => {
+		onChange({ type: "custom", nodes });
+	});
+
+	return (
+		<div className="flex flex-col gap-1">
+			<span className="text-[10px] text-muted-foreground">{label}</span>
+			<div className="flex items-center gap-1">
+				<SimpleSelect
+					$size="sm"
+					className="flex-1"
+					items={[
+						{ label: t("actionsPanel.easingLinear"), value: "linear" },
+						{ label: t("actionsPanel.easingEaseIn"), value: "ease-in" },
+						{ label: t("actionsPanel.easingEaseOut"), value: "ease-out" },
+						{ label: t("actionsPanel.easingEaseInOut"), value: "ease-in-out" },
+						{ label: t("actionsPanel.easingCustom"), value: "custom" },
+					]}
+					value={value.type}
+					onValueChange={handleTypeChange}
+				/>
+				{value.type === "custom" && (
+					<Popover.Root>
+						<Tooltip
+							content={t("actionsPanel.blendEditEasingCurve")}
+							side="bottom"
+						>
+							<Popover.Trigger
+								render={
+									<IconButton
+										$size="xs"
+										$variant="ghost"
+										aria-label={t("actionsPanel.blendEditEasingCurve")}
+									>
+										<ChartSpline size={14} />
+									</IconButton>
+								}
+							/>
+						</Tooltip>
+						<Popover.Content className="w-auto p-2">
+							<div className="flex flex-col gap-2">
+								<div className="pl-1 text-[11px] font-medium text-foreground">
+									{label}
+								</div>
+								<BezierCurveEditor
+									value={value.nodes}
+									onChange={handleCurveChange}
+									label={label}
+								/>
+							</div>
+						</Popover.Content>
+					</Popover.Root>
+				)}
+			</div>
 		</div>
 	);
 });

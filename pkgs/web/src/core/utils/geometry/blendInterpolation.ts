@@ -22,6 +22,7 @@ import type { BrushSettings } from "../../schema";
 import {
 	type AnyArtObject,
 	type BezierPoint,
+	type BlendEasing,
 	type BlendObject,
 	type BlendSpacing,
 	type Color,
@@ -43,6 +44,7 @@ import {
 	type StrokeColor,
 	type StrokeGradient,
 } from "../../schema";
+import { evaluateBezierEasing } from "../bezierEasing";
 import { srgbEotf, srgbOetf } from "../color";
 import { clamp01, lerp } from "../math";
 import { calculatePathBounds } from "./bounds";
@@ -76,6 +78,9 @@ import {
  */
 export type FilterInterpolator = (a: Filter, b: Filter, t: number) => Filter;
 
+/** Remaps a pair's 0..1 progress. */
+type Easing = (t: number) => number;
+
 export function computeBlendIntermediates(
 	blend: BlendObject,
 	objects: Path[],
@@ -96,6 +101,8 @@ export function computeBlendIntermediates(
 		? (spineTable.at(-1)?.cumulativeLength ?? 0)
 		: 0;
 	const pairCount = world.length - 1;
+	const easePlacement = resolveEasing(blend.placementEasing);
+	const easeAppearance = resolveEasing(blend.appearanceEasing);
 
 	// Arc-length of each key ON the spine, so each pair's intermediates run
 	// between the ACTUAL key positions — not an even split of the spine. With
@@ -143,6 +150,8 @@ export function computeBlendIntermediates(
 				spineTotal,
 				spineRange,
 				blend.tiltToSpine ?? false,
+				easePlacement,
+				easeAppearance,
 				interpolateOtherFilter,
 			),
 		);
@@ -438,6 +447,8 @@ function computePairIntermediates(
 	spineTotal: number,
 	spineRange: { start: number; end: number } | null,
 	tilt: boolean,
+	easePlacement: Easing,
+	easeAppearance: Easing,
 	interpolateOtherFilter?: FilterInterpolator,
 ): Path[] {
 	if (steps <= 0) return [];
@@ -452,18 +463,21 @@ function computePairIntermediates(
 	const result: Path[] = [];
 
 	for (let i = 1; i <= steps; i++) {
-		const t = i / (steps + 1);
-		let segments = interpolateSubPaths(subPathPairs, t);
+		const progress = i / (steps + 1);
+		const placementT = easePlacement(progress);
+		const appearanceT = easeAppearance(progress);
+		let segments = interpolateSubPaths(subPathPairs, placementT);
 		const filters = interpolateFilters(
 			localAppearances(source.filters),
 			localAppearances(target.filters),
-			t,
+			appearanceT,
 			interpolateOtherFilter,
 		);
-		const opacity = lerp(source.opacity, target.opacity, t);
+		const opacity = lerp(source.opacity, target.opacity, appearanceT);
 
 		if (spinePath && spineTable && spineRange && spineTotal > 0) {
-			const arcLen = spineRange.start + (spineRange.end - spineRange.start) * t;
+			const arcLen =
+				spineRange.start + (spineRange.end - spineRange.start) * placementT;
 			const sample = samplePathAtArcLength(
 				spinePath,
 				spineTable,
@@ -504,6 +518,22 @@ function computePairIntermediates(
 	}
 
 	return result;
+}
+
+/** Turn a stored easing into the function that remaps a pair's progress. */
+function resolveEasing(easing: BlendEasing): Easing {
+	switch (easing.type) {
+		case "linear":
+			return (t) => t;
+		case "ease-in":
+			return (t) => t ** 3;
+		case "ease-out":
+			return (t) => 1 - (1 - t) ** 3;
+		case "ease-in-out":
+			return (t) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
+		case "custom":
+			return (t) => evaluateBezierEasing(easing.nodes, t);
+	}
 }
 
 /**

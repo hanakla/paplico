@@ -29,6 +29,7 @@ import { migUnits } from "./20260910_mig_units";
 import { migFilterBackdropFlag } from "./20260917_mig_filter_backdrop_flag";
 import { migCompoundPathPivot } from "./20260918_mig_compound_path_pivot";
 import { migDropEraseMasks } from "./20260920_mig_drop_erase_masks";
+import { migBlendEasing } from "./20260921_mig_blend_easing";
 import {
 	applyMigration,
 	applyMigrations,
@@ -1648,6 +1649,47 @@ describe("migDropEraseMasks (20260920)", () => {
 	});
 });
 
+describe("migBlendEasing (20260921)", () => {
+	it("should fill both easings of a blend with linear", () => {
+		const doc = makeDoc({ b1: makeLegacyBlend() }, 20260920);
+
+		applyMigration(doc, migBlendEasing);
+
+		expect(doc.objects.b1).toMatchObject({
+			placementEasing: { type: "linear" },
+			appearanceEasing: { type: "linear" },
+		});
+	});
+
+	it("should keep easings a blend already has", () => {
+		const doc = makeDoc(
+			{
+				b1: makeLegacyBlend({
+					placementEasing: { type: "ease-in" },
+					appearanceEasing: { type: "ease-out" },
+				}),
+			},
+			20260920,
+		);
+
+		applyMigration(doc, migBlendEasing);
+
+		expect(doc.objects.b1).toMatchObject({
+			placementEasing: { type: "ease-in" },
+			appearanceEasing: { type: "ease-out" },
+		});
+	});
+
+	it("should leave non-blend elements untouched", () => {
+		const doc = makeDoc({ p1: makeLegacyPath() }, 20260920);
+
+		applyMigration(doc, migBlendEasing);
+
+		expect(doc.objects.p1).not.toHaveProperty("placementEasing");
+		expect(doc.objects.p1).not.toHaveProperty("appearanceEasing");
+	});
+});
+
 /** A closed 100×100 square centered on the origin, moved right by `x`. */
 function makeSquarePath(id: string, x: number): Path {
 	const corners = [
@@ -1676,6 +1718,19 @@ function makeSquarePath(id: string, x: number): Path {
 		opacity: 1,
 		blendMode: "normal",
 		transform: { ...createIdentityTransform(), x },
+	};
+}
+
+function makeLegacyBlend(overrides: Record<string, unknown> = {}) {
+	return {
+		id: "b1",
+		type: "blend" as const,
+		opacity: 1,
+		blendMode: "normal" as const,
+		transform: IDENTITY_TRANSFORM,
+		objectIds: ["p1", "p2"],
+		spacing: { type: "steps", count: 3 },
+		...overrides,
 	};
 }
 

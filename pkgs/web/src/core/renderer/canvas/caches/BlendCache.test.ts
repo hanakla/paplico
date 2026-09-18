@@ -47,6 +47,8 @@ function makeBlend(objectIds: string[], count = 2): BlendObject {
 		id: "blend-1",
 		objectIds,
 		spacing: { type: "steps", count },
+		placementEasing: { type: "linear" },
+		appearanceEasing: { type: "linear" },
 		opacity: 1,
 		blendMode: "normal",
 		transform: createIdentityTransform(),

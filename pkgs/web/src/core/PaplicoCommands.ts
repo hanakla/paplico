@@ -51,6 +51,7 @@ import {
 	type AppearancePreset,
 	type AppearancePresetRef,
 	type Artboard,
+	type BlendEasing,
 	type BlendMode,
 	type BlendObject,
 	type BlendSpacing,
@@ -1376,6 +1377,8 @@ export class PaplicoCommands {
 			id: blendId,
 			objectIds: orderedSources.map((s) => s.id),
 			spacing,
+			placementEasing: { type: "linear" },
+			appearanceEasing: { type: "linear" },
 			opacity: 1,
 			blendMode: "normal",
 			transform: createIdentityTransform(),
@@ -1497,6 +1500,18 @@ export class PaplicoCommands {
 		const layerId = this.ctx.store.currentLayerId;
 		if (!layerId) return;
 		this.updateElement(layerId, blendId, { spacing } as Partial<BlendObject>);
+	}
+
+	public updateBlendEasing(
+		blendId: string,
+		key: "placementEasing" | "appearanceEasing",
+		easing: BlendEasing,
+	): void {
+		const layerId = this.ctx.store.currentLayerId;
+		if (!layerId) return;
+		this.updateElement(layerId, blendId, {
+			[key]: easing,
+		} as Partial<BlendObject>);
 	}
 
 	public updateBlendTilt(blendId: string, tiltToSpine: boolean): void {

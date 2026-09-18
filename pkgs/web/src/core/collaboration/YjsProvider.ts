@@ -98,6 +98,8 @@ export const JSON_FIELDS = new Set([
 	"objectIds",
 	"renderOrder",
 	"spacing",
+	"placementEasing",
+	"appearanceEasing",
 	"camera",
 	"lineart",
 	"lightDir",
@@ -2899,6 +2901,8 @@ export function objectToStoredFields(
 			if (element.renderOrder !== undefined)
 				fields.renderOrder = JSON.stringify(element.renderOrder);
 			fields.spacing = JSON.stringify(element.spacing);
+			fields.placementEasing = JSON.stringify(element.placementEasing);
+			fields.appearanceEasing = JSON.stringify(element.appearanceEasing);
 			if (element.spineSourceId !== undefined)
 				fields.spineSourceId = element.spineSourceId;
 			if (element.tiltToSpine !== undefined)

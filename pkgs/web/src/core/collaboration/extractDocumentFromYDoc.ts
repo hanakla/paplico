@@ -154,6 +154,8 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 				objectIds: JSON.parse(yMap.get("objectIds") as string),
 				renderOrder: renderOrderRaw ? JSON.parse(renderOrderRaw) : undefined,
 				spacing: JSON.parse(yMap.get("spacing") as string),
+				placementEasing: JSON.parse(yMap.get("placementEasing") as string),
+				appearanceEasing: JSON.parse(yMap.get("appearanceEasing") as string),
 				spineSourceId: yMap.get("spineSourceId") as string | undefined,
 				tiltToSpine: yMap.get("tiltToSpine") as boolean | undefined,
 			} satisfies BlendObject;
