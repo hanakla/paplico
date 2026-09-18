@@ -92,7 +92,6 @@ export const JSON_FIELDS = new Set([
 	"transform",
 	"mask",
 	"strokeWidths",
-	"eraseMasks",
 	"vertices",
 	"faces",
 	"corners",
@@ -2854,8 +2853,6 @@ export function objectToStoredFields(
 				fields.strokeWidths = JSON.stringify(element.strokeWidths);
 			if (element.strokeWidthsBaked !== undefined)
 				fields.strokeWidthsBaked = element.strokeWidthsBaked;
-			if (element.eraseMasks?.length)
-				fields.eraseMasks = JSON.stringify(element.eraseMasks);
 			if (element.pathStart !== undefined) fields.pathStart = element.pathStart;
 			if (element.pathEnd !== undefined) fields.pathEnd = element.pathEnd;
 			if (element.isGuide !== undefined) fields.isGuide = element.isGuide;

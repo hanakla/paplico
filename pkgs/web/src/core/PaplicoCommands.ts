@@ -70,7 +70,6 @@ import {
 	type DefKind,
 	type ElementTransform,
 	type EmbeddedFile,
-	type EraseMask,
 	type FillAppearance,
 	type FillColor,
 	type Filter,
@@ -2277,8 +2276,7 @@ export class PaplicoCommands {
 	 * Write a mask onto an element.
 	 *
 	 * The layer id is empty because a mask can be set on an element nested
-	 * anywhere in the tree, and the update path does not consult it — the same
-	 * reason `addEraseMask` passes nothing there.
+	 * anywhere in the tree, and the update path does not consult it.
 	 */
 	private updateElementMask(elementId: string, mask: ObjectMask | null): void {
 		this.updateElement("", elementId, { mask });
@@ -5343,19 +5341,6 @@ export class PaplicoCommands {
 				}
 			}
 		}, origin);
-	}
-
-	public addEraseMask(elementId: string, mask: EraseMask): void {
-		if (this.cannotMutate() || this.isElementLocked(elementId)) return;
-		const obj = this.ctx.store.document.objects[elementId];
-		if (!obj || obj.type !== "path") return;
-		const existing = obj.eraseMasks ?? [];
-		this.ctx.yjsProvider.updateElement(
-			"",
-			elementId,
-			{ eraseMasks: [...existing, mask] },
-			this.getMutationOrigin(),
-		);
 	}
 }
 

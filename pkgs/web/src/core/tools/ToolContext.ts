@@ -19,7 +19,6 @@ import type {
 	Color,
 	CubicBezierSegment,
 	ElementTransform,
-	EraseMask,
 	FillAppearance,
 	FillColor,
 	Layer,
@@ -62,7 +61,6 @@ export type ToolContextOptions = {
 
 	eraseElement: (elementId: string) => void;
 	addPaths: (paths: Path[]) => void;
-	addEraseMask: (elementId: string, mask: EraseMask) => void;
 	updateElement: (elementId: string, updates: Partial<AnyArtObject>) => void;
 	transact: (fn: (commands: PaplicoCommands) => void) => void;
 	getCurrentLayer: () => Layer | null;

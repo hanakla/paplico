@@ -25,7 +25,6 @@ type MockCommands = {
 	addPaths: Mock;
 	addPathsToContainer: Mock;
 	updateElement: Mock;
-	addEraseMask: Mock;
 	updateRepeatGrid: Mock;
 	updateRepeatRadial: Mock;
 };
@@ -38,7 +37,6 @@ export function createMockToolContext(
 		addPaths: vi.fn(),
 		addPathsToContainer: vi.fn(),
 		updateElement: vi.fn(),
-		addEraseMask: vi.fn(),
 		updateRepeatGrid: vi.fn(),
 		updateRepeatRadial: vi.fn(),
 	};
@@ -57,7 +55,6 @@ export function createMockToolContext(
 		textPreviewUpdate: vi.fn(),
 
 		eraseElement: vi.fn(),
-		addEraseMask: vi.fn(),
 		updateElement: vi.fn(),
 		addPaths: vi.fn(),
 		transact: vi.fn((fn: (commands: PaplicoCommands) => void) => {

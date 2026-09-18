@@ -16,8 +16,6 @@ import {
 	type Group,
 	getTransform,
 	isGroup,
-	type Path,
-	type StrokeAppearance,
 	type Viewport,
 } from "../../../schema";
 import {
@@ -86,7 +84,6 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 	strokePipeline: GPURenderPipeline;
 	blitWithMaskPipeline: GPURenderPipeline;
 	blitWithMaskChainPipeline: GPURenderPipeline;
-	blitWithEraseMaskPipeline: GPURenderPipeline;
 	blitWithMaskBindGroupLayout: GPUBindGroupLayout;
 	maskChainBindGroupLayout: GPUBindGroupLayout;
 	dummyGradientBindGroup: GPUBindGroup;
@@ -1219,174 +1216,6 @@ export class OffscreenPresenter {
 			),
 			effectiveZoom,
 		};
-	}
-
-	/**
-	 * Render a path element with erase masks applied.
-	 *
-	 * Three-pass pipeline:
-	 *   1. Render the path to an offscreen texture (normal rendering)
-	 *   2. Render all eraseMasks to a mask texture (using brush renderer)
-	 *   3. Blit with alpha subtraction: finalAlpha = src * (1 - mask.a * opacity)
-	 *
-	 * Each eraseMask with opacity < 1 has its opacity baked into the mask
-	 * rendering (stamp opacity scaled by mask.opacity).
-	 */
-	public renderWithEraseMasks(
-		encoder: GPUCommandEncoder,
-		passEncoder: GPURenderPassEncoder,
-		path: Path,
-		elementsMap: Map<string, AnyArtObject>,
-		_alphaMultiplier: number,
-		elementBounds: WorldBBox,
-		compositeContext?: CompositeRenderContext,
-	): GPURenderPassEncoder {
-		const eraseMasks = path.eraseMasks;
-		if (!eraseMasks || eraseMasks.length === 0 || !compositeContext) {
-			return passEncoder;
-		}
-
-		if (
-			Math.ceil(elementBounds.width) <= 0 ||
-			Math.ceil(elementBounds.height) <= 0
-		) {
-			return passEncoder;
-		}
-
-		// End the active pass before starting offscreen passes
-		passEncoder.end();
-
-		// Step 1: Render the path element to offscreen texture
-		const sourceResult = this.renderElementToTexture(
-			encoder,
-			path,
-			elementBounds,
-			elementsMap,
-		);
-		if (!sourceResult) {
-			return compositeContext.restartPass();
-		}
-		const sourceTexture = sourceResult.texture.texture;
-
-		// Step 2: Render all eraseMasks to a mask texture
-		const maskCtx = this.createOffscreenPass(
-			encoder,
-			"Erase Mask",
-			elementBounds,
-		);
-		if (!maskCtx) {
-			releaseRenderSurface(sourceResult);
-			return compositeContext.restartPass();
-		}
-
-		// Create temporary Path objects for each eraseMask and render them
-		for (const mask of eraseMasks) {
-			const maskPath: Path = {
-				type: "path",
-				id: `__erase_mask_${mask.uid}`,
-				segments: mask.segments,
-				opacity: mask.opacity,
-				blendMode: "normal",
-				transform: path.transform,
-				filters: [
-					{
-						uid: `__erase_mask_filter_${mask.uid}`,
-						processor: "stroke",
-						enabled: true,
-						opacity: 1,
-						blendMode: "normal",
-						paramData: {
-							version: "1",
-							params: {
-								strokeColor: mask.strokeColor,
-								brushSettings: mask.brushSettings,
-							},
-						},
-					} satisfies StrokeAppearance,
-				],
-			};
-
-			this.deps.renderState.currentTransformIndex = this.deps.getTransformIndex(
-				path.id,
-			);
-			this.deps.dispatchElementDirect(
-				maskCtx.passEncoder,
-				maskPath,
-				elementsMap,
-				mask.opacity,
-				"offscreen",
-			);
-		}
-
-		maskCtx.passEncoder.end();
-		this.deps.setActiveBindGroup(null);
-		this.deps.viewportState.bounds = maskCtx.savedViewportBounds;
-
-		// Step 3: Blit source with erase mask (alpha subtraction)
-		// Use coverageBounds (viewport intersection) for blit quad, not full elementBounds.
-		// The offscreen textures only contain content within coverageBounds;
-		// using elementBounds would stretch the texture and distort strokes.
-		const blitBounds = sourceResult.placement.bounds;
-		const srcUv = sourceResult.placement.uvRect;
-		const maskUv = maskCtx.blitUvRect;
-		const f = this.clipBlitF32;
-		f[0] = blitBounds.minX;
-		f[1] = blitBounds.minY;
-		f[2] = blitBounds.maxX;
-		f[3] = blitBounds.maxY;
-		f[4] = 1.0; // opacity already applied during mask rendering
-		f[5] = 0;
-		f[6] = 0;
-		f[7] = 0;
-		f[8] = srcUv.minU;
-		f[9] = srcUv.minV;
-		f[10] = srcUv.maxU;
-		f[11] = srcUv.maxV;
-		f[12] = maskUv.minU;
-		f[13] = maskUv.minV;
-		f[14] = maskUv.maxU;
-		f[15] = maskUv.maxV;
-		// No outer mask for erase paths — sentinel zeros
-		f[16] = 0;
-		f[17] = 0;
-		f[18] = 0;
-		f[19] = 0;
-
-		const bufIdx = this.clipBlitPool.nextIndex;
-		const blitUniformBuffer = this.clipBlitPool.acquire(CLIP_BLIT_BUFFER_SIZE);
-		this.deps.device.queue.writeBuffer(blitUniformBuffer, 0, f);
-
-		const blitBindGroup = this.clipBlitBGCache.getOrCreate(
-			bufIdx,
-			sourceTexture,
-			maskCtx.offscreenTexture,
-			() =>
-				this.deps.device.createBindGroup({
-					layout: this.deps.blitWithMaskBindGroupLayout,
-					entries: [
-						{ binding: 0, resource: { buffer: blitUniformBuffer } },
-						{ binding: 1, resource: this.deps.sampler },
-						{ binding: 2, resource: sourceTexture.createView() },
-						{
-							binding: 3,
-							resource: maskCtx.offscreenTexture.createView(),
-						},
-					],
-				}),
-		);
-
-		const blitPass = compositeContext.restartPass();
-		blitPass.setPipeline(this.deps.blitWithEraseMaskPipeline);
-		blitPass.setBindGroup(0, this.deps.getBindGroup());
-		blitPass.setBindGroup(1, blitBindGroup);
-		blitPass.setBindGroup(2, this.deps.dummyMaskBindGroup);
-		blitPass.draw(6);
-		blitPass.end();
-
-		releaseRenderSurface(sourceResult);
-		this.deferDestroy(maskCtx.offscreenTexture);
-
-		return compositeContext.restartPass();
 	}
 
 	/**

@@ -378,7 +378,6 @@ export class CanvasLayer {
 	private blitPipelineRgba32Float: GPURenderPipeline;
 	private blitWithMaskPipeline: GPURenderPipeline;
 	private blitWithMaskChainPipeline: GPURenderPipeline;
-	private blitWithEraseMaskPipeline: GPURenderPipeline;
 	private blitBackdropWithMaskPipeline: GPURenderPipeline;
 	private blitBackdropPunchPipeline: GPURenderPipeline;
 	private blitGlassPunchPipeline: GPURenderPipeline;
@@ -716,7 +715,6 @@ export class CanvasLayer {
 			compositePipeline: GPURenderPipeline;
 			blitWithMaskPipeline: GPURenderPipeline;
 			blitWithMaskChainPipeline: GPURenderPipeline;
-			blitWithEraseMaskPipeline: GPURenderPipeline;
 			blitBackdropWithMaskPipeline: GPURenderPipeline;
 			blitBackdropPunchPipeline: GPURenderPipeline;
 			blitGlassPunchPipeline: GPURenderPipeline;
@@ -768,7 +766,6 @@ export class CanvasLayer {
 		this.compositePipeline = pipelines.compositePipeline;
 		this.blitWithMaskPipeline = pipelines.blitWithMaskPipeline;
 		this.blitWithMaskChainPipeline = pipelines.blitWithMaskChainPipeline;
-		this.blitWithEraseMaskPipeline = pipelines.blitWithEraseMaskPipeline;
 		this.blitBackdropWithMaskPipeline = pipelines.blitBackdropWithMaskPipeline;
 		this.blitBackdropPunchPipeline = pipelines.blitBackdropPunchPipeline;
 		this.blitGlassPunchPipeline = pipelines.blitGlassPunchPipeline;
@@ -1059,7 +1056,6 @@ export class CanvasLayer {
 			dummyMaskBindGroup: this.dummyMaskBindGroup,
 			blitWithMaskPipeline: this.blitWithMaskPipeline,
 			blitWithMaskChainPipeline: this.blitWithMaskChainPipeline,
-			blitWithEraseMaskPipeline: this.blitWithEraseMaskPipeline,
 			blitWithMaskBindGroupLayout: this.blitWithMaskBindGroupLayout,
 			maskChainBindGroupLayout: this.maskChainBindGroupLayout,
 			viewportState: this.viewportState,
@@ -6324,30 +6320,6 @@ export class CanvasLayer {
 					compositionMode,
 				});
 				releaseRenderSurface(sourceSurface);
-				activePass.setPipeline(this.strokePipeline);
-				activePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
-				activePass.setBindGroup(1, this.transformsBindGroup!);
-				activePass.setBindGroup(2, this.dummyGradientBindGroup);
-				activePass.setBindGroup(3, this.renderState.currentMaskBindGroup);
-			} else if (
-				isPath(element) &&
-				element.eraseMasks &&
-				element.eraseMasks.length > 0 &&
-				compositeContext
-			) {
-				// EraseMask path: render to offscreen with alpha subtraction
-				ribbons?.flush();
-				// renderWithEraseMasks ends and re-creates the active pass.
-				activePass = this.offscreen.renderWithEraseMasks(
-					this.activeEncoder!,
-					activePass,
-					element,
-					elementsMap,
-					effectiveAlpha,
-					elementBounds,
-					compositeContext,
-				);
-				this.restoreViewportUniformsToGPU();
 				activePass.setPipeline(this.strokePipeline);
 				activePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
 				activePass.setBindGroup(1, this.transformsBindGroup!);

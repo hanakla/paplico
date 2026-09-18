@@ -474,47 +474,6 @@ export interface StrokeWidthPoint {
 	side2: number;
 }
 
-/**
- * A non-destructive erase mask that subtracts from an element's rendered output.
- *
- * The mask is defined by an eraser stroke path with brush settings.
- * During rendering, the mask path is rasterized using the existing brush
- * rendering pipeline (stamp-based), and the resulting alpha is used to
- * subtract from the target element's alpha channel.
- *
- * Rendering pipeline:
- *   1. Render the element to an offscreen texture (normal brush rendering)
- *   2. Render all eraseMasks to a separate mask texture (using brush renderer)
- *   3. Composite: finalAlpha = elementAlpha * (1 - maskAlpha * mask.opacity)
- *
- * Hard vs Soft erasing is controlled per-mask via the opacity property:
- *   - opacity = 1.0 → hard erase (fully transparent where mask covers)
- *   - opacity < 1.0 → soft erase (partially transparent, gradual fade)
- */
-export interface EraseMask {
-	/** Unique identifier for this mask */
-	uid: string;
-
-	/** Eraser stroke path segments in world coordinates.
-	 * Uses the same PathSegment format as regular paths. */
-	segments: PathSegment[];
-
-	/** Stroke color for rendering the mask (only alpha channel matters). */
-	strokeColor: StrokeColor;
-
-	/** Brush settings for rendering the mask stroke. */
-	brushSettings: BrushSettings;
-
-	/**
-	 * Mask opacity (0–1). Controls hard vs soft erasing:
-	 *   1.0 = hard erase — fully transparent where mask covers
-	 *   0.0 = no effect (invisible mask)
-	 *
-	 * Applied after mask rendering: resultAlpha = elementAlpha * (1 - maskSampleAlpha * opacity)
-	 */
-	opacity: number;
-}
-
 export type BlendMode =
 	| "normal"
 	| "multiply"
@@ -1119,16 +1078,6 @@ export interface Path extends ArtObject {
 	 * curve evaluation (eraser width-adjust, manual edits).
 	 */
 	strokeWidthsBaked?: boolean;
-
-	/**
-	 * Non-destructive erase masks applied to this element's rendered output.
-	 *
-	 * Each mask represents an eraser stroke that subtracts from the element's
-	 * alpha channel during compositing. The element's path geometry and
-	 * strokeWidths are NOT modified — masks only affect the final rendered
-	 * appearance.
-	 */
-	eraseMasks?: EraseMask[];
 }
 
 export interface Group extends ArtObject {

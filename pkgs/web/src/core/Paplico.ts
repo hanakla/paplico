@@ -2520,15 +2520,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			},
 
 			eraseElement: (id) => this.commands.deleteElements([id]),
-			addEraseMask: (elementId, mask) => {
-				const obj = this.rendererStore.document.objects[elementId];
-				if (!obj || obj.type !== "path") return;
-				const existing = obj.eraseMasks ?? [];
-
-				this.commands.updateElement("", elementId, {
-					eraseMasks: [...existing, mask],
-				});
-			},
 			updateElement: (elementId, updates) => {
 				const layerId = this.rendererStore.currentLayerId ?? "";
 				this.commands.updateElement(layerId, elementId, updates);

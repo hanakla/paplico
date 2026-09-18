@@ -9,7 +9,7 @@ Paplicoは、リアルタイム共同編集機能を備えた無限キャンバ�
 ### 主要機能
 
 - ✏️ フリーハンド描画（スタンプ/リボン/幾何ストロークの3系統ブラシエンジン、筆圧・傾き対応、ウェットインク）
-- 📐 ベクターパス編集（ベジエパス、ブーリアン演算、可変線幅、非破壊消去マスク）
+- 📐 ベクターパス編集（ベジエパス、ブーリアン演算、可変線幅）
 - 📝 テキスト（縦書き・横書き、パス上配置、クローズパス内流し込み、複数リージョン連結）
 - 🎨 レイヤー・グループ・クリッピングマスク・オブジェクトマスク
 - 🪄 アピアランス/フィルタ（fill/stroke/3D押し出し/回転体/パス変形/クリップ/ブラー/スタイライズ/SVGフィルタ等 60種）
@@ -187,7 +187,7 @@ interface Layer {
 
 | 型 | `type` | 概要 |
 |---|---|---|
-| `Path` | `"path"` | ベジエパス。`segments`, `isGuide?`, `pathStart?`/`pathEnd?`（分割ストロークのテーパー抑制）, `strokeWidths?`（可変線幅）, `strokeWidthsBaked?`（strokeWidthsがブラシのサイズカーブ評価を焼き込み済み）, `eraseMasks?`（非破壊消去） |
+| `Path` | `"path"` | ベジエパス。`segments`, `isGuide?`, `pathStart?`/`pathEnd?`（分割ストロークのテーパー抑制）, `strokeWidths?`（可変線幅）, `strokeWidthsBaked?`（strokeWidthsがブラシのサイズカーブ評価を焼き込み済み） |
 | `Group` | `"group"` | `childIds`, `collapsed?`, `clipPathId?`（childIdsの1つをクリップパスに） |
 | `CompoundPath` | `"compound-path"` | `sources: {id, op}[]`。op = `"union" \| "subtract" \| "intersect" \| "exclude"` |
 | `ImageObject` | `"image"` | `fileUid`（EmbeddedFile参照）, 中心座標とサイズ, `corners?`（自由変形4隅） |

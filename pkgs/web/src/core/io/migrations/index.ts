@@ -14,6 +14,7 @@ import { migAppearancePresets } from "./20260906_mig_appearance_presets";
 import { migUnits } from "./20260910_mig_units";
 import { migFilterBackdropFlag } from "./20260917_mig_filter_backdrop_flag";
 import { migCompoundPathPivot } from "./20260918_mig_compound_path_pivot";
+import { migDropEraseMasks } from "./20260920_mig_drop_erase_masks";
 
 export interface Migration {
 	/** Schema version date (YYYYMMDD) this migration upgrades TO */
@@ -39,6 +40,7 @@ const migrations: Migration[] = [
 	migUnits,
 	migFilterBackdropFlag,
 	migCompoundPathPivot,
+	migDropEraseMasks,
 ];
 
 /** Schema version a document has once every migration ran. */

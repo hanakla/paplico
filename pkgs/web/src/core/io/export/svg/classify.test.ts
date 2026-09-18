@@ -383,14 +383,11 @@ describe("classifyElement", () => {
 		expect(classifyElement(el, makeOptions([el]))).toBe("pure");
 	});
 
-	it("should rasterize alpha-lock and erase masks", () => {
+	it("should rasterize alpha-lock", () => {
 		const opts = makeOptions([]);
 		expect(
 			classifyElement(basePath({ compositionMode: "alpha-lock" }), opts),
 		).toBe("raster");
-		expect(classifyElement(basePath({ eraseMasks: [{} as never] }), opts)).toBe(
-			"raster",
-		);
 	});
 
 	it("should skip reference3d unless includeInExport is set", () => {

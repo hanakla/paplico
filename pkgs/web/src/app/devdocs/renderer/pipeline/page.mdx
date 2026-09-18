@@ -153,7 +153,6 @@ uniform バッファは用途別の `FrameUniformPool`（blit, quad blit, compos
 - `renderClipGroupToTexture()` — クリップグループを3パス（子要素描画→マスク描画→マスク付きblit）でオフスクリーンテクスチャに描画
 - `applyWorldMasksToTexture()` — 描画済みテクスチャにワールド空間のマスクを掛けた新しいテクスチャを返す
 - `drawSurfaceWithAtlasMasks()` — 共有アトラス上のマスクを、テクスチャをキャンバスへ描く時点で掛ける
-- `renderWithEraseMasks()` — 消しゴムマスク付きパスを3パス（パス描画→マスク描画→アルファ減算blit）で処理
 
 テクスチャの解放は `deferDestroy()` で次フレーム開始時まで遅延される。in-flightのコマンドバッファがテクスチャを参照している可能性があるためである。`TexturePool` に属するテクスチャは `release()` でプールに戻し、それ以外は遅延破棄リストに追加する。
 

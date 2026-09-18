@@ -4,11 +4,10 @@ import {
 	interpolateStrokeWidths,
 	strokeWidthSamplePathTs,
 } from "../renderer/geometry/strokeTessellator";
-import type { BooleanOperation, BrushSettings } from "../schema";
+import type { BooleanOperation } from "../schema";
 import {
 	type BoundingBox,
 	type ElementTransform,
-	type EraseMask,
 	type FillAppearance,
 	getContainerChildIds,
 	isCompoundPath,
@@ -18,7 +17,6 @@ import {
 	isVisibleFill,
 	type Layer,
 	type Path,
-	type PathSegment,
 	type StrokeWidthPoint,
 	type Viewport,
 } from "../schema";
@@ -40,15 +38,11 @@ import { processStroke } from "../utils/geometry/strokeFitting";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
-export type EraserMode = "slice" | "mask" | "width-adjust";
+export type EraserMode = "slice" | "width-adjust";
 
 interface EraserToolOptions {
 	width: number;
 	mode: EraserMode;
-	/** Mask opacity (0–1). Only used in "mask" mode. Default: 1.0 */
-	maskOpacity?: number;
-	/** Brush settings for mask rendering. Only used in "mask" mode. */
-	maskBrushSettings?: BrushSettings;
 	/** Erase across all unlocked layers instead of only the current layer */
 	pierceAllLayers?: boolean;
 }
@@ -139,7 +133,6 @@ export class EraserTool implements Tool {
 	private context: ToolContext;
 	private options: EraserToolOptions;
 	private currentStroke: Point[] | null = null;
-	private currentPressures: number[] | null = null;
 	private eraserRadius: number;
 	/** onPointerMove内での間引き最小距離（eraserRadius / 4） */
 	private minMoveDistance: number;
@@ -192,7 +185,6 @@ export class EraserTool implements Tool {
 		);
 
 		this.currentStroke = [worldPos];
-		this.currentPressures = [event.pressure ?? 0.5];
 	}
 
 	public onPointerMove(
@@ -220,7 +212,6 @@ export class EraserTool implements Tool {
 		}
 
 		this.currentStroke.push(worldPos);
-		this.currentPressures!.push(event.pressure ?? 0.5);
 	}
 
 	public onPointerUp(
@@ -231,29 +222,18 @@ export class EraserTool implements Tool {
 	): void {
 		if (!this.currentStroke || this.currentStroke.length === 0) {
 			this.currentStroke = null;
-			this.currentPressures = null;
 			return;
 		}
 
 		const targetLayers = this.resolveTargetLayers();
 		if (targetLayers.length === 0) {
 			this.currentStroke = null;
-			this.currentPressures = null;
 			return;
 		}
 
-		switch (this.options.mode) {
-			case "slice":
-			case "width-adjust":
-				this.performUnifiedErase(targetLayers);
-				break;
-			case "mask":
-				this.performMaskErase(targetLayers);
-				break;
-		}
+		this.performUnifiedErase(targetLayers);
 
 		this.currentStroke = null;
-		this.currentPressures = null;
 	}
 
 	/**
@@ -478,98 +458,6 @@ export class EraserTool implements Tool {
 		});
 	}
 
-	private performMaskErase(layers: Layer[]): void {
-		if (!this.currentStroke || !this.currentPressures) return;
-		if (this.currentStroke.length < 2) return;
-
-		const maskOpacity = this.options.maskOpacity ?? 1.0;
-		const brushSettings: BrushSettings = this.options.maskBrushSettings ?? {
-			version: 2,
-			engine: "dab",
-			strokeOpacity: 1,
-			paintMode: "buildup",
-			properties: {
-				size: {
-					base: this.options.width,
-					curves: [{ input: "pressure", points: [[1, 0.5]] }],
-				},
-				spacing: { base: 0.1 },
-				flow: { base: 1 },
-			},
-			tip: {
-				kind: "image",
-				sources: [{ kind: "file", fileUid: "__airbrush" }],
-				selection: "random",
-				angleMode: "fixed",
-			},
-			randomSeed: 0,
-		};
-
-		const masks: Array<{ elementId: string; mask: EraseMask }> = [];
-
-		const eraserBounds = computeEraserBounds(
-			this.currentStroke,
-			this.eraserRadius,
-		);
-
-		const objects = this.context.getObjects();
-		const targets = layers.flatMap((layer) =>
-			layer.locked ? [] : this.getTargetElementIds(layer),
-		);
-		for (const elementId of targets) {
-			if (this.context.isElementLocked(elementId)) continue;
-
-			const element = objects[elementId];
-			if (element?.type !== "path") continue;
-
-			const composedT = resolveComposedTransform(
-				this.context,
-				elementId,
-				element,
-			);
-
-			// AABB check in world space
-			const localBounds = calculatePathBounds(element);
-			const worldBounds = applyTransformToBounds(localBounds, composedT);
-			if (!boundsIntersect(worldBounds, eraserBounds)) continue;
-
-			// Convert world-space stroke to element's full local space
-			const origin = computeTransformOrigin(localBounds);
-			const localStroke = worldToLocalFull(
-				this.currentStroke,
-				composedT,
-				origin,
-			);
-			const segments = buildSegmentsFromStroke(
-				localStroke,
-				this.currentPressures!,
-			);
-			if (segments.length === 0) continue;
-
-			masks.push({
-				elementId,
-				mask: {
-					uid: crypto.randomUUID(),
-					segments,
-					strokeColor: {
-						type: "solid",
-						color: { type: "rgb", r: 1, g: 1, b: 1, a: 1 },
-					},
-					brushSettings,
-					opacity: maskOpacity,
-				},
-			});
-		}
-
-		if (masks.length === 0) return;
-
-		this.context.transact((commands) => {
-			for (const { elementId, mask } of masks) {
-				commands.addEraseMask(elementId, mask);
-			}
-		});
-	}
-
 	/**
 	 * Return target element IDs: selected elements if any, otherwise all reachable
 	 * elements. Reachable means the editing scope's members when a scope is active,
@@ -620,7 +508,6 @@ export class EraserTool implements Tool {
 
 	public onCancel(): void {
 		this.currentStroke = null;
-		this.currentPressures = null;
 	}
 
 	public getCursor(): string {
@@ -630,40 +517,6 @@ export class EraserTool implements Tool {
 	public getCurrentStroke(): Point[] | null {
 		return this.currentStroke;
 	}
-}
-
-/**
- * Convert eraser stroke points into PathSegment array (linear segments).
- */
-function buildSegmentsFromStroke(
-	stroke: Point[],
-	pressures: number[],
-): PathSegment[] {
-	if (stroke.length < 2) return [];
-
-	const segments: PathSegment[] = [];
-	for (let i = 0; i < stroke.length - 1; i++) {
-		const p0 = stroke[i];
-		const p1 = stroke[i + 1];
-
-		segments.push({
-			start: i === 0 ? { x: p0.x, y: p0.y } : undefined,
-			cp1: { x: 0, y: 0 },
-			cp2: { x: 0, y: 0 },
-			end: { x: p1.x, y: p1.y },
-			startPressure: pressures[i] ?? 0.5,
-			endPressure: pressures[i + 1] ?? 0.5,
-			startTiltX: 0,
-			startTiltY: 0,
-			endTiltX: 0,
-			endTiltY: 0,
-			startDeltaTime: i * 16,
-			endDeltaTime: (i + 1) * 16,
-			isMoved: i === 0,
-		});
-	}
-
-	return segments;
 }
 
 /**

@@ -217,7 +217,6 @@ function classifyElementInner(
 
 	switch (element.type) {
 		case "path": {
-			if (element.eraseMasks?.length) return "raster";
 			const hasCorners = element.segments.some(
 				(seg) => (seg.cornerRadius ?? 0) > 0,
 			);

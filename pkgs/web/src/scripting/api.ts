@@ -91,12 +91,6 @@ declare type StrokeWidthPoint {
 	let side2: Number
 }
 
-declare type EraseMask {
-	let uid: String
-	let segments: [PathSegment]
-	let opacity: Number
-}
-
 declare type CompoundPathSource {
 	let id: String
 	let op: String
@@ -205,7 +199,6 @@ declare type ArtObject {
 	let pathStart: Number?
 	let pathEnd: Number?
 	let strokeWidths: [StrokeWidthPoint]?
-	let eraseMasks: [EraseMask]?
 	let childIds: [String]?
 	let collapsed: Bool?
 	let clipPathId: String?
@@ -345,7 +338,6 @@ export interface ScriptArtObject
 	readonly pathStart?: Path["pathStart"];
 	readonly pathEnd?: Path["pathEnd"];
 	readonly strokeWidths?: Path["strokeWidths"];
-	readonly eraseMasks?: Path["eraseMasks"];
 	readonly childIds?: Group["childIds"] | MeshArtObject["childIds"];
 	readonly collapsed?: Group["collapsed"];
 	readonly clipPathId?: Group["clipPathId"] | TextElement["clipPathId"];

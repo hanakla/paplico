@@ -123,7 +123,6 @@ import {
 	BLIT_BACKDROP_WITH_MASK_SHADER,
 	BLIT_GLASS_PUNCH_SHADER,
 	BLIT_SHADER,
-	BLIT_WITH_ERASE_MASK_SHADER,
 	BLIT_WITH_MASK_CHAIN_SHADER,
 	BLIT_WITH_MASK_SHADER,
 	EXPOSURE_BLIT_SHADER,
@@ -195,7 +194,6 @@ interface Pipelines {
 	blitPipelineRgba32Float: GPURenderPipeline;
 	blitWithMaskPipeline: GPURenderPipeline;
 	blitWithMaskChainPipeline: GPURenderPipeline;
-	blitWithEraseMaskPipeline: GPURenderPipeline;
 	blitBackdropWithMaskPipeline: GPURenderPipeline;
 	blitBackdropPunchPipeline: GPURenderPipeline;
 	blitGlassPunchPipeline: GPURenderPipeline;
@@ -466,7 +464,6 @@ export class RenderOrchestrator {
 				blitPipelineRgba32Float: this.pipelines.blitPipelineRgba32Float,
 				blitWithMaskPipeline: this.pipelines.blitWithMaskPipeline,
 				blitWithMaskChainPipeline: this.pipelines.blitWithMaskChainPipeline,
-				blitWithEraseMaskPipeline: this.pipelines.blitWithEraseMaskPipeline,
 				blitBackdropWithMaskPipeline:
 					this.pipelines.blitBackdropWithMaskPipeline,
 				blitBackdropPunchPipeline: this.pipelines.blitBackdropPunchPipeline,
@@ -2337,23 +2334,6 @@ export class RenderOrchestrator {
 			},
 		});
 
-		const { module: blitWithEraseMaskShaderModule } = compileShaderModule(
-			this.device,
-			{
-				label: "Blit With Erase Mask Shader",
-				code: BLIT_WITH_ERASE_MASK_SHADER,
-			},
-		);
-
-		const blitWithEraseMaskPipeline = createFullscreenPipeline({
-			device: this.device,
-			label: "Blit With Erase Mask Pipeline",
-			shaderModule: blitWithEraseMaskShaderModule,
-			pipelineLayout: blitWithMaskPipelineLayout,
-			targetFormat: this.canvasFormat,
-			blend: premultipliedBlend,
-		});
-
 		// Mask-chain layout: 4 world-space mask slots applied in one pass.
 		// Unused slots bind a white 1x1 texture and a bounds sentinel.
 		const maskChainBindGroupLayout = this.device.createBindGroupLayout({
@@ -2448,7 +2428,6 @@ export class RenderOrchestrator {
 			blitPipelineRgba32Float,
 			blitWithMaskPipeline,
 			blitWithMaskChainPipeline,
-			blitWithEraseMaskPipeline,
 			blitBackdropWithMaskPipeline,
 			blitBackdropPunchPipeline,
 			blitGlassPunchPipeline,
