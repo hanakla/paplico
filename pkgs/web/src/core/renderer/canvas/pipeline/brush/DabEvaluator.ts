@@ -532,22 +532,25 @@ export function evaluateDabs(
 			velSlow = contactGrossSpeed;
 		}
 
-		const [fsx, fsy, , , , , fex, fey] = resolveSegment(firstSeg, 0, 0);
+		const [fsx, fsy, fc1x, fc1y, fc2x, fc2y, fex, fey] = resolveSegment(
+			firstSeg,
+			0,
+			0,
+		);
 		const firstPressure =
 			pathStart > 0
 				? (firstSeg.endPressure ?? firstSeg.startPressure ?? 0.5)
 				: (firstSeg.startPressure ?? 0.5);
-		let firstDirX = 1;
-		let firstDirY = 0;
-		{
-			const dx = fex - fsx;
-			const dy = fey - fsy;
-			const len = Math.hypot(dx, dy);
-			if (len > 0) {
-				firstDirX = dx / len;
-				firstDirY = dy / len;
-			}
-		}
+		const [firstDirX, firstDirY] = startDirection(
+			fsx,
+			fsy,
+			fc1x,
+			fc1y,
+			fc2x,
+			fc2y,
+			fex,
+			fey,
+		);
 
 		inputs.speedFine = Math.min(velFast / speedRef, 1);
 		inputs.speedGross = Math.min(velSlow / speedRef, 1);
@@ -598,11 +601,7 @@ export function evaluateDabs(
 			prevY = sy;
 			prevPressure = segment.startPressure ?? 0.5;
 			prevDeltaTime = segment.startDeltaTime;
-			const dx = ex - sx;
-			const dy = ey - sy;
-			const len = Math.hypot(dx, dy);
-			prevDirX = len > 0 ? dx / len : 1;
-			prevDirY = len > 0 ? dy / len : 0;
+			[prevDirX, prevDirY] = startDirection(sx, sy, c1x, c1y, c2x, c2y, ex, ey);
 			emit(
 				sx,
 				sy,
@@ -918,6 +917,31 @@ function resolveSegment(
 		segment.end.x,
 		segment.end.y,
 	];
+}
+
+/** Resolve the outgoing tangent, including collapsed leading controls. */
+function startDirection(
+	sx: number,
+	sy: number,
+	c1x: number,
+	c1y: number,
+	c2x: number,
+	c2y: number,
+	ex: number,
+	ey: number,
+): [number, number] {
+	let dx = c1x - sx;
+	let dy = c1y - sy;
+	if (dx === 0 && dy === 0) {
+		dx = c2x - sx;
+		dy = c2y - sy;
+	}
+	if (dx === 0 && dy === 0) {
+		dx = ex - sx;
+		dy = ey - sy;
+	}
+	const length = Math.hypot(dx, dy);
+	return length > 0 ? [dx / length, dy / length] : [1, 0];
 }
 
 function approximateCubicLength(

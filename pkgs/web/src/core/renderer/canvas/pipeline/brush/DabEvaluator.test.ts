@@ -42,6 +42,75 @@ function dabSettings(overrides: Record<string, unknown> = {}): BrushSettings {
 }
 
 describe("evaluateDabs", () => {
+	describe("narrow subpath starts", () => {
+		it.each([
+			{
+				name: "first control",
+				cp1: { x: 0, y: 40 },
+				cp2: { x: 0, y: 40 },
+				end: { x: 100, y: 0 },
+			},
+			{
+				name: "collapsed first control",
+				cp1: { x: 0, y: 0 },
+				cp2: { x: -100, y: 40 },
+				end: { x: 100, y: 0 },
+			},
+			{
+				name: "collapsed controls",
+				cp1: { x: 0, y: 0 },
+				cp2: { x: 0, y: -100 },
+				end: { x: 0, y: 100 },
+			},
+			{
+				name: "coincident endpoints",
+				cp1: { x: 0, y: 40 },
+				cp2: { x: 40, y: 0 },
+				end: { x: 0, y: 0 },
+			},
+		])("should align width clipping with the outgoing tangent for $name", ({
+			cp1,
+			cp2,
+			end,
+		}) => {
+			const settings = dabSettings();
+			const segment = lineSegment({ cp1, cp2, end });
+			const options = {
+				strokeWidths: [
+					{ t: 0, side1: 0.01, side2: 0.01 },
+					{ t: 1, side1: 1, side2: 1 },
+				],
+			};
+			const first = evaluateDabs([segment], settings, options);
+			const preceding = lineSegment();
+			const prefix = evaluateDabs([preceding], settings);
+			const resumed = evaluateDabs([segment], settings, {
+				...options,
+				resume: prefix.state,
+			});
+			const full = evaluateDabs([preceding, segment], settings, options);
+			for (const [result, index] of [
+				[first, 0],
+				[resumed, 0],
+				[full, prefix.count],
+			] as const) {
+				expect(result.count).toBeGreaterThan(index);
+				expect(readDabField(result.data, index, "strokeDirX")).toBeCloseTo(
+					0,
+					6,
+				);
+				expect(readDabField(result.data, index, "strokeDirY")).toBeCloseTo(
+					1,
+					6,
+				);
+				expect(readDabField(result.data, index, "normalX")).toBeCloseTo(-1, 6);
+				expect(readDabField(result.data, index, "normalY")).toBeCloseTo(0, 6);
+			}
+			expect(readDabField(first.data, 0, "side1Width")).toBeCloseTo(0.01, 6);
+			expect(readDabField(first.data, 0, "side2Width")).toBeCloseTo(0.01, 6);
+		});
+	});
+
 	describe("spacing integration (Krita min-of-distance-and-time)", () => {
 		it("should place dabs at fixed distance intervals when time dabs are off", () => {
 			const result = evaluateDabs([lineSegment()], dabSettings());
