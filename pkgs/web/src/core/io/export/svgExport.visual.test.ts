@@ -8,6 +8,7 @@ import {
 import {
 	type AnyArtObject,
 	type Artboard,
+	type BrushSettings,
 	type Document,
 	type EmbeddedFile,
 	type Filter,
@@ -115,6 +116,17 @@ describe("SVG Export vs GPU render - stroke alignment", () => {
 		// doubled width plus a clip or a mask. A broken emulation misses or
 		// doubles half of every stroke, far past this threshold.
 		await expectSvgMatchesGpu(renderer, artboard, doc, "stroke-align", 1);
+	});
+});
+
+describe("SVG Export vs GPU render - variable-width strokes", () => {
+	it("width profiles and pressure-sized strokes match the PNG render", async () => {
+		const { renderer } = await createTestRenderer();
+		const { doc, artboard } = buildVariableWidthStrokeDocument();
+
+		// The export outlines these bands into filled shapes. A wrong profile
+		// or transform shifts whole stroke edges, far past this threshold.
+		await expectSvgMatchesGpu(renderer, artboard, doc, "variable-width", 1);
 	});
 });
 
@@ -457,6 +469,86 @@ function buildStrokeAlignDocument(): { doc: Document; artboard: Artboard } {
 	);
 
 	for (const el of elements as AnyArtObject[]) doc.objects[el.id] = el;
+	doc.layers[0].elementIds = elements.map((el) => el.id);
+
+	return { doc, artboard };
+}
+
+/**
+ * Rings whose stroke width varies along the path: a width profile, the same
+ * profile under a non-uniform scale, and a pressure-sized stroke.
+ */
+function buildVariableWidthStrokeDocument(): {
+	doc: Document;
+	artboard: Artboard;
+} {
+	const doc = createDefaultDocument("doc-variable-width");
+	const artboard = createArtboard(
+		"ab-variable-width",
+		"VariableWidth",
+		0,
+		0,
+		400,
+		300,
+	);
+	doc.artboards = [artboard];
+
+	const stroke = (brushSettings: BrushSettings): Filter => ({
+		uid: generateUid("app"),
+		processor: "stroke",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: {
+			version: "1",
+			params: {
+				strokeColor: {
+					type: "solid",
+					color: { type: "rgb", r: 0.1, g: 0.2, b: 0.6, a: 1 },
+				},
+				brushSettings,
+			},
+		},
+	});
+	const strokeWidths = [
+		{ t: 0.25, side1: 2, side2: 0.5 },
+		{ t: 0.75, side1: 0.3, side2: 1.5 },
+	];
+
+	const profile = rectPath("el-profile", { x: -120, y: 0 }, 60, 60, [
+		stroke(createStrokeBrushSettings(12)),
+	]);
+	profile.strokeWidths = strokeWidths;
+
+	const scaled = rectPath("el-profile-scaled", { x: 0, y: 0 }, 60, 60, [
+		stroke(createStrokeBrushSettings(12)),
+	]);
+	scaled.strokeWidths = strokeWidths;
+	scaled.transform = { x: 0, y: 0, rotation: 0.4, scaleX: 1.4, scaleY: 0.8 };
+
+	const pressureBrush = createStrokeBrushSettings(16);
+	pressureBrush.properties.size = {
+		base: 16,
+		curves: [
+			{
+				input: "pressure",
+				points: [
+					[0, -0.8],
+					[1, 0],
+				],
+			},
+		],
+	};
+	const pressured = rectPath("el-pressure", { x: 120, y: 0 }, 60, 60, [
+		stroke(pressureBrush),
+	]);
+	pressured.segments = pressured.segments.map((segment, index) => ({
+		...segment,
+		startPressure: index % 2 === 0 ? 0.2 : 1,
+		endPressure: index % 2 === 0 ? 1 : 0.2,
+	}));
+
+	const elements = [profile, scaled, pressured];
+	for (const el of elements) doc.objects[el.id] = el;
 	doc.layers[0].elementIds = elements.map((el) => el.id);
 
 	return { doc, artboard };

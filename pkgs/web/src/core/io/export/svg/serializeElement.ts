@@ -1,10 +1,15 @@
 import { localAppearances } from "../../../document/appearancePresets";
+import {
+	type GeometricStrokeShape,
+	tessellateGeometricStroke,
+} from "../../../renderer/canvas/elements/geometricStroke";
 import type { FilterRenderer } from "../../../renderer/canvas/pipeline/FilterRenderer";
 import {
 	resolveElementGeometry,
 	toCompoundSourceWorldPath,
 } from "../../../renderer/canvas/pipeline/PreFilterRenderer";
 import { calculatePreFilteredElementBounds } from "../../../renderer/canvas/pipeline/RenderPlanner";
+import { deviceScaleBucket } from "../../../renderer/geometry/strips/deviceGeometry";
 import {
 	type AnyArtObject,
 	type BoundingBox,
@@ -47,6 +52,7 @@ import {
 	type ClassifyOptions,
 	isVisibleStroke,
 	planLayerItems,
+	resolveStrokeOutlineShape,
 } from "./classify";
 import { bytesToDataUrl } from "./dataUrl";
 import {
@@ -63,6 +69,7 @@ import {
 	type SvgCoordMapper,
 	segmentsToPathData,
 	svgMatrixToString,
+	triangleUnionPathData,
 	uniformTransformScale,
 	type WorldAffine,
 } from "./pathData";
@@ -273,9 +280,23 @@ async function serializePathLike(
 				},
 			});
 		} else if (filter.processor === "stroke") {
+			const strokeAppearance = filter as StrokeAppearance;
+			const outlineShape = resolveStrokeOutlineShape(element, strokeAppearance);
+			if (outlineShape) {
+				const node = outlinedStrokeNode(
+					strokeAppearance,
+					geometry,
+					outlineShape,
+					localToWorld,
+					elementAlpha,
+					ctx,
+				);
+				if (node) shapes.push(node);
+				continue;
+			}
 			shapes.push(
 				...strokeAppearanceToNodes(
-					filter as StrokeAppearance,
+					strokeAppearance,
 					d,
 					worldSegments,
 					strokeScale,
@@ -452,6 +473,53 @@ function registerPathHoleMask(d: string, ctx: SerializeContext): string {
 		],
 	});
 	return id;
+}
+
+/**
+ * Paint a variable-width stroke as the filled outline of its band. The band is
+ * tessellated in local space exactly as the renderer does, mapped through the
+ * element transform, and unioned into non-overlapping rings.
+ */
+function outlinedStrokeNode(
+	appearance: StrokeAppearance,
+	localSegments: CubicBezierSegment[],
+	shape: GeometricStrokeShape,
+	localToWorld: WorldAffine,
+	elementAlpha: number,
+	ctx: SerializeContext,
+): SvgNode | null {
+	const params = appearance.paramData.params;
+	if (params.strokeColor.type !== "solid") return null;
+	if (!isVisibleStroke(appearance)) return null;
+
+	const { triangles } = tessellateGeometricStroke(
+		localSegments,
+		shape,
+		deviceScaleBucket({
+			a: localToWorld.m00,
+			b: localToWorld.m10,
+			c: localToWorld.m01,
+			d: localToWorld.m11,
+			e: localToWorld.tx,
+			f: localToWorld.ty,
+		}),
+		false,
+	);
+	const d = triangleUnionPathData(triangles, localToWorld, ctx.mapper);
+	if (!d) return null;
+
+	const paint = colorToSvgPaint(params.strokeColor.color);
+	return {
+		tag: "path",
+		attrs: {
+			d,
+			fill: paint.paint,
+			...opacityAttr(
+				"fill-opacity",
+				paint.opacity * appearance.opacity * elementAlpha,
+			),
+		},
+	};
 }
 
 function strokeNode(
@@ -1193,7 +1261,18 @@ function maxStrokeWidth(element: AnyArtObject): number {
 		const params = (filter as StrokeAppearance).paramData.params;
 		width = Math.max(width, params.brushSettings?.properties.size?.base ?? 1);
 	}
-	return width;
+	// A width profile can widen either side past the base width.
+	const widestRatio =
+		element.type === "path"
+			? Math.max(
+					1,
+					...(element.strokeWidths ?? []).flatMap(({ side1, side2 }) => [
+						side1,
+						side2,
+					]),
+				)
+			: 1;
+	return width * widestRatio;
 }
 
 /** World bbox of a w×h rect at the origin of `affine`'s input space. */

@@ -157,7 +157,31 @@ describe("classifyElement", () => {
 		).toBe("raster");
 	});
 
-	it("should rasterize variable-width geometric strokes", () => {
+	it("should bake a stroke with a width profile into its outline", () => {
+		const opts = makeOptions([]);
+		const strokeWidths = [{ t: 0.5, side1: 2, side2: 0.5 }];
+		expect(
+			classifyElement(
+				basePath({ filters: [solidStroke()], strokeWidths }),
+				opts,
+			),
+		).toBe("bake");
+		// The outline is transformed point by point, so any transform keeps it.
+		expect(
+			classifyElement(
+				basePath({
+					filters: [solidStroke()],
+					strokeWidths,
+					transform: { x: 0, y: 0, rotation: 0, scaleX: 2, scaleY: 1 },
+				}),
+				opts,
+			),
+		).toBe("bake");
+		// Without a stroke the profile paints nothing.
+		expect(classifyElement(basePath({ strokeWidths }), opts)).toBe("pure");
+	});
+
+	it("should bake pressure-sized geometric strokes into their outline", () => {
 		const opts = makeOptions([]);
 		expect(
 			classifyElement(
@@ -185,7 +209,7 @@ describe("classifyElement", () => {
 				}),
 				opts,
 			),
-		).toBe("raster");
+		).toBe("bake");
 	});
 
 	it("should rasterize raster filters, backdrop filters, and render-replacing filters", () => {
@@ -359,7 +383,7 @@ describe("classifyElement", () => {
 		expect(classifyElement(el, makeOptions([el]))).toBe("pure");
 	});
 
-	it("should rasterize alpha-lock, erase masks, and variable stroke widths", () => {
+	it("should rasterize alpha-lock and erase masks", () => {
 		const opts = makeOptions([]);
 		expect(
 			classifyElement(basePath({ compositionMode: "alpha-lock" }), opts),
@@ -367,12 +391,6 @@ describe("classifyElement", () => {
 		expect(classifyElement(basePath({ eraseMasks: [{} as never] }), opts)).toBe(
 			"raster",
 		);
-		expect(
-			classifyElement(
-				basePath({ strokeWidths: [{ t: 0, side1: 1, side2: 1 }] }),
-				opts,
-			),
-		).toBe("raster");
 	});
 
 	it("should skip reference3d unless includeInExport is set", () => {

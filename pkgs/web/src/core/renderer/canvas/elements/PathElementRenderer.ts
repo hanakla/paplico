@@ -11,13 +11,9 @@ import {
 	type FillAppearance,
 	type FillColor,
 	type Filter,
-	type LineCap,
-	type LineJoin,
 	type Path,
-	type StrokeAlign,
 	type StrokeAppearance,
 	type StrokeColor,
-	type StrokeWidthPoint,
 	type TexturedFill,
 } from "../../../schema";
 import {
@@ -30,10 +26,7 @@ import {
 	splitIntoSubPaths,
 	toWorldPath,
 } from "../../../utils/geometry/segmentOps";
-import {
-	flattenBezierPath,
-	flattenBezierPathWithPressure,
-} from "../../geometry/bezierFlatten";
+import { flattenBezierPath } from "../../geometry/bezierFlatten";
 import {
 	appendFillLines,
 	appendTriangleSoupLines,
@@ -50,15 +43,9 @@ import {
 	type StripBatch,
 	TILE_SIZE,
 } from "../../geometry/strips/stripTypes";
-import {
-	applyDashPattern,
-	polylineArcLength,
-	tessellateStroke,
-} from "../../geometry/strokeTessellator";
 import { hashStrokeGeometry } from "../../helpers";
 import {
 	cleanupPolygonPoints,
-	computePolylineSignedArea,
 	createCompoundPathRenderPath,
 } from "../CanvasLayer.helpers";
 import type {
@@ -85,7 +72,6 @@ import type {
 	BrushDrawBindings,
 	BrushRenderer,
 } from "../pipeline/brush/BrushRenderer";
-import { resolveGeometricSizeByPressure } from "../pipeline/brush/strokeHalfWidth";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
 import { isGeometryFilter } from "../pipeline/FilterRenderer";
 import {
@@ -100,6 +86,11 @@ import {
 	resolveAppearancePasses,
 } from "./appearancePasses";
 import type { GradientRenderer } from "./GradientRenderer";
+import {
+	type GeometricStrokeShape,
+	resolveGeometricStrokeShape,
+	tessellateGeometricStroke,
+} from "./geometricStroke";
 
 /** Sub-pixel translation phase resolution of the strip cache key. */
 const PHASE_STEPS = 256;
@@ -231,25 +222,11 @@ export class PathElementRenderer {
 						passEncoder,
 						segments,
 						strokeColor,
-						settings.properties.size?.base ?? 1,
-						// Baked paths carry the width in strokeWidths; the live
-						// pressure term would apply it twice.
-						path.strokeWidthsBaked
-							? 0
-							: resolveGeometricSizeByPressure(settings),
+						resolveGeometricStrokeShape(path, settings),
 						appAlpha,
-						settings.stroking?.lineCap ?? "round",
-						settings.stroking?.lineJoin ?? "round",
-						settings.stroking?.miterLimit ?? 4,
 						path.id,
 						`${cacheKey}:stroke`,
 						cacheVariant,
-						settings.stroking?.dashArray,
-						settings.stroking?.dashOffset,
-						path.strokeWidths,
-						path.pathStart,
-						path.pathEnd,
-						settings.stroking?.align,
 						pattern,
 					);
 				} else {
@@ -456,21 +433,11 @@ export class PathElementRenderer {
 		passEncoder: GPURenderPassEncoder,
 		segments: DrawableSegments,
 		strokeColor: StrokeColor,
-		strokeWidth: number,
-		sizeByPressure: number,
+		shape: GeometricStrokeShape,
 		alphaMultiplier: number,
-		lineCap: LineCap,
-		lineJoin: LineJoin,
-		miterLimit: number,
 		elementId: string,
 		cacheKey: string,
 		cacheVariant: StripCacheVariant,
-		dashArray?: readonly number[],
-		dashOffset?: number,
-		strokeWidths?: StrokeWidthPoint[],
-		pathStart?: number,
-		pathEnd?: number,
-		strokeAlign?: StrokeAlign,
 		pattern?: PatternPlacement,
 	): void {
 		if (segments.length === 0) return;
@@ -481,18 +448,18 @@ export class PathElementRenderer {
 		const scaleBucket = deviceScaleBucket(transform);
 		const geometryHash = hashStrokeGeometry(
 			segments,
-			strokeWidth,
-			sizeByPressure,
-			lineCap,
-			lineJoin,
-			miterLimit,
-			dashArray,
-			dashOffset,
-			strokeWidths,
-			pathStart,
-			pathEnd,
+			shape.width,
+			shape.sizeByPressure,
+			shape.lineCap,
+			shape.lineJoin,
+			shape.miterLimit,
+			shape.dashArray,
+			shape.dashOffset,
+			shape.strokeWidths,
+			shape.pathStart,
+			shape.pathEnd,
 			scaleBucket,
-			strokeAlign,
+			shape.align,
 		);
 		// Along/across stroke gradients need per-pixel arc params; the outline
 		// carries them only when asked, so the mode is part of its key.
@@ -514,21 +481,8 @@ export class PathElementRenderer {
 		) {
 			outline = tessellateStrokeOutline(
 				segments,
-				{
-					strokeWidth,
-					sizeByPressure,
-					lineCap,
-					lineJoin,
-					miterLimit,
-					dashArray,
-					dashOffset,
-					strokeWidths,
-					pathStart,
-					pathEnd,
-					strokeAlign,
-					wantArcParams: paramsMode !== 0,
-					zoom: 2 ** scaleBucket,
-				},
+				shape,
+				paramsMode !== 0,
 				geometryHash,
 				scaleBucket,
 			);
@@ -827,127 +781,28 @@ function flattenFillOutline(
 	};
 }
 
-interface StrokeOutlineOptions {
-	strokeWidth: number;
-	sizeByPressure: number;
-	lineCap: LineCap;
-	lineJoin: LineJoin;
-	miterLimit: number;
-	dashArray?: readonly number[];
-	dashOffset?: number;
-	strokeWidths?: StrokeWidthPoint[];
-	pathStart?: number;
-	pathEnd?: number;
-	strokeAlign?: StrokeAlign;
-	wantArcParams: boolean;
-	zoom: number;
-}
-
 /** Tessellate a stroke into body triangles at the bucket's local tolerance. */
 function tessellateStrokeOutline(
 	segments: DrawableSegments,
-	options: StrokeOutlineOptions,
+	shape: GeometricStrokeShape,
+	wantArcParams: boolean,
 	geometryHash: number,
 	scaleBucket: number,
 ): StrokeOutline {
-	const curveTolerance = localCurveTolerance(scaleBucket);
-	const triangles: number[] = [];
-	const params: number[] = [];
-	const hasDash = !!options.dashArray?.length;
-
-	for (const subPath of splitIntoSubPaths(segments)) {
-		const { points: flatPoints, pressures: flatPressures } =
-			flattenBezierPathWithPressure(subPath, { curveTolerance });
-		if (flatPoints.length < 4) continue;
-
-		const isClosed = subPath.at(-1)!.isClosed === true;
-		// Resolved here, before the dash split turns a ring into open
-		// fragments that no longer carry the winding the sign comes from.
-		const alignShift = resolveAlignShift(
-			options.strokeAlign,
-			isClosed,
-			flatPoints,
-		);
-		let dashPoints = flatPoints;
-		let dashPressures = flatPressures;
-		// For closed paths with dash, close the polyline before splitting.
-		if (hasDash && isClosed) {
-			const firstX = flatPoints[0];
-			const firstY = flatPoints[1];
-			const lastX = flatPoints[flatPoints.length - 2];
-			const lastY = flatPoints[flatPoints.length - 1];
-			if (Math.abs(firstX - lastX) > 1e-6 || Math.abs(firstY - lastY) > 1e-6) {
-				dashPoints = [...flatPoints, firstX, firstY];
-				dashPressures = [...flatPressures, flatPressures[0]];
-			}
-		}
-
-		const subPolylines = hasDash
-			? applyDashPattern(
-					dashPoints,
-					dashPressures,
-					options.dashArray!,
-					options.dashOffset ?? 0,
-				)
-			: [{ points: flatPoints, pressures: flatPressures, arcOffset: 0 }];
-
-		// Whole-polyline arc length so dash sub-polylines map their local
-		// t into the full stroke's range.
-		const subPathArcTotal = options.wantArcParams
-			? polylineArcLength(hasDash ? dashPoints : flatPoints)
-			: 0;
-
-		for (const { points, pressures, arcOffset } of subPolylines) {
-			if (points.length < 4) continue;
-			const result = tessellateStroke({
-				points,
-				pressures,
-				baseWidth: options.strokeWidth,
-				sizeByPressure: options.sizeByPressure,
-				lineCap: options.lineCap,
-				lineJoin: options.lineJoin,
-				miterLimit: options.miterLimit,
-				isClosed: hasDash ? false : isClosed,
-				strokeWidths: options.strokeWidths,
-				pathStart: options.pathStart,
-				pathEnd: options.pathEnd,
-				alignShift,
-				arcParams: options.wantArcParams
-					? { arcOffset, totalArcLength: subPathArcTotal }
-					: undefined,
-				zoom: options.zoom,
-			});
-			for (const v of result.vertices) triangles.push(v);
-			if (options.wantArcParams) {
-				for (const v of result.vertexParams) params.push(v);
-			}
-		}
-	}
-
+	const { triangles, params } = tessellateGeometricStroke(
+		segments,
+		shape,
+		scaleBucket,
+		wantArcParams,
+	);
 	return {
 		kind: "stroke",
 		geometryHash,
 		scaleBucket,
 		localBounds: boundsOf(triangles),
 		triangles: Float32Array.from(triangles),
-		params: options.wantArcParams ? Float32Array.from(params) : null,
+		params: wantArcParams ? Float32Array.from(params) : null,
 	};
-}
-
-/**
- * Turn a stroke alignment into the tessellator's signed centerline shift.
- * Only closed subpaths move: an open one has no inside to align to.
- */
-function resolveAlignShift(
-	align: StrokeAlign | undefined,
-	isClosed: boolean,
-	flatPoints: number[],
-): number {
-	if (!isClosed || !align || align === "center") return 0;
-	// A positive area (CCW) leaves the left-of-travel normal pointing inward,
-	// so the outward shift is the negative one.
-	const outward = computePolylineSignedArea(flatPoints) >= 0 ? -1 : 1;
-	return align === "outside" ? outward : -outward;
 }
 
 function boundsOf(points: readonly number[]): LocalBounds {

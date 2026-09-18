@@ -8,6 +8,7 @@ import {
 	formatNumber,
 	segmentsToPathData,
 	svgMatrixToString,
+	triangleUnionPathData,
 } from "./pathData";
 
 const artboard = (
@@ -196,6 +197,42 @@ describe("segmentsToPathData", () => {
 
 	it("should return an empty string for no segments", () => {
 		expect(segmentsToPathData([], mapper)).toBe("");
+	});
+});
+
+describe("triangleUnionPathData", () => {
+	const mapper = createCoordMapper(artboard(0, 0, 800, 600));
+	const identity = { m00: 1, m01: 0, m10: 0, m11: 1, tx: 0, ty: 0 };
+
+	it("should merge overlapping triangles of mixed winding into one ring", () => {
+		// A 10×10 square split along its diagonal, one triangle wound each way,
+		// plus a copy overlapping the first.
+		const d = triangleUnionPathData(
+			[0, 0, 10, 0, 10, 10, 0, 0, 0, 10, 10, 10, 0, 0, 10, 10, 10, 0],
+			identity,
+			mapper,
+		);
+		expect(d.match(/M /g)).toHaveLength(1);
+		expect(d.match(/L /g)).toHaveLength(3);
+		expect(d).toContain("400 300");
+		expect(d).toContain("410 290");
+	});
+
+	it("should map vertices through the local-to-world affine", () => {
+		const d = triangleUnionPathData(
+			[0, 0, 1, 0, 0, 1],
+			{ m00: 2, m01: 0, m10: 0, m11: 3, tx: 5, ty: 0 },
+			mapper,
+		);
+		expect(d).toContain("405 300");
+		expect(d).toContain("407 300");
+		expect(d).toContain("405 297");
+	});
+
+	it("should return an empty string when every triangle is degenerate", () => {
+		expect(triangleUnionPathData([0, 0, 1, 1, 2, 2], identity, mapper)).toBe(
+			"",
+		);
 	});
 });
 

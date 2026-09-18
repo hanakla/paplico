@@ -1,4 +1,10 @@
 import { localAppearances } from "../../../document/appearancePresets";
+import { createStrokeBrushSettings } from "../../../document/factory";
+import {
+	type GeometricStrokeShape,
+	hasVariableStrokeWidth,
+	resolveGeometricStrokeShape,
+} from "../../../renderer/canvas/elements/geometricStroke";
 import {
 	type AnyArtObject,
 	type BlendMode,
@@ -26,7 +32,7 @@ import { isSvgNativeFilter } from "./svgFilterPrimitives";
  * How an element travels into the SVG output:
  * - "pure": serialized as-is into SVG markup
  * - "bake": vectorizable after geometry baking (text outline, boolean result,
- *   geometry filters, corner radius)
+ *   geometry filters, corner radius, variable-width stroke outline)
  * - "raster": must be rendered to a PNG chunk
  * - "skip": excluded from export entirely
  */
@@ -193,25 +199,25 @@ function classifyElementInner(
 		} else if (filter.processor === "stroke") {
 			const params = (filter as StrokeAppearance).paramData.params;
 			if (params.strokeColor.type !== "solid") return "raster";
+			if (params.brushSettings && params.brushSettings.engine !== "geometric") {
+				return "raster";
+			}
+			// An SVG stroke has one width, so a band whose width varies along the
+			// path is exported as its filled outline.
+			if (resolveStrokeOutlineShape(element, filter as StrokeAppearance)) {
+				needsBake = true;
+				continue;
+			}
 			// A constant-width stroke scales with the transform in the renderer;
 			// SVG strokes only take one width, so non-uniform/skewed transforms
 			// cannot be represented.
 			if (uniformTransformScale(composed) === null) return "raster";
-			// No brushSettings = the renderer's constant-width geometric default.
-			if (params.brushSettings) {
-				const settings = params.brushSettings;
-				if (settings.engine !== "geometric") return "raster";
-				// Variable-width geometry, such as size curves, has no SVG stroke
-				// equivalent; outline extraction is out of scope for now.
-				if (settings.properties.size?.curves?.length) return "raster";
-			}
 		}
 	}
 
 	switch (element.type) {
 		case "path": {
 			if (element.eraseMasks?.length) return "raster";
-			if (element.strokeWidths?.length) return "raster";
 			const hasCorners = element.segments.some(
 				(seg) => (seg.cornerRadius ?? 0) > 0,
 			);
@@ -384,6 +390,26 @@ export function isVisibleStroke(appearance: StrokeAppearance): boolean {
 	}
 	if (!params.brushSettings) return true;
 	return (params.brushSettings.properties.size?.base ?? 1) > 0;
+}
+
+/**
+ * The band of a geometric stroke whose width varies along the path, or null
+ * when the stroke is a native constant-width SVG stroke. Shared with the
+ * serializer so classification and output agree on which strokes to outline.
+ */
+export function resolveStrokeOutlineShape(
+	element: AnyArtObject,
+	appearance: StrokeAppearance,
+): GeometricStrokeShape | null {
+	const settings =
+		appearance.paramData.params.brushSettings ?? createStrokeBrushSettings(1);
+	if (settings.engine !== "geometric") return null;
+	// Only a plain path carries a width profile or a trimmed range.
+	const shape = resolveGeometricStrokeShape(
+		element.type === "path" ? element : {},
+		settings,
+	);
+	return hasVariableStrokeWidth(shape) ? shape : null;
 }
 
 /** True when element-level fill/stroke appearances would paint the glyphs. */

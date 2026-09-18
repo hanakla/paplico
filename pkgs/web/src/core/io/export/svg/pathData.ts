@@ -1,3 +1,4 @@
+import polygonClipping, { type Polygon, type Ring } from "polygon-clipping";
 import type {
 	Artboard,
 	CubicBezierSegment,
@@ -181,14 +182,74 @@ export function segmentsToPathData(
 	return parts.join(" ");
 }
 
+/**
+ * Serialize a triangle soup whose nonzero union is the painted area (local
+ * space, [x, y, ...] with 3 vertices per triangle) as the path data of that
+ * union, mapped through `localToWorld` into SVG space.
+ */
+export function triangleUnionPathData(
+	triangles: readonly number[],
+	localToWorld: WorldAffine,
+	mapper: SvgCoordMapper,
+): string {
+	const { m00, m01, m10, m11, tx, ty } = localToWorld;
+	const polygons: Polygon[] = [];
+	for (let i = 0; i + 5 < triangles.length; i += 6) {
+		const ring: Ring = [];
+		for (let k = i; k < i + 6; k += 2) {
+			const x = triangles[k];
+			const y = triangles[k + 1];
+			const p = mapper.point({
+				x: m00 * x + m01 * y + tx,
+				y: m10 * x + m11 * y + ty,
+			});
+			// Snapped to the emitted precision: polygon-clipping's sweep line
+			// throws on near-coincident vertices but handles exact coincidences.
+			ring.push([snapToOutputGrid(p.x), snapToOutputGrid(p.y)]);
+		}
+		const [a, b, c] = ring;
+		const area2 = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+		if (area2 === 0) continue;
+		// One winding for every triangle keeps the soup a nonzero union.
+		polygons.push([area2 > 0 ? ring : ring.reverse()]);
+	}
+	if (polygons.length === 0) return "";
+
+	let rings: Ring[];
+	try {
+		rings = polygonClipping.union(polygons[0], ...polygons.slice(1)).flat();
+	} catch {
+		// The raw soup still paints the same area, only as many small shapes.
+		rings = polygons.flat();
+	}
+	return rings
+		.map((ring) => {
+			const [first, ...rest] = ring;
+			const last = rest.at(-1);
+			const points =
+				last && last[0] === first[0] && last[1] === first[1]
+					? rest.slice(0, -1)
+					: rest;
+			return `M ${formatNumber(first[0])} ${formatNumber(first[1])}${points
+				.map(([x, y]) => ` L ${formatNumber(x)} ${formatNumber(y)}`)
+				.join("")} Z`;
+		})
+		.join(" ");
+}
+
 export function svgMatrixToString(m: SvgMatrix): string {
 	return `matrix(${formatNumber(m.a)} ${formatNumber(m.b)} ${formatNumber(m.c)} ${formatNumber(m.d)} ${formatNumber(m.e)} ${formatNumber(m.f)})`;
 }
 
 /** Format a coordinate with 3-decimal precision, without `-0` or exponents. */
 export function formatNumber(n: number): string {
-	const rounded = Math.round(n * 1000) / 1000;
+	const rounded = snapToOutputGrid(n);
 	// Also normalizes -0 (rounding of tiny negatives) to "0".
 	if (rounded === 0) return "0";
 	return String(rounded);
+}
+
+/** Round to the 3-decimal precision coordinates are emitted with. */
+function snapToOutputGrid(n: number): number {
+	return Math.round(n * 1000) / 1000;
 }
