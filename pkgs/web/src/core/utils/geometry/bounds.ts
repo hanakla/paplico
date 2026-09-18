@@ -4,6 +4,7 @@ import {
 	readStoredWetBleedRatio,
 } from "../../brush/access";
 import { localAppearances } from "../../document/appearancePresets";
+import { createIdentityTransform } from "../../document/factory";
 import {
 	type AnyArtObject,
 	type BezierPoint,
@@ -30,6 +31,7 @@ import {
 	strokeOuterReach,
 } from "../elementQuery";
 import type { Brand } from "../lang";
+import { bakeCompoundPathSegments } from "./compoundBake";
 import { applyTransformToBounds } from "./geometry";
 // Cycle note: meshWarp.ts imports helpers from this module too. Both sides
 // only call across at function-call time (no module-evaluation use), which
@@ -43,7 +45,7 @@ import {
 	IDENTITY_AFFINE,
 	repeatGridRegion,
 } from "./repeatInterpolation";
-import { resolveSegment } from "./segmentOps";
+import { resolveSegment, toWorldPath } from "./segmentOps";
 
 declare const LocalBBoxBrand: unique symbol;
 /** Bounding box in local (untransformed) space — element's own SRT not applied. */
@@ -486,14 +488,34 @@ function calculateBoundTextEstimate(
 }
 
 /**
- * Calculate bounding box for a compound path element
+ * Bounding box of a compound path: the extent of its boolean result with the
+ * compound's own stroke. A result with no face falls back to the union of
+ * the sources' bounds, so the element still has somewhere to be.
  */
 function calculateCompoundPathBounds(
 	compoundPath: CompoundPath,
 	elementsMap?: ReadonlyMap<string, AnyArtObject>,
 	localBoundsCache?: LocalBoundsCache,
 ): BoundingBox {
-	// ソースパスのboundsを合成
+	if (elementsMap) {
+		const segments = bakeCompoundPathSegments(
+			compoundPath,
+			(id) => elementsMap.get(id),
+			toWorldPath,
+		);
+		if (segments.length > 0) {
+			return calculatePathBounds({
+				type: "path",
+				id: compoundPath.id,
+				segments,
+				filters: compoundPath.filters,
+				opacity: compoundPath.opacity,
+				blendMode: compoundPath.blendMode,
+				transform: createIdentityTransform(),
+			});
+		}
+	}
+
 	if (elementsMap && compoundPath.sources.length > 0) {
 		let minX = Number.POSITIVE_INFINITY;
 		let minY = Number.POSITIVE_INFINITY;
@@ -523,7 +545,7 @@ function calculateCompoundPathBounds(
 		}
 	}
 
-	// フォールバック: 空bounds
+	// No source resolves to an element.
 	return { minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 };
 }
 

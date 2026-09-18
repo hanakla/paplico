@@ -15,6 +15,7 @@ import {
 	type Viewport,
 } from "../../schema";
 import type { TimelapseData } from "../../timelapse/types";
+import { LATEST_SCHEMA_VERSION } from "../migrations";
 import { openPapf, PapfFile } from "./reader";
 import { Codec, FOOTER_BYTES, SECTION_HEADER_BYTES } from "./types";
 import { serializeDocument } from "./writer";
@@ -68,6 +69,13 @@ function makeTimelapse(count: number): TimelapseData {
 // ---------------------------------------------------------------------------
 
 describe("PAPF format", () => {
+	/** A file as written before papf stored the document schema version. */
+	async function openUnversionedPapf(blob: Blob): Promise<PapfFile> {
+		const papf = await openPapf(blob);
+		delete papf.meta.document.schemaVersion;
+		return papf;
+	}
+
 	async function expectPapfErrorCode(
 		promise: Promise<unknown>,
 		code: PaplicoErrorCode,
@@ -342,6 +350,24 @@ describe("PAPF format", () => {
 				openPapf(new Blob([buf])),
 				"PAPF_UNSUPPORTED_VERSION",
 			);
+		});
+	});
+
+	describe("document schema version", () => {
+		it("should stamp the newest schema version and hand it back on load", async () => {
+			const papf = await openPapf(await serializeDocument(makeMinimalDoc()));
+
+			expect(papf.meta.document.schemaVersion).toBe(LATEST_SCHEMA_VERSION);
+			expect((await papf.toDocument()).schemaVersion).toBe(
+				LATEST_SCHEMA_VERSION,
+			);
+		});
+
+		it("should reject a document written with a newer schema version", async () => {
+			const papf = await openPapf(await serializeDocument(makeMinimalDoc()));
+			papf.meta.document.schemaVersion = LATEST_SCHEMA_VERSION + 1;
+
+			await expectPapfErrorCode(papf.toDocument(), "PAPF_UNSUPPORTED_VERSION");
 		});
 	});
 
@@ -690,8 +716,9 @@ describe("PAPF format", () => {
 				],
 			});
 
-			const blob = await serializeDocument(doc);
-			const restored = await (await openPapf(blob)).toDocument();
+			const restored = await (
+				await openUnversionedPapf(await serializeDocument(doc))
+			).toDocument();
 
 			expect(restored.brushPresets).toHaveLength(1);
 			const settings = restored.brushPresets[0]!.settings;
@@ -720,8 +747,9 @@ describe("PAPF format", () => {
 			} as unknown as BrushPreset;
 			const doc = makeMinimalDoc({ brushPresets: [legacyPreset] });
 
-			const blob = await serializeDocument(doc);
-			const restored = await (await openPapf(blob)).toDocument();
+			const restored = await (
+				await openUnversionedPapf(await serializeDocument(doc))
+			).toDocument();
 
 			expect(restored.brushPresets).toHaveLength(1);
 			const preset = restored.brushPresets[0]!;

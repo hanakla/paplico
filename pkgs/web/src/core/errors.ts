@@ -7,7 +7,7 @@
 
 export type PaplicoErrorCode =
 	| "PAPF_INVALID_FILE" // bad magic, too small
-	| "PAPF_UNSUPPORTED_VERSION" // format/toc version newer than reader
+	| "PAPF_UNSUPPORTED_VERSION" // format/toc/document schema version newer than reader
 	| "PAPF_CORRUPTED" // crc mismatch, decode failure, out-of-bounds
 	| "PAPF_MISSING_FILE_ENTRY" // referenced embedded file not found
 	| "PAPF_NOT_FOUND_IN_PDF" // PDF carries no Paplico data (re-saved by another app)

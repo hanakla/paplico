@@ -153,6 +153,12 @@ export type MetaPayload = {
 	metaSchemaMinor: number;
 	document: {
 		id: string;
+		/**
+		 * Version of the newest migration the document already conforms to.
+		 * Absent in files written before it was persisted; readers then run
+		 * every migration.
+		 */
+		schemaVersion?: number;
 		objects: Record<string, AnyArtObject>;
 		layers: Layer[];
 		viewport: Viewport;

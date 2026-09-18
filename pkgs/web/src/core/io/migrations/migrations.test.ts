@@ -1,15 +1,19 @@
 import { nanoid } from "nanoid";
 import { describe, expect, it } from "vitest";
+import { createIdentityTransform } from "../../document/factory";
 import type { BlurFilter } from "../../renderer/filters";
-import type {
-	BrushPreset,
-	BrushSettings,
-	Document,
-	FillAppearance,
-	Filter,
-	StrokeAppearance,
-	Viewport,
+import {
+	type BrushPreset,
+	type BrushSettings,
+	type Document,
+	type FillAppearance,
+	type Filter,
+	getTransform,
+	type Path,
+	type StrokeAppearance,
+	type Viewport,
 } from "../../schema";
+import { applyTransformToPoint } from "../../utils/geometry/geometry";
 import { migAppearanceFilters } from "./20260221_mig_appearance_filters";
 import { migBrushSettings } from "./20260224_mig_brush_settings";
 import { migTiltPoolingDefaults } from "./20260228_mig_tilt_pooling_defaults";
@@ -23,7 +27,12 @@ import { migBrushV2 } from "./20260803_mig_brush_v2";
 import { migAppearancePresets } from "./20260906_mig_appearance_presets";
 import { migUnits } from "./20260910_mig_units";
 import { migFilterBackdropFlag } from "./20260917_mig_filter_backdrop_flag";
-import { applyMigration, applyMigrations } from "./index";
+import { migCompoundPathPivot } from "./20260918_mig_compound_path_pivot";
+import {
+	applyMigration,
+	applyMigrations,
+	LATEST_SCHEMA_VERSION,
+} from "./index";
 
 const defaultViewport: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
 
@@ -1250,7 +1259,7 @@ describe("migGradientStopMidpoint (20260722)", () => {
 
 		applyMigrations(doc);
 
-		expect(doc.schemaVersion).toBe(20260917);
+		expect(doc.schemaVersion).toBe(LATEST_SCHEMA_VERSION);
 	});
 });
 
@@ -1554,6 +1563,107 @@ describe("migFilterBackdropFlag (20260917)", () => {
 		expect(doc.appearancePresets[0].filters[0].applyToBackdrop).toBe(true);
 	});
 });
+
+describe("migCompoundPathPivot (20260918)", () => {
+	it("should keep a rotated compound path where it was drawn", () => {
+		// base spans x -50..50, cutter x 0..100: the sources' union is centered
+		// at x = 25, the remaining face (x -50..0) at x = -25.
+		const transform = {
+			...createIdentityTransform(),
+			x: 10,
+			y: 20,
+			rotation: Math.PI / 2,
+		};
+		const doc = makeDoc(
+			{
+				base: makeSquarePath("base", 0),
+				cutter: makeSquarePath("cutter", 50),
+				cp: {
+					type: "compound-path",
+					id: "cp",
+					sources: [
+						{ id: "base", op: "union" },
+						{ id: "cutter", op: "subtract" },
+					],
+					opacity: 1,
+					blendMode: "normal",
+					transform: { ...transform },
+				},
+			},
+			20260917,
+		);
+		const corner = { x: -50, y: -50 };
+		const before = applyTransformToPoint(corner.x, corner.y, transform, 25, 0);
+
+		applyMigration(doc, migCompoundPathPivot);
+
+		const after = applyTransformToPoint(
+			corner.x,
+			corner.y,
+			getTransform(doc.objects.cp),
+			-25,
+			0,
+		);
+		expect(after.x).toBeCloseTo(before.x);
+		expect(after.y).toBeCloseTo(before.y);
+	});
+
+	it("should leave an untransformed compound path alone", () => {
+		const doc = makeDoc(
+			{
+				base: makeSquarePath("base", 0),
+				cutter: makeSquarePath("cutter", 50),
+				cp: {
+					type: "compound-path",
+					id: "cp",
+					sources: [
+						{ id: "base", op: "union" },
+						{ id: "cutter", op: "subtract" },
+					],
+					opacity: 1,
+					blendMode: "normal",
+					transform: createIdentityTransform(),
+				},
+			},
+			20260917,
+		);
+
+		applyMigration(doc, migCompoundPathPivot);
+
+		expect(getTransform(doc.objects.cp)).toEqual(createIdentityTransform());
+	});
+});
+
+/** A closed 100×100 square centered on the origin, moved right by `x`. */
+function makeSquarePath(id: string, x: number): Path {
+	const corners = [
+		{ x: 50, y: -50 },
+		{ x: 50, y: 50 },
+		{ x: -50, y: 50 },
+		{ x: -50, y: -50 },
+	];
+	return {
+		type: "path",
+		id,
+		segments: corners.map((end, i) => ({
+			...(i === 0 ? { start: { x: -50, y: -50 } } : {}),
+			cp1: { x: 0, y: 0 },
+			cp2: { x: 0, y: 0 },
+			end,
+			isMoved: i === 0,
+			...(i === corners.length - 1 ? { isClosed: true } : {}),
+			startTiltX: 0,
+			startTiltY: 0,
+			endTiltX: 0,
+			endTiltY: 0,
+			startDeltaTime: 0,
+			endDeltaTime: 0,
+		})),
+		opacity: 1,
+		blendMode: "normal",
+		transform: { ...createIdentityTransform(), x },
+	};
+}
 
 function legacyBackdropFilter(processor: string, applyToBackdrop: boolean) {
 	return {

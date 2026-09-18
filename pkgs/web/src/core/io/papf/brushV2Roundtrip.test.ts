@@ -98,9 +98,10 @@ describe("brush v2 papf roundtrip", () => {
 		const original = makeV1BrushDoc();
 
 		// Load the old-format file and migrate.
-		const oldBlob = await serializeDocument(original);
-		const loaded = await (await openPapf(oldBlob)).toDocument();
-		applyMigration(loaded, migBrushV2);
+		const oldFile = await openPapf(await serializeDocument(original));
+		// Files written before papf stored the schema version carry none.
+		delete oldFile.meta.document.schemaVersion;
+		const loaded = await oldFile.toDocument();
 
 		const migrated = getStrokeBrushSettings(loaded);
 		expect(migrated.version).toBe(2);
@@ -108,8 +109,7 @@ describe("brush v2 papf roundtrip", () => {
 		expect(migrated.wet?.enabled).toBe(true);
 		expect((loaded.brushPresets?.[0]?.settings as any).version).toBe(2);
 
-		// Save the migrated document, reload it and migrate again (papf never
-		// persists schemaVersion, so the migration reruns on every load).
+		// Save the migrated document, reload it and ask for the migration again.
 		const newBlob = await serializeDocument(loaded);
 		const reloaded = await (await openPapf(newBlob)).toDocument();
 		applyMigration(reloaded, migBrushV2);

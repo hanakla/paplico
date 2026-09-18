@@ -13,6 +13,7 @@ import { migBrushV2 } from "./20260803_mig_brush_v2";
 import { migAppearancePresets } from "./20260906_mig_appearance_presets";
 import { migUnits } from "./20260910_mig_units";
 import { migFilterBackdropFlag } from "./20260917_mig_filter_backdrop_flag";
+import { migCompoundPathPivot } from "./20260918_mig_compound_path_pivot";
 
 export interface Migration {
 	/** Schema version date (YYYYMMDD) this migration upgrades TO */
@@ -37,7 +38,13 @@ const migrations: Migration[] = [
 	migAppearancePresets,
 	migUnits,
 	migFilterBackdropFlag,
+	migCompoundPathPivot,
 ];
+
+/** Schema version a document has once every migration ran. */
+export const LATEST_SCHEMA_VERSION = Math.max(
+	...migrations.map((mig) => mig.version),
+);
 
 /**
  * Apply all pending migrations to a document.

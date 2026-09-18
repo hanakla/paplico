@@ -16,7 +16,7 @@ import {
 } from "../../schema";
 import type { TimelapseData, TimelapseEntry } from "../../timelapse/types";
 import { crc32, decompressDeflate } from "../binaryUtils";
-import { applyMigrations } from "../migrations";
+import { applyMigrations, LATEST_SCHEMA_VERSION } from "../migrations";
 import {
 	type Codec,
 	Codec as CodecEnum,
@@ -505,6 +505,15 @@ export class PapfFile {
 	public async toDocument(): Promise<Document> {
 		const { document: docMeta } = this._meta;
 
+		// A newer build may have changed what the stored values mean; reading
+		// them with this build's rules would silently misplace content.
+		if ((docMeta.schemaVersion ?? 0) > LATEST_SCHEMA_VERSION) {
+			throw new PaplicoError(
+				"PAPF_UNSUPPORTED_VERSION",
+				`PAPF: document schema version ${docMeta.schemaVersion} is newer than the supported ${LATEST_SCHEMA_VERSION}`,
+			);
+		}
+
 		// Load all embedded files
 		const files: EmbeddedFile[] = await Promise.all(
 			this._meta.fileManifest.map((entry) => this.getEmbeddedFile(entry.uid)),
@@ -515,6 +524,7 @@ export class PapfFile {
 
 		const doc: Document = {
 			id: docMeta.id,
+			schemaVersion: docMeta.schemaVersion,
 			objects: docMeta.objects,
 			layers: docMeta.layers,
 			viewport: docMeta.viewport,

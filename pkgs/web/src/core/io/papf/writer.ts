@@ -9,6 +9,7 @@ import { encode } from "cbor-x";
 import type { Document, EmbeddedFile } from "../../schema";
 import type { TimelapseData } from "../../timelapse/types";
 import { compressDeflate, crc32 } from "../binaryUtils";
+import { LATEST_SCHEMA_VERSION } from "../migrations";
 import {
 	Codec,
 	FILE_HEADER_BYTES,
@@ -414,6 +415,7 @@ function buildMetaPayload(
 		metaSchemaMinor: META_SCHEMA_MINOR,
 		document: {
 			id: doc.id,
+			schemaVersion: LATEST_SCHEMA_VERSION,
 			objects: doc.objects,
 			layers: persistedLayers,
 			viewport: doc.viewport,

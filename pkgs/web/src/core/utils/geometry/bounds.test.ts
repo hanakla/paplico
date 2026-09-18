@@ -6,6 +6,7 @@ import {
 import type {
 	AnyArtObject,
 	BoundingBox,
+	CompoundPath,
 	Group,
 	Path,
 	Reference3DElement,
@@ -628,6 +629,61 @@ describe("bounds utilities", () => {
 			const bounds = calculateElementBounds(group, map);
 			expect(bounds.minX).toBe(-50);
 			expect(bounds.maxX).toBe(50);
+		});
+	});
+
+	describe("calculateElementBounds for compound path", () => {
+		const makeRect = (
+			id: string,
+			minX: number,
+			minY: number,
+			maxX: number,
+			maxY: number,
+		): Path => ({
+			type: "path",
+			id,
+			segments: closedRectSegments(minX, minY, maxX, maxY),
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		});
+		const makeCompound = (op: CompoundPath["sources"][number]["op"]) =>
+			({
+				type: "compound-path",
+				id: "compound",
+				sources: [
+					{ id: "base", op: "union" },
+					{ id: "other", op },
+				],
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			}) satisfies CompoundPath;
+
+		it("covers the face a subtract leaves, not the sources", () => {
+			const map = new Map<string, AnyArtObject>([
+				["base", makeRect("base", -50, -50, 50, 50)],
+				["other", makeRect("other", 0, -50, 100, 50)],
+			]);
+
+			const bounds = calculateElementBounds(makeCompound("subtract"), map);
+
+			expect(bounds.minX).toBeCloseTo(-50);
+			expect(bounds.maxX).toBeCloseTo(0);
+			expect(bounds.minY).toBeCloseTo(-50);
+			expect(bounds.maxY).toBeCloseTo(50);
+		});
+
+		it("falls back to the sources when the result has no face", () => {
+			const map = new Map<string, AnyArtObject>([
+				["base", makeRect("base", -50, -50, 50, 50)],
+				["other", makeRect("other", 200, -50, 300, 50)],
+			]);
+
+			const bounds = calculateElementBounds(makeCompound("intersect"), map);
+
+			expect(bounds.minX).toBeCloseTo(-50);
+			expect(bounds.maxX).toBeCloseTo(300);
 		});
 	});
 

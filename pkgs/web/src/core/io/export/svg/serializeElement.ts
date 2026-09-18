@@ -349,9 +349,8 @@ function isStrokeOnlyPath(node: SvgNode): boolean {
 }
 
 /**
- * The renderer's GPU transform origin for a compound path is the center of
- * its SOURCES' bounds union (calculateCompoundPathBounds), not the boolean
- * result's bbox — subtract/intersect results differ.
+ * The renderer's GPU transform origin for a compound path: the center of its
+ * local bounds (calculateCompoundPathBounds).
  */
 function compoundTransformOrigin(
 	compound: CompoundPath,
