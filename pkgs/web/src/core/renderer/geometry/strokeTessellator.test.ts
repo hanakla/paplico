@@ -3,6 +3,7 @@ import { lineSeg } from "../../testUtils/segmentFactory";
 import { flattenBezierPathWithPressure } from "./bezierFlatten";
 import {
 	applyDashPattern,
+	interpolateStrokeWidths,
 	type StrokeTessellateInput,
 	tessellateStroke,
 } from "./strokeTessellator";
@@ -944,6 +945,57 @@ describe("tessellateStroke gradient params", () => {
 		}
 		expect(Math.min(...ts)).toBeCloseTo(0.25, 5);
 		expect(Math.max(...ts)).toBeCloseTo(0.75, 5);
+	});
+});
+
+describe("interpolateStrokeWidths", () => {
+	// A plateau that tapers to zero at the end of the path.
+	const taper = [
+		{ t: 0, side1: 0.07, side2: 0.07 },
+		{ t: 0.433, side1: 0.9, side2: 0.9 },
+		{ t: 0.834, side1: 0.88, side2: 0.88 },
+		{ t: 1, side1: 0, side2: 0 },
+	];
+
+	it("should pass through every width point", () => {
+		for (const point of taper) {
+			expect(interpolateStrokeWidths(taper, point.t).side1).toBeCloseTo(
+				point.side1,
+				10,
+			);
+		}
+	});
+
+	it("should keep the same slope on both sides of an interior point", () => {
+		const epsilon = 1e-6;
+		for (const { t } of taper.slice(1, -1)) {
+			const at = interpolateStrokeWidths(taper, t).side1;
+			const slopeBefore =
+				(at - interpolateStrokeWidths(taper, t - epsilon).side1) / epsilon;
+			const slopeAfter =
+				(interpolateStrokeWidths(taper, t + epsilon).side1 - at) / epsilon;
+			expect(slopeAfter).toBeCloseTo(slopeBefore, 3);
+		}
+	});
+
+	it("should stay between the neighboring point widths", () => {
+		for (let i = 1; i < taper.length; i++) {
+			const low = Math.min(taper[i - 1].side1, taper[i].side1);
+			const high = Math.max(taper[i - 1].side1, taper[i].side1);
+			for (let step = 1; step < 20; step++) {
+				const t = taper[i - 1].t + ((taper[i].t - taper[i - 1].t) * step) / 20;
+				const { side1 } = interpolateStrokeWidths(taper, t);
+				expect(side1).toBeGreaterThanOrEqual(low - 1e-12);
+				expect(side1).toBeLessThanOrEqual(high + 1e-12);
+			}
+		}
+	});
+
+	it("should assume full width at the path ends the points do not reach", () => {
+		const widths = [{ t: 0.5, side1: 0, side2: 0 }];
+
+		expect(interpolateStrokeWidths(widths, 0).side1).toBe(1);
+		expect(interpolateStrokeWidths(widths, 1).side1).toBe(1);
 	});
 });
 

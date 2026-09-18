@@ -417,8 +417,9 @@ describe("bakeStrokeWidthProfile", () => {
 			if (!actual) throw new Error("Missing width profile");
 			expect(actual.length).toBeCloseTo(measureSegmentsLength(segments), 6);
 			expect(actual.widths.at(-1)?.t).toBeCloseTo(actual.length, 6);
-			// Both sides simplify within BAKE_TOLERANCE, so they agree within
-			// twice that.
+			// Both sides simplify within BAKE_TOLERANCE on their chords, so they
+			// agree within twice that plus the slack of reading the kept points
+			// through the cubic interpolant.
 			for (let j = 0; j <= 256; j++) {
 				const t = j / 256;
 				expect(
@@ -426,7 +427,7 @@ describe("bakeStrokeWidthProfile", () => {
 						interpolateStrokeWidths(actual.widths, t * actual.length).side1 -
 							interpolateStrokeWidths(expected, t).side1,
 					),
-				).toBeLessThan(0.02);
+				).toBeLessThan(0.03);
 			}
 			// Once the contact window has passed, the points before the
 			// provisional end are final.

@@ -1,6 +1,9 @@
 import { readStoredBrushSize } from "../brush/access";
 import { localAppearances } from "../document/appearancePresets";
-import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
+import {
+	interpolateStrokeWidths,
+	strokeWidthSamplePathTs,
+} from "../renderer/geometry/strokeTessellator";
 import type { BooleanOperation, BrushSettings } from "../schema";
 import {
 	type BoundingBox,
@@ -923,37 +926,30 @@ function computeWidthAdjustment(
 function findNegativeWidthRanges(
 	strokeWidths: StrokeWidthPoint[],
 ): Array<{ start: number; end: number }> {
-	const points = [
-		{ t: 0, ...interpolateStrokeWidths(strokeWidths, 0) },
-		...strokeWidths.filter(({ t }) => t > 0 && t < 1),
-		{ t: 1, ...interpolateStrokeWidths(strokeWidths, 1) },
-	].toSorted((a, b) => a.t - b.t);
+	const signedTotalAt = (t: number): number => {
+		const { side1, side2 } = interpolateStrokeWidths(strokeWidths, t);
+		return side1 + side2;
+	};
+	const pathTs = [
+		0,
+		...strokeWidthSamplePathTs(strokeWidths).filter((t) => t > 0 && t < 1),
+		1,
+	];
 	const ranges: Array<{ start: number; end: number }> = [];
-	let rangeStart: number | null =
-		points[0].side1 + points[0].side2 < 0 ? points[0].t : null;
+	let rangeStart: number | null = signedTotalAt(0) < 0 ? 0 : null;
 
-	for (let i = 1; i < points.length; i++) {
-		const previous = points[i - 1];
-		const current = points[i];
-		const previousSum = previous.side1 + previous.side2;
-		const currentSum = current.side1 + current.side2;
+	for (let i = 1; i < pathTs.length; i++) {
+		const previousT = pathTs[i - 1];
+		const currentT = pathTs[i];
+		const previousSum = signedTotalAt(previousT);
+		const currentSum = signedTotalAt(currentT);
 
 		if (previousSum >= 0 && currentSum < 0) {
-			rangeStart = interpolateZeroCrossing(
-				previous.t,
-				current.t,
-				previousSum,
-				currentSum,
-			);
+			rangeStart = findZeroCrossing(signedTotalAt, previousT, currentT);
 		} else if (previousSum < 0 && currentSum >= 0 && rangeStart != null) {
 			ranges.push({
 				start: rangeStart,
-				end: interpolateZeroCrossing(
-					previous.t,
-					current.t,
-					previousSum,
-					currentSum,
-				),
+				end: findZeroCrossing(signedTotalAt, previousT, currentT),
 			});
 			rangeStart = null;
 		}
@@ -966,15 +962,24 @@ function findNegativeWidthRanges(
 	return ranges;
 }
 
-function interpolateZeroCrossing(
+/**
+ * Bisect the sign change of `signedTotalAt` between two path ratios and
+ * return the bound on the non-negative side, so the pieces cut there never
+ * start or end with a negative total width.
+ */
+function findZeroCrossing(
+	signedTotalAt: (t: number) => number,
 	startT: number,
 	endT: number,
-	startValue: number,
-	endValue: number,
 ): number {
-	const span = endValue - startValue;
-	if (span === 0) return startT;
-	return startT + (-startValue * (endT - startT)) / span;
+	let negativeT = signedTotalAt(startT) < 0 ? startT : endT;
+	let nonNegativeT = negativeT === startT ? endT : startT;
+	for (let i = 0; i < ZERO_CROSSING_ITERATIONS; i++) {
+		const middleT = (negativeT + nonNegativeT) / 2;
+		if (signedTotalAt(middleT) < 0) negativeT = middleT;
+		else nonNegativeT = middleT;
+	}
+	return nonNegativeT;
 }
 
 function sliceStrokeWidths(
@@ -1004,6 +1009,7 @@ function sliceStrokeWidths(
 }
 
 const MERGE_T_THRESHOLD = 0.005;
+const ZERO_CROSSING_ITERATIONS = 50;
 const SIMPLIFY_TOLERANCE = 0.02;
 
 /** Merge points with near-identical t values (keep smaller widths), then

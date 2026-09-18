@@ -192,7 +192,9 @@ function buildStrokeSamples(
 
 	const pathTs = [
 		...Array.from(arcLengths, (length) => length / totalArcLength),
-		...strokeWidths.map(({ t }) => Math.min(1, Math.max(0, t))),
+		...strokeWidthSamplePathTs(strokeWidths).map((t) =>
+			Math.min(1, Math.max(0, t)),
+		),
 	].sort((a, b) => a - b);
 	const uniquePathTs = pathTs.filter(
 		(pathT, index) => index === 0 || pathT - pathTs[index - 1] > 1e-10,
@@ -1320,8 +1322,11 @@ function lineLineIntersect(
 /**
  * Interpolate side1/side2 width ratios from a StrokeWidthPoint array at a given pathT.
  *
- * Uses binary search for O(log n) lookup. Implicit endpoints at t=0 and t=1
- * with side1=1, side2=1 (full width) are assumed when not explicitly present.
+ * Each side follows a monotone cubic through the points (Steffen's method),
+ * so the width changes its rate smoothly across a point instead of bending
+ * there, and never overshoots its neighbors. Implicit endpoints at t=0 and
+ * t=1 with side1=1, side2=1 (full width) are assumed when not explicitly
+ * present.
  */
 export function interpolateStrokeWidths(
 	strokeWidths: StrokeWidthPoint[],
@@ -1329,46 +1334,160 @@ export function interpolateStrokeWidths(
 ): { side1: number; side2: number } {
 	if (strokeWidths.length === 0) return { side1: 1, side2: 1 };
 
-	// Before first point: lerp from implicit {t:0, 1, 1}
-	if (pathT <= strokeWidths[0].t) {
-		const first = strokeWidths[0];
-		if (first.t <= 0) return { side1: first.side1, side2: first.side2 };
-		const frac = pathT / first.t;
-		return {
-			side1: 1 + (first.side1 - 1) * frac,
-			side2: 1 + (first.side2 - 1) * frac,
-		};
-	}
-
-	// After last point: lerp to implicit {t:1, 1, 1}
-	const last = strokeWidths[strokeWidths.length - 1];
-	if (pathT >= last.t) {
-		const remaining = 1 - last.t;
-		if (remaining <= 0) return { side1: last.side1, side2: last.side2 };
-		const frac = (pathT - last.t) / remaining;
-		return {
-			side1: last.side1 + (1 - last.side1) * frac,
-			side2: last.side2 + (1 - last.side2) * frac,
-		};
-	}
+	const knots = strokeWidthKnots(strokeWidths);
+	const first = knots[0];
+	if (pathT <= first.t) return { side1: first.side1, side2: first.side2 };
+	const last = knots[knots.length - 1];
+	if (pathT >= last.t) return { side1: last.side1, side2: last.side2 };
 
 	// Binary search for the interval containing pathT
 	let lo = 0;
-	let hi = strokeWidths.length - 1;
+	let hi = knots.length - 1;
 	while (lo < hi - 1) {
 		const mid = (lo + hi) >> 1;
-		if (strokeWidths[mid].t <= pathT) lo = mid;
+		if (knots[mid].t <= pathT) lo = mid;
 		else hi = mid;
 	}
 
-	const a = strokeWidths[lo];
-	const b = strokeWidths[hi];
-	const range = b.t - a.t;
-	const frac = range > 0 ? (pathT - a.t) / range : 0;
 	return {
-		side1: a.side1 + (b.side1 - a.side1) * frac,
-		side2: a.side2 + (b.side2 - a.side2) * frac,
+		side1: evaluateWidthSpan(knots, lo, "side1", pathT),
+		side2: evaluateWidthSpan(knots, lo, "side2", pathT),
 	};
+}
+
+/**
+ * Path ratios at which a piecewise-linear consumer must sample the width
+ * profile: every point, plus enough evenly spaced samples inside each span
+ * that the chords stay within WIDTH_CHORD_TOLERANCE of the curve.
+ */
+export function strokeWidthSamplePathTs(
+	strokeWidths: StrokeWidthPoint[],
+): number[] {
+	if (strokeWidths.length === 0) return [];
+
+	const knots = strokeWidthKnots(strokeWidths);
+	const pathTs = [knots[0].t];
+	for (let i = 1; i < knots.length; i++) {
+		const start = knots[i - 1].t;
+		const span = knots[i].t - start;
+		const deviation = Math.max(
+			widthSpanChordDeviation(knots, i - 1, "side1"),
+			widthSpanChordDeviation(knots, i - 1, "side2"),
+		);
+		// A chord's error against a cubic falls with the square of the pieces.
+		const pieces = Math.min(
+			MAX_WIDTH_SPAN_PIECES,
+			Math.max(1, Math.ceil(Math.sqrt(deviation / WIDTH_CHORD_TOLERANCE))),
+		);
+		for (let piece = 1; piece <= pieces; piece++) {
+			pathTs.push(start + (span * piece) / pieces);
+		}
+	}
+	return pathTs;
+}
+
+/** Largest width-ratio error a sampled chord may leave against the profile. */
+const WIDTH_CHORD_TOLERANCE = 0.01;
+const MAX_WIDTH_SPAN_PIECES = 16;
+const FULL_WIDTH_START: StrokeWidthPoint = { t: 0, side1: 1, side2: 1 };
+const FULL_WIDTH_END: StrokeWidthPoint = { t: 1, side1: 1, side2: 1 };
+
+type WidthSide = "side1" | "side2";
+
+/** The profile's points with the implicit full-width ends it does not reach. */
+function strokeWidthKnots(
+	strokeWidths: StrokeWidthPoint[],
+): StrokeWidthPoint[] {
+	const leading = strokeWidths[0].t > 0;
+	const trailing = strokeWidths[strokeWidths.length - 1].t < 1;
+	if (!leading && !trailing) return strokeWidths;
+	return [
+		...(leading ? [FULL_WIDTH_START] : []),
+		...strokeWidths,
+		...(trailing ? [FULL_WIDTH_END] : []),
+	];
+}
+
+/** Cubic Hermite value of the span starting at knots[index], at pathT inside it. */
+function evaluateWidthSpan(
+	knots: StrokeWidthPoint[],
+	index: number,
+	side: WidthSide,
+	pathT: number,
+): number {
+	const a = knots[index];
+	const b = knots[index + 1];
+	const span = b.t - a.t;
+	const u = (pathT - a.t) / span;
+	const u2 = u * u;
+	const u3 = u2 * u;
+	return (
+		(2 * u3 - 3 * u2 + 1) * a[side] +
+		(u3 - 2 * u2 + u) * span * widthKnotSlope(knots, index, side) +
+		(-2 * u3 + 3 * u2) * b[side] +
+		(u3 - u2) * span * widthKnotSlope(knots, index + 1, side)
+	);
+}
+
+/**
+ * Upper bound of how far the span's cubic strays from its straight chord:
+ * the Hermite-minus-chord term u(1-u)((1-u)d0 - u·d1) peaks below a quarter
+ * of the larger endpoint slope excess.
+ */
+function widthSpanChordDeviation(
+	knots: StrokeWidthPoint[],
+	index: number,
+	side: WidthSide,
+): number {
+	const span = knots[index + 1].t - knots[index].t;
+	if (span <= 0) return 0;
+	const secant = widthSecant(knots[index], knots[index + 1], side);
+	return (
+		(span *
+			Math.max(
+				Math.abs(widthKnotSlope(knots, index, side) - secant),
+				Math.abs(widthKnotSlope(knots, index + 1, side) - secant),
+			)) /
+		4
+	);
+}
+
+/**
+ * Steffen's slope at knots[index]: zero at a local extremum, and limited so
+ * neither adjacent span overshoots. End knots take their span's secant.
+ */
+function widthKnotSlope(
+	knots: StrokeWidthPoint[],
+	index: number,
+	side: WidthSide,
+): number {
+	const knot = knots[index];
+	const prev = knots[index - 1];
+	const next = knots[index + 1];
+	if (!prev) return widthSecant(knot, next, side);
+	if (!next) return widthSecant(prev, knot, side);
+
+	const before = widthSecant(prev, knot, side);
+	const after = widthSecant(knot, next, side);
+	if (before * after <= 0) return 0;
+	const spanBefore = knot.t - prev.t;
+	const spanAfter = next.t - knot.t;
+	const parabola =
+		(before * spanAfter + after * spanBefore) / (spanBefore + spanAfter);
+	return (
+		Math.sign(before) *
+		Math.min(2 * Math.abs(before), 2 * Math.abs(after), Math.abs(parabola))
+	);
+}
+
+/** Slope between two knots; a zero-length span (a width step) counts as flat. */
+function widthSecant(
+	a: StrokeWidthPoint,
+	b: StrokeWidthPoint,
+	side: WidthSide,
+): number {
+	const span = b.t - a.t;
+	return span > 0 ? (b[side] - a[side]) / span : 0;
 }
 
 /**

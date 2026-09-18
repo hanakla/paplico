@@ -19,7 +19,10 @@ import type {
 	StrokeWidthPoint,
 } from "../../../../schema";
 import { lerp } from "../../../../utils/math";
-import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
+import {
+	interpolateStrokeWidths,
+	strokeWidthSamplePathTs,
+} from "../../../geometry/strokeTessellator";
 
 /**
  * UV layout mode for ribbon rendering.
@@ -194,19 +197,19 @@ export function generateRibbonInstances(
 		return { data: EMPTY_F32, segmentCount: 0, totalArcLength: 0 };
 	}
 
-	// Split at every width control point so the GPU's linear per-instance
-	// interpolation cannot skip an interior width value on a cubic segment.
+	// Split at every width sample so the GPU's linear per-instance
+	// interpolation follows the width curve on a cubic segment.
+	const widthPathTs = hasStrokeWidths
+		? strokeWidthSamplePathTs(strokeWidths!)
+		: [];
 	const resolved: ResolvedRibbonSegment[] = [];
 	let sourceArcOffset = 0;
 	for (const source of sourceSegments) {
 		const pathT0 = sourceArcOffset / totalArcLength;
 		const pathT1 = (sourceArcOffset + source.arcLength) / totalArcLength;
-		const cutPathTs = hasStrokeWidths
-			? strokeWidths!
-					.map((point) => point.t)
-					.filter((position) => position > pathT0 && position < pathT1)
-					.toSorted((a, b) => a - b)
-			: [];
+		const cutPathTs = widthPathTs.filter(
+			(position) => position > pathT0 && position < pathT1,
+		);
 		const boundaries = [pathT0, ...new Set(cutPathTs), pathT1];
 		let remainingCurve = source.curve;
 		let previousCurveT = 0;

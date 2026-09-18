@@ -3,6 +3,7 @@ import type { BrushSettings, CubicBezierSegment } from "../../../../schema";
 import {
 	DEFAULT_RIBBON_OPTIONS,
 	generateRibbonInstances,
+	RIBBON_FLOATS_PER_INSTANCE,
 	type RibbonStrokeInput,
 } from "./RibbonGenerator";
 
@@ -37,19 +38,36 @@ describe("generateRibbonInstances — signed stroke widths", () => {
 			],
 		);
 
-		expect(result.segmentCount).toBe(2);
-		expect(result.data[6]).toBeCloseTo(50, 1);
-		expect(result.data[16]).toBeCloseTo(0, 5);
-		expect(result.data[17]).toBeCloseTo(0.5, 5);
-		expect(result.data[11]).toBeCloseTo(-0.5, 5);
-		expect(result.data[13]).toBeCloseTo(0.75, 5);
+		const instances = Array.from({ length: result.segmentCount }, (_, i) =>
+			result.data.subarray(
+				i * RIBBON_FLOATS_PER_INSTANCE,
+				(i + 1) * RIBBON_FLOATS_PER_INSTANCE,
+			),
+		);
+		const before = instances.find((data) => Math.abs(data[17] - 0.5) < 1e-6)!;
+		const after = instances.find((data) => Math.abs(data[16] - 0.5) < 1e-6)!;
 
-		const second = 28;
-		expect(result.data[second]).toBeCloseTo(50, 1);
-		expect(result.data[second + 16]).toBeCloseTo(0.5, 5);
-		expect(result.data[second + 17]).toBeCloseTo(1, 5);
-		expect(result.data[second + 10]).toBeCloseTo(-0.5, 5);
-		expect(result.data[second + 12]).toBeCloseTo(0.75, 5);
+		expect(before[6]).toBeCloseTo(50, 1);
+		expect(before[11]).toBeCloseTo(-0.5, 5);
+		expect(before[13]).toBeCloseTo(0.75, 5);
+		expect(after[0]).toBeCloseTo(50, 1);
+		expect(after[10]).toBeCloseTo(-0.5, 5);
+		expect(after[12]).toBeCloseTo(0.75, 5);
+	});
+
+	it("should add instances inside a span so the width follows its curve", () => {
+		const result = generateRibbonInstances(
+			[straightSegment()],
+			patternSettings(),
+			0,
+			[
+				{ t: 0, side1: 0, side2: 0 },
+				{ t: 0.5, side1: 1, side2: 1 },
+				{ t: 1, side1: 1, side2: 1 },
+			],
+		);
+
+		expect(result.segmentCount).toBeGreaterThan(2);
 	});
 
 	it("should join the first and last instances of a closed ribbon", () => {
