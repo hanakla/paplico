@@ -57,7 +57,7 @@ const BOOLEAN_OP_BY_SOURCE_OP: Record<CompoundPathSource["op"], BooleanOp> = {
 /**
  * Compute boolean operations on multiple paths using per-source operations.
  * Each source (except the first) specifies its own boolean operation against
- * the accumulated result. Curves stay curves: the result is exact at any zoom.
+ * the accumulated result. The result keeps the sources' curves.
  * Only the outline of each source takes part, so an open sub-path is closed
  * with a straight line and stroke width plays no role.
  */

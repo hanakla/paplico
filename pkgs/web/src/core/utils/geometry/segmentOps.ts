@@ -273,8 +273,7 @@ export function getMeshWorldBoundarySegments(
 
 /**
  * Convert a path to world-space geometry while preserving segment metadata.
- * Returned path always has identity transform. `geometry` is forwarded to
- * getWorldSegments.
+ * Returned path always has identity transform.
  */
 export function toWorldPath(
 	path: Path,

@@ -12,10 +12,9 @@ import { transformLinearMatrix } from "../../utils/geometry/geometry";
 import type { Migration } from "./index";
 
 /**
- * A compound path rotates and scales about the center of its local bounds.
- * Those bounds became the extent of the boolean result; they used to be the
- * union of the sources' bounds. Shift the translation of every compound path
- * so it stays where it was drawn under the old pivot.
+ * Files older than this version pivot a compound path on the center of its
+ * sources' bounds union rather than on its boolean result. Shift the
+ * translation of every compound path so it stays where it was drawn.
  */
 export const migCompoundPathPivot: Migration = {
 	version: 20260918,

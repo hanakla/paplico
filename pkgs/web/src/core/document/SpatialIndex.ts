@@ -254,12 +254,19 @@ export class SpatialIndex {
 		return brandWorldBBox(applyTransformToBounds(localBounds, composedT));
 	}
 
-	/** The blend that directly absorbs this element, or null. */
-	private getDirectBlendParent(elementId: string): BlendObject | null {
+	/**
+	 * The blend or compound path that directly absorbs this element, or null.
+	 * Both draw their sources baked to world and pivot on their own bounds.
+	 */
+	private getDirectBakingParent(
+		elementId: string,
+	): BlendObject | CompoundPath | null {
 		const parentId = this.parentGroupMap.get(elementId);
 		if (!parentId) return null;
 		const parent = this.store.document.objects[parentId];
-		return parent && isBlend(parent) ? parent : null;
+		return parent && (isBlend(parent) || isCompoundPath(parent))
+			? parent
+			: null;
 	}
 
 	/**
@@ -1480,10 +1487,7 @@ export class SpatialIndex {
 		return geometries;
 	}
 
-	/**
-	 * resolveCompoundDrawnShape over the cached boolean result. Null when no
-	 * source resolves to a path.
-	 */
+	/** Null when no source resolves to a path. */
 	private resolveCompoundDrawnShape(
 		compound: CompoundPath,
 		inheritedPreFilters: readonly Filter[],
@@ -1522,50 +1526,52 @@ export class SpatialIndex {
 			ancestorId = this.parentGroupMap.get(ancestorId);
 		}
 
-		// A blend draws its sources baked and pivots the whole blend around the
-		// blend's own bbox center (renderBlend), not each source's center. Generic
-		// consumers apply this ancestor transform around the element's own center,
-		// which only matches for pure translation. Re-express the blend transform
-		// as one pivoted around the source's center so EVERY ancestor-aware
-		// consumer (bounds, outline, PathEdit handles, rotate…) matches the
-		// rendering.
-		const blend = this.getDirectBlendParent(elementId);
-		if (blend) return this.pivotBlendTransformAroundSource(t, blend, elementId);
+		// A blend or compound path draws its sources baked and pivots itself
+		// around its own bbox center, not each source's center. Generic consumers
+		// apply this ancestor transform around the element's own center, which
+		// only matches for pure translation. Re-express the parent's transform as
+		// one pivoted around the source's center so EVERY ancestor-aware consumer
+		// (bounds, outline, PathEdit handles, rotate…) matches the rendering.
+		const bakingParent = this.getDirectBakingParent(elementId);
+		if (bakingParent) {
+			return this.pivotBakedTransformAroundSource(t, bakingParent, elementId);
+		}
 		return t;
 	}
 
 	/**
-	 * Re-express `blendWorldT` (pivoting around the blend's local bbox center) as
-	 * an equivalent transform pivoting around the source's local bbox center.
-	 * Same rotation/scale; only the translation is shifted by (I − A)(Ob − Os),
-	 * where A is the transform's linear part, Ob the blend center, Os the source
-	 * center — so applyTransform(p, result, Os) == applyTransform(p, blendWorldT, Ob).
+	 * Re-express `parentWorldT` (pivoting around the baking parent's local bbox
+	 * center) as an equivalent transform pivoting around the source's local bbox
+	 * center. Same rotation/scale; only the translation is shifted by
+	 * (I − A)(Ob − Os), where A is the transform's linear part, Ob the parent
+	 * center, Os the source center — so
+	 * applyTransform(p, result, Os) == applyTransform(p, parentWorldT, Ob).
 	 */
-	private pivotBlendTransformAroundSource(
-		blendWorldT: ElementTransform,
-		blend: BlendObject,
+	private pivotBakedTransformAroundSource(
+		parentWorldT: ElementTransform,
+		parent: BlendObject | CompoundPath,
 		sourceId: string,
 	): ElementTransform {
 		const source = this.store.document.objects[sourceId];
-		if (!source) return blendWorldT;
+		if (!source) return parentWorldT;
 
 		const elementsMap = this.getElementsMapCached();
 		const os = computeTransformOrigin(
 			calculateLocalElementBounds(source, elementsMap, this.localBoundsCache),
 		);
 		const ob = computeTransformOrigin(
-			calculateLocalElementBounds(blend, elementsMap, this.localBoundsCache),
+			calculateLocalElementBounds(parent, elementsMap, this.localBoundsCache),
 		);
 		const dx = ob.x - os.x;
 		const dy = ob.y - os.y;
-		// A·d, where A is the blend transform's linear part (rotation · shear · scale).
-		const m = transformLinearMatrix(blendWorldT);
+		// A·d, where A is the parent transform's linear part (rotation · shear · scale).
+		const m = transformLinearMatrix(parentWorldT);
 		const adx = m.m00 * dx + m.m01 * dy;
 		const ady = m.m10 * dx + m.m11 * dy;
 		return {
-			...blendWorldT,
-			x: blendWorldT.x + dx - adx,
-			y: blendWorldT.y + dy - ady,
+			...parentWorldT,
+			x: parentWorldT.x + dx - adx,
+			y: parentWorldT.y + dy - ady,
 		};
 	}
 

@@ -1684,6 +1684,24 @@ describe("compound path hit testing", () => {
 		// The cutter has no fill, so it is picked by its outline (x = 100).
 		expect(idx.findElementAtPoint("layer-1", 100, 0, 2)).toBe(objects.cutter);
 	});
+
+	it("should place a source where a rotated compound draws it", () => {
+		// The compound turns 90° about its result's center (-25, 0), so the
+		// base's bottom edge y = -50 is drawn along x = 25.
+		const objects = makeSubtractedCompound({
+			compound: {
+				transform: { ...createIdentityTransform(), rotation: Math.PI / 2 },
+			},
+		});
+		const idx = createFilteredIndex(["compound-1"], objects, {
+			editingScopeStack: ["compound-1"],
+		});
+
+		const start = idx.getElementWorldSegments("base")?.[0].start;
+		expect(start?.x).toBeCloseTo(25);
+		expect(start?.y).toBeCloseTo(-25);
+		expect(idx.findElementAtPoint("layer-1", 25, 0, 2)).toBe(objects.base);
+	});
 });
 
 describe("geometry filter hit testing", () => {
