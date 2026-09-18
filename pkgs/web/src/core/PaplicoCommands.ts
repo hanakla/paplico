@@ -185,6 +185,7 @@ import {
 	type AxisFlip,
 	createScaleTransform,
 	mirrorGradientFilters,
+	mirrorStrokeWidths,
 	scaleSegments,
 	scaleStrokeFilters,
 	scaleTextContent,
@@ -3003,6 +3004,9 @@ export class PaplicoCommands {
 				transform: ancestorT
 					? computeInverseCompositionTransform(ancestorT)
 					: worldPath.transform,
+				...(element.strokeWidths && {
+					strokeWidths: mirrorStrokeWidths(element.strokeWidths, flip),
+				}),
 				...commonUpdates,
 				...(strokeScaledFilters ? { filters: strokeScaledFilters } : {}),
 			});

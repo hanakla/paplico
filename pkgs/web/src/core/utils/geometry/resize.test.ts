@@ -18,6 +18,7 @@ import { computeInverseCompositionTransform } from "./geometry";
 import {
 	createScaleTransform,
 	mirrorGradientFilters,
+	mirrorStrokeWidths,
 	scaleSegments,
 	scaleStrokeFilters,
 	scaleTextContent,
@@ -276,6 +277,28 @@ describe("mirrorGradientFilters", () => {
 		expect(mirrorGradientFilters(filters, { x: false, y: false })).toBe(
 			filters,
 		);
+	});
+});
+
+describe("mirrorStrokeWidths", () => {
+	const widths = [
+		{ t: 0, side1: 2, side2: 0.5 },
+		{ t: 1, side1: 1, side2: 0 },
+	];
+
+	it("should swap the sides when mirrored on one axis", () => {
+		expect(mirrorStrokeWidths(widths, { x: true, y: false })).toEqual([
+			{ t: 0, side1: 0.5, side2: 2 },
+			{ t: 1, side1: 0, side2: 1 },
+		]);
+		expect(mirrorStrokeWidths(widths, { x: false, y: true })).toEqual([
+			{ t: 0, side1: 0.5, side2: 2 },
+			{ t: 1, side1: 0, side2: 1 },
+		]);
+	});
+
+	it("should keep the sides when mirrored on both axes", () => {
+		expect(mirrorStrokeWidths(widths, { x: true, y: true })).toEqual(widths);
 	});
 });
 

@@ -360,6 +360,8 @@ export const en = {
 		transform: "Transform",
 		transformRotation: "Rotation",
 		transformSkew: "Skew",
+		transformFlipHorizontal: "Flip horizontal",
+		transformFlipVertical: "Flip vertical",
 		repeat: "Repeat",
 		repeatMode: "Mode",
 		repeatModeGrid: "Grid",

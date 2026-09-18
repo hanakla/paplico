@@ -361,6 +361,8 @@ export const ja = {
 		transform: "変形",
 		transformRotation: "回転",
 		transformSkew: "シアー",
+		transformFlipHorizontal: "左右反転",
+		transformFlipVertical: "上下反転",
 		repeat: "リピート",
 		repeatMode: "モード",
 		repeatModeGrid: "グリッド",

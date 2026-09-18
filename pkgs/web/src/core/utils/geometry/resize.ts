@@ -17,6 +17,7 @@ import {
 	type MeshGradient,
 	type RadialGradient,
 	type StrokeAppearance,
+	type StrokeWidthPoint,
 	type TextContent,
 	type TextLayout,
 	type TextStyle,
@@ -87,6 +88,24 @@ export function mirrorGradientFilters(
 		}
 		return filter;
 	});
+}
+
+/**
+ * Mirror a path's width profile. Its sides are named by the travel direction,
+ * which a mirror keeps, while a single-axis mirror turns the path's left into
+ * its right; swapping the sides keeps the wide side on the part of the shape
+ * it belonged to. A mirror on both axes is a half turn and keeps the sides.
+ */
+export function mirrorStrokeWidths(
+	strokeWidths: StrokeWidthPoint[],
+	flip: AxisFlip,
+): StrokeWidthPoint[] {
+	if (flip.x === flip.y) return strokeWidths;
+	return strokeWidths.map(({ t, side1, side2 }) => ({
+		t,
+		side1: side2,
+		side2: side1,
+	}));
 }
 
 /**
