@@ -8,7 +8,6 @@ import {
 import {
 	type AnyArtObject,
 	type BlendMode,
-	colorToRawRGBA,
 	type Document,
 	type ElementTransform,
 	type FillAppearance,
@@ -16,6 +15,7 @@ import {
 	hasGroupAppearances,
 	isFilterEnabled,
 	isVisibleFill,
+	isVisibleStroke,
 	type StrokeAppearance,
 	type TextElement,
 	type TextStyle,
@@ -370,25 +370,6 @@ export function planLayerItems(
 
 	flush();
 	return items;
-}
-
-/**
- * Whether a stroke appearance produces any visible pixels: opaque enough,
- * non-transparent solid color (non-solid paints are treated as visible),
- * and a non-zero brush width. Shared with the serializer so classification
- * and output cannot disagree on what counts as visible.
- */
-export function isVisibleStroke(appearance: StrokeAppearance): boolean {
-	if ((appearance.opacity ?? 1) <= 0) return false;
-	const params = appearance.paramData.params;
-	if (
-		params.strokeColor.type === "solid" &&
-		colorToRawRGBA(params.strokeColor.color).a <= 0
-	) {
-		return false;
-	}
-	if (!params.brushSettings) return true;
-	return (params.brushSettings.properties.size?.base ?? 1) > 0;
 }
 
 /**

@@ -855,6 +855,67 @@ function simplifyRing(ring: Ring): Ring {
 }
 
 /**
+ * Outline the area a triangle soup covers under the nonzero rule ([x, y, ...]
+ * with 3 vertices per triangle) as closed cubic Bézier subpaths that stay
+ * within `tolerance` of it. Overlapping triangles merge; enclosed gaps become
+ * hole subpaths.
+ */
+export function triangleSoupOutline(
+	triangles: readonly number[],
+	tolerance: number,
+): CubicBezierSegment[] {
+	// polygon-clipping's sweep line throws on near-coincident vertices but
+	// handles exact coincidences, so vertices snap to a grid well below the
+	// tolerance.
+	const grid = tolerance / 100;
+	const snap = (v: number) => Math.round(v / grid) * grid;
+
+	const polygons: Polygon[] = [];
+	for (let i = 0; i + 5 < triangles.length; i += 6) {
+		const ring: Ring = [];
+		for (let k = i; k < i + 6; k += 2) {
+			ring.push([snap(triangles[k]), snap(triangles[k + 1])]);
+		}
+		const [a, b, c] = ring;
+		const area2 = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+		if (area2 === 0) continue;
+		// One winding for every triangle keeps the soup a nonzero union.
+		const wound = area2 > 0 ? ring : ring.reverse();
+		polygons.push([[...wound, wound[0]]]);
+	}
+	if (polygons.length === 0) return [];
+
+	let rings: Ring[];
+	try {
+		rings = polygonClipping.union(polygons[0], ...polygons.slice(1)).flat();
+	} catch {
+		// The raw soup still covers the same area, only as many small shapes.
+		rings = polygons.flat();
+	}
+	// The fitter measures its error only at the vertices, so a long edge left
+	// with its two ends alone lets the fitted curve bulge away from it.
+	return rings.flatMap((ring) =>
+		ringToSegments(densifyRing(ring, tolerance * 10), tolerance),
+	);
+}
+
+/** Split ring edges so consecutive vertices are at most `maxGap` apart. */
+function densifyRing(ring: Ring, maxGap: number): Ring {
+	const dense: Ring = [ring[0]];
+	for (let i = 1; i < ring.length; i++) {
+		const [x0, y0] = ring[i - 1];
+		const [x1, y1] = ring[i];
+		const pieces = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / maxGap);
+		for (let piece = 1; piece < pieces; piece++) {
+			const t = piece / pieces;
+			dense.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]);
+		}
+		dense.push(ring[i]);
+	}
+	return dense;
+}
+
+/**
  * Convert a polygon ring (from polygon-clipping) back to bezier segments.
  *
  * Uses Raph Levien's Bézier path simplification: detects corners via

@@ -2130,3 +2130,21 @@ export function isVisibleFill(appearance: FillAppearance): boolean {
 			return true;
 	}
 }
+
+/**
+ * Whether a stroke appearance produces any visible pixels: opaque enough,
+ * non-transparent solid color (non-solid paints are treated as visible),
+ * and a non-zero brush width.
+ */
+export function isVisibleStroke(appearance: StrokeAppearance): boolean {
+	if ((appearance.opacity ?? 1) <= 0) return false;
+	const params = appearance.paramData.params;
+	if (
+		params.strokeColor.type === "solid" &&
+		colorToRawRGBA(params.strokeColor.color).a <= 0
+	) {
+		return false;
+	}
+	if (!params.brushSettings) return true;
+	return (params.brushSettings.properties.size?.base ?? 1) > 0;
+}

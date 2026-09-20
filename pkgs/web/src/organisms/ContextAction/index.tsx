@@ -14,6 +14,7 @@ import {
 } from "@/contexts/PaplicoContext";
 import { useTargetViewport } from "@/contexts/ViewIdContext";
 import { localAppearances } from "@/core/document/appearancePresets";
+import { canOutlineStrokes } from "@/core/document/strokeOutline";
 import { getArtboardBounds } from "@/core/schema";
 import { worldToScreen } from "@/core/utils/geometry/geometry";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
@@ -124,9 +125,9 @@ function ContextActionsOverlayInner({
 				(f) => f.processor === "fill" || f.processor === "stroke",
 			),
 		);
-	const hasTextInSelection =
+	const hasOutlinableInSelection =
 		!isReference3DNodeContext &&
-		selectedElements.some((el) => el.type === "text");
+		selectedElements.some((el) => el.type === "text" || canOutlineStrokes(el));
 	const meshWarpIdsInSelection = selectedElements
 		.filter((el) => el.type === "mesh")
 		.map((el) => el.id);
@@ -300,7 +301,7 @@ function ContextActionsOverlayInner({
 			{!isTextEditing && hasElementSelection && (
 				<MoreActionsMenu
 					selectedIds={selectedIds}
-					hasTextInSelection={hasTextInSelection}
+					hasOutlinableInSelection={hasOutlinableInSelection}
 					maskTargetId={maskTargetId}
 					singleSelectedId={singleSelectedId}
 					meshWarpIdsInSelection={meshWarpIdsInSelection}

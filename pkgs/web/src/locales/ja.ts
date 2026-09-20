@@ -279,7 +279,7 @@ export const ja = {
 		distributeVertical: "上下に等間隔配置",
 		createClipGroup: "クリッピンググループを作成",
 		convertToClipObject: "クリップオブジェクトに変換",
-		outlineText: "テキストをアウトライン化",
+		outline: "アウトライン化",
 		charAngle: "角度",
 		charSkewX: "傾斜X",
 		charSkewY: "傾斜Y",

@@ -1,15 +1,21 @@
 import type {
 	BrushSettings,
 	CubicBezierSegment,
+	ElementTransform,
 	LineCap,
 	LineJoin,
 	Path,
 	StrokeAlign,
 	StrokeWidthPoint,
 } from "../../../schema";
+import { transformLinearMatrix } from "../../../utils/geometry/geometry";
+import { triangleSoupOutline } from "../../../utils/geometry/pathOps";
 import { splitIntoSubPaths } from "../../../utils/geometry/segmentOps";
 import { flattenBezierPathWithPressure } from "../../geometry/bezierFlatten";
-import { localCurveTolerance } from "../../geometry/strips/deviceGeometry";
+import {
+	deviceScaleBucket,
+	localCurveTolerance,
+} from "../../geometry/strips/deviceGeometry";
 import {
 	applyDashPattern,
 	polylineArcLength,
@@ -17,6 +23,9 @@ import {
 } from "../../geometry/strokeTessellator";
 import { computePolylineSignedArea } from "../CanvasLayer.helpers";
 import { resolveGeometricSizeByPressure } from "../pipeline/brush/strokeHalfWidth";
+
+/** Largest distance, in device pixels, an outlined stroke strays from its band. */
+const OUTLINE_FIT_TOLERANCE_PX = 0.1;
 
 /** Everything that shapes the painted band of a geometric-engine stroke. */
 export interface GeometricStrokeShape {
@@ -67,6 +76,35 @@ export function resolveGeometricStrokeShape(
 /** Whether the band's width changes along the path. */
 export function hasVariableStrokeWidth(shape: GeometricStrokeShape): boolean {
 	return !!shape.strokeWidths?.length || shape.sizeByPressure !== 0;
+}
+
+/**
+ * The band a geometric stroke paints along each of `geometries`, as one set
+ * of closed cubic subpaths in the geometries' space. The fit stays within
+ * {@link OUTLINE_FIT_TOLERANCE_PX} once drawn through `transform`.
+ */
+export function outlineGeometricStroke(
+	geometries: readonly CubicBezierSegment[][],
+	shape: GeometricStrokeShape,
+	transform: ElementTransform,
+): CubicBezierSegment[] {
+	const m = transformLinearMatrix(transform);
+	const scaleBucket = deviceScaleBucket({
+		a: m.m00,
+		b: m.m10,
+		c: m.m01,
+		d: m.m11,
+		e: 0,
+		f: 0,
+	});
+	return triangleSoupOutline(
+		geometries.flatMap(
+			(segments) =>
+				tessellateGeometricStroke(segments, shape, scaleBucket, false)
+					.triangles,
+		),
+		OUTLINE_FIT_TOLERANCE_PX / 2 ** scaleBucket,
+	);
 }
 
 /**

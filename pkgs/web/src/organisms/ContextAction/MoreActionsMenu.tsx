@@ -23,13 +23,14 @@ import { useEventCallback } from "@/utils/hooks";
 /** Overflow menu for the actions that don't earn a slot in the bar itself. */
 export function MoreActionsMenu({
 	selectedIds,
-	hasTextInSelection,
+	hasOutlinableInSelection,
 	maskTargetId,
 	singleSelectedId,
 	meshWarpIdsInSelection,
 }: {
 	selectedIds: readonly string[];
-	hasTextInSelection: boolean;
+	/** Whether the selection holds text or a stroke that outlining turns into a shape. */
+	hasOutlinableInSelection: boolean;
 	/** The lone selected element that has no mask yet, or null. */
 	maskTargetId: string | null;
 	/** The lone selected element, or null when the selection isn't exactly one element. */
@@ -50,8 +51,8 @@ export function MoreActionsMenu({
 		commands.convertToClipObject(singleSelectedId);
 	});
 
-	const handleOutlineText = useEventCallback(() => {
-		paplico.commands.outlineTextElements([...selectedIds]);
+	const handleOutline = useEventCallback(() => {
+		paplico.commands.outlineElements([...selectedIds]);
 	});
 
 	const handleCreateMask = useEventCallback(() => {
@@ -181,11 +182,11 @@ export function MoreActionsMenu({
 								<Menu.Separator />
 							</>
 						)}
-						{hasTextInSelection && (
+						{hasOutlinableInSelection && (
 							<>
-								<Menu.Item onClick={handleOutlineText}>
+								<Menu.Item onClick={handleOutline}>
 									<RemoveFormatting size={14} />
-									{t("contextActions.outlineText")}
+									{t("contextActions.outline")}
 								</Menu.Item>
 								<Menu.Separator />
 							</>

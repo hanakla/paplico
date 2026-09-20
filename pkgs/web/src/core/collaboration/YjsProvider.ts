@@ -606,6 +606,25 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	}
 
 	/**
+	 * Write `objects` under their ids, replacing any object already stored
+	 * there, and move the `transforms` elements, as one undoable step. An
+	 * object that keeps a replaced element's id also keeps its place in the
+	 * parent.
+	 */
+	public replaceObjects(
+		objects: readonly AnyArtObject[],
+		transforms: ReadonlyMap<string, ElementTransform>,
+		origin?: unknown,
+	): void {
+		this.ydoc.transact(() => {
+			for (const object of objects) {
+				this.yObjects.set(object.id, this.objectToYMap(object));
+			}
+			this.writeTransforms(transforms);
+		}, origin);
+	}
+
+	/**
 	 * Delete elements from layers in a single transaction.
 	 * @param elementsByLayer - Map of layerId to array of elementIds to delete
 	 */

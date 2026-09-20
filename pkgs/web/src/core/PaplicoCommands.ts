@@ -29,6 +29,7 @@ import {
 	createRepeatObject,
 } from "./document/factory";
 import type { SpatialIndex } from "./document/SpatialIndex";
+import { buildStrokeOutline } from "./document/strokeOutline";
 import { isLengthUnit, type LengthUnit } from "./document/units";
 import { Clipboard, PAPLICO_ELEMENTS_MIME } from "./infra/Clipboard";
 import type { RendererState } from "./Paplico";
@@ -1245,6 +1246,54 @@ export class PaplicoCommands {
 			this.ctx.store.selectedElementIds = newGroupIds;
 		}
 		return newGroupIds;
+	}
+
+	/**
+	 * Outline the given elements and select what they became: text turns into
+	 * glyph paths, and paths and compound paths turn their geometric strokes
+	 * into filled shapes (see buildStrokeOutline).
+	 */
+	public async outlineElements(elementIds: string[]): Promise<string[]> {
+		const { objects } = this.ctx.store.document;
+		const textIds = elementIds.filter((id) => objects[id]?.type === "text");
+		const outlinedIds = await this.outlineTextElements(textIds);
+
+		const deps = {
+			objects,
+			elementsMap: new Map(Object.entries(objects)),
+			filterRenderer: {
+				getHandler: (processor: string) =>
+					this.ctx.filterHandlerLookup?.(processor),
+			},
+		};
+		const replacements: AnyArtObject[] = [];
+		const maskTransforms = new Map<string, ElementTransform>();
+		for (const id of elementIds) {
+			const element = objects[id];
+			if (element?.type !== "path" && element?.type !== "compound-path") {
+				continue;
+			}
+			if (this.cannotMutate() || this.isElementLocked(id)) continue;
+			const result = buildStrokeOutline(element, deps);
+			if (!result) continue;
+			replacements.push(result.root, ...result.children);
+			for (const [maskId, transform] of result.maskTransforms) {
+				maskTransforms.set(maskId, transform);
+			}
+			outlinedIds.push(id);
+		}
+		if (replacements.length > 0) {
+			this.ctx.yjsProvider.replaceObjects(
+				replacements,
+				maskTransforms,
+				this.getMutationOrigin(),
+			);
+		}
+
+		if (outlinedIds.length > 0) {
+			this.ctx.store.selectedElementIds = outlinedIds;
+		}
+		return outlinedIds;
 	}
 
 	public ungroupElements(groupId: string): void {

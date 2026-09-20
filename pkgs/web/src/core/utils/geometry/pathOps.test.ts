@@ -19,6 +19,7 @@ import {
 	splitPathByEraser,
 	splitPathByNormalizedRanges,
 	subtractEraserFromFilledPath,
+	triangleSoupOutline,
 } from "./pathOps";
 import { resolveSegment, toWorldPath } from "./segmentOps";
 
@@ -1788,4 +1789,78 @@ function approximateArcFractionAtPoint(
 	}
 
 	return targetLength / totalLength;
+}
+
+describe("triangleSoupOutline", () => {
+	it("should merge overlapping triangles of mixed winding into one closed subpath", () => {
+		// A 10×10 square split along its diagonal, one triangle wound each way,
+		// plus a copy overlapping the first.
+		const outline = triangleSoupOutline(
+			[0, 0, 10, 0, 10, 10, 0, 0, 0, 10, 10, 10, 0, 0, 10, 10, 10, 0],
+			0.1,
+		);
+
+		expect(outline.filter((seg) => seg.isMoved)).toHaveLength(1);
+		expect(outline.at(-1)?.isClosed).toBe(true);
+		const ends = outline.map((seg) => [seg.end.x, seg.end.y]);
+		for (const corner of [
+			[0, 0],
+			[10, 0],
+			[10, 10],
+			[0, 10],
+		]) {
+			expect(ends).toContainEqual(corner);
+		}
+	});
+
+	it("should keep an enclosed gap as a hole subpath", () => {
+		const outline = triangleSoupOutline(
+			[
+				...rectTriangles(0, 0, 20, 5),
+				...rectTriangles(0, 15, 20, 20),
+				...rectTriangles(0, 0, 5, 20),
+				...rectTriangles(15, 0, 20, 20),
+			],
+			0.1,
+		);
+
+		expect(outline.filter((seg) => seg.isMoved)).toHaveLength(2);
+	});
+
+	it("should fit a finely tessellated smooth outline with a few curves", () => {
+		// A disk of radius 50 as a 128-triangle fan, like a round cap.
+		const steps = 128;
+		const fan: number[] = [];
+		for (let i = 0; i < steps; i++) {
+			const a0 = (i / steps) * Math.PI * 2;
+			const a1 = ((i + 1) / steps) * Math.PI * 2;
+			fan.push(
+				0,
+				0,
+				50 * Math.cos(a0),
+				50 * Math.sin(a0),
+				50 * Math.cos(a1),
+				50 * Math.sin(a1),
+			);
+		}
+		const outline = triangleSoupOutline(fan, 0.1);
+
+		expect(outline.length).toBeLessThan(steps / 8);
+		for (const [i, seg] of outline.entries()) {
+			const { start, cp1, cp2, end } = resolveSegment(seg, outline[i - 1]?.end);
+			for (const t of [0, 0.5, 1]) {
+				const p = evalBezier(start, cp1, cp2, end, t);
+				expect(Math.hypot(p.x, p.y)).toBeCloseTo(50, 0);
+			}
+		}
+	});
+
+	it("should return nothing when every triangle is degenerate", () => {
+		expect(triangleSoupOutline([0, 0, 1, 1, 2, 2], 0.1)).toEqual([]);
+	});
+});
+
+/** An axis-aligned rectangle as two triangles. */
+function rectTriangles(x0: number, y0: number, x1: number, y1: number) {
+	return [x0, y0, x1, y0, x1, y1, x0, y0, x1, y1, x0, y1];
 }

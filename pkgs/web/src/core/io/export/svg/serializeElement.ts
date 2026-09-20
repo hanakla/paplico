@@ -25,6 +25,7 @@ import {
 	isFilterEnabled,
 	isIdentityTransform,
 	isVisibleFill,
+	isVisibleStroke,
 	type ObjectMask,
 	type Path,
 	type PathSegment,
@@ -50,7 +51,6 @@ import {
 } from "../../../utils/geometry/segmentOps";
 import {
 	type ClassifyOptions,
-	isVisibleStroke,
 	planLayerItems,
 	resolveStrokeOutlineShape,
 } from "./classify";

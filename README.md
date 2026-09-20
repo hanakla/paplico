@@ -2,33 +2,27 @@
 
 # Paplico
 
+![Paplico Screenshot](./assets/app-screenshot.png)
+
 **Draw infinite. Refine forever — with Bézier precision and a modern experience.**
 
-WebGPU-powered infinite canvas drawing application with real-time collaboration.
+WebGPU-powered infinite canvas / vector drawing application with real-time collaboration.
 
 ## Features
 
 - **Infinite Canvas** — Pan, zoom, and draw without boundaries
 - **Fast Rendering** — Hardware-accelerated drawing that stays smooth on large canvases
-  - Backed by WebGPU with WGSL shaders
-- **Pressure-Sensitive Drawing** — Pen and brush tools with full stylus support
+- **Brushes That Stay Editable** — Paint like you would in any drawing app, then bend and redraw the line whenever you want
 - **Real-time Collaboration** — Draw together, or open the same canvas from multiple devices on your own
-  - Backed by Yjs CRDT
-- **Companion Mode** — Pair a phone or tablet and use it as a remote panel for brushes, colors, tools, and layers
-- **Layer System** — Layer management with blend modes, opacity, and clipping
 - **Vector Path Editing** — Draw curves, then reshape them as much as you like
-  - Backed by cubic Bézier paths
 - **Shape & Text Tools** — Primitives, text on path, and Google Fonts integration
 - **Mesh Deformation & Gradients** — Mesh-based deformation, linear/radial/mesh gradients
 - **Post-processing Filters** — Blur, frost glass, drop shadow, and more
 - **Automation Scripting** — Automate your work with scripts written in Syrup
-  - Backed by a statically typed scripting language running in a sandboxed worker
 - **Undo/Redo** — Full history, take back anything
-  - Backed by Yjs UndoManager
 - **Import/Export** — PNG / AVIF (HDR) / PSD export and portable `.papf` documents
-  - Backed by CBOR serialization
+- **Companion Mode** — Pair a phone or tablet and use it as a remote panel for brushes, colors, tools, and layers
 - **Desktop App** — Runs as a native desktop app
-  - Backed by Tauri v2
 
 ## Tech Stack
 
