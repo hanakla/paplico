@@ -128,6 +128,24 @@ describe("ViewportManager transforms buffer", () => {
 			expect(writes[0].size).toBeGreaterThan(STRIDE_BYTES);
 		});
 
+		it("should recompute local bounds when the partial update falls back to a full rebuild", () => {
+			const { vm, writes } = createManager();
+			vm.updateTransformsBuffer(elementsMap(path("a"), blend("bl", ["a"])));
+			writes.length = 0;
+
+			// Reshape a to 0..80 while it is a blend source: the partial path
+			// bails, and the rebuild must not reuse a's cached 0..40 bounds.
+			vm.markElementTransformsDirty(changed(["a"]));
+			vm.updateTransformsBuffer(
+				elementsMap(path("a", undefined, 80), blend("bl", ["a"])),
+			);
+
+			expect(writes).toHaveLength(1);
+			const originX =
+				writes[0].data[vm.getTransformIndex("a") * STRIDE_VALUES + 2];
+			expect(originX).toBe(40);
+		});
+
 		it("should fall back to a full rebuild when new elements exceed the capacity", () => {
 			const { vm, writes, buffers } = createManager();
 			vm.updateTransformsBuffer(elementsMap(path("a")));
@@ -236,12 +254,16 @@ function elementsMap(...elements: AnyArtObject[]): Map<string, AnyArtObject> {
 	return new Map(elements.map((el) => [el.id, el]));
 }
 
-function path(id: string, transform?: Partial<ElementTransform>): AnyArtObject {
+function path(
+	id: string,
+	transform?: Partial<ElementTransform>,
+	size = 40,
+): AnyArtObject {
 	const points: BezierPoint[] = [
 		{ x: 0, y: 0 },
-		{ x: 40, y: 0 },
-		{ x: 40, y: 40 },
-		{ x: 0, y: 40 },
+		{ x: size, y: 0 },
+		{ x: size, y: size },
+		{ x: 0, y: size },
 	];
 	return {
 		id,

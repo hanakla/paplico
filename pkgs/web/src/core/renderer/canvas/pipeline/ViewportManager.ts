@@ -369,9 +369,14 @@ export class ViewportManager {
 				return;
 			}
 			// The partial attempt may have synced parentGroupMap halfway before
-			// bailing — rebuild both derived maps from scratch below.
+			// bailing — rebuild both derived maps from scratch below. The bail
+			// also happens before the partial path evicts any local bounds, and
+			// the reason for bailing is that the set of elements whose bounds
+			// derive from the dirty ids cannot be resolved here — so every cached
+			// local bounds is suspect and the rebuild must recompute all of them.
 			this.parentGroupMap.clear();
 			this._composedTransformCache.clear();
+			this.boundsCache.clear();
 		}
 
 		this.transformsDirty = "none";

@@ -4492,12 +4492,7 @@ export class PaplicoCommands {
 				}
 			}
 			artObjects.push(clone);
-
-			if (element.type === "group" || element.type === "mesh") {
-				this.collectContainerChildren(element, artObjects);
-			} else if (element.type === "blend") {
-				this.collectBlendSources(element, artObjects);
-			}
+			this.collectAbsorbedDescendants(element, artObjects);
 		}
 
 		// Bound axis paths travel with their texts so copy/cut/duplicate are
@@ -4849,7 +4844,23 @@ export class PaplicoCommands {
 				newTopLevelIds.push(newId);
 			} else {
 				const clone = clonedById.get(element.id)!;
-				this.addElementInto(translate(clone), targetContainerId);
+				// A compound path's / repeat's sources are absorbed like a
+				// container's children: registered as objects, never listed in a
+				// layer, untranslated — the owner carries the paste offset.
+				const absorbed = collectClonedDescendants(
+					getContainerChildIds(element) ?? [],
+					byId,
+					clonedById,
+				);
+				this.ctx.yjsProvider.transact(() => {
+					for (const descendant of absorbed) {
+						this.ctx.yjsProvider.addObjectOnly(
+							descendant,
+							this.getMutationOrigin(),
+						);
+					}
+					this.addElementInto(translate(clone), targetContainerId);
+				}, this.getMutationOrigin());
 				newTopLevelIds.push(newId);
 			}
 		}
@@ -4880,54 +4891,33 @@ export class PaplicoCommands {
 	}
 
 	/**
-	 * Collect a container's absorbed children (group members, a mesh warp
-	 * container's warped children) so copy/duplicate payloads are
-	 * self-contained — without them the clone's childIds would keep pointing
-	 * at the original's children and the two would share (and co-edit) them.
+	 * Collect everything a container absorbs (group members, a mesh warp
+	 * container's warped children, a compound path's / repeat's sources, a
+	 * blend's sources and spine), at any depth, so copy/duplicate payloads
+	 * are self-contained — without them the clone's references would keep
+	 * pointing at the original's objects and the two would share (and
+	 * co-edit) them, or dangle when pasted into another document.
 	 */
-	private collectContainerChildren(
-		container: Group | MeshArtObject,
+	private collectAbsorbedDescendants(
+		container: AnyArtObject,
 		out: AnyArtObject[],
 	): void {
-		for (const childId of container.childIds) {
+		for (const childId of getContainerChildIds(container) ?? []) {
 			const child = this.ctx.store.document.objects[childId];
 			if (!child) continue;
 			out.push(deepClone(child));
-			if (child.type === "group" || child.type === "mesh") {
-				this.collectContainerChildren(child, out);
-			}
-		}
-	}
-
-	private collectBlendSources(blend: BlendObject, out: AnyArtObject[]): void {
-		const ids = blend.spineSourceId
-			? [...blend.objectIds, blend.spineSourceId]
-			: blend.objectIds;
-		for (const id of ids) {
-			const src = this.ctx.store.document.objects[id];
-			if (src) out.push(deepClone(src));
+			this.collectAbsorbedDescendants(child, out);
 		}
 	}
 
 	private getTopLevelElements(elements: AnyArtObject[]): AnyArtObject[] {
-		// Elements that are NOT children of any container in the list (group
-		// children, or a blend's absorbed source/spine objects).
+		// Elements that are NOT absorbed by any container in the list.
 		const childIds = new Set<string>();
 		for (const el of elements) {
 			// Mask content is owned by its element and belongs to no layer, so it
 			// must not be pasted as an element of its own.
 			for (const maskId of el.mask?.elementIds ?? []) childIds.add(maskId);
-
-			if (el.type === "group" || el.type === "mesh") {
-				for (const cid of el.childIds) {
-					childIds.add(cid);
-				}
-			} else if (el.type === "blend") {
-				for (const oid of el.objectIds) {
-					childIds.add(oid);
-				}
-				if (el.spineSourceId) childIds.add(el.spineSourceId);
-			}
+			for (const cid of getContainerChildIds(el) ?? []) childIds.add(cid);
 		}
 		return elements.filter((el) => !childIds.has(el.id));
 	}
@@ -5726,7 +5716,14 @@ function translateClonedElement(
 	if (element.type === "image" || element.type === "text") {
 		return { ...element, x: element.x + offsetX, y: element.y + offsetY };
 	}
-	if (element.type === "group" || element.type === "mesh") {
+	// Containers and compound paths carry the offset on their own transform;
+	// the absorbed children / sources stay in their stored coordinates, the
+	// same way a move shifts only the owner.
+	if (
+		element.type === "group" ||
+		element.type === "mesh" ||
+		element.type === "compound-path"
+	) {
 		const transform = getTransform(element);
 		return {
 			...element,

@@ -179,8 +179,12 @@ describe("encodeTiff", () => {
 			offsets[1],
 			offsets[1] + 44 * bytesPerRow,
 		);
-		expect(firstStrip).toEqual(cmyk.subarray(0, 256 * bytesPerRow));
-		expect(secondStrip).toEqual(cmyk.subarray(256 * bytesPerRow));
+		expect(
+			Buffer.compare(firstStrip, cmyk.subarray(0, 256 * bytesPerRow)),
+		).toBe(0);
+		expect(Buffer.compare(secondStrip, cmyk.subarray(256 * bytesPerRow))).toBe(
+			0,
+		);
 	});
 
 	it("should list IFD tags in ascending order", async () => {

@@ -825,59 +825,58 @@ function segmentLineIntersectSegmentCurve(
 	return result.done();
 }
 
+/**
+ * Two curves leaving a shared endpoint stay within the subdivision search's
+ * resolution of each other for a while, which reports false hits there; each
+ * hit splits the curves into new pieces sharing an endpoint, so the false hits
+ * would repeat without end. Pieces this close in t to a shared endpoint are
+ * left out of the search, so a crossing inside them counts as that endpoint.
+ */
+const SHARED_ENDPOINT_T_RADIUS = 1e-4;
+
 function segmentCurveIntersectSegmentCurve(
 	segA: SegmentCurve,
 	segB: SegmentCurve,
 	allowOutOfRange: boolean,
 ): SegmentTValuePairs | SegmentTRangePairs | null {
 	const geo = segA.geo;
+	const result = new SegmentTValuePairsBuilder(allowOutOfRange, geo);
 
-	// dummy coincident calculation for now
-	// TODO: implement actual range/equality testing
-	if (geo.isEqualVec2(segA.p0, segB.p0)) {
-		if (geo.isEqualVec2(segA.p3, segB.p3)) {
-			if (
-				geo.isEqualVec2(segA.p1, segB.p1) &&
-				geo.isEqualVec2(segA.p2, segB.p2)
-			) {
-				return {
-					kind: "tRangePairs",
-					tStart: [0, 0],
-					tEnd: [1, 1],
-				};
-			} else {
-				return {
-					kind: "tValuePairs",
-					tValuePairs: [
-						[0, 0],
-						[1, 1],
-					],
-				};
-			}
-		} else {
-			return {
-				kind: "tValuePairs",
-				tValuePairs: [[0, 0]],
-			};
+	const sharedEndpoints: Vec2[] = [];
+	for (const [tA, pA] of [
+		[0, segA.p0],
+		[1, segA.p3],
+	] as const) {
+		for (const [tB, pB] of [
+			[0, segB.p0],
+			[1, segB.p3],
+		] as const) {
+			if (!geo.isEqualVec2(pA, pB)) continue;
+			result.add(tA, tB);
+			sharedEndpoints.push([tA, tB]);
 		}
-	} else if (geo.isEqualVec2(segA.p0, segB.p3)) {
-		return {
-			kind: "tValuePairs",
-			tValuePairs: [[0, 1]],
-		};
-	} else if (geo.isEqualVec2(segA.p3, segB.p0)) {
-		return {
-			kind: "tValuePairs",
-			tValuePairs: [[1, 0]],
-		};
-	} else if (geo.isEqualVec2(segA.p3, segB.p3)) {
-		return {
-			kind: "tValuePairs",
-			tValuePairs: [[1, 1]],
-		};
 	}
 
-	const result = new SegmentTValuePairsBuilder(allowOutOfRange, geo);
+	// Curves lying on each other overlap in every subdivision below, so the
+	// search further down would never stop; they are reported as a range.
+	if (sharedEndpoints.length > 0) {
+		const overlap = curveOverlap(segA, segB);
+		if (overlap) return overlap;
+	}
+
+	const nearSharedEndpoint = (
+		t1L: number,
+		t1R: number,
+		t2L: number,
+		t2R: number,
+	) =>
+		sharedEndpoints.some(
+			([tA, tB]) =>
+				Math.max(Math.abs(t1L - tA), Math.abs(t1R - tA)) <=
+					SHARED_ENDPOINT_T_RADIUS &&
+				Math.max(Math.abs(t2L - tB), Math.abs(t2R - tB)) <=
+					SHARED_ENDPOINT_T_RADIUS,
+		);
 
 	const checkCurves = (
 		c1: SegmentCurve,
@@ -887,6 +886,8 @@ function segmentCurveIntersectSegmentCurve(
 		t2L: number,
 		t2R: number,
 	) => {
+		if (nearSharedEndpoint(t1L, t1R, t2L, t2R)) return;
+
 		const bbox1 = c1.boundingBox();
 		const bbox2 = c2.boundingBox();
 
@@ -912,6 +913,35 @@ function segmentCurveIntersectSegmentCurve(
 
 	checkCurves(segA, 0, 1, segB, 0, 1);
 	return result.done();
+}
+
+/** The range where one curve is a piece of the other, or null when neither is. */
+function curveOverlap(
+	segA: SegmentCurve,
+	segB: SegmentCurve,
+): SegmentTRangePairs | null {
+	const bOnA = subCurveRange(segA, segB);
+	if (bOnA) {
+		return { kind: "tRangePairs", tStart: [bOnA[0], 0], tEnd: [bOnA[1], 1] };
+	}
+	const aOnB = subCurveRange(segB, segA);
+	if (aOnB) {
+		return { kind: "tRangePairs", tStart: [0, aOnB[0]], tEnd: [1, aOnB[1]] };
+	}
+	return null;
+}
+
+/** The t range of `whole` that traces exactly `piece`, or null when none does. */
+function subCurveRange(whole: SegmentCurve, piece: SegmentCurve): Vec2 | null {
+	const geo = whole.geo;
+	if (!whole.pointOn(piece.p0) || !whole.pointOn(piece.p3)) return null;
+	const t0 = whole.mapXtoT(piece.p0[0]);
+	const t1 = whole.mapXtoT(piece.p3[0]);
+	if (t0 === false || t1 === false) return null;
+	const range: Vec2 = [geo.snap01(t0), geo.snap01(t1)];
+	if (range[0] >= range[1]) return null;
+	const [, middle] = whole.split(range);
+	return middle.isEqual(piece) ? range : null;
 }
 
 // return value:
@@ -969,11 +999,19 @@ class SegmentBoolBase<T> {
 	public myFill: SegmentBoolFill;
 	public otherFill: SegmentBoolFill | null = null;
 	public closed: boolean;
+	/**
+	 * How much the winding number rises from below this segment to above it:
+	 * +1 when its contour ran left to right, -1 when it ran right to left.
+	 */
+	public winding: number;
+	/** Winding number just above this segment, set by the self-intersection pass. */
+	public windingAbove = 0;
 
 	public constructor(
 		data: T,
 		fill: SegmentBoolFill | null = null,
 		closed = false,
+		winding = 0,
 	) {
 		this.id = -1;
 		this.data = data;
@@ -982,6 +1020,7 @@ class SegmentBoolBase<T> {
 			below: fill?.below ?? null,
 		};
 		this.closed = closed;
+		this.winding = winding;
 	}
 }
 
@@ -1141,9 +1180,19 @@ class Intersecter {
 
 		const ns =
 			right instanceof SegmentLine
-				? new SegmentBoolLine(right, ev.seg.myFill, ev.seg.closed)
+				? new SegmentBoolLine(
+						right,
+						ev.seg.myFill,
+						ev.seg.closed,
+						ev.seg.winding,
+					)
 				: right instanceof SegmentCurve
-					? new SegmentBoolCurve(right, ev.seg.myFill, ev.seg.closed)
+					? new SegmentBoolCurve(
+							right,
+							ev.seg.myFill,
+							ev.seg.closed,
+							ev.seg.winding,
+						)
 					: null;
 		if (!ns) {
 			throw new Error("PolyBool: Unknown segment data in divideEvent");
@@ -1188,6 +1237,7 @@ class Intersecter {
 			new SegmentLine(f < 0 ? from : to, f < 0 ? to : from, this.geo),
 			null,
 			false,
+			f < 0 ? 1 : -1,
 		);
 		this.currentPath.push(seg);
 		this.addSegment(seg, primary);
@@ -1211,6 +1261,7 @@ class Intersecter {
 					f < 0 ? curve : curve.reverse(),
 					null,
 					false,
+					f < 0 ? 1 : -1,
 				);
 				this.currentPath.push(seg);
 				this.addSegment(seg, primary);
@@ -1455,20 +1506,13 @@ class Intersecter {
 					// merge ev.seg's fill information into eve.seg
 
 					if (this.selfIntersection) {
-						let toggle: boolean; // are we a toggling edge?
-						if (ev.seg.myFill.below === null) {
-							toggle = ev.seg.closed;
-						} else {
-							toggle = ev.seg.myFill.above !== ev.seg.myFill.below;
-						}
-
 						// merge two segments that belong to the same polygon
 						// think of this as sandwiching two segments together, where
-						// `eve.seg` is the bottom -- this will cause the above fill flag to
-						// toggle
-						if (toggle) {
-							eve.seg.myFill.above = !eve.seg.myFill.above;
-						}
+						// `eve.seg` is the bottom -- the winding above it now also
+						// counts `ev.seg`
+						eve.seg.winding += ev.seg.winding;
+						eve.seg.windingAbove += ev.seg.winding;
+						eve.seg.myFill.above = eve.seg.windingAbove !== 0;
 					} else {
 						// merge two segments that belong to different polygons
 						// each segment has distinct knowledge, so no special logic is
@@ -1492,32 +1536,14 @@ class Intersecter {
 				// calculate fill flags
 				//
 				if (this.selfIntersection) {
-					let toggle: boolean; // are we a toggling edge?
-					if (ev.seg.myFill.below === null) {
-						// if we are new then we toggle if we're part of a closed path
-						toggle = ev.seg.closed;
-					} else {
-						// we are a segment that has previous knowledge from a division
-						// calculate toggle
-						toggle = ev.seg.myFill.above !== ev.seg.myFill.below;
-					}
-
-					// next, calculate whether we are filled below us
-					if (!below) {
-						// if nothing is below us, then we're not filled
-						ev.seg.myFill.below = false;
-					} else {
-						// otherwise, we know the answer -- it's the same if whatever is
-						// below us is filled above it
-						ev.seg.myFill.below = below.seg.myFill.above;
-					}
-
-					// since now we know if we're filled below us, we can calculate
-					// whether we're filled above us by applying toggle to whatever is
-					// below us
-					ev.seg.myFill.above = toggle
-						? !ev.seg.myFill.below
-						: ev.seg.myFill.below;
+					// Fill under the non-zero rule the renderer uses, so a region the
+					// contour winds around twice stays filled: the winding below us is
+					// the winding above whatever is below us (none when nothing is),
+					// and crossing us adds our own winding.
+					const windingBelow = below?.seg.windingAbove ?? 0;
+					ev.seg.windingAbove = windingBelow + ev.seg.winding;
+					ev.seg.myFill.below = windingBelow !== 0;
+					ev.seg.myFill.above = ev.seg.windingAbove !== 0;
 				} else {
 					// now we fill in any missing transition information, since we are
 					// all-knowing at this point

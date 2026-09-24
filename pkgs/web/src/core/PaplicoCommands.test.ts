@@ -1107,6 +1107,66 @@ describe("PaplicoCommands", () => {
 		});
 	});
 
+	describe("pasting a compound path at a viewport position", () => {
+		it("should move the compound path's transform and leave its sources in place", () => {
+			const { store, commands, sync, compoundId } = createCompoundCommands();
+			const objects = store.document.objects;
+			const compound = objects[compoundId] as CompoundPath;
+			const payload = [compound, objects.a!, objects.b!];
+			const bounds = calculateElementBounds(
+				compound,
+				new Map(payload.map((el) => [el.id, el])),
+			);
+
+			const [pastedId] = commands.pasteElements(payload, {
+				viewport: { x: 200, y: 300 },
+			});
+			sync();
+
+			const pasted = store.document.objects[pastedId] as CompoundPath;
+			expect(pasted.transform?.x).toBeCloseTo(
+				200 - (bounds.minX + bounds.maxX) / 2,
+			);
+			expect(pasted.transform?.y).toBeCloseTo(
+				300 - (bounds.minY + bounds.maxY) / 2,
+			);
+			for (const [i, source] of pasted.sources.entries()) {
+				const pastedSource = store.document.objects[source.id] as Path;
+				expect(pastedSource.segments).toEqual(
+					(payload[i + 1] as Path).segments,
+				);
+			}
+		});
+	});
+
+	describe("duplicating a group that holds a compound path", () => {
+		it("should clone the compound path's sources so the copy is self-contained", () => {
+			const { provider, store, commands, sync, compoundId } =
+				createCompoundCommands();
+			provider.addElement("layer", createPath("c"));
+			sync();
+			const groupId = provider.groupElements("layer", [compoundId, "c"]);
+			if (!groupId) throw new Error("group should be created");
+			sync();
+			store.selectedElementIds = [groupId];
+
+			const [newGroupId] = commands.duplicateElements();
+			sync();
+
+			const newGroup = store.document.objects[newGroupId] as Group;
+			const newCompound = newGroup.childIds
+				.map((id) => store.document.objects[id])
+				.find((el) => el?.type === "compound-path") as CompoundPath;
+			const sourceIds = newCompound.sources.map((s) => s.id);
+			expect(sourceIds).toHaveLength(2);
+			expect(sourceIds).not.toContain("a");
+			expect(sourceIds).not.toContain("b");
+			for (const id of sourceIds) {
+				expect(store.document.objects[id]?.type).toBe("path");
+			}
+		});
+	});
+
 	describe("createBlendFromSelection", () => {
 		it("orders objectIds by the layer's stacking (z) order, not the selection order", () => {
 			const a = createPathAt("a", 0, 0, 10, 10);
@@ -4096,6 +4156,7 @@ function createProviderCommands() {
 		yjsProvider: provider,
 		spatial: {
 			isElementLocked: () => false,
+			getAncestorTransform: () => null,
 		} as unknown as SpatialIndex,
 		isReadonly: () => false,
 	});

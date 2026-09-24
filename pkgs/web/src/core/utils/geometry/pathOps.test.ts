@@ -233,7 +233,126 @@ describe("computeBooleanOperation", () => {
 			pathB.transform.x - 10,
 		);
 	});
+
+	it.each([
+		{
+			name: "cross again at a small angle after a shared crossing",
+			a: createArchPath("a", { x: 100, y: 200 }, { x: 300, y: 0 }, 400, 0),
+			b: createArchPath("b", { x: 106, y: 208 }, { x: 294, y: 8 }, 400, 0),
+		},
+		{
+			name: "leave a shared point along the same tangent",
+			a: createArchPath("a", { x: 100, y: 100 }, { x: 300, y: 100 }, 400, 100),
+			b: createArchPath("b", { x: 120, y: 120 }, { x: 230, y: 90 }, 380, 60),
+		},
+		{
+			name: "trace the same curve from a shared point",
+			a: createArchPath("a", { x: 100, y: 200 }, { x: 300, y: 200 }, 400, 0),
+			b: createArchPath("b", { x: 30, y: 60 }, { x: 69, y: 102 }, 111.6, 126),
+		},
+	])("keeps the union outline when two sources $name", ({ a, b }) => {
+		const segments = computeBooleanOperation(
+			[
+				{ id: a.id, op: "union" },
+				{ id: b.id, op: "union" },
+			],
+			new Map<string, Path>([
+				[a.id, a],
+				[b.id, b],
+			]),
+		);
+
+		const highest = (s: CubicBezierSegment[]) =>
+			Math.max(...sampleSegments(s).map((p) => p.y));
+		expect(highest(segments)).toBeCloseTo(
+			Math.max(highest(a.segments), highest(b.segments)),
+			1,
+		);
+	});
+
+	it("keeps a region the source outline winds around twice filled", () => {
+		const corners = [0, 2, 4, 1, 3].map((k) => ({
+			x: 100 * Math.sin((k * 2 * Math.PI) / 5),
+			y: 100 * Math.cos((k * 2 * Math.PI) / 5),
+		}));
+		const star: Path = {
+			...createCirclePath("star", 0, 0, 1),
+			segments: corners.map((corner, i) => {
+				const next = corners[(i + 1) % corners.length];
+				return makeSegment(corner, corner, next, next, i === 0);
+			}),
+		};
+		const square: Path = {
+			...createFilledRect(300, 0, 20, 20),
+			id: "square",
+		};
+		const center = { x: 0, y: 1 };
+		expect(windingAt(star.segments, center)).not.toBe(0);
+
+		const segments = computeBooleanOperation(
+			[
+				{ id: star.id, op: "union" },
+				{ id: square.id, op: "union" },
+			],
+			new Map<string, Path>([
+				[star.id, star],
+				[square.id, square],
+			]),
+		);
+
+		expect(windingAt(segments, center)).not.toBe(0);
+	});
 });
+
+/** A filled arch from the origin along one curve, closed by a straight line. */
+function createArchPath(
+	id: string,
+	cp1: BezierPoint,
+	cp2: BezierPoint,
+	endX: number,
+	endY: number,
+): Path {
+	const origin: BezierPoint = { x: 0, y: 0 };
+	const end: BezierPoint = { x: endX, y: endY };
+	return {
+		...createCirclePath(id, 0, 0, 1),
+		segments: [
+			makeSegment(origin, cp1, cp2, end, true),
+			{ ...makeSegment(end, end, origin, origin), isClosed: true },
+		],
+	};
+}
+
+/** Winding number of the outline around `point`, the count the non-zero fill reads. */
+function windingAt(segments: CubicBezierSegment[], point: BezierPoint): number {
+	let winding = 0;
+	let prevEnd: BezierPoint | undefined;
+	for (const segment of segments) {
+		const samples = sampleSegments([segment], prevEnd);
+		prevEnd = segment.end;
+		for (const [i, a] of samples.slice(0, -1).entries()) {
+			const b = samples[i + 1];
+			if (a.y <= point.y === b.y <= point.y) continue;
+			const x = a.x + ((point.y - a.y) / (b.y - a.y)) * (b.x - a.x);
+			if (x > point.x) winding += b.y > a.y ? 1 : -1;
+		}
+	}
+	return winding;
+}
+
+function sampleSegments(
+	segments: CubicBezierSegment[],
+	firstStart?: BezierPoint,
+): BezierPoint[] {
+	let prevEnd = firstStart;
+	return segments.flatMap((segment) => {
+		const { start, cp1, cp2, end } = resolveSegment(segment, prevEnd);
+		prevEnd = segment.end;
+		return Array.from({ length: 65 }, (_, i) =>
+			evalBezier(start, cp1, cp2, end, i / 64),
+		);
+	});
+}
 
 function createCirclePath(id: string, cx: number, cy: number, r: number): Path {
 	const kr = r * KAPPA;
