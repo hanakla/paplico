@@ -1268,6 +1268,35 @@ export class SpatialIndex {
 		return null;
 	}
 
+	/**
+	 * Find the frontmost element actually painted at a point, digging through
+	 * every container. Unlike findElementAtPoint, which promotes hits to their
+	 * selectable container, this reaches the child whose appearance is seen.
+	 */
+	public findLeafElementAtPoint(
+		layerId: string,
+		x: number,
+		y: number,
+		tolerance = 5,
+	): AnyArtObject | null {
+		const element = this.findElementAtPoint(layerId, x, y, tolerance);
+		if (!element) return null;
+
+		const local = this.worldToLocalCoords(
+			asWorldCoord(x),
+			asWorldCoord(y),
+			element.id,
+			element,
+		);
+		return this.findLeafInContainer(
+			element,
+			local.x,
+			local.y,
+			tolerance,
+			this.collectInheritedPreFilters(element.id),
+		);
+	}
+
 	public findElementsInRect(
 		layerId: string,
 		minX: number,
@@ -1664,6 +1693,50 @@ export class SpatialIndex {
 			if (found) return found;
 		}
 		return null;
+	}
+
+	/**
+	 * Descend from an element already known to be hit to the frontmost child
+	 * hit at the point, given in the element's own local space. Falls back to
+	 * the element itself when no child is hit, e.g. on a blend intermediate.
+	 */
+	private findLeafInContainer(
+		element: AnyArtObject,
+		x: LocalCoord,
+		y: LocalCoord,
+		tolerance: number,
+		inheritedPreFilters: readonly Filter[],
+	): AnyArtObject {
+		// Mesh and repeat children are drawn away from their stored geometry,
+		// so a stored-space hit would not match what is seen.
+		if (isMesh(element) || isRepeat(element)) return element;
+		const childIds = getContainerChildIds(element);
+		if (!childIds) return element;
+
+		const clipPathId = isGroup(element) ? element.clipPathId : null;
+		const childPreFilters = this.getChildPreFilters(
+			element,
+			inheritedPreFilters,
+		);
+		for (let i = childIds.length - 1; i >= 0; i--) {
+			const child = this.store.document.objects[childIds[i]];
+			// The clip shape only masks its siblings; it is never painted. Locked
+			// children stay reachable because a lock guards editing, not looks.
+			if (!child || child.id === clipPathId || !isElementVisible(child))
+				continue;
+			if (!this.isPointOnElement(child, x, y, tolerance, childPreFilters))
+				continue;
+
+			const local = this.toElementLocal(child, x, y);
+			return this.findLeafInContainer(
+				child,
+				local.x,
+				local.y,
+				tolerance,
+				childPreFilters,
+			);
+		}
+		return element;
 	}
 
 	/**

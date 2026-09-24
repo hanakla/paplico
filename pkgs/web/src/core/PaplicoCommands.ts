@@ -767,6 +767,45 @@ export class PaplicoCommands {
 		);
 	}
 
+	/** Lock every given element in a single undo step. */
+	public lockElements(elementIds: string[]): void {
+		if (this.cannotMutate()) return;
+		const layerId = this.ctx.store.currentLayerId;
+		if (!layerId) return;
+
+		const origin = this.getMutationOrigin();
+		this.ctx.yjsProvider.transact(() => {
+			for (const elementId of elementIds) {
+				this.ctx.yjsProvider.updateElement(
+					layerId,
+					elementId,
+					{ locked: true },
+					origin,
+				);
+			}
+		}, origin);
+	}
+
+	/** Hide every given unlocked element in a single undo step. */
+	public hideElements(elementIds: string[]): void {
+		if (this.cannotMutate()) return;
+		const layerId = this.ctx.store.currentLayerId;
+		if (!layerId) return;
+
+		const origin = this.getMutationOrigin();
+		this.ctx.yjsProvider.transact(() => {
+			for (const elementId of elementIds) {
+				if (this.isElementLocked(elementId)) continue;
+				this.ctx.yjsProvider.updateElement(
+					layerId,
+					elementId,
+					{ visible: false },
+					origin,
+				);
+			}
+		}, origin);
+	}
+
 	// --- Layer Operations ---
 
 	public addLayer(layer: Layer): void {
@@ -3055,17 +3094,10 @@ export class PaplicoCommands {
 		if (element.type === "path") {
 			// Bake transform into segments before scaling so that
 			// originalBounds (world-space) and segment coordinates are in the same space.
-			// Under a transformed ancestor the renderer re-applies that ancestor
-			// transform on top of the stored segments, so store its inverse as the
-			// path transform: compose(ancestor, inverse) = identity keeps the
-			// world-mapped segments exactly where the selection frame previewed.
-			const ancestorT = this.ctx.spatial.getAncestorTransform(elementId);
-			const worldPath = toWorldPath(element, ancestorT ?? undefined);
+			const baked = this.bakeWorldGeometry(element);
 			this.updateElement(currentLayerId, elementId, {
-				segments: scaleSegments(worldPath.segments, transform),
-				transform: ancestorT
-					? computeInverseCompositionTransform(ancestorT)
-					: worldPath.transform,
+				segments: scaleSegments(baked.segments, transform),
+				transform: baked.transform,
 				...(element.strokeWidths && {
 					strokeWidths: mirrorStrokeWidths(element.strokeWidths, flip),
 				}),
@@ -3221,6 +3253,23 @@ export class PaplicoCommands {
 				} as Partial<AnyArtObject>);
 			}
 		}
+	}
+
+	/**
+	 * World-space segments of a path plus the transform that keeps them in
+	 * place. Under a transformed ancestor the renderer re-applies that ancestor
+	 * transform on top of the stored segments, so the path stores its inverse:
+	 * compose(ancestor, inverse) = identity.
+	 */
+	private bakeWorldGeometry(path: Path): Pick<Path, "segments" | "transform"> {
+		const ancestorT = this.ctx.spatial.getAncestorTransform(path.id);
+		const worldPath = toWorldPath(path, ancestorT ?? undefined);
+		return {
+			segments: worldPath.segments,
+			transform: ancestorT
+				? computeInverseCompositionTransform(ancestorT)
+				: worldPath.transform,
+		};
 	}
 
 	/**
@@ -5305,6 +5354,22 @@ export class PaplicoCommands {
 		const segments = closePathAtEndpoints(element.segments);
 		if (!segments) return;
 		this.updateElement(layerId, pathId, { segments });
+	}
+
+	/**
+	 * Store a path's segments in world coordinates so points taken from the
+	 * canvas can be appended to them as-is.
+	 */
+	public bakePathToWorld(pathId: string): void {
+		const layerId = this.ctx.store.currentLayerId;
+		if (!layerId) return;
+		const element = this.ctx.store.document.objects[pathId];
+		if (element?.type !== "path") return;
+		const ancestorT = this.ctx.spatial.getAncestorTransform(pathId);
+		const elementT = getTransform(element);
+		const t = ancestorT ? composeTransforms(ancestorT, elementT) : elementT;
+		if (isIdentityTransform(t)) return;
+		this.updateElement(layerId, pathId, this.bakeWorldGeometry(element));
 	}
 
 	public mergePaths(

@@ -561,6 +561,8 @@ describe("ExtrudeMeshBaker", () => {
 				blendMode: "normal",
 				objectIds,
 				spacing: { type: "steps", count: 1 },
+				placementEasing: { type: "linear" },
+				appearanceEasing: { type: "linear" },
 			} as unknown as AnyArtObject;
 		}
 
@@ -1223,6 +1225,8 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 				blendMode: "normal",
 				objectIds: keyIds,
 				spacing: { type: "steps", count: 1 },
+				placementEasing: { type: "linear" },
+				appearanceEasing: { type: "linear" },
 				filters: [hoisted],
 			} as unknown as AnyArtObject;
 		}
@@ -2579,6 +2583,8 @@ function blendWithExtrude(id: string, objectIds: string[]): AnyArtObject {
 		blendMode: "normal",
 		objectIds,
 		spacing: { type: "steps", count: 1 },
+		placementEasing: { type: "linear" },
+		appearanceEasing: { type: "linear" },
 		filters: [
 			{
 				uid: "app-1",

@@ -83,6 +83,7 @@ export function createMockToolContext(
 		setKeyObject: vi.fn(),
 		getKeyObjectId: vi.fn(() => null),
 		findElementAtPoint: vi.fn(() => null),
+		findLeafElementAtPoint: vi.fn(() => null),
 		findElementsInRect: vi.fn(() => []),
 		enterEditingScope: vi.fn(),
 		exitEditingScopeOneLevel: vi.fn(),
@@ -157,6 +158,7 @@ export function createMockToolContext(
 		pathDraftCreate: vi.fn(),
 		pathDraftUpdate: vi.fn(),
 		pathDraftDelete: vi.fn(),
+		pathBakeToWorld: vi.fn(),
 		pathComplete: vi.fn(),
 
 		shapeComplete: vi.fn(),

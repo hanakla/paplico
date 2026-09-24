@@ -1196,6 +1196,70 @@ describe("SpatialIndex", () => {
 		});
 	});
 
+	describe("findLeafElementAtPoint", () => {
+		it("should return the clipped child instead of the clip group", () => {
+			const clipShape = makeClosedPath("clip-shape");
+			const child = makeImage("child-1", 0, 0, 400, 400);
+			const clipGroup = makeGroup("clip-1", ["child-1", "clip-shape"], {
+				clipPathId: "clip-shape",
+			});
+			const layer = makeLayer("layer-1", ["clip-1"]);
+			const idx = new SpatialIndex(
+				makeStore([layer], {
+					"clip-1": clipGroup,
+					"clip-shape": clipShape,
+					"child-1": child,
+				}),
+			);
+			idx.rebuildAllIndices();
+
+			// The clip shape is frontmost in childIds but never painted.
+			expect(idx.findLeafElementAtPoint("layer-1", 0, 0)).toBe(child);
+			expect(idx.findLeafElementAtPoint("layer-1", 100, 100)).toBeNull();
+		});
+
+		it("should return the frontmost child through nested groups", () => {
+			const back = makeImage("back", 0, 0, 100, 100);
+			const front = makeImage("front", 40, 0, 40, 40);
+			const inner = makeGroup("inner", ["back", "front"]);
+			const outer = makeGroup("outer", ["inner"]);
+			const layer = makeLayer("layer-1", ["outer"]);
+			const idx = new SpatialIndex(
+				makeStore([layer], { outer, inner, back, front }),
+			);
+			idx.rebuildAllIndices();
+
+			expect(idx.findLeafElementAtPoint("layer-1", 40, 0)).toBe(front);
+			expect(idx.findLeafElementAtPoint("layer-1", -40, 0)).toBe(back);
+		});
+
+		it("should return a locked child", () => {
+			const child = makeImage("child-1", 0, 0, 100, 100, { locked: true });
+			const group = makeGroup("group-1", ["child-1"]);
+			const layer = makeLayer("layer-1", ["group-1"]);
+			const idx = new SpatialIndex(
+				makeStore([layer], { "group-1": group, "child-1": child }),
+			);
+			idx.rebuildAllIndices();
+
+			expect(idx.findLeafElementAtPoint("layer-1", 0, 0)).toBe(child);
+		});
+
+		it("should hit children of a transformed group where they are drawn", () => {
+			const child = makeImage("child-1", 0, 0, 100, 100);
+			const group = makeGroup("group-1", ["child-1"], {
+				transform: { ...createIdentityTransform(), x: 300 },
+			});
+			const layer = makeLayer("layer-1", ["group-1"]);
+			const idx = new SpatialIndex(
+				makeStore([layer], { "group-1": group, "child-1": child }),
+			);
+			idx.rebuildAllIndices();
+
+			expect(idx.findLeafElementAtPoint("layer-1", 300, 0)).toBe(child);
+		});
+	});
+
 	describe("blend intermediate hit-testing", () => {
 		const filledSquareAt = (id: string, cx: number): Path => {
 			const base = makeClosedPath(id);
@@ -1226,16 +1290,17 @@ describe("SpatialIndex", () => {
 			} as Path;
 		};
 
-		const makeBlendObj = (id: string, objectIds: string[]): AnyArtObject =>
-			({
-				type: "blend",
-				id,
-				objectIds,
-				spacing: { type: "steps", count: 3 },
-				opacity: 1,
-				blendMode: "normal",
-				transform: createIdentityTransform(),
-			}) as unknown as AnyArtObject;
+		const makeBlendObj = (id: string, objectIds: string[]): BlendObject => ({
+			type: "blend",
+			id,
+			objectIds,
+			spacing: { type: "steps", count: 3 },
+			placementEasing: { type: "linear" },
+			appearanceEasing: { type: "linear" },
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		});
 
 		it("selects the blend when an intermediate (between sources) is clicked", () => {
 			const s0 = filledSquareAt("s0", 0); // square -50..50

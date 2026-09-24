@@ -48,6 +48,8 @@ export const defaultShortcutCommands = {
 	"paplico.clipGroup": "paplico.clipGroup",
 	"paplico.arrangeBackward": "paplico.arrangeBackward",
 	"paplico.arrangeForward": "paplico.arrangeForward",
+	"paplico.lockElements": "paplico.lockElements",
+	"paplico.hideElements": "paplico.hideElements",
 	"paplico.exitEditingScope": "paplico.exitEditingScope",
 	"paplico.exitEditingScopeAll": "paplico.exitEditingScopeAll",
 	"paplico.clearSelection": "paplico.clearSelection",

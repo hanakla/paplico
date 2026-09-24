@@ -613,6 +613,31 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			alt: true,
 		});
 
+		// Lock / Hide
+		s.registerCommand(Cmds["paplico.lockElements"], "Edit", () => {
+			const ids = [...this.rendererStore.selectedElementIds];
+			if (ids.length === 0) return false;
+			this.commands.lockElements(ids);
+			this.selection.clear();
+			return true;
+		});
+		s.registerDefaultKeybinding(Cmds["paplico.lockElements"], {
+			code: "Digit2",
+			ctrlOrMeta: true,
+		});
+
+		s.registerCommand(Cmds["paplico.hideElements"], "Edit", () => {
+			const ids = [...this.rendererStore.selectedElementIds];
+			if (ids.length === 0) return false;
+			this.commands.hideElements(ids);
+			this.selection.clear();
+			return true;
+		});
+		s.registerDefaultKeybinding(Cmds["paplico.hideElements"], {
+			code: "Digit3",
+			ctrlOrMeta: true,
+		});
+
 		// Navigation (registered before clearSelection for Escape priority)
 		s.registerCommand(Cmds["paplico.exitEditingScope"], "Navigation", () => {
 			return this.exitEditingScopeOneLevel();
@@ -1983,6 +2008,15 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						);
 					}
 				},
+				onUndoRedoObjectsChanged: (objectIds) => {
+					// Anchor editing and text editing restore their own selection
+					// on undo; replacing the element selection would end them.
+					if (this.tool instanceof PathEditTool) return;
+					if (this.tool instanceof TextTool && this.tool.editingElementId) {
+						return;
+					}
+					this.selection.selectChangedByHistory(objectIds);
+				},
 			},
 		});
 
@@ -2484,6 +2518,27 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		);
 	}
 
+	/**
+	 * Run a per-layer hit test from the frontmost pickable layer backwards and
+	 * make the layer of the first hit current, as clicking into it would.
+	 */
+	private findInTopmostLayer(
+		find: (layerId: string) => AnyArtObject | null,
+	): AnyArtObject | null {
+		const layers = this.rendererStore.document.layers;
+		for (let i = layers.length - 1; i >= 0; i--) {
+			const layer = layers[i];
+			if (!layer.visible || layer.locked) continue;
+			const element = find(layer.id);
+			if (!element) continue;
+			if (this.rendererStore.currentLayerId !== layer.id) {
+				this.rendererStore.currentLayerId = layer.id;
+			}
+			return element;
+		}
+		return null;
+	}
+
 	private createToolContext(): ToolContext {
 		return new ToolContext({
 			textToolController: this.textToolController,
@@ -2621,26 +2676,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.selection.setKeyObject(id);
 			},
 			getKeyObjectId: () => this.rendererStore.keyObjectId,
-			findElementAtPoint: (x, y, tolerance) => {
-				const layers = this.rendererStore.document.layers;
-				for (let i = layers.length - 1; i >= 0; i--) {
-					const layer = layers[i];
-					if (!layer.visible || layer.locked) continue;
-					const element = this.spatialIndex.findElementAtPoint(
-						layer.id,
-						x,
-						y,
-						tolerance,
-					);
-					if (element) {
-						if (this.rendererStore.currentLayerId !== layer.id) {
-							this.rendererStore.currentLayerId = layer.id;
-						}
-						return element;
-					}
-				}
-				return null;
-			},
+			findElementAtPoint: (x, y, tolerance) =>
+				this.findInTopmostLayer((layerId) =>
+					this.spatialIndex.findElementAtPoint(layerId, x, y, tolerance),
+				),
+			findLeafElementAtPoint: (x, y) =>
+				this.findInTopmostLayer((layerId) =>
+					this.spatialIndex.findLeafElementAtPoint(layerId, x, y),
+				),
 			findElementsInRect: (minX, minY, maxX, maxY) => {
 				const layers = this.rendererStore.document.layers;
 				const results: AnyArtObject[] = [];
@@ -2951,6 +2994,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.commands.deleteElements([pathId]);
 				this.commands.stopUndoCapture();
 			},
+			pathBakeToWorld: (pathId) => this.commands.bakePathToWorld(pathId),
 			pathComplete: (pathId) => {
 				this.spatialIndex.invalidateBounds(pathId);
 				this.selection.selectElement(pathId);

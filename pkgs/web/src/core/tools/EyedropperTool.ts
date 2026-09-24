@@ -56,7 +56,7 @@ export class EyedropperTool implements Tool {
 			canvasHeight,
 		);
 
-		const target = this.context.findElementAtPoint(world.x, world.y);
+		const target = this.context.findLeafElementAtPoint(world.x, world.y);
 		const selectedIds = this.context.getSelectedElementIds();
 
 		if (target && selectedIds.length > 0) {

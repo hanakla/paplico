@@ -1253,6 +1253,83 @@ describe("YjsProvider", () => {
 			expect(yElementIds.get(0)).toBe("path-1");
 		});
 
+		it("should report the objects an undo and a redo changed", () => {
+			const onUndoRedoObjectsChanged = vi.fn();
+			const provider = new YjsProvider({
+				callbacks: { ...callbacks, onUndoRedoObjectsChanged },
+			});
+			addLayerWithPaths(provider, ["path-1", "path-2"]);
+			provider.stopUndoCapture();
+			provider.updateElement("layer-1", "path-2", { opacity: 0.5 });
+
+			provider.undo();
+			provider.redo();
+
+			expect(onUndoRedoObjectsChanged.mock.calls).toEqual([
+				[new Set(["path-2"])],
+				[new Set(["path-2"])],
+			]);
+		});
+
+		it("should report the children a grouping undo puts back into the layer", () => {
+			const onUndoRedoObjectsChanged = vi.fn();
+			const provider = new YjsProvider({
+				callbacks: { ...callbacks, onUndoRedoObjectsChanged },
+			});
+			addLayerWithPaths(provider, ["path-1", "path-2"]);
+			provider.stopUndoCapture();
+			const groupId = provider.groupElements("layer-1", ["path-1", "path-2"]);
+
+			provider.undo();
+
+			expect(onUndoRedoObjectsChanged.mock.calls[0][0]).toEqual(
+				new Set([groupId, "path-1", "path-2"]),
+			);
+		});
+
+		it("should report the children a nested grouping undo puts back into the outer group", () => {
+			const onUndoRedoObjectsChanged = vi.fn();
+			const provider = new YjsProvider({
+				callbacks: { ...callbacks, onUndoRedoObjectsChanged },
+			});
+			addLayerWithPaths(provider, ["path-1", "path-2", "path-3"]);
+			const outerId = provider.groupElements("layer-1", [
+				"path-1",
+				"path-2",
+				"path-3",
+			]);
+			provider.stopUndoCapture();
+			const innerId = provider.groupElementsInGroup(outerId as string, [
+				"path-1",
+				"path-2",
+			]);
+
+			provider.undo();
+
+			expect(onUndoRedoObjectsChanged.mock.calls[0][0]).toEqual(
+				new Set([innerId, outerId, "path-1", "path-2"]),
+			);
+		});
+
+		it("should not report when an undo changes no object", () => {
+			const onUndoRedoObjectsChanged = vi.fn();
+			const provider = new YjsProvider({
+				callbacks: { ...callbacks, onUndoRedoObjectsChanged },
+			});
+			provider.addLayer({
+				id: "layer-1",
+				name: "Layer 1",
+				visible: true,
+				locked: false,
+				opacity: 1,
+				elementIds: [],
+			});
+
+			provider.undo();
+
+			expect(onUndoRedoObjectsChanged).not.toHaveBeenCalled();
+		});
+
 		it("should clear undo history", () => {
 			const provider = new YjsProvider({ callbacks });
 
@@ -2719,3 +2796,25 @@ describe("YjsProvider", () => {
 		});
 	});
 });
+
+/** Add "layer-1" holding empty paths with the given ids. */
+function addLayerWithPaths(provider: YjsProvider, ids: string[]): void {
+	provider.addLayer({
+		id: "layer-1",
+		name: "Layer 1",
+		visible: true,
+		locked: false,
+		opacity: 1,
+		elementIds: [],
+	});
+	for (const id of ids) {
+		provider.addElement("layer-1", {
+			id,
+			type: "path",
+			segments: [],
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		});
+	}
+}

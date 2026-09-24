@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, type vi } from "vitest";
 import { createIdentityTransform } from "../document/factory";
+import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import {
 	createMockToolContext,
 	type MockToolContext,
@@ -431,6 +432,78 @@ describe("PathTool", () => {
 			// Need 2 clicks to produce a segment (single-anchor produces no draft)
 			toolClick(tool, 400, 300);
 			toolClick(tool, 420, 300);
+			expect(ctx.pathDraftCreate).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	describe("Editing scope inside a moved group", () => {
+		// The group moves its children by x=200, so the child's local segment
+		// (0,0)→(100,0) is drawn at world (200,0)→(300,0) = screen (600,300)→(700,300).
+		const groupTransform = { ...createIdentityTransform(), x: 200 };
+		const childPath = {
+			id: "child-1",
+			type: "path" as const,
+			opacity: 1,
+			blendMode: "normal" as const,
+			transform: createIdentityTransform(),
+			segments: [
+				{
+					start: { x: 0, y: 0 },
+					cp1: { x: 0, y: 0 },
+					cp2: { x: 0, y: 0 },
+					end: { x: 100, y: 0 },
+					startTiltX: 0,
+					startTiltY: 0,
+					endTiltX: 0,
+					endTiltY: 0,
+					startDeltaTime: 0,
+					endDeltaTime: 0,
+					isMoved: true,
+				},
+			],
+		};
+
+		beforeEach(() => {
+			ctx.getEditingScopeId.mockReturnValue("group-1");
+			ctx.getAncestorTransform.mockReturnValue(groupTransform);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path: childPath, ancestorTransform: groupTransform },
+			]);
+		});
+
+		it("should outline the hovered path where it is drawn", () => {
+			ctx.findPathAtPoint.mockReturnValue(childPath);
+			tool.onPointerMove(
+				ev(650, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const primitive = lastOverlayCall(ctx, OVERLAY_KEYS.pathHover)
+				?.primitives[0];
+			if (primitive?.kind !== "bezierPath") throw new Error("No outline");
+			expect(primitive.segments[0].start).toEqual({ x: 200, y: 0 });
+			expect(primitive.segments[0].end).toEqual({ x: 300, y: 0 });
+		});
+
+		it("should continue the path from its drawn end point", () => {
+			toolClick(tool, 700, 300);
+			toolClick(tool, 700, 350);
+
+			expect(ctx.pathBakeToWorld.mock.calls[0][0]).toBe("child-1");
+			expect(ctx.pathDraftCreate).toHaveBeenCalledTimes(0);
+			const segments = ctx.pathDraftUpdate.mock.calls.at(-1)?.[2];
+			expect(segments?.[0].start).toEqual({ x: 200, y: 0 });
+			expect(segments?.[0].end).toEqual({ x: 300, y: 0 });
+			expect(segments?.at(-1)?.end).toEqual({ x: 300, y: -50 });
+		});
+
+		it("should not continue the path from its stored local end point", () => {
+			toolClick(tool, 500, 300);
+			toolClick(tool, 520, 300);
+
+			expect(ctx.pathBakeToWorld).toHaveBeenCalledTimes(0);
 			expect(ctx.pathDraftCreate).toHaveBeenCalledTimes(1);
 		});
 	});

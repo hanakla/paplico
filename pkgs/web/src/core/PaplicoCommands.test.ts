@@ -20,6 +20,7 @@ import type {
 	BlendObject,
 	BrushSettings,
 	CompoundPath,
+	ElementTransform,
 	FillAppearance,
 	Filter,
 	FilterEntry,
@@ -1755,6 +1756,57 @@ describe("PaplicoCommands", () => {
 			expect(addElement).toHaveBeenCalledTimes(1);
 			expect(addElementToGroup).not.toHaveBeenCalled();
 		});
+	});
+
+	describe("bakePathToWorld", () => {
+		it("should store a grouped path's drawn geometry and cancel the group transform", () => {
+			const groupTransform = { ...createIdentityTransform(), x: 200, y: 30 };
+			const { commands, updateElement } = createBakeCommands(groupTransform);
+
+			commands.bakePathToWorld("child-1");
+
+			const updates = updateElement.mock.calls[0][2] as Pick<
+				Path,
+				"segments" | "transform"
+			>;
+			expect(updates.segments[0].start).toEqual({ x: 200, y: 30 });
+			expect(updates.segments.at(-1)?.end).toEqual({ x: 350, y: 70 });
+			expect(updates.transform).toMatchObject({ x: -200, y: -30 });
+		});
+
+		it("should leave a path that is already drawn at its stored coordinates", () => {
+			const { commands, updateElement } = createBakeCommands(null);
+
+			commands.bakePathToWorld("child-1");
+
+			expect(updateElement).not.toHaveBeenCalled();
+		});
+
+		function createBakeCommands(groupTransform: ElementTransform | null) {
+			const updateElement = vi.fn();
+			const store = {
+				currentLayerId: "layer-1",
+				selectedElementIds: [],
+				editingScopeStack: [],
+				document: {
+					layers: [createLayer("layer-1", ["child-1"])],
+					objects: { "child-1": createPath("child-1") },
+				},
+			} as unknown as RendererState;
+			const commands = new PaplicoCommands({
+				store,
+				yjsProvider: {
+					updateElement,
+					isAnimationUndoMode: vi.fn(() => false),
+				} as unknown as YjsProvider,
+				spatial: {
+					isElementLocked: () => false,
+					getAncestorTransform: () => groupTransform,
+				} as unknown as SpatialIndex,
+				isReadonly: () => false,
+			});
+			return { commands, updateElement };
+		}
 	});
 
 	describe("collectElementsByIds ordering (selection order vs layer z-order)", () => {

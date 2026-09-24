@@ -3,8 +3,10 @@ import {
 	CopyPlus,
 	Crop,
 	Ellipsis,
+	EyeOff,
 	Grid3x3,
 	LayoutGrid,
+	Lock,
 	Paintbrush,
 	RemoveFormatting,
 	Shapes,
@@ -143,6 +145,14 @@ export function MoreActionsMenu({
 		setSelectedBrushPresetUid(null);
 	});
 
+	const handleLock = useEventCallback(() => {
+		paplico.shortcuts.executeCommand("paplico.lockElements");
+	});
+
+	const handleHide = useEventCallback(() => {
+		paplico.shortcuts.executeCommand("paplico.hideElements");
+	});
+
 	return (
 		<Menu.Root>
 			<BUIMenu.Trigger
@@ -221,6 +231,15 @@ export function MoreActionsMenu({
 						<Menu.Item onClick={handleCreateBrushFromSelection}>
 							<Paintbrush size={14} />
 							{t("contextActions.createBrushFromSelection")}
+						</Menu.Item>
+						<Menu.Separator />
+						<Menu.Item onClick={handleLock}>
+							<Lock size={14} />
+							{t("shortcutCmd.lockElements")}
+						</Menu.Item>
+						<Menu.Item onClick={handleHide}>
+							<EyeOff size={14} />
+							{t("shortcutCmd.hideElements")}
 						</Menu.Item>
 					</Menu.Popup>
 				</Menu.Positioner>

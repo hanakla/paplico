@@ -45,6 +45,7 @@ import {
 	getWorldSegments,
 	resolveSegment,
 	splitSegmentAtIndex,
+	toWorldPath,
 } from "../utils/geometry/segmentOps";
 import {
 	type AnchorNode,
@@ -302,14 +303,20 @@ export class PathTool implements Tool {
 
 			const target = this.findContinuableEndpoint(worldPos, viewport.zoom);
 			if (target) {
-				let anchors = anchorsFromSegments(target.path.segments, null);
+				// New anchors are world points, so the stored segments must be too.
+				this.context.pathBakeToWorld(target.path.id);
+				let anchors = anchorsFromSegments(
+					toWorldPath(target.path, target.ancestorTransform ?? undefined)
+						.segments,
+					null,
+				);
 				if (target.from === "start") {
 					anchors = reverseAnchors(anchors);
 				}
 				this.anchors = anchors;
 				this.pathId = target.path.id;
 				this.hasDraftPath = true;
-				this.draftPathLayerId = target.layerId;
+				this.draftPathLayerId = this.context.getCurrentLayerId();
 
 				this.isDragging = true;
 				this.isClosingDrag = false;
@@ -504,7 +511,10 @@ export class PathTool implements Tool {
 				if (hitPath) {
 					if (this.hoveredPathId !== hitPath.id) {
 						this.hoveredPathId = hitPath.id;
-						const worldSegs = getWorldSegments(hitPath);
+						const worldSegs = getWorldSegments(
+							hitPath,
+							this.context.getAncestorTransform(hitPath.id) ?? undefined,
+						);
 						this.updateHoverOverlay({ pathSegments: [worldSegs] });
 					}
 				} else if (this.hoveredPathId) {
@@ -1286,39 +1296,49 @@ export class PathTool implements Tool {
 	private findContinuableEndpoint(
 		worldPos: { x: number; y: number },
 		zoom: number,
-	): { path: Path; layerId: string; from: "start" | "end" } | null {
-		const layer = this.context.getCurrentLayer();
-		const layerId = this.context.getCurrentLayerId();
-		if (!layer || !layerId) return null;
-
-		const objects = this.context.getObjects();
-
-		for (const elementId of layer.elementIds) {
-			const element = objects[elementId];
-			if (!element || element.type !== "path") continue;
-			const path = element;
-			if (path.segments.length === 0) continue;
-			if (path.segments.at(-1)?.isClosed === true) continue;
-
-			const startPt = resolveSegment(path.segments[0], undefined).start;
-			if (
-				this.worldDistToScreenPx(worldPos, startPt, zoom) <
-				PathTool.CLOSE_THRESHOLD_PX
-			) {
-				return { path, layerId, from: "start" };
-			}
-
-			const endPt = path.segments.at(-1)?.end;
-			if (
-				endPt &&
-				this.worldDistToScreenPx(worldPos, endPt, zoom) <
-					PathTool.CLOSE_THRESHOLD_PX
-			) {
-				return { path, layerId, from: "end" };
+	): {
+		path: Path;
+		ancestorTransform: ElementTransform | null;
+		from: "start" | "end";
+	} | null {
+		for (const {
+			path,
+			ancestorTransform,
+		} of this.getContinuationCandidates()) {
+			const hit = hitTestPathAnchor(
+				path,
+				ancestorTransform,
+				worldPos.x,
+				worldPos.y,
+				PathTool.CLOSE_THRESHOLD_PX / zoom,
+			);
+			if (hit?.isEndpoint) {
+				return { path, ancestorTransform, from: hit.pointType };
 			}
 		}
 
 		return null;
+	}
+
+	/**
+	 * Paths whose endpoints can be extended: every editable path inside the
+	 * editing scope, otherwise the current layer's top-level paths.
+	 */
+	private getContinuationCandidates(): Array<{
+		path: Path;
+		ancestorTransform: ElementTransform | null;
+	}> {
+		if (this.context.getEditingScopeId()) {
+			return this.context.getAllEditablePaths();
+		}
+
+		const layer = this.context.getCurrentLayer();
+		if (!layer) return [];
+		const objects = this.context.getObjects();
+		return layer.elementIds
+			.map((id) => objects[id])
+			.filter((element) => element?.type === "path")
+			.map((path) => ({ path, ancestorTransform: null }));
 	}
 
 	/**

@@ -135,6 +135,43 @@ export class PaplicoSelection {
 	}
 
 	/**
+	 * Select the objects an undo/redo step changed so the user can see what it
+	 * affected. A container whose descendant also changed yields to that
+	 * descendant, and the current layer follows the frontmost layer involved.
+	 * Clears the selection when nothing selectable remains.
+	 */
+	public selectChangedByHistory(objectIds: ReadonlySet<string>): void {
+		const { objects, layers } = this.store.document;
+		const ancestorsById = new Map(
+			[...objectIds]
+				.filter((id) => {
+					const obj = objects[id];
+					return (
+						obj && obj.visible !== false && !this.spatial.isElementLocked(id)
+					);
+				})
+				.map((id) => [id, this.getAncestorIds(id)]),
+		);
+		const changedAncestorIds = new Set([...ancestorsById.values()].flat());
+
+		const targets = [...ancestorsById].flatMap(([id, ancestorIds]) => {
+			if (changedAncestorIds.has(id)) return [];
+			const rootId = ancestorIds.at(-1) ?? id;
+			const layerIndex = layers.findIndex((l) => l.elementIds.includes(rootId));
+			return layerIndex < 0 ? [] : [{ id, layerIndex }];
+		});
+
+		if (targets.length === 0) {
+			this.clear();
+			return;
+		}
+
+		const frontLayerIndex = Math.max(...targets.map((t) => t.layerIndex));
+		this.store.currentLayerId = layers[frontLayerIndex].id;
+		this.selectMultiple(targets.map((t) => t.id));
+	}
+
+	/**
 	 * Select all elements in current context (shallow).
 	 * In group edit mode: selects only direct children of the editing group.
 	 * Otherwise: selects all top-level elements in all layers.
@@ -349,6 +386,19 @@ export class PaplicoSelection {
 			this.store.selectionBounds = null;
 			setSelectionOverlay(this.store.uiOverlayState, null);
 		}
+	}
+
+	/** Containers enclosing the element, nearest first. */
+	private getAncestorIds(elementId: string): string[] {
+		const ancestorIds: string[] = [];
+		for (
+			let parentId = this.spatial.getParentGroupId(elementId);
+			parentId;
+			parentId = this.spatial.getParentGroupId(parentId)
+		) {
+			ancestorIds.push(parentId);
+		}
+		return ancestorIds;
 	}
 
 	/** Drop the key object when it is no longer part of the selection. */

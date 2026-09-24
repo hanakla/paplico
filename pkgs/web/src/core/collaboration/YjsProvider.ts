@@ -17,6 +17,7 @@ import {
 	type ElementTransform,
 	type EmbeddedFile,
 	type Group,
+	getContainerChildIds,
 	isIdentityTransform,
 	type Layer,
 	type MeshArtObject,
@@ -145,6 +146,12 @@ export interface YjsProviderCallbacks {
 	 * (see stashUndoMeta) so destroyed state (selection etc.) can be restored.
 	 */
 	onUndoStackMetaPopped?: (meta: UndoStackMeta, type: "undo" | "redo") => void;
+	/**
+	 * Fired after undo/redo has been applied and synced, with every object id
+	 * it added, updated or deleted, plus ids it put back into a layer or a
+	 * container. Not fired when no object was involved.
+	 */
+	onUndoRedoObjectsChanged?: (objectIds: ReadonlySet<string>) => void;
 }
 
 /**
@@ -234,6 +241,12 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	private suppressSync = false;
 
 	private isUndoRedoInProgress = false;
+	/**
+	 * Ids the running undo/redo touched. Yjs only computes event details
+	 * inside the observers, so they are gathered there and reported once the
+	 * step finishes. Null outside undo/redo.
+	 */
+	private undoRedoChangedIds: Set<string> | null = null;
 
 	// Undo/Redo manager
 	public undoManager: UndoManager;
@@ -264,37 +277,41 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	private attachObservers(): void {
 		// Delta detection: track nested updates within yObjects
 		this.yObjects.observeDeep((events) => {
-			for (const event of events) {
-				// Multiple bundled Yjs instances can make `instanceof` brittle.
-				if (!("path" in event) || !("changes" in event)) continue;
-				const mapEvent = event as Y.YMapEvent<unknown>;
-
-				// path=[]: top-level yObjects key changes (add/update/delete)
-				if (mapEvent.path.length === 0) {
-					for (const [key, change] of mapEvent.changes.keys) {
-						if (typeof key !== "string") continue;
-						if (change.action === "add") {
-							this.trackObjectAdded(key);
-						} else if (change.action === "update") {
-							this.trackObjectUpdated(key);
-						} else if (change.action === "delete") {
-							this.trackObjectDeleted(key);
-						}
-					}
-					continue;
+			forEachObjectChange(events, (objectId, action) => {
+				this.undoRedoChangedIds?.add(objectId);
+				if (action === "add") {
+					this.trackObjectAdded(objectId);
+				} else if (action === "update") {
+					this.trackObjectUpdated(objectId);
+				} else {
+					this.trackObjectDeleted(objectId);
 				}
-
-				// path=[objectId, ...]: nested update within an individual object
-				const objectId = mapEvent.path[0];
-				if (typeof objectId !== "string") continue;
-				this.trackObjectUpdated(objectId);
+			});
+			if (!this.undoRedoChangedIds) return;
+			for (const event of events) {
+				if (event.path.length !== 1) continue;
+				for (const id of enteredContainerChildIds(
+					event as Y.YMapEvent<unknown>,
+				)) {
+					this.undoRedoChangedIds.add(id);
+				}
 			}
 		});
 
 		// Layer/artboard changes use layer-only sync.
 		// observeDeep: also detects nested Y.Array changes (e.g. elementIds)
-		this.yLayers.observeDeep(() => {
+		this.yLayers.observeDeep((events) => {
 			this.needsLayerSync = true;
+			if (!this.undoRedoChangedIds) return;
+			// Element ids inserted into a layer's elementIds.
+			for (const event of events) {
+				for (const { insert } of event.changes.delta) {
+					if (!Array.isArray(insert)) continue;
+					for (const id of insert) {
+						if (typeof id === "string") this.undoRedoChangedIds.add(id);
+					}
+				}
+			}
 		});
 		this.yArtboards.observe(() => {
 			this.needsFullSync = true;
@@ -2121,28 +2138,30 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	 * Undo the last change
 	 */
 	public undo(): void {
-		this.isUndoRedoInProgress = true;
-
-		try {
-			this.undoManager.undo();
-		} finally {
-			queueMicrotask(() => {
-				this.isUndoRedoInProgress = false;
-			});
-		}
+		this.runUndoRedo(() => this.undoManager.undo());
 	}
 
 	/**
 	 * Redo the last undone change
 	 */
 	public redo(): void {
+		this.runUndoRedo(() => this.undoManager.redo());
+	}
+
+	private runUndoRedo(step: () => void): void {
 		this.isUndoRedoInProgress = true;
+		const changedIds = new Set<string>();
+		this.undoRedoChangedIds = changedIds;
 		try {
-			this.undoManager.redo();
+			step();
 		} finally {
+			this.undoRedoChangedIds = null;
 			queueMicrotask(() => {
 				this.isUndoRedoInProgress = false;
 			});
+		}
+		if (changedIds.size > 0) {
+			this.callbacks.onUndoRedoObjectsChanged?.(changedIds);
 		}
 	}
 
@@ -3004,4 +3023,56 @@ function spliceAbsorbedIntoArray(
 	}
 	kept.splice(firstIndex, 0, containerId);
 	return kept;
+}
+
+/**
+ * Walk a deep-event batch on yObjects and report each object id it touched.
+ * Edits nested inside an object's Y.Map report as an "update" of that object.
+ * Event paths must be relative to yObjects.
+ */
+function forEachObjectChange(
+	events: Y.YEvent<Y.AbstractType<unknown>>[],
+	onChange: (objectId: string, action: "add" | "update" | "delete") => void,
+): void {
+	for (const event of events) {
+		// Multiple bundled Yjs instances can make `instanceof` brittle.
+		if (!("path" in event) || !("changes" in event)) continue;
+		const mapEvent = event as Y.YMapEvent<unknown>;
+
+		// path=[]: top-level yObjects key changes (add/update/delete)
+		if (mapEvent.path.length === 0) {
+			for (const [key, change] of mapEvent.changes.keys) {
+				if (typeof key !== "string") continue;
+				onChange(key, change.action);
+			}
+			continue;
+		}
+
+		// path=[objectId, ...]: nested update within an individual object
+		const objectId = mapEvent.path[0];
+		if (typeof objectId !== "string") continue;
+		onChange(objectId, "update");
+	}
+}
+
+/**
+ * Ids a change to one object's Y.Map added to that object's container child
+ * list. Must run inside the observer, where Yjs still hands out old values.
+ */
+function enteredContainerChildIds(mapEvent: Y.YMapEvent<unknown>): string[] {
+	const yMap = mapEvent.target;
+	const childIds = getContainerChildIds(yMapToObject(yMap));
+	if (!childIds) return [];
+
+	// yMapToObject reads only get/has, so a view that answers with the
+	// pre-change values decodes the object as it was before this change.
+	const { keys } = mapEvent.changes;
+	const before = {
+		get: (key: string) =>
+			keys.has(key) ? keys.get(key)?.oldValue : yMap.get(key),
+		has: (key: string) =>
+			keys.has(key) ? keys.get(key)?.action !== "add" : yMap.has(key),
+	} as unknown as Y.Map<unknown>;
+	const previousIds = new Set(getContainerChildIds(yMapToObject(before)));
+	return childIds.filter((id) => !previousIds.has(id));
 }

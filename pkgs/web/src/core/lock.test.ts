@@ -101,6 +101,41 @@ describe("Lock system integration", () => {
 		});
 	});
 
+	describe("lockElements", () => {
+		it("should lock every element in one transaction regardless of current state", () => {
+			const layer = makeLayer({ id: "l1", elementIds: ["e1", "e2"] });
+			const { commands, yjsProvider } = createCommands(layer, {
+				e1: makePath("e1", true),
+				e2: makePath("e2"),
+			});
+
+			commands.lockElements(["e1", "e2"]);
+			expect(yjsProvider.transact).toHaveBeenCalledTimes(1);
+			expect(yjsProvider.updateElement.mock.calls.map((c) => c[2])).toEqual([
+				{ locked: true },
+				{ locked: true },
+			]);
+		});
+	});
+
+	describe("hideElements", () => {
+		it("should hide unlocked elements and skip locked ones", () => {
+			const layer = makeLayer({ id: "l1", elementIds: ["e1", "e2"] });
+			const { commands, yjsProvider } = createCommands(layer, {
+				e1: makePath("e1", true),
+				e2: makePath("e2"),
+			});
+
+			commands.hideElements(["e1", "e2"]);
+			expect(yjsProvider.transact).toHaveBeenCalledTimes(1);
+			expect(yjsProvider.updateElement).toHaveBeenCalledTimes(1);
+			expect(yjsProvider.updateElement.mock.calls[0][1]).toBe("e2");
+			expect(yjsProvider.updateElement.mock.calls[0][2]).toEqual({
+				visible: false,
+			});
+		});
+	});
+
 	describe("toggleLayerLock", () => {
 		it("should toggle lock on a locked layer (unlock)", () => {
 			const layer = makeLayer({
@@ -284,6 +319,7 @@ function createCommands(
 		deleteElement: vi.fn(),
 		deleteElements: vi.fn(),
 		updateLayerAttributes: vi.fn(),
+		transact: vi.fn((fn: () => void) => fn()),
 		isAnimationUndoMode: vi.fn(() => false),
 	};
 

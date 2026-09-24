@@ -111,6 +111,8 @@ export type ToolContextOptions = {
 		y: number,
 		tolerance?: number,
 	) => AnyArtObject | null;
+	/** Frontmost painted element at a point, not promoted to its container. */
+	findLeafElementAtPoint: (x: number, y: number) => AnyArtObject | null;
 	findElementsInRect: (
 		minX: number,
 		minY: number,
@@ -274,6 +276,8 @@ export type ToolContextOptions = {
 		segments: CubicBezierSegment[],
 	) => void;
 	pathDraftDelete: (layerId: string | null, pathId: string) => void;
+	/** Rewrite a path's segments in world coordinates before extending it. */
+	pathBakeToWorld: (pathId: string) => void;
 	pathComplete: (pathId: string) => void;
 
 	shapeComplete: (path: Path) => void;

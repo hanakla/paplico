@@ -1446,6 +1446,8 @@ export const ja = {
 		clipGroup: "クリッピンググループ",
 		arrangeBackward: "背面へ移動",
 		arrangeForward: "前面へ移動",
+		lockElements: "選択オブジェクトをロック",
+		hideElements: "選択オブジェクトを非表示",
 		exitEditingScope: "編集スコープを終了",
 		exitEditingScopeAll: "全ての編集スコープを終了",
 		clearSelection: "選択を解除",

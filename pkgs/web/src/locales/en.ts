@@ -1447,6 +1447,8 @@ export const en = {
 		clipGroup: "Clip Group",
 		arrangeBackward: "Send Backward",
 		arrangeForward: "Bring Forward",
+		lockElements: "Lock Selection",
+		hideElements: "Hide Selection",
 		exitEditingScope: "Exit Editing Scope",
 		exitEditingScopeAll: "Exit All Editing Scopes",
 		clearSelection: "Clear Selection",
