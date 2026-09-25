@@ -1,12 +1,19 @@
-import type {
-	BrushSettings,
-	CubicBezierSegment,
-	ElementTransform,
-	LineCap,
-	LineJoin,
-	Path,
-	StrokeAlign,
-	StrokeWidthPoint,
+import {
+	type BrushSettings,
+	type CubicBezierSegment,
+	type ElementTransform,
+	type FillAppearance,
+	type Filter,
+	generateUid,
+	isFilterEnabled,
+	isVisibleStroke,
+	type LineCap,
+	type LineJoin,
+	type PathGeometry,
+	type SolidColor,
+	type StrokeAlign,
+	type StrokeAppearance,
+	type StrokeWidthPoint,
 } from "../../../schema";
 import { transformLinearMatrix } from "../../../utils/geometry/geometry";
 import { triangleSoupOutline } from "../../../utils/geometry/pathOps";
@@ -27,6 +34,49 @@ import { resolveGeometricSizeByPressure } from "../pipeline/brush/strokeHalfWidt
 /** Largest distance, in device pixels, an outlined stroke strays from its band. */
 const OUTLINE_FIT_TOLERANCE_PX = 0.1;
 
+/** A stroke whose band outlining can reproduce as a filled shape. */
+export type OutlinableStroke = StrokeAppearance & {
+	paramData: { params: { strokeColor: SolidColor } };
+};
+
+/**
+ * Whether outlining can reproduce the stroke as a filled shape: a visible
+ * solid-color stroke drawn by the geometric engine.
+ */
+export function isOutlinableStroke(filter: Filter): filter is OutlinableStroke {
+	if (filter.processor !== "stroke" || !isFilterEnabled(filter)) return false;
+	const stroke = filter as StrokeAppearance;
+	const params = stroke.paramData.params;
+	return (
+		params.strokeColor.type === "solid" &&
+		(params.brushSettings?.engine ?? "geometric") === "geometric" &&
+		isVisibleStroke(stroke)
+	);
+}
+
+/**
+ * The fill that paints a stroke's outline: the stroke's color, opacity and
+ * blend in its place, carrying the sub-filters the caller keeps on it.
+ */
+export function strokeToFill(
+	stroke: OutlinableStroke,
+	subFilters?: Filter[],
+): FillAppearance {
+	return {
+		uid: generateUid("app"),
+		processor: "fill",
+		enabled: stroke.enabled,
+		opacity: stroke.opacity,
+		blendMode: stroke.blendMode,
+		applyToBackdrop: stroke.applyToBackdrop,
+		...(subFilters?.length ? { subFilters } : {}),
+		paramData: {
+			version: "1",
+			params: { fill: stroke.paramData.params.strokeColor },
+		},
+	};
+}
+
 /** Everything that shapes the painted band of a geometric-engine stroke. */
 export interface GeometricStrokeShape {
 	width: number;
@@ -37,6 +87,7 @@ export interface GeometricStrokeShape {
 	dashArray?: readonly number[];
 	dashOffset?: number;
 	strokeWidths?: StrokeWidthPoint[];
+	strokeErasure?: StrokeWidthPoint[];
 	pathStart?: number;
 	pathEnd?: number;
 	align?: StrokeAlign;
@@ -47,10 +98,7 @@ export interface GeometricStrokeShape {
  * renderer and the exporters derive the same shape from the same inputs.
  */
 export function resolveGeometricStrokeShape(
-	path: Pick<
-		Path,
-		"strokeWidths" | "strokeWidthsBaked" | "pathStart" | "pathEnd"
-	>,
+	path: Omit<PathGeometry, "segments">,
 	settings: BrushSettings,
 ): GeometricStrokeShape {
 	const stroking = settings.stroking;
@@ -67,6 +115,7 @@ export function resolveGeometricStrokeShape(
 		dashArray: stroking?.dashArray,
 		dashOffset: stroking?.dashOffset,
 		strokeWidths: path.strokeWidths,
+		strokeErasure: path.strokeErasure,
 		pathStart: path.pathStart,
 		pathEnd: path.pathEnd,
 		align: stroking?.align,
@@ -75,7 +124,11 @@ export function resolveGeometricStrokeShape(
 
 /** Whether the band's width changes along the path. */
 export function hasVariableStrokeWidth(shape: GeometricStrokeShape): boolean {
-	return !!shape.strokeWidths?.length || shape.sizeByPressure !== 0;
+	return (
+		!!shape.strokeWidths?.length ||
+		!!shape.strokeErasure?.length ||
+		shape.sizeByPressure !== 0
+	);
 }
 
 /**
@@ -172,6 +225,7 @@ export function tessellateGeometricStroke(
 				miterLimit: shape.miterLimit,
 				isClosed: hasDash ? false : isClosed,
 				strokeWidths: shape.strokeWidths,
+				strokeErasure: shape.strokeErasure,
 				pathStart: shape.pathStart,
 				pathEnd: shape.pathEnd,
 				alignShift,

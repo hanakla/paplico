@@ -175,6 +175,11 @@ const FILTER_DEFS: Record<string, () => ReturnType<typeof Object>> = {
 			params: { mode: "union" as const },
 		},
 	}),
+	"stroke-outline": () => ({
+		uid: generateUid("filter"),
+		processor: "stroke-outline",
+		paramData: { version: "1", params: {} },
+	}),
 	"pucker-bloat": () => ({
 		uid: generateUid("filter"),
 		processor: "pucker-bloat",

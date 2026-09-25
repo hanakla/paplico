@@ -935,11 +935,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				return ancestorT ? composeTransforms(ancestorT, ownT) : ownT;
 			},
 			focusCanvas: () => this.ui?.focusCanvas(),
-			selectElement: (elementId) =>
-				this.selection.selectElement(
-					elementId,
-					this.spatialIndex.getBounds(elementId) ?? undefined,
-				),
+			selectElement: (elementId) => this.selection.selectElement(elementId),
 		});
 		(this as { shortcuts: PaplicoShortcuts }).shortcuts =
 			new PaplicoShortcuts();
@@ -2508,7 +2504,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			);
 			if (hit !== null) return hit;
 		}
-		const bounds = this.spatialIndex.getBounds(text.id);
+		const bounds = this.spatialIndex.getWorldBounds(text.id);
 		return (
 			bounds != null &&
 			worldX >= bounds.minX - tolerance &&
@@ -2737,6 +2733,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			resolveElementAppearance: (element) =>
 				this.spatialIndex.resolveAppearance(element),
 			getBounds: (id) => this.spatialIndex.getWorldBounds(id),
+			getWorldGeometryBounds: (id) =>
+				this.spatialIndex.getWorldGeometryBounds(id),
 			getElementWorldSegments: (id) =>
 				this.spatialIndex.getElementWorldSegments(id),
 			getAncestorTransform: (id) => this.spatialIndex.getAncestorTransform(id),
@@ -2809,22 +2807,42 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			snapElements: (movingIds, originalBounds, dx, dy, zoom) =>
 				this.spatialIndex.snapElements(movingIds, originalBounds, dx, dy, zoom),
 
-			pathSelect: (id) => {
-				const bounds = this.spatialIndex.getBounds(id);
-				this.selection.selectElement(id, bounds ?? undefined);
-			},
+			pathSelect: (id) => this.selection.selectElement(id),
 			pathUpdate: (pathId, segments) => {
+				const compensation = this.spatialIndex.getPivotCompensation(
+					pathId,
+					segments,
+				);
 				this.clearElementOverride(pathId);
-				this.commands.updateElement("", pathId, { segments });
+				this.commands.transact(() => {
+					this.commands.updateElement("", pathId, { segments });
+					for (const { elementId, transform } of compensation) {
+						this.clearElementOverride(elementId);
+						this.commands.updateElement("", elementId, { transform });
+					}
+				});
 				// Blend spine ↔ keys sync: editing the spine redistributes the keys;
 				// editing/moving a key reshapes the spine through the keys.
 				this.commands.reflowBlendsForSpine(pathId);
 				this.commands.rebuildBlendSpineIfKey(pathId);
 			},
 			batchPathUpdate: (paths) => {
-				const updates = paths.map(([pathId, segments]) => {
+				const updates = paths.flatMap(([pathId, segments]) => {
+					const compensation = this.spatialIndex.getPivotCompensation(
+						pathId,
+						segments,
+					);
 					this.clearElementOverride(pathId);
-					return { elementId: pathId, updates: { segments } };
+					for (const { elementId } of compensation) {
+						this.clearElementOverride(elementId);
+					}
+					return [
+						{ elementId: pathId, updates: { segments } },
+						...compensation.map(({ elementId, transform }) => ({
+							elementId,
+							updates: { transform },
+						})),
+					];
 				});
 				this.yjsProvider.batchUpdateElements(updates);
 				for (const [pathId] of paths) {
@@ -2834,11 +2852,22 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			},
 			previewSegments: (pathId, segments) => {
 				const obj = this.rendererStore.document.objects[pathId];
-				if (obj?.type === "path") {
-					this.setElementOverride(pathId, {
-						...obj,
-						segments,
-					} satisfies Path);
+				if (obj?.type !== "path") return;
+				this.setElementOverride(pathId, {
+					...obj,
+					segments,
+				} satisfies Path);
+				// Keep the pivots the edit moved from dragging the shape along.
+				for (const {
+					elementId,
+					transform,
+				} of this.spatialIndex.getPivotCompensation(pathId, segments)) {
+					const element =
+						this.rendererStore.elementOverrides.get(elementId) ??
+						this.rendererStore.document.objects[elementId];
+					if (element) {
+						this.setElementOverride(elementId, { ...element, transform });
+					}
 				}
 			},
 			findPathAtPoint: (x, y, tolerance, deepSearch) => {
@@ -2882,14 +2911,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				}
 				return null;
 			},
-			replacePathWithPaths: (pathId, segmentLists) => {
+			replacePathWithPaths: (pathId, runs) => {
 				const currentLayerId = this.rendererStore.currentLayerId;
 				if (!currentLayerId) return;
-				this.commands.replacePathWithPaths(
-					currentLayerId,
-					pathId,
-					segmentLists,
-				);
+				this.commands.replacePathWithPaths(currentLayerId, pathId, runs);
 			},
 			pathEditGetSelectionMode: () => {
 				return this.toolSettings.pathEditSelectionMode;
@@ -3060,8 +3085,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				// path's bounds so the empty text is selectable/linkable at once
 				const pathBounds = this.spatialIndex.getBounds(pathObjectId);
 				if (pathBounds) this.spatialIndex.setBounds(text.id, pathBounds);
-				const bounds = this.spatialIndex.getBounds(text.id, text);
-				this.selection.selectElement(text.id, bounds ?? undefined);
+				this.selection.selectElement(text.id);
 			},
 			textFlowLink: (sourceTextId, targetTextId) => {
 				this.commands.updateElement("", sourceTextId, {
@@ -3722,6 +3746,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						this.tool.setOptions({
 							shapeType: currentSnapshot.shapeType,
 						});
+					} else if (this.tool instanceof StrokeWidthEditTool) {
+						this.tool.setOptions({
+							target: currentSnapshot.strokeWidthEditTarget,
+						});
 					} else if (this.tool instanceof TextTool) {
 						this.tool.setCharTouchMode(currentSnapshot.textCharTouchMode);
 					}
@@ -3915,7 +3943,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		} else if (toolType === "stroke-width-edit") {
 			setSelectionOverlay(this.rendererStore.uiOverlayState, null);
 
-			this.tool = new StrokeWidthEditTool(this.toolContext);
+			this.tool = new StrokeWidthEditTool(this.toolContext, {
+				target: this.toolSettings.strokeWidthEditTarget,
+			});
 
 			// Carry over selected path from SelectTool
 			if (this.rendererStore.selectedElementIds.length > 0) {

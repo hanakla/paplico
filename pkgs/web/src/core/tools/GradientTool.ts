@@ -30,7 +30,7 @@ import {
 	defaultEdgeCP,
 	freeGradientAdjacency as delaunayAdjacency,
 } from "../utils/geometry/freeGradient";
-import { screenToWorld } from "../utils/geometry/geometry";
+import { composeTransforms, screenToWorld } from "../utils/geometry/geometry";
 import {
 	applyMeshHandleFan,
 	beginMeshHandleFan,
@@ -58,9 +58,18 @@ import type { ToolContext } from "./ToolContext";
 
 // --- Coordinate helpers ---
 
-function getElementRotationRad(element: AnyArtObject | null): number {
+/** The element's on-screen rotation: its own composed with its ancestors'. */
+function getElementRotationRad(
+	element: AnyArtObject | null,
+	context: ToolContext,
+): number {
 	if (!element) return 0;
-	return getTransform(element).rotation;
+	const ancestorT = context.getAncestorTransform(element.id);
+	return (
+		ancestorT
+			? composeTransforms(ancestorT, getTransform(element))
+			: getTransform(element)
+	).rotation;
 }
 
 function boundsRelativeToWorld(
@@ -226,7 +235,7 @@ export class GradientTool implements Tool {
 
 		const fill = getElementFill(element);
 		if (fill && bounds && !isSolidColor(fill)) {
-			const rotationRad = getElementRotationRad(element);
+			const rotationRad = getElementRotationRad(element, this.context);
 			// Refresh the overlay so the hit test sees the current handle layout
 			// (the historical code rebuilt handles on the spot for this test).
 			this.updateUI();
@@ -413,7 +422,7 @@ export class GradientTool implements Tool {
 		// only changes at pointer-up.
 		const moveFill = this.dragState.pendingFill ?? getElementFill(element);
 		if (!element || !moveFill || !bounds || isSolidColor(moveFill)) return;
-		const rotationRad = getElementRotationRad(element);
+		const rotationRad = getElementRotationRad(element, this.context);
 		const rawRel = worldToBoundsRelative(world.x, world.y, bounds, rotationRad);
 		// Mesh vertices keep the spot that was grabbed under the cursor.
 		const rel =
@@ -738,7 +747,7 @@ export class GradientTool implements Tool {
 			canvasWidth,
 			canvasHeight,
 		);
-		const rotationRad = getElementRotationRad(element);
+		const rotationRad = getElementRotationRad(element, this.context);
 		const rel = worldToBoundsRelative(world.x, world.y, bounds, rotationRad);
 
 		if (isMeshGradient(dblFill)) {
@@ -1414,7 +1423,7 @@ export class GradientTool implements Tool {
 			this.updateGradientOverlay(null);
 			return;
 		}
-		const rotationRad = getElementRotationRad(element);
+		const rotationRad = getElementRotationRad(element, this.context);
 		const handles = this.buildHandles(uiFill, bounds, rotationRad);
 
 		const lines: GradientEditUIData["lines"] = [];

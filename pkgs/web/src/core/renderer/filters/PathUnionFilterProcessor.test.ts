@@ -382,6 +382,33 @@ describe("containment of counters", () => {
 		expect(new Set(counters.map(Math.sign)).size).toBe(1);
 		expect(Math.sign(counters[0])).toBe(-Math.sign(outers[0]));
 	});
+
+	it("keeps counters that overlapping strokes enclose when more strokes follow", () => {
+		// No sub-path is a hole here: the two counters of this 日-like frame only
+		// appear while its strokes are united, and a further stroke is united on
+		// top of them afterwards. Bowed edges make the boolean return one counter
+		// wound like the outline, which the next union must not fill.
+		const input = [
+			...makeBowedRect(0, 0, 100, 10),
+			...makeBowedRect(90, 0, 100, 100),
+			...makeBowedRect(0, 90, 100, 100),
+			...makeBowedRect(0, 0, 10, 100),
+			...makeBowedRect(0, 45, 100, 55),
+			...makeBowedRect(200, 0, 210, 10),
+		];
+		const result = applyBool(input, "union");
+
+		const areas = splitSubPaths(result).map(signedArea);
+		const frame = areas.find((a) => Math.abs(a) > 5000)!;
+		const counters = areas.filter(
+			(a) => Math.abs(a) > 1000 && Math.abs(a) < 5000,
+		);
+		expect(counters).toHaveLength(2);
+		expect(counters.map(Math.sign)).toEqual([
+			-Math.sign(frame),
+			-Math.sign(frame),
+		]);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -403,6 +430,46 @@ function makeCWRect(
 		lineSeg(cx + hw, cy + hh, cx + hw, cy - hh),
 		lineSeg(cx + hw, cy - hh, cx - hw, cy - hh, { isClosed: true }),
 	];
+}
+
+/**
+ * CCW rectangle between two corners in Y-up space whose edges bow outward
+ * by 3 units, drawn with cubics.
+ */
+function makeBowedRect(
+	x0: number,
+	y0: number,
+	x1: number,
+	y1: number,
+): CubicBezierSegment[] {
+	const corners: [number, number][] = [
+		[x0, y0],
+		[x1, y0],
+		[x1, y1],
+		[x0, y1],
+	];
+	return corners.map(([px, py], i) => {
+		const [qx, qy] = corners[(i + 1) % corners.length];
+		const length = Math.hypot(qx - px, qy - py);
+		const bowX = ((qy - py) / length) * 3;
+		const bowY = (-(qx - px) / length) * 3;
+		return {
+			...(i === 0 ? { start: { x: px, y: py } } : {}),
+			cp1: { x: (qx - px) / 3 + bowX, y: (qy - py) / 3 + bowY },
+			cp2: { x: (px - qx) / 3 + bowX, y: (py - qy) / 3 + bowY },
+			end: { x: qx, y: qy },
+			startPressure: 1,
+			endPressure: 1,
+			startTiltX: 0,
+			startTiltY: 0,
+			endTiltX: 0,
+			endTiltY: 0,
+			startDeltaTime: 0,
+			endDeltaTime: 0,
+			isMoved: i === 0,
+			isClosed: i === corners.length - 1 ? true : undefined,
+		} satisfies CubicBezierSegment;
+	});
 }
 
 /** CCW circle from four cubic arcs (anchors at the axis crossings). */

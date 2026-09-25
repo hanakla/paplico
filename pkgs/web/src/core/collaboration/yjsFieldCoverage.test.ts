@@ -29,7 +29,14 @@ describe("Yjs field coverage", () => {
 	} as const;
 
 	const fixtures: AnyArtObject[] = [
-		{ ...base, type: "path", segments: [] },
+		{
+			...base,
+			type: "path",
+			segments: [],
+			strokeWidths: [{ t: 0.5, side1: 0.5, side2: 0.5 }],
+			strokeWidthsBaked: true,
+			strokeErasure: [{ t: 0.5, side1: 0, side2: 1 }],
+		},
 		{ ...base, type: "group", childIds: [], clipPathId: "c", collapsed: true },
 		{
 			...base,

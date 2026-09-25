@@ -34,6 +34,8 @@ import {
 	type WorldBBox,
 } from "../utils/geometry/bounds";
 import {
+	composeTransforms,
+	inverseTransformVector,
 	screenToWorld,
 	toWorld,
 	type WorldBezierSegment,
@@ -282,7 +284,7 @@ export class SelectTool implements Tool {
 
 		const element = this.context.findElementAtPoint(worldX, worldY, tolerance);
 		if (element) {
-			const elBounds = this.context.getBounds(element.id);
+			const elBounds = this.context.getWorldGeometryBounds(element.id);
 			if (elBounds) {
 				const isEditable = this.context.isElementEditable(element.id);
 				if (isEditable) {
@@ -346,7 +348,7 @@ export class SelectTool implements Tool {
 		let maxY = Number.NEGATIVE_INFINITY;
 		let hasBounds = false;
 		for (const id of selectedIds) {
-			const elBounds = this.context.getBounds(id);
+			const elBounds = this.context.getWorldGeometryBounds(id);
 
 			if (elBounds) {
 				hasBounds = true;
@@ -420,8 +422,11 @@ export class SelectTool implements Tool {
 				x: (union.minX + union.maxX) / 2,
 				y: (union.minY + union.maxY) / 2,
 			};
+			const ancestorT = this.context.getAncestorTransform(repeat.id);
 			const affine = elementTransformToAffine(
-				repeat.transform,
+				ancestorT
+					? composeTransforms(ancestorT, repeat.transform)
+					: repeat.transform,
 				center.x,
 				center.y,
 			);
@@ -509,8 +514,15 @@ export class SelectTool implements Tool {
 			state;
 		const repeat = this.currentRepeat();
 		if (!repeat) return;
+		const ancestorT = this.context.getAncestorTransform(repeat.id);
 		const inv = invertAffine(
-			elementTransformToAffine(repeat.transform, center.x, center.y),
+			elementTransformToAffine(
+				ancestorT
+					? composeTransforms(ancestorT, repeat.transform)
+					: repeat.transform,
+				center.x,
+				center.y,
+			),
 		);
 
 		if (handle === "count") {
@@ -578,15 +590,29 @@ export class SelectTool implements Tool {
 			startSpacingX,
 			startSpacingY,
 		} = state;
+		const repeat = this.currentRepeat();
+		if (!repeat) return;
+		const ancestorT = this.context.getAncestorTransform(repeat.id);
+		const repeatWorldT = ancestorT
+			? composeTransforms(ancestorT, repeat.transform)
+			: repeat.transform;
+
 		if (handle === "spacing-x" || handle === "spacing-y") {
+			// Gaps are in the source's authored space, which the repeat (and its
+			// ancestors) scale and rotate on the way to world.
+			const authoredDelta = inverseTransformVector(
+				worldX - startWorld.x,
+				worldY - startWorld.y,
+				repeatWorldT,
+			);
 			if (handle === "spacing-x") {
-				const spacingX = Math.max(1, startSpacingX + (worldX - startWorld.x));
+				const spacingX = Math.max(1, startSpacingX + authoredDelta.x);
 				this.context.transact((c) =>
 					c.updateRepeatGrid(repeatId, { spacingX }),
 				);
 			} else {
 				// Row gap grows downward (screen), i.e. -y.
-				const spacingY = Math.max(1, startSpacingY + (startWorld.y - worldY));
+				const spacingY = Math.max(1, startSpacingY - authoredDelta.y);
 				this.context.transact((c) =>
 					c.updateRepeatGrid(repeatId, { spacingY }),
 				);
@@ -599,17 +625,14 @@ export class SelectTool implements Tool {
 		// the repeat's own transform) and add the delta to the start width/height,
 		// so the offset handle grows the region without a jump on grab. The region
 		// extends right/down (world Y-up, so down = -y).
-		const repeat = this.currentRepeat();
-		const union = repeat
-			? calculateRepeatSourceUnion(repeat, this.repeatElementsMap())
-			: null;
-		if (!repeat || !union) return;
+		const union = calculateRepeatSourceUnion(repeat, this.repeatElementsMap());
+		if (!union) return;
 		const center = {
 			x: (union.minX + union.maxX) / 2,
 			y: (union.minY + union.maxY) / 2,
 		};
 		const inv = invertAffine(
-			elementTransformToAffine(repeat.transform, center.x, center.y),
+			elementTransformToAffine(repeatWorldT, center.x, center.y),
 		);
 		const authoredStart = applyAffineToPoint(inv, startWorld);
 		const authoredNow = applyAffineToPoint(inv, { x: worldX, y: worldY });
@@ -825,7 +848,7 @@ export class SelectTool implements Tool {
 					const newIds = this.context.duplicateElements(selectedIds);
 					this.context.selectionClear();
 					for (const newId of newIds) {
-						const elBounds = this.context.getBounds(newId);
+						const elBounds = this.context.getWorldGeometryBounds(newId);
 						if (elBounds) {
 							this.context.elementToggleSelect(newId, elBounds);
 						}

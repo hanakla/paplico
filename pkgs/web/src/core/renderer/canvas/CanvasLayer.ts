@@ -4430,7 +4430,9 @@ export class CanvasLayer {
 	 * per computed instance. The source elements are absorbed (not in any
 	 * layer.elementIds), so they reach the canvas only through here: the shared
 	 * bake texture is blitted at each instance's world-space quad via the same
-	 * `overrideLayers` path a self-sized extrude appearance uses.
+	 * `overrideLayers` path a self-sized extrude appearance uses. Repeats inside
+	 * groups are reached by walking the groups, since the element dispatch has no
+	 * repeat entry to fall back on.
 	 */
 	private bakeRepeats(
 		encoder: GPUCommandEncoder,
@@ -4440,12 +4442,25 @@ export class CanvasLayer {
 		const { elementsMap, layerPlans } = framePlan;
 		const rasterScale = this.getRasterScale();
 		const boundsCache = this.viewportManager.getBoundsCache();
-		for (const layerPlan of layerPlans) {
-			for (const element of layerPlan.elements) {
+		const bakeIn = (
+			elements: readonly AnyArtObject[],
+			ancestorT: ElementTransform | null,
+		): void => {
+			for (const element of elements) {
+				if (isGroup(element)) {
+					bakeIn(
+						element.childIds.flatMap((id) => elementsMap.get(id) ?? []),
+						ancestorT
+							? composeTransforms(ancestorT, getTransform(element))
+							: getTransform(element),
+					);
+					continue;
+				}
 				if (!isRepeat(element)) continue;
 				const info = this.bakeRepeat(
 					encoder,
 					element,
+					ancestorT,
 					elementsMap,
 					rasterScale,
 					boundsCache,
@@ -4453,12 +4468,14 @@ export class CanvasLayer {
 				);
 				if (info) filteredTextures.set(element.id, info);
 			}
-		}
+		};
+		for (const layerPlan of layerPlans) bakeIn(layerPlan.elements, null);
 	}
 
 	private bakeRepeat(
 		encoder: GPUCommandEncoder,
 		repeat: RepeatObject,
+		ancestorT: ElementTransform | null,
 		elementsMap: Map<string, AnyArtObject>,
 		rasterScale: number,
 		boundsCache: LocalBoundsCache,
@@ -4503,9 +4520,12 @@ export class CanvasLayer {
 		};
 		const instances = computeRepeatInstances(repeat, center);
 		// The repeat's own transform pivots the whole set around the source center,
-		// mirroring how a blend pivots around its own bbox center.
+		// mirroring how a blend pivots around its own bbox center. Ancestor groups
+		// compose onto it around the same center, as the renderer places children.
 		const repeatAffine = elementTransformToAffine(
-			getTransform(repeat),
+			ancestorT
+				? composeTransforms(ancestorT, getTransform(repeat))
+				: getTransform(repeat),
 			center.x,
 			center.y,
 		);
@@ -6366,11 +6386,12 @@ export class CanvasLayer {
 					// Render appearances in filters array order
 					for (const {
 						appearance: app,
-						segments,
+						path: drawn,
 						cacheKey,
 						pattern,
 					} of passes) {
 						const appAlpha = effectiveAlpha * app.opacity;
+						const segments = drawn.segments;
 						if (app.processor === "fill") {
 							// Flush pending stroke batch before rendering fill
 							ribbons.flush();

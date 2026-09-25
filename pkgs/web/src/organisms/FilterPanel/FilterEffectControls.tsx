@@ -44,6 +44,7 @@ import type {
 	Filter as FilterType,
 	Revolve3DAppearance,
 } from "@/core/schema";
+import { useTranslation } from "@/locales";
 import { BloomFilterControls } from "./ControlsBloom";
 import { BlurFilterControls } from "./ControlsBlur";
 import { BlushStrokeFilterControls } from "./ControlsBlushStroke";
@@ -149,6 +150,9 @@ export const FilterEffectControls = memo(function FilterEffectControls({
 				onUpdate={onUpdate}
 			/>
 		);
+	}
+	if (filter.processor === "stroke-outline") {
+		return <NoSettingsNote />;
 	}
 	if (filter.processor === "path-union") {
 		return (
@@ -402,3 +406,13 @@ export const FilterEffectControls = memo(function FilterEffectControls({
 	}
 	return null;
 });
+
+/** Shown for a filter that has nothing to set, so the panel does not look broken. */
+function NoSettingsNote() {
+	const t = useTranslation();
+	return (
+		<p className="text-muted-foreground text-xs">
+			{t("filterPanel.noSettings")}
+		</p>
+	);
+}

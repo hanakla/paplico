@@ -106,7 +106,7 @@ export class TransformFilterHandler implements FilterHandler {
 		filter: Filter,
 	): AppearanceGeometry[] {
 		const params = (filter as TransformFilter).paramData.params;
-		const placement = this.place(geometry.segments, filter);
+		const placement = this.place(geometry.path.segments, filter);
 		if (!placement) return [geometry];
 		const patternsFollow =
 			params.transformPatterns && appearancePaintsPattern(geometry.appearance);
@@ -115,7 +115,12 @@ export class TransformFilterHandler implements FilterHandler {
 		// Only a paint that follows the copies needs a draw per copy; the rest
 		// keeps one draw so overlapping copies still union under nonzero fill.
 		if (!patternsFollow && !strokesScale) {
-			return [{ ...geometry, segments: placement.joined }];
+			return [
+				{
+					...geometry,
+					path: { ...geometry.path, segments: placement.joined },
+				},
+			];
 		}
 		return placement.copies.map((copy) => ({
 			appearance: strokesScale
@@ -124,7 +129,7 @@ export class TransformFilterHandler implements FilterHandler {
 						uniformScale(copy.transform),
 					)
 				: geometry.appearance,
-			segments: copy.segments,
+			path: { ...geometry.path, segments: copy.segments },
 			patternTransform: patternsFollow
 				? composeAffine(
 						geometry.patternTransform ?? IDENTITY_AFFINE,

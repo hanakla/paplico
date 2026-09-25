@@ -10,6 +10,8 @@ export interface StrokeTessellateInput {
 	miterLimit: number;
 	isClosed: boolean;
 	strokeWidths?: StrokeWidthPoint[];
+	/** Path.strokeErasure: cuts the stroke after strokeWidths resized it. */
+	strokeErasure?: StrokeWidthPoint[];
 	/** Fragment range covered by `points` within the whole stroke (defaults 0..1). */
 	pathStart?: number;
 	/** @see pathStart */
@@ -67,6 +69,7 @@ export function tessellateStroke(
 		miterLimit,
 		isClosed,
 		strokeWidths,
+		strokeErasure,
 		pathStart = 0,
 		pathEnd = 1,
 		arcParams,
@@ -87,12 +90,12 @@ export function tessellateStroke(
 		halfWidths[i] = baseWidth * 0.5 * (1 - sizeByPressure * (1 - pressure));
 	}
 
-	const hasStrokeWidths = strokeWidths != null && strokeWidths.length > 0;
+	const hasSideProfile = !!strokeWidths?.length || !!strokeErasure?.length;
 
 	// Arc-length parameterization (matches StampGenerator's pathT = cumulativeDist / totalLength)
 	let arcLengths: Float64Array | null = null;
 	let totalArcLength = 0;
-	if (hasStrokeWidths || arcParams) {
+	if (hasSideProfile || arcParams) {
 		arcLengths = new Float64Array(pointCount);
 		for (let i = 1; i < pointCount; i++) {
 			const dx = points[i * 2] - points[(i - 1) * 2];
@@ -105,7 +108,8 @@ export function tessellateStroke(
 	const samples = buildStrokeSamples(
 		points,
 		halfWidths,
-		strokeWidths,
+		strokeWidths ?? [],
+		strokeErasure ?? [],
 		arcLengths,
 		totalArcLength,
 	);
@@ -172,11 +176,16 @@ interface CenteredStrokeSamples {
 function buildStrokeSamples(
 	points: number[],
 	halfWidths: Float64Array,
-	strokeWidths: StrokeWidthPoint[] | undefined,
+	strokeWidths: StrokeWidthPoint[],
+	strokeErasure: StrokeWidthPoint[],
 	arcLengths: Float64Array | null,
 	totalArcLength: number,
 ): StrokeSample[] {
-	if (!strokeWidths?.length || !arcLengths || totalArcLength <= 0) {
+	if (
+		(strokeWidths.length === 0 && strokeErasure.length === 0) ||
+		!arcLengths ||
+		totalArcLength <= 0
+	) {
 		return Array.from({ length: points.length / 2 }, (_, index) => ({
 			x: points[index * 2],
 			y: points[index * 2 + 1],
@@ -192,9 +201,10 @@ function buildStrokeSamples(
 
 	const pathTs = [
 		...Array.from(arcLengths, (length) => length / totalArcLength),
-		...strokeWidthSamplePathTs(strokeWidths).map((t) =>
-			Math.min(1, Math.max(0, t)),
-		),
+		...[
+			...strokeWidthSamplePathTs(strokeWidths),
+			...strokeWidthSamplePathTs(strokeErasure),
+		].map((t) => Math.min(1, Math.max(0, t))),
 	].sort((a, b) => a - b);
 	const uniquePathTs = pathTs.filter(
 		(pathT, index) => index === 0 || pathT - pathTs[index - 1] > 1e-10,
@@ -208,7 +218,10 @@ function buildStrokeSamples(
 			totalArcLength,
 			pathT,
 		);
-		const { side1, side2 } = interpolateStrokeWidths(strokeWidths, pathT);
+		const { side1, side2 } = composeStrokeErasure(
+			interpolateStrokeWidths(strokeWidths, pathT),
+			interpolateStrokeWidths(strokeErasure, pathT),
+		);
 		return {
 			x,
 			y,
@@ -1384,6 +1397,72 @@ export function strokeWidthSamplePathTs(
 		}
 	}
 	return pathTs;
+}
+
+/**
+ * Side boundaries left after `erasure` cuts a stroke resized by `width`,
+ * both in the width profile's units (half of the brush-drawn width). The
+ * erasure is measured across the resized stroke, whose center sits at
+ * (side1 - side2) / 2 with half width (side1 + side2) / 2.
+ */
+export function composeStrokeErasure(
+	width: { side1: number; side2: number },
+	erasure: { side1: number; side2: number },
+): { side1: number; side2: number } {
+	const center = (width.side1 - width.side2) / 2;
+	const half = (width.side1 + width.side2) / 2;
+	return {
+		side1: center + half * erasure.side1,
+		side2: half * erasure.side2 - center,
+	};
+}
+
+/**
+ * Inverse of composeStrokeErasure for one side: the erasure value that puts
+ * that side's boundary at `boundary` (width profile units). Null where the
+ * resized stroke has no width to measure an erasure across.
+ */
+export function erasureForBoundary(
+	width: { side1: number; side2: number },
+	side: "side1" | "side2",
+	boundary: number,
+): number | null {
+	const center = (width.side1 - width.side2) / 2;
+	const half = (width.side1 + width.side2) / 2;
+	if (half <= 1e-6) return null;
+	return side === "side1"
+		? (boundary - center) / half
+		: (boundary + center) / half;
+}
+
+/**
+ * The part of a per-side profile between pathStart and pathEnd, re-normalized
+ * to 0..1, for a path piece cut out of the original.
+ */
+export function sliceStrokeWidths(
+	strokeWidths: StrokeWidthPoint[] | undefined,
+	pathStart: number,
+	pathEnd: number,
+): StrokeWidthPoint[] | undefined {
+	if (!strokeWidths?.length) return undefined;
+
+	const pathSpan = pathEnd - pathStart;
+	if (pathSpan <= 0) return undefined;
+
+	const startWidth = interpolateStrokeWidths(strokeWidths, pathStart);
+	const endWidth = interpolateStrokeWidths(strokeWidths, pathEnd);
+
+	return [
+		{ t: 0, ...startWidth },
+		...strokeWidths
+			.filter(({ t }) => t > pathStart && t < pathEnd)
+			.map(({ t, side1, side2 }) => ({
+				t: (t - pathStart) / pathSpan,
+				side1,
+				side2,
+			})),
+		{ t: 1, ...endWidth },
+	];
 }
 
 /** Largest width-ratio error a sampled chord may leave against the profile. */

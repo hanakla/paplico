@@ -6,6 +6,7 @@ const INTRO_COMPLETE_MS = 400;
 const INTRO_FADEOUT_MS = 300;
 /** Must match TimelapsePlayer.EVENT_INTERVAL_MS */
 const EVENT_INTERVAL_MS = 100;
+const COUNT_TICKS_YIELD_INTERVAL = 200;
 
 /**
  * Export timelapse as MP4 using WebCodecs API + MediaBunny.
@@ -13,6 +14,8 @@ const EVENT_INTERVAL_MS = 100;
  *
  * The exported video starts with the completed work shown for ~400ms,
  * then fades out to white over ~300ms, then plays the timelapse from the beginning.
+ * With `maxDurationMs`, a recording that would run longer is thinned to evenly
+ * spaced frames so the whole file fits, e.g. within a platform's upload limit.
  *
  * Note: Artboard filtering is controlled by the TimelapsePlayer instance passed to the constructor.
  * Create TimelapsePlayer with filterArtboard parameter to filter out updates outside that artboard.
@@ -32,9 +35,17 @@ export class TimelapseExporter {
 		fps?: number;
 		speed?: number;
 		scale?: number;
+		maxDurationMs?: number;
 		onProgress?: (progress: number) => void;
 	}): Promise<Blob> {
-		const { artboard, fps = 30, speed = 1, scale = 1, onProgress } = options;
+		const {
+			artboard,
+			fps = 30,
+			speed = 1,
+			scale = 1,
+			maxDurationMs,
+			onProgress,
+		} = options;
 
 		// Dynamic import: keep mediabunny out of the main bundle since it's only needed for export
 		const {
@@ -103,6 +114,22 @@ export class TimelapseExporter {
 			frameIndex++;
 		};
 
+		const holdFrames = Math.ceil((INTRO_COMPLETE_MS / 1000) * fps);
+		const fadeFrames = Math.ceil((INTRO_FADEOUT_MS / 1000) * fps);
+		const tickCount = await this.countTicks(frameDurationMs);
+		const encodedTickCount =
+			maxDurationMs == null
+				? tickCount
+				: Math.min(
+						tickCount,
+						Math.max(
+							1,
+							Math.floor((maxDurationMs / 1000) * fps) -
+								holdFrames -
+								fadeFrames,
+						),
+					);
+
 		// --- Intro: render the completed work ---
 		const completedImage = await this.renderFrame(
 			this.player.captureCompletedFrame(),
@@ -116,14 +143,12 @@ export class TimelapseExporter {
 		);
 
 		// Hold completed frame
-		const holdFrames = Math.ceil((INTRO_COMPLETE_MS / 1000) * fps);
 		for (let f = 0; f < holdFrames; f++) {
 			encodeFrame(completedPixels, f === 0);
 			if (f % 10 === 0) await this.yieldIfNeeded(encoder);
 		}
 
 		// Fade out to white
-		const fadeFrames = Math.ceil((INTRO_FADEOUT_MS / 1000) * fps);
 		for (let f = 0; f < fadeFrames; f++) {
 			const t = (f + 1) / fadeFrames; // 0→1 progress
 			const fadedPixels = blendToWhite(completedPixels, t, encWidth, encHeight);
@@ -134,23 +159,31 @@ export class TimelapseExporter {
 		// --- Timelapse from the beginning ---
 		// The player only moves forward here, so it never rewinds its replay
 		// document. A step that changes nothing reuses the previous pixels
-		// rather than re-rendering them.
+		// rather than re-rendering them. Ticks that are thinned out still
+		// advance the player, and only the latest frame among them is drawn.
 		let framePixels = this.padToEncoder(
 			await this.renderFrame(this.player.restart(), artboard, scale),
 			encWidth,
 			encHeight,
 		);
+		let pendingFrame: Document | null = null;
 
-		while (!this.player.hasFinished) {
+		for (let tick = 0; !this.player.hasFinished; tick++) {
 			if (encoderError) throw encoderError;
 
-			const frame = this.player.advanceBy(frameDurationMs);
-			if (frame) {
+			pendingFrame = this.player.advanceBy(frameDurationMs) ?? pendingFrame;
+			const encodesTick =
+				Math.floor(((tick + 1) * encodedTickCount) / tickCount) >
+				Math.floor((tick * encodedTickCount) / tickCount);
+			if (!encodesTick) continue;
+
+			if (pendingFrame) {
 				framePixels = this.padToEncoder(
-					await this.renderFrame(frame, artboard, scale),
+					await this.renderFrame(pendingFrame, artboard, scale),
 					encWidth,
 					encHeight,
 				);
+				pendingFrame = null;
 			}
 			encodeFrame(framePixels, frameIndex % (fps * 2) === 0);
 
@@ -168,6 +201,20 @@ export class TimelapseExporter {
 		await output.finalize();
 
 		return new Blob([target.buffer!], { type: "video/mp4" });
+	}
+
+	/** Play the recording through without drawing to learn how many ticks it spans. */
+	private async countTicks(frameDurationMs: number): Promise<number> {
+		this.player.restart();
+		let ticks = 0;
+		while (!this.player.hasFinished) {
+			this.player.advanceBy(frameDurationMs);
+			ticks++;
+			if (ticks % COUNT_TICKS_YIELD_INTERVAL === 0) {
+				await new Promise<void>((r) => setTimeout(r, 0));
+			}
+		}
+		return ticks;
 	}
 
 	private padToEncoder(

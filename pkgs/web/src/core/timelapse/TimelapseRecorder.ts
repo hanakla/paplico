@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { LATEST_SCHEMA_VERSION } from "../io/migrations";
 import type { BoundingBox } from "../schema";
 import {
 	TimelapseBoundsLedger,
@@ -28,6 +29,8 @@ export class TimelapseRecorder {
 	private rects: (TimelapseDirtyRect | null)[] = [];
 	/** Entry positions where the state starts over. @see appendBaseline */
 	private baselines: number[] = [];
+	/** @see TimelapseData.schemaVersions */
+	private schemaVersions: NonNullable<TimelapseData["schemaVersions"]> = [];
 	private startedAt = Date.now();
 	private readonly ledger = new TimelapseBoundsLedger();
 	/** The entry still accepting updates that touch the same objects. */
@@ -68,6 +71,7 @@ export class TimelapseRecorder {
 			return;
 		}
 
+		this.markSchemaVersion();
 		this.entries.push({ t, u: update });
 		this.rects.push(rect);
 		this.openGroup =
@@ -90,6 +94,7 @@ export class TimelapseRecorder {
 			entries: this.entries,
 			index: { rects: this.rects },
 			baselines: [...this.baselines],
+			schemaVersions: [...this.schemaVersions],
 		};
 	}
 
@@ -106,6 +111,7 @@ export class TimelapseRecorder {
 			? [...data.index.rects]
 			: new Array<TimelapseDirtyRect | null>(this.entries.length).fill(null);
 		this.baselines = data?.baselines ? [...data.baselines] : [];
+		this.schemaVersions = data?.schemaVersions ? [...data.schemaVersions] : [];
 		const lastT = this.entries.at(-1)?.t ?? 0;
 		this.startedAt = Date.now() - lastT;
 	}
@@ -125,6 +131,7 @@ export class TimelapseRecorder {
 	 */
 	public appendBaseline(baseline: Uint8Array): void {
 		this.openGroup = null;
+		this.markSchemaVersion();
 		this.baselines.push(this.entries.length);
 		this.entries.push({ t: Date.now() - this.startedAt, u: baseline });
 		this.rects.push(null);
@@ -140,6 +147,15 @@ export class TimelapseRecorder {
 		for (let i = 0; i < count; i++) {
 			this.rects[i] ??= index.rects[i];
 		}
+	}
+
+	/** Entries appended from here on carry this build's document shape. */
+	private markSchemaVersion(): void {
+		if (this.schemaVersions.at(-1)?.version === LATEST_SCHEMA_VERSION) return;
+		this.schemaVersions.push({
+			at: this.entries.length,
+			version: LATEST_SCHEMA_VERSION,
+		});
 	}
 }
 

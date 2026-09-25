@@ -164,12 +164,14 @@ describe("TransformFilterHandler", () => {
 			const filter = makeFilter({ moveX: 10, copies: 1 });
 
 			const geometries = handler.preProcessAppearance(
-				{ appearance: solidFill(), segments: rect },
+				{ appearance: solidFill(), path: { segments: rect } },
 				filter,
 			);
 
 			expect(geometries).toHaveLength(1);
-			expect(geometries[0].segments).toEqual(deform(handler, rect, filter));
+			expect(geometries[0].path.segments).toEqual(
+				deform(handler, rect, filter),
+			);
 			expect(geometries[0].patternTransform).toBeUndefined();
 		});
 
@@ -186,16 +188,16 @@ describe("TransformFilterHandler", () => {
 			});
 
 			const geometries = handler.preProcessAppearance(
-				{ appearance: patternFill(), segments: rect },
+				{ appearance: patternFill(), path: { segments: rect } },
 				filter,
 			);
 
 			expect(geometries).toHaveLength(3);
-			expect(geometries.flatMap((g) => g.segments)).toEqual(
+			expect(geometries.flatMap((g) => g.path.segments)).toEqual(
 				deform(handler, rect, filter),
 			);
 			for (const geometry of geometries) {
-				const corner = extractAnchors(geometry.segments)[1];
+				const corner = extractAnchors(geometry.path.segments)[1];
 				const mapped = applyAffineToPoint(geometry.patternTransform!, corner);
 				expect(mapped.x).toBeCloseTo(100);
 				expect(mapped.y).toBeCloseTo(0);
@@ -218,7 +220,7 @@ describe("TransformFilterHandler", () => {
 			} as StrokeAppearance;
 
 			const [, copy] = handler.preProcessAppearance(
-				{ appearance: sizeless, segments: makeRect(0, 0, 100, 100) },
+				{ appearance: sizeless, path: { segments: makeRect(0, 0, 100, 100) } },
 				makeFilter({ scaleX: 0.5, scaleY: 0.5, copies: 1, scaleStrokes: true }),
 			);
 
@@ -233,7 +235,10 @@ describe("TransformFilterHandler", () => {
 		it("scales each copy's stroke width by the copy's uniform scale", () => {
 			const handler = new TransformFilterHandler();
 			const geometries = handler.preProcessAppearance(
-				{ appearance: geometricStroke(4), segments: makeRect(0, 0, 100, 100) },
+				{
+					appearance: geometricStroke(4),
+					path: { segments: makeRect(0, 0, 100, 100) },
+				},
 				makeFilter({ scaleX: 0.5, scaleY: 0.5, copies: 2, scaleStrokes: true }),
 			);
 
@@ -386,10 +391,13 @@ function deform(
 	segments: CubicBezierSegment[],
 	filter: Filter,
 ): CubicBezierSegment[] {
-	const geometries = handler.preProcessAppearance({ segments }, filter);
+	const geometries = handler.preProcessAppearance(
+		{ path: { segments } },
+		filter,
+	);
 	return geometries.length === 1
-		? geometries[0].segments
-		: geometries.flatMap((geometry) => geometry.segments);
+		? geometries[0].path.segments
+		: geometries.flatMap((geometry) => geometry.path.segments);
 }
 
 /** Split a concatenated output back into its `count` equally long copies. */

@@ -10,6 +10,7 @@ import {
 	isFilterEnabled,
 	isGroup,
 	type Path,
+	type PathGeometry,
 } from "../../../schema";
 import { applyCornerRadius } from "../../../utils/geometry/cornerRadius";
 import { toWorldPath } from "../../../utils/geometry/segmentOps";
@@ -203,7 +204,7 @@ function collectAppearancePreSubFilters(
  */
 export function resolveAppearanceGeometries(
 	appearances: readonly NonNullable<AppearanceGeometry["appearance"]>[],
-	segments: CubicBezierSegment[],
+	path: PathGeometry,
 	filters: Filter[] | undefined,
 	filterRenderer: Pick<FilterRenderer, "getHandler">,
 ): AppearanceGeometry[][] {
@@ -212,10 +213,13 @@ export function resolveAppearanceGeometries(
 	);
 	// Untouched input stays shared by reference; only a deforming chain
 	// works on a copy.
-	const flat = applyCornerRadius(segments);
-	const start = preFilters.length === 0 ? flat : deepClone(flat);
+	const flat = applyCornerRadius(path.segments);
+	const start: PathGeometry = {
+		...path,
+		segments: preFilters.length === 0 ? flat : deepClone(flat),
+	};
 	let geometries: AppearanceGeometry[][] = appearances.map((appearance) => [
-		{ appearance, segments: start },
+		{ appearance, path: start },
 	]);
 	for (const filter of preFilters) {
 		const handler = filterRenderer.getHandler(filter.processor)!;
@@ -230,10 +234,10 @@ export function resolveAppearanceGeometries(
 		const deformed = new Map<CubicBezierSegment[], AppearanceGeometry[]>();
 		geometries = geometries.map((own) =>
 			own.flatMap((geometry) => {
-				let result = deformed.get(geometry.segments);
+				let result = deformed.get(geometry.path.segments);
 				if (!result) {
 					result = runPreFilter(handler, geometry, plainFilter);
-					deformed.set(geometry.segments, result);
+					deformed.set(geometry.path.segments, result);
 				}
 				// A plain deformation leaves the paint alone, so the requesting
 				// geometry keeps its own appearance and pattern transform.
@@ -255,13 +259,13 @@ export function applyPreFilters(
 ): CubicBezierSegment[] {
 	if (!filters || filters.length === 0) return segments;
 	const geometries = applyPreFiltersToGeometry(
-		{ segments },
+		{ path: { segments } },
 		filters,
 		filterRenderer,
 	);
 	return geometries.length === 1
-		? geometries[0].segments
-		: geometries.flatMap((geometry) => geometry.segments);
+		? geometries[0].path.segments
+		: geometries.flatMap((geometry) => geometry.path.segments);
 }
 
 /**
@@ -277,7 +281,10 @@ export function applyPreFiltersToGeometry(
 	const preFilters = filters.filter((f) => isGeometryFilter(f, filterRenderer));
 	if (preFilters.length === 0) return [geometry];
 	let geometries: AppearanceGeometry[] = [
-		{ ...geometry, segments: deepClone(geometry.segments) },
+		{
+			...geometry,
+			path: { ...geometry.path, segments: deepClone(geometry.path.segments) },
+		},
 	];
 	for (const filter of preFilters) {
 		const handler = filterRenderer.getHandler(filter.processor)!;
@@ -298,10 +305,15 @@ function runPreFilter(
 	if (handler.preProcessAppearance) {
 		return handler.preProcessAppearance(geometry, plainFilter);
 	}
+	// A plain deformation moves the segments; the band's profile stays with
+	// the shape it was drawn along.
 	return [
 		{
 			...geometry,
-			segments: handler.preProcess!(geometry.segments, plainFilter),
+			path: {
+				...geometry.path,
+				segments: handler.preProcess!(geometry.path.segments, plainFilter),
+			},
 		},
 	];
 }

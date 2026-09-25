@@ -7,16 +7,18 @@ import {
 	type RibbonStrokeInput,
 } from "./RibbonGenerator";
 
-describe("generateRibbonInstances — signed stroke widths", () => {
-	it("should preserve negative side widths at segment endpoints", () => {
+describe("generateRibbonInstances — side profiles", () => {
+	it("should carry signed erasure boundaries at segment endpoints", () => {
 		const result = generateRibbonInstances(
 			[straightSegment()],
 			patternSettings(),
 			0,
-			[
-				{ t: 0, side1: -0.5, side2: 1 },
-				{ t: 1, side1: -1.5, side2: 0.75 },
-			],
+			{
+				strokeErasure: [
+					{ t: 0, side1: -0.5, side2: 1 },
+					{ t: 1, side1: -1.5, side2: 0.75 },
+				],
+			},
 		);
 
 		expect(result.segmentCount).toBe(1);
@@ -26,16 +28,18 @@ describe("generateRibbonInstances — signed stroke widths", () => {
 		expect(result.data[13]).toBeCloseTo(0.75, 5);
 	});
 
-	it("should split a cubic at interior stroke-width control points", () => {
+	it("should split a cubic at interior erasure control points", () => {
 		const result = generateRibbonInstances(
 			[straightSegment()],
 			patternSettings(),
 			0,
-			[
-				{ t: 0, side1: 1, side2: 1 },
-				{ t: 0.5, side1: -0.5, side2: 0.75 },
-				{ t: 1, side1: 0.25, side2: 1 },
-			],
+			{
+				strokeErasure: [
+					{ t: 0, side1: 1, side2: 1 },
+					{ t: 0.5, side1: -0.5, side2: 0.75 },
+					{ t: 1, side1: 0.25, side2: 1 },
+				],
+			},
 		);
 
 		const instances = Array.from({ length: result.segmentCount }, (_, i) =>
@@ -60,14 +64,54 @@ describe("generateRibbonInstances — signed stroke widths", () => {
 			[straightSegment()],
 			patternSettings(),
 			0,
-			[
-				{ t: 0, side1: 0, side2: 0 },
-				{ t: 0.5, side1: 1, side2: 1 },
-				{ t: 1, side1: 1, side2: 1 },
-			],
+			{
+				strokeWidths: [
+					{ t: 0, side1: 0, side2: 0 },
+					{ t: 0.5, side1: 1, side2: 1 },
+					{ t: 1, side1: 1, side2: 1 },
+				],
+			},
 		);
 
 		expect(result.segmentCount).toBeGreaterThan(2);
+	});
+
+	it("should scale the half width by the width profile without cutting it", () => {
+		const result = generateRibbonInstances(
+			[straightSegment()],
+			patternSettings(),
+			0,
+			{
+				strokeWidths: [
+					{ t: 0, side1: 0.5, side2: 0.5 },
+					{ t: 1, side1: 0.5, side2: 0.5 },
+				],
+			},
+		);
+
+		expect(result.data[8]).toBeCloseTo(2.5, 5);
+		expect(result.data[9]).toBeCloseTo(2.5, 5);
+		expect(result.data[10]).toBe(1);
+		expect(result.data[12]).toBe(1);
+	});
+
+	it("should move the centerline toward the wider side", () => {
+		const result = generateRibbonInstances(
+			[straightSegment()],
+			patternSettings(),
+			0,
+			{
+				strokeWidths: [
+					{ t: 0, side1: 1, side2: 0 },
+					{ t: 1, side1: 1, side2: 0 },
+				],
+			},
+		);
+
+		// Travel is +x, so side1 is +y. Half the brush half width is 2.5.
+		expect(result.data[1]).toBeCloseTo(2.5, 5);
+		expect(result.data[7]).toBeCloseTo(2.5, 5);
+		expect(result.data[8]).toBeCloseTo(2.5, 5);
 	});
 
 	it("should join the first and last instances of a closed ribbon", () => {

@@ -21,6 +21,7 @@ export function hashStrokeGeometry(
 	dashArray?: readonly number[],
 	dashOffset?: number,
 	strokeWidths?: StrokeWidthPoint[],
+	strokeErasure?: StrokeWidthPoint[],
 	pathStart?: number,
 	pathEnd?: number,
 	zoomBucket?: number,
@@ -39,15 +40,8 @@ export function hashStrokeGeometry(
 		}
 		h = (h * 31 + floatBits(dashOffset ?? 0)) | 0;
 	}
-	if (strokeWidths) {
-		h = (h * 31 + strokeWidths.length) | 0;
-		for (let i = 0; i < strokeWidths.length; i++) {
-			const sw = strokeWidths[i];
-			h = (h * 31 + floatBits(sw.t)) | 0;
-			h = (h * 31 + floatBits(sw.side1)) | 0;
-			h = (h * 31 + floatBits(sw.side2)) | 0;
-		}
-	}
+	h = hashSideProfile(h, strokeWidths);
+	h = hashSideProfile(h, strokeErasure);
 	h = (h * 31 + floatBits(pathStart ?? 0)) | 0;
 	h = (h * 31 + floatBits(pathEnd ?? 1)) | 0;
 	// Round join/cap subdivision follows the device-space error budget, so
@@ -62,4 +56,19 @@ export function hashStrokeGeometry(
 			(strokeAlign === "outside" ? 1 : strokeAlign === "inside" ? 2 : 0)) |
 		0;
 	return h;
+}
+
+/** Mixes a per-side profile into `h`; absent and present profiles never collide. */
+export function hashSideProfile(
+	h: number,
+	profile?: StrokeWidthPoint[],
+): number {
+	if (!profile) return (h * 31) | 0;
+	let hash = (h * 31 + profile.length) | 0;
+	for (const { t, side1, side2 } of profile) {
+		hash = (hash * 31 + floatBits(t)) | 0;
+		hash = (hash * 31 + floatBits(side1)) | 0;
+		hash = (hash * 31 + floatBits(side2)) | 0;
+	}
+	return hash;
 }

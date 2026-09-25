@@ -159,6 +159,13 @@ describe("Offscreen pixel alignment", () => {
 		const gray = await renderNestedFractionalClipsAndMeasureEdge();
 		expect(gray).toBe(0);
 	});
+
+	it("keeps edges crisp through nested clip groups on screen at a zoom below 1", async () => {
+		// An on-screen clip group bakes at the viewport zoom; a bake at the next
+		// power of two resampled down to the screen blurs the content edge.
+		const gray = await renderNestedFractionalClipsOnScreenAndMeasureEdge(0.6);
+		expect(gray).toBe(0);
+	});
 });
 
 describe("Clip groups are not isolated", () => {
@@ -427,11 +434,40 @@ async function renderNestedFractionalClipsAndMeasureEdge() {
 	if (!device) throw new Error("Test renderer has no device");
 	const pixels = await captureTexturePixels(device, texture, 800, 600);
 	texture.destroy();
-	// Content spans world x -150..150 → screen 250..550. Count intermediate
-	// values along the row through the centre where it crosses the left edge.
+	return countLeftEdgeGray(pixels, viewport.zoom);
+}
+
+async function renderNestedFractionalClipsOnScreenAndMeasureEdge(zoom: number) {
+	const { renderer, canvas } = await createTestRenderer();
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	renderer.render(
+		{
+			viewport: { x: 0, y: 0, zoom, rotation: 0 },
+			document: createNestedFractionalClipDoc(),
+			strategy: "full",
+			changedElements: { upserted: new Set(), deleted: new Set() },
+		},
+		{},
+	);
+	await device.queue.onSubmittedWorkDone();
+	const texture = (
+		canvas as unknown as { _context: GPUCanvasContext }
+	)._context.getCurrentTexture();
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	return countLeftEdgeGray(pixels, zoom);
+}
+
+/**
+ * Content spans world x -150..150. Counts intermediate values where a row
+ * crosses the left edge. The row sits between the rows of the on-screen dot
+ * grid, which is spaced 24px from the centre, so only the edge reads as gray.
+ */
+function countLeftEdgeGray(pixels: Uint8Array, zoom: number): number {
+	const edgeX = 400 - 150 * zoom;
 	let gray = 0;
-	for (let x = 240; x < 260; x++) {
-		const v = pixels[(300 * 800 + x) * 4];
+	for (let x = edgeX - 10; x < edgeX + 10; x++) {
+		const v = pixels[(312 * 800 + x) * 4];
 		if (v > 12 && v < 243) gray++;
 	}
 	return gray;

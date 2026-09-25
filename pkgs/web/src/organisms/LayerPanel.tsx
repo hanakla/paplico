@@ -1627,8 +1627,7 @@ function useLayerPanelOperations(deps: {
 				const rangeIds = displayIds.slice(from, to + 1);
 				deps.selection.selectMultiple(rangeIds);
 			} else {
-				const bounds = calculateElementBounds(element);
-				deps.selection.selectElement(element.id, bounds);
+				deps.selection.selectElement(element.id);
 			}
 		},
 	);

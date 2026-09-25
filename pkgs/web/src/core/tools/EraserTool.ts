@@ -1,6 +1,8 @@
 import { readStoredBrushSize } from "../brush/access";
 import { localAppearances } from "../document/appearancePresets";
 import {
+	composeStrokeErasure,
+	erasureForBoundary,
 	interpolateStrokeWidths,
 	strokeWidthSamplePathTs,
 } from "../renderer/geometry/strokeTessellator";
@@ -237,7 +239,8 @@ export class EraserTool implements Tool {
 	}
 
 	/**
-	 * Unified erase: slice first, then width-adjust on surviving/new paths.
+	 * Unified erase: filled paths are face-cut, the rest get their stroke
+	 * erasure moved (and split where it erases past zero width).
 	 * All mutations happen in a single transact.
 	 */
 	private performUnifiedErase(layers: Layer[]): void {
@@ -254,10 +257,10 @@ export class EraserTool implements Tool {
 			layerId: string;
 			splitPaths: Path[];
 		}> = [];
-		const widthUpdates: Array<{
+		const erasureUpdates: Array<{
 			id: string;
 			layerId: string;
-			strokeWidths: StrokeWidthPoint[];
+			strokeErasure: StrokeWidthPoint[];
 		}> = [];
 
 		const targets = layers.flatMap((layer) =>
@@ -295,7 +298,7 @@ export class EraserTool implements Tool {
 			const worldBounds = applyTransformToBounds(expandedBounds, composedT);
 			if (!boundsIntersect(worldBounds, eraserBounds)) continue;
 
-			// Convert eraser to local space once for both slice and width-adjust
+			// Convert eraser to local space once for both face-cut and erasure
 			const origin = computeTransformOrigin(localBounds);
 			const localStroke = worldToLocalFull(
 				this.currentStroke,
@@ -329,45 +332,32 @@ export class EraserTool implements Tool {
 				continue;
 			}
 
-			const newWidths = computeWidthAdjustment(
+			const newErasure = computeErasureAdjustment(
 				pathEl,
 				localStroke,
 				localEraserRadius,
 				brushHalfSize,
 			);
-			if (!newWidths) continue;
+			if (!newErasure) continue;
 
-			const cutRanges = findNegativeWidthRanges(newWidths);
+			const cutRanges = findNegativeWidthRanges(newErasure);
 			if (cutRanges.length === 0) {
-				widthUpdates.push({
+				erasureUpdates.push({
 					id: elementId,
 					layerId: layer.id,
-					strokeWidths: newWidths,
+					strokeErasure: newErasure,
 				});
 				continue;
 			}
 
-			const splitPaths = splitPathByNormalizedRanges(pathEl, cutRanges);
-			const sourcePathStart = pathEl.pathStart ?? 0;
-			const sourcePathSpan = (pathEl.pathEnd ?? 1) - sourcePathStart;
-			for (const splitPath of splitPaths) {
-				const localPathStart =
-					((splitPath.pathStart ?? sourcePathStart) - sourcePathStart) /
-					sourcePathSpan;
-				const localPathEnd =
-					((splitPath.pathEnd ?? sourcePathStart + sourcePathSpan) -
-						sourcePathStart) /
-					sourcePathSpan;
-				splitPath.strokeWidths = sliceStrokeWidths(
-					newWidths,
-					localPathStart,
-					localPathEnd,
-				);
-			}
+			const splitPaths = splitPathByNormalizedRanges(
+				{ ...pathEl, strokeErasure: newErasure },
+				cutRanges,
+			);
 			sliceResults.push({ id: elementId, layerId: layer.id, splitPaths });
 		}
 
-		if (sliceResults.length === 0 && widthUpdates.length === 0) return;
+		if (sliceResults.length === 0 && erasureUpdates.length === 0) return;
 
 		const layerById = new Map(
 			layers.map((layer) => [layer.id, layer] as const),
@@ -452,8 +442,8 @@ export class EraserTool implements Tool {
 				insertionOffsets.set(parentKey, offsets);
 			}
 
-			for (const { id, layerId, strokeWidths } of widthUpdates) {
-				commands.updateElement(layerId, id, { strokeWidths });
+			for (const { id, layerId, strokeErasure } of erasureUpdates) {
+				commands.updateElement(layerId, id, { strokeErasure });
 			}
 		});
 	}
@@ -520,7 +510,9 @@ export class EraserTool implements Tool {
 }
 
 /**
- * Compute width adjustment for a path based on eraser stroke intersection.
+ * Compute the path's new strokeErasure from the eraser stroke intersection.
+ * strokeWidths is only read: the erasure is measured across the band it
+ * draws.
  *
  * ## Algorithm
  *
@@ -539,9 +531,10 @@ export class EraserTool implements Tool {
  * ```
  *
  * - `nearEdge > 0`: eraser's closest edge is outside the path center.
- *   Remaining width on the closest side = `nearEdge / brushHalfSize`.
- * - `nearEdge <= 0`: eraser extends past center. Closest side is fully erased.
- *   Opposite side is also eroded by `(-nearEdge) / brushHalfSize`.
+ *   The closest side's boundary moves to `nearEdge`, re-expressed across the
+ *   band the width profile drew.
+ * - `nearEdge <= 0`: eraser extends past center, so the boundary goes
+ *   negative and narrows the opposite side.
  *
  * **3. Guard-peak-guard bracketing:**
  * To prevent the reduction from bleeding along the path via interpolation,
@@ -551,11 +544,11 @@ export class EraserTool implements Tool {
  *   [tLeft: guard] ---- [closestT: peak (reduced)] ---- [tRight: guard]
  * ```
  *
- * - Guard points preserve the interpolated original width at the boundaries.
+ * - Guard points preserve the interpolated original erasure at the boundaries.
  * - `tRadius = eraserRadius / pathLength` defines the influence zone in t-space.
  * - Existing CPs strictly between the guards are removed to avoid conflicts.
  */
-function computeWidthAdjustment(
+function computeErasureAdjustment(
 	path: Path,
 	eraserStroke: Point[],
 	eraserRadius: number,
@@ -570,8 +563,9 @@ function computeWidthAdjustment(
 	// and fills gaps between sparse input points from fast strokes.
 	const eraserPoints = smoothEraserStroke(eraserStroke);
 
-	const existing = path.strokeWidths ?? [];
-	const newWidths: StrokeWidthPoint[] = [...existing];
+	const existing = path.strokeErasure ?? [];
+	const widths = path.strokeWidths ?? [];
+	const newErasure: StrokeWidthPoint[] = [...existing];
 	const totalSegs = pathPoints.length - 1;
 
 	// Coarse hit radius for initial closest-point search (uses full brush width)
@@ -591,7 +585,7 @@ function computeWidthAdjustment(
 		cumulativeLengths[i + 1] = totalLength;
 	}
 
-	// Phase 1: Collect all hits from eraser segments against original widths.
+	// Phase 1: Collect all hits from eraser segments against the original erasure.
 	// A single eraser segment may hit multiple points on the path (e.g. at
 	// self-intersections or U-shaped curves), so we collect ALL candidates
 	// within coarseHitRadius and cluster them by t-distance.
@@ -668,23 +662,29 @@ function computeWidthAdjustment(
 		}
 		clustered.push(closest);
 
-		// Compute width adjustment for each clustered hit
+		// Compute the erased boundary for each clustered hit
 		for (const candidate of clustered) {
 			const current = interpolateStrokeWidths(existing, candidate.t);
-			const effectiveSideRatio =
-				candidate.side === 1 ? current.side1 : current.side2;
+			const width = interpolateStrokeWidths(widths, candidate.t);
+			const visible = composeStrokeErasure(width, current);
+			const visibleSideRatio =
+				candidate.side === 1 ? visible.side1 : visible.side2;
 			const effectiveHitRadius =
-				eraserRadius + brushHalfSize * effectiveSideRatio;
+				eraserRadius + brushHalfSize * visibleSideRatio;
 			if (candidate.dist > effectiveHitRadius) continue;
 
-			const nearEdge = candidate.dist - eraserRadius;
+			const nearEdge =
+				brushHalfSize > 0 ? (candidate.dist - eraserRadius) / brushHalfSize : 0;
+			const erasedBoundary = erasureForBoundary(
+				width,
+				candidate.side === 1 ? "side1" : "side2",
+				nearEdge,
+			);
+			if (erasedBoundary === null) continue;
 
 			const currentClosestRatio =
 				candidate.side === 1 ? current.side1 : current.side2;
-			const closestSideRatio =
-				brushHalfSize > 0
-					? Math.min(currentClosestRatio, nearEdge / brushHalfSize)
-					: 0;
+			const closestSideRatio = Math.min(currentClosestRatio, erasedBoundary);
 
 			hits.push({
 				t: candidate.t,
@@ -736,10 +736,10 @@ function computeWidthAdjustment(
 	// Apply each range independently
 	for (const range of ranges) {
 		// Remove existing CPs within this influence zone
-		for (let i = newWidths.length - 1; i >= 0; i--) {
-			const t = newWidths[i].t;
+		for (let i = newErasure.length - 1; i >= 0; i--) {
+			const t = newErasure[i].t;
 			if (t >= range.left && t <= range.right) {
-				newWidths.splice(i, 1);
+				newErasure.splice(i, 1);
 			}
 		}
 
@@ -750,13 +750,13 @@ function computeWidthAdjustment(
 			({ t }) => Math.abs(t - range.right) < MERGE_T_THRESHOLD,
 		);
 		if (!hasLeftHit) {
-			newWidths.push({
+			newErasure.push({
 				t: range.left,
 				...interpolateStrokeWidths(existing, range.left),
 			});
 		}
 
-		newWidths.push(
+		newErasure.push(
 			...simplifyStrokeWidths(
 				range.hits
 					.filter(({ t }) => t >= range.left && t <= range.right)
@@ -765,15 +765,15 @@ function computeWidthAdjustment(
 		);
 
 		if (!hasRightHit) {
-			newWidths.push({
+			newErasure.push({
 				t: range.right,
 				...interpolateStrokeWidths(existing, range.right),
 			});
 		}
 	}
 
-	newWidths.sort((a, b) => a.t - b.t);
-	return newWidths;
+	newErasure.sort((a, b) => a.t - b.t);
+	return newErasure;
 }
 
 function findNegativeWidthRanges(
@@ -833,32 +833,6 @@ function findZeroCrossing(
 		else nonNegativeT = middleT;
 	}
 	return nonNegativeT;
-}
-
-function sliceStrokeWidths(
-	strokeWidths: StrokeWidthPoint[] | undefined,
-	pathStart: number,
-	pathEnd: number,
-): StrokeWidthPoint[] | undefined {
-	if (!strokeWidths?.length) return undefined;
-
-	const pathSpan = pathEnd - pathStart;
-	if (pathSpan <= 0) return undefined;
-
-	const startWidth = interpolateStrokeWidths(strokeWidths, pathStart);
-	const endWidth = interpolateStrokeWidths(strokeWidths, pathEnd);
-
-	return [
-		{ t: 0, ...startWidth },
-		...strokeWidths
-			.filter(({ t }) => t > pathStart && t < pathEnd)
-			.map(({ t, side1, side2 }) => ({
-				t: (t - pathStart) / pathSpan,
-				side1,
-				side2,
-			})),
-		{ t: 1, ...endWidth },
-	];
 }
 
 const MERGE_T_THRESHOLD = 0.005;

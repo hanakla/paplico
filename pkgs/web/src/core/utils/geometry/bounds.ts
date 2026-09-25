@@ -32,11 +32,12 @@ import {
 } from "../elementQuery";
 import type { Brand } from "../lang";
 import { bakeCompoundPathSegments } from "./compoundBake";
-import { applyTransformToBounds } from "./geometry";
+import { applyTransformToBounds, type WorldBezierSegment } from "./geometry";
 // Cycle note: meshWarp.ts imports helpers from this module too. Both sides
 // only call across at function-call time (no module-evaluation use), which
 // ESM resolves fine.
 import { createMeshWarpSampler } from "./meshWarp";
+import { evalCubicBezier } from "./pathSampling";
 import {
 	applyAffineToPoint,
 	composeAffine,
@@ -121,6 +122,54 @@ export function calculateSegmentListBounds(
 		width: maxX - minX,
 		height: maxY - minY,
 	};
+}
+
+/**
+ * Bounding box of the curves drawn by world-space segments: anchors plus each
+ * cubic's axis extrema, so off-curve control points do not widen it and no
+ * stroke margin is added. Returns null for an empty list.
+ */
+export function calculateSegmentListTightBounds(
+	segments: readonly WorldBezierSegment[],
+): WorldBBox | null {
+	if (segments.length === 0) return null;
+
+	let minX = Number.POSITIVE_INFINITY;
+	let minY = Number.POSITIVE_INFINITY;
+	let maxX = Number.NEGATIVE_INFINITY;
+	let maxY = Number.NEGATIVE_INFINITY;
+	const include = (x: number, y: number) => {
+		if (x < minX) minX = x;
+		if (y < minY) minY = y;
+		if (x > maxX) maxX = x;
+		if (y > maxY) maxY = y;
+	};
+
+	let prevEnd: WorldBezierSegment["end"] | undefined;
+	for (const segment of segments) {
+		// biome-ignore lint/style/noNonNullAssertion: only the first segment may omit start, and it always carries one
+		const start = segment.start ?? prevEnd!;
+		const { cp1, cp2, end } = segment;
+		include(start.x, start.y);
+		include(end.x, end.y);
+		for (const t of [
+			...cubicExtremaParams(start.x, cp1.x, cp2.x, end.x),
+			...cubicExtremaParams(start.y, cp1.y, cp2.y, end.y),
+		]) {
+			const p = evalCubicBezier(start, cp1, cp2, end, t);
+			include(p.x, p.y);
+		}
+		prevEnd = end;
+	}
+
+	return brandWorldBBox({
+		minX,
+		minY,
+		maxX,
+		maxY,
+		width: maxX - minX,
+		height: maxY - minY,
+	});
 }
 
 /**
@@ -1351,4 +1400,31 @@ export function snapBoundsToRasterGrid(
 	const minY = Math.floor(bounds.minY * rasterScale + eps) / rasterScale;
 	const maxY = Math.ceil(bounds.maxY * rasterScale - eps) / rasterScale;
 	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
+ * Parameters in (0, 1) where one axis of a cubic Bézier turns around, i.e.
+ * the roots of its derivative, given that axis's four control values.
+ */
+function cubicExtremaParams(
+	p0: number,
+	p1: number,
+	p2: number,
+	p3: number,
+): number[] {
+	const a = -p0 + 3 * p1 - 3 * p2 + p3;
+	const b = 2 * (p0 - 2 * p1 + p2);
+	const c = p1 - p0;
+	const eps = 1e-12;
+
+	let roots: number[];
+	if (Math.abs(a) < eps) {
+		roots = Math.abs(b) < eps ? [] : [-c / b];
+	} else {
+		const disc = b * b - 4 * a * c;
+		if (disc < 0) return [];
+		const sq = Math.sqrt(disc);
+		roots = [(-b + sq) / (2 * a), (-b - sq) / (2 * a)];
+	}
+	return roots.filter((t) => t > 0 && t < 1);
 }

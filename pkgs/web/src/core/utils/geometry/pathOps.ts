@@ -6,6 +6,7 @@
  */
 
 import polygonClipping from "polygon-clipping";
+import { sliceStrokeWidths } from "../../renderer/geometry/strokeTessellator";
 import {
 	type BezierPoint,
 	type CompoundPathSource,
@@ -21,9 +22,9 @@ import {
 	contourToCubicSegments,
 	cubicSegmentsToContour,
 	GeometryEpsilon,
-	normalizeWinding,
 	type Segment,
 } from "./bezierBool";
+import { pointInPolygon } from "./bounds";
 import { applyCornerRadius } from "./cornerRadius";
 import {
 	getStartAnchor,
@@ -89,7 +90,7 @@ export function computeBooleanOperation(
 		return [];
 	}
 
-	return normalizeWinding(result).flatMap(contourToCubicSegments);
+	return result.flatMap(contourToCubicSegments);
 }
 
 function pathToContours(path: Path, geo: GeometryEpsilon): Segment[][] {
@@ -859,44 +860,157 @@ function simplifyRing(ring: Ring): Ring {
  * with 3 vertices per triangle) as closed cubic Bézier subpaths that stay
  * within `tolerance` of it. Overlapping triangles merge; enclosed gaps become
  * hole subpaths.
+ *
+ * Triangles that share edges (a stroke body's quads, a cap's fan) are joined
+ * by cancelling the shared edges first, so the boolean union only sees the
+ * boundary rings left over. Fed the sliver triangles themselves, the sweep
+ * line loses segments.
  */
 export function triangleSoupOutline(
 	triangles: readonly number[],
 	tolerance: number,
 ): CubicBezierSegment[] {
-	// polygon-clipping's sweep line throws on near-coincident vertices but
-	// handles exact coincidences, so vertices snap to a grid well below the
-	// tolerance.
+	// Shared edges only cancel when their vertices are exact, so vertices
+	// snap to a grid well below the tolerance.
 	const grid = tolerance / 100;
 	const snap = (v: number) => Math.round(v / grid) * grid;
+	const rings = meshBoundaryRings(triangles, snap);
+	if (rings.length === 0) return [];
 
-	const polygons: Polygon[] = [];
+	const geo = new GeometryEpsilon();
+	let shapes = groupHoleRings(rings).map((shape) =>
+		shape.map((ring) =>
+			cubicSegmentsToContour(
+				ring
+					.slice(1)
+					.map((coord, i) =>
+						straightSegment(
+							{ x: ring[i][0], y: ring[i][1] },
+							{ x: coord[0], y: coord[1] },
+						),
+					),
+				geo,
+			),
+		),
+	);
+	// Pairwise union as a balanced tree, so each step merges two shapes of
+	// similar size instead of one growing result against every next shape.
+	while (shapes.length > 1) {
+		const merged: Segment[][][] = [];
+		for (let i = 0; i < shapes.length; i += 2) {
+			merged.push(
+				i + 1 < shapes.length
+					? booleanOp(shapes[i], shapes[i + 1], "union")
+					: shapes[i],
+			);
+		}
+		shapes = merged;
+	}
+	return shapes[0].flatMap((contour) => {
+		const ring: Ring = contour.map((seg) => seg.start());
+		ring.push(ring[0]);
+		// The union leaves slivers where shapes touched along an edge; a region
+		// thinner than the tolerance is invisible either way.
+		if ((2 * Math.abs(ringArea(ring))) / ringPerimeter(ring) < tolerance) {
+			return [];
+		}
+		// The fitter measures its error only at the vertices, so a long edge
+		// left with its two ends alone lets the fitted curve bulge away from it.
+		return ringToSegments(densifyRing(ring, tolerance * 10), tolerance);
+	});
+}
+
+/**
+ * The boundary of a triangle mesh as closed rings. Every triangle is wound
+ * counter-clockwise, so an edge two triangles share appears once in each
+ * direction and cancels; the directed edges left chain into rings, an outer
+ * boundary running counter-clockwise and an enclosed gap clockwise.
+ */
+function meshBoundaryRings(
+	triangles: readonly number[],
+	snap: (v: number) => number,
+): Ring[] {
+	const key = (c: Coord) => `${c[0]},${c[1]}`;
+	const edges = new Map<string, { from: Coord; to: Coord }>();
 	for (let i = 0; i + 5 < triangles.length; i += 6) {
-		const ring: Ring = [];
+		const ring: Coord[] = [];
 		for (let k = i; k < i + 6; k += 2) {
 			ring.push([snap(triangles[k]), snap(triangles[k + 1])]);
 		}
 		const [a, b, c] = ring;
 		const area2 = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
 		if (area2 === 0) continue;
-		// One winding for every triangle keeps the soup a nonzero union.
 		const wound = area2 > 0 ? ring : ring.reverse();
-		polygons.push([[...wound, wound[0]]]);
+		for (let k = 0; k < 3; k++) {
+			const from = wound[k];
+			const to = wound[(k + 1) % 3];
+			if (edges.delete(`${key(to)}|${key(from)}`)) continue;
+			edges.set(`${key(from)}|${key(to)}`, { from, to });
+		}
 	}
-	if (polygons.length === 0) return [];
 
-	let rings: Ring[];
-	try {
-		rings = polygonClipping.union(polygons[0], ...polygons.slice(1)).flat();
-	} catch {
-		// The raw soup still covers the same area, only as many small shapes.
-		rings = polygons.flat();
+	const outgoing = new Map<string, { from: Coord; to: Coord }[]>();
+	for (const edge of edges.values()) {
+		const k = key(edge.from);
+		outgoing.set(k, [...(outgoing.get(k) ?? []), edge]);
 	}
-	// The fitter measures its error only at the vertices, so a long edge left
-	// with its two ends alone lets the fitted curve bulge away from it.
-	return rings.flatMap((ring) =>
-		ringToSegments(densifyRing(ring, tolerance * 10), tolerance),
-	);
+	const rings: Ring[] = [];
+	const used = new Set<{ from: Coord; to: Coord }>();
+	for (const start of edges.values()) {
+		if (used.has(start)) continue;
+		const ring: Ring = [start.from];
+		let edge = start;
+		for (;;) {
+			used.add(edge);
+			ring.push(edge.to);
+			const next = outgoing.get(key(edge.to))?.find((e) => !used.has(e));
+			if (!next) break;
+			edge = next;
+		}
+		if (ring.length >= 4) rings.push(ring);
+	}
+	return rings;
+}
+
+/**
+ * Group boundary rings into shapes for the boolean union: a clockwise ring
+ * is the hole of the smallest counter-clockwise ring around it and goes into
+ * that ring's shape, so the union keeps the gap instead of filling it as a
+ * shape of its own.
+ */
+function groupHoleRings(rings: Ring[]): Ring[][] {
+	const solids: { ring: Ring; area: number; shape: Ring[] }[] = [];
+	const holes: Ring[] = [];
+	for (const ring of rings) {
+		const area = ringArea(ring);
+		if (area > 0) solids.push({ ring, area, shape: [ring] });
+		else holes.push(ring);
+	}
+	for (const hole of holes) {
+		const [x, y] = hole[0];
+		const owner = solids
+			.filter((solid) =>
+				pointInPolygon(
+					x,
+					y,
+					solid.ring.map(([px, py]) => ({ x: px, y: py })),
+				),
+			)
+			.sort((a, b) => a.area - b.area)[0];
+		if (owner) owner.shape.push(hole);
+	}
+	return solids.map((solid) => solid.shape);
+}
+
+function ringPerimeter(ring: Ring): number {
+	let length = 0;
+	for (let i = 1; i < ring.length; i++) {
+		length += Math.hypot(
+			ring[i][0] - ring[i - 1][0],
+			ring[i][1] - ring[i - 1][1],
+		);
+	}
+	return length;
 }
 
 /** Split ring edges so consecutive vertices are at most `maxGap` apart. */
@@ -1440,42 +1554,97 @@ function interpolateSegmentValue(
 }
 
 /**
- * Create a new path from segments, preserving original path properties.
- * pathStart/pathEnd indicate where this fragment sits within the original full stroke (0–1).
- * Defaults (0 and 1) are stored as undefined to keep the schema lean.
+ * A run of segments taken out of one path, with where it sat on that path:
+ * `start` and `end` are ratios of the original's arc length. On a closed path
+ * a run that wraps past the start has `end` above 1.
  */
-/**
- * Build path elements for several segment runs extracted from one source path,
- * preserving its style. pathStart/pathEnd trim ranges are distributed by
- * segment count (an approximation of arc length, adequate for run splitting).
- */
-export function createPathsFromSegmentLists(
-	originalPath: Path,
-	segmentLists: CubicBezierSegment[][],
-): Path[] {
-	const totalSegments = segmentLists.reduce(
-		(sum, list) => sum + list.length,
-		0,
-	);
-	let consumed = 0;
-	return segmentLists.map((segments) => {
-		const start = totalSegments > 0 ? consumed / totalSegments : 0;
-		consumed += segments.length;
-		const end = totalSegments > 0 ? consumed / totalSegments : 1;
-		return createPathFromSegments(originalPath, segments, start, end);
-	});
+export interface PathRun {
+	segments: CubicBezierSegment[];
+	start: number;
+	end: number;
 }
 
+/**
+ * Build path elements for several segment runs extracted from one source
+ * path, preserving its style and the part of its width and erasure profiles
+ * each run covers.
+ */
+export function createPathsFromRuns(
+	originalPath: Path,
+	runs: PathRun[],
+): Path[] {
+	return runs.map(({ segments, start, end }) =>
+		createPathFromSegments(originalPath, segments, start, end),
+	);
+}
+
+/**
+ * Where the point at parameter `t` of segment `segmentIndex` sits along the
+ * path, as a ratio of its arc length. An index past the last segment is the
+ * path's end.
+ */
+export function arcLengthRatioAt(
+	segments: CubicBezierSegment[],
+	segmentIndex: number,
+	t: number = 0,
+): number {
+	if (segmentIndex >= segments.length) return 1;
+
+	const lengths = segmentArcLengths(segments);
+	const total = lengths.reduce((sum, length) => sum + length, 0);
+	if (total <= 0) return (segmentIndex + t) / segments.length;
+
+	const { start, cp1, cp2, end } = resolveSegment(
+		segments[segmentIndex],
+		segments[segmentIndex - 1]?.end,
+	);
+	const before =
+		lengths.slice(0, segmentIndex).reduce((sum, length) => sum + length, 0) +
+		approximateBezierArcLength(start, cp1, cp2, end, 0, t);
+	return before / total;
+}
+
+/**
+ * Where every segment starts along the path, as ratios of its arc length,
+ * followed by 1 for the path's end: entry k is arcLengthRatioAt(segments, k),
+ * measured in one pass.
+ */
+export function arcLengthRatios(segments: CubicBezierSegment[]): number[] {
+	const lengths = segmentArcLengths(segments);
+	const total = lengths.reduce((sum, length) => sum + length, 0);
+	const ratios = [0];
+	let before = 0;
+	for (let i = 0; i < lengths.length; i++) {
+		before += lengths[i];
+		ratios.push(total > 0 ? before / total : (i + 1) / lengths.length);
+	}
+	return ratios;
+}
+
+/**
+ * Create a new path from segments, preserving original path properties.
+ * pathStart/pathEnd indicate where this fragment sits within the original
+ * path (ratios of its arc length, pathEnd above 1 for a run wrapping past the
+ * start of a closed path). The width and erasure profiles are cut to that
+ * range. Defaults (0 and 1) are stored as undefined to keep the schema lean.
+ */
 function createPathFromSegments(
 	originalPath: Path,
 	segments: CubicBezierSegment[],
 	pathStart: number = 0,
 	pathEnd: number = 1,
 ): Path {
+	// A wrapping run covers the original's whole trim range, split at the
+	// seam, so it keeps that range instead of composing its own.
+	const wraps = pathEnd > 1;
 	const originalPathStart = originalPath.pathStart ?? 0;
 	const originalPathSpan = (originalPath.pathEnd ?? 1) - originalPathStart;
-	const composedPathStart = originalPathStart + pathStart * originalPathSpan;
-	const composedPathEnd = originalPathStart + pathEnd * originalPathSpan;
+	const composedPathStart = wraps
+		? originalPathStart
+		: originalPathStart + pathStart * originalPathSpan;
+	const composedPathEnd = wraps
+		? originalPathStart + originalPathSpan
+		: originalPathStart + pathEnd * originalPathSpan;
 
 	return {
 		type: "path",
@@ -1492,10 +1661,41 @@ function createPathFromSegments(
 		transform: { ...originalPath.transform },
 		pathStart: composedPathStart > 0 ? composedPathStart : undefined,
 		pathEnd: composedPathEnd < 1 ? composedPathEnd : undefined,
-		// The sliced strokeWidths the caller assigns keep their meaning only
-		// with the same interpretation as the source path.
+		strokeWidths: sliceSideProfile(
+			originalPath.strokeWidths,
+			pathStart,
+			pathEnd,
+		),
 		strokeWidthsBaked: originalPath.strokeWidthsBaked,
+		strokeErasure: sliceSideProfile(
+			originalPath.strokeErasure,
+			pathStart,
+			pathEnd,
+		),
 	};
+}
+
+/**
+ * sliceStrokeWidths that also takes a run wrapping past the start of a closed
+ * path (end above 1): the part from `start` to the end is joined to the part
+ * from the start to `end - 1`.
+ */
+function sliceSideProfile(
+	profile: StrokeWidthPoint[] | undefined,
+	start: number,
+	end: number,
+): StrokeWidthPoint[] | undefined {
+	if (end <= 1) return sliceStrokeWidths(profile, start, end);
+
+	const head = sliceStrokeWidths(profile, start, 1);
+	const tail = sliceStrokeWidths(profile, 0, end - 1);
+	if (!head || !tail) return head ?? tail;
+
+	const seam = (1 - start) / (end - start);
+	return [
+		...head.map((point) => ({ ...point, t: point.t * seam })),
+		...tail.map((point) => ({ ...point, t: seam + point.t * (1 - seam) })),
+	];
 }
 
 function approximateBezierArcLength(
@@ -1520,6 +1720,17 @@ function approximateBezierArcLength(
 	}
 
 	return length;
+}
+
+/** Arc length of each segment, in order. */
+function segmentArcLengths(segments: CubicBezierSegment[]): number[] {
+	return segments.map((segment, i) => {
+		const { start, cp1, cp2, end } = resolveSegment(
+			segment,
+			segments[i - 1]?.end,
+		);
+		return approximateBezierArcLength(start, cp1, cp2, end, 0, 1);
+	});
 }
 
 // ============================================================================
@@ -1640,7 +1851,8 @@ export function closePathAtEndpoints(
  * provides the first segment run (determined by connection direction).
  * Pass `propertyDonor` to override this — e.g. to use the frontmost path's
  * properties regardless of connection direction.
- * StrokeWidths are remapped proportionally by segment chord-length.
+ * strokeWidths and strokeErasure are remapped proportionally by segment
+ * chord-length.
  */
 export function mergePathsAtEndpoints(
 	pathA: Path,
@@ -1654,35 +1866,25 @@ export function mergePathsAtEndpoints(
 	let firstPath: Path;
 	let swFirstReversed = false;
 	let swSecondReversed = false;
-	let firstStrokeWidths: StrokeWidthPoint[] | undefined;
-	let secondStrokeWidths: StrokeWidthPoint[] | undefined;
 
 	if (endpointA === "end" && endpointB === "start") {
 		segsFirst = pathA.segments;
 		segsSecond = pathB.segments;
 		firstPath = pathA;
-		firstStrokeWidths = pathA.strokeWidths;
-		secondStrokeWidths = pathB.strokeWidths;
 	} else if (endpointA === "start" && endpointB === "end") {
 		segsFirst = pathB.segments;
 		segsSecond = pathA.segments;
 		firstPath = pathB;
-		firstStrokeWidths = pathB.strokeWidths;
-		secondStrokeWidths = pathA.strokeWidths;
 	} else if (endpointA === "end" && endpointB === "end") {
 		segsFirst = pathA.segments;
 		segsSecond = reverseSegments(pathB.segments);
 		firstPath = pathA;
-		firstStrokeWidths = pathA.strokeWidths;
-		secondStrokeWidths = pathB.strokeWidths;
 		swSecondReversed = true;
 	} else {
 		// start-start
 		segsFirst = reverseSegments(pathA.segments);
 		segsSecond = pathB.segments;
 		firstPath = pathA;
-		firstStrokeWidths = pathA.strokeWidths;
-		secondStrokeWidths = pathB.strokeWidths;
 		swFirstReversed = true;
 	}
 
@@ -1701,7 +1903,7 @@ export function mergePathsAtEndpoints(
 	const minPathStart = Math.min(pathA.pathStart ?? 0, pathB.pathStart ?? 0);
 	const maxPathEnd = Math.max(pathA.pathEnd ?? 1, pathB.pathEnd ?? 1);
 
-	// Remap strokeWidths proportionally by segment chord-length
+	// Remap the per-side profiles proportionally by segment chord-length
 	const firstLengths = computeSegmentLengths(segsFirst);
 	const secondLengths = computeSegmentLengths(joinedSecond);
 	const lenFirst = firstLengths.reduce((a, b) => a + b, 0);
@@ -1709,31 +1911,12 @@ export function mergePathsAtEndpoints(
 	const totalLen = lenFirst + lenSecond;
 	const ratio = totalLen > 0 ? lenFirst / totalLen : 0.5;
 
-	let mergedStrokeWidths: StrokeWidthPoint[] | undefined;
-	if (firstStrokeWidths || secondStrokeWidths) {
-		const remapped: StrokeWidthPoint[] = [];
-
-		if (firstStrokeWidths) {
-			for (const sw of firstStrokeWidths) {
-				const t = swFirstReversed ? 1 - sw.t : sw.t;
-				remapped.push({ t: t * ratio, side1: sw.side1, side2: sw.side2 });
-			}
-		}
-
-		if (secondStrokeWidths) {
-			for (const sw of secondStrokeWidths) {
-				const t = swSecondReversed ? 1 - sw.t : sw.t;
-				remapped.push({
-					t: ratio + t * (1 - ratio),
-					side1: sw.side1,
-					side2: sw.side2,
-				});
-			}
-		}
-
-		remapped.sort((a, b) => a.t - b.t);
-		mergedStrokeWidths = remapped;
-	}
+	const secondPath = firstPath === pathA ? pathB : pathA;
+	const mergeProfiles = (
+		first: StrokeWidthPoint[] | undefined,
+		second: StrokeWidthPoint[] | undefined,
+	) =>
+		mergeSideProfiles(first, second, swFirstReversed, swSecondReversed, ratio);
 
 	const donor = propertyDonor ?? firstPath;
 
@@ -1752,7 +1935,14 @@ export function mergePathsAtEndpoints(
 		transform: { ...donor.transform },
 		pathStart: minPathStart > 0 ? minPathStart : undefined,
 		pathEnd: maxPathEnd < 1 ? maxPathEnd : undefined,
-		strokeWidths: mergedStrokeWidths,
+		strokeWidths: mergeProfiles(
+			firstPath.strokeWidths,
+			secondPath.strokeWidths,
+		),
+		strokeErasure: mergeProfiles(
+			firstPath.strokeErasure,
+			secondPath.strokeErasure,
+		),
 		// The merged profile keeps one interpretation; carry the flag only when
 		// both sources agree (a mixed merge falls back to composing ratios).
 		strokeWidthsBaked:
@@ -1760,4 +1950,36 @@ export function mergePathsAtEndpoints(
 				? pathA.strokeWidthsBaked
 				: undefined,
 	};
+}
+
+/**
+ * One per-side profile over a merged path: each source's points squeezed
+ * into its share of the length, `ratio` being the first run's share. A
+ * reversed source also swaps its sides, since side1 and side2 are the left
+ * and right of the travel direction.
+ */
+function mergeSideProfiles(
+	first: StrokeWidthPoint[] | undefined,
+	second: StrokeWidthPoint[] | undefined,
+	firstReversed: boolean,
+	secondReversed: boolean,
+	ratio: number,
+): StrokeWidthPoint[] | undefined {
+	if (!first && !second) return undefined;
+
+	const oriented = (sw: StrokeWidthPoint, reversed: boolean) =>
+		reversed
+			? { t: 1 - sw.t, side1: sw.side2, side2: sw.side1 }
+			: { t: sw.t, side1: sw.side1, side2: sw.side2 };
+	const remapped: StrokeWidthPoint[] = [
+		...(first ?? []).map((sw) => {
+			const point = oriented(sw, firstReversed);
+			return { ...point, t: point.t * ratio };
+		}),
+		...(second ?? []).map((sw) => {
+			const point = oriented(sw, secondReversed);
+			return { ...point, t: ratio + point.t * (1 - ratio) };
+		}),
+	];
+	return remapped.sort((a, b) => a.t - b.t);
 }

@@ -15,7 +15,12 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
-import { brandWorldBBox } from "../utils/geometry/bounds";
+import { brandWorldBBox, calculatePathBounds } from "../utils/geometry/bounds";
+import {
+	applyTransformToPoint,
+	composeTransforms,
+	computeTransformOrigin,
+} from "../utils/geometry/geometry";
 import {
 	cubicBez,
 	getEffectiveMeshEdgeCurve,
@@ -564,6 +569,61 @@ describe("PathEditTool", () => {
 			expect(segs[1].cp1.y).not.toBeCloseTo(0, 0);
 		});
 
+		it("should keep the other anchors of a rotated path in place while one is dragged", () => {
+			// Path with rotation=90°: local (0,0)→(100,0)→(200,0)
+			// becomes world (100,-100)→(100,0)→(100,100).
+			const rotatedPath: Path = {
+				...cloneTestPath(),
+				id: "path-rot-anchor",
+				transform: { x: 0, y: 0, rotation: Math.PI / 2, scaleX: 1, scaleY: 1 },
+			};
+			tool.initWithSelectedPaths(
+				[rotatedPath],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// Drag the last anchor, world (100,100) = screen (500,200), 50 right
+			// in two steps: the second one starts from already-edited bounds.
+			tool.onPointerDown(
+				ev(500, 200),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			for (const x of [520, 550]) {
+				tool.onPointerMove(
+					ev(x, 200),
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+			}
+			tool.onPointerUp(
+				ev(550, 200),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// The commit keeps the pre-edit pivot (SpatialIndex.getPivotCompensation).
+			const segs = getCommittedSegments(ctx, "path-rot-anchor")!;
+			const origin = computeTransformOrigin(calculatePathBounds(rotatedPath));
+			const place = (p: { x: number; y: number }) =>
+				applyTransformToPoint(
+					p.x,
+					p.y,
+					rotatedPath.transform,
+					origin.x,
+					origin.y,
+				);
+			expect(place(segs[0].start!).x).toBeCloseTo(100, 5);
+			expect(place(segs[0].start!).y).toBeCloseTo(-100, 5);
+			expect(place(segs[1].end).x).toBeCloseTo(150, 5);
+			expect(place(segs[1].end).y).toBeCloseTo(100, 5);
+		});
+
 		it("should break tangent through anchor with Alt key", () => {
 			tool.initWithSelectedPaths(
 				[cloneTestPath()],
@@ -887,14 +947,9 @@ describe("PathEditTool", () => {
 			// Path with rotation=90°: local (0,0)→(100,0)→(200,0)
 			// becomes world (100,-100)→(100,0)→(100,100).
 			//
-			// The render pivot is the bbox center of the path's own local
-			// bounds (applyElementTransform / ViewportManager), which
-			// translates together with the geometry: under
-			// `world = R·S·(local − origin) + origin + t`, adding d to every
-			// local point also adds d to origin, so the world image moves by
-			// exactly d. A pure world-Y drag must therefore be stored as a
-			// pure local-Y translation — inverse-rotating the delta (the old
-			// bug) made the shape travel perpendicular to the drag.
+			// The commit keeps the pivot where it was before the edit (see
+			// SpatialIndex.getPivotCompensation), so the dragged geometry is
+			// placed through the pre-drag transform around the pre-drag pivot.
 			const rotatedPath: Path = {
 				...testPath,
 				id: "path-rot-face",
@@ -950,15 +1005,20 @@ describe("PathEditTool", () => {
 			expect(ctx.batchPathUpdate).toHaveBeenCalled();
 			const segs = getCommittedSegments(ctx, "path-rot-face")!;
 
-			// World drag was (0, +200), so the stored local translation must
-			// also be (0, +200) — see the pivot-follows-bounds note above.
-			// Rendered world check for seg0.start: origin' = (100, 200),
-			// R90·((0,200) − (100,200)) + (100,200) = (100, 100), i.e. the
-			// pre-drag world position (100, -100) moved by exactly (0, +200).
-			expect(segs[0].start?.x).toBeCloseTo(0, 5);
-			expect(segs[0].start?.y).toBeCloseTo(200, 5);
-			expect(segs[1].end.x).toBeCloseTo(200, 5);
-			expect(segs[1].end.y).toBeCloseTo(200, 5);
+			// World drag was (0, +200): every anchor lands 200 higher.
+			const origin = computeTransformOrigin(calculatePathBounds(rotatedPath));
+			const place = (p: { x: number; y: number }) =>
+				applyTransformToPoint(
+					p.x,
+					p.y,
+					rotatedPath.transform,
+					origin.x,
+					origin.y,
+				);
+			expect(place(segs[0].start!).x).toBeCloseTo(100, 5);
+			expect(place(segs[0].start!).y).toBeCloseTo(100, 5);
+			expect(place(segs[1].end).x).toBeCloseTo(100, 5);
+			expect(place(segs[1].end).y).toBeCloseTo(300, 5);
 		});
 	});
 
@@ -1260,15 +1320,20 @@ describe("PathEditTool", () => {
 			);
 
 			expect(handled).toBe(true);
-			const [pathId, segmentLists] = ctx.replacePathWithPaths.mock.calls[0];
+			const [pathId, runs] = ctx.replacePathWithPaths.mock.calls[0];
 			expect(pathId).toBe("path-5");
-			expect(segmentLists).toHaveLength(2);
-			expect(segmentLists[0]).toHaveLength(1);
-			expect(segmentLists[0][0].start).toEqual({ x: 0, y: 0 });
-			expect(segmentLists[0][0].end).toEqual({ x: 100, y: 0 });
-			expect(segmentLists[1]).toHaveLength(1);
-			expect(segmentLists[1][0].start).toEqual({ x: 300, y: 0 });
-			expect(segmentLists[1][0].end).toEqual({ x: 400, y: 0 });
+			expect(runs).toHaveLength(2);
+			expect(runs[0].segments).toHaveLength(1);
+			expect(runs[0].segments[0].start).toEqual({ x: 0, y: 0 });
+			expect(runs[0].segments[0].end).toEqual({ x: 100, y: 0 });
+			expect(runs[1].segments).toHaveLength(1);
+			expect(runs[1].segments[0].start).toEqual({ x: 300, y: 0 });
+			expect(runs[1].segments[0].end).toEqual({ x: 400, y: 0 });
+			// Each run keeps where it sat on the 400-long original.
+			expect(runs[0].start).toBe(0);
+			expect(runs[0].end).toBeCloseTo(0.25);
+			expect(runs[1].start).toBeCloseTo(0.75);
+			expect(runs[1].end).toBe(1);
 		});
 
 		it("should stash the doomed selection for undo restore when deleting", () => {
@@ -3569,6 +3634,55 @@ describe("PathEditTool", () => {
 			expect(ctx.elementsMove).toHaveBeenCalledWith(["image-1"], 40, 20);
 		});
 
+		it("should preview an image in a rotated container moving with the pointer", () => {
+			const image: ImageObject = {
+				id: "image-1",
+				type: "image",
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+				fileUid: "file-1",
+				x: 0,
+				y: 0,
+				width: 100,
+				height: 100,
+			};
+			const ancestorT = { ...createIdentityTransform(), rotation: Math.PI / 2 };
+			ctx.getCurrentLayerId.mockReturnValue("layer-1");
+			ctx.findElementAtPoint.mockReturnValue(image);
+			ctx.getBounds.mockReturnValue(
+				brandWorldBBox({
+					minX: -50,
+					minY: -50,
+					maxX: 50,
+					maxY: 50,
+					width: 100,
+					height: 100,
+				}),
+			);
+			ctx.getElement.mockReturnValue(image);
+			ctx.getAncestorTransform.mockReturnValue(ancestorT);
+
+			// Drag by (+40, +20) in world.
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(440, 280),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const preview = ctx.previewDeformation.mock.calls.at(-1)?.[0][0];
+			const moved = composeTransforms(ancestorT, preview!.updates.transform!);
+			expect(moved.x).toBeCloseTo(40);
+			expect(moved.y).toBeCloseTo(20);
+		});
+
 		it("should return a promoted cage vertex to derived on Delete", () => {
 			const base = makeMesh();
 			const cut = subdivideWarpFace(base.vertices, base.faces, 0, 0.4, 0, {
@@ -4236,9 +4350,11 @@ describe("PathEditTool", () => {
 			const [pathId, runs] = ctx.replacePathWithPaths.mock.calls[0];
 			expect(pathId).toBe("path-1");
 			expect(runs).toHaveLength(2);
-			expect(runs[0].at(-1)?.end).toEqual({ x: 50, y: 0 });
-			expect(runs[1][0].start).toEqual({ x: 50, y: 0 });
-			expect(runs[1].at(-1)?.end).toEqual({ x: 200, y: 0 });
+			expect(runs[0].segments.at(-1)?.end).toEqual({ x: 50, y: 0 });
+			expect(runs[1].segments[0].start).toEqual({ x: 50, y: 0 });
+			expect(runs[1].segments.at(-1)?.end).toEqual({ x: 200, y: 0 });
+			expect(runs[0].end).toBeCloseTo(0.25);
+			expect(runs[1].start).toBeCloseTo(0.25);
 		});
 
 		it("should split an open path into two elements when cutting at an anchor", () => {
@@ -4253,8 +4369,8 @@ describe("PathEditTool", () => {
 			expect(ctx.replacePathWithPaths).toHaveBeenCalledTimes(1);
 			const [, runs] = ctx.replacePathWithPaths.mock.calls[0];
 			expect(runs).toHaveLength(2);
-			expect(runs[0].at(-1)?.end).toEqual({ x: 100, y: 0 });
-			expect(runs[1][0].start).toEqual({ x: 100, y: 0 });
+			expect(runs[0].segments.at(-1)?.end).toEqual({ x: 100, y: 0 });
+			expect(runs[1].segments[0].start).toEqual({ x: 100, y: 0 });
 		});
 
 		it("should leave a closed path as one open element ending where it was cut", () => {

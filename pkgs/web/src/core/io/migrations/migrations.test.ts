@@ -30,6 +30,7 @@ import { migFilterBackdropFlag } from "./20260917_mig_filter_backdrop_flag";
 import { migCompoundPathPivot } from "./20260918_mig_compound_path_pivot";
 import { migDropEraseMasks } from "./20260920_mig_drop_erase_masks";
 import { migBlendEasing } from "./20260921_mig_blend_easing";
+import { migSplitStrokeErasure } from "./20260925_mig_split_stroke_erasure";
 import {
 	applyMigration,
 	applyMigrations,
@@ -1687,6 +1688,36 @@ describe("migBlendEasing (20260921)", () => {
 
 		expect(doc.objects.p1).not.toHaveProperty("placementEasing");
 		expect(doc.objects.p1).not.toHaveProperty("appearanceEasing");
+	});
+});
+
+describe("migSplitStrokeErasure (20260925)", () => {
+	const profile = [{ t: 0.5, side1: -0.25, side2: 1 }];
+
+	it("should move a profile that was not baked into strokeErasure", () => {
+		const doc = makeDoc(
+			{ p1: makeLegacyPath({ strokeWidths: profile }) },
+			20260921,
+		);
+
+		applyMigration(doc, migSplitStrokeErasure);
+
+		expect(doc.objects.p1).not.toHaveProperty("strokeWidths");
+		expect(doc.objects.p1).toHaveProperty("strokeErasure", profile);
+	});
+
+	it("should keep a baked profile as the width", () => {
+		const doc = makeDoc(
+			{
+				p1: makeLegacyPath({ strokeWidths: profile, strokeWidthsBaked: true }),
+			},
+			20260921,
+		);
+
+		applyMigration(doc, migSplitStrokeErasure);
+
+		expect(doc.objects.p1).toHaveProperty("strokeWidths", profile);
+		expect(doc.objects.p1).not.toHaveProperty("strokeErasure");
 	});
 });
 

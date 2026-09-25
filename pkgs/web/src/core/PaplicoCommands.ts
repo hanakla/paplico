@@ -157,6 +157,7 @@ import {
 	composeTransforms,
 	computeInverseCompositionTransform,
 	computeTransformOrigin,
+	inverseTransformVector,
 	mirrorTransform,
 	solveChildTransform,
 	transformLinearMatrix,
@@ -173,7 +174,7 @@ import {
 	remapWarpGeometrySrc,
 	type WarpGeometry,
 } from "./utils/geometry/meshWarpShape";
-import { closePathAtEndpoints } from "./utils/geometry/pathOps";
+import { closePathAtEndpoints, type PathRun } from "./utils/geometry/pathOps";
 import {
 	createLocalPointDeformer,
 	type DeformFrame,
@@ -2943,50 +2944,39 @@ export class PaplicoCommands {
 
 			const ancestorT = this.ctx.spatial.getAncestorTransform(elementId);
 
-			let newTx: number;
-			let newTy: number;
-
 			if (ancestorT) {
-				// Element is inside a transformed group — pivot (cx, cy) is in
-				// world space but the child translation is in parent-local space.
-				// Convert the visual centre to world through the composed ancestor
-				// transform, rotate around the pivot, then solve back for the new
-				// child-local translation. Using the shared compose/solve helpers
-				// keeps this consistent with the renderer's composition (incl. skew).
-				const composedT = composeTransforms(ancestorT, t);
-				const worldVcx = localCx + composedT.x;
-				const worldVcy = localCy + composedT.y;
-
-				// Rotate around world-space pivot
-				const dwx = worldVcx - cx;
-				const dwy = worldVcy - cy;
-				const newWorldVcx = cx + dwx * cos - dwy * sin;
-				const newWorldVcy = cy + dwx * sin + dwy * cos;
-
-				const newChildT = solveChildTransform(ancestorT, {
-					...composedT,
-					x: newWorldVcx - localCx,
-					y: newWorldVcy - localCy,
+				// Nested: rotate the element's world placement around the world
+				// pivot and solve back through the ancestor, so a mirrored,
+				// skewed or non-uniformly scaled ancestor turns it on screen the
+				// way the pointer turns.
+				updates.push({
+					elementId,
+					updates: {
+						transform: applyWorldAffineToTransform(
+							t,
+							{ x: localCx, y: localCy },
+							ancestorT,
+							{ m00: cos, m01: -sin, m10: sin, m11: cos },
+							cx - (cos * cx - sin * cy),
+							cy - (sin * cx + cos * cy),
+						),
+					} as Partial<AnyArtObject>,
 				});
-				newTx = newChildT.x;
-				newTy = newChildT.y;
-			} else {
-				// No ancestor transform — parent-local = world space
-				const vcx = localCx + t.x;
-				const vcy = localCy + t.y;
-				const newVcx = cx + (vcx - cx) * cos - (vcy - cy) * sin;
-				const newVcy = cy + (vcx - cx) * sin + (vcy - cy) * cos;
-				newTx = newVcx - localCx;
-				newTy = newVcy - localCy;
+				continue;
 			}
 
+			// No ancestor transform — parent-local = world space
+			const vcx = localCx + t.x;
+			const vcy = localCy + t.y;
+			const newVcx = cx + (vcx - cx) * cos - (vcy - cy) * sin;
+			const newVcy = cy + (vcx - cx) * sin + (vcy - cy) * cos;
 			updates.push({
 				elementId,
 				updates: {
 					transform: {
 						...t,
-						x: newTx,
-						y: newTy,
+						x: newVcx - localCx,
+						y: newVcy - localCy,
 						rotation: t.rotation + angleRad,
 					},
 				} as Partial<AnyArtObject>,
@@ -3100,6 +3090,9 @@ export class PaplicoCommands {
 				transform: baked.transform,
 				...(element.strokeWidths && {
 					strokeWidths: mirrorStrokeWidths(element.strokeWidths, flip),
+				}),
+				...(element.strokeErasure && {
+					strokeErasure: mirrorStrokeWidths(element.strokeErasure, flip),
 				}),
 				...commonUpdates,
 				...(strokeScaledFilters ? { filters: strokeScaledFilters } : {}),
@@ -3316,6 +3309,14 @@ export class PaplicoCommands {
 		}> = [];
 		const inputIds = new Set(elements.map((e) => e.elementId));
 		const movedAxisPathIds = new Set<string>();
+		// A stored translation lives in the parent's space, which the ancestor's
+		// rotation/scale/skew map to world; undo that so the move is the world delta.
+		const parentDelta = (id: string) => {
+			const ancestorT = this.ctx.spatial.getAncestorTransform(id);
+			return ancestorT
+				? inverseTransformVector(deltaX, deltaY, ancestorT)
+				: { x: deltaX, y: deltaY };
+		};
 
 		for (const { elementId } of elements) {
 			const element = this.ctx.store.document.objects[elementId];
@@ -3332,10 +3333,11 @@ export class PaplicoCommands {
 					if (!inputIds.has(pathId) && !movedAxisPathIds.has(pathId)) {
 						movedAxisPathIds.add(pathId);
 						const pt = getTransform(path);
+						const d = parentDelta(pathId);
 						result.push({
 							elementId: pathId,
 							updates: {
-								transform: { ...pt, x: pt.x + deltaX, y: pt.y + deltaY },
+								transform: { ...pt, x: pt.x + d.x, y: pt.y + d.y },
 							} as Partial<AnyArtObject>,
 						});
 					}
@@ -3344,6 +3346,7 @@ export class PaplicoCommands {
 				// Dangling binding: fall through to a normal text move
 			}
 
+			const d = parentDelta(elementId);
 			if (isBlend(element)) {
 				const bt = getTransform(element);
 				const isPureTranslate =
@@ -3359,7 +3362,7 @@ export class PaplicoCommands {
 					result.push({
 						elementId,
 						updates: {
-							transform: { ...bt, x: bt.x + deltaX, y: bt.y + deltaY },
+							transform: { ...bt, x: bt.x + d.x, y: bt.y + d.y },
 						} as Partial<AnyArtObject>,
 					});
 					continue;
@@ -3383,8 +3386,8 @@ export class PaplicoCommands {
 						updates: {
 							transform: {
 								...st,
-								x: st.x + bt.x + deltaX,
-								y: st.y + bt.y + deltaY,
+								x: st.x + bt.x + d.x,
+								y: st.y + bt.y + d.y,
 							},
 						} as Partial<AnyArtObject>,
 					});
@@ -3406,7 +3409,7 @@ export class PaplicoCommands {
 			result.push({
 				elementId,
 				updates: {
-					transform: { ...t, x: t.x + deltaX, y: t.y + deltaY },
+					transform: { ...t, x: t.x + d.x, y: t.y + d.y },
 				} as Partial<AnyArtObject>,
 			});
 		}
@@ -4480,16 +4483,12 @@ export class PaplicoCommands {
 			const clone = deepClone(element);
 			// Stored transforms of container children are container-local.
 			// Normalize top-level clones to world space so every consumer
-			// (clipboard payloads, pasteElements → moveIntoEditingScope's
+			// (clipboard payloads, pasteElements → moveIntoContainer's
 			// world-space compensation) receives world coordinates regardless
-			// of where the source element lived. Blends are exempt: their
-			// paste path bypasses moveIntoEditingScope, so keep their stored
-			// coordinates unchanged.
-			if (element.type !== "blend") {
-				const ancestorT = this.ctx.spatial.getAncestorTransform(id);
-				if (ancestorT) {
-					clone.transform = composeTransforms(ancestorT, getTransform(clone));
-				}
+			// of where the source element lived.
+			const ancestorT = this.ctx.spatial.getAncestorTransform(id);
+			if (ancestorT) {
+				clone.transform = composeTransforms(ancestorT, getTransform(clone));
 			}
 			artObjects.push(clone);
 			this.collectAbsorbedDescendants(element, artObjects);
@@ -4840,6 +4839,13 @@ export class PaplicoCommands {
 						);
 					}
 					this.ctx.yjsProvider.createBlend(blendLayerId, clonedBlend);
+					this.moveIntoContainer(
+						blendLayerId,
+						newId,
+						"blend",
+						getTransform(clonedBlend),
+						targetContainerId,
+					);
 				}, this.getMutationOrigin());
 				newTopLevelIds.push(newId);
 			} else {
@@ -5314,13 +5320,13 @@ export class PaplicoCommands {
 	public replacePathWithPaths(
 		layerId: string,
 		pathId: string,
-		segmentLists: CubicBezierSegment[][],
+		runs: PathRun[],
 	): void {
 		if (this.cannotMutate() || this.isElementLocked(pathId)) return;
 		this.ctx.yjsProvider.replacePathWithPaths(
 			layerId,
 			pathId,
-			segmentLists,
+			runs,
 			this.getMutationOrigin(),
 		);
 	}

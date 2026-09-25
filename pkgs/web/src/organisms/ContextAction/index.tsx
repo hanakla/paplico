@@ -30,6 +30,7 @@ import { ElementActions } from "./ElementActions";
 import { GradientStopActions } from "./GradientStopActions";
 import { MoreActionsMenu } from "./MoreActionsMenu";
 import { Reference3DNodeActions } from "./Reference3DNodeActions";
+import { StrokeWidthEditTargetToggle } from "./StrokeWidthEditTargetToggle";
 import { TextEditActions } from "./TextEditActions";
 
 interface SelectionMenuOverlayProps {
@@ -118,6 +119,11 @@ function ContextActionsOverlayInner({
 		!isReference3DNodeContext &&
 		!isTextEditing &&
 		toolSnap.currentTool === "path-edit";
+	const isStrokeWidthEditToolContext =
+		!isReference3DNodeContext &&
+		!isTextEditing &&
+		toolSnap.currentTool === "stroke-width-edit" &&
+		hasSingleSelection;
 	const hasFillOrStrokeInSelection =
 		!isReference3DNodeContext &&
 		selectedElements.some((el) =>
@@ -260,6 +266,12 @@ function ContextActionsOverlayInner({
 			{isPathEditToolContext && (
 				<>
 					<PathEditCutModeToggle $size="md" />
+					<Separator orientation="vertical" className="mx-0.5 h-5" />
+				</>
+			)}
+			{isStrokeWidthEditToolContext && (
+				<>
+					<StrokeWidthEditTargetToggle />
 					<Separator orientation="vertical" className="mx-0.5 h-5" />
 				</>
 			)}

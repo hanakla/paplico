@@ -420,49 +420,24 @@ export interface PathSegment extends CubicBezierSegment {
 }
 
 /**
- * A control point for variable stroke width along a path.
- *
- * Similar to Illustrator's Variable Width Profile, extended with
- * independent left/right (Side 1/Side 2) control.
+ * A per-side control point of a profile along a path. Path.strokeWidths and
+ * Path.strokeErasure both use it; each field's doc defines what the values
+ * mean.
  *
  * Side 1 = left side of the path's travel direction (increasing t).
  * Side 2 = right side of the path's travel direction.
  *
- * Values are signed boundary offsets normalized by half of the base stroke width
- * (BrushSettings.properties.size.base / 2):
+ * Values are signed boundary offsets from the centerline:
  *   1.0 = the boundary is one half-width from the centerline on its own side
  *   0.0 = the boundary lies on the centerline
  *  -0.5 = the boundary crossed the centerline by half a half-width
  *
- * A negative value on one side reduces the visible width on the opposite side.
- * The total visible width ratio is `Math.max(0, side1 + side2)`. A profile may
- * retain a zero-width point (`side1 + side2 === 0`), while intervals where the
- * sum becomes negative must be removed by splitting the path.
+ * A negative value on one side narrows the opposite side. The visible ratio
+ * across the stroke is `Math.max(0, side1 + side2)`.
  *
- * Width is interpolated linearly between adjacent StrokeWidthPoints
- * along the path. Points must be sorted by ascending `t`.
- *
- * ## Implicit endpoints
- *
- * If the array does not contain a point at t=0, an implicit
- * {t:0, side1:1, side2:1} is assumed (full width at path start).
- * Likewise, if no point exists at t=1, an implicit
- * {t:1, side1:1, side2:1} is assumed (full width at path end).
- *
- * ## Composition with pressure
- *
- * strokeWidths acts as a per-side ratio applied ON TOP of the
- * pressure-computed width. The two systems compose multiplicatively:
- *
- *   effectiveHalfWidth(side) = stampHalfSize * sideRatio
- *
- * On brush-stroke commit, PenTool bakes the size-curve-evaluated width
- * profile into strokeWidths and marks the path strokeWidthsBaked, so the
- * drawn width survives vertex edits that rebuild the per-segment pressure
- * data (renderers skip the size curves for baked paths — see Path). It is
- * further modified by the eraser tool's width-adjust mode or manual editing
- * in PathEditTool. Live previews and curve-less strokes leave it undefined
- * (= full width on both sides).
+ * Each side follows a monotone cubic through the points along the path.
+ * Points must be sorted by ascending `t`. When the array does not reach
+ * t=0 or t=1, an implicit {side1:1, side2:1} point is assumed there.
  */
 export interface StrokeWidthPoint {
 	/** Position along the path, normalized to [0, 1] by total path length.
@@ -1021,11 +996,13 @@ export interface ArtObject {
 	mask?: ObjectMask | null;
 }
 
-export interface Path extends ArtObject {
-	type: "path";
-	segments: PathSegment[];
-	/** When true, rendered as a cyan guide line on top of all layers. Excluded from export. */
-	isGuide?: boolean;
+/**
+ * The shape a path draws: its segments, plus how a stroke's band varies along
+ * them. A Path stores one; the renderer's geometry filters pass one along,
+ * so a deformation keeps the band's profile and an outlining drops it.
+ */
+export interface PathGeometry {
+	segments: CubicBezierSegment[];
 
 	/**
 	 * Normalized position [0, 1] within the original full stroke where this path begins.
@@ -1056,13 +1033,12 @@ export interface Path extends ArtObject {
 	/**
 	 * Variable width profile for this stroke.
 	 *
-	 * An array of control points defining the stroke width at arbitrary
-	 * positions along the path. Width between adjacent points is interpolated
-	 * linearly. Both sides of the stroke can be controlled independently.
-	 *
-	 * The rendering pipeline samples this profile at each stamp's pathT
-	 * position and uses the interpolated side1/side2 ratios to modulate
-	 * the stamp's alpha in the fragment shader.
+	 * Values are normalized by half of the width the brush draws at that point.
+	 * The profile resizes the stroke itself: dab and ribbon strokes scale their
+	 * stamp (the asymmetry shifts it along the normal), geometric strokes
+	 * offset their outline. PenTool bakes the brush's size curves into it on
+	 * commit, and StrokeWidthEditTool edits it by hand. The sum of both sides
+	 * never goes below zero.
 	 *
 	 * Default when undefined or empty: full width on both sides.
 	 */
@@ -1071,13 +1047,35 @@ export interface Path extends ArtObject {
 	/**
 	 * True when strokeWidths carries the brush's size-curve evaluation, baked
 	 * at commit from the raw input's pressure/speed. Renderers then SKIP the
-	 * size curves and treat the profile as the width itself: dab/ribbon scale
-	 * the stamp size by the ratios, geometric drops its pressure term. The stored brush settings stay untouched, so adopting
-	 * this stroke's appearance (selection follow) keeps the live curves.
+	 * size curves, so the profile alone decides the width. The stored brush
+	 * settings stay untouched, so adopting this stroke's appearance (selection
+	 * follow) keeps the live curves.
 	 * Unset/false: strokeWidths composes multiplicatively on top of the live
-	 * curve evaluation (eraser width-adjust, manual edits).
+	 * curve evaluation.
 	 */
 	strokeWidthsBaked?: boolean;
+
+	/**
+	 * Erased boundary of each side, as the part of the stroke that remains.
+	 *
+	 * Values are normalized by half of the drawn width, after strokeWidths has
+	 * resized the stroke: 1 keeps the side intact, 0 erases it up to the
+	 * centerline. The stroke is cut without resizing its stamp or texture.
+	 * EraserTool writes it, and StrokeWidthEditTool edits it by hand.
+	 *
+	 * A point may keep a zero sum (erased to a hairline). An interval whose sum
+	 * would go below zero is removed by splitting the path instead.
+	 *
+	 * Default when undefined or empty: nothing erased.
+	 */
+	strokeErasure?: StrokeWidthPoint[];
+}
+
+export interface Path extends ArtObject, PathGeometry {
+	type: "path";
+	segments: PathSegment[];
+	/** When true, rendered as a cyan guide line on top of all layers. Excluded from export. */
+	isGuide?: boolean;
 }
 
 export interface Group extends ArtObject {

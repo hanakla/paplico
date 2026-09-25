@@ -970,14 +970,14 @@ describe("WebGPU Visual Regression - Mutation Detection", () => {
 
 async function renderSignedWidthBrush(
 	brushSettings: BrushSettings,
-	strokeWidths: StrokeWidthPoint[],
+	strokeErasure: StrokeWidthPoint[],
 	id: string,
 	transform?: Partial<Path["transform"]>,
 ): Promise<{ pixels: Uint8Array; width: number; height: number }> {
 	const { renderer } = await createTestRenderer();
 	const path = createSignedWidthPath(
 		brushSettings,
-		strokeWidths,
+		strokeErasure,
 		id,
 		transform,
 	);
@@ -1018,7 +1018,7 @@ async function renderSignedWidthBrush(
 
 function createSignedWidthPath(
 	brushSettings: BrushSettings,
-	strokeWidths: StrokeWidthPoint[],
+	strokeErasure: StrokeWidthPoint[],
 	id: string,
 	transform?: Partial<Path["transform"]>,
 ): Path {
@@ -1058,7 +1058,7 @@ function createSignedWidthPath(
 	return {
 		...path,
 		id,
-		strokeWidths,
+		strokeErasure,
 		transform: { ...path.transform, ...transform },
 	};
 }

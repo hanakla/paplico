@@ -4,6 +4,8 @@ import {
 	extractLayersFromYDoc,
 	yMapToObject,
 } from "../collaboration/extractDocumentFromYDoc";
+import { createDefaultDocument } from "../document/factory";
+import { applyMigrations, LATEST_SCHEMA_VERSION } from "../io/migrations";
 import type { Artboard, CubicBezierSegment, Document, Path } from "../schema";
 import { selectEntriesForArtboard } from "./artboardFilter";
 import { TimelapseIndexBuilder } from "./timelapseIndex";
@@ -69,6 +71,7 @@ export class TimelapsePlayer {
 	private index: TimelapseIndex | undefined;
 	/** Entry positions where the recorded state starts over (document switch), ascending. */
 	private baselines: readonly number[];
+	private schemaVersions: NonNullable<TimelapseData["schemaVersions"]>;
 
 	/** Entry indices worth drawing for the target artboard. */
 	private visible: number[];
@@ -121,6 +124,7 @@ export class TimelapsePlayer {
 		this.entries = data.entries;
 		this.index = data.index;
 		this.baselines = [...(data.baselines ?? [])].sort((a, b) => a - b);
+		this.schemaVersions = data.schemaVersions ?? [];
 		this.visible = selectEntriesForArtboard(
 			this.entries.length,
 			this.index,
@@ -491,8 +495,17 @@ export class TimelapsePlayer {
 
 		// Anything outside objects and layers is rare enough that re-extracting
 		// the whole document beats maintaining a patch path for each of them.
-		if (!this.currentDoc || touched.other) {
+		// A compound path's migration measures its sources, which a lone object
+		// read cannot hand it.
+		if (
+			!this.currentDoc ||
+			touched.other ||
+			(this.replayedSchemaVersion() < LATEST_SCHEMA_VERSION &&
+				this.touchesCompoundPath(touched.upserted))
+		) {
 			const document = extractDocumentFromYDoc(this.replayDoc);
+			document.schemaVersion = this.replayedSchemaVersion();
+			applyMigrations(document);
 			document.id = TIMELAPSE_REPLAY_DOCUMENT_ID;
 			this.currentDoc = document;
 			return { ...document, objects: { ...document.objects } };
@@ -514,16 +527,44 @@ export class TimelapsePlayer {
 		return { ...document, objects: { ...document.objects } };
 	}
 
-	/** Rebuild a single object from the replay document. */
+	/** Rebuild a single object from the replay document, in this build's shape. */
 	private readObject(id: string) {
 		const yObject = this.replayDoc.getMap("objects").get(id);
 		if (!(yObject instanceof Y.Map)) return null;
 		// A replayed stream can carry element types this build cannot decode.
 		try {
-			return yMapToObject(yObject);
+			const element = yMapToObject(yObject);
+			const schemaVersion = this.replayedSchemaVersion();
+			if (schemaVersion >= LATEST_SCHEMA_VERSION) return element;
+
+			const document = {
+				...createDefaultDocument(TIMELAPSE_REPLAY_DOCUMENT_ID),
+				objects: { [id]: element },
+				schemaVersion,
+			};
+			applyMigrations(document);
+			return document.objects[id];
 		} catch {
 			return null;
 		}
+	}
+
+	/** Schema version the replay document's current contents were recorded in. */
+	private replayedSchemaVersion(): number {
+		return (
+			this.schemaVersions.findLast(({ at }) => at <= this.appliedUpToIndex)
+				?.version ?? LATEST_SCHEMA_VERSION
+		);
+	}
+
+	private touchesCompoundPath(ids: Iterable<string>): boolean {
+		const yObjects = this.replayDoc.getMap("objects");
+		for (const id of ids) {
+			const yObject = yObjects.get(id);
+			if (yObject instanceof Y.Map && yObject.get("type") === "compound-path")
+				return true;
+		}
+		return false;
 	}
 
 	private buildCompletedDocument(): Document {

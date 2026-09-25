@@ -42,7 +42,12 @@ const filterRenderer = {
 										},
 										{
 											...g,
-											segments: moveSegments(g.segments as PathSegment[], 20),
+											path: {
+												segments: moveSegments(
+													g.path.segments as PathSegment[],
+													20,
+												),
+											},
 											patternTransform: {
 												a: 1,
 												b: 0,
@@ -56,10 +61,12 @@ const filterRenderer = {
 								: [
 										{
 											...g,
-											segments: [
-												...g.segments,
-												...moveSegments(g.segments as PathSegment[], 20),
-											],
+											path: {
+												segments: [
+													...g.path.segments,
+													...moveSegments(g.path.segments as PathSegment[], 20),
+												],
+											},
 										},
 									],
 					}
@@ -75,16 +82,26 @@ const filterRenderer = {
 											g,
 											{
 												appearance: withStrokeWidth(g.appearance, 1.5),
-												segments: moveSegments(g.segments as PathSegment[], 20),
+												path: {
+													segments: moveSegments(
+														g.path.segments as PathSegment[],
+														20,
+													),
+												},
 											},
 										]
 									: [
 											{
 												...g,
-												segments: [
-													...g.segments,
-													...moveSegments(g.segments as PathSegment[], 20),
-												],
+												path: {
+													segments: [
+														...g.path.segments,
+														...moveSegments(
+															g.path.segments as PathSegment[],
+															20,
+														),
+													],
+												},
 											},
 										],
 						}
@@ -189,9 +206,9 @@ describe("resolveAppearancePasses", () => {
 			"plain-fill",
 			"zigzagged",
 		]);
-		expect(passes[0].segments[0].end.y).toBe(0);
-		expect(passes[1].segments[0].end.y).toBe(0);
-		expect(passes[2].segments[0].end.y).toBe(5);
+		expect(passes[0].path.segments[0].end.y).toBe(0);
+		expect(passes[1].path.segments[0].end.y).toBe(0);
+		expect(passes[2].path.segments[0].end.y).toBe(5);
 	});
 
 	it("should give a deformed appearance its own geometry cache key", () => {
@@ -218,7 +235,7 @@ describe("resolveAppearancePasses", () => {
 
 		const [pass] = resolveAppearancePasses(path, filterRenderer);
 
-		expect(pass.segments[0].end.y).toBe(5);
+		expect(pass.path.segments[0].end.y).toBe(5);
 		expect(pass.pattern).toEqual({ anchor: [0, 0] });
 	});
 
@@ -236,11 +253,11 @@ describe("resolveAppearancePasses", () => {
 			"pat",
 			"pat",
 		]);
-		expect(passes[0].segments).toHaveLength(2);
+		expect(passes[0].path.segments).toHaveLength(2);
 		expect(passes[0].pattern).toBeUndefined();
-		expect(passes[1].segments[0].end.x).toBe(10);
+		expect(passes[1].path.segments[0].end.x).toBe(10);
 		expect(passes[1].pattern?.transform).toMatchObject({ e: 0 });
-		expect(passes[2].segments[0].end.x).toBe(30);
+		expect(passes[2].path.segments[0].end.x).toBe(30);
 		expect(passes[2].pattern?.transform).toMatchObject({ e: -20 });
 		expect(passes[1].cacheKey).not.toBe(passes[2].cacheKey);
 	});
@@ -253,7 +270,7 @@ describe("resolveAppearancePasses", () => {
 		const passes = resolveAppearancePasses(path, filterRenderer);
 
 		expect(passes.map((p) => p.appearance.uid)).toEqual(["pat", "pat"]);
-		expect(passes[1].segments[0].end.x).toBe(30);
+		expect(passes[1].path.segments[0].end.x).toBe(30);
 		expect(passes[1].pattern?.transform).toMatchObject({ e: -20 });
 	});
 

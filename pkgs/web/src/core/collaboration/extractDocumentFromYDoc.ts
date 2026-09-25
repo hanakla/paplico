@@ -81,6 +81,9 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 					? JSON.parse(yMap.get("strokeWidths") as string)
 					: undefined,
 				strokeWidthsBaked: yMap.get("strokeWidthsBaked") as boolean | undefined,
+				strokeErasure: yMap.has("strokeErasure")
+					? JSON.parse(yMap.get("strokeErasure") as string)
+					: undefined,
 				pathStart: yMap.get("pathStart") as number | undefined,
 				pathEnd: yMap.get("pathEnd") as number | undefined,
 				isGuide: yMap.get("isGuide") as boolean | undefined,

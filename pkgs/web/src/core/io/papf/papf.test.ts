@@ -196,6 +196,37 @@ describe("PAPF format", () => {
 			expect(restored.timelapse!.baselines).toBeUndefined();
 		});
 
+		it("should round-trip the schema version each part was recorded in", async () => {
+			const timelapse = makeTimelapse(4);
+			timelapse.schemaVersions = [
+				{ at: 0, version: 1 },
+				{ at: 2, version: LATEST_SCHEMA_VERSION },
+			];
+
+			const blob = await serializeDocument(makeMinimalDoc({ timelapse }));
+			const restored = await (await openPapf(blob)).toDocument();
+
+			expect(restored.timelapse!.schemaVersions).toEqual(
+				timelapse.schemaVersions,
+			);
+		});
+
+		it("should date an untracked recording by the version the file was saved in", async () => {
+			const papf = await openPapf(
+				await serializeDocument(
+					makeMinimalDoc({ timelapse: makeTimelapse(3) }),
+				),
+			);
+			papf.meta.document.schemaVersion = 1;
+
+			// The document is migrated on load and saved as the newest version
+			// afterwards, so this is the only chance to tell how old it is.
+			const restored = await papf.toDocument();
+			expect(restored.timelapse!.schemaVersions).toEqual([
+				{ at: 0, version: 1 },
+			]);
+		});
+
 		it("should report no index when the recording predates it", async () => {
 			const blob = await serializeDocument(
 				makeMinimalDoc({ timelapse: makeTimelapse(3) }),

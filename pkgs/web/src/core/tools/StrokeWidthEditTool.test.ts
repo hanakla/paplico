@@ -158,7 +158,7 @@ describe("StrokeWidthEditTool", () => {
 
 	beforeEach(() => {
 		ctx = createMockToolContext();
-		tool = new StrokeWidthEditTool(ctx);
+		tool = new StrokeWidthEditTool(ctx, { target: "width" });
 		path = createTestPath();
 		ctx.getPathById.mockReturnValue(path);
 	});
@@ -398,6 +398,52 @@ describe("StrokeWidthEditTool", () => {
 			const point = draggedWidthPoint(ctx);
 			expect(point.side1).toBeCloseTo(0.6);
 			expect(point.side2).toBeCloseTo(0.9);
+		});
+	});
+
+	describe("onPointerMove (erasure target)", () => {
+		// The width profile halves the band around the centerline, so it spans
+		// world y ±5. The erasure keeps it whole, so its side1 handle sits on the
+		// band's edge at world(0, 5) → screen(400, 295).
+		beforeEach(() => {
+			path = {
+				...createTestPath([{ t: 0.5, side1: 0.5, side2: 0.5 }]),
+				strokeErasure: [{ t: 0.5, side1: 1, side2: 1 }],
+			};
+			ctx.getPathById.mockReturnValue(path);
+			ctx.updateElement.mockImplementation((_id, patch) => {
+				path = { ...path, ...patch } as Path;
+				ctx.getPathById.mockReturnValue(path);
+			});
+
+			tool.setOptions({ target: "erasure" });
+			tool.initWithSelectedPath(
+				path,
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerDown(
+				ev(400, 295),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		});
+
+		it("should move the erased boundary across the band the width drew", () => {
+			// world y = 2 is 0.2 brush half widths out, which is 0.4 of the band
+			tool.onPointerMove(
+				ev(400, 298, { altKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const patch = ctx.updateElement.mock.calls.at(-1)![1] as Partial<Path>;
+			expect(patch.strokeErasure?.[0].side1).toBeCloseTo(0.4);
+			expect(patch.strokeErasure?.[0].side2).toBeCloseTo(1);
+			expect(patch).not.toHaveProperty("strokeWidths");
 		});
 	});
 

@@ -43,6 +43,7 @@ import {
 } from "../utils/geometry/geometry";
 import {
 	getWorldSegments,
+	holdPivotAncestorTransform,
 	resolveSegment,
 	splitSegmentAtIndex,
 	toWorldPath,
@@ -415,7 +416,7 @@ export class PathTool implements Tool {
 			if (path)
 				this.emitPathEditUIForPath(
 					{ ...path, segments },
-					edit.ancestorTransform,
+					holdPivotAncestorTransform(path, edit.ancestorTransform, segments),
 				);
 			return;
 		}

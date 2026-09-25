@@ -128,6 +128,7 @@ function setupSelectedElementDrag() {
 		getSelectedElementIds: () => [elementId],
 		findElementAtPoint: () => element,
 		getBounds: () => bounds,
+		getWorldGeometryBounds: () => bounds,
 		snapElements: (_ids, _originalBounds, proposedDeltaX, proposedDeltaY) => ({
 			deltaX: proposedDeltaX,
 			deltaY: proposedDeltaY,
@@ -173,6 +174,7 @@ describe("SelectTool resize flipping", () => {
 			getSelectedElementIds: () => [elementId],
 			findElementAtPoint: () => element,
 			getBounds: () => bounds,
+			getWorldGeometryBounds: () => bounds,
 			snapElements: (_ids, _bounds, proposedDeltaX, proposedDeltaY) => ({
 				deltaX: proposedDeltaX,
 				deltaY: proposedDeltaY,
@@ -257,6 +259,7 @@ describe("SelectTool extrude gizmo", () => {
 			getSelectedElementIds: () => [element.id],
 			getElement: () => element,
 			getBounds: () => bounds,
+			getWorldGeometryBounds: () => bounds,
 		});
 		const tool = new SelectTool(context);
 		tool.refreshUI();
@@ -318,6 +321,7 @@ describe("SelectTool extrude gizmo", () => {
 			getSelectedElementIds: () => [group.id],
 			getElement: () => group,
 			getBounds: () => bounds,
+			getWorldGeometryBounds: () => bounds,
 		});
 		new SelectTool(context).refreshUI();
 
@@ -960,6 +964,7 @@ describe("SelectTool rotation integration", () => {
 			findElementAtPoint: () => element,
 			getElement: () => element,
 			getBounds: () => bounds,
+			getWorldGeometryBounds: () => bounds,
 			getElementWorldSegments: () => getWorldSegments(element),
 			getAncestorTransform: () => null,
 		});
@@ -1115,6 +1120,7 @@ describe("SelectTool selection outline", () => {
 			findElementAtPoint: () => clipGroup,
 			getElement: (id) => objects[id] ?? null,
 			getBounds: () => bounds,
+			getWorldGeometryBounds: () => bounds,
 			getElementWorldSegments: (id) =>
 				id === "clip-path" ? getWorldSegments(clipPath) : null,
 			getAncestorTransform: () => null,
@@ -1326,6 +1332,7 @@ describe("SelectTool key object selection", () => {
 			getSelectedElementIds: () => selectedIds,
 			findElementAtPoint: () => clicked,
 			getBounds: () => clickedBounds,
+			getWorldGeometryBounds: () => clickedBounds,
 		});
 	}
 
@@ -1429,6 +1436,7 @@ describe("SelectTool repeat grid gizmo", () => {
 			getSelectedElementIds: () => [repeat.id],
 			getElement: (id) => objects[id] ?? null,
 			getBounds: () => bounds,
+			getWorldGeometryBounds: () => bounds,
 			getObjects: () => objects,
 		});
 		const tool = new SelectTool(context);
@@ -1487,6 +1495,66 @@ describe("SelectTool repeat grid gizmo", () => {
 	});
 });
 
+describe("SelectTool repeat grid gizmo", () => {
+	it("should widen the column gap by the drag measured in the repeat's own scale", () => {
+		const source: ImageObject = {
+			id: "src-1",
+			type: "image",
+			fileUid: "file-1",
+			x: 0,
+			y: 0,
+			width: 100,
+			height: 100,
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		};
+		const repeat: AnyArtObject = {
+			...createRepeatObject([source.id]),
+			transform: { ...createIdentityTransform(), scaleX: 2 },
+		};
+		const objects: Record<string, AnyArtObject> = {
+			[repeat.id]: repeat,
+			[source.id]: source,
+		};
+		const bounds = brandWorldBBox({
+			minX: -100,
+			minY: -100,
+			maxX: 100,
+			maxY: 100,
+			width: 200,
+			height: 200,
+		});
+		const context = createMockToolContext({
+			getSelectedElementIds: () => [repeat.id],
+			getElement: (id) => objects[id] ?? null,
+			getBounds: () => bounds,
+			getWorldGeometryBounds: () => bounds,
+			getObjects: () => objects,
+		});
+		const tool = new SelectTool(context);
+		tool.refreshUI();
+
+		// The column-gap handle sits a quarter along the top edge: world
+		// (-50,100) = screen (350,200). Drag it 40 world units right.
+		tool.onPointerDown(
+			ev(350, 200),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerMove(
+			ev(390, 200),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		const call = context.mockCommands.updateRepeatGrid.mock.calls.at(-1);
+		expect(call?.[1].spacingX).toBeCloseTo(120 + 20, 4);
+	});
+});
+
 describe("SelectTool repeat radial gizmo", () => {
 	function imageSource(): ImageObject {
 		return {
@@ -1528,6 +1596,7 @@ describe("SelectTool repeat radial gizmo", () => {
 			getSelectedElementIds: () => [repeat.id],
 			getElement: (id) => objects[id] ?? null,
 			getBounds: () => bounds,
+			getWorldGeometryBounds: () => bounds,
 			getObjects: () => objects,
 		});
 		const tool = new SelectTool(context);
@@ -1551,6 +1620,59 @@ describe("SelectTool repeat radial gizmo", () => {
 
 		const call = context.mockCommands.updateRepeatRadial.mock.calls.at(-1);
 		expect(call?.[0]).toBe(repeat.id);
+		expect(call?.[1].radius).toBeCloseTo(200, 4);
+		expect(call?.[1].startAngle).toBeCloseTo(0, 4);
+	});
+
+	it("should place the radius handle where a moved parent group draws the repeat", () => {
+		const source = imageSource();
+		const repeat: AnyArtObject = {
+			...createRepeatObject([source.id]),
+			mode: "radial",
+			radial: {
+				count: 6,
+				radius: 160,
+				startAngle: 0,
+				sweep: Math.PI * 2,
+				rotateInstances: true,
+			},
+		};
+		const objects: Record<string, AnyArtObject> = {
+			[repeat.id]: repeat,
+			[source.id]: source,
+		};
+		const parentT = { ...createIdentityTransform(), x: 300 };
+		const bounds = calculateElementBounds(
+			{ ...repeat, transform: parentT },
+			new Map(Object.entries(objects)),
+		);
+		const context = createMockToolContext({
+			getSelectedElementIds: () => [repeat.id],
+			getElement: (id) => objects[id] ?? null,
+			getBounds: () => bounds,
+			getWorldGeometryBounds: () => bounds,
+			getObjects: () => objects,
+			getAncestorTransform: (id) => (id === repeat.id ? parentT : null),
+		});
+		const tool = new SelectTool(context);
+		tool.refreshUI();
+
+		// The parent shifts the source center to world (300,0), so the radius
+		// handle sits at world (300,-160) = screen (700,460).
+		tool.onPointerDown(
+			ev(700, 460),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerMove(
+			ev(700, 500),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		const call = context.mockCommands.updateRepeatRadial.mock.calls.at(-1);
 		expect(call?.[1].radius).toBeCloseTo(200, 4);
 		expect(call?.[1].startAngle).toBeCloseTo(0, 4);
 	});

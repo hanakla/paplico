@@ -68,7 +68,7 @@ describe("evaluateDabs", () => {
 				cp2: { x: 40, y: 0 },
 				end: { x: 0, y: 0 },
 			},
-		])("should align width clipping with the outgoing tangent for $name", ({
+		])("should align erasure clipping with the outgoing tangent for $name", ({
 			cp1,
 			cp2,
 			end,
@@ -76,7 +76,7 @@ describe("evaluateDabs", () => {
 			const settings = dabSettings();
 			const segment = lineSegment({ cp1, cp2, end });
 			const options = {
-				strokeWidths: [
+				strokeErasure: [
 					{ t: 0, side1: 0.01, side2: 0.01 },
 					{ t: 1, side1: 1, side2: 1 },
 				],
@@ -108,6 +108,44 @@ describe("evaluateDabs", () => {
 			}
 			expect(readDabField(first.data, 0, "side1Width")).toBeCloseTo(0.01, 6);
 			expect(readDabField(first.data, 0, "side2Width")).toBeCloseTo(0.01, 6);
+		});
+	});
+
+	describe("side profiles", () => {
+		it("should scale the stamp by a width profile that was not baked", () => {
+			const settings = dabSettings();
+			const plain = evaluateDabs([lineSegment()], settings);
+			const narrowed = evaluateDabs([lineSegment()], settings, {
+				strokeWidths: [
+					{ t: 0, side1: 0.5, side2: 0.5 },
+					{ t: 1, side1: 0.5, side2: 0.5 },
+				],
+			});
+
+			expect(readDabField(narrowed.data, 0, "sizeX")).toBeCloseTo(
+				readDabField(plain.data, 0, "sizeX") * 0.5,
+				6,
+			);
+			expect(readDabField(narrowed.data, 0, "side1Width")).toBe(1);
+			expect(readDabField(narrowed.data, 0, "side2Width")).toBe(1);
+		});
+
+		it("should cut a full-size stamp by the erasure", () => {
+			const settings = dabSettings();
+			const plain = evaluateDabs([lineSegment()], settings);
+			const erased = evaluateDabs([lineSegment()], settings, {
+				strokeErasure: [
+					{ t: 0, side1: 0.25, side2: 1 },
+					{ t: 1, side1: 0.25, side2: 1 },
+				],
+			});
+
+			expect(readDabField(erased.data, 0, "sizeX")).toBeCloseTo(
+				readDabField(plain.data, 0, "sizeX"),
+				6,
+			);
+			expect(readDabField(erased.data, 0, "side1Width")).toBeCloseTo(0.25, 6);
+			expect(readDabField(erased.data, 0, "side2Width")).toBe(1);
 		});
 	});
 

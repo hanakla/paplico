@@ -36,7 +36,7 @@ import type {
 	TextElement,
 	Vec2,
 } from "./schema";
-import { toRGBColor } from "./schema";
+import { getTransform, toRGBColor } from "./schema";
 import {
 	createMockFontManager,
 	createTestTextElement,
@@ -45,6 +45,10 @@ import type { ToolSettings } from "./tools/toolSettings";
 import { TextLayoutEngine } from "./typography/TextLayoutEngine";
 import { TextRenderer } from "./typography/TextRenderer";
 import { calculateElementBounds } from "./utils/geometry/bounds";
+import {
+	composeTransforms,
+	transformLinearMatrix,
+} from "./utils/geometry/geometry";
 
 describe("PaplicoCommands", () => {
 	describe("createClipGroupFromTopmost", () => {
@@ -1079,6 +1083,7 @@ describe("PaplicoCommands", () => {
 				spatial: {
 					insertElement: vi.fn(),
 					isElementLocked: () => false,
+					getAncestorTransform: () => null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
 			});
@@ -1104,6 +1109,48 @@ describe("PaplicoCommands", () => {
 			expect(addedIds).toEqual(expect.arrayContaining(clonedBlend.objectIds));
 			expect(addedIds).not.toContain("s0");
 			expect(addedIds).not.toContain("s1");
+		});
+
+		it("keeps the copy of a blend inside the moved group being edited", () => {
+			const groupT = { ...createIdentityTransform(), x: 300 };
+			const parentOf = (id: string) =>
+				Object.values(fixture.store.document.objects).find(
+					(o): o is Group => o.type === "group" && o.childIds.includes(id),
+				);
+			const fixture = createProviderCommands({
+				getAncestorTransform: (id) => (parentOf(id) ? groupT : null),
+				getParentGroupId: (id) => parentOf(id)?.id ?? null,
+			});
+			const { provider, store, commands, sync } = fixture;
+			for (const id of ["s0", "s1", "other"]) {
+				provider.addElement("layer", createPath(id));
+			}
+			const blend = {
+				id: "blend-1",
+				type: "blend",
+				objectIds: ["s0", "s1"],
+				spacing: { type: "steps", count: 3 },
+				placementEasing: { type: "linear" },
+				appearanceEasing: { type: "linear" },
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			} as unknown as BlendObject;
+			provider.createBlend("layer", blend);
+			const groupId = provider.groupElements("layer", ["blend-1", "other"]);
+			if (!groupId) throw new Error("group should be created");
+			provider.updateElement("layer", groupId, { transform: groupT });
+			sync();
+			store.editingScopeStack = [groupId];
+			store.selectedElementIds = ["blend-1"];
+
+			const [copyId] = commands.duplicateElements();
+			sync();
+
+			const group = store.document.objects[groupId] as Group;
+			expect(store.document.layers[0].elementIds).toEqual([groupId]);
+			expect(group.childIds).toContain(copyId);
+			expect(getTransform(store.document.objects[copyId]!).x).toBeCloseTo(0);
 		});
 	});
 
@@ -1978,7 +2025,66 @@ describe("PaplicoCommands", () => {
 		});
 	});
 
+	describe("collectElementMoveUpdates", () => {
+		it("should move a child of a rotated, scaled container by the world delta", () => {
+			const path = createPathAt("p1", 0, 0, 100, 100);
+			const layer = createLayer("l1", [path.id]);
+			const ancestorT = {
+				...createIdentityTransform(),
+				rotation: Math.PI / 2,
+				scaleX: 2,
+			};
+			const { commands } = createRotateCommands(
+				layer,
+				{ [path.id]: path },
+				{ getAncestorTransform: () => ancestorT },
+			);
+
+			const [move] = commands.collectElementMoveUpdates(
+				[{ layerId: layer.id, elementId: path.id }],
+				100,
+				0,
+			);
+
+			const before = composeTransforms(ancestorT, path.transform);
+			const after = composeTransforms(
+				ancestorT,
+				(move.updates as Path).transform,
+			);
+			expect(after.x - before.x).toBeCloseTo(100);
+			expect(after.y - before.y).toBeCloseTo(0);
+		});
+	});
+
 	describe("rotateElements", () => {
+		it("should turn a child of a mirrored container the way the pointer turns", () => {
+			const path = createPathAt("p1", 0, 0, 100, 100);
+			const layer = createLayer("l1", [path.id]);
+			const ancestorT = { ...createIdentityTransform(), scaleX: -1 };
+			const { commands, store } = createRotateCommands(
+				layer,
+				{ [path.id]: path },
+				{ getAncestorTransform: () => ancestorT },
+			);
+			const before = transformLinearMatrix(
+				composeTransforms(ancestorT, path.transform),
+			);
+
+			commands.rotateElements([path.id], 90, 0, 0);
+
+			const after = transformLinearMatrix(
+				composeTransforms(
+					ancestorT,
+					(store.document.objects[path.id] as Path).transform,
+				),
+			);
+			// World rotation by +90deg: R = [[0,-1],[1,0]] applied before `before`.
+			expect(after.m00).toBeCloseTo(-before.m10);
+			expect(after.m01).toBeCloseTo(-before.m11);
+			expect(after.m10).toBeCloseTo(before.m00);
+			expect(after.m11).toBeCloseTo(before.m01);
+		});
+
 		it("should only update rotation angle when the pivot is the element center", () => {
 			const path = createPathAt("p1", 100, 100, 200, 200);
 			const layer = createLayer("l1", [path.id]);
@@ -4013,6 +4119,7 @@ function createPathAt(
 function createRotateCommands(
 	layer: Layer,
 	objects: Record<string, AnyArtObject>,
+	spatialOverrides: Partial<SpatialIndex> = {},
 ) {
 	const updateElement = vi.fn(
 		(_layerId: string, elementId: string, updates: Partial<AnyArtObject>) => {
@@ -4061,6 +4168,7 @@ function createRotateCommands(
 			getBounds: vi.fn(() => null),
 			getAncestorTransform: vi.fn(() => null),
 			getParentGroupId: vi.fn(() => null),
+			...spatialOverrides,
 		} as unknown as SpatialIndex,
 		isReadonly: () => false,
 	});
@@ -4129,7 +4237,7 @@ function createLayer(id: string, elementIds: string[]): Layer {
 }
 
 /** Commands backed by a real YjsProvider holding one empty layer "layer". */
-function createProviderCommands() {
+function createProviderCommands(spatialOverrides: Partial<SpatialIndex> = {}) {
 	let store!: RendererState;
 	const callbacks: YjsProviderCallbacks = {
 		onDocumentUpdate: (doc) => {
@@ -4157,6 +4265,7 @@ function createProviderCommands() {
 		spatial: {
 			isElementLocked: () => false,
 			getAncestorTransform: () => null,
+			...spatialOverrides,
 		} as unknown as SpatialIndex,
 		isReadonly: () => false,
 	});

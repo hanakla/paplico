@@ -29,6 +29,7 @@ import {
 	hashSegmentsWithMetadata,
 } from "../../../../utils/geometry/segmentOps";
 import { compileShaderModule } from "../../../../utils/wgpu-utils";
+import { hashSideProfile } from "../../../helpers";
 import { RENDER_SAMPLE_COUNT } from "../../CanvasLayerTypes";
 import type { StampCache } from "../../caches/StampCache";
 import { BoundedStampStore } from "./BoundedStampStore";
@@ -236,6 +237,7 @@ export class DabRenderer {
 				pathEnd: path.pathEnd ?? 1,
 				strokeWidths: path.strokeWidths,
 				strokeWidthsBaked: path.strokeWidthsBaked,
+				strokeErasure: path.strokeErasure,
 				textureAspectRatio,
 				variantCount,
 				startLayerIndex,
@@ -262,6 +264,7 @@ export class DabRenderer {
 					pathEnd: path.pathEnd ?? 1,
 					strokeWidths: path.strokeWidths,
 					strokeWidthsBaked: path.strokeWidthsBaked,
+					strokeErasure: path.strokeErasure,
 					textureAspectRatio,
 					variantCount,
 					startLayerIndex,
@@ -356,6 +359,7 @@ export class DabRenderer {
 			pathEnd: path.pathEnd ?? 1,
 			strokeWidths: path.strokeWidths,
 			strokeWidthsBaked: path.strokeWidthsBaked,
+			strokeErasure: path.strokeErasure,
 			textureAspectRatio: tip.textureAspectRatio,
 			variantCount: tip.variantCount,
 			startLayerIndex: tip.startLayerIndex,
@@ -960,16 +964,8 @@ function hashStampInput(path: Path, segments: CubicBezierSegment[]): string {
 	h = (h * 31 + floatBits(path.pathStart ?? 0)) | 0;
 	h = (h * 31 + floatBits(path.pathEnd ?? 1)) | 0;
 	h = (h * 31 + (path.strokeWidthsBaked ? 1 : 0)) | 0;
-	const strokeWidths = path.strokeWidths;
-	if (strokeWidths) {
-		h = (h * 31 + strokeWidths.length) | 0;
-		for (let i = 0; i < strokeWidths.length; i++) {
-			const width = strokeWidths[i];
-			h = (h * 31 + floatBits(width.t)) | 0;
-			h = (h * 31 + floatBits(width.side1)) | 0;
-			h = (h * 31 + floatBits(width.side2)) | 0;
-		}
-	}
+	h = hashSideProfile(h, path.strokeWidths);
+	h = hashSideProfile(h, path.strokeErasure);
 	return h.toString(36);
 }
 

@@ -16,6 +16,7 @@ import {
 	applyTransformToPoint,
 	composeTransforms,
 	computeTransformOrigin,
+	pivotMoveShift,
 	toWorld,
 	type WorldBezierSegment,
 } from "./geometry";
@@ -179,6 +180,29 @@ export function getWorldSegments(
 		? ORIGIN_ZERO
 		: computeTransformOrigin(calculatePathBounds(element));
 	return transformSegmentsToWorld(geometry, t, origin);
+}
+
+/**
+ * The ancestor transform that keeps `path` drawn in place while `segments`
+ * replace its geometry, for edits drawn before the commit absorbs the pivot
+ * move into the stored transforms (see SpatialIndex.getPivotCompensation).
+ * The path pivots on its bounds centre, which moves with the geometry.
+ */
+export function holdPivotAncestorTransform(
+	path: Path,
+	ancestorTransform: ElementTransform | null,
+	segments: PathSegment[],
+): ElementTransform | null {
+	const t = getTransform(path);
+	const shift = pivotMoveShift(
+		ancestorTransform ? composeTransforms(ancestorTransform, t) : t,
+		computeTransformOrigin(calculatePathBounds(path)),
+		computeTransformOrigin(calculatePathBounds({ ...path, segments })),
+	);
+	if (shift.x === 0 && shift.y === 0) return ancestorTransform;
+	// The ancestor's translation adds straight onto the composed one.
+	const base = ancestorTransform ?? createIdentityTransform();
+	return { ...base, x: base.x + shift.x, y: base.y + shift.y };
 }
 
 /**

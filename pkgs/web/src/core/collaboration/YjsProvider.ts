@@ -10,7 +10,6 @@ import {
 	type BrushPreset,
 	type ColorProfileSettings,
 	type CompoundPath,
-	type CubicBezierSegment,
 	createDefaultContentAppearance,
 	type DefEntry,
 	type Document,
@@ -29,8 +28,9 @@ import {
 import { Emitter } from "../utils/emitter";
 import { composeTransforms } from "../utils/geometry/geometry";
 import {
-	createPathsFromSegmentLists,
+	createPathsFromRuns,
 	mergePathsAtEndpoints,
+	type PathRun,
 	splitPathAtAnchor,
 } from "../utils/geometry/pathOps";
 import { neverReached } from "../utils/lang";
@@ -68,6 +68,7 @@ export const SCALAR_FIELDS = new Set([
 	"collapsed",
 	"pathStart",
 	"pathEnd",
+	"strokeWidthsBaked",
 	"isGuide",
 	"spineSourceId",
 	"tiltToSpine",
@@ -93,6 +94,7 @@ export const JSON_FIELDS = new Set([
 	"transform",
 	"mask",
 	"strokeWidths",
+	"strokeErasure",
 	"vertices",
 	"faces",
 	"corners",
@@ -1037,10 +1039,10 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	public replacePathWithPaths(
 		layerId: string,
 		pathId: string,
-		segmentLists: CubicBezierSegment[][],
+		runs: PathRun[],
 		origin?: unknown,
 	): void {
-		if (segmentLists.length === 0) return;
+		if (runs.length === 0) return;
 		this.ydoc.transact(() => {
 			const yPath = this.yObjects.get(pathId);
 			if (!yPath) {
@@ -1054,7 +1056,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 				return;
 			}
 
-			const newPaths = createPathsFromSegmentLists(path, segmentLists);
+			const newPaths = createPathsFromRuns(path, runs);
 			for (const newPath of newPaths) {
 				this.yObjects.set(newPath.id, this.objectToYMap(newPath));
 			}
@@ -2893,6 +2895,8 @@ export function objectToStoredFields(
 				fields.strokeWidths = JSON.stringify(element.strokeWidths);
 			if (element.strokeWidthsBaked !== undefined)
 				fields.strokeWidthsBaked = element.strokeWidthsBaked;
+			if (element.strokeErasure?.length)
+				fields.strokeErasure = JSON.stringify(element.strokeErasure);
 			if (element.pathStart !== undefined) fields.pathStart = element.pathStart;
 			if (element.pathEnd !== undefined) fields.pathEnd = element.pathEnd;
 			if (element.isGuide !== undefined) fields.isGuide = element.isGuide;

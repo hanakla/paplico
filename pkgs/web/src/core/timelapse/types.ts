@@ -41,6 +41,14 @@ export interface TimelapseData {
 	 * ずに繋げて再生すると、同じレイヤーが二重に積まれる。
 	 */
 	baselines?: number[];
+	/**
+	 * Schema version the entries were recorded in, ascending by `at`. Entries
+	 * from `at` up to the next mark carry data shaped by `version`.
+	 *
+	 * Runs recorded by an older build never went through the migrations that
+	 * came after it, so playback migrates what it replays from this version.
+	 */
+	schemaVersions?: { at: number; version: number }[];
 }
 
 /** 再生状態（UI向け） */

@@ -20,6 +20,7 @@ import {
 	type PressureCurvePoint,
 } from "../utils/pressureCurve";
 import type { EraserMode } from "./EraserTool";
+import type { StrokeWidthEditTarget } from "./StrokeWidthEditTool";
 import { createDefaultTextStyle } from "./TextTool";
 
 export type ToolType =
@@ -114,6 +115,8 @@ export interface ToolSettings {
 	pathEditSelectionMode: "lasso" | "rectangle";
 	/** PathEdit tool: the next click cuts the path instead of selecting */
 	pathEditCutMode: boolean;
+	/** StrokeWidthEdit tool: which per-side profile of the path it edits */
+	strokeWidthEditTarget: StrokeWidthEditTarget;
 	/** Selection mode for Select tool: lasso or rectangle marquee */
 	selectSelectionMode: "lasso" | "rectangle";
 	/** Selected anchor points in PathEdit tool (for ActionsPanel button enable/disable) */
@@ -191,6 +194,7 @@ export function createToolSettings(): ToolSettings {
 		textCharTouchMode: false,
 		pathEditSelectionMode: "rectangle",
 		pathEditCutMode: false,
+		strokeWidthEditTarget: "width",
 		selectSelectionMode: "rectangle",
 		pathEditSelectedAnchors: [],
 		selectStrokeAfterDraw: false,

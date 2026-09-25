@@ -17,6 +17,12 @@ import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
 
 const SPEED_OPTIONS = [1, 2, 5, 10] as const;
+/** Upper bounds for the exported video. X rejects videos longer than 2:20. */
+const MAX_DURATION_MS = {
+	none: undefined,
+	x: 140_000,
+} as const;
+type MaxDurationOption = keyof typeof MAX_DURATION_MS;
 const PREVIEW_WIDTH = 640;
 
 interface TimelapseDialogProps {
@@ -63,12 +69,15 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 		handleSpeedChange,
 	} = useTimelapsePlayer(paplico, canvasEl, artboard, open);
 
+	const [maxDuration, setMaxDuration] = useState<MaxDurationOption>("none");
+
 	const { exporting, exportProgress, handleExportMP4 } = useTimelapseExport(
 		paplico,
 		playerRef,
 		surfaceRef,
 		artboard,
 		state.speed,
+		maxDuration,
 	);
 
 	const canvasAspect = artboard
@@ -169,8 +178,8 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 						/>
 
 						{/* Play controls */}
-						<div className="flex items-center justify-between">
-							<div className="flex items-center gap-2">
+						<div className="flex items-end justify-between">
+							<div className="flex items-end gap-2">
 								<Button
 									$variant="ghost"
 									$size="sm"
@@ -181,25 +190,60 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 								</Button>
 
 								{/* Speed buttons */}
-								<ToggleGroup.Root
-									value={[String(state.speed)]}
-									onValueChange={(value) => {
-										if (value.length > 0) {
-											handleSpeedChange(Number(value[0]));
-										}
-									}}
-									disabled={exporting || state.isPreparing}
-								>
-									{SPEED_OPTIONS.map((s) => (
-										<ToggleGroup.Item
-											key={s}
-											value={String(s)}
-											className="text-xs font-medium"
+								<div className="flex flex-col gap-1">
+									<span className="text-xs font-medium text-muted-foreground">
+										{t("timelapseDialog.speed")}
+									</span>
+									<ToggleGroup.Root
+										value={[String(state.speed)]}
+										onValueChange={(value) => {
+											if (value.length > 0) {
+												handleSpeedChange(Number(value[0]));
+											}
+										}}
+										disabled={exporting || state.isPreparing}
+									>
+										{SPEED_OPTIONS.map((s) => (
+											<ToggleGroup.Item
+												key={s}
+												value={String(s)}
+												className="text-xs font-medium"
+											>
+												{s}x
+											</ToggleGroup.Item>
+										))}
+									</ToggleGroup.Root>
+								</div>
+
+								{/* Export length. Only the exported video honors it. */}
+								{TimelapseExporter.isSupported() && (
+									<div className="flex flex-col gap-1">
+										<span className="text-xs font-medium text-muted-foreground">
+											{t("timelapseDialog.maxDuration.label")}
+										</span>
+										<ToggleGroup.Root
+											value={[maxDuration]}
+											onValueChange={(value) => {
+												if (value.length > 0) {
+													setMaxDuration(value[0] as MaxDurationOption);
+												}
+											}}
+											disabled={exporting || state.isPreparing}
 										>
-											{s}x
-										</ToggleGroup.Item>
-									))}
-								</ToggleGroup.Root>
+											{(
+												Object.keys(MAX_DURATION_MS) as MaxDurationOption[]
+											).map((option) => (
+												<ToggleGroup.Item
+													key={option}
+													value={option}
+													className="w-auto px-2 text-xs font-medium whitespace-nowrap"
+												>
+													{t(`timelapseDialog.maxDuration.${option}`)}
+												</ToggleGroup.Item>
+											))}
+										</ToggleGroup.Root>
+									</div>
+								)}
 							</div>
 
 							<span className="text-xs text-muted-foreground tabular-nums">
@@ -226,9 +270,7 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 									</div>
 								) : (
 									<span className="text-xs text-muted-foreground">
-										{artboard
-											? t("timelapseDialog.exportAsMP4")
-											: t("timelapseDialog.artboardRequired")}
+										{!artboard && t("timelapseDialog.artboardRequired")}
 									</span>
 								)}
 								<Tooltip
@@ -391,6 +433,7 @@ function useTimelapseExport(
 	surfaceRef: RefObject<TimelapsePreviewSurface | null>,
 	artboard: Artboard | undefined,
 	speed: number,
+	maxDuration: MaxDurationOption,
 ) {
 	const [exporting, setExporting] = useState(false);
 	const [exportProgress, setExportProgress] = useState(0);
@@ -410,6 +453,7 @@ function useTimelapseExport(
 				artboard,
 				fps: 30,
 				speed,
+				maxDurationMs: MAX_DURATION_MS[maxDuration],
 				onProgress: setExportProgress,
 			});
 

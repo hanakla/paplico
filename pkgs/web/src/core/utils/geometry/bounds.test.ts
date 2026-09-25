@@ -19,9 +19,11 @@ import {
 	boundsIntersect,
 	calculateElementBounds,
 	calculatePathBounds,
+	calculateSegmentListTightBounds,
 	expandBounds,
 	pointInBounds,
 } from "./bounds";
+import { toWorld } from "./geometry";
 
 describe("bounds utilities", () => {
 	describe("calculatePathBounds", () => {
@@ -338,6 +340,49 @@ describe("bounds utilities", () => {
 			expect(bounds.maxY).toBe(200);
 			expect(bounds.width).toBe(400);
 			expect(bounds.height).toBe(300);
+		});
+	});
+
+	describe("calculateSegmentListTightBounds", () => {
+		it("should end at the curve's peak rather than at control points past it", () => {
+			const bounds = calculateSegmentListTightBounds([
+				{
+					start: toWorld(0, 0),
+					cp1: toWorld(0, 100),
+					cp2: toWorld(100, 100),
+					end: toWorld(100, 0),
+				},
+			]);
+
+			expect(bounds?.minX).toBeCloseTo(0);
+			expect(bounds?.maxX).toBeCloseTo(100);
+			expect(bounds?.minY).toBeCloseTo(0);
+			expect(bounds?.maxY).toBeCloseTo(75);
+		});
+
+		it("should span the anchors of straight segments", () => {
+			const bounds = calculateSegmentListTightBounds([
+				{
+					start: toWorld(-10, 5),
+					cp1: toWorld(-10, 5),
+					cp2: toWorld(30, 40),
+					end: toWorld(30, 40),
+				},
+				{ cp1: toWorld(30, 40), cp2: toWorld(20, -8), end: toWorld(20, -8) },
+			]);
+
+			expect(bounds).toMatchObject({
+				minX: -10,
+				minY: -8,
+				maxX: 30,
+				maxY: 40,
+				width: 40,
+				height: 48,
+			});
+		});
+
+		it("should return null for an empty segment list", () => {
+			expect(calculateSegmentListTightBounds([])).toBeNull();
 		});
 	});
 

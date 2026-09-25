@@ -28,6 +28,7 @@ import {
 	createMeshWarpInverse,
 	createMeshWarpSampler,
 } from "../utils/geometry/meshWarp";
+import { getWorldSegments } from "../utils/geometry/segmentOps";
 import {
 	createIdentityTransform,
 	createMeshWarpObjectFromGeometry,
@@ -375,6 +376,27 @@ describe("SpatialIndex", () => {
 				extentMin: -50,
 				extentMax: 50,
 			});
+		});
+	});
+
+	describe("snapElements", () => {
+		it("in group edit mode, snaps to a sibling where the moved group draws it", () => {
+			const a = makeImage("a", 0, 0, 100, 100);
+			const b = makeImage("b", 1000, 0, 100, 100);
+			const group = makeGroup("group-1", ["a", "b"], {
+				transform: { ...createIdentityTransform(), x: 300 },
+			});
+			const layer = makeLayer("layer-1", ["group-1"]);
+			const store = makeStore([layer], { "group-1": group, a, b }, ["group-1"]);
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+
+			// a's right edge is drawn at world x=350; drop b's left edge 3px past it
+			const bBounds = idx.getWorldBounds("b")!;
+			const dx = 353 - bBounds.minX;
+			const result = idx.snapElements(["b"], bBounds, dx, 0, 1);
+
+			expect(result.deltaX).toBe(dx - 3);
 		});
 	});
 
@@ -760,6 +782,109 @@ describe("SpatialIndex", () => {
 			expect(
 				idx.findElementsInRect("layer-1", -100, -100, 100, 100),
 			).toHaveLength(0);
+		});
+
+		it("in group edit mode, hits a child where the moved group draws it", () => {
+			const child = makeClosedPath("child-1");
+			const group = makeGroup("group-1", ["child-1"], {
+				transform: { ...createIdentityTransform(), x: 300 },
+			});
+			const layer = makeLayer("layer-1", ["group-1"]);
+			const store = makeStore([layer], { "group-1": group, "child-1": child }, [
+				"group-1",
+			]);
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+
+			// The child's left edge is drawn at world x=250
+			expect(idx.findElementsInRect("layer-1", 240, -10, 260, 10)).toEqual([
+				child,
+			]);
+		});
+	});
+
+	describe("getPivotCompensation", () => {
+		it("should keep the untouched corners of a rotated path in place", () => {
+			const path: Path = {
+				...makeClosedPath("p"),
+				transform: { ...createIdentityTransform(), rotation: Math.PI / 2 },
+			};
+			const store = makeStore([makeLayer("layer-1", ["p"])], { p: path });
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+
+			// Drag the (-50,-50) corner out to (-150,-50).
+			const segments = path.segments.map((seg, i) =>
+				i === 0
+					? { ...seg, start: { x: -150, y: -50 } }
+					: i === 3
+						? { ...seg, end: { x: -150, y: -50 } }
+						: seg,
+			);
+			const [update] = idx.getPivotCompensation("p", segments);
+
+			const before = getWorldSegments(path);
+			const after = getWorldSegments({
+				...path,
+				segments,
+				transform: update.transform,
+			});
+			for (const i of [0, 1, 2]) {
+				expect(after[i].end.x).toBeCloseTo(before[i].end.x);
+				expect(after[i].end.y).toBeCloseTo(before[i].end.y);
+			}
+		});
+
+		it("should keep the other sources of a rotated compound path in place", () => {
+			const a = makeClosedPath("a");
+			const b: Path = {
+				...makeClosedPath("b"),
+				transform: { ...createIdentityTransform(), x: 200 },
+			};
+			const compound: CompoundPath = {
+				type: "compound-path",
+				id: "compound-1",
+				sources: [
+					{ id: "a", op: "union" },
+					{ id: "b", op: "union" },
+				],
+				opacity: 1,
+				blendMode: "normal",
+				transform: { ...createIdentityTransform(), rotation: Math.PI / 2 },
+			};
+			const objects = { "compound-1": compound, a, b };
+			const idx = new SpatialIndex(
+				makeStore([makeLayer("layer-1", ["compound-1"])], objects),
+			);
+			idx.rebuildAllIndices();
+
+			// Move source a 30 units right in its own space.
+			const segments = a.segments.map((seg) => ({
+				...seg,
+				start: seg.start && { ...seg.start, x: seg.start.x + 30 },
+				end: { ...seg.end, x: seg.end.x + 30 },
+			}));
+			const edited: Record<string, AnyArtObject> = {
+				...objects,
+				a: { ...a, segments },
+			};
+			for (const { elementId, transform } of idx.getPivotCompensation(
+				"a",
+				segments,
+			)) {
+				edited[elementId] = { ...edited[elementId]!, transform };
+			}
+			const editedIdx = new SpatialIndex(
+				makeStore([makeLayer("layer-1", ["compound-1"])], edited),
+			);
+			editedIdx.rebuildAllIndices();
+
+			const before = idx.getElementWorldSegments("b")!;
+			const after = editedIdx.getElementWorldSegments("b")!;
+			for (const i of [0, 1, 2, 3]) {
+				expect(after[i].end.x).toBeCloseTo(before[i].end.x);
+				expect(after[i].end.y).toBeCloseTo(before[i].end.y);
+			}
 		});
 	});
 
@@ -1943,3 +2068,124 @@ describe("geometry filter hit testing", () => {
 		expect(idx.findElementsInRect("layer-1", -5, -5, 5, 5)).toEqual([]);
 	});
 });
+
+describe("getWorldGeometryBounds", () => {
+	it("should span a path's curve without its stroke width or control points", () => {
+		const idx = createFilteredIndex(["arch"], {
+			arch: makeStrokedArchPath("arch"),
+		});
+
+		expect(idx.getWorldBounds("arch")!.maxY).toBeGreaterThanOrEqual(100);
+		const bounds = idx.getWorldGeometryBounds("arch")!;
+		expect(bounds.minX).toBeCloseTo(-50);
+		expect(bounds.maxX).toBeCloseTo(50);
+		expect(bounds.minY).toBeCloseTo(0);
+		expect(bounds.maxY).toBeCloseTo(75);
+	});
+
+	it("should combine a group's children through the group's transform", () => {
+		const idx = createFilteredIndex(["group-1"], {
+			"group-1": makeGroup("group-1", ["arch", "square"], {
+				transform: { ...createIdentityTransform(), x: 100 },
+			}),
+			arch: makeStrokedArchPath("arch"),
+			square: {
+				...makeClosedPath("square"),
+				transform: { ...createIdentityTransform(), y: -100 },
+			},
+		});
+
+		const bounds = idx.getWorldGeometryBounds("group-1")!;
+		expect(bounds.minX).toBeCloseTo(50);
+		expect(bounds.maxX).toBeCloseTo(150);
+		expect(bounds.minY).toBeCloseTo(-150);
+		expect(bounds.maxY).toBeCloseTo(75);
+	});
+
+	it("should span only the clip path of a clip group", () => {
+		const idx = createFilteredIndex(["group-1"], {
+			"group-1": makeGroup("group-1", ["arch", "clip"], { clipPathId: "clip" }),
+			arch: {
+				...makeStrokedArchPath("arch"),
+				transform: { ...createIdentityTransform(), x: 500 },
+			},
+			clip: makeClosedPath("clip"),
+		});
+
+		expect(idx.getWorldGeometryBounds("group-1")).toMatchObject({
+			minX: -50,
+			minY: -50,
+			maxX: 50,
+			maxY: 50,
+		});
+	});
+
+	it("should span a compound path's boolean result", () => {
+		const idx = createFilteredIndex(["compound-1"], {
+			"compound-1": {
+				type: "compound-path",
+				id: "compound-1",
+				sources: [
+					{ id: "base", op: "union" },
+					{ id: "cutter", op: "subtract" },
+				],
+				filters: makeStrokedArchPath("unused").filters,
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			} as CompoundPath,
+			base: makeClosedPath("base"),
+			cutter: {
+				...makeClosedPath("cutter"),
+				transform: { ...createIdentityTransform(), x: 50 },
+			},
+		});
+
+		const bounds = idx.getWorldGeometryBounds("compound-1")!;
+		expect(bounds.minX).toBeCloseTo(-50);
+		expect(bounds.maxX).toBeCloseTo(0);
+		expect(bounds.minY).toBeCloseTo(-50);
+		expect(bounds.maxY).toBeCloseTo(50);
+	});
+});
+
+/**
+ * An arch from (-50, 0) to (50, 0) whose control points sit at y=100, so the
+ * curve peaks at y=75. Carries a 10px stroke.
+ */
+function makeStrokedArchPath(id: string): Path {
+	return {
+		...makePath(id),
+		segments: [
+			{
+				...makePath(id).segments[0],
+				cp1: { x: 0, y: 100 },
+				cp2: { x: 0, y: 100 },
+			},
+		],
+		filters: [
+			{
+				uid: "stroke",
+				processor: "stroke",
+				enabled: true,
+				paramData: {
+					version: "1",
+					params: {
+						strokeColor: {
+							type: "solid",
+							color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+						},
+						brushSettings: {
+							version: 2,
+							engine: "dab",
+							strokeOpacity: 1,
+							paintMode: "buildup",
+							properties: { size: { base: 10 } },
+							randomSeed: 0,
+						},
+					},
+				},
+			} as unknown as Filter,
+		],
+	};
+}

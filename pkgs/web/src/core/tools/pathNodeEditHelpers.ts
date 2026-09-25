@@ -17,6 +17,11 @@ import type {
 } from "../schema";
 import { worldToScreen } from "../utils/geometry/geometry";
 import {
+	arcLengthRatioAt,
+	arcLengthRatios,
+	type PathRun,
+} from "../utils/geometry/pathOps";
+import {
 	getStartAnchor,
 	getWorldSegments,
 	resolveSegment,
@@ -198,8 +203,9 @@ export function deleteAnchorsFromPath(
  * Remove several anchors WITHOUT rejoining: every segment touching a deleted
  * anchor disappears, and each surviving run of consecutive anchors becomes its
  * own open segment list (a closed ring is cut at the deleted anchors).
- * Runs with fewer than 2 anchors are dropped. Returns the runs, "erase" when
- * nothing drawable remains, or null when no handle maps to a valid anchor.
+ * Runs with fewer than 2 anchors are dropped. Each run carries where it sat
+ * on the original path. Returns the runs, "erase" when nothing drawable
+ * remains, or null when no handle maps to a valid anchor.
  */
 export function breakDeleteAnchorsFromPath(
 	path: Path,
@@ -207,7 +213,7 @@ export function breakDeleteAnchorsFromPath(
 		segmentIndex: number;
 		pointType: "start" | "end";
 	}>,
-): CubicBezierSegment[][] | "erase" | null {
+): PathRun[] | "erase" | null {
 	const isClosed = path.segments.at(-1)?.isClosed === true;
 	const anchors = anchorsFromSegments(path.segments, null);
 	const deleted = collectAnchorIndices(handles, anchors.length, isClosed);
@@ -224,22 +230,36 @@ export function breakDeleteAnchorsFromPath(
 		];
 	}
 
-	const runs: AnchorNode[][] = [];
-	let current: AnchorNode[] = [];
-	for (const { anchor, index } of ordered) {
-		if (deleted.has(index)) {
+	const runs: Array<typeof ordered> = [];
+	let current: typeof ordered = [];
+	for (const node of ordered) {
+		if (deleted.has(node.index)) {
 			if (current.length > 0) runs.push(current);
 			current = [];
 		} else {
-			current.push(anchor);
+			current.push(node);
 		}
 	}
 	if (current.length > 0) runs.push(current);
 
-	const segmentLists = runs
+	// Anchor k starts segment k, so its place on the path is where that
+	// segment starts. A closed ring's run that wraps past anchor 0 ends past 1.
+	const anchorRatios = arcLengthRatios(path.segments);
+	const pathRuns = runs
 		.filter((run) => run.length >= 2)
-		.map((run) => buildSegments(run, false));
-	return segmentLists.length === 0 ? "erase" : segmentLists;
+		.map((run): PathRun => {
+			const start = anchorRatios[run[0].index];
+			const end = anchorRatios[run.at(-1)!.index];
+			return {
+				segments: buildSegments(
+					run.map(({ anchor }) => anchor),
+					false,
+				),
+				start,
+				end: end < start ? end + 1 : end,
+			};
+		});
+	return pathRuns.length === 0 ? "erase" : pathRuns;
 }
 
 /** Where a cut lands on a path: on an existing anchor, or inside a segment. */
@@ -250,15 +270,17 @@ export type PathCutPosition =
 /**
  * Cut a path open at an anchor or at a point inside a segment. An open path
  * yields the two runs on either side of the cut; a closed path yields a single
- * open run that starts and ends at the cut point. A cut inside a segment first
- * materializes that point as a real anchor. Returns null when there is nothing
- * to separate — the endpoints of an open path, or an out-of-range index.
+ * open run that starts and ends at the cut point, wrapping past the start. A
+ * cut inside a segment first materializes that point as a real anchor. Each
+ * run carries where it sat on the original path. Returns null when there is
+ * nothing to separate — the endpoints of an open path, or an out-of-range
+ * index.
  */
 export function cutPathSegments(
 	segments: CubicBezierSegment[],
 	segmentIndex: number,
 	position: PathCutPosition,
-): CubicBezierSegment[][] | null {
+): PathRun[] | null {
 	if (segmentIndex < 0 || segmentIndex >= segments.length) return null;
 
 	// Inserting the anchor turns an edge cut into an anchor cut on the boundary
@@ -271,6 +293,11 @@ export function cutPathSegments(
 		position.kind === "edge" || position.pointType === "end"
 			? segmentIndex + 1
 			: segmentIndex;
+	// Measured on the uncut segments, the path the ratios refer to.
+	const cutRatio =
+		position.kind === "edge"
+			? arcLengthRatioAt(segments, segmentIndex, position.t)
+			: arcLengthRatioAt(segments, boundary);
 
 	if (working.at(-1)?.isClosed === true) {
 		// A closed ring is a single subpath, so rotating the cut point to the
@@ -285,7 +312,9 @@ export function cutPathSegments(
 				isClosed: undefined,
 			}),
 		);
-		return [opened];
+		// A cut on the closing anchor opens the ring at its start.
+		const start = cutRatio % 1;
+		return [{ segments: opened, start, end: start + 1 }];
 	}
 
 	if (boundary <= 0 || boundary >= working.length) return null;
@@ -301,7 +330,10 @@ export function cutPathSegments(
 				}
 			: cloneSegment(segment),
 	);
-	return [head, tail];
+	return [
+		{ segments: head, start: 0, end: cutRatio },
+		{ segments: tail, start: cutRatio, end: 1 },
+	];
 }
 
 /**

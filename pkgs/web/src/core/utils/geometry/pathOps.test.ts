@@ -11,8 +11,11 @@ import type {
 	StrokeAppearance,
 } from "../../schema";
 import {
+	arcLengthRatioAt,
+	arcLengthRatios,
 	closePathAtEndpoints,
 	computeBooleanOperation,
+	createPathsFromRuns,
 	evalBezier,
 	mergePathsAtEndpoints,
 	splitPathAtAnchor,
@@ -1540,6 +1543,39 @@ describe("mergePathsAtEndpoints", () => {
 		expect(merged.segments[2].end).toEqual(pathB.segments[0].end);
 		expect(merged.segments[2].isMoved).toBe(false);
 	});
+
+	describe("side profiles of a reversed source", () => {
+		// Erased on side1 only, at the middle of each source.
+		const erasure = [{ t: 0.5, side1: 0.2, side2: 1 }];
+		const pathA = straightPath({ id: "a", strokeErasure: erasure });
+		const pathB = straightPath({
+			id: "b",
+			strokeErasure: erasure,
+			segments: [
+				{
+					...straightPath().segments[0],
+					start: { x: 100, y: 40 },
+					end: { x: 200, y: 40 },
+				},
+			],
+		});
+
+		it("should move the erased side to the other side when the second source runs backwards", () => {
+			const merged = mergePathsAtEndpoints(pathA, "end", pathB, "end");
+
+			const [first, second] = merged.strokeErasure!;
+			expect(first).toMatchObject({ side1: 0.2, side2: 1 });
+			expect(second).toMatchObject({ side1: 1, side2: 0.2 });
+		});
+
+		it("should move the erased side to the other side when the first source runs backwards", () => {
+			const merged = mergePathsAtEndpoints(pathA, "start", pathB, "start");
+
+			const [first, second] = merged.strokeErasure!;
+			expect(first).toMatchObject({ side1: 1, side2: 0.2 });
+			expect(second).toMatchObject({ side1: 0.2, side2: 1 });
+		});
+	});
 });
 
 describe("splitPathAtAnchor", () => {
@@ -1711,6 +1747,117 @@ describe("splitPathAtAnchor", () => {
 		expect(first.pathEnd).toBeDefined();
 		expect(second.pathStart).toBeDefined();
 		expect(first.pathEnd).toBeCloseTo(second.pathStart!, 10);
+	});
+});
+
+describe("side profiles on split pieces", () => {
+	// Points at the middle of the 300-long threeSegmentPath.
+	const widths = [{ t: 0.5, side1: 0.4, side2: 0.4 }];
+	const erasure = [{ t: 0.5, side1: 0.2, side2: 1 }];
+	const profiledPath = (): Path => ({
+		...threeSegmentPath(),
+		strokeWidths: widths,
+		strokeWidthsBaked: true,
+		strokeErasure: erasure,
+	});
+
+	it("should give each splitPathAtAnchor piece the profiles of its own range", () => {
+		const [first, second] = splitPathAtAnchor(profiledPath(), 0, "end")!;
+
+		// The piece from 1/3 to 1 holds the middle point at (0.5 - 1/3) / (2/3).
+		expect(pointAt(second.strokeWidths, 0.25)).toEqual({
+			t: expect.closeTo(0.25, 1),
+			side1: 0.4,
+			side2: 0.4,
+		});
+		expect(pointAt(second.strokeErasure, 0.25)?.side1).toBe(0.2);
+		expect(pointAt(first.strokeWidths, 0.25)).toBeUndefined();
+	});
+
+	it("should keep strokeWidthsBaked on every splitPathAtAnchor piece", () => {
+		const pieces = splitPathAtAnchor(profiledPath(), 0, "end")!;
+
+		expect(pieces.map((piece) => piece.strokeWidthsBaked)).toEqual([
+			true,
+			true,
+		]);
+	});
+
+	it("should cut the profiles to each run's range in createPathsFromRuns", () => {
+		const path = profiledPath();
+		const [, second] = createPathsFromRuns(path, [
+			{ segments: path.segments.slice(0, 1), start: 0, end: 1 / 3 },
+			{ segments: path.segments.slice(1), start: 1 / 3, end: 1 },
+		]);
+
+		expect(pointAt(second.strokeWidths, 0.25)?.side1).toBe(0.4);
+		expect(pointAt(second.strokeErasure, 0.25)?.side1).toBe(0.2);
+	});
+
+	it("should join the end and the start of the profiles for a run wrapping past the start", () => {
+		const path: Path = {
+			...threeSegmentPath(),
+			strokeWidths: [
+				{ t: 0.1, side1: 0.3, side2: 0.3 },
+				{ t: 0.9, side1: 0.7, side2: 0.7 },
+			],
+		};
+
+		const [piece] = createPathsFromRuns(path, [
+			{ segments: path.segments, start: 0.5, end: 1.5 },
+		]);
+
+		// Half of the run lies before the seam: t=0.9 lands at 0.4, t=0.1 at 0.6.
+		expect(pointAt(piece.strokeWidths, 0.4)?.side1).toBe(0.7);
+		expect(pointAt(piece.strokeWidths, 0.6)?.side1).toBe(0.3);
+		expect(piece.pathStart).toBeUndefined();
+		expect(piece.pathEnd).toBeUndefined();
+	});
+
+	it("should keep the whole profiles on every subtractEraserFromFilledPath piece", () => {
+		const path: Path = { ...squarePath(), strokeWidths: widths };
+
+		const pieces = subtractEraserFromFilledPath(
+			path,
+			[
+				{ x: -20, y: 50 },
+				{ x: 120, y: 50 },
+			],
+			15,
+		);
+
+		expect(pieces.length).toBeGreaterThanOrEqual(2);
+		for (const piece of pieces) {
+			expect(piece.strokeWidths).toEqual(expect.arrayContaining(widths));
+		}
+	});
+});
+
+describe("arcLengthRatioAt", () => {
+	it("should return where a segment starts as a ratio of the arc length", () => {
+		expect(arcLengthRatioAt(threeSegmentPath().segments, 1)).toBeCloseTo(1 / 3);
+	});
+
+	it("should include the part of the segment up to t", () => {
+		expect(arcLengthRatioAt(threeSegmentPath().segments, 1, 0.5)).toBeCloseTo(
+			0.5,
+		);
+	});
+
+	it("should return 1 past the last segment", () => {
+		expect(arcLengthRatioAt(threeSegmentPath().segments, 3)).toBe(1);
+	});
+});
+
+describe("arcLengthRatios", () => {
+	it("should list where every segment starts and end with 1", () => {
+		const ratios = arcLengthRatios(threeSegmentPath().segments);
+
+		expect(ratios).toHaveLength(4);
+		expect(ratios[0]).toBe(0);
+		expect(ratios[1]).toBeCloseTo(1 / 3);
+		expect(ratios[2]).toBeCloseTo(2 / 3);
+		expect(ratios[3]).toBeCloseTo(1);
 	});
 });
 
@@ -1977,9 +2124,43 @@ describe("triangleSoupOutline", () => {
 	it("should return nothing when every triangle is degenerate", () => {
 		expect(triangleSoupOutline([0, 0, 1, 1, 2, 2], 0.1)).toEqual([]);
 	});
+
+	it("should outline a strip of sliver quads as one subpath of few curves", () => {
+		// A 12-wide band of 400 quads along a sine wave, the way a stroke body
+		// tessellates: long, thin triangles sharing their vertices exactly.
+		const quads = 400;
+		const strip: number[] = [];
+		const edge = (i: number, side: number) => {
+			const x = i * 2;
+			const y = Math.sin(x / 40) * 30;
+			const slope = Math.cos(x / 40) * 0.75;
+			const len = Math.hypot(1, slope);
+			return [x - (slope / len) * 6 * side, y + (1 / len) * 6 * side];
+		};
+		for (let i = 0; i < quads; i++) {
+			const [lx0, ly0] = edge(i, 1);
+			const [rx0, ry0] = edge(i, -1);
+			const [lx1, ly1] = edge(i + 1, 1);
+			const [rx1, ry1] = edge(i + 1, -1);
+			strip.push(lx0, ly0, rx0, ry0, lx1, ly1, rx0, ry0, rx1, ry1, lx1, ly1);
+		}
+
+		const outline = triangleSoupOutline(strip, 0.1);
+
+		expect(outline.filter((seg) => seg.isMoved)).toHaveLength(1);
+		expect(outline.length).toBeLessThan(quads / 4);
+	});
 });
 
 /** An axis-aligned rectangle as two triangles. */
 function rectTriangles(x0: number, y0: number, x1: number, y1: number) {
 	return [x0, y0, x1, y0, x1, y1, x0, y0, x1, y1, x0, y1];
+}
+
+/** The profile point nearest to `t`, when one lies within 0.01 of it. */
+function pointAt(
+	profile: Path["strokeWidths"],
+	t: number,
+): NonNullable<Path["strokeWidths"]>[number] | undefined {
+	return profile?.find((point) => Math.abs(point.t - t) < 0.01);
 }

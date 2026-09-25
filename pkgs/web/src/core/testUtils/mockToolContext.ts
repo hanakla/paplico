@@ -95,6 +95,7 @@ export function createMockToolContext(
 		getElement: vi.fn(() => null),
 		resolveElementAppearance: vi.fn((element) => element),
 		getBounds: vi.fn(() => null),
+		getWorldGeometryBounds: vi.fn(() => null),
 		getElementWorldSegments: vi.fn(() => null),
 		getAncestorTransform: vi.fn(() => null),
 		updateSelectedElementFilter: vi.fn(),

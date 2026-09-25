@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createIdentityTransform } from "../document/factory";
+import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import type {
 	AnyArtObject,
 	BoundingBox,
@@ -568,6 +569,34 @@ describe("GradientTool midpoint handle", () => {
 		const updated = ctx.updateFill.mock.calls.at(-1)?.[0] as LinearGradient;
 		expect(updated.stops[0].midpoint).toBeGreaterThan(0);
 		expect(updated.stops[0].midpoint).toBeLessThan(0.001);
+	});
+
+	it("draws a child of a rotated container's handles as if the child carried that rotation", () => {
+		const bounds = createBounds();
+		const handlesFor = (
+			ownRotation: number,
+			ancestorRotation: number | null,
+		) => {
+			const element = createFillHost(createLinearGradientFill());
+			element.transform = {
+				...createIdentityTransform(),
+				rotation: ownRotation,
+			};
+			ctx = createMockToolContext();
+			ctx.getSelectedElement.mockImplementation(() => element);
+			ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+			ctx.getAncestorTransform.mockReturnValue(
+				ancestorRotation == null
+					? null
+					: { ...createIdentityTransform(), rotation: ancestorRotation },
+			);
+			new GradientTool(ctx).refreshUI();
+			return ctx.uiSetOverlay.mock.calls
+				.filter(([key]) => key === OVERLAY_KEYS.gradientHandles)
+				.at(-1)?.[1];
+		};
+
+		expect(handlesFor(0, Math.PI / 2)).toEqual(handlesFor(Math.PI / 2, null));
 	});
 
 	it("drags a radial gradient's midpoint without changing stop offsets or order", () => {

@@ -15,7 +15,6 @@ import {
 	contourToCubicSegments,
 	cubicSegmentsToContour,
 	GeometryEpsilon,
-	normalizeWinding,
 	type Segment,
 	signedContourArea,
 } from "../../utils/geometry/bezierBool";
@@ -196,7 +195,7 @@ function uniteSubPaths(contours: Segment[][]): Segment[][] {
 		result = booleanOp(result, [hole], "difference");
 		if (result.length === 0) return result;
 	}
-	return normalizeWinding(result);
+	return result;
 }
 
 const defaultGeo = new GeometryEpsilon();

@@ -17,6 +17,7 @@ export const FILTER_CATALOG: FilterCatalogEntry[] = [
 	{ processor: "rough", category: "Geometry", canBeSubFilter: true },
 	{ processor: "path-offset", category: "Geometry", canBeSubFilter: true },
 	{ processor: "path-union", category: "Geometry", canBeSubFilter: true },
+	{ processor: "stroke-outline", category: "Geometry", canBeSubFilter: true },
 	{ processor: "pucker-bloat", category: "Geometry", canBeSubFilter: true },
 	{ processor: "transform", category: "Geometry", canBeSubFilter: true },
 	{ processor: "clip-to-shape", category: "Mask", canBeSubFilter: true },

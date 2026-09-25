@@ -1947,11 +1947,13 @@ export class OffscreenPresenter {
 		// coarser zoomed out. Export frames keep the rasterizationDpi ceiling so
 		// display-quality decisions never change exported pixels. A cached
 		// full-bounds bake uses the caller-provided density verbatim (the caller
-		// derived it from the same rule and keys its cache on it).
+		// derived it from the same rule and keys its cache on it). A grid-aligned
+		// bake is never cached, so it skips the bucket and bakes at the target's
+		// own density: resampling it down to the screen would blur its content.
 		const zoomBucket = interactiveBakeDensity(rasterZoom, zoom, textureBounds);
 		const bakeZoom = fullBoundsBake
 			? fullBoundsBake.density
-			: interactiveBounds
+			: interactiveBounds && !alignToTargetGrid
 				? this.deps.renderState.isExport
 					? Math.min(rasterZoom, zoomBucket)
 					: zoomBucket

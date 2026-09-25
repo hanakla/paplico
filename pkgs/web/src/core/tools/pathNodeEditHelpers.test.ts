@@ -13,8 +13,8 @@ describe("cutPathSegments", () => {
 
 			expect(result).not.toBeNull();
 			expect(result).toHaveLength(2);
-			expect(anchorXs(result![0])).toEqual([0, 100, 200]);
-			expect(anchorXs(result![1])).toEqual([200, 300]);
+			expect(anchorXs(result![0].segments)).toEqual([0, 100, 200]);
+			expect(anchorXs(result![1].segments)).toEqual([200, 300]);
 		});
 
 		it("should start the trailing run with an explicit anchor at the cut", () => {
@@ -23,9 +23,31 @@ describe("cutPathSegments", () => {
 				pointType: "end",
 			});
 
-			const tailHead = result![1][0];
+			const tailHead = result![1].segments[0];
 			expect(tailHead.start).toEqual({ x: 200, y: 0 });
 			expect(tailHead.isMoved).toBe(true);
+		});
+
+		it("should place each run on the arc length of the uncut path", () => {
+			const result = cutPathSegments(openPath([0, 100, 200, 300]), 1, {
+				kind: "anchor",
+				pointType: "end",
+			});
+
+			expect(result![0].start).toBe(0);
+			expect(result![0].end).toBeCloseTo(2 / 3);
+			expect(result![1].start).toBeCloseTo(2 / 3);
+			expect(result![1].end).toBe(1);
+		});
+
+		it("should place an edge cut where the cut point sits on the path", () => {
+			const result = cutPathSegments(openPath([0, 100, 200]), 0, {
+				kind: "edge",
+				t: 0.5,
+			});
+
+			expect(result![0].end).toBeCloseTo(0.25);
+			expect(result![1].start).toBeCloseTo(0.25);
 		});
 
 		it("should return null at the first anchor", () => {
@@ -53,8 +75,8 @@ describe("cutPathSegments", () => {
 			});
 
 			expect(result).toHaveLength(2);
-			expect(anchorXs(result![0])).toEqual([0, 50]);
-			expect(anchorXs(result![1])).toEqual([50, 100, 200]);
+			expect(anchorXs(result![0].segments)).toEqual([0, 50]);
+			expect(anchorXs(result![1].segments)).toEqual([50, 100, 200]);
 		});
 
 		it("should let the leading half of the first segment keep the original start", () => {
@@ -63,7 +85,7 @@ describe("cutPathSegments", () => {
 				t: 0.5,
 			});
 
-			expect(result![0][0].start).toEqual({ x: 0, y: 0 });
+			expect(result![0].segments[0].start).toEqual({ x: 0, y: 0 });
 		});
 	});
 
@@ -75,7 +97,9 @@ describe("cutPathSegments", () => {
 			});
 
 			expect(result).toHaveLength(1);
-			expect(result![0].some((segment) => segment.isClosed)).toBe(false);
+			expect(result![0].segments.some((segment) => segment.isClosed)).toBe(
+				false,
+			);
 		});
 
 		it("should start and end the run at the cut anchor", () => {
@@ -84,7 +108,18 @@ describe("cutPathSegments", () => {
 				pointType: "end",
 			});
 
-			expect(anchorXs(result![0])).toEqual([200, 0, 100, 200]);
+			expect(anchorXs(result![0].segments)).toEqual([200, 0, 100, 200]);
+		});
+
+		it("should wrap the run past the start of the path", () => {
+			// Sides of 100, 100 and 200: the anchor at x=200 is halfway round.
+			const result = cutPathSegments(closedPath([0, 100, 200]), 1, {
+				kind: "anchor",
+				pointType: "end",
+			});
+
+			expect(result![0].start).toBeCloseTo(0.5);
+			expect(result![0].end).toBeCloseTo(1.5);
 		});
 
 		it("should mark only the first segment as a subpath start", () => {
@@ -93,7 +128,7 @@ describe("cutPathSegments", () => {
 				pointType: "end",
 			});
 
-			expect(result![0].map((segment) => segment.isMoved)).toEqual([
+			expect(result![0].segments.map((segment) => segment.isMoved)).toEqual([
 				true,
 				false,
 				false,
@@ -107,7 +142,7 @@ describe("cutPathSegments", () => {
 			});
 
 			expect(result).toHaveLength(1);
-			expect(anchorXs(result![0])).toEqual([50, 100, 200, 0, 50]);
+			expect(anchorXs(result![0].segments)).toEqual([50, 100, 200, 0, 50]);
 		});
 	});
 });

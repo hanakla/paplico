@@ -18,7 +18,7 @@ import type {
 	Reference3DDef,
 	Viewport,
 } from "../../schema";
-import type { TimelapseDirtyRect } from "../../timelapse/types";
+import type { TimelapseData, TimelapseDirtyRect } from "../../timelapse/types";
 
 // ---------------------------------------------------------------------------
 // Magic bytes (ASCII encoded)
@@ -212,6 +212,12 @@ export type TimelapseManifestPayload = {
 	 * document switch split the recording. Absent means one unbroken stream.
 	 */
 	baselines?: number[];
+	/**
+	 * Schema version each run of entries was recorded in. Absent in recordings
+	 * written before it was tracked; readers then assume the document's own
+	 * stored schema version.
+	 */
+	schemaVersions?: TimelapseData["schemaVersions"];
 };
 
 // ---------------------------------------------------------------------------

@@ -492,6 +492,8 @@ function buildTimelapseManifest(timelapse: TimelapseData): Uint8Array {
 	};
 	if (timelapse.index) manifest.dirtyRects = timelapse.index.rects;
 	if (timelapse.baselines?.length) manifest.baselines = timelapse.baselines;
+	if (timelapse.schemaVersions?.length)
+		manifest.schemaVersions = timelapse.schemaVersions;
 	return encode(manifest);
 }
 

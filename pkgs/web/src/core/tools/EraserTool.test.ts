@@ -641,7 +641,7 @@ describe("EraserTool", () => {
 		});
 	});
 
-	describe("Width-adjust mode", () => {
+	describe("Stroke erasure", () => {
 		let widthTool: EraserTool;
 		let widthCtx: ReturnType<typeof createMockToolContext>;
 
@@ -736,10 +736,10 @@ describe("EraserTool", () => {
 			expect(widthCtx.mockCommands.addPaths).not.toHaveBeenCalled();
 		});
 
-		/** Thick path with existing strokeWidths at t=0.2 and t=0.8 */
+		/** Thick path with existing strokeErasure at t=0.2 and t=0.8 */
 		const pathWithWidths: Path = {
 			...thickTestPath,
-			strokeWidths: [
+			strokeErasure: [
 				{ t: 0.2, side1: 0.5, side2: 1 },
 				{ t: 0.8, side1: 1, side2: 0.5 },
 			],
@@ -761,7 +761,7 @@ describe("EraserTool", () => {
 			elementIds: ["path-translated"],
 		};
 
-		it("should create strokeWidths when erasing near the edge of a thick path", () => {
+		it("should create strokeErasure when erasing near the edge of a thick path", () => {
 			// Thick path at y=0 (brushHalfSize=40, stroke extends y=[-40,40])
 			// Eraser at y=30: distance=30 > eraserRadius=20 → no slice
 			// coarseHitRadius=60 > 30 → hit. nearEdge=10, side1Ratio=10/40=0.25
@@ -792,7 +792,7 @@ describe("EraserTool", () => {
 				widthCtx.mockCommands.updateElement.mock.calls.at(
 					-1,
 				)![2] as Partial<Path>
-			).strokeWidths as Array<{
+			).strokeErasure as Array<{
 				t: number;
 				side1: number;
 				side2: number;
@@ -802,7 +802,7 @@ describe("EraserTool", () => {
 			expect(midPoint).toBeDefined();
 		});
 
-		it("should not modify strokeWidths when erasing far from the path", () => {
+		it("should not modify strokeErasure when erasing far from the path", () => {
 			// Stroke far from path: world(50,200) area, well beyond coarseHitRadius=60
 			widthTool.onPointerDown(
 				ev(450, 100),
@@ -849,7 +849,7 @@ describe("EraserTool", () => {
 				widthCtx.mockCommands.updateElement.mock.calls.at(
 					-1,
 				)![2] as Partial<Path>
-			).strokeWidths as Array<{
+			).strokeErasure as Array<{
 				t: number;
 				side1: number;
 				side2: number;
@@ -883,7 +883,7 @@ describe("EraserTool", () => {
 				widthCtx.mockCommands.updateElement.mock.calls.at(
 					-1,
 				)![2] as Partial<Path>
-			).strokeWidths as Array<{
+			).strokeErasure as Array<{
 				t: number;
 				side1: number;
 				side2: number;
@@ -894,7 +894,7 @@ describe("EraserTool", () => {
 			expect(pt.side2).toBeLessThan(1);
 		});
 
-		it("should create new control points between existing strokeWidths with correct values", () => {
+		it("should create new control points between existing strokeErasure with correct values", () => {
 			// Path has existing widths at t=0.2(side1=0.5) and t=0.8(side1=1)
 			// Erase from above at t≈0.5 with thick path (distance > eraserRadius → no slice)
 			opts.getObjects.mockReturnValue({ "path-1": pathWithWidths });
@@ -918,7 +918,7 @@ describe("EraserTool", () => {
 				widthCtx.mockCommands.updateElement.mock.calls.at(
 					-1,
 				)![2] as Partial<Path>
-			).strokeWidths as Array<{
+			).strokeErasure as Array<{
 				t: number;
 				side1: number;
 				side2: number;
@@ -935,11 +935,11 @@ describe("EraserTool", () => {
 		it("should preserve the width profile outside the erased range", () => {
 			opts.getObjects.mockReturnValue({ "path-1": pathWithWidths });
 			const beforeLeft = interpolateStrokeWidths(
-				pathWithWidths.strokeWidths!,
+				pathWithWidths.strokeErasure!,
 				0.25,
 			);
 			const beforeRight = interpolateStrokeWidths(
-				pathWithWidths.strokeWidths!,
+				pathWithWidths.strokeErasure!,
 				0.75,
 			);
 
@@ -960,7 +960,7 @@ describe("EraserTool", () => {
 				widthCtx.mockCommands.updateElement.mock.calls.at(
 					-1,
 				)![2] as Partial<Path>
-			).strokeWidths!;
+			).strokeErasure!;
 			const afterLeft = interpolateStrokeWidths(widths, 0.25);
 			const afterRight = interpolateStrokeWidths(widths, 0.75);
 
@@ -1001,7 +1001,7 @@ describe("EraserTool", () => {
 			expect(widthCtx.mockCommands.updateElement).toHaveBeenCalled();
 			const args = widthCtx.mockCommands.updateElement.mock.calls.at(-1)!;
 			expect(args[1]).toBe("path-translated");
-			const widths = (args[2] as Partial<Path>).strokeWidths as Array<{
+			const widths = (args[2] as Partial<Path>).strokeErasure as Array<{
 				t: number;
 				side1: number;
 				side2: number;
@@ -1056,7 +1056,7 @@ describe("EraserTool", () => {
 			expect(widthCtx.mockCommands.updateElement).toHaveBeenCalled();
 			const args = widthCtx.mockCommands.updateElement.mock.calls.at(-1)!;
 			expect(args[1]).toBe("path-rotated");
-			const widths = (args[2] as Partial<Path>).strokeWidths as Array<{
+			const widths = (args[2] as Partial<Path>).strokeErasure as Array<{
 				t: number;
 				side1: number;
 				side2: number;
@@ -1101,7 +1101,7 @@ describe("EraserTool", () => {
 				widthCtx.mockCommands.updateElement.mock.calls.at(
 					-1,
 				)![2] as Partial<Path>
-			).strokeWidths as Array<{
+			).strokeErasure as Array<{
 				t: number;
 				side1: number;
 				side2: number;
@@ -1143,7 +1143,7 @@ describe("EraserTool", () => {
 				widthCtx.mockCommands.updateElement.mock.calls.at(
 					-1,
 				)![2] as Partial<Path>
-			).strokeWidths as Array<{
+			).strokeErasure as Array<{
 				t: number;
 				side1: number;
 				side2: number;
@@ -1211,7 +1211,7 @@ describe("EraserTool", () => {
 				widthCtx.mockCommands.updateElement.mock.calls.at(
 					-1,
 				)![2] as Partial<Path>
-			).strokeWidths as Array<{
+			).strokeErasure as Array<{
 				t: number;
 				side1: number;
 				side2: number;
@@ -1283,7 +1283,7 @@ describe("EraserTool", () => {
 					widthCtx.mockCommands.updateElement.mock.calls.at(
 						-1,
 					)![2] as Partial<Path>
-				).strokeWidths as Array<{
+				).strokeErasure as Array<{
 					t: number;
 					side1: number;
 					side2: number;
@@ -1319,7 +1319,7 @@ describe("EraserTool", () => {
 					widthCtx.mockCommands.updateElement.mock.calls.at(
 						-1,
 					)![2] as Partial<Path>
-				).strokeWidths as Array<{
+				).strokeErasure as Array<{
 					t: number;
 					side1: number;
 					side2: number;
@@ -1330,6 +1330,44 @@ describe("EraserTool", () => {
 				expect(pt.side1).toBeCloseTo(0.5, 1);
 				// side2 unchanged
 				expect(pt.side2).toBe(1);
+			});
+
+			it("should erase across the band a baked width drew without touching the width", () => {
+				// The width halves the band to y=[-10,10]. Eraser at world(50,25),
+				// eraserRadius=20 → near edge at 5, which is half of the band's side1.
+				opts.getObjects.mockReturnValue({
+					"path-thick": {
+						...thickPath,
+						strokeWidths: [
+							{ t: 0, side1: 0.5, side2: 0.5 },
+							{ t: 1, side1: 0.5, side2: 0.5 },
+						],
+						strokeWidthsBaked: true,
+					},
+				});
+				// screen(450, 275) → world(50, 25)
+				widthTool.onPointerDown(
+					ev(450, 275),
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+				widthTool.onPointerUp(
+					ev(450, 275),
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+
+				const patch = widthCtx.mockCommands.updateElement.mock.calls.at(
+					-1,
+				)![2] as Partial<Path>;
+				const pt = patch.strokeErasure!.find(
+					(w) => Math.abs(w.t - 0.5) < 0.15,
+				)!;
+				expect(pt.side1).toBeCloseTo(0.5, 1);
+				expect(pt.side2).toBe(1);
+				expect(patch).not.toHaveProperty("strokeWidths");
 			});
 
 			it("should preserve a zero-width point when erasing exactly through the opposite boundary", () => {
@@ -1354,7 +1392,7 @@ describe("EraserTool", () => {
 					widthCtx.mockCommands.updateElement.mock.calls.at(
 						-1,
 					)![2] as Partial<Path>
-				).strokeWidths!;
+				).strokeErasure!;
 				const point = widths.find(({ t }) => Math.abs(t - 0.5) < 0.15)!;
 				expect(point.side1).toBeCloseTo(-1);
 				expect(point.side2).toBe(1);
@@ -1364,7 +1402,7 @@ describe("EraserTool", () => {
 			it("should preserve existing stroke widths when slicing a path", () => {
 				const longPathWithWidths: Path = {
 					...pathWithWidths,
-					strokeWidths: [
+					strokeErasure: [
 						{ t: 0.1, side1: 0.5, side2: 1 },
 						{ t: 0.9, side1: 1, side2: 0.5 },
 					],
@@ -1408,10 +1446,10 @@ describe("EraserTool", () => {
 				const firstSpan = (firstPath.pathEnd ?? 1) - (firstPath.pathStart ?? 0);
 				const secondSpan =
 					(secondPath.pathEnd ?? 1) - (secondPath.pathStart ?? 0);
-				const firstWidth = firstPath.strokeWidths?.find(
+				const firstWidth = firstPath.strokeErasure?.find(
 					({ side1, side2 }) => side1 === 0.5 && side2 === 1,
 				);
-				const secondWidth = secondPath.strokeWidths?.find(
+				const secondWidth = secondPath.strokeErasure?.find(
 					({ side1, side2 }) => side1 === 1 && side2 === 0.5,
 				);
 
@@ -1423,10 +1461,61 @@ describe("EraserTool", () => {
 				);
 			});
 
+			it("should slice the width profile onto every piece", () => {
+				const longPath: Path = {
+					...pathWithWidths,
+					strokeErasure: undefined,
+					strokeWidths: [{ t: 0.9, side1: 0.9, side2: 0.9 }],
+					segments: [
+						{
+							...pathWithWidths.segments[0],
+							cp1: { x: 66, y: 0 },
+							cp2: { x: -67, y: 0 },
+							end: { x: 200, y: 0 },
+						},
+					],
+				};
+				opts.getCurrentLayer.mockReturnValue(thickTestLayer);
+				opts.getObjects.mockReturnValue({ "path-1": longPath });
+				const cutTool = new EraserTool(widthCtx, {
+					width: 80,
+					mode: "width-adjust",
+				});
+
+				cutTool.onPointerDown(
+					ev(500, 300),
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+				cutTool.onPointerUp(
+					ev(500, 300),
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+
+				const splitPaths = widthCtx.mockCommands.addPaths.mock.calls.at(
+					-1,
+				)![0] as Path[];
+				const secondPath = splitPaths.toSorted(
+					(a, b) => (a.pathStart ?? 0) - (b.pathStart ?? 0),
+				)[1];
+				const secondSpan =
+					(secondPath.pathEnd ?? 1) - (secondPath.pathStart ?? 0);
+				const width = secondPath.strokeWidths?.find(
+					({ side1 }) => side1 === 0.9,
+				);
+
+				expect(width?.t).toBeCloseTo(
+					(0.9 - (secondPath.pathStart ?? 0)) / secondSpan,
+				);
+			});
+
 			it("should preserve one-sided width at split endpoints", () => {
 				const oneSidedPath: Path = {
 					...thickTestPath,
-					strokeWidths: [
+					strokeErasure: [
 						{ t: 0, side1: 1, side2: 0 },
 						{ t: 1, side1: 1, side2: 0 },
 					],
@@ -1454,16 +1543,16 @@ describe("EraserTool", () => {
 				const [firstPath, secondPath] = splitPaths.toSorted(
 					(a, b) => (a.pathStart ?? 0) - (b.pathStart ?? 0),
 				);
-				expect(firstPath.strokeWidths?.[0]).toEqual({
+				expect(firstPath.strokeErasure?.[0]).toEqual({
 					t: 0,
 					side1: 1,
 					side2: 0,
 				});
-				expect(firstPath.strokeWidths?.at(-1)?.side1).toBeCloseTo(0, 9);
-				expect(firstPath.strokeWidths?.at(-1)?.side2).toBe(0);
-				expect(secondPath.strokeWidths?.[0].side1).toBeCloseTo(0, 9);
-				expect(secondPath.strokeWidths?.[0].side2).toBe(0);
-				expect(secondPath.strokeWidths?.at(-1)).toEqual({
+				expect(firstPath.strokeErasure?.at(-1)?.side1).toBeCloseTo(0, 9);
+				expect(firstPath.strokeErasure?.at(-1)?.side2).toBe(0);
+				expect(secondPath.strokeErasure?.[0].side1).toBeCloseTo(0, 9);
+				expect(secondPath.strokeErasure?.[0].side2).toBe(0);
+				expect(secondPath.strokeErasure?.at(-1)).toEqual({
 					t: 1,
 					side1: 1,
 					side2: 0,
@@ -1491,7 +1580,7 @@ describe("EraserTool", () => {
 					widthCtx.mockCommands.updateElement.mock.calls.at(
 						-1,
 					)![2] as Partial<Path>
-				).strokeWidths!;
+				).strokeErasure!;
 				const point = widths.find(({ t }) => Math.abs(t - 0.5) < 0.15)!;
 				expect(point.side1).toBeCloseTo(-0.5);
 				expect(point.side2).toBe(1);
@@ -1537,7 +1626,7 @@ describe("EraserTool", () => {
 				);
 				expect(first.pathEnd).toBeLessThan(second.pathStart!);
 				for (const path of splitPaths) {
-					for (const width of path.strokeWidths ?? []) {
+					for (const width of path.strokeErasure ?? []) {
 						expect(width.side1 + width.side2).toBeGreaterThanOrEqual(-1e-10);
 					}
 				}
@@ -1585,7 +1674,7 @@ describe("EraserTool", () => {
 			expect(widthCtx.mockCommands.updateElement).toHaveBeenCalled();
 			const args = widthCtx.mockCommands.updateElement.mock.calls.at(-1)!;
 			expect(args[1]).toBe("path-scaled");
-			const widths = (args[2] as Partial<Path>).strokeWidths as Array<{
+			const widths = (args[2] as Partial<Path>).strokeErasure as Array<{
 				t: number;
 				side1: number;
 				side2: number;

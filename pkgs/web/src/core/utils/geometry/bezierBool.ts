@@ -2126,7 +2126,9 @@ export type BooleanOp =
 /**
  * Perform a boolean operation on two sets of closed contours.
  * Each contour is an array of segments (SegmentLine or SegmentCurve).
- * Returns the resulting contours.
+ * Returns the resulting contours with holes wound against their solids, so
+ * the result reads correctly under the non-zero rule, including when it is
+ * fed back into another booleanOp.
  */
 export function booleanOp(
 	contoursA: Segment[][],
@@ -2159,7 +2161,7 @@ export function booleanOp(
 	};
 
 	const selected = selectors[op](segments);
-	return SegmentChainer(selected, geo);
+	return normalizeWinding(SegmentChainer(selected, geo));
 }
 
 function runSelfIntersect(
@@ -2245,14 +2247,14 @@ export function cubicSegmentsToContour(
 /**
  * Re-wind a disjoint contour set so holes wind against their solids.
  *
- * booleanOp does not encode solid-vs-hole in the winding it returns — two
+ * The chained segments do not encode solid-vs-hole in their winding — two
  * rectangles come back with the counter reversed, the same shapes drawn with
  * curves come back both the same way — while everything downstream reads
- * exactly that: the non-zero fill and buildExtrudeMesh's dominant-winding rule.
- * The contours are disjoint by this point, so containment is unambiguous and
- * settles it.
+ * exactly that: the non-zero fill, buildExtrudeMesh's dominant-winding rule,
+ * and the non-zero self-intersection pass of the next booleanOp. The contours
+ * are disjoint by this point, so containment is unambiguous and settles it.
  */
-export function normalizeWinding(contours: Segment[][]): Segment[][] {
+function normalizeWinding(contours: Segment[][]): Segment[][] {
 	if (contours.length < 2) return contours;
 
 	const holes = new Set<number>();

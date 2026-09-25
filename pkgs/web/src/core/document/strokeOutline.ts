@@ -1,7 +1,9 @@
 import { resolveAppearancePasses } from "../renderer/canvas/elements/appearancePasses";
 import {
+	isOutlinableStroke,
 	outlineGeometricStroke,
 	resolveGeometricStrokeShape,
+	strokeToFill,
 } from "../renderer/canvas/elements/geometricStroke";
 import {
 	type FilterRenderer,
@@ -17,7 +19,6 @@ import {
 	type CubicBezierSegment,
 	createDefaultContentAppearance,
 	type ElementTransform,
-	type FillAppearance,
 	type Filter,
 	type FilterEntry,
 	type Group,
@@ -25,10 +26,8 @@ import {
 	isAppearancePresetRef,
 	isFilterEnabled,
 	isIdentityTransform,
-	isVisibleStroke,
 	type Path,
-	type SolidColor,
-	type StrokeAppearance,
+	type PathGeometry,
 } from "../schema";
 import { calculateLocalElementBounds } from "../utils/geometry/bounds";
 import { bakeCompoundPathSegments } from "../utils/geometry/compoundBake";
@@ -62,28 +61,8 @@ interface OutlineDeps {
 	filterRenderer: Pick<FilterRenderer, "getHandler">;
 }
 
-/** A stroke whose band outlining can reproduce as a filled shape. */
-type OutlinableStroke = StrokeAppearance & {
-	paramData: { params: { strokeColor: SolidColor } };
-};
-
 /** One step of the paint order: a stroke's outline, or a paint left on the element's own shape. */
 type OutlineLayer = { outline: Path } | { paint: FilterEntry };
-
-/**
- * Whether outlining can reproduce the stroke as a filled shape: a visible
- * solid-color stroke drawn by the geometric engine.
- */
-function isOutlinableStroke(filter: Filter): filter is OutlinableStroke {
-	if (filter.processor !== "stroke" || !isFilterEnabled(filter)) return false;
-	const stroke = filter as StrokeAppearance;
-	const params = stroke.paramData.params;
-	return (
-		params.strokeColor.type === "solid" &&
-		(params.brushSettings?.engine ?? "geometric") === "geometric" &&
-		isVisibleStroke(stroke)
-	);
-}
 
 /**
  * Whether `element` is a path or compound path with an enabled stroke for
@@ -143,11 +122,9 @@ export function buildStrokeOutline(
 					transformSegmentsToWorld(segments, transform, pivot),
 					segments,
 				);
-	// Only a plain path carries a width profile or a trimmed range.
-	const pathFields: Pick<
-		Path,
-		"strokeWidths" | "strokeWidthsBaked" | "pathStart" | "pathEnd"
-	> = element.type === "path" ? element : {};
+	// Only a plain path carries a width profile, an erasure or a trimmed range.
+	const pathFields: Omit<PathGeometry, "segments"> =
+		element.type === "path" ? element : {};
 
 	// An outlinable stroke becomes a path of its band, an enabled paint stays
 	// on the element's own shape, and everything else applies to the element
@@ -164,12 +141,19 @@ export function buildStrokeOutline(
 		}
 		if (isGeometryFilter(entry, deps.filterRenderer)) continue;
 		if (isOutlinableStroke(entry)) {
-			const fill = strokeToFill(entry, deps.filterRenderer);
+			// Geometry sub-filters are baked into the outline, so only the
+			// others stay on the fill.
+			const fill = strokeToFill(
+				entry,
+				entry.subFilters?.filter(
+					(sub) => !isGeometryFilter(sub, deps.filterRenderer),
+				),
+			);
 			stack.push(fill);
 			const outline = outlineGeometricStroke(
 				passes
 					.filter((pass) => pass.appearance.uid === entry.uid)
-					.map((pass) => pass.segments),
+					.map((pass) => pass.path.segments),
 				resolveGeometricStrokeShape(
 					pathFields,
 					entry.paramData.params.brushSettings ?? createStrokeBrushSettings(1),
@@ -266,6 +250,7 @@ export function buildStrokeOutline(
 			filters: [layer.paint],
 			strokeWidths: pathFields.strokeWidths,
 			strokeWidthsBaked: pathFields.strokeWidthsBaked,
+			strokeErasure: pathFields.strokeErasure,
 			pathStart: pathFields.pathStart,
 			pathEnd: pathFields.pathEnd,
 		};
@@ -280,32 +265,5 @@ export function buildStrokeOutline(
 		},
 		children,
 		maskTransforms,
-	};
-}
-
-/**
- * The fill that paints a stroke's outline: the stroke's color, opacity and
- * blend in its place. Geometry sub-filters are already baked into the
- * outline, so only the others stay.
- */
-function strokeToFill(
-	stroke: OutlinableStroke,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
-): FillAppearance {
-	const subFilters = stroke.subFilters?.filter(
-		(sub) => !isGeometryFilter(sub, filterRenderer),
-	);
-	return {
-		uid: generateUid("app"),
-		processor: "fill",
-		enabled: stroke.enabled,
-		opacity: stroke.opacity,
-		blendMode: stroke.blendMode,
-		applyToBackdrop: stroke.applyToBackdrop,
-		...(subFilters?.length ? { subFilters } : {}),
-		paramData: {
-			version: "1",
-			params: { fill: stroke.paramData.params.strokeColor },
-		},
 	};
 }

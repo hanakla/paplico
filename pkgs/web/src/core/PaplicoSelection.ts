@@ -55,13 +55,15 @@ export class PaplicoSelection {
 	// --- Element Selection ---
 
 	/**
-	 * Select an element (replaces current selection)
+	 * Select an element (replaces current selection). `bounds` overrides the
+	 * element's world bounds, e.g. with precise text layout bounds.
 	 */
 	public selectElement(elementId: string, bounds?: BoundingBox): void {
 		this.pruneDeletedElements();
 		if (!this.store.document.objects[elementId]) return;
 		this.store.selectedElementIds = [elementId];
-		this.store.selectionBounds = bounds ?? null;
+		this.store.selectionBounds =
+			bounds ?? this.spatial.getWorldGeometryBounds(elementId);
 		this.store.keyObjectId = null;
 	}
 
@@ -114,7 +116,7 @@ export class PaplicoSelection {
 
 		let combinedBounds: BoundingBox | null = null;
 		for (const id of elementIds) {
-			const elBounds = this.spatial.getWorldBounds(id);
+			const elBounds = this.spatial.getWorldGeometryBounds(id);
 			if (elBounds) {
 				if (!combinedBounds) {
 					combinedBounds = { ...elBounds };
@@ -422,7 +424,7 @@ export class PaplicoSelection {
 
 		let combinedBounds: BoundingBox | null = null;
 		for (const id of this.store.selectedElementIds) {
-			const elBounds = this.spatial.getWorldBounds(id);
+			const elBounds = this.spatial.getWorldGeometryBounds(id);
 			if (elBounds) {
 				if (!combinedBounds) {
 					combinedBounds = { ...elBounds };

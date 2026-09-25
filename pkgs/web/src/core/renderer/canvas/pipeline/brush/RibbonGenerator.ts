@@ -16,7 +16,7 @@ import type {
 	BrushColorMode,
 	BrushSettings,
 	CubicBezierSegment,
-	StrokeWidthPoint,
+	Path,
 } from "../../../../schema";
 import { lerp } from "../../../../utils/math";
 import {
@@ -63,8 +63,8 @@ export const DEFAULT_RIBBON_OPTIONS: RibbonOptions = {
  * [4-5]  cp2x, cp2y        — control point 2 (absolute)
  * [6-7]  p1x, p1y          — segment end
  * [8-9]  halfWidth0, halfWidth1 — brush half-width at start/end
- * [10-11] side1Width0, side1Width1 — variable width profile side1
- * [12-13] side2Width0, side2Width1 — variable width profile side2
+ * [10-11] side1Width0, side1Width1 — erased boundary (Path.strokeErasure) side1
+ * [12-13] side2Width0, side2Width1 — erased boundary (Path.strokeErasure) side2
  * [14]   arcLengthOffset   — cumulative arc length before this segment
  * [15]   segmentArcLength  — this segment's arc length
  * [16-17] pathT0, pathT1   — gradient sampling positions
@@ -126,11 +126,14 @@ export interface RibbonStrokeInput {
 	colorMode: BrushColorMode | undefined;
 }
 
+/** The per-side profiles of the path a ribbon is generated for. */
+type SideProfiles = Pick<Path, "strokeWidths" | "strokeErasure">;
+
 export function generateRibbonInstances(
 	segments: CubicBezierSegment[],
 	settings: RibbonStrokeInput,
 	pathIndex: number = 0,
-	strokeWidths?: StrokeWidthPoint[],
+	{ strokeWidths, strokeErasure }: SideProfiles = {},
 	options: RibbonOptions = DEFAULT_RIBBON_OPTIONS,
 	pathStart: number = 0,
 	pathEnd: number = 1,
@@ -139,7 +142,8 @@ export function generateRibbonInstances(
 		return { data: EMPTY_F32, segmentCount: 0, totalArcLength: 0 };
 
 	const brushHalfWidth = settings.size * 0.5;
-	const hasStrokeWidths = strokeWidths != null && strokeWidths.length > 0;
+	const widthProfile = strokeWidths ?? [];
+	const erasureProfile = strokeErasure ?? [];
 
 	// Curve matrix: size scales the half-width, flow scales the opacity.
 	const baked = options.curved ? bakeBrushProperties(options.curved) : null;
@@ -197,11 +201,12 @@ export function generateRibbonInstances(
 		return { data: EMPTY_F32, segmentCount: 0, totalArcLength: 0 };
 	}
 
-	// Split at every width sample so the GPU's linear per-instance
-	// interpolation follows the width curve on a cubic segment.
-	const widthPathTs = hasStrokeWidths
-		? strokeWidthSamplePathTs(strokeWidths!)
-		: [];
+	// Split at every width and erasure sample so the GPU's linear
+	// per-instance interpolation follows both curves on a cubic segment.
+	const widthPathTs = [
+		...strokeWidthSamplePathTs(widthProfile),
+		...strokeWidthSamplePathTs(erasureProfile),
+	];
 	const resolved: ResolvedRibbonSegment[] = [];
 	let sourceArcOffset = 0;
 	for (const source of sourceSegments) {
@@ -293,19 +298,8 @@ export function generateRibbonInstances(
 		const segArcLen = segment.arcLength;
 		const { pathT0, pathT1 } = segment;
 
-		// Stroke width at segment endpoints
-		let s1w0 = 1;
-		let s1w1 = 1;
-		let s2w0 = 1;
-		let s2w1 = 1;
-		if (hasStrokeWidths) {
-			const w0 = interpolateStrokeWidths(strokeWidths!, pathT0);
-			const w1 = interpolateStrokeWidths(strokeWidths!, pathT1);
-			s1w0 = w0.side1;
-			s1w1 = w1.side1;
-			s2w0 = w0.side2;
-			s2w1 = w1.side2;
-		}
+		const erasure0 = interpolateStrokeWidths(erasureProfile, pathT0);
+		const erasure1 = interpolateStrokeWidths(erasureProfile, pathT1);
 
 		// Pressure-based half-width at segment endpoints
 		const p0 = segment.startPressure;
@@ -322,20 +316,32 @@ export function generateRibbonInstances(
 			hw1 = brushHalfWidth * pf1;
 		}
 
-		data[off] = sx;
-		data[off + 1] = sy;
-		data[off + 2] = c1x;
-		data[off + 3] = c1y;
-		data[off + 4] = c2x;
-		data[off + 5] = c2y;
-		data[off + 6] = ex;
-		data[off + 7] = ey;
+		// The width profile resizes the ribbon itself: it scales the half
+		// width and moves the centerline, so the texture follows the new band
+		// instead of being cut by it.
+		const width0 = interpolateStrokeWidths(widthProfile, pathT0);
+		const width1 = interpolateStrokeWidths(widthProfile, pathT1);
+		const shift0 = ((width0.side1 - width0.side2) / 2) * hw0;
+		const shift1 = ((width1.side1 - width1.side2) / 2) * hw1;
+		hw0 *= Math.max((width0.side1 + width0.side2) / 2, 0);
+		hw1 *= Math.max((width1.side1 + width1.side2) / 2, 0);
+		const [n0x, n0y] = curveEndNormal(c1x - sx, c1y - sy, ex - sx, ey - sy);
+		const [n1x, n1y] = curveEndNormal(ex - c2x, ey - c2y, ex - sx, ey - sy);
+
+		data[off] = sx + n0x * shift0;
+		data[off + 1] = sy + n0y * shift0;
+		data[off + 2] = c1x + n0x * shift0;
+		data[off + 3] = c1y + n0y * shift0;
+		data[off + 4] = c2x + n1x * shift1;
+		data[off + 5] = c2y + n1y * shift1;
+		data[off + 6] = ex + n1x * shift1;
+		data[off + 7] = ey + n1y * shift1;
 		data[off + 8] = hw0;
 		data[off + 9] = hw1;
-		data[off + 10] = s1w0;
-		data[off + 11] = s1w1;
-		data[off + 12] = s2w0;
-		data[off + 13] = s2w1;
+		data[off + 10] = erasure0.side1;
+		data[off + 11] = erasure1.side1;
+		data[off + 12] = erasure0.side2;
+		data[off + 13] = erasure1.side2;
 		data[off + 14] = arcLengthOffset;
 		data[off + 15] = segArcLen;
 		data[off + 16] = pathT0;
@@ -389,6 +395,23 @@ export function generateRibbonInstances(
 }
 
 /** Compute the shortest-arc midpoint angle between two angles in radians. */
+/**
+ * Unit normal (the shader's side1 direction) of an end tangent, falling back
+ * to the chord when the control point sits on the end.
+ */
+function curveEndNormal(
+	tangentX: number,
+	tangentY: number,
+	chordX: number,
+	chordY: number,
+): [number, number] {
+	const degenerate = Math.abs(tangentX) < 1e-6 && Math.abs(tangentY) < 1e-6;
+	const dx = degenerate ? chordX : tangentX;
+	const dy = degenerate ? chordY : tangentY;
+	const length = Math.hypot(dx, dy);
+	return length > 1e-6 ? [-dy / length, dx / length] : [0, 0];
+}
+
 function angleBisect(a: number, b: number): number {
 	let diff = b - a;
 	if (diff > Math.PI) diff -= 2 * Math.PI;

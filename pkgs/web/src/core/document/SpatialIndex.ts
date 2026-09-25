@@ -44,6 +44,7 @@ import {
 	type TextElement,
 } from "../schema";
 import { isEffectivelyLocked } from "../utils/elementQuery";
+import { unionBounds } from "../utils/geometry/align";
 import {
 	computeBlendIntermediates,
 	resolveBlendSourcePath,
@@ -58,6 +59,7 @@ import {
 	calculateLocalElementBounds,
 	calculatePathBounds,
 	calculateRepeatSourceUnion,
+	calculateSegmentListTightBounds,
 	doesPathIntersectRect,
 	expandBounds,
 	isPointInPath,
@@ -68,6 +70,7 @@ import {
 	type WorldBBox,
 	type WorldBoundsCache,
 } from "../utils/geometry/bounds";
+import { bakeCompoundPathSegments } from "../utils/geometry/compoundBake";
 import {
 	applyTransformToBounds,
 	asLocalCoord,
@@ -76,6 +79,8 @@ import {
 	computeTransformOrigin,
 	inverseTransform,
 	type LocalCoord,
+	pivotMoveShift,
+	solveChildTransform,
 	transformLinearMatrix,
 	type WorldBezierSegment,
 	type WorldCoord,
@@ -89,7 +94,11 @@ import {
 	elementTransformToAffine,
 	repeatGridRegion,
 } from "../utils/geometry/repeatInterpolation";
-import { getWorldSegments, toWorldPath } from "../utils/geometry/segmentOps";
+import {
+	getWorldSegments,
+	toWorldPath,
+	transformSegmentsToWorld,
+} from "../utils/geometry/segmentOps";
 import {
 	type AppearancePresetMap,
 	createAppearancePresetsMap,
@@ -287,6 +296,40 @@ export class SpatialIndex {
 	}
 
 	/**
+	 * World-space extent of an element's own shape, which the selection frame
+	 * encloses. Paths and compound paths span only their curves, without stroke
+	 * width or off-curve control points. A group spans its children the same
+	 * way, and a clip group spans its clip path. Other kinds fall back to
+	 * getWorldBounds. Returns null when nothing has a shape.
+	 */
+	public getWorldGeometryBounds(elementId: string): WorldBBox | null {
+		const el = this.findElement(elementId);
+		if (!el) return null;
+
+		if (isPath(el)) {
+			const segments = this.getElementWorldSegments(elementId);
+			return segments ? calculateSegmentListTightBounds(segments) : null;
+		}
+		if (isCompoundPath(el)) {
+			return (
+				this.getCompoundWorldGeometryBounds(el) ??
+				this.getWorldBounds(elementId)
+			);
+		}
+		if (isGroup(el)) {
+			if (el.clipPathId) return this.getWorldGeometryBounds(el.clipPathId);
+			const union = unionBounds(
+				el.childIds.flatMap((id) => {
+					const bounds = this.getWorldGeometryBounds(id);
+					return bounds ? [{ id, bounds }] : [];
+				}),
+			);
+			return union ? brandWorldBBox(union) : null;
+		}
+		return this.getWorldBounds(elementId);
+	}
+
+	/**
 	 * World-space path of a path element with segment metadata preserved
 	 * (isMoved/isClosed — required by text axis binding to classify and walk
 	 * subpaths). Returns null for non-path/empty geometry.
@@ -304,6 +347,60 @@ export class SpatialIndex {
 	public getAncestorTransform(elementId: string): ElementTransform | null {
 		const t = this.resolveWorldTransform(elementId);
 		return isIdentityTransform(t) ? null : t;
+	}
+
+	/**
+	 * Transform updates that keep an edited path drawn in place when `segments`
+	 * replace its geometry. An element rotates and scales around its local
+	 * bounds centre, which moves with the geometry, so its translation absorbs
+	 * that move. A blend or compound path source also moves its baking parent's
+	 * centre, so each parent up the baking chain absorbs its own move as well.
+	 */
+	public getPivotCompensation(
+		pathId: string,
+		segments: Path["segments"],
+	): Array<{ elementId: string; transform: ElementTransform }> {
+		const path = this.findElement(pathId);
+		if (!path || !isPath(path)) return [];
+
+		const before = this.getElementsMapCached();
+		const after = new OverlayMap(before).set(pathId, { ...path, segments });
+		const updates: Array<{ elementId: string; transform: ElementTransform }> =
+			[];
+		let id: string | null = pathId;
+		while (id) {
+			const original = before.get(id);
+			const edited = after.get(id);
+			if (!original || !edited) break;
+			const o0 = computeTransformOrigin(
+				calculateLocalElementBounds(original, before),
+			);
+			const o1 = computeTransformOrigin(
+				calculateLocalElementBounds(edited, after),
+			);
+			const bakingParent = this.getDirectBakingParent(id);
+			const own = getTransform(edited);
+			// A baked source's own transform pivots on its own centre inside the
+			// parent, while the parent's chain pivots on the parent's centre, so
+			// each level absorbs only its own linear part.
+			const ancestorT = bakingParent ? null : this.getAncestorTransform(id);
+			const placed = ancestorT ? composeTransforms(ancestorT, own) : own;
+			const shift = pivotMoveShift(placed, o0, o1);
+			if (shift.x !== 0 || shift.y !== 0) {
+				const shifted = {
+					...placed,
+					x: placed.x + shift.x,
+					y: placed.y + shift.y,
+				};
+				const transform = ancestorT
+					? solveChildTransform(ancestorT, shifted)
+					: shifted;
+				updates.push({ elementId: id, transform });
+				after.set(id, { ...edited, transform } as AnyArtObject);
+			}
+			id = bakingParent?.id ?? null;
+		}
+		return updates;
 	}
 
 	/** Explicitly set bounds, e.g. after applying a move/resize delta. */
@@ -735,7 +832,7 @@ export class SpatialIndex {
 			if (snapChildIds) {
 				for (const childId of snapChildIds) {
 					if (movingSet.has(childId)) continue;
-					const childBounds = this.boundsCache.get(childId);
+					const childBounds = this.getWorldBounds(childId);
 					if (childBounds) targets.push(childBounds);
 				}
 			}
@@ -1321,6 +1418,7 @@ export class SpatialIndex {
 		return candidates.filter((el) =>
 			this.isElementInRect(
 				el,
+				this.resolveElementWorldTransform(el.id, el),
 				minX,
 				minY,
 				maxX,
@@ -1516,6 +1614,33 @@ export class SpatialIndex {
 		return geometries;
 	}
 
+	/**
+	 * Curve extent of a compound path's boolean result in world space, pivoted
+	 * the way getWorldBounds pivots it. Null when the result has no segments.
+	 */
+	private getCompoundWorldGeometryBounds(
+		compound: CompoundPath,
+	): WorldBBox | null {
+		const elementsMap = this.getElementsMapCached();
+		const segments = bakeCompoundPathSegments(
+			compound,
+			(id) => elementsMap.get(id),
+			toWorldPath,
+		);
+		if (segments.length === 0) return null;
+
+		const origin = computeTransformOrigin(
+			calculateLocalElementBounds(compound, elementsMap, this.localBoundsCache),
+		);
+		const transform = composeTransforms(
+			this.resolveWorldTransform(compound.id),
+			getTransform(compound),
+		);
+		return calculateSegmentListTightBounds(
+			transformSegmentsToWorld(segments, transform, origin),
+		);
+	}
+
 	/** Null when no source resolves to a path. */
 	private resolveCompoundDrawnShape(
 		compound: CompoundPath,
@@ -1605,6 +1730,21 @@ export class SpatialIndex {
 	}
 
 	/**
+	 * The transform that maps an element's local space to world space: the
+	 * ancestor chain composed with the element's own transform, applied around
+	 * the element's own origin as the renderer places it.
+	 */
+	private resolveElementWorldTransform(
+		elementId: string,
+		element: AnyArtObject,
+	): ElementTransform {
+		return composeTransforms(
+			this.resolveWorldTransform(elementId),
+			getTransform(element),
+		);
+	}
+
+	/**
 	 * Inverse-transform a world-space point into the local coordinate space
 	 * of an element, composing the full ancestor chain + the element's own transform.
 	 */
@@ -1614,10 +1754,7 @@ export class SpatialIndex {
 		elementId: string,
 		element: AnyArtObject,
 	): { x: LocalCoord; y: LocalCoord } {
-		const worldT = composeTransforms(
-			this.resolveWorldTransform(elementId),
-			getTransform(element),
-		);
+		const worldT = this.resolveElementWorldTransform(elementId, element);
 		// Identity chain: world space and the element's local space coincide.
 		if (isIdentityTransform(worldT))
 			return { x: asLocalCoord(x), y: asLocalCoord(y) };
@@ -2300,8 +2437,13 @@ export class SpatialIndex {
 		return false;
 	}
 
+	/**
+	 * Whether an element's drawn shape touches a rect given in the space
+	 * `transform` maps the element into.
+	 */
 	private isElementInRect(
 		element: AnyArtObject,
+		transform: ElementTransform,
 		minX: number,
 		minY: number,
 		maxX: number,
@@ -2311,7 +2453,7 @@ export class SpatialIndex {
 		if (isPath(element)) {
 			const path = this.resolveAppearance(element);
 			const rect = this.toElementLocalRect(
-				element,
+				transform,
 				calculatePathBounds(path),
 				minX,
 				minY,
@@ -2340,7 +2482,7 @@ export class SpatialIndex {
 			);
 			if (!drawn) return false;
 			const rect = this.toElementLocalRect(
-				element,
+				transform,
 				calculateLocalElementBounds(
 					element,
 					this.getElementsMapCached(),
@@ -2367,7 +2509,7 @@ export class SpatialIndex {
 			if (!childIds || childIds.length === 0) return false;
 
 			const rect = this.toElementLocalRect(
-				element,
+				transform,
 				calculateLocalElementBounds(
 					element,
 					this.getElementsMapCached(),
@@ -2389,6 +2531,7 @@ export class SpatialIndex {
 					isElementVisible(child) &&
 					this.isElementInRect(
 						child,
+						getTransform(child),
 						rect.minX,
 						rect.minY,
 						rect.maxX,
@@ -2408,7 +2551,7 @@ export class SpatialIndex {
 			)?.[0];
 			if (quad) {
 				const rect = this.toElementLocalRect(
-					element,
+					transform,
 					calculateLocalElementBounds(
 						element,
 						this.getElementsMapCached(),
@@ -2436,18 +2579,17 @@ export class SpatialIndex {
 	}
 
 	/**
-	 * Map a parent-space rect into an element's local space by undoing its
-	 * transform around the origin `localBounds` gives, and re-box the result.
+	 * Map a rect into an element's local space by undoing `t` around the
+	 * origin `localBounds` gives, and re-box the result.
 	 */
 	private toElementLocalRect(
-		element: AnyArtObject,
+		t: ElementTransform,
 		localBounds: LocalBBox,
 		minX: number,
 		minY: number,
 		maxX: number,
 		maxY: number,
 	): { minX: number; minY: number; maxX: number; maxY: number } {
-		const t = getTransform(element);
 		if (isIdentityTransform(t)) return { minX, minY, maxX, maxY };
 
 		const origin = computeTransformOrigin(localBounds);
@@ -2502,4 +2644,60 @@ function inverseAffinePoint(
 		x: (m.d * dx - m.c * dy) / det,
 		y: (-m.b * dx + m.a * dy) / det,
 	};
+}
+
+/**
+ * Read-only view of `base` with a few entries replaced, so an edit can be
+ * measured against the document without copying every object. Lookups stay
+ * O(1); only iteration materialises the merged map.
+ */
+class OverlayMap<K, V> implements ReadonlyMap<K, V> {
+	private readonly overrides = new Map<K, V>();
+
+	public constructor(private readonly base: ReadonlyMap<K, V>) {}
+
+	public get size(): number {
+		return this.merged().size;
+	}
+
+	public get(key: K): V | undefined {
+		return this.overrides.has(key)
+			? this.overrides.get(key)
+			: this.base.get(key);
+	}
+
+	public has(key: K): boolean {
+		return this.overrides.has(key) || this.base.has(key);
+	}
+
+	public set(key: K, value: V): this {
+		this.overrides.set(key, value);
+		return this;
+	}
+
+	public forEach(
+		callback: (value: V, key: K, map: ReadonlyMap<K, V>) => void,
+	): void {
+		for (const [key, value] of this.merged()) callback(value, key, this);
+	}
+
+	public entries() {
+		return this.merged().entries();
+	}
+
+	public keys() {
+		return this.merged().keys();
+	}
+
+	public values() {
+		return this.merged().values();
+	}
+
+	public [Symbol.iterator]() {
+		return this.merged()[Symbol.iterator]();
+	}
+
+	private merged(): Map<K, V> {
+		return new Map([...this.base, ...this.overrides]);
+	}
 }

@@ -708,6 +708,25 @@ export function inverseTransformVector(
 	};
 }
 
+/**
+ * Translation to add to `t` so it keeps placing points where it did after its
+ * pivot moves from `from` to `to`: (M − I)·(to − from), where M is `t`'s
+ * linear part. Zero for a pure translation.
+ */
+export function pivotMoveShift(
+	t: ElementTransform,
+	from: { x: number; y: number },
+	to: { x: number; y: number },
+): { x: number; y: number } {
+	const m = transformLinearMatrix(t);
+	const dx = to.x - from.x;
+	const dy = to.y - from.y;
+	return {
+		x: (m.m00 - 1) * dx + m.m01 * dy,
+		y: m.m10 * dx + (m.m11 - 1) * dy,
+	};
+}
+
 /** The affine part of a GPU transform entry: what maps local space to world. */
 export type GPUTransformAffine = Pick<
 	GPUElementTransform,

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
+import { LATEST_SCHEMA_VERSION } from "../io/migrations";
 import type { BoundingBox } from "../schema";
 import { TimelapseRecorder } from "./TimelapseRecorder";
 
@@ -181,6 +182,32 @@ describe("TimelapseRecorder", () => {
 
 			const data = recorder.getTimelapseData();
 			expect(data?.index?.rects).toHaveLength(data?.entries.length ?? 0);
+		});
+
+		it("should date what it records with this build's schema version", () => {
+			const recorder = newRecorder();
+			recorder.onYjsUpdate(new Uint8Array([2]), null);
+			recorder.onYjsUpdate(new Uint8Array([3]), null);
+
+			expect(recorder.getTimelapseData()?.schemaVersions).toEqual([
+				{ at: 0, version: LATEST_SCHEMA_VERSION },
+			]);
+		});
+
+		it("should date a carried older recording apart from what follows it", () => {
+			const recorder = newRecorder();
+			recorder.restoreFrom({
+				version: 2,
+				entries: [{ t: 0, u: new Uint8Array([7]) }],
+				schemaVersions: [{ at: 0, version: 1 }],
+			});
+
+			recorder.appendBaseline(new Uint8Array([1]));
+
+			expect(recorder.getTimelapseData()?.schemaVersions).toEqual([
+				{ at: 0, version: 1 },
+				{ at: 1, version: LATEST_SCHEMA_VERSION },
+			]);
 		});
 	});
 

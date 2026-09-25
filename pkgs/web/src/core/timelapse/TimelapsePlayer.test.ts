@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import { objectToStoredFields } from "../collaboration/YjsProvider";
 import { createIdentityTransform } from "../document/factory";
+import { LATEST_SCHEMA_VERSION } from "../io/migrations";
+import { migSplitStrokeErasure } from "../io/migrations/20260925_mig_split_stroke_erasure";
 import type { AnyArtObject, Artboard, Document, Path } from "../schema";
 import { TimelapsePlayer } from "./TimelapsePlayer";
 import { buildTimelapseIndex } from "./timelapseIndex";
@@ -102,6 +104,62 @@ describe("TimelapsePlayer", () => {
 
 		const document = lastFrame(onFrame);
 		expect(Object.keys(document.objects).sort()).toEqual(["far", "inside"]);
+	});
+
+	describe("when the recording was made by an older build", () => {
+		const eraserCut = [{ t: 0.5, side1: 0, side2: 1 }];
+		const recordedBeforeSplit = migSplitStrokeErasure.version - 1;
+
+		function recordErasedPath(schemaVersion: number): TimelapseData {
+			const { data } = buildRecording([
+				(doc) => {
+					setLayer(doc, "layer-1", []);
+					setArtboard(doc, artboard);
+				},
+				(doc) =>
+					addPath(doc, "layer-1", {
+						...squarePath("a", 0, 0),
+						strokeWidths: eraserCut,
+					}),
+			]);
+			return { ...data, schemaVersions: [{ at: 0, version: schemaVersion }] };
+		}
+
+		it("should show the eraser cut as an erasure when seeking straight to it", () => {
+			const { player, onFrame } = createPlayer(
+				recordErasedPath(recordedBeforeSplit),
+				artboard,
+			);
+			player.seekTo(player.totalEvents - 1);
+
+			const path = lastFrame(onFrame).objects.a as Path;
+			expect(path.strokeErasure).toEqual(eraserCut);
+			expect(path.strokeWidths).toBeUndefined();
+		});
+
+		it("should show the eraser cut as an erasure when stepping onto it", () => {
+			const { player, onFrame } = createPlayer(
+				recordErasedPath(recordedBeforeSplit),
+				artboard,
+			);
+			for (let i = 0; i < player.totalEvents; i++) player.seekTo(i);
+
+			const path = lastFrame(onFrame).objects.a as Path;
+			expect(path.strokeErasure).toEqual(eraserCut);
+			expect(path.strokeWidths).toBeUndefined();
+		});
+
+		it("should keep a width profile recorded by the current build", () => {
+			const { player, onFrame } = createPlayer(
+				recordErasedPath(LATEST_SCHEMA_VERSION),
+				artboard,
+			);
+			for (let i = 0; i < player.totalEvents; i++) player.seekTo(i);
+
+			const path = lastFrame(onFrame).objects.a as Path;
+			expect(path.strokeWidths).toEqual(eraserCut);
+			expect(path.strokeErasure).toBeUndefined();
+		});
 	});
 });
 

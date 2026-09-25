@@ -471,12 +471,36 @@ describe("tessellateStroke", () => {
 		expect(result.vertices.every(Number.isFinite)).toBe(true);
 	});
 
-	it("should omit a stroke whose signed half width is non-positive", () => {
+	it("should erase across the band the width profile resized", () => {
+		// The width moves the band to y=[0, 10]; erasing side1 to 0 leaves the
+		// band's lower half, y=[0, 5].
 		const result = tessellateStroke(
 			makeInput({
 				points: [0, 0, 100, 0],
 				pressures: [1, 1],
+				baseWidth: 20,
 				strokeWidths: [
+					{ t: 0, side1: 1, side2: 0 },
+					{ t: 1, side1: 1, side2: 0 },
+				],
+				strokeErasure: [
+					{ t: 0, side1: 0, side2: 1 },
+					{ t: 1, side1: 0, side2: 1 },
+				],
+			}),
+		);
+
+		const yValues = result.vertices.filter((_, index) => index % 2 === 1);
+		expect(Math.min(...yValues)).toBeCloseTo(0, 5);
+		expect(Math.max(...yValues)).toBeCloseTo(5, 5);
+	});
+
+	it("should omit a stroke erased down to a non-positive half width", () => {
+		const result = tessellateStroke(
+			makeInput({
+				points: [0, 0, 100, 0],
+				pressures: [1, 1],
+				strokeErasure: [
 					{ t: 0, side1: 1, side2: -1 },
 					{ t: 1, side1: 1, side2: -1 },
 				],
@@ -486,13 +510,13 @@ describe("tessellateStroke", () => {
 		expect(result.count).toBe(0);
 	});
 
-	it("should split visible regions at interpolated zero crossings", () => {
+	it("should split erased regions at interpolated zero crossings", () => {
 		const result = tessellateStroke(
 			makeInput({
 				points: [0, 0, 100, 0],
 				pressures: [1, 1],
 				lineCap: "round",
-				strokeWidths: [{ t: 0.5, side1: -1, side2: -1 }],
+				strokeErasure: [{ t: 0.5, side1: -1, side2: -1 }],
 			}),
 		);
 
@@ -500,13 +524,13 @@ describe("tessellateStroke", () => {
 		expectTrianglesDoNotCrossXGap(result.vertices, 25, 75);
 	});
 
-	it("should split a curved polyline without bridging its invisible region", () => {
+	it("should split a curved polyline without bridging its erased region", () => {
 		const result = tessellateStroke(
 			makeInput({
 				points: [0, 0, 50, 50, 100, 0],
 				pressures: [1, 1, 1],
 				lineJoin: "round",
-				strokeWidths: [{ t: 0.5, side1: -1, side2: -1 }],
+				strokeErasure: [{ t: 0.5, side1: -1, side2: -1 }],
 			}),
 		);
 

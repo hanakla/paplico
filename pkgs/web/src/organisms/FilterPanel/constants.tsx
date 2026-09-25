@@ -17,6 +17,7 @@ import {
 	PaintBucket,
 	Palette,
 	Pen,
+	PenLine,
 	Sparkles,
 	Spline,
 	Type,
@@ -45,6 +46,7 @@ export const FILTER_TEXT_KEYS = {
 	noise: "filterPanel.noise",
 	"path-offset": "filterPanel.pathOffset",
 	"path-union": "filterPanel.pathUnion",
+	"stroke-outline": "filterPanel.strokeOutline",
 	"pucker-bloat": "filterPanel.puckerBloat",
 	transform: "filterPanel.transform",
 	"clip-to-shape": "filterPanel.clipToShape",
@@ -136,6 +138,8 @@ export function getFilterIcon(processor: string) {
 			return <Expand size={12} className="text-muted-foreground" />;
 		case "path-union":
 			return <Merge size={12} className="text-muted-foreground" />;
+		case "stroke-outline":
+			return <PenLine size={12} className="text-muted-foreground" />;
 		case "pucker-bloat":
 			return <Diamond size={12} className="text-muted-foreground" />;
 		case "transform":

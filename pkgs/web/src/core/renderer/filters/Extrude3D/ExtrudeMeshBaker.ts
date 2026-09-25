@@ -620,6 +620,8 @@ export class ExtrudeMeshBaker {
 						filters: flatApps,
 						transform: createIdentityTransform(),
 						strokeWidths: element.strokeWidths,
+						strokeWidthsBaked: element.strokeWidthsBaked,
+						strokeErasure: element.strokeErasure,
 						pathStart: element.pathStart,
 						pathEnd: element.pathEnd,
 					};

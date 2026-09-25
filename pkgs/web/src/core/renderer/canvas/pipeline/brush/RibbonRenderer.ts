@@ -122,7 +122,7 @@ export class RibbonRenderer {
 			segments,
 			ribbonStrokeInputOf(settings),
 			0,
-			path.strokeWidths,
+			path,
 			ribbonOptionsWithCurves(settings, ribbon, path.strokeWidthsBaked),
 			path.pathStart ?? 0,
 			path.pathEnd ?? 1,
@@ -186,7 +186,7 @@ export class RibbonRenderer {
 			segments,
 			ribbonStrokeInputOf(settings),
 			batch.pathMetas.used / PATH_META_FLOATS,
-			path.strokeWidths,
+			path,
 			ribbonOptionsWithCurves(settings, ribbon, path.strokeWidthsBaked),
 			path.pathStart ?? 0,
 			path.pathEnd ?? 1,
@@ -597,8 +597,7 @@ function ribbonStrokeInputOf(settings: BrushSettings): RibbonStrokeInput {
 
 /** Ribbon options plus the settings whose curves modulate width and
  *  opacity. Baked paths carry the size curves' evaluation in strokeWidths,
- *  which the ribbon applies as its side ratios; size then evaluates from the
- *  base. */
+ *  which scales the ribbon's half width; size then evaluates from the base. */
 function ribbonOptionsWithCurves(
 	settings: BrushSettings,
 	ribbon: RibbonConfig,

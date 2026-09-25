@@ -10,6 +10,7 @@ import {
 	isBlend,
 	isFilterEnabled,
 	type Path,
+	type PathGeometry,
 	type StrokeAppearance,
 	type TextElement,
 	type Viewport,
@@ -525,7 +526,7 @@ export interface BackdropEffectDriver {
  */
 export interface AppearanceGeometry {
 	appearance?: FillAppearance | StrokeAppearance;
-	segments: CubicBezierSegment[];
+	path: PathGeometry;
 	patternTransform?: Affine2D;
 }
 

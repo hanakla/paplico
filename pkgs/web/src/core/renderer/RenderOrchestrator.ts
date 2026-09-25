@@ -93,6 +93,7 @@ import { Revolve3DFilterHandler } from "./filters/Revolve3DFilterHandler";
 import { Rotate3DFilterProcessor } from "./filters/Rotate3DFilterProcessor";
 import { RoughFilterHandler } from "./filters/RoughFilterProcessor";
 import { ScratchTexturePool } from "./filters/ScratchTexturePool";
+import { StrokeOutlineFilterHandler } from "./filters/StrokeOutlineFilterProcessor";
 import { SvgBlendHandler } from "./filters/svg/SvgBlendHandler";
 import {
 	SVG_COLOR_FUNCTIONS,
@@ -2486,6 +2487,10 @@ export class RenderOrchestrator {
 		const pathUnionHandler = new PathUnionFilterHandler();
 		await pathUnionHandler.initialize(this.device, this.canvasFormat);
 		filterRenderer.registerHandler("path-union", pathUnionHandler);
+
+		const strokeOutlineHandler = new StrokeOutlineFilterHandler();
+		await strokeOutlineHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("stroke-outline", strokeOutlineHandler);
 
 		const puckerBloatHandler = new PuckerBloatFilterHandler();
 		await puckerBloatHandler.initialize(this.device, this.canvasFormat);

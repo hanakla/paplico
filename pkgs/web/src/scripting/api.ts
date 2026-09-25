@@ -199,6 +199,7 @@ declare type ArtObject {
 	let pathStart: Number?
 	let pathEnd: Number?
 	let strokeWidths: [StrokeWidthPoint]?
+	let strokeErasure: [StrokeWidthPoint]?
 	let childIds: [String]?
 	let collapsed: Bool?
 	let clipPathId: String?
@@ -338,6 +339,7 @@ export interface ScriptArtObject
 	readonly pathStart?: Path["pathStart"];
 	readonly pathEnd?: Path["pathEnd"];
 	readonly strokeWidths?: Path["strokeWidths"];
+	readonly strokeErasure?: Path["strokeErasure"];
 	readonly childIds?: Group["childIds"] | MeshArtObject["childIds"];
 	readonly collapsed?: Group["collapsed"];
 	readonly clipPathId?: Group["clipPathId"] | TextElement["clipPathId"];

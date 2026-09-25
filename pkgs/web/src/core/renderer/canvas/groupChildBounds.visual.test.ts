@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createRepeatObject } from "../../document/factory";
 import type { Document, FillAppearance, Path, Viewport } from "../../schema";
 import {
 	mockDocument,
@@ -65,6 +66,30 @@ describe("group child bounds", () => {
 		const pixels = await render(document);
 		expect(colorAt(pixels, 400, 300)).toEqual(RED);
 		expect(colorAt(pixels, 520, 300)).toEqual(WHITE);
+	});
+
+	it("should draw the copies of a repeat inside a moved group where the group places them", async () => {
+		// The source is centred at (-280, -280); the group moves it to (20, 20),
+		// so the ring of radius 100 puts a copy on the view centre (20, 120).
+		const source = filledSquare("source-1", -300, -260);
+		const repeat = {
+			...createRepeatObject([source.id], { mode: "radial" }),
+			radial: {
+				count: 4,
+				radius: 100,
+				startAngle: 0,
+				sweep: Math.PI * 2,
+				rotateInstances: false,
+			},
+		};
+		const group = mockGroup("group-1", [repeat.id], { x: 300, y: 300 });
+		const document = mockDocument(
+			[source, repeat, group],
+			[mockLayer("layer-1", [group.id])],
+		);
+
+		const pixels = await render(document);
+		expect(colorAt(pixels, 400, 300)).toEqual(RED);
 	});
 });
 

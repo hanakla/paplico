@@ -3,7 +3,11 @@ import {
 	createStrokeHalfWidthSampler,
 	type StrokeHalfWidthSampler,
 } from "../renderer/canvas/pipeline/brush/strokeHalfWidth";
-import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
+import {
+	composeStrokeErasure,
+	erasureForBoundary,
+	interpolateStrokeWidths,
+} from "../renderer/geometry/strokeTessellator";
 import { buildStrokeWidthEditOverlay } from "../renderer/ui/builders/strokeWidthEdit";
 import type { OverlayHit } from "../renderer/ui/hitTest";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
@@ -33,14 +37,25 @@ import type { ToolContext } from "./ToolContext";
 /** The part of a width point a drag has hold of. */
 type WidthHandlePart = "side1" | "side2" | "center";
 
+/**
+ * Which per-side profile of the path the tool edits: the width profile
+ * (Path.strokeWidths) or the erased boundary (Path.strokeErasure).
+ */
+export type StrokeWidthEditTarget = "width" | "erasure";
+
+interface StrokeWidthEditToolOptions {
+	target: StrokeWidthEditTarget;
+}
+
 const DUPLICATE_T_THRESHOLD = 0.005;
 
 /**
  * A single side boundary may cross the centerline (a negative offset) and eat
  * into the opposite side — see StrokeWidthPoint in schema.ts. What may not go
- * negative is their sum: an interval whose sum drops below zero is not a thin
- * stroke but a deleted one, and removing it means splitting the path, which is
- * the eraser's job. A drag therefore pinches down to zero width and stops.
+ * negative is their sum, for either profile: an interval whose sum drops below
+ * zero is not a thin stroke but a deleted one, and removing it means splitting
+ * the path, which is the eraser's job. A drag therefore pinches down to zero
+ * width and stops.
  */
 const MAX_SIDE = 1;
 
@@ -48,6 +63,7 @@ export class StrokeWidthEditTool implements Tool {
 	public readonly name = "stroke-width-edit";
 
 	private ctx: ToolContext;
+	private target: StrokeWidthEditTarget;
 	private targetPath: Path | null = null;
 	private targetElementId: string | null = null;
 	private selectedPointIndex: number | null = null;
@@ -60,14 +76,27 @@ export class StrokeWidthEditTool implements Tool {
 	private totalArcLength = 0;
 	/**
 	 * Actual rendered half width per t with pressure evaluated. Rebuilt only
-	 * with the world segments: a strokeWidths edit recreates the Path object
+	 * with the world segments: a profile edit recreates the Path object
 	 * (and its segments array) on every pointer move, so identity-keyed caching
 	 * would miss each time, while segments/brush settings never change here.
 	 */
 	private halfWidthSampler: StrokeHalfWidthSampler | null = null;
 
-	public constructor(ctx: ToolContext) {
+	public constructor(ctx: ToolContext, options: StrokeWidthEditToolOptions) {
 		this.ctx = ctx;
+		this.target = options.target;
+	}
+
+	public setOptions(options: Partial<StrokeWidthEditToolOptions>): void {
+		if (options.target == null || options.target === this.target) return;
+
+		// Point indices address the previous profile, so any hold on it ends.
+		this.target = options.target;
+		this.selectedPointIndex = null;
+		this.selectedPart = null;
+		this.dragging = false;
+		this.dragInitialWidths = null;
+		this.refreshUI();
 	}
 
 	public initWithSelectedPath(
@@ -101,7 +130,7 @@ export class StrokeWidthEditTool implements Tool {
 			this.selectedPointIndex = hit.pointIndex;
 			this.selectedPart = hit.part;
 			this.dragging = true;
-			this.dragInitialWidths = [...(this.targetPath.strokeWidths ?? [])];
+			this.dragInitialWidths = [...this.getProfile()];
 			this.refreshUI();
 		} else {
 			this.selectedPointIndex = null;
@@ -135,13 +164,13 @@ export class StrokeWidthEditTool implements Tool {
 		const point = this.getEffectiveWidths()[this.selectedPointIndex];
 		if (!point) return;
 
-		const strokeWidths =
+		const profile =
 			this.selectedPart === "center"
 				? this.resolveSlideDrag(point.t, world.x, world.y)
 				: this.resolveWidthDrag(point.t, this.selectedPart, world, event);
-		if (!strokeWidths) return;
+		if (!profile) return;
 
-		this.ctx.updateElement(this.targetElementId!, { strokeWidths });
+		this.ctx.updateElement(this.targetElementId!, this.profilePatch(profile));
 		const updated = this.ctx.getPathById(this.targetElementId!);
 		if (updated) this.targetPath = updated;
 		this.ctx.requestRender("document");
@@ -156,20 +185,23 @@ export class StrokeWidthEditTool implements Tool {
 	): void {
 		if (this.dragging) {
 			// Wrap the final state in a transaction for undo/redo
-			const finalWidths = [...(this.targetPath?.strokeWidths ?? [])];
+			const finalWidths = [...this.getProfile()];
 			const initialWidths = this.dragInitialWidths;
 
 			if (initialWidths) {
 				// Restore initial state, then apply final in a single transaction
-				this.ctx.updateElement(this.targetElementId!, {
-					strokeWidths: initialWidths,
-				});
+				this.ctx.updateElement(
+					this.targetElementId!,
+					this.profilePatch(initialWidths),
+				);
 				const layer = this.ctx.getCurrentLayer();
 				if (!layer) return;
 				this.ctx.transact((commands) => {
-					commands.updateElement(layer.id, this.targetElementId!, {
-						strokeWidths: finalWidths,
-					});
+					commands.updateElement(
+						layer.id,
+						this.targetElementId!,
+						this.profilePatch(finalWidths),
+					);
 				});
 				const updated = this.ctx.getPathById(this.targetElementId!);
 				if (updated) this.targetPath = updated;
@@ -200,27 +232,31 @@ export class StrokeWidthEditTool implements Tool {
 		if (closestT == null) return;
 
 		// Check for duplicate t values
-		const existing = this.targetPath.strokeWidths ?? [];
+		const existing = this.getProfile();
 		if (
 			existing.some((p) => Math.abs(p.t - closestT) < DUPLICATE_T_THRESHOLD)
 		) {
 			return;
 		}
 
-		const strokeWidths = [...existing];
-		const interp = interpolateStrokeWidths(strokeWidths, closestT);
+		const profile = [...existing];
+		const interp = interpolateStrokeWidths(profile, closestT);
 
-		strokeWidths.push({
+		profile.push({
 			t: closestT,
 			side1: interp.side1,
 			side2: interp.side2,
 		});
-		strokeWidths.sort((a, b) => a.t - b.t);
+		profile.sort((a, b) => a.t - b.t);
 
 		const layer = this.ctx.getCurrentLayer();
 		if (!layer) return;
 		this.ctx.transact((commands) => {
-			commands.updateElement(layer.id, this.targetElementId!, { strokeWidths });
+			commands.updateElement(
+				layer.id,
+				this.targetElementId!,
+				this.profilePatch(profile),
+			);
 		});
 
 		const updated = this.ctx.getPathById(this.targetElementId!);
@@ -248,15 +284,17 @@ export class StrokeWidthEditTool implements Tool {
 			const explicitIndex = this.findExplicitIndex(point.t);
 			if (explicitIndex < 0) return false;
 
-			const strokeWidths = [...(this.targetPath.strokeWidths ?? [])];
-			strokeWidths.splice(explicitIndex, 1);
+			const profile = [...this.getProfile()];
+			profile.splice(explicitIndex, 1);
 
 			const layer = this.ctx.getCurrentLayer();
 			if (!layer) return false;
 			this.ctx.transact((commands) => {
-				commands.updateElement(layer.id, this.targetElementId!, {
-					strokeWidths,
-				});
+				commands.updateElement(
+					layer.id,
+					this.targetElementId!,
+					this.profilePatch(profile),
+				);
 			});
 
 			const updated = this.ctx.getPathById(this.targetElementId!);
@@ -300,7 +338,7 @@ export class StrokeWidthEditTool implements Tool {
 	}
 
 	/**
-	 * Widths after moving the dragged point's boundary to the pointer. The drag
+	 * Profile after moving the dragged point's boundary to the pointer. The drag
 	 * is measured against the state at pointer-down so that the delta does not
 	 * accumulate across moves.
 	 */
@@ -328,33 +366,35 @@ export class StrokeWidthEditTool implements Tool {
 		// the ratio up 20x+. The display keeps the raw half width, so handles
 		// near a vanishing width intentionally do not track the pointer 1:1.
 		const denom = Math.max(this.effectiveHalfAt(pointT), brushHalf * 0.05);
+		const draggedValue = this.toProfileValue(pointT, side, projected / denom);
+		if (draggedValue == null) return null;
 
 		const sides = resolveDraggedSides(
 			interpolateStrokeWidths(this.dragInitialWidths ?? [], pointT),
-			projected / denom,
+			draggedValue,
 			side,
 			event,
 		);
 
-		const strokeWidths = [...(this.targetPath?.strokeWidths ?? [])];
+		const profile = [...this.getProfile()];
 		const explicitIndex = this.findExplicitIndex(pointT);
 
 		if (explicitIndex >= 0) {
-			strokeWidths[explicitIndex] = {
-				...strokeWidths[explicitIndex],
+			profile[explicitIndex] = {
+				...profile[explicitIndex],
 				...sides,
 			};
 		} else {
 			// Implicit point (t=0 or t=1) — create explicit entry
-			strokeWidths.push({ t: pointT, ...sides });
-			strokeWidths.sort((a, b) => a.t - b.t);
+			profile.push({ t: pointT, ...sides });
+			profile.sort((a, b) => a.t - b.t);
 		}
 
-		return strokeWidths;
+		return profile;
 	}
 
 	/**
-	 * Widths after sliding the dragged point along the path. It stays between
+	 * Profile after sliding the dragged point along the path. It stays between
 	 * its neighbours, so the profile keeps its order and the point keeps its
 	 * place in the effective array for the rest of the drag.
 	 */
@@ -372,17 +412,17 @@ export class StrokeWidthEditTool implements Tool {
 		const closestT = this.findClosestT(worldX, worldY);
 		if (closestT == null) return null;
 
-		const strokeWidths = [...(this.targetPath?.strokeWidths ?? [])];
-		strokeWidths[explicitIndex] = {
-			...strokeWidths[explicitIndex],
+		const profile = [...this.getProfile()];
+		profile[explicitIndex] = {
+			...profile[explicitIndex],
 			t: clamp(
 				closestT,
-				(strokeWidths[explicitIndex - 1]?.t ?? 0) + DUPLICATE_T_THRESHOLD,
-				(strokeWidths[explicitIndex + 1]?.t ?? 1) - DUPLICATE_T_THRESHOLD,
+				(profile[explicitIndex - 1]?.t ?? 0) + DUPLICATE_T_THRESHOLD,
+				(profile[explicitIndex + 1]?.t ?? 1) - DUPLICATE_T_THRESHOLD,
 			),
 		};
 
-		return strokeWidths;
+		return profile;
 	}
 
 	private updateStrokeWidthOverlay(data: StrokeWidthEditUIData | null): void {
@@ -509,7 +549,7 @@ export class StrokeWidthEditTool implements Tool {
 	private getEffectiveWidths(): Array<
 		StrokeWidthPoint & { implicit?: boolean }
 	> {
-		const explicit = this.targetPath?.strokeWidths ?? [];
+		const explicit = this.getProfile();
 		const result: Array<StrokeWidthPoint & { implicit?: boolean }> = [];
 
 		// Add implicit t=0 if not present
@@ -619,11 +659,12 @@ export class StrokeWidthEditTool implements Tool {
 			const cx = evalResult.x;
 			const cy = evalResult.y;
 			const halfAt = this.effectiveHalfAt(point.t);
+			const boundary = this.boundaryAt(point.t, point);
 
-			const s1x = cx + evalResult.nx * point.side1 * halfAt;
-			const s1y = cy + evalResult.ny * point.side1 * halfAt;
-			const s2x = cx - evalResult.nx * point.side2 * halfAt;
-			const s2y = cy - evalResult.ny * point.side2 * halfAt;
+			const s1x = cx + evalResult.nx * boundary.side1 * halfAt;
+			const s1y = cy + evalResult.ny * boundary.side1 * halfAt;
+			const s2x = cx - evalResult.nx * boundary.side2 * halfAt;
+			const s2y = cy - evalResult.ny * boundary.side2 * halfAt;
 
 			const isSelected = this.selectedPointIndex === i;
 			const pointIndex = this.uiPointIndexOf(point);
@@ -655,9 +696,9 @@ export class StrokeWidthEditTool implements Tool {
 			crossLines.push({ x1: s1x, y1: s1y, x2: s2x, y2: s2y });
 		}
 
-		// Build envelope outline by sampling the width profile along the path
+		// Build envelope outline by sampling the edited profile along the path
 		const envelopeLines: StrokeWidthEditUIData["envelopeLines"] = [];
-		const strokeWidths = this.targetPath?.strokeWidths ?? [];
+		const profile = this.getProfile();
 		const envelopeSamples = 60;
 
 		const side1Points: Array<{ x: number; y: number }> = [];
@@ -668,7 +709,10 @@ export class StrokeWidthEditTool implements Tool {
 			const evalResult = this.evaluateWorldPath(t);
 			if (!evalResult) continue;
 
-			const { side1, side2 } = interpolateStrokeWidths(strokeWidths, t);
+			const { side1, side2 } = this.boundaryAt(
+				t,
+				interpolateStrokeWidths(profile, t),
+			);
 			const halfAt = this.effectiveHalfAt(t);
 			side1Points.push({
 				x: evalResult.x + evalResult.nx * side1 * halfAt,
@@ -698,8 +742,57 @@ export class StrokeWidthEditTool implements Tool {
 		return { pathSegments, handles, centerHandles, crossLines, envelopeLines };
 	}
 
+	/** The edited profile's explicit points. */
+	private getProfile(): StrokeWidthPoint[] {
+		const path = this.targetPath;
+		return (
+			(this.target === "width" ? path?.strokeWidths : path?.strokeErasure) ?? []
+		);
+	}
+
+	private profilePatch(
+		profile: StrokeWidthPoint[],
+	): Pick<Path, "strokeWidths" | "strokeErasure"> {
+		return this.target === "width"
+			? { strokeWidths: profile }
+			: { strokeErasure: profile };
+	}
+
+	/**
+	 * Where the edited profile's sides lie, in units of the rendered half
+	 * width: an erasure is drawn on the band the width profile resized.
+	 */
+	private boundaryAt(
+		t: number,
+		sides: { side1: number; side2: number },
+	): { side1: number; side2: number } {
+		if (this.target === "width") return sides;
+		return composeStrokeErasure(
+			interpolateStrokeWidths(this.targetPath?.strokeWidths ?? [], t),
+			sides,
+		);
+	}
+
+	/**
+	 * Inverse of boundaryAt for one side: the profile value that puts the
+	 * boundary at `boundary`. Null where the band has no width to measure an
+	 * erasure across.
+	 */
+	private toProfileValue(
+		t: number,
+		side: "side1" | "side2",
+		boundary: number,
+	): number | null {
+		if (this.target === "width") return boundary;
+		return erasureForBoundary(
+			interpolateStrokeWidths(this.targetPath?.strokeWidths ?? [], t),
+			side,
+			boundary,
+		);
+	}
+
 	private findExplicitIndex(t: number): number {
-		const explicit = this.targetPath?.strokeWidths ?? [];
+		const explicit = this.getProfile();
 		return explicit.findIndex((p) => Math.abs(p.t - t) < 1e-6);
 	}
 
@@ -767,15 +860,9 @@ function resolveDraggedSides(
 ): { side1: number; side2: number } {
 	if (event.altKey) {
 		// The floor is where this side meets the opposite one and the stroke
-		// closes. A profile handed over with a negative sum — the eraser writes
-		// those before splitting — keeps its own value as the floor, so the drag
-		// can only ease it back.
+		// closes.
 		const opposite = side === "side1" ? initial.side2 : initial.side1;
-		const value = clamp(
-			draggedValue,
-			Math.min(-opposite, initial[side]),
-			MAX_SIDE,
-		);
+		const value = clamp(draggedValue, -opposite, MAX_SIDE);
 		return side === "side1"
 			? { side1: value, side2: initial.side2 }
 			: { side1: initial.side1, side2: value };

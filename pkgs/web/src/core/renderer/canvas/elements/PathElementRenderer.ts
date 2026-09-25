@@ -192,8 +192,9 @@ export class PathElementRenderer {
 		pipelineType: PipelineType = "main",
 		cacheVariant: StripCacheVariant = "normal",
 	): void {
-		for (const { appearance, segments, cacheKey, pattern } of passes) {
+		for (const { appearance, path: drawn, cacheKey, pattern } of passes) {
 			const appAlpha = alphaMultiplier * appearance.opacity;
+			const segments = drawn.segments;
 
 			if (appearance.processor === "fill") {
 				const fillColor = (appearance as FillAppearance).paramData.params.fill;
@@ -222,7 +223,7 @@ export class PathElementRenderer {
 						passEncoder,
 						segments,
 						strokeColor,
-						resolveGeometricStrokeShape(path, settings),
+						resolveGeometricStrokeShape(drawn, settings),
 						appAlpha,
 						path.id,
 						`${cacheKey}:stroke`,
@@ -456,6 +457,7 @@ export class PathElementRenderer {
 			shape.dashArray,
 			shape.dashOffset,
 			shape.strokeWidths,
+			shape.strokeErasure,
 			shape.pathStart,
 			shape.pathEnd,
 			scaleBucket,

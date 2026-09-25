@@ -113,6 +113,52 @@ describe("PaplicoSelection: selecting what an undo or redo changed", () => {
 	});
 });
 
+describe("PaplicoSelection: selecting one element", () => {
+	it("should frame a child of a moved group where the group draws it", () => {
+		const store = createRendererState();
+		store.document.objects = {
+			group: {
+				type: "group",
+				id: "group",
+				childIds: ["child"],
+				opacity: 1,
+				blendMode: "normal",
+				transform: { ...createIdentityTransform(), x: 300 },
+			},
+			child: {
+				type: "image",
+				id: "child",
+				fileUid: "file-1",
+				x: 0,
+				y: 0,
+				width: 100,
+				height: 100,
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			},
+		} as Record<string, AnyArtObject>;
+		store.document.layers = [
+			{
+				id: "layer",
+				name: "layer",
+				visible: true,
+				locked: false,
+				opacity: 1,
+				blendMode: "normal",
+				elementIds: ["group"],
+			},
+		];
+		const spatial = new SpatialIndex(store);
+		spatial.rebuildAllIndices();
+		const selection = new PaplicoSelection(store, spatial);
+
+		selection.selectElement("child");
+
+		expect(store.selectionBounds).toMatchObject({ minX: 250, maxX: 350 });
+	});
+});
+
 /** `session-*` ids stand for scope entries a session owns: closing one pops
  *  its own entry, exactly as the real sessions' teardown does. */
 function setup(stack: string[]) {

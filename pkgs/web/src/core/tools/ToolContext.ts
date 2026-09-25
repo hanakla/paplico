@@ -36,6 +36,7 @@ import type {
 import type { TextGlyphQuad } from "../typography/glyphQuad";
 import type { WorldBBox } from "../utils/geometry/bounds";
 import type { WorldBezierSegment } from "../utils/geometry/geometry";
+import type { PathRun } from "../utils/geometry/pathOps";
 import type { AxisFlip } from "../utils/geometry/resize";
 import type { Reference3DController } from "./Reference3DController";
 import type { TextToolController } from "./TextToolController";
@@ -134,6 +135,8 @@ export type ToolContextOptions = {
 	 */
 	resolveElementAppearance: <T extends AnyArtObject>(element: T) => T;
 	getBounds: (elementId: string) => WorldBBox | null;
+	/** World-space extent of the element's shape, which the selection frame encloses. */
+	getWorldGeometryBounds: (elementId: string) => WorldBBox | null;
 	/** World-space outline segments as drawn (blend-aware); null for non-paths. */
 	getElementWorldSegments: (elementId: string) => WorldBezierSegment[] | null;
 	getAncestorTransform: (elementId: string) => ElementTransform | null;
@@ -211,10 +214,7 @@ export type ToolContextOptions = {
 		tolerance?: number,
 		deepSearch?: boolean,
 	) => Path | null;
-	replacePathWithPaths: (
-		pathId: string,
-		segmentLists: CubicBezierSegment[][],
-	) => void;
+	replacePathWithPaths: (pathId: string, runs: PathRun[]) => void;
 
 	// select tool
 	selectGetSelectionMode: () => "lasso" | "rectangle";

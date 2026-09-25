@@ -487,11 +487,20 @@ export class PapfFile {
 				? { rects: dirtyRects }
 				: undefined;
 
+		// Every entry predates the file's last save, so the stored document
+		// version is the newest shape an untracked recording can carry. It has
+		// to be pinned now: saving again stamps the document with this build's
+		// version.
+		const schemaVersions = manifest.schemaVersions ?? [
+			{ at: 0, version: this._meta.document.schemaVersion ?? 0 },
+		];
+
 		return {
 			version: 2,
 			entries: allEntries,
 			index,
 			baselines: manifest.baselines,
+			schemaVersions,
 		};
 	}
 

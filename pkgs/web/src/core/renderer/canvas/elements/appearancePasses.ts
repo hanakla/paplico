@@ -19,6 +19,7 @@ import {
 	type Filter,
 	isFilterEnabled,
 	type Path,
+	type PathGeometry,
 	type StrokeAppearance,
 } from "../../../schema";
 import { calculateSegmentListBounds } from "../../../utils/geometry/bounds";
@@ -45,6 +46,9 @@ declare const DrawableSegmentsBrand: unique symbol;
 export type DrawableSegments = CubicBezierSegment[] &
 	Brand<typeof DrawableSegmentsBrand>;
 
+/** A path geometry whose segments are in their final drawing shape. */
+export type DrawablePath = PathGeometry & { segments: DrawableSegments };
+
 /** Where a pattern paint's tile grid sits on the geometry it fills. */
 export interface PatternPlacement {
 	/** Tile-grid origin: the flat outline's top-left, in local coordinates. */
@@ -57,7 +61,7 @@ export interface PatternPlacement {
 /** One appearance and the geometry it draws. */
 export interface ResolvedAppearancePass {
 	appearance: FillAppearance | StrokeAppearance;
-	segments: DrawableSegments;
+	path: DrawablePath;
 	/** Outline/strip cache key, distinct per deformation variant. */
 	cacheKey: string;
 	/** Set when the appearance paints a pattern. */
@@ -127,7 +131,7 @@ export function resolveAppearancePasses(
 		: null;
 	const geometries = resolveAppearanceGeometries(
 		appearances,
-		path.segments,
+		path,
 		localAppearances(path.filters),
 		filterRenderer,
 	);
@@ -149,7 +153,7 @@ export function resolveAppearancePasses(
 		);
 		return own.map((geometry, k) => ({
 			appearance: geometry.appearance!,
-			segments: geometry.segments as DrawableSegments,
+			path: geometry.path as DrawablePath,
 			cacheKey: `${baseCacheKey}${subKey}${own.length > 1 ? `:copy${k}` : ""}`,
 			...(patternAnchor && appearancePaintsPattern(appearance)
 				? {

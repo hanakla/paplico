@@ -14,6 +14,7 @@ import {
 	type StrokeAppearance,
 	type StrokeColor,
 } from "./schema";
+import type { StrokeWidthEditTarget } from "./tools/StrokeWidthEditTool";
 import type { Tool } from "./tools/Tool";
 import {
 	type BucketFillLeakState,
@@ -242,6 +243,10 @@ export class PaplicoTools {
 
 	public setPathEditCutMode(enabled: boolean): void {
 		this.store.pathEditCutMode = enabled;
+	}
+
+	public setStrokeWidthEditTarget(target: StrokeWidthEditTarget): void {
+		this.store.strokeWidthEditTarget = target;
 	}
 
 	public setSelectSelectionMode(mode: "lasso" | "rectangle"): void {

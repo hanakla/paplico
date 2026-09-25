@@ -67,9 +67,11 @@ import {
 	promoteWarpVertexToExplicit,
 	subdivideWarpFace,
 } from "../utils/geometry/meshWarp";
+import type { PathRun } from "../utils/geometry/pathOps";
 import {
 	getStartAnchor,
 	getWorldSegments,
+	holdPivotAncestorTransform,
 	reconstructSegmentsFromWorld,
 	resolveCP1,
 	resolveCP2,
@@ -202,6 +204,8 @@ type DragState =
 			startX: number;
 			startY: number;
 			originTransform: ElementTransform;
+			/** Maps the element's parent space to world; null at the layer root. */
+			ancestorT: ElementTransform | null;
 			hasMoved: boolean;
 	  }
 	| {
@@ -522,7 +526,7 @@ export class PathEditTool implements Tool {
 						handle.segmentIndex,
 						handle.pointType,
 					);
-					this.selectedPaths.set(handle.pathId, resetPath);
+					this.setEditedSegments(handle.pathId, resetPath.segments);
 					this.cachedControlPoints.delete(handle.pathId);
 
 					this.selectedHandles.clear();
@@ -890,6 +894,9 @@ export class PathEditTool implements Tool {
 			)
 				return;
 			ds.hasMoved = true;
+			const d = ds.ancestorT
+				? inverseTransformVector(dx, dy, ds.ancestorT)
+				: { x: dx, y: dy };
 			// Yjs-free preview; the single commit happens on release.
 			this.context.previewDeformation([
 				{
@@ -898,8 +905,8 @@ export class PathEditTool implements Tool {
 					updates: {
 						transform: {
 							...ds.originTransform,
-							x: ds.originTransform.x + dx,
-							y: ds.originTransform.y + dy,
+							x: ds.originTransform.x + d.x,
+							y: ds.originTransform.y + d.y,
 						},
 					},
 				},
@@ -967,7 +974,7 @@ export class PathEditTool implements Tool {
 				delta.x,
 				delta.y,
 			);
-			this.selectedPaths.set(ds.pathId, { ...path, segments: newSegments });
+			this.setEditedSegments(ds.pathId, newSegments);
 			this.context.previewSegments?.(ds.pathId, newSegments);
 			this.cachedControlPoints.delete(ds.pathId);
 			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
@@ -1020,16 +1027,16 @@ export class PathEditTool implements Tool {
 			ds.hasMoved = true;
 
 			for (const [pathId, path] of this.selectedPaths) {
-				// The rotation/scale pivot is the bbox center of the path's own
-				// local bounds (see applyElementTransform / ViewportManager), so
-				// it translates together with the geometry. Under
-				// `world = R·S·(local − origin) + origin + t`, shifting every
-				// local point by d also shifts origin by d, and the world image
-				// moves by exactly d regardless of rotation/scale. The local
-				// delta therefore IS the world delta — inverse-rotating it here
-				// would make the shape travel in a direction rotated by −θ.
-				const localDeltaX = world.x - ds.startX;
-				const localDeltaY = world.y - ds.startY;
+				// setEditedSegments holds the pivot where it was, so a local shift
+				// moves the drawn shape through the placement's linear part; undo
+				// it to follow the pointer.
+				const ancestorT = this.pathAncestorTransforms.get(pathId) ?? null;
+				const t = getTransform(path);
+				const { x: localDeltaX, y: localDeltaY } = inverseTransformVector(
+					world.x - ds.startX,
+					world.y - ds.startY,
+					ancestorT ? composeTransforms(ancestorT, t) : t,
+				);
 
 				const newSegments = path.segments.map((seg) => ({
 					...seg,
@@ -1049,7 +1056,7 @@ export class PathEditTool implements Tool {
 					},
 				}));
 
-				this.selectedPaths.set(pathId, { ...path, segments: newSegments });
+				this.setEditedSegments(pathId, newSegments);
 				this.cachedControlPoints.delete(pathId);
 			}
 
@@ -1102,7 +1109,7 @@ export class PathEditTool implements Tool {
 							handle.segmentIndex,
 							handle.pointType,
 						);
-						this.selectedPaths.set(handle.pathId, resetPath);
+						this.setEditedSegments(handle.pathId, resetPath.segments);
 						this.cachedControlPoints.delete(handle.pathId);
 						ds.anchorCPCreation = {
 							pathId: handle.pathId,
@@ -1134,7 +1141,7 @@ export class PathEditTool implements Tool {
 				dy,
 			);
 
-			this.selectedPaths.set(pathId, { ...path, segments: newSegments });
+			this.setEditedSegments(pathId, newSegments);
 			this.cachedControlPoints.delete(pathId);
 			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
 			return;
@@ -1196,10 +1203,7 @@ export class PathEditTool implements Tool {
 			}
 
 			// Update temporary path for preview
-			this.selectedPaths.set(pathId, {
-				...path,
-				segments: newSegments,
-			});
+			this.setEditedSegments(pathId, newSegments);
 
 			// Real-time preview for all drag modes
 			if (this.context.previewSegments) {
@@ -1418,10 +1422,7 @@ export class PathEditTool implements Tool {
 				const path = this.selectedPaths.get(ds.pathId);
 				if (path) {
 					this.context.batchPathUpdate([[ds.pathId, path.segments]]);
-					const updatedPath = this.context.getPathById(ds.pathId);
-					if (updatedPath) {
-						this.selectedPaths.set(ds.pathId, updatedPath);
-					}
+					this.reloadPath(ds.pathId);
 				}
 			}
 			this.dragState = { mode: "idle" };
@@ -1487,12 +1488,7 @@ export class PathEditTool implements Tool {
 					pathsToCommit.push([pathId, path.segments]);
 				}
 				this.context.batchPathUpdate(pathsToCommit);
-				for (const [pathId] of pathsToCommit) {
-					const updatedPath = this.context.getPathById(pathId);
-					if (updatedPath) {
-						this.selectedPaths.set(pathId, updatedPath);
-					}
-				}
+				for (const [pathId] of pathsToCommit) this.reloadPath(pathId);
 			}
 
 			this.dragState = { mode: "idle" };
@@ -1543,12 +1539,7 @@ export class PathEditTool implements Tool {
 						}
 					}
 					this.context.batchPathUpdate(pathsToCommit);
-					for (const [pathId] of pathsToCommit) {
-						const updatedPath = this.context.getPathById(pathId);
-						if (updatedPath) {
-							this.selectedPaths.set(pathId, updatedPath);
-						}
-					}
+					for (const [pathId] of pathsToCommit) this.reloadPath(pathId);
 				}
 			}
 		}
@@ -1666,10 +1657,7 @@ export class PathEditTool implements Tool {
 		}
 
 		this.context.pathUpdate(handle.pathId, newSegments);
-		this.selectedPaths.set(handle.pathId, {
-			...path,
-			segments: newSegments,
-		});
+		this.reloadPath(handle.pathId);
 		this.cachedControlPoints.delete(handle.pathId);
 		this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
 	}
@@ -1831,7 +1819,7 @@ export class PathEditTool implements Tool {
 			action:
 				| { kind: "erase" }
 				| { kind: "update"; segments: CubicBezierSegment[] }
-				| { kind: "replace"; segmentLists: CubicBezierSegment[][] };
+				| { kind: "replace"; runs: PathRun[] };
 		}> = [];
 		for (const [pathId, handles] of anchorsByPath) {
 			const path = this.selectedPaths.get(pathId);
@@ -1858,8 +1846,8 @@ export class PathEditTool implements Tool {
 					runs === "erase"
 						? { kind: "erase" }
 						: runs.length === 1
-							? { kind: "update", segments: runs[0] }
-							: { kind: "replace", segmentLists: runs },
+							? { kind: "update", segments: runs[0].segments }
+							: { kind: "replace", runs },
 			});
 		}
 		if (plans.length === 0) return false;
@@ -1875,16 +1863,11 @@ export class PathEditTool implements Tool {
 				this.selectedPaths.delete(pathId);
 			} else if (action.kind === "update") {
 				this.context.pathUpdate(pathId, action.segments);
-				const updatedPath = this.context.getPathById(pathId);
-				if (updatedPath) {
-					this.selectedPaths.set(pathId, updatedPath);
-				} else {
-					this.selectedPaths.delete(pathId);
-				}
+				this.reloadPath(pathId);
 			} else {
 				// The path is cut into several new elements; stop editing the
 				// original (its id no longer exists).
-				this.context.replacePathWithPaths(pathId, action.segmentLists);
+				this.context.replacePathWithPaths(pathId, action.runs);
 				this.selectedPaths.delete(pathId);
 			}
 		}
@@ -1928,13 +1911,8 @@ export class PathEditTool implements Tool {
 		this.cachedControlPoints.delete(pathId);
 
 		if (runs.length === 1) {
-			this.context.pathUpdate(pathId, runs[0]);
-			const updatedPath = this.context.getPathById(pathId);
-			if (updatedPath) {
-				this.selectedPaths.set(pathId, updatedPath);
-			} else {
-				this.selectedPaths.delete(pathId);
-			}
+			this.context.pathUpdate(pathId, runs[0].segments);
+			this.reloadPath(pathId);
 		} else {
 			// The path becomes several new elements; stop editing the original
 			// (its id no longer exists).
@@ -1979,10 +1957,7 @@ export class PathEditTool implements Tool {
 				target.position.t,
 			),
 		);
-		const updatedPath = this.context.getPathById(pathId);
-		if (updatedPath) {
-			this.selectedPaths.set(pathId, updatedPath);
-		}
+		this.reloadPath(pathId);
 
 		// Handle keys past the split index now point at shifted segments.
 		this.selectedHandles.clear();
@@ -2592,11 +2567,7 @@ export class PathEditTool implements Tool {
 		}
 
 		this.context.pathUpdate(pathId, result);
-
-		const updatedPath = this.context.getPathById(pathId);
-		if (updatedPath) {
-			this.selectedPaths.set(pathId, updatedPath);
-		}
+		this.reloadPath(pathId);
 		this.cachedControlPoints.delete(pathId);
 
 		// Remove deleted handle from selection
@@ -3218,15 +3189,7 @@ export class PathEditTool implements Tool {
 		if (!vp) return;
 
 		// Re-fetch selected paths from document so undo/redo changes are reflected
-		for (const pathId of this.selectedPaths.keys()) {
-			const latest = this.context.getPathById(pathId);
-			if (latest) {
-				this.selectedPaths.set(pathId, latest);
-			} else {
-				this.selectedPaths.delete(pathId);
-				this.pathAncestorTransforms.delete(pathId);
-			}
-		}
+		for (const pathId of this.selectedPaths.keys()) this.reloadPath(pathId);
 		for (const meshId of this.selectedMeshes.keys()) {
 			const latest = this.context.getElement(meshId);
 			if (latest && isMesh(latest)) {
@@ -3267,6 +3230,43 @@ export class PathEditTool implements Tool {
 						primitives: buildPathEditOverlay(data, UI_THEME),
 					}
 				: null,
+		);
+	}
+
+	/**
+	 * Replace a selected path's segments mid-edit while keeping its drawn
+	 * placement fixed, so outlines and world↔local conversion stay in step
+	 * with the commit.
+	 */
+	private setEditedSegments(
+		pathId: string,
+		segments: CubicBezierSegment[],
+	): void {
+		const path = this.selectedPaths.get(pathId);
+		if (!path) return;
+		this.pathAncestorTransforms.set(
+			pathId,
+			holdPivotAncestorTransform(
+				path,
+				this.pathAncestorTransforms.get(pathId) ?? null,
+				segments,
+			),
+		);
+		this.selectedPaths.set(pathId, { ...path, segments });
+	}
+
+	/** Re-read a selected path and its ancestor transform after a commit. */
+	private reloadPath(pathId: string): void {
+		const latest = this.context.getPathById(pathId);
+		if (!latest) {
+			this.selectedPaths.delete(pathId);
+			this.pathAncestorTransforms.delete(pathId);
+			return;
+		}
+		this.selectedPaths.set(pathId, latest);
+		this.pathAncestorTransforms.set(
+			pathId,
+			this.context.getAncestorTransform(pathId),
 		);
 	}
 
@@ -3435,6 +3435,7 @@ export class PathEditTool implements Tool {
 					startX: world.x,
 					startY: world.y,
 					originTransform: getTransform(element),
+					ancestorT: this.context.getAncestorTransform(element.id),
 					hasMoved: false,
 				}
 			: { mode: "idle" };
