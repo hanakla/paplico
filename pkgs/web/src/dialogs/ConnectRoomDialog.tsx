@@ -1,3 +1,4 @@
+import { parseInvite } from "@paplico/core/collaboration";
 import { Link, LogOut, Unplug, X } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 import { OAUTH_PROVIDERS, type OAuthStrategy } from "@/auth/oauthProviders";
@@ -5,7 +6,6 @@ import { Button } from "@/components/Button";
 import { Dialog } from "@/components/Dialog";
 import { Input } from "@/components/Input";
 import { Tooltip } from "@/components/Tooltip";
-import { parseInvite } from "@/core/collaboration/inviteUrl";
 import { useUserSession } from "@/hooks/useUserSession";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";

@@ -1,10 +1,9 @@
 "use client";
 
+import { importRoomKey, parseInvite } from "@paplico/core/collaboration";
 import { Gamepad2, ScanLine } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/Button";
-import { parseInvite } from "@/core/collaboration/inviteUrl";
-import { importRoomKey } from "@/core/collaboration/roomCrypto";
 import { ScanInviteDialog } from "@/dialogs/ScanInviteDialog";
 import { scanCompanionCode } from "@/dialogs/scanCompanionCode";
 import {

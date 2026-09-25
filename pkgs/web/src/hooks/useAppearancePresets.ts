@@ -1,7 +1,7 @@
+import type { AppearancePreset } from "@paplico/core/schema";
+import { deepClone } from "@paplico/core/utils";
 import { useState } from "react";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { AppearancePreset } from "@/core/schema";
-import { deepClone } from "@/core/utils/lang";
 import {
 	parseAppearancePresetJson,
 	serializeAppearancePresetJson,

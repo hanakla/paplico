@@ -45,8 +45,8 @@ This is a Yarn 4 monorepo:
 
 | Package                       | Description                                                                |
 | ----------------------------- | -------------------------------------------------------------------------- |
-| `pkgs/web`                    | Main application. The drawing engine lives in `src/core/`                  |
-| `pkgs/core`                   | Shared utilities and types (`@paplico/core`)                               |
+| `pkgs/web`                    | Main application (Next.js)                                                 |
+| `pkgs/core`                   | Drawing engine (`@paplico/core`)                                           |
 | `pkgs/desktop`                | Tauri v2 desktop app wrapper                                               |
 | `pkgs/syrup`                  | Syrup scripting language: parser, type checker, JS emitter, worker sandbox |
 | `pkgs/avif-hdr`               | AVIF HDR encode/decode                                                     |

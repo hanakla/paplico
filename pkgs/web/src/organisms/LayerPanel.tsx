@@ -17,6 +17,19 @@ import {
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import type { PaplicoSelection } from "@paplico/core";
+import { createDefaultLayer } from "@paplico/core/document";
+import {
+	type AnyArtObject,
+	type BlendMode,
+	type Group,
+	isBlend,
+	isCompoundPath,
+	isGroup,
+	isMesh,
+	TRANSIENT_LAYER_KIND,
+} from "@paplico/core/schema";
+import { calculateElementBounds } from "@paplico/core/utils";
 import {
 	ArrowLeft,
 	ChevronDown,
@@ -49,19 +62,6 @@ import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { createDefaultLayer } from "@/core/document/factory";
-import type { PaplicoSelection } from "@/core/PaplicoSelection";
-import {
-	type AnyArtObject,
-	type BlendMode,
-	type Group,
-	isBlend,
-	isCompoundPath,
-	isGroup,
-	isMesh,
-	TRANSIENT_LAYER_KIND,
-} from "@/core/schema";
-import { calculateElementBounds } from "@/core/utils/geometry/bounds";
 import { setLayerPanelMode, useAppConfig } from "@/hooks/useAppConfig";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { type LocalizeKeys, useTranslation } from "@/locales";

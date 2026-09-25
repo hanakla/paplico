@@ -2,7 +2,7 @@
  * App-side defaults handed to the Paplico engine at startup.
  */
 
-import type { TextStyle } from "@/core/schema";
+import type { TextStyle } from "@paplico/core/schema";
 
 type DefaultFont = Pick<TextStyle, "fontFamily" | "fontSource">;
 

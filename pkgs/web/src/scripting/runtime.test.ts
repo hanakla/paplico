@@ -1,7 +1,7 @@
+import type { Paplico } from "@paplico/core";
 import type { WorkerLike } from "@paplico/syrup";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AutomationPromptRequest } from "@/automation/types";
-import type { Paplico } from "@/core/Paplico";
 import { createPaplicoAutomationRuntime } from "./runtime";
 
 const dom = vi.hoisted(() => ({

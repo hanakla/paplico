@@ -1,5 +1,5 @@
+import type { HKPosterizationFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { HKPosterizationFilter } from "@/core/renderer/filters";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 
 const POSTERIZATION_SLIDERS: FilterSliderDef[] = [

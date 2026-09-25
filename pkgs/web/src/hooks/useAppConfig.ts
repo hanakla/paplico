@@ -1,15 +1,15 @@
-import { proxy, subscribe, useSnapshot } from "valtio";
+import type { ShortcutsConfig } from "@paplico/core";
 import {
 	PAPLICO_MAX_ZOOM_SCALE,
 	PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
-} from "@/core/document/constants";
-import type { ShortcutsConfig } from "@/core/PaplicoShortcuts";
-import { MAX_TOUCH_DRAW_OFFSET_SCALE } from "@/core/tools/toolSettings";
+} from "@paplico/core/document";
+import { MAX_TOUCH_DRAW_OFFSET_SCALE } from "@paplico/core/tools";
 import {
 	DEFAULT_PRESSURE_CURVE,
 	type PressureCurvePoint,
 	sanitizePressureCurvePoints,
-} from "@/core/utils/pressureCurve";
+} from "@paplico/core/utils";
+import { proxy, subscribe, useSnapshot } from "valtio";
 import { appConfigRepo } from "@/repos/appConfig";
 
 export type Theme =

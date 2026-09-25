@@ -1,8 +1,3 @@
-import type { ScriptHost } from "@paplico/syrup";
-import type {
-	AutomationPromptRequest,
-	AutomationPromptResponse,
-} from "@/automation/types";
 import type {
 	AnyArtObject,
 	Artboard,
@@ -19,7 +14,12 @@ import type {
 	Path,
 	Reference3DElement,
 	TextElement,
-} from "@/core/schema";
+} from "@paplico/core/schema";
+import type { ScriptHost } from "@paplico/syrup";
+import type {
+	AutomationPromptRequest,
+	AutomationPromptResponse,
+} from "@/automation/types";
 import type {
 	AutomationDirectory,
 	AutomationFile,

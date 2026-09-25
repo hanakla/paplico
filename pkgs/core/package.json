@@ -1,0 +1,213 @@
+{
+	"name": "@paplico/core",
+	"version": "0.1.0",
+	"description": "Paplico drawing engine: document model, WebGPU renderer, tools and collaboration",
+	"type": "module",
+	"license": "AGPL-3.0-or-later",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/hanakla/paplico",
+		"directory": "pkgs/core"
+	},
+	"files": [
+		"dist",
+		"CHANGELOG.md"
+	],
+	"exports": {
+		".": {
+			"import": "./src/index.ts",
+			"types": "./src/index.ts"
+		},
+		"./schema": {
+			"import": "./src/schema.ts",
+			"types": "./src/schema.ts"
+		},
+		"./document": {
+			"import": "./src/document/index.ts",
+			"types": "./src/document/index.ts"
+		},
+		"./brush": {
+			"import": "./src/brush/index.ts",
+			"types": "./src/brush/index.ts"
+		},
+		"./collaboration": {
+			"import": "./src/collaboration/index.ts",
+			"types": "./src/collaboration/index.ts"
+		},
+		"./color": {
+			"import": "./src/color/index.ts",
+			"types": "./src/color/index.ts"
+		},
+		"./io": {
+			"import": "./src/io/index.ts",
+			"types": "./src/io/index.ts"
+		},
+		"./tools": {
+			"import": "./src/tools/index.ts",
+			"types": "./src/tools/index.ts"
+		},
+		"./timelapse": {
+			"import": "./src/timelapse/index.ts",
+			"types": "./src/timelapse/index.ts"
+		},
+		"./typography": {
+			"import": "./src/typography/index.ts",
+			"types": "./src/typography/index.ts"
+		},
+		"./filters": {
+			"import": "./src/renderer/filters/index.ts",
+			"types": "./src/renderer/filters/index.ts"
+		},
+		"./utils": {
+			"import": "./src/utils/index.ts",
+			"types": "./src/utils/index.ts"
+		},
+		"./infra": {
+			"import": "./src/infra/index.ts",
+			"types": "./src/infra/index.ts"
+		},
+		"./infra/localfonts.tauri": {
+			"import": "./src/infra/localfonts.tauri.ts",
+			"types": "./src/infra/localfonts.tauri.ts"
+		},
+		"./testUtils": {
+			"import": "./src/testUtils/index.ts",
+			"types": "./src/testUtils/index.ts"
+		},
+		"./testUtils/vitestSetup": {
+			"import": "./src/testUtils/vitestSetup.ts",
+			"types": "./src/testUtils/vitestSetup.ts"
+		},
+		"./three-webgpu-compat": {
+			"import": "./src/stubs/three-webgpu-compat.ts",
+			"types": "./src/stubs/three-webgpu-compat.ts"
+		}
+	},
+	"publishConfig": {
+		"access": "public",
+		"exports": {
+			".": {
+				"types": "./dist/index.d.mts",
+				"import": "./dist/index.mjs"
+			},
+			"./schema": {
+				"types": "./dist/schema.d.mts",
+				"import": "./dist/schema.mjs"
+			},
+			"./document": {
+				"types": "./dist/document/index.d.mts",
+				"import": "./dist/document/index.mjs"
+			},
+			"./brush": {
+				"types": "./dist/brush/index.d.mts",
+				"import": "./dist/brush/index.mjs"
+			},
+			"./collaboration": {
+				"types": "./dist/collaboration/index.d.mts",
+				"import": "./dist/collaboration/index.mjs"
+			},
+			"./color": {
+				"types": "./dist/color/index.d.mts",
+				"import": "./dist/color/index.mjs"
+			},
+			"./io": {
+				"types": "./dist/io/index.d.mts",
+				"import": "./dist/io/index.mjs"
+			},
+			"./tools": {
+				"types": "./dist/tools/index.d.mts",
+				"import": "./dist/tools/index.mjs"
+			},
+			"./timelapse": {
+				"types": "./dist/timelapse/index.d.mts",
+				"import": "./dist/timelapse/index.mjs"
+			},
+			"./typography": {
+				"types": "./dist/typography/index.d.mts",
+				"import": "./dist/typography/index.mjs"
+			},
+			"./filters": {
+				"types": "./dist/renderer/filters/index.d.mts",
+				"import": "./dist/renderer/filters/index.mjs"
+			},
+			"./utils": {
+				"types": "./dist/utils/index.d.mts",
+				"import": "./dist/utils/index.mjs"
+			},
+			"./infra": {
+				"types": "./dist/infra/index.d.mts",
+				"import": "./dist/infra/index.mjs"
+			},
+			"./infra/localfonts.tauri": {
+				"types": "./dist/infra/localfonts.tauri.d.mts",
+				"import": "./dist/infra/localfonts.tauri.mjs"
+			},
+			"./three-webgpu-compat": {
+				"types": "./dist/stubs/three-webgpu-compat.d.mts",
+				"import": "./dist/stubs/three-webgpu-compat.mjs"
+			}
+		}
+	},
+	"scripts": {
+		"build": "tsdown",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:update": "UPDATE_BASELINES=true vitest run -u",
+		"test:visual": "vitest run \"src/**/*.visual.test.ts\"",
+		"test:visual:update": "UPDATE_BASELINES=true vitest run \"src/**/*.visual.test.ts\""
+	},
+	"dependencies": {
+		"@cantoo/fontkit": "^2.0.12",
+		"@cantoo/pdf-lib": "^2.11.0",
+		"@paplico/avif-hdr": "workspace:*",
+		"@pixiv/three-vrm": "patch:@pixiv/three-vrm@npm%3A3.5.5#~/.yarn/patches/@pixiv-three-vrm-npm-3.5.5-d31fe7450d.patch",
+		"@tauri-apps/api": "^2.11.1",
+		"@webgpu/types": "^0.1.72",
+		"ag-psd": "^31.0.2",
+		"cbor-x": "^1.6.4",
+		"delaunator": "^5.1.0",
+		"earcut": "3.2.3",
+		"jscolorengine": "^1.4.4",
+		"lib0": "^0.2.117",
+		"marching-squares": "^1.0.0",
+		"mediabunny": "^1.40.1",
+		"mitt": "^3.0.1",
+		"nanoid": "^5.1.7",
+		"partysocket": "^1.1.13",
+		"polygon-clipping": "^0.15.7",
+		"tauri-plugin-system-fonts-api": "^2.0.2",
+		"three": "0.185.1",
+		"valtio": "^2.3.2",
+		"webgpu-utils": "^2.0.3",
+		"y-partykit": "^0.0.33",
+		"y-protocols": "^1.0.6",
+		"y-websocket": "^3.0.0",
+		"yjs": "^13.6.30"
+	},
+	"peerDependencies": {
+		"pngjs": "^7.0.0"
+	},
+	"peerDependenciesMeta": {
+		"pngjs": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@napi-rs/canvas": "^0.1.97",
+		"@resvg/resvg-js": "^2.6.2",
+		"@types/earcut": "3.0.0",
+		"@types/node": "25.5.2",
+		"@types/pixelmatch": "^5.2.6",
+		"@types/pngjs": "^6.0.5",
+		"@types/three": "0.185.0",
+		"fake-indexeddb": "^6.2.4",
+		"happy-dom": "^20.11.2",
+		"pixelmatch": "^7.1.0",
+		"pngjs": "^7.0.0",
+		"tsdown": "^0.22.14",
+		"typescript": "6.0.3",
+		"vitest": "^4.1.2",
+		"webgpu": "^0.4.0"
+	}
+}

@@ -1,3 +1,5 @@
+import { createDefaultColor } from "@paplico/core/document";
+import type { Color, TextStyle } from "@paplico/core/schema";
 import {
 	Check,
 	ClipboardPaste,
@@ -14,8 +16,6 @@ import { Popover } from "@/components/Popover";
 import { Separator } from "@/components/Separator";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { createDefaultColor } from "@/core/document/factory";
-import type { Color, TextStyle } from "@/core/schema";
 import { useActiveFontSettings } from "@/hooks/useCurrentFontSetting";
 import { useFontPreview } from "@/hooks/useFontPreview";
 import { useTranslation } from "@/locales";

@@ -1,3 +1,4 @@
+import type { ElementTransform } from "@paplico/core/schema";
 import {
 	FlipHorizontal2,
 	FlipVertical2,
@@ -11,7 +12,6 @@ import { FakeInput } from "@/components/FakeInput";
 import { IconButton } from "@/components/IconButton";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplicoCommands, usePaplicoStore } from "@/contexts/PaplicoContext";
-import type { ElementTransform } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 

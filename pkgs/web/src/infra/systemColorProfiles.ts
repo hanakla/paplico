@@ -1,5 +1,7 @@
-import { readIccProfileDescription } from "@/core/color/ColorEngine";
-import { inspectIccProfile } from "@/core/color/IccProfileRegistry";
+import {
+	inspectIccProfile,
+	readIccProfileDescription,
+} from "@paplico/core/color";
 import { IS_TAURI_ENV } from "@/utils/platform";
 
 /** A color profile discovered in an OS-standard ColorSync / color directory. */

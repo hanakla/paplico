@@ -2,7 +2,7 @@ import {
 	type AppearancePreset,
 	type Filter,
 	normalizeAppearanceFields,
-} from "@/core/schema";
+} from "@paplico/core/schema";
 
 export const APPEARANCE_PRESET_JSON_FORMAT = "paplico-appearance-preset";
 export const APPEARANCE_PRESET_JSON_VERSION = 1;

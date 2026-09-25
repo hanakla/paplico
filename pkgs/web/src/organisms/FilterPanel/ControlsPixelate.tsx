@@ -1,7 +1,7 @@
+import type { PixelateFilter } from "@paplico/core/filters";
 import { memo } from "react";
 import { Checkbox } from "@/components/Checkbox";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import type { PixelateFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

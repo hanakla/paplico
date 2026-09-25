@@ -1,3 +1,4 @@
+import type { ToolType } from "@paplico/core/tools";
 import {
 	Eraser,
 	MousePointer,
@@ -14,7 +15,6 @@ import type {
 	CompanionCommand,
 	CompanionState,
 } from "@/companion/companionProtocol";
-import type { ToolType } from "@/core/tools/toolSettings";
 import { type LocalizeKeys, useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";

@@ -1,6 +1,6 @@
 # Core Cache Strategy Reference
 
-Verified against `pkgs/web/src/core/` on 2026-07-10.
+Verified against `pkgs/core/src/` on 2026-07-10.
 
 This is the inventory of current cross-call and cross-frame reuse under
 `core/`. It covers content/derived-data caches, GPU resource caches and pools,
@@ -179,13 +179,13 @@ Sources: `typography/TextRenderer.ts`, `renderer/canvas/elements/TextElementRend
 - A normal `FilterHandler` keeps its initialized pipeline/layout/structured
   views for the handler lifetime. `FilterRenderer.destroy()` delegates handler
   cleanup.
-- `DropShadowFilterProcessor` reuses `originalCopyTexture` while dimensions
+- `DropShadowFilterHandler` reuses `originalCopyTexture` while dimensions
   match and defers an old texture's destruction through `FilterRenderer`.
 - `PathUnionFilterHandler` is a 32-entry CPU LRU keyed by
   `hashSegments:segmentCount:mode`; it returns copies and does not memoize
   no-op or failed operations.
-- `FrostGlassFilterProcessor` retains H/V uniform buffers for its handler
-  lifetime. By contrast, `BlurFilterProcessor` creates pass-local uniforms and
+- `FrostGlassFilterHandler` retains H/V uniform buffers for its handler
+  lifetime. By contrast, `BlurFilterHandler` creates pass-local uniforms and
   sampler resources; that is intentionally not a cache.
 
 ### Extrude3D
@@ -205,8 +205,8 @@ requests release at frame end; `RefractionCompositor` uses a frame-slot uniform
 pool and destroys it with the driver.
 
 Sources: `renderer/canvas/pipeline/FilterRenderer.ts`,
-`renderer/filters/{DropShadowFilterProcessor,PathUnionFilterProcessor,FrostGlassFilterProcessor,Extrude3DFilterHandler,ExtrudeRenderCache}.ts`,
-`renderer/filters/Extrude3D/{ExtrudeMeshBaker,ExtrudeAppearanceRenderer,RefractionCompositor}.ts`.
+`renderer/filters/{DropShadowFilter,PathUnionFilter,FrostGlassFilter,Extrude3DFilter}/*Filter.ts`,
+`renderer/filters/shared/{ExtrudeRenderCache,ExtrudeMeshBaker,ExtrudeAppearanceRenderer,RefractionCompositor}.ts`.
 
 ## Scene3D caches
 

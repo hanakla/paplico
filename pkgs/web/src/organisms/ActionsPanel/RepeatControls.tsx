@@ -1,3 +1,4 @@
+import { isRepeat, type RepeatMode } from "@paplico/core/schema";
 import { Unlink } from "lucide-react";
 import { memo, useId } from "react";
 import { useSnapshot } from "valtio";
@@ -8,7 +9,6 @@ import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplicoCommands, usePaplicoStore } from "@/contexts/PaplicoContext";
-import { isRepeat, type RepeatMode } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 

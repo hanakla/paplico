@@ -1,5 +1,5 @@
+import type { FillColor, RGBColor, StrokeColor } from "@paplico/core/schema";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { FillColor, RGBColor, StrokeColor } from "@/core/schema";
 import { ColorSwatch } from "../ColorSwatch";
 
 const rgb = (r: number, g: number, b: number, a = 1): RGBColor => ({

@@ -1,8 +1,8 @@
 "use client";
 
+import type { Paplico } from "@paplico/core";
 import { useEffect, useRef, useState } from "react";
 import { ViewIdProvider } from "@/contexts/ViewIdContext";
-import type { Paplico } from "@/core/Paplico";
 import { clearCurrentTargetId, setCurrentTargetId } from "@/stores/uiStore";
 import { reportError } from "@/utils/errorReporting";
 import { useEventCallback } from "@/utils/hooks";

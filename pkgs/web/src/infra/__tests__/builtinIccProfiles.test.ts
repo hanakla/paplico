@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { readIccProfileDescription } from "@/core/color/ColorEngine";
-import { inspectIccProfile } from "@/core/color/IccProfileRegistry";
+import {
+	inspectIccProfile,
+	readIccProfileDescription,
+} from "@paplico/core/color";
 import { BUILTIN_ICC_PROFILES } from "@/infra/builtinIccProfiles";
 
 const ICC_ASSET_DIR = join(process.cwd(), "public", "assets", "icc");

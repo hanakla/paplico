@@ -1,5 +1,6 @@
 "use client";
 
+import type { Paplico } from "@paplico/core";
 import {
 	Bot,
 	Check,
@@ -39,7 +40,6 @@ import { proxy, useSnapshot } from "valtio";
 import { AutoSaveRing } from "@/components/AutoSaveRing";
 import { Menu } from "@/components/Menu";
 import { Menubar } from "@/components/Menubar";
-import type { Paplico } from "@/core/Paplico";
 import { LicensesDialog } from "@/dialogs/LicensesDialog";
 import { useCanvasObstacle } from "@/hooks/useCanvasObstacle";
 import { useCurrentCanvasTargetResolver } from "@/hooks/useCurrentCanvasTarget";

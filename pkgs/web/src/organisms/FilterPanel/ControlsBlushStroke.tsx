@@ -1,5 +1,5 @@
+import type { HKBlushStrokeFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { HKBlushStrokeFilter } from "@/core/renderer/filters";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 
 const BLUSH_STROKE_SLIDERS: FilterSliderDef[] = [

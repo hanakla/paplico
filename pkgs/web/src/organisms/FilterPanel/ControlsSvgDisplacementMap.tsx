@@ -1,5 +1,5 @@
+import type { SvgDisplacementMapFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { SvgDisplacementMapFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

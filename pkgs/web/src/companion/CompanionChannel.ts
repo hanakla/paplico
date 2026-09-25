@@ -11,13 +11,12 @@
 
 import {
 	createPartyRelaySocket,
-	type RelaySocket,
-} from "@/core/collaboration/relaySocket";
-import {
 	decryptMessage,
 	encryptMessage,
-} from "@/core/collaboration/roomCrypto";
-import { Emitter } from "@/core/utils/emitter";
+	type RelaySocket,
+} from "@paplico/core/collaboration";
+import { Emitter } from "@paplico/core/utils";
+import { PARTYKIT_HOST } from "@/configs";
 import {
 	type CompanionMessage,
 	companionRelayRoom,
@@ -48,7 +47,8 @@ export class CompanionChannel extends Emitter<CompanionChannelEventMap> {
 	public constructor({
 		roomId,
 		roomKey,
-		createSocket = createPartyRelaySocket,
+		createSocket = (relayRoom) =>
+			createPartyRelaySocket(relayRoom, PARTYKIT_HOST),
 	}: {
 		roomId: string;
 		roomKey: CryptoKey;

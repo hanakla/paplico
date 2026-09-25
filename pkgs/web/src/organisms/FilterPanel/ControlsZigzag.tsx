@@ -1,5 +1,5 @@
+import type { ZigzagFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { ZigzagFilter } from "@/core/renderer/filters";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 
 const ZIGZAG_SLIDERS: FilterSliderDef[] = [

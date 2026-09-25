@@ -1,10 +1,10 @@
 "use client";
 
+import type { ICollaboration } from "@paplico/core/collaboration";
+import { worldToScreen } from "@paplico/core/utils";
 import { useEffect, useRef, useState } from "react";
 import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
 import { useTargetSize, useTargetViewport } from "@/contexts/ViewIdContext";
-import { worldToScreen } from "@/core";
-import type { ICollaboration } from "@/core/collaboration/ICollaboration";
 
 interface RemoteCursor {
 	clientId: number;

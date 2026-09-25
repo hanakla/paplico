@@ -51,8 +51,8 @@ sequenceDiagram
 参照先:
 
 - `pkgs/web/src/organisms/CanvasPane.tsx`
-- `pkgs/web/src/core/ui/PaplicoUI.ts`
-- `pkgs/web/src/core/tools/Tool.ts`
+- `pkgs/core/src/ui/PaplicoUI.ts`
+- `pkgs/core/src/tools/Tool.ts`
 
 ## raw pointsを作る
 
@@ -74,8 +74,8 @@ sequenceDiagram
 
 参照先:
 
-- `pkgs/web/src/core/tools/PenTool.ts`
-- `pkgs/web/src/core/brush/BrushStrokeSession.ts`
+- `pkgs/core/src/tools/PenTool.ts`
+- `pkgs/core/src/brush/BrushStrokeSession.ts`
 
 ## fit用点列をdedupeする
 
@@ -138,9 +138,9 @@ spring forceからvelocityとpositionを順に更新する。pressure、tilt、t
 
 参照先:
 
-- `pkgs/web/src/core/utils/geometry/strokeFitting.ts`
+- `pkgs/core/src/utils/geometry/strokeFitting.ts`
 - `pkgs/web/src/organisms/ActionsPanel/PenToolControls.tsx`
-- `pkgs/web/src/core/tools/toolSettings.ts`
+- `pkgs/core/src/tools/toolSettings.ts`
 
 ## cornerを検出する
 
@@ -218,9 +218,9 @@ tailのfitでは、現在の平滑化点へ隣接3点の45度corner detectionを
 
 参照先:
 
-- `pkgs/web/src/core/utils/geometry/strokeFitting.ts`
-- `pkgs/web/src/core/Paplico.ts`
-- `pkgs/web/src/core/renderer/RenderScheduler.ts`
+- `pkgs/core/src/utils/geometry/strokeFitting.ts`
+- `pkgs/core/src/Paplico.ts`
+- `pkgs/core/src/renderer/RenderScheduler.ts`
 
 ## pointerup時に同じfitを保存する
 
@@ -238,13 +238,13 @@ tailのfitでは、現在の平滑化点へ隣接3点の45度corner detectionを
 
 | 読みたい処理 | ファイル |
 |---|---|
-| Pointer Eventの正規化 | `pkgs/web/src/core/ui/PaplicoUI.ts` |
-| ツール入力型 | `pkgs/web/src/core/tools/Tool.ts` |
-| 入力開始、継続、pointerup | `pkgs/web/src/core/tools/PenTool.ts` |
-| raw pointsと増分fitの状態 | `pkgs/web/src/core/brush/BrushStrokeSession.ts` |
-| dedupe、stabilization、corner、fit | `pkgs/web/src/core/utils/geometry/strokeFitting.ts` |
+| Pointer Eventの正規化 | `pkgs/core/src/ui/PaplicoUI.ts` |
+| ツール入力型 | `pkgs/core/src/tools/Tool.ts` |
+| 入力開始、継続、pointerup | `pkgs/core/src/tools/PenTool.ts` |
+| raw pointsと増分fitの状態 | `pkgs/core/src/brush/BrushStrokeSession.ts` |
+| dedupe、stabilization、corner、fit | `pkgs/core/src/utils/geometry/strokeFitting.ts` |
 | stabilizationのUI設定 | `pkgs/web/src/organisms/ActionsPanel/PenToolControls.tsx` |
-| stabilizationの初期値 | `pkgs/web/src/core/tools/toolSettings.ts` |
+| stabilizationの初期値 | `pkgs/core/src/tools/toolSettings.ts` |
 
 > [!TIP]
 > **次に読むページ:** [ブラシ動特性と確定処理](/devdocs/brush-system/dynamics-and-commit)

@@ -28,7 +28,8 @@ problem the monkey-patch will localize.
 ## Access points (dev build only)
 
 `window.__paplico` is assigned in `app/page.tsx` (`window.__paplico = p`) under
-`NODE_ENV === "development"`, and `core/dev-hmr.ts` relies on it. From it:
+`NODE_ENV === "development"`. It is a debugging handle only; `core/dev-hmr.ts`
+uses the instance passed to `registerForHotReload` instead. From it:
 
 | Reach | Path from `window.__paplico` (`p`) | Notes |
 |-------|-----------------------------------|-------|

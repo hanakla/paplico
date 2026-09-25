@@ -1,19 +1,20 @@
-import { memo } from "react";
-import { Slider } from "@/components/Slider";
-import { Switch } from "@/components/Switch";
-import { ToggleGroup } from "@/components/ToggleGroup";
 import {
+	applyWetMacro,
 	BRUSH_PROPERTY_IDS,
 	BRUSH_PROPERTY_REGISTRY,
 	type BrushPropertyGroup,
-} from "@/core/brush/properties";
-import { applyWetMacro, readWetMacro } from "@/core/brush/wetMacros";
+	readWetMacro,
+} from "@paplico/core/brush";
 import type {
 	BrushEngineKind,
 	BrushPropertyConfig,
 	BrushPropertyId,
 	BrushSettings,
-} from "@/core/schema";
+} from "@paplico/core/schema";
+import { memo } from "react";
+import { Slider } from "@/components/Slider";
+import { Switch } from "@/components/Switch";
+import { ToggleGroup } from "@/components/ToggleGroup";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { BrushPropertyRow } from "./BrushPropertyRow";

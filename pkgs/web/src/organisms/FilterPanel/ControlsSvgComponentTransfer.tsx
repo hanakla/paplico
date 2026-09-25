@@ -1,8 +1,8 @@
-import { memo } from "react";
 import type {
 	SvgComponentTransferFilter,
 	SvgTransferFunction,
-} from "@/core/renderer/filters";
+} from "@paplico/core/filters";
+import { memo } from "react";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { ChannelFnEditor } from "./ChannelFnEditor";

@@ -1,0 +1,11 @@
+tsconfig.tsbuildinfo
+
+# Visual regression test diffs (temporary test artifacts)
+__visual_diffs__/
+__visual_temp__/
+
+# Render perf baseline results (src/renderer/canvas/RenderPerfBaseline.visual.test.ts)
+perf-results/
+
+# Build output (tsdown)
+dist/

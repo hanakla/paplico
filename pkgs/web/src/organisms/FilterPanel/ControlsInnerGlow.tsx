@@ -1,8 +1,8 @@
+import type { HKInnerGlowFilter } from "@paplico/core/filters";
+import type { Color } from "@paplico/core/schema";
 import { memo } from "react";
 import { ColorPickerThin } from "@/components/ColorPicker2";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import type { HKInnerGlowFilter } from "@/core/renderer/filters";
-import type { Color } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

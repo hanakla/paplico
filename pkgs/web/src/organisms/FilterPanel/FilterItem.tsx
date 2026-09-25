@@ -10,16 +10,16 @@ import {
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Eye, EyeOff, Trash2 } from "lucide-react";
-import { type CSSProperties, memo, type ReactNode, useRef } from "react";
-import { ColorSwatch } from "@/components/ColorSwatch";
-import { IconButton } from "@/components/IconButton";
-import type { SvgFilterGraphFilter } from "@/core/renderer/filters";
+import type { SvgFilterGraphFilter } from "@paplico/core/filters";
 import type {
 	FillAppearance,
 	Filter as FilterType,
 	StrokeAppearance,
-} from "@/core/schema";
+} from "@paplico/core/schema";
+import { Eye, EyeOff, Trash2 } from "lucide-react";
+import { type CSSProperties, memo, type ReactNode, useRef } from "react";
+import { ColorSwatch } from "@/components/ColorSwatch";
+import { IconButton } from "@/components/IconButton";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";

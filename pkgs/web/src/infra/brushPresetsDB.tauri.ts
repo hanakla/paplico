@@ -1,5 +1,5 @@
-import { migrateBrushSettingsToV2 } from "@/core/io/migrations/brushV2/convert";
-import { deepClone } from "@/core/utils/lang";
+import { migrateBrushSettingsToV2 } from "@paplico/core/io";
+import { deepClone } from "@paplico/core/utils";
 import type {
 	BrushPresetsRepo,
 	PersistedBrushPreset,

@@ -1,8 +1,7 @@
+import { createDefaultDocument } from "@paplico/core/document";
+import { openPapf, serializeDocument } from "@paplico/core/io";
+import { generateUid } from "@paplico/core/schema";
 import { proxy } from "valtio";
-import { createDefaultDocument } from "@/core/document/factory";
-import { openPapf } from "@/core/io/papf/reader";
-import { serializeDocument } from "@/core/io/papf/writer";
-import { generateUid } from "@/core/schema";
 import { type DocumentData, type DocumentMeta, db } from "@/infra/documentDB";
 import { getRevisionIdsToPrune } from "./autoSave";
 

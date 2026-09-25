@@ -50,11 +50,12 @@ Paplicoは、リアルタイム共同編集機能を備えた無限キャンバ�
 
 ## モノレポ構成
 
-`pkgs/` 直下は6パッケージ:
+`pkgs/` 直下は7パッケージ:
 
 ```
 pkgs/
-├── web/                    # Next.js アプリ本体。描画エンジンは src/core/ に実装
+├── core/                   # @paplico/core - 描画エンジン
+├── web/                    # Next.js アプリ本体
 ├── desktop/                # Tauri v2 デスクトップ/iOS ラッパー（Rust は src-tauri/）
 ├── syrup/                  # @paplico/syrup - Syrupスクリプト言語（Paplico非依存）
 ├── avif-hdr/               # @paplico/avif-hdr - Pure TypeScript AVIF HDRエンコーダ
@@ -62,11 +63,11 @@ pkgs/
 └── webgpu-devtools/        # WebGPUパイプライン検査用 WXT ブラウザ拡張
 ```
 
-**重要：描画エンジンは `pkgs/web/src/core/` に実装する。**
+**重要：描画エンジンは `pkgs/core/src/` に実装する。**
 
 ## 座標系設計
 
-実装場所：`pkgs/web/src/core/utils/geometry/geometry.ts`
+実装場所：`pkgs/core/src/utils/geometry/geometry.ts`
 
 無限キャンバスでは3つの座標系を使い分ける：
 
@@ -144,7 +145,7 @@ worldToNDC(worldX, worldY, viewport, canvasW, canvasH) ->
 
 ## データ構造
 
-実装場所：`pkgs/web/src/core/schema.ts`
+実装場所：`pkgs/core/src/schema.ts`
 
 ### Document（正規化ストア）
 
@@ -386,7 +387,7 @@ interface EmbeddedFile {
 
 ## WebGPUレンダリングアーキテクチャ
 
-実装場所：`pkgs/web/src/core/renderer/`
+実装場所：`pkgs/core/src/renderer/`
 
 ```
 Paplico (facade) → RenderOrchestrator → CanvasLayer (ドキュメント描画, renderer/canvas/)
@@ -488,7 +489,7 @@ Vello GPU 方式の被覆率ラスタライザ。ステンシルも MSAA も使�
 
 ## ツールアーキテクチャ
 
-実装場所：`pkgs/web/src/core/tools/`
+実装場所：`pkgs/core/src/tools/`
 
 ```typescript
 interface Tool {
@@ -519,7 +520,7 @@ interface Tool {
 
 ## 入力処理（PaplicoUI）
 
-実装場所：`pkgs/web/src/core/ui/PaplicoUI.ts`
+実装場所：`pkgs/core/src/ui/PaplicoUI.ts`
 
 - **Pointer Events API**を使用（筆圧・傾き対応）。ジェスチャは単一の判別ユニオンstate machineで管理
 - **パン**: 中クリック、またはSpace+ドラッグ（回転対応）
@@ -536,9 +537,9 @@ interface Tool {
 
 実装場所：
 
-- `pkgs/web/src/core/utils/geometry/strokeFitting.ts` の `IncrementalStrokeFitter` と `processStroke()`
-- `pkgs/web/src/core/brush/BrushStrokeSession.ts`
-- `pkgs/web/src/core/tools/PenTool.ts`
+- `pkgs/core/src/utils/geometry/strokeFitting.ts` の `IncrementalStrokeFitter` と `processStroke()`
+- `pkgs/core/src/brush/BrushStrokeSession.ts`
+- `pkgs/core/src/tools/PenTool.ts`
 
 入力中は `IncrementalStrokeFitter` が増分でフィットする。確定はそのフィットからinput knotを除いたsegment列を保存する。`processStroke()` は同じパイプラインを全raw pointsに対して一括で走らせる。加えて、フィット後に1本の三次曲線で表せる隣接区間をマージする段（`simplifyFittedPath`）を持つ。呼び出し元は `EraserTool` の消しゴムストロークのスムージング。
 
@@ -591,7 +592,7 @@ interface Tool {
 
 ## リアルタイム共同編集
 
-実装場所：`pkgs/web/src/core/collaboration/`
+実装場所：`pkgs/core/src/collaboration/`
 
 各クライアントはローカルにY.Docを持ち、Yjs CRDTの自動競合解決でドキュメントを同期する。Y.Docの変更は `syncYjsToValtio` でValtioに反映され再レンダリングされる。
 
@@ -661,7 +662,7 @@ Y.Doc
 
 ### papf形式（PAPF: Paplico Packed Format v1）
 
-実装場所：`pkgs/web/src/core/io/papf/`。詳細は `docs/papl-format.md`
+実装場所：`pkgs/core/src/io/papf/`。詳細は `docs/papl-format.md`
 
 `.papf` は 2 層。外側は PDF コンテナで、内側が papf バイト列。
 
@@ -700,7 +701,7 @@ Y.Doc
 
 ## タイポグラフィ
 
-実装場所：`pkgs/web/src/core/typography/`
+実装場所：`pkgs/core/src/typography/`
 
 - **FontManager** — Google FontsとLocal Fonts（`core/infra/localfonts.dom.ts` / `.tauri.ts`）の統合マネージャ
 - **TextLayoutEngine** — shape → break → place の3相レイアウト。水平/垂直書字、禁則処理付き行折り返し、ボックス制約とオーバーフロー（hidden/ellipsis/visible）、縦中横、文字単位カーニング
@@ -712,7 +713,7 @@ Y.Doc
 
 ## タイムラプス
 
-実装場所：`pkgs/web/src/core/timelapse/`
+実装場所：`pkgs/core/src/timelapse/`
 
 - **TimelapseRecorder** — `YjsProvider` の `update` イベントで届くYjs updateを相対タイムスタンプ付きで記録（`TimelapseEntry { t, u }`）。papf import時は既存データに追記継続
   - 直前のエントリと同じオブジェクト群への更新が、そのエントリの開始から300ms以内に届いたら `Y.mergeUpdates` で1エントリに畳む。削除と別オブジェクトへの更新はエントリを閉じる

@@ -1,5 +1,5 @@
+import type { SvgOffsetFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { SvgOffsetFilter } from "@/core/renderer/filters";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 import { SvgInputSelect } from "./SvgInputSelect";

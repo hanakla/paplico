@@ -1,6 +1,6 @@
+import type { Color } from "@paplico/core/schema";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import type { Color } from "@/core/schema";
 import {
 	ColorPicker2,
 	ColorPickerFull,

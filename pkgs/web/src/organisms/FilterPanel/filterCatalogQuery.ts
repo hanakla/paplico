@@ -1,4 +1,4 @@
-import { FILTER_CATALOG } from "@/core/renderer/filters/filterCatalog";
+import { FILTER_CATALOG } from "@paplico/core/filters";
 import { type LocalizeKeys, translateAllLocales } from "@/locales";
 import { toHalfWidth } from "@/utils/string";
 import { FILTER_TEXT_KEYS } from "./constants";

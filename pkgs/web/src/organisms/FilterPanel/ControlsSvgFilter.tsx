@@ -1,4 +1,11 @@
 import {
+	FILTER_CATALOG,
+	isSvgFilterNodeEnabled,
+	type SvgFilterGraphFilter,
+	type SvgFilterNode,
+} from "@paplico/core/filters";
+import { type Filter, generateUid } from "@paplico/core/schema";
+import {
 	ChevronDown,
 	ChevronUp,
 	Eye,
@@ -9,13 +16,6 @@ import {
 import { memo, useMemo, useState } from "react";
 import { IconButton } from "@/components/IconButton";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import type {
-	SvgFilterGraphFilter,
-	SvgFilterNode,
-} from "@/core/renderer/filters";
-import { FILTER_CATALOG } from "@/core/renderer/filters/filterCatalog";
-import { isSvgFilterNodeEnabled } from "@/core/renderer/filters/svg/SvgFilterGraphHandler";
-import { type Filter, generateUid } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { FILTER_TEXT_KEYS, getFilterIcon } from "./constants";

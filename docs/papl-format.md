@@ -25,7 +25,7 @@ IndexedDB への自動保存は内側の papf バイト列を PDF に包まず�
 
 ### 外側: PDF コンテナ
 
-実装場所は `pkgs/web/src/core/io/papf/pdfContainer.ts`。
+実装場所は `pkgs/core/src/io/papf/pdfContainer.ts`。
 
 ```
 %PDF-1.7

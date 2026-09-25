@@ -1,6 +1,6 @@
+import type { FillColor, RGBColor } from "@paplico/core/schema";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import type { FillColor, RGBColor } from "@/core/schema";
 import { GradientPicker } from "../GradientPicker";
 
 type AllowedType = "none" | "solid" | "linear" | "radial" | "free";

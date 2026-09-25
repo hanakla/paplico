@@ -1,13 +1,13 @@
-import { useEffect, useMemo } from "react";
-import { proxy, useSnapshot } from "valtio";
-import { usePaplico } from "@/contexts/PaplicoContext";
-import { type FontMetadata, getFontManager } from "@/core/index";
 import type {
 	FontSource,
 	TextContent,
 	TextElement,
 	TextStyle,
-} from "@/core/schema";
+} from "@paplico/core/schema";
+import { type FontMetadata, getFontManager } from "@paplico/core/typography";
+import { useEffect, useMemo } from "react";
+import { proxy, useSnapshot } from "valtio";
+import { usePaplico } from "@/contexts/PaplicoContext";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
 import { buildFontSource } from "@/organisms/ActionsPanel/utils";
 import { uiState } from "@/stores/uiStore";

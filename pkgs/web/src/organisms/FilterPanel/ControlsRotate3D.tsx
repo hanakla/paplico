@@ -1,5 +1,5 @@
+import type { Rotate3DFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { Rotate3DFilter } from "@/core/renderer/filters";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 
 const ROTATE3D_SLIDERS: FilterSliderDef[] = [

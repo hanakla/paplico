@@ -1,6 +1,6 @@
-import { createDefaultDocument } from "@/core/document/factory";
-import { serializeDocument } from "@/core/io/papf/writer";
-import { generateUid } from "@/core/schema";
+import { createDefaultDocument } from "@paplico/core/document";
+import { serializeDocument } from "@paplico/core/io";
+import { generateUid } from "@paplico/core/schema";
 import { type DocumentData, type DocumentMeta, db } from "@/infra/documentDB";
 import type { FileHandle } from "@/infra/filesystem";
 import { IS_TAURI_ENV } from "@/utils/platform";

@@ -1,5 +1,5 @@
+import type { SvgTransferFunction } from "@paplico/core/filters";
 import { memo, useEffect, useMemo, useState } from "react";
-import type { SvgTransferFunction } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

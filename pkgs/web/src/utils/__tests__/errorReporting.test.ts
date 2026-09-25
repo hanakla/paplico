@@ -1,6 +1,6 @@
+import { PaplicoError } from "@paplico/core";
 import * as Sentry from "@sentry/nextjs";
 import { toastManager } from "@/components/Toast";
-import { PaplicoError } from "@/core";
 import { setLanguage } from "@/hooks/useAppConfig";
 import { notificationState } from "@/stores/notificationStore";
 import { codeFromError, reportError } from "../errorReporting";

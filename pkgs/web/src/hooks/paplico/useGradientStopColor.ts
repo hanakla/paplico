@@ -1,7 +1,7 @@
+import type { Color, FillColor, FilterEntry } from "@paplico/core/schema";
+import { getFirstFill } from "@paplico/core/utils";
 import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { Color, FillColor, FilterEntry } from "@/core/schema";
-import { getFirstFill } from "@/core/utils/elementQuery";
 import { useEventCallback } from "@/utils/hooks";
 
 /**

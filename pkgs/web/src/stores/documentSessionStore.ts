@@ -1,6 +1,6 @@
+import type { Paplico } from "@paplico/core";
+import { generateUid } from "@paplico/core/schema";
 import { proxy } from "valtio";
-import type { Paplico } from "@/core/Paplico";
-import { generateUid } from "@/core/schema";
 import { setLastDocumentId } from "@/hooks/useAppConfig";
 import type { FileHandle } from "@/infra/filesystem";
 import {

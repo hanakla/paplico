@@ -1,9 +1,9 @@
+import type { HKComicToneFilter } from "@paplico/core/filters";
+import type { Color } from "@paplico/core/schema";
 import { memo } from "react";
 import { Checkbox } from "@/components/Checkbox";
 import { ColorPickerThin } from "@/components/ColorPicker2";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import type { HKComicToneFilter } from "@/core/renderer/filters";
-import type { Color } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

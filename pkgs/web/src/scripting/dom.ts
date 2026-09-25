@@ -1,5 +1,4 @@
-import type { PaplicoCommands } from "@/core/PaplicoCommands";
-import type { PaplicoSelection } from "@/core/PaplicoSelection";
+import type { PaplicoCommands, PaplicoSelection } from "@paplico/core";
 import type {
 	AnyArtObject,
 	Artboard,
@@ -7,8 +6,8 @@ import type {
 	Document,
 	HdrSettings,
 	Layer,
-} from "@/core/schema";
-import { calculateElementBounds } from "@/core/utils/geometry/bounds";
+} from "@paplico/core/schema";
+import { calculateElementBounds } from "@paplico/core/utils";
 import { deepClone } from "@/utils/lang";
 import type {
 	PaplicoScriptingBridge,

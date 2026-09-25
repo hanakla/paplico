@@ -1,6 +1,6 @@
 # Scene3D (atari / reference scenes)
 
-Verified against `pkgs/web/src/core/` on 2026-07-08.
+Verified against `pkgs/core/src/` on 2026-07-08.
 
 **Scene3D is unrelated to the extrude3d appearance.** extrude3d is a 2D element's
 own appearance (self-built WebGPU, no three.js). Scene3D is a distinct **element

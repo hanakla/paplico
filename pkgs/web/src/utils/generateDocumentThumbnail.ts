@@ -1,7 +1,7 @@
+import type { Paplico } from "@paplico/core";
+import type { AnyArtObject } from "@paplico/core/schema";
+import { calculateElementBounds } from "@paplico/core/utils";
 import { snapshot } from "valtio";
-import type { Paplico } from "@/core/Paplico";
-import type { AnyArtObject } from "@/core/schema";
-import { calculateElementBounds } from "@/core/utils/geometry/bounds";
 
 const THUMBNAIL_MAX_LONG_EDGE = 512;
 

@@ -1,4 +1,11 @@
 import { Dialog as BUIDialog } from "@base-ui/react/dialog";
+import { PAPLICO_MAX_ZOOM_SCALE } from "@paplico/core/document";
+import { MAX_TOUCH_DRAW_OFFSET_SCALE } from "@paplico/core/tools";
+import {
+	DEFAULT_PRESSURE_CURVE,
+	evaluatePressureCurve,
+	type PressureCurvePoint,
+} from "@paplico/core/utils";
 import {
 	ChevronLeft,
 	ChevronRight,
@@ -17,13 +24,6 @@ import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import { Switch } from "@/components/Switch";
 import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
-import { PAPLICO_MAX_ZOOM_SCALE } from "@/core/document/constants";
-import { MAX_TOUCH_DRAW_OFFSET_SCALE } from "@/core/tools/toolSettings";
-import {
-	DEFAULT_PRESSURE_CURVE,
-	evaluatePressureCurve,
-	type PressureCurvePoint,
-} from "@/core/utils/pressureCurve";
 import {
 	appConfig,
 	type Language,

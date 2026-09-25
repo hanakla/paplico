@@ -1,7 +1,7 @@
+import type { HKPixelSortFilter } from "@paplico/core/filters";
 import { memo } from "react";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
-import type { HKPixelSortFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

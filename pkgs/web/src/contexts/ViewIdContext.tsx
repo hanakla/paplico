@@ -1,8 +1,8 @@
 "use client";
 
+import { createDefaultViewport } from "@paplico/core/document";
+import type { Viewport } from "@paplico/core/schema";
 import { createContext, useContext, useRef, useSyncExternalStore } from "react";
-import { createDefaultViewport } from "@/core/document/factory";
-import type { Viewport } from "@/core/schema";
 import { useCurrentCanvasTargetResolver } from "@/hooks/useCurrentCanvasTarget";
 import { usePaplico } from "./PaplicoContext";
 

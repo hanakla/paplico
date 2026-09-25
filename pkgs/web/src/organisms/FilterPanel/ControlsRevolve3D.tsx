@@ -1,7 +1,3 @@
-import { memo, useMemo } from "react";
-import { Accordion } from "@/components/Accordion";
-import { Checkbox } from "@/components/Checkbox";
-import { SimpleSelect } from "@/components/SimpleSelect";
 import type {
 	Color,
 	FillColor,
@@ -9,7 +5,11 @@ import type {
 	Revolve3DAppearance,
 	Revolve3DParams,
 	Vec3,
-} from "@/core/schema";
+} from "@paplico/core/schema";
+import { memo, useMemo } from "react";
+import { Accordion } from "@/components/Accordion";
+import { Checkbox } from "@/components/Checkbox";
+import { SimpleSelect } from "@/components/SimpleSelect";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { FilterColorSwatch } from "./FilterColorSwatch";

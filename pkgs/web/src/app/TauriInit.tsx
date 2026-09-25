@@ -125,11 +125,9 @@ export const TauriInit = IS_TAURI_ENV
 
 				(async () => {
 					const { TauriLocalFontBackend } = await import(
-						"@/core/infra/localfonts.tauri"
+						"@paplico/core/infra/localfonts.tauri"
 					);
-					const { getFontManager } = await import(
-						"@/core/typography/fonts/FontManager"
-					);
+					const { getFontManager } = await import("@paplico/core/typography");
 					getFontManager().setLocalFontBackend(new TauriLocalFontBackend());
 				})();
 			}, []);

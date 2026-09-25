@@ -1,8 +1,8 @@
+import { worldToScreen } from "@paplico/core/utils";
 import { memo } from "react";
 import { useSnapshot } from "valtio";
 import { usePaplicoMaybe, usePaplicoStore } from "@/contexts/PaplicoContext";
 import { useTargetViewport } from "@/contexts/ViewIdContext";
-import { worldToScreen } from "@/core/utils/geometry/geometry";
 import { useTranslation } from "@/locales";
 
 export const MeshDeformHintOverlay = memo(function MeshDeformHintOverlay({

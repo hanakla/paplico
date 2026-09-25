@@ -1,6 +1,6 @@
+import type { NoiseFilter } from "@paplico/core/filters";
 import { memo } from "react";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import type { NoiseFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

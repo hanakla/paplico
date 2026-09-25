@@ -1,4 +1,4 @@
-import type { BuiltinIccProfileId } from "@/core/color/types";
+import type { BuiltinIccProfileId } from "@paplico/core/color";
 
 /** Metadata for an ICC profile bundled under /assets/icc/. */
 interface BuiltinIccProfileInfo {

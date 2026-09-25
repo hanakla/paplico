@@ -17,8 +17,8 @@ import type {
 	CompositionMode,
 	FillColor,
 	StrokeColor,
-} from "@/core/schema";
-import type { ToolType } from "@/core/tools/toolSettings";
+} from "@paplico/core/schema";
+import type { ToolType } from "@paplico/core/tools";
 
 /** What the companion shows. Pushed by the host whenever its tools change. */
 export type CompanionState = {

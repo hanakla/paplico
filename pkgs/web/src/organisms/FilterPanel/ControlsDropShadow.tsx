@@ -1,8 +1,8 @@
+import { createDefaultColor } from "@paplico/core/document";
+import type { DropShadowFilter } from "@paplico/core/filters";
+import type { Color } from "@paplico/core/schema";
 import { memo } from "react";
 import { ColorPickerThin } from "@/components/ColorPicker2";
-import { createDefaultColor } from "@/core/document/factory";
-import type { DropShadowFilter } from "@/core/renderer/filters";
-import type { Color } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

@@ -1,4 +1,4 @@
-import type { Paplico } from "@/core/Paplico";
+import type { Paplico } from "@paplico/core";
 
 /**
  * Dev-only render profiler. Patches the WebGPU device / render pipeline of a

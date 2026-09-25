@@ -5,7 +5,7 @@ description: Paplico drawing engine (core/) architecture, change impact, and dev
 
 # Paplico Core Development Guide
 
-Scope: `pkgs/web/src/core/`. External boundary is `Paplico.ts` (facade). No references to React, Valtio stores, Next.js, or anything outside `core/`.
+Scope: `pkgs/core/src/` (`@paplico/core`). External boundary is `Paplico.ts` (facade) plus the entry barrels listed in `pkgs/core/package.json` `exports`. No references to React, Valtio stores, Next.js, or anything in `pkgs/web`. Paths below written as `core/...` are relative to `pkgs/core/src/`.
 
 ## Module Diagram
 
@@ -13,7 +13,7 @@ Scope: `pkgs/web/src/core/`. External boundary is `Paplico.ts` (facade). No refe
 Paplico.ts (facade — public API boundary)
   ├── PaplicoCommands / PaplicoSelection / PaplicoTools / PaplicoShortcuts
   ├── SpatialIndex          (hit testing via Quadtree — document/SpatialIndex.ts)
-  ├── collaboration/        (createCollaboration → Collaboration | PartyKitCollaboration)
+  ├── collaboration/        (Collaboration | PartyKitCollaboration | E2EECollaboration; the app picks one)
   │   └── YjsProvider       (owns the Y.Doc + UndoManager; single source of truth)
   ├── scene3d/              (three.js runtime, lazy-loaded chunk — VRM figures,
   │                          primitives, lineart, vanishing points)
@@ -50,14 +50,19 @@ Paplico.ts (facade — public API boundary)
               ├── MixPass / MixStrokeRenderer (colour mixing off the live backdrop)
               └── WetStrokeRenderer — drives WetLayerPass, the watercolour field simulation
 
-renderer/filters/ (FilterHandlers + their WGSL)
-  ├── Solid3DFilterHandlerBase   (shared 3D-solid core; Extrude3D/Revolve3D
-  │     subclasses supply the mesh strategy)
-  ├── Extrude3D/                 (ExtrudeMeshBaker, ExtrudeAppearanceRenderer
-  │     [glass z-order driver], RefractionCompositor)
-  ├── JumpFloodDistanceField     (shared JFA distance field — outline,
-  │     drop-shadow spread, inner glow)
-  └── hanakla-kit/               (hk:* handlers)
+renderer/filters/ (one folder per filter: <Name>Filter/<Name>Filter.ts
+  │                 holds class <Name>FilterHandler, its WGSL and its tests)
+  ├── BlurFilter/, DropShadowFilter/, HKBloomFilter/, ...
+  ├── svg/                       (svg:* group: SvgFilterHandlerBase and other
+  │     svg-shared files, plus Svg<Name>Filter/ folders)
+  └── shared/                    (files used by several filters and
+        cross-filter visual tests)
+        ├── Solid3DFilterHandlerBase   (shared 3D-solid core; Extrude3D/Revolve3D
+        │     subclasses supply the mesh strategy)
+        ├── ExtrudeMeshBaker, ExtrudeAppearanceRenderer [glass z-order
+        │     driver], RefractionCompositor
+        └── JumpFloodDistanceField     (shared JFA distance field — outline,
+              drop-shadow spread, inner glow)
 ```
 
 > Names drift as the code moves. This diagram was verified against
@@ -65,7 +70,7 @@ renderer/filters/ (FilterHandlers + their WGSL)
 > blindly. Notable renames from older docs: `OffscreenRenderer` →
 > `OffscreenPresenter`; `Scene3DElementRenderer` → `Reference3DElementRenderer`;
 > `ExtrudeAppearanceRenderer` moved from `canvas/elements/` to
-> `filters/Extrude3D/`; the flat `renderer/` tree is now
+> `filters/shared/`; the flat `renderer/` tree is now
 > `renderer/canvas/{pipeline,elements,caches}` + `renderer/ui`.
 
 ## Why the Architecture Is This Way
@@ -210,7 +215,7 @@ appearance" below.
 
 1. `schema.ts` — Define params and filter type extending `Appearance<T>`, add to `Filter` union
 2. Implement `FilterHandler` (`pipeline/FilterRenderer.ts`) — `initialize`, `onScaleFilter`, `getExpansionMargin`, and either `preProcess` (geometry) or `postProcess` (pixels). `postProcess` gets `sourceTexture`/`targetTexture` of the **same** (content) size — an in-place image transform
-3. WGSL shader as `<filterName>.wgsl.ts` in `core/renderer/filters/` next to its processor (shared pipeline shaders live in `core/renderer/shaders/`)
+3. WGSL shader as `<filterName>.wgsl.ts` in the filter's own folder `core/renderer/filters/<Name>Filter/`, next to `<Name>Filter.ts` (shared pipeline shaders live in `core/renderer/shaders/`)
 4. `FilterRenderer.registerHandler` — Register with processor name
 
 **Easy to miss:**
@@ -220,7 +225,7 @@ appearance" below.
 - Distance-to-silhouette effects should build on the shared `JumpFloodDistanceField` (outline, drop-shadow spread and inner glow do) instead of per-pixel neighbourhood scans — an O(weight²) scan saturates the GPU at high DPI
 - `getRenderConfigure(filter)` → a partial `{ needsBackdrop?, needsSourceTexture? }` merged over the defaults `{ false, true }` (`resolveRenderConfigure`); omit entirely for a plain in-place filter. `needsBackdrop:true` (frost glass) gets `BackdropFilterProcessorContext` (with `backdropTexture`) and the main-pass z-order path instead of the pre-pass `executeFilterPlans`. `needsSourceTexture:false` (a self-sizing geometry filter that builds from `ctx.geometry`) lets the caller skip rasterizing the flat look
 - To emit a **self-sized** output (bounds larger/off-center than the element, e.g. a 3D projection), return a `PostProcessResult` from `postProcess` and read `ctx.geometry`; add `startFrame()` if the handler owns per-frame GPU pools
-- `onAdjustColor(params, adjustColor)` — implement it if the filter has `Color` fields (light/shadow/tint/etc.), or those colors are invisible to the document-wide color collect/adjust feature (`utils/color.ts`). Mirror `DropShadowFilterProcessor.onAdjustColor`
+- `onAdjustColor(params, adjustColor)` — implement it if the filter has `Color` fields (light/shadow/tint/etc.), or those colors are invisible to the document-wide color collect/adjust feature (`utils/color.ts`). Mirror `DropShadowFilterHandler.onAdjustColor`
 - Spatial params must scale by `sceneInfo.zoom`, which is **texels per world px of the source texture** (= rasterization scale for element filters, live viewport zoom for backdrop filters), NOT literally the canvas zoom — see "Rasterization resolution" below
 
 ### Adding a per-element rendering property (mask, clip, tint, …)
@@ -607,7 +612,7 @@ Paplico has two independent 3D features — **do not conflate them**:
 | `isElementRenderReplaced` | pipeline/FilterRenderer.ts | Processor-agnostic "an appearance renders the element in place of its flat look" (suppresses fill/stroke) |
 | `GeometryBackdropDriver` | pipeline/FilterRenderer.ts | Per-canvas z-order backdrop-compositing driver a `FilterHandler` owns via `attachCanvas` (glass extrude) |
 | `Solid3DFilterHandlerBase` | filters/Solid3DFilterHandlerBase.ts | Shared 3D-solid handler core (extrude3d / revolve3d subclasses) |
-| `ExtrudeMeshBaker`, `ExtrudeFrameEntry` | filters/Extrude3D/ | Mesh build/bake core + frame-local extrude result |
+| `ExtrudeMeshBaker`, `ExtrudeFrameEntry` | filters/shared/ | Mesh build/bake core + frame-local extrude result |
 | `MeshPassRenderer` | pipeline/MeshPassRenderer.ts | Lit-mesh GPU pass |
 | `JumpFloodDistanceField` | filters/JumpFloodDistanceField.ts | Shared JFA distance field over an alpha silhouette |
 | `AppearanceCache` | caches/AppearanceCache.ts | Per-(elementId, appearanceUid) cross-frame cache |

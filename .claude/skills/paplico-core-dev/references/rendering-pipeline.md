@@ -146,7 +146,7 @@ RenderOrchestrator handles device loss by releasing all GPU resources via `relea
 
 ## Shader architecture
 
-Shared pipeline WGSL shaders live in `core/renderer/shaders/`; filter-specific shaders live next to their processors in `core/renderer/filters/`. Compiled via `compileShaderModule` from `utils/wgpu-utils.ts`, which also provides typed `uniformViews` for automatic padding/alignment.
+Shared pipeline WGSL shaders live in `core/renderer/shaders/`; filter-specific shaders live in each filter's folder `core/renderer/filters/<Name>Filter/`. Compiled via `compileShaderModule` from `utils/wgpu-utils.ts`, which also provides typed `uniformViews` for automatic padding/alignment.
 
 Uniform binding layout convention:
 - Group 0 = viewport uniforms (shared across all draws)

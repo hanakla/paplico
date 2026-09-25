@@ -1,6 +1,6 @@
 # Brush engine
 
-Verified against `pkgs/web/src/core/` on 2026-08-05. Re-check symbol names and
+Verified against `pkgs/core/src/` on 2026-08-05. Re-check symbol names and
 line numbers before relying on them — they drift.
 
 ## What the engine is

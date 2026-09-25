@@ -1,8 +1,8 @@
+import type { HKChromaticAberrationFilter } from "@paplico/core/filters";
 import { memo } from "react";
 import { Checkbox } from "@/components/Checkbox";
 import { FakeInput } from "@/components/FakeInput";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import type { HKChromaticAberrationFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";

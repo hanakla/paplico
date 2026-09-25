@@ -1,3 +1,15 @@
+import {
+	BRUSH_INPUT_IDS,
+	BRUSH_PROPERTY_REGISTRY,
+	type BrushPropertyDomain,
+	evaluatePiecewiseLinear,
+} from "@paplico/core/brush";
+import type {
+	BrushCurve,
+	BrushInputId,
+	BrushPropertyConfig,
+	BrushPropertyId,
+} from "@paplico/core/schema";
 import { Sparkles, X } from "lucide-react";
 import { memo } from "react";
 import { Button } from "@/components/Button";
@@ -5,18 +17,6 @@ import { CurveEditor, type CurvePoint } from "@/components/CurveEditor";
 import { IconButton } from "@/components/IconButton";
 import { Popover } from "@/components/Popover";
 import { Slider } from "@/components/Slider";
-import { evaluatePiecewiseLinear } from "@/core/brush/curves";
-import { BRUSH_INPUT_IDS } from "@/core/brush/inputs";
-import {
-	BRUSH_PROPERTY_REGISTRY,
-	type BrushPropertyDomain,
-} from "@/core/brush/properties";
-import type {
-	BrushCurve,
-	BrushInputId,
-	BrushPropertyConfig,
-	BrushPropertyId,
-} from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 

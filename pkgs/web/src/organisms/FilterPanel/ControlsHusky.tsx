@@ -1,5 +1,5 @@
+import type { HKHuskyFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { HKHuskyFilter } from "@/core/renderer/filters";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 
 const HUSKY_SLIDERS: FilterSliderDef[] = [

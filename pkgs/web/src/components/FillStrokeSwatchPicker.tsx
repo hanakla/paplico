@@ -1,9 +1,9 @@
 import type { Popover as BUIPopover } from "@base-ui/react/popover";
+import type { FillColor, StrokeGradientMode } from "@paplico/core/schema";
 import type { ComponentProps } from "react";
 import { ColorSwatch } from "@/components/ColorSwatch";
 import { GradientPicker } from "@/components/GradientPicker";
 import { Popover } from "@/components/Popover";
-import type { FillColor, StrokeGradientMode } from "@/core/schema";
 import { useActiveColors } from "@/hooks/useActiveColors";
 import { useTranslation } from "@/locales";
 import { setActiveColorTarget, useUIState } from "@/stores/uiStore";

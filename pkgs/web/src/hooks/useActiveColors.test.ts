@@ -1,13 +1,13 @@
-import { act, renderHook } from "@testing-library/react";
-import { proxy } from "valtio";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { localAppearances } from "@/core/document/appearancePresets";
+import { localAppearances } from "@paplico/core/document";
 import type {
 	AnyArtObject,
 	FillAppearance,
 	FillColor,
 	StrokeAppearance,
-} from "@/core/schema";
+} from "@paplico/core/schema";
+import { act, renderHook } from "@testing-library/react";
+import { proxy } from "valtio";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useActiveColors } from "./useActiveColors";
 
 // --- Mock setup ---

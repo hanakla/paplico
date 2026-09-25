@@ -1,6 +1,6 @@
+import type { PaplicoCommands } from "@paplico/core";
+import type { Document } from "@paplico/core/schema";
 import { describe, expect, it, vi } from "vitest";
-import type { PaplicoCommands } from "@/core/PaplicoCommands";
-import type { Document } from "@/core/schema";
 import { PaplicoAutomationDom } from "./dom";
 
 describe("PaplicoAutomationDom", () => {

@@ -1,5 +1,5 @@
+import type { RoughFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { RoughFilter } from "@/core/renderer/filters";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 
 const ROUGH_SLIDERS: FilterSliderDef[] = [

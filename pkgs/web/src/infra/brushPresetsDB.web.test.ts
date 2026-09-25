@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
+import { resolveBrushTextureUid } from "@paplico/core/brush";
 import Dexie from "dexie";
 import { describe, expect, it } from "vitest";
-import { resolveBrushTextureUid } from "@/core/brush/brushSource";
 import { webBrushPresetsRepo } from "./brushPresetsDB.web";
 
 describe("brushPresetsDB upgrade", () => {

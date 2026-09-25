@@ -1,7 +1,7 @@
+import type { PublicUIState } from "@paplico/core";
+import type { AnyArtObject } from "@paplico/core/schema";
 import { useEffect, useState } from "react";
 import { subscribe } from "valtio";
-import type { PublicUIState } from "@/core/Paplico";
-import type { AnyArtObject } from "@/core/schema";
 
 /**
  * Returns the first selected element (or null) without tracking

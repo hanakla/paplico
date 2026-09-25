@@ -69,8 +69,8 @@ This ensures continuity and prevents losing context between sessions.
 
 ## Packages
 
-- `pkgs/web` - Next.js 16 frontend with React 19, Tailwind CSS 4
-  - **Drawing engine is located at `pkgs/web/src/core/`** (not in a separate package)
+- `pkgs/core` - Drawing engine (`@paplico/core`): document model, WebGPU renderer, tools, collaboration transports. Knows nothing about React or Next.js
+- `pkgs/web` - Next.js 16 frontend with React 19, Tailwind CSS 4. Consumes `@paplico/core`
 - `pkgs/desktop` - Tauri v2 desktop app wrapper (`@paplico/desktop`)
 - `pkgs/syrup` - Syrup scripting language (`@paplico/syrup`): parser, type checker, JS emitter, worker sandbox and Monaco integration. Knows nothing about Paplico — see "Syrup Automation Scripting"
 - `pkgs/avif-hdr` - AVIF HDR encode/decode (`@paplico/avif-hdr`)
@@ -94,18 +94,20 @@ yarn lint:fix
 
 # type checking
 yarn workspace pap typecheck
+yarn workspace @paplico/core typecheck
 
-# Run all tests (from pkgs/web)
+# Run all tests
 yarn workspace pap test
+yarn workspace @paplico/core test
 
 # Run a single test file
-yarn workspace pap vitest run src/core/tools/PenTool.test.ts
+yarn workspace @paplico/core vitest run src/tools/PenTool.test.ts
 
 # Run visual regression tests (VRT)
-yarn workspace pap test:visual
+yarn workspace @paplico/core test:visual
 
 # Update VRT snapshots
-yarn workspace pap test:visual:update
+yarn workspace @paplico/core test:visual:update
 
 # Check if dev server is running (from root)
 yarn check-dev-server
@@ -322,7 +324,7 @@ The cycle:
 
 **Rendering Architecture:**
 
-The renderer is split into layered modules under `core/renderer/`:
+The renderer is split into layered modules under `pkgs/core/src/renderer/`:
 
 ```
 Paplico (facade) → RenderOrchestrator → CanvasLayer (document layer, renderer/canvas/)
@@ -355,7 +357,7 @@ Key rendering strategies:
 
 **Data Structure:**
 
-Defined in `pkgs/web/src/core/schema.ts`.
+Defined in `pkgs/core/src/schema.ts`.
 
 - `Document` contains layers, viewport, embedded files, and artboards
 - `Layer` contains elements array
@@ -377,7 +379,7 @@ All drawing tools implement the `Tool` interface with pointer event handlers:
 - Two modes switchable via `NEXT_PUBLIC_COLLAB_MODE` env var:
   - `local` (default): `Collaboration` class using `y-websocket` + custom `server.mjs`
   - `cloud`: `PartyKitCollaboration` class using `y-partykit` + Supabase session JWT auth
-- `createCollaboration()` factory in `core/collaboration/` selects implementation
+- `createCollaboration()` in `pkgs/web/src/hooks/useCollab.ts` selects the implementation and passes the relay host in `CollaborationConfig`; `@paplico/core` never reads `NEXT_PUBLIC_*`
 - `ICollaboration` interface abstracts both modes
 - Yjs CRDT handles automatic conflict resolution
 - Awareness API for cursor positions and user presence
@@ -439,7 +441,7 @@ Paplico uses three coordinate systems:
 
 **Coordinate Transformation:**
 
-Implementation: `pkgs/web/src/core/utils/geometry/geometry.ts`
+Implementation: `pkgs/core/src/utils/geometry/geometry.ts`
 
 ```typescript
 // Screen → World (for input handling)
@@ -461,65 +463,69 @@ Key formulas:
 
 ### File Organization
 
-**IMPORTANT: All drawing engine code lives in `pkgs/web/src/core/`**
+**IMPORTANT: All drawing engine code lives in `pkgs/core/src/` (`@paplico/core`)**
 
-**core/ root placement rule:** the core/ root holds only the Paplico facade family (`Paplico*.ts`), the public barrel (`index.ts`), the document schema (`schema.ts`), and `dev-hmr.ts`. Everything else lives in a role-named directory. Do not add new loose files to the core/ root.
+**core root placement rule:** `pkgs/core/src/` root holds only the Paplico facade family (`Paplico*.ts`), the root entry (`index.ts`), the document schema (`schema.ts`), and `dev-hmr.ts`. Everything else lives in a role-named directory. Do not add new loose files to the package root.
 
 ```
+pkgs/core/
+├── __visual_baselines__/  # VRT baseline PNGs
+└── src/
+    ├── index.ts           # Root entry `@paplico/core` (facade, errors, shortcuts)
+    ├── dev-hmr.ts         # Dev-only HMR: re-attaches the instance the app passes to registerForHotReload
+    ├── Paplico.ts         # Main engine facade (public API boundary)
+    ├── PaplicoCommands.ts # Command pattern for document operations
+    ├── PaplicoSelection.ts # Selection state management
+    ├── PaplicoTools.ts    # Tool settings accessors
+    ├── PaplicoShortcuts.ts # Keyboard shortcut definitions
+    ├── schema.ts          # Core data structures (Document, Layer, Element, Color, Filter)
+    ├── document/          # Data-model support
+    │   ├── factory.ts         # Default value factories (Color, Transform, Viewport)
+    │   ├── constants.ts       # Zoom limits, sentinel IDs
+    │   ├── rendererState.ts   # Valtio RendererState factory (createRendererState)
+    │   └── SpatialIndex.ts    # Spatial indexing for hit testing (Quadtree)
+    ├── brush/             # Brush definitions (GPU rendering is in renderer/canvas/pipeline/brush/)
+    │   ├── presets.ts         # Builtin brush presets/files
+    │   └── strokePreview.ts   # Brush preview scene builder
+    ├── renderer/          # WebGPU rendering engine
+    │   ├── RenderOrchestrator.ts  # Top-level orchestrator (device init, canvas targets, render dispatch)
+    │   ├── RenderScheduler.ts     # requestAnimationFrame scheduling, dirty strategy
+    │   ├── CanvasTarget.ts        # Canvas element wrapper (resize observer, viewport state)
+    │   ├── DocumentChangeSubscriber.ts # Document change -> dirty notification
+    │   ├── types.ts               # FrameRequest, UIOverlayState
+    │   ├── PipelineFactory.ts     # Shared GPU pipeline construction helpers
+    │   ├── canvas/        # Document render layer (CanvasLayer + its helpers/types)
+    │   │   ├── pipeline/  # Internal graphics machinery (ViewportManager, DocumentCache, CompositeRenderer, OffscreenPresenter, FilterRenderer, RenderPlanner, TexturePool, ClipMaskAtlas)
+    │   │   │   └── brush/ # Brush rendering (BrushRenderer, DabRenderer, RibbonRenderer, WetStrokeRenderer, DabEvaluator, BrushTextureManager) + shaders/
+    │   │   ├── elements/  # Element renderers (ElementRenderer dispatch, Gradient/Image/Mesh/Text)
+    │   │   └── caches/    # Render caches (outline, strip, gradient, stamp, compound/group path)
+    │   ├── ui/            # UI render layer (UILayer: selection overlay, cursor, guides) + types.ts (UI overlay data types) + constants.ts (UI colors)
+    │   ├── filters/       # One folder per filter: `<Name>Filter/<Name>Filter.ts` (class `<Name>FilterHandler`) with its WGSL and tests; `svg/` groups the svg:* filters; `shared/` holds files used by several filters and cross-filter visual tests; filterCatalog + `@paplico/core/filters` entry (index.ts)
+    │   ├── generators/    # Texture generators (gradient, mesh gradient)
+    │   ├── geometry/      # Stroke tessellation
+    │   └── shaders/       # Shared pipeline WGSL shaders (filter-specific WGSL lives in filters/)
+    ├── tools/             # Drawing tools (Pen, Path, Shape, Text, Select, Eraser, Gradient, MeshDeform, PathEdit, Artboard) + ToolContext (tool -> engine bridge) + TextToolController
+    ├── collaboration/     # Yjs provider, ICollaboration, Collaboration, PartyKitCollaboration, E2EECollaboration, relay socket
+    ├── typography/        # Text system
+    │   ├── fonts/         # Font loading (Google Fonts, Local Fonts, FontManager)
+    │   ├── TextLayoutEngine.ts
+    │   └── TextRenderer.ts
+    ├── ui/                # DOM input handling (PaplicoUI: pointer/keyboard/wheel/drag events)
+    ├── io/                # External format boundary
+    │   ├── papf/          # papf (CBOR) document format reader/writer
+    │   ├── export/        # Image export (PNG/AVIF/PSD)
+    │   └── migrations/    # papf format migrations
+    ├── assets/            # Brush texture assets (air-brush, pencil)
+    ├── infra/             # Platform-dependent code the engine itself needs (clipboard, local font enumeration). Platform impls split via `.tauri.ts`/`.dom.ts` suffixes or dynamic import; this is the ONLY place in the package allowed to touch `@tauri-apps/*` or branch on the runtime
+    ├── stubs/             # three.js WebGPU compat stub, the target of the bundlers' `three` alias
+    ├── timelapse/         # Timelapse recording/playback/export
+    ├── testUtils/         # Shared test helpers (pointerEvent.ts, visualRegression.ts), vitest setup, fixtures and test assets
+    └── utils/             # General helpers (color, emitter, keyboard, lang, svgImport, wgpu-utils)
+        └── geometry/      # Geometry domain (bezierBool, bounds, cornerRadius, geometry, meshGradient, pathOps, Quadtree, resize, segmentOps, strokeFitting)
+
 pkgs/web/
 ├── server.mjs             # Custom dev/WebSocket server for Yjs collaboration (writes pap.lock)
 └── src/
-    ├── core/              # Drawing engine (main implementation)
-    │   ├── index.ts           # Public API barrel (userland-facing surface)
-    │   ├── dev-hmr.ts         # Dev-only HMR side effect (imported by index.ts)
-    │   ├── Paplico.ts         # Main engine facade (public API boundary)
-    │   ├── PaplicoCommands.ts # Command pattern for document operations
-    │   ├── PaplicoSelection.ts # Selection state management
-    │   ├── PaplicoTools.ts    # Tool settings accessors
-    │   ├── PaplicoShortcuts.ts # Keyboard shortcut definitions
-    │   ├── schema.ts          # Core data structures (Document, Layer, Element, Color, Filter)
-    │   ├── document/          # Data-model support
-    │   │   ├── factory.ts         # Default value factories (Color, Transform, Viewport)
-    │   │   ├── constants.ts       # Zoom limits, sentinel IDs
-    │   │   ├── rendererState.ts   # Valtio RendererState factory (createRendererState)
-    │   │   └── SpatialIndex.ts    # Spatial indexing for hit testing (Quadtree)
-    │   ├── brush/             # Brush definitions (GPU rendering is in renderer/canvas/pipeline/brush/)
-    │   │   ├── presets.ts         # Builtin brush presets/files
-    │   │   └── strokePreview.ts   # Brush preview scene builder
-    │   ├── renderer/          # WebGPU rendering engine
-    │   │   ├── RenderOrchestrator.ts  # Top-level orchestrator (device init, canvas targets, render dispatch)
-    │   │   ├── RenderScheduler.ts     # requestAnimationFrame scheduling, dirty strategy
-    │   │   ├── CanvasTarget.ts        # Canvas element wrapper (resize observer, viewport state)
-    │   │   ├── DocumentChangeSubscriber.ts # Document change -> dirty notification
-    │   │   ├── types.ts               # FrameRequest, UIOverlayState
-    │   │   ├── PipelineFactory.ts     # Shared GPU pipeline construction helpers
-    │   │   ├── canvas/        # Document render layer (CanvasLayer + its helpers/types)
-    │   │   │   ├── pipeline/  # Internal graphics machinery (ViewportManager, DocumentCache, CompositeRenderer, OffscreenPresenter, FilterRenderer, RenderPlanner, TexturePool, ClipMaskAtlas)
-    │   │   │   │   └── brush/ # Brush rendering (BrushRenderer, DabRenderer, RibbonRenderer, WetStrokeRenderer, DabEvaluator, BrushTextureManager) + shaders/
-    │   │   │   ├── elements/  # Element renderers (ElementRenderer dispatch, Gradient/Image/Mesh/Text)
-    │   │   │   └── caches/    # Render caches (outline, strip, gradient, stamp, compound/group path)
-    │   │   ├── ui/            # UI render layer (UILayer: selection overlay, cursor, guides) + types.ts (UI overlay data types) + constants.ts (UI colors)
-    │   │   ├── filters/       # Filter processors + their WGSL shaders + filterCatalog + userland type barrel (index.ts)
-    │   │   ├── generators/    # Texture generators (gradient, mesh gradient)
-    │   │   ├── geometry/      # Stroke tessellation
-    │   │   └── shaders/       # Shared pipeline WGSL shaders (filter-specific WGSL lives in filters/)
-    │   ├── tools/             # Drawing tools (Pen, Path, Shape, Text, Select, Eraser, Gradient, MeshDeform, PathEdit, Artboard) + ToolContext (tool -> engine bridge) + TextToolController
-    │   ├── collaboration/     # Yjs provider, ICollaboration, Collaboration, PartyKitCollaboration, createCollaboration
-    │   ├── typography/        # Text system
-    │   │   ├── fonts/         # Font loading (Google Fonts, Local Fonts, FontManager)
-    │   │   ├── TextLayoutEngine.ts
-    │   │   └── TextRenderer.ts
-    │   ├── ui/                # DOM input handling (PaplicoUI: pointer/keyboard/wheel/drag events)
-    │   ├── io/                # External format boundary
-    │   │   ├── papf/          # papf (CBOR) document format reader/writer
-    │   │   ├── export/        # Image export (PNG/AVIF/PSD)
-    │   │   └── migrations/    # papf format migrations
-    │   ├── assets/            # Brush texture assets (air-brush, pencil)
-    │   ├── infra/             # Platform-dependent code the engine itself needs (clipboard, local font enumeration). Platform impls split via `.tauri.ts`/`.dom.ts` suffixes or dynamic import; this is the ONLY place under core/ allowed to touch `@tauri-apps/*` or branch on the runtime
-    │   ├── timelapse/         # Timelapse recording/playback/export
-    │   ├── testUtils/         # Shared test helpers (pointerEvent.ts, visualRegression.ts)
-    │   └── utils/             # General helpers (color, emitter, keyboard, lang, svgImport, wgpu-utils)
-    │       └── geometry/      # Geometry domain (bezierBool, bounds, cornerRadius, geometry, meshGradient, pathOps, Quadtree, resize, segmentOps, strokeFitting)
     ├── app/               # Next.js 16 app directory
     ├── auth/              # Authentication utilities (Supabase session, OAuth providers, Tauri auth)
     ├── automation/        # Automation script catalog (builtin + user scripts, repository, shared types)
@@ -527,7 +533,7 @@ pkgs/web/
     ├── components/        # Reusable only UI components (Button, Slider, Dialog, etc.)
     ├── dialogs/           # Modal dialogs (SignInDialog, OAuth providers, etc.)
     ├── hooks/             # Domain-logic hooks ONLY (useUserSession, useFontPreview, etc.). Generic UI utility hooks go in utils/hooks.ts
-    ├── infra/             # App-level platform-dependent infrastructure: native fs/dialog/path access, IndexedDB (documents, brush presets), Supabase, OS-installed resource enumeration (e.g. system ICC profiles). Tauri-vs-browser impls split via `.tauri.ts`/`.web.ts` suffixes or dynamic import. core/ business logic (color, renderer, tools, …) must NOT enumerate/read files itself — it receives bytes from here
+    ├── infra/             # App-level platform-dependent infrastructure: native fs/dialog/path access, IndexedDB (documents, brush presets), Supabase, OS-installed resource enumeration (e.g. system ICC profiles). Tauri-vs-browser impls split via `.tauri.ts`/`.web.ts` suffixes or dynamic import. Engine business logic (color, renderer, tools, …) must NOT enumerate/read files itself — it receives bytes from here
     ├── locales/           # i18n translations (en.ts, ja.ts)
     ├── organisms/         # Page-level compositions (Canvas, Toolbar, LayerPanel, etc.)
     │   ├── ContextAction/     # Selection-time floating action bar (index.tsx: ContextActionsOverlay, ContextActionsBar.tsx: bar presentation/drag, ElementActions.tsx: structural ops as IconButtons, MoreActionsMenu.tsx: overflow "…" Menu.Item list, TextEditActions.tsx)
@@ -537,16 +543,16 @@ pkgs/web/
     └── utils/             # App-level utilities (hooks.ts contains domain-independent hooks only, testDocument)
 ```
 
+**Public entry points:** `pkgs/core/package.json` `exports` is the whole public surface. The app imports only these entries: `@paplico/core` (facade, errors, shortcuts), `/schema`, `/document`, `/brush`, `/collaboration`, `/color`, `/io`, `/tools`, `/timelapse`, `/typography`, `/filters`, `/utils`, `/infra`, `/testUtils`, plus the special-purpose `/infra/localfonts.tauri`, `/testUtils/vitestSetup` and `/three-webgpu-compat`. Each entry is a named re-export barrel (`index.ts` of that directory).
+
 **Dependency Rules (CRITICAL):**
 
-- **`core/` MUST NOT import from `stores/`, `components/`, `organisms/`, `contexts/`, or `app/`**
-- `core/` is business logic layer - keep it framework-agnostic
-- **Platform-dependent code (OS branching, Tauri vs browser, native `fs`/`dialog`/`path` access, `@tauri-apps/*` imports, OS-installed resource enumeration) MUST be isolated in an `infra/` directory** — `core/infra/` for what the drawing engine itself needs (clipboard, local fonts), `src/infra/` for app-level concerns (filesystem, IndexedDB, Supabase, system profile enumeration) — using `.tauri.ts`/`.dom.ts`/`.web.ts` file splits or dynamic import. Everything else in `core/` (color, renderer, tools, io, …) stays platform-agnostic: it never imports `@tauri-apps/*`, never branches on `IS_TAURI_ENV`, and never enumerates/reads files — it only receives bytes/values passed in from an `infra/` module
+- **`@paplico/core` MUST NOT import from `pkgs/web`.** It is a separate package, so there is no `@/` alias inside it; use relative imports
+- `@paplico/core` is the business logic layer - keep it framework-agnostic. It does not read app environment variables (`NEXT_PUBLIC_*`); the app passes such values in
+- **Platform-dependent code (OS branching, Tauri vs browser, native `fs`/`dialog`/`path` access, `@tauri-apps/*` imports, OS-installed resource enumeration) MUST be isolated in an `infra/` directory** — `pkgs/core/src/infra/` for what the drawing engine itself needs (clipboard, local fonts), `pkgs/web/src/infra/` for app-level concerns (filesystem, IndexedDB, Supabase, system profile enumeration) — using `.tauri.ts`/`.dom.ts`/`.web.ts` file splits or dynamic import. Everything else in the engine (color, renderer, tools, io, …) stays platform-agnostic: it never imports `@tauri-apps/*`, never branches on `IS_TAURI_ENV`, and never enumerates/reads files — it only receives bytes/values passed in from an `infra/` module
 - Use callback/dependency injection pattern to communicate with upper layers
 - Example: YjsProvider accepts callbacks instead of importing documentStore
-- `stores/`, `components/`, `organisms/`, and `contexts/` can import from `core/`
-- This ensures core logic is reusable and testable
-- **Treat `core/` as a single library. Do NOT add exports to `core/index.ts` that don't need to be exposed to userland (outside `core/`).** Classes, functions, and types used only within core/ should be imported directly from their modules, not re-exported through the barrel.
+- **Only add a symbol to an entry barrel when the app needs it.** Classes, functions, and types used only within the package are imported directly from their modules, never through its own barrels.
 
 ## Tauri Desktop Build
 
@@ -618,7 +624,7 @@ The `dev:tauri` script in `pkgs/web/package.json` reuses an already-running dev 
 
 **Use `webgpu-utils` for uniform buffer management:**
 
-Located at `pkgs/web/src/core/utils/wgpu-utils.ts`
+Located at `pkgs/core/src/utils/wgpu-utils.ts`
 
 ```typescript
 import { compileShaderModule } from "../../utils/wgpu-utils";
@@ -692,7 +698,7 @@ function PopoverContent({
 
 ## Tool Tests
 
-Shared helpers are in `core/testUtils/pointerEvent.ts`.
+Shared helpers are in `pkgs/core/src/testUtils/pointerEvent.ts`.
 It provides `ev()`, `testViewport`, `testCanvasWidth`, `testCanvasHeight`.
 
 When writing tool tests, follow these rules:

@@ -1,5 +1,5 @@
+import type { EmbeddedFile } from "@paplico/core/schema";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { EmbeddedFile } from "@/core/schema";
 import { BrushThumbnail } from "@/organisms/Toolbar/BrushTools";
 
 function createSvgTexture({

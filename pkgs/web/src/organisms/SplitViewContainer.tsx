@@ -1,7 +1,7 @@
 "use client";
 
+import type { Paplico } from "@paplico/core";
 import { useRef, useState } from "react";
-import type { Paplico } from "@/core/Paplico";
 import { useEventCallback } from "@/utils/hooks";
 import { CanvasPane } from "./CanvasPane";
 

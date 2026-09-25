@@ -32,13 +32,13 @@
  *  13. StrokeGradients — Stroke gradient paths (within/along/across)
  *  14. MultiFilters    — Multiple stacked filters
  */
-import { nanoid } from "nanoid";
+
 import {
 	createDefaultBrushSettings,
 	createDefaultDocument,
 	createDefaultLayer,
 	createDefaultTransform,
-} from "../core/document/factory";
+} from "@paplico/core/document";
 import {
 	type Color,
 	type CubicBezierSegment,
@@ -50,7 +50,8 @@ import {
 	type StrokeAppearance,
 	type StrokeColor,
 	type TextElement,
-} from "../core/schema";
+} from "@paplico/core/schema";
+import { nanoid } from "nanoid";
 
 export function createTestDocument(): Document {
 	const doc = createDefaultDocument(`test-${nanoid(8)}`);

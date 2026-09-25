@@ -1,6 +1,6 @@
 import type { DragEndEvent } from "@dnd-kit/core";
+import type { AnyArtObject, CompoundPath } from "@paplico/core/schema";
 import { describe, expect, it } from "vitest";
-import type { AnyArtObject, CompoundPath } from "@/core/schema";
 import {
 	type DragEndAction,
 	resolveDragEndAction,

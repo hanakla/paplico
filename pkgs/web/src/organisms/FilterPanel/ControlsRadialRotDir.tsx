@@ -1,6 +1,6 @@
+import type { HKRadialRotDirFilter } from "@paplico/core/filters";
 import { memo } from "react";
 import { FakeInput } from "@/components/FakeInput";
-import type { HKRadialRotDirFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

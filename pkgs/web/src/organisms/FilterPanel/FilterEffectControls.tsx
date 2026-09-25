@@ -1,4 +1,3 @@
-import { memo } from "react";
 import type {
 	BlurFilter,
 	ClipToShapeFilter,
@@ -38,12 +37,13 @@ import type {
 	RoughFilter,
 	TransformFilter,
 	ZigzagFilter,
-} from "@/core/renderer/filters";
+} from "@paplico/core/filters";
 import type {
 	Extrude3DAppearance,
 	Filter as FilterType,
 	Revolve3DAppearance,
-} from "@/core/schema";
+} from "@paplico/core/schema";
+import { memo } from "react";
 import { useTranslation } from "@/locales";
 import { BloomFilterControls } from "./ControlsBloom";
 import { BlurFilterControls } from "./ControlsBlur";

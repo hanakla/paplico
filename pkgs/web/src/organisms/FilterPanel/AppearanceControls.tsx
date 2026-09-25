@@ -1,3 +1,16 @@
+import {
+	mergeBrushStroking,
+	readStoredBrushSize,
+	withStoredBrushSize,
+} from "@paplico/core/brush";
+import type {
+	BlendMode,
+	BrushStroking,
+	Color,
+	FillAppearance,
+	Filter,
+	StrokeAppearance,
+} from "@paplico/core/schema";
 import { Brush } from "lucide-react";
 import { memo, type ReactNode } from "react";
 import { ColorPickerThin } from "@/components/ColorPicker2";
@@ -7,19 +20,6 @@ import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import { StrokeGeometryFields } from "@/components/StrokeGeometryFields";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import {
-	mergeBrushStroking,
-	readStoredBrushSize,
-	withStoredBrushSize,
-} from "@/core/brush/access";
-import type {
-	BlendMode,
-	BrushStroking,
-	Color,
-	FillAppearance,
-	Filter,
-	StrokeAppearance,
-} from "@/core/schema";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { useTranslation } from "@/locales";
 import {

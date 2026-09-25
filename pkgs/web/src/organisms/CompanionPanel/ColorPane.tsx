@@ -1,3 +1,11 @@
+import type {
+	Color,
+	ColorStop,
+	FillColor,
+	LinearGradient,
+	RadialGradient,
+	StrokeColor,
+} from "@paplico/core/schema";
 import { ArrowLeftRight, Plus, Trash2 } from "lucide-react";
 import { memo, useState } from "react";
 import type {
@@ -7,14 +15,6 @@ import type {
 import { Button } from "@/components/Button";
 import { ColorPicker2 } from "@/components/ColorPicker2";
 import { ToggleGroup } from "@/components/ToggleGroup";
-import type {
-	Color,
-	ColorStop,
-	FillColor,
-	LinearGradient,
-	RadialGradient,
-	StrokeColor,
-} from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";

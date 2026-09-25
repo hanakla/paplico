@@ -1,4 +1,4 @@
-import type { Filter } from "@/core/schema";
+import type { Filter } from "@paplico/core/schema";
 import type {
 	AppearancePresetsRepo,
 	PersistedAppearancePreset,

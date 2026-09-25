@@ -1,5 +1,5 @@
+import type { SvgDropShadowFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { SvgDropShadowFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { FilterColorSwatch } from "./FilterColorSwatch";

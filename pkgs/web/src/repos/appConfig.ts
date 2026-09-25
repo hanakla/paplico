@@ -1,5 +1,5 @@
+import type { PressureCurvePoint } from "@paplico/core/utils";
 import { z } from "zod/mini";
-import type { PressureCurvePoint } from "@/core/utils/pressureCurve";
 import { IS_TAURI_ENV } from "@/utils/platform";
 import { domAppConfig } from "./appConfig.dom";
 import { tauriAppConfig } from "./appConfig.tauri";

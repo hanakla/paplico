@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
-import { useSnapshot } from "valtio";
-import { usePaplico } from "@/contexts/PaplicoContext";
 import {
 	type AnyArtObject,
 	type FillColor,
 	isSolidColor,
 	type StrokeColor,
 	type StrokeGradientMode,
-} from "@/core/schema";
-import { getFirstFill, getFirstStroke } from "@/core/utils/elementQuery";
+} from "@paplico/core/schema";
+import { getFirstFill, getFirstStroke } from "@paplico/core/utils";
+import { useEffect, useMemo, useState } from "react";
+import { useSnapshot } from "valtio";
+import { usePaplico } from "@/contexts/PaplicoContext";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
 import { useEventCallback } from "@/utils/hooks";
 import { deepClone } from "@/utils/lang";

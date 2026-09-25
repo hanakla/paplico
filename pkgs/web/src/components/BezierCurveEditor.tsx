@@ -1,11 +1,11 @@
-import { memo, useRef } from "react";
-import type { BlendEasingNode } from "@/core/schema";
+import type { BlendEasingNode } from "@paplico/core/schema";
 import {
+	clamp,
 	insertBezierEasingNode,
 	MIN_NODE_X_GAP,
 	sanitizeBezierEasingNodes,
-} from "@/core/utils/bezierEasing";
-import { clamp } from "@/core/utils/math";
+} from "@paplico/core/utils";
+import { memo, useRef } from "react";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
 

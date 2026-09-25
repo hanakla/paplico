@@ -1,16 +1,16 @@
-import { withoutStoredBrushSize } from "@/core/brush/access";
-import { withTextureFileUid } from "@/core/brush/brushSource";
 import {
 	createBuiltinBrushFiles,
 	createBuiltinBrushPresets,
-} from "@/core/brush/presets";
+	withoutStoredBrushSize,
+	withTextureFileUid,
+} from "@paplico/core/brush";
 import {
 	type BrushPreset,
 	type BrushSettings,
 	type EmbeddedFile,
 	generateUid,
-} from "@/core/schema";
-import { deepClone } from "@/core/utils/lang";
+} from "@paplico/core/schema";
+import { deepClone } from "@paplico/core/utils";
 import { tauriBrushPresetsRepo } from "@/infra/brushPresetsDB.tauri";
 import { webBrushPresetsRepo } from "@/infra/brushPresetsDB.web";
 import { IS_TAURI_ENV } from "@/utils/platform";

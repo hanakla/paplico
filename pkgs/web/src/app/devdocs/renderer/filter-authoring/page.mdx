@@ -108,7 +108,7 @@ interface FilterProcessorContext {
 - `commandEncoder` に対して `beginRenderPass` でレンダーパスを発行する。`queue.submit` は呼ばない。エンコーダーは呼び出し元のものであり、フレームの他のパスと一緒に送信される。
 - テクスチャの色はプリマルチプライドアルファである。
 
-以下は `BlurFilterProcessor` から抜粋したポストフィルターの実装パターンである。2パス分離型ガウシアンブラーの水平パスを示す。
+以下は `BlurFilterHandler` から抜粋したポストフィルターの実装パターンである。2パス分離型ガウシアンブラーの水平パスを示す。
 
 ```typescript
 public postProcess(context: FilterProcessorContext, filter: Filter): void {
@@ -229,7 +229,7 @@ interface FilterRenderRequirements {
 
 バックドロップ経路でも `postProcess` が読むのは `sourceTexture` である。通常経路との違いはテクスチャの中身だけなので、多くのフィルターは同じ実装のまま両方の経路で動く。マスク合成はレンダラーが行うため、ハンドラー側でマスク処理を実装する必要はない。
 
-バックドロップをぼかすフィルターは、共有ブラーピラミッドを使える。`getBackdropBlurSigma(filter, rasterScale)` で必要なガウスシグマをキャプチャのテクセル単位で宣言し、`postProcess` の中で `context.backdropBlur(sigma)` を呼ぶ。戻り値は、そのシグマを挟む2つのピラミッド段と補間係数である。`null` が返ったときは自前でぼかす。`FrostGlassFilterProcessor` が実装例である。
+バックドロップをぼかすフィルターは、共有ブラーピラミッドを使える。`getBackdropBlurSigma(filter, rasterScale)` で必要なガウスシグマをキャプチャのテクセル単位で宣言し、`postProcess` の中で `context.backdropBlur(sigma)` を呼ぶ。戻り値は、そのシグマを挟む2つのピラミッド段と補間係数である。`null` が返ったときは自前でぼかす。`FrostGlassFilterHandler` が実装例である。
 
 ### `getExpansionMargin` -- 描画領域の拡張量
 
@@ -237,10 +237,10 @@ interface FilterRenderRequirements {
 
 - **ブラー**: 半径の3倍を返す（ガウス分布の99.7%がカバーされる範囲）。
 - **ジグザグ**: 振幅をそのまま返す（法線方向の最大オフセット量）。
-- **バックドロップ経路**: 効果は要素形状の内側で完結するため、はみ出しは要らない。`FrostGlassFilterProcessor` は `filter.applyToBackdrop` が真なら `0` を、偽なら `radius + scatter` を返す。
+- **バックドロップ経路**: 効果は要素形状の内側で完結するため、はみ出しは要らない。`FrostGlassFilterHandler` は `filter.applyToBackdrop` が真なら `0` を、偽なら `radius + scatter` を返す。
 
 ```typescript
-// BlurFilterProcessor の例
+// BlurFilterHandler の例
 public getExpansionMargin(filter: Filter): number {
   return ((filter as BlurFilter).paramData.params.radius ?? 0) * 3;
 }
@@ -293,11 +293,11 @@ public onInterpolate(paramsA: unknown, paramsB: unknown, t: number): unknown {
 
 ### 1. ハンドラーのファイルに Filter 型を定義する
 
-フィルターの Params 型と Filter 型は、ハンドラーのファイル自身が持つ。`pkgs/web/src/core/renderer/filters/` に新しいファイルを作り、`Appearance<Params>` を継承した型を定義する。`schema.ts` の `Filter` は `Appearance` の別名であり、フィルターごとのユニオンではないため、`schema.ts` を変更する必要はない。
+フィルターの Params 型と Filter 型は、ハンドラーのファイル自身が持つ。`pkgs/core/src/renderer/filters/` に `MyCustomFilter/` フォルダを作り、その中の `MyCustomFilter.ts` に`Appearance<Params>` を継承した型を定義する。`schema.ts` の `Filter` は `Appearance` の別名であり、フィルターごとのユニオンではないため、`schema.ts` を変更する必要はない。
 
 ```typescript
-// renderer/filters/MyCustomFilterProcessor.ts
-import type { Appearance } from "../../schema";
+// renderer/filters/MyCustomFilter/MyCustomFilter.ts
+import type { Appearance } from "../../../schema";
 
 export interface MyCustomParams {
   intensity: number;
@@ -315,7 +315,7 @@ export interface MyCustomFilter extends Appearance<MyCustomParams> {
 export type {
   MyCustomFilter,
   MyCustomParams,
-} from "./MyCustomFilterProcessor";
+} from "./MyCustomFilter/MyCustomFilter";
 ```
 
 ### 2. `FilterHandler` を実装するクラスを作成する
@@ -323,16 +323,16 @@ export type {
 同じファイルにハンドラークラスを書く。
 
 ```typescript
-// renderer/filters/MyCustomFilterProcessor.ts
-import type { Appearance, Filter } from "../../schema";
-import { compileShaderModule } from "../../utils/wgpu-utils";
+// renderer/filters/MyCustomFilter/MyCustomFilter.ts
+import type { Appearance, Filter } from "../../../schema";
+import { compileShaderModule } from "../../../utils/wgpu-utils";
 import type {
   FilterHandler,
   FilterProcessorContext,
-} from "../canvas/pipeline/FilterRenderer";
+} from "../../canvas/pipeline/FilterRenderer";
 import { MY_CUSTOM_SHADER } from "./myCustom.wgsl";
 
-export class MyCustomFilterProcessor implements FilterHandler {
+export class MyCustomFilterHandler implements FilterHandler {
   private pipeline: GPURenderPipeline | null = null;
   private bindGroupLayout: GPUBindGroupLayout | null = null;
 
@@ -397,10 +397,10 @@ export class MyCustomFilterProcessor implements FilterHandler {
 
 ### 3. WGSL シェーダーを作成する
 
-ハンドラーと同じ `renderer/filters/` ディレクトリに、`*.wgsl.ts` のシェーダーファイルを作成する。`renderer/shaders/` は複数のパイプラインが共有するシェーダーの置き場であり、フィルター固有の WGSL は置かない。Paplico のポストフィルターシェーダーは全画面三角形（full-screen triangle）パターンを使用する。頂点シェーダーでクリップ空間を覆う1枚の三角形を生成し、フラグメントシェーダーでテクスチャをサンプリングして加工する。
+ハンドラーと同じ `renderer/filters/MyCustomFilter/` フォルダに、`*.wgsl.ts` のシェーダーファイルを作成する。`renderer/shaders/` は複数のパイプラインが共有するシェーダーの置き場であり、フィルター固有の WGSL は置かない。Paplico のポストフィルターシェーダーは全画面三角形（full-screen triangle）パターンを使用する。頂点シェーダーでクリップ空間を覆う1枚の三角形を生成し、フラグメントシェーダーでテクスチャをサンプリングして加工する。
 
 ```wgsl
-// renderer/filters/myCustom.wgsl.ts で `export const MY_CUSTOM_SHADER` の文字列として定義
+// renderer/filters/MyCustomFilter/myCustom.wgsl.ts で `export const MY_CUSTOM_SHADER` の文字列として定義
 struct Uniforms {
   resolution: vec2f,
   intensity: f32,
@@ -450,7 +450,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 // RenderOrchestrator.ts の初期化処理内
 const filterHandlers: [string, RegisterableFilterHandler][] = [
   // ...existing handlers...
-  ["my-custom", new MyCustomFilterProcessor()],
+  ["my-custom", new MyCustomFilterHandler()],
 ];
 ```
 
@@ -515,7 +515,7 @@ FilterRenderer のピンポン:
 
 ### source に書き戻す
 
-`BlurFilterProcessor` は、1パス目で `source -> target` に書き込んだ後、`copyTextureToTexture` で `target` の内容を `source` にコピーし、2パス目で再び `source -> target` に書き込む。追加のテクスチャを確保しない。
+`BlurFilterHandler` は、1パス目で `source -> target` に書き込んだ後、`copyTextureToTexture` で `target` の内容を `source` にコピーし、2パス目で再び `source -> target` に書き込む。追加のテクスチャを確保しない。
 
 ```
 Filter A 内部の複数パス (blur):
@@ -526,10 +526,10 @@ Filter A 内部の複数パス (blur):
 
 ### `ScratchTexturePool` から中間テクスチャを借りる
 
-`svg:*` のハンドラーは、`renderer/filters/ScratchTexturePool.ts` のプールから中間テクスチャを借りる。`acquireLike(device, target, label)` で `target` と同じフォーマット・サイズのテクスチャを受け取り、使い終わったら `release(texture)` で返す。借りている間、同じテクスチャが同じチェーンに二重に渡ることはない。`RenderOrchestrator` は1つのプールを全 SVG ハンドラーで共有させており、同じサイズのテクスチャがプリミティブごとに保持されることを避けている。
+`svg:*` のハンドラーは、`renderer/filters/shared/ScratchTexturePool.ts` のプールから中間テクスチャを借りる。`acquireLike(device, target, label)` で `target` と同じフォーマット・サイズのテクスチャを受け取り、使い終わったら `release(texture)` で返す。借りている間、同じテクスチャが同じチェーンに二重に渡ることはない。`RenderOrchestrator` は1つのプールを全 SVG ハンドラーで共有させており、同じサイズのテクスチャがプリミティブごとに保持されることを避けている。
 
 ```
-SvgDropShadowHandler 内部:
+SvgDropShadowFilterHandler 内部:
   scratch = pool.acquireLike(target)
   ぼかし: 入力 → scratch
   合成:   scratch + 入力 → target

@@ -1,6 +1,6 @@
+import type { HKWaveFilter } from "@paplico/core/filters";
 import { memo } from "react";
 import { Checkbox } from "@/components/Checkbox";
-import type { HKWaveFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

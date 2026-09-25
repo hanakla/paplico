@@ -1,8 +1,8 @@
+import type { Color } from "@paplico/core/schema";
 import { useRef, useState } from "react";
 import { ColorPickerThin } from "@/components/ColorPicker2";
 import { ColorSwatch } from "@/components/ColorSwatch";
 import { Popover } from "@/components/Popover";
-import type { Color } from "@/core/schema";
 import { useEventCallback } from "@/utils/hooks";
 
 /** "Label …… swatch" row; clicking the swatch opens the picker popover. */

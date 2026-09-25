@@ -1,5 +1,5 @@
+import type { SvgBlendFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { SvgBlendFilter } from "@/core/renderer/filters";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";

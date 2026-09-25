@@ -1,6 +1,6 @@
 # Rasterization resolution (DPI / R)
 
-Verified against `pkgs/web/src/core/` on 2026-07-21. Re-check symbol names/line
+Verified against `pkgs/core/src/` on 2026-07-21. Re-check symbol names/line
 numbers before relying on them — they drift.
 
 ## Why R exists

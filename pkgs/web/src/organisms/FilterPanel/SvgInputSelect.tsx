@@ -1,9 +1,9 @@
-import { createContext, memo, useContext, useMemo } from "react";
 import {
 	type SvgFilterInput,
 	svgInputNodeRef,
 	svgNodeRefInput,
-} from "@/core/renderer/filters";
+} from "@paplico/core/filters";
+import { createContext, memo, useContext, useMemo } from "react";
 import { type LocalizeKeys, useTranslation } from "@/locales";
 import { SelectRow } from "./SelectRow";
 

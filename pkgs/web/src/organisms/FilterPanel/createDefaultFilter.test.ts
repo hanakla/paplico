@@ -1,5 +1,5 @@
+import { FILTER_CATALOG } from "@paplico/core/filters";
 import { describe, expect, it } from "vitest";
-import { FILTER_CATALOG } from "@/core/renderer/filters/filterCatalog";
 import { createDefaultFilter } from "./createDefaultFilter";
 
 describe("createDefaultFilter", () => {

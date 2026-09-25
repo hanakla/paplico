@@ -20,9 +20,11 @@ const nextConfig = {
 	// `three` → the WebGPU build: three-vrm and three/addons import "three", so
 	// without the alias the WebGPU build and the core build would both load.
 	turbopack: {
+		// The repo root, so @paplico/core sources are watched for Fast Refresh.
+		root: path.resolve(__dirname, "../.."),
 		resolveAlias: {
 			http: { browser: "./src/stubs/empty.ts" },
-			three: "./src/stubs/three-webgpu-compat.ts",
+			three: "@paplico/core/three-webgpu-compat",
 		},
 	},
 	webpack: (config, { isServer }) => {
@@ -31,7 +33,7 @@ const nextConfig = {
 		}
 		config.resolve.alias = {
 			...config.resolve.alias,
-			three$: path.resolve(__dirname, "src/stubs/three-webgpu-compat.ts"),
+			three$: "@paplico/core/three-webgpu-compat",
 		};
 		return config;
 	},

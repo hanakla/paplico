@@ -1,5 +1,5 @@
+import type { FrostGlassFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { FrostGlassFilter } from "@/core/renderer/filters";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 
 const FROST_GLASS_SLIDERS: FilterSliderDef[] = [

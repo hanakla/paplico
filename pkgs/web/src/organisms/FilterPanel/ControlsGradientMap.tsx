@@ -1,14 +1,14 @@
+import {
+	GRADIENT_MAP_PRESET_STOPS,
+	type HKGradientMapFilter,
+} from "@paplico/core/filters";
+import type { ColorStop } from "@paplico/core/schema";
 import { Check, Copy } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { GradientStopsEditor } from "@/components/GradientPicker";
 import { IconButton } from "@/components/IconButton";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { Tooltip } from "@/components/Tooltip";
-import {
-	GRADIENT_MAP_PRESET_STOPS,
-	type HKGradientMapFilter,
-} from "@/core/renderer/filters";
-import type { ColorStop } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

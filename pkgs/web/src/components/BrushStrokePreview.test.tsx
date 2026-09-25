@@ -1,6 +1,6 @@
+import { createDefaultBrushSettings } from "@paplico/core/document";
 import { render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDefaultBrushSettings } from "@/core/document/factory";
 import { BrushStrokePreview } from "@/organisms/Toolbar/BrushTools";
 
 const mockRenderBrushStrokePreviewToImageData =

@@ -1,4 +1,3 @@
-import { memo } from "react";
 import type {
 	SvgBlendFilter,
 	SvgColorFunctionFilter,
@@ -13,8 +12,9 @@ import type {
 	SvgMorphologyFilter,
 	SvgOffsetFilter,
 	SvgTurbulenceFilter,
-} from "@/core/renderer/filters";
-import type { Filter } from "@/core/schema";
+} from "@paplico/core/filters";
+import type { Filter } from "@paplico/core/schema";
+import { memo } from "react";
 import { SvgBlendFilterControls } from "./ControlsSvgBlend";
 import { SvgColorFunctionFilterControls } from "./ControlsSvgColorFunction";
 import { SvgColorMatrixFilterControls } from "./ControlsSvgColorMatrix";

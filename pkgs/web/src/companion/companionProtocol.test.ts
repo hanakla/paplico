@@ -1,4 +1,4 @@
-import type { ToolType } from "@/core/tools/toolSettings";
+import type { ToolType } from "@paplico/core/tools";
 import {
 	type CompanionMessage,
 	type CompanionState,

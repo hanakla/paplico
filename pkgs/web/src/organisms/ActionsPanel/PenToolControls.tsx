@@ -1,3 +1,5 @@
+import { mergeBrushStroking, readStoredBrushSize } from "@paplico/core/brush";
+import type { BrushStroking } from "@paplico/core/schema";
 import { memo } from "react";
 import { useSnapshot } from "valtio";
 import { Checkbox } from "@/components/Checkbox";
@@ -5,8 +7,6 @@ import { DashPatternControls } from "@/components/DashPatternControls";
 import { StrokeGeometryFields } from "@/components/StrokeGeometryFields";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { mergeBrushStroking, readStoredBrushSize } from "@/core/brush/access";
-import type { BrushStroking } from "@/core/schema";
 import { appConfig } from "@/hooks/useAppConfig";
 import { useBrushEdits } from "@/hooks/useBrushEdits";
 import { useBrushPresets } from "@/hooks/useBrushPresets";

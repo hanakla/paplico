@@ -1,4 +1,4 @@
-import type { Brand } from "@/core/utils/lang";
+import type { Brand } from "@paplico/core/utils";
 import { IS_TAURI_ENV } from "@/utils/platform";
 
 declare const FILE_HANDLE_SYMBOL: unique symbol;

@@ -1,5 +1,5 @@
-import { generateRoomKey } from "@/core/collaboration/roomCrypto";
-import { InMemoryRelay } from "@/core/testUtils/inMemoryRelay";
+import { generateRoomKey } from "@paplico/core/collaboration";
+import { InMemoryRelay } from "@paplico/core/testUtils";
 import { CompanionChannel } from "./CompanionChannel";
 import type { CompanionMessage } from "./companionProtocol";
 

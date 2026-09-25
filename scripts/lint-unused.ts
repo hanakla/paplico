@@ -14,8 +14,14 @@ import {
 } from "ts-morph";
 
 const __dir = import.meta.dirname ?? dirname(fileURLToPath(import.meta.url));
-const PROJECT = resolve(__dir, "../pkgs/web");
-const REPO_ROOT = resolve(PROJECT, "..");
+const REPO_ROOT = resolve(__dir, "..");
+const WEB = resolve(REPO_ROOT, "pkgs/web");
+const CORE = resolve(REPO_ROOT, "pkgs/core");
+/** Workspaces analyzed together, so usage across the package boundary counts. */
+const PACKAGES = [
+	{ dir: WEB, workspace: "pap" },
+	{ dir: CORE, workspace: "@paplico/core" },
+];
 const APPLY_MODE = process.argv.includes("--apply");
 
 const SKIP_NAMES = new Set([
@@ -295,10 +301,12 @@ function analyzeMemberUsage(
 
 function runTypecheck(phase: "before" | "after"): void {
 	try {
-		execSync("yarn workspace pap typecheck --pretty false", {
-			cwd: REPO_ROOT,
-			stdio: "inherit",
-		});
+		for (const { workspace } of PACKAGES) {
+			execSync(`yarn workspace ${workspace} typecheck --pretty false`, {
+				cwd: REPO_ROOT,
+				stdio: "inherit",
+			});
+		}
 	} catch (error) {
 		throw new Error(
 			`[lint-unused] typecheck failed (${phase} apply): ${String(error)}`,
@@ -309,13 +317,21 @@ function runTypecheck(phase: "before" | "after"): void {
 async function main() {
 	if (APPLY_MODE) runTypecheck("before");
 
+	// web's tsconfig already pulls in the core modules it imports; core's own
+	// tests and web-unreachable modules are added on top.
 	const project = new Project({
-		tsConfigFilePath: `${PROJECT}/tsconfig.json`,
+		tsConfigFilePath: `${WEB}/tsconfig.json`,
 	});
+	project.addSourceFilesAtPaths([
+		`${CORE}/src/**/*.ts`,
+		`!${CORE}/src/assets/_update.deno.ts`,
+	]);
 
 	const projectFiles = project
 		.getSourceFiles()
-		.filter((sf) => sf.getFilePath().startsWith(`${PROJECT}/`));
+		.filter((sf) =>
+			PACKAGES.some(({ dir }) => sf.getFilePath().startsWith(`${dir}/`)),
+		);
 	const files = projectFiles.filter((sf) => !shouldSkipFile(sf.getFilePath()));
 	const propertyAccessIndex = buildPropertyAccessIndex(files);
 	// Skipped files still reference the lint targets, so index all of them.
@@ -335,7 +351,7 @@ async function main() {
 	};
 
 	for (const sf of files) {
-		const rel = sf.getFilePath().replace(`${PROJECT}/`, "");
+		const rel = sf.getFilePath().replace(`${REPO_ROOT}/`, "");
 
 		const entries: string[] = [];
 

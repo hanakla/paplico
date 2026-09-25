@@ -1,5 +1,5 @@
+import type { HKGlitchFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { HKGlitchFilter } from "@/core/renderer/filters";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 
 const GLITCH_SLIDERS: FilterSliderDef[] = [

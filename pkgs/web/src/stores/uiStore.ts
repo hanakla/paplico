@@ -1,8 +1,5 @@
+import { defaultTextEditState, type TextEditState } from "@paplico/core/tools";
 import { proxy, useSnapshot } from "valtio";
-import {
-	defaultTextEditState,
-	type TextEditState,
-} from "../core/tools/TextToolController";
 
 type ColorTarget = "stroke" | "fill";
 

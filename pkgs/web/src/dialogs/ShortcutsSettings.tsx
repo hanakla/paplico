@@ -1,8 +1,3 @@
-import { Download, RotateCcw, Search, Upload } from "lucide-react";
-import { memo, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/Button";
-import { Input } from "@/components/Input";
-import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
 import {
 	formatKeySpec,
 	IS_MAC,
@@ -10,7 +5,12 @@ import {
 	type KeySpec,
 	type ShortcutCommand,
 	type ShortcutsConfig,
-} from "@/core/PaplicoShortcuts";
+} from "@paplico/core";
+import { Download, RotateCcw, Search, Upload } from "lucide-react";
+import { memo, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/Button";
+import { Input } from "@/components/Input";
+import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
 import { setShortcutOverrides } from "@/hooks/useAppConfig";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";

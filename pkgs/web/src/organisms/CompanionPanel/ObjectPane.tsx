@@ -5,6 +5,7 @@ import {
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import type { BlendMode, CompositionMode, Filter } from "@paplico/core/schema";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -22,7 +23,6 @@ import type {
 import { Drawer } from "@/components/Drawer";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { Switch } from "@/components/Switch";
-import type { BlendMode, CompositionMode, Filter } from "@/core/schema";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { useCompositionModeItems } from "@/hooks/useCompositionModeItems";
 import { type LocalizeKeys, useTranslation } from "@/locales";

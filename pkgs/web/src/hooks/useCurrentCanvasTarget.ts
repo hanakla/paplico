@@ -1,5 +1,5 @@
+import type { Paplico } from "@paplico/core";
 import { useSnapshot } from "valtio";
-import type { Paplico } from "@/core/Paplico";
 import { uiState } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
 

@@ -1,4 +1,5 @@
 import { Menu as BUIMenu } from "@base-ui/react/menu";
+import type { AnyArtObject } from "@paplico/core/schema";
 import { BookmarkPlus, Ellipsis, FileUp, Settings2 } from "lucide-react";
 import { memo, useState } from "react";
 import { Button } from "@/components/Button";
@@ -8,7 +9,6 @@ import { Input } from "@/components/Input";
 import { Menu } from "@/components/Menu";
 import { toastManager } from "@/components/Toast";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { AnyArtObject } from "@/core/schema";
 import type { useAppearancePresets } from "@/hooks/useAppearancePresets";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";

@@ -1,5 +1,16 @@
 "use client";
 
+import type { Paplico } from "@paplico/core";
+import {
+	type BuiltinIccProfileId,
+	inspectIccProfile,
+} from "@paplico/core/color";
+import {
+	createEmbeddedFileFromBytes,
+	DEFAULT_LENGTH_UNIT,
+	formatLength,
+} from "@paplico/core/document";
+import type { Artboard, EmbeddedFile } from "@paplico/core/schema";
 import { Download, ImageIcon, Upload, X } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/Button";
@@ -13,12 +24,6 @@ import { Slider } from "@/components/Slider";
 import { toastManager } from "@/components/Toast";
 import { Tooltip } from "@/components/Tooltip";
 import { BASE_DPI, RASTERIZATION_DPI_PRESETS } from "@/configs";
-import { inspectIccProfile } from "@/core/color/IccProfileRegistry";
-import type { BuiltinIccProfileId } from "@/core/color/types";
-import { createEmbeddedFileFromBytes } from "@/core/document/factory";
-import { DEFAULT_LENGTH_UNIT, formatLength } from "@/core/document/units";
-import type { Paplico } from "@/core/Paplico";
-import type { Artboard, EmbeddedFile } from "@/core/schema";
 import { SpinnerDialog } from "@/dialogs/SpinnerDialog";
 import { useSystemIccProfiles } from "@/hooks/useSystemIccProfiles";
 import {

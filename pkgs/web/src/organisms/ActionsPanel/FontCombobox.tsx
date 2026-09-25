@@ -1,15 +1,15 @@
 import { Combobox as BUICombobox } from "@base-ui/react/combobox";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { Check } from "lucide-react";
-import { memo, useEffect, useMemo, useState } from "react";
-import { Combobox2 } from "@/components/Combobox2";
-import { Spinner } from "@/components/Spinner";
 import {
 	FONT_SCRIPT_ORDER,
 	type FontMetadata,
 	type FontScript,
 	getFontManager,
-} from "@/core/index";
+} from "@paplico/core/typography";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { Check } from "lucide-react";
+import { memo, useEffect, useMemo, useState } from "react";
+import { Combobox2 } from "@/components/Combobox2";
+import { Spinner } from "@/components/Spinner";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { isFontEqual, useFontList } from "@/hooks/useCurrentFontSetting";
 import { useTranslation } from "@/locales";

@@ -1,8 +1,8 @@
+import { formatLength, unitToWorld } from "@paplico/core/document";
 import { memo, useEffect, useId, useState } from "react";
 import { useSnapshot } from "valtio";
 import { Input } from "@/components/Input";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { formatLength, unitToWorld } from "@/core/document/units";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 

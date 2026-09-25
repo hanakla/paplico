@@ -1,9 +1,9 @@
+import type { AnyArtObject } from "@paplico/core/schema";
 import { Contrast, Eye, EyeOff, Pencil, Squircle, Unlink } from "lucide-react";
 import { Button } from "@/components/Button";
 import { IconButton } from "@/components/IconButton";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { AnyArtObject } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 

@@ -1,5 +1,6 @@
 import { Menu as BUIMenu } from "@base-ui/react/menu";
 import { useDraggable } from "@dnd-kit/core";
+import type { AppearancePreset } from "@paplico/core/schema";
 import {
 	Bookmark,
 	ChevronDown,
@@ -12,7 +13,6 @@ import {
 import { memo, type ReactNode, useState } from "react";
 import { IconButton } from "@/components/IconButton";
 import { Menu } from "@/components/Menu";
-import type { AppearancePreset } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 

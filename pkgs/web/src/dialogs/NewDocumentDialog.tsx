@@ -1,3 +1,10 @@
+import {
+	DEFAULT_LENGTH_UNIT,
+	isLengthUnit,
+	LENGTH_UNITS,
+	type LengthUnit,
+	unitToWorld,
+} from "@paplico/core/document";
 import { Clock, FolderOpen, ImageIcon, X } from "lucide-react";
 import { useState } from "react";
 import { createCallable } from "react-call";
@@ -6,13 +13,6 @@ import { Checkbox } from "@/components/Checkbox";
 import { Dialog } from "@/components/Dialog";
 import { Input } from "@/components/Input";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import {
-	DEFAULT_LENGTH_UNIT,
-	isLengthUnit,
-	LENGTH_UNITS,
-	type LengthUnit,
-	unitToWorld,
-} from "@/core/document/units";
 import { type FileHandle, FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import { useEventCallback, useMediaDynamicRange } from "@/utils/hooks";

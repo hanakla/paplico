@@ -1,6 +1,6 @@
-import { collectDocumentLocalRefs } from "@/core/document/appearancePresets";
-import type { AppearancePreset } from "@/core/schema";
-import { deepClone } from "@/core/utils/lang";
+import { collectDocumentLocalRefs } from "@paplico/core/document";
+import type { AppearancePreset } from "@paplico/core/schema";
+import { deepClone } from "@paplico/core/utils";
 import { tauriAppearancePresetsRepo } from "@/infra/appearancePresetsDB.tauri";
 import { webAppearancePresetsRepo } from "@/infra/appearancePresetsDB.web";
 import { IS_TAURI_ENV } from "@/utils/platform";

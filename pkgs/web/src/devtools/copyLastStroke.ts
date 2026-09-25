@@ -1,5 +1,5 @@
-import { Clipboard, PAPLICO_ELEMENTS_MIME } from "@/core/infra/Clipboard";
-import type { Paplico } from "@/core/Paplico";
+import type { Paplico } from "@paplico/core";
+import { Clipboard, PAPLICO_ELEMENTS_MIME } from "@paplico/core/infra";
 
 /**
  * Dev-only stroke capture: puts the last pen stroke on the clipboard twice

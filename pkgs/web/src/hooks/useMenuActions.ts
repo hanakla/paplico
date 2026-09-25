@@ -1,11 +1,11 @@
-import type React from "react";
-import { toastManager } from "@/components/Toast";
+import type { Paplico } from "@paplico/core";
 import {
 	createEmbeddedImageFile,
 	createImageObject,
-} from "@/core/document/factory";
-import type { Paplico } from "@/core/Paplico";
-import { isGroup } from "@/core/schema";
+} from "@paplico/core/document";
+import { isGroup } from "@paplico/core/schema";
+import type React from "react";
+import { toastManager } from "@/components/Toast";
 import { confirmDialog } from "@/infra/confirmDialog";
 import { FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";

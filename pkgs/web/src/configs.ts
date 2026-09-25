@@ -12,10 +12,15 @@ export const AUTO_SAVE_SLOW_THRESHOLD_MS = 1_000;
 /** Max revisions kept per document */
 export const AUTO_SAVE_MAX_REVISIONS = 20;
 
+// --- Collaboration ---
+
+/** PartyKit host (`host:port`) serving cloud rooms and the E2EE relay. */
+export const PARTYKIT_HOST =
+	process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999";
+
 // --- Rasterization resolution ---
 
-/** Base DPI that maps to 1x export scale (scale = dpi / BASE_DPI). */
-export const BASE_DPI = 72;
+export { BASE_DPI } from "@paplico/core/document";
 
 /** DPI presets offered by the document filter-resolution and export selectors. */
 export const RASTERIZATION_DPI_PRESETS: readonly number[] = [72, 144, 300];

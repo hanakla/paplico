@@ -1,3 +1,14 @@
+import type {
+	Reference3DCamera,
+	Reference3DElement,
+	Reference3DPrimitiveShape,
+	Vec3,
+} from "@paplico/core/schema";
+import {
+	getCameraDistance,
+	getCameraOrbitAngles,
+	Reference3DTool,
+} from "@paplico/core/tools";
 import {
 	Box,
 	Circle,
@@ -16,17 +27,6 @@ import { SimpleSelect } from "@/components/SimpleSelect";
 import { InfiniteSlider, Slider } from "@/components/Slider";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type {
-	Reference3DCamera,
-	Reference3DElement,
-	Reference3DPrimitiveShape,
-	Vec3,
-} from "@/core/schema";
-import {
-	getCameraDistance,
-	getCameraOrbitAngles,
-	Reference3DTool,
-} from "@/core/tools/Reference3DTool";
 import { FileSystem } from "@/infra/filesystem";
 import { type LocalizeKeys, useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";

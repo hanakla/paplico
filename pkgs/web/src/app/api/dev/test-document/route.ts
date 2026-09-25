@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Revalidate } from "next/dist/server/lib/cache-control";
 
-const PAPF_PATH = resolve(process.cwd(), "src/tests/test-document.papf");
+const PAPF_PATH = resolve(
+	process.cwd(),
+	"../core/src/testUtils/fixtures/test-document.papf",
+);
 
 export const revalidate: Revalidate = false;
 

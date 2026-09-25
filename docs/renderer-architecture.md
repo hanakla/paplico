@@ -41,8 +41,8 @@ Paplico の WebGPU レンダリングパイプラインのアーキテクチャ�
 | テクスチャ管理 | `renderer/BrushTextureManager.ts` |
 | プリフィルター | `renderer/PreFilterRenderer.ts` |
 | ポストフィルター | `renderer/FilterRenderer.ts` |
-| ブラーフィルター | `renderer/filters/BlurFilterProcessor.ts` |
-| FrostGlass フィルター | `renderer/filters/FrostGlassFilterProcessor.ts` |
+| ブラーフィルター | `renderer/filters/BlurFilter/BlurFilter.ts` |
+| FrostGlass フィルター | `renderer/filters/FrostGlassFilter/FrostGlassFilter.ts` |
 | Backdrop キャプチャ | `renderer/BackdropCaptureManager.ts` |
 | グラデーション生成 | `renderer/GradientTextureGenerator.ts` |
 
@@ -592,7 +592,7 @@ flowchart TD
 
     Capture --> FilterApply
 
-    subgraph FilterApply [FrostGlassFilterProcessor 2パス]
+    subgraph FilterApply [FrostGlassFilterHandler 2パス]
         direction TB
 
         WriteH[WRITE: FrostGlass Uniform BG0:B0 Pass1]
@@ -629,7 +629,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Blur[BlurFilterProcessor.process]
+    Blur[BlurFilterHandler.process]
 
     Blur --> WriteH
 

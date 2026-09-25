@@ -1,9 +1,13 @@
+import type {
+	AnyArtObject,
+	BlendMode,
+	CompositionMode,
+} from "@paplico/core/schema";
 import { memo } from "react";
 import { FakeInput } from "@/components/FakeInput";
 import { Separator } from "@/components/Separator";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { AnyArtObject, BlendMode, CompositionMode } from "@/core/schema";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { useCompositionModeItems } from "@/hooks/useCompositionModeItems";
 import { useTranslation } from "@/locales";

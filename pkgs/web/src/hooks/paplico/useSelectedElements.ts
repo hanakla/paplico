@@ -1,7 +1,7 @@
+import type { PublicUIState } from "@paplico/core";
+import type { AnyArtObject } from "@paplico/core/schema";
 import { startTransition, useEffect, useRef, useState } from "react";
 import { subscribe } from "valtio";
-import type { PublicUIState } from "@/core/Paplico";
-import type { AnyArtObject } from "@/core/schema";
 
 /**
  * Resolves selectedElementIds → AnyArtObject[] outside of Valtio's

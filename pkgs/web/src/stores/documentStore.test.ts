@@ -1,7 +1,8 @@
 // @vitest-environment node
 // Blobs only survive fake-indexeddb's structured clone as Node Blobs.
+
+import { openPapf } from "@paplico/core/io";
 import { describe, expect, it } from "vitest";
-import { openPapf } from "@/core/io/papf/reader";
 import { db } from "@/infra/documentDB";
 import {
 	createDocument,

@@ -54,9 +54,9 @@ timed Dab対応ブラシは、ペンが動かない間も25ミリ秒周期で最
 
 参照先:
 
-- `pkgs/web/src/core/ui/PaplicoUI.ts`
-- `pkgs/web/src/core/tools/PenTool.ts`
-- `pkgs/web/src/core/brush/BrushStrokeSession.ts`
+- `pkgs/core/src/ui/PaplicoUI.ts`
+- `pkgs/core/src/tools/PenTool.ts`
+- `pkgs/core/src/brush/BrushStrokeSession.ts`
 
 ## DabEvaluatorが速度を求める
 
@@ -114,9 +114,9 @@ segment長が0.001 world unit未満な場合は静止segmentとして扱う。fa
 
 参照先:
 
-- `pkgs/web/src/core/renderer/canvas/pipeline/brush/DabEvaluator.ts`
-- `pkgs/web/src/core/schema.ts`
-- `pkgs/web/src/core/io/migrations/brushV2/convert.ts`
+- `pkgs/core/src/renderer/canvas/pipeline/brush/DabEvaluator.ts`
+- `pkgs/core/src/schema.ts`
+- `pkgs/core/src/io/migrations/brushV2/convert.ts`
 
 ## 速度をproperty curveへ渡す
 
@@ -135,11 +135,11 @@ value = clamp(base * factor, propertyMin, propertyMax)
 
 参照先:
 
-- `pkgs/web/src/core/brush/inputs.ts`
-- `pkgs/web/src/core/brush/evaluateProperties.ts`
-- `pkgs/web/src/core/brush/properties.ts`
-- `pkgs/web/src/core/renderer/canvas/pipeline/brush/DabEvaluator.ts`
-- `pkgs/web/src/core/renderer/canvas/pipeline/brush/RibbonGenerator.ts`
+- `pkgs/core/src/brush/inputs.ts`
+- `pkgs/core/src/brush/evaluateProperties.ts`
+- `pkgs/core/src/brush/properties.ts`
+- `pkgs/core/src/renderer/canvas/pipeline/brush/DabEvaluator.ts`
+- `pkgs/core/src/renderer/canvas/pipeline/brush/RibbonGenerator.ts`
 
 ## sizeBySpeedとpoolingの互換変換
 
@@ -175,8 +175,8 @@ size = baseSize * clamp(1 - k * s, 0, 8)
 
 参照先:
 
-- `pkgs/web/src/core/io/migrations/brushV2/v1.ts`
-- `pkgs/web/src/core/io/migrations/brushV2/convert.ts`
+- `pkgs/core/src/io/migrations/brushV2/v1.ts`
+- `pkgs/core/src/io/migrations/brushV2/convert.ts`
 
 ## ライブプレビューの速度
 
@@ -190,9 +190,9 @@ prefix再利用は、過去部分の評価が全長に依存しないbuildupプ�
 
 参照先:
 
-- `pkgs/web/src/core/utils/geometry/strokeFitting.ts`
-- `pkgs/web/src/core/renderer/canvas/pipeline/brush/LiveDabAccumulator.ts`
-- `pkgs/web/src/core/renderer/canvas/pipeline/brush/DabRenderer.ts`
+- `pkgs/core/src/utils/geometry/strokeFitting.ts`
+- `pkgs/core/src/renderer/canvas/pipeline/brush/LiveDabAccumulator.ts`
+- `pkgs/core/src/renderer/canvas/pipeline/brush/DabRenderer.ts`
 
 ## プレビューと確定で幅を共有する
 
@@ -222,9 +222,9 @@ size以外のspeed curveはprofileへ焼き込まない。共有するsegmentの
 
 参照先:
 
-- `pkgs/web/src/core/tools/PenTool.ts`
-- `pkgs/web/src/core/renderer/canvas/pipeline/brush/strokeHalfWidth.ts`
-- `pkgs/web/src/core/renderer/canvas/pipeline/brush/DabEvaluator.ts`
+- `pkgs/core/src/tools/PenTool.ts`
+- `pkgs/core/src/renderer/canvas/pipeline/brush/strokeHalfWidth.ts`
+- `pkgs/core/src/renderer/canvas/pipeline/brush/DabEvaluator.ts`
 
 ## Yjsへ保存する
 
@@ -261,9 +261,9 @@ sequenceDiagram
 
 参照先:
 
-- `pkgs/web/src/core/Paplico.ts`
-- `pkgs/web/src/core/PaplicoCommands.ts`
-- `pkgs/web/src/core/collaboration/YjsProvider.ts`
+- `pkgs/core/src/Paplico.ts`
+- `pkgs/core/src/PaplicoCommands.ts`
+- `pkgs/core/src/collaboration/YjsProvider.ts`
 
 ## 確定後の再描画
 
@@ -279,9 +279,9 @@ sequenceDiagram
 
 参照先:
 
-- `pkgs/web/src/core/renderer/DocumentChangeSubscriber.ts`
-- `pkgs/web/src/core/renderer/RenderScheduler.ts`
-- `pkgs/web/src/core/renderer/canvas/pipeline/brush/DabRenderer.ts`
+- `pkgs/core/src/renderer/DocumentChangeSubscriber.ts`
+- `pkgs/core/src/renderer/RenderScheduler.ts`
+- `pkgs/core/src/renderer/canvas/pipeline/brush/DabRenderer.ts`
 
 > [!TIP]
 > **戻る:** [ブラシシステム](/devdocs/brush-system)

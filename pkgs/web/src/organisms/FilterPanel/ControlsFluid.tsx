@@ -1,5 +1,5 @@
+import type { HKFluidFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { HKFluidFilter } from "@/core/renderer/filters";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 
 const FLUID_SLIDERS: FilterSliderDef[] = [

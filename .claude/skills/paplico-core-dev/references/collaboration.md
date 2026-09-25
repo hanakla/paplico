@@ -46,9 +46,9 @@ Two implementations of `ICollaboration`:
 - **Collaboration** (local mode) — y-websocket + custom WebSocket server
 - **PartyKitCollaboration** (cloud mode) — y-partykit + Clerk JWT auth
 
-`createCollaboration` factory selects based on environment config. Both provide: Y.Doc sync, Awareness API (cursor positions, user presence), room management (kick, close).
+The app picks the implementation (`createCollaboration` in `pkgs/web/src/hooks/useCollab.ts`) and passes the relay host through `CollaborationConfig.relayHost`; the engine reads no environment variables. Both provide: Y.Doc sync, Awareness API (cursor positions, user presence), room management (kick, close).
 
-Adding a new collaboration transport: implement `ICollaboration` interface and update `createCollaboration`.
+Adding a new collaboration transport: implement `ICollaboration` interface, export it from `collaboration/index.ts`, and select it in the app's `createCollaboration`.
 
 ## What to change when adding new synced state
 

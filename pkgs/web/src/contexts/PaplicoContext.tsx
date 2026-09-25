@@ -1,9 +1,12 @@
 "use client";
 
+import type {
+	Paplico,
+	PaplicoCommands,
+	PaplicoSelection,
+	PublicUIState,
+} from "@paplico/core";
 import { createContext, useContext } from "react";
-import type { Paplico, PublicUIState } from "@/core/Paplico";
-import type { PaplicoCommands } from "@/core/PaplicoCommands";
-import type { PaplicoSelection } from "@/core/PaplicoSelection";
 
 const PaplicoContext = createContext<Paplico | null>(null);
 

@@ -1,7 +1,7 @@
+import { withoutStoredBrushSize } from "@paplico/core/brush";
+import { migrateBrushSettingsToV2 } from "@paplico/core/io";
+import type { BrushSettings } from "@paplico/core/schema";
 import { decode, encode } from "cbor-x";
-import { withoutStoredBrushSize } from "@/core/brush/access";
-import { migrateBrushSettingsToV2 } from "@/core/io/migrations/brushV2/convert";
-import type { BrushSettings } from "@/core/schema";
 import {
 	type PersistedBrushPreset,
 	snapshotPersistedBrushPreset,

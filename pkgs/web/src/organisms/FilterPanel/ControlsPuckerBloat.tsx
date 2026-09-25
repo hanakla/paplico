@@ -1,5 +1,5 @@
+import type { PuckerBloatFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { PuckerBloatFilter } from "@/core/renderer/filters";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 
 const PUCKER_BLOAT_SLIDERS: FilterSliderDef[] = [

@@ -3,7 +3,8 @@ import {
 	computeThumbnailScale,
 } from "../generateDocumentThumbnail";
 
-vi.mock("@/core/utils/geometry/bounds", () => ({
+vi.mock("@paplico/core/utils", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@paplico/core/utils")>()),
 	calculateElementBounds: vi.fn((el: any) => ({
 		minX: el.x - el.w / 2,
 		minY: el.y - el.h / 2,

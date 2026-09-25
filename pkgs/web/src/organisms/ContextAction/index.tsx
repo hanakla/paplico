@@ -1,3 +1,6 @@
+import { canOutlineStrokes, localAppearances } from "@paplico/core/document";
+import { getArtboardBounds } from "@paplico/core/schema";
+import { worldToScreen } from "@paplico/core/utils";
 import { SquareDashed, Trash2 } from "lucide-react";
 import { useDeferredValue, useEffect, useRef } from "react";
 import { useSnapshot } from "valtio";
@@ -13,10 +16,6 @@ import {
 	usePaplicoStore,
 } from "@/contexts/PaplicoContext";
 import { useTargetViewport } from "@/contexts/ViewIdContext";
-import { localAppearances } from "@/core/document/appearancePresets";
-import { canOutlineStrokes } from "@/core/document/strokeOutline";
-import { getArtboardBounds } from "@/core/schema";
-import { worldToScreen } from "@/core/utils/geometry/geometry";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
 import { useTranslation } from "@/locales";
 import { PathEditCutModeToggle } from "@/organisms/ActionsPanel/PathEditToolControls";

@@ -1,5 +1,9 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import type {
+	AppearancePreset,
+	AppearancePresetRef,
+} from "@paplico/core/schema";
 import {
 	Bookmark,
 	ChevronDown,
@@ -14,7 +18,6 @@ import { type CSSProperties, memo, useState } from "react";
 import { IconButton } from "@/components/IconButton";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { AppearancePreset, AppearancePresetRef } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { FILTER_TEXT_KEYS, getFilterIcon } from "./constants";

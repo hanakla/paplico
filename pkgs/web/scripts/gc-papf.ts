@@ -17,13 +17,13 @@
  * pages are blank, since the artboard previews need the GPU renderer.
  */
 import { readFile, stat, writeFile } from "node:fs/promises";
-import { gcDocument } from "../src/core/io/papf/gc";
 import {
+	gcDocument,
 	openPapfContainer,
+	serializeDocument,
 	wrapPapfInPdf,
-} from "../src/core/io/papf/pdfContainer";
-import { serializeDocument } from "../src/core/io/papf/writer";
-import type { Document } from "../src/core/schema";
+} from "@paplico/core/io";
+import type { Document } from "@paplico/core/schema";
 
 async function main() {
 	const args = process.argv.slice(2);

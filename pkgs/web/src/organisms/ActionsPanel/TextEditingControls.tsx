@@ -1,3 +1,4 @@
+import type { TextStyle } from "@paplico/core/schema";
 import {
 	AlignCenter,
 	AlignLeft,
@@ -17,7 +18,6 @@ import { Input } from "@/components/Input";
 import { InfiniteSlider } from "@/components/Slider";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { TextStyle } from "@/core/schema";
 import { useActiveFontSettings } from "@/hooks/useCurrentFontSetting";
 import { useFontPreview } from "@/hooks/useFontPreview";
 import { useTranslation } from "@/locales";

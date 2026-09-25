@@ -1,5 +1,5 @@
+import type { SvgCompositeFilter } from "@paplico/core/filters";
 import { memo, useMemo } from "react";
-import type { SvgCompositeFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

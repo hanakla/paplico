@@ -48,6 +48,7 @@ jobs:
       - if: steps.cache.outputs.cache-hit != 'true'
         run: yarn install --immutable
       - run: yarn workspace pap typecheck
+      - run: yarn workspace @paplico/core typecheck
 
   test:
     needs: setup
@@ -69,6 +70,7 @@ jobs:
       - if: steps.cache.outputs.cache-hit != 'true'
         run: yarn install --immutable
       - run: yarn workspace pap test run
+      - run: yarn workspace @paplico/core test
 
   lint:
     needs: setup

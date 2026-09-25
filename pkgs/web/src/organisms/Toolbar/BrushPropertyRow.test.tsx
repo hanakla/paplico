@@ -1,5 +1,5 @@
+import type { BrushPropertyConfig } from "@paplico/core/schema";
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { BrushPropertyConfig } from "@/core/schema";
 import { setLanguage } from "@/hooks/useAppConfig";
 import { BrushPropertyRow } from "./BrushPropertyRow";
 

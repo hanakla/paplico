@@ -1,5 +1,19 @@
 "use client";
 
+import type { Paplico } from "@paplico/core";
+import { readStoredBrushSize } from "@paplico/core/brush";
+import {
+	buildCompanionUrl,
+	exportRoomKey,
+	generateRoomId,
+	generateRoomKey,
+} from "@paplico/core/collaboration";
+import { localAppearances } from "@paplico/core/document";
+import {
+	DEFAULT_COMPOSITION_MODE,
+	type FillColor,
+	type StrokeColor,
+} from "@paplico/core/schema";
 import { throttle } from "es-toolkit";
 import { memo, useEffect, useMemo, useRef } from "react";
 import { proxy, useSnapshot } from "valtio";
@@ -9,20 +23,6 @@ import type {
 	CompanionState,
 } from "@/companion/companionProtocol";
 import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
-import { readStoredBrushSize } from "@/core/brush/access";
-import { buildCompanionUrl } from "@/core/collaboration/inviteUrl";
-import {
-	exportRoomKey,
-	generateRoomId,
-	generateRoomKey,
-} from "@/core/collaboration/roomCrypto";
-import { localAppearances } from "@/core/document/appearancePresets";
-import type { Paplico } from "@/core/Paplico";
-import {
-	DEFAULT_COMPOSITION_MODE,
-	type FillColor,
-	type StrokeColor,
-} from "@/core/schema";
 import { useFirstSelectedElement } from "@/hooks/paplico/useFirstSelectedElement";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useBrushEdits } from "@/hooks/useBrushEdits";

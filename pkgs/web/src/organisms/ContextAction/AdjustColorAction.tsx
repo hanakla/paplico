@@ -1,10 +1,10 @@
+import type { AdjustColorSession } from "@paplico/core";
 import { Palette } from "lucide-react";
 import { useRef, useState } from "react";
 import { IconButton } from "@/components/IconButton";
 import { Popover } from "@/components/Popover";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplicoCommands } from "@/contexts/PaplicoContext";
-import type { AdjustColorSession } from "@/core/PaplicoCommands";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { ColorAdjustPanel } from "./ColorAdjustPanel";

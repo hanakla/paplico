@@ -1,4 +1,5 @@
 import { Menu as BUIMenu } from "@base-ui/react/menu";
+import type { MeshWarpFromShapeFailure } from "@paplico/core";
 import {
 	CopyPlus,
 	Crop,
@@ -17,7 +18,6 @@ import { IconButton } from "@/components/IconButton";
 import { Menu } from "@/components/Menu";
 import { toastManager } from "@/components/Toast";
 import { usePaplico, usePaplicoCommands } from "@/contexts/PaplicoContext";
-import type { MeshWarpFromShapeFailure } from "@/core";
 import { useTranslation } from "@/locales";
 import { setSelectedBrushPresetUid } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";

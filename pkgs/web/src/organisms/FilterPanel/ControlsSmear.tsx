@@ -1,5 +1,5 @@
+import type { HKSmearFilter } from "@paplico/core/filters";
 import { memo } from "react";
-import type { HKSmearFilter } from "@/core/renderer/filters";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 
 const SMEAR_SLIDERS: FilterSliderDef[] = [

@@ -5,6 +5,7 @@ import {
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import type { AnyArtObject, BlendMode } from "@paplico/core/schema";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -25,7 +26,6 @@ import type {
 } from "@/companion/companionProtocol";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { ToggleGroup } from "@/components/ToggleGroup";
-import type { AnyArtObject, BlendMode } from "@/core/schema";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { useTranslation } from "@/locales";
 import { getElementTypeLabel } from "@/organisms/LayerPanel";

@@ -1,3 +1,11 @@
+import { FILTER_CATALOG } from "@paplico/core/filters";
+import type {
+	AnyArtObject,
+	FillAppearance,
+	FillColor,
+	StrokeAppearance,
+	StrokeColor,
+} from "@paplico/core/schema";
 import {
 	Activity,
 	AudioWaveform,
@@ -23,14 +31,6 @@ import {
 	Type,
 	Waves,
 } from "lucide-react";
-import { FILTER_CATALOG } from "@/core/renderer/filters/filterCatalog";
-import type {
-	AnyArtObject,
-	FillAppearance,
-	FillColor,
-	StrokeAppearance,
-	StrokeColor,
-} from "@/core/schema";
 import type { LocalizeKeys } from "@/locales";
 
 export const FILTER_TEXT_KEYS = {

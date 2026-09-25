@@ -1,9 +1,9 @@
 "use client";
 
+import { type AnyArtObject, TRANSIENT_LAYER_KIND } from "@paplico/core/schema";
 import { ChevronRight } from "lucide-react";
 import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { type AnyArtObject, TRANSIENT_LAYER_KIND } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { getElementTypeLabel } from "@/organisms/LayerPanel";
 import { useEventCallback } from "@/utils/hooks";

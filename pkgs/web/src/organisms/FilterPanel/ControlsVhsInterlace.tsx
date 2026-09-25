@@ -1,14 +1,14 @@
+import type {
+	HKVhsInterlaceFilter,
+	HKVhsInterlaceParams,
+} from "@paplico/core/filters";
+import type { Color } from "@paplico/core/schema";
 import { ChevronDown } from "lucide-react";
 import { memo, type ReactNode, useState } from "react";
 import { Accordion } from "@/components/Accordion";
 import { Checkbox } from "@/components/Checkbox";
 import { ColorPickerThin } from "@/components/ColorPicker2";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import type {
-	HKVhsInterlaceFilter,
-	HKVhsInterlaceParams,
-} from "@/core/renderer/filters";
-import type { Color } from "@/core/schema";
 import { type LocalizeKeys, useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

@@ -1,0 +1,2660 @@
+import { makeStructuredView } from "webgpu-utils";
+import type { SoftProofLutResult } from "../color/types";
+import { localAppearances } from "../document/appearancePresets";
+import {
+	type AnyArtObject,
+	type Artboard,
+	type Document,
+	type ElementTransform,
+	type Filter,
+	getArtboardBounds,
+	type RawRGBA,
+	type TextElement,
+	type Viewport,
+} from "../schema";
+import {
+	buildDocumentTextResolver,
+	type TextDocumentResolver,
+	TextLayoutEngine,
+	TextRenderer,
+} from "../typography";
+import { getFontManager } from "../typography/fonts";
+import {
+	expandBounds,
+	type LocalBBox,
+	type WorldBBox,
+} from "../utils/geometry/bounds";
+import { composeAncestorTransform } from "../utils/geometry/geometry";
+import {
+	compileShaderModule,
+	type ShaderDataDefinitions,
+	type StructuredView,
+} from "../utils/wgpu-utils";
+import type { CanvasTarget } from "./CanvasTarget";
+import { type CanvasFrameTransaction, CanvasLayer } from "./canvas/CanvasLayer";
+import { expandRenderFilter } from "./canvas/CanvasLayer.helpers";
+import { RENDER_SAMPLE_COUNT } from "./canvas/CanvasLayerTypes";
+import { RenderCacheManager } from "./canvas/caches/RenderCacheManager";
+import type { Reference3DRenderContext } from "./canvas/elements/Reference3DElementRenderer";
+import { BackdropCaptureManager } from "./canvas/pipeline/BackdropCaptureManager";
+import { BrushTextureManager } from "./canvas/pipeline/brush/BrushTextureManager";
+import {
+	classifyFilterHandler,
+	type FilterHandler,
+	FilterRenderer,
+	type RegisterableFilterHandler,
+} from "./canvas/pipeline/FilterRenderer";
+import {
+	buildFilterPlansForElements,
+	planBoundsOf,
+} from "./canvas/pipeline/RenderPlanner";
+import { STRIP_INSTANCE_LAYOUT } from "./canvas/pipeline/strips/stripInstanceLayout";
+import {
+	UNIFIED_VERTEX_BYTES,
+	UNIFIED_VERTEX_OFFSETS,
+} from "./canvas/pipeline/unifiedVertexLayout";
+import { buildParentedMap } from "./canvas/pipeline/ViewportManager";
+import { BlurFilterHandler } from "./filters/BlurFilter/BlurFilter";
+import { ClipToShapeFilterHandler } from "./filters/ClipToShapeFilter/ClipToShapeFilter";
+import { DropShadowFilterHandler } from "./filters/DropShadowFilter/DropShadowFilter";
+import { Extrude3DFilterHandler } from "./filters/Extrude3DFilter/Extrude3DFilter";
+import { FrostGlassFilterHandler } from "./filters/FrostGlassFilter/FrostGlassFilter";
+import { HKBloomFilterHandler } from "./filters/HKBloomFilter/HKBloomFilter";
+import { HKBlushStrokeFilterHandler } from "./filters/HKBlushStrokeFilter/HKBlushStrokeFilter";
+import { HKChromaticAberrationFilterHandler } from "./filters/HKChromaticAberrationFilter/HKChromaticAberrationFilter";
+import { HKColorReplacementFilterHandler } from "./filters/HKColorReplacementFilter/HKColorReplacementFilter";
+import { HKComicToneFilterHandler } from "./filters/HKComicToneFilter/HKComicToneFilter";
+import { HKDirectionalBlurFilterHandler } from "./filters/HKDirectionalBlurFilter/HKDirectionalBlurFilter";
+import { HKFluidFilterHandler } from "./filters/HKFluidFilter/HKFluidFilter";
+import { HKGlitchFilterHandler } from "./filters/HKGlitchFilter/HKGlitchFilter";
+import { HKGradientMapFilterHandler } from "./filters/HKGradientMapFilter/HKGradientMapFilter";
+import { HKHalftoneFilterHandler } from "./filters/HKHalftoneFilter/HKHalftoneFilter";
+import { HKHuskyFilterHandler } from "./filters/HKHuskyFilter/HKHuskyFilter";
+import { HKInnerGlowFilterHandler } from "./filters/HKInnerGlowFilter/HKInnerGlowFilter";
+import { HKKaleidoscopeFilterHandler } from "./filters/HKKaleidoscopeFilter/HKKaleidoscopeFilter";
+import { HKKirakiraFilterHandler } from "./filters/HKKirakiraFilter/HKKirakiraFilter";
+import { HKOutlineFilterHandler } from "./filters/HKOutlineFilter/HKOutlineFilter";
+import { HKPaperV2FilterHandler } from "./filters/HKPaperV2Filter/HKPaperV2Filter";
+import { HKPixelSortFilterHandler } from "./filters/HKPixelSortFilter/HKPixelSortFilter";
+import { HKPosterizationFilterHandler } from "./filters/HKPosterizationFilter/HKPosterizationFilter";
+import { HKRadialRotDirFilterHandler } from "./filters/HKRadialRotDirFilter/HKRadialRotDirFilter";
+import { HKSelectiveCorrectionFilterHandler } from "./filters/HKSelectiveCorrectionFilter/HKSelectiveCorrectionFilter";
+import { HKSmearFilterHandler } from "./filters/HKSmearFilter/HKSmearFilter";
+import { HKSprayingFilterHandler } from "./filters/HKSprayingFilter/HKSprayingFilter";
+import { HKTurbulenceFilterHandler } from "./filters/HKTurbulenceFilter/HKTurbulenceFilter";
+import { HKVhsInterlaceFilterHandler } from "./filters/HKVhsInterlaceFilter/HKVhsInterlaceFilter";
+import { HKWaveFilterHandler } from "./filters/HKWaveFilter/HKWaveFilter";
+import { NoiseFilterHandler } from "./filters/NoiseFilter/NoiseFilter";
+import { PathOffsetFilterHandler } from "./filters/PathOffsetFilter/PathOffsetFilter";
+import { PathUnionFilterHandler } from "./filters/PathUnionFilter/PathUnionFilter";
+import { PixelateFilterHandler } from "./filters/PixelateFilter/PixelateFilter";
+import { PuckerBloatFilterHandler } from "./filters/PuckerBloatFilter/PuckerBloatFilter";
+import { Revolve3DFilterHandler } from "./filters/Revolve3DFilter/Revolve3DFilter";
+import { Rotate3DFilterHandler } from "./filters/Rotate3DFilter/Rotate3DFilter";
+import { RoughFilterHandler } from "./filters/RoughFilter/RoughFilter";
+import { StrokeOutlineFilterHandler } from "./filters/StrokeOutlineFilter/StrokeOutlineFilter";
+import { ScratchTexturePool } from "./filters/shared/ScratchTexturePool";
+import { SvgBlendFilterHandler } from "./filters/svg/SvgBlendFilter/SvgBlendFilter";
+import {
+	SVG_COLOR_FUNCTIONS,
+	SvgColorFunctionFilterHandler,
+} from "./filters/svg/SvgColorFunctionFilter/SvgColorFunctionFilter";
+import { SvgColorMatrixFilterHandler } from "./filters/svg/SvgColorMatrixFilter/SvgColorMatrixFilter";
+import { SvgComponentTransferFilterHandler } from "./filters/svg/SvgComponentTransferFilter/SvgComponentTransferFilter";
+import { SvgCompositeFilterHandler } from "./filters/svg/SvgCompositeFilter/SvgCompositeFilter";
+import { SvgConvolveMatrixFilterHandler } from "./filters/svg/SvgConvolveMatrixFilter/SvgConvolveMatrixFilter";
+import { SvgDisplacementMapFilterHandler } from "./filters/svg/SvgDisplacementMapFilter/SvgDisplacementMapFilter";
+import { SvgDropShadowFilterHandler } from "./filters/svg/SvgDropShadowFilter/SvgDropShadowFilter";
+import { SvgFilterGraphFilterHandler } from "./filters/svg/SvgFilterGraphFilter/SvgFilterGraphFilter";
+import { SvgFloodFilterHandler } from "./filters/svg/SvgFloodFilter/SvgFloodFilter";
+import { SvgGaussianBlurFilterHandler } from "./filters/svg/SvgGaussianBlurFilter/SvgGaussianBlurFilter";
+import { SvgMorphologyFilterHandler } from "./filters/svg/SvgMorphologyFilter/SvgMorphologyFilter";
+import { SvgOffsetFilterHandler } from "./filters/svg/SvgOffsetFilter/SvgOffsetFilter";
+import { SvgTurbulenceFilterHandler } from "./filters/svg/SvgTurbulenceFilter/SvgTurbulenceFilter";
+import { TransformFilterHandler } from "./filters/TransformFilter/TransformFilter";
+import { ZigzagFilterHandler } from "./filters/ZigzagFilter/ZigzagFilter";
+import { GPUTimingProfiler } from "./GPUTimingProfiler";
+import { GradientTextureGenerator } from "./generators/GradientTextureGenerator";
+import { MeshGradientTextureGenerator } from "./generators/MeshGradientTextureGenerator";
+import {
+	createFullscreenPipeline,
+	createGeometryPipeline,
+} from "./PipelineFactory";
+import {
+	BLIT_BACKDROP_WITH_MASK_SHADER,
+	BLIT_GLASS_PUNCH_SHADER,
+	BLIT_SHADER,
+	BLIT_WITH_MASK_CHAIN_SHADER,
+	BLIT_WITH_MASK_SHADER,
+	EXPOSURE_BLIT_SHADER,
+	MESH_BLIT_SHADER,
+	QUAD_BLIT_SHADER,
+} from "./shaders/blit.wgsl";
+import { COMPOSITE_SHADER } from "./shaders/composite.wgsl";
+import { COONS_PATCH_COMPUTE_SHADER } from "./shaders/coonsPatchCompute.wgsl";
+import { GRADIENT_FILL_SHADER } from "./shaders/gradientFill.wgsl";
+import { STRIP_SHADER } from "./shaders/strip.wgsl";
+import { UNIFIED_GEOMETRY_SHADER } from "./shaders/unified.wgsl";
+import type { FrameRequest, UIOverlayState } from "./types";
+import { UILayer } from "./ui/UILayer";
+
+/**
+ * Rendering strategy resolved from dirty reasons.
+ * Renderer receives this instead of raw dirty reasons.
+ */
+export const RenderStrategy = {
+	/** Re-render document + overlay (viewport/resize/document changed) */
+	full: "full",
+	/** Re-render document during an interaction that cannot blit (preview
+	 *  geometry or volatile content rides along). Renders the same passes as
+	 *  `full`; the name only records why the frame happened. */
+	fullInteraction: "fullInteraction",
+	/** Re-render document keeping boundsCache (shape-preserving changes: moves, paste, duplicate) */
+	fullTransformOnly: "fullTransformOnly",
+	/** Skip the document render entirely: blit the cached composite frame and
+	 *  reproject it through the current viewport. Used for pan/zoom during a
+	 *  gesture and for selection / cursor changes, which leave the document
+	 *  pixels untouched. The overlay layer still re-renders, so gizmos and
+	 *  selection stay crisp. CanvasLayer falls back to a normal render when
+	 *  it holds no valid cache. */
+	viewportBlit: "viewportBlit",
+	/** Re-render document + overlay without full cache invalidation (async
+	 *  resource load, post-process toggle, tile-convergence follow-up, the
+	 *  full-quality settle frame after a viewport gesture) */
+	overlayOnly: "overlayOnly",
+} as const;
+export type RenderStrategy = keyof typeof RenderStrategy;
+
+/** Per-call overrides for the offscreen export render path. */
+interface ExportRenderOptions {
+	/** Draw through this target so the caller keeps its own cache scope. */
+	targetId?: string;
+}
+
+interface TargetData {
+	context: GPUCanvasContext;
+	uniformBuffer: GPUBuffer;
+	viewportUniformView: StructuredView;
+	bindGroup: GPUBindGroup;
+	canvasLayer: CanvasLayer;
+	uiLayer: UILayer;
+	backdropCaptureManager: BackdropCaptureManager;
+	cacheManager: RenderCacheManager;
+}
+
+interface Pipelines {
+	strokePipeline: GPURenderPipeline;
+	fillPipeline: GPURenderPipeline;
+	/** Sparse-strip coverage draw for document paths (strip.wgsl). */
+	stripPipeline: GPURenderPipeline;
+	gradientFillPipeline: GPURenderPipeline;
+	dummyGradientBindGroup: GPUBindGroup;
+	dummyMaskBindGroup: GPUBindGroup;
+	blitPipeline: GPURenderPipeline;
+	blitPipelineRgba8: GPURenderPipeline;
+	blitPipelineRgba32Float: GPURenderPipeline;
+	blitWithMaskPipeline: GPURenderPipeline;
+	blitWithMaskChainPipeline: GPURenderPipeline;
+	blitBackdropWithMaskPipeline: GPURenderPipeline;
+	blitBackdropPunchPipeline: GPURenderPipeline;
+	blitGlassPunchPipeline: GPURenderPipeline;
+	compositePipeline: GPURenderPipeline;
+	exposureBlitPipeline: GPURenderPipeline;
+	quadBlitPipeline: GPURenderPipeline;
+	meshBlitPipeline: GPURenderPipeline;
+}
+
+interface Layouts {
+	blit: GPUBindGroupLayout;
+	blitWithMask: GPUBindGroupLayout;
+	/** BG2 of the mask-chain blit: 4 mask slots applied in one pass. */
+	maskChain: GPUBindGroupLayout;
+	composite: GPUBindGroupLayout;
+	exposureBlit: GPUBindGroupLayout;
+	gradient: GPUBindGroupLayout;
+	transforms: GPUBindGroupLayout;
+	mask: GPUBindGroupLayout;
+	/** BG1 of the strip pipeline: transforms + alpha page + params page. */
+	stripGeometry: GPUBindGroupLayout;
+}
+
+export class RenderOrchestrator {
+	private initialized = false;
+	private destroyed = false;
+	private device: GPUDevice | null = null;
+	private canvasFormat: GPUTextureFormat = "bgra8unorm";
+	private hdrEnabled = false;
+	private canvasColorSpace: "srgb" | "display-p3" = "display-p3";
+
+	#hdrGpuSupported = false;
+
+	public get hdrGpuSupported(): boolean {
+		return this.#hdrGpuSupported;
+	}
+
+	// Shared resources (device-level)
+	private bindGroupLayout: GPUBindGroupLayout | null = null;
+	private transformsBindGroupLayout: GPUBindGroupLayout | null = null;
+	private sampler: GPUSampler | null = null;
+	private nearestSampler: GPUSampler | null = null;
+	private viewportShaderDefs: ShaderDataDefinitions | null = null;
+	private gradientShaderCompiled: {
+		module: GPUShaderModule;
+		uniformViews: Record<string, StructuredView>;
+		storageViews: Record<string, StructuredView>;
+	} | null = null;
+	private pipelines: Pipelines | null = null;
+	private layouts: Layouts | null = null;
+	private brushTextureManager: BrushTextureManager | null = null;
+	private gradientTextureGenerator: GradientTextureGenerator | null = null;
+	private meshGradientTextureGenerator: MeshGradientTextureGenerator | null =
+		null;
+	private filterRenderer: FilterRenderer | null = null;
+	private textRenderer: TextRenderer | null = null;
+	private textDocumentResolver: TextDocumentResolver | null = null;
+	private profiler: GPUTimingProfiler | null = null;
+	private readonly disposedDevices = new WeakSet<GPUDevice>();
+
+	// Per-target resources
+	private targets = new Map<string, TargetData>();
+	private activeTarget: CanvasTarget | null = null;
+	private registeredTargets = new Set<CanvasTarget>();
+	/** Target ids that render documents other than the live one. @see initCanvasTarget */
+	private isolatedTargets = new Set<string>();
+
+	/** CPU-side soft proof LUT, retained so it can be re-uploaded after
+	 *  device re-initialization (HDR switch, device loss recovery). */
+	private softProofLut: SoftProofLutResult | null = null;
+	/** Retained so targets created after the toggle inherit the mode. */
+	private pixelPreviewEnabled = false;
+
+	// Stored callbacks (applied to new targets)
+	private _onRequestRender: (() => void) | null = null;
+	private _onTextBoundsComputed:
+		| ((elementId: string, bounds: WorldBBox, localBounds: LocalBBox) => void)
+		| null = null;
+	private _reference3dContextProvider:
+		| (() => Reference3DRenderContext | null)
+		| null = null;
+
+	// Pending device re-initialization (HDR switch, device recovery)
+	#pendingDeviceReInit: Promise<boolean> | null = null;
+
+	// Device lost recovery
+	private recoveryAttempt = 0;
+	private static readonly MAX_RECOVERY_ATTEMPTS = 5;
+	private static readonly BASE_RECOVERY_DELAY_MS = 1_000;
+	private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+	private onDeviceLost: (() => void) | null = null;
+	private onDeviceRestored: (() => void) | null = null;
+	private onDeviceRecoveryFailed: (() => void) | null = null;
+
+	public async initDevice(): Promise<boolean> {
+		if (this.destroyed) return false;
+		if (!navigator.gpu) {
+			console.error("WebGPU is not supported in this browser");
+			return false;
+		}
+
+		try {
+			const adapter = await navigator.gpu.requestAdapter();
+			if (!adapter) {
+				console.error("Failed to get GPU adapter");
+				return false;
+			}
+
+			const requiredFeatures: GPUFeatureName[] = [];
+			if (adapter.features.has("timestamp-query")) {
+				requiredFeatures.push("timestamp-query");
+			}
+
+			// Lift the storage-binding / buffer ceilings to what the adapter
+			// supports. The default device limits (128 MiB storage binding) sit
+			// far below capable hardware and cap the resident stamp atlas: a large
+			// stress document grows it past 128 MiB and binding the whole buffer
+			// fails validation. Requesting up to adapter.limits is always valid.
+			// (Bounded paging of the stamp store is the durable fix; this lifts
+			// the immediate ceiling so the crash needs a far larger document.)
+			const requiredLimits: Record<string, number> = {
+				maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+				maxBufferSize: adapter.limits.maxBufferSize,
+			};
+
+			const device = await adapter.requestDevice({
+				requiredFeatures,
+				requiredLimits,
+			});
+			if (this.destroyed) {
+				this.disposedDevices.add(device);
+				device.destroy();
+				return false;
+			}
+			this.device = device;
+			device.lost.then((info) => this.handleDeviceLost(device, info));
+
+			// Raised from 64: glass extrude passes (mesh/blur/compose, per instance)
+			// add many timed passes on top of the layer/composite passes.
+			this.profiler = new GPUTimingProfiler(this.device, 256);
+
+			// Probe rgba16float support regardless of hdrEnabled
+			const testCanvas = globalThis.document?.createElement("canvas");
+			const testCtx = testCanvas?.getContext(
+				"webgpu",
+			) as GPUCanvasContext | null;
+			if (testCtx) {
+				try {
+					testCtx.configure({
+						device: this.device,
+						format: "rgba16float",
+						alphaMode: "premultiplied",
+					});
+					testCtx.unconfigure();
+					this.#hdrGpuSupported = true;
+				} catch {
+					this.#hdrGpuSupported = false;
+				}
+			} else {
+				this.#hdrGpuSupported = false;
+			}
+
+			if (this.hdrEnabled && this.#hdrGpuSupported) {
+				this.canvasFormat = "rgba16float";
+			} else {
+				if (this.hdrEnabled) {
+					console.warn("rgba16float not supported, falling back to SDR");
+					this.hdrEnabled = false;
+				}
+				this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+			}
+
+			await this.createSharedResources();
+			await this.initPipelinesAndSharedSystems();
+			if (this.destroyed || this.device !== device) {
+				if (this.device === device) this.releaseGPUResources();
+				if (!this.disposedDevices.has(device)) {
+					this.disposedDevices.add(device);
+					device.destroy();
+				}
+				return false;
+			}
+
+			this.initialized = true;
+			this.recoveryAttempt = 0;
+			return true;
+		} catch (error) {
+			this.releaseGPUResources();
+			console.error("Failed to initialize WebGPU device:", error);
+			return false;
+		}
+	}
+
+	/**
+	 * @param opts.isolated Marks a target that renders documents other than the
+	 * live one (timelapse replay). Engine-wide callbacks write their results
+	 * back into live editor state keyed by element id, and a replayed document
+	 * reuses those ids — so an isolated target is left unwired.
+	 */
+	public async initCanvasTarget(
+		target: CanvasTarget,
+		opts?: { isolated?: boolean },
+	): Promise<void> {
+		// Wait for any pending device re-initialization (e.g. HDR switch)
+		if (this.#pendingDeviceReInit) {
+			const success = await this.#pendingDeviceReInit;
+			if (!success) {
+				throw new Error(
+					"Pending device re-initialization failed before initCanvasTarget()",
+				);
+			}
+		}
+
+		if (
+			!this.device ||
+			!this.pipelines ||
+			!this.layouts ||
+			!this.bindGroupLayout ||
+			!this.transformsBindGroupLayout ||
+			!this.sampler ||
+			!this.viewportShaderDefs ||
+			!this.gradientShaderCompiled ||
+			!this.filterRenderer ||
+			!this.brushTextureManager ||
+			!this.gradientTextureGenerator
+		) {
+			throw new Error("initDevice() must be called before initCanvasTarget()");
+		}
+
+		const context = target.getContext(this.device, this.canvasFormat, {
+			toneMapping: this.hdrEnabled ? { mode: "extended" } : undefined,
+			colorSpace: this.canvasColorSpace,
+		});
+
+		const viewportUniformView = makeStructuredView(
+			this.viewportShaderDefs.uniforms.uniforms,
+		);
+
+		const uniformBuffer = this.device.createBuffer({
+			label: `Uniform Buffer [${target.id}]`,
+			size: viewportUniformView.arrayBuffer.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+		});
+
+		const bindGroup = this.device.createBindGroup({
+			label: `Bind Group [${target.id}]`,
+			layout: this.bindGroupLayout,
+			entries: [{ binding: 0, resource: { buffer: uniformBuffer } }],
+		});
+
+		const backdropCaptureManager = new BackdropCaptureManager(
+			this.device,
+			this.filterRenderer,
+		);
+
+		const cacheManager = new RenderCacheManager();
+
+		const canvasLayer = new CanvasLayer(
+			this.device,
+			this.canvasFormat,
+			{
+				strokePipeline: this.pipelines.strokePipeline,
+				fillPipeline: this.pipelines.fillPipeline,
+				stripPipeline: this.pipelines.stripPipeline,
+				gradientFillPipeline: this.pipelines.gradientFillPipeline,
+				blitPipeline: this.pipelines.blitPipeline,
+				blitPipelineRgba8: this.pipelines.blitPipelineRgba8,
+				blitPipelineRgba32Float: this.pipelines.blitPipelineRgba32Float,
+				blitWithMaskPipeline: this.pipelines.blitWithMaskPipeline,
+				blitWithMaskChainPipeline: this.pipelines.blitWithMaskChainPipeline,
+				blitBackdropWithMaskPipeline:
+					this.pipelines.blitBackdropWithMaskPipeline,
+				blitBackdropPunchPipeline: this.pipelines.blitBackdropPunchPipeline,
+				blitGlassPunchPipeline: this.pipelines.blitGlassPunchPipeline,
+				compositePipeline: this.pipelines.compositePipeline,
+				exposureBlitPipeline: this.pipelines.exposureBlitPipeline,
+				quadBlitPipeline: this.pipelines.quadBlitPipeline,
+				meshBlitPipeline: this.pipelines.meshBlitPipeline,
+			},
+			{
+				uniformBuffer,
+				viewportUniformView,
+				bindGroup,
+				viewportBindGroupLayout: this.bindGroupLayout,
+				blitBindGroupLayout: this.layouts.blit,
+				blitWithMaskBindGroupLayout: this.layouts.blitWithMask,
+				maskChainBindGroupLayout: this.layouts.maskChain,
+				compositeBindGroupLayout: this.layouts.composite,
+				exposureBlitBindGroupLayout: this.layouts.exposureBlit,
+				gradientBindGroupLayout: this.layouts.gradient,
+				transformsBindGroupLayout: this.layouts.transforms,
+				gradientUniformView: this.gradientShaderCompiled.uniformViews.gradient,
+				gradientStopsView: this.gradientShaderCompiled.storageViews.colorStops,
+				sampler: this.sampler,
+				nearestSampler: this.nearestSampler!,
+				filterRenderer: this.filterRenderer,
+				backdropCaptureManager,
+				gradientTextureGenerator: this.gradientTextureGenerator,
+				meshGradientTextureGenerator: this.meshGradientTextureGenerator!,
+				dummyGradientBindGroup: this.pipelines.dummyGradientBindGroup,
+				dummyMaskBindGroup: this.pipelines.dummyMaskBindGroup,
+				maskBindGroupLayout: this.layouts.mask,
+				stripGeometryBindGroupLayout: this.layouts.stripGeometry,
+				cacheManager,
+				brushTextureManager: this.brushTextureManager,
+				textRenderer: this.textRenderer ?? undefined,
+			},
+			target.id,
+		);
+
+		const uiLayer = new UILayer(
+			this.device,
+			this.bindGroupLayout,
+			bindGroup,
+			this.canvasFormat,
+		);
+
+		// Device recovery re-inits every registered target without options, so
+		// the flag is remembered rather than taken from the argument each time.
+		if (opts?.isolated) this.isolatedTargets.add(target.id);
+		const isolated = this.isolatedTargets.has(target.id);
+
+		if (this._onRequestRender && !isolated)
+			canvasLayer.setOnRequestRender(this._onRequestRender);
+		if (this._onTextBoundsComputed && !isolated)
+			canvasLayer.setOnTextBoundsComputed(this._onTextBoundsComputed);
+		if (this._reference3dContextProvider)
+			canvasLayer.setReference3DContextProvider(
+				this._reference3dContextProvider,
+			);
+		// GPU textures don't survive device re-init (HDR switch, device loss
+		// recovery) — re-upload the soft proof LUT from the CPU-side copy.
+		if (this.softProofLut) canvasLayer.setSoftProofLut(this.softProofLut);
+		canvasLayer.setPixelPreview(this.pixelPreviewEnabled);
+
+		this.targets.set(target.id, {
+			context,
+			uniformBuffer,
+			viewportUniformView,
+			bindGroup,
+			canvasLayer,
+			uiLayer,
+			backdropCaptureManager,
+			cacheManager,
+		});
+
+		this.registeredTargets.add(target);
+	}
+
+	/**
+	 * Switch HDR rendering mode. Reinitializes the GPU pipeline and canvas contexts.
+	 */
+	public async setHdrEnabled(enabled: boolean): Promise<void> {
+		if (this.hdrEnabled === enabled) {
+			// Serialize concurrent calls — a previous setHdrEnabled() may still
+			// be re-initializing the device. Without this, a concurrent caller
+			// could proceed while pipelines are still null.
+			if (this.#pendingDeviceReInit) await this.#pendingDeviceReInit;
+			return;
+		}
+		this.hdrEnabled = enabled;
+
+		for (const target of this.registeredTargets) {
+			target.unconfigureContext();
+		}
+		if (this.#pendingDeviceReInit) await this.#pendingDeviceReInit;
+		this.releaseGPUResources();
+
+		this.#pendingDeviceReInit = this.initDevice();
+		const success = await this.#pendingDeviceReInit;
+		this.#pendingDeviceReInit = null;
+
+		if (success) {
+			for (const target of this.registeredTargets) {
+				await this.initCanvasTarget(target);
+			}
+			this._onRequestRender?.();
+		} else if (enabled) {
+			// HDR init failed, fall back to SDR
+			console.warn("HDR init failed, reverting to SDR");
+			this.hdrEnabled = false;
+			this.#pendingDeviceReInit = this.initDevice();
+			const sdrSuccess = await this.#pendingDeviceReInit;
+			this.#pendingDeviceReInit = null;
+			if (sdrSuccess) {
+				for (const target of this.registeredTargets) {
+					await this.initCanvasTarget(target);
+				}
+				this._onRequestRender?.();
+			}
+		}
+	}
+
+	/**
+	 * Switch the canvas color space to the document's working space. Each
+	 * registered context is reconfigured in place; unlike HDR switching the
+	 * device/format is unchanged, so GPU resources are retained.
+	 */
+	public setColorSpace(colorSpace: "srgb" | "display-p3"): void {
+		if (this.canvasColorSpace === colorSpace) return;
+		this.canvasColorSpace = colorSpace;
+		if (!this.device) return;
+		for (const target of this.registeredTargets) {
+			target.unconfigureContext();
+			target.getContext(this.device, this.canvasFormat, {
+				toneMapping: this.hdrEnabled ? { mode: "extended" } : undefined,
+				colorSpace,
+			});
+		}
+		this._onRequestRender?.();
+	}
+
+	/**
+	 * Set or clear the soft proof 3D LUT on all canvas targets.
+	 * The CPU-side data is retained so the LUT survives device
+	 * re-initialization (see initCanvasTarget).
+	 */
+	public setSoftProofLut(lut: SoftProofLutResult | null): void {
+		this.softProofLut = lut;
+		for (const td of this.targets.values()) {
+			td.canvasLayer.setSoftProofLut(lut);
+		}
+	}
+
+	/** Toggle pixel preview on all canvas targets (see CanvasLayer.setPixelPreview). */
+	public setPixelPreview(enabled: boolean): void {
+		this.pixelPreviewEnabled = enabled;
+		for (const td of this.targets.values()) {
+			td.canvasLayer.setPixelPreview(enabled);
+		}
+	}
+
+	public setCanvasTarget(target: CanvasTarget): void {
+		this.activeTarget = target;
+	}
+
+	/** The target `render()` and the export paths currently draw through. */
+	public getActiveCanvasTarget(): CanvasTarget | null {
+		return this.activeTarget;
+	}
+
+	public setDeviceLostCallbacks(callbacks: {
+		onDeviceLost?: () => void;
+		onDeviceRestored?: () => void;
+		onDeviceRecoveryFailed?: () => void;
+	}): void {
+		this.onDeviceLost = callbacks.onDeviceLost ?? null;
+		this.onDeviceRestored = callbacks.onDeviceRestored ?? null;
+		this.onDeviceRecoveryFailed = callbacks.onDeviceRecoveryFailed ?? null;
+	}
+
+	public render(request: FrameRequest, uiState: UIOverlayState): void {
+		if (!this.initialized || !this.activeTarget || !this.device) return;
+
+		const td = this.targets.get(this.activeTarget.id);
+		if (!td) return;
+
+		const target = this.activeTarget;
+		target.updateSize();
+
+		td.canvasLayer.updateViewport(
+			request.viewport,
+			target.width,
+			target.height,
+		);
+		td.uiLayer.updateViewport(request.viewport);
+
+		const canvasTexture = td.context.getCurrentTexture();
+		const textureView = canvasTexture.createView();
+
+		const encoder = this.device.createCommandEncoder({
+			label: "Frame Command Encoder",
+		});
+
+		this.profiler?.beginFrame();
+
+		const frame = td.canvasLayer.render(
+			encoder,
+			textureView,
+			canvasTexture,
+			request,
+			this.profiler,
+		);
+
+		try {
+			td.uiLayer.render(
+				encoder,
+				textureView,
+				uiState,
+				request.document.artboards,
+				canvasTexture.width,
+				canvasTexture.height,
+				this.profiler,
+			);
+
+			this.profiler?.resolve(encoder);
+			this.device.queue.submit([encoder.finish()]);
+			frame?.commit();
+		} catch (error) {
+			frame?.abort();
+			throw error;
+		}
+		this.profiler?.readback();
+
+		// Deferred texture destroys are handled by OffscreenPresenter.resetFrame()
+		// at the start of the next frame, giving the GPU time to finish executing
+		// the command buffer that may still reference them.
+	}
+
+	public getDevice(): GPUDevice | null {
+		return this.device;
+	}
+
+	public getTextRenderer(): TextRenderer | null {
+		return this.textRenderer;
+	}
+
+	/**
+	 * Wire a document-derived text resolver when none is set — standalone
+	 * callers (export, VRT) pass a bare Document with no owning Paplico, and
+	 * without a resolver flow members and axis-bound texts render/outline
+	 * their leftover content literally instead of resolving the chain/binding.
+	 * Returns a restore function; a no-op when a live resolver already exists
+	 * so a Paplico-owned export keeps its real (override-aware) resolver.
+	 */
+	public ensureTextDocumentResolver(document: Document): () => void {
+		if (this.textDocumentResolver != null) return () => {};
+		this.setTextDocumentResolver(buildDocumentTextResolver(document));
+		return () => this.setTextDocumentResolver(null);
+	}
+
+	/**
+	 * Document access for text layout (axisBinding / flow chain resolution).
+	 * Held here because TextRenderer is created lazily on device init.
+	 */
+	public setTextDocumentResolver(resolver: TextDocumentResolver | null): void {
+		this.textDocumentResolver = resolver;
+		this.textRenderer?.setDocumentResolver(resolver);
+	}
+
+	public setOnRequestRender(callback: () => void): void {
+		this._onRequestRender = callback;
+		for (const [id, td] of this.targets) {
+			if (this.isolatedTargets.has(id)) continue;
+			td.canvasLayer.setOnRequestRender(callback);
+		}
+	}
+
+	public setOnTextBoundsComputed(
+		callback: (
+			elementId: string,
+			bounds: WorldBBox,
+			localBounds: LocalBBox,
+		) => void,
+	): void {
+		this._onTextBoundsComputed = callback;
+		for (const [id, td] of this.targets) {
+			if (this.isolatedTargets.has(id)) continue;
+			td.canvasLayer.setOnTextBoundsComputed(callback);
+		}
+	}
+
+	/** Install the Reference3D subsystem accessor on all (and future) targets. */
+	public setReference3DContextProvider(
+		provider: () => Reference3DRenderContext | null,
+	): void {
+		this._reference3dContextProvider = provider;
+		for (const td of this.targets.values()) {
+			td.canvasLayer.setReference3DContextProvider(provider);
+		}
+	}
+
+	/**
+	 * Drop every target's cached composite frame so the next render re-draws
+	 * the document instead of blitting it.  Does NOT clear boundsCache or
+	 * geometryCache — use this for async resource loads (text paths,
+	 * brush textures) that only affect visuals, not geometry.
+	 */
+	public invalidateDocumentCache(): void {
+		for (const td of this.targets.values()) {
+			td.canvasLayer.invalidateDocumentCache();
+		}
+	}
+
+	/**
+	 * Destroy every target's cache scope for `documentId` (GPU resources
+	 * included). Call when a document leaves the engine for good: replacement
+	 * (openDocument/loadYjsState) and after transient-document renders (brush
+	 * preview), whose constant element ids would otherwise accumulate
+	 * composite-key cache entries until scope-LRU eviction.
+	 */
+	public dropDocumentCaches(documentId: string): void {
+		for (const td of this.targets.values()) {
+			td.cacheManager.dropDocument(documentId);
+		}
+	}
+
+	public invalidateTextCache(elementId?: string): void {
+		for (const td of this.targets.values()) {
+			td.canvasLayer.invalidateTextCache(elementId);
+		}
+		if (elementId) {
+			this.textRenderer?.invalidateLayout(elementId);
+		} else {
+			this.textRenderer?.clearLayoutCache();
+		}
+	}
+
+	/**
+	 * Shared export rendering pipeline: renders document content to an
+	 * rgba8unorm offscreen texture for CPU readback.
+	 *
+	 * All export-specific pre/post processing lives here while the core
+	 * rendering goes through the standard CanvasLayer.render() path.
+	 */
+	private async renderExportToTexture(opts: {
+		label: string;
+		centerX: number;
+		centerY: number;
+		worldWidth: number;
+		worldHeight: number;
+		scale: number;
+		rotation?: number;
+		backgroundColor: RawRGBA;
+		document: Document;
+		elementFilter?: ReadonlySet<string>;
+		outputFormat?: "rgba8unorm" | "rgba32float";
+		/** Changed-element set forwarded to the frame (tile invalidation tests);
+		 *  production exports always re-render in full. */
+		changedElements?: FrameRequest["changedElements"];
+		/** Transient elements forwarded to the frame (tile bypass tests). */
+		transientElements?: FrameRequest["transientElements"];
+		/** Interaction flag forwarded to the frame (tile bake-budget tests). */
+		interacting?: boolean;
+		/** Keep CPU viewport culling and the interactive bake clamp/density cap
+		 *  active (filtered-element cache tests exercise the editor-path bakes);
+		 *  production exports always disable culling for full-fidelity output. */
+		disableViewportCulling?: boolean;
+		/** Paint artboard backgrounds despite the clearColorOverride background
+		 *  (raster analysis renders where artboard edges act as barriers). */
+		paintArtboardBackgrounds?: boolean;
+		/** Render through this target instead of the active one, to keep a
+		 *  caller's cache scope off the editor's target. */
+		targetId?: string;
+	}): Promise<{ texture: GPUTexture; width: number; height: number } | null> {
+		const targetId = opts.targetId ?? this.activeTarget?.id;
+		const td = targetId ? this.targets.get(targetId) : null;
+		if (!td || !this.device) {
+			console.error("Renderer not initialized or no active target");
+			return null;
+		}
+		const device = this.device;
+
+		// Round like the export dialog's size readout so a physical page size
+		// lands on its standard pixel size (A4 at 300 dpi = 2480 x 3508).
+		const width = Math.round(opts.worldWidth * opts.scale);
+		const height = Math.round(opts.worldHeight * opts.scale);
+		if (width <= 0 || height <= 0) return null;
+
+		const maxDim = this.device.limits.maxTextureDimension2D;
+		if (width > maxDim || height > maxDim) {
+			console.error(
+				`Export size ${width}×${height} exceeds GPU limit ${maxDim}`,
+			);
+			return null;
+		}
+
+		const restoreTextDocumentResolver = this.ensureTextDocumentResolver(
+			opts.document,
+		);
+
+		// 1. Pre-warm text paths (renderText is synchronous and skips uncached)
+		const textElements = Object.values(opts.document.objects).filter(
+			(el): el is TextElement => el.type === "text",
+		);
+		await Promise.all(
+			textElements.map((el) => td.canvasLayer.elements.ensureTextPaths(el)),
+		);
+		await td.canvasLayer.elements.ensureImageTextures(
+			opts.document,
+			opts.elementFilter,
+		);
+		await td.canvasLayer.elements.ensureReference3DTextures(
+			opts.document,
+			opts.elementFilter,
+		);
+
+		// 2. Isolate deferred destroys from the main canvas frame
+		const savedDeferredList =
+			td.canvasLayer.offscreen.saveAndClearDeferredList();
+
+		// 3. Save viewport
+		const savedVp = td.canvasLayer.getViewportSnapshot();
+
+		let intermediateTexture: GPUTexture | null = null;
+		let outputTexture: GPUTexture | null = null;
+		let frame: CanvasFrameTransaction | null = null;
+		try {
+			// 4. Set export viewport
+			const exportViewport: Viewport = {
+				x: opts.centerX,
+				y: opts.centerY,
+				zoom: opts.scale,
+				rotation: opts.rotation ?? 0,
+			};
+			td.canvasLayer.updateViewport(exportViewport, width, height);
+
+			const renderIntermediate = () => {
+				const canvasFormat = td.canvasLayer.getCanvasFormat();
+				const texture = device.createTexture({
+					label: `${opts.label} Intermediate`,
+					size: { width, height },
+					format: canvasFormat,
+					usage:
+						GPUTextureUsage.RENDER_ATTACHMENT |
+						GPUTextureUsage.TEXTURE_BINDING |
+						GPUTextureUsage.COPY_SRC |
+						GPUTextureUsage.COPY_DST,
+				});
+				intermediateTexture = texture;
+
+				// 6. Render via CanvasLayer.render()
+				const encoder = device.createCommandEncoder({
+					label: `${opts.label} Encoder`,
+				});
+				const frame = td.canvasLayer.render(
+					encoder,
+					texture.createView(),
+					texture,
+					{
+						viewport: exportViewport,
+						document: opts.document,
+						strategy: "full",
+						disableViewportCulling: opts.disableViewportCulling ?? true,
+						isExport: true,
+						changedElements: opts.changedElements,
+						transientElements: opts.transientElements,
+						interacting: opts.interacting,
+						elementFilter: opts.elementFilter,
+						clearColorOverride: opts.backgroundColor,
+						paintArtboardBackgrounds: opts.paintArtboardBackgrounds,
+						hdrExposure: opts.document.hdr?.enabled
+							? (opts.document.hdr.exposure ?? 0)
+							: undefined,
+					},
+				);
+				return { encoder, texture, frame };
+			};
+
+			// 5. Render after export resources are ready. Use a dedicated export
+			// clip-mask atlas so this render never destroys the interactive
+			// atlas's textures (shared-atlas use-after-destroy on document switch).
+			const rendered = td.canvasLayer.withExportClipMaskAtlas(() =>
+				renderIntermediate(),
+			);
+			const { encoder, texture } = rendered;
+			frame = rendered.frame;
+
+			// 6. Convert canvasFormat → output format
+			const format = opts.outputFormat ?? "rgba8unorm";
+			outputTexture = device.createTexture({
+				label: `${opts.label} Output (${format})`,
+				size: { width, height },
+				format,
+				usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+			});
+			if (format === "rgba32float") {
+				td.canvasLayer.convertToRgba32Float(
+					encoder,
+					texture,
+					outputTexture,
+					opts.centerX,
+					opts.centerY,
+					opts.worldWidth,
+					opts.worldHeight,
+				);
+			} else {
+				td.canvasLayer.convertToRgba8unorm(
+					encoder,
+					texture,
+					outputTexture,
+					opts.centerX,
+					opts.centerY,
+					opts.worldWidth,
+					opts.worldHeight,
+				);
+			}
+
+			// 7. Submit and flush
+			try {
+				device.queue.submit([encoder.finish()]);
+				frame?.commit();
+			} catch (error) {
+				frame?.abort();
+				throw error;
+			}
+			td.canvasLayer.flushDeferredDestroys();
+
+			return { texture: outputTexture, width, height };
+		} catch (e) {
+			frame?.abort();
+			outputTexture?.destroy();
+			throw e;
+		} finally {
+			// 9. Restore viewport and deferred list
+			if (savedVp.viewport) {
+				td.canvasLayer.updateViewport(
+					savedVp.viewport,
+					savedVp.width,
+					savedVp.height,
+				);
+			}
+			td.canvasLayer.markTransformsDirty();
+			td.canvasLayer.offscreen.restoreDeferredList(savedDeferredList);
+			const textureToDestroy = intermediateTexture as GPUTexture | null;
+			textureToDestroy?.destroy();
+			restoreTextDocumentResolver();
+		}
+	}
+
+	public async renderArtboardToTexture(
+		artboard: Artboard,
+		document: Document,
+		scale = 1,
+		backgroundColor: RawRGBA = { r: 1, g: 1, b: 1, a: 1 },
+		opts?: ExportRenderOptions,
+	): Promise<{ texture: GPUTexture; width: number; height: number } | null> {
+		const bounds = getArtboardBounds(artboard);
+		return this.renderExportToTexture({
+			label: `Export: ${artboard.name}`,
+			centerX: artboard.x,
+			centerY: artboard.y,
+			worldWidth: bounds.width,
+			worldHeight: bounds.height,
+			scale,
+			backgroundColor,
+			document,
+			...opts,
+		});
+	}
+
+	public async renderArtboardToImageData(
+		artboard: Artboard,
+		document: Document,
+		scale = 1,
+		backgroundColor: RawRGBA = { r: 1, g: 1, b: 1, a: 1 },
+		opts?: ExportRenderOptions,
+	): Promise<ImageData | null> {
+		const result = await this.renderArtboardToTexture(
+			artboard,
+			document,
+			scale,
+			backgroundColor,
+			opts,
+		);
+		if (!result) return null;
+
+		const { texture, width, height } = result;
+		return this.readbackTexture(texture, width, height, true);
+	}
+
+	public async renderArtboardToFloat32(
+		artboard: Artboard,
+		document: Document,
+		scale = 1,
+		backgroundColor: RawRGBA = { r: 1, g: 1, b: 1, a: 1 },
+	): Promise<{ pixels: Float32Array; width: number; height: number } | null> {
+		const bounds = getArtboardBounds(artboard);
+		const result = await this.renderExportToTexture({
+			label: `HDR Export: ${artboard.name}`,
+			centerX: artboard.x,
+			centerY: artboard.y,
+			worldWidth: bounds.width,
+			worldHeight: bounds.height,
+			scale,
+			backgroundColor,
+			document,
+			outputFormat: "rgba32float",
+		});
+		if (!result) return null;
+
+		const { texture, width, height } = result;
+		return this.readbackTextureFloat32(texture, width, height);
+	}
+
+	/** Read GPU texture pixels into ImageData, optionally un-premultiplying alpha. */
+	private async readbackTexture(
+		texture: GPUTexture,
+		width: number,
+		height: number,
+		unpremultiply: boolean,
+	): Promise<ImageData | null> {
+		const device = this.device;
+		if (!device) {
+			texture.destroy();
+			return null;
+		}
+
+		const bytesPerRow = Math.ceil((width * 4) / 256) * 256;
+		const readBuffer = device.createBuffer({
+			size: bytesPerRow * height,
+			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+		});
+
+		const cmdEncoder = device.createCommandEncoder();
+		cmdEncoder.copyTextureToBuffer(
+			{ texture },
+			{ buffer: readBuffer, bytesPerRow },
+			{ width, height },
+		);
+		device.queue.submit([cmdEncoder.finish()]);
+
+		await device.queue.onSubmittedWorkDone();
+		await readBuffer.mapAsync(GPUMapMode.READ);
+		const data = new Uint8ClampedArray(readBuffer.getMappedRange().slice(0));
+		readBuffer.unmap();
+
+		const pixels = new Uint8ClampedArray(width * height * 4);
+		for (let y = 0; y < height; y++) {
+			const src = y * bytesPerRow;
+			const dst = y * width * 4;
+			pixels.set(data.subarray(src, src + width * 4), dst);
+		}
+
+		if (unpremultiply) {
+			for (let i = 0; i < pixels.length; i += 4) {
+				const a = pixels[i + 3];
+				if (a > 0 && a < 255) {
+					const inv = 255 / a;
+					pixels[i] = Math.min(255, Math.round(pixels[i] * inv));
+					pixels[i + 1] = Math.min(255, Math.round(pixels[i + 1] * inv));
+					pixels[i + 2] = Math.min(255, Math.round(pixels[i + 2] * inv));
+				}
+			}
+		}
+
+		texture.destroy();
+		readBuffer.destroy();
+		return new ImageData(pixels, width, height);
+	}
+
+	/** Read GPU texture pixels as Float32Array for HDR export. */
+	private async readbackTextureFloat32(
+		texture: GPUTexture,
+		width: number,
+		height: number,
+	): Promise<{ pixels: Float32Array; width: number; height: number } | null> {
+		const device = this.device;
+		if (!device) {
+			texture.destroy();
+			return null;
+		}
+
+		const bytesPerPixel = 16; // 4 channels x 4 bytes (float32)
+		const bytesPerRow = Math.ceil((width * bytesPerPixel) / 256) * 256;
+		const readBuffer = device.createBuffer({
+			size: bytesPerRow * height,
+			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+		});
+
+		const cmdEncoder = device.createCommandEncoder();
+		cmdEncoder.copyTextureToBuffer(
+			{ texture },
+			{ buffer: readBuffer, bytesPerRow },
+			{ width, height },
+		);
+		device.queue.submit([cmdEncoder.finish()]);
+
+		let mapped = false;
+		try {
+			await device.queue.onSubmittedWorkDone();
+			await readBuffer.mapAsync(GPUMapMode.READ);
+			mapped = true;
+
+			const floatsPerRow = width * 4;
+			const paddedFloatsPerRow = bytesPerRow / 4;
+			const pixels = new Float32Array(width * height * 4);
+			const rawView = new Float32Array(readBuffer.getMappedRange());
+			for (let y = 0; y < height; y++) {
+				pixels.set(
+					rawView.subarray(
+						y * paddedFloatsPerRow,
+						y * paddedFloatsPerRow + floatsPerRow,
+					),
+					y * floatsPerRow,
+				);
+			}
+
+			// Un-premultiply alpha
+			for (let i = 0; i < pixels.length; i += 4) {
+				const a = pixels[i + 3];
+				if (a > 0 && a < 1) {
+					const inv = 1 / a;
+					pixels[i] *= inv;
+					pixels[i + 1] *= inv;
+					pixels[i + 2] *= inv;
+				}
+			}
+
+			return { pixels, width, height };
+		} finally {
+			if (mapped) {
+				try {
+					readBuffer.unmap();
+				} catch {
+					// ignore unmap errors during cleanup
+				}
+			}
+			readBuffer.destroy();
+			texture.destroy();
+		}
+	}
+
+	public async renderViewportToImageData(
+		viewport: Viewport,
+		document: Document,
+		canvasWidth: number,
+		canvasHeight: number,
+	): Promise<ImageData | null> {
+		const result = await this.renderExportToTexture({
+			label: "BucketFill Viewport",
+			centerX: viewport.x,
+			centerY: viewport.y,
+			worldWidth: canvasWidth / viewport.zoom,
+			worldHeight: canvasHeight / viewport.zoom,
+			scale: viewport.zoom,
+			rotation: viewport.rotation ?? 0,
+			backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
+			document,
+		});
+		if (!result) return null;
+
+		const { texture, width, height } = result;
+		return this.readbackTexture(texture, width, height, false);
+	}
+
+	/**
+	 * Render an axis-aligned world region to ImageData for raster analysis
+	 * (bucket fill). Rotation-free, transparent background; artboard
+	 * backgrounds are painted on request so their edges act as color barriers.
+	 */
+	public async renderWorldRegionToImageData(
+		region: {
+			centerX: number;
+			centerY: number;
+			worldWidth: number;
+			worldHeight: number;
+		},
+		scale: number,
+		document: Document,
+		opts?: { paintArtboardBackgrounds?: boolean },
+	): Promise<ImageData | null> {
+		const result = await this.renderExportToTexture({
+			label: "BucketFill WorldRegion",
+			centerX: region.centerX,
+			centerY: region.centerY,
+			worldWidth: region.worldWidth,
+			worldHeight: region.worldHeight,
+			scale,
+			backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
+			document,
+			paintArtboardBackgrounds: opts?.paintArtboardBackgrounds,
+		});
+		if (!result) return null;
+
+		const { texture, width, height } = result;
+		return this.readbackTexture(texture, width, height, false);
+	}
+
+	/**
+	 * Union of the renderable document content bounds: every layer's top-level
+	 * elements (subtree + filter reach via computeElementsExportBounds) plus
+	 * artboard rectangles. Layer element lists are used instead of
+	 * document.objects so off-canvas defs (pattern sources, …) don't inflate
+	 * the result. Returns null when the document has no renderable content.
+	 */
+	public computeDocumentContentBounds(document: Document): {
+		centerX: number;
+		centerY: number;
+		width: number;
+		height: number;
+	} | null {
+		const topLevelIds = document.layers.flatMap((l) => l.elementIds);
+		const content = this.computeElementsExportBounds(topLevelIds, document);
+
+		let minX = content ? content.centerX - content.width / 2 : Infinity;
+		let minY = content ? content.centerY - content.height / 2 : Infinity;
+		let maxX = content ? content.centerX + content.width / 2 : -Infinity;
+		let maxY = content ? content.centerY + content.height / 2 : -Infinity;
+
+		for (const artboard of document.artboards) {
+			const b = getArtboardBounds(artboard);
+			if (b.minX < minX) minX = b.minX;
+			if (b.minY < minY) minY = b.minY;
+			if (b.maxX > maxX) maxX = b.maxX;
+			if (b.maxY > maxY) maxY = b.maxY;
+		}
+
+		if (!Number.isFinite(minX)) return null;
+		return {
+			centerX: (minX + maxX) / 2,
+			centerY: (minY + maxY) / 2,
+			width: maxX - minX,
+			height: maxY - minY,
+		};
+	}
+
+	/** Device texture-size limit for sizing analysis rasters (4096 before init). */
+	public getMaxTextureDimension(): number {
+		return this.device?.limits.maxTextureDimension2D ?? 4096;
+	}
+
+	/**
+	 * World-space bounds for an element-subtree export (copy / element PNG),
+	 * expanded to include post-process filter reach (blur / drop-shadow / glow /
+	 * extrude) so the halo is not clipped. `elementIds` are the top-level
+	 * selection; the subtree is expanded so a child's or group's filter reach is
+	 * covered too. Returns null when nothing is renderable.
+	 */
+	public computeElementsExportBounds(
+		elementIds: readonly string[],
+		document: Document,
+	): {
+		centerX: number;
+		centerY: number;
+		width: number;
+		height: number;
+	} | null {
+		const elementsMap = new Map(Object.entries(document.objects));
+		const ids = expandRenderFilter(new Set(elementIds), elementsMap);
+
+		const elements = [...ids]
+			.map((id) => elementsMap.get(id))
+			.filter((el): el is AnyArtObject => el != null);
+		if (elements.length === 0) return null;
+
+		// Element bounds come out in the parent's space; the export draws the
+		// subtree through every ancestor's transform, so compose them in.
+		const parentById = buildParentedMap(elementsMap);
+		const parentTransformOf = (id: string): ElementTransform | null => {
+			const parent = elementsMap.get(parentById.get(id) ?? "");
+			return parent
+				? composeAncestorTransform(parent, elementsMap, parentById)
+				: null;
+		};
+
+		// filterRenderer is the same instance CanvasLayer uses; when the renderer
+		// is not initialized yet, fall back to geometry bounds.
+		const plans = this.filterRenderer
+			? buildFilterPlansForElements(
+					elements,
+					elementsMap,
+					this.filterRenderer,
+					undefined,
+					parentTransformOf,
+				)
+			: null;
+
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+		for (const el of elements) {
+			// textureBounds already includes this element's post-process reach;
+			// otherwise use the pre-filtered bounds so geometry pre-filters that
+			// deform the shape (3d-rotate, zigzag, …) are not clipped to the flat
+			// outline. planBoundsOf returns plain geometry bounds when the
+			// element has no pre-filter.
+			// Some filters never get a plan yet still reach beyond the flat
+			// outline — a glass 3D solid (needsBackdrop) routes through the
+			// mid-pass refraction path and self-sizes at draw time — so the
+			// fallback must still apply the handlers' expansion margins.
+			let b = plans?.get(el.id)?.textureBounds;
+			if (!b) {
+				const base = planBoundsOf(
+					el,
+					elementsMap,
+					this.filterRenderer ?? null,
+					undefined,
+					parentTransformOf(el.id),
+				);
+				let margin = 0;
+				for (const filter of localAppearances(el.filters)) {
+					if (filter.enabled === false) continue;
+					const handler = this.filterRenderer?.getHandler(filter.processor);
+					// Geometry pre-filters already deformed `base` (it comes from
+					// planBoundsOf); adding their margin on
+					// top would double-count the deformation. FilterRenderer.
+					// calculateExpansion cannot be reused here for that reason.
+					if (classifyFilterHandler(handler) === "geometry") continue;
+					margin = Math.max(
+						margin,
+						handler?.getExpansionMargin?.(filter, base) ?? 0,
+					);
+				}
+				b = margin > 0 ? expandBounds(base, margin) : base;
+			}
+			if (b.minX < minX) minX = b.minX;
+			if (b.minY < minY) minY = b.minY;
+			if (b.maxX > maxX) maxX = b.maxX;
+			if (b.maxY > maxY) maxY = b.maxY;
+		}
+
+		if (!Number.isFinite(minX)) return null;
+		const width = maxX - minX;
+		const height = maxY - minY;
+		if (width <= 0 || height <= 0) return null;
+
+		return {
+			centerX: (minX + maxX) / 2,
+			centerY: (minY + maxY) / 2,
+			width,
+			height,
+		};
+	}
+
+	public async renderElementsToImageData(
+		elementIds: string[],
+		document: Document,
+		bounds: {
+			centerX: number;
+			centerY: number;
+			width: number;
+			height: number;
+		},
+		scale = 1,
+		backgroundColor: RawRGBA = { r: 0, g: 0, b: 0, a: 0 },
+	): Promise<ImageData | null> {
+		const result = await this.renderExportToTexture({
+			label: "Clipboard Export",
+			centerX: bounds.centerX,
+			centerY: bounds.centerY,
+			worldWidth: bounds.width,
+			worldHeight: bounds.height,
+			scale,
+			backgroundColor,
+			document,
+			elementFilter: new Set(elementIds),
+		});
+		if (!result) return null;
+
+		const { texture, width, height } = result;
+		return this.readbackTexture(texture, width, height, true);
+	}
+
+	/**
+	 * Render a viewport to an rgba8unorm texture (for visual regression tests
+	 * and other consumers that need a GPU texture rather than ImageData).
+	 */
+	public async renderViewportToTexture(
+		viewport: Viewport,
+		document: Document,
+		canvasWidth: number,
+		canvasHeight: number,
+		backgroundColor: RawRGBA = { r: 1, g: 1, b: 1, a: 1 },
+		changedElements?: FrameRequest["changedElements"],
+		transientElements?: FrameRequest["transientElements"],
+		interacting?: boolean,
+		disableViewportCulling?: boolean,
+	): Promise<GPUTexture | null> {
+		const result = await this.renderExportToTexture({
+			label: "Viewport Render",
+			centerX: viewport.x,
+			centerY: viewport.y,
+			worldWidth: canvasWidth / viewport.zoom,
+			worldHeight: canvasHeight / viewport.zoom,
+			scale: viewport.zoom,
+			rotation: viewport.rotation ?? 0,
+			backgroundColor,
+			document,
+			changedElements,
+			transientElements,
+			interacting,
+			disableViewportCulling,
+		});
+		return result?.texture ?? null;
+	}
+
+	/**
+	 * Render only the UI overlay (UILayer) over a transparent background to an
+	 * rgba8unorm texture (for visual regression tests of UI overlay rendering).
+	 * The document layer is not rendered.
+	 */
+	public renderUIOverlayToTexture(
+		viewport: Viewport,
+		uiState: UIOverlayState,
+		artboards: Artboard[] | null,
+		canvasWidth: number,
+		canvasHeight: number,
+	): GPUTexture | null {
+		const td = this.activeTarget
+			? this.targets.get(this.activeTarget.id)
+			: null;
+		if (!td || !this.device) {
+			console.error("Renderer not initialized or no active target");
+			return null;
+		}
+		const device = this.device;
+
+		const savedVp = td.canvasLayer.getViewportSnapshot();
+
+		let intermediateTexture: GPUTexture | null = null;
+		let outputTexture: GPUTexture | null = null;
+		try {
+			td.canvasLayer.updateViewport(viewport, canvasWidth, canvasHeight);
+			td.uiLayer.updateViewport(viewport);
+
+			intermediateTexture = device.createTexture({
+				label: "UI Overlay Intermediate",
+				size: { width: canvasWidth, height: canvasHeight },
+				format: td.canvasLayer.getCanvasFormat(),
+				usage:
+					GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+			});
+
+			const encoder = device.createCommandEncoder({
+				label: "UI Overlay Encoder",
+			});
+
+			// Clear to transparent — UILayer's blit pass loads existing content.
+			const clearPass = encoder.beginRenderPass({
+				label: "UI Overlay Clear Pass",
+				colorAttachments: [
+					{
+						view: intermediateTexture.createView(),
+						clearValue: { r: 0, g: 0, b: 0, a: 0 },
+						loadOp: "clear",
+						storeOp: "store",
+					},
+				],
+			});
+			clearPass.end();
+
+			td.uiLayer.render(
+				encoder,
+				intermediateTexture.createView(),
+				uiState,
+				artboards,
+				canvasWidth,
+				canvasHeight,
+			);
+
+			outputTexture = device.createTexture({
+				label: "UI Overlay Output (rgba8unorm)",
+				size: { width: canvasWidth, height: canvasHeight },
+				format: "rgba8unorm",
+				usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+			});
+			td.canvasLayer.convertToRgba8unorm(
+				encoder,
+				intermediateTexture,
+				outputTexture,
+				viewport.x,
+				viewport.y,
+				canvasWidth / viewport.zoom,
+				canvasHeight / viewport.zoom,
+			);
+
+			device.queue.submit([encoder.finish()]);
+			return outputTexture;
+		} catch (e) {
+			outputTexture?.destroy();
+			throw e;
+		} finally {
+			if (savedVp.viewport) {
+				td.canvasLayer.updateViewport(
+					savedVp.viewport,
+					savedVp.width,
+					savedVp.height,
+				);
+				td.uiLayer.updateViewport(savedVp.viewport);
+			}
+			intermediateTexture?.destroy();
+		}
+	}
+
+	public scaleFilters(
+		filters: Filter[],
+		scaleX: number,
+		scaleY: number,
+	): Filter[] {
+		if (!this.filterRenderer) return filters;
+		return filters
+			.map((f) => this.filterRenderer?.scaleFilter(f, scaleX, scaleY))
+			.filter((f): f is Filter => f !== undefined);
+	}
+
+	public getFilterHandler(processor: string): FilterHandler | undefined {
+		return this.filterRenderer?.getHandler(processor);
+	}
+
+	/** Expansion margin of a filter chain, as the filter texture is sized. */
+	public calculateFilterExpansion(
+		filters: readonly Filter[],
+		bounds?: { width: number; height: number },
+	): number {
+		return this.filterRenderer?.calculateExpansion(filters, bounds) ?? 0;
+	}
+
+	/** Whether the common Appearance.applyToBackdrop toggle is meaningful for
+	 *  this filter (see FilterRenderer.canApplyToBackdrop). False until the
+	 *  GPU device and filter handlers are initialized. */
+	public canApplyFilterToBackdrop(filter: Filter): boolean {
+		return this.filterRenderer?.canApplyToBackdrop(filter) ?? false;
+	}
+
+	public destroy(): void {
+		if (this.destroyed) return;
+		this.destroyed = true;
+
+		if (this.recoveryTimer !== null) {
+			clearTimeout(this.recoveryTimer);
+			this.recoveryTimer = null;
+		}
+
+		this.releaseGPUResources();
+		this.registeredTargets.clear();
+	}
+
+	// --- Private methods ---
+
+	private handleDeviceLost(device: GPUDevice, info: GPUDeviceLostInfo): void {
+		this.disposedDevices.add(device);
+		if (this.device !== device) return;
+
+		console.error(
+			`WebGPU device lost (reason: ${info.reason}): ${info.message}`,
+		);
+
+		this.initialized = false;
+		this.onDeviceLost?.();
+
+		if (this.destroyed) return;
+		if (info.reason === "destroyed") return;
+
+		this.scheduleRecovery();
+	}
+
+	private scheduleRecovery(): void {
+		if (this.destroyed) return;
+		if (this.recoveryAttempt >= RenderOrchestrator.MAX_RECOVERY_ATTEMPTS) {
+			console.error(
+				`WebGPU recovery failed after ${this.recoveryAttempt} attempts. Giving up.`,
+			);
+			this.onDeviceRecoveryFailed?.();
+			return;
+		}
+
+		const delay =
+			RenderOrchestrator.BASE_RECOVERY_DELAY_MS * 2 ** this.recoveryAttempt;
+		this.recoveryAttempt++;
+
+		console.log(
+			`WebGPU recovery attempt ${this.recoveryAttempt}/${RenderOrchestrator.MAX_RECOVERY_ATTEMPTS} in ${delay}ms`,
+		);
+
+		this.recoveryTimer = setTimeout(() => {
+			this.recoveryTimer = null;
+			this.attemptRecovery();
+		}, delay);
+	}
+
+	private async attemptRecovery(): Promise<void> {
+		if (this.destroyed) return;
+		if (this.#pendingDeviceReInit) {
+			const success = await this.#pendingDeviceReInit;
+			if (success) {
+				this.onDeviceRestored?.();
+				return;
+			}
+		}
+
+		this.releaseGPUResources();
+
+		this.#pendingDeviceReInit = this.initDevice();
+		const success = await this.#pendingDeviceReInit;
+		this.#pendingDeviceReInit = null;
+		if (success) {
+			for (const target of this.registeredTargets) {
+				await this.initCanvasTarget(target);
+			}
+			console.log("WebGPU device recovered successfully");
+			this.onDeviceRestored?.();
+		} else {
+			console.warn("WebGPU recovery attempt failed");
+			this.scheduleRecovery();
+		}
+	}
+
+	/**
+	 * Release one target's GPU resources and unregister it.
+	 *
+	 * Both the HDR switch and device-loss recovery walk `registeredTargets` and
+	 * re-acquire each canvas context, so a target left registered after its
+	 * canvas is gone takes those paths down for the whole app.
+	 *
+	 * The CanvasTarget itself is owned by the caller and is not disposed here.
+	 */
+	public disposeCanvasTarget(target: CanvasTarget): void {
+		const td = this.targets.get(target.id);
+		if (td) {
+			td.canvasLayer.elements.destroyReference3DTextures();
+			td.canvasLayer.destroy();
+			td.uniformBuffer.destroy();
+			td.uiLayer.destroy();
+			// The device outlives a single target, so its cache scopes have to be
+			// released here rather than with the device.
+			td.cacheManager.clearAll();
+			this.targets.delete(target.id);
+		}
+
+		this.registeredTargets.delete(target);
+		this.isolatedTargets.delete(target.id);
+		if (this.activeTarget === target) this.activeTarget = null;
+	}
+
+	private releaseGPUResources(): void {
+		const device = this.device;
+		this.device = null;
+		this.initialized = false;
+
+		for (const td of this.targets.values()) {
+			td.canvasLayer.elements.destroyReference3DTextures();
+			td.canvasLayer.destroy();
+			td.uniformBuffer.destroy();
+			td.uiLayer.destroy();
+		}
+		this.targets.clear();
+
+		this.activeTarget = null;
+		this.pipelines = null;
+		this.layouts = null;
+		this.bindGroupLayout = null;
+		this.transformsBindGroupLayout = null;
+		this.sampler = null;
+		this.nearestSampler = null;
+		this.viewportShaderDefs = null;
+		this.gradientShaderCompiled = null;
+		this.profiler?.destroy();
+		this.profiler = null;
+		this.filterRenderer?.destroy();
+		this.filterRenderer = null;
+		this.brushTextureManager?.destroy();
+		this.brushTextureManager = null;
+		this.gradientTextureGenerator = null;
+		this.meshGradientTextureGenerator = null;
+		this.textRenderer = null;
+
+		if (device && !this.disposedDevices.has(device)) {
+			this.disposedDevices.add(device);
+			device.destroy();
+		}
+	}
+
+	private async createSharedResources(): Promise<void> {
+		if (!this.device) return;
+
+		const gradientCompiled = compileShaderModule(this.device, {
+			label: "Gradient Fill Shader",
+			code: GRADIENT_FILL_SHADER,
+		});
+		this.gradientShaderCompiled = {
+			module: gradientCompiled.module,
+			uniformViews: gradientCompiled.uniformViews,
+			storageViews: gradientCompiled.storageViews,
+		};
+
+		this.bindGroupLayout = this.device.createBindGroupLayout({
+			label: "Shared Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+					buffer: { type: "uniform" },
+				},
+			],
+		});
+
+		this.transformsBindGroupLayout = this.device.createBindGroupLayout({
+			label: "Transforms Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.VERTEX,
+					buffer: { type: "read-only-storage" },
+				},
+			],
+		});
+
+		this.sampler = this.device.createSampler({
+			magFilter: "linear",
+			minFilter: "linear",
+			addressModeU: "clamp-to-edge",
+			addressModeV: "clamp-to-edge",
+		});
+
+		this.nearestSampler = this.device.createSampler({
+			magFilter: "nearest",
+			minFilter: "nearest",
+			addressModeU: "clamp-to-edge",
+			addressModeV: "clamp-to-edge",
+		});
+	}
+
+	private async initPipelinesAndSharedSystems(): Promise<void> {
+		if (
+			!this.device ||
+			!this.bindGroupLayout ||
+			!this.sampler ||
+			!this.gradientShaderCompiled
+		) {
+			return;
+		}
+
+		const { module: blitShaderModule } = compileShaderModule(this.device, {
+			label: "Blit Shader",
+			code: BLIT_SHADER,
+		});
+		const { module: compositeShaderModule } = compileShaderModule(this.device, {
+			label: "Composite Shader",
+			code: COMPOSITE_SHADER,
+		});
+
+		const bindGroupLayout = this.bindGroupLayout;
+		const transformsBindGroupLayout = this.transformsBindGroupLayout!;
+
+		const strokeVertexBufferLayout: GPUVertexBufferLayout = {
+			arrayStride: UNIFIED_VERTEX_BYTES,
+			attributes: [
+				{
+					shaderLocation: 0,
+					offset: UNIFIED_VERTEX_OFFSETS.position * 4,
+					format: "float32x2",
+				},
+				{
+					shaderLocation: 1,
+					offset: UNIFIED_VERTEX_OFFSETS.color * 4,
+					format: "float32x4",
+				},
+				{
+					shaderLocation: 2,
+					offset: UNIFIED_VERTEX_OFFSETS.offset * 4,
+					format: "float32x2",
+				},
+				{
+					shaderLocation: 3,
+					offset: UNIFIED_VERTEX_OFFSETS.elementIndex * 4,
+					format: "uint32",
+				},
+			],
+		};
+
+		const premultipliedBlend: GPUBlendState = {
+			color: {
+				srcFactor: "one",
+				dstFactor: "one-minus-src-alpha",
+				operation: "add",
+			},
+			alpha: {
+				srcFactor: "one",
+				dstFactor: "one-minus-src-alpha",
+				operation: "add",
+			},
+		};
+
+		const gradientBindGroupLayout = this.device.createBindGroupLayout({
+			label: "Gradient Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+					buffer: { type: "uniform" },
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: { sampleType: "float" },
+				},
+				{
+					binding: 3,
+					visibility: GPUShaderStage.FRAGMENT,
+					sampler: {},
+				},
+				{
+					binding: 4,
+					visibility: GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 5,
+					visibility: GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 6,
+					visibility: GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
+			],
+		});
+
+		const maskBindGroupLayout = this.device.createBindGroupLayout({
+			label: "Mask Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: {
+						sampleType: "float",
+						viewDimension: "2d",
+					},
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.FRAGMENT,
+					sampler: {},
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					buffer: { type: "read-only-storage" },
+				},
+			],
+		});
+
+		const stripGeometryBindGroupLayout = this.device.createBindGroupLayout({
+			label: "Strip Geometry Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.VERTEX,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: { sampleType: "float" },
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: { sampleType: "float" },
+				},
+			],
+		});
+		const stripLayout = this.device.createPipelineLayout({
+			bindGroupLayouts: [
+				bindGroupLayout,
+				stripGeometryBindGroupLayout,
+				gradientBindGroupLayout,
+				maskBindGroupLayout,
+			],
+		});
+		const stripPipeline = createGeometryPipeline({
+			device: this.device,
+			label: "Strip Pipeline",
+			shaderModule: compileShaderModule(this.device, {
+				label: "Strip Shader",
+				code: STRIP_SHADER,
+			}).module,
+			vertexBufferLayout: STRIP_INSTANCE_LAYOUT,
+			pipelineLayout: stripLayout,
+			topology: "triangle-strip",
+			targetFormat: this.canvasFormat,
+			blend: premultipliedBlend,
+		});
+
+		const unifiedLayout = this.device.createPipelineLayout({
+			bindGroupLayouts: [
+				bindGroupLayout,
+				transformsBindGroupLayout,
+				gradientBindGroupLayout,
+				maskBindGroupLayout,
+			],
+		});
+
+		const unifiedCompiled = compileShaderModule(this.device, {
+			label: "Unified Geometry Shader",
+			code: UNIFIED_GEOMETRY_SHADER,
+		});
+		const unifiedShaderModule = unifiedCompiled.module;
+		this.viewportShaderDefs = unifiedCompiled.definitions;
+
+		const baseUnified: Omit<
+			Parameters<typeof createGeometryPipeline>[0],
+			"label" | "targetFormat"
+		> = {
+			device: this.device,
+			shaderModule: unifiedShaderModule,
+			vertexBufferLayout: strokeVertexBufferLayout,
+			pipelineLayout: unifiedLayout,
+			blend: premultipliedBlend,
+			topology: "triangle-list",
+		};
+
+		const unifiedGeometryPipeline = createGeometryPipeline({
+			...baseUnified,
+			label: "Unified Geometry Pipeline",
+			targetFormat: this.canvasFormat,
+		});
+		// Dummy gradient bind group (gradientType=0 → solid fill, fragment uses vertex color)
+		const dummyGradientUniformBuffer = this.device.createBuffer({
+			label: "Dummy Gradient Uniform",
+			size: this.gradientShaderCompiled.uniformViews.gradient.arrayBuffer
+				.byteLength,
+			usage: GPUBufferUsage.UNIFORM,
+		});
+		const dummyGradientStopsBuffer = this.device.createBuffer({
+			label: "Dummy Gradient Stops",
+			size: 32, // minimum storage buffer size
+			usage: GPUBufferUsage.STORAGE,
+		});
+		const dummyGradientStorageBuffer = this.device.createBuffer({
+			label: "Dummy Gradient Storage",
+			size: 256,
+			usage: GPUBufferUsage.STORAGE,
+		});
+		const dummyGradientTexture = this.device.createTexture({
+			label: "Dummy Gradient Texture",
+			size: { width: 1, height: 1 },
+			format: "rgba8unorm",
+			usage: GPUTextureUsage.TEXTURE_BINDING,
+		});
+		const dummyGradientBindGroup = this.device.createBindGroup({
+			label: "Dummy Gradient Bind Group",
+			layout: gradientBindGroupLayout,
+			entries: [
+				{ binding: 0, resource: { buffer: dummyGradientUniformBuffer } },
+				{ binding: 1, resource: { buffer: dummyGradientStopsBuffer } },
+				{ binding: 2, resource: dummyGradientTexture.createView() },
+				{ binding: 3, resource: this.sampler },
+				{ binding: 4, resource: { buffer: dummyGradientStorageBuffer } },
+				{ binding: 5, resource: { buffer: dummyGradientStorageBuffer } },
+				{ binding: 6, resource: { buffer: dummyGradientStorageBuffer } },
+			],
+		});
+
+		// Dummy mask bind group: 1x1 white texture_2d — all elements pass through
+		const dummyMaskTexture = this.device.createTexture({
+			label: "Dummy Mask Texture",
+			size: { width: 1, height: 1 },
+			format: "r8unorm",
+			usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+		});
+		this.device.queue.writeTexture(
+			{ texture: dummyMaskTexture },
+			new Uint8Array([255]),
+			{ bytesPerRow: 1 },
+			{ width: 1, height: 1 },
+		);
+		const dummyMaskDescriptorBuffer = this.device.createBuffer({
+			label: "Dummy Mask Descriptor Buffer",
+			size: 16,
+			usage: GPUBufferUsage.STORAGE,
+		});
+		const dummyMaskBindGroup = this.device.createBindGroup({
+			label: "Dummy Mask Bind Group",
+			layout: maskBindGroupLayout,
+			entries: [
+				{
+					binding: 0,
+					resource: dummyMaskTexture.createView(),
+				},
+				{ binding: 1, resource: this.sampler },
+				{ binding: 2, resource: { buffer: dummyMaskDescriptorBuffer } },
+			],
+		});
+
+		const blitBindGroupLayout = this.device.createBindGroupLayout({
+			label: "Blit Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+					buffer: { type: "uniform" },
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.FRAGMENT,
+					sampler: {},
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: {},
+				},
+			],
+		});
+
+		const blitPipelineLayout = this.device.createPipelineLayout({
+			bindGroupLayouts: [bindGroupLayout, blitBindGroupLayout],
+		});
+		const baseBlit: Omit<
+			Parameters<typeof createFullscreenPipeline>[0],
+			"label"
+		> = {
+			device: this.device,
+			shaderModule: blitShaderModule,
+			pipelineLayout: blitPipelineLayout,
+			targetFormat: this.canvasFormat,
+			blend: premultipliedBlend,
+		};
+
+		const blitPipeline = createFullscreenPipeline({
+			...baseBlit,
+			label: "Blit Pipeline",
+		});
+		const blitPipelineRgba8 = createFullscreenPipeline({
+			...baseBlit,
+			label: "Blit Pipeline (RGBA8, Single Sample)",
+			targetFormat: "rgba8unorm",
+			multisampleCount: 1,
+		});
+		const blitPipelineRgba32Float = createFullscreenPipeline({
+			...baseBlit,
+			label: "Blit Pipeline (RGBA32Float, Single Sample)",
+			targetFormat: "rgba32float",
+			multisampleCount: 1,
+			blend: undefined,
+		});
+
+		// --- Quad blit pipeline (4-corner warp for image preProcess filters) ---
+		const { module: quadBlitShaderModule } = compileShaderModule(this.device, {
+			label: "Quad Blit Shader",
+			code: QUAD_BLIT_SHADER,
+		});
+		const quadBlitPipeline = createFullscreenPipeline({
+			...baseBlit,
+			label: "Quad Blit Pipeline",
+			shaderModule: quadBlitShaderModule,
+		});
+
+		// --- Mesh blit pipeline (tessellated texture warp for mesh containers) ---
+		// The only blit pipeline with a real vertex buffer: the mesh warp bakes
+		// per-vertex world positions on the CPU, so createFullscreenPipeline's
+		// vertexless setup doesn't apply.
+		const { module: meshBlitShaderModule } = compileShaderModule(this.device, {
+			label: "Mesh Blit Shader",
+			code: MESH_BLIT_SHADER,
+		});
+		const meshBlitPipeline = this.device.createRenderPipeline({
+			label: "Mesh Blit Pipeline",
+			layout: blitPipelineLayout,
+			vertex: {
+				module: meshBlitShaderModule,
+				entryPoint: "vertexMain",
+				buffers: [
+					{
+						arrayStride: 16,
+						attributes: [
+							{ shaderLocation: 0, offset: 0, format: "float32x2" },
+							{ shaderLocation: 1, offset: 8, format: "float32x2" },
+						],
+					},
+				],
+			},
+			fragment: {
+				module: meshBlitShaderModule,
+				entryPoint: "fragmentMain",
+				targets: [{ format: this.canvasFormat, blend: premultipliedBlend }],
+			},
+			primitive: { topology: "triangle-list" },
+			multisample: { count: RENDER_SAMPLE_COUNT },
+		});
+
+		// --- Exposure blit pipeline ---
+		const exposureBlitBindGroupLayout = this.device.createBindGroupLayout({
+			label: "Exposure Blit Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.FRAGMENT,
+					buffer: { type: "uniform" },
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.FRAGMENT,
+					sampler: { type: "non-filtering" },
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: { sampleType: "unfilterable-float" },
+				},
+			],
+		});
+		const exposureBlitShaderModule = this.device.createShaderModule({
+			label: "Exposure Blit Shader",
+			code: EXPOSURE_BLIT_SHADER,
+		});
+		const exposureBlitPipeline = this.device.createRenderPipeline({
+			label: "Exposure Blit Pipeline",
+			layout: this.device.createPipelineLayout({
+				bindGroupLayouts: [exposureBlitBindGroupLayout],
+			}),
+			vertex: {
+				module: exposureBlitShaderModule,
+				entryPoint: "vertexMain",
+			},
+			fragment: {
+				module: exposureBlitShaderModule,
+				entryPoint: "fragmentMain",
+				targets: [{ format: this.canvasFormat }],
+			},
+			primitive: { topology: "triangle-list" },
+		});
+
+		const compositeBindGroupLayout = this.device.createBindGroupLayout({
+			label: "Composite Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+					buffer: { type: "uniform" },
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.FRAGMENT,
+					sampler: {},
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: {},
+				},
+				{
+					binding: 3,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: {},
+				},
+				{
+					binding: 4,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: {},
+				},
+			],
+		});
+
+		const compositeBaseOpts = {
+			device: this.device,
+			shaderModule: compositeShaderModule,
+			pipelineLayout: this.device.createPipelineLayout({
+				bindGroupLayouts: [bindGroupLayout, compositeBindGroupLayout],
+			}),
+			blend: {
+				color: {
+					srcFactor: "one" as const,
+					dstFactor: "zero" as const,
+					operation: "add" as const,
+				},
+				alpha: {
+					srcFactor: "one" as const,
+					dstFactor: "zero" as const,
+					operation: "add" as const,
+				},
+			},
+		};
+
+		const compositePipeline = createFullscreenPipeline({
+			...compositeBaseOpts,
+			label: "Composite Pipeline",
+			targetFormat: this.canvasFormat,
+		});
+
+		// Blit-with-mask bind group layout: same as blit but adds a mask texture
+		const blitWithMaskBindGroupLayout = this.device.createBindGroupLayout({
+			label: "Blit With Mask Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+					buffer: { type: "uniform" },
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.FRAGMENT,
+					sampler: {},
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: {},
+				},
+				{
+					binding: 3,
+					visibility: GPUShaderStage.FRAGMENT,
+					texture: {},
+				},
+			],
+		});
+
+		const blitWithMaskPipelineLayout = this.device.createPipelineLayout({
+			bindGroupLayouts: [
+				bindGroupLayout,
+				blitWithMaskBindGroupLayout,
+				maskBindGroupLayout,
+			],
+		});
+
+		const { module: blitWithMaskShaderModule } = compileShaderModule(
+			this.device,
+			{ label: "Blit With Mask Shader", code: BLIT_WITH_MASK_SHADER },
+		);
+
+		const blitWithMaskPipeline = createFullscreenPipeline({
+			device: this.device,
+			label: "Blit With Mask Pipeline",
+			shaderModule: blitWithMaskShaderModule,
+			pipelineLayout: blitWithMaskPipelineLayout,
+			targetFormat: this.canvasFormat,
+			blend: premultipliedBlend,
+		});
+
+		// Glass punch: destination scale-down before the glass intermediate
+		// blit, so the following src-over lands on a (1 - coverage·opacity)
+		// destination weight — replace within the solid, plain over outside.
+		const { module: blitGlassPunchShaderModule } = compileShaderModule(
+			this.device,
+			{ label: "Blit Glass Punch Shader", code: BLIT_GLASS_PUNCH_SHADER },
+		);
+
+		const blitGlassPunchPipeline = createFullscreenPipeline({
+			device: this.device,
+			label: "Blit Glass Punch Pipeline",
+			shaderModule: blitGlassPunchShaderModule,
+			pipelineLayout: this.device.createPipelineLayout({
+				bindGroupLayouts: [bindGroupLayout, blitWithMaskBindGroupLayout],
+			}),
+			targetFormat: this.canvasFormat,
+			blend: {
+				color: { srcFactor: "zero", dstFactor: "one-minus-src-alpha" },
+				alpha: { srcFactor: "zero", dstFactor: "one-minus-src-alpha" },
+			},
+		});
+
+		// Mask-chain layout: 4 world-space mask slots applied in one pass.
+		// Unused slots bind a white 1x1 texture and a bounds sentinel.
+		const maskChainBindGroupLayout = this.device.createBindGroupLayout({
+			label: "Mask Chain Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.FRAGMENT,
+					buffer: { type: "uniform" },
+				},
+				{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+				{ binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+				{ binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+				{ binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+				{ binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+			],
+		});
+
+		const { module: blitWithMaskChainShaderModule } = compileShaderModule(
+			this.device,
+			{
+				label: "Blit With Mask Chain Shader",
+				code: BLIT_WITH_MASK_CHAIN_SHADER,
+			},
+		);
+
+		const blitWithMaskChainPipelineLayout = this.device.createPipelineLayout({
+			bindGroupLayouts: [
+				bindGroupLayout,
+				blitWithMaskBindGroupLayout,
+				maskChainBindGroupLayout,
+			],
+		});
+
+		const blitWithMaskChainPipeline = createFullscreenPipeline({
+			device: this.device,
+			label: "Blit With Mask Chain Pipeline",
+			shaderModule: blitWithMaskChainShaderModule,
+			pipelineLayout: blitWithMaskChainPipelineLayout,
+			targetFormat: this.canvasFormat,
+			blend: premultipliedBlend,
+		});
+
+		const { module: blitBackdropWithMaskShaderModule } = compileShaderModule(
+			this.device,
+			{
+				label: "Blit Backdrop With Mask Shader",
+				code: BLIT_BACKDROP_WITH_MASK_SHADER,
+			},
+		);
+
+		// Backdrop composite is a two-draw replace: the punch draw scales the
+		// destination by (1 - mask·opacity), then the additive draw adds the
+		// filtered backdrop. Keying src-over on the filtered alpha instead
+		// would leave the sharp backdrop visible under blur-softened alpha
+		// edges when the background is transparent (e.g. transparent PNG
+		// export).
+		const blitBackdropPunchPipeline = createFullscreenPipeline({
+			device: this.device,
+			label: "Blit Backdrop Punch Pipeline",
+			shaderModule: blitBackdropWithMaskShaderModule,
+			pipelineLayout: blitWithMaskChainPipelineLayout,
+			targetFormat: this.canvasFormat,
+			fragmentEntryPoint: "fragmentPunch",
+			blend: {
+				color: { srcFactor: "zero", dstFactor: "one-minus-src-alpha" },
+				alpha: { srcFactor: "zero", dstFactor: "one-minus-src-alpha" },
+			},
+		});
+
+		const blitBackdropWithMaskPipeline = createFullscreenPipeline({
+			device: this.device,
+			label: "Blit Backdrop With Mask Pipeline",
+			shaderModule: blitBackdropWithMaskShaderModule,
+			pipelineLayout: blitWithMaskChainPipelineLayout,
+			targetFormat: this.canvasFormat,
+			blend: {
+				color: { srcFactor: "one", dstFactor: "one" },
+				alpha: { srcFactor: "one", dstFactor: "one" },
+			},
+		});
+
+		this.pipelines = {
+			strokePipeline: unifiedGeometryPipeline,
+			fillPipeline: unifiedGeometryPipeline,
+			stripPipeline,
+			gradientFillPipeline: unifiedGeometryPipeline,
+			dummyGradientBindGroup,
+			dummyMaskBindGroup,
+			blitPipeline,
+			blitPipelineRgba8,
+			blitPipelineRgba32Float,
+			blitWithMaskPipeline,
+			blitWithMaskChainPipeline,
+			blitBackdropWithMaskPipeline,
+			blitBackdropPunchPipeline,
+			blitGlassPunchPipeline,
+			compositePipeline,
+			exposureBlitPipeline,
+			quadBlitPipeline,
+			meshBlitPipeline,
+		};
+
+		this.layouts = {
+			blit: blitBindGroupLayout,
+			blitWithMask: blitWithMaskBindGroupLayout,
+			maskChain: maskChainBindGroupLayout,
+			composite: compositeBindGroupLayout,
+			exposureBlit: exposureBlitBindGroupLayout,
+			gradient: gradientBindGroupLayout,
+			transforms: transformsBindGroupLayout,
+			mask: maskBindGroupLayout,
+			stripGeometry: stripGeometryBindGroupLayout,
+		};
+
+		// Filter renderer
+		const filterRenderer = new FilterRenderer(this.device);
+		const blurProcessor = new BlurFilterHandler();
+		await blurProcessor.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("blur", blurProcessor);
+
+		const frostGlassProcessor = new FrostGlassFilterHandler();
+		await frostGlassProcessor.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("frost-glass", frostGlassProcessor);
+
+		const dropShadowProcessor = new DropShadowFilterHandler();
+		await dropShadowProcessor.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("drop-shadow", dropShadowProcessor);
+
+		const pixelateProcessor = new PixelateFilterHandler();
+		await pixelateProcessor.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("pixelate", pixelateProcessor);
+
+		const noiseProcessor = new NoiseFilterHandler();
+		await noiseProcessor.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("noise", noiseProcessor);
+
+		const zigzagHandler = new ZigzagFilterHandler();
+		await zigzagHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("zigzag", zigzagHandler);
+
+		const roughHandler = new RoughFilterHandler();
+		await roughHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("rough", roughHandler);
+
+		const pathOffsetHandler = new PathOffsetFilterHandler();
+		await pathOffsetHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("path-offset", pathOffsetHandler);
+
+		const pathUnionHandler = new PathUnionFilterHandler();
+		await pathUnionHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("path-union", pathUnionHandler);
+
+		const strokeOutlineHandler = new StrokeOutlineFilterHandler();
+		await strokeOutlineHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("stroke-outline", strokeOutlineHandler);
+
+		const puckerBloatHandler = new PuckerBloatFilterHandler();
+		await puckerBloatHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("pucker-bloat", puckerBloatHandler);
+
+		const transformHandler = new TransformFilterHandler();
+		await transformHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("transform", transformHandler);
+
+		const rotate3dProcessor = new Rotate3DFilterHandler();
+		await rotate3dProcessor.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("3d-rotate", rotate3dProcessor);
+
+		const extrude3dHandler = new Extrude3DFilterHandler();
+		extrude3dHandler.setFilterRenderer(filterRenderer);
+		await extrude3dHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("extrude3d", extrude3dHandler);
+
+		const revolve3dHandler = new Revolve3DFilterHandler();
+		revolve3dHandler.setFilterRenderer(filterRenderer);
+		await revolve3dHandler.initialize(this.device, this.canvasFormat);
+		filterRenderer.registerHandler("revolve3d", revolve3dHandler);
+
+		// Hanakla Kit filters
+		const filterHandlers: [string, RegisterableFilterHandler][] = [
+			["hk:bloom", new HKBloomFilterHandler()],
+			["hk:directional-blur", new HKDirectionalBlurFilterHandler()],
+			["hk:kirakira", new HKKirakiraFilterHandler()],
+			["hk:radial-rot-dir", new HKRadialRotDirFilterHandler()],
+			["hk:gradient-map", new HKGradientMapFilterHandler()],
+			["hk:posterization", new HKPosterizationFilterHandler()],
+			["hk:color-replacement", new HKColorReplacementFilterHandler()],
+			["hk:selective-correction", new HKSelectiveCorrectionFilterHandler()],
+			["hk:fluid", new HKFluidFilterHandler()],
+			["hk:glitch", new HKGlitchFilterHandler()],
+			["hk:smear", new HKSmearFilterHandler()],
+			["hk:spraying", new HKSprayingFilterHandler()],
+			["hk:turbulence", new HKTurbulenceFilterHandler()],
+			["hk:wave", new HKWaveFilterHandler()],
+			["hk:blush-stroke", new HKBlushStrokeFilterHandler()],
+			["hk:chromatic-aberration", new HKChromaticAberrationFilterHandler()],
+			["hk:comic-tone", new HKComicToneFilterHandler()],
+			["hk:halftone", new HKHalftoneFilterHandler()],
+			["hk:inner-glow", new HKInnerGlowFilterHandler()],
+			["hk:outline", new HKOutlineFilterHandler()],
+			["hk:vhs-interlace", new HKVhsInterlaceFilterHandler()],
+			["hk:paper-v2", new HKPaperV2FilterHandler()],
+			["hk:husky", new HKHuskyFilterHandler()],
+			["hk:kaleidoscope", new HKKaleidoscopeFilterHandler()],
+			["hk:pixel-sort", new HKPixelSortFilterHandler()],
+			["clip-to-shape", new ClipToShapeFilterHandler()],
+		];
+
+		// SVG filter primitives; the `svg:filter` graph runs its nodes through
+		// these same instances, and they all draw intermediates from one pool.
+		const svgScratch = new ScratchTexturePool();
+		const svgPrimitives = new Map<string, RegisterableFilterHandler>([
+			["svg:gaussian-blur", new SvgGaussianBlurFilterHandler(svgScratch)],
+			["svg:offset", new SvgOffsetFilterHandler(svgScratch)],
+			["svg:flood", new SvgFloodFilterHandler(svgScratch)],
+			["svg:color-matrix", new SvgColorMatrixFilterHandler(svgScratch)],
+			[
+				"svg:component-transfer",
+				new SvgComponentTransferFilterHandler(svgScratch),
+			],
+			["svg:morphology", new SvgMorphologyFilterHandler(svgScratch)],
+			["svg:convolve-matrix", new SvgConvolveMatrixFilterHandler(svgScratch)],
+			["svg:turbulence", new SvgTurbulenceFilterHandler(svgScratch)],
+			["svg:displacement-map", new SvgDisplacementMapFilterHandler(svgScratch)],
+			["svg:composite", new SvgCompositeFilterHandler(svgScratch)],
+			["svg:blend", new SvgBlendFilterHandler(svgScratch)],
+			["svg:drop-shadow", new SvgDropShadowFilterHandler(svgScratch)],
+			...SVG_COLOR_FUNCTIONS.map((fn): [string, RegisterableFilterHandler] => [
+				`svg:${fn}`,
+				new SvgColorFunctionFilterHandler(fn, svgScratch),
+			]),
+		]);
+		filterHandlers.push(...svgPrimitives);
+		filterHandlers.push([
+			"svg:filter",
+			new SvgFilterGraphFilterHandler(svgPrimitives, svgScratch),
+		]);
+
+		const device = this.device as GPUDevice;
+		await Promise.all(
+			filterHandlers.map(([, handler]) =>
+				handler.initialize(device, this.canvasFormat),
+			),
+		);
+
+		for (const [id, handler] of filterHandlers) {
+			filterRenderer.registerHandler(id, handler);
+		}
+
+		this.filterRenderer = filterRenderer;
+
+		// Brush texture manager
+		this.brushTextureManager = new BrushTextureManager(this.device);
+		await this.brushTextureManager.loadDefaultTextures();
+
+		// Text renderer
+		const fontManager = getFontManager();
+		const textLayoutEngine = new TextLayoutEngine(fontManager);
+		this.textRenderer = new TextRenderer(textLayoutEngine);
+		this.textRenderer.setDocumentResolver(this.textDocumentResolver);
+
+		// Coons patch compute
+		const coonsPatchComputeBindGroupLayout = this.device.createBindGroupLayout({
+			label: "CoonsPatch Compute Bind Group Layout",
+			entries: [
+				{
+					binding: 0,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "uniform" },
+				},
+				{
+					binding: 1,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 2,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 3,
+					visibility: GPUShaderStage.COMPUTE,
+					buffer: { type: "read-only-storage" },
+				},
+				{
+					binding: 4,
+					visibility: GPUShaderStage.COMPUTE,
+					storageTexture: {
+						access: "write-only",
+						format: "rgba8unorm",
+					},
+				},
+			],
+		});
+
+		const { module: coonsPatchComputeModule } = compileShaderModule(
+			this.device,
+			{ label: "Coons Patch Compute Shader", code: COONS_PATCH_COMPUTE_SHADER },
+		);
+
+		const coonsPatchComputePipeline = this.device.createComputePipeline({
+			label: "Coons Patch Compute Pipeline",
+			layout: this.device.createPipelineLayout({
+				bindGroupLayouts: [coonsPatchComputeBindGroupLayout],
+			}),
+			compute: {
+				module: coonsPatchComputeModule,
+				entryPoint: "main",
+			},
+		});
+
+		this.gradientTextureGenerator = new GradientTextureGenerator(
+			this.device,
+			coonsPatchComputePipeline,
+			coonsPatchComputeBindGroupLayout,
+		);
+		this.meshGradientTextureGenerator = new MeshGradientTextureGenerator(
+			this.device,
+		);
+	}
+}

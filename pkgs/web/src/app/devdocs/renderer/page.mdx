@@ -183,7 +183,7 @@ Paplicoはブラウザ上で動作する無限キャンバスのドローイン�
 2. **保存**: ドキュメント、要素、選択、同期データはワールド座標で保持する。これによりズームやスクロールが変わってもデータそのものは不変になる。
 3. **描画**: レンダラーは `worldToScreen()` でズームと回転を適用してスクリーン座標へ戻し、`worldToNDC()` で `[-1, 1]` のNDCへ正規化してGPUに渡す。
 
-代表的な式は次のとおりである。実装は `pkgs/web/src/core/utils/geometry/geometry.ts` にある。
+代表的な式は次のとおりである。実装は `pkgs/core/src/utils/geometry/geometry.ts` にある。
 
 ```ts
 worldX = viewport.x + unrotX / viewport.zoom;
@@ -364,7 +364,7 @@ RenderCacheManager が要素単位のキャッシュを統合管理する。Rend
 シェーダーとは、GPU上で実行される小さなプログラムであり、頂点の座標変換やピクセルの色計算を担う。PaplicoではWGSL（WebGPU Shading Language）でシェーダーを記述し、TypeScriptファイル（`*.wgsl.ts`）としてエクスポートしている。これらは `compileShaderModule()` で WebGPU の `GPUShaderModule` にコンパイルされる。
 
 > [!TIP]
-> シェーダーの uniform 構造体は `compileShaderModule()` が自動解析するため、手動でオフセット計算を行う必要はない。利用箇所は [パイプライン](/devdocs/renderer/pipeline) と `pkgs/web/src/core/utils/wgpu-utils.ts` を参照。
+> シェーダーの uniform 構造体は `compileShaderModule()` が自動解析するため、手動でオフセット計算を行う必要はない。利用箇所は [パイプライン](/devdocs/renderer/pipeline) と `pkgs/core/src/utils/wgpu-utils.ts` を参照。
 
 | シェーダー | 用途 |
 |---|---|

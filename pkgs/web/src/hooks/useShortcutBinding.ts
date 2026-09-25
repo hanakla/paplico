@@ -1,6 +1,6 @@
+import { formatKeySpec } from "@paplico/core";
 import { useEffect, useState } from "react";
 import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
-import { formatKeySpec } from "@/core/PaplicoShortcuts";
 
 /**
  * Returns the formatted display string for the first keybinding registered

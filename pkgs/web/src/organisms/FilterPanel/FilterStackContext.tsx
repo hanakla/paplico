@@ -1,5 +1,5 @@
+import type { FilterStackCommands } from "@paplico/core/document";
 import { createContext, useContext } from "react";
-import type { FilterStackCommands } from "@/core/document/FilterStackCommands";
 
 /**
  * The stack the panel's rows and controls edit: the selected element's

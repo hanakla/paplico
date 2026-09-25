@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { useSnapshot } from "valtio";
-import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
-import { useTargetViewport } from "@/contexts/ViewIdContext";
-import { worldToScreen } from "@/core/utils/geometry/geometry";
 import {
 	isInlineDirection,
 	isPositiveCrossDirection,
 	isPositiveInlineDirection,
 	remapArrowToCursor,
-} from "@/core/utils/writingMode";
+	worldToScreen,
+} from "@paplico/core/utils";
+import { useEffect, useRef } from "react";
+import { useSnapshot } from "valtio";
+import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
+import { useTargetViewport } from "@/contexts/ViewIdContext";
 import { uiState } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
 

@@ -1,3 +1,6 @@
+import { createDefaultColor } from "@paplico/core/document";
+import type { Color } from "@paplico/core/schema";
+import { BucketFillTool, type ShapeType } from "@paplico/core/tools";
 import { debounce } from "es-toolkit";
 import {
 	ArrowUpDown,
@@ -45,10 +48,6 @@ import { Separator } from "@/components/Separator";
 import { Slider } from "@/components/Slider";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { ShapeType } from "@/core";
-import { createDefaultColor } from "@/core/document/factory";
-import type { Color } from "@/core/schema";
-import { BucketFillTool } from "@/core/tools/BucketFillTool";
 import { useActiveColors } from "@/hooks/useActiveColors";
 import { useCanvasObstacle } from "@/hooks/useCanvasObstacle";
 import { useLayoutMode } from "@/hooks/useLayoutMode";

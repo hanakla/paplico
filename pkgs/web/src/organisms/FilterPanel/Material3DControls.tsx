@@ -1,10 +1,10 @@
+import type { Color, FillColor, PatternFill, Vec3 } from "@paplico/core/schema";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
 import { Accordion } from "@/components/Accordion";
 import { ColorSwatch } from "@/components/ColorSwatch";
 import { PatternEditor } from "@/components/GradientPicker";
 import { Popover } from "@/components/Popover";
-import type { Color, FillColor, PatternFill, Vec3 } from "@/core/schema";
 import { useEventCallback } from "@/utils/hooks";
 import type { FilterSliderDef } from "./FilterSliders";
 

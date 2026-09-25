@@ -9,6 +9,9 @@ pre-push:
     type-check:
       root: pkgs/web
       run: yarn typecheck
+    type-check-core:
+      root: pkgs/core
+      run: yarn typecheck
     lint-unused:
       glob: "*.{ts,tsx}"
       run: yarn lint:unused

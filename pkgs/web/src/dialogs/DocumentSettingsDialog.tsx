@@ -1,5 +1,14 @@
 "use client";
 
+import type { Paplico, PublicUIState } from "@paplico/core";
+import { inspectIccProfile, type ProofProfileRef } from "@paplico/core/color";
+import {
+	createEmbeddedFileFromBytes,
+	createRendererState,
+	isLengthUnit,
+	LENGTH_UNITS,
+} from "@paplico/core/document";
+import type { EmbeddedFile } from "@paplico/core/schema";
 import { Info, Upload, X } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 import { useSnapshot } from "valtio";
@@ -14,13 +23,6 @@ import { Switch } from "@/components/Switch";
 import { toastManager } from "@/components/Toast";
 import { Tooltip } from "@/components/Tooltip";
 import { RASTERIZATION_DPI_PRESETS } from "@/configs";
-import { inspectIccProfile } from "@/core/color/IccProfileRegistry";
-import type { ProofProfileRef } from "@/core/color/types";
-import { createEmbeddedFileFromBytes } from "@/core/document/factory";
-import { createRendererState } from "@/core/document/rendererState";
-import { isLengthUnit, LENGTH_UNITS } from "@/core/document/units";
-import type { Paplico, PublicUIState } from "@/core/Paplico";
-import type { EmbeddedFile } from "@/core/schema";
 import { useSystemIccProfiles } from "@/hooks/useSystemIccProfiles";
 import { BUILTIN_ICC_PROFILES } from "@/infra/builtinIccProfiles";
 import { db } from "@/infra/documentDB";

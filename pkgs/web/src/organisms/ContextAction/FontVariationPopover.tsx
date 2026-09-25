@@ -1,4 +1,5 @@
 import type { Font } from "@cantoo/fontkit";
+import { getFontManager } from "@paplico/core/typography";
 import { Ellipsis, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { subscribe } from "valtio";
@@ -8,7 +9,6 @@ import { Popover } from "@/components/Popover";
 import { Slider } from "@/components/Slider";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { getFontManager } from "@/core/typography/fonts/FontManager";
 import { useTranslation } from "@/locales";
 import { uiState } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";

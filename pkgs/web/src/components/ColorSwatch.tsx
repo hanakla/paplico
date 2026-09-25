@@ -1,9 +1,9 @@
-import type { CSSProperties } from "react";
 import {
 	colorToRawRGBA,
 	type FillColor,
 	type StrokeColor,
-} from "@/core/schema";
+} from "@paplico/core/schema";
+import type { CSSProperties } from "react";
 import { twm } from "@/utils/tailwind";
 
 /**

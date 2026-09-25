@@ -1,8 +1,8 @@
-import { memo } from "react";
 import type {
 	SvgColorFunction,
 	SvgColorFunctionFilter,
-} from "@/core/renderer/filters";
+} from "@paplico/core/filters";
+import { memo } from "react";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";
 import { SvgInputSelect } from "./SvgInputSelect";

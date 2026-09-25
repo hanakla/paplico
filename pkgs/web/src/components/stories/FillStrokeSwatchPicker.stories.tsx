@@ -1,6 +1,10 @@
+import type {
+	FillColor,
+	RGBColor,
+	StrokeGradientMode,
+} from "@paplico/core/schema";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
-import type { FillColor, RGBColor, StrokeGradientMode } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { ColorSwatch } from "../ColorSwatch";
 import { FillStrokeSwatchPicker } from "../FillStrokeSwatchPicker";

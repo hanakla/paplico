@@ -1,14 +1,14 @@
-import { memo, useRef, useState } from "react";
-import { Button } from "@/components/Button";
-import { ColorPicker2 } from "@/components/ColorPicker2";
-import { Slider } from "@/components/Slider";
-import type { AdjustColorSession } from "@/core/PaplicoCommands";
-import { type Color, hsvToRgb } from "@/core/schema";
+import type { AdjustColorSession } from "@paplico/core";
+import { type Color, hsvToRgb } from "@paplico/core/schema";
 import {
 	type CollectedColor,
 	ColorAdjustStrategies,
 	colorKey,
-} from "@/core/utils/color";
+} from "@paplico/core/utils";
+import { memo, useRef, useState } from "react";
+import { Button } from "@/components/Button";
+import { ColorPicker2 } from "@/components/ColorPicker2";
+import { Slider } from "@/components/Slider";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 

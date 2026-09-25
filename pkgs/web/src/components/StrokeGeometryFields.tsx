@@ -1,10 +1,10 @@
-import { memo, type ReactNode } from "react";
 import type {
 	BrushStroking,
 	LineCap,
 	LineJoin,
 	StrokeAlign,
-} from "@/core/schema";
+} from "@paplico/core/schema";
+import { memo, type ReactNode } from "react";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { SimpleSelect } from "./SimpleSelect";

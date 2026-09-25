@@ -7,7 +7,7 @@ in place of its flat fill/stroke, via a self-built WebGPU mesh pipeline.
 ## Handler & core
 
 `Extrude3DFilterHandler` is the `postProcess` filter; the rendering core is
-`renderer/filters/ExtrudeMeshBaker.ts` (`buildOutline` + `bakeAppearance`),
+`renderer/filters/shared/ExtrudeMeshBaker.ts` (`buildOutline` + `bakeAppearance`),
 shared by the opaque and glass paths below.
 
 The element's own flat fill/stroke render is suppressed by the

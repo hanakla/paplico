@@ -4,6 +4,11 @@ import {
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import {
+	type AppearancePreset,
+	isAppearancePresetRef,
+} from "@paplico/core/schema";
+import { deepClone } from "@paplico/core/utils";
+import {
 	Bookmark,
 	Check,
 	PaintBucket,
@@ -21,8 +26,6 @@ import { Separator } from "@/components/Separator";
 import { toastManager } from "@/components/Toast";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { type AppearancePreset, isAppearancePresetRef } from "@/core/schema";
-import { deepClone } from "@/core/utils/lang";
 import { AppearancePresetsDialog } from "@/dialogs/AppearancePresetsDialog";
 import { useFirstSelectedElement } from "@/hooks/paplico/useFirstSelectedElement";
 import { useAppearancePresets } from "@/hooks/useAppearancePresets";

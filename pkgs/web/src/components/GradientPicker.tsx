@@ -1,26 +1,4 @@
 import {
-	ArrowRight,
-	Ban,
-	Circle,
-	Edit3,
-	Grid3x3,
-	Hexagon,
-	LayoutGrid,
-	Paintbrush,
-	PlusSquare,
-	Trash2,
-} from "lucide-react";
-import { memo, useEffect, useRef, useState } from "react";
-import { useSnapshot } from "valtio";
-import { ColorPickerFull } from "@/components/ColorPicker2";
-import { FakeInput } from "@/components/FakeInput";
-import { IconButton } from "@/components/IconButton";
-import { Popover } from "@/components/Popover";
-import { Slider } from "@/components/Slider";
-import { ToggleGroup } from "@/components/ToggleGroup";
-import { Tooltip } from "@/components/Tooltip";
-import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
-import {
 	type Color,
 	type ColorStop,
 	colorToRawRGBA,
@@ -42,8 +20,30 @@ import {
 	rgbToHsv,
 	type SolidColor,
 	toRGBColor,
-} from "@/core/schema";
-import { sampleGradientColorAt } from "@/core/utils/gradientSampling";
+} from "@paplico/core/schema";
+import { sampleGradientColorAt } from "@paplico/core/utils";
+import {
+	ArrowRight,
+	Ban,
+	Circle,
+	Edit3,
+	Grid3x3,
+	Hexagon,
+	LayoutGrid,
+	Paintbrush,
+	PlusSquare,
+	Trash2,
+} from "lucide-react";
+import { memo, useEffect, useRef, useState } from "react";
+import { useSnapshot } from "valtio";
+import { ColorPickerFull } from "@/components/ColorPicker2";
+import { FakeInput } from "@/components/FakeInput";
+import { IconButton } from "@/components/IconButton";
+import { Popover } from "@/components/Popover";
+import { Slider } from "@/components/Slider";
+import { ToggleGroup } from "@/components/ToggleGroup";
+import { Tooltip } from "@/components/Tooltip";
+import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
 import { usePatternDefs } from "@/hooks/usePatternDefs";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";

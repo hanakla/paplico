@@ -1,3 +1,4 @@
+import type { AnyArtObject } from "@paplico/core/schema";
 import {
 	ArrowDown,
 	ArrowDownUp,
@@ -20,7 +21,6 @@ import {
 	usePaplicoCommands,
 	usePaplicoStore,
 } from "@/contexts/PaplicoContext";
-import type { AnyArtObject } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { AlignActionsMenu } from "./AlignActionsMenu";

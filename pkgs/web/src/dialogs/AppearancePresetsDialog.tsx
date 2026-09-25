@@ -1,3 +1,8 @@
+import {
+	type AppearancePreset,
+	type FilterEntry,
+	isAppearancePresetRef,
+} from "@paplico/core/schema";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { memo } from "react";
 import { useSnapshot } from "valtio";
@@ -7,11 +12,6 @@ import { FakeInput } from "@/components/FakeInput";
 import { IconButton } from "@/components/IconButton";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import {
-	type AppearancePreset,
-	type FilterEntry,
-	isAppearancePresetRef,
-} from "@/core/schema";
 import type { useAppearancePresets } from "@/hooks/useAppearancePresets";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";

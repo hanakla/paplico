@@ -1,4 +1,4 @@
-import type { Paplico } from "@/core/Paplico";
+import type { Paplico } from "@paplico/core";
 
 /**
  * Dev-only capture of the last committed pen stroke. The pointer record goes

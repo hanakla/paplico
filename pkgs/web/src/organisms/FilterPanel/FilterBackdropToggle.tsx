@@ -1,9 +1,9 @@
+import type { Filter } from "@paplico/core/schema";
 import { Layers2 } from "lucide-react";
 import { memo } from "react";
 import { IconButton } from "@/components/IconButton";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { Filter } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { useFilterStack } from "./FilterStackContext";

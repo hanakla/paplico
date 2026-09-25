@@ -1,6 +1,6 @@
+import type { ClipToShapeFilter } from "@paplico/core/filters";
 import { memo } from "react";
 import { Checkbox } from "@/components/Checkbox";
-import type { ClipToShapeFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 

@@ -1,6 +1,6 @@
+import type { BrushStroking } from "@paplico/core/schema";
 import { Plus, X } from "lucide-react";
 import { memo } from "react";
-import type { BrushStroking } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { FakeInput } from "./FakeInput";

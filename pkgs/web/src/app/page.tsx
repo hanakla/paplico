@@ -1,5 +1,23 @@
 "use client";
 
+import {
+	defaultShortcutCommands as Cmds,
+	Paplico,
+	registerForHotReload,
+} from "@paplico/core";
+import {
+	buildDeepLinkUrl,
+	type InviteTarget,
+	parseInvite,
+	parseSessionCode,
+	readKeyFromFragment,
+} from "@paplico/core/collaboration";
+import {
+	createEmbeddedImageFile,
+	createImageObject,
+} from "@paplico/core/document";
+import type { Artboard } from "@paplico/core/schema";
+import { TextToolController } from "@paplico/core/tools";
 import dynamic from "next/dynamic";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
@@ -10,21 +28,6 @@ import type { AutomationRuntimeFactory } from "@/automation/types";
 import { ConfirmDialog } from "@/components/AlertDialog";
 import { Resizable } from "@/components/Resizable";
 import { PaplicoProvider } from "@/contexts/PaplicoContext";
-import { Paplico, TextToolController } from "@/core";
-import {
-	buildDeepLinkUrl,
-	type InviteTarget,
-	parseInvite,
-	readKeyFromFragment,
-} from "@/core/collaboration/inviteUrl";
-import { parseSessionCode } from "@/core/collaboration/sessionCode";
-import {
-	createEmbeddedImageFile,
-	createImageObject,
-} from "@/core/document/factory";
-import { loadDevDocument } from "@/core/document/rendererState";
-import { defaultShortcutCommands as Cmds } from "@/core/PaplicoShortcuts";
-import type { Artboard } from "@/core/schema";
 import { CompanionDialog } from "@/dialogs/CompanionDialog";
 import { ConnectRoomDialog } from "@/dialogs/ConnectRoomDialog";
 import { DisconnectedDialog } from "@/dialogs/DisconnectedDialog";
@@ -393,11 +396,13 @@ export default function Page() {
 				const p = await Paplico.create(canvas, {
 					textToolController,
 					googleFontsApiKey: process.env.NEXT_PUBLIC_GOOGLE_FONTS_API_KEY,
+					fallbackFontUrl: "/assets/fonts/NotoSansJP-VariableFont_wght.ttf",
 					getBuiltinProfileBytes,
 					filterShortcutEvents: ignoreShortcutsInOptedOutSubtree,
 				});
 				paplicoRef.current = p;
 				window.__paplico = p;
+				registerForHotReload(p);
 				p.startRendering();
 				applyThemeToDOM(appConfig.theme);
 
@@ -1180,4 +1185,14 @@ function ignoreShortcutsInOptedOutSubtree(
 ): false | undefined {
 	if (!(event.target instanceof HTMLElement)) return undefined;
 	return event.target.closest('[data-app-shortcuts="off"]') ? false : undefined;
+}
+
+/** Opens the fixture document served by the dev-only API route. */
+async function loadDevDocument() {
+	if (process.env.NODE_ENV !== "development") return null;
+
+	const { openPapfContainer } = await import("@paplico/core/io");
+	const res = await fetch("/api/dev/test-document");
+	const papf = await openPapfContainer(await res.blob());
+	return papf.toDocument();
 }

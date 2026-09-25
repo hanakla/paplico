@@ -1,10 +1,10 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { withStoredBrushSize } from "@/core/brush/access";
 import {
 	resolveBrushTextureUid,
+	withStoredBrushSize,
 	withTextureFileUid,
-} from "@/core/brush/brushSource";
-import { createDefaultBrushSettings } from "@/core/document/factory";
+} from "@paplico/core/brush";
+import { createDefaultBrushSettings } from "@paplico/core/document";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
 	brushPresetsDB,
 	webBrushPresetsRepo,

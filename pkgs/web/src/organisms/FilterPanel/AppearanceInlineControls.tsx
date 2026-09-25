@@ -1,3 +1,9 @@
+import type {
+	AnyArtObject,
+	BlendMode,
+	CompositionMode,
+	Filter,
+} from "@paplico/core/schema";
 import { Grid2x2 } from "lucide-react";
 import { memo } from "react";
 import { FakeInput } from "@/components/FakeInput";
@@ -5,12 +11,6 @@ import { FakeSelect } from "@/components/FakeSelect";
 import { IconButton } from "@/components/IconButton";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type {
-	AnyArtObject,
-	BlendMode,
-	CompositionMode,
-	Filter,
-} from "@/core/schema";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";

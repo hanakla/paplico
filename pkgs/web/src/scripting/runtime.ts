@@ -1,3 +1,4 @@
+import type { Paplico } from "@paplico/core";
 import {
 	createScriptHost,
 	type Diagnostic,
@@ -8,7 +9,6 @@ import type {
 	AutomationPromptRequest,
 	AutomationPromptResponse,
 } from "@/automation/types";
-import type { Paplico } from "@/core/Paplico";
 import type { ScriptFileSystem } from "./api";
 import { createScriptPrompt, registerPaplicoScriptingApi } from "./api";
 import { PaplicoAutomationDom } from "./dom";

@@ -1,7 +1,7 @@
+import { isReference3D } from "@paplico/core/schema";
 import { useDeferredValue, useMemo } from "react";
 import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { isReference3D } from "@/core/schema";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
 import { useTranslation } from "@/locales";
 import { uiState } from "@/stores/uiStore";

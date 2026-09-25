@@ -1,7 +1,7 @@
+import type { SvgConvolveMatrixFilter } from "@paplico/core/filters";
 import { memo, useMemo } from "react";
 import { Checkbox } from "@/components/Checkbox";
 import { FakeInput } from "@/components/FakeInput";
-import type { SvgConvolveMatrixFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { identityKernel } from "./createDefaultFilter";

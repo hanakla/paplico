@@ -1,10 +1,10 @@
+import {
+	SVG_COLOR_MATRIX_IDENTITY,
+	type SvgColorMatrixFilter,
+	type SvgColorMatrixType,
+} from "@paplico/core/filters";
 import { memo, useMemo } from "react";
 import { Button } from "@/components/Button";
-import type {
-	SvgColorMatrixFilter,
-	SvgColorMatrixType,
-} from "@/core/renderer/filters";
-import { SVG_COLOR_MATRIX_IDENTITY } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

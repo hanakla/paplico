@@ -1,3 +1,4 @@
+import type { Paplico } from "@paplico/core";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
 	ChevronRight,
@@ -17,7 +18,6 @@ import { FakeInput } from "@/components/FakeInput";
 import { Menu } from "@/components/Menu";
 import { Spinner } from "@/components/Spinner";
 import { SwipeAction } from "@/components/SwipeAction";
-import type { Paplico } from "@/core/Paplico";
 import { setLastDocumentId } from "@/hooks/useAppConfig";
 import { useDocumentListData } from "@/hooks/useDocumentQueries";
 import {

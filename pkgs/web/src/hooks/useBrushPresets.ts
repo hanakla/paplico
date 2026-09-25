@@ -1,19 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useSnapshot } from "valtio";
-import { usePaplico } from "@/contexts/PaplicoContext";
-import { readStoredBrushSize, withStoredBrushSize } from "@/core/brush/access";
 import {
+	readStoredBrushSize,
 	resolveBrushTextureUid,
+	withStoredBrushSize,
 	withTextureFileUid,
-} from "@/core/brush/brushSource";
+} from "@paplico/core/brush";
 import {
 	type BrushSettings,
 	BUILTIN_BRUSH_IDS,
 	type BuiltinBrushId,
 	type EmbeddedFile,
 	generateUid,
-} from "@/core/schema";
-import { createBrushTextureFile } from "@/core/utils/embeddedFile";
+} from "@paplico/core/schema";
+import { createBrushTextureFile } from "@paplico/core/utils";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSnapshot } from "valtio";
+import { usePaplico } from "@/contexts/PaplicoContext";
 import { FileSystem } from "@/infra/filesystem";
 import { parsePapb, serializePapb } from "@/infra/papb";
 import { type LocalizeKeys, useTranslation } from "@/locales";

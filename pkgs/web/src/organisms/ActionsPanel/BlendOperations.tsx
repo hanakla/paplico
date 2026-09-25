@@ -1,4 +1,10 @@
 import {
+	type BlendEasing,
+	type BlendEasingNode,
+	isBlend,
+} from "@paplico/core/schema";
+import { createLinearBezierEasing } from "@paplico/core/utils";
+import {
 	ArrowDownUp,
 	ChartSpline,
 	GitCommitHorizontal,
@@ -17,8 +23,6 @@ import { Slider } from "@/components/Slider";
 import { toastManager } from "@/components/Toast";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplicoCommands, usePaplicoStore } from "@/contexts/PaplicoContext";
-import { type BlendEasing, type BlendEasingNode, isBlend } from "@/core/schema";
-import { createLinearBezierEasing } from "@/core/utils/bezierEasing";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 

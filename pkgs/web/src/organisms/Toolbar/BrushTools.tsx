@@ -1,6 +1,31 @@
 "use client";
 
 import {
+	BUILTIN_PRESET_CATEGORY_ORDER,
+	mergeBrushStroking,
+	resolveBrushTextureUid,
+	resolveOptionalSourceUid,
+	resolveScatterSourceUids,
+} from "@paplico/core/brush";
+import { createStrokeBrushSettings } from "@paplico/core/document";
+import {
+	type BrushArtSource,
+	type BrushColorMode,
+	type BrushPreset,
+	type BrushPresetCategory,
+	type BrushSettings,
+	type BrushStroking,
+	BUILTIN_BRUSH_IDS,
+	type Color,
+	type EmbeddedFile,
+	isGeometricBrush,
+	type LineCap,
+	type LineJoin,
+	type PathSegment,
+	type StampRotation,
+} from "@paplico/core/schema";
+import { createBrushTextureFile } from "@paplico/core/utils";
+import {
 	ChevronDown,
 	Copy,
 	Download,
@@ -24,33 +49,6 @@ import { SwipeAction } from "@/components/SwipeAction";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
-import { mergeBrushStroking } from "@/core/brush/access";
-import {
-	resolveBrushTextureUid,
-	resolveOptionalSourceUid,
-	resolveScatterSourceUids,
-} from "@/core/brush/brushSource";
-import { BUILTIN_PRESET_CATEGORY_ORDER } from "@/core/brush/presets";
-import { createStrokeBrushSettings } from "@/core/document/factory";
-import type {
-	BrushArtSource,
-	BrushColorMode,
-	BrushPreset,
-	BrushPresetCategory,
-	BrushStroking,
-	Color,
-	EmbeddedFile,
-	LineCap,
-	LineJoin,
-	PathSegment,
-	StampRotation,
-} from "@/core/schema";
-import {
-	type BrushSettings,
-	BUILTIN_BRUSH_IDS,
-	isGeometricBrush,
-} from "@/core/schema";
-import { createBrushTextureFile } from "@/core/utils/embeddedFile";
 import { useBrushEdits } from "@/hooks/useBrushEdits";
 import { useBrushPresets } from "@/hooks/useBrushPresets";
 import { FileSystem } from "@/infra/filesystem";

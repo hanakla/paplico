@@ -1,9 +1,8 @@
+import { extractDocumentFromYDoc } from "@paplico/core/collaboration";
+import { applyMigrations, serializeDocument } from "@paplico/core/io";
+import type { Document } from "@paplico/core/schema";
 import type Dexie from "dexie";
 import * as Y from "yjs";
-import { extractDocumentFromYDoc } from "@/core/collaboration/extractDocumentFromYDoc";
-import { applyMigrations } from "@/core/io/migrations";
-import { serializeDocument } from "@/core/io/papf/writer";
-import type { Document } from "@/core/schema";
 import type { DBMigration } from ".";
 
 /**

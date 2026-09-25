@@ -1,9 +1,9 @@
+import type { BooleanOperation } from "@paplico/core/schema";
 import { Combine, Copy, Minus, Plus } from "lucide-react";
 import { memo } from "react";
 import { IconButton } from "@/components/IconButton";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { BooleanOperation } from "@/core/schema";
 import { useTranslation } from "@/locales";
 
 export const PathBooleanOperations = memo(function PathBooleanOperations() {

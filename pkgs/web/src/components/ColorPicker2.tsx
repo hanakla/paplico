@@ -1,4 +1,11 @@
 import { Slider as BUISlider } from "@base-ui/react/slider";
+import {
+	type Color,
+	type HSVColor,
+	hsvToRgb,
+	type RGBColor,
+	rgbToHsv,
+} from "@paplico/core/schema";
 import { Check, Copy, Pipette } from "lucide-react";
 import {
 	createContext,
@@ -10,13 +17,6 @@ import {
 } from "react";
 import { tv } from "tailwind-variants";
 import { ToggleGroup } from "@/components/ToggleGroup";
-import {
-	type Color,
-	type HSVColor,
-	hsvToRgb,
-	type RGBColor,
-	rgbToHsv,
-} from "@/core/schema";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
 

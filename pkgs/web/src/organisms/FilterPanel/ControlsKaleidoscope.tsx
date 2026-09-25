@@ -1,7 +1,7 @@
+import type { HKKaleidoscopeFilter } from "@paplico/core/filters";
 import { memo } from "react";
 import { FakeInput } from "@/components/FakeInput";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import type { HKKaleidoscopeFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

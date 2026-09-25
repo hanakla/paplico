@@ -1,7 +1,7 @@
 import {
 	createDefaultColor,
 	createStrokeBrushSettings,
-} from "@/core/document/factory";
+} from "@paplico/core/document";
 import {
 	type BlurFilter,
 	type ClipToShapeFilter,
@@ -27,12 +27,12 @@ import {
 	type SvgTransferFunction,
 	type SvgTurbulenceFilter,
 	type ZigzagFilter,
-} from "@/core/renderer/filters";
+} from "@paplico/core/filters";
 import {
 	type FillAppearance,
 	generateUid,
 	type StrokeAppearance,
-} from "@/core/schema";
+} from "@paplico/core/schema";
 
 /** What the catalog hands back for a processor the panel knows how to add. */
 type DefaultFilter =

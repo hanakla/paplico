@@ -1,0 +1,18 @@
+{
+	"compilerOptions": {
+		"target": "ES2025",
+		"strictNullChecks": true,
+		"lib": ["dom", "dom.iterable", "esnext"],
+		"skipLibCheck": true,
+		"strict": false,
+		"noEmit": true,
+		"module": "esnext",
+		"esModuleInterop": true,
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"types": ["@webgpu/types", "vitest/globals"]
+	},
+	"include": ["src/**/*.ts", "vitest.config.ts"],
+	"exclude": ["node_modules", "src/assets/_update.deno.ts"]
+}

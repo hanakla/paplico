@@ -1,8 +1,8 @@
+import type { HKHalftoneFilter } from "@paplico/core/filters";
+import type { Color } from "@paplico/core/schema";
 import { memo } from "react";
 import { Checkbox } from "@/components/Checkbox";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import type { HKHalftoneFilter } from "@/core/renderer/filters";
-import type { Color } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { FilterColorSwatch } from "./FilterColorSwatch";

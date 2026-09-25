@@ -1,7 +1,7 @@
+import type { DefEntry } from "@paplico/core/schema";
 import { useMemo } from "react";
 import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import type { DefEntry } from "@/core/schema";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 

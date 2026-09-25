@@ -1,3 +1,15 @@
+import type { Paplico } from "@paplico/core";
+import {
+	type Artboard,
+	type Document,
+	getArtboardBounds,
+} from "@paplico/core/schema";
+import {
+	type PlaybackState,
+	TimelapseExporter,
+	type TimelapsePlayer,
+	type TimelapsePreviewSurface,
+} from "@paplico/core/timelapse";
 import { Download, Pause, Play, X } from "lucide-react";
 import { memo, type RefObject, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/Button";
@@ -6,12 +18,6 @@ import { Slider } from "@/components/Slider";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
-import type { Paplico } from "@/core/Paplico";
-import { type Artboard, type Document, getArtboardBounds } from "@/core/schema";
-import { TimelapseExporter } from "@/core/timelapse/TimelapseExporter";
-import type { TimelapsePlayer } from "@/core/timelapse/TimelapsePlayer";
-import type { TimelapsePreviewSurface } from "@/core/timelapse/TimelapsePreviewSurface";
-import type { PlaybackState } from "@/core/timelapse/types";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";

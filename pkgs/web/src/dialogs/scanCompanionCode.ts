@@ -1,5 +1,4 @@
-import { importRoomKey } from "@/core/collaboration/roomCrypto";
-import { parseSessionCode } from "@/core/collaboration/sessionCode";
+import { importRoomKey, parseSessionCode } from "@paplico/core/collaboration";
 import { ScanInviteDialog } from "@/dialogs/ScanInviteDialog";
 import type { CompanionCredentials } from "@/hooks/useCompanionClient";
 

@@ -1,3 +1,4 @@
+import type { Paplico } from "@paplico/core";
 import {
 	Bot,
 	Check,
@@ -27,7 +28,6 @@ import {
 import { memo, type ReactNode, useEffect, useRef } from "react";
 import { useSnapshot } from "valtio";
 import { Accordion } from "@/components/Accordion";
-import type { Paplico } from "@/core/Paplico";
 import { useCurrentCanvasTargetResolver } from "@/hooks/useCurrentCanvasTarget";
 import { useMenuActions } from "@/hooks/useMenuActions";
 import { confirmDialog } from "@/infra/confirmDialog";

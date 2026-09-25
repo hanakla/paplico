@@ -1,15 +1,21 @@
-import { proxy, useSnapshot } from "valtio";
-import { ConfirmDialog } from "@/components/AlertDialog";
-import { toastManager } from "@/components/Toast";
-import { createCollaboration } from "@/core/collaboration/createCollaboration";
-import { buildInviteUrl } from "@/core/collaboration/inviteUrl";
+import type { Paplico } from "@paplico/core";
 import {
+	buildInviteUrl,
+	Collaboration,
+	type CollaborationConfig,
+	E2EECollaboration,
 	exportRoomKey,
 	generateRoomId,
 	generateRoomKey,
+	type ICollaboration,
 	importRoomKey,
-} from "@/core/collaboration/roomCrypto";
-import type { Paplico } from "@/core/Paplico";
+	PartyKitCollaboration,
+	type YjsProvider,
+} from "@paplico/core/collaboration";
+import { proxy, useSnapshot } from "valtio";
+import { ConfirmDialog } from "@/components/AlertDialog";
+import { toastManager } from "@/components/Toast";
+import { PARTYKIT_HOST } from "@/configs";
 import { DisconnectedDialog } from "@/dialogs/DisconnectedDialog";
 import { appConfig, setCollaborationUserName } from "@/hooks/useAppConfig";
 import { useUserSession } from "@/hooks/useUserSession";
@@ -98,7 +104,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 	// Device-to-device sessions say "your devices", rooms say "room". Same
 	// events underneath, but a user reaching their own iPad was never in a room.
 	const setupCollaborationListeners = useEventCallback(
-		(collab: ReturnType<typeof createCollaboration>, encrypted: boolean) => {
+		(collab: ICollaboration, encrypted: boolean) => {
 			let hasSynced = false;
 
 			collab.on("synced", (isSynced) => {
@@ -219,7 +225,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 				// Verify room exists and determine reconnect eligibility
 				const metaUrl =
 					process.env.NEXT_PUBLIC_COLLAB_MODE === "cloud"
-						? `https://${process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999"}/parties/main/${roomId}`
+						? `https://${PARTYKIT_HOST}/parties/main/${roomId}`
 						: `/api/collaboration/${roomId}/meta`;
 
 				try {
@@ -509,4 +515,38 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 		handleCloseRoom,
 		handleSignInComplete,
 	};
+}
+
+/**
+ * Picks the transport for a room and wires the reconnect cleanup.
+ *
+ * A room key takes precedence over the mode: it means the session is end-to-end
+ * encrypted, which only the relay-based provider can serve. Otherwise
+ * NEXT_PUBLIC_COLLAB_MODE decides between the PartyKit cloud and the local
+ * y-websocket server.
+ */
+function createCollaboration(
+	provider: YjsProvider,
+	config: CollaborationConfig,
+	options?: { isReconnect?: boolean },
+): ICollaboration {
+	const ydoc = provider.ydoc;
+	const relayConfig = { ...config, relayHost: PARTYKIT_HOST };
+	const collab: ICollaboration = config.roomKey
+		? new E2EECollaboration(ydoc, relayConfig)
+		: process.env.NEXT_PUBLIC_COLLAB_MODE === "cloud"
+			? new PartyKitCollaboration(ydoc, relayConfig)
+			: new Collaboration(ydoc, config);
+
+	if (options?.isReconnect) {
+		const handler = (isSynced: boolean) => {
+			if (!isSynced) return;
+			provider.deduplicateLayers();
+			collab.off("synced", handler);
+		};
+
+		collab.on("synced", handler);
+	}
+
+	return collab;
 }

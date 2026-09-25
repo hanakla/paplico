@@ -1,6 +1,6 @@
+import type { BrushSettings } from "@paplico/core/schema";
 import { encode } from "cbor-x";
 import { describe, expect, it } from "vitest";
-import type { BrushSettings } from "@/core/schema";
 import { PAPB_SCHEMA_VERSION, parsePapb, serializePapb } from "@/infra/papb";
 import { createPersistedBrushPreset } from "@/repos/brushPresets";
 

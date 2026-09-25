@@ -1,6 +1,6 @@
+import type { HKBloomFilter } from "@paplico/core/filters";
 import { memo, useMemo } from "react";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import type { HKBloomFilter } from "@/core/renderer/filters";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { type FilterSliderDef, FilterSliders } from "./FilterSliders";

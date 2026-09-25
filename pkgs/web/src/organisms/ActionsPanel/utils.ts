@@ -1,5 +1,5 @@
-import type { FontMetadata } from "@/core/index";
-import type { FontSource } from "@/core/schema";
+import type { FontSource } from "@paplico/core/schema";
+import type { FontMetadata } from "@paplico/core/typography";
 
 export const BRUSH_WIDTH_STEP = 0.1;
 

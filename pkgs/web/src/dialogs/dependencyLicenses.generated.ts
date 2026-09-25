@@ -232,6 +232,12 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 		url: "https://github.com/glennwilton/jsColorEngine",
 	},
 	{
+		name: "lib0",
+		version: "0.2.117",
+		license: "MIT",
+		url: "https://github.com/dmonad/lib0",
+	},
+	{
 		name: "lucide-react",
 		version: "0.562.0",
 		license: "ISC",
@@ -374,6 +380,12 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 		version: "4.1.18",
 		license: "MIT",
 		url: "https://github.com/tailwindlabs/tailwindcss",
+	},
+	{
+		name: "tauri-plugin-system-fonts-api",
+		version: "2.0.2",
+		license: "MIT",
+		url: "https://github.com/ayangweb/tauri-plugin-system-fonts",
 	},
 	{
 		name: "three",

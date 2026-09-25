@@ -1,4 +1,17 @@
 import {
+	mergeBrushStroking,
+	readStoredBrushStroking,
+	withStoredBrushSize,
+} from "@paplico/core/brush";
+import type {
+	AnyArtObject,
+	BrushStroking,
+	CompoundPath,
+	Path,
+	TextElement,
+} from "@paplico/core/schema";
+import { getFirstStroke, getStrokeWidth } from "@paplico/core/utils";
+import {
 	AlignCenter,
 	AlignLeft,
 	AlignRight,
@@ -14,19 +27,6 @@ import { Slider } from "@/components/Slider";
 import { StrokeGeometryFields } from "@/components/StrokeGeometryFields";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import {
-	mergeBrushStroking,
-	readStoredBrushStroking,
-	withStoredBrushSize,
-} from "@/core/brush/access";
-import type {
-	AnyArtObject,
-	BrushStroking,
-	CompoundPath,
-	Path,
-	TextElement,
-} from "@/core/schema";
-import { getFirstStroke, getStrokeWidth } from "@/core/utils/elementQuery";
 import { useActiveFontSettings } from "@/hooks/useCurrentFontSetting";
 import { useFontPreview } from "@/hooks/useFontPreview";
 import { useTranslation } from "@/locales";
