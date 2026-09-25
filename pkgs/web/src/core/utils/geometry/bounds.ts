@@ -1184,10 +1184,28 @@ export function isPointInPath(
 
 	let windingNumber = 0;
 	let prevEnd: BezierPoint | null = null;
+	let contourStart: BezierPoint | null = null;
 
 	for (const segment of path.segments) {
 		const rawStart = segment.start ?? prevEnd;
 		if (!rawStart) continue;
+
+		// Each contour closes back onto its own start. Closing the whole path
+		// at once would draw a phantom edge from one contour to the next and
+		// flip the winding of points in the gap between them. A contour begins
+		// where the pen lifts, i.e. an explicit start away from the previous
+		// end; isMoved alone is not a lift, since an image quad marks each
+		// side isMoved while still chaining into one polygon.
+		const lifted =
+			prevEnd !== null &&
+			segment.start !== undefined &&
+			(segment.start.x !== prevEnd.x || segment.start.y !== prevEnd.y);
+		if (contourStart === null || lifted) {
+			if (contourStart && prevEnd) {
+				windingNumber += windingCrossing(prevEnd, contourStart, px, py);
+			}
+			contourStart = rawStart;
+		}
 
 		const { start, cp1, cp2, end } = resolveSegment(
 			segment,
@@ -1196,51 +1214,36 @@ export function isPointInPath(
 
 		// Flatten bezier curve into line segments for winding number calculation
 		const points = flattenBezierSegment(start, cp1, cp2, end);
-
 		for (let i = 0; i < points.length - 1; i++) {
-			const p1 = points[i];
-			const p2 = points[i + 1];
-
-			// Check if ray from point to +infinity crosses this edge
-			if (p1.y <= py) {
-				if (p2.y > py) {
-					// Upward crossing
-					if (isLeft(p1, p2, px, py) > 0) {
-						windingNumber++;
-					}
-				}
-			} else {
-				if (p2.y <= py) {
-					// Downward crossing
-					if (isLeft(p1, p2, px, py) < 0) {
-						windingNumber--;
-					}
-				}
-			}
+			windingNumber += windingCrossing(points[i], points[i + 1], px, py);
 		}
 
 		prevEnd = segment.end;
 	}
 
-	// Add closing edge (last end → first start) for winding number calculation.
-	// For closed paths this is a zero-length edge (no-op).
-	// For open paths this implicitly closes the shape with a straight line.
-	const firstStart = path.segments[0].start;
-	if (prevEnd && firstStart) {
-		const p1 = prevEnd;
-		const p2 = firstStart;
-		if (p1.y <= py) {
-			if (p2.y > py) {
-				if (isLeft(p1, p2, px, py) > 0) windingNumber++;
-			}
-		} else {
-			if (p2.y <= py) {
-				if (isLeft(p1, p2, px, py) < 0) windingNumber--;
-			}
-		}
+	// For a closed contour this is a zero-length edge; an open contour is
+	// implicitly closed with a straight line.
+	if (contourStart && prevEnd) {
+		windingNumber += windingCrossing(prevEnd, contourStart, px, py);
 	}
 
 	return windingNumber !== 0;
+}
+
+/**
+ * Winding contribution of the edge p1→p2 for a ray cast from (px, py)
+ * toward +x: +1 for an upward crossing, -1 for a downward one, else 0.
+ */
+function windingCrossing(
+	p1: BezierPoint,
+	p2: BezierPoint,
+	px: number,
+	py: number,
+): number {
+	if (p1.y <= py) {
+		return p2.y > py && isLeft(p1, p2, px, py) > 0 ? 1 : 0;
+	}
+	return p2.y <= py && isLeft(p1, p2, px, py) < 0 ? -1 : 0;
 }
 
 /**

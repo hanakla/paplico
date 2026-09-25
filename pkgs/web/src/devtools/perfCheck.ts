@@ -42,8 +42,16 @@ type RenderRecord = {
 	t: number;
 	strategy: string | null;
 	passes: PassRecord[];
-	computePasses: string[];
+	computePasses: Array<Pick<PassRecord, "label" | "gpuMs">>;
 	copies: string[];
+	canvasCache?: {
+		reason: string;
+		requestStrategy: unknown;
+		scheduler: unknown;
+		before: unknown;
+		after?: unknown;
+		fullStoreBake?: boolean;
+	};
 };
 
 type CpuSample = { t: number; method: string; ms: number };
@@ -54,7 +62,11 @@ type QueryBlock = {
 	resolveBuf: GPUBuffer;
 	readBuf: GPUBuffer;
 	used: number;
-	pending: Array<{ passRec: PassRecord; begin: number; end: number }>;
+	pending: Array<{
+		passRec: Pick<PassRecord, "gpuMs">;
+		begin: number;
+		end: number;
+	}>;
 };
 
 /** Per-encoder timestamp pool: query-set blocks allocated on demand, so an
@@ -269,10 +281,31 @@ export async function runPerfCheck(
 			function (this: GPUDevice, ...a: any[]) {
 				const encoder = orig.apply(this, a);
 				// Blocks are allocated lazily on the first pass, so encoders that
-				// never begin a render pass cost nothing.
+				// never begin a pass cost nothing.
 				const qctx: QueryCtx | null = gpuTimingSupported
 					? { blocks: [] }
 					: null;
+				// Compute passes are timed too: a render pass that reads a compute
+				// result would otherwise absorb the compute time as its own.
+				const timestampWritesFor = (
+					rec: Pick<PassRecord, "gpuMs">,
+				): GPURenderPassTimestampWrites | undefined => {
+					if (!qctx) return undefined;
+					const block = acquireQueryBlock(qctx);
+					if (!block) {
+						coverage.noFreeBlock++;
+						return undefined;
+					}
+					const begin = block.used;
+					const end = block.used + 1;
+					block.used += 2;
+					block.pending.push({ passRec: rec, begin, end });
+					return {
+						querySet: block.querySet,
+						beginningOfPassWriteIndex: begin,
+						endOfPassWriteIndex: end,
+					};
+				};
 
 				wrapLocal(
 					encoder,
@@ -292,28 +325,13 @@ export async function runPerfCheck(
 							coverage.totalPasses++;
 							if (curRender) curRender.passes.push(rec);
 
-							let useDesc = desc;
-							if (qctx && !desc?.timestampWrites) {
-								const block = acquireQueryBlock(qctx);
-								if (block) {
-									const begin = block.used;
-									const end = block.used + 1;
-									block.used += 2;
-									block.pending.push({ passRec: rec, begin, end });
-									useDesc = {
-										...desc,
-										timestampWrites: {
-											querySet: block.querySet,
-											beginningOfPassWriteIndex: begin,
-											endOfPassWriteIndex: end,
-										},
-									};
-								} else {
-									coverage.noFreeBlock++;
-								}
-							}
-
-							const pass: any = obp.call(this, useDesc);
+							const timestampWrites = desc?.timestampWrites
+								? undefined
+								: timestampWritesFor(rec);
+							const pass: any = obp.call(
+								this,
+								timestampWrites ? { ...desc, timestampWrites } : desc,
+							);
 							for (const m of [
 								"draw",
 								"drawIndexed",
@@ -340,10 +358,16 @@ export async function runPerfCheck(
 							this: GPUCommandEncoder,
 							desc?: GPUComputePassDescriptor,
 						) {
-							if (curRender) {
-								curRender.computePasses.push(desc?.label || "(unlabeled)");
-							}
-							return obp.call(this, desc);
+							const rec = { label: desc?.label || "(unlabeled)", gpuMs: null };
+							coverage.totalPasses++;
+							if (curRender) curRender.computePasses.push(rec);
+							const timestampWrites = desc?.timestampWrites
+								? undefined
+								: timestampWritesFor(rec);
+							return obp.call(
+								this,
+								timestampWrites ? { ...desc, timestampWrites } : desc,
+							);
 						},
 				);
 
@@ -474,6 +498,91 @@ export async function runPerfCheck(
 	);
 
 	// ---- CPU per-method timing -----------------------------------------------
+	// Observe the actual cache branch and scheduler inputs before they are
+	// consumed, so a viewport fallback can be distinguished from a settle.
+	let schedulerDecision: unknown = null;
+	if (scheduler) {
+		patch(
+			scheduler,
+			"resolveStrategy",
+			(orig) =>
+				function (this: any, ...a: any[]) {
+					const strategy = orig.apply(this, a);
+					schedulerDecision = {
+						strategy,
+						dirtyReasons: [...this.dirtyReasons],
+						isInteracting: this.isInteracting,
+					};
+					return strategy;
+				},
+		);
+	}
+	const snapshotCanvasCache = () => {
+		const cache = canvasLayer.compositeFrameCache;
+		return {
+			valid: cache.valid,
+			hasTexture: cache.texture != null,
+			bakedWorldBounds: cache.bakedWorldBounds && { ...cache.bakedWorldBounds },
+			storeBounds: cache.storeBounds && { ...cache.storeBounds },
+			viewportZoom: cache.viewportZoom,
+			viewport: { ...canvasLayer.viewportState.current },
+			width: canvasLayer.viewportState.width,
+			height: canvasLayer.viewportState.height,
+			pixelPreview: canvasLayer.pixelPreviewEnabled,
+		};
+	};
+	patch(
+		canvasLayer,
+		"render",
+		(orig) =>
+			function (this: any, ...a: any[]) {
+				if (!curRender) return orig.apply(this, a);
+				const request = a[3];
+				const before = snapshotCanvasCache();
+				const sample: NonNullable<RenderRecord["canvasCache"]> = {
+					reason:
+						request.hdrExposure != null || request.softProof === true
+							? "post-process"
+							: !before.valid || !before.hasTexture
+								? "cache-unavailable"
+								: "strategy-requires-render",
+					requestStrategy: request.strategy,
+					scheduler: schedulerDecision,
+					before,
+				};
+				schedulerDecision = null;
+				curRender.canvasCache = sample;
+				try {
+					return orig.apply(this, a);
+				} finally {
+					sample.after = snapshotCanvasCache();
+					sample.fullStoreBake = this.fullStoreBakeThisFrame;
+				}
+			},
+	);
+	patch(
+		canvasLayer,
+		"cachedFrameCoversViewport",
+		(orig) =>
+			function (this: unknown, ...a: any[]) {
+				const covers = orig.apply(this, a);
+				if (curRender?.canvasCache)
+					curRender.canvasCache.reason = covers
+						? "covered"
+						: "outside-baked-region";
+				return covers;
+			},
+	);
+	patch(
+		canvasLayer,
+		"renderViewportBlit",
+		(orig) =>
+			function (this: unknown, ...a: any[]) {
+				if (curRender?.canvasCache) curRender.canvasCache.reason = "hit";
+				return orig.apply(this, a);
+			},
+	);
+
 	function wrapCpu(proto: any, name: string, label: string) {
 		if (!proto) return;
 		patch(
@@ -629,8 +738,12 @@ export async function runPerfCheck(
 					gpuByLabel[ps.label].push(ps.gpuMs);
 				}
 			}
-			for (const label of r.computePasses) {
-				computePassCount[label] = (computePassCount[label] ?? 0) + 1;
+			for (const cp of r.computePasses) {
+				computePassCount[cp.label] = (computePassCount[cp.label] ?? 0) + 1;
+				if (cp.gpuMs != null) {
+					gpuByLabel[cp.label] ??= [];
+					gpuByLabel[cp.label].push(cp.gpuMs);
+				}
 			}
 			for (const c of r.copies) copyCount[c] = (copyCount[c] ?? 0) + 1;
 		}
@@ -696,6 +809,25 @@ export async function runPerfCheck(
 			.join("  |  ");
 
 		return {
+			canvasCache: {
+				decisions: Object.fromEntries(
+					Object.entries(
+						Object.groupBy(
+							renderSet.flatMap((r) => (r.canvasCache ? [r.canvasCache] : [])),
+							(cache) => cache.reason,
+						),
+					).map(([reason, frames]) => [reason, frames?.length ?? 0]),
+				),
+				redraws: renderSet
+					.filter((r) => r.canvasCache && r.canvasCache.reason !== "hit")
+					.map((r) => ({
+						t: r.t,
+						...r.canvasCache,
+						mixChunkPasses: r.passes.filter(
+							(p) => p.label === "Mix Stroke Chunk Pass",
+						).length,
+					})),
+			},
 			passesPerRender: round(passCount, (v) => v / rc),
 			computePassesPerRender: round(computePassCount, (v) => v / rc),
 			drawsPerRender: round(passDraws, (v) => v / rc),

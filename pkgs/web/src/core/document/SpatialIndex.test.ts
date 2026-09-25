@@ -1172,6 +1172,49 @@ describe("SpatialIndex", () => {
 			expect(idx.findElementAtPoint("layer-1", 100, 100)).toBeNull();
 		});
 
+		it("findElementAtPoint rejects points outside a compound-path clip shape", () => {
+			// Clip is the union of two 100×100 squares: one at the origin and one
+			// at (0, 200). The child image spans both and the gap between them.
+			const near = makeClosedPath("near");
+			const far: Path = {
+				...makeClosedPath("far"),
+				transform: { ...createIdentityTransform(), y: 200 },
+			};
+			const clipShape: CompoundPath = {
+				type: "compound-path",
+				id: "clip-shape",
+				sources: [
+					{ id: "near", op: "union" },
+					{ id: "far", op: "union" },
+				],
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			};
+			const child = makeImage("child-1", 0, 100, 400, 400);
+			const clipGroup = makeGroup("clip-1", ["clip-shape", "child-1"], {
+				clipPathId: "clip-shape",
+			});
+			const layer = makeLayer("layer-1", ["clip-1"]);
+			const store = makeStore([layer], {
+				"clip-1": clipGroup,
+				"clip-shape": clipShape,
+				near,
+				far,
+				"child-1": child,
+			});
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+
+			expect(idx.findElementAtPoint("layer-1", 0, 0)).toBe(clipGroup);
+			expect(idx.findElementAtPoint("layer-1", 0, 200)).toBe(clipGroup);
+			// In the gap between the squares: inside the child, outside the clip.
+			expect(idx.findElementAtPoint("layer-1", 0, 100)).toBeNull();
+			// Beside the gap, where a phantom edge joining the two contours
+			// would cross a ray cast toward +x.
+			expect(idx.findElementAtPoint("layer-1", -100, 100)).toBeNull();
+		});
+
 		it("findElementAtPoint hits clip group when clicking on a filled path inside it (normal mode)", () => {
 			const clipShape = makeClosedPath("clip-shape");
 			// A filled path inside the clip group (with fill filter)

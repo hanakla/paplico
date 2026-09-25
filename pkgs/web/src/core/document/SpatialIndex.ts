@@ -1909,8 +1909,20 @@ export class SpatialIndex {
 		y: LocalCoord,
 	): boolean {
 		const clipPath = this.store.document.objects[clipPathId];
-		if (!clipPath || !isPath(clipPath)) return true;
-		return this.isPointInsidePathShape(clipPath, x, y);
+		if (!clipPath) return true;
+		if (isPath(clipPath)) return this.isPointInsidePathShape(clipPath, x, y);
+		if (isCompoundPath(clipPath)) {
+			// The mask is the boolean result drawn flat, so test the resolved
+			// faces rather than the sources. An unresolvable compound masks
+			// everything out.
+			const drawn = this.resolveCompoundDrawnShape(clipPath, []);
+			if (!drawn) return false;
+			const local = this.toElementLocal(clipPath, x, y);
+			return drawn.geometries.some((segments) =>
+				isPointInPath(local.x, local.y, { segments }),
+			);
+		}
+		return true;
 	}
 
 	/**

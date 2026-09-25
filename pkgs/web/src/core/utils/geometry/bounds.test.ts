@@ -21,6 +21,7 @@ import {
 	calculatePathBounds,
 	calculateSegmentListTightBounds,
 	expandBounds,
+	isPointInPath,
 	pointInBounds,
 } from "./bounds";
 import { toWorld } from "./geometry";
@@ -455,6 +456,34 @@ describe("bounds utilities", () => {
 			expect(pointInBounds(35, 30, bounds)).toBe(false);
 			expect(pointInBounds(20, 15, bounds)).toBe(false);
 			expect(pointInBounds(20, 45, bounds)).toBe(false);
+		});
+	});
+
+	describe("isPointInPath", () => {
+		it("should treat a chain of isMoved sides as one polygon", () => {
+			// Like an image quad: every side restates its start and is isMoved,
+			// yet the sides chain end-to-start into a single polygon.
+			const rect = closedRectSegments(0, 0, 100, 100);
+			const sides = rect.map((segment, i) => ({
+				...segment,
+				start: segment.start ?? rect[i - 1].end,
+				isMoved: true,
+			}));
+			expect(isPointInPath(50, 50, { segments: sides })).toBe(true);
+			expect(isPointInPath(150, 50, { segments: sides })).toBe(false);
+		});
+
+		it("should not fill the gap between two separate contours", () => {
+			const segments = [
+				...closedRectSegments(0, 0, 100, 100),
+				...closedRectSegments(0, 200, 100, 300),
+			];
+			expect(isPointInPath(50, 50, { segments })).toBe(true);
+			expect(isPointInPath(50, 250, { segments })).toBe(true);
+			expect(isPointInPath(50, 150, { segments })).toBe(false);
+			// Left of both squares, where an edge joining the second contour's
+			// end to the first contour's start would cross a ray cast to +x.
+			expect(isPointInPath(-50, 150, { segments })).toBe(false);
 		});
 	});
 
