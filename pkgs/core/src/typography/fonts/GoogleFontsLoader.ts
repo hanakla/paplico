@@ -3,16 +3,7 @@
  * Google Fonts APIを使用してフォントを読み込み
  */
 
-import * as fontkit from "@cantoo/fontkit";
-import {
-	extractLocalizedNames,
-	type FontLoader,
-	type FontMetadata,
-	getFontCacheKey,
-	type LoadedFont,
-	parseWeightString,
-} from "./FontLoader";
-import { fontFaceWeight } from "./fontVariations";
+import { type FontFile, FontLoader, type FontMetadata } from "./FontLoader";
 import { googleSubsetsToScripts } from "./os2Scripts";
 
 /**
@@ -35,31 +26,20 @@ interface GoogleFontItem {
 }
 
 /**
- * Google Fontsローダー
+ * Google Fonts loader. A fontId is a family name, optionally suffixed with
+ * `:<weight>` to pin one weight file of a family that has no variable file.
  */
-export class GoogleFontsLoader implements FontLoader {
+export class GoogleFontsLoader extends FontLoader {
+	public readonly id = "google";
+	public readonly label = "Google Fonts";
 	private apiKey: string | null;
-	private loadedFonts: Map<string, LoadedFont> = new Map();
 	private fontList: FontMetadata[] | null = null;
-	private loadingPromises: Map<string, Promise<LoadedFont>> = new Map();
 	/** family → (variant → TTF URL) のマッピング。queryFonts時にAPIレスポンスから構築 */
 	private fontFiles: Map<string, Record<string, string>> = new Map();
 
 	public constructor(apiKey?: string) {
+		super();
 		this.apiKey = apiKey ?? null;
-	}
-
-	/**
-	 * APIキーを後から設定（シングルトン初期化順序問題の対策）
-	 * フォント一覧キャッシュはクリアして再取得を促す
-	 * @returns キーが実際に変わった場合true（呼び出し側が一覧の再取得をトリガーする判断に使う）
-	 */
-	public setApiKey(apiKey: string): boolean {
-		if (this.apiKey === apiKey) return false;
-		this.apiKey = apiKey;
-		this.fontList = null;
-		this.fontFiles.clear();
-		return true;
 	}
 
 	/**
@@ -90,8 +70,8 @@ export class GoogleFontsLoader implements FontLoader {
 					postScriptName: item.family.replace(/\s+/g, ""),
 					style: "Regular",
 					weight: 400,
-					source: "google" as const,
-					variants: item.variants,
+					loaderId: this.id,
+					fontId: item.family,
 					scripts: googleSubsetsToScripts(item.subsets),
 				};
 			});
@@ -103,44 +83,8 @@ export class GoogleFontsLoader implements FontLoader {
 		}
 	}
 
-	/**
-	 * フォントをロード
-	 */
-	public async loadFont(
-		family: string,
-		weight = 400,
-	): Promise<LoadedFont | null> {
-		const cacheKey = getFontCacheKey(family, weight);
-
-		// キャッシュチェック
-		const cached = this.loadedFonts.get(cacheKey);
-		if (cached) {
-			return cached;
-		}
-
-		// ロード中の場合は待機
-		const loading = this.loadingPromises.get(cacheKey);
-		if (loading) {
-			return loading;
-		}
-
-		// ロード開始
-		const loadPromise = this.doLoadFont(family, weight, cacheKey);
-		this.loadingPromises.set(cacheKey, loadPromise);
-
-		try {
-			const font = await loadPromise;
-			return font;
-		} finally {
-			this.loadingPromises.delete(cacheKey);
-		}
-	}
-
-	private async doLoadFont(
-		family: string,
-		weight: number,
-		cacheKey: string,
-	): Promise<LoadedFont> {
+	protected async fetchFont(fontId: string): Promise<FontFile> {
+		const [family, pinnedWeight] = fontId.split(":");
 		// fontFilesが未構築の場合はqueryFontsを先に呼んでAPIレスポンスを取得
 		if (this.fontFiles.size === 0) {
 			await this.queryFonts();
@@ -149,128 +93,58 @@ export class GoogleFontsLoader implements FontLoader {
 		// fontFiles（APIレスポンスのfiles）からフルフォントのTTF URLを取得。
 		// CSS2 APIの&text=パラメータはサブセット化を引き起こすため、
 		// CJKフォントで日本語グリフが欠落する問題が発生する。
-		const fontUrl = this.getFontFileUrl(family, weight);
-		if (!fontUrl) {
-			throw new Error(`No font file URL for ${family}:${weight}`);
+		const file = this.getFontFile(family, pinnedWeight);
+		if (!file) {
+			throw new Error(`No font file URL for ${fontId}`);
 		}
 
-		const response = await fetch(fontUrl);
+		const response = await fetch(file.url);
 		if (!response.ok) {
 			throw new Error(`Failed to download font: ${response.status}`);
 		}
 
-		const data = await response.arrayBuffer();
-
-		const fontResult = fontkit.create(new Uint8Array(data));
-		const font = "fonts" in fontResult ? fontResult.fonts[0] : fontResult;
-
-		// DOMでフォントを使えるようにする（@font-face登録）
-		await this.registerFontFace(family, weight, data, font);
-
-		const loadedFont: LoadedFont = {
+		return {
+			data: await response.arrayBuffer(),
 			metadata: {
 				family,
-				fullName: font.fullName ?? family,
-				postScriptName: font.postscriptName ?? family.replace(/\s+/g, ""),
-				style: this.getStyleFromWeight(weight),
-				weight,
-				source: "google",
-				...extractLocalizedNames(font),
+				fullName: family,
+				postScriptName: family.replace(/\s+/g, ""),
+				style: this.getStyleFromWeight(file.weight),
+				weight: file.weight,
 			},
-			fontkit: font,
-			cssUrl: fontUrl,
-			cssFontFamily: `"${family}", sans-serif`,
-			data,
 		};
-
-		this.loadedFonts.set(cacheKey, loadedFont);
-		return loadedFont;
 	}
 
 	/**
-	 * fontFilesマップからフォントファイルURLを取得する。
-	 * Google Fonts APIレスポンスのfilesフィールドにはウェイト別のフルTTF URLが含まれ、
-	 * CSS2 APIのtext=パラメータによるサブセット化問題を回避できる。
+	 * Pick one weight file of a family from the API response's `files`.
+	 * Without a pinned weight the regular file wins, then the first numeric one.
 	 */
-	private getFontFileUrl(family: string, weight: number): string | null {
+	private getFontFile(
+		family: string,
+		pinnedWeight: string | undefined,
+	): { url: string; weight: number } | null {
 		const files = this.fontFiles.get(family);
 		if (!files) return null;
 
-		// ウェイト数値 → variantキー: 400="regular", 400italic="italic", 700="700"
-		const variantKey = weight === 400 ? "regular" : String(weight);
-		const url = files[variantKey] ?? files.regular ?? Object.values(files)[0];
+		const variants = Object.keys(files);
+		const weight = Number(
+			pinnedWeight ??
+				(variants.includes("regular")
+					? 400
+					: (variants.find((variant) => /^\d+$/.test(variant)) ?? 400)),
+		);
+		// Variant keys: 400 = "regular", 400 italic = "italic", 700 = "700"
+		const url =
+			files[weight === 400 ? "regular" : String(weight)] ??
+			files.regular ??
+			Object.values(files)[0];
 		if (!url) return null;
 
-		// Google Fonts APIはhttp://を返すことがあるのでhttps://に変換
-		return url.replace(/^http:\/\//, "https://");
-	}
-
-	/**
-	 * @font-faceを登録してDOMで使えるようにする
-	 */
-	private async registerFontFace(
-		family: string,
-		weight: number,
-		data: ArrayBuffer,
-		font: fontkit.Font,
-	): Promise<void> {
-		try {
-			const fontFace = new FontFace(family, data, {
-				weight: fontFaceWeight(font, weight),
-				style: "normal",
-			});
-
-			await fontFace.load();
-			document.fonts.add(fontFace);
-
-			console.log(`📝 Registered font face: ${family}:${weight}`);
-		} catch (error) {
-			console.error(`Failed to register font face ${family}:`, error);
-		}
-	}
-
-	/**
-	 * フォントがロード済みかチェック
-	 */
-	public isLoaded(identifier: string): boolean {
-		// identifier形式: "family" または "family:weight"
-		const [family, weightStr] = identifier.split(":");
-		const weight = weightStr ? parseWeightString(weightStr) : 400;
-		return this.loadedFonts.has(getFontCacheKey(family, weight));
-	}
-
-	/**
-	 * ロード済みフォントを取得
-	 */
-	public getLoadedFont(identifier: string): LoadedFont | undefined {
-		const [family, weightStr] = identifier.split(":");
-		const weight = weightStr ? parseWeightString(weightStr) : 400;
-		return this.loadedFonts.get(getFontCacheKey(family, weight));
-	}
-
-	/**
-	 * Pre-register a LoadedFont directly into the cache.
-	 * Used for injecting test fonts or pre-loaded fonts that should be
-	 * resolvable via Google font source references.
-	 */
-	public registerLoadedFont(font: LoadedFont): void {
-		const cacheKey = getFontCacheKey(
-			font.metadata.family,
-			font.metadata.weight,
-		);
-		this.loadedFonts.set(cacheKey, font);
-	}
-
-	/**
-	 * フォントを検索
-	 */
-	public async searchFonts(query: string): Promise<FontMetadata[]> {
-		const fonts = await this.queryFonts();
-		const normalizedQuery = query.toLowerCase();
-
-		return fonts.filter((font) =>
-			font.family.toLowerCase().includes(normalizedQuery),
-		);
+		return {
+			// Google Fonts APIはhttp://を返すことがあるのでhttps://に変換
+			url: url.replace(/^http:\/\//, "https://"),
+			weight,
+		};
 	}
 
 	/**

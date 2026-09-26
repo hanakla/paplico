@@ -1,4 +1,4 @@
-import { beforeAll, describe, it } from "vitest";
+import { describe, it } from "vitest";
 import {
 	createArtboard,
 	createDefaultDocument,
@@ -13,11 +13,9 @@ import {
 	generateUid,
 	type StrokeAppearance,
 } from "../../schema";
-import { loadTestFont } from "../../testUtils/fontSetup";
 import { rectPath, solidFillAppearance } from "../../testUtils/svgFixtures";
 import { expectSvgMatchesGpu } from "../../testUtils/svgGpuParity";
 import { createTestRenderer } from "../../testUtils/visualRegression";
-import { getFontManager } from "../../typography/fonts";
 
 /**
  * Per-primitive parity between the GPU render and resvg's rasterization of
@@ -41,10 +39,6 @@ const INPUTS: readonly SvgFilterInput[] = [
 ];
 const BLUR_DIFF = 3;
 const EXACT_DIFF = 0.5;
-
-beforeAll(() => {
-	loadTestFont(getFontManager());
-});
 
 describe("SVG filter primitives - GPU vs resvg parity", () => {
 	it.each(buildCases())("$name", async ({ name, filters, maxDiff }) => {

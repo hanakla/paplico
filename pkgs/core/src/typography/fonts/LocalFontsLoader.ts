@@ -3,16 +3,7 @@
  * Local Font Access APIを使用してローカルフォントを読み込み
  */
 
-import * as fontkit from "@cantoo/fontkit";
-import {
-	extractLocalizedNames,
-	type FontLoader,
-	type FontMetadata,
-	getFontCacheKey,
-	type LoadedFont,
-	parseWeightString,
-} from "./FontLoader";
-import { fontFaceWeight } from "./fontVariations";
+import { type FontFile, FontLoader, type FontMetadata } from "./FontLoader";
 import { detectFontScripts, type FontScript } from "./os2Scripts";
 
 const SCRIPT_RESOLVE_CONCURRENCY = 8;
@@ -41,18 +32,19 @@ export interface LocalFontBackend {
 }
 
 /**
- * ローカルフォントローダー
+ * Local fonts loader. A fontId is the font's PostScript name.
  */
-export class LocalFontsLoader implements FontLoader {
+export class LocalFontsLoader extends FontLoader {
+	public readonly id = "local";
+	public readonly label = "Local";
 	private backend: LocalFontBackend;
-	private loadedFonts: Map<string, LoadedFont> = new Map();
 	private fontList: FontMetadata[] | null = null;
-	private loadingPromises: Map<string, Promise<LoadedFont | null>> = new Map();
 	private fontDataCache: Map<string, FontData> = new Map();
 	private scripts: Map<string, FontScript[]> = new Map();
 	private scriptsResolution: Promise<void> | null = null;
 
 	public constructor(backend: LocalFontBackend) {
+		super();
 		this.backend = backend;
 	}
 
@@ -114,7 +106,8 @@ export class LocalFontsLoader implements FontLoader {
 						postScriptName: identifier,
 						style: variant.style,
 						weight: this.inferWeightFromStyle(variant.style),
-						source: "local" as const,
+						loaderId: this.id,
+						fontId: identifier,
 					});
 				}
 			}
@@ -171,43 +164,7 @@ export class LocalFontsLoader implements FontLoader {
 		onProgress();
 	}
 
-	/**
-	 * フォントをロード
-	 */
-	public async loadFont(
-		postScriptName: string,
-		weight = 400,
-	): Promise<LoadedFont | null> {
-		const cacheKey = getFontCacheKey(postScriptName, weight);
-
-		// キャッシュチェック
-		const cached = this.loadedFonts.get(cacheKey);
-		if (cached) {
-			return cached;
-		}
-
-		// ロード中の場合は待機
-		const loading = this.loadingPromises.get(cacheKey);
-		if (loading) {
-			return loading;
-		}
-
-		// ロード開始
-		const loadPromise = this.doLoadFont(postScriptName, weight, cacheKey);
-		this.loadingPromises.set(cacheKey, loadPromise);
-
-		try {
-			return await loadPromise;
-		} finally {
-			this.loadingPromises.delete(cacheKey);
-		}
-	}
-
-	private async doLoadFont(
-		postScriptName: string,
-		_weight: number,
-		cacheKey: string,
-	): Promise<LoadedFont | null> {
+	protected async fetchFont(postScriptName: string): Promise<FontFile> {
 		// キャッシュされたFontDataを探す
 		let fontData = this.fontDataCache.get(postScriptName);
 
@@ -231,107 +188,19 @@ export class LocalFontsLoader implements FontLoader {
 
 		// フォントデータをBlob→ArrayBufferとして取得
 		const blob = await fontData.blob();
-		const data = await blob.arrayBuffer();
-
-		const fontResult = fontkit.create(new Uint8Array(data));
-		// TTC (TrueType Collection) の場合はpostScriptNameでマッチ
-		const font =
-			"fonts" in fontResult
-				? fontResult.fonts.find((f) => f.postscriptName === postScriptName)
-				: fontResult;
-		if (!font) return null;
-
-		// DOMでフォントを使えるようにする（@font-face登録）
-		await this.registerFontFace(fontData, data, font);
-
-		const loadedFont: LoadedFont = {
+		return {
+			data: await blob.arrayBuffer(),
 			metadata: {
 				family: fontData.family,
 				fullName: fontData.fullName,
-				postScriptName: fontData.postScriptName,
+				postScriptName,
 				style: fontData.style,
 				weight: this.inferWeightFromStyle(fontData.style),
-				source: "local",
-				...extractLocalizedNames(font),
 			},
-			fontkit: font,
-			cssFontFamily: `"${fontData.postScriptName}", "${fontData.family}", sans-serif`,
-			data,
+			// Faces of one family share their family name, so each registers
+			// under its own PostScript name.
+			cssFamily: postScriptName,
 		};
-
-		this.loadedFonts.set(cacheKey, loadedFont);
-		return loadedFont;
-	}
-
-	/**
-	 * @font-faceを登録してDOMで使えるようにする
-	 */
-	private async registerFontFace(
-		fontData: FontData,
-		data: ArrayBuffer,
-		font: fontkit.Font,
-	): Promise<void> {
-		try {
-			// PostScriptNameをfont-familyとして登録（重複回避）
-			const fontFace = new FontFace(fontData.postScriptName, data, {
-				weight: fontFaceWeight(font, this.inferWeightFromStyle(fontData.style)),
-				style: this.inferFontStyle(fontData.style),
-			});
-
-			await fontFace.load();
-			document.fonts.add(fontFace);
-
-			console.log(`📝 Registered local font face: ${fontData.postScriptName}`);
-		} catch (error) {
-			console.error(
-				`Failed to register font face ${fontData.postScriptName}:`,
-				error,
-			);
-		}
-	}
-
-	/**
-	 * Register a pre-built LoadedFont into the cache (used in tests and embedded font injection).
-	 */
-	public registerLoadedFont(font: LoadedFont): void {
-		const cacheKey = getFontCacheKey(
-			font.metadata.postScriptName,
-			font.metadata.weight,
-		);
-		this.loadedFonts.set(cacheKey, font);
-	}
-
-	/**
-	 * フォントがロード済みかチェック
-	 */
-	public isLoaded(identifier: string): boolean {
-		const [postScriptName, weightStr] = identifier.split(":");
-		const weight = weightStr ? parseWeightString(weightStr) : 400;
-		return this.loadedFonts.has(getFontCacheKey(postScriptName, weight));
-	}
-
-	/**
-	 * ロード済みフォントを取得
-	 */
-	public getLoadedFont(identifier: string): LoadedFont | undefined {
-		const [postScriptName, weightStr] = identifier.split(":");
-		const weight = weightStr ? parseWeightString(weightStr) : 400;
-		return this.loadedFonts.get(getFontCacheKey(postScriptName, weight));
-	}
-
-	/**
-	 * フォントを検索
-	 */
-	public async searchFonts(query: string): Promise<FontMetadata[]> {
-		const fonts = await this.queryFonts();
-		const normalizedQuery = query.toLowerCase();
-
-		return fonts.filter(
-			(font) =>
-				font.family.toLowerCase().includes(normalizedQuery) ||
-				font.fullName.toLowerCase().includes(normalizedQuery) ||
-				font.postScriptName.toLowerCase().includes(normalizedQuery),
-		);
 	}
 
 	/**
@@ -368,15 +237,5 @@ export class LocalFontsLoader implements FontLoader {
 			return 900;
 
 		return 400;
-	}
-
-	/**
-	 * スタイル文字列からfont-styleを推測
-	 */
-	private inferFontStyle(style: string): "normal" | "italic" | "oblique" {
-		const normalized = style.toLowerCase();
-		if (normalized.includes("italic")) return "italic";
-		if (normalized.includes("oblique")) return "oblique";
-		return "normal";
 	}
 }

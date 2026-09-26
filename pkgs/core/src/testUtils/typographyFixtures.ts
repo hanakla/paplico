@@ -11,14 +11,14 @@ function createMockFont(): LoadedFont {
 			postScriptName: "MockSans-Regular",
 			style: "Regular",
 			weight: 400,
-			source: "local",
+			loaderId: "local",
+			fontId: "MockSans-Regular",
 		},
 		fontkit: {
 			ascent: 800,
 			descent: -200,
 			unitsPerEm: 1000,
 		} as unknown as LoadedFont["fontkit"],
-		cssFontFamily: "Mock Sans",
 		data: new ArrayBuffer(0),
 	};
 }
@@ -83,10 +83,7 @@ export function createTestTextElement(
 						text: paraText,
 						style: {
 							fontFamily: "Mock Sans",
-							fontSource: {
-								type: "local",
-								postScriptName: "MockSans-Regular",
-							},
+							fontSource: { loaderId: "local", fontId: "MockSans-Regular" },
 							fontSize: 10,
 							fontWeight: 400,
 							fontStyle: "normal",
@@ -106,7 +103,7 @@ export function createTestTextElement(
 		},
 		defaultStyle: {
 			fontFamily: "Mock Sans",
-			fontSource: { type: "local", postScriptName: "MockSans-Regular" },
+			fontSource: { loaderId: "local", fontId: "MockSans-Regular" },
 			fontSize: 10,
 			fontWeight: 400,
 			fontStyle: "normal",

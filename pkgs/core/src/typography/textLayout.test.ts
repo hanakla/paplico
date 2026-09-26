@@ -2,28 +2,26 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createIdentityTransform } from "../document/factory";
 import type { TextElement } from "../schema";
 import {
+	createTestFontManager,
 	loadTestFont,
 	NOTO_SANS_JP_POST_SCRIPT_NAME,
 } from "../testUtils/fontSetup";
-import { FontManager } from "./fonts/FontManager";
+import type { FontManager } from "./fonts/FontManager";
 import { TextLayoutEngine } from "./TextLayoutEngine";
 
 let fontManager: FontManager;
 let layoutEngine: TextLayoutEngine;
 
-beforeAll(() => {
-	fontManager = new FontManager();
-	loadTestFont(fontManager);
+beforeAll(async () => {
+	fontManager = createTestFontManager();
+	await loadTestFont(fontManager);
 	layoutEngine = new TextLayoutEngine(fontManager);
 });
 
 function makeTextElement(overrides: Partial<TextElement> = {}): TextElement {
 	const baseStyle = {
 		fontFamily: "Noto Sans JP",
-		fontSource: {
-			type: "local" as const,
-			postScriptName: NOTO_SANS_JP_POST_SCRIPT_NAME,
-		},
+		fontSource: { loaderId: "local", fontId: NOTO_SANS_JP_POST_SCRIPT_NAME },
 		fontSize: 24,
 		fontWeight: 400,
 		fontStyle: "normal" as const,

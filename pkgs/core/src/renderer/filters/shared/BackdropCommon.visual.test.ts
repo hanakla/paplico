@@ -1,5 +1,5 @@
 import pixelmatch from "pixelmatch";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { localAppearances } from "../../../document/appearancePresets";
 import {
 	createArtboard,
@@ -13,23 +13,17 @@ import {
 	type Path,
 	type PathSegment,
 } from "../../../schema";
-import { loadTestFont } from "../../../testUtils/fontSetup";
 import {
 	captureTexturePixels,
 	createTestRenderer,
 	expectVisualMatch,
 	renderWithViewport,
 } from "../../../testUtils/visualRegression";
-import { getFontManager } from "../../../typography/fonts";
 import type { BlurFilter } from "../BlurFilter/BlurFilter";
 import type { FrostGlassFilter } from "../FrostGlassFilter/FrostGlassFilter";
 import type { HKVhsInterlaceFilter } from "../HKVhsInterlaceFilter/HKVhsInterlaceFilter";
 import type { PixelateFilter } from "../PixelateFilter/PixelateFilter";
 import type { SvgFilterGraphFilter } from "../svg/SvgFilterGraphFilter/SvgFilterGraphFilter";
-
-beforeAll(() => {
-	loadTestFont(getFontManager());
-});
 
 // The common Appearance.applyToBackdrop flag reroutes any postProcess filter
 // onto the captured backdrop (masked to the element shape) without the filter

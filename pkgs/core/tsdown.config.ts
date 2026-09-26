@@ -16,7 +16,6 @@ export default defineConfig({
 		"src/renderer/filters/index.ts",
 		"src/utils/index.ts",
 		"src/infra/index.ts",
-		"src/infra/localfonts.tauri.ts",
 		"src/stubs/three-webgpu-compat.ts",
 	],
 	format: "esm",

@@ -5,7 +5,7 @@ describe("resolveDefaultFontForLanguage", () => {
 	it("should return the Japanese Noto family for Japanese", () => {
 		expect(resolveDefaultFontForLanguage("ja")).toEqual({
 			fontFamily: "Noto Sans JP",
-			fontSource: { type: "google", family: "Noto Sans JP", variants: ["400"] },
+			fontSource: { loaderId: "google", fontId: "Noto Sans JP" },
 		});
 	});
 
@@ -18,7 +18,7 @@ describe("resolveDefaultFontForLanguage", () => {
 	it("should fall back to the plain Noto family for another language", () => {
 		expect(resolveDefaultFontForLanguage("en")).toEqual({
 			fontFamily: "Noto Sans",
-			fontSource: { type: "google", family: "Noto Sans", variants: ["400"] },
+			fontSource: { loaderId: "google", fontId: "Noto Sans" },
 		});
 	});
 

@@ -13,13 +13,13 @@ type DefaultFont = Pick<TextStyle, "fontFamily" | "fontSource">;
  */
 const FALLBACK_FONT: DefaultFont = {
 	fontFamily: "Noto Sans",
-	fontSource: { type: "google", family: "Noto Sans", variants: ["400"] },
+	fontSource: { loaderId: "google", fontId: "Noto Sans" },
 };
 
 const FONT_BY_LANGUAGE: Record<string, DefaultFont> = {
 	ja: {
 		fontFamily: "Noto Sans JP",
-		fontSource: { type: "google", family: "Noto Sans JP", variants: ["400"] },
+		fontSource: { loaderId: "google", fontId: "Noto Sans JP" },
 	},
 };
 

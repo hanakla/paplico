@@ -1,6 +1,6 @@
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
-import { beforeAll, describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import {
 	createArtboard,
 	createDefaultBrushSettings,
@@ -16,7 +16,6 @@ import type {
 	Reference3DElement,
 	StrokeWidthPoint,
 } from "../../schema";
-import { loadTestFont } from "../../testUtils/fontSetup";
 import { loadTestDocument } from "../../testUtils/loadTestDocument";
 import { createMockToolContext } from "../../testUtils/mockToolContext";
 import {
@@ -32,11 +31,6 @@ import {
 	renderWithViewport,
 } from "../../testUtils/visualRegression";
 import { PenTool } from "../../tools/PenTool";
-import { getFontManager } from "../../typography/fonts";
-
-beforeAll(() => {
-	loadTestFont(getFontManager());
-});
 
 const MAX_DIFF_PERCENTAGE = 0.1;
 

@@ -20,8 +20,15 @@ npm install @paplico/core
 
 ```typescript
 import { Paplico } from "@paplico/core";
+import { DomLocalFontBackend } from "@paplico/core/infra";
+import { GoogleFontsLoader, LocalFontsLoader } from "@paplico/core/typography";
 
 const paplico = await Paplico.create(canvas, {
+	// Where text fonts come from; see "Fonts".
+	fontLoaders: [
+		new GoogleFontsLoader(GOOGLE_FONTS_API_KEY),
+		new LocalFontsLoader(new DomLocalFontBackend()),
+	],
 	// Bytes of the builtin ICC profiles; see "Files the host serves".
 	getBuiltinProfileBytes: async (id) => {
 		const file = { srgb: "sRGB-v4.icc", "display-p3": "DisplayP3Compat-v4.icc" }[id];
@@ -89,6 +96,92 @@ export default {
 engine on Node with a WebGPU implementation such as `webgpu` (Dawn); browsers
 never load it.
 
+## Customizing
+
+### Fonts
+
+Text fonts are resolved by the `FontLoader`s passed as `fontLoaders`. The
+engine registers none by default. A text style stores its font as a
+`FontSource`, `{ loaderId, fontId }`, and the loader whose `id` equals
+`loaderId` loads it. Text whose loader is not registered renders with the
+fallback font.
+
+| Loader | `id` | `fontId` |
+| --- | --- | --- |
+| `GoogleFontsLoader` | `google` | Family name; `Family:700` pins one weight file of a family without a variable font |
+| `LocalFontsLoader` | `local` | PostScript name of an installed font |
+
+`LocalFontsLoader` reads installed fonts through a `LocalFontBackend`.
+Browsers use `DomLocalFontBackend` from `@paplico/core/infra`. Other
+platforms implement `LocalFontBackend` in the host app; the Paplico desktop
+app does so for Tauri in `pkgs/web/src/infra/localfonts.tauri.ts`.
+
+#### Adding a custom font loader
+
+Extend `FontLoader` and pass an instance alongside the others. A loader only
+lists its fonts and fetches their files; parsing, caching, deduplicating
+concurrent loads and registering the font for DOM text happen in the base
+class.
+
+```typescript
+import { FontLoader, type FontFile, type FontMetadata } from "@paplico/core/typography";
+
+class AppFontsLoader extends FontLoader {
+	// Stored in documents as FontSource.loaderId; keep it stable across releases
+	public readonly id = "app-fonts";
+	// Name shown to users, e.g. as a font picker tab
+	public readonly label = "App Fonts";
+
+	public async queryFonts(): Promise<FontMetadata[]> {
+		return [
+			{
+				family: "My Brand Sans",
+				fullName: "My Brand Sans Regular",
+				postScriptName: "MyBrandSans-Regular",
+				style: "Regular",
+				weight: 400,
+				loaderId: this.id,
+				fontId: "my-brand-sans",
+			},
+		];
+	}
+
+	protected async fetchFont(fontId: string): Promise<FontFile | null> {
+		const res = await fetch(`/fonts/${fontId}.ttf`);
+		if (!res.ok) return null;
+		return {
+			data: await res.arrayBuffer(),
+			metadata: {
+				family: "My Brand Sans",
+				fullName: "My Brand Sans Regular",
+				postScriptName: "MyBrandSans-Regular",
+				style: "Regular",
+				weight: 400,
+			},
+		};
+	}
+}
+
+const paplico = await Paplico.create(canvas, {
+	fontLoaders: [new GoogleFontsLoader(apiKey), new AppFontsLoader()],
+	// ...
+});
+```
+
+- `fetchFont` returns the font file (TTF, OTF, WOFF2 or a TrueType
+  collection) and its metadata. In a collection, `metadata.postScriptName`
+  selects the face.
+- Return `null` when the loader has no such font, or throw when fetching
+  fails. Either way the text renders with the fallback font.
+- The font is registered for DOM text under `metadata.family`. Set
+  `cssFamily` on the returned file to use another name.
+- Each loader `id` must be unique among the registered loaders.
+- A loader whose catalog cannot tell which writing systems a font covers may
+  implement the optional `getScripts` and `resolveScripts` to detect them later.
+
+Fonts of every loader are listed by `paplico.fonts.queryAllFonts()`.
+Build the `FontSource` of a listed font from its `loaderId` and `fontId`.
+
 ## Entry points
 
 | Import | Contents |
@@ -102,11 +195,10 @@ never load it.
 | `@paplico/core/io` | papf read/write, migrations |
 | `@paplico/core/tools` | Tool types and tool-specific helpers |
 | `@paplico/core/timelapse` | Timelapse export and playback |
-| `@paplico/core/typography` | Font manager and text layout |
+| `@paplico/core/typography` | Font loaders and text layout |
 | `@paplico/core/filters` | Filter types and the filter catalog |
 | `@paplico/core/utils` | Geometry, color and easing helpers |
-| `@paplico/core/infra` | Clipboard |
-| `@paplico/core/infra/localfonts.tauri` | Local font backend for Tauri apps |
+| `@paplico/core/infra` | Clipboard, browser local font backend |
 | `@paplico/core/three-webgpu-compat` | Target of the `three` bundler alias |
 
 Collaboration transports take the PartyKit host from

@@ -31,6 +31,7 @@ import { migCompoundPathPivot } from "./20260918_mig_compound_path_pivot";
 import { migDropEraseMasks } from "./20260920_mig_drop_erase_masks";
 import { migBlendEasing } from "./20260921_mig_blend_easing";
 import { migSplitStrokeErasure } from "./20260925_mig_split_stroke_erasure";
+import { migFontSourceLoader } from "./20260927_mig_font_source_loader";
 import {
 	applyMigration,
 	applyMigrations,
@@ -1721,6 +1722,81 @@ describe("migSplitStrokeErasure (20260925)", () => {
 	});
 });
 
+describe("migFontSourceLoader (20260927)", () => {
+	it("should rewrite the default style and every run to loader sources", () => {
+		const doc = makeDoc(
+			{
+				t1: makeLegacyText(
+					{ type: "local", postScriptName: "HiraginoSans-W3" },
+					[{ type: "embedded", fileUid: "file-1" }],
+				),
+			},
+			20260925,
+		);
+
+		applyMigration(doc, migFontSourceLoader);
+
+		expect(doc.objects.t1).toMatchObject({
+			defaultStyle: {
+				fontSource: { loaderId: "local", fontId: "HiraginoSans-W3" },
+			},
+			content: {
+				paragraphs: [
+					{
+						runs: [
+							{
+								style: {
+									fontSource: { loaderId: "embedded", fontId: "file-1" },
+								},
+							},
+						],
+					},
+				],
+			},
+		});
+	});
+
+	it("should keep a Google family as the fontId when it loaded the regular file", () => {
+		const doc = makeDoc(
+			{
+				t1: makeLegacyText({
+					type: "google",
+					family: "Noto Sans JP",
+					variants: ["100", "regular", "700"],
+				}),
+			},
+			20260925,
+		);
+
+		applyMigration(doc, migFontSourceLoader);
+
+		expect(doc.objects.t1).toMatchObject({
+			defaultStyle: {
+				fontSource: { loaderId: "google", fontId: "Noto Sans JP" },
+			},
+		});
+	});
+
+	it("should carry the loaded weight in the fontId of a Google source without regular", () => {
+		const doc = makeDoc(
+			{
+				t1: makeLegacyText({
+					type: "google",
+					family: "Inter",
+					variants: ["700"],
+				}),
+			},
+			20260925,
+		);
+
+		applyMigration(doc, migFontSourceLoader);
+
+		expect(doc.objects.t1).toMatchObject({
+			defaultStyle: { fontSource: { loaderId: "google", fontId: "Inter:700" } },
+		});
+	});
+});
+
 /** A closed 100×100 square centered on the origin, moved right by `x`. */
 function makeSquarePath(id: string, x: number): Path {
 	const corners = [
@@ -1772,5 +1848,28 @@ function legacyBackdropFilter(processor: string, applyToBackdrop: boolean) {
 		opacity: 1,
 		blendMode: "normal" as const,
 		paramData: { version: "1", params: { blockWidth: 8, applyToBackdrop } },
+	};
+}
+
+function makeLegacyText(
+	defaultSource: Record<string, unknown>,
+	runSources: Record<string, unknown>[] = [],
+) {
+	return {
+		id: "t1",
+		type: "text" as const,
+		opacity: 1,
+		blendMode: "normal" as const,
+		defaultStyle: { fontFamily: "Test", fontSource: defaultSource },
+		content: {
+			paragraphs: [
+				{
+					runs: runSources.map((fontSource) => ({
+						text: "a",
+						style: { fontFamily: "Test", fontSource },
+					})),
+				},
+			],
+		},
 	};
 }

@@ -1,3 +1,4 @@
+import { FontManager } from "../typography/fonts/FontManager";
 import { RenderOrchestrator } from "./RenderOrchestrator";
 
 type LifecycleAccess = {
@@ -11,7 +12,7 @@ type LifecycleAccess = {
 
 describe("RenderOrchestrator GPU lifecycle", () => {
 	it("should destroy the profiler and owned device exactly once", () => {
-		const renderer = new RenderOrchestrator();
+		const renderer = new RenderOrchestrator(new FontManager({ loaders: [] }));
 		const device = createDevice();
 		const profiler = { destroy: vi.fn() };
 		const lifecycle = accessLifecycle(renderer);
@@ -28,7 +29,7 @@ describe("RenderOrchestrator GPU lifecycle", () => {
 	});
 
 	it("should not destroy a device after it reports device loss", () => {
-		const renderer = new RenderOrchestrator();
+		const renderer = new RenderOrchestrator(new FontManager({ loaders: [] }));
 		const device = createDevice();
 		const profiler = { destroy: vi.fn() };
 		const lifecycle = accessLifecycle(renderer);
@@ -46,7 +47,7 @@ describe("RenderOrchestrator GPU lifecycle", () => {
 	});
 
 	it("should ignore a stale loss notification from a replaced device", () => {
-		const renderer = new RenderOrchestrator();
+		const renderer = new RenderOrchestrator(new FontManager({ loaders: [] }));
 		const staleDevice = createDevice();
 		const activeDevice = createDevice();
 		const onDeviceLost = vi.fn();

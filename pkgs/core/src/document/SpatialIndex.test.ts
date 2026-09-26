@@ -125,7 +125,7 @@ function makeText(
 ): TextElement {
 	const style: TextStyle = {
 		fontFamily: "sans-serif",
-		fontSource: { type: "local", postScriptName: "sans-serif" },
+		fontSource: { loaderId: "local", fontId: "sans-serif" },
 		fontSize: 16,
 		fontWeight: 400,
 		fontStyle: "normal",

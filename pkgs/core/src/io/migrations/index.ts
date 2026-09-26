@@ -17,6 +17,7 @@ import { migCompoundPathPivot } from "./20260918_mig_compound_path_pivot";
 import { migDropEraseMasks } from "./20260920_mig_drop_erase_masks";
 import { migBlendEasing } from "./20260921_mig_blend_easing";
 import { migSplitStrokeErasure } from "./20260925_mig_split_stroke_erasure";
+import { migFontSourceLoader } from "./20260927_mig_font_source_loader";
 
 export interface Migration {
 	/** Schema version date (YYYYMMDD) this migration upgrades TO */
@@ -45,6 +46,7 @@ const migrations: Migration[] = [
 	migDropEraseMasks,
 	migBlendEasing,
 	migSplitStrokeErasure,
+	migFontSourceLoader,
 ];
 
 /** Schema version a document has once every migration ran. */

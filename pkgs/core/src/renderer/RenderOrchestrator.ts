@@ -18,7 +18,7 @@ import {
 	TextLayoutEngine,
 	TextRenderer,
 } from "../typography";
-import { getFontManager } from "../typography/fonts";
+import type { FontManager } from "../typography/fonts/FontManager";
 import {
 	expandBounds,
 	type LocalBBox,
@@ -288,6 +288,8 @@ export class RenderOrchestrator {
 	private onDeviceLost: (() => void) | null = null;
 	private onDeviceRestored: (() => void) | null = null;
 	private onDeviceRecoveryFailed: (() => void) | null = null;
+
+	public constructor(private readonly fontManager: FontManager) {}
 
 	public async initDevice(): Promise<boolean> {
 		if (this.destroyed) return false;
@@ -2592,8 +2594,7 @@ export class RenderOrchestrator {
 		await this.brushTextureManager.loadDefaultTextures();
 
 		// Text renderer
-		const fontManager = getFontManager();
-		const textLayoutEngine = new TextLayoutEngine(fontManager);
+		const textLayoutEngine = new TextLayoutEngine(this.fontManager);
 		this.textRenderer = new TextRenderer(textLayoutEngine);
 		this.textRenderer.setDocumentResolver(this.textDocumentResolver);
 

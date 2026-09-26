@@ -94,12 +94,12 @@ export function useFontPreview(): {
 		return () => observer.disconnect();
 	}, []);
 
-	const previewRef = useCallback((family: string, source: string) => {
+	const previewRef = useCallback((family: string, loaderId: string) => {
 		const existing = refMapRef.current.get(family);
 		if (existing) return existing;
 
 		const refCb = (el: HTMLElement | null) => {
-			if (!el || source !== "google" || loadedFamilies.has(family)) return;
+			if (!el || loaderId !== "google" || loadedFamilies.has(family)) return;
 			el.dataset.fontFamily = family;
 			observerRef.current?.observe(el);
 		};

@@ -1,5 +1,5 @@
 import pixelmatch from "pixelmatch";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	createArtboard,
 	createDefaultDocument,
@@ -12,7 +12,6 @@ import {
 	type Path,
 	type PathSegment,
 } from "../../../schema";
-import { loadTestFont } from "../../../testUtils/fontSetup";
 import {
 	captureTexturePixels,
 	createTestRenderer,
@@ -20,14 +19,9 @@ import {
 	renderArtboardForTest,
 	renderWithViewport,
 } from "../../../testUtils/visualRegression";
-import { getFontManager } from "../../../typography/fonts";
 import type { HKHuskyFilter } from "../HKHuskyFilter/HKHuskyFilter";
 import type { HKOutlineFilter } from "../HKOutlineFilter/HKOutlineFilter";
 import type { HKVhsInterlaceFilter } from "../HKVhsInterlaceFilter/HKVhsInterlaceFilter";
-
-beforeAll(() => {
-	loadTestFont(getFontManager());
-});
 
 // Both filters size every spatial parameter in world px and scale it by the
 // rasterization scale (R = dpi/72), so the rendered FORM must stay identical

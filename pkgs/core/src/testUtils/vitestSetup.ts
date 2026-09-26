@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createDeflate, createInflate } from "node:zlib";
 import { beforeAll } from "vitest";
-import { getFontManager } from "../typography/fonts/FontManager";
 import { ensureWebGPUGlobals } from "./visualRegression";
 
 /**
@@ -30,9 +29,6 @@ globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 	}
 	return realFetch(input, init);
 }) as typeof fetch;
-getFontManager().setFallbackFontUrl(
-	"/assets/fonts/NotoSansJP-VariableFont_wght.ttf",
-);
 
 /**
  * Polyfill CompressionStream/DecompressionStream for Node.js environment.

@@ -1,5 +1,4 @@
 import type { Font } from "@cantoo/fontkit";
-import { getFontManager } from "@paplico/core/typography";
 import { Ellipsis, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { subscribe } from "valtio";
@@ -16,7 +15,7 @@ import { useEventCallback } from "@/utils/hooks";
 export function FontVariationPopover() {
 	const t = useTranslation();
 	const paplico = usePaplico();
-	const manager = getFontManager();
+	const manager = paplico.fonts;
 	const [open, setOpen] = useState(false);
 	const [, refresh] = useState(0);
 	const [loadError, setLoadError] = useState(false);

@@ -37,11 +37,7 @@ function createTextElement(): TextElement {
 							text: "A",
 							style: {
 								fontFamily: "Test",
-								fontSource: {
-									type: "google",
-									family: "Inter",
-									variants: ["400"],
-								},
+								fontSource: { loaderId: "google", fontId: "Inter" },
 								fontSize: 10,
 								fontWeight: 400,
 								fontStyle: "normal",
@@ -62,7 +58,7 @@ function createTextElement(): TextElement {
 		},
 		defaultStyle: {
 			fontFamily: "Test",
-			fontSource: { type: "google", family: "Inter", variants: ["400"] },
+			fontSource: { loaderId: "google", fontId: "Inter" },
 			fontSize: 10,
 			fontWeight: 400,
 			fontStyle: "normal",

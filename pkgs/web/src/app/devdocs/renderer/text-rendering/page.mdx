@@ -187,11 +187,16 @@ cp2 = -(end - start) / 3      // relative offset from end
 
 ### フォント読み込みルート
 
-| ルート | モジュール | 説明 |
-|---|---|---|
-| Google Fonts | `GoogleFontsLoader` | Google Fonts APIのレスポンスに含まれるウェイト別のフルTTFを取得し、FontManagerに登録。CSS2 APIのサブセット化ではCJKフォントのグリフが欠けるため、サブセットではないファイルを使う |
-| ローカルフォント | `LocalFontsLoader` | Local Font Access API経由でOSにインストール済みのフォントを利用 |
-| 埋め込みフォールバック | — | Noto Sans JPがアプリケーションに埋め込まれており、他のルートが失敗した場合のフォールバックとして使用 |
+`FontManager` はPaplicoインスタンスごとに1つ作られ、`paplico.fonts` で参照できる。フォントの取得そのものは `FontLoader` が担う。ローダーは `Paplico.create` の `fontLoaders` で渡す。core は既定のローダーを持たない。
+
+テキストスタイルの `FontSource` は `{ loaderId, fontId }` の形でドキュメントに保存される。`loaderId` は `FontLoader.id` と一致するローダーを指す。`fontId` の意味はローダーごとに決まる。該当するローダーが登録されていないフォントは読み込めず、フォールバックで描画される。
+
+| ルート | モジュール | `loaderId` | 説明 |
+|---|---|---|---|
+| Google Fonts | `GoogleFontsLoader` | `google` | Google Fonts APIのレスポンスに含まれるウェイト別のフルTTFを取得する。CSS2 APIのサブセット化ではCJKフォントのグリフが欠けるため、サブセットではないファイルを使う。`fontId` はファミリー名。可変フォントを持たないファミリーの特定ウェイトは `ファミリー名:700` の形で指す |
+| ローカルフォント | `LocalFontsLoader` | `local` | OSにインストール済みのフォントを利用する。`fontId` はPostScript名。取得方法は `LocalFontBackend` で差し替える。ブラウザ用の `DomLocalFontBackend` は core にある。Tauri用の `TauriLocalFontBackend` はアプリ側の `web/src/infra/localfonts.tauri.ts` にある |
+| 任意のローダー | `FontLoader` を継承したクラス | 実装が決める | アプリが独自に実装して登録する。実装するのはフォント一覧の `queryFonts` と、ファイルのバイト列を返す `fetchFont` だけ。フォントの解析とキャッシュ、DOMへの登録は基底クラスが行う。フォント選択UIにはローダーごとのタブが `label` の名前で並ぶ |
+| 埋め込みフォールバック | — | — | Noto Sans JPがアプリケーションに埋め込まれており、他のルートが失敗した場合のフォールバックとして使用 |
 
 ### テキストシェイピング
 

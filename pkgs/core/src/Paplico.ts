@@ -153,7 +153,8 @@ import {
 	type ToolSettings,
 	type ToolType,
 } from "./tools/toolSettings";
-import { getFontManager } from "./typography/fonts";
+import type { FontLoader } from "./typography/fonts/FontLoader";
+import { FontManager } from "./typography/fonts/FontManager";
 import { PaplicoUI } from "./ui/PaplicoUI";
 import {
 	type ExtractedAppearance,
@@ -206,7 +207,11 @@ type PaplicoEventMap = {
 interface PaplicoOptions {
 	textToolController?: TextToolController;
 	filterShortcutEvents?: (event: KeyboardEvent) => false | undefined;
-	googleFontsApiKey?: string;
+	/**
+	 * Loaders text fonts resolve through. A text style names one by
+	 * `FontSource.loaderId`; ids must be unique.
+	 */
+	fontLoaders: FontLoader[];
 	/**
 	 * Where the built-in Noto Sans JP fallback font is served. Text that no
 	 * loaded font covers renders with it.
@@ -334,6 +339,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	private readonly toolSettings: ToolSettings;
 	public readonly tools: PaplicoTools;
+	public readonly fonts: FontManager;
 	private currentToolType: ToolType;
 
 	// --- Reference3D subsystem (lazy three.js runtime) ---
@@ -391,7 +397,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				isArtboardToolActive: () => this.tool?.name === "artboard",
 			},
 		);
-		this.renderer = new RenderOrchestrator();
+		this.fonts = new FontManager({
+			loaders: options.fontLoaders,
+			fallbackFontUrl: options.fallbackFontUrl,
+		});
+		this.renderer = new RenderOrchestrator(this.fonts);
 		this.wireTextDocumentResolver();
 		// Reference3D edit isolation dims the whole composite — entering/leaving
 		// the session needs a document-level re-render, not just overlays.
@@ -841,16 +851,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.buildReference3DRenderContext(),
 		);
 
-		if (this.options?.googleFontsApiKey) {
-			getFontManager(this.options.googleFontsApiKey);
-		}
-		if (this.options?.fallbackFontUrl) {
-			getFontManager().setFallbackFontUrl(this.options.fallbackFontUrl);
-		}
-
 		// Re-evaluate font-missing outlines once a still-loading font arrives, so
 		// the red box clears itself when the font finally becomes available.
-		getFontManager().on("fontLoaded", () => {
+		this.fonts.on("fontLoaded", () => {
 			if (this.currentToolType === "text") {
 				this.scheduleFontMissingOutlineRefresh();
 			}
@@ -1022,7 +1025,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			}
 
 			// 3. Rebuild renderer with new code
-			this.renderer = new RenderOrchestrator();
+			this.renderer = new RenderOrchestrator(this.fonts);
 			this.wireTextDocumentResolver();
 
 			// 4. Re-init all subsystems (with primary canvas)
@@ -2185,14 +2188,13 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	private textHasUnresolvedFont(text: TextElement): boolean {
-		const fontManager = getFontManager();
 		const sources = [
 			text.defaultStyle.fontSource,
 			...text.content.paragraphs.flatMap((p) =>
 				p.runs.map((r) => r.style.fontSource),
 			),
 		];
-		return sources.some((s) => !fontManager.getLoadedFont(s));
+		return sources.some((s) => !this.fonts.getLoadedFont(s));
 	}
 
 	/**
@@ -3315,6 +3317,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.clearAllOverrides();
 				this.textToolController?.endTextEdit();
 			},
+			getFontVariationAxes: (source) => this.fonts.getVariationAxes(source),
 			findTextAtPoint: (x, y) => {
 				for (const layer of this.rendererStore.document.layers) {
 					const el = this.spatialIndex.findElementAtPoint(layer.id, x, y, 5);

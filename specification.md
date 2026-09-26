@@ -705,7 +705,7 @@ Y.Doc
 
 実装場所：`pkgs/core/src/typography/`
 
-- **FontManager** — Google FontsとLocal Fonts（`core/infra/localfonts.dom.ts` / `.tauri.ts`）の統合マネージャ
+- **FontManager** — Paplicoインスタンスごとに1つ持つ（`paplico.fonts`）。`Paplico.create` の `fontLoaders` で渡された `FontLoader` 群を束ね、`FontSource.loaderId` で読み込み先のローダーを選ぶ。アプリは `GoogleFontsLoader` と `LocalFontsLoader` を登録する。ローカルフォントの取得方法は、ブラウザでは `core/infra/localfonts.dom.ts`、Tauri では `web/src/infra/localfonts.tauri.ts` を使う
 - **TextLayoutEngine** — shape → break → place の3相レイアウト。水平/垂直書字、禁則処理付き行折り返し、ボックス制約とオーバーフロー（hidden/ellipsis/visible）、縦中横、文字単位カーニング
   - **パス上配置**（`axisBinding.mode === "onPath"`）: openパスを軸としてグリフを配置（パス全長で打ち切り）
   - **シェイプ内流し込み**（`"inShape"`）: closedパス内部へスキャンライン方式で流し込み（even-odd、穴対応）

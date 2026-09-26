@@ -483,10 +483,7 @@ describe("InMemoryCollaboration", () => {
 									text: "Hello collaboration",
 									style: {
 										fontFamily: "Arial",
-										fontSource: {
-											type: "local" as const,
-											postScriptName: "ArialMT",
-										},
+										fontSource: { loaderId: "local", fontId: "ArialMT" },
 										fontSize: 16,
 										fontWeight: 400,
 										fontStyle: "normal" as const,
@@ -517,7 +514,7 @@ describe("InMemoryCollaboration", () => {
 				},
 				defaultStyle: {
 					fontFamily: "Arial",
-					fontSource: { type: "local" as const, postScriptName: "ArialMT" },
+					fontSource: { loaderId: "local", fontId: "ArialMT" },
 					fontSize: 16,
 					fontWeight: 400,
 					fontStyle: "normal" as const,

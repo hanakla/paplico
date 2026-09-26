@@ -1,3 +1,4 @@
+import type { Font } from "@cantoo/fontkit";
 import type { PaplicoCommands } from "../PaplicoCommands";
 import type { Reference3DRaycastRequest } from "../reference3d";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
@@ -21,6 +22,7 @@ import type {
 	ElementTransform,
 	FillAppearance,
 	FillColor,
+	FontSource,
 	Layer,
 	Path,
 	Reference3DCamera,
@@ -288,6 +290,10 @@ export type ToolContextOptions = {
 	editStart: (text: TextElement) => void;
 	editEnd: () => void;
 	findTextAtPoint: (x: number, y: number) => TextElement | null;
+	/** Variation axes of a loaded font, or undefined until it loads. */
+	getFontVariationAxes: (
+		source: FontSource,
+	) => Font["variationAxes"] | undefined;
 	updateTextCursor: (
 		cursorPos: number,
 		x: number,

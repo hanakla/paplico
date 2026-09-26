@@ -71,6 +71,7 @@ import {
 	domFSFileHandleFromTransferItem,
 	type FileHandle,
 } from "@/infra/filesystem";
+import { createFontLoaders } from "@/infra/fontLoaders";
 import { useTranslation } from "@/locales";
 import { ActionsPanel } from "@/organisms/ActionsPanel";
 import { CanvasPane } from "@/organisms/CanvasPane";
@@ -396,7 +397,9 @@ export default function Page() {
 			try {
 				const p = await Paplico.create(canvas, {
 					textToolController,
-					googleFontsApiKey: process.env.NEXT_PUBLIC_GOOGLE_FONTS_API_KEY,
+					fontLoaders: createFontLoaders(
+						process.env.NEXT_PUBLIC_GOOGLE_FONTS_API_KEY,
+					),
 					fallbackFontUrl: "/assets/fonts/NotoSansJP-VariableFont_wght.ttf",
 					getBuiltinProfileBytes,
 					filterShortcutEvents: ignoreShortcutsInOptedOutSubtree,

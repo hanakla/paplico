@@ -170,6 +170,7 @@ export function createMockToolContext(
 		editStart: vi.fn(),
 		editEnd: vi.fn(),
 		findTextAtPoint: vi.fn(() => null),
+		getFontVariationAxes: vi.fn(() => undefined),
 		updateTextCursor: vi.fn(),
 		selectionStyleChange: vi.fn(),
 		selectionRangeChange: vi.fn(),

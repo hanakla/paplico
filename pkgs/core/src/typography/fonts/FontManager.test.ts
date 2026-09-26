@@ -1,16 +1,55 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadTestFont } from "../../testUtils/fontSetup";
-import type { LoadedFont } from "./FontLoader";
+import {
+	createTestFontManager,
+	loadTestFont,
+	NOTO_SANS_JP_PATH,
+} from "../../testUtils/fontSetup";
+import {
+	type FontFile,
+	FontLoader,
+	type FontMetadata,
+	type LoadedFont,
+} from "./FontLoader";
 import { FontManager } from "./FontManager";
+
+describe("FontManager font loaders", () => {
+	it("should load a source through the loader registered under its loaderId", async () => {
+		const fontManager = new FontManager({ loaders: [new BundledFontLoader()] });
+
+		const loaded = await fontManager.loadFont({
+			loaderId: "bundled",
+			fontId: "noto",
+		});
+
+		expect(loaded?.metadata).toMatchObject({
+			family: "Bundled Noto",
+			loaderId: "bundled",
+			fontId: "noto",
+		});
+		expect(loaded?.fontkit.hasGlyphForCodePoint(0x3042)).toBe(true);
+		expect(
+			fontManager.getLoadedFont({ loaderId: "bundled", fontId: "noto" }),
+		).toBe(loaded);
+	});
+
+	it("should reject a source whose loader is not registered", async () => {
+		const fontManager = new FontManager({ loaders: [] });
+
+		await expect(
+			fontManager.loadFont({ loaderId: "missing", fontId: "any" }),
+		).rejects.toThrow('No font loader registered for "missing"');
+	});
+});
 
 describe("FontManager.shapeText() - per-glyph Noto Sans JP fallback", () => {
 	let fontManager: FontManager;
 	let notoFont: LoadedFont;
 	let getFallbackFontSpy: ReturnType<typeof vi.spyOn>;
 
-	beforeEach(() => {
-		fontManager = new FontManager();
-		notoFont = loadTestFont(fontManager);
+	beforeEach(async () => {
+		fontManager = createTestFontManager();
+		notoFont = await loadTestFont(fontManager);
 		getFallbackFontSpy = vi
 			.spyOn(fontManager, "getFallbackFont")
 			.mockResolvedValue(notoFont);
@@ -92,10 +131,10 @@ function createPrimaryFont(): LoadedFont {
 			postScriptName: "NoGlyphFont",
 			style: "Regular",
 			weight: 400,
-			source: "local",
+			loaderId: "local",
+			fontId: "NoGlyphFont",
 		},
 		fontkit: createNoGlyphFontkit() as unknown as LoadedFont["fontkit"],
-		cssFontFamily: "No Glyph Font",
 		data: new ArrayBuffer(0),
 	};
 }
@@ -104,9 +143,9 @@ describe("FontManager.shapeText() - content index mapping", () => {
 	let fontManager: FontManager;
 	let notoFont: LoadedFont;
 
-	beforeEach(() => {
-		fontManager = new FontManager();
-		notoFont = loadTestFont(fontManager);
+	beforeEach(async () => {
+		fontManager = createTestFontManager();
+		notoFont = await loadTestFont(fontManager);
 	});
 
 	it("maps ligature glyphs back to original character indices", async () => {
@@ -133,3 +172,28 @@ describe("FontManager.shapeText() - content index mapping", () => {
 		expect(shaped.map((g) => g.charLength)).toEqual([1, 1, 1]);
 	});
 });
+
+/** A custom loader that only lists its font and returns the file bytes. */
+class BundledFontLoader extends FontLoader {
+	public readonly id = "bundled";
+	public readonly label = "Bundled";
+	private readonly metadata = {
+		family: "Bundled Noto",
+		fullName: "Bundled Noto Regular",
+		postScriptName: "BundledNoto-Regular",
+		style: "Regular",
+		weight: 400,
+	};
+
+	public async queryFonts(): Promise<FontMetadata[]> {
+		return [{ ...this.metadata, loaderId: this.id, fontId: "noto" }];
+	}
+
+	protected async fetchFont(fontId: string): Promise<FontFile | null> {
+		if (fontId !== "noto") return null;
+		return {
+			data: Uint8Array.from(readFileSync(NOTO_SANS_JP_PATH)).buffer,
+			metadata: this.metadata,
+		};
+	}
+}

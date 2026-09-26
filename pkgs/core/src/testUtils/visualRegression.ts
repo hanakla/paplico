@@ -6,6 +6,8 @@ import { onTestFinished } from "vitest";
 import { CanvasTarget } from "../renderer/CanvasTarget";
 import { RenderOrchestrator } from "../renderer/RenderOrchestrator";
 import type { Artboard, Document, RawRGBA, Viewport } from "../schema";
+import type { FontManager } from "../typography/fonts/FontManager";
+import { createTestFontManager, loadTestFont } from "./fontSetup";
 
 let cachedGpu: globalThis.GPU | null = null;
 
@@ -50,7 +52,7 @@ export async function createTestRenderer({
 		configurable: true,
 	});
 
-	const renderer = new RenderOrchestrator();
+	const renderer = new RenderOrchestrator(await getTestFontManager());
 	let success = false;
 	try {
 		success = await renderer.initDevice();
@@ -422,4 +424,16 @@ function compareImages(
 	const diffPercentage = (diffPixels / totalPixels) * 100;
 
 	return { diffPixels, totalPixels, diffPercentage };
+}
+
+let testFontManager: Promise<FontManager> | undefined;
+
+/** One manager per test file, so the fixture font is parsed only once. */
+function getTestFontManager(): Promise<FontManager> {
+	testFontManager ??= (async () => {
+		const fontManager = createTestFontManager();
+		await loadTestFont(fontManager);
+		return fontManager;
+	})();
+	return testFontManager;
 }

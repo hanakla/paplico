@@ -70,10 +70,6 @@
 			"import": "./src/infra/index.ts",
 			"types": "./src/infra/index.ts"
 		},
-		"./infra/localfonts.tauri": {
-			"import": "./src/infra/localfonts.tauri.ts",
-			"types": "./src/infra/localfonts.tauri.ts"
-		},
 		"./testUtils": {
 			"import": "./src/testUtils/index.ts",
 			"types": "./src/testUtils/index.ts"
@@ -146,10 +142,6 @@
 				"types": "./dist/infra/index.d.mts",
 				"import": "./dist/infra/index.mjs"
 			},
-			"./infra/localfonts.tauri": {
-				"types": "./dist/infra/localfonts.tauri.d.mts",
-				"import": "./dist/infra/localfonts.tauri.mjs"
-			},
 			"./three-webgpu-compat": {
 				"types": "./dist/stubs/three-webgpu-compat.d.mts",
 				"import": "./dist/stubs/three-webgpu-compat.mjs"
@@ -170,7 +162,6 @@
 		"@cantoo/pdf-lib": "^2.11.0",
 		"@paplico/avif-hdr": "workspace:*",
 		"@pixiv/three-vrm": "patch:@pixiv/three-vrm@npm%3A3.5.5#~/.yarn/patches/@pixiv-three-vrm-npm-3.5.5-d31fe7450d.patch",
-		"@tauri-apps/api": "^2.11.1",
 		"@webgpu/types": "^0.1.72",
 		"ag-psd": "^31.0.2",
 		"cbor-x": "^1.6.4",
@@ -184,7 +175,6 @@
 		"nanoid": "^5.1.7",
 		"partysocket": "^1.1.13",
 		"polygon-clipping": "^0.15.7",
-		"tauri-plugin-system-fonts-api": "^2.0.2",
 		"three": "0.185.1",
 		"valtio": "^2.3.2",
 		"webgpu-utils": "^2.0.3",

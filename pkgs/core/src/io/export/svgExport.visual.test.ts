@@ -15,12 +15,10 @@ import {
 	generateUid,
 	type ImageObject,
 } from "../../schema";
-import { loadTestFont } from "../../testUtils/fontSetup";
 import { loadTestDocument } from "../../testUtils/loadTestDocument";
 import { rectPath, solidFillAppearance } from "../../testUtils/svgFixtures";
 import { expectSvgMatchesGpu } from "../../testUtils/svgGpuParity";
 import { createTestRenderer } from "../../testUtils/visualRegression";
-import { getFontManager } from "../../typography/fonts";
 
 /**
  * SVG export fidelity tests. Each artboard is exported to SVG and rasterized
@@ -63,7 +61,6 @@ const ARTBOARDS: ReadonlyArray<[artboardName: string, maxDiff: number]> = [
 let originalOffscreenCanvas: typeof globalThis.OffscreenCanvas | undefined;
 
 beforeAll(() => {
-	loadTestFont(getFontManager());
 	// Raster chunks encode PNGs through OffscreenCanvas, which node/happy-dom
 	// cannot rasterize — substitute a pngjs-backed stand-in for this suite.
 	originalOffscreenCanvas = globalThis.OffscreenCanvas;

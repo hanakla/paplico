@@ -22,20 +22,6 @@ export function resolveValue<E, V>(
 }
 
 /** Build FontSource from FontMetadata */
-export function buildFontSource(font: FontMetadata): FontSource | null {
-	if (font.source === "google") {
-		return {
-			type: "google",
-			family: font.family,
-			variants: font.variants ?? ["regular"],
-		};
-	}
-	if (font.source === "local") {
-		if (!font.postScriptName) {
-			console.error("Local font missing postScriptName:", font);
-			return null;
-		}
-		return { type: "local", postScriptName: font.postScriptName };
-	}
-	return null;
+export function buildFontSource(font: FontMetadata): FontSource {
+	return { loaderId: font.loaderId, fontId: font.fontId };
 }

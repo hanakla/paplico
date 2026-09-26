@@ -1145,9 +1145,8 @@ describe("parseSvgToArtObjects – <text> element", () => {
 		expect(text.defaultStyle.fontFamily).toBe("Roboto");
 		expect(text.defaultStyle.fontWeight).toBe(700);
 		expect(text.defaultStyle.fontSource).toEqual({
-			type: "google",
-			family: "Roboto",
-			variants: ["700"],
+			loaderId: "google",
+			fontId: "Roboto:700",
 		});
 	});
 });

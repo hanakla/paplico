@@ -2,11 +2,18 @@
 
 export { buildDocumentTextResolver } from "./documentTextResolver";
 export {
-	FONT_SCRIPT_ORDER,
+	type FontFile,
+	FontLoader,
 	type FontMetadata,
-	type FontScript,
-	getFontManager,
-} from "./fonts";
+	type LoadedFont,
+} from "./fonts/FontLoader";
+export { GoogleFontsLoader } from "./fonts/GoogleFontsLoader";
+export {
+	type FontData,
+	type LocalFontBackend,
+	LocalFontsLoader,
+} from "./fonts/LocalFontsLoader";
+export { FONT_SCRIPT_ORDER, type FontScript } from "./fonts/os2Scripts";
 export type {
 	LayoutedChar,
 	LayoutedLine,

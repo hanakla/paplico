@@ -2,10 +2,7 @@
  * Tauri implementation of LocalFontBackend using tauri-plugin-system-fonts.
  */
 
-import type {
-	FontData,
-	LocalFontBackend,
-} from "../typography/fonts/LocalFontsLoader";
+import type { FontData, LocalFontBackend } from "@paplico/core/typography";
 
 interface SystemFont {
 	id: string;

@@ -554,7 +554,7 @@ function createTextElement(rotateParams: Rotate3DParams): TextElement {
 		},
 		defaultStyle: {
 			fontFamily: "Test",
-			fontSource: { type: "google", family: "Inter", variants: ["400"] },
+			fontSource: { loaderId: "google", fontId: "Inter" },
 			fontSize: 10,
 			fontWeight: 400,
 			fontStyle: "normal",

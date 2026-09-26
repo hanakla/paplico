@@ -4,25 +4,27 @@ import { extractDocumentFromYDoc } from "../collaboration/extractDocumentFromYDo
 import { YjsProvider } from "../collaboration/YjsProvider";
 import { openPapf } from "../io/papf/reader";
 import { serializeDocument } from "../io/papf/writer";
-import type { TextElement } from "../schema";
-import { loadRobotoFlexFont } from "../testUtils/fontSetup";
+import type { FontSource, TextElement } from "../schema";
+import {
+	createTestFontManager,
+	loadRobotoFlexFont,
+} from "../testUtils/fontSetup";
 import { createMockToolContext } from "../testUtils/mockToolContext";
 import { createTestTextElement } from "../testUtils/typographyFixtures";
-import { getFontManager } from "../typography/fonts/FontManager";
 import { TextTool } from "./TextTool";
 
 describe("text variation editing", () => {
+	const fonts = createTestFontManager();
+	const getFontVariationAxes = (source: FontSource) =>
+		fonts.getVariationAxes(source);
 	let element: TextElement;
 	let tool: TextTool;
-	beforeEach(() => {
-		const font = loadRobotoFlexFont(getFontManager());
+	beforeEach(async () => {
+		const font = await loadRobotoFlexFont(fonts);
 		element = createTestTextElement("AB");
 		element.defaultStyle = {
 			...element.defaultStyle,
-			fontSource: {
-				type: "local",
-				postScriptName: font.metadata.postScriptName,
-			},
+			fontSource: { loaderId: "local", fontId: font.metadata.postScriptName },
 		};
 		element.content.paragraphs[0].runs = [
 			{
@@ -40,7 +42,7 @@ describe("text variation editing", () => {
 				},
 			},
 		];
-		tool = new TextTool(createMockToolContext(), {
+		tool = new TextTool(createMockToolContext({ getFontVariationAxes }), {
 			defaultStyle: element.defaultStyle,
 		});
 		tool.enterEditModeForElement(element);
@@ -116,8 +118,8 @@ describe("text variation editing", () => {
 	it("clears font-specific coordinates when changing font", () => {
 		tool.selectAll();
 		tool.changeSelectionFontFamily("Other", {
-			type: "local",
-			postScriptName: "Other",
+			loaderId: "local",
+			fontId: "Other",
 		});
 		expect(element.content.paragraphs[0].runs).toHaveLength(1);
 		expect(
@@ -147,8 +149,8 @@ describe("text variation editing", () => {
 
 	it("detects different faces even when the family names match", () => {
 		element.content.paragraphs[0].runs[1].style.fontSource = {
-			type: "local",
-			postScriptName: "Another face",
+			loaderId: "local",
+			fontId: "Another face",
 		};
 		tool.selectAll();
 		expect(tool.getSelectionFontVariations()?.fontSource).toBeNull();
@@ -177,6 +179,7 @@ describe("text variation editing", () => {
 			provider.stopUndoCapture();
 			const editor = new TextTool(
 				createMockToolContext({
+					getFontVariationAxes,
 					persistTextEdit: (text) => {
 						provider.updateElement("layer", text.id, {
 							content: text.content,

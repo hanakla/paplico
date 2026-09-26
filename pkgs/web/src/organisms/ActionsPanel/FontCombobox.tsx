@@ -1,15 +1,16 @@
 import { Combobox as BUICombobox } from "@base-ui/react/combobox";
 import {
 	FONT_SCRIPT_ORDER,
+	type FontLoader,
 	type FontMetadata,
 	type FontScript,
-	getFontManager,
 } from "@paplico/core/typography";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Check } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import { Combobox2 } from "@/components/Combobox2";
 import { Spinner } from "@/components/Spinner";
+import { usePaplico } from "@/contexts/PaplicoContext";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { isFontEqual, useFontList } from "@/hooks/useCurrentFontSetting";
 import { useTranslation } from "@/locales";
@@ -17,7 +18,8 @@ import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
 import { buildFontSource } from "./utils";
 
-type FontTab = "all" | "google" | "local";
+/** "all", or the `FontLoader.id` whose fonts the list is narrowed to. */
+type FontTab = string;
 
 const emptyArray: FontMetadata[] = [];
 
@@ -39,12 +41,13 @@ export const FontCombobox = memo(function FontCombobox({
 	previewReady: Set<string>;
 	previewRef: (
 		family: string,
-		source: string,
+		loaderId: string,
 	) => (el: HTMLElement | null) => void;
 	placeholder?: string;
 }) {
 	const t = useTranslation();
 	const { language } = useAppConfig();
+	const fontManager = usePaplico().fonts;
 	const [activeTab, setActiveTab] = useState<FontTab>("all");
 	const [query, setQuery] = useState("");
 	const [open, setOpen] = useState(false);
@@ -53,7 +56,7 @@ export const FontCombobox = memo(function FontCombobox({
 	// Re-render this component when a font finishes loading so newly available
 	// localized names propagate into the list. The fonts array itself is
 	// unchanged; loadedVersion is the trigger.
-	const { loadedVersion } = useFontList();
+	const { loadedVersion } = useFontList(fontManager);
 
 	// Defer list rendering to next frame after popup opens
 	useEffect(() => {
@@ -81,10 +84,7 @@ export const FontCombobox = memo(function FontCombobox({
 	const itemToString = useEventCallback((font: FontMetadata | null) => {
 		if (!font) return "";
 		if (font.localizedFullName) return font.localizedFullName;
-		const source = buildFontSource(font);
-		const localized = source
-			? getFontManager().getLocalizedNames(source)
-			: null;
+		const localized = fontManager.getLocalizedNames(buildFontSource(font));
 		return localized?.localizedFullName ?? font.fullName;
 	});
 
@@ -94,11 +94,9 @@ export const FontCombobox = memo(function FontCombobox({
 	// batch of local font headers has been read.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: loadedVersion is the explicit re-derivation trigger
 	const enrichedFonts = useMemo(() => {
-		const fontManager = getFontManager();
 		let changed = false;
 		const result = fonts.map((f) => {
 			const source = buildFontSource(f);
-			if (!source) return f;
 			const localized = fontManager.getLocalizedNames(source);
 			const scripts = fontManager.getFontScripts(source);
 			if (!localized && !scripts) return f;
@@ -106,19 +104,21 @@ export const FontCombobox = memo(function FontCombobox({
 			return { ...f, ...localized, ...(scripts ? { scripts } : {}) };
 		});
 		return changed ? result : fonts;
-	}, [fonts, loadedVersion]);
+	}, [fonts, loadedVersion, fontManager]);
 
-	const hasLocalFonts = useMemo(
-		() => enrichedFonts.some((f) => f.source === "local"),
-		[enrichedFonts],
-	);
+	// Only loaders that offer fonts get a tab; one loader alone needs no tabs.
+	const tabLoaders = useMemo(() => {
+		const offering = new Set(enrichedFonts.map((f) => f.loaderId));
+		return [...fontManager.loaders.values()].filter((loader) =>
+			offering.has(loader.id),
+		);
+	}, [enrichedFonts, fontManager]);
+	const showTabs = tabLoaders.length > 1;
 
 	const filteredFonts = useMemo(() => {
 		let list = enrichedFonts;
-		if (activeTab === "google")
-			list = list.filter((f) => f.source === "google");
-		else if (activeTab === "local")
-			list = list.filter((f) => f.source === "local");
+		if (activeTab !== "all")
+			list = list.filter((f) => f.loaderId === activeTab);
 
 		if (query) {
 			const q = query.toLowerCase();
@@ -165,11 +165,15 @@ export const FontCombobox = memo(function FontCombobox({
 						<div
 							className={twm(
 								"grid overflow-hidden max-h-[inherit]",
-								hasLocalFonts ? "grid-rows-[auto_1fr]" : "grid-rows-[1fr]",
+								showTabs ? "grid-rows-[auto_1fr]" : "grid-rows-[1fr]",
 							)}
 						>
-							{hasLocalFonts && (
-								<FontTabBar activeTab={activeTab} onTabChange={setActiveTab} />
+							{showTabs && (
+								<FontTabBar
+									loaders={tabLoaders}
+									activeTab={activeTab}
+									onTabChange={setActiveTab}
+								/>
 							)}
 							<BUICombobox.List className="p-0 min-h-0 overflow-hidden">
 								<VirtualizedFontList
@@ -196,9 +200,11 @@ export const FontCombobox = memo(function FontCombobox({
 // ---------------------------------------------------------------------------
 
 const FontTabBar = memo(function FontTabBar({
+	loaders,
 	activeTab,
 	onTabChange,
 }: {
+	loaders: FontLoader[];
 	activeTab: FontTab;
 	onTabChange: (tab: FontTab) => void;
 }) {
@@ -210,18 +216,15 @@ const FontTabBar = memo(function FontTabBar({
 			>
 				All
 			</TabButton>
-			<TabButton
-				active={activeTab === "google"}
-				onClick={() => onTabChange("google")}
-			>
-				Google
-			</TabButton>
-			<TabButton
-				active={activeTab === "local"}
-				onClick={() => onTabChange("local")}
-			>
-				Local
-			</TabButton>
+			{loaders.map((loader) => (
+				<TabButton
+					key={loader.id}
+					active={activeTab === loader.id}
+					onClick={() => onTabChange(loader.id)}
+				>
+					{loader.label}
+				</TabButton>
+			))}
 		</div>
 	);
 });
@@ -273,7 +276,7 @@ const VirtualizedFontList = memo(function VirtualizedFontList({
 	previewReady: Set<string>;
 	previewRef: (
 		family: string,
-		source: string,
+		loaderId: string,
 	) => (el: HTMLElement | null) => void;
 }) {
 	// A ref alone doesn't work here: useVirtualizer reads getScrollElement()
@@ -298,7 +301,8 @@ const VirtualizedFontList = memo(function VirtualizedFontList({
 		if (!open || !currentFont) return;
 
 		const index = fonts.findIndex(
-			(f) => f.family === currentFont.family && f.source === currentFont.source,
+			(f) =>
+				f.family === currentFont.family && f.loaderId === currentFont.loaderId,
 		);
 		if (index >= 0) {
 			virtualizer.scrollToIndex(index, { align: "center" });
@@ -325,7 +329,7 @@ const VirtualizedFontList = memo(function VirtualizedFontList({
 
 					return (
 						<FontPreviewItem
-							key={`${font.source}-${font.family}`}
+							key={`${font.loaderId}-${font.family}`}
 							font={font}
 							index={virtualItem.index}
 							totalCount={fonts.length}
@@ -365,11 +369,11 @@ const FontPreviewItem = memo(function FontPreviewItem({
 	previewReady: Set<string>;
 	previewRef: (
 		family: string,
-		source: string,
+		loaderId: string,
 	) => (el: HTMLElement | null) => void;
 	style?: React.CSSProperties;
 }) {
-	const isReady = previewReady.has(font.family) || font.source === "local";
+	const isReady = previewReady.has(font.family) || font.loaderId !== "google";
 
 	return (
 		<BUICombobox.Item
@@ -384,7 +388,7 @@ const FontPreviewItem = memo(function FontPreviewItem({
 				<Check size={12} />
 			</BUICombobox.ItemIndicator>
 			<span
-				ref={previewRef(font.family, font.source)}
+				ref={previewRef(font.family, font.loaderId)}
 				className="col-start-2 flex items-center gap-1"
 				style={
 					isReady ? { fontFamily: `"${font.family}", sans-serif` } : undefined
@@ -393,7 +397,7 @@ const FontPreviewItem = memo(function FontPreviewItem({
 				<span className="flex-1 truncate">
 					{font.localizedFullName ?? font.fullName}
 				</span>
-				{font.source === "google" && <GoogleFontsIcon />}
+				{font.loaderId === "google" && <GoogleFontsIcon />}
 			</span>
 		</BUICombobox.Item>
 	);

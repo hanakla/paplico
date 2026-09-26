@@ -273,7 +273,7 @@ function createArtObject({
 function createTextStyle(fontWeight: number) {
 	return {
 		fontFamily: "Inter",
-		fontSource: { type: "local" as const, postScriptName: "Inter" },
+		fontSource: { loaderId: "local", fontId: "Inter" },
 		fontSize: 16,
 		fontWeight,
 		fontStyle: "normal" as const,

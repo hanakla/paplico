@@ -71,6 +71,7 @@
 		"tailwind-merge": "^3.6.0",
 		"tailwind-variants": "^3.2.2",
 		"tailwindcss": "^4.1.18",
+		"tauri-plugin-system-fonts-api": "^2.0.2",
 		"unified": "^11.0.0",
 		"valtio": "^2.3.2",
 		"ws": "^8.20.0",

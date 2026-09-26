@@ -1,20 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadRobotoFlexFont, loadTestFont } from "../testUtils/fontSetup";
+import {
+	createTestFontManager,
+	loadRobotoFlexFont,
+	loadTestFont,
+} from "../testUtils/fontSetup";
 import { lineSeg } from "../testUtils/segmentFactory";
 import { createTestTextElement } from "../testUtils/typographyFixtures";
 import { createDefaultTextStyle } from "../tools/TextTool";
-import { FontManager } from "./fonts/FontManager";
+import type { FontManager } from "./fonts/FontManager";
 import { TextLayoutEngine } from "./TextLayoutEngine";
 import { TextRenderer } from "./TextRenderer";
 
 describe("variable font rendering", () => {
 	let manager: FontManager;
 	beforeEach(() => {
-		manager = new FontManager();
+		manager = createTestFontManager();
 	});
 
 	it("renders distinct Noto weights and reuses the right face when interleaved", async () => {
-		const base = loadTestFont(manager);
+		const base = await loadTestFont(manager);
 		const style = createDefaultTextStyle();
 		const thin = manager.resolveFontForStyle(base, {
 			...style,
@@ -36,7 +40,7 @@ describe("variable font rendering", () => {
 	});
 
 	it("applies width and custom axes from the bundled Roboto Flex face", async () => {
-		const base = loadRobotoFlexFont(manager);
+		const base = await loadRobotoFlexFont(manager);
 		const render = (settings: Record<string, number>) =>
 			manager.shapeText(
 				manager.resolveFontForStyle(base, {
@@ -54,7 +58,7 @@ describe("variable font rendering", () => {
 	});
 
 	it("extracts the shaped ligature rather than its first character", async () => {
-		const base = loadTestFont(manager);
+		const base = await loadTestFont(manager);
 		const face = manager.resolveFontForStyle(base, createDefaultTextStyle());
 		const shaped = await manager.shapeText(face, "office", 24);
 		const ligature = shaped.find((glyph) => glyph.charLength === 3);
@@ -64,7 +68,7 @@ describe("variable font rendering", () => {
 	});
 
 	it("evicts old variable instances while live outlines remain usable", async () => {
-		const base = loadTestFont(manager);
+		const base = await loadTestFont(manager);
 		const original = manager.resolveFontForStyle(base, {
 			...createDefaultTextStyle(),
 			fontWeight: 100,
@@ -84,8 +88,8 @@ describe("variable font rendering", () => {
 		expect(await manager.shapeText(original, "A", 24)).toEqual(before);
 	});
 
-	it("keeps vertical alternates isolated by weight", () => {
-		const base = loadTestFont(manager);
+	it("keeps vertical alternates isolated by weight", async () => {
+		const base = await loadTestFont(manager);
 		const thin = manager.resolveFontForStyle(base, {
 			...createDefaultTextStyle(),
 			fontWeight: 100,
@@ -107,7 +111,7 @@ describe("variable font rendering", () => {
 		"ellipsis",
 		"onPath",
 	] as const)("uses the same variable face throughout %s layout", async (mode) => {
-		const base = loadTestFont(manager);
+		const base = await loadTestFont(manager);
 		const engine = new TextLayoutEngine(manager);
 		const element = createTestTextElement(
 			mode === "vertical" ? "（。12）" : "HAM HAM HAM HAM HAM",
@@ -139,10 +143,7 @@ describe("variable font rendering", () => {
 		const render = async (fontWeight: number) => {
 			const style = {
 				...element.defaultStyle,
-				fontSource: {
-					type: "local" as const,
-					postScriptName: base.metadata.postScriptName,
-				},
+				fontSource: { loaderId: "local", fontId: base.metadata.postScriptName },
 				fontWeight,
 			};
 			element.defaultStyle = style;
@@ -175,7 +176,7 @@ describe("variable font rendering", () => {
 	});
 
 	it("evicts old outlines after 2,048 glyphs without changing live paths", async () => {
-		const base = loadTestFont(manager);
+		const base = await loadTestFont(manager);
 		const original = manager.getVerticalGlyphPath(base, "（");
 		const ids = new Set<number>();
 		const characters: string[] = [];
@@ -195,15 +196,12 @@ describe("variable font rendering", () => {
 	});
 
 	it("reflows text and updates caret positions after changing width", async () => {
-		const base = loadRobotoFlexFont(manager);
+		const base = await loadRobotoFlexFont(manager);
 		const element = createTestTextElement("HAM HAM HAM HAM");
 		const style = {
 			...element.defaultStyle,
 			fontSize: 24,
-			fontSource: {
-				type: "local" as const,
-				postScriptName: base.metadata.postScriptName,
-			},
+			fontSource: { loaderId: "local", fontId: base.metadata.postScriptName },
 			fontVariationSettings: { wdth: 25 },
 		};
 		element.defaultStyle = style;
@@ -238,7 +236,7 @@ describe("variable font rendering", () => {
 	});
 
 	it("updates a downstream region when the head's default coordinates change", async () => {
-		const base = loadRobotoFlexFont(manager);
+		const base = await loadRobotoFlexFont(manager);
 		const head = createTestTextElement("HAM HAM HAM HAM HAM HAM", {
 			id: "head",
 			flow: { nextTextElementId: "next" },
@@ -250,8 +248,8 @@ describe("variable font rendering", () => {
 			},
 		});
 		head.defaultStyle.fontSource = {
-			type: "local",
-			postScriptName: base.metadata.postScriptName,
+			loaderId: "local",
+			fontId: base.metadata.postScriptName,
 		};
 		head.defaultStyle.fontVariationSettings = { wdth: 25 };
 		head.content.paragraphs[0].runs[0].style = { ...head.defaultStyle };
@@ -274,8 +272,8 @@ describe("variable font rendering", () => {
 		expect(wide).not.toEqual(narrow);
 	});
 
-	it("keeps static fonts unchanged without calling the variation API", () => {
-		const base = loadTestFont(manager);
+	it("keeps static fonts unchanged without calling the variation API", async () => {
+		const base = await loadTestFont(manager);
 		vi.spyOn(base.fontkit, "variationAxes", "get").mockReturnValue({});
 		const variation = vi.spyOn(base.fontkit, "getVariation");
 		expect(manager.resolveFontForStyle(base, createDefaultTextStyle())).toBe(
@@ -285,7 +283,7 @@ describe("variable font rendering", () => {
 	});
 
 	it("does not let older async layout overwrite newer coordinates", async () => {
-		loadTestFont(manager);
+		await loadTestFont(manager);
 		const engine = new TextLayoutEngine(manager);
 		const result = {
 			chars: [],

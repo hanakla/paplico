@@ -1282,12 +1282,14 @@ export interface ImageObject extends ArtObject {
 
 /**
  * Font source
- * Specifies where the font is obtained from
+ * Names the font loader that resolves the font and the font within it
  */
-export type FontSource =
-	| { type: "google"; family: string; variants: string[] }
-	| { type: "local"; postScriptName: string }
-	| { type: "embedded"; fileUid: string };
+export interface FontSource {
+	/** `FontLoader.id` of the loader that resolves `fontId`. */
+	loaderId: string;
+	/** Loader-defined font identifier, e.g. a Google family or a PostScript name. */
+	fontId: string;
+}
 
 /**
  * Text style

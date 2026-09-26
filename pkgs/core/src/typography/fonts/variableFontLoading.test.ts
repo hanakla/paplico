@@ -4,7 +4,7 @@ import { NOTO_SANS_JP_PATH } from "../../testUtils/fontSetup";
 import { createDefaultTextStyle } from "../../tools/TextTool";
 import { FontManager } from "./FontManager";
 import { GoogleFontsLoader } from "./GoogleFontsLoader";
-import type { LocalFontBackend } from "./LocalFontsLoader";
+import { type LocalFontBackend, LocalFontsLoader } from "./LocalFontsLoader";
 
 describe("variable font loading", () => {
 	const data = Uint8Array.from(readFileSync(NOTO_SANS_JP_PATH)).buffer;
@@ -35,7 +35,7 @@ describe("variable font loading", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("requests VF files and retains API key cache invalidation", async () => {
+	it("requests VF files with the API key and caches the catalog", async () => {
 		const fetchFont = vi.fn(
 			async () =>
 				new Response(
@@ -57,25 +57,52 @@ describe("variable font loading", () => {
 		await loader.queryFonts();
 		expect(fetchFont).toHaveBeenCalledTimes(1);
 		expect(fetchFont).toHaveBeenCalledWith(
-			expect.stringContaining("capability=VF"),
-		);
-		expect(loader.setApiKey("second")).toBe(true);
-		await loader.queryFonts();
-		expect(fetchFont).toHaveBeenLastCalledWith(
-			expect.stringContaining("key=second"),
+			expect.stringMatching(/key=first.*capability=VF/),
 		);
 		fetchFont.mockResolvedValue(new Response(data));
 		const font = await loader.loadFont("Noto Sans JP");
 		expect(font?.fontkit.hasGlyphForCodePoint(0x3042)).toBe(true);
 		expect(faces).toEqual([{ weight: "100 900", style: "normal" }]);
-		const manager = new FontManager();
+		const manager = new FontManager({ loaders: [loader] });
 		if (!font) throw new Error("Font failed to load");
 		for (let weight = 100; weight < 400; weight++)
 			manager.resolveFontForStyle(font, {
 				...createDefaultTextStyle(),
 				fontWeight: weight,
 			});
-		expect(fetchFont).toHaveBeenCalledTimes(3);
+		expect(fetchFont).toHaveBeenCalledTimes(2);
+	});
+
+	it("downloads the weight file a Google fontId pins", async () => {
+		const fetchFont = vi.fn(async (url: string) =>
+			url.includes("webfonts")
+				? new Response(
+						JSON.stringify({
+							items: [
+								{
+									family: "Static Sans",
+									variants: ["regular", "700"],
+									subsets: ["latin"],
+									files: {
+										regular: "https://fonts.example/regular.ttf",
+										"700": "https://fonts.example/bold.ttf",
+									},
+								},
+							],
+						}),
+					)
+				: new Response(data),
+		);
+		vi.stubGlobal("fetch", fetchFont);
+		const manager = new FontManager({ loaders: [new GoogleFontsLoader()] });
+
+		await manager.loadFont({ loaderId: "google", fontId: "Static Sans:700" });
+		await manager.loadFont({ loaderId: "google", fontId: "Static Sans" });
+
+		expect(fetchFont.mock.calls.map(([url]) => url).slice(1)).toEqual([
+			"https://fonts.example/bold.ttf",
+			"https://fonts.example/regular.ttf",
+		]);
 	});
 
 	it("exposes axes from a local font and registers its full DOM weight range", async () => {
@@ -94,8 +121,10 @@ describe("variable font loading", () => {
 			queryFonts: async () => [fontData],
 			queryFontsByPostScriptNames: async () => [fontData],
 		};
-		const manager = new FontManager(undefined, backend);
-		const source = { type: "local" as const, postScriptName: "NotoSansJP" };
+		const manager = new FontManager({
+			loaders: [new LocalFontsLoader(backend)],
+		});
+		const source = { loaderId: "local", fontId: "NotoSansJP" };
 		expect(manager.getVariationAxes(source)).toBeUndefined();
 		const font = await manager.loadFont(source);
 		expect(manager.getVariationAxes(source)?.wght).toMatchObject({

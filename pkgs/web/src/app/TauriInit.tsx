@@ -119,19 +119,6 @@ export const TauriInit = IS_TAURI_ENV
 				return () => cleanup?.();
 			}, []);
 
-			// Inject Tauri font backend for local font enumeration
-			useEffect(() => {
-				if (!IS_TAURI_ENV) return;
-
-				(async () => {
-					const { TauriLocalFontBackend } = await import(
-						"@paplico/core/infra/localfonts.tauri"
-					);
-					const { getFontManager } = await import("@paplico/core/typography");
-					getFontManager().setLocalFontBackend(new TauriLocalFontBackend());
-				})();
-			}, []);
-
 			return (
 				<script
 					// biome-ignore lint/security/noDangerouslySetInnerHtml: ok

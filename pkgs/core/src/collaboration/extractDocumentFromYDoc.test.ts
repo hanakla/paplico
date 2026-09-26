@@ -488,7 +488,7 @@ describe("objectToStoredFields ↔ yMapToObject round-trip", () => {
 								text: "Hello",
 								style: {
 									fontFamily: "Arial",
-									fontSource: { type: "local", postScriptName: "ArialMT" },
+									fontSource: { loaderId: "local", fontId: "ArialMT" },
 									fontSize: 16,
 									fontWeight: 400,
 									fontStyle: "normal",
@@ -513,7 +513,7 @@ describe("objectToStoredFields ↔ yMapToObject round-trip", () => {
 			},
 			defaultStyle: {
 				fontFamily: "Arial",
-				fontSource: { type: "local", postScriptName: "ArialMT" },
+				fontSource: { loaderId: "local", fontId: "ArialMT" },
 				fontSize: 16,
 				fontWeight: 400,
 				fontStyle: "normal" as const,
@@ -672,7 +672,7 @@ function populateFullDocument(ydoc: Y.Doc) {
 			"defaultStyle",
 			JSON.stringify({
 				fontFamily: "Arial",
-				fontSource: { type: "local", postScriptName: "ArialMT" },
+				fontSource: { loaderId: "local", fontId: "ArialMT" },
 				fontSize: 16,
 				fontWeight: 400,
 				fontStyle: "normal",

@@ -6,6 +6,7 @@ import {
 	mockPath,
 } from "../testUtils/mockElements";
 import { closedRectSegments } from "../testUtils/segmentFactory";
+import { FontManager } from "../typography/fonts/FontManager";
 import { RenderOrchestrator } from "./RenderOrchestrator";
 
 describe("RenderOrchestrator.computeElementsExportBounds", () => {
@@ -18,10 +19,9 @@ describe("RenderOrchestrator.computeElementsExportBounds", () => {
 			[mockLayer("layer-1", [group.id])],
 		);
 
-		const bounds = new RenderOrchestrator().computeElementsExportBounds(
-			[child.id],
-			document,
-		);
+		const bounds = new RenderOrchestrator(
+			new FontManager({ loaders: [] }),
+		).computeElementsExportBounds([child.id], document);
 
 		expect(bounds).not.toBeNull();
 		expect(bounds!.centerX).toBeCloseTo(520);
@@ -38,10 +38,9 @@ describe("RenderOrchestrator.computeElementsExportBounds", () => {
 			[mockLayer("layer-1", [group.id])],
 		);
 
-		const bounds = new RenderOrchestrator().computeElementsExportBounds(
-			[child.id],
-			document,
-		);
+		const bounds = new RenderOrchestrator(
+			new FontManager({ loaders: [] }),
+		).computeElementsExportBounds([child.id], document);
 
 		expect(bounds).not.toBeNull();
 		// Rotated about the child's own centre (20,20) plus the rotated offset

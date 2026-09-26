@@ -35,7 +35,6 @@ import {
 	type TextStyle,
 	type Viewport,
 } from "../schema";
-import { getFontManager } from "../typography/fonts/FontManager";
 import {
 	resolveFontVariations,
 	updateFontVariation,
@@ -3205,7 +3204,7 @@ export class TextTool implements Tool {
 				...this.editState?.textElement.defaultStyle,
 				...style,
 			};
-			const axes = getFontManager().getVariationAxes(effectiveStyle.fontSource);
+			const axes = this.context.getFontVariationAxes(effectiveStyle.fontSource);
 			return axes ? updateFontVariation(effectiveStyle, axes, tag, value) : {};
 		});
 	}
@@ -3221,7 +3220,7 @@ export class TextTool implements Tool {
 		if (!styles.every((style) => deepEqual(style.fontSource, source))) {
 			return { fontSource: null, values: {} };
 		}
-		const axes = getFontManager().getVariationAxes(source) ?? {};
+		const axes = this.context.getFontVariationAxes(source) ?? {};
 		const coordinates = styles.map((style) =>
 			resolveFontVariations(style, axes),
 		);
@@ -3610,11 +3609,7 @@ export class TextTool implements Tool {
 export function createDefaultTextStyle(): TextStyle {
 	return {
 		fontFamily: "Inter",
-		fontSource: {
-			type: "google",
-			family: "Inter",
-			variants: ["400"],
-		},
+		fontSource: { loaderId: "google", fontId: "Inter" },
 		fontSize: 24,
 		fontWeight: 400,
 		fontStyle: "normal",

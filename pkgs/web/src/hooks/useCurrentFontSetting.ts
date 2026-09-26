@@ -1,10 +1,11 @@
+import type { Paplico } from "@paplico/core";
 import type {
 	FontSource,
 	TextContent,
 	TextElement,
 	TextStyle,
 } from "@paplico/core/schema";
-import { type FontMetadata, getFontManager } from "@paplico/core/typography";
+import type { FontMetadata } from "@paplico/core/typography";
 import { useEffect, useMemo } from "react";
 import { proxy, useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
@@ -34,7 +35,7 @@ export function useActiveFontSettings(): ActiveFontSettings {
 	const toolSnap = useSnapshot(tools.state);
 	const uiSnap = useSnapshot(uiState);
 	const selectedElements = useSelectedElements(store);
-	const { fonts, isLoading } = useFontList();
+	const { fonts, isLoading } = useFontList(paplico.fonts);
 
 	const isTextEditing = uiSnap.textEditState.isEditing;
 
@@ -152,7 +153,6 @@ export function useActiveFontSettings(): ActiveFontSettings {
 			if (!selectedFont) return;
 
 			const fontSource = buildFontSource(selectedFont);
-			if (!fontSource) return;
 
 			// Always update textDefaultStyle
 			tools.state.textDefaultStyle.fontFamily = selectedFont.family;
@@ -269,15 +269,32 @@ const fontListState = proxy<{
 	loadedVersion: 0,
 });
 
-let fontListPromise: Promise<void> | null = null;
+/** The FontManager fontListState was built from and is subscribed to. */
+let listedFontManager: Paplico["fonts"] | null = null;
 
-function ensureFontListLoaded(): void {
-	if (fontListPromise) return;
+/**
+ * Query the font list once per FontManager and keep `fontListState` in sync
+ * with its events. `fontListState` is a shared, app-wide store, so the
+ * subscription lives as long as the manager, not any one component.
+ *
+ * - `fontLoaded`: bumps `loadedVersion` whenever a new font is parsed via
+ *   fontkit, so localized names propagate into the list.
+ * - `fontScriptsResolved`: bumps `loadedVersion` as font scripts are
+ *   detected, so the list can regroup by writing system.
+ */
+function ensureFontList(fontManager: Paplico["fonts"]): void {
+	if (listedFontManager === fontManager) return;
+	listedFontManager = fontManager;
+
+	const bumpLoadedVersion = () => {
+		fontListState.loadedVersion += 1;
+	};
+	fontManager.on("fontLoaded", bumpLoadedVersion);
+	fontManager.on("fontScriptsResolved", bumpLoadedVersion);
 
 	fontListState.isLoading = true;
-	fontListPromise = (async () => {
+	void (async () => {
 		try {
-			const fontManager = getFontManager();
 			const allFonts = await fontManager.queryAllFonts();
 
 			const uniqueFamilies = new Map<string, FontMetadata>();
@@ -295,49 +312,14 @@ function ensureFontListLoaded(): void {
 	})();
 }
 
-/**
- * Subscribes to `FontManager`'s events exactly once for the app's lifetime —
- * `fontListState` is a shared, app-wide store, so its subscription lifecycle
- * is tied to that, not to any one component's mount/unmount.
- *
- * Handles three events:
- * - `fontLoaded`: bumps `loadedVersion` whenever a new font is parsed via
- *   fontkit, so localized names propagate into the list.
- * - `fontScriptsResolved`: bumps `loadedVersion` as local font scripts are
- *   detected, so the list can regroup by writing system.
- * - `fontListInvalidated`: the list can be queried (e.g. by an early-mounting
- *   FontCombobox) before Paplico.create() finishes injecting the Google Fonts
- *   API key, which permanently caches an incomplete (Google-fonts-less) list
- *   since `ensureFontListLoaded` never re-runs on its own. Re-querying on
- *   this event fixes that race.
- */
-let fontManagerSubscribed = false;
-
-function ensureFontManagerSubscription(): void {
-	if (fontManagerSubscribed) return;
-	fontManagerSubscribed = true;
-
-	const fontManager = getFontManager();
-	const bumpLoadedVersion = () => {
-		fontListState.loadedVersion += 1;
-	};
-	fontManager.on("fontLoaded", bumpLoadedVersion);
-	fontManager.on("fontScriptsResolved", bumpLoadedVersion);
-	fontManager.on("fontListInvalidated", () => {
-		fontListPromise = null;
-		ensureFontListLoaded();
-	});
-}
-
-export function useFontList(): {
+export function useFontList(fontManager: Paplico["fonts"]): {
 	fonts: FontMetadata[];
 	isLoading: boolean;
 	loadedVersion: number;
 } {
 	useEffect(() => {
-		ensureFontListLoaded();
-		ensureFontManagerSubscription();
-	}, []);
+		ensureFontList(fontManager);
+	}, [fontManager]);
 	const snap = useSnapshot(fontListState);
 	// Nothing downstream mutates the font list; the cast just drops the
 	// deep-readonly wrapper useSnapshot adds around plain read access.
@@ -355,9 +337,8 @@ export function useFontList(): {
 /**
  * Find a FontMetadata entry that matches the given fontFamily + fontSource.
  *
- * For local fonts, prefer matching by postScriptName (exact variant match)
- * before falling back to family-name matching. For Google/embedded fonts,
- * family-name matching is sufficient since the font list is de-duplicated
+ * Prefer the entry the source names exactly (e.g. one local face) before
+ * falling back to family-name matching, since the font list is de-duplicated
  * by family.
  */
 function findMatchingFont(
@@ -367,14 +348,11 @@ function findMatchingFont(
 ): FontMetadata | undefined {
 	if (!fontFamily) return undefined;
 
-	// Local font: try postScriptName match first for exact variant
-	if (fontSource?.type === "local") {
-		const byPSName = fonts.find(
-			(f) =>
-				f.source === "local" && f.postScriptName === fontSource.postScriptName,
-		);
-		if (byPSName) return byPSName;
-	}
+	const exact = fonts.find(
+		(f) =>
+			f.loaderId === fontSource?.loaderId && f.fontId === fontSource.fontId,
+	);
+	if (exact) return exact;
 
 	// Fall back to family name match (case-insensitive)
 	const lower = fontFamily.toLowerCase();
@@ -386,7 +364,7 @@ function findMatchingFont(
  * Compares by family name so that reference identity is not required.
  */
 export function isFontEqual(a: FontMetadata, b: FontMetadata): boolean {
-	return a.family === b.family && a.source === b.source;
+	return a.family === b.family && a.loaderId === b.loaderId;
 }
 
 /** Font sizes display and persist with at most 3 decimal places */

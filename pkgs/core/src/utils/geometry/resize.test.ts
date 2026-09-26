@@ -48,7 +48,7 @@ function makeBounds(
 function makeTextStyle(overrides: Partial<TextStyle> = {}): TextStyle {
 	return {
 		fontFamily: "Arial",
-		fontSource: { type: "google", family: "Arial", variants: ["regular"] },
+		fontSource: { loaderId: "google", fontId: "Arial" },
 		fontSize: 24,
 		fontWeight: 400,
 		fontStyle: "normal",

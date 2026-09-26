@@ -1389,7 +1389,7 @@ function buildTextElement(
 function createBaseTextStyle(): TextStyle {
 	return {
 		fontFamily: "Inter",
-		fontSource: { type: "google", family: "Inter", variants: ["400"] },
+		fontSource: { loaderId: "google", fontId: "Inter" },
 		fontSize: 16,
 		fontWeight: 400,
 		fontStyle: "normal",
@@ -1451,9 +1451,11 @@ function applyTextStyle(
 	// Keep fontSource aligned with the resolved family/weight so the Google
 	// loader targets it (unknown families fall back to Noto Sans JP at render).
 	style.fontSource = {
-		type: "google",
-		family: style.fontFamily,
-		variants: [String(style.fontWeight)],
+		loaderId: "google",
+		fontId:
+			style.fontWeight === 400
+				? style.fontFamily
+				: `${style.fontFamily}:${style.fontWeight}`,
 	};
 	return style;
 }

@@ -68,7 +68,7 @@ const solidStroke = (brushSettings?: BrushSettings): StrokeAppearance =>
 
 const textStyle = (partial: Partial<TextStyle> = {}): TextStyle => ({
 	fontFamily: "Test",
-	fontSource: { type: "google", family: "Test", variants: [] },
+	fontSource: { loaderId: "google", fontId: "Test" },
 	fontSize: 16,
 	fontWeight: 400,
 	fontStyle: "normal",

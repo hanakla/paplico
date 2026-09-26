@@ -656,7 +656,7 @@ function blurFilter(): Filter {
 function runStyle(): TextStyle {
 	return {
 		fontFamily: "Test",
-		fontSource: { type: "google", family: "Test", variants: [] },
+		fontSource: { loaderId: "google", fontId: "Test" },
 		fontSize: 16,
 		fontWeight: 400,
 		fontStyle: "normal",

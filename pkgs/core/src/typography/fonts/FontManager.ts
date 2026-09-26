@@ -1,12 +1,11 @@
 /**
  * FontManager
- * Unified manager for Google Fonts and Local Fonts.
+ * Resolves fonts through the font loaders the host app registers.
  * Provides glyph path extraction and text shaping helpers.
  */
 
 import type { Font, Glyph } from "@cantoo/fontkit";
 import * as fontkit from "@cantoo/fontkit";
-import { DomLocalFontBackend } from "../../infra/localfonts.dom";
 import type {
 	CubicBezierSegment,
 	FontSource,
@@ -16,12 +15,11 @@ import type {
 import { Emitter } from "../../utils/emitter";
 import {
 	extractLocalizedNames,
+	type FontLoader,
 	type FontMetadata,
 	type LoadedFont,
 } from "./FontLoader";
 import { fontVariationKey, resolveFontVariations } from "./fontVariations";
-import { GoogleFontsLoader } from "./GoogleFontsLoader";
-import { type LocalFontBackend, LocalFontsLoader } from "./LocalFontsLoader";
 import type { FontScript } from "./os2Scripts";
 
 /**
@@ -31,12 +29,8 @@ type FontManagerEvents = {
 	/** Fired after a font has been parsed via fontkit and its metadata
 	 * (including any localized name records) is available. */
 	fontLoaded: undefined;
-	/** Fired when the Google Fonts API key changes, invalidating any
-	 * previously queried font list (e.g. a list fetched before the key
-	 * arrived, or fetched with a now-stale key). */
-	fontListInvalidated: undefined;
-	/** Fired while local font scripts are being detected from font headers,
-	 * throttled, and once more after the last font is resolved. */
+	/** Fired while loaders detect font scripts from font headers, throttled,
+	 * and once more after each loader resolves its last font. */
 	fontScriptsResolved: undefined;
 };
 
@@ -73,8 +67,8 @@ export interface ShapedGlyph {
  * FontManager - unified font management.
  */
 export class FontManager extends Emitter<FontManagerEvents> {
-	private googleLoader: GoogleFontsLoader;
-	private localLoader: LocalFontsLoader;
+	/** Registered loaders keyed by `FontLoader.id`, in registration order. */
+	public readonly loaders: ReadonlyMap<string, FontLoader>;
 	private glyphPathCache = new WeakMap<
 		Font,
 		Map<number, CubicBezierSegment[]>
@@ -84,15 +78,19 @@ export class FontManager extends Emitter<FontManagerEvents> {
 	private fallbackFontUrl: string | undefined;
 	private fallbackFontLoadPromise: Promise<LoadedFont> | undefined;
 
-	public constructor(
-		googleFontsApiKey?: string,
-		localFontBackend?: LocalFontBackend,
-	) {
+	/**
+	 * @param options.fallbackFontUrl Where the built-in fallback font is
+	 * fetched from. The host app serves the file, so only it knows the URL.
+	 */
+	public constructor(options: {
+		loaders: FontLoader[];
+		fallbackFontUrl?: string;
+	}) {
 		super();
-		this.googleLoader = new GoogleFontsLoader(googleFontsApiKey);
-		this.localLoader = new LocalFontsLoader(
-			localFontBackend ?? new DomLocalFontBackend(),
+		this.loaders = new Map(
+			options.loaders.map((loader) => [loader.id, loader]),
 		);
+		this.fallbackFontUrl = options.fallbackFontUrl;
 	}
 
 	/** Read axes from the loaded face, rather than catalog metadata. */
@@ -146,105 +144,55 @@ export class FontManager extends Emitter<FontManagerEvents> {
 	}
 
 	/**
-	 * Scripts detected for a local font from its `OS/2` table, or null while
-	 * detection is still pending. Google fonts carry scripts on their catalog
-	 * metadata instead.
+	 * Scripts a loader detected for a font after querying, or null when the
+	 * loader does not detect them or detection is still pending. Fonts whose
+	 * catalog knows their scripts carry them on their metadata instead.
 	 */
 	public getFontScripts(source: FontSource): FontScript[] | null {
-		if (source.type !== "local") return null;
-		return this.localLoader.getScripts(source.postScriptName);
-	}
-
-	/**
-	 * Inject API key after singleton creation without a key.
-	 * This also resets GoogleFontsLoader list cache so the next query uses
-	 * the authenticated endpoint.
-	 */
-	public setGoogleFontsApiKey(apiKey: string): void {
-		if (this.googleLoader.setApiKey(apiKey)) {
-			this.emit("fontListInvalidated");
-		}
-	}
-
-	/**
-	 * Set where the built-in fallback font is fetched from. The host app serves
-	 * the file, so only it knows the URL.
-	 */
-	public setFallbackFontUrl(url: string): void {
-		this.fallbackFontUrl = url;
-	}
-
-	/**
-	 * Replace the local font backend at runtime (e.g. switch to Tauri backend).
-	 * Resets the font list cache so the next query re-enumerates fonts.
-	 */
-	public setLocalFontBackend(backend: LocalFontBackend): void {
-		this.localLoader = new LocalFontsLoader(backend);
+		return (
+			this.loaders.get(source.loaderId)?.getScripts?.(source.fontId) ?? null
+		);
 	}
 
 	/**
 	 * Load a font from the specified source.
+	 * @throws when no loader is registered for `source.loaderId`
 	 */
 	public async loadFont(source: FontSource): Promise<LoadedFont | null> {
-		let loaded: LoadedFont | null = null;
-		switch (source.type) {
-			case "google": {
-				// Select an appropriate weight from variants (default: 400).
-				const weight = this.extractWeightFromVariants(source.variants);
-				loaded = await this.googleLoader.loadFont(source.family, weight);
-				break;
-			}
-
-			case "local":
-				loaded = await this.localLoader.loadFont(source.postScriptName);
-				break;
-
-			case "embedded":
-				throw new Error(
-					`Embedded font loading not yet implemented: ${source.fileUid}`,
-				);
+		const loader = this.loaders.get(source.loaderId);
+		if (!loader) {
+			throw new Error(`No font loader registered for "${source.loaderId}"`);
 		}
+		const loaded = await loader.loadFont(source.fontId);
 		if (loaded) this.emit("fontLoaded");
 		return loaded;
 	}
 
 	/**
-	 * Query local fonts catalog.
-	 */
-	public async queryLocalFonts(): Promise<FontMetadata[]> {
-		const fonts = await this.localLoader.queryFonts();
-		this.startScriptResolution();
-		return fonts;
-	}
-
-	/**
-	 * Query all fonts from Google and local sources.
-	 * Each source is settled independently so a failing one (e.g. Google Fonts
-	 * answering 403 without an API key) still lets the other one through.
+	 * Query the fonts of every registered loader.
+	 * Each loader is settled independently so a failing one (e.g. Google Fonts
+	 * answering 403 without an API key) still lets the others through.
 	 */
 	public async queryAllFonts(): Promise<FontMetadata[]> {
-		const [google, local] = await Promise.allSettled([
-			this.googleLoader.queryFonts(),
-			this.localLoader.queryFonts(),
-		]);
+		const loaders = [...this.loaders.values()];
+		const results = await Promise.allSettled(
+			loaders.map((loader) => loader.queryFonts()),
+		);
 		this.startScriptResolution();
-		return [
-			...unwrapQueriedFonts(google, "Google Fonts"),
-			...unwrapQueriedFonts(local, "local fonts"),
-		];
+		return results.flatMap((result, i) =>
+			unwrapQueriedFonts(result, loaders[i].label),
+		);
 	}
 
 	/**
-	 * Kick off header-only script detection for the queried local fonts.
+	 * Kick off header-only script detection for the queried fonts.
 	 * Not awaited: the catalog is usable immediately and listeners refresh
 	 * through `fontScriptsResolved`.
 	 */
 	private startScriptResolution(): void {
-		const loader = this.localLoader;
-		void loader.resolveScripts(() => {
-			// A backend swap replaces the loader; results from the old one are stale.
-			if (this.localLoader === loader) this.emit("fontScriptsResolved");
-		});
+		for (const loader of this.loaders.values()) {
+			void loader.resolveScripts?.(() => this.emit("fontScriptsResolved"));
+		}
 	}
 
 	/** Cache em-normalized outlines by the actual shaped glyph and variable face. */
@@ -594,16 +542,6 @@ export class FontManager extends Emitter<FontManagerEvents> {
 	}
 
 	/**
-	 * Register a pre-built LoadedFont into the local font cache.
-	 * Useful for injecting test fonts or embedded fonts without going through
-	 * the Local Font Access API.
-	 */
-	public registerLoadedFont(font: LoadedFont): void {
-		this.localLoader.registerLoadedFont(font);
-		this.googleLoader.registerLoadedFont(font);
-	}
-
-	/**
 	 * Get the built-in Noto Sans JP fallback font.
 	 * Loads from the URL given to setFallbackFontUrl on first call.
 	 * Subsequent calls return the cached instance.
@@ -654,11 +592,11 @@ export class FontManager extends Emitter<FontManagerEvents> {
 					postScriptName: "NotoSansJP",
 					style: "normal",
 					weight: 400,
-					source: "embedded",
+					loaderId: "fallback",
+					fontId: "NotoSansJP",
 					...extractLocalizedNames(font),
 				},
 				fontkit: font,
-				cssFontFamily: '"Noto Sans JP", sans-serif',
 				data,
 			};
 
@@ -679,63 +617,12 @@ export class FontManager extends Emitter<FontManagerEvents> {
 	 * Get loaded font instance for a source.
 	 */
 	public getLoadedFont(source: FontSource): LoadedFont | undefined {
-		if (!source?.type) {
+		if (!source?.loaderId) {
 			console.error("Invalid FontSource:", source);
 			return undefined;
 		}
-
-		switch (source.type) {
-			case "google": {
-				const weight = this.extractWeightFromVariants(source.variants);
-				return this.googleLoader.getLoadedFont(`${source.family}:${weight}`);
-			}
-			case "local":
-				if (!source.postScriptName) {
-					console.error("Local FontSource missing postScriptName:", source);
-					return undefined;
-				}
-				return this.localLoader.getLoadedFont(source.postScriptName);
-			case "embedded":
-				// TODO: Embedded font loading
-				return undefined;
-		}
+		return this.loaders.get(source.loaderId)?.getLoadedFont(source.fontId);
 	}
-
-	/**
-	 * Extract the first available weight from variants.
-	 */
-	private extractWeightFromVariants(variants: string[]): number {
-		// Treat "regular" as 400 before checking numeric variants.
-		if (variants.includes("regular")) return 400;
-
-		for (const variant of variants) {
-			const numMatch = variant.match(/^(\d+)$/);
-			if (numMatch) {
-				return Number.parseInt(numMatch[1], 10);
-			}
-		}
-		return 400;
-	}
-}
-
-// Singleton instance
-let fontManagerInstance: FontManager | null = null;
-
-/**
- * Get FontManager singleton.
- */
-export function getFontManager(googleFontsApiKey?: string): FontManager {
-	if (!fontManagerInstance) {
-		fontManagerInstance = new FontManager(googleFontsApiKey);
-		// Expose in window for debugging.
-		if (typeof window !== "undefined") {
-			(window as unknown as { __fontManager: FontManager }).__fontManager =
-				fontManagerInstance;
-		}
-	} else if (googleFontsApiKey) {
-		fontManagerInstance.setGoogleFontsApiKey(googleFontsApiKey);
-	}
-	return fontManagerInstance;
 }
 
 /**

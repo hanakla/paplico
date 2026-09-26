@@ -1,15 +1,15 @@
 /**
- * FontLoader - 共通インターフェース
- * Google FontsとLocal Fontsで統一されたAPIを提供
+ * Contract between FontManager and the font loaders the host app registers.
  */
 
 import type { Font } from "@cantoo/fontkit";
+import * as fontkit from "@cantoo/fontkit";
+import { fontFaceWeight } from "./fontVariations";
 import type { FontScript } from "./os2Scripts";
 
 /**
- * Catalog-level metadata for a font, shared between Google Fonts and the
- * Local Font Access API. Only the fields produced by both backends are
- * required; localized records are populated lazily once a font is parsed.
+ * Catalog-level metadata for a font, shared by every font loader. Localized
+ * records are populated lazily once a font is parsed.
  */
 export interface FontMetadata {
 	/** Font family name. */
@@ -22,17 +22,17 @@ export interface FontMetadata {
 	style: string;
 	/** Numeric font weight in the 100–900 range. */
 	weight: number;
-	/** Origin of the font record. */
-	source: "google" | "local" | "embedded";
-	/** Available variants for the family (Google Fonts catalog only). */
-	variants?: string[];
+	/** `FontLoader.id` of the loader that offers this font. */
+	loaderId: string;
+	/** Identifier the loader resolves; becomes `FontSource.fontId`. */
+	fontId: string;
 	/** Localized family name resolved from the font's `name` table, if any. */
 	localizedFamily?: string;
 	/** Localized full name resolved from the font's `name` table, if any. */
 	localizedFullName?: string;
 	/**
-	 * Writing systems the font covers. Known at query time for Google Fonts;
-	 * resolved lazily from the `OS/2` table for local fonts.
+	 * Writing systems the font covers, when the catalog knows them. Otherwise
+	 * the loader may resolve them later through `FontLoader.getScripts`.
 	 */
 	scripts?: FontScript[];
 }
@@ -65,92 +65,133 @@ export interface LoadedFont {
 	metadata: FontMetadata;
 	/** Fontkitフォントオブジェクト */
 	fontkit: Font;
-	/** CSS用URL（Google Fonts用） */
-	cssUrl?: string;
-	/** CSS用font-family名（DOMプレビュー用） */
-	cssFontFamily: string;
 	/** フォントデータ（ArrayBuffer） */
 	data: ArrayBuffer;
 }
 
-/**
- * フォントローダーインターフェース
- * Google FontsとLocal Fontsで共通
- */
-export interface FontLoader {
+/** The file of one font, as a loader fetched it. */
+export interface FontFile {
+	/** Font file bytes (TTF, OTF, WOFF2 or a TrueType collection). */
+	data: ArrayBuffer;
 	/**
-	 * 利用可能なフォント一覧を取得
+	 * Metadata of the font. In a collection, `postScriptName` selects the
+	 * face to use.
 	 */
-	queryFonts(): Promise<FontMetadata[]>;
-
+	metadata: Omit<FontMetadata, "loaderId" | "fontId">;
 	/**
-	 * フォントをロード
-	 * @param identifier - フォント識別子（familyまたはpostScriptName）
-	 * @param weight - オプショナルなウェイト指定
+	 * Family name the font is registered under for DOM rendering such as the
+	 * font picker preview. Defaults to `metadata.family`.
 	 */
-	loadFont(identifier: string, weight?: number): Promise<LoadedFont | null>;
-
-	/**
-	 * フォントがロード済みかチェック
-	 */
-	isLoaded(identifier: string): boolean;
-
-	/**
-	 * ロード済みフォントを取得
-	 */
-	getLoadedFont(identifier: string): LoadedFont | undefined;
-
-	/**
-	 * フォントを検索
-	 */
-	searchFonts(query: string): Promise<FontMetadata[]>;
+	cssFamily?: string;
 }
 
 /**
- * フォントキャッシュキーを生成
+ * Resolves fonts from one source (a web catalog, the OS, an app bundle, ...).
+ * The host app passes its loaders to Paplico; text styles name a loader by
+ * `id` through `FontSource.loaderId`.
+ *
+ * Subclasses only list fonts and fetch their files. Parsing, caching and DOM
+ * registration happen here.
  */
-export function getFontCacheKey(family: string, weight = 400): string {
-	return `${family}:${weight}`;
-}
+export abstract class FontLoader {
+	/** Stored in documents as `FontSource.loaderId`; must stay stable across releases. */
+	public abstract readonly id: string;
+	/** Name shown to users, e.g. as a font picker tab. */
+	public abstract readonly label: string;
+	private loadedFonts = new Map<string, LoadedFont>();
+	private loadingPromises = new Map<string, Promise<LoadedFont | null>>();
 
-/**
- * CSSウェイト値を数値に変換
- */
-export function parseWeightString(weight: string): number {
-	const weightMap: Record<string, number> = {
-		thin: 100,
-		hairline: 100,
-		extralight: 200,
-		ultralight: 200,
-		light: 300,
-		regular: 400,
-		normal: 400,
-		medium: 500,
-		semibold: 600,
-		demibold: 600,
-		bold: 700,
-		extrabold: 800,
-		ultrabold: 800,
-		black: 900,
-		heavy: 900,
-	};
+	/** List the fonts this loader offers. */
+	public abstract queryFonts(): Promise<FontMetadata[]>;
 
-	const normalized = weight.toLowerCase().replace(/[^a-z0-9]/g, "");
+	/** Load a font, deduplicating concurrent and repeated loads. */
+	public async loadFont(fontId: string): Promise<LoadedFont | null> {
+		const cached = this.loadedFonts.get(fontId);
+		if (cached) return cached;
 
-	// 数値の場合
-	const numWeight = Number.parseInt(normalized, 10);
-	if (!Number.isNaN(numWeight)) {
-		return numWeight;
+		const loading = this.loadingPromises.get(fontId);
+		if (loading) return loading;
+
+		const loadPromise = this.doLoadFont(fontId);
+		this.loadingPromises.set(fontId, loadPromise);
+		try {
+			return await loadPromise;
+		} finally {
+			this.loadingPromises.delete(fontId);
+		}
 	}
 
-	// 文字列の場合
-	return weightMap[normalized] ?? 400;
+	/** Return a font that already finished loading. */
+	public getLoadedFont(fontId: string): LoadedFont | undefined {
+		return this.loadedFonts.get(fontId);
+	}
+
+	/**
+	 * Writing systems of a queried font, or null while unknown. Implemented by
+	 * loaders whose catalog cannot tell them up front.
+	 */
+	public getScripts?(fontId: string): FontScript[] | null;
+
+	/**
+	 * Detect the writing systems of every queried font in the background.
+	 * `onProgress` is called as results arrive and once after the last one.
+	 */
+	public resolveScripts?(onProgress: () => void): Promise<void>;
+
+	/** Fetch the file of one font, or null when the loader has no such font. */
+	protected abstract fetchFont(fontId: string): Promise<FontFile | null>;
+
+	private async doLoadFont(fontId: string): Promise<LoadedFont | null> {
+		const file = await this.fetchFont(fontId);
+		if (!file) return null;
+
+		const parsed = fontkit.create(new Uint8Array(file.data));
+		const font =
+			"fonts" in parsed
+				? parsed.fonts.find(
+						(face) => face.postscriptName === file.metadata.postScriptName,
+					)
+				: parsed;
+		if (!font) return null;
+
+		const loadedFont: LoadedFont = {
+			metadata: {
+				...file.metadata,
+				loaderId: this.id,
+				fontId,
+				...extractLocalizedNames(font),
+			},
+			fontkit: font,
+			data: file.data,
+		};
+		await registerFontFace(file.cssFamily ?? file.metadata.family, loadedFont);
+		this.loadedFonts.set(fontId, loadedFont);
+		return loadedFont;
+	}
 }
 
 /**
- * フォントスタイルをパース
+ * Make a loaded font usable by DOM text, e.g. the font picker preview.
+ * Skipped where there is no DOM font API, such as tests on Node.
  */
-export function parseFontStyle(style: string): "normal" | "italic" | "oblique" {
+async function registerFontFace(
+	family: string,
+	{ metadata, fontkit: font, data }: LoadedFont,
+): Promise<void> {
+	if (typeof FontFace === "undefined") return;
+	try {
+		const fontFace = new FontFace(family, data, {
+			weight: fontFaceWeight(font, metadata.weight),
+			style: parseFontStyle(metadata.style),
+		});
+		await fontFace.load();
+		document.fonts.add(fontFace);
+	} catch (error) {
+		console.error(`Failed to register font face ${family}:`, error);
+	}
+}
+
+function parseFontStyle(style: string): "normal" | "italic" | "oblique" {
 	const normalized = style.toLowerCase();
 	if (normalized.includes("italic")) return "italic";
 	if (normalized.includes("oblique")) return "oblique";
