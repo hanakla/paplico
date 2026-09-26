@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { RenderOrchestrator } from "../../renderer/RenderOrchestrator";
 import type {
 	AnyArtObject,
 	Document,
@@ -11,9 +12,8 @@ import type {
 	TextElement,
 	TextStyle,
 } from "../../schema";
-import { SVGExporter } from "./SVGExporter";
+import { PaplicoSVGExporter } from "./PaplicoSVGExporter";
 import { renderRasterChunk } from "./svg/rasterChunk";
-import type { ExportContext, ExportRenderer } from "./types";
 
 vi.mock("./svg/rasterChunk", () => ({
 	renderRasterChunk: vi.fn(),
@@ -95,16 +95,7 @@ const makeDocument = (
 		rasterizationDpi,
 	}) as unknown as Document;
 
-const makeContext = (
-	renderer: ExportRenderer,
-	doc: Document,
-): ExportContext => ({
-	document: doc,
-	renderer,
-	getBuiltinProfileBytes: async () => new Uint8Array(),
-});
-
-const makeMockRenderer = (): ExportRenderer => {
+const makeMockRenderer = (): RenderOrchestrator => {
 	const getFilterHandler = (processor: string) => {
 		if (processor === "blur") return { postProcess: () => {} };
 		if (processor.startsWith("svg:")) {
@@ -137,10 +128,10 @@ const makeMockRenderer = (): ExportRenderer => {
 				),
 			),
 		ensureTextDocumentResolver: () => () => {},
-	} as unknown as ExportRenderer;
+	} as unknown as RenderOrchestrator;
 };
 
-describe("SVGExporter", () => {
+describe("PaplicoSVGExporter", () => {
 	beforeEach(() => {
 		vi.mocked(renderRasterChunk).mockReset();
 		vi.mocked(renderRasterChunk).mockResolvedValue({
@@ -154,8 +145,8 @@ describe("SVGExporter", () => {
 			[path("p1", { filters: [solidFill(1, 0, 0)] })],
 			[{ elementIds: ["p1"] }],
 		);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 
 		expect(result).not.toBeNull();
 		const svg = result?.svg ?? "";
@@ -168,16 +159,16 @@ describe("SVGExporter", () => {
 
 	it("should emit the default white background rect and omit it when transparent", async () => {
 		const doc = makeDocument([], []);
-		const ctx = makeContext(makeMockRenderer(), doc);
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
 
-		const withBg = await new SVGExporter().export(ctx, "artboard1");
+		const withBg = await exporter.toSVG("artboard1");
 		expect(withBg?.svg).toContain(
 			`<rect x="0" y="0" width="100" height="100" fill="#ffffff"/>`,
 		);
 
-		const transparent = await new SVGExporter({
+		const transparent = await exporter.toSVG("artboard1", {
 			backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
-		}).export(ctx, "artboard1");
+		});
 		expect(transparent?.svg).not.toContain("<rect");
 	});
 
@@ -191,8 +182,8 @@ describe("SVGExporter", () => {
 			[{ elementIds: ["blurred"] }],
 			144,
 		);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 
 		// Chunk bounds world (-5..5) → SVG top-left (45, 45), 10×10 world units.
 		expect(result?.svg).toContain(
@@ -215,8 +206,8 @@ describe("SVGExporter", () => {
 				{ elementIds: ["p2"], transientKind: "pattern-edit" },
 			],
 		);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 		expect(result?.svg).not.toContain("<path");
 	});
 
@@ -225,8 +216,8 @@ describe("SVGExporter", () => {
 			[path("p1", { filters: [solidFill(1, 0, 0)] })],
 			[{ elementIds: ["p1"], opacity: 0.5, blendMode: "multiply" }],
 		);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 		expect(result?.svg).toContain(
 			`<g opacity="0.5" style="mix-blend-mode:multiply">`,
 		);
@@ -285,11 +276,11 @@ describe("SVGExporter", () => {
 			}),
 			getFilterHandler: () => undefined,
 			ensureTextDocumentResolver: () => () => {},
-		} as unknown as ExportRenderer;
+		} as unknown as RenderOrchestrator;
 
 		const doc = makeDocument([textEl], [{ elementIds: ["t1"] }]);
-		const ctx = makeContext(renderer, doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(renderer, () => doc);
+		const result = await exporter.toSVG("artboard1");
 
 		// Glyph world (0,0)-(10,0)-(5,10) → SVG (50,50)-(60,50)-(55,40)
 		expect(result?.svg).toContain(
@@ -334,8 +325,8 @@ describe("SVGExporter", () => {
 			],
 		});
 		const doc = makeDocument([rotated], [{ elementIds: ["g1"] }]);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 
 		// A 90° rotation must land in the gradientTransform's off-diagonal
 		// terms: matrix(a b c d ...) with a≈0 — the gradient turns with the
@@ -377,8 +368,8 @@ describe("SVGExporter", () => {
 			],
 		});
 		const doc = makeDocument([stroked], [{ elementIds: ["s1"] }]);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 
 		expect(result?.svg).toContain(`stroke-width="8"`);
 	});
@@ -413,8 +404,8 @@ describe("SVGExporter", () => {
 			],
 		});
 		const doc = makeDocument([filled], [{ elementIds: ["fs1"] }]);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 
 		expect(result?.svg.match(/<path /g)).toHaveLength(1);
 		expect(result?.svg).toMatch(/<path [^>]*fill="[^"]+"[^>]*stroke="[^"]+"/);
@@ -450,8 +441,8 @@ describe("SVGExporter", () => {
 			],
 		});
 		const doc = makeDocument([stroked], [{ elementIds: ["sf1"] }]);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 
 		expect(result?.svg.match(/<path /g)).toHaveLength(1);
 		expect(result?.svg).toContain(`paint-order="stroke"`);
@@ -463,8 +454,8 @@ describe("SVGExporter", () => {
 			filters: [solidFill(1, 0, 0)],
 		});
 		const doc = makeDocument([el], [{ elementIds: ["op1"] }]);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 
 		expect(result?.svg).toContain(`fill-opacity="0.5"`);
 		expect(result?.svg).not.toContain(`<g opacity="0.5"`);
@@ -476,8 +467,8 @@ describe("SVGExporter", () => {
 			mask: { elementIds: [] },
 		});
 		const doc = makeDocument([hiddenByMask], [{ elementIds: ["m1"] }]);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 
 		// schema: "Empty = the owner is fully hidden"
 		expect(result?.svg).not.toContain("#ff0000");
@@ -490,8 +481,8 @@ describe("SVGExporter", () => {
 			mask: { elementIds: ["mask-shape"], inverted: true },
 		});
 		const doc = makeDocument([masked, maskShape], [{ elementIds: ["m2"] }]);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 
 		expect(result?.svg).toContain(`mask="url(#mask0)"`);
 		expect(result?.svg).toContain(`color-interpolation-filters="sRGB"`);
@@ -512,8 +503,8 @@ describe("SVGExporter", () => {
 			[outside, partial],
 			[{ elementIds: ["outside", "partial"] }],
 		);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		const result = await new SVGExporter().export(ctx, "artboard1");
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		const result = await exporter.toSVG("artboard1");
 
 		expect(result?.svg).not.toContain("#ff0000");
 		expect(result?.svg).toContain("#00ff00");
@@ -525,8 +516,8 @@ describe("SVGExporter", () => {
 				filters: [solidFill(1, 0, 0), svgOffset("previous"), svgFlood()],
 			});
 			const doc = makeDocument([el], [{ elementIds: ["svg1"] }]);
-			const ctx = makeContext(makeMockRenderer(), doc);
-			const result = await new SVGExporter().export(ctx, "artboard1");
+			const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+			const result = await exporter.toSVG("artboard1");
 			const svg = result?.svg ?? "";
 
 			// Square -10..10 expanded by the margin 4 → 28x28 region.
@@ -571,8 +562,8 @@ describe("SVGExporter", () => {
 				],
 			} as unknown as Group;
 			const doc = makeDocument([group, child], [{ elementIds: ["g1"] }]);
-			const ctx = makeContext(makeMockRenderer(), doc);
-			const result = await new SVGExporter().export(ctx, "artboard1");
+			const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+			const result = await exporter.toSVG("artboard1");
 			const svg = result?.svg ?? "";
 
 			expect(svg).toContain(`<feOffset in="SourceGraphic" dx="-100" dy="0"`);
@@ -587,8 +578,8 @@ describe("SVGExporter", () => {
 				mask: { elementIds: ["mask-shape"] },
 			});
 			const doc = makeDocument([el, maskShape], [{ elementIds: ["svg2"] }]);
-			const ctx = makeContext(makeMockRenderer(), doc);
-			const result = await new SVGExporter().export(ctx, "artboard1");
+			const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+			const result = await exporter.toSVG("artboard1");
 			const svg = result?.svg ?? "";
 
 			expect(svg).toContain(
@@ -603,8 +594,8 @@ describe("SVGExporter", () => {
 				filters: [solidFill(1, 0, 0), svgOffset("previous"), blurFilter()],
 			});
 			const doc = makeDocument([el], [{ elementIds: ["svg3"] }]);
-			const ctx = makeContext(makeMockRenderer(), doc);
-			const result = await new SVGExporter().export(ctx, "artboard1");
+			const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+			const result = await exporter.toSVG("artboard1");
 
 			expect(result?.svg).toContain("<image");
 			expect(result?.svg).not.toContain("<filter");
@@ -613,8 +604,8 @@ describe("SVGExporter", () => {
 
 	it("should return null for an unknown artboard", async () => {
 		const doc = makeDocument([], []);
-		const ctx = makeContext(makeMockRenderer(), doc);
-		expect(await new SVGExporter().export(ctx, "nope")).toBeNull();
+		const exporter = new PaplicoSVGExporter(makeMockRenderer(), () => doc);
+		expect(await exporter.toSVG("nope")).toBeNull();
 	});
 });
 

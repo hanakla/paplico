@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createIdentityTransform } from "../../document/factory";
+import type { RenderOrchestrator } from "../../renderer/RenderOrchestrator";
 import type { AnyArtObject, Artboard, Document, Layer } from "../../schema";
-import { PSDExporter } from "./PSDExporter";
-import type { ExportRenderer } from "./types";
+import { PaplicoPSDExporter } from "./PaplicoPSDExporter";
 
-describe("PSDExporter", () => {
-	let mockRenderer: ExportRenderer;
+describe("PaplicoPSDExporter", () => {
+	let mockRenderer: RenderOrchestrator;
 	let mockGetDocument: () => Document;
-	let exporter: PSDExporter;
+	let exporter: PaplicoPSDExporter;
 
 	const createMockDocument = (): Document => ({
 		id: "doc1",
@@ -73,9 +73,9 @@ describe("PSDExporter", () => {
 					data: new Uint8ClampedArray(800 * 600 * 4),
 				} as ImageData;
 			}),
-		} as unknown as ExportRenderer;
+		} as unknown as RenderOrchestrator;
 
-		exporter = new PSDExporter();
+		exporter = new PaplicoPSDExporter(mockRenderer, mockGetDocument);
 	});
 
 	describe("mapBlendMode", () => {
@@ -131,7 +131,6 @@ describe("PSDExporter", () => {
 			};
 
 			const result = await (exporter as any).renderLayerToImageData(
-				mockRenderer,
 				invisibleLayer,
 				mockGetDocument(),
 				mockGetDocument().artboards[0],
@@ -153,7 +152,6 @@ describe("PSDExporter", () => {
 			};
 
 			const result = await (exporter as any).renderLayerToImageData(
-				mockRenderer,
 				emptyLayer,
 				mockGetDocument(),
 				mockGetDocument().artboards[0],
@@ -168,7 +166,6 @@ describe("PSDExporter", () => {
 			const artboard = mockGetDocument().artboards[0];
 
 			await (exporter as any).renderLayerToImageData(
-				mockRenderer,
 				layer,
 				mockGetDocument(),
 				artboard,
@@ -190,16 +187,9 @@ describe("PSDExporter", () => {
 		});
 	});
 
-	describe("export", () => {
+	describe("toPSD", () => {
 		it("should return null for non-existent artboard", async () => {
-			const result = await exporter.export(
-				{
-					document: mockGetDocument(),
-					renderer: mockRenderer,
-					getBuiltinProfileBytes: async () => new Uint8Array(),
-				},
-				"nonexistent",
-			);
+			const result = await exporter.toPSD("nonexistent");
 			expect(result).toBeNull();
 		});
 	});

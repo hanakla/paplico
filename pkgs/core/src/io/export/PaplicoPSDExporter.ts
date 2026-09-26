@@ -4,6 +4,7 @@ import {
 	type Psd,
 	writePsd,
 } from "ag-psd";
+import type { RenderOrchestrator } from "../../renderer/RenderOrchestrator";
 import {
 	type Artboard,
 	type BlendMode,
@@ -13,12 +14,6 @@ import {
 	type RawRGBA,
 } from "../../schema";
 import { injectIccProfileIntoPsd } from "./psdIcc";
-import type {
-	ExportContext,
-	ExportRenderer,
-	ExportResult,
-	IExporter,
-} from "./types";
 
 interface PSDExportOptions {
 	/** Scale factor (1 = 100%, 2 = 200% / @2x) - Phase 1: fixed at 1 */
@@ -27,6 +22,12 @@ interface PSDExportOptions {
 	backgroundColor?: RawRGBA;
 	/** ICC profile to embed into the exported PSD (image resource 1039) */
 	iccProfile?: { data: Uint8Array };
+}
+
+interface ExportResult {
+	blob: Blob;
+	width: number;
+	height: number;
 }
 
 /**
@@ -40,15 +41,19 @@ interface PSDExportOptions {
  * - FreeGradient is rasterized
  * - Scale is fixed at 1x
  */
-export class PSDExporter implements IExporter {
-	public constructor(private options: PSDExportOptions = {}) {}
+export class PaplicoPSDExporter {
+	public constructor(
+		private renderer: RenderOrchestrator,
+		private getDocument: () => Document,
+	) {}
 
-	public async export(
-		ctx: ExportContext,
+	/** Renders an artboard to a PSD blob. */
+	public async toPSD(
 		artboardId: string,
+		options: PSDExportOptions = {},
 	): Promise<ExportResult | null> {
-		const { scale = 1, iccProfile } = this.options;
-		const doc = ctx.document;
+		const { scale = 1, backgroundColor = { r: 1, g: 1, b: 1, a: 1 } } = options;
+		const doc = this.getDocument();
 
 		const artboard = doc.artboards.find((a) => a.id === artboardId);
 		if (!artboard) {
@@ -69,7 +74,6 @@ export class PSDExporter implements IExporter {
 			}
 
 			const imageData = await this.renderLayerToImageData(
-				ctx.renderer,
 				layer,
 				doc,
 				artboard,
@@ -103,8 +107,8 @@ export class PSDExporter implements IExporter {
 
 		const arrayBuffer = writePsd(psdDocument, { compress: true });
 		let psdBytes = new Uint8Array(arrayBuffer);
-		if (iccProfile) {
-			psdBytes = injectIccProfileIntoPsd(psdBytes, iccProfile.data);
+		if (options.iccProfile) {
+			psdBytes = injectIccProfileIntoPsd(psdBytes, options.iccProfile.data);
 		}
 		const blob = new Blob([psdBytes], {
 			type: "image/vnd.adobe.photoshop",
@@ -114,10 +118,9 @@ export class PSDExporter implements IExporter {
 	}
 
 	/**
-	 * Render a single layer's elements to ImageData.
+	 * Render a single layer's elements to ImageData using RenderOrchestrator.
 	 */
 	private async renderLayerToImageData(
-		renderer: ExportRenderer,
 		layer: Layer,
 		document: Document,
 		artboard: Artboard,
@@ -129,7 +132,7 @@ export class PSDExporter implements IExporter {
 
 		const bounds = getArtboardBounds(artboard);
 
-		return await renderer.renderElementsToImageData(
+		return await this.renderer.renderElementsToImageData(
 			layer.elementIds,
 			document,
 			{

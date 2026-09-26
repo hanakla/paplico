@@ -157,7 +157,7 @@ Control points are stored relative to their anchor (cp1 relative to start, cp2 r
 3. `SpatialIndex` — Add bounds calculation. **Without this, selection and hit-testing won't work for the new type**
 4. `YjsProvider` — Existing generic element methods usually suffice. Only add methods if the new type has nested Y.Map/Y.Array structures
 5. `core/tools/` — New tool if needed
-6. `core/io/` — Artboard export (`IExporter` implementations, public via `@paplico/core/export`) and papf (CBOR) serialization
+6. `core/io/` — Export rasterization (PaplicoExporter) and papf (CBOR) serialization
 
 **Easy to miss:**
 - SpatialIndex bounds — the element will render but be unselectable

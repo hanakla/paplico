@@ -3,16 +3,16 @@ import {
 	convertImageRgbToRgb,
 	convertImageToCmyk,
 } from "../../color/ColorEngine";
+import type { RenderOrchestrator } from "../../renderer/RenderOrchestrator";
 import type { Artboard, Document } from "../../schema";
-import { TIFFExporter } from "./TIFFExporter";
-import type { ExportContext, ExportRenderer } from "./types";
+import { PaplicoTIFFExporter } from "./PaplicoTIFFExporter";
 
 vi.mock("../../color/ColorEngine", () => ({
 	convertImageToCmyk: vi.fn(),
 	convertImageRgbToRgb: vi.fn(),
 }));
 
-describe("TIFFExporter", () => {
+describe("PaplicoTIFFExporter", () => {
 	const profile = buildIccHeader("CMYK");
 	const rgbProfile = buildIccHeader("RGB ");
 
@@ -26,8 +26,8 @@ describe("TIFFExporter", () => {
 			]),
 		}) as ImageData;
 
-	let mockRenderer: ExportRenderer;
-	let ctx: ExportContext;
+	let mockRenderer: RenderOrchestrator;
+	let exporter: PaplicoTIFFExporter;
 
 	const createMockDocument = (): Document =>
 		({
@@ -62,22 +62,22 @@ describe("TIFFExporter", () => {
 
 		mockRenderer = {
 			renderArtboardToImageData: vi.fn(async () => makeRenderedImageData()),
-		} as unknown as ExportRenderer;
+		} as unknown as RenderOrchestrator;
 
-		ctx = {
-			document: createMockDocument(),
-			renderer: mockRenderer,
-			getBuiltinProfileBytes: async () => new Uint8Array(16),
-		};
+		exporter = new PaplicoTIFFExporter(
+			mockRenderer,
+			createMockDocument,
+			async () => new Uint8Array(16),
+		);
 	});
 
-	describe("export", () => {
+	describe("toTIFF", () => {
 		it("should pass flattened opaque pixels and conversion options to convertImageToCmyk", async () => {
-			await new TIFFExporter({
+			await exporter.toTIFF("artboard1", {
 				profile: { data: profile },
 				srcSpace: "srgb",
 				intent: "perceptual",
-			}).export(ctx, "artboard1");
+			});
 
 			const [rgba, opts] = vi.mocked(convertImageToCmyk).mock.calls[0];
 
@@ -93,9 +93,9 @@ describe("TIFFExporter", () => {
 		});
 
 		it("should default to display-p3 source and relative-colorimetric intent", async () => {
-			await new TIFFExporter({
+			await exporter.toTIFF("artboard1", {
 				profile: { data: profile },
-			}).export(ctx, "artboard1");
+			});
 
 			const [, opts] = vi.mocked(convertImageToCmyk).mock.calls[0];
 			expect(opts.srcSpace).toBe("display-p3");
@@ -104,11 +104,11 @@ describe("TIFFExporter", () => {
 
 		it("should pass the rendered artboard and background color to the renderer", async () => {
 			const backgroundColor = { r: 0, g: 0, b: 0, a: 1 };
-			await new TIFFExporter({
+			await exporter.toTIFF("artboard1", {
 				profile: { data: profile },
 				backgroundColor,
 				scale: 2,
-			}).export(ctx, "artboard1");
+			});
 
 			const call = vi.mocked(mockRenderer.renderArtboardToImageData).mock
 				.calls[0];
@@ -118,9 +118,9 @@ describe("TIFFExporter", () => {
 		});
 
 		it("should produce a Blob with the little-endian TIFF signature", async () => {
-			const result = await new TIFFExporter({
+			const result = await exporter.toTIFF("artboard1", {
 				profile: { data: profile },
-			}).export(ctx, "artboard1");
+			});
 
 			expect(result).not.toBeNull();
 			expect(result?.width).toBe(2);
@@ -132,7 +132,7 @@ describe("TIFFExporter", () => {
 		});
 
 		it("should write an RGB TIFF without converting to CMYK when no profile is given", async () => {
-			const result = await new TIFFExporter({}).export(ctx, "artboard1");
+			const result = await exporter.toTIFF("artboard1", {});
 
 			expect(vi.mocked(convertImageToCmyk).mock.calls).toHaveLength(0);
 			expect(vi.mocked(convertImageRgbToRgb).mock.calls).toHaveLength(0);
@@ -143,9 +143,9 @@ describe("TIFFExporter", () => {
 		});
 
 		it("should convert through an RGB profile and embed it as an RGB TIFF", async () => {
-			const result = await new TIFFExporter({
+			const result = await exporter.toTIFF("artboard1", {
 				profile: { data: rgbProfile },
-			}).export(ctx, "artboard1");
+			});
 
 			expect(vi.mocked(convertImageRgbToRgb).mock.calls).toHaveLength(1);
 			expect(vi.mocked(convertImageToCmyk).mock.calls).toHaveLength(0);
@@ -155,9 +155,9 @@ describe("TIFFExporter", () => {
 		});
 
 		it("should return null when the artboard is not found", async () => {
-			const result = await new TIFFExporter({
+			const result = await exporter.toTIFF("nonexistent", {
 				profile: { data: profile },
-			}).export(ctx, "nonexistent");
+			});
 
 			expect(result).toBeNull();
 			expect(vi.mocked(convertImageToCmyk).mock.calls).toHaveLength(0);
@@ -168,9 +168,9 @@ describe("TIFFExporter", () => {
 				null,
 			);
 
-			const result = await new TIFFExporter({
+			const result = await exporter.toTIFF("artboard1", {
 				profile: { data: profile },
-			}).export(ctx, "artboard1");
+			});
 
 			expect(result).toBeNull();
 		});

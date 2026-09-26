@@ -690,15 +690,13 @@ Y.Doc
 
 ### エクスポート
 
-`io/export/`。公開入口は `@paplico/core/export`。
+`io/export/`:
 
-各形式は `IExporter` を実装したクラスで、形式ごとの設定をコンストラクタで受け取る。書き出しは `paplico.exportArtboard(exporter, artboardId)` で行う。`Paplico` は描画機能とドキュメントを `ExportContext` にまとめて渡すので、アプリ外で実装した `IExporter` も同じ入口で使える。
-
-- **PNG / JPEG** — `PNGExporter` / `JPEGExporter`。ICCプロファイル埋め込み対応
-- **AVIF HDR** — `AvifHdrExporter`。エンコードは `@paplico/avif-hdr`（Pure TypeScriptエンコーダ、WASM・ネイティブ依存なし。10/12bit、PQ/HLG、BT.2020）
-- **PSD** — `PSDExporter`。`ag-psd` の `writePsd`。ICCはimage resource 1039に注入
-- **TIFF** — `TIFFExporter`。自前 `tiffWriter`。CMYK/RGB変換とレンダリングインテント指定に対応
-- **SVG** — `SVGExporter`。SVGで表現できる要素はベクターマークアップで出力する（テキストは常にアウトライン化）。ラスタライズが必要な要素はz順で連続するまとまりごとにドキュメントのラスタライズDPIで描画し、PNGのdata URLとして埋め込む
+- **PNG / JPEG** — `PaplicoExporter`。ICCプロファイル埋め込み対応
+- **AVIF HDR** — `@paplico/avif-hdr`（Pure TypeScriptエンコーダ、WASM・ネイティブ依存なし。10/12bit、PQ/HLG、BT.2020）
+- **PSD** — `ag-psd` の `writePsd`。ICCはimage resource 1039に注入
+- **TIFF** — 自前 `tiffWriter`。CMYK/RGB変換とレンダリングインテント指定に対応
+- **SVG** — `PaplicoSVGExporter`。SVGで表現できる要素はベクターマークアップで出力する（テキストは常にアウトライン化）。ラスタライズが必要な要素はz順で連続するまとまりごとにドキュメントのラスタライズDPIで描画し、PNGのdata URLとして埋め込む
 - **MP4（タイムラプス）** — WebCodecs + MediaBunny（後述）
 
 ## タイポグラフィ

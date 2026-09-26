@@ -1,5 +1,4 @@
 import type { Paplico } from "@paplico/core";
-import { PNGExporter } from "@paplico/core/export";
 import type { AnyArtObject } from "@paplico/core/schema";
 import { calculateElementBounds } from "@paplico/core/utils";
 import { snapshot } from "valtio";
@@ -65,19 +64,18 @@ export async function generateDocumentThumbnail(
 	paplico: Paplico,
 ): Promise<Blob | null> {
 	const doc = snapshot(paplico.uiState).document;
+	const exporter = paplico.exporter;
+	if (!exporter) return null;
 
 	try {
 		// Try first artboard
 		if (doc.artboards.length > 0) {
 			const artboard = doc.artboards[0];
 			const scale = computeThumbnailScale(artboard.width, artboard.height);
-			const result = await paplico.exportArtboard(
-				new PNGExporter({
-					scale,
-					backgroundColor: { r: 0.95, g: 0.95, b: 0.95, a: 1 },
-				}),
-				artboard.id,
-			);
+			const result = await exporter.toPNG(artboard.id, {
+				scale,
+				backgroundColor: { r: 0.95, g: 0.95, b: 0.95, a: 1 },
+			});
 			return result?.blob ?? null;
 		}
 
@@ -91,7 +89,7 @@ export async function generateDocumentThumbnail(
 		if (!bounds) return null;
 
 		const scale = computeThumbnailScale(bounds.width, bounds.height);
-		const result = await paplico.renderElementsToPNG(elementIds, doc as any, {
+		const result = await exporter.renderElementsToPNG(elementIds, doc as any, {
 			scale,
 			backgroundColor: { r: 0.95, g: 0.95, b: 0.95, a: 1 },
 		});

@@ -3,7 +3,9 @@
 import type { Paplico } from "@paplico/core";
 import { useEffect, useRef, useState } from "react";
 import { ViewIdProvider } from "@/contexts/ViewIdContext";
+import { clearCurrentTargetId, setCurrentTargetId } from "@/stores/uiStore";
 import { reportError } from "@/utils/errorReporting";
+import { useEventCallback } from "@/utils/hooks";
 import { BucketFillComputingOverlay } from "./BucketFillComputingOverlay";
 import { CanvasZoomToast } from "./CanvasZoomToast";
 import { ContextActionsOverlay } from "./ContextAction";
@@ -42,6 +44,12 @@ export function CanvasPane({
 		activeTargetIdRef.current = activeTargetId;
 	}, [activeTargetId]);
 
+	const activateCurrentTarget = useEventCallback(() => {
+		const targetId = activeTargetIdRef.current;
+		if (!targetId) return;
+		setCurrentTargetId(targetId);
+	});
+
 	// Fire onCanvasReady once on mount (before paplico is ready)
 	useEffect(() => {
 		const canvas = canvasRef.current;
@@ -72,14 +80,14 @@ export function CanvasPane({
 				.then((target) => {
 					setActiveTargetId(target.id);
 					if (isPrimary) {
-						paplico.activateCanvasTarget(target.id);
+						setCurrentTargetId(target.id);
 					}
 				});
 		} else {
 			paplico.addCanvasTarget(canvas).then((target) => {
 				setActiveTargetId(target.id);
 				if (isPrimary) {
-					paplico.activateCanvasTarget(target.id);
+					setCurrentTargetId(target.id);
 				}
 			});
 		}
@@ -108,6 +116,9 @@ export function CanvasPane({
 		return () => {
 			resizeObserver.disconnect();
 			const targetId = activeTargetIdRef.current;
+			if (targetId) {
+				clearCurrentTargetId(targetId);
+			}
 			if (!isPrimary && targetId) {
 				paplico.removeCanvasTarget(targetId);
 			}
@@ -124,6 +135,8 @@ export function CanvasPane({
 					ref={canvasRef}
 					className="w-full h-full block"
 					style={{ touchAction: "none", overscrollBehavior: "none" }}
+					onPointerDown={activateCurrentTarget}
+					onPointerEnter={activateCurrentTarget}
 				/>
 				{activeTargetId && (
 					<>

@@ -543,7 +543,7 @@ pkgs/web/
     └── utils/             # App-level utilities (hooks.ts contains domain-independent hooks only, testDocument)
 ```
 
-**Public entry points:** `pkgs/core/package.json` `exports` is the whole public surface. The app imports only these entries: `@paplico/core` (facade, errors, shortcuts), `/schema`, `/document`, `/brush`, `/collaboration`, `/color`, `/io`, `/export`, `/tools`, `/timelapse`, `/typography`, `/filters`, `/utils`, `/infra`, `/testUtils`, plus the special-purpose `/infra/localfonts.tauri`, `/testUtils/vitestSetup` and `/three-webgpu-compat`. Each entry is a named re-export barrel (`index.ts` of that directory).
+**Public entry points:** `pkgs/core/package.json` `exports` is the whole public surface. The app imports only these entries: `@paplico/core` (facade, errors, shortcuts), `/schema`, `/document`, `/brush`, `/collaboration`, `/color`, `/io`, `/tools`, `/timelapse`, `/typography`, `/filters`, `/utils`, `/infra`, `/testUtils`, plus the special-purpose `/infra/localfonts.tauri`, `/testUtils/vitestSetup` and `/three-webgpu-compat`. Each entry is a named re-export barrel (`index.ts` of that directory).
 
 **Dependency Rules (CRITICAL):**
 

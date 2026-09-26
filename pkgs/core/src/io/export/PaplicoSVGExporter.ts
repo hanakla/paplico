@@ -1,5 +1,6 @@
 import { resolveElementsMapAppearance } from "../../document/appearancePresets";
 import { classifyFilterHandler } from "../../renderer/canvas/pipeline/FilterRenderer";
+import type { RenderOrchestrator } from "../../renderer/RenderOrchestrator";
 import {
 	type Document,
 	getArtboardBounds,
@@ -15,20 +16,17 @@ import {
 	serializePlanItems,
 } from "./svg/serializeElement";
 import { SvgDocumentBuilder } from "./svg/svgBuilder";
-import type {
-	ExportContext,
-	ExportRenderer,
-	ExportResult,
-	IExporter,
-} from "./types";
 
 interface SVGExportOptions {
 	/** Background rect color. Defaults to opaque white, matching PNG export. */
 	backgroundColor?: RawRGBA;
 }
 
-interface SVGExportResult extends ExportResult {
+interface SVGExportResult {
+	blob: Blob;
 	svg: string;
+	width: number;
+	height: number;
 }
 
 /**
@@ -38,14 +36,18 @@ interface SVGExportResult extends ExportResult {
  * PNG data URLs. Backdrop references across layers are a known limitation —
  * a backdrop-dependent element only composites against its own layer.
  */
-export class SVGExporter implements IExporter {
-	public constructor(private options: SVGExportOptions = {}) {}
+export class PaplicoSVGExporter {
+	public constructor(
+		private renderer: RenderOrchestrator,
+		private getDocument: () => Document,
+	) {}
 
-	public async export(
-		ctx: ExportContext,
+	/** Renders an artboard to an SVG string and blob. */
+	public async toSVG(
 		artboardId: string,
+		options: SVGExportOptions = {},
 	): Promise<SVGExportResult | null> {
-		const doc = ctx.document;
+		const doc = this.getDocument();
 		const artboard = doc.artboards.find((a) => a.id === artboardId);
 		if (!artboard) {
 			console.error(`Artboard not found: ${artboardId}`);
@@ -56,31 +58,26 @@ export class SVGExporter implements IExporter {
 		// the TextRenderer's document resolver — without it, flow members and
 		// axis-bound texts outline their leftover content literally.
 		const restoreTextDocumentResolver =
-			ctx.renderer.ensureTextDocumentResolver(doc);
+			this.renderer.ensureTextDocumentResolver(doc);
 		try {
-			return await this.renderInner(ctx.renderer, doc, artboard);
+			return await this.renderInner(doc, artboard, options);
 		} finally {
 			restoreTextDocumentResolver();
 		}
 	}
 
 	private async renderInner(
-		renderer: ExportRenderer,
 		doc: Document,
 		artboard: Document["artboards"][number],
+		options: SVGExportOptions,
 	): Promise<SVGExportResult | null> {
 		const builder = new SvgDocumentBuilder({
 			width: artboard.width,
 			height: artboard.height,
 		});
-		const ctx = this.createSerializeContext(renderer, doc, artboard, builder);
+		const ctx = this.createSerializeContext(doc, artboard, builder);
 
-		const background = this.options.backgroundColor ?? {
-			r: 1,
-			g: 1,
-			b: 1,
-			a: 1,
-		};
+		const background = options.backgroundColor ?? { r: 1, g: 1, b: 1, a: 1 };
 		if (background.a > 0) {
 			const paint = colorToSvgPaint(toRGBColor(background));
 			builder.appendChild({
@@ -119,12 +116,11 @@ export class SVGExporter implements IExporter {
 	}
 
 	private createSerializeContext(
-		renderer: ExportRenderer,
 		doc: Document,
 		artboard: Document["artboards"][number],
 		builder: SvgDocumentBuilder,
 	): SerializeContext {
-		const textRenderer = renderer.getTextRenderer();
+		const textRenderer = this.renderer.getTextRenderer();
 		const artboardBounds = getArtboardBounds(artboard);
 		const rasterScale = (doc.rasterizationDpi ?? 72) / 72;
 
@@ -132,13 +128,13 @@ export class SVGExporter implements IExporter {
 			document: doc,
 			textAxisPathIds: collectTextAxisPathIds(doc),
 			filterKind: (filter) =>
-				classifyFilterHandler(renderer.getFilterHandler(filter.processor)),
+				classifyFilterHandler(this.renderer.getFilterHandler(filter.processor)),
 			filterReplacesElementRender: (filter) =>
-				renderer
+				this.renderer
 					.getFilterHandler(filter.processor)
 					?.replacesElementRender?.(filter) ?? false,
 			filterNeedsBackdrop: (filter) =>
-				renderer
+				this.renderer
 					.getFilterHandler(filter.processor)
 					?.getRenderConfigure?.(filter).needsBackdrop ?? false,
 		};
@@ -156,9 +152,9 @@ export class SVGExporter implements IExporter {
 			classify,
 			cullBounds: artboardBounds,
 			filterResolver: {
-				getHandler: (processor) => renderer.getFilterHandler(processor),
+				getHandler: (processor) => this.renderer.getFilterHandler(processor),
 				calculateExpansion: (filters, bounds) =>
-					renderer.calculateFilterExpansion(filters, bounds),
+					this.renderer.calculateFilterExpansion(filters, bounds),
 			},
 			outlineText: (element) =>
 				textRenderer
@@ -178,7 +174,7 @@ export class SVGExporter implements IExporter {
 				textRenderer?.getFlowHead(element) ?? element,
 			renderRasterRun: (elementIds) =>
 				renderRasterChunk(
-					renderer,
+					this.renderer,
 					doc,
 					elementIds,
 					artboardBounds,

@@ -671,45 +671,6 @@ describe("PaplicoUI zoom clamp", () => {
 	});
 });
 
-describe("PaplicoUI inactive view", () => {
-	it("should not pass hover moves to the tool", () => {
-		const harness = createHarness("select", 50);
-		harness.deactivate();
-
-		dispatchPointer(harness.canvas, "pointermove", {
-			clientX: 100,
-			clientY: 100,
-			pressure: 0,
-		});
-
-		expect(harness.tool.onPointerMove).not.toHaveBeenCalled();
-		expect(harness.activateTarget).not.toHaveBeenCalled();
-	});
-
-	it("should activate the view and pass the same click to the tool", () => {
-		const harness = createHarness("pen", 50);
-		harness.deactivate();
-
-		dispatchPointer(harness.canvas, "pointerdown", {
-			clientX: 100,
-			clientY: 100,
-		});
-		dispatchPointer(harness.canvas, "pointermove", {
-			clientX: 120,
-			clientY: 100,
-		});
-		dispatchPointer(harness.canvas, "pointerup", {
-			clientX: 120,
-			clientY: 100,
-		});
-
-		expect(harness.activateTarget).toHaveBeenCalledOnce();
-		expect(harness.tool.onPointerDown).toHaveBeenCalledOnce();
-		expect(harness.tool.onPointerMove).toHaveBeenCalled();
-		expect(harness.tool.onPointerUp).toHaveBeenCalledOnce();
-	});
-});
-
 function createHarness(
 	toolName: string,
 	initialWidth: number,
@@ -745,10 +706,6 @@ function createHarness(
 	const setViewport = vi.fn();
 	const viewport: Viewport = { x: 0, y: 0, zoom, rotation: 0 };
 	const color: RawRGBA = { r: 0, g: 0, b: 0, a: 1 };
-	let isActive = true;
-	const activateTarget = vi.fn(() => {
-		isActive = true;
-	});
 
 	const ui = new PaplicoUI(canvas, {
 		getViewport: () => viewport,
@@ -757,8 +714,7 @@ function createHarness(
 		getTool: () => tool,
 		isDrawing: () => false,
 		setDrawing,
-		isActiveTarget: () => isActive,
-		activateTarget,
+		setActiveTarget: vi.fn(),
 		requestRender: vi.fn(),
 		getCurrentTool: () => toolName,
 		getToolWidth: () => initialWidth,
@@ -772,18 +728,7 @@ function createHarness(
 	});
 	mountedUis.push(ui);
 
-	return {
-		canvas,
-		tool,
-		ui,
-		setDrawing,
-		setToolWidth,
-		setViewport,
-		activateTarget,
-		deactivate: () => {
-			isActive = false;
-		},
-	};
+	return { canvas, tool, ui, setDrawing, setToolWidth, setViewport };
 }
 
 function dispatchPointer(

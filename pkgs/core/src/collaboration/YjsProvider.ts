@@ -66,6 +66,7 @@ export const SCALAR_FIELDS = new Set([
 	"fileUid",
 	"operation",
 	"collapsed",
+	"clipPathId",
 	"pathStart",
 	"pathEnd",
 	"strokeWidthsBaked",
@@ -84,7 +85,6 @@ export const JSON_FIELDS = new Set([
 	"segments",
 	"filters",
 	"childIds",
-	"clipPathId",
 	"sources",
 	"content",
 	"defaultStyle",
@@ -1110,12 +1110,8 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 			// A clip mask that got replaced keeps clipping through its leading
 			// run; the remaining runs become ordinary siblings. Without this the
 			// reference dangles and the clip silently stops applying.
-			const clipPathIdJson = yObj.get("clipPathId") as string | undefined;
-			if (clipPathIdJson) {
-				const clipPathId = JSON.parse(clipPathIdJson) as string | null;
-				if (clipPathId === pathId) {
-					yObj.set("clipPathId", JSON.stringify(newIds[0] ?? null));
-				}
+			if (yObj.get("clipPathId") === pathId) {
+				yObj.set("clipPathId", newIds[0]);
 			}
 		}
 	}
@@ -2544,13 +2540,8 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 						for (const c of JSON.parse(childIdsRaw) as string[]) stack.push(c);
 					} catch {}
 				}
-				const clipPathIdRaw = yObj.get("clipPathId") as string | undefined;
-				if (clipPathIdRaw) {
-					try {
-						const v = JSON.parse(clipPathIdRaw) as string | null;
-						if (v) stack.push(v);
-					} catch {}
-				}
+				const clipPathId = yObj.get("clipPathId") as string | undefined;
+				if (clipPathId) stack.push(clipPathId);
 				const sourcesRaw = yObj.get("sources") as string | undefined;
 				if (sourcesRaw) {
 					try {

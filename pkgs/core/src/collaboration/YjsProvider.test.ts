@@ -1040,6 +1040,91 @@ describe("YjsProvider", () => {
 		});
 	});
 
+	describe("replacePathWithPaths", () => {
+		const runs = [
+			{ segments: [], start: 0, end: 0.5 },
+			{ segments: [], start: 0.5, end: 1 },
+		];
+
+		it("should delete the original path while a clip group exists", () => {
+			const provider = createProviderWithClipGroup();
+
+			provider.replacePathWithPaths("layer-1", "path-1", runs);
+
+			const doc = extractDocumentFromYDoc(provider.ydoc);
+			expect(doc.objects["path-1"]).toBeUndefined();
+			expect(doc.layers[0].elementIds).toHaveLength(3);
+			expect(doc.layers[0].elementIds).not.toContain("path-1");
+			expect(
+				(doc.objects["group-1"] as { clipPathId: string }).clipPathId,
+			).toBe("clip-mask");
+			provider.destroy();
+		});
+
+		it("should point the clip group at the first run when its clip mask is replaced", () => {
+			const provider = createProviderWithClipGroup();
+
+			provider.replacePathWithPaths("layer-1", "clip-mask", runs);
+
+			const doc = extractDocumentFromYDoc(provider.ydoc);
+			const group = doc.objects["group-1"] as {
+				childIds: string[];
+				clipPathId: string;
+			};
+			expect(doc.objects["clip-mask"]).toBeUndefined();
+			expect(group.childIds).toHaveLength(3);
+			expect(group.clipPathId).toBe(group.childIds[0]);
+			provider.destroy();
+		});
+
+		/** A layer holding "path-1" and "group-1", which is clipped by "clip-mask". */
+		function createProviderWithClipGroup(): YjsProvider {
+			const provider = new YjsProvider({ callbacks });
+			const makePath = (id: string) => ({
+				id,
+				type: "path" as const,
+				segments: [],
+				opacity: 1,
+				blendMode: "normal" as const,
+				transform: createIdentityTransform(),
+			});
+
+			provider.replaceDocument({
+				id: "doc-1",
+				objects: {
+					"path-1": makePath("path-1"),
+					"group-1": {
+						id: "group-1",
+						type: "group",
+						childIds: ["clip-mask", "content"],
+						opacity: 1,
+						blendMode: "normal",
+						transform: createIdentityTransform(),
+					},
+					"clip-mask": makePath("clip-mask"),
+					content: makePath("content"),
+				},
+				layers: [
+					{
+						id: "layer-1",
+						name: "Layer 1",
+						visible: true,
+						locked: false,
+						opacity: 1,
+						elementIds: ["path-1", "group-1"],
+					},
+				],
+				viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },
+				files: [],
+				artboards: [],
+				brushPresets: [],
+				units: "px",
+			});
+			provider.setClipPath("layer-1", "group-1", "clip-mask");
+			return provider;
+		}
+	});
+
 	describe("moveElementToLayer", () => {
 		it("should move an element from one layer to another", () => {
 			const provider = new YjsProvider({ callbacks });

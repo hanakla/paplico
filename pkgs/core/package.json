@@ -42,10 +42,6 @@
 			"import": "./src/io/index.ts",
 			"types": "./src/io/index.ts"
 		},
-		"./export": {
-			"import": "./src/io/export/index.ts",
-			"types": "./src/io/export/index.ts"
-		},
 		"./tools": {
 			"import": "./src/tools/index.ts",
 			"types": "./src/tools/index.ts"
@@ -117,10 +113,6 @@
 			"./io": {
 				"types": "./dist/io/index.d.mts",
 				"import": "./dist/io/index.mjs"
-			},
-			"./export": {
-				"types": "./dist/io/export/index.d.mts",
-				"import": "./dist/io/export/index.mjs"
 			},
 			"./tools": {
 				"types": "./dist/tools/index.d.mts",
