@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PAPLICO_MAX_ZOOM_SCALE } from "../document/constants";
+import { PaplicoShortcuts } from "../PaplicoShortcuts";
 import type { RawRGBA, Viewport } from "../schema";
 import type { Tool } from "../tools/Tool";
 import { PaplicoUI } from "./PaplicoUI";
@@ -708,6 +709,36 @@ describe("PaplicoUI inactive view", () => {
 		expect(harness.tool.onPointerMove).toHaveBeenCalled();
 		expect(harness.tool.onPointerUp).toHaveBeenCalledOnce();
 	});
+
+	it("should paste only once when another view is active", async () => {
+		const active = createHarness("select", 50);
+		const inactive = createHarness("select", 50);
+		inactive.deactivate();
+		const onPaste = vi.fn();
+		active.ui.on("paste", onPaste);
+		inactive.ui.on("paste", onPaste);
+
+		const clipboardData = new DataTransfer();
+		clipboardData.setData("text/plain", "hello");
+		window.dispatchEvent(new ClipboardEvent("paste", { clipboardData }));
+
+		await vi.waitFor(() => expect(onPaste).toHaveBeenCalled());
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(onPaste).toHaveBeenCalledOnce();
+	});
+
+	it("should run a shortcut only once when another view is active", () => {
+		const shortcuts = new PaplicoShortcuts();
+		const handler = vi.fn(() => true);
+		shortcuts.registerCommand("test.command", "Edit", handler);
+		shortcuts.registerDefaultKeybinding("test.command", { code: "KeyD" });
+		createHarness("select", 50, 1, 0, undefined, shortcuts);
+		createHarness("select", 50, 1, 0, undefined, shortcuts).deactivate();
+
+		window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyD" }));
+
+		expect(handler).toHaveBeenCalledOnce();
+	});
 });
 
 function createHarness(
@@ -716,6 +747,7 @@ function createHarness(
 	zoom = 1,
 	touchDrawOffsetScale = 0,
 	maxZoomScale?: number,
+	shortcuts = new PaplicoShortcuts(),
 ) {
 	const canvas = document.createElement("canvas");
 	canvas.getBoundingClientRect = () =>
@@ -766,6 +798,7 @@ function createHarness(
 		getToolColor: () => color,
 		setShapeType: vi.fn(),
 		getTouchDrawOffsetScale: () => touchDrawOffsetScale,
+		getShortcuts: () => shortcuts,
 		...(maxZoomScale !== undefined
 			? { getMaxZoomScale: () => maxZoomScale }
 			: {}),

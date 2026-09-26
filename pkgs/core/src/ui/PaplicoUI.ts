@@ -1376,9 +1376,11 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			}
 		}
 
-		// Delegate to PaplicoShortcuts (individual bindings use `when` clauses for gating)
+		// Delegate to PaplicoShortcuts (individual bindings use `when` clauses for gating).
+		// Every view listens on window and shares one PaplicoShortcuts, so only
+		// the active one dispatches.
 		const shortcuts = this.callbacks.getShortcuts?.();
-		if (shortcuts?.handleKeyEvent(e)) {
+		if (this.callbacks.isActiveTarget() && shortcuts?.handleKeyEvent(e)) {
 			e.preventDefault();
 			return;
 		}
@@ -1445,6 +1447,9 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 	// --- Clipboard Paste Events ---
 
 	private async handlePaste(e: ClipboardEvent): Promise<void> {
+		// Every view listens on window, so only the active one may paste.
+		if (!this.callbacks.isActiveTarget()) return;
+
 		const clipboardData = e.clipboardData;
 		if (!clipboardData) return;
 
