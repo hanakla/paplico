@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
-import { PaplicoSVGExporter } from "../io/export/PaplicoSVGExporter";
+import { SVGExporter } from "../io/export/SVGExporter";
 import type { RenderOrchestrator } from "../renderer/RenderOrchestrator";
 import type { Artboard, Document } from "../schema";
 import { expectPngBufferMatch } from "./visualRegression";
@@ -29,10 +29,15 @@ export async function expectSvgMatchesGpu(
 	const gpu = await renderer.renderArtboardToImageData(artboard, doc, 1, white);
 	if (!gpu) throw new Error("GPU render failed");
 
-	const exporter = new PaplicoSVGExporter(renderer, () => doc);
-	const result = await exporter.toSVG(artboard.id, {
-		backgroundColor: white,
-	});
+	const result = await new SVGExporter({ backgroundColor: white }).export(
+		{
+			document: doc,
+			renderer,
+			getBuiltinProfileBytes: () =>
+				Promise.reject(new Error("SVG export reads no ICC profile")),
+		},
+		artboard.id,
+	);
 	if (!result) throw new Error("SVG export failed");
 
 	const svgPngBuffer = Buffer.from(

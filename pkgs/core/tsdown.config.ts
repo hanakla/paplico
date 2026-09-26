@@ -9,6 +9,7 @@ export default defineConfig({
 		"src/collaboration/index.ts",
 		"src/color/index.ts",
 		"src/io/index.ts",
+		"src/io/export/index.ts",
 		"src/tools/index.ts",
 		"src/timelapse/index.ts",
 		"src/typography/index.ts",

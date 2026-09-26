@@ -43,7 +43,10 @@ import {
 	type RepeatObject,
 	type TextElement,
 } from "../schema";
-import { isEffectivelyLocked } from "../utils/elementQuery";
+import {
+	findLayerForElement,
+	isEffectivelyLocked,
+} from "../utils/elementQuery";
 import { unionBounds } from "../utils/geometry/align";
 import {
 	computeBlendIntermediates,
@@ -1115,6 +1118,7 @@ export class SpatialIndex {
 				(layer) => layer.id === editingScopeId,
 			);
 			if (scopedLayer) {
+				if (scopedLayer.id !== layerId) return [];
 				return scopedLayer.elementIds
 					.map((id) => this.store.document.objects[id])
 					.filter((el): el is AnyArtObject => {
@@ -1132,6 +1136,14 @@ export class SpatialIndex {
 
 			const scopeElement = this.store.document.objects[editingScopeId];
 			if (!scopeElement) return [];
+			// Callers walk the layers top-down and adopt the first layer that
+			// hits as the current layer, so only the scope's own layer may answer.
+			const scopeLayer = findLayerForElement(
+				editingScopeId,
+				this.store.document.layers,
+				this.parentGroupMap,
+			);
+			if (scopeLayer?.id !== layerId) return [];
 			const containerChildIds = getContainerChildIds(scopeElement);
 
 			// Single-element scope: the scope element itself is the only candidate.
