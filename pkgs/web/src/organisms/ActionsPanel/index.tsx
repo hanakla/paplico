@@ -87,15 +87,12 @@ export function ActionsPanel() {
 
 	return (
 		<div className="w-52 bg-background/80 backdrop-liquid rounded-xl shadow-lg flex flex-col overflow-hidden">
-			<div className="px-3 py-1 border-b border-border">
-				<span className="text-xs/none font-medium text-muted-foreground uppercase tracking-wide">
+			<div className="px-3 py-1 border-b border-border flex items-center">
+				<span className="text-xs/5 font-medium text-muted-foreground uppercase tracking-wide">
 					{t("actionsPanel.actions")}
 				</span>
 			</div>
-			{/* Controls taller than the panel have to start at the top edge.
-			    Centered overflow reaches past the scroll origin, where
-			    scrolling cannot follow. */}
-			<div className="flex-1 min-h-0 p-2 flex gap-1 items-center-safe overflow-auto">
+			<div className="flex-1 min-h-0 p-2 flex gap-1 items-start overflow-auto">
 				{isGradientStopSelected ? null : isTextEditing ? (
 					<TextEditingControls />
 				) : isArtboardTool ? (

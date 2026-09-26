@@ -6,6 +6,7 @@ import {
 import { isGroup } from "@paplico/core/schema";
 import type React from "react";
 import { toastManager } from "@/components/Toast";
+import { LicensesDialog } from "@/dialogs/LicensesDialog";
 import { confirmDialog } from "@/infra/confirmDialog";
 import { FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
@@ -14,6 +15,7 @@ import {
 	openDocumentFile,
 	setDocumentFileHandle,
 } from "@/stores/documentSessionStore";
+import { setPixelPreviewEnabled, uiState } from "@/stores/uiStore";
 import { codeFromError, reportError } from "@/utils/errorReporting";
 import { useEventCallback } from "@/utils/hooks";
 
@@ -34,6 +36,13 @@ type MenuActions = {
 	handleLoadImageToDocument: () => Promise<void>;
 	handleOpenExportDialog: () => void;
 	handleOpenDocumentSettingsDialog: () => void;
+	handleTogglePixelPreview: () => void;
+	handleOpenLicensesDialog: () => void;
+	handleReloadApp: () => void;
+	handleEmulateDisconnect: () => void;
+	handleRunPerfCheck: () => Promise<void>;
+	handleCopyLastStroke: () => Promise<void>;
+	handleSendLastStroke: () => Promise<void>;
 };
 
 export function useMenuActions(
@@ -227,6 +236,78 @@ export function useMenuActions(
 		dialogs.setDocumentSettingsDialogOpen(true);
 	});
 
+	const handleTogglePixelPreview = useEventCallback(() => {
+		const next = !uiState.pixelPreviewEnabled;
+		setPixelPreviewEnabled(next);
+		paplicoRef.current?.setPixelPreview(next);
+	});
+
+	const handleOpenLicensesDialog = useEventCallback(() => {
+		LicensesDialog.call();
+	});
+
+	const handleReloadApp = useEventCallback(() => {
+		globalThis.location?.reload();
+	});
+
+	const handleEmulateDisconnect = useEventCallback(() => {
+		paplicoRef.current?.getCollaboration()?.simulateDisconnect();
+	});
+
+	const handleRunPerfCheck = useEventCallback(async () => {
+		const p = paplicoRef.current;
+		if (!p) return;
+		// Dynamic import keeps the dev profiler out of the production bundle.
+		const { runPerfCheck } = await import("@/devtools/perfCheck");
+		const result = await runPerfCheck(p);
+		if (!result) return;
+		try {
+			const res = await fetch("/api/dev/perf-result", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(result),
+			});
+			const { saved } = await res.json();
+			console.log(`[perf] result sent: ${saved}`);
+		} catch (e) {
+			console.error("[perf] failed to send result:", e);
+		}
+	});
+
+	const handleCopyLastStroke = useEventCallback(async () => {
+		const p = paplicoRef.current;
+		if (!p) return;
+		// Dynamic import keeps the dev-only capture out of the production bundle.
+		const { copyLastStrokeToClipboard } = await import(
+			"@/devtools/copyLastStroke"
+		);
+		const copied = await copyLastStrokeToClipboard(p);
+		console.log(
+			copied
+				? "[devtools] last stroke copied to clipboard"
+				: "[devtools] no pen stroke to copy",
+		);
+	});
+
+	const handleSendLastStroke = useEventCallback(async () => {
+		const p = paplicoRef.current;
+		if (!p) return;
+		// Dynamic import keeps the dev-only capture out of the production bundle.
+		const { sendLastStrokeToServer } = await import(
+			"@/devtools/strokeRecorder"
+		);
+		try {
+			const saved = await sendLastStrokeToServer(p);
+			console.log(
+				saved
+					? `[stroke] recorded: ${saved}`
+					: "[stroke] no pen stroke to record",
+			);
+		} catch (error) {
+			console.error("[stroke] failed to record:", error);
+		}
+	});
+
 	return {
 		handleUndo,
 		handleRedo,
@@ -244,5 +325,12 @@ export function useMenuActions(
 		handleLoadImageToDocument,
 		handleOpenExportDialog,
 		handleOpenDocumentSettingsDialog,
+		handleTogglePixelPreview,
+		handleOpenLicensesDialog,
+		handleReloadApp,
+		handleEmulateDisconnect,
+		handleRunPerfCheck,
+		handleCopyLastStroke,
+		handleSendLastStroke,
 	};
 }

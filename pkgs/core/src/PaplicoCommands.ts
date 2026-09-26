@@ -3004,12 +3004,6 @@ export class PaplicoCommands {
 		this.transact(() => {
 			for (const id of targetIds) {
 				this.applyElementResize(id, originalBounds, newBounds, flip);
-				// updateElement syncs the store and clears stale cache entries
-				// synchronously, so recomputing here reads the resized geometry in
-				// the element's parent space — pushing the world-space selection
-				// frame into the cache instead would corrupt nested (editing-scope)
-				// elements.
-				this.ctx.spatial.invalidateBoundsWithAncestors(id);
 			}
 		});
 	}
@@ -3034,11 +3028,17 @@ export class PaplicoCommands {
 		return elementIds.filter((id) => !descendantIds.has(id));
 	}
 
+	/**
+	 * `underIdentityChain` means the caller turns this element's ancestor chain
+	 * into identity, so a path or compound path stores its resized world
+	 * geometry under an identity transform.
+	 */
 	private applyElementResize(
 		elementId: string,
 		originalBounds: BoundingBox,
 		newBounds: BoundingBox,
 		flip: AxisFlip,
+		underIdentityChain = false,
 	): void {
 		const currentLayerId = this.ctx.store.currentLayerId;
 		if (!currentLayerId) return;
@@ -3087,7 +3087,9 @@ export class PaplicoCommands {
 			const baked = this.bakeWorldGeometry(element);
 			this.updateElement(currentLayerId, elementId, {
 				segments: scaleSegments(baked.segments, transform),
-				transform: baked.transform,
+				transform: underIdentityChain
+					? createIdentityTransform()
+					: baked.transform,
 				...(element.strokeWidths && {
 					strokeWidths: mirrorStrokeWidths(element.strokeWidths, flip),
 				}),
@@ -3098,11 +3100,21 @@ export class PaplicoCommands {
 				...(strokeScaledFilters ? { filters: strokeScaledFilters } : {}),
 			});
 		} else if (element.type === "compound-path") {
-			// Source paths are recursively resized.
+			// The compound pivots on the centre of its sources, which the resize
+			// moves, so a source compensating the compound's current transform
+			// would land elsewhere. Bake the whole chain into the sources and
+			// leave the compound's chain as identity, which no pivot can move.
 			for (const { id: sourceId } of element.sources) {
-				this.applyElementResize(sourceId, originalBounds, newBounds, flip);
+				this.applyElementResize(
+					sourceId,
+					originalBounds,
+					newBounds,
+					flip,
+					true,
+				);
 			}
 			this.updateElement(currentLayerId, elementId, {
+				transform: this.chainCancellingTransform(elementId, underIdentityChain),
 				...commonUpdates,
 				...(strokeScaledFilters ? { filters: strokeScaledFilters } : {}),
 			});
@@ -3177,9 +3189,10 @@ export class PaplicoCommands {
 		} else if (isBlend(element)) {
 			// Keys and the absorbed spine live in objects (not in any layer); resize
 			// them recursively so the whole blend scales. Intermediates recompute
-			// from the scaled keys/spine.
+			// from the scaled keys/spine. The blend pivots on the centre of its keys
+			// the same way a compound path does, so its chain is baked away too.
 			for (const keyId of element.objectIds) {
-				this.applyElementResize(keyId, originalBounds, newBounds, flip);
+				this.applyElementResize(keyId, originalBounds, newBounds, flip, true);
 			}
 			if (element.spineSourceId) {
 				this.applyElementResize(
@@ -3187,9 +3200,11 @@ export class PaplicoCommands {
 					originalBounds,
 					newBounds,
 					flip,
+					true,
 				);
 			}
 			this.updateElement(currentLayerId, elementId, {
+				transform: this.chainCancellingTransform(elementId, underIdentityChain),
 				...commonUpdates,
 				...(strokeScaledFilters ? { filters: strokeScaledFilters } : {}),
 			});
@@ -3246,6 +3261,22 @@ export class PaplicoCommands {
 				} as Partial<AnyArtObject>);
 			}
 		}
+	}
+
+	/**
+	 * Transform that makes an element's chain compose to identity, for a blend
+	 * or compound path whose resize bakes that chain into what it absorbs.
+	 */
+	private chainCancellingTransform(
+		elementId: string,
+		underIdentityChain: boolean,
+	): ElementTransform {
+		const ancestorT = underIdentityChain
+			? null
+			: this.ctx.spatial.getAncestorTransform(elementId);
+		return ancestorT
+			? computeInverseCompositionTransform(ancestorT)
+			: createIdentityTransform();
 	}
 
 	/**

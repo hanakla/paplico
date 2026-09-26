@@ -40,7 +40,6 @@ import { proxy, useSnapshot } from "valtio";
 import { AutoSaveRing } from "@/components/AutoSaveRing";
 import { Menu } from "@/components/Menu";
 import { Menubar } from "@/components/Menubar";
-import { LicensesDialog } from "@/dialogs/LicensesDialog";
 import { useCanvasObstacle } from "@/hooks/useCanvasObstacle";
 import { useCurrentCanvasTargetResolver } from "@/hooks/useCurrentCanvasTarget";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
@@ -50,8 +49,7 @@ import { useTranslation } from "@/locales";
 import { RoomParticipants } from "@/organisms/RoomParticipants";
 import { UserMenu } from "@/organisms/UserMenu";
 import { documentSessionState } from "@/stores/documentSessionStore";
-import { setPixelPreviewEnabled, useUIState } from "@/stores/uiStore";
-import { useEventCallback } from "@/utils/hooks";
+import { useUIState } from "@/stores/uiStore";
 import { IS_TAURI_ENV } from "@/utils/platform";
 import { twm } from "@/utils/tailwind";
 
@@ -152,78 +150,16 @@ export function DesktopMenuBar({
 		handleExport,
 		handleSave,
 		handleLoadImageToDocument,
+		handleTogglePixelPreview,
+		handleOpenLicensesDialog,
+		handleReloadApp,
+		handleEmulateDisconnect,
+		handleRunPerfCheck,
+		handleCopyLastStroke,
+		handleSendLastStroke,
 	} = useMenuActions(paplicoRef, {
 		setExportDialogOpen: () => onOpenExportDialog(),
 		setDocumentSettingsDialogOpen: () => onOpenDocumentSettingsDialog(),
-	});
-
-	const handleEmulateDisconnect = useEventCallback(() => {
-		paplico?.getCollaboration()?.simulateDisconnect();
-	});
-
-	const handleRunPerfCheck = useEventCallback(async () => {
-		if (!paplico) return;
-		// Dynamic import keeps the dev profiler out of the production bundle.
-		const { runPerfCheck } = await import("@/devtools/perfCheck");
-		const result = await runPerfCheck(paplico);
-		if (!result) return;
-		try {
-			const res = await fetch("/api/dev/perf-result", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(result),
-			});
-			const { saved } = await res.json();
-			console.log(`[perf] result sent: ${saved}`);
-		} catch (e) {
-			console.error("[perf] failed to send result:", e);
-		}
-	});
-
-	const handleCopyLastStroke = useEventCallback(async () => {
-		if (!paplico) return;
-		// Dynamic import keeps the dev-only capture out of the production bundle.
-		const { copyLastStrokeToClipboard } = await import(
-			"@/devtools/copyLastStroke"
-		);
-		const copied = await copyLastStrokeToClipboard(paplico);
-		console.log(
-			copied
-				? "[devtools] last stroke copied to clipboard"
-				: "[devtools] no pen stroke to copy",
-		);
-	});
-
-	const handleSendLastStroke = useEventCallback(async () => {
-		if (!paplico) return;
-		// Dynamic import keeps the dev-only capture out of the production bundle.
-		const { sendLastStrokeToServer } = await import(
-			"@/devtools/strokeRecorder"
-		);
-		try {
-			const saved = await sendLastStrokeToServer(paplico);
-			console.log(
-				saved
-					? `[stroke] recorded: ${saved}`
-					: "[stroke] no pen stroke to record",
-			);
-		} catch (error) {
-			console.error("[stroke] failed to record:", error);
-		}
-	});
-
-	const handleTogglePixelPreview = useEventCallback(() => {
-		const next = !appUiState.pixelPreviewEnabled;
-		setPixelPreviewEnabled(next);
-		paplico?.setPixelPreview(next);
-	});
-
-	const handleReloadApp = useEventCallback(() => {
-		globalThis.location?.reload();
-	});
-
-	const handleOpenLicensesDialog = useEventCallback(() => {
-		LicensesDialog.call();
 	});
 
 	if (layoutMode !== "desktop") return null;

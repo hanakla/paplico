@@ -139,6 +139,25 @@ describe("BrushStrokeSession", () => {
 			expect(pressures(session)).toEqual([0.45, 0.4, 0.4]);
 		});
 
+		it("should keep a short stroke's pressure when the tip lifts off inside the window", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.5));
+			session.append(point(6, 0, 38, 0.5));
+			session.append(point(8, 0, 49, 0));
+			session.append(point(10, 0, 49, 0));
+
+			expect(pressures(session)).toEqual([0.5, 0.5, 0, 0]);
+		});
+
+		it("should keep an earlier correction when the tip lifts off inside the window", () => {
+			const session = makeSession();
+			session.append(point(0, 0, 0, 0.95));
+			session.append(point(4, 0, 8, 0.4));
+			session.append(point(6, 0, 16, 0));
+
+			expect(pressures(session)).toEqual([0.45, 0.4, 0]);
+		});
+
 		it("should commit a tap that ends inside the window untouched", () => {
 			const session = makeSession();
 			session.append(point(0, 0, 0, 0.95));

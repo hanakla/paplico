@@ -966,6 +966,7 @@ export default function Page() {
 												onOpenPreferencesDialog: handleOpenPreferencesDialog,
 												onOpenAutomationDialog: handleOpenAutomationDialog,
 												onOpenDocumentListDialog: handleOpenDocumentListDialog,
+												onNewDocument: handleNewDocument,
 												onOpenTimelapseDialog: handleOpenTimelapseDialog,
 												isSplitView,
 												onToggleSplitView: handleToggleSplitView,

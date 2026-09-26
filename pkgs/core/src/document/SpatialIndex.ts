@@ -439,17 +439,6 @@ export class SpatialIndex {
 		this.invalidateAncestorBounds(elementId);
 	}
 
-	/**
-	 * Recalculate an element's cached bounds from the current document (bounds
-	 * are stored in the element's parent space) and refresh every ancestor
-	 * container whose bounds depend on it. Use after a mutation that reshapes
-	 * the element, e.g. a resize.
-	 */
-	public invalidateBoundsWithAncestors(elementId: string): void {
-		this.invalidateBounds(elementId);
-		this.invalidateAncestorBounds(elementId);
-	}
-
 	/** Recalculate cached bounds for every ancestor container of an element. */
 	private invalidateAncestorBounds(elementId: string): void {
 		let ancestorId = this.parentGroupMap.get(elementId);

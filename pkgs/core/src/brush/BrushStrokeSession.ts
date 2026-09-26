@@ -78,7 +78,12 @@ export class BrushStrokeSession {
 			Math.hypot(point.x - first.x, point.y - first.y) >=
 			this.impactWindowWorld;
 		if (settled || this.leftTapRadius) {
-			suppressImpactSpike(corrected, point.pressure);
+			// A zero reading is the tip leaving the surface just before
+			// pointerup, not a settled contact pressure to correct toward.
+			const reference = this.held.findLast(
+				(sample) => sample.pressure !== 0,
+			)?.pressure;
+			suppressImpactSpike(corrected, reference);
 		}
 		this.points.splice(0, this.points.length, ...corrected);
 		this.fitter = new IncrementalStrokeFitter(this.options);

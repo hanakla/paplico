@@ -3,11 +3,16 @@ import {
 	Bot,
 	Check,
 	ChevronDown,
+	ClipboardCopy,
+	ClipboardPaste,
+	Copy,
 	FileDown,
 	FilePlus,
 	FileUp,
 	FolderOpen,
 	Gamepad2,
+	Gauge,
+	Grid2x2,
 	Group,
 	ImageDown,
 	ImagePlus,
@@ -17,12 +22,16 @@ import {
 	Redo,
 	RotateCcw,
 	Save,
+	Scissors,
+	ScrollText,
 	Settings,
 	Share2,
+	SquareDashed,
 	Timer,
 	Undo,
 	Ungroup,
 	Unplug,
+	Upload,
 	XIcon,
 } from "lucide-react";
 import { memo, type ReactNode, useEffect, useRef } from "react";
@@ -30,14 +39,13 @@ import { useSnapshot } from "valtio";
 import { Accordion } from "@/components/Accordion";
 import { useCurrentCanvasTargetResolver } from "@/hooks/useCurrentCanvasTarget";
 import { useMenuActions } from "@/hooks/useMenuActions";
-import { confirmDialog } from "@/infra/confirmDialog";
 import { useTranslation } from "@/locales";
 import { documentSessionState } from "@/stores/documentSessionStore";
-import { useEventCallback } from "@/utils/hooks";
+import { useUIState } from "@/stores/uiStore";
 import { IS_TAURI_ENV } from "@/utils/platform";
 
 type MobileMenuProps = {
-	paplico: Paplico | null;
+	paplico: Paplico;
 	connectedRoomId: string | null;
 	isRoomOwner: boolean;
 	isEncryptedRoom: boolean;
@@ -53,6 +61,7 @@ type MobileMenuProps = {
 	onOpenPreferencesDialog: () => void;
 	onOpenAutomationDialog: () => void;
 	onOpenDocumentListDialog: () => void;
+	onNewDocument: () => void;
 	onOpenTimelapseDialog: () => void;
 	isSplitView: boolean;
 	onToggleSplitView: () => void;
@@ -79,6 +88,7 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 	onOpenPreferencesDialog,
 	onOpenAutomationDialog,
 	onOpenDocumentListDialog,
+	onNewDocument,
 	onOpenTimelapseDialog,
 	isSplitView,
 	onToggleSplitView,
@@ -86,7 +96,9 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 }: MobileMenuProps & { onClose: () => void }) {
 	const t = useTranslation();
 	const { getCurrentCanvasTarget } = useCurrentCanvasTargetResolver();
+	const uiState = useSnapshot(paplico.uiState);
 	const { fileHandle } = useSnapshot(documentSessionState);
+	const appUiState = useUIState();
 
 	const paplicoRef = useRef<Paplico | null>(paplico);
 	useEffect(() => {
@@ -96,310 +108,262 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 	const {
 		handleUndo,
 		handleRedo,
+		handleCopy,
+		handleCut,
+		handlePaste,
+		handlePasteToFront,
+		handlePasteToBack,
+		handleDeselectAll,
 		handleGroup,
 		handleUngroup,
 		handleImport,
 		handleExport,
 		handleSave,
 		handleLoadImageToDocument,
+		handleTogglePixelPreview,
+		handleOpenLicensesDialog,
+		handleReloadApp,
+		handleEmulateDisconnect,
+		handleRunPerfCheck,
+		handleCopyLastStroke,
+		handleSendLastStroke,
 	} = useMenuActions(paplicoRef, {
 		setExportDialogOpen: () => onOpenExportDialog(),
 		setDocumentSettingsDialogOpen: () => onOpenDocumentSettingsDialog(),
 	});
 
-	const wrap = (action: () => void) => () => {
+	const hasSelection = uiState.selectedElementIds.length > 0;
+
+	const handleResetViewport = () => {
+		getCurrentCanvasTarget(paplico)?.setViewport({ zoom: 1.0, rotation: 0 });
+	};
+
+	// Every item dismisses the full-screen sheet so the result is visible.
+	const item = (action: () => void) => () => {
 		action();
 		onClose();
 	};
-	const handlePublishRoom = useEventCallback(wrap(onOpenPublishRoomDialog));
-	const handleConnectOtherDevices = useEventCallback(
-		wrap(onOpenConnectOtherDevicesDialog),
-	);
-	const handleCompanionDialog = useEventCallback(wrap(onOpenCompanionDialog));
-	const handleCompanionPanel = useEventCallback(wrap(onOpenCompanionPanel));
-	const handleCloseRoomAction = useEventCallback(wrap(onCloseRoom));
-	const handleStopDeviceSharing = useEventCallback(wrap(onStopDeviceSharing));
-	const handleConnectRoom = useEventCallback(wrap(onOpenConnectRoomDialog));
-	const handlePreferences = useEventCallback(wrap(onOpenPreferencesDialog));
-	const handleAutomation = useEventCallback(wrap(onOpenAutomationDialog));
-	const handleDocumentList = useEventCallback(wrap(onOpenDocumentListDialog));
-	const handleImportAndClose = useEventCallback(wrap(handleImport));
-	const handleSaveAndClose = useEventCallback(wrap(handleSave));
-	const handleExportAndClose = useEventCallback(wrap(handleExport));
-	const handleExportDialog = useEventCallback(wrap(onOpenExportDialog));
-	const handleLoadImage = useEventCallback(wrap(handleLoadImageToDocument));
-	const handleDocSettings = useEventCallback(
-		wrap(onOpenDocumentSettingsDialog),
-	);
-	const handleTimelapse = useEventCallback(wrap(onOpenTimelapseDialog));
-	const handleUndoAndClose = useEventCallback(wrap(handleUndo));
-	const handleRedoAndClose = useEventCallback(wrap(handleRedo));
-	const handleGroupAndClose = useEventCallback(wrap(handleGroup));
-	const handleUngroupAndClose = useEventCallback(wrap(handleUngroup));
-	const handleReloadApp = useEventCallback(() => {
-		location.reload();
-	});
-	const handleResetViewport = useEventCallback(() => {
-		const target = paplico ? getCurrentCanvasTarget(paplico) : null;
-		if (target) {
-			target.setViewport({ zoom: 1.0, rotation: 0 });
-		}
-		onClose();
-	});
-	const handleSplitView = useEventCallback(() => {
-		onToggleSplitView();
-		onClose();
-	});
 
 	return (
 		<Accordion.Root multiple defaultValue={[]}>
 			<MenuSection value="paplico" label="Paplico">
 				{/* Reaching your own other devices */}
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handleConnectOtherDevices}
+				<MenuItem
+					onClick={item(onOpenConnectOtherDevicesDialog)}
 					disabled={connectedRoomId !== null && !isRoomOwner}
 				>
 					<MonitorSmartphone size={16} />
 					{t("connectRoomDialog.connectOtherDevices")}
-				</button>
+				</MenuItem>
 				{isEncryptedRoom && (
-					<button
-						type="button"
-						className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-						onClick={handleStopDeviceSharing}
-					>
+					<MenuItem onClick={item(onStopDeviceSharing)}>
 						<Unplug size={16} />
 						{t("connectRoomDialog.stopConnecting")}
-					</button>
+					</MenuItem>
 				)}
 
 				{/* Turning another device into a remote for this one. */}
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handleCompanionDialog}
-				>
+				<MenuItem onClick={item(onOpenCompanionDialog)}>
 					<Gamepad2 size={16} />
 					{t("companion.title")}
-				</button>
+				</MenuItem>
 				{/* The other way round: this device is the remote. Only offered while
 				    connected to someone else's session, since the remote needs a host
 				    to point at. */}
 				{isEncryptedRoom && !isRoomOwner && (
-					<button
-						type="button"
-						className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-						onClick={handleCompanionPanel}
-					>
+					<MenuItem onClick={item(onOpenCompanionPanel)}>
 						<Gamepad2 size={16} />
 						{t("companion.useAsCompanion")}
-					</button>
+					</MenuItem>
 				)}
 
 				{/* Working with other people. Ordinary rooms need the room API, which
-			    the desktop build has no server to serve. */}
+				    the desktop build has no server to serve. */}
 				{!IS_TAURI_ENV && (
 					<>
-						<div className="my-1 border-t border-border/30" />
-						<button
-							type="button"
-							className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-							onClick={handlePublishRoom}
+						<MenuSeparator />
+						<MenuItem
+							onClick={item(onOpenPublishRoomDialog)}
 							disabled={connectedRoomId !== null && !isRoomOwner}
 						>
 							<Share2 size={16} />
 							{t("connectRoomDialog.publishRoom")}
-						</button>
-						<button
-							type="button"
-							className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-							onClick={handleConnectRoom}
-						>
+						</MenuItem>
+						<MenuItem onClick={item(onOpenConnectRoomDialog)}>
 							<Link size={16} />
 							{t("connectRoomDialog.connectToRoom")}
-						</button>
+						</MenuItem>
 						{isRoomOwner && !isEncryptedRoom && (
-							<button
-								type="button"
-								className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-								onClick={handleCloseRoomAction}
-							>
+							<MenuItem onClick={item(onCloseRoom)}>
 								<XIcon size={16} />
 								{t("connectRoomDialog.closeRoom")}
-							</button>
+							</MenuItem>
 						)}
-						<div className="my-1 border-t border-border/30" />
 					</>
 				)}
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handlePreferences}
-				>
+				<MenuSeparator />
+				<MenuItem onClick={item(onOpenPreferencesDialog)}>
 					<Settings size={16} />
 					{t("preferences.title")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handleAutomation}
-				>
+				</MenuItem>
+				<MenuItem onClick={item(onOpenAutomationDialog)}>
 					<Bot size={16} />
 					{t("automation.title")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handleReloadApp}
-				>
+				</MenuItem>
+				<MenuSeparator />
+				<MenuItem onClick={item(handleOpenLicensesDialog)}>
+					<ScrollText size={16} />
+					{t("licenses.title")}
+				</MenuItem>
+				<MenuSeparator />
+				<MenuItem onClick={handleReloadApp}>
 					<Undo size={16} />
 					Reload App
-				</button>
+				</MenuItem>
 			</MenuSection>
 
 			<MenuSection value="file" label={t("menubar.fileMenu")}>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors disabled:opacity-50"
+				<MenuItem
+					onClick={item(onNewDocument)}
 					disabled={connectedRoomId != null}
-					onClick={async () => {
-						if (await confirmDialog(t("menubar.saveAndCloseConfirm"))) {
-							window.location.replace(window.location.pathname);
-						}
-					}}
 				>
 					<FilePlus size={16} />
 					{t("menubar.new")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors disabled:opacity-50"
+				</MenuItem>
+				<MenuSeparator />
+				<MenuItem
+					onClick={item(onOpenDocumentListDialog)}
 					disabled={connectedRoomId != null}
-					onClick={handleDocumentList}
 				>
 					<FolderOpen size={16} />
 					{t("documentList.title")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors disabled:opacity-50"
+				</MenuItem>
+				<MenuItem
+					onClick={item(handleImport)}
 					disabled={connectedRoomId != null}
-					onClick={handleImportAndClose}
 				>
 					<FileUp size={16} />
 					{t("menubar.openDocument")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors disabled:opacity-50"
-					disabled={fileHandle == null}
-					onClick={handleSaveAndClose}
-				>
+				</MenuItem>
+				<MenuItem onClick={item(handleSave)} disabled={fileHandle == null}>
 					<Save size={16} />
 					{t("menubar.overwriteDocument")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handleExportAndClose}
-				>
+				</MenuItem>
+				<MenuItem onClick={item(handleExport)}>
 					<FileDown size={16} />
 					{t("menubar.saveDocument")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handleExportDialog}
-				>
+				</MenuItem>
+				<MenuItem onClick={item(onOpenExportDialog)}>
 					<ImageDown size={16} />
 					{t("menubar.exportPng")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handleLoadImage}
-				>
+				</MenuItem>
+				<MenuSeparator />
+				<MenuItem onClick={item(handleLoadImageToDocument)}>
 					<ImagePlus size={16} />
 					{t("menubar.loadImage")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handleDocSettings}
-				>
+				</MenuItem>
+				<MenuSeparator />
+				<MenuItem onClick={item(onOpenDocumentSettingsDialog)}>
 					<Settings size={16} />
 					{t("menubar.documentSettings")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handleTimelapse}
-				>
+				</MenuItem>
+				<MenuSeparator />
+				<MenuItem onClick={item(onOpenTimelapseDialog)}>
 					<Timer size={16} />
 					{t("menubar.timelapse")}
-				</button>
+				</MenuItem>
 			</MenuSection>
 
 			<MenuSection value="edit" label={t("menubar.editMenu")}>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
-					onClick={handleUndoAndClose}
-					disabled={!paplico?.uiState.canUndo}
-				>
+				<MenuItem onClick={item(handleUndo)} disabled={!uiState.canUndo}>
 					<Undo size={16} />
 					{t("menubar.undo")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
-					onClick={handleRedoAndClose}
-					disabled={!paplico?.uiState.canRedo}
-				>
+				</MenuItem>
+				<MenuItem onClick={item(handleRedo)} disabled={!uiState.canRedo}>
 					<Redo size={16} />
 					{t("menubar.redo")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handleGroupAndClose}
-				>
+				</MenuItem>
+				<MenuSeparator />
+				<MenuItem onClick={item(handleCopy)} disabled={!hasSelection}>
+					<Copy size={16} />
+					{t("menubar.copy")}
+				</MenuItem>
+				<MenuItem onClick={item(handleCut)} disabled={!hasSelection}>
+					<Scissors size={16} />
+					{t("menubar.cut")}
+				</MenuItem>
+				<MenuItem onClick={item(handlePaste)}>
+					<ClipboardPaste size={16} />
+					{t("menubar.paste")}
+				</MenuItem>
+				<MenuItem onClick={item(handlePasteToFront)}>
+					<ClipboardPaste size={16} />
+					{t("menubar.pasteToFront")}
+				</MenuItem>
+				<MenuItem onClick={item(handlePasteToBack)}>
+					<ClipboardPaste size={16} />
+					{t("menubar.pasteToBack")}
+				</MenuItem>
+				<MenuSeparator />
+				<MenuItem onClick={item(handleDeselectAll)} disabled={!hasSelection}>
+					<SquareDashed size={16} />
+					{t("menubar.deselectAll")}
+				</MenuItem>
+				<MenuSeparator />
+				<MenuItem onClick={item(handleGroup)}>
 					<Group size={16} />
 					{t("menubar.group")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors"
-					onClick={handleUngroupAndClose}
-				>
+				</MenuItem>
+				<MenuItem onClick={item(handleUngroup)}>
 					<Ungroup size={16} />
 					{t("menubar.ungroup")}
-				</button>
+				</MenuItem>
 			</MenuSection>
 
 			<MenuSection value="view" label={t("menubar.viewMenu")}>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
-					onClick={handleResetViewport}
-					disabled={!paplico}
-				>
+				<MenuItem onClick={item(handleResetViewport)}>
 					<RotateCcw size={16} />
 					{t("menubar.resetRotationAndZoom")}
-				</button>
-				<button
-					type="button"
-					className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
-					onClick={handleSplitView}
-					disabled={!paplico}
-				>
+				</MenuItem>
+				<MenuSeparator />
+				<MenuItem onClick={item(handleTogglePixelPreview)}>
+					<Grid2x2 size={16} />
+					{t("menubar.pixelPreview")}
+					{appUiState.pixelPreviewEnabled && (
+						<Check size={16} className="ml-auto" />
+					)}
+				</MenuItem>
+				<MenuSeparator />
+				<MenuItem onClick={item(onToggleSplitView)}>
 					<PanelLeftClose size={16} />
 					{t("menubar.splitView")}
 					{isSplitView && <Check size={16} className="ml-auto" />}
-				</button>
+				</MenuItem>
 			</MenuSection>
+
+			{process.env.NODE_ENV === "development" && (
+				<MenuSection value="dev" label={t("menubar.devMenu")}>
+					<MenuItem
+						onClick={item(handleEmulateDisconnect)}
+						disabled={connectedRoomId == null}
+					>
+						<Unplug size={16} />
+						{t("menubar.emulateDisconnect")}
+					</MenuItem>
+					<MenuItem onClick={item(handleRunPerfCheck)}>
+						<Gauge size={16} />
+						{t("menubar.runPerfCheck")}
+					</MenuItem>
+					<MenuItem onClick={item(handleCopyLastStroke)}>
+						<ClipboardCopy size={16} />
+						{t("menubar.copyLastStroke")}
+					</MenuItem>
+					<MenuItem onClick={item(handleSendLastStroke)}>
+						<Upload size={16} />
+						{t("menubar.sendLastStroke")}
+					</MenuItem>
+				</MenuSection>
+			)}
 		</Accordion.Root>
 	);
 });
@@ -434,3 +398,29 @@ const MenuSection = memo(function MenuSection({
 		</Accordion.Item>
 	);
 });
+
+/** A touch-sized row in a mobile menu section. */
+function MenuItem({
+	onClick,
+	disabled,
+	children,
+}: {
+	onClick: () => void;
+	disabled?: boolean;
+	children: ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			className="flex items-center gap-3 px-4 min-h-11 text-sm hover:bg-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
+			onClick={onClick}
+			disabled={disabled}
+		>
+			{children}
+		</button>
+	);
+}
+
+function MenuSeparator() {
+	return <div className="my-1 border-t border-border/30" />;
+}

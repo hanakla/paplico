@@ -304,6 +304,15 @@ The cycle:
 3. **Analyze** — start from `fps` and `topGpu` / `topCpu`, then drill into `passesPerRender`, `drawsPerRender`, `emptyPassesPerRender`, `copiesPerRender`, and `passOriginsPerRender` (JS call sites per pass). Per-2s `windows` separate idle from interaction phases; `coverage` tells how many passes actually got GPU timestamps.
 4. **Change code, re-measure, compare** — keep the previous JSON and compare the same activity windows against the new run. Judge improvements by the measured numbers, never by impression.
 
+### Stroke Records
+
+"The sent stroke" / 「送信されたストローク」 means a pen stroke the user captured with Development menu → "Send Last Stroke to Server" (`src/devtools/strokeRecorder.ts`). It is saved as `pkgs/web/stroke-records/stroke-<timestamp>.json` (gitignored); the newest file is the one the user means.
+
+- `points` — the raw record after `BrushStrokeSession` corrections (what the width profile and fitter consumed)
+- `path` — the committed Path (segments, `strokeWidths`, brush settings in `filters`)
+- `diagnostics.events` — every pointer event as received, with coalesced samples and the `points` index range each one produced. Compare `event.pressure` here against `points[].pressure` to see what the session rewrote
+- `stabilization`, `smoothingMethod`, `zoom`, `environment` — the conditions to replay the stroke under
+
 ### Technology Stack
 
 **Frontend:**
