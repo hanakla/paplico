@@ -28,10 +28,9 @@ import {
 	PaplicoPatternEdit,
 } from "./editSessions/PaplicoPatternEdit";
 import { PaplicoError } from "./errors";
-import { PaplicoExporter } from "./io/export/PaplicoExporter";
-import { PaplicoPSDExporter } from "./io/export/PaplicoPSDExporter";
-import { PaplicoSVGExporter } from "./io/export/PaplicoSVGExporter";
-import { PaplicoTIFFExporter } from "./io/export/PaplicoTIFFExporter";
+import { renderPdfPreviewPages } from "./io/export/pdfPreviewPages";
+import { renderElementsToPNG } from "./io/export/renderElementsToPNG";
+import type { ExportContext, ExportResult, IExporter } from "./io/export/types";
 import { gcDocument } from "./io/papf/gc";
 import { serializeDocument } from "./io/papf/writer";
 import { PaplicoCommands } from "./PaplicoCommands";
@@ -111,6 +110,7 @@ import {
 	isSolidColor,
 	type Layer,
 	type Path,
+	type RawRGBA,
 	type Reference3DDef,
 	type Reference3DElement,
 	type StrokeAppearance,
@@ -296,10 +296,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	public readonly patternEdit!: PaplicoPatternEdit;
 	public readonly maskEdit!: PaplicoMaskEdit;
 	public readonly spatialIndex!: SpatialIndex;
-	public readonly exporter!: PaplicoExporter;
-	public readonly psdExporter!: PaplicoPSDExporter;
-	public readonly tiffExporter!: PaplicoTIFFExporter;
-	public readonly svgExporter!: PaplicoSVGExporter;
 	public readonly shortcuts!: PaplicoShortcuts;
 
 	private renderer: RenderOrchestrator;
@@ -893,16 +889,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			spatial: this.spatialIndex,
 			isReadonly: () => false,
 			renderElementsToPNG: (elementIds) =>
-				this.exporter.renderElementsToPNG(
-					elementIds,
-					this.rendererStore.document,
-					{
-						// Rasterize the copied image at the document's rasterization
-						// resolution (72 DPI = 1x) instead of a fixed 1x.
-						scale: (this.rendererStore.document.rasterizationDpi ?? 72) / 72,
-						backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
-					},
-				),
+				this.renderElementsToPNG(elementIds, this.rendererStore.document, {
+					// Rasterize the copied image at the document's rasterization
+					// resolution (72 DPI = 1x) instead of a fixed 1x.
+					scale: (this.rendererStore.document.rasterizationDpi ?? 72) / 72,
+					backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
+				}),
 			filterHandlerLookup: (processor) =>
 				this.renderer.getFilterHandler(processor),
 			toolSettings: this.toolSettings,
@@ -947,20 +939,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		});
 		(this as { shortcuts: PaplicoShortcuts }).shortcuts =
 			new PaplicoShortcuts();
-		(this as { exporter: PaplicoExporter }).exporter = new PaplicoExporter(
-			this.renderer,
-			() => this.rendererStore.document,
-		);
-		(this as { psdExporter: PaplicoPSDExporter }).psdExporter =
-			new PaplicoPSDExporter(this.renderer, () => this.rendererStore.document);
-		(this as { tiffExporter: PaplicoTIFFExporter }).tiffExporter =
-			new PaplicoTIFFExporter(
-				this.renderer,
-				() => this.rendererStore.document,
-				this.getBuiltinProfileBytes,
-			);
-		(this as { svgExporter: PaplicoSVGExporter }).svgExporter =
-			new PaplicoSVGExporter(this.renderer, () => this.rendererStore.document);
 		this.toolContext = this.createToolContext();
 		// Timelapse recording
 		this.yjsProvider.on("update", (update) => {
@@ -2356,7 +2334,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	public async exportDocumentFile(): Promise<Blob> {
 		const [papf, pages, { wrapPapfInPdf }] = await Promise.all([
 			this.exportDocument(),
-			this.exporter.renderPdfPreviewPages(),
+			renderPdfPreviewPages(this.createExportContext()),
 			import("./io/papf/pdfContainer"),
 		]);
 		return wrapPapfInPdf(new Uint8Array(await papf.arrayBuffer()), pages);
@@ -4336,6 +4314,23 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		return this.renderer.renderArtboardToImageData(artboard, document);
 	}
 
+	/** Exports an artboard through the given output format. */
+	public exportArtboard(
+		exporter: IExporter,
+		artboardId: string,
+	): Promise<ExportResult | null> {
+		return exporter.export(this.createExportContext(), artboardId);
+	}
+
+	/** Renders specific elements to a PNG blob, sized to their filter-expanded bounds. */
+	public renderElementsToPNG(
+		elementIds: string[],
+		document: Document,
+		options?: { scale?: number; backgroundColor?: RawRGBA },
+	): Promise<ExportResult | null> {
+		return renderElementsToPNG(this.renderer, elementIds, document, options);
+	}
+
 	public async renderBrushStrokePreviewToImageData(
 		options: BrushStrokePreviewOptions,
 	): Promise<ImageData | null> {
@@ -4373,6 +4368,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		player: TimelapsePlayer,
 	): TimelapseExporter {
 		return new TimelapseExporter(surface, player);
+	}
+
+	private createExportContext(): ExportContext {
+		return {
+			document: this.rendererStore.document,
+			renderer: this.renderer,
+			getBuiltinProfileBytes: this.getBuiltinProfileBytes,
+		};
 	}
 
 	// ===== Document Persistence =====

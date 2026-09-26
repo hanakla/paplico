@@ -3,10 +3,10 @@ import {
 	convertImageToCmyk,
 } from "../../color/ColorEngine";
 import { inspectIccProfile } from "../../color/IccProfileRegistry";
-import type { BuiltinIccProfileId, RenderingIntent } from "../../color/types";
-import type { RenderOrchestrator } from "../../renderer/RenderOrchestrator";
-import type { Document, RawRGBA } from "../../schema";
+import type { RenderingIntent } from "../../color/types";
+import type { RawRGBA } from "../../schema";
 import { encodeTiff } from "./tiffWriter";
+import type { ExportContext, ExportResult, IExporter } from "./types";
 
 interface TIFFExportOptions {
 	/** Scale factor (1 = 100%, 2 = 200% / @2x) */
@@ -27,38 +27,25 @@ interface TIFFExportOptions {
 	dpi?: number;
 }
 
-interface ExportResult {
-	blob: Blob;
-	width: number;
-	height: number;
-}
-
 /**
  * TIFF exporter. Renders an artboard and encodes a baseline TIFF. Without a
  * CMYK profile it writes an RGB TIFF; with one it converts the pixels to 8-bit
  * CMYK through the profile and embeds it for print submission.
  */
-export class PaplicoTIFFExporter {
-	public constructor(
-		private renderer: RenderOrchestrator,
-		private getDocument: () => Document,
-		private getBuiltinProfileBytes: (
-			id: BuiltinIccProfileId,
-		) => Promise<Uint8Array>,
-	) {}
+export class TIFFExporter implements IExporter {
+	public constructor(private options: TIFFExportOptions = {}) {}
 
-	/** Renders an artboard to a TIFF blob. */
-	public async toTIFF(
+	public async export(
+		ctx: ExportContext,
 		artboardId: string,
-		options: TIFFExportOptions,
 	): Promise<ExportResult | null> {
 		const {
 			scale = 1,
 			backgroundColor = { r: 1, g: 1, b: 1, a: 1 },
 			srcSpace = "display-p3",
 			intent = "relative-colorimetric",
-		} = options;
-		const doc = this.getDocument();
+		} = this.options;
+		const doc = ctx.document;
 
 		const artboard = doc.artboards.find((a) => a.id === artboardId);
 		if (!artboard) {
@@ -66,7 +53,7 @@ export class PaplicoTIFFExporter {
 			return null;
 		}
 
-		const imageData = await this.renderer.renderArtboardToImageData(
+		const imageData = await ctx.renderer.renderArtboardToImageData(
 			artboard,
 			doc,
 			scale,
@@ -84,13 +71,14 @@ export class PaplicoTIFFExporter {
 		const rgba = flattenToOpaque(imageData.data, backgroundColor);
 
 		const tiffBytes = await this.encodeWithProfile(
+			ctx,
 			rgba,
 			width,
 			height,
 			srcSpace,
 			intent,
-			options.profile?.data,
-			options.dpi,
+			this.options.profile?.data,
+			this.options.dpi,
 		);
 
 		return {
@@ -107,6 +95,7 @@ export class PaplicoTIFFExporter {
 	 * present.
 	 */
 	private async encodeWithProfile(
+		ctx: ExportContext,
 		rgba: Uint8ClampedArray,
 		width: number,
 		height: number,
@@ -124,7 +113,7 @@ export class PaplicoTIFFExporter {
 				srcSpace,
 				profileBytes,
 				intent,
-				srcProfileBytes: await this.getBuiltinProfileBytes(srcSpace),
+				srcProfileBytes: await ctx.getBuiltinProfileBytes(srcSpace),
 			});
 			return encodeTiff(cmyk, width, height, {
 				colorModel: "cmyk",
@@ -135,7 +124,7 @@ export class PaplicoTIFFExporter {
 
 		if (profileBytes && colorSpace === "rgb") {
 			const converted = await convertImageRgbToRgb(rgba, {
-				srcProfileBytes: await this.getBuiltinProfileBytes(srcSpace),
+				srcProfileBytes: await ctx.getBuiltinProfileBytes(srcSpace),
 				dstProfileBytes: profileBytes,
 				intent,
 			});

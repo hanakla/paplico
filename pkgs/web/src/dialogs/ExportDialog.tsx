@@ -10,6 +10,15 @@ import {
 	DEFAULT_LENGTH_UNIT,
 	formatLength,
 } from "@paplico/core/document";
+import {
+	AvifHdrExporter,
+	type IExporter,
+	JPEGExporter,
+	PNGExporter,
+	PSDExporter,
+	SVGExporter,
+	TIFFExporter,
+} from "@paplico/core/export";
 import type { Artboard, EmbeddedFile } from "@paplico/core/schema";
 import { Download, ImageIcon, Upload, X } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
@@ -82,7 +91,6 @@ export const ExportDialog = memo(function ExportDialog({
 	const thumbnailUrlsRef = useRef<string[]>([]);
 	const t = useTranslation();
 
-	const exporter = paplico?.exporter ?? null;
 	const document = paplico?.uiState.document;
 	const workingSpace = document?.colorProfile?.workingSpace ?? "display-p3";
 	const embeddedFiles = (document?.files ?? []) as readonly EmbeddedFile[];
@@ -115,7 +123,7 @@ export const ExportDialog = memo(function ExportDialog({
 
 	// Generate thumbnails when dialog opens
 	useEffect(() => {
-		if (!open || !exporter) return;
+		if (!open || !paplico) return;
 
 		let cancelled = false;
 		const urls: string[] = [];
@@ -129,10 +137,13 @@ export const ExportDialog = memo(function ExportDialog({
 				const thumbnailScale =
 					THUMBNAIL_MAX_SIZE / Math.max(artboard.width, artboard.height);
 
-				const result = await exporter.toPNG(artboard.id, {
-					scale: Math.min(thumbnailScale, 1),
-					backgroundColor: { r: 0.95, g: 0.95, b: 0.95, a: 1 },
-				});
+				const result = await paplico.exportArtboard(
+					new PNGExporter({
+						scale: Math.min(thumbnailScale, 1),
+						backgroundColor: { r: 0.95, g: 0.95, b: 0.95, a: 1 },
+					}),
+					artboard.id,
+				);
 
 				if (cancelled || !result) continue;
 
@@ -156,7 +167,7 @@ export const ExportDialog = memo(function ExportDialog({
 			thumbnailUrlsRef.current = [];
 			setThumbnails({});
 		};
-	}, [open, exporter, artboards]);
+	}, [open, paplico, artboards]);
 
 	useEffect(() => {
 		if (!isHdrEnabled) {
@@ -220,8 +231,8 @@ export const ExportDialog = memo(function ExportDialog({
 		if (isCustomDpi && !customDpiValid) return;
 		if (!paplico) return;
 
-		const render = await buildArtboardRenderer(paplico);
-		if (!render) return;
+		const output = await buildExporter(paplico);
+		if (!output) return;
 
 		const writeFile = await FileSystem.requestExportDestination(
 			documentSessionState.fileHandle,
@@ -235,12 +246,15 @@ export const ExportDialog = memo(function ExportDialog({
 		try {
 			for (const artboardId of ids) {
 				try {
-					const result = await render.artboard(artboardId);
+					const result = await paplico.exportArtboard(
+						output.exporter,
+						artboardId,
+					);
 					if (!result) continue;
 
 					await writeFile({
 						blob: result.blob,
-						filename: exportFilename(artboards, artboardId, render.extension),
+						filename: exportFilename(artboards, artboardId, output.extension),
 					});
 				} catch (error) {
 					console.error(`Failed to export artboard: ${artboardId}`, error);
@@ -253,14 +267,14 @@ export const ExportDialog = memo(function ExportDialog({
 
 	/**
 	 * Resolves the color profiles the chosen format needs, then hands back the
-	 * call that renders one artboard with them.
+	 * exporter configured with them.
 	 */
-	const buildArtboardRenderer = useEventCallback(
+	const buildExporter = useEventCallback(
 		async (
 			p: Paplico,
 		): Promise<{
 			extension: string;
-			artboard: (artboardId: string) => Promise<{ blob: Blob } | null>;
+			exporter: IExporter;
 		} | null> => {
 			const icc = resolveRgbIccChoice(rgbProfileValue);
 
@@ -274,13 +288,12 @@ export const ExportDialog = memo(function ExportDialog({
 
 				return {
 					extension: "png",
-					artboard: (artboardId) =>
-						p.exporter.toPNG(artboardId, {
-							scale,
-							backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
-							iccProfile,
-							sourceProfileBytes,
-						}),
+					exporter: new PNGExporter({
+						scale,
+						backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
+						iccProfile,
+						sourceProfileBytes,
+					}),
 				};
 			}
 
@@ -294,14 +307,13 @@ export const ExportDialog = memo(function ExportDialog({
 
 				return {
 					extension: "jpg",
-					artboard: (artboardId) =>
-						p.exporter.toJPEG(artboardId, {
-							scale,
-							quality: jpegQuality,
-							backgroundColor: { r: 1, g: 1, b: 1, a: 1 },
-							iccProfile,
-							sourceProfileBytes,
-						}),
+					exporter: new JPEGExporter({
+						scale,
+						quality: jpegQuality,
+						backgroundColor: { r: 1, g: 1, b: 1, a: 1 },
+						iccProfile,
+						sourceProfileBytes,
+					}),
 				};
 			}
 
@@ -312,11 +324,10 @@ export const ExportDialog = memo(function ExportDialog({
 
 				return {
 					extension: "psd",
-					artboard: (artboardId) =>
-						p.psdExporter.toPSD(artboardId, {
-							backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
-							iccProfile: iccProfile && { data: iccProfile.data },
-						}),
+					exporter: new PSDExporter({
+						backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
+						iccProfile: iccProfile && { data: iccProfile.data },
+					}),
 				};
 			}
 
@@ -325,13 +336,12 @@ export const ExportDialog = memo(function ExportDialog({
 
 				return {
 					extension: "avif",
-					artboard: (artboardId) =>
-						p.exporter.toAvifHdr(artboardId, {
-							scale,
-							backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
-							srcSpace:
-								p.uiState.document.colorProfile?.workingSpace ?? "display-p3",
-						}),
+					exporter: new AvifHdrExporter({
+						scale,
+						backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
+						srcSpace:
+							p.uiState.document.colorProfile?.workingSpace ?? "display-p3",
+					}),
 				};
 			}
 
@@ -342,23 +352,21 @@ export const ExportDialog = memo(function ExportDialog({
 
 				return {
 					extension: "tif",
-					artboard: (artboardId) =>
-						p.tiffExporter.toTIFF(artboardId, {
-							scale,
-							backgroundColor: { r: 1, g: 1, b: 1, a: 1 },
-							profile: profileBytes ? { data: profileBytes } : undefined,
-							srcSpace: p.uiState.document.colorProfile?.workingSpace,
-							dpi: scale * 72,
-						}),
+					exporter: new TIFFExporter({
+						scale,
+						backgroundColor: { r: 1, g: 1, b: 1, a: 1 },
+						profile: profileBytes ? { data: profileBytes } : undefined,
+						srcSpace: p.uiState.document.colorProfile?.workingSpace,
+						dpi: scale * 72,
+					}),
 				};
 			}
 
 			return {
 				extension: "svg",
-				artboard: (artboardId) =>
-					p.svgExporter.toSVG(artboardId, {
-						backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
-					}),
+				exporter: new SVGExporter({
+					backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
+				}),
 			};
 		},
 	);

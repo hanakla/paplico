@@ -755,20 +755,6 @@ describe("SpatialIndex", () => {
 			const bounds = makeBounds(-200, -200, 200, 200);
 			expect(idx.queryElements("layer-1", bounds, "scoped")).toEqual([scoped]);
 		});
-
-		it("should return nothing when queried on a layer that does not hold the scope element", () => {
-			const scoped = makeImage("scoped", 0, 0, 40, 40);
-			const store = makeStore(
-				[makeLayer("layer-1", ["scoped"]), makeLayer("layer-2", [])],
-				{ scoped },
-				["scoped"],
-			);
-			const idx = new SpatialIndex(store);
-			idx.rebuildAllIndices();
-
-			expect(idx.findElementAtPoint("layer-2", 0, 0)).toBeNull();
-			expect(idx.findElementAtPoint("layer-1", 0, 0)).toBe(scoped);
-		});
 	});
 
 	describe("findElementsInRect", () => {

@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createIdentityTransform } from "../../document/factory";
-import type { RenderOrchestrator } from "../../renderer/RenderOrchestrator";
 import type { AnyArtObject, Artboard, Document, Layer } from "../../schema";
-import { PaplicoPSDExporter } from "./PaplicoPSDExporter";
+import { PSDExporter } from "./PSDExporter";
+import type { ExportRenderer } from "./types";
 
-describe("PaplicoPSDExporter", () => {
-	let mockRenderer: RenderOrchestrator;
+describe("PSDExporter", () => {
+	let mockRenderer: ExportRenderer;
 	let mockGetDocument: () => Document;
-	let exporter: PaplicoPSDExporter;
+	let exporter: PSDExporter;
 
 	const createMockDocument = (): Document => ({
 		id: "doc1",
@@ -73,9 +73,9 @@ describe("PaplicoPSDExporter", () => {
 					data: new Uint8ClampedArray(800 * 600 * 4),
 				} as ImageData;
 			}),
-		} as unknown as RenderOrchestrator;
+		} as unknown as ExportRenderer;
 
-		exporter = new PaplicoPSDExporter(mockRenderer, mockGetDocument);
+		exporter = new PSDExporter();
 	});
 
 	describe("mapBlendMode", () => {
@@ -131,6 +131,7 @@ describe("PaplicoPSDExporter", () => {
 			};
 
 			const result = await (exporter as any).renderLayerToImageData(
+				mockRenderer,
 				invisibleLayer,
 				mockGetDocument(),
 				mockGetDocument().artboards[0],
@@ -152,6 +153,7 @@ describe("PaplicoPSDExporter", () => {
 			};
 
 			const result = await (exporter as any).renderLayerToImageData(
+				mockRenderer,
 				emptyLayer,
 				mockGetDocument(),
 				mockGetDocument().artboards[0],
@@ -166,6 +168,7 @@ describe("PaplicoPSDExporter", () => {
 			const artboard = mockGetDocument().artboards[0];
 
 			await (exporter as any).renderLayerToImageData(
+				mockRenderer,
 				layer,
 				mockGetDocument(),
 				artboard,
@@ -187,9 +190,16 @@ describe("PaplicoPSDExporter", () => {
 		});
 	});
 
-	describe("toPSD", () => {
+	describe("export", () => {
 		it("should return null for non-existent artboard", async () => {
-			const result = await exporter.toPSD("nonexistent");
+			const result = await exporter.export(
+				{
+					document: mockGetDocument(),
+					renderer: mockRenderer,
+					getBuiltinProfileBytes: async () => new Uint8Array(),
+				},
+				"nonexistent",
+			);
 			expect(result).toBeNull();
 		});
 	});
