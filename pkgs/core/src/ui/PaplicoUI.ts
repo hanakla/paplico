@@ -24,7 +24,8 @@ interface PaplicoUICallbacks {
 	getTool: () => Tool | null;
 	isDrawing: () => boolean;
 	setDrawing: (drawing: boolean) => void;
-	setActiveTarget: () => void;
+	isActiveTarget: () => boolean;
+	activateTarget: () => void;
 	requestRender: () => void;
 
 	// Tool-specific
@@ -408,13 +409,15 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 	// --- Pointer Events ---
 
 	private handlePointerDown(e: PointerEvent): void {
-		this.callbacks.setActiveTarget();
-
 		// Skip canvas focus when an overlay element owns focus (e.g. text
 		// editing textarea), so iOS does not dismiss/re-show the keyboard.
 		if (!this.callbacks.isToolManagingFocus?.()) {
 			this.canvas.focus({ preventScroll: true });
 		}
+
+		// Activate before the tool sees the press: tools read the active view's
+		// viewport.
+		if (!this.callbacks.isActiveTarget()) this.callbacks.activateTarget();
 
 		const tool = this.callbacks.getTool();
 		if (!tool) return;
@@ -659,7 +662,10 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			return;
 		}
 
-		this.callbacks.setActiveTarget();
+		// Tools read the active view's viewport, so hovering another view
+		// would move their overlays to the wrong place.
+		if (!this.callbacks.isActiveTarget()) return;
+
 		const tool = this.callbacks.getTool();
 		if (!tool) return;
 
@@ -836,7 +842,8 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			this.activePenPointerId = null;
 		}
 
-		this.callbacks.setActiveTarget();
+		if (!this.callbacks.isActiveTarget()) return;
+
 		// Remove from active pointer tracking
 		this.activePointers.delete(e.pointerId);
 
@@ -1261,9 +1268,11 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 
 		const viewport = this.callbacks.getViewport();
 
-		// Tools may consume wheel input first (e.g. Reference3D camera dolly).
+		// Tools may consume wheel input first (e.g. Reference3D camera dolly),
+		// but only in the active view; elsewhere the wheel only moves the view.
 		const tool = this.callbacks.getTool();
 		if (
+			this.callbacks.isActiveTarget() &&
 			tool?.onWheel?.(
 				{ x: screenX, y: screenY, deltaY: e.deltaY, ctrlKey: e.ctrlKey },
 				viewport,

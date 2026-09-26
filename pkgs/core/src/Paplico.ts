@@ -194,6 +194,8 @@ type PaplicoEventMap = {
 	 * re-read it — otherwise it only learns on an unrelated re-render.
 	 */
 	collaborationChanged: undefined;
+	/** `null` means the primary target serves as the active one. */
+	activeCanvasTargetChange: { targetId: string | null };
 	eyedropperPick: {
 		strokeColor: StrokeColor | null;
 		fillColor: FillColor | null;
@@ -1488,9 +1490,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			setDrawing: (drawing) => {
 				this._isDrawing = drawing;
 			},
-			setActiveTarget: () => {
-				this.activeTarget = target;
-			},
+			isActiveTarget: () => this.getActiveTarget() === target,
+			activateTarget: () => this.activateCanvasTarget(target.id),
 			requestRender: () => {
 				scheduler.markDirty("selection");
 			},
@@ -1611,6 +1612,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 		if (this.activeTarget === entry.target) {
 			this.activeTarget = null;
+			// The fallback target now owns the tool overlays.
+			this.markDirty("selection");
+			this.emit("activeCanvasTargetChange", { targetId: null });
 		}
 		entry.destroy();
 		// The renderer keeps its own per-target GPU resources and re-acquires
@@ -1642,8 +1646,27 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		return this.canvasTargets.get(targetId)?.target ?? null;
 	}
 
+	/**
+	 * Make the target the one that shows tool overlays and passes pointer
+	 * input to the current tool. Other targets render without tool overlays.
+	 */
+	public activateCanvasTarget(targetId: string): void {
+		const target = this.getCanvasTarget(targetId);
+		if (!target || target === this.activeTarget) return;
+
+		this.activeTarget = target;
+		// Every target redraws: the old one drops its overlays, the new one gains them.
+		this.markDirty("selection");
+		this.emit("activeCanvasTargetChange", { targetId });
+	}
+
+	/** Falls back to the primary target until a target is activated. */
+	private getActiveTarget(): CanvasTarget | null {
+		return this.activeTarget ?? this.getPrimaryTarget();
+	}
+
 	private getActiveViewportCenter(): { x: number; y: number } | null {
-		const target = this.activeTarget ?? this.getPrimaryTarget();
+		const target = this.getActiveTarget();
 		if (!target) return null;
 		const viewport = target.getViewport();
 		return { x: viewport.x, y: viewport.y };
@@ -1784,7 +1807,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						: undefined,
 				softProof: this.softProof.active,
 			},
-			this.rendererStore.uiOverlayState,
+			entry.target === this.getActiveTarget()
+				? this.rendererStore.uiOverlayState
+				: INACTIVE_TARGET_UI_OVERLAY_STATE,
 		);
 	}
 
@@ -3507,7 +3532,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.rendererStore.toolSession = session;
 			},
 			uiHitTest: (point) => {
-				const target = this.activeTarget ?? this.getPrimaryTarget();
+				const target = this.getActiveTarget();
 				const overlays = this.rendererStore.uiOverlayState.overlays;
 				if (!target || !overlays) return null;
 				return hitTestOverlays(
@@ -3566,7 +3591,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			getCurrentLayerId: () => this.rendererStore.currentLayerId,
 
 			getViewport: () => {
-				const t = this.activeTarget ?? this.getPrimaryTarget();
+				const t = this.getActiveTarget();
 				if (!t) return null;
 				return {
 					viewport: t.getViewport(),
@@ -3644,7 +3669,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.tools.setBucketFillComputing(computing);
 			},
 			panToWorldPoint: (point, zoom) => {
-				const t = this.activeTarget ?? this.getPrimaryTarget();
+				const t = this.getActiveTarget();
 				if (!t) return;
 				const vp = t.getViewport();
 				t.setViewport({
@@ -4498,3 +4523,5 @@ class CanvasTargetEntry {
 		this.ui.destroy();
 	}
 }
+
+const INACTIVE_TARGET_UI_OVERLAY_STATE: UIOverlayState = Object.freeze({});

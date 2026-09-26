@@ -117,11 +117,6 @@ export function setCurrentTargetId(targetId: string | null): void {
 	uiState.currentTargetId = targetId;
 }
 
-export function clearCurrentTargetId(targetId: string): void {
-	if (uiState.currentTargetId !== targetId) return;
-	uiState.currentTargetId = null;
-}
-
 export function useUIState() {
 	return useSnapshot(uiState);
 }

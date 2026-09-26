@@ -106,6 +106,7 @@ import {
 	AUTOMATION_PANEL_MIN_WIDTH,
 	setAutomationPanelWidth,
 	setBrushDesignerPanelOpen,
+	setCurrentTargetId,
 	toggleActiveColorTarget,
 	uiState,
 	useUIState,
@@ -699,6 +700,14 @@ export default function Page() {
 		window.addEventListener("tauri-open-files", handler);
 		return () => window.removeEventListener("tauri-open-files", handler);
 	}, [handleDropFiles, handleOpenDocumentFile]);
+
+	// Menu commands act on the view the engine treats as active
+	useEffect(() => {
+		if (!paplico) return;
+		return paplico.on("activeCanvasTargetChange", ({ targetId }) => {
+			setCurrentTargetId(targetId);
+		});
+	}, [paplico]);
 
 	// Persist shortcut overrides to appConfig on change
 	useEffect(() => {
