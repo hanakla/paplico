@@ -1,18 +1,23 @@
-name: Publish AVIF HDR
+name: Publish Packages
 
 # Runs only on the public mirror; the private repository is a no-op.
+#
+# @paplico/core pins the @paplico/avif-hdr version from the workspace, so the
+# core job waits for the avif-hdr job. It still runs when avif-hdr had nothing
+# new to publish, and stops when avif-hdr failed to publish.
 on:
   push:
     branches: [main]
     paths:
       - "pkgs/avif-hdr/**"
+      - "pkgs/core/**"
   workflow_dispatch:
 
 env:
   NODE_VERSION: 24
 
 jobs:
-  publish:
+  avif-hdr:
     if: github.repository == 'hanakla/paplico'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -77,6 +82,62 @@ jobs:
           yarn workspace @paplico/avif-hdr pack -o "$RUNNER_TEMP/avif-hdr.tgz"
           mkdir -p "$RUNNER_TEMP/stage"
           tar -xzf "$RUNNER_TEMP/avif-hdr.tgz" -C "$RUNNER_TEMP/stage"
+
+      - name: Publish
+        if: steps.version.outputs.should-publish == 'true'
+        working-directory: ${{ runner.temp }}/stage/package
+        run: npm publish --access public
+
+  core:
+    needs: avif-hdr
+    if: github.repository == 'hanakla/paplico'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: publish
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - run: npm install -g npm@latest
+
+      - run: yarn install --immutable
+
+      - name: Check whether the version is already published
+        id: version
+        run: |
+          local_version="$(node -p "require('./pkgs/core/package.json').version")"
+          published_version="$(npm view @paplico/core version 2>/dev/null || true)"
+          if [ "$local_version" = "$published_version" ]; then
+            echo "should-publish=false" >> "$GITHUB_OUTPUT"
+            echo "@paplico/core@$local_version is already published; skipping."
+          else
+            echo "should-publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # CI is set on GitHub runners, so only the unit project runs; the GPU
+      # suites need a WebGPU adapter the runners do not expose.
+      - name: Test
+        if: steps.version.outputs.should-publish == 'true'
+        run: yarn workspace @paplico/core test
+
+      - name: Build
+        if: steps.version.outputs.should-publish == 'true'
+        run: yarn workspace @paplico/core build
+
+      - name: Stage the package
+        if: steps.version.outputs.should-publish == 'true'
+        run: |
+          yarn workspace @paplico/core pack -o "$RUNNER_TEMP/core.tgz"
+          mkdir -p "$RUNNER_TEMP/stage"
+          tar -xzf "$RUNNER_TEMP/core.tgz" -C "$RUNNER_TEMP/stage"
 
       - name: Publish
         if: steps.version.outputs.should-publish == 'true'
