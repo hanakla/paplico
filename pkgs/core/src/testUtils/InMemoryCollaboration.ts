@@ -11,11 +11,9 @@ import {
 } from "y-protocols/awareness";
 import * as Y from "yjs";
 import {
-	type CollaborationEventMap,
-	type ICollaboration,
+	CollaborationBase,
 	USER_COLORS,
 } from "../collaboration/ICollaboration";
-import { Emitter } from "../utils/emitter";
 
 const REMOTE_ORIGIN = "in-memory-remote";
 
@@ -107,10 +105,7 @@ interface InMemoryCollaborationConfig {
 	roomReadonly?: boolean;
 }
 
-export class InMemoryCollaboration
-	extends Emitter<CollaborationEventMap>
-	implements ICollaboration
-{
+export class InMemoryCollaboration extends CollaborationBase {
 	public readonly awareness: Awareness;
 	public readonly isOwner: boolean;
 	public readonly isReadonly: boolean;

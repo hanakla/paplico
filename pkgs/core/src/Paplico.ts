@@ -6,6 +6,10 @@ import {
 	type BrushStrokePreviewOptions,
 	createBrushStrokePreviewScene,
 } from "./brush/strokePreview";
+import {
+	attachCollaboration,
+	type CollaborationDocumentMode,
+} from "./collaboration/attachCollaboration";
 import type { ICollaboration } from "./collaboration/ICollaboration";
 import { YjsProvider } from "./collaboration/YjsProvider";
 import { buildSoftProofLut } from "./color/ColorEngine";
@@ -217,7 +221,6 @@ interface PaplicoOptions {
 	 * loaded font covers renders with it.
 	 */
 	fallbackFontUrl?: string;
-	collaboration?: ICollaboration;
 	/**
 	 * Resolves raw bytes of a builtin ICC profile. Injected from infra so core
 	 * stays platform-agnostic (it never fetches /assets/icc/ itself).
@@ -359,7 +362,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private filterShortcutEvents:
 		| ((event: KeyboardEvent) => false | undefined)
 		| null = null;
-	private options: PaplicoOptions | undefined;
 	private readonly getBuiltinProfileBytes: (
 		id: BuiltinIccProfileId,
 	) => Promise<Uint8Array>;
@@ -427,7 +429,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		});
 		this.filterShortcutEvents = options?.filterShortcutEvents ?? null;
 		this.getBuiltinProfileBytes = options.getBuiltinProfileBytes;
-		this.options = options;
 	}
 
 	private syncTextToolFromStore(tool: TextTool): void {
@@ -1005,24 +1006,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.collaboration?.destroy();
 			this.collaboration = null;
 			this.yjsProvider.destroy();
-
-			// Clear injected collaboration ref so initYjsProvider won't
-			// reattach the destroyed instance to the new Y.Doc.
-			if (this.options?.collaboration) {
-				this.options.collaboration = undefined;
-			}
-
-			// Clear injected collaboration ref so initYjsProvider won't
-			// reattach the destroyed instance to the new Y.Doc.
-			if (this.options?.collaboration) {
-				this.options.collaboration = undefined;
-			}
-
-			// Clear injected collaboration ref so initYjsProvider won't
-			// reattach the destroyed instance to the new Y.Doc.
-			if (this.options?.collaboration) {
-				this.options.collaboration = undefined;
-			}
 
 			// 3. Rebuild renderer with new code
 			this.renderer = new RenderOrchestrator(this.fonts);
@@ -2030,11 +2013,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			},
 		});
 
-		// Optionally attach collaboration layer (injected from outside)
-		if (this.options?.collaboration) {
-			this.collaboration = this.options.collaboration;
-		}
-
 		console.log("✅ YjsProvider initialized");
 	}
 
@@ -2265,14 +2243,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	 * observers that close over both.
 	 */
 	private syncInitialLayers(): void {
-		if (this.collaboration) {
-			console.log("🔗 Yjs collaboration initialized");
-		} else {
-			this.yjsProvider.initializeDocument(this.rendererStore.document);
-			console.log(
-				`📝 Yjs initialized in local-only mode with ${this.rendererStore.document.layers.length} layer(s)`,
-			);
-		}
+		this.yjsProvider.initializeDocument(this.rendererStore.document);
+		console.log(
+			`📝 Yjs initialized with ${this.rendererStore.document.layers.length} layer(s)`,
+		);
 	}
 
 	// ===== Public Accessors =====
@@ -2299,14 +2273,21 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	// ===== Collaboration (Dynamic) =====
 
-	public setCollaboration(collab: ICollaboration): void {
-		if (this.collaboration) {
-			this.collaboration.destroy();
-			this.collaboration = null;
-		}
+	/**
+	 * Attach a collaboration transport built by `factory` around the document's
+	 * Y.Doc, replacing the current one.
+	 */
+	public connectCollaboration<T extends ICollaboration>(
+		factory: (ydoc: Y.Doc) => T,
+		{ document }: { document: CollaborationDocumentMode },
+	): T {
+		this.collaboration?.destroy();
+		this.collaboration = null;
 
+		const collab = attachCollaboration(this.yjsProvider, factory, document);
 		this.collaboration = collab;
 		this.emit("collaborationChanged", undefined);
+		return collab;
 	}
 
 	public clearCollaboration(): void {
@@ -2367,7 +2348,19 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		return wrapPapfInPdf(new Uint8Array(await papf.arrayBuffer()), pages);
 	}
 
+	/**
+	 * Replace the current document with `source`.
+	 * @throws PaplicoError while a collaboration transport is attached, since
+	 * the transport would keep syncing the discarded Y.Doc.
+	 */
 	public async importDocument(source: Blob | Document): Promise<void> {
+		if (this.collaboration) {
+			throw new PaplicoError(
+				"DOCUMENT_OPEN_WHILE_CONNECTED",
+				"Cannot replace the document while a collaboration transport is attached",
+			);
+		}
+
 		const doc =
 			source instanceof Blob
 				? await (

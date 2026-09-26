@@ -1,7 +1,11 @@
 export { Collaboration } from "./Collaboration";
 export { E2EECollaboration } from "./E2EECollaboration";
 export { extractDocumentFromYDoc } from "./extractDocumentFromYDoc";
-export type { CollaborationConfig, ICollaboration } from "./ICollaboration";
+export {
+	CollaborationBase,
+	type CollaborationConfig,
+	type ICollaboration,
+} from "./ICollaboration";
 export {
 	buildCompanionUrl,
 	buildDeepLinkUrl,

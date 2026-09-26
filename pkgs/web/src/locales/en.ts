@@ -1514,6 +1514,8 @@ export const en = {
 		saveFailed: "Failed to save to the file",
 		importFailed: "Failed to import the file",
 		documentOpenFailed: "Failed to open the document",
+		documentOpenWhileConnected:
+			"You can't open another document while connected to a room",
 		documentCreateFailed: "Failed to create the document",
 		paplicoInitFailed: "Failed to start the drawing engine",
 		retryAction: "Retry",

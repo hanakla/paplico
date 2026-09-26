@@ -107,6 +107,9 @@ const ERROR_TEXTS: Record<
 	PAPF_CORRUPTED: { titleKey: "errors.papfCorrupted" },
 	PAPF_MISSING_FILE_ENTRY: { titleKey: "errors.papfMissingFileEntry" },
 	PAPF_NOT_FOUND_IN_PDF: { titleKey: "errors.papfNotFoundInPdf" },
+	DOCUMENT_OPEN_WHILE_CONNECTED: {
+		titleKey: "errors.documentOpenWhileConnected",
+	},
 	WEBGPU_UNSUPPORTED: {
 		titleKey: "errors.webgpuUnsupported",
 		descriptionKey: "errors.webgpuUnsupportedDescription",

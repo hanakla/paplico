@@ -380,7 +380,8 @@ All drawing tools implement the `Tool` interface with pointer event handlers:
   - `local` (default): `Collaboration` class using `y-websocket` + custom `server.mjs`
   - `cloud`: `PartyKitCollaboration` class using `y-partykit` + Supabase session JWT auth
 - `createCollaboration()` in `pkgs/web/src/hooks/useCollab.ts` selects the implementation and passes the relay host in `CollaborationConfig`; `@paplico/core` never reads `NEXT_PUBLIC_*`
-- `ICollaboration` interface abstracts both modes
+- `ICollaboration` interface abstracts both modes. Transports, including host-app ones, extend `CollaborationBase`
+- `Paplico.connectCollaboration(factory, { document })` is the only way to attach a transport. `factory` receives the Y.Doc to sync. `document: "fromRemote"` discards the local document before connecting; `"keepForRemote"` keeps it and merges with the room
 - Yjs CRDT handles automatic conflict resolution
 - Awareness API for cursor positions and user presence
 - Local echo for immediate feedback

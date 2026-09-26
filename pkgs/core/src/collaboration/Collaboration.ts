@@ -10,19 +10,14 @@ import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
 import { WebsocketProvider } from "y-websocket";
 import type * as Y from "yjs";
-import { Emitter } from "../utils/emitter";
 import {
 	CollabMessage,
+	CollaborationBase,
 	type CollaborationConfig,
-	type CollaborationEventMap,
-	type ICollaboration,
 	USER_COLORS,
 } from "./ICollaboration";
 
-export class Collaboration
-	extends Emitter<CollaborationEventMap>
-	implements ICollaboration
-{
+export class Collaboration extends CollaborationBase {
 	private wsProvider: WebsocketProvider;
 	public readonly awareness: WebsocketProvider["awareness"];
 	public readonly isOwner: boolean;

@@ -1,5 +1,5 @@
 import type { Awareness } from "y-protocols/awareness";
-import type { Emitter } from "../utils/emitter";
+import { Emitter } from "../utils/emitter";
 
 /**
  * Custom binary message types for collaboration protocol.
@@ -42,6 +42,30 @@ export interface ICollaboration extends Emitter<CollaborationEventMap> {
 	readonly isReadonly: boolean;
 	kickUser(clientId: number): void;
 	closeRoom(): void;
+}
+
+/**
+ * Base class for collaboration transports, including ones a host app
+ * implements itself. Supplies the typed event emitter so a subclass only
+ * implements the transport.
+ */
+export abstract class CollaborationBase
+	extends Emitter<CollaborationEventMap>
+	implements ICollaboration
+{
+	public abstract readonly awareness: Awareness;
+	public abstract readonly localClientId: number;
+	public abstract readonly isOwner: boolean;
+	public abstract readonly isReadonly: boolean;
+	public abstract updateCursor(x: number, y: number): void;
+	public abstract clearCursor(): void;
+	public abstract getAwarenessStates(): Map<number, unknown>;
+	public abstract disconnect(): void;
+	public abstract reconnect(): void;
+	public abstract simulateDisconnect(): void;
+	public abstract destroy(): void;
+	public abstract kickUser(clientId: number): void;
+	public abstract closeRoom(): void;
 }
 
 export interface CollaborationConfig {

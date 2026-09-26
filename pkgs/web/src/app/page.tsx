@@ -643,6 +643,11 @@ export default function Page() {
 			const papfFile = files.find((f) => f.name.endsWith(".papf"));
 			if (!papfFile) return;
 
+			if (collab.connectedRoomId != null) {
+				reportError({ code: "DOCUMENT_OPEN_WHILE_CONNECTED", capture: false });
+				return;
+			}
+
 			if (
 				!(await ConfirmDialog.call({
 					description: t("menubar.saveAndCloseConfirm"),

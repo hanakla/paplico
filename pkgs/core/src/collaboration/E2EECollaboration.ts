@@ -17,11 +17,9 @@ import {
 	removeAwarenessStates,
 } from "y-protocols/awareness";
 import * as Y from "yjs";
-import { Emitter } from "../utils/emitter";
 import {
+	CollaborationBase,
 	type CollaborationConfig,
-	type CollaborationEventMap,
-	type ICollaboration,
 	USER_COLORS,
 } from "./ICollaboration";
 import { createPartyRelaySocket, type RelaySocket } from "./relaySocket";
@@ -48,10 +46,7 @@ const RelayMessage = {
  */
 const SYNC_TIMEOUT_MS = 15_000;
 
-export class E2EECollaboration
-	extends Emitter<CollaborationEventMap>
-	implements ICollaboration
-{
+export class E2EECollaboration extends CollaborationBase {
 	public readonly awareness: Awareness;
 	public readonly isOwner: boolean;
 	public readonly isReadonly: boolean;

@@ -10,9 +10,9 @@ import {
 	type ICollaboration,
 	importRoomKey,
 	PartyKitCollaboration,
-	type YjsProvider,
 } from "@paplico/core/collaboration";
 import { proxy, useSnapshot } from "valtio";
+import type * as Y from "yjs";
 import { ConfirmDialog } from "@/components/AlertDialog";
 import { toastManager } from "@/components/Toast";
 import { PARTYKIT_HOST } from "@/configs";
@@ -204,7 +204,6 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 
 			const reconnect = getReconnectInfo();
 			const currentDocId = documentManagerState.currentDocumentId;
-			const provider = pap.getYjsProvider();
 
 			let roomKey: CryptoKey | undefined;
 			let isReconnect = false;
@@ -258,12 +257,10 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 					const doc = await pap.exportDocument();
 					await saveDocument(currentDocId, doc);
 				}
-				provider.resetWithFreshDoc();
 			}
 
-			const collab = createCollaboration(
-				provider,
-				{
+			const collab = pap.connectCollaboration(
+				createCollaboration({
 					roomId,
 					wsUrl: isEncryptedRoom
 						? undefined
@@ -271,13 +268,12 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 					user: { name: userName || undefined },
 					authToken,
 					roomKey,
-				},
-				{ isReconnect },
+				}),
+				{ document: isReconnect ? "keepForRemote" : "fromRemote" },
 			);
 
 			setupCollaborationListeners(collab, isEncryptedRoom);
 
-			pap.setCollaboration(collab);
 			encryptedRoomCredentials = roomKey ? { roomId, roomKey } : null;
 			collabState.connectedRoomId = roomId;
 			collabState.isEncryptedRoom = isEncryptedRoom;
@@ -338,15 +334,17 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 
 				// No readonly flag here: this exists to reach your own other device,
 				// where locking yourself out of editing would be pointless.
-				const collab = createCollaboration(provider, {
-					roomId,
-					user: { name: appConfig.collaborationUserName || undefined },
-					roomKey,
-					isOwner: true,
-				});
+				const collab = pap.connectCollaboration(
+					createCollaboration({
+						roomId,
+						user: { name: appConfig.collaborationUserName || undefined },
+						roomKey,
+						isOwner: true,
+					}),
+					{ document: "keepForRemote" },
+				);
 
 				setupCollaborationListeners(collab, true);
-				pap.setCollaboration(collab);
 				encryptedRoomCredentials = { roomId, roomKey };
 
 				// The key rides in the fragment so it is never sent to any server.
@@ -396,19 +394,20 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 				provider.setDocumentId(currentDocId);
 			}
 
-			const collab = createCollaboration(provider, {
-				roomId,
-				wsUrl: `wss://${window.location.host}/api/collaboration`,
-				user: { name: userName },
-				authToken,
-				roomToken,
-				isOwner: true,
-				roomReadonly: collabState.publishedReadonly,
-			});
+			const collab = pap.connectCollaboration(
+				createCollaboration({
+					roomId,
+					wsUrl: `wss://${window.location.host}/api/collaboration`,
+					user: { name: userName },
+					authToken,
+					roomToken,
+					isOwner: true,
+					roomReadonly: collabState.publishedReadonly,
+				}),
+				{ document: "keepForRemote" },
+			);
 
 			setupCollaborationListeners(collab, false);
-
-			pap.setCollaboration(collab);
 			const inviteUrl = buildInviteUrl(inviteOrigin(), { roomId });
 			collabState.inviteUrl = inviteUrl;
 			markRoomPublished(roomId, false);
@@ -518,7 +517,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 }
 
 /**
- * Picks the transport for a room and wires the reconnect cleanup.
+ * Picks the transport for a room.
  *
  * A room key takes precedence over the mode: it means the session is end-to-end
  * encrypted, which only the relay-based provider can serve. Otherwise
@@ -526,27 +525,13 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
  * y-websocket server.
  */
 function createCollaboration(
-	provider: YjsProvider,
 	config: CollaborationConfig,
-	options?: { isReconnect?: boolean },
-): ICollaboration {
-	const ydoc = provider.ydoc;
+): (ydoc: Y.Doc) => ICollaboration {
 	const relayConfig = { ...config, relayHost: PARTYKIT_HOST };
-	const collab: ICollaboration = config.roomKey
-		? new E2EECollaboration(ydoc, relayConfig)
-		: process.env.NEXT_PUBLIC_COLLAB_MODE === "cloud"
-			? new PartyKitCollaboration(ydoc, relayConfig)
-			: new Collaboration(ydoc, config);
-
-	if (options?.isReconnect) {
-		const handler = (isSynced: boolean) => {
-			if (!isSynced) return;
-			provider.deduplicateLayers();
-			collab.off("synced", handler);
-		};
-
-		collab.on("synced", handler);
-	}
-
-	return collab;
+	return (ydoc) =>
+		config.roomKey
+			? new E2EECollaboration(ydoc, relayConfig)
+			: process.env.NEXT_PUBLIC_COLLAB_MODE === "cloud"
+				? new PartyKitCollaboration(ydoc, relayConfig)
+				: new Collaboration(ydoc, config);
 }

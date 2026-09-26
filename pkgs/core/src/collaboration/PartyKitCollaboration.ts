@@ -13,19 +13,14 @@ import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
 import YPartyKitProvider from "y-partykit/provider";
 import type * as Y from "yjs";
-import { Emitter } from "../utils/emitter";
 import {
 	CollabMessage,
+	CollaborationBase,
 	type CollaborationConfig,
-	type CollaborationEventMap,
-	type ICollaboration,
 	USER_COLORS,
 } from "./ICollaboration";
 
-export class PartyKitCollaboration
-	extends Emitter<CollaborationEventMap>
-	implements ICollaboration
-{
+export class PartyKitCollaboration extends CollaborationBase {
 	private provider: YPartyKitProvider;
 	public readonly awareness: YPartyKitProvider["awareness"];
 	public readonly isOwner: boolean;

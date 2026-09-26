@@ -1513,6 +1513,8 @@ export const ja = {
 		saveFailed: "ファイルへの保存に失敗しました",
 		importFailed: "ファイルの読み込みに失敗しました",
 		documentOpenFailed: "ドキュメントを開けませんでした",
+		documentOpenWhileConnected:
+			"ルームにつないでいるあいだは、ほかのドキュメントを開けません",
 		documentCreateFailed: "ドキュメントの作成に失敗しました",
 		paplicoInitFailed: "描画エンジンの起動に失敗しました",
 		retryAction: "再試行",
