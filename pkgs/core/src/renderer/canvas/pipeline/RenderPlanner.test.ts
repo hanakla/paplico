@@ -248,6 +248,25 @@ describe("RenderPlanner frame planning", () => {
 			expect(layerPlan.segments).toHaveLength(1);
 			expect(layerPlan.segments[0].backdropAfter).toBeNull();
 		});
+
+		it("should size a backdrop child's entry by the deformation its group applies", () => {
+			const child = pathAt("backdrop-1", 0, 0);
+			child.filters = [backdropAppearance()];
+			const group = mockGroup("group-1", [child.id]);
+			group.filters = [shiftAppearance()];
+			const document = mockDocument(
+				[child, group],
+				[mockLayer("layer-1", [group.id])],
+			);
+
+			const [entry] = buildViewOf(document).allBackdropEntries;
+
+			expect(entry.element.id).toBe(child.id);
+			expect(entry.bounds.maxX).toBeCloseTo(140);
+			expect(localAppearances(entry.element.filters)).toContainEqual(
+				shiftAppearance(),
+			);
+		});
 	});
 });
 
@@ -481,6 +500,20 @@ function makeFilterHandlers(): ReadonlyMap<string, FilterHandler> {
 				postProcess: () => undefined,
 			} as unknown as FilterHandler,
 		],
+		[
+			"shift-test",
+			{
+				preProcess: (segments: CubicBezierSegment[]) =>
+					segments.map((segment) => ({
+						...segment,
+						start: segment.start && {
+							...segment.start,
+							x: segment.start.x + 100,
+						},
+						end: { ...segment.end, x: segment.end.x + 100 },
+					})),
+			} as unknown as FilterHandler,
+		],
 	]);
 }
 
@@ -615,6 +648,18 @@ function backdropAppearance(): Filter {
 	return {
 		uid: "app-backdrop",
 		processor: "backdrop-test",
+		enabled: true,
+		opacity: 1,
+		blendMode: "normal",
+		paramData: { version: "1", params: {} },
+	} as unknown as Filter;
+}
+
+/** A geometry filter that moves every point 100 to the right. */
+function shiftAppearance(): Filter {
+	return {
+		uid: "app-shift",
+		processor: "shift-test",
 		enabled: true,
 		opacity: 1,
 		blendMode: "normal",

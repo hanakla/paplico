@@ -338,9 +338,7 @@ export class PathElementRenderer {
 		const tempPath = createCompoundPathRenderPath(
 			compoundPath,
 			segments,
-			isMaskRender
-				? []
-				: geometryFilters(compoundPath, this.deps.filterRenderer),
+			geometryFilters(compoundPath, this.deps.filterRenderer),
 			isMaskRender,
 		);
 

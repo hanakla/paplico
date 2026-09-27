@@ -10,6 +10,7 @@ import type {
 	EmbeddedFile,
 	FillAppearance,
 	FillColor,
+	Filter,
 	ImageObject,
 	MeshArtObject,
 	Path,
@@ -45,6 +46,7 @@ import type {
 	BrushRenderer,
 } from "../pipeline/brush/BrushRenderer";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
+import { geometryFilters } from "../pipeline/PreFilterRenderer";
 import type { StripFrame } from "../pipeline/strips/StripFrame";
 import type {
 	DrawableSegments,
@@ -439,11 +441,16 @@ export class ElementRenderer {
 	 * The element is rendered with a white solid fill so that the mask texture
 	 * has white (1.0) pixels in the element shape and black (0.0) elsewhere.
 	 * Used by clip group masking and backdrop filter clipping.
+	 *
+	 * `preFilters` are the geometry filters that deform this element, its
+	 * inherited ones included. A clip path passes none and stays a flat mask;
+	 * a backdrop element passes its own so the mask matches its drawn shape.
 	 */
 	public renderElementToMask(
 		passEncoder: GPURenderPassEncoder,
 		element: AnyArtObject,
 		elementsMap: Map<string, AnyArtObject>,
+		preFilters?: readonly Filter[],
 	): void {
 		this.deps.renderState.currentTransformIndex = this.deps.getTransformIndex(
 			element.id,
@@ -464,12 +471,13 @@ export class ElementRenderer {
 				},
 			},
 		};
+		const maskFilters: Filter[] = [...(preFilters ?? []), whiteFillFilter];
 
 		switch (element.type) {
 			case "path": {
 				const maskPath: Path = {
 					...element,
-					filters: [whiteFillFilter],
+					filters: maskFilters,
 				};
 				this.pathRenderer.renderPath(
 					passEncoder,
@@ -501,7 +509,7 @@ export class ElementRenderer {
 				for (const path of cachedText.paths) {
 					const offsetPath: Path = {
 						...path,
-						filters: [whiteFillFilter],
+						filters: maskFilters,
 						segments: path.segments.map((seg) => ({
 							...seg,
 							start: seg.start
@@ -537,7 +545,7 @@ export class ElementRenderer {
 				// skip the default black stroke and apply fill-only.
 				const maskCompound: CompoundPath = {
 					...element,
-					filters: [whiteFillFilter],
+					filters: maskFilters,
 				};
 				this.pathRenderer.renderCompoundPath(
 					passEncoder,
@@ -555,7 +563,15 @@ export class ElementRenderer {
 					.map((id) => elementsMap.get(id))
 					.filter((el): el is AnyArtObject => el !== undefined);
 				for (const child of childElements) {
-					this.renderElementToMask(passEncoder, child, elementsMap);
+					this.renderElementToMask(
+						passEncoder,
+						child,
+						elementsMap,
+						preFilters && [
+							...geometryFilters(child, this.deps.filterRenderer),
+							...preFilters,
+						],
+					);
 				}
 				break;
 			}

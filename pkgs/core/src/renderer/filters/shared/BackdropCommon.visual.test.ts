@@ -9,6 +9,7 @@ import {
 } from "../../../document/factory";
 import {
 	type FillAppearance,
+	type Group,
 	generateUid,
 	type Path,
 	type PathSegment,
@@ -24,6 +25,7 @@ import type { FrostGlassFilter } from "../FrostGlassFilter/FrostGlassFilter";
 import type { HKVhsInterlaceFilter } from "../HKVhsInterlaceFilter/HKVhsInterlaceFilter";
 import type { PixelateFilter } from "../PixelateFilter/PixelateFilter";
 import type { SvgFilterGraphFilter } from "../svg/SvgFilterGraphFilter/SvgFilterGraphFilter";
+import type { TransformFilter } from "../TransformFilter/TransformFilter";
 
 // The common Appearance.applyToBackdrop flag reroutes any postProcess filter
 // onto the captured backdrop (masked to the element shape) without the filter
@@ -406,6 +408,48 @@ describe("Backdrop filter with an object mask", () => {
 	});
 });
 
+describe("Backdrop filter with geometry filters", () => {
+	it.each([
+		{ owner: "the pane itself", viaGroup: false },
+		{ owner: "the pane's group", viaGroup: true },
+	])("should blur the backdrop inside the shape moved by a geometry filter on $owner", async ({
+		viaGroup,
+	}) => {
+		const { renderer, canvas } = await createTestRenderer();
+		const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+		const device = renderer.getDevice();
+		if (!device) throw new Error("Test renderer has no GPU device");
+		const capture = async (doc: ReturnType<typeof createDefaultDocument>) => {
+			const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+			const pixels = await captureTexturePixels(
+				device,
+				texture,
+				texture.width,
+				texture.height,
+			);
+			texture.destroy();
+			return pixels;
+		};
+
+		const moved = await capture(createMovedBackdropBlurDoc({ viaGroup }));
+		const bare = createBackdropBlurDoc();
+		bare.layers[0].elementIds.pop();
+		const backdropOnly = await capture(bare);
+
+		// The pane at world [-110,110]x[-70,70] is moved 200 right → texels
+		// [490,710]x[230,370]. The part of the original texels [290,510] it
+		// leaves behind must show the bare backdrop.
+		const movedRegion = [510, 240, 700, 360] as const;
+		const leftBehind = [300, 240, 470, 360] as const;
+		expect(
+			regionDiffPercentage(moved, backdropOnly, 800, ...movedRegion),
+		).toBeGreaterThan(1);
+		expect(regionDiffPercentage(moved, backdropOnly, 800, ...leftBehind)).toBe(
+			0,
+		);
+	});
+});
+
 describe("Backdrop export background equivalence", () => {
 	it("should flatten a transparent-background export over white to match the opaque-white export", async () => {
 		const { renderer } = await createTestRenderer();
@@ -759,6 +803,56 @@ function createMaskedFrostGlassDoc({ frost = true, masked = true } = {}) {
 	});
 	doc.objects[mask.id] = mask;
 	pane.mask = { elementIds: [mask.id] };
+	return doc;
+}
+
+/** The blur scene with the pane moved 200 right by a transform geometry
+ *  filter, on the pane itself or on a group wrapping it. */
+function createMovedBackdropBlurDoc({ viaGroup }: { viaGroup: boolean }) {
+	const doc = createBackdropBlurDoc();
+	const [layer] = doc.layers;
+	const pane = doc.objects[layer.elementIds.at(-1)!] as Path;
+	const move: TransformFilter = {
+		uid: generateUid("filter"),
+		processor: "transform",
+		opacity: 1,
+		blendMode: "normal",
+		enabled: true,
+		paramData: {
+			version: "1",
+			params: {
+				scaleX: 1,
+				scaleY: 1,
+				moveX: 200,
+				moveY: 0,
+				angle: 0,
+				reflectX: false,
+				reflectY: false,
+				copies: 0,
+				origin: "center",
+				random: false,
+				seed: 0,
+				transformPatterns: false,
+				scaleStrokes: false,
+			},
+		},
+	};
+	if (!viaGroup) {
+		pane.filters = [move, ...localAppearances(pane.filters)];
+		return doc;
+	}
+
+	const group: Group = {
+		type: "group",
+		id: generateUid("group"),
+		opacity: 1,
+		blendMode: "normal",
+		childIds: [pane.id],
+		filters: [move],
+		transform: createDefaultTransform(),
+	};
+	doc.objects[group.id] = group;
+	layer.elementIds = [...layer.elementIds.slice(0, -1), group.id];
 	return doc;
 }
 

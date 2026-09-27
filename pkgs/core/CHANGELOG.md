@@ -14,6 +14,7 @@
 ### Fixed
 
 - Alt+drag duplicates with the select tool and the path edit tool land right in front of the frontmost source instead of on top of the layer. `duplicateElementsByIds` stacks its copies the same way.
+- An element whose filter is applied to the backdrop now shows the backdrop in the shape its geometry filters produce. Geometry filters on its enclosing groups apply too.
 
 ## [0.2.0] - 2026-09-27
 

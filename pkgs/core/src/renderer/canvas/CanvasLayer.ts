@@ -193,6 +193,7 @@ import {
 } from "./pipeline/OffscreenPresenter";
 import {
 	childPreFilters,
+	geometryFilters,
 	withInheritedPreFilters,
 } from "./pipeline/PreFilterRenderer";
 import {
@@ -5745,7 +5746,12 @@ export class CanvasLayer {
 		maskPass.setBindGroup(3, this.dummyMaskBindGroup);
 		this.renderState.currentTransformIndex =
 			this.viewportManager.getTransformIndex(element.id);
-		this.elements.renderElementToMask(maskPass, element, elementsMap);
+		this.elements.renderElementToMask(
+			maskPass,
+			element,
+			elementsMap,
+			geometryFilters(element, this.filterRenderer),
+		);
 		maskPass.end();
 
 		// Step 2: Blit captured backdrop × mask to canvas
