@@ -408,12 +408,29 @@ describe("Backdrop filter with an object mask", () => {
 	});
 });
 
-describe("Backdrop filter with geometry filters", () => {
+describe("Blur on a shape moved by a geometry filter", () => {
 	it.each([
-		{ owner: "the pane itself", viaGroup: false },
-		{ owner: "the pane's group", viaGroup: true },
-	])("should blur the backdrop inside the shape moved by a geometry filter on $owner", async ({
+		{
+			look: "the blurred backdrop",
+			owner: "the pane itself",
+			viaGroup: false,
+			applyToBackdrop: true,
+		},
+		{
+			look: "the blurred backdrop",
+			owner: "the pane's group",
+			viaGroup: true,
+			applyToBackdrop: true,
+		},
+		{
+			look: "the blurred pane",
+			owner: "the pane's group",
+			viaGroup: true,
+			applyToBackdrop: false,
+		},
+	])("should draw $look inside the shape moved by a geometry filter on $owner", async ({
 		viaGroup,
+		applyToBackdrop,
 	}) => {
 		const { renderer, canvas } = await createTestRenderer();
 		const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
@@ -431,7 +448,9 @@ describe("Backdrop filter with geometry filters", () => {
 			return pixels;
 		};
 
-		const moved = await capture(createMovedBackdropBlurDoc({ viaGroup }));
+		const moved = await capture(
+			createMovedBackdropBlurDoc({ viaGroup, applyToBackdrop }),
+		);
 		const bare = createBackdropBlurDoc();
 		bare.layers[0].elementIds.pop();
 		const backdropOnly = await capture(bare);
@@ -808,8 +827,14 @@ function createMaskedFrostGlassDoc({ frost = true, masked = true } = {}) {
 
 /** The blur scene with the pane moved 200 right by a transform geometry
  *  filter, on the pane itself or on a group wrapping it. */
-function createMovedBackdropBlurDoc({ viaGroup }: { viaGroup: boolean }) {
-	const doc = createBackdropBlurDoc();
+function createMovedBackdropBlurDoc({
+	viaGroup,
+	applyToBackdrop,
+}: {
+	viaGroup: boolean;
+	applyToBackdrop: boolean;
+}) {
+	const doc = createBackdropBlurDoc({ applyToBackdrop });
 	const [layer] = doc.layers;
 	const pane = doc.objects[layer.elementIds.at(-1)!] as Path;
 	const move: TransformFilter = {

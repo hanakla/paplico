@@ -387,6 +387,17 @@ describe("group child filter plans", () => {
 		expect(plan.textureBounds.maxY).toBeCloseTo(140);
 	});
 
+	it("should bake a child plan in the shape its group's geometry filter deforms", () => {
+		const { child, document } = groupedChild({});
+		document.objects["group-1"].filters = [shiftAppearance()];
+
+		const plan = planFor(document, child.id, { x: 120, y: 20 });
+		expect(plan.textureBounds.maxX).toBeCloseTo(140);
+		expect(localAppearances(plan.element.filters)).toContainEqual(
+			shiftAppearance(),
+		);
+	});
+
 	it("should size a standalone plan from the parent transform it is given", () => {
 		const child = blendedSquare("child-1");
 		const document = mockDocument([child], [mockLayer("layer-1", [child.id])]);
@@ -503,6 +514,7 @@ function makeFilterHandlers(): ReadonlyMap<string, FilterHandler> {
 		[
 			"shift-test",
 			{
+				getExpansionMargin: () => 0,
 				preProcess: (segments: CubicBezierSegment[]) =>
 					segments.map((segment) => ({
 						...segment,

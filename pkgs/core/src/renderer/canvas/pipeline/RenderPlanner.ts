@@ -45,7 +45,6 @@ import {
 	resolveRenderConfigure,
 } from "./FilterRenderer";
 import {
-	childPreFilters,
 	geometryFilters,
 	resolveCompoundDrawnShape,
 	resolvePathGeometryVariants,
@@ -840,21 +839,6 @@ function calculatePreFilteredLocalBounds(
 	return result;
 }
 
-/**
- * `entry` with the geometry filters its enclosing groups hand down. A
- * backdrop element is drawn only through its mask, so the mask shape and the
- * capture bounds both have to see the deformation the groups apply.
- */
-function inheritBackdropPreFilters(
-	entry: BackdropElementEntry,
-	inheritedPreFilters: readonly Filter[] | undefined,
-	boundsOf: (element: AnyArtObject) => WorldBBox,
-): BackdropElementEntry {
-	const element = withInheritedPreFilters(entry.element, inheritedPreFilters);
-	if (element === entry.element) return entry;
-	return { ...entry, element, bounds: boundsOf(element) };
-}
-
 function unionBoxes(a: BoundingBox, b: BoundingBox): BoundingBox {
 	const minX = Math.min(a.minX, b.minX);
 	const minY = Math.min(a.minY, b.minY);
@@ -954,7 +938,7 @@ function collectPlanCandidates(
 	skipCull = false,
 	/** Composed transform of the enclosing groups — see planBoundsOf. */
 	parentTransform: ElementTransform | null = null,
-	/** Geometry filters the enclosing groups hand down — see childPreFilters. */
+	/** Geometry filters the enclosing groups hand down, innermost first. */
 	parentPreFilters?: Filter[],
 ): void {
 	const {
@@ -970,22 +954,23 @@ function collectPlanCandidates(
 		getHandler: (processor: string) => filterHandlers.get(processor),
 	};
 	for (let i = 0; i < elements.length; i++) {
-		const element = elements[i];
+		// Filter plans and backdrop entries render from their element alone,
+		// not through the group walk, so the element carries the geometry
+		// filters its groups hand down for both its shape and its bounds.
+		const element = withInheritedPreFilters(elements[i], parentPreFilters);
 		const elementIndex = baseElementIndex + i;
 		// Transient elements (live previews) mutate under a stable id without
 		// any document-change invalidation, so a cached bounds entry would pin
 		// the plan (and its offscreen texture) to the first frame's size.
-		const boundsOf = (target: AnyArtObject) =>
-			planBoundsOf(
-				target,
-				elementsMap,
-				handlerLookup,
-				transientIds?.has(target.id) ? undefined : localBoundsCache,
-				parentTransform,
-			);
-		const elementBounds = boundsOf(element);
+		const elementBounds = planBoundsOf(
+			element,
+			elementsMap,
+			handlerLookup,
+			transientIds?.has(element.id) ? undefined : localBoundsCache,
+			parentTransform,
+		);
 
-		const classified = classifyElementFilters(
+		const { filterPlan, backdropEntry } = classifyElementFilters(
 			element,
 			elementBounds,
 			filterHandlers,
@@ -993,14 +978,6 @@ function collectPlanCandidates(
 			layerIndex,
 			elementIndex,
 		);
-		const { filterPlan } = classified;
-		const backdropEntry =
-			classified.backdropEntry &&
-			inheritBackdropPreFilters(
-				classified.backdropEntry,
-				parentPreFilters,
-				boundsOf,
-			);
 
 		if (filterPlan || backdropEntry) {
 			candidates.push({
@@ -1031,7 +1008,8 @@ function collectPlanCandidates(
 				parentTransform
 					? composeTransforms(parentTransform, getTransform(element))
 					: getTransform(element),
-				childPreFilters(element, parentPreFilters, handlerLookup),
+				// `element` already carries the inherited filters after its own.
+				geometryFilters(element, handlerLookup),
 			);
 		} else if (isRepeat(element)) {
 			// Repeat sources are absorbed (referenced only by `sourceIds`, on no
