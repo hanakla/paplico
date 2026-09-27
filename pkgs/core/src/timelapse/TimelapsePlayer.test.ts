@@ -106,6 +106,51 @@ describe("TimelapsePlayer", () => {
 		expect(Object.keys(document.objects).sort()).toEqual(["far", "inside"]);
 	});
 
+	it("should show a path that undo brought back after editing and deleting it", () => {
+		const original = squarePath("a", 0, 0);
+		let undoManager: Y.UndoManager | undefined;
+		const { data } = buildRecording([
+			(doc) => {
+				setLayer(doc, "layer-1", []);
+				setArtboard(doc, artboard);
+				addPath(doc, "layer-1", original);
+				undoManager = new Y.UndoManager(doc.getMap("objects"), {
+					captureTimeout: 0,
+				});
+			},
+			(doc) => {
+				const yObjects = doc.getMap<Y.Map<unknown>>("objects");
+				yObjects.get("a")?.set("segments", "[]");
+				yObjects.delete("a");
+			},
+			() => undoManager?.undo(),
+		]);
+
+		const { player, onFrame } = createPlayer(data, artboard);
+		player.seekTo(player.totalEvents - 1);
+
+		const path = lastFrame(onFrame).objects.a as Path;
+		expect(path.segments).toEqual(original.segments);
+	});
+
+	it("should keep playing past an object that cannot be decoded", () => {
+		const { data } = buildRecording([
+			(doc) => {
+				setLayer(doc, "layer-1", []);
+				setArtboard(doc, artboard);
+			},
+			(doc) => addPath(doc, "layer-1", squarePath("a", 0, 0)),
+			(doc) =>
+				doc.getMap<Y.Map<unknown>>("objects").get("a")?.delete("segments"),
+			(doc) => addPath(doc, "layer-1", squarePath("b", 100, 100)),
+		]);
+
+		const { player, onFrame } = createPlayer(data, artboard);
+		player.seekTo(player.totalEvents - 1);
+
+		expect(Object.keys(lastFrame(onFrame).objects)).toEqual(["b"]);
+	});
+
 	describe("when the recording was made by an older build", () => {
 		const eraserCut = [{ t: 0.5, side1: 0, side2: 1 }];
 		const recordedBeforeSplit = migSplitStrokeErasure.version - 1;

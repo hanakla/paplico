@@ -437,7 +437,7 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 	},
 	{
 		name: "yjs",
-		version: "13.6.30",
+		version: "13.6.33",
 		license: "MIT",
 		url: "https://github.com/yjs/yjs",
 	},

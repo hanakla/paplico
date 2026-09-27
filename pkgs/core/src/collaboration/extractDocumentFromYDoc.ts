@@ -211,8 +211,15 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
  *   layers[i].elementIds: Y.Array<string>  -- ID 参照のみ
  *
  * viewport はデフォルト値を返す（呼び出し元がローカル値で上書きする想定）。
+ *
+ * @param options.skipUnreadableObjects Leave out objects that fail to decode
+ *   instead of throwing. A replayed update stream can carry objects that were
+ *   never whole in the live document.
  */
-export function extractDocumentFromYDoc(ydoc: Y.Doc): Document {
+export function extractDocumentFromYDoc(
+	ydoc: Y.Doc,
+	{ skipUnreadableObjects = false }: { skipUnreadableObjects?: boolean } = {},
+): Document {
 	const yObjects = ydoc.getMap<Y.Map<unknown>>("objects");
 	const yLayers = ydoc.getArray<Y.Map<unknown>>("layers");
 	const yMeta = ydoc.getMap("meta");
@@ -226,7 +233,11 @@ export function extractDocumentFromYDoc(ydoc: Y.Doc): Document {
 	// objects: Y.Map<Y.Map<unknown>> → Record<string, AnyArtObject>
 	const objects: Record<string, AnyArtObject> = {};
 	for (const [id, yMap] of yObjects.entries()) {
-		objects[id] = yMapToObject(yMap as Y.Map<unknown>);
+		try {
+			objects[id] = yMapToObject(yMap as Y.Map<unknown>);
+		} catch (error) {
+			if (!skipUnreadableObjects) throw error;
+		}
 	}
 
 	// layers: Y.Array<Y.Map> → Layer[]

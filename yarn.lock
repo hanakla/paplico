@@ -3787,7 +3787,7 @@ __metadata:
     y-partykit: "npm:^0.0.33"
     y-protocols: "npm:^1.0.6"
     y-websocket: "npm:^3.0.0"
-    yjs: "npm:^13.6.30"
+    yjs: "npm:^13.6.33"
   peerDependencies:
     pngjs: ^7.0.0
   peerDependenciesMeta:
@@ -15940,7 +15940,7 @@ __metadata:
     vitest: "npm:^4.1.2"
     ws: "npm:^8.20.0"
     y-protocols: "npm:^1.0.6"
-    yjs: "npm:^13.6.30"
+    yjs: "npm:^13.6.33"
     zod: "npm:^4.4.3"
   languageName: unknown
   linkType: soft
@@ -20685,12 +20685,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"yjs@npm:^13.6.30":
-  version: 13.6.30
-  resolution: "yjs@npm:13.6.30"
+"yjs@npm:^13.6.33":
+  version: 13.6.33
+  resolution: "yjs@npm:13.6.33"
   dependencies:
     lib0: "npm:^0.2.99"
-  checksum: 10c0/98ec3c85fdb8420fe250e86e66676d7421dd4c1960319409a39e6ae90d05dc967793b67705736751633d8b22e334dba51a1404ad83139300c0be42195f068261
+  checksum: 10c0/85dd66a715b04fe4eda0a7676d363b2e0573830113c941568112ffe83857e9b9092b4912de135896fb56e6a7242eaca0abc5804fda7d2847dcf719fc77ba4940
   languageName: node
   linkType: hard
 

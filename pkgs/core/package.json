@@ -181,7 +181,7 @@
 		"y-partykit": "^0.0.33",
 		"y-protocols": "^1.0.6",
 		"y-websocket": "^3.0.0",
-		"yjs": "^13.6.30"
+		"yjs": "^13.6.33"
 	},
 	"peerDependencies": {
 		"pngjs": "^7.0.0"

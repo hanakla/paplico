@@ -503,7 +503,9 @@ export class TimelapsePlayer {
 			(this.replayedSchemaVersion() < LATEST_SCHEMA_VERSION &&
 				this.touchesCompoundPath(touched.upserted))
 		) {
-			const document = extractDocumentFromYDoc(this.replayDoc);
+			const document = extractDocumentFromYDoc(this.replayDoc, {
+				skipUnreadableObjects: true,
+			});
 			document.schemaVersion = this.replayedSchemaVersion();
 			applyMigrations(document);
 			document.id = TIMELAPSE_REPLAY_DOCUMENT_ID;
