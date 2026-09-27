@@ -1478,6 +1478,7 @@ export const ja = {
 			eyedropper: "スポイト",
 			shapeRect: "矩形ツール",
 			shapeEllipse: "楕円ツール",
+			shapeCycle: "図形ツール切り替え",
 			meshDeform: "メッシュ変形ツール",
 			skew: "スキューツール",
 			freeTransform: "自由変形ツール",

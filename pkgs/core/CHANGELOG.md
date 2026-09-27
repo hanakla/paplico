@@ -5,6 +5,11 @@
 ### Added
 
 - `placementAnchorIds` option of `PaplicoCommands.pasteElements`. `placement` is resolved against these elements instead of the selection.
+- `paplico.tool.shapeCycle` shortcut command, bound to M by default. Each press while the shape tool is active switches to the next shape type. Pressing it from any other tool starts the shape tool at the rectangle.
+
+### Changed
+
+- `paplico.tool.shapeRect` no longer has a default key. M is bound to `paplico.tool.shapeCycle` instead.
 
 ### Fixed
 

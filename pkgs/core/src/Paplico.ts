@@ -154,6 +154,7 @@ import type { Tool } from "./tools/Tool";
 import { ToolContext } from "./tools/ToolContext";
 import {
 	createToolSettings,
+	SHAPE_TYPES,
 	type ToolSettings,
 	type ToolType,
 } from "./tools/toolSettings";
@@ -747,9 +748,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.updateToolState({ currentTool: "shape" });
 			return true;
 		});
-		s.registerDefaultKeybinding(Cmds["paplico.tool.shapeRect"], {
-			code: "KeyM",
-		});
 
 		s.registerCommand(Cmds["paplico.tool.shapeEllipse"], "Tools", () => {
 			this.tools.setShapeType("ellipse");
@@ -758,6 +756,20 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		});
 		s.registerDefaultKeybinding(Cmds["paplico.tool.shapeEllipse"], {
 			code: "KeyL",
+		});
+		// Repeated presses step through the shape types; entering from any other
+		// tool starts at the first one.
+		s.registerCommand(Cmds["paplico.tool.shapeCycle"], "Tools", () => {
+			const index =
+				this.toolSettings.currentTool === "shape"
+					? SHAPE_TYPES.indexOf(this.toolSettings.shapeType)
+					: -1;
+			this.tools.setShapeType(SHAPE_TYPES[(index + 1) % SHAPE_TYPES.length]);
+			this.updateToolState({ currentTool: "shape" });
+			return true;
+		});
+		s.registerDefaultKeybinding(Cmds["paplico.tool.shapeCycle"], {
+			code: "KeyM",
 		});
 
 		// Transform group tools: the per-tool commands carry no default key (bind

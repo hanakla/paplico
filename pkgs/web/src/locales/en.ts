@@ -1479,6 +1479,7 @@ export const en = {
 			eyedropper: "Eyedropper",
 			shapeRect: "Rectangle Tool",
 			shapeEllipse: "Ellipse Tool",
+			shapeCycle: "Cycle Shape Tools",
 			meshDeform: "Mesh Deform Tool",
 			skew: "Skew Tool",
 			freeTransform: "Free Transform Tool",

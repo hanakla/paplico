@@ -1,9 +1,13 @@
 import { Popover as BUIPopover } from "@base-ui/react/popover";
 import {
 	type ComponentProps,
+	createContext,
 	memo,
 	type ReactNode,
 	type RefObject,
+	use,
+	useEffect,
+	useRef,
 } from "react";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
@@ -24,10 +28,26 @@ function PopoverRoot({
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
 }) {
+	const popupRef = useRef<HTMLDivElement>(null);
+
+	// Base UI returns focus only for closes it handles itself. When the owner
+	// closes the popover through `open`, a focused child keeps its focus through
+	// the close animation and is then removed without a blur event, which
+	// leaves focus-triggered tooltips shown.
+	useEffect(() => {
+		if (open !== false) return;
+		const focused = document.activeElement;
+		if (focused instanceof HTMLElement && popupRef.current?.contains(focused)) {
+			focused.blur();
+		}
+	}, [open]);
+
 	return (
-		<BUIPopover.Root open={open} onOpenChange={onOpenChange}>
-			{children}
-		</BUIPopover.Root>
+		<PopupRefContext value={popupRef}>
+			<BUIPopover.Root open={open} onOpenChange={onOpenChange}>
+				{children}
+			</BUIPopover.Root>
+		</PopupRefContext>
 	);
 }
 
@@ -70,6 +90,7 @@ function PopoverContent({
 	const stopPropagation = useEventCallback((e: React.SyntheticEvent) => {
 		e.stopPropagation();
 	});
+	const popupRef = use(PopupRefContext);
 
 	return (
 		<BUIPopover.Portal>
@@ -81,6 +102,7 @@ function PopoverContent({
 				anchor={anchor ?? undefined}
 			>
 				<BUIPopover.Popup
+					ref={popupRef}
 					onClick={stopPropagation}
 					onMouseDown={stopPropagation}
 					onPointerDown={stopPropagation}
@@ -122,6 +144,10 @@ function PopoverContent({
 		</BUIPopover.Portal>
 	);
 }
+
+const PopupRefContext = createContext<RefObject<HTMLDivElement | null> | null>(
+	null,
+);
 
 function PopoverArrowSvg(props: ComponentProps<"svg">) {
 	return (

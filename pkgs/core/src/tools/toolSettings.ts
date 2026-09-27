@@ -41,7 +41,16 @@ export type ToolType =
 	| "eyedropper"
 	| "reference3d";
 
-export type ShapeType = "rectangle" | "ellipse" | "line" | "star" | "spiral";
+/** Shape types in the order the shape-cycle shortcut steps through them. */
+export const SHAPE_TYPES = [
+	"rectangle",
+	"ellipse",
+	"line",
+	"star",
+	"spiral",
+] as const;
+
+export type ShapeType = (typeof SHAPE_TYPES)[number];
 
 export type SmoothingMethod = "smooth" | "pulled-string" | "inertia";
 

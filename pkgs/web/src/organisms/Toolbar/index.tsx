@@ -220,6 +220,8 @@ export function Toolbar({
 		return () => document.removeEventListener("pointerdown", handler);
 	}, [uiSnap.brushPanelOpen]);
 
+	const ShapeIcon = SHAPE_ICONS[snap.shapeType];
+
 	// Shape tool button behavior:
 	// - Short press + other tool active: switch to shape tool
 	// - Short press + shape tool active: toggle shape panel
@@ -234,6 +236,7 @@ export function Toolbar({
 	const [shapePanelOpen, setShapePanelOpen] = useState(false);
 
 	const handleShapeToolPointerDown = useEventCallback(() => {
+		clearShapePeek();
 		shapeLongPressed.current = false;
 		shapeLongPressTimer.current = setTimeout(() => {
 			shapeLongPressed.current = true;
@@ -257,6 +260,33 @@ export function Toolbar({
 			tools.setCurrentTool("shape");
 		}
 	});
+
+	// Peek the shape panel when the shape type changes while it is closed
+	// (M / L shortcuts), so the newly picked shape is visible. Repeated changes
+	// during a peek extend it; a panel the user opened stays open.
+	const shapePeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const prevShapeType = useRef(snap.shapeType);
+
+	const clearShapePeek = useEventCallback(() => {
+		if (shapePeekTimer.current === null) return;
+		clearTimeout(shapePeekTimer.current);
+		shapePeekTimer.current = null;
+	});
+
+	useEffect(() => {
+		if (prevShapeType.current === snap.shapeType) return;
+		prevShapeType.current = snap.shapeType;
+		if (shapePanelOpen && shapePeekTimer.current === null) return;
+
+		clearShapePeek();
+		setShapePanelOpen(true);
+		shapePeekTimer.current = setTimeout(() => {
+			shapePeekTimer.current = null;
+			setShapePanelOpen(false);
+		}, 800);
+	}, [snap.shapeType, shapePanelOpen]);
+
+	useEffect(() => clearShapePeek, []);
 
 	// Close shape panel on outside click
 	useEffect(() => {
@@ -472,7 +502,7 @@ export function Toolbar({
 								onPointerDown={handleShapeToolPointerDown}
 								onPointerUp={handleShapeToolPointerUp}
 							>
-								<Square size={16} />
+								<ShapeIcon size={16} />
 							</IconButton>
 						</Tooltip>
 						<Popover.Content
@@ -857,38 +887,45 @@ function ShapeSettingsPanel({
 		tools.setShapeType(type);
 	});
 
-	const shapeOptions: Array<{
-		type: ShapeType;
-		icon: typeof Square;
-		label: string;
-	}> = [
-		{ type: "rectangle", icon: Square, label: t("toolbar.rectangle") },
-		{ type: "ellipse", icon: Circle, label: t("toolbar.ellipse") },
-		{ type: "line", icon: Slash, label: t("toolbar.line") },
-		{ type: "star", icon: Star, label: t("toolbar.star") },
-		{ type: "spiral", icon: Spline, label: t("toolbar.spiral") },
+	const shapeOptions: Array<{ type: ShapeType; label: string }> = [
+		{ type: "rectangle", label: t("toolbar.rectangle") },
+		{ type: "ellipse", label: t("toolbar.ellipse") },
+		{ type: "line", label: t("toolbar.line") },
+		{ type: "star", label: t("toolbar.star") },
+		{ type: "spiral", label: t("toolbar.spiral") },
 	];
 
 	return (
 		<div className="flex flex-col gap-2">
 			<div className="grid grid-cols-1">
-				{shapeOptions.map(({ type, icon: Icon, label }) => (
-					<Tooltip key={type} content={label} side={tooltipSide}>
-						<IconButton
-							$size="md"
-							$variant="ghost"
-							$pressed={snap.shapeType === type}
-							onClick={() => handleShapeTypeChange(type)}
-							$clickOnPointerUpOnly
-						>
-							<Icon size={16} />
-						</IconButton>
-					</Tooltip>
-				))}
+				{shapeOptions.map(({ type, label }) => {
+					const Icon = SHAPE_ICONS[type];
+					return (
+						<Tooltip key={type} content={label} side={tooltipSide}>
+							<IconButton
+								$size="md"
+								$variant="ghost"
+								$pressed={snap.shapeType === type}
+								onClick={() => handleShapeTypeChange(type)}
+								$clickOnPointerUpOnly
+							>
+								<Icon size={16} />
+							</IconButton>
+						</Tooltip>
+					);
+				})}
 			</div>
 		</div>
 	);
 }
+
+const SHAPE_ICONS: Record<ShapeType, typeof Square> = {
+	rectangle: Square,
+	ellipse: Circle,
+	line: Slash,
+	star: Star,
+	spiral: Spline,
+};
 
 /** Flyout for the "変形" (Transform) group: pick mesh-deform or skew. */
 function TransformSettingsPanel({

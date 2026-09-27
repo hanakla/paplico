@@ -67,6 +67,7 @@ export const defaultShortcutCommands = {
 	"paplico.tool.strokeWidthEdit": "paplico.tool.strokeWidthEdit",
 	"paplico.tool.shapeRect": "paplico.tool.shapeRect",
 	"paplico.tool.shapeEllipse": "paplico.tool.shapeEllipse",
+	"paplico.tool.shapeCycle": "paplico.tool.shapeCycle",
 	"paplico.tool.meshDeform": "paplico.tool.meshDeform",
 	"paplico.tool.skew": "paplico.tool.skew",
 	"paplico.tool.freeTransform": "paplico.tool.freeTransform",
