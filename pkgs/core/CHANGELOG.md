@@ -16,6 +16,7 @@
 - Alt+drag duplicates with the select tool and the path edit tool land right in front of the frontmost source instead of on top of the layer. `duplicateElementsByIds` stacks its copies the same way.
 - An element whose filter is applied to the backdrop now shows the backdrop in the shape its geometry filters produce. Geometry filters on its enclosing groups apply too.
 - An element with a raster filter such as blur inside a group with geometry filters is drawn in the shape the group deforms, instead of at its undeformed position.
+- Raster filters placed after a backdrop filter now reach past the element's shape. A drop shadow after frost glass is drawn, and a blur after it softens the pane's edge. They used to be cut off at the shape.
 
 ## [0.2.0] - 2026-09-27
 

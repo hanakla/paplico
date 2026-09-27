@@ -21,6 +21,7 @@ import {
 	renderWithViewport,
 } from "../../../testUtils/visualRegression";
 import type { BlurFilter } from "../BlurFilter/BlurFilter";
+import type { DropShadowFilter } from "../DropShadowFilter/DropShadowFilter";
 import type { FrostGlassFilter } from "../FrostGlassFilter/FrostGlassFilter";
 import type { HKVhsInterlaceFilter } from "../HKVhsInterlaceFilter/HKVhsInterlaceFilter";
 import type { PixelateFilter } from "../PixelateFilter/PixelateFilter";
@@ -405,6 +406,53 @@ describe("Backdrop filter with an object mask", () => {
 		).toBeGreaterThan(1);
 		expect(regionDiffPercentage(masked, unmasked, 800, ...kept)).toBe(0);
 		expect(regionDiffPercentage(masked, unfrosted, 800, ...hidden)).toBe(0);
+	});
+});
+
+describe("Raster filters after a backdrop filter", () => {
+	it("should cast the drop shadow outside the frosted pane and leave the pane itself as is", async () => {
+		const capture = await createCapture();
+		// A transparent shadow keeps the capture region the same, so only the
+		// shadow itself tells the two renders apart.
+		const unshadowed = await capture(
+			createFrostGlassThenDoc(dropShadow({ shadowOpacity: 0 })),
+		);
+		const shadowed = await capture(
+			createFrostGlassThenDoc(dropShadow({ shadowOpacity: 1 })),
+		);
+
+		// Pane covers texels [50,750]x[50,550]; the shadow falls 30 px right
+		// and down of it.
+		expect(
+			regionDiffPercentage(shadowed, unshadowed, 800, 760, 100, 775, 570),
+		).toBeGreaterThan(50);
+		expect(
+			regionDiffPercentage(shadowed, unshadowed, 800, 60, 60, 740, 540),
+		).toBe(0);
+	});
+
+	it("should soften the frosted pane's edge past its shape", async () => {
+		const capture = await createCapture();
+		const blur = (radius: number): BlurFilter => ({
+			uid: generateUid("filter"),
+			processor: "blur",
+			opacity: 1,
+			blendMode: "normal",
+			paramData: { version: "1", params: { radius } },
+		});
+		// A white bar just inside the pane's left edge gives the blur something
+		// to carry across the edge; the background around the pane is flat.
+		const sharp = await capture(
+			withLeftEdgeBar(createFrostGlassThenDoc(blur(0))),
+		);
+		const blurred = await capture(
+			withLeftEdgeBar(createFrostGlassThenDoc(blur(12))),
+		);
+
+		// The band just outside the pane's left edge.
+		expect(
+			regionDiffPercentage(blurred, sharp, 800, 40, 250, 49, 350),
+		).toBeGreaterThan(50);
 	});
 });
 
@@ -879,6 +927,85 @@ function createMovedBackdropBlurDoc({
 	doc.objects[group.id] = group;
 	layer.elementIds = [...layer.elementIds.slice(0, -1), group.id];
 	return doc;
+}
+
+/** The frost glass scene with `then` appended after the frost glass. */
+function createFrostGlassThenDoc(
+	then: NonNullable<Path["filters"]>[number] | null,
+) {
+	const frostGlass: FrostGlassFilter = {
+		uid: generateUid("filter"),
+		processor: "frost-glass",
+		opacity: 1,
+		blendMode: "normal",
+		enabled: true,
+		applyToBackdrop: true,
+		paramData: {
+			version: "1",
+			params: { radius: 8, scatter: 0, scatterGrain: 1 },
+		},
+	};
+	const doc = createBackdropEffectDoc("backdrop-frost-glass-then", frostGlass);
+	if (!then) return doc;
+	const pane = Object.values(doc.objects).find(
+		(el) =>
+			el.type === "path" &&
+			localAppearances(el.filters).some((f) => f.processor === "frost-glass"),
+	) as Path;
+	pane.filters = [...(pane.filters ?? []), then];
+	return doc;
+}
+
+function dropShadow({ shadowOpacity }: { shadowOpacity: number }) {
+	return {
+		uid: generateUid("filter"),
+		processor: "drop-shadow",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: {
+			version: "1",
+			params: {
+				offsetX: 30,
+				offsetY: -30,
+				blurRadius: 4,
+				shadowOpacity,
+				shadowColor: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+			},
+		},
+	} satisfies DropShadowFilter;
+}
+
+/** Put a white bar under the pane, inside its left edge (world x -350). */
+function withLeftEdgeBar(doc: ReturnType<typeof createDefaultDocument>) {
+	const bar = createFilledPath(rectSegments(-330, 0, 40, 200), {
+		r: 1,
+		g: 1,
+		b: 1,
+		a: 1,
+	});
+	doc.objects[bar.id] = bar;
+	// Index 1 keeps the bar above the background and below the pane.
+	doc.layers[0].elementIds.splice(1, 0, bar.id);
+	return doc;
+}
+
+/** Render a document at the identity viewport and read its pixels back. */
+async function createCapture() {
+	const { renderer, canvas } = await createTestRenderer();
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no GPU device");
+	return async (doc: ReturnType<typeof createDefaultDocument>) => {
+		const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+		const pixels = await captureTexturePixels(
+			device,
+			texture,
+			texture.width,
+			texture.height,
+		);
+		texture.destroy();
+		return pixels;
+	};
 }
 
 function createBackdropEffectDoc(

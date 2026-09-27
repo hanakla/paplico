@@ -139,6 +139,7 @@ import type { BackdropCaptureManager } from "./pipeline/BackdropCaptureManager";
 import {
 	BackdropEffectCoordinator,
 	type BackdropEffectRequest,
+	type FixedRBackdropRegion,
 } from "./pipeline/BackdropEffectCoordinator";
 import { BlurStrokeRenderer } from "./pipeline/brush/BlurStrokeRenderer";
 import {
@@ -165,6 +166,7 @@ import { DefRasterizer } from "./pipeline/defs/DefRasterizer";
 import {
 	type BackdropEffectCanvasResources,
 	type BackdropEffectDriver,
+	classifyFilterHandler,
 	type FilterGeometryContext,
 	type FilterRenderer,
 	hoistBlendInstanceAppearances,
@@ -695,8 +697,10 @@ export class CanvasLayer {
 		mergedElementsMap: Map<string, AnyArtObject>;
 		structure: FramePlanStructure;
 	} | null = null;
+	// Sized for the larger of the two blit layouts that share it: the backdrop
+	// blit's 12 floats and the pane bake's 16 (BLIT_WITH_MASK_SHADER).
 	private readonly backdropBlitPool = {
-		f32: new Float32Array(12),
+		f32: new Float32Array(16),
 		buffers: [] as GPUBuffer[],
 		index: 0,
 	};
@@ -5673,12 +5677,6 @@ export class CanvasLayer {
 
 		const { element, backdropFilters, regularFilters } = bdElem;
 
-		// Backdrop filters first, then regular post-filters
-		const allFilters =
-			regularFilters.length > 0
-				? [...backdropFilters, ...regularFilters]
-				: backdropFilters;
-
 		// The region comes off a shared fixed-R capture (one per epoch across
 		// all backdrop-filter elements); the world-snapped R grid keeps the
 		// filters (frost glass, pixelate) invariant to viewport zoom/pan. The
@@ -5704,9 +5702,16 @@ export class CanvasLayer {
 		// Fully off-screen region — nothing to filter or blit.
 		if (!captured) return;
 
+		const coordinateSpace = {
+			worldSize: { width: fullBounds.width, height: fullBounds.height },
+			sourceOffset: {
+				x: captured.actualBounds.minX - fullBounds.minX,
+				y: fullBounds.maxY - captured.actualBounds.maxY,
+			},
+		};
 		this.filterRenderer.applyFilters(
 			captured.texture,
-			allFilters,
+			backdropFilters,
 			encoder,
 			undefined,
 			rasterScale,
@@ -5714,14 +5719,32 @@ export class CanvasLayer {
 			undefined,
 			undefined,
 			captured.sampleBlur,
-			{
-				worldSize: { width: fullBounds.width, height: fullBounds.height },
-				sourceOffset: {
-					x: captured.actualBounds.minX - fullBounds.minX,
-					y: fullBounds.maxY - captured.actualBounds.maxY,
-				},
-			},
+			coordinateSpace,
 		);
+
+		const opacity = alphaMultiplier * (element.opacity ?? 1.0);
+		// Raster filters after the backdrop ones act on the element's picture and
+		// may reach past its shape, which the shape-masked blit below would cut.
+		if (
+			regularFilters.some(
+				(filter) =>
+					classifyFilterHandler(
+						this.filterRenderer.getHandler(filter.processor),
+					) === "raster",
+			)
+		) {
+			this.composeBackdropPane(
+				encoder,
+				textureView,
+				captured,
+				bdElem,
+				elementsMap,
+				opacity,
+				rasterScale,
+				coordinateSpace,
+			);
+			return;
+		}
 
 		// Step 1: Render element shape to a prebuf-sized mask texture
 		const { width: cw, height: ch } = this.viewportState;
@@ -5760,7 +5783,7 @@ export class CanvasLayer {
 		f[1] = captured.actualBounds.minY;
 		f[2] = captured.actualBounds.maxX;
 		f[3] = captured.actualBounds.maxY;
-		f[4] = alphaMultiplier * (element.opacity ?? 1.0);
+		f[4] = opacity;
 		f[5] = 0;
 		f[6] = 0;
 		f[7] = 0;
@@ -5814,6 +5837,218 @@ export class CanvasLayer {
 		blitPass.setPipeline(this.blitBackdropWithMaskPipeline);
 		blitPass.draw(6);
 		blitPass.end();
+	}
+
+	/**
+	 * Composite a backdrop element whose chain continues with raster filters
+	 * (drop shadow, blur). Those filters take the element's picture as input:
+	 * the filtered backdrop cut to the element's shape. The result replaces the
+	 * target within the shape and lays over it where the filters spread past
+	 * the shape.
+	 */
+	private composeBackdropPane(
+		encoder: GPUCommandEncoder,
+		textureView: GPUTextureView,
+		captured: FixedRBackdropRegion,
+		bdElem: BackdropElementEntry,
+		elementsMap: Map<string, AnyArtObject>,
+		opacity: number,
+		rasterScale: number,
+		coordinateSpace: {
+			worldSize: { width: number; height: number };
+			sourceOffset: { x: number; y: number };
+		},
+	): void {
+		const { element, regularFilters } = bdElem;
+		const { texture: backdrop, actualBounds } = captured;
+		const { width, height, format } = backdrop;
+		const usage =
+			GPUTextureUsage.RENDER_ATTACHMENT |
+			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.COPY_SRC |
+			GPUTextureUsage.COPY_DST;
+		const shape = this.texturePool.acquireExact(
+			width,
+			height,
+			format,
+			1,
+			usage,
+			"Backdrop Pane Shape",
+		);
+		const pane = this.texturePool.acquireExact(
+			width,
+			height,
+			format,
+			1,
+			usage,
+			"Backdrop Pane",
+		);
+
+		// The shape and the pane share the capture's texel grid, so the pane
+		// bake samples both at the same uv.
+		this.pushViewportBinding(
+			this.uniformScope.acquire(
+				{
+					x: (actualBounds.minX + actualBounds.maxX) / 2,
+					y: (actualBounds.minY + actualBounds.maxY) / 2,
+					zoom: rasterScale,
+					rotation: 0,
+				},
+				width,
+				height,
+			),
+		);
+		const shapePass = encoder.beginRenderPass({
+			label: `Backdrop Pane Shape Pass: ${element.id}`,
+			colorAttachments: [
+				{
+					view: shape.createView(),
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+			],
+		});
+		shapePass.setPipeline(this.strokePipeline);
+		shapePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
+		shapePass.setBindGroup(1, this.transformsBindGroup!);
+		shapePass.setBindGroup(2, this.dummyGradientBindGroup);
+		shapePass.setBindGroup(3, this.dummyMaskBindGroup);
+		this.elements.renderElementToMask(
+			shapePass,
+			element,
+			elementsMap,
+			geometryFilters(element, this.filterRenderer),
+		);
+		shapePass.end();
+
+		const f = this.backdropBlitPool.f32;
+		f.fill(0);
+		f[0] = actualBounds.minX;
+		f[1] = actualBounds.minY;
+		f[2] = actualBounds.maxX;
+		f[3] = actualBounds.maxY;
+		f[4] = 1;
+		f[10] = 1;
+		f[11] = 1;
+		const bufIdx = this.backdropBlitPool.index;
+		const uniformBuffer = this.acquireBackdropBlitBuffer();
+		this.device.queue.writeBuffer(uniformBuffer, 0, f);
+		const paneBindGroup = this.backdropBlitBGCache.getOrCreate(
+			bufIdx,
+			backdrop,
+			shape,
+			() =>
+				this.device.createBindGroup({
+					layout: this.blitWithMaskBindGroupLayout,
+					entries: [
+						{ binding: 0, resource: { buffer: uniformBuffer } },
+						{ binding: 1, resource: this.sampler },
+						{ binding: 2, resource: backdrop.createView() },
+						{ binding: 3, resource: shape.createView() },
+					],
+				}),
+		);
+		const panePass = encoder.beginRenderPass({
+			label: `Backdrop Pane Pass: ${element.id}`,
+			colorAttachments: [
+				{
+					view: pane.createView(),
+					clearValue: { r: 0, g: 0, b: 0, a: 0 },
+					loadOp: "clear",
+					storeOp: "store",
+				},
+			],
+		});
+		panePass.setPipeline(this.blitWithMaskPipeline);
+		panePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
+		panePass.setBindGroup(1, paneBindGroup);
+		panePass.setBindGroup(2, this.dummyMaskBindGroup);
+		panePass.draw(6);
+		panePass.end();
+		this.popViewportBinding();
+
+		this.filterRenderer.applyFilters(
+			pane,
+			regularFilters,
+			encoder,
+			undefined,
+			rasterScale,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			coordinateSpace,
+		);
+
+		// The element's masks clip the filtered picture, spread included. The
+		// shape goes through the same masks so the punch below stays in step
+		// with the color it replaces.
+		const placement = {
+			kind: "world-aabb" as const,
+			bounds: actualBounds,
+			uvRect: FULL_BLIT_UV_RECT,
+		};
+		const masks = this.resolveSubtreeMasks(element.id);
+		const maskedPane = this.offscreen.applyWorldMasksToTexture(
+			encoder,
+			createRenderSurface(
+				createFrameTextureRef(pane, () => {}),
+				placement,
+				{
+					role: "color",
+					alphaMode: "premultiplied",
+					opacityState: "intrinsic",
+				},
+			),
+			masks,
+			rasterScale,
+		);
+		const maskedShape = this.offscreen.applyWorldMasksToTexture(
+			encoder,
+			createRenderSurface(
+				createFrameTextureRef(shape, () => {}),
+				placement,
+				{
+					role: "coverage",
+					alphaMode: "scalar",
+					opacityState: "intrinsic",
+				},
+			),
+			masks,
+			rasterScale,
+		);
+		const color = maskedPane ?? { texture: { texture: pane }, placement };
+		const coverage = maskedShape?.texture.texture ?? shape;
+
+		const blitPass = encoder.beginRenderPass({
+			label: `Backdrop Pane Blit Pass: ${element.id}`,
+			colorAttachments: [
+				{ view: textureView, loadOp: "load", storeOp: "store" },
+			],
+		});
+		this.composite.punchGlassCoverage(
+			blitPass,
+			color.texture.texture,
+			coverage,
+			color.placement.bounds,
+			opacity,
+			color.placement.uvRect,
+		);
+		this.composite.blitTextureToCanvas(
+			blitPass,
+			color.texture.texture,
+			color.placement.bounds,
+			opacity,
+			color.placement.uvRect,
+			this.blitPipeline,
+		);
+		blitPass.end();
+
+		if (maskedPane) releaseRenderSurface(maskedPane);
+		if (maskedShape) releaseRenderSurface(maskedShape);
+		this.offscreen.deferDestroy(pane);
+		this.offscreen.deferDestroy(shape);
 	}
 
 	/**
@@ -7597,7 +7832,7 @@ export class CanvasLayer {
 		}
 		const buf = this.device.createBuffer({
 			label: `Backdrop Blit Uniform Buffer [pool ${this.backdropBlitPool.buffers.length}]`,
-			size: 12 * 4,
+			size: this.backdropBlitPool.f32.byteLength,
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 		});
 		this.backdropBlitPool.buffers.push(buf);
