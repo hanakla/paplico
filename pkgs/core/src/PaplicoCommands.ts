@@ -4211,8 +4211,9 @@ export class PaplicoCommands {
 
 	/**
 	 * Duplicate the given elements (and their absorbed container children) with a
-	 * direct offset. Shared by the alt-drag gesture (via ToolContext) so it goes
-	 * through the same clone / id-numbering / container-remap path as copy-paste.
+	 * direct offset, stacked right in front of the frontmost source. Shared by
+	 * the alt-drag gesture (via ToolContext) so it goes through the same clone /
+	 * id-numbering / container-remap path as copy-paste.
 	 */
 	public duplicateElementsByIds(
 		elementIds: string[],
@@ -4220,7 +4221,11 @@ export class PaplicoCommands {
 	): string[] {
 		const { artObjects } = this.collectElementsByIds(elementIds);
 		if (artObjects.length === 0) return [];
-		return this.pasteElements(artObjects, { offset });
+		return this.pasteElements(artObjects, {
+			offset,
+			placement: "front",
+			placementAnchorIds: elementIds,
+		});
 	}
 
 	/**
@@ -4455,25 +4460,26 @@ export class PaplicoCommands {
 
 	/**
 	 * Index in the container's stacking order where a paste should go: right
-	 * behind or right in front of the selected siblings, or at the container's
-	 * back / top when none of the selection lives there.
+	 * behind or right in front of the anchor siblings, or at the container's
+	 * back / top when none of the anchors lives there.
 	 */
 	private resolvePasteInsertIndex(
 		placement: "front" | "back" | undefined,
+		anchorIds: readonly string[],
 		containerId: string,
 		existingCount: number,
 	): number {
 		if (!placement) return existingCount;
 		const siblingIds = containerChildIds(this.ctx.store.document, containerId);
-		const selectedIndexes = this.ctx.store.selectedElementIds
+		const anchorIndexes = anchorIds
 			.map((id) => siblingIds.indexOf(id))
 			.filter((index) => index >= 0);
-		if (selectedIndexes.length === 0) {
+		if (anchorIndexes.length === 0) {
 			return placement === "back" ? 0 : existingCount;
 		}
 		return placement === "back"
-			? Math.min(...selectedIndexes)
-			: Math.max(...selectedIndexes) + 1;
+			? Math.min(...anchorIndexes)
+			: Math.max(...anchorIndexes) + 1;
 	}
 
 	private collectSelectedElements(): {
@@ -4642,6 +4648,8 @@ export class PaplicoCommands {
 	 *   everything when nothing is selected. `"front"` puts it right in front of
 	 *   the selected element, or on top of everything when nothing is selected.
 	 *   Omit to append on top.
+	 * @param opt.placementAnchorIds - Elements `placement` is resolved against
+	 *   instead of the selection.
 	 * @returns IDs of the newly created elements.
 	 */
 	public pasteElements(
@@ -4649,6 +4657,7 @@ export class PaplicoCommands {
 		opt?: {
 			viewport?: { x: number; y: number };
 			placement?: "front" | "back";
+			placementAnchorIds?: readonly string[];
 			offset?: { x: number; y: number };
 		},
 	): string[] {
@@ -4674,7 +4683,9 @@ export class PaplicoCommands {
 		// the paste is pulled into, otherwise the layer. Pasted elements are
 		// appended, so their indexes follow the existing ones until they are
 		// moved to the resolved insertion point.
-		const pasteGroupId = this.resolvePasteGroupId(opt?.placement);
+		const anchorIds =
+			opt?.placementAnchorIds ?? this.ctx.store.selectedElementIds;
+		const pasteGroupId = this.resolvePasteGroupId(opt?.placement, anchorIds);
 		const targetContainerId = pasteGroupId ?? this.getEditingScopeContainerId();
 		const landingContainerId = pasteGroupId ?? this.ctx.store.currentLayerId;
 		const existingCount = containerChildIds(
@@ -4683,6 +4694,7 @@ export class PaplicoCommands {
 		).length;
 		const insertAt = this.resolvePasteInsertIndex(
 			opt?.placement,
+			anchorIds,
 			landingContainerId,
 			existingCount,
 		);
@@ -4990,7 +5002,7 @@ export class PaplicoCommands {
 	}
 
 	/**
-	 * The group a paste lands in. A placed paste joins the group its selected
+	 * The group a paste lands in. A placed paste joins the group its anchor
 	 * element lives in: a member selected directly inside a group (path edit
 	 * tool) is not a layer sibling, so placing the paste beside it means
 	 * entering its group. Otherwise the editing scope's group, when one is
@@ -4998,9 +5010,10 @@ export class PaplicoCommands {
 	 */
 	private resolvePasteGroupId(
 		placement: "front" | "back" | undefined,
+		anchorIds: readonly string[],
 	): string | null {
 		if (placement) {
-			for (const id of this.ctx.store.selectedElementIds) {
+			for (const id of anchorIds) {
 				const parentGroupId = this.ctx.spatial.getParentGroupId(id);
 				if (parentGroupId) return parentGroupId;
 			}

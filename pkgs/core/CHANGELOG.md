@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- `placementAnchorIds` option of `PaplicoCommands.pasteElements`. `placement` is resolved against these elements instead of the selection.
+
+### Fixed
+
+- Alt+drag duplicates with the select tool and the path edit tool land right in front of the frontmost source instead of on top of the layer. `duplicateElementsByIds` stacks its copies the same way.
+
 ## [0.2.0] - 2026-09-27
 
 ### Added

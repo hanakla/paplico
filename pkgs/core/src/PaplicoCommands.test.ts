@@ -1409,6 +1409,25 @@ describe("PaplicoCommands", () => {
 	});
 
 	describe("duplicateElementsByIds (shared alt-drag / copy path)", () => {
+		it("stacks the copies right in front of the frontmost source, not the selection", () => {
+			const a = createPath("a");
+			const b = createPath("b");
+			const c = createPath("c");
+			const layer = createLayer("layer-1", ["a", "b", "c"]);
+			// The path edit tool keeps only one of its paths in the selection.
+			const { commands, reorderElements } = createCommands(layer, { a, b, c }, [
+				"a",
+			]);
+
+			commands.duplicateElementsByIds(["a", "b"], { x: 0, y: 0 });
+
+			const moves = reorderElements.mock.calls.map((call) => call.slice(1, 3));
+			expect(moves).toEqual([
+				[3, 2],
+				[4, 3],
+			]);
+		});
+
 		it("clones a group's children with fresh ids and re-links them", () => {
 			const child = createPath("child-1");
 			const group = {
@@ -1444,6 +1463,7 @@ describe("PaplicoCommands", () => {
 					insertElement: vi.fn(),
 					isElementLocked: () => false,
 					getAncestorTransform: () => null,
+					getParentGroupId: () => null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
 			});
@@ -1583,6 +1603,7 @@ describe("PaplicoCommands", () => {
 					insertElement: vi.fn(),
 					isElementLocked: () => false,
 					getAncestorTransform: () => null,
+					getParentGroupId: () => null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
 			});
@@ -1664,6 +1685,8 @@ describe("PaplicoCommands", () => {
 					// a layer-root element.
 					getAncestorTransform: (id: string) =>
 						id === "child-1" ? groupTransform : null,
+					getParentGroupId: (id: string) =>
+						id === "child-1" ? "group-1" : null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
 			});
