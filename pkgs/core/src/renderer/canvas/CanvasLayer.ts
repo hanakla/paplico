@@ -66,6 +66,7 @@ import {
 	transformBounds,
 } from "../../utils/geometry/geometry";
 import type { MeshWarpClipGroup } from "../../utils/geometry/meshWarp";
+import { quadOfBounds } from "../../utils/geometry/quadProjection";
 import {
 	type Affine2D,
 	applyAffineToPoint,
@@ -1315,7 +1316,13 @@ export class CanvasLayer {
 		drawRegion: BoundingBox | null,
 		filter?: ReadonlySet<string>,
 	): void {
-		const filterPlanIds = new Set(framePlan.filterPlans.keys());
+		// An underlay plan leaves the element on its ordinary draw route, so it
+		// neither isolates a group nor turns the element into a texture blit.
+		const filterPlanIds = new Set(
+			[...framePlan.filterPlans.values()]
+				.filter((plan) => !plan.underlay)
+				.map((plan) => plan.elementId),
+		);
 		framePlan.groupCompositionPlans.clear();
 		for (const element of elementsMap.values()) {
 			if (!isGroup(element)) continue;
@@ -4161,6 +4168,45 @@ export class CanvasLayer {
 			if (!rendersOwnSource && !offscreenResult) continue;
 			if (!this.filterRenderer) continue;
 
+			// The bake only supplies the silhouette here: the element itself is
+			// drawn by the main pass, over what this chain builds from it.
+			const underlay =
+				fp.underlay && offscreenResult
+					? this.buildFilterUnderlay(
+							encoder,
+							fp.postFilters[0],
+							offscreenResult,
+							cacheContentHash ?? "",
+						)
+					: null;
+			if (underlay && offscreenResult) {
+				if (
+					cacheHash != null &&
+					cacheContentHash != null &&
+					cacheDeps != null
+				) {
+					this.storeFilteredElementBake(
+						encoder,
+						element.id,
+						cacheHash,
+						cacheContentHash,
+						cacheDensity,
+						cacheDeps,
+						underlay.texture.texture,
+						underlay.placement.bounds,
+						underlay.placement.uvRect,
+					);
+				}
+				filteredTextures.set(element.id, {
+					source: offscreenResult,
+					output: underlay,
+					elementBounds: fp.bounds,
+					textureBounds: fp.textureBounds,
+					underlay: true,
+				});
+				continue;
+			}
+
 			// Geometry filters build + bake their own solid inside postProcess;
 			// give them the element/scene access and appearance scope they need.
 			const geometry: FilterGeometryContext | undefined = rendersOwnSource
@@ -4275,12 +4321,15 @@ export class CanvasLayer {
 					offscreenResult!.placement.uvRect;
 			// Self-sized override layers (extrude) never reach here with a
 			// cacheHash (rendersOwnSource is excluded), so a plain chain result
-			// is the only thing ever stored.
+			// is the only thing ever stored. An underlay plan whose handler
+			// declined also lands here; a cache hit would read its full bake
+			// back as an underlay, so it stays frame-local.
 			if (
 				cacheHash != null &&
 				cacheContentHash != null &&
 				cacheDeps != null &&
-				!overrides
+				!overrides &&
+				!fp.underlay
 			) {
 				this.storeFilteredElementBake(
 					encoder,
@@ -4328,6 +4377,44 @@ export class CanvasLayer {
 				overrideLayers: overrides,
 			});
 		}
+	}
+
+	/**
+	 * Run `filter` on the alpha of `coverage` alone and return what it adds
+	 * beneath the element, or null when its handler cannot build one this
+	 * frame. The returned texture is released with the frame.
+	 */
+	private buildFilterUnderlay(
+		encoder: GPUCommandEncoder,
+		filter: Filter,
+		coverage: RasterizedRenderSurface,
+		coverageHash: string,
+	): RenderSurface | null {
+		const result = this.filterRenderer
+			.getHandler(filter.processor)
+			?.postProcessUnderlay?.(
+				{
+					device: this.device,
+					commandEncoder: encoder,
+					coverage: {
+						texture: coverage.texture.texture,
+						uvRect: coverage.placement.uvRect,
+						quad: quadOfBounds(coverage.placement.bounds),
+					},
+					rasterScale: coverage.effectiveZoom,
+					coverageHash,
+					profiler: this.activeProfiler,
+				},
+				filter,
+			);
+		if (!result) return null;
+		return createRenderSurface(
+			createFrameTextureRef(result.texture.texture, (texture) =>
+				this.offscreen.deferDestroy(texture),
+			),
+			{ kind: "world-aabb", bounds: result.bounds, uvRect: result.uvRect },
+			{ role: "color", alphaMode: "premultiplied", opacityState: "intrinsic" },
+		);
 	}
 
 	/** A cacheable bake covers the full textureBounds; refuse when that would
@@ -4387,7 +4474,7 @@ export class CanvasLayer {
 		const tb = fp.textureBounds;
 		return `${Math.round(tb.minX)},${Math.round(tb.minY)},${Math.round(
 			tb.width,
-		)}x${Math.round(tb.height)}:${JSON.stringify(fp.postFilters)}:${paintHash}`;
+		)}x${Math.round(tb.height)}:${fp.underlay ? "underlay" : "bake"}:${JSON.stringify(fp.postFilters)}:${paintHash}`;
 	}
 
 	/** Copy a just-produced filter result into a cache-owned texture. The copy
@@ -6362,6 +6449,26 @@ export class CanvasLayer {
 				);
 				activePass = compositeContext.restartPass();
 				filteredData = filteredTextures.get(element.id);
+			}
+			// An underlay goes down first. The element then takes the route it
+			// would take unfiltered, so its children composite against the
+			// document and the underlay.
+			if (filteredData?.underlay) {
+				ribbons?.flush();
+				this.composite.blitTextureToCanvas(
+					activePass,
+					filteredData.output.texture.texture,
+					filteredData.output.placement.bounds,
+					effectiveAlpha,
+					filteredData.output.placement.uvRect,
+					this.blitPipeline,
+				);
+				activePass.setPipeline(this.strokePipeline);
+				activePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
+				activePass.setBindGroup(1, this.transformsBindGroup!);
+				activePass.setBindGroup(2, this.dummyGradientBindGroup);
+				activePass.setBindGroup(3, this.renderState.currentMaskBindGroup);
+				filteredData = undefined;
 			}
 			const blendMode = element.blendMode ?? "normal";
 			const compositionMode = element.compositionMode ?? "normal";
@@ -8576,6 +8683,7 @@ function buildCachedFilteredTextureInfo(
 		output: createRenderSurface(ref, placement, semantics),
 		elementBounds: fp.bounds,
 		textureBounds: fp.textureBounds,
+		...(fp.underlay ? { underlay: true as const } : {}),
 	};
 }
 

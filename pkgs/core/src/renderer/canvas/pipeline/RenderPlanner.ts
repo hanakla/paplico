@@ -79,6 +79,11 @@ export interface ElementFilterPlan {
 	/** When present, ALL appearances must be rendered individually in order,
 	 *  which keeps the draw order correct when any appearance has subFilters. */
 	allAppearancePlans?: AppearancePlan[];
+	/** The chain yields only the filter's own contribution (a drop shadow),
+	 *  drawn beneath the element. The element then draws as if unfiltered, so
+	 *  a group's children composite against the document and that shadow
+	 *  rather than inside an isolated bake. */
+	underlay?: true;
 }
 
 /** Describes a single appearance (fill/stroke) to render individually.
@@ -649,6 +654,10 @@ function classifyElementFilters(
 			postFilters,
 			textureBounds: finalTextureBounds,
 			allAppearancePlans,
+			...(allAppearancePlans == null &&
+			drawsFilterBeneath(element, postFilters, filterHandlers)
+				? { underlay: true as const }
+				: {}),
 		},
 		backdropEntry: null,
 	};
@@ -969,13 +978,14 @@ function collectPlanCandidates(
 		if (backdropEntry) continue;
 
 		// Recurse into group children for individual element filters.
-		// Skip recursion only when the group itself has a filterPlan (offscreen
-		// rendering) — in that case renderGroupToTexture handles child filters.
+		// Skip recursion only when the group itself is drawn from its bake —
+		// in that case renderGroupToTexture handles child filters. An underlay
+		// plan leaves the children on the main pass, so they keep their plans.
 		// A child inside the viewport implies its group intersects too (group
 		// bounds contain the children), so classifying every child here and
 		// culling per candidate in buildFramePlanView matches the previous
 		// cull-before-recurse behaviour.
-		if (isGroup(element) && !filterPlan) {
+		if (isGroup(element) && (!filterPlan || filterPlan.underlay)) {
 			const childElements = element.childIds
 				.map((id) => elementsMap.get(id))
 				.filter((el): el is AnyArtObject => el !== undefined);
@@ -1299,4 +1309,32 @@ function washInfoOf(filter: Filter): {
 		brushSize: readStoredBrushSize(settings) ?? 0,
 		wetEdge: requirements.wetEdge,
 	};
+}
+
+/**
+ * Whether the element's filter chain can be drawn beneath it instead of
+ * replacing it with a bake: a group whose only raster filter builds itself
+ * from coverage alone. Anything that composites the group as one layer (its
+ * own blend mode, opacity, clip or mask) needs the bake regardless.
+ */
+function drawsFilterBeneath(
+	element: AnyArtObject,
+	postFilters: readonly Filter[],
+	filterHandlers: ReadonlyMap<string, FilterHandler>,
+): boolean {
+	if (!isGroup(element) || postFilters.length !== 1) return false;
+	if (!filterHandlers.get(postFilters[0].processor)?.postProcessUnderlay) {
+		return false;
+	}
+	const hasOwnMask =
+		element.mask != null &&
+		element.mask.enabled !== false &&
+		element.mask.elementIds.length > 0;
+	return (
+		(element.blendMode ?? "normal") === "normal" &&
+		(element.compositionMode ?? "normal") === "normal" &&
+		(element.opacity ?? 1) === 1 &&
+		element.clipPathId == null &&
+		!hasOwnMask
+	);
 }

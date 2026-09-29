@@ -1247,7 +1247,9 @@ export class OffscreenPresenter {
 		const childElements = group.childIds
 			.filter((id) => id !== group.clipPathId)
 			.map((id) => elementsMap.get(id))
-			.filter((el): el is AnyArtObject => el !== undefined);
+			.filter(
+				(el): el is AnyArtObject => el !== undefined && el.visible !== false,
+			);
 
 		// Group-level pre-filters deform every child at render time; extract
 		// them up front so pre-rasterized children keep the deformation too.
@@ -2135,6 +2137,7 @@ export class OffscreenPresenter {
 		// return value is used for the following iterations.
 		let activePass = passEncoder;
 		for (const child of children) {
+			if (child.visible === false) continue;
 			this.deps.renderState.currentMaskBindGroup =
 				this.deps.getElementMaskBindGroup(child.id);
 			// Set transform index so the GPU shader applies the correct child transform

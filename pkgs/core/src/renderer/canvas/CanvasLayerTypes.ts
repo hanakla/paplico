@@ -230,6 +230,10 @@ export interface FilteredTextureInfo {
 	 *  their own bounds/quad instead of the single filteredTexture. When set,
 	 *  the main pass blits each layer in order and skips the normal blit. */
 	overrideLayers?: BlitLayer[];
+	/** `output` holds only what the filter adds beneath the element (see
+	 *  ElementFilterPlan.underlay): it is blitted first and the element then
+	 *  draws through its ordinary route. */
+	underlay?: true;
 }
 
 // ---------------------------------------------------------------------------

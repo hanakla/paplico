@@ -135,6 +135,7 @@ export class RenderCacheManager {
 		for (const scope of this.scopes.values()) {
 			scope.appearance.flushPendingDestroy();
 			scope.filteredElement.flushPendingDestroy();
+			scope.gradient.flushPendingDestroy();
 		}
 	}
 

@@ -222,7 +222,8 @@ export interface UnderlayProcessorContext {
 	 *  rasterization scale, not the viewport zoom). */
 	rasterScale: number;
 	/** Engine appearance cache pre-bound to the element being filtered. The
-	 *  handler owns the entry's payload and its destroy(). */
+	 *  handler owns the entry's payload and its destroy(). Without it nothing
+	 *  is cached and the returned texture is the caller's to destroy. */
 	appearanceCache?: {
 		get(appearanceUid: string): AppearanceCacheEntry | undefined;
 		set(appearanceUid: string, entry: AppearanceCacheEntry): void;
@@ -237,8 +238,9 @@ export interface UnderlayProcessorContext {
 
 /**
  * A self-sized underlay: the filter's own contribution, to be drawn UNDER the
- * element's pixels at `bounds`. The texture belongs to the appearance cache
- * (borrowed ref), so frame-end texture sweeps must leave it alone.
+ * element's pixels at `bounds`. When the context carried an appearance cache
+ * the texture belongs to it (borrowed ref), so frame-end texture sweeps must
+ * leave it alone.
  */
 export interface UnderlayResult {
 	texture: TextureRef;

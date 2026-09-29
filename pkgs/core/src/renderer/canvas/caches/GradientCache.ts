@@ -21,24 +21,26 @@ interface GradientCacheEntry {
  */
 export class GradientCache {
 	private cache = new Map<string, GradientCacheEntry>();
+	private pendingDestroy: GradientCacheEntry[] = [];
 
 	public get(key: string): GradientCacheEntry | undefined {
 		return this.cache.get(key);
 	}
 
 	public set(key: string, entry: GradientCacheEntry): void {
-		this.destroyEntry(this.cache.get(key));
+		this.deferDestroy(this.cache.get(key));
 		this.cache.set(key, entry);
 	}
 
 	public delete(key: string): void {
-		this.destroyEntry(this.cache.get(key));
+		this.deferDestroy(this.cache.get(key));
 		this.cache.delete(key);
 	}
 
 	public clear(): void {
-		for (const entry of this.cache.values()) this.destroyEntry(entry);
+		for (const entry of this.cache.values()) this.deferDestroy(entry);
 		this.cache.clear();
+		this.flushPendingDestroy();
 	}
 
 	public deleteMany(ids: readonly string[]): void {
@@ -49,10 +51,24 @@ export class GradientCache {
 		return this.cache.keys();
 	}
 
-	private destroyEntry(entry: GradientCacheEntry | undefined): void {
+	/**
+	 * Destroy the buffers of entries replaced or dropped by set/delete. Must be
+	 * called once per frame AFTER the previous frame's queue.submit() has
+	 * completed. One element can be drawn twice in a frame at different
+	 * scales (a bake and the main pass), and the second draw replaces the
+	 * entry the first one is already encoded against.
+	 */
+	public flushPendingDestroy(): void {
+		for (const entry of this.pendingDestroy) {
+			entry.uniformBuffer.destroy();
+			entry.stopsBuffer.destroy();
+		}
+		this.pendingDestroy.length = 0;
+	}
+
+	private deferDestroy(entry: GradientCacheEntry | undefined): void {
 		if (!entry) return;
-		entry.uniformBuffer.destroy();
-		entry.stopsBuffer.destroy();
+		this.pendingDestroy.push(entry);
 	}
 }
 
