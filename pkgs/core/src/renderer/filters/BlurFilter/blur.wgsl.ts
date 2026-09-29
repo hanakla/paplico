@@ -75,3 +75,55 @@ export const BLUR_SHADER = /* wgsl */ `
 		return colorSum / totalWeight;
 	}
 `;
+
+/**
+ * Wide-radius blur resolve.
+ *
+ * Reads the two levels of a calibrated Gaussian blur pyramid (BlurPyramid)
+ * that bracket the blur's sigma and lerps them with the variance-space mix
+ * factor. Cost is flat in the radius, where BLUR_SHADER grows 2·radius+1
+ * taps per axis; the processor routes radii past PYRAMID_BLUR_MIN_RADIUS
+ * here.
+ */
+export const BLUR_PYRAMID_RESOLVE_SHADER = /* wgsl */ `
+	struct Uniforms {
+		// x: variance-calibrated lerp between the lo and hi levels.
+		control: vec4f,
+		// Used-area sampling ctl per level: xy = used/quantized uv scale,
+		// zw = half texel of the used region (clamp margin).
+		loCtl: vec4f,
+		hiCtl: vec4f,
+	}
+
+	@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+	@group(0) @binding(1) var samp: sampler;
+	@group(0) @binding(2) var loTexture: texture_2d<f32>;
+	@group(0) @binding(3) var hiTexture: texture_2d<f32>;
+
+	struct VertexOutput {
+		@builtin(position) position: vec4f,
+		@location(0) texCoord: vec2f,
+	}
+
+	@vertex
+	fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+		var output: VertexOutput;
+		let x = f32((vertexIndex & 1u) << 1u);
+		let y = f32(vertexIndex & 2u);
+		output.position = vec4f(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+		output.texCoord = vec2f(x, y);
+		return output;
+	}
+
+	fn sampleLevel(tex: texture_2d<f32>, ctl: vec4f, regionUv: vec2f) -> vec4f {
+		let clamped = clamp(regionUv, ctl.zw, vec2f(1.0) - ctl.zw);
+		return textureSampleLevel(tex, samp, clamped * ctl.xy, 0.0);
+	}
+
+	@fragment
+	fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+		let lo = sampleLevel(loTexture, uniforms.loCtl, input.texCoord);
+		let hi = sampleLevel(hiTexture, uniforms.hiCtl, input.texCoord);
+		return mix(lo, hi, uniforms.control.x);
+	}
+`;

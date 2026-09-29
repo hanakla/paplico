@@ -21,10 +21,12 @@
 - `TimelapsePlayer` hands out `TimelapseFrame`, the replayed document together with the elements that changed since the frame before it. `onFrame`, `advanceBy` and `restart` pass it instead of a bare `Document`. `TimelapsePreviewSurface.render` and `renderToImageData` take it in place of the document.
 - `paplico.tool.shapeRect` no longer has a default key. M is bound to `paplico.tool.shapeCycle` instead.
 - An eyedropper click picks on release instead of on press, so it can be told apart from a long press.
+- A blur whose radius reaches 8 texels at the document's rasterization DPI is computed through the same blur pyramid the drop shadow uses, so its cost no longer grows with the radius. A radius of 72 on a 300 DPI document used to read about 300 texels per pixel and pass.
 - Every long press in the tools takes 400ms. The mesh deform tool, the eyedropper and the pen's color pick used to wait 500ms, while the path edit tool waited 400ms.
 
 ### Fixed
 
+- An element with a raster filter inside a group keeps its filtered bake across frames, the way a top-level element does. Its filter chain used to run again on every pan frame and on every frame of a pen stroke drawn anywhere in the document.
 - A text keeps its measured layout bounds through a move or a transform edit. They used to fall back to the estimate, which shifted the selection frame, and a rotation typed into the ActionsPanel left the frame where the text no longer was.
 - `ungroupElements` and `extractChildFromGroup` keep the children where they were drawn. The group's transform, and for an extracted child every ancestor's, moves into each child. The children used to lose the rotation, skew or offset of the group they left.
 - Undoing the deletion of an element whose fields were changed in the same undo step now sends those fields to collaborators and the timelapse recording. They used to lose them, which left the restored element unreadable. yjs is upgraded to 13.6.33 for this.

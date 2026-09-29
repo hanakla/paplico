@@ -4074,13 +4074,16 @@ export class CanvasLayer {
 			// the full textureBounds (viewport-independent) so pans hit without
 			// re-running the chain. Backdrop-reading chains depend on what is
 			// behind the element and stay frame-local, as do preview-overridden
-			// elements and bakes past the full-bake budget.
+			// elements and bakes past the full-bake budget. Only the frame's own
+			// plan for the element is cacheable: a group child baked on its
+			// first draw hands that plan back in, while mask content is baked
+			// from a plan built in its owner's space under the same id.
 			let cacheHash: string | null = null;
 			let cacheContentHash: string | null = null;
 			let cacheDeps: ReadonlySet<string> | null = null;
 			if (
 				this.filterCacheFrame != null &&
-				selectedPlans === undefined &&
+				this.activeFramePlan?.filterPlans.get(element.id) === fp &&
 				!rendersOwnSource &&
 				!this.filterCacheFrame.blockedIds.has(element.id) &&
 				!fp.postFilters.some(

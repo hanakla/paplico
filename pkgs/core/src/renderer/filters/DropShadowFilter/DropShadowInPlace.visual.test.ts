@@ -4,11 +4,11 @@ import {
 	captureTexturePixels,
 	ensureWebGPUGlobals,
 } from "../../../testUtils/visualRegression";
+import { PYRAMID_BLUR_MIN_RADIUS } from "../../canvas/pipeline/BlurPyramid";
 import type { FilterProcessorContext } from "../../canvas/pipeline/FilterRenderer";
 import {
 	type DropShadowFilter,
 	DropShadowFilterHandler,
-	PYRAMID_BLUR_MIN_RADIUS,
 } from "./DropShadowFilter";
 
 /** Side of the square texture every case filters. */

@@ -8,6 +8,7 @@ import {
 	AppearanceCache,
 	type AppearanceCacheEntry,
 } from "../../canvas/caches/AppearanceCache";
+import { PYRAMID_BLUR_MIN_RADIUS } from "../../canvas/pipeline/BlurPyramid";
 import type {
 	UnderlayProcessorContext,
 	UnderlayResult,
@@ -15,7 +16,6 @@ import type {
 import {
 	type DropShadowFilter,
 	DropShadowFilterHandler,
-	PYRAMID_BLUR_MIN_RADIUS,
 } from "./DropShadowFilter";
 
 /** World size of the square coverage mask every case starts from. */

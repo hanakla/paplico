@@ -141,7 +141,7 @@ describe("render perf baseline", () => {
 		expect(blitMs.length).toBe(MEASURE_FRAMES);
 	}, 120_000);
 
-	it("measures blur cost scaling over radius (direct kernel check)", async () => {
+	it("measures blur cost scaling over radius (pyramid crossover check)", async () => {
 		const { renderer } = await createTestRenderer();
 		const forceRerun: ChangedElements = {
 			upserted: new Set([BLURRED_ID]),

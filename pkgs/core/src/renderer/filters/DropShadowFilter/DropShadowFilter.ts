@@ -34,6 +34,7 @@ import {
 	BlurPyramidBuilder,
 	type BlurTextureCtl,
 	blurTextureCtl,
+	PYRAMID_BLUR_MIN_RADIUS,
 	requiredPyramidLevels,
 	selectPyramidLevels,
 } from "../../canvas/pipeline/BlurPyramid";
@@ -74,15 +75,6 @@ export interface DropShadowFilter extends Appearance<DropShadowParams> {
 
 /** Sizes the original-copy cache may hold at once (LRU-ish FIFO beyond it). */
 const MAX_ORIGINAL_COPY_SIZES = 8;
-
-/**
- * Blur radii (in texels) at or above which the shadow resolves through the
- * blur pyramid. The direct kernel costs 2·radius+1 taps per axis, so at the
- * document rasterization scales real drop shadows run at it reaches triple
- * digits; the pyramid's cost is flat in the radius. Below this the direct
- * kernel is both cheaper (no extra render targets) and exact.
- */
-export const PYRAMID_BLUR_MIN_RADIUS = 8;
 
 /** Longest allowed side of a self-sized underlay texture, in texels. */
 const MAX_UNDERLAY_TEXTURE_SIDE = 4096;

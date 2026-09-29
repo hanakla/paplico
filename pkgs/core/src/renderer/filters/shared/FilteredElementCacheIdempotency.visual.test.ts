@@ -84,6 +84,51 @@ describe("filtered-element cache idempotency", () => {
 		expect(countDifferingPixels(hitPixels, missPixels)).toBe(0);
 	}, 240_000);
 
+	it("should reuse a group child's bake on a pan frame and match a forced re-render", async () => {
+		// A group child is baked on its first draw, from inside the group's
+		// walk, and must join the cache the same way a top-level element does.
+		const doc = createGroupedBlurDocument(0);
+		const { renderer } = await createTestRenderer();
+		const device = renderer.getDevice();
+		if (!device) throw new Error("no GPU device");
+
+		const cacheStores = trackCacheTextureCreations(device);
+		const base: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+		for (let i = 0; i < 3; i++) {
+			(await renderFrame(renderer, doc, base, UNCHANGED)).destroy();
+		}
+
+		const panned: Viewport = { x: 30, y: 20, zoom: 1, rotation: 0 };
+		cacheStores.count = 0;
+		const hitTexture = await renderFrame(renderer, doc, panned, UNCHANGED);
+		const hitStores = cacheStores.count;
+		const hitPixels = await captureTexturePixels(
+			device,
+			hitTexture,
+			CANVAS_WIDTH,
+			CANVAS_HEIGHT,
+		);
+		hitTexture.destroy();
+
+		cacheStores.count = 0;
+		const missTexture = await renderFrame(renderer, doc, panned, {
+			upserted: new Set([BLURRED_ID]),
+			deleted: new Set(),
+		});
+		const missStores = cacheStores.count;
+		const missPixels = await captureTexturePixels(
+			device,
+			missTexture,
+			CANVAS_WIDTH,
+			CANVAS_HEIGHT,
+		);
+		missTexture.destroy();
+
+		expect(hitStores).toBe(0);
+		expect(missStores).toBeGreaterThan(0);
+		expect(countDifferingPixels(hitPixels, missPixels)).toBe(0);
+	}, 240_000);
+
 	it("should not keep a filtered child at its old position when an ancestor group moves", async () => {
 		// Moving a group reports only the group id in changedElements, while the
 		// filtered child's cached bake carries its own world rect — without

@@ -42,6 +42,15 @@ export const PYRAMID_PASS_SIGMA = 2.0;
  *  only ever needs 6 levels. */
 export const MAX_PYRAMID_LEVELS = 7;
 export const PYRAMID_KERNEL_RADIUS = Math.ceil(PYRAMID_PASS_SIGMA * 3);
+/**
+ * Blur radii (in texels) at or above which a Gaussian filter resolves through
+ * the pyramid instead of its direct kernel. The direct kernel costs 2·radius+1
+ * taps per axis, so at the document rasterization scales real blurs and drop
+ * shadows run at it reaches triple digits; the pyramid's cost is flat in the
+ * radius. Below this the direct kernel is both cheaper (no extra render
+ * targets) and exact.
+ */
+export const PYRAMID_BLUR_MIN_RADIUS = 8;
 
 /**
  * Cumulative effective blur variance at pyramid level k (in level-0 texels²).
