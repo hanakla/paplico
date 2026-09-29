@@ -1493,6 +1493,43 @@ describe("MeshDeformTool", () => {
 		});
 	});
 
+	describe("locked elements", () => {
+		const createGroupContext = (lockedId: string) => {
+			const path = createSquarePath("p1");
+			const group = {
+				id: "g1",
+				type: "group",
+				childIds: ["p1"],
+			} as unknown as AnyArtObject;
+			const reg = createElementRegistry([path, group]);
+			return createMockToolContext({
+				getSelectedElementIds: vi.fn(() => ["g1"]),
+				getElement: vi.fn((id) => reg.getElement(id)),
+				getBounds: vi.fn((id) => reg.getBounds(id)),
+				getCurrentLayerId: vi.fn(() => "layer-1"),
+				isElementLocked: vi.fn((id) => id === lockedId),
+			});
+		};
+
+		it("should place a handle on a group whose child is locked", () => {
+			const ctx = createGroupContext("p1");
+			const tool = new MeshDeformTool(ctx);
+
+			addHandle(tool, 50, 50);
+
+			expect(getHandles(ctx)).toHaveLength(1);
+		});
+
+		it("should not place a handle when the selected group is locked", () => {
+			const ctx = createGroupContext("g1");
+			const tool = new MeshDeformTool(ctx);
+
+			addHandle(tool, 50, 50);
+
+			expect(getHandles(ctx)).toHaveLength(0);
+		});
+	});
+
 	describe("投げ縄選択", () => {
 		let tool: MeshDeformTool;
 		let ctx: MockToolContext;

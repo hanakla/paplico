@@ -136,6 +136,58 @@ describe("Lock system integration", () => {
 		});
 	});
 
+	describe("visibility", () => {
+		it("should toggle visibility of a locked element", () => {
+			const layer = makeLayer({ id: "l1", elementIds: ["e1"] });
+			const { commands, yjsProvider } = createCommands(layer, {
+				e1: makePath("e1", true),
+			});
+
+			commands.toggleElementVisibility("l1", "e1");
+			expect(yjsProvider.updateElement.mock.calls[0][2]).toEqual({
+				visible: false,
+			});
+		});
+
+		it("should toggle visibility of an element under a locked group and layer", () => {
+			const layer = makeLayer({ id: "l1", locked: true, elementIds: ["g1"] });
+			const { commands, yjsProvider } = createCommands(
+				layer,
+				{ g1: makeGroup("g1", true), e1: makePath("e1") },
+				{ parentGroupMap: new Map([["e1", "g1"]]) },
+			);
+
+			commands.toggleElementVisibility("l1", "e1");
+			expect(yjsProvider.updateElement.mock.calls[0][1]).toBe("e1");
+			expect(yjsProvider.updateElement.mock.calls[0][2]).toEqual({
+				visible: false,
+			});
+		});
+
+		it("should write the given visibility to a locked element", () => {
+			const layer = makeLayer({ id: "l1", elementIds: ["e1"] });
+			const { commands, yjsProvider } = createCommands(layer, {
+				e1: makePath("e1", true),
+			});
+
+			commands.setElementVisibility("l1", "e1", true);
+			expect(yjsProvider.updateElement.mock.calls[0][2]).toEqual({
+				visible: true,
+			});
+		});
+
+		it("should toggle visibility of a locked layer", () => {
+			const layer = makeLayer({ id: "l1", locked: true, elementIds: [] });
+			const { commands, yjsProvider } = createCommands(layer, {});
+
+			commands.toggleLayerVisibility("l1");
+			expect(yjsProvider.updateLayerAttributes.mock.calls[0]).toEqual([
+				"l1",
+				{ visible: false },
+			]);
+		});
+	});
+
 	describe("toggleLayerLock", () => {
 		it("should toggle lock on a locked layer (unlock)", () => {
 			const layer = makeLayer({

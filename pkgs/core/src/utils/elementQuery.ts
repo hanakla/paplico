@@ -106,6 +106,10 @@ export function strokeOuterReach(width: number, align: StrokeAlign): number {
  * 1. The element's own `locked` property
  * 2. Any ancestor group's `locked` property (walking up parentGroupMap)
  * 3. The containing layer's `locked` property
+ *
+ * This answers whether the element may be the target of an operation. Ask it
+ * once, about the target; a write the operation makes to the target's content
+ * is not asked again, so a locked child follows what is done to its parent.
  */
 export function isEffectivelyLocked(
 	elementId: string,

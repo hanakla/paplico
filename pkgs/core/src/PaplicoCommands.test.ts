@@ -2101,6 +2101,81 @@ describe("PaplicoCommands", () => {
 		});
 	});
 
+	describe("moveElements", () => {
+		it("should carry a blend's locked source along with the blend", () => {
+			const { provider, store, commands, sync } = createProviderCommands({
+				isElementLocked: (id: string) => id === "s0",
+			});
+			for (const id of ["s0", "s1"]) {
+				provider.addElement("layer", createPath(id));
+			}
+			provider.createBlend("layer", {
+				id: "blend-1",
+				type: "blend",
+				objectIds: ["s0", "s1"],
+				spacing: { type: "steps", count: 3 },
+				placementEasing: { type: "linear" },
+				appearanceEasing: { type: "linear" },
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			} as unknown as BlendObject);
+			sync();
+
+			commands.moveElements(
+				[{ layerId: "layer", elementId: "blend-1" }],
+				50,
+				-20,
+			);
+			sync();
+
+			for (const id of ["s0", "s1"]) {
+				const moved = getTransform(store.document.objects[id]!);
+				expect(moved.x).toBeCloseTo(50);
+				expect(moved.y).toBeCloseTo(-20);
+			}
+		});
+
+		it("should carry a text's locked axis path along with the text", () => {
+			const path = createPathAt("axis", 0, 0, 100, 100);
+			const text = createTestTextElement("hi", {
+				id: "text",
+				axisBinding: {
+					mode: "onPath",
+					pathObjectId: path.id,
+					startOffset: 0,
+					alignment: "left",
+					offsetDistance: 0,
+					orientation: "rotate",
+				},
+			});
+			const layer = createLayer("l1", [path.id, text.id]);
+			const { commands, store } = createRotateCommands(
+				layer,
+				{ [path.id]: path, [text.id]: text },
+				{ isElementLocked: (id: string) => id === path.id },
+			);
+
+			commands.moveElements([{ layerId: layer.id, elementId: text.id }], 30, 0);
+
+			expect(getTransform(store.document.objects[path.id]!).x).toBeCloseTo(30);
+		});
+
+		it("should leave a locked element where it is", () => {
+			const path = createPathAt("p1", 0, 0, 100, 100);
+			const layer = createLayer("l1", [path.id]);
+			const { commands, batchUpdateElements } = createRotateCommands(
+				layer,
+				{ [path.id]: path },
+				{ isElementLocked: () => true },
+			);
+
+			commands.moveElements([{ layerId: layer.id, elementId: path.id }], 30, 0);
+
+			expect(batchUpdateElements).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("rotateElements", () => {
 		it("should turn a child of a mirrored container the way the pointer turns", () => {
 			const path = createPathAt("p1", 0, 0, 100, 100);
@@ -4194,6 +4269,40 @@ describe("computePerspectiveWarpUpdates (vertex bake)", () => {
 		expect(patch.segments.length).toBeLessThanOrEqual(8);
 		// The warp is baked into the local geometry.
 		expect(patch.transform).toBeUndefined();
+	});
+
+	it("should warp a locked child of a warped group", () => {
+		const childA = createPathAt("a", 0, 0, 50, 100);
+		const childB = createPathAt("b", 50, 0, 100, 100);
+		const group = createGroup("g1", [childA.id, childB.id]);
+		const layer = createLayer("layer-1", [group.id]);
+		const { commands } = createRotateCommands(
+			layer,
+			{ [group.id]: group, [childA.id]: childA, [childB.id]: childB },
+			{ isElementLocked: (id: string) => id === childA.id },
+		);
+
+		const updates = commands.computePerspectiveWarpUpdates(
+			[group.id],
+			TARGET,
+			SOURCE,
+		);
+
+		expect(updates.map((u) => u.elementId)).toEqual([childA.id, childB.id]);
+	});
+
+	it("should leave a locked element out of the warp", () => {
+		const path = createPathAt("path-1", 0, 0, 100, 100);
+		const layer = createLayer("layer-1", [path.id]);
+		const { commands } = createRotateCommands(
+			layer,
+			{ [path.id]: path },
+			{ isElementLocked: () => true },
+		);
+
+		expect(
+			commands.computePerspectiveWarpUpdates([path.id], TARGET, SOURCE),
+		).toEqual([]);
 	});
 
 	it("should scale stroke widths by the warp's uniform area scale", () => {

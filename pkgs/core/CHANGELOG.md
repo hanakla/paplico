@@ -10,9 +10,13 @@
 - `paplico.tool.shapeCycle` shortcut command, bound to M by default. Each press while the shape tool is active switches to the next shape type. Pressing it from any other tool starts the shape tool at the rectangle.
 - A long press or a right click with the eyedropper lists every element painted at that point, front to back, in `toolSession` as `type: "eyedropper-candidates"`. Groups and compound paths are listed when they carry their own appearance. `Paplico.eyedropperPickCandidate` applies the chosen one. A lone candidate is listed too.
 - A long press on a point's center handle in the stroke width edit tool deletes the point on release. It works for both the width and the erasure profile. A ring appears once the press is long enough.
+- `PaplicoCommands.setElementVisibility(layerId, elementId, visible)` shows or hides an element by an absolute value. A lock does not hold it back.
+- `PaplicoCommands.moveElements(elements, deltaX, deltaY)` moves elements by a world delta in one undo step. A locked element is skipped, while what a moved element carries along follows it. The select tool's drag and nudge go through it.
+- `PaplicoCommands.writeElement(layerId, elementId, updates)` writes to an element without asking its lock, for an operation whose target was already checked. The tools' deformation commit goes through it.
 
 ### Changed
 
+- A locked element or layer can be shown and hidden. `PaplicoCommands.toggleElementVisibility` and `toggleLayerVisibility` no longer stop at a lock on the element, on a group around it or on its layer. A readonly room still blocks them.
 - The selection frame of a lone rotated or skewed element tilts with the element. Its handles sit on the element's own box, the rotation handle stands above it along the element's up axis, the resize cursors follow the frame's axes, and a resize drag maps the box along those axes, with the aspect lock and the centre anchor working in them. Snapping applies to world-axis frames only. Any other selection keeps a world-axis frame around its elements.
 - `PaplicoCommands.resizeElements(ids, frame, newBounds, flip)` takes the selection frame and maps its box onto `newBounds` in the frame's space. Each element takes that map in its own space: a rotated path keeps its rotation and bakes the map into its coordinates, a container hands it down to its content, an image, a 3D reference or a text scales its rect by the map's axis factors and folds the mirror, turn or shear that is left into its transform, and a mesh or repeat folds the map whole. A compound path or blend keeps its own transform instead of cancelling its chain.
 - `SelectionUIData` carries the frame's corners as `quad`, drawn as a closed polyline, and no longer carries `rotation` and `rotationCenter`.
@@ -26,6 +30,9 @@
 
 ### Fixed
 
+- A locked element follows a change made to its container. Moving or aligning a blend used to leave a locked source behind, resizing a group, a compound path or a blend used to leave a locked child at its old size, and the free transform tool's warp used to leave a locked child of a group unwarped. A lock now stops only changes aimed at the element itself: it is checked once, on the operation's target, and not again on the content the operation reaches through it.
+- The mesh deform tool works on a group that holds a locked child. It used to ignore every press.
+- A text bound to a locked path can be moved. The path moves with it; the move used to do nothing.
 - An element with a raster filter inside a group keeps its filtered bake across frames, the way a top-level element does. Its filter chain used to run again on every pan frame and on every frame of a pen stroke drawn anywhere in the document.
 - A text keeps its measured layout bounds through a move or a transform edit. They used to fall back to the estimate, which shifted the selection frame, and a rotation typed into the ActionsPanel left the frame where the text no longer was.
 - `ungroupElements` and `extractChildFromGroup` keep the children where they were drawn. The group's transform, and for an extracted child every ancestor's, moves into each child. The children used to lose the rotation, skew or offset of the group they left.

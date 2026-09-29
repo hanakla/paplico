@@ -93,6 +93,8 @@ export class MeshDeformTool implements Tool {
 	private context: ToolContext;
 	private dragState: DragState = { mode: "placing" };
 
+	/** The selection the mesh was built from; its lock decides the gesture. */
+	private targetIds: string[] = [];
 	private elementIds: string[] = [];
 	private combinedBounds: BoundingBox | null = null;
 	private originalGeometries: OriginalGeometry[] = [];
@@ -164,6 +166,7 @@ export class MeshDeformTool implements Tool {
 
 		if (this.elementIds.length === 0) return;
 
+		this.targetIds = [...selectedIds];
 		this.combinedBounds = {
 			minX: combinedMinX,
 			minY: combinedMinY,
@@ -214,7 +217,7 @@ export class MeshDeformTool implements Tool {
 			return;
 		}
 
-		if (this.elementIds.some((id) => this.context.isElementLocked(id))) return;
+		if (this.targetIds.some((id) => this.context.isElementLocked(id))) return;
 
 		// Hit-test existing handles via the overlay channel (hitId = handle.id)
 		const hit = this.context.uiHitTest({ x: event.x, y: event.y });

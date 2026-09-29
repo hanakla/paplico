@@ -30,6 +30,7 @@ type AutomationTarget = {
 		PaplicoCommands,
 		| "stopUndoCapture"
 		| "setColorProfile"
+		| "setElementVisibility"
 		| "setHdr"
 		| "setRasterizationDpi"
 		| "transact"
@@ -111,7 +112,7 @@ export class PaplicoAutomationDom implements PaplicoScriptingBridge {
 								"";
 							// A transform written by a script turns the element around the
 							// centre of its bounds, the way the ActionsPanel's inputs do.
-							const { transform, ...rest } = updates;
+							const { transform, visible, ...rest } = updates;
 							if (transform) {
 								commands.updateElementTransforms([
 									{
@@ -119,6 +120,11 @@ export class PaplicoAutomationDom implements PaplicoScriptingBridge {
 										transform: transform as ElementTransform,
 									},
 								]);
+							}
+							// Visibility goes through its own command so that a locked
+							// element can still be shown and hidden.
+							if (typeof visible === "boolean") {
+								commands.setElementVisibility(layerId, patch.id, visible);
 							}
 							if (Object.keys(rest).length > 0) {
 								commands.updateElement(

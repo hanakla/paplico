@@ -2635,12 +2635,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					.map((id) => ({ layerId: currentLayerId, elementId: id }));
 
 				this.renderChangeSubscriber.withTransformOnlyChange(() => {
-					const elementMoves = this.commands.collectElementMoveUpdates(
-						elements,
-						dx,
-						dy,
-					);
-					this.commands.batchUpdateElements(elementMoves);
+					this.commands.moveElements(elements, dx, dy);
 				});
 
 				// Reshape the spine to follow any moved blend keys.
@@ -3529,7 +3524,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			applyDeformation: (updates) => {
 				for (const { elementId, layerId, updates: elUpdates } of updates) {
 					this.clearElementOverride(elementId);
-					this.commands.updateElement(layerId, elementId, elUpdates);
+					// The tool judged the lock on its targets when the gesture began;
+					// these are the elements that gesture reaches through them.
+					this.commands.writeElement(layerId, elementId, elUpdates);
 				}
 			},
 			restoreOriginal: (updates) => {

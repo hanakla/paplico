@@ -459,9 +459,11 @@ function useCommandApplier(
 			// value is written rather than a toggle: a toggle sent twice by a flaky
 			// link would land the element back where it started.
 			case "setElementVisible":
-				commands.updateElement(command.layerId, command.elementId, {
-					visible: command.visible,
-				});
+				commands.setElementVisibility(
+					command.layerId,
+					command.elementId,
+					command.visible,
+				);
 				break;
 
 			// Built from the same defaults the local Add Filter menu uses, so a

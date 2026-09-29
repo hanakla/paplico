@@ -111,6 +111,48 @@ describe("PaplicoCommands.resizeElements", () => {
 		});
 	});
 
+	describe("resizing with locked elements", () => {
+		it("should map a locked child's outline through its group's resize", () => {
+			const f = createFixture();
+			f.addPath(rectPath("a", { x: 0, y: 0 }, 20, 20, []));
+			f.addPath(rectPath("b", { x: 60, y: 30 }, 80, 40, []));
+			const groupId = f.group(["a", "b"]);
+			f.lock("a");
+			const original = f.worldBounds(groupId);
+			const before = f.worldBounds("a");
+
+			f.commands.resizeElements(
+				[groupId],
+				worldFrame(original),
+				scaleFromMinCorner(original, original, 1.5),
+			);
+
+			const after = f.worldBounds("a");
+			const expected = scaleFromMinCorner(before, original, 1.5);
+			for (const key of ["minX", "minY", "maxX", "maxY"] as const) {
+				expect(after[key]).toBeCloseTo(expected[key], 6);
+			}
+		});
+
+		it("should leave a locked element as it is when it is resized itself", () => {
+			const f = createFixture();
+			f.addPath(rectPath("p", { x: 40, y: 20 }, 60, 30, []));
+			f.lock("p");
+			const original = f.worldBounds("p");
+
+			f.commands.resizeElements(
+				["p"],
+				worldFrame(original),
+				scaleFromMinCorner(original, original, 1.5),
+			);
+
+			const after = f.worldBounds("p");
+			for (const key of ["minX", "minY", "maxX", "maxY"] as const) {
+				expect(after[key]).toBeCloseTo(original[key], 6);
+			}
+		});
+	});
+
 	describe("flipping a rotated path with a gradient in a world-axis frame", () => {
 		it("should turn the gradient with the shape", () => {
 			const f = createFixture();
@@ -322,6 +364,10 @@ function createFixture() {
 		},
 		select(ids: string[]): void {
 			store.selectedElementIds = ids;
+		},
+		lock(id: string): void {
+			provider.updateElement("layer", id, { locked: true });
+			sync();
 		},
 		rotate(id: string, rotation: number): void {
 			provider.updateElement("layer", id, {

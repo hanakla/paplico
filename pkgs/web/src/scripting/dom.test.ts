@@ -49,6 +49,23 @@ describe("PaplicoAutomationDom", () => {
 		]);
 	});
 
+	it("should write visibility through the command that passes a lock", () => {
+		const { dom, commands } = makeDom();
+		dom.begin();
+		const object = dom.getActiveDocument().findArtObject("rect-1");
+		if (!object) throw new Error("Expected the fixture object");
+		object.visible = false;
+
+		dom.commit();
+
+		expect(commands.setElementVisibility.mock.calls[0]).toEqual([
+			"layer-1",
+			"rect-1",
+			false,
+		]);
+		expect(commands.updateElement).not.toHaveBeenCalled();
+	});
+
 	it("should discard buffered writes when execution rolls back", () => {
 		const { dom, commands } = makeDom();
 		dom.begin();
@@ -230,6 +247,7 @@ function makeDom() {
 	} as unknown as Document;
 	const commandMethods = {
 		updateElement: vi.fn(),
+		setElementVisibility: vi.fn(),
 		updateElementTransforms: vi.fn(),
 		updateLayer: vi.fn(),
 		updateArtboard: vi.fn(),

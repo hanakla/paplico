@@ -463,7 +463,22 @@ export class PaplicoCommands {
 		elementId: string,
 		updates: Partial<AnyArtObject>,
 	): void {
-		if (this.cannotMutate() || this.isElementLocked(elementId)) return;
+		if (this.isElementLocked(elementId)) return;
+		this.writeElement(layerId, elementId, updates);
+	}
+
+	/**
+	 * Write `updates` to an element without asking its lock. For a write that
+	 * belongs to an operation whose target the caller already checked: a
+	 * container handing a change down to its content, or a tool committing the
+	 * gesture it judged when the gesture began.
+	 */
+	public writeElement(
+		layerId: string,
+		elementId: string,
+		updates: Partial<AnyArtObject>,
+	): void {
+		if (this.cannotMutate()) return;
 
 		const element = this.ctx.store.document.objects[elementId];
 		if (!element) return;
@@ -701,18 +716,29 @@ export class PaplicoCommands {
 	}
 
 	public toggleElementVisibility(layerId: string, elementId: string): void {
-		if (this.cannotMutate() || this.isElementLocked(elementId)) return;
+		this.setElementVisibility(
+			layerId,
+			elementId,
+			this.ctx.store.document.objects[elementId]?.visible === false,
+		);
+	}
 
-		const element = this.ctx.store.document.objects[elementId];
-		if (!element) return;
+	/**
+	 * Show or hide an element. Visibility is how the document is viewed, not
+	 * an edit of the element, so a lock does not hold it back.
+	 */
+	public setElementVisibility(
+		layerId: string,
+		elementId: string,
+		visible: boolean,
+	): void {
+		if (this.cannotMutate()) return;
+		if (!this.ctx.store.document.objects[elementId]) return;
 
-		const currentVisible = element.visible !== false;
 		this.ctx.yjsProvider.updateElement(
 			layerId,
 			elementId,
-			{
-				visible: !currentVisible,
-			},
+			{ visible },
 			this.getMutationOrigin(),
 		);
 	}
@@ -805,7 +831,7 @@ export class PaplicoCommands {
 	}
 
 	public toggleLayerVisibility(layerId: string): void {
-		if (this.cannotMutate() || this.isLayerLocked(layerId)) return;
+		if (this.cannotMutate()) return;
 		const layer = this.ctx.store.document.layers.find((l) => l.id === layerId);
 		if (!layer) return;
 
@@ -2908,7 +2934,8 @@ export class PaplicoCommands {
 	 * Resize elements by mapping the selection frame's box onto `newBounds` in
 	 * the frame's space. Each element bakes the map into its own space (see
 	 * applyElementResize). Descendants of selected groups are left out, since
-	 * their group carries the map down to them.
+	 * their group carries the map down to them. A locked element is skipped;
+	 * a locked element inside a resized container takes the map with it.
 	 */
 	public resizeElements(
 		elementIds: string[],
@@ -2931,7 +2958,7 @@ export class PaplicoCommands {
 		this.transact(() => {
 			for (const id of targetIds) {
 				const element = this.ctx.store.document.objects[id];
-				if (!element) continue;
+				if (!element || this.isElementLocked(id)) continue;
 				// The frame's own element takes the resize as it is; any other
 				// element takes it through its own world matrix.
 				const world = this.ctx.spatial.getElementWorldMatrix(id);
@@ -2989,7 +3016,7 @@ export class PaplicoCommands {
 		const currentLayerId = this.ctx.store.currentLayerId;
 		if (!currentLayerId) return;
 		const update = (updates: Partial<AnyArtObject>) =>
-			this.updateElement(currentLayerId, element.id, updates);
+			this.writeElement(currentLayerId, element.id, updates);
 		const handDown = (childId: string) => {
 			const child = this.ctx.store.document.objects[childId];
 			if (!child) return;
@@ -3175,8 +3202,28 @@ export class PaplicoCommands {
 	}
 
 	/**
+	 * Move elements by a world delta in one undo step. A locked element is
+	 * skipped. What a moved element carries along, a blend's sources or a
+	 * text's axis path, follows it whatever its own lock says.
+	 */
+	public moveElements(
+		elements: Array<{ layerId: string; elementId: string }>,
+		deltaX: number,
+		deltaY: number,
+	): void {
+		if (this.cannotMutate()) return;
+		const updates = this.collectElementMoveUpdates(
+			elements.filter(({ elementId }) => !this.isElementLocked(elementId)),
+			deltaX,
+			deltaY,
+		);
+		if (updates.length === 0) return;
+		this.ctx.yjsProvider.batchUpdateElements(updates, this.getMutationOrigin());
+	}
+
+	/**
 	 * Collect element move updates without committing to Yjs.
-	 * Used by elementMove, elementsMove, commitArtboardMove, and align
+	 * Used by moveElements, commitArtboardMove, and align
 	 * to batch all moves in a single Yjs transaction.
 	 */
 	public collectElementMoveUpdates(
@@ -3351,12 +3398,14 @@ export class PaplicoCommands {
 		layerId: string,
 		deltas: Map<string, AlignDelta>,
 	): boolean {
+		if (this.cannotMutate()) return false;
+
 		const updates: Array<{
 			elementId: string;
 			updates: Partial<AnyArtObject>;
 		}> = [];
 		for (const [elementId, { dx, dy }] of deltas) {
-			if (dx === 0 && dy === 0) continue;
+			if ((dx === 0 && dy === 0) || this.isElementLocked(elementId)) continue;
 			// Reuse the shared move-update builder so blend baking and axis-path
 			// following stay correct, applied per element with its own delta.
 			updates.push(
@@ -3365,7 +3414,9 @@ export class PaplicoCommands {
 		}
 		if (updates.length === 0) return false;
 
-		this.batchUpdateElements(updates);
+		// Written past the per-element lock check: what an aligned element
+		// carries along moves with it (see moveElements).
+		this.ctx.yjsProvider.batchUpdateElements(updates, this.getMutationOrigin());
 
 		for (const id of deltas.keys()) {
 			this.ctx.spatial.invalidateBounds(id);
@@ -3382,8 +3433,10 @@ export class PaplicoCommands {
 	 * segments re-projected with adaptive subdivision and the stored transform
 	 * re-resolved; images get warped corner vertices; meshes get warped
 	 * vertices. Groups expand to leaves and compound paths to their source
-	 * paths. Text is skipped — the tool outlines it into paths first. Returned
-	 * WITHOUT committing so a tool can preview then commit on release.
+	 * paths. Text is skipped — the tool outlines it into paths first. A locked
+	 * element in `elementIds` is left out; the content of an unlocked one is
+	 * warped whatever its own lock says. Returned WITHOUT committing so a tool
+	 * can preview then commit on release.
 	 */
 	public computePerspectiveWarpUpdates(
 		elementIds: string[],
@@ -3409,7 +3462,10 @@ export class PaplicoCommands {
 
 		// Expand groups to leaves, then compound paths to their source paths.
 		const leafIds: string[] = [];
-		for (const id of flattenElementIds(elementIds, getElement)) {
+		for (const id of flattenElementIds(
+			elementIds.filter((id) => !this.isElementLocked(id)),
+			getElement,
+		)) {
 			const el = getElement(id);
 			if (el && isCompoundPath(el)) {
 				for (const { id: sourceId } of el.sources) leafIds.push(sourceId);
@@ -3425,7 +3481,7 @@ export class PaplicoCommands {
 
 		for (const elementId of leafIds) {
 			const element = getElement(elementId);
-			if (!element || this.isElementLocked(elementId)) continue;
+			if (!element) continue;
 			if (!isDeformableElement(element) || element.type === "text") continue;
 
 			const ancestorTransform =
