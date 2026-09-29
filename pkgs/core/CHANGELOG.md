@@ -39,6 +39,7 @@
 - Undoing the deletion of an element whose fields were changed in the same undo step now sends those fields to collaborators and the timelapse recording. They used to lose them, which left the restored element unreadable. yjs is upgraded to 13.6.33 for this.
 - Timelapse playback leaves out an element it cannot read instead of stopping with an error.
 - Alt+drag duplicates with the select tool and the path edit tool land right in front of the frontmost source instead of on top of the layer. `duplicateElementsByIds` stacks its copies the same way.
+- A drop shadow follows the alpha of its shadow color. The shadow's strength is the shadow opacity multiplied by that alpha. The alpha used to be ignored, so a half-transparent shadow color cast a full shadow.
 - An element whose filter is applied to the backdrop now shows the backdrop in the shape its geometry filters produce. Geometry filters on its enclosing groups apply too.
 - An element with a raster filter such as blur inside a group with geometry filters is drawn in the shape the group deforms, instead of at its undeformed position.
 - Raster filters placed after a backdrop filter now reach past the element's shape. A drop shadow after frost glass is drawn, and a blur after it softens the pane's edge. They used to be cut off at the shape.

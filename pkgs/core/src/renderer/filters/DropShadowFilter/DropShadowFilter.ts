@@ -351,7 +351,7 @@ export class DropShadowFilterHandler implements FilterHandler {
 		const shadowColor = p.shadowColor
 			? colorToRawRGBA(p.shadowColor)
 			: { r: 0, g: 0, b: 0, a: 1 };
-		const shadowOpacity = p.shadowOpacity ?? 0.5;
+		const shadowOpacity = (p.shadowOpacity ?? 0.5) * shadowColor.a;
 		const spreadRadius = (p.spreadRadius ?? 0) * dpiScale;
 		const blurRadius = p.blurRadius * dpiScale;
 
@@ -545,7 +545,7 @@ export class DropShadowFilterHandler implements FilterHandler {
 		const shadowColor = p.shadowColor
 			? colorToRawRGBA(p.shadowColor)
 			: { r: 0, g: 0, b: 0, a: 1 };
-		const shadowOpacity = p.shadowOpacity ?? 0.5;
+		const shadowOpacity = (p.shadowOpacity ?? 0.5) * shadowColor.a;
 		const spreadTexels = Math.round(
 			Math.abs((p.spreadRadius ?? 0) * spatialScale),
 		);

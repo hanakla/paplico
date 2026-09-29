@@ -95,6 +95,24 @@ describe("drop shadow in-place chain", () => {
 			expect(shadow[3]).toBeLessThan(160);
 		});
 
+		for (const [kernel, blurRadius] of [
+			["direct", PYRAMID_BLUR_MIN_RADIUS / 4],
+			["pyramid", PYRAMID_BLUR_MIN_RADIUS * 2],
+		] as const) {
+			it(`should fade the shadow by the alpha of its colour on the ${kernel} kernel`, async () => {
+				const opaque = await filter({ blurRadius });
+				const faded = await filter({
+					blurRadius,
+					shadowColor: { type: "rgb", r: 0, g: 0, b: 0, a: 0.5 },
+				});
+				const x = ELEMENT_MAX + OFFSET / 2;
+				const y = ELEMENT_MAX + OFFSET / 2;
+
+				expect(opaque.at(x, y)[3]).toBeGreaterThan(40);
+				expect(faded.at(x, y)[3] / opaque.at(x, y)[3]).toBeCloseTo(0.5, 1);
+			});
+		}
+
 		it("should not jump across the direct/pyramid crossover", async () => {
 			const below = await filter({ blurRadius: PYRAMID_BLUR_MIN_RADIUS - 0.2 });
 			const above = await filter({ blurRadius: PYRAMID_BLUR_MIN_RADIUS + 0.2 });

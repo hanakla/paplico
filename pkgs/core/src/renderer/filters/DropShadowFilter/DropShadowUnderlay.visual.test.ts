@@ -260,6 +260,26 @@ describe("drop shadow coverage underlay", () => {
 			expect(pixels[center + 2]).toBeLessThan(8);
 			scene.destroy();
 		});
+
+		it("should fade the shadow by the alpha of its color", async () => {
+			const scene = await createScene();
+			const result = scene.run({
+				filterOverrides: {
+					shadowColor: { type: "rgb", r: 0, g: 0, b: 0, a: 0.5 },
+					shadowOpacity: 1,
+					blurRadius: 0.5,
+				},
+			});
+			if (!result) throw new Error("no underlay produced");
+			const pixels = await scene.readAlphaOf(result);
+			const { width, height } = result.texture.texture;
+			const center =
+				(Math.floor(height / 2) * width + Math.floor(width / 2)) * 4;
+
+			expect(pixels[center + 3]).toBeGreaterThan(110);
+			expect(pixels[center + 3]).toBeLessThan(145);
+			scene.destroy();
+		});
 	});
 });
 
