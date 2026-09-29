@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { HDR_EDR_HEADROOM, HDR_MAX_NITS } from "../renderer/types";
-import { pqEotf, pqOetf, srgbEotf, srgbOetf } from "./color";
+import { type TextElement, toRGBColor } from "../schema";
+import { createTestTextElement } from "../testUtils/typographyFixtures";
+import {
+	buildElementColorUpdates,
+	collectElementColors,
+	pqEotf,
+	pqOetf,
+	srgbEotf,
+	srgbOetf,
+} from "./color";
 
 describe("srgbEotf", () => {
 	it("should return 0 for input 0", () => {
@@ -165,3 +174,59 @@ describe("HDR constants", () => {
 		expect(HDR_EDR_HEADROOM * HDR_MAX_NITS).toBeCloseTo(1600, 0);
 	});
 });
+
+describe("collectElementColors", () => {
+	it("should collect the colors of a text's default style and runs", () => {
+		const text = createPaintedText();
+
+		const collected = collectElementColors(text.id, text);
+
+		expect(collected.map((c) => [c.source, c.color])).toEqual([
+			["text.default.fill.solid", RED],
+			["text.paragraph[0].run[0].fill.solid", GREEN],
+			["text.paragraph[0].run[0].stroke.solid", RED],
+		]);
+	});
+});
+
+describe("buildElementColorUpdates", () => {
+	it("should adjust the colors of a text's default style and runs", () => {
+		const text = createPaintedText();
+
+		const updates = buildElementColorUpdates(
+			text,
+			() => BLUE,
+		) as Partial<TextElement>;
+
+		expect(updates.defaultStyle?.fill).toEqual({ type: "solid", color: BLUE });
+		const runStyle = updates.content?.paragraphs[0].runs[0].style;
+		expect(runStyle?.fill).toEqual({ type: "solid", color: BLUE });
+		expect(runStyle?.stroke).toEqual({ type: "solid", color: BLUE });
+	});
+
+	it("should keep a text style without paint unpainted", () => {
+		const text = createTestTextElement("hello");
+
+		const updates = buildElementColorUpdates(
+			text,
+			() => BLUE,
+		) as Partial<TextElement>;
+
+		expect(updates.defaultStyle?.fill).toBeNull();
+		expect(updates.content?.paragraphs[0].runs[0].style.fill).toBeNull();
+	});
+});
+
+const RED = toRGBColor({ r: 1, g: 0, b: 0, a: 1 });
+const GREEN = toRGBColor({ r: 0, g: 1, b: 0, a: 1 });
+const BLUE = toRGBColor({ r: 0, g: 0, b: 1, a: 1 });
+
+/** Text whose default style is filled red and whose only run is filled green with a red stroke. */
+function createPaintedText(): TextElement {
+	const text = createTestTextElement("hello");
+	text.defaultStyle.fill = { type: "solid", color: RED };
+	const runStyle = text.content.paragraphs[0].runs[0].style;
+	runStyle.fill = { type: "solid", color: GREEN };
+	runStyle.stroke = { type: "solid", color: RED };
+	return text;
+}

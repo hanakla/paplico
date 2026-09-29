@@ -6,9 +6,11 @@ import {
 	type Filter,
 	hsvToRgb,
 	isAppearancePresetRef,
+	isText,
 	type RGBColor,
 	type StrokeAppearance,
 	type StrokeColor,
+	type TextStyle,
 } from "../schema";
 
 export function lerpOptionalScalar(
@@ -90,6 +92,9 @@ export interface CollectedColor {
 	 * - `"fill.radial.stop[N]"` — Nth stop of RadialGradient fill
 	 * - `"fill.free.stop[N]"` — Nth stop of FreeGradient fill
 	 * - `"filter[N].color[M]"` — Mth color of filter at filter index N
+	 * - `"text.default.<paint>"` — a text element's default style, where
+	 *   `<paint>` is one of the `stroke.*` / `fill.*` values above
+	 * - `"text.paragraph[P].run[R].<paint>"` — style of run R in paragraph P
 	 */
 	source: string;
 	/** Element ID this color belongs to */
@@ -134,6 +139,25 @@ export function collectElementColors(
 				collectFilterColors(elementId, filter, i, result, getHandler);
 			}
 		}
+	}
+
+	if (isText(element)) {
+		collectTextStyleColors(
+			elementId,
+			element.defaultStyle,
+			"text.default",
+			result,
+		);
+		element.content.paragraphs.forEach((paragraph, p) => {
+			paragraph.runs.forEach((run, r) => {
+				collectTextStyleColors(
+					elementId,
+					run.style,
+					`text.paragraph[${p}].run[${r}]`,
+					result,
+				);
+			});
+		});
 	}
 
 	return result;
@@ -244,6 +268,20 @@ function collectFilterColors(
 	});
 }
 
+function collectTextStyleColors(
+	elementId: string,
+	style: TextStyle,
+	sourcePrefix: string,
+	out: CollectedColor[],
+): void {
+	const colors: CollectedColor[] = [];
+	if (style.fill) collectFillColors(elementId, style.fill, colors);
+	if (style.stroke) collectStrokeColors(elementId, style.stroke, colors);
+	for (const collected of colors) {
+		out.push({ ...collected, source: `${sourcePrefix}.${collected.source}` });
+	}
+}
+
 // ============================================================
 // Filter color adjustment
 // ============================================================
@@ -314,6 +352,23 @@ export function buildElementColorUpdates(
 		);
 	}
 
+	if (isText(element)) {
+		updates.defaultStyle = adjustTextStyleColors(
+			element.defaultStyle,
+			adjuster,
+		);
+		updates.content = {
+			...element.content,
+			paragraphs: element.content.paragraphs.map((paragraph) => ({
+				...paragraph,
+				runs: paragraph.runs.map((run) => ({
+					...run,
+					style: adjustTextStyleColors(run.style, adjuster),
+				})),
+			})),
+		};
+	}
+
 	return updates as Partial<AnyArtObject>;
 }
 
@@ -373,6 +428,17 @@ function adjustFillColor(
 			// are walked separately by buildElementColorUpdates over document.objects.
 			return fill;
 	}
+}
+
+function adjustTextStyleColors(
+	style: TextStyle,
+	adjuster: (color: Color) => Color,
+): TextStyle {
+	return {
+		...style,
+		fill: style.fill && adjustFillColor(style.fill, adjuster),
+		stroke: style.stroke && adjustStrokeColor(style.stroke, adjuster),
+	};
 }
 
 // ============================================================

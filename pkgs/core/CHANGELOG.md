@@ -45,6 +45,7 @@
 - Clicks, rectangle selection, eyedropper candidates and clip paths inside a rotated or scaled group now hit the children where they are drawn. They used to miss parts of a child and hit empty space beside it.
 - The bounds of a rotated or scaled group now enclose its children where they are drawn. The selection box, snapping and hit candidates of such a group used to be shifted away from its content.
 - A path with two gradient fills, or two gradient strokes, renders both. Each appearance now owns its gradient buffers. The second used to take over the first one's buffers within the same frame and destroy them, which failed the frame's submit with "used in submit while destroyed".
+- Color adjustment reaches texts and the content of a mesh. `startAdjustColorSession` collects and adjusts the fill and stroke of a text's default style and of each run, and walks into a mesh's children. A selection mixing these with paths used to change the paths only.
 
 ## [0.2.0] - 2026-09-27
 

@@ -3274,6 +3274,66 @@ describe("PaplicoCommands", () => {
 			});
 		});
 	});
+
+	describe("startAdjustColorSession", () => {
+		it("should adjust the colors of a selected mesh's children", () => {
+			const child = createPath("child");
+			child.filters = [
+				{
+					uid: "app-fill",
+					processor: "fill",
+					paramData: {
+						version: "1",
+						params: {
+							fill: {
+								type: "solid",
+								color: toRGBColor({ r: 1, g: 0, b: 0, a: 1 }),
+							},
+						},
+					},
+				} as FillAppearance,
+			];
+			const mesh: MeshArtObject = {
+				type: "mesh",
+				id: "mesh",
+				childIds: [child.id],
+				vertices: [],
+				faces: [],
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			};
+			const batchUpdateElements = vi.fn<YjsProvider["batchUpdateElements"]>();
+			const commands = new PaplicoCommands({
+				store: {
+					selectedElementIds: [mesh.id],
+					editingScopeStack: [],
+					document: {
+						layers: [],
+						objects: { [mesh.id]: mesh, [child.id]: child },
+					},
+				} as unknown as RendererState,
+				yjsProvider: {
+					batchUpdateElements,
+					stopUndoCapture: vi.fn(),
+				} as unknown as YjsProvider,
+				spatial: { isElementLocked: () => false } as unknown as SpatialIndex,
+				isReadonly: () => false,
+			});
+			const blue = toRGBColor({ r: 0, g: 0, b: 1, a: 1 });
+
+			commands.startAdjustColorSession()?.preview(() => blue);
+
+			const childUpdate = batchUpdateElements.mock.calls[0][0].find(
+				(update) => update.elementId === child.id,
+			);
+			const fill = childUpdate?.updates.filters?.[0] as FillAppearance;
+			expect(fill.paramData.params.fill).toEqual({
+				type: "solid",
+				color: blue,
+			});
+		});
+	});
 });
 
 /** Stroke appearance the user has already customized beyond its color. */

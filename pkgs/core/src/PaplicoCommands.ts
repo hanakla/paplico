@@ -4959,7 +4959,7 @@ export class PaplicoCommands {
 			const obj = this.ctx.store.document.objects[id];
 			if (!obj) return;
 			originals.set(id, deepClone(obj));
-			if (obj.type === "group") {
+			if (obj.type === "group" || obj.type === "mesh") {
 				for (const childId of obj.childIds) collect(childId);
 			} else if (isBlend(obj)) {
 				// A blend has no paint of its own; its colors live on the absorbed
