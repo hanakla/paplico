@@ -34,14 +34,19 @@ describe("PaplicoAutomationDom", () => {
 		expect(commands.stopUndoCapture).toHaveBeenCalledTimes(2);
 		expect(commands.updateElement).toHaveBeenCalledWith("layer-1", "rect-1", {
 			opacity: 0.5,
-			transform: {
-				x: 10,
-				y: 24,
-				rotation: 0,
-				scaleX: 1,
-				scaleY: 1,
-			},
 		});
+		expect(commands.updateElementTransforms).toHaveBeenCalledWith([
+			{
+				elementId: "rect-1",
+				transform: {
+					x: 10,
+					y: 24,
+					rotation: 0,
+					scaleX: 1,
+					scaleY: 1,
+				},
+			},
+		]);
 	});
 
 	it("should discard buffered writes when execution rolls back", () => {
@@ -67,15 +72,19 @@ describe("PaplicoAutomationDom", () => {
 
 		dom.commit();
 
-		expect(commands.updateElement).toHaveBeenCalledWith("layer-1", "rect-1", {
-			transform: {
-				x: 42,
-				y: 99,
-				rotation: 0,
-				scaleX: 1,
-				scaleY: 1,
+		expect(commands.updateElementTransforms).toHaveBeenCalledWith([
+			{
+				elementId: "rect-1",
+				transform: {
+					x: 42,
+					y: 99,
+					rotation: 0,
+					scaleX: 1,
+					scaleY: 1,
+				},
 			},
-		});
+		]);
+		expect(commands.updateElement).not.toHaveBeenCalled();
 	});
 
 	it("should update objects that are not attached to a layer", () => {
@@ -221,6 +230,7 @@ function makeDom() {
 	} as unknown as Document;
 	const commandMethods = {
 		updateElement: vi.fn(),
+		updateElementTransforms: vi.fn(),
 		updateLayer: vi.fn(),
 		updateArtboard: vi.fn(),
 		setHdr: vi.fn(),

@@ -36,6 +36,7 @@ import {
 	type TextStyle,
 } from "../schema";
 import { calculateSegmentListBounds } from "./geometry/bounds";
+import { placeLocalPoint } from "./geometry/geometry";
 import { clamp01 } from "./math";
 import { parseSvgFilterElement } from "./svgFilterImport";
 
@@ -975,10 +976,18 @@ async function buildImageObject(
 	const worldWidth = Math.hypot(tr.x - tl.x, tr.y - tl.y);
 	const worldHeight = Math.hypot(bl.x - tl.x, bl.y - tl.y);
 	// Recover the CTM rotation from the world-space top edge so a rotated
-	// <image> keeps its orientation. Element transforms rotate around the local
-	// bounds center (computeTransformOrigin), which is exactly (x, y) here, so
-	// the computed center stays put. Skew is not representable and is dropped.
-	const rotation = Math.atan2(tr.y - tl.y, tr.x - tl.x);
+	// <image> keeps its orientation. The transform turns around the local
+	// origin, so its translation puts the rect centre back where the CTM
+	// placed it. Skew is not representable and is dropped.
+	const center = { x: centerX, y: centerY };
+	const transform = placeLocalPoint(
+		{
+			...createIdentityTransform(),
+			rotation: Math.atan2(tr.y - tl.y, tr.x - tl.x),
+		},
+		center,
+		center,
+	);
 	const mimeMatch = href.match(/^data:([^;,]+)/);
 	const mimeType = mimeMatch ? mimeMatch[1] : "image/png";
 	if (!ALLOWED_IMAGE_MIMES.has(mimeType)) return null;
@@ -1019,7 +1028,7 @@ async function buildImageObject(
 			height: worldHeight,
 			opacity,
 			blendMode: resolveBlendMode(getElProp("mix-blend-mode")) ?? "normal",
-			transform: { ...createIdentityTransform(), rotation },
+			transform,
 			filters: [],
 		};
 		state.objects.set(imageObject.id, imageObject);

@@ -21,13 +21,12 @@ const DEG_TO_RAD = Math.PI / 180;
 const MAX_SKEW_DEG = 89;
 
 /**
- * Numeric transform editing in the ActionsPanel: rotation / scale / skew of the
+ * Numeric transform editing in the ActionsPanel: rotation / skew of the
  * selected element(s), plus horizontal / vertical flips of the whole selection
- * around its bounds center. Paired values (scale, skew) share one row. Values show
+ * around its bounds center. Paired values (skew) share one row. Values show
  * the first selected element's transform; edits patch the field on every
- * selected element (same `updateElement` path the tools commit through, so
- * undo/locks/sync behave identically). Scrub the numbers to adjust; hold Ctrl
- * for fine steps.
+ * selected element, each turning around the centre of its own bounds. Scrub
+ * the numbers to adjust; hold Ctrl for fine steps.
  */
 export const TransformControls = memo(function TransformControls() {
 	const t = useTranslation();
@@ -41,23 +40,19 @@ export const TransformControls = memo(function TransformControls() {
 	const first = selected[0];
 
 	const updateTransform = (field: keyof ElementTransform, value: number) => {
-		const layerId = store.currentLayerId;
-		if (!layerId) return;
-		for (const id of store.selectedElementIds) {
-			const element = store.document.objects[id];
-			if (!element) continue;
-			commands.updateElement(layerId, id, {
-				transform: { ...element.transform, [field]: value },
-			});
-		}
+		commands.updateElementTransforms(
+			store.selectedElementIds.flatMap((elementId) => {
+				const element = store.document.objects[elementId];
+				if (!element) return [];
+				return [
+					{ elementId, transform: { ...element.transform, [field]: value } },
+				];
+			}),
+		);
 	};
 
-	// Mapping the bounds onto themselves with a flip mirrors the selection in
-	// place, the same commit a handle dragged past its opposite edge makes.
 	const flipSelection = (flip: { x: boolean; y: boolean }) => {
-		const bounds = store.selectionBounds;
-		if (!bounds) return;
-		commands.resizeElements(store.selectedElementIds, bounds, bounds, flip);
+		commands.flipElements(store.selectedElementIds, flip);
 	};
 
 	const handleRotationChange = useEventCallback((degrees: number) => {

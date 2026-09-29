@@ -4,6 +4,7 @@ import type {
 	Artboard,
 	ColorProfileSettings,
 	Document,
+	ElementTransform,
 	HdrSettings,
 	Layer,
 } from "@paplico/core/schema";
@@ -34,6 +35,7 @@ type AutomationTarget = {
 		| "transact"
 		| "updateArtboard"
 		| "updateElement"
+		| "updateElementTransforms"
 		| "updateLayer"
 	>;
 	readonly selection: Pick<PaplicoSelection, "clear" | "selectMultiple">;
@@ -107,11 +109,24 @@ export class PaplicoAutomationDom implements PaplicoScriptingBridge {
 							const layerId =
 								findContainingLayerId(this.target.uiState.document, patch.id) ??
 								"";
-							commands.updateElement(
-								layerId,
-								patch.id,
-								updates as Partial<AnyArtObject>,
-							);
+							// A transform written by a script turns the element around the
+							// centre of its bounds, the way the ActionsPanel's inputs do.
+							const { transform, ...rest } = updates;
+							if (transform) {
+								commands.updateElementTransforms([
+									{
+										elementId: patch.id,
+										transform: transform as ElementTransform,
+									},
+								]);
+							}
+							if (Object.keys(rest).length > 0) {
+								commands.updateElement(
+									layerId,
+									patch.id,
+									rest as Partial<AnyArtObject>,
+								);
+							}
 							break;
 						}
 						case "layer":

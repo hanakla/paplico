@@ -1,20 +1,18 @@
-import type { BoundingBox, TextLayout } from "../../schema";
+import type { BoundingBox, Point, TextLayout } from "../../schema";
 import type { WorldBezierSegment } from "../../utils/geometry/geometry";
 
 export interface SelectionUIData {
-	/** Local-space bounds (pre-rotation) for single element, AABB for multi-select */
+	/** World-axis-aligned box around the selection; rendererStore.selectionBounds mirrors it. */
 	bounds: BoundingBox;
-	/** Rotation angle in radians (0 for multi-select) */
-	rotation: number;
-	/** World-space center of rotation */
-	rotationCenter: { x: number; y: number };
+	/** The selection frame's corners in the world: nw, ne, se, sw. */
+	quad: [Point, Point, Point, Point];
 	handles: Array<{
 		x: number;
 		y: number;
 		position: "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 	}>;
-	/** Position of the rotation handle (above "n" handle) */
-	rotationHandle?: { x: number; y: number };
+	/** Position of the rotation handle (a step above the "n" handle along the frame's up axis) */
+	rotationHandle?: Point;
 	/** Bezier segments of all selected paths (for outline display), grouped by path */
 	pathSegments?: WorldBezierSegment[][];
 	/** Outline segments of the key object (alignment reference), drawn in a
@@ -323,6 +321,8 @@ export interface StrokeWidthEditUIData {
 	crossLines: Array<{ x1: number; y1: number; x2: number; y2: number }>;
 	/** Width profile envelope outline (side1 then side2, as connected line segments) */
 	envelopeLines: Array<{ x1: number; y1: number; x2: number; y2: number }>;
+	/** Long press ring position (world coordinates), shown when releasing deletes the point */
+	longPressRing?: { worldX: number; worldY: number };
 }
 
 export interface TextEditUIData {

@@ -156,7 +156,7 @@ export interface RenderState {
 	 * (two texts can bind one path — the underlay must paint once).
 	 */
 	paintedAxisPathIds: Set<string> | null;
-	/** Reference to ViewportManager's local bounds cache for rotation origin computation. */
+	/** Reference to ViewportManager's local bounds cache, shared with the bounds the passes are sized from. */
 	localBoundsCache: LocalBoundsCache | null;
 	/** Viewport zoom for this render pass. Set at frame start; consumed as the
 	 *  device-space error budget for stroke join/cap arc subdivision. */

@@ -1,6 +1,7 @@
 import { CanvasTarget } from "../renderer/CanvasTarget";
 import type { RenderOrchestrator } from "../renderer/RenderOrchestrator";
-import { type Artboard, type Document, getArtboardBounds } from "../schema";
+import { type Artboard, getArtboardBounds } from "../schema";
+import type { TimelapseFrame } from "./types";
 
 /**
  * WebGPU surface dedicated to timelapse playback.
@@ -30,7 +31,7 @@ export class TimelapsePreviewSurface {
 	) {}
 
 	/** Draw one replayed frame, framing `artboard` to fill the preview canvas. */
-	public render(document: Document, artboard: Artboard): void {
+	public render(frame: TimelapseFrame, artboard: Artboard): void {
 		this.target.updateSize();
 		if (this.target.width === 0 || this.target.height === 0) return;
 
@@ -51,13 +52,14 @@ export class TimelapsePreviewSurface {
 			this.renderer.render(
 				{
 					viewport: this.target.getViewport(),
-					document,
+					document: frame.document,
 					strategy: "full",
-					// Deliberately no changedElements, and culling off: this matches
-					// the artboard export path, which is the configuration replayed
-					// documents are known to render correctly under. A replay frame
-					// is not an incremental edit of the frame before it — the whole
-					// document is rebuilt from the Yjs stream each time.
+					// The change set lets unchanged elements keep their filter
+					// bakes from the previous frame.
+					changedElements: frame.changedElements,
+					// Culling off matches the artboard export path, which is the
+					// configuration replayed documents are known to render
+					// correctly under.
 					disableViewportCulling: true,
 					// Match the exported video: white surround, artboard fills reach
 					// the edges of the frame.
@@ -76,16 +78,16 @@ export class TimelapsePreviewSurface {
 	 * playback, so the editor's cache scopes stay untouched during an export.
 	 */
 	public renderToImageData(
-		document: Document,
+		frame: TimelapseFrame,
 		artboard: Artboard,
 		scale: number,
 	): Promise<ImageData | null> {
 		return this.renderer.renderArtboardToImageData(
 			artboard,
-			document,
+			frame.document,
 			scale,
 			{ r: 1, g: 1, b: 1, a: 1 },
-			{ targetId: this.target.id },
+			{ targetId: this.target.id, changedElements: frame.changedElements },
 		);
 	}
 

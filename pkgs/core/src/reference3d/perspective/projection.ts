@@ -4,7 +4,10 @@ import {
 	type Reference3DCamera,
 	type Vec3,
 } from "../../schema";
-import { applyTransformToPoint } from "../../utils/geometry/geometry";
+import {
+	applyTransformToPoint,
+	inverseTransformPoint,
+} from "../../utils/geometry/geometry";
 
 /**
  * Shared pinhole-camera projection math for the Reference3D subsystem.
@@ -132,35 +135,23 @@ export function ndcToLocal(ndc: Vec2, rect: LocalRect): Vec2 {
 
 /**
  * Forward-map an element-local point to canvas world through the composed
- * transform (SRT around the local rect center — identical to the renderer's
- * corner transform).
+ * transform.
  */
 export function localToCanvasPoint(
 	point: Vec2,
-	rect: LocalRect,
 	transform: ElementTransform,
 ): Vec2 {
 	if (isIdentityTransform(transform)) return point;
-	return applyTransformToPoint(point.x, point.y, transform, rect.cx, rect.cy);
+	return applyTransformToPoint(point.x, point.y, transform);
 }
 
 /** Inverse of localToCanvasPoint: canvas world → element-local coordinates. */
 export function canvasToLocalPoint(
 	point: Vec2,
-	rect: LocalRect,
 	transform: ElementTransform,
 ): Vec2 {
 	if (isIdentityTransform(transform)) return point;
-	const dx = point.x - transform.x - rect.cx;
-	const dy = point.y - transform.y - rect.cy;
-	const cos = Math.cos(transform.rotation);
-	const sin = Math.sin(transform.rotation);
-	const sx = dx * cos + dy * sin;
-	const sy = -dx * sin + dy * cos;
-	return {
-		x: sx / (transform.scaleX || 1e-12) + rect.cx,
-		y: sy / (transform.scaleY || 1e-12) + rect.cy,
-	};
+	return inverseTransformPoint(point.x, point.y, transform);
 }
 
 /**

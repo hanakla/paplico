@@ -357,17 +357,19 @@ function stepAffine(
 	params: TransformParams,
 	origin: { x: number; y: number },
 ): Affine2D {
-	return elementTransformToAffine(
-		{
-			x: params.moveX,
-			y: -params.moveY,
-			rotation: degToRad(params.angle),
-			scaleX: params.scaleX * (params.reflectX ? -1 : 1),
-			scaleY: params.scaleY * (params.reflectY ? -1 : 1),
-		},
-		origin.x,
-		origin.y,
-	);
+	const step = elementTransformToAffine({
+		x: params.moveX,
+		y: -params.moveY,
+		rotation: degToRad(params.angle),
+		scaleX: params.scaleX * (params.reflectX ? -1 : 1),
+		scaleY: params.scaleY * (params.reflectY ? -1 : 1),
+	});
+	// The step turns and scales about the filter's origin, not the local one.
+	return {
+		...step,
+		e: step.e + origin.x - step.a * origin.x - step.c * origin.y,
+		f: step.f + origin.y - step.b * origin.x - step.d * origin.y,
+	};
 }
 
 /** Square root of the affine's area factor: what a stroke width scales by. */

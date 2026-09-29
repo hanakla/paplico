@@ -1,15 +1,11 @@
-import {
-	type AnyArtObject,
-	type CompoundPath,
-	type Document,
-	isCompoundPath,
-} from "../../schema";
-import {
-	calculateElementBounds,
-	calculateLocalElementBounds,
-} from "../../utils/geometry/bounds";
+import { type AnyArtObject, type Document, isCompoundPath } from "../../schema";
+import { calculateLocalElementBounds } from "../../utils/geometry/bounds";
 import { transformLinearMatrix } from "../../utils/geometry/geometry";
 import type { Migration } from "./index";
+import {
+	convertLegacyPlacements,
+	legacySourceUnionCenter,
+} from "./legacyPlacement";
 
 /**
  * Files older than this version pivot a compound path on the center of its
@@ -18,14 +14,26 @@ import type { Migration } from "./index";
  */
 export const migCompoundPathPivot: Migration = {
 	version: 20260918,
+	wholeDocument: true,
 	migrate(doc: Document): void {
-		const elementsMap = new Map(Object.entries(doc.objects));
-		for (const element of elementsMap.values()) {
+		// The sources are still placed by the legacy rule; the current bounds
+		// code reports their legacy extents only once they are re-expressed
+		// under the current one.
+		const converted = convertLegacyPlacements(
+			doc.objects,
+			"sources",
+			undefined,
+		);
+		const shadow = new Map<string, AnyArtObject>(Object.entries(doc.objects));
+		for (const [id, transform] of converted) {
+			shadow.set(id, { ...shadow.get(id)!, transform });
+		}
+		for (const element of Object.values(doc.objects)) {
 			if (!isCompoundPath(element) || !element.transform) continue;
 
-			const legacy = legacySourceUnionCenter(element, elementsMap);
+			const legacy = legacySourceUnionCenter(element, shadow);
 			if (!legacy) continue;
-			const bounds = calculateLocalElementBounds(element, elementsMap);
+			const bounds = calculateLocalElementBounds(element, shadow);
 			const dx = legacy.x - (bounds.minX + bounds.maxX) / 2;
 			const dy = legacy.y - (bounds.minY + bounds.maxY) / 2;
 
@@ -37,24 +45,3 @@ export const migCompoundPathPivot: Migration = {
 		}
 	},
 };
-
-function legacySourceUnionCenter(
-	compound: CompoundPath,
-	elementsMap: ReadonlyMap<string, AnyArtObject>,
-): { x: number; y: number } | null {
-	let minX = Number.POSITIVE_INFINITY;
-	let minY = Number.POSITIVE_INFINITY;
-	let maxX = Number.NEGATIVE_INFINITY;
-	let maxY = Number.NEGATIVE_INFINITY;
-	for (const { id } of compound.sources) {
-		const source = elementsMap.get(id);
-		if (!source) continue;
-		const b = calculateElementBounds(source, elementsMap);
-		minX = Math.min(minX, b.minX);
-		minY = Math.min(minY, b.minY);
-		maxX = Math.max(maxX, b.maxX);
-		maxY = Math.max(maxY, b.maxY);
-	}
-	if (minX === Number.POSITIVE_INFINITY) return null;
-	return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-}

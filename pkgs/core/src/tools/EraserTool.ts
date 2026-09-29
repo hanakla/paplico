@@ -25,11 +25,10 @@ import {
 import { getFirstStroke } from "../utils/elementQuery";
 import { boundsIntersect, calculatePathBounds } from "../utils/geometry/bounds";
 import {
-	applyTransformToBounds,
 	composeTransforms,
-	computeTransformOrigin,
 	inverseTransform,
 	screenToWorld,
+	transformBounds,
 } from "../utils/geometry/geometry";
 import {
 	splitPathByNormalizedRanges,
@@ -295,16 +294,11 @@ export class EraserTool implements Tool {
 				width: localBounds.width + brushHalfSize * 2,
 				height: localBounds.height + brushHalfSize * 2,
 			};
-			const worldBounds = applyTransformToBounds(expandedBounds, composedT);
+			const worldBounds = transformBounds(expandedBounds, composedT);
 			if (!boundsIntersect(worldBounds, eraserBounds)) continue;
 
 			// Convert eraser to local space once for both face-cut and erasure
-			const origin = computeTransformOrigin(localBounds);
-			const localStroke = worldToLocalFull(
-				this.currentStroke,
-				composedT,
-				origin,
-			);
+			const localStroke = worldToLocalFull(this.currentStroke, composedT);
 			const avgScale =
 				(Math.abs(composedT.scaleX) + Math.abs(composedT.scaleY)) / 2;
 			const localEraserRadius =
@@ -1127,10 +1121,7 @@ function resolveComposedTransform(
 function worldToLocalFull(
 	points: Point[],
 	composedT: ElementTransform,
-	origin: Point,
 ): Point[] {
 	if (isIdentityTransform(composedT)) return points;
-	return points.map((p) =>
-		inverseTransform(p.x, p.y, composedT, origin.x, origin.y),
-	);
+	return points.map((p) => inverseTransform(p.x, p.y, composedT));
 }

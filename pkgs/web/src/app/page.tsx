@@ -1205,12 +1205,10 @@ function ignoreShortcutsInOptedOutSubtree(
 	return event.target.closest('[data-app-shortcuts="off"]') ? false : undefined;
 }
 
-/** Opens the fixture document served by the dev-only API route. */
-async function loadDevDocument() {
+/** Fetches the fixture document served by the dev-only API route. */
+async function loadDevDocument(): Promise<Blob | null> {
 	if (process.env.NODE_ENV !== "development") return null;
 
-	const { openPapfContainer } = await import("@paplico/core/io");
 	const res = await fetch("/api/dev/test-document");
-	const papf = await openPapfContainer(await res.blob());
-	return papf.toDocument();
+	return res.blob();
 }

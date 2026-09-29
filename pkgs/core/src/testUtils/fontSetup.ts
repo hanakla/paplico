@@ -30,6 +30,18 @@ export function createTestFontManager(): FontManager {
 	});
 }
 
+let testFontManager: Promise<FontManager> | undefined;
+
+/** One manager per test file, so the fixture font is parsed only once. */
+export function getTestFontManager(): Promise<FontManager> {
+	testFontManager ??= (async () => {
+		const fontManager = createTestFontManager();
+		await loadTestFont(fontManager);
+		return fontManager;
+	})();
+	return testFontManager;
+}
+
 /**
  * Load NotoSansJP from the bundled test asset into a manager from
  * createTestFontManager. The fixture answers both the local source keyed by

@@ -53,16 +53,11 @@ describe("builtin automation scripts", () => {
 			random.mockRestore();
 		}
 
-		expect(scene.first.transform).toMatchObject({
-			x: 25,
-			y: 25,
-			rotation: 7.5,
-		});
-		expect(scene.second.transform).toMatchObject({
-			x: 125,
-			y: 225,
-			rotation: 7.5,
-		});
+		// The script turns by 7.5°, written in radians.
+		expect(scene.first.transform).toMatchObject({ x: 25, y: 25 });
+		expect(scene.first.transform.rotation).toBeCloseTo((7.5 * Math.PI) / 180);
+		expect(scene.second.transform).toMatchObject({ x: 125, y: 225 });
+		expect(scene.second.transform.rotation).toBeCloseTo((7.5 * Math.PI) / 180);
 	});
 
 	it("should round the selected object coordinates", async () => {
@@ -121,13 +116,14 @@ describe("builtin automation scripts", () => {
 		]);
 	});
 
-	it("should swap the positions of two selected objects", async () => {
+	it("should swap the places of two selected objects by the centres of their bounds", async () => {
 		const scene = createScene();
 
 		await runBuiltin("builtin:swap-positions", scene.bridge);
 
-		expect(scene.first.transform).toMatchObject({ x: 100, y: 200 });
-		expect(scene.second.transform).toMatchObject({ x: 0, y: 0 });
+		// The centres sit at (60,45) and (-25,12.5): each moves onto the other.
+		expect(scene.first.transform).toMatchObject({ x: -85, y: -32.5 });
+		expect(scene.second.transform).toMatchObject({ x: 185, y: 232.5 });
 	});
 });
 

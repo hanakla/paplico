@@ -32,8 +32,8 @@ const CACHE_TEXTURE_LABEL = "Filtered Element Cache Texture";
  * The filtered-element cache must be invisible in the output: a pan frame that
  * reuses a cached bake has to produce exactly the pixels a full re-run of the
  * filter chain would. Frames run through the editor path (viewport culling and
- * the interactive bake clamp kept on) — the export path never engages the
- * cache.
+ * the interactive bake clamp kept on). Export frames engage the cache only
+ * with a change set, which the timelapse surface tests cover.
  */
 describe("filtered-element cache idempotency", () => {
 	it("should render a cache-hit pan frame identical to a forced re-render", async () => {

@@ -3,17 +3,35 @@ import { describe, expect, it } from "vitest";
 import { createIdentityTransform } from "../../document/factory";
 import type { BlurFilter } from "../../renderer/filters";
 import {
+	type BlendObject,
 	type BrushPreset,
 	type BrushSettings,
+	type CompoundPath,
 	type Document,
+	type ElementTransform,
 	type FillAppearance,
 	type Filter,
+	type Group,
+	getContainerChildIds,
 	getTransform,
+	type ImageObject,
+	type MeshArtObject,
 	type Path,
+	type Reference3DElement,
+	type RepeatObject,
 	type StrokeAppearance,
+	type TextElement,
 	type Viewport,
 } from "../../schema";
-import { applyTransformToPoint } from "../../utils/geometry/geometry";
+import { legacyPlace } from "../../testUtils/legacyPlacement";
+import { rectPath } from "../../testUtils/svgFixtures";
+import { createTestTextElement } from "../../testUtils/typographyFixtures";
+import { calculateLocalElementBounds } from "../../utils/geometry/bounds";
+import {
+	applyTransformToPoint,
+	composeAncestorTransform,
+	composeTransforms,
+} from "../../utils/geometry/geometry";
 import { migAppearanceFilters } from "./20260221_mig_appearance_filters";
 import { migBrushSettings } from "./20260224_mig_brush_settings";
 import { migTiltPoolingDefaults } from "./20260228_mig_tilt_pooling_defaults";
@@ -32,6 +50,7 @@ import { migDropEraseMasks } from "./20260920_mig_drop_erase_masks";
 import { migBlendEasing } from "./20260921_mig_blend_easing";
 import { migSplitStrokeErasure } from "./20260925_mig_split_stroke_erasure";
 import { migFontSourceLoader } from "./20260927_mig_font_source_loader";
+import { migTransformOrigin } from "./20260929_mig_transform_origin";
 import {
 	applyMigration,
 	applyMigrations,
@@ -1597,17 +1616,14 @@ describe("migCompoundPathPivot (20260918)", () => {
 			20260917,
 		);
 		const corner = { x: -50, y: -50 };
-		const before = applyTransformToPoint(corner.x, corner.y, transform, 25, 0);
+		const before = legacyPlace(corner, transform, { x: 25, y: 0 });
 
 		applyMigration(doc, migCompoundPathPivot);
 
-		const after = applyTransformToPoint(
-			corner.x,
-			corner.y,
-			getTransform(doc.objects.cp),
-			-25,
-			0,
-		);
+		const after = legacyPlace(corner, getTransform(doc.objects.cp), {
+			x: -25,
+			y: 0,
+		});
 		expect(after.x).toBeCloseTo(before.x);
 		expect(after.y).toBeCloseTo(before.y);
 	});
@@ -1797,6 +1813,658 @@ describe("migFontSourceLoader (20260927)", () => {
 	});
 });
 
+describe("migTransformOrigin (20260929)", () => {
+	const turned: ElementTransform = {
+		x: 30,
+		y: -20,
+		rotation: 0.7,
+		scaleX: 1.5,
+		scaleY: 0.8,
+	};
+	const tilted: ElementTransform = {
+		...createIdentityTransform(),
+		x: 5,
+		rotation: 0.3,
+	};
+
+	it("should turn a path around the centre of its bounds", () => {
+		const doc = makeDoc(
+			{ p: squareAt("p", { x: 100, y: 40 }, turned) },
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(doc, "p", corners(100, 40), (p) =>
+			legacyPlace(p, turned, { x: 100, y: 40 }),
+		);
+	});
+
+	it("should turn an image around its rect centre", () => {
+		const doc = makeDoc(
+			{ i: makeImage("i", { x: 60, y: -30, width: 80, height: 40 }, turned) },
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(
+			doc,
+			"i",
+			[
+				{ x: 20, y: -50 },
+				{ x: 100, y: -50 },
+				{ x: 100, y: -10 },
+				{ x: 20, y: -10 },
+			],
+			(p) => legacyPlace(p, turned, { x: 60, y: -30 }),
+		);
+	});
+
+	it("should turn a free-transformed image around its rect centre, not its corners", () => {
+		const corners: ImageObject["corners"] = [
+			[0, 0],
+			[100, 10],
+			[90, -60],
+			[-10, -50],
+		];
+		const doc = makeDoc(
+			{
+				i: {
+					...makeImage("i", { x: 40, y: -20, width: 80, height: 40 }, turned),
+					corners,
+				},
+			},
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(
+			doc,
+			"i",
+			corners.map(([x, y]) => ({ x, y })),
+			(p) => legacyPlace(p, turned, { x: 40, y: -20 }),
+		);
+	});
+
+	it("should turn a 3D reference around its rect centre", () => {
+		const reference: Reference3DElement = {
+			type: "reference3d",
+			id: "r",
+			sceneId: "scene",
+			camera: {
+				projection: "perspective",
+				position: [0, 0, 5],
+				target: [0, 0, 0],
+				fovDeg: 45,
+			},
+			x: 10,
+			y: 10,
+			width: 200,
+			height: 100,
+			displayMode: "flat",
+			opacity: 1,
+			blendMode: "normal",
+			transform: turned,
+		};
+		const doc = makeDoc({ r: reference }, 20260928);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(
+			doc,
+			"r",
+			[
+				{ x: -90, y: -40 },
+				{ x: 110, y: 60 },
+			],
+			(p) => legacyPlace(p, turned, { x: 10, y: 10 }),
+		);
+	});
+
+	it("should turn a text around the centre of its measured layout", () => {
+		const text = {
+			...createTestTextElement("Hello", { id: "t", x: 20, y: 30 }),
+			transform: turned,
+		};
+		const measured = {
+			minX: 20,
+			minY: -10,
+			maxX: 220,
+			maxY: 50,
+			width: 200,
+			height: 60,
+		};
+		const doc = makeDoc({ t: text }, 20260928);
+
+		applyMigration(doc, migTransformOrigin, {
+			textLayoutBounds: new Map([["t", measured]]),
+		});
+
+		expectPlacedLikeLegacy(
+			doc,
+			"t",
+			[
+				{ x: 20, y: -10 },
+				{ x: 220, y: 50 },
+			],
+			(p) => legacyPlace(p, turned, { x: 120, y: 20 }),
+		);
+	});
+
+	it("should turn a text around the centre of its estimate when it was not measured", () => {
+		const text = {
+			...createTestTextElement("Hello", { id: "t", x: 20, y: 30 }),
+			transform: turned,
+		};
+		const doc = makeDoc({ t: text }, 20260928);
+		const pivot = centreOf(calculateLocalElementBounds(text));
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(
+			doc,
+			"t",
+			[
+				{ x: 20, y: 30 },
+				{ x: 80, y: 10 },
+			],
+			(p) => legacyPlace(p, turned, pivot),
+		);
+	});
+
+	it("should turn a path-bound text around its estimate even when it was measured", () => {
+		const text: TextElement = {
+			...createTestTextElement("Hello", {
+				id: "t",
+				x: 20,
+				y: 30,
+				axisBinding: {
+					mode: "onPath",
+					pathObjectId: "axis",
+					startOffset: 0,
+					alignment: "left",
+					offsetDistance: 0,
+					orientation: "upright",
+				},
+			}),
+			transform: turned,
+		};
+		const doc = makeDoc(
+			{ t: text, axis: squareAt("axis", { x: 300, y: 300 }) },
+			20260928,
+		);
+		const pivot = centreOf(calculateLocalElementBounds(text));
+
+		applyMigration(doc, migTransformOrigin, {
+			textLayoutBounds: new Map([
+				[
+					"t",
+					{
+						minX: 250,
+						minY: 250,
+						maxX: 350,
+						maxY: 350,
+						width: 100,
+						height: 100,
+					},
+				],
+			]),
+		});
+
+		expectPlacedLikeLegacy(
+			doc,
+			"t",
+			[
+				{ x: 20, y: 30 },
+				{ x: 80, y: 10 },
+			],
+			(p) => legacyPlace(p, turned, pivot),
+		);
+	});
+
+	it("should keep a turned source of a turned compound path where it was drawn", () => {
+		// The source, a 100×20 box turned a quarter, fills x 40..60 and y
+		// -50..50 inside the compound, so the compound pivots on (50, 0).
+		const quarter = { ...createIdentityTransform(), rotation: Math.PI / 2 };
+		const base = {
+			...rectPath("base", { x: 50, y: 0 }, 100, 20, []),
+			transform: quarter,
+		};
+		const compound: CompoundPath = {
+			type: "compound-path",
+			id: "cp",
+			sources: [{ id: "base", op: "union" }],
+			opacity: 1,
+			blendMode: "normal",
+			transform: turned,
+		};
+		const doc = makeDoc({ base, cp: compound }, 20260928);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(
+			doc,
+			"base",
+			[
+				{ x: 0, y: -10 },
+				{ x: 100, y: 10 },
+			],
+			(p) =>
+				legacyPlace(legacyPlace(p, quarter, { x: 50, y: 0 }), turned, {
+					x: 50,
+					y: 0,
+				}),
+		);
+	});
+
+	it("should turn a blend around the centre of its spine", () => {
+		const blend: BlendObject = {
+			type: "blend",
+			id: "b",
+			objectIds: ["k1", "k2"],
+			spineSourceId: "spine",
+			spacing: { type: "steps", count: 3 },
+			placementEasing: { type: "linear" },
+			appearanceEasing: { type: "linear" },
+			opacity: 1,
+			blendMode: "normal",
+			transform: turned,
+		};
+		const doc = makeDoc(
+			{
+				b: blend,
+				k1: rectPath("k1", { x: 0, y: 0 }, 40, 40, []),
+				k2: rectPath("k2", { x: 200, y: 0 }, 40, 40, []),
+				spine: linePath("spine", { x: 0, y: 0 }, { x: 200, y: 0 }),
+			},
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		for (const key of ["k1", "k2"]) {
+			const centre = key === "k1" ? 0 : 200;
+			expectPlacedLikeLegacy(
+				doc,
+				key,
+				[
+					{ x: centre - 20, y: -20 },
+					{ x: centre + 20, y: 20 },
+				],
+				(p) => legacyPlace(p, turned, { x: 100, y: 0 }),
+			);
+		}
+	});
+
+	it("should turn a repeat around the centre of its sources", () => {
+		const repeat: RepeatObject = {
+			type: "repeat",
+			id: "r",
+			sourceIds: ["s"],
+			mode: "grid",
+			grid: { width: 200, height: 200, spacingX: 10, spacingY: 10 },
+			radial: {
+				count: 6,
+				radius: 100,
+				startAngle: 0,
+				sweep: Math.PI * 2,
+				rotateInstances: true,
+			},
+			mirror: { axisAngle: 0, offset: 0 },
+			opacity: 1,
+			blendMode: "normal",
+			transform: turned,
+		};
+		const doc = makeDoc(
+			{ r: repeat, s: rectPath("s", { x: 30, y: 10 }, 40, 40, []) },
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(doc, "s", corners(30, 10, 20), (p) =>
+			legacyPlace(p, turned, { x: 30, y: 10 }),
+		);
+	});
+
+	it("should turn a mesh and its child each around their own centre", () => {
+		const cage = [
+			{ x: 0, y: 0 },
+			{ x: 100, y: 0 },
+			{ x: 100, y: 100 },
+			{ x: 0, y: 100 },
+		];
+		const mesh: MeshArtObject = {
+			type: "mesh",
+			id: "m",
+			childIds: ["c"],
+			vertices: cage.map((v) => ({ ...v, src: { ...v }, handles: {} })),
+			faces: [{ type: "quad", verts: [0, 1, 2, 3] }],
+			opacity: 1,
+			blendMode: "normal",
+			transform: turned,
+		};
+		const doc = makeDoc(
+			{ m: mesh, c: squareAt("c", { x: 50, y: 50 }, tilted, 20) },
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(doc, "c", corners(50, 50, 10), (p) =>
+			legacyPlace(legacyPlace(p, tilted, { x: 50, y: 50 }), turned, {
+				x: 50,
+				y: 50,
+			}),
+		);
+	});
+
+	it("should keep the child of a turned group where the group drew it", () => {
+		const doc = makeDoc(
+			{
+				p: squareAt("p", { x: 100, y: 40 }, tilted),
+				g: makeGroup("g", ["p"], turned),
+			},
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expect(getTransform(doc.objects.g)).toEqual(turned);
+		expectPlacedLikeLegacy(doc, "p", corners(100, 40), (p) =>
+			legacyPlace(p, composeTransforms(turned, tilted), { x: 100, y: 40 }),
+		);
+	});
+
+	it("should keep the children of nested turned groups where they were drawn", () => {
+		const inner = {
+			...createIdentityTransform(),
+			x: -30,
+			rotation: -0.6,
+			scaleX: 0.7,
+		};
+		const outer = {
+			...createIdentityTransform(),
+			x: 50,
+			y: 10,
+			rotation: 0.9,
+			scaleY: 1.4,
+		};
+		const doc = makeDoc(
+			{
+				p: squareAt("p", { x: 120, y: 0 }, tilted),
+				inner: makeGroup("inner", ["p"], inner),
+				outer: makeGroup("outer", ["inner"], outer),
+			},
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(doc, "p", corners(120, 0), (p) =>
+			legacyPlace(
+				p,
+				composeTransforms(outer, composeTransforms(inner, tilted)),
+				{ x: 120, y: 0 },
+			),
+		);
+	});
+
+	it("should leave a translated group and its child alone", () => {
+		const translated = { ...createIdentityTransform(), x: 40, y: -20 };
+		const doc = makeDoc(
+			{
+				p: makeSquarePath("p", 0),
+				g: makeGroup("g", ["p"], translated),
+			},
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expect(getTransform(doc.objects.g)).toEqual(translated);
+		expect(getTransform(doc.objects.p)).toEqual(createIdentityTransform());
+	});
+
+	it("should keep mask content where a turned owner drew it", () => {
+		const doc = makeDoc(
+			{
+				owner: {
+					...makeImage(
+						"owner",
+						{ x: 60, y: -30, width: 100, height: 100 },
+						turned,
+					),
+					mask: { elementIds: ["m"] },
+				},
+				m: squareAt("m", { x: 30, y: 30 }, tilted),
+			},
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(doc, "m", corners(30, 30), (p) =>
+			legacyPlace(p, composeTransforms(turned, tilted), { x: 30, y: 30 }),
+		);
+	});
+
+	it("should keep a group inside a mask where the owner drew its child", () => {
+		const doc = makeDoc(
+			{
+				owner: {
+					...makeImage(
+						"owner",
+						{ x: 60, y: -30, width: 100, height: 100 },
+						turned,
+					),
+					mask: { elementIds: ["mg"] },
+				},
+				mg: makeGroup("mg", ["mp"], tilted),
+				mp: squareAt("mp", { x: 30, y: 30 }, tilted),
+			},
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(doc, "mp", corners(30, 30), (p) =>
+			legacyPlace(
+				p,
+				composeTransforms(turned, composeTransforms(tilted, tilted)),
+				{ x: 30, y: 30 },
+			),
+		);
+	});
+
+	it("should keep mask content where a nested owner drew it", () => {
+		const doc = makeDoc(
+			{
+				g: makeGroup("g", ["owner"], turned),
+				owner: {
+					...makeImage(
+						"owner",
+						{ x: 60, y: -30, width: 100, height: 100 },
+						tilted,
+					),
+					mask: { elementIds: ["m"] },
+				},
+				m: squareAt("m", { x: 30, y: 30 }, tilted),
+			},
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(doc, "m", corners(30, 30), (p) =>
+			legacyPlace(
+				p,
+				composeTransforms(turned, composeTransforms(tilted, tilted)),
+				{ x: 30, y: 30 },
+			),
+		);
+	});
+
+	it("should place a flattened owner without breaking its mask content", () => {
+		const flattened = { ...turned, scaleX: 0 };
+		const doc = makeDoc(
+			{
+				owner: {
+					...makeImage(
+						"owner",
+						{ x: 60, y: -30, width: 100, height: 100 },
+						flattened,
+					),
+					mask: { elementIds: ["m"] },
+				},
+				m: squareAt("m", { x: 30, y: 30 }, tilted),
+			},
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		expectPlacedLikeLegacy(
+			doc,
+			"owner",
+			[
+				{ x: 10, y: -80 },
+				{ x: 110, y: 20 },
+			],
+			(p) => legacyPlace(p, flattened, { x: 60, y: -30 }),
+		);
+		const content = getTransform(doc.objects.m);
+		expect(Number.isFinite(content.x)).toBe(true);
+		expect(Number.isFinite(content.y)).toBe(true);
+	});
+
+	it("should write the translations the placement rules give", () => {
+		// The values are worked out by hand from the rules in legacyPlacement.ts,
+		// so a change in the bounds code cannot quietly move migrated documents.
+		const quarter = { ...createIdentityTransform(), rotation: Math.PI / 2 };
+		const doc = makeDoc(
+			{
+				p: squareAt("p", { x: 100, y: 0 }, quarter),
+				g: makeGroup("g", ["p"], quarter),
+				i: makeImage(
+					"i",
+					{ x: 40, y: -20, width: 10, height: 10 },
+					{ ...quarter, x: 5, y: 5 },
+				),
+			},
+			20260928,
+		);
+
+		applyMigration(doc, migTransformOrigin);
+
+		const child = getTransform(doc.objects.p);
+		expect(child.x).toBeCloseTo(0);
+		expect(child.y).toBeCloseTo(-200);
+		expect(child.rotation).toBe(Math.PI / 2);
+		expect(getTransform(doc.objects.g)).toEqual(quarter);
+		const image = getTransform(doc.objects.i);
+		expect(image.x).toBeCloseTo(25);
+		expect(image.y).toBeCloseTo(-55);
+	});
+});
+
+interface Point {
+	x: number;
+	y: number;
+}
+
+/** The corners of a `2·half` square centred on (cx, cy). */
+function corners(cx: number, cy: number, half = 50): Point[] {
+	return [
+		{ x: cx - half, y: cy - half },
+		{ x: cx + half, y: cy - half },
+		{ x: cx + half, y: cy + half },
+		{ x: cx - half, y: cy + half },
+	];
+}
+
+function centreOf(bounds: {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+}): Point {
+	return {
+		x: (bounds.minX + bounds.maxX) / 2,
+		y: (bounds.minY + bounds.maxY) / 2,
+	};
+}
+
+/**
+ * Check that the element's local `points` land where `legacy` drew them,
+ * placed through every ancestor under the current rule.
+ */
+function expectPlacedLikeLegacy(
+	doc: Document,
+	id: string,
+	points: Point[],
+	legacy: (point: Point) => Point,
+): void {
+	const elementsMap = new Map(Object.entries(doc.objects));
+	const parentOf = new Map<string, string>();
+	for (const element of elementsMap.values()) {
+		for (const childId of [
+			...(getContainerChildIds(element) ?? []),
+			...(element.mask?.elementIds ?? []),
+		]) {
+			parentOf.set(childId, element.id);
+		}
+	}
+	const placement = composeAncestorTransform(
+		doc.objects[id],
+		elementsMap,
+		parentOf,
+	);
+	for (const point of points) {
+		const before = legacy(point);
+		const after = applyTransformToPoint(point.x, point.y, placement);
+		expect(after.x).toBeCloseTo(before.x);
+		expect(after.y).toBeCloseTo(before.y);
+	}
+}
+
+/** A closed square of side `2·half` centred on `centre` in its own space. */
+function squareAt(
+	id: string,
+	centre: Point,
+	transform: ElementTransform = createIdentityTransform(),
+	half = 50,
+): Path {
+	return { ...rectPath(id, centre, half * 2, half * 2, []), transform };
+}
+
+/** An open straight path from `from` to `to`. */
+function linePath(id: string, from: Point, to: Point): Path {
+	const line = rectPath(id, from, 0, 0, []);
+	return {
+		...line,
+		segments: [{ ...line.segments[0], start: from, end: to, isMoved: true }],
+	};
+}
+
+function makeImage(
+	id: string,
+	rect: { x: number; y: number; width: number; height: number },
+	transform: ElementTransform,
+): ImageObject {
+	return {
+		type: "image",
+		id,
+		fileUid: "file",
+		...rect,
+		opacity: 1,
+		blendMode: "normal",
+		transform,
+	};
+}
+
 /** A closed 100×100 square centered on the origin, moved right by `x`. */
 function makeSquarePath(id: string, x: number): Path {
 	const corners = [
@@ -1871,5 +2539,20 @@ function makeLegacyText(
 				},
 			],
 		},
+	};
+}
+
+function makeGroup(
+	id: string,
+	childIds: string[],
+	transform: ElementTransform,
+): Group {
+	return {
+		type: "group",
+		id,
+		childIds,
+		opacity: 1,
+		blendMode: "normal",
+		transform,
 	};
 }

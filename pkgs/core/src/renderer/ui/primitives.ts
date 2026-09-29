@@ -31,8 +31,8 @@ interface StrokeStyle {
 	/** Stroke width. Bare number = screen px, AA-compensated at lowering. */
 	width: Dim;
 	/**
-	 * Dash pattern in screen px (`length` drawn, `gap` skipped). Currently
-	 * honored only by straight-edge rect strokes (cornerRadius 0); other
+	 * Dash pattern in screen px (`length` drawn, `gap` skipped). Honored by
+	 * straight-edge rect strokes (cornerRadius 0) and polyline strokes; other
 	 * primitives render solid.
 	 */
 	dash?: { length: number; gap: number };

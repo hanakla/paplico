@@ -1,3 +1,6 @@
+import type { ChangedElements } from "../renderer/types";
+import type { Document } from "../schema";
+
 /** Yjs update の1エントリ */
 export interface TimelapseEntry {
 	/** recording start からの相対時間 (ms) */
@@ -49,6 +52,13 @@ export interface TimelapseData {
 	 * came after it, so playback migrates what it replays from this version.
 	 */
 	schemaVersions?: { at: number; version: number }[];
+}
+
+/** One replayed frame and what it changed since the frame handed out before it. */
+export interface TimelapseFrame {
+	document: Document;
+	/** undefined: every element may have changed since the previous frame */
+	changedElements: ChangedElements | undefined;
 }
 
 /** 再生状態（UI向け） */

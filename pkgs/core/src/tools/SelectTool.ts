@@ -17,6 +17,7 @@ import {
 	type AnyArtObject,
 	type BoundingBox,
 	type Extrude3DParams,
+	IDENTITY_TRANSFORM,
 	isContainer,
 	isReference3D,
 	isRepeat,
@@ -30,11 +31,11 @@ import {
 	brandWorldBBox,
 	calculateRepeatSourceUnion,
 	pointInPolygon,
-	translateBounds,
 	type WorldBBox,
 } from "../utils/geometry/bounds";
 import {
 	composeTransforms,
+	inverseTransformPoint,
 	inverseTransformVector,
 	screenToWorld,
 	toWorld,
@@ -45,6 +46,14 @@ import {
 	elementTransformToAffine,
 	invertAffine,
 } from "../utils/geometry/repeatInterpolation";
+import {
+	frameCenter,
+	frameCorners,
+	frameWorldBounds,
+	resolveSelectionFrame,
+	type SelectionFrame,
+	transformFrame,
+} from "../utils/geometry/selectionFrame";
 import {
 	collectSelectionOutlines,
 	shouldDashSelectionBounds,
@@ -66,8 +75,8 @@ import {
 } from "./repeatGridGizmo";
 import {
 	calculateResizedBounds,
-	createResizeHandles,
-	createRotationHandle,
+	createFrameHandles,
+	createSelectionUIData,
 	getResizeCursor,
 	getResizeSnapTargets,
 	hitTestResizeHandle,
@@ -94,6 +103,8 @@ type DragState =
 			mode: "move";
 			dragStartX: number;
 			dragStartY: number;
+			originalFrame: SelectionFrame;
+			/** The world box of the original frame, which snapping lines up. */
 			originalBounds: WorldBBox;
 			hasDuplicatedForAltDrag: boolean;
 			hasPreviewDelta: boolean;
@@ -104,15 +115,16 @@ type DragState =
 			mode: "resize";
 			dragStartX: number;
 			dragStartY: number;
-			originalBounds: WorldBBox;
+			originalFrame: SelectionFrame;
 			activeHandle: ResizeHandle;
+			/** The resized box in the frame's space. */
 			lastPreviewBounds: ResizedBounds | null;
 	  }
 	| {
 			mode: "rotate";
 			dragStartX: number;
 			dragStartY: number;
-			originalBounds: WorldBBox;
+			originalFrame: SelectionFrame;
 			rotationStartAngle: number;
 			rotationCenter: { x: number; y: number };
 	  }
@@ -178,7 +190,7 @@ export class SelectTool implements Tool {
 
 	private context: ToolContext;
 	private dragState: DragState = { mode: "idle" };
-	private selectedBounds: WorldBBox | null = null;
+	private selectedFrame: SelectionFrame | null = null;
 	/** Extrude gizmo handle under the cursor (highlight + rebuilt on change). */
 	private hoveredExtrudeHandle: ExtrudeGizmoHandle | null = null;
 	private shiftKey = false;
@@ -217,9 +229,10 @@ export class SelectTool implements Tool {
 		const selectedIds = this.context.getSelectedElementIds();
 		if (
 			selectedIds.length > 0 &&
-			this.selectedBounds &&
+			this.selectedFrame &&
 			!this.context.isReadonly()
 		) {
+			const frame = this.selectedFrame;
 			// Extrude gizmo first: its rings/handle sit on top of the box.
 			const overlayHit = this.context.uiHitTest({ x: event.x, y: event.y });
 			if (
@@ -243,15 +256,14 @@ export class SelectTool implements Tool {
 
 			// Check rotation zone first (outside corners)
 			if (this.hitTestRotationZone(worldX, worldY, viewport)) {
-				const cx = (this.selectedBounds.minX + this.selectedBounds.maxX) / 2;
-				const cy = (this.selectedBounds.minY + this.selectedBounds.maxY) / 2;
+				const center = frameCenter(frame);
 				this.dragState = {
 					mode: "rotate",
 					dragStartX: worldX,
 					dragStartY: worldY,
-					originalBounds: { ...this.selectedBounds },
-					rotationCenter: { x: cx, y: cy },
-					rotationStartAngle: Math.atan2(worldY - cy, worldX - cx),
+					originalFrame: frame,
+					rotationCenter: center,
+					rotationStartAngle: Math.atan2(worldY - center.y, worldX - center.x),
 				};
 				return;
 			}
@@ -262,7 +274,7 @@ export class SelectTool implements Tool {
 					mode: "resize",
 					dragStartX: worldX,
 					dragStartY: worldY,
-					originalBounds: { ...this.selectedBounds },
+					originalFrame: frame,
 					activeHandle: handle,
 					lastPreviewBounds: null,
 				};
@@ -274,7 +286,7 @@ export class SelectTool implements Tool {
 		const layer = this.context.getCurrentLayer();
 		if (!layer) {
 			this.context.selectionClear();
-			this.selectedBounds = null;
+			this.selectedFrame = null;
 			return;
 		}
 
@@ -319,7 +331,7 @@ export class SelectTool implements Tool {
 		} else {
 			if (!event.shiftKey) {
 				this.context.selectionClear();
-				this.selectedBounds = null;
+				this.selectedFrame = null;
 			}
 
 			this.dragState = {
@@ -337,40 +349,16 @@ export class SelectTool implements Tool {
 		const selectedIds = this.context.getSelectedElementIds();
 
 		if (selectedIds.length === 0) {
-			this.selectedBounds = null;
+			this.selectedFrame = null;
 			this.context.uiRefreshSelectionUI(true);
 			return;
 		}
 
-		let minX = Number.POSITIVE_INFINITY;
-		let minY = Number.POSITIVE_INFINITY;
-		let maxX = Number.NEGATIVE_INFINITY;
-		let maxY = Number.NEGATIVE_INFINITY;
-		let hasBounds = false;
-		for (const id of selectedIds) {
-			const elBounds = this.context.getWorldGeometryBounds(id);
-
-			if (elBounds) {
-				hasBounds = true;
-				minX = Math.min(minX, elBounds.minX);
-				minY = Math.min(minY, elBounds.minY);
-				maxX = Math.max(maxX, elBounds.maxX);
-				maxY = Math.max(maxY, elBounds.maxY);
-			}
-		}
-
-		if (hasBounds) {
-			this.selectedBounds = brandWorldBBox({
-				minX,
-				minY,
-				maxX,
-				maxY,
-				width: maxX - minX,
-				height: maxY - minY,
-			});
-		} else {
-			this.selectedBounds = null;
-		}
+		this.selectedFrame = resolveSelectionFrame(
+			selectedIds,
+			(id) => this.context.getElementFrame(id),
+			(id) => this.context.getWorldGeometryBounds(id),
+		);
 
 		this.context.uiRefreshSelectionUI(true);
 	}
@@ -427,8 +415,6 @@ export class SelectTool implements Tool {
 				ancestorT
 					? composeTransforms(ancestorT, repeat.transform)
 					: repeat.transform,
-				center.x,
-				center.y,
 			);
 			this.context.uiSetOverlay(OVERLAY_KEYS.repeatHandles, {
 				primitives: buildRepeatRadialGizmo(repeat, center, affine, zoom),
@@ -520,8 +506,6 @@ export class SelectTool implements Tool {
 				ancestorT
 					? composeTransforms(ancestorT, repeat.transform)
 					: repeat.transform,
-				center.x,
-				center.y,
 			),
 		);
 
@@ -631,9 +615,7 @@ export class SelectTool implements Tool {
 			x: (union.minX + union.maxX) / 2,
 			y: (union.minY + union.maxY) / 2,
 		};
-		const inv = invertAffine(
-			elementTransformToAffine(repeatWorldT, center.x, center.y),
-		);
+		const inv = invertAffine(elementTransformToAffine(repeatWorldT));
 		const authoredStart = applyAffineToPoint(inv, startWorld);
 		const authoredNow = applyAffineToPoint(inv, { x: worldX, y: worldY });
 		const width = Math.max(0, startWidth + (authoredNow.x - authoredStart.x));
@@ -834,11 +816,11 @@ export class SelectTool implements Tool {
 			const selectedIds = this.context.getSelectedElementIds();
 			if (
 				selectedIds.length > 0 &&
-				this.selectedBounds &&
+				this.selectedFrame &&
 				this.dragState.hitElement &&
 				!this.context.isReadonly()
 			) {
-				let moveOriginalBounds = { ...this.selectedBounds };
+				let moveOriginalFrame = this.selectedFrame;
 				let { dragStartX, dragStartY } = this.dragState;
 				let hasDuplicatedForAltDrag = false;
 
@@ -856,16 +838,15 @@ export class SelectTool implements Tool {
 					this.refreshUI();
 					dragStartX = worldX;
 					dragStartY = worldY;
-					moveOriginalBounds = this.selectedBounds
-						? { ...this.selectedBounds }
-						: moveOriginalBounds;
+					moveOriginalFrame = this.selectedFrame ?? moveOriginalFrame;
 				}
 
 				this.dragState = {
 					mode: "move",
 					dragStartX,
 					dragStartY,
-					originalBounds: moveOriginalBounds,
+					originalFrame: moveOriginalFrame,
+					originalBounds: brandWorldBBox(frameWorldBounds(moveOriginalFrame)),
 					hasDuplicatedForAltDrag,
 					hasPreviewDelta: false,
 					lastPreviewDeltaX: 0,
@@ -985,14 +966,15 @@ export class SelectTool implements Tool {
 		state.lastPreviewDeltaX = snapResult.deltaX;
 		state.lastPreviewDeltaY = snapResult.deltaY;
 
-		const newBounds = translateBounds(
-			state.originalBounds,
-			snapResult.deltaX,
-			snapResult.deltaY,
+		this.context.uiUpdateSelectionUI(
+			this.createSelectionUI(
+				translateFrame(
+					state.originalFrame,
+					snapResult.deltaX,
+					snapResult.deltaY,
+				),
+			),
 		);
-
-		const selectionUI = this.createSelectionUI(newBounds);
-		this.context.uiUpdateSelectionUI(selectionUI);
 
 		this.updateSnapLineOverlay(snapResult.snapLines);
 	}
@@ -1003,30 +985,54 @@ export class SelectTool implements Tool {
 		worldY: number,
 		viewport: Viewport,
 	): void {
-		const rawBounds = calculateResizedBounds(
-			state.originalBounds,
-			state.activeHandle,
-			worldX,
-			worldY,
+		const snapped = this.resizeFrameBounds(state, worldX, worldY, viewport);
+		state.lastPreviewBounds = snapped.bounds;
+
+		this.context.uiUpdateSelectionUI(
+			this.createSelectionUI({
+				...state.originalFrame,
+				bounds: snapped.bounds,
+			}),
+		);
+
+		this.updateSnapLineOverlay(snapped.snapLines);
+	}
+
+	/**
+	 * The frame's box resized by the pointer, in the frame's space. The
+	 * pointer is taken into that space first, so the aspect lock and the
+	 * centre anchor work along the frame's axes. Snapping lines up world
+	 * edges, which a tilted frame has none of.
+	 */
+	private resizeFrameBounds(
+		state: Extract<DragState, { mode: "resize" }>,
+		worldX: number,
+		worldY: number,
+		viewport: Viewport,
+	): { bounds: ResizedBounds; snapLines: SnapLine[] } {
+		const frame = state.originalFrame;
+		const pointer = inverseTransformPoint(worldX, worldY, frame.matrix);
+		const start = inverseTransformPoint(
 			state.dragStartX,
 			state.dragStartY,
+			frame.matrix,
+		);
+		const rawBounds = calculateResizedBounds(
+			frame.bounds,
+			state.activeHandle,
+			pointer.x,
+			pointer.y,
+			start.x,
+			start.y,
 			{
 				constrainAspect: this.shiftKey,
 				anchorCenter: this.altKey,
 				allowFlip: true,
 			},
 		);
-		const snapped = this.snapResizedBounds(
-			rawBounds,
-			state.activeHandle,
-			viewport.zoom,
-		);
-		state.lastPreviewBounds = snapped.bounds;
-
-		const selectionUI = this.createSelectionUI(snapped.bounds);
-		this.context.uiUpdateSelectionUI(selectionUI);
-
-		this.updateSnapLineOverlay(snapped.snapLines);
+		return frame.elementId === null
+			? this.snapResizedBounds(rawBounds, state.activeHandle, viewport.zoom)
+			: { bounds: rawBounds, snapLines: [] };
 	}
 
 	/**
@@ -1133,33 +1139,13 @@ export class SelectTool implements Tool {
 			y: cy + (px - cx) * sin + (py - cy) * cos,
 		});
 
-		// Compute rotated AABB from original bounds corners
-		const bbCorners = [
-			rotatePoint(state.originalBounds.minX, state.originalBounds.minY),
-			rotatePoint(state.originalBounds.maxX, state.originalBounds.minY),
-			rotatePoint(state.originalBounds.maxX, state.originalBounds.maxY),
-			rotatePoint(state.originalBounds.minX, state.originalBounds.maxY),
-		];
-
-		let rMinX = Infinity;
-		let rMinY = Infinity;
-		let rMaxX = -Infinity;
-		let rMaxY = -Infinity;
-		for (const c of bbCorners) {
-			rMinX = Math.min(rMinX, c.x);
-			rMinY = Math.min(rMinY, c.y);
-			rMaxX = Math.max(rMaxX, c.x);
-			rMaxY = Math.max(rMaxY, c.y);
-		}
-
-		const rotatedBounds: BoundingBox = {
-			minX: rMinX,
-			minY: rMinY,
-			maxX: rMaxX,
-			maxY: rMaxY,
-			width: rMaxX - rMinX,
-			height: rMaxY - rMinY,
-		};
+		// The frame turns as a whole around the pivot.
+		const turned = transformFrame(state.originalFrame, {
+			...IDENTITY_TRANSFORM,
+			x: cx - (cx * cos - cy * sin),
+			y: cy - (cx * sin + cy * cos),
+			rotation: angleDelta,
+		});
 
 		// Build rotated path outlines for preview
 		const pathSegments: SelectionUIData["pathSegments"] = [];
@@ -1185,16 +1171,14 @@ export class SelectTool implements Tool {
 			}
 		}
 
-		const handles = createResizeHandles(rotatedBounds);
-		this.context.uiUpdateSelectionUI({
-			bounds: rotatedBounds,
-			handles,
-			rotationHandle: createRotationHandle(rotatedBounds, _viewport.zoom),
-			pathSegments: pathSegments.length > 0 ? pathSegments : undefined,
-			boundsDashed: shouldDashSelectionBounds(
-				selectedIds.map((id) => this.context.getElement(id) ?? undefined),
-			),
-		});
+		this.context.uiUpdateSelectionUI(
+			createSelectionUIData(turned, _viewport.zoom, true, {
+				pathSegments: pathSegments.length > 0 ? pathSegments : undefined,
+				boundsDashed: shouldDashSelectionBounds(
+					selectedIds.map((id) => this.context.getElement(id) ?? undefined),
+				),
+			}),
+		);
 	}
 
 	private handleMarqueeDrag(
@@ -1325,7 +1309,7 @@ export class SelectTool implements Tool {
 
 		this.context.elementsMove(selectedIds, deltaX, deltaY);
 
-		this.selectedBounds = translateBounds(state.originalBounds, deltaX, deltaY);
+		this.selectedFrame = translateFrame(state.originalFrame, deltaX, deltaY);
 
 		this.updateSnapLineOverlay([]);
 
@@ -1343,34 +1327,14 @@ export class SelectTool implements Tool {
 
 		const newBounds =
 			state.lastPreviewBounds ??
-			this.snapResizedBounds(
-				calculateResizedBounds(
-					state.originalBounds,
-					state.activeHandle,
-					worldX,
-					worldY,
-					state.dragStartX,
-					state.dragStartY,
-					{
-						constrainAspect: this.shiftKey,
-						anchorCenter: this.altKey,
-						allowFlip: true,
-					},
-				),
-				state.activeHandle,
-				viewport.zoom,
-			).bounds;
+			this.resizeFrameBounds(state, worldX, worldY, viewport).bounds;
 
-		const newWorldBounds = brandWorldBBox(newBounds);
+		this.context.elementsResize(selectedIds, state.originalFrame, newBounds, {
+			x: newBounds.flipX,
+			y: newBounds.flipY,
+		});
 
-		this.context.elementsResize(
-			selectedIds,
-			state.originalBounds,
-			newWorldBounds,
-			{ x: newBounds.flipX, y: newBounds.flipY },
-		);
-
-		this.selectedBounds = newWorldBounds;
+		this.selectedFrame = { ...state.originalFrame, bounds: newBounds };
 
 		this.updateSnapLineOverlay([]);
 
@@ -1445,7 +1409,7 @@ export class SelectTool implements Tool {
 		this.dragState = { mode: "idle" };
 		this.updateSnapLineOverlay([]);
 		this.updateMarqueeOverlay(null);
-		this.selectedBounds = null;
+		this.selectedFrame = null;
 	}
 
 	private handleLassoDrag(
@@ -1542,12 +1506,12 @@ export class SelectTool implements Tool {
 	}
 
 	public saveInterruptibleState(): unknown {
-		return { selectedBounds: this.selectedBounds };
+		return { selectedFrame: this.selectedFrame };
 	}
 
 	public restoreFromInterrupt(state: unknown): void {
-		const s = state as { selectedBounds: typeof this.selectedBounds };
-		this.selectedBounds = s.selectedBounds;
+		const s = state as { selectedFrame: typeof this.selectedFrame };
+		this.selectedFrame = s.selectedFrame;
 	}
 
 	public onDoubleClick(
@@ -1668,7 +1632,11 @@ export class SelectTool implements Tool {
 			case "move":
 				return "grabbing";
 			case "resize":
-				return getResizeCursor(ds.activeHandle);
+				return getResizeCursor(
+					ds.activeHandle,
+					ds.originalFrame.matrix,
+					this.lastViewport?.rotation ?? 0,
+				);
 			case "rotate":
 				return "grabbing";
 			case "marquee":
@@ -1679,7 +1647,7 @@ export class SelectTool implements Tool {
 
 		// Hover state: check rotation zone and resize handles
 		const selectedIds = this.context.getSelectedElementIds();
-		if (selectedIds.length > 0 && this.selectedBounds && this.lastViewport) {
+		if (selectedIds.length > 0 && this.selectedFrame && this.lastViewport) {
 			if (
 				this.hitTestRotationZone(
 					this.lastWorldX,
@@ -1696,7 +1664,11 @@ export class SelectTool implements Tool {
 				this.lastViewport,
 			);
 			if (handle) {
-				return getResizeCursor(handle);
+				return getResizeCursor(
+					handle,
+					this.selectedFrame.matrix,
+					this.lastViewport.rotation,
+				);
 			}
 
 			return "grab";
@@ -1732,9 +1704,7 @@ export class SelectTool implements Tool {
 		);
 	}
 
-	private createSelectionUI(bounds: BoundingBox): SelectionUIData {
-		const handles = createResizeHandles(bounds);
-
+	private createSelectionUI(frame: SelectionFrame): SelectionUIData {
 		const pathSegments: SelectionUIData["pathSegments"] = [];
 		const keyObjectSegments: SelectionUIData["keyObjectSegments"] = [];
 		const selectedIds = this.context.getSelectedElementIds();
@@ -1747,23 +1717,14 @@ export class SelectTool implements Tool {
 			else pathSegments.push(...outlines);
 		}
 
-		const zoom = this.lastViewport?.zoom ?? 1;
-		return {
-			bounds,
-			rotation: 0,
-			rotationCenter: {
-				x: (bounds.minX + bounds.maxX) / 2,
-				y: (bounds.minY + bounds.maxY) / 2,
-			},
-			handles,
-			rotationHandle: createRotationHandle(bounds, zoom),
+		return createSelectionUIData(frame, this.lastViewport?.zoom ?? 1, true, {
 			pathSegments: pathSegments.length > 0 ? pathSegments : undefined,
 			keyObjectSegments:
 				keyObjectSegments.length > 0 ? keyObjectSegments : undefined,
 			boundsDashed: shouldDashSelectionBounds(
 				selectedIds.map((id) => this.context.getElement(id) ?? undefined),
 			),
-		};
+		});
 	}
 
 	private collectOutlines(element: AnyArtObject): WorldBezierSegment[][] {
@@ -1780,8 +1741,13 @@ export class SelectTool implements Tool {
 		worldY: number,
 		viewport: Viewport,
 	): ResizeHandle | null {
-		if (!this.selectedBounds) return null;
-		return hitTestResizeHandle(worldX, worldY, this.selectedBounds, viewport);
+		if (!this.selectedFrame) return null;
+		return hitTestResizeHandle(
+			worldX,
+			worldY,
+			createFrameHandles(this.selectedFrame),
+			viewport,
+		);
 	}
 
 	/**
@@ -1794,10 +1760,10 @@ export class SelectTool implements Tool {
 		worldY: number,
 		viewport: Viewport,
 	): boolean {
-		if (!this.selectedBounds) return false;
+		if (!this.selectedFrame) return false;
 
 		// Check explicit rotation handle first
-		if (hitTestRotationHandle(worldX, worldY, this.selectedBounds, viewport)) {
+		if (hitTestRotationHandle(worldX, worldY, this.selectedFrame, viewport)) {
 			return true;
 		}
 
@@ -1805,16 +1771,7 @@ export class SelectTool implements Tool {
 		const handleHalf = 12 / viewport.zoom / 2;
 		const rotationMargin = 14 / viewport.zoom;
 
-		const { minX, maxX, minY, maxY } = this.selectedBounds;
-
-		const corners = [
-			{ x: minX, y: maxY }, // nw
-			{ x: maxX, y: maxY }, // ne
-			{ x: maxX, y: minY }, // se
-			{ x: minX, y: minY }, // sw
-		];
-
-		for (const corner of corners) {
+		for (const corner of frameCorners(this.selectedFrame)) {
 			const adx = Math.abs(worldX - corner.x);
 			const ady = Math.abs(worldY - corner.y);
 			const chebyshev = Math.max(adx, ady);
@@ -1829,7 +1786,7 @@ export class SelectTool implements Tool {
 
 	/** Expose selection bounds so a gesture interrupt can restore them */
 	public getSelectionBounds(): BoundingBox | null {
-		return this.selectedBounds;
+		return this.selectedFrame ? frameWorldBounds(this.selectedFrame) : null;
 	}
 }
 
@@ -1924,4 +1881,13 @@ function segmentsIntersect(
 	}
 
 	return false;
+}
+
+/** The frame moved by a world delta. */
+function translateFrame(
+	frame: SelectionFrame,
+	deltaX: number,
+	deltaY: number,
+): SelectionFrame {
+	return transformFrame(frame, { ...IDENTITY_TRANSFORM, x: deltaX, y: deltaY });
 }

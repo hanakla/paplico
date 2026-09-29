@@ -7,6 +7,7 @@ import {
 	type Reference3DDef,
 	type Reference3DElement,
 } from "../../../schema";
+
 import {
 	applyTransformToPoint,
 	composeAncestorTransform,
@@ -117,9 +118,9 @@ export class Reference3DElementRenderer {
 		} else {
 			// Rotation/scale-exact placement: transform the 4 rect corners
 			// (TL → TR → BR → BL, same convention as ImageElementRenderer's
-			// deformed-quad path) around the local rect center.
+			// deformed-quad path).
 			const corner = (x: number, y: number) =>
-				applyTransformToPoint(x, y, composedTransform, element.x, element.y);
+				applyTransformToPoint(x, y, composedTransform);
 			this.deps.blitQuadToCanvas(
 				passEncoder,
 				cached.texture,

@@ -4,21 +4,37 @@
 
 ### Added
 
+- `PaplicoCommands.flipElements(ids, flip)` mirrors a selection in the axes of its selection frame, so a lone rotated element turns over across its own axis. The ActionsPanel's flip buttons use it.
+- `PaplicoCommands.updateElementTransforms(updates)` rewrites the transforms of several elements in one undo step so the fields act on each element as it is seen: a change of the rotation, scale or skew fields turns the element around the centre of its local bounds instead of its origin, and a change of `x` and `y` moves it by that much. The ActionsPanel's rotation and skew inputs and the transforms written by automation scripts go through it.
 - `placementAnchorIds` option of `PaplicoCommands.pasteElements`. `placement` is resolved against these elements instead of the selection.
 - `paplico.tool.shapeCycle` shortcut command, bound to M by default. Each press while the shape tool is active switches to the next shape type. Pressing it from any other tool starts the shape tool at the rectangle.
+- A long press or a right click with the eyedropper lists every element painted at that point, front to back, in `toolSession` as `type: "eyedropper-candidates"`. Groups and compound paths are listed when they carry their own appearance. `Paplico.eyedropperPickCandidate` applies the chosen one. A lone candidate is listed too.
+- A long press on a point's center handle in the stroke width edit tool deletes the point on release. It works for both the width and the erasure profile. A ring appears once the press is long enough.
 
 ### Changed
 
+- The selection frame of a lone rotated or skewed element tilts with the element. Its handles sit on the element's own box, the rotation handle stands above it along the element's up axis, the resize cursors follow the frame's axes, and a resize drag maps the box along those axes, with the aspect lock and the centre anchor working in them. Snapping applies to world-axis frames only. Any other selection keeps a world-axis frame around its elements.
+- `PaplicoCommands.resizeElements(ids, frame, newBounds, flip)` takes the selection frame and maps its box onto `newBounds` in the frame's space. Each element takes that map in its own space: a rotated path keeps its rotation and bakes the map into its coordinates, a container hands it down to its content, an image, a 3D reference or a text scales its rect by the map's axis factors and folds the mirror, turn or shear that is left into its transform, and a mesh or repeat folds the map whole. A compound path or blend keeps its own transform instead of cancelling its chain.
+- `SelectionUIData` carries the frame's corners as `quad`, drawn as a closed polyline, and no longer carries `rotation` and `rotationCenter`.
+- `ElementTransform` is an affine matrix on the element's local origin: a local point lands at `L·p + (x, y)`. Every element used to turn and scale around a pivot of its own, the centre of its bounds for most kinds, and a group's children each around their own pivot. Containers now place their content by plain composition, mask content included, so editing an element's geometry no longer moves the point it turns around, and a group's rotation stays on the group. Rotation, resize and skew from the canvas fold their pivot into the translation. Migration `20260929` rewrites every stored transform so documents are drawn where they were; a rotated or scaled text is placed by its measured layout, which the migration context supplies.
+- Timelapse playback and MP4 export reuse the filter results of elements that did not change since the previous frame. A recording with many filtered elements no longer slows down toward its end.
+- `TimelapsePlayer` hands out `TimelapseFrame`, the replayed document together with the elements that changed since the frame before it. `onFrame`, `advanceBy` and `restart` pass it instead of a bare `Document`. `TimelapsePreviewSurface.render` and `renderToImageData` take it in place of the document.
 - `paplico.tool.shapeRect` no longer has a default key. M is bound to `paplico.tool.shapeCycle` instead.
+- An eyedropper click picks on release instead of on press, so it can be told apart from a long press.
+- Every long press in the tools takes 400ms. The mesh deform tool, the eyedropper and the pen's color pick used to wait 500ms, while the path edit tool waited 400ms.
 
 ### Fixed
 
+- A text keeps its measured layout bounds through a move or a transform edit. They used to fall back to the estimate, which shifted the selection frame, and a rotation typed into the ActionsPanel left the frame where the text no longer was.
+- `ungroupElements` and `extractChildFromGroup` keep the children where they were drawn. The group's transform, and for an extracted child every ancestor's, moves into each child. The children used to lose the rotation, skew or offset of the group they left.
 - Undoing the deletion of an element whose fields were changed in the same undo step now sends those fields to collaborators and the timelapse recording. They used to lose them, which left the restored element unreadable. yjs is upgraded to 13.6.33 for this.
 - Timelapse playback leaves out an element it cannot read instead of stopping with an error.
 - Alt+drag duplicates with the select tool and the path edit tool land right in front of the frontmost source instead of on top of the layer. `duplicateElementsByIds` stacks its copies the same way.
 - An element whose filter is applied to the backdrop now shows the backdrop in the shape its geometry filters produce. Geometry filters on its enclosing groups apply too.
 - An element with a raster filter such as blur inside a group with geometry filters is drawn in the shape the group deforms, instead of at its undeformed position.
 - Raster filters placed after a backdrop filter now reach past the element's shape. A drop shadow after frost glass is drawn, and a blur after it softens the pane's edge. They used to be cut off at the shape.
+- Clicks, rectangle selection, eyedropper candidates and clip paths inside a rotated or scaled group now hit the children where they are drawn. They used to miss parts of a child and hit empty space beside it.
+- The bounds of a rotated or scaled group now enclose its children where they are drawn. The selection box, snapping and hit candidates of such a group used to be shifted away from its content.
 
 ## [0.2.0] - 2026-09-27
 

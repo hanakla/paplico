@@ -29,16 +29,13 @@ import {
 } from "../schema";
 import { blendKeyOutlines } from "../utils/geometry/blendInterpolation";
 import {
-	brandLocalBBox,
 	calculateMeshCoordinateBounds,
-	calculatePathBounds,
 	distanceToSegment,
 	pointInPolygon,
 } from "../utils/geometry/bounds";
 import {
 	applyTransformToPoint,
 	composeTransforms,
-	computeTransformOrigin,
 	inverseTransform,
 	inverseTransformVector,
 	screenToWorld,
@@ -71,7 +68,6 @@ import type { PathRun } from "../utils/geometry/pathOps";
 import {
 	getStartAnchor,
 	getWorldSegments,
-	holdPivotAncestorTransform,
 	reconstructSegmentsFromWorld,
 	resolveCP1,
 	resolveCP2,
@@ -94,6 +90,7 @@ import {
 } from "./pathNodeEditHelpers";
 import {
 	dragStartThresholdScreenPx,
+	LONG_PRESS_MS,
 	type PointerEventData,
 	type Tool,
 } from "./Tool";
@@ -270,7 +267,6 @@ export class PathEditTool implements Tool {
 	private cachedControlPoints = new Map<string, ControlPointHandle[]>();
 	private lastViewport: Viewport | null = null;
 	private pointerDownTime = 0;
-	private static readonly LONG_PRESS_MS = 400;
 	private longPressTimer: ReturnType<typeof setTimeout> | null = null;
 	private longPressRing: { worldX: number; worldY: number } | null = null;
 
@@ -1084,7 +1080,7 @@ export class PathEditTool implements Tool {
 			if (ds.mode === "controlPointDrag") {
 				const elapsed = Date.now() - this.pointerDownTime;
 				const handle = ds.handles.get(ds.clickedHandleKey);
-				const isLongPress = elapsed >= PathEditTool.LONG_PRESS_MS;
+				const isLongPress = elapsed >= LONG_PRESS_MS;
 
 				// Long-press + drag on one CP of a symmetric pair frees it from the
 				// mirror, so that handle can be shaped on its own.
@@ -1510,7 +1506,7 @@ export class PathEditTool implements Tool {
 					const pointType = ds.clickedHandleKey.split(":")[2];
 					if (pointType === "start" || pointType === "end") {
 						const elapsed = Date.now() - this.pointerDownTime;
-						if (elapsed >= PathEditTool.LONG_PRESS_MS) {
+						if (elapsed >= LONG_PRESS_MS) {
 							this.deleteSingleAnchor(ds.clickedHandleKey);
 							this.dragState = { mode: "idle" };
 							this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
@@ -2692,9 +2688,7 @@ export class PathEditTool implements Tool {
 			const t = getTransform(path);
 			const composedT = ancestorT ? composeTransforms(ancestorT, t) : t;
 			if (isIdentityTransform(composedT)) return { x: wx, y: wy };
-			const localBounds = calculatePathBounds(path);
-			const origin = computeTransformOrigin(localBounds);
-			return inverseTransform(wx, wy, composedT, origin.x, origin.y);
+			return inverseTransform(wx, wy, composedT);
 		};
 
 		// World-space segments for angle/distance mirror calculations
@@ -3234,9 +3228,8 @@ export class PathEditTool implements Tool {
 	}
 
 	/**
-	 * Replace a selected path's segments mid-edit while keeping its drawn
-	 * placement fixed, so outlines and world↔local conversion stay in step
-	 * with the commit.
+	 * Replace a selected path's segments mid-edit, so outlines and
+	 * world↔local conversion stay in step with the commit.
 	 */
 	private setEditedSegments(
 		pathId: string,
@@ -3244,14 +3237,6 @@ export class PathEditTool implements Tool {
 	): void {
 		const path = this.selectedPaths.get(pathId);
 		if (!path) return;
-		this.pathAncestorTransforms.set(
-			pathId,
-			holdPivotAncestorTransform(
-				path,
-				this.pathAncestorTransforms.get(pathId) ?? null,
-				segments,
-			),
-		);
 		this.selectedPaths.set(pathId, { ...path, segments });
 	}
 
@@ -3867,10 +3852,7 @@ export class PathEditTool implements Tool {
 	): { x: number; y: number } {
 		const t = this.meshComposedTransform(mesh);
 		if (isIdentityTransform(t)) return { x: point.x, y: point.y };
-		const origin = computeTransformOrigin(
-			brandLocalBBox(calculateMeshCoordinateBounds(mesh.vertices)),
-		);
-		return applyTransformToPoint(point.x, point.y, t, origin.x, origin.y);
+		return applyTransformToPoint(point.x, point.y, t);
 	}
 
 	private meshWorldToLocal(
@@ -3879,10 +3861,7 @@ export class PathEditTool implements Tool {
 	): { x: number; y: number } {
 		const t = this.meshComposedTransform(mesh);
 		if (isIdentityTransform(t)) return { x: point.x, y: point.y };
-		const origin = computeTransformOrigin(
-			brandLocalBBox(calculateMeshCoordinateBounds(mesh.vertices)),
-		);
-		return inverseTransform(point.x, point.y, t, origin.x, origin.y);
+		return inverseTransform(point.x, point.y, t);
 	}
 
 	private buildMeshCageUIData(): NonNullable<PathEditUIData["meshCages"]> {
@@ -3995,7 +3974,7 @@ export class PathEditTool implements Tool {
 			this.longPressTimer = null;
 			this.longPressRing = { worldX, worldY };
 			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
-		}, PathEditTool.LONG_PRESS_MS);
+		}, LONG_PRESS_MS);
 	}
 
 	private cancelLongPressTimer(): void {

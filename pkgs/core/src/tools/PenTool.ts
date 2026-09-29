@@ -20,7 +20,12 @@ import {
 } from "../schema";
 import { screenToWorld } from "../utils/geometry/geometry";
 import type { SmoothingMethod } from "../utils/geometry/strokeFitting";
-import type { CoalescedPointerSample, PointerEventData, Tool } from "./Tool";
+import {
+	type CoalescedPointerSample,
+	LONG_PRESS_MS,
+	type PointerEventData,
+	type Tool,
+} from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
 interface PenToolOptions {
@@ -113,8 +118,7 @@ type DragState =
 export class PenTool implements Tool {
 	public readonly name = "pen";
 
-	// Long-press color pick constants
-	private static readonly LONG_PRESS_DURATION = 500;
+	// Moving farther than this cancels the long-press color pick
 	private static readonly LONG_PRESS_MOVE_THRESHOLD = 5;
 
 	private context: ToolContext;
@@ -204,10 +208,7 @@ export class PenTool implements Tool {
 			startTime: event.timeStamp,
 			diagnostics: undefined,
 			lastCoalescedBatch: undefined,
-			longPressTimer: setTimeout(
-				() => this.triggerLongPress(),
-				PenTool.LONG_PRESS_DURATION,
-			),
+			longPressTimer: setTimeout(() => this.triggerLongPress(), LONG_PRESS_MS),
 			holdTimer: this.brushHasTimedDabs()
 				? setInterval(() => this.injectHoldPoint(), HOLD_POINT_INTERVAL_MS)
 				: null,

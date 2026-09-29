@@ -16,10 +16,19 @@ import type {
 } from "../../schema";
 import { computeInverseCompositionTransform } from "./geometry";
 import {
-	createScaleTransform,
-	mirrorGradientFilters,
+	type Affine2D,
+	applyAffineToPoint,
+	IDENTITY_AFFINE,
+} from "./repeatInterpolation";
+import {
+	boundsRelativeMap,
+	createResizeAffine,
+	mapGradientFilters,
+	mapSegments,
+	mapWithin,
 	mirrorStrokeWidths,
-	scaleSegments,
+	resizeAxisScale,
+	resizeRemainder,
 	scaleStrokeFilters,
 	scaleTextContent,
 	scaleTextLayout,
@@ -118,36 +127,108 @@ function makeStrokeAppearance(size: number): StrokeAppearance {
 
 // --- Tests ---
 
-describe("createScaleTransform", () => {
+describe("createResizeAffine", () => {
 	it("should translate a flat axis instead of dividing by its zero extent", () => {
 		const original = makeBounds(0, 50, 100, 50);
 		const newBounds = makeBounds(0, 20, 100, 130);
-		const transform = createScaleTransform(original, newBounds);
+		const map = createResizeAffine(original, newBounds);
 
-		expect(transform.scaleY).toBe(1);
-		expect(transform.mapY(50)).toBe(20);
-		expect(transform.mapX(50)).toBe(50);
+		expect(map.d).toBe(1);
+		expect(applyAffineToPoint(map, { x: 50, y: 50 })).toEqual({ x: 50, y: 20 });
 	});
 
 	it("should map the original min edge onto the new max edge when mirrored", () => {
 		const original = makeBounds(0, 0, 100, 100);
 		const newBounds = makeBounds(200, 0, 300, 100);
-		const transform = createScaleTransform(original, newBounds, {
-			x: true,
-			y: false,
-		});
+		const map = createResizeAffine(original, newBounds, { x: true, y: false });
 
-		expect(transform.scaleX).toBe(-1);
-		expect(transform.scaleY).toBe(1);
-		expect(transform.mapX(0)).toBe(300);
-		expect(transform.mapX(100)).toBe(200);
-		expect(transform.mapY(0)).toBe(0);
+		expect(map.a).toBe(-1);
+		expect(map.d).toBe(1);
+		expect(applyAffineToPoint(map, { x: 0, y: 0 })).toEqual({ x: 300, y: 0 });
+		expect(applyAffineToPoint(map, { x: 100, y: 0 }).x).toBe(200);
 	});
 });
 
-describe("mirrorGradientFilters", () => {
-	it("should move a linear gradient's endpoints to the other side", () => {
-		const [filter] = mirrorGradientFilters(
+describe("mapWithin", () => {
+	it("should express a world map in the space a placement maps from", () => {
+		// A quarter turn places local x along world y; a world stretch along y
+		// is a stretch along local x.
+		const placement = { a: 0, b: 1, c: -1, d: 0, e: 10, f: 20 };
+		const stretchY = { a: 1, b: 0, c: 0, d: 3, e: 0, f: 0 };
+		const local = mapWithin(stretchY, placement);
+		const p = { x: 5, y: 7 };
+		const viaWorld = applyAffineToPoint(
+			stretchY,
+			applyAffineToPoint(placement, p),
+		);
+		const viaLocal = applyAffineToPoint(
+			placement,
+			applyAffineToPoint(local, p),
+		);
+		expect(viaLocal.x).toBeCloseTo(viaWorld.x);
+		expect(viaLocal.y).toBeCloseTo(viaWorld.y);
+		expect(local.a).toBeCloseTo(3);
+		expect(local.d).toBeCloseTo(1);
+	});
+});
+
+describe("resizeAxisScale / resizeRemainder", () => {
+	it("should split a map into its axis scale and what is left", () => {
+		const map = { a: 0, b: 2, c: -0.5, d: 0, e: 4, f: -1 };
+		const scale = resizeAxisScale(map);
+		expect(scale).toEqual({ x: 2, y: 0.5 });
+		const remainder = resizeRemainder(map, scale);
+		// The remainder composed onto the axis scale gives the map back.
+		const p = { x: 3, y: 9 };
+		const rebuilt = applyAffineToPoint(remainder, { x: p.x * 2, y: p.y * 0.5 });
+		const direct = applyAffineToPoint(map, p);
+		expect(rebuilt.x).toBeCloseTo(direct.x);
+		expect(rebuilt.y).toBeCloseTo(direct.y);
+	});
+
+	it("should count a collapsed axis as unscaled", () => {
+		expect(resizeAxisScale({ a: 0, b: 0, c: 0, d: 2, e: 0, f: 0 })).toEqual({
+			x: 1,
+			y: 2,
+		});
+	});
+});
+
+/** Bounds-relative maps: a mirror across the middle of an axis, and a quarter turn. */
+const MIRROR_X: Affine2D = { a: -1, b: 0, c: 0, d: 1, e: 1, f: 0 };
+const MIRROR_Y: Affine2D = { a: 1, b: 0, c: 0, d: -1, e: 0, f: 1 };
+const MIRROR_BOTH: Affine2D = { a: -1, b: 0, c: 0, d: -1, e: 1, f: 1 };
+const QUARTER_TURN: Affine2D = { a: 0, b: 1, c: -1, d: 0, e: 1, f: 0 };
+
+describe("boundsRelativeMap", () => {
+	it("should express a local mirror as a mirror across the middle of the bounds", () => {
+		const bounds = makeBounds(-50, 0, 50, 20);
+		const map = boundsRelativeMap(
+			{ a: -1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+			bounds,
+			bounds,
+		);
+		const p = applyAffineToPoint(map, { x: 0.2, y: 0.7 });
+		expect(p.x).toBeCloseTo(0.8);
+		expect(p.y).toBeCloseTo(0.7);
+	});
+
+	it("should keep the coordinates of a flat side", () => {
+		const flat = makeBounds(0, 10, 100, 10);
+		const map = boundsRelativeMap(
+			{ a: 2, b: 0, c: 0, d: 1, e: 0, f: 0 },
+			flat,
+			makeBounds(0, 10, 200, 10),
+		);
+		const p = applyAffineToPoint(map, { x: 0.3, y: 0.4 });
+		expect(p.x).toBeCloseTo(0.3);
+		expect(p.y).toBeCloseTo(0.4);
+	});
+});
+
+describe("mapGradientFilters", () => {
+	it("should turn a linear gradient with the shape", () => {
+		const [filter] = mapGradientFilters(
 			[
 				makeFillAppearance({
 					type: "linear",
@@ -158,7 +239,46 @@ describe("mirrorGradientFilters", () => {
 					stops: [],
 				}),
 			],
-			{ x: true, y: false },
+			QUARTER_TURN,
+		);
+
+		expect((filter as FillAppearance).paramData.params.fill).toMatchObject({
+			x1: 0.75,
+			y1: 0,
+			x2: 0.75,
+			y2: 1,
+		});
+	});
+
+	it("should hand the filters back untouched for an identity map", () => {
+		const filters = [
+			makeFillAppearance({
+				type: "linear",
+				x1: 0,
+				y1: 0,
+				x2: 1,
+				y2: 1,
+				stops: [],
+			}),
+		];
+		expect(
+			mapGradientFilters(filters, { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+		).toBe(filters);
+	});
+
+	it("should move a linear gradient's endpoints to the other side", () => {
+		const [filter] = mapGradientFilters(
+			[
+				makeFillAppearance({
+					type: "linear",
+					x1: 0,
+					y1: 0.25,
+					x2: 1,
+					y2: 0.25,
+					stops: [],
+				}),
+			],
+			MIRROR_X,
 		);
 
 		expect((filter as FillAppearance).paramData.params.fill).toMatchObject({
@@ -179,29 +299,56 @@ describe("mirrorGradientFilters", () => {
 			rotation: 0.3,
 			stops: [],
 		};
-		const [mirroredX] = mirrorGradientFilters([makeFillAppearance(radial)], {
-			x: true,
-			y: false,
-		});
-		const [mirroredBoth] = mirrorGradientFilters([makeFillAppearance(radial)], {
-			x: true,
-			y: true,
-		});
+		const [mirroredX] = mapGradientFilters(
+			[makeFillAppearance(radial)],
+			MIRROR_X,
+		);
+		const [mirroredBoth] = mapGradientFilters(
+			[makeFillAppearance(radial)],
+			MIRROR_BOTH,
+		);
 
-		expect((mirroredX as FillAppearance).paramData.params.fill).toMatchObject({
-			cx: 0.75,
-			cy: 0.5,
-			radiusX: 0.4,
-			rotation: -0.3,
-		});
+		const fillX = (mirroredX as FillAppearance).paramData.params
+			.fill as RadialGradient;
+		expect(fillX.cx).toBeCloseTo(0.75);
+		expect(fillX.cy).toBeCloseTo(0.5);
+		expect(fillX.radiusX).toBeCloseTo(0.4);
+		expect(fillX.radiusY).toBeCloseTo(0.2);
+		expect(fillX.rotation).toBeCloseTo(-0.3);
 		// A mirror on both axes is a half turn, which leaves the ellipse as it was.
-		expect(
-			(mirroredBoth as FillAppearance).paramData.params.fill,
-		).toMatchObject({ cx: 0.75, cy: 0.5, rotation: 0.3 });
+		const fillBoth = (mirroredBoth as FillAppearance).paramData.params
+			.fill as RadialGradient;
+		expect(fillBoth.cx).toBeCloseTo(0.75);
+		expect(fillBoth.cy).toBeCloseTo(0.5);
+		expect(fillBoth.radiusX).toBeCloseTo(0.4);
+		expect(fillBoth.rotation).toBeCloseTo(0.3);
+	});
+
+	it("should keep the radii's roles when a turn swaps the ellipse's axes", () => {
+		const [turned] = mapGradientFilters(
+			[
+				makeFillAppearance({
+					type: "radial",
+					cx: 0.5,
+					cy: 0.5,
+					radiusX: 0.2,
+					radiusY: 0.4,
+					rotation: 0,
+					stops: [],
+				}),
+			],
+			QUARTER_TURN,
+		);
+
+		const fill = (turned as FillAppearance).paramData.params
+			.fill as RadialGradient;
+		expect(fill.radiusX).toBeCloseTo(0.2);
+		expect(fill.radiusY).toBeCloseTo(0.4);
+		expect(Math.abs(fill.rotation)).toBeCloseTo(Math.PI / 2);
 	});
 
 	it("should move a free gradient's stops and their edge control points", () => {
-		const [filter] = mirrorGradientFilters(
+		const [filter] = mapGradientFilters(
 			[
 				makeFillAppearance({
 					type: "free",
@@ -216,7 +363,7 @@ describe("mirrorGradientFilters", () => {
 					],
 				}),
 			],
-			{ x: true, y: false },
+			MIRROR_X,
 		);
 
 		const fill = (filter as FillAppearance).paramData.params
@@ -226,7 +373,7 @@ describe("mirrorGradientFilters", () => {
 	});
 
 	it("should move a mesh gradient's vertices and their handles", () => {
-		const [filter] = mirrorGradientFilters(
+		const [filter] = mapGradientFilters(
 			[
 				makeFillAppearance({
 					type: "mesh",
@@ -242,7 +389,7 @@ describe("mirrorGradientFilters", () => {
 					faces: [],
 				}),
 			],
-			{ x: false, y: true },
+			MIRROR_Y,
 		);
 
 		const fill = (filter as FillAppearance).paramData.params
@@ -258,9 +405,7 @@ describe("mirrorGradientFilters", () => {
 				color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
 			}),
 		];
-		expect(mirrorGradientFilters(filters, { x: true, y: true })).toEqual(
-			filters,
-		);
+		expect(mapGradientFilters(filters, MIRROR_BOTH)).toEqual(filters);
 	});
 
 	it("should return the stack untouched when nothing is mirrored", () => {
@@ -274,9 +419,7 @@ describe("mirrorGradientFilters", () => {
 				stops: [],
 			}),
 		];
-		expect(mirrorGradientFilters(filters, { x: false, y: false })).toBe(
-			filters,
-		);
+		expect(mapGradientFilters(filters, IDENTITY_AFFINE)).toBe(filters);
 	});
 });
 
@@ -464,16 +607,16 @@ describe("scaleTextLayout", () => {
 			overflow: "visible",
 			wordWrap: true,
 		};
-		const original = makeBounds(0, 0, 200, 100);
-		const newBounds = makeBounds(0, 0, 400, 300);
-		const transform = createScaleTransform(original, newBounds);
-
-		const result = scaleTextLayout(layout, transform, newBounds);
+		const result = scaleTextLayout(
+			layout,
+			{ x: 2, y: 3 },
+			{ width: 400, height: 300 },
+		);
 		expect(result.boxWidth).toBe(400); // 200 * 2.0
 		expect(result.boxHeight).toBe(300); // 100 * 3.0
 	});
 
-	it("should set boxWidth/boxHeight from newBounds when originally 'auto'", () => {
+	it("should pin an 'auto' side at the scaled measured size", () => {
 		const layout: TextLayout = {
 			writingMode: "horizontal-tb",
 			boxWidth: "auto",
@@ -481,13 +624,14 @@ describe("scaleTextLayout", () => {
 			overflow: "visible",
 			wordWrap: true,
 		};
-		const original = makeBounds(0, 0, 200, 100);
-		const newBounds = makeBounds(10, 20, 310, 220);
-		const transform = createScaleTransform(original, newBounds);
 
-		const result = scaleTextLayout(layout, transform, newBounds);
-		expect(result.boxWidth).toBe(300); // newBounds.width
-		expect(result.boxHeight).toBe(200); // newBounds.height
+		const result = scaleTextLayout(
+			layout,
+			{ x: 1.5, y: 2 },
+			{ width: 300, height: 200 },
+		);
+		expect(result.boxWidth).toBe(300);
+		expect(result.boxHeight).toBe(200);
 	});
 
 	it("should preserve non-layout properties", () => {
@@ -498,11 +642,11 @@ describe("scaleTextLayout", () => {
 			overflow: "hidden",
 			wordWrap: false,
 		};
-		const original = makeBounds(0, 0, 100, 200);
-		const newBounds = makeBounds(0, 0, 200, 400);
-		const transform = createScaleTransform(original, newBounds);
-
-		const result = scaleTextLayout(layout, transform, newBounds);
+		const result = scaleTextLayout(
+			layout,
+			{ x: 2, y: 2 },
+			{ width: 200, height: 400 },
+		);
 		expect(result.writingMode).toBe("vertical-rl");
 		expect(result.overflow).toBe("hidden");
 		expect(result.wordWrap).toBe(false);
@@ -516,11 +660,7 @@ describe("scaleTextLayout", () => {
 			overflow: "visible",
 			wordWrap: true,
 		};
-		const original = makeBounds(0, 0, 100, 50);
-		const newBounds = makeBounds(0, 0, 300, 150);
-		const transform = createScaleTransform(original, newBounds);
-
-		scaleTextLayout(layout, transform, newBounds);
+		scaleTextLayout(layout, { x: 3, y: 3 }, { width: 300, height: 150 });
 		expect(layout.boxWidth).toBe(100);
 		expect(layout.boxHeight).toBe(50);
 	});
@@ -530,8 +670,8 @@ describe("text resize integration", () => {
 	it("uniform scale: 2x enlargement should double fontSize", () => {
 		const original = makeBounds(0, 0, 100, 100);
 		const scaled = makeBounds(0, 0, 200, 200);
-		const transform = createScaleTransform(original, scaled);
-		const uniformScale = Math.sqrt(transform.scaleX * transform.scaleY);
+		const map = createResizeAffine(original, scaled);
+		const uniformScale = Math.sqrt(map.a * map.d);
 
 		expect(uniformScale).toBe(2);
 
@@ -543,8 +683,8 @@ describe("text resize integration", () => {
 	it("non-uniform scale: geometric mean of scaleX and scaleY", () => {
 		const original = makeBounds(0, 0, 100, 100);
 		const scaled = makeBounds(0, 0, 400, 100); // 4x horizontal, 1x vertical
-		const transform = createScaleTransform(original, scaled);
-		const uniformScale = Math.sqrt(transform.scaleX * transform.scaleY);
+		const map = createResizeAffine(original, scaled);
+		const uniformScale = Math.sqrt(map.a * map.d);
 
 		expect(uniformScale).toBe(2); // sqrt(4 * 1) = 2
 
@@ -556,8 +696,8 @@ describe("text resize integration", () => {
 	it("shrink to half: fontSize should halve", () => {
 		const original = makeBounds(0, 0, 200, 200);
 		const scaled = makeBounds(0, 0, 100, 100);
-		const transform = createScaleTransform(original, scaled);
-		const uniformScale = Math.sqrt(transform.scaleX * transform.scaleY);
+		const map = createResizeAffine(original, scaled);
+		const uniformScale = Math.sqrt(map.a * map.d);
 
 		expect(uniformScale).toBe(0.5);
 
@@ -569,14 +709,13 @@ describe("text resize integration", () => {
 	it("full text element resize: position, layout, style, and content all scale correctly", () => {
 		const original = makeBounds(50, 50, 250, 150);
 		const newBounds = makeBounds(50, 50, 450, 250);
-		const transform = createScaleTransform(original, newBounds);
-		const uniformScale = Math.sqrt(transform.scaleX * transform.scaleY);
+		const map = createResizeAffine(original, newBounds);
+		const uniformScale = Math.sqrt(map.a * map.d);
 
 		// Position mapping: element at center of original bounds
-		const origX = 150; // center of [50, 250]
-		const origY = 100; // center of [50, 150]
-		expect(transform.mapX(origX)).toBe(250); // 50 + (150-50)*2 = 250
-		expect(transform.mapY(origY)).toBe(150); // 50 + (100-50)*2 = 150
+		const center = applyAffineToPoint(map, { x: 150, y: 100 });
+		expect(center.x).toBe(250); // 50 + (150-50)*2 = 250
+		expect(center.y).toBe(150); // 50 + (100-50)*2 = 150
 
 		// Layout
 		const layout: TextLayout = {
@@ -586,7 +725,11 @@ describe("text resize integration", () => {
 			overflow: "visible",
 			wordWrap: true,
 		};
-		const scaledLayout = scaleTextLayout(layout, transform, newBounds);
+		const scaledLayout = scaleTextLayout(
+			layout,
+			{ x: map.a, y: map.d },
+			{ width: newBounds.width, height: newBounds.height },
+		);
 		expect(scaledLayout.boxWidth).toBe(400); // 200 * 2
 		expect(scaledLayout.boxHeight).toBe(200); // 100 * 2
 
@@ -626,11 +769,11 @@ describe("resize commit under a transformed ancestor", () => {
 		const worldPath = toWorldPath(path, ancestorT);
 		const originalBounds = makeBounds(-100, -100, 100, 100);
 		const newBounds = makeBounds(-100, -100, 300, 300);
-		const map = createScaleTransform(originalBounds, newBounds);
+		const map = createResizeAffine(originalBounds, newBounds);
 
 		const committed: Path = {
 			...path,
-			segments: scaleSegments(worldPath.segments, map),
+			segments: mapSegments(worldPath.segments, map),
 			transform: computeInverseCompositionTransform(ancestorT),
 		};
 

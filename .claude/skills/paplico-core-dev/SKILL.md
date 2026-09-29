@@ -474,21 +474,23 @@ Paplico has two independent 3D features — **do not conflate them**:
   (`Pattern Defs`, `Brush Defs`), or it renders before those textures exist and
   bakes the wrong thing. Ordering bugs here produce plausible-looking output,
   not errors.
-- **A child's transform is read through its parent.** `composeTransforms` is
-  a true affine composition, but the GPU applies the composed chain once,
-  pivoted on the child's flat local centre. Re-parenting an element by folding
-  its old parent's transform into it is therefore only correct when the new
+- **A transform is a matrix on the local origin.** `world = L·p + t`, and a
+  container places its content by plain composition: `composeTransforms(parent,
+  child)` is what the renderer, the bounds and the hit tests all apply. The
+  point an element turns around exists only in the editing command, which
+  folds it into the translation (`keepPointInPlace`, `applyWorldAffineToTransform`).
+  Never derive a pivot from the element's bounds at render time: editing the
+  geometry would then move the pivot and shift the drawing.
+- **A child's transform is read through its parent.** Re-parenting an element
+  by folding its old parent's transform into it is only correct when the new
   parent is the identity — with a rotated group two levels up it lands tens of
   units away. Go through the composed transform and back down with
   `solveChildTransform`. Bounds follow the same rule: apply the composed chain
-  to the local box once (`planBoundsOf`), never a parent transform on top of an
-  already transformed box.
-- **A group is not a coordinate-space scaffold.** A group's transform pivots on
-  the centre of its children's local bounds, so resizing any child moves the
-  origin and shifts everything under it by `originDelta * (1 - scale)`. Parenting
-  content to a group purely to borrow a frame looks right until the first
-  resize. (Translation-only parents are immune, which is what makes this survive
-  casual testing.)
+  to the local box once (`planBoundsOf`); a parent transform on top of an
+  already transformed, axis-aligned box encloses more than the element.
+- **Documents older than 20260929 pivoted on the bounds.** `legacyPlacement.ts`
+  holds that rule; a migration that has to reason about where an old document
+  drew something goes through it instead of the current bounds code.
 - **An editing session's authoring space must equal its storage space.** Tools
   author in world space. A session that stores its subject in some other frame
   (an owner's local space, say) has to convert on the way in *and* on the way

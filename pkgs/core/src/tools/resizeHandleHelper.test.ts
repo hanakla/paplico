@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { BoundingBox, Viewport } from "../schema";
+import { worldFrame } from "../utils/geometry/selectionFrame";
 import {
 	calculateResizedBounds,
+	createFrameHandles,
 	createResizeHandles,
+	createRotationHandle,
+	createSelectionUIData,
 	getResizeCursor,
 	hitTestResizeHandle,
+	hitTestRotationHandle,
 } from "./resizeHandleHelper";
 
 const box100: BoundingBox = {
@@ -44,21 +49,63 @@ describe("createResizeHandles", () => {
 
 describe("hitTestResizeHandle", () => {
 	const viewport: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const handles = createResizeHandles(box100);
 
 	it("returns handle position when pointer is within hit area", () => {
-		expect(hitTestResizeHandle(0, 100, box100, viewport)).toBe("nw");
-		expect(hitTestResizeHandle(100, 0, box100, viewport)).toBe("se");
+		expect(hitTestResizeHandle(0, 100, handles, viewport)).toBe("nw");
+		expect(hitTestResizeHandle(100, 0, handles, viewport)).toBe("se");
 	});
 
 	it("returns null when pointer is outside all handles", () => {
-		expect(hitTestResizeHandle(50, 50, box100, viewport)).toBeNull();
+		expect(hitTestResizeHandle(50, 50, handles, viewport)).toBeNull();
 	});
 
 	it("scales hit area by viewport zoom", () => {
 		const zoomedViewport: Viewport = { x: 0, y: 0, zoom: 4, rotation: 0 };
 		// At zoom=4, hit radius = 12/4/2 = 1.5px
-		expect(hitTestResizeHandle(1.4, 100, box100, zoomedViewport)).toBe("nw");
-		expect(hitTestResizeHandle(3, 100, box100, zoomedViewport)).toBeNull();
+		expect(hitTestResizeHandle(1.4, 100, handles, zoomedViewport)).toBe("nw");
+		expect(hitTestResizeHandle(3, 100, handles, zoomedViewport)).toBeNull();
+	});
+});
+
+describe("frame handles", () => {
+	// box100 turned a quarter about the origin: x → -y, y → x.
+	const turned = {
+		bounds: box100,
+		matrix: { x: 0, y: 0, rotation: Math.PI / 2, scaleX: 1, scaleY: 1 },
+		elementId: "el",
+	};
+
+	it("should place the handles where the frame's matrix puts its box", () => {
+		const n = createFrameHandles(turned).find((h) => h.position === "n")!;
+		expect(n.x).toBeCloseTo(-100);
+		expect(n.y).toBeCloseTo(50);
+	});
+
+	it("should put the rotation handle a step above the n handle along the frame's up axis", () => {
+		const handle = createRotationHandle(turned, 2);
+		expect(handle.x).toBeCloseTo(-112);
+		expect(handle.y).toBeCloseTo(50);
+		expect(createRotationHandle(worldFrame(box100), 1)).toEqual({
+			x: 50,
+			y: 124,
+		});
+	});
+
+	it("should hit the rotation handle of a turned frame", () => {
+		const viewport: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+		expect(hitTestRotationHandle(-124, 50, turned, viewport)).toBe(true);
+		expect(hitTestRotationHandle(50, 124, turned, viewport)).toBe(false);
+	});
+
+	it("should build the overlay data from the frame", () => {
+		const data = createSelectionUIData(turned, 1, false, {});
+		expect(data.quad[0].x).toBeCloseTo(-100);
+		expect(data.quad[0].y).toBeCloseTo(0);
+		expect(data.bounds.minX).toBeCloseTo(-100);
+		expect(data.bounds.maxX).toBeCloseTo(0);
+		expect(data.handles).toEqual([]);
+		expect(data.rotationHandle).toBeUndefined();
 	});
 });
 
@@ -357,6 +404,18 @@ describe("calculateResizedBounds", () => {
 });
 
 describe("getResizeCursor", () => {
+	it("should follow the frame's axes when the frame is turned", () => {
+		const quarter = { x: 0, y: 0, rotation: Math.PI / 2, scaleX: 1, scaleY: 1 };
+		expect(getResizeCursor("n", quarter)).toBe("ew-resize");
+		expect(getResizeCursor("e", quarter)).toBe("ns-resize");
+		expect(getResizeCursor("ne", quarter)).toBe("nwse-resize");
+	});
+
+	it("should follow the view's rotation", () => {
+		expect(getResizeCursor("n", undefined, Math.PI / 2)).toBe("ew-resize");
+		expect(getResizeCursor("ne", undefined, Math.PI / 4)).toBe("ew-resize");
+	});
+
 	it("returns correct cursor for each handle", () => {
 		expect(getResizeCursor("nw")).toBe("nwse-resize");
 		expect(getResizeCursor("se")).toBe("nwse-resize");

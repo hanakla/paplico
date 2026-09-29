@@ -1,12 +1,9 @@
 import type { Paplico } from "@paplico/core";
-import {
-	type Artboard,
-	type Document,
-	getArtboardBounds,
-} from "@paplico/core/schema";
+import { type Artboard, getArtboardBounds } from "@paplico/core/schema";
 import {
 	type PlaybackState,
 	TimelapseExporter,
+	type TimelapseFrame,
 	type TimelapsePlayer,
 	type TimelapsePreviewSurface,
 } from "@paplico/core/timelapse";
@@ -367,9 +364,9 @@ function useTimelapsePlayer(
 	const [state, setState] = useState<PlaybackState>(INITIAL_STATE);
 	const { surfaceRef, ready } = useTimelapseSurface(paplico, canvas, open);
 
-	const renderFrame = useEventCallback((document: Document) => {
+	const renderFrame = useEventCallback((frame: TimelapseFrame) => {
 		if (!artboard) return;
-		surfaceRef.current?.render(document, artboard);
+		surfaceRef.current?.render(frame, artboard);
 	});
 
 	useEffect(() => {

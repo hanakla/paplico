@@ -23,13 +23,7 @@ import {
 } from "../../schema";
 import type { LocalBBox } from "./bounds";
 import { defaultEdgeCP, freeGradientAdjacency } from "./freeGradient";
-import {
-	applyTransformToPoint,
-	computeTransformOrigin,
-	inverseTransformPoint,
-	solveChildTransform,
-	transformLinearMatrix,
-} from "./geometry";
+import { applyTransformToPoint, inverseTransformPoint } from "./geometry";
 import {
 	getBaseHandle,
 	getRootSegmentInfo,
@@ -45,8 +39,7 @@ export type DeformableElement =
 
 /**
  * The per-element coordinate context a bake needs: the element's transform
- * composed through its ancestors, and its pre-deform local bounds (whose
- * centre is the transform origin).
+ * composed through its ancestors, and its pre-deform local bounds.
  */
 export interface DeformFrame {
 	ancestorTransform: ElementTransform | null;
@@ -94,52 +87,19 @@ export function createLocalPointDeformer(
 	frame: DeformFrame,
 	worldDeform: (x: number, y: number) => { x: number; y: number },
 ): (point: { x: number; y: number }) => { x: number; y: number } {
-	const origin = computeTransformOrigin(frame.localBounds);
 	return (point) => {
 		const world = applyTransformToPoint(
 			point.x,
 			point.y,
 			frame.composedTransform,
-			origin.x,
-			origin.y,
 		);
 		const deformed = worldDeform(world.x, world.y);
 		return inverseTransformPoint(
 			deformed.x,
 			deformed.y,
 			frame.composedTransform,
-			origin.x,
-			origin.y,
 		);
 	};
-}
-
-/**
- * Re-resolve the stored (parent-local) transform after a bake changed the
- * element's local bounds: the transform origin (bounds centre) moved, so the
- * translation must absorb the origin shift or the element jumps on commit.
- */
-export function resolveStoredTransform(
-	frame: DeformFrame,
-	newLocalBounds: LocalBBox,
-	localOffset: { x: number; y: number },
-): ElementTransform {
-	const oldOrigin = computeTransformOrigin(frame.localBounds);
-	const newOrigin = computeTransformOrigin(newLocalBounds);
-	const originDeltaX = localOffset.x + newOrigin.x - oldOrigin.x;
-	const originDeltaY = localOffset.y + newOrigin.y - oldOrigin.y;
-	// Map the origin delta through the composed linear part (rotation · shear · scale).
-	const m = transformLinearMatrix(frame.composedTransform);
-	const mappedX = m.m00 * originDeltaX + m.m01 * originDeltaY;
-	const mappedY = m.m10 * originDeltaX + m.m11 * originDeltaY;
-	const composedTransform = {
-		...frame.composedTransform,
-		x: frame.composedTransform.x + mappedX + oldOrigin.x - newOrigin.x,
-		y: frame.composedTransform.y + mappedY + oldOrigin.y - newOrigin.y,
-	};
-	return frame.ancestorTransform
-		? solveChildTransform(frame.ancestorTransform, composedTransform)
-		: composedTransform;
 }
 
 /** Rewrite path segments through a local-space point map (anchors + CPs). */

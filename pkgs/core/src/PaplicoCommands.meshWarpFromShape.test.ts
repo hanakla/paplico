@@ -23,10 +23,7 @@ import {
 } from "./schema";
 import { rectPath } from "./testUtils/svgFixtures";
 import { calculateLocalElementBounds } from "./utils/geometry/bounds";
-import {
-	applyTransformToPoint,
-	computeTransformOrigin,
-} from "./utils/geometry/geometry";
+import { applyTransformToPoint } from "./utils/geometry/geometry";
 
 describe("PaplicoCommands.createMeshWarpFromShapeSelection", () => {
 	it("should use the key object as the shape and the rest as content", () => {
@@ -464,21 +461,20 @@ function createFixture() {
 		localCenter(id: string): Point {
 			const el = objects()[id];
 			if (!el) throw new Error("element not found");
-			return computeTransformOrigin(
-				calculateLocalElementBounds(el, new Map(Object.entries(objects()))),
+			const bounds = calculateLocalElementBounds(
+				el,
+				new Map(Object.entries(objects())),
 			);
+			return {
+				x: (bounds.minX + bounds.maxX) / 2,
+				y: (bounds.minY + bounds.maxY) / 2,
+			};
 		},
 		worldPointOfElement(id: string): Point {
 			const el = objects()[id];
 			if (!el) throw new Error("element not found");
 			const center = this.localCenter(id);
-			return applyTransformToPoint(
-				center.x,
-				center.y,
-				getTransform(el),
-				center.x,
-				center.y,
-			);
+			return applyTransformToPoint(center.x, center.y, getTransform(el));
 		},
 		worldPointOfElementCenter(groupId: string, id: string): Point {
 			return this.worldPointInGroup(groupId, this.localCenter(id));
@@ -486,16 +482,7 @@ function createFixture() {
 		worldPointInGroup(groupId: string, p: Point): Point {
 			const group = objects()[groupId];
 			if (!group) throw new Error("group not found");
-			const origin = computeTransformOrigin(
-				calculateLocalElementBounds(group, new Map(Object.entries(objects()))),
-			);
-			return applyTransformToPoint(
-				p.x,
-				p.y,
-				getTransform(group),
-				origin.x,
-				origin.y,
-			);
+			return applyTransformToPoint(p.x, p.y, getTransform(group));
 		},
 	};
 }

@@ -35,14 +35,13 @@ import {
 } from "../../../schema";
 import {
 	boundsIntersect,
-	calculateLocalElementBounds,
 	calculateSegmentListBounds,
 	expandBounds,
 } from "../../../utils/geometry/bounds";
 import { bakeCompoundPathSegments } from "../../../utils/geometry/compoundBake";
 import {
-	applyTransformToBounds,
 	composeTransforms,
+	transformBounds,
 } from "../../../utils/geometry/geometry";
 import {
 	reconstructSegmentsFromWorld,
@@ -122,14 +121,10 @@ export interface SerializeContext {
 export async function serializePlanItems(
 	elementIds: readonly string[],
 	ctx: SerializeContext,
-	ancestorTransform?: ElementTransform,
+	ancestor?: ElementTransform,
 ): Promise<SvgNode[]> {
 	const nodes: SvgNode[] = [];
-	for (const item of planLayerItems(
-		elementIds,
-		ctx.classify,
-		ancestorTransform,
-	)) {
+	for (const item of planLayerItems(elementIds, ctx.classify, ancestor)) {
 		if (item.kind === "raster") {
 			const chunk = await ctx.renderRasterRun(item.elementIds);
 			if (!chunk) continue;
@@ -156,7 +151,7 @@ export async function serializePlanItems(
 
 		const element = ctx.document.objects[item.elementId];
 		if (!element) continue;
-		const node = await serializeVectorElement(element, ctx, ancestorTransform);
+		const node = await serializeVectorElement(element, ctx, ancestor);
 		if (node) nodes.push(node);
 	}
 	return nodes;
@@ -165,16 +160,11 @@ export async function serializePlanItems(
 async function serializeVectorElement(
 	element: AnyArtObject,
 	ctx: SerializeContext,
-	ancestorTransform?: ElementTransform,
+	ancestor?: ElementTransform,
 ): Promise<SvgNode | null> {
 	switch (element.type) {
 		case "path":
-			return serializePathLike(
-				element,
-				element.segments,
-				ctx,
-				ancestorTransform,
-			);
+			return serializePathLike(element, element.segments, ctx, ancestor);
 		case "compound-path":
 			return serializePathLike(
 				element,
@@ -184,15 +174,14 @@ async function serializeVectorElement(
 					(path) => toCompoundSourceWorldPath(path, ctx.filterResolver),
 				),
 				ctx,
-				ancestorTransform,
-				compoundTransformOrigin(element, ctx),
+				ancestor,
 			);
 		case "group":
-			return serializeGroup(element, ctx, ancestorTransform);
+			return serializeGroup(element, ctx, ancestor);
 		case "image":
-			return serializeImage(element, ctx, ancestorTransform);
+			return serializeImage(element, ctx, ancestor);
 		case "text":
-			return serializeText(element, ctx, ancestorTransform);
+			return serializeText(element, ctx, ancestor);
 		default:
 			return null;
 	}
@@ -204,8 +193,7 @@ async function serializePathLike(
 	element: Path | CompoundPath,
 	localSegments: CubicBezierSegment[],
 	ctx: SerializeContext,
-	ancestorTransform?: ElementTransform,
-	transformOrigin?: { x: number; y: number },
+	ancestor?: ElementTransform,
 ): Promise<SvgNode | null> {
 	const geometry = resolveElementGeometry(
 		localSegments,
@@ -214,22 +202,20 @@ async function serializePathLike(
 	);
 	if (geometry.length === 0) return null;
 
-	const composed = composeAncestor(ancestorTransform, getTransform(element));
-	const origin = transformOrigin ??
-		segmentsBoundsCenter(localSegments) ?? { x: 0, y: 0 };
-	const worldSegments = bakeSegmentsToWorld(geometry, composed, origin);
+	const composed = composeAncestor(ancestor, getTransform(element));
+	const worldSegments = bakeSegmentsToWorld(geometry, composed);
 	const d = segmentsToPathData(worldSegments, ctx.mapper);
 	if (!d) return null;
 
 	const worldBounds = calculateSegmentListBounds(worldSegments);
 	if (!worldBounds) return null;
-	const svgFilter = registerSvgFilter(element, ctx, ancestorTransform);
+	const svgFilter = registerSvgFilter(element, ctx, ancestor);
 
 	// The renderer evaluates gradient/pattern uv in the element's LOCAL
 	// (pre-transform) space (gradientFill.wgsl), so paints must ride the
 	// element transform instead of the world-baked bbox.
 	const localBounds = calculateSegmentListBounds(geometry);
-	const localToWorld = elementTransformToWorldAffine(composed, origin);
+	const localToWorld = elementTransformToWorldAffine(composed);
 	// A constant-width stroke scales with the transform in the renderer; a
 	// non-uniform/skewed transform is classified as raster before reaching here.
 	const strokeScale = uniformTransformScale(composed) ?? 1;
@@ -367,18 +353,6 @@ function isFillOnlyPath(node: SvgNode): boolean {
 
 function isStrokeOnlyPath(node: SvgNode): boolean {
 	return node.attrs.fill === "none" && node.attrs.stroke !== undefined;
-}
-
-/**
- * The renderer's GPU transform origin for a compound path: the center of its
- * local bounds (calculateCompoundPathBounds).
- */
-function compoundTransformOrigin(
-	compound: CompoundPath,
-	ctx: SerializeContext,
-): { x: number; y: number } {
-	const bounds = calculateLocalElementBounds(compound, ctx.elementsMap);
-	return boundsCenter(bounds);
 }
 
 /**
@@ -571,11 +545,11 @@ function strokeNode(
 async function serializeGroup(
 	group: Group,
 	ctx: SerializeContext,
-	ancestorTransform?: ElementTransform,
+	ancestor?: ElementTransform,
 ): Promise<SvgNode | null> {
-	const composed = composeAncestor(ancestorTransform, getTransform(group));
+	const composed = composeAncestor(ancestor, getTransform(group));
 	const childIds = group.childIds.filter((id) => id !== group.clipPathId);
-	const svgFilter = registerSvgFilter(group, ctx, ancestorTransform);
+	const svgFilter = registerSvgFilter(group, ctx, ancestor);
 	const childCullBounds = innerCullBounds(svgFilter, ctx.cullBounds);
 	if (childCullBounds === null) return null;
 	const children = await serializePlanItems(
@@ -600,9 +574,9 @@ async function serializeGroup(
 async function registerClipPath(
 	clipSource: AnyArtObject,
 	ctx: SerializeContext,
-	ancestorTransform: ElementTransform | undefined,
+	ancestor: ElementTransform,
 ): Promise<string | null> {
-	const dList = await collectClipPathData(clipSource, ctx, ancestorTransform);
+	const dList = await collectClipPathData(clipSource, ctx, ancestor);
 	if (dList.length === 0) return null;
 
 	const id = ctx.builder.allocId("clip");
@@ -617,26 +591,18 @@ async function registerClipPath(
 async function collectClipPathData(
 	clipSource: AnyArtObject,
 	ctx: SerializeContext,
-	ancestorTransform: ElementTransform | undefined,
+	ancestor: ElementTransform,
 ): Promise<string[]> {
-	const bakeToD = (
-		localSegments: CubicBezierSegment[],
-		transformOrigin?: { x: number; y: number },
-	): string | null => {
+	const bakeToD = (localSegments: CubicBezierSegment[]): string | null => {
 		const geometry = resolveElementGeometry(
 			localSegments,
 			localAppearances(clipSource.filters),
 			ctx.filterResolver,
 		);
 		if (geometry.length === 0) return null;
-		const composed = composeAncestor(
-			ancestorTransform,
-			getTransform(clipSource),
-		);
-		const origin = transformOrigin ??
-			segmentsBoundsCenter(localSegments) ?? { x: 0, y: 0 };
+		const composed = composeAncestor(ancestor, getTransform(clipSource));
 		const d = segmentsToPathData(
-			bakeSegmentsToWorld(geometry, composed, origin),
+			bakeSegmentsToWorld(geometry, composed),
 			ctx.mapper,
 		);
 		return d || null;
@@ -653,20 +619,15 @@ async function collectClipPathData(
 				(id) => ctx.document.objects[id],
 				(path) => toCompoundSourceWorldPath(path, ctx.filterResolver),
 			),
-			compoundTransformOrigin(clipSource, ctx),
 		);
 		return d ? [d] : [];
 	}
 	if (clipSource.type === "text") {
 		const outline = await ctx.outlineText(clipSource);
-		const composed = composeAncestor(
-			ancestorTransform,
-			getTransform(clipSource),
-		);
-		const origin = boundsCenter(outline.bounds);
+		const composed = composeAncestor(ancestor, getTransform(clipSource));
 		return outline.outlinedPaths.flatMap(({ path }) => {
 			const d = segmentsToPathData(
-				transformWorldGlyph(path.segments, composed, origin),
+				transformWorldGlyph(path.segments, composed),
 				ctx.mapper,
 			);
 			return d ? [d] : [];
@@ -680,12 +641,12 @@ async function collectClipPathData(
 async function serializeImage(
 	image: ImageObject,
 	ctx: SerializeContext,
-	ancestorTransform?: ElementTransform,
+	ancestor?: ElementTransform,
 ): Promise<SvgNode | null> {
 	const file = ctx.document.files.find((f) => f.uid === image.fileUid);
 	if (!file) return null;
 
-	const composed = composeAncestor(ancestorTransform, getTransform(image));
+	const composed = composeAncestor(ancestor, getTransform(image));
 	// Image content space (origin top-left, Y down) → pre-transform world.
 	const contentToLocal = {
 		m00: 1,
@@ -696,12 +657,12 @@ async function serializeImage(
 		ty: image.y + image.height / 2,
 	};
 	const worldAffine = composeWorldAffine(
-		elementTransformToWorldAffine(composed, { x: image.x, y: image.y }),
+		elementTransformToWorldAffine(composed),
 		contentToLocal,
 	);
 
 	const cornerBounds = affineRectBounds(worldAffine, image.width, image.height);
-	const svgFilter = registerSvgFilter(image, ctx, ancestorTransform);
+	const svgFilter = registerSvgFilter(image, ctx, ancestor);
 	if (!boundsIntersect(svgFilter?.region ?? cornerBounds, ctx.cullBounds)) {
 		return null;
 	}
@@ -726,22 +687,21 @@ async function serializeImage(
 async function serializeText(
 	element: TextElement,
 	ctx: SerializeContext,
-	ancestorTransform?: ElementTransform,
+	ancestor?: ElementTransform,
 ): Promise<SvgNode | null> {
 	const outline = await ctx.outlineText(element);
 	if (outline.outlinedPaths.length === 0) return null;
 
 	const paintSource = ctx.getTextPaintSource(element);
-	const composed = composeAncestor(ancestorTransform, getTransform(element));
-	const origin = boundsCenter(outline.bounds);
-	const localToWorld = elementTransformToWorldAffine(composed, origin);
+	const composed = composeAncestor(ancestor, getTransform(element));
+	const localToWorld = elementTransformToWorldAffine(composed);
 	const strokeScale = uniformTransformScale(composed) ?? 1;
 
 	const glyphs = outline.outlinedPaths.map((glyph) => ({
 		...glyph,
-		worldSegments: transformWorldGlyph(glyph.path.segments, composed, origin),
+		worldSegments: transformWorldGlyph(glyph.path.segments, composed),
 	}));
-	const svgFilter = registerSvgFilter(element, ctx, ancestorTransform);
+	const svgFilter = registerSvgFilter(element, ctx, ancestor);
 	// Element opacity rides the wrapper when a filter must run first (see
 	// serializePathLike); otherwise it rides each glyph shape.
 	const elementAlpha = svgFilter ? 1 : element.opacity;
@@ -836,11 +796,10 @@ async function serializeText(
 function transformWorldGlyph(
 	segments: PathSegment[],
 	composed: ElementTransform,
-	origin: { x: number; y: number },
 ): PathSegment[] {
 	if (isIdentityTransform(composed)) return segments;
 	return reconstructSegmentsFromWorld(
-		transformSegmentsToWorld(segments, composed, origin),
+		transformSegmentsToWorld(segments, composed),
 		segments,
 	);
 }
@@ -998,7 +957,7 @@ interface SvgFilterRef {
 function registerSvgFilter(
 	element: AnyArtObject,
 	ctx: SerializeContext,
-	ancestorTransform: ElementTransform | undefined,
+	ancestor: ElementTransform | undefined,
 ): SvgFilterRef | null {
 	const chain = collectSvgFilterChain(element.filters);
 	if (chain.length === 0) return null;
@@ -1010,8 +969,8 @@ function registerSvgFilter(
 		ctx.elementsMap,
 		ctx.filterResolver,
 	);
-	const worldBounds = ancestorTransform
-		? applyTransformToBounds(ownBounds, ancestorTransform)
+	const worldBounds = ancestor
+		? transformBounds(ownBounds, ancestor)
 		: ownBounds;
 
 	const region = expandBounds(
@@ -1121,7 +1080,8 @@ async function registerMask(
 	ctx: SerializeContext,
 	ownerTransform: ElementTransform,
 ): Promise<string | null> {
-	// Mask element transforms are owner-local: the owner acts as their parent.
+	// Mask content is placed under the owner's transform, the way a group
+	// places its children.
 	// Mask content must NOT be culled against the artboard: a mask shape
 	// moved off-artboard still drives the owner's alpha (absence = hidden).
 	let content = await serializePlanItems(
@@ -1195,11 +1155,11 @@ function ensureInvertFilter(ctx: SerializeContext): string {
 // --- Shared helpers ---
 
 function composeAncestor(
-	ancestorTransform: ElementTransform | undefined,
+	ancestor: ElementTransform | undefined,
 	elementTransform: ElementTransform,
 ): ElementTransform {
-	return ancestorTransform
-		? composeTransforms(ancestorTransform, elementTransform)
+	return ancestor
+		? composeTransforms(ancestor, elementTransform)
 		: elementTransform;
 }
 
@@ -1227,28 +1187,15 @@ const UNBOUNDED_CULL: BoundingBox = {
 	height: Number.POSITIVE_INFINITY,
 };
 
-/**
- * Bake local geometry into identity-transform world segments, transforming
- * around `origin` — the ORIGINAL (pre-filter) geometry's bbox center for
- * paths, the source-union center for compound paths, matching the renderer's
- * transform origin.
- */
+/** Bake local geometry into identity-transform world segments. */
 function bakeSegmentsToWorld(
 	geometry: CubicBezierSegment[],
 	composed: ElementTransform,
-	origin: { x: number; y: number },
 ): PathSegment[] {
 	return reconstructSegmentsFromWorld(
-		transformSegmentsToWorld(geometry, composed, origin),
+		transformSegmentsToWorld(geometry, composed),
 		geometry,
 	);
-}
-
-function segmentsBoundsCenter(
-	segments: CubicBezierSegment[],
-): { x: number; y: number } | null {
-	const bounds = calculateSegmentListBounds(segments);
-	return bounds ? boundsCenter(bounds) : null;
 }
 
 /** Widest visible stroke of the element, as the geometry-bounds cull margin. */
@@ -1299,13 +1246,6 @@ function affineRectBounds(
 		maxY = Math.max(maxY, y);
 	}
 	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
-}
-
-function boundsCenter(bounds: BoundingBox): { x: number; y: number } {
-	return {
-		x: (bounds.minX + bounds.maxX) / 2,
-		y: (bounds.minY + bounds.maxY) / 2,
-	};
 }
 
 function opacityAttr(

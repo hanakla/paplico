@@ -11,6 +11,7 @@ import {
 	importRoomKey,
 	PartyKitCollaboration,
 } from "@paplico/core/collaboration";
+import { LATEST_SCHEMA_VERSION } from "@paplico/core/io";
 import { proxy, useSnapshot } from "valtio";
 import type * as Y from "yjs";
 import { ConfirmDialog } from "@/components/AlertDialog";
@@ -107,10 +108,15 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 		(collab: ICollaboration, encrypted: boolean) => {
 			let hasSynced = false;
 
+			// The room's document is only shown once it is at this build's schema.
+			const offReady = paplicoRef.current?.on("collaborationReady", () => {
+				collabState.isSyncing = false;
+				offReady?.();
+			});
+
 			collab.on("synced", (isSynced) => {
 				if (!isSynced) return;
 				hasSynced = true;
-				collabState.isSyncing = false;
 				toastManager.add({
 					title: encrypted
 						? t("connectRoomDialog.deviceConnected")
@@ -235,7 +241,14 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 
 					const meta = (await metaRes.json()) as {
 						documentId?: string;
+						schemaVersion?: number;
 					};
+					if (
+						typeof meta.schemaVersion === "number" &&
+						meta.schemaVersion > LATEST_SCHEMA_VERSION
+					) {
+						return { error: t("connectRoomDialog.roomNeedsNewerApp") };
+					}
 					isReconnect =
 						reconnect?.roomId === roomId &&
 						reconnect?.documentId === currentDocId &&

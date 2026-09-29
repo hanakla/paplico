@@ -89,7 +89,7 @@ export class MeshElementRenderer {
 			return EMPTY_RESOLUTION;
 		}
 		return this.deps.getMeshWarpCache().resolve(mesh, {
-			resolve: (id) => elementsMap.get(id) ?? null,
+			elementsMap,
 			getTextGlyphPaths: this.deps.getTextGlyphPaths,
 		});
 	}
@@ -219,21 +219,11 @@ export class MeshElementRenderer {
 	private toWorldGrid(mesh: MeshArtObject, grid: Float32Array): Float32Array {
 		const transform = this.deps.getComposedTransform(mesh.id);
 		if (isIdentityTransform(transform)) return grid;
-		const bounds = this.deps.getLocalBounds(mesh.id);
-		if (!bounds) return grid;
 
-		const originX = (bounds.minX + bounds.maxX) / 2;
-		const originY = (bounds.minY + bounds.maxY) / 2;
 		// (x, y, u, v) per vertex: only the position pair is transformed.
 		const out = new Float32Array(grid);
 		for (let i = 0; i < out.length; i += 4) {
-			const world = applyTransformToPoint(
-				out[i],
-				out[i + 1],
-				transform,
-				originX,
-				originY,
-			);
+			const world = applyTransformToPoint(out[i], out[i + 1], transform);
 			out[i] = world.x;
 			out[i + 1] = world.y;
 		}

@@ -9,7 +9,7 @@ import type { StructuredView } from "../../../utils/wgpu-utils";
 import type { ChangedElements } from "../../types";
 import { ViewportManager } from "./ViewportManager";
 
-const STRIDE_VALUES = 14;
+const STRIDE_VALUES = 12;
 const STRIDE_BYTES = STRIDE_VALUES * 4;
 
 describe("ViewportManager transforms buffer", () => {
@@ -90,7 +90,7 @@ describe("ViewportManager transforms buffer", () => {
 			expect(composedX).toBe(205);
 		});
 
-		it("should refresh the ancestor group's origin when a child moves", () => {
+		it("should leave an ancestor group's placement alone when a child moves", () => {
 			const { vm, writes } = createManager();
 			// g's local bounds = union of its children: a at 0..40, b at 100..140.
 			const b = path("b", { x: 100 });
@@ -99,8 +99,8 @@ describe("ViewportManager transforms buffer", () => {
 			);
 			writes.length = 0;
 
-			// Move a to -60: g's union becomes -60..140, so its origin (bounds
-			// centre) shifts from 70 to 40 and its slot must be rewritten.
+			// Move a to -60: g's union becomes -60..140, yet g's entry stays the
+			// identity it was written as.
 			vm.markElementTransformsDirty(changed(["a"]));
 			vm.updateTransformsBuffer(
 				elementsMap(group("g", ["a", "b"]), path("a", { x: -60 }), b),
@@ -108,9 +108,10 @@ describe("ViewportManager transforms buffer", () => {
 
 			expect(writes).toHaveLength(1);
 			const write = writes[0];
-			const slotG = vm.getTransformIndex("g");
-			const gOriginX = write.data[slotG * STRIDE_VALUES - write.offset / 4 + 2];
-			expect(gOriginX).toBe(40);
+			const slotG =
+				vm.getTransformIndex("g") * STRIDE_VALUES - write.offset / 4;
+			expect(write.data[slotG]).toBe(0);
+			expect(write.data[slotG + 2]).toBe(1);
 		});
 
 		it("should fall back to a full rebuild when a blend references a changed element", () => {
@@ -126,24 +127,6 @@ describe("ViewportManager transforms buffer", () => {
 			expect(writes).toHaveLength(1);
 			expect(writes[0].offset).toBe(0);
 			expect(writes[0].size).toBeGreaterThan(STRIDE_BYTES);
-		});
-
-		it("should recompute local bounds when the partial update falls back to a full rebuild", () => {
-			const { vm, writes } = createManager();
-			vm.updateTransformsBuffer(elementsMap(path("a"), blend("bl", ["a"])));
-			writes.length = 0;
-
-			// Reshape a to 0..80 while it is a blend source: the partial path
-			// bails, and the rebuild must not reuse a's cached 0..40 bounds.
-			vm.markElementTransformsDirty(changed(["a"]));
-			vm.updateTransformsBuffer(
-				elementsMap(path("a", undefined, 80), blend("bl", ["a"])),
-			);
-
-			expect(writes).toHaveLength(1);
-			const originX =
-				writes[0].data[vm.getTransformIndex("a") * STRIDE_VALUES + 2];
-			expect(originX).toBe(40);
 		});
 
 		it("should fall back to a full rebuild when new elements exceed the capacity", () => {

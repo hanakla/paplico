@@ -101,6 +101,40 @@ describe("PAPF format", () => {
 			expect(restored.timelapse).toBeUndefined();
 		});
 
+		it("should hand the stored document to the context preparation before migrating", async () => {
+			const storedVersion = LATEST_SCHEMA_VERSION - 1;
+			const blob = await serializeDocument(
+				makeMinimalDoc({ schemaVersion: storedVersion }),
+			);
+			// The migration then stamps the same object, so the version has to
+			// be read while the callback runs.
+			let seenVersion: number | undefined;
+			const prepareContext = async (stored: Document) => {
+				seenVersion = stored.schemaVersion;
+				return { textLayoutBounds: new Map() };
+			};
+
+			const restored = await (await openPapf(blob)).toDocument(prepareContext);
+
+			expect(seenVersion).toBe(storedVersion);
+			expect(restored.schemaVersion).toBe(LATEST_SCHEMA_VERSION);
+		});
+
+		it("should keep a stored version across a read without migration", async () => {
+			const storedVersion = LATEST_SCHEMA_VERSION - 1;
+			const blob = await serializeDocument(
+				makeMinimalDoc({ schemaVersion: storedVersion }),
+			);
+
+			const copy = await serializeDocument(
+				await (await openPapf(blob)).readUnmigratedDocument(),
+			);
+
+			expect((await openPapf(copy)).meta.document.schemaVersion).toBe(
+				storedVersion,
+			);
+		});
+
 		// rendererStore.document is a Valtio proxy in production.
 		// structuredClone / deepClone on a proxy breaks TypedArrays or throws DataCloneError.
 		// Paplico.exportDocument() uses snapshot() to unwrap the proxy first.

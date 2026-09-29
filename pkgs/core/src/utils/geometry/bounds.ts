@@ -12,10 +12,10 @@ import {
 	type BoundingBox,
 	type CompoundPath,
 	type CubicBezierSegment,
+	type ElementTransform,
 	type Group,
 	getTransform,
 	type ImageObject,
-	isIdentityTransform,
 	type MeshArtObject,
 	type MeshGeometryVertex,
 	type Path,
@@ -32,7 +32,7 @@ import {
 } from "../elementQuery";
 import type { Brand } from "../lang";
 import { bakeCompoundPathSegments } from "./compoundBake";
-import { applyTransformToBounds, type WorldBezierSegment } from "./geometry";
+import { transformBounds, type WorldBezierSegment } from "./geometry";
 // Cycle note: meshWarp.ts imports helpers from this module too. Both sides
 // only call across at function-call time (no module-evaluation use), which
 // ESM resolves fine.
@@ -753,16 +753,15 @@ export function calculateRepeatSourceUnion(
 
 /**
  * Bounding box of a repeat: the union of every instance's placement of the
- * source union. With `includeOwnTransform` the repeat's own transform — pivoted
- * around the source union center to match the render/hit-test — is baked into
- * each instance (world bounds); without it the raw instance placement is
- * returned (local, pre-own-transform bounds).
+ * source union. `placement` — the repeat's own transform, composed with any
+ * group ancestors' — is baked into each instance; omitted, the raw instance
+ * placement is returned (local, pre-own-transform bounds).
  */
 function calculateRepeatBounds(
 	repeat: RepeatObject,
 	elementsMap?: ReadonlyMap<string, AnyArtObject>,
 	localBoundsCache?: LocalBoundsCache,
-	includeOwnTransform = false,
+	placement?: ElementTransform,
 ): BoundingBox {
 	const empty = { minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 };
 	const sourceUnion = calculateRepeatSourceUnion(
@@ -776,8 +775,8 @@ function calculateRepeatBounds(
 		x: (sourceUnion.minX + sourceUnion.maxX) / 2,
 		y: (sourceUnion.minY + sourceUnion.maxY) / 2,
 	};
-	const outer = includeOwnTransform
-		? elementTransformToAffine(getTransform(repeat), center.x, center.y)
+	const outer = placement
+		? elementTransformToAffine(placement)
 		: IDENTITY_AFFINE;
 	let minX = Number.POSITIVE_INFINITY;
 	let minY = Number.POSITIVE_INFINITY;
@@ -825,12 +824,30 @@ export function calculateElementBounds(
 	elementsMap?: ReadonlyMap<string, AnyArtObject>,
 	localBoundsCache?: LocalBoundsCache,
 ): WorldBBox {
-	// A repeat bakes its own transform (pivoted at the source union center) into
-	// every instance, so the world bounds cannot be reproduced by the generic
-	// own-transform application around the local-bounds center — compute directly.
+	return calculatePlacedBounds(
+		element,
+		getTransform(element),
+		elementsMap,
+		localBoundsCache,
+	);
+}
+
+/**
+ * Bounds of an element drawn with `placement`: its own transform composed
+ * with its ancestor groups' transforms, in the space the outermost of them
+ * maps into.
+ */
+export function calculatePlacedBounds(
+	element: AnyArtObject,
+	placement: ElementTransform,
+	elementsMap?: ReadonlyMap<string, AnyArtObject>,
+	localBoundsCache?: LocalBoundsCache,
+): WorldBBox {
+	// A repeat bakes its own transform into every instance, so the world
+	// bounds cannot be reproduced from its local box — compute directly.
 	if (element.type === "repeat") {
 		return brandWorldBBox(
-			calculateRepeatBounds(element, elementsMap, localBoundsCache, true),
+			calculateRepeatBounds(element, elementsMap, localBoundsCache, placement),
 		);
 	}
 
@@ -854,9 +871,7 @@ export function calculateElementBounds(
 		}
 	}
 
-	const t = getTransform(element);
-	if (isIdentityTransform(t)) return brandWorldBBox(localBounds);
-	return brandWorldBBox(applyTransformToBounds(localBounds, t));
+	return brandWorldBBox(transformBounds(localBounds, placement));
 }
 
 /**

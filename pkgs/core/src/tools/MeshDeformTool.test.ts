@@ -301,7 +301,7 @@ describe("MeshDeformTool", () => {
 			expect(ctx.complete).not.toHaveBeenCalled();
 			const update = vi.mocked(ctx.applyDeformation).mock.calls[0][0][0]
 				.updates;
-			if (!("segments" in update) || !update.segments || !update.transform) {
+			if (!("segments" in update) || !update.segments) {
 				throw new Error("Expected committed path geometry");
 			}
 			const fillAppearance = update.filters?.find(
@@ -317,7 +317,6 @@ describe("MeshDeformTool", () => {
 			const updatedPath = {
 				...path,
 				segments: update.segments,
-				transform: update.transform,
 				filters: update.filters,
 			};
 			const updatedBounds = calculateElementBounds(updatedPath);
@@ -471,7 +470,7 @@ describe("MeshDeformTool", () => {
 			expect(ctx.complete).not.toHaveBeenCalled();
 			const update = vi.mocked(ctx.applyDeformation).mock.calls[0][0][0]
 				.updates;
-			if (!("vertices" in update) || !update.vertices || !update.transform) {
+			if (!("vertices" in update) || !update.vertices) {
 				throw new Error("Expected committed mesh geometry");
 			}
 			expect(update.filters).toBeDefined();
@@ -501,10 +500,10 @@ describe("MeshDeformTool", () => {
 			expect(explicitHandleWorld.y).toBeCloseTo(expectedHandle.y);
 			const geometryHandle = update.vertices[0].handles[1];
 			const expectedGeometryHandle = affine({ x: 130, y: 40 });
-			expect(update.transform.x + geometryHandle.x).toBeCloseTo(
+			expect(mesh.transform.x + geometryHandle.x).toBeCloseTo(
 				expectedGeometryHandle.x,
 			);
-			expect(update.transform.y + geometryHandle.y).toBeCloseTo(
+			expect(mesh.transform.y + geometryHandle.y).toBeCloseTo(
 				expectedGeometryHandle.y,
 			);
 			expect(updatedMesh.faces).toEqual(originalMesh.faces);
@@ -1007,14 +1006,8 @@ describe("MeshDeformTool", () => {
 				.updates;
 			if (!("segments" in update)) throw new Error("Expected path update");
 			expect(update.segments).toBeDefined();
-			expect(update.transform).toBeDefined();
-			if (!update.segments || !update.transform)
-				throw new Error("Expected path geometry and transform");
-			const updatedPath = {
-				...path,
-				segments: update.segments,
-				transform: update.transform,
-			};
+			if (!update.segments) throw new Error("Expected path geometry");
+			const updatedPath = { ...path, segments: update.segments };
 			const before = getWorldSegments(path, ancestorTransform);
 			const after = getWorldSegments(updatedPath, ancestorTransform);
 			for (let index = 0; index < before.length; index++) {
@@ -1084,14 +1077,8 @@ describe("MeshDeformTool", () => {
 				.updates;
 			if (!("vertices" in update)) throw new Error("Expected mesh update");
 			expect(update.vertices).toBeDefined();
-			expect(update.transform).toBeDefined();
-			if (!update.vertices || !update.transform)
-				throw new Error("Expected mesh geometry and transform");
-			const updatedMesh: MeshArtObject = {
-				...mesh,
-				vertices: update.vertices,
-				transform: update.transform,
-			};
+			if (!update.vertices) throw new Error("Expected mesh geometry");
+			const updatedMesh: MeshArtObject = { ...mesh, vertices: update.vertices };
 			// Cage vertices moved but their source parametrization must survive.
 			for (let index = 0; index < updatedMesh.vertices.length; index++) {
 				expect(updatedMesh.vertices[index].src).toEqual(

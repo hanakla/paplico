@@ -34,13 +34,21 @@ export interface TransientElementEntry {
 
 /**
  * Engine-side tool session info surfaced to React overlays (single slot).
- * Currently only the mesh-deform hint uses it; extend the union per tool.
+ * Extend the union per tool.
  */
-export type ToolSession = {
-	type: "mesh-deform";
-	originalBounds: BoundingBox;
-	handleCount: number;
-};
+export type ToolSession =
+	| {
+			type: "mesh-deform";
+			originalBounds: BoundingBox;
+			handleCount: number;
+	  }
+	| {
+			/** Eyedropper pick candidates listed by a long press or right click. */
+			type: "eyedropper-candidates";
+			/** World position the candidates were collected at. */
+			point: { x: number; y: number };
+			candidates: { elementId: string; depth: number }[];
+	  };
 
 /**
  * Element-granularity document changes accumulated since a frame's previous

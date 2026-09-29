@@ -31,7 +31,12 @@ import {
 import type { SpatialIndex } from "./document/SpatialIndex";
 import { buildStrokeOutline } from "./document/strokeOutline";
 import { isLengthUnit, type LengthUnit } from "./document/units";
-import { Clipboard, PAPLICO_ELEMENTS_MIME } from "./infra/Clipboard";
+import { Clipboard } from "./infra/Clipboard";
+import {
+	encodeElementsPayload,
+	PAPLICO_ELEMENTS_MIME,
+	readClipboardElements,
+} from "./io/clipboardPayload";
 import type { RendererState } from "./Paplico";
 import type { PaplicoSelection } from "./PaplicoSelection";
 import type { FilterRenderer } from "./renderer/canvas/pipeline/FilterRenderer";
@@ -153,14 +158,13 @@ import {
 import {
 	applyTransformToPoint,
 	applyWorldAffineToTransform,
-	composePivotedTransforms,
 	composeTransforms,
 	computeInverseCompositionTransform,
-	computeTransformOrigin,
 	inverseTransformVector,
-	mirrorTransform,
+	keepPointInPlace,
+	placeElement,
 	solveChildTransform,
-	transformLinearMatrix,
+	transformBounds,
 } from "./utils/geometry/geometry";
 import {
 	deleteMeshVertex,
@@ -181,14 +185,25 @@ import {
 	deformGradientFilters,
 	flattenElementIds,
 	isDeformableElement,
-	resolveStoredTransform,
 } from "./utils/geometry/pointDeform";
 import {
+	type Affine2D,
+	affineToElementTransform,
+	elementTransformToAffine,
+	IDENTITY_AFFINE,
+	invertAffine,
+	isIdentityAffine,
+} from "./utils/geometry/repeatInterpolation";
+import {
 	type AxisFlip,
-	createScaleTransform,
-	mirrorGradientFilters,
+	boundsRelativeMap,
+	createResizeAffine,
+	mapGradientFilters,
+	mapSegments,
+	mapWithin,
 	mirrorStrokeWidths,
-	scaleSegments,
+	resizeAxisScale,
+	resizeRemainder,
 	scaleStrokeFilters,
 	scaleTextContent,
 	scaleTextLayout,
@@ -201,6 +216,10 @@ import {
 	toWorldPath,
 	translateSegments,
 } from "./utils/geometry/segmentOps";
+import {
+	resolveSelectionFrame,
+	type SelectionFrame,
+} from "./utils/geometry/selectionFrame";
 import { deepClone, neverReached } from "./utils/lang";
 import { parseSvgToArtObjects, type SvgImportResult } from "./utils/svgImport";
 
@@ -329,10 +348,9 @@ export class PaplicoCommands {
 		}
 
 		const layerId = this.ctx.store.currentLayerId;
-		const currentT = getTransform(path);
 		this.ctx.yjsProvider.transact(() => {
 			this.ctx.yjsProvider.addElement(layerId, path, this.getMutationOrigin());
-			this.moveIntoEditingScope(layerId, path.id, path.type, currentT);
+			this.moveIntoEditingScope(layerId, path);
 		}, this.getMutationOrigin());
 	}
 
@@ -344,10 +362,9 @@ export class PaplicoCommands {
 		}
 
 		const layerId = this.ctx.store.currentLayerId;
-		const currentT = getTransform(image);
 		this.ctx.yjsProvider.transact(() => {
 			this.ctx.yjsProvider.addElement(layerId, image, this.getMutationOrigin());
-			this.moveIntoEditingScope(layerId, image.id, image.type, currentT);
+			this.moveIntoEditingScope(layerId, image);
 		}, this.getMutationOrigin());
 	}
 
@@ -359,81 +376,67 @@ export class PaplicoCommands {
 		}
 
 		const layerId = this.ctx.store.currentLayerId;
-		const currentT = getTransform(text);
 		this.ctx.yjsProvider.transact(() => {
 			this.ctx.yjsProvider.addElement(layerId, text, this.getMutationOrigin());
-			this.moveIntoEditingScope(layerId, text.id, text.type, currentT);
+			this.moveIntoEditingScope(layerId, text);
 		}, this.getMutationOrigin());
 	}
 
 	/**
-	 * Sets element transform so that composeTransforms(scopeWorldT, newT) preserves
-	 * the element's original world-space appearance despite the ancestor transform chain.
-	 * Then adds the element to the editing scope container's childIds.
+	 * Moves a just-added layer-root element into the editing scope container,
+	 * keeping it where it is drawn (see moveIntoContainer).
 	 */
-	private moveIntoEditingScope(
-		layerId: string,
-		movedElementId: string,
-		movedElementType: AnyArtObject["type"],
-		movedElementTransform: ElementTransform,
-	): void {
-		this.moveIntoContainer(
-			layerId,
-			movedElementId,
-			movedElementType,
-			movedElementTransform,
-			this.getEditingScopeContainerId(),
-		);
+	private moveIntoEditingScope(layerId: string, moved: AnyArtObject): void {
+		this.moveIntoContainer(layerId, moved, this.getEditingScopeContainerId());
 	}
 
 	/**
 	 * Moves a layer-root element into the given container, compensating its
 	 * transform so its world-space appearance is preserved. A null container
-	 * leaves the element at the layer root.
+	 * leaves the element at the layer root. `elementsMap` resolves what the
+	 * element is built from when that is not in the document yet.
 	 */
 	private moveIntoContainer(
 		layerId: string,
-		movedElementId: string,
-		movedElementType: AnyArtObject["type"],
-		movedElementTransform: ElementTransform,
+		moved: AnyArtObject,
 		targetContainerId: string | null,
+		elementsMap?: ReadonlyMap<string, AnyArtObject>,
 	): void {
 		if (!targetContainerId) return;
 
 		const container = this.ctx.store.document.objects[targetContainerId];
 		if (!container) return;
+		// A compound path takes only paths; anything else stays at the layer root.
+		if (isCompoundPath(container) && moved.type !== "path") return;
 
-		const scopeWorldT = this.getEditingScopeWorldTransform(targetContainerId);
-
-		if (isCompoundPath(container) && movedElementType === "path") {
-			this.applyCompensatingTransform(
+		const matrix = this.ctx.spatial.getChildrenMatrix(targetContainerId);
+		if (matrix && !isIdentityTransform(matrix)) {
+			this.ctx.yjsProvider.updateElement(
 				layerId,
-				movedElementId,
-				movedElementTransform,
-				scopeWorldT,
-			);
-			this.ctx.yjsProvider.addSourceToCompoundPath(
-				layerId,
-				targetContainerId,
-				movedElementId,
-				"union",
-				this.getMutationOrigin(),
-			);
-		} else if (!isCompoundPath(container)) {
-			this.applyCompensatingTransform(
-				layerId,
-				movedElementId,
-				movedElementTransform,
-				scopeWorldT,
-			);
-			this.ctx.yjsProvider.addElementToGroup(
-				layerId,
-				targetContainerId,
-				movedElementId,
+				moved.id,
+				{
+					transform: solveChildTransform(matrix, getTransform(moved)),
+				} as Partial<AnyArtObject>,
 				this.getMutationOrigin(),
 			);
 		}
-		// CompoundPath + non-path: element stays at layer root untouched
+
+		if (isCompoundPath(container)) {
+			this.ctx.yjsProvider.addSourceToCompoundPath(
+				layerId,
+				targetContainerId,
+				moved.id,
+				"union",
+				this.getMutationOrigin(),
+			);
+		} else {
+			this.ctx.yjsProvider.addElementToGroup(
+				layerId,
+				targetContainerId,
+				moved.id,
+				this.getMutationOrigin(),
+			);
+		}
 	}
 
 	/**
@@ -455,33 +458,6 @@ export class PaplicoCommands {
 			: this.ctx.spatial.getParentGroupId(editingScopeId);
 	}
 
-	private applyCompensatingTransform(
-		layerId: string,
-		elementId: string,
-		currentTransform: ElementTransform,
-		groupWorldT: ElementTransform,
-	): void {
-		if (isIdentityTransform(groupWorldT)) return;
-		const compensatingT = computeInverseCompositionTransform(groupWorldT);
-		const newT = composeTransforms(compensatingT, currentTransform);
-		this.ctx.yjsProvider.updateElement(
-			layerId,
-			elementId,
-			{ transform: newT } as Partial<AnyArtObject>,
-			this.getMutationOrigin(),
-		);
-	}
-
-	private getEditingScopeWorldTransform(
-		groupId: string,
-	): ReturnType<typeof getTransform> {
-		const ancestorT = this.ctx.spatial.getAncestorTransform(groupId);
-		const group = this.ctx.store.document.objects[groupId];
-		if (!group) return createIdentityTransform();
-		const groupT = getTransform(group);
-		return ancestorT ? composeTransforms(ancestorT, groupT) : groupT;
-	}
-
 	public updateElement(
 		layerId: string,
 		elementId: string,
@@ -492,11 +468,18 @@ export class PaplicoCommands {
 		const element = this.ctx.store.document.objects[elementId];
 		if (!element) return;
 
-		// Save accurate text bounds BEFORE Yjs sync. The Yjs update handler
-		// fires syncObjectsDelta → clearBoundsCacheWithAncestors(id) synchronously, so
-		// reading after yjsProvider.updateElement would always return null.
-		const existingTextBounds =
-			element.type === "text" ? this.ctx.spatial.getBounds(elementId) : null;
+		// The sync chain drops a text's measured layout for the estimate, so it
+		// is read before the update and put back after: a move or a transform
+		// edit leaves the layout as it was, and the renderer measures it again
+		// once the content, style or layout changed.
+		const before =
+			element.type === "text"
+				? {
+						measured: this.ctx.spatial.getLocalBounds(elementId),
+						x: element.x,
+						y: element.y,
+					}
+				: null;
 
 		this.ctx.yjsProvider.updateElement(
 			layerId,
@@ -505,42 +488,20 @@ export class PaplicoCommands {
 			this.getMutationOrigin(),
 		);
 
-		// Text bounds: restore accurate async-computed bounds after sync chain
-		if (element.type === "text") {
-			const updatedElement = this.ctx.store.document.objects[elementId] as
-				| TextElement
-				| undefined;
-			if (!updatedElement) return;
-
-			const textUpdates = updates as Partial<TextElement>;
-			const layoutAffected =
-				textUpdates.content !== undefined ||
-				textUpdates.defaultStyle !== undefined ||
-				textUpdates.layout !== undefined;
-			const positionAffected =
-				textUpdates.x !== undefined || textUpdates.y !== undefined;
-
-			if (layoutAffected) {
-				if (existingTextBounds) {
-					this.ctx.spatial.setBounds(elementId, existingTextBounds);
-				}
-			} else if (existingTextBounds) {
-				// No layout change:
-				// if position changed, move the cached bounds by the same delta.
-				if (positionAffected) {
-					const nextX = textUpdates.x ?? updatedElement.x;
-					const nextY = textUpdates.y ?? updatedElement.y;
-					const deltaX = nextX - updatedElement.x;
-					const deltaY = nextY - updatedElement.y;
-					this.ctx.spatial.setBounds(
-						elementId,
-						brandWorldBBox(translateBounds(existingTextBounds, deltaX, deltaY)),
-					);
-				} else {
-					this.ctx.spatial.setBounds(elementId, existingTextBounds);
-				}
-			}
-		}
+		const updated = this.ctx.store.document.objects[elementId];
+		if (!before?.measured || updated?.type !== "text") return;
+		const local = brandLocalBBox(
+			translateBounds(
+				before.measured,
+				updated.x - before.x,
+				updated.y - before.y,
+			),
+		);
+		this.ctx.spatial.setTextBounds(
+			elementId,
+			brandWorldBBox(transformBounds(local, getTransform(updated))),
+			local,
+		);
 	}
 
 	public deleteElements(elementIds: string[]): void {
@@ -972,12 +933,27 @@ export class PaplicoCommands {
 		insertIndex?: number,
 	): void {
 		if (this.cannotMutate() || this.isElementLocked(groupId)) return;
-		this.ctx.yjsProvider.extractChildFromGroup(
-			groupId,
-			childId,
-			layerId,
-			insertIndex,
-		);
+		const child = this.ctx.store.document.objects[childId];
+		// The child lands directly in the layer, so every ancestor's transform
+		// moves into its own to keep it drawn where it was.
+		const ancestorT = this.ctx.spatial.getAncestorTransform(childId);
+
+		this.transact(() => {
+			if (child && ancestorT) {
+				this.ctx.yjsProvider.updateElement(
+					layerId,
+					childId,
+					{ transform: composeTransforms(ancestorT, getTransform(child)) },
+					this.getMutationOrigin(),
+				);
+			}
+			this.ctx.yjsProvider.extractChildFromGroup(
+				groupId,
+				childId,
+				layerId,
+				insertIndex,
+			);
+		});
 	}
 
 	public reorderGroupChildren(
@@ -1341,7 +1317,32 @@ export class PaplicoCommands {
 		const layerId = this.ctx.store.currentLayerId;
 		if (!layerId) return;
 
-		this.ctx.yjsProvider.ungroupElements(layerId, groupId);
+		const objects = this.ctx.store.document.objects;
+		const group = objects[groupId];
+
+		this.transact(() => {
+			// The group places its children under its own transform, so that
+			// transform moves into every child to keep it drawn where it was.
+			// Locked children move too: the lock guards their own editing, not
+			// the group they belong to.
+			if (
+				group &&
+				isGroup(group) &&
+				!isIdentityTransform(getTransform(group))
+			) {
+				const childrenMatrix = placeElement(null, group);
+				this.ctx.yjsProvider.batchUpdateElements(
+					group.childIds.flatMap((childId) => {
+						const child = objects[childId];
+						if (!child) return [];
+						const transform = placeElement(childrenMatrix, child);
+						return [{ elementId: childId, updates: { transform } }];
+					}),
+					this.getMutationOrigin(),
+				);
+			}
+			this.ctx.yjsProvider.ungroupElements(layerId, groupId);
+		});
 	}
 
 	// --- Compound Path Operations ---
@@ -1880,27 +1881,13 @@ export class PaplicoCommands {
 		const elementsMap = new Map(Object.entries(objects));
 		const shapeTransform = getTransform(shape);
 		if (!isIdentityTransform(shapeTransform)) {
-			const origin = computeTransformOrigin(
-				calculateLocalElementBounds(shape, elementsMap),
-			);
 			geometry = mapWarpGeometryPositions(geometry, (p) =>
-				applyTransformToPoint(p.x, p.y, shapeTransform, origin.x, origin.y),
+				applyTransformToPoint(p.x, p.y, shapeTransform),
 			);
 		}
 		const mesh = createMeshWarpObjectFromGeometry(orderedIds, geometry);
 		// A rectangle cage reused as the shape keeps releasing without a path.
 		mesh.outlineOnRelease = isMesh(shape) ? shape.outlineOnRelease : true;
-
-		// A group pivots on the centre of its local bounds, so swapping a child
-		// for one with different bounds moves the pivot and shifts every child
-		// on canvas. Read the pivot before and after, and move the group's
-		// translation by (P - I)(after - before) so nothing moves.
-		const parentPivot =
-			parent && isGroup(parent) && !isIdentityTransform(getTransform(parent))
-				? computeTransformOrigin(
-						calculateLocalElementBounds(parent, elementsMap),
-					)
-				: null;
 
 		const origin = this.getMutationOrigin();
 		this.stopUndoCapture();
@@ -1915,33 +1902,6 @@ export class PaplicoCommands {
 		);
 		if (!replaced) return { ok: false, reason: "invalid-selection" };
 		this.cleanupTextReferencesForDelete(new Set([shapeId]), origin);
-		if (parent && parentPivot) {
-			const after = this.ctx.store.document.objects[parent.id];
-			if (after) {
-				const pivot = computeTransformOrigin(
-					calculateLocalElementBounds(
-						after,
-						new Map(Object.entries(this.ctx.store.document.objects)),
-					),
-				);
-				const t = getTransform(parent);
-				const m = transformLinearMatrix(t);
-				const dx = pivot.x - parentPivot.x;
-				const dy = pivot.y - parentPivot.y;
-				this.ctx.yjsProvider.updateElement(
-					owner.parentId,
-					parent.id,
-					{
-						transform: {
-							...t,
-							x: t.x + (m.m00 * dx + m.m01 * dy - dx),
-							y: t.y + (m.m10 * dx + m.m11 * dy - dy),
-						},
-					},
-					origin,
-				);
-			}
-		}
 		this.stopUndoCapture();
 
 		if (this.ctx.selection) {
@@ -2863,14 +2823,47 @@ export class PaplicoCommands {
 	}
 
 	/**
+	 * Rewrite elements' transforms so the fields act on each element as it is
+	 * seen: a change of the rotation, scale or skew fields turns the element
+	 * around the centre of its local bounds instead of its local origin, and
+	 * a change of `x` and `y` moves it by that much. One undo step; locked
+	 * elements are skipped.
+	 */
+	public updateElementTransforms(
+		updates: Array<{ elementId: string; transform: ElementTransform }>,
+	): void {
+		if (this.cannotMutate()) return;
+		const layerId = this.ctx.store.currentLayerId;
+		if (!layerId) return;
+
+		this.transact(() => {
+			for (const { elementId, transform } of updates) {
+				const element = this.ctx.store.document.objects[elementId];
+				const bounds = this.ctx.spatial.getLocalBounds(elementId);
+				if (!element || !bounds) continue;
+				const current = getTransform(element);
+				const pivoted = keepPointInPlace(current, transform, {
+					x: (bounds.minX + bounds.maxX) / 2,
+					y: (bounds.minY + bounds.maxY) / 2,
+				});
+				this.updateElement(layerId, elementId, {
+					transform: {
+						...pivoted,
+						x: pivoted.x + transform.x - current.x,
+						y: pivoted.y + transform.y - current.y,
+					},
+				});
+			}
+		});
+	}
+
+	/**
 	 * Rotate elements by angleDeg degrees around center (cx, cy).
 	 *
-	 * Each element's *visual center* (localBoundsCenter + transform.x/y) is
-	 * rotated around (cx, cy), then transform.x/y is back-calculated so
-	 * the visual center lands at the rotated position.
-	 *
-	 * Group elements are handled by recursively rotating their children
-	 * instead of modifying the group's own transform.
+	 * Each element's world placement is turned around (cx, cy) and solved
+	 * back through its ancestors, so a mirrored, skewed or non-uniformly
+	 * scaled ancestor turns it on screen the way the pointer turns. A group
+	 * turns as a whole through its own transform, carrying its children along.
 	 */
 	public rotateElements(
 		elementIds: string[],
@@ -2883,129 +2876,85 @@ export class PaplicoCommands {
 		const angleRad = (angleDeg * Math.PI) / 180;
 		const cos = Math.cos(angleRad);
 		const sin = Math.sin(angleRad);
-
-		const elementsMap = new Map(
-			Object.entries(this.ctx.store.document.objects),
-		) as ReadonlyMap<string, AnyArtObject>;
+		const rotation = { m00: cos, m01: -sin, m10: sin, m11: cos };
+		const tx = cx - (cos * cx - sin * cy);
+		const ty = cy - (sin * cx + cos * cy);
 
 		const updates: Array<{
 			elementId: string;
 			updates: Partial<AnyArtObject>;
 		}> = [];
-
-		this.collectRotateUpdates(
-			this.filterOutGroupDescendants(elementIds),
-			angleRad,
-			cos,
-			sin,
-			cx,
-			cy,
-			elementsMap,
-			updates,
-		);
+		for (const elementId of this.filterOutGroupDescendants(elementIds)) {
+			const element = this.ctx.store.document.objects[elementId];
+			if (!element) continue;
+			updates.push({
+				elementId,
+				updates: {
+					transform: applyWorldAffineToTransform(
+						getTransform(element),
+						this.ctx.spatial.getAncestorTransform(elementId),
+						rotation,
+						tx,
+						ty,
+					),
+				} as Partial<AnyArtObject>,
+			});
+		}
 
 		this.batchUpdateElements(updates);
 	}
 
-	/** Recursively collect rotation updates, expanding groups into children. */
-	private collectRotateUpdates(
-		elementIds: string[],
-		angleRad: number,
-		cos: number,
-		sin: number,
-		cx: number,
-		cy: number,
-		elementsMap: ReadonlyMap<string, AnyArtObject>,
-		updates: Array<{ elementId: string; updates: Partial<AnyArtObject> }>,
-	): void {
-		for (const elementId of elementIds) {
-			const element = this.ctx.store.document.objects[elementId];
-			if (!element) continue;
-
-			if (isGroup(element)) {
-				// Recurse into children
-				this.collectRotateUpdates(
-					element.childIds,
-					angleRad,
-					cos,
-					sin,
-					cx,
-					cy,
-					elementsMap,
-					updates,
-				);
-				continue;
-			}
-
-			const t = getTransform(element);
-			const localBounds = calculateLocalElementBounds(element, elementsMap);
-			const localCx = (localBounds.minX + localBounds.maxX) / 2;
-			const localCy = (localBounds.minY + localBounds.maxY) / 2;
-
-			const ancestorT = this.ctx.spatial.getAncestorTransform(elementId);
-
-			if (ancestorT) {
-				// Nested: rotate the element's world placement around the world
-				// pivot and solve back through the ancestor, so a mirrored,
-				// skewed or non-uniformly scaled ancestor turns it on screen the
-				// way the pointer turns.
-				updates.push({
-					elementId,
-					updates: {
-						transform: applyWorldAffineToTransform(
-							t,
-							{ x: localCx, y: localCy },
-							ancestorT,
-							{ m00: cos, m01: -sin, m10: sin, m11: cos },
-							cx - (cos * cx - sin * cy),
-							cy - (sin * cx + cos * cy),
-						),
-					} as Partial<AnyArtObject>,
-				});
-				continue;
-			}
-
-			// No ancestor transform — parent-local = world space
-			const vcx = localCx + t.x;
-			const vcy = localCy + t.y;
-			const newVcx = cx + (vcx - cx) * cos - (vcy - cy) * sin;
-			const newVcy = cy + (vcx - cx) * sin + (vcy - cy) * cos;
-			updates.push({
-				elementId,
-				updates: {
-					transform: {
-						...t,
-						x: newVcx - localCx,
-						y: newVcy - localCy,
-						rotation: t.rotation + angleRad,
-					},
-				} as Partial<AnyArtObject>,
-			});
-		}
-	}
-
 	/**
-	 * Resize elements by mapping their world geometry from originalBounds to
-	 * newBounds. Groups recurse into children; descendants of selected groups
-	 * are filtered out to prevent double-resize.
+	 * Resize elements by mapping the selection frame's box onto `newBounds` in
+	 * the frame's space. Each element bakes the map into its own space (see
+	 * applyElementResize). Descendants of selected groups are left out, since
+	 * their group carries the map down to them.
 	 */
 	public resizeElements(
 		elementIds: string[],
-		originalBounds: BoundingBox,
+		frame: SelectionFrame,
 		newBounds: BoundingBox,
 		flip: AxisFlip = { x: false, y: false },
 	): void {
 		if (this.cannotMutate()) return;
 
 		const targetIds = this.filterOutGroupDescendants(elementIds);
+		const inFrame = createResizeAffine(frame.bounds, newBounds, flip);
+		// The map in the world: into the frame's space, resized, and back out.
+		const inWorld = mapWithin(
+			inFrame,
+			invertAffine(elementTransformToAffine(frame.matrix)),
+		);
 		// Group resize fans out into one updateElement per descendant; a single
 		// transaction keeps it to one Yjs→Valtio sync per commit instead of one
 		// full-document sync per element.
 		this.transact(() => {
 			for (const id of targetIds) {
-				this.applyElementResize(id, originalBounds, newBounds, flip);
+				const element = this.ctx.store.document.objects[id];
+				if (!element) continue;
+				// The frame's own element takes the resize as it is; any other
+				// element takes it through its own world matrix.
+				const world = this.ctx.spatial.getElementWorldMatrix(id);
+				const map =
+					frame.elementId === id || !world
+						? inFrame
+						: mapWithin(inWorld, elementTransformToAffine(world));
+				this.applyElementResize(element, map);
 			}
 		});
+	}
+
+	/**
+	 * Mirror elements in their selection frame's axes: the frame is mapped
+	 * onto itself, turned over.
+	 */
+	public flipElements(elementIds: string[], flip: AxisFlip): void {
+		const frame = resolveSelectionFrame(
+			elementIds,
+			(id) => this.ctx.spatial.getElementFrame(id),
+			(id) => this.ctx.spatial.getWorldGeometryBounds(id),
+		);
+		if (frame) this.resizeElements(elementIds, frame, frame.bounds, flip);
 	}
 
 	/**
@@ -3029,247 +2978,178 @@ export class PaplicoCommands {
 	}
 
 	/**
-	 * `underIdentityChain` means the caller turns this element's ancestor chain
-	 * into identity, so a path or compound path stores its resized world
-	 * geometry under an identity transform.
+	 * Bake `map`, a resize expressed in the element's own space, into the
+	 * element. A path takes it into its coordinates. A compound path, a blend
+	 * and a group hand it down to their content, each child taking it in its
+	 * own space. An image, a 3D reference and a text scale their rect by the
+	 * map's axis factors and fold what is left, a mirror, a turn or a shear,
+	 * into their transform. A mesh and a repeat fold it whole into theirs.
 	 */
-	private applyElementResize(
-		elementId: string,
-		originalBounds: BoundingBox,
-		newBounds: BoundingBox,
-		flip: AxisFlip,
-		underIdentityChain = false,
-	): void {
+	private applyElementResize(element: AnyArtObject, map: Affine2D): void {
 		const currentLayerId = this.ctx.store.currentLayerId;
 		if (!currentLayerId) return;
+		const update = (updates: Partial<AnyArtObject>) =>
+			this.updateElement(currentLayerId, element.id, updates);
+		const handDown = (childId: string) => {
+			const child = this.ctx.store.document.objects[childId];
+			if (!child) return;
+			this.applyElementResize(
+				child,
+				mapWithin(map, elementTransformToAffine(getTransform(child))),
+			);
+		};
 
-		const layer = this.ctx.store.document.layers.find(
-			(l) => l.id === currentLayerId,
-		);
-		if (!layer) return;
-
-		const element = this.ctx.store.document.objects[elementId];
-		if (!element) return;
-
-		const transform = createScaleTransform(originalBounds, newBounds, flip);
-		const { scaleX, scaleY, mapX, mapY } = transform;
-		// Sizes and radii follow the magnitude of the resize; a mirror is carried
-		// by the element transform instead of by a negative width or brush size.
-		const uniformScale = Math.sqrt(Math.abs(scaleX * scaleY));
+		const axisScale = resizeAxisScale(map);
+		const det = map.a * map.d - map.b * map.c;
+		// Sizes and widths follow the area of the map; a mirror rides the
+		// transform or the geometry, never a negative size.
+		const uniformScale = Math.sqrt(Math.abs(det));
+		// A mirror turns a path's left into its right (see mirrorStrokeWidths).
+		const flip: AxisFlip = { x: det < 0, y: false };
+		// What the element's content takes of the map: a rect kind scales by
+		// the axis factors and folds the rest into its transform, a mesh or
+		// repeat folds it whole.
+		const contentMap: Affine2D =
+			element.type === "image" ||
+			isReference3D(element) ||
+			element.type === "text"
+				? { a: axisScale.x, b: 0, c: 0, d: axisScale.y, e: 0, f: 0 }
+				: isMesh(element) || isRepeat(element)
+					? IDENTITY_AFFINE
+					: map;
+		const mappedSegments =
+			element.type === "path" ? mapSegments(element.segments, map) : null;
 
 		// Common properties that apply to all element types
 		const commonUpdates: Record<string, unknown> = {};
 		const scaleFilters = this.ctx.scaleFilters;
-		if (element.filters?.length && scaleFilters) {
-			commonUpdates.filters = mapLocalAppearances(element.filters, (filters) =>
-				scaleFilters(filters, Math.abs(scaleX), Math.abs(scaleY)),
-			);
-		}
-		// Gradients are placed relative to the element's bounds, so a mirror has
-		// to turn them over on their own.
-		if (element.filters?.length && (flip.x || flip.y)) {
-			commonUpdates.filters = mapLocalAppearances(
-				(commonUpdates.filters as FilterEntry[] | undefined) ?? element.filters,
-				(filters) => mirrorGradientFilters(filters, flip),
-			);
-		}
+		const scaledFilters =
+			element.filters?.length && scaleFilters
+				? mapLocalAppearances(element.filters, (filters) =>
+						scaleFilters(filters, axisScale.x, axisScale.y),
+					)
+				: undefined;
 		// Stroke appearance widths for geometry-baking kinds (path, compound-path,
 		// blend). Composed on top of the renderer-scaled filters so neither pass
 		// overwrites the other.
 		const strokeScaledFilters = scaleStrokeFilters(
-			(commonUpdates.filters as FilterEntry[] | undefined) ?? element.filters,
+			scaledFilters ?? element.filters,
 			uniformScale,
 		);
+		// The gradients ride on the element's bounds, so they take the content
+		// map in bounds-relative terms: out of the bounds they were placed in,
+		// into the bounds the mapped content has.
+		const boundsBefore =
+			this.ctx.spatial.getLocalBounds(element.id) ??
+			calculateLocalElementBounds(element);
+		const boundsAfter =
+			element.type === "path" && mappedSegments
+				? calculateLocalElementBounds({
+						...element,
+						segments: mappedSegments,
+						filters: strokeScaledFilters,
+					})
+				: transformBounds(boundsBefore, affineToElementTransform(contentMap));
+		const gradientMap = boundsRelativeMap(
+			contentMap,
+			boundsBefore,
+			boundsAfter,
+		);
+		const mapGradients = (filters: FilterEntry[]) =>
+			isIdentityAffine(gradientMap)
+				? filters
+				: mapLocalAppearances(filters, (filters) =>
+						mapGradientFilters(filters, gradientMap),
+					);
+		const rectFilters =
+			scaledFilters ??
+			(element.filters?.length && !isIdentityAffine(gradientMap)
+				? element.filters
+				: undefined);
+		if (rectFilters) commonUpdates.filters = mapGradients(rectFilters);
+		const geometryUpdates = {
+			...commonUpdates,
+			...(strokeScaledFilters
+				? { filters: mapGradients(strokeScaledFilters) }
+				: {}),
+		};
+		const remainder = () =>
+			affineToElementTransform(resizeRemainder(map, axisScale));
 
-		if (element.type === "path") {
-			// Bake transform into segments before scaling so that
-			// originalBounds (world-space) and segment coordinates are in the same space.
-			const baked = this.bakeWorldGeometry(element);
-			this.updateElement(currentLayerId, elementId, {
-				segments: scaleSegments(baked.segments, transform),
-				transform: underIdentityChain
-					? createIdentityTransform()
-					: baked.transform,
+		if (mappedSegments && element.type === "path") {
+			update({
+				segments: mappedSegments,
 				...(element.strokeWidths && {
 					strokeWidths: mirrorStrokeWidths(element.strokeWidths, flip),
 				}),
 				...(element.strokeErasure && {
 					strokeErasure: mirrorStrokeWidths(element.strokeErasure, flip),
 				}),
-				...commonUpdates,
-				...(strokeScaledFilters ? { filters: strokeScaledFilters } : {}),
+				...geometryUpdates,
 			});
-		} else if (element.type === "compound-path") {
-			// The compound pivots on the centre of its sources, which the resize
-			// moves, so a source compensating the compound's current transform
-			// would land elsewhere. Bake the whole chain into the sources and
-			// leave the compound's chain as identity, which no pivot can move.
-			for (const { id: sourceId } of element.sources) {
-				this.applyElementResize(
-					sourceId,
-					originalBounds,
-					newBounds,
-					flip,
-					true,
-				);
-			}
-			this.updateElement(currentLayerId, elementId, {
-				transform: this.chainCancellingTransform(elementId, underIdentityChain),
-				...commonUpdates,
-				...(strokeScaledFilters ? { filters: strokeScaledFilters } : {}),
-			});
-		} else if (element.type === "image" || isReference3D(element)) {
-			const t = getTransform(element);
-			const ancestorT = this.ctx.spatial.getAncestorTransform(elementId);
-			if (ancestorT) {
-				// The x/y rect is parent-local; mapping it with the world-space
-				// affine would double-apply the ancestor transform. Fold the affine
-				// into the element transform instead (same approach as mesh/repeat).
-				this.updateElement(currentLayerId, elementId, {
-					transform: this.foldResizeAffineIntoTransform(
-						element,
-						t,
-						ancestorT,
-						transform,
-					),
-					...commonUpdates,
-				});
-			} else {
-				// Moves store their delta on transform.x/y while the placement rect
-				// (x/y) stays put, but the bounds mapping is world-space — bake the
-				// translation into the rect first (same spirit as the path branch)
-				// so resizing a moved element keeps its anchor. Rotation about the
-				// rect center commutes with this baking, and so does a mirror: x/y
-				// is that center, and the renderer mirrors the pixels around it.
-				this.updateElement(currentLayerId, elementId, {
-					x: mapX(element.x + t.x),
-					y: mapY(element.y + t.y),
-					width: element.width * Math.abs(scaleX),
-					height: element.height * Math.abs(scaleY),
-					transform: { ...mirrorTransform(t, flip.x, flip.y), x: 0, y: 0 },
-					...commonUpdates,
-				});
-			}
-		} else if (element.type === "text") {
-			const t = getTransform(element);
-			const ancestorT = this.ctx.spatial.getAncestorTransform(elementId);
-			if (ancestorT) {
-				// Same parent-local rect problem as the image branch above; fold the
-				// affine into the transform and leave layout/content untouched.
-				this.updateElement(currentLayerId, elementId, {
-					transform: this.foldResizeAffineIntoTransform(
-						element,
-						t,
-						ancestorT,
-						transform,
-					),
-					...commonUpdates,
-				});
-			} else {
-				// Same translation baking as the image/reference3d branch above.
-				// x/y is the text anchor rather than its center, so a mirror has to
-				// move it to the other side of the box.
-				const anchor = mapResizedAnchor(element, t, transform);
-				this.updateElement(currentLayerId, elementId, {
-					x: anchor.x,
-					y: anchor.y,
-					layout: scaleTextLayout(element.layout, transform, newBounds),
-					defaultStyle: scaleTextStyle(element.defaultStyle, uniformScale),
-					content: scaleTextContent(element.content, uniformScale),
-					transform: { ...mirrorTransform(t, flip.x, flip.y), x: 0, y: 0 },
-					...commonUpdates,
-				});
-			}
-
-			this.ctx.invalidateTextCache?.(elementId);
+		} else if (element.type === "compound-path" || isBlend(element)) {
+			// The sources take the map; the container keeps its own transform.
+			for (const id of getContainerChildIds(element) ?? []) handDown(id);
+			if (Object.keys(geometryUpdates).length > 0) update(geometryUpdates);
 		} else if (element.type === "group") {
-			for (const childId of element.childIds) {
-				this.applyElementResize(childId, originalBounds, newBounds, flip);
-			}
-		} else if (isBlend(element)) {
-			// Keys and the absorbed spine live in objects (not in any layer); resize
-			// them recursively so the whole blend scales. Intermediates recompute
-			// from the scaled keys/spine. The blend pivots on the centre of its keys
-			// the same way a compound path does, so its chain is baked away too.
-			for (const keyId of element.objectIds) {
-				this.applyElementResize(keyId, originalBounds, newBounds, flip, true);
-			}
-			if (element.spineSourceId) {
-				this.applyElementResize(
-					element.spineSourceId,
-					originalBounds,
-					newBounds,
-					flip,
-					true,
-				);
-			}
-			this.updateElement(currentLayerId, elementId, {
-				transform: this.chainCancellingTransform(elementId, underIdentityChain),
+			for (const childId of element.childIds) handDown(childId);
+		} else if (element.type === "image" || isReference3D(element)) {
+			update({
+				x: element.x * axisScale.x,
+				y: element.y * axisScale.y,
+				width: element.width * axisScale.x,
+				height: element.height * axisScale.y,
+				...(element.type === "image" &&
+					element.corners && {
+						corners: element.corners.map(([x, y]) => [
+							x * axisScale.x,
+							y * axisScale.y,
+						]) as ImageObject["corners"],
+					}),
+				transform: composeTransforms(getTransform(element), remainder()),
 				...commonUpdates,
-				...(strokeScaledFilters ? { filters: strokeScaledFilters } : {}),
 			});
-		} else if (isMesh(element)) {
-			// Fold the resize's world affine into the container's own transform,
-			// pivoted at the cage's local-bounds center (the renderer's transform
-			// origin). The warped children ride the container's transform entry,
-			// so the cage and everything it bends scale together — same approach
-			// as repeat below.
-			const localBounds = calculateLocalElementBounds(element);
-			const center = {
-				x: (localBounds.minX + localBounds.maxX) / 2,
-				y: (localBounds.minY + localBounds.maxY) / 2,
-			};
-			const newTransform = applyWorldAffineToTransform(
-				getTransform(element),
-				center,
-				this.ctx.spatial.getAncestorTransform(elementId),
-				{ m00: scaleX, m01: 0, m10: 0, m11: scaleY },
-				mapX(0),
-				mapY(0),
-			);
-			this.updateElement(currentLayerId, elementId, {
-				transform: newTransform,
+		} else if (element.type === "text") {
+			// The anchor and the box scale away from the local origin like a
+			// path's points do; the glyphs scale by the map's area.
+			const local = calculateLocalElementBounds(element);
+			update({
+				x: element.x * axisScale.x,
+				y: element.y * axisScale.y,
+				layout: scaleTextLayout(element.layout, axisScale, {
+					width: local.width * axisScale.x,
+					height: local.height * axisScale.y,
+				}),
+				defaultStyle: scaleTextStyle(element.defaultStyle, uniformScale),
+				content: scaleTextContent(element.content, uniformScale),
+				transform: composeTransforms(getTransform(element), remainder()),
+				...commonUpdates,
+			});
+			this.ctx.invalidateTextCache?.(element.id);
+		} else if (isMesh(element) || isRepeat(element)) {
+			// A mesh's warped children ride its transform entry, so the cage and
+			// everything it bends scale together; a repeat scales both its tiles
+			// and their spacing, unlike recursing into the absorbed sources.
+			update({
+				transform: composeTransforms(
+					getTransform(element),
+					affineToElementTransform(map),
+				),
 				...commonUpdates,
 			} as Partial<AnyArtObject>);
-		} else if (isRepeat(element)) {
-			// Scale the whole repeat uniformly by folding the resize's world affine
-			// into the repeat's own transform, pivoted at the source union center
-			// (the same pivot the renderer/bounds use). This scales both the tiles
-			// and their spacing, unlike recursing into the absorbed sources.
-			const union = calculateRepeatSourceUnion(
-				element,
-				new Map(Object.entries(this.ctx.store.document.objects)),
-			);
-			if (union) {
-				const center = {
-					x: (union.minX + union.maxX) / 2,
-					y: (union.minY + union.maxY) / 2,
-				};
-				// mapX/mapY are affine maps (scale + translate); the world affine's
-				// translation is their value at the origin.
-				const newTransform = applyWorldAffineToTransform(
-					getTransform(element),
-					center,
-					this.ctx.spatial.getAncestorTransform(elementId),
-					{ m00: scaleX, m01: 0, m10: 0, m11: scaleY },
-					mapX(0),
-					mapY(0),
-				);
-				this.updateElement(currentLayerId, elementId, {
-					transform: newTransform,
-					...commonUpdates,
-				} as Partial<AnyArtObject>);
-			}
 		}
 	}
 
 	/**
-	 * Transform that makes an element's chain compose to identity, for a blend
-	 * or compound path whose resize bakes that chain into what it absorbs.
+	 * The own transform that draws an element's stored world geometry at those
+	 * world coordinates. Under a transformed ancestor the renderer re-applies
+	 * that ancestor transform on top of the stored geometry, so the element
+	 * stores its inverse. `underIdentityChain` means the caller turns the
+	 * ancestor chain into identity itself.
 	 */
 	private chainCancellingTransform(
 		elementId: string,
-		underIdentityChain: boolean,
+		underIdentityChain = false,
 	): ElementTransform {
 		const ancestorT = underIdentityChain
 			? null
@@ -3281,47 +3161,17 @@ export class PaplicoCommands {
 
 	/**
 	 * World-space segments of a path plus the transform that keeps them in
-	 * place. Under a transformed ancestor the renderer re-applies that ancestor
-	 * transform on top of the stored segments, so the path stores its inverse:
-	 * compose(ancestor, inverse) = identity.
+	 * place (see chainCancellingTransform).
 	 */
 	private bakeWorldGeometry(path: Path): Pick<Path, "segments" | "transform"> {
-		const ancestorT = this.ctx.spatial.getAncestorTransform(path.id);
-		const worldPath = toWorldPath(path, ancestorT ?? undefined);
+		const worldPath = toWorldPath(
+			path,
+			this.ctx.spatial.getAncestorTransform(path.id) ?? undefined,
+		);
 		return {
 			segments: worldPath.segments,
-			transform: ancestorT
-				? computeInverseCompositionTransform(ancestorT)
-				: worldPath.transform,
+			transform: this.chainCancellingTransform(path.id),
 		};
-	}
-
-	/**
-	 * Fold a resize's world-space affine into an element's own transform,
-	 * solved back to parent-local space through the ancestor transform.
-	 * Used by the rect-based applyElementResize branches (image, reference3d,
-	 * text) whose x/y live in parent-local space and therefore cannot be
-	 * mapped with the world affine directly.
-	 */
-	private foldResizeAffineIntoTransform(
-		element: AnyArtObject,
-		t: ElementTransform,
-		ancestorT: ElementTransform,
-		transform: ReturnType<typeof createScaleTransform>,
-	): ElementTransform {
-		const localBounds = calculateLocalElementBounds(element);
-		const center = {
-			x: (localBounds.minX + localBounds.maxX) / 2,
-			y: (localBounds.minY + localBounds.maxY) / 2,
-		};
-		return applyWorldAffineToTransform(
-			t,
-			center,
-			ancestorT,
-			{ m00: transform.scaleX, m01: 0, m10: 0, m11: transform.scaleY },
-			transform.mapX(0),
-			transform.mapY(0),
-		);
 	}
 
 	/**
@@ -3585,8 +3435,8 @@ export class PaplicoCommands {
 				composedTransform: ancestorTransform
 					? composeTransforms(ancestorTransform, element.transform)
 					: element.transform,
-				// For images the deform frame is the x/y/width/height rectangle —
-				// the renderer's transform origin — not the corners' AABB.
+				// For images the deform frame is the x/y/width/height rectangle,
+				// not the corners' AABB.
 				localBounds:
 					element.type === "image"
 						? brandLocalBBox({
@@ -3629,10 +3479,6 @@ export class PaplicoCommands {
 					elementId,
 					updates: {
 						segments,
-						transform: resolveStoredTransform(frame, newLocalBounds, {
-							x: 0,
-							y: 0,
-						}),
 						...(filters ? { filters } : {}),
 					} as Partial<AnyArtObject>,
 				});
@@ -3669,10 +3515,6 @@ export class PaplicoCommands {
 					elementId,
 					updates: {
 						vertices,
-						transform: resolveStoredTransform(frame, newLocalBounds, {
-							x: 0,
-							y: 0,
-						}),
 						...(filters ? { filters } : {}),
 					} as Partial<AnyArtObject>,
 				});
@@ -4240,16 +4082,9 @@ export class PaplicoCommands {
 			const viewport = opt?.viewport;
 
 			const items = await Clipboard.read();
-			for (const item of items) {
-				// 1. PAPLICO elements (highest priority)
-				if (item.types.includes(PAPLICO_ELEMENTS_MIME)) {
-					const blob = await item.getType(PAPLICO_ELEMENTS_MIME);
-					const json = await blob.text();
-					const elements = JSON.parse(json) as AnyArtObject[];
-					if (elements.length === 0) continue;
-					return this.pasteElements(elements, opt);
-				}
-			}
+			// 1. PAPLICO elements (highest priority)
+			const elements = await readClipboardElements(items);
+			if (elements) return this.pasteElements(elements, opt);
 
 			// 2. SVG
 			for (const item of items) {
@@ -4622,7 +4457,7 @@ export class PaplicoCommands {
 
 			if (artObjects.length > 0) {
 				itemData[PAPLICO_ELEMENTS_MIME] = new Blob(
-					[JSON.stringify(artObjects)],
+					[encodeElementsPayload(artObjects)],
 					{ type: PAPLICO_ELEMENTS_MIME },
 				);
 			}
@@ -4813,13 +4648,7 @@ export class PaplicoCommands {
 					}
 
 					// Move the pasted group into its container (after children are settled)
-					this.moveIntoContainer(
-						layerId,
-						newId,
-						"group",
-						getTransform(clonedGroup),
-						targetContainerId,
-					);
+					this.moveIntoContainer(layerId, clonedGroup, targetContainerId);
 				}, this.getMutationOrigin());
 
 				newTopLevelIds.push(newId);
@@ -4849,10 +4678,9 @@ export class PaplicoCommands {
 					);
 					this.moveIntoContainer(
 						layerId,
-						newId,
-						"mesh",
-						getTransform(clonedMesh),
+						clonedMesh,
 						targetContainerId,
+						new Map(descendants.map((d) => [d.id, d])),
 					);
 				}, this.getMutationOrigin());
 				newTopLevelIds.push(newId);
@@ -4884,10 +4712,9 @@ export class PaplicoCommands {
 					this.ctx.yjsProvider.createBlend(blendLayerId, clonedBlend);
 					this.moveIntoContainer(
 						blendLayerId,
-						newId,
-						"blend",
-						getTransform(clonedBlend),
+						clonedBlend,
 						targetContainerId,
+						new Map(clonedSources.map((source) => [source.id, source])),
 					);
 				}, this.getMutationOrigin());
 				newTopLevelIds.push(newId);
@@ -5031,20 +4858,13 @@ export class PaplicoCommands {
 	): void {
 		if (!this.ctx.store.currentLayerId) return;
 		const layerId = this.ctx.store.currentLayerId;
-		const currentT = getTransform(element);
 		this.ctx.yjsProvider.transact(() => {
 			this.ctx.yjsProvider.addElement(
 				layerId,
 				element,
 				this.getMutationOrigin(),
 			);
-			this.moveIntoContainer(
-				layerId,
-				element.id,
-				element.type,
-				currentT,
-				targetContainerId,
-			);
+			this.moveIntoContainer(layerId, element, targetContainerId);
 		}, this.getMutationOrigin());
 	}
 
@@ -5121,14 +4941,13 @@ export class PaplicoCommands {
 
 	public addElementToLayer(layerId: string, element: AnyArtObject): void {
 		if (this.cannotMutate() || this.isLayerLocked(layerId)) return;
-		const currentT = getTransform(element);
 		this.ctx.yjsProvider.transact(() => {
 			this.ctx.yjsProvider.addElement(
 				layerId,
 				element,
 				this.getMutationOrigin(),
 			);
-			this.moveIntoEditingScope(layerId, element.id, element.type, currentT);
+			this.moveIntoEditingScope(layerId, element);
 		}, this.getMutationOrigin());
 	}
 
@@ -5713,9 +5532,8 @@ function hasPassthroughDescendant(
 
 /**
  * The transforms a released mesh's children need in the parent's space to
- * stay where the mesh drew them. The mesh pivots on its full local bounds and
- * each child on its own, so the composition has to honour both pivots. Empty
- * when the mesh transform is identity and nothing moves.
+ * stay where the mesh drew them. Empty when the mesh transform is identity
+ * and nothing moves.
  */
 function releasedChildTransforms(
 	mesh: MeshArtObject,
@@ -5724,21 +5542,10 @@ function releasedChildTransforms(
 	const result = new Map<string, ElementTransform>();
 	const meshTransform = getTransform(mesh);
 	if (isIdentityTransform(meshTransform)) return result;
-	const meshPivot = computeTransformOrigin(
-		calculateLocalElementBounds(mesh, elementsMap),
-	);
 	for (const id of mesh.childIds) {
 		const child = elementsMap.get(id);
 		if (!child) continue;
-		result.set(
-			id,
-			composePivotedTransforms(
-				meshTransform,
-				meshPivot,
-				getTransform(child),
-				computeTransformOrigin(calculateLocalElementBounds(child, elementsMap)),
-			),
-		);
+		result.set(id, composeTransforms(meshTransform, getTransform(child)));
 	}
 	return result;
 }
@@ -5833,28 +5640,4 @@ function containerChildIds(
 	if (layer) return layer.elementIds;
 	const container = document.objects[containerId];
 	return container && isGroup(container) ? container.childIds : [];
-}
-
-/**
- * Where a rect element's anchor lands under a resize. The element transform
- * carries the mirror and the renderer applies it around the element's own
- * center, so the center follows the resize while the anchor keeps its scaled
- * offset from it.
- */
-function mapResizedAnchor(
-	element: TextElement,
-	t: ElementTransform,
-	transform: ReturnType<typeof createScaleTransform>,
-): { x: number; y: number } {
-	const localBounds = calculateLocalElementBounds(element);
-	const centerX = (localBounds.minX + localBounds.maxX) / 2 + t.x;
-	const centerY = (localBounds.minY + localBounds.maxY) / 2 + t.y;
-	return {
-		x:
-			transform.mapX(centerX) +
-			(element.x + t.x - centerX) * Math.abs(transform.scaleX),
-		y:
-			transform.mapY(centerY) +
-			(element.y + t.y - centerY) * Math.abs(transform.scaleY),
-	};
 }

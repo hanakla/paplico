@@ -21,7 +21,7 @@ import {
 	calculateSegmentListBounds,
 	type WorldBBox,
 } from "../../../utils/geometry/bounds";
-import { applyTransformToBounds } from "../../../utils/geometry/geometry";
+import { transformBounds } from "../../../utils/geometry/geometry";
 import { appendSubpath } from "../../../utils/geometry/segmentOps";
 import {
 	applyRotate3DToSegments,
@@ -410,14 +410,14 @@ export class TextElementRenderer {
 		// calculateLocalElementBounds), not yet transformed by element.transform.
 		const preTransformBounds = brandLocalBBox(worldBounds);
 
-		// Update ViewportManager's local bounds cache so rotation origin
-		// uses the precise text layout bounds instead of the initial estimate.
+		// Update ViewportManager's local bounds cache so bounds and culling
+		// use the precise text layout bounds instead of the initial estimate.
 		this.deps.renderState.localBoundsCache?.set(element.id, preTransformBounds);
 
 		// Apply element.transform so the BBox matches the vertex-shader rendering position.
 		const transformedBounds = isIdentityTransform(element.transform)
 			? worldBounds
-			: brandWorldBBox(applyTransformToBounds(worldBounds, element.transform));
+			: brandWorldBBox(transformBounds(worldBounds, element.transform));
 		const cachedBounds = this.deps.renderState.boundsCache.get(element.id);
 		if (cachedBounds && boundsAlmostEqual(cachedBounds, transformedBounds)) {
 			return;

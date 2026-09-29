@@ -2,14 +2,13 @@ import {
 	type Document,
 	type ElementTransform,
 	getContainerChildIds,
-	getTransform,
 	isContainer,
 	isIdentityTransform,
 	isMesh,
 	isPath,
 	type Path,
 } from "../schema";
-import { composeTransforms } from "../utils/geometry/geometry";
+import { placeElement } from "../utils/geometry/geometry";
 
 type EditablePath = {
 	path: Path;
@@ -31,16 +30,24 @@ export function collectEditablePaths(
 	const results: EditablePath[] = [];
 	const objects = document.objects;
 
+	/** `parentMatrix` is the chain the element's ancestors place it under. */
 	const collectPaths = (
 		elementId: string,
-		ancestorTransform: ElementTransform | null,
+		parentMatrix: ElementTransform | null,
 		inEditingScope: boolean,
 	) => {
 		const obj = objects[elementId];
 		if (!obj) return;
 		const scoped = inEditingScope || elementId === editingScopeId;
 		if (isPath(obj)) {
-			if (scoped) results.push({ path: obj, ancestorTransform });
+			if (!scoped) return;
+			results.push({
+				path: obj,
+				ancestorTransform:
+					parentMatrix && !isIdentityTransform(parentMatrix)
+						? parentMatrix
+						: null,
+			});
 		} else if (isContainer(obj)) {
 			// A mesh warp container renders its children warped; their stored
 			// (unwarped) vertices are only editable after entering the mesh's own
@@ -50,16 +57,9 @@ export function collectEditablePaths(
 			if (isMesh(obj) && scoped && elementId !== editingScopeId) return;
 			const childIds = getContainerChildIds(obj);
 			if (!childIds) return;
-			const ownT = getTransform(obj);
-			let nextAncestor: ElementTransform | null;
-			if (ancestorTransform) {
-				const composed = composeTransforms(ancestorTransform, ownT);
-				nextAncestor = isIdentityTransform(composed) ? null : composed;
-			} else {
-				nextAncestor = isIdentityTransform(ownT) ? null : ownT;
-			}
+			const childrenMatrix = placeElement(parentMatrix, obj);
 			for (const childId of childIds) {
-				collectPaths(childId, nextAncestor, scoped);
+				collectPaths(childId, childrenMatrix, scoped);
 			}
 		}
 	};

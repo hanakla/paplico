@@ -31,6 +31,8 @@ import {
 	renderWithViewport,
 } from "../../testUtils/visualRegression";
 import { PenTool } from "../../tools/PenTool";
+import { calculateLocalElementBounds } from "../../utils/geometry/bounds";
+import { keepPointInPlace } from "../../utils/geometry/geometry";
 
 const MAX_DIFF_PERCENTAGE = 0.1;
 
@@ -935,10 +937,15 @@ describe("WebGPU Visual Regression - Mutation Detection", () => {
 		const secondEl = doc.objects[secondElId];
 
 		firstEl.transform = { ...firstEl.transform, x: firstEl.transform.x + 300 };
-		secondEl.transform = {
-			...secondEl.transform,
-			rotation: Math.PI / 4,
-		};
+		const secondBounds = calculateLocalElementBounds(secondEl);
+		secondEl.transform = keepPointInPlace(
+			secondEl.transform,
+			{ ...secondEl.transform, rotation: Math.PI / 4 },
+			{
+				x: (secondBounds.minX + secondBounds.maxX) / 2,
+				y: (secondBounds.minY + secondBounds.maxY) / 2,
+			},
+		);
 
 		// Step 3: Re-render with same renderer (tests cache invalidation)
 		const textureAfter = await renderArtboardForTest(

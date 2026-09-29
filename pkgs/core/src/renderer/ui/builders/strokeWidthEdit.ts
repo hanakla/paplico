@@ -3,8 +3,8 @@ import type { RGBA, UITheme } from "../theme";
 import type { StrokeWidthEditUIData } from "../types";
 
 /**
- * Stroke-width edit overlay: path outline, width envelope, cross lines and
- * per-side width handles.
+ * Stroke-width edit overlay: path outline, width envelope, cross lines,
+ * per-side width handles and the long press ring.
  */
 export function buildStrokeWidthEditOverlay(
 	data: StrokeWidthEditUIData,
@@ -128,6 +128,17 @@ export function buildStrokeWidthEditOverlay(
 					}),
 			fill: { color: theme.colors.white },
 			stroke: { color: theme.colors.selectionPath, width: sw },
+		});
+	}
+
+	// 6. Long press ring, outside the selection ring of the pressed point
+	if (data.longPressRing) {
+		prims.push({
+			kind: "circle",
+			cx: data.longPressRing.worldX,
+			cy: data.longPressRing.worldY,
+			radius: { screen: radiusPx * 2.5 },
+			stroke: { color: theme.colors.pathLongPressRing, width: sw },
 		});
 	}
 

@@ -22,7 +22,7 @@ import {
 	expandBounds,
 	type WorldBBox,
 } from "../../../../utils/geometry/bounds";
-import { applyTransformToBounds } from "../../../../utils/geometry/geometry";
+import { transformBounds } from "../../../../utils/geometry/geometry";
 import { FULL_BLIT_UV_RECT } from "../../CanvasLayerTypes";
 import {
 	createFrameTextureRef,
@@ -115,7 +115,7 @@ export class WetStrokeRenderer {
 			})
 			.end();
 
-		const effectBounds = applyTransformToBounds(
+		const effectBounds = transformBounds(
 			expandBounds(
 				calculatePathBounds({ ...path, segments: input.segments, filters: [] }),
 				brushSize * (0.5 + wet.bleedRadius),

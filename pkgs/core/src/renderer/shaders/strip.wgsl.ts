@@ -115,12 +115,11 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32, in: StripInput) -> StripOutp
 
 	// Invert the element transform for the pre-transform paint position.
 	let et = transforms[in.elementIndex];
-	let origin2 = vec2f(et.originX, et.originY);
-	let d = world - origin2 - vec2f(et.tx, et.ty);
+	let d = world - vec2f(et.tx, et.ty);
 	let det = et.m00 * et.m11 - et.m01 * et.m10;
 	var localPos = world;
 	if (abs(det) > 1e-12) {
-		localPos = origin2 + vec2f(d.x * et.m11 - d.y * et.m01, d.y * et.m00 - d.x * et.m10) / det;
+		localPos = vec2f(d.x * et.m11 - d.y * et.m01, d.y * et.m00 - d.x * et.m10) / det;
 	}
 	out.worldPos = localPos;
 

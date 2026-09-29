@@ -1142,6 +1142,8 @@ export const en = {
 		roomReconnected: "Reconnected to room",
 		reconnectAction: "Reconnect",
 		roomNotFound: "Room not found",
+		roomNeedsNewerApp:
+			"This room was made with a newer version of the app. Update the app to join it.",
 		backToCanvas: "Back to Canvas",
 		inviteQrLabel: "Code to scan",
 		connectOtherDevices: "Connect Other Devices",

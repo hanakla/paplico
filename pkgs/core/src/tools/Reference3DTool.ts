@@ -150,7 +150,7 @@ interface EditState {
 	elementId: string;
 	element: Reference3DElement;
 	localRect: LocalRect;
-	/** Composed ancestor ∘ self transform, pivoting around the localRect center. */
+	/** Composed ancestor ∘ self transform. */
 	transform: ElementTransform;
 	def: Reference3DDef;
 }
@@ -1777,7 +1777,7 @@ function toCanvasPoint(
 	state: EditState,
 	point: { x: number; y: number },
 ): { x: number; y: number } {
-	return localToCanvasPoint(point, state.localRect, state.transform);
+	return localToCanvasPoint(point, state.transform);
 }
 
 /** Inverse of toCanvasPoint: canvas world → element-local coordinates. */
@@ -1785,7 +1785,7 @@ function toLocalPoint(
 	state: EditState,
 	point: { x: number; y: number },
 ): { x: number; y: number } {
-	return canvasToLocalPoint(point, state.localRect, state.transform);
+	return canvasToLocalPoint(point, state.transform);
 }
 
 /** GizmoProjectFn for a scene camera: world-3D → element-local 2D. */

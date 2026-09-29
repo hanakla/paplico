@@ -11,7 +11,6 @@ import {
 	type Document,
 	type ElementTransform,
 	type Filter,
-	getTransform,
 	isCompoundPath,
 	isFilterEnabled,
 	isGroup,
@@ -23,18 +22,17 @@ import {
 } from "../../../schema";
 import {
 	brandWorldBBox,
-	calculateElementBounds,
 	calculateLocalElementBounds,
+	calculatePlacedBounds,
 	expandBounds,
 	type LocalBoundsCache,
 	type WorldBBox,
 } from "../../../utils/geometry/bounds";
 import { bakeCompoundPathSegments } from "../../../utils/geometry/compoundBake";
 import {
-	applyTransformToBounds,
 	applyTransformToPoint,
 	boundsIntersectViewport,
-	composeTransforms,
+	placeElement,
 } from "../../../utils/geometry/geometry";
 import type { TransientElementEntry } from "../../types";
 import { resolveImageGeometry } from "../elements/ImageElementRenderer";
@@ -661,21 +659,10 @@ function classifyElementFilters(
  * Recursion into groups mirrors the original collectFilteredElements logic.
  * Pure function — no GPU operations.
  */
-/** Pre-filter-deformed bounds in the element's own local space. `flat` is
- *  the undeformed local box whose centre is the origin the GPU transform
- *  buffer rotates and scales about. */
-interface PreFilteredLocalBounds {
-	deformed: BoundingBox;
-	flat: BoundingBox;
-}
-
-/** Cached local bounds. Keyed by element object identity — document
+/** Cached pre-filter-deformed local bounds. Keyed by element object identity — document
  *  mutations produce new element objects, so entries self-invalidate and the
  *  WeakMap never outlives the element. */
-const preFilteredLocalBoundsCache = new WeakMap<
-	AnyArtObject,
-	PreFilteredLocalBounds
->();
+const preFilteredLocalBoundsCache = new WeakMap<AnyArtObject, BoundingBox>();
 
 /**
  * Element bounds for filter planning. Pre-filters (3d-rotate, zigzag, …)
@@ -698,61 +685,60 @@ export function calculatePreFilteredElementBounds(
 
 /**
  * World-space bounds a filter plan is sized from: the pre-filter-deformed
- * local bounds carried through the enclosing containers' transform composed
- * with the element's own, about the flat local centre. That is the single
- * pivoted application the GPU transform buffer performs, so the plan lands
- * where the element is drawn even under a rotated or scaled group.
+ * local bounds carried through the element's placement under its enclosing
+ * containers. That is the single application the GPU transform buffer
+ * performs, so the plan lands where the element is drawn even under a
+ * rotated or scaled group.
  */
 export function planBoundsOf(
 	element: AnyArtObject,
 	elementsMap: ReadonlyMap<string, AnyArtObject>,
 	filterRenderer: Pick<FilterRenderer, "getHandler"> | null,
 	localBoundsCache?: LocalBoundsCache,
-	/** Composed transform of the enclosing containers, or null at top level. */
-	parentTransform: ElementTransform | null = null,
+	/** The chain the enclosing containers place the element under (see
+	 *  childrenMatrixOf), or null at top level. */
+	parentMatrix: ElementTransform | null = null,
 ): WorldBBox {
-	// A repeat bakes its own transform into its instances around the source
-	// union's centre, so there is no local box to pivot the chain on.
+	const placement = placeElement(parentMatrix, element);
+	// A repeat bakes its own transform into its instances, so its extent is
+	// not its local box placed.
 	if (element.type === "repeat") {
-		const baked = calculateElementBounds(
+		return calculatePlacedBounds(
 			element,
+			placement,
 			elementsMap,
 			localBoundsCache,
 		);
-		return parentTransform
-			? brandWorldBBox(applyTransformToBounds(baked, parentTransform))
-			: baked;
 	}
-	const local = calculatePreFilteredLocalBounds(
-		element,
-		elementsMap,
-		filterRenderer,
-		localBoundsCache,
-	);
-	const own = getTransform(element);
 	return transformDeformedLocalBounds(
-		local.deformed,
-		parentTransform ? composeTransforms(parentTransform, own) : own,
-		local.flat,
+		calculatePreFilteredLocalBounds(
+			element,
+			elementsMap,
+			filterRenderer,
+			localBoundsCache,
+		),
+		placement,
 	);
 }
+
+/** Pre-filter-deformed bounds in the element's own local space. */
 
 function calculatePreFilteredLocalBounds(
 	element: AnyArtObject,
 	elementsMap: ReadonlyMap<string, AnyArtObject>,
 	filterRenderer: Pick<FilterRenderer, "getHandler"> | null,
 	localBoundsCache?: LocalBoundsCache,
-): PreFilteredLocalBounds {
+): BoundingBox {
 	const flat = calculateLocalElementBounds(
 		element,
 		elementsMap,
 		localBoundsCache,
 	);
-	if (!filterRenderer) return { deformed: flat, flat };
+	if (!filterRenderer) return flat;
 
 	if (isGroup(element)) {
 		if (!subtreeHasPreFilter(element, elementsMap, filterRenderer)) {
-			return { deformed: flat, flat };
+			return flat;
 		}
 		const cached = preFilteredLocalBoundsCache.get(element);
 		if (cached) return cached;
@@ -774,14 +760,13 @@ function calculatePreFilteredLocalBounds(
 				),
 			);
 		}
-		const result = { deformed, flat };
-		preFilteredLocalBoundsCache.set(element, result);
-		return result;
+		preFilteredLocalBoundsCache.set(element, deformed);
+		return deformed;
 	}
 
 	if (isCompoundPath(element)) {
 		if (!subtreeHasPreFilter(element, elementsMap, filterRenderer)) {
-			return { deformed: flat, flat };
+			return flat;
 		}
 		const cached = preFilteredLocalBoundsCache.get(element);
 		if (cached) return cached;
@@ -803,13 +788,12 @@ function calculatePreFilteredLocalBounds(
 				calculateLocalElementBounds({ ...path, segments }, elementsMap),
 			);
 		}
-		const result = { deformed, flat };
-		preFilteredLocalBoundsCache.set(element, result);
-		return result;
+		preFilteredLocalBoundsCache.set(element, deformed);
+		return deformed;
 	}
 
 	if (element.type !== "path" && element.type !== "image") {
-		return { deformed: flat, flat };
+		return flat;
 	}
 	const cached = preFilteredLocalBoundsCache.get(element);
 	if (cached) return cached;
@@ -817,7 +801,7 @@ function calculatePreFilteredLocalBounds(
 	let deformed: BoundingBox;
 	if (element.type === "path") {
 		const variants = resolvePathGeometryVariants(element, filterRenderer);
-		if (!variants) return { deformed: flat, flat };
+		if (!variants) return flat;
 		// Appearance-level pre sub-filters deform per appearance on top of the
 		// element-level pre-filters, so union every variant's local extent.
 		deformed = flat;
@@ -829,14 +813,13 @@ function calculatePreFilteredLocalBounds(
 		}
 	} else {
 		const geometry = resolveImageGeometry(element, filterRenderer);
-		if (geometry.deformed === geometry.quad) return { deformed: flat, flat };
+		if (geometry.deformed === geometry.quad) return flat;
 		deformed = unionBoxes(flat, segmentControlBounds(geometry.deformed));
 	}
 	// The union with the flat bounds keeps strokes and effects anchored to the
 	// original outline inside the plan bounds.
-	const result = { deformed, flat };
-	preFilteredLocalBoundsCache.set(element, result);
-	return result;
+	preFilteredLocalBoundsCache.set(element, deformed);
+	return deformed;
 }
 
 function unionBoxes(a: BoundingBox, b: BoundingBox): BoundingBox {
@@ -847,14 +830,11 @@ function unionBoxes(a: BoundingBox, b: BoundingBox): BoundingBox {
 	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
 
-/** Apply an element's SRT transform to deformed local bounds, rotating and
- *  scaling about the FLAT local bounds' centre — the same origin the GPU
- *  transform buffer and calculateElementBounds use — so the deformed extent
- *  lands where the renderer actually draws it. */
+/** Apply an element's transform to deformed local bounds, so the deformed
+ *  extent lands where the renderer actually draws it. */
 function transformDeformedLocalBounds(
 	bounds: { minX: number; minY: number; maxX: number; maxY: number },
 	t: ElementTransform,
-	flatLocal: { minX: number; minY: number; maxX: number; maxY: number },
 ): WorldBBox {
 	if (isIdentityTransform(t)) {
 		return brandWorldBBox({
@@ -863,8 +843,6 @@ function transformDeformedLocalBounds(
 			height: bounds.maxY - bounds.minY,
 		});
 	}
-	const originX = (flatLocal.minX + flatLocal.maxX) / 2;
-	const originY = (flatLocal.minY + flatLocal.maxY) / 2;
 	const corners = [
 		[bounds.minX, bounds.minY],
 		[bounds.maxX, bounds.minY],
@@ -876,7 +854,7 @@ function transformDeformedLocalBounds(
 	let maxX = Number.NEGATIVE_INFINITY;
 	let maxY = Number.NEGATIVE_INFINITY;
 	for (const [px, py] of corners) {
-		const p = applyTransformToPoint(px, py, t, originX, originY);
+		const p = applyTransformToPoint(px, py, t);
 		minX = Math.min(minX, p.x);
 		minY = Math.min(minY, p.y);
 		maxX = Math.max(maxX, p.x);
@@ -936,8 +914,9 @@ function collectPlanCandidates(
 	walk: PlanWalk,
 	baseElementIndex = 0,
 	skipCull = false,
-	/** Composed transform of the enclosing groups — see planBoundsOf. */
-	parentTransform: ElementTransform | null = null,
+	/** The chain the enclosing groups place the elements under — see
+	 *  planBoundsOf. */
+	parentMatrix: ElementTransform | null = null,
 	/** Geometry filters the enclosing groups hand down, innermost first. */
 	parentPreFilters?: Filter[],
 ): void {
@@ -967,7 +946,7 @@ function collectPlanCandidates(
 			elementsMap,
 			handlerLookup,
 			transientIds?.has(element.id) ? undefined : localBoundsCache,
-			parentTransform,
+			parentMatrix,
 		);
 
 		const { filterPlan, backdropEntry } = classifyElementFilters(
@@ -1005,9 +984,7 @@ function collectPlanCandidates(
 				walk,
 				elementIndex,
 				skipCull,
-				parentTransform
-					? composeTransforms(parentTransform, getTransform(element))
-					: getTransform(element),
+				placeElement(parentMatrix, element),
 				// `element` already carries the inherited filters after its own.
 				geometryFilters(element, handlerLookup),
 			);
@@ -1098,9 +1075,9 @@ export function buildFilterPlansForElements(
 		getHandlers(): ReadonlyMap<string, FilterHandler>;
 	},
 	localBoundsCache?: LocalBoundsCache,
-	/** Composed transform of the element's enclosing containers, or null at
-	 *  the top level — see planBoundsOf. */
-	parentTransformOf?: (elementId: string) => ElementTransform | null,
+	/** The chain the element's enclosing containers place it under, or null
+	 *  at the top level — see planBoundsOf. */
+	parentMatrixOf?: (elementId: string) => ElementTransform | null,
 ): Map<string, ElementFilterPlan> {
 	const filterHandlers = filterRenderer.getHandlers();
 	const plans = new Map<string, ElementFilterPlan>();
@@ -1111,7 +1088,7 @@ export function buildFilterPlansForElements(
 			elementsMap,
 			filterRenderer,
 			localBoundsCache,
-			parentTransformOf?.(element.id) ?? null,
+			parentMatrixOf?.(element.id) ?? null,
 		);
 		const { filterPlan } = classifyElementFilters(
 			element,

@@ -4,10 +4,22 @@ import { objectToStoredFields } from "../collaboration/YjsProvider";
 import { createIdentityTransform } from "../document/factory";
 import { LATEST_SCHEMA_VERSION } from "../io/migrations";
 import { migSplitStrokeErasure } from "../io/migrations/20260925_mig_split_stroke_erasure";
-import type { AnyArtObject, Artboard, Document, Path } from "../schema";
+import { migTransformOrigin } from "../io/migrations/20260929_mig_transform_origin";
+import {
+	type AnyArtObject,
+	type Artboard,
+	type Document,
+	getTransform,
+	type Path,
+} from "../schema";
+import { legacyPlace } from "../testUtils/legacyPlacement";
+import {
+	applyTransformToPoint,
+	composeTransforms,
+} from "../utils/geometry/geometry";
 import { TimelapsePlayer } from "./TimelapsePlayer";
 import { buildTimelapseIndex } from "./timelapseIndex";
-import type { TimelapseData, TimelapseEntry } from "./types";
+import type { TimelapseData, TimelapseEntry, TimelapseFrame } from "./types";
 
 describe("TimelapsePlayer", () => {
 	const artboard: Artboard = {
@@ -25,8 +37,8 @@ describe("TimelapsePlayer", () => {
 				setLayer(doc, "layer-1", []);
 				setArtboard(doc, artboard);
 			},
-			(doc) => addPath(doc, "layer-1", squarePath("a", 0, 0)),
-			(doc) => addPath(doc, "layer-1", squarePath("b", 100, 100)),
+			(doc) => addElement(doc, "layer-1", squarePath("a", 0, 0)),
+			(doc) => addElement(doc, "layer-1", squarePath("b", 100, 100)),
 		]);
 
 		const { player } = createPlayer(data, artboard);
@@ -40,7 +52,7 @@ describe("TimelapsePlayer", () => {
 				setLayer(doc, "layer-1", []);
 				setArtboard(doc, artboard);
 			},
-			(doc) => addPath(doc, "layer-1", squarePath("a", 0, 0)),
+			(doc) => addElement(doc, "layer-1", squarePath("a", 0, 0)),
 		]);
 
 		const { player, onFrame } = createPlayer(data, artboard);
@@ -57,9 +69,9 @@ describe("TimelapsePlayer", () => {
 				setLayer(doc, "layer-1", []);
 				setArtboard(doc, artboard);
 			},
-			(doc) => addPath(doc, "layer-1", squarePath("a", 0, 0)),
-			(doc) => addPath(doc, "layer-1", squarePath("b", 200, 200)),
-			(doc) => addPath(doc, "layer-1", squarePath("c", -200, -200)),
+			(doc) => addElement(doc, "layer-1", squarePath("a", 0, 0)),
+			(doc) => addElement(doc, "layer-1", squarePath("b", 200, 200)),
+			(doc) => addElement(doc, "layer-1", squarePath("c", -200, -200)),
 		]);
 
 		const { player, onFrame } = createPlayer(data, artboard);
@@ -80,8 +92,8 @@ describe("TimelapsePlayer", () => {
 				setLayer(doc, "layer-1", []);
 				setArtboard(doc, artboard);
 			},
-			(doc) => addPath(doc, "layer-1", squarePath("inside", 0, 0)),
-			(doc) => addPath(doc, "layer-1", squarePath("far", 90_000, 90_000)),
+			(doc) => addElement(doc, "layer-1", squarePath("inside", 0, 0)),
+			(doc) => addElement(doc, "layer-1", squarePath("far", 90_000, 90_000)),
 		]);
 
 		const { player } = createPlayer(data, artboard);
@@ -95,8 +107,8 @@ describe("TimelapsePlayer", () => {
 				setLayer(doc, "layer-1", []);
 				setArtboard(doc, artboard);
 			},
-			(doc) => addPath(doc, "layer-1", squarePath("far", 90_000, 90_000)),
-			(doc) => addPath(doc, "layer-1", squarePath("inside", 0, 0)),
+			(doc) => addElement(doc, "layer-1", squarePath("far", 90_000, 90_000)),
+			(doc) => addElement(doc, "layer-1", squarePath("inside", 0, 0)),
 		]);
 
 		const { player, onFrame } = createPlayer(data, artboard);
@@ -113,7 +125,7 @@ describe("TimelapsePlayer", () => {
 			(doc) => {
 				setLayer(doc, "layer-1", []);
 				setArtboard(doc, artboard);
-				addPath(doc, "layer-1", original);
+				addElement(doc, "layer-1", original);
 				undoManager = new Y.UndoManager(doc.getMap("objects"), {
 					captureTimeout: 0,
 				});
@@ -139,16 +151,97 @@ describe("TimelapsePlayer", () => {
 				setLayer(doc, "layer-1", []);
 				setArtboard(doc, artboard);
 			},
-			(doc) => addPath(doc, "layer-1", squarePath("a", 0, 0)),
+			(doc) => addElement(doc, "layer-1", squarePath("a", 0, 0)),
 			(doc) =>
 				doc.getMap<Y.Map<unknown>>("objects").get("a")?.delete("segments"),
-			(doc) => addPath(doc, "layer-1", squarePath("b", 100, 100)),
+			(doc) => addElement(doc, "layer-1", squarePath("b", 100, 100)),
 		]);
 
 		const { player, onFrame } = createPlayer(data, artboard);
 		player.seekTo(player.totalEvents - 1);
 
 		expect(Object.keys(lastFrame(onFrame).objects)).toEqual(["b"]);
+	});
+
+	describe("when playing on the export clock", () => {
+		it("should report every element as possibly changed on a restart", () => {
+			const { data } = buildRecording([
+				(doc) => {
+					setLayer(doc, "layer-1", []);
+					setArtboard(doc, artboard);
+				},
+				(doc) => addElement(doc, "layer-1", squarePath("a", 0, 0)),
+			]);
+
+			const { player } = createPlayer(data, artboard);
+
+			expect(player.restart().changedElements).toBeUndefined();
+		});
+
+		it("should report only the newly drawn path as changed", () => {
+			const { data } = buildRecording([
+				(doc) => {
+					setLayer(doc, "layer-1", []);
+					setArtboard(doc, artboard);
+				},
+				(doc) => addElement(doc, "layer-1", squarePath("a", 0, 0)),
+				(doc) => addElement(doc, "layer-1", squarePath("b", 100, 100)),
+			]);
+
+			const { player } = createPlayer(data, artboard);
+			player.restart();
+			const frames = playToEnd(player);
+
+			const firstWithB = frames.find((frame) => frame.document.objects.b);
+			expect([...(firstWithB?.changedElements?.upserted ?? [])]).toEqual(["b"]);
+		});
+
+		it("should report the drawn-on path on every frame of its animation and the one after", () => {
+			const { data } = buildRecording([
+				(doc) => {
+					setLayer(doc, "layer-1", []);
+					setArtboard(doc, artboard);
+				},
+				(doc) => addElement(doc, "layer-1", squarePath("a", 0, 0)),
+			]);
+
+			const { player } = createPlayer(data, artboard);
+			player.restart();
+			const frames = playToEnd(player).filter(
+				(frame) => frame.document.objects.a,
+			);
+
+			expect(frames.length).toBeGreaterThan(1);
+			for (const frame of frames) {
+				expect(frame.changedElements?.upserted.has("a")).toBe(true);
+			}
+		});
+
+		it("should report a removed path as deleted", () => {
+			const { data } = buildRecording([
+				(doc) => {
+					setLayer(doc, "layer-1", []);
+					setArtboard(doc, artboard);
+				},
+				(doc) => addElement(doc, "layer-1", squarePath("a", 0, 0)),
+				(doc) => {
+					doc.getMap("objects").delete("a");
+					const yElementIds = doc
+						.getArray<Y.Map<unknown>>("layers")
+						.get(0)
+						?.get("elementIds") as Y.Array<string>;
+					yElementIds.delete(0, 1);
+				},
+			]);
+
+			const { player } = createPlayer(data, artboard);
+			player.restart();
+			const lastFrame = playToEnd(player).at(-1);
+
+			expect(lastFrame?.document.objects.a).toBeUndefined();
+			expect(lastFrame?.changedElements?.deleted.has("a")).toBe(true);
+			expect(lastFrame?.changedElements?.upserted.has("a")).toBe(false);
+		});
 	});
 
 	describe("when the recording was made by an older build", () => {
@@ -162,7 +255,7 @@ describe("TimelapsePlayer", () => {
 					setArtboard(doc, artboard);
 				},
 				(doc) =>
-					addPath(doc, "layer-1", {
+					addElement(doc, "layer-1", {
 						...squarePath("a", 0, 0),
 						strokeWidths: eraserCut,
 					}),
@@ -205,11 +298,94 @@ describe("TimelapsePlayer", () => {
 			expect(path.strokeWidths).toEqual(eraserCut);
 			expect(path.strokeErasure).toBeUndefined();
 		});
+
+		it("should draw a new path where the migrated frame puts it under a turned group", () => {
+			// The path arrives after its group, so its draw-on starts from the
+			// frame that migrated it together with the group.
+			const turned = { ...createIdentityTransform(), rotation: 0.5 };
+			const { data } = buildRecording([
+				(doc) => {
+					setLayer(doc, "layer-1", []);
+					setArtboard(doc, artboard);
+				},
+				(doc) =>
+					addElement(doc, "layer-1", {
+						type: "group",
+						id: "g",
+						childIds: ["a"],
+						opacity: 1,
+						blendMode: "normal",
+						transform: turned,
+					}),
+				(doc) => setObject(doc, squarePath("a", 100, 0)),
+			]);
+			const { player, onFrame } = createPlayer(
+				{
+					...data,
+					schemaVersions: [{ at: 0, version: migTransformOrigin.version - 1 }],
+				},
+				artboard,
+			);
+			for (let i = 0; i < player.totalEvents; i++) player.seekTo(i);
+
+			const { objects } = lastFrame(onFrame);
+			const placed = composeTransforms(turned, getTransform(objects.a));
+			const before = legacyPlace({ x: 100, y: 0 }, turned, { x: 105, y: 5 });
+			const after = applyTransformToPoint(100, 0, placed);
+			expect(after.x).toBeCloseTo(before.x);
+			expect(after.y).toBeCloseTo(before.y);
+		});
+
+		it("should migrate a group with its children in view when stepping onto it", () => {
+			// The transform origin migration places a turned group's children
+			// where the group drew them, which it can only do with both in hand.
+			const turned = { ...createIdentityTransform(), rotation: 0.5 };
+			const child = squarePath("a", 100, 0);
+			const { data } = buildRecording([
+				(doc) => {
+					setLayer(doc, "layer-1", []);
+					setArtboard(doc, artboard);
+				},
+				(doc) => setObject(doc, child),
+				(doc) =>
+					addElement(doc, "layer-1", {
+						type: "group",
+						id: "g",
+						childIds: ["a"],
+						opacity: 1,
+						blendMode: "normal",
+						transform: turned,
+					}),
+			]);
+			const { player, onFrame } = createPlayer(
+				{
+					...data,
+					schemaVersions: [{ at: 0, version: migTransformOrigin.version - 1 }],
+				},
+				artboard,
+			);
+			for (let i = 0; i < player.totalEvents; i++) player.seekTo(i);
+
+			const { objects } = lastFrame(onFrame);
+			expect(getTransform(objects.g)).toEqual(turned);
+			// Before this version the group turned the child around the child's
+			// own centre.
+			const placed = composeTransforms(turned, getTransform(objects.a));
+			for (const corner of [
+				{ x: 100, y: 0 },
+				{ x: 110, y: 10 },
+			]) {
+				const before = legacyPlace(corner, turned, { x: 105, y: 5 });
+				const after = applyTransformToPoint(corner.x, corner.y, placed);
+				expect(after.x).toBeCloseTo(before.x);
+				expect(after.y).toBeCloseTo(before.y);
+			}
+		});
 	});
 });
 
 function createPlayer(data: TimelapseData, filterArtboard: Artboard) {
-	const onFrame = vi.fn<(document: Document) => void>();
+	const onFrame = vi.fn<(frame: TimelapseFrame) => void>();
 	const player = new TimelapsePlayer(
 		data,
 		{
@@ -225,7 +401,17 @@ function createPlayer(data: TimelapseData, filterArtboard: Artboard) {
 function lastFrame(onFrame: { mock: { calls: unknown[][] } }): Document {
 	const call = onFrame.mock.calls.at(-1);
 	if (!call) throw new Error("onFrame was never called");
-	return call[0] as Document;
+	return (call[0] as TimelapseFrame).document;
+}
+
+/** Advance on the 30fps export clock until playback ends, collecting every frame. */
+function playToEnd(player: TimelapsePlayer): TimelapseFrame[] {
+	const frames: TimelapseFrame[] = [];
+	while (!player.hasFinished) {
+		const frame = player.advanceBy(1000 / 30);
+		if (frame) frames.push(frame);
+	}
+	return frames;
 }
 
 /** Run each mutation in its own transaction and capture the resulting update. */
@@ -284,12 +470,8 @@ function setArtboard(doc: Y.Doc, artboard: Artboard): void {
 	doc.getArray<Artboard>("artboards").push([artboard]);
 }
 
-function addPath(doc: Y.Doc, layerId: string, element: AnyArtObject): void {
-	const yMap = new Y.Map<unknown>();
-	for (const [key, value] of Object.entries(objectToStoredFields(element))) {
-		yMap.set(key, value);
-	}
-	doc.getMap<Y.Map<unknown>>("objects").set(element.id, yMap);
+function addElement(doc: Y.Doc, layerId: string, element: AnyArtObject): void {
+	setObject(doc, element);
 
 	const yLayers = doc.getArray<Y.Map<unknown>>("layers");
 	for (let i = 0; i < yLayers.length; i++) {
@@ -297,6 +479,15 @@ function addPath(doc: Y.Doc, layerId: string, element: AnyArtObject): void {
 		if (yLayer?.get("id") !== layerId) continue;
 		(yLayer.get("elementIds") as Y.Array<string>).push([element.id]);
 	}
+}
+
+/** Store an element without listing it in any layer. */
+function setObject(doc: Y.Doc, element: AnyArtObject): void {
+	const yMap = new Y.Map<unknown>();
+	for (const [key, value] of Object.entries(objectToStoredFields(element))) {
+		yMap.set(key, value);
+	}
+	doc.getMap<Y.Map<unknown>>("objects").set(element.id, yMap);
 }
 
 /** A 10x10 axis-aligned square whose top-left sits at (x, y). */

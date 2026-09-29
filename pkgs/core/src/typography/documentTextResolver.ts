@@ -19,11 +19,10 @@ import {
 	isPath,
 	type TextElement,
 } from "../schema";
-import { calculateLocalElementBounds } from "../utils/geometry/bounds";
+
 import {
-	composeAncestorTransform,
+	composeAncestorMatrix,
 	composeTransforms,
-	computeTransformOrigin,
 } from "../utils/geometry/geometry";
 import { toWorldPath } from "../utils/geometry/segmentOps";
 import type { TextDocumentResolver } from "./TextRenderer";
@@ -42,10 +41,11 @@ export function buildDocumentTextResolver(
 		}
 	}
 
+	/** The chain the element's ancestors place it under, or null at top level. */
 	function ancestorTransform(id: string): ElementTransform | null {
-		const parent = elementsMap.get(parentOf.get(id) ?? "");
-		return parent
-			? composeAncestorTransform(parent, elementsMap, parentOf)
+		const element = elementsMap.get(id);
+		return element
+			? composeAncestorMatrix(element, elementsMap, parentOf)
 			: null;
 	}
 
@@ -78,12 +78,7 @@ export function buildDocumentTextResolver(
 			const t = ancestorT
 				? composeTransforms(ancestorT, element.transform)
 				: element.transform;
-			if (isIdentityTransform(t)) {
-				return { t, origin: { x: 0, y: 0 }, isIdentity: true };
-			}
-			const localBounds = calculateLocalElementBounds(element);
-			const origin = computeTransformOrigin(localBounds);
-			return { t, origin, isIdentity: false };
+			return { t, isIdentity: isIdentityTransform(t) };
 		},
 	};
 }

@@ -17,12 +17,12 @@ import type { CanvasTarget } from "../CanvasTarget";
 
 /**
  * A child square at local 0..40 shifted by x:100 under a group rotated 90°
- * is drawn at x 0..40, y 100..140: the GPU rotates about the child's own
- * centre and adds the rotated offset. Every CPU-side box that sizes or culls
- * that child has to land there too, so the view is zoomed onto the drawn
- * square with the un-rotated position (x 100..140, y 0..40) out of view.
+ * is drawn at x -40..0, y 100..140: the group turns its space around its
+ * local origin. Every CPU-side box that sizes or culls that child has to
+ * land there too, so the view is zoomed onto the drawn square with the
+ * un-rotated position (x 100..140, y 0..40) out of view.
  */
-const VIEWPORT: Viewport = { x: 20, y: 120, zoom: 4, rotation: 0 };
+const VIEWPORT: Viewport = { x: -20, y: 120, zoom: 4, rotation: 0 };
 const RED = { r: 1, g: 0, b: 0, a: 1 };
 const WHITE = { r: 1, g: 1, b: 1, a: 1 };
 
@@ -69,8 +69,8 @@ describe("group child bounds", () => {
 	});
 
 	it("should draw the copies of a repeat inside a moved group where the group places them", async () => {
-		// The source is centred at (-280, -280); the group moves it to (20, 20),
-		// so the ring of radius 100 puts a copy on the view centre (20, 120).
+		// The source is centred at (-280, -280); the group moves it to (-20, 20),
+		// so the ring of radius 100 puts a copy on the view centre (-20, 120).
 		const source = filledSquare("source-1", -300, -260);
 		const repeat = {
 			...createRepeatObject([source.id], { mode: "radial" }),
@@ -82,7 +82,7 @@ describe("group child bounds", () => {
 				rotateInstances: false,
 			},
 		};
-		const group = mockGroup("group-1", [repeat.id], { x: 300, y: 300 });
+		const group = mockGroup("group-1", [repeat.id], { x: 260, y: 300 });
 		const document = mockDocument(
 			[source, repeat, group],
 			[mockLayer("layer-1", [group.id])],
@@ -97,7 +97,7 @@ describe("group child bounds", () => {
  * A clip group shifted by x:100 under a group rotated 90°. The clipped
  * content spills 20 units past the clip square on every side, so a correctly
  * placed clip shows red at the centre and the background 10 units right of
- * the clip square, at world (50, 120).
+ * the clip square, at world (10, 120).
  */
 function clippedDocument(contentIds: string[]): Document {
 	const contents = contentIds.map((id) => filledSquare(id, -20, 60));

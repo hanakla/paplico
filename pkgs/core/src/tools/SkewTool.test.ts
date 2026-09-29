@@ -10,6 +10,7 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
+import { rectPath } from "../testUtils/svgFixtures";
 import type { WorldBBox } from "../utils/geometry/bounds";
 import { SkewTool } from "./SkewTool";
 
@@ -360,23 +361,19 @@ function makeContext(
 ): MockToolContext {
 	return createMockToolContext({
 		getSelectedElementIds: vi.fn(() => [ELEMENT_ID]),
-		getElement: vi.fn(
-			() =>
-				({
-					id: ELEMENT_ID,
-					type: "path",
-					// SkewTool only reads element.transform; the rest is fixture padding.
-					transform: {
-						x: 0,
-						y: 0,
-						rotation: 0,
-						scaleX: 1,
-						scaleY: 1,
-						skewX: 0,
-						skewY: 0,
-					},
-				}) as unknown as AnyArtObject,
-		),
+		// SkewTool reads the element's transform and the centre of its bounds.
+		getElement: vi.fn(() => ({
+			...rectPath(ELEMENT_ID, { x: 0, y: 0 }, 100, 100, []),
+			transform: {
+				x: 0,
+				y: 0,
+				rotation: 0,
+				scaleX: 1,
+				scaleY: 1,
+				skewX: 0,
+				skewY: 0,
+			},
+		})),
 		getBounds: vi.fn(() => BOUNDS),
 		getCurrentLayerId: vi.fn(() => "layer-1"),
 		...overrides,

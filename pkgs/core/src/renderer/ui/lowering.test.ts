@@ -429,6 +429,47 @@ describe("lowering", () => {
 		});
 	});
 
+	describe("polyline dash lowering", () => {
+		const square = [
+			{ x: 0, y: 10 },
+			{ x: 10, y: 10 },
+			{ x: 10, y: 0 },
+			{ x: 0, y: 0 },
+		];
+		const dashed = (closed: boolean): UIPrimitive => ({
+			kind: "polyline",
+			points: square,
+			closed,
+			stroke: {
+				color: RED,
+				width: { world: 1 },
+				dash: { length: 3, gap: 2 },
+			},
+		});
+
+		it("should dash every edge of a closed polyline, the closing edge included", () => {
+			// Dash 3 + gap 2 (period 5) at zoom 1 → 2 dashes per 10-unit edge.
+			const out = lower([dashed(true)]);
+			expect(out.length).toBe(8 * BEZIER_INSTANCE_FLOATS);
+			// First edge (top, left→right at y=10): dashes [0,3] and [5,8].
+			expect([out[0], out[1], out[6], out[7]]).toEqual([0, 10, 3, 10]);
+			const o2 = BEZIER_INSTANCE_FLOATS;
+			expect([out[o2], out[o2 + 1], out[o2 + 6], out[o2 + 7]]).toEqual([
+				5, 10, 8, 10,
+			]);
+			// Closing edge (left, bottom→top at x=0) starts at (0, 0).
+			const o7 = 6 * BEZIER_INSTANCE_FLOATS;
+			expect([out[o7], out[o7 + 1], out[o7 + 6], out[o7 + 7]]).toEqual([
+				0, 0, 0, 3,
+			]);
+		});
+
+		it("should leave the closing edge out of an open polyline", () => {
+			const out = lower([dashed(false)]);
+			expect(out.length).toBe(6 * BEZIER_INSTANCE_FLOATS);
+		});
+	});
+
 	describe("polyline joint lowering", () => {
 		const MITER = 14;
 		const F = BEZIER_INSTANCE_FLOATS;

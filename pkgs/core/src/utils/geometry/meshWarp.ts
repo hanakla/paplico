@@ -40,7 +40,11 @@ import { deepClone, neverReached } from "../lang";
 import { GeometryEpsilon } from "./bezierBool";
 import { resolveBlendSourcePath } from "./blendInterpolation";
 import { brandLocalBBox, calculateSegmentListBounds } from "./bounds";
-import { applyTransformToPoint, composeTransforms } from "./geometry";
+import {
+	applyTransformToPoint,
+	composeTransforms,
+	placeElement,
+} from "./geometry";
 import {
 	bilinearUV,
 	type CubicCurve,
@@ -552,7 +556,7 @@ export function isMeshWarpPassthrough(
 
 /** Dependencies for warping a mesh container's children into transients. */
 export interface WarpChildrenDeps {
-	resolve: (id: string) => AnyArtObject | null;
+	elementsMap: ReadonlyMap<string, AnyArtObject>;
 	/**
 	 * Warp-ready glyph outline paths for a text child (element-local space,
 	 * per-glyph paint filters applied, element x/y NOT applied), or null while
@@ -632,13 +636,15 @@ export function warpMeshChildren(
 	const warpSegments = (segments: CubicBezierSegment[]): CubicBezierSegment[] =>
 		deformPathSegments(refineSegmentsForWarp(segments, warp, gridLines), warp);
 
+	const { elementsMap } = deps;
+
 	const warpPath = (
 		path: Path,
-		parentT: ElementTransform | undefined,
+		ancestorT: ElementTransform | undefined,
 		id: string,
 		opacityScale: number,
 	): Path | null => {
-		const baked = parentT ? toWorldPath(path, parentT) : toWorldPath(path);
+		const baked = toWorldPath(path, ancestorT);
 		const oldBounds = calculateSegmentListBounds(baked.segments);
 		if (!oldBounds) return null;
 		const segments = warpSegments(baked.segments);
@@ -662,21 +668,23 @@ export function warpMeshChildren(
 
 	const emitPath = (
 		path: Path,
-		parentT: ElementTransform | undefined,
+		ancestorT: ElementTransform | undefined,
 		id: string,
 		opacityScale: number,
 	): void => {
-		const warped = warpPath(path, parentT, id, opacityScale);
+		const warped = warpPath(path, ancestorT, id, opacityScale);
 		if (warped) out.push(warped);
 	};
 
+	/** `parentMatrix` is the chain the groups between the mesh and the child
+	 *  place it under (see childrenMatrixOf), in the mesh's local space. */
 	const visit = (
 		childId: string,
-		parentT: ElementTransform | undefined,
+		parentMatrix: ElementTransform | undefined,
 		opacityScale: number,
 	): void => {
 		if (visited.has(childId)) return;
-		const el = deps.resolve(childId);
+		const el = elementsMap.get(childId);
 		if (!el || el.visible === false) return;
 		visited.add(childId);
 		if (isMeshWarpPassthrough(el)) {
@@ -687,20 +695,19 @@ export function warpMeshChildren(
 
 		switch (el.type) {
 			case "path":
-				emitPath(el, parentT, tid, opacityScale);
+				emitPath(el, parentMatrix, tid, opacityScale);
 				break;
 			case "compound-path": {
-				const resolved = resolveBlendSourcePath(
-					el,
-					(cid) => deps.resolve(cid) ?? undefined,
+				const resolved = resolveBlendSourcePath(el, (cid) =>
+					elementsMap.get(cid),
 				);
-				if (resolved) emitPath(resolved, parentT, tid, opacityScale);
+				if (resolved) {
+					emitPath(resolved, parentMatrix, tid, opacityScale);
+				}
 				break;
 			}
 			case "group": {
-				const childT = parentT
-					? composeTransforms(parentT, getTransform(el))
-					: getTransform(el);
+				const childrenMatrix = placeElement(parentMatrix ?? null, el);
 				const childOpacity = opacityScale * el.opacity;
 				// Group-level blendMode / filters are not applied to the flattened
 				// children. Clipping is: the clip path warps with
@@ -709,14 +716,14 @@ export function warpMeshChildren(
 				const firstMember = out.length;
 				for (const cid of el.childIds) {
 					if (cid === el.clipPathId) continue;
-					visit(cid, childT, childOpacity);
+					visit(cid, childrenMatrix, childOpacity);
 				}
 				if (el.clipPathId != null) {
-					const clipSource = deps.resolve(el.clipPathId);
+					const clipSource = elementsMap.get(el.clipPathId);
 					const memberIds = out.slice(firstMember).map((t) => t.id);
 					if (clipSource?.type === "path" && memberIds.length > 0) {
 						const clipId = `${mesh.id}::warp::${el.clipPathId}`;
-						const clipPath = warpPath(clipSource, childT, clipId, 1);
+						const clipPath = warpPath(clipSource, childrenMatrix, clipId, 1);
 						if (clipPath) {
 							clipGroups.push({ id: clipId, clipPath, memberIds });
 						}
@@ -725,19 +732,19 @@ export function warpMeshChildren(
 				break;
 			}
 			case "mesh": {
-				const childT = parentT
-					? composeTransforms(parentT, getTransform(el))
-					: getTransform(el);
+				// The inner transients sit in the inner mesh's local space, which
+				// its own transform places around the inner mesh's origin.
+				const childrenMatrix = placeElement(parentMatrix ?? null, el);
 				const childOpacity = opacityScale * el.opacity;
 				const innerResolution = warpMeshChildren(el, deps);
 				for (const inner of innerResolution.transients) {
 					const innerId = `${mesh.id}::warp::${inner.id}`;
 					if (inner.type === "path") {
-						emitPath(inner, childT, innerId, childOpacity);
+						emitPath(inner, childrenMatrix, innerId, childOpacity);
 					} else if (inner.type === "image") {
 						const { transient, grid, source } = warpImageChild(
 							inner,
-							childT,
+							childrenMatrix,
 							innerId,
 							childOpacity,
 							warp,
@@ -754,7 +761,7 @@ export function warpMeshChildren(
 				// The inner cage's clip groups warp once more through this cage.
 				for (const inner of innerResolution.clipGroups) {
 					const clipId = `${mesh.id}::warp::${inner.id}`;
-					const clipPath = warpPath(inner.clipPath, childT, clipId, 1);
+					const clipPath = warpPath(inner.clipPath, childrenMatrix, clipId, 1);
 					if (!clipPath) continue;
 					clipGroups.push({
 						id: clipId,
@@ -767,7 +774,7 @@ export function warpMeshChildren(
 			case "image": {
 				const { transient, grid, source } = warpImageChild(
 					el,
-					parentT,
+					parentMatrix,
 					tid,
 					opacityScale,
 					warp,
@@ -781,35 +788,17 @@ export function warpMeshChildren(
 			case "text": {
 				const glyphs = deps.getTextGlyphPaths(el);
 				if (!glyphs) break; // async glyph layout pending — caller re-renders
-				const composed = parentT
-					? composeTransforms(parentT, getTransform(el))
+				const composed = parentMatrix
+					? composeTransforms(parentMatrix, getTransform(el))
 					: getTransform(el);
 				const identity = isIdentityTransform(composed);
-				// Transform origin: centre of the glyph-ink bounds offset by the
-				// element position (approximates the renderer's synced text bounds;
-				// exact whenever the text transform is identity).
-				const inkBounds = calculateSegmentListBounds(
-					glyphs.flatMap((g) => g.segments),
-				);
-				const originX = inkBounds
-					? (inkBounds.minX + inkBounds.maxX) / 2 + el.x
-					: el.x;
-				const originY = inkBounds
-					? (inkBounds.minY + inkBounds.maxY) / 2 + el.y
-					: el.y;
 				// Placing is affine, so mapping the control points is exact; the
 				// warp then goes through the same refinement as a path.
 				const place = (p: Point): Point => {
 					const positioned = { x: p.x + el.x, y: p.y + el.y };
 					return identity
 						? positioned
-						: applyTransformToPoint(
-								positioned.x,
-								positioned.y,
-								composed,
-								originX,
-								originY,
-							);
+						: applyTransformToPoint(positioned.x, positioned.y, composed);
 				};
 				for (const [index, glyph] of glyphs.entries()) {
 					out.push({
@@ -1141,15 +1130,15 @@ function findSourceFace(warpFaces: WarpFace[], p: Point): WarpFace {
  */
 function warpImageChild(
 	image: ImageObject,
-	parentT: ElementTransform | undefined,
+	ancestorT: ElementTransform | undefined,
 	id: string,
 	opacityScale: number,
 	warp: (p: Point) => Point,
 	gridLines: SourceGridLines,
 	innerSource?: ImageWarpSource,
 ): { transient: ImageObject; grid: Float32Array; source: ImageWarpSource } {
-	const composed = parentT
-		? composeTransforms(parentT, getTransform(image))
+	const composed = ancestorT
+		? composeTransforms(ancestorT, getTransform(image))
 		: getTransform(image);
 	const halfW = image.width / 2;
 	const halfH = image.height / 2;
@@ -1160,24 +1149,9 @@ function warpImageChild(
 		[image.x + halfW, image.y - halfH],
 		[image.x - halfW, image.y - halfH],
 	];
-	// Transform origin = local bounds centre (matches calculateImageBounds).
-	let minX = Infinity;
-	let minY = Infinity;
-	let maxX = -Infinity;
-	let maxY = -Infinity;
-	for (const [x, y] of baseCorners) {
-		minX = Math.min(minX, x);
-		minY = Math.min(minY, y);
-		maxX = Math.max(maxX, x);
-		maxY = Math.max(maxY, y);
-	}
-	const originX = (minX + maxX) / 2;
-	const originY = (minY + maxY) / 2;
 	const identity = isIdentityTransform(composed);
 	const toSource = (x: number, y: number): Point =>
-		identity
-			? { x, y }
-			: applyTransformToPoint(x, y, composed, originX, originY);
+		identity ? { x, y } : applyTransformToPoint(x, y, composed);
 	const corners = baseCorners.map(([x, y]) => {
 		const w = warp(toSource(x, y));
 		return [w.x, w.y] as Vec2;

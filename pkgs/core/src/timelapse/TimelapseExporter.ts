@@ -1,6 +1,12 @@
+import {
+	accumulateChanges,
+	type ChangedElementsAccumulator,
+	emptyChanges,
+} from "../renderer/changedElements";
 import { type Artboard, type Document, getArtboardBounds } from "../schema";
 import type { TimelapsePlayer } from "./TimelapsePlayer";
 import type { TimelapsePreviewSurface } from "./TimelapsePreviewSurface";
+import type { TimelapseFrame } from "./types";
 
 const INTRO_COMPLETE_MS = 400;
 const INTRO_FADEOUT_MS = 300;
@@ -132,7 +138,10 @@ export class TimelapseExporter {
 
 		// --- Intro: render the completed work ---
 		const completedImage = await this.renderFrame(
-			this.player.captureCompletedFrame(),
+			{
+				document: this.player.captureCompletedFrame(),
+				changedElements: undefined,
+			},
 			artboard,
 			scale,
 		);
@@ -160,30 +169,48 @@ export class TimelapseExporter {
 		// The player only moves forward here, so it never rewinds its replay
 		// document. A step that changes nothing reuses the previous pixels
 		// rather than re-rendering them. Ticks that are thinned out still
-		// advance the player, and only the latest frame among them is drawn.
+		// advance the player, and only the latest frame among them is drawn,
+		// carrying the changes of every skipped one.
 		let framePixels = this.padToEncoder(
 			await this.renderFrame(this.player.restart(), artboard, scale),
 			encWidth,
 			encHeight,
 		);
-		let pendingFrame: Document | null = null;
+		let pendingDocument: Document | null = null;
+		let pendingChanges: ChangedElementsAccumulator | null = emptyChanges();
 
 		for (let tick = 0; !this.player.hasFinished; tick++) {
 			if (encoderError) throw encoderError;
 
-			pendingFrame = this.player.advanceBy(frameDurationMs) ?? pendingFrame;
+			const frame = this.player.advanceBy(frameDurationMs);
+			if (frame) {
+				pendingDocument = frame.document;
+				if (frame.changedElements && pendingChanges) {
+					accumulateChanges(pendingChanges, frame.changedElements);
+				} else {
+					pendingChanges = null;
+				}
+			}
 			const encodesTick =
 				Math.floor(((tick + 1) * encodedTickCount) / tickCount) >
 				Math.floor((tick * encodedTickCount) / tickCount);
 			if (!encodesTick) continue;
 
-			if (pendingFrame) {
+			if (pendingDocument) {
 				framePixels = this.padToEncoder(
-					await this.renderFrame(pendingFrame, artboard, scale),
+					await this.renderFrame(
+						{
+							document: pendingDocument,
+							changedElements: pendingChanges ?? undefined,
+						},
+						artboard,
+						scale,
+					),
 					encWidth,
 					encHeight,
 				);
-				pendingFrame = null;
+				pendingDocument = null;
+				pendingChanges = emptyChanges();
 			}
 			encodeFrame(framePixels, frameIndex % (fps * 2) === 0);
 
@@ -241,12 +268,12 @@ export class TimelapseExporter {
 	}
 
 	private async renderFrame(
-		document: Document,
+		frame: TimelapseFrame,
 		artboard: Artboard,
 		scale: number,
 	): Promise<ImageData> {
 		const imageData = await this.surface.renderToImageData(
-			document,
+			frame,
 			artboard,
 			scale,
 		);

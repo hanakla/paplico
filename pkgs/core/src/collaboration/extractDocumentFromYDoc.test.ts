@@ -50,6 +50,21 @@ function initializeRoomLikeServer(ydoc: Y.Doc): string {
 }
 
 describe("extractDocumentFromYDoc", () => {
+	describe("schemaVersion", () => {
+		it("should read the version a room carries", () => {
+			const ydoc = new Y.Doc();
+			ydoc.getMap("meta").set("schemaVersion", 20260101);
+
+			expect(extractDocumentFromYDoc(ydoc).schemaVersion).toBe(20260101);
+		});
+
+		it("should leave the version out of a room that carries none", () => {
+			const ydoc = new Y.Doc();
+
+			expect(extractDocumentFromYDoc(ydoc)).not.toHaveProperty("schemaVersion");
+		});
+	});
+
 	describe("server initialization compatibility", () => {
 		it("server.js パターンで初期化したレイヤーを正しくパースできる", () => {
 			const ydoc = new Y.Doc();

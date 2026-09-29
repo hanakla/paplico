@@ -760,15 +760,19 @@ describe("computeBlendIntermediates", () => {
 });
 
 describe("blendKeyOutlines", () => {
-	it("rotates key outlines around the blend's bbox center, not each source's own center", () => {
-		// Two squares 300 apart → blend bbox center at x=150 (≠ either source's own
-		// center). Matches renderBlend, which rotates world-baked sources around the
-		// blend's center.
+	it("places key outlines through the blend's transform", () => {
+		// Two squares 300 apart, turned half a circle about the local origin and
+		// moved so that x=150 stays put. Matches renderBlend, which places the
+		// world-baked sources through the blend's transform.
 		const s0 = makeRect("s0", 0, 0, 50); // center (0,0), corners ±25
 		const s1 = makeRect("s1", 300, 0, 50); // center (300,0)
 		const objects: Record<string, Path> = { s0, s1 };
 		const blend = makeBlend(["s0", "s1"]);
-		blend.transform = { ...createIdentityTransform(), rotation: Math.PI };
+		blend.transform = {
+			...createIdentityTransform(),
+			x: 300,
+			rotation: Math.PI,
+		};
 
 		const outlines = blendKeyOutlines(
 			blend,
@@ -778,14 +782,12 @@ describe("blendKeyOutlines", () => {
 
 		expect(outlines).toHaveLength(2);
 
-		// s0's first segment start is local (-25,-25). Rotating 180° around the blend
-		// center (150,0): (x,y) → (2*150 - x, -y) = (325, 25).
+		// s0's first segment start is local (-25,-25). Turning 180° around
+		// (150,0): (x,y) → (2*150 - x, -y) = (325, 25).
 		const start = outlines[0][0].start;
 		if (!start) throw new Error("expected a start point on s0's outline");
 		expect(start.x).toBeCloseTo(325, 4);
 		expect(start.y).toBeCloseTo(25, 4);
-		// Rotating around s0's OWN center (0,0) would give (25,25) — the bug.
-		expect(start.x).not.toBeCloseTo(25, 1);
 	});
 
 	it("returns world-baked outlines unchanged when the blend has no transform", () => {

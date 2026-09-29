@@ -13,7 +13,6 @@ import {
 import { calculateLocalElementBounds } from "../utils/geometry/bounds";
 import {
 	applyTransformToPoint,
-	computeTransformOrigin,
 	cursorLocalToWorld,
 } from "../utils/geometry/geometry";
 import {
@@ -979,7 +978,6 @@ describe("cursorLocalToWorld with rotation", () => {
 		const element = createTextElement();
 		// Simulate rotation with non-zero transform.x/y (as rotateElements produces)
 		const t = makeRotatedTransform(30, 15, 130);
-		const origin = computeTransformOrigin(calculateLocalElementBounds(element));
 
 		for (const charIndex of [0, 3, 6]) {
 			const char = layout.chars.find((c) => c.charIndex === charIndex)!;
@@ -991,15 +989,12 @@ describe("cursorLocalToWorld with rotation", () => {
 				element.x,
 				element.y,
 				t,
-				origin,
 				"horizontal-tb",
 			);
 			const glyphWorld = applyTransformToPoint(
 				char.x + element.x,
 				char.y + element.y,
 				t,
-				origin.x,
-				origin.y,
 			);
 
 			// Cursor and glyph should be within one line height of each other
@@ -1019,7 +1014,6 @@ describe("cursorLocalToWorld with rotation", () => {
 		const renderer = createRenderer(layout);
 		const element = createTextElement();
 		const t = makeRotatedTransform(25, 10, 100);
-		const origin = computeTransformOrigin(calculateLocalElementBounds(element));
 
 		// Get world positions for char 0 (line 0) and char 3 (line 1)
 		const cursor0 = await renderer.getCursorPosition(element, 0);
@@ -1030,7 +1024,6 @@ describe("cursorLocalToWorld with rotation", () => {
 			element.x,
 			element.y,
 			t,
-			origin,
 			"horizontal-tb",
 		);
 		const world3 = cursorLocalToWorld(
@@ -1038,7 +1031,6 @@ describe("cursorLocalToWorld with rotation", () => {
 			element.x,
 			element.y,
 			t,
-			origin,
 			"horizontal-tb",
 		);
 
@@ -1048,8 +1040,8 @@ describe("cursorLocalToWorld with rotation", () => {
 		const cos = Math.cos(t.rotation);
 		const sin = Math.sin(t.rotation);
 		// Project onto the rotated Y axis (perpendicular to text flow)
-		const proj0 = -(world0.x - origin.x) * sin + (world0.y - origin.y) * cos;
-		const proj3 = -(world3.x - origin.x) * sin + (world3.y - origin.y) * cos;
+		const proj0 = -world0.x * sin + world0.y * cos;
+		const proj3 = -world3.x * sin + world3.y * cos;
 
 		// Line 0 is above line 1 in local space (y=0 vs y=-12).
 		// After rotation, their projections onto the rotated perpendicular
@@ -1071,7 +1063,6 @@ describe("cursorLocalToWorld with rotation", () => {
 			element.x,
 			element.y,
 			createIdentityTransform(),
-			{ x: 0, y: 0 },
 			"horizontal-tb",
 		);
 
@@ -1081,8 +1072,7 @@ describe("cursorLocalToWorld with rotation", () => {
 	});
 
 	// Center-aligned: chars centered around x=0, so glyph x can be negative
-	// relative to element.x. The estimated bounds (calculateLocalElementBounds)
-	// assume left-align, so origin is wrong when using estimated bounds.
+	// relative to element.x.
 	function createCenterAlignedLayout(): LayoutResult {
 		// Line width=20, centered → chars at x=-10, x=0
 		const c0 = createLayoutChar(0, -10, 0, 10);
@@ -1167,11 +1157,11 @@ describe("cursorLocalToWorld with rotation", () => {
 		};
 	}
 
-	// Regression guard: for every alignment, the estimated bounds X-origin
-	// (calculateLocalElementBounds) must stay within MAX_X_DRIFT of the precise
-	// layout bounds X-origin. X drift is alignment-dependent and was the root
-	// cause of the rotation axis bug. Y drift depends on font metrics estimation
-	// and is harder to control, so we use a larger tolerance.
+	// Regression guard: for every alignment, the centre of the estimated bounds
+	// (calculateLocalElementBounds) must stay within MAX_X_DRIFT of the centre
+	// of the precise layout bounds. X drift is alignment-dependent. Y drift
+	// depends on font metrics estimation and is harder to control, so it gets
+	// a larger tolerance.
 	const MAX_X_DRIFT = 3; // px — alignment must be correct
 	const MAX_Y_DRIFT = 20; // px — font metrics estimation is inherently imprecise
 
@@ -1198,12 +1188,15 @@ describe("cursorLocalToWorld with rotation", () => {
 	}
 
 	for (const { name, alignment, layout: createLayout } of alignmentCases) {
-		it(`${name}-aligned: estimated X origin stays within ${MAX_X_DRIFT}px of precise`, () => {
+		it(`${name}-aligned: estimated centre stays within ${MAX_X_DRIFT}px of precise`, () => {
 			const element = createAlignedElement(alignment);
 			const layout = createLayout();
 
 			const estimated = calculateLocalElementBounds(element);
-			const estimatedOrigin = computeTransformOrigin(estimated);
+			const estimatedOrigin = {
+				x: (estimated.minX + estimated.maxX) / 2,
+				y: (estimated.minY + estimated.maxY) / 2,
+			};
 
 			const preciseOrigin = {
 				x: (layout.bounds.minX + layout.bounds.maxX) / 2 + element.x,
@@ -1229,10 +1222,6 @@ describe("cursorLocalToWorld with rotation", () => {
 				const element = createAlignedElement(alignment);
 				const t = makeRotatedTransform(deg, 15, 130);
 
-				const origin = computeTransformOrigin(
-					calculateLocalElementBounds(element),
-				);
-
 				for (const charIndex of [0, layout.chars.at(-1)!.charIndex]) {
 					const char = layout.chars.find((c) => c.charIndex === charIndex)!;
 					const cursorLocal = await renderer.getCursorPosition(
@@ -1244,15 +1233,12 @@ describe("cursorLocalToWorld with rotation", () => {
 						element.x,
 						element.y,
 						t,
-						origin,
 						"horizontal-tb",
 					);
 					const glyphWorld = applyTransformToPoint(
 						char.x + element.x,
 						char.y + element.y,
 						t,
-						origin.x,
-						origin.y,
 					);
 
 					const dist = Math.hypot(
@@ -1683,11 +1669,7 @@ describe("TextRenderer per-run fill", () => {
 describe("TextRenderer transformed bound text", () => {
 	const mkResolver = (
 		segsById: Record<string, unknown>,
-		textTransform?: {
-			t: ElementTransform;
-			origin: { x: number; y: number };
-			isIdentity: boolean;
-		},
+		textTransform?: { t: ElementTransform; isIdentity: boolean },
 	) =>
 		({
 			getElementById: () => null,
@@ -1739,7 +1721,7 @@ describe("TextRenderer transformed bound text", () => {
 			new TextLayoutEngine(createMockFontManager()),
 		);
 		transformedRenderer.setDocumentResolver(
-			mkResolver(segs, { t, origin: { x: 0, y: 0 }, isIdentity: false }),
+			mkResolver(segs, { t, isIdentity: false }),
 		);
 		const [transformedQuad] = await transformedRenderer.getGlyphQuads(
 			makeElement(),

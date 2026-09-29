@@ -958,7 +958,8 @@ const SortableElementItem = memo(function SortableElementItem({
 	// Get child elements only when expanded to avoid unnecessary object lookups
 	const childElements = isExpanded
 		? isGroup(element) || isMesh(element)
-			? element.childIds
+			? [...element.childIds]
+					.reverse()
 					.map((id) => objects[id])
 					.filter((el): el is AnyArtObject => el != null)
 			: isCompoundPath(element)

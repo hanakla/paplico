@@ -613,7 +613,12 @@ export class ArtboardTool implements Tool {
 			.find((a) => a.id === selectedId);
 		if (!artboard) return null;
 		const bounds = getArtboardBounds(artboard);
-		return hitTestResizeHandle(worldX, worldY, bounds, viewport);
+		return hitTestResizeHandle(
+			worldX,
+			worldY,
+			this.getResizeHandles(bounds),
+			viewport,
+		);
 	}
 
 	/** @param constrainAspect Maintain 1:1 aspect ratio */

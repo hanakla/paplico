@@ -4,19 +4,15 @@ import {
 	type BezierPoint,
 	type CubicBezierSegment,
 	type ElementTransform,
-	getContainerChildIds,
 	getTransform,
 	isIdentityTransform,
 	type MeshArtObject,
 	type Path,
 	type PathSegment,
 } from "../../schema";
-import { calculateLocalElementBounds, calculatePathBounds } from "./bounds";
 import {
 	applyTransformToPoint,
 	composeTransforms,
-	computeTransformOrigin,
-	pivotMoveShift,
 	toWorld,
 	type WorldBezierSegment,
 } from "./geometry";
@@ -156,7 +152,6 @@ export function toRelativeCP2(
 }
 
 /** Placeholder origin for identity transforms (origin is unused in that path). */
-const ORIGIN_ZERO = { x: 0, y: 0 } as const;
 
 /**
  * Convert element segments to world-space coordinates.
@@ -164,8 +159,7 @@ const ORIGIN_ZERO = { x: 0, y: 0 } as const;
  * Skips SRT computation when transform is identity.
  *
  * `geometry` stands in for the element's segments when the drawn outline is
- * a deformed one. The pivot still comes from the stored segments, which is
- * where the renderer pivots a deformed element.
+ * a deformed one.
  */
 export function getWorldSegments(
 	element: Path,
@@ -176,46 +170,16 @@ export function getWorldSegments(
 	const t = ancestorTransform
 		? composeTransforms(ancestorTransform, elementT)
 		: elementT;
-	const origin = isIdentityTransform(t)
-		? ORIGIN_ZERO
-		: computeTransformOrigin(calculatePathBounds(element));
-	return transformSegmentsToWorld(geometry, t, origin);
+	return transformSegmentsToWorld(geometry, t);
 }
 
 /**
- * The ancestor transform that keeps `path` drawn in place while `segments`
- * replace its geometry, for edits drawn before the commit absorbs the pivot
- * move into the stored transforms (see SpatialIndex.getPivotCompensation).
- * The path pivots on its bounds centre, which moves with the geometry.
- */
-export function holdPivotAncestorTransform(
-	path: Path,
-	ancestorTransform: ElementTransform | null,
-	segments: PathSegment[],
-): ElementTransform | null {
-	const t = getTransform(path);
-	const shift = pivotMoveShift(
-		ancestorTransform ? composeTransforms(ancestorTransform, t) : t,
-		computeTransformOrigin(calculatePathBounds(path)),
-		computeTransformOrigin(calculatePathBounds({ ...path, segments })),
-	);
-	if (shift.x === 0 && shift.y === 0) return ancestorTransform;
-	// The ancestor's translation adds straight onto the composed one.
-	const base = ancestorTransform ?? createIdentityTransform();
-	return { ...base, x: base.x + shift.x, y: base.y + shift.y };
-}
-
-/**
- * Resolve relative segments and project them to world space by applying
- * `transform` around `origin`. Shared by getWorldSegments (origin = the path's
- * own bbox center) and blend key-outline building, where world-baked sources are
- * transformed around the blend's bbox center to match renderBlend — not each
- * source's own center.
+ * Resolve relative segments and project them to world space through
+ * `transform`.
  */
 export function transformSegmentsToWorld(
 	segments: readonly PathSegment[],
 	transform: ElementTransform,
-	origin: { x: number; y: number },
 ): WorldBezierSegment[] {
 	if (isIdentityTransform(transform)) {
 		return segments.map((seg, i) => {
@@ -240,7 +204,7 @@ export function transformSegmentsToWorld(
 			i > 0 ? segments[i - 1].end : undefined,
 		);
 		const tp = (p: { x: number; y: number }) => {
-			const w = applyTransformToPoint(p.x, p.y, transform, origin.x, origin.y);
+			const w = applyTransformToPoint(p.x, p.y, transform);
 			return toWorld(w.x, w.y);
 		};
 		return {
@@ -275,15 +239,10 @@ export function getMeshWorldBoundarySegments(
 		? composeTransforms(ancestorTransform, elementT)
 		: elementT;
 	const identity = isIdentityTransform(t);
-	// The renderer pivots the mesh on its full local bounds, children
-	// included, so the outline has to pivot on the same point.
-	const origin = computeTransformOrigin(
-		calculateLocalElementBounds(mesh, collectDescendants(mesh, getElement)),
-	);
 
 	const tp = (p: { x: number; y: number }) => {
 		if (identity) return toWorld(p.x, p.y);
-		const w = applyTransformToPoint(p.x, p.y, t, origin.x, origin.y);
+		const w = applyTransformToPoint(p.x, p.y, t);
 		return toWorld(w.x, w.y);
 	};
 
@@ -475,24 +434,6 @@ export function hashSegmentsWithMetadata(
 		h = (h * 31 + (s.isClosed ? 1 : 0)) | 0;
 	}
 	return h;
-}
-
-/** `container` and every descendant, keyed by id, for bounds computation. */
-function collectDescendants(
-	container: AnyArtObject,
-	getElement: (id: string) => AnyArtObject | undefined,
-): Map<string, AnyArtObject> {
-	const result = new Map<string, AnyArtObject>([[container.id, container]]);
-	const stack = [...(getContainerChildIds(container) ?? [])];
-	while (stack.length > 0) {
-		const id = stack.pop() as string;
-		if (result.has(id)) continue;
-		const el = getElement(id);
-		if (!el) continue;
-		result.set(id, el);
-		stack.push(...(getContainerChildIds(el) ?? []));
-	}
-	return result;
 }
 
 /**

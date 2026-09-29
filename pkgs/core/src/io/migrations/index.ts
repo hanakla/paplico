@@ -18,12 +18,22 @@ import { migDropEraseMasks } from "./20260920_mig_drop_erase_masks";
 import { migBlendEasing } from "./20260921_mig_blend_easing";
 import { migSplitStrokeErasure } from "./20260925_mig_split_stroke_erasure";
 import { migFontSourceLoader } from "./20260927_mig_font_source_loader";
+import { migTransformOrigin } from "./20260929_mig_transform_origin";
+import type { MigrationContext } from "./context";
 
 export interface Migration {
 	/** Schema version date (YYYYMMDD) this migration upgrades TO */
 	version: number;
-	/** Apply migration to the document. Mutates in place. */
-	migrate(doc: Document): void;
+	/**
+	 * The migration reads other elements to rewrite one, so it is only right
+	 * on a whole document, never on an object lifted out of it.
+	 */
+	wholeDocument?: true;
+	/**
+	 * Apply migration to the document. Mutates in place. `context` carries
+	 * what the migration cannot read off the document (see MigrationContext).
+	 */
+	migrate(doc: Document, context?: MigrationContext): void;
 }
 
 /** All migrations in chronological order (ascending by version) */
@@ -47,6 +57,7 @@ const migrations: Migration[] = [
 	migBlendEasing,
 	migSplitStrokeErasure,
 	migFontSourceLoader,
+	migTransformOrigin,
 ];
 
 /** Schema version a document has once every migration ran. */
@@ -54,19 +65,40 @@ export const LATEST_SCHEMA_VERSION = Math.max(
 	...migrations.map((mig) => mig.version),
 );
 
+/** Whether bringing a document up from `fromVersion` runs a whole-document migration. */
+export function needsWholeDocumentMigration(fromVersion: number): boolean {
+	return migrations.some(
+		(mig) => mig.wholeDocument && mig.version > fromVersion,
+	);
+}
+
+/**
+ * Schema version a document stored without one is taken to be at. Yjs rooms
+ * and clipboard payloads written before they carried a version were all
+ * produced by clients at this version.
+ */
+export const UNVERSIONED_SCHEMA_BASELINE = 20260927;
+
 /**
  * Apply all pending migrations to a document.
  * Runs migrations whose version > doc.schemaVersion, then updates schemaVersion.
  */
-export function applyMigrations(doc: Document): void {
-	for (const mig of migrations) applyMigration(doc, mig);
+export function applyMigrations(
+	doc: Document,
+	context?: MigrationContext,
+): void {
+	for (const mig of migrations) applyMigration(doc, mig, context);
 }
 
 /** Apply specified migration to a document (testing purpose mainly) */
-export function applyMigration(doc: Document, mig: Migration): void {
+export function applyMigration(
+	doc: Document,
+	mig: Migration,
+	context?: MigrationContext,
+): void {
 	const currentVersion = doc.schemaVersion ?? 0;
 	if (mig.version <= currentVersion) return;
 
-	mig.migrate(doc);
+	mig.migrate(doc, context);
 	doc.schemaVersion = mig.version;
 }

@@ -17,6 +17,7 @@ import {
 import type { TimelapseData, TimelapseEntry } from "../../timelapse/types";
 import { crc32, decompressDeflate } from "../binaryUtils";
 import { applyMigrations, LATEST_SCHEMA_VERSION } from "../migrations";
+import type { MigrationContext } from "../migrations/context";
 import {
 	type Codec,
 	Codec as CodecEnum,
@@ -505,13 +506,14 @@ export class PapfFile {
 	}
 
 	/**
-	 * Load the complete Document for backward compatibility / simple usage.
+	 * Load the Document as the file stores it, before any migration. A file
+	 * from a newer build throws, since this build would misread its values.
 	 *
 	 * All embedded files are loaded eagerly via Promise.all(), which may cause
 	 * memory spikes for documents with many or large files. For memory-sensitive
 	 * use cases, prefer getEmbeddedFile() to load files on demand.
 	 */
-	public async toDocument(): Promise<Document> {
+	public async readUnmigratedDocument(): Promise<Document> {
 		const { document: docMeta } = this._meta;
 
 		// A newer build may have changed what the stored values mean; reading
@@ -531,9 +533,9 @@ export class PapfFile {
 		// Load timelapse
 		const timelapse = await this.getTimelapseData();
 
-		const doc: Document = {
+		return {
 			id: docMeta.id,
-			schemaVersion: docMeta.schemaVersion,
+			schemaVersion: docMeta.schemaVersion ?? 0,
 			objects: docMeta.objects,
 			layers: docMeta.layers,
 			viewport: docMeta.viewport,
@@ -549,8 +551,19 @@ export class PapfFile {
 			defs: docMeta.defs ?? {},
 			references3d: docMeta.references3d ?? {},
 		};
+	}
 
-		applyMigrations(doc);
+	/**
+	 * Load the complete Document, brought up to this build's schema.
+	 * `prepareContext` measures on the stored document what the migrations
+	 * cannot read off it (see prepareMigrationContext); without it those
+	 * migrations fall back to their estimates.
+	 */
+	public async toDocument(
+		prepareContext?: (stored: Document) => Promise<MigrationContext>,
+	): Promise<Document> {
+		const doc = await this.readUnmigratedDocument();
+		applyMigrations(doc, await prepareContext?.(doc));
 
 		// Normalize appearance fields (opacity, blendMode) that may be
 		// missing from documents saved before these fields were required.

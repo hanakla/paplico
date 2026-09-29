@@ -8,7 +8,23 @@
  * - Cursor mapping per handle direction
  */
 
-import type { BoundingBox, Viewport } from "../schema";
+import type { SelectionUIData } from "../renderer/ui/types";
+import {
+	type BoundingBox,
+	type ElementTransform,
+	IDENTITY_TRANSFORM,
+	type Point,
+	type Viewport,
+} from "../schema";
+import {
+	applyTransformToPoint,
+	transformLinearMatrix,
+} from "../utils/geometry/geometry";
+import {
+	frameCorners,
+	frameWorldBounds,
+	type SelectionFrame,
+} from "../utils/geometry/selectionFrame";
 
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
@@ -35,25 +51,58 @@ export function createResizeHandles(bounds: BoundingBox): HandlePosition[] {
 	];
 }
 
+/** The 8 handles of a frame's box, placed in the world. */
+export function createFrameHandles(frame: SelectionFrame): HandlePosition[] {
+	return createResizeHandles(frame.bounds).map((handle) => ({
+		...handle,
+		...applyTransformToPoint(handle.x, handle.y, frame.matrix),
+	}));
+}
+
 /**
- * Hit-test a world-space point against resize handles of a bounding box.
- * Returns the handle position if hit, null otherwise.
+ * The selection overlay's data for `frame`. Every selection refresh builds
+ * its data here, so the frame, its handles and its outlines never depend on
+ * which code path refreshed the overlay.
+ */
+export function createSelectionUIData(
+	frame: SelectionFrame,
+	zoom: number,
+	includeHandles: boolean,
+	extras: Pick<
+		SelectionUIData,
+		"pathSegments" | "keyObjectSegments" | "boundsDashed"
+	>,
+): SelectionUIData {
+	return {
+		bounds: frameWorldBounds(frame),
+		quad: frameCorners(frame),
+		handles: includeHandles ? createFrameHandles(frame) : [],
+		rotationHandle: includeHandles
+			? createRotationHandle(frame, zoom)
+			: undefined,
+		...extras,
+	};
+}
+
+/**
+ * Hit-test a world-space point against resize handles. The handle squares
+ * are screen-parallel whatever the frame's tilt. Returns the handle position
+ * if hit, null otherwise.
  *
  * @param worldX   Point X in world coordinates
  * @param worldY   Point Y in world coordinates
- * @param bounds   Bounding box whose handles to test
+ * @param handles  The handles to test, in the world
  * @param viewport Current viewport (used to scale handle hit area)
  * @param handleScreenPx  Handle size in screen pixels (default 12)
  */
 export function hitTestResizeHandle(
 	worldX: number,
 	worldY: number,
-	bounds: BoundingBox,
+	handles: readonly HandlePosition[],
 	viewport: Viewport,
 	handleScreenPx = 12,
 ): ResizeHandle | null {
 	const halfHandle = handleScreenPx / viewport.zoom / 2;
-	const handles = createResizeHandles(bounds);
 
 	for (const handle of handles) {
 		if (
@@ -181,21 +230,25 @@ export function calculateResizedBounds(
 /** Screen-pixel offset from the "n" handle to the rotation handle center */
 const ROTATION_HANDLE_OFFSET_PX = 24;
 
+/** The rotation handle: a step above the "n" handle along the frame's up axis. */
 export function createRotationHandle(
-	bounds: BoundingBox,
+	frame: SelectionFrame,
 	zoom: number,
-): { x: number; y: number } {
-	const midX = (bounds.minX + bounds.maxX) / 2;
-	return { x: midX, y: bounds.maxY + ROTATION_HANDLE_OFFSET_PX / zoom };
+): Point {
+	const { minX, maxX, maxY } = frame.bounds;
+	const n = applyTransformToPoint((minX + maxX) / 2, maxY, frame.matrix);
+	const up = frameUpAxis(frame);
+	const offset = ROTATION_HANDLE_OFFSET_PX / zoom;
+	return { x: n.x + up.x * offset, y: n.y + up.y * offset };
 }
 
 export function hitTestRotationHandle(
 	worldX: number,
 	worldY: number,
-	bounds: BoundingBox,
+	frame: SelectionFrame,
 	viewport: Viewport,
 ): boolean {
-	const handle = createRotationHandle(bounds, viewport.zoom);
+	const handle = createRotationHandle(frame, viewport.zoom);
 	const hitRadius = 8 / viewport.zoom;
 	const dx = worldX - handle.x;
 	const dy = worldY - handle.y;
@@ -223,23 +276,49 @@ export function getResizeSnapTargets(
 	return { x: flipX ? oppositeEdge(x) : x, y: flipY ? oppositeEdge(y) : y };
 }
 
-export function getResizeCursor(handle: ResizeHandle): string {
-	switch (handle) {
-		case "nw":
-		case "se":
-			return "nwse-resize";
-		case "ne":
-		case "sw":
-			return "nesw-resize";
-		case "n":
-		case "s":
-			return "ns-resize";
-		case "e":
-		case "w":
-			return "ew-resize";
-		default:
-			return "default";
-	}
+/**
+ * The cursor for a handle, chosen by the direction the handle's edge moves
+ * in on screen: the frame's axis the handle sits on, turned by the view.
+ */
+export function getResizeCursor(
+	handle: ResizeHandle,
+	frameMatrix: ElementTransform = IDENTITY_TRANSFORM,
+	viewRotation = 0,
+): string {
+	const nominal = HANDLE_DIRECTIONS[handle];
+	const m = transformLinearMatrix(frameMatrix);
+	const dx = m.m00 * nominal.x + m.m01 * nominal.y;
+	const dy = m.m10 * nominal.x + m.m11 * nominal.y;
+	// The view turns the world the other way round on screen.
+	const cos = Math.cos(viewRotation);
+	const sin = Math.sin(viewRotation);
+	const angle =
+		((Math.atan2(dy * cos - dx * sin, dx * cos + dy * sin) * 180) / Math.PI +
+			360) %
+		180;
+	return RESIZE_CURSORS[Math.round(angle / 45) % 4];
+}
+
+/** Where each handle's edge moves, in the frame's space with y up. */
+const HANDLE_DIRECTIONS: Record<ResizeHandle, Point> = {
+	e: { x: 1, y: 0 },
+	ne: { x: 1, y: 1 },
+	n: { x: 0, y: 1 },
+	nw: { x: -1, y: 1 },
+	w: { x: -1, y: 0 },
+	sw: { x: -1, y: -1 },
+	s: { x: 0, y: -1 },
+	se: { x: 1, y: -1 },
+};
+
+/** Cursors by the screen direction's angle from horizontal, in steps of 45°. */
+const RESIZE_CURSORS = ["ew-resize", "nesw-resize", "ns-resize", "nwse-resize"];
+
+/** Unit vector of the frame's +y axis in the world; (0, 1) for a flattened frame. */
+function frameUpAxis(frame: SelectionFrame): Point {
+	const m = transformLinearMatrix(frame.matrix);
+	const length = Math.hypot(m.m01, m.m11);
+	return length > 0 ? { x: m.m01 / length, y: m.m11 / length } : { x: 0, y: 1 };
 }
 
 /** Signed size of one axis, measured from its anchor toward the pointer. */

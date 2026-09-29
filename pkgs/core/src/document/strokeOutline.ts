@@ -29,12 +29,8 @@ import {
 	type Path,
 	type PathGeometry,
 } from "../schema";
-import { calculateLocalElementBounds } from "../utils/geometry/bounds";
 import { bakeCompoundPathSegments } from "../utils/geometry/compoundBake";
-import {
-	composePivotedTransforms,
-	computeTransformOrigin,
-} from "../utils/geometry/geometry";
+import { composeTransforms } from "../utils/geometry/geometry";
 import {
 	reconstructSegmentsFromWorld,
 	transformSegmentsToWorld,
@@ -112,14 +108,11 @@ export function buildStrokeOutline(
 	);
 
 	const transform = element.transform;
-	const pivot = computeTransformOrigin(
-		calculateLocalElementBounds(element, deps.elementsMap),
-	);
 	const bake = (segments: CubicBezierSegment[]) =>
 		isIdentityTransform(transform)
 			? segments
 			: reconstructSegmentsFromWorld(
-					transformSegmentsToWorld(segments, transform, pivot),
+					transformSegmentsToWorld(segments, transform),
 					segments,
 				);
 	// Only a plain path carries a width profile, an erasure or a trimmed range.
@@ -188,14 +181,7 @@ export function buildStrokeOutline(
 			if (!maskElement) continue;
 			maskTransforms.set(
 				id,
-				composePivotedTransforms(
-					transform,
-					pivot,
-					maskElement.transform,
-					computeTransformOrigin(
-						calculateLocalElementBounds(maskElement, deps.elementsMap),
-					),
-				),
+				composeTransforms(transform, maskElement.transform),
 			);
 		}
 	}

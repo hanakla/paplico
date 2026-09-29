@@ -14,7 +14,6 @@ import {
 	type ElementTransform,
 	type Filter,
 	type Group,
-	getTransform,
 	isGroup,
 	type Viewport,
 } from "../../../schema";
@@ -27,10 +26,7 @@ import {
 	snapBoundsToRasterGrid,
 	type WorldBBox,
 } from "../../../utils/geometry/bounds";
-import {
-	composeTransforms,
-	screenToWorld,
-} from "../../../utils/geometry/geometry";
+import { placeElement, screenToWorld } from "../../../utils/geometry/geometry";
 import { lerp } from "../../../utils/math";
 import type { RasterFrame } from "../../geometry/strips/stripTypes";
 import { interactiveBakeDensity } from "../CanvasLayer.helpers";
@@ -99,6 +95,8 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 	getTransformIndex: (elementId: string) => number;
 	/** World transform of an element with every ancestor composed in. */
 	getComposedTransform: (elementId: string) => ElementTransform;
+	/** The chain an element's ancestors place it under (see childrenMatrixOf). */
+	getAncestorMatrix: (elementId: string) => ElementTransform | null;
 	/** Push (or with `replace`, swap) the viewport binding of the pass being
 	 *  encoded; null pops back to the previous one. */
 	setActiveBindGroup: (entry: UniformEntry | null, replace?: boolean) => void;
@@ -1256,7 +1254,10 @@ export class OffscreenPresenter {
 		const groupPreFilters = geometryFilters(group, this.deps.filterRenderer);
 		// Child bounds come out in the group's space; the bakes below draw the
 		// children through their world transforms.
-		const groupWorldTransform = this.deps.getComposedTransform(group.id);
+		const childrenMatrix = placeElement(
+			this.deps.getAncestorMatrix(group.id),
+			group,
+		);
 
 		// Pre-rasterize only children whose own filters need a post-process
 		// pass; everything else renders inline in renderGroupChildrenToTexture,
@@ -1346,7 +1347,7 @@ export class OffscreenPresenter {
 				elementsMap,
 				this.deps.filterRenderer,
 				localBoundsCache,
-				groupWorldTransform,
+				childrenMatrix,
 			);
 			const childExpansion = this.deps.filterRenderer.calculateExpansion(
 				localAppearances(child.filters),
@@ -1539,7 +1540,7 @@ export class OffscreenPresenter {
 			childFilteredTextures,
 			1.0,
 			groupCompositeContext,
-			undefined,
+			childrenMatrix,
 			groupPreFilters.length > 0 ? groupPreFilters : undefined,
 		);
 
@@ -1588,8 +1589,8 @@ export class OffscreenPresenter {
 		filteredTextures: Map<string, FilteredTextureInfo>,
 		elementsMap: Map<string, AnyArtObject>,
 		alphaMultiplier: number,
-		parentTransform: ElementTransform,
-		ancestorTransform: ElementTransform | null,
+		childrenMatrix: ElementTransform,
+		parentMatrix: ElementTransform | null,
 		skipElementIds?: ReadonlySet<string>,
 		compositeContext?: CompositeRenderContext,
 		localBoundsCache?: LocalBoundsCache,
@@ -1605,8 +1606,8 @@ export class OffscreenPresenter {
 			children,
 			filteredTextures,
 			elementsMap,
-			parentTransform,
-			ancestorTransform,
+			childrenMatrix,
+			parentMatrix,
 			skipElementIds,
 			localBoundsCache,
 			outerMasks,
@@ -1638,8 +1639,8 @@ export class OffscreenPresenter {
 		children: AnyArtObject[],
 		filteredTextures: Map<string, FilteredTextureInfo>,
 		elementsMap: Map<string, AnyArtObject>,
-		parentTransform: ElementTransform,
-		ancestorTransform: ElementTransform | null,
+		childrenMatrix: ElementTransform,
+		parentMatrix: ElementTransform | null,
 		skipElementIds?: ReadonlySet<string>,
 		localBoundsCache?: LocalBoundsCache,
 		outerMasks: readonly WorldMaskAssignment[] = [],
@@ -1656,7 +1657,7 @@ export class OffscreenPresenter {
 			elementsMap,
 			null,
 			localBoundsCache,
-			ancestorTransform,
+			parentMatrix,
 		);
 		if (Math.ceil(groupBounds.width) <= 0 || Math.ceil(groupBounds.height) <= 0)
 			return null;
@@ -1670,7 +1671,7 @@ export class OffscreenPresenter {
 			filteredTextures,
 			elementsMap,
 			1,
-			parentTransform,
+			childrenMatrix,
 			skipElementIds,
 			parentContext,
 			localBoundsCache,
@@ -2125,7 +2126,8 @@ export class OffscreenPresenter {
 		childFilteredTextures: Map<string, GroupChildSurface>,
 		alphaMultiplier: number = 1.0,
 		compositeContext?: CompositeRenderContext,
-		ancestorTransform?: ElementTransform | null,
+		/** The chain the enclosing groups place `children` under. */
+		parentMatrix?: ElementTransform | null,
 		parentPreFilters?: Filter[],
 	): GPURenderPassEncoder {
 		// activePass tracks the current render pass encoder. renderClipGroup may
@@ -2175,9 +2177,7 @@ export class OffscreenPresenter {
 						.filter((id) => id !== child.clipPathId)
 						.map((id) => elementsMap.get(id))
 						.filter((el): el is AnyArtObject => el !== undefined);
-					const childWorldTransform = ancestorTransform
-						? composeTransforms(ancestorTransform, getTransform(child))
-						: getTransform(child);
+					const clipChildrenMatrix = placeElement(parentMatrix ?? null, child);
 					// A clip alone does not isolate the group: an inline clip group
 					// draws its child through the effective mask so its blend mode
 					// sees what this bake has drawn so far, as in the main pass.
@@ -2188,7 +2188,7 @@ export class OffscreenPresenter {
 							new Map(),
 							elementsMap,
 							childAlpha,
-							childWorldTransform,
+							clipChildrenMatrix,
 							undefined,
 							"offscreen",
 							compositeContext,
@@ -2206,8 +2206,8 @@ export class OffscreenPresenter {
 						new Map(),
 						elementsMap,
 						childAlpha,
-						childWorldTransform,
-						ancestorTransform ?? null,
+						clipChildrenMatrix,
+						parentMatrix ?? null,
 						undefined,
 						compositeContext,
 						undefined,
@@ -2233,7 +2233,7 @@ export class OffscreenPresenter {
 						childFilteredTextures,
 						childAlpha,
 						compositeContext,
-						ancestorTransform,
+						placeElement(parentMatrix ?? null, child),
 						nestedPreFilters,
 					);
 				}
@@ -2721,7 +2721,7 @@ export class OffscreenPresenter {
 		filteredTextures: Map<string, FilteredTextureInfo>,
 		elementsMap: Map<string, AnyArtObject>,
 		alphaMultiplier: number,
-		parentTransform: ElementTransform | null,
+		childrenMatrix: ElementTransform | null,
 		skipElementIds?: ReadonlySet<string>,
 		parentContext?: CompositeRenderContext,
 		localBoundsCache?: LocalBoundsCache,
@@ -2794,7 +2794,7 @@ export class OffscreenPresenter {
 			filteredTextures,
 			elementsMap,
 			alphaMultiplier,
-			parentTransform,
+			childrenMatrix,
 			skipElementIds,
 			"offscreen",
 			offscreenCompositeContext,

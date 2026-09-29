@@ -155,12 +155,9 @@ export function createExtrudeGizmoFrame(
 	const bounds = worldSpace
 		? worldBounds
 		: calculateLocalElementBounds(element);
-	// The element transform rotates around the PROFILE bounds center (the GPU
-	// transforms-buffer convention); the solid's own rotation pivots around its
-	// 3D box center. They coincide for an extrusion, but a revolved solid is
-	// centered on its axis, off the profile.
-	const originX = (bounds.minX + bounds.maxX) / 2;
-	const originY = (bounds.minY + bounds.maxY) / 2;
+	// The solid's own rotation pivots around its 3D box center: an extrusion
+	// is centered on its profile, but a revolved solid is centered on its
+	// axis, off the profile.
 	const b3 = solid3DBounds(processor, params, bounds);
 	const pivot: Vec3 = [
 		(b3.minX + b3.maxX) / 2,
@@ -211,9 +208,7 @@ export function createExtrudeGizmoFrame(
 	const project: GizmoProjectFn = (point) => {
 		const p = transformPointGuarded(projected, point);
 		if (!p) return null;
-		return composed
-			? applyTransformToPoint(p.x, p.y, composed, originX, originY)
-			: p;
+		return composed ? applyTransformToPoint(p.x, p.y, composed) : p;
 	};
 
 	const centerCanvas = project(pivot);

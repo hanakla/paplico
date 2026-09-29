@@ -16,7 +16,6 @@ import {
 	type Viewport,
 } from "../../schema";
 import type { Brand } from "../lang";
-import type { LocalBBox } from "./bounds";
 
 /**
  * スクリーン座標 → ワールド座標
@@ -223,11 +222,6 @@ export function toWorld(x: number, y: number): WorldPoint {
 	return { x, y } as WorldPoint;
 }
 
-declare const WORLD_COORD_SYMBOL: unique symbol;
-
-/** Branded scalar coordinate in world (layer) space. */
-export type WorldCoord = number & Brand<typeof WORLD_COORD_SYMBOL>;
-
 declare const LOCAL_COORD_SYMBOL: unique symbol;
 
 /**
@@ -235,11 +229,6 @@ declare const LOCAL_COORD_SYMBOL: unique symbol;
  * it is lives in the doc comment of each API that accepts or returns it.
  */
 export type LocalCoord = number & Brand<typeof LOCAL_COORD_SYMBOL>;
-
-/** Brand boundary: only call when the value is known to be world-space. */
-export function asWorldCoord(n: number): WorldCoord {
-	return n as WorldCoord;
-}
 
 /** Brand boundary: only call when the value is known to be element-local. */
 export function asLocalCoord(n: number): LocalCoord {
@@ -255,35 +244,13 @@ export function inverseTransform(
 	wx: number,
 	wy: number,
 	t: ElementTransform,
-	originX: number,
-	originY: number,
 ): { x: LocalCoord; y: LocalCoord } {
-	const inv = invertLinearMatrix(transformLinearMatrix(t));
-	if (!inv) return { x: asLocalCoord(wx), y: asLocalCoord(wy) };
-	const dx = wx - originX - t.x;
-	const dy = wy - originY - t.y;
-	return {
-		x: asLocalCoord(inv.m00 * dx + inv.m01 * dy + originX),
-		y: asLocalCoord(inv.m10 * dx + inv.m11 * dy + originY),
-	};
-}
-
-/**
- * Compute the transform origin from raw (untransformed) bounding box.
- * Returns the center of the bounds.
- */
-export function computeTransformOrigin(localBounds: LocalBBox): {
-	x: number;
-	y: number;
-} {
-	return {
-		x: (localBounds.minX + localBounds.maxX) / 2,
-		y: (localBounds.minY + localBounds.maxY) / 2,
-	};
+	const local = inverseTransformPoint(wx, wy, t);
+	return { x: asLocalCoord(local.x), y: asLocalCoord(local.y) };
 }
 
 /** Row-major 2×2 linear part of an element transform: [[m00 m01],[m10 m11]]. */
-interface LinearMatrix2x2 {
+export interface LinearMatrix2x2 {
 	m00: number;
 	m01: number;
 	m10: number;
@@ -321,7 +288,7 @@ export function transformLinearMatrix(t: ElementTransform): LinearMatrix2x2 {
 }
 
 /** Multiply two 2×2 linear matrices: `a · b`. */
-function multiplyLinearMatrix(
+export function multiplyLinearMatrix(
 	a: LinearMatrix2x2,
 	b: LinearMatrix2x2,
 ): LinearMatrix2x2 {
@@ -334,7 +301,7 @@ function multiplyLinearMatrix(
 }
 
 /** Invert a 2×2 linear matrix, or `null` when it is singular. */
-function invertLinearMatrix(m: LinearMatrix2x2): LinearMatrix2x2 | null {
+export function invertLinearMatrix(m: LinearMatrix2x2): LinearMatrix2x2 | null {
 	const det = m.m00 * m.m11 - m.m01 * m.m10;
 	if (Math.abs(det) < SKEW_EPSILON) return null;
 	const inv = 1 / det;
@@ -394,14 +361,12 @@ export function linearMatrixToTransform(
  * Transforms all 4 corners and computes the axis-aligned bounding box.
  * The result is in whatever space `t` maps into; callers brand it themselves.
  */
-export function applyTransformToBounds(
+export function transformBounds(
 	bounds: BoundingBox,
 	t: ElementTransform,
 ): BoundingBox {
 	if (isIdentityTransform(t)) return bounds;
 
-	const cx = (bounds.minX + bounds.maxX) / 2;
-	const cy = (bounds.minY + bounds.maxY) / 2;
 	const m = transformLinearMatrix(t);
 
 	const corners = [
@@ -417,10 +382,8 @@ export function applyTransformToBounds(
 	let maxY = -Infinity;
 
 	for (const [px, py] of corners) {
-		const dx = px - cx;
-		const dy = py - cy;
-		const rx = m.m00 * dx + m.m01 * dy + cx + t.x;
-		const ry = m.m10 * dx + m.m11 * dy + cy + t.y;
+		const rx = m.m00 * px + m.m01 * py + t.x;
+		const ry = m.m10 * px + m.m11 * py + t.y;
 		minX = Math.min(minX, rx);
 		minY = Math.min(minY, ry);
 		maxX = Math.max(maxX, rx);
@@ -434,46 +397,6 @@ export function applyTransformToBounds(
 		maxY,
 		width: maxX - minX,
 		height: maxY - minY,
-	};
-}
-
-/**
- * Compose two transforms that each pivot on their own point into one that
- * pivots on `childPivot`. Applying the result to a point equals applying
- * `child` around `childPivot`, then `parent` around `parentPivot`.
- */
-export function composePivotedTransforms(
-	parent: ElementTransform,
-	parentPivot: { x: number; y: number },
-	child: ElementTransform,
-	childPivot: { x: number; y: number },
-): ElementTransform {
-	const composed = composeTransforms(
-		pivotToOrigin(parent, parentPivot),
-		pivotToOrigin(child, childPivot),
-	);
-	const m = transformLinearMatrix(composed);
-	return {
-		...composed,
-		x:
-			composed.x -
-			(childPivot.x - (m.m00 * childPivot.x + m.m01 * childPivot.y)),
-		y:
-			composed.y -
-			(childPivot.y - (m.m10 * childPivot.x + m.m11 * childPivot.y)),
-	};
-}
-
-/** The same mapping as `t` around `pivot`, expressed as a transform around the origin. */
-function pivotToOrigin(
-	t: ElementTransform,
-	pivot: { x: number; y: number },
-): ElementTransform {
-	const m = transformLinearMatrix(t);
-	return {
-		...t,
-		x: t.x + pivot.x - (m.m00 * pivot.x + m.m01 * pivot.y),
-		y: t.y + pivot.y - (m.m10 * pivot.x + m.m11 * pivot.y),
 	};
 }
 
@@ -500,21 +423,46 @@ export function composeTransforms(
 	return linearMatrixToTransform(linear, tx, ty);
 }
 
-/** Compose an element's own transform with all its ancestor group transforms. */
+/**
+ * An element's own transform placed under `matrix`, the chain its ancestors
+ * place it under. For a container, the result is the chain its content is
+ * placed under. Without a matrix it is the element's own transform.
+ */
+export function placeElement(
+	matrix: ElementTransform | null,
+	element: AnyArtObject,
+): ElementTransform {
+	const own = getTransform(element);
+	return matrix ? composeTransforms(matrix, own) : own;
+}
+
+/**
+ * The chain an element's ancestors place it under, or null when it sits
+ * directly in a layer.
+ */
+export function composeAncestorMatrix(
+	element: AnyArtObject,
+	elementsMap: ReadonlyMap<string, AnyArtObject>,
+	parentGroupMap: ReadonlyMap<string, string>,
+): ElementTransform | null {
+	const parent = elementsMap.get(parentGroupMap.get(element.id) ?? "");
+	if (!parent) return null;
+	return placeElement(
+		composeAncestorMatrix(parent, elementsMap, parentGroupMap),
+		parent,
+	);
+}
+
+/** An element's own transform composed with every ancestor's. */
 export function composeAncestorTransform(
 	element: AnyArtObject,
 	elementsMap: ReadonlyMap<string, AnyArtObject>,
 	parentGroupMap: ReadonlyMap<string, string>,
 ): ElementTransform {
-	let transform = getTransform(element);
-	let parentId = parentGroupMap.get(element.id);
-	while (parentId) {
-		const ancestor = elementsMap.get(parentId);
-		if (ancestor)
-			transform = composeTransforms(getTransform(ancestor), transform);
-		parentId = parentGroupMap.get(parentId);
-	}
-	return transform;
+	return placeElement(
+		composeAncestorMatrix(element, elementsMap, parentGroupMap),
+		element,
+	);
 }
 
 /**
@@ -589,42 +537,28 @@ export function computeInverseCompositionTransform(
 /**
  * Compose a world-space affine (linear `L` + translation `(tx, ty)`, applied as
  * `p' = L · p + t`) onto an element's transform, returning the element's new
- * (parent-local) transform. The element's *visual centre* — its local-bounds
- * centre plus `transform.x/y`, composed through any ancestor transform — is the
- * point moved by the affine, so an anchored scale/shear keeps the fixed side put.
+ * (parent-local) transform. The affine is applied after the element's world
+ * placement, so an anchored scale/shear keeps the fixed side put.
  *
- * This generalises the per-element math in `PaplicoCommands.collectRotateUpdates`
- * from a pure rotation to an arbitrary affine, reusing the same
- * {@link composeTransforms} / {@link solveChildTransform} handling for nested
- * (grouped) elements. `linearMatrixToTransform` canonicalises the result to a
- * single horizontal shear (`skewY = 0`); the underlying matrix is unchanged, so
- * the rendered result is identical even when the input carried a `skewY`.
+ * `linearMatrixToTransform` canonicalises the result to a single horizontal
+ * shear (`skewY = 0`); the underlying matrix is unchanged, so the rendered
+ * result is identical even when the input carried a `skewY`.
  */
 export function applyWorldAffineToTransform(
 	t0: ElementTransform,
-	localCenter: { x: number; y: number },
 	ancestorT: ElementTransform | null,
 	L: LinearMatrix2x2,
 	tx: number,
 	ty: number,
 ): ElementTransform {
-	// Local-space transform to deform: the element's own transform, or its
-	// world-composed transform when nested inside a transformed ancestor.
+	// The element's own transform, or its world-composed transform when
+	// nested inside a transformed ancestor.
 	const base = ancestorT ? composeTransforms(ancestorT, t0) : t0;
-
-	// Visual centre in world space, then pushed through the world affine.
-	const vcx = localCenter.x + base.x;
-	const vcy = localCenter.y + base.y;
-	const newVcx = L.m00 * vcx + L.m01 * vcy + tx;
-	const newVcy = L.m10 * vcx + L.m11 * vcy + ty;
-
-	const newLinear = multiplyLinearMatrix(L, transformLinearMatrix(base));
 	const newBase = linearMatrixToTransform(
-		newLinear,
-		newVcx - localCenter.x,
-		newVcy - localCenter.y,
+		multiplyLinearMatrix(L, transformLinearMatrix(base)),
+		L.m00 * base.x + L.m01 * base.y + tx,
+		L.m10 * base.x + L.m11 * base.y + ty,
 	);
-
 	return ancestorT ? solveChildTransform(ancestorT, newBase) : newBase;
 }
 
@@ -650,44 +584,72 @@ export function mirrorTransform(
 }
 
 /**
- * Forward-transform a local-space point into world space.
- * Applies SRT (scale → rotate → translate) around the given origin.
+ * Forward-transform a local-space point into world space: `L · p + t`, the
+ * linear part applied on the local origin.
  */
 export function applyTransformToPoint(
 	lx: number,
 	ly: number,
 	t: ElementTransform,
-	originX: number,
-	originY: number,
 ): { x: number; y: number } {
 	const m = transformLinearMatrix(t);
-	const dx = lx - originX;
-	const dy = ly - originY;
 	return {
-		x: m.m00 * dx + m.m01 * dy + originX + t.x,
-		y: m.m10 * dx + m.m11 * dy + originY + t.y,
+		x: m.m00 * lx + m.m01 * ly + t.x,
+		y: m.m10 * lx + m.m11 * ly + t.y,
 	};
 }
 
 /**
+ * `t` with its translation replaced so that the local point `local` lands on
+ * the world point `world`.
+ */
+export function placeLocalPoint(
+	t: ElementTransform,
+	local: { x: number; y: number },
+	world: { x: number; y: number },
+): ElementTransform {
+	const m = transformLinearMatrix(t);
+	return {
+		...t,
+		x: world.x - (m.m00 * local.x + m.m01 * local.y),
+		y: world.y - (m.m10 * local.x + m.m11 * local.y),
+	};
+}
+
+/**
+ * `next` with its translation adjusted so that the local point `point` stays
+ * where `current` places it: a change of the rotation, scale or skew fields
+ * then turns the element around that point instead of its local origin.
+ */
+export function keepPointInPlace(
+	current: ElementTransform,
+	next: ElementTransform,
+	point: { x: number; y: number },
+): ElementTransform {
+	return placeLocalPoint(
+		next,
+		point,
+		applyTransformToPoint(point.x, point.y, current),
+	);
+}
+
+/**
  * Inverse of {@link applyTransformToPoint}: pull a world-space point back
- * into the element's pre-transform local space around the same origin.
+ * into the element's pre-transform local space.
  * Degenerate scales (0) return the input unchanged.
  */
 export function inverseTransformPoint(
 	wx: number,
 	wy: number,
 	t: ElementTransform,
-	originX: number,
-	originY: number,
 ): { x: number; y: number } {
 	const inv = invertLinearMatrix(transformLinearMatrix(t));
 	if (!inv) return { x: wx, y: wy };
-	const dx = wx - originX - t.x;
-	const dy = wy - originY - t.y;
+	const dx = wx - t.x;
+	const dy = wy - t.y;
 	return {
-		x: inv.m00 * dx + inv.m01 * dy + originX,
-		y: inv.m10 * dx + inv.m11 * dy + originY,
+		x: inv.m00 * dx + inv.m01 * dy,
+		y: inv.m10 * dx + inv.m11 * dy,
 	};
 }
 
@@ -708,37 +670,27 @@ export function inverseTransformVector(
 	};
 }
 
-/**
- * Translation to add to `t` so it keeps placing points where it did after its
- * pivot moves from `from` to `to`: (M − I)·(to − from), where M is `t`'s
- * linear part. Zero for a pure translation.
- */
-export function pivotMoveShift(
-	t: ElementTransform,
-	from: { x: number; y: number },
-	to: { x: number; y: number },
-): { x: number; y: number } {
-	const m = transformLinearMatrix(t);
-	const dx = to.x - from.x;
-	const dy = to.y - from.y;
-	return {
-		x: (m.m00 - 1) * dx + m.m01 * dy,
-		y: m.m10 * dx + (m.m11 - 1) * dy,
-	};
+/** Whether `t` only moves points, so where it pivots makes no difference. */
+export function isTranslationOnly(t: ElementTransform): boolean {
+	return (
+		t.rotation === 0 &&
+		t.scaleX === 1 &&
+		t.scaleY === 1 &&
+		(t.skewX ?? 0) === 0 &&
+		(t.skewY ?? 0) === 0
+	);
 }
 
 /** The affine part of a GPU transform entry: what maps local space to world. */
 export type GPUTransformAffine = Pick<
 	GPUElementTransform,
-	"tx" | "ty" | "originX" | "originY" | "m00" | "m01" | "m10" | "m11"
+	"tx" | "ty" | "m00" | "m01" | "m10" | "m11"
 >;
 
-/** GPU-ready pre-computed transform data (56 bytes / 14 values) */
+/** GPU-ready pre-computed transform data (48 bytes / 12 values) */
 export interface GPUElementTransform {
 	tx: number;
 	ty: number;
-	originX: number;
-	originY: number;
 	/** Row-major 2×2 linear part (rotation · shear · scale). */
 	m00: number;
 	m01: number;
@@ -777,8 +729,6 @@ export const MASK_ATLAS_BIT = 0x4000_0000;
 export const IDENTITY_GPU_TRANSFORM: GPUElementTransform = {
 	tx: 0,
 	ty: 0,
-	originX: 0,
-	originY: 0,
 	m00: 1,
 	m01: 0,
 	m10: 0,
@@ -792,16 +742,13 @@ export const IDENTITY_GPU_TRANSFORM: GPUElementTransform = {
 
 /**
  * Number of 4-byte values per GPU transform entry.
- * Layout: 8 f32 + 2 u32 + 4 f32 = 14 values (56 bytes).
+ * Layout: 6 f32 + 2 u32 + 4 f32 = 12 values (48 bytes).
  */
-export const GPU_TRANSFORM_VALUES = 14;
-
-/** @deprecated Use GPU_TRANSFORM_VALUES */
-export const GPU_TRANSFORM_FLOATS = GPU_TRANSFORM_VALUES;
+export const GPU_TRANSFORM_VALUES = 12;
 
 /**
  * Write GPU transform data into an ArrayBuffer at the given value offset.
- * Each transform occupies 14 × 4-byte values (56 bytes).
+ * Each transform occupies 12 × 4-byte values (48 bytes).
  * Requires both Float32Array and Uint32Array views over the same buffer.
  */
 export function writeGPUTransform(
@@ -812,20 +759,18 @@ export function writeGPUTransform(
 ): void {
 	f32[offset] = gt.tx;
 	f32[offset + 1] = gt.ty;
-	f32[offset + 2] = gt.originX;
-	f32[offset + 3] = gt.originY;
-	f32[offset + 4] = gt.m00;
-	f32[offset + 5] = gt.m01;
-	f32[offset + 6] = gt.m10;
-	f32[offset + 7] = gt.m11;
+	f32[offset + 2] = gt.m00;
+	f32[offset + 3] = gt.m01;
+	f32[offset + 4] = gt.m10;
+	f32[offset + 5] = gt.m11;
 	// maskIndex and _pad1 are u32 values — write via Uint32Array view
 	const u = u32 ?? new Uint32Array(f32.buffer, f32.byteOffset, f32.length);
-	u[offset + 8] = gt.maskIndex;
-	u[offset + 9] = 0;
-	f32[offset + 10] = gt.maskBoundsMinX;
-	f32[offset + 11] = gt.maskBoundsMinY;
-	f32[offset + 12] = gt.maskBoundsMaxX;
-	f32[offset + 13] = gt.maskBoundsMaxY;
+	u[offset + 6] = gt.maskIndex;
+	u[offset + 7] = 0;
+	f32[offset + 8] = gt.maskBoundsMinX;
+	f32[offset + 9] = gt.maskBoundsMinY;
+	f32[offset + 10] = gt.maskBoundsMaxX;
+	f32[offset + 11] = gt.maskBoundsMaxY;
 }
 
 /**
@@ -838,7 +783,6 @@ export function cursorLocalToWorld(
 	elementX: number,
 	elementY: number,
 	t: ElementTransform,
-	origin: { x: number; y: number },
 	writingMode: "horizontal-tb" | "vertical-rl" | "vertical-lr",
 ): { x: number; y: number; height: number } {
 	const ex = localPos.x + elementX;
@@ -848,7 +792,7 @@ export function cursorLocalToWorld(
 		return { x: ex, y: ey, height: localPos.height };
 	}
 
-	const world = applyTransformToPoint(ex, ey, t, origin.x, origin.y);
+	const world = applyTransformToPoint(ex, ey, t);
 	const isVertical =
 		writingMode === "vertical-rl" || writingMode === "vertical-lr";
 	return {

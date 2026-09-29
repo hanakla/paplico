@@ -26,6 +26,7 @@ import { AdjustColorAction } from "./AdjustColorAction";
 import { CharTouchAdjustControls } from "./CharTouchControls";
 import { ContextActionsBar } from "./ContextActionsBar";
 import { ElementActions } from "./ElementActions";
+import { EyedropperCandidateActions } from "./EyedropperCandidateActions";
 import { GradientStopActions } from "./GradientStopActions";
 import { MoreActionsMenu } from "./MoreActionsMenu";
 import { Reference3DNodeActions } from "./Reference3DNodeActions";
@@ -234,6 +235,26 @@ function ContextActionsOverlayInner({
 		};
 	} else if (!charTouchMode) {
 		editAnchorRef.current = null;
+	}
+
+	// Eyedropper candidates: a pick list of their own at the pressed point,
+	// with or without a selection.
+	const toolSession = snap.toolSession;
+	if (toolSession?.type === "eyedropper-candidates") {
+		const pressed = worldToScreen(
+			toolSession.point.x,
+			toolSession.point.y,
+			viewport,
+			canvasWidth,
+			canvasHeight,
+		);
+		// The bar hangs above its anchor; the gap keeps a finger or pen tip
+		// from covering the first row.
+		return (
+			<ContextActionsBar anchor={{ x: pressed.x, y: pressed.y - 16 }}>
+				<EyedropperCandidateActions candidates={toolSession.candidates} />
+			</ContextActionsBar>
+		);
 	}
 
 	if (!bounds || !deferredShowBar) return null;

@@ -1,2 +1,2 @@
-export { Clipboard, PAPLICO_ELEMENTS_MIME } from "./Clipboard";
+export { Clipboard } from "./Clipboard";
 export { DomLocalFontBackend } from "./localfonts.dom";

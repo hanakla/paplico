@@ -10,6 +10,7 @@ import {
 	inverseTransformPoint,
 	inverseTransformVector,
 	isInViewport,
+	keepPointInPlace,
 	linearMatrixToTransform,
 	mirrorTransform,
 	screenToWorld,
@@ -392,18 +393,11 @@ describe("coordinates", () => {
 
 describe("inverseTransformPoint", () => {
 	const t = { x: 12, y: -8, rotation: Math.PI / 5, scaleX: 2, scaleY: 0.5 };
-	const origin = { x: 40, y: 25 };
 
 	it("should round-trip with applyTransformToPoint", () => {
 		const local = { x: 17, y: -3 };
-		const world = applyTransformToPoint(
-			local.x,
-			local.y,
-			t,
-			origin.x,
-			origin.y,
-		);
-		const back = inverseTransformPoint(world.x, world.y, t, origin.x, origin.y);
+		const world = applyTransformToPoint(local.x, local.y, t);
+		const back = inverseTransformPoint(world.x, world.y, t);
 		expect(back.x).toBeCloseTo(local.x);
 		expect(back.y).toBeCloseTo(local.y);
 	});
@@ -424,33 +418,23 @@ describe("inverseTransformPoint", () => {
 
 	it("should return the input unchanged for degenerate scales", () => {
 		const zero = { ...t, scaleX: 0 };
-		expect(inverseTransformPoint(3, 4, zero, 0, 0)).toEqual({ x: 3, y: 4 });
+		expect(inverseTransformPoint(3, 4, zero)).toEqual({ x: 3, y: 4 });
 		expect(inverseTransformVector(3, 4, zero)).toEqual({ x: 3, y: 4 });
 	});
 });
 
 describe("mirrorTransform", () => {
-	const origin = { x: 30, y: 20 };
-
-	it("should mirror points around the transform origin on the X axis", () => {
+	it("should mirror points around the local origin on the X axis", () => {
 		const t = { x: 0, y: 0, rotation: Math.PI / 6, scaleX: 2, scaleY: 0.5 };
 		const local = { x: 44, y: 9 };
-		const before = applyTransformToPoint(
-			local.x,
-			local.y,
-			t,
-			origin.x,
-			origin.y,
-		);
+		const before = applyTransformToPoint(local.x, local.y, t);
 		const after = applyTransformToPoint(
 			local.x,
 			local.y,
 			mirrorTransform(t, true, false),
-			origin.x,
-			origin.y,
 		);
 
-		expect(after.x).toBeCloseTo(2 * origin.x - before.x);
+		expect(after.x).toBeCloseTo(-before.x);
 		expect(after.y).toBeCloseTo(before.y);
 	});
 
@@ -577,8 +561,8 @@ describe("skew (shear) transforms", () => {
 	};
 
 	it("should round-trip applyTransformToPoint through inverseTransformPoint", () => {
-		const world = applyTransformToPoint(9, 4, a, 2, 1);
-		const back = inverseTransformPoint(world.x, world.y, a, 2, 1);
+		const world = applyTransformToPoint(9, 4, a);
+		const back = inverseTransformPoint(world.x, world.y, a);
 		expect(back.x).toBeCloseTo(9, 9);
 		expect(back.y).toBeCloseTo(4, 9);
 	});
@@ -596,10 +580,10 @@ describe("skew (shear) transforms", () => {
 
 	it("should make composeTransforms equal function composition (group inheritance)", () => {
 		const p = { x: 6, y: -4 };
-		const viaB = applyTransformToPoint(p.x, p.y, b, 0, 0);
-		const viaAB = applyTransformToPoint(viaB.x, viaB.y, a, 0, 0);
+		const viaB = applyTransformToPoint(p.x, p.y, b);
+		const viaAB = applyTransformToPoint(viaB.x, viaB.y, a);
 		const composed = composeTransforms(a, b);
-		const direct = applyTransformToPoint(p.x, p.y, composed, 0, 0);
+		const direct = applyTransformToPoint(p.x, p.y, composed);
 		expect(direct.x).toBeCloseTo(viaAB.x, 6);
 		expect(direct.y).toBeCloseTo(viaAB.y, 6);
 	});
@@ -617,8 +601,8 @@ describe("skew (shear) transforms", () => {
 		const left = composeTransforms(composeTransforms(a, b), c);
 		const right = composeTransforms(a, composeTransforms(b, c));
 		const p = { x: 6, y: -4 };
-		const lp = applyTransformToPoint(p.x, p.y, left, 0, 0);
-		const rp = applyTransformToPoint(p.x, p.y, right, 0, 0);
+		const lp = applyTransformToPoint(p.x, p.y, left);
+		const rp = applyTransformToPoint(p.x, p.y, right);
 		expect(lp.x).toBeCloseTo(rp.x, 6);
 		expect(lp.y).toBeCloseTo(rp.y, 6);
 	});
@@ -628,8 +612,8 @@ describe("skew (shear) transforms", () => {
 		// b has skewY≠0, so QR re-canonicalizes to skewY=0; compare by the point
 		// mapping (identical matrix), not by field equality.
 		const p = { x: 3, y: 8 };
-		const viaSolved = applyTransformToPoint(p.x, p.y, solved, 0, 0);
-		const viaB = applyTransformToPoint(p.x, p.y, b, 0, 0);
+		const viaSolved = applyTransformToPoint(p.x, p.y, solved);
+		const viaB = applyTransformToPoint(p.x, p.y, b);
 		expect(viaSolved.x).toBeCloseTo(viaB.x, 6);
 		expect(viaSolved.y).toBeCloseTo(viaB.y, 6);
 	});
@@ -653,16 +637,15 @@ describe("skew (shear) transforms", () => {
 		};
 		const composed = composeTransforms(group, child);
 		// A local point at (0, 10): pure skewX shifts x by tan(30°)·10, y unchanged.
-		const world = applyTransformToPoint(0, 10, composed, 0, 0);
+		const world = applyTransformToPoint(0, 10, composed);
 		expect(world.x).toBeCloseTo(Math.tan(degToRad(30)) * 10, 6);
 		expect(world.y).toBeCloseTo(10, 6);
 	});
 });
 
 describe("applyWorldAffineToTransform", () => {
-	// The element renders local point `p` to world through its transform about
-	// its local-bounds centre as origin: w(p) = M·(p − c) + c + t.
-	const localCenter = { x: 40, y: 25 };
+	// The element renders local point `p` to world through its transform:
+	// w(p) = M·p + t.
 	const t0: ElementTransform = {
 		x: 12,
 		y: -7,
@@ -693,25 +676,13 @@ describe("applyWorldAffineToTransform", () => {
 	];
 
 	it("should map the whole geometry by the world affine (no ancestor)", () => {
-		const newT = applyWorldAffineToTransform(t0, localCenter, null, L, tx, ty);
+		const newT = applyWorldAffineToTransform(t0, null, L, tx, ty);
 		for (const p of probes) {
-			const oldW = applyTransformToPoint(
-				p.x,
-				p.y,
-				t0,
-				localCenter.x,
-				localCenter.y,
-			);
+			const oldW = applyTransformToPoint(p.x, p.y, t0);
 			// Desired world point after applying p' = L·p + t to the old world point.
 			const desiredX = L.m00 * oldW.x + L.m01 * oldW.y + tx;
 			const desiredY = L.m10 * oldW.x + L.m11 * oldW.y + ty;
-			const newW = applyTransformToPoint(
-				p.x,
-				p.y,
-				newT,
-				localCenter.x,
-				localCenter.y,
-			);
+			const newW = applyTransformToPoint(p.x, p.y, newT);
 			expect(newW.x).toBeCloseTo(desiredX, 6);
 			expect(newW.y).toBeCloseTo(desiredY, 6);
 		}
@@ -719,29 +690,10 @@ describe("applyWorldAffineToTransform", () => {
 
 	it("should be a no-op for the identity affine", () => {
 		const identity = { m00: 1, m01: 0, m10: 0, m11: 1 };
-		const newT = applyWorldAffineToTransform(
-			t0,
-			localCenter,
-			null,
-			identity,
-			0,
-			0,
-		);
+		const newT = applyWorldAffineToTransform(t0, null, identity, 0, 0);
 		for (const p of probes) {
-			const oldW = applyTransformToPoint(
-				p.x,
-				p.y,
-				t0,
-				localCenter.x,
-				localCenter.y,
-			);
-			const newW = applyTransformToPoint(
-				p.x,
-				p.y,
-				newT,
-				localCenter.x,
-				localCenter.y,
-			);
+			const oldW = applyTransformToPoint(p.x, p.y, t0);
+			const newW = applyTransformToPoint(p.x, p.y, newT);
 			expect(newW.x).toBeCloseTo(oldW.x, 6);
 			expect(newW.y).toBeCloseTo(oldW.y, 6);
 		}
@@ -757,35 +709,56 @@ describe("applyWorldAffineToTransform", () => {
 			skewX: 0,
 			skewY: degToRad(8),
 		};
-		const newChildT = applyWorldAffineToTransform(
-			t0,
-			localCenter,
-			ancestorT,
-			L,
-			tx,
-			ty,
-		);
+		const newChildT = applyWorldAffineToTransform(t0, ancestorT, L, tx, ty);
 		for (const p of probes) {
 			const oldComposed = composeTransforms(ancestorT, t0);
-			const oldW = applyTransformToPoint(
-				p.x,
-				p.y,
-				oldComposed,
-				localCenter.x,
-				localCenter.y,
-			);
+			const oldW = applyTransformToPoint(p.x, p.y, oldComposed);
 			const desiredX = L.m00 * oldW.x + L.m01 * oldW.y + tx;
 			const desiredY = L.m10 * oldW.x + L.m11 * oldW.y + ty;
 			const newComposed = composeTransforms(ancestorT, newChildT);
-			const newW = applyTransformToPoint(
-				p.x,
-				p.y,
-				newComposed,
-				localCenter.x,
-				localCenter.y,
-			);
+			const newW = applyTransformToPoint(p.x, p.y, newComposed);
 			expect(newW.x).toBeCloseTo(desiredX, 5);
 			expect(newW.y).toBeCloseTo(desiredY, 5);
 		}
+	});
+});
+
+describe("keepPointInPlace", () => {
+	const current: ElementTransform = {
+		x: 5,
+		y: -3,
+		rotation: 0.4,
+		scaleX: 1.5,
+		scaleY: 0.8,
+	};
+	const next: ElementTransform = {
+		...current,
+		rotation: 1.2,
+		scaleX: 0.7,
+		skewX: degToRad(15),
+	};
+	const point = { x: 40, y: 25 };
+
+	it("should keep the point where the current transform places it", () => {
+		const kept = keepPointInPlace(current, next, point);
+		const before = applyTransformToPoint(point.x, point.y, current);
+		const after = applyTransformToPoint(point.x, point.y, kept);
+		expect(after.x).toBeCloseTo(before.x, 9);
+		expect(after.y).toBeCloseTo(before.y, 9);
+	});
+
+	it("should keep the next transform's rotation, scale and skew", () => {
+		const kept = keepPointInPlace(current, next, point);
+		expect(kept).toMatchObject({
+			rotation: next.rotation,
+			scaleX: next.scaleX,
+			scaleY: next.scaleY,
+			skewX: next.skewX,
+		});
+	});
+
+	it("should leave a transform alone when only its translation changed", () => {
+		const moved = { ...current, x: 80, y: 90 };
+		expect(keepPointInPlace(current, moved, point)).toEqual(current);
 	});
 });

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CirclePrimitive, UIOverlay } from "../renderer/ui/primitives";
 import { UI_THEME } from "../renderer/ui/theme";
 import type { Path, StrokeWidthPoint } from "../schema";
@@ -13,6 +13,7 @@ import {
 	testViewport,
 } from "../testUtils/pointerEvent";
 import { StrokeWidthEditTool } from "./StrokeWidthEditTool";
+import { LONG_PRESS_MS } from "./Tool";
 
 function createTestPath(strokeWidths?: StrokeWidthPoint[]): Path {
 	return {
@@ -636,6 +637,120 @@ describe("StrokeWidthEditTool", () => {
 			);
 
 			expect(handled).toBe(false);
+		});
+	});
+
+	describe.each([
+		"width",
+		"erasure",
+	] as const)("onPointerUp (long press on a point, %s target)", (target) => {
+		// The t=0.5 point's white centre disc sits at world(0, 0) → screen(400, 300).
+		const key = target === "width" ? "strokeWidths" : "strokeErasure";
+
+		beforeEach(() => {
+			vi.useFakeTimers();
+			ctx.getCurrentLayer.mockReturnValue({ id: "layer-1" } as any);
+			path = {
+				...createTestPath(),
+				[key]: [{ t: 0.5, side1: 0.5, side2: 0.8 }],
+			};
+			ctx.getPathById.mockReturnValue(path);
+			ctx.updateElement.mockImplementation((_id, patch) => {
+				path = { ...path, ...patch } as Path;
+				ctx.getPathById.mockReturnValue(path);
+			});
+
+			tool.setOptions({ target });
+			tool.initWithSelectedPath(
+				path,
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("should delete the point when released after a long press", () => {
+			vi.advanceTimersByTime(LONG_PRESS_MS);
+			tool.onPointerUp(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const patch = ctx.mockCommands.updateElement.mock.calls.at(
+				-1,
+			)![2] as Partial<Path>;
+			expect(patch[key]).toEqual([]);
+		});
+
+		it("should keep the point in place while the pointer wobbles during a long press", () => {
+			tool.onPointerMove(
+				ev(402, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			vi.advanceTimersByTime(LONG_PRESS_MS);
+			tool.onPointerUp(
+				ev(402, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.updateElement).not.toHaveBeenCalled();
+			const patch = ctx.mockCommands.updateElement.mock.calls.at(
+				-1,
+			)![2] as Partial<Path>;
+			expect(patch[key]).toEqual([]);
+		});
+
+		it("should not delete the point when released before the long press", () => {
+			vi.advanceTimersByTime(LONG_PRESS_MS - 1);
+			tool.onPointerUp(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const patch = ctx.mockCommands.updateElement.mock.calls.at(-1)?.[2] as
+				| Partial<Path>
+				| undefined;
+			expect(patch?.[key]).not.toEqual([]);
+		});
+
+		it("should drag the point instead of deleting it once the pointer moves away", () => {
+			vi.advanceTimersByTime(LONG_PRESS_MS);
+			tool.onPointerMove(
+				ev(450, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(450, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const patch = ctx.mockCommands.updateElement.mock.calls.at(
+				-1,
+			)![2] as Partial<Path>;
+			expect(patch[key]).toHaveLength(1);
+			expect(patch[key]![0].t).toBeGreaterThan(0.5);
 		});
 	});
 

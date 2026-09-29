@@ -5,7 +5,15 @@ import {
 	yMapToObject,
 } from "../collaboration/extractDocumentFromYDoc";
 import { createDefaultDocument } from "../document/factory";
-import { applyMigrations, LATEST_SCHEMA_VERSION } from "../io/migrations";
+import {
+	applyMigrations,
+	LATEST_SCHEMA_VERSION,
+	needsWholeDocumentMigration,
+} from "../io/migrations";
+import {
+	type ChangedElementsAccumulator,
+	emptyChanges,
+} from "../renderer/changedElements";
 import type { Artboard, CubicBezierSegment, Document, Path } from "../schema";
 import { selectEntriesForArtboard } from "./artboardFilter";
 import { TimelapseIndexBuilder } from "./timelapseIndex";
@@ -13,6 +21,7 @@ import type {
 	PlaybackState,
 	TimelapseData,
 	TimelapseDirtyRect,
+	TimelapseFrame,
 	TimelapseIndex,
 } from "./types";
 
@@ -86,6 +95,8 @@ export class TimelapsePlayer {
 	private currentDoc: Document | null = null;
 
 	private activePathAnim: PathAnimation | null = null;
+	/** Path the previous frame showed shortened, whose object the next frame replaces. */
+	private lastAnimatedPathId: string | null = null;
 	private isPlaying = false;
 	private isPreparing = false;
 	private disposed = false;
@@ -111,7 +122,7 @@ export class TimelapsePlayer {
 	public constructor(
 		data: TimelapseData,
 		private callbacks: {
-			onFrame: (document: Document) => void;
+			onFrame: (frame: TimelapseFrame) => void;
 			onStateChange: (state: PlaybackState) => void;
 			/** The live document, which is what the recording ends at. */
 			getCompletedDocument: () => Document;
@@ -158,7 +169,10 @@ export class TimelapsePlayer {
 			this.introPhase = "complete";
 			this.introElapsed = 0;
 			this.resetReplay();
-			this.callbacks.onFrame(this.buildCompletedDocument());
+			this.callbacks.onFrame({
+				document: this.buildCompletedDocument(),
+				changedElements: undefined,
+			});
 		}
 
 		this.animFrameId = requestAnimationFrame(this.tick);
@@ -203,7 +217,7 @@ export class TimelapsePlayer {
 	 * segment-by-segment draw-on of each new path, which the video would
 	 * otherwise skip straight past.
 	 */
-	public advanceBy(elapsedMs: number): Document | null {
+	public advanceBy(elapsedMs: number): TimelapseFrame | null {
 		const scaled = elapsedMs * this.speed;
 
 		if (this.activePathAnim) {
@@ -230,7 +244,7 @@ export class TimelapsePlayer {
 	}
 
 	/** Rewind to a blank canvas, for an export that walks the whole recording. */
-	public restart(): Document {
+	public restart(): TimelapseFrame {
 		this.resetReplay();
 		return this.consumeFrame();
 	}
@@ -327,7 +341,7 @@ export class TimelapsePlayer {
 		}
 	};
 
-	private advanceToNextVisibleEntry(): Document | null {
+	private advanceToNextVisibleEntry(): TimelapseFrame | null {
 		const nextCursor = this.visibleCursor + 1;
 		this.applyEntriesUpTo(this.visible[nextCursor]);
 		this.visibleCursor = nextCursor;
@@ -338,8 +352,7 @@ export class TimelapsePlayer {
 			return null;
 		}
 
-		this.startPathAnimationIfNewPath();
-		return this.consumeFrame();
+		return this.consumeFrame(true);
 	}
 
 	private seekInternal(visibleIndex: number): void {
@@ -433,9 +446,16 @@ export class TimelapsePlayer {
 		}
 	}
 
-	private startPathAnimationIfNewPath(): void {
-		for (const addedId of this.touched.added) {
-			const element = this.readObject(addedId);
+	/**
+	 * Start the draw-on of the first path among `addedIds`, taken from
+	 * `document`, the frame it was migrated in with its parents.
+	 */
+	private startPathAnimationIfNewPath(
+		addedIds: readonly string[],
+		document: Document,
+	): void {
+		for (const addedId of addedIds) {
+			const element = document.objects[addedId];
 			if (element?.type !== "path" || element.segments.length === 0) continue;
 
 			this.activePathAnim = {
@@ -462,22 +482,39 @@ export class TimelapsePlayer {
 		this.callbacks.onFrame(this.consumeFrame());
 	}
 
-	/** Bring the reconstructed Document up to date and overlay any draw-on animation. */
-	private consumeFrame(): Document {
-		const document = this.syncDocument();
+	/**
+	 * Bring the reconstructed Document up to date and overlay any draw-on
+	 * animation. `animateNewPath` starts a draw-on for a path the applied
+	 * entries added.
+	 */
+	private consumeFrame(animateNewPath = false): TimelapseFrame {
+		const addedIds = animateNewPath ? [...this.touched.added] : [];
+		const frame = this.syncDocument();
+		if (addedIds.length > 0) {
+			this.startPathAnimationIfNewPath(addedIds, frame.document);
+		}
 		const animation = this.activePathAnim;
-		if (!animation) return document;
+		// The draw-on hands out a fresh shortened copy of its path every frame,
+		// and the frame after it ends puts the recorded path back.
+		if (frame.changedElements) {
+			for (const id of [this.lastAnimatedPathId, animation?.pathId]) {
+				if (id == null || frame.changedElements.deleted.has(id)) continue;
+				frame.changedElements.upserted.add(id);
+			}
+		}
+		this.lastAnimatedPathId = animation?.pathId ?? null;
+		if (!animation) return frame;
 
 		const progress = Math.min(1, animation.elapsed / animation.duration);
 		const visibleCount = Math.max(
 			1,
 			Math.ceil(animation.segments.length * progress),
 		);
-		document.objects[animation.pathId] = {
+		frame.document.objects[animation.pathId] = {
 			...animation.element,
 			segments: animation.segments.slice(0, visibleCount),
 		};
-		return document;
+		return frame;
 	}
 
 	/**
@@ -488,20 +525,24 @@ export class TimelapsePlayer {
 	 * Yjs every time, but the frame itself has to be a new object: handing the
 	 * renderer the same Document twice makes it redraw the first one, so the
 	 * preview freezes on whatever was on screen when playback started.
+	 *
+	 * A full re-extract rebuilds every object, so it reports no change set.
 	 */
-	private syncDocument(): Document {
+	private syncDocument(): {
+		document: Document;
+		changedElements: ChangedElementsAccumulator | undefined;
+	} {
 		const touched = this.touched;
 		this.touched = createTouchedState();
 
 		// Anything outside objects and layers is rare enough that re-extracting
 		// the whole document beats maintaining a patch path for each of them.
-		// A compound path's migration measures its sources, which a lone object
-		// read cannot hand it.
+		// A migration that reads other elements cannot run on a lone object
+		// read either.
 		if (
 			!this.currentDoc ||
 			touched.other ||
-			(this.replayedSchemaVersion() < LATEST_SCHEMA_VERSION &&
-				this.touchesCompoundPath(touched.upserted))
+			needsWholeDocumentMigration(this.replayedSchemaVersion())
 		) {
 			const document = extractDocumentFromYDoc(this.replayDoc, {
 				skipUnreadableObjects: true,
@@ -510,7 +551,10 @@ export class TimelapsePlayer {
 			applyMigrations(document);
 			document.id = TIMELAPSE_REPLAY_DOCUMENT_ID;
 			this.currentDoc = document;
-			return { ...document, objects: { ...document.objects } };
+			return {
+				document: { ...document, objects: { ...document.objects } },
+				changedElements: undefined,
+			};
 		}
 
 		const document = this.currentDoc;
@@ -518,15 +562,27 @@ export class TimelapsePlayer {
 			document.layers = extractLayersFromYDoc(this.replayDoc);
 		}
 
-		for (const id of touched.deleted) delete document.objects[id];
+		const changedElements = emptyChanges();
+		for (const id of touched.deleted) {
+			delete document.objects[id];
+			changedElements.deleted.add(id);
+		}
 		for (const id of touched.upserted) {
 			if (touched.deleted.has(id)) continue;
 			const element = this.readObject(id);
-			if (element) document.objects[id] = element;
-			else delete document.objects[id];
+			if (element) {
+				document.objects[id] = element;
+				changedElements.upserted.add(id);
+			} else {
+				delete document.objects[id];
+				changedElements.deleted.add(id);
+			}
 		}
 
-		return { ...document, objects: { ...document.objects } };
+		return {
+			document: { ...document, objects: { ...document.objects } },
+			changedElements,
+		};
 	}
 
 	/** Rebuild a single object from the replay document, in this build's shape. */
@@ -557,16 +613,6 @@ export class TimelapsePlayer {
 			this.schemaVersions.findLast(({ at }) => at <= this.appliedUpToIndex)
 				?.version ?? LATEST_SCHEMA_VERSION
 		);
-	}
-
-	private touchesCompoundPath(ids: Iterable<string>): boolean {
-		const yObjects = this.replayDoc.getMap("objects");
-		for (const id of ids) {
-			const yObject = yObjects.get(id);
-			if (yObject instanceof Y.Map && yObject.get("type") === "compound-path")
-				return true;
-		}
-		return false;
 	}
 
 	private buildCompletedDocument(): Document {

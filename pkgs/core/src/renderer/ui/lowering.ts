@@ -519,14 +519,63 @@ function lowerPolyline(
 		);
 	}
 	if (prim.stroke) {
+		const hw = resolveStrokeHalfWidth(prim.stroke.width, zoom);
+		if (prim.stroke.dash) {
+			writeDashedPolylineStroke(
+				scratch,
+				points,
+				prim.closed ?? false,
+				prim.stroke.color,
+				hw,
+				prim.stroke.dash.length / zoom,
+				prim.stroke.dash.gap / zoom,
+				ox,
+				oy,
+			);
+			return;
+		}
 		writePolylineStroke(
 			scratch,
 			points,
 			prim.closed ?? false,
 			prim.stroke.color,
-			resolveStrokeHalfWidth(prim.stroke.width, zoom),
+			hw,
 			ox,
 			oy,
+		);
+	}
+}
+
+/** Dash every edge of a polyline on its own, the closing edge included. */
+function writeDashedPolylineStroke(
+	scratch: LoweringScratch,
+	points: ReadonlyArray<FillPoint>,
+	closed: boolean,
+	color: RGBA,
+	hw: number,
+	dashLen: number,
+	gapLen: number,
+	ox: number,
+	oy: number,
+): void {
+	const [r, g, b, a] = color;
+	const edgeCount = closed ? points.length : points.length - 1;
+	for (let i = 0; i < edgeCount; i++) {
+		const p0 = points[i];
+		const p1 = points[(i + 1) % points.length];
+		writeDashedLineInstances(
+			scratch,
+			p0.x + ox,
+			p0.y + oy,
+			p1.x + ox,
+			p1.y + oy,
+			r,
+			g,
+			b,
+			a,
+			hw,
+			dashLen,
+			gapLen,
 		);
 	}
 }

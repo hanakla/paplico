@@ -60,10 +60,10 @@ import {
 	type WorldBBox,
 } from "../../utils/geometry/bounds";
 import {
-	applyTransformToBounds,
-	composeAncestorTransform,
-	composeTransforms,
+	composeAncestorMatrix,
 	getVisibleWorldBounds,
+	placeElement,
+	transformBounds,
 } from "../../utils/geometry/geometry";
 import type { MeshWarpClipGroup } from "../../utils/geometry/meshWarp";
 import {
@@ -660,7 +660,8 @@ export class CanvasLayer {
 	private lastOverrideIds: ReadonlySet<string> | null = null;
 	/**
 	 * Per-frame filtered-element cache participation, set by renderDocument.
-	 * Null disables the cache for the frame (partial/isolated renders).
+	 * Null disables the cache for the frame (partial/isolated renders, and
+	 * untracked frames without viewport bounds).
 	 * blockedIds = everything the previewed elements render (their closure),
 	 * so a dragged container blocks its relocated descendants; overrideIds is
 	 * the raw preview set, checked against each bake's own dependency closure
@@ -1072,6 +1073,7 @@ export class CanvasLayer {
 			getTransformIndex: (elementId: string) =>
 				this.viewportManager.getTransformIndex(elementId),
 			getComposedTransform: this.getComposedTransform,
+			getAncestorMatrix: (id) => this.viewportManager.getAncestorMatrix(id),
 			setActiveBindGroup: (entry, replace) => {
 				if (entry) {
 					if (replace) {
@@ -1351,7 +1353,7 @@ export class CanvasLayer {
 			elementsMap,
 			localBoundsCache: this.viewportManager.getBoundsCache(),
 			parentGroupMap: this.viewportManager.getParentGroupMap(),
-			composedTransformCache: this.viewportManager.getComposedTransformCache(),
+			ancestorMatrixOf: (id) => this.viewportManager.getAncestorMatrix(id),
 		};
 		let clipGroups = this.viewportManager.hasClipGroups
 			? collectClipGroups(boundsContext, drawRegion, (element, union) => {
@@ -1435,9 +1437,6 @@ export class CanvasLayer {
 		if (maskContentIds.size > 0) {
 			// Mask content is stored in its owner's space and drawn through the
 			// owner's world transform, so its plans are sized from there too.
-			const parentGroupMap = this.viewportManager.getParentGroupMap();
-			const composedTransforms =
-				this.viewportManager.getComposedTransformCache();
 			const maskPlans = buildFilterPlansForElements(
 				[...maskContentIds]
 					.map((id) => elementsMap.get(id))
@@ -1445,12 +1444,7 @@ export class CanvasLayer {
 				elementsMap,
 				this.filterRenderer,
 				this.viewportManager.getBoundsCache(),
-				(elementId) => {
-					const parentId = parentGroupMap.get(elementId);
-					return parentId == null
-						? null
-						: (composedTransforms.get(parentId) ?? null);
-				},
+				(elementId) => this.viewportManager.getAncestorMatrix(elementId),
 			);
 			if (maskPlans.size > 0) {
 				this.executeFilterPlans(encoder, maskFilteredTextures, framePlan, [
@@ -1557,16 +1551,14 @@ export class CanvasLayer {
 
 	/** Where an element is drawn this frame: its bounds carried through the
 	 *  containers above it, as the transform buffer composes them. */
-	private worldBoundsOf = (element: AnyArtObject): WorldBBox => {
-		const parentId = this.viewportManager.getParentGroupMap().get(element.id);
-		return planBoundsOf(
+	private worldBoundsOf = (element: AnyArtObject): WorldBBox =>
+		planBoundsOf(
 			element,
 			this.activeFramePlan!.elementsMap,
 			null,
 			this.viewportManager.getBoundsCache(),
-			parentId ? this.getComposedTransform(parentId) : null,
+			this.viewportManager.getAncestorMatrix(element.id),
 		);
-	};
 
 	/** Clip groups living inside mesh warp containers, warped with their members. */
 	private collectMeshWarpClipGroups(
@@ -1921,8 +1913,8 @@ export class CanvasLayer {
 		}
 		// Element overrides swap in new geometry under the same element id
 		// (e.g. path-edit drag previews), so the cached local bounds — and the
-		// GPU transform origins / texture tile rects derived from them — go
-		// stale the moment an override appears, changes, or clears. The map is
+		// texture tile rects derived from them — go stale the moment an
+		// override appears, changes, or clears. The map is
 		// mutated in place (no identity change per update), so evict by id
 		// every frame while any override is active, and once more after the
 		// set empties to restore the un-overridden bounds.
@@ -2341,9 +2333,12 @@ export class CanvasLayer {
 			);
 		}
 		// The filtered-element cache only participates in ordinary full-document
-		// frames: partial renders (elementFilter), isolation modes, and export
-		// (null viewport bounds, checked at use site) draw a different subset or
-		// resolution than a cached bake represents. Preview overrides/transients
+		// frames: partial renders (elementFilter) and isolation modes draw a
+		// different subset than a cached bake represents. A frame without
+		// viewport bounds (export, culling off) joins only with a change set:
+		// untracked, it is a one-off render whose bakes the next frame could
+		// not trust, while a tracked sequence of them (timelapse playback)
+		// reuses every unchanged element's bake. Preview overrides/transients
 		// bypass the cache per element instead of disabling the frame, so
 		// dragging one element keeps every other filtered element's bake hot.
 		const overrideIds: ReadonlySet<string> =
@@ -2354,7 +2349,10 @@ export class CanvasLayer {
 					])
 				: EMPTY_ID_SET;
 		this.filterCacheFrame =
-			!elementFilter && !editingScopeStack?.length && isolatedElementId == null
+			!elementFilter &&
+			!editingScopeStack?.length &&
+			isolatedElementId == null &&
+			(this.viewportState.bounds != null || fg.changedElements != null)
 				? {
 						overrideIds,
 						blockedIds: overrideIds.size
@@ -3905,17 +3903,16 @@ export class CanvasLayer {
 						.filter((id) => id !== scopeElement.clipPathId)
 						.map((id) => ctx.elementsMap.get(id))
 						.filter((el): el is AnyArtObject => el !== undefined);
-					const parentTransform =
-						this.viewportManager
-							.getComposedTransformCache()
-							.get(scopeElement.id) ?? null;
 					dimPass = this.renderElements(
 						dimPass,
 						children,
 						ctx.filteredTextures,
 						ctx.elementsMap,
 						ancestorOpacity * (scopeElement.opacity ?? 1.0),
-						parentTransform,
+						placeElement(
+							this.viewportManager.getAncestorMatrix(scopeElement.id),
+							scopeElement,
+						),
 						undefined,
 						"main",
 						ctx.mainCompositeContext,
@@ -4085,7 +4082,6 @@ export class CanvasLayer {
 				this.filterCacheFrame != null &&
 				selectedPlans === undefined &&
 				!rendersOwnSource &&
-				this.viewportState.bounds != null &&
 				!this.filterCacheFrame.blockedIds.has(element.id) &&
 				!fp.postFilters.some(
 					(f) =>
@@ -4449,15 +4445,13 @@ export class CanvasLayer {
 		const boundsCache = this.viewportManager.getBoundsCache();
 		const bakeIn = (
 			elements: readonly AnyArtObject[],
-			ancestorT: ElementTransform | null,
+			parentMatrix: ElementTransform | null,
 		): void => {
 			for (const element of elements) {
 				if (isGroup(element)) {
 					bakeIn(
 						element.childIds.flatMap((id) => elementsMap.get(id) ?? []),
-						ancestorT
-							? composeTransforms(ancestorT, getTransform(element))
-							: getTransform(element),
+						placeElement(parentMatrix, element),
 					);
 					continue;
 				}
@@ -4465,7 +4459,7 @@ export class CanvasLayer {
 				const info = this.bakeRepeat(
 					encoder,
 					element,
-					ancestorT,
+					parentMatrix,
 					elementsMap,
 					rasterScale,
 					boundsCache,
@@ -4480,7 +4474,7 @@ export class CanvasLayer {
 	private bakeRepeat(
 		encoder: GPUCommandEncoder,
 		repeat: RepeatObject,
-		ancestorT: ElementTransform | null,
+		parentMatrix: ElementTransform | null,
 		elementsMap: Map<string, AnyArtObject>,
 		rasterScale: number,
 		boundsCache: LocalBoundsCache,
@@ -4524,15 +4518,10 @@ export class CanvasLayer {
 			y: (union.minY + union.maxY) / 2,
 		};
 		const instances = computeRepeatInstances(repeat, center);
-		// The repeat's own transform pivots the whole set around the source center,
-		// mirroring how a blend pivots around its own bbox center. Ancestor groups
-		// compose onto it around the same center, as the renderer places children.
+		// The instances are laid out around the source center; the repeat's
+		// placement under the ancestor groups composes on top.
 		const repeatAffine = elementTransformToAffine(
-			ancestorT
-				? composeTransforms(ancestorT, getTransform(repeat))
-				: getTransform(repeat),
-			center.x,
-			center.y,
+			placeElement(parentMatrix, repeat),
 		);
 		// Blit quad corners are TL -> TR -> BR -> BL. World space is Y-up, so the
 		// top edge is maxY (matching the extrude bake's quad); ordering the corners
@@ -4812,7 +4801,6 @@ export class CanvasLayer {
 				let cacheDeps: ReadonlySet<string> | null = null;
 				if (
 					this.filterCacheFrame != null &&
-					this.viewportState.bounds != null &&
 					!this.filterCacheFrame.blockedIds.has(elementId) &&
 					this.bakeWithinCacheBudget(bounds, rasterScale) &&
 					!subtreeContainsReference3D(element, elementsMap)
@@ -6094,7 +6082,7 @@ export class CanvasLayer {
 		filteredTextures: Map<string, FilteredTextureInfo>,
 		elementsMap: Map<string, AnyArtObject>,
 		alphaMultiplier: number = 1.0,
-		parentTransform: ElementTransform | null = null,
+		parentMatrix: ElementTransform | null = null,
 		skipElementIds?: ReadonlySet<string>,
 		pipelineType: PipelineType = "main",
 		compositeContext?: CompositeRenderContext,
@@ -6151,7 +6139,7 @@ export class CanvasLayer {
 				element,
 				elementBounds,
 				elementsMap,
-				parentTransform,
+				parentMatrix,
 			);
 			// An extrude appearance projects a 3D solid that extends past the flat
 			// footprint (depth/rotation/perspective); cull against the solid's
@@ -6502,9 +6490,7 @@ export class CanvasLayer {
 						.filter((id) => id !== element.clipPathId)
 						.map((id) => elementsMap.get(id))
 						.filter((el): el is AnyArtObject => el !== undefined);
-					const groupWorldTransform = parentTransform
-						? composeTransforms(parentTransform, getTransform(element))
-						: getTransform(element);
+					const childrenMatrix = placeElement(parentMatrix, element);
 					const outerMasksForBlend = this.resolveSubtreeMasks(element.id);
 					const clipResult = this.offscreen.renderClipGroupToTexture(
 						this.activeEncoder!,
@@ -6512,8 +6498,8 @@ export class CanvasLayer {
 						childElements,
 						filteredTextures,
 						elementsMap,
-						groupWorldTransform,
-						parentTransform ?? null,
+						childrenMatrix,
+						parentMatrix ?? null,
 						skipElementIds,
 						localBoundsCache,
 						outerMasksForBlend,
@@ -6767,9 +6753,7 @@ export class CanvasLayer {
 					continue;
 				}
 				const childAlpha = effectiveAlpha;
-				const groupWorldTransform = parentTransform
-					? composeTransforms(parentTransform, getTransform(element))
-					: getTransform(element);
+				const childrenMatrix = placeElement(parentMatrix, element);
 
 				// Extract group-level pre-filters to propagate to children.
 				// Nested groups apply child→parent order (innermost first).
@@ -6807,7 +6791,7 @@ export class CanvasLayer {
 							filteredTextures,
 							elementsMap,
 							childAlpha,
-							groupWorldTransform,
+							childrenMatrix,
 							skipElementIds,
 							pipelineType,
 							compositeContext,
@@ -6834,8 +6818,8 @@ export class CanvasLayer {
 								filteredTextures,
 								elementsMap,
 								childAlpha,
-								groupWorldTransform,
-								parentTransform ?? null,
+								childrenMatrix,
+								parentMatrix ?? null,
 								skipElementIds,
 								compositeContext,
 								localBoundsCache,
@@ -6861,7 +6845,7 @@ export class CanvasLayer {
 					filteredTextures,
 					elementsMap,
 					childAlpha,
-					groupWorldTransform,
+					childrenMatrix,
 					skipElementIds,
 					pipelineType,
 					compositeContext,
@@ -6903,7 +6887,7 @@ export class CanvasLayer {
 	/**
 	 * `flat` unioned with where the element's geometry filters move its outline
 	 * (copies a transform places, an offset's growth), carried into world
-	 * space through `parentTransform`. Culling and the partial-redraw bounds
+	 * space through `parentMatrix`. Culling and the partial-redraw bounds
 	 * need the deformed reach, or a shape whose flat outline leaves the view
 	 * drops its copies.
 	 */
@@ -6911,21 +6895,21 @@ export class CanvasLayer {
 		element: AnyArtObject,
 		flat: WorldBBox,
 		elementsMap: Map<string, AnyArtObject>,
-		parentTransform?: ElementTransform | null,
+		parentMatrix?: ElementTransform | null,
 	): WorldBBox {
 		const deforms = localAppearances(element.filters).some((f) =>
 			isGeometryFilter(f, this.filterRenderer),
 		);
 		// Under a transformed container the box is rebuilt from the local
-		// bounds: the composed chain pivots on the flat local centre, which a
-		// parent transform applied on top of `flat` would miss.
-		if (parentTransform && !isIdentityTransform(parentTransform)) {
+		// bounds: a parent transform applied on top of `flat`, an axis-aligned
+		// box, would enclose more than the element.
+		if (parentMatrix && !isIdentityTransform(parentMatrix)) {
 			return planBoundsOf(
 				element,
 				elementsMap,
 				deforms ? this.filterRenderer : null,
 				this.viewportManager.getBoundsCache(),
-				parentTransform,
+				parentMatrix,
 			);
 		}
 		if (!deforms) return flat;
@@ -7106,9 +7090,7 @@ export class CanvasLayer {
 					.getComposedTransformCache()
 					.get(groupId);
 				if (groupTransform) {
-					bounds = brandWorldBBox(
-						applyTransformToBounds(bounds, groupTransform),
-					);
+					bounds = brandWorldBBox(transformBounds(bounds, groupTransform));
 				}
 				activePass.end();
 				const result = this.offscreen.renderElementToTexture(
@@ -7991,7 +7973,8 @@ interface WorldBoundsContext {
 	elementsMap: Map<string, AnyArtObject>;
 	localBoundsCache?: LocalBoundsCache;
 	parentGroupMap?: ReadonlyMap<string, string>;
-	composedTransformCache?: ReadonlyMap<string, ElementTransform>;
+	/** The chain an element's ancestors place it under, when already known. */
+	ancestorMatrixOf?: (elementId: string) => ElementTransform | null;
 }
 
 /** An element whose `ArtObject.mask` needs a mask texture this frame. */
@@ -8209,18 +8192,13 @@ function computeWorldBounds(
 	ctx: WorldBoundsContext,
 	parentGroupMap: ReadonlyMap<string, string>,
 ): BoundingBox {
-	const parentId = parentGroupMap.get(element.id);
-	const parent = parentId ? ctx.elementsMap.get(parentId) : undefined;
-	const parentTransform = parent
-		? (ctx.composedTransformCache?.get(parent.id) ??
-			composeAncestorTransform(parent, ctx.elementsMap, parentGroupMap))
-		: null;
 	return planBoundsOf(
 		element,
 		ctx.elementsMap,
 		null,
 		ctx.localBoundsCache,
-		parentTransform,
+		ctx.ancestorMatrixOf?.(element.id) ??
+			composeAncestorMatrix(element, ctx.elementsMap, parentGroupMap),
 	);
 }
 

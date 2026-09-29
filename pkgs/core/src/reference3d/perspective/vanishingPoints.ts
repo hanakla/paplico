@@ -114,11 +114,7 @@ export function computePerspectiveGuides(
 			axes.push({
 				axis,
 				kind: "finite",
-				point: localToCanvasPoint(
-					ndcToLocal(ndc, localRect),
-					localRect,
-					transform,
-				),
+				point: localToCanvasPoint(ndcToLocal(ndc, localRect), transform),
 			});
 			continue;
 		}

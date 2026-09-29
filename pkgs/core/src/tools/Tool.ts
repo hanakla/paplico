@@ -10,6 +10,9 @@ export function dragStartThresholdScreenPx(
 	return pointerType === "mouse" ? 3 : 8;
 }
 
+/** How long a press must be held before a tool treats it as a long press. */
+export const LONG_PRESS_MS = 400;
+
 export interface PointerEventData {
 	x: number; // screen coordinates
 	y: number;

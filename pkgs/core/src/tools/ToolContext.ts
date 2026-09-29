@@ -1,4 +1,5 @@
 import type { Font } from "@cantoo/fontkit";
+import type { PaintedHit } from "../document/SpatialIndex";
 import type { PaplicoCommands } from "../PaplicoCommands";
 import type { Reference3DRaycastRequest } from "../reference3d";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
@@ -40,6 +41,7 @@ import type { WorldBBox } from "../utils/geometry/bounds";
 import type { WorldBezierSegment } from "../utils/geometry/geometry";
 import type { PathRun } from "../utils/geometry/pathOps";
 import type { AxisFlip } from "../utils/geometry/resize";
+import type { SelectionFrame } from "../utils/geometry/selectionFrame";
 import type { Reference3DController } from "./Reference3DController";
 import type { TextToolController } from "./TextToolController";
 import type { BucketFillLeakState } from "./toolSettings";
@@ -76,8 +78,8 @@ export type ToolContextOptions = {
 	elementsMove: (elementIds: string[], deltaX: number, deltaY: number) => void;
 	elementsResize: (
 		elementIds: string[],
-		originalBounds: WorldBBox,
-		newBounds: WorldBBox,
+		frame: SelectionFrame,
+		newBounds: BoundingBox,
 		flip?: AxisFlip,
 	) => void;
 	elementsRotate: (
@@ -116,6 +118,8 @@ export type ToolContextOptions = {
 	) => AnyArtObject | null;
 	/** Frontmost painted element at a point, not promoted to its container. */
 	findLeafElementAtPoint: (x: number, y: number) => AnyArtObject | null;
+	/** Every element painted at a point across the pickable layers, front to back. */
+	findPaintedElementsAtPoint: (x: number, y: number) => PaintedHit[];
 	findElementsInRect: (
 		minX: number,
 		minY: number,
@@ -139,6 +143,8 @@ export type ToolContextOptions = {
 	getBounds: (elementId: string) => WorldBBox | null;
 	/** World-space extent of the element's shape, which the selection frame encloses. */
 	getWorldGeometryBounds: (elementId: string) => WorldBBox | null;
+	/** The frame a lone selected element is handled through; null when nothing has a shape. */
+	getElementFrame: (elementId: string) => SelectionFrame | null;
 	/** World-space outline segments as drawn (blend-aware); null for non-paths. */
 	getElementWorldSegments: (elementId: string) => WorldBezierSegment[] | null;
 	getAncestorTransform: (elementId: string) => ElementTransform | null;

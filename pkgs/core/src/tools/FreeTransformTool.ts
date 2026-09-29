@@ -104,17 +104,14 @@ export class FreeTransformTool implements Tool {
 		let restored: Corner[] | null = null;
 		if (single?.type === "image" && single.corners) {
 			// Stored corners live in the rect's local space while the gizmo works
-			// in world space: map them through the composed transform around the
-			// rect centre (the renderer's transform origin). Without this, an
-			// image previously moved with the SelectTool (move delta lives on
-			// transform.x/y) restores its quad offset by that delta.
+			// in world space: map them through the composed transform. Without
+			// this, an image previously moved with the SelectTool (move delta
+			// lives on transform.x/y) restores its quad offset by that delta.
 			const ancestorT = this.context.getAncestorTransform(single.id);
 			const t = ancestorT
 				? composeTransforms(ancestorT, single.transform)
 				: single.transform;
-			restored = single.corners.map(([x, y]) =>
-				applyTransformToPoint(x, y, t, single.x, single.y),
-			);
+			restored = single.corners.map(([x, y]) => applyTransformToPoint(x, y, t));
 		}
 
 		const base =

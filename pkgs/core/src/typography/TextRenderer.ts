@@ -62,14 +62,12 @@ export interface TextDocumentResolver {
 	 */
 	findFlowSource(textId: string): TextElement | null;
 	/**
-	 * Render-side affine of a text element (own ∘ ancestor transform with the
-	 * renderer's rotation origin). resolveGeometry pulls world geometry back
-	 * through its inverse so layout space matches the drawn glyph space for
-	 * transformed texts.
+	 * Render-side affine of a text element (own ∘ ancestor transform).
+	 * resolveGeometry pulls world geometry back through its inverse so layout
+	 * space matches the drawn glyph space for transformed texts.
 	 */
 	getTextTransform?(element: TextElement): {
 		t: ElementTransform;
-		origin: { x: number; y: number };
 		isIdentity: boolean;
 	};
 }
@@ -262,9 +260,7 @@ export class TextRenderer {
 		const ox = element.x;
 		const oy = element.y;
 		const toLocal = (p: { x: number; y: number }) => {
-			const q = inv
-				? inverseTransformPoint(p.x, p.y, inv.t, inv.origin.x, inv.origin.y)
-				: p;
+			const q = inv ? inverseTransformPoint(p.x, p.y, inv.t) : p;
 			return { x: q.x - ox, y: q.y - oy };
 		};
 		const segments = worldSegments.map((seg) => ({
@@ -367,7 +363,7 @@ export class TextRenderer {
 		const tr = this.documentResolver?.getTextTransform?.(element);
 		const t = tr && !tr.isIdentity ? tr : null;
 		const transformKey = t
-			? `${t.t.x},${t.t.y},${t.t.rotation},${t.t.scaleX},${t.t.scaleY}@${t.origin.x},${t.origin.y}`
+			? `${t.t.x},${t.t.y},${t.t.rotation},${t.t.scaleX},${t.t.scaleY}`
 			: "id";
 		return `${JSON.stringify(element.axisBinding)}:${this.geometryRevisionOf(element)}:${element.x},${element.y}:${transformKey}`;
 	}

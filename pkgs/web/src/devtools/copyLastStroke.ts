@@ -1,5 +1,6 @@
 import type { Paplico } from "@paplico/core";
-import { Clipboard, PAPLICO_ELEMENTS_MIME } from "@paplico/core/infra";
+import { Clipboard } from "@paplico/core/infra";
+import { encodeElementsPayload, PAPLICO_ELEMENTS_MIME } from "@paplico/core/io";
 
 /**
  * Dev-only stroke capture: puts the last pen stroke on the clipboard twice
@@ -26,9 +27,12 @@ export async function copyLastStrokeToClipboard(
 
 	await Clipboard.write([
 		new ClipboardItem({
-			[PAPLICO_ELEMENTS_MIME]: new Blob([JSON.stringify([stroke.path])], {
-				type: PAPLICO_ELEMENTS_MIME,
-			}),
+			[PAPLICO_ELEMENTS_MIME]: new Blob(
+				[encodeElementsPayload([stroke.path])],
+				{
+					type: PAPLICO_ELEMENTS_MIME,
+				},
+			),
 			"text/plain": new Blob([JSON.stringify(record)], {
 				type: "text/plain",
 			}),

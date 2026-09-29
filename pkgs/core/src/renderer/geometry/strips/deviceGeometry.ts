@@ -23,9 +23,7 @@ export function composeDeviceTransform(
 	const rotSin = -Math.sin(viewport.rotation);
 	const rotCos = Math.cos(viewport.rotation);
 
-	// world = M · pos + b
-	const bx = gt.originX + gt.tx - (gt.m00 * gt.originX + gt.m01 * gt.originY);
-	const by = gt.originY + gt.ty - (gt.m10 * gt.originX + gt.m11 * gt.originY);
+	// world = M · pos + t
 
 	// R · M
 	const r00 = rotCos * gt.m00 - rotSin * gt.m10;
@@ -33,8 +31,8 @@ export function composeDeviceTransform(
 	const r10 = rotSin * gt.m00 + rotCos * gt.m10;
 	const r11 = rotSin * gt.m01 + rotCos * gt.m11;
 
-	const dx = bx - viewport.x;
-	const dy = by - viewport.y;
+	const dx = gt.tx - viewport.x;
+	const dy = gt.ty - viewport.y;
 
 	return {
 		a: zoom * r00,

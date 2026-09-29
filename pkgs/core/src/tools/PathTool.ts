@@ -29,21 +29,15 @@ import {
 	type Path,
 	type Viewport,
 } from "../schema";
-import {
-	brandWorldBBox,
-	calculatePathBounds,
-	distanceToSegment,
-} from "../utils/geometry/bounds";
+import { brandWorldBBox, distanceToSegment } from "../utils/geometry/bounds";
 import {
 	composeTransforms,
-	computeTransformOrigin,
 	inverseTransform,
 	screenToWorld,
 	worldToScreen,
 } from "../utils/geometry/geometry";
 import {
 	getWorldSegments,
-	holdPivotAncestorTransform,
 	resolveSegment,
 	splitSegmentAtIndex,
 	toWorldPath,
@@ -416,7 +410,7 @@ export class PathTool implements Tool {
 			if (path)
 				this.emitPathEditUIForPath(
 					{ ...path, segments },
-					holdPivotAncestorTransform(path, edit.ancestorTransform, segments),
+					edit.ancestorTransform,
 				);
 			return;
 		}
@@ -1356,8 +1350,7 @@ export class PathTool implements Tool {
 		const t = ancestorT ? composeTransforms(ancestorT, elementT) : elementT;
 		if (isIdentityTransform(t)) return (wx, wy) => ({ x: wx, y: wy });
 
-		const origin = computeTransformOrigin(calculatePathBounds(path));
-		return (wx, wy) => inverseTransform(wx, wy, t, origin.x, origin.y);
+		return (wx, wy) => inverseTransform(wx, wy, t);
 	}
 
 	/** Find the nearest point on a selected path's curve within threshold */

@@ -608,7 +608,7 @@ describe("warpMeshChildren", () => {
 		};
 
 		const { transients, imageWarpGrids } = warpMeshChildren(mesh, {
-			resolve: (id) => (id === image.id ? image : null),
+			elementsMap: new Map([[image.id, image]]),
 			getTextGlyphPaths: () => null,
 		});
 
@@ -686,7 +686,7 @@ describe("warpMeshChildren", () => {
 		};
 
 		const { transients } = warpMeshChildren(mesh, {
-			resolve: (id) => (id === gradientPath.id ? gradientPath : null),
+			elementsMap: new Map([[gradientPath.id, gradientPath]]),
 			getTextGlyphPaths: () => null,
 		});
 		const warped = transients[0];
@@ -749,7 +749,7 @@ describe("warpMeshChildren", () => {
 		};
 
 		const { transients } = warpMeshChildren(mesh, {
-			resolve: (id) => (id === square.id ? square : null),
+			elementsMap: new Map([[square.id, square]]),
 			getTextGlyphPaths: () => null,
 		});
 		const warped = transients[0];
@@ -814,7 +814,7 @@ describe("warpMeshChildren", () => {
 		]);
 
 		const { transients, clipGroups } = warpMeshChildren(mesh, {
-			resolve: (id) => objects.get(id) ?? null,
+			elementsMap: objects,
 			getTextGlyphPaths: () => null,
 		});
 
@@ -864,7 +864,7 @@ describe("warpMeshChildren", () => {
 		};
 
 		const { transients } = warpMeshChildren(mesh, {
-			resolve: (id) => (id === square.id ? square : null),
+			elementsMap: new Map([[square.id, square]]),
 			getTextGlyphPaths: () => null,
 		});
 		expect(transients).toHaveLength(1);
@@ -996,7 +996,7 @@ describe("warpMeshChildren across face boundaries", () => {
 		} as unknown as TextElement;
 
 		const { transients } = warpMeshChildren(meshOf(cage, ["text-1"]), {
-			resolve: (id) => (id === "text-1" ? text : null),
+			elementsMap: new Map([[text.id, text]]),
 			getTextGlyphPaths: () => [glyph],
 		});
 
@@ -1040,7 +1040,7 @@ describe("warpMeshChildren across face boundaries", () => {
 		};
 
 		const { imageWarpGrids } = warpMeshChildren(meshOf(cage, ["img-1"]), {
-			resolve: (id) => (id === "img-1" ? image : null),
+			elementsMap: new Map([[image.id, image]]),
 			getTextGlyphPaths: () => null,
 		});
 

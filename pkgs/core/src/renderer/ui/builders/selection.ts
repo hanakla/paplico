@@ -1,7 +1,6 @@
 import type { UIPrimitive } from "../primitives";
 import type { UITheme } from "../theme";
 import type { SelectionUIData } from "../types";
-import { rectGeom } from "./shared";
 
 /** Selection overlay: path outlines, bounding box, resize + rotation handles. */
 export function buildSelectionOverlay(
@@ -41,15 +40,11 @@ export function buildSelectionOverlay(
 		}
 	}
 
-	// Bounding box
+	// Selection frame
 	prims.push({
-		kind: "rect",
-		...rectGeom(
-			data.bounds.minX,
-			data.bounds.minY,
-			data.bounds.maxX,
-			data.bounds.maxY,
-		),
+		kind: "polyline",
+		points: data.quad,
+		closed: true,
 		// Dashed bounds draw white: the mesh cage boundary outline coincides with
 		// the BBox on an undeformed cage, so a same-colored dash would read as one
 		// solid line — white dashes stay visible on top of it.

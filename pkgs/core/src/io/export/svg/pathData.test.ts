@@ -93,23 +93,14 @@ describe("createCoordMapper", () => {
 			scaleY: 0.5,
 			skewX: 0.2,
 		};
-		const origin = { x: 40, y: 30 };
-		const m = mapper.composeWorld(
-			elementTransformToWorldAffine(transform, origin),
-		);
+		const m = mapper.composeWorld(elementTransformToWorldAffine(transform));
 
 		for (const p of [
 			{ x: 0, y: 0 },
 			{ x: 40, y: 30 },
 			{ x: -120, y: 85 },
 		]) {
-			const world = applyTransformToPoint(
-				p.x,
-				p.y,
-				transform,
-				origin.x,
-				origin.y,
-			);
+			const world = applyTransformToPoint(p.x, p.y, transform);
 			const expected = mapper.point(world);
 			const actual = {
 				x: m.a * p.x + m.c * p.y + m.e,

@@ -28,7 +28,7 @@ guard selected.count > 0 else { return }
 for object in selected {
 	object.transform.x += random() * 100 - 50
 	object.transform.y += random() * 100 - 50
-	object.transform.rotation += random() * 30 - 15
+	object.transform.rotation += (random() * 30 - 15) * pi / 180
 }
 
 print("Transformed $(selected.count) objects")
@@ -213,12 +213,12 @@ print("Selected $(matchedIds.count) text objects containing: $(search)")
 		source: `let selected = paplico.editor.selection
 guard selected.count == 2 else { return }
 
-let firstX = selected[0].transform.x
-let firstY = selected[0].transform.y
-selected[0].transform.x = selected[1].transform.x
-selected[0].transform.y = selected[1].transform.y
-selected[1].transform.x = firstX
-selected[1].transform.y = firstY
+let dx = selected[1].bounds.x - selected[0].bounds.x
+let dy = selected[1].bounds.y - selected[0].bounds.y
+selected[0].transform.x += dx
+selected[0].transform.y += dy
+selected[1].transform.x -= dx
+selected[1].transform.y -= dy
 
 print("Swapped object positions")
 `,

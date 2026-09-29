@@ -2,7 +2,8 @@ import {
 	PAPLICO_MAX_ZOOM_SCALE,
 	PAPLICO_MIN_ZOOM_SCALE,
 } from "../document/constants";
-import { Clipboard, PAPLICO_ELEMENTS_MIME } from "../infra/Clipboard";
+import { Clipboard } from "../infra/Clipboard";
+import { readClipboardElements } from "../io/clipboardPayload";
 import {
 	defaultShortcutCommands as Cmds,
 	type PaplicoShortcuts,
@@ -1496,17 +1497,8 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 	): Promise<PaplicoUIEvents["paste"]["data"] | null> {
 		// 1. Paplico elements (highest priority) — Async Clipboard API
 		try {
-			const items = await Clipboard.read();
-			for (const item of items) {
-				if (item.types.includes(PAPLICO_ELEMENTS_MIME)) {
-					const blob = await item.getType(PAPLICO_ELEMENTS_MIME);
-					const json = await blob.text();
-					const elements = JSON.parse(json) as AnyArtObject[];
-					if (Array.isArray(elements) && elements.length > 0) {
-						return { type: "artobject", elements };
-					}
-				}
-			}
+			const elements = await readClipboardElements(await Clipboard.read());
+			if (elements) return { type: "artobject", elements };
 		} catch {
 			// Async Clipboard API not available or permission denied
 		}

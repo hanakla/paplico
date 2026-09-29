@@ -152,12 +152,12 @@ describe("Timelapse end to end", () => {
 		while (!player.hasFinished) {
 			const frame = player.advanceBy(frameDurationMs);
 			if (!frame) continue;
-			const drawn = frame.objects["long-stroke"];
+			const drawn = frame.document.objects["long-stroke"];
 			segmentsPerFrame.push(drawn?.type === "path" ? drawn.segments.length : 0);
 			inkPerFrame.push(
 				countInk(
 					await renderPixels(renderer, device, {
-						...frame,
+						...frame.document,
 						artboards: live.artboards,
 					}),
 				),
@@ -341,8 +341,8 @@ function replayToEnd(
 	const player = new TimelapsePlayer(
 		data,
 		{
-			onFrame: (document) => {
-				last = document;
+			onFrame: (frame) => {
+				last = frame.document;
 			},
 			onStateChange: () => {},
 			getCompletedDocument: () => ({}) as Document,

@@ -343,8 +343,13 @@ export function extractDocumentFromYDoc(
 	const rawUnits = yMeta.get("units");
 	const units = isLengthUnit(rawUnits) ? rawUnits : DEFAULT_LENGTH_UNIT;
 
+	const rawSchemaVersion = yMeta.get("schemaVersion");
+
 	return {
 		id: (yMeta.get("id") as string) ?? "",
+		...(typeof rawSchemaVersion === "number" && {
+			schemaVersion: rawSchemaVersion,
+		}),
 		objects,
 		layers,
 		viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },

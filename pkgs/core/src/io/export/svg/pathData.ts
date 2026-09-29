@@ -122,23 +122,14 @@ export function composeWorldAffine(
 }
 
 /**
- * Expand an ElementTransform applied around `origin` (the element's local
- * bbox center) into an explicit world-space affine map. Mirrors the point
- * math of `applyTransformToPoint`.
+ * Expand an ElementTransform into an explicit world-space affine map.
+ * Mirrors the point math of `applyTransformToPoint`.
  */
 export function elementTransformToWorldAffine(
 	transform: ElementTransform,
-	origin: { x: number; y: number },
 ): WorldAffine {
 	const m = transformLinearMatrix(transform);
-	return {
-		m00: m.m00,
-		m01: m.m01,
-		m10: m.m10,
-		m11: m.m11,
-		tx: origin.x - (m.m00 * origin.x + m.m01 * origin.y) + transform.x,
-		ty: origin.y - (m.m10 * origin.x + m.m11 * origin.y) + transform.y,
-	};
+	return { ...m, tx: transform.x, ty: transform.y };
 }
 
 /**

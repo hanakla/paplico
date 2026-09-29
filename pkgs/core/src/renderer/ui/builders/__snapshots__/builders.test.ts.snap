@@ -2313,10 +2313,26 @@ exports[`UI overlay builders > should build selection primitives from the VRT fi
     },
   },
   {
-    "cx": 0,
-    "cy": 0,
-    "height": 140,
-    "kind": "rect",
+    "closed": true,
+    "kind": "polyline",
+    "points": [
+      {
+        "x": -120,
+        "y": 70,
+      },
+      {
+        "x": 120,
+        "y": 70,
+      },
+      {
+        "x": 120,
+        "y": -70,
+      },
+      {
+        "x": -120,
+        "y": -70,
+      },
+    ],
     "stroke": {
       "color": [
         0,
@@ -2327,7 +2343,6 @@ exports[`UI overlay builders > should build selection primitives from the VRT fi
       "dash": undefined,
       "width": 1.5,
     },
-    "width": 240,
   },
   {
     "cx": -120,

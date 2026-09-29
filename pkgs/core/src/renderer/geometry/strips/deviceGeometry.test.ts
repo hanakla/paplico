@@ -29,13 +29,11 @@ describe("composeDeviceTransform", () => {
 		}
 	});
 
-	it("should apply the element transform around its origin before the viewport", () => {
+	it("should apply the element transform before the viewport", () => {
 		const gt: GPUElementTransform = {
 			...IDENTITY_GPU_TRANSFORM,
 			tx: 10,
 			ty: 5,
-			originX: 50,
-			originY: 50,
 			m00: 0,
 			m01: -2,
 			m10: 2,
@@ -47,8 +45,8 @@ describe("composeDeviceTransform", () => {
 			width: 200,
 			height: 200,
 		});
-		// local (60, 50) → relative (10, 0) → mapped (0, 20) → world (60, 75)
-		const expected = worldToScreen(60, 75, viewport, 200, 200);
+		// local (60, 50) → mapped (-100, 120) → world (-90, 125)
+		const expected = worldToScreen(-90, 125, viewport, 200, 200);
 		const p = apply(t, 60, 50);
 		expect(p.x).toBeCloseTo(expected.x, 6);
 		expect(p.y).toBeCloseTo(expected.y, 6);

@@ -14,7 +14,7 @@
  */
 
 import type { ElementTransform, RepeatObject } from "../../schema";
-import { transformLinearMatrix } from "./geometry";
+import { linearMatrixToTransform, transformLinearMatrix } from "./geometry";
 
 /** 2x3 affine: point (x, y) maps to (a*x + c*y + e, b*x + d*y + f). */
 export interface Affine2D {
@@ -27,6 +27,19 @@ export interface Affine2D {
 }
 
 export const IDENTITY_AFFINE: Affine2D = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+
+/** True when the affine moves nothing, within floating point noise. */
+export function isIdentityAffine(m: Affine2D): boolean {
+	const eps = 1e-9;
+	return (
+		Math.abs(m.a - 1) < eps &&
+		Math.abs(m.b) < eps &&
+		Math.abs(m.c) < eps &&
+		Math.abs(m.d - 1) < eps &&
+		Math.abs(m.e) < eps &&
+		Math.abs(m.f) < eps
+	);
+}
 
 /**
  * World-space affine placement for each instance a repeat produces, relative to
@@ -164,21 +177,19 @@ function mirrorInstances(
 
 // ── Affine helpers ──────────────────────────────────────────────────────────
 
-/** Convert an ElementTransform to an affine that pivots around (originX, originY). */
-export function elementTransformToAffine(
-	t: ElementTransform,
-	originX: number,
-	originY: number,
-): Affine2D {
+/** Convert an ElementTransform to an affine on the local origin. */
+export function elementTransformToAffine(t: ElementTransform): Affine2D {
 	const m = transformLinearMatrix(t);
-	return {
-		a: m.m00,
-		b: m.m10,
-		c: m.m01,
-		d: m.m11,
-		e: originX + t.x - m.m00 * originX - m.m01 * originY,
-		f: originY + t.y - m.m10 * originX - m.m11 * originY,
-	};
+	return { a: m.m00, b: m.m10, c: m.m01, d: m.m11, e: t.x, f: t.y };
+}
+
+/** Inverse of elementTransformToAffine: the transform whose matrix is `m`. */
+export function affineToElementTransform(m: Affine2D): ElementTransform {
+	return linearMatrixToTransform(
+		{ m00: m.a, m01: m.c, m10: m.b, m11: m.d },
+		m.e,
+		m.f,
+	);
 }
 
 /** Compose two affines so the result maps p -> outer(inner(p)). */

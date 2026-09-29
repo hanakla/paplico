@@ -3,14 +3,14 @@ import {
 	buildPayload,
 	decodePayloadFromHTML,
 	encodePayloadToHTML,
-	PAPLICO_ELEMENTS_MIME,
+	PAPLICO_TEXT_MIME,
 	parsePayload,
 } from "./Clipboard";
 
 describe("Clipboard HTML encode/decode", () => {
 	describe("buildPayload / parsePayload", () => {
 		it("should round-trip MIME and data through payload", () => {
-			const mime = PAPLICO_ELEMENTS_MIME;
+			const mime = PAPLICO_TEXT_MIME;
 			const data = new Uint8Array([1, 2, 3, 4, 5]);
 
 			const payload = buildPayload(mime, data);
@@ -35,7 +35,7 @@ describe("Clipboard HTML encode/decode", () => {
 		});
 
 		it("should round-trip empty data", () => {
-			const mime = PAPLICO_ELEMENTS_MIME;
+			const mime = PAPLICO_TEXT_MIME;
 			const data = new Uint8Array(0);
 
 			const result = parsePayload(buildPayload(mime, data));
@@ -69,7 +69,7 @@ describe("Clipboard HTML encode/decode", () => {
 		});
 
 		it("should return null when declared data length exceeds buffer", () => {
-			const mime = PAPLICO_ELEMENTS_MIME;
+			const mime = PAPLICO_TEXT_MIME;
 			const mimeBytes = new TextEncoder().encode(mime);
 			const payload = new Uint8Array(4 + 2 + mimeBytes.length + 4);
 			payload.set([0x50, 0x41, 0x50, 0x4c], 0);
@@ -84,7 +84,7 @@ describe("Clipboard HTML encode/decode", () => {
 
 	describe("encodePayloadToHTML / decodePayloadFromHTML", () => {
 		it("should round-trip payload through HTML encoding", () => {
-			const mime = PAPLICO_ELEMENTS_MIME;
+			const mime = PAPLICO_TEXT_MIME;
 			const data = new Uint8Array([10, 20, 30, 40, 50]);
 			const payload = buildPayload(mime, data);
 
@@ -97,7 +97,7 @@ describe("Clipboard HTML encode/decode", () => {
 		});
 
 		it("should produce an HTML span with data-papl attribute", () => {
-			const payload = buildPayload(PAPLICO_ELEMENTS_MIME, new Uint8Array(10));
+			const payload = buildPayload(PAPLICO_TEXT_MIME, new Uint8Array(10));
 			const html = encodePayloadToHTML(payload);
 
 			expect(html).toMatch(/^<span data-papl="[^"]+"><\/span>$/);
@@ -107,7 +107,7 @@ describe("Clipboard HTML encode/decode", () => {
 			const data = new Uint8Array(10_000);
 			for (let i = 0; i < data.length; i++) data[i] = i % 256;
 
-			const payload = buildPayload(PAPLICO_ELEMENTS_MIME, data);
+			const payload = buildPayload(PAPLICO_TEXT_MIME, data);
 			const html = encodePayloadToHTML(payload);
 			const result = decodePayloadFromHTML(html);
 
@@ -124,7 +124,7 @@ describe("Clipboard HTML encode/decode", () => {
 		});
 
 		it("should decode PAPL marker embedded in other HTML", () => {
-			const mime = PAPLICO_ELEMENTS_MIME;
+			const mime = PAPLICO_TEXT_MIME;
 			const data = new Uint8Array([1, 2, 3]);
 			const payload = buildPayload(mime, data);
 			const encoded = encodePayloadToHTML(payload);

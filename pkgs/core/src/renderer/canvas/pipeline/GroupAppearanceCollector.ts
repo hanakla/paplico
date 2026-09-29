@@ -4,14 +4,14 @@ import {
 	type CubicBezierSegment,
 	type ElementTransform,
 	type Group,
-	getTransform,
 	isCompoundPath,
 	isGroup,
 	isIdentityTransform,
 	isPath,
 	type Path,
 } from "../../../schema";
-import { composeTransforms } from "../../../utils/geometry/geometry";
+import { placeElement } from "../../../utils/geometry/geometry";
+
 import {
 	computeSubPathSignedArea,
 	reverseSubPath,
@@ -41,7 +41,9 @@ function collectRecursive(
 	elementsMap: Map<string, AnyArtObject>,
 	compoundPathCache: CompoundPathCache,
 	result: CubicBezierSegment[],
-	ancestorTransform?: ElementTransform,
+	/** The chain the nested groups between the outer group and `group`'s
+	 *  children place them under (see childrenMatrixOf). */
+	matrix?: ElementTransform,
 ): void {
 	for (const childId of group.childIds) {
 		if (childId === group.clipPathId) continue;
@@ -50,7 +52,7 @@ function collectRecursive(
 		if (!child) continue;
 
 		if (isPath(child)) {
-			const worldPath = toWorldPath(child, ancestorTransform);
+			const worldPath = toWorldPath(child, matrix);
 			const segments = worldPath.segments;
 			if (segments.length === 0) continue;
 
@@ -63,7 +65,7 @@ function collectRecursive(
 			for (const source of compoundPath.sources) {
 				const el = elementsMap.get(source.id);
 				if (!el || !isPath(el)) continue;
-				pathMap.set(source.id, toWorldPath(el, ancestorTransform));
+				pathMap.set(source.id, toWorldPath(el, matrix));
 			}
 
 			const segments = compoundPathCache.resolve(compoundPath, pathMap);
@@ -71,19 +73,13 @@ function collectRecursive(
 
 			appendNormalized(segments, result);
 		} else if (isGroup(child)) {
-			const childTransform = getTransform(child);
-			const composedTransform = ancestorTransform
-				? composeTransforms(ancestorTransform, childTransform)
-				: childTransform;
-			const effectiveTransform = isIdentityTransform(composedTransform)
-				? undefined
-				: composedTransform;
+			const childrenMatrix = placeElement(matrix ?? null, child);
 			collectRecursive(
 				child,
 				elementsMap,
 				compoundPathCache,
 				result,
-				effectiveTransform,
+				isIdentityTransform(childrenMatrix) ? undefined : childrenMatrix,
 			);
 		}
 		// ImageObject, TextElement — skip

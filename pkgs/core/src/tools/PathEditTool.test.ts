@@ -15,11 +15,10 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
-import { brandWorldBBox, calculatePathBounds } from "../utils/geometry/bounds";
+import { brandWorldBBox } from "../utils/geometry/bounds";
 import {
 	applyTransformToPoint,
 	composeTransforms,
-	computeTransformOrigin,
 } from "../utils/geometry/geometry";
 import {
 	cubicBez,
@@ -514,8 +513,8 @@ describe("PathEditTool", () => {
 		});
 
 		it("should mirror opposite handle in world space when path has rotation transform", () => {
-			// Path with rotation=90°: local (0,0)→(100,0)→(200,0)
-			// becomes world (100,-100)→(100,0)→(100,100)
+			// Path turned 90° about its local origin and moved so that local
+			// (0,0)→(100,0)→(200,0) lands at world (100,-100)→(100,0)→(100,100):
 			// anchor world=(100,0), cp2(seg0) world=(100,-34), cp1(seg1) world=(100,33)
 			const rotatedPath: Path = {
 				...testPath,
@@ -527,7 +526,13 @@ describe("PathEditTool", () => {
 					cp2: { ...seg.cp2 },
 					end: { ...seg.end },
 				})),
-				transform: { x: 0, y: 0, rotation: Math.PI / 2, scaleX: 1, scaleY: 1 },
+				transform: {
+					x: 100,
+					y: -100,
+					rotation: Math.PI / 2,
+					scaleX: 1,
+					scaleY: 1,
+				},
 			};
 
 			tool.initWithSelectedPaths(
@@ -570,12 +575,18 @@ describe("PathEditTool", () => {
 		});
 
 		it("should keep the other anchors of a rotated path in place while one is dragged", () => {
-			// Path with rotation=90°: local (0,0)→(100,0)→(200,0)
-			// becomes world (100,-100)→(100,0)→(100,100).
+			// Path turned 90° about its local origin and moved so that local
+			// (0,0)→(100,0)→(200,0) lands at world (100,-100)→(100,0)→(100,100).
 			const rotatedPath: Path = {
 				...cloneTestPath(),
 				id: "path-rot-anchor",
-				transform: { x: 0, y: 0, rotation: Math.PI / 2, scaleX: 1, scaleY: 1 },
+				transform: {
+					x: 100,
+					y: -100,
+					rotation: Math.PI / 2,
+					scaleX: 1,
+					scaleY: 1,
+				},
 			};
 			tool.initWithSelectedPaths(
 				[rotatedPath],
@@ -607,17 +618,10 @@ describe("PathEditTool", () => {
 				testCanvasHeight,
 			);
 
-			// The commit keeps the pre-edit pivot (SpatialIndex.getPivotCompensation).
+			// The commit rewrites the segments alone; the transform stays put.
 			const segs = getCommittedSegments(ctx, "path-rot-anchor")!;
-			const origin = computeTransformOrigin(calculatePathBounds(rotatedPath));
 			const place = (p: { x: number; y: number }) =>
-				applyTransformToPoint(
-					p.x,
-					p.y,
-					rotatedPath.transform,
-					origin.x,
-					origin.y,
-				);
+				applyTransformToPoint(p.x, p.y, rotatedPath.transform);
 			expect(place(segs[0].start!).x).toBeCloseTo(100, 5);
 			expect(place(segs[0].start!).y).toBeCloseTo(-100, 5);
 			expect(place(segs[1].end).x).toBeCloseTo(150, 5);
@@ -944,12 +948,8 @@ describe("PathEditTool", () => {
 		});
 
 		it("should translate a rotated path straight along a multi-step world-space drag", () => {
-			// Path with rotation=90°: local (0,0)→(100,0)→(200,0)
-			// becomes world (100,-100)→(100,0)→(100,100).
-			//
-			// The commit keeps the pivot where it was before the edit (see
-			// SpatialIndex.getPivotCompensation), so the dragged geometry is
-			// placed through the pre-drag transform around the pre-drag pivot.
+			// Path turned 90° about its local origin and moved so that local
+			// (0,0)→(100,0)→(200,0) lands at world (100,-100)→(100,0)→(100,100).
 			const rotatedPath: Path = {
 				...testPath,
 				id: "path-rot-face",
@@ -960,7 +960,13 @@ describe("PathEditTool", () => {
 					cp2: { ...seg.cp2 },
 					end: { ...seg.end },
 				})),
-				transform: { x: 0, y: 0, rotation: Math.PI / 2, scaleX: 1, scaleY: 1 },
+				transform: {
+					x: 100,
+					y: -100,
+					rotation: Math.PI / 2,
+					scaleX: 1,
+					scaleY: 1,
+				},
 			};
 
 			tool.initWithSelectedPaths(
@@ -1006,15 +1012,8 @@ describe("PathEditTool", () => {
 			const segs = getCommittedSegments(ctx, "path-rot-face")!;
 
 			// World drag was (0, +200): every anchor lands 200 higher.
-			const origin = computeTransformOrigin(calculatePathBounds(rotatedPath));
 			const place = (p: { x: number; y: number }) =>
-				applyTransformToPoint(
-					p.x,
-					p.y,
-					rotatedPath.transform,
-					origin.x,
-					origin.y,
-				);
+				applyTransformToPoint(p.x, p.y, rotatedPath.transform);
 			expect(place(segs[0].start!).x).toBeCloseTo(100, 5);
 			expect(place(segs[0].start!).y).toBeCloseTo(100, 5);
 			expect(place(segs[1].end).x).toBeCloseTo(100, 5);
@@ -1992,7 +1991,7 @@ describe("PathEditTool", () => {
 				testCanvasHeight,
 			);
 
-			// Advance time past LONG_PRESS_MS (400ms)
+			// Advance time past LONG_PRESS_MS
 			currentTime = 1500;
 			tool.onPointerUp(
 				ev(500, 300),

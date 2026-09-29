@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { prepareMigrationContext } from "../io/migrations/context";
 import { openPapfContainer } from "../io/papf/pdfContainer";
 import type { Document } from "../schema";
+import { getTestFontManager } from "./fontSetup";
 
 const TEST_DOCUMENT_PATH = resolve(__dirname, "fixtures/test-document.papf");
 
@@ -18,5 +20,7 @@ export async function loadPapfDocument(
 	const buffer = readFileSync(absolutePath);
 	const blob = new Blob([buffer]);
 	const papf = await openPapfContainer(blob);
-	return papf.toDocument();
+	return papf.toDocument(async (stored) =>
+		prepareMigrationContext(stored, await getTestFontManager()),
+	);
 }

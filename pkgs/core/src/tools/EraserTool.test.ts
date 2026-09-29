@@ -1013,14 +1013,15 @@ describe("EraserTool", () => {
 		});
 
 		it("should work on paths with non-identity transform (rotation)", () => {
-			// Thick path rotated 90°: local(0,0)→(100,0) → world(50,-50)→(50,50)
-			// Path is vertical at x=50. brushHalfSize=40, stroke extends x=[10,90]
+			// Thick path turned 90° and moved so that local(0,0)→(100,0) lands
+			// at world(50,-50)→(50,50). Path is vertical at x=50.
+			// brushHalfSize=40, stroke extends x=[10,90]
 			const rotatedPath: Path = {
 				...thickTestPath,
 				id: "path-rotated",
 				transform: {
-					x: 0,
-					y: 0,
+					x: 50,
+					y: -50,
 					rotation: Math.PI / 2,
 					scaleX: 1,
 					scaleY: 1,
@@ -1634,11 +1635,12 @@ describe("EraserTool", () => {
 		});
 
 		it("should work on scaled paths", () => {
-			// Thick path (brushSize=80) scaled 2x
+			// Thick path (brushSize=80) scaled 2x and moved so that
+			// local(0,0)→(100,0) lands at world(-50,0)→(150,0)
 			const scaledPath: Path = {
 				...thickTestPath,
 				id: "path-scaled",
-				transform: { x: 0, y: 0, rotation: 0, scaleX: 2, scaleY: 2 },
+				transform: { x: -50, y: 0, rotation: 0, scaleX: 2, scaleY: 2 },
 			};
 			const scaledLayer: Layer = {
 				...testLayer,
@@ -1647,7 +1649,6 @@ describe("EraserTool", () => {
 			opts.getCurrentLayer.mockReturnValue(scaledLayer);
 			opts.getObjects.mockReturnValue({ "path-scaled": scaledPath });
 
-			// Path scaled 2x: local(0,0)→(100,0) → world(-50,0)→(150,0)
 			// localEraserRadius = 20/2 = 10. Erase at world(50,25):
 			// local(50,12.5), distance=12.5 > 10 → no slice
 			// coarseHitRadius = 10+40 = 50 > 12.5 → hit
@@ -1833,9 +1834,11 @@ describe("EraserTool", () => {
 				getObjects: vi.fn(() => ({
 					"path-in-rotated-group": groupedPath,
 				})),
+				// The group turns 90° and is moved so that local(0,0)→(100,0)
+				// lands at world(50,-50)→(50,50).
 				getAncestorTransform: vi.fn(() => ({
-					x: 0,
-					y: 0,
+					x: 50,
+					y: -50,
 					rotation: Math.PI / 2,
 					scaleX: 1,
 					scaleY: 1,

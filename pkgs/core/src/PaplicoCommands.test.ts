@@ -10,7 +10,7 @@ import {
 	createDefaultBrushSettings,
 	createIdentityTransform,
 } from "./document/factory";
-import type { SpatialIndex } from "./document/SpatialIndex";
+import { SpatialIndex } from "./document/SpatialIndex";
 import type { RendererState } from "./Paplico";
 import { PaplicoCommands } from "./PaplicoCommands";
 import type { PaplicoSelection } from "./PaplicoSelection";
@@ -44,11 +44,17 @@ import {
 import type { ToolSettings } from "./tools/toolSettings";
 import { TextLayoutEngine } from "./typography/TextLayoutEngine";
 import { TextRenderer } from "./typography/TextRenderer";
-import { calculateElementBounds } from "./utils/geometry/bounds";
 import {
+	brandLocalBBox,
+	calculateElementBounds,
+	calculateLocalElementBounds,
+} from "./utils/geometry/bounds";
+import {
+	applyTransformToPoint,
 	composeTransforms,
 	transformLinearMatrix,
 } from "./utils/geometry/geometry";
+import { worldFrame } from "./utils/geometry/selectionFrame";
 
 describe("PaplicoCommands", () => {
 	describe("createClipGroupFromTopmost", () => {
@@ -542,6 +548,7 @@ describe("PaplicoCommands", () => {
 				spatial: {
 					isElementLocked: () => false,
 					getAncestorTransform: () => null,
+					getChildrenMatrix: () => null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
 			});
@@ -700,6 +707,7 @@ describe("PaplicoCommands", () => {
 				spatial: {
 					isElementLocked: () => false,
 					getAncestorTransform: () => null,
+					getChildrenMatrix: () => null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
 			});
@@ -889,6 +897,7 @@ describe("PaplicoCommands", () => {
 					insertElement: vi.fn(),
 					isElementLocked: () => false,
 					getAncestorTransform: () => null,
+					getChildrenMatrix: () => null,
 					getParentGroupId: () => null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
@@ -1010,6 +1019,7 @@ describe("PaplicoCommands", () => {
 					insertElement: vi.fn(),
 					isElementLocked: () => false,
 					getAncestorTransform: () => null,
+					getChildrenMatrix: () => null,
 					getParentGroupId: () => null,
 				} as unknown as SpatialIndex,
 				selection: { selectMultiple } as unknown as PaplicoSelection,
@@ -1084,6 +1094,7 @@ describe("PaplicoCommands", () => {
 					insertElement: vi.fn(),
 					isElementLocked: () => false,
 					getAncestorTransform: () => null,
+					getChildrenMatrix: () => null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
 			});
@@ -1119,6 +1130,9 @@ describe("PaplicoCommands", () => {
 				);
 			const fixture = createProviderCommands({
 				getAncestorTransform: (id) => (parentOf(id) ? groupT : null),
+				// The group sits in the layer, so it places its children under its
+				// own transform.
+				getChildrenMatrix: () => groupT,
 				getParentGroupId: (id) => parentOf(id)?.id ?? null,
 			});
 			const { provider, store, commands, sync } = fixture;
@@ -1463,6 +1477,7 @@ describe("PaplicoCommands", () => {
 					insertElement: vi.fn(),
 					isElementLocked: () => false,
 					getAncestorTransform: () => null,
+					getChildrenMatrix: () => null,
 					getParentGroupId: () => null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
@@ -1538,6 +1553,7 @@ describe("PaplicoCommands", () => {
 					insertElement: vi.fn(),
 					isElementLocked: () => false,
 					getAncestorTransform: () => null,
+					getChildrenMatrix: () => null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
 			});
@@ -1603,6 +1619,7 @@ describe("PaplicoCommands", () => {
 					insertElement: vi.fn(),
 					isElementLocked: () => false,
 					getAncestorTransform: () => null,
+					getChildrenMatrix: () => null,
 					getParentGroupId: () => null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
@@ -1685,6 +1702,8 @@ describe("PaplicoCommands", () => {
 					// a layer-root element.
 					getAncestorTransform: (id: string) =>
 						id === "child-1" ? groupTransform : null,
+					getChildrenMatrix: (id: string) =>
+						id === "group-1" ? groupTransform : null,
 					getParentGroupId: (id: string) =>
 						id === "child-1" ? "group-1" : null,
 				} as unknown as SpatialIndex,
@@ -1824,8 +1843,11 @@ describe("PaplicoCommands", () => {
 					isElementLocked: () => false,
 					getParentGroupId: (id: string) =>
 						id === "child-1" ? "group-1" : null,
-					// group-1 is a layer-root element with no ancestors.
+					// group-1 is a layer-root element with no ancestors, so it places
+					// its children under its own transform.
 					getAncestorTransform: () => null,
+					getChildrenMatrix: (id: string) =>
+						id === "group-1" ? groupTransform : null,
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
 			});
@@ -2108,7 +2130,7 @@ describe("PaplicoCommands", () => {
 			expect(after.m11).toBeCloseTo(before.m01);
 		});
 
-		it("should only update rotation angle when the pivot is the element center", () => {
+		it("should turn a path about the centre of its bounds when that is the pivot", () => {
 			const path = createPathAt("p1", 100, 100, 200, 200);
 			const layer = createLayer("l1", [path.id]);
 			const { commands, store } = createRotateCommands(layer, {
@@ -2128,8 +2150,9 @@ describe("PaplicoCommands", () => {
 			commands.rotateElements([path.id], 45, cx, cy);
 
 			const updated = store.document.objects[path.id] as Path;
-			expect(updated.transform.x).toBe(0);
-			expect(updated.transform.y).toBe(0);
+			const center = applyTransformToPoint(cx, cy, updated.transform);
+			expect(center.x).toBeCloseTo(cx);
+			expect(center.y).toBeCloseTo(cy);
 			expect(updated.transform.rotation).toBeCloseTo((45 * Math.PI) / 180);
 		});
 
@@ -2167,20 +2190,16 @@ describe("PaplicoCommands", () => {
 			const a = store.document.objects[pathA.id] as Path;
 			const b = store.document.objects[pathB.id] as Path;
 
-			// A visual center (50,50) rotated 90° around (150,50):
-			//   newVcx = 150 + (50-150)*cos90 - (50-50)*sin90 = 150
-			//   newVcy = 50 + (50-150)*sin90 + (50-50)*cos90 = 50 + (-100) = -50
-			//   newTx = 150 - 50 = 100, newTy = -50 - 50 = -100
-			expect(a.transform.x).toBeCloseTo(100);
-			expect(a.transform.y).toBeCloseTo(-100);
+			// A's centre (50,50) turns 90° around (150,50) to (150,-50).
+			const centerA = applyTransformToPoint(50, 50, a.transform);
+			expect(centerA.x).toBeCloseTo(150);
+			expect(centerA.y).toBeCloseTo(-50);
 			expect(a.transform.rotation).toBeCloseTo(Math.PI / 2);
 
-			// B visual center (250,50) rotated 90° around (150,50):
-			//   newVcx = 150 + (250-150)*cos90 - (50-50)*sin90 = 150
-			//   newVcy = 50 + (250-150)*sin90 + (50-50)*cos90 = 50 + 100 = 150
-			//   newTx = 150 - 50 = 100, newTy = 150 - 50 = 100
-			expect(b.transform.x).toBeCloseTo(100);
-			expect(b.transform.y).toBeCloseTo(100);
+			// B's centre (250,50) turns 90° around (150,50) to (150,150).
+			const centerB = applyTransformToPoint(50, 50, b.transform);
+			expect(centerB.x).toBeCloseTo(150);
+			expect(centerB.y).toBeCloseTo(150);
 			expect(b.transform.rotation).toBeCloseTo(Math.PI / 2);
 		});
 
@@ -2210,76 +2229,221 @@ describe("PaplicoCommands", () => {
 				[path.id]: path,
 			});
 
-			// Rotate 180° around (80, 90) — should return to same visual center
+			// Rotate 180° around (80, 90) — the visual centre stays put.
 			commands.rotateElements([path.id], 180, 80, 90);
 
 			const updated = store.document.objects[path.id] as Path;
-			expect(updated.transform.x).toBeCloseTo(30);
-			expect(updated.transform.y).toBeCloseTo(40);
+			const center = applyTransformToPoint(50, 50, updated.transform);
+			expect(center.x).toBeCloseTo(80);
+			expect(center.y).toBeCloseTo(90);
 			expect(updated.transform.rotation).toBeCloseTo(Math.PI);
 		});
 
-		it("should rotate group children individually instead of group transform", () => {
+		it("should keep the centre of a child in place when its rotation is edited", () => {
+			// A 100×100 path centred on (50,50) inside a turned, scaled group.
+			const path = createPathAt("p1", 0, 0, 100, 100);
+			path.transform = { ...createIdentityTransform(), x: 20, y: -10 };
+			const layer = createLayer("l1", [path.id]);
+			const ancestorT = {
+				...createIdentityTransform(),
+				rotation: 0.6,
+				scaleX: 1.5,
+				scaleY: 0.5,
+			};
+			const { commands, store, updateElement } = createRotateCommands(
+				layer,
+				{ [path.id]: path },
+				{
+					getAncestorTransform: () => ancestorT,
+					getLocalBounds: () => calculateLocalElementBounds(path),
+				},
+			);
+			const before = applyTransformToPoint(
+				50,
+				50,
+				composeTransforms(ancestorT, path.transform),
+			);
+
+			commands.updateElementTransforms([
+				{
+					elementId: path.id,
+					transform: { ...path.transform, rotation: 1.1, skewX: 0.2 },
+				},
+			]);
+
+			const updated = (store.document.objects[path.id] as Path).transform;
+			expect(updated.rotation).toBeCloseTo(1.1);
+			expect(updated.skewX).toBeCloseTo(0.2);
+			const after = applyTransformToPoint(
+				50,
+				50,
+				composeTransforms(ancestorT, updated),
+			);
+			expect(after.x).toBeCloseTo(before.x);
+			expect(after.y).toBeCloseTo(before.y);
+			expect(updateElement).toHaveBeenCalledTimes(1);
+		});
+
+		it("should move an element by the change of x and y in a transform edit", () => {
+			const path = createPathAt("p1", 0, 0, 100, 100);
+			path.transform = { ...createIdentityTransform(), x: 20, y: -10 };
+			const layer = createLayer("l1", [path.id]);
+			const { commands, store } = createRotateCommands(
+				layer,
+				{ [path.id]: path },
+				{ getLocalBounds: () => calculateLocalElementBounds(path) },
+			);
+
+			commands.updateElementTransforms([
+				{ elementId: path.id, transform: { ...path.transform, x: 50, y: 30 } },
+			]);
+
+			expect(getTransform(store.document.objects[path.id]!)).toMatchObject({
+				x: 50,
+				y: 30,
+				rotation: 0,
+			});
+		});
+
+		it("should turn an element around its centre and then move it by the change of x and y", () => {
+			// A 100×100 path centred on (50,50), drawn with its centre at (70,40).
+			const path = createPathAt("p1", 0, 0, 100, 100);
+			path.transform = { ...createIdentityTransform(), x: 20, y: -10 };
+			const layer = createLayer("l1", [path.id]);
+			const { commands, store } = createRotateCommands(
+				layer,
+				{ [path.id]: path },
+				{ getLocalBounds: () => calculateLocalElementBounds(path) },
+			);
+
+			commands.updateElementTransforms([
+				{
+					elementId: path.id,
+					transform: { ...path.transform, rotation: Math.PI / 2, x: 30, y: 0 },
+				},
+			]);
+
+			// The centre turns in place, then moves by (+10, +10).
+			const updated = getTransform(store.document.objects[path.id]!);
+			const center = applyTransformToPoint(50, 50, updated);
+			expect(center.x).toBeCloseTo(80);
+			expect(center.y).toBeCloseTo(50);
+			expect(updated.rotation).toBeCloseTo(Math.PI / 2);
+		});
+
+		it("should keep a text's measured layout through a transform edit", () => {
+			const text = createTestTextElement("Hello", { id: "t", x: 20, y: 30 });
+			const layer = createLayer("l1", [text.id]);
+			const measured = brandLocalBBox({
+				minX: 20,
+				minY: -10,
+				maxX: 220,
+				maxY: 50,
+				width: 200,
+				height: 60,
+			});
+			const setTextBounds = vi.fn();
+			const { commands } = createRotateCommands(
+				layer,
+				{ [text.id]: text },
+				{ getLocalBounds: () => measured, setTextBounds },
+			);
+			const turned = { ...createIdentityTransform(), rotation: Math.PI / 2 };
+
+			commands.updateElement("l1", text.id, { transform: turned });
+
+			const [, worldBounds, localBounds] = setTextBounds.mock.calls[0];
+			expect(localBounds).toEqual(measured);
+			// The measured box, turned a quarter: x 20..220 becomes y 20..220.
+			expect(worldBounds.minY).toBeCloseTo(20);
+			expect(worldBounds.maxY).toBeCloseTo(220);
+		});
+
+		it("should move a text's measured layout with its anchor", () => {
+			const text = createTestTextElement("Hello", { id: "t", x: 20, y: 30 });
+			const layer = createLayer("l1", [text.id]);
+			const measured = brandLocalBBox({
+				minX: 20,
+				minY: -10,
+				maxX: 220,
+				maxY: 50,
+				width: 200,
+				height: 60,
+			});
+			const setTextBounds = vi.fn();
+			const { commands } = createRotateCommands(
+				layer,
+				{ [text.id]: text },
+				{ getLocalBounds: () => measured, setTextBounds },
+			);
+
+			commands.updateElement("l1", text.id, { x: 50, y: 40 });
+
+			const [, , localBounds] = setTextBounds.mock.calls[0];
+			expect(localBounds).toMatchObject({
+				minX: 50,
+				minY: 0,
+				maxX: 250,
+				maxY: 60,
+			});
+		});
+
+		it("should skip locked elements when editing transforms", () => {
+			const path = createPathAt("p1", 0, 0, 100, 100);
+			const layer = createLayer("l1", [path.id]);
+			const { commands, updateElement } = createRotateCommands(
+				layer,
+				{ [path.id]: path },
+				{
+					isElementLocked: () => true,
+					getLocalBounds: () => calculateLocalElementBounds(path),
+				},
+			);
+
+			commands.updateElementTransforms([
+				{ elementId: path.id, transform: { ...path.transform, rotation: 1 } },
+			]);
+
+			expect(updateElement).not.toHaveBeenCalled();
+		});
+
+		it("should turn a group through its own transform and leave its children alone", () => {
 			// Child A: localBounds (0,0)-(100,100), center=(50,50)
 			// Child B: localBounds (200,0)-(300,100), center=(250,50)
-			// Group has identity transform
 			const childA = createPathAt("childA", 0, 0, 100, 100);
 			const childB = createPathAt("childB", 200, 0, 300, 100);
 			const group = createGroup("g1", ["childA", "childB"]);
 			const layer = createLayer("l1", [group.id]);
 			const { commands, store } = createRotateCommands(layer, {
 				[childA.id]: childA,
-				[childB.id]: childB,
 				[group.id]: group,
+				[childB.id]: childB,
 			});
 
-			// Group visual center=(150,50), rotate 90° around it
+			// Rotate 90° around the group's visual center (150,50).
 			commands.rotateElements([group.id], 90, 150, 50);
 
-			// Group transform should remain identity
-			expect(store.document.objects[group.id]!.transform.x).toBe(0);
-			expect(store.document.objects[group.id]!.transform.y).toBe(0);
-			expect(store.document.objects[group.id]!.transform.rotation).toBe(0);
+			// The group pivots on its local origin (0,0), which turns around
+			// (150,50) to (200,-100).
+			const groupT = getTransform(store.document.objects[group.id]!);
+			expect(groupT.x).toBeCloseTo(200);
+			expect(groupT.y).toBeCloseTo(-100);
+			expect(groupT.rotation).toBeCloseTo(Math.PI / 2);
+			expect(getTransform(store.document.objects[childA.id]!)).toEqual(
+				createIdentityTransform(),
+			);
+			expect(getTransform(store.document.objects[childB.id]!)).toEqual(
+				createIdentityTransform(),
+			);
 
-			// Child A visual center (50,50) rotated 90° around (150,50):
-			//   newVcx = 150 + (50-150)*0 - (50-50)*1 = 150
-			//   newVcy = 50 + (50-150)*1 + (50-50)*0 = -50
-			//   newTx = 150 - 50 = 100, newTy = -50 - 50 = -100
-			const a = store.document.objects[childA.id] as Path;
-			expect(a.transform.x).toBeCloseTo(100);
-			expect(a.transform.y).toBeCloseTo(-100);
-			expect(a.transform.rotation).toBeCloseTo(Math.PI / 2);
-
-			// Child B visual center (250,50) rotated 90° around (150,50):
-			//   newVcx = 150 + (250-150)*0 - (50-50)*1 = 150
-			//   newVcy = 50 + (250-150)*1 + (50-50)*0 = 150
-			//   newTx = 150 - 250 = -100, newTy = 150 - 50 = 100
-			const b = store.document.objects[childB.id] as Path;
-			expect(b.transform.x).toBeCloseTo(-100);
-			expect(b.transform.y).toBeCloseTo(100);
-			expect(b.transform.rotation).toBeCloseTo(Math.PI / 2);
-		});
-
-		it("should rotate a group by rotating its children", () => {
-			const child = createPathAt("c1", 0, 0, 100, 100);
-			const group = createGroup("g1", ["c1"]);
-			const layer = createLayer("l1", [group.id]);
-			const { commands, store } = createRotateCommands(layer, {
-				[child.id]: child,
-				[group.id]: group,
-			});
-
-			// Single group rotation: rotate 90° around center (50,50)
-			commands.rotateElements([group.id], 90, 50, 50);
-
-			// Group transform stays identity
-			expect(store.document.objects[group.id]!.transform.rotation).toBe(0);
-
-			// Child center (50,50) rotated around (50,50) doesn't move
-			const c = store.document.objects[child.id] as Path;
-			expect(c.transform.x).toBeCloseTo(0);
-			expect(c.transform.y).toBeCloseTo(0);
-			expect(c.transform.rotation).toBeCloseTo(Math.PI / 2);
+			// Each child's center turns around (150,50) with the group:
+			// A (50,50) → (150,-50), B (250,50) → (150,150).
+			const place = (x: number, y: number) =>
+				applyTransformToPoint(x, y, groupT);
+			expect(place(50, 50).x).toBeCloseTo(150);
+			expect(place(50, 50).y).toBeCloseTo(-50);
+			expect(place(250, 50).x).toBeCloseTo(150);
+			expect(place(250, 50).y).toBeCloseTo(150);
 		});
 	});
 
@@ -2633,6 +2797,197 @@ describe("PaplicoCommands", () => {
 		});
 	});
 
+	describe("a rotated and scaled group", () => {
+		const GROUP_TRANSFORM: ElementTransform = {
+			...createIdentityTransform(),
+			x: 40,
+			y: -20,
+			rotation: 0.7,
+			scaleX: 1.5,
+			scaleY: 0.6,
+		};
+
+		it("ungroupElements should keep each child drawn where it was", () => {
+			const { provider, store, commands, sync } = createProviderCommands();
+			const groupId = addTransformedGroup(provider, sync, ["a", "b"]);
+			const before = ["a", "b"].map((id) => drawnOutline(store, id));
+
+			commands.ungroupElements(groupId);
+			sync();
+
+			expect(store.document.layers[0].elementIds).toEqual(["a", "b"]);
+			expectSameOutlines(
+				["a", "b"].map((id) => drawnOutline(store, id)),
+				before,
+			);
+		});
+
+		it("ungroupElements should keep a locked child drawn where it was", () => {
+			const { provider, store, commands, sync } = createProviderCommands({
+				isElementLocked: (id: string) => id === "a",
+			});
+			const groupId = addTransformedGroup(provider, sync, ["a", "b"]);
+			const before = drawnOutline(store, "a");
+
+			commands.ungroupElements(groupId);
+			sync();
+
+			expectSameOutlines([drawnOutline(store, "a")], [before]);
+		});
+
+		it("extractChildFromGroup should keep the child drawn where it was, out of nested groups", () => {
+			const fixture = createProviderCommands({
+				getAncestorTransform: (id: string) =>
+					indexOf(fixture.store).getAncestorTransform(id),
+			});
+			const { provider, store, commands, sync } = fixture;
+			const innerId = addTransformedGroup(provider, sync, ["a", "b"]);
+			provider.addElement("layer", createPath("c"));
+			sync();
+			const outerId = provider.groupElements("layer", [innerId, "c"]);
+			if (!outerId) throw new Error("group should be created");
+			provider.updateElement("layer", outerId, {
+				transform: { ...createIdentityTransform(), x: -30, rotation: -0.4 },
+			});
+			sync();
+			const before = drawnOutline(store, "a");
+
+			commands.extractChildFromGroup(innerId, "a", "layer");
+			sync();
+
+			expect(store.document.layers[0].elementIds).toEqual([outerId, "a"]);
+			expectSameOutlines([drawnOutline(store, "a")], [before]);
+		});
+
+		it("bakePathToWorld should keep a path drawn where it was", () => {
+			const fixture = createProviderCommands({
+				getAncestorTransform: (id: string) =>
+					indexOf(fixture.store).getAncestorTransform(id),
+			});
+			const { provider, store, commands, sync } = fixture;
+			addTransformedGroup(provider, sync, ["a", "b"]);
+			const before = drawnOutline(store, "a");
+
+			commands.bakePathToWorld("a");
+			sync();
+
+			expectSameOutlines([drawnOutline(store, "a")], [before]);
+		});
+
+		it("resizeElements should map a child path's drawn outline through the resize", () => {
+			const fixture = createProviderCommands({
+				getAncestorTransform: (id: string) =>
+					indexOf(fixture.store).getAncestorTransform(id),
+				getElementWorldMatrix: (id: string) =>
+					indexOf(fixture.store).getElementWorldMatrix(id),
+				getLocalBounds: (id: string) =>
+					indexOf(fixture.store).getLocalBounds(id),
+			});
+			const { provider, store, commands, sync } = fixture;
+			addTransformedGroup(provider, sync, ["a", "b"]);
+			const before = drawnOutline(store, "a");
+			const original = { minX: -200, minY: -200, maxX: 200, maxY: 200 };
+			const resized = { minX: -100, minY: -300, maxX: 500, maxY: 100 };
+
+			commands.resizeElements(
+				["a"],
+				worldFrame({ ...original, width: 400, height: 400 }),
+				{ ...resized, width: 600, height: 400 },
+			);
+			sync();
+
+			// The resize maps world x by 1.5 and y by 1 around the boxes' corners.
+			const mapped = before.map((segment) => ({
+				...segment,
+				...(segment.start && {
+					start: {
+						x: -100 + (segment.start.x + 200) * 1.5,
+						y: segment.start.y - 100,
+					},
+				}),
+				end: { x: -100 + (segment.end.x + 200) * 1.5, y: segment.end.y - 100 },
+				cp1: { x: segment.cp1.x * 1.5, y: segment.cp1.y },
+				cp2: { x: segment.cp2.x * 1.5, y: segment.cp2.y },
+			}));
+			expectSameOutlines([drawnOutline(store, "a")], [mapped]);
+		});
+
+		it("resizeElements should map a child compound path's drawn shape through the resize", () => {
+			const fixture = createProviderCommands({
+				getAncestorTransform: (id: string) =>
+					indexOf(fixture.store).getAncestorTransform(id),
+				getElementWorldMatrix: (id: string) =>
+					indexOf(fixture.store).getElementWorldMatrix(id),
+				getLocalBounds: (id: string) =>
+					indexOf(fixture.store).getLocalBounds(id),
+			});
+			const { provider, store, commands, sync } = fixture;
+			for (const id of ["s0", "s1"]) {
+				provider.addElement("layer", {
+					...createPath(id),
+					transform: { ...createIdentityTransform(), x: id === "s1" ? 60 : 0 },
+				});
+			}
+			sync();
+			store.selectedElementIds = ["s0", "s1"];
+			const compoundId = commands.createCompoundPathFromSelection("union");
+			if (!compoundId) throw new Error("compound path should be created");
+			provider.addElement("layer", createPath("b"));
+			sync();
+			const groupId = provider.groupElements("layer", [compoundId, "b"]);
+			if (!groupId) throw new Error("group should be created");
+			provider.updateElement("layer", groupId, { transform: GROUP_TRANSFORM });
+			sync();
+			const before = indexOf(store).getWorldGeometryBounds(compoundId)!;
+
+			commands.resizeElements(
+				[compoundId],
+				worldFrame({
+					minX: -200,
+					minY: -200,
+					maxX: 200,
+					maxY: 200,
+					width: 400,
+					height: 400,
+				}),
+				{
+					minX: -100,
+					minY: -300,
+					maxX: 500,
+					maxY: 100,
+					width: 600,
+					height: 400,
+				},
+			);
+			sync();
+
+			const after = indexOf(store).getWorldGeometryBounds(compoundId)!;
+			expect(after.minX).toBeCloseTo(-100 + (before.minX + 200) * 1.5, 4);
+			expect(after.maxX).toBeCloseTo(-100 + (before.maxX + 200) * 1.5, 4);
+			expect(after.minY).toBeCloseTo(before.minY - 100, 4);
+			expect(after.maxY).toBeCloseTo(before.maxY - 100, 4);
+		});
+
+		function addTransformedGroup(
+			provider: YjsProvider,
+			sync: () => void,
+			childIds: string[],
+		): string {
+			for (const id of childIds) {
+				provider.addElement("layer", {
+					...createPath(id),
+					transform: { ...createIdentityTransform(), x: 15, rotation: 0.3 },
+				});
+			}
+			sync();
+			const groupId = provider.groupElements("layer", childIds);
+			if (!groupId) throw new Error("group should be created");
+			provider.updateElement("layer", groupId, { transform: GROUP_TRANSFORM });
+			sync();
+			return groupId;
+		}
+	});
+
 	describe("object mask commands", () => {
 		it("should attach an empty mask", () => {
 			const { commands, updateElement } = createMaskCommands();
@@ -2772,6 +3127,7 @@ describe("PaplicoCommands", () => {
 				spatial: {
 					isElementLocked: () => false,
 					getAncestorTransform: () => null,
+					getChildrenMatrix: () => null,
 					insertElement: vi.fn(),
 				} as unknown as SpatialIndex,
 				isReadonly: () => false,
@@ -2924,6 +3280,7 @@ describe("cut/copy of axis-bound texts", () => {
 			spatial: {
 				isElementLocked: () => false,
 				getAncestorTransform: () => null,
+				getChildrenMatrix: () => null,
 			} as unknown as SpatialIndex,
 			isReadonly: () => false,
 		});
@@ -3031,6 +3388,7 @@ describe("flow-aware cut of chain members", () => {
 			spatial: {
 				isElementLocked: () => false,
 				getAncestorTransform: () => null,
+				getChildrenMatrix: () => null,
 			} as unknown as SpatialIndex,
 			isReadonly: () => false,
 			getTextRenderer: () => renderer,
@@ -3803,7 +4161,7 @@ describe("computePerspectiveWarpUpdates (vertex bake)", () => {
 		[0, 0],
 	];
 
-	it("should bake projected segments into a path and keep its transform resolved", () => {
+	it("should bake projected segments into a path and leave its transform alone", () => {
 		const path = createPathAt("path-1", 0, 0, 100, 100);
 		const layer = createLayer("layer-1", [path.id]);
 		const { commands } = createCommands(layer, { [path.id]: path }, [path.id]);
@@ -3834,9 +4192,8 @@ describe("computePerspectiveWarpUpdates (vertex bake)", () => {
 		// Control-point re-fitting keeps the vertex count sane: a warped
 		// 4-segment rectangle must not explode into subdivision leaves.
 		expect(patch.segments.length).toBeLessThanOrEqual(8);
-		// Identity-transform element: the re-resolved transform stays identity.
-		expect(patch.transform?.x).toBeCloseTo(0, 6);
-		expect(patch.transform?.y).toBeCloseTo(0, 6);
+		// The warp is baked into the local geometry.
+		expect(patch.transform).toBeUndefined();
 	});
 
 	it("should scale stroke widths by the warp's uniform area scale", () => {
@@ -4288,6 +4645,7 @@ function createProviderCommands(spatialOverrides: Partial<SpatialIndex> = {}) {
 		spatial: {
 			isElementLocked: () => false,
 			getAncestorTransform: () => null,
+			getChildrenMatrix: () => null,
 			...spatialOverrides,
 		} as unknown as SpatialIndex,
 		isReadonly: () => false,
@@ -4381,6 +4739,7 @@ function createCommands(
 			insertElement,
 			isElementLocked: () => false,
 			getAncestorTransform: () => null,
+			getChildrenMatrix: () => null,
 			getParentGroupId: () => null,
 		} as unknown as SpatialIndex,
 		isReadonly: () => false,
@@ -4438,6 +4797,7 @@ function createGroupPasteCommands({
 			insertElement: vi.fn(),
 			isElementLocked: () => false,
 			getAncestorTransform: () => null,
+			getChildrenMatrix: () => null,
 			getParentGroupId: (id: string) =>
 				childIds.includes(id) ? "group-1" : null,
 		} as unknown as SpatialIndex,
@@ -4583,9 +4943,41 @@ function createMaskCommands(
 		spatial: {
 			isElementLocked: () => false,
 			getAncestorTransform: () => null,
+			getChildrenMatrix: () => null,
 		} as unknown as SpatialIndex,
 		isReadonly: () => false,
 	});
 
 	return { commands, updateElement, addElement };
+}
+
+function indexOf(store: RendererState): SpatialIndex {
+	const idx = new SpatialIndex(store);
+	idx.rebuildAllIndices();
+	return idx;
+}
+
+/** World-space outline of a path as the renderer draws it. */
+function drawnOutline(store: RendererState, id: string): Path["segments"] {
+	const path = indexOf(store).getElementWorldPath(id);
+	if (!path) throw new Error(`${id} should have an outline`);
+	return path.segments;
+}
+
+function expectSameOutlines(
+	actual: Path["segments"][],
+	expected: Path["segments"][],
+): void {
+	const points = (outlines: Path["segments"][]) =>
+		outlines.flatMap((segments) =>
+			segments.flatMap((s) =>
+				[s.start, s.cp1, s.cp2, s.end].flatMap((p) => (p ? [p.x, p.y] : [])),
+			),
+		);
+	const actualPoints = points(actual);
+	const expectedPoints = points(expected);
+	expect(actualPoints).toHaveLength(expectedPoints.length);
+	actualPoints.forEach((value, i) => {
+		expect(value).toBeCloseTo(expectedPoints[i], 6);
+	});
 }

@@ -4,7 +4,18 @@ import {
 	createIdentityTransform,
 	createMeshWarpObjectFromGeometry,
 } from "../document/factory";
-import type { BrushSettings, Document, Reference3DDef } from "../schema";
+import {
+	LATEST_SCHEMA_VERSION,
+	UNVERSIONED_SCHEMA_BASELINE,
+} from "../io/migrations";
+import type { MigrationContext } from "../io/migrations/context";
+import {
+	type BrushSettings,
+	type Document,
+	getTransform,
+	type Reference3DDef,
+} from "../schema";
+import { rectPath } from "../testUtils/svgFixtures";
 import { extractDocumentFromYDoc } from "./extractDocumentFromYDoc";
 import { YjsProvider, type YjsProviderCallbacks } from "./YjsProvider";
 
@@ -2878,6 +2889,142 @@ describe("YjsProvider", () => {
 				(doc.objects["group-1"] as { childIds: string[] }).childIds,
 			).toEqual(["path-1"]);
 			provider.destroy();
+		});
+	});
+
+	describe("migrateRoomSchema", () => {
+		const ROTATED = {
+			...createIdentityTransform(),
+			rotation: 0.5,
+			scaleX: 1.5,
+		};
+
+		/** A room stored before rooms carried a version: a turned group of two paths. */
+		function createLegacyRoom() {
+			const provider = new YjsProvider({ callbacks });
+			addLayerWithPaths(provider, ["a", "b"]);
+			const groupId = provider.groupElements("layer-1", ["a", "b"]);
+			if (!groupId) throw new Error("group should be created");
+			provider.updateElement("layer-1", groupId, { transform: ROTATED });
+			provider.clearUndoHistory();
+			return { provider, groupId };
+		}
+
+		it("should bring an unversioned room up to the latest schema outside the undo history", async () => {
+			const { provider, groupId } = createLegacyRoom();
+
+			expect(await provider.migrateRoomSchema()).toBe("migrated");
+
+			const doc = extractDocumentFromYDoc(provider.ydoc);
+			expect(doc.schemaVersion).toBe(LATEST_SCHEMA_VERSION);
+			// The transform origin migration keeps the turned group; its
+			// children, whose geometry sits on the origin, stay where they are.
+			expect(getTransform(doc.objects[groupId])).toEqual(ROTATED);
+			expect(getTransform(doc.objects.a)).toEqual(createIdentityTransform());
+			expect(provider.canUndo()).toBe(false);
+		});
+
+		it("should start over when a peer migrates the room while the context is measured", async () => {
+			const { provider, groupId } = createLegacyRoom();
+			provider.addElement(
+				"layer-1",
+				rectPath("c", { x: 100, y: 0 }, 20, 20, []),
+			);
+			provider.addElementToGroup("layer-1", groupId, "c");
+			const peer = createLegacyRoom();
+			peer.provider.addElement(
+				"layer-1",
+				rectPath("c", { x: 100, y: 0 }, 20, 20, []),
+			);
+			peer.provider.addElementToGroup("layer-1", peer.groupId, "c");
+			await peer.provider.migrateRoomSchema();
+			const once = getTransform(
+				extractDocumentFromYDoc(peer.provider.ydoc).objects.c,
+			);
+
+			const result = await provider.migrateRoomSchema(async () => {
+				await provider.migrateRoomSchema();
+				return { textLayoutBounds: new Map() };
+			});
+
+			expect(result).toBe("current");
+			const doc = extractDocumentFromYDoc(provider.ydoc);
+			expect(getTransform(doc.objects.c).x).toBeCloseTo(once.x);
+			expect(getTransform(doc.objects.c).y).toBeCloseTo(once.y);
+		});
+
+		it("should abandon the migration when its connection is dropped while the context is measured", async () => {
+			const { provider } = createLegacyRoom();
+			const dropped = new AbortController();
+
+			const result = await provider.migrateRoomSchema(
+				async () => {
+					dropped.abort();
+					return { textLayoutBounds: new Map() };
+				},
+				undefined,
+				dropped.signal,
+			);
+
+			expect(result).toBe("abandoned");
+			expect(provider.ydoc.getMap("meta").get("schemaVersion")).toBeUndefined();
+		});
+
+		it("should leave the kept objects alone and read the room without them", async () => {
+			const { provider, groupId } = createLegacyRoom();
+			provider.addElement(
+				"layer-1",
+				rectPath("c", { x: 100, y: 0 }, 20, 20, []),
+			);
+			provider.addElementToGroup("layer-1", groupId, "c");
+			const prepareContext = vi.fn<
+				(doc: Document) => Promise<MigrationContext>
+			>(async () => ({ textLayoutBounds: new Map() }));
+
+			await provider.migrateRoomSchema(
+				prepareContext,
+				new Set([groupId, "a", "b", "c"]),
+			);
+
+			expect(Object.keys(prepareContext.mock.calls[0][0].objects)).toEqual([]);
+			const doc = extractDocumentFromYDoc(provider.ydoc);
+			expect(doc.schemaVersion).toBe(LATEST_SCHEMA_VERSION);
+			expect(getTransform(doc.objects.c)).toMatchObject({ x: 0, y: 0 });
+		});
+
+		it("should hand the room's document at its stored version to the context preparation", async () => {
+			const { provider } = createLegacyRoom();
+			const prepareContext = vi.fn<
+				(doc: Document) => Promise<MigrationContext>
+			>(async () => ({ textLayoutBounds: new Map() }));
+
+			await provider.migrateRoomSchema(prepareContext);
+
+			const [doc] = prepareContext.mock.calls[0];
+			expect(doc.schemaVersion).toBe(UNVERSIONED_SCHEMA_BASELINE);
+			expect(Object.keys(doc.objects)).toHaveLength(3);
+		});
+
+		it("should leave a room at the latest schema untouched", async () => {
+			const { provider } = createLegacyRoom();
+			await provider.migrateRoomSchema();
+			const onUpdate = vi.fn();
+			provider.ydoc.on("update", onUpdate);
+
+			expect(await provider.migrateRoomSchema()).toBe("current");
+			expect(onUpdate).not.toHaveBeenCalled();
+		});
+
+		it("should not touch a room written by a newer client", async () => {
+			const { provider, groupId } = createLegacyRoom();
+			provider.ydoc
+				.getMap("meta")
+				.set("schemaVersion", LATEST_SCHEMA_VERSION + 1);
+
+			expect(await provider.migrateRoomSchema()).toBe("newer");
+			expect(
+				getTransform(extractDocumentFromYDoc(provider.ydoc).objects[groupId]),
+			).toEqual(ROTATED);
 		});
 	});
 });

@@ -31,7 +31,12 @@ import {
 import { evalBezier } from "../utils/geometry/pathOps";
 import { getWorldSegments } from "../utils/geometry/segmentOps";
 import { clamp } from "../utils/math";
-import type { PointerEventData, Tool } from "./Tool";
+import {
+	dragStartThresholdScreenPx,
+	LONG_PRESS_MS,
+	type PointerEventData,
+	type Tool,
+} from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
 /** The part of a width point a drag has hold of. */
@@ -81,6 +86,16 @@ export class StrokeWidthEditTool implements Tool {
 	 * would miss each time, while segments/brush settings never change here.
 	 */
 	private halfWidthSampler: StrokeHalfWidthSampler | null = null;
+	/**
+	 * Where a press on a point handle went down, until it travels far enough to
+	 * become a drag. While it is set the point stays put, so a press held long
+	 * enough to delete the point does not nudge it first.
+	 */
+	private pressStart: { x: number; y: number; thresholdPx: number } | null =
+		null;
+	private longPressTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Shown once the press has been held long enough that releasing deletes the point. */
+	private longPressRing: { worldX: number; worldY: number } | null = null;
 
 	public constructor(ctx: ToolContext, options: StrokeWidthEditToolOptions) {
 		this.ctx = ctx;
@@ -96,6 +111,7 @@ export class StrokeWidthEditTool implements Tool {
 		this.selectedPart = null;
 		this.dragging = false;
 		this.dragInitialWidths = null;
+		this.clearLongPress();
 		this.refreshUI();
 	}
 
@@ -110,6 +126,7 @@ export class StrokeWidthEditTool implements Tool {
 		this.selectedPointIndex = null;
 		this.selectedPart = null;
 		this.dragging = false;
+		this.clearLongPress();
 		this.rebuildWorldSegments();
 		this.refreshUI();
 	}
@@ -131,6 +148,7 @@ export class StrokeWidthEditTool implements Tool {
 			this.selectedPart = hit.part;
 			this.dragging = true;
 			this.dragInitialWidths = [...this.getProfile()];
+			if (hit.part === "center") this.startLongPress(event);
 			this.refreshUI();
 		} else {
 			this.selectedPointIndex = null;
@@ -152,6 +170,12 @@ export class StrokeWidthEditTool implements Tool {
 			!this.selectedPart
 		)
 			return;
+
+		if (this.pressStart) {
+			const { x, y, thresholdPx } = this.pressStart;
+			if (Math.hypot(event.x - x, event.y - y) <= thresholdPx) return;
+			this.clearLongPress();
+		}
 
 		const world = screenToWorld(
 			event.x,
@@ -183,6 +207,16 @@ export class StrokeWidthEditTool implements Tool {
 		_canvasWidth: number,
 		_canvasHeight: number,
 	): void {
+		// A held press never moved the point, so there is nothing to restore.
+		if (this.longPressRing) {
+			this.clearLongPress();
+			this.dragging = false;
+			this.dragInitialWidths = null;
+			this.deleteSelectedPoint();
+			return;
+		}
+		this.clearLongPress();
+
 		if (this.dragging) {
 			// Wrap the final state in a transaction for undo/redo
 			const finalWidths = [...this.getProfile()];
@@ -271,42 +305,8 @@ export class StrokeWidthEditTool implements Tool {
 		_canvasWidth: number,
 		_canvasHeight: number,
 	): boolean {
-		if (
-			(event.key === "Delete" || event.key === "Backspace") &&
-			this.selectedPointIndex != null &&
-			this.targetPath
-		) {
-			const effective = this.getEffectiveWidths();
-			const point = effective[this.selectedPointIndex];
-			if (!point) return false;
-
-			// Don't delete implicit endpoints
-			const explicitIndex = this.findExplicitIndex(point.t);
-			if (explicitIndex < 0) return false;
-
-			const profile = [...this.getProfile()];
-			profile.splice(explicitIndex, 1);
-
-			const layer = this.ctx.getCurrentLayer();
-			if (!layer) return false;
-			this.ctx.transact((commands) => {
-				commands.updateElement(
-					layer.id,
-					this.targetElementId!,
-					this.profilePatch(profile),
-				);
-			});
-
-			const updated = this.ctx.getPathById(this.targetElementId!);
-			if (updated) this.targetPath = updated;
-			this.selectedPointIndex = null;
-			this.selectedPart = null;
-			this.ctx.requestRender("document");
-			this.refreshUI();
-			return true;
-		}
-
-		return false;
+		if (event.key !== "Delete" && event.key !== "Backspace") return false;
+		return this.deleteSelectedPoint();
 	}
 
 	public onCancel(): void {
@@ -316,6 +316,7 @@ export class StrokeWidthEditTool implements Tool {
 		this.selectedPart = null;
 		this.dragging = false;
 		this.dragInitialWidths = null;
+		this.clearLongPress();
 		this.worldSegments = [];
 		this.segArcLengths = new Float64Array(0);
 		this.totalArcLength = 0;
@@ -335,6 +336,70 @@ export class StrokeWidthEditTool implements Tool {
 		}
 
 		this.updateStrokeWidthOverlay(this.buildUIData());
+	}
+
+	/**
+	 * Remove the selected point from the profile. The implicit endpoints are not
+	 * in the profile, so they cannot be removed.
+	 */
+	private deleteSelectedPoint(): boolean {
+		if (this.selectedPointIndex == null || !this.targetPath) return false;
+
+		const point = this.getEffectiveWidths()[this.selectedPointIndex];
+		if (!point) return false;
+
+		const explicitIndex = this.findExplicitIndex(point.t);
+		if (explicitIndex < 0) return false;
+
+		const profile = [...this.getProfile()];
+		profile.splice(explicitIndex, 1);
+
+		const layer = this.ctx.getCurrentLayer();
+		if (!layer) return false;
+		this.ctx.transact((commands) => {
+			commands.updateElement(
+				layer.id,
+				this.targetElementId!,
+				this.profilePatch(profile),
+			);
+		});
+
+		const updated = this.ctx.getPathById(this.targetElementId!);
+		if (updated) this.targetPath = updated;
+		this.selectedPointIndex = null;
+		this.selectedPart = null;
+		this.ctx.requestRender("document");
+		this.refreshUI();
+		return true;
+	}
+
+	/** Arm the long press on the selected point, which only its center handle can start. */
+	private startLongPress(event: PointerEventData): void {
+		this.clearLongPress();
+		this.pressStart = {
+			x: event.x,
+			y: event.y,
+			thresholdPx: dragStartThresholdScreenPx(event.pointerType),
+		};
+
+		const point = this.getEffectiveWidths()[this.selectedPointIndex!];
+		const center = point && this.evaluateWorldPath(point.t);
+		if (!center) return;
+
+		this.longPressTimer = setTimeout(() => {
+			this.longPressTimer = null;
+			this.longPressRing = { worldX: center.x, worldY: center.y };
+			this.refreshUI();
+		}, LONG_PRESS_MS);
+	}
+
+	private clearLongPress(): void {
+		if (this.longPressTimer != null) {
+			clearTimeout(this.longPressTimer);
+			this.longPressTimer = null;
+		}
+		this.pressStart = null;
+		this.longPressRing = null;
 	}
 
 	/**
@@ -739,7 +804,14 @@ export class StrokeWidthEditTool implements Tool {
 			});
 		}
 
-		return { pathSegments, handles, centerHandles, crossLines, envelopeLines };
+		return {
+			pathSegments,
+			handles,
+			centerHandles,
+			crossLines,
+			envelopeLines,
+			longPressRing: this.longPressRing ?? undefined,
+		};
 	}
 
 	/** The edited profile's explicit points. */

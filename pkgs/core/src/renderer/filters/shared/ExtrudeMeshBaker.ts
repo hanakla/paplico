@@ -15,13 +15,12 @@ import {
 	type Path,
 	type Solid3DBaseParams,
 } from "../../../schema";
-import {
-	brandWorldBBox,
-	calculateLocalElementBounds,
-} from "../../../utils/geometry/bounds";
+import { brandWorldBBox } from "../../../utils/geometry/bounds";
 import {
 	applyTransformToPoint,
+	composeAncestorMatrix,
 	composeAncestorTransform,
+	placeElement,
 } from "../../../utils/geometry/geometry";
 import {
 	mat4Multiply,
@@ -209,16 +208,19 @@ export class ExtrudeMeshBaker {
 				return { segments, flatSegments, worldSpace: false };
 			}
 			case "group": {
-				const worldTransform = composeAncestorTransform(
+				const childrenMatrix = placeElement(
+					composeAncestorMatrix(
+						element,
+						geom.elementsMap,
+						geom.getParentGroupMap(),
+					),
 					element,
-					geom.elementsMap,
-					geom.getParentGroupMap(),
 				);
 				const segments = collectGroupExtrudeOutline(
 					element,
 					geom.elementsMap,
 					geom.compoundPathCache,
-					worldTransform,
+					childrenMatrix,
 					this.filterRenderer,
 					geom.resolveTextOutline,
 					geom.requestTextOutline,
@@ -249,7 +251,7 @@ export class ExtrudeMeshBaker {
 				const segments = collectBlendExtrudeOutline(
 					element,
 					geom.elementsMap,
-					undefined,
+					null,
 					this.filterRenderer,
 				);
 				if (segments.length === 0) return null;
@@ -335,11 +337,10 @@ export class ExtrudeMeshBaker {
 		// they read the fill color instead of its antialiased coverage edge.
 		const uvInset = 1.5 / dpiScale;
 
-		// Composed element transform (ancestor groups included) with the same
-		// rotation origin as the GPU transforms buffer: the element's local
-		// bounds center. The blit follows it so the 3D result moves exactly like
-		// the flat geometry would. World-space outlines (groups) already have
-		// every transform baked in, so they stay at identity.
+		// Composed element transform (ancestor groups included). The blit
+		// follows it so the 3D result moves exactly like the flat geometry
+		// would. World-space outlines (groups) already have every transform
+		// baked in, so they stay at identity.
 		const composedTransform = worldSpace
 			? createIdentityTransform()
 			: composeAncestorTransform(
@@ -348,16 +349,6 @@ export class ExtrudeMeshBaker {
 					geom.getParentGroupMap(),
 				);
 		const hasTransform = !isIdentityTransform(composedTransform);
-		let originX = 0;
-		let originY = 0;
-		if (hasTransform) {
-			const localBounds = calculateLocalElementBounds(
-				element,
-				geom.elementsMap,
-			);
-			originX = (localBounds.minX + localBounds.maxX) / 2;
-			originY = (localBounds.minY + localBounds.maxY) / 2;
-		}
 
 		const entry = this.getOrBuildMesh(
 			cache,
@@ -860,34 +851,10 @@ export class ExtrudeMeshBaker {
 			},
 			quad: hasTransform
 				? ([
-						applyTransformToPoint(
-							pMinX,
-							pMaxY,
-							composedTransform,
-							originX,
-							originY,
-						),
-						applyTransformToPoint(
-							pMaxX,
-							pMaxY,
-							composedTransform,
-							originX,
-							originY,
-						),
-						applyTransformToPoint(
-							pMaxX,
-							pMinY,
-							composedTransform,
-							originX,
-							originY,
-						),
-						applyTransformToPoint(
-							pMinX,
-							pMinY,
-							composedTransform,
-							originX,
-							originY,
-						),
+						applyTransformToPoint(pMinX, pMaxY, composedTransform),
+						applyTransformToPoint(pMaxX, pMaxY, composedTransform),
+						applyTransformToPoint(pMaxX, pMinY, composedTransform),
+						applyTransformToPoint(pMinX, pMinY, composedTransform),
 					] as const)
 				: undefined,
 			uvRect: {

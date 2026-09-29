@@ -1143,6 +1143,8 @@ export const ja = {
 		roomReconnected: "再接続しました",
 		reconnectAction: "再接続",
 		roomNotFound: "ルームが見つかりません",
+		roomNeedsNewerApp:
+			"このルームは、いまより新しいアプリで作られています。アプリを更新すると入れます。",
 		backToCanvas: "キャンバスにもどる",
 		inviteQrLabel: "読み取り用のコード",
 		connectOtherDevices: "他の端末とつなぐ",

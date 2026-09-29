@@ -178,9 +178,10 @@ export async function duplicateDocument(
 	const newId = generateUid("doc");
 	const now = Date.now();
 	// The copy carries its own id inside the document too, so a file saved
-	// from it lands on the copy's record and not on the original's.
+	// from it lands on the copy's record and not on the original's. It keeps
+	// the stored shape and version: migrating happens when the copy is opened.
 	const document = await serializeDocument({
-		...(await (await openPapf(data.document)).toDocument()),
+		...(await (await openPapf(data.document)).readUnmigratedDocument()),
 		id: newId,
 	});
 

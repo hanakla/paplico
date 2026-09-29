@@ -30,10 +30,17 @@ import {
 import {
 	brandWorldBBox,
 	calculateElementBounds,
-	calculateLocalElementBounds,
 } from "../utils/geometry/bounds";
-import { toWorld, type WorldBezierSegment } from "../utils/geometry/geometry";
+import {
+	applyWorldAffineToTransform,
+	toWorld,
+	type WorldBezierSegment,
+} from "../utils/geometry/geometry";
 import { getWorldSegments } from "../utils/geometry/segmentOps";
+import {
+	frameWorldBounds,
+	type SelectionFrame,
+} from "../utils/geometry/selectionFrame";
 import { SelectTool } from "./SelectTool";
 import { createDefaultTextStyle } from "./TextTool";
 
@@ -211,6 +218,118 @@ describe("SelectTool resize flipping", () => {
 		expect(newBounds.minX).toBe(100);
 		expect(newBounds.maxX).toBe(200);
 		expect(flip).toEqual({ x: true, y: false });
+	});
+});
+
+describe("SelectTool tilted frame", () => {
+	it("resizes a lone turned element along its own axes without snapping", () => {
+		const elementId = "path-1";
+		const layer: Layer = {
+			id: "layer-1",
+			name: "Layer 1",
+			visible: true,
+			locked: false,
+			opacity: 1,
+			blendMode: "normal",
+			elementIds: [elementId],
+		};
+		// A 100×60 box turned a quarter about the origin: its local x axis
+		// runs along world y.
+		const frame: SelectionFrame = {
+			bounds: {
+				minX: -50,
+				minY: -30,
+				maxX: 50,
+				maxY: 30,
+				width: 100,
+				height: 60,
+			},
+			matrix: { ...createIdentityTransform(), rotation: Math.PI / 2 },
+			elementId,
+		};
+		const element: AnyArtObject = {
+			id: elementId,
+			type: "path",
+			segments: [],
+			opacity: 1,
+			blendMode: "normal",
+			transform: frame.matrix,
+		};
+		const context = createMockToolContext({
+			getCurrentLayer: () => layer,
+			getSelectedElementIds: () => [elementId],
+			findElementAtPoint: () => element,
+			getElementFrame: () => frame,
+			getWorldGeometryBounds: () => brandWorldBBox(frameWorldBounds(frame)),
+		});
+		const tool = new SelectTool(context);
+		tool.refreshUI();
+
+		// The "e" handle sits at local (50, 0) → world (0, 50) → screen (400, 250).
+		// Dragging it 30 world units along the frame's x axis, world +y.
+		tool.onPointerDown(
+			ev(400, 250),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerMove(
+			ev(400, 220),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(
+			ev(400, 220),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(context.elementsResize).toHaveBeenCalledTimes(1);
+		const [ids, usedFrame, newBounds, flip] =
+			context.elementsResize.mock.calls[0];
+		expect(ids).toEqual([elementId]);
+		expect(usedFrame).toBe(frame);
+		expect(newBounds.maxX).toBeCloseTo(80);
+		expect(newBounds.minX).toBeCloseTo(-50);
+		expect(newBounds.minY).toBeCloseTo(-30);
+		expect(newBounds.maxY).toBeCloseTo(30);
+		expect(flip).toEqual({ x: false, y: false });
+		expect(context.snapElements).not.toHaveBeenCalled();
+	});
+
+	it("shows the resize cursor along the frame's axis", () => {
+		const elementId = "path-1";
+		const frame: SelectionFrame = {
+			bounds: {
+				minX: -50,
+				minY: -30,
+				maxX: 50,
+				maxY: 30,
+				width: 100,
+				height: 60,
+			},
+			matrix: { ...createIdentityTransform(), rotation: Math.PI / 2 },
+			elementId,
+		};
+		const context = createMockToolContext({
+			getSelectedElementIds: () => [elementId],
+			getElementFrame: () => frame,
+			getWorldGeometryBounds: () => brandWorldBBox(frameWorldBounds(frame)),
+		});
+		const tool = new SelectTool(context);
+		tool.refreshUI();
+
+		// Hovering the "e" handle, which moves along world y.
+		tool.onPointerMove(
+			ev(400, 250),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(tool.getCursor()).toBe("ns-resize");
 	});
 });
 
@@ -789,28 +908,18 @@ describe("rotation: preview vs finalized coordinate consistency", () => {
 
 		const cos = Math.cos(angleDelta);
 		const sin = Math.sin(angleDelta);
-		const elementsMap = new Map<string, AnyArtObject>([
-			[el1.id, el1],
-			[el2.id, el2],
-		]);
 
+		// The same world turn rotateElements folds into each transform.
 		function applyMultiRotation(el: Path): Path {
-			const t = getTransform(el);
-			const localBounds = calculateLocalElementBounds(el, elementsMap);
-			const localCx = (localBounds.minX + localBounds.maxX) / 2;
-			const localCy = (localBounds.minY + localBounds.maxY) / 2;
-			const vcx = localCx + t.x;
-			const vcy = localCy + t.y;
-			const newVcx = cx + (vcx - cx) * cos - (vcy - cy) * sin;
-			const newVcy = cy + (vcx - cx) * sin + (vcy - cy) * cos;
 			return {
 				...el,
-				transform: {
-					...t,
-					x: newVcx - localCx,
-					y: newVcy - localCy,
-					rotation: t.rotation + angleDelta,
-				},
+				transform: applyWorldAffineToTransform(
+					getTransform(el),
+					null,
+					{ m00: cos, m01: -sin, m10: sin, m11: cos },
+					cx - (cos * cx - sin * cy),
+					cy - (sin * cx + cos * cy),
+				),
 			};
 		}
 
@@ -885,28 +994,18 @@ describe("rotation: preview vs finalized coordinate consistency", () => {
 
 		const cos = Math.cos(angleDelta);
 		const sin = Math.sin(angleDelta);
-		const elementsMap = new Map<string, AnyArtObject>([
-			[el1.id, el1],
-			[el2.id, el2],
-		]);
 
+		// The same world turn rotateElements folds into each transform.
 		function applyMultiRotation(el: Path): Path {
-			const t = getTransform(el);
-			const localBounds = calculateLocalElementBounds(el, elementsMap);
-			const localCx = (localBounds.minX + localBounds.maxX) / 2;
-			const localCy = (localBounds.minY + localBounds.maxY) / 2;
-			const vcx = localCx + t.x;
-			const vcy = localCy + t.y;
-			const newVcx = cx + (vcx - cx) * cos - (vcy - cy) * sin;
-			const newVcy = cy + (vcx - cx) * sin + (vcy - cy) * cos;
 			return {
 				...el,
-				transform: {
-					...t,
-					x: newVcx - localCx,
-					y: newVcy - localCy,
-					rotation: t.rotation + angleDelta,
-				},
+				transform: applyWorldAffineToTransform(
+					getTransform(el),
+					null,
+					{ m00: cos, m01: -sin, m10: sin, m11: cos },
+					cx - (cos * cx - sin * cy),
+					cy - (sin * cx + cos * cy),
+				),
 			};
 		}
 

@@ -8,7 +8,8 @@ import type {
 	ElementTransform,
 	Viewport,
 } from "../schema";
-import { screenToWorld } from "../utils/geometry/geometry";
+import { calculateLocalElementBounds } from "../utils/geometry/bounds";
+import { keepPointInPlace, screenToWorld } from "../utils/geometry/geometry";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
@@ -19,6 +20,8 @@ interface SkewTarget {
 	elementId: string;
 	/** The element's transform at tool start (immutable baseline). */
 	transform: ElementTransform;
+	/** The centre of the element's local bounds, which the shear keeps in place. */
+	center: { x: number; y: number };
 }
 
 /**
@@ -73,13 +76,19 @@ export class SkewTool implements Tool {
 		// Skew operates on the selected elements' transforms directly (not
 		// flattened leaves): shearing a group's transform shears its children
 		// together.
+		const elementsMap = new Map(Object.entries(this.context.getObjects()));
 		for (const id of selectedIds) {
 			const element = this.context.getElement(id);
 			const bounds = this.context.getBounds(id);
 			if (!element || !bounds) continue;
+			const local = calculateLocalElementBounds(element, elementsMap);
 			this.targets.push({
 				elementId: id,
 				transform: deepClone(element.transform),
+				center: {
+					x: (local.minX + local.maxX) / 2,
+					y: (local.minY + local.maxY) / 2,
+				},
 			});
 			minX = Math.min(minX, bounds.minX);
 			minY = Math.min(minY, bounds.minY);
@@ -387,11 +396,15 @@ export class SkewTool implements Tool {
 			elementId: t.elementId,
 			layerId,
 			updates: {
-				transform: {
-					...t.transform,
-					skewX: (t.transform.skewX ?? 0) + skewX,
-					skewY: (t.transform.skewY ?? 0) + skewY,
-				},
+				transform: keepPointInPlace(
+					t.transform,
+					{
+						...t.transform,
+						skewX: (t.transform.skewX ?? 0) + skewX,
+						skewY: (t.transform.skewY ?? 0) + skewY,
+					},
+					t.center,
+				),
 			} as Partial<AnyArtObject>,
 		}));
 	}

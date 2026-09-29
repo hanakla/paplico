@@ -369,20 +369,18 @@ describe("group child filter plans", () => {
 		expect(plan.textureBounds.maxX).toBeCloseTo(540);
 	});
 
-	it("should pivot a rotated group's child on the child's own centre", () => {
+	it("should turn a rotated group's child around the group's local origin", () => {
 		// Child square at 0..40 shifted by x:100 under a group rotated 90°. The
-		// GPU rotates about the child's own centre (20,20) and adds the rotated
-		// offset (0,100), so the square lands at x 0..40, y 100..140. Rotating
-		// the already-shifted box about its centre would land it at x 100..140,
-		// y 0..40 instead.
+		// group turns its space around its local origin, so the square at
+		// x 100..140, y 0..40 lands at x -40..0, y 100..140.
 		const { child, document } = groupedChild(
 			{ x: 0, y: 0, rotation: Math.PI / 2 },
 			{ x: 100, y: 0 },
 		);
 
-		const plan = planFor(document, child.id, { x: 20, y: 120 });
-		expect(plan.textureBounds.minX).toBeCloseTo(0);
-		expect(plan.textureBounds.maxX).toBeCloseTo(40);
+		const plan = planFor(document, child.id, { x: -20, y: 120 });
+		expect(plan.textureBounds.minX).toBeCloseTo(-40);
+		expect(plan.textureBounds.maxX).toBeCloseTo(0);
 		expect(plan.textureBounds.minY).toBeCloseTo(100);
 		expect(plan.textureBounds.maxY).toBeCloseTo(140);
 	});
@@ -421,7 +419,7 @@ describe("group child filter plans", () => {
 });
 
 describe("planBoundsOf", () => {
-	it("should pivot a rotated group's child on the child's own centre without a filter renderer", () => {
+	it("should turn a rotated group's child around the group's local origin without a filter renderer", () => {
 		// The flat-bounds form every mask, clip and backdrop box goes through:
 		// the same child square as above, read with no geometry filters.
 		const { child, document } = groupedChild(
@@ -437,8 +435,8 @@ describe("planBoundsOf", () => {
 			undefined,
 			getTransform(group),
 		);
-		expect(bounds.minX).toBeCloseTo(0);
-		expect(bounds.maxX).toBeCloseTo(40);
+		expect(bounds.minX).toBeCloseTo(-40);
+		expect(bounds.maxX).toBeCloseTo(0);
 		expect(bounds.minY).toBeCloseTo(100);
 		expect(bounds.maxY).toBeCloseTo(140);
 	});

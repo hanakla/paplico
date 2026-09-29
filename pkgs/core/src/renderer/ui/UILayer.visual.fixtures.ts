@@ -92,8 +92,12 @@ export const UI_FIXTURE_DATA: {
 } = {
 	selection: {
 		bounds: bbox(-120, -70, 120, 70),
-		rotation: 0,
-		rotationCenter: { x: 0, y: 0 },
+		quad: [
+			{ x: -120, y: 70 },
+			{ x: 120, y: 70 },
+			{ x: 120, y: -70 },
+			{ x: -120, y: -70 },
+		],
 		handles: boundsHandles(bbox(-120, -70, 120, 70)),
 		rotationHandle: { x: 0, y: 94 },
 		pathSegments: [

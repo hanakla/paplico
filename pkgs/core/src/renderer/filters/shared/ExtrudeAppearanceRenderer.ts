@@ -24,7 +24,6 @@ import {
 	getTransform,
 	hasGroupAppearances,
 	isFilterEnabled,
-	isIdentityTransform,
 	isPath,
 	type Path,
 	type PathSegment,
@@ -41,12 +40,10 @@ import {
 	resolveBlendSourcePath,
 	resolveBlendSpinePath,
 } from "../../../utils/geometry/blendInterpolation";
-import {
-	calculatePathBounds,
-	type WorldBBox,
-} from "../../../utils/geometry/bounds";
+import type { WorldBBox } from "../../../utils/geometry/bounds";
 import { applyCornerRadius } from "../../../utils/geometry/cornerRadius";
-import { composeTransforms } from "../../../utils/geometry/geometry";
+import { placeElement } from "../../../utils/geometry/geometry";
+
 import { type Mat4, mat4TransformPoint } from "../../../utils/geometry/mat4";
 import {
 	computeQuadProjectiveWeights,
@@ -1357,7 +1354,8 @@ export function collectGroupExtrudeOutline(
 	group: Group,
 	elementsMap: Map<string, AnyArtObject>,
 	compoundPathCache: CompoundPathCache,
-	worldTransform: ElementTransform,
+	/** The chain the group's children are placed under (see childrenMatrixOf). */
+	childrenMatrix: ElementTransform,
 	filterRenderer: FilterRenderer,
 	resolveTextOutline: (
 		element: TextElement,
@@ -1367,9 +1365,6 @@ export function collectGroupExtrudeOutline(
 	const result: CubicBezierSegment[] = [];
 	const append = (segments: CubicBezierSegment[]): void =>
 		appendSubpath(result, segments);
-	const ancestor = isIdentityTransform(worldTransform)
-		? undefined
-		: worldTransform;
 	const groupPreFilters = geometryFilters(group, filterRenderer);
 	const shouldUseCombinedGroupShape =
 		hasGroupAppearances(group) || groupPreFilters.length > 0;
@@ -1388,19 +1383,16 @@ export function collectGroupExtrudeOutline(
 		if (combined.length === 0) return [];
 		const flat = applyPreFilters(combined, groupPreFilters, filterRenderer);
 		// `combined` already has each child's own transform folded in (group-local
-		// space); fold the group's own world transform on top, matching how the
-		// per-child branch folds `ancestor`.
-		const world = toWorldPath(
-			{
-				type: "path",
-				id: group.id,
-				opacity: 1,
-				blendMode: "normal",
-				segments: flat,
-				transform: createIdentityTransform(),
-			},
-			ancestor,
-		);
+		// space), which is the space `childrenMatrix` maps to world.
+		const combinedPath: Path = {
+			type: "path",
+			id: group.id,
+			opacity: 1,
+			blendMode: "normal",
+			segments: flat,
+			transform: createIdentityTransform(),
+		};
+		const world = toWorldPath(combinedPath, childrenMatrix);
 		append(
 			buildExtrudeOutline(localAppearances(group.filters), world.segments),
 		);
@@ -1412,20 +1404,17 @@ export function collectGroupExtrudeOutline(
 	// before transforming to world.
 	const toFlatWorldPath = (
 		path: Path,
-		nodeTransform: ElementTransform | undefined,
+		ancestorTransform: ElementTransform | undefined,
 	): Path => {
 		const flatSegments = resolveElementGeometry(
 			path.segments,
 			localAppearances(path.filters),
 			filterRenderer,
 		);
-		return toWorldPath({ ...path, segments: flatSegments }, nodeTransform);
+		return toWorldPath({ ...path, segments: flatSegments }, ancestorTransform);
 	};
 
-	const recurse = (
-		node: Group,
-		nodeTransform: ElementTransform | undefined,
-	): void => {
+	const recurse = (node: Group, nodeMatrix: ElementTransform): void => {
 		for (const childId of node.childIds) {
 			if (childId === node.clipPathId) continue;
 			const child = elementsMap.get(childId);
@@ -1433,7 +1422,7 @@ export function collectGroupExtrudeOutline(
 
 			switch (child.type) {
 				case "path": {
-					const world = toFlatWorldPath(child, nodeTransform);
+					const world = toFlatWorldPath(child, nodeMatrix);
 					append(
 						buildExtrudeOutline(
 							localAppearances(child.filters),
@@ -1447,7 +1436,7 @@ export function collectGroupExtrudeOutline(
 					for (const source of child.sources) {
 						const el = elementsMap.get(source.id);
 						if (el && isPath(el)) {
-							pathMap.set(source.id, toFlatWorldPath(el, nodeTransform));
+							pathMap.set(source.id, toFlatWorldPath(el, nodeMatrix));
 						}
 					}
 					append(compoundPathCache.resolve(child, pathMap));
@@ -1458,7 +1447,7 @@ export function collectGroupExtrudeOutline(
 						collectBlendExtrudeOutline(
 							child,
 							elementsMap,
-							nodeTransform,
+							nodeMatrix,
 							filterRenderer,
 						),
 					);
@@ -1467,28 +1456,23 @@ export function collectGroupExtrudeOutline(
 					append(
 						collectTextExtrudeOutline(
 							child,
-							nodeTransform,
+							nodeMatrix,
 							resolveTextOutline,
 							requestTextOutline,
 							filterRenderer,
 						),
 					);
 					break;
-				case "group": {
-					const childTransform = getTransform(child);
-					const composed = nodeTransform
-						? composeTransforms(nodeTransform, childTransform)
-						: childTransform;
-					recurse(child, isIdentityTransform(composed) ? undefined : composed);
+				case "group":
+					recurse(child, placeElement(nodeMatrix, child));
 					break;
-				}
 				case "image": {
 					const world = toWorldPath(
 						{
 							...child,
 							segments: buildImageRectOutline(child),
 						} as unknown as Path,
-						nodeTransform,
+						nodeMatrix,
 					);
 					append(
 						buildExtrudeOutline(
@@ -1509,7 +1493,7 @@ export function collectGroupExtrudeOutline(
 		}
 	};
 
-	recurse(group, ancestor);
+	recurse(group, childrenMatrix);
 	return result;
 }
 
@@ -1518,10 +1502,10 @@ export function collectGroupExtrudeOutline(
  * intermediate is resolved exactly as ElementRenderer.renderBlend draws it
  * (pre-filters baked; corner-radius left as a numeric field so
  * computeBlendIntermediates can interpolate it smoothly across the blend),
- * then everything is folded into world space around the blend's OWN bbox
- * center — mirroring blendKeyOutlines, not each key's own center — so the 3D
- * outline stays aligned with the flat rendering when the blend is rotated or
- * scaled. corner-radius is realized into fillet geometry per item (key or
+ * then everything is folded into world space through the blend's transform
+ * — mirroring blendKeyOutlines — so the 3D outline stays aligned with the
+ * flat rendering when the blend is rotated or scaled. corner-radius is
+ * realized into fillet geometry per item (key or
  * intermediate) after that fold, matching renderPath's own draw-time step.
  * Returns an empty array when fewer than two keys resolve.
  */
@@ -1590,34 +1574,6 @@ function resolveBlendItems(
 	return { worldKeys, intermediatePairs };
 }
 
-/** The blend-bbox center + composed transform every item folds into world
- *  around — mirroring blendKeyOutlines, not each item's own center, so the
- *  3D outline stays aligned with the flat rendering when the blend is
- *  rotated or scaled. */
-function blendWorldOrigin(
-	worldKeys: Path[],
-	blend: BlendObject,
-	nodeTransform: ElementTransform | undefined,
-): { origin: { x: number; y: number }; worldT: ElementTransform } {
-	let minX = Number.POSITIVE_INFINITY;
-	let minY = Number.POSITIVE_INFINITY;
-	let maxX = Number.NEGATIVE_INFINITY;
-	let maxY = Number.NEGATIVE_INFINITY;
-	for (const key of worldKeys) {
-		const b = calculatePathBounds(key);
-		minX = Math.min(minX, b.minX);
-		minY = Math.min(minY, b.minY);
-		maxX = Math.max(maxX, b.maxX);
-		maxY = Math.max(maxY, b.maxY);
-	}
-	const origin = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
-	const blendTransform = getTransform(blend);
-	const worldT = nodeTransform
-		? composeTransforms(nodeTransform, blendTransform)
-		: blendTransform;
-	return { origin, worldT };
-}
-
 /**
  * A blend's world-space extrusion outline: every key and interpolated
  * intermediate's outline, concatenated into one multi-subpath, folded into
@@ -1633,20 +1589,21 @@ function blendWorldOrigin(
 export function collectBlendExtrudeOutline(
 	blend: BlendObject,
 	elementsMap: Map<string, AnyArtObject>,
-	nodeTransform: ElementTransform | undefined,
+	/** The chain the blend's ancestors place it under, or null. */
+	parentMatrix: ElementTransform | null,
 	filterRenderer: FilterRenderer,
 ): CubicBezierSegment[] {
 	const resolved = resolveBlendItems(blend, elementsMap, filterRenderer);
 	if (!resolved) return [];
 	const { worldKeys, intermediatePairs } = resolved;
-	const { origin, worldT } = blendWorldOrigin(worldKeys, blend, nodeTransform);
+	const worldT = placeElement(parentMatrix, blend);
 
 	const result: CubicBezierSegment[] = [];
 	const appendItem = (
 		filters: Filter[] | undefined,
 		segments: PathSegment[],
 	): void => {
-		const worldSegments = transformSegmentsToWorld(segments, worldT, origin);
+		const worldSegments = transformSegmentsToWorld(segments, worldT);
 		const flat = applyCornerRadius(
 			reconstructSegmentsFromWorld(worldSegments, segments),
 		);
@@ -1721,7 +1678,7 @@ export function collectBlendExtrudeInstances(
 	const { worldKeys, intermediatePairs } = resolved;
 	// A standalone blend has no ancestor group transform of its own to fold in
 	// here (the caller applies the element's own transform at blit time).
-	const { origin, worldT } = blendWorldOrigin(worldKeys, blend, undefined);
+	const worldT = getTransform(blend);
 
 	const instances: BlendExtrudeInstance[] = [];
 	const addItem = (
@@ -1732,7 +1689,7 @@ export function collectBlendExtrudeInstances(
 			(f) => f.processor === processor && isFilterEnabled(f),
 		);
 		if (!solidFilter) return;
-		const worldSegments = transformSegmentsToWorld(segments, worldT, origin);
+		const worldSegments = transformSegmentsToWorld(segments, worldT);
 		const flat = applyCornerRadius(
 			reconstructSegmentsFromWorld(worldSegments, segments),
 		);
@@ -1923,7 +1880,7 @@ export function collectCompoundPathFillOutline(
  */
 function collectTextExtrudeOutline(
 	element: TextElement,
-	nodeTransform: ElementTransform | undefined,
+	ancestorTransform: ElementTransform | undefined,
 	resolveTextOutline: (
 		element: TextElement,
 	) => { paths: Path[]; localBounds: BoundingBox } | null,
@@ -1939,7 +1896,7 @@ function collectTextExtrudeOutline(
 	if (local.length === 0) return [];
 	const world = toWorldPath(
 		{ ...element, segments: local } as unknown as Path,
-		nodeTransform,
+		ancestorTransform,
 	);
 	return world.segments;
 }

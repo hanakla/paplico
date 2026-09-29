@@ -2,7 +2,6 @@ import {
 	type AnyArtObject,
 	type BoundingBox,
 	type ElementTransform,
-	getTransform,
 	isBlend,
 	isGroup,
 	isMesh,
@@ -14,8 +13,6 @@ import {
 	type LocalBoundsCache,
 } from "../../../utils/geometry/bounds";
 import {
-	composeAncestorTransform,
-	composeTransforms,
 	GPU_TRANSFORM_VALUES,
 	type GPUTransformAffine,
 	getVisibleWorldBounds,
@@ -23,6 +20,7 @@ import {
 	MASK_ATLAS_BIT,
 	MASK_INVERT_BIT,
 	NO_MASK_INDEX,
+	placeElement,
 	transformLinearMatrix,
 	writeGPUTransform,
 } from "../../../utils/geometry/geometry";
@@ -152,16 +150,14 @@ export class ViewportManager {
 	public getGpuTransform(slot: number): GPUTransformAffine {
 		const f32 = this.cachedF32;
 		const offset = slot * GPU_TRANSFORM_VALUES;
-		if (!f32 || offset + 8 > f32.length) return IDENTITY_GPU_TRANSFORM;
+		if (!f32 || offset + 6 > f32.length) return IDENTITY_GPU_TRANSFORM;
 		return {
 			tx: f32[offset],
 			ty: f32[offset + 1],
-			originX: f32[offset + 2],
-			originY: f32[offset + 3],
-			m00: f32[offset + 4],
-			m01: f32[offset + 5],
-			m10: f32[offset + 6],
-			m11: f32[offset + 7],
+			m00: f32[offset + 2],
+			m01: f32[offset + 3],
+			m10: f32[offset + 4],
+			m11: f32[offset + 5],
 		};
 	}
 
@@ -245,6 +241,17 @@ export class ViewportManager {
 
 	public getComposedTransformCache(): ReadonlyMap<string, ElementTransform> {
 		return this._composedTransformCache;
+	}
+
+	/**
+	 * The chain an element's ancestors place it under, as of the last
+	 * updateTransformsBuffer; null for an element sitting directly in a layer.
+	 */
+	public getAncestorMatrix(elementId: string): ElementTransform | null {
+		const parentId = this.parentGroupMap.get(elementId);
+		return parentId
+			? (this._composedTransformCache.get(parentId) ?? null)
+			: null;
 	}
 
 	/** True when any element in the current document carries an ArtObject.mask. */
@@ -444,31 +451,21 @@ export class ViewportManager {
 		// Index 0 = identity
 		writeGPUTransform(f32, 0, IDENTITY_GPU_TRANSFORM, u32);
 
-		const composedCache = this._composedTransformCache;
-		composedCache.clear();
+		this._composedTransformCache.clear();
 
 		for (const [id, element] of elementsMap) {
-			const parentId = parentGroupMap.get(id);
-			const cachedParent = parentId ? composedCache.get(parentId) : undefined;
-			const t = cachedParent
-				? composeTransforms(cachedParent, getTransform(element))
-				: composeAncestorTransform(element, elementsMap, parentGroupMap);
-			composedCache.set(id, t);
-
-			let localBounds = this.boundsCache.get(id);
-			if (!localBounds) {
-				localBounds = calculateLocalElementBounds(
-					element,
-					elementsMap,
-					this.boundsCache,
+			if (!this.boundsCache.has(id)) {
+				this.boundsCache.set(
+					id,
+					calculateLocalElementBounds(element, elementsMap, this.boundsCache),
 				);
-				this.boundsCache.set(id, localBounds);
 			}
+
+			const t = this.composedTransformOf(element, elementsMap);
 
 			this.writeTransformAt(
 				this.transformIndexMap.get(id)!,
 				t,
-				localBounds,
 				maskMap?.get(id),
 			);
 		}
@@ -606,10 +603,9 @@ export class ViewportManager {
 			}
 		}
 
-		// Ancestors: a group's origin is its local bounds' centre, which
-		// aggregates every descendant, so changes below bubble up. Their
-		// composed transforms are untouched (composition ignores origins), so
-		// their own descendants need no further expansion.
+		// Ancestors: a container's local bounds aggregate every descendant, so
+		// changes below bubble up. Their placement does not depend on those
+		// bounds, so their own descendants need no further expansion.
 		for (const id of [...affected]) {
 			let parentId = this.parentGroupMap.get(id);
 			while (parentId != null && !affected.has(parentId)) {
@@ -638,8 +634,12 @@ export class ViewportManager {
 		this._hasClipGroups = hasClipGroups;
 		this._hasObjectMasks = hasObjectMasks;
 
-		// Evict stale local bounds so origins recompute from live geometry.
-		for (const id of affected) this.boundsCache.delete(id);
+		// Evict stale local bounds and placements so they recompute from live
+		// geometry.
+		for (const id of affected) {
+			this.boundsCache.delete(id);
+			this._composedTransformCache.delete(id);
+		}
 
 		let minSlot = Number.MAX_SAFE_INTEGER;
 		let maxSlot = -1;
@@ -651,7 +651,6 @@ export class ViewportManager {
 					this.transformIndexMap.delete(id);
 					this.freeSlots.push(slot);
 				}
-				this._composedTransformCache.delete(id);
 				this.parentGroupMap.delete(id);
 				continue;
 			}
@@ -661,29 +660,20 @@ export class ViewportManager {
 				this.transformIndexMap.set(id, slot);
 			}
 
-			// Walk the ancestor chain directly: affected entries in the composed
-			// cache are stale until rewritten here, and the set's iteration
-			// order gives no parent-before-child guarantee.
-			const t = composeAncestorTransform(
-				element,
-				elementsMap,
-				this.parentGroupMap,
-			);
-			this._composedTransformCache.set(id, t);
-
-			let localBounds = this.boundsCache.get(id);
-			if (!localBounds) {
-				localBounds = calculateLocalElementBounds(
-					element,
-					elementsMap,
-					this.boundsCache,
+			if (!this.boundsCache.has(id)) {
+				this.boundsCache.set(
+					id,
+					calculateLocalElementBounds(element, elementsMap, this.boundsCache),
 				);
-				this.boundsCache.set(id, localBounds);
 			}
+
+			// composedTransformOf walks up through evicted entries itself: the
+			// set's iteration order gives no parent-before-child guarantee.
+			const t = this.composedTransformOf(element, elementsMap);
 
 			// Mask fields reset to NO_MASK, matching the full rebuild —
 			// applyClipMasks re-writes them via writeMaskInfoOnly afterwards.
-			this.writeTransformAt(slot, t, localBounds, undefined);
+			this.writeTransformAt(slot, t, undefined);
 			if (slot < minSlot) minSlot = slot;
 			if (slot > maxSlot) maxSlot = slot;
 		}
@@ -702,46 +692,57 @@ export class ViewportManager {
 		return true;
 	}
 
+	/** composeAncestorTransform memoized per element, so siblings share one walk. */
+	private composedTransformOf(
+		element: AnyArtObject,
+		elementsMap: ReadonlyMap<string, AnyArtObject>,
+	): ElementTransform {
+		const cached = this._composedTransformCache.get(element.id);
+		if (cached) return cached;
+		const parent = elementsMap.get(this.parentGroupMap.get(element.id) ?? "");
+		const t = placeElement(
+			parent ? this.composedTransformOf(parent, elementsMap) : null,
+			element,
+		);
+		this._composedTransformCache.set(element.id, t);
+		return t;
+	}
+
 	/** Write one element's GPU transform entry into the CPU mirror at `slot`.
 	 *  Writes typed-array fields directly (no per-element object allocation). */
 	private writeTransformAt(
 		slot: number,
 		t: ElementTransform,
-		localBounds: { minX: number; minY: number; maxX: number; maxY: number },
 		mask: GPUMaskInfo | undefined,
 	): void {
 		const f32 = this.cachedF32!;
 		const u32 = this.cachedU32!;
-		const originX = (localBounds.minX + localBounds.maxX) / 2;
-		const originY = (localBounds.minY + localBounds.maxY) / 2;
 		const offset = slot * GPU_TRANSFORM_VALUES;
 
 		f32[offset] = t.x;
 		f32[offset + 1] = t.y;
-		f32[offset + 2] = originX;
-		f32[offset + 3] = originY;
 		// Row-major 2×2 linear part (rotation · shear · scale); the fast path
 		// inside transformLinearMatrix skips trig for the common unskewed case.
 		const m = transformLinearMatrix(t);
-		f32[offset + 4] = m.m00;
-		f32[offset + 5] = m.m01;
-		f32[offset + 6] = m.m10;
-		f32[offset + 7] = m.m11;
+		f32[offset + 2] = m.m00;
+		f32[offset + 3] = m.m01;
+		f32[offset + 4] = m.m10;
+		f32[offset + 5] = m.m11;
 
 		if (mask) {
-			u32[offset + 8] = maskIndexWord(mask);
-			u32[offset + 9] = 0;
-			f32[offset + 10] = mask.bounds.minX;
-			f32[offset + 11] = mask.bounds.minY;
-			f32[offset + 12] = mask.bounds.maxX;
-			f32[offset + 13] = mask.bounds.maxY;
+			u32[offset + 6] = maskIndexWord(mask);
+			u32[offset + 7] = 0;
+			f32[offset + 8] = mask.bounds.minX;
+			f32[offset + 9] = mask.bounds.minY;
+			f32[offset + 10] = mask.bounds.maxX;
+			f32[offset + 11] = mask.bounds.maxY;
 		} else {
-			u32[offset + 8] = NO_MASK_INDEX;
-			u32[offset + 9] = 0;
+			u32[offset + 6] = NO_MASK_INDEX;
+			u32[offset + 7] = 0;
+			f32[offset + 8] = 0;
+			f32[offset + 9] = 0;
 			f32[offset + 10] = 0;
 			f32[offset + 11] = 0;
-			f32[offset + 12] = 0;
-			f32[offset + 13] = 0;
 		}
 	}
 
@@ -831,12 +832,12 @@ export class ViewportManager {
 			if (idx === undefined) continue;
 
 			const offset = idx * GPU_TRANSFORM_VALUES;
-			u32[offset + 8] = maskIndexWord(mask);
-			u32[offset + 9] = 0;
-			f32[offset + 10] = mask.bounds.minX;
-			f32[offset + 11] = mask.bounds.minY;
-			f32[offset + 12] = mask.bounds.maxX;
-			f32[offset + 13] = mask.bounds.maxY;
+			u32[offset + 6] = maskIndexWord(mask);
+			u32[offset + 7] = 0;
+			f32[offset + 8] = mask.bounds.minX;
+			f32[offset + 9] = mask.bounds.minY;
+			f32[offset + 10] = mask.bounds.maxX;
+			f32[offset + 11] = mask.bounds.maxY;
 		}
 
 		// Slots may be sparse (freed slots persist between compactions), so the

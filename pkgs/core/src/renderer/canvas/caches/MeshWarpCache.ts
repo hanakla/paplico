@@ -62,7 +62,7 @@ function createFingerprint(
 		const id = stack.pop();
 		if (!id || visited.has(id)) continue;
 		visited.add(id);
-		const el = deps.resolve(id);
+		const el = deps.elementsMap.get(id);
 		if (!el) continue;
 		descendants.push(el);
 		if (el.type === "text") {

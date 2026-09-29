@@ -4,7 +4,6 @@ import { uint8ToBase64 } from "../utils/binary";
 // Safari and Firefox do not support "web " custom MIME types, so we encode
 // custom type data into text/html as a fallback (HTML comment with base64 payload).
 // This keeps image/png free for rendered preview images.
-export const PAPLICO_ELEMENTS_MIME = "web application/x-paplico-elements";
 /** Rich text-run payload copied from in-text selections (runs + charOverrides) */
 export const PAPLICO_TEXT_MIME = "web application/x-paplico-text";
 
@@ -138,7 +137,7 @@ function supportsWebCustomFormats(): boolean {
 		return (
 			typeof ClipboardItem !== "undefined" &&
 			"supports" in ClipboardItem &&
-			ClipboardItem.supports(PAPLICO_ELEMENTS_MIME)
+			ClipboardItem.supports(PAPLICO_TEXT_MIME)
 		);
 	} catch {
 		return false;

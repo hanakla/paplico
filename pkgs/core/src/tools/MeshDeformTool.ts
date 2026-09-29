@@ -35,9 +35,8 @@ import {
 	deformPathSegments,
 	flattenElementIds,
 	isDeformableElement,
-	resolveStoredTransform,
 } from "../utils/geometry/pointDeform";
-import type { PointerEventData, Tool } from "./Tool";
+import { LONG_PRESS_MS, type PointerEventData, type Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
 const PICK_TOLERANCE_SCREEN_PX = 6;
@@ -537,7 +536,7 @@ export class MeshDeformTool implements Tool {
 				this.removeHandles(new Set([handleId]));
 				this.dragState = { mode: "placing" };
 			}
-		}, 500);
+		}, LONG_PRESS_MS);
 	}
 
 	private cancelLongPressTimer(): void {
@@ -676,10 +675,6 @@ export class MeshDeformTool implements Tool {
 					layerId,
 					updates: {
 						segments,
-						transform: resolveStoredTransform(original, newLocalBounds, {
-							x: 0,
-							y: 0,
-						}),
 						...(filters ? { filters } : {}),
 					} as Partial<Path>,
 				});
@@ -725,10 +720,6 @@ export class MeshDeformTool implements Tool {
 					layerId,
 					updates: {
 						vertices,
-						transform: resolveStoredTransform(original, newLocalBounds, {
-							x: 0,
-							y: 0,
-						}),
 						...(filters ? { filters } : {}),
 					} as Partial<MeshArtObject>,
 				});

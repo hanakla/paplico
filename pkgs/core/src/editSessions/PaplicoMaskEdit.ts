@@ -11,11 +11,9 @@
  * world space — the roots are converted on the way in and back on the way out.
  * Editing in the stored frame was tried and does not work: a session that
  * leaves the content in owner-local space silently shifts anything drawn or
- * pasted mid-session, because tools author in world space, and hanging the
- * content off a group carrying the owner's transform shifts it again whenever a
- * shape is resized, since a group's transform pivots on the centre of its
- * children's bounds. World space in, owner-local out, is the only arrangement
- * with no hidden frame for the tools to disagree with.
+ * pasted mid-session, because tools author in world space. World space in,
+ * owner-local out, is the only arrangement with no hidden frame for the tools
+ * to disagree with.
  *
  * Unlike {@link PaplicoPatternEdit}, nothing is cloned. A pattern def is a
  * template with many instances, so it is expanded into working copies; a mask

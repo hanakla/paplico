@@ -8,10 +8,11 @@ import {
 	isIdentityTransform,
 	type Vec2,
 } from "../../../schema";
+
 import {
-	applyTransformToBounds,
 	applyTransformToPoint,
 	composeAncestorTransform,
+	transformBounds,
 } from "../../../utils/geometry/geometry";
 import {
 	getStartAnchor,
@@ -81,13 +82,11 @@ export class ImageElementRenderer {
 		if (image.corners !== undefined || deformed !== quad) {
 			const quads = extractQuads(deformed);
 			if (quads) {
-				const originX = (localBounds.minX + localBounds.maxX) / 2;
-				const originY = (localBounds.minY + localBounds.maxY) / 2;
 				for (const localCorners of quads) {
 					const worldCorners: QuadCorners = isIdentityTransform(t)
 						? localCorners
 						: (localCorners.map((c) =>
-								applyTransformToPoint(c.x, c.y, t, originX, originY),
+								applyTransformToPoint(c.x, c.y, t),
 							) as unknown as QuadCorners);
 					this.deps.blitQuadToCanvas(
 						passEncoder,
@@ -105,7 +104,7 @@ export class ImageElementRenderer {
 
 		const bounds = isIdentityTransform(t)
 			? localBounds
-			: applyTransformToBounds(localBounds, t);
+			: transformBounds(localBounds, t);
 
 		// Blit texture to canvas at the image position
 		this.deps.blitTextureToCanvas(
@@ -261,8 +260,7 @@ type QuadCorners = readonly [
  * geometry filters: `quad` traces the (possibly free-transformed) corners as
  * a 4-sided path, `deformed` is that quad after the filters — the same
  * reference as `quad` when nothing deforms it. `localBounds` is the flat
- * rect, the origin the transform pivots around. Rendering, bounds and hit
- * testing all read the image shape here.
+ * rect. Rendering, bounds and hit testing all read the image shape here.
  */
 export function resolveImageGeometry(
 	image: ImageObject,

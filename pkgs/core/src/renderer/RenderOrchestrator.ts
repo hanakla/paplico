@@ -24,7 +24,7 @@ import {
 	type LocalBBox,
 	type WorldBBox,
 } from "../utils/geometry/bounds";
-import { composeAncestorTransform } from "../utils/geometry/geometry";
+import { composeAncestorMatrix } from "../utils/geometry/geometry";
 import {
 	compileShaderModule,
 	type ShaderDataDefinitions,
@@ -169,6 +169,9 @@ export type RenderStrategy = keyof typeof RenderStrategy;
 interface ExportRenderOptions {
 	/** Draw through this target so the caller keeps its own cache scope. */
 	targetId?: string;
+	/** Changes since this target's previous export frame, so a sequence of
+	 *  frames reuses the bakes of elements that did not change. */
+	changedElements?: FrameRequest["changedElements"];
 }
 
 interface TargetData {
@@ -824,8 +827,8 @@ export class RenderOrchestrator {
 		document: Document;
 		elementFilter?: ReadonlySet<string>;
 		outputFormat?: "rgba8unorm" | "rgba32float";
-		/** Changed-element set forwarded to the frame (tile invalidation tests);
-		 *  production exports always re-render in full. */
+		/** Changed-element set forwarded to the frame. Undefined re-renders in
+		 *  full, which is what a one-off export wants. */
 		changedElements?: FrameRequest["changedElements"];
 		/** Transient elements forwarded to the frame (tile bypass tests). */
 		transientElements?: FrameRequest["transientElements"];
@@ -1336,10 +1339,10 @@ export class RenderOrchestrator {
 		// Element bounds come out in the parent's space; the export draws the
 		// subtree through every ancestor's transform, so compose them in.
 		const parentById = buildParentedMap(elementsMap);
-		const parentTransformOf = (id: string): ElementTransform | null => {
-			const parent = elementsMap.get(parentById.get(id) ?? "");
-			return parent
-				? composeAncestorTransform(parent, elementsMap, parentById)
+		const parentMatrixOf = (id: string): ElementTransform | null => {
+			const element = elementsMap.get(id);
+			return element
+				? composeAncestorMatrix(element, elementsMap, parentById)
 				: null;
 		};
 
@@ -1351,7 +1354,7 @@ export class RenderOrchestrator {
 					elementsMap,
 					this.filterRenderer,
 					undefined,
-					parentTransformOf,
+					parentMatrixOf,
 				)
 			: null;
 
@@ -1376,7 +1379,7 @@ export class RenderOrchestrator {
 					elementsMap,
 					this.filterRenderer ?? null,
 					undefined,
-					parentTransformOf(el.id),
+					parentMatrixOf(el.id),
 				);
 				let margin = 0;
 				for (const filter of localAppearances(el.filters)) {

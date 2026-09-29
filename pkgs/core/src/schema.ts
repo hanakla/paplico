@@ -897,14 +897,18 @@ export function isAppearancePresetRef(
 /**
  * Element transform applied at render time. All fields default to identity.
  *
- * For top-level elements, offsets are in world space.
- * For children of a group, offsets are in the parent group's local space;
- * the renderer composes ancestor transforms at render time.
+ * It is an affine matrix on the element's local origin: a local point lands
+ * at `L·p + (x, y)`, where `L` is the linear part built from rotation, scale
+ * and skew. For top-level elements that space is world space. For elements
+ * inside a container, group children and mask content alike, it is the
+ * container's local space; the renderer composes the containers' transforms
+ * onto it at render time. The points an element turns or scales around
+ * exist only while editing: the commands fold them into `x` and `y`.
  */
 export interface ElementTransform {
-	/** Translation X offset (world units for top-level, group-local for children). Default: 0 */
+	/** Translation X offset (world units for top-level, container-local inside one). Default: 0 */
 	x: number;
-	/** Translation Y offset (world units for top-level, group-local for children). Default: 0 */
+	/** Translation Y offset (world units for top-level, container-local inside one). Default: 0 */
 	y: number;
 	/** Rotation in radians. Default: 0 */
 	rotation: number;
@@ -963,8 +967,8 @@ export function getTransform(obj: ArtObject): ElementTransform {
  *
  * Mask elements live in `document.objects` but belong to no `Layer.elementIds`
  * — they are reachable only through this reference (the same arrangement
- * pattern defs use). Their transforms are owner-local: `ViewportManager`
- * registers the owner as their parent so they follow it around.
+ * pattern defs use). Their transforms are owner-local: the owner places
+ * them the way a group places its children, so they follow it around.
  */
 export interface ObjectMask {
 	/** Root element ids of the mask content. Empty = the owner is fully hidden. */

@@ -9,6 +9,11 @@
  * - Canvas resize
  */
 
+import {
+	accumulateChanges,
+	type ChangedElementsAccumulator,
+	emptyChanges,
+} from "./changedElements";
 import { RenderStrategy } from "./RenderOrchestrator";
 import type { ChangedElements } from "./types";
 
@@ -62,10 +67,7 @@ export class RenderScheduler {
 
 	/** Document-content changes accumulated since the last dispatched frame.
 	 *  `null` = tracking lost (a content dirty arrived without ids). */
-	private changedElements: {
-		upserted: Set<string>;
-		deleted: Set<string>;
-	} | null = emptyChanges();
+	private changedElements: ChangedElementsAccumulator | null = emptyChanges();
 
 	/** Whether the user is actively interacting (zoom/pan). */
 	private isInteracting = false;
@@ -102,14 +104,7 @@ export class RenderScheduler {
 
 		if (DOCUMENT_CONTENT_REASONS.has(reason)) {
 			if (changes && this.changedElements) {
-				for (const id of changes.upserted) {
-					this.changedElements.deleted.delete(id);
-					this.changedElements.upserted.add(id);
-				}
-				for (const id of changes.deleted) {
-					this.changedElements.upserted.delete(id);
-					this.changedElements.deleted.add(id);
-				}
+				accumulateChanges(this.changedElements, changes);
 			} else {
 				this.changedElements = null;
 			}
@@ -260,10 +255,4 @@ export class RenderScheduler {
 		// budget and keeps converging instead of trickling at the interaction one.
 		return RenderStrategy.overlayOnly;
 	}
-}
-
-// Helpers
-
-function emptyChanges(): { upserted: Set<string>; deleted: Set<string> } {
-	return { upserted: new Set(), deleted: new Set() };
 }

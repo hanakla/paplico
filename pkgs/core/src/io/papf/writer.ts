@@ -415,7 +415,9 @@ function buildMetaPayload(
 		metaSchemaMinor: META_SCHEMA_MINOR,
 		document: {
 			id: doc.id,
-			schemaVersion: LATEST_SCHEMA_VERSION,
+			// A document read straight off a file keeps that file's version;
+			// anything the app built or migrated is at this build's.
+			schemaVersion: doc.schemaVersion ?? LATEST_SCHEMA_VERSION,
 			objects: doc.objects,
 			layers: persistedLayers,
 			viewport: doc.viewport,

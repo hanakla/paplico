@@ -3,6 +3,12 @@ import { UndoManager } from "yjs";
 import { createIdentityTransform } from "../document/factory";
 import type { LengthUnit } from "../document/units";
 import {
+	applyMigrations,
+	LATEST_SCHEMA_VERSION,
+	UNVERSIONED_SCHEMA_BASELINE,
+} from "../io/migrations";
+import type { MigrationContext } from "../io/migrations/context";
+import {
 	type AnyArtObject,
 	type AppearancePreset,
 	type Artboard,
@@ -39,6 +45,9 @@ import {
 	extractLayersFromYDoc,
 	yMapToObject,
 } from "./extractDocumentFromYDoc";
+
+/** Origin of the rewrite migrateRoomSchema makes, kept out of the undo history. */
+const ROOM_SCHEMA_MIGRATION_ORIGIN = Symbol("room-schema-migration");
 
 // --- Y.Map serialization constants ---
 
@@ -1883,7 +1892,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	 * its content. A shape that is itself a mesh warp hands its former children
 	 * back to the parent, right before the new mesh and untouched by the warp;
 	 * `restoredTransforms` are their transforms in the parent's space, solved
-	 * by the caller with the real pivots. Returns false without writing when
+	 * by the caller through the shape's transform. Returns false without writing when
 	 * the parent, the shape or any content element is missing.
 	 */
 	public replaceShapeWithMeshWarp(
@@ -1942,7 +1951,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	 * Release a mesh warp container: restore its absorbed children (untouched —
 	 * the warp is non-destructive) and delete the container, mirroring
 	 * releaseRepeat. `childTransforms` are the children's transforms in the
-	 * parent's space, solved by the caller with the real pivots. `outline`,
+	 * parent's space, solved by the caller through the mesh's transform. `outline`,
 	 * already in the parent's space, is registered and placed right below the
 	 * children.
 	 */
@@ -2467,6 +2476,99 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	 * Must be called after sync completes.
 	 * @returns true if any duplicates were found and merged
 	 */
+	/**
+	 * Bring a room's document up to this client's schema. A room stored
+	 * without a version is taken to be at UNVERSIONED_SCHEMA_BASELINE.
+	 * `prepareContext` measures on the room's document what the migrations
+	 * cannot read off it (see prepareMigrationContext). `keep` names objects
+	 * already at this client's schema, the local document merged into the
+	 * room (see attachCollaboration): they are left as they are and kept out
+	 * of what the migrations read. The objects a migration changes are
+	 * rewritten field by field in one transaction the undo history does not
+	 * track, then the version is stamped. A room written by a newer client is
+	 * left alone and reported as "newer".
+	 *
+	 * Measuring takes a while. A peer may migrate the room meanwhile, which
+	 * starts the migration over, and the connection the migration serves may
+	 * be dropped meanwhile, which `signal` reports: the migration is then
+	 * abandoned and reported as "abandoned".
+	 */
+	public async migrateRoomSchema(
+		prepareContext?: (doc: Document) => Promise<MigrationContext>,
+		keep: ReadonlySet<string> = new Set(),
+		signal?: AbortSignal,
+	): Promise<"current" | "migrated" | "newer" | "abandoned"> {
+		const version = this.storedSchemaVersion();
+		if (version > LATEST_SCHEMA_VERSION) return "newer";
+		if (version === LATEST_SCHEMA_VERSION) return "current";
+
+		const roomDocument = (): Document => {
+			const document = extractDocumentFromYDoc(this.ydoc);
+			return {
+				...document,
+				objects: Object.fromEntries(
+					Object.entries(document.objects).filter(([id]) => !keep.has(id)),
+				),
+				schemaVersion: version,
+			};
+		};
+		const context = await prepareContext?.(roomDocument());
+		if (signal?.aborted) return "abandoned";
+		if (this.storedSchemaVersion() !== version) {
+			return this.migrateRoomSchema(prepareContext, keep, signal);
+		}
+
+		// Peers may have edited the room while the context was measured, so
+		// the rewrite reads it afresh.
+		const before = extractDocumentFromYDoc(this.ydoc);
+		const after = roomDocument();
+		applyMigrations(after, context);
+
+		this.ydoc.transact(() => {
+			for (const [id, yObj] of this.yObjects.entries()) {
+				if (keep.has(id)) continue;
+				const migrated = after.objects[id];
+				if (!migrated) {
+					this.yObjects.delete(id);
+					continue;
+				}
+				writeStoredFieldChanges(
+					yObj,
+					objectToStoredFields(before.objects[id]),
+					objectToStoredFields(migrated),
+				);
+			}
+			for (const [id, obj] of Object.entries(after.objects)) {
+				if (this.yObjects.has(id)) continue;
+				this.yObjects.set(id, storedFieldsToYMap(objectToStoredFields(obj)));
+			}
+			this.yMeta.set("schemaVersion", LATEST_SCHEMA_VERSION);
+		}, ROOM_SCHEMA_MIGRATION_ORIGIN);
+		return "migrated";
+	}
+
+	/**
+	 * The schema version stamped on the room; a room stored without one is
+	 * taken to be at UNVERSIONED_SCHEMA_BASELINE.
+	 */
+	private storedSchemaVersion(): number {
+		const stored = this.yMeta.get("schemaVersion");
+		return typeof stored === "number" ? stored : UNVERSIONED_SCHEMA_BASELINE;
+	}
+
+	/** The ids of every object in the document. */
+	public getObjectIds(): string[] {
+		return [...this.yObjects.keys()];
+	}
+
+	/**
+	 * Drop the schema version stamp, so a room this document merges into
+	 * keeps its own stamp (see attachCollaboration).
+	 */
+	public clearSchemaVersion(): void {
+		this.yMeta.delete("schemaVersion");
+	}
+
 	/** Write documentId into yMeta so the server-side Y.Doc exposes it via HTTP API. */
 	public setDocumentId(documentId: string): void {
 		this.yMeta.set("documentId", documentId);
@@ -2805,6 +2907,7 @@ function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 	);
 	yMeta.set("rasterizationDpi", doc.rasterizationDpi ?? 72);
 	yMeta.set("units", doc.units);
+	yMeta.set("schemaVersion", doc.schemaVersion ?? LATEST_SCHEMA_VERSION);
 }
 
 function defEntryToYMap(entry: DefEntry): Y.Map<unknown> {
@@ -2839,6 +2942,24 @@ function storedFieldsToYMap(fields: Record<string, unknown>): Y.Map<unknown> {
 	const yMap = new Y.Map<unknown>();
 	for (const [key, value] of Object.entries(fields)) yMap.set(key, value);
 	return yMap;
+}
+
+/**
+ * Write only what changed between two stored field records onto a Y.Map:
+ * keys whose value differs are set, keys that disappeared are deleted. Stored
+ * values are scalars or JSON strings, so equality is a plain comparison.
+ */
+function writeStoredFieldChanges(
+	yObj: Y.Map<unknown>,
+	before: Record<string, unknown>,
+	after: Record<string, unknown>,
+): void {
+	for (const key of Object.keys(before)) {
+		if (!(key in after)) yObj.delete(key);
+	}
+	for (const [key, value] of Object.entries(after)) {
+		if (before[key] !== value) yObj.set(key, value);
+	}
 }
 
 /**

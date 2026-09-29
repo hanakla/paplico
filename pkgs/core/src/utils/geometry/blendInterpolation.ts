@@ -345,11 +345,6 @@ export function blendKeyOutlines(
 	getAncestorTransform: (id: string) => ElementTransform | null,
 ): WorldBezierSegment[][] {
 	const bakedSources: Path[] = [];
-	let minX = Number.POSITIVE_INFINITY;
-	let minY = Number.POSITIVE_INFINITY;
-	let maxX = Number.NEGATIVE_INFINITY;
-	let maxY = Number.NEGATIVE_INFINITY;
-
 	for (const keyId of blend.objectIds) {
 		const key = getObject(keyId);
 		if (!key) continue;
@@ -357,13 +352,7 @@ export function blendKeyOutlines(
 		if (!path || path.segments.length === 0) continue;
 		// Keys are baked onto the spine in their own stored transforms, so the
 		// world-baked source already sits where it is drawn.
-		const baked = toWorldPath(path);
-		bakedSources.push(baked);
-		const b = calculatePathBounds(baked);
-		if (b.minX < minX) minX = b.minX;
-		if (b.minY < minY) minY = b.minY;
-		if (b.maxX > maxX) maxX = b.maxX;
-		if (b.maxY > maxY) maxY = b.maxY;
+		bakedSources.push(toWorldPath(path));
 	}
 	if (bakedSources.length === 0) return [];
 
@@ -372,22 +361,16 @@ export function blendKeyOutlines(
 	const worldT = blendAncestorT
 		? composeTransforms(blendAncestorT, blendT)
 		: blendT;
-	const origin = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
 
 	const outlines = bakedSources.map((baked) =>
-		transformSegmentsToWorld(baked.segments, worldT, origin),
+		transformSegmentsToWorld(baked.segments, worldT),
 	);
 
-	// Outline the spine too (excluded from the bbox union above, matching the
-	// blend's own bounds) so it is visible and locatable while selected.
+	// Outline the spine too so it is visible and locatable while selected.
 	const spineSource = resolveBlendSpinePath(blend, getObject);
 	if (spineSource && spineSource.segments.length > 0) {
 		outlines.push(
-			transformSegmentsToWorld(
-				toWorldPath(spineSource).segments,
-				worldT,
-				origin,
-			),
+			transformSegmentsToWorld(toWorldPath(spineSource).segments, worldT),
 		);
 	}
 

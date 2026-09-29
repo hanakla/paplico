@@ -35,6 +35,7 @@ import { PaplicoError } from "./errors";
 import { renderPdfPreviewPages } from "./io/export/pdfPreviewPages";
 import { renderElementsToPNG } from "./io/export/renderElementsToPNG";
 import type { ExportContext, ExportResult, IExporter } from "./io/export/types";
+import { prepareMigrationContext } from "./io/migrations/context";
 import { gcDocument } from "./io/papf/gc";
 import { serializeDocument } from "./io/papf/writer";
 import { PaplicoCommands } from "./PaplicoCommands";
@@ -127,7 +128,7 @@ import { TimelapsePlayer } from "./timelapse/TimelapsePlayer";
 import { TimelapsePreviewSurface } from "./timelapse/TimelapsePreviewSurface";
 import { TimelapseRecorder } from "./timelapse/TimelapseRecorder";
 import type { TimelapseChangeSet } from "./timelapse/timelapseIndex";
-import type { PlaybackState } from "./timelapse/types";
+import type { PlaybackState, TimelapseFrame } from "./timelapse/types";
 import { ArtboardTool } from "./tools/ArtboardTool";
 import { BucketFillTool } from "./tools/BucketFillTool";
 import { EraserTool } from "./tools/EraserTool";
@@ -140,10 +141,7 @@ import { PathTool } from "./tools/PathTool";
 import { type PenStrokeRecord, PenTool } from "./tools/PenTool";
 import { Reference3DController } from "./tools/Reference3DController";
 import { Reference3DTool } from "./tools/Reference3DTool";
-import {
-	createResizeHandles,
-	createRotationHandle,
-} from "./tools/resizeHandleHelper";
+import { createSelectionUIData } from "./tools/resizeHandleHelper";
 import { SelectTool } from "./tools/SelectTool";
 import { ShapeTool } from "./tools/ShapeTool";
 import { SkewTool } from "./tools/SkewTool";
@@ -170,18 +168,17 @@ import { Emitter } from "./utils/emitter";
 import { arcLengthOfNearestSpinePoint } from "./utils/geometry/blendInterpolation";
 import {
 	brandWorldBBox,
-	calculateLocalElementBounds,
 	translateBounds,
 	type WorldBBox,
 } from "./utils/geometry/bounds";
 import {
 	applyTransformToPoint,
 	composeTransforms,
-	computeTransformOrigin,
 	cursorLocalToWorld,
 	inverseTransform,
 } from "./utils/geometry/geometry";
 import { buildArcLengthTable } from "./utils/geometry/pathSampling";
+import { resolveSelectionFrame } from "./utils/geometry/selectionFrame";
 import {
 	collectSelectionOutlines,
 	shouldDashSelectionBounds,
@@ -200,6 +197,8 @@ type PaplicoEventMap = {
 	 * re-read it — otherwise it only learns on an unrelated re-render.
 	 */
 	collaborationChanged: undefined;
+	/** The joined room has synced and its document is at this client's schema. */
+	collaborationReady: undefined;
 	/** `null` means the primary target serves as the active one. */
 	activeCanvasTargetChange: { targetId: string | null };
 	eyedropperPick: {
@@ -316,6 +315,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private toolContext!: ToolContext;
 	private yjsProvider!: YjsProvider;
 	private collaboration: ICollaboration | null = null;
+	/** Aborted when the current collaboration connection is dropped. */
+	private collaborationAbort: AbortController | null = null;
+	/** The joined room was written by a newer client, so it is only viewed. */
+	private roomSchemaNewer = false;
 
 	private valtioUnsubscribes: Array<() => void> = [];
 	private readonly renderChangeSubscriber: DocumentChangeSubscriber;
@@ -1320,6 +1323,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	 * gradient tool, then clear the stop selection and rebuild the handle
 	 * overlay. Returns true when a stop was removed.
 	 */
+	/** Apply one of the eyedropper candidates listed in the tool session. */
+	public eyedropperPickCandidate(elementId: string): void {
+		if (this.tool instanceof EyedropperTool) this.tool.pickCandidate(elementId);
+	}
+
 	public gradientDeleteSelectedStop(): boolean {
 		if (!this.commands.deleteSelectedGradientStop()) return false;
 		if (this.tool instanceof GradientTool) {
@@ -1823,8 +1831,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			return;
 		}
 
-		const bounds = this.rendererStore.selectionBounds;
-		if (!bounds) {
+		const frame = resolveSelectionFrame(
+			selectedIds,
+			(id) => this.spatialIndex.getElementFrame(id),
+			(id) => this.spatialIndex.getWorldGeometryBounds(id),
+		);
+		if (!frame) {
 			setSelectionOverlay(this.rendererStore.uiOverlayState, null);
 			return;
 		}
@@ -1847,24 +1859,17 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 		const viewport = this.getPrimaryTarget()?.getViewport();
 
-		setSelectionOverlay(this.rendererStore.uiOverlayState, {
-			bounds,
-			rotation: 0,
-			rotationCenter: {
-				x: (bounds.minX + bounds.maxX) / 2,
-				y: (bounds.minY + bounds.maxY) / 2,
-			},
-			handles: includeHandles ? createResizeHandles(bounds) : [],
-			rotationHandle: includeHandles
-				? createRotationHandle(bounds, viewport?.zoom ?? 1)
-				: undefined,
-			pathSegments: pathSegments.length > 0 ? pathSegments : undefined,
-			keyObjectSegments:
-				keyObjectSegments.length > 0 ? keyObjectSegments : undefined,
-			boundsDashed: shouldDashSelectionBounds(
-				selectedIds.map((id) => this.rendererStore.document.objects[id]),
-			),
-		});
+		setSelectionOverlay(
+			this.rendererStore.uiOverlayState,
+			createSelectionUIData(frame, viewport?.zoom ?? 1, includeHandles, {
+				pathSegments: pathSegments.length > 0 ? pathSegments : undefined,
+				keyObjectSegments:
+					keyObjectSegments.length > 0 ? keyObjectSegments : undefined,
+				boundsDashed: shouldDashSelectionBounds(
+					selectedIds.map((id) => this.rendererStore.document.objects[id]),
+				),
+			}),
+		);
 	}
 
 	/**
@@ -2110,17 +2115,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				// Worldize through the element transform like every other
 				// text overlay — untransformed anchors land far off for
 				// rotated/scaled texts
-				const { t, origin, isIdentity } = this.resolveTextTransform(
-					obj.id,
-					obj,
-				);
+				const { t, isIdentity } = this.resolveTextTransform(obj.id, obj);
 				const wx = state.anchorLocal.x + obj.x;
 				const wy = state.anchorLocal.y + obj.y;
 				badges.push({
 					textId: obj.id,
 					anchor: isIdentity
 						? { x: wx, y: wy }
-						: applyTransformToPoint(wx, wy, t, origin.x, origin.y),
+						: applyTransformToPoint(wx, wy, t),
 				});
 			} catch {
 				// Layout failure (e.g. fonts still loading): skip this element
@@ -2276,7 +2278,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	public get isReadonly(): boolean {
-		return this.collaboration?.isReadonly ?? false;
+		return this.roomSchemaNewer || (this.collaboration?.isReadonly ?? false);
 	}
 
 	public getYjsProvider(): YjsProvider {
@@ -2295,8 +2297,20 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	): T {
 		this.collaboration?.destroy();
 		this.collaboration = null;
+		this.collaborationAbort?.abort();
+		this.collaborationAbort = new AbortController();
+		this.roomSchemaNewer = false;
 
-		const collab = attachCollaboration(this.yjsProvider, factory, document);
+		const collab = attachCollaboration(this.yjsProvider, factory, document, {
+			prepareMigrationContext: (doc) =>
+				prepareMigrationContext(doc, this.fonts),
+			signal: this.collaborationAbort.signal,
+			onRoomSchemaNewer: () => {
+				this.roomSchemaNewer = true;
+				this.emit("collaborationChanged", undefined);
+			},
+			onReady: () => this.emit("collaborationReady", undefined),
+		});
 		this.collaboration = collab;
 		this.emit("collaborationChanged", undefined);
 		return collab;
@@ -2307,6 +2321,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 		this.collaboration.destroy();
 		this.collaboration = null;
+		this.collaborationAbort?.abort();
+		this.collaborationAbort = null;
+		this.roomSchemaNewer = false;
 		this.emit("collaborationChanged", undefined);
 	}
 
@@ -2379,7 +2396,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						await (
 							await import("./io/papf/pdfContainer")
 						).openPapfContainer(source)
-					).toDocument()
+					).toDocument((stored) => prepareMigrationContext(stored, this.fonts))
 				: source;
 
 		// Disconnect collaboration before replacing document to avoid broadcasting empty document
@@ -2442,22 +2459,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private resolveTextTransform(
 		elementId: string,
 		element: TextElement,
-	): {
-		t: ElementTransform;
-		origin: { x: number; y: number };
-		isIdentity: boolean;
-	} {
+	): { t: ElementTransform; isIdentity: boolean } {
 		const ancestorT = this.spatialIndex.getAncestorTransform(elementId);
 		const elementT = element.transform;
 		const t = ancestorT ? composeTransforms(ancestorT, elementT) : elementT;
-		if (isIdentityTransform(t)) {
-			return { t, origin: { x: 0, y: 0 }, isIdentity: true };
-		}
-		// Use pre-transform local bounds (same source as ViewportManager GPU origin)
-		// to avoid origin mismatch when transform.x/y is non-zero.
-		const localBounds = calculateLocalElementBounds(element);
-		const origin = computeTransformOrigin(localBounds);
-		return { t, origin, isIdentity: false };
+		return { t, isIdentity: isIdentityTransform(t) };
 	}
 
 	/**
@@ -2507,13 +2513,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	): boolean {
 		const textRenderer = this.renderer?.getTextRenderer();
 		if (text.axisBinding && textRenderer) {
-			const { t, origin, isIdentity } = this.resolveTextTransform(
-				text.id,
-				text,
-			);
+			const { t, isIdentity } = this.resolveTextTransform(text.id, text);
 			const local = isIdentity
 				? { x: worldX, y: worldY }
-				: inverseTransform(worldX, worldY, t, origin.x, origin.y);
+				: inverseTransform(worldX, worldY, t);
 			const hit = textRenderer.hitTestBoundTextSync(
 				text,
 				local.x,
@@ -2652,8 +2655,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					}
 				}
 			},
-			elementsResize: (ids, originalBounds, newBounds, flip) => {
-				this.commands.resizeElements(ids, originalBounds, newBounds, flip);
+			elementsResize: (ids, frame, newBounds, flip) => {
+				this.commands.resizeElements(ids, frame, newBounds, flip);
 			},
 			elementsRotate: (ids, angleDeg, cx, cy) => {
 				this.commands.rotateElements(ids, angleDeg, cx, cy);
@@ -2698,6 +2701,13 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.findInTopmostLayer((layerId) =>
 					this.spatialIndex.findLeafElementAtPoint(layerId, x, y),
 				),
+			findPaintedElementsAtPoint: (x, y) =>
+				this.rendererStore.document.layers
+					.filter((layer) => layer.visible && !layer.locked)
+					.toReversed()
+					.flatMap((layer) =>
+						this.spatialIndex.findPaintedElementsAtPoint(layer.id, x, y),
+					),
 			findElementsInRect: (minX, minY, maxX, maxY) => {
 				const layers = this.rendererStore.document.layers;
 				const results: AnyArtObject[] = [];
@@ -2753,6 +2763,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			getBounds: (id) => this.spatialIndex.getWorldBounds(id),
 			getWorldGeometryBounds: (id) =>
 				this.spatialIndex.getWorldGeometryBounds(id),
+			getElementFrame: (id) => this.spatialIndex.getElementFrame(id),
 			getElementWorldSegments: (id) =>
 				this.spatialIndex.getElementWorldSegments(id),
 			getAncestorTransform: (id) => this.spatialIndex.getAncestorTransform(id),
@@ -2827,40 +2838,17 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 			pathSelect: (id) => this.selection.selectElement(id),
 			pathUpdate: (pathId, segments) => {
-				const compensation = this.spatialIndex.getPivotCompensation(
-					pathId,
-					segments,
-				);
 				this.clearElementOverride(pathId);
-				this.commands.transact(() => {
-					this.commands.updateElement("", pathId, { segments });
-					for (const { elementId, transform } of compensation) {
-						this.clearElementOverride(elementId);
-						this.commands.updateElement("", elementId, { transform });
-					}
-				});
+				this.commands.updateElement("", pathId, { segments });
 				// Blend spine ↔ keys sync: editing the spine redistributes the keys;
 				// editing/moving a key reshapes the spine through the keys.
 				this.commands.reflowBlendsForSpine(pathId);
 				this.commands.rebuildBlendSpineIfKey(pathId);
 			},
 			batchPathUpdate: (paths) => {
-				const updates = paths.flatMap(([pathId, segments]) => {
-					const compensation = this.spatialIndex.getPivotCompensation(
-						pathId,
-						segments,
-					);
+				const updates = paths.map(([pathId, segments]) => {
 					this.clearElementOverride(pathId);
-					for (const { elementId } of compensation) {
-						this.clearElementOverride(elementId);
-					}
-					return [
-						{ elementId: pathId, updates: { segments } },
-						...compensation.map(({ elementId, transform }) => ({
-							elementId,
-							updates: { transform },
-						})),
-					];
+					return { elementId: pathId, updates: { segments } };
 				});
 				this.yjsProvider.batchUpdateElements(updates);
 				for (const [pathId] of paths) {
@@ -2875,18 +2863,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					...obj,
 					segments,
 				} satisfies Path);
-				// Keep the pivots the edit moved from dragging the shape along.
-				for (const {
-					elementId,
-					transform,
-				} of this.spatialIndex.getPivotCompensation(pathId, segments)) {
-					const element =
-						this.rendererStore.elementOverrides.get(elementId) ??
-						this.rendererStore.document.objects[elementId];
-					if (element) {
-						this.setElementOverride(elementId, { ...element, transform });
-					}
-				}
 			},
 			findPathAtPoint: (x, y, tolerance, deepSearch) => {
 				const layers = this.rendererStore.document.layers;
@@ -3142,17 +3118,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					worldX,
 					worldY,
 				);
-				const { t, origin, isIdentity } = this.resolveTextTransform(
-					region.id,
-					region,
-				);
+				const { t, isIdentity } = this.resolveTextTransform(region.id, region);
 				let localX: number;
 				let localY: number;
 				if (isIdentity) {
 					localX = worldX - region.x;
 					localY = worldY - region.y;
 				} else {
-					const local = inverseTransform(worldX, worldY, t, origin.x, origin.y);
+					const local = inverseTransform(worldX, worldY, t);
 					localX = local.x - region.x;
 					localY = local.y - region.y;
 				}
@@ -3184,7 +3157,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					members.map(async (member) => {
 						const quads = await textRenderer.getGlyphQuads(member, charIndices);
 						if (quads.length === 0) return [];
-						const { t, origin, isIdentity } = this.resolveTextTransform(
+						const { t, isIdentity } = this.resolveTextTransform(
 							member.id,
 							member,
 						);
@@ -3193,7 +3166,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 							const wy = p.y + member.y;
 							return isIdentity
 								? { x: wx, y: wy }
-								: applyTransformToPoint(wx, wy, t, origin.x, origin.y);
+								: applyTransformToPoint(wx, wy, t);
 						};
 						return quads.map((q) => ({
 							...q,
@@ -3287,23 +3260,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				const bounds = this.spatialIndex.getBounds(text.id, text);
 				this.selection.selectElement(text.id, bounds ?? undefined);
 
-				const { t, origin, isIdentity } = this.resolveTextTransform(
-					text.id,
-					text,
-				);
+				const { t, isIdentity } = this.resolveTextTransform(text.id, text);
 
 				let cursorX = text.x;
 				let cursorY = text.y;
 				let cursorHeight = text.defaultStyle.fontSize;
 
 				if (!isIdentity) {
-					const world = applyTransformToPoint(
-						text.x,
-						text.y,
-						t,
-						origin.x,
-						origin.y,
-					);
+					const world = applyTransformToPoint(text.x, text.y, t);
 					cursorX = world.x;
 					cursorY = world.y;
 					cursorHeight *= Math.abs(t.scaleY);
@@ -3380,7 +3344,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 							startIndex,
 							endIndex,
 						);
-						const { t, origin, isIdentity } = this.resolveTextTransform(
+						const { t, isIdentity } = this.resolveTextTransform(
 							member.id,
 							member,
 						);
@@ -3399,8 +3363,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 									r.x + member.x,
 									r.y + member.y,
 									t,
-									origin.x,
-									origin.y,
 								);
 								worldRects.push({
 									x: anchor.x,
@@ -3441,13 +3403,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					region,
 					charIndex,
 				);
-				const { t, origin } = this.resolveTextTransform(region.id, region);
+				const { t } = this.resolveTextTransform(region.id, region);
 				const world = cursorLocalToWorld(
 					localPos,
 					region.x,
 					region.y,
 					t,
-					origin,
 					region.layout.writingMode,
 				);
 				// On-path carets tilt with the glyph tangent (plus element rotation)
@@ -3466,10 +3427,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					worldY,
 				);
 
-				const { t, origin, isIdentity } = this.resolveTextTransform(
-					region.id,
-					region,
-				);
+				const { t, isIdentity } = this.resolveTextTransform(region.id, region);
 
 				let localX: number;
 				let localY: number;
@@ -3478,7 +3436,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					localX = worldX - region.x;
 					localY = worldY - region.y;
 				} else {
-					const local = inverseTransform(worldX, worldY, t, origin.x, origin.y);
+					const local = inverseTransform(worldX, worldY, t);
 					localX = local.x - region.x;
 					localY = local.y - region.y;
 				}
@@ -4318,7 +4276,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	public createTimelapsePlayer(
 		callbacks: {
-			onFrame: (document: Document) => void;
+			onFrame: (frame: TimelapseFrame) => void;
 			onStateChange: (state: PlaybackState) => void;
 		},
 		filterArtboard: Artboard | null,

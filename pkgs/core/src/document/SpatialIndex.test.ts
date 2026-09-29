@@ -22,13 +22,13 @@ import type {
 import {
 	brandLocalBBox,
 	brandWorldBBox,
+	isPointInPath,
 	type WorldBBox,
 } from "../utils/geometry/bounds";
 import {
 	createMeshWarpInverse,
 	createMeshWarpSampler,
 } from "../utils/geometry/meshWarp";
-import { getWorldSegments } from "../utils/geometry/segmentOps";
 import {
 	createIdentityTransform,
 	createMeshWarpObjectFromGeometry,
@@ -665,9 +665,9 @@ describe("SpatialIndex", () => {
 		});
 
 		it("in a scaled editing scope, hits a plain child group offset from the scope origin", () => {
-			// The renderer applies the composed ancestor transform around each
-			// element's own origin, so with scale 2 the far image (own origin
-			// (200,0)) is drawn spanning world (160..240, -40..40).
+			// The scope scales around its local origin, so with scale 2 the far
+			// image (own origin (200,0)) is drawn spanning world
+			// (360..440, -40..40).
 			const imgNear = makeImage("img-near", 0, 0, 40, 40);
 			const imgFar = makeImage("img-far", 200, 0, 40, 40);
 			const childGroup = makeGroup("child-group", ["img-far"]);
@@ -689,9 +689,9 @@ describe("SpatialIndex", () => {
 			idx.rebuildAllIndices();
 
 			// Clicking the drawn content selects the child group…
-			expect(idx.findElementAtPoint("layer-1", 200, 0)).toBe(childGroup);
+			expect(idx.findElementAtPoint("layer-1", 400, 0)).toBe(childGroup);
 			// …and empty canvas beside it selects nothing.
-			expect(idx.findElementAtPoint("layer-1", 300, 0)).toBeNull();
+			expect(idx.findElementAtPoint("layer-1", 200, 0)).toBeNull();
 		});
 
 		it("in a translated editing scope, hits a clip group child on its clipped content", () => {
@@ -814,91 +814,6 @@ describe("SpatialIndex", () => {
 			expect(idx.findElementsInRect("layer-1", 240, -10, 260, 10)).toEqual([
 				child,
 			]);
-		});
-	});
-
-	describe("getPivotCompensation", () => {
-		it("should keep the untouched corners of a rotated path in place", () => {
-			const path: Path = {
-				...makeClosedPath("p"),
-				transform: { ...createIdentityTransform(), rotation: Math.PI / 2 },
-			};
-			const store = makeStore([makeLayer("layer-1", ["p"])], { p: path });
-			const idx = new SpatialIndex(store);
-			idx.rebuildAllIndices();
-
-			// Drag the (-50,-50) corner out to (-150,-50).
-			const segments = path.segments.map((seg, i) =>
-				i === 0
-					? { ...seg, start: { x: -150, y: -50 } }
-					: i === 3
-						? { ...seg, end: { x: -150, y: -50 } }
-						: seg,
-			);
-			const [update] = idx.getPivotCompensation("p", segments);
-
-			const before = getWorldSegments(path);
-			const after = getWorldSegments({
-				...path,
-				segments,
-				transform: update.transform,
-			});
-			for (const i of [0, 1, 2]) {
-				expect(after[i].end.x).toBeCloseTo(before[i].end.x);
-				expect(after[i].end.y).toBeCloseTo(before[i].end.y);
-			}
-		});
-
-		it("should keep the other sources of a rotated compound path in place", () => {
-			const a = makeClosedPath("a");
-			const b: Path = {
-				...makeClosedPath("b"),
-				transform: { ...createIdentityTransform(), x: 200 },
-			};
-			const compound: CompoundPath = {
-				type: "compound-path",
-				id: "compound-1",
-				sources: [
-					{ id: "a", op: "union" },
-					{ id: "b", op: "union" },
-				],
-				opacity: 1,
-				blendMode: "normal",
-				transform: { ...createIdentityTransform(), rotation: Math.PI / 2 },
-			};
-			const objects = { "compound-1": compound, a, b };
-			const idx = new SpatialIndex(
-				makeStore([makeLayer("layer-1", ["compound-1"])], objects),
-			);
-			idx.rebuildAllIndices();
-
-			// Move source a 30 units right in its own space.
-			const segments = a.segments.map((seg) => ({
-				...seg,
-				start: seg.start && { ...seg.start, x: seg.start.x + 30 },
-				end: { ...seg.end, x: seg.end.x + 30 },
-			}));
-			const edited: Record<string, AnyArtObject> = {
-				...objects,
-				a: { ...a, segments },
-			};
-			for (const { elementId, transform } of idx.getPivotCompensation(
-				"a",
-				segments,
-			)) {
-				edited[elementId] = { ...edited[elementId]!, transform };
-			}
-			const editedIdx = new SpatialIndex(
-				makeStore([makeLayer("layer-1", ["compound-1"])], edited),
-			);
-			editedIdx.rebuildAllIndices();
-
-			const before = idx.getElementWorldSegments("b")!;
-			const after = editedIdx.getElementWorldSegments("b")!;
-			for (const i of [0, 1, 2, 3]) {
-				expect(after[i].end.x).toBeCloseTo(before[i].end.x);
-				expect(after[i].end.y).toBeCloseTo(before[i].end.y);
-			}
 		});
 	});
 
@@ -1442,6 +1357,107 @@ describe("SpatialIndex", () => {
 		});
 	});
 
+	describe("findPaintedElementsAtPoint", () => {
+		const groupFill = (): Filter =>
+			({
+				uid: "group-fill",
+				processor: "fill",
+				opacity: 1,
+				blendMode: "normal",
+				paramData: {
+					version: "1",
+					params: {
+						fill: {
+							type: "solid",
+							color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
+						},
+					},
+				},
+			}) as Filter;
+
+		const listed = (idx: SpatialIndex, x: number, y: number) =>
+			idx
+				.findPaintedElementsAtPoint("layer-1", x, y)
+				.map((hit) => [hit.element.id, hit.depth]);
+
+		it("should list every overlapping element front to back", () => {
+			const back = makeImage("back", 0, 0, 100, 100);
+			const front = makeImage("front", 0, 0, 40, 40);
+			const aside = makeImage("aside", 300, 0, 40, 40);
+			const layer = makeLayer("layer-1", ["back", "front", "aside"]);
+			const idx = new SpatialIndex(makeStore([layer], { back, front, aside }));
+			idx.rebuildAllIndices();
+
+			expect(listed(idx, 0, 0)).toEqual([
+				["front", 0],
+				["back", 0],
+			]);
+		});
+
+		it("should list a group with its own appearance ahead of its children", () => {
+			const back = makeImage("back", 0, 0, 100, 100);
+			const front = makeImage("front", 0, 0, 40, 40);
+			const group = makeGroup("group-1", ["back", "front"], {
+				filters: [groupFill()],
+			});
+			const layer = makeLayer("layer-1", ["group-1"]);
+			const idx = new SpatialIndex(
+				makeStore([layer], { "group-1": group, back, front }),
+			);
+			idx.rebuildAllIndices();
+
+			expect(listed(idx, 0, 0)).toEqual([
+				["group-1", 0],
+				["front", 1],
+				["back", 1],
+			]);
+		});
+
+		it("should leave out a group without its own appearance", () => {
+			const child = makeImage("child-1", 0, 0, 100, 100);
+			const group = makeGroup("group-1", ["child-1"]);
+			const layer = makeLayer("layer-1", ["group-1"]);
+			const idx = new SpatialIndex(
+				makeStore([layer], { "group-1": group, "child-1": child }),
+			);
+			idx.rebuildAllIndices();
+
+			expect(listed(idx, 0, 0)).toEqual([["child-1", 0]]);
+		});
+
+		it("should leave out the clip shape of a clip group", () => {
+			const clipShape = makeClosedPath("clip-shape");
+			const child = makeImage("child-1", 0, 0, 400, 400);
+			const clipGroup = makeGroup("clip-1", ["child-1", "clip-shape"], {
+				clipPathId: "clip-shape",
+			});
+			const layer = makeLayer("layer-1", ["clip-1"]);
+			const idx = new SpatialIndex(
+				makeStore([layer], {
+					"clip-1": clipGroup,
+					"clip-shape": clipShape,
+					"child-1": child,
+				}),
+			);
+			idx.rebuildAllIndices();
+
+			expect(listed(idx, 0, 0)).toEqual([["child-1", 0]]);
+		});
+
+		it("should leave out hidden and locked top-level elements", () => {
+			const hidden = makeImage("hidden", 0, 0, 100, 100, { visible: false });
+			const locked = makeImage("locked", 0, 0, 100, 100, { locked: true });
+			const shown = makeImage("shown", 0, 0, 100, 100);
+			const layer = makeLayer("layer-1", ["shown", "locked", "hidden"]);
+			const idx = new SpatialIndex(
+				makeStore([layer], { hidden, locked, shown }),
+			);
+			idx.rebuildAllIndices();
+
+			expect(listed(idx, 0, 0)).toEqual([["shown", 0]]);
+		});
+	});
+
 	describe("blend intermediate hit-testing", () => {
 		const filledSquareAt = (id: string, cx: number): Path => {
 			const base = makeClosedPath(id);
@@ -1525,20 +1541,25 @@ describe("SpatialIndex", () => {
 			expect(idx.findPathAtPoint("layer-1", 0, 0, 5, true)).toBe(s0);
 		});
 
-		it("rotates a blend source's world bounds/segments around the blend's center, not its own", () => {
+		it("places a blend source's world bounds/segments through the blend's transform", () => {
 			const s0 = filledSquareAt("s0", 0); // square -50..50
 			const s1 = filledSquareAt("s1", 400); // square 350..450
 			const blend = makeBlendObj("blend-1", ["s0", "s1"]) as BlendObject;
-			blend.transform = { ...createIdentityTransform(), rotation: Math.PI / 2 };
+			// A quarter turn about the local origin, moved so that (200, 0)
+			// stays put.
+			blend.transform = {
+				...createIdentityTransform(),
+				x: 200,
+				y: -200,
+				rotation: Math.PI / 2,
+			};
 			const layer = makeLayer("layer-1", ["blend-1"]);
 			const store = makeStore([layer], { "blend-1": blend, s0, s1 });
 			const idx = new SpatialIndex(store);
 			idx.rebuildAllIndices();
 
-			// Blend local bbox center = ((-50+450)/2, 0) = (200, 0). Rotating the
-			// ±50 source 90° around (200,0): x → 200 - y, y → x - 200, so the box
-			// lands at x[150,250], y[-250,-150]. (Rotating around the source's own
-			// center (0,0) — the bug — would leave it at ±50.)
+			// The ±50 source turns 90° around (200,0): x → 200 - y, y → x - 200,
+			// so the box lands at x[150,250], y[-250,-150].
 			const bounds = idx.getWorldBounds("s0");
 			expect(bounds).not.toBeNull();
 			expect(bounds!.minX).toBeCloseTo(150, 4);
@@ -1554,10 +1575,8 @@ describe("SpatialIndex", () => {
 			expect(start.x).toBeCloseTo(250, 4);
 			expect(start.y).toBeCloseTo(-250, 4);
 
-			// The compensation lives in the ancestor transform, so
-			// PathEditTool/rotate/stroke-width consumers that read it get the
-			// blend-center pivot too: blendT.t + (I−A)(Ob−Os) with Ob=(200,0),
-			// Os=(0,0), 90° → translation (200,-200), rotation kept.
+			// PathEditTool/rotate/stroke-width consumers read the same placement
+			// as the blend's own transform.
 			const at = idx.getAncestorTransform("s0");
 			expect(at).not.toBeNull();
 			expect(at!.x).toBeCloseTo(200, 4);
@@ -1933,11 +1952,17 @@ describe("compound path hit testing", () => {
 	});
 
 	it("should place a source where a rotated compound draws it", () => {
-		// The compound turns 90° about its result's center (-25, 0), so the
-		// base's bottom edge y = -50 is drawn along x = 25.
+		// The compound turns 90° and is moved so that its result's centre
+		// (-25, 0) stays put, so the base's bottom edge y = -50 is drawn along
+		// x = 25.
 		const objects = makeSubtractedCompound({
 			compound: {
-				transform: { ...createIdentityTransform(), rotation: Math.PI / 2 },
+				transform: {
+					...createIdentityTransform(),
+					x: -25,
+					y: 25,
+					rotation: Math.PI / 2,
+				},
 			},
 		});
 		const idx = createFilteredIndex(["compound-1"], objects, {
@@ -2206,6 +2231,162 @@ describe("getWorldGeometryBounds", () => {
 	});
 });
 
+describe("getLocalGeometryBounds / getElementFrame", () => {
+	const turned = {
+		...createIdentityTransform(),
+		x: 30,
+		y: -20,
+		rotation: Math.PI / 2,
+	};
+
+	it("should span the path's own curve in its own space", () => {
+		const idx = createFilteredIndex(["arch"], {
+			arch: { ...makeStrokedArchPath("arch"), transform: turned },
+		});
+
+		const bounds = idx.getLocalGeometryBounds("arch")!;
+		expect(bounds.minX).toBeCloseTo(-50);
+		expect(bounds.maxX).toBeCloseTo(50);
+		expect(bounds.minY).toBeCloseTo(0);
+		expect(bounds.maxY).toBeCloseTo(75);
+		// Turned a quarter, the arch's 0..75 height spans x 30-75..30.
+		const world = idx.getWorldGeometryBounds("arch")!;
+		expect(world.minX).toBeCloseTo(-45);
+		expect(world.maxX).toBeCloseTo(30);
+	});
+
+	it("should frame an element by its own space placed through every ancestor", () => {
+		const idx = createFilteredIndex(["group-1"], {
+			"group-1": makeGroup("group-1", ["square"], { transform: turned }),
+			square: {
+				...makeClosedPath("square"),
+				transform: { ...createIdentityTransform(), x: 100 },
+			},
+		});
+
+		const frame = idx.getElementFrame("square")!;
+		expect(frame.elementId).toBe("square");
+		expect(frame.bounds).toMatchObject({
+			minX: -50,
+			minY: -50,
+			maxX: 50,
+			maxY: 50,
+		});
+		// The group turns the square's offset (100, 0) onto (0, 100).
+		expect(frame.matrix.x).toBeCloseTo(30);
+		expect(frame.matrix.y).toBeCloseTo(80);
+		expect(frame.matrix.rotation).toBeCloseTo(Math.PI / 2);
+	});
+
+	it("should have no frame for a path without geometry", () => {
+		const idx = createFilteredIndex(["empty"], {
+			empty: { ...makeClosedPath("empty"), segments: [] },
+		});
+
+		expect(idx.getElementFrame("empty")).toBeNull();
+	});
+});
+
+describe("hit testing inside rotated and scaled groups", () => {
+	// Each hit test must agree with the outline the renderer draws. Points
+	// within EDGE_CLEARANCE of an outline are skipped: there the answer
+	// depends on the tolerance, not on the placement.
+	it("findLeafElementAtPoint returns the path drawn at each point", () => {
+		const idx = createNestedTransformedGroupIndex();
+		const mismatches = samplePoints(idx).filter(
+			({ x, y }) =>
+				(idx.findLeafElementAtPoint("layer-1", x, y, 0)?.id ?? null) !==
+				(drawnPathIdsAt(idx, x, y)[0] ?? null),
+		);
+		expect(mismatches).toEqual([]);
+	});
+
+	it("findPaintedElementsAtPoint lists exactly the paths drawn at each point", () => {
+		const idx = createNestedTransformedGroupIndex();
+		const mismatches = samplePoints(idx).filter(
+			({ x, y }) =>
+				idx
+					.findPaintedElementsAtPoint("layer-1", x, y, 0)
+					.map((hit) => hit.element.id)
+					.join() !== drawnPathIdsAt(idx, x, y).join(),
+		);
+		expect(mismatches).toEqual([]);
+	});
+
+	it("findPathAtPoint with a deep search returns the path drawn at each point", () => {
+		const idx = createNestedTransformedGroupIndex();
+		const mismatches = samplePoints(idx).filter(
+			({ x, y }) =>
+				(idx.findPathAtPoint("layer-1", x, y, 0, true)?.id ?? null) !==
+				(drawnPathIdsAt(idx, x, y)[0] ?? null),
+		);
+		expect(mismatches).toEqual([]);
+	});
+
+	it("findElementAtPoint inside the outer group's scope returns the child drawn at each point", () => {
+		const idx = createNestedTransformedGroupIndex(["outer"]);
+		const mismatches = samplePoints(idx).filter(
+			({ x, y }) =>
+				(idx.findElementAtPoint("layer-1", x, y, 0)?.id ?? null) !==
+				(drawnOuterChildIdsAt(idx, x, y)[0] ?? null),
+		);
+		expect(mismatches).toEqual([]);
+	});
+
+	it("findElementsInRect inside the outer group's scope finds the children drawn under a small rect", () => {
+		const idx = createNestedTransformedGroupIndex(["outer"]);
+		const mismatches = samplePoints(idx).filter(({ x, y }) => {
+			const found = idx
+				.findElementsInRect("layer-1", x - 0.5, y - 0.5, x + 0.5, y + 0.5)
+				.map((el) => el.id)
+				.sort();
+			return found.join() !== drawnOuterChildIdsAt(idx, x, y).sort().join();
+		});
+		expect(mismatches).toEqual([]);
+	});
+
+	it("findLeafElementAtPoint clips a child to where the clip shape is drawn", () => {
+		const clipShape = {
+			...makeFilledSquare("clip-shape", 40),
+			transform: {
+				...createIdentityTransform(),
+				x: -90,
+				y: 50,
+				rotation: 0.4,
+				scaleX: 1.5,
+			},
+		};
+		const child = makeImage("child-1", 80, -60, 1200, 1200);
+		const clipGroup = makeGroup("clip-1", ["child-1", "clip-shape"], {
+			clipPathId: "clip-shape",
+			transform: {
+				...createIdentityTransform(),
+				x: 30,
+				rotation: 0.87,
+				scaleX: 1.4,
+				scaleY: 0.8,
+			},
+		});
+		const layer = makeLayer("layer-1", ["clip-1"]);
+		const idx = new SpatialIndex(
+			makeStore([layer], {
+				"clip-1": clipGroup,
+				"clip-shape": clipShape,
+				"child-1": child,
+			}),
+		);
+		idx.rebuildAllIndices();
+		const clipOutline = idx.getElementWorldPath("clip-shape")!;
+
+		const mismatches = samplePoints(idx, ["clip-shape"]).filter(
+			({ x, y }) =>
+				(idx.findLeafElementAtPoint("layer-1", x, y, 0)?.id ?? null) !==
+				(isPointInPath(x, y, clipOutline) ? "child-1" : null),
+		);
+		expect(mismatches).toEqual([]);
+	});
+});
+
 /**
  * An arch from (-50, 0) to (50, 0) whose control points sit at y=100, so the
  * curve peaks at y=75. Carries a 10px stroke.
@@ -2239,6 +2420,154 @@ function makeStrokedArchPath(id: string): Path {
 							paintMode: "buildup",
 							properties: { size: { base: 10 } },
 							randomSeed: 0,
+						},
+					},
+				},
+			} as unknown as Filter,
+		],
+	};
+}
+
+const INNER_PATH_IDS = ["p-rotated", "p-scaled"];
+/** Every fixture path, front to back. */
+const NESTED_PATH_IDS = ["p-outer", "p-scaled", "p-rotated"];
+const EDGE_CLEARANCE = 3;
+
+/**
+ * Two nested groups, each rotated and non-uniformly scaled, holding three
+ * filled squares: one with its own rotation, one with its own scale.
+ */
+function createNestedTransformedGroupIndex(
+	editingScopeStack: string[] = [],
+): SpatialIndex {
+	const rotated = {
+		...makeFilledSquare("p-rotated", 50),
+		transform: { ...createIdentityTransform(), x: -120, y: 40, rotation: 0.5 },
+	};
+	const scaled = {
+		...makeFilledSquare("p-scaled", 50),
+		transform: { ...createIdentityTransform(), x: 110, y: -20, scaleX: 1.6 },
+	};
+	const outerPath = {
+		...makeFilledSquare("p-outer", 40),
+		transform: { ...createIdentityTransform(), x: 60, y: 200 },
+	};
+	const inner = makeGroup("inner", ["p-rotated", "p-scaled"], {
+		transform: {
+			...createIdentityTransform(),
+			x: -40,
+			y: 30,
+			rotation: -0.61,
+			scaleX: 0.7,
+			scaleY: 1.3,
+		},
+	});
+	const outer = makeGroup("outer", ["inner", "p-outer"], {
+		transform: {
+			...createIdentityTransform(),
+			x: 50,
+			y: -20,
+			rotation: 0.87,
+			scaleX: 1.4,
+			scaleY: 0.8,
+		},
+	});
+	const layer = makeLayer("layer-1", ["outer"]);
+	const idx = new SpatialIndex(
+		makeStore(
+			[layer],
+			{
+				outer,
+				inner,
+				"p-rotated": rotated,
+				"p-scaled": scaled,
+				"p-outer": outerPath,
+			},
+			editingScopeStack,
+		),
+	);
+	idx.rebuildAllIndices();
+	return idx;
+}
+
+/**
+ * The outer group's children drawn at the point, front to back. The inner
+ * group counts as drawn wherever one of its paths is.
+ */
+function drawnOuterChildIdsAt(
+	idx: SpatialIndex,
+	x: number,
+	y: number,
+): string[] {
+	return [
+		...new Set(
+			drawnPathIdsAt(idx, x, y).map((id) =>
+				INNER_PATH_IDS.includes(id) ? "inner" : id,
+			),
+		),
+	];
+}
+
+/** Ids of the fixture paths whose drawn outline contains the point, front to back. */
+function drawnPathIdsAt(idx: SpatialIndex, x: number, y: number): string[] {
+	return NESTED_PATH_IDS.filter((id) =>
+		isPointInPath(x, y, idx.getElementWorldPath(id)!),
+	);
+}
+
+/**
+ * Grid points over the fixture that are not within EDGE_CLEARANCE of any
+ * outline of `pathIds`.
+ */
+function samplePoints(
+	idx: SpatialIndex,
+	pathIds: string[] = NESTED_PATH_IDS,
+): Array<{ x: number; y: number }> {
+	const outlines = pathIds.map((id) => idx.getElementWorldPath(id)!);
+	const insideAll = (x: number, y: number) =>
+		outlines.map((outline) => isPointInPath(x, y, outline)).join();
+	const points: Array<{ x: number; y: number }> = [];
+	for (let x = -400; x <= 400; x += 8) {
+		for (let y = -400; y <= 400; y += 8) {
+			const here = insideAll(x, y);
+			const nearEdge = [
+				[EDGE_CLEARANCE, 0],
+				[-EDGE_CLEARANCE, 0],
+				[0, EDGE_CLEARANCE],
+				[0, -EDGE_CLEARANCE],
+			].some(([dx, dy]) => insideAll(x + dx, y + dy) !== here);
+			if (!nearEdge) points.push({ x, y });
+		}
+	}
+	return points;
+}
+
+/** A square of side `2 * half` centered on the origin, painted with a fill. */
+function makeFilledSquare(id: string, half: number): Path {
+	const square = makeClosedPath(id);
+	return {
+		...square,
+		segments: square.segments.map((segment) => ({
+			...segment,
+			...(segment.start && {
+				start: {
+					x: (segment.start.x / 50) * half,
+					y: (segment.start.y / 50) * half,
+				},
+			}),
+			end: { x: (segment.end.x / 50) * half, y: (segment.end.y / 50) * half },
+		})),
+		filters: [
+			{
+				uid: "fill",
+				processor: "fill",
+				enabled: true,
+				paramData: {
+					version: "1",
+					params: {
+						fill: {
+							type: "solid",
+							color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
 						},
 					},
 				},
