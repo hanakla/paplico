@@ -192,7 +192,13 @@ export class PathElementRenderer {
 		pipelineType: PipelineType = "main",
 		cacheVariant: StripCacheVariant = "normal",
 	): void {
-		for (const { appearance, path: drawn, cacheKey, pattern } of passes) {
+		for (const {
+			appearance,
+			path: drawn,
+			cacheKey,
+			paintKey,
+			pattern,
+		} of passes) {
 			const appAlpha = alphaMultiplier * appearance.opacity;
 			const segments = drawn.segments;
 
@@ -205,6 +211,7 @@ export class PathElementRenderer {
 						fillColor,
 						appAlpha,
 						cacheKey,
+						paintKey,
 						cacheVariant,
 						pattern,
 					);
@@ -227,6 +234,7 @@ export class PathElementRenderer {
 						appAlpha,
 						path.id,
 						`${cacheKey}:stroke`,
+						`${paintKey}:stroke`,
 						cacheVariant,
 						pattern,
 					);
@@ -273,6 +281,7 @@ export class PathElementRenderer {
 		fill: FillColor,
 		alphaMultiplier: number,
 		cacheKey: string,
+		paintKey: string,
 		cacheVariant: StripCacheVariant = "normal",
 		pattern?: PatternPlacement,
 	): void {
@@ -297,7 +306,7 @@ export class PathElementRenderer {
 			fill.type === "solid"
 				? solidPaint(fill.color, alphaMultiplier)
 				: this.texturedPaint(fill, outline.localBounds, alphaMultiplier, {
-						cacheKey: `${cacheKey}:fill`,
+						cacheKey: `${paintKey}:fill`,
 						geometryHash,
 						pattern,
 					});
@@ -436,6 +445,7 @@ export class PathElementRenderer {
 		alphaMultiplier: number,
 		elementId: string,
 		cacheKey: string,
+		paintKey: string,
 		cacheVariant: StripCacheVariant,
 		pattern?: PatternPlacement,
 	): void {
@@ -506,7 +516,7 @@ export class PathElementRenderer {
 				outline.localBounds,
 				alphaMultiplier,
 				{
-					cacheKey: `${cacheKey}:grad`,
+					cacheKey: `${paintKey}:grad`,
 					geometryHash,
 					strokeGradientMode: paramsMode,
 				},

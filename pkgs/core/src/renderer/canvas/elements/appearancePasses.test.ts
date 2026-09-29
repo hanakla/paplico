@@ -226,6 +226,18 @@ describe("resolveAppearancePasses", () => {
 		expect(deformed.cacheKey).not.toBe(plain.cacheKey);
 	});
 
+	it("should give two fills on one geometry a shared cache key but distinct paint keys", () => {
+		const path = pathWith([
+			solidFill("lower", { colorAlpha: 0.5 }),
+			solidFill("upper", { colorAlpha: 0.5 }),
+		]);
+
+		const [lower, upper] = resolveAppearancePasses(path, filterRenderer);
+
+		expect(upper.cacheKey).toBe(lower.cacheKey);
+		expect(upper.paintKey).not.toBe(lower.paintKey);
+	});
+
 	it("should return no passes for a path without drawable appearances", () => {
 		expect(resolveAppearancePasses(pathWith([]), filterRenderer)).toEqual([]);
 	});

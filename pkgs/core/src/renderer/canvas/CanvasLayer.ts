@@ -6618,6 +6618,7 @@ export class CanvasLayer {
 						appearance: app,
 						path: drawn,
 						cacheKey,
+						paintKey,
 						pattern,
 					} of passes) {
 						const appAlpha = effectiveAlpha * app.opacity;
@@ -6634,6 +6635,7 @@ export class CanvasLayer {
 									fill,
 									appAlpha,
 									cacheKey,
+									paintKey,
 									pattern,
 								);
 							}

@@ -37,6 +37,7 @@
 - Raster filters placed after a backdrop filter now reach past the element's shape. A drop shadow after frost glass is drawn, and a blur after it softens the pane's edge. They used to be cut off at the shape.
 - Clicks, rectangle selection, eyedropper candidates and clip paths inside a rotated or scaled group now hit the children where they are drawn. They used to miss parts of a child and hit empty space beside it.
 - The bounds of a rotated or scaled group now enclose its children where they are drawn. The selection box, snapping and hit candidates of such a group used to be shifted away from its content.
+- A path with two gradient fills, or two gradient strokes, renders both. Each appearance now owns its gradient buffers. The second used to take over the first one's buffers within the same frame and destroy them, which failed the frame's submit with "used in submit while destroyed".
 
 ## [0.2.0] - 2026-09-27
 

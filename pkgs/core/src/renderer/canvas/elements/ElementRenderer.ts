@@ -411,6 +411,7 @@ export class ElementRenderer {
 		fill: FillColor,
 		alphaMultiplier: number,
 		cacheKey: string,
+		paintKey: string,
 		pattern?: PatternPlacement,
 	): void {
 		this.pathRenderer.renderPathFill(
@@ -419,6 +420,7 @@ export class ElementRenderer {
 			fill,
 			alphaMultiplier,
 			cacheKey,
+			paintKey,
 			"normal",
 			pattern,
 		);

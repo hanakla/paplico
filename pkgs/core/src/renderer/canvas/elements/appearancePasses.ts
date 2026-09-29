@@ -64,6 +64,12 @@ export interface ResolvedAppearancePass {
 	path: DrawablePath;
 	/** Outline/strip cache key, distinct per deformation variant. */
 	cacheKey: string;
+	/**
+	 * Paint cache key: `cacheKey` plus the appearance uid. Several appearances
+	 * may share one geometry, so anything keyed by paint (gradient buffers)
+	 * uses this instead of `cacheKey`.
+	 */
+	paintKey: string;
 	/** Set when the appearance paints a pattern. */
 	pattern?: PatternPlacement;
 }
@@ -151,21 +157,25 @@ export function resolveAppearancePasses(
 				filterRenderer,
 			),
 		);
-		return own.map((geometry, k) => ({
-			appearance: geometry.appearance!,
-			path: geometry.path as DrawablePath,
-			cacheKey: `${baseCacheKey}${subKey}${own.length > 1 ? `:copy${k}` : ""}`,
-			...(patternAnchor && appearancePaintsPattern(appearance)
-				? {
-						pattern: {
-							anchor: patternAnchor,
-							...(geometry.patternTransform
-								? { transform: geometry.patternTransform }
-								: {}),
-						},
-					}
-				: {}),
-		}));
+		return own.map((geometry, k) => {
+			const cacheKey = `${baseCacheKey}${subKey}${own.length > 1 ? `:copy${k}` : ""}`;
+			return {
+				appearance: geometry.appearance!,
+				path: geometry.path as DrawablePath,
+				cacheKey,
+				paintKey: `${cacheKey}:${appearance.uid}`,
+				...(patternAnchor && appearancePaintsPattern(appearance)
+					? {
+							pattern: {
+								anchor: patternAnchor,
+								...(geometry.patternTransform
+									? { transform: geometry.patternTransform }
+									: {}),
+							},
+						}
+					: {}),
+			};
+		});
 	});
 }
 
