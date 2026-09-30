@@ -519,7 +519,7 @@ export const ExportDialog = memo(function ExportDialog({
 								type="button"
 								className={twm(
 									"p-1 rounded hover:bg-foreground/10 transition-colors",
-									"outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+									"outline-none focus-visible:ring-2 focus-visible:ring-accent",
 								)}
 							>
 								<X size={16} />
@@ -590,7 +590,7 @@ export const ExportDialog = memo(function ExportDialog({
 												"flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors",
 												"border",
 												!isCustomDpi && dpi === preset
-													? "border-primary bg-primary/10 text-primary"
+													? "border-accent bg-accent/10 text-accent"
 													: "border-border/30 hover:bg-foreground/5",
 											)}
 										>
@@ -604,7 +604,7 @@ export const ExportDialog = memo(function ExportDialog({
 											"flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors",
 											"border",
 											isCustomDpi
-												? "border-primary bg-primary/10 text-primary"
+												? "border-accent bg-accent/10 text-accent"
 												: "border-border/30 hover:bg-foreground/5",
 										)}
 									>
@@ -732,7 +732,7 @@ export const ExportDialog = memo(function ExportDialog({
 									<button
 										type="button"
 										onClick={handleSelectAll}
-										className="text-xs text-primary hover:underline"
+										className="text-xs text-accent hover:underline"
 									>
 										{t("exportDialog.selectAll")}
 									</button>
@@ -755,7 +755,7 @@ export const ExportDialog = memo(function ExportDialog({
 											"flex flex-col gap-1.5 p-2 rounded-lg cursor-pointer",
 											"border transition-colors",
 											selectedIds.has(artboard.id)
-												? "border-primary/50 bg-primary/5"
+												? "border-accent/50 bg-accent/5"
 												: "border-border/30 hover:bg-foreground/5",
 										)}
 									>
@@ -846,7 +846,7 @@ function FormatButton({
 				"py-2 px-3 rounded-lg text-xs font-medium transition-colors",
 				"border",
 				active
-					? "border-primary bg-primary/10 text-primary"
+					? "border-accent bg-accent/10 text-accent"
 					: "border-border/30 hover:bg-foreground/5",
 				disabled && "opacity-40 cursor-not-allowed",
 			)}

@@ -1116,8 +1116,8 @@ function PatternEditorInner({
 					onClick={() => onFillChange(null)}
 					className={`flex aspect-square items-center justify-center rounded border text-[10px] ${
 						!fill
-							? "border-primary text-foreground ring-1 ring-primary"
-							: "border-border text-muted-foreground hover:border-primary/50"
+							? "border-accent text-foreground ring-1 ring-accent"
+							: "border-border text-muted-foreground hover:border-accent/50"
 					}`}
 					title={t("toolbar.gradientNone")}
 				>
@@ -1138,8 +1138,8 @@ function PatternEditorInner({
 							onClick={() => handlePickDef(entry.id)}
 							className={`flex aspect-square items-center justify-center rounded border bg-muted text-[10px] text-muted-foreground ${
 								isSelected
-									? "border-primary ring-1 ring-primary"
-									: "border-border hover:border-primary/50"
+									? "border-accent ring-1 ring-accent"
+									: "border-border hover:border-accent/50"
 							}`}
 							title={entry.name ?? entry.id}
 						>

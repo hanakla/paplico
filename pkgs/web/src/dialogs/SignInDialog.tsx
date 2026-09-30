@@ -70,7 +70,7 @@ export const SignInDialog = memo(function SignInDialog({
 							type="button"
 							className={twm(
 								"p-1 rounded hover:bg-foreground/10 transition-colors",
-								"outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+								"outline-none focus-visible:ring-2 focus-visible:ring-accent",
 							)}
 						>
 							<X size={16} />

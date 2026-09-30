@@ -140,7 +140,7 @@ export const PreferencesDialog = memo(function PreferencesDialog({
 							<BUIDialog.Close
 								className={twm(
 									"sm:hidden p-1 rounded hover:bg-foreground/10 transition-colors",
-									"outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+									"outline-none focus-visible:ring-2 focus-visible:ring-accent",
 								)}
 							>
 								<X size={16} />
@@ -179,7 +179,7 @@ export const PreferencesDialog = memo(function PreferencesDialog({
 								onClick={handleBackToList}
 								className={twm(
 									"sm:hidden -ml-1 p-1 rounded hover:bg-foreground/10 transition-colors",
-									"outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+									"outline-none focus-visible:ring-2 focus-visible:ring-accent",
 								)}
 								aria-label={t("preferences.title")}
 							>
@@ -191,7 +191,7 @@ export const PreferencesDialog = memo(function PreferencesDialog({
 							<BUIDialog.Close
 								className={twm(
 									"p-1 rounded hover:bg-foreground/10 transition-colors",
-									"outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+									"outline-none focus-visible:ring-2 focus-visible:ring-accent",
 								)}
 							>
 								<X size={16} />
@@ -327,7 +327,7 @@ const InterfaceSection = memo(function InterfaceSection() {
 							className={twm(
 								"flex flex-col items-center gap-1.5 p-2 rounded-md border transition-colors",
 								settings.toolbarSide === value
-									? "border-primary/60 bg-primary/10 text-foreground"
+									? "border-accent/60 bg-accent/10 text-foreground"
 									: "border-border/40 text-muted-foreground hover:border-border hover:text-foreground",
 							)}
 						>
@@ -356,7 +356,7 @@ const InterfaceSection = memo(function InterfaceSection() {
 							className={twm(
 								"flex flex-col items-center gap-1.5 p-2 rounded-md border transition-colors",
 								settings.panelLayout === value
-									? "border-primary/60 bg-primary/10 text-foreground"
+									? "border-accent/60 bg-accent/10 text-foreground"
 									: "border-border/40 text-muted-foreground hover:border-border hover:text-foreground",
 							)}
 						>

@@ -23,9 +23,9 @@ export const UserMenu = memo(function UserMenu({
 				<Menu.Trigger
 					className={twm(
 						"w-7 h-7 rounded-full overflow-hidden",
-						"border-2 border-transparent hover:border-primary/50",
+						"border-2 border-transparent hover:border-accent/50",
 						"transition-colors cursor-pointer",
-						"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+						"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
 						roomRole === "owner" && "ring-2 ring-success",
 						roomRole === "member" && "ring-2 ring-accent",
 					)}
@@ -37,7 +37,7 @@ export const UserMenu = memo(function UserMenu({
 							className="w-full h-full object-cover"
 						/>
 					) : (
-						<div className="w-full h-full bg-primary/20 flex items-center justify-center text-xs font-medium text-foreground">
+						<div className="w-full h-full bg-accent/20 flex items-center justify-center text-xs font-medium text-foreground">
 							{(user.fullName ?? user.username ?? "U").charAt(0).toUpperCase()}
 						</div>
 					)}

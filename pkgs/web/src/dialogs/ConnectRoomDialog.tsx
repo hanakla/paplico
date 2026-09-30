@@ -107,7 +107,7 @@ export const ConnectRoomDialog = memo(function ConnectRoomDialog({
 							type="button"
 							className={twm(
 								"p-1 rounded hover:bg-foreground/10 transition-colors",
-								"outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+								"outline-none focus-visible:ring-2 focus-visible:ring-accent",
 							)}
 						>
 							<X size={16} />
@@ -212,7 +212,7 @@ export const ConnectRoomDialog = memo(function ConnectRoomDialog({
 									className="w-5 h-5 rounded-full shrink-0"
 								/>
 							) : (
-								<div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-medium shrink-0">
+								<div className="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center text-[10px] font-medium shrink-0">
 									{(user.fullName ?? user.username ?? "U")
 										.charAt(0)
 										.toUpperCase()}
@@ -230,7 +230,7 @@ export const ConnectRoomDialog = memo(function ConnectRoomDialog({
 											"p-1 rounded shrink-0",
 											"text-muted-foreground hover:text-foreground hover:bg-foreground/10",
 											"transition-colors",
-											"outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+											"outline-none focus-visible:ring-2 focus-visible:ring-accent",
 										)}
 									>
 										<LogOut size={14} />

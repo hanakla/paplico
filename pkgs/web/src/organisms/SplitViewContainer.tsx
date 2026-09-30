@@ -59,7 +59,7 @@ export function SplitViewContainer({
 			<div
 				className={`${
 					isHorizontal ? "w-1 cursor-col-resize" : "h-1 cursor-row-resize"
-				} bg-border/50 hover:bg-primary/50 transition-colors flex-shrink-0`}
+				} bg-border/50 hover:bg-accent/50 transition-colors flex-shrink-0`}
 				onPointerDown={handleDragStart}
 				onPointerMove={handleDragMove}
 				onPointerUp={handleDragEnd}

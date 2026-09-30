@@ -96,7 +96,7 @@ export const ScanInviteDialog = createCallable<
 					<Dialog.Close>
 						<button
 							type="button"
-							className="p-1 rounded hover:bg-foreground/10 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+							className="p-1 rounded hover:bg-foreground/10 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent"
 						>
 							<XIcon size={16} />
 						</button>
