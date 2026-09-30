@@ -33,10 +33,12 @@ export function ElementActions({
 	selectedIds,
 	selectedElements,
 	hasElementSelection,
+	hideArrangeAndDuplicate,
 }: {
 	selectedIds: readonly string[];
 	selectedElements: readonly AnyArtObject[];
 	hasElementSelection: boolean;
+	hideArrangeAndDuplicate: boolean;
 }) {
 	const t = useTranslation();
 	const store = usePaplicoStore();
@@ -235,7 +237,7 @@ export function ElementActions({
 					</IconButton>
 				</Tooltip>
 			)}
-			{hasSingleSelection && (
+			{hasSingleSelection && !hideArrangeAndDuplicate && (
 				<>
 					<Tooltip content={t("shortcutCmd.arrangeForward")} side="bottom">
 						<IconButton
@@ -259,7 +261,7 @@ export function ElementActions({
 					</Tooltip>
 				</>
 			)}
-			{hasElementSelection && (
+			{hasElementSelection && !hideArrangeAndDuplicate && (
 				<Tooltip content={t("contextActions.duplicate")} side="bottom">
 					<IconButton
 						$size="md"

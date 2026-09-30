@@ -15,17 +15,16 @@ import {
 	type FillColor,
 	generateUid,
 	getTransform,
-	isAppearancePresetRef,
 	isFreeGradient,
 	isLinearGradient,
 	isMeshGradient,
 	isRadialGradient,
-	isSolidColor,
 	type MeshGradient,
 	type MeshGradientVertex,
+	type RadialGradient,
 	type Viewport,
 } from "../schema";
-import { getFirstFill } from "../utils/elementQuery";
+import { getGradientTargetFill, replaceFillOf } from "../utils/elementQuery";
 import {
 	defaultEdgeCP,
 	freeGradientAdjacency as delaunayAdjacency,
@@ -118,33 +117,6 @@ function worldToBoundsRelative(
 	};
 }
 
-/** Extract the FillColor from an element's FillAppearance filter entry */
-function getElementFill(element: AnyArtObject | null): FillColor | undefined {
-	if (!element) return undefined;
-	return getFirstFill(element.filters)?.paramData.params.fill;
-}
-
-/** The element's filters with its fill appearance carrying `fill` instead. */
-function filtersWithFill(
-	element: AnyArtObject,
-	fill: FillColor,
-): NonNullable<AnyArtObject["filters"]> {
-	return (element.filters ?? []).map((f) =>
-		!isAppearancePresetRef(f) && f.processor === "fill"
-			? {
-					...f,
-					paramData: {
-						...(f as FillAppearance).paramData,
-						params: {
-							...(f as FillAppearance).paramData.params,
-							fill,
-						},
-					},
-				}
-			: f,
-	);
-}
-
 // --- Tool ---
 
 type DragState =
@@ -152,8 +124,6 @@ type DragState =
 	| {
 			mode: "dragging";
 			handleId: string;
-			initialRotation?: number;
-			initialDragAngle?: number;
 			/**
 			 * Bounds-relative offset between the pointer's grab position and the
 			 * handle's underlying data position (x1/y1, x2/y2, cx/cy), captured
@@ -179,6 +149,22 @@ type DragState =
 			startScreenY: number;
 			/** Set once the pointer has moved past the drag threshold. */
 			passedThreshold: boolean;
+	  }
+	| {
+			/**
+			 * Pressed away from every handle while an element with a linear or
+			 * radial gradient is selected: a drag redraws that gradient from
+			 * the pressed point, a click falls back to picking what was pressed.
+			 */
+			mode: "redrawing";
+			/** Bounds-relative press point: the new start point or center. */
+			startRel: { x: number; y: number };
+			/** World press point, for the click fallback at pointer-up. */
+			startWorld: { x: number; y: number };
+			pendingFill?: FillColor;
+			startScreenX: number;
+			startScreenY: number;
+			passedThreshold: boolean;
 	  };
 
 export class GradientTool implements Tool {
@@ -186,6 +172,10 @@ export class GradientTool implements Tool {
 	private static DRAG_THRESHOLD_SCREEN_PX = 3;
 	/** Screen-px distance from a mesh edge within which a double-click splits it. */
 	private static MESH_EDGE_SPLIT_TOLERANCE_PX = 8;
+	/** Screen-px gap between a position handle and the stop it would otherwise cover. */
+	private static HANDLE_GAP_PX = 12;
+	/** Hit id of the bar between a gradient's position handles. */
+	private static AXIS_HIT_ID = "gradient-axis";
 
 	public readonly name = "gradient";
 
@@ -212,6 +202,16 @@ export class GradientTool implements Tool {
 		this.context.setGradientSelectedStopIndex(index);
 	}
 
+	/** The gradient fill appearance of `element` this tool edits. */
+	private targetFillOf(
+		element: AnyArtObject | null,
+	): FillAppearance | undefined {
+		return getGradientTargetFill(
+			element?.filters,
+			this.context.getGradientTargetFillUid(),
+		);
+	}
+
 	public onPointerDown(
 		event: PointerEventData,
 		viewport: Viewport,
@@ -233,8 +233,8 @@ export class GradientTool implements Tool {
 		if (element && this.context.isElementLocked(element.id)) return;
 		const bounds = this.context.getSelectedElementBounds();
 
-		const fill = getElementFill(element);
-		if (fill && bounds && !isSolidColor(fill)) {
+		const fill = this.targetFillOf(element)?.paramData.params.fill;
+		if (fill && bounds) {
 			const rotationRad = getElementRotationRad(element, this.context);
 			// Refresh the overlay so the hit test sees the current handle layout
 			// (the historical code rebuilt handles on the spot for this test).
@@ -255,21 +255,6 @@ export class GradientTool implements Tool {
 					rotationRad,
 				);
 
-				// For rotation handle, store initial angles
-				let initialRotation: number | undefined;
-				let initialDragAngle: number | undefined;
-				if (handle.handleType === "radial-rotation" && isRadialGradient(fill)) {
-					initialRotation = fill.rotation;
-					// Calculate initial angle from center to drag point
-					const centerPixelX = fill.cx * bounds.width;
-					const centerPixelY = fill.cy * bounds.height;
-					const dragPixelX = rel.x * bounds.width;
-					const dragPixelY = rel.y * bounds.height;
-					const dx = dragPixelX - centerPixelX;
-					const dy = dragPixelY - centerPixelY;
-					initialDragAngle = Math.atan2(dy, dx);
-				}
-
 				// linear-start/linear-end render offset outward from x1/y1 or
 				// x2/y2 (so the handle doesn't overlap the first/last color
 				// stop). Record how far the grab point sits from the real data
@@ -286,6 +271,21 @@ export class GradientTool implements Tool {
 				) {
 					grabOffsetX = rel.x - fill.x2;
 					grabOffsetY = rel.y - fill.y2;
+				} else if (
+					handle.handleType === "radial-center" &&
+					isRadialGradient(fill)
+				) {
+					grabOffsetX = rel.x - fill.cx;
+					grabOffsetY = rel.y - fill.cy;
+				} else if (
+					handle.handleType === "radial-radius" &&
+					isRadialGradient(fill)
+				) {
+					// The radius handles render outside the radius points along
+					// the rotated axes, the same way the linear handles do.
+					const axis = radialAxisPoint(fill, handle.id === "radial-radius-x");
+					grabOffsetX = rel.x - axis.x;
+					grabOffsetY = rel.y - axis.y;
 				} else if (
 					handle.handleType === "mesh-vertex" &&
 					isMeshGradient(fill) &&
@@ -323,8 +323,6 @@ export class GradientTool implements Tool {
 				this.dragState = {
 					mode: "dragging",
 					handleId: handle.id,
-					initialRotation,
-					initialDragAngle,
 					grabOffsetX,
 					grabOffsetY,
 					meshFan,
@@ -363,16 +361,71 @@ export class GradientTool implements Tool {
 				this.updateUI();
 				return;
 			}
+
+			// Dragging the bar carries the whole gradient along, anchored at
+			// its start point or center.
+			const axisOrigin =
+				hit?.overlayKey === OVERLAY_KEYS.gradientHandles &&
+				hit.hitId === GradientTool.AXIS_HIT_ID
+					? isLinearGradient(fill)
+						? { x: fill.x1, y: fill.y1 }
+						: isRadialGradient(fill)
+							? { x: fill.cx, y: fill.cy }
+							: null
+					: null;
+			if (axisOrigin) {
+				const rel = worldToBoundsRelative(
+					world.x,
+					world.y,
+					bounds,
+					rotationRad,
+				);
+				this.dragState = {
+					mode: "dragging",
+					handleId: GradientTool.AXIS_HIT_ID,
+					grabOffsetX: rel.x - axisOrigin.x,
+					grabOffsetY: rel.y - axisOrigin.y,
+					startScreenX: event.x,
+					startScreenY: event.y,
+					passedThreshold: false,
+				};
+				this.setSelectedStopIndex(null);
+				this.updateUI();
+				return;
+			}
 		}
 
-		// No handle hit — try selecting a new element
+		// No handle hit. With a linear or radial gradient under edit, the press
+		// may be the start of a redraw, so picking waits for pointer-up.
+		if (fill && bounds && (isLinearGradient(fill) || isRadialGradient(fill))) {
+			const rotationRad = getElementRotationRad(element, this.context);
+			this.dragState = {
+				mode: "redrawing",
+				startRel: worldToBoundsRelative(world.x, world.y, bounds, rotationRad),
+				startWorld: world,
+				startScreenX: event.x,
+				startScreenY: event.y,
+				passedThreshold: false,
+			};
+			return;
+		}
+
+		this.pickAt(world);
+	}
+
+	/** Select the gradient-filled element at `world`, or clear the selection. */
+	private pickAt(world: { x: number; y: number }): void {
+		const element = this.context.getSelectedElement();
 		const hitElement = this.context.findElementAtPoint(world.x, world.y, 5);
 
 		if (hitElement) {
-			const hitFill = getElementFill(hitElement);
-			if (hitFill && !isSolidColor(hitFill)) {
+			if (this.targetFillOf(hitElement)) {
 				const hitBounds = this.context.getBounds(hitElement.id);
 				if (!hitBounds) return;
+				// A click on the element already being edited keeps its target.
+				if (hitElement.id !== element?.id) {
+					this.context.setGradientTargetFillUid(null);
+				}
 				this.context.elementSelect(hitElement.id, hitBounds);
 				this.setSelectedStop(null);
 				this.setSelectedStopIndex(null);
@@ -397,7 +450,7 @@ export class GradientTool implements Tool {
 		canvasWidth: number,
 		canvasHeight: number,
 	): void {
-		if (this.dragState.mode !== "dragging") return;
+		if (this.dragState.mode === "idle") return;
 		// A click must not displace anything: ignore moves until the pointer
 		// has clearly left the pointer-down position.
 		if (!this.dragState.passedThreshold) {
@@ -420,10 +473,21 @@ export class GradientTool implements Tool {
 		const bounds = this.context.getSelectedElementBounds();
 		// Frames build on the previewed fill, not the stored one — the store
 		// only changes at pointer-up.
-		const moveFill = this.dragState.pendingFill ?? getElementFill(element);
-		if (!element || !moveFill || !bounds || isSolidColor(moveFill)) return;
+		const target = this.targetFillOf(element);
+		if (!element || !target || !bounds) return;
+		const moveFill = this.dragState.pendingFill ?? target.paramData.params.fill;
 		const rotationRad = getElementRotationRad(element, this.context);
 		const rawRel = worldToBoundsRelative(world.x, world.y, bounds, rotationRad);
+
+		if (this.dragState.mode === "redrawing") {
+			this.previewFill(
+				element,
+				target.uid,
+				redrawGradient(moveFill, this.dragState.startRel, rawRel, bounds),
+			);
+			return;
+		}
+
 		// Mesh vertices keep the spot that was grabbed under the cursor.
 		const rel =
 			this.dragState.handleId.startsWith("mesh-vertex:") &&
@@ -436,7 +500,14 @@ export class GradientTool implements Tool {
 		const updated = deepClone(moveFill);
 
 		if (isLinearGradient(updated)) {
-			if (this.dragState.handleId === "linear-start") {
+			if (this.dragState.handleId === GradientTool.AXIS_HIT_ID) {
+				const dx = rel.x - (this.dragState.grabOffsetX ?? 0) - updated.x1;
+				const dy = rel.y - (this.dragState.grabOffsetY ?? 0) - updated.y1;
+				updated.x1 += dx;
+				updated.y1 += dy;
+				updated.x2 += dx;
+				updated.y2 += dy;
+			} else if (this.dragState.handleId === "linear-start") {
 				updated.x1 = rel.x - (this.dragState.grabOffsetX ?? 0);
 				updated.y1 = rel.y - (this.dragState.grabOffsetY ?? 0);
 			} else if (this.dragState.handleId === "linear-end") {
@@ -481,43 +552,38 @@ export class GradientTool implements Tool {
 				}
 			}
 		} else if (isRadialGradient(updated)) {
-			if (this.dragState.handleId === "radial-center") {
-				updated.cx = rel.x;
-				updated.cy = rel.y;
+			// The center and radius handles keep the spot that was grabbed
+			// under the cursor.
+			const grabbed = {
+				x: rel.x - (this.dragState.grabOffsetX ?? 0),
+				y: rel.y - (this.dragState.grabOffsetY ?? 0),
+			};
+			if (
+				this.dragState.handleId === "radial-center" ||
+				this.dragState.handleId === GradientTool.AXIS_HIT_ID
+			) {
+				updated.cx = grabbed.x;
+				updated.cy = grabbed.y;
 			} else if (this.dragState.handleId === "radial-radius-x") {
-				// Calculate distance along rotated X-axis
-				const dx = rel.x - updated.cx;
-				const dy = rel.y - updated.cy;
-				const cos = Math.cos(-updated.rotation);
-				const sin = Math.sin(-updated.rotation);
-				const localX = dx * cos - dy * sin;
-				updated.radiusX = Math.max(0.001, Math.abs(localX));
+				// The end point sets both the radius and the angle; the ellipse
+				// keeps its shape, so radiusY follows in the same ratio.
+				const dx = grabbed.x - updated.cx;
+				const dy = grabbed.y - updated.cy;
+				const radiusX = Math.max(0.001, Math.hypot(dx, dy));
+				updated.radiusY = Math.max(
+					0.001,
+					updated.radiusY * (radiusX / updated.radiusX),
+				);
+				updated.radiusX = radiusX;
+				updated.rotation = Math.atan2(dy, dx);
 			} else if (this.dragState.handleId === "radial-radius-y") {
 				// Calculate distance along rotated Y-axis
-				const dx = rel.x - updated.cx;
-				const dy = rel.y - updated.cy;
+				const dx = grabbed.x - updated.cx;
+				const dy = grabbed.y - updated.cy;
 				const cos = Math.cos(-updated.rotation);
 				const sin = Math.sin(-updated.rotation);
 				const localY = dx * sin + dy * cos;
 				updated.radiusY = Math.max(0.001, Math.abs(localY));
-			} else if (this.dragState.handleId === "radial-rotation") {
-				// Calculate angle Delta from initial drag angle
-				const centerPixelX = updated.cx * bounds.width;
-				const centerPixelY = updated.cy * bounds.height;
-				const dragPixelX = rel.x * bounds.width;
-				const dragPixelY = rel.y * bounds.height;
-				const dx = dragPixelX - centerPixelX;
-				const dy = dragPixelY - centerPixelY;
-				const currentDragAngle = Math.atan2(dy, dx);
-
-				// Apply delta rotation from initial
-				if (
-					this.dragState.initialRotation !== undefined &&
-					this.dragState.initialDragAngle !== undefined
-				) {
-					const angleDelta = currentDragAngle - this.dragState.initialDragAngle;
-					updated.rotation = this.dragState.initialRotation + angleDelta;
-				}
 			} else if (this.dragState.handleId?.startsWith("radial-stop:")) {
 				if (this.selectedStopIndex == null) return;
 				const stop = updated.stops[this.selectedStopIndex];
@@ -696,16 +762,29 @@ export class GradientTool implements Tool {
 			}
 		}
 
-		// Preview only: the store commits once at pointer-up, so one drag is
-		// one undo step.
-		this.dragState.pendingFill = updated;
+		this.previewFill(element, target.uid, updated);
+	}
+
+	/**
+	 * Preview only: the store commits once at pointer-up, so one drag is one
+	 * undo step.
+	 */
+	private previewFill(
+		element: AnyArtObject,
+		targetUid: string,
+		fill: FillColor,
+	): void {
+		if (this.dragState.mode === "idle") return;
+		this.dragState.pendingFill = fill;
 		const layerId = this.context.getCurrentLayerId();
 		if (layerId) {
 			this.context.previewDeformation([
 				{
 					elementId: element.id,
 					layerId,
-					updates: { filters: filtersWithFill(element, updated) },
+					updates: {
+						filters: replaceFillOf(element.filters, targetUid, fill),
+					},
 				},
 			]);
 		}
@@ -718,14 +797,19 @@ export class GradientTool implements Tool {
 		_canvasWidth: number,
 		_canvasHeight: number,
 	): void {
-		if (this.dragState.mode === "dragging" && this.dragState.pendingFill) {
+		const state = this.dragState;
+		this.dragState = { mode: "idle" };
+		if (state.mode === "redrawing" && !state.passedThreshold) {
+			this.pickAt(state.startWorld);
+			return;
+		}
+		if (state.mode !== "idle" && state.pendingFill) {
 			const element = this.context.getSelectedElement();
 			if (element) {
 				this.context.clearDeformationPreview([element.id]);
-				this.context.updateFill(this.dragState.pendingFill);
+				this.context.updateFill(state.pendingFill);
 			}
 		}
-		this.dragState = { mode: "idle" };
 		this.updateUI();
 	}
 
@@ -737,7 +821,7 @@ export class GradientTool implements Tool {
 	): void {
 		const element = this.context.getSelectedElement();
 		const bounds = this.context.getSelectedElementBounds();
-		const dblFill = getElementFill(element);
+		const dblFill = this.targetFillOf(element)?.paramData.params.fill;
 		if (!dblFill || !bounds) return;
 
 		const world = screenToWorld(
@@ -893,26 +977,29 @@ export class GradientTool implements Tool {
 			);
 			const end = boundsRelativeToWorld(fill.x2, fill.y2, bounds, rotationRad);
 
-			// Offset position handles outward so they don't overlap color stops
+			// The position handles sit a fixed screen distance outside the end
+			// stops so they never overlap them at any zoom.
 			const dx = end.x - start.x;
 			const dy = end.y - start.y;
 			const len = Math.sqrt(dx * dx + dy * dy);
-			const handleOffset = len > 0 ? 16 : 0;
+			const gap = GradientTool.HANDLE_GAP_PX;
 			const nx = len > 0 ? dx / len : 0;
 			const ny = len > 0 ? dy / len : 0;
 
 			handles.push({
 				id: "linear-start",
-				worldX: start.x - nx * handleOffset,
-				worldY: start.y - ny * handleOffset,
+				worldX: start.x,
+				worldY: start.y,
+				screenOffset: { x: -nx * gap, y: -ny * gap },
 				handleType: "linear-start",
 				color: UI_THEME.colors.gradientLinearStartHandle,
 				selected: false,
 			});
 			handles.push({
 				id: "linear-end",
-				worldX: end.x + nx * handleOffset,
-				worldY: end.y + ny * handleOffset,
+				worldX: end.x,
+				worldY: end.y,
+				screenOffset: { x: nx * gap, y: ny * gap },
 				handleType: "linear-end",
 				color: UI_THEME.colors.gradientLinearEndHandle,
 				selected: false,
@@ -995,24 +1082,10 @@ export class GradientTool implements Tool {
 				rotationRad,
 			);
 
-			// Rotation handle (at average radius distance, 45° from X-axis)
-			const avgRadius = (fill.radiusX + fill.radiusY) / 2;
-			const rotHandleAngle = totalRotation + Math.PI / 4;
-			const rotHandleBounds = {
-				x: fill.cx + avgRadius * Math.cos(rotHandleAngle),
-				y: fill.cy + avgRadius * Math.sin(rotHandleAngle),
-			};
-			const rotationPoint = boundsRelativeToWorld(
-				rotHandleBounds.x,
-				rotHandleBounds.y,
-				bounds,
-				rotationRad,
-			);
-
-			// CRITICAL: Offset handles BEYOND ColorStop range
-			// - Center handle: move INWARD (negative offset, like translate(-100%))
-			// - Radius handles: move OUTWARD (positive offset, beyond offset=1)
-			const handleOffset = 24;
+			// The center handle sits inward and the radius handles outward of
+			// the stops by a fixed screen distance, so none of them overlaps a
+			// stop at any zoom.
+			const gap = GradientTool.HANDLE_GAP_PX;
 
 			// Calculate unit vectors for each axis
 			const dxX = radiusXPoint.x - center.x;
@@ -1027,51 +1100,32 @@ export class GradientTool implements Tool {
 			const nxY = lenY > 0 ? dxY / lenY : 0;
 			const nyY = lenY > 0 ? dyY / lenY : 1;
 
-			const dxRot = rotationPoint.x - center.x;
-			const dyRot = rotationPoint.y - center.y;
-			const lenRot = Math.sqrt(dxRot * dxRot + dyRot * dyRot);
-			const nxRot = lenRot > 0 ? dxRot / lenRot : Math.SQRT1_2;
-			const nyRot = lenRot > 0 ? dyRot / lenRot : Math.SQRT1_2;
-
-			// Determine offset direction: center moves inward, others move outward
-			const centerOffsetX = -nxX * handleOffset; // INWARD (toward negative offset)
-			const centerOffsetY = -nyX * handleOffset;
-			const radiusXOffsetX = nxX * handleOffset; // OUTWARD (beyond offset=1)
-			const radiusXOffsetY = nyX * handleOffset;
-			const radiusYOffsetX = nxY * handleOffset;
-			const radiusYOffsetY = nyY * handleOffset;
-
 			handles.push(
 				{
 					id: "radial-center",
-					worldX: center.x + centerOffsetX, // INWARD offset (negative direction)
-					worldY: center.y + centerOffsetY,
+					worldX: center.x,
+					worldY: center.y,
+					screenOffset: { x: -nxX * gap, y: -nyX * gap },
 					handleType: "radial-center",
 					color: UI_THEME.colors.gradientRadialCenterHandle,
 					selected: false,
 				},
 				{
 					id: "radial-radius-x",
-					worldX: radiusXPoint.x + radiusXOffsetX, // OUTWARD offset (beyond offset=1)
-					worldY: radiusXPoint.y + radiusXOffsetY,
+					worldX: radiusXPoint.x,
+					worldY: radiusXPoint.y,
+					screenOffset: { x: nxX * gap, y: nyX * gap },
 					handleType: "radial-radius",
 					color: UI_THEME.colors.gradientRadialXHandle,
 					selected: false,
 				},
 				{
 					id: "radial-radius-y",
-					worldX: radiusYPoint.x + radiusYOffsetX, // OUTWARD offset (beyond offset=1)
-					worldY: radiusYPoint.y + radiusYOffsetY,
+					worldX: radiusYPoint.x,
+					worldY: radiusYPoint.y,
+					screenOffset: { x: nxY * gap, y: nyY * gap },
 					handleType: "radial-radius",
 					color: UI_THEME.colors.gradientRadialYHandle,
-					selected: false,
-				},
-				{
-					id: "radial-rotation",
-					worldX: rotationPoint.x + nxRot * handleOffset,
-					worldY: rotationPoint.y + nyRot * handleOffset,
-					handleType: "radial-rotation",
-					color: UI_THEME.colors.gradientRadialRotationHandle,
 					selected: false,
 				},
 			);
@@ -1415,11 +1469,11 @@ export class GradientTool implements Tool {
 		const element = this.context.getSelectedElement();
 		const bounds = this.context.getSelectedElementBounds();
 		const uiFill =
-			(this.dragState.mode === "dragging"
+			(this.dragState.mode !== "idle"
 				? this.dragState.pendingFill
-				: undefined) ?? getElementFill(element);
+				: undefined) ?? this.targetFillOf(element)?.paramData.params.fill;
 
-		if (!uiFill || !bounds || isSolidColor(uiFill)) {
+		if (!uiFill || !bounds) {
 			this.updateGradientOverlay(null);
 			return;
 		}
@@ -1452,6 +1506,7 @@ export class GradientTool implements Tool {
 				color: UI_THEME.colors.gradientOutlineDefault,
 				width: UI_THEME.strokeWidth.gradientAxis,
 				outlined: true,
+				hitId: GradientTool.AXIS_HIT_ID,
 			});
 		} else if (isRadialGradient(uiFill)) {
 			const center = boundsRelativeToWorld(
@@ -1502,6 +1557,7 @@ export class GradientTool implements Tool {
 					color: UI_THEME.colors.gradientOutlineDefault,
 					width: UI_THEME.strokeWidth.gradientAxis,
 					outlined: true,
+					hitId: GradientTool.AXIS_HIT_ID,
 				});
 			}
 		} else if (isMeshGradient(uiFill)) {
@@ -1635,4 +1691,47 @@ function createEdgeDerivedMeshGradientVertex(
 			handles: fields.handles,
 		}),
 	);
+}
+
+/** Bounds-relative end of a radial gradient's rotated X or Y axis. */
+function radialAxisPoint(
+	fill: RadialGradient,
+	xAxis: boolean,
+): { x: number; y: number } {
+	const cos = Math.cos(fill.rotation);
+	const sin = Math.sin(fill.rotation);
+	return xAxis
+		? { x: fill.cx + fill.radiusX * cos, y: fill.cy + fill.radiusX * sin }
+		: { x: fill.cx - fill.radiusY * sin, y: fill.cy + fill.radiusY * cos };
+}
+
+/**
+ * The gradient redrawn between two bounds-relative points: a linear gradient
+ * runs from `from` to `to`, a radial one becomes a circle centered on `from`
+ * that reaches `to`. Any other fill is returned as is.
+ */
+function redrawGradient(
+	fill: FillColor,
+	from: { x: number; y: number },
+	to: { x: number; y: number },
+	bounds: BoundingBox,
+): FillColor {
+	if (isLinearGradient(fill)) {
+		return { ...fill, x1: from.x, y1: from.y, x2: to.x, y2: to.y };
+	}
+	if (isRadialGradient(fill)) {
+		const radius = Math.hypot(
+			(to.x - from.x) * bounds.width,
+			(to.y - from.y) * bounds.height,
+		);
+		return {
+			...fill,
+			cx: from.x,
+			cy: from.y,
+			radiusX: radius / bounds.width,
+			radiusY: radius / bounds.height,
+			rotation: 0,
+		};
+	}
+	return fill;
 }

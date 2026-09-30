@@ -335,6 +335,7 @@ export const en = {
 		delete: "Delete",
 		gradientStopColor: "Stop color",
 		gradientDeleteStop: "Delete stop",
+		gradientTargetFill: "Edit this fill",
 	},
 	actionsPanel: {
 		actions: "Actions",

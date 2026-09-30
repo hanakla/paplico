@@ -202,6 +202,8 @@ export function createMockToolContext(
 		getSelectedElement: vi.fn(() => null),
 		getSelectedElementBounds: vi.fn(() => null),
 		updateFill: vi.fn(),
+		getGradientTargetFillUid: vi.fn(() => null),
+		setGradientTargetFillUid: vi.fn(),
 		setGradientSelectedStopId: vi.fn(),
 		setGradientSelectedStopIndex: vi.fn(),
 		deleteSelectedGradientStop: vi.fn(() => false),

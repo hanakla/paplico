@@ -112,7 +112,6 @@ import {
 	isContainer,
 	isIdentityTransform,
 	isReference3D,
-	isSolidColor,
 	type Layer,
 	type Path,
 	type RawRGBA,
@@ -162,7 +161,7 @@ import { PaplicoUI } from "./ui/PaplicoUI";
 import {
 	type ExtractedAppearance,
 	extractAppearance as extractAppearanceFromArtObject,
-	getFirstFill,
+	getGradientTargetFill,
 } from "./utils/elementQuery";
 import { Emitter } from "./utils/emitter";
 import { arcLengthOfNearestSpinePoint } from "./utils/geometry/blendInterpolation";
@@ -1335,6 +1334,18 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.tool.refreshUI();
 		}
 		return true;
+	}
+
+	/**
+	 * Point the gradient tool at another gradient fill of the selected
+	 * element, then clear the stop selection and rebuild the handle overlay.
+	 */
+	public gradientSetTargetFill(uid: string): void {
+		this.tools.setGradientTargetFillUid(uid);
+		if (this.tool instanceof GradientTool) {
+			this.tool.clearStopSelection();
+			this.tool.refreshUI();
+		}
 	}
 
 	// ===== Hover highlight =====
@@ -3468,7 +3479,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				return this.spatialIndex.getWorldBounds(id);
 			},
 			updateFill: (fill) => {
-				this.commands.updateSelectedElementsFill(fill);
+				this.commands.updateGradientTargetFill(fill);
+			},
+			getGradientTargetFillUid: () => this.toolSettings.gradientTargetFillUid,
+			setGradientTargetFillUid: (uid) => {
+				this.tools.setGradientTargetFillUid(uid);
 			},
 			setGradientSelectedStopId: (id) => {
 				this.tools.setGradientSelectedStopId(id);
@@ -3867,9 +3882,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			if (this.rendererStore.selectedElementIds.length > 0) {
 				const firstId = this.rendererStore.selectedElementIds[0];
 				const element = this.rendererStore.document.objects[firstId];
-				const fillApp = getFirstFill(element?.filters);
-				const fill = fillApp?.paramData.params.fill;
-				if (!fill || isSolidColor(fill)) {
+				if (!getGradientTargetFill(element?.filters, null)) {
 					this.selection.clear();
 				} else {
 					const primaryTarget = this.getPrimaryTarget();

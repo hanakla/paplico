@@ -381,7 +381,10 @@ export type ToolContextOptions = {
 
 	getSelectedElement: () => AnyArtObject | null;
 	getSelectedElementBounds: () => BoundingBox | null;
+	/** Write the fill of the appearance the gradient tool targets. */
 	updateFill: (fill: FillColor) => void;
+	getGradientTargetFillUid: () => string | null;
+	setGradientTargetFillUid: (uid: string | null) => void;
 	setGradientSelectedStopId: (id: string | null) => void;
 	setGradientSelectedStopIndex: (index: number | null) => void;
 	/** Delete the currently selected gradient stop / mesh vertex; true when removed. */

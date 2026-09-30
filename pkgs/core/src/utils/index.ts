@@ -9,7 +9,13 @@ export {
 	ColorAdjustStrategies,
 	colorKey,
 } from "./color";
-export { getFirstFill, getFirstStroke, getStrokeWidth } from "./elementQuery";
+export {
+	getFirstFill,
+	getFirstStroke,
+	getGradientFills,
+	getGradientTargetFill,
+	getStrokeWidth,
+} from "./elementQuery";
 export { createBrushTextureFile } from "./embeddedFile";
 export { Emitter } from "./emitter";
 export { calculateElementBounds } from "./geometry/bounds";

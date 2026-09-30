@@ -4044,6 +4044,90 @@ describe("deleteSelectedGradientStop", () => {
 		expect(updatedFill.vertices[4].colorMode).toBe("derived");
 		expect(updatedFill.vertices[4].positionSource?.edgeVerts).toEqual([0, 1]);
 	});
+
+	it("deletes the stop from the fill the gradient tool targets", () => {
+		const first = createLinearGradientFilter(createThreeStops());
+		const second = {
+			...createLinearGradientFilter(createThreeStops()),
+			uid: "fill-app-2",
+		};
+		const { commands, updateElement } = createFilterCommands([first, second], {
+			gradientTargetFillUid: "fill-app-2",
+			gradientSelectedStopId: null,
+			gradientSelectedStopIndex: 1,
+		} as ToolSettings);
+
+		expect(commands.deleteSelectedGradientStop()).toBe(true);
+		const [, , patch] = updateElement.mock.calls[0];
+		const [updatedFirst, updatedSecond] = (
+			patch as { filters: FillAppearance[] }
+		).filters;
+		expect(updatedFirst).toEqual(first);
+		const updatedFill = updatedSecond.paramData.params.fill as LinearGradient;
+		expect(updatedFill.stops.map((s) => s.offset)).toEqual([0, 1]);
+	});
+});
+
+describe("updateGradientTargetFill", () => {
+	it("should write the fill to the appearance the gradient tool targets", () => {
+		const first = createLinearGradientFilter(createThreeStops());
+		const second = {
+			...createLinearGradientFilter(createThreeStops()),
+			uid: "fill-app-2",
+			opacity: 0.5,
+		};
+		const { commands, updateElement } = createFilterCommands([first, second], {
+			gradientTargetFillUid: "fill-app-2",
+		} as ToolSettings);
+		const nextFill: LinearGradient = {
+			...(second.paramData.params.fill as LinearGradient),
+			x1: 0.25,
+		};
+
+		commands.updateGradientTargetFill(nextFill);
+
+		const [, , patch] = updateElement.mock.calls[0];
+		const [updatedFirst, updatedSecond] = (
+			patch as { filters: FillAppearance[] }
+		).filters;
+		expect(updatedFirst).toEqual(first);
+		expect(updatedSecond.paramData.params.fill).toEqual(nextFill);
+		expect(updatedSecond.opacity).toBe(0.5);
+	});
+
+	it("should write to the first gradient fill when no fill carries the target uid", () => {
+		const solid: FillAppearance = {
+			...createLinearGradientFilter(createThreeStops()),
+			uid: "solid-app",
+			paramData: {
+				version: "1",
+				params: {
+					fill: {
+						type: "solid",
+						color: toRGBColor({ r: 1, g: 1, b: 1, a: 1 }),
+					},
+				},
+			},
+		};
+		const gradient = createLinearGradientFilter(createThreeStops());
+		const { commands, updateElement } = createFilterCommands(
+			[solid, gradient],
+			{ gradientTargetFillUid: "gone" } as ToolSettings,
+		);
+		const nextFill: LinearGradient = {
+			...(gradient.paramData.params.fill as LinearGradient),
+			x1: 0.25,
+		};
+
+		commands.updateGradientTargetFill(nextFill);
+
+		const [, , patch] = updateElement.mock.calls[0];
+		const [updatedSolid, updatedGradient] = (
+			patch as { filters: FillAppearance[] }
+		).filters;
+		expect(updatedSolid).toEqual(solid);
+		expect(updatedGradient.paramData.params.fill).toEqual(nextFill);
+	});
 });
 
 describe("appearance presets", () => {
@@ -4573,6 +4657,18 @@ describe("computePerspectiveWarpUpdates (vertex bake)", () => {
 	});
 });
 
+function createThreeStops(): LinearGradient["stops"] {
+	return [
+		{ offset: 0, color: toRGBColor({ r: 1, g: 0, b: 0, a: 1 }), midpoint: 0.5 },
+		{
+			offset: 0.5,
+			color: toRGBColor({ r: 0, g: 1, b: 0, a: 1 }),
+			midpoint: 0.5,
+		},
+		{ offset: 1, color: toRGBColor({ r: 0, g: 0, b: 1, a: 1 }), midpoint: 0.5 },
+	];
+}
+
 function createLinearGradientFilter(
 	stops: LinearGradient["stops"],
 ): FillAppearance {
@@ -4976,8 +5072,11 @@ function createGroupPasteCommands({
 	return { commands, addElementToGroup, reorderElements, reorderGroupChildren };
 }
 
-function createFilterCommands(filter: Filter, toolSettings?: ToolSettings) {
-	const path = { ...createPath("path-1"), filters: [filter] };
+function createFilterCommands(
+	filter: Filter | Filter[],
+	toolSettings?: ToolSettings,
+) {
+	const path = { ...createPath("path-1"), filters: [filter].flat() };
 	const layer = createLayer("layer-1", [path.id]);
 	const updateElement = vi.fn<YjsProvider["updateElement"]>();
 

@@ -15,6 +15,11 @@
 - `PaplicoCommands.writeElement(layerId, elementId, updates)` writes to an element without asking its lock, for an operation whose target was already checked. The tools' deformation commit goes through it.
 - `TimelapsePlayer.skipBy(elapsedMs)` moves the playback clock forward the way `advanceBy` does without building the frame, for measuring how long a recording runs.
 - `signal` option of `TimelapseExporter.exportMP4`. Aborting it calls the export off: the encoder and the unfinished file are released and the returned promise rejects with the signal's reason.
+- The gradient tool can edit any gradient fill of an element that carries several. `ToolSettings.gradientTargetFillUid` names the fill appearance being edited, and `null` stands for the element's first gradient fill. `Paplico.gradientSetTargetFill(uid)` switches it, clears the stop selection and rebuilds the handles. `getGradientFills` and `getGradientTargetFill` in `@paplico/core/utils` list an element's gradient fills and resolve the one being edited.
+- `PaplicoCommands.updateGradientTargetFill(fill)` writes a fill to the appearance the gradient tool edits and leaves the element's other fills as they are.
+- A drag with the gradient tool that starts away from every handle redraws the selected element's gradient: a linear gradient runs from the press point to the release point, and a radial one becomes a circle centered on the press point that reaches the release point. The stops are kept. A click that does not move still picks or clears the selection, on release.
+- `GradientEditUIHandle.screenOffset` places a handle a fixed number of screen pixels away from its world position.
+- Dragging the bar of a linear or radial gradient moves the whole gradient by the drag distance. `GradientEditUILine.hitId` makes an overlay line hit-testable.
 
 ### Changed
 
@@ -28,6 +33,11 @@
 - `TimelapsePreviewSurface.renderToImageData` also shows the frame on the preview canvas, fitted inside it, so an MP4 export shows the frame it is encoding. The canvas used to stay on the last playback frame for the whole export.
 - `paplico.tool.shapeRect` no longer has a default key. M is bound to `paplico.tool.shapeCycle` instead.
 - An eyedropper click picks on release instead of on press, so it can be told apart from a long press.
+- The gradient tool takes an element whose first fill is solid when a later fill is a gradient. It used to look at the first fill only. An element whose fills are solid or pattern only is no longer selected by it.
+- `PaplicoCommands.deleteSelectedGradientStop` removes the stop from the fill the gradient tool edits instead of the element's first fill.
+- The start and end handles of a linear gradient sit 12 screen pixels outside the end stops at any zoom. They used to sit 16 world units out, which drifted away from the stops as the view zoomed in.
+- The center, radius and rotation handles of a radial gradient sit 12 screen pixels away from the stops at any zoom, and a drag on the center or a radius handle moves it by the drag distance. They used to sit 24 world units away, which drifted as the view zoomed in, and the first move snapped the center or the radius to the cursor.
+- A radial gradient has no rotation handle any more. Dragging its end point sets the radius and the angle at once, and the ellipse keeps its shape while it grows or shrinks. The handle on the rotated Y axis still sets the other radius.
 - A blur whose radius reaches 8 texels at the document's rasterization DPI is computed through the same blur pyramid the drop shadow uses, so its cost no longer grows with the radius. A radius of 72 on a 300 DPI document used to read about 300 texels per pixel and pass.
 - Every long press in the tools takes 400ms. The mesh deform tool, the eyedropper and the pen's color pick used to wait 500ms, while the path edit tool waited 400ms.
 - `GRADIENT_MAP_PRESET_STOPS` holds its stop colors as HSV. The colors themselves are unchanged. They used to be RGB.
@@ -55,6 +65,7 @@
 - The bounds of a rotated or scaled group now enclose its children where they are drawn. The selection box, snapping and hit candidates of such a group used to be shifted away from its content.
 - A path with two gradient fills, or two gradient strokes, renders both. Each appearance now owns its gradient buffers. The second used to take over the first one's buffers within the same frame and destroy them, which failed the frame's submit with "used in submit while destroyed".
 - Color adjustment reaches texts and the content of a mesh. `startAdjustColorSession` collects and adjusts the fill and stroke of a text's default style and of each run, and walks into a mesh's children. A selection mixing these with paths used to change the paths only.
+- Dragging a gradient handle previews the change on the fill being edited only. Every fill of the element used to show the dragged gradient until the drag ended.
 
 ## [0.2.0] - 2026-09-27
 

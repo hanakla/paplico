@@ -336,6 +336,7 @@ export const ja = {
 		delete: "削除",
 		gradientStopColor: "ストップの色",
 		gradientDeleteStop: "ストップを削除",
+		gradientTargetFill: "この塗りを編集",
 	},
 	actionsPanel: {
 		actions: "アクション",

@@ -129,7 +129,6 @@ export const UI_THEME = {
 		gradientRadialCenterHandle: rgba(1, 1, 1, 1),
 		gradientRadialXHandle: rgba(1, 0.5, 0.5, 1),
 		gradientRadialYHandle: rgba(0.5, 1, 0.5, 1),
-		gradientRadialRotationHandle: rgba(0.5, 0.5, 1, 1),
 		gradientFreeCp: rgba(0.23, 0.51, 0.96, 1),
 		// --- Mesh Deform ---
 		meshBounds: rgba(0.5, 0.5, 0.5, 0.3),

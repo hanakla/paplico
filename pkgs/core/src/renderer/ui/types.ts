@@ -151,6 +151,8 @@ export interface GradientEditUIHandle {
 	worldX: number;
 	/** World coordinate Y */
 	worldY: number;
+	/** Screen-fixed offset from the world position, in px along world axes. */
+	screenOffset?: { x: number; y: number };
 	/** Handle type determines rendering style */
 	handleType:
 		| "linear-start"
@@ -159,7 +161,6 @@ export interface GradientEditUIHandle {
 		| "linear-midpoint"
 		| "radial-center"
 		| "radial-radius"
-		| "radial-rotation"
 		| "radial-stop"
 		| "radial-midpoint"
 		| "free-stop"
@@ -191,6 +192,8 @@ interface GradientEditUILine {
 	/** Draw a gray outline stroke beneath this line, for visibility against
 	 *  busy canvas content. */
 	outlined?: boolean;
+	/** When set, the line is hit-testable under this id. */
+	hitId?: string;
 }
 
 interface GradientEditUICircle {

@@ -28,6 +28,7 @@ import { ContextActionsBar } from "./ContextActionsBar";
 import { ElementActions } from "./ElementActions";
 import { EyedropperCandidateActions } from "./EyedropperCandidateActions";
 import { GradientStopActions } from "./GradientStopActions";
+import { GradientTargetFillActions } from "./GradientTargetFillActions";
 import { MoreActionsMenu } from "./MoreActionsMenu";
 import { Reference3DNodeActions } from "./Reference3DNodeActions";
 import { StrokeWidthEditTargetToggle } from "./StrokeWidthEditTargetToggle";
@@ -106,12 +107,15 @@ function ContextActionsOverlayInner({
 		!isReference3DNodeContext && selectedIds.length === 1;
 	const selectedElements = useSelectedElements(store);
 	const toolSnap = useSnapshot(paplico.tools.state);
+	// The gradient tool's bar stays on gradient editing: arranging, duplicating,
+	// deselecting, deleting and the overflow menu are left out.
+	const isGradientTool = toolSnap.currentTool === "gradient";
 	// Gradient tool with a single element selected: the stop-scoped actions
 	// stay visible for the whole session.
 	const isGradientToolContext =
 		!isReference3DNodeContext &&
 		!isTextEditing &&
-		toolSnap.currentTool === "gradient" &&
+		isGradientTool &&
 		hasSingleSelection;
 	// Cutting reaches any editable path, not only the selected one, so it needs
 	// no selection of its own beyond what already keeps the bar on screen.
@@ -295,7 +299,12 @@ function ContextActionsOverlayInner({
 					<Separator orientation="vertical" className="mx-0.5 h-5" />
 				</>
 			)}
-			{isGradientToolContext && <GradientStopActions />}
+			{isGradientToolContext && (
+				<>
+					<GradientStopActions />
+					<GradientTargetFillActions />
+				</>
+			)}
 			{!isTextEditing && hasElementSelection && hasFillOrStrokeInSelection && (
 				<FillStrokeSwatchPicker
 					className="h-9 w-9 flex-none"
@@ -315,9 +324,10 @@ function ContextActionsOverlayInner({
 					selectedIds={selectedIds}
 					selectedElements={selectedElements}
 					hasElementSelection={hasElementSelection}
+					hideArrangeAndDuplicate={isGradientTool}
 				/>
 			)}
-			{!isTextEditing && hasElementSelection && (
+			{!isTextEditing && hasElementSelection && !isGradientTool && (
 				<Tooltip content={t("contextActions.deselectAll")} side="bottom">
 					<IconButton
 						$size="md"
@@ -330,7 +340,7 @@ function ContextActionsOverlayInner({
 				</Tooltip>
 			)}
 			{!isTextEditing && hasElementSelection && <AdjustColorAction />}
-			{!isTextEditing && hasElementSelection && (
+			{!isTextEditing && hasElementSelection && !isGradientTool && (
 				<MoreActionsMenu
 					selectedIds={selectedIds}
 					hasOutlinableInSelection={hasOutlinableInSelection}
@@ -339,7 +349,7 @@ function ContextActionsOverlayInner({
 					meshWarpIdsInSelection={meshWarpIdsInSelection}
 				/>
 			)}
-			{!isReference3DNodeContext && !isTextEditing && (
+			{!isReference3DNodeContext && !isTextEditing && !isGradientTool && (
 				<Tooltip content={t("contextActions.delete")} side="bottom">
 					<IconButton
 						$size="md"

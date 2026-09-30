@@ -1,13 +1,13 @@
 import type { Color, FillColor, FilterEntry } from "@paplico/core/schema";
-import { getFirstFill } from "@paplico/core/utils";
+import { getGradientTargetFill } from "@paplico/core/utils";
 import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { useEventCallback } from "@/utils/hooks";
 
 /**
  * Reads and writes the color of the gradient stop currently selected by the
- * gradient tool (free stop / mesh vertex / linear·radial stop index) on the
- * single selected element. `stopColor` is null when no applicable stop is
+ * gradient tool (free stop / mesh vertex / linear·radial stop index) in the
+ * fill it targets on the single selected element. `stopColor` is null when no applicable stop is
  * selected.
  */
 export function useGradientStopColor(): {
@@ -29,8 +29,10 @@ export function useGradientStopColor(): {
 	const layerId = snap.currentLayerId;
 	const elementId = snap.selectedElementIds[0];
 	const element = elementId ? snap.document.objects[elementId] : null;
-	const fillApp = getFirstFill(element?.filters as FilterEntry[] | undefined);
-	const fill = fillApp?.paramData.params.fill;
+	const fill = getGradientTargetFill(
+		element?.filters as FilterEntry[] | undefined,
+		toolSnap.gradientTargetFillUid,
+	)?.paramData.params.fill;
 
 	let stopColor: Color | null = null;
 	if (fill?.type === "free" && freeStopId != null) {
@@ -90,7 +92,7 @@ export function useGradientStopColor(): {
 			return;
 		}
 
-		commands.updateSelectedElementsFill(updatedFill);
+		commands.updateGradientTargetFill(updatedFill);
 	});
 
 	return { fill, stopColor, setStopColor };

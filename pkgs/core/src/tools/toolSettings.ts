@@ -78,6 +78,9 @@ export interface ToolSettings {
 	fillAppearance: FillAppearance | null;
 	/** Shape type for shape tool */
 	shapeType: ShapeType;
+	/** uid of the fill appearance GradientTool edits; null means the element's
+	 *  first gradient fill. */
+	gradientTargetFillUid: string | null;
 	/** Currently selected FreeGradientStop ID in GradientTool */
 	gradientSelectedStopId: string | null;
 	/** Currently selected Linear/RadialGradient stop index in GradientTool */
@@ -183,6 +186,7 @@ export function createToolSettings(): ToolSettings {
 		smoothingMethod: "smooth",
 		opacity: 1,
 		shapeType: "rectangle",
+		gradientTargetFillUid: null,
 		gradientSelectedStopId: null,
 		gradientSelectedStopIndex: null,
 		guideBrushEnabled: false,

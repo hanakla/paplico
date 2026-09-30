@@ -106,6 +106,7 @@ export class PaplicoTools {
 
 	public setCurrentTool(tool: ToolType): void {
 		if (this.store.currentTool !== tool) {
+			this.store.gradientTargetFillUid = null;
 			this.store.gradientSelectedStopId = null;
 			this.store.gradientSelectedStopIndex = null;
 		}
@@ -171,6 +172,10 @@ export class PaplicoTools {
 
 		this.setStrokeColor(fillColorToStrokeColor(prevFillColor));
 		this.setFillColor(strokeColorToFillColor(prevStrokeColor));
+	}
+
+	public setGradientTargetFillUid(uid: string | null): void {
+		this.store.gradientTargetFillUid = uid;
 	}
 
 	public setGradientSelectedStopId(id: string | null): void {

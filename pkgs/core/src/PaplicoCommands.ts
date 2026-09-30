@@ -132,7 +132,7 @@ import {
 	collectElementColors,
 	type FilterHandlerLookup,
 } from "./utils/color";
-import { getFirstFill } from "./utils/elementQuery";
+import { getGradientTargetFill, replaceFillOf } from "./utils/elementQuery";
 import {
 	type AlignDelta,
 	type AlignItem,
@@ -2478,8 +2478,31 @@ export class PaplicoCommands {
 	}
 
 	/**
+	 * Replace the fill of the appearance the gradient tool targets (via
+	 * toolSettings) on the selected element.
+	 */
+	public updateGradientTargetFill(fill: FillColor): void {
+		if (this.cannotMutate()) return;
+		const layerId = this.ctx.store.currentLayerId;
+		const elementId = this.ctx.store.selectedElementIds[0];
+		if (!layerId || !elementId || this.isElementLocked(elementId)) return;
+
+		const element = this.ctx.store.document.objects[elementId];
+		const target = this.gradientTargetFillOf(element);
+		if (!element || !target) return;
+
+		this.ctx.yjsProvider.updateElement(
+			layerId,
+			elementId,
+			{ filters: replaceFillOf(element.filters, target.uid, fill) },
+			this.getMutationOrigin(),
+		);
+	}
+
+	/**
 	 * Delete the gradient stop / mesh vertex the gradient tool currently has
-	 * selected (via toolSettings) from the selected element's fill.
+	 * selected (via toolSettings) from the fill it targets on the selected
+	 * element.
 	 * Linear/radial gradients keep at least two stops (an offset-based
 	 * gradient needs both ends); free gradients keep at least one stop; mesh
 	 * gradients keep their four corner vertices. Returns true when a stop was
@@ -2492,8 +2515,7 @@ export class PaplicoCommands {
 		const element = elementId
 			? this.ctx.store.document.objects[elementId]
 			: null;
-		const fillApp = getFirstFill(element?.filters);
-		const fill = fillApp?.paramData.params.fill;
+		const fill = this.gradientTargetFillOf(element)?.paramData.params.fill;
 		if (!fill) return false;
 
 		if (isLinearGradient(fill) || isRadialGradient(fill)) {
@@ -2502,7 +2524,7 @@ export class PaplicoCommands {
 			if (fill.stops.length <= 2) return false;
 			const updated = deepClone(fill);
 			updated.stops = updated.stops.filter((_, i) => i !== stopIndex);
-			this.updateSelectedElementsFill(updated);
+			this.updateGradientTargetFill(updated);
 			return true;
 		}
 
@@ -2527,7 +2549,7 @@ export class PaplicoCommands {
 					: null;
 			if (demoted) {
 				syncDerivedVertices(demoted, fill.faces);
-				this.updateSelectedElementsFill({ ...fill, vertices: demoted });
+				this.updateGradientTargetFill({ ...fill, vertices: demoted });
 				return true;
 			}
 			// Deleting a derived vertex deletes the whole split line it anchors;
@@ -2541,7 +2563,7 @@ export class PaplicoCommands {
 			);
 			if (result.vertices.length === fill.vertices.length) return false;
 			syncDerivedVertices(result.vertices, result.faces);
-			this.updateSelectedElementsFill({
+			this.updateGradientTargetFill({
 				...fill,
 				vertices: result.vertices,
 				faces: result.faces,
@@ -2563,8 +2585,18 @@ export class PaplicoCommands {
 					edgeCPs: Object.keys(rest).length > 0 ? rest : undefined,
 				};
 			});
-		this.updateSelectedElementsFill(updated);
+		this.updateGradientTargetFill(updated);
 		return true;
+	}
+
+	/** The fill appearance of `element` the gradient tool targets via toolSettings. */
+	private gradientTargetFillOf(
+		element: AnyArtObject | null | undefined,
+	): FillAppearance | undefined {
+		return getGradientTargetFill(
+			element?.filters,
+			this.ctx.toolSettings?.gradientTargetFillUid ?? null,
+		);
 	}
 
 	public swapSelectedElementsColors(): void {

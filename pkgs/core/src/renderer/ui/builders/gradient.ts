@@ -102,6 +102,7 @@ export function buildGradientOverlay(
 			x2: line.x2,
 			y2: line.y2,
 			stroke: { color: line.color, width },
+			...(line.hitId && { hitId: line.hitId }),
 		});
 	}
 
@@ -111,6 +112,11 @@ export function buildGradientOverlay(
 	const handleCircles: UIPrimitive[] = [];
 
 	for (const handle of data.handles) {
+		const position = {
+			cx: handle.worldX,
+			cy: handle.worldY,
+			...(handle.screenOffset && { screenOffset: handle.screenOffset }),
+		};
 		const isMidpointHandle =
 			handle.handleType === "linear-midpoint" ||
 			handle.handleType === "radial-midpoint";
@@ -143,8 +149,7 @@ export function buildGradientOverlay(
 		if (handle.selected) {
 			selectionRings.push({
 				kind: "circle",
-				cx: handle.worldX,
-				cy: handle.worldY,
+				...position,
 				radius: { screen: radiusPx + handlePx / 4 },
 				stroke: { color: theme.colors.gradientSelectionRing, width: sw },
 			});
@@ -167,8 +172,7 @@ export function buildGradientOverlay(
 		if (!isMidpointHandle) {
 			outerRings.push({
 				kind: "circle",
-				cx: handle.worldX,
-				cy: handle.worldY,
+				...position,
 				radius: { screen: radiusPx + sw },
 				stroke: { color: theme.colors.gradientStopConnection, width: sw },
 			});
@@ -178,8 +182,7 @@ export function buildGradientOverlay(
 		// GradientTool's center-distance tolerance regardless of drawn radius.
 		handleCircles.push({
 			kind: "circle",
-			cx: handle.worldX,
-			cy: handle.worldY,
+			...position,
 			radius: { screen: radiusPx },
 			hitId: handle.id,
 			hitPadding: { screen: handlePx - radiusPx },

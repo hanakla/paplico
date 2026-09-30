@@ -1,16 +1,18 @@
 import { readStoredBrushSize, readStoredBrushStroking } from "../brush/access";
 import { localAppearances } from "../document/appearancePresets";
-import type {
-	AnyArtObject,
-	BlendMode,
-	FillAppearance,
-	Filter,
-	FilterEntry,
-	Layer,
-	SolidColor,
-	StrokeAlign,
-	StrokeAppearance,
-	TextStyle,
+import {
+	type AnyArtObject,
+	type BlendMode,
+	type FillAppearance,
+	type FillColor,
+	type Filter,
+	type FilterEntry,
+	isAppearancePresetRef,
+	type Layer,
+	type SolidColor,
+	type StrokeAlign,
+	type StrokeAppearance,
+	type TextStyle,
 } from "../schema";
 
 /**
@@ -32,6 +34,44 @@ export function getFirstFill(
 	return localAppearances(filters).find((f) => f.processor === "fill") as
 		| FillAppearance
 		| undefined;
+}
+
+/** Fill appearances of a filters array that paint a gradient, in stack order. */
+export function getGradientFills(
+	filters: readonly FilterEntry[] | undefined,
+): FillAppearance[] {
+	return localAppearances(filters)
+		.filter((f): f is FillAppearance => f.processor === "fill")
+		.filter(
+			({ paramData }) =>
+				paramData.params.fill.type !== "solid" &&
+				paramData.params.fill.type !== "pattern",
+		);
+}
+
+/**
+ * The fill appearance the gradient tool edits: the gradient fill carrying
+ * `targetUid`, or the first gradient fill when none carries it.
+ */
+export function getGradientTargetFill(
+	filters: readonly FilterEntry[] | undefined,
+	targetUid: string | null,
+): FillAppearance | undefined {
+	const fills = getGradientFills(filters);
+	return fills.find((f) => f.uid === targetUid) ?? fills[0];
+}
+
+/** A copy of a filters array with the fill of the appearance `uid` replaced. */
+export function replaceFillOf(
+	filters: readonly FilterEntry[] | undefined,
+	uid: string,
+	fill: FillColor,
+): FilterEntry[] {
+	return (filters ?? []).map((f) =>
+		!isAppearancePresetRef(f) && f.processor === "fill" && f.uid === uid
+			? { ...f, paramData: { ...f.paramData, params: { fill } } }
+			: f,
+	);
 }
 
 export interface ExtractedAppearance {

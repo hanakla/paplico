@@ -5,6 +5,7 @@ import type {
 	AnyArtObject,
 	BoundingBox,
 	FillAppearance,
+	FillColor,
 	FreeGradient,
 	LinearGradient,
 	MeshArtObject,
@@ -23,6 +24,7 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
+import { brandWorldBBox } from "../utils/geometry/bounds";
 import {
 	cubicBez,
 	getDisplayedMeshHandle,
@@ -779,10 +781,10 @@ describe("GradientTool start/end handle grab offset", () => {
 				nextFill as LinearGradient;
 		});
 
-		// The start handle renders 16 world-units outward from (x1,y1) along
+		// The start handle renders 12 screen px outward from (x1,y1) along
 		// the line direction so it doesn't overlap the first color stop —
-		// with bounds width 100 that's rel x = -0.16.
-		const handlePos = screenPoint(bounds, -0.16, 0.5);
+		// at zoom 1 with bounds width 100 that's rel x = -0.12.
+		const handlePos = screenPoint(bounds, -0.12, 0.5);
 		tool.onPointerDown(
 			ev(handlePos.x, handlePos.y),
 			testViewport,
@@ -815,14 +817,14 @@ describe("GradientTool start/end handle grab offset", () => {
 				nextFill as LinearGradient;
 		});
 
-		const handlePos = screenPoint(bounds, -0.16, 0.5);
+		const handlePos = screenPoint(bounds, -0.12, 0.5);
 		tool.onPointerDown(
 			ev(handlePos.x, handlePos.y),
 			testViewport,
 			testCanvasWidth,
 			testCanvasHeight,
 		);
-		const dragTarget = screenPoint(bounds, -0.16 + 0.2, 0.5);
+		const dragTarget = screenPoint(bounds, -0.12 + 0.2, 0.5);
 		tool.onPointerMove(
 			ev(dragTarget.x, dragTarget.y),
 			testViewport,
@@ -848,9 +850,9 @@ describe("GradientTool start/end handle grab offset", () => {
 				nextFill as LinearGradient;
 		});
 
-		// The end handle renders 16 world-units outward from (x2,y2) — with
-		// bounds width 100 that's rel x = 1.16.
-		const handlePos = screenPoint(bounds, 1.16, 0.5);
+		// The end handle renders 12 screen px outward from (x2,y2) — at zoom 1
+		// with bounds width 100 that's rel x = 1.12.
+		const handlePos = screenPoint(bounds, 1.12, 0.5);
 		tool.onPointerDown(
 			ev(handlePos.x, handlePos.y),
 			testViewport,
@@ -867,6 +869,447 @@ describe("GradientTool start/end handle grab offset", () => {
 		);
 		tool.onPointerUp(ev(0, 0), testViewport, testCanvasWidth, testCanvasHeight);
 
+		expect(ctx.updateFill).not.toHaveBeenCalled();
+	});
+});
+
+describe("GradientTool radial center/radius handle grab offset", () => {
+	let tool: GradientTool;
+	let ctx: MockToolContext;
+
+	beforeEach(() => {
+		ctx = createMockToolContext();
+		tool = new GradientTool(ctx);
+	});
+
+	it("moves the center by the drag delta instead of snapping it to the handle", () => {
+		const element = createFillHost(createRadialGradientFill());
+		const bounds = createBounds();
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+
+		// The center handle renders 12 screen px inward along the X axis —
+		// at zoom 1 with bounds width 100 that's rel x = 0.38.
+		const handlePos = screenPoint(bounds, 0.38, 0.5);
+		tool.onPointerDown(
+			ev(handlePos.x, handlePos.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		const dragTarget = screenPoint(bounds, 0.38 + 0.1, 0.5 + 0.2);
+		tool.onPointerMove(
+			ev(dragTarget.x, dragTarget.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(ev(0, 0), testViewport, testCanvasWidth, testCanvasHeight);
+
+		const updated = ctx.updateFill.mock.calls.at(-1)?.[0] as RadialGradient;
+		expect(updated.cx).toBeCloseTo(0.6, 5);
+		expect(updated.cy).toBeCloseTo(0.7, 5);
+	});
+
+	it("scales the ellipse by the drag delta when grabbing the offset end point", () => {
+		const element = createFillHost(createRadialGradientFill());
+		const bounds = createBounds();
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+
+		// The end point handle renders 12 screen px outside the radius point
+		// (1.0, 0.5) — rel x = 1.12 at zoom 1.
+		const handlePos = screenPoint(bounds, 1.12, 0.5);
+		tool.onPointerDown(
+			ev(handlePos.x, handlePos.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		const dragTarget = screenPoint(bounds, 1.12 - 0.2, 0.5);
+		tool.onPointerMove(
+			ev(dragTarget.x, dragTarget.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(ev(0, 0), testViewport, testCanvasWidth, testCanvasHeight);
+
+		const updated = ctx.updateFill.mock.calls.at(-1)?.[0] as RadialGradient;
+		expect(updated.radiusX).toBeCloseTo(0.3, 5);
+		expect(updated.radiusY).toBeCloseTo(0.3, 5);
+		expect(updated.rotation).toBeCloseTo(0, 5);
+	});
+
+	it("turns the gradient toward the end point when it is dragged around the center", () => {
+		const element = createFillHost(createRadialGradientFill());
+		const bounds = createBounds();
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+
+		const handlePos = screenPoint(bounds, 1.12, 0.5);
+		tool.onPointerDown(
+			ev(handlePos.x, handlePos.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		// Carry the end point (1.0, 0.5) up to (0.5, 1.0): same distance from
+		// the center, a quarter turn further.
+		const dragTarget = screenPoint(bounds, 0.5 + 0.12, 1.0);
+		tool.onPointerMove(
+			ev(dragTarget.x, dragTarget.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(ev(0, 0), testViewport, testCanvasWidth, testCanvasHeight);
+
+		const updated = ctx.updateFill.mock.calls.at(-1)?.[0] as RadialGradient;
+		expect(updated.rotation).toBeCloseTo(Math.PI / 2, 5);
+		expect(updated.radiusX).toBeCloseTo(0.5, 5);
+		expect(updated.radiusY).toBeCloseTo(0.5, 5);
+	});
+});
+
+describe("GradientTool bar drag", () => {
+	let tool: GradientTool;
+	let ctx: MockToolContext;
+
+	beforeEach(() => {
+		ctx = createMockToolContext();
+		tool = new GradientTool(ctx);
+	});
+
+	it("moves a linear gradient as a whole when its bar is dragged", () => {
+		const element = createFillHost(createLinearGradientFill());
+		const bounds = createBounds();
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+
+		// On the bar, clear of the end stop at 0 and the midpoint at 0.5.
+		const barPos = screenPoint(bounds, 0.25, 0.5);
+		tool.onPointerDown(
+			ev(barPos.x, barPos.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		const dragTarget = screenPoint(bounds, 0.25 + 0.1, 0.5 + 0.2);
+		tool.onPointerMove(
+			ev(dragTarget.x, dragTarget.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(ev(0, 0), testViewport, testCanvasWidth, testCanvasHeight);
+
+		const updated = ctx.updateFill.mock.calls.at(-1)?.[0] as LinearGradient;
+		expect(updated.x1).toBeCloseTo(0.1, 5);
+		expect(updated.y1).toBeCloseTo(0.7, 5);
+		expect(updated.x2).toBeCloseTo(1.1, 5);
+		expect(updated.y2).toBeCloseTo(0.7, 5);
+		expect(updated.stops).toEqual(createLinearGradientFill().stops);
+	});
+
+	it("moves a radial gradient's center when its bar is dragged", () => {
+		const element = createFillHost(createRadialGradientFill());
+		const bounds = createBounds();
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+
+		// On the axis, clear of the center stop at 0.5 and the midpoint at 0.75.
+		const barPos = screenPoint(bounds, 0.62, 0.5);
+		tool.onPointerDown(
+			ev(barPos.x, barPos.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		const dragTarget = screenPoint(bounds, 0.62 + 0.1, 0.5 + 0.1);
+		tool.onPointerMove(
+			ev(dragTarget.x, dragTarget.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(ev(0, 0), testViewport, testCanvasWidth, testCanvasHeight);
+
+		const updated = ctx.updateFill.mock.calls.at(-1)?.[0] as RadialGradient;
+		expect(updated.cx).toBeCloseTo(0.6, 5);
+		expect(updated.cy).toBeCloseTo(0.6, 5);
+		expect(updated.radiusX).toBeCloseTo(0.5, 5);
+		expect(updated.rotation).toBe(0);
+	});
+});
+
+describe("GradientTool target fill", () => {
+	let tool: GradientTool;
+	let ctx: MockToolContext;
+
+	beforeEach(() => {
+		ctx = createMockToolContext();
+		tool = new GradientTool(ctx);
+		ctx.getCurrentLayerId.mockImplementation(() => "layer-1");
+	});
+
+	it("should edit only the gradient fill the target uid points at", () => {
+		const firstFill = createLinearGradientFill();
+		const element = createFillHost(firstFill);
+		element.filters = [
+			...(element.filters ?? []),
+			createFillAppearance("second-fill", {
+				...createLinearGradientFill(),
+				y1: 0.25,
+				y2: 0.25,
+			}),
+		];
+		const bounds = createBounds();
+
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+		ctx.getGradientTargetFillUid.mockImplementation(() => "second-fill");
+
+		// The handles follow the second fill's line at y=0.25.
+		const midStart = screenPoint(bounds, 0.5, 0.25);
+		tool.onPointerDown(
+			ev(midStart.x, midStart.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		const dragTarget = screenPoint(bounds, 0.3, 0.25);
+		tool.onPointerMove(
+			ev(dragTarget.x, dragTarget.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(ev(0, 0), testViewport, testCanvasWidth, testCanvasHeight);
+
+		const previewed = ctx.previewDeformation.mock.calls.at(-1)?.[0][0].updates
+			.filters as FillAppearance[];
+		expect(previewed[0].paramData.params.fill).toEqual(firstFill);
+		const previewedFill = previewed[1].paramData.params.fill as LinearGradient;
+		expect(previewedFill.stops[0].midpoint).toBeCloseTo(0.3, 2);
+
+		const committed = ctx.updateFill.mock.calls.at(-1)?.[0] as LinearGradient;
+		expect(committed.y1).toBe(0.25);
+		expect(committed.stops[0].midpoint).toBeCloseTo(0.3, 2);
+	});
+
+	it("should edit the first gradient fill when a solid fill sits before it", () => {
+		const solidFill = {
+			type: "solid",
+			color: toRGBColor({ r: 0, g: 255, b: 0, a: 1 }),
+		} as const;
+		const element = createFillHost(createLinearGradientFill());
+		element.filters = [
+			createFillAppearance("solid-fill", solidFill),
+			...(element.filters ?? []),
+		];
+		const bounds = createBounds();
+
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+
+		const midStart = screenPoint(bounds, 0.5, 0.5);
+		tool.onPointerDown(
+			ev(midStart.x, midStart.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		const dragTarget = screenPoint(bounds, 0.3, 0.5);
+		tool.onPointerMove(
+			ev(dragTarget.x, dragTarget.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(ev(0, 0), testViewport, testCanvasWidth, testCanvasHeight);
+
+		const previewed = ctx.previewDeformation.mock.calls.at(-1)?.[0][0].updates
+			.filters as FillAppearance[];
+		expect(previewed[0].paramData.params.fill).toEqual(solidFill);
+
+		const committed = ctx.updateFill.mock.calls.at(-1)?.[0] as LinearGradient;
+		expect(committed.stops[0].midpoint).toBeCloseTo(0.3, 2);
+	});
+
+	it("should reset the target when another element is clicked", () => {
+		const element = createFillHost(createLinearGradientFill());
+		const other = {
+			...createFillHost(createLinearGradientFill()),
+			id: "other",
+		};
+		const bounds = createBounds();
+
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+		ctx.getBounds.mockImplementation(() => brandWorldBBox(bounds));
+		ctx.findElementAtPoint.mockImplementation(() => other);
+
+		// Away from the gradient line, so no handle takes the press.
+		const offHandle = screenPoint(bounds, 0.5, 0.9);
+		tool.onPointerDown(
+			ev(offHandle.x, offHandle.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(
+			ev(offHandle.x, offHandle.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(ctx.elementSelect.mock.calls[0][0]).toBe("other");
+		expect(ctx.setGradientTargetFillUid.mock.calls[0][0]).toBeNull();
+	});
+
+	it("should keep the target when the element being edited is clicked again", () => {
+		const element = createFillHost(createLinearGradientFill());
+		const bounds = createBounds();
+
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+		ctx.getBounds.mockImplementation(() => brandWorldBBox(bounds));
+		ctx.findElementAtPoint.mockImplementation(() => element);
+
+		const offHandle = screenPoint(bounds, 0.5, 0.9);
+		tool.onPointerDown(
+			ev(offHandle.x, offHandle.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(
+			ev(offHandle.x, offHandle.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(ctx.elementSelect.mock.calls[0][0]).toBe("fill-host");
+		expect(ctx.setGradientTargetFillUid).not.toHaveBeenCalled();
+	});
+});
+
+describe("GradientTool redraw by dragging off the handles", () => {
+	let tool: GradientTool;
+	let ctx: MockToolContext;
+
+	beforeEach(() => {
+		ctx = createMockToolContext();
+		tool = new GradientTool(ctx);
+		ctx.getCurrentLayerId.mockImplementation(() => "layer-1");
+	});
+
+	it("should run a linear gradient from the press point to the release point", () => {
+		const element = createFillHost(createLinearGradientFill());
+		const bounds = createBounds();
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+
+		const from = screenPoint(bounds, 0.2, 0.9);
+		const to = screenPoint(bounds, 0.8, 0.1);
+		tool.onPointerDown(
+			ev(from.x, from.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerMove(
+			ev(to.x, to.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		// The handles follow the redraw while the pointer is still down.
+		const overlay = ctx.uiSetOverlay.mock.calls
+			.filter(([key]) => key === OVERLAY_KEYS.gradientHandles)
+			.at(-1)?.[1];
+		const endHandle = overlay?.primitives.find(
+			(prim) => prim.hitId === "linear-end",
+		) as { cx: number; cy: number } | undefined;
+		expect(endHandle?.cx).toBeCloseTo(bounds.minX + 0.8 * bounds.width, 5);
+		expect(endHandle?.cy).toBeCloseTo(bounds.minY + 0.1 * bounds.height, 5);
+		tool.onPointerUp(
+			ev(to.x, to.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(ctx.elementSelect).not.toHaveBeenCalled();
+		expect(ctx.selectionClear).not.toHaveBeenCalled();
+		const committed = ctx.updateFill.mock.calls.at(-1)?.[0] as LinearGradient;
+		expect(committed.x1).toBeCloseTo(0.2, 5);
+		expect(committed.y1).toBeCloseTo(0.9, 5);
+		expect(committed.x2).toBeCloseTo(0.8, 5);
+		expect(committed.y2).toBeCloseTo(0.1, 5);
+		expect(committed.stops).toEqual(createLinearGradientFill().stops);
+	});
+
+	it("should make a radial gradient a circle centered on the press point", () => {
+		const element = createFillHost(createRadialGradientFill());
+		const bounds = createBounds();
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+
+		// Off the center and radius handles, then 30 world units to the right.
+		const from = screenPoint(bounds, 0.1, 0.9);
+		const to = screenPoint(bounds, 0.4, 0.9);
+		tool.onPointerDown(
+			ev(from.x, from.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerMove(
+			ev(to.x, to.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(
+			ev(to.x, to.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		const committed = ctx.updateFill.mock.calls.at(-1)?.[0] as RadialGradient;
+		expect(committed.cx).toBeCloseTo(0.1, 5);
+		expect(committed.cy).toBeCloseTo(0.9, 5);
+		expect(committed.radiusX).toBeCloseTo(0.3, 5);
+		expect(committed.radiusY).toBeCloseTo(0.3, 5);
+		expect(committed.rotation).toBe(0);
+	});
+
+	it("should clear the selection on a click on empty canvas without moving", () => {
+		const element = createFillHost(createLinearGradientFill());
+		const bounds = createBounds();
+		ctx.getSelectedElement.mockImplementation(() => element);
+		ctx.getSelectedElementBounds.mockImplementation(() => bounds);
+
+		const empty = screenPoint(bounds, 2, 2);
+		tool.onPointerDown(
+			ev(empty.x, empty.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(
+			ev(empty.x, empty.y),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(ctx.selectionClear).toHaveBeenCalledOnce();
 		expect(ctx.updateFill).not.toHaveBeenCalled();
 	});
 });
@@ -1302,17 +1745,19 @@ function createFillHost(
 		blendMode: "normal",
 		transform: createIdentityTransform(),
 		segments: [],
-		filters: [
-			{
-				uid: "fill-appearance",
-				processor: "fill",
-				opacity: 1,
-				blendMode: "normal",
-				paramData: {
-					version: "1",
-					params: { fill },
-				},
-			} satisfies FillAppearance,
-		],
+		filters: [createFillAppearance("fill-appearance", fill)],
 	} as AnyArtObject;
+}
+
+function createFillAppearance(uid: string, fill: FillColor): FillAppearance {
+	return {
+		uid,
+		processor: "fill",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: {
+			version: "1",
+			params: { fill },
+		},
+	};
 }
