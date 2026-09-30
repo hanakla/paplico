@@ -12,6 +12,7 @@ import type {
 	TextElement,
 	TextStyle,
 } from "../../../schema";
+import { rectPath } from "../../../testUtils/svgFixtures";
 import {
 	type ClassifyOptions,
 	classifyElement,
@@ -753,6 +754,43 @@ describe("planLayerItems", () => {
 		expect(items).toEqual([
 			{ kind: "vector", elementId: farBlend.id, class: "pure" },
 			{ kind: "raster", elementIds: [underLock.id, locked.id] },
+		]);
+	});
+
+	it("should composite a blended backdrop run normally when it swallows items", () => {
+		// The chunk already holds the blend over the swallowed backdrop; a
+		// chunk-level blend would blend that backdrop a second time.
+		const underLock = basePath({ filters: [solidFill()] });
+		const locked = basePath({
+			compositionMode: "alpha-lock",
+			blendMode: "overlay",
+		});
+		const opts = makeOptions([underLock, locked]);
+
+		expect(planLayerItems([underLock.id, locked.id], opts)).toEqual([
+			{ kind: "raster", elementIds: [underLock.id, locked.id] },
+		]);
+	});
+
+	it("should swallow items stacked over swallowed content even outside the backdrop", () => {
+		// `above` misses the locked element but covers `under`; kept below the
+		// run, the chunk holding `under` would paint over it.
+		const under = rectPath("el-under", { x: 0, y: 0 }, 100, 100, [solidFill()]);
+		const above = rectPath("el-above", { x: 80, y: 0 }, 100, 100, [
+			solidFill(),
+		]);
+		const far = rectPath("el-far", { x: 500, y: 500 }, 20, 20, [solidFill()]);
+		const locked: Path = {
+			...rectPath("el-locked", { x: -30, y: 0 }, 40, 40, [solidFill()]),
+			compositionMode: "alpha-lock",
+		};
+		const opts = makeOptions([under, above, far, locked]);
+
+		expect(
+			planLayerItems([under.id, above.id, far.id, locked.id], opts),
+		).toEqual([
+			{ kind: "vector", elementId: far.id, class: "pure" },
+			{ kind: "raster", elementIds: [under.id, above.id, locked.id] },
 		]);
 	});
 

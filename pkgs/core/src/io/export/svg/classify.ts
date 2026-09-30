@@ -293,8 +293,9 @@ function classifyElementInner(
  * so its blend applies against real siblings instead of a transparent chunk.
  * A backdrop-dependent element (alpha-lock / applyToBackdrop) swallows the
  * items below it in the same list that its bounds overlap — only those can
- * feed its backdrop. Cross-layer backdrop references and relative stacking
- * among mutually-overlapping swallowed/kept items are known limitations.
+ * feed its backdrop — plus every item that overlaps a swallowed item beneath
+ * it, so the run never covers what was stacked above its content.
+ * Cross-layer backdrop references are a known limitation.
  */
 export function planLayerItems(
 	elementIds: readonly string[],
@@ -325,23 +326,37 @@ export function planLayerItems(
 				const backdropBounds = calculateElementBounds(element, elementsMap);
 				const swallowed: string[] = [];
 				const kept: LayerPlanItem[] = [];
+				// Kept items end up below the run, so an item that overlaps
+				// something swallowed beneath it must join the run too, or the
+				// chunk would cover it.
+				const swallowedBounds = [backdropBounds];
 				for (const item of items) {
 					const ids =
 						item.kind === "vector" ? [item.elementId] : item.elementIds;
-					const overlaps = ids.some((id) => {
+					const itemBounds = ids.flatMap((id) => {
 						const el = opts.document.objects[id];
-						if (!el) return false;
-						const bounds = calculateElementBounds(el, elementsMap ?? undefined);
-						return boundsIntersect(bounds, backdropBounds);
+						return el
+							? [calculateElementBounds(el, elementsMap ?? undefined)]
+							: [];
 					});
-					if (overlaps) swallowed.push(...ids);
-					else kept.push(item);
+					const overlaps = itemBounds.some((bounds) =>
+						swallowedBounds.some((s) => boundsIntersect(bounds, s)),
+					);
+					if (overlaps) {
+						swallowed.push(...ids);
+						swallowedBounds.push(...itemBounds);
+					} else {
+						kept.push(item);
+					}
 				}
 				items = kept;
+				// The chunk already composites the element's blend over what it
+				// swallowed; blending the chunk again would re-blend that backdrop
+				// against the items below it.
 				openRun = {
 					kind: "raster",
 					elementIds: [...swallowed, elementId],
-					...(element.blendMode !== "normal"
+					...(swallowed.length === 0 && element.blendMode !== "normal"
 						? { blendMode: element.blendMode }
 						: {}),
 				};

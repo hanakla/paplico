@@ -49,6 +49,8 @@
 
 ### Fixed
 
+- `SVGExporter` no longer turns content under a blended alpha-locked or backdrop-reading element see-through. The raster chunk that holds such an element and the content below it already composites the blend, and it used to carry the element's blend mode as well, so that content was blended a second time against the layers beneath.
+- `SVGExporter` keeps content stacked over what an alpha-locked or backdrop-reading element swallows into its raster chunk. Such content used to stay vector and drop below the chunk, which then covered it; it now joins the chunk whenever it overlaps something swallowed beneath it.
 - A locked element follows a change made to its container. Moving or aligning a blend used to leave a locked source behind, resizing a group, a compound path or a blend used to leave a locked child at its old size, and the free transform tool's warp used to leave a locked child of a group unwarped. A lock now stops only changes aimed at the element itself: it is checked once, on the operation's target, and not again on the content the operation reaches through it.
 - The mesh deform tool works on a group that holds a locked child. It used to ignore every press.
 - A text bound to a locked path can be moved. The path moves with it; the move used to do nothing.
