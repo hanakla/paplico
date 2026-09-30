@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-01
+
 ### Added
 
 - `PaplicoCommands.flipElements(ids, flip)` mirrors a selection in the axes of its selection frame, so a lone rotated element turns over across its own axis. The ActionsPanel's flip buttons use it.
