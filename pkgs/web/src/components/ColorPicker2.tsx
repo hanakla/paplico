@@ -16,6 +16,7 @@ import {
 	useState,
 } from "react";
 import { tv } from "tailwind-variants";
+import { Input } from "@/components/Input";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
@@ -103,13 +104,6 @@ const channelInputStyles = tv({
 			"hover:bg-accent",
 		],
 	},
-});
-
-const hexInputStyles = tv({
-	base: [
-		"w-[4.5rem] rounded border border-border bg-background",
-		"px-1.5 py-0.5 text-xs font-mono text-foreground",
-	],
 });
 
 // ─── HSVA type ──────────────────────────────────────────────────────────────
@@ -796,6 +790,12 @@ const HexInput = memo(function HexInput() {
 		},
 	);
 
+	const handleFocus = useEventCallback(
+		(e: React.FocusEvent<HTMLInputElement>) => {
+			e.currentTarget.select();
+		},
+	);
+
 	const handleBlur = useEventCallback(() => {
 		setText(hex);
 	});
@@ -808,12 +808,13 @@ const HexInput = memo(function HexInput() {
 
 	return (
 		<div className="flex items-center gap-1">
-			<input
-				type="text"
+			<Input
+				$size="xs"
 				value={text}
 				onChange={handleChange}
+				onFocus={handleFocus}
 				onBlur={handleBlur}
-				className={hexInputStyles()}
+				className="w-[4.5rem] font-mono"
 				spellCheck={false}
 			/>
 			<button
