@@ -700,10 +700,10 @@ describe("filterLayerList", () => {
 	it("keeps a locked top-level element without its siblings", () => {
 		const document = createFilterDocument({ "rect-b": { locked: true } });
 
-		const { shownIds, openLayerIds } = filterLayerList(document, LOCKED, true);
+		const { shownIds, openRootIds } = filterLayerList(document, LOCKED, true);
 
 		expect([...shownIds]).toEqual(["rect-b", "layer-1"]);
-		expect([...openLayerIds]).toEqual(["layer-1"]);
+		expect([...openRootIds]).toEqual(["layer-1"]);
 	});
 
 	it("keeps the top-level container of a nested match and opens every container on the way", () => {
@@ -749,10 +749,10 @@ describe("filterLayerList", () => {
 	it("keeps a locked layer without listing its unmatched elements", () => {
 		const document = createFilterDocument({ "layer-2": { locked: true } });
 
-		const { shownIds, openLayerIds } = filterLayerList(document, LOCKED, true);
+		const { shownIds, openRootIds } = filterLayerList(document, LOCKED, true);
 
 		expect([...shownIds]).toEqual(["layer-2"]);
-		expect(openLayerIds.size).toBe(0);
+		expect(openRootIds.size).toBe(0);
 	});
 
 	it("leaves a matched container closed when nothing inside it matches", () => {
@@ -766,6 +766,22 @@ describe("filterLayerList", () => {
 
 		expect([...shownIds]).toEqual(["group-g", "layer-1"]);
 		expect(openElementIds.size).toBe(0);
+	});
+
+	it("narrows an editing scope's direct children like a layer's", () => {
+		const { objects } = createFilterDocument({ "path-p3": { locked: true } });
+
+		const { shownIds, openElementIds } = filterLayerList(
+			{
+				roots: [{ id: "group-g", elementIds: ["path-p1", "group-h"] }],
+				objects,
+			},
+			LOCKED,
+			true,
+		);
+
+		expect([...shownIds]).toEqual(["group-h", "group-g"]);
+		expect([...openElementIds]).toEqual(["group-h"]);
 	});
 
 	it("matches layers by their own flags only when element rows are not drawn", () => {
@@ -811,5 +827,5 @@ function createFilterDocument(
 		...flags[layer.id],
 	}));
 
-	return { layers, objects };
+	return { roots: layers, objects };
 }

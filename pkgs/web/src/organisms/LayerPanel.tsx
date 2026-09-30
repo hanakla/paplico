@@ -199,12 +199,21 @@ export function LayerPanel() {
 		});
 	});
 
+	const editingScopeStack = snap.editingScopeStack;
+	const editingScopeId =
+		editingScopeStack.length > 0
+			? (editingScopeStack[editingScopeStack.length - 1] as string)
+			: null;
+	const scopeElement = editingScopeId
+		? (snap.document.objects[editingScopeId] as AnyArtObject | undefined)
+		: null;
+
 	// While a mask is being edited the panel narrows to that mask's working
 	// layer: everything else is dimmed out on the canvas and out of the tools'
 	// reach, so listing it would only offer rows that do nothing.
 	const maskEditOwnerId = snap.maskEditSession?.ownerId ?? null;
 	const isMaskSession = maskEditOwnerId != null;
-	const showsElementRows = !isSimpleMode || isMaskSession;
+	const showsElementRows = !isSimpleMode || isMaskSession || !!scopeElement;
 
 	const [filter, setFilter] = useState<LayerPanelFilter>(EMPTY_LAYER_FILTER);
 	const isFiltering = filter.locked || filter.hidden;
@@ -212,13 +221,24 @@ export function LayerPanel() {
 		() =>
 			isFiltering
 				? filterLayerList(
-						{ layers: snap.document.layers, objects: snappedObjects },
+						{
+							roots: scopeElement
+								? [
+										{
+											id: scopeElement.id,
+											elementIds: getListedChildIds(scopeElement),
+										},
+									]
+								: snap.document.layers,
+							objects: snappedObjects,
+						},
 						filter,
 						showsElementRows,
 					)
 				: null,
 		[
 			isFiltering,
+			scopeElement,
 			snap.document.layers,
 			snappedObjects,
 			filter,
@@ -228,20 +248,33 @@ export function LayerPanel() {
 
 	const openPathsToMatches = useEventCallback(() => {
 		if (!filtered) return;
-		setExpandedLayerIds((prev) => prev.union(filtered.openLayerIds));
+		// The editing scope's own row is the root there, and entering the scope
+		// opens it already.
+		if (!scopeElement) {
+			setExpandedLayerIds((prev) => prev.union(filtered.openRootIds));
+		}
 		setExpandedGroups((prev) => prev.union(filtered.openElementIds));
 	});
 
-	// Opens the way down to every match when the conditions or the drawn rows
-	// change, but not on document edits, so the rows stay foldable afterwards.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: filter and showsElementRows are the triggers; openPathsToMatches is stable (useEventCallback)
+	// Opens the way down to every match when the conditions, the drawn rows or
+	// the editing scope change, but not on document edits, so the rows stay
+	// foldable afterwards.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: filter, showsElementRows and editingScopeId are the triggers; openPathsToMatches is stable (useEventCallback)
 	useEffect(() => {
 		openPathsToMatches();
-	}, [filter, showsElementRows]);
+	}, [filter, showsElementRows, editingScopeId]);
 
 	const handleClearFilter = useEventCallback(() => {
 		setFilter(EMPTY_LAYER_FILTER);
 	});
+
+	const clearFilterButton = isFiltering && (
+		<Tooltip content={t("layerPanel.clearFilter")}>
+			<IconButton $size="xs" $variant="ghost" onClick={handleClearFilter}>
+				<FunnelX size={14} />
+			</IconButton>
+		</Tooltip>
+	);
 
 	const displayedLayers = useMemo(
 		() =>
@@ -260,15 +293,6 @@ export function LayerPanel() {
 		() => displayedLayers.map((layer) => `layer-sort-${layer.id}`),
 		[displayedLayers],
 	);
-
-	const editingScopeStack = snap.editingScopeStack;
-	const editingScopeId =
-		editingScopeStack.length > 0
-			? (editingScopeStack[editingScopeStack.length - 1] as string)
-			: null;
-	const scopeElement = editingScopeId
-		? (snap.document.objects[editingScopeId] as AnyArtObject | undefined)
-		: null;
 
 	const handleExitEditingScope = useEventCallback(() => {
 		paplico.selection.exitEditingScopeOneLevel();
@@ -296,10 +320,16 @@ export function LayerPanel() {
 			<div className="w-52 bg-background/80 backdrop-liquid rounded-lg shadow-lg flex flex-col overflow-hidden">
 				<div className="px-3 py-1 border-b border-border flex items-center justify-between shrink-0">
 					{scopeElement ? (
-						<EditingScopeHeader
-							scopeElement={scopeElement}
-							onExit={handleExitEditingScope}
-						/>
+						<>
+							<EditingScopeHeader
+								scopeElement={scopeElement}
+								onExit={handleExitEditingScope}
+							/>
+							<div className="flex items-center gap-0.5">
+								{clearFilterButton}
+								<LayerFilterMenu filter={filter} onChange={setFilter} />
+							</div>
+						</>
 					) : (
 						<>
 							<div className="flex items-center gap-0.5">
@@ -323,17 +353,7 @@ export function LayerPanel() {
 										{isSimpleMode ? <List size={14} /> : <ListTree size={14} />}
 									</IconButton>
 								</Tooltip>
-								{isFiltering && (
-									<Tooltip content={t("layerPanel.clearFilter")}>
-										<IconButton
-											$size="xs"
-											$variant="ghost"
-											onClick={handleClearFilter}
-										>
-											<FunnelX size={14} />
-										</IconButton>
-									</Tooltip>
-								)}
+								{clearFilterButton}
 							</div>
 							<div className="flex items-center gap-0.5">
 								{!isReadonly && (
@@ -377,6 +397,7 @@ export function LayerPanel() {
 							dropIndicator={dropIndicator}
 							onRenameElement={handleRenameElement}
 							disableDrag
+							shownChildIds={filtered?.shownIds}
 						/>
 					) : (
 						<SortableContext
@@ -532,6 +553,8 @@ interface SortableElementItemProps {
 	) => void;
 	/** Disables drag-and-drop reordering (used for the editing group's own container row) */
 	disableDrag?: boolean;
+	/** Lists only these children when given (used by the panel filter on the editing group's own container row) */
+	shownChildIds?: ReadonlySet<string>;
 }
 
 type DropIndicator = {
@@ -853,17 +876,19 @@ const EMPTY_LAYER_FILTER: LayerPanelFilter = { locked: false, hidden: false };
 
 /**
  * Narrows the layer list to the rows that lead to a locked / hidden entry.
- * Only layers and their top-level elements are dropped: a container that
- * leads to a match keeps all its children, so every level on the way down
- * shows its siblings. `includeElements: false` matches layers by their own
- * flags only, for the mode that draws no element rows.
+ * The roots are the rows whose children get narrowed: the layers, or the
+ * element of the editing scope. Only the roots and their direct children are
+ * dropped: a container that leads to a match keeps all its children, so
+ * every level on the way down shows its siblings. `includeElements: false`
+ * matches the roots by their own flags only, for the mode that draws no
+ * element rows.
  */
 export function filterLayerList(
-	document: {
-		layers: readonly {
+	list: {
+		roots: readonly {
 			readonly id: string;
-			readonly locked: boolean;
-			readonly visible: boolean;
+			readonly locked?: boolean;
+			readonly visible?: boolean;
 			readonly elementIds: readonly string[];
 		}[];
 		objects: Readonly<Record<string, AnyArtObject>>;
@@ -871,15 +896,15 @@ export function filterLayerList(
 	filter: LayerPanelFilter,
 	includeElements: boolean,
 ): {
-	/** Layers and top-level elements to keep listed */
+	/** Roots and their direct children to keep listed */
 	shownIds: Set<string>;
-	/** Layers holding a match, to be expanded so the match is visible */
-	openLayerIds: Set<string>;
+	/** Roots holding a match, to be expanded so the match is visible */
+	openRootIds: Set<string>;
 	/** Containers holding a match, to be expanded so the match is visible */
 	openElementIds: Set<string>;
 } {
 	const shownIds = new Set<string>();
-	const openLayerIds = new Set<string>();
+	const openRootIds = new Set<string>();
 	const openElementIds = new Set<string>();
 
 	const matches = (entry: { locked?: boolean; visible?: boolean }) =>
@@ -889,27 +914,26 @@ export function filterLayerList(
 	// Visits every child (no short-circuit) so each container on a path to a
 	// match gets opened, not only the first one found.
 	const leadsToMatch = (id: string): boolean => {
-		const element = document.objects[id];
+		const element = list.objects[id];
 		if (!element) return false;
 
-		const childIds = isExpandableRow(element)
-			? (getContainerChildIds(element) ?? [])
-			: [];
-		const holdsMatch = childIds.map(leadsToMatch).includes(true);
+		const holdsMatch = getListedChildIds(element)
+			.map(leadsToMatch)
+			.includes(true);
 		if (holdsMatch) openElementIds.add(id);
 		return holdsMatch || matches(element);
 	};
 
-	for (const layer of document.layers) {
+	for (const root of list.roots) {
 		const shownElementIds = includeElements
-			? layer.elementIds.filter(leadsToMatch)
+			? root.elementIds.filter(leadsToMatch)
 			: [];
 		for (const id of shownElementIds) shownIds.add(id);
-		if (shownElementIds.length > 0) openLayerIds.add(layer.id);
-		if (shownElementIds.length > 0 || matches(layer)) shownIds.add(layer.id);
+		if (shownElementIds.length > 0) openRootIds.add(root.id);
+		if (shownElementIds.length > 0 || matches(root)) shownIds.add(root.id);
 	}
 
-	return { shownIds, openLayerIds, openElementIds };
+	return { shownIds, openRootIds, openElementIds };
 }
 
 type ConfirmDeleteButtonProps = {
@@ -1022,6 +1046,7 @@ const SortableElementItem = memo(function SortableElementItem({
 	dropIndicator,
 	onRenameElement,
 	disableDrag,
+	shownChildIds,
 }: SortableElementItemProps) {
 	const paplico = usePaplico();
 	const { commands } = paplico;
@@ -1107,6 +1132,9 @@ const SortableElementItem = memo(function SortableElementItem({
 							.filter((el): el is AnyArtObject => el != null)
 					: []
 		: [];
+	const shownChildElements = shownChildIds
+		? childElements.filter((el) => shownChildIds.has(el.id))
+		: childElements;
 
 	const showIndicatorBefore =
 		dropIndicator?.overId === element.id && dropIndicator.position === "before";
@@ -1230,11 +1258,11 @@ const SortableElementItem = memo(function SortableElementItem({
 			{/* Render children if expanded */}
 			{isExpandable && isExpanded && (
 				<SortableContext
-					items={childElements.map((el) => el.id)}
+					items={shownChildElements.map((el) => el.id)}
 					strategy={verticalListSortingStrategy}
 				>
 					<div className="space-y-0.5">
-						{childElements.map((child, childIndex) => (
+						{shownChildElements.map((child, childIndex) => (
 							<SortableElementItem
 								key={child.id}
 								element={child}
@@ -1879,6 +1907,11 @@ function isExpandableRow(element: AnyArtObject): boolean {
 		isBlend(element) ||
 		isMesh(element)
 	);
+}
+
+/** Child ids the panel lists under the element's row, empty for a row that does not expand. */
+function getListedChildIds(element: AnyArtObject): readonly string[] {
+	return isExpandableRow(element) ? (getContainerChildIds(element) ?? []) : [];
 }
 
 export function getElementTypeLabel(
