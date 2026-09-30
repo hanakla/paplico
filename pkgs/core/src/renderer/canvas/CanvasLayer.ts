@@ -1658,19 +1658,10 @@ export class CanvasLayer {
 				},
 			],
 		});
-		const halfW = worldWidth / 2;
-		const halfH = worldHeight / 2;
 		this.composite.blitTextureToCanvas(
 			blitPass,
 			source,
-			{
-				minX: centerX - halfW,
-				minY: centerY - halfH,
-				maxX: centerX + halfW,
-				maxY: centerY + halfH,
-				width: worldWidth,
-				height: worldHeight,
-			},
+			centeredBounds(centerX, centerY, worldWidth, worldHeight),
 			1.0,
 			FULL_BLIT_UV_RECT,
 			this.blitPipelineRgba8,
@@ -1700,24 +1691,63 @@ export class CanvasLayer {
 				},
 			],
 		});
-		const halfW = worldWidth / 2;
-		const halfH = worldHeight / 2;
 		this.composite.blitTextureToCanvas(
 			blitPass,
 			source,
-			{
-				minX: centerX - halfW,
-				minY: centerY - halfH,
-				maxX: centerX + halfW,
-				maxY: centerY + halfH,
-				width: worldWidth,
-				height: worldHeight,
-			},
+			centeredBounds(centerX, centerY, worldWidth, worldHeight),
 			1.0,
 			FULL_BLIT_UV_RECT,
 			this.blitPipelineRgba32Float,
 		);
 		blitPass.end();
+	}
+
+	/**
+	 * Show a canvasFormat texture on the canvas, scaled to fit inside it and
+	 * surrounded by `surroundColor`. The caller must have set viewport uniforms
+	 * to match the export area.
+	 */
+	public presentExportFrame(
+		encoder: GPUCommandEncoder,
+		source: GPUTexture,
+		canvasTexture: GPUTexture,
+		surroundColor: RawRGBA,
+		centerX: number,
+		centerY: number,
+		worldWidth: number,
+		worldHeight: number,
+	): void {
+		const presentPass = encoder.beginRenderPass({
+			label: "Export Frame Presentation",
+			colorAttachments: [
+				{
+					view: canvasTexture.createView(),
+					clearValue: surroundColor,
+					loadOp: "clear",
+					storeOp: "store",
+				},
+			],
+		});
+		const fit = Math.min(
+			canvasTexture.width / source.width,
+			canvasTexture.height / source.height,
+		);
+		const width = source.width * fit;
+		const height = source.height * fit;
+		presentPass.setViewport(
+			(canvasTexture.width - width) / 2,
+			(canvasTexture.height - height) / 2,
+			width,
+			height,
+			0,
+			1,
+		);
+		this.composite.blitTextureToCanvas(
+			presentPass,
+			source,
+			centeredBounds(centerX, centerY, worldWidth, worldHeight),
+		);
+		presentPass.end();
 	}
 
 	/**
@@ -8287,6 +8317,25 @@ function collectMaskContentIds(
 	}
 
 	return collected;
+}
+
+/** Box of the given size around a center point. */
+function centeredBounds(
+	centerX: number,
+	centerY: number,
+	width: number,
+	height: number,
+): BoundingBox {
+	const halfW = width / 2;
+	const halfH = height / 2;
+	return {
+		minX: centerX - halfW,
+		minY: centerY - halfH,
+		maxX: centerX + halfW,
+		maxY: centerY + halfH,
+		width,
+		height,
+	};
 }
 
 /** Smallest box containing both. */

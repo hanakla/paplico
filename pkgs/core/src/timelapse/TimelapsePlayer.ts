@@ -14,7 +14,13 @@ import {
 	type ChangedElementsAccumulator,
 	emptyChanges,
 } from "../renderer/changedElements";
-import type { Artboard, CubicBezierSegment, Document, Path } from "../schema";
+import type {
+	AnyArtObject,
+	Artboard,
+	CubicBezierSegment,
+	Document,
+	Path,
+} from "../schema";
 import { selectEntriesForArtboard } from "./artboardFilter";
 import { TimelapseIndexBuilder } from "./timelapseIndex";
 import type {
@@ -218,22 +224,28 @@ export class TimelapsePlayer {
 	 * otherwise skip straight past.
 	 */
 	public advanceBy(elapsedMs: number): TimelapseFrame | null {
-		const scaled = elapsedMs * this.speed;
-
-		if (this.activePathAnim) {
-			this.activePathAnim.elapsed += scaled;
-			if (this.activePathAnim.elapsed >= this.activePathAnim.duration) {
-				this.clearPathAnimation();
-			}
-			return this.consumeFrame();
+		switch (this.stepClock(elapsedMs)) {
+			case "drawOn":
+				return this.consumeFrame();
+			case "entry":
+				return this.consumeFrame(true);
+			default:
+				return null;
 		}
+	}
 
-		if (this.hasFinished) return null;
+	/**
+	 * Move the playback clock forward exactly as advanceBy does, without
+	 * building the frame. For walking a recording when only its length on the
+	 * clock matters. The next frame handed out is rebuilt in full.
+	 */
+	public skipBy(elapsedMs: number): void {
+		if (this.stepClock(elapsedMs) !== "entry") return;
 
-		this.playbackTime += scaled;
-		if (this.playbackTime < EVENT_INTERVAL_MS) return null;
-		this.playbackTime -= EVENT_INTERVAL_MS;
-		return this.advanceToNextVisibleEntry();
+		const addedIds = [...this.touched.added];
+		this.touched = createTouchedState();
+		this.currentDoc = null;
+		this.startPathAnimationIfNewPath(addedIds, (id) => this.readObject(id));
 	}
 
 	/** True once every visible entry has played and no draw-on is running. */
@@ -341,7 +353,28 @@ export class TimelapsePlayer {
 		}
 	};
 
-	private advanceToNextVisibleEntry(): TimelapseFrame | null {
+	/**
+	 * Move the playback clock forward and report what the step reached: a
+	 * draw-on still running or just ended, a newly applied entry that changed
+	 * the drawing, or nothing new to show.
+	 */
+	private stepClock(elapsedMs: number): "drawOn" | "entry" | null {
+		const scaled = elapsedMs * this.speed;
+
+		if (this.activePathAnim) {
+			this.activePathAnim.elapsed += scaled;
+			if (this.activePathAnim.elapsed >= this.activePathAnim.duration) {
+				this.clearPathAnimation();
+			}
+			return "drawOn";
+		}
+
+		if (this.hasFinished) return null;
+
+		this.playbackTime += scaled;
+		if (this.playbackTime < EVENT_INTERVAL_MS) return null;
+		this.playbackTime -= EVENT_INTERVAL_MS;
+
 		const nextCursor = this.visibleCursor + 1;
 		this.applyEntriesUpTo(this.visible[nextCursor]);
 		this.visibleCursor = nextCursor;
@@ -352,7 +385,7 @@ export class TimelapsePlayer {
 			return null;
 		}
 
-		return this.consumeFrame(true);
+		return "entry";
 	}
 
 	private seekInternal(visibleIndex: number): void {
@@ -447,15 +480,15 @@ export class TimelapsePlayer {
 	}
 
 	/**
-	 * Start the draw-on of the first path among `addedIds`, taken from
-	 * `document`, the frame it was migrated in with its parents.
+	 * Start the draw-on of the first path among `addedIds`. A frame resolves
+	 * them from its document, where each was migrated with its parents.
 	 */
 	private startPathAnimationIfNewPath(
 		addedIds: readonly string[],
-		document: Document,
+		resolveElement: (id: string) => AnyArtObject | null | undefined,
 	): void {
 		for (const addedId of addedIds) {
-			const element = document.objects[addedId];
+			const element = resolveElement(addedId);
 			if (element?.type !== "path" || element.segments.length === 0) continue;
 
 			this.activePathAnim = {
@@ -491,7 +524,10 @@ export class TimelapsePlayer {
 		const addedIds = animateNewPath ? [...this.touched.added] : [];
 		const frame = this.syncDocument();
 		if (addedIds.length > 0) {
-			this.startPathAnimationIfNewPath(addedIds, frame.document);
+			this.startPathAnimationIfNewPath(
+				addedIds,
+				(id) => frame.document.objects[id],
+			);
 		}
 		const animation = this.activePathAnim;
 		// The draw-on hands out a fresh shortened copy of its path every frame,

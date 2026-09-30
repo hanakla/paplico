@@ -1293,6 +1293,7 @@ export const ja = {
 		noTimelapseData: "タイムラプスデータがありません",
 		artboardRequired: "動画の保存にはアートボードが必要です",
 		artboardRequiredTooltip: "アートボードが必要です",
+		cancel: "キャンセル",
 		saveVideo: "動画を保存",
 		selectArtboard: "アートボードを選択",
 		artboard: "アートボード",

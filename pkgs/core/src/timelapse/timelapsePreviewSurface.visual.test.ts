@@ -57,6 +57,84 @@ describe("TimelapsePreviewSurface", () => {
 		expectSameImage(replayedPixels, livePixels);
 	});
 
+	describe("when a frame is rendered for export", () => {
+		it("should show the exported picture on the preview canvas", async () => {
+			const session = startSession();
+			session.addArtboard(createArtboard("ab", "Main", 0, 0, 800, 600));
+			session.draw(strokePath("stroke-1", -150, 0, 150, 0));
+			const document = session.document();
+
+			const { renderer } = await createTestRenderer();
+			const device = renderer.getDevice();
+			if (!device) throw new Error("Test renderer has no GPU device");
+
+			const preview = await openPreview(renderer, device);
+			try {
+				// Half scale makes the exported frame exactly as large as the
+				// canvas, so the two compare pixel for pixel.
+				const exported = await preview.surface.renderToImageData(
+					{ document, changedElements: undefined },
+					document.artboards[0],
+					0.5,
+				);
+				if (!exported) throw new Error("Render failed");
+
+				const shown = await preview.pixels();
+				expect(countInk(shown)).toBeGreaterThan(0);
+				expectSameImage(shown, new Uint8Array(exported.data.buffer));
+			} finally {
+				preview.dispose();
+			}
+		});
+
+		it("should fit a frame of another shape inside the canvas on white", async () => {
+			const session = startSession();
+			session.addArtboard(createArtboard("ab", "Main", 0, 0, 600, 600));
+			session.draw(strokePath("stroke-1", -150, 0, 150, 0));
+			const document = session.document();
+
+			const { renderer } = await createTestRenderer();
+			const device = renderer.getDevice();
+			if (!device) throw new Error("Test renderer has no GPU device");
+
+			const preview = await openPreview(renderer, device);
+			try {
+				// A 300x300 frame on the 400x300 canvas: shown at its own size in
+				// the middle, with a 50px bar on either side.
+				const exported = await preview.surface.renderToImageData(
+					{ document, changedElements: undefined },
+					document.artboards[0],
+					0.5,
+				);
+				if (!exported) throw new Error("Render failed");
+
+				const shown = await preview.pixels();
+				const barWidth = (PREVIEW_WIDTH - exported.width) / 2;
+				const framed = new Uint8Array(exported.data.length);
+				const bars: number[] = [];
+				for (let y = 0; y < PREVIEW_HEIGHT; y++) {
+					const row = y * PREVIEW_WIDTH * 4;
+					const frameStart = row + barWidth * 4;
+					const frameEnd = frameStart + exported.width * 4;
+					framed.set(
+						shown.subarray(frameStart, frameEnd),
+						y * exported.width * 4,
+					);
+					bars.push(
+						...shown.subarray(row, frameStart),
+						...shown.subarray(frameEnd, row + PREVIEW_WIDTH * 4),
+					);
+				}
+
+				expect(countInk(framed)).toBeGreaterThan(0);
+				expectSameImage(framed, new Uint8Array(exported.data.buffer));
+				expect(bars.every((channel) => channel === 255)).toBe(true);
+			} finally {
+				preview.dispose();
+			}
+		});
+	});
+
 	// A surface fed each frame's change set keeps the filter bakes of elements
 	// that did not change. Its twin re-runs every filter on every frame, which
 	// is the picture the reuse must match.

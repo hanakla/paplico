@@ -244,6 +244,63 @@ describe("TimelapsePlayer", () => {
 		});
 	});
 
+	describe("when skipping through the recording without frames", () => {
+		function recordTwoPaths(): TimelapseData {
+			return buildRecording([
+				(doc) => {
+					setLayer(doc, "layer-1", []);
+					setArtboard(doc, artboard);
+				},
+				(doc) => addElement(doc, "layer-1", squarePath("a", 0, 0)),
+				(doc) => addElement(doc, "layer-1", squarePath("b", 100, 100)),
+			]).data;
+		}
+
+		it("should take as many steps to finish as playing every frame", () => {
+			const data = recordTwoPaths();
+
+			const played = stepsToEnd(data, artboard, (player) =>
+				player.advanceBy(1000 / 30),
+			);
+			const skipped = stepsToEnd(data, artboard, (player) =>
+				player.skipBy(1000 / 30),
+			);
+
+			// More steps than entries: each path's draw-on takes steps of its own.
+			expect(played).toBeGreaterThan(data.entries.length);
+			expect(skipped).toBe(played);
+		});
+
+		it("should take as many steps on a recording made by an older build", () => {
+			const data = {
+				...recordTwoPaths(),
+				schemaVersions: [{ at: 0, version: migTransformOrigin.version - 1 }],
+			};
+
+			const played = stepsToEnd(data, artboard, (player) =>
+				player.advanceBy(1000 / 30),
+			);
+			const skipped = stepsToEnd(data, artboard, (player) =>
+				player.skipBy(1000 / 30),
+			);
+
+			expect(skipped).toBe(played);
+		});
+
+		it("should show everything skipped over on the next frame", () => {
+			const { player, onFrame } = createPlayer(recordTwoPaths(), artboard);
+			player.restart();
+			while (!player.hasFinished) player.skipBy(1000 / 30);
+
+			player.seekTo(player.totalEvents - 1);
+
+			expect(Object.keys(lastFrame(onFrame).objects).sort()).toEqual([
+				"a",
+				"b",
+			]);
+		});
+	});
+
 	describe("when the recording was made by an older build", () => {
 		const eraserCut = [{ t: 0.5, side1: 0, side2: 1 }];
 		const recordedBeforeSplit = migSplitStrokeErasure.version - 1;
@@ -412,6 +469,22 @@ function playToEnd(player: TimelapsePlayer): TimelapseFrame[] {
 		if (frame) frames.push(frame);
 	}
 	return frames;
+}
+
+/** How many times `step` runs before a restarted player reaches the end. */
+function stepsToEnd(
+	data: TimelapseData,
+	filterArtboard: Artboard,
+	step: (player: TimelapsePlayer) => void,
+): number {
+	const { player } = createPlayer(data, filterArtboard);
+	player.restart();
+	let steps = 0;
+	while (!player.hasFinished) {
+		step(player);
+		steps++;
+	}
+	return steps;
 }
 
 /** Run each mutation in its own transaction and capture the resulting update. */

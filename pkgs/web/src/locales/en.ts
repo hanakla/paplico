@@ -1292,6 +1292,7 @@ export const en = {
 		noTimelapseData: "No timelapse data",
 		artboardRequired: "Artboard required to save a video",
 		artboardRequiredTooltip: "Artboard required",
+		cancel: "Cancel",
 		saveVideo: "Save Video",
 		selectArtboard: "Select artboard",
 		artboard: "Artboard",

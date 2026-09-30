@@ -13,6 +13,8 @@
 - `PaplicoCommands.setElementVisibility(layerId, elementId, visible)` shows or hides an element by an absolute value. A lock does not hold it back.
 - `PaplicoCommands.moveElements(elements, deltaX, deltaY)` moves elements by a world delta in one undo step. A locked element is skipped, while what a moved element carries along follows it. The select tool's drag and nudge go through it.
 - `PaplicoCommands.writeElement(layerId, elementId, updates)` writes to an element without asking its lock, for an operation whose target was already checked. The tools' deformation commit goes through it.
+- `TimelapsePlayer.skipBy(elapsedMs)` moves the playback clock forward the way `advanceBy` does without building the frame, for measuring how long a recording runs.
+- `signal` option of `TimelapseExporter.exportMP4`. Aborting it calls the export off: the encoder and the unfinished file are released and the returned promise rejects with the signal's reason.
 
 ### Changed
 
@@ -23,6 +25,7 @@
 - `ElementTransform` is an affine matrix on the element's local origin: a local point lands at `L·p + (x, y)`. Every element used to turn and scale around a pivot of its own, the centre of its bounds for most kinds, and a group's children each around their own pivot. Containers now place their content by plain composition, mask content included, so editing an element's geometry no longer moves the point it turns around, and a group's rotation stays on the group. Rotation, resize and skew from the canvas fold their pivot into the translation. Migration `20260929` rewrites every stored transform so documents are drawn where they were; a rotated or scaled text is placed by its measured layout, which the migration context supplies.
 - Timelapse playback and MP4 export reuse the filter results of elements that did not change since the previous frame. A recording with many filtered elements no longer slows down toward its end.
 - `TimelapsePlayer` hands out `TimelapseFrame`, the replayed document together with the elements that changed since the frame before it. `onFrame`, `advanceBy` and `restart` pass it instead of a bare `Document`. `TimelapsePreviewSurface.render` and `renderToImageData` take it in place of the document.
+- `TimelapsePreviewSurface.renderToImageData` also shows the frame on the preview canvas, fitted inside it, so an MP4 export shows the frame it is encoding. The canvas used to stay on the last playback frame for the whole export.
 - `paplico.tool.shapeRect` no longer has a default key. M is bound to `paplico.tool.shapeCycle` instead.
 - An eyedropper click picks on release instead of on press, so it can be told apart from a long press.
 - A blur whose radius reaches 8 texels at the document's rasterization DPI is computed through the same blur pyramid the drop shadow uses, so its cost no longer grows with the radius. A radius of 72 on a 300 DPI document used to read about 300 texels per pixel and pass.
@@ -38,6 +41,7 @@
 - `ungroupElements` and `extractChildFromGroup` keep the children where they were drawn. The group's transform, and for an extracted child every ancestor's, moves into each child. The children used to lose the rotation, skew or offset of the group they left.
 - Undoing the deletion of an element whose fields were changed in the same undo step now sends those fields to collaborators and the timelapse recording. They used to lose them, which left the restored element unreadable. yjs is upgraded to 13.6.33 for this.
 - Timelapse playback leaves out an element it cannot read instead of stopping with an error.
+- An MP4 export no longer rebuilds the document at every step while it measures the recording's length before the first frame. On a recording made before `20260929` each of those steps migrated the whole document, which kept the export from starting for a long time.
 - Alt+drag duplicates with the select tool and the path edit tool land right in front of the frontmost source instead of on top of the layer. `duplicateElementsByIds` stacks its copies the same way.
 - A drop shadow follows the alpha of its shadow color. The shadow's strength is the shadow opacity multiplied by that alpha. The alpha used to be ignored, so a half-transparent shadow color cast a full shadow.
 - An element whose filter is applied to the backdrop now shows the backdrop in the shape its geometry filters produce. Geometry filters on its enclosing groups apply too.

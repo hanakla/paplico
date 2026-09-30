@@ -172,6 +172,8 @@ interface ExportRenderOptions {
 	/** Changes since this target's previous export frame, so a sequence of
 	 *  frames reuses the bakes of elements that did not change. */
 	changedElements?: FrameRequest["changedElements"];
+	/** Also show the rendered frame on the target's canvas. */
+	presentToCanvas?: boolean;
 }
 
 interface TargetData {
@@ -844,6 +846,8 @@ export class RenderOrchestrator {
 		/** Render through this target instead of the active one, to keep a
 		 *  caller's cache scope off the editor's target. */
 		targetId?: string;
+		/** Also show the rendered frame on the target's canvas. */
+		presentToCanvas?: boolean;
 	}): Promise<{ texture: GPUTexture; width: number; height: number } | null> {
 		const targetId = opts.targetId ?? this.activeTarget?.id;
 		const td = targetId ? this.targets.get(targetId) : null;
@@ -981,6 +985,19 @@ export class RenderOrchestrator {
 					encoder,
 					texture,
 					outputTexture,
+					opts.centerX,
+					opts.centerY,
+					opts.worldWidth,
+					opts.worldHeight,
+				);
+			}
+
+			if (opts.presentToCanvas) {
+				td.canvasLayer.presentExportFrame(
+					encoder,
+					texture,
+					td.context.getCurrentTexture(),
+					opts.backgroundColor,
 					opts.centerX,
 					opts.centerY,
 					opts.worldWidth,

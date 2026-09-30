@@ -43,6 +43,8 @@ export class TimelapseExporter {
 		scale?: number;
 		maxDurationMs?: number;
 		onProgress?: (progress: number) => void;
+		/** Calls the export off. The returned promise rejects with its reason. */
+		signal?: AbortSignal;
 	}): Promise<Blob> {
 		const {
 			artboard,
@@ -51,6 +53,7 @@ export class TimelapseExporter {
 			scale = 1,
 			maxDurationMs,
 			onProgress,
+			signal,
 		} = options;
 
 		// Dynamic import: keep mediabunny out of the main bundle since it's only needed for export
@@ -96,6 +99,16 @@ export class TimelapseExporter {
 			framerate: fps,
 		});
 
+		// Ends an export that was called off, releasing the encoder and the
+		// unfinished file on the way out.
+		const throwIfAborted = () => {
+			if (!signal?.aborted) return;
+			encoder.close();
+			void output.cancel();
+			signal.throwIfAborted();
+		};
+		throwIfAborted();
+
 		const totalEvents = this.player.totalEvents;
 		let frameIndex = 0;
 
@@ -106,6 +119,7 @@ export class TimelapseExporter {
 		this.player.setSpeed(speed);
 
 		const encodeFrame = (pixels: Uint8ClampedArray, keyFrame: boolean) => {
+			throwIfAborted();
 			if (encoderError) throw encoderError;
 
 			const frame = new VideoFrame(pixels, {
@@ -122,7 +136,7 @@ export class TimelapseExporter {
 
 		const holdFrames = Math.ceil((INTRO_COMPLETE_MS / 1000) * fps);
 		const fadeFrames = Math.ceil((INTRO_FADEOUT_MS / 1000) * fps);
-		const tickCount = await this.countTicks(frameDurationMs);
+		const tickCount = await this.countTicks(frameDurationMs, throwIfAborted);
 		const encodedTickCount =
 			maxDurationMs == null
 				? tickCount
@@ -220,6 +234,7 @@ export class TimelapseExporter {
 			await this.yieldIfNeeded(encoder);
 		}
 
+		throwIfAborted();
 		await encoder.flush();
 		encoder.close();
 
@@ -231,14 +246,18 @@ export class TimelapseExporter {
 	}
 
 	/** Play the recording through without drawing to learn how many ticks it spans. */
-	private async countTicks(frameDurationMs: number): Promise<number> {
+	private async countTicks(
+		frameDurationMs: number,
+		throwIfAborted: () => void,
+	): Promise<number> {
 		this.player.restart();
 		let ticks = 0;
 		while (!this.player.hasFinished) {
-			this.player.advanceBy(frameDurationMs);
+			this.player.skipBy(frameDurationMs);
 			ticks++;
 			if (ticks % COUNT_TICKS_YIELD_INTERVAL === 0) {
 				await new Promise<void>((r) => setTimeout(r, 0));
+				throwIfAborted();
 			}
 		}
 		return ticks;

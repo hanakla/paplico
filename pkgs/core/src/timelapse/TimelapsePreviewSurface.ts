@@ -74,8 +74,9 @@ export class TimelapsePreviewSurface {
 	}
 
 	/**
-	 * Render one frame to pixels for video export. Uses the same target as
-	 * playback, so the editor's cache scopes stay untouched during an export.
+	 * Render one frame to pixels for video export and show it on the preview
+	 * canvas. Uses the same target as playback, so the editor's cache scopes
+	 * stay untouched during an export.
 	 */
 	public renderToImageData(
 		frame: TimelapseFrame,
@@ -87,7 +88,11 @@ export class TimelapsePreviewSurface {
 			frame.document,
 			scale,
 			{ r: 1, g: 1, b: 1, a: 1 },
-			{ targetId: this.target.id, changedElements: frame.changedElements },
+			{
+				targetId: this.target.id,
+				changedElements: frame.changedElements,
+				presentToCanvas: true,
+			},
 		);
 	}
 

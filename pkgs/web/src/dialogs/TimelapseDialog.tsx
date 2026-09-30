@@ -74,14 +74,23 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 
 	const [maxDuration, setMaxDuration] = useState<MaxDurationOption>("none");
 
-	const { exporting, exportProgress, handleExportMP4 } = useTimelapseExport(
-		paplico,
-		playerRef,
-		surfaceRef,
-		artboard,
-		state.speed,
-		maxDuration,
-	);
+	const { exporting, exportProgress, handleExportMP4, handleCancelExport } =
+		useTimelapseExport(
+			paplico,
+			playerRef,
+			surfaceRef,
+			artboard,
+			state.speed,
+			maxDuration,
+		);
+
+	const handleCancel = useEventCallback(() => {
+		if (exporting) {
+			handleCancelExport();
+			return;
+		}
+		onOpenChange(false);
+	});
 
 	const canvasAspect = artboard
 		? (() => {
@@ -256,12 +265,12 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 
 						{/* Export */}
 						{TimelapseExporter.isSupported() && (
-							<div className="flex items-center justify-between pt-2 border-t border-border/30">
+							<div className="flex items-center justify-between gap-4 pt-2 border-t border-border/30">
 								{exporting ? (
 									<div className="flex items-center gap-2 flex-1">
 										<div className="flex-1 h-1.5 bg-foreground/10 rounded-full overflow-hidden">
 											<div
-												className="h-full bg-primary rounded-full transition-[width] duration-200"
+												className="h-full bg-accent rounded-full transition-[width] duration-200"
 												style={{
 													width: `${exportProgress * 100}%`,
 												}}
@@ -276,24 +285,29 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 										{!artboard && t("timelapseDialog.artboardRequired")}
 									</span>
 								)}
-								<Tooltip
-									content={t("timelapseDialog.artboardRequiredTooltip")}
-									side="top"
-									disabled={!!artboard}
-								>
-									<div>
-										{" "}
-										<Button
-											$variant="default"
-											$size="sm"
-											onClick={artboard ? handleExportMP4 : undefined}
-											disabled={exporting || state.isPreparing || !artboard}
-										>
-											<Download size={14} />
-											{t("timelapseDialog.saveVideo")}
-										</Button>
-									</div>
-								</Tooltip>
+								<div className="flex gap-2">
+									<Button $variant="ghost" $size="sm" onClick={handleCancel}>
+										{t("timelapseDialog.cancel")}
+									</Button>
+									<Tooltip
+										content={t("timelapseDialog.artboardRequiredTooltip")}
+										side="top"
+										disabled={!!artboard}
+									>
+										<div>
+											{" "}
+											<Button
+												$variant="default"
+												$size="sm"
+												onClick={artboard ? handleExportMP4 : undefined}
+												disabled={exporting || state.isPreparing || !artboard}
+											>
+												<Download size={14} />
+												{t("timelapseDialog.saveVideo")}
+											</Button>
+										</div>
+									</Tooltip>
+								</div>
 							</div>
 						)}
 					</div>
@@ -438,7 +452,8 @@ function useTimelapseExport(
 	speed: number,
 	maxDuration: MaxDurationOption,
 ) {
-	const [exporting, setExporting] = useState(false);
+	// The running export's abort handle. null while nothing is exporting.
+	const [exportAbort, setExportAbort] = useState<AbortController | null>(null);
 	const [exportProgress, setExportProgress] = useState(0);
 
 	const handleExportMP4 = useEventCallback(async () => {
@@ -447,7 +462,8 @@ function useTimelapseExport(
 		if (!player || !surface || !artboard || !paplico) return;
 
 		player.pause();
-		setExporting(true);
+		const abort = new AbortController();
+		setExportAbort(abort);
 		setExportProgress(0);
 
 		try {
@@ -458,6 +474,7 @@ function useTimelapseExport(
 				speed,
 				maxDurationMs: MAX_DURATION_MS[maxDuration],
 				onProgress: setExportProgress,
+				signal: abort.signal,
 			});
 
 			const url = URL.createObjectURL(blob);
@@ -467,13 +484,21 @@ function useTimelapseExport(
 			a.click();
 			URL.revokeObjectURL(url);
 		} catch (error) {
+			if (abort.signal.aborted) return;
 			console.error("MP4 export failed:", error);
 		} finally {
-			setExporting(false);
+			setExportAbort(null);
 		}
 	});
 
-	return { exporting, exportProgress, handleExportMP4 };
+	const handleCancelExport = useEventCallback(() => exportAbort?.abort());
+
+	return {
+		exporting: exportAbort != null,
+		exportProgress,
+		handleExportMP4,
+		handleCancelExport,
+	};
 }
 
 // ---------------------------------------------------------------------------
