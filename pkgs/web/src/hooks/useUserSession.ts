@@ -20,6 +20,7 @@ import {
 	getTauriToken,
 	tauriAuthenticate,
 } from "@/auth/tauriAuth";
+import { webOrigin } from "@/configs";
 import { useEventCallback } from "@/utils/hooks";
 import { IS_TAURI_ENV } from "@/utils/platform";
 
@@ -167,8 +168,7 @@ function useUserSessionTauri(): UserSession {
 	const user = useMemo(() => (token ? decodeJwtUser(token) : null), [token]);
 
 	const authenticate = useEventCallback(async (strategy: OAuthStrategy) => {
-		const webOrigin = window.location.origin;
-		await tauriAuthenticate(strategy, webOrigin);
+		await tauriAuthenticate(strategy, webOrigin());
 	});
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: authenticate is from useEventCallback (stable ref)
@@ -182,7 +182,7 @@ function useUserSessionTauri(): UserSession {
 			authenticate,
 			deleteAccount: async () => {
 				if (!token || isJwtExpired(token)) return;
-				await fetch("/api/auth/delete-account", {
+				await fetch(`${webOrigin()}/api/auth/delete-account`, {
 					method: "POST",
 					headers: { Authorization: `Bearer ${token}` },
 				});

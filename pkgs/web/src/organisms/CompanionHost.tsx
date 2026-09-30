@@ -22,12 +22,13 @@ import type {
 	CompanionCommand,
 	CompanionState,
 } from "@/companion/companionProtocol";
+import { webOrigin } from "@/configs";
 import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
 import { useFirstSelectedElement } from "@/hooks/paplico/useFirstSelectedElement";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { useBrushEdits } from "@/hooks/useBrushEdits";
 import { useBrushPresets } from "@/hooks/useBrushPresets";
-import { getEncryptedRoomCredentials, inviteOrigin } from "@/hooks/useCollab";
+import { getEncryptedRoomCredentials } from "@/hooks/useCollab";
 import { createDefaultFilter } from "@/organisms/FilterPanel/createDefaultFilter";
 import { useEventCallback } from "@/utils/hooks";
 
@@ -165,7 +166,7 @@ const CompanionHostInner = memo(function CompanionHostInner({
 
 			channel = openChannel(roomId, roomKey);
 			const encodedKey = await exportRoomKey(roomKey);
-			companionHostState.adhocUrl = buildCompanionUrl(inviteOrigin(), {
+			companionHostState.adhocUrl = buildCompanionUrl(webOrigin(), {
 				roomId,
 				encodedKey,
 			});

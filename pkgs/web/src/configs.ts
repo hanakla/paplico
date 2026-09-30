@@ -18,6 +18,17 @@ export const AUTO_SAVE_MAX_REVISIONS = 20;
 export const PARTYKIT_HOST =
 	process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999";
 
+/**
+ * Origin of the web app: where its API is served and where shared links
+ * should point. The desktop build runs off tauri://localhost, an origin that
+ * exists only inside that app — neither a request nor a link built from it
+ * reaches anything. The deployed site is the address both the desktop build
+ * and a guest can reach, and the desktop build is given it at build time.
+ */
+export function webOrigin(): string {
+	return process.env.NEXT_PUBLIC_API_BASE_URL || window.location.origin;
+}
+
 // --- Rasterization resolution ---
 
 export { BASE_DPI } from "@paplico/core/document";

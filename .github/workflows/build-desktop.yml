@@ -31,6 +31,8 @@ jobs:
         env:
           TAURI_BUILD: "1"
           NEXT_PUBLIC_API_BASE_URL: ${{ github.ref == 'refs/heads/main' && 'https://paplico.hanak.la' || 'https://paplico-dev.hanak.la' }}
+          NEXT_PUBLIC_COLLAB_MODE: cloud
+          NEXT_PUBLIC_PARTYKIT_HOST: paplico.hanakla.partykit.dev
 
       - uses: actions/upload-artifact@v7
         with:

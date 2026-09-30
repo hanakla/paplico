@@ -16,7 +16,7 @@ import { proxy, useSnapshot } from "valtio";
 import type * as Y from "yjs";
 import { ConfirmDialog } from "@/components/AlertDialog";
 import { toastManager } from "@/components/Toast";
-import { PARTYKIT_HOST } from "@/configs";
+import { PARTYKIT_HOST, webOrigin } from "@/configs";
 import { DisconnectedDialog } from "@/dialogs/DisconnectedDialog";
 import { appConfig, setCollaborationUserName } from "@/hooks/useAppConfig";
 import { useUserSession } from "@/hooks/useUserSession";
@@ -51,16 +51,6 @@ interface CollabState {
 	 * that holds it answers immediately.
 	 */
 	isSyncing: boolean;
-}
-
-/**
- * Where an invite should point. The desktop build runs off tauri://localhost,
- * an origin that exists only inside that app — a link built from it opens
- * nowhere. The deployed site is the address a guest can actually reach, and
- * the desktop build is given it at build time.
- */
-export function inviteOrigin(): string {
-	return process.env.NEXT_PUBLIC_API_BASE_URL || window.location.origin;
 }
 
 /**
@@ -231,7 +221,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 				const metaUrl =
 					process.env.NEXT_PUBLIC_COLLAB_MODE === "cloud"
 						? `https://${PARTYKIT_HOST}/parties/main/${roomId}`
-						: `/api/collaboration/${roomId}/meta`;
+						: `${webOrigin()}/api/collaboration/${roomId}/meta`;
 
 				try {
 					const metaRes = await fetch(metaUrl);
@@ -275,9 +265,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 			const collab = pap.connectCollaboration(
 				createCollaboration({
 					roomId,
-					wsUrl: isEncryptedRoom
-						? undefined
-						: `wss://${window.location.host}/api/collaboration`,
+					wsUrl: isEncryptedRoom ? undefined : collaborationWsUrl(),
 					user: { name: userName || undefined },
 					authToken,
 					roomKey,
@@ -362,7 +350,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 
 				// The key rides in the fragment so it is never sent to any server.
 				const encodedKey = await exportRoomKey(roomKey);
-				const inviteUrl = buildInviteUrl(inviteOrigin(), {
+				const inviteUrl = buildInviteUrl(webOrigin(), {
 					roomId,
 					encodedKey,
 				});
@@ -386,7 +374,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 				headers.Authorization = `Bearer ${authToken}`;
 			}
 
-			const res = await fetch("/api/rooms", {
+			const res = await fetch(`${webOrigin()}/api/rooms`, {
 				method: "POST",
 				headers,
 			});
@@ -410,7 +398,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 			const collab = pap.connectCollaboration(
 				createCollaboration({
 					roomId,
-					wsUrl: `wss://${window.location.host}/api/collaboration`,
+					wsUrl: collaborationWsUrl(),
 					user: { name: userName },
 					authToken,
 					roomToken,
@@ -421,7 +409,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 			);
 
 			setupCollaborationListeners(collab, false);
-			const inviteUrl = buildInviteUrl(inviteOrigin(), { roomId });
+			const inviteUrl = buildInviteUrl(webOrigin(), { roomId });
 			collabState.inviteUrl = inviteUrl;
 			markRoomPublished(roomId, false);
 
@@ -476,7 +464,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 		if (roomId) {
 			const token = await session.getToken();
 			if (token) {
-				fetch(`/api/rooms/${roomId}`, {
+				fetch(`${webOrigin()}/api/rooms/${roomId}`, {
 					method: "PATCH",
 					headers: {
 						"Content-Type": "application/json",
@@ -547,4 +535,9 @@ function createCollaboration(
 			: process.env.NEXT_PUBLIC_COLLAB_MODE === "cloud"
 				? new PartyKitCollaboration(ydoc, relayConfig)
 				: new Collaboration(ydoc, config);
+}
+
+/** The local-mode y-websocket endpoint, served by the web app's own server. */
+function collaborationWsUrl(): string {
+	return `wss://${new URL(webOrigin()).host}/api/collaboration`;
 }

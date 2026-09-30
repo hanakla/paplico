@@ -50,7 +50,6 @@ import { RoomParticipants } from "@/organisms/RoomParticipants";
 import { UserMenu } from "@/organisms/UserMenu";
 import { documentSessionState } from "@/stores/documentSessionStore";
 import { useUIState } from "@/stores/uiStore";
-import { IS_TAURI_ENV } from "@/utils/platform";
 import { twm } from "@/utils/tailwind";
 
 export function DesktopMenuBar({
@@ -213,29 +212,23 @@ export function DesktopMenuBar({
 						</Menubar.Item>
 					)}
 
-					{/* Working with other people. Ordinary rooms need the room API,
-					    which the desktop build has no server to serve. */}
-					{!IS_TAURI_ENV && (
-						<>
-							<Menubar.Separator />
-							<Menubar.Item
-								onClick={onOpenPublishRoomDialog}
-								disabled={connectedRoomId !== null && !isRoomOwner}
-							>
-								<Share2 size={16} />
-								{t("connectRoomDialog.publishRoom")}
-							</Menubar.Item>
-							<Menubar.Item onClick={onOpenConnectRoomDialog}>
-								<Link size={16} />
-								{t("connectRoomDialog.connectToRoom")}
-							</Menubar.Item>
-							{isRoomOwner && !isEncryptedRoom && (
-								<Menubar.Item onClick={onCloseRoom}>
-									<XIcon size={16} />
-									{t("connectRoomDialog.closeRoom")}
-								</Menubar.Item>
-							)}
-						</>
+					<Menubar.Separator />
+					<Menubar.Item
+						onClick={onOpenPublishRoomDialog}
+						disabled={connectedRoomId !== null && !isRoomOwner}
+					>
+						<Share2 size={16} />
+						{t("connectRoomDialog.publishRoom")}
+					</Menubar.Item>
+					<Menubar.Item onClick={onOpenConnectRoomDialog}>
+						<Link size={16} />
+						{t("connectRoomDialog.connectToRoom")}
+					</Menubar.Item>
+					{isRoomOwner && !isEncryptedRoom && (
+						<Menubar.Item onClick={onCloseRoom}>
+							<XIcon size={16} />
+							{t("connectRoomDialog.closeRoom")}
+						</Menubar.Item>
 					)}
 					<Menubar.Separator />
 					<Menubar.Item onClick={onOpenPreferencesDialog} shortcut="⌘,">
