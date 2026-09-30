@@ -3,6 +3,9 @@ import type { RenderOrchestrator } from "../renderer/RenderOrchestrator";
 import { type Artboard, getArtboardBounds } from "../schema";
 import type { TimelapseFrame } from "./types";
 
+/** Surround of the artboard, in playback and in the exported video alike. */
+const WHITE = { r: 1, g: 1, b: 1, a: 1 };
+
 /**
  * WebGPU surface dedicated to timelapse playback.
  *
@@ -30,47 +33,29 @@ export class TimelapsePreviewSurface {
 		private readonly target: CanvasTarget,
 	) {}
 
-	/** Draw one replayed frame, framing `artboard` to fill the preview canvas. */
-	public render(frame: TimelapseFrame, artboard: Artboard): void {
+	/**
+	 * Draw one replayed frame: the artboard fitted inside the preview canvas on
+	 * white, with nothing drawn outside it. Goes through the export render, so
+	 * playback shows what the exported video shows.
+	 */
+	public async render(
+		frame: TimelapseFrame,
+		artboard: Artboard,
+	): Promise<void> {
 		this.target.updateSize();
 		if (this.target.width === 0 || this.target.height === 0) return;
 
 		const bounds = getArtboardBounds(artboard);
-		this.target.setViewport({
-			x: artboard.x,
-			y: artboard.y,
-			zoom: Math.min(
+		await this.renderer.renderArtboardToCanvas(
+			artboard,
+			frame.document,
+			Math.min(
 				this.target.width / bounds.width,
 				this.target.height / bounds.height,
 			),
-			rotation: 0,
-		});
-
-		const previousTarget = this.renderer.getActiveCanvasTarget();
-		this.renderer.setCanvasTarget(this.target);
-		try {
-			this.renderer.render(
-				{
-					viewport: this.target.getViewport(),
-					document: frame.document,
-					strategy: "full",
-					// The change set lets unchanged elements keep their filter
-					// bakes from the previous frame.
-					changedElements: frame.changedElements,
-					// Culling off matches the artboard export path, which is the
-					// configuration replayed documents are known to render
-					// correctly under.
-					disableViewportCulling: true,
-					// Match the exported video: white surround, artboard fills reach
-					// the edges of the frame.
-					clearColorOverride: { r: 1, g: 1, b: 1, a: 1 },
-					paintArtboardBackgrounds: true,
-				},
-				{},
-			);
-		} finally {
-			if (previousTarget) this.renderer.setCanvasTarget(previousTarget);
-		}
+			WHITE,
+			{ targetId: this.target.id, changedElements: frame.changedElements },
+		);
 	}
 
 	/**
@@ -87,7 +72,7 @@ export class TimelapsePreviewSurface {
 			artboard,
 			frame.document,
 			scale,
-			{ r: 1, g: 1, b: 1, a: 1 },
+			WHITE,
 			{
 				targetId: this.target.id,
 				changedElements: frame.changedElements,

@@ -1734,9 +1734,11 @@ export class CanvasLayer {
 		);
 		const width = source.width * fit;
 		const height = source.height * fit;
+		// Whole-pixel offsets keep a frame that already fits from being
+		// resampled half a pixel off.
 		presentPass.setViewport(
-			(canvasTexture.width - width) / 2,
-			(canvasTexture.height - height) / 2,
+			Math.floor((canvasTexture.width - width) / 2),
+			Math.floor((canvasTexture.height - height) / 2),
 			width,
 			height,
 			0,

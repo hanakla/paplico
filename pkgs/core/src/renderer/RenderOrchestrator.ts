@@ -638,11 +638,6 @@ export class RenderOrchestrator {
 		this.activeTarget = target;
 	}
 
-	/** The target `render()` and the export paths currently draw through. */
-	public getActiveCanvasTarget(): CanvasTarget | null {
-		return this.activeTarget;
-	}
-
 	public setDeviceLostCallbacks(callbacks: {
 		onDeviceLost?: () => void;
 		onDeviceRestored?: () => void;
@@ -828,7 +823,9 @@ export class RenderOrchestrator {
 		backgroundColor: RawRGBA;
 		document: Document;
 		elementFilter?: ReadonlySet<string>;
-		outputFormat?: "rgba8unorm" | "rgba32float";
+		/** Format of the texture handed back. "none" skips it, for a render that
+		 *  is only presented on the canvas; the result is then null. */
+		outputFormat?: "rgba8unorm" | "rgba32float" | "none";
 		/** Changed-element set forwarded to the frame. Undefined re-renders in
 		 *  full, which is what a one-off export wants. */
 		changedElements?: FrameRequest["changedElements"];
@@ -964,32 +961,34 @@ export class RenderOrchestrator {
 
 			// 6. Convert canvasFormat → output format
 			const format = opts.outputFormat ?? "rgba8unorm";
-			outputTexture = device.createTexture({
-				label: `${opts.label} Output (${format})`,
-				size: { width, height },
-				format,
-				usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-			});
-			if (format === "rgba32float") {
-				td.canvasLayer.convertToRgba32Float(
-					encoder,
-					texture,
-					outputTexture,
-					opts.centerX,
-					opts.centerY,
-					opts.worldWidth,
-					opts.worldHeight,
-				);
-			} else {
-				td.canvasLayer.convertToRgba8unorm(
-					encoder,
-					texture,
-					outputTexture,
-					opts.centerX,
-					opts.centerY,
-					opts.worldWidth,
-					opts.worldHeight,
-				);
+			if (format !== "none") {
+				outputTexture = device.createTexture({
+					label: `${opts.label} Output (${format})`,
+					size: { width, height },
+					format,
+					usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+				});
+				if (format === "rgba32float") {
+					td.canvasLayer.convertToRgba32Float(
+						encoder,
+						texture,
+						outputTexture,
+						opts.centerX,
+						opts.centerY,
+						opts.worldWidth,
+						opts.worldHeight,
+					);
+				} else {
+					td.canvasLayer.convertToRgba8unorm(
+						encoder,
+						texture,
+						outputTexture,
+						opts.centerX,
+						opts.centerY,
+						opts.worldWidth,
+						opts.worldHeight,
+					);
+				}
 			}
 
 			if (opts.presentToCanvas) {
@@ -1015,7 +1014,7 @@ export class RenderOrchestrator {
 			}
 			td.canvasLayer.flushDeferredDestroys();
 
-			return { texture: outputTexture, width, height };
+			return outputTexture ? { texture: outputTexture, width, height } : null;
 		} catch (e) {
 			frame?.abort();
 			outputTexture?.destroy();
@@ -1055,6 +1054,34 @@ export class RenderOrchestrator {
 			backgroundColor,
 			document,
 			...opts,
+		});
+	}
+
+	/**
+	 * Draw the artboard on the target's canvas, scaled by `scale` and fitted
+	 * inside the canvas on `backgroundColor`. Nothing outside the artboard is
+	 * drawn, and nothing is read back.
+	 */
+	public async renderArtboardToCanvas(
+		artboard: Artboard,
+		document: Document,
+		scale: number,
+		backgroundColor: RawRGBA,
+		opts: ExportRenderOptions,
+	): Promise<void> {
+		const bounds = getArtboardBounds(artboard);
+		await this.renderExportToTexture({
+			label: `Present: ${artboard.name}`,
+			centerX: artboard.x,
+			centerY: artboard.y,
+			worldWidth: bounds.width,
+			worldHeight: bounds.height,
+			scale,
+			backgroundColor,
+			document,
+			...opts,
+			presentToCanvas: true,
+			outputFormat: "none",
 		});
 	}
 

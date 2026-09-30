@@ -57,6 +57,27 @@ describe("TimelapsePreviewSurface", () => {
 		expectSameImage(replayedPixels, livePixels);
 	});
 
+	it("should leave everything outside the artboard white", async () => {
+		const session = startSession();
+		session.addArtboard(createArtboard("ab", "Main", 0, 0, 600, 600));
+		// Beside the artboard, where the preview's side bars would show it.
+		session.draw(strokePath("outside", 320, -100, 380, 100));
+		const document = session.document();
+
+		const { renderer } = await createTestRenderer();
+		const device = renderer.getDevice();
+		if (!device) throw new Error("Test renderer has no GPU device");
+
+		const pixels = await drawToPreview(
+			renderer,
+			device,
+			document,
+			document.artboards[0],
+		);
+
+		expect(countInk(pixels)).toBe(0);
+	});
+
 	describe("when a frame is rendered for export", () => {
 		it("should show the exported picture on the preview canvas", async () => {
 			const session = startSession();
@@ -153,13 +174,13 @@ describe("TimelapsePreviewSurface", () => {
 				let trackedStores = 0;
 				for (const frame of frames) {
 					const storesBefore = cacheStores.count;
-					tracked.surface.render(frame, artboard);
+					await tracked.surface.render(frame, artboard);
 					trackedStores += cacheStores.count - storesBefore;
 					// A cached bake follows the display zoom, so the reference has
 					// to be cached too. Marking every element changed makes it
 					// re-run every filter under that same rule. The recording
 					// deletes nothing, so no id is missing from the set.
-					fresh.surface.render(
+					await fresh.surface.render(
 						{
 							document: frame.document,
 							changedElements: {
@@ -228,7 +249,10 @@ async function drawToPreview(
 ): Promise<Uint8Array> {
 	const preview = await openPreview(renderer, device);
 	try {
-		preview.surface.render({ document, changedElements: undefined }, artboard);
+		await preview.surface.render(
+			{ document, changedElements: undefined },
+			artboard,
+		);
 		return await preview.pixels();
 	} finally {
 		preview.dispose();

@@ -31,6 +31,7 @@
 - Timelapse playback and MP4 export reuse the filter results of elements that did not change since the previous frame. A recording with many filtered elements no longer slows down toward its end.
 - `TimelapsePlayer` hands out `TimelapseFrame`, the replayed document together with the elements that changed since the frame before it. `onFrame`, `advanceBy` and `restart` pass it instead of a bare `Document`. `TimelapsePreviewSurface.render` and `renderToImageData` take it in place of the document.
 - `TimelapsePreviewSurface.renderToImageData` also shows the frame on the preview canvas, fitted inside it, so an MP4 export shows the frame it is encoding. The canvas used to stay on the last playback frame for the whole export.
+- Timelapse playback draws through the export render: the artboard fitted inside the preview on white, with nothing drawn beside it. Elements of a neighbouring artboard used to show in the preview's side bars. An artboard's own fill is no longer painted in playback, which matches the exported video. `TimelapsePreviewSurface.render` returns a promise for the frame.
 - `paplico.tool.shapeRect` no longer has a default key. M is bound to `paplico.tool.shapeCycle` instead.
 - An eyedropper click picks on release instead of on press, so it can be told apart from a long press.
 - The gradient tool takes an element whose first fill is solid when a later fill is a gradient. It used to look at the first fill only. An element whose fills are solid or pattern only is no longer selected by it.
