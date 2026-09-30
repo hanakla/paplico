@@ -31,9 +31,10 @@ describe("CompanionChannel", () => {
 		const received = collect(host);
 
 		companion.send({ type: "hello" });
-		await relay.settle();
 
-		expect(received).toEqual([{ type: "hello" }]);
+		await vi.waitFor(() => {
+			expect(received).toEqual([{ type: "hello" }]);
+		});
 	});
 
 	it("should not let the relay read what was said", async () => {
@@ -72,9 +73,10 @@ describe("CompanionChannel", () => {
 			command: { type: "applyBrushPreset", presetUid: "x".repeat(50_000) },
 		});
 		companion.send({ type: "command", command: { type: "undo" } });
-		await relay.settle();
 
-		expect(received).toHaveLength(2);
+		await vi.waitFor(() => {
+			expect(received).toHaveLength(2);
+		});
 		expect(received[1]).toEqual({
 			type: "command",
 			command: { type: "undo" },
@@ -108,11 +110,14 @@ describe("CompanionChannel", () => {
 		});
 
 		companion.send({ type: "hello" });
-		await relay.settle();
+		await vi.waitFor(() => {
+			expect(received).toHaveLength(1);
+		});
 		companion.send({ type: "command", command: { type: "undo" } });
-		await relay.settle();
 
-		expect(received).toHaveLength(2);
+		await vi.waitFor(() => {
+			expect(received).toHaveLength(2);
+		});
 	});
 
 	it("should still say goodbye after a send has failed", async () => {
@@ -136,9 +141,10 @@ describe("CompanionChannel", () => {
 		Object.assign(companion as unknown as { roomKey: CryptoKey }, { roomKey });
 		companion.send({ type: "ended" });
 		await companion.destroyAfterFlush();
-		await relay.settle();
 
-		expect(received).toEqual([{ type: "ended" }]);
+		await vi.waitFor(() => {
+			expect(received).toEqual([{ type: "ended" }]);
+		});
 	});
 
 	it("should stay silent once destroyed", async () => {
