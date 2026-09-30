@@ -1,3 +1,4 @@
+import { createDefaultColor } from "@paplico/core/document";
 import {
 	type Color,
 	type ColorStop,
@@ -61,9 +62,15 @@ interface GradientPickerProps {
 
 // --- Helpers ---
 
-function rgbToHSVColor(r: number, g: number, b: number, a: number): Color {
-	const [h, s, v] = rgbToHsv(r, g, b);
-	return { type: "hsv", h, s, v, a };
+const WHITE: RGBColor = { type: "rgb", r: 1, g: 1, b: 1, a: 1 };
+
+/** Rewrites `color` in the color mode of `reference`, so a generated color
+ *  follows the stop it accompanies. */
+function matchColorMode(color: Color, reference: Color): Color {
+	if (reference.type === "rgb") return toRGBColor(colorToRawRGBA(color));
+	if (color.type === "hsv") return color;
+	const [h, s, v] = rgbToHsv(color.r, color.g, color.b);
+	return { type: "hsv", h, s, v, a: color.a };
 }
 
 function colorToCSS(c: Color): string {
@@ -80,43 +87,42 @@ function stopsToCSS(stops: ColorStop[]): string {
 		.join(", ");
 }
 
-/** Extract the first color from a FillColor as RGBColor */
-function extractFirstRGB(fill: FillColor): RGBColor {
-	if (isSolidColor(fill)) return toRGBColor(colorToRawRGBA(fill.color));
+/** Extract the first color from a FillColor, keeping its color mode */
+function extractFirstColor(fill: FillColor): Color {
+	if (isSolidColor(fill)) return fill.color;
 	if (isLinearGradient(fill) || isRadialGradient(fill)) {
-		return fill.stops.length > 0
-			? toRGBColor(colorToRawRGBA(fill.stops[0].color))
-			: { type: "rgb", r: 0, g: 0, b: 0, a: 1 };
+		return fill.stops.length > 0 ? fill.stops[0].color : createDefaultColor();
 	}
 	// Free gradient: use first stop color
 	if (isFreeGradient(fill) && fill.stops.length > 0) {
-		return toRGBColor(colorToRawRGBA(fill.stops[0].color));
+		return fill.stops[0].color;
 	}
 	// Mesh gradient: use first vertex color
 	if (isMeshGradient(fill) && fill.vertices.length > 0) {
-		return toRGBColor(colorToRawRGBA(fill.vertices[0].color));
+		return fill.vertices[0].color;
 	}
-	return { type: "rgb", r: 0, g: 0, b: 0, a: 1 };
+	return createDefaultColor();
 }
 
-function createDefaultStops(baseColor: RGBColor): ColorStop[] {
+function createDefaultStops(baseColor: Color): ColorStop[] {
 	return [
 		{ offset: 0, color: baseColor, midpoint: 0.5 },
-		{
-			offset: 1,
-			color: rgbToHSVColor(1, 1, 1, 1),
-			midpoint: 0.5,
-		},
+		{ offset: 1, color: matchColorMode(WHITE, baseColor), midpoint: 0.5 },
 	];
 }
 
-function createDefaultMeshGradient(baseColor: RGBColor): MeshGradient {
-	const white = rgbToHSVColor(1, 1, 1, 1);
-	const mid = rgbToHSVColor(
-		baseColor.r * 0.5 + 0.5,
-		baseColor.g * 0.5 + 0.5,
-		baseColor.b * 0.5 + 0.5,
-		1,
+function createDefaultMeshGradient(baseColor: Color): MeshGradient {
+	const white = matchColorMode(WHITE, baseColor);
+	const base = colorToRawRGBA(baseColor);
+	const mid = matchColorMode(
+		{
+			type: "rgb",
+			r: base.r * 0.5 + 0.5,
+			g: base.g * 0.5 + 0.5,
+			b: base.b * 0.5 + 0.5,
+			a: 1,
+		},
+		baseColor,
 	);
 	// Vertices and the face run counter-clockwise on screen
 	// (top-left → bottom-left → bottom-right → top-right), matching
@@ -157,13 +163,18 @@ function createDefaultMeshGradient(baseColor: RGBColor): MeshGradient {
 	};
 }
 
-function createDefaultFreeGradient(baseColor: RGBColor): FreeGradient {
-	const white = rgbToHSVColor(1, 1, 1, 1);
-	const mid = rgbToHSVColor(
-		baseColor.r * 0.5 + 0.5,
-		baseColor.g * 0.5 + 0.5,
-		baseColor.b * 0.5 + 0.5,
-		1,
+function createDefaultFreeGradient(baseColor: Color): FreeGradient {
+	const white = matchColorMode(WHITE, baseColor);
+	const base = colorToRawRGBA(baseColor);
+	const mid = matchColorMode(
+		{
+			type: "rgb",
+			r: base.r * 0.5 + 0.5,
+			g: base.g * 0.5 + 0.5,
+			b: base.b * 0.5 + 0.5,
+			a: 1,
+		},
+		baseColor,
 	);
 	return {
 		type: "free",
@@ -211,9 +222,7 @@ function GradientPickerRoot({
 		)
 			return;
 
-		const baseColor = fill
-			? extractFirstRGB(fill)
-			: { type: "rgb" as const, r: 0, g: 0, b: 0, a: 1 };
+		const baseColor = fill ? extractFirstColor(fill) : createDefaultColor();
 
 		switch (newType) {
 			case "none":
@@ -524,7 +533,13 @@ export const GradientStopsEditor = memo(function GradientStopsEditor({
 
 			// Add new stop at click position
 			if (maxStops !== undefined && stops.length >= maxStops) return;
-			const color = sampleGradientColorAt(stops, clickOffset);
+			const sampled = sampleGradientColorAt(stops, clickOffset);
+			const previousStop = stops
+				.toSorted((a, b) => a.offset - b.offset)
+				.findLast((s) => s.offset <= clickOffset);
+			const color = previousStop
+				? matchColorMode(sampled, previousStop.color)
+				: sampled;
 
 			const newStops = [
 				...stops,
@@ -731,7 +746,8 @@ export const GradientStopsEditor = memo(function GradientStopsEditor({
 			const s0 = sorted[nearestMidIdx];
 			const s1 = sorted[nearestMidIdx + 1];
 			const midOffset = s0.offset + s0.midpoint * (s1.offset - s0.offset);
-			const color = sampleGradientColorAt(stops, midOffset);
+			const sampled = sampleGradientColorAt(stops, midOffset);
+			const color = matchColorMode(sampled, s0.color);
 			const newStops = [...stops, { offset: midOffset, color, midpoint: 0.5 }];
 			const sortedNew = newStops.sort((a, b) => a.offset - b.offset);
 			const newIdx = sortedNew.findIndex(

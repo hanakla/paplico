@@ -271,10 +271,10 @@ export const ColorPane = memo(function ColorPane({
 
 /** Mid grey: visible against both a light and a dark canvas. */
 const DEFAULT_PLAIN_COLOR: Color = {
-	type: "rgb",
-	r: 0.5,
-	g: 0.5,
-	b: 0.5,
+	type: "hsv",
+	h: 0,
+	s: 0,
+	v: 0.5,
 	a: 1,
 };
 

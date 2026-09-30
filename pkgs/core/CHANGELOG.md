@@ -30,6 +30,7 @@
 - An eyedropper click picks on release instead of on press, so it can be told apart from a long press.
 - A blur whose radius reaches 8 texels at the document's rasterization DPI is computed through the same blur pyramid the drop shadow uses, so its cost no longer grows with the radius. A radius of 72 on a 300 DPI document used to read about 300 texels per pixel and pass.
 - Every long press in the tools takes 400ms. The mesh deform tool, the eyedropper and the pen's color pick used to wait 500ms, while the path edit tool waited 400ms.
+- `GRADIENT_MAP_PRESET_STOPS` holds its stop colors as HSV. The colors themselves are unchanged. They used to be RGB.
 
 ### Fixed
 

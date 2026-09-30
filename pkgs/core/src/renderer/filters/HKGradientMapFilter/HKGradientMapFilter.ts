@@ -44,68 +44,68 @@ export const GRADIENT_MAP_PRESET_STOPS: Record<
 	blackAndWhite: [
 		{
 			offset: 0,
-			color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
+			color: { type: "hsv", h: 0, s: 0, v: 0, a: 1 },
 			midpoint: 0.5,
 		},
 		{
 			offset: 1,
-			color: { type: "rgb", r: 1, g: 1, b: 1, a: 1 },
+			color: { type: "hsv", h: 0, s: 0, v: 1, a: 1 },
 			midpoint: 0.5,
 		},
 	],
 	sepia: [
 		{
 			offset: 0,
-			color: { type: "rgb", r: 0.2, g: 0.05, b: 0, a: 1 },
+			color: { type: "hsv", h: 1 / 24, s: 1, v: 0.2, a: 1 },
 			midpoint: 0.5,
 		},
 		{
 			offset: 1,
-			color: { type: "rgb", r: 1, g: 0.9, b: 0.7, a: 1 },
+			color: { type: "hsv", h: 1 / 9, s: 0.3, v: 1, a: 1 },
 			midpoint: 0.5,
 		},
 	],
 	duotone: [
 		{
 			offset: 0,
-			color: { type: "rgb", r: 0.05, g: 0.2, b: 0.6, a: 1 },
+			color: { type: "hsv", h: 41 / 66, s: 11 / 12, v: 0.6, a: 1 },
 			midpoint: 0.5,
 		},
 		{
 			offset: 1,
-			color: { type: "rgb", r: 1, g: 0.8, b: 0.2, a: 1 },
+			color: { type: "hsv", h: 0.125, s: 0.8, v: 1, a: 1 },
 			midpoint: 0.5,
 		},
 	],
 	rainbow: [
 		{
 			offset: 0,
-			color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
+			color: { type: "hsv", h: 0, s: 1, v: 1, a: 1 },
 			midpoint: 0.5,
 		},
 		{
 			offset: 0.2,
-			color: { type: "rgb", r: 1, g: 1, b: 0, a: 1 },
+			color: { type: "hsv", h: 1 / 6, s: 1, v: 1, a: 1 },
 			midpoint: 0.5,
 		},
 		{
 			offset: 0.4,
-			color: { type: "rgb", r: 0, g: 1, b: 0, a: 1 },
+			color: { type: "hsv", h: 2 / 6, s: 1, v: 1, a: 1 },
 			midpoint: 0.5,
 		},
 		{
 			offset: 0.6,
-			color: { type: "rgb", r: 0, g: 1, b: 1, a: 1 },
+			color: { type: "hsv", h: 3 / 6, s: 1, v: 1, a: 1 },
 			midpoint: 0.5,
 		},
 		{
 			offset: 0.8,
-			color: { type: "rgb", r: 0, g: 0, b: 1, a: 1 },
+			color: { type: "hsv", h: 4 / 6, s: 1, v: 1, a: 1 },
 			midpoint: 0.5,
 		},
 		{
 			offset: 1,
-			color: { type: "rgb", r: 1, g: 0, b: 1, a: 1 },
+			color: { type: "hsv", h: 5 / 6, s: 1, v: 1, a: 1 },
 			midpoint: 0.5,
 		},
 	],
