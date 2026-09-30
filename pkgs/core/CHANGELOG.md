@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- `disableIncompatibleFilters` option of `SVGExporter`. The artboard is exported as if every filter other than fills, strokes, `svg:*` filters and geometry filters were turned off, sub-filters and preset appearances included, so as little as possible is rasterized. The document itself is left untouched.
+
+### Changed
+
+- `SVGExporter` exports a path or compound path whose fill or stroke carries its own blend mode or sub-filters as vectors when it can. Each fill and stroke becomes a copy of the shape that carries that blend mode and those sub-filters. Only a sub-filter SVG cannot express still rasterizes the element.
+- `ExportRenderer` includes `dropDocumentCaches`.
+
 ## [0.3.0] - 2026-10-01
 
 ### Added

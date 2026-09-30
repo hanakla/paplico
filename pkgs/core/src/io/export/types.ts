@@ -33,6 +33,7 @@ export type ExportRenderer = Pick<
 	| "getTextRenderer"
 	| "getFilterHandler"
 	| "calculateFilterExpansion"
+	| "dropDocumentCaches"
 >;
 
 export interface ExportResult {

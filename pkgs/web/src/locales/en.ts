@@ -1285,6 +1285,9 @@ export const en = {
 		exporting: "Exporting…",
 		colorProfile: "Color Profile",
 		embedIccProfile: "Embed ICC profile",
+		disableIncompatibleSvgFilters: "Leave out filters SVG cannot express",
+		disableIncompatibleSvgFiltersNote:
+			"Keeps only SVG filters and Path Deform filters, so less of the artwork turns into images.",
 		jpegQuality: "Quality",
 		profileNone: "No embedded profile",
 		loadIccFile: "Load ICC profile…",

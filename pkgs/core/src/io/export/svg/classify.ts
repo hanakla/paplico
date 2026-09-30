@@ -25,6 +25,7 @@ import {
 	calculateElementBounds,
 } from "../../../utils/geometry/bounds";
 import { composeTransforms } from "../../../utils/geometry/geometry";
+import { isPaintAppearance, splitAppearanceCopies } from "./appearanceCopies";
 import { uniformTransformScale } from "./pathData";
 import { isSvgNativeFilter } from "./svgFilterPrimitives";
 
@@ -152,6 +153,7 @@ function classifyElementInner(
 		}
 	}
 
+	const copies = splitAppearanceCopies(element);
 	let needsBake = false;
 	for (const filter of localAppearances(element.filters)) {
 		if (!isFilterEnabled(filter)) continue;
@@ -167,11 +169,14 @@ function classifyElementInner(
 
 		if (filter.applyToBackdrop) return "raster";
 		if (opts.filterReplacesElementRender(filter)) return "raster";
-		if (filter.subFilters?.some(isFilterEnabled)) return "raster";
-		// Per-appearance blends composite against the element's other
-		// appearances; SVG has no equivalent below the element level.
-		// (?? guards documents that predate the blendMode backfill.)
-		if ((filter.blendMode ?? "normal") !== "normal") return "raster";
+		// A split fill/stroke takes its sub-filters and blend onto its own copy,
+		// which is classified below. Any other appearance has no SVG
+		// equivalent for them below the element level.
+		if (!copies || !isPaintAppearance(filter)) {
+			if (filter.subFilters?.some(isFilterEnabled)) return "raster";
+			// ?? guards documents that predate the blendMode backfill.
+			if ((filter.blendMode ?? "normal") !== "normal") return "raster";
+		}
 
 		// Native SVG filter primitives are emitted as <filter> defs by the
 		// serializer, so they never force rasterization on their own.
@@ -213,6 +218,16 @@ function classifyElementInner(
 			// cannot be represented.
 			if (uniformTransformScale(composed) === null) return "raster";
 		}
+	}
+
+	if (copies) {
+		return copies.some(
+			(copy) =>
+				classifyElementInner(copy, opts, visited, ancestorTransform) ===
+				"raster",
+		)
+			? "raster"
+			: "bake";
 	}
 
 	switch (element.type) {

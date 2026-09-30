@@ -1286,6 +1286,9 @@ export const ja = {
 		exporting: "書き出し中…",
 		colorProfile: "カラープロファイル",
 		embedIccProfile: "ICCプロファイルを埋め込む",
+		disableIncompatibleSvgFilters: "SVGで表せないフィルターを外して書き出す",
+		disableIncompatibleSvgFiltersNote:
+			"SVGフィルターとパス変形のフィルターだけを残します。画像に置き換わる部分が減ります。",
 		jpegQuality: "画質",
 		profileNone: "埋め込みなし",
 		loadIccFile: "ICCプロファイルを読み込む…",

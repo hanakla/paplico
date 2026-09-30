@@ -137,6 +137,7 @@ const makeMockRenderer = (): ExportRenderer => {
 				),
 			),
 		ensureTextDocumentResolver: () => () => {},
+		dropDocumentCaches: vi.fn(),
 	} as unknown as ExportRenderer;
 };
 
@@ -202,6 +203,86 @@ describe("SVGExporter", () => {
 		expect(call[2]).toEqual(["blurred"]);
 		// scale = rasterizationDpi / 72 = 2
 		expect(call[4]).toBe(2);
+	});
+
+	it("should stack one copy of a path per appearance when an appearance blends on its own", async () => {
+		const doc = makeDocument(
+			[
+				path("p1", {
+					opacity: 0.5,
+					filters: [
+						solidFill(1, 0, 0),
+						{ ...solidFill(0, 1, 0), blendMode: "multiply" },
+					],
+				}),
+			],
+			[{ elementIds: ["p1"] }],
+		);
+		const ctx = makeContext(makeMockRenderer(), doc);
+		const result = await new SVGExporter().export(ctx, "artboard1");
+
+		expect(renderRasterChunk).not.toHaveBeenCalled();
+		expect(result?.svg.replaceAll(/>\s+</g, "><")).toContain(
+			`<g style="isolation:isolate" opacity="0.5"><path d="M 40 40 L 60 40 L 60 60 L 40 60 Z" fill="#ff0000"/><g style="mix-blend-mode:multiply"><path d="M 40 40 L 60 40 L 60 60 L 40 60 Z" fill="#00ff00"/></g></g>`,
+		);
+	});
+
+	describe("disableIncompatibleFilters", () => {
+		it("should export raster-only filters as if they were turned off", async () => {
+			const doc = makeDocument(
+				[
+					path("p1", {
+						filters: [
+							{ ...solidFill(1, 0, 0), subFilters: [blurFilter()] },
+							blurFilter(),
+						],
+					}),
+				],
+				[{ elementIds: ["p1"] }],
+			);
+			const ctx = makeContext(makeMockRenderer(), doc);
+			const result = await new SVGExporter({
+				disableIncompatibleFilters: true,
+			}).export(ctx, "artboard1");
+
+			expect(renderRasterChunk).not.toHaveBeenCalled();
+			expect(result?.svg).toContain(
+				`<path d="M 40 40 L 60 40 L 60 60 L 40 60 Z" fill="#ff0000"/>`,
+			);
+			expect(doc.objects.p1.filters?.[1].enabled).toBeUndefined();
+		});
+
+		it("should keep svg filters", async () => {
+			const doc = makeDocument(
+				[path("p1", { filters: [solidFill(1, 0, 0), svgFlood()] })],
+				[{ elementIds: ["p1"] }],
+			);
+			const ctx = makeContext(makeMockRenderer(), doc);
+			const result = await new SVGExporter({
+				disableIncompatibleFilters: true,
+			}).export(ctx, "artboard1");
+
+			expect(result?.svg).toContain("<feFlood");
+		});
+
+		it("should render remaining raster chunks under a document id of their own", async () => {
+			const lock = path("p1", {
+				compositionMode: "alpha-lock",
+				filters: [solidFill(1, 0, 0)],
+			});
+			const doc = makeDocument([lock], [{ elementIds: ["p1"] }]);
+			const renderer = makeMockRenderer();
+			await new SVGExporter({ disableIncompatibleFilters: true }).export(
+				makeContext(renderer, doc),
+				"artboard1",
+			);
+
+			const chunkDocId = vi.mocked(renderRasterChunk).mock.calls[0][1].id;
+			expect(chunkDocId).not.toBe(doc.id);
+			expect(vi.mocked(renderer.dropDocumentCaches).mock.calls).toEqual([
+				[chunkDocId],
+			]);
+		});
 	});
 
 	it("should skip invisible and transient layers", async () => {

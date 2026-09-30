@@ -117,6 +117,8 @@ export const ExportDialog = memo(function ExportDialog({
 	const [rgbProfileValue, setRgbProfileValue] = useState<string>(workingSpace);
 	const [jpegQuality, setJpegQuality] = useState(DEFAULT_JPEG_QUALITY);
 	const [embedPsdIcc, setEmbedPsdIcc] = useState(true);
+	const [disableIncompatibleSvgFilters, setDisableIncompatibleSvgFilters] =
+		useState(false);
 	const [profileValue, setProfileValue] = useState<string>("");
 	const { profiles: systemProfiles, loading: systemProfilesLoading } =
 		useSystemIccProfiles();
@@ -366,6 +368,7 @@ export const ExportDialog = memo(function ExportDialog({
 				extension: "svg",
 				exporter: new SVGExporter({
 					backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
+					disableIncompatibleFilters: disableIncompatibleSvgFilters,
 				}),
 			};
 		},
@@ -411,6 +414,9 @@ export const ExportDialog = memo(function ExportDialog({
 	);
 	const handleTogglePsdIcc = useEventCallback((checked: boolean) =>
 		setEmbedPsdIcc(checked),
+	);
+	const handleToggleDisableIncompatibleSvgFilters = useEventCallback(
+		(checked: boolean) => setDisableIncompatibleSvgFilters(checked),
 	);
 	const handleProfileSelect = useEventCallback(async (value: string) => {
 		if (value.startsWith("system:")) {
@@ -715,6 +721,25 @@ export const ExportDialog = memo(function ExportDialog({
 								)}
 								<div className="text-[10px] text-muted-foreground">
 									{t("exportDialog.alphaFlattenNote")}
+								</div>
+							</div>
+						)}
+
+						{/* SVG: drop filters SVG cannot express instead of rasterizing */}
+						{format === "svg" && (
+							<div className="space-y-1">
+								{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
+								<label className="flex items-center gap-2 cursor-pointer">
+									<Checkbox
+										checked={disableIncompatibleSvgFilters}
+										onCheckedChange={handleToggleDisableIncompatibleSvgFilters}
+									/>
+									<span className="text-xs text-muted-foreground">
+										{t("exportDialog.disableIncompatibleSvgFilters")}
+									</span>
+								</label>
+								<div className="text-[10px] text-muted-foreground">
+									{t("exportDialog.disableIncompatibleSvgFiltersNote")}
 								</div>
 							</div>
 						)}

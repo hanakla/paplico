@@ -1,7 +1,12 @@
-import { resolveElementsMapAppearance } from "../../document/appearancePresets";
+import {
+	mapLocalAppearances,
+	resolveElementsMapAppearance,
+} from "../../document/appearancePresets";
 import { classifyFilterHandler } from "../../renderer/canvas/pipeline/FilterRenderer";
 import {
 	type Document,
+	type Filter,
+	generateUid,
 	getArtboardBounds,
 	type RawRGBA,
 	toRGBColor,
@@ -15,6 +20,7 @@ import {
 	serializePlanItems,
 } from "./svg/serializeElement";
 import { SvgDocumentBuilder } from "./svg/svgBuilder";
+import { isSvgNativeFilter } from "./svg/svgFilterPrimitives";
 import type {
 	ExportContext,
 	ExportRenderer,
@@ -25,6 +31,12 @@ import type {
 interface SVGExportOptions {
 	/** Background rect color. Defaults to opaque white, matching PNG export. */
 	backgroundColor?: RawRGBA;
+	/**
+	 * Export as if every filter other than fills, strokes, `svg:*` filters and
+	 * geometry filters were turned off, so as little as possible ends up
+	 * rasterized. The document itself is left untouched.
+	 */
+	disableIncompatibleFilters?: boolean;
 }
 
 interface SVGExportResult extends ExportResult {
@@ -45,7 +57,9 @@ export class SVGExporter implements IExporter {
 		ctx: ExportContext,
 		artboardId: string,
 	): Promise<SVGExportResult | null> {
-		const doc = ctx.document;
+		const doc = this.options.disableIncompatibleFilters
+			? withoutIncompatibleFilters(ctx.document, ctx.renderer)
+			: ctx.document;
 		const artboard = doc.artboards.find((a) => a.id === artboardId);
 		if (!artboard) {
 			console.error(`Artboard not found: ${artboardId}`);
@@ -61,6 +75,9 @@ export class SVGExporter implements IExporter {
 			return await this.renderInner(ctx.renderer, doc, artboard);
 		} finally {
 			restoreTextDocumentResolver();
+			// The filtered copy renders its raster chunks under its own cache
+			// scope; nothing will draw that document again.
+			if (doc !== ctx.document) ctx.renderer.dropDocumentCaches(doc.id);
 		}
 	}
 
@@ -188,4 +205,48 @@ export class SVGExporter implements IExporter {
 			state: { invertFilterId: null },
 		};
 	}
+}
+
+/**
+ * A copy of the document whose filters SVG cannot express are disabled,
+ * sub-filters and preset appearances included. It gets its own id so its
+ * renders never share cache entries with the live document's elements.
+ */
+function withoutIncompatibleFilters(
+	doc: Document,
+	renderer: ExportRenderer,
+): Document {
+	const disable = (filter: Filter): Filter => {
+		const compatible =
+			isSvgNativeFilter(filter.processor) ||
+			classifyFilterHandler(renderer.getFilterHandler(filter.processor)) !==
+				"raster";
+		return {
+			...filter,
+			...(compatible ? {} : { enabled: false }),
+			...(filter.subFilters
+				? { subFilters: filter.subFilters.map(disable) }
+				: {}),
+		};
+	};
+	// Preset appearances are expanded first so their filters are judged too.
+	const elements = new Map(Object.entries(doc.objects));
+	resolveElementsMapAppearance(elements, doc);
+	return {
+		...doc,
+		id: generateUid("svg-export"),
+		objects: Object.fromEntries(
+			elements.entries().map(([id, element]) => [
+				id,
+				element.filters
+					? {
+							...element,
+							filters: mapLocalAppearances(element.filters, (filters) =>
+								filters.map(disable),
+							),
+						}
+					: element,
+			]),
+		),
+	};
 }

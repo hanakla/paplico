@@ -48,6 +48,7 @@ import {
 	splitIntoSubPaths,
 	transformSegmentsToWorld,
 } from "../../../utils/geometry/segmentOps";
+import { splitAppearanceCopies } from "./appearanceCopies";
 import {
 	type ClassifyOptions,
 	planLayerItems,
@@ -162,6 +163,9 @@ async function serializeVectorElement(
 	ctx: SerializeContext,
 	ancestor?: ElementTransform,
 ): Promise<SvgNode | null> {
+	const copies = splitAppearanceCopies(element);
+	if (copies) return serializeAppearanceCopies(element, copies, ctx, ancestor);
+
 	switch (element.type) {
 		case "path":
 			return serializePathLike(element, element.segments, ctx, ancestor);
@@ -304,6 +308,53 @@ async function serializePathLike(
 		composed,
 		{},
 		svgFilter !== null,
+		svgFilter,
+	);
+}
+
+/**
+ * Stack the per-appearance copies of an element inside one wrapper carrying
+ * the element's opacity, blend, mask and `svg:*` chain. The renderer
+ * composites appearances in an isolated texture when one of them blends or
+ * runs a sub-filter on its own raster, so the copies then share an isolated
+ * group; with geometry sub-filters alone it draws them straight onto the
+ * canvas at element opacity, so each copy then carries that opacity itself.
+ */
+async function serializeAppearanceCopies(
+	element: AnyArtObject,
+	copies: Array<Path | CompoundPath>,
+	ctx: SerializeContext,
+	ancestor?: ElementTransform,
+): Promise<SvgNode | null> {
+	const svgFilter = registerSvgFilter(element, ctx, ancestor);
+	const cullBounds = innerCullBounds(svgFilter, ctx.cullBounds);
+	if (cullBounds === null) return null;
+
+	const isolated =
+		svgFilter !== null ||
+		copies.some(
+			(copy) =>
+				copy.blendMode !== "normal" ||
+				collectSvgFilterChain(copy.filters).length > 0,
+		);
+	const nodes: SvgNode[] = [];
+	for (const copy of copies) {
+		const node = await serializeVectorElement(
+			isolated ? { ...copy, opacity: 1 } : copy,
+			{ ...ctx, cullBounds },
+			ancestor,
+		);
+		if (node) nodes.push(node);
+	}
+	if (nodes.length === 0) return null;
+
+	return wrapElement(
+		nodes,
+		element,
+		ctx,
+		composeAncestor(ancestor, getTransform(element)),
+		isolated ? { style: "isolation:isolate" } : {},
+		isolated,
 		svgFilter,
 	);
 }

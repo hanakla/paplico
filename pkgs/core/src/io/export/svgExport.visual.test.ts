@@ -143,6 +143,18 @@ describe("SVG Export vs GPU render - native SVG filter primitives", () => {
 	});
 });
 
+describe("SVG Export vs GPU render - per-appearance copies", () => {
+	it("appearance blends and sub-filters match the PNG render", async () => {
+		const { renderer } = await createTestRenderer();
+		const { doc, artboard } = buildAppearanceCopiesDocument();
+
+		// Each fill/stroke is exported as its own copy of the shape. A copy
+		// blending against the wrong backdrop or losing its sub-filter shifts
+		// whole shapes, far past this threshold.
+		await expectSvgMatchesGpu(renderer, artboard, doc, "appearance-copies", 1);
+	});
+});
+
 // --- Synthetic SVG filter fixtures ---
 
 /** Integer-aligned squares carrying the primitives resvg reproduces exactly. */
@@ -363,6 +375,80 @@ function svgFilter(processor: string, params: object): Filter {
 		blendMode: "normal",
 		paramData: { version: "1", params },
 	};
+}
+
+// --- Synthetic per-appearance copy fixtures ---
+
+/**
+ * Overlapping fill/stroke pairs whose appearances draw on their own: a
+ * multiply-blended stroke, a zigzag sub-filter at element opacity, and an
+ * `svg:offset` sub-filter on a stroke.
+ */
+function buildAppearanceCopiesDocument(): {
+	doc: Document;
+	artboard: Artboard;
+} {
+	const doc = createDefaultDocument("doc-appearance-copies");
+	const artboard = createArtboard(
+		"ab-appearance-copies",
+		"AppearanceCopies",
+		0,
+		0,
+		400,
+		300,
+	);
+	doc.artboards = [artboard];
+
+	const stroke = (partial: Partial<Filter> = {}): Filter => ({
+		uid: generateUid("app"),
+		processor: "stroke",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: {
+			version: "1",
+			params: {
+				strokeColor: {
+					type: "solid",
+					color: { type: "rgb", r: 0.1, g: 0.6, b: 0.9, a: 1 },
+				},
+				brushSettings: createStrokeBrushSettings(16),
+			},
+		},
+		...partial,
+	});
+
+	const elements: AnyArtObject[] = [
+		{
+			...rectPath("el-blend", { x: -110, y: 0 }, 70, 70, [
+				solidFillAppearance(0.95, 0.75, 0.2),
+				stroke({ blendMode: "multiply" }),
+			]),
+			opacity: 0.8,
+		},
+		{
+			...rectPath("el-zigzag", { x: 0, y: 0 }, 70, 70, [
+				{
+					...solidFillAppearance(0.9, 0.3, 0.3),
+					subFilters: [svgFilter("zigzag", { frequency: 12, amplitude: 6 })],
+				},
+				stroke(),
+			]),
+			opacity: 0.6,
+		},
+		rectPath("el-offset", { x: 110, y: 0 }, 70, 70, [
+			solidFillAppearance(0.3, 0.8, 0.4),
+			stroke({
+				subFilters: [
+					svgFilter("svg:offset", { in: "previous", dx: 10, dy: -10 }),
+				],
+			}),
+		]),
+	];
+
+	for (const el of elements) doc.objects[el.id] = el;
+	doc.layers[0].elementIds = elements.map((el) => el.id);
+
+	return { doc, artboard };
 }
 
 // --- Synthetic 3D fixtures ---

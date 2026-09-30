@@ -633,11 +633,37 @@ describe("classifyElement", () => {
 		expect(classifyElement(gradientStrokeText, opts)).toBe("raster");
 	});
 
-	it("should rasterize appearances with non-normal blend modes", () => {
+	it("should vectorize paths whose fills and strokes blend on their own", () => {
 		const el = basePath({
-			filters: [{ ...solidFill(), blendMode: "multiply" }],
+			filters: [solidFill(), { ...solidStroke(), blendMode: "multiply" }],
+		});
+		expect(classifyElement(el, makeOptions([el]))).toBe("bake");
+	});
+
+	it("should vectorize paths whose fills carry geometry or svg sub-filters", () => {
+		const el = basePath({
+			filters: [
+				{
+					...solidFill(),
+					subFilters: [appearance("zigzag"), appearance("svg:flood", {})],
+				},
+			],
+		});
+		expect(classifyElement(el, makeOptions([el]))).toBe("bake");
+	});
+
+	it("should rasterize paths whose fills carry raster sub-filters", () => {
+		const el = basePath({
+			filters: [{ ...solidFill(), subFilters: [appearance("blur")] }],
 		});
 		expect(classifyElement(el, makeOptions([el]))).toBe("raster");
+	});
+
+	it("should rasterize texts whose fills blend on their own", () => {
+		const text = textElement({
+			filters: [{ ...solidFill(), blendMode: "multiply" }],
+		});
+		expect(classifyElement(text, makeOptions([text]))).toBe("raster");
 	});
 
 	it("should rasterize owners whose mask content needs rasterization", () => {
