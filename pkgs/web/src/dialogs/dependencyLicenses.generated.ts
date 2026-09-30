@@ -125,7 +125,7 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 	},
 	{
 		name: "@tauri-apps/api",
-		version: "2.11.1",
+		version: "2.12.0",
 		license: "Apache-2.0 OR MIT",
 		url: "https://github.com/tauri-apps/tauri",
 	},
@@ -137,19 +137,19 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 	},
 	{
 		name: "@tauri-apps/plugin-dialog",
-		version: "2.7.2",
+		version: "2.8.0",
 		license: "MIT OR Apache-2.0",
 		url: "https://github.com/tauri-apps/plugins-workspace",
 	},
 	{
 		name: "@tauri-apps/plugin-fs",
-		version: "2.5.0",
+		version: "2.6.0",
 		license: "MIT OR Apache-2.0",
 		url: "https://github.com/tauri-apps/plugins-workspace",
 	},
 	{
 		name: "@tauri-apps/plugin-opener",
-		version: "2.5.3",
+		version: "2.7.0",
 		license: "MIT OR Apache-2.0",
 		url: "https://github.com/tauri-apps/plugins-workspace",
 	},
