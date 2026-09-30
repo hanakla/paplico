@@ -58,6 +58,7 @@ export class TIFFExporter implements IExporter {
 			doc,
 			scale,
 			backgroundColor,
+			{ targetId: ctx.targetId },
 		);
 		if (!imageData) {
 			console.error("Failed to render artboard");

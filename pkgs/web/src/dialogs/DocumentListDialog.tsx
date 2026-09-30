@@ -3,10 +3,12 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
 	ChevronRight,
 	Copy,
+	Download,
 	File,
 	MoreHorizontal,
 	Plus,
 	Trash2,
+	TriangleAlert,
 	X,
 } from "lucide-react";
 import { memo, useEffect, useState } from "react";
@@ -27,6 +29,7 @@ import {
 	type DocumentSnapshot,
 	db,
 } from "@/infra/documentDB";
+import { FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import {
 	setInternalDocumentSession,
@@ -42,7 +45,9 @@ import {
 	renameDocument,
 	saveDocument,
 } from "@/stores/documentStore";
+import { reportError } from "@/utils/errorReporting";
 import { useEventCallback } from "@/utils/hooks";
+import { IS_TAURI_ENV } from "@/utils/platform";
 import { twm } from "@/utils/tailwind";
 
 export const DocumentListDialog = memo(function DocumentListDialog({
@@ -108,6 +113,28 @@ export const DocumentListDialog = memo(function DocumentListDialog({
 			onOpenChange(false);
 		},
 	);
+
+	const handleDownloadSnapshot = useEventCallback(
+		async (doc: DocumentMeta, snapshot: DocumentSnapshot) => {
+			if (!paplico) return;
+
+			try {
+				const blob = await paplico.wrapDocumentFile(snapshot.document);
+				const timestamp = new Date(snapshot.createdAt)
+					.toISOString()
+					.replace(/[:.]/g, "-");
+				await FileSystem.exportFile(blob, `${doc.name}-${timestamp}.papf`);
+			} catch (cause) {
+				reportError({ code: "EXPORT_FAILED", cause });
+			}
+		},
+	);
+
+	const handleDownloadDocument = useEventCallback(async (doc: DocumentMeta) => {
+		const data = await loadDocumentData(doc.id);
+		if (!data) return;
+		await handleDownloadSnapshot(doc, data);
+	});
 
 	const handleCreateDocument = useEventCallback(async () => {
 		if (!paplico) return;
@@ -187,6 +214,14 @@ export const DocumentListDialog = memo(function DocumentListDialog({
 
 				{/* Content */}
 				<div className="flex-1 overflow-y-auto p-4">
+					{/* A browser may evict site storage when the disk runs low */}
+					{!IS_TAURI_ENV && (
+						<div className="mb-3 flex items-start gap-2 rounded-lg border border-warn bg-warn/20 px-3 py-2 text-xs text-foreground">
+							<TriangleAlert size={14} className="mt-0.5 shrink-0 text-warn" />
+							<p>{t("documentList.storageWarning")}</p>
+						</div>
+					)}
+
 					{/* New Document Button */}
 					<button
 						type="button"
@@ -220,7 +255,11 @@ export const DocumentListDialog = memo(function DocumentListDialog({
 										isCurrent={doc.id === docManagerSnap.currentDocumentId}
 										onOpen={() => handleOpenDocument(doc.id)}
 										onOpenSnapshot={handleOpenRevision}
+										onDownloadSnapshot={(snapshot) =>
+											handleDownloadSnapshot(doc, snapshot)
+										}
 										onRename={(name) => renameDocument(doc.id, name)}
+										onDownload={() => handleDownloadDocument(doc)}
 										onDelete={() => handleDelete(doc)}
 										onDuplicate={() => handleDuplicate(doc)}
 									/>
@@ -248,7 +287,9 @@ const DocumentRow = memo(function DocumentRow({
 	isCurrent,
 	onOpen,
 	onOpenSnapshot,
+	onDownloadSnapshot,
 	onRename,
+	onDownload,
 	onDelete,
 	onDuplicate,
 }: {
@@ -259,7 +300,9 @@ const DocumentRow = memo(function DocumentRow({
 	isCurrent: boolean;
 	onOpen: () => void;
 	onOpenSnapshot: (snapshot: DocumentSnapshot) => void;
+	onDownloadSnapshot: (snapshot: DocumentSnapshot) => void;
 	onRename: (name: string) => void;
+	onDownload: () => void;
 	onDelete: () => void;
 	onDuplicate: () => void;
 }) {
@@ -340,6 +383,10 @@ const DocumentRow = memo(function DocumentRow({
 													<Copy size={12} />
 													{t("documentList.duplicate")}
 												</Menu.Item>
+												<Menu.Item onClick={onDownload}>
+													<Download size={12} />
+													{t("documentList.download")}
+												</Menu.Item>
 												<Menu.Separator />
 												<Menu.Item
 													onClick={onDelete}
@@ -381,6 +428,7 @@ const DocumentRow = memo(function DocumentRow({
 							label={t("documentList.currentSnapshot")}
 							snapshot={currentData}
 							onOpen={onOpen}
+							onDownload={() => onDownloadSnapshot(currentData)}
 						/>
 					)}
 					{/* Revisions (newest first - already sorted) */}
@@ -392,6 +440,7 @@ const DocumentRow = memo(function DocumentRow({
 							} as any)}
 							snapshot={rev}
 							onOpen={() => onOpenSnapshot(rev)}
+							onDownload={() => onDownloadSnapshot(rev)}
 						/>
 					))}
 					{!currentData && !revisions?.length && (
@@ -411,32 +460,43 @@ const SnapshotRow = memo(function SnapshotRow({
 	label,
 	snapshot,
 	onOpen,
+	onDownload,
 }: {
 	label: string;
 	snapshot: DocumentSnapshot;
 	onOpen: () => void;
+	onDownload: () => void;
 }) {
+	const t = useTranslation();
 	const timeAgo = formatRelativeTime(snapshot.createdAt);
 
 	return (
-		<button
-			type="button"
-			onClick={onOpen}
-			className={twm(
-				"flex items-center gap-2 px-2 py-1.5 rounded w-full text-left",
-				"hover:bg-muted/50 transition-colors text-xs",
-			)}
-		>
-			<div className="shrink-0 w-6 h-6 rounded bg-white flex items-center justify-center overflow-hidden">
-				{snapshot.thumbnail ? (
-					<ThumbnailImage thumbnail={snapshot.thumbnail} />
-				) : (
-					<File size={10} className="text-muted-foreground" />
-				)}
-			</div>
-			<span className="text-muted-foreground">{label}</span>
-			<span className="text-muted-foreground ml-auto">{timeAgo}</span>
-		</button>
+		<div className="flex items-center gap-1 pr-1 rounded hover:bg-muted/50 transition-colors">
+			<button
+				type="button"
+				onClick={onOpen}
+				className="flex flex-1 items-center gap-2 px-2 py-1.5 rounded text-left text-xs"
+			>
+				<div className="shrink-0 w-6 h-6 rounded bg-white flex items-center justify-center overflow-hidden">
+					{snapshot.thumbnail ? (
+						<ThumbnailImage thumbnail={snapshot.thumbnail} />
+					) : (
+						<File size={10} className="text-muted-foreground" />
+					)}
+				</div>
+				<span className="text-muted-foreground">{label}</span>
+				<span className="text-muted-foreground ml-auto">{timeAgo}</span>
+			</button>
+			<button
+				type="button"
+				onClick={onDownload}
+				title={t("documentList.download")}
+				aria-label={t("documentList.download")}
+				className="shrink-0 p-1.5 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+			>
+				<Download size={12} />
+			</button>
+		</div>
 	);
 });
 

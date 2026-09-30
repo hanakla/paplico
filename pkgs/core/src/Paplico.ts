@@ -2389,6 +2389,37 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
+	 * Wraps a stored papf into the same PDF-compatible file as
+	 * `exportDocumentFile`, with preview pages drawn from that papf's own
+	 * document. A stored revision shares element ids with the live document,
+	 * so the pages are drawn through a throwaway isolated target.
+	 */
+	public async wrapDocumentFile(papf: Blob): Promise<Blob> {
+		const { openPapfContainer, wrapPapfInPdf } = await import(
+			"./io/papf/pdfContainer"
+		);
+		const doc = await (await openPapfContainer(papf)).toDocument((stored) =>
+			prepareMigrationContext(stored, this.fonts),
+		);
+
+		const target = new CanvasTarget(
+			globalThis.document.createElement("canvas"),
+		);
+		await this.renderer.initCanvasTarget(target, { isolated: true });
+		try {
+			const pages = await renderPdfPreviewPages({
+				...this.createExportContext(),
+				document: doc,
+				targetId: target.id,
+			});
+			return wrapPapfInPdf(new Uint8Array(await papf.arrayBuffer()), pages);
+		} finally {
+			this.renderer.disposeCanvasTarget(target);
+			target.dispose();
+		}
+	}
+
+	/**
 	 * Replace the current document with `source`.
 	 * @throws PaplicoError while a collaboration transport is attached, since
 	 * the transport would keep syncing the discarded Y.Doc.

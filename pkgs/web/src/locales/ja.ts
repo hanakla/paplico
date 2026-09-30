@@ -1326,6 +1326,9 @@ export const ja = {
 		revisionLabel: "版{{number}}",
 		revisionCount: "{{count}}版",
 		noSnapshots: "スナップショットなし",
+		download: "ダウンロード",
+		storageWarning:
+			"ドキュメントはこのブラウザの中に保存されています。デバイスの空き容量が少なくなると、ブラウザが消してしまうことがあります。大切なドキュメントはダウンロードして保存してください。",
 	},
 	autoSave: {
 		nextSaveIn: "次の自動保存まで: {{time}}",

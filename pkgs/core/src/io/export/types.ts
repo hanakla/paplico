@@ -15,6 +15,10 @@ export interface IExporter {
 export interface ExportContext {
 	readonly document: Document;
 	readonly renderer: ExportRenderer;
+	/** Target the artboard rasters are drawn through. Set for a document that
+	 *  is not the live one, so its element ids stay out of the editor's cache
+	 *  scope; omitted, the editor's active target draws them. */
+	readonly targetId?: string;
 	getBuiltinProfileBytes(id: BuiltinIccProfileId): Promise<Uint8Array>;
 }
 

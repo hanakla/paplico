@@ -6,6 +6,8 @@
 
 ### Added
 
+- `Paplico.wrapDocumentFile(papf)` wraps a stored papf into the same PDF-compatible file as `exportDocumentFile`. The preview pages are drawn from that papf's own document through a throwaway isolated target, so a stored revision never touches the editor's caches.
+- `ExportContext.targetId` names the target that `PNGExporter`, `JPEGExporter` and `TIFFExporter` draw artboards through.
 - `PaplicoCommands.flipElements(ids, flip)` mirrors a selection in the axes of its selection frame, so a lone rotated element turns over across its own axis. The ActionsPanel's flip buttons use it.
 - `PaplicoCommands.updateElementTransforms(updates)` rewrites the transforms of several elements in one undo step so the fields act on each element as it is seen: a change of the rotation, scale or skew fields turns the element around the centre of its local bounds instead of its origin, and a change of `x` and `y` moves it by that much. The ActionsPanel's rotation and skew inputs and the transforms written by automation scripts go through it.
 - `placementAnchorIds` option of `PaplicoCommands.pasteElements`. `placement` is resolved against these elements instead of the selection.

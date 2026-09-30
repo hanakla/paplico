@@ -1325,6 +1325,9 @@ export const en = {
 		revisionLabel: "Rev.{{number}}",
 		revisionCount: "{{count}} rev",
 		noSnapshots: "No snapshots",
+		download: "Download",
+		storageWarning:
+			"Documents are stored inside this browser. The browser may delete them when your device runs low on space. Download the ones that matter to keep them safe.",
 	},
 	autoSave: {
 		nextSaveIn: "Next auto-save in: {{time}}",
