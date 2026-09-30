@@ -273,6 +273,7 @@ export function Toolbar({
 		shapePeekTimer.current = null;
 	});
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: useEventCallback keeps a stable reference
 	useEffect(() => {
 		if (prevShapeType.current === snap.shapeType) return;
 		prevShapeType.current = snap.shapeType;
@@ -286,6 +287,7 @@ export function Toolbar({
 		}, 800);
 	}, [snap.shapeType, shapePanelOpen]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: useEventCallback keeps a stable reference
 	useEffect(() => clearShapePeek, []);
 
 	// Close shape panel on outside click

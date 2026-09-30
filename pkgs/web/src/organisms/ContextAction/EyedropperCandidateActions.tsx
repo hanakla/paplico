@@ -27,6 +27,7 @@ export function EyedropperCandidateActions({
 	// press can be dragged onto a row and released to choose it. The canvas
 	// holds the pointer capture meanwhile, hence the window listeners and the
 	// lookup by position.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new candidate list comes from a new press, whose release must be listened for again
 	useEffect(() => {
 		const rowIdAt = (e: PointerEvent) =>
 			document
