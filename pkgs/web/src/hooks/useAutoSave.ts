@@ -24,6 +24,8 @@ export function useAutoSave(): { save: () => void } {
 	const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const pendingRef = useRef(false);
 	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	// A ref so edits survive the timer effect restarting on interval changes
+	const hasUnsavedRevisionRef = useRef(false);
 
 	const { intervalMs } = useSnapshot(autoSaveState);
 
@@ -80,9 +82,19 @@ export function useAutoSave(): { save: () => void } {
 		autoSaveState.lastSaveTimestamp = now;
 		autoSaveState.nextSaveAt = now + intervalMs;
 
+		const unsubscribe = paplico.getYjsProvider().on("update", () => {
+			hasUnsavedRevisionRef.current = true;
+		});
+
 		const runRevisionSave = async () => {
 			if (!paplico || !documentId || autoSaveState.isSaving) return;
+			if (!hasUnsavedRevisionRef.current) {
+				markSaveAttempted();
+				return;
+			}
 
+			// Cleared before exporting so edits made during the save mark the next one
+			hasUnsavedRevisionRef.current = false;
 			autoSaveState.isSaving = true;
 			const start = performance.now();
 
@@ -102,6 +114,7 @@ export function useAutoSave(): { save: () => void } {
 				autoSaveState.saveCount++;
 				resolveBanner("AUTOSAVE_FAILED");
 			} catch (cause) {
+				hasUnsavedRevisionRef.current = true;
 				reportError({ code: "AUTOSAVE_FAILED", channel: "banner", cause });
 			} finally {
 				autoSaveState.isSaving = false;
@@ -118,6 +131,8 @@ export function useAutoSave(): { save: () => void } {
 		scheduleNext();
 
 		return () => {
+			unsubscribe();
+
 			if (intervalRef.current) {
 				clearTimeout(intervalRef.current);
 				intervalRef.current = null;
