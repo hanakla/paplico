@@ -1,3 +1,4 @@
+import { Menu as BUIMenu } from "@base-ui/react/menu";
 import {
 	closestCenter,
 	DndContext,
@@ -23,6 +24,7 @@ import {
 	type AnyArtObject,
 	type BlendMode,
 	type Group,
+	getContainerChildIds,
 	isBlend,
 	isCompoundPath,
 	isGroup,
@@ -32,11 +34,14 @@ import {
 import { calculateElementBounds } from "@paplico/core/utils";
 import {
 	ArrowLeft,
+	Check,
 	ChevronDown,
 	ChevronRight,
 	Eclipse,
+	Ellipsis,
 	Eye,
 	EyeOff,
+	FunnelX,
 	List,
 	ListTree,
 	Lock,
@@ -58,6 +63,7 @@ import {
 import { useSnapshot } from "valtio";
 import { FakeInput } from "@/components/FakeInput";
 import { IconButton } from "@/components/IconButton";
+import { Menu } from "@/components/Menu";
 import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import { Tooltip } from "@/components/Tooltip";
@@ -198,13 +204,57 @@ export function LayerPanel() {
 	// reach, so listing it would only offer rows that do nothing.
 	const maskEditOwnerId = snap.maskEditSession?.ownerId ?? null;
 	const isMaskSession = maskEditOwnerId != null;
-	const displayedLayers = useMemo(() => {
-		const reversed = [...snap.document.layers].reverse();
-		if (!maskEditOwnerId) return reversed;
-		return reversed.filter(
-			(layer) => layer.transientKind === TRANSIENT_LAYER_KIND.MASK_EDIT,
-		);
-	}, [snap.document.layers, maskEditOwnerId]);
+	const showsElementRows = !isSimpleMode || isMaskSession;
+
+	const [filter, setFilter] = useState<LayerPanelFilter>(EMPTY_LAYER_FILTER);
+	const isFiltering = filter.locked || filter.hidden;
+	const filtered = useMemo(
+		() =>
+			isFiltering
+				? filterLayerList(
+						{ layers: snap.document.layers, objects: snappedObjects },
+						filter,
+						showsElementRows,
+					)
+				: null,
+		[
+			isFiltering,
+			snap.document.layers,
+			snappedObjects,
+			filter,
+			showsElementRows,
+		],
+	);
+
+	const openPathsToMatches = useEventCallback(() => {
+		if (!filtered) return;
+		setExpandedLayerIds((prev) => prev.union(filtered.openLayerIds));
+		setExpandedGroups((prev) => prev.union(filtered.openElementIds));
+	});
+
+	// Opens the way down to every match when the conditions or the drawn rows
+	// change, but not on document edits, so the rows stay foldable afterwards.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: filter and showsElementRows are the triggers; openPathsToMatches is stable (useEventCallback)
+	useEffect(() => {
+		openPathsToMatches();
+	}, [filter, showsElementRows]);
+
+	const handleClearFilter = useEventCallback(() => {
+		setFilter(EMPTY_LAYER_FILTER);
+	});
+
+	const displayedLayers = useMemo(
+		() =>
+			[...snap.document.layers]
+				.reverse()
+				.filter(
+					(layer) =>
+						(!maskEditOwnerId ||
+							layer.transientKind === TRANSIENT_LAYER_KIND.MASK_EDIT) &&
+						(!filtered || filtered.shownIds.has(layer.id)),
+				),
+		[snap.document.layers, maskEditOwnerId, filtered],
+	);
 
 	const layerSortIds = useMemo(
 		() => displayedLayers.map((layer) => `layer-sort-${layer.id}`),
@@ -273,16 +323,30 @@ export function LayerPanel() {
 										{isSimpleMode ? <List size={14} /> : <ListTree size={14} />}
 									</IconButton>
 								</Tooltip>
+								{isFiltering && (
+									<Tooltip content={t("layerPanel.clearFilter")}>
+										<IconButton
+											$size="xs"
+											$variant="ghost"
+											onClick={handleClearFilter}
+										>
+											<FunnelX size={14} />
+										</IconButton>
+									</Tooltip>
+								)}
 							</div>
-							{!isReadonly && (
-								<IconButton
-									$size="xs"
-									$variant="ghost"
-									onClick={handleAddLayer}
-								>
-									<Plus size={14} />
-								</IconButton>
-							)}
+							<div className="flex items-center gap-0.5">
+								{!isReadonly && (
+									<IconButton
+										$size="xs"
+										$variant="ghost"
+										onClick={handleAddLayer}
+									>
+										<Plus size={14} />
+									</IconButton>
+								)}
+								<LayerFilterMenu filter={filter} onChange={setFilter} />
+							</div>
 						</>
 					)}
 				</div>
@@ -325,7 +389,9 @@ export function LayerPanel() {
 								const topLevelElements = layer.elementIds
 									.map((id) => snappedObjects[id])
 									.filter((el): el is AnyArtObject => el != null);
-								const reversedTopLevel = [...topLevelElements].reverse();
+								const reversedTopLevel = topLevelElements
+									.filter((el) => !filtered || filtered.shownIds.has(el.id))
+									.reverse();
 
 								return (
 									<SortableLayerSection
@@ -356,9 +422,9 @@ export function LayerPanel() {
 										    precisely so its contents can be worked on, and simple mode
 										    draws no element rows at all, so obeying either would leave
 										    a header with nothing under it. */}
-										{(!isSimpleMode || isMaskSession) &&
+										{showsElementRows &&
 											(expandedLayerIds.has(layer.id) || isMaskSession) &&
-											topLevelElements.length > 0 && (
+											reversedTopLevel.length > 0 && (
 												<div className="ml-6 space-y-0.5">
 													<SortableContext
 														items={reversedTopLevel.map((el) => el.id)}
@@ -780,6 +846,72 @@ export function resolveDragEndAction(
 	return null;
 }
 
+/** Flags the panel narrows its list to; entries matching any enabled flag stay listed. */
+export type LayerPanelFilter = { locked: boolean; hidden: boolean };
+
+const EMPTY_LAYER_FILTER: LayerPanelFilter = { locked: false, hidden: false };
+
+/**
+ * Narrows the layer list to the rows that lead to a locked / hidden entry.
+ * Only layers and their top-level elements are dropped: a container that
+ * leads to a match keeps all its children, so every level on the way down
+ * shows its siblings. `includeElements: false` matches layers by their own
+ * flags only, for the mode that draws no element rows.
+ */
+export function filterLayerList(
+	document: {
+		layers: readonly {
+			readonly id: string;
+			readonly locked: boolean;
+			readonly visible: boolean;
+			readonly elementIds: readonly string[];
+		}[];
+		objects: Readonly<Record<string, AnyArtObject>>;
+	},
+	filter: LayerPanelFilter,
+	includeElements: boolean,
+): {
+	/** Layers and top-level elements to keep listed */
+	shownIds: Set<string>;
+	/** Layers holding a match, to be expanded so the match is visible */
+	openLayerIds: Set<string>;
+	/** Containers holding a match, to be expanded so the match is visible */
+	openElementIds: Set<string>;
+} {
+	const shownIds = new Set<string>();
+	const openLayerIds = new Set<string>();
+	const openElementIds = new Set<string>();
+
+	const matches = (entry: { locked?: boolean; visible?: boolean }) =>
+		(filter.locked && entry.locked === true) ||
+		(filter.hidden && entry.visible === false);
+
+	// Visits every child (no short-circuit) so each container on a path to a
+	// match gets opened, not only the first one found.
+	const leadsToMatch = (id: string): boolean => {
+		const element = document.objects[id];
+		if (!element) return false;
+
+		const childIds = isExpandableRow(element)
+			? (getContainerChildIds(element) ?? [])
+			: [];
+		const holdsMatch = childIds.map(leadsToMatch).includes(true);
+		if (holdsMatch) openElementIds.add(id);
+		return holdsMatch || matches(element);
+	};
+
+	for (const layer of document.layers) {
+		const shownElementIds = includeElements
+			? layer.elementIds.filter(leadsToMatch)
+			: [];
+		for (const id of shownElementIds) shownIds.add(id);
+		if (shownElementIds.length > 0) openLayerIds.add(layer.id);
+		if (shownElementIds.length > 0 || matches(layer)) shownIds.add(layer.id);
+	}
+
+	return { shownIds, openLayerIds, openElementIds };
+}
+
 type ConfirmDeleteButtonProps = {
 	onConfirm: () => void;
 	confirmLabel?: string;
@@ -945,12 +1077,7 @@ const SortableElementItem = memo(function SortableElementItem({
 		onToggleLock(layerId, element.id);
 	});
 
-	const isGroupElement = isGroup(element);
-	const isCompoundPathElement = isCompoundPath(element);
-	const isBlendElement = isBlend(element);
-	const isMeshElement = isMesh(element);
-	const isExpandable =
-		isGroupElement || isCompoundPathElement || isBlendElement || isMeshElement;
+	const isExpandable = isExpandableRow(element);
 	const isExpanded = isExpandable && expandedGroups.has(element.id);
 	const ownClipPathId = isGroup(element) ? element.clipPathId : null;
 	const ownSpineId = isBlend(element) ? element.spineSourceId : null;
@@ -1392,6 +1519,68 @@ const EditingScopeHeader = memo(function EditingScopeHeader({
 	);
 });
 
+/** `…` menu of the panel header: narrows the list to locked / hidden entries. */
+const LayerFilterMenu = memo(function LayerFilterMenu({
+	filter,
+	onChange,
+}: {
+	filter: LayerPanelFilter;
+	onChange: (filter: LayerPanelFilter) => void;
+}) {
+	const t = useTranslation();
+
+	return (
+		<Menu.Root>
+			<BUIMenu.Trigger
+				render={
+					<IconButton
+						$size="xs"
+						$variant="ghost"
+						title={t("layerPanel.filter")}
+					>
+						<Ellipsis size={14} />
+					</IconButton>
+				}
+			/>
+			<Menu.Portal>
+				<Menu.Positioner align="end" sideOffset={4}>
+					<Menu.Popup>
+						<Menu.Group>
+							<Menu.GroupLabel>{t("layerPanel.filter")}</Menu.GroupLabel>
+							<Menu.CheckboxItem
+								checked={filter.locked}
+								closeOnClick
+								onCheckedChange={(locked) => onChange({ ...filter, locked })}
+							>
+								<Menu.CheckboxItemIndicator
+									keepMounted
+									className="data-unchecked:invisible"
+								>
+									<Check size={12} />
+								</Menu.CheckboxItemIndicator>
+								{t("layerPanel.filterLocked")}
+							</Menu.CheckboxItem>
+							<Menu.CheckboxItem
+								checked={filter.hidden}
+								closeOnClick
+								onCheckedChange={(hidden) => onChange({ ...filter, hidden })}
+							>
+								<Menu.CheckboxItemIndicator
+									keepMounted
+									className="data-unchecked:invisible"
+								>
+									<Check size={12} />
+								</Menu.CheckboxItemIndicator>
+								{t("layerPanel.filterHidden")}
+							</Menu.CheckboxItem>
+						</Menu.Group>
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
+	);
+});
+
 function useLayerPanelDragDrop(deps: {
 	commands: {
 		reorderLayers: (oldIndex: number, newIndex: number) => void;
@@ -1681,6 +1870,16 @@ function useLayerPanelSensors() {
 	);
 }
 const DND_MODIFIERS = [restrictLayerDragToVertical];
+
+/** Whether the panel lists the element's children under a foldable row. */
+function isExpandableRow(element: AnyArtObject): boolean {
+	return (
+		isGroup(element) ||
+		isCompoundPath(element) ||
+		isBlend(element) ||
+		isMesh(element)
+	);
+}
 
 export function getElementTypeLabel(
 	element: Pick<AnyArtObject, "type">,

@@ -3,6 +3,8 @@ import type { AnyArtObject, CompoundPath } from "@paplico/core/schema";
 import { describe, expect, it } from "vitest";
 import {
 	type DragEndAction,
+	filterLayerList,
+	type LayerPanelFilter,
 	resolveDragEndAction,
 } from "@/organisms/LayerPanel";
 
@@ -691,3 +693,123 @@ describe("resolveDragEndAction", () => {
 		});
 	});
 });
+
+describe("filterLayerList", () => {
+	const LOCKED: LayerPanelFilter = { locked: true, hidden: false };
+
+	it("keeps a locked top-level element without its siblings", () => {
+		const document = createFilterDocument({ "rect-b": { locked: true } });
+
+		const { shownIds, openLayerIds } = filterLayerList(document, LOCKED, true);
+
+		expect([...shownIds]).toEqual(["rect-b", "layer-1"]);
+		expect([...openLayerIds]).toEqual(["layer-1"]);
+	});
+
+	it("keeps the top-level container of a nested match and opens every container on the way", () => {
+		const document = createFilterDocument({ "path-p3": { locked: true } });
+
+		const { shownIds, openElementIds } = filterLayerList(
+			document,
+			LOCKED,
+			true,
+		);
+
+		expect([...shownIds]).toEqual(["group-g", "layer-1"]);
+		expect([...openElementIds].sort()).toEqual(["group-g", "group-h"]);
+	});
+
+	it("keeps entries matching either enabled flag", () => {
+		const document = createFilterDocument({
+			"rect-a": { visible: false },
+			"rect-b": { locked: true },
+		});
+
+		const { shownIds } = filterLayerList(
+			document,
+			{ locked: true, hidden: true },
+			true,
+		);
+
+		expect([...shownIds]).toEqual(["rect-a", "rect-b", "layer-1"]);
+	});
+
+	it("ignores a flag whose condition is off", () => {
+		const document = createFilterDocument({ "rect-b": { locked: true } });
+
+		const { shownIds } = filterLayerList(
+			document,
+			{ locked: false, hidden: true },
+			true,
+		);
+
+		expect(shownIds.size).toBe(0);
+	});
+
+	it("keeps a locked layer without listing its unmatched elements", () => {
+		const document = createFilterDocument({ "layer-2": { locked: true } });
+
+		const { shownIds, openLayerIds } = filterLayerList(document, LOCKED, true);
+
+		expect([...shownIds]).toEqual(["layer-2"]);
+		expect(openLayerIds.size).toBe(0);
+	});
+
+	it("leaves a matched container closed when nothing inside it matches", () => {
+		const document = createFilterDocument({ "group-g": { locked: true } });
+
+		const { shownIds, openElementIds } = filterLayerList(
+			document,
+			LOCKED,
+			true,
+		);
+
+		expect([...shownIds]).toEqual(["group-g", "layer-1"]);
+		expect(openElementIds.size).toBe(0);
+	});
+
+	it("matches layers by their own flags only when element rows are not drawn", () => {
+		const document = createFilterDocument({
+			"rect-b": { locked: true },
+			"layer-2": { locked: true },
+		});
+
+		const { shownIds } = filterLayerList(document, LOCKED, false);
+
+		expect([...shownIds]).toEqual(["layer-2"]);
+	});
+});
+
+/**
+ * layer-1: rect-a, group-g (path-p1, group-h (path-p2, path-p3)), rect-b
+ * layer-2: circle-c
+ */
+function createFilterDocument(
+	flags: Record<string, { locked?: boolean; visible?: boolean }>,
+) {
+	const createGroup = (id: string, childIds: string[]) =>
+		({ ...createPath(id), type: "group", childIds }) as AnyArtObject;
+	const objects: Record<string, AnyArtObject> = Object.fromEntries(
+		[
+			createPath("rect-a"),
+			createGroup("group-g", ["path-p1", "group-h"]),
+			createPath("path-p1"),
+			createGroup("group-h", ["path-p2", "path-p3"]),
+			createPath("path-p2"),
+			createPath("path-p3"),
+			createPath("rect-b"),
+			createPath("circle-c"),
+		].map((element) => [element.id, { ...element, ...flags[element.id] }]),
+	);
+	const layers = [
+		{ id: "layer-1", elementIds: ["rect-a", "group-g", "rect-b"] },
+		{ id: "layer-2", elementIds: ["circle-c"] },
+	].map((layer) => ({
+		locked: false,
+		visible: true,
+		...layer,
+		...flags[layer.id],
+	}));
+
+	return { layers, objects };
+}

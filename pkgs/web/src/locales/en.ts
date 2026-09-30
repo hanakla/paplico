@@ -1072,6 +1072,10 @@ export const en = {
 		opacity: "Opacity",
 		simpleMode: "Simple mode",
 		detailedMode: "Detailed mode",
+		filter: "Filter",
+		filterLocked: "Locked",
+		filterHidden: "Hidden",
+		clearFilter: "Clear filter",
 		blendModes: {
 			normal: "Normal",
 			multiply: "Multiply",

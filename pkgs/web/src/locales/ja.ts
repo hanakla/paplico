@@ -1073,6 +1073,10 @@ export const ja = {
 		opacity: "不透明度",
 		simpleMode: "簡易モード",
 		detailedMode: "詳細モード",
+		filter: "絞り込み",
+		filterLocked: "ロック中",
+		filterHidden: "非表示",
+		clearFilter: "絞り込みを解除",
 		blendModes: {
 			normal: "通常",
 			multiply: "乗算",
