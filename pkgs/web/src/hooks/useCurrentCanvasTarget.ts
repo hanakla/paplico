@@ -21,7 +21,7 @@ export function useCurrentCanvasTargetResolver(): {
 	return { getCurrentCanvasTarget };
 }
 
-function resolveCurrentCanvasTarget(
+export function resolveCurrentCanvasTarget(
 	paplico: CanvasTargetResolver,
 	currentTargetId: string | null,
 ): ReturnType<Paplico["getPrimaryTarget"]> {

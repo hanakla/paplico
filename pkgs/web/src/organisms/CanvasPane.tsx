@@ -2,7 +2,10 @@
 
 import type { Paplico } from "@paplico/core";
 import { useEffect, useRef, useState } from "react";
+import { useSnapshot } from "valtio";
 import { ViewIdProvider } from "@/contexts/ViewIdContext";
+import { resolveCurrentCanvasTarget } from "@/hooks/useCurrentCanvasTarget";
+import { uiState } from "@/stores/uiStore";
 import { reportError } from "@/utils/errorReporting";
 import { BucketFillComputingOverlay } from "./BucketFillComputingOverlay";
 import { CanvasZoomToast } from "./CanvasZoomToast";
@@ -37,6 +40,11 @@ export function CanvasPane({
 	const activeTargetIdRef = useRef<string | null>(targetId ?? null);
 	const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 	const [isDeviceRecovering, setIsDeviceRecovering] = useState(false);
+	const { currentTargetId } = useSnapshot(uiState);
+	// Editing UI belongs to the view being worked in; the other split pane would show a duplicate.
+	const isCurrentView =
+		paplico != null &&
+		resolveCurrentCanvasTarget(paplico, currentTargetId)?.id === activeTargetId;
 
 	useEffect(() => {
 		activeTargetIdRef.current = activeTargetId;
@@ -127,24 +135,32 @@ export function CanvasPane({
 				/>
 				{activeTargetId && (
 					<>
-						<TextEditOverlay
-							canvasWidth={canvasSize.width}
-							canvasHeight={canvasSize.height}
-						/>
-						<ContextActionsOverlay
-							canvasWidth={canvasSize.width}
-							canvasHeight={canvasSize.height}
-						/>
-						<MeshDeformHintOverlay
-							canvasWidth={canvasSize.width}
-							canvasHeight={canvasSize.height}
-						/>
+						{isCurrentView && (
+							<>
+								<TextEditOverlay
+									canvasWidth={canvasSize.width}
+									canvasHeight={canvasSize.height}
+								/>
+								<ContextActionsOverlay
+									canvasWidth={canvasSize.width}
+									canvasHeight={canvasSize.height}
+								/>
+								<MeshDeformHintOverlay
+									canvasWidth={canvasSize.width}
+									canvasHeight={canvasSize.height}
+								/>
+							</>
+						)}
 						{/* Belongs beside the canvas, not over the window: screen
 						    positions are measured from the canvas, and in split view
 						    each pane answers for its own viewport. */}
 						<RemoteCursors />
-						<PatternEditBar />
-						<MaskEditBar />
+						{isCurrentView && (
+							<>
+								<PatternEditBar />
+								<MaskEditBar />
+							</>
+						)}
 						<CanvasZoomToast />
 						<BucketFillComputingOverlay />
 						{isDeviceRecovering && <DeviceRecoveryOverlay />}
