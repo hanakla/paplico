@@ -80,13 +80,8 @@ export const RoomHistoryDialog = createCallable<Record<string, never>, void>(
 							<History size={16} />
 							{t("roomHistoryDialog.title")}
 						</Dialog.Title>
-						<Dialog.Close>
-							<button
-								type="button"
-								className="p-1 rounded hover:bg-foreground/10 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent"
-							>
-								<XIcon size={16} />
-							</button>
+						<Dialog.Close className="p-1 rounded hover:bg-foreground/10 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent">
+							<XIcon size={16} />
 						</Dialog.Close>
 					</div>
 

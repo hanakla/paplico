@@ -111,16 +111,13 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 					<Dialog.Title className="text-sm font-medium mb-0">
 						{t("timelapseDialog.timelapse")}
 					</Dialog.Title>
-					<Dialog.Close>
-						<button
-							type="button"
-							className={twm(
-								"p-1 rounded hover:bg-foreground/10 transition-colors",
-								"outline-none focus-visible:ring-2 focus-visible:ring-accent",
-							)}
-						>
-							<X size={16} />
-						</button>
+					<Dialog.Close
+						className={twm(
+							"p-1 rounded hover:bg-foreground/10 transition-colors",
+							"outline-none focus-visible:ring-2 focus-visible:ring-accent",
+						)}
+					>
+						<X size={16} />
 					</Dialog.Close>
 				</div>
 

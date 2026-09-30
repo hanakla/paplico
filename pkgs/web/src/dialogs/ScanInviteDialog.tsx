@@ -93,13 +93,8 @@ export const ScanInviteDialog = createCallable<
 					<Dialog.Title className="text-sm font-medium mb-0">
 						{t("connectRoomDialog.scanCode")}
 					</Dialog.Title>
-					<Dialog.Close>
-						<button
-							type="button"
-							className="p-1 rounded hover:bg-foreground/10 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent"
-						>
-							<XIcon size={16} />
-						</button>
+					<Dialog.Close className="p-1 rounded hover:bg-foreground/10 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent">
+						<XIcon size={16} />
 					</Dialog.Close>
 				</div>
 
