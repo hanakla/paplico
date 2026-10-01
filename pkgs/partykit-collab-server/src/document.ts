@@ -23,6 +23,8 @@ const CollabMessage = {
 	RoomClosed: 4,
 } as const;
 
+const ROOM_TOKEN_VERIFIED_HEADER = "X-Room-Token-Verified";
+
 interface RoomMetadata {
 	createdBy: string;
 	createdAt: string;
@@ -66,31 +68,41 @@ export default class DocumentServer implements Party.Server {
 		}
 
 		const jwtSecret = lobby.env.SUPABASE_JWT_SECRET as string | undefined;
-		const user = jwtSecret
-			? await verifyWithSecret(token, jwtSecret)
-			: verifyFallback(token);
+		if (!jwtSecret) {
+			console.error("SUPABASE_JWT_SECRET is not set");
+			return new Response("Server misconfigured", { status: 500 });
+		}
 
+		const user = await verifyWithSecret(token, jwtSecret);
 		if (!user) {
 			return new Response("Invalid authentication token", { status: 403 });
 		}
 
-		// Verify room token (proves roomId was issued by our API)
 		const roomSigningSecret = lobby.env.ROOM_SIGNING_SECRET as
 			| string
 			| undefined;
+		if (!roomSigningSecret) {
+			console.error("ROOM_SIGNING_SECRET is not set");
+			return new Response("Server misconfigured", { status: 500 });
+		}
+
+		// Only the creator holds a room token, which proves our API issued the
+		// room id. Guests joining an existing room come without one, so whether
+		// it is required is decided in onConnect, where room storage is readable.
 		const roomToken = url.searchParams.get("roomToken");
-		if (roomSigningSecret && roomToken) {
-			const roomId = lobby.id;
-			const valid = await verifyRoomToken(roomId, roomToken, roomSigningSecret);
-			if (!valid) {
-				return new Response("Invalid room token", { status: 403 });
-			}
+		if (
+			roomToken &&
+			!(await verifyRoomToken(lobby.id, roomToken, roomSigningSecret))
+		) {
+			return new Response("Invalid room token", { status: 403 });
 		}
 
 		// Only the id is read back in onConnect. The name and image were set here
 		// but never consumed, and a header value carries only ASCII on the wire —
 		// a display name like "はなくら😈" made workerd reject the whole request.
 		request.headers.set("X-User-ID", user.userId);
+		// Always overwritten, so a client cannot claim the check by sending it.
+		request.headers.set(ROOM_TOKEN_VERIFIED_HEADER, roomToken ? "1" : "0");
 
 		return request;
 	}
@@ -102,6 +114,16 @@ export default class DocumentServer implements Party.Server {
 		// Determine owner by matching JWT userId against room creator,
 		// not by trusting client-supplied query params.
 		const existing = await this.room.storage.get<RoomMetadata>("metadata");
+		// Creating a room makes the connector its owner, so only an id our API
+		// issued may be created.
+		if (
+			!existing &&
+			ctx.request.headers.get(ROOM_TOKEN_VERIFIED_HEADER) !== "1"
+		) {
+			conn.close(4003, "Room token required");
+			return;
+		}
+
 		const isOwner = !existing || existing.createdBy === userId;
 
 		if (!existing) {
@@ -251,34 +273,6 @@ async function verifyWithSecret(
 		};
 	} catch (e) {
 		console.error("JWT verification failed:", e);
-		return null;
-	}
-}
-
-/**
- * SUPABASE_JWT_SECRET未設定時のフォールバック。
- * ペイロードのデコードと有効期限チェックのみ。署名検証はスキップされる。
- */
-function verifyFallback(token: string): VerifiedUser | null {
-	try {
-		const parts = token.split(".");
-		if (parts.length !== 3) return null;
-
-		const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-		const padding = (4 - (base64.length % 4)) % 4;
-		const padded = base64 + "=".repeat(padding);
-		const payload: SupabaseJWTPayload = JSON.parse(atob(padded));
-
-		if (payload.exp && payload.exp * 1000 < Date.now()) return null;
-		if (!payload.sub) return null;
-
-		return {
-			userId: payload.sub,
-			name:
-				payload.user_metadata?.full_name ?? payload.user_metadata?.user_name,
-			imageUrl: payload.user_metadata?.avatar_url,
-		};
-	} catch {
 		return null;
 	}
 }

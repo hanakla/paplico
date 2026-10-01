@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import { InMemoryRelay } from "../testUtils/inMemoryRelay";
 import { E2EECollaboration } from "./E2EECollaboration";
 import type { CollaborationConfig } from "./ICollaboration";
-import { generateRoomKey } from "./roomCrypto";
+import { encryptMessage, generateRoomKey } from "./roomCrypto";
 
 describe("E2EECollaboration", () => {
 	let relay: InMemoryRelay;
@@ -53,6 +53,32 @@ describe("E2EECollaboration", () => {
 			await vi.waitFor(() => {
 				expect(host.ydoc.getMap("doc").get("note")).toBe("from the iPad");
 			});
+		});
+
+		it("should keep applying edits after a malformed message", async () => {
+			const host = createPeer(relay, roomKey, { isOwner: true });
+			const guest = createPeer(relay, roomKey, { isOwner: false });
+			const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+			const onRejected = vi.fn();
+			guest.collab.on("messageRejected", onRejected);
+
+			// A key holder sending an Update whose body Yjs cannot decode.
+			relay
+				.createSocket()
+				.send(
+					await encryptMessage(roomKey, new Uint8Array([0, 0xff, 0xff, 0xff])),
+				);
+			await relay.settle();
+			host.ydoc.getMap("doc").set("title", "after the bad message");
+
+			await vi.waitFor(() => {
+				expect(guest.ydoc.getMap("doc").get("title")).toBe(
+					"after the bad message",
+				);
+			});
+			expect(onRejected).toHaveBeenCalledTimes(1);
+			expect(onRejected.mock.calls[0][0].cause).toBeInstanceOf(Error);
+			errorSpy.mockRestore();
 		});
 
 		it("should leave a guest without the document once the host is gone", async () => {

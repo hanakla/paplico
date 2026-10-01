@@ -8,6 +8,8 @@
   - Shift+drag locks anchors, path faces, whole elements and control points to 45° steps from the press point.
 - **API**
   - `calculateResizedBounds` takes an `aspectDriver` option that picks the axis whose size sets the other under `constrainAspect`.
+- **E2EE collaboration**
+  - `E2EECollaboration` emits `messageRejected` with the error when a message from a peer cannot be applied.
 
 ### Changed
 
@@ -22,6 +24,10 @@
   - Fix a resize dropping the Shift aspect lock and the Alt centre anchor when an edge snaps.
 - **Object masks**
   - Fix a Repeat object inside an object mask hiding the mask's owner.
+- **Cloud collaboration**
+  - Fix `PartyKitCollaboration` never sending `roomToken` to the relay.
+- **E2EE collaboration**
+  - Fix one message that fails to apply stopping `E2EECollaboration` from processing every message after it.
 
 ## [0.4.0] - 2026-10-01
 

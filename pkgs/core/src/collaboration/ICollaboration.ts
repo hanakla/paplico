@@ -25,6 +25,8 @@ export type CollaborationEventMap = {
 	 * server itself.
 	 */
 	syncTimeout: undefined;
+	/** A message from a peer could not be applied and was skipped. */
+	messageRejected: { cause: unknown };
 };
 
 export interface ICollaboration extends Emitter<CollaborationEventMap> {
@@ -80,7 +82,10 @@ export interface CollaborationConfig {
 	};
 	/** Supabase session JWT for cloud mode authentication */
 	authToken?: string;
-	/** HMAC-signed room token for local mode authentication */
+	/**
+	 * HMAC-signed room token issued with a new cloud-mode room. The relay
+	 * requires it from the connection that creates the room.
+	 */
 	roomToken?: string;
 	/**
 	 * AES-GCM room key for end-to-end encrypted mode. Its presence selects the

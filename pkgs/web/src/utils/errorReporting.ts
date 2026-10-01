@@ -44,7 +44,7 @@ export function reportError(options: ReportErrorOptions): void {
 
 	console.error("[reportError]", code, cause);
 
-	if (options.capture !== false) captureToSentry(code, cause);
+	if (options.capture !== false) captureError(code, cause);
 
 	const { titleKey, descriptionKey } = ERROR_TEXTS[code];
 
@@ -94,7 +94,7 @@ const SENTRY_CAPTURE_INTERVAL_MS = 60_000;
 const TOAST_DEDUP_INTERVAL_MS = 5_000;
 const ERROR_TOAST_TIMEOUT_MS = 8_000;
 
-const lastCapturedAt = new Map<AppErrorCode, number>();
+const lastCapturedAt = new Map<string, number>();
 const lastToastedAt = new Map<AppErrorCode, number>();
 
 /** i18n keys per error code. Every key must exist in locales/en.ts and ja.ts. */
@@ -129,7 +129,11 @@ const ERROR_TEXTS: Record<
 	PAPLICO_INIT_FAILED: { titleKey: "errors.paplicoInitFailed" },
 };
 
-function captureToSentry(code: AppErrorCode, cause: unknown): void {
+/**
+ * Sends an error to Sentry (rate-limited per code) without telling the user,
+ * for failures the user can neither see nor fix.
+ */
+export function captureError(code: string, cause: unknown): void {
 	const now = Date.now();
 	const last = lastCapturedAt.get(code);
 	if (last !== undefined && now - last < SENTRY_CAPTURE_INTERVAL_MS) return;

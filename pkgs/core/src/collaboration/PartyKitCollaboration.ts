@@ -45,9 +45,10 @@ export class PartyKitCollaboration extends CollaborationBase {
 		// Owner is never readonly; non-owner inherits room-level readonly from server
 		this.isReadonly = !this.isOwner && (config.roomReadonly ?? false);
 
-		// Build params: auth token + readonly flag (owner is determined server-side by JWT userId)
+		// Build params: auth token + room token + readonly flag (owner is determined server-side by JWT userId)
 		const params: Record<string, string> = {};
 		if (config.authToken) params.token = config.authToken;
+		if (config.roomToken) params.roomToken = config.roomToken;
 		if (config.roomReadonly) params.roomReadonly = "1";
 
 		this.provider = new YPartyKitProvider(

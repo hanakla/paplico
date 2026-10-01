@@ -179,6 +179,15 @@ export default function Page() {
 		if (!roomParam) return;
 
 		const encodedRoomKey = readKeyFromFragment(window.location.hash);
+		// The room key must not stay in the address bar, where history, error
+		// reports and session replays would pick it up.
+		if (encodedRoomKey) {
+			history.replaceState(
+				null,
+				"",
+				window.location.pathname + window.location.search,
+			);
+		}
 
 		// Hand an encrypted invite over to the installed app when one is there.
 		// If no handler claims the scheme the page simply stays put and the web

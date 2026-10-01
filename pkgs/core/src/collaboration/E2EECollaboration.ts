@@ -231,7 +231,14 @@ export class E2EECollaboration extends CollaborationBase {
 	 * the document it came with would be read the wrong way round.
 	 */
 	private handleRelayMessage = (data: Uint8Array): void => {
-		this.receiveChain = this.receiveChain.then(() => this.receive(data));
+		// One message that fails to apply must not reject the chain, or every
+		// message after it would be skipped.
+		this.receiveChain = this.receiveChain
+			.then(() => this.receive(data))
+			.catch((error) => {
+				console.error("Failed to apply an E2EE relay message:", error);
+				this.emit("messageRejected", { cause: error });
+			});
 	};
 
 	/**

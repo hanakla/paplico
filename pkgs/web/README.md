@@ -55,7 +55,7 @@ Copy `pkgs/web/.env.example` to `pkgs/web/.env` and fill in the values:
 | `NEXT_PUBLIC_PARTYKIT_HOST`                | Cloud      | PartyKit WebSocket host                             |
 | `NEXT_PUBLIC_API_BASE_URL`                 | Tauri prod | API server URL (e.g. `https://paplico.hanak.la`)    |
 | `NEXT_PUBLIC_GOOGLE_FONTS_API_KEY`         | No         | Google Fonts API key                                |
-| `ROOM_SIGNING_SECRET`                      | No         | HMAC secret for room tokens                         |
+| `ROOM_SIGNING_SECRET`                      | Cloud      | HMAC secret for room tokens (API and PartyKit)      |
 | `SUPABASE_AUTH_EXTERNAL_DISCORD_CLIENT_ID` | Cloud      | Discord OAuth Client ID                             |
 | `SUPABASE_AUTH_EXTERNAL_DISCORD_SECRET`    | Cloud      | Discord OAuth Secret                                |
 | `SUPABASE_AUTH_EXTERNAL_X_CLIENT_ID`       | Cloud      | X OAuth Client ID                                   |

@@ -15,11 +15,14 @@ Add the following GitHub repository secrets:
 - `PARTYKIT_LOGIN` — generated via `npx partykit login`
 - `PARTYKIT_TOKEN` — generated via `npx partykit token generate`
 
-Set the Supabase JWT secret as a PartyKit environment variable:
+Set these PartyKit environment variables. The server refuses every connection while either is missing.
 
 ```bash
 npx partykit env add SUPABASE_JWT_SECRET
+npx partykit env add ROOM_SIGNING_SECRET
 ```
+
+`ROOM_SIGNING_SECRET` must match the web app's, which signs the room tokens.
 
 ### Manual Deploy
 

@@ -23,7 +23,7 @@ import { useUserSession } from "@/hooks/useUserSession";
 import { useTranslation } from "@/locales/index";
 import { documentManagerState, saveDocument } from "@/stores/documentStore";
 import { getReconnectInfo, setReconnectInfo } from "@/stores/sessionStore";
-import { reportError } from "@/utils/errorReporting";
+import { captureError, reportError } from "@/utils/errorReporting";
 import { useEventCallback } from "@/utils/hooks";
 
 interface CollabState {
@@ -154,6 +154,12 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 					title: t("connectRoomDialog.syncTimeoutTitle"),
 					description: t("connectRoomDialog.syncTimeout"),
 				});
+			});
+
+			// A peer sent something we could not apply. The session carries on and
+			// the user has nothing to act on, so it is only captured.
+			collab.on("messageRejected", ({ cause }) => {
+				captureError("COLLAB_MESSAGE_REJECTED", cause);
 			});
 
 			collab.on("roomClosed", () => {
