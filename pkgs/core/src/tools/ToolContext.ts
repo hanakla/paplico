@@ -485,17 +485,14 @@ export class ToolContext {
 		Object.assign(this, options);
 	}
 
-	public duplicateElements(elementIds: string[], offset = 10): string[] {
+	public duplicateElements(elementIds: string[]): string[] {
 		// Clone / id-numbering / container handling (group children, blend
 		// sources) is shared with copy-paste via duplicateElementsByIds. Kept
 		// inside the transform-only hint to preserve the alt-drag gesture's
 		// render batching.
 		let newIds: string[] = [];
 		this.hintTransformOnlyChange(() => {
-			newIds = this.duplicateElementsByIds(elementIds, {
-				x: offset,
-				y: offset,
-			});
+			newIds = this.duplicateElementsByIds(elementIds, { x: 0, y: 0 });
 		});
 		return newIds;
 	}

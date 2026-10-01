@@ -1050,14 +1050,14 @@ describe("PathEditTool", () => {
 				testCanvasWidth,
 				testCanvasHeight,
 			);
-			// First move promotes to faceDrag and duplicates (delta resets here)
+			// First move promotes to faceDrag and duplicates in place
 			tool.onPointerMove(
 				ev(480, 300, { altKey: true }),
 				testViewport,
 				testCanvasWidth,
 				testCanvasHeight,
 			);
-			// Second move drags the copy by world (20,0)
+			// The copy follows the pointer from the press point: world (50,0)
 			tool.onPointerMove(
 				ev(500, 300, { altKey: true }),
 				testViewport,
@@ -1072,14 +1072,14 @@ describe("PathEditTool", () => {
 			);
 
 			expect(ctx.duplicateElementsByIds).toHaveBeenCalledWith(["path-1"], {
-				x: 10,
-				y: 10,
+				x: 0,
+				y: 0,
 			});
-			// The copy is committed, moved by the post-duplicate drag delta.
+			// The copy is committed, moved by the whole drag delta.
 			const copySegs = getCommittedSegments(ctx, "path-copy")!;
 			expect(copySegs).toBeDefined();
-			expect(copySegs[0].start?.x).toBeCloseTo(20);
-			expect(copySegs[1].end.x).toBeCloseTo(220);
+			expect(copySegs[0].start?.x).toBeCloseTo(50);
+			expect(copySegs[1].end.x).toBeCloseTo(250);
 			// The original path is never mutated.
 			expect(getCommittedSegments(ctx, "path-1")).toBeUndefined();
 		});
@@ -1211,6 +1211,124 @@ describe("PathEditTool", () => {
 				(cp) => cp.selected,
 			);
 			expect(selectedAfterSecond.length).toBe(2);
+		});
+	});
+
+	describe("Shift axis lock", () => {
+		/** Press without modifiers, then move and release with Shift held. */
+		function shiftDrag(
+			from: [number, number],
+			...moves: Array<[number, number, boolean]>
+		) {
+			tool.onPointerDown(
+				ev(...from),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			for (const [x, y, shiftKey] of moves) {
+				tool.onPointerMove(
+					ev(x, y, { shiftKey }),
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+			}
+			const [x, y, shiftKey] = moves.at(-1)!;
+			tool.onPointerUp(
+				ev(x, y, { shiftKey }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		}
+
+		it("should lock an anchor drag to the nearest 45° direction", () => {
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// end0 world(100,0) dragged by world(40,10) -> locked to (≈41.2, 0)
+			shiftDrag([500, 300], [540, 290, true]);
+
+			const segs = getCommittedSegments(ctx, "path-1")!;
+			expect(segs[0].end.x).toBeCloseTo(100 + Math.hypot(40, 10));
+			expect(segs[0].end.y).toBeCloseTo(0);
+		});
+
+		it("should snap a control point to 45° steps around its anchor", () => {
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// seg0.cp2 world(66,0) dragged to world(72,26): its arm from the
+			// end0 anchor (100,0) becomes (-28,26), which snaps to 135°.
+			shiftDrag([466, 300], [472, 274, true]);
+
+			const segs = getCommittedSegments(ctx, "path-1")!;
+			const armLength = Math.hypot(28, 26);
+			expect(segs[0].cp2.x).toBeCloseTo(-armLength * Math.SQRT1_2);
+			expect(segs[0].cp2.y).toBeCloseTo(armLength * Math.SQRT1_2);
+		});
+
+		it("should lock a face drag from the press point when Shift is pressed mid-drag", () => {
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			ctx.findPathAtPoint.mockReturnValue(
+				(tool as any).selectedPaths.get("path-1")!,
+			);
+
+			// Free move by world(30,10), then Shift locks the same total delta
+			shiftDrag([450, 300], [480, 290, false], [480, 290, true]);
+
+			const segs = getCommittedSegments(ctx, "path-1")!;
+			expect(segs[0].start?.x).toBeCloseTo(Math.hypot(30, 10));
+			expect(segs[0].start?.y).toBeCloseTo(0);
+		});
+
+		it("should lock a whole-element drag", () => {
+			const image: ImageObject = {
+				id: "image-1",
+				type: "image",
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+				fileUid: "file-1",
+				x: 0,
+				y: 0,
+				width: 100,
+				height: 100,
+			};
+			ctx.getCurrentLayerId.mockReturnValue("layer-1");
+			ctx.findElementAtPoint.mockReturnValue(image);
+			ctx.getBounds.mockReturnValue(
+				brandWorldBBox({
+					minX: -50,
+					minY: -50,
+					maxX: 50,
+					maxY: 50,
+					width: 100,
+					height: 100,
+				}),
+			);
+			ctx.getElement.mockReturnValue(image);
+
+			// world(10,40) is locked to the vertical axis
+			shiftDrag([400, 300], [410, 260, true]);
+
+			const [, deltaX, deltaY] = ctx.elementsMove.mock.calls[0];
+			expect(deltaX).toBeCloseTo(0);
+			expect(deltaY).toBeCloseTo(Math.hypot(10, 40));
 		});
 	});
 

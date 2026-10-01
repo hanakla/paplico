@@ -128,6 +128,11 @@ export type ResizedBounds = BoundingBox & {
 type ResizeBoundsOptions = {
 	/** Keep the original aspect ratio. */
 	constrainAspect?: boolean;
+	/**
+	 * The axis whose size sets the other under constrainAspect. Defaults to
+	 * the axis the pointer travelled further along.
+	 */
+	aspectDriver?: "x" | "y";
 	/** Grow from the original center instead of the opposite edge. */
 	anchorCenter?: boolean;
 	/** Let the dragged edge cross its anchor, mirroring that axis. */
@@ -159,6 +164,7 @@ export function calculateResizedBounds(
 	dragStartY: number,
 	{
 		constrainAspect = false,
+		aspectDriver,
 		anchorCenter = false,
 		allowFlip = false,
 		minSize = 10,
@@ -207,7 +213,9 @@ export function calculateResizedBounds(
 		const drivenByX =
 			targets.y === "none" ||
 			(targets.x !== "none" &&
-				Math.abs(worldX - dragStartX) > Math.abs(worldY - dragStartY));
+				(aspectDriver
+					? aspectDriver === "x"
+					: Math.abs(worldX - dragStartX) > Math.abs(worldY - dragStartY)));
 		if (drivenByX) sizeY = signOf(sizeY) * (Math.abs(sizeX) / aspect);
 		else sizeX = signOf(sizeX) * (Math.abs(sizeY) * aspect);
 	}

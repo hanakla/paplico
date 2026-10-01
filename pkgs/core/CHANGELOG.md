@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- Holding Shift while dragging in the path edit tool locks the drag to 45° steps. Anchors, path faces and whole elements move along 45° directions from the press point, and a control point turns in 45° steps around its anchor.
+- `aspectDriver` option of `calculateResizedBounds` picks the axis whose size sets the other under `constrainAspect`.
+
+### Fixed
+
+- An Alt+drag duplicate in the select tool and the path edit tool starts on top of its original and follows the pointer from the press point. It used to be offset by 10 and lag behind the pointer by the drag threshold.
+- Resizing with the select tool keeps the Shift aspect lock and the Alt centre anchor when a dragged edge snaps. The snap used to move that edge alone.
+
 ## [0.4.0] - 2026-10-01
 
 ### Added

@@ -88,6 +88,7 @@ import {
 	type PathCutPosition,
 	resetAnchorSegmentCPs,
 } from "./pathNodeEditHelpers";
+import { constrainAxis } from "./SelectTool";
 import {
 	dragStartThresholdScreenPx,
 	LONG_PRESS_MS,
@@ -121,6 +122,8 @@ type DragState =
 			mirrorFlags: Map<string, boolean>;
 			/** Original world positions of mirror-target CPs at drag start */
 			mirrorSources: Map<string, { x: number; y: number }>;
+			/** World anchor the dragged CP stems from; Shift snaps around it */
+			cpAnchor?: { x: number; y: number };
 			/** Alt+anchor drag: pull out tangent CP after resetting CPs */
 			anchorCPCreation?: {
 				pathId: string;
@@ -167,6 +170,9 @@ type DragState =
 			/** Drag path face to move entire path */
 			startX: number;
 			startY: number;
+			/** World delta already applied to the selected paths */
+			appliedDeltaX: number;
+			appliedDeltaY: number;
 			hasMoved: boolean;
 			/** Alt held at pointerDown: duplicate the whole path on first move */
 			altKey: boolean;
@@ -683,6 +689,7 @@ export class PathEditTool implements Tool {
 					mode: "controlPointDrag",
 					mirrorFlags,
 					mirrorSources,
+					cpAnchor: this.getCPAnchorWorld(handle),
 				};
 
 				// Long-press feedback for anchors (delete / CP creation) and CPs (mirror break)
@@ -815,6 +822,8 @@ export class PathEditTool implements Tool {
 				mode: "faceDrag",
 				startX: world.x,
 				startY: world.y,
+				appliedDeltaX: 0,
+				appliedDeltaY: 0,
 				hasMoved: false,
 				altKey: event.altKey,
 				hasDuplicated: false,
@@ -882,8 +891,11 @@ export class PathEditTool implements Tool {
 		}
 
 		if (ds.mode === "elementDrag") {
-			const dx = world.x - ds.startX;
-			const dy = world.y - ds.startY;
+			const [dx, dy] = constrainDragDelta(
+				world.x - ds.startX,
+				world.y - ds.startY,
+				event.shiftKey,
+			);
 			if (
 				!ds.hasMoved &&
 				Math.hypot(dx, dy) * viewport.zoom <= this.dragStartThresholdPx
@@ -987,6 +999,8 @@ export class PathEditTool implements Tool {
 				mode: "faceDrag",
 				startX: ds.startX,
 				startY: ds.startY,
+				appliedDeltaX: 0,
+				appliedDeltaY: 0,
 				hasMoved: false,
 				altKey: ds.altKey,
 				hasDuplicated: false,
@@ -1013,14 +1027,20 @@ export class PathEditTool implements Tool {
 						canvasWidth,
 						canvasHeight,
 					);
-					// Reset the drag origin to the current pointer so subsequent
-					// deltas move the fresh copies (already offset by duplicate()).
-					ds.startX = world.x;
-					ds.startY = world.y;
 				}
 			}
 
 			ds.hasMoved = true;
+
+			// Paths are shifted incrementally, so apply only the part of the
+			// (possibly Shift-constrained) total delta not applied yet.
+			const [deltaX, deltaY] = constrainDragDelta(
+				world.x - ds.startX,
+				world.y - ds.startY,
+				event.shiftKey,
+			);
+			const stepX = deltaX - ds.appliedDeltaX;
+			const stepY = deltaY - ds.appliedDeltaY;
 
 			for (const [pathId, path] of this.selectedPaths) {
 				// setEditedSegments holds the pivot where it was, so a local shift
@@ -1029,8 +1049,8 @@ export class PathEditTool implements Tool {
 				const ancestorT = this.pathAncestorTransforms.get(pathId) ?? null;
 				const t = getTransform(path);
 				const { x: localDeltaX, y: localDeltaY } = inverseTransformVector(
-					world.x - ds.startX,
-					world.y - ds.startY,
+					stepX,
+					stepY,
 					ancestorT ? composeTransforms(ancestorT, t) : t,
 				);
 
@@ -1056,8 +1076,8 @@ export class PathEditTool implements Tool {
 				this.cachedControlPoints.delete(pathId);
 			}
 
-			ds.startX = world.x;
-			ds.startY = world.y;
+			ds.appliedDeltaX = deltaX;
+			ds.appliedDeltaY = deltaY;
 			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
 			return;
 		}
@@ -1126,8 +1146,11 @@ export class PathEditTool implements Tool {
 			const path = this.selectedPaths.get(pathId);
 			if (!path) return;
 
-			const dx = world.x - anchorX;
-			const dy = world.y - anchorY;
+			const [dx, dy] = constrainDragDelta(
+				world.x - anchorX,
+				world.y - anchorY,
+				event.shiftKey,
+			);
 
 			const newSegments = applyAnchorCPDrag(
 				path.segments,
@@ -1145,8 +1168,14 @@ export class PathEditTool implements Tool {
 
 		// Delta from the pointer's down position (not handle center)
 		// to avoid snapping the handle to the pointer on first move
-		const deltaX = world.x - ds.startX;
-		const deltaY = world.y - ds.startY;
+		const [deltaX, deltaY] =
+			ds.mode === "controlPointDrag" && event.shiftKey
+				? this.constrainHandleDelta(
+						ds,
+						world.x - ds.startX,
+						world.y - ds.startY,
+					)
+				: [world.x - ds.startX, world.y - ds.startY];
 
 		// Update all selected paths
 		for (const [pathId, path] of this.selectedPaths) {
@@ -1237,8 +1266,11 @@ export class PathEditTool implements Tool {
 				// blends, path-bound text, …) and commits once.
 				this.context.elementsMove(
 					[ds.elementId],
-					world.x - ds.startX,
-					world.y - ds.startY,
+					...constrainDragDelta(
+						world.x - ds.startX,
+						world.y - ds.startY,
+						event.shiftKey,
+					),
 				);
 			}
 			this.dragState = { mode: "idle" };
@@ -2671,6 +2703,47 @@ export class PathEditTool implements Tool {
 
 	/** @returns true if a face was subdivided */
 
+	/**
+	 * World position of the anchor a CP handle stems from, or undefined when
+	 * the handle is not a CP.
+	 */
+	private getCPAnchorWorld(
+		handle: ControlPointHandle,
+	): { x: number; y: number } | undefined {
+		if (handle.pointType !== "cp1" && handle.pointType !== "cp2") return;
+		const path = this.selectedPaths.get(handle.pathId);
+		if (!path) return;
+		const worldSegs = getWorldSegments(
+			path,
+			this.pathAncestorTransforms.get(handle.pathId) ?? undefined,
+		);
+		const segment = worldSegs[handle.segmentIndex];
+		if (handle.pointType === "cp2") return segment.end;
+		const prevIndex =
+			handle.segmentIndex > 0 ? handle.segmentIndex - 1 : worldSegs.length - 1;
+		return segment.start ?? worldSegs[prevIndex].end;
+	}
+
+	/**
+	 * Shift-constrain a handle drag delta: a dragged CP snaps to 45° steps
+	 * around its anchor, anything else moves along 45° steps from the press.
+	 */
+	private constrainHandleDelta(
+		state: Extract<DragState, { mode: "controlPointDrag" }>,
+		deltaX: number,
+		deltaY: number,
+	): [number, number] {
+		const primaryStart = state.startPositions.get(state.primaryHandleKey);
+		if (!state.cpAnchor || !primaryStart) return constrainAxis(deltaX, deltaY);
+
+		const { x: anchorX, y: anchorY } = state.cpAnchor;
+		const [armX, armY] = constrainAxis(
+			primaryStart.x + deltaX - anchorX,
+			primaryStart.y + deltaY - anchorY,
+		);
+		return [anchorX + armX - primaryStart.x, anchorY + armY - primaryStart.y];
+	}
+
 	private updateControlPoint(
 		state: Extract<DragState, { mode: "controlPointDrag" }>,
 		segments: CubicBezierSegment[],
@@ -4004,4 +4077,13 @@ function parseMeshVertexKey(key: string): {
 		meshId: key.slice(0, separator),
 		vertexIndex: Number.parseInt(key.slice(separator + 1), 10),
 	};
+}
+
+/** Shift-constrain a drag delta to 45° steps, matching SelectTool's move. */
+function constrainDragDelta(
+	deltaX: number,
+	deltaY: number,
+	shiftKey: boolean,
+): [number, number] {
+	return shiftKey ? constrainAxis(deltaX, deltaY) : [deltaX, deltaY];
 }

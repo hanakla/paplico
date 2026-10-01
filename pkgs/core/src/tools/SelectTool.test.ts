@@ -43,6 +43,7 @@ import {
 } from "../utils/geometry/selectionFrame";
 import { SelectTool } from "./SelectTool";
 import { createDefaultTextStyle } from "./TextTool";
+import type { ToolContextOptions } from "./ToolContext";
 
 describe("SelectTool", () => {
 	it("commits the last preview delta even when pointerup coordinates are stale", () => {
@@ -99,10 +100,52 @@ describe("SelectTool", () => {
 
 		expect(context.elementsMove).not.toHaveBeenCalled();
 	});
+
+	it("moves the alt+drag duplicate by the whole drag from the press point", () => {
+		const { context, tool } = setupSelectedElementDrag();
+
+		tool.onPointerDown(
+			ev(400, 300, { altKey: true }),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerMove(
+			ev(410, 300, { altKey: true }),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerMove(
+			ev(500, 300, { altKey: true }),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(
+			ev(500, 300, { altKey: true }),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		const [, offset] = context.duplicateElementsByIds.mock.calls[0];
+		expect(offset).toEqual({ x: 0, y: 0 });
+		const [, deltaX, deltaY] = context.elementsMove.mock.calls[0];
+		expect(deltaX).toBe(100);
+		expect(deltaY).toBe(0);
+	});
 });
 
 /** A selected 200×200 path centered on the origin, ready to be dragged. */
-function setupSelectedElementDrag() {
+function setupSelectedElementDrag(
+	snapElements: ToolContextOptions["snapElements"] = (
+		_ids,
+		_originalBounds,
+		proposedDeltaX,
+		proposedDeltaY,
+	) => ({ deltaX: proposedDeltaX, deltaY: proposedDeltaY, snapLines: [] }),
+) {
 	const elementId = "path-1";
 	const layer: Layer = {
 		id: "layer-1",
@@ -136,11 +179,7 @@ function setupSelectedElementDrag() {
 		findElementAtPoint: () => element,
 		getBounds: () => bounds,
 		getWorldGeometryBounds: () => bounds,
-		snapElements: (_ids, _originalBounds, proposedDeltaX, proposedDeltaY) => ({
-			deltaX: proposedDeltaX,
-			deltaY: proposedDeltaY,
-			snapLines: [],
-		}),
+		snapElements,
 	});
 	const tool = new SelectTool(context);
 	tool.refreshUI();
@@ -218,6 +257,42 @@ describe("SelectTool resize flipping", () => {
 		expect(newBounds.minX).toBe(100);
 		expect(newBounds.maxX).toBe(200);
 		expect(flip).toEqual({ x: true, y: false });
+	});
+});
+
+describe("SelectTool resize snapping", () => {
+	it("keeps the Shift aspect lock when the dragged x edge snaps", () => {
+		const { context, tool } = setupResizeSnap({ x: 150 });
+
+		// Shift-drag the ne handle at world(100,100) to world(140,110)
+		resizeDrag(tool, [500, 200], [540, 190], { shiftKey: true });
+
+		const [, , newBounds] = context.elementsResize.mock.calls[0];
+		expect(newBounds).toMatchObject({ minX: -100, minY: -100 });
+		expect(newBounds.maxX).toBeCloseTo(150);
+		expect(newBounds.maxY).toBeCloseTo(150);
+	});
+
+	it("lets the snapped axis drive the Shift aspect lock", () => {
+		const { context, tool } = setupResizeSnap({ y: 160 });
+
+		// The pointer travels further along x, but only the y edge snaps
+		resizeDrag(tool, [500, 200], [540, 190], { shiftKey: true });
+
+		const [, , newBounds] = context.elementsResize.mock.calls[0];
+		expect(newBounds.maxX).toBeCloseTo(160);
+		expect(newBounds.maxY).toBeCloseTo(160);
+	});
+
+	it("keeps the Alt centre anchor when the dragged edge snaps", () => {
+		const { context, tool } = setupResizeSnap({ x: 150 });
+
+		// Alt-drag the e handle at world(100,0) to world(140,0)
+		resizeDrag(tool, [500, 300], [540, 300], { altKey: true });
+
+		const [, , newBounds] = context.elementsResize.mock.calls[0];
+		expect(newBounds.minX).toBeCloseTo(-150);
+		expect(newBounds.maxX).toBeCloseTo(150);
 	});
 });
 
@@ -1776,3 +1851,62 @@ describe("SelectTool repeat radial gizmo", () => {
 		expect(call?.[1].startAngle).toBeCloseTo(0, 4);
 	});
 });
+
+/**
+ * A selected 200×200 path centered on the origin whose resize edges snap to
+ * the given world lines: `x` is a vertical line, `y` a horizontal one.
+ */
+function setupResizeSnap(lines: { x?: number; y?: number }) {
+	return setupSelectedElementDrag((_ids, edgeBox) => {
+		if (edgeBox.width === 0 && lines.x !== undefined) {
+			return {
+				deltaX: lines.x - edgeBox.minX,
+				deltaY: 0,
+				snapLines: [
+					{ axis: "vertical", position: lines.x, extentMin: 0, extentMax: 0 },
+				],
+			};
+		}
+		if (edgeBox.height === 0 && lines.y !== undefined) {
+			return {
+				deltaX: 0,
+				deltaY: lines.y - edgeBox.minY,
+				snapLines: [
+					{
+						axis: "horizontal",
+						position: lines.y,
+						extentMin: 0,
+						extentMax: 0,
+					},
+				],
+			};
+		}
+		return { deltaX: 0, deltaY: 0, snapLines: [] };
+	});
+}
+
+function resizeDrag(
+	tool: SelectTool,
+	from: [number, number],
+	to: [number, number],
+	modifiers: { shiftKey?: boolean; altKey?: boolean },
+) {
+	tool.onPointerDown(
+		ev(...from, modifiers),
+		testViewport,
+		testCanvasWidth,
+		testCanvasHeight,
+	);
+	tool.onPointerMove(
+		ev(...to, modifiers),
+		testViewport,
+		testCanvasWidth,
+		testCanvasHeight,
+	);
+	tool.onPointerUp(
+		ev(...to, modifiers),
+		testViewport,
+		testCanvasWidth,
+		testCanvasHeight,
+	);
+}

@@ -91,6 +91,15 @@ import {
 } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
+/** A handle-dragged resize edge that lined up with a snap target. */
+type ResizeEdgeSnap = {
+	axis: "x" | "y";
+	/** Snapped position of the dragged edge */
+	edge: number;
+	distance: number;
+	line: SnapLine;
+};
+
 type DragState =
 	| { mode: "idle" }
 	| {
@@ -821,7 +830,6 @@ export class SelectTool implements Tool {
 				!this.context.isReadonly()
 			) {
 				let moveOriginalFrame = this.selectedFrame;
-				let { dragStartX, dragStartY } = this.dragState;
 				let hasDuplicatedForAltDrag = false;
 
 				// Alt+drag: duplicate elements on first move
@@ -836,15 +844,13 @@ export class SelectTool implements Tool {
 						}
 					}
 					this.refreshUI();
-					dragStartX = worldX;
-					dragStartY = worldY;
 					moveOriginalFrame = this.selectedFrame ?? moveOriginalFrame;
 				}
 
 				this.dragState = {
 					mode: "move",
-					dragStartX,
-					dragStartY,
+					dragStartX: this.dragState.dragStartX,
+					dragStartY: this.dragState.dragStartY,
 					originalFrame: moveOriginalFrame,
 					originalBounds: brandWorldBBox(frameWorldBounds(moveOriginalFrame)),
 					hasDuplicatedForAltDrag,
@@ -1017,42 +1023,66 @@ export class SelectTool implements Tool {
 			state.dragStartY,
 			frame.matrix,
 		);
-		const rawBounds = calculateResizedBounds(
-			frame.bounds,
+		const resize = (
+			x: number,
+			y: number,
+			aspectDriver?: "x" | "y",
+		): ResizedBounds =>
+			calculateResizedBounds(
+				frame.bounds,
+				state.activeHandle,
+				x,
+				y,
+				start.x,
+				start.y,
+				{
+					constrainAspect: this.shiftKey,
+					aspectDriver,
+					anchorCenter: this.altKey,
+					allowFlip: true,
+				},
+			);
+		const rawBounds = resize(pointer.x, pointer.y);
+		if (frame.elementId !== null) return { bounds: rawBounds, snapLines: [] };
+
+		// The aspect lock lets only one axis decide the size, so keep the
+		// closer snap. Re-resizing from the snapped edge keeps the aspect lock
+		// and the centre anchor intact.
+		const edgeSnaps = this.findResizeEdgeSnaps(
+			rawBounds,
 			state.activeHandle,
-			pointer.x,
-			pointer.y,
-			start.x,
-			start.y,
-			{
-				constrainAspect: this.shiftKey,
-				anchorCenter: this.altKey,
-				allowFlip: true,
-			},
+			viewport.zoom,
 		);
-		return frame.elementId === null
-			? this.snapResizedBounds(rawBounds, state.activeHandle, viewport.zoom)
-			: { bounds: rawBounds, snapLines: [] };
+		const snaps = this.shiftKey
+			? edgeSnaps.toSorted((a, b) => a.distance - b.distance).slice(0, 1)
+			: edgeSnaps;
+		if (snaps.length === 0) return { bounds: rawBounds, snapLines: [] };
+
+		const snapX = snaps.find((snap) => snap.axis === "x");
+		const snapY = snaps.find((snap) => snap.axis === "y");
+		return {
+			bounds: resize(
+				snapX?.edge ?? pointer.x,
+				snapY?.edge ?? pointer.y,
+				snaps[0].axis,
+			),
+			snapLines: snaps.map((snap) => snap.line),
+		};
 	}
 
 	/**
 	 * Snap the handle-dragged edges of resized bounds to other elements and
 	 * artboards, per axis. The selected elements themselves are excluded from
-	 * the snap targets via snapElements.
+	 * the snap targets via snapElements. Returns only the axes that snapped.
 	 */
-	private snapResizedBounds(
-		rawBounds: ResizedBounds,
+	private findResizeEdgeSnaps(
+		bounds: ResizedBounds,
 		handle: ResizeHandle,
 		zoom: number,
-	): { bounds: ResizedBounds; snapLines: SnapLine[] } {
+	): ResizeEdgeSnap[] {
 		const selectedIds = this.context.getSelectedElementIds();
-		const targets = getResizeSnapTargets(
-			handle,
-			rawBounds.flipX,
-			rawBounds.flipY,
-		);
-		const snapLines: SnapLine[] = [];
-		const bounds: ResizedBounds = { ...rawBounds };
+		const targets = getResizeSnapTargets(handle, bounds.flipX, bounds.flipY);
+		const snaps: ResizeEdgeSnap[] = [];
 
 		if (targets.x !== "none") {
 			const edge = targets.x === "min" ? bounds.minX : bounds.maxX;
@@ -1070,16 +1100,15 @@ export class SelectTool implements Tool {
 				0,
 				zoom,
 			);
-			if (targets.x === "min") {
-				bounds.minX += xSnap.deltaX;
-			} else {
-				bounds.maxX += xSnap.deltaX;
+			const line = xSnap.snapLines.find((l) => l.axis === "vertical");
+			if (line) {
+				snaps.push({
+					axis: "x",
+					edge: edge + xSnap.deltaX,
+					distance: Math.abs(xSnap.deltaX),
+					line,
+				});
 			}
-			bounds.width = bounds.maxX - bounds.minX;
-			const verticalLine = xSnap.snapLines.find(
-				(line) => line.axis === "vertical",
-			);
-			if (verticalLine) snapLines.push(verticalLine);
 		}
 
 		if (targets.y !== "none") {
@@ -1098,19 +1127,18 @@ export class SelectTool implements Tool {
 				0,
 				zoom,
 			);
-			if (targets.y === "min") {
-				bounds.minY += ySnap.deltaY;
-			} else {
-				bounds.maxY += ySnap.deltaY;
+			const line = ySnap.snapLines.find((l) => l.axis === "horizontal");
+			if (line) {
+				snaps.push({
+					axis: "y",
+					edge: edge + ySnap.deltaY,
+					distance: Math.abs(ySnap.deltaY),
+					line,
+				});
 			}
-			bounds.height = bounds.maxY - bounds.minY;
-			const horizontalLine = ySnap.snapLines.find(
-				(line) => line.axis === "horizontal",
-			);
-			if (horizontalLine) snapLines.push(horizontalLine);
 		}
 
-		return { bounds, snapLines };
+		return snaps;
 	}
 
 	private handleRotateDrag(

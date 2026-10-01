@@ -7,30 +7,17 @@ import { createMockToolContext } from "../testUtils/mockToolContext";
 // the delegation.
 describe("ToolContext", () => {
 	describe("duplicateElements", () => {
-		it("delegates to duplicateElementsByIds with a per-axis offset and returns its result", () => {
+		it("duplicates in place and returns the new ids", () => {
 			const ctx = createMockToolContext({
 				duplicateElementsByIds: vi.fn(() => ["new-1", "new-2"]),
 			});
 
-			const result = ctx.duplicateElements(["a", "b"], 10);
+			const result = ctx.duplicateElements(["a", "b"]);
 
 			expect(result).toEqual(["new-1", "new-2"]);
 			expect(ctx.duplicateElementsByIds).toHaveBeenCalledWith(["a", "b"], {
-				x: 10,
-				y: 10,
-			});
-		});
-
-		it("defaults the offset to 10 on both axes", () => {
-			const ctx = createMockToolContext({
-				duplicateElementsByIds: vi.fn(() => []),
-			});
-
-			ctx.duplicateElements(["a"]);
-
-			expect(ctx.duplicateElementsByIds).toHaveBeenCalledWith(["a"], {
-				x: 10,
-				y: 10,
+				x: 0,
+				y: 0,
 			});
 		});
 	});
