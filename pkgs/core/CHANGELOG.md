@@ -4,8 +4,10 @@
 
 ### Added
 
-- Holding Shift while dragging in the path edit tool locks the drag to 45° steps. Anchors, path faces and whole elements move along 45° directions from the press point, and a control point turns in 45° steps around its anchor.
-- `aspectDriver` option of `calculateResizedBounds` picks the axis whose size sets the other under `constrainAspect`.
+- **Path edit tool**
+  - Shift+drag locks anchors, path faces, whole elements and control points to 45° steps from the press point.
+- **API**
+  - `calculateResizedBounds` takes an `aspectDriver` option that picks the axis whose size sets the other under `constrainAspect`.
 
 ### Changed
 
@@ -14,137 +16,207 @@
 
 ### Fixed
 
-- An Alt+drag duplicate in the select tool and the path edit tool starts on top of its original and follows the pointer from the press point. It used to be offset by 10 and lag behind the pointer by the drag threshold.
-- Resizing with the select tool keeps the Shift aspect lock and the Alt centre anchor when a dragged edge snaps. The snap used to move that edge alone.
-- A repeat inside an object mask masks its owner. It used to draw nothing into the mask, which hid the owner.
+- **Select tool / Path edit tool**
+  - Fix an Alt+drag copy starting 10 units away from its original and lagging behind the pointer.
+- **Select tool**
+  - Fix a resize dropping the Shift aspect lock and the Alt centre anchor when an edge snaps.
+- **Object masks**
+  - Fix a Repeat object inside an object mask hiding the mask's owner.
 
 ## [0.4.0] - 2026-10-01
 
 ### Added
 
-- `disableIncompatibleFilters` option of `SVGExporter`. The artboard is exported as if every filter other than fills, strokes, `svg:*` filters and geometry filters were turned off, sub-filters and preset appearances included, so as little as possible is rasterized. The document itself is left untouched.
+- **SVG export**
+  - `SVGExporter` takes a `disableIncompatibleFilters` option that exports the artboard as if every filter SVG cannot hold were turned off. The document itself is not modified.
 
 ### Changed
 
-- `SVGExporter` exports a path or compound path whose fill or stroke carries its own blend mode or sub-filters as vectors when it can. Each fill and stroke becomes a copy of the shape that carries that blend mode and those sub-filters. Only a sub-filter SVG cannot express still rasterizes the element.
-- `ExportRenderer` includes `dropDocumentCaches`.
+- **SVG export**
+  - `SVGExporter` exports a path or compound path as vectors even when a fill or stroke has its own blend mode or sub-filters. A sub-filter with no SVG equivalent still rasterizes the element.
+  - `ExportRenderer` now includes `dropDocumentCaches`.
 
 ## [0.3.0] - 2026-10-01
 
 ### Added
 
-- `Paplico.wrapDocumentFile(papf)` wraps a stored papf into the same PDF-compatible file as `exportDocumentFile`. The preview pages are drawn from that papf's own document through a throwaway isolated target, so a stored revision never touches the editor's caches.
-- `ExportContext.targetId` names the target that `PNGExporter`, `JPEGExporter` and `TIFFExporter` draw artboards through.
-- `PaplicoCommands.flipElements(ids, flip)` mirrors a selection in the axes of its selection frame, so a lone rotated element turns over across its own axis. The ActionsPanel's flip buttons use it.
-- `PaplicoCommands.updateElementTransforms(updates)` rewrites the transforms of several elements in one undo step so the fields act on each element as it is seen: a change of the rotation, scale or skew fields turns the element around the centre of its local bounds instead of its origin, and a change of `x` and `y` moves it by that much. The ActionsPanel's rotation and skew inputs and the transforms written by automation scripts go through it.
-- `placementAnchorIds` option of `PaplicoCommands.pasteElements`. `placement` is resolved against these elements instead of the selection.
-- `paplico.tool.shapeCycle` shortcut command, bound to M by default. Each press while the shape tool is active switches to the next shape type. Pressing it from any other tool starts the shape tool at the rectangle.
-- A long press or a right click with the eyedropper lists every element painted at that point, front to back, in `toolSession` as `type: "eyedropper-candidates"`. Groups and compound paths are listed when they carry their own appearance. `Paplico.eyedropperPickCandidate` applies the chosen one. A lone candidate is listed too.
-- A long press on a point's center handle in the stroke width edit tool deletes the point on release. It works for both the width and the erasure profile. A ring appears once the press is long enough.
-- `PaplicoCommands.setElementVisibility(layerId, elementId, visible)` shows or hides an element by an absolute value. A lock does not hold it back.
-- `PaplicoCommands.moveElements(elements, deltaX, deltaY)` moves elements by a world delta in one undo step. A locked element is skipped, while what a moved element carries along follows it. The select tool's drag and nudge go through it.
-- `PaplicoCommands.writeElement(layerId, elementId, updates)` writes to an element without asking its lock, for an operation whose target was already checked. The tools' deformation commit goes through it.
-- `TimelapsePlayer.skipBy(elapsedMs)` moves the playback clock forward the way `advanceBy` does without building the frame, for measuring how long a recording runs.
-- `signal` option of `TimelapseExporter.exportMP4`. Aborting it calls the export off: the encoder and the unfinished file are released and the returned promise rejects with the signal's reason.
-- The gradient tool can edit any gradient fill of an element that carries several. `ToolSettings.gradientTargetFillUid` names the fill appearance being edited, and `null` stands for the element's first gradient fill. `Paplico.gradientSetTargetFill(uid)` switches it, clears the stop selection and rebuilds the handles. `getGradientFills` and `getGradientTargetFill` in `@paplico/core/utils` list an element's gradient fills and resolve the one being edited.
-- `PaplicoCommands.updateGradientTargetFill(fill)` writes a fill to the appearance the gradient tool edits and leaves the element's other fills as they are.
-- A drag with the gradient tool that starts away from every handle redraws the selected element's gradient: a linear gradient runs from the press point to the release point, and a radial one becomes a circle centered on the press point that reaches the release point. The stops are kept. A click that does not move still picks or clears the selection, on release.
-- `GradientEditUIHandle.screenOffset` places a handle a fixed number of screen pixels away from its world position.
-- Dragging the bar of a linear or radial gradient moves the whole gradient by the drag distance. `GradientEditUILine.hitId` makes an overlay line hit-testable.
+- **Gradient tool**
+  - The tool edits any gradient fill of an element that has several.
+    - `ToolSettings.gradientTargetFillUid` names the edited fill. `null` means the first gradient fill.
+    - `Paplico.gradientSetTargetFill(uid)` switches the edited fill.
+    - `getGradientFills` and `getGradientTargetFill` in `@paplico/core/utils` list an element's gradient fills and resolve the edited one.
+    - `PaplicoCommands.updateGradientTargetFill(fill)` writes only to the edited fill.
+  - A drag away from every handle redraws the selected element's gradient from the press point to the release point. The stops are kept.
+  - Dragging the bar of a linear or radial gradient moves the whole gradient. `GradientEditUILine.hitId` makes an overlay line hit-testable.
+  - `GradientEditUIHandle.screenOffset` places a handle a fixed number of screen pixels away from its world position.
+- **Eyedropper**
+  - A long press or a right click lists every element painted at that point. The list appears front to back in `toolSession` as `type: "eyedropper-candidates"`.
+    - Groups and compound paths are listed when they carry their own appearance.
+    - `Paplico.eyedropperPickCandidate` applies the chosen candidate.
+- **Stroke width edit tool**
+  - A long press on a point's centre handle deletes the point. It works on both the width profile and the erasure profile.
+- **Shortcuts**
+  - `paplico.tool.shapeCycle`, bound to M, switches the shape tool to the next shape type. From another tool it starts the shape tool at the rectangle.
+- **Commands**
+  - `PaplicoCommands.flipElements(ids, flip)` mirrors a selection along the axes of its selection frame.
+  - `PaplicoCommands.updateElementTransforms(updates)` rewrites the transforms of several elements in one undo step. Rotation, scale and skew turn each element around the centre of its local bounds.
+  - `PaplicoCommands.moveElements(elements, deltaX, deltaY)` moves elements by a world delta in one undo step and skips locked elements.
+  - `PaplicoCommands.setElementVisibility(layerId, elementId, visible)` shows or hides an element regardless of its lock.
+  - `PaplicoCommands.writeElement(layerId, elementId, updates)` writes to an element without checking its lock.
+  - `PaplicoCommands.pasteElements` takes a `placementAnchorIds` option that resolves `placement` against these elements instead of the selection.
+- **Document file**
+  - `Paplico.wrapDocumentFile(papf)` wraps a stored papf into the same PDF-compatible file as `exportDocumentFile`. It leaves the editor's caches untouched.
+- **Export**
+  - `ExportContext.targetId` names the target through which `PNGExporter`, `JPEGExporter` and `TIFFExporter` draw artboards.
+- **Timelapse**
+  - `TimelapsePlayer.skipBy(elapsedMs)` advances the playback clock without building the frame.
+  - `TimelapseExporter.exportMP4` takes a `signal` option that cancels the export. The returned promise rejects with the signal's reason.
 
 ### Changed
 
-- A locked element or layer can be shown and hidden. `PaplicoCommands.toggleElementVisibility` and `toggleLayerVisibility` no longer stop at a lock on the element, on a group around it or on its layer. A readonly room still blocks them.
-- The selection frame of a lone rotated or skewed element tilts with the element. Its handles sit on the element's own box, the rotation handle stands above it along the element's up axis, the resize cursors follow the frame's axes, and a resize drag maps the box along those axes, with the aspect lock and the centre anchor working in them. Snapping applies to world-axis frames only. Any other selection keeps a world-axis frame around its elements.
-- `PaplicoCommands.resizeElements(ids, frame, newBounds, flip)` takes the selection frame and maps its box onto `newBounds` in the frame's space. Each element takes that map in its own space: a rotated path keeps its rotation and bakes the map into its coordinates, a container hands it down to its content, an image, a 3D reference or a text scales its rect by the map's axis factors and folds the mirror, turn or shear that is left into its transform, and a mesh or repeat folds the map whole. A compound path or blend keeps its own transform instead of cancelling its chain.
-- `SelectionUIData` carries the frame's corners as `quad`, drawn as a closed polyline, and no longer carries `rotation` and `rotationCenter`.
-- `ElementTransform` is an affine matrix on the element's local origin: a local point lands at `L·p + (x, y)`. Every element used to turn and scale around a pivot of its own, the centre of its bounds for most kinds, and a group's children each around their own pivot. Containers now place their content by plain composition, mask content included, so editing an element's geometry no longer moves the point it turns around, and a group's rotation stays on the group. Rotation, resize and skew from the canvas fold their pivot into the translation. Migration `20260929` rewrites every stored transform so documents are drawn where they were; a rotated or scaled text is placed by its measured layout, which the migration context supplies.
-- Timelapse playback and MP4 export reuse the filter results of elements that did not change since the previous frame. A recording with many filtered elements no longer slows down toward its end.
-- `TimelapsePlayer` hands out `TimelapseFrame`, the replayed document together with the elements that changed since the frame before it. `onFrame`, `advanceBy` and `restart` pass it instead of a bare `Document`. `TimelapsePreviewSurface.render` and `renderToImageData` take it in place of the document.
-- `TimelapsePreviewSurface.renderToImageData` also shows the frame on the preview canvas, fitted inside it, so an MP4 export shows the frame it is encoding. The canvas used to stay on the last playback frame for the whole export.
-- Timelapse playback draws through the export render: the artboard fitted inside the preview on white, with nothing drawn beside it. Elements of a neighbouring artboard used to show in the preview's side bars. An artboard's own fill is no longer painted in playback, which matches the exported video. `TimelapsePreviewSurface.render` returns a promise for the frame.
-- `paplico.tool.shapeRect` no longer has a default key. M is bound to `paplico.tool.shapeCycle` instead.
-- An eyedropper click picks on release instead of on press, so it can be told apart from a long press.
-- The gradient tool takes an element whose first fill is solid when a later fill is a gradient. It used to look at the first fill only. An element whose fills are solid or pattern only is no longer selected by it.
-- `PaplicoCommands.deleteSelectedGradientStop` removes the stop from the fill the gradient tool edits instead of the element's first fill.
-- The start and end handles of a linear gradient sit 12 screen pixels outside the end stops at any zoom. They used to sit 16 world units out, which drifted away from the stops as the view zoomed in.
-- The center, radius and rotation handles of a radial gradient sit 12 screen pixels away from the stops at any zoom, and a drag on the center or a radius handle moves it by the drag distance. They used to sit 24 world units away, which drifted as the view zoomed in, and the first move snapped the center or the radius to the cursor.
-- A radial gradient has no rotation handle any more. Dragging its end point sets the radius and the angle at once, and the ellipse keeps its shape while it grows or shrinks. The handle on the rotated Y axis still sets the other radius.
-- A blur whose radius reaches 8 texels at the document's rasterization DPI is computed through the same blur pyramid the drop shadow uses, so its cost no longer grows with the radius. A radius of 72 on a 300 DPI document used to read about 300 texels per pixel and pass.
-- Every long press in the tools takes 400ms. The mesh deform tool, the eyedropper and the pen's color pick used to wait 500ms, while the path edit tool waited 400ms.
-- `GRADIENT_MAP_PRESET_STOPS` holds its stop colors as HSV. The colors themselves are unchanged. They used to be RGB.
+- **Breaking API changes**
+  - `ElementTransform` is an affine matrix on the element's local origin instead of a transform around a per-element pivot. A local point `p` lands at `L·p + (x, y)`.
+    - Migration `20260929` rewrites stored transforms so documents render where they did. It reads the measured layout of rotated or scaled texts from the migration context.
+  - `PaplicoCommands.resizeElements(ids, frame, newBounds, flip)` takes the selection frame and maps its box onto `newBounds` in the frame's space.
+  - `SelectionUIData` carries the frame's corners as `quad` instead of `rotation` and `rotationCenter`.
+  - `TimelapsePlayer` hands out `TimelapseFrame` instead of a bare `Document`. A frame holds the replayed document and the elements changed since the previous frame.
+    - `onFrame`, `advanceBy` and `restart` pass a `TimelapseFrame`.
+    - `TimelapsePreviewSurface.render` and `renderToImageData` take a `TimelapseFrame`.
+    - `TimelapsePreviewSurface.render` returns a promise.
+  - M is bound to `paplico.tool.shapeCycle` instead of `paplico.tool.shapeRect`. `paplico.tool.shapeRect` has no default key.
+  - `GRADIENT_MAP_PRESET_STOPS` holds its stop colors as HSV instead of RGB.
+- **Select tool**
+  - The selection frame of a lone rotated or skewed element tilts with the element instead of staying world-aligned. Snapping is off for a tilted frame.
+- **Locks**
+  - `toggleElementVisibility` and `toggleLayerVisibility` work on locked elements and layers. A readonly room still blocks them.
+- **Gradient tool**
+  - The tool selects an element whose gradient is not its first fill. An element with only solid or pattern fills is no longer selected.
+  - `PaplicoCommands.deleteSelectedGradientStop` removes the stop from the edited fill instead of the first fill.
+  - Handles keep 12 screen pixels away from the stops at any zoom.
+  - A radial centre or radius handle moves by the drag distance instead of snapping to the cursor.
+  - A radial gradient has no rotation handle. Dragging its end point sets the radius and the angle at once.
+- **Tools**
+  - Every long press takes 400ms. The mesh deform tool, the eyedropper and the pen's color pick used to take 500ms.
+- **Eyedropper**
+  - A click picks on release instead of on press.
+- **Filters**
+  - A blur no longer gets slower as its radius grows. This applies once the radius reaches 8 texels at the document's rasterization DPI.
+- **Timelapse**
+  - Playback and MP4 export no longer slow down toward the end of a recording with many filtered elements.
+  - Playback draws the artboard the way the exported video does: fitted on white, without its own fill or a neighbouring artboard.
+  - `TimelapsePreviewSurface.renderToImageData` also shows the frame on the preview canvas, so an MP4 export shows the frame it encodes.
 
 ### Fixed
 
-- `SVGExporter` no longer turns content under a blended alpha-locked or backdrop-reading element see-through. The raster chunk that holds such an element and the content below it already composites the blend, and it used to carry the element's blend mode as well, so that content was blended a second time against the layers beneath.
-- `SVGExporter` keeps content stacked over what an alpha-locked or backdrop-reading element swallows into its raster chunk. Such content used to stay vector and drop below the chunk, which then covered it; it now joins the chunk whenever it overlaps something swallowed beneath it.
-- A locked element follows a change made to its container. Moving or aligning a blend used to leave a locked source behind, resizing a group, a compound path or a blend used to leave a locked child at its old size, and the free transform tool's warp used to leave a locked child of a group unwarped. A lock now stops only changes aimed at the element itself: it is checked once, on the operation's target, and not again on the content the operation reaches through it.
-- The mesh deform tool works on a group that holds a locked child. It used to ignore every press.
-- A text bound to a locked path can be moved. The path moves with it; the move used to do nothing.
-- An element with a raster filter inside a group keeps its filtered bake across frames, the way a top-level element does. Its filter chain used to run again on every pan frame and on every frame of a pen stroke drawn anywhere in the document.
-- A text keeps its measured layout bounds through a move or a transform edit. They used to fall back to the estimate, which shifted the selection frame, and a rotation typed into the ActionsPanel left the frame where the text no longer was.
-- `ungroupElements` and `extractChildFromGroup` keep the children where they were drawn. The group's transform, and for an extracted child every ancestor's, moves into each child. The children used to lose the rotation, skew or offset of the group they left.
-- Undoing the deletion of an element whose fields were changed in the same undo step now sends those fields to collaborators and the timelapse recording. They used to lose them, which left the restored element unreadable. yjs is upgraded to 13.6.33 for this.
-- Timelapse playback leaves out an element it cannot read instead of stopping with an error.
-- An MP4 export no longer rebuilds the document at every step while it measures the recording's length before the first frame. On a recording made before `20260929` each of those steps migrated the whole document, which kept the export from starting for a long time.
-- Alt+drag duplicates with the select tool and the path edit tool land right in front of the frontmost source instead of on top of the layer. `duplicateElementsByIds` stacks its copies the same way.
-- A drop shadow follows the alpha of its shadow color. The shadow's strength is the shadow opacity multiplied by that alpha. The alpha used to be ignored, so a half-transparent shadow color cast a full shadow.
-- An element whose filter is applied to the backdrop now shows the backdrop in the shape its geometry filters produce. Geometry filters on its enclosing groups apply too.
-- An element with a raster filter such as blur inside a group with geometry filters is drawn in the shape the group deforms, instead of at its undeformed position.
-- Raster filters placed after a backdrop filter now reach past the element's shape. A drop shadow after frost glass is drawn, and a blur after it softens the pane's edge. They used to be cut off at the shape.
-- A drop shadow on a group is drawn beneath the group, and the group's children are then drawn the way they are without it. Their blend modes composite against the document and the shadow. The group used to be baked into one texture, where a child's blend mode, and a blend mode set on one of its fills, fell back to normal. This applies to a group whose only raster filter is the drop shadow and that has normal blending, full opacity and no clip or mask of its own. Any other filtered group is still drawn from its bake.
-- A hidden element inside a group that is drawn from a bake stays hidden. A raster filter, an opacity or a mask on the group used to draw it.
-- Gradient buffers that a later draw replaces are released after the frame is submitted. An element drawn twice in one frame at different scales used to fail the submit with "used in submit while destroyed".
-- Clicks, rectangle selection, eyedropper candidates and clip paths inside a rotated or scaled group now hit the children where they are drawn. They used to miss parts of a child and hit empty space beside it.
-- The bounds of a rotated or scaled group now enclose its children where they are drawn. The selection box, snapping and hit candidates of such a group used to be shifted away from its content.
-- A path with two gradient fills, or two gradient strokes, renders both. Each appearance now owns its gradient buffers. The second used to take over the first one's buffers within the same frame and destroy them, which failed the frame's submit with "used in submit while destroyed".
-- Color adjustment reaches texts and the content of a mesh. `startAdjustColorSession` collects and adjusts the fill and stroke of a text's default style and of each run, and walks into a mesh's children. A selection mixing these with paths used to change the paths only.
-- Dragging a gradient handle previews the change on the fill being edited only. Every fill of the element used to show the dragged gradient until the drag ended.
+- **SVG export**
+  - Fix content under a blended alpha-locked or backdrop-reading element turning see-through.
+  - Fix content stacked over an alpha-locked or backdrop-reading element being hidden by its rasterized area.
+- **Locked elements**
+  - Fix a locked element staying behind when its container is moved, aligned, resized or warped. A lock now blocks only operations aimed at the element itself.
+  - Fix moving a text bound to a locked path doing nothing. The path now moves with the text.
+- **Mesh deform tool**
+  - Fix the tool ignoring presses on a group that holds a locked child.
+- **Groups**
+  - Fix `ungroupElements` and `extractChildFromGroup` dropping the rotation, skew or offset of the enclosing groups from the children.
+- **Select tool**
+  - Fix hit tests inside a rotated or scaled group missing parts of a child. This covers clicks, rectangle selection, eyedropper candidates and clip paths.
+  - Fix the selection box, snapping and hit candidates of a rotated or scaled group being offset from its content.
+- **Select tool / Path edit tool**
+  - Fix Alt+drag duplicates landing on top of the layer instead of in front of the frontmost source. `duplicateElementsByIds` stacks its copies the same way.
+- **Text**
+  - Fix a text's selection frame drifting away from the text after a move or a transform edit.
+- **Filters**
+  - Fix an element with a raster filter inside a group re-running its filters on every pan frame and every pen stroke frame.
+  - Fix a drop shadow ignoring the alpha of its shadow color. The shadow's strength is now the shadow opacity multiplied by that alpha.
+  - Fix a backdrop filter ignoring the geometry filters of its element and of enclosing groups.
+  - Fix a raster filter such as blur ignoring the geometry filters of an enclosing group.
+  - Fix raster filters placed after a backdrop filter being cut off at the element's shape.
+  - Fix a drop shadow on a group resetting the blend modes of its children to normal. This applies to a group whose only raster filter is the drop shadow, with normal blending, full opacity and no clip or mask of its own.
+  - Fix a hidden element becoming visible inside a group that has a raster filter, an opacity or a mask.
+- **Gradients**
+  - Fix "used in submit while destroyed" when an element is drawn twice in one frame at different scales.
+  - Fix "used in submit while destroyed" on a path with two gradient fills or two gradient strokes.
+- **Gradient tool**
+  - Fix a handle drag previewing the change on every fill of the element.
+- **Color adjustment**
+  - Fix color adjustment skipping texts and mesh content.
+- **Collaboration**
+  - Fix undoing an element's deletion sending an unreadable element to collaborators and the timelapse recording. yjs is upgraded to 13.6.33 for this fix.
+- **Timelapse**
+  - Fix playback stopping with an error at an unreadable element. Playback now leaves that element out.
+  - Fix an MP4 export taking a long time to start on recordings made before `20260929`.
 
 ## [0.2.0] - 2026-09-27
 
 ### Added
 
-- `fontLoaders` option of `Paplico.create`. Text fonts resolve through the `FontLoader`s it lists, and the host app can add its own by extending the abstract `FontLoader` class. No loader is registered by default.
-- `paplico.fonts`, the `FontManager` each Paplico instance owns.
-- `LocalFontBackend` and `FontData` types in `/typography`, and `DomLocalFontBackend` in `/infra`, for building a `LocalFontsLoader` on any platform.
-- `Paplico.connectCollaboration(factory, { document })` attaches a collaboration transport. `factory` receives the Y.Doc to sync. `document: "fromRemote"` discards the local document so the room's state is adopted as-is. `document: "keepForRemote"` keeps it, merges it with the room and removes layers listed twice once the transport reports sync.
-- `CollaborationBase` in `/collaboration`, the base class a collaboration transport extends. A host app can implement its own transport with it.
-- `@paplico/core/export` entry. It holds one exporter class per output format, `PNGExporter`, `JPEGExporter`, `AvifHdrExporter`, `PSDExporter`, `TIFFExporter` and `SVGExporter`, and the `IExporter`, `ExportContext`, `ExportRenderer` and `ExportResult` types. Each class takes its settings in the constructor.
-- `Paplico.exportArtboard(exporter, artboardId)` exports an artboard through any `IExporter`, so a host app can add its own output format.
-- `Paplico.renderElementsToPNG(elementIds, document, options)` renders elements to a PNG sized to their filter-expanded bounds.
-- `Paplico.activateCanvasTarget(targetId)` makes a canvas target the active one, and the `activeCanvasTargetChange` event reports the switch. Removing the active target emits it with `null`, which means the primary target serves as the active one.
+- **Fonts**
+  - `Paplico.create` takes a `fontLoaders` option listing the `FontLoader`s that resolve text fonts. No loader is registered by default.
+  - A host app can add its own font loader by extending the abstract `FontLoader` class.
+  - `paplico.fonts` is the instance's `FontManager`.
+  - `LocalFontBackend` and `FontData` in `/typography` and `DomLocalFontBackend` in `/infra` build a `LocalFontsLoader` on any platform.
+- **Collaboration**
+  - `Paplico.connectCollaboration(factory, { document })` attaches a collaboration transport.
+    - `document: "fromRemote"` discards the local document.
+    - `document: "keepForRemote"` merges the local document into the room.
+  - `CollaborationBase` in `/collaboration` is the base class for a host app's own transport.
+- **Export**
+  - `@paplico/core/export` entry.
+    - Exporters: `PNGExporter`, `JPEGExporter`, `AvifHdrExporter`, `PSDExporter`, `TIFFExporter` and `SVGExporter`. Each takes its settings in the constructor.
+    - Types: `IExporter`, `ExportContext`, `ExportRenderer` and `ExportResult`.
+  - `Paplico.exportArtboard(exporter, artboardId)` exports an artboard through any `IExporter`.
+  - `Paplico.renderElementsToPNG(elementIds, document, options)` renders elements to a PNG sized to their filter-expanded bounds.
+- **Canvas targets**
+  - `Paplico.activateCanvasTarget(targetId)` makes a canvas target active. The `activeCanvasTargetChange` event reports the switch, with `null` when the active target is removed.
 
 ### Changed
 
-- `FontSource` is `{ loaderId, fontId }`. Documents saved earlier are migrated when opened.
-- `Paplico.importDocument` throws `PaplicoError` with the code `DOCUMENT_OPEN_WHILE_CONNECTED` while a collaboration transport is attached. The transport would otherwise keep syncing the discarded Y.Doc, and edits would stop reaching the room without any error.
-- With several canvas targets, only the active target draws tool overlays such as handles, the brush cursor, snap lines and selection outlines. A press on another target activates it before reaching the tool. Hovering no longer switches the active target, and hover moves and tool wheel input on inactive targets are ignored. Plain wheel pan and zoom still work on every target.
+- **Breaking API changes**
+  - `FontSource` is `{ loaderId, fontId }`. Documents saved earlier are migrated when opened.
+  - `Paplico.importDocument` throws `PaplicoError` with the code `DOCUMENT_OPEN_WHILE_CONNECTED` while a collaboration transport is attached.
+- **Canvas targets**
+  - Only the active target draws tool overlays such as handles, the brush cursor, snap lines and selection outlines.
+  - A press activates a target. Hovering no longer does.
+  - Inactive targets ignore hover moves and tool wheel input. Plain wheel pan and zoom still work on every target.
 
 ### Removed
 
-- `getFontManager` and the `googleFontsApiKey` option of `Paplico.create`. Pass a `GoogleFontsLoader` in `fontLoaders` instead.
-- `/infra/localfonts.tauri` and the `@tauri-apps/api` and `tauri-plugin-system-fonts-api` dependencies. A Tauri app implements `LocalFontBackend` itself.
-- `Paplico.setCollaboration` and the `collaboration` option of `Paplico.create`. Use `connectCollaboration` instead.
-- The `exporter`, `psdExporter`, `tiffExporter` and `svgExporter` properties of `Paplico`. Pass an exporter from `/export` to `exportArtboard` instead.
+- **Fonts**
+  - `getFontManager`. Use `paplico.fonts` instead.
+  - The `googleFontsApiKey` option of `Paplico.create`. Pass a `GoogleFontsLoader` in `fontLoaders` instead.
+  - `/infra/localfonts.tauri` and the `@tauri-apps/api` and `tauri-plugin-system-fonts-api` dependencies. Implement `LocalFontBackend` in the Tauri app instead.
+- **Collaboration**
+  - `Paplico.setCollaboration` and the `collaboration` option of `Paplico.create`. Use `connectCollaboration` instead.
+- **Export**
+  - The `exporter`, `psdExporter`, `tiffExporter` and `svgExporter` properties of `Paplico`. Pass an exporter from `/export` to `exportArtboard` instead.
 
 ### Fixed
 
-- Resizing a group no longer moves a rotated compound path or blend inside it away from the rest of the group.
-- A stroke that ends within 100ms of pen-down keeps its pressure when the pen lifts off. It used to commit at a flat width, unlike its preview.
-- With several canvas targets, a paste or a keyboard shortcut runs once instead of once per target.
-- `clipPathId` is stored as a plain string by every Yjs reader and writer. Deleting a middle anchor with the path edit tool in a document with a clip group no longer leaves the original path behind.
-- Inside an editing scope, hit tests answer only on the layer that holds the scope element. The current layer no longer jumps to the topmost visible layer, and deleting a middle anchor with the path edit tool no longer makes the whole path disappear.
+- **Pen**
+  - Fix a stroke that ends within 100ms of pen-down being committed at a flat width.
+- **Path edit tool**
+  - Fix deleting a middle anchor in a document with a clip group leaving the original path behind.
+  - Fix deleting a middle anchor inside an editing scope making the whole path disappear.
+- **Editing scope**
+  - Fix the current layer jumping to the topmost visible layer inside an editing scope.
+- **Select tool**
+  - Fix resizing a group moving a rotated compound path or blend inside it away from the rest of the group.
+- **Canvas targets**
+  - Fix a paste or a keyboard shortcut running once per canvas target.
 
 ## [0.1.0] - 2026-09-26
 
 ### Added
 
-- First release of the Paplico drawing engine as a standalone package: document model, WebGPU renderer, drawing tools, filters, typography, papf I/O and collaboration transports.
-- Entry points: `@paplico/core` (the `Paplico` facade, errors and shortcuts), `/schema`, `/document`, `/brush`, `/collaboration`, `/color`, `/io`, `/tools`, `/timelapse`, `/typography`, `/filters`, `/utils` and `/infra`.
-- `/infra/localfonts.tauri` for the Tauri local font backend, kept out of `/infra` so browser bundles never load `@tauri-apps/*`.
-- `/three-webgpu-compat`, the target for a bundler alias of `three` so three.js and `@pixiv/three-vrm` share one WebGPU build.
-- `fallbackFontUrl` option of `Paplico.create` names where the built-in Noto Sans JP fallback font is served. The package fetches no app-specific URL on its own.
-- `registerForHotReload(paplico)` marks the instance that development hot reloads re-attach to.
-- `CollaborationConfig.relayHost` names the PartyKit host for the cloud and end-to-end encrypted transports. The package reads no environment variables, so the host application passes it in.
-- `pngjs` is an optional peer dependency. It is loaded only for the PNG decode fallback when running on Node WebGPU.
+- First release of the Paplico drawing engine as a standalone package.
+- **Entry points**
+  - `@paplico/core` holds the `Paplico` facade, errors and shortcuts.
+  - `/schema`, `/document`, `/brush`, `/collaboration`, `/color`, `/io`, `/tools`, `/timelapse`, `/typography`, `/filters`, `/utils` and `/infra`.
+  - `/infra/localfonts.tauri` holds the Tauri local font backend.
+  - `/three-webgpu-compat` is the target for a bundler alias of `three`.
+- **Host configuration**
+  - `Paplico.create` takes a `fallbackFontUrl` option that names where the built-in Noto Sans JP fallback font is served.
+  - `CollaborationConfig.relayHost` names the PartyKit host for the cloud and end-to-end encrypted transports.
+  - `registerForHotReload(paplico)` marks the instance that development hot reloads re-attach to.
+- **Dependencies**
+  - `pngjs` is an optional peer dependency for the PNG decode fallback on Node WebGPU.
