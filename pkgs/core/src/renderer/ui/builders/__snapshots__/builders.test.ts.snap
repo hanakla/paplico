@@ -466,7 +466,7 @@ exports[`UI overlay builders > should build gradient-edit primitives from the VR
         1,
         0.6,
       ],
-      "width": 2,
+      "width": 1,
     },
   },
   {
@@ -498,7 +498,7 @@ exports[`UI overlay builders > should build gradient-edit primitives from the VR
         0.96,
         1,
       ],
-      "width": 2,
+      "width": 1,
     },
   },
   {
@@ -1575,7 +1575,7 @@ exports[`UI overlay builders > should build path-edit primitives from the VRT fi
         1,
         1,
       ],
-      "width": 2,
+      "width": 1,
     },
   },
   {
@@ -1621,7 +1621,7 @@ exports[`UI overlay builders > should build path-edit primitives from the VRT fi
         1,
         1,
       ],
-      "width": 2,
+      "width": 1,
     },
   },
   {
@@ -2309,7 +2309,7 @@ exports[`UI overlay builders > should build selection primitives from the VRT fi
         1,
         1,
       ],
-      "width": 2,
+      "width": 1,
     },
   },
   {
@@ -2680,7 +2680,7 @@ exports[`UI overlay builders > should build stroke-width-edit primitives from th
         1,
         1,
       ],
-      "width": 2,
+      "width": 1,
     },
   },
   {

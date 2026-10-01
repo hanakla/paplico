@@ -7,6 +7,11 @@
 - Holding Shift while dragging in the path edit tool locks the drag to 45° steps. Anchors, path faces and whole elements move along 45° directions from the press point, and a control point turns in 45° steps around its anchor.
 - `aspectDriver` option of `calculateResizedBounds` picks the axis whose size sets the other under `constrainAspect`.
 
+### Changed
+
+- **Select tool / Path edit tool / Gradient tool**
+  - The outline traced along a selected shape is 1px wide instead of 2px.
+
 ### Fixed
 
 - An Alt+drag duplicate in the select tool and the path edit tool starts on top of its original and follows the pointer from the press point. It used to be offset by 10 and lag behind the pointer by the drag threshold.
