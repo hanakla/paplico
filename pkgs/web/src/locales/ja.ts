@@ -1180,6 +1180,9 @@ export const ja = {
 		scanNotInviteCode:
 			"読み取ったコードは、端末をつなぐためのものではありませんでした",
 		scanTakePhoto: "カメラで撮って読み取る",
+		scanOrEnterInviteLink:
+			"招待リンクを持っているときは、ここに貼りつけてください",
+		inviteLinkPlaceholder: "https://…",
 		scanPhotoGuide: "もう一方の端末に出ているコードを撮影してください",
 		scanReadingPhoto: "読み取っています…",
 		scanPhotoNoCode:

@@ -1,17 +1,18 @@
-import { Camera, X as XIcon } from "lucide-react";
+import { Camera, Link, X as XIcon } from "lucide-react";
 import QrScanner from "qr-scanner";
 import { useEffect, useRef, useState } from "react";
 import { createCallable } from "react-call";
 import { Button } from "@/components/Button";
 import { Dialog } from "@/components/Dialog";
+import { Input } from "@/components/Input";
 import { Spinner } from "@/components/Spinner";
 import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 
 /**
  * Camera view that resolves with the raw text of the first QR code it sees,
- * or null when the user backs out. Interpreting that text (invite URL or not)
- * is left to the caller.
+ * or of an invite link typed or pasted below it, or null when the user backs
+ * out. Interpreting that text (invite URL or not) is left to the caller.
  *
  * Installed (standalone) web apps on iOS cannot rely on getUserMedia — WebKit
  * has repeatedly shipped broken camera capture there — so in that mode the
@@ -36,6 +37,7 @@ export const ScanInviteDialog = createCallable<
 	// Reading a photo takes seconds, and a button that does nothing for that
 	// long reads as one that did not work.
 	const [scanning, setScanning] = useState(false);
+	const [inviteLink, setInviteLink] = useState("");
 
 	const handleDecode = useEventCallback((result: QrScanner.ScanResult) => {
 		call.end(result.data);
@@ -77,6 +79,22 @@ export const ScanInviteDialog = createCallable<
 			call.end(data);
 		},
 	);
+
+	const handleInviteLinkChange = useEventCallback(
+		(e: React.ChangeEvent<HTMLInputElement>) => {
+			setInviteLink(e.target.value);
+		},
+	);
+
+	const handleSubmitInviteLink = useEventCallback(() => {
+		const link = inviteLink.trim();
+		if (link) call.end(link);
+	});
+
+	const handleInviteLinkKeyDown = useEventCallback((e: React.KeyboardEvent) => {
+		if (e.key === "Enter" && !e.nativeEvent.isComposing)
+			handleSubmitInviteLink();
+	});
 
 	const handleClose = useEventCallback(() => {
 		call.end(null);
@@ -143,6 +161,36 @@ export const ScanInviteDialog = createCallable<
 					</div>
 				)}
 
+				<div className="px-4 pb-4">
+					<label
+						htmlFor="scan-invite-link"
+						className="text-xs text-muted-foreground block mb-1.5"
+					>
+						{t("connectRoomDialog.scanOrEnterInviteLink")}
+					</label>
+					<div className="flex items-center gap-2">
+						<div className="flex-1 min-w-0">
+							<Input
+								id="scan-invite-link"
+								$size="sm"
+								value={inviteLink}
+								onChange={handleInviteLinkChange}
+								onKeyDown={handleInviteLinkKeyDown}
+								placeholder={t("connectRoomDialog.inviteLinkPlaceholder")}
+							/>
+						</div>
+						<Button
+							$variant="secondary"
+							$size="sm"
+							disabled={!inviteLink.trim()}
+							onClick={handleSubmitInviteLink}
+						>
+							<Link size={14} />
+							{t("connectRoomDialog.connect")}
+						</Button>
+					</div>
+				</div>
+
 				<div className="flex justify-end px-4 py-3 border-t border-border/30">
 					<Button $variant="ghost" $size="sm" onClick={handleClose}>
 						{t("connectRoomDialog.cancel")}
@@ -156,13 +204,30 @@ export const ScanInviteDialog = createCallable<
 /**
  * Reads a code out of a photo, or returns null.
  *
- * The frame goes to the decoder exactly as the camera produced it. qr-scanner
- * allows itself ten seconds per image, and a phone's full-size photo can take
- * a noticeable part of that, which is what the button's spinner is for.
+ * The photo is shrunk with smoothing before decoding. A code photographed off
+ * a screen at full camera resolution spreads each module over dozens of
+ * pixels, and the screen's moiré inside them breaks the decoder's local
+ * black/white threshold. qr-scanner's own downscaling cannot help: it draws
+ * with smoothing off, which keeps the moiré instead of averaging it away.
  */
 async function readCodeFromPhoto(file: File): Promise<string | null> {
 	try {
-		const result = await QrScanner.scanImage(file, {
+		const image = await createImageBitmap(file);
+		const scale = Math.min(
+			1,
+			PHOTO_DECODE_LONG_SIDE / Math.max(image.width, image.height),
+		);
+		const canvas = document.createElement("canvas");
+		canvas.width = Math.round(image.width * scale);
+		canvas.height = Math.round(image.height * scale);
+		const context = canvas.getContext("2d");
+		if (!context) return null;
+
+		context.imageSmoothingQuality = "high";
+		context.drawImage(image, 0, 0, canvas.width, canvas.height);
+		image.close();
+
+		const result = await QrScanner.scanImage(canvas, {
 			returnDetailedScanResult: true,
 		});
 		return result.data;
@@ -170,6 +235,8 @@ async function readCodeFromPhoto(file: File): Promise<string | null> {
 		return null;
 	}
 }
+
+const PHOTO_DECODE_LONG_SIDE = 1024;
 
 /**
  * True when running as an installed (home screen) web app. iOS exposes the

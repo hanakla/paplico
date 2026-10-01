@@ -1123,6 +1123,7 @@ export default function Page() {
 						defaultRoomId={initialRoomId ?? undefined}
 						onConnect={collab.handleConnectRoom}
 						onDisconnect={collab.handleDisconnectRoom}
+						onScanCode={handleScanInviteCode}
 						isConnected={collab.connectedRoomId !== null}
 						currentRoomId={collab.connectedRoomId}
 						defaultUserName={appConfig.collaborationUserName}

@@ -1,5 +1,5 @@
 import { parseInvite } from "@paplico/core/collaboration";
-import { Link, LogOut, Unplug, X } from "lucide-react";
+import { Link, LogOut, ScanLine, Unplug, X } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 import { OAUTH_PROVIDERS, type OAuthStrategy } from "@/auth/oauthProviders";
 import { Button } from "@/components/Button";
@@ -20,6 +20,8 @@ interface ConnectRoomDialogProps {
 		encodedRoomKey?: string,
 	) => undefined | Promise<{ error?: string } | undefined>;
 	onDisconnect: () => void;
+	/** Reads an invite from a code shown on another device instead of the field. */
+	onScanCode: () => void;
 	isConnected: boolean;
 	currentRoomId: string | null;
 	defaultUserName?: string;
@@ -31,6 +33,7 @@ export const ConnectRoomDialog = memo(function ConnectRoomDialog({
 	onOpenChange,
 	onConnect,
 	onDisconnect,
+	onScanCode,
 	isConnected,
 	currentRoomId,
 	defaultUserName = "",
@@ -89,6 +92,11 @@ export const ConnectRoomDialog = memo(function ConnectRoomDialog({
 			authenticate(strategy);
 		},
 	);
+
+	const handleScanCode = useEventCallback(() => {
+		onOpenChange(false);
+		onScanCode();
+	});
 
 	const handleDisconnect = useEventCallback(() => {
 		onDisconnect();
@@ -166,6 +174,16 @@ export const ConnectRoomDialog = memo(function ConnectRoomDialog({
 								)}
 							/>
 							{error && <p className="text-xs text-danger mt-1">{error}</p>}
+							<Button
+								$variant="secondary"
+								$size="sm"
+								className="w-full justify-center mt-2"
+								disabled={needsSignIn}
+								onClick={handleScanCode}
+							>
+								<ScanLine size={14} />
+								{t("connectRoomDialog.scanCode")}
+							</Button>
 						</div>
 
 						<div>

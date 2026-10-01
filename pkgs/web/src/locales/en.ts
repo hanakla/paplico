@@ -1178,6 +1178,8 @@ export const en = {
 			"The camera could not be used. Allow camera access in your browser settings and try again.",
 		scanNotInviteCode: "The scanned code was not one for connecting devices.",
 		scanTakePhoto: "Take a Photo to Scan",
+		scanOrEnterInviteLink: "Have an invite link? Paste it here.",
+		inviteLinkPlaceholder: "https://…",
 		scanPhotoGuide: "Take a photo of the code shown on your other device.",
 		scanReadingPhoto: "Reading…",
 		scanPhotoNoCode:
