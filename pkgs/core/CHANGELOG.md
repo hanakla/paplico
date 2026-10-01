@@ -11,6 +11,7 @@
 
 - An Alt+drag duplicate in the select tool and the path edit tool starts on top of its original and follows the pointer from the press point. It used to be offset by 10 and lag behind the pointer by the drag threshold.
 - Resizing with the select tool keeps the Shift aspect lock and the Alt centre anchor when a dragged edge snaps. The snap used to move that edge alone.
+- A repeat inside an object mask masks its owner. It used to draw nothing into the mask, which hid the owner.
 
 ## [0.4.0] - 2026-10-01
 

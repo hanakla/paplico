@@ -5,6 +5,7 @@ import {
 	createDefaultDocument,
 	createDefaultLayer,
 	createDefaultTransform,
+	createRepeatObject,
 	createStrokeBrushSettings,
 } from "../../../document/factory";
 import {
@@ -113,6 +114,17 @@ describe("Top-level atlas masking", () => {
 		expect(box.width).toBeLessThanOrEqual(65);
 		expect(box.height).toBeGreaterThanOrEqual(55);
 		expect(box.height).toBeLessThanOrEqual(65);
+	});
+
+	it("draws a repeat inside the object mask, placed in the owner's frame", async () => {
+		const pixels = await renderRepeatMaskedOwner();
+
+		// The mirrored pair sits at owner-local x = ±80; the owner is shifted
+		// +100, so the copies land on screen x = 420 and 580, and the gap
+		// between them stays masked.
+		expect(isRed(pixels, 420, 300)).toBe(true);
+		expect(isRed(pixels, 580, 300)).toBe(true);
+		expect(isRed(pixels, 500, 300)).toBe(false);
 	});
 
 	// A viewport-driven frame bakes the whole margined store, so an owner
@@ -355,6 +367,18 @@ async function renderTopLevelAtlasMaskedPathAndMeasure(
 	const pixels = await captureTexturePixels(device, texture, 800, 600);
 	texture.destroy();
 	return redBBox(pixels, 800, 600);
+}
+
+async function renderRepeatMaskedOwner() {
+	const { renderer, canvas } = await createTestRenderer();
+	const doc = createRepeatMaskedOwnerDoc();
+	const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	texture.destroy();
+	return pixels;
 }
 
 function createGroupDoc(
@@ -1160,6 +1184,37 @@ function createTopLevelAtlasMaskedPathDoc(blendMode: Path["blendMode"]) {
 	return doc;
 }
 
+/** A red owner whose mask is a mirror repeat of one white square. */
+function createRepeatMaskedOwnerDoc() {
+	const doc = createDefaultDocument("repeat-mask-vrt");
+	const layer = createDefaultLayer("layer-bg", "Background");
+	const owner: Path = {
+		type: "path",
+		id: generateUid("path"),
+		opacity: 1,
+		blendMode: "normal",
+		segments: rectSegments(0, 0, 240, 120),
+		filters: [solidFill(1, 0, 0)],
+		transform: { ...createDefaultTransform(), x: 100 },
+	};
+	const square: Path = {
+		...owner,
+		id: generateUid("mask-source"),
+		segments: rectSegments(-80, 0, 40, 40),
+		filters: [solidFill(1, 1, 1)],
+		transform: createDefaultTransform(),
+	};
+	const repeat = createRepeatObject([square.id], { mode: "mirror" });
+	owner.mask = { elementIds: [repeat.id] };
+	doc.objects[square.id] = square;
+	doc.objects[repeat.id] = repeat;
+	doc.objects[owner.id] = owner;
+	layer.elementIds.push(owner.id);
+	doc.layers = [layer];
+	doc.artboards.push(createArtboard("ab", "AB", 0, 0, 400, 220));
+	return doc;
+}
+
 /** A 4×4 solid PNG embedded file plus an ImageObject that stretches it. */
 function solidImage(
 	id: string,
@@ -1240,6 +1295,11 @@ function blur(radius: number): Filter {
 		enabled: true,
 		paramData: { version: "1", params: { radius } },
 	};
+}
+
+function isRed(pixels: Uint8Array, x: number, y: number): boolean {
+	const i = (y * 800 + x) * 4;
+	return pixels[i] > 180 && pixels[i + 1] < 120 && pixels[i + 2] < 120;
 }
 
 /** Bounding box of clearly red pixels (the rect fill) over the white/gray

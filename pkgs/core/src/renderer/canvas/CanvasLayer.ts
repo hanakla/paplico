@@ -1457,8 +1457,27 @@ export class CanvasLayer {
 				this.executeFilterPlans(encoder, maskFilteredTextures, framePlan, [
 					...maskPlans.values(),
 				]);
-				this.restoreViewportUniformsToGPU();
 			}
+			// A repeat draws only through its bake, and bakeRepeats walks the
+			// layers, which mask content is never on. Bake it here, under the
+			// owner's frame the content is stored in.
+			const rasterScale = this.getRasterScale();
+			const boundsCache = this.viewportManager.getBoundsCache();
+			for (const id of maskContentIds) {
+				const element = elementsMap.get(id);
+				if (!element || !isRepeat(element)) continue;
+				const info = this.bakeRepeat(
+					encoder,
+					element,
+					this.viewportManager.getAncestorMatrix(id),
+					elementsMap,
+					rasterScale,
+					boundsCache,
+					maskFilteredTextures,
+				);
+				if (info) maskFilteredTextures.set(id, info);
+			}
+			this.restoreViewportUniformsToGPU();
 		}
 
 		this.clipMaskAtlas.preRender(
