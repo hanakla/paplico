@@ -30,6 +30,8 @@
   - Fix `PartyKitCollaboration` never sending `roomToken` to the relay.
 - **E2EE collaboration**
   - Fix one message that fails to apply stopping `E2EECollaboration` from processing every message after it.
+- **Flip**
+  - Fix `flipElements` on a single rotated element mirroring it across its own tilted axis instead of the screen's.
 
 ## [0.4.0] - 2026-10-01
 

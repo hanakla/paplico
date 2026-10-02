@@ -217,8 +217,8 @@ import {
 	translateSegments,
 } from "./utils/geometry/segmentOps";
 import {
-	resolveSelectionFrame,
 	type SelectionFrame,
+	worldSelectionFrame,
 } from "./utils/geometry/selectionFrame";
 import { deepClone, neverReached } from "./utils/lang";
 import { parseSvgToArtObjects, type SvgImportResult } from "./utils/svgImport";
@@ -3004,14 +3004,13 @@ export class PaplicoCommands {
 	}
 
 	/**
-	 * Mirror elements in their selection frame's axes: the frame is mapped
-	 * onto itself, turned over.
+	 * Mirror elements across the world axes through the middle of their world
+	 * bounds, so a tilted element flips the way it looks on screen rather than
+	 * in its own tilted axes.
 	 */
 	public flipElements(elementIds: string[], flip: AxisFlip): void {
-		const frame = resolveSelectionFrame(
-			elementIds,
-			(id) => this.ctx.spatial.getElementFrame(id),
-			(id) => this.ctx.spatial.getWorldGeometryBounds(id),
+		const frame = worldSelectionFrame(elementIds, (id) =>
+			this.ctx.spatial.getWorldGeometryBounds(id),
 		);
 		if (frame) this.resizeElements(elementIds, frame, frame.bounds, flip);
 	}

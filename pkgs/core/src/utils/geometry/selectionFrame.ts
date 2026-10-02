@@ -38,6 +38,14 @@ export function resolveSelectionFrame(
 		const frame = frameOf(elementIds[0]);
 		if (frame && !isAxisAligned(frame.matrix)) return frame;
 	}
+	return worldSelectionFrame(elementIds, worldBoundsOf);
+}
+
+/** A world-axis frame around the elements' world bounds, whatever their tilt. */
+export function worldSelectionFrame(
+	elementIds: readonly string[],
+	worldBoundsOf: (id: string) => BoundingBox | null,
+): SelectionFrame | null {
 	const union = unionBounds(
 		elementIds.flatMap((id) => {
 			const bounds = worldBoundsOf(id);

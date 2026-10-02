@@ -204,15 +204,14 @@ describe("PaplicoCommands.resizeElements", () => {
 	});
 
 	describe("flipping a rotated element", () => {
-		it("should mirror it across its own axis and keep its frame", () => {
+		it("should mirror it across the world's vertical axis through its middle", () => {
 			const f = createFixture();
 			f.addPath({
 				...rectPath("p", { x: 40, y: 20 }, 60, 30, []),
 				transform: { ...createIdentityTransform(), x: 5, rotation: 0.5 },
 			});
 			const bounds = f.worldBounds("p");
-			// The anchors run top-right, bottom-right, bottom-left, top-left.
-			const [topRight, bottomRight, bottomLeft, topLeft] = f.worldCorners("p");
+			const before = f.worldCorners("p");
 
 			f.commands.flipElements(["p"], { x: true, y: false });
 
@@ -220,15 +219,11 @@ describe("PaplicoCommands.resizeElements", () => {
 			for (const key of ["minX", "minY", "maxX", "maxY"] as const) {
 				expect(after[key]).toBeCloseTo(bounds[key], 6);
 			}
-			// Mirrored across the frame's own vertical axis, each right anchor
-			// now sits where its left neighbour was.
-			const [right, lowerRight] = f.worldCorners("p");
-			expect(right.x).toBeCloseTo(topLeft.x, 6);
-			expect(right.y).toBeCloseTo(topLeft.y, 6);
-			expect(lowerRight.x).toBeCloseTo(bottomLeft.x, 6);
-			expect(lowerRight.y).toBeCloseTo(bottomLeft.y, 6);
-			expect(right.x).not.toBeCloseTo(topRight.x, 6);
-			expect(bottomRight.x).not.toBeCloseTo(right.x, 6);
+			const mirrorX = (x: number) => bounds.minX + bounds.maxX - x;
+			f.worldCorners("p").forEach((corner, i) => {
+				expect(corner.x).toBeCloseTo(mirrorX(before[i].x), 6);
+				expect(corner.y).toBeCloseTo(before[i].y, 6);
+			});
 		});
 	});
 
