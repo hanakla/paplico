@@ -24,6 +24,7 @@ import {
 } from "@paplico/core/schema";
 import { sampleGradientColorAt } from "@paplico/core/utils";
 import {
+	ArrowLeftRight,
 	ArrowRight,
 	Ban,
 	Circle,
@@ -102,6 +103,18 @@ function extractFirstColor(fill: FillColor): Color {
 		return fill.vertices[0].color;
 	}
 	return createDefaultColor();
+}
+
+/** Mirrors stops around the gradient center. A midpoint belongs to the
+ *  segment's left stop, so each one moves to the stop that becomes the
+ *  left end of the same segment. */
+function reverseStops(stops: ColorStop[]): ColorStop[] {
+	const reversed = stops.toSorted((a, b) => b.offset - a.offset);
+	return reversed.map((stop, i) => ({
+		...stop,
+		offset: 1 - stop.offset,
+		midpoint: i < reversed.length - 1 ? 1 - reversed[i + 1].midpoint : 0.5,
+	}));
 }
 
 function createDefaultStops(baseColor: Color): ColorStop[] {
@@ -777,6 +790,11 @@ export const GradientStopsEditor = memo(function GradientStopsEditor({
 		setSelectedStopIdx(Math.min(selectedStopIdx, newStops.length - 1));
 	});
 
+	const handleReverse = useEventCallback(() => {
+		onStopsChange(reverseStops(stops));
+		setSelectedStopIdx(stops.length - 1 - selectedStopIdx);
+	});
+
 	const handleStopColorChange = useEventCallback((color: Color) => {
 		const newStops = stops.map((s, i) =>
 			i === selectedStopIdx ? { ...s, color } : s,
@@ -872,16 +890,20 @@ export const GradientStopsEditor = memo(function GradientStopsEditor({
 				</div>
 			</div>
 
-			{/* Remove stop button */}
-			{stops.length > 2 && (
-				<div className="flex justify-end">
+			<div className="flex justify-end">
+				<Tooltip content={t("toolbar.reverseGradient")}>
+					<IconButton $variant="ghost" $size="xs" onClick={handleReverse}>
+						<ArrowLeftRight size={12} />
+					</IconButton>
+				</Tooltip>
+				{stops.length > 2 && (
 					<Tooltip content={t("toolbar.removeStop")}>
 						<IconButton $variant="ghost" $size="xs" onClick={handleRemoveStop}>
 							<Trash2 size={12} />
 						</IconButton>
 					</Tooltip>
-				</div>
-			)}
+				)}
+			</div>
 
 			{/* Color picker for the clicked stop, anchored to its marker */}
 			<Popover.Root open={stopPopoverOpen} onOpenChange={setStopPopoverOpen}>
