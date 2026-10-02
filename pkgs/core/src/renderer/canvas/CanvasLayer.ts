@@ -18,7 +18,6 @@ import {
 	type AnyArtObject,
 	type Artboard,
 	type BoundingBox,
-	type BrushArtSource,
 	type BrushSettings,
 	type CubicBezierSegment,
 	type DefEntry,
@@ -9119,14 +9118,13 @@ function collectPatternDefIdsInUse(
 
 /**
  * Walk the resolved elementsMap and collect every def id referenced as a brush
- * source by an element's stroke appearances. Only the primary `source` slot is
- * collected — scatter/start/end def sources stay unresolved at render time
- * (their textures would have to join the rgba8unorm scatter texture array,
- * which the canvas-format def textures are not copy-compatible with).
- *
- * Def sources only exist in the `source` shape (`textureFileUid`-style
- * settings never reference defs), so reading the raw params structurally —
- * like `collectPatternDefIdsInUse` does — is sufficient.
+ * source by an element's stroke appearances. Only the slots the renderer
+ * resolves through the BrushTextureManager are collected: the image tip's own
+ * source and the grain source. Variant/start/end def sources would have to
+ * join the rgba8unorm scatter texture array, which the canvas-format def
+ * textures are not copy-compatible with, and ribbons sample file sources only;
+ * those slots fall back to built-in textures, so rasterizing their defs would
+ * be wasted work.
  *
  * Used by CanvasLayer.render as a pre-pass before the main render pass so
  * brush def textures are warm by the time the stamp pipeline binds them.
@@ -9141,13 +9139,15 @@ function collectBrushDefIdsInUse(
 		for (const f of filters) {
 			const filter = f as {
 				processor?: string;
-				paramData?: {
-					params?: { brushSettings?: { source?: BrushArtSource } };
-				};
+				paramData?: { params?: { brushSettings?: BrushSettings } };
 			};
 			if (filter.processor !== "stroke") continue;
-			const source = filter.paramData?.params?.brushSettings?.source;
-			if (source?.kind === "def" && source.defId) out.add(source.defId);
+			const settings = filter.paramData?.params?.brushSettings;
+			const tipSource =
+				settings?.tip?.kind === "image" ? settings.tip.sources[0] : undefined;
+			for (const source of [tipSource, settings?.grain?.source]) {
+				if (source?.kind === "def") out.add(source.defId);
+			}
 		}
 	}
 	return out;

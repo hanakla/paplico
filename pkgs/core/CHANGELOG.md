@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- **Brushes**
+  - Fix a brush whose image tip or grain comes from a def stamping a round tip or applying no grain instead of the def's artwork.
 - **Layers**
   - Fix an element moved to another layer still being picked from its old layer.
 - **Rendering**
