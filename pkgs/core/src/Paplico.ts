@@ -712,7 +712,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		s.registerCommand(Cmds["paplico.resetZoom"], "View", () => {
 			for (const entry of this.canvasTargets.values()) {
 				entry.target.setViewport({ zoom: 1, rotation: 0 });
-				entry.scheduler.markDirty("viewport");
 			}
 			return true;
 		});
@@ -1493,18 +1492,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 		const ui = new PaplicoUI(canvas, {
 			getViewport: () => target.getViewport(),
-			setViewport: (viewport) => {
-				const zoomChanged =
-					viewport.zoom !== undefined &&
-					viewport.zoom !== target.getViewport().zoom;
-				target.setViewport(viewport);
-				// Every viewport interaction tries the composite blit; CanvasLayer
-				// re-renders when the cached frame no longer covers the view.
-				scheduler.markDirty("viewport");
-				// Tool overlays with fixed on-screen sizes baked into world
-				// coordinates (scene gizmo arrows/rings) rebuild at the new zoom.
-				if (zoomChanged) this.tool?.refreshUI?.();
-			},
+			setViewport: (viewport) => target.setViewport(viewport),
 			getCanvasSize: () => ({ width: target.width, height: target.height }),
 			getTool: () => this.tool,
 			isDrawing: () => this._isDrawing,
@@ -1606,6 +1594,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		});
 
 		target.on("viewportChanged", () => {
+			// Every viewport change tries the composite blit; CanvasLayer
+			// re-renders when the cached frame no longer covers the view.
+			scheduler.markDirty("viewport");
+			// Tool overlays with fixed on-screen sizes baked into world
+			// coordinates (scene gizmo arrows/rings) rebuild for the new view.
 			this.tool?.refreshUI?.();
 		});
 
@@ -3691,7 +3684,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					y: point.y,
 					...(zoom !== undefined ? { zoom } : {}),
 				});
-				this.markDirty("viewport");
 			},
 			hintTransformOnlyChange: (fn) => {
 				this.renderChangeSubscriber.withTransformOnlyChange(fn);
