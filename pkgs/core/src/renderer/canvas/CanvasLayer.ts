@@ -2701,7 +2701,7 @@ export class CanvasLayer {
 			backdropFilterRequests.set(bdElem.element.id, {
 				bounds: this.getBackdropTextureBounds(bdElem),
 				blurSigma: this.getBackdropBlurSigma(bdElem),
-				rasterScale: this.getRasterScale(),
+				rasterScale: this.getBackdropRasterScale(),
 			});
 		}
 		// The pooled-texture working set scales with the canvas surface; keep
@@ -4039,6 +4039,24 @@ export class CanvasLayer {
 	 * results stay stable. */
 	private getRasterScale(): number {
 		return (this.activeDocument?.rasterizationDpi ?? 72) / 72;
+	}
+
+	/** Density (texels per world px) of the backdrop-filter capture grid.
+	 * Live frames follow the display density, capped at the raster scale so no
+	 * zoom makes a capture larger than the raster scale would; at a high
+	 * rasterizationDpi a full-canvas capture at the raster scale outgrows the
+	 * texture pool budget and is reallocated every frame. Exports keep the
+	 * raster scale so display-quality decisions never change exported pixels. */
+	private getBackdropRasterScale(): number {
+		const rasterScale = this.getRasterScale();
+		if (this.renderState.isExport) return rasterScale;
+		return Math.min(
+			rasterScale,
+			interactiveBakeDensity(
+				rasterScale,
+				this.viewportState.current?.zoom ?? 1,
+			),
+		);
 	}
 
 	/**
@@ -5840,7 +5858,7 @@ export class CanvasLayer {
 	/** Max shared-pyramid blur sigma the element's backdrop filters declare
 	 *  (in R texels), so the coordinator plans its batch pyramid deep enough. */
 	private getBackdropBlurSigma(bdElem: BackdropElementEntry): number {
-		const rasterScale = this.getRasterScale();
+		const rasterScale = this.getBackdropRasterScale();
 		return bdElem.backdropFilters.reduce(
 			(max, filter) =>
 				Math.max(
@@ -6081,11 +6099,12 @@ export class CanvasLayer {
 		const { element, backdropFilters, regularFilters } = bdElem;
 
 		// The region comes off a shared fixed-R capture (one per epoch across
-		// all backdrop-filter elements); the world-snapped R grid keeps the
-		// filters (frost glass, pixelate) invariant to viewport zoom/pan. The
-		// planned request is passed through for the coordinator's pending-union
-		// bookkeeping; a missing one (transient render paths) still captures.
-		const rasterScale = this.getRasterScale();
+		// all backdrop-filter elements); the world-snapped grid keeps the
+		// filters (frost glass, pixelate) invariant to pan, and to zoom within
+		// one density bucket. The planned request is passed through for the
+		// coordinator's pending-union bookkeeping; a missing one (transient
+		// render paths) still captures.
+		const rasterScale = this.getBackdropRasterScale();
 		const fullBounds =
 			backdropRequest?.bounds ?? this.getBackdropTextureBounds(bdElem);
 		const request = backdropRequest ?? {

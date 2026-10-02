@@ -18,8 +18,10 @@ import {
 	captureTexturePixels,
 	createTestRenderer,
 	expectVisualMatch,
+	renderArtboardForTest,
 	renderWithViewport,
 } from "../../../testUtils/visualRegression";
+import type { RenderOrchestrator } from "../../RenderOrchestrator";
 import type { BlurFilter } from "../BlurFilter/BlurFilter";
 import type { DropShadowFilter } from "../DropShadowFilter/DropShadowFilter";
 import type { FrostGlassFilter } from "../FrostGlassFilter/FrostGlassFilter";
@@ -603,6 +605,60 @@ describe("Backdrop filter inside a group", () => {
 		expect(
 			regionDiffPercentage(grouped, ungrouped, 800, 0, 0, 800, 600),
 		).toBeLessThan(0.1);
+	});
+});
+
+describe("Backdrop capture density at a high rasterizationDpi", () => {
+	// The pane is 220 world px wide; 300 dpi is ~4.17 texels per world px.
+	const PANE_WIDTH = 220;
+
+	it("should capture at the display density while editing", async () => {
+		const { renderer } = await createTestRenderer();
+		const captureWidths = recordBackdropCaptureWidths(renderer);
+		const doc = createBackdropBlurDoc();
+		doc.rasterizationDpi = 300;
+
+		renderer.render(
+			{
+				viewport: { x: 0, y: 0, zoom: 1.5, rotation: 0 },
+				document: doc,
+				strategy: "full",
+			},
+			{},
+		);
+		await renderer.getDevice()?.queue.onSubmittedWorkDone();
+
+		// Zoom 1.5 rounds up to 2 texels per world px; the blur margin adds a
+		// little on top of the pane width.
+		expect(captureWidths.length).toBeGreaterThan(0);
+		for (const width of captureWidths) {
+			expect(width).toBeGreaterThanOrEqual(PANE_WIDTH * 2);
+			expect(width).toBeLessThan(PANE_WIDTH * 3);
+		}
+	});
+
+	it("should capture at the rasterizationDpi density on export", async () => {
+		const { renderer } = await createTestRenderer();
+		const captureWidths = recordBackdropCaptureWidths(renderer);
+		const doc = createBackdropBlurDoc();
+		doc.rasterizationDpi = 300;
+		const artboard = createArtboard(
+			"artboard-export",
+			"Export",
+			0,
+			0,
+			400,
+			300,
+		);
+		doc.artboards.push(artboard);
+
+		const texture = await renderArtboardForTest(renderer, artboard, doc, 1.5);
+		texture.destroy();
+
+		expect(captureWidths.length).toBeGreaterThan(0);
+		for (const width of captureWidths) {
+			expect(width).toBeGreaterThanOrEqual(PANE_WIDTH * (300 / 72));
+		}
 	});
 });
 
@@ -1487,4 +1543,19 @@ function translatedDiffPercentage(
 	}
 
 	return (different / compared) * 100;
+}
+
+/** Widths of every backdrop capture texture the renderer allocates from now on. */
+function recordBackdropCaptureWidths(renderer: RenderOrchestrator): number[] {
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no GPU device");
+	const widths: number[] = [];
+	const originalCreate = device.createTexture.bind(device);
+	device.createTexture = ((descriptor: GPUTextureDescriptor) => {
+		if (descriptor.label === "Backdrop Region Texture") {
+			widths.push((descriptor.size as GPUExtent3DDict).width);
+		}
+		return originalCreate(descriptor);
+	}) as typeof device.createTexture;
+	return widths;
 }
