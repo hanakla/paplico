@@ -1,4 +1,5 @@
 import { includeOklabMix } from "../shared/hk-wgsl-includes";
+import { SVG_PREMULTIPLY_WGSL } from "../svg/svg-wgsl-includes";
 
 export const HK_SELECTIVE_CORRECTION_SHADER = /* wgsl */ `
 struct Uniforms {
@@ -181,7 +182,9 @@ fn adjustColor(hsv: vec3f) -> vec3f {
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let texCoord = input.texCoord;
-	let originalColor = textureSample(inputTexture, inputSampler, texCoord);
+	// The input is premultiplied. Adjusting it as is would lift transparent
+	// black into visible color and skew the color of semi-transparent edges.
+	let originalColor = unpremultiply(textureSample(inputTexture, inputSampler, texCoord));
 
 	let originalHsv = rgb2hsv(originalColor.rgb);
 
@@ -214,12 +217,13 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	}
 
 	if (uniforms.previewMask != 0) {
-		return vec4f(maskColor, originalColor.a);
+		return premultiply(vec4f(maskColor, originalColor.a));
 	} else {
 		let mixedColor = mixOklab(originalColor.rgb, finalColor, uniforms.mix_amount);
-		return vec4f(mixedColor, originalColor.a);
+		return premultiply(vec4f(mixedColor, originalColor.a));
 	}
 }
 
 ${includeOklabMix()}
+${SVG_PREMULTIPLY_WGSL}
 `;

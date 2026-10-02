@@ -38,6 +38,8 @@
   - Fix one message that fails to apply stopping `E2EECollaboration` from processing every message after it.
 - **Flip**
   - Fix `flipElements` on a single rotated element mirroring it across its own tilted axis instead of the screen's.
+- **Filters**
+  - Fix the color correction filter coloring the transparent area around its element and skewing the color of semi-transparent pixels.
 
 ## [0.4.0] - 2026-10-01
 
