@@ -68,6 +68,8 @@ import { SimpleSelect } from "@/components/SimpleSelect";
 import { Slider } from "@/components/Slider";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
+import { useArtObject } from "@/hooks/paplico/useArtObject";
+import { useIsElementSelected } from "@/hooks/paplico/useIsElementSelected";
 import { setLayerPanelMode, useAppConfig } from "@/hooks/useAppConfig";
 import { useBlendModeItems } from "@/hooks/useBlendModeItems";
 import { type LocalizeKeys, useTranslation } from "@/locales";
@@ -119,11 +121,6 @@ export function LayerPanel() {
 	const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
 	const snappedObjects = snap.document.objects as Record<string, AnyArtObject>;
-
-	const selectedIdsSet = useMemo(
-		() => new Set(snap.selectedElementIds as string[]),
-		[snap.selectedElementIds],
-	);
 
 	const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -382,18 +379,15 @@ export function LayerPanel() {
 						// normal layer list) — no separate flat list needed here.
 						<SortableElementItem
 							key={scopeElement.id}
-							element={scopeElement}
+							elementId={scopeElement.id}
 							index={0}
 							layerId={snap.currentLayerId ?? ""}
-							isSelected={selectedIdsSet.has(scopeElement.id)}
 							onSelectFromList={handleSelectElement}
 							onToggleVisibility={handleToggleElementVisibility}
 							onToggleLock={handleToggleElementLock}
 							depth={0}
-							objects={snappedObjects}
 							expandedGroups={expandedGroups}
 							onToggleGroup={toggleGroup}
-							selectedIdsSet={selectedIdsSet}
 							dropIndicator={dropIndicator}
 							onRenameElement={handleRenameElement}
 							disableDrag
@@ -458,20 +452,17 @@ export function LayerPanel() {
 															return (
 																<SortableElementItem
 																	key={element.id}
-																	element={element}
+																	elementId={element.id}
 																	index={originalIndex}
 																	layerId={layer.id}
-																	isSelected={selectedIdsSet.has(element.id)}
 																	onSelectFromList={handleSelectElement}
 																	onToggleVisibility={
 																		handleToggleElementVisibility
 																	}
 																	onToggleLock={handleToggleElementLock}
 																	depth={0}
-																	objects={snappedObjects}
 																	expandedGroups={expandedGroups}
 																	onToggleGroup={toggleGroup}
-																	selectedIdsSet={selectedIdsSet}
 																	dropIndicator={dropIndicator}
 																	onRenameElement={handleRenameElement}
 																/>
@@ -526,10 +517,9 @@ export function LayerPanel() {
 }
 
 interface SortableElementItemProps {
-	element: AnyArtObject;
+	elementId: string;
 	index: number;
 	layerId: string;
-	isSelected: boolean;
 	onSelectFromList: (
 		element: AnyArtObject,
 		layerId: string,
@@ -538,10 +528,8 @@ interface SortableElementItemProps {
 	onToggleVisibility: (layerId: string, elementId: string) => void;
 	onToggleLock: (layerId: string, elementId: string) => void;
 	depth?: number;
-	objects: Readonly<Record<string, AnyArtObject>>;
 	expandedGroups: Set<string>;
 	onToggleGroup: (groupId: string) => void;
-	selectedIdsSet: Set<string>;
 	isClipPath?: boolean;
 	isSpine?: boolean;
 	parentContainerId?: string;
@@ -1028,18 +1016,15 @@ const ConfirmDeleteButton = memo(function ConfirmDeleteButton({
 });
 
 const SortableElementItem = memo(function SortableElementItem({
-	element,
+	elementId,
 	index,
 	layerId,
-	isSelected,
 	onSelectFromList,
 	onToggleVisibility,
 	onToggleLock,
 	depth = 0,
-	objects,
 	expandedGroups,
 	onToggleGroup,
-	selectedIdsSet,
 	isClipPath,
 	isSpine,
 	parentContainerId,
@@ -1049,9 +1034,10 @@ const SortableElementItem = memo(function SortableElementItem({
 	shownChildIds,
 }: SortableElementItemProps) {
 	const paplico = usePaplico();
-	const { commands } = paplico;
-	const isReadonly = paplico.isReadonly;
-	const t = useTranslation();
+	// Each row reads its own element and selection flag, so a document change
+	// re-renders only the rows it touches instead of the whole list.
+	const element = useArtObject(paplico.uiState, elementId);
+	const isSelected = useIsElementSelected(paplico.uiState, elementId);
 	const {
 		attributes,
 		listeners,
@@ -1060,7 +1046,7 @@ const SortableElementItem = memo(function SortableElementItem({
 		transition,
 		isDragging,
 	} = useSortable({
-		id: element.id,
+		id: elementId,
 		disabled: disableDrag,
 		data: {
 			type: "element",
@@ -1078,69 +1064,30 @@ const SortableElementItem = memo(function SortableElementItem({
 
 	const handlePointerEnter = useEventCallback(() => {
 		if (isDragging) return;
-		paplico.setHoveredElement(element.id);
+		paplico.setHoveredElement(elementId);
 	});
 
 	const handlePointerLeave = useEventCallback(() => {
-		paplico.clearHoveredElement(element.id);
+		paplico.clearHoveredElement(elementId);
 	});
 
 	// A reorder drag or an unmount (deletion, list rebuild) ends the hover
 	// without a pointerleave, which would leave the highlight on canvas forever.
 	useEffect(() => {
-		if (isDragging) paplico.clearHoveredElement(element.id);
-		return () => paplico.clearHoveredElement(element.id);
-	}, [paplico, element.id, isDragging]);
+		if (isDragging) paplico.clearHoveredElement(elementId);
+		return () => paplico.clearHoveredElement(elementId);
+	}, [paplico, elementId, isDragging]);
 
-	const handleToggleVisibility = useEventCallback((e: React.MouseEvent) => {
-		e.stopPropagation();
-		onToggleVisibility(layerId, element.id);
-	});
-
-	const handleToggleLock = useEventCallback((e: React.MouseEvent) => {
-		e.stopPropagation();
-		onToggleLock(layerId, element.id);
-	});
-
-	const isExpandable = isExpandableRow(element);
-	const isExpanded = isExpandable && expandedGroups.has(element.id);
-	const ownClipPathId = isGroup(element) ? element.clipPathId : null;
-	const ownSpineId = isBlend(element) ? element.spineSourceId : null;
-
-	// Get child elements only when expanded to avoid unnecessary object lookups
-	const childElements = isExpanded
-		? isGroup(element) || isMesh(element)
-			? [...element.childIds]
-					.reverse()
-					.map((id) => objects[id])
-					.filter((el): el is AnyArtObject => el != null)
-			: isCompoundPath(element)
-				? [...element.sources]
-						.reverse()
-						.map((s) => objects[s.id])
-						.filter((el): el is AnyArtObject => el != null)
-				: isBlend(element)
-					? [
-							// Reverse so the front-most (last-painted) key sits at the top of
-							// the panel, matching the top-level list (reversedTopLevel) and the
-							// canvas z-order. renderOrder/objectIds index 0 is the back-most,
-							// painted first. The spine guide stays at the bottom.
-							...[...(element.renderOrder ?? element.objectIds)].reverse(),
-							...(element.spineSourceId ? [element.spineSourceId] : []),
-						]
-							.map((id) => objects[id])
-							.filter((el): el is AnyArtObject => el != null)
-					: []
-		: [];
-	const shownChildElements = shownChildIds
-		? childElements.filter((el) => shownChildIds.has(el.id))
-		: childElements;
+	// An id with nothing behind it is mid-edit bookkeeping; there is no row to draw.
+	if (!element) return null;
 
 	const showIndicatorBefore =
 		dropIndicator?.overId === element.id && dropIndicator.position === "before";
 	const showIndicatorAfter =
 		dropIndicator?.overId === element.id && dropIndicator.position === "after";
 
+	// useSortable re-renders every row of a list whenever an item joins it, so
+	// this shell stays thin and the memoized content below skips those renders.
 	return (
 		<>
 			{showIndicatorBefore && (
@@ -1165,132 +1112,246 @@ const SortableElementItem = memo(function SortableElementItem({
 				onPointerEnter={handlePointerEnter}
 				onPointerLeave={handlePointerLeave}
 			>
-				<div className="flex items-center justify-between gap-2">
-					<div className="flex-1 truncate">
-						<div className="flex items-center gap-1">
-							{isExpandable && (
-								<button
-									type="button"
-									className="p-0.5 -ml-1 hover:bg-muted rounded"
-									onClick={(e) => {
-										e.stopPropagation();
-										onToggleGroup(element.id);
-									}}
-								>
-									{isExpanded ? (
-										<ChevronDown size={10} />
-									) : (
-										<ChevronRight size={10} />
-									)}
-								</button>
-							)}
-
-							{isClipPath && <Eclipse size={10} />}
-							{isSpine && <Spline size={10} />}
-							{element.mask && (
-								<Tooltip content={t("layerPanel.hasMask")}>
-									<Squircle size={10} />
-								</Tooltip>
-							)}
-
-							<FakeInput
-								value={element.name}
-								placeholder={getElementTypeLabel(element, t)}
-								onChange={(n) => onRenameElement(layerId, element.id, n)}
-								disabled={isDragging}
-								$size="xs"
-								className={twm(
-									"flex-1 cursor-text",
-									isSelected && "font-medium",
-								)}
-							/>
-
-							{isExpandable && (
-								<span className="text-[9px] opacity-50">
-									(
-									{isGroup(element)
-										? element.childIds.length
-										: isCompoundPath(element)
-											? element.sources.length
-											: isBlend(element)
-												? element.objectIds.length
-												: 0}
-									)
-								</span>
-							)}
-						</div>
-					</div>
-					<div className="flex gap-0">
-						{!isReadonly && (
-							<IconButton
-								$size="xs"
-								$variant="ghost"
-								onClick={handleToggleLock}
-							>
-								{element.locked ? (
-									<Lock size={10} className="opacity-60" />
-								) : (
-									<LockOpen size={10} className="opacity-30" />
-								)}
-							</IconButton>
-						)}
-						<IconButton
-							$size="xs"
-							$variant="ghost"
-							onClick={handleToggleVisibility}
-						>
-							{element.visible !== false ? (
-								<Eye size={10} className="opacity-60" />
-							) : (
-								<EyeOff size={10} className="opacity-40" />
-							)}
-						</IconButton>
-						{!isReadonly && (
-							<ConfirmDeleteButton
-								icon={<X size={10} />}
-								onConfirm={() => commands.deleteElements([element.id])}
-								isActive={isSelected}
-							/>
-						)}
-					</div>
-				</div>
+				<ElementRowContent
+					element={element}
+					layerId={layerId}
+					isSelected={isSelected}
+					isDragging={isDragging}
+					isClipPath={isClipPath}
+					isSpine={isSpine}
+					expandedGroups={expandedGroups}
+					onToggleGroup={onToggleGroup}
+					onToggleVisibility={onToggleVisibility}
+					onToggleLock={onToggleLock}
+					onRenameElement={onRenameElement}
+				/>
 			</div>
-			{/* Render children if expanded */}
-			{isExpandable && isExpanded && (
-				<SortableContext
-					items={shownChildElements.map((el) => el.id)}
-					strategy={verticalListSortingStrategy}
-				>
-					<div className="space-y-0.5">
-						{shownChildElements.map((child, childIndex) => (
-							<SortableElementItem
-								key={child.id}
-								element={child}
-								index={childIndex}
-								layerId={layerId}
-								isSelected={selectedIdsSet.has(child.id)}
-								onSelectFromList={onSelectFromList}
-								onToggleVisibility={onToggleVisibility}
-								onToggleLock={onToggleLock}
-								depth={depth + 1}
-								objects={objects}
-								expandedGroups={expandedGroups}
-								onToggleGroup={onToggleGroup}
-								selectedIdsSet={selectedIdsSet}
-								isClipPath={ownClipPathId === child.id}
-								isSpine={ownSpineId === child.id}
-								parentContainerId={element.id}
-								dropIndicator={dropIndicator}
-								onRenameElement={onRenameElement}
-							/>
-						))}
-					</div>
-				</SortableContext>
-			)}
+			<ElementChildRows
+				element={element}
+				layerId={layerId}
+				depth={depth}
+				expandedGroups={expandedGroups}
+				shownChildIds={shownChildIds}
+				onSelectFromList={onSelectFromList}
+				onToggleVisibility={onToggleVisibility}
+				onToggleLock={onToggleLock}
+				onToggleGroup={onToggleGroup}
+				dropIndicator={dropIndicator}
+				onRenameElement={onRenameElement}
+			/>
 			{showIndicatorAfter && (
 				<div className="h-0.5 bg-accent rounded-xl mx-1" />
 			)}
 		</>
+	);
+});
+
+/** The name, badges and buttons inside an element row. */
+const ElementRowContent = memo(function ElementRowContent({
+	element,
+	layerId,
+	isSelected,
+	isDragging,
+	isClipPath,
+	isSpine,
+	expandedGroups,
+	onToggleGroup,
+	onToggleVisibility,
+	onToggleLock,
+	onRenameElement,
+}: {
+	element: AnyArtObject;
+	layerId: string;
+	isSelected: boolean;
+	isDragging: boolean;
+	isClipPath?: boolean;
+	isSpine?: boolean;
+	expandedGroups: Set<string>;
+	onToggleGroup: SortableElementItemProps["onToggleGroup"];
+	onToggleVisibility: SortableElementItemProps["onToggleVisibility"];
+	onToggleLock: SortableElementItemProps["onToggleLock"];
+	onRenameElement: SortableElementItemProps["onRenameElement"];
+}) {
+	const paplico = usePaplico();
+	const { commands } = paplico;
+	const isReadonly = paplico.isReadonly;
+	const t = useTranslation();
+
+	const handleToggleVisibility = useEventCallback((e: React.MouseEvent) => {
+		e.stopPropagation();
+		onToggleVisibility(layerId, element.id);
+	});
+
+	const handleToggleLock = useEventCallback((e: React.MouseEvent) => {
+		e.stopPropagation();
+		onToggleLock(layerId, element.id);
+	});
+
+	const isExpandable = isExpandableRow(element);
+	const isExpanded = isExpandable && expandedGroups.has(element.id);
+
+	return (
+		<div className="flex items-center justify-between gap-2">
+			<div className="flex-1 truncate">
+				<div className="flex items-center gap-1">
+					{isExpandable && (
+						<button
+							type="button"
+							className="p-0.5 -ml-1 hover:bg-muted rounded"
+							onClick={(e) => {
+								e.stopPropagation();
+								onToggleGroup(element.id);
+							}}
+						>
+							{isExpanded ? (
+								<ChevronDown size={10} />
+							) : (
+								<ChevronRight size={10} />
+							)}
+						</button>
+					)}
+
+					{isClipPath && <Eclipse size={10} />}
+					{isSpine && <Spline size={10} />}
+					{element.mask && (
+						<Tooltip content={t("layerPanel.hasMask")}>
+							<Squircle size={10} />
+						</Tooltip>
+					)}
+
+					<FakeInput
+						value={element.name}
+						placeholder={getElementTypeLabel(element, t)}
+						onChange={(n) => onRenameElement(layerId, element.id, n)}
+						disabled={isDragging}
+						$size="xs"
+						className={twm("flex-1 cursor-text", isSelected && "font-medium")}
+					/>
+
+					{isExpandable && (
+						<span className="text-[9px] opacity-50">
+							(
+							{isGroup(element)
+								? element.childIds.length
+								: isCompoundPath(element)
+									? element.sources.length
+									: isBlend(element)
+										? element.objectIds.length
+										: 0}
+							)
+						</span>
+					)}
+				</div>
+			</div>
+			<div className="flex gap-0">
+				{!isReadonly && (
+					<IconButton $size="xs" $variant="ghost" onClick={handleToggleLock}>
+						{element.locked ? (
+							<Lock size={10} className="opacity-60" />
+						) : (
+							<LockOpen size={10} className="opacity-30" />
+						)}
+					</IconButton>
+				)}
+				<IconButton
+					$size="xs"
+					$variant="ghost"
+					onClick={handleToggleVisibility}
+				>
+					{element.visible !== false ? (
+						<Eye size={10} className="opacity-60" />
+					) : (
+						<EyeOff size={10} className="opacity-40" />
+					)}
+				</IconButton>
+				{!isReadonly && (
+					<ConfirmDeleteButton
+						icon={<X size={10} />}
+						onConfirm={() => commands.deleteElements([element.id])}
+						isActive={isSelected}
+					/>
+				)}
+			</div>
+		</div>
+	);
+});
+
+/** The nested rows under an expanded container row. */
+const ElementChildRows = memo(function ElementChildRows({
+	element,
+	layerId,
+	depth,
+	expandedGroups,
+	shownChildIds,
+	onSelectFromList,
+	onToggleVisibility,
+	onToggleLock,
+	onToggleGroup,
+	dropIndicator,
+	onRenameElement,
+}: {
+	element: AnyArtObject;
+	layerId: string;
+	depth: number;
+	expandedGroups: Set<string>;
+	shownChildIds?: ReadonlySet<string>;
+	onSelectFromList: SortableElementItemProps["onSelectFromList"];
+	onToggleVisibility: SortableElementItemProps["onToggleVisibility"];
+	onToggleLock: SortableElementItemProps["onToggleLock"];
+	onToggleGroup: SortableElementItemProps["onToggleGroup"];
+	dropIndicator: DropIndicator;
+	onRenameElement: SortableElementItemProps["onRenameElement"];
+}) {
+	if (!isExpandableRow(element) || !expandedGroups.has(element.id)) return null;
+
+	const ownClipPathId = isGroup(element) ? element.clipPathId : null;
+	const ownSpineId = isBlend(element) ? element.spineSourceId : null;
+	const childIds =
+		isGroup(element) || isMesh(element)
+			? [...element.childIds].reverse()
+			: isCompoundPath(element)
+				? [...element.sources].reverse().map((s) => s.id)
+				: isBlend(element)
+					? [
+							// Reverse so the front-most (last-painted) key sits at the top of
+							// the panel, matching the top-level list (reversedTopLevel) and the
+							// canvas z-order. renderOrder/objectIds index 0 is the back-most,
+							// painted first. The spine guide stays at the bottom.
+							...[...(element.renderOrder ?? element.objectIds)].reverse(),
+							...(element.spineSourceId ? [element.spineSourceId] : []),
+						]
+					: [];
+	const shownChildElementIds = shownChildIds
+		? childIds.filter((id) => shownChildIds.has(id))
+		: childIds;
+
+	return (
+		<SortableContext
+			items={shownChildElementIds}
+			strategy={verticalListSortingStrategy}
+		>
+			<div className="space-y-0.5">
+				{shownChildElementIds.map((childId, childIndex) => (
+					<SortableElementItem
+						key={childId}
+						elementId={childId}
+						index={childIndex}
+						layerId={layerId}
+						onSelectFromList={onSelectFromList}
+						onToggleVisibility={onToggleVisibility}
+						onToggleLock={onToggleLock}
+						depth={depth + 1}
+						expandedGroups={expandedGroups}
+						onToggleGroup={onToggleGroup}
+						isClipPath={ownClipPathId === childId}
+						isSpine={ownSpineId === childId}
+						parentContainerId={element.id}
+						dropIndicator={dropIndicator}
+						onRenameElement={onRenameElement}
+					/>
+				))}
+			</div>
+		</SortableContext>
 	);
 });
 

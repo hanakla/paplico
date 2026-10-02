@@ -1,9 +1,18 @@
 import type { DragEndEvent } from "@dnd-kit/core";
-import type { AnyArtObject, CompoundPath } from "@paplico/core/schema";
-import { describe, expect, it } from "vitest";
+import type { Paplico } from "@paplico/core";
+import {
+	createDefaultLayer,
+	createRendererState,
+} from "@paplico/core/document";
+import type { AnyArtObject, CompoundPath, Group } from "@paplico/core/schema";
+import { act, fireEvent, render } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PaplicoProvider } from "@/contexts/PaplicoContext";
+import { setLayerPanelMode } from "@/hooks/useAppConfig";
 import {
 	type DragEndAction,
 	filterLayerList,
+	LayerPanel,
 	type LayerPanelFilter,
 	resolveDragEndAction,
 } from "@/organisms/LayerPanel";
@@ -795,6 +804,138 @@ describe("filterLayerList", () => {
 		expect([...shownIds]).toEqual(["layer-2"]);
 	});
 });
+
+describe("LayerPanel", () => {
+	beforeEach(() => {
+		renderedRowNames.length = 0;
+	});
+
+	it("re-renders only the changed row when an element is renamed", async () => {
+		const { store } = renderLayerPanel();
+		renderedRowNames.length = 0;
+
+		await act(async () => {
+			commitObjectsDelta(store, [
+				{ ...store.document.objects["rect-b"], name: "renamed" },
+			]);
+		});
+
+		expect(renderedElementRows()).toEqual(["renamed"]);
+	});
+
+	it("re-renders only the added row when an element is added to a layer", async () => {
+		const { store } = renderLayerPanel();
+		renderedRowNames.length = 0;
+
+		await act(async () => {
+			const added = createNamedPath("path-new");
+			const layer = store.document.layers[0];
+			store.document.layers = [
+				{ ...layer, elementIds: [...layer.elementIds, added.id] },
+			];
+			commitObjectsDelta(store, [added]);
+		});
+
+		expect(renderedElementRows()).toEqual(["path-new"]);
+	});
+
+	it("re-renders only the added row and its parent when an element is added to a group", async () => {
+		const { store, result } = renderLayerPanel();
+		const expandButton = result.container.querySelector(
+			'[data-element-id="group-g"] button',
+		);
+		if (!expandButton) throw new Error("group-g has no expand button");
+		await act(async () => {
+			fireEvent.click(expandButton);
+		});
+		renderedRowNames.length = 0;
+
+		await act(async () => {
+			const added = createNamedPath("path-new");
+			const group = store.document.objects["group-g"] as Group;
+			commitObjectsDelta(store, [
+				{ ...group, childIds: [...group.childIds, added.id] },
+				added,
+			]);
+		});
+
+		expect(renderedElementRows().toSorted()).toEqual(["group-g", "path-new"]);
+	});
+});
+
+const renderedRowNames = vi.hoisted((): (string | undefined)[] => []);
+
+vi.mock("@/components/FakeInput", () => ({
+	// Every row draws exactly one name field, so its renders count the row's.
+	FakeInput: ({ value }: { value?: string }) => {
+		renderedRowNames.push(value);
+		return null;
+	},
+}));
+
+const LAYER_NAME = "Layer 1";
+
+/**
+ * layer-1: rect-a, group-g (path-p1), rect-b — rect-a selected
+ */
+function renderLayerPanel() {
+	const store = createRendererState();
+	const elements = [
+		createNamedPath("rect-a"),
+		{ ...createNamedPath("group-g"), type: "group", childIds: ["path-p1"] },
+		createNamedPath("path-p1"),
+		createNamedPath("rect-b"),
+	] as AnyArtObject[];
+	store.document.layers = [
+		{
+			...createDefaultLayer("layer-1", LAYER_NAME),
+			elementIds: ["rect-a", "group-g", "rect-b"],
+		},
+	];
+	store.document.objects = Object.fromEntries(elements.map((e) => [e.id, e]));
+	store.currentLayerId = "layer-1";
+	store.selectedElementIds = ["rect-a"];
+	// Element rows are drawn only in the detailed mode.
+	setLayerPanelMode("detailed");
+
+	const paplico = {
+		uiState: store,
+		commands: {},
+		selection: {},
+		isReadonly: false,
+		setHoveredElement: () => {},
+		clearHoveredElement: () => {},
+	} as unknown as Paplico;
+
+	const result = render(
+		<PaplicoProvider paplico={paplico}>
+			<LayerPanel />
+		</PaplicoProvider>,
+	);
+	return { store, result };
+}
+
+/** Applies changed elements the way the engine's per-object sync does, including its selection prune. */
+function commitObjectsDelta(
+	store: ReturnType<typeof createRendererState>,
+	changed: AnyArtObject[],
+) {
+	store.document.objects = {
+		...store.document.objects,
+		...Object.fromEntries(changed.map((e) => [e.id, e])),
+	};
+	store.selectedElementIds = store.selectedElementIds.filter(
+		(id) => store.document.objects[id],
+	);
+}
+
+function renderedElementRows() {
+	return renderedRowNames.filter((name) => name !== LAYER_NAME);
+}
+
+function createNamedPath(id: string): AnyArtObject {
+	return { ...createPath(id), name: id } as AnyArtObject;
+}
 
 /**
  * layer-1: rect-a, group-g (path-p1, group-h (path-p2, path-p3)), rect-b
