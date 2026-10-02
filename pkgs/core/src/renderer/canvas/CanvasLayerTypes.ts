@@ -34,12 +34,6 @@ import type { RenderSurface, TextureRef } from "./pipeline/RenderSurface";
 // State interfaces
 // ---------------------------------------------------------------------------
 
-export interface TextureState {
-	texture: GPUTexture | null;
-	width: number;
-	height: number;
-}
-
 /** Gradient rendering state. */
 export interface GradientState {
 	pipeline: GPURenderPipeline;
@@ -123,7 +117,6 @@ export interface CompositeState {
 	/** Canvas snapshot taken before an offscreen layer starts, used as
 	 *  blend mode base for elements composited within that layer. */
 	canvasBaseTexture: GPUTexture | null;
-	backdropMask: TextureState;
 	width: number;
 	height: number;
 }
@@ -175,6 +168,41 @@ export interface CompositeRenderContext {
 	 *  Used as blend mode base so that element-level blend modes produce
 	 *  results identical to canvas-direct rendering. */
 	baseTexture?: GPUTexture;
+	/** What backdrop-filter elements drawn into this target sample. Absent
+	 *  where nothing beneath is known yet, e.g. a bake encoded before the
+	 *  document under it. */
+	backdrop?: CompositeBackdrop;
+}
+
+/** The picture on screen beneath the elements a target has drawn so far. */
+export interface CompositeBackdrop {
+	/** Returns that picture as a texture in the canvas's texel space,
+	 *  encoding it first when needed. Call only while no pass is open. */
+	resolve: () => GPUTexture;
+	/** Present where `resolve` composes a fresh picture per call: hands the
+	 *  picture back once the caller has encoded its last read of it. */
+	release?: (picture: GPUTexture) => void;
+	/** Present on an offscreen target, whose composite has to punch what lies
+	 *  beneath by what its backdrop-filter elements cover. A canvas target is
+	 *  punched by those elements directly. */
+	coverage?: BackdropCoverage;
+}
+
+/** Where an offscreen target gathers what its backdrop-filter elements cover,
+ *  in the target's texel space; null until one is drawn. */
+export interface BackdropCoverage {
+	texture: GPUTexture | null;
+}
+
+/** A bake with what the backdrop-filter elements inside it cover, sharing
+ *  its placement. */
+export type CoveredSurface<Surface> = Surface & { coverage?: TextureRef };
+
+/** How an offscreen bake reaches the screen: the backdrop of the target it
+ *  is composited into, and the opacity it is composited at. */
+export interface OffscreenBackdrop {
+	parent: CompositeBackdrop;
+	alpha: number;
 }
 
 export interface BlitUVRect {
@@ -234,6 +262,9 @@ export interface FilteredTextureInfo {
 	 *  ElementFilterPlan.underlay): it is blitted first and the element then
 	 *  draws through its ordinary route. */
 	underlay?: true;
+	/** What the backdrop-filter elements inside `output` cover, sharing its
+	 *  placement. The blit punches what lies beneath by it. */
+	coverage?: TextureRef;
 }
 
 // ---------------------------------------------------------------------------

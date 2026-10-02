@@ -1,9 +1,5 @@
 import type { BoundingBox, Viewport } from "../../../schema";
-import type {
-	CompositeState,
-	GPUCoreResources,
-	TextureState,
-} from "../CanvasLayerTypes";
+import type { CompositeState, GPUCoreResources } from "../CanvasLayerTypes";
 
 // ---------------------------------------------------------------------------
 // Dependency interface
@@ -91,39 +87,4 @@ export class DocumentCache {
 		compositeState.width = width;
 		compositeState.height = height;
 	}
-
-	public ensureBackdropMaskTextures(width: number, height: number): void {
-		const { device, canvasFormat, compositeState } = this.deps;
-		ensureColorTexture(
-			{ device, canvasFormat, deferDestroy: this.deps.deferDestroy },
-			compositeState.backdropMask,
-			width,
-			height,
-			"Backdrop Mask Texture",
-			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-		);
-	}
-}
-
-function ensureColorTexture(
-	deps: Pick<DocumentCacheDeps, "device" | "canvasFormat" | "deferDestroy">,
-	state: TextureState,
-	width: number,
-	height: number,
-	label: string,
-	usage: GPUTextureUsageFlags,
-): void {
-	if (state.texture && state.width === width && state.height === height) {
-		return;
-	}
-
-	deps.deferDestroy(state.texture);
-	state.texture = deps.device.createTexture({
-		label,
-		size: { width, height },
-		format: deps.canvasFormat,
-		usage,
-	});
-	state.width = width;
-	state.height = height;
 }

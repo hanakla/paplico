@@ -61,9 +61,6 @@ export interface BackdropElementEntry {
 	bounds: WorldBBox;
 	backdropFilters: Filter[];
 	regularFilters: Filter[];
-	layerIndex: number;
-	/** Position within the layer's element list */
-	elementIndex: number;
 }
 
 /** Per-element filter classification. Pure data, no GPU references. */
@@ -113,24 +110,14 @@ interface AppearancePlan {
 	washBrushSize?: number;
 }
 
-/** Contiguous run of elements to render between backdrop boundaries. */
-interface LayerSegment {
-	elements: AnyArtObject[];
-	/** Backdrop element to process AFTER this segment, or null for the final segment */
-	backdropAfter: BackdropElementEntry | null;
-}
-
 /** Per-layer rendering plan. */
 interface LayerPlan {
-	layerIndex: number;
 	layerId: string;
 	elements: AnyArtObject[];
 	opacity: number;
 	blendMode: BlendMode;
 	/** Whether this layer needs offscreen compositing (non-normal blendMode) */
 	needsLayerCompositing: boolean;
-	/** Render segments: element runs separated by backdrop boundaries */
-	segments: LayerSegment[];
 }
 
 /** Complete frame rendering plan. Pure data, no GPU references. */
@@ -148,8 +135,10 @@ export interface FramePlan {
 	/** Clear color for the first render pass. */
 	clearColor: GPUColorDict;
 	layerPlans: LayerPlan[];
-	backdropElementIds: ReadonlySet<string>;
-	allBackdropEntries: readonly BackdropElementEntry[];
+	/** On-screen backdrop-filter elements at any depth, by element id. The
+	 *  render walk processes each where it meets it, so it lands in z-order
+	 *  inside its groups too. */
+	backdropEntries: ReadonlyMap<string, BackdropElementEntry>;
 	/** Elements needing offscreen filter pass. Key: element.id */
 	filterPlans: ReadonlyMap<string, ElementFilterPlan>;
 	/** Pre-computed element bounds cache from ViewportManager, used to
@@ -160,7 +149,6 @@ export interface FramePlan {
 /** A pass break declared at plan time: the main pass ends here, something
  *  composites offscreen, and the pass restarts. */
 type SegmentBreak =
-	| { kind: "backdrop"; entry: BackdropElementEntry }
 	| { kind: "compositeElement"; elementId: string }
 	| { kind: "inlineBackdropCompose"; elementId: string };
 
@@ -176,10 +164,10 @@ export interface LayerPassPlan {
 }
 
 /**
- * Declare every pass break ahead of execution by refining each layer's
- * backdrop segments with the element-level break conditions the render loop
- * currently discovers procedurally: blend/composition-mode compositing and
- * inline backdrop composes (glass extrude). Break elements live in
+ * Declare every pass break ahead of execution by splitting each layer's
+ * elements at the element-level break conditions the render loop currently
+ * discovers procedurally: blend/composition-mode compositing and inline
+ * backdrop composes (glass extrude). Break elements live in
  * `breakAfter`, not in `elements` — they render inside the break.
  *
  * Viewport culling is NOT applied here: a culled break element simply never
@@ -192,42 +180,35 @@ export function buildPassPlan(
 ): LayerPassPlan[] {
 	return framePlan.layerPlans.map((layerPlan) => {
 		const segments: PassSegment[] = [];
-		for (const segment of layerPlan.segments) {
-			let run: AnyArtObject[] = [];
-			for (const element of segment.elements) {
-				if (hasInlineComposite(element)) {
-					segments.push({
-						elements: run,
-						breakAfter: {
-							kind: "inlineBackdropCompose",
-							elementId: element.id,
-						},
-					});
-					run = [];
-					continue;
-				}
-				const blendMode = element.blendMode ?? "normal";
-				const compositionMode = element.compositionMode ?? "normal";
-				if (blendMode !== "normal" || compositionMode !== "normal") {
-					segments.push({
-						elements: run,
-						breakAfter: {
-							kind: "compositeElement",
-							elementId: element.id,
-						},
-					});
-					run = [];
-					continue;
-				}
-				run.push(element);
+		let run: AnyArtObject[] = [];
+		for (const element of layerPlan.elements) {
+			if (hasInlineComposite(element)) {
+				segments.push({
+					elements: run,
+					breakAfter: {
+						kind: "inlineBackdropCompose",
+						elementId: element.id,
+					},
+				});
+				run = [];
+				continue;
 			}
-			segments.push({
-				elements: run,
-				breakAfter: segment.backdropAfter
-					? { kind: "backdrop", entry: segment.backdropAfter }
-					: null,
-			});
+			const blendMode = element.blendMode ?? "normal";
+			const compositionMode = element.compositionMode ?? "normal";
+			if (blendMode !== "normal" || compositionMode !== "normal") {
+				segments.push({
+					elements: run,
+					breakAfter: {
+						kind: "compositeElement",
+						elementId: element.id,
+					},
+				});
+				run = [];
+				continue;
+			}
+			run.push(element);
 		}
+		segments.push({ elements: run, breakAfter: null });
 		return { layerPlan, segments };
 	});
 }
@@ -271,7 +252,6 @@ interface PlanCandidate {
 
 /** Viewport-independent layer metadata for LayerPlan construction. */
 interface LayerRow {
-	layerIndex: number;
 	layerId: string;
 	elements: AnyArtObject[];
 	opacity: number;
@@ -370,8 +350,6 @@ function classifyElementFilters(
 	bounds: WorldBBox,
 	filterHandlers: ReadonlyMap<string, FilterHandler>,
 	skipBackdropFilters: boolean,
-	layerIndex: number,
-	elementIndex: number,
 ): {
 	filterPlan: ElementFilterPlan | null;
 	backdropEntry: BackdropElementEntry | null;
@@ -411,8 +389,6 @@ function classifyElementFilters(
 				bounds,
 				backdropFilters,
 				regularFilters,
-				layerIndex,
-				elementIndex,
 			},
 		};
 	}
@@ -910,9 +886,11 @@ function segmentControlBounds(segments: CubicBezierSegment[]): BoundingBox {
 /** Shared inputs of one plan walk over a layer. */
 interface PlanWalk {
 	elementsMap: ReadonlyMap<string, AnyArtObject>;
-	layerIndex: number;
 	filterHandlers: ReadonlyMap<string, FilterHandler>;
 	skipBackdropFilters: boolean;
+	/** Inside a group drawn from its bake, whose children's filters the bake
+	 *  applies itself: only backdrop entries are collected. */
+	backdropsOnly?: boolean;
 	candidates: PlanCandidate[];
 	localBoundsCache?: LocalBoundsCache;
 	transientIds?: ReadonlySet<string>;
@@ -921,7 +899,6 @@ interface PlanWalk {
 function collectPlanCandidates(
 	elements: AnyArtObject[],
 	walk: PlanWalk,
-	baseElementIndex = 0,
 	skipCull = false,
 	/** The chain the enclosing groups place the elements under — see
 	 *  planBoundsOf. */
@@ -931,9 +908,9 @@ function collectPlanCandidates(
 ): void {
 	const {
 		elementsMap,
-		layerIndex,
 		filterHandlers,
 		skipBackdropFilters,
+		backdropsOnly,
 		candidates,
 		localBoundsCache,
 		transientIds,
@@ -941,12 +918,11 @@ function collectPlanCandidates(
 	const handlerLookup = {
 		getHandler: (processor: string) => filterHandlers.get(processor),
 	};
-	for (let i = 0; i < elements.length; i++) {
+	for (const child of elements) {
 		// Filter plans and backdrop entries render from their element alone,
 		// not through the group walk, so the element carries the geometry
 		// filters its groups hand down for both its shape and its bounds.
-		const element = withInheritedPreFilters(elements[i], parentPreFilters);
-		const elementIndex = baseElementIndex + i;
+		const element = withInheritedPreFilters(child, parentPreFilters);
 		// Transient elements (live previews) mutate under a stable id without
 		// any document-change invalidation, so a cached bounds entry would pin
 		// the plan (and its offscreen texture) to the first frame's size.
@@ -963,36 +939,35 @@ function collectPlanCandidates(
 			elementBounds,
 			filterHandlers,
 			skipBackdropFilters,
-			layerIndex,
-			elementIndex,
 		);
 
-		if (filterPlan || backdropEntry) {
+		if ((filterPlan && !backdropsOnly) || backdropEntry) {
 			candidates.push({
 				bounds: filterPlan?.textureBounds ?? elementBounds,
-				filterPlan,
+				filterPlan: backdropsOnly ? null : filterPlan,
 				backdropEntry,
 				skipCull,
 			});
 		}
 		if (backdropEntry) continue;
 
-		// Recurse into group children for individual element filters.
-		// Skip recursion only when the group itself is drawn from its bake —
-		// in that case renderGroupToTexture handles child filters. An underlay
-		// plan leaves the children on the main pass, so they keep their plans.
-		// A child inside the viewport implies its group intersects too (group
-		// bounds contain the children), so classifying every child here and
-		// culling per candidate in buildFramePlanView matches the previous
-		// cull-before-recurse behaviour.
-		if (isGroup(element) && (!filterPlan || filterPlan.underlay)) {
+		// Recurse into group children for individual element filters. A group
+		// drawn from its bake applies its children's filters in
+		// renderGroupToTexture, so beneath it only the backdrop entries are
+		// collected. An underlay plan leaves the children on the main pass, so
+		// they keep their plans. A child inside the viewport implies its group
+		// intersects too (group bounds contain the children), so classifying
+		// every child here and culling per candidate in buildFramePlanView
+		// matches the previous cull-before-recurse behaviour.
+		if (isGroup(element)) {
 			const childElements = element.childIds
 				.map((id) => elementsMap.get(id))
 				.filter((el): el is AnyArtObject => el !== undefined);
 			collectPlanCandidates(
 				childElements,
-				walk,
-				elementIndex,
+				filterPlan && !filterPlan.underlay
+					? { ...walk, backdropsOnly: true }
+					: walk,
 				skipCull,
 				placeElement(parentMatrix, element),
 				// `element` already carries the inherited filters after its own.
@@ -1014,49 +989,10 @@ function collectPlanCandidates(
 			collectPlanCandidates(
 				sourceElements,
 				{ ...walk, skipBackdropFilters: true },
-				elementIndex,
 				true,
 			);
 		}
 	}
-}
-
-/**
- * Build layer segments by slicing elements at backdrop boundaries.
- * Each segment is a contiguous run of elements followed by an optional
- * backdrop element to process.
- */
-function buildLayerSegments(
-	layerElements: AnyArtObject[],
-	backdropEntries: BackdropElementEntry[],
-): LayerSegment[] {
-	if (backdropEntries.length === 0) {
-		return [{ elements: layerElements, backdropAfter: null }];
-	}
-
-	const sorted = [...backdropEntries].sort(
-		(a, b) => a.elementIndex - b.elementIndex,
-	);
-	const segments: LayerSegment[] = [];
-	let lastProcessedIndex = -1;
-
-	for (const bdEntry of sorted) {
-		const elementsBefore = layerElements.slice(
-			lastProcessedIndex + 1,
-			bdEntry.elementIndex,
-		);
-		segments.push({
-			elements: elementsBefore,
-			backdropAfter: bdEntry,
-		});
-		lastProcessedIndex = bdEntry.elementIndex;
-	}
-
-	// Final segment: elements after the last backdrop
-	const elementsAfter = layerElements.slice(lastProcessedIndex + 1);
-	segments.push({ elements: elementsAfter, backdropAfter: null });
-
-	return segments;
 }
 
 /**
@@ -1105,8 +1041,6 @@ export function buildFilterPlansForElements(
 			bounds,
 			filterHandlers,
 			true,
-			0,
-			0,
 		);
 		if (filterPlan) plans.set(element.id, filterPlan);
 	}
@@ -1147,13 +1081,11 @@ export function buildFramePlanStructure(
 			: undefined;
 	const candidates: PlanCandidate[] = [];
 	const layerRows: LayerRow[] = [];
-	for (let layerIndex = 0; layerIndex < document.layers.length; layerIndex++) {
-		const layer = document.layers[layerIndex];
+	for (const layer of document.layers) {
 		if (!layer.visible) continue;
 		const layerElements = layerElementsCache.get(layer.id) ?? [];
 		collectPlanCandidates(layerElements, {
 			elementsMap,
-			layerIndex,
 			filterHandlers,
 			skipBackdropFilters,
 			candidates,
@@ -1162,7 +1094,6 @@ export function buildFramePlanStructure(
 		});
 		const blending = scanBlendingFlags(layerElements, elementsMap);
 		layerRows.push({
-			layerIndex,
 			layerId: layer.id,
 			elements: layerElements,
 			opacity: layer.opacity,
@@ -1186,8 +1117,7 @@ export function buildFramePlanStructure(
 
 /**
  * Derive the per-frame plan from a structure: cull candidates against the
- * viewport and slice layers into segments at the surviving backdrop
- * boundaries. Cheap — O(candidates + layers + backdrops), not O(elements).
+ * viewport. Cheap — O(candidates + layers), not O(elements).
  */
 export function buildFramePlanView(
 	structure: FramePlanStructure,
@@ -1196,7 +1126,7 @@ export function buildFramePlanView(
 	canvasHeight: number,
 ): FramePlan {
 	const filterPlans = new Map<string, ElementFilterPlan>();
-	const allBackdropEntries: BackdropElementEntry[] = [];
+	const backdropEntries = new Map<string, BackdropElementEntry>();
 	for (const candidate of structure.candidates) {
 		const bounds = candidate.bounds;
 		const intersects = boundsIntersectViewport(
@@ -1212,37 +1142,21 @@ export function buildFramePlanView(
 			filterPlans.set(candidate.filterPlan.elementId, candidate.filterPlan);
 		}
 		if (candidate.backdropEntry && intersects) {
-			allBackdropEntries.push(candidate.backdropEntry);
+			backdropEntries.set(
+				candidate.backdropEntry.element.id,
+				candidate.backdropEntry,
+			);
 		}
 	}
 
-	// Group backdrops by layer for segment construction
-	const backdropByLayer = new Map<number, BackdropElementEntry[]>();
-	for (const entry of allBackdropEntries) {
-		const arr = backdropByLayer.get(entry.layerIndex) ?? [];
-		arr.push(entry);
-		backdropByLayer.set(entry.layerIndex, arr);
-	}
-
-	// Build per-layer plans with segments
-	const layerPlans: LayerPlan[] = [];
-	for (const row of structure.layerRows) {
-		const layerBackdrops = backdropByLayer.get(row.layerIndex) ?? [];
-		layerPlans.push({
-			layerIndex: row.layerIndex,
-			layerId: row.layerId,
-			elements: row.elements,
-			opacity: row.opacity,
-			blendMode: row.blendMode,
-			needsLayerCompositing:
-				row.blendMode !== "normal" || row.hasCompositionModeElement,
-			segments: buildLayerSegments(row.elements, layerBackdrops),
-		});
-	}
-
-	const backdropElementIds = new Set(
-		allBackdropEntries.map((e) => e.element.id),
-	);
+	const layerPlans: LayerPlan[] = structure.layerRows.map((row) => ({
+		layerId: row.layerId,
+		elements: row.elements,
+		opacity: row.opacity,
+		blendMode: row.blendMode,
+		needsLayerCompositing:
+			row.blendMode !== "normal" || row.hasCompositionModeElement,
+	}));
 
 	return {
 		layerElementsCache: structure.layerElementsCache,
@@ -1252,8 +1166,7 @@ export function buildFramePlanView(
 		hasArtboards: structure.hasArtboards,
 		clearColor: structure.clearColor,
 		layerPlans,
-		backdropElementIds,
-		allBackdropEntries,
+		backdropEntries,
 		filterPlans,
 		localBoundsCache: structure.localBoundsCache,
 	};

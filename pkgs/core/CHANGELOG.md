@@ -41,6 +41,8 @@
 - **Filters**
   - Fix the color correction filter coloring the transparent area around its element and skewing the color of semi-transparent pixels.
   - Fix the gradient map, posterization and color replacement filters skewing the color of semi-transparent pixels.
+- **Backdrop filters**
+  - Fix the elements above a backdrop-filter element in the same group not being drawn.
 
 ## [0.4.0] - 2026-10-01
 

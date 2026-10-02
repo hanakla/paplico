@@ -210,7 +210,7 @@ describe("RenderPlanner frame planning", () => {
 	});
 
 	describe("frame-local backdrop classification", () => {
-		it("should classify a backdrop-needing element as a backdropAfter break between element segments", () => {
+		it("should list a backdrop-needing element without breaking its layer's pass", () => {
 			const background = pathAt("background-1", 0, 0);
 			const backdropElement = pathAt("backdrop-1", 200, 0);
 			backdropElement.filters = [backdropAppearance()];
@@ -218,23 +218,41 @@ describe("RenderPlanner frame planning", () => {
 				makeDocumentOf([background, backdropElement]),
 			);
 
-			expect(framePlan.allBackdropEntries.map((e) => e.element.id)).toEqual([
+			expect([...framePlan.backdropEntries.keys()]).toEqual([
 				backdropElement.id,
 			]);
 
-			const layerPlan = framePlan.layerPlans[0];
-			expect(layerPlan.segments).toHaveLength(2);
-			expect(layerPlan.segments[0].elements.map((e) => e.id)).toEqual([
+			const [passPlan] = buildPassPlan(framePlan, () => false);
+			expect(passPlan.segments).toHaveLength(1);
+			expect(passPlan.segments[0].elements.map((e) => e.id)).toEqual([
 				background.id,
-			]);
-			expect(layerPlan.segments[0].backdropAfter?.element.id).toBe(
 				backdropElement.id,
-			);
-			expect(layerPlan.segments[1].elements).toEqual([]);
-			expect(layerPlan.segments[1].backdropAfter).toBeNull();
+			]);
 		});
 
-		it("should cull an off-viewport backdrop element from allBackdropEntries", () => {
+		it("should list a backdrop child while keeping its group whole in the pass", () => {
+			const below = pathAt("below-1", 0, 0);
+			const child = pathAt("backdrop-1", 0, 0);
+			child.filters = [backdropAppearance()];
+			const above = pathAt("above-1", 0, 0);
+			const group = mockGroup("group-1", [below.id, child.id, above.id]);
+			const framePlan = buildViewOf(
+				mockDocument(
+					[below, child, above, group],
+					[mockLayer("layer-1", [group.id])],
+				),
+			);
+
+			expect([...framePlan.backdropEntries.keys()]).toEqual([child.id]);
+
+			const [passPlan] = buildPassPlan(framePlan, () => false);
+			expect(passPlan.segments).toHaveLength(1);
+			expect(passPlan.segments[0].elements.map((e) => e.id)).toEqual([
+				group.id,
+			]);
+		});
+
+		it("should cull an off-viewport backdrop element from backdropEntries", () => {
 			const background = pathAt("background-1", 0, 0);
 			const backdropElement = pathAt("backdrop-1", 100_000, 100_000);
 			backdropElement.filters = [backdropAppearance()];
@@ -242,11 +260,7 @@ describe("RenderPlanner frame planning", () => {
 				makeDocumentOf([background, backdropElement]),
 			);
 
-			expect(framePlan.allBackdropEntries).toHaveLength(0);
-
-			const layerPlan = framePlan.layerPlans[0];
-			expect(layerPlan.segments).toHaveLength(1);
-			expect(layerPlan.segments[0].backdropAfter).toBeNull();
+			expect(framePlan.backdropEntries.size).toBe(0);
 		});
 
 		it("should size a backdrop child's entry by the deformation its group applies", () => {
@@ -259,7 +273,7 @@ describe("RenderPlanner frame planning", () => {
 				[mockLayer("layer-1", [group.id])],
 			);
 
-			const [entry] = buildViewOf(document).allBackdropEntries;
+			const [entry] = buildViewOf(document).backdropEntries.values();
 
 			expect(entry.element.id).toBe(child.id);
 			expect(entry.bounds.maxX).toBeCloseTo(140);

@@ -202,6 +202,7 @@ interface Pipelines {
 	blitWithMaskChainPipeline: GPURenderPipeline;
 	blitBackdropWithMaskPipeline: GPURenderPipeline;
 	blitBackdropPunchPipeline: GPURenderPipeline;
+	blitBackdropCoveragePipeline: GPURenderPipeline;
 	blitGlassPunchPipeline: GPURenderPipeline;
 	compositePipeline: GPURenderPipeline;
 	exposureBlitPipeline: GPURenderPipeline;
@@ -475,6 +476,8 @@ export class RenderOrchestrator {
 				blitBackdropWithMaskPipeline:
 					this.pipelines.blitBackdropWithMaskPipeline,
 				blitBackdropPunchPipeline: this.pipelines.blitBackdropPunchPipeline,
+				blitBackdropCoveragePipeline:
+					this.pipelines.blitBackdropCoveragePipeline,
 				blitGlassPunchPipeline: this.pipelines.blitGlassPunchPipeline,
 				compositePipeline: this.pipelines.compositePipeline,
 				exposureBlitPipeline: this.pipelines.exposureBlitPipeline,
@@ -2454,6 +2457,21 @@ export class RenderOrchestrator {
 			},
 		});
 
+		// Accumulates the punch's coverage (union) into a texture of its own,
+		// for a bake whose composite has to punch what lies beneath it too.
+		const blitBackdropCoveragePipeline = createFullscreenPipeline({
+			device: this.device,
+			label: "Blit Backdrop Coverage Pipeline",
+			shaderModule: blitBackdropWithMaskShaderModule,
+			pipelineLayout: blitWithMaskChainPipelineLayout,
+			targetFormat: this.canvasFormat,
+			fragmentEntryPoint: "fragmentPunch",
+			blend: {
+				color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+				alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+			},
+		});
+
 		const blitBackdropWithMaskPipeline = createFullscreenPipeline({
 			device: this.device,
 			label: "Blit Backdrop With Mask Pipeline",
@@ -2480,6 +2498,7 @@ export class RenderOrchestrator {
 			blitWithMaskChainPipeline,
 			blitBackdropWithMaskPipeline,
 			blitBackdropPunchPipeline,
+			blitBackdropCoveragePipeline,
 			blitGlassPunchPipeline,
 			compositePipeline,
 			exposureBlitPipeline,

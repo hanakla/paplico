@@ -111,15 +111,19 @@ import {
 } from "./CanvasLayer.helpers";
 import {
 	type AssetState,
+	type BackdropCoverage,
 	type BlitLayer,
 	type BlitQuad,
 	type BlitUVRect,
+	type CompositeBackdrop,
 	type CompositeRenderContext,
 	type CompositeState,
+	type CoveredSurface,
 	type FilteredTextureInfo,
 	FULL_BLIT_UV_RECT,
 	type GradientState,
 	type GroupAppearancePhase,
+	type OffscreenBackdrop,
 	type PipelineType,
 	type RenderState,
 	type TextState,
@@ -221,6 +225,7 @@ import {
 	type RenderSurface,
 	releaseRenderSurface,
 	replaceRenderSurface,
+	type TextureRef,
 } from "./pipeline/RenderSurface";
 import { resolveTransientWashDomain } from "./pipeline/rasterizationDomain";
 import { SoftProofPass } from "./pipeline/SoftProofPass";
@@ -280,6 +285,11 @@ interface WetStroke {
 type RendererFramePlan = FramePlan & {
 	maskApplicationPlans: Map<string, MaskApplicationPlan>;
 	groupCompositionPlans: Map<string, GroupCompositionPlan>;
+	/** The backdrop requests planned with the coordinator, by element id. */
+	backdropRequests: Map<string, BackdropEffectRequest>;
+	/** Groups holding a backdrop-filter element. Their bakes wait until the
+	 *  walk draws them, when what lies beneath them exists. */
+	backdropHostIds: Set<string>;
 };
 
 /**
@@ -384,6 +394,7 @@ export class CanvasLayer {
 	private blitWithMaskChainPipeline: GPURenderPipeline;
 	private blitBackdropWithMaskPipeline: GPURenderPipeline;
 	private blitBackdropPunchPipeline: GPURenderPipeline;
+	private blitBackdropCoveragePipeline: GPURenderPipeline;
 	private blitGlassPunchPipeline: GPURenderPipeline;
 	private compositePipeline: GPURenderPipeline;
 	private exposureBlitPipeline: GPURenderPipeline;
@@ -428,6 +439,9 @@ export class CanvasLayer {
 		active: null! as ViewportBindingEntry,
 		stack: [] as ViewportBindingEntry[],
 	};
+	/** The canvas-space binding of the frame being encoded, which
+	 *  composeBackdrop draws offscreen content back into. */
+	private canvasViewportBinding: ViewportBindingEntry | null = null;
 
 	private get viewportState(): ViewportState {
 		return this.viewportManager.viewportState;
@@ -588,7 +602,6 @@ export class CanvasLayer {
 		layerTexture: null,
 		prebufTexture: null,
 		canvasBaseTexture: null,
-		backdropMask: { texture: null, width: 0, height: 0 },
 		width: 0,
 		height: 0,
 	};
@@ -724,6 +737,7 @@ export class CanvasLayer {
 			blitWithMaskChainPipeline: GPURenderPipeline;
 			blitBackdropWithMaskPipeline: GPURenderPipeline;
 			blitBackdropPunchPipeline: GPURenderPipeline;
+			blitBackdropCoveragePipeline: GPURenderPipeline;
 			blitGlassPunchPipeline: GPURenderPipeline;
 			exposureBlitPipeline: GPURenderPipeline;
 			quadBlitPipeline: GPURenderPipeline;
@@ -775,6 +789,7 @@ export class CanvasLayer {
 		this.blitWithMaskChainPipeline = pipelines.blitWithMaskChainPipeline;
 		this.blitBackdropWithMaskPipeline = pipelines.blitBackdropWithMaskPipeline;
 		this.blitBackdropPunchPipeline = pipelines.blitBackdropPunchPipeline;
+		this.blitBackdropCoveragePipeline = pipelines.blitBackdropCoveragePipeline;
 		this.blitGlassPunchPipeline = pipelines.blitGlassPunchPipeline;
 		this.exposureBlitPipeline = pipelines.exposureBlitPipeline;
 		this.quadBlitPipeline = pipelines.quadBlitPipeline;
@@ -1121,6 +1136,29 @@ export class CanvasLayer {
 			renderGroupAppearances: (...args) => this.renderGroupAppearances(...args),
 			getRasterFrame: () => this.getRasterFrame(),
 			getClipParentMask: (groupId) => this.resolveClipParentMask(groupId),
+			isBackdropElement: (elementId) =>
+				this.activeFramePlan?.backdropEntries.has(elementId) ?? false,
+			drawBackdropElement: (
+				pass,
+				element,
+				elementsMap,
+				alphaMultiplier,
+				compositeContext,
+				compositeBackdrop,
+			) => {
+				const entry = this.activeFramePlan?.backdropEntries.get(element.id);
+				if (!entry) return pass;
+				return this.drawBackdropElement(
+					pass,
+					entry,
+					elementsMap,
+					alphaMultiplier,
+					compositeContext,
+					compositeBackdrop,
+				);
+			},
+			composeBackdrop: (...args) => this.composeBackdrop(...args),
+			blitBakeWithCoverage: (...args) => this.blitBakeWithCoverage(...args),
 			hasIsolatedWashAppearances: (elementId) =>
 				this.hasIsolatedWashAppearances(elementId),
 			renderIsolatedWashAppearances: (encoder, elementId) => {
@@ -1267,13 +1305,13 @@ export class CanvasLayer {
 	private drawsViaTexture(
 		element: AnyArtObject,
 		filterPlanIds: ReadonlySet<string>,
-		backdropElementIds: ReadonlySet<string>,
+		backdropEntries: ReadonlyMap<string, BackdropElementEntry>,
 	): boolean {
 		if (element.type === "image") return true;
 		if (filterPlanIds.has(element.id)) return true;
 		// A backdrop-filter element composites its filtered backdrop through
 		// processBackdropElement's blit, which applies the subtree masks itself.
-		if (backdropElementIds.has(element.id)) return true;
+		if (backdropEntries.has(element.id)) return true;
 		// Glass solids are deliberately kept out of the filter plans — they
 		// compose against the live backdrop mid-pass instead — so the plan set
 		// alone does not see them.
@@ -1502,6 +1540,7 @@ export class CanvasLayer {
 		for (const info of maskFilteredTextures.values()) {
 			releaseRenderSurface(info.source);
 			releaseRenderSurface(info.output);
+			if (info.coverage?.kind === "frame-owned") info.coverage.release();
 			for (const layer of info.overrideLayers ?? []) {
 				releaseRenderSurface(layer);
 				if (layer.coverage?.kind === "frame-owned") layer.coverage.release();
@@ -1534,7 +1573,7 @@ export class CanvasLayer {
 					this.drawsViaTexture(
 						element,
 						filterPlanIds,
-						framePlan.backdropElementIds,
+						framePlan.backdropEntries,
 					),
 				(element) =>
 					this.backdropDrivers.some((driver) =>
@@ -2216,6 +2255,7 @@ export class CanvasLayer {
 		for (const info of filteredTextures.values()) {
 			releaseRenderSurface(info.source);
 			releaseRenderSurface(info.output);
+			if (info.coverage?.kind === "frame-owned") info.coverage.release();
 			if (info.overrideLayers) {
 				for (const layer of info.overrideLayers) {
 					releaseRenderSurface(layer);
@@ -2430,6 +2470,8 @@ export class CanvasLayer {
 			),
 			maskApplicationPlans: new Map(),
 			groupCompositionPlans: new Map(),
+			backdropRequests: new Map(),
+			backdropHostIds: new Set(),
 		};
 		this.activeMaskApplicationPlans = framePlan.maskApplicationPlans;
 		this.activeGroupCompositionPlans = framePlan.groupCompositionPlans;
@@ -2441,7 +2483,6 @@ export class CanvasLayer {
 			anyLayerNeedsCompositing,
 			hasArtboards,
 			clearColor: framePlanClearColor,
-			backdropElementIds,
 			localBoundsCache,
 		} = framePlan;
 		const clearColor = clearColorOverride ?? framePlanClearColor;
@@ -2552,8 +2593,8 @@ export class CanvasLayer {
 		// A target nested in a group draws through its ancestor groups; the
 		// ancestors' other children are skipped instead of dropped by the filter.
 		const skipElementIds = exportSelection?.skipIds.size
-			? new Set([...backdropElementIds, ...exportSelection.skipIds])
-			: backdropElementIds;
+			? exportSelection.skipIds
+			: undefined;
 
 		// Filter layer plans to include only target elements (for clipboard
 		// export). `elements` (the flat per-layer array executeFilterPlans reads)
@@ -2563,20 +2604,9 @@ export class CanvasLayer {
 					.map((lp) => ({
 						...lp,
 						elements: lp.elements.filter((el) => effectiveFilter.has(el.id)),
-						segments: lp.segments.map((seg) => ({
-							...seg,
-							elements: seg.elements.filter((el) => effectiveFilter.has(el.id)),
-						})),
 						opacity: 1.0,
 					}))
-					.filter((lp) =>
-						lp.segments.some(
-							(seg) =>
-								seg.elements.length > 0 ||
-								(seg.backdropAfter != null &&
-									effectiveFilter.has(seg.backdropAfter.element.id)),
-						),
-					)
+					.filter((lp) => lp.elements.length > 0)
 			: framePlan.layerPlans;
 
 		// Upload transforms to GPU so that filter offscreen passes and
@@ -2585,6 +2615,16 @@ export class CanvasLayer {
 		// true (element mutations) this writes transforms without mask info;
 		// applyClipMasks will re-upload once more with mask info included.
 		this.updateTransformsBuffer(elementsMap);
+		const parentGroupMap = this.viewportManager.getParentGroupMap();
+		for (const id of framePlan.backdropEntries.keys()) {
+			for (
+				let parentId = parentGroupMap.get(id);
+				parentId;
+				parentId = parentGroupMap.get(parentId)
+			) {
+				framePlan.backdropHostIds.add(parentId);
+			}
+		}
 
 		// Prepare phase for backdrop-composite geometry filters (glass extrude):
 		// encode depth-tested mesh passes into frame-local textures before any
@@ -2613,19 +2653,15 @@ export class CanvasLayer {
 		// the first one to compose captures a single shared fixed-R batch that
 		// serves them all (dropped and recaptured when an intersecting draw —
 		// including an earlier backdrop blit — lands in a request's region).
-		const backdropFilterRequests = new Map<string, BackdropEffectRequest>();
-		for (const layerPlan of layerPlans) {
-			for (const segment of layerPlan.segments) {
-				const bdElem = segment.backdropAfter;
-				if (!bdElem || bdElem.element.visible === false) continue;
-				if (effectiveFilter && !effectiveFilter.has(bdElem.element.id))
-					continue;
-				backdropFilterRequests.set(bdElem.element.id, {
-					bounds: this.getBackdropTextureBounds(bdElem),
-					blurSigma: this.getBackdropBlurSigma(bdElem),
-					rasterScale: this.getRasterScale(),
-				});
-			}
+		const backdropFilterRequests = framePlan.backdropRequests;
+		for (const bdElem of framePlan.backdropEntries.values()) {
+			if (bdElem.element.visible === false) continue;
+			if (effectiveFilter && !effectiveFilter.has(bdElem.element.id)) continue;
+			backdropFilterRequests.set(bdElem.element.id, {
+				bounds: this.getBackdropTextureBounds(bdElem),
+				blurSigma: this.getBackdropBlurSigma(bdElem),
+				rasterScale: this.getRasterScale(),
+			});
 		}
 		// The pooled-texture working set scales with the canvas surface; keep
 		// the pool budget above it or resetFrame evicts canvas-sized textures
@@ -2769,6 +2805,7 @@ export class CanvasLayer {
 					: visibleBoundsToBox(prebufVisibleBounds);
 			this.viewportState.drawRegion = prebufViewportBounds;
 			this.pushViewportBinding(prebufEntry);
+			this.canvasViewportBinding = prebufEntry;
 			prebufBounds = this.elements.getCurrentRenderTargetBounds();
 		};
 
@@ -2840,6 +2877,7 @@ export class CanvasLayer {
 				}
 				return activeGraphContext.get(prebufHandle);
 			},
+			backdrop: { resolve: () => mainCompositeContext.targetTexture },
 			restartPass: () => startNewPass(false),
 		};
 
@@ -2971,51 +3009,8 @@ export class CanvasLayer {
 				}),
 		});
 
-		const addBackdropPass = (
-			bdElem: BackdropElementEntry,
-			targetHandle: FGTextureHandle,
-			alphaMultiplier: number,
-			targetIsPrebuf: boolean,
-		): void => {
-			if (
-				bdElem.element.visible === false ||
-				(elementFilter && !elementFilter.has(bdElem.element.id))
-			) {
-				return;
-			}
-			graph.addPass(`Backdrop ${bdElem.element.id}`, {
-				reads: [prebufHandle],
-				writes: [targetHandle],
-				// The coordinator's capture/dirty bookkeeping is a side effect
-				// the graph cannot see.
-				neverCull: true,
-				execute: (ctx) => {
-					this.processBackdropElement(
-						ctx.encoder,
-						prebufViewport,
-						ctx.view(targetHandle),
-						ctx.get(prebufHandle),
-						bdElem,
-						elementsMap,
-						alphaMultiplier,
-						backdropFilterRequests.get(bdElem.element.id),
-					);
-					// The blit rewrote part of the capture source when the target
-					// is the prebuf itself — report the region so later backdrop
-					// consumers patch or recapture just where it landed. Layer
-					// composite targets don't touch the prebuf.
-					if (targetIsPrebuf) {
-						this.backdropEffectCoordinator.noteDraw(
-							backdropFilterRequests.get(bdElem.element.id)?.bounds ??
-								this.getBackdropTextureBounds(bdElem),
-						);
-					}
-				},
-			});
-		};
-
-		// Segment every layer along its declared breaks — backdrop,
-		// composite-element and inline-backdrop-compose — so each becomes
+		// Segment every layer along its declared breaks — composite-element
+		// and inline-backdrop-compose — so each becomes
 		// its own pass, fed the element-filtered layer plans this frame
 		// actually renders.
 		const passPlans = buildPassPlan({ ...framePlan, layerPlans }, (element) =>
@@ -3183,15 +3178,6 @@ export class CanvasLayer {
 					// A break needs the preceding work on the surface before it
 					// reads or replaces it, so the run has to close here.
 					flushPendingRuns();
-					if (segBreak.kind === "backdrop") {
-						addBackdropPass(
-							segBreak.entry,
-							prebufHandle,
-							layerPlan.opacity,
-							true,
-						);
-						continue;
-					}
 					// The break element renders alone: renderElements takes the
 					// same offscreen-composite route it takes mid-run, so the
 					// pass boundary lands exactly at the declared break. Off
@@ -3220,13 +3206,8 @@ export class CanvasLayer {
 			// label's passes a frame drew nothing. Its breaks go with it: a
 			// break element that never renders never breaks anything.
 			const compositingLayerElements = segments.flatMap((segment) => {
-				const segBreak = segment.breakAfter;
 				const breakElement =
-					segBreak && segBreak.kind !== "backdrop"
-						? elementsMap.get(segBreak.elementId)
-						: segBreak?.kind === "backdrop"
-							? segBreak.entry.element
-							: undefined;
+					segment.breakAfter && elementsMap.get(segment.breakAfter.elementId);
 				return breakElement
 					? [...segment.elements, breakElement]
 					: segment.elements;
@@ -3310,6 +3291,9 @@ export class CanvasLayer {
 					}
 					return activeGraphContext.get(canvasBaseHandle!);
 				},
+				// The layer composites as a whole over what lies beneath it, so its
+				// backdrop elements see that and not the layer's own content.
+				backdrop: mainCompositeContext.backdrop,
 			};
 
 			// Unconditional clear so an all-empty layer still composites a
@@ -3362,10 +3346,6 @@ export class CanvasLayer {
 				}
 				const segBreak = passSegment.breakAfter;
 				if (!segBreak) continue;
-				if (segBreak.kind === "backdrop") {
-					addBackdropPass(segBreak.entry, layerTextureHandle!, 1.0, false);
-					continue;
-				}
 				const breakElement = elementsMap.get(segBreak.elementId);
 				if (breakElement && anyElementOnScreen([breakElement])) {
 					addContentPass(
@@ -3680,15 +3660,13 @@ export class CanvasLayer {
 		// The restore blits cached texels 1:1 back onto the store, so the store
 		// geometry (anchor/zoom/dims) must be unchanged since the capture.
 		if (!boundsAlmostEqual(cache.storeBounds, storeBox)) return null;
-		// Backdrop and inline-glass breaks read the prebuf mid-frame; a restored
-		// prebuf holds the FINAL previous composite there, not the mid-frame
-		// state below the element, so those frames render fully.
+		// Backdrop elements and inline-glass breaks read the prebuf mid-frame; a
+		// restored prebuf holds the FINAL previous composite there, not the
+		// mid-frame state below the element, so those frames render fully.
+		if (this.activeFramePlan?.backdropEntries.size) return null;
 		for (const layerPass of passPlans) {
 			for (const segment of layerPass.segments) {
-				const kind = segment.breakAfter?.kind;
-				if (kind === "backdrop" || kind === "inlineBackdropCompose") {
-					return null;
-				}
+				if (segment.breakAfter?.kind === "inlineBackdropCompose") return null;
 			}
 		}
 		// Elements whose rendered output extends past their bounds (filter
@@ -4036,8 +4014,12 @@ export class CanvasLayer {
 		filteredTextures: Map<string, FilteredTextureInfo>,
 		framePlan: FramePlan,
 		selectedPlans?: readonly ElementFilterPlan[],
+		/** Where the selected plans' bakes are composited, when that target's
+		 *  picture is known. */
+		backdrop?: OffscreenBackdrop,
 	): void {
 		const { elementsMap, filterPlans, layerPlans } = framePlan;
+		const backdropHostIds = this.activeFramePlan?.backdropHostIds;
 		const rasterScale = this.getRasterScale();
 		// Single density per cacheable bake: the hash, the byte budget, and the
 		// bake itself all consume this exact value. Live frames follow the
@@ -4062,7 +4044,7 @@ export class CanvasLayer {
 			const base = layerPlans.flatMap((layerPlan) =>
 				layerPlan.elements.flatMap((element) => {
 					const plan = filterPlans.get(element.id);
-					return plan ? [plan] : [];
+					return plan && !backdropHostIds?.has(element.id) ? [plan] : [];
 				}),
 			);
 			// Group children never appear in layerPlan.elements (only top-level
@@ -4076,6 +4058,7 @@ export class CanvasLayer {
 			const seen = new Set(base.map((plan) => plan.elementId));
 			for (const plan of filterPlans.values()) {
 				if (seen.has(plan.elementId)) continue;
+				if (backdropHostIds?.has(plan.elementId)) continue;
 				const hasWash = plan.allAppearancePlans?.some(
 					(p) => p.washStrokeOpacity != null,
 				);
@@ -4130,9 +4113,10 @@ export class CanvasLayer {
 			// Frame-cache participation. A non-null hash means this element's
 			// filtered bake may be reused across frames: the bake then covers
 			// the full textureBounds (viewport-independent) so pans hit without
-			// re-running the chain. Backdrop-reading chains depend on what is
-			// behind the element and stay frame-local, as do preview-overridden
-			// elements and bakes past the full-bake budget. Only the frame's own
+			// re-running the chain. Backdrop-reading chains and groups holding a
+			// backdrop-filter element depend on what is behind the element and
+			// stay frame-local, as do preview-overridden elements and bakes past
+			// the full-bake budget. Only the frame's own
 			// plan for the element is cacheable: a group child baked on its
 			// first draw hands that plan back in, while mask content is baked
 			// from a plan built in its owner's space under the same id.
@@ -4144,6 +4128,7 @@ export class CanvasLayer {
 				this.activeFramePlan?.filterPlans.get(element.id) === fp &&
 				!rendersOwnSource &&
 				!this.filterCacheFrame.blockedIds.has(element.id) &&
+				!backdropHostIds?.has(element.id) &&
 				!fp.postFilters.some(
 					(f) =>
 						resolveRenderConfigure(
@@ -4189,32 +4174,34 @@ export class CanvasLayer {
 				}
 			}
 
-			const offscreenResult = rendersOwnSource
-				? null
-				: isGroup(element)
-					? this.offscreen.renderGroupToTexture(
-							encoder,
-							element,
-							fp.textureBounds,
-							elementsMap,
-							this.viewportManager.getBoundsCache(),
-							rasterScale,
-							fpFilterMargin,
-							cacheHash != null ? { density: cacheDensity } : null,
-							fp.postFilters.length === 0,
-						)
-					: this.offscreen.renderElementToTexture(
-							encoder,
-							element,
-							fp.textureBounds,
-							elementsMap,
-							rasterScale,
-							selectedPlans !== undefined,
-							fpFilterMargin,
-							undefined,
-							cacheHash != null ? { density: cacheDensity } : null,
-							fp.postFilters.length === 0,
-						);
+			const offscreenResult: CoveredSurface<RasterizedRenderSurface> | null =
+				rendersOwnSource
+					? null
+					: isGroup(element)
+						? this.offscreen.renderGroupToTexture(
+								encoder,
+								element,
+								fp.textureBounds,
+								elementsMap,
+								this.viewportManager.getBoundsCache(),
+								rasterScale,
+								fpFilterMargin,
+								cacheHash != null ? { density: cacheDensity } : null,
+								fp.postFilters.length === 0,
+								backdrop,
+							)
+						: this.offscreen.renderElementToTexture(
+								encoder,
+								element,
+								fp.textureBounds,
+								elementsMap,
+								rasterScale,
+								selectedPlans !== undefined,
+								fpFilterMargin,
+								undefined,
+								cacheHash != null ? { density: cacheDensity } : null,
+								fp.postFilters.length === 0,
+							);
 
 			if (!rendersOwnSource && !offscreenResult) continue;
 			if (!this.filterRenderer) continue;
@@ -4254,6 +4241,7 @@ export class CanvasLayer {
 					elementBounds: fp.bounds,
 					textureBounds: fp.textureBounds,
 					underlay: true,
+					coverage: offscreenResult.coverage,
 				});
 				continue;
 			}
@@ -4426,6 +4414,7 @@ export class CanvasLayer {
 				elementBounds: fp.bounds,
 				textureBounds: fp.textureBounds,
 				overrideLayers: overrides,
+				coverage: offscreenResult?.coverage,
 			});
 		}
 	}
@@ -4795,8 +4784,11 @@ export class CanvasLayer {
 		elementsMap: Map<string, AnyArtObject>,
 		masks: readonly WorldMaskAssignment[],
 		rasterScale: number,
-	): Pick<FilteredTextureInfo, "source" | "output"> | null {
-		const baked = isGroup(element)
+		backdrop?: OffscreenBackdrop,
+	): Pick<FilteredTextureInfo, "source" | "output" | "coverage"> | null {
+		const baked: CoveredSurface<RasterizedRenderSurface> | null = isGroup(
+			element,
+		)
 			? this.offscreen.renderGroupToTexture(
 					encoder,
 					element,
@@ -4807,6 +4799,7 @@ export class CanvasLayer {
 					null,
 					null,
 					true,
+					backdrop,
 				)
 			: this.offscreen.renderElementToTexture(
 					encoder,
@@ -4831,13 +4824,45 @@ export class CanvasLayer {
 		return {
 			source: baked,
 			output: replaceRenderSurface(baked, masked),
+			coverage: this.maskBackdropCoverage(encoder, baked, masks, rasterScale),
 		};
+	}
+
+	/**
+	 * Multiply the masks a bake was given into what its backdrop-filter
+	 * elements cover, so the coverage keeps matching the masked bake. The
+	 * unmasked coverage is released.
+	 */
+	private maskBackdropCoverage(
+		encoder: GPUCommandEncoder,
+		bake: CoveredSurface<RenderSurface>,
+		masks: readonly WorldMaskAssignment[],
+		rasterScale: number,
+	): TextureRef | undefined {
+		if (!bake.coverage) return undefined;
+		const coverage = createRenderSurface(bake.coverage, bake.placement, {
+			role: "coverage",
+			alphaMode: "scalar",
+			opacityState: "intrinsic",
+		});
+		const masked = this.offscreen.applyWorldMasksToTexture(
+			encoder,
+			coverage,
+			masks,
+			rasterScale,
+		);
+		if (!masked) return bake.coverage;
+		releaseRenderSurface(coverage);
+		return masked.texture;
 	}
 
 	private applyPostMasks(
 		encoder: GPUCommandEncoder,
 		filteredTextures: Map<string, FilteredTextureInfo>,
 		elementsMap: Map<string, AnyArtObject>,
+		/** Mask only this backdrop host, as the walk draws it. Without it the
+		 *  hosts are left for that. */
+		host?: { elementId: string; backdrop?: OffscreenBackdrop },
 	): void {
 		if (this.activeMaskApplicationPlans.size === 0) return;
 		const boundsContext = this.maskBoundsContext;
@@ -4869,7 +4894,9 @@ export class CanvasLayer {
 			if (plan.kind !== "subtree-composite") continue;
 			// processBackdropElement masks its composite at draw time; a bake
 			// here would never be drawn.
-			if (this.activeFramePlan?.backdropElementIds.has(elementId)) continue;
+			if (this.activeFramePlan?.backdropEntries.has(elementId)) continue;
+			const isHost = this.activeFramePlan?.backdropHostIds.has(elementId);
+			if (host ? elementId !== host.elementId : isHost) continue;
 			const element = elementsMap.get(elementId);
 			if (!element) continue;
 			const existing = filteredTextures.get(elementId);
@@ -4943,6 +4970,7 @@ export class CanvasLayer {
 				if (
 					this.filterCacheFrame != null &&
 					!this.filterCacheFrame.blockedIds.has(elementId) &&
+					!isHost &&
 					this.bakeWithinCacheBudget(bounds, rasterScale) &&
 					!subtreeContainsReference3D(element, elementsMap)
 				) {
@@ -5008,6 +5036,7 @@ export class CanvasLayer {
 					elementsMap,
 					masks,
 					rasterScale,
+					host?.backdrop,
 				);
 				if (!baked) continue;
 				const { output } = baked;
@@ -5034,11 +5063,15 @@ export class CanvasLayer {
 					output,
 					elementBounds: bounds,
 					textureBounds: bounds,
+					coverage: baked.coverage,
 				});
 				continue;
 			}
 
-			if (this.offscreen.canDrawSurfaceWithAtlasMasks(existing.output, masks)) {
+			if (
+				!existing.coverage &&
+				this.offscreen.canDrawSurfaceWithAtlasMasks(existing.output, masks)
+			) {
 				atlasCopyItems.push({ key: elementId, surface: existing.output });
 				atlasCopySources.set(elementId, {
 					compute:
@@ -5061,6 +5094,12 @@ export class CanvasLayer {
 			filteredTextures.set(elementId, {
 				...existing,
 				output: replaceRenderSurface(existing.output, masked),
+				coverage: this.maskBackdropCoverage(
+					encoder,
+					{ ...existing.output, coverage: existing.coverage },
+					masks,
+					this.getRasterScale(),
+				),
 			});
 		}
 
@@ -5784,6 +5823,193 @@ export class CanvasLayer {
 	}
 
 	/**
+	 * Draw a backdrop-filter element where the render walk meets it, so the
+	 * elements after it — its group siblings included — draw over the result.
+	 */
+	private drawBackdropElement(
+		pass: GPURenderPassEncoder,
+		entry: BackdropElementEntry,
+		elementsMap: Map<string, AnyArtObject>,
+		alphaMultiplier: number,
+		compositeContext: CompositeRenderContext,
+		compositeBackdrop: CompositeBackdrop,
+	): GPURenderPassEncoder {
+		pass.end();
+		const backdrop = compositeBackdrop.resolve();
+		const target = compositeContext.targetTexture;
+		const request = this.activeFramePlan?.backdropRequests.get(
+			entry.element.id,
+		);
+		this.processBackdropElement(
+			compositeContext.encoder,
+			target,
+			backdrop,
+			entry,
+			elementsMap,
+			alphaMultiplier,
+			request,
+			compositeBackdrop.coverage &&
+				this.ensureBackdropCoverage(
+					compositeContext.encoder,
+					compositeBackdrop.coverage,
+					target,
+				),
+		);
+		compositeBackdrop.release?.(backdrop);
+		// The blit rewrote part of the capture source when it is the target
+		// itself — report the region so later backdrop consumers patch or
+		// recapture just where it landed. A capture taken from any other
+		// picture cannot serve a later read of the canvas at all.
+		if (backdrop === target) {
+			this.backdropEffectCoordinator.noteDraw(
+				request?.bounds ?? this.getBackdropTextureBounds(entry),
+			);
+		} else {
+			this.backdropEffectCoordinator.invalidate();
+		}
+		return compositeContext.restartPass();
+	}
+
+	/**
+	 * The picture on screen beneath a backdrop element inside an offscreen
+	 * bake: the bake's parent backdrop with what the bake holds so far
+	 * composited over it, at the opacity the bake will be composited at.
+	 */
+	private composeBackdrop(
+		encoder: GPUCommandEncoder,
+		backdrop: OffscreenBackdrop,
+		bake: GPUTexture,
+		bounds: BoundingBox,
+		uvRect: BlitUVRect,
+	): GPUTexture {
+		const beneath = backdrop.parent.resolve();
+		const picture = this.texturePool.acquireExact(
+			beneath.width,
+			beneath.height,
+			beneath.format,
+			1,
+			GPUTextureUsage.RENDER_ATTACHMENT |
+				GPUTextureUsage.TEXTURE_BINDING |
+				GPUTextureUsage.COPY_SRC |
+				GPUTextureUsage.COPY_DST,
+			"Backdrop Picture",
+		);
+		encoder.copyTextureToTexture(
+			{ texture: beneath },
+			{ texture: picture },
+			{ width: beneath.width, height: beneath.height },
+		);
+		backdrop.parent.release?.(beneath);
+		this.pushViewportBinding(this.canvasViewportBinding!);
+		const pass = encoder.beginRenderPass({
+			label: "Backdrop Picture Pass",
+			colorAttachments: [
+				{ view: picture.createView(), loadOp: "load", storeOp: "store" },
+			],
+		});
+		this.composite.blitTextureToCanvas(
+			pass,
+			bake,
+			bounds,
+			backdrop.alpha,
+			uvRect,
+			this.blitPipeline,
+		);
+		pass.end();
+		this.popViewportBinding();
+		// The picture holds content no capture of the canvas has.
+		this.backdropEffectCoordinator.invalidate();
+		return picture;
+	}
+
+	/** The coverage texture of an offscreen target, created cleared on first
+	 *  use. The bake that gathered it hands it on with its result. */
+	private ensureBackdropCoverage(
+		encoder: GPUCommandEncoder,
+		coverage: BackdropCoverage,
+		target: GPUTexture,
+	): GPUTexture {
+		if (coverage.texture) return coverage.texture;
+		const texture = this.texturePool.acquireExact(
+			target.width,
+			target.height,
+			this.canvasFormat,
+			1,
+			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+			"Backdrop Coverage",
+		);
+		encoder
+			.beginRenderPass({
+				label: "Backdrop Coverage Clear",
+				colorAttachments: [
+					{
+						view: texture.createView(),
+						clearValue: { r: 0, g: 0, b: 0, a: 0 },
+						loadOp: "clear",
+						storeOp: "store",
+					},
+				],
+			})
+			.end();
+		coverage.texture = texture;
+		return texture;
+	}
+
+	/**
+	 * Composite a bake whose backdrop-filter elements cover what lies beneath
+	 * it: punch the target by that coverage, blit the bake, and gather the
+	 * coverage into the target's own when the target is offscreen too.
+	 */
+	private blitBakeWithCoverage(
+		pass: GPURenderPassEncoder,
+		bake: CoveredSurface<RenderSurface>,
+		alpha: number,
+		compositeContext: CompositeRenderContext,
+	): GPURenderPassEncoder {
+		const texture = bake.texture.texture;
+		const { bounds, uvRect } = bake.placement;
+		const coverage = bake.coverage?.texture;
+		if (coverage) {
+			this.composite.punchGlassCoverage(
+				pass,
+				texture,
+				coverage,
+				bounds,
+				alpha,
+				uvRect,
+			);
+		}
+		this.composite.blitTextureToCanvas(pass, texture, bounds, alpha, uvRect);
+		const targetCoverage = compositeContext.backdrop?.coverage;
+		if (!coverage || !targetCoverage) return pass;
+		pass.end();
+		const coveragePass = compositeContext.encoder.beginRenderPass({
+			label: "Bake Coverage Pass",
+			colorAttachments: [
+				{
+					view: this.ensureBackdropCoverage(
+						compositeContext.encoder,
+						targetCoverage,
+						compositeContext.targetTexture,
+					).createView(),
+					loadOp: "load",
+					storeOp: "store",
+				},
+			],
+		});
+		this.composite.blitTextureToCanvas(
+			coveragePass,
+			coverage,
+			bounds,
+			alpha,
+			uvRect,
+			this.blitPipeline,
+		);
+		coveragePass.end();
+		return compositeContext.restartPass();
+	}
+
+	/**
 	 * Process a single backdrop filter element (e.g., FrostGlass).
 	 * Obtains the element's region from the coordinator's shared fixed-R
 	 * capture, applies filters, and blits the result through a mask texture
@@ -5791,15 +6017,17 @@ export class CanvasLayer {
 	 */
 	private processBackdropElement(
 		encoder: GPUCommandEncoder,
-		backdropViewport: Viewport,
-		textureView: GPUTextureView,
+		target: GPUTexture,
 		backdropSourceTexture: GPUTexture,
 		bdElem: BackdropElementEntry,
 		elementsMap: Map<string, AnyArtObject>,
 		alphaMultiplier: number,
 		backdropRequest?: BackdropEffectRequest,
+		/** Gathers what the element covers, in the target's texel space. */
+		coverage?: GPUTexture,
 	): void {
-		if (!this.viewportState.current) return;
+		const backdropViewport = this.viewportState.current;
+		if (!backdropViewport) return;
 
 		// Skip invisible elements
 		if (bdElem.element.visible === false) return;
@@ -5864,21 +6092,28 @@ export class CanvasLayer {
 		) {
 			this.composeBackdropPane(
 				encoder,
-				textureView,
+				target.createView(),
 				captured,
 				bdElem,
 				elementsMap,
 				opacity,
 				rasterScale,
 				coordinateSpace,
+				coverage,
 			);
 			return;
 		}
 
-		// Step 1: Render element shape to a prebuf-sized mask texture
-		const { width: cw, height: ch } = this.viewportState;
-		this.cache.ensureBackdropMaskTextures(cw, ch);
-		const maskTexture = this.compositeState.backdropMask.texture!;
+		// Step 1: Render element shape to a mask texture in the target's texel
+		// space, which the blit samples at its own target position.
+		const maskTexture = this.texturePool.acquireExact(
+			target.width,
+			target.height,
+			this.canvasFormat,
+			1,
+			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+			"Backdrop Mask Texture",
+		);
 
 		const maskPass = encoder.beginRenderPass({
 			label: `Mask Render Pass: ${element.id}`,
@@ -5945,7 +6180,7 @@ export class CanvasLayer {
 			label: `Backdrop Mask Blit Pass: ${element.id}`,
 			colorAttachments: [
 				{
-					view: textureView,
+					view: target.createView(),
 					loadOp: "load",
 					storeOp: "store",
 				},
@@ -5966,6 +6201,27 @@ export class CanvasLayer {
 		blitPass.setPipeline(this.blitBackdropWithMaskPipeline);
 		blitPass.draw(6);
 		blitPass.end();
+
+		if (coverage) {
+			const coveragePass = encoder.beginRenderPass({
+				label: `Backdrop Coverage Pass: ${element.id}`,
+				colorAttachments: [
+					{ view: coverage.createView(), loadOp: "load", storeOp: "store" },
+				],
+			});
+			coveragePass.setBindGroup(0, this.viewportBinding.active.bindGroup);
+			coveragePass.setBindGroup(1, blitBindGroup);
+			coveragePass.setBindGroup(
+				2,
+				this.offscreen.createMaskChainBindGroup(
+					this.resolveSubtreeMasks(element.id),
+				),
+			);
+			coveragePass.setPipeline(this.blitBackdropCoveragePipeline);
+			coveragePass.draw(6);
+			coveragePass.end();
+		}
+		this.offscreen.deferDestroy(maskTexture);
 	}
 
 	/**
@@ -5987,6 +6243,8 @@ export class CanvasLayer {
 			worldSize: { width: number; height: number };
 			sourceOffset: { x: number; y: number };
 		},
+		/** Gathers what the pane covers, in the target's texel space. */
+		targetCoverage?: GPUTexture,
 	): void {
 		const { element, regularFilters } = bdElem;
 		const { texture: backdrop, actualBounds } = captured;
@@ -6173,6 +6431,27 @@ export class CanvasLayer {
 			this.blitPipeline,
 		);
 		blitPass.end();
+		if (targetCoverage) {
+			const coveragePass = encoder.beginRenderPass({
+				label: `Backdrop Pane Coverage Pass: ${element.id}`,
+				colorAttachments: [
+					{
+						view: targetCoverage.createView(),
+						loadOp: "load",
+						storeOp: "store",
+					},
+				],
+			});
+			this.composite.blitTextureToCanvas(
+				coveragePass,
+				coverage,
+				color.placement.bounds,
+				opacity,
+				color.placement.uvRect,
+				this.blitPipeline,
+			);
+			coveragePass.end();
+		}
 
 		if (maskedPane) releaseRenderSurface(maskedPane);
 		if (maskedShape) releaseRenderSurface(maskedShape);
@@ -6257,8 +6536,24 @@ export class CanvasLayer {
 			) {
 				continue;
 			}
-			// Skip backdrop filter elements - they'll be processed separately
 			if (skipElementIds?.has(element.id)) {
+				continue;
+			}
+
+			const backdropEntry = this.activeFramePlan?.backdropEntries.get(
+				element.id,
+			);
+			// Without a known backdrop the element draws flat below.
+			if (backdropEntry && compositeContext?.backdrop) {
+				ribbons?.flush();
+				activePass = this.drawBackdropElement(
+					activePass,
+					backdropEntry,
+					elementsMap,
+					alphaMultiplier,
+					compositeContext,
+					compositeContext.backdrop,
+				);
 				continue;
 			}
 
@@ -6489,6 +6784,11 @@ export class CanvasLayer {
 			const pendingPlan = filteredData
 				? undefined
 				: this.activeFramePlan?.filterPlans.get(element.id);
+			const hostBackdrop: OffscreenBackdrop | undefined =
+				compositeContext?.backdrop &&
+				this.activeFramePlan?.backdropHostIds.has(element.id)
+					? { parent: compositeContext.backdrop, alpha: effectiveAlpha }
+					: undefined;
 			if (pendingPlan && compositeContext && this.activeFramePlan) {
 				ribbons?.flush();
 				activePass.end();
@@ -6497,6 +6797,29 @@ export class CanvasLayer {
 					filteredTextures,
 					this.activeFramePlan,
 					[pendingPlan],
+					hostBackdrop,
+				);
+				activePass = compositeContext.restartPass();
+				filteredData = filteredTextures.get(element.id);
+			}
+			// A backdrop host skipped applyPostMasks with its bake: its masks
+			// land on the draw-time bake instead.
+			if (
+				compositeContext &&
+				this.activeFramePlan?.backdropHostIds.has(element.id) &&
+				this.activeMaskApplicationPlans.get(element.id)?.kind ===
+					"subtree-composite"
+			) {
+				ribbons?.flush();
+				activePass.end();
+				this.applyPostMasks(
+					compositeContext.encoder,
+					filteredTextures,
+					elementsMap,
+					{
+						elementId: element.id,
+						backdrop: hostBackdrop,
+					},
 				);
 				activePass = compositeContext.restartPass();
 				filteredData = filteredTextures.get(element.id);
@@ -6619,6 +6942,13 @@ export class CanvasLayer {
 							effectiveAlpha,
 							filteredData.postMasks,
 							this.viewportBinding.active.bindGroup,
+						);
+					} else if (filteredData.coverage && compositeContext) {
+						activePass = this.blitBakeWithCoverage(
+							activePass,
+							{ ...filteredData.output, coverage: filteredData.coverage },
+							effectiveAlpha,
+							compositeContext,
 						);
 					} else {
 						this.composite.blitTextureToCanvas(
@@ -6901,17 +7231,27 @@ export class CanvasLayer {
 						brandWorldBBox(cullBounds),
 						elementsMap,
 						localBoundsCache,
+						undefined,
+						null,
+						null,
+						false,
+						compositeContext.backdrop && {
+							parent: compositeContext.backdrop,
+							alpha: effectiveAlpha,
+						},
 					);
 					activePass = compositeContext.restartPass();
 					if (isolated) {
-						this.composite.blitTextureToCanvas(
+						activePass = this.blitBakeWithCoverage(
 							activePass,
-							isolated.texture.texture,
-							isolated.placement.bounds,
+							isolated,
 							effectiveAlpha,
-							isolated.placement.uvRect,
+							compositeContext,
 						);
 						releaseRenderSurface(isolated);
+						if (isolated.coverage?.kind === "frame-owned") {
+							isolated.coverage.release();
+						}
 					}
 					continue;
 				}
@@ -8039,10 +8379,6 @@ export class CanvasLayer {
 		this.compositeState.prebufTexture = null;
 		this.compositeState.canvasBaseTexture?.destroy();
 		this.compositeState.canvasBaseTexture = null;
-		this.compositeState.backdropMask.texture?.destroy();
-		this.compositeState.backdropMask.texture = null;
-		this.compositeState.backdropMask.width = 0;
-		this.compositeState.backdropMask.height = 0;
 		this.compositeState.width = 0;
 		this.compositeState.height = 0;
 

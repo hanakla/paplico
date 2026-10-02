@@ -517,6 +517,95 @@ describe("Blur on a shape moved by a geometry filter", () => {
 	});
 });
 
+describe("Backdrop filter inside a group", () => {
+	it.each([
+		{ position: "the bottom child", withChildBelow: false },
+		{ position: "a middle child", withChildBelow: true },
+	])("should draw the group as the same children drawn ungrouped when the pane is $position", async ({
+		withChildBelow,
+	}) => {
+		const { renderer, canvas } = await createTestRenderer();
+		const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+		const device = renderer.getDevice();
+		if (!device) throw new Error("Test renderer has no GPU device");
+		const capture = async (doc: ReturnType<typeof createDefaultDocument>) => {
+			const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+			const pixels = await captureTexturePixels(
+				device,
+				texture,
+				texture.width,
+				texture.height,
+			);
+			texture.destroy();
+			return pixels;
+		};
+
+		const grouped = await capture(
+			createGroupedBackdropDoc({ grouped: true, withChildBelow }),
+		);
+		const ungrouped = await capture(
+			createGroupedBackdropDoc({ grouped: false, withChildBelow }),
+		);
+
+		expect(regionDiffPercentage(grouped, ungrouped, 800, 0, 0, 800, 600)).toBe(
+			0,
+		);
+	});
+
+	it.each(
+		(["opacity", "clip", "mask", "filter"] as const).flatMap((isolation) =>
+			(["white", "transparent"] as const).map((background) => ({
+				isolation,
+				background,
+			})),
+		),
+	)("should draw the group as the same children drawn ungrouped when the group is isolated by $isolation over a $background background", async ({
+		isolation,
+		background,
+	}) => {
+		const { renderer, canvas } = await createTestRenderer();
+		const viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+		const device = renderer.getDevice();
+		if (!device) throw new Error("Test renderer has no GPU device");
+		const capture = async (doc: ReturnType<typeof createDefaultDocument>) => {
+			const texture = await renderWithViewport(
+				renderer,
+				canvas,
+				doc,
+				viewport,
+				background === "white"
+					? { r: 1, g: 1, b: 1, a: 1 }
+					: { r: 0, g: 0, b: 0, a: 0 },
+			);
+			const pixels = await captureTexturePixels(
+				device,
+				texture,
+				texture.width,
+				texture.height,
+			);
+			texture.destroy();
+			return pixels;
+		};
+
+		// Each isolation is set up to leave the picture as it is, so the
+		// isolated group must look like its children drawn on the layer.
+		const grouped = await capture(
+			createGroupedBackdropDoc({
+				grouped: true,
+				withChildBelow: true,
+				isolation,
+			}),
+		);
+		const ungrouped = await capture(
+			createGroupedBackdropDoc({ grouped: false, withChildBelow: true }),
+		);
+
+		expect(
+			regionDiffPercentage(grouped, ungrouped, 800, 0, 0, 800, 600),
+		).toBeLessThan(0.1);
+	});
+});
+
 describe("Backdrop export background equivalence", () => {
 	it("should flatten a transparent-background export over white to match the opaque-white export", async () => {
 		const { renderer } = await createTestRenderer();
@@ -926,6 +1015,83 @@ function createMovedBackdropBlurDoc({
 	};
 	doc.objects[group.id] = group;
 	layer.elementIds = [...layer.elementIds.slice(0, -1), group.id];
+	return doc;
+}
+
+/** The blur scene with an opaque square over the pane, a bar under it when
+ *  `withChildBelow`, and a stripe after them on the layer. `grouped` wraps
+ *  the bar, pane and square in a group; otherwise they sit on the layer. */
+function createGroupedBackdropDoc({
+	grouped,
+	withChildBelow,
+	isolation,
+}: {
+	grouped: boolean;
+	withChildBelow: boolean;
+	/** What isolates the group, each set up to leave the picture as it is. */
+	isolation?: "opacity" | "clip" | "mask" | "filter";
+}) {
+	const doc = createBackdropBlurDoc();
+	const [layer] = doc.layers;
+	const paneId = layer.elementIds.at(-1)!;
+	const below = createFilledPath(rectSegments(-80, 0, 30, 200), {
+		r: 0.95,
+		g: 0.85,
+		b: 0.1,
+		a: 1,
+	});
+	const above = createFilledPath(rectSegments(40, 0, 60, 60), {
+		r: 0.6,
+		g: 0.1,
+		b: 0.7,
+		a: 1,
+	});
+	const after = createFilledPath(rectSegments(0, -120, 400, 20), {
+		r: 0.1,
+		g: 0.1,
+		b: 0.1,
+		a: 1,
+	});
+	for (const element of [below, above, after]) {
+		doc.objects[element.id] = element;
+	}
+	const children = [...(withChildBelow ? [below.id] : []), paneId, above.id];
+	const background = layer.elementIds.slice(0, -1);
+	if (!grouped) {
+		layer.elementIds = [...background, ...children, after.id];
+		return doc;
+	}
+
+	const cover = createFilledPath(rectSegments(0, 0, 800, 600), {
+		r: 1,
+		g: 1,
+		b: 1,
+		a: 1,
+	});
+	const blur: BlurFilter = {
+		uid: generateUid("filter"),
+		processor: "blur",
+		opacity: 1,
+		blendMode: "normal",
+		enabled: true,
+		paramData: { version: "1", params: { radius: 0 } },
+	};
+	const group: Group = {
+		type: "group",
+		id: generateUid("group"),
+		opacity: isolation === "opacity" ? 0.999 : 1,
+		blendMode: "normal",
+		childIds: isolation === "clip" ? [cover.id, ...children] : children,
+		filters: isolation === "filter" ? [blur] : [],
+		transform: createDefaultTransform(),
+		...(isolation === "clip" ? { clipPathId: cover.id } : {}),
+		...(isolation === "mask" ? { mask: { elementIds: [cover.id] } } : {}),
+	};
+	if (isolation === "clip" || isolation === "mask") {
+		doc.objects[cover.id] = cover;
+	}
+	doc.objects[group.id] = group;
+	layer.elementIds = [...background, group.id, after.id];
 	return doc;
 }
 
