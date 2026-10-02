@@ -3,6 +3,7 @@ import type { FilterHandler } from "../renderer/canvas/pipeline/FilterRenderer";
 import {
 	type AnyArtObject,
 	type BrushSettings,
+	type CompoundPath,
 	type CubicBezierSegment,
 	type ElementTransform,
 	type FillAppearance,
@@ -30,6 +31,10 @@ describe("canOutlineStrokes", () => {
 				filters: [stroke()],
 			}),
 		).toBe(true);
+	});
+
+	it("should accept a compound path without a stroke", () => {
+		expect(canOutlineStrokes(unionOfSquares([fill()]).compound)).toBe(true);
 	});
 
 	it("should accept a stroke outlining leaves as a stroke", () => {
@@ -127,6 +132,37 @@ describe("buildStrokeOutline", () => {
 		expect(result?.maskTransforms.get(mask.id)?.x).toBeCloseTo(200);
 	});
 
+	it("should turn a filled compound path into one path of its combined shape", () => {
+		const { compound, sources } = unionOfSquares([fill()]);
+
+		const result = buildStrokeOutline(compound, deps([compound, ...sources]));
+
+		const root = result?.root as Path;
+		expect(root.type).toBe("path");
+		expect(root.id).toBe(compound.id);
+		expect(result?.children).toEqual([]);
+		expect(paintOf(root)).toEqual(BLUE);
+		// Two 100×100 squares 50 apart merge into one 150×100 outline.
+		expect(root.segments.filter((seg) => seg.isMoved)).toHaveLength(1);
+		const bounds = calculateSegmentListBounds(root.segments);
+		expect(bounds?.width).toBeCloseTo(150, 0);
+		expect(bounds?.height).toBeCloseTo(100, 0);
+	});
+
+	it("should keep a stroke it cannot outline on the compound path's single path", () => {
+		const dab = stroke({ brushSettings: { engine: "dab" } });
+		const { compound, sources } = unionOfSquares([fill(), dab]);
+
+		const result = buildStrokeOutline(compound, deps([compound, ...sources]));
+
+		const root = result?.root as Path;
+		expect(root.type).toBe("path");
+		expect(root.filters?.map((f) => (f as Filter).processor)).toEqual([
+			"fill",
+			"stroke",
+		]);
+	});
+
 	it("should return null when no stroke outlines", () => {
 		const path = squarePath([
 			fill(),
@@ -208,6 +244,28 @@ function stroke(
 function paintOf(path: Path | undefined) {
 	return (path?.filters?.[0] as FillAppearance | undefined)?.paramData.params
 		.fill;
+}
+
+/** A union compound path of two 100×100 squares, the second shifted 50 to the right. */
+function unionOfSquares(filters: Filter[]) {
+	const base = squarePath([fill()]);
+	const shifted: Path = {
+		...squarePath([fill()]),
+		transform: { ...identity(), x: 50 },
+	};
+	const compound: CompoundPath = {
+		type: "compound-path",
+		id: "compound",
+		opacity: 1,
+		blendMode: "normal",
+		transform: identity(),
+		sources: [
+			{ id: base.id, op: "union" },
+			{ id: shifted.id, op: "union" },
+		],
+		filters,
+	};
+	return { compound, sources: [base, shifted] };
 }
 
 /** A closed 100×100 square from (0, 0) to (100, 100). */

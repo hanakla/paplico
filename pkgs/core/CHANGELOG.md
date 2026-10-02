@@ -15,6 +15,8 @@
 
 - **Select tool / Path edit tool / Gradient tool**
   - The outline traced along a selected shape is 1px wide instead of 2px.
+- **Outline**
+  - `outlineElements` turns a compound path with no vector stroke into one path of its combined shape instead of leaving it unchanged. `canOutlineStrokes` accepts every compound path.
 
 ### Fixed
 

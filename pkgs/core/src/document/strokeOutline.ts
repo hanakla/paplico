@@ -61,14 +61,12 @@ interface OutlineDeps {
 type OutlineLayer = { outline: Path } | { paint: FilterEntry };
 
 /**
- * Whether `element` is a path or compound path with an enabled stroke for
- * outlining to act on. Strokes it cannot reproduce stay as strokes.
+ * Whether outlining acts on `element`: a compound path, or a path with an
+ * enabled stroke. Strokes it cannot reproduce stay as strokes.
  */
 export function canOutlineStrokes(element: AnyArtObject): boolean {
-	if (element.type === "path" && element.isGuide) return false;
-	if (element.type !== "path" && element.type !== "compound-path") {
-		return false;
-	}
+	if (element.type === "compound-path") return true;
+	if (element.type !== "path" || element.isGuide) return false;
 	return localAppearances(element.filters).some(
 		(filter) => filter.processor === "stroke" && isFilterEnabled(filter),
 	);
@@ -79,7 +77,9 @@ export function canOutlineStrokes(element: AnyArtObject): boolean {
  * of its band, keeping the rest of the appearance stack. Geometry filters are
  * baked into the shapes and leave the stack. With the stroke as the only
  * paint the element stays one path; otherwise it becomes a group whose
- * children paint in the stack's order. Returns null when nothing outlines.
+ * children paint in the stack's order. A compound path with no stroke to
+ * outline becomes one path of its combined shape. Returns null when a path
+ * has no stroke to outline.
  */
 export function buildStrokeOutline(
 	element: Path | CompoundPath,
@@ -172,7 +172,8 @@ export function buildStrokeOutline(
 		if (isPaint && isFilterEnabled(entry)) layers.push({ paint: entry });
 		else wholeElement.push(entry);
 	}
-	if (!layers.some((layer) => "outline" in layer)) return null;
+	const hasOutline = layers.some((layer) => "outline" in layer);
+	if (!hasOutline && element.type === "path") return null;
 
 	const maskTransforms = new Map<string, ElementTransform>();
 	if (!isIdentityTransform(transform)) {
@@ -206,7 +207,6 @@ export function buildStrokeOutline(
 		};
 	}
 
-	// Consecutive paints share one path of the element's own shape.
 	const elementGeometry = bake(
 		resolveElementGeometry(
 			localSegments,
@@ -214,6 +214,20 @@ export function buildStrokeOutline(
 			deps.filterRenderer,
 		),
 	);
+	if (!hasOutline) {
+		return {
+			root: {
+				type: "path",
+				...elementFields,
+				segments: elementGeometry,
+				filters: stack,
+			},
+			children: [],
+			maskTransforms,
+		};
+	}
+
+	// Consecutive paints share one path of the element's own shape.
 	const children: Path[] = [];
 	let paintPath: Path | null = null;
 	for (const layer of layers) {

@@ -1292,8 +1292,9 @@ export class PaplicoCommands {
 
 	/**
 	 * Outline the given elements and select what they became: text turns into
-	 * glyph paths, and paths and compound paths turn their geometric strokes
-	 * into filled shapes (see buildStrokeOutline).
+	 * glyph paths, paths and compound paths turn their geometric strokes
+	 * into filled shapes, and compound paths become plain paths (see
+	 * buildStrokeOutline).
 	 */
 	public async outlineElements(elementIds: string[]): Promise<string[]> {
 		const { objects } = this.ctx.store.document;

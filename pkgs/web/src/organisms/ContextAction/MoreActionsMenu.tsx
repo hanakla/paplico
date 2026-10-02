@@ -31,7 +31,7 @@ export function MoreActionsMenu({
 	meshWarpIdsInSelection,
 }: {
 	selectedIds: readonly string[];
-	/** Whether the selection holds text or a stroke that outlining turns into a shape. */
+	/** Whether the selection holds text, a compound path or a stroke that outlining turns into a shape. */
 	hasOutlinableInSelection: boolean;
 	/** The lone selected element that has no mask yet, or null. */
 	maskTargetId: string | null;
