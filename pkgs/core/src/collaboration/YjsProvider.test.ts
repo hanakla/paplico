@@ -1494,7 +1494,8 @@ describe("YjsProvider", () => {
 		});
 
 		it("should sync elements correctly", () => {
-			const provider = new YjsProvider({ callbacks });
+			const synced = foldSyncedDocument(callbacks);
+			const provider = new YjsProvider({ callbacks: synced.callbacks });
 
 			const layer = {
 				id: "layer-1",
@@ -1543,11 +1544,7 @@ describe("YjsProvider", () => {
 			provider.addElement("layer-1", element2);
 
 			// Get the last call
-			const lastCall =
-				mockOnDocumentUpdate.mock.calls[
-					mockOnDocumentUpdate.mock.calls.length - 1
-				];
-			const doc = lastCall[0];
+			const doc = synced.document;
 
 			expect(doc.layers[0].elementIds).toHaveLength(2);
 			expect(doc.layers[0].elementIds[0]).toBe("path-1");
@@ -1762,7 +1759,8 @@ describe("YjsProvider", () => {
 
 	describe("syncYjsToValtio - incremental updates", () => {
 		it("should preserve existing elements when adding new element", () => {
-			const provider = new YjsProvider({ callbacks });
+			const synced = foldSyncedDocument(callbacks);
+			const provider = new YjsProvider({ callbacks: synced.callbacks });
 
 			const layer = {
 				id: "layer-1",
@@ -1796,29 +1794,22 @@ describe("YjsProvider", () => {
 			provider.addElement("layer-1", element1);
 
 			// Get document state after first element
-			const call1 =
-				mockOnDocumentUpdate.mock.calls[
-					mockOnDocumentUpdate.mock.calls.length - 1
-				];
-			const doc1 = call1[0];
+			const doc1 = synced.document;
 			expect(doc1.layers[0].elementIds).toHaveLength(1);
 			expect(doc1.layers[0].elementIds[0]).toBe("path-1");
 
 			provider.addElement("layer-1", element2);
 
 			// Get document state after second element
-			const call2 =
-				mockOnDocumentUpdate.mock.calls[
-					mockOnDocumentUpdate.mock.calls.length - 1
-				];
-			const doc2 = call2[0];
+			const doc2 = synced.document;
 			expect(doc2.layers[0].elementIds).toHaveLength(2);
 			expect(doc2.layers[0].elementIds[0]).toBe("path-1");
 			expect(doc2.layers[0].elementIds[1]).toBe("path-2");
 		});
 
 		it("should preserve other elements when updating one element", () => {
-			const provider = new YjsProvider({ callbacks });
+			const synced = foldSyncedDocument(callbacks);
+			const provider = new YjsProvider({ callbacks: synced.callbacks });
 
 			const layer = {
 				id: "layer-1",
@@ -1868,11 +1859,7 @@ describe("YjsProvider", () => {
 			});
 
 			// Get document state after update
-			const lastCall =
-				mockOnDocumentUpdate.mock.calls[
-					mockOnDocumentUpdate.mock.calls.length - 1
-				];
-			const doc = lastCall[0];
+			const doc = synced.document;
 
 			expect(doc.layers[0].elementIds).toHaveLength(3);
 
@@ -1891,7 +1878,8 @@ describe("YjsProvider", () => {
 		});
 
 		it("should preserve remaining elements when deleting one element", () => {
-			const provider = new YjsProvider({ callbacks });
+			const synced = foldSyncedDocument(callbacks);
+			const provider = new YjsProvider({ callbacks: synced.callbacks });
 
 			const layer = {
 				id: "layer-1",
@@ -1939,11 +1927,7 @@ describe("YjsProvider", () => {
 			provider.deleteElements({ "layer-1": ["path-2"] });
 
 			// Get document state after deletion
-			const lastCall =
-				mockOnDocumentUpdate.mock.calls[
-					mockOnDocumentUpdate.mock.calls.length - 1
-				];
-			const doc = lastCall[0];
+			const doc = synced.document;
 
 			expect(doc.layers[0].elementIds).toHaveLength(2);
 
@@ -1959,7 +1943,8 @@ describe("YjsProvider", () => {
 		});
 
 		it("should preserve other layers when adding element to one layer", () => {
-			const provider = new YjsProvider({ callbacks });
+			const synced = foldSyncedDocument(callbacks);
+			const provider = new YjsProvider({ callbacks: synced.callbacks });
 
 			const layer1 = {
 				id: "layer-1",
@@ -2004,11 +1989,7 @@ describe("YjsProvider", () => {
 			provider.addElement("layer-2", element2);
 
 			// Get document state
-			const lastCall =
-				mockOnDocumentUpdate.mock.calls[
-					mockOnDocumentUpdate.mock.calls.length - 1
-				];
-			const doc = lastCall[0];
+			const doc = synced.document;
 
 			expect(doc.layers).toHaveLength(2);
 
@@ -2024,7 +2005,8 @@ describe("YjsProvider", () => {
 		});
 
 		it("should handle rapid sequential updates correctly", () => {
-			const provider = new YjsProvider({ callbacks });
+			const synced = foldSyncedDocument(callbacks);
+			const provider = new YjsProvider({ callbacks: synced.callbacks });
 
 			const layer = {
 				id: "layer-1",
@@ -2050,11 +2032,7 @@ describe("YjsProvider", () => {
 			}
 
 			// Get final document state
-			const lastCall =
-				mockOnDocumentUpdate.mock.calls[
-					mockOnDocumentUpdate.mock.calls.length - 1
-				];
-			const doc = lastCall[0];
+			const doc = synced.document;
 
 			// All 10 elements should be present
 			expect(doc.layers[0].elementIds).toHaveLength(10);
@@ -2068,7 +2046,8 @@ describe("YjsProvider", () => {
 		});
 
 		it("should handle mixed operations correctly", () => {
-			const provider = new YjsProvider({ callbacks });
+			const synced = foldSyncedDocument(callbacks);
+			const provider = new YjsProvider({ callbacks: synced.callbacks });
 
 			const layer = {
 				id: "layer-1",
@@ -2147,11 +2126,7 @@ describe("YjsProvider", () => {
 			expect(layers[0].elementIds[2]).toBe("path-3");
 
 			// Object assertions from the last full sync (addElement path-4)
-			const lastFullSyncCall =
-				mockOnDocumentUpdate.mock.calls[
-					mockOnDocumentUpdate.mock.calls.length - 1
-				];
-			const doc = lastFullSyncCall[0];
+			const doc = synced.document;
 			expect(doc.objects["path-4"].id).toBe("path-4");
 			expect(doc.objects["path-2"].id).toBe("path-2");
 			expect(doc.objects["path-3"].id).toBe("path-3");
@@ -2209,6 +2184,86 @@ describe("YjsProvider", () => {
 			expect(mockOnSyncApplied.mock.calls[0][0]).toMatchObject({
 				syncKind: "delta",
 				undoRedo: false,
+			});
+		});
+
+		describe("operations that change elements and layers together", () => {
+			const operations: Array<[string, (provider: YjsProvider) => void]> = [
+				[
+					"addElement",
+					(provider) =>
+						provider.addElement("layer-1", {
+							id: "path-c",
+							type: "path",
+							segments: [],
+							opacity: 1,
+							blendMode: "normal",
+							transform: createIdentityTransform(),
+						}),
+				],
+				[
+					"deleteElements",
+					(provider) => provider.deleteElements({ "layer-1": ["path-a"] }),
+				],
+				[
+					"groupElements",
+					(provider) => {
+						provider.groupElements("layer-1", ["path-a", "path-b"]);
+					},
+				],
+				[
+					"ungroupElements",
+					(provider) => {
+						const groupId = provider.groupElements("layer-1", [
+							"path-a",
+							"path-b",
+						]);
+						if (!groupId) throw new Error("group should be created");
+						provider.stopUndoCapture();
+						provider.ungroupElements("layer-1", groupId);
+					},
+				],
+			];
+
+			it.each(
+				operations,
+			)("should sync %s, its undo and its redo as one delta without full sync", (_, operate) => {
+				const onSyncApplied = vi.fn();
+				const provider = new YjsProvider({
+					callbacks: { ...callbacks, onObjectsChange: vi.fn(), onSyncApplied },
+				});
+				addLayerWithPaths(provider, ["path-a", "path-b"]);
+				provider.stopUndoCapture();
+
+				for (const step of [
+					() => operate(provider),
+					() => provider.undo(),
+					() => provider.redo(),
+				]) {
+					mockOnDocumentUpdate.mockClear();
+					onSyncApplied.mockClear();
+
+					step();
+					provider.stopUndoCapture();
+
+					expect(mockOnDocumentUpdate).not.toHaveBeenCalled();
+					expect(
+						new Set(onSyncApplied.mock.calls.map(([meta]) => meta.syncKind)),
+					).toEqual(new Set(["delta"]));
+				}
+			});
+
+			it("should report one sync applied per transaction", () => {
+				const onSyncApplied = vi.fn();
+				const provider = new YjsProvider({
+					callbacks: { ...callbacks, onObjectsChange: vi.fn(), onSyncApplied },
+				});
+				addLayerWithPaths(provider, ["path-a"]);
+				onSyncApplied.mockClear();
+
+				provider.deleteElements({ "layer-1": ["path-a"] });
+
+				expect(onSyncApplied).toHaveBeenCalledTimes(1);
 			});
 		});
 
@@ -3049,4 +3104,38 @@ function addLayerWithPaths(provider: YjsProvider, ids: string[]): void {
 			transform: createIdentityTransform(),
 		});
 	}
+}
+
+/**
+ * Wrap callbacks so every sync kind is folded into one document, the way the
+ * engine applies them. Each sync replaces `document`, so a held reference
+ * keeps the state at the time it was read.
+ */
+function foldSyncedDocument(base: YjsProviderCallbacks) {
+	const synced = {
+		document: { layers: [], objects: {} } as Pick<
+			Document,
+			"layers" | "objects"
+		>,
+		callbacks: {
+			...base,
+			onDocumentUpdate: (document) => {
+				base.onDocumentUpdate(document);
+				synced.document = document;
+			},
+			onLayersUpdate: (layers) => {
+				base.onLayersUpdate(layers);
+				synced.document = { ...synced.document, layers };
+			},
+			onObjectsChange: (delta) => {
+				const objects = { ...synced.document.objects };
+				for (const [id, obj] of [...delta.added, ...delta.updated]) {
+					objects[id] = obj;
+				}
+				for (const id of delta.deleted) delete objects[id];
+				synced.document = { ...synced.document, objects };
+			},
+		} satisfies YjsProviderCallbacks,
+	};
+	return synced;
 }

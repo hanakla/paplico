@@ -292,6 +292,7 @@ Readers scan only the first few words of each entry to decide whether it concern
 - Added: state what was added in one sentence.
 - Removed: name what was removed, then `Use … instead.` Split items whose replacements differ.
   - ✗ `` `getFontManager` and the `googleFontsApiKey` option. Pass a `GoogleFontsLoader` instead. `` → ✓ one entry each, with `paplico.fonts` and `GoogleFontsLoader` as their replacements
+- Performance changes: state the speed the user notices, such as `… no longer get slower as the document grows`, never the mechanism that made it faster.
 
 ### One sentence, unless the second carries something new
 

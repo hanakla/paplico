@@ -6,9 +6,13 @@
 
 - **Extrude / Revolve filters**
   - Their multisampled scratch textures come from the canvas's texture pool instead of a pool of their own that could hold up to 384 MB each.
+- **Elements**
+  - Drawing, adding, deleting, grouping and ungrouping elements no longer get slower as the document grows. This also covers their undo, redo and edits from collaborators.
 
 ### Fixed
 
+- **Layers**
+  - Fix an element moved to another layer still being picked from its old layer.
 - **Rendering**
   - Fix GPU memory staying allocated after switching documents, deleting elements, or leaving the canvas idle.
 - **Viewport**

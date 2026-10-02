@@ -191,14 +191,43 @@ export class DocumentChangeSubscriber {
 		hooks.syncPathToolFromDocument();
 	}
 
-	public syncLayersOnly(): void {
+	/**
+	 * Apply a layer structure change. Grouping, ungrouping and moving between
+	 * layers change which layer an element sits directly in without always
+	 * changing the element itself, so those elements are moved between layer
+	 * indices here. An id not in the objects yet is a new element that
+	 * syncObjectsDelta inserts.
+	 */
+	public syncLayersOnly(previousLayers: Layer[]): void {
 		const hooks = this.requireRuntimeHooks();
-		hooks
-			.getSpatialIndex()
-			.syncLayerIndices(new Set(this.store.document.layers.map((l) => l.id)));
+		const spatialIndex = hooks.getSpatialIndex();
+		const { layers, objects } = this.store.document;
+		spatialIndex.syncLayerIndices(new Set(layers.map((l) => l.id)));
+
+		const previousOwners = buildTopLevelOwners(previousLayers);
+		const nextOwners = buildTopLevelOwners(layers);
+		const movedIds = new Set<string>();
+		for (const [id, layerId] of previousOwners) {
+			if (nextOwners.get(id) === layerId) continue;
+			spatialIndex.removeFromLayerQuadtreeKeepingBounds(layerId, id);
+			movedIds.add(id);
+		}
+		for (const [id, layerId] of nextOwners) {
+			if (previousOwners.get(id) === layerId) continue;
+			const element = objects[id];
+			if (!element) continue;
+			spatialIndex.addToLayerQuadtreeWithCachedBounds(layerId, element);
+			movedIds.add(id);
+		}
+
 		hooks.refreshToolUI();
-		// Layer structure changed but no element content did — keep tracking.
-		this.invalidate("document", "yjs-sync", EMPTY_CHANGES);
+		// A moved element redraws both where it was and where it is now, so it
+		// is reported as upserted even when it left the layer. Reporting it as
+		// deleted would make the renderer scan every cache for deletions.
+		this.invalidate("document", "yjs-sync", {
+			upserted: movedIds,
+			deleted: new Set(),
+		});
 	}
 
 	public syncObjectsDelta(

@@ -144,7 +144,7 @@ export interface YjsSyncAppliedMeta {
 
 export interface YjsProviderCallbacks {
 	onDocumentUpdate: (document: Document) => void;
-	/** Delta callback when only objects changed. Avoids full sync. */
+	/** Delta callback for changed objects. Runs after onLayersUpdate when both changed. */
 	onObjectsChange?: (delta: ObjectsChangeDelta) => void;
 	onLayersUpdate: (layers: Layer[]) => void;
 	onSyncApplied?: (meta: YjsSyncAppliedMeta) => void;
@@ -239,8 +239,9 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 
 	/**
 	 * Delta sync tracking: accumulates changes within the current transaction.
-	 * yObjects-only changes → delta patch via onObjectsChange.
-	 * yLayers / yArtboards / files / brushPresets / meta changes → full sync via onDocumentUpdate.
+	 * yLayers changes → layer sync via onLayersUpdate.
+	 * yObjects changes → delta patch via onObjectsChange.
+	 * yArtboards / files / brushPresets / defs / meta changes → full sync via onDocumentUpdate.
 	 */
 	private pendingObjectChanges: ObjectsChangeDelta | null = null;
 	private needsFullSync = false;
@@ -533,9 +534,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 			this.needsFullSync = false;
 			this.needsLayerSync = false;
 
-			// Full sync when explicitly requested OR when layers + objects change together
-			// (e.g. addElement modifies both yObjects and yLayers in one transaction)
-			if (needsFull || (needsLayers && objectChanges)) {
+			if (needsFull) {
 				const document = extractDocumentFromYDoc(this.ydoc);
 				this.callbacks.onDocumentUpdate(document);
 
@@ -554,6 +553,8 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 				return;
 			}
 
+			// Layers go first so the object delta resolves each element's layer
+			// against the post-transaction layer membership.
 			if (needsLayers) {
 				const layers = extractLayersFromYDoc(this.ydoc);
 				this.callbacks.onLayersUpdate(layers);
@@ -565,11 +566,8 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 						this.callbacks.setCurrentLayerId(layers[0].id);
 					}
 				}
-
-				this.callbacks.onSyncApplied?.({ syncKind: "delta", undoRedo });
 			}
 
-			// Delta application: apply objects independently
 			const hasObjectChanges =
 				objectChanges &&
 				this.callbacks.onObjectsChange &&
@@ -577,11 +575,11 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 					objectChanges.updated.size > 0 ||
 					objectChanges.deleted.size > 0);
 
-			if (!hasObjectChanges) return;
+			if (hasObjectChanges) this.callbacks.onObjectsChange!(objectChanges);
 
-			this.callbacks.onObjectsChange!(objectChanges);
-
-			this.callbacks.onSyncApplied?.({ syncKind: "delta", undoRedo });
+			if (needsLayers || hasObjectChanges) {
+				this.callbacks.onSyncApplied?.({ syncKind: "delta", undoRedo });
+			}
 		} catch (error) {
 			console.error(
 				"syncYjsToValtio threw — spatial index may be corrupt",

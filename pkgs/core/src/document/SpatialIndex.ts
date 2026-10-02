@@ -560,6 +560,41 @@ export class SpatialIndex {
 		}
 	}
 
+	/**
+	 * Drop an element from a layer's top-level quadtree when it leaves that
+	 * layer's direct members while staying in the document, e.g. it was
+	 * grouped or moved to another layer. Unlike removeElement, this keeps the
+	 * element's cached bounds and the parent mapping of it and its children:
+	 * a group's bounds are derived from its children's cached bounds, a text
+	 * child's cached bounds are the precise ones measured asynchronously, and
+	 * a grouped container still owns its children.
+	 */
+	public removeFromLayerQuadtreeKeepingBounds(
+		layerId: string,
+		elementId: string,
+	): void {
+		this.layerQuadtrees.get(layerId)?.remove(elementId);
+	}
+
+	/**
+	 * Add an element that is already in the document to a layer's top-level
+	 * quadtree when it enters that layer's direct members, e.g. it was
+	 * ungrouped or moved from another layer. Unlike insertElement, this reuses
+	 * the cached bounds so a text child keeps its precise asynchronously
+	 * measured bounds. A change to the element itself clears that cache
+	 * through the object delta, so a reused value is never stale.
+	 */
+	public addToLayerQuadtreeWithCachedBounds(
+		layerId: string,
+		element: AnyArtObject,
+	): void {
+		this.insertIntoQuadtree(
+			this.getOrCreateLayerQuadtree(layerId),
+			element,
+			this.resolveCachedBounds(element),
+		);
+	}
+
 	public createLayerIndex(layerId: string): void {
 		this.getOrCreateLayerQuadtree(layerId);
 	}
@@ -2023,7 +2058,6 @@ export class SpatialIndex {
 
 	private rebuildLayerIndex(layer: Layer, activeIds?: Set<string>): void {
 		const quadtree = new Quadtree<AnyArtObject>(WORLD_BOUNDS);
-		const elementsMap = this.getElementsMapCached();
 
 		for (const elementId of layer.elementIds) {
 			const element = this.store.document.objects[elementId];
@@ -2038,19 +2072,29 @@ export class SpatialIndex {
 				addDescendantIds(element, this.store.document.objects, activeIds);
 			}
 
-			// Preserve any existing cached bounds (e.g. async-computed text bounds).
-			const cached = this.boundsCache.get(element.id);
-			const bounds =
-				cached ??
-				calculateElementBounds(
-					this.resolveAppearance(element),
-					elementsMap,
-					this.localBoundsCache,
-				);
-			this.boundsCache.set(element.id, bounds);
-			this.insertIntoQuadtree(quadtree, element, bounds);
+			this.insertIntoQuadtree(
+				quadtree,
+				element,
+				this.resolveCachedBounds(element),
+			);
 		}
 		this.layerQuadtrees.set(layer.id, quadtree);
+	}
+
+	/**
+	 * Return the cached bounds, or calculate and cache them. Reusing the cache
+	 * keeps the asynchronously measured bounds of text elements.
+	 */
+	private resolveCachedBounds(element: AnyArtObject): WorldBBox {
+		const bounds =
+			this.boundsCache.get(element.id) ??
+			calculateElementBounds(
+				this.resolveAppearance(element),
+				this.getElementsMapCached(),
+				this.localBoundsCache,
+			);
+		this.boundsCache.set(element.id, bounds);
+		return bounds;
 	}
 
 	/**

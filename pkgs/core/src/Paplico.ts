@@ -1923,8 +1923,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					if (this.perspectiveGuideSourceId) this.refreshPerspectiveGuides();
 				},
 				onLayersUpdate: (layers) => {
+					const previousLayers = this.rendererStore.document.layers;
 					this.rendererStore.document.layers = layers;
-					this.renderChangeSubscriber.syncLayersOnly();
+					this.renderChangeSubscriber.syncLayersOnly(previousLayers);
 				},
 				onObjectsChange: (delta) => {
 					const objects = this.rendererStore.document.objects;
@@ -1973,9 +1974,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					};
 
 					// Phase 4: Valtio notification for React UI panels
-					this.rendererStore.document.objects = {
+					this.rendererStore.document.objects = ref({
 						...this.rendererStore.document.objects,
-					};
+					});
 					this.patternEdit.refreshSessionVisuals();
 
 					if (!this.reference3dLoadRequested) {

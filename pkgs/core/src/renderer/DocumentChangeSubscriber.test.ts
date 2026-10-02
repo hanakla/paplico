@@ -1,9 +1,13 @@
-import { proxy } from "valtio";
+import { proxy, ref } from "valtio";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { YjsProvider } from "../collaboration/YjsProvider";
 import { createIdentityTransform } from "../document/factory";
-import type { SpatialIndex } from "../document/SpatialIndex";
+import { SpatialIndex } from "../document/SpatialIndex";
+import type { RendererState } from "../Paplico";
 import type { AnyArtObject } from "../schema";
 import { loadTestDocument } from "../testUtils/loadTestDocument";
+import { rectPath, solidFillAppearance } from "../testUtils/svgFixtures";
+import { brandWorldBBox } from "../utils/geometry/bounds";
 import {
 	DocumentChangeSubscriber,
 	type DocumentChangeSubscriberStore,
@@ -393,4 +397,127 @@ describe("DocumentChangeSubscriber", () => {
 			groupObject,
 		);
 	});
+
+	describe("layer membership changes synced from Yjs", () => {
+		it("hits only the group, not its children, after grouping", () => {
+			const { provider, spatialIndex } = createYjsSyncedIndex();
+
+			const groupId = provider.groupElements("layer-1", ["a", "b"]);
+
+			const candidates = spatialIndex.queryElements(
+				"layer-1",
+				brandWorldBBox({
+					minX: -50,
+					minY: -50,
+					maxX: 150,
+					maxY: 50,
+					width: 200,
+					height: 100,
+				}),
+			);
+			expect(candidates.map((element) => element.id)).toEqual([groupId]);
+		});
+
+		it("hits the children again after ungrouping", () => {
+			const { provider, spatialIndex } = createYjsSyncedIndex();
+			const groupId = provider.groupElements("layer-1", ["a", "b"]);
+			if (!groupId) throw new Error("group should be created");
+
+			provider.ungroupElements("layer-1", groupId);
+
+			expect(spatialIndex.findElementAtPoint("layer-1", 0, 0)?.id).toBe("a");
+			expect(spatialIndex.findElementAtPoint("layer-1", 100, 0)?.id).toBe("b");
+		});
+
+		it("hits a moved element only in its new layer", () => {
+			const { provider, spatialIndex } = createYjsSyncedIndex();
+
+			provider.moveElementToLayer("layer-1", "a", "layer-2");
+
+			expect(spatialIndex.findElementAtPoint("layer-1", 0, 0)).toBeNull();
+			expect(spatialIndex.findElementAtPoint("layer-2", 0, 0)?.id).toBe("a");
+		});
+
+		it("reports moved elements as upserted", () => {
+			const { provider, onInvalidate } = createYjsSyncedIndex();
+
+			provider.moveElementToLayer("layer-1", "a", "layer-2");
+
+			const reported = onInvalidate.mock.calls.flatMap(([, , changes]) => [
+				...(changes?.upserted ?? []),
+			]);
+			expect(reported).toContain("a");
+		});
+	});
 });
+
+/**
+ * A YjsProvider whose syncs reach a real SpatialIndex through the subscriber,
+ * applied the way Paplico applies them. "layer-1" holds filled 20x20 squares "a" at
+ * (0, 0) and "b" at (100, 0); "layer-2" is empty.
+ */
+function createYjsSyncedIndex() {
+	const store = createStore();
+	store.document = {
+		...testDoc,
+		layers: [],
+		objects: ref<Record<string, AnyArtObject>>({}),
+	};
+	const spatialIndex = new SpatialIndex(store as unknown as RendererState);
+	const onInvalidate = vi.fn();
+	const subscriber = new DocumentChangeSubscriber(store, onInvalidate, {
+		getSpatialIndex: () => spatialIndex,
+		refreshToolUI: () => {},
+		syncPathToolFromDocument: () => {},
+		isArtboardToolActive: () => false,
+	});
+	const provider = new YjsProvider({
+		callbacks: {
+			onDocumentUpdate: () => {},
+			onLayersUpdate: (layers) => {
+				const previousLayers = store.document.layers;
+				store.document.layers = layers;
+				subscriber.syncLayersOnly(previousLayers);
+			},
+			onObjectsChange: (delta) => {
+				const objects = store.document.objects;
+				const deletedSnapshot: Record<string, AnyArtObject> = {};
+				for (const id of delta.deleted) deletedSnapshot[id] = objects[id];
+				for (const [id, obj] of [...delta.added, ...delta.updated]) {
+					objects[id] = obj;
+				}
+				for (const id of delta.deleted) delete objects[id];
+				spatialIndex.applyObjectsDelta(delta);
+				subscriber.syncObjectsDelta(
+					delta,
+					store.document.layers,
+					deletedSnapshot,
+				);
+			},
+			getCurrentLayerId: () => "layer-1",
+			setCurrentLayerId: () => {},
+		},
+	});
+
+	for (const id of ["layer-1", "layer-2"]) {
+		provider.addLayer({
+			id,
+			name: id,
+			visible: true,
+			locked: false,
+			opacity: 1,
+			elementIds: [],
+		});
+	}
+	provider.addElement(
+		"layer-1",
+		rectPath("a", { x: 0, y: 0 }, 20, 20, [solidFillAppearance(0, 0, 0)]),
+	);
+	provider.addElement(
+		"layer-1",
+		rectPath("b", { x: 100, y: 0 }, 20, 20, [solidFillAppearance(0, 0, 0)]),
+	);
+	onInvalidate.mockClear();
+
+	return { provider, spatialIndex, onInvalidate };
+}
