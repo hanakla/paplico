@@ -22,6 +22,10 @@ import {
 	type PathRun,
 } from "../utils/geometry/pathOps";
 import {
+	type Affine2D,
+	applyAffineToPoint,
+} from "../utils/geometry/repeatInterpolation";
+import {
 	getStartAnchor,
 	getWorldSegments,
 	resolveSegment,
@@ -628,6 +632,59 @@ export function applyAnchorCPDrag(
 		if (prevSeg) {
 			prevSeg.cp2 = { x: -dx, y: -dy };
 		}
+	}
+
+	return newSegments;
+}
+
+/**
+ * Map the given anchors through an affine in the segments' space, carrying
+ * the control points that stem from them by its linear part. The other
+ * anchors and their control points stay where they are.
+ */
+export function mapAnchors(
+	segments: CubicBezierSegment[],
+	anchors: ReadonlyArray<{ segmentIndex: number; pointType: "start" | "end" }>,
+	map: Affine2D,
+): CubicBezierSegment[] {
+	const newSegments = segments.map(cloneSegment);
+	const point = (p: BezierPoint): BezierPoint => ({
+		...p,
+		...applyAffineToPoint(map, p),
+	});
+	const vector = (v: BezierPoint): BezierPoint => ({
+		...v,
+		x: map.a * v.x + map.c * v.y,
+		y: map.b * v.x + map.d * v.y,
+	});
+	const isClosedPath = newSegments.at(-1)?.isClosed === true;
+
+	for (const { segmentIndex, pointType } of anchors) {
+		const segment = newSegments[segmentIndex];
+		if (pointType === "start") {
+			if (!segment.start) continue;
+			segment.start = point(segment.start);
+			segment.cp1 = vector(segment.cp1);
+			continue;
+		}
+
+		segment.end = point(segment.end);
+		segment.cp2 = vector(segment.cp2);
+		// The segment that leaves this anchor: the next one unless it opens a
+		// new subpath, or the first one when the path closes back onto it.
+		const isLast = segmentIndex === newSegments.length - 1;
+		const leaving = isLast
+			? isClosedPath
+				? newSegments[0]
+				: undefined
+			: newSegments[segmentIndex + 1].isMoved
+				? undefined
+				: newSegments[segmentIndex + 1];
+		if (!leaving) continue;
+		if (leaving.start) {
+			leaving.start = { ...leaving.start, x: segment.end.x, y: segment.end.y };
+		}
+		leaving.cp1 = vector(leaving.cp1);
 	}
 
 	return newSegments;

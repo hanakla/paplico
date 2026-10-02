@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { CubicBezierSegment } from "../schema";
 import { getStartAnchor } from "../utils/geometry/segmentOps";
-import { bendSegmentAtT, cutPathSegments } from "./pathNodeEditHelpers";
+import {
+	bendSegmentAtT,
+	cutPathSegments,
+	mapAnchors,
+} from "./pathNodeEditHelpers";
 
 describe("cutPathSegments", () => {
 	describe("when the path is open", () => {
@@ -229,6 +233,62 @@ describe("bendSegmentAtT", () => {
 		const result = bendSegmentAtT(segments, 0, 0.5, 0, 20);
 
 		expect(result[1].cp1).toEqual({ x: 30, y: 0 });
+	});
+});
+
+describe("mapAnchors", () => {
+	const double = { a: 2, b: 0, c: 0, d: 2, e: 0, f: 0 };
+
+	it("should leave the anchors outside the list where they are", () => {
+		const result = mapAnchors(
+			openPath([0, 100, 200]),
+			[{ segmentIndex: 1, pointType: "end" }],
+			double,
+		);
+
+		expect(anchorXs(result)).toEqual([0, 100, 400]);
+	});
+
+	it("should scale the control points that stem from a mapped anchor", () => {
+		const segments = openPath([0, 100, 200]);
+		segments[0].cp2 = { x: -10, y: 0 };
+		segments[1].cp1 = { x: 10, y: 0 };
+		segments[1].cp2 = { x: -10, y: 0 };
+
+		const result = mapAnchors(
+			segments,
+			[{ segmentIndex: 0, pointType: "end" }],
+			double,
+		);
+
+		expect(result[0].cp2).toEqual({ x: -20, y: 0 });
+		expect(result[1].cp1).toEqual({ x: 20, y: 0 });
+		expect(result[1].cp2).toEqual({ x: -10, y: 0 });
+	});
+
+	it("should move the first anchor of a closed path along with the last end", () => {
+		const result = mapAnchors(
+			closedPath([100, 200, 300]),
+			[{ segmentIndex: 2, pointType: "end" }],
+			double,
+		);
+
+		expect(result[0].start).toEqual({ x: 200, y: 0 });
+		expect(result[2].end).toEqual({ x: 200, y: 0 });
+	});
+
+	it("should not carry an anchor into the next subpath", () => {
+		const segments = [...openPath([0, 100]), ...openPath([500, 600])];
+		segments[1].cp1 = { x: 10, y: 0 };
+
+		const result = mapAnchors(
+			segments,
+			[{ segmentIndex: 0, pointType: "end" }],
+			double,
+		);
+
+		expect(result[1].start).toEqual({ x: 500, y: 0 });
+		expect(result[1].cp1).toEqual({ x: 10, y: 0 });
 	});
 });
 

@@ -6,6 +6,7 @@
 
 - **Path edit tool**
   - Shift+drag locks anchors, path faces, whole elements and control points to 45° steps from the press point.
+  - Selected anchors get a padded frame whose handles scale and rotate those anchors with their control points, as the Select tool's frame does.
 - **API**
   - `calculateResizedBounds` takes an `aspectDriver` option that picks the axis whose size sets the other under `constrainAspect`.
 - **E2EE collaboration**

@@ -5,6 +5,7 @@
 
 import { buildMarqueeOverlay } from "../renderer/ui/builders/marquee";
 import { buildPathEditOverlay } from "../renderer/ui/builders/pathEdit";
+import { buildSelectionOverlay } from "../renderer/ui/builders/selection";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import { OVERLAY_Z, UI_THEME } from "../renderer/ui/theme";
 import type {
@@ -12,9 +13,11 @@ import type {
 	MarqueeSelectionUIData,
 	MeshCageHandle,
 	PathEditUIData,
+	SelectionUIData,
 } from "../renderer/ui/types";
 import {
 	type BezierPoint,
+	type BoundingBox,
 	type CubicBezierSegment,
 	type ElementTransform,
 	getTransform,
@@ -25,12 +28,14 @@ import {
 	type MeshArtObject,
 	type Path,
 	type PathSegment,
+	type Point,
 	type Viewport,
 } from "../schema";
 import { blendKeyOutlines } from "../utils/geometry/blendInterpolation";
 import {
 	calculateMeshCoordinateBounds,
 	distanceToSegment,
+	expandBounds,
 	pointInPolygon,
 } from "../utils/geometry/bounds";
 import {
@@ -66,6 +71,11 @@ import {
 } from "../utils/geometry/meshWarp";
 import type { PathRun } from "../utils/geometry/pathOps";
 import {
+	type Affine2D,
+	elementTransformToAffine,
+} from "../utils/geometry/repeatInterpolation";
+import { createResizeAffine, mapWithin } from "../utils/geometry/resize";
+import {
 	getStartAnchor,
 	getWorldSegments,
 	reconstructSegmentsFromWorld,
@@ -75,6 +85,12 @@ import {
 	toRelativeCP1,
 	toRelativeCP2,
 } from "../utils/geometry/segmentOps";
+import {
+	frameCenter,
+	type SelectionFrame,
+	transformFrame,
+	worldFrame,
+} from "../utils/geometry/selectionFrame";
 import { matchKey } from "../utils/keyboard";
 import { deepClone } from "../utils/lang";
 import {
@@ -85,9 +101,22 @@ import {
 	deleteAnchorFromPath,
 	deleteAnchorsFromPath,
 	hitTestPathAnchor,
+	mapAnchors,
 	type PathCutPosition,
 	resetAnchorSegmentCPs,
 } from "./pathNodeEditHelpers";
+import {
+	calculateResizedBounds,
+	createFrameHandles,
+	createSelectionUIData,
+	getResizeCursor,
+	hitTestResizeHandle,
+	hitTestRotationZone,
+	type ResizedBounds,
+	type ResizeHandle,
+	rotationAbout,
+	rotationDragAngle,
+} from "./resizeHandleHelper";
 import { constrainAxis } from "./SelectTool";
 import {
 	dragStartThresholdScreenPx,
@@ -96,6 +125,20 @@ import {
 	type Tool,
 } from "./Tool";
 import type { ToolContext } from "./ToolContext";
+
+/** A selected anchor of a path, as the vertex frame transforms it. */
+type AnchorRef = {
+	pathId: string;
+	segmentIndex: number;
+	pointType: "start" | "end";
+};
+
+/** A path the vertex frame transforms, with its segments at drag start. */
+type VertexFrameTarget = {
+	pathId: string;
+	segments: CubicBezierSegment[];
+	anchors: AnchorRef[];
+};
 
 /** Shared fields for all handle-drag modes */
 type DraggingStateBase = {
@@ -244,6 +287,32 @@ type DragState =
 			draft: MeshArtObject;
 			hasMoved: boolean;
 			fan: MeshHandleFanState;
+	  }
+	| {
+			/** Resize the selected anchors through a vertex frame handle. */
+			mode: "vertexFrameResize";
+			/** The frame at drag start, padding included. */
+			frame: SelectionFrame;
+			/** World padding between the anchors and the frame. */
+			padding: number;
+			handle: ResizeHandle;
+			/** The frame's box under the pointer. */
+			bounds: ResizedBounds;
+			targets: VertexFrameTarget[];
+			startX: number;
+			startY: number;
+			hasMoved: boolean;
+	  }
+	| {
+			/** Turn the selected anchors around the vertex frame's centre. */
+			mode: "vertexFrameRotate";
+			frame: SelectionFrame;
+			center: Point;
+			startAngle: number;
+			/** Radians turned so far. */
+			angle: number;
+			targets: VertexFrameTarget[];
+			hasMoved: boolean;
 	  };
 
 export class PathEditTool implements Tool {
@@ -254,6 +323,8 @@ export class PathEditTool implements Tool {
 	private static MESH_EDGE_SPLIT_TOLERANCE_PX = 8;
 	/** Screen-px within which a cut snaps to an existing anchor instead of a segment */
 	private static CUT_ANCHOR_TOLERANCE_SCREEN_PX = 8;
+	/** Screen-pixel gap between the selected anchors and their vertex frame */
+	private static VERTEX_FRAME_PADDING_PX = 12;
 
 	public readonly name = "path-edit";
 
@@ -275,6 +346,10 @@ export class PathEditTool implements Tool {
 	private pointerDownTime = 0;
 	private longPressTimer: ReturnType<typeof setTimeout> | null = null;
 	private longPressRing: { worldX: number; worldY: number } | null = null;
+	/** The frame around the selected anchors, or null without one. */
+	private vertexFrame: SelectionFrame | null = null;
+	/** Cursor of the vertex frame part under the hovering pointer. */
+	private vertexFrameCursor: string | null = null;
 
 	public constructor(context: ToolContext) {
 		this.context = context;
@@ -477,6 +552,13 @@ export class PathEditTool implements Tool {
 			(this.context.pathEditGetCutMode() || (event.altKey && event.shiftKey)) &&
 			this.tryCutAtPoint(world, viewport, canvasWidth, canvasHeight)
 		) {
+			return;
+		}
+
+		// The frame takes the press before unselected paths' anchors, which
+		// are not drawn and would otherwise steal a visible frame handle.
+		if (this.beginVertexFrameDrag(event, world, viewport)) {
+			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
 			return;
 		}
 
@@ -870,8 +952,6 @@ export class PathEditTool implements Tool {
 		canvasHeight: number,
 	): void {
 		const ds = this.dragState;
-		if (ds.mode === "idle") return;
-
 		const world = screenToWorld(
 			event.x,
 			event.y,
@@ -879,6 +959,57 @@ export class PathEditTool implements Tool {
 			canvasWidth,
 			canvasHeight,
 		);
+
+		if (ds.mode === "idle") {
+			this.vertexFrameCursor = this.vertexFrameCursorAt(event, world, viewport);
+			return;
+		}
+
+		if (ds.mode === "vertexFrameResize") {
+			ds.hasMoved = true;
+			ds.bounds = calculateResizedBounds(
+				ds.frame.bounds,
+				ds.handle,
+				world.x,
+				world.y,
+				ds.startX,
+				ds.startY,
+				{
+					constrainAspect: event.shiftKey,
+					anchorCenter: event.altKey,
+					allowFlip: true,
+				},
+			);
+			// The anchors follow the box inside the padding, so the frame drawn
+			// around them after release lands where the dragged one was.
+			this.previewVertexFrameMap(
+				ds.targets,
+				createResizeAffine(
+					insetBounds(ds.frame.bounds, ds.padding),
+					insetBounds(ds.bounds, ds.padding),
+					{ x: ds.bounds.flipX, y: ds.bounds.flipY },
+				),
+			);
+			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+			return;
+		}
+
+		if (ds.mode === "vertexFrameRotate") {
+			ds.hasMoved = true;
+			ds.angle = rotationDragAngle(
+				ds.center,
+				ds.startAngle,
+				world.x,
+				world.y,
+				event.shiftKey,
+			);
+			this.previewVertexFrameMap(
+				ds.targets,
+				elementTransformToAffine(rotationAbout(ds.center, ds.angle)),
+			);
+			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+			return;
+		}
 
 		if (ds.mode === "meshVertexDrag" || ds.mode === "meshCpDrag") {
 			this.handleMeshDragMove(ds, world, viewport, canvasWidth, canvasHeight);
@@ -1251,6 +1382,22 @@ export class PathEditTool implements Tool {
 	): void {
 		this.clearLongPressRing();
 		const ds = this.dragState;
+
+		if (ds.mode === "vertexFrameResize" || ds.mode === "vertexFrameRotate") {
+			if (ds.hasMoved) {
+				const pathsToCommit = ds.targets.flatMap(
+					({ pathId }): Array<[string, CubicBezierSegment[]]> => {
+						const path = this.selectedPaths.get(pathId);
+						return path ? [[pathId, path.segments]] : [];
+					},
+				);
+				this.context.batchPathUpdate(pathsToCommit);
+				for (const [pathId] of pathsToCommit) this.reloadPath(pathId);
+			}
+			this.dragState = { mode: "idle" };
+			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+			return;
+		}
 
 		if (ds.mode === "elementDrag") {
 			if (ds.hasMoved) {
@@ -1724,18 +1871,26 @@ export class PathEditTool implements Tool {
 	}
 
 	public getCursor(): string {
-		if (
-			this.dragState.mode === "lasso" ||
-			this.dragState.mode === "pending-lasso"
-		) {
+		const ds = this.dragState;
+		if (ds.mode === "lasso" || ds.mode === "pending-lasso") {
 			return "crosshair";
 		}
-		if (this.dragState.mode !== "idle") {
+		if (ds.mode === "vertexFrameResize") {
+			return getResizeCursor(
+				ds.handle,
+				ds.frame.matrix,
+				this.lastViewport?.rotation ?? 0,
+			);
+		}
+		if (ds.mode !== "idle") {
 			return "grabbing";
 		}
 		// Armed to cut: never offer the grab cursor, the click won't move anything.
 		if (this.context.pathEditGetCutMode()) {
 			return "crosshair";
+		}
+		if (this.vertexFrameCursor) {
+			return this.vertexFrameCursor;
 		}
 		if (this.selectedPaths.size > 0) {
 			return "grab";
@@ -3298,6 +3453,22 @@ export class PathEditTool implements Tool {
 					}
 				: null,
 		);
+		if (!data) {
+			this.vertexFrame = null;
+			this.updateVertexFrameOverlay(null);
+		}
+	}
+
+	private updateVertexFrameOverlay(data: SelectionUIData | null): void {
+		this.context.uiSetOverlay(
+			OVERLAY_KEYS.pathEditVertexFrame,
+			data
+				? {
+						zIndex: OVERLAY_Z.selection,
+						primitives: buildSelectionOverlay(data, UI_THEME),
+					}
+				: null,
+		);
 	}
 
 	/**
@@ -3334,6 +3505,11 @@ export class PathEditTool implements Tool {
 		canvasHeight: number,
 	): void {
 		const hasLasso = this.dragState.mode === "lasso";
+		this.vertexFrame = this.currentVertexFrame(viewport.zoom);
+		this.updateVertexFrameOverlay(
+			this.vertexFrame &&
+				createSelectionUIData(this.vertexFrame, viewport.zoom, true, {}),
+		);
 
 		if (
 			this.selectedPaths.size === 0 &&
@@ -3411,6 +3587,179 @@ export class PathEditTool implements Tool {
 		}
 
 		this.context.pathEditUpdateSelectedAnchors(selectedAnchors);
+	}
+
+	/**
+	 * The vertex frame: the frame the running frame drag shows, or a padded
+	 * world-axis frame around the selected anchors.
+	 */
+	private currentVertexFrame(zoom: number): SelectionFrame | null {
+		const ds = this.dragState;
+		if (ds.mode === "vertexFrameResize") {
+			return { ...ds.frame, bounds: ds.bounds };
+		}
+		if (ds.mode === "vertexFrameRotate") {
+			return transformFrame(ds.frame, rotationAbout(ds.center, ds.angle));
+		}
+
+		const points = [...this.selectedAnchorsByPath()].flatMap(
+			([pathId, anchors]) => {
+				const path = this.selectedPaths.get(pathId);
+				if (!path) return [];
+				const worldSegs = getWorldSegments(
+					path,
+					this.pathAncestorTransforms.get(pathId) ?? undefined,
+				);
+				return anchors.flatMap(({ segmentIndex, pointType }) => {
+					const segment = worldSegs[segmentIndex];
+					const point = pointType === "start" ? segment?.start : segment?.end;
+					return point ? [point] : [];
+				});
+			},
+		);
+		if (points.length === 0) return null;
+
+		const minX = Math.min(...points.map((p) => p.x));
+		const minY = Math.min(...points.map((p) => p.y));
+		const maxX = Math.max(...points.map((p) => p.x));
+		const maxY = Math.max(...points.map((p) => p.y));
+		return worldFrame(
+			expandBounds(
+				{ minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY },
+				PathEditTool.VERTEX_FRAME_PADDING_PX / zoom,
+			),
+		);
+	}
+
+	/** The selected anchors of the selected paths, grouped by path. */
+	private selectedAnchorsByPath(): Map<string, AnchorRef[]> {
+		const anchors = [...this.selectedHandles].flatMap((key): AnchorRef[] => {
+			const [pathId, segmentIndex, pointType] = key.split(":");
+			if (pointType !== "start" && pointType !== "end") return [];
+			if (!this.selectedPaths.has(pathId)) return [];
+			return [{ pathId, segmentIndex: Number(segmentIndex), pointType }];
+		});
+		return Map.groupBy(anchors, (anchor) => anchor.pathId);
+	}
+
+	/**
+	 * Start a resize or rotation drag when the pointer grabs the vertex frame.
+	 * Returns whether it did.
+	 */
+	private beginVertexFrameDrag(
+		event: PointerEventData,
+		world: Point,
+		viewport: Viewport,
+	): boolean {
+		const frame = this.vertexFrame;
+		const grab = this.vertexFrameGrabAt(event, world, viewport);
+		if (!frame || !grab) return false;
+
+		const targets = [...this.selectedAnchorsByPath()].flatMap(
+			([pathId, anchors]): VertexFrameTarget[] => {
+				const path = this.selectedPaths.get(pathId);
+				return path ? [{ pathId, segments: path.segments, anchors }] : [];
+			},
+		);
+
+		if (grab !== "rotate") {
+			this.dragState = {
+				mode: "vertexFrameResize",
+				frame,
+				padding: PathEditTool.VERTEX_FRAME_PADDING_PX / viewport.zoom,
+				handle: grab,
+				bounds: { ...frame.bounds, flipX: false, flipY: false },
+				targets,
+				startX: world.x,
+				startY: world.y,
+				hasMoved: false,
+			};
+			return true;
+		}
+
+		const center = frameCenter(frame);
+		this.dragState = {
+			mode: "vertexFrameRotate",
+			frame,
+			center,
+			startAngle: Math.atan2(world.y - center.y, world.x - center.x),
+			angle: 0,
+			targets,
+			hasMoved: false,
+		};
+		return true;
+	}
+
+	/**
+	 * Preview the drag-start segments of `targets` with their selected anchors
+	 * mapped through `worldMap`, an affine in world space.
+	 */
+	private previewVertexFrameMap(
+		targets: VertexFrameTarget[],
+		worldMap: Affine2D,
+	): void {
+		for (const { pathId, segments, anchors } of targets) {
+			const path = this.selectedPaths.get(pathId);
+			if (!path) continue;
+			const ancestorT = this.pathAncestorTransforms.get(pathId) ?? null;
+			const t = getTransform(path);
+			const placement = elementTransformToAffine(
+				ancestorT ? composeTransforms(ancestorT, t) : t,
+			);
+			const mapped = mapAnchors(
+				segments,
+				anchors,
+				mapWithin(worldMap, placement),
+			);
+			this.setEditedSegments(pathId, mapped);
+			this.context.previewSegments(pathId, mapped);
+			this.cachedControlPoints.delete(pathId);
+		}
+	}
+
+	/**
+	 * The cursor the vertex frame offers under a hovering pointer, or null off
+	 * the frame. Path handles drawn over the frame win, as they do on press.
+	 */
+	private vertexFrameCursorAt(
+		event: PointerEventData,
+		world: Point,
+		viewport: Viewport,
+	): string | null {
+		const grab = this.vertexFrameGrabAt(event, world, viewport);
+		if (!this.vertexFrame || !grab) return null;
+		return grab === "rotate"
+			? "crosshair"
+			: getResizeCursor(grab, this.vertexFrame.matrix, viewport.rotation);
+	}
+
+	/**
+	 * The vertex frame part under the pointer: a resize handle, the rotation
+	 * zone, or null. The selected paths' own handles drawn over the frame win.
+	 */
+	private vertexFrameGrabAt(
+		event: PointerEventData,
+		world: Point,
+		viewport: Viewport,
+	): ResizeHandle | "rotate" | null {
+		const frame = this.vertexFrame;
+		if (!frame) return null;
+		const hit = this.context.uiHitTest({ x: event.x, y: event.y });
+		if (hit?.overlayKey === OVERLAY_KEYS.pathEditHandles) return null;
+
+		// Resize handles come first: the padding keeps the frame at least
+		// 24px tall, so a straight run of anchors puts its side handles inside
+		// the corners' rotation zones.
+		const handle = hitTestResizeHandle(
+			world.x,
+			world.y,
+			createFrameHandles(frame),
+			viewport,
+		);
+		if (handle) return handle;
+		return hitTestRotationZone(world.x, world.y, frame, viewport)
+			? "rotate"
+			: null;
 	}
 
 	/**
@@ -4086,4 +4435,23 @@ function constrainDragDelta(
 	shiftKey: boolean,
 ): [number, number] {
 	return shiftKey ? constrainAxis(deltaX, deltaY) : [deltaX, deltaY];
+}
+
+/**
+ * `bounds` shrunk by `inset` on every side. A side too short to shrink that
+ * far collapses onto its centre.
+ */
+function insetBounds(bounds: BoundingBox, inset: number): BoundingBox {
+	const halfWidth = Math.max(bounds.width / 2 - inset, 0);
+	const halfHeight = Math.max(bounds.height / 2 - inset, 0);
+	const centerX = (bounds.minX + bounds.maxX) / 2;
+	const centerY = (bounds.minY + bounds.maxY) / 2;
+	return {
+		minX: centerX - halfWidth,
+		minY: centerY - halfHeight,
+		maxX: centerX + halfWidth,
+		maxY: centerY + halfHeight,
+		width: halfWidth * 2,
+		height: halfHeight * 2,
+	};
 }

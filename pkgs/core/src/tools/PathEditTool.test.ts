@@ -2506,6 +2506,169 @@ describe("PathEditTool", () => {
 		});
 	});
 
+	describe("Vertex frame", () => {
+		const FRAME_KEY = "path-edit/vertex-frame";
+
+		beforeEach(() => {
+			ctx.getPathById.mockImplementation(() => null);
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		});
+
+		it("should not show a frame without a selected anchor", () => {
+			expect(lastOverlayCall(ctx, FRAME_KEY)).toBeNull();
+		});
+
+		it("should show a frame around a single selected anchor", () => {
+			click(500, 300);
+
+			expect(lastOverlayCall(ctx, FRAME_KEY)).not.toBeNull();
+		});
+
+		it("should turn a single anchor's control points around it when the frame is rotated", () => {
+			click(500, 300);
+			ctx.batchPathUpdate.mockClear();
+
+			// The frame spans x 88..112, y -12..12 around the anchor (100,0).
+			// world (122,22) sits just outside its "ne" corner; turning it a
+			// quarter round anticlockwise lands on (78,22) = screen (478,278).
+			drag([522, 278], [478, 278]);
+
+			const segments = getCommittedSegments(ctx, "path-1");
+			expect(segments?.[0].end.x).toBeCloseTo(100);
+			expect(segments?.[0].end.y).toBeCloseTo(0);
+			expect(segments?.[0].cp2.x).toBeCloseTo(0);
+			expect(segments?.[0].cp2.y).toBeCloseTo(-34);
+			expect(segments?.[1].cp1.x).toBeCloseTo(0);
+			expect(segments?.[1].cp1.y).toBeCloseTo(33);
+		});
+
+		it("should scale only the selected anchors and their control points when a frame handle is dragged", () => {
+			// Anchors (100,0) and (200,0) are selected, so the frame spans x 88..212
+			// with 12px of padding. Its "e" handle sits at world (212,0).
+			click(600, 300);
+			click(500, 300, { shiftKey: true });
+			ctx.batchPathUpdate.mockClear();
+
+			drag([612, 300], [712, 300]);
+
+			// The anchors' box 100..200 grows to 100..300.
+			expect(ctx.batchPathUpdate).toHaveBeenCalledTimes(1);
+			const segments = getCommittedSegments(ctx, "path-1");
+			expect(segments?.[0].start).toMatchObject({ x: 0, y: 0 });
+			expect(segments?.[0].cp1).toMatchObject({ x: 33, y: 0 });
+			expect(segments?.[0].cp2.x).toBeCloseTo(-68);
+			expect(segments?.[0].end.x).toBeCloseTo(100);
+			expect(segments?.[1].cp1.x).toBeCloseTo(66);
+			expect(segments?.[1].end.x).toBeCloseTo(300);
+		});
+
+		it("should let a frame handle win over an unselected path's anchor under it", () => {
+			const selected = cloneTestPath();
+			const other = makeStraightPath("other", [212, 300]);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path: selected, ancestorTransform: null },
+				{ path: other, ancestorTransform: null },
+			]);
+			click(600, 300);
+			click(500, 300, { shiftKey: true });
+			ctx.batchPathUpdate.mockClear();
+
+			// "other" starts right on the frame's "e" handle at world (212,0).
+			drag([612, 300], [712, 300]);
+
+			expect(getCommittedSegments(ctx, "path-1")?.[1].end.x).toBeCloseTo(300);
+			expect(getCommittedSegments(ctx, "other")).toBeUndefined();
+		});
+
+		it("should turn the selected anchors around the frame's centre when the frame is rotated", () => {
+			selectAllAnchors();
+			ctx.batchPathUpdate.mockClear();
+
+			// The frame spans x -12..212 around centre (100,0). The rotation zone
+			// starts just outside its "ne" corner at world (212,12).
+			// world (222,22) is (122,22) from the centre; turning it a quarter
+			// round anticlockwise lands on (78,122) = screen (478,178).
+			drag([622, 278], [478, 178]);
+
+			const segments = getCommittedSegments(ctx, "path-1");
+			expect(segments?.[0].start?.x).toBeCloseTo(100);
+			expect(segments?.[0].start?.y).toBeCloseTo(-100);
+			expect(segments?.[0].end.x).toBeCloseTo(100);
+			expect(segments?.[0].end.y).toBeCloseTo(0);
+			expect(segments?.[1].end.x).toBeCloseTo(100);
+			expect(segments?.[1].end.y).toBeCloseTo(100);
+			expect(segments?.[1].cp1.x).toBeCloseTo(0);
+			expect(segments?.[1].cp1.y).toBeCloseTo(33);
+		});
+
+		it("should show a resize cursor while hovering a frame handle", () => {
+			selectAllAnchors();
+
+			tool.onPointerMove(
+				ev(612, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(tool.getCursor()).toBe("ew-resize");
+		});
+
+		function click(
+			x: number,
+			y: number,
+			overrides: Parameters<typeof ev>[2] = {},
+		) {
+			tool.onPointerDown(
+				ev(x, y, overrides),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(x, y, overrides),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		}
+
+		function drag(from: [number, number], to: [number, number]) {
+			tool.onPointerDown(
+				ev(...from),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(...to),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(...to),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		}
+
+		function selectAllAnchors() {
+			tool.onKeyDown(
+				new KeyboardEvent("keydown", { code: "KeyA", ctrlKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		}
+	});
+
 	describe("Vertex selection handover to SelectTool", () => {
 		const testPath2: Path = {
 			id: "path-2",

@@ -34,6 +34,7 @@ import {
 	type WorldBBox,
 } from "../utils/geometry/bounds";
 import {
+	applyTransformToPoint,
 	composeTransforms,
 	inverseTransformPoint,
 	inverseTransformVector,
@@ -48,7 +49,6 @@ import {
 } from "../utils/geometry/repeatInterpolation";
 import {
 	frameCenter,
-	frameCorners,
 	frameWorldBounds,
 	resolveSelectionFrame,
 	type SelectionFrame,
@@ -80,9 +80,11 @@ import {
 	getResizeCursor,
 	getResizeSnapTargets,
 	hitTestResizeHandle,
-	hitTestRotationHandle,
+	hitTestRotationZone,
 	type ResizedBounds,
 	type ResizeHandle,
+	rotationAbout,
+	rotationDragAngle,
 } from "./resizeHandleHelper";
 import {
 	dragStartThresholdScreenPx,
@@ -264,7 +266,7 @@ export class SelectTool implements Tool {
 			}
 
 			// Check rotation zone first (outside corners)
-			if (this.hitTestRotationZone(worldX, worldY, viewport)) {
+			if (hitTestRotationZone(worldX, worldY, frame, viewport)) {
 				const center = frameCenter(frame);
 				this.dragState = {
 					mode: "rotate",
@@ -1149,31 +1151,18 @@ export class SelectTool implements Tool {
 		_canvasWidth: number,
 		_canvasHeight: number,
 	): void {
-		const { x: cx, y: cy } = state.rotationCenter;
-		const currentAngle = Math.atan2(worldY - cy, worldX - cx);
-		let angleDelta = currentAngle - state.rotationStartAngle;
-
-		// Shift key: snap to 15-degree increments
-		if (this.shiftKey) {
-			const snapRad = (15 * Math.PI) / 180;
-			angleDelta = Math.round(angleDelta / snapRad) * snapRad;
-		}
-
-		const cos = Math.cos(angleDelta);
-		const sin = Math.sin(angleDelta);
-
-		const rotatePoint = (px: number, py: number) => ({
-			x: cx + (px - cx) * cos - (py - cy) * sin,
-			y: cy + (px - cx) * sin + (py - cy) * cos,
-		});
-
 		// The frame turns as a whole around the pivot.
-		const turned = transformFrame(state.originalFrame, {
-			...IDENTITY_TRANSFORM,
-			x: cx - (cx * cos - cy * sin),
-			y: cy - (cx * sin + cy * cos),
-			rotation: angleDelta,
-		});
+		const rotation = rotationAbout(
+			state.rotationCenter,
+			rotationDragAngle(
+				state.rotationCenter,
+				state.rotationStartAngle,
+				worldX,
+				worldY,
+				this.shiftKey,
+			),
+		);
+		const turned = transformFrame(state.originalFrame, rotation);
 
 		// Build rotated path outlines for preview
 		const pathSegments: SelectionUIData["pathSegments"] = [];
@@ -1181,7 +1170,7 @@ export class SelectTool implements Tool {
 		const rotateSegs = (segs: WorldBezierSegment[]) =>
 			segs.map((ws) => {
 				const rp = (p: { x: number; y: number }) => {
-					const r = rotatePoint(p.x, p.y);
+					const r = applyTransformToPoint(p.x, p.y, rotation);
 					return toWorld(r.x, r.y);
 				};
 				return {
@@ -1378,15 +1367,13 @@ export class SelectTool implements Tool {
 		if (selectedIds.length === 0) return;
 
 		const { x: cx, y: cy } = state.rotationCenter;
-		const currentAngle = Math.atan2(worldY - cy, worldX - cx);
-		let angleDelta = currentAngle - state.rotationStartAngle;
-
-		// Shift key: snap to 15-degree increments
-		if (this.shiftKey) {
-			const snapRad = (15 * Math.PI) / 180;
-			angleDelta = Math.round(angleDelta / snapRad) * snapRad;
-		}
-
+		const angleDelta = rotationDragAngle(
+			state.rotationCenter,
+			state.rotationStartAngle,
+			worldX,
+			worldY,
+			this.shiftKey,
+		);
 		const angleDeg = (angleDelta * 180) / Math.PI;
 
 		if (Math.abs(angleDeg) < 0.1) {
@@ -1677,9 +1664,10 @@ export class SelectTool implements Tool {
 		const selectedIds = this.context.getSelectedElementIds();
 		if (selectedIds.length > 0 && this.selectedFrame && this.lastViewport) {
 			if (
-				this.hitTestRotationZone(
+				hitTestRotationZone(
 					this.lastWorldX,
 					this.lastWorldY,
+					this.selectedFrame,
 					this.lastViewport,
 				)
 			) {
@@ -1776,40 +1764,6 @@ export class SelectTool implements Tool {
 			createFrameHandles(this.selectedFrame),
 			viewport,
 		);
-	}
-
-	/**
-	 * Hit test rotation zones (areas just outside corner handles).
-	 * The zone starts outside the resize handle square and extends outward.
-	 * Uses square distance (Chebyshev) to match the resize handle's square shape.
-	 */
-	private hitTestRotationZone(
-		worldX: number,
-		worldY: number,
-		viewport: Viewport,
-	): boolean {
-		if (!this.selectedFrame) return false;
-
-		// Check explicit rotation handle first
-		if (hitTestRotationHandle(worldX, worldY, this.selectedFrame, viewport)) {
-			return true;
-		}
-
-		// Must match hitTestHandle's halfHandle so the zones don't overlap
-		const handleHalf = 12 / viewport.zoom / 2;
-		const rotationMargin = 14 / viewport.zoom;
-
-		for (const corner of frameCorners(this.selectedFrame)) {
-			const adx = Math.abs(worldX - corner.x);
-			const ady = Math.abs(worldY - corner.y);
-			const chebyshev = Math.max(adx, ady);
-
-			if (chebyshev > handleHalf && chebyshev <= handleHalf + rotationMargin) {
-				return true;
-			}
-		}
-
-		return false;
 	}
 
 	/** Expose selection bounds so a gesture interrupt can restore them */

@@ -18,6 +18,7 @@ export const OVERLAY_KEYS = {
 	pathSnapLines: "path/snap-lines",
 	pathEditMarquee: "path-edit/marquee",
 	pathEditHandles: "path-edit/handles",
+	pathEditVertexFrame: "path-edit/vertex-frame",
 	textHover: "text/hover",
 	textRegionPreview: "text/region-preview",
 	textFlowHandles: "text/flow-handles",

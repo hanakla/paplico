@@ -263,6 +263,61 @@ export function hitTestRotationHandle(
 	return dx * dx + dy * dy <= hitRadius * hitRadius;
 }
 
+/**
+ * Whether a point grabs the frame for rotation: the rotation handle, or the
+ * band just outside each corner handle. The band is square (Chebyshev
+ * distance) to match the square resize handle it surrounds.
+ */
+export function hitTestRotationZone(
+	worldX: number,
+	worldY: number,
+	frame: SelectionFrame,
+	viewport: Viewport,
+): boolean {
+	if (hitTestRotationHandle(worldX, worldY, frame, viewport)) return true;
+
+	// Must match hitTestResizeHandle's half size so the zones don't overlap
+	const handleHalf = 12 / viewport.zoom / 2;
+	const rotationMargin = 14 / viewport.zoom;
+	return frameCorners(frame).some((corner) => {
+		const chebyshev = Math.max(
+			Math.abs(worldX - corner.x),
+			Math.abs(worldY - corner.y),
+		);
+		return chebyshev > handleHalf && chebyshev <= handleHalf + rotationMargin;
+	});
+}
+
+/**
+ * The angle a rotation drag has turned the frame by, in radians: from the
+ * pointer's start angle around `center` to its current one. `snap` rounds it
+ * to 15° steps.
+ */
+export function rotationDragAngle(
+	center: Point,
+	startAngle: number,
+	worldX: number,
+	worldY: number,
+	snap: boolean,
+): number {
+	const angle = Math.atan2(worldY - center.y, worldX - center.x) - startAngle;
+	if (!snap) return angle;
+	const step = (15 * Math.PI) / 180;
+	return Math.round(angle / step) * step;
+}
+
+/** The world map that turns everything by `angle` radians around `center`. */
+export function rotationAbout(center: Point, angle: number): ElementTransform {
+	const cos = Math.cos(angle);
+	const sin = Math.sin(angle);
+	return {
+		...IDENTITY_TRANSFORM,
+		x: center.x - (center.x * cos - center.y * sin),
+		y: center.y - (center.x * sin + center.y * cos),
+		rotation: angle,
+	};
+}
+
 type ResizeSnapAxisTarget = "none" | "min" | "max";
 
 export type ResizeSnapTargets = {
