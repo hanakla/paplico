@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-03
+
 ### Added
 
 - **Path edit tool**
