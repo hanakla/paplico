@@ -1,4 +1,5 @@
 import { includeOklabMix } from "../shared/hk-wgsl-includes";
+import { SVG_PREMULTIPLY_WGSL } from "../svg/svg-wgsl-includes";
 
 export const HK_COLOR_REPLACEMENT_SHADER = /* wgsl */ `
 struct Uniforms {
@@ -131,11 +132,9 @@ fn calculateMatchFactor(oklch: vec3f, featherAmount: f32) -> f32 {
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let texCoord = input.texCoord;
-	let originalColor = textureSample(inputTexture, inputSampler, texCoord);
-
-	if (originalColor.a < 0.01) {
-		return originalColor;
-	}
+	// The input is premultiplied. Processing it as is would skew the color of
+	// semi-transparent edges toward black.
+	let originalColor = unpremultiply(textureSample(inputTexture, inputSampler, texCoord));
 
 	let originalOklch = rgbToOklch(originalColor.rgb);
 	let matchFactor = calculateMatchFactor(originalOklch, uniforms.featherEdges);
@@ -164,11 +163,12 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	}
 
 	if (uniforms.previewMask != 0) {
-		return vec4f(maskColor, originalColor.a);
+		return premultiply(vec4f(maskColor, originalColor.a));
 	} else {
-		return vec4f(finalColor, originalColor.a);
+		return premultiply(vec4f(finalColor, originalColor.a));
 	}
 }
 
 ${includeOklabMix()}
+${SVG_PREMULTIPLY_WGSL}
 `;

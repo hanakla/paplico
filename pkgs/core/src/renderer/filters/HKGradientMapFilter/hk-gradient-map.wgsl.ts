@@ -1,3 +1,5 @@
+import { SVG_PREMULTIPLY_WGSL } from "../svg/svg-wgsl-includes";
+
 export const HK_GRADIENT_MAP_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
@@ -108,11 +110,9 @@ fn getGradientColor(luminance: f32) -> vec4f {
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let texCoord = input.texCoord;
-	let originalColor = textureSample(inputTexture, inputSampler, texCoord);
-
-	if (originalColor.a < 0.001) {
-		return originalColor;
-	}
+	// The input is premultiplied. Processing it as is would skew the color of
+	// semi-transparent edges toward black.
+	let originalColor = unpremultiply(textureSample(inputTexture, inputSampler, texCoord));
 
 	let luminance = getLuminance(originalColor.rgb);
 	let gradientColor = getGradientColor(luminance);
@@ -131,6 +131,8 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 		);
 	}
 
-	return finalColor;
+	return premultiply(finalColor);
 }
+
+${SVG_PREMULTIPLY_WGSL}
 `;

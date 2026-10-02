@@ -1,3 +1,5 @@
+import { SVG_PREMULTIPLY_WGSL } from "../svg/svg-wgsl-includes";
+
 export const HK_POSTERIZATION_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
@@ -40,11 +42,9 @@ fn posterizeColor(color: vec3f, levels: f32) -> vec3f {
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let texCoord = input.texCoord;
-	let originalColor = textureSample(inputTexture, inputSampler, texCoord);
-
-	if (originalColor.a < 0.001) {
-		return originalColor;
-	}
+	// The input is premultiplied. Processing it as is would skew the color of
+	// semi-transparent edges toward black.
+	let originalColor = unpremultiply(textureSample(inputTexture, inputSampler, texCoord));
 
 	let levels = f32(uniforms.levels);
 	let posterizedRGB = posterizeColor(originalColor.rgb, levels);
@@ -54,6 +54,8 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 		originalColor.a,
 	);
 
-	return finalColor;
+	return premultiply(finalColor);
 }
+
+${SVG_PREMULTIPLY_WGSL}
 `;

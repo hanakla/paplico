@@ -40,6 +40,7 @@
   - Fix `flipElements` on a single rotated element mirroring it across its own tilted axis instead of the screen's.
 - **Filters**
   - Fix the color correction filter coloring the transparent area around its element and skewing the color of semi-transparent pixels.
+  - Fix the gradient map, posterization and color replacement filters skewing the color of semi-transparent pixels.
 
 ## [0.4.0] - 2026-10-01
 
