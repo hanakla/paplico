@@ -17,6 +17,7 @@
  *   const t = pool.acquire(...)  // borrow a texture
  *   pool.release(t)              // return it (actual destroy is deferred)
  *   pool.trimIdle(n)             // between frames — free what sat out n frames
+ *   pool.trimToBudget()          // between frames — free the oldest while over budget
  *   pool.destroy()               // teardown — destroy everything
  */
 
@@ -104,6 +105,10 @@ export class TexturePool {
 	private budgetBytes = MAX_POOL_BYTES;
 
 	public constructor(private readonly device: GPUDevice) {}
+
+	public getBudgetBytes(): number {
+		return this.budgetBytes;
+	}
 
 	/** Update the pooled-bytes budget (eviction applies on the next resetFrame). */
 	public setBudgetBytes(bytes: number): void {
@@ -262,6 +267,17 @@ export class TexturePool {
 			) {
 				break;
 			}
+			this.evict(texture, key);
+		}
+	}
+
+	/**
+	 * Free the least recently released textures while over budget, without
+	 * starting a frame. Call between frames only.
+	 */
+	public trimToBudget(): void {
+		for (const [texture, { key }] of this.releasedAt) {
+			if (this.totalPooledBytes <= this.budgetBytes) break;
 			this.evict(texture, key);
 		}
 	}

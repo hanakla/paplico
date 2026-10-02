@@ -15,6 +15,8 @@
   - Fix an element moved to another layer still being picked from its old layer.
 - **Rendering**
   - Fix GPU memory staying allocated after switching documents, deleting elements, or leaving the canvas idle.
+- **Export**
+  - Fix an artboard export leaving gigabytes of GPU memory allocated until the next edit.
 - **Viewport**
   - Fix the canvas not redrawing, or redrawing only from a stretched stale frame, after `CanvasTarget.setViewport` is called directly.
 - **Filters**

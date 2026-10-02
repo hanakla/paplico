@@ -269,6 +269,11 @@ export interface CanvasFrameTransaction {
 	abort(): void;
 }
 
+interface ExportPoolSnapshot {
+	texturePoolBudgetBytes: number;
+	filterTempPairKeys: ReadonlySet<string>;
+}
+
 /**
  * A pre-rendered mask paired with the document-level intent behind it.
  *
@@ -7917,6 +7922,31 @@ export class CanvasLayer {
 			},
 			deferDestroy: (tex) => this.offscreen.deferDestroy(tex),
 		});
+	}
+
+	/** The pool state an export render grows. Take it before the render and
+	 *  pass it to releaseExportResources after the submit. */
+	public snapshotExportPools(): ExportPoolSnapshot {
+		return {
+			texturePoolBudgetBytes: this.texturePool.getBudgetBytes(),
+			filterTempPairKeys: this.filterRenderer.getTempPairKeys(),
+		};
+	}
+
+	/**
+	 * Release the GPU memory an export render grew, back to `snapshot`. The
+	 * editor renders on demand, so without this an export's working set stays
+	 * allocated until the next edit. Call after the export's submit and before
+	 * flushDeferredDestroys, which destroys what the clip-mask atlas defers.
+	 */
+	public releaseExportResources(snapshot: ExportPoolSnapshot): void {
+		this.exportClipMaskAtlas?.destroy();
+		this.exportClipMaskAtlas = null;
+		this.texturePool.setBudgetBytes(snapshot.texturePoolBudgetBytes);
+		this.texturePool.trimToBudget();
+		this.filterRenderer.releaseIsolatedRenderTextures(
+			snapshot.filterTempPairKeys,
+		);
 	}
 
 	/**

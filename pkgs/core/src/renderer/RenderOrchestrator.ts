@@ -860,6 +860,11 @@ export class RenderOrchestrator {
 		targetId?: string;
 		/** Also show the rendered frame on the target's canvas. */
 		presentToCanvas?: boolean;
+		/** Release the export-sized textures the render leaves in the editor's
+		 *  pools, which the idle editor would not trim. Ignored with
+		 *  `targetId`: that target (timelapse) renders every frame and reuses
+		 *  them. */
+		releasePools?: boolean;
 	}): Promise<{ texture: GPUTexture; width: number; height: number } | null> {
 		const targetId = opts.targetId ?? this.activeTarget?.id;
 		const td = targetId ? this.targets.get(targetId) : null;
@@ -909,6 +914,10 @@ export class RenderOrchestrator {
 
 		// 3. Save viewport
 		const savedVp = td.canvasLayer.getViewportSnapshot();
+		const savedPools =
+			opts.releasePools && !opts.targetId
+				? td.canvasLayer.snapshotExportPools()
+				: null;
 
 		let intermediateTexture: GPUTexture | null = null;
 		let outputTexture: GPUTexture | null = null;
@@ -1027,6 +1036,7 @@ export class RenderOrchestrator {
 				frame?.abort();
 				throw error;
 			}
+			if (savedPools) td.canvasLayer.releaseExportResources(savedPools);
 			td.canvasLayer.flushDeferredDestroys();
 
 			return outputTexture ? { texture: outputTexture, width, height } : null;
@@ -1068,6 +1078,7 @@ export class RenderOrchestrator {
 			scale,
 			backgroundColor,
 			document,
+			releasePools: true,
 			...opts,
 		});
 	}
@@ -1137,6 +1148,7 @@ export class RenderOrchestrator {
 			backgroundColor,
 			document,
 			outputFormat: "rgba32float",
+			releasePools: true,
 		});
 		if (!result) return null;
 

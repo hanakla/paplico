@@ -610,6 +610,9 @@ export interface FilterHandler {
 	): void;
 	/** Drop the driver + resources for a canvas being destroyed. */
 	detachCanvas?(canvasId: string): void;
+	/** Destroy the intermediates kept for reuse. Called after an export
+	 *  render's submit, so nothing in flight reads them. */
+	trimUnusedTextures?(): void;
 	/** The backdrop-effect driver for a registered canvas, or null. */
 	getBackdropEffectDriver?(canvasId: string): BackdropEffectDriver | null;
 
@@ -903,6 +906,31 @@ export class FilterRenderer {
 
 		for (const handler of this.handlers.values()) {
 			(handler as { flushPendingDestroy?(): void }).flushPendingDestroy?.();
+		}
+	}
+
+	/** Keys of the temp pairs held now. Pass them to
+	 *  releaseIsolatedRenderTextures after an isolated render. */
+	public getTempPairKeys(): Set<string> {
+		return new Set(this.tempPairs.keys());
+	}
+
+	/**
+	 * Destroy what an isolated render (an export) left behind: the temp pairs
+	 * missing from `keep` and every handler's idle intermediates. Export sizes
+	 * run to hundreds of MB per pair, and as the last frame to use them the
+	 * export keeps them out of trimIdle(1). Call after that render's submit.
+	 */
+	public releaseIsolatedRenderTextures(keep: ReadonlySet<string>): void {
+		for (const [key, pair] of this.tempPairs) {
+			if (keep.has(key)) continue;
+			pair.t1.destroy();
+			pair.t2.destroy();
+			pair.src?.destroy();
+			this.tempPairs.delete(key);
+		}
+		for (const handler of this.handlers.values()) {
+			handler.trimUnusedTextures?.();
 		}
 	}
 

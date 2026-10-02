@@ -89,14 +89,21 @@ export class ScratchTexturePool {
 		this.pendingDestroy.length = 0;
 	}
 
-	public destroy(): void {
-		this.releaseAll();
+	/** Destroy the textures no chain holds: those returned to the pool and
+	 *  those retired past its cap. Call only after the passes that read them
+	 *  were submitted. */
+	public trimUnused(): void {
 		for (const list of this.free.values()) {
 			for (const texture of list) texture.destroy();
+			this.total -= list.length;
 		}
 		this.free.clear();
-		this.total = 0;
 		this.flushPendingDestroy();
+	}
+
+	public destroy(): void {
+		this.releaseAll();
+		this.trimUnused();
 	}
 
 	private retireOldestFree(): void {

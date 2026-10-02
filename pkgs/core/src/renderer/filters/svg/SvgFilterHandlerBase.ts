@@ -55,6 +55,10 @@ export abstract class SvgFilterHandlerBase<P> implements FilterHandler {
 		this.scratch.flushPendingDestroy();
 	}
 
+	public trimUnusedTextures(): void {
+		this.scratch.trimUnused();
+	}
+
 	public destroy(): void {
 		for (const pass of this.passes) pass.destroy();
 		this.scratch.destroy();

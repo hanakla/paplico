@@ -321,6 +321,10 @@ export class BlurFilterHandler implements FilterHandler {
 		this.blurPyramid?.beginFrame();
 	}
 
+	public trimUnusedTextures(): void {
+		this.scratch.trimUnused();
+	}
+
 	public destroy(): void {
 		this.pipeline = null;
 		this.bindGroupLayout = null;

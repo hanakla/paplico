@@ -204,6 +204,10 @@ export class SvgFilterGraphFilterHandler implements FilterHandler {
 		this.scratch.flushPendingDestroy();
 	}
 
+	public trimUnusedTextures(): void {
+		this.scratch.trimUnused();
+	}
+
 	public destroy(): void {
 		this.scratch.destroy();
 	}

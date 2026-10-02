@@ -749,6 +749,10 @@ export class DropShadowFilterHandler implements FilterHandler {
 		return { ...p, shadowColor: adjustColor(p.shadowColor) };
 	}
 
+	public trimUnusedTextures(): void {
+		this.scratch.trimUnused();
+	}
+
 	public destroy(): void {
 		this.pipeline = null;
 		this.bindGroupLayout = null;
