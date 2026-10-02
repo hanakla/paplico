@@ -4,14 +4,10 @@ import {
 	type ElementTransform,
 	isBlend,
 	isGroup,
-	isMesh,
 	isRepeat,
 	type Viewport,
 } from "../../../schema";
-import {
-	calculateLocalElementBounds,
-	type LocalBoundsCache,
-} from "../../../utils/geometry/bounds";
+import { calculateLocalElementBounds } from "../../../utils/geometry/bounds";
 import {
 	GPU_TRANSFORM_VALUES,
 	type GPUTransformAffine,
@@ -27,6 +23,10 @@ import {
 import type { StructuredView } from "../../../utils/wgpu-utils";
 import type { ChangedElements } from "../../types";
 import type { ViewportState } from "../CanvasLayerTypes";
+import {
+	type ElementHierarchyCache,
+	parentedChildIds,
+} from "./ElementHierarchyCache";
 
 /**
  * The part of a mask atlas entry the transforms buffer carries to the shader.
@@ -48,13 +48,10 @@ export interface GPUMaskInfo {
  * a pre-computed viewport bounds cache for culling.
  *
  * The viewport uniform and bounds cache are tightly coupled (a viewport
- * change invalidates the cached visible-world bounds). The transform buffer
- * is co-located here because it shares the element bounds cache with the
- * frame plan: `updateTransformsBuffer` computes and caches local element
- * bounds that `RenderPlanner.buildFramePlanStructure` reuses via
- * `getBoundsCache()`,
- * avoiding double computation. Element transforms themselves are stored in
- * world space and do NOT depend on viewport parameters.
+ * change invalidates the cached visible-world bounds). Element transforms
+ * are stored in world space and do NOT depend on viewport parameters; they
+ * compose through the injected ElementHierarchyCache's parent edges and fill
+ * its local bounds, which the frame plan shares.
  */
 export class ViewportManager {
 	private device: GPUDevice;
@@ -89,14 +86,6 @@ export class ViewportManager {
 	private transformsDirty: "none" | "partial" | "full" = "full";
 	/** Element ids accumulated by markElementTransformsDirty. */
 	private partialDirtyIds = new Set<string>();
-	/**
-	 * Caches raw element bounds (before transform) by element ID.
-	 * Cleared when transforms are marked dirty. Used by both
-	 * updateTransformsBuffer and RenderPlanner (via getBoundsCache).
-	 */
-	private boundsCache: LocalBoundsCache = new Map();
-	/** Cached child→parent group mapping, rebuilt when dirty. */
-	private parentGroupMap: Map<string, string> = new Map();
 	/** True when any Group element has a clipPathId set. */
 	private _hasClipGroups = false;
 	private _hasObjectMasks = false;
@@ -112,6 +101,7 @@ export class ViewportManager {
 		uniformBuffer: GPUBuffer,
 		viewportUniformView: StructuredView,
 		transformsBindGroupLayout: GPUBindGroupLayout,
+		private readonly hierarchy: ElementHierarchyCache,
 	) {
 		this.device = device;
 		this._uniformBuffer = uniformBuffer;
@@ -163,19 +153,16 @@ export class ViewportManager {
 
 	/**
 	 * Mark the transforms buffer as stale so it will be rebuilt on the next
-	 * updateTransformsBuffer call.  Call this when element data changes
-	 * (transform, geometry, add/remove, group structure).
-	 * Viewport-only changes (pan/zoom) do NOT need to call this because
-	 * element transforms are stored in world space.
+	 * updateTransformsBuffer call, re-deriving the parent edges too.  Call
+	 * this when element data changes (transform, geometry, add/remove, group
+	 * structure). Viewport-only changes (pan/zoom) do NOT need to call this
+	 * because element transforms are stored in world space.
 	 */
-	public markTransformsDirty(clearBoundsCache = true): void {
+	public markTransformsDirty(): void {
 		this.transformsDirty = "full";
 		this.partialDirtyIds.clear();
 		this._composedTransformCache.clear();
-		this.parentGroupMap.clear();
-		if (clearBoundsCache) {
-			this.boundsCache.clear();
-		}
+		this.hierarchy.clearParents();
 	}
 
 	/**
@@ -193,52 +180,6 @@ export class ViewportManager {
 		for (const id of changes.deleted) this.partialDirtyIds.add(id);
 	}
 
-	/**
-	 * Evict cached local bounds for specific elements (and their ancestor
-	 * groups, whose bounds aggregate them) and mark transforms stale.
-	 * Use when an element's geometry changes under the same id — e.g. a
-	 * tool preview override swaps in new segments — so the GPU transform
-	 * origin and every bounds consumer recompute from the live geometry
-	 * instead of the pre-edit cache. Cheaper than a full boundsCache clear
-	 * when only a few elements changed.
-	 *
-	 * @returns every evicted id (the given ids plus their ancestors) —
-	 * world-bounds consumers must treat these as stale too.
-	 */
-	public invalidateElementBounds(ids: Iterable<string>): ReadonlySet<string> {
-		const evicted = new Set<string>();
-		for (const id of ids) {
-			let current: string | undefined = id;
-			while (current !== undefined && !evicted.has(current)) {
-				evicted.add(current);
-				this.boundsCache.delete(current);
-				current = this.parentGroupMap.get(current);
-			}
-		}
-		if (evicted.size > 0) {
-			this.markTransformsDirty(false);
-		}
-		return evicted;
-	}
-
-	/**
-	 * Expose the bounds cache so RenderPlanner can reuse precomputed bounds
-	 * instead of recalculating them (avoids double bounds computation).
-	 */
-	public getBoundsCache(): LocalBoundsCache {
-		return this.boundsCache;
-	}
-
-	/**
-	 * Expose the cached child→parent group mapping so callers that need
-	 * ancestor traversal (e.g. collectClipGroups) can reuse it instead
-	 * of rebuilding from scratch.  The map is populated lazily by
-	 * updateTransformsBuffer and cleared when transforms are dirty.
-	 */
-	public getParentGroupMap(): ReadonlyMap<string, string> {
-		return this.parentGroupMap;
-	}
-
 	public getComposedTransformCache(): ReadonlyMap<string, ElementTransform> {
 		return this._composedTransformCache;
 	}
@@ -248,7 +189,7 @@ export class ViewportManager {
 	 * updateTransformsBuffer; null for an element sitting directly in a layer.
 	 */
 	public getAncestorMatrix(elementId: string): ElementTransform | null {
-		const parentId = this.parentGroupMap.get(elementId);
+		const parentId = this.hierarchy.parentMap.get(elementId);
 		return parentId
 			? (this._composedTransformCache.get(parentId) ?? null)
 			: null;
@@ -375,36 +316,30 @@ export class ViewportManager {
 				this.partialDirtyIds.clear();
 				return;
 			}
-			// The partial attempt may have synced parentGroupMap halfway before
+			// The partial attempt may have synced the parent edges halfway before
 			// bailing — rebuild both derived maps from scratch below. The bail
 			// also happens before the partial path evicts any local bounds, and
 			// the reason for bailing is that the set of elements whose bounds
 			// derive from the dirty ids cannot be resolved here — so every cached
 			// local bounds is suspect and the rebuild must recompute all of them.
-			this.parentGroupMap.clear();
+			this.hierarchy.clear();
 			this._composedTransformCache.clear();
-			this.boundsCache.clear();
 		}
 
 		this.transformsDirty = "none";
 		this.partialDirtyIds.clear();
 
-		if (this.parentGroupMap.size === 0) {
+		if (this.hierarchy.ensureParents(elementsMap)) {
 			this._hasClipGroups = false;
 			this._hasObjectMasks = false;
-			for (const [, element] of elementsMap) {
+			for (const element of elementsMap.values()) {
 				if (isGroup(element) && element.clipPathId != null) {
 					this._hasClipGroups = true;
 				}
 				if (element.mask?.elementIds.length) this._hasObjectMasks = true;
-				const children = parentedChildIds(element);
-				if (!children) continue;
-				for (const childId of children) {
-					this.parentGroupMap.set(childId, element.id);
-				}
 			}
 		}
-		const parentGroupMap = this.parentGroupMap;
+		const boundsCache = this.hierarchy.localBounds;
 
 		// Release slots of deleted elements; keep every survivor's slot stable.
 		// After mass deletions (over half the slots free) compact the
@@ -454,10 +389,10 @@ export class ViewportManager {
 		this._composedTransformCache.clear();
 
 		for (const [id, element] of elementsMap) {
-			if (!this.boundsCache.has(id)) {
-				this.boundsCache.set(
+			if (!boundsCache.has(id)) {
+				boundsCache.set(
 					id,
-					calculateLocalElementBounds(element, elementsMap, this.boundsCache),
+					calculateLocalElementBounds(element, elementsMap, boundsCache),
 				);
 			}
 
@@ -559,34 +494,10 @@ export class ViewportManager {
 			}
 		}
 
-		// Sync parentGroupMap for dirty/deleted parents. Children that left a
-		// group (or joined one) change their composed transforms too, as does
-		// mask content moving between owners.
-		//
-		// Plain elements skip the scan below, which means an owner that keeps
-		// existing while its mask is cleared would leave stale edges behind.
-		// Clearing a mask always deletes its content (see
-		// PaplicoCommands.removeMaskFromElement), and deleted ids drop their own
-		// edge in the loop further down, so that combination does not arise.
-		for (const id of dirty) {
-			const element = elementsMap.get(id);
-			const currentChildren =
-				element != null ? parentedChildIds(element) : null;
-			if (element != null && !currentChildren) continue;
-			const currentChildSet = currentChildren ? new Set(currentChildren) : null;
-			for (const [childId, parentId] of this.parentGroupMap) {
-				if (parentId !== id) continue;
-				if (currentChildSet?.has(childId)) continue;
-				this.parentGroupMap.delete(childId);
-				affected.add(childId);
-			}
-			if (!currentChildren) continue;
-			for (const childId of currentChildren) {
-				if (this.parentGroupMap.get(childId) !== id) {
-					this.parentGroupMap.set(childId, id);
-					affected.add(childId);
-				}
-			}
+		// Children that left a dirty parent (or joined one) change their
+		// composed transforms too, as does mask content moving between owners.
+		for (const childId of this.hierarchy.syncChildrenOf(dirty, elementsMap)) {
+			affected.add(childId);
 		}
 
 		// Descendants of affected parents inherit their composed transforms.
@@ -606,11 +517,12 @@ export class ViewportManager {
 		// Ancestors: a container's local bounds aggregate every descendant, so
 		// changes below bubble up. Their placement does not depend on those
 		// bounds, so their own descendants need no further expansion.
+		const parents = this.hierarchy.parentMap;
 		for (const id of [...affected]) {
-			let parentId = this.parentGroupMap.get(id);
+			let parentId = parents.get(id);
 			while (parentId != null && !affected.has(parentId)) {
 				affected.add(parentId);
-				parentId = this.parentGroupMap.get(parentId);
+				parentId = parents.get(parentId);
 			}
 		}
 
@@ -636,8 +548,9 @@ export class ViewportManager {
 
 		// Evict stale local bounds and placements so they recompute from live
 		// geometry.
+		const boundsCache = this.hierarchy.localBounds;
 		for (const id of affected) {
-			this.boundsCache.delete(id);
+			boundsCache.delete(id);
 			this._composedTransformCache.delete(id);
 		}
 
@@ -651,7 +564,7 @@ export class ViewportManager {
 					this.transformIndexMap.delete(id);
 					this.freeSlots.push(slot);
 				}
-				this.parentGroupMap.delete(id);
+				this.hierarchy.removeParent(id);
 				continue;
 			}
 			let slot = this.transformIndexMap.get(id);
@@ -660,10 +573,10 @@ export class ViewportManager {
 				this.transformIndexMap.set(id, slot);
 			}
 
-			if (!this.boundsCache.has(id)) {
-				this.boundsCache.set(
+			if (!boundsCache.has(id)) {
+				boundsCache.set(
 					id,
-					calculateLocalElementBounds(element, elementsMap, this.boundsCache),
+					calculateLocalElementBounds(element, elementsMap, boundsCache),
 				);
 			}
 
@@ -699,7 +612,9 @@ export class ViewportManager {
 	): ElementTransform {
 		const cached = this._composedTransformCache.get(element.id);
 		if (cached) return cached;
-		const parent = elementsMap.get(this.parentGroupMap.get(element.id) ?? "");
+		const parent = elementsMap.get(
+			this.hierarchy.parentMap.get(element.id) ?? "",
+		);
 		const t = placeElement(
 			parent ? this.composedTransformOf(parent, elementsMap) : null,
 			element,
@@ -870,37 +785,4 @@ function maskIndexWord(mask: GPUMaskInfo): number {
 		? (MASK_ATLAS_BIT | mask.layerIndex) >>> 0
 		: mask.layerIndex;
 	return mask.inverted ? (index | MASK_INVERT_BIT) >>> 0 : index;
-}
-
-/**
- * Ids whose composed transform is parented to `element`: a group's children,
- * plus object-mask content. Mask elements are stored in owner-local space so
- * the mask follows the element it hides, and they keep composing through the
- * owner even while a mask-edit session has them sitting on a transient layer
- * (this map is derived from the reference, not from layer membership).
- *
- * Returns null when the element parents nothing, so callers can skip work.
- */
-/** Child → parent edges of every element that parents others, as the
- *  transform buffer composes them. */
-export function buildParentedMap(
-	elementsMap: ReadonlyMap<string, AnyArtObject>,
-): Map<string, string> {
-	const parentById = new Map<string, string>();
-	for (const element of elementsMap.values()) {
-		for (const childId of parentedChildIds(element) ?? []) {
-			parentById.set(childId, element.id);
-		}
-	}
-	return parentById;
-}
-
-function parentedChildIds(element: AnyArtObject): readonly string[] | null {
-	const maskIds = element.mask?.elementIds;
-	// A mesh container holds its children in its own space just as a group
-	// does — their stored coordinates are what the cage is built around.
-	const childIds =
-		isGroup(element) || isMesh(element) ? element.childIds : undefined;
-	if (!childIds) return maskIds?.length ? maskIds : null;
-	return maskIds?.length ? [...childIds, ...maskIds] : childIds;
 }

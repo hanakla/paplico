@@ -38,6 +38,7 @@ import { RenderCacheManager } from "./canvas/caches/RenderCacheManager";
 import type { Reference3DRenderContext } from "./canvas/elements/Reference3DElementRenderer";
 import { BackdropCaptureManager } from "./canvas/pipeline/BackdropCaptureManager";
 import { BrushTextureManager } from "./canvas/pipeline/brush/BrushTextureManager";
+import { buildParentedMap } from "./canvas/pipeline/ElementHierarchyCache";
 import {
 	classifyFilterHandler,
 	type FilterHandler,
@@ -53,7 +54,6 @@ import {
 	UNIFIED_VERTEX_BYTES,
 	UNIFIED_VERTEX_OFFSETS,
 } from "./canvas/pipeline/unifiedVertexLayout";
-import { buildParentedMap } from "./canvas/pipeline/ViewportManager";
 import { BlurFilterHandler } from "./filters/BlurFilter/BlurFilter";
 import { ClipToShapeFilterHandler } from "./filters/ClipToShapeFilter/ClipToShapeFilter";
 import { DropShadowFilterHandler } from "./filters/DropShadowFilter/DropShadowFilter";

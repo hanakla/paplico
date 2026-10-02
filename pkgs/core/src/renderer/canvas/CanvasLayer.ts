@@ -168,6 +168,7 @@ import {
 } from "./pipeline/CompositeRenderer";
 import { boundsAlmostEqual, DocumentCache } from "./pipeline/DocumentCache";
 import { DefRasterizer } from "./pipeline/defs/DefRasterizer";
+import { ElementHierarchyCache } from "./pipeline/ElementHierarchyCache";
 import {
 	type BackdropEffectCanvasResources,
 	type BackdropEffectDriver,
@@ -426,6 +427,7 @@ export class CanvasLayer {
 
 	// -- Viewport & uniform binding --
 	private viewportManager!: ViewportManager;
+	private readonly elementHierarchy = new ElementHierarchyCache();
 	private uniformScope: UniformScope;
 	private bindGroup: GPUBindGroup;
 
@@ -834,6 +836,7 @@ export class CanvasLayer {
 			resources.uniformBuffer,
 			resources.viewportUniformView,
 			resources.transformsBindGroupLayout,
+			this.elementHierarchy,
 		);
 
 		this.gradient = {
@@ -928,7 +931,7 @@ export class CanvasLayer {
 				this.inlineMaskEntries.get(transientId)?.bindGroup ?? null,
 			getComposedTransform: this.getComposedTransform,
 			getLocalBounds: (elementId: string) =>
-				this.viewportManager.getBoundsCache().get(elementId) ?? null,
+				this.elementHierarchy.localBounds.get(elementId) ?? null,
 			getTransformsBindGroup: () => this.transformsBindGroup,
 			brushRenderer: this.brushRenderer,
 			getBrushDrawBindings: () => this.brushDrawBindings(),
@@ -941,7 +944,7 @@ export class CanvasLayer {
 				this.composite.blitTextureToCanvas(...args),
 			blitQuadToCanvas: (...args) => this.composite.blitQuadToCanvas(...args),
 			blitMeshToCanvas: (...args) => this.composite.blitMeshToCanvas(...args),
-			getParentGroupMap: () => this.viewportManager.getParentGroupMap(),
+			getParentGroupMap: () => this.elementHierarchy.parentMap,
 			resolvePatternTexture: (defId: string) =>
 				this.resolvePatternTexture(defId),
 			getReference3DContext: () => this.reference3dContextProvider?.() ?? null,
@@ -996,7 +999,7 @@ export class CanvasLayer {
 			get appearanceCache() {
 				return cacheManager.appearance;
 			},
-			getParentGroupMap: () => this.viewportManager.getParentGroupMap(),
+			getParentGroupMap: () => this.elementHierarchy.parentMap,
 			get compoundPathCache() {
 				return cacheManager.compoundPath;
 			},
@@ -1199,7 +1202,7 @@ export class CanvasLayer {
 			// without any document mutation, so the cached frame-plan structure
 			// (whose world bounds bake those local bounds in) must be rebuilt.
 			this.framePlanStructureCache = null;
-			this.viewportManager.markTransformsDirty(false);
+			this.viewportManager.markTransformsDirty();
 			callback();
 		};
 	}
@@ -1396,8 +1399,8 @@ export class CanvasLayer {
 
 		const boundsContext: WorldBoundsContext = {
 			elementsMap,
-			localBoundsCache: this.viewportManager.getBoundsCache(),
-			parentGroupMap: this.viewportManager.getParentGroupMap(),
+			localBoundsCache: this.elementHierarchy.localBounds,
+			parentGroupMap: this.elementHierarchy.parentMap,
 			ancestorMatrixOf: (id) => this.viewportManager.getAncestorMatrix(id),
 		};
 		let clipGroups = this.viewportManager.hasClipGroups
@@ -1488,7 +1491,7 @@ export class CanvasLayer {
 					.filter((element): element is AnyArtObject => element != null),
 				elementsMap,
 				this.filterRenderer,
-				this.viewportManager.getBoundsCache(),
+				this.elementHierarchy.localBounds,
 				(elementId) => this.viewportManager.getAncestorMatrix(elementId),
 			);
 			if (maskPlans.size > 0) {
@@ -1500,7 +1503,7 @@ export class CanvasLayer {
 			// layers, which mask content is never on. Bake it here, under the
 			// owner's frame the content is stored in.
 			const rasterScale = this.getRasterScale();
-			const boundsCache = this.viewportManager.getBoundsCache();
+			const boundsCache = this.elementHierarchy.localBounds;
 			for (const id of maskContentIds) {
 				const element = elementsMap.get(id);
 				if (!element || !isRepeat(element)) continue;
@@ -1621,7 +1624,7 @@ export class CanvasLayer {
 			element,
 			this.activeFramePlan!.elementsMap,
 			null,
-			this.viewportManager.getBoundsCache(),
+			this.elementHierarchy.localBounds,
 			this.viewportManager.getAncestorMatrix(element.id),
 		);
 
@@ -1644,7 +1647,7 @@ export class CanvasLayer {
 			const bounds = calculateElementBounds(
 				element,
 				elementsMap,
-				this.viewportManager.getBoundsCache(),
+				this.elementHierarchy.localBounds,
 			);
 			for (const group of clipGroups) {
 				result.push({ ...group, meshId: element.id, bounds });
@@ -1675,6 +1678,7 @@ export class CanvasLayer {
 
 	/** Mark the transform buffer as dirty so the next render re-uploads it. */
 	public markTransformsDirty(): void {
+		this.elementHierarchy.clear();
 		this.viewportManager.markTransformsDirty();
 	}
 
@@ -1974,7 +1978,7 @@ export class CanvasLayer {
 
 		// Reuse precomputed SpatialIndex bounds when available.
 		this.renderState.boundsCache = boundsCache ?? null;
-		this.renderState.localBoundsCache = this.viewportManager.getBoundsCache();
+		this.renderState.localBoundsCache = this.elementHierarchy.localBounds;
 		if (!this.viewportState.current) return null;
 
 		// viewportBlit: a viewport-only interaction frame. With a valid cached
@@ -1995,18 +1999,16 @@ export class CanvasLayer {
 			}
 			// Fall through: render this frame normally and capture it.
 		}
-		// Transient (preview) elements carry their own transforms and parent
-		// relations, so the transforms buffer must be rebuilt whenever the
-		// transient set changes — even on non-full strategies. While transients
-		// exist their map mutates in place (identity never changes), so rebuild
-		// every frame; with none, there is nothing to rebuild. Normalizing to
-		// null before comparing matters: a raw `undefined !== null` compare is
-		// true on EVERY transient-less frame and would silently rebuild and
-		// re-upload all transforms during pan/zoom.
-		const transients = transientElements ?? null;
-		if (transients !== this.lastTransientElements || transients != null) {
-			this.lastTransientElements = transients;
-			this.viewportManager.markTransformsDirty(false);
+		const isDocumentFrame =
+			strategy === RenderStrategy.full ||
+			strategy === RenderStrategy.fullTransformOnly;
+		// The frame plan reads cached local bounds before the transforms buffer
+		// recomposes anything, so a changed element's bounds — and its
+		// ancestors', which aggregate them — must go now. This and the override
+		// eviction below walk the parent edges, so both run before the
+		// transient rebuild forgets them.
+		if (isDocumentFrame && request.changedElements) {
+			this.elementHierarchy.applyChanges(request.changedElements);
 		}
 		// Element overrides swap in new geometry under the same element id
 		// (e.g. path-edit drag previews), so the cached local bounds — and the
@@ -2021,7 +2023,8 @@ export class CanvasLayer {
 			if (elementOverrides) {
 				for (const id of elementOverrides.keys()) staleIds.add(id);
 			}
-			const evicted = this.viewportManager.invalidateElementBounds(staleIds);
+			const evicted = this.elementHierarchy.invalidateBounds(staleIds);
+			if (evicted.size > 0) this.viewportManager.markTransformsDirty();
 			// SpatialIndex only reflects committed document geometry, so its
 			// world bounds for the overridden ids (and their ancestors) are
 			// equally stale while overrides are live — offscreen compositing
@@ -2033,6 +2036,19 @@ export class CanvasLayer {
 				? new Set(elementOverrides.keys())
 				: null;
 		}
+		// Transient (preview) elements carry their own transforms and parent
+		// relations, so the transforms buffer must be rebuilt whenever the
+		// transient set changes — even on non-full strategies. While transients
+		// exist their map mutates in place (identity never changes), so rebuild
+		// every frame; with none, there is nothing to rebuild. Normalizing to
+		// null before comparing matters: a raw `undefined !== null` compare is
+		// true on EVERY transient-less frame and would silently rebuild and
+		// re-upload all transforms during pan/zoom.
+		const transients = transientElements ?? null;
+		if (transients !== this.lastTransientElements || transients != null) {
+			this.lastTransientElements = transients;
+			this.viewportManager.markTransformsDirty();
+		}
 		// Full document updates invalidate brush stamp caches and transform
 		// buffer. Geometry caches (flatten, stroke, fill) are
 		// self-validating so only stale entries for deleted elements are pruned.
@@ -2041,10 +2057,7 @@ export class CanvasLayer {
 		// scan is skipped (an untracked frame must still take it).
 		const needsDeletionPrune =
 			!request.changedElements || request.changedElements.deleted.size > 0;
-		if (
-			strategy === RenderStrategy.full ||
-			strategy === RenderStrategy.fullTransformOnly
-		) {
+		if (isDocumentFrame) {
 			if (needsDeletionPrune) {
 				this.cacheManager.onDocumentChange(document.objects);
 			}
@@ -2058,9 +2071,8 @@ export class CanvasLayer {
 					request.changedElements,
 				);
 			} else {
-				this.viewportManager.markTransformsDirty(
-					strategy === RenderStrategy.full,
-				);
+				if (strategy === RenderStrategy.full) this.elementHierarchy.clear();
+				this.viewportManager.markTransformsDirty();
 			}
 			// A tracked change set drops only the masks it touches, keeping every
 			// other mask's bind group identity stable — the masked-bake cache
@@ -2397,7 +2409,7 @@ export class CanvasLayer {
 				document,
 				this.filterRenderer.getHandlers(),
 				false,
-				this.viewportManager.getBoundsCache(),
+				this.elementHierarchy.localBounds,
 				mergedElementsMap,
 				transientElements,
 			);
@@ -2615,7 +2627,7 @@ export class CanvasLayer {
 		// true (element mutations) this writes transforms without mask info;
 		// applyClipMasks will re-upload once more with mask info included.
 		this.updateTransformsBuffer(elementsMap);
-		const parentGroupMap = this.viewportManager.getParentGroupMap();
+		const parentGroupMap = this.elementHierarchy.parentMap;
 		for (const id of framePlan.backdropEntries.keys()) {
 			for (
 				let parentId = parentGroupMap.get(id);
@@ -4183,7 +4195,7 @@ export class CanvasLayer {
 								element,
 								fp.textureBounds,
 								elementsMap,
-								this.viewportManager.getBoundsCache(),
+								this.elementHierarchy.localBounds,
 								rasterScale,
 								fpFilterMargin,
 								cacheHash != null ? { density: cacheDensity } : null,
@@ -4253,7 +4265,7 @@ export class CanvasLayer {
 						element,
 						elementsMap,
 						compoundPathCache: this.cacheManager.compoundPath,
-						getParentGroupMap: () => this.viewportManager.getParentGroupMap(),
+						getParentGroupMap: () => this.elementHierarchy.parentMap,
 						resolvePatternTexture: (defId) => this.resolvePatternTexture(defId),
 						renderElementToTexture: (enc, el, bounds, map, scale) =>
 							this.offscreen.renderElementToTexture(
@@ -4572,7 +4584,7 @@ export class CanvasLayer {
 	): void {
 		const { elementsMap, layerPlans } = framePlan;
 		const rasterScale = this.getRasterScale();
-		const boundsCache = this.viewportManager.getBoundsCache();
+		const boundsCache = this.elementHierarchy.localBounds;
 		const bakeIn = (
 			elements: readonly AnyArtObject[],
 			parentMatrix: ElementTransform | null,
@@ -4794,7 +4806,7 @@ export class CanvasLayer {
 					element,
 					bounds,
 					elementsMap,
-					this.viewportManager.getBoundsCache(),
+					this.elementHierarchy.localBounds,
 					rasterScale,
 					null,
 					null,
@@ -5644,7 +5656,7 @@ export class CanvasLayer {
 	): string | null {
 		const plan = this.activeFramePlan;
 		if (!plan) return null;
-		const boundsCache = this.viewportManager.getBoundsCache();
+		const boundsCache = this.elementHierarchy.localBounds;
 		const parts: string[] = [];
 		let reachedTarget = false;
 
@@ -6475,7 +6487,7 @@ export class CanvasLayer {
 		localBoundsCache: LocalBoundsCache | undefined,
 	): GPURenderPassEncoder {
 		let isolatedAlpha = 1.0;
-		const parentGroupMap = this.viewportManager.getParentGroupMap();
+		const parentGroupMap = this.elementHierarchy.parentMap;
 		let parentId = parentGroupMap.get(element.id);
 		while (parentId) {
 			const ancestor = elementsMap.get(parentId);
@@ -7411,7 +7423,7 @@ export class CanvasLayer {
 				element,
 				elementsMap,
 				deforms ? this.filterRenderer : null,
-				this.viewportManager.getBoundsCache(),
+				this.elementHierarchy.localBounds,
 				parentMatrix,
 			);
 		}

@@ -7,6 +7,7 @@ import type {
 } from "../../../schema";
 import type { StructuredView } from "../../../utils/wgpu-utils";
 import type { ChangedElements } from "../../types";
+import { ElementHierarchyCache } from "./ElementHierarchyCache";
 import { ViewportManager } from "./ViewportManager";
 
 const STRIDE_VALUES = 12;
@@ -162,7 +163,7 @@ describe("ViewportManager transforms buffer", () => {
 
 	describe("mesh container parenting", () => {
 		it("should compose a mesh container's children under the container", () => {
-			const { vm } = createManager();
+			const { vm, hierarchy } = createManager();
 
 			vm.updateTransformsBuffer(
 				elementsMap(mesh("cage", ["c"], { y: -100 }), path("c", { y: 20 })),
@@ -170,14 +171,14 @@ describe("ViewportManager transforms buffer", () => {
 
 			// The child's stored geometry is laid out in the cage's own space, so
 			// wherever the container goes it goes too.
-			expect(vm.getParentGroupMap().get("c")).toBe("cage");
+			expect(hierarchy.parentMap.get("c")).toBe("cage");
 			expect(vm.getComposedTransformCache().get("c")?.y).toBe(-80);
 		});
 	});
 
 	describe("object mask parenting", () => {
 		it("should compose mask content under the element it masks", () => {
-			const { vm } = createManager();
+			const { vm, hierarchy } = createManager();
 
 			vm.updateTransformsBuffer(
 				elementsMap(
@@ -186,7 +187,7 @@ describe("ViewportManager transforms buffer", () => {
 				),
 			);
 
-			expect(vm.getParentGroupMap().get("m")).toBe("owner");
+			expect(hierarchy.parentMap.get("m")).toBe("owner");
 			expect(vm.getComposedTransformCache().get("m")?.x).toBe(105);
 		});
 
@@ -211,7 +212,7 @@ describe("ViewportManager transforms buffer", () => {
 		});
 
 		it("should drop the mask edge when the mask content is deleted", () => {
-			const { vm } = createManager();
+			const { vm, hierarchy } = createManager();
 			vm.updateTransformsBuffer(
 				elementsMap(
 					maskedPath("owner", ["m"], { x: 100 }),
@@ -222,7 +223,7 @@ describe("ViewportManager transforms buffer", () => {
 			vm.markElementTransformsDirty(changed(["owner"], ["m"]));
 			vm.updateTransformsBuffer(elementsMap(path("owner", { x: 100 })));
 
-			expect(vm.getParentGroupMap().has("m")).toBe(false);
+			expect(hierarchy.parentMap.has("m")).toBe(false);
 		});
 	});
 });
@@ -362,6 +363,7 @@ function createManager() {
 		},
 	} as unknown as GPUDevice;
 
+	const hierarchy = new ElementHierarchyCache();
 	const vm = new ViewportManager(
 		device,
 		{} as GPUBuffer,
@@ -370,6 +372,7 @@ function createManager() {
 			arrayBuffer: new ArrayBuffer(0),
 		} as unknown as StructuredView,
 		{} as GPUBindGroupLayout,
+		hierarchy,
 	);
-	return { vm, writes, buffers };
+	return { vm, hierarchy, writes, buffers };
 }

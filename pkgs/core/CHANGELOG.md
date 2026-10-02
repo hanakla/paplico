@@ -6,6 +6,8 @@
 
 - **Viewport**
   - Fix the canvas not redrawing, or redrawing only from a stretched stale frame, after `CanvasTarget.setViewport` is called directly.
+- **Filters**
+  - Fix a filter's effect stopping at an element's old edge after the element's shape changed, until the layer was hidden and shown again.
 
 ## [0.5.0] - 2026-10-03
 
