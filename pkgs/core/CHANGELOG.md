@@ -10,9 +10,13 @@
   - `calculateResizedBounds` takes an `aspectDriver` option that picks the axis whose size sets the other under `constrainAspect`.
 - **E2EE collaboration**
   - `E2EECollaboration` emits `messageRejected` with the error when a message from a peer cannot be applied.
+- **Clipboard**
+  - `Paplico` emits `clipboardWriteFailed` with the error when a copy or cut cannot write to the system clipboard.
 
 ### Changed
 
+- **Clipboard**
+  - A cut whose clipboard write fails keeps the selected elements instead of deleting them.
 - **Select tool / Path edit tool / Gradient tool**
   - The outline traced along a selected shape is 1px wide instead of 2px.
 - **Outline**

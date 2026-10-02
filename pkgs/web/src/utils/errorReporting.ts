@@ -14,6 +14,7 @@ export type AppErrorCode =
 	| "EXPORT_FAILED"
 	| "SAVE_FAILED"
 	| "IMPORT_FAILED"
+	| "CLIPBOARD_WRITE_FAILED"
 	| "DOCUMENT_OPEN_FAILED"
 	| "DOCUMENT_CREATE_FAILED"
 	| "ROOM_CREATE_FAILED"
@@ -123,6 +124,7 @@ const ERROR_TEXTS: Record<
 	EXPORT_FAILED: { titleKey: "errors.exportFailed" },
 	SAVE_FAILED: { titleKey: "errors.saveFailed" },
 	IMPORT_FAILED: { titleKey: "errors.importFailed" },
+	CLIPBOARD_WRITE_FAILED: { titleKey: "errors.clipboardWriteFailed" },
 	DOCUMENT_OPEN_FAILED: { titleKey: "errors.documentOpenFailed" },
 	DOCUMENT_CREATE_FAILED: { titleKey: "errors.documentCreateFailed" },
 	ROOM_CREATE_FAILED: { titleKey: "connectRoomDialog.roomCreateFailed" },

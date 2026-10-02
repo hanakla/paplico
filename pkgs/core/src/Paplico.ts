@@ -205,6 +205,8 @@ type PaplicoEventMap = {
 		fillColor: FillColor | null;
 		pixelPick?: boolean;
 	};
+	/** A copy or cut could not write to the system clipboard. */
+	clipboardWriteFailed: { error: unknown };
 };
 
 interface PaplicoOptions {
@@ -915,6 +917,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					scale: (this.rendererStore.document.rasterizationDpi ?? 72) / 72,
 					backgroundColor: { r: 0, g: 0, b: 0, a: 0 },
 				}),
+			onClipboardWriteFailed: (error) =>
+				this.emit("clipboardWriteFailed", { error }),
 			filterHandlerLookup: (processor) =>
 				this.renderer.getFilterHandler(processor),
 			toolSettings: this.toolSettings,

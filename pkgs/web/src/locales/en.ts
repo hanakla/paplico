@@ -1530,6 +1530,7 @@ export const en = {
 		exportFailed: "Failed to export",
 		saveFailed: "Failed to save to the file",
 		importFailed: "Failed to import the file",
+		clipboardWriteFailed: "Failed to copy to the clipboard",
 		documentOpenFailed: "Failed to open the document",
 		documentOpenWhileConnected:
 			"You can't open another document while connected to a room",

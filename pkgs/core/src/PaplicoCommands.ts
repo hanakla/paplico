@@ -257,6 +257,8 @@ interface CommandContext {
 	renderElementsToPNG?: (
 		elementIds: string[],
 	) => Promise<{ blob: Blob } | null>;
+	/** Report a copy or cut that could not write to the system clipboard. */
+	onClipboardWriteFailed?: (error: unknown) => void;
 	filterHandlerLookup?: FilterRenderer["getHandler"];
 	toolSettings?: ToolSettings;
 	getTextRenderer?: () => TextRenderer | null;
@@ -4046,7 +4048,8 @@ export class PaplicoCommands {
 	}
 
 	/**
-	 * Cut selected elements: copy to system clipboard then delete.
+	 * Cut selected elements: copy to system clipboard then delete. Nothing is
+	 * deleted when the clipboard write fails, so the elements are not lost.
 	 * Axis paths bound only by cut texts go with them (they are invisible
 	 * guides; the clipboard payload carries them for self-contained paste).
 	 * Cutting a flow chain's trailing members takes their flowed-in text
@@ -4057,7 +4060,7 @@ export class PaplicoCommands {
 		const { elementIds, artObjects } = this.collectSelectedElements();
 		if (elementIds.length === 0) return;
 		const truncations = await this.materializeFlowCut(elementIds, artObjects);
-		await this.writeToSystemClipboard(elementIds, artObjects);
+		if (!(await this.writeToSystemClipboard(elementIds, artObjects))) return;
 		// Use the ids captured before the clipboard await — the live selection
 		// could change during it
 		for (const { headId, content } of truncations) {
@@ -4525,10 +4528,11 @@ export class PaplicoCommands {
 		return [...candidates];
 	}
 
+	/** Returns whether the clipboard now holds the elements. */
 	private async writeToSystemClipboard(
 		elementIds: string[],
 		artObjects: AnyArtObject[],
-	): Promise<void> {
+	): Promise<boolean> {
 		try {
 			// Build ClipboardItem with Promise<Blob> values to avoid awaiting
 			// before navigator.clipboard.write(), which would expire Safari's
@@ -4553,8 +4557,10 @@ export class PaplicoCommands {
 			if (Object.keys(itemData).length > 0) {
 				await Clipboard.write([new ClipboardItem(itemData)]);
 			}
+			return true;
 		} catch (error) {
-			console.warn("Failed to write to system clipboard:", error);
+			this.ctx.onClipboardWriteFailed?.(error);
+			return false;
 		}
 	}
 

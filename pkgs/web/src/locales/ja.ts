@@ -1530,6 +1530,7 @@ export const ja = {
 		exportFailed: "書き出しに失敗しました",
 		saveFailed: "ファイルへの保存に失敗しました",
 		importFailed: "ファイルの読み込みに失敗しました",
+		clipboardWriteFailed: "クリップボードにコピーできませんでした",
 		documentOpenFailed: "ドキュメントを開けませんでした",
 		documentOpenWhileConnected:
 			"ルームにつないでいるあいだは、ほかのドキュメントを開けません",

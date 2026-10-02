@@ -108,10 +108,13 @@ export function CanvasPane({
 			reportError({ code: "WEBGPU_DEVICE_LOST", channel: "fatal" });
 			setIsDeviceRecovering(false);
 		};
+		const handleClipboardWriteFailed = ({ error }: { error: unknown }) =>
+			reportError({ code: "CLIPBOARD_WRITE_FAILED", cause: error });
 
 		paplico.on("deviceLost", handleDeviceLost);
 		paplico.on("deviceRestored", handleDeviceRestored);
 		paplico.on("deviceRecoveryFailed", handleDeviceRecoveryFailed);
+		paplico.on("clipboardWriteFailed", handleClipboardWriteFailed);
 
 		return () => {
 			resizeObserver.disconnect();
@@ -122,6 +125,7 @@ export function CanvasPane({
 			paplico.off("deviceLost", handleDeviceLost);
 			paplico.off("deviceRestored", handleDeviceRestored);
 			paplico.off("deviceRecoveryFailed", handleDeviceRecoveryFailed);
+			paplico.off("clipboardWriteFailed", handleClipboardWriteFailed);
 		};
 	}, [paplico, targetId, isPrimary]);
 

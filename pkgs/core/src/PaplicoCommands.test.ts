@@ -3396,6 +3396,7 @@ describe("cut/copy of axis-bound texts", () => {
 		const layer = createLayer("layer-1", Object.keys(objects));
 		const deleteElements = vi.fn();
 		const updateElement = vi.fn();
+		const onClipboardWriteFailed = vi.fn();
 
 		const store = {
 			currentLayerId: layer.id,
@@ -3418,10 +3419,28 @@ describe("cut/copy of axis-bound texts", () => {
 				getChildrenMatrix: () => null,
 			} as unknown as SpatialIndex,
 			isReadonly: () => false,
+			onClipboardWriteFailed,
 		});
 
-		return { commands, deleteElements, layerId: layer.id };
+		return {
+			commands,
+			deleteElements,
+			onClipboardWriteFailed,
+			layerId: layer.id,
+		};
 	};
+
+	it("cut deletes nothing and reports the error when the clipboard write fails", async () => {
+		const error = new Error("write denied");
+		vi.spyOn(navigator.clipboard, "write").mockRejectedValueOnce(error);
+		const { commands, deleteElements, onClipboardWriteFailed } =
+			createCutHarness({ pA: createPath("pA") }, ["pA"]);
+
+		await commands.cutSelectedToClipboard();
+
+		expect(deleteElements).not.toHaveBeenCalled();
+		expect(onClipboardWriteFailed.mock.calls[0][0]).toBe(error);
+	});
 
 	it("cut deletes chain texts together with their exclusively-bound axis paths", async () => {
 		const pA = createPath("pA");
