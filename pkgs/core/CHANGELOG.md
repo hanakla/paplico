@@ -20,6 +20,8 @@
 
 - **Select tool / Path edit tool**
   - Fix an Alt+drag copy starting 10 units away from its original and lagging behind the pointer.
+- **Compound paths**
+  - Fix a self-crossing source with a handle only on one side of a vertex making the whole compound path disappear.
 - **Select tool**
   - Fix a resize dropping the Shift aspect lock and the Alt centre anchor when an edge snaps.
 - **Object masks**

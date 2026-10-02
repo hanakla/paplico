@@ -409,8 +409,15 @@ class SegmentCurve extends SegmentBase<SegmentCurve> {
 		return this.p0;
 	}
 
+	/**
+	 * The point the curve heads toward from its start. A control point lying on
+	 * the start gives no direction, so the next distinct point stands in for it.
+	 */
 	public start2() {
-		return this.p1;
+		return (
+			[this.p1, this.p2].find((p) => !this.geo.isEqualVec2(p, this.p0)) ??
+			this.p3
+		);
 	}
 
 	public end2() {

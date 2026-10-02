@@ -10,6 +10,7 @@ import type {
 	Path,
 	StrokeAppearance,
 } from "../../schema";
+import zeroHandleUnionPaths from "../../testUtils/fixtures/zeroHandleUnionPaths.json";
 import {
 	arcLengthRatioAt,
 	arcLengthRatios,
@@ -167,6 +168,27 @@ describe("computeBooleanOperation", () => {
 			expect(segments.length).toBeGreaterThan(0);
 			expect(segments.every(segmentHasFiniteCoordinates)).toBe(true);
 		}
+	});
+
+	it("keeps a self-crossing source whose curves have a zero handle at a shared vertex", () => {
+		const [pathA, pathB] = (zeroHandleUnionPaths as unknown as Path[]).map(
+			(path) => toWorldPath(path),
+		);
+
+		const segments = computeBooleanOperation(
+			[
+				{ id: pathA.id, op: "union" },
+				{ id: pathB.id, op: "union" },
+			],
+			new Map<string, Path>([
+				[pathA.id, pathA],
+				[pathB.id, pathB],
+			]),
+		);
+
+		const bounds = segmentsBounds(segments);
+		expect(bounds.minX).toBeCloseTo(1389.57, 1);
+		expect(bounds.maxX).toBeCloseTo(1456.39, 1);
 	});
 
 	it("skips missing sources and computes from available sources only", () => {

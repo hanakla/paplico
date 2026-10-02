@@ -1,0 +1,438 @@
+[
+	{
+		"id": "path-1790957895700-mrzhc32",
+		"transform": {
+			"x": 22.22907803148837,
+			"y": 15.560448120251294,
+			"rotation": 0,
+			"scaleX": 1,
+			"scaleY": 1,
+			"skewX": 0,
+			"skewY": 0
+		},
+		"segments": [
+			{
+				"start": {
+					"x": 1414.4193010106624,
+					"y": 2148.4773700538326
+				},
+				"cp1": {
+					"x": -0.7084971967386764,
+					"y": 0.22360280320344827
+				},
+				"cp2": {
+					"x": 0,
+					"y": 0
+				},
+				"end": {
+					"x": 1396.717620608773,
+					"y": 2183.805028814826
+				},
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0,
+				"isMoved": true
+			},
+			{
+				"cp1": {
+					"x": 0,
+					"y": 0
+				},
+				"cp2": {
+					"x": 0,
+					"y": 0
+				},
+				"end": {
+					"x": 1375.5871538596466,
+					"y": 2188.295276694255
+				},
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0,
+				"isMoved": false
+			},
+			{
+				"cp1": {
+					"x": 0,
+					"y": 0
+				},
+				"cp2": {
+					"x": 1.944814491036027,
+					"y": 6.283748102149673
+				},
+				"end": {
+					"x": 1374.7641167227005,
+					"y": 2175.4778324400927
+				},
+				"isMoved": false,
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0
+			},
+			{
+				"cp1": {
+					"x": -1.9086879060632782,
+					"y": -6.167022131211922
+				},
+				"cp2": {
+					"x": 0,
+					"y": 0
+				},
+				"end": {
+					"x": 1367.338140729943,
+					"y": 2163.145264772579
+				},
+				"isMoved": false,
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0
+			},
+			{
+				"cp1": {
+					"x": 0,
+					"y": 0
+				},
+				"cp2": {
+					"x": -4.358653732431549,
+					"y": 3.3262562004650817
+				},
+				"end": {
+					"x": 1376.4316633534636,
+					"y": 2158.1268909424866
+				},
+				"isMoved": false,
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0
+			},
+			{
+				"cp1": {
+					"x": 4.358653732431549,
+					"y": -3.3262562004650817
+				},
+				"cp2": {
+					"x": 0,
+					"y": 0
+				},
+				"end": {
+					"x": 1384.7727556596692,
+					"y": 2149.8402399707193
+				},
+				"isMoved": false,
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0
+			},
+			{
+				"cp1": {
+					"x": 0,
+					"y": 0
+				},
+				"cp2": {
+					"x": -3.3545101790327863,
+					"y": -6.497610164577566
+				},
+				"end": {
+					"x": 1394.7231629778928,
+					"y": 2163.267825136089
+				},
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0,
+				"isMoved": false
+			},
+			{
+				"cp1": {
+					"x": -0.0021341595426065396,
+					"y": 1.0900286431156019
+				},
+				"cp2": {
+					"x": 8.6353151980976,
+					"y": -3.9686418166982094
+				},
+				"end": {
+					"x": 1383.3223549783188,
+					"y": 2174.496216732945
+				},
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0,
+				"isMoved": false
+			},
+			{
+				"cp1": {
+					"x": 1.444927323933939,
+					"y": -2.478727054963997
+				},
+				"cp2": {
+					"x": 0,
+					"y": 0
+				},
+				"end": {
+					"x": 1387.6234598486803,
+					"y": 2162.1517801678224
+				},
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0,
+				"isMoved": false
+			},
+			{
+				"cp1": {
+					"x": 0,
+					"y": 0
+				},
+				"cp2": {
+					"x": 0,
+					"y": 0
+				},
+				"end": {
+					"x": 1381.67658953818,
+					"y": 2158.8031370605863
+				},
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0,
+				"isMoved": false
+			},
+			{
+				"cp1": {
+					"x": 0,
+					"y": 0
+				},
+				"cp2": {
+					"x": 0,
+					"y": 0
+				},
+				"end": {
+					"x": 1376.0344252481875,
+					"y": 2167.960463497668
+				},
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0,
+				"isMoved": false
+			},
+			{
+				"cp1": {
+					"x": 0,
+					"y": 0
+				},
+				"cp2": {
+					"x": -0.7853841316909893,
+					"y": -3.7126275394717254
+				},
+				"end": {
+					"x": 1378.6184050414531,
+					"y": 2175.2711802650756
+				},
+				"isMoved": false,
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0
+			},
+			{
+				"cp1": {
+					"x": 0.7105856429584492,
+					"y": 3.3590439642838987
+				},
+				"cp2": {
+					"x": 0,
+					"y": 0
+				},
+				"end": {
+					"x": 1379.0338633928482,
+					"y": 2182.1392534801353
+				},
+				"isMoved": false,
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0
+			},
+			{
+				"cp1": {
+					"x": 0,
+					"y": 0
+				},
+				"cp2": {
+					"x": 0,
+					"y": 0
+				},
+				"end": {
+					"x": 1394.0040417847508,
+					"y": 2177.3551846312876
+				},
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0,
+				"isMoved": false
+			},
+			{
+				"cp1": {
+					"x": 0,
+					"y": 0
+				},
+				"cp2": {
+					"x": 0,
+					"y": 0
+				},
+				"end": {
+					"x": 1405.5089336240267,
+					"y": 2135.3188494143646
+				},
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0,
+				"isMoved": false
+			}
+		]
+	},
+	{
+		"id": "7rabIzvlYDzkhl4z6Ej6M",
+		"transform": {
+			"x": 0,
+			"y": 0,
+			"rotation": 0,
+			"scaleX": 1,
+			"scaleY": 1,
+			"skewX": 0,
+			"skewY": 0
+		},
+		"segments": [
+			{
+				"start": {
+					"x": 1425.2719288876401,
+					"y": 2166.4397456548677
+				},
+				"cp1": {
+					"x": 10.269895759366005,
+					"y": 0
+				},
+				"cp2": {
+					"x": -10.269895759366005,
+					"y": 0
+				},
+				"end": {
+					"x": 1456.3928251281432,
+					"y": 2166.4397456548677
+				},
+				"isMoved": true,
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0
+			},
+			{
+				"cp1": {
+					"x": 0,
+					"y": -10.269895759366005
+				},
+				"cp2": {
+					"x": 0,
+					"y": 10.269895759366005
+				},
+				"end": {
+					"x": 1456.3928251281432,
+					"y": 2135.3188494143646
+				},
+				"isMoved": false,
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0
+			},
+			{
+				"cp1": {
+					"x": -10.269895759366005,
+					"y": 0
+				},
+				"cp2": {
+					"x": 10.269895759366005,
+					"y": 0
+				},
+				"end": {
+					"x": 1425.2719288876401,
+					"y": 2135.3188494143646
+				},
+				"isMoved": false,
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0
+			},
+			{
+				"cp1": {
+					"x": 0,
+					"y": 10.269895759366005
+				},
+				"cp2": {
+					"x": 0,
+					"y": -10.269895759366005
+				},
+				"end": {
+					"x": 1425.2719288876401,
+					"y": 2166.4397456548677
+				},
+				"isMoved": false,
+				"isClosed": true,
+				"startTiltX": 0,
+				"startTiltY": 0,
+				"endTiltX": 0,
+				"endTiltY": 0,
+				"startDeltaTime": 0,
+				"endDeltaTime": 0
+			}
+		]
+	}
+]
