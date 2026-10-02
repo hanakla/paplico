@@ -726,6 +726,7 @@ export class ExtrudeMeshBaker {
 				: null;
 			meshPass.encodePass(
 				encoder,
+				geom.texturePool,
 				colorTexture,
 				{ width, height },
 				entry.geometry,

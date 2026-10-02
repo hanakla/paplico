@@ -185,6 +185,7 @@ import {
 	type FGTextureHandle,
 	FrameGraph,
 } from "./pipeline/FrameGraph";
+import { IdleClock, type UseStamp } from "./pipeline/IdleClock";
 import {
 	type GroupCompositionPlan,
 	groupPlanRequiresSurface,
@@ -555,9 +556,12 @@ export class CanvasLayer {
 			elementBounds: WorldBBox;
 			textureBounds: WorldBBox;
 			bytes: number;
+			lastUsed: UseStamp;
 		}
 	>();
 	private washResultCacheBytes = 0;
+	/** Document-frame clock for the wash results' idle eviction. */
+	private readonly washClock = new IdleClock();
 	/** Filters-array -> JSON fingerprint (documents update immutably). */
 	private readonly washFiltersFpCache = new WeakMap<object, string>();
 	/** Element -> content key (elements update immutably; the key also
@@ -1999,6 +2003,7 @@ export class CanvasLayer {
 			}
 			// Fall through: render this frame normally and capture it.
 		}
+		this.beginDocumentFrame();
 		const isDocumentFrame =
 			strategy === RenderStrategy.full ||
 			strategy === RenderStrategy.fullTransformOnly;
@@ -2060,6 +2065,10 @@ export class CanvasLayer {
 		if (isDocumentFrame) {
 			if (needsDeletionPrune) {
 				this.cacheManager.onDocumentChange(document.objects);
+				for (const [id, entry] of this.washResultCache) {
+					if (!(id in document.objects)) this.retireWashResult(id, entry);
+				}
+				this.mixStrokeRenderer?.pruneResults(document.objects);
 			}
 			// With a tracked change set, only the changed elements' transforms
 			// (and their bounds-coupled ancestors/descendants) are recomposed;
@@ -2211,7 +2220,6 @@ export class CanvasLayer {
 	 * referenced by in-flight command buffers.
 	 */
 	private recycleFramePools(): void {
-		this.texturePool.resetFrame();
 		this.uniformScope.resetFrame();
 		this.composite.resetFrame();
 		this.offscreen.resetFrame();
@@ -2224,6 +2232,27 @@ export class CanvasLayer {
 		this.cacheManager.filteredElement.beginFrame();
 		this.stripFrame.beginFrame();
 		this.backdropBlitPool.index = 0;
+	}
+
+	/**
+	 * Advance the idle clocks of the caches that free unused GPU resources,
+	 * evicting what expired. Only document frames count: a composite-blit
+	 * frame uses none of these resources, so counting it would age out the
+	 * working set while the user merely moves the selection. Runs after
+	 * recycleFramePools so the textures it released are stamped with the
+	 * frame that last used them, and before anything is encoded.
+	 */
+	private beginDocumentFrame(): void {
+		this.washClock.tick();
+		const now = performance.now();
+		for (const [id, entry] of this.washResultCache) {
+			if (!this.washClock.isExpired(entry.lastUsed, now)) break;
+			this.retireWashResult(id, entry);
+		}
+		this.clipMaskAtlas.beginFrame();
+		this.filterRenderer.beginFrame();
+		// Last: the evictions above return their textures to this pool.
+		this.texturePool.resetFrame();
 	}
 
 	/**
@@ -2334,7 +2363,7 @@ export class CanvasLayer {
 			driver.beginFrame();
 		}
 		// Per-frame reset for filter handlers that own GPU state (e.g. the
-		// extrude mesh pass's uniform/MSAA pools).
+		// extrude mesh pass's uniform pool).
 		for (const handler of this.filterRenderer.getHandlers().values()) {
 			handler.startFrame?.();
 		}
@@ -5312,6 +5341,7 @@ export class CanvasLayer {
 			if (hit && hit.key === washCacheKey) {
 				this.washResultCache.delete(fp.element.id);
 				this.washResultCache.set(fp.element.id, hit);
+				hit.lastUsed = this.washClock.stamp();
 				return this.washCacheInfo(hit);
 			}
 		}
@@ -5604,13 +5634,10 @@ export class CanvasLayer {
 				elementBounds: fp.bounds,
 				textureBounds: fp.textureBounds,
 				bytes: accWidth * accHeight * 4,
+				lastUsed: this.washClock.stamp(),
 			};
 			const previous = this.washResultCache.get(fp.element.id);
-			if (previous) {
-				this.washResultCacheBytes -= previous.bytes;
-				this.offscreen.deferDestroy(previous.texture);
-				this.washResultCache.delete(fp.element.id);
-			}
+			if (previous) this.retireWashResult(fp.element.id, previous);
 			this.washResultCache.set(fp.element.id, entry);
 			this.washResultCacheBytes += entry.bytes;
 			this.evictWashResultsOverBudget();
@@ -5797,10 +5824,17 @@ export class CanvasLayer {
 			const oldest = this.washResultCache.entries().next().value;
 			if (!oldest) break;
 			const [id, entry] = oldest;
-			this.washResultCacheBytes -= entry.bytes;
-			this.offscreen.deferDestroy(entry.texture);
-			this.washResultCache.delete(id);
+			this.retireWashResult(id, entry);
 		}
+	}
+
+	private retireWashResult(
+		elementId: string,
+		entry: { texture: GPUTexture; bytes: number },
+	): void {
+		this.washResultCacheBytes -= entry.bytes;
+		this.offscreen.deferDestroy(entry.texture);
+		this.washResultCache.delete(elementId);
 	}
 
 	/** Max shared-pyramid blur sigma the element's backdrop filters declare
@@ -7882,6 +7916,29 @@ export class CanvasLayer {
 		} finally {
 			this.clipMaskAtlas = saved;
 		}
+	}
+
+	/**
+	 * Free the GPU resources that sat out the last `minIdleFrames` document
+	 * frames; 0 frees all of them. Call between
+	 * frames only: nothing it frees may be referenced by an unsubmitted
+	 * command buffer.
+	 */
+	public trimIdle(minIdleFrames: number): void {
+		for (const [id, entry] of this.washResultCache) {
+			if (!this.washClock.isIdleFor(entry.lastUsed, minIdleFrames)) continue;
+			this.washResultCacheBytes -= entry.bytes;
+			this.texturePool.discard(entry.texture);
+			this.washResultCache.delete(id);
+		}
+		this.mixStrokeRenderer?.trimIdle(minIdleFrames);
+		this.clipMaskAtlas.trimIdle(minIdleFrames);
+		// Export renders recreate their atlas on demand.
+		this.exportClipMaskAtlas?.destroy();
+		this.exportClipMaskAtlas = null;
+		// Last: the steps above hand textures to these.
+		this.offscreen.flushDeferredDestroys();
+		this.texturePool.trimIdle(minIdleFrames);
 	}
 
 	/**

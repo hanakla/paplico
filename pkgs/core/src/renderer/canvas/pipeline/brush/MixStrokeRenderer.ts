@@ -18,6 +18,7 @@ import type {
 	BackdropEffectRequest,
 } from "../BackdropEffectCoordinator";
 import type { BackdropEffectDriver } from "../FilterRenderer";
+import { IdleClock, type UseStamp } from "../IdleClock";
 import { createFrameTextureRef, createRenderSurface } from "../RenderSurface";
 import type { TexturePool } from "../TexturePool";
 import type { UniformScope } from "../UniformScope";
@@ -68,6 +69,7 @@ interface MixResultCacheEntry {
 	 *  the texture blank; blitting the whole thing stretches that blank space
 	 *  across the bounds and squashes the stroke. */
 	uvRect: { minU: number; minV: number; maxU: number; maxV: number };
+	lastUsed: UseStamp;
 }
 
 interface MixStrokeRendererDeps {
@@ -130,12 +132,19 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	private frameTextures: GPUTexture[] = [];
 	/** Evicted cache textures, returned to the pool next releaseFrame. */
 	private retiredTextures: GPUTexture[] = [];
+	private readonly clock = new IdleClock();
 
 	public constructor(deps: MixStrokeRendererDeps) {
 		this.deps = deps;
 	}
 
 	public beginFrame(): void {
+		this.clock.tick();
+		const now = performance.now();
+		for (const [id, cached] of this.resultCache) {
+			if (!this.clock.isExpired(cached.lastUsed, now)) break;
+			this.retireResult(id, cached);
+		}
 		this.lastViewport = this.frameViewport;
 		this.frameViewport = null;
 		// The frame that owned these buffers has been submitted by now (the
@@ -143,6 +152,26 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		// so this is the first safe point to free them.
 		for (const buffer of this.retiredBuffers) buffer.destroy();
 		this.retiredBuffers = [];
+	}
+
+	/** Drop the results of strokes no longer in the document. */
+	public pruneResults(liveObjects: Record<string, unknown>): void {
+		for (const [id, cached] of this.resultCache) {
+			if (!(id in liveObjects)) this.retireResult(id, cached);
+		}
+	}
+
+	/**
+	 * Destroy the results that sat out the last `minIdleFrames` document
+	 * frames; 0 destroys them all. Call between frames only.
+	 */
+	public trimIdle(minIdleFrames: number): void {
+		for (const [id, cached] of this.resultCache) {
+			if (!this.clock.isIdleFor(cached.lastUsed, minIdleFrames)) continue;
+			this.resultCacheBytes -= cached.bytes;
+			this.deps.texturePool.discard(cached.texture);
+			this.resultCache.delete(id);
+		}
 	}
 
 	public prepareFrame(): void {}
@@ -225,6 +254,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				// Refresh LRU order.
 				this.resultCache.delete(element.id);
 				this.resultCache.set(element.id, hit);
+				hit.lastUsed = this.clock.stamp();
 				return this.cachedLayer(hit);
 			}
 		}
@@ -495,6 +525,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 				filter.opacity *
 				(settings.paintMode === "wash" ? settings.strokeOpacity : 1),
 			bytes: texW * texH * 4,
+			lastUsed: this.clock.stamp(),
 		};
 		if (cacheKey != null) {
 			// The cache owns the texture from here; drop the frame's claim so
@@ -629,20 +660,20 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 
 	private storeResult(elementId: string, entry: MixResultCacheEntry): void {
 		const previous = this.resultCache.get(elementId);
-		if (previous) {
-			this.resultCacheBytes -= previous.bytes;
-			this.retiredTextures.push(previous.texture);
-			this.resultCache.delete(elementId);
-		}
+		if (previous) this.retireResult(elementId, previous);
 		this.resultCache.set(elementId, entry);
 		this.resultCacheBytes += entry.bytes;
 		for (const [id, cached] of this.resultCache) {
 			if (this.resultCacheBytes <= MAX_RESULT_CACHE_BYTES) break;
 			if (id === elementId) continue;
-			this.resultCacheBytes -= cached.bytes;
-			this.retiredTextures.push(cached.texture);
-			this.resultCache.delete(id);
+			this.retireResult(id, cached);
 		}
+	}
+
+	private retireResult(elementId: string, cached: MixResultCacheEntry): void {
+		this.resultCacheBytes -= cached.bytes;
+		this.retiredTextures.push(cached.texture);
+		this.resultCache.delete(elementId);
 	}
 
 	public flushRemaining(): void {}

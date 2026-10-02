@@ -30,6 +30,7 @@ import type {
 	BackdropBlurLevels,
 	BackdropEffectCoordinator,
 } from "./BackdropEffectCoordinator";
+import { IdleClock, type UseStamp } from "./IdleClock";
 import type { MeshPassRenderer } from "./MeshPassRenderer";
 import {
 	createBorrowedTextureRef,
@@ -765,8 +766,6 @@ export function isGeometryFilter(
 
 // --- Filter Renderer ---
 
-/** Frames a temp ping-pong pair may sit unused before it is destroyed. */
-const TEMP_PAIR_IDLE_FRAMES = 60;
 /** Upper bound on concurrently held temp pairs. Viewport-clipped chains
  *  produce a few dozen distinct sizes per frame while panning, so the cap
  *  must fit a whole frame's set — otherwise the transient sizes flush the
@@ -787,9 +786,9 @@ export class FilterRenderer {
 	 * single frame (element chains, drop shadows, backdrop effects), and
 	 * recreating the pair on every switch allocated hundreds of MB of
 	 * zero-initialized textures per second while panning — the GPU process
-	 * CPU saturated on allocation instead of rendering. Pairs idle for
-	 * TEMP_PAIR_IDLE_FRAMES are destroyed in flushPendingDestroy, and the
-	 * map is LRU-capped at MAX_TEMP_PAIRS to bound held memory during
+	 * CPU saturated on allocation instead of rendering. Pairs that expire
+	 * unused are destroyed by beginFrame and trimIdle, and the map is
+	 * LRU-capped at MAX_TEMP_PAIRS to bound held memory during
 	 * continuous size churn (zoom gestures).
 	 */
 	private tempPairs = new Map<
@@ -799,10 +798,10 @@ export class FilterRenderer {
 			t2: GPUTexture;
 			/** Chain-input copy for needsSourceGraphic chains; created on demand. */
 			src?: GPUTexture;
-			lastUsedFrame: number;
+			lastUsed: UseStamp;
 		}
 	>();
-	private frameIndex = 0;
+	private readonly clock = new IdleClock();
 
 	public constructor(device: GPUDevice) {
 		this.device = device;
@@ -861,6 +860,36 @@ export class FilterRenderer {
 	}
 
 	/**
+	 * Start a document frame: retire the temp pairs that expired unused.
+	 * Deferred via pendingDestroy (drained next flush) in case something
+	 * encoded this frame still references them.
+	 */
+	public beginFrame(): void {
+		this.clock.tick();
+		const now = performance.now();
+		for (const [key, pair] of this.tempPairs) {
+			if (!this.clock.isExpired(pair.lastUsed, now)) continue;
+			this.pendingDestroy.push(pair.t1, pair.t2);
+			if (pair.src) this.pendingDestroy.push(pair.src);
+			this.tempPairs.delete(key);
+		}
+	}
+
+	/**
+	 * Destroy the temp pairs that sat out the last `minIdleFrames` document
+	 * frames; 0 destroys them all. Call between frames only.
+	 */
+	public trimIdle(minIdleFrames: number): void {
+		for (const [key, pair] of this.tempPairs) {
+			if (!this.clock.isIdleFor(pair.lastUsed, minIdleFrames)) continue;
+			pair.t1.destroy();
+			pair.t2.destroy();
+			pair.src?.destroy();
+			this.tempPairs.delete(key);
+		}
+	}
+
+	/**
 	 * Destroy textures that were deferred from a previous resize.
 	 * Must be called once per frame AFTER the previous frame's queue.submit()
 	 * has completed, so in-flight command buffers no longer reference them.
@@ -871,18 +900,6 @@ export class FilterRenderer {
 			tex.destroy();
 		}
 		this.pendingDestroy.length = 0;
-
-		// Retire temp pairs no filter chain has used for a while. Deferred via
-		// pendingDestroy (drained next flush) in case something encoded this
-		// frame still references them.
-		this.frameIndex++;
-		for (const [key, pair] of this.tempPairs) {
-			if (this.frameIndex - pair.lastUsedFrame > TEMP_PAIR_IDLE_FRAMES) {
-				this.pendingDestroy.push(pair.t1, pair.t2);
-				if (pair.src) this.pendingDestroy.push(pair.src);
-				this.tempPairs.delete(key);
-			}
-		}
 
 		for (const handler of this.handlers.values()) {
 			(handler as { flushPendingDestroy?(): void }).flushPendingDestroy?.();
@@ -903,9 +920,9 @@ export class FilterRenderer {
 				for (const [k, p] of this.tempPairs) {
 					// Pairs already used this frame are the working set — evicting
 					// them just recreates them moments later.
-					if (p.lastUsedFrame === this.frameIndex) continue;
-					if (p.lastUsedFrame < lruFrame) {
-						lruFrame = p.lastUsedFrame;
+					if (p.lastUsed.frame === this.clock.frame) continue;
+					if (p.lastUsed.frame < lruFrame) {
+						lruFrame = p.lastUsed.frame;
 						lruKey = k;
 					}
 				}
@@ -929,11 +946,11 @@ export class FilterRenderer {
 			pair = {
 				t1: this.device.createTexture(textureDescriptor),
 				t2: this.device.createTexture(textureDescriptor),
-				lastUsedFrame: this.frameIndex,
+				lastUsed: this.clock.stamp(),
 			};
 			this.tempPairs.set(key, pair);
 		}
-		pair.lastUsedFrame = this.frameIndex;
+		pair.lastUsed = this.clock.stamp();
 		this.tempTexture1 = pair.t1;
 		this.tempTexture2 = pair.t2;
 		this.textureSize = { width, height };

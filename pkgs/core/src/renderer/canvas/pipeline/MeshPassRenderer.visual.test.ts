@@ -12,7 +12,7 @@ import {
 	type MeshPassParams,
 	MeshPassRenderer,
 } from "./MeshPassRenderer";
-import { quantizeSize } from "./TexturePool";
+import { quantizeSize, TexturePool } from "./TexturePool";
 
 // encodePass's internal MSAA scratch is quantized via TexturePool, matching
 // the production caller (which always sources colorTexture/normalTexture
@@ -510,6 +510,7 @@ async function renderQuadMRT(
 	const encoder = device.createCommandEncoder();
 	renderer.encodePass(
 		encoder,
+		new TexturePool(device),
 		colorTexture,
 		{ width: WIDTH, height: HEIGHT },
 		geometry,
@@ -556,6 +557,7 @@ async function renderGeometry(
 	const encoder = device.createCommandEncoder();
 	renderer.encodePass(
 		encoder,
+		new TexturePool(device),
 		colorTexture,
 		{ width: WIDTH, height: HEIGHT },
 		geometry,
@@ -703,6 +705,7 @@ async function renderRevolveMeshMRT(
 	const encoder = device.createCommandEncoder();
 	renderer.encodePass(
 		encoder,
+		new TexturePool(device),
 		colorTexture,
 		{ width: WIDTH, height: HEIGHT },
 		geometry,

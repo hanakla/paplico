@@ -1370,7 +1370,11 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 			releaseFrame();
 
 			expect(encodePassSpy).toHaveBeenCalledTimes(1);
-			expect(texturePool.acquire).toHaveBeenCalledTimes(2); // color + normal, once
+			// color + normal, once; the mesh pass's MSAA scratch is not part of the bake
+			const bakeAcquires = vi
+				.mocked(texturePool.acquire)
+				.mock.calls.filter(([, , , sampleCount]) => sampleCount === 1);
+			expect(bakeAcquires).toHaveLength(2);
 			expect(entry1).not.toBeNull();
 			expect(entry1!.texture.texture).toBe(entry2!.texture.texture);
 			expect(released).toHaveLength(0);

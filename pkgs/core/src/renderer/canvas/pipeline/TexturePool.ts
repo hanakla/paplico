@@ -8,16 +8,19 @@
  * Pool keys use SIZE_QUANTUM-quantized dimensions so that textures of
  * similar (but not identical) sizes share the same bucket, improving reuse.
  *
- * A memory budget (MAX_POOL_BYTES) caps the total pooled memory.  When
- * releasing a texture would exceed the budget, the oldest pooled textures
- * are evicted (LRU order = front of each bucket array) until under budget.
+ * Pooled textures leave in least-recently-released order: at frame start
+ * when they sat unused long enough (IdleClock.isExpired) or the pool is over
+ * its memory budget, and on trimIdle() when they sat out recent frames.
  *
  * Usage:
- *   pool.resetFrame()            // start of frame — recycle released textures
+ *   pool.resetFrame()            // start of a document frame — evict idle textures
  *   const t = pool.acquire(...)  // borrow a texture
  *   pool.release(t)              // return it (actual destroy is deferred)
+ *   pool.trimIdle(n)             // between frames — free what sat out n frames
  *   pool.destroy()               // teardown — destroy everything
  */
+
+import { IdleClock, type UseStamp } from "./IdleClock";
 
 /** Budget for pooled (idle) textures. A glass-solid + drop-shadow frame
  *  parks well over 128 MB between frames (offscreen colors, backdrop
@@ -82,6 +85,15 @@ export class TexturePool {
 	/** Textures available for reuse, keyed by quantized spec string. */
 	private readonly available = new Map<string, GPUTexture[]>();
 
+	/** When each available texture was released. Map order is release order,
+	 *  so iteration runs least recently used first. */
+	private readonly releasedAt = new Map<
+		GPUTexture,
+		{ key: string; stamp: UseStamp }
+	>();
+
+	private readonly clock = new IdleClock();
+
 	/** Textures currently lent out (for bookkeeping / destroy). */
 	private readonly inUse = new Set<GPUTexture>();
 
@@ -130,6 +142,7 @@ export class TexturePool {
 
 		if (bucket && bucket.length > 0) {
 			const tex = bucket.pop()!;
+			this.releasedAt.delete(tex);
 			this.totalPooledBytes -= textureBytes(
 				tex.width,
 				tex.height,
@@ -173,6 +186,7 @@ export class TexturePool {
 		const bucket = this.available.get(key);
 		if (bucket && bucket.length > 0) {
 			const tex = bucket.pop()!;
+			this.releasedAt.delete(tex);
 			this.totalPooledBytes -= textureBytes(
 				tex.width,
 				tex.height,
@@ -216,18 +230,50 @@ export class TexturePool {
 			this.available.set(key, bucket);
 		}
 		bucket.push(texture);
+		this.releasedAt.set(texture, { key, stamp: this.clock.stamp() });
 		this.totalPooledBytes += textureBytes(width, height, format, sampleCount);
 
 		return true;
 	}
 
 	/**
-	 * Run budget eviction at frame start, after the previous frame's
-	 * queue.submit() has completed. Safe to destroy textures here.
+	 * Destroy a borrowed texture instead of returning it. For callers freeing
+	 * cached results between frames, where a released texture would count as
+	 * used in the last frame and survive the trim that freed its owner.
+	 */
+	public discard(texture: GPUTexture): void {
+		this.inUse.delete(texture);
+		texture.destroy();
+	}
+
+	/**
+	 * Start a document frame: evict the textures that expired unused, then
+	 * the least recently released ones while over budget. Call before the
+	 * frame encodes anything, so no evicted texture is referenced by an
+	 * unsubmitted command buffer.
 	 */
 	public resetFrame(): void {
-		if (this.totalPooledBytes > this.budgetBytes) {
-			this.evictUntilUnderBudget();
+		this.clock.tick();
+		const now = performance.now();
+		for (const [texture, { key, stamp }] of this.releasedAt) {
+			if (
+				!this.clock.isExpired(stamp, now) &&
+				this.totalPooledBytes <= this.budgetBytes
+			) {
+				break;
+			}
+			this.evict(texture, key);
+		}
+	}
+
+	/**
+	 * Free the pooled textures that sat out the last `minIdleFrames` document
+	 * frames; 0 frees every pooled texture. Call between frames only.
+	 */
+	public trimIdle(minIdleFrames: number): void {
+		for (const [texture, { key, stamp }] of this.releasedAt) {
+			if (!this.clock.isIdleFor(stamp, minIdleFrames)) break;
+			this.evict(texture, key);
 		}
 	}
 
@@ -237,6 +283,7 @@ export class TexturePool {
 			for (const tex of bucket) tex.destroy();
 		}
 		this.available.clear();
+		this.releasedAt.clear();
 
 		for (const tex of this.inUse) tex.destroy();
 		this.inUse.clear();
@@ -244,29 +291,17 @@ export class TexturePool {
 		this.totalPooledBytes = 0;
 	}
 
-	/**
-	 * Evict the oldest pooled textures (front of bucket arrays) until
-	 * totalPooledBytes is within the budget.  Empty buckets are
-	 * removed from the map.
-	 */
-	private evictUntilUnderBudget(): void {
-		for (const [key, bucket] of this.available) {
-			while (bucket.length > 0 && this.totalPooledBytes > this.budgetBytes) {
-				const tex = bucket.shift()!;
-				this.totalPooledBytes -= textureBytes(
-					tex.width,
-					tex.height,
-					tex.format,
-					tex.sampleCount,
-				);
-				tex.destroy();
-			}
-
-			if (bucket.length === 0) {
-				this.available.delete(key);
-			}
-
-			if (this.totalPooledBytes <= this.budgetBytes) break;
-		}
+	private evict(texture: GPUTexture, key: string): void {
+		const bucket = this.available.get(key)!;
+		bucket.splice(bucket.indexOf(texture), 1);
+		if (bucket.length === 0) this.available.delete(key);
+		this.releasedAt.delete(texture);
+		this.totalPooledBytes -= textureBytes(
+			texture.width,
+			texture.height,
+			texture.format,
+			texture.sampleCount,
+		);
+		texture.destroy();
 	}
 }

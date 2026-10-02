@@ -1488,6 +1488,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			() =>
 				this.rendererStore.transientElements.size > 0 ||
 				this.rendererStore.elementOverrides.size > 0,
+			// Keep what the last frame drew, so returning to the same view after
+			// a pause does not re-allocate its working set.
+			() => this.renderer.trimIdle(1),
 		);
 
 		const ui = new PaplicoUI(canvas, {
@@ -2464,6 +2467,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		if (outgoingDocumentId !== doc.id) {
 			this.renderer.dropDocumentCaches(outgoingDocumentId);
 		}
+		// The outgoing document's idle textures are of no use to the incoming one.
+		this.renderer.trimIdle(0);
 
 		// The recorder outlives the document. Take back the incoming file's own
 		// recording — which also discards replaceDocument's update, a delta
@@ -4438,6 +4443,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		if (outgoingDocumentId !== this.rendererStore.document.id) {
 			this.renderer.dropDocumentCaches(outgoingDocumentId);
 		}
+		// The outgoing document's idle textures are of no use to the incoming one.
+		this.renderer.trimIdle(0);
 
 		// The incoming objects predate every future update, so the timelapse
 		// ledger needs their bounds to detect anything leaving an artboard.

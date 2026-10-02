@@ -5,7 +5,7 @@ import {
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
 import { MESH_LIT_SHADER } from "../../shaders/meshLit.wgsl";
 import { FrameUniformPool } from "./FrameUniformPool";
-import { TexturePool } from "./TexturePool";
+import type { TexturePool } from "./TexturePool";
 
 /**
  * GPU geometry consumed by the mesh pass (interleaved pos3 + normal3 + fill-uv2
@@ -118,10 +118,6 @@ export class MeshPassRenderer {
 	/** 1x1 transparent stand-in bound when a draw has no fill/pattern texture. */
 	private placeholderTexture: GPUTexture | null = null;
 	private readonly uniformPool: FrameUniformPool;
-	/** Private pool for the MSAA color/depth/normal scratch attachments (see
-	 *  encodePass) — never exposed to callers, resolved into their single-
-	 *  sample color/normal textures before returning. */
-	private readonly msaaPool: TexturePool;
 
 	/** Normal MRT attachment format (screen-space normal xy + coverage). */
 	public static readonly NORMAL_FORMAT: GPUTextureFormat = "rgba8unorm";
@@ -130,7 +126,6 @@ export class MeshPassRenderer {
 		private readonly device: GPUDevice,
 		public readonly colorFormat: GPUTextureFormat = "rgba8unorm",
 	) {
-		this.msaaPool = new TexturePool(device);
 		this.uniformPool = new FrameUniformPool(device, "Mesh Pass Uniforms");
 	}
 
@@ -276,7 +271,6 @@ export class MeshPassRenderer {
 	/** Reset the per-draw uniform buffer pool. Call once per frame. */
 	public beginFrame(): void {
 		this.uniformPool.beginFrame();
-		this.msaaPool.resetFrame();
 	}
 
 	/** Lazily build the color+normal MRT pipeline (glass refraction only). */
@@ -335,10 +329,13 @@ export class MeshPassRenderer {
 	 * `normalTexture`, MRT variant). The textures may be pool-quantized larger
 	 * than the used area — the viewport restricts rasterization to the
 	 * top-left `used` region. Internally renders MSAA and resolves into these
-	 * single-sample targets; depth is pass-private and never exposed.
+	 * single-sample targets; depth is pass-private and never exposed. The
+	 * MSAA scratch attachments are borrowed from `texturePool`, the calling
+	 * canvas's pool, so that pool's budget covers them.
 	 */
 	public encodePass(
 		encoder: GPUCommandEncoder,
+		texturePool: TexturePool,
 		colorTexture: GPUTexture,
 		used: { width: number; height: number },
 		geometry: MeshPassGeometry,
@@ -425,11 +422,10 @@ export class MeshPassRenderer {
 
 		// MSAA scratch attachments, sized to match the resolve targets exactly
 		// (resolveTarget and its MSAA attachment must be the same size — the
-		// resolve targets may be pool-quantized larger than `used`). Acquired
-		// from a private pool and released right after use; safe within the
-		// same command encoder since recorded commands execute in submission
-		// order (see TexturePool's release() doc).
-		const msaaColor = this.msaaPool.acquire(
+		// resolve targets may be pool-quantized larger than `used`). Released
+		// right after use; safe within the same command encoder since recorded
+		// commands execute in submission order (see TexturePool's release() doc).
+		const msaaColor = texturePool.acquire(
 			colorTexture.width,
 			colorTexture.height,
 			this.colorFormat,
@@ -437,7 +433,7 @@ export class MeshPassRenderer {
 			GPUTextureUsage.RENDER_ATTACHMENT,
 			"Mesh Pass MSAA Color",
 		);
-		const msaaDepth = this.msaaPool.acquire(
+		const msaaDepth = texturePool.acquire(
 			colorTexture.width,
 			colorTexture.height,
 			MESH_PASS_DEPTH_FORMAT,
@@ -446,7 +442,7 @@ export class MeshPassRenderer {
 			"Mesh Pass MSAA Depth",
 		);
 		const msaaNormal = normalTexture
-			? this.msaaPool.acquire(
+			? texturePool.acquire(
 					normalTexture.width,
 					normalTexture.height,
 					MeshPassRenderer.NORMAL_FORMAT,
@@ -514,13 +510,12 @@ export class MeshPassRenderer {
 		pass.drawIndexed(geometry.indexCount);
 		pass.end();
 
-		this.msaaPool.release(msaaColor);
-		this.msaaPool.release(msaaDepth);
-		this.msaaPool.release(msaaNormal);
+		texturePool.release(msaaColor);
+		texturePool.release(msaaDepth);
+		texturePool.release(msaaNormal);
 	}
 
 	public destroy(): void {
-		this.msaaPool.destroy();
 		this.uniformPool.destroy();
 		this.placeholderTexture?.destroy();
 		this.placeholderTexture = null;

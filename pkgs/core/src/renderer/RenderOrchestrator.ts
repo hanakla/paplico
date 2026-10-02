@@ -797,6 +797,18 @@ export class RenderOrchestrator {
 		}
 	}
 
+	/**
+	 * Free the GPU resources that every canvas and the shared filter chain
+	 * left unused for the last `minIdleFrames` document frames; 0 frees all
+	 * of them. Call between frames only, never while a frame is encoding.
+	 */
+	public trimIdle(minIdleFrames: number): void {
+		for (const td of this.targets.values()) {
+			td.canvasLayer.trimIdle(minIdleFrames);
+		}
+		this.filterRenderer?.trimIdle(minIdleFrames);
+	}
+
 	public invalidateTextCache(elementId?: string): void {
 		for (const td of this.targets.values()) {
 			td.canvasLayer.invalidateTextCache(elementId);

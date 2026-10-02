@@ -185,7 +185,7 @@ export abstract class Solid3DFilterHandlerBase implements FilterHandler {
 			: null;
 	}
 
-	/** Reset the shared mesh pass's per-frame pools once per frame. */
+	/** Reset the shared mesh pass's per-frame uniform pool once per frame. */
 	public startFrame(): void {
 		this.meshPass?.beginFrame();
 	}

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { IDLE_EVICT_MS } from "./canvas/pipeline/IdleClock";
 import { RenderScheduler } from "./RenderScheduler";
 import type { ChangedElements } from "./types";
 
@@ -268,6 +269,53 @@ describe("RenderScheduler", () => {
 			} finally {
 				vi.useRealTimers();
 			}
+		});
+	});
+
+	describe("idle callback", () => {
+		beforeEach(() => {
+			vi.useFakeTimers();
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		it("should call onIdle once when no frame has rendered for the idle time", () => {
+			const onIdle = vi.fn();
+			const scheduler = new RenderScheduler(vi.fn(), undefined, onIdle);
+
+			scheduler.markDirty("document");
+			flushFrame();
+			vi.advanceTimersByTime(IDLE_EVICT_MS * 3);
+
+			expect(onIdle).toHaveBeenCalledOnce();
+		});
+
+		it("should wait the full idle time again after each frame", () => {
+			const onIdle = vi.fn();
+			const scheduler = new RenderScheduler(vi.fn(), undefined, onIdle);
+
+			scheduler.markDirty("document");
+			flushFrame();
+			vi.advanceTimersByTime(IDLE_EVICT_MS - 1);
+			scheduler.markDirty("document");
+			flushFrame();
+			vi.advanceTimersByTime(IDLE_EVICT_MS - 1);
+
+			expect(onIdle).not.toHaveBeenCalled();
+		});
+
+		it("should not call onIdle after the scheduler is destroyed", () => {
+			const onIdle = vi.fn();
+			const scheduler = new RenderScheduler(vi.fn(), undefined, onIdle);
+
+			scheduler.markDirty("document");
+			flushFrame();
+			scheduler.destroy();
+			vi.advanceTimersByTime(IDLE_EVICT_MS);
+
+			expect(onIdle).not.toHaveBeenCalled();
 		});
 	});
 });

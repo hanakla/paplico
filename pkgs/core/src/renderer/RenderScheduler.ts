@@ -9,6 +9,7 @@
  * - Canvas resize
  */
 
+import { IDLE_EVICT_MS } from "./canvas/pipeline/IdleClock";
 import {
 	accumulateChanges,
 	type ChangedElementsAccumulator,
@@ -77,6 +78,10 @@ export class RenderScheduler {
 	 *  is currently present. The composite frame cache never captures such
 	 *  content, so blitting it would show a frame without them. */
 	private hasVolatileContent: () => boolean;
+	/** Called once when no frame has rendered for IDLE_EVICT_MS. Rendering is
+	 *  on demand, so frame-start eviction alone never runs while idle. */
+	private onIdle: () => void;
+	private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
 	public constructor(
 		renderCallback: (
@@ -84,9 +89,11 @@ export class RenderScheduler {
 			changedElements?: ChangedElements,
 		) => void,
 		hasVolatileContent: () => boolean = () => false,
+		onIdle: () => void = () => {},
 	) {
 		this.renderCallback = renderCallback;
 		this.hasVolatileContent = hasVolatileContent;
+		this.onIdle = onIdle;
 	}
 
 	/**
@@ -150,6 +157,7 @@ export class RenderScheduler {
 		// changed) and restart tracking fresh.
 		this.changedElements = emptyChanges();
 		this.renderCallback("full");
+		this.restartIdleTimer();
 	}
 
 	/** Re-enable a destroyed scheduler, resetting all internal state. */
@@ -162,6 +170,7 @@ export class RenderScheduler {
 			clearTimeout(this.settleTimer);
 			this.settleTimer = null;
 		}
+		this.clearIdleTimer();
 
 		this.dirty = false;
 		this.dirtyReasons.clear();
@@ -185,6 +194,7 @@ export class RenderScheduler {
 			clearTimeout(this.settleTimer);
 			this.settleTimer = null;
 		}
+		this.clearIdleTimer();
 	}
 
 	private scheduleFrame(): void {
@@ -203,8 +213,23 @@ export class RenderScheduler {
 				this.changedElements = emptyChanges();
 				this.dirtyReasons.clear();
 				this.renderCallback(strategy, changedElements);
+				this.restartIdleTimer();
 			}
 		});
+	}
+
+	private restartIdleTimer(): void {
+		this.clearIdleTimer();
+		this.idleTimer = setTimeout(() => {
+			this.idleTimer = null;
+			this.onIdle();
+		}, IDLE_EVICT_MS);
+	}
+
+	private clearIdleTimer(): void {
+		if (this.idleTimer == null) return;
+		clearTimeout(this.idleTimer);
+		this.idleTimer = null;
 	}
 
 	private resolveStrategy(): RenderStrategy {

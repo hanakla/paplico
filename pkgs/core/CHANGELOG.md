@@ -2,8 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Extrude / Revolve filters**
+  - Their multisampled scratch textures come from the canvas's texture pool instead of a pool of their own that could hold up to 384 MB each.
+
 ### Fixed
 
+- **Rendering**
+  - Fix GPU memory staying allocated after switching documents, deleting elements, or leaving the canvas idle.
 - **Viewport**
   - Fix the canvas not redrawing, or redrawing only from a stretched stale frame, after `CanvasTarget.setViewport` is called directly.
 - **Filters**

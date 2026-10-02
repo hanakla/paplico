@@ -447,6 +447,31 @@ describe("FilterRenderer.applyFilters", () => {
 	});
 });
 
+describe("FilterRenderer.trimIdle", () => {
+	it("should destroy the temp textures a filter chain rendered into", () => {
+		const { renderer, applyBlur } = createBlurChain();
+		renderer.beginFrame();
+		const target = applyBlur();
+
+		renderer.trimIdle(0);
+
+		expect(target.destroy).toHaveBeenCalledOnce();
+	});
+
+	it("should keep the temp textures the last frame used until a frame goes without them", () => {
+		const { renderer, applyBlur } = createBlurChain();
+		renderer.beginFrame();
+		const target = applyBlur();
+
+		renderer.trimIdle(1);
+		expect(target.destroy).not.toHaveBeenCalled();
+
+		renderer.beginFrame();
+		renderer.trimIdle(1);
+		expect(target.destroy).toHaveBeenCalledOnce();
+	});
+});
+
 describe("hoistBlendInstanceAppearances", () => {
 	const extrude: Filter = {
 		uid: "ex",
@@ -543,3 +568,33 @@ describe("hoistBlendInstanceAppearances", () => {
 		expect(map.get("b1")!.filters?.map((f) => f.uid)).toEqual(["gl"]);
 	});
 });
+
+/** A renderer with one blur post-filter; `applyBlur` runs the chain once and
+ *  returns the temp texture the handler rendered into. */
+function createBlurChain(): {
+	renderer: FilterRenderer;
+	applyBlur: () => GPUTexture;
+} {
+	const renderer = new FilterRenderer(createMockDevice());
+	const postProcess = vi.fn();
+	renderer.registerHandler("blur", createMockPostHandler(postProcess));
+	const filters: Filter[] = [
+		{
+			uid: "trim-blur",
+			processor: "blur",
+			opacity: 1,
+			blendMode: "normal" as const,
+			paramData: { version: "1", params: { radius: 4 } },
+		},
+	];
+	const applyBlur = (): GPUTexture => {
+		renderer.applyFilters(
+			createMockTexture("Offscreen Element Texture", 240, 180, "rgba8unorm"),
+			filters,
+			createMockEncoder([]),
+		);
+		const ctx = postProcess.mock.lastCall![0] as FilterProcessorContext;
+		return ctx.targetTexture;
+	};
+	return { renderer, applyBlur };
+}

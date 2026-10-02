@@ -31,6 +31,7 @@ import type {
 	RenderState,
 	ViewportState,
 } from "../CanvasLayerTypes";
+import { IdleClock, type UseStamp } from "./IdleClock";
 import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
 import { createBorrowedTextureRef, type TextureRef } from "./RenderSurface";
 import { quantizeSize, type TexturePool } from "./TexturePool";
@@ -193,6 +194,9 @@ export class ClipMaskAtlas {
 	private atlasTextureView: GPUTextureView | null = null;
 	private atlasBindGroup: GPUBindGroup | null = null;
 	private atlasClearTexture: GPUTexture | null = null;
+	private readonly clock = new IdleClock();
+	/** Last document frame that held a cached mask, or created the atlas. */
+	private atlasLastUsed: UseStamp | null = null;
 	private readonly atlasDescriptorBuffer: GPUBuffer;
 	private readonly atlasDescriptors = new Uint32Array(
 		MAX_MASK_ATLAS_ENTRIES * MASK_ATLAS_DESCRIPTOR_U32_COUNT,
@@ -417,6 +421,35 @@ export class ClipMaskAtlas {
 		}
 	}
 
+	/**
+	 * Start a document frame: free the shared atlas once no cached mask has
+	 * needed it for a while. Call before the frame encodes anything.
+	 */
+	public beginFrame(): void {
+		this.clock.tick();
+		if (this.maskCache.size > 0) {
+			this.atlasLastUsed = this.clock.stamp();
+			return;
+		}
+		if (
+			this.atlasLastUsed &&
+			this.clock.isExpired(this.atlasLastUsed, performance.now())
+		) {
+			this.releaseAtlas(this.deps.deferDestroy);
+		}
+	}
+
+	/**
+	 * Free the shared atlas when no cached mask holds a slot in it. With
+	 * `minIdleFrames` 0, every cached mask is dropped first. Call between
+	 * frames only.
+	 */
+	public trimIdle(minIdleFrames: number): void {
+		if (minIdleFrames === 0) this.invalidateAll();
+		if (this.maskCache.size > 0) return;
+		this.releaseAtlas((texture) => texture.destroy());
+	}
+
 	public destroy(): void {
 		this.invalidateAll();
 		if (this.atlasTexture) this.deps.deferDestroy(this.atlasTexture);
@@ -434,6 +467,16 @@ export class ClipMaskAtlas {
 				this.releaseCachedMask(id, cached);
 			}
 		}
+	}
+
+	private releaseAtlas(dispose: (texture: GPUTexture) => void): void {
+		if (this.atlasTexture) dispose(this.atlasTexture);
+		if (this.atlasClearTexture) dispose(this.atlasClearTexture);
+		this.atlasTexture = null;
+		this.atlasTextureView = null;
+		this.atlasBindGroup = null;
+		this.atlasClearTexture = null;
+		this.atlasLastUsed = null;
 	}
 
 	private releaseCachedMask(key: string, cached: CachedMask): void {
@@ -695,6 +738,7 @@ export class ClipMaskAtlas {
 				GPUTextureUsage.RENDER_ATTACHMENT,
 		});
 		this.atlasTextureView = this.atlasTexture.createView();
+		this.atlasLastUsed = this.clock.stamp();
 		this.atlasBindGroup = this.deps.device.createBindGroup({
 			label: "Clip Mask Shared Atlas Bind Group",
 			layout: this.deps.maskBindGroupLayout,
