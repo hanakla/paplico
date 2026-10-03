@@ -705,7 +705,7 @@ Y.Doc
 
 実装場所：`pkgs/core/src/typography/`
 
-- **FontManager** — Paplicoインスタンスごとに1つ持つ（`paplico.fonts`）。`Paplico.create` の `fontLoaders` で渡された `FontLoader` 群を束ね、`FontSource.loaderId` で読み込み先のローダーを選ぶ。アプリは `GoogleFontsLoader` と `LocalFontsLoader` を登録する。ローカルフォントの取得方法は、ブラウザでは `core/infra/localfonts.dom.ts`、Tauri では `web/src/infra/localfonts.tauri.ts` を使う
+- **FontManager** — Paplicoインスタンスごとに1つ持つ（`paplico.fonts`）。`Paplico.create` の `fontLoaders` で渡された `FontLoader` 群を束ね、`FontSource.loaderId` で読み込み先のローダーを選ぶ。アプリは `GoogleFontsLoader` と `LocalFontsLoader` を登録する。ローカルフォントの取得方法は、ブラウザでは `core/infra/localfonts.web.ts`、Tauri では `web/src/infra/localfonts.tauri.ts` を使う
 - **TextLayoutEngine** — shape → break → place の3相レイアウト。水平/垂直書字、禁則処理付き行折り返し、ボックス制約とオーバーフロー（hidden/ellipsis/visible）、縦中横、文字単位カーニング
   - **パス上配置**（`axisBinding.mode === "onPath"`）: openパスを軸としてグリフを配置（パス全長で打ち切り）
   - **シェイプ内流し込み**（`"inShape"`）: closedパス内部へスキャンライン方式で流し込み（even-odd、穴対応）
@@ -754,7 +754,7 @@ service/, monaco/ — LanguageService（補完・ホバー・シグネチャ・�
 - UserAgent `"PaplicoDesktop"` を設定し、`IS_TAURI_ENV`（`pkgs/web/src/utils/platform.ts`）が主分岐フラグ
 - Rustプラグイン: fs / dialog / sql / deep-link / opener / oauth / system-fonts / safe-area-insets-css 等。自動化用ファイルアクセスコマンド群（`automation_*`）とネイティブメニューを提供
 - `.papf` のファイル関連付け（`tauri.conf.json` の `fileAssociations`）。OSから渡されたパスは `launch_files.rs` が受ける（macOSは `RunEvent::Opened`、Windows / Linuxは起動引数）。webviewが購読する前のパスは `take_launch_files` コマンドで、以降は `paplico:open-files` イベントで渡し、`TauriInit.tsx` が `tauri-open-files` DOMイベントとして再dispatchする
-- プラットフォーム依存コードは `infra/` に隔離: `core/infra/`（エンジンが必要とするクリップボード・ローカルフォント）、`src/infra/`（filesystem / IndexedDB / Supabase / システムICCプロファイル）。実装は `.tauri.ts` / `.dom.ts` / `.web.ts` のファイル分割またはdynamic importで切り替える
+- プラットフォーム依存コードは `infra/` に隔離: `core/infra/`（エンジンが必要とするクリップボード・ローカルフォント）、`src/infra/`（filesystem / IndexedDB / Supabase / システムICCプロファイル）。実装は `.web.ts` / `.tauri.ts` のファイル分割またはdynamic importで切り替える
 - OAuth認証はシステムブラウザで実施し、dev時はlocalhostコールバック、本番は `paplico://` ディープリンクでトークンをアプリへ中継する
 
 ## エラーハンドリングとリカバリー

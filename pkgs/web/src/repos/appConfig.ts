@@ -1,8 +1,8 @@
 import type { PressureCurvePoint } from "@paplico/core/utils";
 import { z } from "zod/mini";
 import { IS_TAURI_ENV } from "@/utils/platform";
-import { domAppConfig } from "./appConfig.dom";
 import { tauriAppConfig } from "./appConfig.tauri";
+import { webAppConfig } from "./appConfig.web";
 
 export interface PersistedConfig {
 	theme?: string;
@@ -32,7 +32,7 @@ export interface AppConfigRepo {
 
 export const appConfigRepo: AppConfigRepo = IS_TAURI_ENV
 	? tauriAppConfig
-	: domAppConfig;
+	: webAppConfig;
 
 const fallback = (schema: z.ZodMiniType) =>
 	z.catch(schema, (ctx) => {

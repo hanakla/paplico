@@ -563,7 +563,7 @@ pkgs/core/
     │   ├── export/        # Image export (PNG/AVIF/PSD)
     │   └── migrations/    # papf format migrations
     ├── assets/            # Brush texture assets (air-brush, pencil)
-    ├── infra/             # Platform-dependent code the engine itself needs (clipboard, local font enumeration). Platform impls split via `.tauri.ts`/`.dom.ts` suffixes or dynamic import; this is the ONLY place in the package allowed to touch `@tauri-apps/*` or branch on the runtime
+    ├── infra/             # Platform-dependent code the engine itself needs (clipboard, local font enumeration). Platform impls split via `.web.ts`/`.tauri.ts` suffixes or dynamic import; this is the ONLY place in the package allowed to touch `@tauri-apps/*` or branch on the runtime
     ├── stubs/             # three.js WebGPU compat stub, the target of the bundlers' `three` alias
     ├── timelapse/         # Timelapse recording/playback/export
     ├── testUtils/         # Shared test helpers (pointerEvent.ts, visualRegression.ts), vitest setup, fixtures and test assets
@@ -596,7 +596,7 @@ pkgs/web/
 
 - **`@paplico/core` MUST NOT import from `pkgs/web`.** It is a separate package, so there is no `@/` alias inside it; use relative imports
 - `@paplico/core` is the business logic layer - keep it framework-agnostic. It does not read app environment variables (`NEXT_PUBLIC_*`); the app passes such values in
-- **Platform-dependent code (OS branching, Tauri vs browser, native `fs`/`dialog`/`path` access, `@tauri-apps/*` imports, OS-installed resource enumeration) MUST be isolated in an `infra/` directory** — `pkgs/core/src/infra/` for what the drawing engine itself needs (clipboard, local fonts), `pkgs/web/src/infra/` for app-level concerns (filesystem, IndexedDB, Supabase, system profile enumeration) — using `.tauri.ts`/`.dom.ts`/`.web.ts` file splits or dynamic import. Everything else in the engine (color, renderer, tools, io, …) stays platform-agnostic: it never imports `@tauri-apps/*`, never branches on `IS_TAURI_ENV`, and never enumerates/reads files — it only receives bytes/values passed in from an `infra/` module
+- **Platform-dependent code (OS branching, Tauri vs browser, native `fs`/`dialog`/`path` access, `@tauri-apps/*` imports, OS-installed resource enumeration) MUST be isolated in an `infra/` directory** — `pkgs/core/src/infra/` for what the drawing engine itself needs (clipboard, local fonts), `pkgs/web/src/infra/` for app-level concerns (filesystem, IndexedDB, Supabase, system profile enumeration) — using `.web.ts`/`.tauri.ts` file splits or dynamic import. `.web` is the browser implementation and `.tauri` is the Tauri implementation. Never use `.dom` for a platform split. Everything else in the engine (color, renderer, tools, io, …) stays platform-agnostic: it never imports `@tauri-apps/*`, never branches on `IS_TAURI_ENV`, and never enumerates/reads files — it only receives bytes/values passed in from an `infra/` module
 - Use callback/dependency injection pattern to communicate with upper layers
 - Example: YjsProvider accepts callbacks instead of importing documentStore
 - **Only add a symbol to an entry barrel when the app needs it.** Classes, functions, and types used only within the package are imported directly from their modules, never through its own barrels.

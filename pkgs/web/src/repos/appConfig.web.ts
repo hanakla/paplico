@@ -6,7 +6,7 @@ import {
 
 const STORAGE_KEY = "paplico:appSettings";
 
-export const domAppConfig: AppConfigRepo = {
+export const webAppConfig: AppConfigRepo = {
 	async load(): Promise<PersistedConfig> {
 		if (typeof localStorage === "undefined") return {};
 

@@ -7,8 +7,8 @@ import { IS_TAURI_ENV } from "@/utils/platform";
 
 export type { FileHandle };
 
-import { domFileIO } from "./documents.dom";
 import { tauriFileIO } from "./documents.tauri";
+import { webFileIO } from "./documents.web";
 
 export interface DocumentsFileIO {
 	openFile(options: {
@@ -35,7 +35,7 @@ interface DocumentsRepo extends DocumentsFileIO {
 
 // --- File I/O (platform-specific) ---
 
-const fileIO: DocumentsFileIO = IS_TAURI_ENV ? tauriFileIO : domFileIO;
+const fileIO: DocumentsFileIO = IS_TAURI_ENV ? tauriFileIO : webFileIO;
 
 // --- Shared CRUD (IndexedDB) ---
 
