@@ -32,10 +32,10 @@
 - **Filters**
   - Fix a filter's effect stopping at an element's old edge after the element's shape changed, until the layer was hidden and shown again.
   - Fix GPU memory growing by gigabytes and textures being reallocated on every edit when a document with a high rasterization DPI has a filter applied to the backdrop.
-- **Patterns**
-  - Fix an export, timelapse playback or a stored revision's preview pages drawing a pattern's old tile after the tile was edited.
+- **Patterns / Brushes**
+  - Fix an export, timelapse playback or a stored revision's preview pages drawing a pattern's old tile, or a brush's old def artwork, after the def was edited.
 - **Gradients**
-  - Fix every free and mesh gradient on the canvas being generated again after the timelapse player closes.
+  - Fix every free and mesh gradient on the canvas being generated again after the timelapse player closes, or after a run of eyedropper picks or bucket fills.
 - **Groups**
   - Fix a group's own fill or stroke keeping its old outline after a source path of a compound path inside the group is edited.
 - **Mesh warp**
