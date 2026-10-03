@@ -99,6 +99,11 @@ export interface FrameRequest {
 	/** True while rendering to an image export. Reference3D elements not flagged
 	 *  `includeInExport` are skipped (drafts stay out of the output). */
 	isExport?: boolean;
+	/** True for a render the target does not count among its own frames: an
+	 *  export drawn through the editor's target between its frames. Such a
+	 *  render leaves the target's cross-frame caches to the target's own
+	 *  frames instead of invalidating them. */
+	preservesTargetCaches?: boolean;
 	/** Override the clear color instead of deriving it from artboards. */
 	clearColorOverride?: RawRGBA;
 	/** Paint artboard backgrounds even when clearColorOverride is set (raster

@@ -2149,18 +2149,24 @@ export class CanvasLayer {
 			// change. Resolving the change set against container edges needs
 			// the merged elements map, so record it here and let
 			// renderDocument apply it. An untracked full render proves
-			// nothing about what changed — clear it all.
+			// nothing about what changed — clear it all. A render that
+			// preserves the target's caches neither uses the cache nor stands
+			// for the target's own frames, which track their changes without
+			// it.
 			if (request.changedElements) {
 				this.pendingFilterCacheChanges = new Set([
 					...request.changedElements.upserted,
 					...request.changedElements.deleted,
 				]);
-			} else {
+			} else if (!request.preservesTargetCaches) {
 				this.cacheManager.filteredElement.clear();
 			}
 		}
 		// A shared def edit changes pattern pixels without an element delta.
-		if (request.defRevision !== this.lastFilterCacheDefRevision) {
+		if (
+			!request.preservesTargetCaches &&
+			request.defRevision !== this.lastFilterCacheDefRevision
+		) {
 			this.lastFilterCacheDefRevision = request.defRevision;
 			this.cacheManager.filteredElement.clear();
 		}

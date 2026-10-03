@@ -6,6 +6,8 @@
 
 - **Extrude / Revolve filters**
   - Their multisampled scratch textures come from the canvas's texture pool instead of a pool of their own that could hold up to 384 MB each.
+- **Filters**
+  - The first frame after an export, an autosave or an eyedropper pick no longer stalls while every filtered element is drawn again.
 - **Elements**
   - Drawing, adding, deleting, grouping and ungrouping elements no longer get slower as the document grows. This also covers their undo, redo and edits from collaborators.
 - **Images**

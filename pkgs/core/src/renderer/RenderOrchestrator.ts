@@ -978,6 +978,7 @@ export class RenderOrchestrator {
 						strategy: "full",
 						disableViewportCulling: opts.disableViewportCulling ?? true,
 						isExport: true,
+						preservesTargetCaches: !opts.targetId,
 						changedElements: opts.changedElements,
 						transientElements: opts.transientElements,
 						interacting: opts.interacting,
