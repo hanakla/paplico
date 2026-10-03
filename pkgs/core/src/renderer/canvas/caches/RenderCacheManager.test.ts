@@ -1,4 +1,6 @@
 import { describe, expect, it, type Mock, vi } from "vitest";
+import { mockCompoundPath } from "../../../testUtils/mockElements";
+import { DocumentRenderScope } from "../../DocumentScopeRegistry";
 import type { AppearanceCacheEntry } from "./AppearanceCache";
 import type { FillOutline } from "./OutlineCache";
 import { RenderCacheManager } from "./RenderCacheManager";
@@ -82,6 +84,30 @@ describe("RenderCacheManager", () => {
 			manager.flushPendingDestroy();
 
 			expect(evicted.destroy).toHaveBeenCalledTimes(1);
+		});
+
+		it("should give canvases bound to one document scope the same geometry caches", () => {
+			const scope = new DocumentRenderScope();
+			const first = new RenderCacheManager();
+			const second = new RenderCacheManager();
+			first.useDocumentScope(scope);
+			second.useDocumentScope(scope);
+
+			expect(second.compoundPath).toBe(first.compoundPath);
+			expect(second.groupPath).toBe(first.groupPath);
+			expect(second.meshWarp).toBe(first.meshWarp);
+			expect(second.blend).toBe(first.blend);
+		});
+
+		it("should keep the shared geometry when one canvas tears down its caches", () => {
+			const scope = new DocumentRenderScope();
+			const manager = new RenderCacheManager();
+			manager.useDocumentScope(scope);
+			manager.compoundPath.resolve(mockCompoundPath("compound", []), new Map());
+
+			manager.clearAll();
+
+			expect(scope.compoundPath.size()).toBe(1);
 		});
 	});
 

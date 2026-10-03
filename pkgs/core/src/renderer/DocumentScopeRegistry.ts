@@ -1,4 +1,8 @@
 import type { TextState } from "./canvas/CanvasLayerTypes";
+import { BlendCache } from "./canvas/caches/BlendCache";
+import { CompoundPathCache } from "./canvas/caches/CompoundPathCache";
+import { GroupPathCache } from "./canvas/caches/GroupPathCache";
+import { MeshWarpCache } from "./canvas/caches/MeshWarpCache";
 
 /** The glyph outline caches a canvas reads through its TextState. */
 type TextPathCaches = Pick<
@@ -17,6 +21,11 @@ export class DocumentRenderScope {
 		pendingPathLoads: new Map(),
 		stalePathCache: new Map(),
 	};
+	/** Self-validating CPU geometry; each entry checks its sources' fingerprint. */
+	public readonly compoundPath = new CompoundPathCache();
+	public readonly groupPath = new GroupPathCache();
+	public readonly meshWarp = new MeshWarpCache();
+	public readonly blend = new BlendCache();
 
 	/**
 	 * Move the outlines of `elementId`, or of every text when omitted, to the

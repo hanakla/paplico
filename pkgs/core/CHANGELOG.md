@@ -10,8 +10,9 @@
   - Drawing, adding, deleting, grouping and ungrouping elements no longer get slower as the document grows. This also covers their undo, redo and edits from collaborators.
 - **Images**
   - Opening split view or the timelapse player no longer waits for every embedded image to load again.
-- **Text**
-  - Typing in split view no longer lays out the text once per canvas.
+- **Split view**
+  - Typing no longer lays out the text once per canvas.
+  - Editing compound paths, group outlines, blends and mesh warps no longer computes their shapes once per canvas.
 
 ### Fixed
 

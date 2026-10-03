@@ -8040,6 +8040,7 @@ export class CanvasLayer {
 	 */
 	public useDocumentScope(scope: DocumentRenderScope): void {
 		Object.assign(this.textState, scope.text);
+		this.cacheManager.useDocumentScope(scope);
 	}
 
 	/**

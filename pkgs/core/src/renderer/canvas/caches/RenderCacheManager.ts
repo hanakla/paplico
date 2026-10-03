@@ -1,24 +1,21 @@
+import { DocumentRenderScope } from "../../DocumentScopeRegistry";
 import { AppearanceCache } from "./AppearanceCache";
-import { BlendCache } from "./BlendCache";
-import { CompoundPathCache } from "./CompoundPathCache";
+import type { BlendCache } from "./BlendCache";
+import type { CompoundPathCache } from "./CompoundPathCache";
 import { FilteredElementCache } from "./FilteredElementCache";
 import { GradientCache } from "./GradientCache";
-import { GroupPathCache } from "./GroupPathCache";
-import { MeshWarpCache } from "./MeshWarpCache";
+import type { GroupPathCache } from "./GroupPathCache";
+import type { MeshWarpCache } from "./MeshWarpCache";
 import { OutlineCache } from "./OutlineCache";
 import { StampCache } from "./StampCache";
 import { StripCache } from "./StripCache";
 
-/** All element caches for one document, swapped as a unit. */
+/** This canvas's element caches for one document, swapped as a unit. */
 interface DocumentCacheScope {
 	outline: OutlineCache;
 	strip: StripCache;
-	compoundPath: CompoundPathCache;
-	groupPath: GroupPathCache;
-	meshWarp: MeshWarpCache;
 	stamp: StampCache;
 	gradient: GradientCache;
-	blend: BlendCache;
 	appearance: AppearanceCache;
 	filteredElement: FilteredElementCache;
 }
@@ -54,6 +51,8 @@ interface RenderCacheManagerOptions {
 export class RenderCacheManager {
 	private readonly scopes = new Map<string, DocumentCacheScope>();
 	private active: DocumentCacheScope;
+	/** The caches every canvas drawing the active document shares. */
+	private shared = new DocumentRenderScope();
 
 	public constructor(private readonly options: RenderCacheManagerOptions = {}) {
 		this.active = createScope(options.stampCacheMaxBytes);
@@ -67,13 +66,13 @@ export class RenderCacheManager {
 		return this.active.strip;
 	}
 	public get compoundPath(): CompoundPathCache {
-		return this.active.compoundPath;
+		return this.shared.compoundPath;
 	}
 	public get groupPath(): GroupPathCache {
-		return this.active.groupPath;
+		return this.shared.groupPath;
 	}
 	public get meshWarp(): MeshWarpCache {
-		return this.active.meshWarp;
+		return this.shared.meshWarp;
 	}
 	public get stamp(): StampCache {
 		return this.active.stamp;
@@ -82,7 +81,7 @@ export class RenderCacheManager {
 		return this.active.gradient;
 	}
 	public get blend(): BlendCache {
-		return this.active.blend;
+		return this.shared.blend;
 	}
 	public get appearance(): AppearanceCache {
 		return this.active.appearance;
@@ -109,6 +108,11 @@ export class RenderCacheManager {
 		this.scopes.set(documentId, scope);
 		this.active = scope;
 		this.evictOverBudget();
+	}
+
+	/** Read the shared caches from `scope` until the next call. */
+	public useDocumentScope(scope: DocumentRenderScope): void {
+		this.shared = scope;
 	}
 
 	/**
@@ -240,12 +244,8 @@ function createScope(stampCacheMaxBytes?: number): DocumentCacheScope {
 	return {
 		outline: new OutlineCache(),
 		strip: new StripCache(),
-		compoundPath: new CompoundPathCache(),
-		groupPath: new GroupPathCache(),
-		meshWarp: new MeshWarpCache(),
 		stamp: new StampCache(stampCacheMaxBytes),
 		gradient: new GradientCache(),
-		blend: new BlendCache(),
 		appearance: new AppearanceCache(),
 		filteredElement: new FilteredElementCache(),
 	};
@@ -256,12 +256,8 @@ function createScope(stampCacheMaxBytes?: number): DocumentCacheScope {
 function destroyScope(scope: DocumentCacheScope): void {
 	scope.outline.clear();
 	scope.strip.clear();
-	scope.compoundPath.clear();
-	scope.groupPath.clear();
-	scope.meshWarp.clear();
 	scope.stamp.clear();
 	scope.gradient.clear();
-	scope.blend.clear();
 	scope.appearance.clear();
 	scope.filteredElement.clear();
 	scope.filteredElement.flushPendingDestroy();
