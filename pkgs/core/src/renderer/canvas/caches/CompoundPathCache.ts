@@ -22,7 +22,7 @@ export class CompoundPathCache {
 		compoundPath: CompoundPath,
 		pathMap: Map<string, Path>,
 	): CubicBezierSegment[] {
-		const fingerprint = createFingerprint(compoundPath, pathMap);
+		const fingerprint = createCompoundPathFingerprint(compoundPath, pathMap);
 		const cached = this.cache.get(compoundPath.id);
 		if (cached?.fingerprint === fingerprint) {
 			return cached.segments;
@@ -65,7 +65,8 @@ export class CompoundPathCache {
 	}
 }
 
-function createFingerprint(
+/** The inputs a compound path's boolean result depends on, as JSON. */
+export function createCompoundPathFingerprint(
 	compoundPath: CompoundPath,
 	pathMap: ReadonlyMap<string, Path>,
 ): string {

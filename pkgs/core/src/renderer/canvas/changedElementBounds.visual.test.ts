@@ -6,6 +6,7 @@ import type {
 	Viewport,
 } from "../../schema";
 import {
+	mockCompoundPath,
 	mockDocument,
 	mockGroup,
 	mockLayer,
@@ -65,6 +66,24 @@ describe("bounds of an element changed between frames", () => {
 			square.segments = closedRectSegments(-size, -size, size, size);
 			square.filters = [fill(RED), blur()];
 			return { changedId: square.id, elements: [square], topIds: [square.id] };
+		});
+
+		expect(colorAt(frames.initial, PROBE)).toEqual(WHITE);
+		expect(colorAt(frames.grown, PROBE)).toEqual(RED);
+	});
+
+	it("should fill a group over the grown source of its compound path", async () => {
+		const frames = await renderGrowth(WHITE, (size) => {
+			const source = mockPath("source-1");
+			source.segments = closedRectSegments(-size, -size, size, size);
+			const compound = mockCompoundPath("compound-1", [source.id]);
+			const group = mockGroup("group-1", [compound.id]);
+			group.filters = [fill(RED)];
+			return {
+				changedId: source.id,
+				elements: [source, compound, group],
+				topIds: [group.id],
+			};
 		});
 
 		expect(colorAt(frames.initial, PROBE)).toEqual(WHITE);

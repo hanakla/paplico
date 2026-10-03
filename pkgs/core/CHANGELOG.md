@@ -36,6 +36,10 @@
   - Fix an export, timelapse playback or a stored revision's preview pages drawing a pattern's old tile after the tile was edited.
 - **Gradients**
   - Fix every free and mesh gradient on the canvas being generated again after the timelapse player closes.
+- **Groups**
+  - Fix a group's own fill or stroke keeping its old outline after a source path of a compound path inside the group is edited.
+- **Mesh warp**
+  - Fix a warped text that continues a text flow from outside the mesh showing the wrong characters after the flow's first text returns to earlier content, such as by undo.
 
 ## [0.5.0] - 2026-10-03
 

@@ -17,7 +17,7 @@ interface MeshWarpCacheEntry {
 /**
  * Caches a mesh container's warped transient children. Self-validating via a
  * JSON fingerprint of the cage geometry plus every descendant's data (and, for
- * text descendants, whether their async glyph layout is available). Mirrors
+ * text descendants, the glyph outlines their async layout produced). Mirrors
  * BlendCache.
  */
 export class MeshWarpCache {
@@ -66,9 +66,10 @@ function createFingerprint(
 		if (!el) continue;
 		descendants.push(el);
 		if (el.type === "text") {
-			// Async glyph availability flips the fingerprint once the layout
-			// lands, so the pending-skip resolve gets replaced.
-			descendants.push(deps.getTextGlyphPaths(el) !== null);
+			// The glyphs come from the text's layout, not from its element data:
+			// null while the layout is pending, and another layout's glyphs when
+			// the head of its flow chain changes outside the mesh.
+			descendants.push(deps.getTextGlyphPaths(el));
 		}
 		const childIds = getContainerChildIds(el);
 		if (childIds) stack.push(...childIds);

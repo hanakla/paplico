@@ -7,8 +7,12 @@ import {
 	isGroup,
 	isPath,
 } from "../../../schema";
+import { collectCompoundSources } from "../../../utils/geometry/compoundBake";
 import { collectGroupSegments } from "../pipeline/GroupAppearanceCollector";
-import type { CompoundPathCache } from "./CompoundPathCache";
+import {
+	type CompoundPathCache,
+	createCompoundPathFingerprint,
+} from "./CompoundPathCache";
 
 /**
  * Caches combined path segments for groups with fill/stroke appearances.
@@ -85,10 +89,15 @@ function buildChildFingerprints(
 		}
 
 		if (isCompoundPath(child)) {
+			const { pathMap } = collectCompoundSources(
+				child,
+				(id) => elementsMap.get(id),
+				(path) => path,
+			);
 			return {
 				id: child.id,
 				type: "compound-path",
-				sources: child.sources,
+				sources: createCompoundPathFingerprint(child, pathMap),
 				transform: getTransform(child),
 			};
 		}
