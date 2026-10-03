@@ -7,8 +7,7 @@ import { getContainerChildIds } from "../schema";
  * counter that is bumped whenever a member element changes.
  *
  * DefRasterizer uses {@link getRevision} as part of its cache key so a cached
- * texture for `def:${defId}:${rev}:${w}x${h}` is automatically invalidated
- * once `rev` advances. The same revision number also lets stamp/gradient
+ * def texture is automatically invalidated once the revision advances. The same revision number also lets stamp/gradient
  * caches that depend on a def-sourced brush self-invalidate.
  *
  * `rebuild` walks the def graph transitively through container members

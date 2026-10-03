@@ -1,6 +1,6 @@
 /**
  * Rasterizes off-canvas def trees into persistent GPUTextures keyed by
- * `def:${defId}:${revision}:${w}x${h}`. Each entry is a long-lived texture (NOT
+ * `def:${scope}:${defId}:${revision}:${w}x${h}`. Each entry is a long-lived texture (NOT
  * borrowed from TexturePool — those are short-lived and recycled per frame)
  * because both pattern fill sampling and brush stamp sampling read from the
  * same texture across many frames.
@@ -14,6 +14,12 @@ import { clamp } from "../../../../utils/math";
 
 interface DefRasterizerOptions {
 	/**
+	 * Namespace of this rasterizer's texture uids. BrushTextureManager is
+	 * shared by every canvas, so two rasterizers must never hand it the same
+	 * uid: one evicting its texture would drop the other's registration.
+	 */
+	scope: string;
+	/**
 	 * Optional cap on cached entries. When exceeded the least-recently-used
 	 * entry is evicted. Defaults to 32, which comfortably covers a handful of
 	 * defs across several zoom bands.
@@ -25,6 +31,12 @@ interface DefRasterizerOptions {
 	 * BrushTextureManager's def aliases) can drop their references.
 	 */
 	onEvicted?: (textureUid: string) => void;
+	/**
+	 * Releases an evicted or invalidated texture. Defaults to destroying it at
+	 * once; a rasterizer whose textures the frame being encoded may still
+	 * sample passes a destroy that waits for the submit.
+	 */
+	retireTexture?: (texture: GPUTexture) => void;
 }
 
 type DefRasterRenderFn = (
@@ -60,14 +72,19 @@ interface CacheEntry {
 }
 
 export class DefRasterizer {
+	private readonly scope: string;
 	private readonly maxEntries: number;
 	private readonly onEvicted?: (textureUid: string) => void;
+	private readonly retireTexture: (texture: GPUTexture) => void;
 	private cache = new Map<string, CacheEntry>();
 	private lruCounter = 0;
 
-	public constructor(options: DefRasterizerOptions = {}) {
+	public constructor(options: DefRasterizerOptions) {
+		this.scope = options.scope;
 		this.maxEntries = options.maxEntries ?? 32;
 		this.onEvicted = options.onEvicted;
+		this.retireTexture =
+			options.retireTexture ?? ((texture) => texture.destroy());
 	}
 
 	/**
@@ -77,12 +94,13 @@ export class DefRasterizer {
 	 * underlying texture.
 	 */
 	public static textureUidFor(
+		scope: string,
 		defId: string,
 		revision: number,
 		width: number,
 		height: number,
 	): string {
-		return `def:${defId}:${revision}:${width}x${height}`;
+		return `def:${scope}:${defId}:${revision}:${width}x${height}`;
 	}
 
 	/**
@@ -149,7 +167,13 @@ export class DefRasterizer {
 		height: number,
 		renderFn: DefRasterRenderFn,
 	): { texture: GPUTexture; textureUid: string } | null {
-		const key = DefRasterizer.textureUidFor(defId, revision, width, height);
+		const key = DefRasterizer.textureUidFor(
+			this.scope,
+			defId,
+			revision,
+			width,
+			height,
+		);
 		const existing = this.cache.get(key);
 		if (existing) {
 			existing.lastUsed = ++this.lruCounter;
@@ -170,13 +194,12 @@ export class DefRasterizer {
 		return { texture, textureUid: key };
 	}
 
-	/** Drop every cached entry whose key starts with `def:${defId}:`. */
+	/** Drop every cached entry of a def. */
 	public invalidate(defId: string): void {
-		const prefix = `def:${defId}:`;
+		const prefix = `def:${this.scope}:${defId}:`;
 		for (const [key, entry] of this.cache) {
 			if (key.startsWith(prefix)) {
-				this.onEvicted?.(entry.textureUid);
-				entry.texture.destroy();
+				this.release(entry);
 				this.cache.delete(key);
 			}
 		}
@@ -184,16 +207,17 @@ export class DefRasterizer {
 
 	/** Drop every cached entry (e.g. document replace). */
 	public invalidateAll(): void {
+		for (const entry of this.cache.values()) this.release(entry);
+		this.cache.clear();
+	}
+
+	/** Destroy every cached texture now. Call from CanvasLayer.destroy. */
+	public destroy(): void {
 		for (const entry of this.cache.values()) {
 			this.onEvicted?.(entry.textureUid);
 			entry.texture.destroy();
 		}
 		this.cache.clear();
-	}
-
-	/** Release every cached texture. Call from CanvasLayer.destroy. */
-	public destroy(): void {
-		this.invalidateAll();
 	}
 
 	private evictIfNeeded(): void {
@@ -207,11 +231,14 @@ export class DefRasterizer {
 				}
 			}
 			if (!oldestKey) return;
-			const evicted = this.cache.get(oldestKey)!;
-			this.onEvicted?.(evicted.textureUid);
-			evicted.texture.destroy();
+			this.release(this.cache.get(oldestKey)!);
 			this.cache.delete(oldestKey);
 		}
+	}
+
+	private release(entry: CacheEntry): void {
+		this.onEvicted?.(entry.textureUid);
+		this.retireTexture(entry.texture);
 	}
 }
 

@@ -4,14 +4,14 @@ import { DefRasterizer } from "./DefRasterizer";
 describe("DefRasterizer", () => {
 	describe("textureUidFor", () => {
 		it("formats stable cache keys", () => {
-			expect(DefRasterizer.textureUidFor("d1", 3, 128, 64)).toBe(
-				"def:d1:3:128x64",
+			expect(DefRasterizer.textureUidFor("c1", "d1", 3, 128, 64)).toBe(
+				"def:c1:d1:3:128x64",
 			);
 		});
 
 		it("differs across revisions so consumer caches self-invalidate", () => {
-			const a = DefRasterizer.textureUidFor("d1", 1, 128, 128);
-			const b = DefRasterizer.textureUidFor("d1", 2, 128, 128);
+			const a = DefRasterizer.textureUidFor("c1", "d1", 1, 128, 128);
+			const b = DefRasterizer.textureUidFor("c1", "d1", 2, 128, 128);
 			expect(a).not.toBe(b);
 		});
 	});
@@ -82,7 +82,7 @@ describe("DefRasterizer", () => {
 
 	describe("ensureRasterized cache", () => {
 		it("invokes renderFn on miss and reuses the cached entry on hit", () => {
-			const rasterizer = new DefRasterizer();
+			const rasterizer = new DefRasterizer({ scope: "c1" });
 			const fakeTexture = { destroy: () => {} } as unknown as GPUTexture;
 			let calls = 0;
 			const renderFn = () => {
@@ -91,16 +91,16 @@ describe("DefRasterizer", () => {
 			};
 
 			const first = rasterizer.ensureRasterized("d1", 1, 128, 128, renderFn);
-			expect(first?.textureUid).toBe("def:d1:1:128x128");
+			expect(first?.textureUid).toBe("def:c1:d1:1:128x128");
 			expect(calls).toBe(1);
 
 			const second = rasterizer.ensureRasterized("d1", 1, 128, 128, renderFn);
-			expect(second?.textureUid).toBe("def:d1:1:128x128");
+			expect(second?.textureUid).toBe("def:c1:d1:1:128x128");
 			expect(calls).toBe(1);
 		});
 
 		it("invalidate drops every entry of a def and re-runs renderFn", () => {
-			const rasterizer = new DefRasterizer();
+			const rasterizer = new DefRasterizer({ scope: "c1" });
 			let destroyed = 0;
 			const make = () =>
 				({
@@ -123,13 +123,13 @@ describe("DefRasterizer", () => {
 		});
 
 		it("returns null when renderFn returns null (e.g. unresolvable def)", () => {
-			const rasterizer = new DefRasterizer();
+			const rasterizer = new DefRasterizer({ scope: "c1" });
 			const res = rasterizer.ensureRasterized("d1", 1, 64, 64, () => null);
 			expect(res).toBeNull();
 		});
 
 		it("evicts the LRU entry when over maxEntries", () => {
-			const rasterizer = new DefRasterizer({ maxEntries: 2 });
+			const rasterizer = new DefRasterizer({ scope: "c1", maxEntries: 2 });
 			let destroyed = 0;
 			const make = () =>
 				({
@@ -152,6 +152,35 @@ describe("DefRasterizer", () => {
 				return make();
 			});
 			expect(calls).toBe(1);
+		});
+
+		it("hands dropped textures to retireTexture instead of destroying them", () => {
+			const retired: GPUTexture[] = [];
+			const rasterizer = new DefRasterizer({
+				scope: "c1",
+				retireTexture: (texture) => retired.push(texture),
+			});
+			const texture = {
+				destroy: () => {
+					throw new Error("destroyed before the frame was submitted");
+				},
+			} as unknown as GPUTexture;
+
+			rasterizer.ensureRasterized("d1", 1, 64, 64, () => texture);
+			rasterizer.invalidateAll();
+
+			expect(retired).toEqual([texture]);
+		});
+
+		it("gives the same def different uids on different canvases", () => {
+			const texture = { destroy: () => {} } as unknown as GPUTexture;
+			const a = new DefRasterizer({ scope: "c1" });
+			const b = new DefRasterizer({ scope: "c2" });
+
+			const fromA = a.ensureRasterized("d1", 1, 64, 64, () => texture);
+			const fromB = b.ensureRasterized("d1", 1, 64, 64, () => texture);
+
+			expect(fromA?.textureUid).not.toBe(fromB?.textureUid);
 		});
 	});
 });

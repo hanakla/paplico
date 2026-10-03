@@ -282,6 +282,12 @@ interface ExportPoolSnapshot {
  */
 type AssignedMask = MaskEntry & { inverted?: boolean };
 
+/** The def cache a frame reads and the revision it keys each def by. */
+interface ActiveDefs {
+	rasterizer: DefRasterizer;
+	getRevision: (defId: string) => number;
+}
+
 /** A wet-enabled dab stroke appearance, resolved for the wet layer. */
 interface WetStroke {
 	settings: BrushSettings;
@@ -533,6 +539,20 @@ export class CanvasLayer {
 	 * document actually defines a `def:` brush source / pattern fill.
 	 */
 	private defRasterizer!: DefRasterizer;
+	/**
+	 * Holds the def textures of a frame that carries no def revisions (exports,
+	 * isolated targets). Such a frame cannot tell an edited def from the one
+	 * it cached, so its textures live only until the frame ends.
+	 */
+	private frameDefRasterizer!: DefRasterizer;
+
+	/**
+	 * Frames rendered without def revisions, counted across every canvas. Such
+	 * a frame keys its defs by the negated count: DefIndex revisions are never
+	 * negative, and the filter handlers that cache by def revision are shared
+	 * by every canvas.
+	 */
+	private static uncachedDefFrames = 0;
 
 	// -- Dot-grid background (lazy; built on the first dotless empty-canvas render) --
 	private static readonly DOT_GRID_SPACING_PX = 24;
@@ -665,7 +685,8 @@ export class CanvasLayer {
 	 * overrides / transient elements so pattern previews mirror the live canvas.
 	 */
 	private activeElementsMap: Map<string, AnyArtObject> | null = null;
-	private activeGetDefRevision: ((defId: string) => number) | null = null;
+	/** The def cache this frame reads and the revision it keys each def by. */
+	private activeDefs: ActiveDefs | null = null;
 	private activeProfiler: GPUTimingProfiler | null = null;
 
 	/**
@@ -1193,8 +1214,15 @@ export class CanvasLayer {
 		this.clipMaskAtlas = this.createClipMaskAtlas();
 
 		this.defRasterizer = new DefRasterizer({
+			scope: this.canvasId,
 			onEvicted: (textureUid) =>
 				this.brushRenderer.textures.removeDefTexture(textureUid),
+		});
+		this.frameDefRasterizer = new DefRasterizer({
+			scope: this.canvasId,
+			onEvicted: (textureUid) =>
+				this.brushRenderer.textures.removeDefTexture(textureUid),
+			retireTexture: (texture) => this.offscreen.deferDestroy(texture),
 		});
 
 		// A batch flush encodes ribbon draws mid-loop — the geometry run
@@ -1979,7 +2007,9 @@ export class CanvasLayer {
 		// every render re-binds for its own document, including frames
 		// interleaved with an awaiting export.
 		this.cacheManager.setActiveDocument(document.id);
-		this.activeGetDefRevision = getDefRevision ?? null;
+		this.activeDefs = getDefRevision
+			? { rasterizer: this.defRasterizer, getRevision: getDefRevision }
+			: this.beginUncachedDefFrame();
 		this.activeProfiler = profiler ?? null;
 
 		this.recycleFramePools();
@@ -2317,6 +2347,7 @@ export class CanvasLayer {
 			this.offscreen.deferDestroy(tex),
 		);
 		this.brushRenderer.endFrame();
+		this.frameDefRasterizer.invalidateAll();
 		// Per-frame release for filter handlers that own GPU resources (e.g.
 		// extrude's opaque bake/normal textures) — mirrors the startFrame loop.
 		for (const handler of this.filterRenderer.getHandlers().values()) {
@@ -2353,9 +2384,6 @@ export class CanvasLayer {
 			? Number.POSITIVE_INFINITY
 			: PROGRESSIVE_BAKES_PER_FRAME;
 		this.progressiveBakeDeferred = false;
-		// Evict unused gradient textures and reset per-frame draw indices
-		this.gradient.textureGenerator.beginFrame();
-		this.gradient.meshTextureGenerator.beginFrame();
 		this.gradient.drawIndex = 0;
 		this.brushRenderer.beginFrame();
 		// Reset each backdrop-composite driver's per-frame pools + inline-composed
@@ -8018,20 +8046,20 @@ export class CanvasLayer {
 	): void {
 		if (patternDefIdsInUse.size === 0) return;
 		const doc = this.activeDocument;
-		if (!doc) return;
+		const defs = this.activeDefs;
+		if (!doc || !defs) return;
 		const zoom = this.viewportState.current?.zoom ?? 1;
 		for (const defId of patternDefIdsInUse) {
 			const entry = doc.defs?.[defId];
 			if (!entry || entry.kind !== "pattern" || !entry.tile) continue;
-			const revision = this.activeGetDefRevision?.(defId) ?? 1;
 			const size = DefRasterizer.resolveTargetSize({
 				kind: "pattern",
 				tileWorldSize: entry.tile,
 				targetScale: Math.max(zoom, 0.5),
 			});
-			this.defRasterizer.ensureRasterized(
+			defs.rasterizer.ensureRasterized(
 				defId,
-				revision,
+				defs.getRevision(defId),
 				size.width,
 				size.height,
 				(id, w, h) => this.renderDefToTexture(encoder, id, w, h),
@@ -8052,7 +8080,8 @@ export class CanvasLayer {
 	): void {
 		if (brushDefIdsInUse.size === 0) return;
 		const doc = this.activeDocument;
-		if (!doc) return;
+		const defs = this.activeDefs;
+		if (!doc || !defs) return;
 		const textureManager = this.brushRenderer.textures;
 		const elementsMap =
 			this.activeElementsMap ?? new Map(Object.entries(doc.objects));
@@ -8064,7 +8093,6 @@ export class CanvasLayer {
 			if (!entry) continue;
 			const bounds = this.computeDefSourceBounds(entry, elementsMap);
 			if (!bounds) continue;
-			const revision = this.activeGetDefRevision?.(defId) ?? 1;
 			const size = DefRasterizer.resolveTargetSize({
 				kind: "scatter",
 				worldSize: {
@@ -8073,9 +8101,9 @@ export class CanvasLayer {
 				},
 				zoom,
 			});
-			const cached = this.defRasterizer.ensureRasterized(
+			const cached = defs.rasterizer.ensureRasterized(
 				defId,
-				revision,
+				defs.getRevision(defId),
 				size.width,
 				size.height,
 				(id, w, h) => this.renderDefToTexture(encoder, id, w, h),
@@ -8089,6 +8117,19 @@ export class CanvasLayer {
 				size.height,
 			);
 		}
+	}
+
+	/**
+	 * Def cache for a frame without def revisions. The frame keys its defs by
+	 * a revision no other frame uses, so neither the def textures nor the
+	 * caches keyed on the revision hand it what an earlier frame drew.
+	 */
+	private beginUncachedDefFrame(): ActiveDefs {
+		const revision = -++CanvasLayer.uncachedDefFrames;
+		return {
+			rasterizer: this.frameDefRasterizer,
+			getRevision: () => revision,
+		};
 	}
 
 	/**
@@ -8108,10 +8149,11 @@ export class CanvasLayer {
 		revision: number;
 	} | null {
 		const doc = this.activeDocument;
-		if (!doc) return null;
+		const defs = this.activeDefs;
+		if (!doc || !defs) return null;
 		const entry = doc.defs?.[defId];
 		if (!entry || entry.kind !== "pattern" || !entry.tile) return null;
-		const revision = this.activeGetDefRevision?.(defId) ?? 1;
+		const revision = defs.getRevision(defId);
 		const zoom = this.viewportState.current?.zoom ?? 1;
 		const size = DefRasterizer.resolveTargetSize({
 			kind: "pattern",
@@ -8122,7 +8164,7 @@ export class CanvasLayer {
 		// correct even when a tool composes a new def mid-frame.
 		const encoder = this.activeEncoder;
 		if (!encoder) return null;
-		const cached = this.defRasterizer.ensureRasterized(
+		const cached = defs.rasterizer.ensureRasterized(
 			defId,
 			revision,
 			size.width,
@@ -8476,6 +8518,7 @@ export class CanvasLayer {
 		this.clipMaskAtlas.destroy();
 		this.exportClipMaskAtlas?.destroy();
 		this.defRasterizer.destroy();
+		this.frameDefRasterizer.destroy();
 		this.composite.destroy();
 		this.offscreen.destroy();
 		for (const entry of this.washResultCache.values()) {
@@ -8513,8 +8556,6 @@ export class CanvasLayer {
 		this.assetState.pendingImageLoads.clear();
 
 		// Cleanup gradient resources
-		this.gradient.textureGenerator.destroy();
-		this.gradient.meshTextureGenerator.destroy();
 		this.gradient.placeholderTexture.destroy();
 		this.gradient.placeholderStorageBuffer.destroy();
 		for (const entry of this.gradient.bufferPool) {

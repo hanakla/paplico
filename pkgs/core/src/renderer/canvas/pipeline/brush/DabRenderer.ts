@@ -158,7 +158,9 @@ export class DabRenderer {
 	private readonly dabPipelines = new Map<string, DabPipelineEntry>();
 	private mixedStrokeMetaBindGroupLayout: GPUBindGroupLayout | null = null;
 	private textureArrayBuilder: BrushTextureArrayBuilder | null = null;
-	private readonly textureViewCache = new Map<string, GPUTextureView>();
+	/** Keyed by texture rather than uid: a def texture uid can be rasterized
+	 *  again into a new texture after its first one is destroyed. */
+	private readonly textureViewCache = new WeakMap<GPUTexture, GPUTextureView>();
 	/** The procedural tip's falloff LUT, created on first use. */
 	private falloffLut: {
 		texture: GPUTexture;
@@ -491,7 +493,6 @@ export class DabRenderer {
 		live.uploadedCommitted = 0;
 		for (const buffer of live.retiredBuffers) buffer.destroy();
 		live.retiredBuffers.length = 0;
-		this.textureViewCache.clear();
 		this.dabPipelines.clear();
 		this.mixedStrokeMetaBindGroupLayout = null;
 		this.textureArrayBuilder?.destroy();
@@ -613,10 +614,10 @@ export class DabRenderer {
 			const uid = this.resolveTextureUid(setup.effectiveTextureFileUid);
 			const texture = this.textureManager.getTexture(uid);
 			if (!texture) return null;
-			let view = this.textureViewCache.get(uid);
+			let view = this.textureViewCache.get(texture);
 			if (!view) {
 				view = texture.createView();
-				this.textureViewCache.set(uid, view);
+				this.textureViewCache.set(texture, view);
 			}
 			textureView = view;
 		}

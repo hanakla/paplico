@@ -267,6 +267,9 @@ export class RenderOrchestrator {
 	private registeredTargets = new Set<CanvasTarget>();
 	/** Target ids that render documents other than the live one. @see initCanvasTarget */
 	private isolatedTargets = new Set<string>();
+	/** Targets that rendered since the shared generators' frame clock last
+	 *  advanced. @see beginTargetFrame */
+	private targetsInRenderCycle = new Set<string>();
 
 	/** CPU-side soft proof LUT, retained so it can be re-uploaded after
 	 *  device re-initialization (HDR switch, device loss recovery). */
@@ -675,6 +678,7 @@ export class RenderOrchestrator {
 		});
 
 		this.profiler?.beginFrame();
+		this.beginTargetFrame(target.id);
 
 		const frame = td.canvasLayer.render(
 			encoder,
@@ -868,7 +872,7 @@ export class RenderOrchestrator {
 	}): Promise<{ texture: GPUTexture; width: number; height: number } | null> {
 		const targetId = opts.targetId ?? this.activeTarget?.id;
 		const td = targetId ? this.targets.get(targetId) : null;
-		if (!td || !this.device) {
+		if (!targetId || !td || !this.device) {
 			console.error("Renderer not initialized or no active target");
 			return null;
 		}
@@ -977,6 +981,9 @@ export class RenderOrchestrator {
 			// 5. Render after export resources are ready. Use a dedicated export
 			// clip-mask atlas so this render never destroys the interactive
 			// atlas's textures (shared-atlas use-after-destroy on document switch).
+			// A render through the active target is not one of its frames, so
+			// it leaves the shared clock to the frames that are.
+			if (opts.targetId) this.beginTargetFrame(opts.targetId);
 			const rendered = td.canvasLayer.withExportClipMaskAtlas(() =>
 				renderIntermediate(),
 			);
@@ -1784,7 +1791,25 @@ export class RenderOrchestrator {
 
 		this.registeredTargets.delete(target);
 		this.isolatedTargets.delete(target.id);
+		this.targetsInRenderCycle.delete(target.id);
 		if (this.activeTarget === target) this.activeTarget = null;
+	}
+
+	/**
+	 * Advance the frame clock of the generators every target shares, once per
+	 * render cycle. A cycle ends when a target that already rendered in it
+	 * renders again, so canvases drawing side by side age the shared textures
+	 * once per round rather than once per canvas.
+	 */
+	private beginTargetFrame(targetId: string): void {
+		if (this.targetsInRenderCycle.has(targetId)) {
+			this.targetsInRenderCycle.clear();
+		}
+		if (this.targetsInRenderCycle.size === 0) {
+			this.gradientTextureGenerator?.beginFrame();
+			this.meshGradientTextureGenerator?.beginFrame();
+		}
+		this.targetsInRenderCycle.add(targetId);
 	}
 
 	private releaseGPUResources(): void {
@@ -1815,8 +1840,11 @@ export class RenderOrchestrator {
 		this.filterRenderer = null;
 		this.brushTextureManager?.destroy();
 		this.brushTextureManager = null;
+		this.gradientTextureGenerator?.destroy();
 		this.gradientTextureGenerator = null;
+		this.meshGradientTextureGenerator?.destroy();
 		this.meshGradientTextureGenerator = null;
+		this.targetsInRenderCycle.clear();
 		this.textRenderer = null;
 
 		if (device && !this.disposedDevices.has(device)) {
