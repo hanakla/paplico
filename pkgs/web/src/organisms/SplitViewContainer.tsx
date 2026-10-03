@@ -52,7 +52,7 @@ export function SplitViewContainer({
 			style={{ flexDirection: isHorizontal ? "row" : "column" }}
 		>
 			<div style={{ [isHorizontal ? "width" : "height"]: firstSize }}>
-				<CanvasPane paplico={paplico} />
+				<CanvasPane paplico={paplico} targetId={primaryTargetId} isPrimary />
 			</div>
 
 			{/* Drag handle */}
@@ -66,7 +66,7 @@ export function SplitViewContainer({
 			/>
 
 			<div style={{ [isHorizontal ? "width" : "height"]: secondSize }}>
-				<CanvasPane paplico={paplico} targetId={primaryTargetId} isPrimary />
+				<CanvasPane paplico={paplico} />
 			</div>
 		</div>
 	);
