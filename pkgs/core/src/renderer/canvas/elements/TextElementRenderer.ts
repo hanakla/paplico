@@ -29,7 +29,12 @@ import {
 	createRotate3DProjectionContext,
 	type Rotate3DFilter,
 } from "../../filters/Rotate3DFilter/Rotate3DFilter";
-import type { PipelineType, RenderState, TextState } from "../CanvasLayerTypes";
+import type {
+	PendingTextPathLoad,
+	PipelineType,
+	RenderState,
+	TextState,
+} from "../CanvasLayerTypes";
 import { boundsAlmostEqual } from "../pipeline/DocumentCache";
 import {
 	type FilterRenderer,
@@ -331,56 +336,35 @@ export class TextElementRenderer {
 		}));
 	}
 
+	/** Lay out `element` unless its outlines are cached, and wait for them. */
 	public async ensureTextPaths(element: TextElement): Promise<void> {
-		if (!this.deps.textState.renderer) return;
-		const cacheKey = this.deps.textState.renderer.computeTextCacheKey(element);
-		if (this.deps.textState.pathCache.has(cacheKey)) return;
+		const { renderer, pathCache } = this.deps.textState;
+		if (!renderer) return;
+		const cacheKey = renderer.computeTextCacheKey(element);
+		if (pathCache.has(cacheKey)) return;
 
-		this.deps.textState.pendingPathCacheKeys.add(cacheKey);
 		try {
-			const result =
-				await this.deps.textState.renderer.textElementToPaths(element);
-			const localBounds = toLocalBounds(result.bounds, element.x, element.y);
-			this.deps.textState.pathCache.set(cacheKey, {
-				paths: result.paths,
-				localBounds,
-			});
+			await this.loadTextPaths(renderer, cacheKey, element).done;
 		} catch (err) {
 			console.error("Failed to build text path cache:", err);
-		} finally {
-			this.deps.textState.pendingPathCacheKeys.delete(cacheKey);
 		}
 	}
 
+	/** Lay out `element` in the background and redraw this canvas when the
+	 *  outlines land, even when another canvas started the layout. */
 	public requestTextPathCache(cacheKey: string, element: TextElement): void {
-		if (
-			!this.deps.textState.renderer ||
-			this.deps.textState.pendingPathCacheKeys.has(cacheKey)
-		) {
-			return;
-		}
+		const { renderer, onRequestRender } = this.deps.textState;
+		if (!renderer) return;
 
-		this.deps.textState.pendingPathCacheKeys.add(cacheKey);
-		this.deps.textState.renderer
-			.textElementToPaths(element)
-			.then((result) => {
-				const localBounds = toLocalBounds(result.bounds, element.x, element.y);
-				this.deps.textState.pathCache.set(cacheKey, {
-					paths: result.paths,
-					localBounds,
-				});
-				this.deps.textState.onRequestRender?.();
-			})
-			.catch((err) => {
-				const key = String(err instanceof Error ? err.message : err);
-				if (!this.loggedPathCacheErrors.has(key)) {
-					this.loggedPathCacheErrors.add(key);
-					console.error("Failed to build text path cache:", err);
-				}
-			})
-			.finally(() => {
-				this.deps.textState.pendingPathCacheKeys.delete(cacheKey);
-			});
+		const load = this.loadTextPaths(renderer, cacheKey, element);
+		if (onRequestRender) load.waiters.add(onRequestRender);
+		load.done.catch((err) => {
+			const key = String(err instanceof Error ? err.message : err);
+			if (!this.loggedPathCacheErrors.has(key)) {
+				this.loggedPathCacheErrors.add(key);
+				console.error("Failed to build text path cache:", err);
+			}
+		});
 	}
 
 	public syncTextBoundsIfNeeded(
@@ -429,22 +413,44 @@ export class TextElementRenderer {
 		);
 	}
 
-	public invalidateTextCache(elementId?: string): void {
-		if (elementId) {
-			for (const [key, entry] of this.deps.textState.pathCache) {
-				if (key.startsWith(`${elementId}:`)) {
-					this.deps.textState.stalePathCache.set(key, entry);
-					this.deps.textState.pathCache.delete(key);
-					this.deps.textState.pendingPathCacheKeys.delete(key);
-				}
-			}
-		} else {
-			for (const [key, entry] of this.deps.textState.pathCache) {
-				this.deps.textState.stalePathCache.set(key, entry);
-			}
-			this.deps.textState.pathCache.clear();
-			this.deps.textState.pendingPathCacheKeys.clear();
-		}
+	/**
+	 * The layout in flight for `cacheKey`, started if there is none. The
+	 * caches are captured up front: the canvas may switch to another
+	 * document's scope before the layout lands.
+	 */
+	private loadTextPaths(
+		renderer: NonNullable<TextState["renderer"]>,
+		cacheKey: string,
+		element: TextElement,
+	): PendingTextPathLoad {
+		const { pathCache, pendingPathLoads } = this.deps.textState;
+		const inFlight = pendingPathLoads.get(cacheKey);
+		if (inFlight) return inFlight;
+
+		const load: PendingTextPathLoad = {
+			done: Promise.resolve(),
+			waiters: new Set(),
+		};
+		const settle = () => {
+			if (pendingPathLoads.get(cacheKey) !== load) return false;
+			pendingPathLoads.delete(cacheKey);
+			return true;
+		};
+		load.done = renderer.textElementToPaths(element).then(
+			(result) => {
+				// An invalidation dropped this load: a newer one owns the key.
+				if (!settle()) return;
+				const localBounds = toLocalBounds(result.bounds, element.x, element.y);
+				pathCache.set(cacheKey, { paths: result.paths, localBounds });
+				for (const notify of load.waiters) notify();
+			},
+			(err) => {
+				settle();
+				throw err;
+			},
+		);
+		pendingPathLoads.set(cacheKey, load);
+		return load;
 	}
 }
 

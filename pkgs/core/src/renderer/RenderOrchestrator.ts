@@ -55,6 +55,10 @@ import {
 	UNIFIED_VERTEX_BYTES,
 	UNIFIED_VERTEX_OFFSETS,
 } from "./canvas/pipeline/unifiedVertexLayout";
+import {
+	type DocumentRenderScope,
+	DocumentScopeRegistry,
+} from "./DocumentScopeRegistry";
 import { BlurFilterHandler } from "./filters/BlurFilter/BlurFilter";
 import { ClipToShapeFilterHandler } from "./filters/ClipToShapeFilter/ClipToShapeFilter";
 import { DropShadowFilterHandler } from "./filters/DropShadowFilter/DropShadowFilter";
@@ -269,6 +273,8 @@ export class RenderOrchestrator {
 	private registeredTargets = new Set<CanvasTarget>();
 	/** Target ids that render documents other than the live one. @see initCanvasTarget */
 	private isolatedTargets = new Set<string>();
+	/** Caches every target drawing the same document shares. */
+	private readonly documentScopes = new DocumentScopeRegistry();
 	/** Targets that rendered since the shared generators' frame clock last
 	 *  advanced. @see beginTargetFrame */
 	private targetsInRenderCycle = new Set<string>();
@@ -683,6 +689,9 @@ export class RenderOrchestrator {
 
 		this.profiler?.beginFrame();
 		this.beginTargetFrame(target.id);
+		td.canvasLayer.useDocumentScope(
+			this.documentScopeOf(target.id, request.document.id),
+		);
 
 		const frame = td.canvasLayer.render(
 			encoder,
@@ -803,6 +812,7 @@ export class RenderOrchestrator {
 		for (const td of this.targets.values()) {
 			td.cacheManager.dropDocument(documentId);
 		}
+		this.documentScopes.drop(documentId);
 	}
 
 	/**
@@ -818,9 +828,7 @@ export class RenderOrchestrator {
 	}
 
 	public invalidateTextCache(elementId?: string): void {
-		for (const td of this.targets.values()) {
-			td.canvasLayer.invalidateTextCache(elementId);
-		}
+		this.documentScopes.invalidateText(elementId);
 		if (elementId) {
 			this.textRenderer?.invalidateLayout(elementId);
 		} else {
@@ -899,6 +907,8 @@ export class RenderOrchestrator {
 		const restoreTextDocumentResolver = this.ensureTextDocumentResolver(
 			opts.document,
 		);
+		const documentScope = this.documentScopeOf(targetId, opts.document.id);
+		td.canvasLayer.useDocumentScope(documentScope);
 
 		// 1. Pre-warm text paths (renderText is synchronous and skips uncached)
 		const textElements = Object.values(opts.document.objects).filter(
@@ -988,6 +998,9 @@ export class RenderOrchestrator {
 			// A render through the active target is not one of its frames, so
 			// it leaves the shared clock to the frames that are.
 			if (opts.targetId) this.beginTargetFrame(opts.targetId);
+			// The target may have drawn its own document while the resources
+			// above loaded, so point it back at the scope they were loaded for.
+			td.canvasLayer.useDocumentScope(documentScope);
 			const rendered = td.canvasLayer.withExportClipMaskAtlas(() =>
 				renderIntermediate(),
 			);
@@ -1795,9 +1808,21 @@ export class RenderOrchestrator {
 		}
 
 		this.registeredTargets.delete(target);
+		this.documentScopes.dropIsolatedTarget(target.id);
 		this.isolatedTargets.delete(target.id);
 		this.targetsInRenderCycle.delete(target.id);
 		if (this.activeTarget === target) this.activeTarget = null;
+	}
+
+	/** The scope `targetId` draws `documentId` with. @see DocumentScopeRegistry */
+	private documentScopeOf(
+		targetId: string,
+		documentId: string,
+	): DocumentRenderScope {
+		return this.documentScopes.get(
+			documentId,
+			this.isolatedTargets.has(targetId) ? targetId : undefined,
+		);
 	}
 
 	/**

@@ -11,6 +11,7 @@ import type {
 	TextElement,
 } from "../../../schema";
 import { closedRectSegments } from "../../../testUtils/segmentFactory";
+import { DocumentRenderScope } from "../../DocumentScopeRegistry";
 import {
 	applyRotate3DToSegments,
 	applyRotate3DWithContext,
@@ -58,7 +59,7 @@ describe("TextElementRenderer", () => {
 						],
 					]),
 					stalePathCache: new Map(),
-					pendingPathCacheKeys: new Set(),
+					pendingPathLoads: new Map(),
 				},
 				renderState: {
 					boundsCache: new Map(),
@@ -169,7 +170,7 @@ describe("TextElementRenderer", () => {
 		it("should populate the path cache and trigger a re-render once the async load resolves", async () => {
 			const onRequestRender = vi.fn();
 			const pathCache = new Map();
-			const pendingPathCacheKeys = new Set<string>();
+			const pendingPathLoads = new Map();
 			const textElementToPaths = vi.fn(async () => ({
 				paths: [createGlyphPath("g", makeFill("g"))],
 				bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10, width: 10, height: 10 },
@@ -179,7 +180,7 @@ describe("TextElementRenderer", () => {
 					renderer: { textElementToPaths },
 					pathCache,
 					stalePathCache: new Map(),
-					pendingPathCacheKeys,
+					pendingPathLoads,
 					onRequestRender,
 				},
 				renderState: { boundsCache: new Map(), localBoundsCache: new Map() },
@@ -194,7 +195,7 @@ describe("TextElementRenderer", () => {
 
 			renderer.requestTextPathCache("text-cache", element);
 			// Cache miss is marked pending immediately (synchronously).
-			expect(pendingPathCacheKeys.has("text-cache")).toBe(true);
+			expect(pendingPathLoads.has("text-cache")).toBe(true);
 			await textElementToPaths.mock.results[0]!.value;
 			// Flush the .then()/.finally() microtasks queued after the awaited value.
 			await Promise.resolve();
@@ -202,7 +203,7 @@ describe("TextElementRenderer", () => {
 
 			expect(pathCache.has("text-cache")).toBe(true);
 			expect(onRequestRender).toHaveBeenCalledTimes(1);
-			expect(pendingPathCacheKeys.has("text-cache")).toBe(false);
+			expect(pendingPathLoads.has("text-cache")).toBe(false);
 		});
 
 		it("should not start a second load while one is already pending for the same key", () => {
@@ -214,7 +215,7 @@ describe("TextElementRenderer", () => {
 					renderer: { textElementToPaths },
 					pathCache: new Map(),
 					stalePathCache: new Map(),
-					pendingPathCacheKeys: new Set(),
+					pendingPathLoads: new Map(),
 				},
 				renderState: { boundsCache: new Map(), localBoundsCache: new Map() },
 				renderPath: vi.fn(),
@@ -230,6 +231,51 @@ describe("TextElementRenderer", () => {
 			renderer.requestTextPathCache("text-cache", element);
 
 			expect(textElementToPaths).toHaveBeenCalledTimes(1);
+		});
+
+		it("should redraw a canvas that found another canvas's layout in flight", async () => {
+			const layout = deferredLayout();
+			const scope = new DocumentRenderScope();
+			const exporting = createSharingRenderer(scope, layout.textElementToPaths);
+			const editorRedraw = vi.fn();
+			const editor = createSharingRenderer(
+				scope,
+				layout.textElementToPaths,
+				editorRedraw,
+			);
+			const element = makeTextElement();
+
+			const prewarm = exporting.ensureTextPaths(element);
+			editor.requestTextPathCache("text-cache", element);
+			layout.resolve(glyphLayout("g"));
+			await prewarm;
+
+			expect(layout.textElementToPaths).toHaveBeenCalledTimes(1);
+			expect(editorRedraw).toHaveBeenCalledTimes(1);
+		});
+
+		it("should keep the newer outlines when an invalidated layout lands last", async () => {
+			const stale = deferredLayout();
+			const fresh = deferredLayout();
+			const textElementToPaths = vi
+				.fn()
+				.mockImplementationOnce(stale.textElementToPaths)
+				.mockImplementationOnce(fresh.textElementToPaths);
+			const scope = new DocumentRenderScope();
+			const renderer = createSharingRenderer(scope, textElementToPaths);
+			const element = makeTextElement();
+
+			const staleLoad = renderer.ensureTextPaths(element);
+			scope.invalidateText();
+			const freshLoad = renderer.ensureTextPaths(element);
+			fresh.resolve(glyphLayout("fresh"));
+			await freshLoad;
+			stale.resolve(glyphLayout("stale"));
+			await staleLoad;
+
+			expect(scope.text.pathCache.get("text-cache")?.paths[0]?.id).toBe(
+				"fresh",
+			);
 		});
 	});
 });
@@ -425,7 +471,7 @@ describe("axis appearance underlay", () => {
 					],
 				]),
 				stalePathCache: new Map(),
-				pendingPathCacheKeys: new Set(),
+				pendingPathLoads: new Map(),
 			},
 			renderState: {
 				boundsCache: new Map(),
@@ -511,7 +557,7 @@ describe("bound text bounds sync", () => {
 					],
 				]),
 				stalePathCache: new Map(),
-				pendingPathCacheKeys: new Set(),
+				pendingPathLoads: new Map(),
 				onTextBoundsComputed,
 			},
 			renderState: {
@@ -642,7 +688,7 @@ function createRendererWithGlyphs(
 				],
 			]),
 			stalePathCache: new Map(),
-			pendingPathCacheKeys: new Set(),
+			pendingPathLoads: new Map(),
 		},
 		renderState: { boundsCache: new Map(), localBoundsCache: new Map() },
 		filterRenderer: {
@@ -703,4 +749,44 @@ function makeFill(id: string): FillAppearance {
 			},
 		},
 	};
+}
+
+/** A TextElementRenderer whose canvas reads `scope`'s text caches. */
+function createSharingRenderer(
+	scope: DocumentRenderScope,
+	textElementToPaths: (element: TextElement) => Promise<unknown>,
+	onRequestRender?: () => void,
+): TextElementRenderer {
+	return new TextElementRenderer({
+		textState: {
+			renderer: {
+				textElementToPaths,
+				computeTextCacheKey: () => "text-cache",
+			},
+			...scope.text,
+			onRequestRender,
+		},
+		renderState: { boundsCache: new Map(), localBoundsCache: new Map() },
+		renderPath: vi.fn(),
+	} as unknown as ConstructorParameters<typeof TextElementRenderer>[0]);
+}
+
+/** A layout call the test resolves by hand. */
+function deferredLayout() {
+	let resolve!: (layout: unknown) => void;
+	const result = new Promise((done) => {
+		resolve = done;
+	});
+	return { textElementToPaths: vi.fn(() => result), resolve };
+}
+
+function glyphLayout(glyphId: string) {
+	return {
+		paths: [createGlyphPath(glyphId, makeFill(glyphId))],
+		bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10, width: 10, height: 10 },
+	};
+}
+
+function makeTextElement(): TextElement {
+	return { type: "text", id: "text-1", x: 0, y: 0 } as unknown as TextElement;
 }

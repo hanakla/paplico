@@ -656,10 +656,6 @@ export class ElementRenderer {
 		this.textRenderer.syncTextBoundsIfNeeded(element, localBounds);
 	}
 
-	public invalidateTextCache(elementId?: string): void {
-		this.textRenderer.invalidateTextCache(elementId);
-	}
-
 	public async ensureTextPaths(element: TextElement): Promise<void> {
 		return this.textRenderer.ensureTextPaths(element);
 	}

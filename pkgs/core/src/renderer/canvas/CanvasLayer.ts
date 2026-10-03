@@ -80,6 +80,7 @@ import {
 	compileShaderModule,
 	type StructuredView,
 } from "../../utils/wgpu-utils";
+import type { DocumentRenderScope } from "../DocumentScopeRegistry";
 import { computePaintHash } from "../filters/shared/ExtrudeRenderCache";
 import type { GPUTimingProfiler } from "../GPUTimingProfiler";
 import type { GradientTextureGenerator } from "../generators/GradientTextureGenerator";
@@ -623,7 +624,7 @@ export class CanvasLayer {
 	private textState: TextState = {
 		renderer: null,
 		pathCache: new Map(),
-		pendingPathCacheKeys: new Set(),
+		pendingPathLoads: new Map(),
 		stalePathCache: new Map(),
 	};
 	private assetState: AssetState = {
@@ -8032,8 +8033,13 @@ export class CanvasLayer {
 	/**
 	 * Invalidate cached text paths for one element or the entire cache.
 	 */
-	public invalidateTextCache(elementId?: string): void {
-		this.elements.invalidateTextCache(elementId);
+	/**
+	 * Read and fill `scope`'s caches until the next call. The orchestrator
+	 * calls this before anything a render does for the document, export
+	 * pre-warming included.
+	 */
+	public useDocumentScope(scope: DocumentRenderScope): void {
+		Object.assign(this.textState, scope.text);
 	}
 
 	/**
@@ -8569,9 +8575,6 @@ export class CanvasLayer {
 		}
 		this.gradient.bufferPool.length = 0;
 
-		// Cleanup text path cache
-		this.textState.pathCache.clear();
-		this.textState.pendingPathCacheKeys.clear();
 		this.cacheManager.clearAll();
 	}
 }

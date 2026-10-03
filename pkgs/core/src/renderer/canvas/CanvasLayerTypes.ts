@@ -57,10 +57,19 @@ interface TextPathCacheEntry {
 	localBounds: BoundingBox;
 }
 
+/** One glyph layout in flight, shared by every canvas that asked for it. */
+export interface PendingTextPathLoad {
+	done: Promise<void>;
+	/** Redraw callbacks of the canvases waiting for the layout. */
+	waiters: Set<() => void>;
+}
+
 export interface TextState {
 	renderer: TextRenderer | null;
 	pathCache: Map<string, TextPathCacheEntry>;
-	pendingPathCacheKeys: Set<string>;
+	/** Layouts in flight by cache key. An invalidation removes an entry, and
+	 *  a load whose entry is gone discards its result. */
+	pendingPathLoads: Map<string, PendingTextPathLoad>;
 	/** Stale entries kept for rendering during async recomputation (flicker prevention). */
 	stalePathCache: Map<string, TextPathCacheEntry>;
 	onRequestRender?: () => void;
