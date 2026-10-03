@@ -45,6 +45,7 @@ import {
 	FilterRenderer,
 	type RegisterableFilterHandler,
 } from "./canvas/pipeline/FilterRenderer";
+import { ImageTextureStore } from "./canvas/pipeline/ImageTextureStore";
 import {
 	buildFilterPlansForElements,
 	planBoundsOf,
@@ -252,6 +253,7 @@ export class RenderOrchestrator {
 	private pipelines: Pipelines | null = null;
 	private layouts: Layouts | null = null;
 	private brushTextureManager: BrushTextureManager | null = null;
+	private imageTextures: ImageTextureStore | null = null;
 	private gradientTextureGenerator: GradientTextureGenerator | null = null;
 	private meshGradientTextureGenerator: MeshGradientTextureGenerator | null =
 		null;
@@ -430,6 +432,7 @@ export class RenderOrchestrator {
 			!this.gradientShaderCompiled ||
 			!this.filterRenderer ||
 			!this.brushTextureManager ||
+			!this.imageTextures ||
 			!this.gradientTextureGenerator
 		) {
 			throw new Error("initDevice() must be called before initCanvasTarget()");
@@ -513,6 +516,7 @@ export class RenderOrchestrator {
 				stripGeometryBindGroupLayout: this.layouts.stripGeometry,
 				cacheManager,
 				brushTextureManager: this.brushTextureManager,
+				imageTextures: this.imageTextures,
 				textRenderer: this.textRenderer ?? undefined,
 			},
 			target.id,
@@ -1786,6 +1790,7 @@ export class RenderOrchestrator {
 			// The device outlives a single target, so its cache scopes have to be
 			// released here rather than with the device.
 			td.cacheManager.clearAll();
+			this.imageTextures?.release(target.id);
 			this.targets.delete(target.id);
 		}
 
@@ -1840,6 +1845,8 @@ export class RenderOrchestrator {
 		this.filterRenderer = null;
 		this.brushTextureManager?.destroy();
 		this.brushTextureManager = null;
+		this.imageTextures?.destroy();
+		this.imageTextures = null;
 		this.gradientTextureGenerator?.destroy();
 		this.gradientTextureGenerator = null;
 		this.meshGradientTextureGenerator?.destroy();
@@ -2774,6 +2781,9 @@ export class RenderOrchestrator {
 		);
 		this.meshGradientTextureGenerator = new MeshGradientTextureGenerator(
 			this.device,
+		);
+		this.imageTextures = new ImageTextureStore(this.device, () =>
+			this._onRequestRender?.(),
 		);
 	}
 }

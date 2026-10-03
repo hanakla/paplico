@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { createIdentityTransform } from "../../../document/factory";
 import type { EmbeddedFile, ImageObject } from "../../../schema";
 import { Rotate3DFilterHandler } from "../../filters/Rotate3DFilter/Rotate3DFilter";
-import type { AssetState } from "../CanvasLayerTypes";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
+import type { ImageTextures } from "../pipeline/ImageTextureStore";
 import { ImageElementRenderer } from "./ImageElementRenderer";
 
 describe("ImageElementRenderer", () => {
@@ -55,20 +55,17 @@ function createRenderer(): {
 
 function createDeps() {
 	const texture = {} as GPUTexture;
-	const assetState: AssetState = {
-		textureCache: new Map(),
-		imageTextureCache: new Map([["file-1", texture]]),
-		pendingImageLoads: new Map(),
-		currentFiles: [],
-		pendingBrushTextureLoads: new Set(),
+	const images: ImageTextures = {
+		get: (file) => (file.uid === "file-1" ? texture : null),
+		has: (file) => file.uid === "file-1",
+		ensure: async () => null,
 	};
 
 	return {
-		device: {} as GPUDevice,
 		strokePipeline: {} as GPURenderPipeline,
 		dummyGradientBindGroup: {} as GPUBindGroup,
 		getMaskBindGroup: vi.fn(() => ({}) as GPUBindGroup),
-		assetState,
+		images,
 		blitTextureToCanvas: vi.fn(),
 		blitQuadToCanvas: vi.fn(),
 		blitMeshToCanvas: vi.fn(),

@@ -185,6 +185,10 @@ import {
 	FrameGraph,
 } from "./pipeline/FrameGraph";
 import { IdleClock, type UseStamp } from "./pipeline/IdleClock";
+import type {
+	ImageTextureStore,
+	ImageTextures,
+} from "./pipeline/ImageTextureStore";
 import {
 	type GroupCompositionPlan,
 	groupPlanRequiresSurface,
@@ -516,6 +520,8 @@ export class CanvasLayer {
 	private composite!: CompositeRenderer;
 	public readonly offscreen!: OffscreenPresenter;
 	private filterRenderer: FilterRenderer;
+	/** Embedded image textures, shared with every other canvas. */
+	private readonly imageTextures: ImageTextures;
 	private backdropCaptureManager: BackdropCaptureManager;
 	private readonly brushRenderer: BrushRenderer;
 	/** Request another frame (async resource loads, and tile convergence: a
@@ -622,8 +628,6 @@ export class CanvasLayer {
 	};
 	private assetState: AssetState = {
 		textureCache: new Map(),
-		imageTextureCache: new Map(),
-		pendingImageLoads: new Map(),
 		currentFiles: [],
 		pendingBrushTextureLoads: new Set(),
 	};
@@ -801,6 +805,7 @@ export class CanvasLayer {
 			maskChainBindGroupLayout: GPUBindGroupLayout;
 			cacheManager: RenderCacheManager;
 			brushTextureManager: BrushTextureManager;
+			imageTextures: ImageTextureStore;
 		},
 		canvasId: string,
 	) {
@@ -846,6 +851,7 @@ export class CanvasLayer {
 		this.sampler = resources.sampler;
 		this.nearestSampler = resources.nearestSampler;
 		this.filterRenderer = resources.filterRenderer;
+		this.imageTextures = resources.imageTextures.forCanvas(canvasId);
 
 		this.backdropCaptureManager = resources.backdropCaptureManager;
 
@@ -937,6 +943,7 @@ export class CanvasLayer {
 			viewportState: this.viewportState,
 			renderState: this.renderState,
 			assetState: this.assetState,
+			images: this.imageTextures,
 			textState: this.textState,
 			gradient: this.gradient,
 			dummyGradientBindGroup: this.dummyGradientBindGroup,
@@ -1045,7 +1052,7 @@ export class CanvasLayer {
 				this.resolvePatternTexture(defId),
 			resolveTextOutline: (el) => this.resolveTextOutline(el),
 			requestTextOutline: (el) => this.requestTextOutline(el),
-			isImageReady: (fileUid) => this.assetState.imageTextureCache.has(fileUid),
+			isImageReady: this.isImageReady,
 			deferDestroy: (tex) => this.offscreen.deferDestroy(tex),
 			canvasFormat: this.canvasFormat,
 			backdropEffectCoordinator: this.backdropEffectCoordinator,
@@ -1652,6 +1659,12 @@ export class CanvasLayer {
 	private getComposedTransform = (elementId: string): ElementTransform =>
 		this.viewportManager.getComposedTransformCache().get(elementId) ??
 		createIdentityTransform();
+
+	/** Whether the frame's document has the image file `fileUid` loaded. */
+	private isImageReady = (fileUid: string): boolean => {
+		const file = this.assetState.currentFiles.find((f) => f.uid === fileUid);
+		return file != null && this.imageTextures.has(file);
+	};
 
 	/** Where an element is drawn this frame: its bounds carried through the
 	 *  containers above it, as the transform buffer composes them. */
@@ -4358,8 +4371,7 @@ export class CanvasLayer {
 						texturePool: this.texturePool,
 						resolveTextOutline: (el) => this.resolveTextOutline(el),
 						requestTextOutline: (el) => this.requestTextOutline(el),
-						isImageReady: (fileUid) =>
-							this.assetState.imageTextureCache.has(fileUid),
+						isImageReady: this.isImageReady,
 					}
 				: undefined;
 
@@ -4566,7 +4578,7 @@ export class CanvasLayer {
 		return {
 			resolvePatternTexture: (defId) => this.resolvePatternTexture(defId),
 			resolveTextOutline: (el) => this.resolveTextOutline(el),
-			isImageReady: (fileUid) => this.assetState.imageTextureCache.has(fileUid),
+			isImageReady: this.isImageReady,
 			filterRenderer: this.filterRenderer,
 		};
 	}
@@ -8547,13 +8559,6 @@ export class CanvasLayer {
 			texture.destroy();
 		}
 		this.assetState.textureCache.clear();
-
-		// Cleanup image texture cache
-		for (const texture of this.assetState.imageTextureCache.values()) {
-			texture.destroy();
-		}
-		this.assetState.imageTextureCache.clear();
-		this.assetState.pendingImageLoads.clear();
 
 		// Cleanup gradient resources
 		this.gradient.placeholderTexture.destroy();

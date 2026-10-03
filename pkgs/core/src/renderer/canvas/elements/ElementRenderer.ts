@@ -46,6 +46,7 @@ import type {
 	BrushRenderer,
 } from "../pipeline/brush/BrushRenderer";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
+import type { ImageTextures } from "../pipeline/ImageTextureStore";
 import { geometryFilters } from "../pipeline/PreFilterRenderer";
 import type { StripFrame } from "../pipeline/strips/StripFrame";
 import type {
@@ -89,6 +90,7 @@ interface ElementRendererDeps extends SharedRenderBindings {
 	viewportState: ViewportState;
 	renderState: RenderState;
 	assetState: AssetState;
+	images: ImageTextures;
 	textState: TextState;
 	gradient: GradientState;
 	brushRenderer: BrushRenderer;
@@ -182,11 +184,10 @@ export class ElementRenderer {
 			ensureBrushTexture: (uid, files) => this.ensureBrushTexture(uid, files),
 		});
 		this.imageRenderer = new ImageElementRenderer({
-			device: deps.device,
 			strokePipeline: deps.strokePipeline,
 			dummyGradientBindGroup: deps.dummyGradientBindGroup,
 			getMaskBindGroup: deps.getMaskBindGroup,
-			assetState: deps.assetState,
+			images: deps.images,
 			blitTextureToCanvas: deps.blitTextureToCanvas,
 			blitQuadToCanvas: deps.blitQuadToCanvas,
 			blitMeshToCanvas: deps.blitMeshToCanvas,
@@ -693,7 +694,7 @@ export class ElementRenderer {
 		await Promise.all(
 			imageElements.map((image) => {
 				const file = document.files.find((f) => f.uid === image.fileUid);
-				return file ? this.imageRenderer.ensureImageTexture(file) : null;
+				return file ? this.deps.images.ensure(file) : null;
 			}),
 		);
 	}

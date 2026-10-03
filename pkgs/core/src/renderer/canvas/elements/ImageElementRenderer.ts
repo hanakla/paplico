@@ -19,20 +19,19 @@ import {
 	splitIntoSubPaths,
 } from "../../../utils/geometry/segmentOps";
 import type {
-	AssetState,
 	BlitMeshToCanvasFn,
 	BlitQuadToCanvasFn,
 	BlitTextureToCanvasFn,
 } from "../CanvasLayerTypes";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
+import type { ImageTextures } from "../pipeline/ImageTextureStore";
 import { applyPreFilters } from "../pipeline/PreFilterRenderer";
 
 interface ImageRendererDeps {
-	device: GPUDevice;
 	strokePipeline: GPURenderPipeline;
 	dummyGradientBindGroup: GPUBindGroup;
 	getMaskBindGroup: () => GPUBindGroup;
-	assetState: AssetState;
+	images: ImageTextures;
 	blitTextureToCanvas: BlitTextureToCanvasFn;
 	blitQuadToCanvas: BlitQuadToCanvasFn;
 	blitMeshToCanvas: BlitMeshToCanvasFn;
@@ -60,10 +59,10 @@ export class ImageElementRenderer {
 		}
 
 		// Get texture from cache (sync only - async load triggers re-render)
-		const texture = this.deps.assetState.imageTextureCache.get(file.uid);
+		const texture = this.deps.images.get(file);
 		if (!texture) {
 			// Start async load, will render on next frame
-			this.ensureImageTexture(file);
+			this.deps.images.ensure(file);
 			return;
 		}
 
@@ -136,10 +135,10 @@ export class ImageElementRenderer {
 			return;
 		}
 
-		const texture = this.deps.assetState.imageTextureCache.get(file.uid);
+		const texture = this.deps.images.get(file);
 		if (!texture) {
 			// Start async load, will render on next frame
-			this.ensureImageTexture(file);
+			this.deps.images.ensure(file);
 			return;
 		}
 
@@ -160,87 +159,6 @@ export class ImageElementRenderer {
 		passEncoder.setBindGroup(1, this.deps.getTransformsBindGroup()!);
 		passEncoder.setBindGroup(2, this.deps.dummyGradientBindGroup);
 		passEncoder.setBindGroup(3, this.deps.getMaskBindGroup());
-	}
-
-	public async ensureImageTexture(
-		file: EmbeddedFile,
-	): Promise<GPUTexture | null> {
-		// Check cache first
-		const cached = this.deps.assetState.imageTextureCache.get(file.uid);
-		if (cached) return cached;
-
-		// Check if already loading
-		const pending = this.deps.assetState.pendingImageLoads.get(file.uid);
-		if (pending) return pending;
-
-		// Start loading
-		const loadPromise = (async () => {
-			try {
-				// Create Blob from Uint8Array (cast to ensure ArrayBuffer compatibility)
-				const blob = new Blob([file.bin as BlobPart], { type: file.type });
-
-				// Create ImageBitmap from Blob
-				const imageBitmap = await createImageBitmap(blob);
-
-				// Create GPUTexture
-				const texture = this.deps.device.createTexture({
-					label: `Image Texture: ${file.name}`,
-					size: { width: imageBitmap.width, height: imageBitmap.height },
-					format: "rgba8unorm",
-					usage:
-						GPUTextureUsage.TEXTURE_BINDING |
-						GPUTextureUsage.COPY_DST |
-						GPUTextureUsage.RENDER_ATTACHMENT,
-				});
-
-				// Copy ImageBitmap to GPUTexture with premultiplied alpha.
-				// The blit pipeline uses premultiplied alpha blending
-				// (srcFactor: "one"), so the texture must store premultiplied values.
-				try {
-					this.deps.device.queue.copyExternalImageToTexture(
-						{ source: imageBitmap },
-						{ texture, premultipliedAlpha: true },
-						{ width: imageBitmap.width, height: imageBitmap.height },
-					);
-				} catch {
-					// dawn-node doesn't support copyExternalImageToTexture with ImageBitmap.
-					// Decode with pngjs and write raw RGBA pixels via writeTexture.
-					const { PNG } = await import("pngjs");
-					const png = PNG.sync.read(Buffer.from(file.bin));
-					const pixelData = Uint8Array.from(png.data);
-					// Premultiply alpha to match blit pipeline expectations
-					for (let i = 0; i < pixelData.length; i += 4) {
-						const a = pixelData[i + 3] / 255;
-						pixelData[i] = Math.round(pixelData[i] * a);
-						pixelData[i + 1] = Math.round(pixelData[i + 1] * a);
-						pixelData[i + 2] = Math.round(pixelData[i + 2] * a);
-					}
-					this.deps.device.queue.writeTexture(
-						{ texture },
-						pixelData,
-						{
-							bytesPerRow: imageBitmap.width * 4,
-							rowsPerImage: imageBitmap.height,
-						},
-						[imageBitmap.width, imageBitmap.height, 1],
-					);
-				}
-
-				// Cache the texture
-				this.deps.assetState.imageTextureCache.set(file.uid, texture);
-				this.deps.assetState.pendingImageLoads.delete(file.uid);
-				this.deps.assetState.onRequestRender?.();
-
-				return texture;
-			} catch (error) {
-				console.error(`Failed to load image texture: ${file.name}`, error);
-				this.deps.assetState.pendingImageLoads.delete(file.uid);
-				return null;
-			}
-		})();
-
-		this.deps.assetState.pendingImageLoads.set(file.uid, loadPromise);
-		return loadPromise;
 	}
 }
 

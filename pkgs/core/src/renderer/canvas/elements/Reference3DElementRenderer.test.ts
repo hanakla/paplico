@@ -281,8 +281,6 @@ function createRenderer(options: { context?: null } = {}) {
 
 	const assetState: AssetState = {
 		textureCache: new Map(),
-		imageTextureCache: new Map(),
-		pendingImageLoads: new Map(),
 		currentFiles: [],
 		pendingBrushTextureLoads: new Set(),
 		onRequestRender: vi.fn(),

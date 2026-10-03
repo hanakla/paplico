@@ -95,8 +95,6 @@ export interface Reference3DTextureCacheEntry {
 
 export interface AssetState {
 	textureCache: Map<string, GPUTexture>;
-	imageTextureCache: Map<string, GPUTexture>;
-	pendingImageLoads: Map<string, Promise<GPUTexture | null>>;
 	currentFiles: EmbeddedFile[];
 	pendingBrushTextureLoads: Set<string>;
 	onRequestRender?: () => void;
