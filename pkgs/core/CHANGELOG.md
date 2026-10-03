@@ -26,6 +26,7 @@
   - Fix GPU memory staying allocated after switching documents, deleting elements, or leaving the canvas idle.
 - **Export**
   - Fix an artboard export leaving gigabytes of GPU memory allocated until the next edit.
+  - Fix an export of a document with a backdrop filter leaving hundreds of megabytes of GPU memory allocated after it finishes.
 - **Viewport**
   - Fix the canvas not redrawing, or redrawing only from a stretched stale frame, after `CanvasTarget.setViewport` is called directly.
 - **Filters**

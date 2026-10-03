@@ -275,6 +275,7 @@ export interface CanvasFrameTransaction {
 
 interface ExportPoolSnapshot {
 	texturePoolBudgetBytes: number;
+	pooledTextures: ReadonlySet<GPUTexture>;
 	filterTempPairKeys: ReadonlySet<string>;
 }
 
@@ -7975,6 +7976,7 @@ export class CanvasLayer {
 	public snapshotExportPools(): ExportPoolSnapshot {
 		return {
 			texturePoolBudgetBytes: this.texturePool.getBudgetBytes(),
+			pooledTextures: this.texturePool.snapshot(),
 			filterTempPairKeys: this.filterRenderer.getTempPairKeys(),
 		};
 	}
@@ -7989,7 +7991,9 @@ export class CanvasLayer {
 		this.exportClipMaskAtlas?.destroy();
 		this.exportClipMaskAtlas = null;
 		this.texturePool.setBudgetBytes(snapshot.texturePoolBudgetBytes);
-		this.texturePool.trimToBudget();
+		// The pool's budget leaves room for an export's working set, so trim
+		// it back to what it held before rather than to the budget.
+		this.texturePool.trimToSnapshot(snapshot.pooledTextures);
 		this.filterRenderer.releaseIsolatedRenderTextures(
 			snapshot.filterTempPairKeys,
 		);

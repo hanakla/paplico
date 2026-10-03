@@ -102,6 +102,35 @@ describe("TexturePool", () => {
 			expect(device.createTexture).toHaveBeenCalledTimes(2);
 		});
 	});
+
+	describe("trimToSnapshot", () => {
+		it("should free the idle textures added after the snapshot and keep the earlier ones", () => {
+			const pool = new TexturePool(createMockDevice());
+			const earlier = acquireColor(pool, 256);
+			pool.release(earlier);
+			const snapshot = pool.snapshot();
+
+			const borrowed = acquireColor(pool, 256);
+			const added = acquireColor(pool, 512);
+			pool.release(borrowed);
+			pool.release(added);
+			pool.trimToSnapshot(snapshot);
+
+			expect(borrowed).toBe(earlier);
+			expect(earlier.destroy).not.toHaveBeenCalled();
+			expect(added.destroy).toHaveBeenCalledOnce();
+		});
+
+		it("should keep a texture added after the snapshot while it is lent out", () => {
+			const pool = new TexturePool(createMockDevice());
+			const snapshot = pool.snapshot();
+
+			const lent = acquireColor(pool, 256);
+			pool.trimToSnapshot(snapshot);
+
+			expect(lent.destroy).not.toHaveBeenCalled();
+		});
+	});
 });
 
 function acquireColor(pool: TexturePool, size: number): GPUTexture {

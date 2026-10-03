@@ -17,7 +17,8 @@
  *   const t = pool.acquire(...)  // borrow a texture
  *   pool.release(t)              // return it (actual destroy is deferred)
  *   pool.trimIdle(n)             // between frames — free what sat out n frames
- *   pool.trimToBudget()          // between frames — free the oldest while over budget
+ *   const kept = pool.snapshot() // before a one-off render
+ *   pool.trimToSnapshot(kept)    // after it — free what it left idle
  *   pool.destroy()               // teardown — destroy everything
  */
 
@@ -271,14 +272,18 @@ export class TexturePool {
 		}
 	}
 
+	/** Every texture the pool holds now, idle or lent out. */
+	public snapshot(): ReadonlySet<GPUTexture> {
+		return new Set([...this.releasedAt.keys(), ...this.inUse]);
+	}
+
 	/**
-	 * Free the least recently released textures while over budget, without
-	 * starting a frame. Call between frames only.
+	 * Free the idle textures that were not in the pool when `snapshot` was
+	 * taken. Call between frames only.
 	 */
-	public trimToBudget(): void {
+	public trimToSnapshot(snapshot: ReadonlySet<GPUTexture>): void {
 		for (const [texture, { key }] of this.releasedAt) {
-			if (this.totalPooledBytes <= this.budgetBytes) break;
-			this.evict(texture, key);
+			if (!snapshot.has(texture)) this.evict(texture, key);
 		}
 	}
 
