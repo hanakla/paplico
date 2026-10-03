@@ -1665,7 +1665,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	/**
 	 * Make the target the one that shows tool overlays and passes pointer
-	 * input to the current tool. Other targets render without tool overlays.
+	 * input to the current tool. Other targets render without tool overlays
+	 * and without the editing scope.
 	 */
 	public activateCanvasTarget(targetId: string): void {
 		const target = this.getCanvasTarget(targetId);
@@ -1674,6 +1675,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.activeTarget = target;
 		// Every target redraws: the old one drops its overlays, the new one gains them.
 		this.markDirty("selection");
+		// The scope dims document pixels, which overlay-only dirt does not redraw.
+		if (this.rendererStore.editingScopeStack.length > 0) {
+			this.markDirty("editingScope");
+		}
 		this.emit("activeCanvasTargetChange", { targetId });
 	}
 
@@ -1794,6 +1799,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		if (!this.spatialIndex) return;
 
 		const doc = snapshot(this.rendererStore.document) as Document;
+		const isActiveTarget = entry.target === this.getActiveTarget();
 		this.renderer.setCanvasTarget(entry.target);
 
 		this.renderer.render(
@@ -1805,7 +1811,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				getDefRevision: (defId) => this.defIndex.getRevision(defId),
 				defRevision: this.defIndex.getGlobalRevision(),
 				boundsCache: this.spatialIndex.getBoundsCache(),
-				editingScopeStack: this.rendererStore.editingScopeStack,
+				editingScopeStack: isActiveTarget
+					? this.rendererStore.editingScopeStack
+					: undefined,
 				isolatedElementId: this.reference3dController.getEditingElementId(),
 				elementOverrides:
 					this.rendererStore.elementOverrides.size > 0
@@ -1824,7 +1832,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						: undefined,
 				softProof: this.softProof.active,
 			},
-			entry.target === this.getActiveTarget()
+			isActiveTarget
 				? this.rendererStore.uiOverlayState
 				: INACTIVE_TARGET_UI_OVERLAY_STATE,
 		);
