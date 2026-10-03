@@ -1,6 +1,6 @@
 import type { Paplico } from "@paplico/core";
 import { generateUid } from "@paplico/core/schema";
-import { proxy } from "valtio";
+import { proxy, ref } from "valtio";
 import { setLastDocumentId } from "@/hooks/useAppConfig";
 import type { FileHandle } from "@/infra/filesystem";
 import {
@@ -22,6 +22,7 @@ interface DocumentSession {
 	revision: number;
 }
 
+// The native FileSystemFileHandle breaks when Valtio wraps it, so handles are stored with ref().
 export const documentSessionState = proxy<DocumentSession>({
 	identity: crypto.randomUUID(),
 	source: { kind: "initial" },
@@ -48,7 +49,7 @@ export function setSnapshotDocumentSession(): void {
  * the same, so the session identity is kept.
  */
 export function setDocumentFileHandle(fileHandle: FileHandle): void {
-	documentSessionState.fileHandle = fileHandle;
+	documentSessionState.fileHandle = ref(fileHandle);
 }
 
 /**
@@ -85,6 +86,6 @@ function replaceDocumentSession(
 ): void {
 	documentSessionState.identity = crypto.randomUUID();
 	documentSessionState.source = source;
-	documentSessionState.fileHandle = fileHandle;
+	documentSessionState.fileHandle = fileHandle && ref(fileHandle);
 	documentSessionState.revision++;
 }
