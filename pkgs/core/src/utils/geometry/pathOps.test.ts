@@ -10,6 +10,7 @@ import type {
 	Path,
 	StrokeAppearance,
 } from "../../schema";
+import clipCompoundUnionPaths from "../../testUtils/fixtures/clipCompoundUnionPaths.json";
 import zeroHandleUnionPaths from "../../testUtils/fixtures/zeroHandleUnionPaths.json";
 import {
 	arcLengthRatioAt,
@@ -189,6 +190,28 @@ describe("computeBooleanOperation", () => {
 		const bounds = segmentsBounds(segments);
 		expect(bounds.minX).toBeCloseTo(1389.57, 1);
 		expect(bounds.maxX).toBeCloseTo(1456.39, 1);
+	});
+
+	it("keeps sources that cross next to a vertex where a curve's handle is zero", () => {
+		const paths = (clipCompoundUnionPaths as unknown as Path[]).map((path) =>
+			toWorldPath(path),
+		);
+
+		const segments = computeBooleanOperation(
+			paths.map((path) => ({ id: path.id, op: "union" })),
+			new Map(paths.map((path) => [path.id, path])),
+		);
+
+		const bounds = segmentsBounds(segments);
+		const anchors = paths.flatMap((path) =>
+			path.segments.map((segment) => segment.end),
+		);
+		for (const anchor of anchors) {
+			expect(anchor.x).toBeGreaterThanOrEqual(bounds.minX - 0.01);
+			expect(anchor.x).toBeLessThanOrEqual(bounds.maxX + 0.01);
+			expect(anchor.y).toBeGreaterThanOrEqual(bounds.minY - 0.01);
+			expect(anchor.y).toBeLessThanOrEqual(bounds.maxY + 0.01);
+		}
 	});
 
 	it("skips missing sources and computes from available sources only", () => {

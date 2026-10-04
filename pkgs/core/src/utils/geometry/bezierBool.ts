@@ -1178,6 +1178,21 @@ class Intersecter {
 		});
 	}
 
+	/**
+	 * Whether an intersection at `t` and `p` cuts the segment between its
+	 * endpoints. A curve barely moves near an end whose handle is zero, so a `t`
+	 * short of 0 or 1 can still land on that end and would leave a zero-length
+	 * piece.
+	 */
+	private dividesInside(seg: Segment, t: number, p: Vec2): boolean {
+		return (
+			t > 0 &&
+			t < 1 &&
+			!this.geo.isEqualVec2(p, seg.start()) &&
+			!this.geo.isEqualVec2(p, seg.end())
+		);
+	}
+
 	private divideEvent(ev: EventBool, t: number, p: Vec2) {
 		const [left, right] = ev.seg.data.split([t]) as [Segment, Segment];
 
@@ -1470,12 +1485,10 @@ class Intersecter {
 								? seg1.data.end()
 								: seg1.data.point(tA);
 
-			// is A divided between its endpoints? (exclusive)
-			if (tA > 0 && tA < 1) {
+			if (this.dividesInside(seg1.data, tA, p)) {
 				this.divideEvent(ev1, tA, p);
 			}
-			// is B divided between its endpoints? (exclusive)
-			if (tB > 0 && tB < 1) {
+			if (this.dividesInside(seg2.data, tB, p)) {
 				this.divideEvent(ev2, tB, p);
 			}
 			return null;
