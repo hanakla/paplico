@@ -253,6 +253,37 @@ describe("PathEditTool", () => {
 			expect(lastOverlayCall(ctx, HANDLES_KEY)).toBeNull();
 		});
 
+		it("should make the path owning the clicked vertex the element selection", () => {
+			const pathA = makeStraightPath("path-a", [0, 100]);
+			const pathB = makeStraightPath("path-b", [0, 200]);
+			ctx.getSelectedElementIds.mockReturnValue(["path-b"]);
+			tool.initWithSelectedPaths(
+				[pathA, pathB],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			ctx.selectionSelectMultiple.mockClear();
+
+			// Click path-a's end anchor at world(100,0) -> screen(500,300)
+			tool.onPointerDown(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.selectionSelectMultiple.mock.calls.at(-1)?.[0]).toEqual([
+				"path-a",
+			]);
+		});
+
 		it("should initialize with initWithSelectedPaths", () => {
 			const path = cloneTestPath();
 			tool.initWithSelectedPaths(

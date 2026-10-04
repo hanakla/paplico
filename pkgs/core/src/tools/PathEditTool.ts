@@ -3520,6 +3520,8 @@ export class PathEditTool implements Tool {
 			return;
 		}
 
+		this.syncElementSelectionToSelectedVertices();
+
 		const paths = Array.from(this.selectedPaths.values()).map((path) => ({
 			pathId: path.id,
 			controlPoints: this.extractControlPoints(
@@ -3629,6 +3631,31 @@ export class PathEditTool implements Tool {
 				PathEditTool.VERTEX_FRAME_PADDING_PX / zoom,
 			),
 		);
+	}
+
+	/**
+	 * Makes every path / mesh that owns at least one selected vertex the element
+	 * selection, so the color swatch and other element-bound UI target them.
+	 * Keeps the current selection while no vertex is selected.
+	 */
+	private syncElementSelectionToSelectedVertices(): void {
+		const vertexPathIds = new Set(
+			[...this.selectedHandles].map((key) => key.split(":")[0]),
+		);
+		const ids = vertexPathIds
+			.intersection(this.selectedPaths)
+			.union(
+				new Set(
+					[...this.selectedMeshVertices].map(
+						(key) => parseMeshVertexKey(key).meshId,
+					),
+				),
+			);
+		if (ids.size === 0) return;
+
+		const current = new Set(this.context.getSelectedElementIds());
+		if (current.symmetricDifference(ids).size === 0) return;
+		this.context.selectionSelectMultiple([...ids]);
 	}
 
 	/** The selected anchors of the selected paths, grouped by path. */

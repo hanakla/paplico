@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Path edit tool**
+  - Fix the color swatch targeting the previously selected object instead of the objects whose vertices are selected.
+
 ## [0.6.0] - 2026-10-04
 
 ### Changed
@@ -17,6 +22,7 @@
 - **Split view**
   - Typing no longer lays out the text once per canvas.
   - Editing compound paths, group outlines, blends and mesh warps no longer computes their shapes once per canvas.
+  - Editing a group dims the rest of the document only in the canvas you are working in instead of in every canvas.
 
 ### Fixed
 
