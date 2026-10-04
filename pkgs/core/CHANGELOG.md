@@ -8,6 +8,8 @@
   - `PaplicoCommands.commitArtboardMove` takes the elements riding on the artboard and the move delta instead of prebuilt element moves.
 - **Commands**
   - `moveElements` and `commitArtboardMove` skip an element whose group is moved with it instead of moving it twice.
+- **Text tool**
+  - Picking a character or glyph, placing the caret, highlighting a selection and the overflow badges map a text's flow-chain regions and transform to the canvas through one shared path instead of separate copies.
 
 ### Fixed
 

@@ -98,18 +98,14 @@ import {
 	cloneAppearance,
 	colorToRawRGBA,
 	type Document,
-	type ElementTransform,
 	type EmbeddedFile,
 	type FillAppearance,
 	type FillColor,
 	type Filter,
 	generateUid,
 	getArtboardBounds,
-	getContainerChildIds,
 	getTransform,
 	isAppearancePresetRef,
-	isContainer,
-	isIdentityTransform,
 	isReference3D,
 	type Layer,
 	type Path,
@@ -156,6 +152,7 @@ import {
 } from "./tools/toolSettings";
 import type { FontLoader } from "./typography/fonts/FontLoader";
 import { FontManager } from "./typography/fonts/FontManager";
+import { TextInteraction } from "./typography/TextInteraction";
 import { PaplicoUI } from "./ui/PaplicoUI";
 import {
 	type ExtractedAppearance,
@@ -168,8 +165,6 @@ import { brandWorldBBox } from "./utils/geometry/bounds";
 import {
 	applyTransformToPoint,
 	composeTransforms,
-	cursorLocalToWorld,
-	inverseTransform,
 } from "./utils/geometry/geometry";
 import { buildArcLengthTable } from "./utils/geometry/pathSampling";
 import { resolveSelectionFrame } from "./utils/geometry/selectionFrame";
@@ -326,6 +321,15 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private readonly renderChangeSubscriber: DocumentChangeSubscriber;
 	private readonly defIndex = new DefIndex();
 	private readonly textDepIndex = new TextDependencyIndex();
+	private readonly textInteraction = new TextInteraction({
+		getDocument: () => this.rendererStore.document,
+		getSpatialIndex: () => this.spatialIndex,
+		textDepIndex: this.textDepIndex,
+		getTextRenderer: () => this.renderer?.getTextRenderer() ?? null,
+		getHitTolerance: () =>
+			UI_THEME.hitTolerancePx /
+			(this.getPrimaryTarget()?.getViewport()?.zoom ?? 1),
+	});
 	private textOverflowRefreshSeq = 0;
 	private lastTextOverflowBadgeKey: string | null = null;
 	private textOverflowRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2070,14 +2074,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			getWorldSegments: (id) =>
 				this.spatialIndex.getElementWorldPath(id)?.segments ?? null,
 			getGeometryRevision: (id) => this.textDepIndex.getGeometryRevision(id),
-			getTextTransform: (element) =>
-				this.resolveTextTransform(element.id, element),
-			findFlowSource: (textId) => {
-				const sourceId = this.textDepIndex.findFlowSourceId(textId);
-				if (!sourceId) return null;
-				const source = this.rendererStore.document.objects[sourceId];
-				return source?.type === "text" ? source : null;
-			},
+			getTextTransform: (element) => this.textInteraction.transformOf(element),
+			findFlowSource: (textId) => this.textInteraction.findFlowSource(textId),
 		});
 		this.wireTextHitTester();
 	}
@@ -2136,14 +2134,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				// Worldize through the element transform like every other
 				// text overlay — untransformed anchors land far off for
 				// rotated/scaled texts
-				const { t, isIdentity } = this.resolveTextTransform(obj.id, obj);
-				const wx = state.anchorLocal.x + obj.x;
-				const wy = state.anchorLocal.y + obj.y;
 				badges.push({
 					textId: obj.id,
-					anchor: isIdentity
-						? { x: wx, y: wy }
-						: applyTransformToPoint(wx, wy, t),
+					anchor: this.textInteraction.localToWorld(obj)(state.anchorLocal),
 				});
 			} catch {
 				// Layout failure (e.g. fonts still loading): skip this element
@@ -2232,44 +2225,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				height: h,
 			}),
 		);
-	}
-
-	/**
-	 * The flow-chain member whose world bounds contain the point (nearest
-	 * bounds center as fallback). Non-chained elements map to themselves.
-	 */
-	private resolveTextRegionAtPoint(
-		element: TextElement,
-		worldX: number,
-		worldY: number,
-	): TextElement {
-		const memberIds = this.textDepIndex.chainMemberIds(element.id);
-		if (memberIds.length <= 1) return element;
-
-		let nearest: TextElement | null = null;
-		let nearestDist = Number.POSITIVE_INFINITY;
-		for (const id of memberIds) {
-			const member = this.rendererStore.document.objects[id];
-			if (member?.type !== "text") continue;
-			const bounds = this.spatialIndex.getWorldBounds(id);
-			if (!bounds) continue;
-			if (
-				worldX >= bounds.minX &&
-				worldX <= bounds.maxX &&
-				worldY >= bounds.minY &&
-				worldY <= bounds.maxY
-			) {
-				return member;
-			}
-			const cx = (bounds.minX + bounds.maxX) / 2;
-			const cy = (bounds.minY + bounds.maxY) / 2;
-			const dist = (worldX - cx) ** 2 + (worldY - cy) ** 2;
-			if (dist < nearestDist) {
-				nearestDist = dist;
-				nearest = member;
-			}
-		}
-		return nearest ?? element;
 	}
 
 	/**
@@ -2509,85 +2464,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	// ===== Tool Management =====
-
-	private resolveTextTransform(
-		elementId: string,
-		element: TextElement,
-	): { t: ElementTransform; isIdentity: boolean } {
-		const ancestorT = this.spatialIndex.getAncestorTransform(elementId);
-		const elementT = element.transform;
-		const t = ancestorT ? composeTransforms(ancestorT, elementT) : elementT;
-		return { t, isIdentity: isIdentityTransform(t) };
-	}
-
-	/**
-	 * Depth-first, front-to-back search for a text element under the pointer
-	 * inside a container. findElementAtPoint promotes hits to their top-level
-	 * container, so the text tool needs this to reach grouped texts.
-	 */
-	private findTextInContainerAtPoint(
-		container: AnyArtObject,
-		worldX: number,
-		worldY: number,
-		tolerance: number,
-	): TextElement | null {
-		const childIds = getContainerChildIds(container) ?? [];
-		for (let i = childIds.length - 1; i >= 0; i--) {
-			const child = this.rendererStore.document.objects[childIds[i]];
-			if (!child || child.visible === false) continue;
-			if (child.type === "text") {
-				if (this.hitTestTextForPointer(child, worldX, worldY, tolerance)) {
-					return child;
-				}
-				continue;
-			}
-			if (isContainer(child)) {
-				const inner = this.findTextInContainerAtPoint(
-					child,
-					worldX,
-					worldY,
-					tolerance,
-				);
-				if (inner) return inner;
-			}
-		}
-		return null;
-	}
-
-	/**
-	 * Pointer hit test for a single text element: axis-bound texts hit on
-	 * their path/region/glyph ink (same predicate SpatialIndex uses), plain
-	 * texts on their world AABB.
-	 */
-	private hitTestTextForPointer(
-		text: TextElement,
-		worldX: number,
-		worldY: number,
-		tolerance: number,
-	): boolean {
-		const textRenderer = this.renderer?.getTextRenderer();
-		if (text.axisBinding && textRenderer) {
-			const { t, isIdentity } = this.resolveTextTransform(text.id, text);
-			const local = isIdentity
-				? { x: worldX, y: worldY }
-				: inverseTransform(worldX, worldY, t);
-			const hit = textRenderer.hitTestBoundTextSync(
-				text,
-				local.x,
-				local.y,
-				tolerance,
-			);
-			if (hit !== null) return hit;
-		}
-		const bounds = this.spatialIndex.getWorldBounds(text.id);
-		return (
-			bounds != null &&
-			worldX >= bounds.minX - tolerance &&
-			worldX <= bounds.maxX + tolerance &&
-			worldY >= bounds.minY - tolerance &&
-			worldY <= bounds.maxY + tolerance
-		);
-	}
 
 	/**
 	 * Run a per-layer hit test from the frontmost pickable layer backwards and
@@ -3079,104 +2955,17 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				} as Partial<AnyArtObject>);
 				void this.refreshTextOverflowBadges();
 			},
-			textFindFlowSource: (textId) => {
-				const sourceId = this.textDepIndex.findFlowSourceId(textId);
-				if (!sourceId) return null;
-				const source = this.rendererStore.document.objects[sourceId];
-				return source?.type === "text" ? source : null;
-			},
+			textFindFlowSource: (textId) =>
+				this.textInteraction.findFlowSource(textId),
 			listTextElements: () =>
 				Object.values(this.rendererStore.document.objects).filter(
 					(obj): obj is TextElement => obj?.type === "text",
 				),
-			textChainMembers: (textId) =>
-				this.textDepIndex.chainMemberIds(textId).flatMap((id) => {
-					const obj = this.rendererStore.document.objects[id];
-					return obj?.type === "text" ? [obj] : [];
-				}),
-			hitTestTextGlyph: async (textElement, worldX, worldY) => {
-				const textRenderer = this.renderer?.getTextRenderer();
-				if (!textRenderer) return null;
-
-				// Flow chains: pick within the region under the pointer
-				const region = this.resolveTextRegionAtPoint(
-					textElement,
-					worldX,
-					worldY,
-				);
-				const { t, isIdentity } = this.resolveTextTransform(region.id, region);
-				let localX: number;
-				let localY: number;
-				if (isIdentity) {
-					localX = worldX - region.x;
-					localY = worldY - region.y;
-				} else {
-					const local = inverseTransform(worldX, worldY, t);
-					localX = local.x - region.x;
-					localY = local.y - region.y;
-				}
-				const zoom = this.getPrimaryTarget()?.getViewport()?.zoom ?? 1;
-				return textRenderer.hitTestGlyph(
-					region,
-					localX,
-					localY,
-					UI_THEME.hitTolerancePx / zoom,
-				);
-			},
-			getTextGlyphQuads: async (textElement, charIndices) => {
-				const identityT = { rotation: 0, scaleX: 1, scaleY: 1 };
-				const textRenderer = this.renderer?.getTextRenderer();
-				if (!textRenderer) return { quads: [], elementTransform: identityT };
-
-				// Flow chains: glyphs live in the member regions' layouts, each
-				// worldized with its own position/transform
-				const memberIds = this.textDepIndex.chainMemberIds(textElement.id);
-				const members: TextElement[] =
-					memberIds.length > 1
-						? memberIds.flatMap((id) => {
-								const obj = this.rendererStore.document.objects[id];
-								return obj?.type === "text" ? [obj] : [];
-							})
-						: [textElement];
-
-				const memberQuads = await Promise.all(
-					members.map(async (member) => {
-						const quads = await textRenderer.getGlyphQuads(member, charIndices);
-						if (quads.length === 0) return [];
-						const { t, isIdentity } = this.resolveTextTransform(
-							member.id,
-							member,
-						);
-						const toWorld = (p: { x: number; y: number }) => {
-							const wx = p.x + member.x;
-							const wy = p.y + member.y;
-							return isIdentity
-								? { x: wx, y: wy }
-								: applyTransformToPoint(wx, wy, t);
-						};
-						return quads.map((q) => ({
-							...q,
-							pivot: toWorld(q.pivot),
-							rotation: q.rotation + (isIdentity ? 0 : t.rotation),
-							corners: q.corners.map(toWorld) as typeof q.corners,
-						}));
-					}),
-				);
-				const worldQuads = memberQuads.flat();
-
-				// Drag deltas convert through the session (head) element's transform
-				const head = this.resolveTextTransform(textElement.id, textElement);
-				return {
-					quads: worldQuads,
-					elementTransform: head.isIdentity
-						? identityT
-						: {
-								rotation: head.t.rotation,
-								scaleX: head.t.scaleX,
-								scaleY: head.t.scaleY,
-							},
-				};
-			},
+			textChainMembers: (textId) => this.textInteraction.chainMembers(textId),
+			hitTestTextGlyph: (textElement, worldX, worldY) =>
+				this.textInteraction.hitTestGlyph(textElement, worldX, worldY),
+			getTextGlyphQuads: (textElement, charIndices) =>
+				this.textInteraction.glyphQuads(textElement, charIndices),
 			textCharTouchCommit: (text) => {
 				const layerId = this.rendererStore.currentLayerId;
 				if (!layerId) return undefined;
@@ -3246,7 +3035,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				const bounds = this.spatialIndex.getBounds(text.id, text);
 				this.selection.selectElement(text.id, bounds ?? undefined);
 
-				const { t, isIdentity } = this.resolveTextTransform(text.id, text);
+				const { t, isIdentity } = this.textInteraction.transformOf(text);
 
 				let cursorX = text.x;
 				let cursorY = text.y;
@@ -3273,19 +3062,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.textToolController?.endTextEdit();
 			},
 			getFontVariationAxes: (source) => this.fonts.getVariationAxes(source),
-			findTextAtPoint: (x, y) => {
-				for (const layer of this.rendererStore.document.layers) {
-					const el = this.spatialIndex.findElementAtPoint(layer.id, x, y, 5);
-					if (el?.type === "text") return el;
-					// Grouped texts resolve to their top-level container; drill
-					// into it so the text tool still targets them through groups
-					if (el && isContainer(el)) {
-						const inner = this.findTextInContainerAtPoint(el, x, y, 5);
-						if (inner) return inner;
-					}
-				}
-				return null;
-			},
+			findTextAtPoint: (x, y) => this.textInteraction.findTextAtPoint(x, y),
 			updateTextCursor: (_cursorPos, x, y, fontSize, rotation) => {
 				this.textToolController?.updateTextCursor(x, y, fontSize, rotation);
 			},
@@ -3295,140 +3072,18 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			selectionRangeChange: async (textElement, startIndex, endIndex) => {
 				const controller = this.textToolController;
 				if (!controller) return;
-
-				if (startIndex >= endIndex) {
-					controller.updateTextSelectionRects([]);
-					return;
-				}
-
-				const textRenderer = this.renderer?.getTextRenderer();
-				if (!textRenderer) {
-					controller.updateTextSelectionRects([]);
-					return;
-				}
-
-				try {
-					// Flow chains: collect rects from every member region
-					const memberIds = this.textDepIndex.chainMemberIds(textElement.id);
-					const members: TextElement[] =
-						memberIds.length > 1
-							? memberIds.flatMap((id) => {
-									const obj = this.rendererStore.document.objects[id];
-									return obj?.type === "text" ? [obj] : [];
-								})
-							: [textElement];
-
-					const worldRects: Array<{
-						x: number;
-						y: number;
-						width: number;
-						height: number;
-					}> = [];
-					for (const member of members) {
-						const localRects = await textRenderer.getSelectionRects(
-							member,
-							startIndex,
-							endIndex,
-						);
-						const { t, isIdentity } = this.resolveTextTransform(
-							member.id,
-							member,
-						);
-						if (isIdentity) {
-							for (const r of localRects) {
-								worldRects.push({
-									x: r.x + member.x,
-									y: r.y + member.y,
-									width: r.width,
-									height: r.height,
-								});
-							}
-						} else {
-							for (const r of localRects) {
-								const anchor = applyTransformToPoint(
-									r.x + member.x,
-									r.y + member.y,
-									t,
-								);
-								worldRects.push({
-									x: anchor.x,
-									y: anchor.y,
-									width: r.width * Math.abs(t.scaleX),
-									height: r.height * Math.abs(t.scaleY),
-								});
-							}
-						}
-					}
-					controller.updateTextSelectionRects(worldRects);
-				} catch {
-					controller.updateTextSelectionRects([]);
-				}
+				controller.updateTextSelectionRects(
+					await this.textInteraction.selectionRects(
+						textElement,
+						startIndex,
+						endIndex,
+					),
+				);
 			},
-			getCursorWorldPosition: async (textElement, charIndex) => {
-				const textRenderer = this.renderer?.getTextRenderer();
-				if (!textRenderer) {
-					return {
-						x: textElement.x,
-						y: textElement.y,
-						height: textElement.defaultStyle.fontSize,
-					};
-				}
-
-				// Flow chains: the caret may live in a downstream region
-				let region = textElement;
-				const regionId = await textRenderer.findRegionForCharIndex(
-					textElement,
-					charIndex,
-				);
-				if (regionId !== textElement.id) {
-					const candidate = this.rendererStore.document.objects[regionId];
-					if (candidate?.type === "text") region = candidate;
-				}
-
-				const localPos = await textRenderer.getCursorPosition(
-					region,
-					charIndex,
-				);
-				const { t } = this.resolveTextTransform(region.id, region);
-				const world = cursorLocalToWorld(
-					localPos,
-					region.x,
-					region.y,
-					t,
-					region.layout.writingMode,
-				);
-				// On-path carets tilt with the glyph tangent (plus element rotation)
-				return localPos.rotation != null
-					? { ...world, rotation: localPos.rotation + t.rotation }
-					: world;
-			},
-			hitTestCharacter: async (textElement, worldX, worldY) => {
-				const textRenderer = this.renderer?.getTextRenderer();
-				if (!textRenderer) return null;
-
-				// Flow chains: hit the region under the pointer, not the edited one
-				const region = this.resolveTextRegionAtPoint(
-					textElement,
-					worldX,
-					worldY,
-				);
-
-				const { t, isIdentity } = this.resolveTextTransform(region.id, region);
-
-				let localX: number;
-				let localY: number;
-
-				if (isIdentity) {
-					localX = worldX - region.x;
-					localY = worldY - region.y;
-				} else {
-					const local = inverseTransform(worldX, worldY, t);
-					localX = local.x - region.x;
-					localY = local.y - region.y;
-				}
-
-				return textRenderer.hitTestCharacter(region, localX, localY);
-			},
+			getCursorWorldPosition: (textElement, charIndex) =>
+				this.textInteraction.cursorWorldPosition(textElement, charIndex),
+			hitTestCharacter: (textElement, worldX, worldY) =>
+				this.textInteraction.hitTestCharacter(textElement, worldX, worldY),
 			getLineNavigationTarget: async (textElement, charIndex, direction) => {
 				const textRenderer = this.renderer?.getTextRenderer();
 				if (!textRenderer) return null;
