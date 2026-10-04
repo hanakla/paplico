@@ -2,8 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking API changes**
+  - `PaplicoCommands.commitArtboardMove` takes the elements riding on the artboard and the move delta instead of prebuilt element moves.
+- **Commands**
+  - `moveElements` and `commitArtboardMove` skip an element whose group is moved with it instead of moving it twice.
+
 ### Fixed
 
+- **Soft proof**
+  - Fix switching the proof profile while soft proof is on leaving the canvas without the proof until the next edit.
 - **Path edit tool**
   - Fix the color swatch targeting the previously selected object instead of the objects whose vertices are selected.
 - **Compound paths**

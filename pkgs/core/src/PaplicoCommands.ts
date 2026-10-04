@@ -22,6 +22,7 @@ import {
 	FilterStackCommands,
 } from "./document/FilterStackCommands";
 import {
+	createEmbeddedFileFromBytes,
 	createIdentityTransform,
 	createMeshWarpObject,
 	createMeshWarpObjectFromGeometry,
@@ -3237,8 +3238,9 @@ export class PaplicoCommands {
 
 	/**
 	 * Move elements by a world delta in one undo step. A locked element is
-	 * skipped. What a moved element carries along, a blend's sources or a
-	 * text's axis path, follows it whatever its own lock says.
+	 * skipped, and so is one inside a group that is moved with it. What a
+	 * moved element carries along, a blend's sources or a text's axis path,
+	 * follows it whatever its own lock says.
 	 */
 	public moveElements(
 		elements: Array<{ layerId: string; elementId: string }>,
@@ -3246,8 +3248,14 @@ export class PaplicoCommands {
 		deltaY: number,
 	): void {
 		if (this.cannotMutate()) return;
+		const targetIds = new Set(
+			this.filterOutGroupDescendants(elements.map((e) => e.elementId)),
+		);
 		const updates = this.collectElementMoveUpdates(
-			elements.filter(({ elementId }) => !this.isElementLocked(elementId)),
+			elements.filter(
+				({ elementId }) =>
+					targetIds.has(elementId) && !this.isElementLocked(elementId),
+			),
 			deltaX,
 			deltaY,
 		);
@@ -3614,20 +3622,55 @@ export class PaplicoCommands {
 		return updates;
 	}
 
+	/**
+	 * Update an artboard and move the elements riding on it by a world delta,
+	 * in one undo step. An element inside a group that is moved with it is
+	 * skipped.
+	 */
 	public commitArtboardMove(
 		artboardId: string,
 		artboardUpdates: Partial<Artboard>,
-		elementMoves: Array<{
-			elementId: string;
-			updates: Partial<AnyArtObject>;
-		}>,
+		elements: Array<{ layerId: string; elementId: string }>,
+		deltaX: number,
+		deltaY: number,
 	): void {
 		if (this.cannotMutate()) return;
+		const targetIds = new Set(
+			this.filterOutGroupDescendants(elements.map((e) => e.elementId)),
+		);
+		const targetElements = elements.filter(({ elementId }) =>
+			targetIds.has(elementId),
+		);
+		const boundsBeforeMove = new Map(
+			targetElements.flatMap(({ elementId }) => {
+				const bounds = this.ctx.spatial.getBounds(
+					elementId,
+					this.ctx.store.document.objects[elementId],
+				);
+				return bounds ? [[elementId, bounds] as const] : [];
+			}),
+		);
+
 		this.ctx.yjsProvider.commitArtboardMove(
 			artboardId,
 			artboardUpdates,
-			elementMoves,
+			this.collectElementMoveUpdates(targetElements, deltaX, deltaY),
 		);
+
+		// A group's bounds derive from its children; any other element moved
+		// rigidly, so its known bounds shift by the same delta.
+		for (const { elementId } of targetElements) {
+			if (this.ctx.store.document.objects[elementId]?.type === "group") {
+				this.ctx.spatial.invalidateBounds(elementId);
+				continue;
+			}
+			const oldBounds = boundsBeforeMove.get(elementId);
+			if (!oldBounds) continue;
+			this.ctx.spatial.setBounds(
+				elementId,
+				translateBounds(oldBounds, deltaX, deltaY),
+			);
+		}
 	}
 
 	public deleteArtboard(id: string): void {
@@ -4305,24 +4348,13 @@ export class PaplicoCommands {
 		const worldY = viewport?.y ?? 0;
 
 		try {
-			const arrayBuffer = await file.arrayBuffer();
-			const bin = new Uint8Array(arrayBuffer);
-
-			const hashBuffer = await crypto.subtle.digest("SHA-256", bin);
-			const hashArray = Array.from(new Uint8Array(hashBuffer));
-			const hash = hashArray
-				.map((b) => b.toString(16).padStart(2, "0"))
-				.join("");
-
-			const embeddedFile: EmbeddedFile = {
-				uid: `file-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-				name: file.name || "pasted-image.png",
-				type: file.type,
-				hash,
-				bin,
-			};
-
-			const fileUid = this.addEmbeddedFile(embeddedFile);
+			const fileUid = this.addEmbeddedFile(
+				await createEmbeddedFileFromBytes(
+					new Uint8Array(await file.arrayBuffer()),
+					file.name || "pasted-image.png",
+					file.type,
+				),
+			);
 
 			const imageBitmap = await createImageBitmap(file);
 			const imageWidth = imageBitmap.width;

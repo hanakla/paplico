@@ -107,7 +107,6 @@ import {
 	getArtboardBounds,
 	getContainerChildIds,
 	getTransform,
-	type ImageObject,
 	isAppearancePresetRef,
 	isContainer,
 	isIdentityTransform,
@@ -165,11 +164,7 @@ import {
 } from "./utils/elementQuery";
 import { Emitter } from "./utils/emitter";
 import { arcLengthOfNearestSpinePoint } from "./utils/geometry/blendInterpolation";
-import {
-	brandWorldBBox,
-	translateBounds,
-	type WorldBBox,
-} from "./utils/geometry/bounds";
+import { brandWorldBBox } from "./utils/geometry/bounds";
 import {
 	applyTransformToPoint,
 	composeTransforms,
@@ -228,6 +223,12 @@ interface PaplicoOptions {
 	 */
 	getBuiltinProfileBytes: (id: BuiltinIccProfileId) => Promise<Uint8Array>;
 }
+
+/**
+ * Outcome of a soft proof LUT build. `superseded` means a newer build or a
+ * disable owns the proof state, so the caller must leave it untouched.
+ */
+type SoftProofBuildResult = "applied" | "unavailable" | "superseded";
 
 export interface RendererState {
 	document: Document;
@@ -1735,17 +1736,17 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.markDirty("render");
 			return false;
 		}
-		const built = await this.rebuildSoftProofLut();
-		this.softProof.active = built;
-		return built;
+		const result = await this.rebuildSoftProofLut();
+		if (result !== "superseded") this.softProof.active = result === "applied";
+		return this.softProof.active;
 	}
 
 	/**
 	 * Build and apply the soft proof LUT from the document's proof profile.
-	 * @returns `true` when a LUT was built and applied, `false` when no usable
-	 * CMYK proof profile could be resolved (soft proof must stay disabled).
+	 * @returns `unavailable` when no usable CMYK proof profile could be
+	 * resolved (soft proof must stay disabled).
 	 */
-	private async rebuildSoftProofLut(): Promise<boolean> {
+	private async rebuildSoftProofLut(): Promise<SoftProofBuildResult> {
 		const generation = ++this.softProof.generation;
 		const doc = this.rendererStore.document;
 		const settingsKey = JSON.stringify(doc.colorProfile ?? null);
@@ -1755,7 +1756,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			doc.files,
 			this.getBuiltinProfileBytes,
 		);
-		if (!proofProfileBytes) return false;
+		if (!proofProfileBytes) return "unavailable";
 
 		const workingSpace = doc.colorProfile?.workingSpace ?? "display-p3";
 		const lut = await buildSoftProofLut({
@@ -1766,12 +1767,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		});
 
 		// A newer build or a disable superseded this one — discard the result.
-		if (generation !== this.softProof.generation) return false;
+		if (generation !== this.softProof.generation) return "superseded";
 
 		this.softProof.settingsKey = settingsKey;
 		this.renderer.setSoftProofLut(lut);
 		this.markDirty("render");
-		return true;
+		return "applied";
 	}
 
 	/** Rebuild the soft proof LUT when colorProfile settings changed while proofing. */
@@ -1780,10 +1781,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		const settingsKey = JSON.stringify(document.colorProfile ?? null);
 		if (settingsKey === this.softProof.settingsKey) return;
 		void this.rebuildSoftProofLut()
-			.then((built) => {
+			.then((result) => {
 				// The new settings no longer resolve to a usable CMYK profile:
 				// disable proofing and drop the stale LUT.
-				if (!built) void this.setSoftProof(false);
+				if (result === "unavailable") void this.setSoftProof(false);
 			})
 			.catch((e) => console.error("Failed to rebuild soft proof LUT:", e));
 	}
@@ -2668,27 +2669,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				const currentLayerId = this.rendererStore.currentLayerId;
 				if (!currentLayerId) return;
 
-				// Build set of all descendant IDs of groups in the selection
-				// to prevent double-movement (collectElementMoveUpdates recurses into groups)
-				const descendantIds = new Set<string>();
-				const collectDescendants = (groupId: string) => {
-					const el = this.rendererStore.document.objects[groupId];
-					if (el?.type !== "group") return;
-					for (const childId of el.childIds) {
-						descendantIds.add(childId);
-						collectDescendants(childId);
-					}
-				};
-				for (const id of ids) {
-					collectDescendants(id);
-				}
-
-				const elements = ids
-					.filter((id) => !descendantIds.has(id))
-					.map((id) => ({ layerId: currentLayerId, elementId: id }));
-
 				this.renderChangeSubscriber.withTransformOnlyChange(() => {
-					this.commands.moveElements(elements, dx, dy);
+					this.commands.moveElements(
+						ids.map((id) => ({ layerId: currentLayerId, elementId: id })),
+						dx,
+						dy,
+					);
 				});
 
 				// Reshape the spine to follow any moved blend keys.
@@ -2696,9 +2682,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 				// Invalidate bounds for groups whose children moved
 				for (const id of ids) {
-					if (descendantIds.has(id)) continue;
-					const el = this.rendererStore.document.objects[id];
-					if (el?.type === "group") {
+					if (this.rendererStore.document.objects[id]?.type === "group") {
 						this.spatialIndex.invalidateBounds(id);
 					}
 				}
@@ -2998,54 +2982,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.spatialIndex.snapBoundsToElements(bounds, zoom),
 			findElementsOnArtboard: (artboardBounds) =>
 				this.spatialIndex.findElementsOverlappingArtboard(artboardBounds),
-			artboardMoveCommit: (id, updates, elements, deltaX, deltaY) => {
-				// Build set of all descendant IDs of groups in the selection
-				// to prevent double-movement (collectElementMoveUpdates recurses into groups)
-				const descendantIds = new Set<string>();
-				const collectDescendants = (groupId: string) => {
-					const el = this.rendererStore.document.objects[groupId];
-					if (el?.type !== "group") return;
-					for (const childId of el.childIds) {
-						descendantIds.add(childId);
-						collectDescendants(childId);
-					}
-				};
-				for (const { elementId } of elements) {
-					collectDescendants(elementId);
-				}
-
-				const targetElements = elements.filter(
-					(e) => !descendantIds.has(e.elementId),
-				);
-				const elementMoves = this.commands.collectElementMoveUpdates(
-					targetElements,
-					deltaX,
-					deltaY,
-				);
-				const boundsBeforeMove = new Map<string, WorldBBox>();
-				for (const { elementId } of targetElements) {
-					const bounds = this.spatialIndex.getBounds(
-						elementId,
-						this.rendererStore.document.objects[elementId],
-					);
-					if (bounds) boundsBeforeMove.set(elementId, bounds);
-				}
-
-				this.commands.commitArtboardMove(id, updates, elementMoves);
-				for (const { elementId } of targetElements) {
-					const el = this.rendererStore.document.objects[elementId];
-					if (el?.type === "group") {
-						this.spatialIndex.invalidateBounds(elementId);
-						continue;
-					}
-					const oldBounds = boundsBeforeMove.get(elementId);
-					if (!oldBounds) continue;
-					this.spatialIndex.setBounds(
-						elementId,
-						translateBounds(oldBounds, deltaX, deltaY),
-					);
-				}
-			},
+			artboardMoveCommit: (id, updates, elements, deltaX, deltaY) =>
+				this.commands.commitArtboardMove(id, updates, elements, deltaX, deltaY),
 
 			pathDraftCreate: (path) => {
 				const currentLayerId = this.rendererStore.currentLayerId;
@@ -4273,50 +4211,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					continue;
 				}
 
-				const arrayBuffer = await file.arrayBuffer();
-				const bin = new Uint8Array(arrayBuffer);
-
-				const hashBuffer = await crypto.subtle.digest("SHA-256", bin);
-				const hashArray = Array.from(new Uint8Array(hashBuffer));
-				const hash = hashArray
-					.map((b) => b.toString(16).padStart(2, "0"))
-					.join("");
-
-				const embeddedFile: EmbeddedFile = {
-					uid: `file-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-					name: file.name,
-					type: file.type,
-					hash,
-					bin,
-				};
-
-				const fileUid = this.commands.addEmbeddedFile(embeddedFile);
-
-				const imageBitmap = await createImageBitmap(file);
-				const imageWidth = imageBitmap.width;
-				const imageHeight = imageBitmap.height;
-				imageBitmap.close();
-
-				const _halfWidth = imageWidth / 2;
-				const _halfHeight = imageHeight / 2;
-				const imageObject: ImageObject = {
-					type: "image",
-					id: `image-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-					fileUid,
-					x: worldX,
-					y: worldY,
-					width: imageWidth,
-					height: imageHeight,
-					transform: createIdentityTransform(),
-					opacity: 1,
-					blendMode: "normal",
-				};
-
-				this.commands.addImage(imageObject);
-
-				console.log(
-					`🖼️ Dropped image: ${file.name} at (${worldX.toFixed(0)}, ${worldY.toFixed(0)})`,
-				);
+				await this.commands.pasteImageFile(file, { x: worldX, y: worldY });
 			} catch (error) {
 				console.error(`Failed to process image: ${file.name}`, error);
 			}

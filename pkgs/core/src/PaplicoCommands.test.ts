@@ -17,6 +17,7 @@ import type { PaplicoSelection } from "./PaplicoSelection";
 import type {
 	AnyArtObject,
 	AppearancePreset,
+	Artboard,
 	BlendObject,
 	BrushSettings,
 	CompoundPath,
@@ -2173,6 +2174,54 @@ describe("PaplicoCommands", () => {
 			commands.moveElements([{ layerId: layer.id, elementId: path.id }], 30, 0);
 
 			expect(batchUpdateElements).not.toHaveBeenCalled();
+		});
+
+		it("should move a child selected together with its group only once", () => {
+			const child = createPathAt("child", 0, 0, 100, 100);
+			const group = createGroup("g1", [child.id]);
+			const layer = createLayer("l1", [group.id]);
+			const { commands, store } = createRotateCommands(layer, {
+				[group.id]: group,
+				[child.id]: child,
+			});
+
+			commands.moveElements(
+				[
+					{ layerId: layer.id, elementId: group.id },
+					{ layerId: layer.id, elementId: child.id },
+				],
+				30,
+				0,
+			);
+
+			expect(getTransform(store.document.objects[group.id]!).x).toBeCloseTo(30);
+			expect(getTransform(store.document.objects[child.id]!).x).toBeCloseTo(0);
+		});
+	});
+
+	describe("commitArtboardMove", () => {
+		it("should move a child riding on the artboard with its group only once", () => {
+			const child = createPathAt("child", 0, 0, 100, 100);
+			const group = createGroup("g1", [child.id]);
+			const layer = createLayer("l1", [group.id]);
+			const { commands, commitArtboardMove } = createRotateCommands(layer, {
+				[group.id]: group,
+				[child.id]: child,
+			});
+
+			commands.commitArtboardMove(
+				"ab1",
+				{ x: 30 },
+				[
+					{ layerId: layer.id, elementId: group.id },
+					{ layerId: layer.id, elementId: child.id },
+				],
+				30,
+				0,
+			);
+
+			const elementMoves = commitArtboardMove.mock.calls[0][2];
+			expect(elementMoves.map((m) => m.elementId)).toEqual([group.id]);
 		});
 	});
 
@@ -4805,6 +4854,17 @@ function createRotateCommands(
 		},
 	);
 
+	const commitArtboardMove = vi.fn(
+		(
+			_artboardId: string,
+			_artboardUpdates: Partial<Artboard>,
+			_elementMoves: Array<{
+				elementId: string;
+				updates: Partial<AnyArtObject>;
+			}>,
+		) => {},
+	);
+
 	const store = {
 		currentLayerId: layer.id,
 		selectedElementIds: Object.keys(objects),
@@ -4821,6 +4881,7 @@ function createRotateCommands(
 		yjsProvider: {
 			updateElement,
 			batchUpdateElements,
+			commitArtboardMove,
 			transact: vi.fn((fn: () => void) => fn()),
 			isAnimationUndoMode: vi.fn(() => false),
 		} as unknown as YjsProvider,
@@ -4837,7 +4898,13 @@ function createRotateCommands(
 		isReadonly: () => false,
 	});
 
-	return { commands, store, updateElement, batchUpdateElements };
+	return {
+		commands,
+		store,
+		updateElement,
+		batchUpdateElements,
+		commitArtboardMove,
+	};
 }
 
 function createPath(id: string): Path {
