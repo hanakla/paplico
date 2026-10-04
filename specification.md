@@ -421,7 +421,7 @@ CanvasLayer は有効な compositeFrameCache が無いか、キャッシュが�
 
 ### フレームキャッシュ
 
-`CanvasLayer.compositeFrameCache` がprebufと同サイズの合成結果テクスチャを保持し、`viewportBlit` 戦略時にpan/zoom/rotationを再投影blitで賄う。ダーティ追跡はレイヤー単位ではなく**要素ID単位**（`changedElements` の upserted / deleted セット）で行い、変更要素とbounds連動する祖先・子孫のみ再合成する。
+`DocumentCache` がprebufと同サイズの合成結果テクスチャを保持し、`CanvasLayer.compositeFrameCache` がその有効性とbounds情報を保持して、`viewportBlit` 戦略時にpan/zoom/rotationを再投影blitで賄う。ダーティ追跡はレイヤー単位ではなく**要素ID単位**（`changedElements` の upserted / deleted セット）で行い、変更要素とbounds連動する祖先・子孫のみ再合成する。
 
 ### パス描画（Sparse Strips）
 

@@ -432,7 +432,7 @@ path; pattern brushes repeat with optional gaps.
 | --- | --- | --- |
 | Dab buffers | path id + settings fingerprint + geometry hash | `StampCache` |
 | GPU dab residency | cache entry lease | `BoundedStampStore` ("Resident Dab Instances") |
-| Wash results | geometry + settings + transform + raster scale + texture bounds | `CanvasLayer.washResultCache` |
+| Wash results | geometry + settings + transform + raster scale + texture bounds | `WashResultCache` |
 | Mixing results | the above + visible rect + backdrop content key | `MixStrokeRenderer` |
 | Tip falloff LUT data | hardness quantized to 32 layers | `TipMaskBuilder` |
 | Tip falloff LUT GPU texture | one per DabRenderer | `DabRenderer` |

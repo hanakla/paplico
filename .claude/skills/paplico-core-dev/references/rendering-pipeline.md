@@ -97,9 +97,9 @@ Each CanvasLayer runs these phases per frame:
 ### 1. Auxiliary-resource check (`DocumentCache`)
 
 The renderer renders document content directly every frame. `DocumentCache`
-holds size-matched composite, prebuffer, final-blit, and backdrop-mask GPU
-textures. A descriptor hit reuses the resource; a size mismatch replaces it.
-`CanvasLayer` owns final destruction and replacement destruction is deferred until
+holds the size-matched composite, prebuffer, and previous-frame GPU textures.
+A descriptor hit reuses the resource; a size mismatch replaces it.
+`DocumentCache` owns final destruction and replacement destruction is deferred until
 in-flight GPU work is safe. The complete policy is in
 `references/cache-strategy.md`.
 

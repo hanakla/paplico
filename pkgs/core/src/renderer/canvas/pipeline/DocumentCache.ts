@@ -32,7 +32,51 @@ export function boundsAlmostEqual(a: BoundingBox, b: BoundingBox): boolean {
 // ---------------------------------------------------------------------------
 
 export class DocumentCache {
+	private frameTexture: GPUTexture | null = null;
+
 	public constructor(private readonly deps: DocumentCacheDeps) {}
+
+	public get compositeFrameTexture(): GPUTexture | null {
+		return this.frameTexture;
+	}
+
+	/**
+	 * Ensure the previous-frame composite texture matches the prebuf size.
+	 * Returns true when it was reallocated, i.e. it holds no captured frame yet.
+	 */
+	public ensureCompositeFrameTexture(width: number, height: number): boolean {
+		if (
+			this.frameTexture &&
+			this.frameTexture.width === width &&
+			this.frameTexture.height === height
+		) {
+			return false;
+		}
+		this.deps.deferDestroy(this.frameTexture);
+		this.frameTexture = this.deps.device.createTexture({
+			label: "Composite Frame Cache",
+			size: { width, height },
+			format: this.deps.canvasFormat,
+			usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+		});
+		return true;
+	}
+
+	public destroy(): void {
+		const { compositeState } = this.deps;
+		this.frameTexture?.destroy();
+		this.frameTexture = null;
+		compositeState.captureTexture?.destroy();
+		compositeState.captureTexture = null;
+		compositeState.layerTexture?.destroy();
+		compositeState.layerTexture = null;
+		compositeState.prebufTexture?.destroy();
+		compositeState.prebufTexture = null;
+		compositeState.canvasBaseTexture?.destroy();
+		compositeState.canvasBaseTexture = null;
+		compositeState.width = 0;
+		compositeState.height = 0;
+	}
 
 	public ensureCompositeTextures(width: number, height: number): void {
 		const { device, canvasFormat, compositeState } = this.deps;

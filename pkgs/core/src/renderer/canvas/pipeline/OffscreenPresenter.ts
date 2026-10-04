@@ -15,22 +15,34 @@ import {
 	type Filter,
 	type Group,
 	isGroup,
+	type RepeatObject,
 	type Viewport,
 } from "../../../schema";
 import {
 	boundsIntersect,
 	boundsIntersectionBox,
 	brandWorldBBox,
+	calculateRepeatSourceUnion,
 	expandBounds,
 	type LocalBoundsCache,
 	snapBoundsToRasterGrid,
 	type WorldBBox,
 } from "../../../utils/geometry/bounds";
 import { placeElement, screenToWorld } from "../../../utils/geometry/geometry";
+import {
+	type Affine2D,
+	applyAffineToPoint,
+	composeAffine,
+	computeRepeatInstances,
+	elementTransformToAffine,
+	repeatGridRegion,
+} from "../../../utils/geometry/repeatInterpolation";
 import { lerp } from "../../../utils/math";
 import type { RasterFrame } from "../../geometry/strips/stripTypes";
-import { interactiveBakeDensity } from "../CanvasLayer.helpers";
+import { aabbOfQuad, interactiveBakeDensity } from "../CanvasLayer.helpers";
 import {
+	type BlitLayer,
+	type BlitQuad,
 	type BlitQuadToCanvasFn,
 	type BlitTextureToCanvasFn,
 	type BlitUVRect,
@@ -1247,6 +1259,173 @@ export class OffscreenPresenter {
 			),
 			effectiveZoom,
 		};
+	}
+
+	public bakeRepeat(
+		encoder: GPUCommandEncoder,
+		repeat: RepeatObject,
+		parentMatrix: ElementTransform | null,
+		elementsMap: Map<string, AnyArtObject>,
+		rasterScale: number,
+		boundsCache: LocalBoundsCache,
+		filteredTextures: Map<string, FilteredTextureInfo>,
+	): FilteredTextureInfo | null {
+		// World union of the source elements — the region the bake covers and the
+		// pivot the radial ring / mirror axis are measured from. Shared with the
+		// bounds / hit-test path so all three agree on the source box and center.
+		const union = calculateRepeatSourceUnion(repeat, elementsMap, boundsCache);
+		if (!union || union.width <= 0 || union.height <= 0) return null;
+		const unionBounds = brandWorldBBox(union);
+
+		// Bake the sources through a throwaway group so their own transforms and
+		// nested structure render exactly as authored. skipCull keeps a source that
+		// sits off-screen in the bake, so its on-screen instances are not clipped.
+		const syntheticGroup: Group = {
+			id: `${repeat.id}::src`,
+			type: "group",
+			childIds: repeat.sourceIds,
+			opacity: 1,
+			blendMode: "normal",
+			transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+		};
+		const baked = this.renderElementToTexture(
+			encoder,
+			syntheticGroup,
+			unionBounds,
+			elementsMap,
+			rasterScale,
+			true,
+			null,
+			// Source appearances (3D solids, blur, drop shadow) are pre-baked into
+			// filteredTextures; hand them to the bake so the sources render their
+			// filtered result instead of the bare flat geometry.
+			filteredTextures,
+		);
+		if (!baked) return null;
+
+		const center = {
+			x: (union.minX + union.maxX) / 2,
+			y: (union.minY + union.maxY) / 2,
+		};
+		const instances = computeRepeatInstances(repeat, center);
+		// The instances are laid out around the source center; the repeat's
+		// placement under the ancestor groups composes on top.
+		const repeatAffine = elementTransformToAffine(
+			placeElement(parentMatrix, repeat),
+		);
+		// Blit quad corners are TL -> TR -> BR -> BL. World space is Y-up, so the
+		// top edge is maxY (matching the extrude bake's quad); ordering the corners
+		// with minY on top would flip the texture vertically.
+		const cb = baked.placement.bounds;
+		const corners = [
+			{ x: cb.minX, y: cb.maxY },
+			{ x: cb.maxX, y: cb.maxY },
+			{ x: cb.maxX, y: cb.minY },
+			{ x: cb.minX, y: cb.minY },
+		];
+		const overrideLayers: BlitLayer[] =
+			repeat.mode === "grid"
+				? this.buildClippedGridLayers(repeat, union, cb, baked, repeatAffine)
+				: instances.map((inst) => {
+						const m = composeAffine(repeatAffine, inst);
+						const quad: BlitQuad = [
+							applyAffineToPoint(m, corners[0]),
+							applyAffineToPoint(m, corners[1]),
+							applyAffineToPoint(m, corners[2]),
+							applyAffineToPoint(m, corners[3]),
+						];
+						return createRenderSurface(
+							createBorrowedTextureRef(baked.texture.texture, "external"),
+							{
+								kind: "world-quad",
+								bounds: cb,
+								uvRect: baked.placement.uvRect,
+								quad,
+							},
+							{
+								role: "color",
+								alphaMode: "premultiplied",
+								opacityState: "intrinsic",
+							},
+						);
+					});
+
+		return {
+			source: baked,
+			output: baked,
+			elementBounds: unionBounds,
+			textureBounds: unionBounds,
+			overrideLayers,
+		};
+	}
+
+	/**
+	 * Grid instances clipped to the fill region: each tile is intersected with the
+	 * region (axis-aligned in the source's authored space, where grid instances
+	 * are pure translations), producing a partially-visible copy at the region
+	 * edge instead of a whole-copy step. The clipped rect's UV sub-range is taken
+	 * from the bake, then the rect is transformed to a world quad.
+	 */
+	private buildClippedGridLayers(
+		repeat: RepeatObject,
+		union: BoundingBox,
+		cb: BoundingBox,
+		baked: RenderSurface,
+		repeatAffine: Affine2D,
+	): BlitLayer[] {
+		const tileW = cb.maxX - cb.minX;
+		const tileH = cb.maxY - cb.minY;
+		if (tileW <= 0 || tileH <= 0) return [];
+		const region = repeatGridRegion(repeat, union);
+		const center = {
+			x: (union.minX + union.maxX) / 2,
+			y: (union.minY + union.maxY) / 2,
+		};
+		const uv = baked.placement.uvRect;
+		const layers: BlitLayer[] = [];
+		for (const inst of computeRepeatInstances(repeat, center)) {
+			// Grid instances are pure translations; e/f carry the tile offset.
+			const tMinX = cb.minX + inst.e;
+			const tMaxX = cb.maxX + inst.e;
+			const tMinY = cb.minY + inst.f;
+			const tMaxY = cb.maxY + inst.f;
+			const cxMin = Math.max(tMinX, region.minX);
+			const cxMax = Math.min(tMaxX, region.maxX);
+			const cyMin = Math.max(tMinY, region.minY);
+			const cyMax = Math.min(tMaxY, region.maxY);
+			if (cxMax <= cxMin || cyMax <= cyMin) continue; // fully outside region
+			// V grows downward from the tile top (maxY), matching the bake's corner
+			// order (TL = maxY -> minV).
+			const uvRect: BlitUVRect = {
+				minU: lerp(uv.minU, uv.maxU, (cxMin - tMinX) / tileW),
+				maxU: lerp(uv.minU, uv.maxU, (cxMax - tMinX) / tileW),
+				minV: lerp(uv.minV, uv.maxV, (tMaxY - cyMax) / tileH),
+				maxV: lerp(uv.minV, uv.maxV, (tMaxY - cyMin) / tileH),
+			};
+			const quad: BlitQuad = [
+				applyAffineToPoint(repeatAffine, { x: cxMin, y: cyMax }),
+				applyAffineToPoint(repeatAffine, { x: cxMax, y: cyMax }),
+				applyAffineToPoint(repeatAffine, { x: cxMax, y: cyMin }),
+				applyAffineToPoint(repeatAffine, { x: cxMin, y: cyMin }),
+			];
+			layers.push(
+				createRenderSurface(
+					createBorrowedTextureRef(baked.texture.texture, "external"),
+					{
+						kind: "world-quad",
+						bounds: aabbOfQuad(quad),
+						uvRect,
+						quad,
+					},
+					{
+						role: "color",
+						alphaMode: "premultiplied",
+						opacityState: "intrinsic",
+					},
+				),
+			);
+		}
+		return layers;
 	}
 
 	/**

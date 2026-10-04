@@ -27,14 +27,33 @@ persistent, size-matched GPU auxiliary textures only. Do not design an
 invalidation path on the assumption that it stores rendered layer contents.
 
 `DocumentCache` retains composite textures
-(`capture`, `layer`, `prebuf`, `canvasBase`), the final-blit and backdrop
-mask color textures. A hit requires the corresponding textures to exist
-with the requested width and height; a size mismatch replaces the resources.
-`CanvasLayer` owns their final destruction, while replaced resources are deferred
-through `OffscreenPresenter` so an in-flight command buffer can finish safely.
+(`capture`, `layer`, `prebuf`, `canvasBase`) and the previous-frame composite
+that viewport blits and partial redraws read. A hit requires the texture to exist
+with the requested width and height; a size mismatch replaces it.
+`DocumentCache.destroy` is the only place that finally destroys them, while replaced
+textures are deferred through `OffscreenPresenter` so an in-flight command buffer can
+finish safely. `CanvasLayer` keeps whether the previous composite holds a valid
+captured frame and which world region it covers.
+
+The previous-frame composite is imported into the `FrameGraph` as a read of
+`Canvas Clear` (partial-redraw restore) and `Viewport Blit`, and as a write of
+`Capture Composite Frame`. The graph never releases it.
+
+### Wash results
+
+`WashResultCache` holds the isolated wash result per element. Each entry keeps a
+texture leased from `TexturePool` until it is evicted. Frame resource release never
+returns it because callers get a borrowed reference.
+
+- Normal eviction (replacement, deleted element, idle expiry, byte budget) returns
+  the texture through `OffscreenPresenter.deferDestroy`.
+- `trimIdle` and `destroy` call `TexturePool.discard` between frames.
+- The budget and the idle clock are per canvas target, not per document scope, so it
+  is not registered with `RenderCacheManager`.
 
 Sources: `renderer/canvas/CanvasLayer.ts` (`invalidateDocumentCache` and
-`destroy`), `renderer/canvas/pipeline/DocumentCache.ts`.
+`destroy`), `renderer/canvas/pipeline/DocumentCache.ts`,
+`renderer/canvas/caches/WashResultCache.ts`.
 
 ## Lifetime and invalidation map
 

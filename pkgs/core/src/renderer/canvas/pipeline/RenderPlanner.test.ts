@@ -4,6 +4,7 @@ import { createIdentityTransform } from "../../../document/factory";
 import {
 	type BezierPoint,
 	type BlendMode,
+	type BoundingBox,
 	type CubicBezierSegment,
 	type Document,
 	type ElementTransform,
@@ -25,7 +26,9 @@ import {
 	buildFramePlanStructure,
 	buildFramePlanView,
 	buildPassPlan,
+	type PartialRedrawState,
 	planBoundsOf,
+	planPartialRedraw,
 } from "./RenderPlanner";
 
 describe("RenderPlanner frame planning", () => {
@@ -457,6 +460,134 @@ describe("planBoundsOf", () => {
 });
 
 /** A 40x40 square with a multiply fill, so it always gets a filter plan. */
+describe("planPartialRedraw", () => {
+	const storeBox = box(0, 0, 100, 100);
+
+	it("should return null when the change set is untracked", () => {
+		const plan = plan_({ changed: undefined, untracked: true });
+
+		expect(plan).toBeNull();
+	});
+
+	it("should return null when the previous composite cannot be restored", () => {
+		const plan = plan_({ state: { canRestore: false } });
+
+		expect(plan).toBeNull();
+	});
+
+	it("should return null when the store geometry changed since the capture", () => {
+		const plan = plan_({ state: { capturedStoreBounds: box(5, 0, 105, 100) } });
+
+		expect(plan).toBeNull();
+	});
+
+	it("should return null when the frame has backdrop entries", () => {
+		const plan = plan_({ state: { hasBackdropEntries: true } });
+
+		expect(plan).toBeNull();
+	});
+
+	it("should snap the dirty rect of a small edit to the store texel grid", () => {
+		const plan = plan_({
+			state: { currentWorldBoundsOf: () => box(40.3, 40.3, 50.2, 50.2) },
+		});
+
+		expect(plan?.scissor).toEqual({ x: 32, y: 41, width: 27, height: 27 });
+		expect(plan?.dirtyWorld).toEqual(box(32, 32, 59, 59));
+	});
+
+	it("should union the previous bounds of a deleted element into the dirty rect", () => {
+		const plan = plan_({
+			changed: { upserted: new Set(), deleted: new Set(["gone"]) },
+			elements: new Map(),
+			state: {
+				previousWorldBounds: new Map([["gone", box(10, 10, 20, 20)]]),
+				currentWorldBoundsOf: () => null,
+			},
+		});
+
+		expect(plan?.dirtyWorld).toEqual(box(2, 2, 28, 28));
+	});
+
+	it("should extend the baked region by the dirty rect", () => {
+		const plan = plan_({
+			state: {
+				bakedWorldBounds: box(0, 0, 10, 10),
+				currentWorldBoundsOf: () => box(40, 40, 50, 50),
+			},
+		});
+
+		expect(plan?.bakedUnion).toEqual(box(0, 0, 58, 58));
+	});
+
+	it("should return null when the dirty rect covers most of the store", () => {
+		const plan = plan_({
+			state: { currentWorldBoundsOf: () => box(0, 0, 90, 90) },
+		});
+
+		expect(plan).toBeNull();
+	});
+
+	it("should return null when a changed element has its own filter plan", () => {
+		const plan = plan_({
+			structure: {
+				candidates: [{ filterPlan: { elementId: "a" } }],
+			},
+		});
+
+		expect(plan).toBeNull();
+	});
+
+	function plan_(
+		options: {
+			changed?: { upserted: Set<string>; deleted: Set<string> };
+			untracked?: boolean;
+			elements?: Map<string, ReturnType<typeof mockPath>>;
+			structure?: object;
+			state?: Partial<PartialRedrawState>;
+		} = {},
+	) {
+		const state: PartialRedrawState = {
+			canRestore: true,
+			bakedWorldBounds: box(0, 0, 100, 100),
+			capturedStoreBounds: storeBox,
+			hasBackdropEntries: false,
+			previousWorldBounds: new Map(),
+			currentWorldBoundsOf: () => box(40, 40, 50, 50),
+			...options.state,
+		};
+		return planPartialRedraw(
+			options.untracked
+				? undefined
+				: (options.changed ?? { upserted: new Set(["a"]), deleted: new Set() }),
+			options.elements ?? new Map([["a", mockPath("a")]]),
+			{ candidates: [], ...options.structure } as never,
+			[],
+			storeBox,
+			100,
+			100,
+			1,
+			state,
+		);
+	}
+});
+
+function box(
+	minX: number,
+	minY: number,
+	maxX: number,
+	maxY: number,
+): BoundingBox {
+	return {
+		minX,
+		minY,
+		maxX,
+		maxY,
+		width: maxX - minX,
+		height: maxY - minY,
+	};
+}
+
 function blendedSquare(id: string, transform: Partial<ElementTransform> = {}) {
 	const path = mockPath(id);
 	path.segments = closedRectSegments(0, 0, 40, 40);
