@@ -177,7 +177,7 @@
 		"polygon-clipping": "^0.15.7",
 		"three": "0.185.1",
 		"valtio": "^2.3.2",
-		"webgpu-utils": "^2.0.3",
+		"webgpu-utils": "^2.1.1",
 		"y-partykit": "^0.0.33",
 		"y-protocols": "^1.0.6",
 		"y-websocket": "^3.0.0",

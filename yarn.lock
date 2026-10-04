@@ -3783,7 +3783,7 @@ __metadata:
     valtio: "npm:^2.3.2"
     vitest: "npm:^4.1.2"
     webgpu: "npm:^0.4.0"
-    webgpu-utils: "npm:^2.0.3"
+    webgpu-utils: "npm:^2.1.1"
     y-partykit: "npm:^0.0.33"
     y-protocols: "npm:^1.0.6"
     y-websocket: "npm:^3.0.0"
@@ -20111,10 +20111,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"webgpu-utils@npm:^2.0.3":
-  version: 2.0.3
-  resolution: "webgpu-utils@npm:2.0.3"
-  checksum: 10c0/a6de6621c166963329972fd3aae02bc28a3f07ca80cbeba4a98a7f716d8d281df18d59c68732bac3260eb3ce0914461380a4c2148bde1ce9fa2d264d2baed652
+"webgpu-utils@npm:^2.1.1":
+  version: 2.1.1
+  resolution: "webgpu-utils@npm:2.1.1"
+  checksum: 10c0/79062ee2f4a6bf6a6429bcbf17efffb2212e6534869448c01d9254e15a6643b0b79b5b145ceaa751eaa845b89ad56f4f4b1ba336bd9fa1d5805a7ec2ff825ca5
   languageName: node
   linkType: hard
 
