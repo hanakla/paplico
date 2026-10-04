@@ -54,8 +54,8 @@ const ROOM_SCHEMA_MIGRATION_ORIGIN = Symbol("room-schema-migration");
 /**
  * Scalar fields stored as direct Y.Map keys.
  *
- * These two sets are what `updateElement` matches mutated keys against, and a
- * key in neither is dropped without a word. They therefore have to cover
+ * These two sets are what `writeElementUpdates` matches mutated keys against,
+ * and a key in neither is dropped without a word. They therefore have to cover
  * everything `objectToStoredFields` can write — `yjsFieldCoverage.test.ts`
  * holds them to it.
  */
@@ -931,23 +931,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 				return;
 			}
 
-			for (const [key, value] of Object.entries(updates)) {
-				if (key === "id" || key === "type") continue; // immutable fields
-
-				if (JSON_FIELDS.has(key)) {
-					if (value === undefined || value === null) {
-						yObj.delete(key);
-					} else {
-						yObj.set(key, JSON.stringify(value));
-					}
-				} else if (SCALAR_FIELDS.has(key)) {
-					if (value === undefined) {
-						yObj.delete(key);
-					} else {
-						yObj.set(key, value);
-					}
-				}
-			}
+			writeElementUpdates(yObj, updates);
 		}, origin);
 	}
 
@@ -967,23 +951,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 				const yObj = this.yObjects.get(elementId);
 				if (!yObj) continue;
 
-				for (const [key, value] of Object.entries(updates)) {
-					if (key === "id" || key === "type") continue;
-
-					if (JSON_FIELDS.has(key)) {
-						if (value === undefined || value === null) {
-							yObj.delete(key);
-						} else {
-							yObj.set(key, JSON.stringify(value));
-						}
-					} else if (SCALAR_FIELDS.has(key)) {
-						if (value === undefined) {
-							yObj.delete(key);
-						} else {
-							yObj.set(key, value);
-						}
-					}
-				}
+				writeElementUpdates(yObj, updates);
 			}
 		}, origin);
 	}
@@ -2245,14 +2213,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	 */
 	public updateArtboard(id: string, updates: Partial<Artboard>): void {
 		this.ydoc.transact(() => {
-			const artboards = this.yArtboards.toArray();
-			const index = artboards.findIndex((a) => a.id === id);
-			if (index !== -1) {
-				const current = artboards[index];
-				const updated = { ...current, ...updates };
-				this.yArtboards.delete(index, 1);
-				this.yArtboards.insert(index, [updated]);
-			} else {
+			if (!writeArtboardUpdates(this.yArtboards, id, updates)) {
 				console.warn(`Artboard not found: ${id}`);
 			}
 		});
@@ -2271,38 +2232,13 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 		}>,
 	): void {
 		this.ydoc.transact(() => {
-			// Update artboard
-			const artboards = this.yArtboards.toArray();
-			const index = artboards.findIndex((a) => a.id === artboardId);
-			if (index !== -1) {
-				const current = artboards[index];
-				const updated = { ...current, ...artboardUpdates };
-				this.yArtboards.delete(index, 1);
-				this.yArtboards.insert(index, [updated]);
-			}
+			writeArtboardUpdates(this.yArtboards, artboardId, artboardUpdates);
 
-			// Update all elements
 			for (const { elementId, updates } of elementMoves) {
 				const yObj = this.yObjects.get(elementId);
 				if (!yObj) continue;
 
-				for (const [key, value] of Object.entries(updates)) {
-					if (key === "id" || key === "type") continue;
-
-					if (JSON_FIELDS.has(key)) {
-						if (value === undefined || value === null) {
-							yObj.delete(key);
-						} else {
-							yObj.set(key, JSON.stringify(value));
-						}
-					} else if (SCALAR_FIELDS.has(key)) {
-						if (value === undefined) {
-							yObj.delete(key);
-						} else {
-							yObj.set(key, value);
-						}
-					}
-				}
+				writeElementUpdates(yObj, updates);
 			}
 		});
 	}
@@ -2940,6 +2876,52 @@ function storedFieldsToYMap(fields: Record<string, unknown>): Y.Map<unknown> {
 	const yMap = new Y.Map<unknown>();
 	for (const [key, value] of Object.entries(fields)) yMap.set(key, value);
 	return yMap;
+}
+
+/**
+ * Write a partial element update onto its Y.Map. JSON fields are stored as
+ * strings, scalar fields as is, and a missing value deletes the key. `id` and
+ * `type` never change, and keys in neither field set are dropped.
+ */
+function writeElementUpdates(
+	yObj: Y.Map<unknown>,
+	updates: Partial<AnyArtObject>,
+): void {
+	for (const [key, value] of Object.entries(updates)) {
+		if (key === "id" || key === "type") continue;
+
+		if (JSON_FIELDS.has(key)) {
+			if (value === undefined || value === null) {
+				yObj.delete(key);
+			} else {
+				yObj.set(key, JSON.stringify(value));
+			}
+		} else if (SCALAR_FIELDS.has(key)) {
+			if (value === undefined) {
+				yObj.delete(key);
+			} else {
+				yObj.set(key, value);
+			}
+		}
+	}
+}
+
+/**
+ * Artboards are stored as plain objects in a Y.Array, so an update replaces
+ * the whole entry at its index. Returns false when no artboard has the id.
+ */
+function writeArtboardUpdates(
+	yArtboards: Y.Array<Artboard>,
+	id: string,
+	updates: Partial<Artboard>,
+): boolean {
+	const index = yArtboards.toArray().findIndex((a) => a.id === id);
+	if (index === -1) return false;
+
+	const updated = { ...yArtboards.get(index), ...updates };
+	yArtboards.delete(index, 1);
+	yArtboards.insert(index, [updated]);
+	return true;
 }
 
 /**
