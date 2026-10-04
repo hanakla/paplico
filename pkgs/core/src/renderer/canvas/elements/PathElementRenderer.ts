@@ -62,11 +62,10 @@ import type {
 	OutlineEntry,
 	StrokeOutline,
 } from "../caches/OutlineCache";
-import {
-	type StripCache,
-	type StripCacheVariant,
-	type StripRasterKey,
-	stripRasterKeyEquals,
+import type {
+	StripCache,
+	StripCacheVariant,
+	StripRasterKey,
 } from "../caches/StripCache";
 import type {
 	BrushDrawBindings,
@@ -317,7 +316,7 @@ export class PathElementRenderer {
 			outline,
 			paint,
 			cacheKey,
-			stripVariantKey(cacheVariant, frame, "fill"),
+			`${cacheVariant}:fill`,
 			0,
 			frame,
 			transform,
@@ -529,7 +528,7 @@ export class PathElementRenderer {
 			outline,
 			paint,
 			elementId,
-			stripVariantKey(cacheVariant, frame, cacheKey),
+			`${cacheVariant}:${cacheKey}`,
 			paramsMode,
 			frame,
 			transform,
@@ -576,12 +575,8 @@ export class PathElementRenderer {
 			y1: frame.height - anchorY,
 		};
 
-		let entry = this.deps.stripCache.get(elementId, variantKey);
-		if (
-			!entry ||
-			!stripRasterKeyEquals(entry.key, key) ||
-			!rectContains(entry.coverage, passRect)
-		) {
+		let entry = this.deps.stripCache.find(elementId, variantKey, key, passRect);
+		if (!entry) {
 			const { coverage, clip } = generationClip(
 				passRect,
 				outline.localBounds,
@@ -745,20 +740,6 @@ export class PathElementRenderer {
 	}
 }
 
-/**
- * Strip cache variant of a draw. The pass size is part of it because one
- * element can be drawn into several passes per frame (a mask atlas cell and a
- * standalone mask, say), each with its own sub-pixel phase; sharing one entry
- * would make them evict each other every frame.
- */
-function stripVariantKey(
-	cacheVariant: StripCacheVariant,
-	frame: RasterFrame,
-	suffix: string,
-): string {
-	return `${cacheVariant}:${frame.width}x${frame.height}:${suffix}`;
-}
-
 function solidPaint(color: Color, alphaMultiplier: number): StripPaint {
 	const c = colorToRawRGBA(color);
 	return { kind: "solid", color: [c.r, c.g, c.b, c.a * alphaMultiplier] };
@@ -885,13 +866,4 @@ function alignToTiles(rect: ClipRect): ClipRect {
 		x1: Math.max(x0 + TILE_SIZE, Math.ceil(rect.x1 / TILE_SIZE) * TILE_SIZE),
 		y1: Math.max(y0 + TILE_SIZE, Math.ceil(rect.y1 / TILE_SIZE) * TILE_SIZE),
 	};
-}
-
-function rectContains(outer: ClipRect, inner: ClipRect): boolean {
-	return (
-		inner.x0 >= outer.x0 &&
-		inner.y0 >= outer.y0 &&
-		inner.x1 <= outer.x1 &&
-		inner.y1 <= outer.y1
-	);
 }

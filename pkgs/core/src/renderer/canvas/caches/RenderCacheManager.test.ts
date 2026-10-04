@@ -153,25 +153,31 @@ describe("RenderCacheManager", () => {
 		it("should keep pre-filter outline and strip entries for a live element across full renders", () => {
 			const manager = new RenderCacheManager();
 			const key = "el1:filter-a,filter-b:app-1:sub-1";
+			const strip = makeStripEntry();
 			manager.outline.set(key, "fill", makeOutlineEntry());
-			manager.strip.set(key, "normal", makeStripEntry());
+			manager.strip.set(key, "normal", strip);
 
 			manager.onDocumentChange({ el1: {} });
 
 			expect(manager.outline.get(key, "fill")).toBeDefined();
-			expect(manager.strip.get(key, "normal")).toBeDefined();
+			expect(
+				manager.strip.find(key, "normal", strip.key, strip.coverage),
+			).toBeDefined();
 		});
 
 		it("should prune pre-filter outline and strip entries whose element is gone", () => {
 			const manager = new RenderCacheManager();
 			const key = "el1:filter-a";
+			const strip = makeStripEntry();
 			manager.outline.set(key, "fill", makeOutlineEntry());
-			manager.strip.set(key, "normal", makeStripEntry());
+			manager.strip.set(key, "normal", strip);
 
 			manager.onDocumentChange({ other: {} });
 
 			expect(manager.outline.get(key, "fill")).toBeUndefined();
-			expect(manager.strip.get(key, "normal")).toBeUndefined();
+			expect(
+				manager.strip.find(key, "normal", strip.key, strip.coverage),
+			).toBeUndefined();
 		});
 	});
 

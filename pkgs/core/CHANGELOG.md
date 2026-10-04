@@ -12,6 +12,8 @@
   - Picking a character or glyph, placing the caret, highlighting a selection and the overflow badges map a text's flow-chain regions and transform to the canvas through one shared path instead of separate copies.
 - **Clip groups**
   - Zooming, and panning past the drawn area, no longer stall on a filtered group that holds a clip group clipped by a compound path.
+- **Paths**
+  - Panning past the drawn area takes less time on documents with many clip groups or filtered groups.
 
 ### Fixed
 

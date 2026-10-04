@@ -56,6 +56,32 @@ describe("PathElementRenderer", () => {
 
 		expect(rasterized.value).toBe(2);
 	});
+
+	it("should reuse the strips when the element is drawn into a pass of another size", () => {
+		const { renderer, rasterized, frame } = createProbe();
+		const path = singleStrokePath();
+
+		renderer.renderPath(passEncoderStub(), path);
+		frame.width = 48;
+		frame.height = 40;
+		renderer.renderPath(passEncoderStub(), path);
+
+		expect(rasterized.value).toBe(1);
+	});
+
+	it("should keep the strips of passes drawn at different sub-pixel phases in one frame", () => {
+		const { renderer, rasterized, transform } = createProbe();
+		const path = singleStrokePath();
+
+		for (let frameIndex = 0; frameIndex < 3; frameIndex++) {
+			transform.tx = 0;
+			renderer.renderPath(passEncoderStub(), path);
+			transform.tx = 0.5;
+			renderer.renderPath(passEncoderStub(), path);
+		}
+
+		expect(rasterized.value).toBe(2);
+	});
 });
 
 describe("PathElementRenderer stroke alignment", () => {
@@ -210,6 +236,11 @@ function createProbe() {
 	const colors: (readonly number[])[] = [];
 	const rasterized = { value: 0 };
 	const transform = { ...IDENTITY_GPU_TRANSFORM };
+	const frame = {
+		viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },
+		width: 64,
+		height: 64,
+	};
 	const stripCache = new StripCache();
 	const originalSet = stripCache.set.bind(stripCache);
 	stripCache.set = (id, variant, entry) => {
@@ -236,11 +267,7 @@ function createProbe() {
 		getBindGroup: () => ({}),
 		getTransformsBuffer: () => ({}),
 		getMaskBindGroup: () => ({}),
-		getRasterFrame: () => ({
-			viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },
-			width: 64,
-			height: 64,
-		}),
+		getRasterFrame: () => frame,
 		getGpuTransform: () => transform,
 		renderState: { currentTransformIndex: 0 },
 		assetState: { currentFiles: [] },
@@ -254,7 +281,7 @@ function createProbe() {
 		stripCache,
 		ensureBrushTexture: () => true,
 	} as never);
-	return { renderer, calls, colors, rasterized, transform, outlines };
+	return { renderer, calls, colors, rasterized, transform, frame, outlines };
 }
 
 function appearanceOrderPath(): Path {

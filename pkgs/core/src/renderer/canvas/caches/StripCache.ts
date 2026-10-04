@@ -37,17 +37,43 @@ interface StripCacheEntry {
  * anchor-relative device pixels, so a pan by whole texels only moves the
  * anchor; a zoom, rotation, transform edit or sub-pixel pan changes the key
  * and regenerates. Paint is applied per instance and is not part of the key.
+ *
+ * One element can be drawn into several passes per frame, each with its own
+ * sub-pixel phase, so a variant holds several entries and a lookup picks the
+ * one rasterized for the pass. Entries do not depend on the pass size: passes
+ * of any size share an entry whose key and coverage fit them.
  */
 export class StripCache {
 	private static readonly MAX_ENTRIES_PER_ELEMENT = 6;
 
-	private cache = new Map<string, Map<string, StripCacheEntry>>();
+	/** Entries per element, least recently used first. */
+	private cache = new Map<
+		string,
+		{ variantKey: string; entry: StripCacheEntry }[]
+	>();
 
-	public get(
+	/**
+	 * The entry rasterized for `key` whose coverage holds `passRect`, marked as
+	 * most recently used.
+	 */
+	public find(
 		elementId: string,
 		variantKey: string,
+		key: StripRasterKey,
+		passRect: ClipRect,
 	): StripCacheEntry | undefined {
-		return this.cache.get(elementId)?.get(variantKey);
+		const entries = this.cache.get(elementId);
+		if (!entries) return undefined;
+		const index = entries.findIndex(
+			(slot) =>
+				slot.variantKey === variantKey &&
+				stripRasterKeyEquals(slot.entry.key, key) &&
+				rectContains(slot.entry.coverage, passRect),
+		);
+		if (index < 0) return undefined;
+		const [slot] = entries.splice(index, 1);
+		entries.push(slot);
+		return slot.entry;
 	}
 
 	public set(
@@ -55,12 +81,9 @@ export class StripCache {
 		variantKey: string,
 		entry: StripCacheEntry,
 	): void {
-		const entries = this.cache.get(elementId) ?? new Map();
-		entries.delete(variantKey);
-		entries.set(variantKey, entry);
-		while (entries.size > StripCache.MAX_ENTRIES_PER_ELEMENT) {
-			entries.delete(entries.keys().next().value as string);
-		}
+		const entries = this.cache.get(elementId) ?? [];
+		entries.push({ variantKey, entry });
+		if (entries.length > StripCache.MAX_ENTRIES_PER_ELEMENT) entries.shift();
 		this.cache.set(elementId, entries);
 	}
 
@@ -81,10 +104,7 @@ export class StripCache {
 	}
 }
 
-export function stripRasterKeyEquals(
-	a: StripRasterKey,
-	b: StripRasterKey,
-): boolean {
+function stripRasterKeyEquals(a: StripRasterKey, b: StripRasterKey): boolean {
 	return (
 		a.geometryHash === b.geometryHash &&
 		a.scaleBucket === b.scaleBucket &&
@@ -95,5 +115,14 @@ export function stripRasterKeyEquals(
 		a.fracX === b.fracX &&
 		a.fracY === b.fracY &&
 		a.paramsMode === b.paramsMode
+	);
+}
+
+function rectContains(outer: ClipRect, inner: ClipRect): boolean {
+	return (
+		inner.x0 >= outer.x0 &&
+		inner.y0 >= outer.y0 &&
+		inner.x1 <= outer.x1 &&
+		inner.y1 <= outer.y1
 	);
 }
