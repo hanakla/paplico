@@ -10,6 +10,8 @@
   - `moveElements` and `commitArtboardMove` skip an element whose group is moved with it instead of moving it twice.
 - **Text tool**
   - Picking a character or glyph, placing the caret, highlighting a selection and the overflow badges map a text's flow-chain regions and transform to the canvas through one shared path instead of separate copies.
+- **Clip groups**
+  - Zooming, and panning past the drawn area, no longer stall on a filtered group that holds a clip group clipped by a compound path.
 
 ### Fixed
 

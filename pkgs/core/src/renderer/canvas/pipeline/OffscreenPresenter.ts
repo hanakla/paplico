@@ -1766,6 +1766,7 @@ export class OffscreenPresenter {
 			groupCompositeContext,
 			childrenMatrix,
 			groupPreFilters.length > 0 ? groupPreFilters : undefined,
+			localBoundsCache,
 		);
 
 		finalPassEncoder.end();
@@ -2426,6 +2427,7 @@ export class OffscreenPresenter {
 		/** The chain the enclosing groups place `children` under. */
 		parentMatrix?: ElementTransform | null,
 		parentPreFilters?: Filter[],
+		localBoundsCache?: LocalBoundsCache,
 	): GPURenderPassEncoder {
 		// activePass tracks the current render pass encoder. renderClipGroup may
 		// end the current pass to bake a mask and then open a fresh one, so its
@@ -2519,7 +2521,7 @@ export class OffscreenPresenter {
 						parentMatrix ?? null,
 						undefined,
 						compositeContext,
-						undefined,
+						localBoundsCache,
 						this.deps.getElementPostMasks(child.id),
 					);
 				} else {
@@ -2544,6 +2546,7 @@ export class OffscreenPresenter {
 						compositeContext,
 						placeElement(parentMatrix ?? null, child),
 						nestedPreFilters,
+						localBoundsCache,
 					);
 				}
 			} else {
