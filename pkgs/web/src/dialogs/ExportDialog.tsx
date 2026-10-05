@@ -375,7 +375,7 @@ export const ExportDialog = memo(function ExportDialog({
 	);
 
 	// Calculate output size for selected artboards
-	const getOutputSize = useEventCallback((artboard: Artboard) => {
+	const getOutputSize = (artboard: Artboard) => {
 		// SVG output is vector: the viewBox always matches the artboard size.
 		if (format === "svg") {
 			const units = document?.units ?? DEFAULT_LENGTH_UNIT;
@@ -383,7 +383,7 @@ export const ExportDialog = memo(function ExportDialog({
 		}
 		if (isCustomDpi && !customDpiValid) return "—";
 		return `${Math.round(artboard.width * scale)} × ${Math.round(artboard.height * scale)}px`;
-	});
+	};
 
 	const handleSetFormatPng = useEventCallback(() => setFormat("png"));
 	const handleSetFormatJpeg = useEventCallback(() => setFormat("jpeg"));
