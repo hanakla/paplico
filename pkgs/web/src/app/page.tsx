@@ -268,6 +268,9 @@ export default function Page() {
 
 	useEffect(() => {
 		initAppConfig();
+		// Best-effort storage is evicted as a whole under disk pressure, taking
+		// every locally saved document with it; persistent storage is not.
+		navigator.storage.persist();
 		(async () => {
 			await runDBMigrations(db);
 		})();
