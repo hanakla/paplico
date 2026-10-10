@@ -185,16 +185,17 @@ FILE セクションの MIME ベースヒューリスティック:
 TocEntry 配列の直後に配置。UTF-8 NUL 終端文字列の連結。
 
 - FILE エントリの key: 埋め込みファイルの UID
-- META エントリの key: `meta/main`
-- TMLH エントリの key: `timelapse/main`
-- TMLB エントリの key: 省略可 (`keyOffset = 0xFFFFFFFF`)
+- FILE 以外のエントリは key を持たない。`keyOffset` には `0xFFFFFFFF` を入れる。
+- META と TMLH は sectionType で見分ける。
 
 ### aux フィールドの用途
 
-| セクション種別 | aux0              | aux1        |
-|---------------|-------------------|-------------|
-| TMLB          | startUpdateIndex  | updateCount |
-| その他         | 0 (未使用)         | 0 (未使用)   |
+| セクション種別 | aux0       | aux1        |
+|---------------|------------|-------------|
+| TMLB          | blockIndex | updateCount |
+| その他         | 0 (未使用)  | 0 (未使用)   |
+
+TMLB の `blockIndex` は 0 から始まるブロックの通し番号。`updateCount` はそのブロックに入っている Yjs 更新の件数。
 
 ### TOC ペイロードのバイナリレイアウト
 

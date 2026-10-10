@@ -101,7 +101,7 @@ export type ParsedTocEntry = {
 	rawBytes: number | null;
 	/** String key from the TOC string table, or null if absent. For FILE entries this is the file UID. */
 	key: string | null;
-	/** Auxiliary field 0. For TMLB entries this is startUpdateIndex. */
+	/** Auxiliary field 0. For TMLB entries this is the zero-based block index. */
 	aux0: number;
 	/** Auxiliary field 1. For TMLB entries this is updateCount. */
 	aux1: number;

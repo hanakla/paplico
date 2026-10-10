@@ -662,7 +662,7 @@ Y.Doc
 
 ### papf形式（PAPF: Paplico Packed Format v1）
 
-実装場所：`pkgs/core/src/io/papf/`。詳細は `docs/papl-format.md`
+実装場所：`pkgs/core/src/io/papf/`。詳細は `docs/papf-format.md`
 
 `.papf` は 2 層。外側は PDF コンテナで、内側が papf バイト列。
 
