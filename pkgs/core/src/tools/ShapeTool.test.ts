@@ -301,6 +301,34 @@ describe("ShapeTool", () => {
 	});
 
 	describe("Star", () => {
+		it("should point the first tip toward the pointer", () => {
+			opts = createMockOptions({
+				shapeOption: { type: "star", points: 5, depth: 0.4 },
+			});
+			tool = createTool(opts);
+
+			// Drag from world(0,0) to world(100,0)
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			expect(path.segments[0].start).toMatchObject({
+				x: expect.closeTo(100),
+				y: expect.closeTo(0),
+			});
+		});
+
 		it("should create star path with 2*points segments", () => {
 			opts = createMockOptions({
 				shapeOption: { type: "star", points: 5, depth: 0.4 },
@@ -549,6 +577,208 @@ describe("ShapeTool", () => {
 
 			// Snapped to 0° → y should be ≈ 0
 			expect(endPoint.y).toBeCloseTo(0, 0);
+		});
+
+		it("should stand a star upright when shift takes effect, whichever way the drag goes", () => {
+			opts = createMockOptions({
+				shapeOption: { type: "star", points: 5, depth: 0.4 },
+			});
+			tool = createTool(opts);
+
+			// Drag from world(0,0) toward the lower right, world(100,-100), with shift
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 400, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			const tip = path.segments[0].start;
+			expect(tip.x).toBeCloseTo(0, 5);
+			expect(tip.y).toBeCloseTo(Math.hypot(100, 100), 5);
+		});
+
+		it("should stand a star upright when the drag starts with shift held and wobbles first", () => {
+			opts = createMockOptions({
+				shapeOption: { type: "star", points: 5, depth: 0.4 },
+			});
+			tool = createTool(opts);
+
+			// Shift is held from the press; the pointer twitches 1px down-right
+			// before heading straight up to world(0,100)
+			tool.onPointerDown(
+				ev(400, 300, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(401, 301, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(400, 250, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(400, 200, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			const tip = path.segments[0].start;
+			expect(tip.x).toBeCloseTo(0, 5);
+			expect(tip.y).toBeCloseTo(100, 5);
+		});
+
+		it("should lean a shift-held star toward the side the pointer moves to below the center", () => {
+			opts = createMockOptions({
+				shapeOption: { type: "star", points: 5, depth: 0.4 },
+			});
+			tool = createTool(opts);
+
+			// Shift takes effect pointing straight down at world(0,-100), then the
+			// pointer moves right to world(64,-77), about 40° around the center
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(400, 400, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(464, 377, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// Upright (90°) leaning 45° to the right → first tip at 45°
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			const tip = path.segments[0].start;
+			const radius = Math.hypot(64, 77);
+			expect(tip.x).toBeCloseTo(radius / Math.SQRT2, 5);
+			expect(tip.y).toBeCloseTo(radius / Math.SQRT2, 5);
+		});
+
+		it("should turn a shift-held star from upright by the 45-degree steps the pointer turned", () => {
+			opts = createMockOptions({
+				shapeOption: { type: "star", points: 5, depth: 0.4 },
+			});
+			tool = createTool(opts);
+
+			// Shift takes effect pointing right at world(100,0), then the pointer
+			// turns about 50° counterclockwise to world(64,77)
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(500, 300, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(464, 223, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// Upright (90°) turned by 45° → first tip at 135°
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			const tip = path.segments[0].start;
+			const radius = Math.hypot(64, 77);
+			expect(tip.x).toBeCloseTo(-radius / Math.SQRT2, 5);
+			expect(tip.y).toBeCloseTo(radius / Math.SQRT2, 5);
+		});
+
+		it("should lean a shift-held spiral toward the side the pointer moves to below the center", () => {
+			opts = createMockOptions({
+				shapeOption: { type: "spiral", turns: 3, direction: 1 },
+			});
+			tool = createTool(opts);
+
+			// Shift takes effect pointing straight down at world(0,-100), then the
+			// pointer moves right to world(64,-77), about 40° around the center
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(400, 400, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(464, 377, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// Upright (90°) leaning 45° to the right → outer end at 45°
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			const outerEnd = path.segments.at(-1).end;
+			const radius = Math.hypot(64, 77);
+			expect(outerEnd.x).toBeCloseTo(radius / Math.SQRT2, 5);
+			expect(outerEnd.y).toBeCloseTo(radius / Math.SQRT2, 5);
+		});
+
+		it("should stand a spiral's outer end straight up when shift takes effect", () => {
+			opts = createMockOptions({
+				shapeOption: { type: "spiral", turns: 3, direction: 1 },
+			});
+			tool = createTool(opts);
+
+			// Shift takes effect at world(20,100) → outer end straight up at (0, ≈102)
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(420, 200, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			const outerEnd = path.segments.at(-1).end;
+			expect(outerEnd.x).toBeCloseTo(0, 5);
+			expect(outerEnd.y).toBeCloseTo(Math.hypot(20, 100), 5);
 		});
 	});
 

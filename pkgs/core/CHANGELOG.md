@@ -16,6 +16,8 @@
   - `ToolSettings.shapeOption` holds the shape and its parameters instead of `ToolSettings.shapeType`.
   - `ShapeToolOptions` takes a `shapeOption` instead of `shapeType`, `starPoints`, `starInnerRatio`, `spiralTurns` and `spiralDirection`.
   - The `"rectangle"` shape type is the 4-sided `"polygon"` instead.
+- **Shape tool**
+  - A star's first point faces the pointer instead of 90° away from it.
 - **Commands**
   - `moveElements` and `commitArtboardMove` skip an element whose group is moved with it instead of moving it twice.
 - **Text tool**
@@ -34,6 +36,8 @@
 
 - **Soft proof**
   - Fix switching the proof profile while soft proof is on leaving the canvas without the proof until the next edit.
+- **Shape tool**
+  - Fix Shift turning a star or a spiral only to the diagonals, so a star could not point straight up or down. Shift turns a star's first point or a spiral's outer end straight up, then leans it in 45° steps toward the side the pointer moves to.
 - **Path edit tool**
   - Fix the color swatch targeting the previously selected object instead of the objects whose vertices are selected.
 - **Compound paths**

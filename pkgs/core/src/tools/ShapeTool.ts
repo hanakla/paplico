@@ -27,6 +27,16 @@ export interface ShapeToolOptions {
 	shapeOption: ShapeOption;
 }
 
+/** Shapes Shift stands upright: their part facing the drag end turns straight up. */
+const SHIFT_UPRIGHT_SHAPE_TYPES: ReadonlySet<ShapeOption["type"]> = new Set([
+	"star",
+	"spiral",
+]);
+
+const SHIFT_ANGLE_STEP = Math.PI / 4;
+/** Screen distance a drag needs before its direction is steady enough to be a Shift base. */
+const SHIFT_BASE_MIN_SCREEN_DISTANCE = 16;
+
 // --- Main ShapeTool Class ---
 
 export class ShapeTool implements Tool {
@@ -37,6 +47,8 @@ export class ShapeTool implements Tool {
 	private dragStartWorld: { x: number; y: number } | null = null;
 	private isDragging = false;
 	private shiftKeyPressed = false;
+	/** Pointer direction when Shift took effect, which an upright shape's Shift lean counts from. */
+	private shiftBaseAngle: number | null = null;
 
 	public constructor(context: ToolContext, options: ShapeToolOptions) {
 		this.context = context;
@@ -100,6 +112,7 @@ export class ShapeTool implements Tool {
 			viewport.zoom,
 		);
 		this.updateSnapLineOverlay(snapped.snapLines);
+		this.trackShiftBaseAngle(this.dragStartWorld, snapped.point, viewport.zoom);
 
 		const previewPath = this.createShapePath(
 			this.dragStartWorld,
@@ -134,6 +147,7 @@ export class ShapeTool implements Tool {
 			worldPos,
 			viewport.zoom,
 		);
+		this.trackShiftBaseAngle(this.dragStartWorld, snapped.point, viewport.zoom);
 
 		// 最小サイズチェック（ドラッグが短すぎる場合は無視）
 		const dx = snapped.point.x - this.dragStartWorld.x;
@@ -175,6 +189,7 @@ export class ShapeTool implements Tool {
 		this.dragStartWorld = null;
 		this.isDragging = false;
 		this.shiftKeyPressed = false;
+		this.shiftBaseAngle = null;
 		this.context.previewUpdate(null);
 		this.updateSnapLineOverlay([]);
 	}
@@ -334,18 +349,59 @@ export class ShapeTool implements Tool {
 		};
 	}
 
+	/**
+	 * Remembers the pointer direction at the moment Shift takes effect, and
+	 * forgets it once Shift is released. A drag too short to have a steady
+	 * direction, such as one started with Shift already held, waits until it
+	 * is long enough; the shape stays upright meanwhile.
+	 */
+	private trackShiftBaseAngle(
+		start: { x: number; y: number },
+		end: { x: number; y: number },
+		zoom: number,
+	): void {
+		if (!this.shiftKeyPressed) {
+			this.shiftBaseAngle = null;
+			return;
+		}
+		if (this.shiftBaseAngle !== null) return;
+
+		const dx = end.x - start.x;
+		const dy = end.y - start.y;
+		if (Math.hypot(dx, dy) * zoom < SHIFT_BASE_MIN_SCREEN_DISTANCE) return;
+		this.shiftBaseAngle = Math.atan2(dy, dx);
+	}
+
 	private constrainToSquare(
 		start: { x: number; y: number },
 		end: { x: number; y: number },
 	): { x: number; y: number } {
 		const dx = end.x - start.x;
 		const dy = end.y - start.y;
+		const angle = Math.atan2(dy, dx);
+		const length = Math.sqrt(dx * dx + dy * dy);
 
+		// A star or a spiral stands upright when Shift takes effect, then leans by
+		// the 45° steps the pointer has turned since, toward the side the pointer
+		// moves to. Its upright part sits opposite a pointer below the center, so
+		// the turn is mirrored there. A star's first tip and a spiral's outer end
+		// face the returned end point.
+		if (SHIFT_UPRIGHT_SHAPE_TYPES.has(this.options.shapeOption.type)) {
+			const base = this.shiftBaseAngle ?? angle;
+			const lean = Math.sin(base) < 0 ? base - angle : angle - base;
+			const tipAngle =
+				Math.PI / 2 + Math.round(lean / SHIFT_ANGLE_STEP) * SHIFT_ANGLE_STEP;
+			return {
+				x: start.x + Math.cos(tipAngle) * length,
+				y: start.y + Math.sin(tipAngle) * length,
+			};
+		}
+
+		// A line takes its direction from start to end, so Shift snaps that
+		// direction to 45° steps instead of squaring the box.
 		if (this.options.shapeOption.type === "line") {
-			// 直線: 45度スナップ
-			const angle = Math.atan2(dy, dx);
-			const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
-			const length = Math.sqrt(dx * dx + dy * dy);
+			const snappedAngle =
+				Math.round(angle / SHIFT_ANGLE_STEP) * SHIFT_ANGLE_STEP;
 			return {
 				x: start.x + Math.cos(snappedAngle) * length,
 				y: start.y + Math.sin(snappedAngle) * length,
@@ -557,10 +613,9 @@ function generateStarSegments(
 	// of denting, so depth only scales inward from there.
 	const innerRadius = outerRadius * Math.cos(Math.PI / points) * (1 - depth);
 
-	// マウス位置の角度を取得 (Y軸が下向き正なので符号反転)
-	const mouseAngle = Math.atan2(-dy, dx);
-	// 最初の頂点がマウス位置を向くように調整
-	const startAngle = mouseAngle - Math.PI / 2;
+	// Vertices are placed at (cos, -sin), so negating dy here makes the first
+	// tip face the pointer.
+	const startAngle = Math.atan2(-dy, dx);
 
 	const vertices: BezierPoint[] = [];
 	const angleStep = Math.PI / points;
