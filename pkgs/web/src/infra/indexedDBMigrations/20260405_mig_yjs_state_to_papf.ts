@@ -3,7 +3,7 @@ import { applyMigrations, serializeDocument } from "@paplico/core/io";
 import type { Document } from "@paplico/core/schema";
 import type Dexie from "dexie";
 import * as Y from "yjs";
-import type { DBMigration } from ".";
+import type { IndexedDBMigration } from ".";
 
 /**
  * Migrate documentData records from yjsState+viewport to PAPF Blob.
@@ -30,7 +30,7 @@ function migrateYDocCompoundPaths(ydoc: Y.Doc): void {
 	}
 }
 
-export const migYjsStateToPapf: DBMigration = {
+export const migYjsStateToPapf: IndexedDBMigration = {
 	version: 20260405,
 	async migrate(db: Dexie): Promise<void> {
 		const table = db.table("documentData");

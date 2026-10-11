@@ -9866,16 +9866,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"dexie-react-hooks@npm:^4.4.0":
-  version: 4.4.0
-  resolution: "dexie-react-hooks@npm:4.4.0"
-  peerDependencies:
-    dexie: ">=4.2.0-alpha.1 <5.0.0"
-    react: ">=16"
-  checksum: 10c0/78c8dfb294868e805efa888e2ea88fa3489f9883fcaaa3c744540f06f7d2d904dd2e0b9e616038fb366e4d2f3d9f80bf27442e2a702e3bbe8731ff7ecaedf3dc
-  languageName: node
-  linkType: hard
-
 "dexie@npm:^4.4.2":
   version: 4.4.2
   resolution: "dexie@npm:4.4.2"
@@ -15901,7 +15891,6 @@ __metadata:
     babel-plugin-react-compiler: "npm:^1.0.0"
     cbor-x: "npm:^1.6.4"
     dexie: "npm:^4.4.2"
-    dexie-react-hooks: "npm:^4.4.0"
     es-toolkit: "npm:^1.45.1"
     happy-dom: "npm:^20.11.2"
     lucide-react: "npm:^0.562.0"

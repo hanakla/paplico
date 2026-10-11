@@ -2,8 +2,13 @@ import { createDefaultDocument } from "@paplico/core/document";
 import { openPapf, serializeDocument } from "@paplico/core/io";
 import { generateUid } from "@paplico/core/schema";
 import { proxy } from "valtio";
-import { type DocumentData, type DocumentMeta, db } from "@/infra/documentDB";
-import { getRevisionIdsToPrune } from "./autoSave";
+import { AUTO_SAVE_MAX_REVISIONS } from "@/configs";
+import type {
+	DocumentData,
+	DocumentMeta,
+	DocumentRevision,
+} from "@/infra/documentDB.types";
+import { documentsRepo } from "@/repos/documents";
 
 // --- State ---
 
@@ -15,6 +20,9 @@ export const documentManagerState = proxy<{
 	isLoading: false,
 });
 
+/** Bumped after every write, so views of the stored documents read them again. */
+export const documentStorageState = proxy({ changeCount: 0 });
+
 // --- CRUD ---
 
 export async function createDocument(name: string): Promise<string> {
@@ -22,21 +30,11 @@ export async function createDocument(name: string): Promise<string> {
 	const now = Date.now();
 	const document = await serializeDocument(createDefaultDocument(id));
 
-	await db.transaction("rw", db.documentMeta, db.documentData, async () => {
-		await db.documentMeta.add({
-			id,
-			name,
-			createdAt: now,
-			updatedAt: now,
-			thumbnail: null,
-		});
-		await db.documentData.add({
-			id,
-			document,
-			thumbnail: null,
-			createdAt: now,
-		});
-	});
+	await documentsRepo.create(
+		{ id, name, createdAt: now, updatedAt: now, thumbnail: null },
+		{ id, document, thumbnail: null, createdAt: now },
+	);
+	documentStorageState.changeCount++;
 
 	return id;
 }
@@ -51,24 +49,8 @@ export async function upsertDocument(
 	name: string,
 	document: Blob,
 ): Promise<void> {
-	const now = Date.now();
-
-	await db.transaction("rw", db.documentMeta, db.documentData, async () => {
-		const meta = await db.documentMeta.get(id);
-		await db.documentMeta.put({
-			id,
-			name: meta?.name ?? name,
-			createdAt: meta?.createdAt ?? now,
-			updatedAt: now,
-			thumbnail: meta?.thumbnail ?? null,
-		});
-		await db.documentData.put({
-			id,
-			document,
-			thumbnail: null,
-			createdAt: now,
-		});
-	});
+	await documentsRepo.upsert(id, name, document, Date.now());
+	documentStorageState.changeCount++;
 }
 
 export async function saveDocument(
@@ -76,20 +58,8 @@ export async function saveDocument(
 	document: Blob,
 	thumbnail?: Blob | null,
 ): Promise<void> {
-	const now = Date.now();
-
-	await db.transaction("rw", db.documentMeta, db.documentData, async () => {
-		await db.documentMeta.update(id, {
-			updatedAt: now,
-			...(thumbnail !== undefined ? { thumbnail } : {}),
-		});
-		await db.documentData.put({
-			id,
-			document,
-			thumbnail: thumbnail ?? null,
-			createdAt: now,
-		});
-	});
+	await documentsRepo.save(id, document, thumbnail, Date.now());
+	documentStorageState.changeCount++;
 }
 
 export async function saveRevision(
@@ -97,82 +67,63 @@ export async function saveRevision(
 	document: Blob,
 	thumbnail: Blob | null,
 ): Promise<void> {
-	const now = Date.now();
-	const revId = generateUid("rev");
-
-	await db.transaction(
-		"rw",
-		db.documentRevisions,
-		db.documentMeta,
-		db.documentData,
-		async () => {
-			await db.documentRevisions.add({
-				id: revId,
-				documentId,
-				document,
-				thumbnail,
-				createdAt: now,
-			});
-
-			await db.documentData.put({
-				id: documentId,
-				document,
-				thumbnail,
-				createdAt: now,
-			});
-
-			await db.documentMeta.update(documentId, {
-				updatedAt: now,
-				thumbnail,
-			});
-
-			// Prune: keep only newest revisions
-			const allRevisions = await db.documentRevisions
-				.where("documentId")
-				.equals(documentId)
-				.sortBy("createdAt");
-
-			const toDelete = getRevisionIdsToPrune(allRevisions);
-			if (toDelete.length > 0) {
-				await db.documentRevisions.bulkDelete(toDelete);
-			}
+	await documentsRepo.addRevision(
+		{
+			id: generateUid("rev"),
+			documentId,
+			document,
+			thumbnail,
+			createdAt: Date.now(),
 		},
+		AUTO_SAVE_MAX_REVISIONS,
 	);
+	documentStorageState.changeCount++;
 }
 
 export async function loadDocumentData(
 	id: string,
 ): Promise<DocumentData | null> {
-	return (await db.documentData.get(id)) ?? null;
+	return documentsRepo.load(id);
+}
+
+export async function loadDocumentMeta(
+	id: string,
+): Promise<DocumentMeta | null> {
+	return documentsRepo.getMeta(id);
 }
 
 export async function listDocumentMetas(): Promise<DocumentMeta[]> {
-	return db.documentMeta.orderBy("updatedAt").reverse().toArray();
+	return documentsRepo.listMetas();
+}
+
+/** Newest first. */
+export async function listDocumentRevisions(
+	documentId: string,
+): Promise<DocumentRevision[]> {
+	return documentsRepo.listRevisions(documentId);
+}
+
+export async function countDocumentRevisions(): Promise<
+	Record<string, number>
+> {
+	return documentsRepo.countRevisions();
 }
 
 export async function deleteDocument(id: string): Promise<void> {
-	await db.transaction(
-		"rw",
-		db.documentMeta,
-		db.documentData,
-		db.documentRevisions,
-		async () => {
-			await db.documentMeta.delete(id);
-			await db.documentData.delete(id);
-			await db.documentRevisions.where("documentId").equals(id).delete();
-		},
-	);
+	await documentsRepo.delete(id);
+	documentStorageState.changeCount++;
 }
 
 export async function renameDocument(id: string, name: string): Promise<void> {
-	await db.documentMeta.update(id, { name });
+	await documentsRepo.rename(id, name);
+	documentStorageState.changeCount++;
 }
 
 export async function duplicateDocument(
 	id: string,
 	newName: string,
 ): Promise<string> {
-	const data = await db.documentData.get(id);
+	const data = await documentsRepo.load(id);
 	if (!data) throw new Error(`Document not found: ${id}`);
 
 	const newId = generateUid("doc");
@@ -185,21 +136,17 @@ export async function duplicateDocument(
 		id: newId,
 	});
 
-	await db.transaction("rw", db.documentMeta, db.documentData, async () => {
-		await db.documentMeta.add({
+	await documentsRepo.create(
+		{
 			id: newId,
 			name: newName,
 			createdAt: now,
 			updatedAt: now,
 			thumbnail: null,
-		});
-		await db.documentData.add({
-			id: newId,
-			document,
-			thumbnail: data.thumbnail ?? null,
-			createdAt: now,
-		});
-	});
+		},
+		{ id: newId, document, thumbnail: data.thumbnail ?? null, createdAt: now },
+	);
+	documentStorageState.changeCount++;
 
 	return newId;
 }

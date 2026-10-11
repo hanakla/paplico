@@ -1,52 +1,8 @@
 import {
 	computeRingProgress,
 	formatAutoSaveCountdown,
-	getRevisionIdsToPrune,
 	shouldExtendInterval,
 } from "../autoSave";
-
-describe("getRevisionIdsToPrune", () => {
-	it("should return empty array when revisions count <= maxCount", () => {
-		const revisions = Array.from({ length: 20 }, (_, i) => ({
-			id: `rev-${i}`,
-			createdAt: i,
-		}));
-		expect(getRevisionIdsToPrune(revisions)).toEqual([]);
-	});
-
-	it("should return oldest revision IDs when exceeding maxCount", () => {
-		const revisions = Array.from({ length: 23 }, (_, i) => ({
-			id: `rev-${i}`,
-			createdAt: i,
-		}));
-		expect(getRevisionIdsToPrune(revisions)).toEqual([
-			"rev-0",
-			"rev-1",
-			"rev-2",
-		]);
-	});
-
-	it("should preserve the newest maxCount revisions", () => {
-		const revisions = Array.from({ length: 22 }, (_, i) => ({
-			id: `rev-${i}`,
-			createdAt: i,
-		}));
-		const pruned = getRevisionIdsToPrune(revisions);
-		const remaining = revisions.filter((r) => !pruned.includes(r.id));
-		expect(remaining).toHaveLength(20);
-		expect(remaining[0].id).toBe("rev-2");
-		expect(remaining.at(-1)!.id).toBe("rev-21");
-	});
-
-	it("should handle custom maxCount", () => {
-		const revisions = Array.from({ length: 5 }, (_, i) => ({
-			id: `rev-${i}`,
-			createdAt: i,
-		}));
-		expect(getRevisionIdsToPrune(revisions, 3)).toEqual(["rev-0", "rev-1"]);
-		expect(getRevisionIdsToPrune(revisions, 5)).toEqual([]);
-	});
-});
 
 describe("shouldExtendInterval", () => {
 	it("should return true when elapsed > threshold", () => {

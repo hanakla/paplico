@@ -1,20 +1,20 @@
 import type Dexie from "dexie";
 import { migYjsStateToPapf } from "./20260405_mig_yjs_state_to_papf";
 
-export interface DBMigration {
+export interface IndexedDBMigration {
 	/** Schema version date (YYYYMMDD) this migration upgrades TO */
 	version: number;
 	/** Apply migration to the database. */
 	migrate(db: Dexie): Promise<void>;
 }
 
-const migrations: DBMigration[] = [migYjsStateToPapf];
+const migrations: IndexedDBMigration[] = [migYjsStateToPapf];
 
 /**
- * Run all pending DB migrations.
+ * Run all pending IndexedDB migrations.
  * Tracks completed migrations in localStorage to avoid re-running.
  */
-export async function runDBMigrations(db: Dexie): Promise<void> {
+export async function runIndexedDBMigrations(db: Dexie): Promise<void> {
 	const completedVersion = getCompletedVersion();
 
 	for (const mig of migrations) {
@@ -24,7 +24,10 @@ export async function runDBMigrations(db: Dexie): Promise<void> {
 			await mig.migrate(db);
 			setCompletedVersion(mig.version);
 		} catch (e) {
-			console.error(`[DBMigration] Failed migration v${mig.version}:`, e);
+			console.error(
+				`[IndexedDBMigration] Failed migration v${mig.version}:`,
+				e,
+			);
 			break;
 		}
 	}

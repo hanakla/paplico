@@ -65,13 +65,13 @@ import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useMenuActions } from "@/hooks/useMenuActions";
 import { createAutomationFileSystem } from "@/infra/automationFileSystem";
 import { getBuiltinProfileBytes } from "@/infra/builtinIccProfiles";
-import { runDBMigrations } from "@/infra/dbMigrations";
-import { db } from "@/infra/documentDB";
+import { db } from "@/infra/documentDB.web";
 import {
 	domFSFileHandleFromTransferItem,
 	type FileHandle,
 } from "@/infra/filesystem";
 import { createFontLoaders } from "@/infra/fontLoaders";
+import { runIndexedDBMigrations } from "@/infra/indexedDBMigrations";
 import { useTranslation } from "@/locales";
 import { ActionsPanel } from "@/organisms/ActionsPanel";
 import { CanvasPane } from "@/organisms/CanvasPane";
@@ -271,9 +271,8 @@ export default function Page() {
 		// Best-effort storage is evicted as a whole under disk pressure, taking
 		// every locally saved document with it; persistent storage is not.
 		navigator.storage.persist();
-		(async () => {
-			await runDBMigrations(db);
-		})();
+		// The desktop build keeps its documents in SQLite and never reads IndexedDB.
+		if (!IS_TAURI_ENV) runIndexedDBMigrations(db);
 	}, []);
 
 	const createDocumentWithArtboard = useEventCallback(

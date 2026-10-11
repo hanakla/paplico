@@ -208,12 +208,6 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 		url: "https://github.com/dexie/Dexie.js",
 	},
 	{
-		name: "dexie-react-hooks",
-		version: "4.4.0",
-		license: "Apache-2.0",
-		url: "https://github.com/dexie/Dexie.js",
-	},
-	{
 		name: "earcut",
 		version: "3.2.3",
 		license: "ISC",

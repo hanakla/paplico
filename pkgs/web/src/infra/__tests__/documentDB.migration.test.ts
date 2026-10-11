@@ -1,6 +1,6 @@
 import Dexie from "dexie";
 import * as Y from "yjs";
-import { migYjsStateToPapf } from "@/infra/dbMigrations/20260405_mig_yjs_state_to_papf";
+import { migYjsStateToPapf } from "@/infra/indexedDBMigrations/20260405_mig_yjs_state_to_papf";
 
 function createLegacyYjsState(): Uint8Array {
 	const ydoc = new Y.Doc();

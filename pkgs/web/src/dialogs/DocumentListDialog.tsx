@@ -1,5 +1,4 @@
 import type { Paplico } from "@paplico/core";
-import { useLiveQuery } from "dexie-react-hooks";
 import {
 	ChevronRight,
 	Copy,
@@ -21,14 +20,16 @@ import { Menu } from "@/components/Menu";
 import { Spinner } from "@/components/Spinner";
 import { SwipeAction } from "@/components/SwipeAction";
 import { setLastDocumentId } from "@/hooks/useAppConfig";
-import { useDocumentListData } from "@/hooks/useDocumentQueries";
 import {
-	type DocumentData,
-	type DocumentMeta,
-	type DocumentRevision,
-	type DocumentSnapshot,
-	db,
-} from "@/infra/documentDB";
+	useDocumentHistories,
+	useDocumentListData,
+} from "@/hooks/useDocumentQueries";
+import type {
+	DocumentData,
+	DocumentMeta,
+	DocumentRevision,
+	DocumentSnapshot,
+} from "@/infra/documentDB.types";
 import { FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import {
@@ -68,29 +69,8 @@ export const DocumentListDialog = memo(function DocumentListDialog({
 
 	const [expandedDocId, setExpandedDocId] = useState<string[]>([]);
 
-	const expandedRevisions = useLiveQuery(async () => {
-		if (expandedDocId.length === 0) return {};
-		const result: Record<string, DocumentRevision[]> = {};
-		for (const docId of expandedDocId) {
-			result[docId] = (
-				await db.documentRevisions
-					.where("documentId")
-					.equals(docId)
-					.sortBy("createdAt")
-			).reverse();
-		}
-		return result;
-	}, [expandedDocId]);
-
-	const expandedDocData = useLiveQuery(async () => {
-		if (expandedDocId.length === 0) return {};
-		const result: Record<string, DocumentData> = {};
-		for (const docId of expandedDocId) {
-			const data = await db.documentData.get(docId);
-			if (data) result[docId] = data;
-		}
-		return result;
-	}, [expandedDocId]);
+	const { revisions: expandedRevisions, data: expandedDocData } =
+		useDocumentHistories(expandedDocId);
 
 	const handleOpenDocument = useEventCallback(async (id: string) => {
 		if (!paplico) return;

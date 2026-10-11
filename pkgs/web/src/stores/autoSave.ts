@@ -1,9 +1,5 @@
 import { proxy } from "valtio";
-import {
-	AUTO_SAVE_INTERVAL_MS,
-	AUTO_SAVE_MAX_REVISIONS,
-	AUTO_SAVE_SLOW_THRESHOLD_MS,
-} from "@/configs";
+import { AUTO_SAVE_INTERVAL_MS, AUTO_SAVE_SLOW_THRESHOLD_MS } from "@/configs";
 
 // --- State ---
 
@@ -17,18 +13,6 @@ export const autoSaveState = proxy({
 });
 
 // --- Pure functions ---
-
-/**
- * Return IDs of revisions that should be deleted to maintain the cap.
- * Input must be sorted by createdAt ascending.
- */
-export function getRevisionIdsToPrune(
-	revisions: { id: string; createdAt: number }[],
-	maxCount: number = AUTO_SAVE_MAX_REVISIONS,
-): string[] {
-	if (revisions.length <= maxCount) return [];
-	return revisions.slice(0, revisions.length - maxCount).map((r) => r.id);
-}
 
 /**
  * Determine if the save interval should be extended to the slow document interval.

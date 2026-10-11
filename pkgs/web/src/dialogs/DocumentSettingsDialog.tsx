@@ -25,10 +25,13 @@ import { Tooltip } from "@/components/Tooltip";
 import { RASTERIZATION_DPI_PRESETS } from "@/configs";
 import { useSystemIccProfiles } from "@/hooks/useSystemIccProfiles";
 import { BUILTIN_ICC_PROFILES } from "@/infra/builtinIccProfiles";
-import { db } from "@/infra/documentDB";
 import { FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
-import { documentManagerState, renameDocument } from "@/stores/documentStore";
+import {
+	documentManagerState,
+	loadDocumentMeta,
+	renameDocument,
+} from "@/stores/documentStore";
 import { setSoftProofEnabled } from "@/stores/uiStore";
 import { useEventCallback, useMediaDynamicRange } from "@/utils/hooks";
 import { IS_TAURI_ENV } from "@/utils/platform";
@@ -111,7 +114,7 @@ export const DocumentSettingsDialog = memo(function DocumentSettingsDialog({
 
 	useEffect(() => {
 		if (!open || !docManagerSnap.currentDocumentId) return;
-		db.documentMeta.get(docManagerSnap.currentDocumentId).then((meta) => {
+		loadDocumentMeta(docManagerSnap.currentDocumentId).then((meta) => {
 			if (meta) setDocName(meta.name);
 		});
 	}, [open, docManagerSnap.currentDocumentId]);

@@ -1,4 +1,5 @@
 mod automation_file_system;
+mod documents;
 mod fonts;
 mod launch_files;
 
@@ -32,9 +33,24 @@ pub fn run() {
             automation_file_system::automation_create_directory,
             automation_file_system::automation_directory_file,
             automation_file_system::automation_revoke_access,
-            launch_files::take_launch_files
+            launch_files::take_launch_files,
+            documents::documents_list_metas,
+            documents::documents_get_meta,
+            documents::documents_load,
+            documents::documents_list_revisions,
+            documents::documents_count_revisions,
+            documents::documents_create,
+            documents::documents_upsert,
+            documents::documents_save,
+            documents::documents_add_revision,
+            documents::documents_delete,
+            documents::documents_rename
         ])
         .setup(|app| {
+            let documents_db =
+                tauri::async_runtime::block_on(documents::open(&app.path().app_data_dir()?))?;
+            app.manage(documents_db);
+
             let app_menu = SubmenuBuilder::new(app, &app.package_info().name)
                 .hide()
                 .hide_others()

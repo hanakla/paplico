@@ -50,7 +50,6 @@
 		"babel-plugin-react-compiler": "^1.0.0",
 		"cbor-x": "^1.6.4",
 		"dexie": "^4.4.2",
-		"dexie-react-hooks": "^4.4.0",
 		"es-toolkit": "^1.45.1",
 		"lucide-react": "^0.562.0",
 		"mermaid": "^11.14.0",
