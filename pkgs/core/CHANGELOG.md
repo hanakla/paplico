@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Groups**
+  - Fix a filter such as blur or chromatic aberration, or an opacity, on a group resetting the blend modes of its children and of their fills to normal.
+  - Fix a filter on an element two or more groups deep being dropped when an outer group has a filter or an opacity.
+
 ## [0.7.0] - 2026-10-12
 
 ### Added

@@ -196,6 +196,15 @@ function applyStoreMargin(
  */
 const INTERACTIVE_BAKE_TEXEL_BUDGET = 16 * 1024 * 1024;
 
+/** Whether an element composites with plain source-over, so its content can
+ *  draw straight onto the target instead of through a bake. */
+export function hasNormalBlending(element: AnyArtObject): boolean {
+	return (
+		(element.blendMode ?? "normal") === "normal" &&
+		(element.compositionMode ?? "normal") === "normal"
+	);
+}
+
 /**
  * Interactive bake density (texels per world px): the power-of-two bucket at
  * or above the viewport zoom, so bakes follow what the display actually needs

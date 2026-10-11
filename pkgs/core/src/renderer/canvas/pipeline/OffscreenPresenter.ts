@@ -12,7 +12,6 @@ import {
 	type AnyArtObject,
 	type BoundingBox,
 	type ElementTransform,
-	type Filter,
 	type Group,
 	isGroup,
 	type RepeatObject,
@@ -39,14 +38,16 @@ import {
 } from "../../../utils/geometry/repeatInterpolation";
 import { lerp } from "../../../utils/math";
 import type { RasterFrame } from "../../geometry/strips/stripTypes";
-import { aabbOfQuad, interactiveBakeDensity } from "../CanvasLayer.helpers";
+import {
+	aabbOfQuad,
+	hasNormalBlending,
+	interactiveBakeDensity,
+} from "../CanvasLayer.helpers";
 import {
 	type BlitLayer,
 	type BlitQuad,
 	type BlitQuadToCanvasFn,
-	type BlitTextureToCanvasFn,
 	type BlitUVRect,
-	type CompositeBackdrop,
 	type CompositeRenderContext,
 	type CompositeState,
 	type CoveredSurface,
@@ -67,11 +68,7 @@ import { MaskedBlitBindGroupCache } from "../caches/BindGroupCache";
 import type { FilterRenderer } from "./FilterRenderer";
 import { FrameUniformPool } from "./FrameUniformPool";
 import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
-import {
-	childPreFilters,
-	geometryFilters,
-	withInheritedPreFilters,
-} from "./PreFilterRenderer";
+import { geometryFilters, withInheritedPreFilters } from "./PreFilterRenderer";
 import { planBoundsOf, scanBlendingFlags } from "./RenderPlanner";
 import {
 	type ColorRenderSurface,
@@ -121,13 +118,10 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 
 	renderElements: RenderElementsFn;
 	dispatchElementDirect: DispatchElementDirectFn;
-	blitTextureToCanvas: BlitTextureToCanvasFn;
 	renderElementToMask: RenderElementToMaskFn;
 	blitQuadToCanvas: BlitQuadToCanvasFn;
 	/** The inline mask assigned to an element this frame, or the dummy when none. */
 	getElementMaskBindGroup: (elementId: string) => GPUBindGroup;
-	/** Whether this frame draws a clip group's child inline through its mask. */
-	drawsClipGroupInline: (groupId: string) => boolean;
 	renderGroupAppearances: RenderGroupAppearancesFn;
 	/** The texel space of the pass being encoded right now. */
 	getRasterFrame: () => RasterFrame;
@@ -162,15 +156,6 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 	 *  known backdrop draws through drawBackdropElement and any other bake
 	 *  draws flat. */
 	isBackdropElement: (elementId: string) => boolean;
-	/** CanvasLayer.drawBackdropElement for a backdrop-filter element. */
-	drawBackdropElement: (
-		pass: GPURenderPassEncoder,
-		element: AnyArtObject,
-		elementsMap: Map<string, AnyArtObject>,
-		alphaMultiplier: number,
-		compositeContext: CompositeRenderContext,
-		compositeBackdrop: CompositeBackdrop,
-	) => GPURenderPassEncoder;
 	/** CanvasLayer.blitBakeWithCoverage: composite a bake, punching what
 	 *  lies beneath by what its backdrop-filter elements cover. */
 	blitBakeWithCoverage: (
@@ -201,11 +186,6 @@ const CLIP_BLIT_BUFFER_SIZE = CLIP_BLIT_F32_COUNT * 4;
 /** World-space masks applied per chain pass — matches the shader's slot count. */
 const MASK_CHAIN_SLOTS = 4;
 const ATLAS_MASK_SLOTS = 16;
-
-interface GroupChildSurface {
-	surface: RenderSurface;
-	deferredMasks?: readonly WorldMaskAssignment[];
-}
 
 interface ColorAtlasBakeReservation {
 	bounds: WorldBBox;
@@ -838,7 +818,7 @@ export class OffscreenPresenter {
 		);
 	}
 
-	private drawSurfaceWithMaskChain(
+	public drawSurfaceWithMaskChain(
 		pass: GPURenderPassEncoder,
 		texture: GPUTexture,
 		bounds: BoundingBox,
@@ -966,27 +946,6 @@ export class OffscreenPresenter {
 	private canDeferWorldMasks(masks: readonly WorldMaskAssignment[]): boolean {
 		return (
 			masks.length <= MASK_CHAIN_SLOTS || this.isSharedAtlasMaskChain(masks)
-		);
-	}
-
-	public drawSurfaceWithAtlasMasks(
-		pass: GPURenderPassEncoder,
-		surface: RenderSurface,
-		opacity: number,
-		masks: readonly WorldMaskAssignment[],
-		viewportBindGroup: GPUBindGroup,
-	): boolean {
-		if (!this.canDrawSurfaceWithAtlasMasks(surface, masks)) return false;
-		const placement = surface.placement;
-		if (placement.kind !== "world-aabb") return false;
-		return this.tryDrawColorAtlasSurfaceWithMasks(
-			pass,
-			surface.texture.texture,
-			placement.bounds,
-			placement.uvRect,
-			opacity,
-			masks,
-			viewportBindGroup,
 		);
 	}
 
@@ -1456,7 +1415,7 @@ export class OffscreenPresenter {
 			return null;
 
 		// First, collect and apply filters for child elements
-		const childFilteredTextures = new Map<string, GroupChildSurface>();
+		const childFilteredTextures = new Map<string, FilteredTextureInfo>();
 		const colorBakeBatch: ColorBakeBatchItem[] = [];
 
 		const childElements = group.childIds
@@ -1477,8 +1436,8 @@ export class OffscreenPresenter {
 		);
 
 		// Pre-rasterize only children whose own filters need a post-process
-		// pass; everything else renders inline in renderGroupChildrenToTexture,
-		// which merges the group pre-filters into each child.
+		// pass; renderElements draws everything else below and hands the group
+		// pre-filters to each child.
 		for (const child of childElements) {
 			if (this.deps.isBackdropElement(child.id)) continue;
 			const childMasks = this.deps.getElementPostMasks(child.id);
@@ -1499,7 +1458,7 @@ export class OffscreenPresenter {
 					child.id,
 				);
 				if (isolated) {
-					childFilteredTextures.set(child.id, { surface: isolated });
+					childFilteredTextures.set(child.id, prebakedChild(isolated));
 					continue;
 				}
 			}
@@ -1527,6 +1486,14 @@ export class OffscreenPresenter {
 			) {
 				continue;
 			}
+			// The blend composite takes no masks, so a blended child carries
+			// its masks in its texture instead.
+			const deferredMasks =
+				this.canDeferWorldMasks(childMasks) &&
+				!needsWashIsolation &&
+				hasNormalBlending(child)
+					? childMasks
+					: undefined;
 
 			// One bake per (child, density, clamp context, parent deformation)
 			// per frame. The clamp context is part of the key because interactive
@@ -1541,21 +1508,21 @@ export class OffscreenPresenter {
 			}:${groupPreFilters.map((f) => f.uid ?? f.processor).join(",")}`;
 			const memoized = this.childBakeMemo.get(memoKey);
 			if (memoized) {
-				childFilteredTextures.set(child.id, {
-					surface: createRenderSurface(
-						createBorrowedTextureRef(memoized.texture, "child-bake-memo"),
-						memoized.placement,
-						{
-							role: memoized.role,
-							alphaMode: memoized.alphaMode,
-							opacityState: memoized.opacityState,
-						},
+				childFilteredTextures.set(
+					child.id,
+					prebakedChild(
+						createRenderSurface(
+							createBorrowedTextureRef(memoized.texture, "child-bake-memo"),
+							memoized.placement,
+							{
+								role: memoized.role,
+								alphaMode: memoized.alphaMode,
+								opacityState: memoized.opacityState,
+							},
+						),
+						deferredMasks,
 					),
-					deferredMasks:
-						this.canDeferWorldMasks(childMasks) && !needsWashIsolation
-							? childMasks
-							: undefined,
-				});
+				);
 				continue;
 			}
 
@@ -1574,7 +1541,7 @@ export class OffscreenPresenter {
 			const childTextureBounds = expandBounds(childBounds, childExpansion);
 			const colorBakeReservation =
 				child.type === "path" &&
-				child.blendMode === "normal" &&
+				hasNormalBlending(child) &&
 				!childNeedsPostPass &&
 				groupPreFilters.length === 0 &&
 				childMasks.length > 1 &&
@@ -1662,10 +1629,6 @@ export class OffscreenPresenter {
 					placement: childSurface.placement,
 				});
 			}
-			const deferredMasks =
-				this.canDeferWorldMasks(childMasks) && !needsWashIsolation
-					? childMasks
-					: undefined;
 			if (childMasks.length > 0 && !deferredMasks) {
 				const masked = this.applyWorldMasksToTexture(
 					encoder,
@@ -1688,10 +1651,10 @@ export class OffscreenPresenter {
 			// an owner with its own lifetime, and holding it for the frame would
 			// be a use-after-destroy waiting to happen.
 			if (childSurface.texture.kind !== "frame-owned") {
-				childFilteredTextures.set(child.id, {
-					surface: childSurface,
-					deferredMasks,
-				});
+				childFilteredTextures.set(
+					child.id,
+					prebakedChild(childSurface, deferredMasks),
+				);
 				continue;
 			}
 			this.childBakeMemo.set(memoKey, {
@@ -1702,21 +1665,24 @@ export class OffscreenPresenter {
 				opacityState: childSurface.opacityState,
 			});
 			this.childBakeMemoTextures.push(childSurface.texture.texture);
-			childFilteredTextures.set(child.id, {
-				surface: createRenderSurface(
-					createBorrowedTextureRef(
-						childSurface.texture.texture,
-						"child-bake-memo",
+			childFilteredTextures.set(
+				child.id,
+				prebakedChild(
+					createRenderSurface(
+						createBorrowedTextureRef(
+							childSurface.texture.texture,
+							"child-bake-memo",
+						),
+						childSurface.placement,
+						{
+							role: childSurface.role,
+							alphaMode: childSurface.alphaMode,
+							opacityState: childSurface.opacityState,
+						},
 					),
-					childSurface.placement,
-					{
-						role: childSurface.role,
-						alphaMode: childSurface.alphaMode,
-						opacityState: childSurface.opacityState,
-					},
+					deferredMasks,
 				),
-				deferredMasks,
-			});
+			);
 		}
 		this.renderColorBakeBatch(encoder, colorBakeBatch, childFilteredTextures);
 
@@ -1756,24 +1722,35 @@ export class OffscreenPresenter {
 		const { savedCaptureTexture, offscreenCaptureTexture } =
 			this.swapCaptureTexture(offscreenTexture.width, offscreenTexture.height);
 
-		const finalPassEncoder = this.renderGroupChildrenToTexture(
-			encoder,
+		// The bake holds its whole coverage, so its children are culled against
+		// that and not against the part of the frame being drawn.
+		const savedDrawRegion = this.deps.viewportState.drawRegion;
+		this.deps.viewportState.drawRegion = null;
+		const finalPassEncoder = this.deps.renderElements(
 			offscreenPassEncoder,
 			childElements,
-			elementsMap,
 			childFilteredTextures,
+			elementsMap,
 			1.0,
-			groupCompositeContext,
 			childrenMatrix,
-			groupPreFilters.length > 0 ? groupPreFilters : undefined,
+			undefined,
+			"offscreen",
+			groupCompositeContext,
 			localBoundsCache,
+			groupPreFilters.length > 0 ? groupPreFilters : undefined,
 		);
+		this.deps.viewportState.drawRegion = savedDrawRegion;
 
 		finalPassEncoder.end();
 
-		// Release child filtered textures now that they've been blitted.
-		for (const entry of childFilteredTextures.values()) {
-			releaseRenderSurface(entry.surface);
+		// Release the child bakes now that they are drawn: the ones prepared
+		// above and the ones the walk baked for deeper descendants.
+		for (const info of childFilteredTextures.values()) {
+			releaseRenderSurface(info.source);
+			releaseRenderSurface(info.output);
+			for (const layer of info.overrideLayers ?? []) {
+				releaseRenderSurface(layer);
+			}
 		}
 
 		this.deps.compositeState.captureTexture = savedCaptureTexture;
@@ -2412,157 +2389,6 @@ export class OffscreenPresenter {
 		};
 	}
 
-	/**
-	 * Render group children into an active offscreen pass encoder,
-	 * blitting pre-filtered textures for children that have filters.
-	 */
-	private renderGroupChildrenToTexture(
-		encoder: GPUCommandEncoder,
-		passEncoder: GPURenderPassEncoder,
-		children: AnyArtObject[],
-		elementsMap: Map<string, AnyArtObject>,
-		childFilteredTextures: Map<string, GroupChildSurface>,
-		alphaMultiplier: number = 1.0,
-		compositeContext?: CompositeRenderContext,
-		/** The chain the enclosing groups place `children` under. */
-		parentMatrix?: ElementTransform | null,
-		parentPreFilters?: Filter[],
-		localBoundsCache?: LocalBoundsCache,
-	): GPURenderPassEncoder {
-		// activePass tracks the current render pass encoder. renderClipGroup may
-		// end the current pass to bake a mask and then open a fresh one, so its
-		// return value is used for the following iterations.
-		let activePass = passEncoder;
-		for (const child of children) {
-			if (child.visible === false) continue;
-			this.deps.renderState.currentMaskBindGroup =
-				this.deps.getElementMaskBindGroup(child.id);
-			// Set transform index so the GPU shader applies the correct child transform
-			this.deps.renderState.currentTransformIndex = this.deps.getTransformIndex(
-				child.id,
-			);
-
-			if (compositeContext?.backdrop && this.deps.isBackdropElement(child.id)) {
-				activePass = this.deps.drawBackdropElement(
-					activePass,
-					child,
-					elementsMap,
-					alphaMultiplier,
-					compositeContext,
-					compositeContext.backdrop,
-				);
-				continue;
-			}
-			const childAlpha = alphaMultiplier * child.opacity;
-			// Check if this child has a pre-filtered texture
-			const filteredData = childFilteredTextures.get(child.id);
-			if (filteredData) {
-				const surface = filteredData.surface;
-				if (filteredData.deferredMasks?.length) {
-					this.drawSurfaceWithMaskChain(
-						activePass,
-						surface.texture.texture,
-						surface.placement.bounds,
-						surface.placement.uvRect,
-						childAlpha,
-						filteredData.deferredMasks,
-						this.deps.getBindGroup(),
-					);
-				} else {
-					this.deps.blitTextureToCanvas(
-						activePass,
-						surface.texture.texture,
-						surface.placement.bounds,
-						childAlpha,
-						surface.placement.uvRect,
-					);
-				}
-				activePass.setPipeline(this.deps.strokePipeline);
-				activePass.setBindGroup(0, this.deps.getBindGroup());
-				activePass.setBindGroup(1, this.deps.getTransformsBindGroup()!);
-				activePass.setBindGroup(2, this.deps.dummyGradientBindGroup);
-				activePass.setBindGroup(3, this.deps.dummyMaskBindGroup);
-			} else if (isGroup(child)) {
-				if (child.clipPathId != null && compositeContext != null) {
-					const clipChildren = child.childIds
-						.filter((id) => id !== child.clipPathId)
-						.map((id) => elementsMap.get(id))
-						.filter((el): el is AnyArtObject => el !== undefined);
-					const clipChildrenMatrix = placeElement(parentMatrix ?? null, child);
-					// A clip alone does not isolate the group: an inline clip group
-					// draws its child through the effective mask so its blend mode
-					// sees what this bake has drawn so far, as in the main pass.
-					if (this.deps.drawsClipGroupInline(child.id)) {
-						activePass = this.deps.renderElements(
-							activePass,
-							clipChildren,
-							new Map(),
-							elementsMap,
-							childAlpha,
-							clipChildrenMatrix,
-							undefined,
-							"offscreen",
-							compositeContext,
-						);
-						continue;
-					}
-					activePass = this.renderClipGroup(
-						encoder,
-						activePass,
-						child,
-						clipChildren,
-						// Filter pre-processing for this ClipGroup's children has not been
-						// performed in this context. Elements with filters will have them
-						// applied via the standard pipeline inside renderElements.
-						new Map(),
-						elementsMap,
-						childAlpha,
-						clipChildrenMatrix,
-						parentMatrix ?? null,
-						undefined,
-						compositeContext,
-						localBoundsCache,
-						this.deps.getElementPostMasks(child.id),
-					);
-				} else {
-					// Nested groups: render their children recursively,
-					// propagating pre-filters (parent→child order, outermost first).
-					const nestedChildren = child.childIds
-						.filter((id) => id !== child.clipPathId)
-						.map((id) => elementsMap.get(id))
-						.filter((el): el is AnyArtObject => el !== undefined);
-					const nestedPreFilters = childPreFilters(
-						child,
-						parentPreFilters,
-						this.deps.filterRenderer,
-					);
-					activePass = this.renderGroupChildrenToTexture(
-						encoder,
-						activePass,
-						nestedChildren,
-						elementsMap,
-						childFilteredTextures,
-						childAlpha,
-						compositeContext,
-						placeElement(parentMatrix ?? null, child),
-						nestedPreFilters,
-						localBoundsCache,
-					);
-				}
-			} else {
-				this.deps.dispatchElementDirect(
-					activePass,
-					withInheritedPreFilters(child, parentPreFilters),
-					elementsMap,
-					childAlpha,
-					"offscreen",
-				);
-			}
-		}
-		this.deps.renderState.currentMaskBindGroup = this.deps.dummyMaskBindGroup;
-		return activePass;
-	}
-
 	public reserveColorAtlasBake(
 		textureBounds: WorldBBox,
 		rasterScale?: number,
@@ -2611,7 +2437,7 @@ export class OffscreenPresenter {
 	private renderColorBakeBatch(
 		encoder: GPUCommandEncoder,
 		items: readonly ColorBakeBatchItem[],
-		childFilteredTextures: Map<string, GroupChildSurface>,
+		childFilteredTextures: Map<string, FilteredTextureInfo>,
 	): void {
 		const surfaces = this.renderColorAtlasBatch(encoder, items);
 		for (const item of items) {
@@ -2624,10 +2450,10 @@ export class OffscreenPresenter {
 				alphaMode: surface.alphaMode,
 				opacityState: surface.opacityState,
 			});
-			childFilteredTextures.set(item.element.id, {
-				surface,
-				deferredMasks: item.deferredMasks,
-			});
+			childFilteredTextures.set(
+				item.element.id,
+				prebakedChild(surface, item.deferredMasks),
+			);
 		}
 	}
 
@@ -3294,4 +3120,18 @@ function snapBoundsToPixelGrid(
 	const maxY = fromScreenY(Math.floor(toScreenY(bounds.maxY) + eps));
 	const minY = fromScreenY(Math.ceil(toScreenY(bounds.minY) - eps));
 	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+/** A pre-rasterized group child in the form renderElements draws from. */
+function prebakedChild(
+	surface: RenderSurface,
+	postMasks?: readonly WorldMaskAssignment[],
+): FilteredTextureInfo {
+	return {
+		source: surface,
+		output: surface,
+		elementBounds: surface.placement.bounds,
+		textureBounds: surface.placement.bounds,
+		...(postMasks?.length ? { postMasks } : {}),
+	};
 }

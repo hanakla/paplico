@@ -13,6 +13,7 @@ import type {
 	CubicBezierSegment,
 	ElementTransform,
 	EmbeddedFile,
+	Filter,
 	Group,
 	Path,
 	Viewport,
@@ -347,6 +348,7 @@ export type RenderElementsFn = (
 	pipelineType?: PipelineType,
 	compositeContext?: CompositeRenderContext,
 	localBoundsCache?: LocalBoundsCache,
+	parentPreFilters?: Filter[],
 ) => GPURenderPassEncoder;
 
 /** Which of a group's own appearances to draw: those below its content or

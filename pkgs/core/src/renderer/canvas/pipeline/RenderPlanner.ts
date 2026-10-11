@@ -895,9 +895,6 @@ interface PlanWalk {
 	elementsMap: ReadonlyMap<string, AnyArtObject>;
 	filterHandlers: ReadonlyMap<string, FilterHandler>;
 	skipBackdropFilters: boolean;
-	/** Inside a group drawn from its bake, whose children's filters the bake
-	 *  applies itself: only backdrop entries are collected. */
-	backdropsOnly?: boolean;
 	candidates: PlanCandidate[];
 	localBoundsCache?: LocalBoundsCache;
 	transientIds?: ReadonlySet<string>;
@@ -917,7 +914,6 @@ function collectPlanCandidates(
 		elementsMap,
 		filterHandlers,
 		skipBackdropFilters,
-		backdropsOnly,
 		candidates,
 		localBoundsCache,
 		transientIds,
@@ -948,34 +944,30 @@ function collectPlanCandidates(
 			skipBackdropFilters,
 		);
 
-		if ((filterPlan && !backdropsOnly) || backdropEntry) {
+		if (filterPlan || backdropEntry) {
 			candidates.push({
 				bounds: filterPlan?.textureBounds ?? elementBounds,
-				filterPlan: backdropsOnly ? null : filterPlan,
+				filterPlan,
 				backdropEntry,
 				skipCull,
 			});
 		}
 		if (backdropEntry) continue;
 
-		// Recurse into group children for individual element filters. A group
-		// drawn from its bake applies its children's filters in
-		// renderGroupToTexture, so beneath it only the backdrop entries are
-		// collected. An underlay plan leaves the children on the main pass, so
-		// they keep their plans. A child inside the viewport implies its group
-		// intersects too (group bounds contain the children), so classifying
-		// every child here and culling per candidate in buildFramePlanView
-		// matches the previous cull-before-recurse behaviour.
+		// Recurse into group children for individual element filters. A child
+		// inside the viewport implies its group intersects too (group bounds
+		// contain the children), so classifying every child here and culling
+		// per candidate in buildFramePlanView matches a cull before the
+		// recursion. A group drawn from its bake may bake past the viewport,
+		// so what lies beneath it keeps its plans wherever it is.
 		if (isGroup(element)) {
 			const childElements = element.childIds
 				.map((id) => elementsMap.get(id))
 				.filter((el): el is AnyArtObject => el !== undefined);
 			collectPlanCandidates(
 				childElements,
-				filterPlan && !filterPlan.underlay
-					? { ...walk, backdropsOnly: true }
-					: walk,
-				skipCull,
+				walk,
+				skipCull || (filterPlan != null && !filterPlan.underlay),
 				placeElement(parentMatrix, element),
 				// `element` already carries the inherited filters after its own.
 				geometryFilters(element, handlerLookup),

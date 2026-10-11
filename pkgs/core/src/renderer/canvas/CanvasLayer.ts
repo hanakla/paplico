@@ -88,6 +88,7 @@ import {
 	computeDotGridPhase,
 	expandRenderFilter,
 	expandRenderFilterWithAncestors,
+	hasNormalBlending,
 	interactiveBakeDensity,
 	STORE_MARGIN_PX,
 	splitGroupAppearances,
@@ -1092,23 +1093,9 @@ export class CanvasLayer {
 					this.popViewportBinding();
 				}
 			},
-			renderElements: (pass, elems, ft, em, alpha, pt, skip, pType, ctx, rbc) =>
-				this.renderElements(
-					pass,
-					elems,
-					ft,
-					em,
-					alpha,
-					pt,
-					skip,
-					pType,
-					ctx,
-					rbc,
-				),
+			renderElements: (...args) => this.renderElements(...args),
 			dispatchElementDirect: (...args) =>
 				this.elements.dispatchElementDirect(...args),
-			blitTextureToCanvas: (...args) =>
-				this.composite.blitTextureToCanvas(...args),
 			renderElementToMask: (...args) =>
 				this.elements.renderElementToMask(...args),
 			blitQuadToCanvas: (pass, texture, corners, opacity, uvRect) =>
@@ -1123,31 +1110,11 @@ export class CanvasLayer {
 				this.inlineMaskEntries.get(elementId)?.bindGroup ??
 				this.dummyMaskBindGroup,
 			getElementPostMasks: (elementId) => this.resolveSubtreeMasks(elementId),
-			drawsClipGroupInline: (groupId) => this.drawsClipGroupInline(groupId),
 			renderGroupAppearances: (...args) => this.renderGroupAppearances(...args),
 			getRasterFrame: () => this.getRasterFrame(),
 			getClipParentMask: (groupId) => this.resolveClipParentMask(groupId),
 			isBackdropElement: (elementId) =>
 				this.activeFramePlan?.backdropEntries.has(elementId) ?? false,
-			drawBackdropElement: (
-				pass,
-				element,
-				elementsMap,
-				alphaMultiplier,
-				compositeContext,
-				compositeBackdrop,
-			) => {
-				const entry = this.activeFramePlan?.backdropEntries.get(element.id);
-				if (!entry) return pass;
-				return this.drawBackdropElement(
-					pass,
-					entry,
-					elementsMap,
-					alphaMultiplier,
-					compositeContext,
-					compositeBackdrop,
-				);
-			},
 			composeBackdrop: (...args) => this.composeBackdrop(...args),
 			blitBakeWithCoverage: (...args) => this.blitBakeWithCoverage(...args),
 			hasIsolatedWashAppearances: (elementId) =>
@@ -6625,9 +6592,11 @@ export class CanvasLayer {
 					activePass.setBindGroup(3, this.renderState.currentMaskBindGroup);
 				} else {
 					if (filteredData.postMasks) {
-						this.offscreen.drawSurfaceWithAtlasMasks(
+						this.offscreen.drawSurfaceWithMaskChain(
 							activePass,
-							filteredData.output,
+							filteredData.output.texture.texture,
+							filteredData.output.placement.bounds,
+							filteredData.output.placement.uvRect,
 							effectiveAlpha,
 							filteredData.postMasks,
 							this.viewportBinding.active.bindGroup,
@@ -8605,15 +8574,6 @@ function buildMaskAssignment(
 		masksByKey,
 		inlineClipGroupIds,
 	};
-}
-
-/** Whether an element composites with plain source-over, so its content can
- *  draw straight onto the target instead of through a bake. */
-function hasNormalBlending(element: AnyArtObject): boolean {
-	return (
-		(element.blendMode ?? "normal") === "normal" &&
-		(element.compositionMode ?? "normal") === "normal"
-	);
 }
 
 /** Whether a clip group issues at most one draw: no group appearance and a
