@@ -265,9 +265,6 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	private objectsSnapshot: Record<string, AnyArtObject> | null = null;
 	private layerElementIdsSnapshot: Record<string, string[]> | null = null;
 
-	// Valtio subscription cleanup function
-	private valtioUnsubscribe: (() => void) | null = null;
-
 	public constructor(options: YjsProviderOptions) {
 		super();
 		this.callbacks = options.callbacks;
@@ -2746,11 +2743,6 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	 * Disconnect and cleanup
 	 */
 	public destroy(): void {
-		if (this.valtioUnsubscribe) {
-			this.valtioUnsubscribe();
-			this.valtioUnsubscribe = null;
-		}
-
 		this.objectsSnapshot = null;
 		this.layerElementIdsSnapshot = null;
 		this.undoManager.destroy();
