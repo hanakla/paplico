@@ -8,6 +8,22 @@
 		"safe-area-insets-css:default",
 		"fs:allow-read-file",
 		"fs:allow-write-file",
+		{
+			"identifier": "fs:allow-exists",
+			"allow": [{ "path": "$APPDATA" }, { "path": "$APPDATA/config.yml" }]
+		},
+		{
+			"identifier": "fs:allow-mkdir",
+			"allow": [{ "path": "$APPDATA" }]
+		},
+		{
+			"identifier": "fs:allow-read-text-file",
+			"allow": [{ "path": "$APPDATA/config.yml" }]
+		},
+		{
+			"identifier": "fs:allow-write-text-file",
+			"allow": [{ "path": "$APPDATA/config.yml" }]
+		},
 		"dialog:default",
 		"dialog:allow-open",
 		"dialog:allow-save",
