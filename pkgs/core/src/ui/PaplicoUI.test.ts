@@ -796,7 +796,6 @@ function createHarness(
 		getToolWidth: () => initialWidth,
 		setToolWidth,
 		getToolColor: () => color,
-		setShapeType: vi.fn(),
 		getTouchDrawOffsetScale: () => touchDrawOffsetScale,
 		getShortcuts: () => shortcuts,
 		...(maxZoomScale !== undefined

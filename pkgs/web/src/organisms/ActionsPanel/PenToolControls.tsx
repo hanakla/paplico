@@ -1,39 +1,21 @@
-import { mergeBrushStroking, readStoredBrushSize } from "@paplico/core/brush";
-import type { BrushStroking } from "@paplico/core/schema";
 import { memo } from "react";
 import { useSnapshot } from "valtio";
 import { Checkbox } from "@/components/Checkbox";
-import { DashPatternControls } from "@/components/DashPatternControls";
-import { StrokeGeometryFields } from "@/components/StrokeGeometryFields";
 import { ToggleGroup } from "@/components/ToggleGroup";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { appConfig } from "@/hooks/useAppConfig";
 import { useBrushEdits } from "@/hooks/useBrushEdits";
-import { useBrushPresets } from "@/hooks/useBrushPresets";
 import { useTranslation } from "@/locales";
-import { PresetSelect } from "@/organisms/Toolbar/BrushTools";
 import { useEventCallback } from "@/utils/hooks";
+import { BrushFields } from "./BrushFields";
+import { BrushStrokingFields } from "./BrushStrokingFields";
 import { StrokeWidthField } from "./StrokeWidthField";
-import { BRUSH_WIDTH_STEP } from "./utils";
 
 export const PenToolControls = memo(function PenToolControls() {
 	const t = useTranslation();
-	const { tools, commands } = usePaplico();
+	const { tools } = usePaplico();
 	const brushEdits = useBrushEdits();
-	const brushPresets = useBrushPresets();
 	const toolSnap = useSnapshot(tools.state);
-
-	const normalizedBrush =
-		toolSnap.strokeAppearance?.paramData.params.brushSettings;
-	const isGeometric = normalizedBrush?.engine === "geometric";
-	const stroking =
-		normalizedBrush?.engine === "geometric"
-			? normalizedBrush.stroking
-			: undefined;
-
-	const handleWidthChange = useEventCallback((value: number) => {
-		brushEdits.setBrushSize(value);
-	});
 
 	const handleStabilizationChange = useEventCallback((value: number) => {
 		tools.setStabilization(value);
@@ -51,49 +33,14 @@ export const PenToolControls = memo(function PenToolControls() {
 		brushEdits.setOpacity(value);
 	});
 
-	const updateStroking = useEventCallback((patch: Partial<BrushStroking>) => {
-		const current = tools.storedBrushSettings;
-		if (current.engine !== "geometric") return;
-		const stroking = mergeBrushStroking(current.stroking, patch);
-		tools.setBrushSettings({ stroking });
-		// Keep the selected element in sync: drawing resolves its appearance
-		// from the selection when one exists, and stroke completion syncs the
-		// selection's appearance back into the tool settings.
-		commands.updateSelectedElementsBrushSettings({ ...current, stroking });
-	});
-
 	const handleSelectStrokeToggle = useEventCallback((checked: boolean) => {
 		tools.state.selectStrokeAfterDraw = checked;
 		appConfig.selectStrokeAfterDraw = checked;
 	});
 
-	const handlePresetSelect = useEventCallback((presetUid: string) => {
-		void brushPresets.applyBrushPreset(presetUid);
-	});
-
 	return (
 		<div className="flex flex-col gap-2 w-full">
-			<PresetSelect
-				persistedPresets={brushPresets.persistedPresets}
-				builtinPresets={brushPresets.builtinPresets}
-				selectedUid={brushPresets.selectedBrushPresetUid}
-				onSelect={handlePresetSelect}
-				getPersistedPreview={brushPresets.getPersistedPresetPreviewSource}
-				getBuiltinPreview={brushPresets.getBuiltinPresetPreviewSource}
-			/>
-			<StrokeWidthField
-				label={t("actionsPanel.brushWidth")}
-				value={
-					readStoredBrushSize(
-						toolSnap.strokeAppearance?.paramData.params.brushSettings,
-					) ?? 2
-				}
-				min={0.01}
-				max={Infinity}
-				range={50}
-				step={BRUSH_WIDTH_STEP}
-				onValueChange={handleWidthChange}
-			/>
+			<BrushFields />
 			<StrokeWidthField
 				label={t("actionsPanel.stabilization")}
 				value={toolSnap.stabilization}
@@ -151,17 +98,7 @@ export const PenToolControls = memo(function PenToolControls() {
 				</label>
 			</span>
 
-			{isGeometric && (
-				<>
-					<StrokeGeometryFields stroking={stroking} onChange={updateStroking} />
-
-					<DashPatternControls
-						stroking={stroking}
-						strokeWidth={normalizedBrush?.properties.size?.base ?? 2}
-						onChange={updateStroking}
-					/>
-				</>
-			)}
+			<BrushStrokingFields />
 		</div>
 	);
 });

@@ -19,7 +19,7 @@ import type { Tool } from "./tools/Tool";
 import {
 	type BucketFillLeakState,
 	MAX_TOUCH_DRAW_OFFSET_SCALE,
-	type ShapeType,
+	type ShapeOption,
 	type SmoothingMethod,
 	type ToolSettings,
 	type ToolType,
@@ -162,8 +162,8 @@ export class PaplicoTools {
 		this.store.fillAppearance = appearance;
 	}
 
-	public setShapeType(shapeType: ShapeType): void {
-		this.store.shapeType = shapeType;
+	public setShapeOption(shapeOption: ShapeOption): void {
+		this.store.shapeOption = shapeOption;
 	}
 
 	public swapColors(): void {

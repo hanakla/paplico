@@ -41,16 +41,32 @@ export type ToolType =
 	| "eyedropper"
 	| "reference3d";
 
-/** Shape types in the order the shape-cycle shortcut steps through them. */
-export const SHAPE_TYPES = [
-	"rectangle",
-	"ellipse",
-	"line",
-	"star",
-	"spiral",
-] as const;
+/** A shape the shape tool draws, with the parameters that shape needs. */
+export type ShapeOption =
+	| { type: "polygon"; sides: number }
+	| { type: "ellipse" }
+	| { type: "line" }
+	/** depth: 0 puts the inner corners on the outline of the regular polygon
+	 *  through the tips, 1 pulls them to the center. */
+	| { type: "star"; points: number; depth: number }
+	| { type: "spiral"; turns: number; direction: 1 | -1 };
 
-export type ShapeType = (typeof SHAPE_TYPES)[number];
+/** Shapes the toolbar offers, in the order the shape-cycle shortcut steps
+ *  through them. */
+export const SHAPE_PRESETS: readonly ShapeOption[] = [
+	{ type: "polygon", sides: 4 },
+	{ type: "polygon", sides: 3 },
+	{ type: "ellipse" },
+	{ type: "line" },
+	{ type: "star", points: 5, depth: 0.4 },
+	{ type: "spiral", turns: 3, direction: 1 },
+];
+
+/** Polygons count as the same shape only with the same side count. */
+export function isSameShape(a: ShapeOption, b: ShapeOption): boolean {
+	if (a.type === "polygon" && b.type === "polygon") return a.sides === b.sides;
+	return a.type === b.type;
+}
 
 export type SmoothingMethod = "smooth" | "pulled-string" | "inertia";
 
@@ -76,8 +92,8 @@ export interface ToolSettings {
 	strokeAppearance: StrokeAppearance | null;
 	/** Fill appearance (null means no fill) */
 	fillAppearance: FillAppearance | null;
-	/** Shape type for shape tool */
-	shapeType: ShapeType;
+	/** Shape the shape tool draws */
+	shapeOption: ShapeOption;
 	/** uid of the fill appearance GradientTool edits; null means the element's
 	 *  first gradient fill. */
 	gradientTargetFillUid: string | null;
@@ -185,7 +201,7 @@ export function createToolSettings(): ToolSettings {
 		stabilization: 0.5,
 		smoothingMethod: "smooth",
 		opacity: 1,
-		shapeType: "rectangle",
+		shapeOption: SHAPE_PRESETS[0],
 		gradientTargetFillUid: null,
 		gradientSelectedStopId: null,
 		gradientSelectedStopIndex: null,

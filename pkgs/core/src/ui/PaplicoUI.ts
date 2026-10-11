@@ -13,7 +13,6 @@ import type { EraserToolUIData, ToolCursorUIData } from "../renderer/ui/types";
 import type { AnyArtObject, BoundingBox, RawRGBA, Viewport } from "../schema";
 import { PenTool } from "../tools/PenTool";
 import type { PointerEventData, Tool } from "../tools/Tool";
-import type { ShapeType } from "../tools/toolSettings";
 import { Emitter } from "../utils/emitter";
 import { screenToWorld } from "../utils/geometry/geometry";
 import { matchKey } from "../utils/keyboard";
@@ -34,7 +33,6 @@ interface PaplicoUICallbacks {
 	getToolWidth: () => number;
 	setToolWidth: (width: number) => void;
 	getToolColor: () => RawRGBA;
-	setShapeType: (shapeType: ShapeType) => void;
 	/** Optional pressure remap applied to pen/touch input (mouse is kept raw) */
 	transformPressure?: (pressure: number) => number;
 	/**

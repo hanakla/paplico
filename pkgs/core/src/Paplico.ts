@@ -146,7 +146,8 @@ import type { Tool } from "./tools/Tool";
 import { ToolContext } from "./tools/ToolContext";
 import {
 	createToolSettings,
-	SHAPE_TYPES,
+	isSameShape,
+	SHAPE_PRESETS,
 	type ToolSettings,
 	type ToolType,
 } from "./tools/toolSettings";
@@ -750,29 +751,33 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			s.registerDefaultKeybinding(id, key);
 		}
 
-		// Shape tools (also set shape type)
+		// Shape tools (also set the shape)
 		s.registerCommand(Cmds["paplico.tool.shapeRect"], "Tools", () => {
-			this.tools.setShapeType("rectangle");
+			this.tools.setShapeOption({ type: "polygon", sides: 4 });
 			this.updateToolState({ currentTool: "shape" });
 			return true;
 		});
 
 		s.registerCommand(Cmds["paplico.tool.shapeEllipse"], "Tools", () => {
-			this.tools.setShapeType("ellipse");
+			this.tools.setShapeOption({ type: "ellipse" });
 			this.updateToolState({ currentTool: "shape" });
 			return true;
 		});
 		s.registerDefaultKeybinding(Cmds["paplico.tool.shapeEllipse"], {
 			code: "KeyL",
 		});
-		// Repeated presses step through the shape types; entering from any other
+		// Repeated presses step through the shape presets; entering from any other
 		// tool starts at the first one.
 		s.registerCommand(Cmds["paplico.tool.shapeCycle"], "Tools", () => {
 			const index =
 				this.toolSettings.currentTool === "shape"
-					? SHAPE_TYPES.indexOf(this.toolSettings.shapeType)
+					? SHAPE_PRESETS.findIndex((shape) =>
+							isSameShape(shape, this.toolSettings.shapeOption),
+						)
 					: -1;
-			this.tools.setShapeType(SHAPE_TYPES[(index + 1) % SHAPE_TYPES.length]);
+			this.tools.setShapeOption(
+				SHAPE_PRESETS[(index + 1) % SHAPE_PRESETS.length],
+			);
 			this.updateToolState({ currentTool: "shape" });
 			return true;
 		});
@@ -1525,7 +1530,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				}
 			},
 			getToolColor: () => colorToRawRGBA(this.getToolColorOrDefault()),
-			setShapeType: (shapeType) => this.tools.setShapeType(shapeType),
 			transformPressure: (pressure) =>
 				transformPressure(this.toolSettings.pressureCurvePoints, pressure),
 			getTouchDrawOffsetScale: () => this.toolSettings.touchDrawOffsetScale,
@@ -3367,7 +3371,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						});
 					} else if (this.tool instanceof ShapeTool) {
 						this.tool.setOptions({
-							shapeType: currentSnapshot.shapeType,
+							shapeOption: currentSnapshot.shapeOption,
 						});
 					} else if (this.tool instanceof StrokeWidthEditTool) {
 						this.tool.setOptions({
@@ -3494,7 +3498,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			}
 		} else if (toolType === "shape") {
 			this.tool = new ShapeTool(this.toolContext, {
-				shapeType: this.toolSettings.shapeType,
+				shapeOption: this.toolSettings.shapeOption,
 			});
 		} else if (toolType === "text") {
 			const textTool = new TextTool(this.toolContext, {

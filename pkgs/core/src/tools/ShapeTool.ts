@@ -1,6 +1,5 @@
 /**
- * ShapeTool - 図形描画ツール
- * 矩形、楕円、直線、スター、スパイラルをサポート
+ * ShapeTool - draws polygons, ellipses, lines, stars and spirals.
  */
 
 import { nanoid } from "nanoid";
@@ -20,20 +19,12 @@ import {
 import { screenToWorld } from "../utils/geometry/geometry";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
-import type { ShapeType } from "./toolSettings";
+import type { ShapeOption } from "./toolSettings";
 
 // --- Types ---
 
 export interface ShapeToolOptions {
-	shapeType: ShapeType;
-	/** スター: 頂点数 (3以上) */
-	starPoints?: number;
-	/** スター: 内側半径の比率 (0-1) */
-	starInnerRatio?: number;
-	/** スパイラル: 回転数 */
-	spiralTurns?: number;
-	/** スパイラル: 方向 (1=時計回り, -1=反時計回り) */
-	spiralDirection?: 1 | -1;
+	shapeOption: ShapeOption;
 }
 
 // --- Main ShapeTool Class ---
@@ -49,18 +40,12 @@ export class ShapeTool implements Tool {
 
 	public constructor(context: ToolContext, options: ShapeToolOptions) {
 		this.context = context;
-		this.options = {
-			starPoints: 5,
-			starInnerRatio: 0.5,
-			spiralTurns: 3,
-			spiralDirection: 1,
-			...options,
-		};
+		this.options = options;
 	}
 
 	// --- Public Methods ---
 	public setOptions(options: Partial<ShapeToolOptions>): void {
-		this.options.shapeType = options.shapeType ?? this.options.shapeType;
+		this.options = { ...this.options, ...options };
 	}
 
 	// --- Tool Interface Implementation ---
@@ -356,7 +341,7 @@ export class ShapeTool implements Tool {
 		const dx = end.x - start.x;
 		const dy = end.y - start.y;
 
-		if (this.options.shapeType === "line") {
+		if (this.options.shapeOption.type === "line") {
 			// 直線: 45度スナップ
 			const angle = Math.atan2(dy, dx);
 			const snappedAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
@@ -379,29 +364,18 @@ export class ShapeTool implements Tool {
 		start: { x: number; y: number },
 		end: { x: number; y: number },
 	): CubicBezierSegment[] {
-		switch (this.options.shapeType) {
-			case "rectangle":
-				return generateRectangleSegments(start, end);
+		const shape = this.options.shapeOption;
+		switch (shape.type) {
+			case "polygon":
+				return generatePolygonSegments(start, end, shape.sides);
 			case "ellipse":
 				return generateEllipseSegments(start, end);
 			case "line":
 				return generateLineSegments(start, end);
 			case "star":
-				return generateStarSegments(
-					start,
-					end,
-					this.options.starPoints!,
-					this.options.starInnerRatio!,
-				);
+				return generateStarSegments(start, end, shape.points, shape.depth);
 			case "spiral":
-				return generateSpiralSegments(
-					start,
-					end,
-					this.options.spiralTurns!,
-					this.options.spiralDirection!,
-				);
-			default:
-				return generateRectangleSegments(start, end);
+				return generateSpiralSegments(start, end, shape.turns, shape.direction);
 		}
 	}
 }
@@ -426,6 +400,42 @@ export function generateRectangleSegments(
 	];
 
 	return createClosedPolygonSegments(corners);
+}
+
+/**
+ * Regular polygon with a horizontal bottom edge, stretched to fill the box
+ * spanned by start/end. Four sides give the same corners as a rectangle.
+ */
+function generatePolygonSegments(
+	start: { x: number; y: number },
+	end: { x: number; y: number },
+	sides: number,
+): CubicBezierSegment[] {
+	// Clockwise from the top vertex (the top edge's left end for even sides),
+	// matching generateRectangleSegments' corner order.
+	const unit = Array.from({ length: sides }, (_, i) => {
+		const angle =
+			-Math.PI / 2 +
+			Math.PI / sides +
+			(2 * Math.PI * (Math.floor(sides / 2) - i)) / sides;
+		return { x: Math.cos(angle), y: Math.sin(angle) };
+	});
+
+	const unitMinX = Math.min(...unit.map((p) => p.x));
+	const unitMaxX = Math.max(...unit.map((p) => p.x));
+	const unitMinY = Math.min(...unit.map((p) => p.y));
+	const unitMaxY = Math.max(...unit.map((p) => p.y));
+	const minX = Math.min(start.x, end.x);
+	const minY = Math.min(start.y, end.y);
+	const width = Math.abs(end.x - start.x);
+	const height = Math.abs(end.y - start.y);
+
+	return createClosedPolygonSegments(
+		unit.map((p) => ({
+			x: minX + ((p.x - unitMinX) / (unitMaxX - unitMinX)) * width,
+			y: minY + ((p.y - unitMinY) / (unitMaxY - unitMinY)) * height,
+		})),
+	);
 }
 
 /** Approximated with 4 cubic Bezier curves */
@@ -535,14 +545,17 @@ function generateStarSegments(
 	start: { x: number; y: number },
 	end: { x: number; y: number },
 	points: number,
-	innerRatio: number,
+	depth: number,
 ): CubicBezierSegment[] {
 	const cx = start.x;
 	const cy = start.y;
 	const dx = end.x - start.x;
 	const dy = end.y - start.y;
 	const outerRadius = Math.sqrt(dx * dx + dy * dy);
-	const innerRadius = outerRadius * innerRatio;
+	// An inner corner on the line between two neighbouring tips sits at
+	// cos(PI / points) of the outer radius; any farther out it bulges instead
+	// of denting, so depth only scales inward from there.
+	const innerRadius = outerRadius * Math.cos(Math.PI / points) * (1 - depth);
 
 	// マウス位置の角度を取得 (Y軸が下向き正なので符号反転)
 	const mouseAngle = Math.atan2(-dy, dx);

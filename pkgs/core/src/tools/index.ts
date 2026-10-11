@@ -10,7 +10,9 @@ export {
 	TextToolController,
 } from "./TextToolController";
 export {
+	isSameShape,
 	MAX_TOUCH_DRAW_OFFSET_SCALE,
-	type ShapeType,
+	SHAPE_PRESETS,
+	type ShapeOption,
 	type ToolType,
 } from "./toolSettings";

@@ -2,10 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Shape tool**
+  - A polygon shape with any number of sides, stretched to fill the dragged box. Set it with `PaplicoTools.setShapeOption({ type: "polygon", sides })`.
+  - M steps to a triangle after the rectangle.
+  - A star's dent is set by `depth`, from 0, where its inner corners sit on the outline of the regular polygon through its tips, to 1, where they meet at the center.
+
 ### Changed
 
 - **Breaking API changes**
   - `PaplicoCommands.commitArtboardMove` takes the elements riding on the artboard and the move delta instead of prebuilt element moves.
+  - `ToolSettings.shapeOption` holds the shape and its parameters instead of `ToolSettings.shapeType`.
+  - `ShapeToolOptions` takes a `shapeOption` instead of `shapeType`, `starPoints`, `starInnerRatio`, `spiralTurns` and `spiralDirection`.
+  - The `"rectangle"` shape type is the 4-sided `"polygon"` instead.
 - **Commands**
   - `moveElements` and `commitArtboardMove` skip an element whose group is moved with it instead of moving it twice.
 - **Text tool**
@@ -14,6 +24,11 @@
   - Zooming, and panning past the drawn area, no longer stall on a filtered group that holds a clip group clipped by a compound path.
 - **Paths**
   - Panning past the drawn area takes less time on documents with many clip groups or filtered groups.
+
+### Removed
+
+- **Shape tool**
+  - `PaplicoTools.setShapeType`. Use `PaplicoTools.setShapeOption` instead.
 
 ### Fixed
 

@@ -25,6 +25,7 @@ import {
 } from "./Reference3DToolControls";
 import { RepeatControls } from "./RepeatControls";
 import { SelectToolControls } from "./SelectToolControls";
+import { ShapeToolControls } from "./ShapeToolControls";
 import {
 	TextCharTouchModeToggle,
 	TextEditingControls,
@@ -56,6 +57,7 @@ export function ActionsPanel() {
 	const isCharTouchMode = isTextTool && toolSnap.textCharTouchMode;
 	const isReference3DTool = toolSnap.currentTool === "reference3d";
 	const isArtboardTool = toolSnap.currentTool === "artboard";
+	const isShapeTool = toolSnap.currentTool === "shape";
 
 	// Selection-derived inputs are deferred so the heavy control sections
 	// mount outside the discrete selection event's sync render.
@@ -99,6 +101,8 @@ export function ActionsPanel() {
 					<ArtboardToolControls />
 				) : isEraserTool ? (
 					<EraserToolControls />
+				) : isShapeTool ? (
+					<ShapeToolControls />
 				) : isEyedropperTool ? (
 					<EyedropperToolControls />
 				) : isPenTool ? (

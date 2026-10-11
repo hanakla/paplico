@@ -1,6 +1,11 @@
 import { createDefaultColor } from "@paplico/core/document";
 import type { Color } from "@paplico/core/schema";
-import { BucketFillTool, type ShapeType } from "@paplico/core/tools";
+import {
+	BucketFillTool,
+	isSameShape,
+	SHAPE_PRESETS,
+	type ShapeOption,
+} from "@paplico/core/tools";
 import { debounce } from "es-toolkit";
 import {
 	ArrowUpDown,
@@ -16,6 +21,7 @@ import {
 	PaintBucket,
 	Pen,
 	PenTool,
+	Pentagon,
 	Pipette,
 	Redo,
 	Route,
@@ -24,6 +30,7 @@ import {
 	Spline,
 	Square,
 	Star,
+	Triangle,
 	Type,
 	Undo,
 	X as XIcon,
@@ -220,7 +227,7 @@ export function Toolbar({
 		return () => document.removeEventListener("pointerdown", handler);
 	}, [uiSnap.brushPanelOpen]);
 
-	const ShapeIcon = SHAPE_ICONS[snap.shapeType];
+	const ShapeIcon = getShapeIcon(snap.shapeOption);
 
 	// Shape tool button behavior:
 	// - Short press + other tool active: switch to shape tool
@@ -261,11 +268,15 @@ export function Toolbar({
 		}
 	});
 
-	// Peek the shape panel when the shape type changes while it is closed
+	// Peek the shape panel when the picked preset changes while it is closed
 	// (M / L shortcuts), so the newly picked shape is visible. Repeated changes
-	// during a peek extend it; a panel the user opened stays open.
+	// during a peek extend it; a panel the user opened stays open. A side count
+	// that matches no preset has nothing to show.
 	const shapePeekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const prevShapeType = useRef(snap.shapeType);
+	const pickedShapeIndex = SHAPE_PRESETS.findIndex((shape) =>
+		isSameShape(shape, snap.shapeOption),
+	);
+	const prevPickedShapeIndex = useRef(pickedShapeIndex);
 
 	const clearShapePeek = useEventCallback(() => {
 		if (shapePeekTimer.current === null) return;
@@ -275,8 +286,9 @@ export function Toolbar({
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: useEventCallback keeps a stable reference
 	useEffect(() => {
-		if (prevShapeType.current === snap.shapeType) return;
-		prevShapeType.current = snap.shapeType;
+		if (prevPickedShapeIndex.current === pickedShapeIndex) return;
+		prevPickedShapeIndex.current = pickedShapeIndex;
+		if (pickedShapeIndex === -1) return;
 		if (shapePanelOpen && shapePeekTimer.current === null) return;
 
 		clearShapePeek();
@@ -285,7 +297,7 @@ export function Toolbar({
 			shapePeekTimer.current = null;
 			setShapePanelOpen(false);
 		}, 800);
-	}, [snap.shapeType, shapePanelOpen]);
+	}, [pickedShapeIndex, shapePanelOpen]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: useEventCallback keeps a stable reference
 	useEffect(() => clearShapePeek, []);
@@ -885,30 +897,23 @@ function ShapeSettingsPanel({
 	const { tools } = usePaplico();
 	const snap = useSnapshot(tools.state);
 
-	const handleShapeTypeChange = useEventCallback((type: ShapeType) => {
-		tools.setShapeType(type);
+	const handleShapeChange = useEventCallback((shape: ShapeOption) => {
+		tools.setShapeOption(shape);
 	});
-
-	const shapeOptions: Array<{ type: ShapeType; label: string }> = [
-		{ type: "rectangle", label: t("toolbar.rectangle") },
-		{ type: "ellipse", label: t("toolbar.ellipse") },
-		{ type: "line", label: t("toolbar.line") },
-		{ type: "star", label: t("toolbar.star") },
-		{ type: "spiral", label: t("toolbar.spiral") },
-	];
 
 	return (
 		<div className="flex flex-col gap-2">
 			<div className="grid grid-cols-1">
-				{shapeOptions.map(({ type, label }) => {
-					const Icon = SHAPE_ICONS[type];
+				{SHAPE_PRESETS.map((shape) => {
+					const Icon = getShapeIcon(shape);
+					const label = getShapeLabel(shape, t);
 					return (
-						<Tooltip key={type} content={label} side={tooltipSide}>
+						<Tooltip key={label} content={label} side={tooltipSide}>
 							<IconButton
 								$size="md"
 								$variant="ghost"
-								$pressed={snap.shapeType === type}
-								onClick={() => handleShapeTypeChange(type)}
+								$pressed={isSameShape(snap.shapeOption, shape)}
+								onClick={() => handleShapeChange(shape)}
 								$clickOnPointerUpOnly
 							>
 								<Icon size={16} />
@@ -921,13 +926,42 @@ function ShapeSettingsPanel({
 	);
 }
 
-const SHAPE_ICONS: Record<ShapeType, typeof Square> = {
-	rectangle: Square,
-	ellipse: Circle,
-	line: Slash,
-	star: Star,
-	spiral: Spline,
-};
+/** Polygons other than the triangle and rectangle the presets hold show a pentagon. */
+function getShapeIcon(shape: ShapeOption): typeof Square {
+	switch (shape.type) {
+		case "polygon":
+			if (shape.sides === 3) return Triangle;
+			if (shape.sides === 4) return Square;
+			return Pentagon;
+		case "ellipse":
+			return Circle;
+		case "line":
+			return Slash;
+		case "star":
+			return Star;
+		case "spiral":
+			return Spline;
+	}
+}
+
+/** Name of a shape preset; the presets hold only 3- and 4-sided polygons. */
+function getShapeLabel(
+	shape: ShapeOption,
+	t: ReturnType<typeof useTranslation>,
+): string {
+	switch (shape.type) {
+		case "polygon":
+			return shape.sides === 3 ? t("toolbar.triangle") : t("toolbar.rectangle");
+		case "ellipse":
+			return t("toolbar.ellipse");
+		case "line":
+			return t("toolbar.line");
+		case "star":
+			return t("toolbar.star");
+		case "spiral":
+			return t("toolbar.spiral");
+	}
+}
 
 /** Flyout for the "変形" (Transform) group: pick mesh-deform or skew. */
 function TransformSettingsPanel({

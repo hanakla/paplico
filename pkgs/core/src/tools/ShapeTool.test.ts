@@ -43,7 +43,7 @@ function createMockOptions(
 	const shapeComplete = vi.fn<(path: unknown) => void>();
 	const previewUpdate = vi.fn<(preview: unknown | null) => void>();
 	return {
-		shapeType: "rectangle",
+		shapeOption: { type: "polygon", sides: 4 },
 		shapeComplete,
 		previewUpdate,
 		...overrides,
@@ -82,7 +82,7 @@ describe("ShapeTool", () => {
 		expect(tool.getCursor()).toBe("crosshair");
 	});
 
-	describe("Rectangle", () => {
+	describe("Polygon", () => {
 		it("should create rectangle path with 4 segments on drag", () => {
 			// Drag from world(0,0) to world(100,100)
 			tool.onPointerDown(
@@ -144,9 +144,98 @@ describe("ShapeTool", () => {
 		});
 	});
 
+	describe("Polygon with other side counts", () => {
+		it("should fill the dragged box with a triangle pointing up", () => {
+			opts = createMockOptions({ shapeOption: { type: "polygon", sides: 3 } });
+			tool = createTool(opts);
+
+			// Drag from world(0,0) to world(100,100)
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 200),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			expect(path.segments).toHaveLength(3);
+			expect(path.segments[2].isClosed).toBe(true);
+			expect(path.segments[0].start).toMatchObject({
+				x: expect.closeTo(50),
+				y: expect.closeTo(100),
+			});
+			expect(path.segments[0].end).toMatchObject({
+				x: expect.closeTo(100),
+				y: expect.closeTo(0),
+			});
+			expect(path.segments[1].end).toMatchObject({
+				x: expect.closeTo(0),
+				y: expect.closeTo(0),
+			});
+		});
+
+		it("should place 4 sides on the corners of the dragged box", () => {
+			// Drag from world(0,0) to world(100,50)
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 250),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			const corners = [
+				path.segments[0].start,
+				...path.segments.slice(0, 3).map((s: { end: unknown }) => s.end),
+			];
+			expect(corners).toEqual([
+				{ x: expect.closeTo(0), y: expect.closeTo(50) },
+				{ x: expect.closeTo(100), y: expect.closeTo(50) },
+				{ x: expect.closeTo(100), y: expect.closeTo(0) },
+				{ x: expect.closeTo(0), y: expect.closeTo(0) },
+			]);
+		});
+
+		it("should use the side count changed through setOptions", () => {
+			tool.setOptions({ shapeOption: { type: "polygon", sides: 6 } });
+
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 200),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			expect(path.segments).toHaveLength(6);
+			expect(path.segments[5].isClosed).toBe(true);
+		});
+	});
+
 	describe("Ellipse", () => {
 		it("should create ellipse path with 4 segments on drag", () => {
-			opts = createMockOptions({ shapeType: "ellipse" });
+			opts = createMockOptions({ shapeOption: { type: "ellipse" } });
 			tool = createTool(opts);
 
 			// Drag from world(0,0) to world(100,100)
@@ -176,7 +265,7 @@ describe("ShapeTool", () => {
 
 	describe("Line", () => {
 		it("should create line path with 1 segment on drag", () => {
-			opts = createMockOptions({ shapeType: "line" });
+			opts = createMockOptions({ shapeOption: { type: "line" } });
 			tool = createTool(opts);
 
 			// Drag from world(0,0) to world(100,0)
@@ -214,9 +303,7 @@ describe("ShapeTool", () => {
 	describe("Star", () => {
 		it("should create star path with 2*points segments", () => {
 			opts = createMockOptions({
-				shapeType: "star",
-				starPoints: 5,
-				starInnerRatio: 0.5,
+				shapeOption: { type: "star", points: 5, depth: 0.4 },
 			});
 			tool = createTool(opts);
 
@@ -241,6 +328,65 @@ describe("ShapeTool", () => {
 			// Star with 5 points → 10 vertices → 10 segments (closed polygon)
 			expect(path.segments).toHaveLength(10);
 			expect(path.segments[9].isClosed).toBe(true);
+		});
+
+		it("should put the inner corners on the line between two tips at depth 0", () => {
+			opts = createMockOptions({
+				shapeOption: { type: "star", points: 3, depth: 0 },
+			});
+			tool = createTool(opts);
+
+			// Drag from world(0,0) to world(100,0)
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			const tip = path.segments[0].start;
+			const inner = path.segments[0].end;
+			const nextTip = path.segments[1].end;
+			expect(inner).toMatchObject({
+				x: expect.closeTo((tip.x + nextTip.x) / 2),
+				y: expect.closeTo((tip.y + nextTip.y) / 2),
+			});
+		});
+
+		it("should pull the inner corners to the center at depth 1", () => {
+			opts = createMockOptions({
+				shapeOption: { type: "star", points: 5, depth: 1 },
+			});
+			tool = createTool(opts);
+
+			// Drag from world(0,0) to world(100,0)
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const path = (opts.shapeComplete as ReturnType<typeof vi.fn>).mock
+				.calls[0][0];
+			expect(path.segments[0].end).toMatchObject({
+				x: expect.closeTo(0),
+				y: expect.closeTo(0),
+			});
 		});
 	});
 
@@ -377,7 +523,7 @@ describe("ShapeTool", () => {
 		});
 
 		it("should snap line to 45-degree angles when shift is pressed", () => {
-			opts = createMockOptions({ shapeType: "line" });
+			opts = createMockOptions({ shapeOption: { type: "line" } });
 			tool = createTool(opts);
 
 			// Drag from world(0,0) to world(100,30) with shift
