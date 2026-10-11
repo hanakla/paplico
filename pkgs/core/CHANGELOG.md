@@ -23,6 +23,8 @@
   - Fix the color swatch targeting the previously selected object instead of the objects whose vertices are selected.
 - **Compound paths**
   - Fix a compound path disappearing, along with a clip group clipped by it, when its sources cross right by a vertex with a handle on one side only.
+- **Artboards**
+  - Fix the artboard background turning transparent over the area of an element just drawn, moved or deleted.
 
 ## [0.6.0] - 2026-10-04
 

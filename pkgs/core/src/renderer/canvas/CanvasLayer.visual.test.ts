@@ -75,6 +75,41 @@ describe("partial redraw idempotency", () => {
 		expect(differing).toBe(0);
 	}, 240_000);
 
+	it("should repaint the artboard background inside the dirty rect of a partial redraw", async () => {
+		const { renderer, canvas } = await createTestRenderer();
+		const device = renderer.getDevice();
+		if (!device) throw new Error("no GPU device");
+		const partialPasses = trackPartialPasses(device);
+
+		for (let i = 0; i < 3; i++) {
+			renderFrame(renderer, withArtboard(createDocument(0)), UNCHANGED);
+			await device.queue.onSubmittedWorkDone();
+		}
+
+		partialPasses.count = 0;
+		renderFrame(renderer, withArtboard(createDocument(120)), {
+			upserted: new Set([EDITED_ID]),
+			deleted: new Set(),
+		});
+		await device.queue.onSubmittedWorkDone();
+		const partialPixels = await capturePresented(renderer, canvas);
+		expect(partialPasses.count).toBeGreaterThan(0);
+
+		const fresh = await createTestRenderer();
+		const freshDevice = fresh.renderer.getDevice();
+		if (!freshDevice) throw new Error("no GPU device");
+		renderFrame(fresh.renderer, withArtboard(createDocument(120)), UNCHANGED);
+		await freshDevice.queue.onSubmittedWorkDone();
+		const referencePixels = await capturePresented(
+			fresh.renderer,
+			fresh.canvas,
+		);
+
+		const differing = countDifferingPixels(partialPixels, referencePixels);
+		if (differing > 0) logDiffBBox(partialPixels, referencePixels);
+		expect(differing).toBe(0);
+	}, 240_000);
+
 	it("should render a tracked element deletion identical to a full render, via the partial path", async () => {
 		const { renderer, canvas } = await createTestRenderer();
 		const device = renderer.getDevice();
@@ -318,6 +353,23 @@ function removeElement(doc: Document, id: string): Document {
 			...layer,
 			elementIds: layer.elementIds.filter((elementId) => elementId !== id),
 		})),
+	};
+}
+
+/** The document placed on one artboard that covers every element. */
+function withArtboard(doc: Document): Document {
+	return {
+		...doc,
+		artboards: [
+			{
+				id: "artboard-1",
+				name: "Artboard",
+				x: 0,
+				y: 0,
+				width: 640,
+				height: 400,
+			},
+		],
 	};
 }
 

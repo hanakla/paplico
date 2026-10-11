@@ -7400,6 +7400,14 @@ export class CanvasLayer {
 			vertexData.byteLength,
 		);
 
+		// A partial redraw blits the restore bands first, which leaves the blit
+		// pipeline bound on this pass.
+		passEncoder.setPipeline(this.strokePipeline);
+		passEncoder.setBindGroup(0, this.viewportBinding.active.bindGroup);
+		// biome-ignore lint/style/noNonNullAssertion: bound for the whole run.
+		passEncoder.setBindGroup(1, this.transformsBindGroup!);
+		passEncoder.setBindGroup(2, this.dummyGradientBindGroup);
+		passEncoder.setBindGroup(3, this.dummyMaskBindGroup);
 		passEncoder.setVertexBuffer(0, vertexBuffer);
 		for (let i = 0; i < artboards.length; i++) {
 			passEncoder.draw(6, 1, i * 6, 0);
