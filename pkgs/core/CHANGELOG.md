@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-12
+
 ### Added
 
 - **Shape tool**
