@@ -39,6 +39,10 @@ import {
 	pointInPolygon,
 } from "../utils/geometry/bounds";
 import {
+	cornerArcMidpointDistance,
+	cornerTrimDistance,
+} from "../utils/geometry/cornerRadius";
+import {
 	applyTransformToPoint,
 	composeTransforms,
 	inverseTransform,
@@ -2520,7 +2524,6 @@ export class PathEditTool implements Tool {
 		// Corner radius handles for eligible vertices
 		for (let i = 0; i < path.segments.length; i++) {
 			const seg = path.segments[i];
-			const worldSeg = worldSegs[i];
 			// Determine next segment (wrap around for closed paths)
 			const isClosedPath =
 				path.segments[path.segments.length - 1]?.isClosed === true;
@@ -2531,61 +2534,21 @@ export class PathEditTool implements Tool {
 			// Skip subpath boundaries, but allow closed path wrap-around
 			if (nextSeg.isMoved && !isWrapped) continue;
 
-			const nextWorldSeg =
-				worldSegs[i + 1] ?? (isClosedPath ? worldSegs[0] : null);
-			if (!nextWorldSeg) continue;
-
-			// Calculate angle at vertex using world-space coordinates
-			const vertex = worldSeg.end;
-
-			// Incoming direction: cp2 is absolute in worldSeg, vertex = worldSeg.end
-			let inDx = vertex.x - worldSeg.cp2.x;
-			let inDy = vertex.y - worldSeg.cp2.y;
-			if (inDx * inDx + inDy * inDy < 1e-12) {
-				const segStart =
-					worldSeg.start ?? (i > 0 ? worldSegs[i - 1].end : vertex);
-				inDx = vertex.x - segStart.x;
-				inDy = vertex.y - segStart.y;
-			}
-			const inLen = Math.sqrt(inDx * inDx + inDy * inDy);
-			if (inLen < 1e-12) continue;
-			inDx /= inLen;
-			inDy /= inLen;
-
-			// Outgoing direction: from vertex to nextSeg cp1 (absolute in world)
-			let outDx = nextWorldSeg.cp1.x - vertex.x;
-			let outDy = nextWorldSeg.cp1.y - vertex.y;
-			if (outDx * outDx + outDy * outDy < 1e-12) {
-				outDx = nextWorldSeg.end.x - vertex.x;
-				outDy = nextWorldSeg.end.y - vertex.y;
-			}
-			const outLen = Math.sqrt(outDx * outDx + outDy * outDy);
-			if (outLen < 1e-12) continue;
-			outDx /= outLen;
-			outDy /= outLen;
-
-			// Angle between directions
-			const dotProduct = inDx * outDx + inDy * outDy;
-			const angle = Math.acos(Math.max(-1, Math.min(1, dotProduct)));
-			if (angle >= (170 * Math.PI) / 180) continue; // Near-straight
+			const frame = this.getCornerFrame(worldSegs, i);
+			if (!frame) continue;
+			if (frame.turnAngle >= (170 * Math.PI) / 180) continue; // Near-straight
+			const { vertex, bisector } = frame;
 
 			const radius = (seg as PathSegment).cornerRadius ?? 0;
 
-			// Inner angle bisector: inDir points away from vertex, outDir points away from vertex.
-			// Negate inDir so it points toward vertex, then add outDir.
-			// (-inDir + outDir) bisects the inner angle.
-			let bisX = outDx - inDx;
-			let bisY = outDy - inDy;
-			const bisLen = Math.sqrt(bisX * bisX + bisY * bisY);
-			if (bisLen < 1e-12) continue;
-			bisX /= bisLen;
-			bisY /= bisLen;
-
-			// Handle position: offset from vertex along inner bisector
+			// Handle position: the arc's midpoint on the inner bisector
 			const minDisplayDistance = PathEditTool.CORNER_HANDLE_MIN_DISTANCE;
-			const displayRadius = Math.max(radius, minDisplayDistance);
-			const handleX = vertex.x + bisX * displayRadius;
-			const handleY = vertex.y + bisY * displayRadius;
+			const displayDistance = Math.max(
+				cornerArcMidpointDistance(radius, frame.turnAngle),
+				minDisplayDistance,
+			);
+			const handleX = vertex.x + bisector.x * displayDistance;
+			const handleY = vertex.y + bisector.y * displayDistance;
 
 			const handleScreen = worldToScreen(
 				handleX,
@@ -2610,13 +2573,13 @@ export class PathEditTool implements Tool {
 			// Position encodes current k value: k=-1 (notch/innermost) .. k=10 (squircle/outermost)
 			if (radius > 0) {
 				const currentK = (seg as PathSegment).cornerSuperellipseN ?? 2;
-				const kMaxDist = displayRadius * 0.85;
-				const kMinDist = Math.max(displayRadius * 0.05, 2 / viewport.zoom);
+				const kMaxDist = displayDistance * 0.85;
+				const kMinDist = Math.max(displayDistance * 0.05, 2 / viewport.zoom);
 				// Drag inward → notch/scoop/bevel (k→-1), drag outward → squircle (k→10)
 				const t = Math.min(1, Math.max(0, (currentK + 1) / 11));
 				const kDist = kMaxDist - t * (kMaxDist - kMinDist);
-				const kHandleX = vertex.x + bisX * kDist;
-				const kHandleY = vertex.y + bisY * kDist;
+				const kHandleX = vertex.x + bisector.x * kDist;
+				const kHandleY = vertex.y + bisector.y * kDist;
 				const kHandleScreen = worldToScreen(
 					kHandleX,
 					kHandleY,
@@ -3167,11 +3130,14 @@ export class PathEditTool implements Tool {
 			const startRadius = state.startRadii.get(key) ?? 0;
 			const newRadius = Math.max(0, startRadius + primaryDelta);
 
+			const frame = this.getCornerFrame(worldSegs, handle.segmentIndex);
+			if (!frame) continue;
+
 			const seg = newSegments[handle.segmentIndex];
 			const vertex = seg.end;
 			const nextSeg = newSegments[handle.segmentIndex + 1] ?? newSegments[0];
 
-			// Clamp to half of adjacent segment chord lengths
+			// Clamp so the arc meets each adjacent segment within half its chord
 			const segStart =
 				seg.start ??
 				(handle.segmentIndex > 0
@@ -3183,7 +3149,10 @@ export class PathEditTool implements Tool {
 			const outChord = Math.sqrt(
 				(nextSeg.end.x - vertex.x) ** 2 + (nextSeg.end.y - vertex.y) ** 2,
 			);
-			const maxRadius = Math.min(inChord / 2, outChord / 2);
+			const maxRadius =
+				Math.min(inChord, outChord) /
+				2 /
+				cornerTrimDistance(1, frame.turnAngle);
 
 			(seg as PathSegment).cornerRadius = Math.min(newRadius, maxRadius);
 		}
@@ -3207,46 +3176,9 @@ export class PathEditTool implements Tool {
 		canvasWidth: number,
 		canvasHeight: number,
 	): number | null {
-		const ws = worldSegs[handle.segmentIndex];
-		const vertex = ws.end;
-
-		// Incoming direction from world-space segments (cp2 is absolute in world segs)
-		let inDx = vertex.x - ws.cp2.x;
-		let inDy = vertex.y - ws.cp2.y;
-		if (inDx * inDx + inDy * inDy < 1e-12) {
-			const segStart =
-				ws.start ??
-				(handle.segmentIndex > 0
-					? worldSegs[handle.segmentIndex - 1].end
-					: vertex);
-			inDx = vertex.x - segStart.x;
-			inDy = vertex.y - segStart.y;
-		}
-		const inLen = Math.sqrt(inDx * inDx + inDy * inDy);
-		if (inLen < 1e-12) return null;
-		inDx /= inLen;
-		inDy /= inLen;
-
-		// Outgoing direction from world-space segments (cp1 is absolute in world segs)
-		const nextWs = worldSegs[handle.segmentIndex + 1] ?? worldSegs[0];
-		let outDx = nextWs.cp1.x - vertex.x;
-		let outDy = nextWs.cp1.y - vertex.y;
-		if (outDx * outDx + outDy * outDy < 1e-12) {
-			outDx = nextWs.end.x - vertex.x;
-			outDy = nextWs.end.y - vertex.y;
-		}
-		const outLen = Math.sqrt(outDx * outDx + outDy * outDy);
-		if (outLen < 1e-12) return null;
-		outDx /= outLen;
-		outDy /= outLen;
-
-		// Inner angle bisector in world space: (-inDir + outDir)
-		let bisX = outDx - inDx;
-		let bisY = outDy - inDy;
-		const bisLen = Math.sqrt(bisX * bisX + bisY * bisY);
-		if (bisLen < 1e-12) return null;
-		bisX /= bisLen;
-		bisY /= bisLen;
+		const frame = this.getCornerFrame(worldSegs, handle.segmentIndex);
+		if (!frame) return null;
+		const { vertex, bisector } = frame;
 
 		// Convert bisector to screen space via worldToScreen (handles viewport rotation)
 		const vertexScreen = worldToScreen(
@@ -3257,8 +3189,8 @@ export class PathEditTool implements Tool {
 			canvasHeight,
 		);
 		const bisEndScreen = worldToScreen(
-			vertex.x + bisX,
-			vertex.y + bisY,
+			vertex.x + bisector.x,
+			vertex.y + bisector.y,
 			viewport,
 			canvasWidth,
 			canvasHeight,
@@ -3280,7 +3212,13 @@ export class PathEditTool implements Tool {
 		// then divide by bisScreenLen to convert back to world units.
 		// bisScreenLen ≈ zoom (1 world unit → zoom screen pixels),
 		// so this is equivalent to screenProjection / zoom at rotation=0.
-		return (dx * bisScreenX + dy * bisScreenY) / bisScreenLen;
+		// The handle rides the arc's midpoint, which moves
+		// cornerArcMidpointDistance(1, φ) per unit of radius.
+		return (
+			(dx * bisScreenX + dy * bisScreenY) /
+			bisScreenLen /
+			cornerArcMidpointDistance(1, frame.turnAngle)
+		);
 	}
 
 	/**
@@ -3347,54 +3285,24 @@ export class PathEditTool implements Tool {
 		worldY: number,
 		zoom: number,
 	): number | null {
-		const seg = worldSegs[handle.segmentIndex];
-		const vertex = seg.end;
 		const cornerRadius =
 			(localSegs[handle.segmentIndex] as PathSegment).cornerRadius ?? 0;
 		if (cornerRadius <= 0) return null;
 
-		// Use world-space absolute coordinates (same as extractControlPoints)
-		let inDx = vertex.x - seg.cp2.x;
-		let inDy = vertex.y - seg.cp2.y;
-		if (inDx * inDx + inDy * inDy < 1e-12) {
-			const segStart =
-				seg.start ??
-				(handle.segmentIndex > 0
-					? worldSegs[handle.segmentIndex - 1].end
-					: vertex);
-			inDx = vertex.x - segStart.x;
-			inDy = vertex.y - segStart.y;
-		}
-		const inLen = Math.sqrt(inDx * inDx + inDy * inDy);
-		if (inLen < 1e-12) return null;
-		inDx /= inLen;
-		inDy /= inLen;
+		const frame = this.getCornerFrame(worldSegs, handle.segmentIndex);
+		if (!frame) return null;
+		const { vertex, bisector } = frame;
 
-		const nextSeg = worldSegs[handle.segmentIndex + 1] ?? worldSegs[0];
-		let outDx = nextSeg.cp1.x - vertex.x;
-		let outDy = nextSeg.cp1.y - vertex.y;
-		if (outDx * outDx + outDy * outDy < 1e-12) {
-			outDx = nextSeg.end.x - vertex.x;
-			outDy = nextSeg.end.y - vertex.y;
-		}
-		const outLen = Math.sqrt(outDx * outDx + outDy * outDy);
-		if (outLen < 1e-12) return null;
-		outDx /= outLen;
-		outDy /= outLen;
-
-		let bisX = outDx - inDx;
-		let bisY = outDy - inDy;
-		const bisLen = Math.sqrt(bisX * bisX + bisY * bisY);
-		if (bisLen < 1e-12) return null;
-		bisX /= bisLen;
-		bisY /= bisLen;
-
-		const projection = (worldX - vertex.x) * bisX + (worldY - vertex.y) * bisY;
+		const projection =
+			(worldX - vertex.x) * bisector.x + (worldY - vertex.y) * bisector.y;
 
 		const minDisplayDistance = 15 / zoom;
-		const displayRadius = Math.max(cornerRadius, minDisplayDistance);
-		const kMaxDist = displayRadius * 0.85;
-		const kMinDist = Math.max(displayRadius * 0.05, 2 / zoom);
+		const displayDistance = Math.max(
+			cornerArcMidpointDistance(cornerRadius, frame.turnAngle),
+			minDisplayDistance,
+		);
+		const kMaxDist = displayDistance * 0.85;
+		const kMinDist = Math.max(displayDistance * 0.05, 2 / zoom);
 		const clamped = Math.min(kMaxDist, Math.max(kMinDist, projection));
 		// innermost (kMaxDist, away from vertex) → k=-1 (notch), outermost (kMinDist, near vertex) → k=10 (squircle)
 		const t = (kMaxDist - clamped) / Math.max(1e-9, kMaxDist - kMinDist);
@@ -3404,6 +3312,59 @@ export class PathEditTool implements Tool {
 		const worldRange = Math.max(1e-9, kMaxDist - kMinDist);
 		const snapThreshold = (4 / zoom / worldRange) * kRange;
 		return Math.abs(raw - 2) < snapThreshold ? 2 : raw;
+	}
+
+	/**
+	 * Locate the corner at worldSegs[segmentIndex].end: its inner bisector and
+	 * the angle the path turns there. Null when either side has no direction.
+	 */
+	private getCornerFrame(
+		worldSegs: WorldBezierSegment[],
+		segmentIndex: number,
+	): { vertex: Point; bisector: Point; turnAngle: number } | null {
+		const ws = worldSegs[segmentIndex];
+		const vertex = ws.end;
+
+		// Incoming direction from world-space segments (cp2 is absolute in world segs)
+		let inDx = vertex.x - ws.cp2.x;
+		let inDy = vertex.y - ws.cp2.y;
+		if (inDx * inDx + inDy * inDy < 1e-12) {
+			const segStart =
+				ws.start ??
+				(segmentIndex > 0 ? worldSegs[segmentIndex - 1].end : vertex);
+			inDx = vertex.x - segStart.x;
+			inDy = vertex.y - segStart.y;
+		}
+		const inLen = Math.sqrt(inDx * inDx + inDy * inDy);
+		if (inLen < 1e-12) return null;
+		inDx /= inLen;
+		inDy /= inLen;
+
+		// Outgoing direction from world-space segments (cp1 is absolute in world segs)
+		const nextWs = worldSegs[segmentIndex + 1] ?? worldSegs[0];
+		let outDx = nextWs.cp1.x - vertex.x;
+		let outDy = nextWs.cp1.y - vertex.y;
+		if (outDx * outDx + outDy * outDy < 1e-12) {
+			outDx = nextWs.end.x - vertex.x;
+			outDy = nextWs.end.y - vertex.y;
+		}
+		const outLen = Math.sqrt(outDx * outDx + outDy * outDy);
+		if (outLen < 1e-12) return null;
+		outDx /= outLen;
+		outDy /= outLen;
+
+		// Inner angle bisector: (-inDir + outDir)
+		const bisX = outDx - inDx;
+		const bisY = outDy - inDy;
+		const bisLen = Math.sqrt(bisX * bisX + bisY * bisY);
+		if (bisLen < 1e-12) return null;
+
+		const dotProduct = inDx * outDx + inDy * outDy;
+		return {
+			vertex,
+			bisector: { x: bisX / bisLen, y: bisY / bisLen },
+			turnAngle: Math.acos(Math.max(-1, Math.min(1, dotProduct))),
+		};
 	}
 
 	public refreshUI(): void {

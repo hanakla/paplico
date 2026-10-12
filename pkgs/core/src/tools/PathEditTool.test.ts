@@ -1701,6 +1701,26 @@ describe("PathEditTool", () => {
 			expect(bottomRight.worldY).toBeGreaterThan(-100);
 		});
 
+		it("should place a corner-radius handle on the midpoint of the rounding arc", () => {
+			const rect = createRectPath();
+			(rect.segments[0] as PathSegment).cornerRadius = 60;
+			tool.initWithSelectedPaths(
+				[rect],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const topRight = getControlPoints(ctx, HANDLES_KEY).find(
+				(cp) => cp.type === "corner-radius" && cp.segmentIndex === 0,
+			)!;
+
+			// The arc centred at (40,40) with radius 60 crosses the bisector 60 from its centre
+			const arcMid = 40 + 60 / Math.SQRT2;
+			expect(topRight.worldX).toBeCloseTo(arcMid, 4);
+			expect(topRight.worldY).toBeCloseTo(arcMid, 4);
+		});
+
 		it("should update cornerRadius on single handle drag", () => {
 			const rect = createRectPath();
 			tool.initWithSelectedPaths(
@@ -1945,7 +1965,7 @@ describe("PathEditTool", () => {
 
 			// Drag further toward inner
 			tool.onPointerMove(
-				ev(brHandle.screenX - 30, brHandle.screenY + 30),
+				ev(brHandle.screenX - 20, brHandle.screenY + 20),
 				testViewport,
 				testCanvasWidth,
 				testCanvasHeight,
@@ -1960,7 +1980,7 @@ describe("PathEditTool", () => {
 			expect(radius2WorldX).toBeLessThan(radius1WorldX);
 
 			tool.onPointerUp(
-				ev(brHandle.screenX - 30, brHandle.screenY + 30),
+				ev(brHandle.screenX - 20, brHandle.screenY + 20),
 				testViewport,
 				testCanvasWidth,
 				testCanvasHeight,
