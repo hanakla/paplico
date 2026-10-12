@@ -2,8 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking API changes**
+  - `PathSegment.cornerRadius` is the radius of the arc rounding the vertex instead of the distance from the vertex to where the rounding meets each edge. Documents saved before are converted when read, so their corners start rounding where they did.
+- **Path edit tool**
+  - The corner radius handle sits on the midpoint of the rounding arc instead of the corner radius away from the vertex.
+
 ### Fixed
 
+- **Rounded corners**
+  - Fix a rounded corner sharper or wider than a right angle not keeping a constant curvature.
 - **Groups**
   - Fix a filter such as blur or chromatic aberration, or an opacity, on a group resetting the blend modes of its children and of their fills to normal.
   - Fix a filter on an element two or more groups deep being dropped when an outer group has a filter or an opacity.
