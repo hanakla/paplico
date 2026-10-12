@@ -19,6 +19,7 @@ import { migBlendEasing } from "./20260921_mig_blend_easing";
 import { migSplitStrokeErasure } from "./20260925_mig_split_stroke_erasure";
 import { migFontSourceLoader } from "./20260927_mig_font_source_loader";
 import { migTransformOrigin } from "./20260929_mig_transform_origin";
+import { migCornerRadiusArc } from "./20261012_mig_corner_radius_arc";
 import type { MigrationContext } from "./context";
 
 export interface Migration {
@@ -58,6 +59,7 @@ const migrations: Migration[] = [
 	migSplitStrokeErasure,
 	migFontSourceLoader,
 	migTransformOrigin,
+	migCornerRadiusArc,
 ];
 
 /** Schema version a document has once every migration ran. */

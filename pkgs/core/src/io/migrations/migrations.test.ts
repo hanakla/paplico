@@ -27,6 +27,7 @@ import { legacyPlace } from "../../testUtils/legacyPlacement";
 import { rectPath } from "../../testUtils/svgFixtures";
 import { createTestTextElement } from "../../testUtils/typographyFixtures";
 import { calculateLocalElementBounds } from "../../utils/geometry/bounds";
+import { applyCornerRadius } from "../../utils/geometry/cornerRadius";
 import {
 	applyTransformToPoint,
 	composeAncestorTransform,
@@ -51,6 +52,7 @@ import { migBlendEasing } from "./20260921_mig_blend_easing";
 import { migSplitStrokeErasure } from "./20260925_mig_split_stroke_erasure";
 import { migFontSourceLoader } from "./20260927_mig_font_source_loader";
 import { migTransformOrigin } from "./20260929_mig_transform_origin";
+import { migCornerRadiusArc } from "./20261012_mig_corner_radius_arc";
 import {
 	applyMigration,
 	applyMigrations,
@@ -2370,6 +2372,42 @@ describe("migTransformOrigin (20260929)", () => {
 	});
 });
 
+describe("migCornerRadiusArc (20261012)", () => {
+	it("turns a stored edge distance into the radius of the arc", () => {
+		// The path turns 120° at the vertex, so the arc's radius is d / tan(60°)
+		const path = makeCornerPath((120 * Math.PI) / 180, 30);
+		applyMigration(makeDoc({ p1: path }, 20261011), migCornerRadiusArc);
+
+		expect(path.segments[0].cornerRadius).toBeCloseTo(
+			30 / Math.tan(Math.PI / 3),
+			6,
+		);
+	});
+
+	it("keeps the rounding starting where it did", () => {
+		const path = makeCornerPath((144 * Math.PI) / 180, 30);
+		applyMigration(makeDoc({ p1: path }, 20261011), migCornerRadiusArc);
+
+		const fillet = applyCornerRadius(path.segments)[1];
+		expect(Math.hypot(fillet.start!.x, fillet.start!.y)).toBeCloseTo(30, 4);
+	});
+
+	it("keeps a right angle's value", () => {
+		const path = makeCornerPath(Math.PI / 2, 30);
+		applyMigration(makeDoc({ p1: path }, 20261011), migCornerRadiusArc);
+
+		expect(path.segments[0].cornerRadius).toBeCloseTo(30, 6);
+	});
+
+	it("leaves the open end of a path untouched", () => {
+		const path = makeCornerPath((120 * Math.PI) / 180, 30);
+		path.segments[1].cornerRadius = 30;
+		applyMigration(makeDoc({ p1: path }, 20261011), migCornerRadiusArc);
+
+		expect(path.segments[1].cornerRadius).toBe(30);
+	});
+});
+
 interface Point {
 	x: number;
 	y: number;
@@ -2554,5 +2592,42 @@ function makeGroup(
 		opacity: 1,
 		blendMode: "normal",
 		transform,
+	};
+}
+
+/**
+ * An open two-line path through a vertex at the origin, turning `turnAngle`
+ * radians there, with `cornerRadius` stored on that vertex.
+ */
+function makeCornerPath(turnAngle: number, cornerRadius: number): Path {
+	const line = (start: Point | undefined, from: Point, end: Point) => ({
+		...(start ? { start } : {}),
+		cp1: { x: (end.x - from.x) / 3, y: (end.y - from.y) / 3 },
+		cp2: { x: (from.x - end.x) / 3, y: (from.y - end.y) / 3 },
+		end,
+		isMoved: start != null,
+		startTiltX: 0,
+		startTiltY: 0,
+		endTiltX: 0,
+		endTiltY: 0,
+		startDeltaTime: 0,
+		endDeltaTime: 0,
+	});
+	const from = { x: -100, y: 0 };
+	const vertex = { x: 0, y: 0 };
+	const to = {
+		x: 100 * Math.cos(turnAngle),
+		y: 100 * Math.sin(turnAngle),
+	};
+	return {
+		type: "path",
+		id: "p1",
+		segments: [
+			{ ...line(from, from, vertex), cornerRadius },
+			line(undefined, vertex, to),
+		],
+		opacity: 1,
+		blendMode: "normal",
+		transform: createIdentityTransform(),
 	};
 }
