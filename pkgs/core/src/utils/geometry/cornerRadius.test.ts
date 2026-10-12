@@ -253,5 +253,102 @@ describe("applyCornerRadius", () => {
 			// 2 segs -> 1 fillet -> 3 segs
 			expect(result.length).toBe(3);
 		});
+
+		// 36° is a star's tip, 108° a pentagon's corner, 150° a dodecagon's
+		it.each([
+			36, 60, 108, 150,
+		])("rounds a %d° corner with an arc of cornerRadius touching both edges", (interiorDeg) => {
+			const radius = 10;
+			const turnAngle = Math.PI - (interiorDeg * Math.PI) / 180;
+			const result = applyCornerRadius(makeCornerSegments(turnAngle, radius));
+			const fillet = result.slice(1, -1);
+
+			// The arc touches each edge r·tan(φ/2) from the vertex at the origin
+			const trim = radius * Math.tan(turnAngle / 2);
+			expect(Math.hypot(fillet[0].start!.x, fillet[0].start!.y)).toBeCloseTo(
+				trim,
+				4,
+			);
+			expect(
+				Math.hypot(fillet.at(-1)!.end.x, fillet.at(-1)!.end.y),
+			).toBeCloseTo(trim, 4);
+
+			// Its centre sits on the inner bisector, r / cos(φ/2) from the vertex
+			const centerDistance = radius / Math.cos(turnAngle / 2);
+			const center = {
+				x: centerDistance * -Math.sin(turnAngle / 2),
+				y: centerDistance * Math.cos(turnAngle / 2),
+			};
+			for (const seg of fillet) {
+				for (let t = 0; t <= 1; t += 0.125) {
+					const p = evaluateFilletAt(seg, t);
+					expect(Math.hypot(p.x - center.x, p.y - center.y)).toBeCloseTo(
+						radius,
+						2,
+					);
+				}
+			}
+		});
 	});
 });
+
+/**
+ * An open two-line path through a vertex at the origin, coming in along +x
+ * and turning `turnAngle` radians there, with `radius` on that vertex.
+ */
+function makeCornerSegments(
+	turnAngle: number,
+	radius: number,
+): CubicBezierSegment[] {
+	const to = { x: 100 * Math.cos(turnAngle), y: 100 * Math.sin(turnAngle) };
+	const line = (
+		from: { x: number; y: number },
+		end: { x: number; y: number },
+	) => ({
+		cp1: { x: (end.x - from.x) / 3, y: (end.y - from.y) / 3 },
+		cp2: { x: (from.x - end.x) / 3, y: (from.y - end.y) / 3 },
+		end,
+		startTiltX: 0,
+		startTiltY: 0,
+		endTiltX: 0,
+		endTiltY: 0,
+		startDeltaTime: 0,
+		endDeltaTime: 0,
+	});
+	return withCornerRadius(
+		[
+			{
+				start: { x: -100, y: 0 },
+				...line({ x: -100, y: 0 }, { x: 0, y: 0 }),
+				isMoved: true,
+			},
+			{ ...line({ x: 0, y: 0 }, to), isMoved: false },
+		],
+		[0],
+		radius,
+	);
+}
+
+/** Point at `t` on a fillet cubic, whose start is explicit. */
+function evaluateFilletAt(
+	seg: CubicBezierSegment,
+	t: number,
+): { x: number; y: number } {
+	const p0 = seg.start!;
+	const p1 = { x: p0.x + seg.cp1.x, y: p0.y + seg.cp1.y };
+	const p2 = { x: seg.end.x + seg.cp2.x, y: seg.end.y + seg.cp2.y };
+	const p3 = seg.end;
+	const u = 1 - t;
+	return {
+		x:
+			u ** 3 * p0.x +
+			3 * u * u * t * p1.x +
+			3 * u * t * t * p2.x +
+			t ** 3 * p3.x,
+		y:
+			u ** 3 * p0.y +
+			3 * u * u * t * p1.y +
+			3 * u * t * t * p2.y +
+			t ** 3 * p3.y,
+	};
+}

@@ -6,7 +6,7 @@ import type {
 import { clamp, lerp } from "../math";
 import { resolveSegment } from "./segmentOps";
 
-const { PI, acos, tan, sqrt, min } = Math;
+const { PI, acos, cos, sin, tan, sqrt, min, sign } = Math;
 const ANGLE_THRESHOLD = (170 * PI) / 180;
 const EPSILON = 1e-6;
 
@@ -65,6 +65,25 @@ export function applyCornerRadius(
 	return buildResult(segments, filletInfos, isClosed);
 }
 
+/**
+ * Distance from a vertex to where an arc of `radius` meets each edge, for a
+ * corner the path turns `turnAngle` radians at.
+ */
+export function cornerTrimDistance(radius: number, turnAngle: number): number {
+	return radius * tan(turnAngle / 2);
+}
+
+/**
+ * Distance from a vertex, along its inner bisector, to the midpoint of an arc
+ * of `radius` rounding a corner the path turns `turnAngle` radians at.
+ */
+export function cornerArcMidpointDistance(
+	radius: number,
+	turnAngle: number,
+): number {
+	return radius * (1 / cos(turnAngle / 2) - 1);
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -74,7 +93,7 @@ interface FilletInfo {
 	tIn: number;
 	/** Split parameter on the segOut side */
 	tOut: number;
-	/** fillet curve segments (1 for round/bevel/scoop, 2 for notch) */
+	/** fillet curve segments (2 for a circular arc turning past 90°, otherwise 1) */
 	filletSegs: CubicBezierSegment[];
 	/** Index of segIn in the segments array */
 	segInIdx: number;
@@ -105,15 +124,15 @@ function computeFilletInfo(
 	if (angle >= ANGLE_THRESHOLD) return null;
 
 	const prevEndOut = segOut.start ?? segIn.end;
-	const maxRadius = min(
-		radius,
+	const trimDistance = min(
+		cornerTrimDistance(radius, angle),
 		chordLength(segIn, prevEnd) / 2,
 		chordLength(segOut, prevEndOut) / 2,
 	);
-	if (maxRadius < EPSILON) return null;
+	if (trimDistance < EPSILON) return null;
 
-	const tIn = findParameterAtDistance(segIn, maxRadius, true, prevEnd);
-	const tOut = findParameterAtDistance(segOut, maxRadius, false, prevEndOut);
+	const tIn = findParameterAtDistance(segIn, trimDistance, true, prevEnd);
+	const tOut = findParameterAtDistance(segOut, trimDistance, false, prevEndOut);
 
 	const [firstHalf] = splitBezierAt(segIn, tIn, prevEnd);
 	const [, secondHalf] = splitBezierAt(segOut, tOut, prevEndOut);
@@ -123,9 +142,6 @@ function computeFilletInfo(
 
 	const n = getSuperellipseK(segIn);
 
-	const arcAngle = PI - angle;
-	const k = nToFilletK(arcAngle, n);
-
 	const tangentIn = evaluateBezierDerivative(segIn, tIn, prevEnd);
 	const tangentOut = evaluateBezierDerivative(segOut, tOut, prevEndOut);
 	const tInNorm = normalize(tangentIn);
@@ -133,22 +149,85 @@ function computeFilletInfo(
 
 	if (tInNorm == null || tOutNorm == null) return null;
 
+	// One cubic drifts off a circle as the turn grows past 90°
+	if (n === 2 && angle > PI / 2) {
+		const filletSegs = circularArcFillet(trimIn, tInNorm, trimOut, tOutNorm);
+		return { tIn, tOut, filletSegs, segInIdx: i };
+	}
+
+	const k = nToFilletK(angle, n);
+
 	// cp1/cp2 are relative offsets: cp1 from start (trimIn), cp2 from end (trimOut)
 	// For concave curves (k<0), swap tangent directions to reflect across the bevel line
-	const absK = Math.abs(k);
+	const handle = Math.abs(k) * trimDistance;
 	const cp1Dir = k >= 0 ? tInNorm : tOutNorm;
 	const cp2Dir = k >= 0 ? tOutNorm : tInNorm;
-	const filletSeg: CubicBezierSegment = {
-		start: { x: trimIn.x, y: trimIn.y },
-		cp1: {
-			x: absK * maxRadius * cp1Dir.x,
-			y: absK * maxRadius * cp1Dir.y,
-		},
-		cp2: {
-			x: -(absK * maxRadius * cp2Dir.x),
-			y: -(absK * maxRadius * cp2Dir.y),
-		},
-		end: { x: trimOut.x, y: trimOut.y },
+	const filletSeg = filletSegment(
+		trimIn,
+		{ x: handle * cp1Dir.x, y: handle * cp1Dir.y },
+		{ x: -handle * cp2Dir.x, y: -handle * cp2Dir.y },
+		trimOut,
+	);
+
+	return { tIn, tOut, filletSegs: [filletSeg], segInIdx: i };
+}
+
+/**
+ * Trace the circular arc from `start`, leaving along `startDir`, to `end`,
+ * arriving along `endDir`, as two cubics split at the arc's midpoint.
+ */
+function circularArcFillet(
+	start: BezierPoint,
+	startDir: { x: number; y: number },
+	end: BezierPoint,
+	endDir: { x: number; y: number },
+): CubicBezierSegment[] {
+	const sweep = acos(clamp(dot(startDir, endDir), -1, 1));
+	const chordX = end.x - start.x;
+	const chordY = end.y - start.y;
+	const chord = sqrt(chordX * chordX + chordY * chordY);
+	const radius = chord / (2 * sin(sweep / 2));
+
+	// The arc bulges off the chord to the side its start tangent leans toward
+	const sagitta = radius * (1 - cos(sweep / 2));
+	const offset =
+		(sign(startDir.y * chordX - startDir.x * chordY) * sagitta) / chord;
+	const mid = {
+		x: (start.x + end.x) / 2 - chordY * offset,
+		y: (start.y + end.y) / 2 + chordX * offset,
+	};
+	const midDir = { x: chordX / chord, y: chordY / chord };
+
+	// Each half sweeps sweep/2, so its handles are (4/3)·tan(sweep/8)·r long
+	const handle = (4 / 3) * tan(sweep / 8) * radius;
+	return [
+		filletSegment(
+			start,
+			{ x: handle * startDir.x, y: handle * startDir.y },
+			{ x: -handle * midDir.x, y: -handle * midDir.y },
+			mid,
+		),
+		filletSegment(
+			mid,
+			{ x: handle * midDir.x, y: handle * midDir.y },
+			{ x: -handle * endDir.x, y: -handle * endDir.y },
+			end,
+		),
+	];
+}
+
+/** A fillet cubic; cp1 is relative to `start` and cp2 to `end`. */
+function filletSegment(
+	start: BezierPoint,
+	cp1: BezierPoint,
+	cp2: BezierPoint,
+	end: BezierPoint,
+): CubicBezierSegment {
+	return {
+		start: { x: start.x, y: start.y },
+		cp1,
+		cp2,
+		end: { x: end.x, y: end.y },
 		startTiltX: 0,
 		startTiltY: 0,
 		endTiltX: 0,
@@ -157,8 +236,6 @@ function computeFilletInfo(
 		endDeltaTime: 0,
 		isMoved: false,
 	};
-
-	return { tIn, tOut, filletSegs: [filletSeg], segInIdx: i };
 }
 
 // ---------------------------------------------------------------------------
@@ -312,13 +389,15 @@ function getSuperellipseK(seg: PathSegment): number {
 }
 
 /**
- * Convert superellipse exponent n to Bezier fillet k coefficient.
- * n=2: circular arc (k = (4/3)*tan(arcAngle/4))
- * n>2: squircle-like (k approaches 1.0)
+ * Convert superellipse exponent n to the Bezier fillet k coefficient, the
+ * handle length as a fraction of the trim distance.
+ * n=2: circular arc
+ * n>2: squircle-like (k approaches 1.0, the handles reaching the vertex)
  * n<2: concave (k < kCircle)
  */
-function nToFilletK(arcAngle: number, n: number): number {
-	const kCircle = (4 / 3) * tan(arcAngle / 4);
+function nToFilletK(turnAngle: number, n: number): number {
+	// An arc of radius r turning by φ has (4/3)·tan(φ/4)·r handles and trims r·tan(φ/2)
+	const kCircle = ((4 / 3) * tan(turnAngle / 4)) / tan(turnAngle / 2);
 	// n<1: concave curve (bows away from vertex into shape interior)
 	// n=1: bevel (straight line, k=0)
 	// n=2: circular arc (k=kCircle)

@@ -409,7 +409,7 @@ export interface CubicBezierSegment {
 
 /** CubicBezierSegment extension. Holds a corner radius on the end point (vertex) */
 export interface PathSegment extends CubicBezierSegment {
-	/** Corner radius of this vertex (the end point). 0 or undefined = no rounding */
+	/** Radius of the arc rounding this vertex (the end point). 0 or undefined = no rounding */
 	cornerRadius?: number;
 	/**
 	 * Superellipse exponent k for corner shape.

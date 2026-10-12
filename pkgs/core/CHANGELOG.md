@@ -39,8 +39,6 @@
 
 - **Shape tool**
   - `PaplicoTools.setShapeType`. Use `PaplicoTools.setShapeOption` instead.
-- **Migrations**
-  - The unregistered `20260301_mig_appearance_opacity_blendmode` migration. Missing appearance opacity and blend mode are still filled in when a document, room or preset is read.
 
 ### Fixed
 
