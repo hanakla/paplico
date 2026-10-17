@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { applyPreFilters } from "../../../document/elementGeometry/preFilters";
 import type { CubicBezierSegment, Filter } from "../../../schema";
 import {
 	expectSegmentsMatchSnapshot,
@@ -8,7 +9,6 @@ import {
 import { evalCubicBezier } from "../../../utils/geometry/primitives/bezier";
 import { resolveSegment } from "../../../utils/geometry/primitives/segment";
 import { FilterRenderer } from "../../canvas/pipeline/FilterRenderer";
-import { applyPreFilters } from "../../canvas/pipeline/PreFilterRenderer";
 import { PathUnionFilterHandler } from "../PathUnionFilter/PathUnionFilter";
 import {
 	PathOffsetFilterHandler,

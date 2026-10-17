@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight, FolderTree, List } from "lucide-react";
 import { memo, type ReactNode, useState } from "react";
 import { IconButton } from "@/components/IconButton";
 import { Input } from "@/components/Input";
+import { usePaplico } from "@/contexts/PaplicoContext";
 import { setFilterMenuView, useAppConfig } from "@/hooks/useAppConfig";
 import { type LocalizeKeys, useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
@@ -25,6 +26,7 @@ export const AddFilterSheet = memo(function AddFilterSheet({
 	onAdd: (processor: string, asSubFilter: boolean) => void;
 }) {
 	const t = useTranslation();
+	const paplico = usePaplico();
 	const { filterMenuView } = useAppConfig();
 	const [query, setQuery] = useState("");
 
@@ -82,6 +84,7 @@ export const AddFilterSheet = memo(function AddFilterSheet({
 	const { visibleEntries, matchedEntries } = queryFilterCatalog(
 		isSubFilter,
 		query,
+		(processor) => paplico.isUsableAsSubFilter(processor),
 	);
 
 	const grouped = Object.groupBy(visibleEntries, (e) => e.category);
@@ -331,7 +334,7 @@ const FilterRow = memo(function FilterRow({
 }) {
 	const t = useTranslation();
 	const handleClick = useEventCallback(() => {
-		onAdd(entry.processor, isSubFilter && entry.canBeSubFilter);
+		onAdd(entry.processor, isSubFilter);
 	});
 
 	return (

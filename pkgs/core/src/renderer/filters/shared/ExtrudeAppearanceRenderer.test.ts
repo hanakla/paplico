@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { localAppearances } from "../../../document/appearancePresets";
+import type { CompoundPathCache } from "../../../document/elementGeometry/CompoundPathCache";
 import type {
 	AnyArtObject,
 	BezierPoint,
@@ -14,7 +15,6 @@ import {
 	AppearanceCache,
 	type AppearanceCacheEntry,
 } from "../../canvas/caches/AppearanceCache";
-import type { CompoundPathCache } from "../../canvas/caches/CompoundPathCache";
 import type { BackdropEffectCoordinator } from "../../canvas/pipeline/BackdropEffectCoordinator";
 import type {
 	FilterGeometryContext,

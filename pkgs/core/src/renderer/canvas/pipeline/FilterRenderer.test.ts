@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import { isElementRenderReplaced } from "../../../document/elementGeometry/filterCapabilities";
 import type { AnyArtObject, Filter } from "../../../schema";
 import {
 	type FilterHandler,
 	type FilterProcessorContext,
 	FilterRenderer,
 	hoistBlendInstanceAppearances,
-	isElementRenderReplaced,
 	type RegisterableFilterHandler,
 } from "./FilterRenderer";
 import { createBorrowedTextureRef, createRenderSurface } from "./RenderSurface";

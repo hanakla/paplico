@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AppearanceGeometry } from "../../../document/elementGeometry/filterCapabilities";
 import { createStrokeBrushSettings } from "../../../document/factory";
 import type {
 	BrushSettings,
@@ -8,7 +9,6 @@ import type {
 } from "../../../schema";
 import { lineSeg } from "../../../testUtils/segmentFactory";
 import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
-import type { AppearanceGeometry } from "../../canvas/pipeline/FilterRenderer";
 import { StrokeOutlineFilterHandler } from "./StrokeOutlineFilter";
 
 describe("StrokeOutlineFilterHandler", () => {

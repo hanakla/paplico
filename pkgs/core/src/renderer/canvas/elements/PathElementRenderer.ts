@@ -1,5 +1,23 @@
 import { resolveBrushTextureUid } from "../../../brush/brushSource";
 import { localAppearances } from "../../../document/appearancePresets";
+import {
+	type DrawableSegments,
+	type PatternPlacement,
+	type ResolvedAppearancePass,
+	resolveAppearancePasses,
+} from "../../../document/elementGeometry/appearancePasses";
+import type { CompoundPathCache } from "../../../document/elementGeometry/CompoundPathCache";
+import { createCompoundPathRenderPath } from "../../../document/elementGeometry/compoundPath";
+import { isGeometryFilter } from "../../../document/elementGeometry/filterCapabilities";
+import {
+	type GeometricStrokeShape,
+	resolveGeometricStrokeShape,
+	tessellateGeometricStroke,
+} from "../../../document/elementGeometry/geometricStroke";
+import {
+	applyPreFilters,
+	geometryFilters,
+} from "../../../document/elementGeometry/preFilters";
 import { createStrokeBrushSettings } from "../../../document/factory";
 import {
 	type AnyArtObject,
@@ -21,6 +39,10 @@ import {
 	resolveBlendSourcePath,
 	resolveBlendSpinePath,
 } from "../../../utils/geometry/generate/blendInterpolation";
+import {
+	deviceScaleBucket,
+	localCurveTolerance,
+} from "../../../utils/geometry/measure/curveTolerance";
 import { hashSegments } from "../../../utils/geometry/measure/segmentHash";
 import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
 import type { GPUTransformAffine } from "../../../utils/geometry/space/coordinates";
@@ -29,8 +51,6 @@ import {
 	appendFillLines,
 	appendTriangleSoupLines,
 	composeDeviceTransform,
-	deviceScaleBucket,
-	localCurveTolerance,
 } from "../../geometry/strips/deviceGeometry";
 import { rasterizeStrokeParams } from "../../geometry/strips/paramsRasterizer";
 import { StripRasterizer } from "../../geometry/strips/stripRenderer";
@@ -42,17 +62,13 @@ import {
 	TILE_SIZE,
 } from "../../geometry/strips/stripTypes";
 import { hashStrokeGeometry } from "../../helpers";
-import {
-	cleanupPolygonPoints,
-	createCompoundPathRenderPath,
-} from "../CanvasLayer.helpers";
+import { cleanupPolygonPoints } from "../CanvasLayer.helpers";
 import type {
 	AssetState,
 	PipelineType,
 	RenderState,
 } from "../CanvasLayerTypes";
 import type { BlendCache } from "../caches/BlendCache";
-import type { CompoundPathCache } from "../caches/CompoundPathCache";
 import type {
 	FillOutline,
 	LocalBounds,
@@ -70,24 +86,8 @@ import type {
 	BrushRenderer,
 } from "../pipeline/brush/BrushRenderer";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
-import { isGeometryFilter } from "../pipeline/FilterRenderer";
-import {
-	applyPreFilters,
-	geometryFilters,
-} from "../pipeline/PreFilterRenderer";
 import type { StripColor, StripFrame } from "../pipeline/strips/StripFrame";
-import {
-	type DrawableSegments,
-	type PatternPlacement,
-	type ResolvedAppearancePass,
-	resolveAppearancePasses,
-} from "./appearancePasses";
 import type { GradientRenderer } from "./GradientRenderer";
-import {
-	type GeometricStrokeShape,
-	resolveGeometricStrokeShape,
-	tessellateGeometricStroke,
-} from "./geometricStroke";
 
 /** Sub-pixel translation phase resolution of the strip cache key. */
 const PHASE_STEPS = 256;

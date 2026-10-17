@@ -1,6 +1,6 @@
+import { CompoundPathCache } from "../document/elementGeometry/CompoundPathCache";
 import type { TextState } from "./canvas/CanvasLayerTypes";
 import { BlendCache } from "./canvas/caches/BlendCache";
-import { CompoundPathCache } from "./canvas/caches/CompoundPathCache";
 import { GroupPathCache } from "./canvas/caches/GroupPathCache";
 import { MeshWarpCache } from "./canvas/caches/MeshWarpCache";
 

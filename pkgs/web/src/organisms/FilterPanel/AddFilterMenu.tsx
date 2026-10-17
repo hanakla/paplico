@@ -10,6 +10,7 @@ import { IconButton } from "@/components/IconButton";
 import { Input } from "@/components/Input";
 import { Menu } from "@/components/Menu";
 import { Tooltip } from "@/components/Tooltip";
+import { usePaplico } from "@/contexts/PaplicoContext";
 import { setFilterMenuView, useAppConfig } from "@/hooks/useAppConfig";
 import { type LocalizeKeys, useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
@@ -24,6 +25,7 @@ export const AddFilterMenu = memo(function AddFilterMenu({
 	onAdd: (processor: string, asSubFilter: boolean) => void;
 }) {
 	const t = useTranslation();
+	const paplico = usePaplico();
 	const [query, setQuery] = useState("");
 	const { filterMenuView } = useAppConfig();
 	const rootRef = useRef<HTMLDivElement>(null);
@@ -73,6 +75,7 @@ export const AddFilterMenu = memo(function AddFilterMenu({
 	const { visibleEntries, matchedEntries } = queryFilterCatalog(
 		isSubFilter,
 		query,
+		(processor) => paplico.isUsableAsSubFilter(processor),
 	);
 
 	const grouped = Object.groupBy(visibleEntries, (e) => e.category);
@@ -125,7 +128,7 @@ export const AddFilterMenu = memo(function AddFilterMenu({
 							key={entry.processor}
 							processor={entry.processor}
 							category={entry.category}
-							asSubFilter={isSubFilter && entry.canBeSubFilter}
+							asSubFilter={isSubFilter}
 							onAdd={onAdd}
 						/>
 					))
@@ -141,7 +144,7 @@ export const AddFilterMenu = memo(function AddFilterMenu({
 							key={entry.processor}
 							processor={entry.processor}
 							category={entry.category}
-							asSubFilter={isSubFilter && entry.canBeSubFilter}
+							asSubFilter={isSubFilter}
 							onAdd={onAdd}
 						/>
 					))}
@@ -176,10 +179,7 @@ export const AddFilterMenu = memo(function AddFilterMenu({
 																		<Menu.Item
 																			key={entry.processor}
 																			onClick={() =>
-																				onAdd(
-																					entry.processor,
-																					isSubFilter && entry.canBeSubFilter,
-																				)
+																				onAdd(entry.processor, isSubFilter)
 																			}
 																		>
 																			{getFilterIcon(entry.processor)}
@@ -198,12 +198,7 @@ export const AddFilterMenu = memo(function AddFilterMenu({
 											: entries.map((entry) => (
 													<Menu.Item
 														key={entry.processor}
-														onClick={() =>
-															onAdd(
-																entry.processor,
-																isSubFilter && entry.canBeSubFilter,
-															)
-														}
+														onClick={() => onAdd(entry.processor, isSubFilter)}
 													>
 														{getFilterIcon(entry.processor)}
 														{t(

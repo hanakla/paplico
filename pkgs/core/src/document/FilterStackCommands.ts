@@ -1,4 +1,3 @@
-import { canBeSubFilter } from "../renderer/filters/filterCatalog";
 import {
 	type BrushSettings,
 	type Filter,
@@ -6,6 +5,10 @@ import {
 	isAppearancePresetRef,
 	type StrokeAppearance,
 } from "../schema";
+import {
+	type FilterCapabilityLookup,
+	isUsableAsSubFilter,
+} from "./elementGeometry/filterCapabilities";
 
 /**
  * Editing operations over one appearance stack. The stack is addressed
@@ -17,6 +20,7 @@ export class FilterStackCommands {
 	public constructor(
 		private readonly read: () => FilterEntry[] | null,
 		private readonly write: (filters: FilterEntry[]) => void,
+		private readonly filterLookup: FilterCapabilityLookup,
 	) {}
 
 	/**
@@ -141,7 +145,7 @@ export class FilterStackCommands {
 		const target = filters[filterIndex];
 		if (isAppearancePresetRef(target)) return;
 		if (target.processor !== "fill" && target.processor !== "stroke") return;
-		if (!canBeSubFilter(subFilter.processor)) return;
+		if (!isUsableAsSubFilter(this.filterLookup, subFilter.processor)) return;
 
 		const newFilters = filters.map((filter, i) => {
 			if (i !== filterIndex || isAppearancePresetRef(filter)) return filter;

@@ -220,7 +220,7 @@ ndcY = 1 - (screenY / canvasHeight) * 2;
 | (root) | CanvasTarget | Canvas要素のラッパー。ResizeObserver、ビューポート（画面に表示されている領域）状態を保持 |
 | (root) | PipelineFactory | GPUパイプライン生成の共通ヘルパー |
 | canvas/ | CanvasLayer, CanvasLayerTypes | キャンバス単位のパイプライン統括と、パイプライン内の共有型 |
-| [canvas/pipeline/](/devdocs/renderer/pipeline) | ViewportManager, RenderPlanner, FrameGraph, CompositeRenderer, OffscreenPresenter, DocumentCache, TexturePool, UniformScope, ClipMaskAtlas, MaskApplicationPlan, BackdropCaptureManager, BackdropEffectCoordinator, BlurPyramid, FilterRenderer, PreFilterRenderer, strips/StripFrame | フレームの組み立て、マスクの事前生成と適用計画、バックドロップキャプチャ、フィルター実行、strip の描画 |
+| [canvas/pipeline/](/devdocs/renderer/pipeline) | ViewportManager, RenderPlanner, FrameGraph, CompositeRenderer, OffscreenPresenter, DocumentCache, TexturePool, UniformScope, ClipMaskAtlas, MaskApplicationPlan, BackdropCaptureManager, BackdropEffectCoordinator, BlurPyramid, FilterRenderer, strips/StripFrame | フレームの組み立て、マスクの事前生成と適用計画、バックドロップキャプチャ、フィルター実行、strip の描画 |
 | [canvas/elements/](/devdocs/renderer/elements) | ElementRenderer, PathElementRenderer, GradientRenderer 等 | 要素種別ごとのレンダリングディスパッチ |
 | [canvas/pipeline/brush/](/devdocs/renderer/brush) | BrushRenderer, DabRenderer, RibbonRenderer, WetStrokeRenderer, DabEvaluator | Dabベースのインスタンスドブラシ描画とリボン・wet層 |
 | [filters/](/devdocs/renderer/filters) | 個別フィルターハンドラー | ラスター・ジオメトリ・3D・hanakla-kit・SVG の各フィルター。一覧は[フィルター](/devdocs/renderer/filters)を参照 |

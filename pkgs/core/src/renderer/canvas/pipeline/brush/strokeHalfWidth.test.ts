@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveGeometricSizeByPressure } from "../../../../brush/access";
 import type {
 	BezierPoint,
 	BrushSettings,
@@ -22,7 +23,6 @@ import {
 	bakeStrokeWidthProfile,
 	createStrokeHalfWidthSampler,
 	polylineSegmentsFromPoints,
-	resolveGeometricSizeByPressure,
 	StrokeWidthProfileBuilder,
 } from "./strokeHalfWidth";
 

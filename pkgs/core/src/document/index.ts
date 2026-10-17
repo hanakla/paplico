@@ -6,6 +6,7 @@ export {
 	PAPLICO_MAX_ZOOM_SCALE,
 	PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
 } from "./constants";
+export { canOutlineStrokes } from "./elementGeometry/strokeOutline";
 export type { FilterStackCommands } from "./FilterStackCommands";
 export {
 	createDefaultBrushSettings,
@@ -19,7 +20,6 @@ export {
 	createImageObject,
 	createStrokeBrushSettings,
 } from "./factory";
-export { canOutlineStrokes } from "./strokeOutline";
 export {
 	BASE_DPI,
 	DEFAULT_LENGTH_UNIT,

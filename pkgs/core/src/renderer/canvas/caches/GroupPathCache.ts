@@ -1,4 +1,8 @@
 import {
+	type CompoundPathCache,
+	createCompoundPathFingerprint,
+} from "../../../document/elementGeometry/CompoundPathCache";
+import {
 	type AnyArtObject,
 	type CubicBezierSegment,
 	type Group,
@@ -9,10 +13,6 @@ import {
 } from "../../../schema";
 import { collectCompoundSources } from "../../../utils/geometry/generate/compoundBake";
 import { collectGroupSegments } from "../pipeline/GroupAppearanceCollector";
-import {
-	type CompoundPathCache,
-	createCompoundPathFingerprint,
-} from "./CompoundPathCache";
 
 /**
  * Caches combined path segments for groups with fill/stroke appearances.

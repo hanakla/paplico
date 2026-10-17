@@ -1,22 +1,19 @@
 import { localAppearances } from "../../../document/appearancePresets";
+import type { CompoundPathCache } from "../../../document/elementGeometry/CompoundPathCache";
+import type { FilterCapabilities } from "../../../document/elementGeometry/filterCapabilities";
+import { isElementRenderReplaced } from "../../../document/elementGeometry/filterCapabilities";
 import {
 	type AnyArtObject,
 	type BoundingBox,
 	type Color,
-	type CubicBezierSegment,
-	type FillAppearance,
 	type Filter,
-	type FilterEntry,
 	isBlend,
 	isFilterEnabled,
 	type Path,
-	type PathGeometry,
-	type StrokeAppearance,
 	type TextElement,
 	type Viewport,
 } from "../../../schema";
 import type { WorldBBox } from "../../../utils/geometry/primitives/box";
-import type { Affine2D } from "../../../utils/geometry/space/affine";
 import type { QuadCorners } from "../../../utils/geometry/space/quadProjection";
 import type { ExtrudeMeshBaker } from "../../filters/shared/ExtrudeMeshBaker";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
@@ -25,7 +22,6 @@ import type {
 	AppearanceCache,
 	AppearanceCacheEntry,
 } from "../caches/AppearanceCache";
-import type { CompoundPathCache } from "../caches/CompoundPathCache";
 import type {
 	BackdropBlurLevels,
 	BackdropEffectCoordinator,
@@ -321,29 +317,6 @@ export function resolveRenderConfigure(
 }
 
 /**
- * Whether the element's own flat fill/stroke render is fully replaced by an
- * enabled appearance (the filter system renders the element instead — e.g.
- * extrude3d). Lets the renderer suppress the flat geometry pass without
- * naming any specific processor.
- */
-export function isElementRenderReplaced(
-	element: { filters?: readonly FilterEntry[] | null },
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
-): boolean {
-	for (const filter of localAppearances(element.filters ?? undefined)) {
-		if (!isFilterEnabled(filter)) continue;
-		if (
-			filterRenderer
-				.getHandler(filter.processor)
-				?.replacesElementRender?.(filter)
-		) {
-			return true;
-		}
-	}
-	return false;
-}
-
-/**
  * A blend renders its keys' interpolated instances; when the keys carry a
  * render-replacing appearance (e.g. extrude3d) but the blend itself doesn't,
  * copy that appearance onto the blend so the generic filter system renders
@@ -520,32 +493,6 @@ export interface BackdropEffectDriver {
 }
 
 /**
- * Geometry on its way through the pre-filters, with what its paint has to
- * follow: the appearance drawing it (a filter may hand back a rewritten one,
- * e.g. a scaled stroke width) and the local affine a pattern paint samples
- * through (unset = as authored). `appearance` is absent when only the shape
- * is wanted — bounds, export, outlines — and a filter then returns one
- * geometry holding everything it would draw.
- */
-export interface AppearanceGeometry {
-	appearance?: FillAppearance | StrokeAppearance;
-	path: PathGeometry;
-	patternTransform?: Affine2D;
-}
-
-/** Whether the appearance's paint is a pattern, which follows a copy's
- *  placement through `AppearanceGeometry.patternTransform`. */
-export function appearancePaintsPattern(
-	appearance: AppearanceGeometry["appearance"],
-): boolean {
-	if (!appearance) return false;
-	if (appearance.processor === "fill") {
-		return appearance.paramData.params.fill?.type === "pattern";
-	}
-	return appearance.paramData.params.strokeColor?.type === "stroke-pattern";
-}
-
-/**
  * Interface for all filter implementations (pre- and post-filters).
  *
  * Pre-filters transform geometry before rasterization through one of two
@@ -555,7 +502,7 @@ export function appearancePaintsPattern(
  * Post-filters (`postProcess`) run one or more WebGPU compute/render passes on
  * the already-rasterized element texture — e.g. blur, drop shadow, frost glass.
  */
-export interface FilterHandler {
+export interface FilterHandler extends FilterCapabilities {
 	/** No-op for handlers that don't need GPU. */
 	initialize(device: GPUDevice, canvasFormat: GPUTextureFormat): Promise<void>;
 
@@ -627,30 +574,10 @@ export interface FilterHandler {
 	 *  sample the sharp capture. */
 	getBackdropBlurSigma?(filter: Filter, rasterScale: number): number;
 
-	/** True when this appearance fully replaces the element's own flat
-	 *  fill/stroke rendering — the filter system renders the element instead,
-	 *  so the flat geometry pass must draw nothing for it (e.g. extrude3d). */
-	replacesElementRender?(filter: Filter): boolean;
-
 	/** Def ids (patterns, brush sources) this filter's params reference, so the
 	 *  renderer can pre-rasterize them without knowing the filter's shape (e.g.
 	 *  extrude3d's material surface pattern). */
 	collectReferencedDefIds?(filter: Filter): string[];
-
-	/** Pre-filter: transform geometry before rendering. */
-	preProcess?(
-		segments: CubicBezierSegment[],
-		filter: Filter,
-	): CubicBezierSegment[];
-
-	/** Pre-filter that changes the appearance it outputs — a copy-placing
-	 *  transform that scales the copies' stroke widths or carries pattern
-	 *  paints along. One geometry in, the geometries to draw out; with
-	 *  no appearance on the input it returns the whole deformed shape. */
-	preProcessAppearance?(
-		geometry: AppearanceGeometry,
-		filter: Filter,
-	): AppearanceGeometry[];
 
 	/** Post-filter: apply image processing to the rendered texture. A handler
 	 *  that produces its own sized texture returns a PostProcessResult (the
@@ -700,15 +627,6 @@ export interface FilterHandler {
 	): unknown;
 }
 
-/**
- * What a handler does to the element it is attached to. Routing, occlusion and
- * bounds decisions must classify through this instead of probing
- * `handler.preProcess` / `handler.postProcess` directly: those probes are
- * where "does this appearance deform its geometry?" and "does this appearance
- * have any sub-filter at all?" quietly drift apart.
- */
-type FilterKind = "geometry" | "raster";
-
 /** Deforms the path before rasterization (zigzag, path-offset, …). */
 type GeometryFilterHandler = FilterHandler &
 	(
@@ -745,28 +663,6 @@ export type RegisterableFilterHandler =
 	| GeometryFilterHandler
 	| RasterFilterHandler
 	| PassiveFilterHandler;
-
-/** Classify a handler, or null when it has no handler / does neither. */
-export function classifyFilterHandler(
-	handler: FilterHandler | undefined,
-): FilterKind | null {
-	if (handler?.preProcess || handler?.preProcessAppearance) return "geometry";
-	if (handler?.postProcess) return "raster";
-	return null;
-}
-
-/** True when this enabled filter deforms geometry before rasterization. */
-export function isGeometryFilter(
-	filter: Filter,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
-): boolean {
-	return (
-		isFilterEnabled(filter) &&
-		classifyFilterHandler(filterRenderer.getHandler(filter.processor)) ===
-			"geometry"
-	);
-}
-
 // --- Filter Renderer ---
 
 /** Upper bound on concurrently held temp pairs. Viewport-clipped chains

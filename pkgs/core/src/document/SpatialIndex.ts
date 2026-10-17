@@ -1,17 +1,4 @@
 import { subscribeKey } from "valtio/utils";
-import { CompoundPathCache } from "../renderer/canvas/caches/CompoundPathCache";
-import { resolveImageGeometry } from "../renderer/canvas/elements/ImageElementRenderer";
-import type { FilterRenderer } from "../renderer/canvas/pipeline/FilterRenderer";
-import {
-	childPreFilters,
-	geometryFilters,
-	resolveCompoundDrawnShape,
-	resolvePathGeometryVariants,
-	subtreeHasPreFilter,
-	withInheritedPreFilters,
-} from "../renderer/canvas/pipeline/PreFilterRenderer";
-import { calculatePreFilteredElementBounds } from "../renderer/canvas/pipeline/RenderPlanner";
-import type { SnapLine, SnapResult } from "../renderer/ui/types";
 import {
 	type AnyArtObject,
 	type Artboard,
@@ -111,7 +98,52 @@ import {
 	localAppearances,
 	resolveElementAppearance,
 } from "./appearancePresets";
+import { CompoundPathCache } from "./elementGeometry/CompoundPathCache";
+import type { FilterCapabilityLookup } from "./elementGeometry/filterCapabilities";
+import { calculatePreFilteredElementBounds } from "./elementGeometry/filteredBounds";
+import { resolveImageGeometry } from "./elementGeometry/imageGeometry";
+import {
+	childPreFilters,
+	geometryFilters,
+	resolveCompoundDrawnShape,
+	resolvePathGeometryVariants,
+	subtreeHasPreFilter,
+	withInheritedPreFilters,
+} from "./elementGeometry/preFilters";
 import type { ObjectsChangeDelta } from "./objectsChangeDelta";
+
+/** Map a point through the inverse of an affine, or null when non-invertible. */
+function inverseAffinePoint(
+	m: Affine2D,
+	x: number,
+	y: number,
+): { x: number; y: number } | null {
+	const det = m.a * m.d - m.b * m.c;
+	if (Math.abs(det) < 1e-12) return null;
+	const dx = x - m.e;
+	const dy = y - m.f;
+	return {
+		x: (m.d * dx - m.c * dy) / det,
+		y: (-m.b * dx + m.a * dy) / det,
+	};
+}
+
+export interface SnapLine {
+	/** "horizontal" = horizontal line at aligned Y, "vertical" = vertical line at aligned X */
+	axis: "horizontal" | "vertical";
+	/** Snap position (world coordinates) */
+	position: number;
+	/** Line drawing extent start (perpendicular axis) */
+	extentMin: number;
+	/** Line drawing extent end */
+	extentMax: number;
+}
+
+export interface SnapResult {
+	deltaX: number;
+	deltaY: number;
+	snapLines: SnapLine[];
+}
 
 export interface PaintedHit {
 	element: AnyArtObject;
@@ -173,7 +205,7 @@ export class SpatialIndex {
 	 * geometry filters deform them at render time. Wired by the engine facade;
 	 * without it hit tests use the stored geometry.
 	 */
-	private filterHandlers: Pick<FilterRenderer, "getHandler"> | null = null;
+	private filterHandlers: FilterCapabilityLookup | null = null;
 
 	/** Deformed outlines per element; see resolveDeformedGeometries. */
 	private compoundPathCache = new CompoundPathCache();
@@ -188,7 +220,7 @@ export class SpatialIndex {
 	>();
 
 	public setFilterHandlerLookup(
-		getHandler: FilterRenderer["getHandler"],
+		getHandler: FilterCapabilityLookup["getHandler"],
 	): void {
 		this.filterHandlers = { getHandler };
 	}
@@ -2653,26 +2685,10 @@ function addDescendantIds(
 }
 
 /** Stands in until the renderer registers its handlers: no filter deforms anything. */
-const NO_FILTER_HANDLERS: Pick<FilterRenderer, "getHandler"> = {
+const NO_FILTER_HANDLERS: FilterCapabilityLookup = {
 	getHandler: () => undefined,
 };
 
 function isElementVisible(element: AnyArtObject): boolean {
 	return element.visible !== false;
-}
-
-/** Map a point through the inverse of an affine, or null when non-invertible. */
-function inverseAffinePoint(
-	m: Affine2D,
-	x: number,
-	y: number,
-): { x: number; y: number } | null {
-	const det = m.a * m.d - m.b * m.c;
-	if (Math.abs(det) < 1e-12) return null;
-	const dx = x - m.e;
-	const dy = y - m.f;
-	return {
-		x: (m.d * dx - m.c * dy) / det,
-		y: (-m.b * dx + m.a * dy) / det,
-	};
 }

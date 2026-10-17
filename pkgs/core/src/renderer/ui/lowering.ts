@@ -1,4 +1,4 @@
-import { DEVICE_CURVE_TOLERANCE_PX } from "../geometry/strips/deviceGeometry";
+import { DEVICE_CURVE_TOLERANCE_PX } from "../../utils/geometry/measure/curveTolerance";
 import {
 	type FillPoint,
 	flattenBezierContour,

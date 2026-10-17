@@ -2,10 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Filters**
+  - `Paplico.isUsableAsSubFilter(processor)` tells whether a filter can sit under a fill or stroke as a sub-filter. A filter handler declares it with `usableAsSubFilter`.
+
 ### Changed
 
 - **Breaking API changes**
   - `createRendererState` is exported from `@paplico/core` instead of `@paplico/core/document`.
+  - `FILTER_CATALOG` entries no longer have `canBeSubFilter`. Use `Paplico.isUsableAsSubFilter` instead.
+- **Filters**
+  - A sub-filter whose processor has no registered handler is rejected instead of added.
 - **Geometry utilities**
   - `utils/geometry/` is split by role into `primitives/`, `space/`, `measure/`, `query/`, `generate/` and `reshape/` instead of one flat folder. Imports from `@paplico/core/utils` are unchanged.
 

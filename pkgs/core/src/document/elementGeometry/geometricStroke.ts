@@ -1,3 +1,4 @@
+import { resolveGeometricSizeByPressure } from "../../brush/access";
 import {
 	type BrushSettings,
 	type CubicBezierSegment,
@@ -14,22 +15,21 @@ import {
 	type StrokeAlign,
 	type StrokeAppearance,
 	type StrokeWidthPoint,
-} from "../../../schema";
-import { flattenBezierPathWithPressure } from "../../../utils/geometry/generate/bezierFlatten";
-import { triangleSoupOutline } from "../../../utils/geometry/generate/pathOps";
+} from "../../schema";
+import { flattenBezierPathWithPressure } from "../../utils/geometry/generate/bezierFlatten";
+import { triangleSoupOutline } from "../../utils/geometry/generate/pathOps";
 import {
 	applyDashPattern,
 	polylineArcLength,
 	tessellateStroke,
-} from "../../../utils/geometry/generate/strokeTessellator";
-import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
-import { transformLinearMatrix } from "../../../utils/geometry/space/coordinates";
+} from "../../utils/geometry/generate/strokeTessellator";
+import { computePolylineSignedArea } from "../../utils/geometry/measure/area";
 import {
 	deviceScaleBucket,
 	localCurveTolerance,
-} from "../../geometry/strips/deviceGeometry";
-import { computePolylineSignedArea } from "../CanvasLayer.helpers";
-import { resolveGeometricSizeByPressure } from "../pipeline/brush/strokeHalfWidth";
+} from "../../utils/geometry/measure/curveTolerance";
+import { splitIntoSubPaths } from "../../utils/geometry/primitives/segment";
+import { transformLinearMatrix } from "../../utils/geometry/space/coordinates";
 
 /** Largest distance, in device pixels, an outlined stroke strays from its band. */
 const OUTLINE_FIT_TOLERANCE_PX = 0.1;
@@ -147,8 +147,6 @@ export function outlineGeometricStroke(
 		b: m.m10,
 		c: m.m01,
 		d: m.m11,
-		e: 0,
-		f: 0,
 	});
 	return triangleSoupOutline(
 		geometries.flatMap(

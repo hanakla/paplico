@@ -8,6 +8,13 @@ import {
 	readStoredBrushStroking,
 } from "../../../brush/access";
 import { localAppearances } from "../../../document/appearancePresets";
+import type { CompoundPathCache } from "../../../document/elementGeometry/CompoundPathCache";
+import { isGeometryFilter } from "../../../document/elementGeometry/filterCapabilities";
+import {
+	applyPreFilters,
+	geometryFilters,
+	resolveElementGeometry,
+} from "../../../document/elementGeometry/preFilters";
 import { createIdentityTransform } from "../../../document/factory";
 import {
 	type AnyArtObject,
@@ -68,7 +75,6 @@ import {
 	type AppearanceCacheEntry,
 	instanceAppearanceUid,
 } from "../../canvas/caches/AppearanceCache";
-import type { CompoundPathCache } from "../../canvas/caches/CompoundPathCache";
 import { buildTextGeometry } from "../../canvas/elements/textGeometry";
 import type {
 	BackdropEffectCoordinator,
@@ -81,17 +87,9 @@ import type {
 	UnderlayCoverage,
 	UnderlayResult,
 } from "../../canvas/pipeline/FilterRenderer";
-import {
-	isGeometryFilter,
-	resolveRenderConfigure,
-} from "../../canvas/pipeline/FilterRenderer";
+import { resolveRenderConfigure } from "../../canvas/pipeline/FilterRenderer";
 import { collectGroupSegments } from "../../canvas/pipeline/GroupAppearanceCollector";
 import type { MeshPassRenderer } from "../../canvas/pipeline/MeshPassRenderer";
-import {
-	applyPreFilters,
-	geometryFilters,
-	resolveElementGeometry,
-} from "../../canvas/pipeline/PreFilterRenderer";
 import {
 	createBorrowedTextureRef,
 	createRenderSurface,

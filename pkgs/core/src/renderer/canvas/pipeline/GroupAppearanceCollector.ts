@@ -1,3 +1,4 @@
+import type { CompoundPathCache } from "../../../document/elementGeometry/CompoundPathCache";
 import {
 	type AnyArtObject,
 	type CompoundPath as CompoundPathType,
@@ -14,7 +15,6 @@ import { computeSubPathSignedArea } from "../../../utils/geometry/measure/area";
 import { reverseSubPath } from "../../../utils/geometry/reshape/segment";
 import { placeElement } from "../../../utils/geometry/space/coordinates";
 import { toWorldPath } from "../../../utils/geometry/space/worldSegments";
-import type { CompoundPathCache } from "../caches/CompoundPathCache";
 
 /**
  * Recursively collect all path segments from a group's children

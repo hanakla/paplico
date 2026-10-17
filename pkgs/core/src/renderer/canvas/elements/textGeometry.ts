@@ -1,7 +1,7 @@
+import { resolveElementGeometry } from "../../../document/elementGeometry/preFilters";
 import type { CubicBezierSegment, Filter } from "../../../schema";
 import { appendSubpath } from "../../../utils/geometry/reshape/segment";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
-import { resolveElementGeometry } from "../pipeline/PreFilterRenderer";
 
 /**
  * Concatenate a text's per-glyph outlines into one multi-subpath list and run

@@ -1,4 +1,5 @@
 import { localAppearances } from "../../../document/appearancePresets";
+import { isGeometryFilter } from "../../../document/elementGeometry/filterCapabilities";
 import {
 	type AnyArtObject,
 	type BlendObject,
@@ -11,10 +12,7 @@ import {
 	type StrokeAppearance,
 	type TextElement,
 } from "../../../schema";
-import {
-	type FilterRenderer,
-	isGeometryFilter,
-} from "../../canvas/pipeline/FilterRenderer";
+import type { FilterRenderer } from "../../canvas/pipeline/FilterRenderer";
 
 /**
  * Callback bundle a render-cache fingerprint needs to fold in descendant

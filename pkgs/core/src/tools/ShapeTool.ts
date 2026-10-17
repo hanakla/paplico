@@ -4,10 +4,10 @@
 
 import { nanoid } from "nanoid";
 import { createIdentityTransform } from "../document/factory";
+import type { SnapLine } from "../document/SpatialIndex";
 import { buildSnapLineOverlay } from "../renderer/ui/builders/snapLine";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import { OVERLAY_Z, UI_THEME } from "../renderer/ui/theme";
-import type { SnapLine } from "../renderer/ui/types";
 import {
 	type CubicBezierSegment,
 	cloneAppearance,

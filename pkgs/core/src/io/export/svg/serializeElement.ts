@@ -1,15 +1,14 @@
 import { localAppearances } from "../../../document/appearancePresets";
+import { calculatePreFilteredElementBounds } from "../../../document/elementGeometry/filteredBounds";
 import {
 	type GeometricStrokeShape,
 	tessellateGeometricStroke,
-} from "../../../renderer/canvas/elements/geometricStroke";
-import type { FilterRenderer } from "../../../renderer/canvas/pipeline/FilterRenderer";
+} from "../../../document/elementGeometry/geometricStroke";
 import {
 	resolveElementGeometry,
 	toCompoundSourceWorldPath,
-} from "../../../renderer/canvas/pipeline/PreFilterRenderer";
-import { calculatePreFilteredElementBounds } from "../../../renderer/canvas/pipeline/RenderPlanner";
-import { deviceScaleBucket } from "../../../renderer/geometry/strips/deviceGeometry";
+} from "../../../document/elementGeometry/preFilters";
+import type { FilterRenderer } from "../../../renderer/canvas/pipeline/FilterRenderer";
 import {
 	type AnyArtObject,
 	type BoundingBox,
@@ -34,6 +33,7 @@ import {
 	type TextElement,
 } from "../../../schema";
 import { bakeCompoundPathSegments } from "../../../utils/geometry/generate/compoundBake";
+import { deviceScaleBucket } from "../../../utils/geometry/measure/curveTolerance";
 import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
 import { expandBounds } from "../../../utils/geometry/primitives/box";
 import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
@@ -523,8 +523,6 @@ function outlinedStrokeNode(
 			b: localToWorld.m10,
 			c: localToWorld.m01,
 			d: localToWorld.m11,
-			e: localToWorld.tx,
-			f: localToWorld.ty,
 		}),
 		false,
 	);

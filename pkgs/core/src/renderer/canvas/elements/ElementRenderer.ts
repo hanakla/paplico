@@ -1,4 +1,11 @@
 import type {
+	DrawableSegments,
+	PatternPlacement,
+	ResolvedAppearancePass,
+} from "../../../document/elementGeometry/appearancePasses";
+import type { CompoundPathCache } from "../../../document/elementGeometry/CompoundPathCache";
+import { geometryFilters } from "../../../document/elementGeometry/preFilters";
+import type {
 	AnyArtObject,
 	BlendMode,
 	BlendObject,
@@ -39,7 +46,6 @@ import {
 	type ViewportState,
 } from "../CanvasLayerTypes";
 import type { BlendCache } from "../caches/BlendCache";
-import type { CompoundPathCache } from "../caches/CompoundPathCache";
 import type { GradientCache } from "../caches/GradientCache";
 import type { MeshWarpCache } from "../caches/MeshWarpCache";
 import type { OutlineCache } from "../caches/OutlineCache";
@@ -50,13 +56,7 @@ import type {
 } from "../pipeline/brush/BrushRenderer";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
 import type { ImageTextures } from "../pipeline/ImageTextureStore";
-import { geometryFilters } from "../pipeline/PreFilterRenderer";
 import type { StripFrame } from "../pipeline/strips/StripFrame";
-import type {
-	DrawableSegments,
-	PatternPlacement,
-	ResolvedAppearancePass,
-} from "./appearancePasses";
 import { GradientRenderer } from "./GradientRenderer";
 import { ImageElementRenderer } from "./ImageElementRenderer";
 import { MeshElementRenderer } from "./MeshElementRenderer";

@@ -21,7 +21,7 @@
 | モジュール | パス | 役割 |
 |---|---|---|
 | `FilterRenderer` | `renderer/canvas/pipeline/FilterRenderer.ts` | ハンドラーレジストリの管理、ポストフィルターの実行（テンポラリテクスチャのピンポン） |
-| `applyPreFilters` ほか | `renderer/canvas/pipeline/PreFilterRenderer.ts` | プリフィルター（`preProcess` / `preProcessAppearance`）の実行。ラスタライズ前にジオメトリセグメントを変形する |
+| `applyPreFilters` ほか | `document/elementGeometry/preFilters.ts` | プリフィルター（`preProcess` / `preProcessAppearance`）の実行。ラスタライズ前にジオメトリセグメントを変形する |
 | `BackdropEffectCoordinator` | `renderer/canvas/pipeline/BackdropEffectCoordinator.ts` | バックドロップを使う効果どうしで、1回のキャプチャとブラーピラミッドを共有する |
 | `BackdropCaptureManager` | `renderer/canvas/pipeline/BackdropCaptureManager.ts` | 要素背後のキャンバス内容をスクリーン空間で切り出す |
 | `FILTER_CATALOG` | `renderer/filters/filterCatalog.ts` | フィルターのカテゴリと、サブフィルターにできるかどうかの定義 |
@@ -160,7 +160,7 @@ flowchart TB
 
 ## `applyPreFilters`
 
-フィルターチェーンのもう一方の柱が、ラスタライズ前に実行されるプリフィルターである。`PreFilterRenderer.ts` は、要素のジオメトリがラスタライズ前に通る手順をまとめたモジュールである。その基本になる `applyPreFilters` 関数は、パスのジオメトリ（CubicBezierSegment の配列）を受け取り、プリフィルターによる変形を適用して返す。たとえば `zigzag` フィルターは、パスを弧長パラメータ化し法線方向に三角波でオフセットすることで、直線をジグザグに変形する。
+フィルターチェーンのもう一方の柱が、ラスタライズ前に実行されるプリフィルターである。`document/elementGeometry/preFilters.ts` は、要素のジオメトリがラスタライズ前に通る手順をまとめたモジュールである。その基本になる `applyPreFilters` 関数は、パスのジオメトリ（CubicBezierSegment の配列）を受け取り、プリフィルターによる変形を適用して返す。たとえば `zigzag` フィルターは、パスを弧長パラメータ化し法線方向に三角波でオフセットすることで、直線をジグザグに変形する。
 
 ```typescript
 function applyPreFilters(
@@ -248,7 +248,7 @@ Paplicoには以下のフィルターが組み込まれている。それぞれ�
 
 ## カタログ
 
-フィルターパネルに並ぶフィルターは `renderer/filters/filterCatalog.ts` の `FILTER_CATALOG` が定義する。各エントリは processor ID、カテゴリ、サブフィルターにできるかどうか（`canBeSubFilter`）を持つ。カテゴリの表示順は、カタログに最初に現れた順である。
+フィルターパネルに並ぶフィルターは `renderer/filters/filterCatalog.ts` の `FILTER_CATALOG` が定義する。各エントリは processor ID とカテゴリを持つ。カテゴリの表示順は、カタログに最初に現れた順である。
 
 | カテゴリ | 含まれるフィルター |
 |---|---|
@@ -263,7 +263,11 @@ Paplicoには以下のフィルターが組み込まれている。それぞれ�
 | Texture | `hk:paper-v2` |
 | SVG | `svg:*` の全フィルター |
 
-サブフィルター（塗りや線のアピアランスの下に置くフィルター）にできないのは、`fill`、`stroke`、`extrude3d`、`revolve3d`、そして `svg:*` の全フィルターである。`svg:*` をサブフィルターの位置に置くと SVG 書き出しでラスタライズされてしまうため、トップレベル専用にしている。カタログに載っていない processor は、`canBeSubFilter` 関数では「できる」と扱われる。
+サブフィルター（塗りや線のアピアランスの下に置くフィルター）にできるかどうかは、カタログではなくハンドラー自身が `usableAsSubFilter` で宣言する。省略したハンドラーは「できる」と扱われる。
+
+サブフィルターにできないのは、`fill`、`stroke`、`content`、`extrude3d`、`revolve3d`、そして `svg:*` の全フィルターである。`svg:*` をサブフィルターの位置に置くと SVG 書き出しでラスタライズされてしまうため、トップレベル専用にしている。`fill`、`stroke`、`content` は要素の描画が自分で描くアピアランスなので、宣言だけを持つ `AppearanceFilterHandler` を登録してある。
+
+ハンドラーが登録されていない processor は、サブフィルターにできない。判定は `isUsableAsSubFilter`（`document/elementGeometry/filterCapabilities.ts`）が行い、アプリは `Paplico.isUsableAsSubFilter` から使う。
 
 ## hanakla-kit フィルター
 

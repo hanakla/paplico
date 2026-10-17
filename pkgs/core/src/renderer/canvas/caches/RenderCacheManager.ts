@@ -1,7 +1,7 @@
+import type { CompoundPathCache } from "../../../document/elementGeometry/CompoundPathCache";
 import { DocumentRenderScope } from "../../DocumentScopeRegistry";
 import { AppearanceCache } from "./AppearanceCache";
 import type { BlendCache } from "./BlendCache";
-import type { CompoundPathCache } from "./CompoundPathCache";
 import { FilteredElementCache } from "./FilteredElementCache";
 import { GradientCache } from "./GradientCache";
 import type { GroupPathCache } from "./GroupPathCache";

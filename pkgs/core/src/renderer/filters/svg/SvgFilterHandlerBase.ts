@@ -21,6 +21,8 @@ import {
  * across every SVG handler so equal sizes are not held once per primitive.
  */
 export abstract class SvgFilterHandlerBase<P> implements FilterHandler {
+	public readonly usableAsSubFilter = false;
+
 	protected abstract readonly passes: SvgFullscreenPass[];
 
 	public constructor(

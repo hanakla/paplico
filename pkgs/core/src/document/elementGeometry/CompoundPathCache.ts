@@ -4,12 +4,11 @@ import {
 	type CubicBezierSegment,
 	getTransform,
 	type Path,
-} from "../../../schema";
-import { collectCompoundSources } from "../../../utils/geometry/generate/compoundBake";
-import { computeBooleanOperation } from "../../../utils/geometry/generate/pathOps";
-import type { CompoundPathGeometryCacheEntry } from "../CanvasLayerTypes";
-import type { FilterRenderer } from "../pipeline/FilterRenderer";
-import { toCompoundSourceWorldPath } from "../pipeline/PreFilterRenderer";
+} from "../../schema";
+import { collectCompoundSources } from "../../utils/geometry/generate/compoundBake";
+import { computeBooleanOperation } from "../../utils/geometry/generate/pathOps";
+import type { FilterCapabilityLookup } from "./filterCapabilities";
+import { toCompoundSourceWorldPath } from "./preFilters";
 
 /**
  * Caches boolean operation results for compound paths. Self-validating
@@ -37,7 +36,7 @@ export class CompoundPathCache {
 	public resolveDrawn(
 		compoundPath: CompoundPath,
 		resolveElement: (id: string) => AnyArtObject | undefined,
-		filterRenderer: Pick<FilterRenderer, "getHandler">,
+		filterRenderer: FilterCapabilityLookup,
 	): CubicBezierSegment[] {
 		const { sources, pathMap } = collectCompoundSources(
 			compoundPath,
@@ -84,4 +83,9 @@ export function createCompoundPathFingerprint(
 		};
 	});
 	return JSON.stringify({ id: compoundPath.id, sources: fingerprintSources });
+}
+
+interface CompoundPathGeometryCacheEntry {
+	fingerprint: string;
+	segments: CubicBezierSegment[];
 }

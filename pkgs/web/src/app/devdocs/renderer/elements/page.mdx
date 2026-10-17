@@ -18,7 +18,7 @@ Paplicoのドキュメントは、パス・画像・テキスト・グループ�
 |---|---|---|
 | canvas/elements/ | `ElementRenderer` | 要素種別ディスパッチと、要素をマスクへ描く `renderElementToMask` |
 | canvas/elements/ | `PathElementRenderer` | パス・複合パス・ブレンドの描画。塗りと geometric ストロークを被覆率 strip で描く |
-| canvas/elements/ | `appearancePasses` | パスの `filters` 配列を、アピアランスごとの描画ジオメトリ（`ResolvedAppearancePass`）に解決する唯一の場所 |
+| document/elementGeometry/ | `appearancePasses` | パスの `filters` 配列を、アピアランスごとの描画ジオメトリ（`ResolvedAppearancePass`）に解決する唯一の場所 |
 | canvas/elements/ | `GradientRenderer` | グラデーションとパターンのペイント bind group の組み立て。フィンガープリントベースのキャッシュ対応 |
 | canvas/elements/ | `TextElementRenderer` | テキスト要素→パスへの変換とキャッシュ。グリフパスを `renderPath` に委譲して描画 |
 | canvas/elements/ | `ImageElementRenderer` | 画像要素の `GPUTexture` ロードと blit 描画。祖先グループのトランスフォーム合成 |
@@ -67,7 +67,7 @@ flowchart TD
     E1 -->|gradient / pattern| E3["GradientRenderer.acquirePaintBindGroup で BG2 を用意し strip で塗る"]
 ```
 
-1. **アピアランスの解決**: `resolveAppearancePasses`（`appearancePasses.ts`）が要素の `filters` 配列（**アピアランス**、すなわちフィル（塗り）やストローク（線）など見た目を定義する設定の列）を、アピアランスごとの描画ジオメトリに解決する。角丸のフィレット化、要素のプリフィルター（ジグザグ等のジオメトリ変形）、アピアランス自身のジオメトリサブフィルターは、この中で `PreFilterRenderer` が適用する。プリフィルターがジオメトリを複数のコピーに分けた場合は、コピーごとに1つの `ResolvedAppearancePass` になる
+1. **アピアランスの解決**: `resolveAppearancePasses`（`appearancePasses.ts`）が要素の `filters` 配列（**アピアランス**、すなわちフィル（塗り）やストローク（線）など見た目を定義する設定の列）を、アピアランスごとの描画ジオメトリに解決する。角丸のフィレット化、要素のプリフィルター（ジグザグ等のジオメトリ変形）、アピアランス自身のジオメトリサブフィルターは、この中で `document/elementGeometry/preFilters.ts` の関数が適用する。プリフィルターがジオメトリを複数のコピーに分けた場合は、コピーごとに1つの `ResolvedAppearancePass` になる
 2. **描画しないアピアランスの除外**: 要素の描画を置き換えるアピアランス（extrude3d など）が有効な要素は、平面のジオメトリを何も描かない。後ろにある完全に不透明なソリッド fill に隠れる fill も描かない。重ね塗りすると、部分被覆の縁で下の fill の色が漏れるためである
 3. **アピアランス走査**: `renderAppearancePasses` が解決済みの `ResolvedAppearancePass` を順に処理し、`fill` と `stroke` の各アピアランスを描画する。1つの要素に複数のフィルやストロークを重ねることで、影付き文字や多重輪郭などの表現が可能になる。パターンを塗るアピアランスには、タイルの原点（変形前のアウトラインの左上）が付く。ジオメトリフィルターが配置したコピーには、コピーごとのサンプリング変換も付く
 4. **フィル描画**: 非ゼロ巻き数の被覆率を CPU で求め、strip としてインスタンス描画する。グラデーションとパターンの場合はペイント用の bind group を `GradientRenderer` から受け取る

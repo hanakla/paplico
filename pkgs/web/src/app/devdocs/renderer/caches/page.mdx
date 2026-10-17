@@ -121,7 +121,7 @@ strip はデバイス変換の整数部分をアンカーとした相対座標�
 
 ## CompoundPathCache
 
-`canvas/caches/CompoundPathCache.ts` に実装。複合パス（CompoundPath）のブーリアン演算結果をキャッシュする。
+`document/elementGeometry/CompoundPathCache.ts` に実装。複合パス（CompoundPath）のブーリアン演算結果をキャッシュする。
 
 他のキャッシュとは異なり、`resolve()` メソッドがキャッシュの取得と計算を一体化したインターフェースを提供する。`resolve(compoundPath, pathMap)` はフィンガープリントを照合し、ヒットすればキャッシュされた `CubicBezierSegment[]` を返し、ミスすれば `computeBooleanOperation()` を実行して結果をキャッシュする。
 

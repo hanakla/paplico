@@ -529,7 +529,8 @@ pkgs/core/
     ├── document/          # Data-model support
     │   ├── factory.ts         # Default value factories (Color, Transform, Viewport)
     │   ├── constants.ts       # Zoom limits, sentinel IDs
-    │   └── SpatialIndex.ts    # Spatial indexing for hit testing (Quadtree)
+    │   ├── SpatialIndex.ts    # Spatial indexing for hit testing (Quadtree)
+    │   └── elementGeometry/   # The final shape of an element: pre-filters, appearance passes, compound paths, geometric strokes, stroke outlines, filtered bounds, and the FilterCapabilities port filter handlers implement
     ├── brush/             # Brush definitions (GPU rendering is in renderer/canvas/pipeline/brush/)
     │   ├── presets.ts         # Builtin brush presets/files
     │   └── strokePreview.ts   # Brush preview scene builder
@@ -545,7 +546,7 @@ pkgs/core/
     │   │   ├── pipeline/  # Internal graphics machinery (ViewportManager, DocumentCache, CompositeRenderer, OffscreenPresenter, FilterRenderer, RenderPlanner, TexturePool, ClipMaskAtlas)
     │   │   │   └── brush/ # Brush rendering (BrushRenderer, DabRenderer, RibbonRenderer, WetStrokeRenderer, DabEvaluator, BrushTextureManager) + shaders/
     │   │   ├── elements/  # Element renderers (ElementRenderer dispatch, Gradient/Image/Mesh/Text)
-    │   │   └── caches/    # Render caches (outline, strip, gradient, stamp, compound/group path)
+    │   │   └── caches/    # Render caches (outline, strip, gradient, stamp, group path)
     │   ├── ui/            # UI render layer (UILayer: selection overlay, cursor, guides) + types.ts (UI overlay data types) + constants.ts (UI colors)
     │   ├── filters/       # One folder per filter: `<Name>Filter/<Name>Filter.ts` (class `<Name>FilterHandler`) with its WGSL and tests; `svg/` groups the svg:* filters; `shared/` holds files used by several filters and cross-filter visual tests; filterCatalog + `@paplico/core/filters` entry (index.ts)
     │   ├── generators/    # Texture generators (gradient, mesh gradient)
@@ -608,6 +609,7 @@ pkgs/web/
 - Example: YjsProvider accepts callbacks instead of importing documentStore
 - **Only add a symbol to an entry barrel when the app needs it.** Classes, functions, and types used only within the package are imported directly from their modules, never through its own barrels.
 - **Inside `utils/geometry/`, import only from the same or a lower layer.** The order from the bottom is `primitives` → `space` → `measure` → `query` → `generate` → `reshape` → `elementBounds.ts`. When a function needs something from a higher layer, move the function up to that layer instead of importing upward.
+- **`document/` never imports `renderer/` outside tests.** Code that has to ask a filter what it does goes through `FilterCapabilityLookup` in `document/elementGeometry/filterCapabilities.ts`, which the renderer's `FilterHandler` implements.
 
 ## Tauri Desktop Build
 

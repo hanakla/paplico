@@ -1,19 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultTransform } from "../../../document/factory";
-import type {
-	Filter,
-	Path,
-	PathSegment,
-	StrokeAppearance,
-} from "../../../schema";
-import {
-	type AppearanceGeometry,
-	appearancePaintsPattern,
-} from "../pipeline/FilterRenderer";
+import type { Filter, Path, PathSegment, StrokeAppearance } from "../../schema";
+import { createDefaultTransform } from "../factory";
 import {
 	collectDrawableAppearances,
 	resolveAppearancePasses,
 } from "./appearancePasses";
+import {
+	type AppearanceGeometry,
+	appearancePaintsPattern,
+} from "./filterCapabilities";
 
 // "zigzag" stands in for a geometry-deforming (preProcess) handler; "blur" for
 // a post-process-only one, which leaves the appearance's coverage intact.

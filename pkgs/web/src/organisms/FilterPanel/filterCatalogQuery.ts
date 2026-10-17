@@ -13,12 +13,13 @@ export type FilterCatalogEntry = (typeof FILTER_CATALOG)[number];
 export function queryFilterCatalog(
 	isSubFilter: boolean,
 	query: string,
+	isUsableAsSubFilter: (processor: string) => boolean,
 ): {
 	visibleEntries: FilterCatalogEntry[];
 	matchedEntries: FilterCatalogEntry[] | null;
 } {
-	const visibleEntries = FILTER_CATALOG.filter((e) =>
-		isSubFilter ? e.canBeSubFilter : true,
+	const visibleEntries = FILTER_CATALOG.filter(
+		(e) => !isSubFilter || isUsableAsSubFilter(e.processor),
 	);
 	const normalizedQuery = toHalfWidth(query).trim().toLowerCase();
 

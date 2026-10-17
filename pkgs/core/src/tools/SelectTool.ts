@@ -4,6 +4,7 @@
  * Supports marquee (drag-to-select) functionality
  */
 
+import type { SnapLine } from "../document/SpatialIndex";
 import { buildMarqueeOverlay } from "../renderer/ui/builders/marquee";
 import {
 	createFrameHandles,
@@ -15,7 +16,6 @@ import { OVERLAY_Z, UI_THEME } from "../renderer/ui/theme";
 import type {
 	MarqueeSelectionUIData,
 	SelectionUIData,
-	SnapLine,
 } from "../renderer/ui/types";
 import {
 	type AnyArtObject,

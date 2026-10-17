@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { localAppearances } from "../../../document/appearancePresets";
+import { planBoundsOf } from "../../../document/elementGeometry/filteredBounds";
 import { createIdentityTransform } from "../../../document/factory";
 import {
 	type BezierPoint,
@@ -27,7 +28,6 @@ import {
 	buildFramePlanView,
 	buildPassPlan,
 	type PartialRedrawState,
-	planBoundsOf,
 	planPartialRedraw,
 } from "./RenderPlanner";
 

@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { queryFilterCatalog } from "./filterCatalogQuery";
 
+const isUsableAsSubFilter = (processor: string) =>
+	!processor.startsWith("svg:");
+
 const matched = (isSubFilter: boolean, query: string) =>
-	(queryFilterCatalog(isSubFilter, query).matchedEntries ?? []).map(
-		(e) => e.processor,
-	);
+	(
+		queryFilterCatalog(isSubFilter, query, isUsableAsSubFilter)
+			.matchedEntries ?? []
+	).map((e) => e.processor);
 
 describe("queryFilterCatalog", () => {
 	it("should report no search while the query is empty", () => {
-		expect(queryFilterCatalog(false, " ").matchedEntries).toBeNull();
+		expect(
+			queryFilterCatalog(false, " ", isUsableAsSubFilter).matchedEntries,
+		).toBeNull();
 	});
 
 	it("should find the SVG primitives through their category name", () => {
@@ -27,8 +33,8 @@ describe("queryFilterCatalog", () => {
 	it("should hide top-level-only filters from the sub-filter picker", () => {
 		expect(matched(true, "svg")).toHaveLength(0);
 		expect(
-			queryFilterCatalog(true, "").visibleEntries.some((e) =>
-				e.processor.startsWith("svg:"),
+			queryFilterCatalog(true, "", isUsableAsSubFilter).visibleEntries.some(
+				(e) => e.processor.startsWith("svg:"),
 			),
 		).toBe(false);
 	});

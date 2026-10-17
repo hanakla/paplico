@@ -2,7 +2,7 @@ import {
 	mapLocalAppearances,
 	resolveElementsMapAppearance,
 } from "../../document/appearancePresets";
-import { classifyFilterHandler } from "../../renderer/canvas/pipeline/FilterRenderer";
+import { classifyFilterHandler } from "../../document/elementGeometry/filterCapabilities";
 import {
 	type Document,
 	type Filter,

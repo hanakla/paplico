@@ -1,10 +1,10 @@
 import { localAppearances } from "../../../document/appearancePresets";
-import { createStrokeBrushSettings } from "../../../document/factory";
 import {
 	type GeometricStrokeShape,
 	hasVariableStrokeWidth,
 	resolveGeometricStrokeShape,
-} from "../../../renderer/canvas/elements/geometricStroke";
+} from "../../../document/elementGeometry/geometricStroke";
+import { createStrokeBrushSettings } from "../../../document/factory";
 import {
 	type AnyArtObject,
 	type BlendMode,

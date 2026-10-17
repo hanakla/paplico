@@ -1,3 +1,4 @@
+import type { FilterCapabilityLookup } from "./filterCapabilities";
 /**
  * The single place that turns a Path's `filters` array into the geometry each
  * appearance actually draws.
@@ -10,7 +11,6 @@
  * only this module produces it, and the GPU primitives only accept it.
  */
 
-import { localAppearances } from "../../../document/appearancePresets";
 import {
 	type CubicBezierSegment,
 	colorToRawRGBA,
@@ -21,20 +21,20 @@ import {
 	type Path,
 	type PathGeometry,
 	type StrokeAppearance,
-} from "../../../schema";
-import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
-import type { Affine2D } from "../../../utils/geometry/space/affine";
-import type { Brand } from "../../../utils/lang";
+} from "../../schema";
+import { calculateSegmentListBounds } from "../../utils/geometry/measure/pathBounds";
+import type { Affine2D } from "../../utils/geometry/space/affine";
+import type { Brand } from "../../utils/lang";
+import { localAppearances } from "../appearancePresets";
 import {
 	appearancePaintsPattern,
-	type FilterRenderer,
 	isElementRenderReplaced,
 	isGeometryFilter,
-} from "../pipeline/FilterRenderer";
+} from "./filterCapabilities";
 import {
 	applyPreFiltersToGeometry,
 	resolveAppearanceGeometries,
-} from "../pipeline/PreFilterRenderer";
+} from "./preFilters";
 
 declare const DrawableSegmentsBrand: unique symbol;
 
@@ -84,7 +84,7 @@ type DrawableAppearance = FillAppearance | StrokeAppearance;
  */
 export function collectDrawableAppearances(
 	path: Path,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): DrawableAppearance[] {
 	// A render-replacing appearance (e.g. extrude3d) draws the element itself
 	// through the filter system, so the flat geometry pass draws nothing.
@@ -106,7 +106,7 @@ export function collectDrawableAppearances(
  */
 export function resolveAppearancePasses(
 	path: Path,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): ResolvedAppearancePass[] {
 	if (path.segments.length === 0) return [];
 
@@ -190,7 +190,7 @@ function flatOutlineAnchor(segments: CubicBezierSegment[]): [number, number] {
 /** An appearance's enabled geometry-deforming sub-filters, in order. */
 function collectPreSubFilters(
 	appearance: Filter,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): Filter[] {
 	return (appearance.subFilters ?? []).filter((sf) =>
 		isGeometryFilter(sf, filterRenderer),
@@ -207,7 +207,7 @@ function collectPreSubFilters(
  */
 function dropOccludedFills(
 	apps: Filter[],
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): Filter[] {
 	// A fill with an enabled preProcess sub-filter draws deformed geometry, so
 	// it neither covers the flat outline nor is covered by it — exempt it on

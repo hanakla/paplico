@@ -1,5 +1,5 @@
 import type { Font } from "@cantoo/fontkit";
-import type { PaintedHit } from "../document/SpatialIndex";
+import type { PaintedHit, SnapResult } from "../document/SpatialIndex";
 import type { PaplicoCommands } from "../PaplicoCommands";
 import type { Reference3DRaycastRequest } from "../reference3d";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
@@ -12,7 +12,6 @@ import type { UIOverlay } from "../renderer/ui/primitives";
 import type {
 	ArtboardSelectionUIData,
 	SelectionUIData,
-	SnapResult,
 } from "../renderer/ui/types";
 import type {
 	AnyArtObject,

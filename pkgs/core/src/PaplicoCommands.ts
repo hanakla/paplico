@@ -17,6 +17,9 @@ import {
 	localAppearances,
 	mapLocalAppearances,
 } from "./document/appearancePresets";
+import type { FilterCapabilityLookup } from "./document/elementGeometry/filterCapabilities";
+import { resolveElementGeometry } from "./document/elementGeometry/preFilters";
+import { buildStrokeOutline } from "./document/elementGeometry/strokeOutline";
 import {
 	areBrushSettingsSemanticallyEqual,
 	FilterStackCommands,
@@ -30,7 +33,6 @@ import {
 	createRepeatObject,
 } from "./document/factory";
 import type { SpatialIndex } from "./document/SpatialIndex";
-import { buildStrokeOutline } from "./document/strokeOutline";
 import { isLengthUnit, type LengthUnit } from "./document/units";
 import { Clipboard } from "./infra/Clipboard";
 import {
@@ -40,7 +42,6 @@ import {
 } from "./io/clipboardPayload";
 import type { PaplicoSelection } from "./PaplicoSelection";
 import type { FilterRenderer } from "./renderer/canvas/pipeline/FilterRenderer";
-import { resolveElementGeometry } from "./renderer/canvas/pipeline/PreFilterRenderer";
 import {
 	cornersFromBounds,
 	projectionErrorThreshold,
@@ -298,6 +299,10 @@ interface CommandContext {
 }
 
 export class PaplicoCommands {
+	private readonly filterLookup: FilterCapabilityLookup = {
+		getHandler: (processor) => this.ctx.filterHandlerLookup?.(processor),
+	};
+
 	public constructor(private ctx: CommandContext) {}
 
 	// --- Helper: get selected element ---
@@ -1312,10 +1317,7 @@ export class PaplicoCommands {
 		const deps = {
 			objects,
 			elementsMap: new Map(Object.entries(objects)),
-			filterRenderer: {
-				getHandler: (processor: string) =>
-					this.ctx.filterHandlerLookup?.(processor),
-			},
+			filterRenderer: this.filterLookup,
 		};
 		const replacements: AnyArtObject[] = [];
 		const maskTransforms = new Map<string, ElementTransform>();
@@ -1989,9 +1991,7 @@ export class PaplicoCommands {
 		const contour = resolveElementGeometry(
 			shape.segments,
 			localAppearances(shape.filters),
-			{
-				getHandler: (processor) => this.ctx.filterHandlerLookup?.(processor),
-			},
+			this.filterLookup,
 		);
 		const result = buildWarpGeometryFromContour(contour, contentBounds);
 		return result.ok ? result.geometry : null;
@@ -2803,6 +2803,7 @@ export class PaplicoCommands {
 				if (!element || !layerId) return;
 				this.updateElement(layerId, element.id, { filters });
 			},
+			this.filterLookup,
 		);
 	}
 
@@ -2824,6 +2825,7 @@ export class PaplicoCommands {
 					this.getMutationOrigin(),
 				);
 			},
+			this.filterLookup,
 		);
 	}
 

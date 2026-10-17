@@ -1,18 +1,3 @@
-import { resolveAppearancePasses } from "../renderer/canvas/elements/appearancePasses";
-import {
-	isOutlinableStroke,
-	outlineGeometricStroke,
-	resolveGeometricStrokeShape,
-	strokeToFill,
-} from "../renderer/canvas/elements/geometricStroke";
-import {
-	type FilterRenderer,
-	isGeometryFilter,
-} from "../renderer/canvas/pipeline/FilterRenderer";
-import {
-	resolveElementGeometry,
-	toCompoundSourceWorldPath,
-} from "../renderer/canvas/pipeline/PreFilterRenderer";
 import {
 	type AnyArtObject,
 	type CompoundPath,
@@ -28,15 +13,28 @@ import {
 	isIdentityTransform,
 	type Path,
 	type PathGeometry,
-} from "../schema";
-import { bakeCompoundPathSegments } from "../utils/geometry/generate/compoundBake";
-import { composeTransforms } from "../utils/geometry/space/coordinates";
+} from "../../schema";
+import { bakeCompoundPathSegments } from "../../utils/geometry/generate/compoundBake";
+import { composeTransforms } from "../../utils/geometry/space/coordinates";
 import {
 	reconstructSegmentsFromWorld,
 	transformSegmentsToWorld,
-} from "../utils/geometry/space/worldSegments";
-import { localAppearances } from "./appearancePresets";
-import { createIdentityTransform, createStrokeBrushSettings } from "./factory";
+} from "../../utils/geometry/space/worldSegments";
+import { localAppearances } from "../appearancePresets";
+import { createIdentityTransform, createStrokeBrushSettings } from "../factory";
+import { resolveAppearancePasses } from "./appearancePasses";
+import type { FilterCapabilityLookup } from "./filterCapabilities";
+import { isGeometryFilter } from "./filterCapabilities";
+import {
+	isOutlinableStroke,
+	outlineGeometricStroke,
+	resolveGeometricStrokeShape,
+	strokeToFill,
+} from "./geometricStroke";
+import {
+	resolveElementGeometry,
+	toCompoundSourceWorldPath,
+} from "./preFilters";
 
 /**
  * What an outlined element becomes. `root` keeps the element's id, so it
@@ -54,7 +52,7 @@ interface StrokeOutlineResult {
 interface OutlineDeps {
 	objects: Readonly<Record<string, AnyArtObject>>;
 	elementsMap: ReadonlyMap<string, AnyArtObject>;
-	filterRenderer: Pick<FilterRenderer, "getHandler">;
+	filterRenderer: FilterCapabilityLookup;
 }
 
 /** One step of the paint order: a stroke's outline, or a paint left on the element's own shape. */

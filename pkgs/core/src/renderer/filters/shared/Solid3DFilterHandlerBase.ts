@@ -64,6 +64,8 @@ import { RefractionCompositor } from "./RefractionCompositor";
  * (onScaleFilter, getExpansionMargin, onInterpolate).
  */
 export abstract class Solid3DFilterHandlerBase implements FilterHandler {
+	public readonly usableAsSubFilter = false;
+
 	/** The per-processor mesh strategy (also names the processor served). */
 	protected abstract readonly strategy: Solid3DMeshStrategy;
 

@@ -1,6 +1,8 @@
 import { makeStructuredView } from "webgpu-utils";
 import type { SoftProofLutResult } from "../color/types";
 import { localAppearances } from "../document/appearancePresets";
+import { classifyFilterHandler } from "../document/elementGeometry/filterCapabilities";
+import { planBoundsOf } from "../document/elementGeometry/filteredBounds";
 import {
 	type AnyArtObject,
 	type Artboard,
@@ -40,16 +42,12 @@ import { BackdropCaptureManager } from "./canvas/pipeline/BackdropCaptureManager
 import { BrushTextureManager } from "./canvas/pipeline/brush/BrushTextureManager";
 import { buildParentedMap } from "./canvas/pipeline/ElementHierarchyCache";
 import {
-	classifyFilterHandler,
 	type FilterHandler,
 	FilterRenderer,
 	type RegisterableFilterHandler,
 } from "./canvas/pipeline/FilterRenderer";
 import { ImageTextureStore } from "./canvas/pipeline/ImageTextureStore";
-import {
-	buildFilterPlansForElements,
-	planBoundsOf,
-} from "./canvas/pipeline/RenderPlanner";
+import { buildFilterPlansForElements } from "./canvas/pipeline/RenderPlanner";
 import { STRIP_INSTANCE_LAYOUT } from "./canvas/pipeline/strips/stripInstanceLayout";
 import {
 	UNIFIED_VERTEX_BYTES,
@@ -59,6 +57,7 @@ import {
 	type DocumentRenderScope,
 	DocumentScopeRegistry,
 } from "./DocumentScopeRegistry";
+import { AppearanceFilterHandler } from "./filters/AppearanceFilter/AppearanceFilter";
 import { BlurFilterHandler } from "./filters/BlurFilter/BlurFilter";
 import { ClipToShapeFilterHandler } from "./filters/ClipToShapeFilter/ClipToShapeFilter";
 import { DropShadowFilterHandler } from "./filters/DropShadowFilter/DropShadowFilter";
@@ -2669,6 +2668,9 @@ export class RenderOrchestrator {
 
 		// Hanakla Kit filters
 		const filterHandlers: [string, RegisterableFilterHandler][] = [
+			["fill", new AppearanceFilterHandler()],
+			["stroke", new AppearanceFilterHandler()],
+			["content", new AppearanceFilterHandler()],
 			["hk:bloom", new HKBloomFilterHandler()],
 			["hk:directional-blur", new HKDirectionalBlurFilterHandler()],
 			["hk:kirakira", new HKKirakiraFilterHandler()],

@@ -48,6 +48,8 @@ export interface SvgFilterGraphFilter extends Appearance<SvgFilterGraphParams> {
  * results.
  */
 export class SvgFilterGraphFilterHandler implements FilterHandler {
+	public readonly usableAsSubFilter = false;
+
 	private device: GPUDevice | null = null;
 
 	public constructor(

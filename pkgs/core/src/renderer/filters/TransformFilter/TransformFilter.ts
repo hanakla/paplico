@@ -11,6 +11,10 @@
  * paint or stroke width can follow the copy's placement.
  */
 
+import {
+	type AppearanceGeometry,
+	appearancePaintsPattern,
+} from "../../../document/elementGeometry/filterCapabilities";
 import type {
 	Appearance,
 	BezierPoint,
@@ -34,11 +38,7 @@ import {
 	invertAffine,
 } from "../../../utils/geometry/space/affine";
 import { degToRad, lerp, mulberry32 } from "../../../utils/math";
-import {
-	type AppearanceGeometry,
-	appearancePaintsPattern,
-	type FilterHandler,
-} from "../../canvas/pipeline/FilterRenderer";
+import type { FilterHandler } from "../../canvas/pipeline/FilterRenderer";
 
 export type TransformOrigin =
 	| "top-left"

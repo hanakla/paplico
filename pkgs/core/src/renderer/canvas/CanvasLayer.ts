@@ -11,6 +11,24 @@ import {
 } from "../../document/appearancePresets";
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../document/constants";
 import {
+	collectDrawableAppearances,
+	resolveAppearancePasses,
+} from "../../document/elementGeometry/appearancePasses";
+import {
+	classifyFilterHandler,
+	isElementRenderReplaced,
+	isGeometryFilter,
+} from "../../document/elementGeometry/filterCapabilities";
+import {
+	calculatePreFilteredElementBounds,
+	planBoundsOf,
+} from "../../document/elementGeometry/filteredBounds";
+import {
+	childPreFilters,
+	geometryFilters,
+	withInheritedPreFilters,
+} from "../../document/elementGeometry/preFilters";
+import {
 	createDefaultBrushSettings,
 	createIdentityTransform,
 } from "../../document/factory";
@@ -120,10 +138,6 @@ import { MaskedBlitBindGroupCache } from "./caches/BindGroupCache";
 import type { FilteredElementCacheEntry } from "./caches/FilteredElementCache";
 import type { RenderCacheManager } from "./caches/RenderCacheManager";
 import { WashResultCache } from "./caches/WashResultCache";
-import {
-	collectDrawableAppearances,
-	resolveAppearancePasses,
-} from "./elements/appearancePasses";
 import { ElementRenderer } from "./elements/ElementRenderer";
 import { ElementVertexBuffer } from "./elements/ElementVertexBuffer";
 import type { Reference3DRenderContext } from "./elements/Reference3DElementRenderer";
@@ -159,12 +173,9 @@ import { ElementHierarchyCache } from "./pipeline/ElementHierarchyCache";
 import {
 	type BackdropEffectCanvasResources,
 	type BackdropEffectDriver,
-	classifyFilterHandler,
 	type FilterGeometryContext,
 	type FilterRenderer,
 	hoistBlendInstanceAppearances,
-	isElementRenderReplaced,
-	isGeometryFilter,
 	resolveRenderConfigure,
 } from "./pipeline/FilterRenderer";
 import {
@@ -191,22 +202,15 @@ import {
 	OffscreenPresenter,
 } from "./pipeline/OffscreenPresenter";
 import {
-	childPreFilters,
-	geometryFilters,
-	withInheritedPreFilters,
-} from "./pipeline/PreFilterRenderer";
-import {
 	type BackdropElementEntry,
 	buildFilterPlansForElements,
 	buildFramePlanStructure,
 	buildFramePlanView,
 	buildPassPlan,
-	calculatePreFilteredElementBounds,
 	type ElementFilterPlan,
 	type FramePlan,
 	type FramePlanStructure,
 	type PartialRedrawPlan,
-	planBoundsOf,
 	planPartialRedraw,
 } from "./pipeline/RenderPlanner";
 import {

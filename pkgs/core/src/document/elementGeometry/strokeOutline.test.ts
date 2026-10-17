@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { FilterHandler } from "../renderer/canvas/pipeline/FilterRenderer";
+import type { FilterHandler } from "../../renderer/canvas/pipeline/FilterRenderer";
 import {
 	type AnyArtObject,
 	type BrushSettings,
@@ -12,9 +12,9 @@ import {
 	isIdentityTransform,
 	type Path,
 	type StrokeAppearance,
-} from "../schema";
-import { calculateSegmentListBounds } from "../utils/geometry/measure/pathBounds";
-import { createStrokeBrushSettings } from "./factory";
+} from "../../schema";
+import { calculateSegmentListBounds } from "../../utils/geometry/measure/pathBounds";
+import { createStrokeBrushSettings } from "../factory";
 import { buildStrokeOutline, canOutlineStrokes } from "./strokeOutline";
 
 describe("canOutlineStrokes", () => {

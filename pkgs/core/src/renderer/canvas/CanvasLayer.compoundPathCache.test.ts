@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CompoundPathCache } from "../../document/elementGeometry/CompoundPathCache";
 import { createIdentityTransform } from "../../document/factory";
 import type {
 	BezierPoint,
@@ -9,7 +10,6 @@ import type {
 	Path,
 	StrokeAppearance,
 } from "../../schema";
-import { CompoundPathCache } from "./caches/CompoundPathCache";
 
 const BLACK = { type: "rgb" as const, r: 0, g: 0, b: 0, a: 1 };
 const SOLID_FILL = { type: "solid" as const, color: BLACK };

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { buildImageQuadSegments } from "../../../document/elementGeometry/imageGeometry";
 import {
 	getStartAnchor,
 	splitIntoSubPaths,
 } from "../../../utils/geometry/primitives/segment";
-import { buildImageQuadSegments } from "../../canvas/elements/ImageElementRenderer";
 import {
 	cornersFromBounds,
 	projectionErrorThreshold,

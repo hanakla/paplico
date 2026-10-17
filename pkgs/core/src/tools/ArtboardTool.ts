@@ -3,6 +3,7 @@
  * Allows creating, selecting, moving, and resizing artboards on the canvas
  */
 
+import type { SnapLine } from "../document/SpatialIndex";
 import {
 	createResizeHandles,
 	type HandlePosition,
@@ -11,7 +12,6 @@ import {
 import { buildSnapLineOverlay } from "../renderer/ui/builders/snapLine";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import { OVERLAY_Z, UI_THEME } from "../renderer/ui/theme";
-import type { SnapLine } from "../renderer/ui/types";
 import {
 	type Artboard,
 	type BoundingBox,

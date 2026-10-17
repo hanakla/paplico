@@ -6,6 +6,7 @@
  */
 
 import { createIdentityTransform } from "../document/factory";
+import type { SnapLine } from "../document/SpatialIndex";
 import { buildHoverOverlay } from "../renderer/ui/builders/hover";
 import { buildPathEditOverlay } from "../renderer/ui/builders/pathEdit";
 import { buildSnapLineOverlay } from "../renderer/ui/builders/snapLine";
@@ -15,7 +16,6 @@ import type {
 	ControlPointHandle,
 	HoverUIData,
 	PathEditUIData,
-	SnapLine,
 } from "../renderer/ui/types";
 import {
 	type CubicBezierSegment,

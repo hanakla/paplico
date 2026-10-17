@@ -156,7 +156,7 @@ public postProcess(context: FilterProcessorContext, filter: Filter): void {
 
 実装上の要点:
 
-- 入力セグメントは `PreFilterRenderer.ts` の関数が `deepClone` 済みのコピーを渡すため、破壊的変更が許可されている。フィルター自体も `deepClone` されたコピーが渡される。ただし慣例として新しい配列を返す実装が推奨される。
+- 入力セグメントは `document/elementGeometry/preFilters.ts` の関数が `deepClone` 済みのコピーを渡すため、破壊的変更が許可されている。フィルター自体も `deepClone` されたコピーが渡される。ただし慣例として新しい配列を返す実装が推奨される。
 - グループのジオメトリフィルターは子要素に引き継がれる。`preProcess` は子のセグメントに対しても呼ばれる。
 - `initialize` は no-op で良い（GPU パイプライン不要）。
 
@@ -458,11 +458,20 @@ const filterHandlers: [string, RegisterableFilterHandler][] = [
 
 ### 5. カタログに登録する
 
-`renderer/filters/filterCatalog.ts` の `FILTER_CATALOG` にエントリを足す。`category` はフィルター追加メニューでの分類になる。`canBeSubFilter` は、塗りや線のアピアランスの下にサブフィルターとして置けるかどうかである。
+`renderer/filters/filterCatalog.ts` の `FILTER_CATALOG` にエントリを足す。`category` はフィルター追加メニューでの分類になる。
 
 ```typescript
 // renderer/filters/filterCatalog.ts
-{ processor: "my-custom", category: "Stylize", canBeSubFilter: true },
+{ processor: "my-custom", category: "Stylize" },
+```
+
+塗りや線のアピアランスの下にサブフィルターとして置けないフィルターは、ハンドラーに `usableAsSubFilter = false` を宣言する。省略すれば置ける。
+
+```typescript
+export class MyCustomFilterHandler implements FilterHandler {
+	public readonly usableAsSubFilter = false;
+	// ...
+}
 ```
 
 新しいカテゴリを作る場合は、`locales/en.ts` と `locales/ja.ts` の `filterPanel.category` にカテゴリ名の訳を足す。ラスター系のカテゴリは `organisms/FilterPanel/constants.tsx` の `CATEGORY_ICONS` でアイコンを共有するので、そこにも足す。

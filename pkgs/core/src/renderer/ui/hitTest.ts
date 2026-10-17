@@ -1,6 +1,6 @@
 import type { Viewport } from "../../schema";
+import { DEVICE_CURVE_TOLERANCE_PX } from "../../utils/geometry/measure/curveTolerance";
 import { screenToWorld } from "../../utils/geometry/space/coordinates";
-import { DEVICE_CURVE_TOLERANCE_PX } from "../geometry/strips/deviceGeometry";
 import { flattenBezierContour, isPointInFillContour } from "./fillTessellation";
 import {
 	resolveScreenOffset,

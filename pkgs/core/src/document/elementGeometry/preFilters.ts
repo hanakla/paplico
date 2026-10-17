@@ -1,4 +1,3 @@
-import { localAppearances } from "../../../document/appearancePresets";
 import {
 	type AnyArtObject,
 	type CompoundPath,
@@ -10,17 +9,20 @@ import {
 	isGroup,
 	type Path,
 	type PathGeometry,
-} from "../../../schema";
-import { applyCornerRadius } from "../../../utils/geometry/generate/cornerRadius";
-import { toWorldPath } from "../../../utils/geometry/space/worldSegments";
-import { deepClone } from "../../../utils/lang";
-import { createCompoundPathRenderPath } from "../CanvasLayer.helpers";
+} from "../../schema";
+import { applyCornerRadius } from "../../utils/geometry/generate/cornerRadius";
+import { toWorldPath } from "../../utils/geometry/space/worldSegments";
+import { deepClone } from "../../utils/lang";
+import { localAppearances } from "../appearancePresets";
+import { createCompoundPathRenderPath } from "./compoundPath";
+import type {
+	FilterCapabilities,
+	FilterCapabilityLookup,
+} from "./filterCapabilities";
 import {
 	type AppearanceGeometry,
-	type FilterHandler,
-	type FilterRenderer,
 	isGeometryFilter,
-} from "./FilterRenderer";
+} from "./filterCapabilities";
 
 /**
  * Every pre-rasterization step an element's geometry goes through, in order:
@@ -34,7 +36,7 @@ import {
 export function resolveElementGeometry(
 	segments: CubicBezierSegment[],
 	filters: Filter[] | undefined,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): CubicBezierSegment[] {
 	return applyPreFilters(applyCornerRadius(segments), filters, filterRenderer);
 }
@@ -45,7 +47,7 @@ export function resolveElementGeometry(
  */
 export function toCompoundSourceWorldPath(
 	path: Path,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 	ancestorTransform?: ElementTransform,
 ): Path {
 	return toWorldPath(
@@ -62,7 +64,7 @@ export function toCompoundSourceWorldPath(
 /** The enabled geometry filters among an element's own concrete filters. */
 export function geometryFilters(
 	element: Pick<AnyArtObject, "filters">,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): Filter[] {
 	return localAppearances(element.filters).filter((f) =>
 		isGeometryFilter(f, filterRenderer),
@@ -77,7 +79,7 @@ export function geometryFilters(
 export function childPreFilters(
 	group: Pick<AnyArtObject, "filters">,
 	inheritedPreFilters: readonly Filter[] | undefined,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): Filter[] | undefined {
 	const own = geometryFilters(group, filterRenderer);
 	if (own.length === 0) {
@@ -111,7 +113,7 @@ export function withInheritedPreFilters<T extends AnyArtObject>(
  */
 export function resolvePathGeometryVariants(
 	path: Path,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): CubicBezierSegment[][] | null {
 	const own = geometryFilters(path, filterRenderer);
 	const subFilters = collectAppearancePreSubFilters(path, filterRenderer);
@@ -134,7 +136,7 @@ export function resolvePathGeometryVariants(
 export function resolveCompoundDrawnShape(
 	compound: CompoundPath,
 	segments: CubicBezierSegment[],
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 	isClipPath: boolean,
 ): { path: Path; geometries: CubicBezierSegment[][] } {
 	const path = createCompoundPathRenderPath(
@@ -156,7 +158,7 @@ export function resolveCompoundDrawnShape(
 export function subtreeHasPreFilter(
 	element: AnyArtObject,
 	elementsMap: ReadonlyMap<string, AnyArtObject>,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): boolean {
 	if (
 		geometryFilters(element, filterRenderer).length > 0 ||
@@ -181,7 +183,7 @@ export function subtreeHasPreFilter(
  *  these deform geometry inline per appearance (see PathElementRenderer). */
 function collectAppearancePreSubFilters(
 	element: AnyArtObject,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): Filter[][] {
 	const result: Filter[][] = [];
 	for (const filter of localAppearances(element.filters)) {
@@ -206,7 +208,7 @@ export function resolveAppearanceGeometries(
 	appearances: readonly NonNullable<AppearanceGeometry["appearance"]>[],
 	path: PathGeometry,
 	filters: Filter[] | undefined,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): AppearanceGeometry[][] {
 	const preFilters = (filters ?? []).filter((f) =>
 		isGeometryFilter(f, filterRenderer),
@@ -255,7 +257,7 @@ export function resolveAppearanceGeometries(
 export function applyPreFilters(
 	segments: CubicBezierSegment[],
 	filters: Filter[] | undefined,
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): CubicBezierSegment[] {
 	if (!filters || filters.length === 0) return segments;
 	const geometries = applyPreFiltersToGeometry(
@@ -276,7 +278,7 @@ export function applyPreFilters(
 export function applyPreFiltersToGeometry(
 	geometry: AppearanceGeometry,
 	filters: readonly Filter[],
-	filterRenderer: Pick<FilterRenderer, "getHandler">,
+	filterRenderer: FilterCapabilityLookup,
 ): AppearanceGeometry[] {
 	const preFilters = filters.filter((f) => isGeometryFilter(f, filterRenderer));
 	if (preFilters.length === 0) return [geometry];
@@ -298,7 +300,7 @@ export function applyPreFiltersToGeometry(
 
 /** One geometry filter over one geometry, through whichever hook it has. */
 function runPreFilter(
-	handler: FilterHandler,
+	handler: FilterCapabilities,
 	geometry: AppearanceGeometry,
 	plainFilter: Filter,
 ): AppearanceGeometry[] {

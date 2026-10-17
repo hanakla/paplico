@@ -1,4 +1,5 @@
 import { localAppearances } from "../../../document/appearancePresets";
+import { isGeometryFilter } from "../../../document/elementGeometry/filterCapabilities";
 import {
 	createIdentityTransform,
 	createStrokeBrushSettings,
@@ -36,10 +37,7 @@ import type {
 	TextState,
 } from "../CanvasLayerTypes";
 import { boundsAlmostEqual } from "../pipeline/DocumentCache";
-import {
-	type FilterRenderer,
-	isGeometryFilter,
-} from "../pipeline/FilterRenderer";
+import type { FilterRenderer } from "../pipeline/FilterRenderer";
 
 interface TextRendererDeps {
 	textState: TextState;

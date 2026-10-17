@@ -18,6 +18,7 @@ import { localAppearances } from "./document/appearancePresets";
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "./document/constants";
 import { DefIndex } from "./document/DefIndex";
 import { collectEditablePaths } from "./document/editablePaths";
+import { isUsableAsSubFilter } from "./document/elementGeometry/filterCapabilities";
 import {
 	createDefaultColor,
 	createEmbeddedFileFromBytes,
@@ -3749,6 +3750,15 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	 *  toggle only when this returns true). */
 	public canApplyFilterToBackdrop(filter: Filter): boolean {
 		return this.renderer.canApplyFilterToBackdrop(filter);
+	}
+
+	/** Whether a filter processor can be used as a sub-filter under a fill or
+	 *  stroke — derived from the registered filter handler. */
+	public isUsableAsSubFilter(processor: string): boolean {
+		return isUsableAsSubFilter(
+			{ getHandler: (p) => this.renderer.getFilterHandler(p) },
+			processor,
+		);
 	}
 
 	private syncToolAppearanceFromSelection(): void {

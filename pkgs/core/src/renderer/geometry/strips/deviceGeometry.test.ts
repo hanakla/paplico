@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { Viewport } from "../../../schema";
 import {
+	deviceScaleBucket,
+	localCurveTolerance,
+} from "../../../utils/geometry/measure/curveTolerance";
+import {
 	type GPUElementTransform,
 	IDENTITY_GPU_TRANSFORM,
 	worldToScreen,
 } from "../../../utils/geometry/space/coordinates";
-import {
-	composeDeviceTransform,
-	deviceScaleBucket,
-	localCurveTolerance,
-} from "./deviceGeometry";
+import { composeDeviceTransform } from "./deviceGeometry";
 import type { DeviceTransform, RasterFrame } from "./stripTypes";
 
 describe("composeDeviceTransform", () => {

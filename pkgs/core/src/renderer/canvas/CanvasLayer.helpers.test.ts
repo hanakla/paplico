@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { localAppearances } from "../../document/appearancePresets";
+import { createCompoundPathRenderPath } from "../../document/elementGeometry/compoundPath";
 import { createIdentityTransform } from "../../document/factory";
 import type {
 	AnyArtObject,
@@ -19,7 +20,6 @@ import { degToRad } from "../../utils/math";
 import {
 	calculatePrebufDimensions,
 	computeDotGridPhase,
-	createCompoundPathRenderPath,
 	expandRenderFilter,
 	groupSubPathsByContainment,
 	interactiveBakeDensity,

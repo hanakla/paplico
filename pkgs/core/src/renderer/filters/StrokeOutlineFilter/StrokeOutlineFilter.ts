@@ -5,23 +5,21 @@
  * centerline. Anything it cannot outline passes through unchanged.
  */
 
-import {
-	createIdentityTransform,
-	createStrokeBrushSettings,
-} from "../../../document/factory";
-import type { CubicBezierSegment, Filter } from "../../../schema";
-import { hashSegments } from "../../../utils/geometry/measure/segmentHash";
+import type { AppearanceGeometry } from "../../../document/elementGeometry/filterCapabilities";
 import {
 	type GeometricStrokeShape,
 	isOutlinableStroke,
 	outlineGeometricStroke,
 	resolveGeometricStrokeShape,
 	strokeToFill,
-} from "../../canvas/elements/geometricStroke";
-import type {
-	AppearanceGeometry,
-	FilterHandler,
-} from "../../canvas/pipeline/FilterRenderer";
+} from "../../../document/elementGeometry/geometricStroke";
+import {
+	createIdentityTransform,
+	createStrokeBrushSettings,
+} from "../../../document/factory";
+import type { CubicBezierSegment, Filter } from "../../../schema";
+import { hashSegments } from "../../../utils/geometry/measure/segmentHash";
+import type { FilterHandler } from "../../canvas/pipeline/FilterRenderer";
 
 /** Outline memo capacity: one entry per outlined stroke drawn recently. */
 const RESULT_CACHE_LIMIT = 64;

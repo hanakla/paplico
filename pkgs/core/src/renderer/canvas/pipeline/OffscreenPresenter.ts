@@ -8,6 +8,11 @@
  */
 
 import { localAppearances } from "../../../document/appearancePresets";
+import { planBoundsOf } from "../../../document/elementGeometry/filteredBounds";
+import {
+	geometryFilters,
+	withInheritedPreFilters,
+} from "../../../document/elementGeometry/preFilters";
 import {
 	type AnyArtObject,
 	type BoundingBox,
@@ -75,8 +80,7 @@ import { MaskedBlitBindGroupCache } from "../caches/BindGroupCache";
 import type { FilterRenderer } from "./FilterRenderer";
 import { FrameUniformPool } from "./FrameUniformPool";
 import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
-import { geometryFilters, withInheritedPreFilters } from "./PreFilterRenderer";
-import { planBoundsOf, scanBlendingFlags } from "./RenderPlanner";
+import { scanBlendingFlags } from "./RenderPlanner";
 import {
 	type ColorRenderSurface,
 	createBorrowedTextureRef,

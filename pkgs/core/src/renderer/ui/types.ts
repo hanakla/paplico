@@ -1,3 +1,4 @@
+import type { SnapLine } from "../../document/SpatialIndex";
 import type { BoundingBox, Point, TextLayout } from "../../schema";
 import type { WorldBezierSegment } from "../../utils/geometry/space/coordinates";
 
@@ -121,23 +122,6 @@ export interface ArtboardSelectionUIData {
 export interface HoverUIData {
 	bounds?: BoundingBox;
 	pathSegments?: WorldBezierSegment[][];
-}
-
-export interface SnapLine {
-	/** "horizontal" = horizontal line at aligned Y, "vertical" = vertical line at aligned X */
-	axis: "horizontal" | "vertical";
-	/** Snap position (world coordinates) */
-	position: number;
-	/** Line drawing extent start (perpendicular axis) */
-	extentMin: number;
-	/** Line drawing extent end */
-	extentMax: number;
-}
-
-export interface SnapResult {
-	deltaX: number;
-	deltaY: number;
-	snapLines: SnapLine[];
 }
 
 export interface SnapLineUIData {

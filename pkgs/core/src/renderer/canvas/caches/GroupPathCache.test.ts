@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CompoundPathCache } from "../../../document/elementGeometry/CompoundPathCache";
 import type { AnyArtObject, CubicBezierSegment } from "../../../schema";
 import {
 	mockCompoundPath,
@@ -6,7 +7,6 @@ import {
 	mockPath,
 } from "../../../testUtils/mockElements";
 import { closedRectSegments } from "../../../testUtils/segmentFactory";
-import { CompoundPathCache } from "./CompoundPathCache";
 import { GroupPathCache } from "./GroupPathCache";
 
 describe("GroupPathCache", () => {

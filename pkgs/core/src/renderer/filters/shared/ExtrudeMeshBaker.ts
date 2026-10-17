@@ -1,4 +1,5 @@
 import { localAppearances } from "../../../document/appearancePresets";
+import { resolveElementGeometry } from "../../../document/elementGeometry/preFilters";
 import {
 	createDefaultColor,
 	createIdentityTransform,
@@ -44,7 +45,6 @@ import {
 	type MeshPassGeometry,
 	MeshPassRenderer,
 } from "../../canvas/pipeline/MeshPassRenderer";
-import { resolveElementGeometry } from "../../canvas/pipeline/PreFilterRenderer";
 import {
 	createBorrowedTextureRef,
 	createFrameTextureRef,

@@ -202,3 +202,19 @@ export function resolveBrushRenderRequirements(
 		wetEdge: settings.wet?.enabled === true ? undefined : settings.wetEdge,
 	};
 }
+
+/**
+ * The geometric engine's pressure response, read back off the flat slider's
+ * two-point curve (`[[0, -k], [1, 0]]`).
+ * Multi-point or differently-shaped pressure curves are misread by this
+ * inverse — a known limitation shared verbatim with the renderer so that the
+ * tool display and the drawn stroke can never disagree.
+ */
+export function resolveGeometricSizeByPressure(
+	settings: BrushSettings,
+): number {
+	const sizeCurve = settings.properties.size?.curves?.find(
+		(curve) => curve.input === "pressure",
+	);
+	return sizeCurve ? -(sizeCurve.points[0][1] ?? 0) : 0;
+}

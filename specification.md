@@ -460,7 +460,7 @@ Vello GPU 方式の被覆率ラスタライザ。ステンシルも MSAA も使�
 
 ### フィルタ実行
 
-- **pre-filter**（`preProcess`）: ラスタライズ前にPathSegment配列を変形（zigzag等）。`PreFilterRenderer.applyPreFilters`
+- **pre-filter**（`preProcess`）: ラスタライズ前にPathSegment配列を変形（zigzag等）。`document/elementGeometry/preFilters.ts` の `applyPreFilters`
 - **post-filter**（`postProcess`）: 要素のラスタライズ結果テクスチャにcompute/renderパスを適用。`FilterRenderer.applyFilters`
 - **backdrop**: `BackdropCaptureManager` がprebufからワールド領域をキャプチャし、`BackdropEffectCoordinator` がフレーム内のbackdrop要求をバッチ計画。`rasterScale` 指定でワールドスナップされたラスタライズグリッドに再サンプルし、ズーム・パン不変のbackdropフィルタを実現。ブラーは分散空間でlerpする2レベルの `BlurPyramid`（半減ピラミッド、σ=2.0、最大7レベル）を共有
 

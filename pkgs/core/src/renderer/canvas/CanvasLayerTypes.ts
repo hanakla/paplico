@@ -10,7 +10,6 @@ import type {
 	BlendMode,
 	BoundingBox,
 	CompositionMode,
-	CubicBezierSegment,
 	ElementTransform,
 	EmbeddedFile,
 	Filter,
@@ -248,11 +247,6 @@ export interface WorldMaskAssignment {
 	bounds: BoundingBox;
 	atlasRect?: MaskAtlasRect;
 	inverted?: boolean;
-}
-
-export interface CompoundPathGeometryCacheEntry {
-	fingerprint: string;
-	segments: CubicBezierSegment[];
 }
 
 export interface FilteredTextureInfo {
