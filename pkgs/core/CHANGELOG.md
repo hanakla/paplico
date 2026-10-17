@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-18
+
 ### Changed
 
 - **Breaking API changes**
