@@ -154,8 +154,8 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:update": "UPDATE_BASELINES=true vitest run -u",
-		"test:visual": "vitest run \"src/**/*.visual.test.ts\"",
-		"test:visual:update": "UPDATE_BASELINES=true vitest run \"src/**/*.visual.test.ts\""
+		"test:visual": "vitest run --project gpu .visual.test.ts",
+		"test:visual:update": "UPDATE_BASELINES=true vitest run --project gpu .visual.test.ts"
 	},
 	"dependencies": {
 		"@cantoo/fontkit": "^2.0.12",
