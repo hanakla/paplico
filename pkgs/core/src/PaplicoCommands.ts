@@ -38,7 +38,6 @@ import {
 	PAPLICO_ELEMENTS_MIME,
 	readClipboardElements,
 } from "./io/clipboardPayload";
-import type { RendererState } from "./Paplico";
 import type { PaplicoSelection } from "./PaplicoSelection";
 import type { FilterRenderer } from "./renderer/canvas/pipeline/FilterRenderer";
 import { resolveElementGeometry } from "./renderer/canvas/pipeline/PreFilterRenderer";
@@ -52,6 +51,7 @@ import {
 	fitSegmentsWithProjection,
 	type Point,
 } from "./renderer/filters/shared/projectiveBezier";
+import type { RendererState } from "./renderer/types";
 import { setArtboardSelectionOverlay } from "./renderer/ui/overlaySink";
 import {
 	type AnyArtObject,
@@ -122,7 +122,6 @@ import {
 	type TextElement,
 	type Vec2,
 } from "./schema";
-import { generateRectangleSegments } from "./tools/ShapeTool";
 import type { ToolSettings } from "./tools/toolSettings";
 import type { TextRenderer } from "./typography/TextRenderer";
 import { splitTextContentAt } from "./typography/textContent";
@@ -150,6 +149,7 @@ import {
 	type WarpGeometry,
 } from "./utils/geometry/generate/meshWarpShape";
 import type { PathRun } from "./utils/geometry/generate/pathOps";
+import { generateRectangleSegments } from "./utils/geometry/generate/shapeSegments";
 import {
 	type AlignDelta,
 	type AlignItem,

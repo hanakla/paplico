@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CubicBezierSegment } from "../../schema";
+import type { CubicBezierSegment } from "../../../schema";
 import {
 	flattenBezierPathWithPressure,
 	flattenCubicBezier,

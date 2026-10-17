@@ -5,8 +5,8 @@ import polygonClipping, {
 	type Ring,
 } from "polygon-clipping";
 import type { CubicBezierSegment } from "../../schema";
+import { flattenBezierPath } from "../../utils/geometry/generate/bezierFlatten";
 import { splitIntoSubPaths } from "../../utils/geometry/primitives/segment";
-import { flattenBezierPath } from "./bezierFlatten";
 
 /**
  * Pure-CPU extrusion mesh builder.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { RendererState } from "../Paplico";
 import type { FilterHandler } from "../renderer/canvas/pipeline/FilterRenderer";
+import type { RendererState } from "../renderer/types";
 import type {
 	AnyArtObject,
 	AppearancePreset,

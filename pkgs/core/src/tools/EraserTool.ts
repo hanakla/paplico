@@ -1,11 +1,5 @@
 import { readStoredBrushSize } from "../brush/access";
 import { localAppearances } from "../document/appearancePresets";
-import {
-	composeStrokeErasure,
-	erasureForBoundary,
-	interpolateStrokeWidths,
-	strokeWidthSamplePathTs,
-} from "../renderer/geometry/strokeTessellator";
 import type { BooleanOperation } from "../schema";
 import {
 	type BoundingBox,
@@ -24,6 +18,12 @@ import {
 } from "../schema";
 import { getFirstStroke } from "../utils/elementQuery";
 import { processStroke } from "../utils/geometry/generate/strokeFitting";
+import {
+	composeStrokeErasure,
+	erasureForBoundary,
+	interpolateStrokeWidths,
+	strokeWidthSamplePathTs,
+} from "../utils/geometry/generate/strokeTessellator";
 import { calculatePathBounds } from "../utils/geometry/measure/pathBounds";
 import { evalCubicBezier } from "../utils/geometry/primitives/bezier";
 import { boundsIntersect } from "../utils/geometry/query/hitTest";

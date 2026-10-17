@@ -25,7 +25,7 @@
  */
 
 import type { YjsProvider } from "../collaboration/YjsProvider";
-import type { RendererState } from "../Paplico";
+import type { RendererState } from "../renderer/types";
 import {
 	type ElementTransform,
 	generateUid,

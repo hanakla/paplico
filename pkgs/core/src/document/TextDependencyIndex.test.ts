@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { ObjectsChangeDelta } from "../collaboration/YjsProvider";
 import type { Path, TextElement } from "../schema";
 import { lineSeg } from "../testUtils/segmentFactory";
 import { createTestTextElement } from "../testUtils/typographyFixtures";
 import { createIdentityTransform } from "./factory";
+import type { ObjectsChangeDelta } from "./objectsChangeDelta";
 import { TextDependencyIndex } from "./TextDependencyIndex";
 
 const pathElement = (id: string): Path => ({

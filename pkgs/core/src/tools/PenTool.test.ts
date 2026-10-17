@@ -3,7 +3,6 @@ import { readStoredBrushSize } from "../brush/access";
 import { localAppearances } from "../document/appearancePresets";
 import { createStrokeBrushSettings } from "../document/factory";
 import type { PerspectiveGuideData } from "../reference3d/perspective/vanishingPoints";
-import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
 import type {
 	Path,
 	RGBColor,
@@ -21,6 +20,7 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
+import { interpolateStrokeWidths } from "../utils/geometry/generate/strokeTessellator";
 import { PenTool } from "./PenTool";
 
 const testStrokeAppearance: StrokeAppearance = {

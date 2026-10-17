@@ -1,20 +1,20 @@
 import type { BezierPoint, CubicBezierSegment } from "../../../schema";
 
 /**
- * セグメントの開始アンカーを解決する。
- * segment.startがあればそれを返し、なければprevEnd（前のセグメントのend）を返す。
+ * Resolve the start anchor of a segment.
+ * Returns segment.start when present, otherwise prevEnd (the previous segment's end).
  */
 export function getStartAnchor(
 	segment: CubicBezierSegment,
 	prevEnd?: BezierPoint,
 ): BezierPoint {
-	// biome-ignore lint/style/noNonNullAssertion: prevEndは最初のセグメントではsegment.startが存在し、それ以降では呼び出し元が必ず提供する
+	// biome-ignore lint/style/noNonNullAssertion: the first segment carries segment.start, and callers always pass prevEnd for later ones
 	return segment.start ?? prevEnd!;
 }
 
 /**
- * 相対cp1を絶対ワールド座標に復元する。
- * cp1は開始アンカーからの相対オフセット。
+ * Restore a relative cp1 to absolute world coordinates.
+ * cp1 is an offset from the start anchor.
  */
 export function resolveCP1(
 	cp1: BezierPoint,
@@ -28,8 +28,8 @@ export function resolveCP1(
 }
 
 /**
- * 相対cp2を絶対ワールド座標に復元する。
- * cp2は終了アンカー(end)からの相対オフセット。
+ * Restore a relative cp2 to absolute world coordinates.
+ * cp2 is an offset from the end anchor.
  */
 export function resolveCP2(cp2: BezierPoint, end: BezierPoint): BezierPoint {
 	return {
@@ -40,8 +40,8 @@ export function resolveCP2(cp2: BezierPoint, end: BezierPoint): BezierPoint {
 }
 
 /**
- * セグメントの全座標を絶対ワールド座標に復元する。
- * ベジエ評価関数に渡す前に使用する。
+ * Restore every coordinate of a segment to absolute world coordinates.
+ * Use it before passing the segment to a Bezier evaluator.
  */
 export function resolveSegment(
 	segment: CubicBezierSegment,
@@ -62,7 +62,7 @@ export function resolveSegment(
 }
 
 /**
- * 絶対cp1座標を開始アンカーからの相対オフセットに変換する。
+ * Convert an absolute cp1 to an offset from the start anchor.
  */
 export function toRelativeCP1(
 	absoluteCP1: BezierPoint,
@@ -76,7 +76,7 @@ export function toRelativeCP1(
 }
 
 /**
- * 絶対cp2座標を終了アンカー(end)からの相対オフセットに変換する。
+ * Convert an absolute cp2 to an offset from the end anchor.
  */
 export function toRelativeCP2(
 	absoluteCP2: BezierPoint,

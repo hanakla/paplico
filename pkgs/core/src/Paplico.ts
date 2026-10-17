@@ -23,7 +23,6 @@ import {
 	createEmbeddedFileFromBytes,
 	createIdentityTransform,
 } from "./document/factory";
-import { createRendererState } from "./document/rendererState";
 import { SpatialIndex } from "./document/SpatialIndex";
 import { TextDependencyIndex } from "./document/TextDependencyIndex";
 import { PaplicoMaskEdit } from "./editSessions/PaplicoMaskEdit";
@@ -63,10 +62,10 @@ import {
 	RenderStrategy,
 } from "./renderer/RenderOrchestrator";
 import { type DirtyReason, RenderScheduler } from "./renderer/RenderScheduler";
+import { createRendererState } from "./renderer/rendererState";
 import type {
 	ChangedElements,
-	ToolSession,
-	TransientElementEntry,
+	RendererState,
 	UIOverlayState,
 } from "./renderer/types";
 import { buildEraserOverlay } from "./renderer/ui/builders/eraser";
@@ -93,7 +92,6 @@ import type {
 import {
 	type AnyArtObject,
 	type Artboard,
-	type BoundingBox,
 	type Color,
 	cloneAppearance,
 	colorToRawRGBA,
@@ -225,43 +223,6 @@ interface PaplicoOptions {
  * disable owns the proof state, so the caller must leave it untouched.
  */
 type SoftProofBuildResult = "applied" | "unavailable" | "superseded";
-
-export interface RendererState {
-	document: Document;
-	currentLayerId: string | null;
-	canUndo: boolean;
-	canRedo: boolean;
-	elementOverrides: Map<string, AnyArtObject>;
-	transientElements: Map<string, TransientElementEntry>;
-	selectedElementIds: string[];
-	selectionBounds: BoundingBox | null;
-	/** The key object within a multi-selection: the alignment reference the user
-	 *  picked by clicking an already-selected element without modifier keys.
-	 *  Always a member of selectedElementIds, or null. */
-	keyObjectId: string | null;
-	uiOverlayState: UIOverlayState;
-	/** Active pattern-edit session identity (mirrored by PaplicoPatternEdit).
-	 *  Reactive visibility gate for session-scoped UI such as PatternEditBar. */
-	patternEditSession: { defId: string } | null;
-	/** Element whose mask is being edited (mirrored by PaplicoMaskEdit).
-	 *  Gates the mask-edit UI, and tells the renderer to leave that element
-	 *  unmasked so there is something to draw the mask against. */
-	maskEditSession: { ownerId: string } | null;
-	/** Active tool session info for React overlays (MeshDeformHintOverlay). */
-	toolSession: ToolSession | null;
-	/** Reference3D element currently being edited (reactive gate for the Reference3D
-	 *  action-panel controls). Mirrors Reference3DController's editing session. */
-	reference3dEditingElementId: string | null;
-	/** Selected node inside the edited scene (reactive gate for the node
-	 *  context actions). Mirrors Reference3DController's node selection. */
-	reference3dSelectedNodeId: string | null;
-	editingScopeStack: string[];
-	selectedArtboardId: string | null;
-	hdrSupported: boolean;
-	/** Per-target viewports keyed by CanvasTarget ID. */
-	viewports: Record<string, Viewport>;
-}
-
 export type PublicUIState = Readonly<
 	Pick<
 		RendererState,

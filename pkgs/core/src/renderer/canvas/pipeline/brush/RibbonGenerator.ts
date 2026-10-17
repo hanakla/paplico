@@ -18,11 +18,11 @@ import type {
 	CubicBezierSegment,
 	Path,
 } from "../../../../schema";
-import { lerp } from "../../../../utils/math";
 import {
 	interpolateStrokeWidths,
 	strokeWidthSamplePathTs,
-} from "../../../geometry/strokeTessellator";
+} from "../../../../utils/geometry/generate/strokeTessellator";
+import { lerp } from "../../../../utils/math";
 
 /**
  * UV layout mode for ribbon rendering.

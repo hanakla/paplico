@@ -5,7 +5,7 @@ import {
 	type YjsProviderCallbacks,
 } from "../collaboration/YjsProvider";
 import { createIdentityTransform } from "../document/factory";
-import type { RendererState } from "../Paplico";
+import type { RendererState } from "../renderer/types";
 import type { DefEntry, Path } from "../schema";
 import { PATTERN_EDIT_ORIGIN, PaplicoPatternEdit } from "./PaplicoPatternEdit";
 

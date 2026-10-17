@@ -11,11 +11,11 @@ import type {
 	StrokeAppearance,
 	Viewport,
 } from "../../schema";
-import { degToRad } from "../../utils/math";
 import {
 	flattenBezierPath,
 	flattenCubicBezier,
-} from "../geometry/bezierFlatten";
+} from "../../utils/geometry/generate/bezierFlatten";
+import { degToRad } from "../../utils/math";
 import {
 	calculatePrebufDimensions,
 	computeDotGridPhase,

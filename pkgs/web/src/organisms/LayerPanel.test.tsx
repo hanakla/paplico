@@ -1,9 +1,6 @@
 import type { DragEndEvent } from "@dnd-kit/core";
-import type { Paplico } from "@paplico/core";
-import {
-	createDefaultLayer,
-	createRendererState,
-} from "@paplico/core/document";
+import { createRendererState, type Paplico } from "@paplico/core";
+import { createDefaultLayer } from "@paplico/core/document";
 import type { AnyArtObject, CompoundPath, Group } from "@paplico/core/schema";
 import { act, fireEvent, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";

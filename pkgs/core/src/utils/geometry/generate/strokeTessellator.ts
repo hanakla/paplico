@@ -1,4 +1,4 @@
-import type { LineCap, LineJoin, StrokeWidthPoint } from "../../schema";
+import type { LineCap, LineJoin, StrokeWidthPoint } from "../../../schema";
 
 export interface StrokeTessellateInput {
 	points: number[];

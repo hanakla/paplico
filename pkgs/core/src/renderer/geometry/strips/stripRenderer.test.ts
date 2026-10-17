@@ -5,7 +5,7 @@ import {
 	type ReferencePolygon,
 	referenceCoverage,
 } from "../../../testUtils/referenceCoverage";
-import { tessellateStroke } from "../strokeTessellator";
+import { tessellateStroke } from "../../../utils/geometry/generate/strokeTessellator";
 import {
 	appendClippedDeviceLine,
 	appendTriangleSoupLines,

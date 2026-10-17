@@ -4,6 +4,8 @@
 
 ### Changed
 
+- **Breaking API changes**
+  - `createRendererState` is exported from `@paplico/core` instead of `@paplico/core/document`.
 - **Geometry utilities**
   - `utils/geometry/` is split by role into `primitives/`, `space/`, `measure/`, `query/`, `generate/` and `reshape/` instead of one flat folder. Imports from `@paplico/core/utils` are unchanged.
 

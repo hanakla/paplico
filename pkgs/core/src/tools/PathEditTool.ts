@@ -5,6 +5,10 @@
 
 import { buildMarqueeOverlay } from "../renderer/ui/builders/marquee";
 import { buildPathEditOverlay } from "../renderer/ui/builders/pathEdit";
+import {
+	createFrameHandles,
+	type ResizeHandle,
+} from "../renderer/ui/builders/resizeHandles";
 import { buildSelectionOverlay } from "../renderer/ui/builders/selection";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import { OVERLAY_Z, UI_THEME } from "../renderer/ui/theme";
@@ -118,13 +122,11 @@ import {
 } from "./pathNodeEditHelpers";
 import {
 	calculateResizedBounds,
-	createFrameHandles,
 	createSelectionUIData,
 	getResizeCursor,
 	hitTestResizeHandle,
 	hitTestRotationZone,
 	type ResizedBounds,
-	type ResizeHandle,
 	rotationAbout,
 	rotationDragAngle,
 } from "./resizeHandleHelper";

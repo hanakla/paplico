@@ -1,4 +1,4 @@
-import { tessellateStroke } from "../../geometry/strokeTessellator";
+import { tessellateStroke } from "../../../utils/geometry/generate/strokeTessellator";
 import type { HKPaperTypeDef } from "./hk-paper-v2-papers";
 
 /**

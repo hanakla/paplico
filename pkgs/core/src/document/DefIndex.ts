@@ -1,6 +1,6 @@
-import type { ObjectsChangeDelta } from "../collaboration/YjsProvider";
 import type { DefEntry, Document } from "../schema";
 import { getContainerChildIds } from "../schema";
+import type { ObjectsChangeDelta } from "./objectsChangeDelta";
 
 /**
  * Reverse index of def members: elementId → defId, with a per-def revision

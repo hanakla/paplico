@@ -5,6 +5,10 @@
  */
 
 import { buildMarqueeOverlay } from "../renderer/ui/builders/marquee";
+import {
+	createFrameHandles,
+	type ResizeHandle,
+} from "../renderer/ui/builders/resizeHandles";
 import { buildSnapLineOverlay } from "../renderer/ui/builders/snapLine";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import { OVERLAY_Z, UI_THEME } from "../renderer/ui/theme";
@@ -75,14 +79,12 @@ import {
 } from "./repeatGridGizmo";
 import {
 	calculateResizedBounds,
-	createFrameHandles,
 	createSelectionUIData,
 	getResizeCursor,
 	getResizeSnapTargets,
 	hitTestResizeHandle,
 	hitTestRotationZone,
 	type ResizedBounds,
-	type ResizeHandle,
 	rotationAbout,
 	rotationDragAngle,
 } from "./resizeHandleHelper";

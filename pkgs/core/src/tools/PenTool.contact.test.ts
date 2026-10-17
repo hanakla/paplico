@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
 import type { StrokeAppearance } from "../schema";
 import recording from "../testUtils/fixtures/slowContactStroke.json";
 import { createMockToolContext } from "../testUtils/mockToolContext";
@@ -10,6 +9,7 @@ import {
 	testViewport,
 } from "../testUtils/pointerEvent";
 import { replayRecordedStroke } from "../testUtils/strokeReplay";
+import { interpolateStrokeWidths } from "../utils/geometry/generate/strokeTessellator";
 import { PenTool } from "./PenTool";
 
 describe("Pen contact width", () => {

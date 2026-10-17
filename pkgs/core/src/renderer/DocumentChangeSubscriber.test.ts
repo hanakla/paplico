@@ -3,7 +3,6 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { YjsProvider } from "../collaboration/YjsProvider";
 import { createIdentityTransform } from "../document/factory";
 import { SpatialIndex } from "../document/SpatialIndex";
-import type { RendererState } from "../Paplico";
 import type { AnyArtObject } from "../schema";
 import { loadTestDocument } from "../testUtils/loadTestDocument";
 import { rectPath, solidFillAppearance } from "../testUtils/svgFixtures";
@@ -12,6 +11,7 @@ import {
 	DocumentChangeSubscriber,
 	type DocumentChangeSubscriberStore,
 } from "./DocumentChangeSubscriber";
+import type { RendererState } from "./types";
 
 let testDoc: Awaited<ReturnType<typeof loadTestDocument>>;
 beforeAll(async () => {

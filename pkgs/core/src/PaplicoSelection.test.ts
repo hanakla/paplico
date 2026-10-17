@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createIdentityTransform } from "./document/factory";
-import { createRendererState } from "./document/rendererState";
 import { SpatialIndex } from "./document/SpatialIndex";
-import type { RendererState } from "./Paplico";
 import { PaplicoSelection } from "./PaplicoSelection";
+import { createRendererState } from "./renderer/rendererState";
+import type { RendererState } from "./renderer/types";
 import type { AnyArtObject } from "./schema";
 
 /**

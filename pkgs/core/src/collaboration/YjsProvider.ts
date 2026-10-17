@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 import { UndoManager } from "yjs";
 import { createIdentityTransform } from "../document/factory";
+import type { ObjectsChangeDelta } from "../document/objectsChangeDelta";
 import type { LengthUnit } from "../document/units";
 import {
 	applyMigrations,
@@ -130,13 +131,6 @@ interface SerializedEmbeddedFile {
 	type: string;
 	hash: string;
 	bin: Uint8Array | number[];
-}
-
-/** Delta change information for objects */
-export interface ObjectsChangeDelta {
-	added: Map<string, AnyArtObject>;
-	updated: Map<string, AnyArtObject>;
-	deleted: Set<string>;
 }
 
 export interface YjsSyncAppliedMeta {

@@ -11,9 +11,9 @@ import {
 	createIdentityTransform,
 } from "./document/factory";
 import { SpatialIndex } from "./document/SpatialIndex";
-import type { RendererState } from "./Paplico";
 import { PaplicoCommands } from "./PaplicoCommands";
 import type { PaplicoSelection } from "./PaplicoSelection";
+import type { RendererState } from "./renderer/types";
 import type {
 	AnyArtObject,
 	AppearancePreset,

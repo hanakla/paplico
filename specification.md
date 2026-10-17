@@ -435,7 +435,7 @@ Vello GPU 方式の被覆率ラスタライザ。ステンシルも MSAA も使�
 
 ### ストロークテッセレーション
 
-`renderer/geometry/strokeTessellator.ts`。ポリラインサンプル化 → 可変幅・テーパーのゼロ交差でサブパス分割 → 法線計算 → 本体三角形（`[x, y]`）を出力。lineJoin（miter/round/bevel）、lineCap（butt/round/square）、破線対応。三角形は重なってよく、strip 生成が union を取る。
+`utils/geometry/generate/strokeTessellator.ts`。ポリラインサンプル化 → 可変幅・テーパーのゼロ交差でサブパス分割 → 法線計算 → 本体三角形（`[x, y]`）を出力。lineJoin（miter/round/bevel）、lineCap（butt/round/square）、破線対応。三角形は重なってよく、strip 生成が union を取る。
 
 ### ブラシストローク（3ルート）
 
@@ -655,7 +655,7 @@ Y.Doc
 
 全リアクティブステートはValtioで管理する。
 
-- **`RendererState`**（`core/document/rendererState.ts` で生成、型は `Paplico.ts`）: document / currentLayerId / canUndo・canRedo / elementOverrides・transientElements（`ref()` でプロキシ化回避）/ 選択状態 / uiOverlayState / 編集セッション / editingScopeStack / viewports 等を一括保持。外部へは読み取り専用の `PublicUIState`（`Paplico.uiState`）として公開
+- **`RendererState`**（`core/renderer/rendererState.ts` で生成、型は `renderer/types.ts`）: document / currentLayerId / canUndo・canRedo / elementOverrides・transientElements（`ref()` でプロキシ化回避）/ 選択状態 / uiOverlayState / 編集セッション / editingScopeStack / viewports 等を一括保持。外部へは読み取り専用の `PublicUIState`（`Paplico.uiState`）として公開
 - **`stores/`**: `uiStore`（パネル開閉・アクティブターゲット等）、`documentStore`（Dexie/IndexedDBへのドキュメントCRUD）、`documentSessionStore`、`sessionStore`（sessionStorageの再接続情報 `paplico:reconnectInfo`）、`autoSave`、`notificationStore`、`hooks/useAppConfig.ts` の `appConfig`
 
 ## ファイル入出力

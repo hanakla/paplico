@@ -1,5 +1,5 @@
-import type { CubicBezierSegment, Point } from "../../schema";
-import { resolveSegment } from "../../utils/geometry/primitives/segment";
+import type { CubicBezierSegment, Point } from "../../../schema";
+import { resolveSegment } from "../primitives/segment";
 
 type FlattenCubicBezierOptions = {
 	curveTolerance?: number;

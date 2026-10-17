@@ -5,7 +5,7 @@ import type {
 	CubicBezierSegment,
 	StrokeWidthPoint,
 } from "../../../../schema";
-import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
+import { interpolateStrokeWidths } from "../../../../utils/geometry/generate/strokeTessellator";
 import {
 	CONTACT_SPEED_WINDOW_MS,
 	evaluateDabs,

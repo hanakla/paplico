@@ -1,4 +1,3 @@
-import { sliceStrokeWidths } from "../../../renderer/geometry/strokeTessellator";
 import {
 	type BezierPoint,
 	type CompoundPathSource,
@@ -19,6 +18,7 @@ import {
 } from "./booleanOp";
 import { applyCornerRadius } from "./cornerRadius";
 import { type FittedCubic, fitCubicBeziers } from "./strokeFitting";
+import { sliceStrokeWidths } from "./strokeTessellator";
 
 // ============================================================================
 // Boolean Operations

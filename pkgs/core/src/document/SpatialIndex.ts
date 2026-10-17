@@ -1,6 +1,4 @@
 import { subscribeKey } from "valtio/utils";
-import type { ObjectsChangeDelta } from "../collaboration/YjsProvider";
-import type { RendererState } from "../Paplico";
 import { CompoundPathCache } from "../renderer/canvas/caches/CompoundPathCache";
 import { resolveImageGeometry } from "../renderer/canvas/elements/ImageElementRenderer";
 import type { FilterRenderer } from "../renderer/canvas/pipeline/FilterRenderer";
@@ -113,6 +111,7 @@ import {
 	localAppearances,
 	resolveElementAppearance,
 } from "./appearancePresets";
+import type { ObjectsChangeDelta } from "./objectsChangeDelta";
 
 export interface PaintedHit {
 	element: AnyArtObject;
@@ -204,7 +203,9 @@ export class SpatialIndex {
 
 	private unsubscribes: Array<() => void> = [];
 
-	public constructor(private store: RendererState) {}
+	public constructor(
+		private store: { document: Document; editingScopeStack: string[] },
+	) {}
 
 	/**
 	 * Subscribe to store.document reference changes and auto-rebuild all indices.

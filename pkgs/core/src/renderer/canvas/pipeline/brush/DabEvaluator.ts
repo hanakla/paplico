@@ -10,8 +10,8 @@ import type {
 	CubicBezierSegment,
 	StrokeWidthPoint,
 } from "../../../../schema";
+import { interpolateStrokeWidths } from "../../../../utils/geometry/generate/strokeTessellator";
 import { clamp01, mulberry32 } from "../../../../utils/math";
-import { interpolateStrokeWidths } from "../../../geometry/strokeTessellator";
 import { DAB_FIELD_OFFSETS, DAB_INSTANCE_FLOATS } from "./DabInstanceLayout";
 import { packStampPathIndex } from "./StampPacking";
 import { hardnessToLutIndex } from "./TipMaskBuilder";

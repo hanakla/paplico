@@ -1,6 +1,7 @@
 // biome-ignore-all assist/source/organizeImports: hand managed
 export { registerForHotReload } from "./dev-hmr";
 export { Paplico, type PublicUIState } from "./Paplico";
+export { createRendererState } from "./renderer/rendererState";
 export type {
 	AdjustColorSession,
 	MeshWarpFromShapeFailure,

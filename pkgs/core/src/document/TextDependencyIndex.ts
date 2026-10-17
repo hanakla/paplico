@@ -1,5 +1,5 @@
-import type { ObjectsChangeDelta } from "../collaboration/YjsProvider";
 import type { Document, TextElement } from "../schema";
+import type { ObjectsChangeDelta } from "./objectsChangeDelta";
 
 /**
  * Reverse index of text dependencies: which text elements are bound to a

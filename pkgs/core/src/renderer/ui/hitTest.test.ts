@@ -1,12 +1,12 @@
 import { ref, subscribe } from "valtio";
 import { describe, expect, it } from "vitest";
-import { createRendererState } from "../../document/rendererState";
 import type { Viewport } from "../../schema";
 import {
 	testCanvasHeight,
 	testCanvasWidth,
 	testViewport,
 } from "../../testUtils/pointerEvent";
+import { createRendererState } from "../rendererState";
 import { hitTestOverlays } from "./hitTest";
 import type { UIOverlay, UIPrimitive } from "./primitives";
 import type { RGBA } from "./theme";

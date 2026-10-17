@@ -5,10 +5,10 @@ import {
 	type YjsProviderCallbacks,
 } from "./collaboration/YjsProvider";
 import { createIdentityTransform } from "./document/factory";
-import { createRendererState } from "./document/rendererState";
 import { SpatialIndex } from "./document/SpatialIndex";
 import { PaplicoCommands } from "./PaplicoCommands";
 import { PaplicoSelection } from "./PaplicoSelection";
+import { createRendererState } from "./renderer/rendererState";
 import {
 	type AnyArtObject,
 	type BlendObject,

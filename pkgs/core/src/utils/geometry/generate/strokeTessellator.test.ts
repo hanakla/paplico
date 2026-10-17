@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lineSeg } from "../../testUtils/segmentFactory";
+import { lineSeg } from "../../../testUtils/segmentFactory";
 import { flattenBezierPathWithPressure } from "./bezierFlatten";
 import {
 	applyDashPattern,

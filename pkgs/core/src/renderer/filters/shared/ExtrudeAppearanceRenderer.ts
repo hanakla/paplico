@@ -33,7 +33,7 @@ import {
 	type Vec3,
 	type Viewport,
 } from "../../../schema";
-import { generateRectangleSegments } from "../../../tools/ShapeTool";
+import { flattenBezierPath } from "../../../utils/geometry/generate/bezierFlatten";
 import {
 	computeBlendIntermediates,
 	type FilterInterpolator,
@@ -41,6 +41,7 @@ import {
 	resolveBlendSpinePath,
 } from "../../../utils/geometry/generate/blendInterpolation";
 import { applyCornerRadius } from "../../../utils/geometry/generate/cornerRadius";
+import { generateRectangleSegments } from "../../../utils/geometry/generate/shapeSegments";
 import type { WorldBBox } from "../../../utils/geometry/primitives/box";
 import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
 import { groupRingsByContainment } from "../../../utils/geometry/query/ringContainment";
@@ -99,7 +100,6 @@ import {
 } from "../../canvas/pipeline/RenderSurface";
 import type { TexturePool } from "../../canvas/pipeline/TexturePool";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
-import { flattenBezierPath } from "../../geometry/bezierFlatten";
 import {
 	type ExtrudeMeshBaker,
 	type ExtrudeOutline,

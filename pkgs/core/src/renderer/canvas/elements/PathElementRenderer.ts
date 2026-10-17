@@ -16,6 +16,7 @@ import {
 	type StrokeColor,
 	type TexturedFill,
 } from "../../../schema";
+import { flattenBezierPath } from "../../../utils/geometry/generate/bezierFlatten";
 import {
 	resolveBlendSourcePath,
 	resolveBlendSpinePath,
@@ -24,7 +25,6 @@ import { hashSegments } from "../../../utils/geometry/measure/segmentHash";
 import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
 import type { GPUTransformAffine } from "../../../utils/geometry/space/coordinates";
 import { toWorldPath } from "../../../utils/geometry/space/worldSegments";
-import { flattenBezierPath } from "../../geometry/bezierFlatten";
 import {
 	appendFillLines,
 	appendTriangleSoupLines,

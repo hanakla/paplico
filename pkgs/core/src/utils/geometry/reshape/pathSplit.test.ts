@@ -352,7 +352,7 @@ function pointAt(
 }
 
 describe("splitPathByEraser", () => {
-	it("空の消しゴムストロークを受け取った場合、元のパス参照をそのまま返す", () => {
+	it("should return the original path reference for an empty eraser stroke", () => {
 		const path = straightPath();
 		const result = splitPathByEraser(path, [], 20);
 
@@ -360,9 +360,9 @@ describe("splitPathByEraser", () => {
 		expect(result[0]).toBe(path);
 	});
 
-	it("パスから遠い位置の消しゴムストロークでは元パスと同じ座標範囲のパスが1本返る", () => {
+	it("should return one path with the original extent when the eraser stroke is far from the path", () => {
 		const path = straightPath();
-		// パスはy=0上。消しゴムはy=500上でradius=20なので到達しない
+		// The path lies on y=0. The eraser runs along y=500 with radius 20, so it never reaches the path
 		const eraserStroke = [
 			{ x: 0, y: 500 },
 			{ x: 100, y: 500 },
@@ -375,9 +375,9 @@ describe("splitPathByEraser", () => {
 		expect(ext.endX).toBeCloseTo(100, 0);
 	});
 
-	it("パスの中央を垂直に横切る消しゴムで2本に分割され、前半は0〜40付近、後半は60〜100付近になる", () => {
+	it("should split into two paths around 0-40 and 60-100 when the eraser crosses the middle vertically", () => {
 		const path = straightPath();
-		// 消しゴムはx=50で垂直に横切る。radius=10なので約x=40〜60が消える
+		// The eraser crosses vertically at x=50. With radius 10 it erases about x=40-60
 		const eraserStroke = [
 			{ x: 50, y: -30 },
 			{ x: 50, y: 30 },
@@ -390,21 +390,21 @@ describe("splitPathByEraser", () => {
 		const extFirst = getPathExtents(first);
 		const extSecond = getPathExtents(second);
 
-		// 前半: 0付近から始まり、40付近で終わる
+		// First half: starts near 0 and ends near 40
 		expect(extFirst.startX).toBeCloseTo(0, -1);
 		expect(extFirst.endX).toBeLessThan(50);
 		expect(extFirst.endX).toBeGreaterThan(20);
 
-		// 後半: 60付近から始まり、100付近で終わる
+		// Second half: starts near 60 and ends near 100
 		expect(extSecond.startX).toBeGreaterThan(50);
 		expect(extSecond.startX).toBeLessThan(80);
 		expect(extSecond.endX).toBeCloseTo(100, -1);
 
-		// 両方ともy≈0の直線上にあること
+		// Both lie on the line y≈0
 		expectPathOnXAxis(first);
 		expectPathOnXAxis(second);
 
-		// 各分割パスの先頭セグメントはstart座標とisMoved=trueを持つ
+		// The first segment of each piece has a start point and isMoved=true
 		for (const p of result) {
 			expect(p.segments.length).toBeGreaterThan(0);
 			expect(p.segments[0].start).toBeDefined();
@@ -412,37 +412,37 @@ describe("splitPathByEraser", () => {
 		}
 	});
 
-	it("パスの始端(x=0付近)を消すと、後半部分のみ返り、そのstartX > 0である", () => {
+	it("should return only the rest of the path, with startX > 0, when the start near x=0 is erased", () => {
 		const path = straightPath();
-		// x=0をradius=25で消す → x=0〜25付近が消える
+		// Erasing x=0 with radius 25 removes about x=0-25
 		const eraserStroke = [{ x: 0, y: 0 }];
 		const result = splitPathByEraser(path, eraserStroke, 25);
 
 		expect(result).toHaveLength(1);
 
 		const ext = getPathExtents(result[0]);
-		// 始端が消えたので、残ったパスのstartXは25付近より大きい
+		// The start is erased, so the remaining startX is beyond about 25
 		expect(ext.startX).toBeGreaterThan(10);
-		// 終端は元のまま
+		// The end is unchanged
 		expect(ext.endX).toBeCloseTo(100, -1);
 	});
 
-	it("パスの終端(x=100付近)を消すと、前半部分のみ返り、そのendX < 100である", () => {
+	it("should return only the first part, with endX < 100, when the end near x=100 is erased", () => {
 		const path = straightPath();
-		// x=100をradius=25で消す → x=75〜100付近が消える
+		// Erasing x=100 with radius 25 removes about x=75-100
 		const eraserStroke = [{ x: 100, y: 0 }];
 		const result = splitPathByEraser(path, eraserStroke, 25);
 
 		expect(result).toHaveLength(1);
 
 		const ext = getPathExtents(result[0]);
-		// 始端は元のまま
+		// The start is unchanged
 		expect(ext.startX).toBeCloseTo(0, -1);
-		// 終端が消えたので、残ったパスのendXは90付近より小さい
+		// The end is erased, so the remaining endX is below about 90
 		expect(ext.endX).toBeLessThan(90);
 	});
 
-	it("パス全体を覆う消しゴムストロークでは空配列が返る", () => {
+	it("should return an empty array when the eraser stroke covers the whole path", () => {
 		const path = straightPath();
 		const eraserStroke = [
 			{ x: 0, y: 0 },
@@ -454,7 +454,7 @@ describe("splitPathByEraser", () => {
 		expect(result).toHaveLength(0);
 	});
 
-	it("単一ポイント消しゴム(x=50,radius=15)でパスが2本に分割され、消去箇所を挟んで前後に分かれる", () => {
+	it("should split the path in two around a single-point eraser at x=50 with radius 15", () => {
 		const path = straightPath();
 		const eraserStroke = [{ x: 50, y: 0 }];
 		const result = splitPathByEraser(path, eraserStroke, 15);
@@ -465,12 +465,12 @@ describe("splitPathByEraser", () => {
 		const extFirst = getPathExtents(first);
 		const extSecond = getPathExtents(second);
 
-		// 前半のendX < 50、後半のstartX > 50
+		// The first piece ends before 50 and the second starts after 50
 		expect(extFirst.endX).toBeLessThan(50);
 		expect(extSecond.startX).toBeGreaterThan(50);
 	});
 
-	it("2セグメントパスの1セグメント目中央(x=50)を消すと、x<50の断片とx>50〜200の断片に分かれる", () => {
+	it("should split a two-segment path into x<50 and x>50-200 pieces when the middle of the first segment is erased", () => {
 		const path = twoSegmentPath();
 		const eraserStroke = [
 			{ x: 50, y: -20 },
@@ -480,7 +480,7 @@ describe("splitPathByEraser", () => {
 
 		expect(result.length).toBeGreaterThanOrEqual(2);
 
-		// 結果をstartXでソート
+		// Sort the results by startX
 		const sorted = [...result].sort(
 			(a, b) => getPathExtents(a).startX - getPathExtents(b).startX,
 		);
@@ -488,15 +488,15 @@ describe("splitPathByEraser", () => {
 		const extFirst = getPathExtents(sorted[0]);
 		const extLast = getPathExtents(sorted[sorted.length - 1]);
 
-		// 最初の断片は0付近から始まり50未満で終わる
+		// The first piece starts near 0 and ends before 50
 		expect(extFirst.startX).toBeCloseTo(0, -1);
 		expect(extFirst.endX).toBeLessThan(50);
 
-		// 最後の断片は200付近で終わる（2セグメント目の終端）
+		// The last piece ends near 200, the end of the second segment
 		expect(extLast.endX).toBeCloseTo(200, -1);
 	});
 
-	it("分割結果のパスはfilters(strokeColor・brushSettings)を元パスから引き継ぐ", () => {
+	it("should carry the filters, strokeColor and brushSettings, over to the split paths", () => {
 		const path = straightPath({
 			filters: [
 				{
@@ -795,7 +795,7 @@ describe("splitPathByNormalizedRanges", () => {
 // ============================================================================
 
 describe("subtractEraserFromFilledPath", () => {
-	it("空の消しゴムストロークでは元パス参照をそのまま返す", () => {
+	it("should return the original path reference for an empty eraser stroke", () => {
 		const path = squarePath();
 		const result = subtractEraserFromFilledPath(path, [], 20);
 
@@ -803,21 +803,21 @@ describe("subtractEraserFromFilledPath", () => {
 		expect(result[0]).toBe(path);
 	});
 
-	it("塗りパスから遠い位置の消しゴムでは結果のセグメント総数が元パスと同等になる", () => {
+	it("should keep about the same segment count when the eraser is far from the filled path", () => {
 		const path = squarePath();
-		// パスは(0,0)-(100,100)の四角。消しゴムは(500,500)で遠い
+		// The path is the square (0,0)-(100,100). The eraser at (500,500) is far away
 		const eraserStroke = [{ x: 500, y: 500 }];
 		const result = subtractEraserFromFilledPath(path, eraserStroke, 20);
 
 		expect(result).toHaveLength(1);
-		// polygon-clippingを通るのでセグメント数は厳密一致しないが、
-		// 元の4辺に対応する頂点が保持されているはず
+		// polygon-clipping may change the exact segment count,
+		// but the vertices of the original four sides are kept
 		expect(result[0].segments.length).toBeGreaterThanOrEqual(3);
 	});
 
-	it("塗りパスの中央を左右に貫通する消しゴムで上下2つに分割され、各断片のセグメントが3以上ある", () => {
+	it("should split the filled path into top and bottom pieces of three or more segments when the eraser crosses its middle", () => {
 		const path = squarePath();
-		// 四角の中央(y=50)を左から右に横切る
+		// Cross the middle of the square, y=50, from left to right
 		const eraserStroke = [
 			{ x: -20, y: 50 },
 			{ x: 120, y: 50 },
@@ -826,14 +826,14 @@ describe("subtractEraserFromFilledPath", () => {
 
 		expect(result.length).toBeGreaterThanOrEqual(2);
 
-		// 各断片は閉じたポリゴンなので最低3セグメント
+		// Each piece is a closed polygon, so it has at least three segments
 		for (const p of result) {
 			expect(p.segments.length).toBeGreaterThanOrEqual(3);
 			expect(p.type).toBe("path");
 		}
 	});
 
-	it("塗りパス全体を覆う消しゴムでは空配列が返る", () => {
+	it("should return an empty array when the eraser covers the whole filled path", () => {
 		const path = squarePath();
 		const eraserStroke = [
 			{ x: 50, y: -50 },
@@ -844,7 +844,7 @@ describe("subtractEraserFromFilledPath", () => {
 		expect(result).toHaveLength(0);
 	});
 
-	it("分割結果のパスはfilters(fill)・opacity・blendModeを元パスから引き継ぐ", () => {
+	it("should carry the fill filter, opacity and blendMode over to the split paths", () => {
 		const path = squarePath();
 		const eraserStroke = [
 			{ x: -20, y: 50 },
@@ -860,30 +860,30 @@ describe("subtractEraserFromFilledPath", () => {
 		}
 	});
 
-	it("単一ポイント消しゴム(中央,radius=20)で塗りパスの面積が減少する", () => {
+	it("should reduce the filled area with a single-point eraser of radius 20 at the center", () => {
 		const path = squarePath();
 		const eraserStroke = [{ x: 50, y: 50 }];
 		const result = subtractEraserFromFilledPath(path, eraserStroke, 20);
 
-		// 穴が開くのでパスは返るが、セグメント総数が元(4)より増える（穴の輪郭分）
+		// A hole opens, so the path remains but gains segments beyond the original 4 for the hole outline
 		const totalSegments = result.reduce((sum, p) => sum + p.segments.length, 0);
 		expect(totalSegments).toBeGreaterThan(path.segments.length);
 	});
 
-	it("自己交差パスの片方だけ消しゴムを当てると、消してない方のローブが残る", () => {
-		// Figure-8 (8の字): 左ローブ(中心 -50,0) + 右ローブ(中心 50,0) が (0,0) で交差
+	it("should keep the untouched lobe when only one lobe of a self-intersecting path is erased", () => {
+		// Figure-8: the left lobe centered at (-50,0) and the right lobe at (50,0) cross at (0,0)
 		const path = figure8Path();
-		// 右ローブ(50,0)付近だけ消しゴムを当てる
+		// Erase only around the right lobe at (50,0)
 		const eraserStroke = [
 			{ x: 40, y: 0 },
 			{ x: 60, y: 0 },
 		];
 		const result = subtractEraserFromFilledPath(path, eraserStroke, 60);
 
-		// 左ローブが少なくとも1パスとして残るはず
+		// The left lobe remains as at least one path
 		expect(result.length).toBeGreaterThanOrEqual(1);
 
-		// 残ったパスの中に、左ローブの領域 (x < 0) にセグメントを持つものがある
+		// One remaining path has segments in the left lobe, x < 0
 		const hasLeftLobe = result.some((p) =>
 			p.segments.some((s) => {
 				const resolved = resolveSegment(s, undefined);
@@ -1100,7 +1100,7 @@ describe("subtractEraserFromFilledPath", () => {
 // ============================================================================
 
 describe("closePathAtEndpoints", () => {
-	it("終点から始点へ直線セグメントを足して閉じ、両端の頂点はそのまま残る", () => {
+	it("should close the path with a straight segment from end to start and keep both end vertices", () => {
 		const path = twoSegmentPath();
 		const first = path.segments[0];
 		const last = path.segments.at(-1)!;
@@ -1117,14 +1117,14 @@ describe("closePathAtEndpoints", () => {
 		expect(bridge.isMoved).toBe(false);
 	});
 
-	it("すでに閉じたパスはnullが返る", () => {
+	it("should return null for a path that is already closed", () => {
 		const closed = closePathAtEndpoints(twoSegmentPath().segments)!;
 		expect(closePathAtEndpoints(closed)).toBeNull();
 	});
 });
 
 describe("mergePathsAtEndpoints", () => {
-	it("2つの端点を直線セグメントでつなぎ、両端の頂点はそのまま残る", () => {
+	it("should join the two endpoints with a straight segment and keep both end vertices", () => {
 		const pathA = straightPath({ id: "a" });
 		const pathB = straightPath({
 			id: "b",
@@ -1185,14 +1185,14 @@ describe("mergePathsAtEndpoints", () => {
 });
 
 describe("splitPathAtAnchor", () => {
-	it("単一セグメントパスでは先頭(start)も末尾(end)も分割できずnullが返る", () => {
+	it("should return null for a single-segment path at either its start or its end", () => {
 		const path = straightPath();
 
 		expect(splitPathAtAnchor(path, 0, "start")).toBeNull();
 		expect(splitPathAtAnchor(path, 0, "end")).toBeNull();
 	});
 
-	it("2セグメントパスの中間アンカーで分割すると、各1セグメントのパスが2本返る", () => {
+	it("should return two one-segment paths when a two-segment path is split at its middle anchor", () => {
 		const path = twoSegmentPath();
 
 		const result = splitPathAtAnchor(path, 0, "end");
@@ -1203,7 +1203,7 @@ describe("splitPathAtAnchor", () => {
 		expect(second.segments).toHaveLength(1);
 	});
 
-	it("segment[0].endとsegment[1].startは同じ分割位置を指し、結果のセグメント構成が一致する", () => {
+	it("should treat segment[0].end and segment[1].start as the same split point", () => {
 		const path = twoSegmentPath();
 
 		const resultA = splitPathAtAnchor(path, 0, "end");
@@ -1216,7 +1216,7 @@ describe("splitPathAtAnchor", () => {
 		expect(resultA?.[1].segments).toHaveLength(resultB![1].segments.length);
 	});
 
-	it("3セグメントパスのsegment[0].endで分割: 1セグメント + 2セグメント", () => {
+	it("should split a three-segment path at segment[0].end into one and two segments", () => {
 		const path = threeSegmentPath();
 		const result = splitPathAtAnchor(path, 0, "end");
 
@@ -1227,7 +1227,7 @@ describe("splitPathAtAnchor", () => {
 		expect(second.segments).toHaveLength(2);
 	});
 
-	it("3セグメントパスのsegment[1].endで分割: 2セグメント + 1セグメント", () => {
+	it("should split a three-segment path at segment[1].end into two and one segments", () => {
 		const path = threeSegmentPath();
 		const result = splitPathAtAnchor(path, 1, "end");
 
@@ -1238,7 +1238,7 @@ describe("splitPathAtAnchor", () => {
 		expect(second.segments).toHaveLength(1);
 	});
 
-	it("分割後の2番目のパスのstart座標が、1番目のパスの末尾end座標と一致する", () => {
+	it("should start the second path at the end of the first path", () => {
 		const path = twoSegmentPath();
 		const result = splitPathAtAnchor(path, 0, "end");
 
@@ -1253,7 +1253,7 @@ describe("splitPathAtAnchor", () => {
 		expect(startOfSecond?.y).toBe(lastEndOfFirst.y);
 	});
 
-	it("分割結果の各パスは元パスと異なるIDを持ち、互いのIDも異なる", () => {
+	it("should give each split path an ID different from the original and from each other", () => {
 		const path = twoSegmentPath();
 		const result = splitPathAtAnchor(path, 0, "end");
 
@@ -1265,7 +1265,7 @@ describe("splitPathAtAnchor", () => {
 		expect(first.id).not.toBe(second.id);
 	});
 
-	it("分割結果のパスはfilters・opacity・blendModeを元パスから引き継ぐ", () => {
+	it("should carry the filters, opacity and blendMode over to the split paths", () => {
 		const path = twoSegmentPath();
 		const result = splitPathAtAnchor(path, 0, "end");
 
@@ -1293,16 +1293,16 @@ describe("splitPathAtAnchor", () => {
 		}
 	});
 
-	it("範囲外のsegmentIndexではnullが返る", () => {
+	it("should return null for an out-of-range segmentIndex", () => {
 		const path = twoSegmentPath();
 
-		// segment[2]は存在しない
+		// segment[2] does not exist
 		expect(splitPathAtAnchor(path, 2, "end")).toBeNull();
-		// 負のindex
+		// Negative index
 		expect(splitPathAtAnchor(path, -1, "start")).toBeNull();
 	});
 
-	it("分割後の2番目のパスの先頭セグメントはisMoved=trueを持つ", () => {
+	it("should mark the first segment of the second path with isMoved=true", () => {
 		const path = twoSegmentPath();
 		const result = splitPathAtAnchor(path, 0, "end");
 

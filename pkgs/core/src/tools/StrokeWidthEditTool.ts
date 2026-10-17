@@ -3,11 +3,6 @@ import {
 	createStrokeHalfWidthSampler,
 	type StrokeHalfWidthSampler,
 } from "../renderer/canvas/pipeline/brush/strokeHalfWidth";
-import {
-	composeStrokeErasure,
-	erasureForBoundary,
-	interpolateStrokeWidths,
-} from "../renderer/geometry/strokeTessellator";
 import { buildStrokeWidthEditOverlay } from "../renderer/ui/builders/strokeWidthEdit";
 import type { OverlayHit } from "../renderer/ui/hitTest";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
@@ -24,6 +19,11 @@ import type {
 	Viewport,
 } from "../schema";
 import { getFirstStroke } from "../utils/elementQuery";
+import {
+	composeStrokeErasure,
+	erasureForBoundary,
+	interpolateStrokeWidths,
+} from "../utils/geometry/generate/strokeTessellator";
 import { evalCubicBezier } from "../utils/geometry/primitives/bezier";
 import {
 	screenToWorld,

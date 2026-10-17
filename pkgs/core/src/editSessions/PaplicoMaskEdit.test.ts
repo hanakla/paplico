@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { YjsProvider } from "../collaboration/YjsProvider";
 import { createIdentityTransform } from "../document/factory";
-import type { RendererState } from "../Paplico";
+import type { RendererState } from "../renderer/types";
 import type {
 	AnyArtObject,
 	ElementTransform,

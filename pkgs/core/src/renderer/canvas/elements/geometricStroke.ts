@@ -15,19 +15,19 @@ import {
 	type StrokeAppearance,
 	type StrokeWidthPoint,
 } from "../../../schema";
+import { flattenBezierPathWithPressure } from "../../../utils/geometry/generate/bezierFlatten";
 import { triangleSoupOutline } from "../../../utils/geometry/generate/pathOps";
-import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
-import { transformLinearMatrix } from "../../../utils/geometry/space/coordinates";
-import { flattenBezierPathWithPressure } from "../../geometry/bezierFlatten";
-import {
-	deviceScaleBucket,
-	localCurveTolerance,
-} from "../../geometry/strips/deviceGeometry";
 import {
 	applyDashPattern,
 	polylineArcLength,
 	tessellateStroke,
-} from "../../geometry/strokeTessellator";
+} from "../../../utils/geometry/generate/strokeTessellator";
+import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
+import { transformLinearMatrix } from "../../../utils/geometry/space/coordinates";
+import {
+	deviceScaleBucket,
+	localCurveTolerance,
+} from "../../geometry/strips/deviceGeometry";
 import { computePolylineSignedArea } from "../CanvasLayer.helpers";
 import { resolveGeometricSizeByPressure } from "../pipeline/brush/strokeHalfWidth";
 

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import {
+	createFrameHandles,
+	createResizeHandles,
+} from "../renderer/ui/builders/resizeHandles";
 import type { BoundingBox, Viewport } from "../schema";
 import { worldFrame } from "../utils/geometry/space/selectionFrame";
 import {
 	calculateResizedBounds,
-	createFrameHandles,
-	createResizeHandles,
 	createRotationHandle,
 	createSelectionUIData,
 	getResizeCursor,

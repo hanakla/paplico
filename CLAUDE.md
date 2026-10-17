@@ -529,7 +529,6 @@ pkgs/core/
     ├── document/          # Data-model support
     │   ├── factory.ts         # Default value factories (Color, Transform, Viewport)
     │   ├── constants.ts       # Zoom limits, sentinel IDs
-    │   ├── rendererState.ts   # Valtio RendererState factory (createRendererState)
     │   └── SpatialIndex.ts    # Spatial indexing for hit testing (Quadtree)
     ├── brush/             # Brush definitions (GPU rendering is in renderer/canvas/pipeline/brush/)
     │   ├── presets.ts         # Builtin brush presets/files
@@ -539,7 +538,8 @@ pkgs/core/
     │   ├── RenderScheduler.ts     # requestAnimationFrame scheduling, dirty strategy
     │   ├── CanvasTarget.ts        # Canvas element wrapper (resize observer, viewport state)
     │   ├── DocumentChangeSubscriber.ts # Document change -> dirty notification
-    │   ├── types.ts               # FrameRequest, UIOverlayState
+    │   ├── types.ts               # RendererState, FrameRequest, UIOverlayState
+    │   ├── rendererState.ts       # Valtio RendererState factory (createRendererState)
     │   ├── PipelineFactory.ts     # Shared GPU pipeline construction helpers
     │   ├── canvas/        # Document render layer (CanvasLayer + its helpers/types)
     │   │   ├── pipeline/  # Internal graphics machinery (ViewportManager, DocumentCache, CompositeRenderer, OffscreenPresenter, FilterRenderer, RenderPlanner, TexturePool, ClipMaskAtlas)
@@ -549,7 +549,7 @@ pkgs/core/
     │   ├── ui/            # UI render layer (UILayer: selection overlay, cursor, guides) + types.ts (UI overlay data types) + constants.ts (UI colors)
     │   ├── filters/       # One folder per filter: `<Name>Filter/<Name>Filter.ts` (class `<Name>FilterHandler`) with its WGSL and tests; `svg/` groups the svg:* filters; `shared/` holds files used by several filters and cross-filter visual tests; filterCatalog + `@paplico/core/filters` entry (index.ts)
     │   ├── generators/    # Texture generators (gradient, mesh gradient)
-    │   ├── geometry/      # Stroke tessellation
+    │   ├── geometry/      # GPU mesh geometry (extrude and revolve meshes, stroke strips)
     │   └── shaders/       # Shared pipeline WGSL shaders (filter-specific WGSL lives in filters/)
     ├── tools/             # Drawing tools (Pen, Path, Shape, Text, Select, Eraser, Gradient, MeshDeform, PathEdit, Artboard) + ToolContext (tool -> engine bridge) + TextToolController
     ├── collaboration/     # Yjs provider, ICollaboration, Collaboration, PartyKitCollaboration, E2EECollaboration, relay socket

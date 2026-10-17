@@ -9,7 +9,7 @@ import {
 import type { Brand } from "../../lang";
 
 /**
- * スクリーン座標 → ワールド座標
+ * Screen coordinates to world coordinates
  */
 export function screenToWorld(
 	screenX: number,
@@ -28,13 +28,13 @@ export function screenToWorld(
 	const unrotY = relX * sin + relY * cos;
 
 	const worldX = viewport.x + unrotX / viewport.zoom;
-	const worldY = viewport.y - unrotY / viewport.zoom; // Y軸反転
+	const worldY = viewport.y - unrotY / viewport.zoom; // Flip the Y axis
 
 	return { x: worldX, y: worldY };
 }
 
 /**
- * ワールド座標 → スクリーン座標
+ * World coordinates to screen coordinates
  */
 export function worldToScreen(
 	worldX: number,
@@ -44,7 +44,7 @@ export function worldToScreen(
 	canvasHeight: number,
 ): { x: number; y: number } {
 	const relX = (worldX - viewport.x) * viewport.zoom;
-	const relY = (viewport.y - worldY) * viewport.zoom; // Y軸反転
+	const relY = (viewport.y - worldY) * viewport.zoom; // Flip the Y axis
 
 	// Apply viewport rotation (rotate around screen center)
 	const cos = Math.cos(viewport.rotation);
@@ -59,7 +59,7 @@ export function worldToScreen(
 }
 
 /**
- * ワールド座標 → NDC（Normalized Device Coordinates）
+ * World coordinates to NDC (Normalized Device Coordinates)
  */
 export function worldToNDC(
 	worldX: number,
@@ -77,13 +77,13 @@ export function worldToNDC(
 	);
 
 	const ndcX = (screen.x / canvasWidth) * 2 - 1;
-	const ndcY = 1 - (screen.y / canvasHeight) * 2; // Y軸反転
+	const ndcY = 1 - (screen.y / canvasHeight) * 2; // Flip the Y axis
 
 	return { x: ndcX, y: ndcY };
 }
 
 /**
- * ビューポートの可視範囲を取得（ワールド座標）
+ * Visible area of the viewport in world coordinates
  */
 export function getVisibleWorldBounds(
 	viewport: Viewport,

@@ -19,7 +19,6 @@ export {
 	createImageObject,
 	createStrokeBrushSettings,
 } from "./factory";
-export { createRendererState } from "./rendererState";
 export { canOutlineStrokes } from "./strokeOutline";
 export {
 	BASE_DPI,

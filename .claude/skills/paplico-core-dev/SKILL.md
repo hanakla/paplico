@@ -620,7 +620,7 @@ Paplico has two independent 3D features — **do not conflate them**:
 | `AppearanceCache` | caches/AppearanceCache.ts | Per-(elementId, appearanceUid) cross-frame cache |
 | `ICollaboration`, `CollaborationConfig` | collaboration/ICollaboration.ts | Network transport |
 | `YjsProviderCallbacks` | collaboration/YjsProvider.ts | Outbound sync |
-| `RendererState` | Paplico.ts (factory: document/rendererState.ts) | Shared state shape |
+| `RendererState` | renderer/types.ts (factory: renderer/rendererState.ts) | Shared state shape |
 | `FrameRequest`, `UIOverlayState` | renderer/types.ts | Render input |
 
 ## Reference Documents

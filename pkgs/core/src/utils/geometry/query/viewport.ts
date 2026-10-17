@@ -2,7 +2,7 @@ import type { Viewport } from "../../../schema";
 import { getVisibleWorldBounds } from "../space/coordinates";
 
 /**
- * 点がビューポート内に表示されているか判定
+ * Whether a point is visible in the viewport
  */
 export function isInViewport(
 	worldX: number,
@@ -10,7 +10,7 @@ export function isInViewport(
 	viewport: Viewport,
 	canvasWidth: number,
 	canvasHeight: number,
-	margin = 0, // マージン（ピクセル）
+	margin = 0, // Margin in pixels
 ): boolean {
 	const bounds = getVisibleWorldBounds(viewport, canvasWidth, canvasHeight);
 	const worldMargin = margin / viewport.zoom;
@@ -24,7 +24,7 @@ export function isInViewport(
 }
 
 /**
- * バウンディングボックスがビューポートと交差しているか
+ * Whether a bounding box intersects the viewport
  */
 export function boundsIntersectViewport(
 	minX: number,

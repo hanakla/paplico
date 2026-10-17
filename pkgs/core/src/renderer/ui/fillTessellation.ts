@@ -1,5 +1,5 @@
 import earcut from "earcut";
-import { flattenCubicBezier } from "../geometry/bezierFlatten";
+import { flattenCubicBezier } from "../../utils/geometry/generate/bezierFlatten";
 import type { BezierPathPrimitive } from "./primitives";
 
 export interface FillPoint {

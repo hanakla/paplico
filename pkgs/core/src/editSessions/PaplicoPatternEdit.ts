@@ -23,7 +23,7 @@
 import { ref } from "valtio";
 import type { UndoManager } from "yjs";
 import type { YjsProvider } from "../collaboration/YjsProvider";
-import type { RendererState } from "../Paplico";
+import type { RendererState } from "../renderer/types";
 import { buildPatternEditOverlay } from "../renderer/ui/builders/patternEdit";
 import { OVERLAY_KEYS, type OverlayKey } from "../renderer/ui/overlayKeys";
 import { setSelectionOverlay } from "../renderer/ui/overlaySink";

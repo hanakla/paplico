@@ -1,10 +1,13 @@
 "use client";
 
-import type { Paplico, PublicUIState } from "@paplico/core";
+import {
+	createRendererState,
+	type Paplico,
+	type PublicUIState,
+} from "@paplico/core";
 import { inspectIccProfile, type ProofProfileRef } from "@paplico/core/color";
 import {
 	createEmbeddedFileFromBytes,
-	createRendererState,
 	isLengthUnit,
 	LENGTH_UNITS,
 } from "@paplico/core/document";

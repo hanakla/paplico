@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ObjectsChangeDelta } from "../collaboration/YjsProvider";
 import type { Document, Group } from "../schema";
 import { DefIndex } from "./DefIndex";
 import { createDefaultDocument } from "./factory";
+import type { ObjectsChangeDelta } from "./objectsChangeDelta";
 
 const IDENTITY_TRANSFORM = {
 	x: 0,

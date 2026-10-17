@@ -1,11 +1,8 @@
 import { subscribe } from "valtio";
 import { subscribeKey } from "valtio/utils";
-import type {
-	ObjectsChangeDelta,
-	YjsSyncAppliedMeta,
-} from "../collaboration/YjsProvider";
+import type { YjsSyncAppliedMeta } from "../collaboration/YjsProvider";
+import type { ObjectsChangeDelta } from "../document/objectsChangeDelta";
 import type { SpatialIndex } from "../document/SpatialIndex";
-import type { RendererState } from "../Paplico";
 import {
 	type AnyArtObject,
 	getArtboardBounds,
@@ -13,9 +10,9 @@ import {
 	isContainer,
 	type Layer,
 } from "../schema";
-import { createResizeHandles } from "../tools/resizeHandleHelper";
 import type { DirtyReason } from "./RenderScheduler";
-import type { ChangedElements } from "./types";
+import type { ChangedElements, RendererState } from "./types";
+import { createResizeHandles } from "./ui/builders/resizeHandles";
 import { setArtboardSelectionOverlay } from "./ui/overlaySink";
 
 type DocumentChangeSubscriberStoreKey =

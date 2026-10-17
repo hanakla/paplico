@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createIdentityTransform } from "../document/factory";
-import { interpolateStrokeWidths } from "../renderer/geometry/strokeTessellator";
 import type {
 	AnyArtObject,
 	FillAppearance,
@@ -16,6 +15,7 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
+import { interpolateStrokeWidths } from "../utils/geometry/generate/strokeTessellator";
 import { EraserTool } from "./EraserTool";
 
 // Default viewport (0,0,zoom=1), canvas 800×600:

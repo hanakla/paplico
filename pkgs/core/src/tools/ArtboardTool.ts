@@ -3,6 +3,11 @@
  * Allows creating, selecting, moving, and resizing artboards on the canvas
  */
 
+import {
+	createResizeHandles,
+	type HandlePosition,
+	type ResizeHandle,
+} from "../renderer/ui/builders/resizeHandles";
 import { buildSnapLineOverlay } from "../renderer/ui/builders/snapLine";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
 import { OVERLAY_Z, UI_THEME } from "../renderer/ui/theme";
@@ -15,12 +20,9 @@ import {
 } from "../schema";
 import {
 	calculateResizedBounds,
-	createResizeHandles,
 	getResizeCursor,
 	getResizeSnapTargets,
-	type HandlePosition,
 	hitTestResizeHandle,
-	type ResizeHandle,
 	type ResizeSnapTargets,
 } from "./resizeHandleHelper";
 import type { PointerEventData, Tool } from "./Tool";

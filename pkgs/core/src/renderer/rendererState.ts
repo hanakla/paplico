@@ -1,7 +1,7 @@
 import { nanoid } from "nanoid";
 import { proxy, ref } from "valtio";
-import type { RendererState } from "../Paplico";
 import type { Document } from "../schema";
+import type { RendererState } from "./types";
 
 /**
  * Create a new RendererState instance as Valtio proxy.

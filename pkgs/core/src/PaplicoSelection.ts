@@ -1,5 +1,5 @@
 import type { SpatialIndex } from "./document/SpatialIndex";
-import type { RendererState } from "./Paplico";
+import type { RendererState } from "./renderer/types";
 import {
 	setArtboardSelectionOverlay,
 	setSelectionOverlay,

@@ -119,7 +119,7 @@ function calculateImageBounds(
 		return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 	}
 
-	// x, y は中心座標
+	// x and y are the center
 	const halfWidth = image.width / 2;
 	const halfHeight = image.height / 2;
 
@@ -202,8 +202,8 @@ function calculateTextBounds(
 	);
 	if (boundEstimate) return boundEstimate;
 
-	// TextLayoutEngine.calculateBoundsで正確な値が計算されてSpatialIndexに上書きされる。
-	// ここではレイアウト計算前の初期推定値を返す。
+	// TextLayoutEngine.calculateBounds computes the exact bounds and overwrites
+	// them in SpatialIndex. This returns the estimate used before layout runs.
 	const fontSize = text.defaultStyle.fontSize ?? 16;
 	const lineHeightMultiplier =
 		text.defaultStyle.lineHeight ??

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { YjsProvider } from "./collaboration/YjsProvider";
 import type { SpatialIndex } from "./document/SpatialIndex";
-import type { RendererState } from "./Paplico";
 import { PaplicoCommands } from "./PaplicoCommands";
+import type { RendererState } from "./renderer/types";
 import type { AnyArtObject, Layer } from "./schema";
 import { isEffectivelyLocked } from "./utils/elementQuery";
 
