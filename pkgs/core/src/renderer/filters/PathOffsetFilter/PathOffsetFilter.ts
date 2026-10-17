@@ -4,17 +4,17 @@ import type {
 	CubicBezierSegment,
 	Filter,
 } from "../../../schema";
-import { splitBezierAtT } from "../../../utils/geometry/pathOps";
+import { circularArcByCubics } from "../../../utils/geometry/generate/circularArc";
+import { computeSubPathSignedArea } from "../../../utils/geometry/measure/area";
 import {
-	circularArcByCubics,
 	evalCubicBezier,
 	evalCubicBezierDerivative,
-} from "../../../utils/geometry/pathSampling";
+	splitBezierAtT,
+} from "../../../utils/geometry/primitives/bezier";
 import {
-	computeSubPathSignedArea,
 	resolveSegment,
 	splitIntoSubPaths,
-} from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/primitives/segment";
 import type { FilterHandler } from "../../canvas/pipeline/FilterRenderer";
 
 export interface PathOffsetParams {

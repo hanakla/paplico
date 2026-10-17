@@ -11,8 +11,8 @@ import {
 	testViewport,
 } from "../testUtils/pointerEvent";
 import { closedRectSegments, lineSeg } from "../testUtils/segmentFactory";
-import { brandWorldBBox } from "../utils/geometry/bounds";
-import { toWorld } from "../utils/geometry/geometry";
+import { brandWorldBBox } from "../utils/geometry/primitives/box";
+import { toWorld } from "../utils/geometry/space/coordinates";
 import { createDefaultTextStyle, TextTool } from "./TextTool";
 
 function createTextElement(text: string): TextElement {

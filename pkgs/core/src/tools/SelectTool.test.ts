@@ -27,20 +27,18 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
-import {
-	brandWorldBBox,
-	calculateElementBounds,
-} from "../utils/geometry/bounds";
+import { calculateElementBounds } from "../utils/geometry/elementBounds";
+import { brandWorldBBox } from "../utils/geometry/primitives/box";
 import {
 	applyWorldAffineToTransform,
 	toWorld,
 	type WorldBezierSegment,
-} from "../utils/geometry/geometry";
-import { getWorldSegments } from "../utils/geometry/segmentOps";
+} from "../utils/geometry/space/coordinates";
 import {
 	frameWorldBounds,
 	type SelectionFrame,
-} from "../utils/geometry/selectionFrame";
+} from "../utils/geometry/space/selectionFrame";
+import { getWorldSegments } from "../utils/geometry/space/worldSegments";
 import { SelectTool } from "./SelectTool";
 import { createDefaultTextStyle } from "./TextTool";
 import type { ToolContextOptions } from "./ToolContext";

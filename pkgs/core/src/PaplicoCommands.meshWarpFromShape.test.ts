@@ -22,8 +22,8 @@ import {
 	type TextStyle,
 } from "./schema";
 import { rectPath } from "./testUtils/svgFixtures";
-import { calculateLocalElementBounds } from "./utils/geometry/bounds";
-import { applyTransformToPoint } from "./utils/geometry/geometry";
+import { calculateLocalElementBounds } from "./utils/geometry/elementBounds";
+import { applyTransformToPoint } from "./utils/geometry/space/coordinates";
 
 describe("PaplicoCommands.createMeshWarpFromShapeSelection", () => {
 	it("should use the key object as the shape and the rest as content", () => {

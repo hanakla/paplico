@@ -4,8 +4,8 @@ import type {
 	CubicBezierSegment,
 	ElementTransform,
 } from "../../../schema";
-import { transformLinearMatrix } from "../../../utils/geometry/geometry";
-import { resolveSegment } from "../../../utils/geometry/segmentOps";
+import { resolveSegment } from "../../../utils/geometry/primitives/segment";
+import { transformLinearMatrix } from "../../../utils/geometry/space/coordinates";
 
 /** Row-major 2D affine map in world space: p' = [m00 m01; m10 m11]·p + (tx, ty). */
 export interface WorldAffine {

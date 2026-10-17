@@ -10,7 +10,7 @@ import {
 	createStrokeBrushSettings,
 } from "../../../document/factory";
 import type { CubicBezierSegment, Filter } from "../../../schema";
-import { hashSegments } from "../../../utils/geometry/segmentOps";
+import { hashSegments } from "../../../utils/geometry/measure/segmentHash";
 import {
 	type GeometricStrokeShape,
 	isOutlinableStroke,

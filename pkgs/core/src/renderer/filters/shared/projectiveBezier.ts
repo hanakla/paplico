@@ -17,7 +17,7 @@ import {
 	resolveCP1,
 	resolveCP2,
 	splitIntoSubPaths,
-} from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/primitives/segment";
 
 export interface Point {
 	x: number;

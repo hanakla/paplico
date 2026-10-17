@@ -16,7 +16,7 @@ import { legacyPlace } from "../testUtils/legacyPlacement";
 import {
 	applyTransformToPoint,
 	composeTransforms,
-} from "../utils/geometry/geometry";
+} from "../utils/geometry/space/coordinates";
 import { TimelapsePlayer } from "./TimelapsePlayer";
 import { buildTimelapseIndex } from "./timelapseIndex";
 import type { TimelapseData, TimelapseEntry, TimelapseFrame } from "./types";

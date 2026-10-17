@@ -26,7 +26,7 @@ import {
 import {
 	type FittedCubic,
 	fitCubicBeziers,
-} from "../../utils/geometry/strokeFitting";
+} from "../../utils/geometry/generate/strokeFitting";
 import type { SeedColor } from "./fill";
 import { type FillRasterSpace, rasterToWorld } from "./rasterSpace";
 

@@ -4,7 +4,7 @@ import {
 	type MeshGradient,
 	type MeshGradientVertex,
 } from "../../schema";
-import { getEffectiveMeshEdgeCurve } from "../../utils/geometry/meshGradient";
+import { getEffectiveMeshEdgeCurve } from "../../utils/geometry/measure/meshTopology";
 
 interface TextureCacheEntry {
 	texture: GPUTexture;

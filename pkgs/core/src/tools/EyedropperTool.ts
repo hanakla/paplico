@@ -8,7 +8,7 @@ import {
 	type ExtractedAppearance,
 	extractAppearance,
 } from "../utils/elementQuery";
-import { screenToWorld } from "../utils/geometry/geometry";
+import { screenToWorld } from "../utils/geometry/space/coordinates";
 import {
 	dragStartThresholdScreenPx,
 	LONG_PRESS_MS,

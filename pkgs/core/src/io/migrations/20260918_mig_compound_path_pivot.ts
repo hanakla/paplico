@@ -1,6 +1,6 @@
 import { type AnyArtObject, type Document, isCompoundPath } from "../../schema";
-import { calculateLocalElementBounds } from "../../utils/geometry/bounds";
-import { transformLinearMatrix } from "../../utils/geometry/geometry";
+import { calculateLocalElementBounds } from "../../utils/geometry/elementBounds";
+import { transformLinearMatrix } from "../../utils/geometry/space/coordinates";
 import type { Migration } from "./index";
 import {
 	convertLegacyPlacements,

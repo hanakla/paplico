@@ -7,11 +7,10 @@ import {
 	type Reference3DDef,
 	type Reference3DElement,
 } from "../../../schema";
-
 import {
 	applyTransformToPoint,
 	composeAncestorTransform,
-} from "../../../utils/geometry/geometry";
+} from "../../../utils/geometry/space/coordinates";
 import type {
 	AssetState,
 	BlitQuadToCanvasFn,

@@ -11,8 +11,8 @@ import {
 	type Path,
 	type PathGeometry,
 } from "../../../schema";
-import { applyCornerRadius } from "../../../utils/geometry/cornerRadius";
-import { toWorldPath } from "../../../utils/geometry/segmentOps";
+import { applyCornerRadius } from "../../../utils/geometry/generate/cornerRadius";
+import { toWorldPath } from "../../../utils/geometry/space/worldSegments";
 import { deepClone } from "../../../utils/lang";
 import { createCompoundPathRenderPath } from "../CanvasLayer.helpers";
 import {

@@ -11,7 +11,7 @@ import {
 	testViewport,
 } from "../testUtils/pointerEvent";
 import { rectPath } from "../testUtils/svgFixtures";
-import type { WorldBBox } from "../utils/geometry/bounds";
+import type { WorldBBox } from "../utils/geometry/primitives/box";
 import { SkewTool } from "./SkewTool";
 
 const ELEMENT_ID = "el-1";

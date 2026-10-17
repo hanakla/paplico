@@ -13,7 +13,7 @@ import type {
 	CubicBezierSegment,
 	StrokeWidthPoint,
 } from "../../../../schema";
-import { buildArcLengthTable } from "../../../../utils/geometry/pathSampling";
+import { buildArcLengthTable } from "../../../../utils/geometry/measure/arcLength";
 import {
 	CONTACT_SPEED_WINDOW_MS,
 	type DabEvalState,

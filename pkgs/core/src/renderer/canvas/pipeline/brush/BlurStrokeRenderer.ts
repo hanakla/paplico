@@ -9,7 +9,7 @@ import type {
 import {
 	expandBounds,
 	type WorldBBox,
-} from "../../../../utils/geometry/bounds";
+} from "../../../../utils/geometry/primitives/box";
 import { compileShaderModule } from "../../../../utils/wgpu-utils";
 import type { GPUTimingProfiler } from "../../../GPUTimingProfiler";
 import { createFullscreenPipeline } from "../../../PipelineFactory";

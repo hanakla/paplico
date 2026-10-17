@@ -27,12 +27,21 @@ import {
 	type Vec3,
 	type Viewport,
 } from "../schema";
+import { calculateRepeatSourceUnion } from "../utils/geometry/elementBounds";
+import {
+	collectSelectionOutlines,
+	shouldDashSelectionBounds,
+} from "../utils/geometry/generate/selectionOutlines";
 import {
 	brandWorldBBox,
-	calculateRepeatSourceUnion,
-	pointInPolygon,
 	type WorldBBox,
-} from "../utils/geometry/bounds";
+} from "../utils/geometry/primitives/box";
+import { pointInPolygon } from "../utils/geometry/query/hitTest";
+import {
+	applyAffineToPoint,
+	elementTransformToAffine,
+	invertAffine,
+} from "../utils/geometry/space/affine";
 import {
 	applyTransformToPoint,
 	composeTransforms,
@@ -41,23 +50,14 @@ import {
 	screenToWorld,
 	toWorld,
 	type WorldBezierSegment,
-} from "../utils/geometry/geometry";
-import {
-	applyAffineToPoint,
-	elementTransformToAffine,
-	invertAffine,
-} from "../utils/geometry/repeatInterpolation";
+} from "../utils/geometry/space/coordinates";
 import {
 	frameCenter,
 	frameWorldBounds,
 	resolveSelectionFrame,
 	type SelectionFrame,
 	transformFrame,
-} from "../utils/geometry/selectionFrame";
-import {
-	collectSelectionOutlines,
-	shouldDashSelectionBounds,
-} from "../utils/geometry/selectionOutlines";
+} from "../utils/geometry/space/selectionFrame";
 import {
 	buildExtrudeGizmoPrimitives,
 	createExtrudeGizmoFrame,

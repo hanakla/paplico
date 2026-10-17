@@ -1,6 +1,6 @@
 import type { BezierPoint, CubicBezierSegment } from "../schema";
-import { evalCubicBezier } from "../utils/geometry/pathSampling";
-import { resolveSegment } from "../utils/geometry/segmentOps";
+import { evalCubicBezier } from "../utils/geometry/primitives/bezier";
+import { resolveSegment } from "../utils/geometry/primitives/segment";
 
 /**
  * Turn angle (deg) at each interior anchor between consecutive fitted

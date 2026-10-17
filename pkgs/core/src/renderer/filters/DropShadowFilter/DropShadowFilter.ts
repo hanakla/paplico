@@ -23,11 +23,11 @@ import {
 	toRGBColor,
 } from "../../../schema";
 import { lerpOptionalRGBColor, lerpOptionalScalar } from "../../../utils/color";
-import { expandBounds } from "../../../utils/geometry/bounds";
+import { expandBounds } from "../../../utils/geometry/primitives/box";
 import {
 	computeQuadProjectiveWeights,
 	type QuadCorners,
-} from "../../../utils/geometry/quadProjection";
+} from "../../../utils/geometry/space/quadProjection";
 import { compileShaderModule } from "../../../utils/wgpu-utils";
 import { aabbOfQuad } from "../../canvas/CanvasLayer.helpers";
 import {

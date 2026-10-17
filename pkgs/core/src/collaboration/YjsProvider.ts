@@ -32,13 +32,15 @@ import {
 	type RepeatObject,
 } from "../schema";
 import { Emitter } from "../utils/emitter";
-import { composeTransforms } from "../utils/geometry/geometry";
 import {
 	createPathsFromRuns,
-	mergePathsAtEndpoints,
 	type PathRun,
+} from "../utils/geometry/generate/pathOps";
+import {
+	mergePathsAtEndpoints,
 	splitPathAtAnchor,
-} from "../utils/geometry/pathOps";
+} from "../utils/geometry/reshape/pathSplit";
+import { composeTransforms } from "../utils/geometry/space/coordinates";
 import { neverReached } from "../utils/lang";
 import {
 	extractDocumentFromYDoc,

@@ -488,7 +488,7 @@ Paplico uses three coordinate systems:
 
 **Coordinate Transformation:**
 
-Implementation: `pkgs/core/src/utils/geometry/geometry.ts`
+Implementation: `pkgs/core/src/utils/geometry/space/coordinates.ts`
 
 ```typescript
 // Screen → World (for input handling)
@@ -568,7 +568,14 @@ pkgs/core/
     ├── timelapse/         # Timelapse recording/playback/export
     ├── testUtils/         # Shared test helpers (pointerEvent.ts, visualRegression.ts), vitest setup, fixtures and test assets
     └── utils/             # General helpers (color, emitter, keyboard, lang, svgImport, wgpu-utils)
-        └── geometry/      # Geometry domain (bezierBool, bounds, cornerRadius, geometry, meshGradient, pathOps, Quadtree, resize, segmentOps, strokeFitting)
+        └── geometry/      # Geometry domain, split by role. Each layer imports only from itself or lower layers (see Dependency Rules)
+            ├── primitives/      # Building blocks every layer uses (bezier evaluation and split, segment resolution, bounding-box arithmetic)
+            ├── space/           # Coordinate-space conversion that maps points without changing the shape (screenToWorld, mat4, affine, world segments)
+            ├── measure/         # Values read from a shape (path bounds, arc length, area, segment hash, mesh topology reads)
+            ├── query/           # Hit tests and nearest-point lookups (hitTest, Quadtree, ring containment, segment intersection)
+            ├── generate/        # New geometry built from input (boolean ops, stroke fitting, corner radius, polyline rounding)
+            ├── reshape/         # Changes to an existing shape (resize, point deform, mesh warp, path split and merge, mesh vertex add and delete)
+            └── elementBounds.ts # Bounds of a whole element, measured after baking compound paths, repeats and mesh warps
 
 pkgs/web/
 ├── server.mjs             # Custom dev/WebSocket server for Yjs collaboration (writes pap.lock)
@@ -600,6 +607,7 @@ pkgs/web/
 - Use callback/dependency injection pattern to communicate with upper layers
 - Example: YjsProvider accepts callbacks instead of importing documentStore
 - **Only add a symbol to an entry barrel when the app needs it.** Classes, functions, and types used only within the package are imported directly from their modules, never through its own barrels.
+- **Inside `utils/geometry/`, import only from the same or a lower layer.** The order from the bottom is `primitives` → `space` → `measure` → `query` → `generate` → `reshape` → `elementBounds.ts`. When a function needs something from a higher layer, move the function up to that layer instead of importing upward.
 
 ## Tauri Desktop Build
 

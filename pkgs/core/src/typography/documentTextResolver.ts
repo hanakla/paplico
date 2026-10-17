@@ -19,12 +19,11 @@ import {
 	isPath,
 	type TextElement,
 } from "../schema";
-
 import {
 	composeAncestorMatrix,
 	composeTransforms,
-} from "../utils/geometry/geometry";
-import { toWorldPath } from "../utils/geometry/segmentOps";
+} from "../utils/geometry/space/coordinates";
+import { toWorldPath } from "../utils/geometry/space/worldSegments";
 import type { TextDocumentResolver } from "./TextRenderer";
 
 export function buildDocumentTextResolver(

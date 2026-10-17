@@ -1,4 +1,4 @@
-import type { GPUTransformAffine } from "../../../utils/geometry/geometry";
+import type { GPUTransformAffine } from "../../../utils/geometry/space/coordinates";
 import type { LineArena } from "./lineArena";
 import type { ClipRect, DeviceTransform, RasterFrame } from "./stripTypes";
 

@@ -15,9 +15,9 @@ import {
 	type TextElement,
 	type Viewport,
 } from "../../../schema";
-import type { WorldBBox } from "../../../utils/geometry/bounds";
-import type { QuadCorners } from "../../../utils/geometry/quadProjection";
-import type { Affine2D } from "../../../utils/geometry/repeatInterpolation";
+import type { WorldBBox } from "../../../utils/geometry/primitives/box";
+import type { Affine2D } from "../../../utils/geometry/space/affine";
+import type { QuadCorners } from "../../../utils/geometry/space/quadProjection";
 import type { ExtrudeMeshBaker } from "../../filters/shared/ExtrudeMeshBaker";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
 import type { BlitLayer, BlitUVRect } from "../CanvasLayerTypes";

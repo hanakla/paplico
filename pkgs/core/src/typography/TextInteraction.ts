@@ -14,7 +14,7 @@ import {
 	composeTransforms,
 	cursorLocalToWorld,
 	inverseTransform,
-} from "../utils/geometry/geometry";
+} from "../utils/geometry/space/coordinates";
 import type { TextGlyphQuad } from "./glyphQuad";
 import type { TextRenderer } from "./TextRenderer";
 

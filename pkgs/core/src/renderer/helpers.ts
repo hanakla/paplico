@@ -5,7 +5,7 @@ import type {
 	StrokeAlign,
 	StrokeWidthPoint,
 } from "../schema";
-import { floatBits, hashSegments } from "../utils/geometry/segmentOps";
+import { floatBits, hashSegments } from "../utils/geometry/measure/segmentHash";
 
 /**
  * Compute a geometry hash that includes segment coordinates AND stroke

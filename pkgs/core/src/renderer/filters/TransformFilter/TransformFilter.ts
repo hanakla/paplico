@@ -18,7 +18,13 @@ import type {
 	Filter,
 	StrokeAppearance,
 } from "../../../schema";
-import { calculateSegmentListBounds } from "../../../utils/geometry/bounds";
+import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
+import {
+	getStartAnchor,
+	splitIntoSubPaths,
+} from "../../../utils/geometry/primitives/segment";
+import { scaleStrokeAppearance } from "../../../utils/geometry/reshape/resize";
+import { reverseSubPath } from "../../../utils/geometry/reshape/segment";
 import {
 	type Affine2D,
 	applyAffineToPoint,
@@ -26,13 +32,7 @@ import {
 	elementTransformToAffine,
 	IDENTITY_AFFINE,
 	invertAffine,
-} from "../../../utils/geometry/repeatInterpolation";
-import { scaleStrokeAppearance } from "../../../utils/geometry/resize";
-import {
-	getStartAnchor,
-	reverseSubPath,
-	splitIntoSubPaths,
-} from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/space/affine";
 import { degToRad, lerp, mulberry32 } from "../../../utils/math";
 import {
 	type AppearanceGeometry,

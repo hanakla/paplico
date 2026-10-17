@@ -15,22 +15,22 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
-import { brandWorldBBox } from "../utils/geometry/bounds";
 import {
-	applyTransformToPoint,
-	composeTransforms,
-} from "../utils/geometry/geometry";
-import {
-	cubicBez,
 	getEffectiveMeshEdgeCurve,
 	getVertexNeighbors,
-	syncDerivedVertices,
-} from "../utils/geometry/meshGradient";
+} from "../utils/geometry/measure/meshTopology";
+import { evalCubicBezier } from "../utils/geometry/primitives/bezier";
+import { brandWorldBBox } from "../utils/geometry/primitives/box";
+import { syncDerivedVertices } from "../utils/geometry/reshape/meshTopology";
 import {
 	createMeshWarpSampler,
 	promoteWarpVertexToExplicit,
 	subdivideWarpFace,
-} from "../utils/geometry/meshWarp";
+} from "../utils/geometry/reshape/meshWarp";
+import {
+	applyTransformToPoint,
+	composeTransforms,
+} from "../utils/geometry/space/coordinates";
 import { PathEditTool } from "./PathEditTool";
 
 const HANDLES_KEY = "path-edit/handles";
@@ -4073,7 +4073,7 @@ describe("PathEditTool", () => {
 					0,
 					1,
 				);
-				const at = cubicBez(curve[0], curve[1], curve[2], curve[3], t);
+				const at = evalCubicBezier(curve[0], curve[1], curve[2], curve[3], t);
 				const before = mesh.vertices.map((v) => ({ ...v }));
 				ctx.applyDeformation.mockClear();
 				tool.onDoubleClick(
@@ -4277,7 +4277,7 @@ describe("PathEditTool", () => {
 								source.edgeVerts[0],
 								source.edgeVerts[1],
 							);
-							const onCurve = cubicBez(
+							const onCurve = evalCubicBezier(
 								curve[0],
 								curve[1],
 								curve[2],
@@ -4342,7 +4342,7 @@ describe("PathEditTool", () => {
 						);
 						edges.push({
 							label: `${mesh.vertices.length}-vertex cage, edge ${i}->${j}`,
-							at: cubicBez(curve[0], curve[1], curve[2], curve[3], 0.5),
+							at: evalCubicBezier(curve[0], curve[1], curve[2], curve[3], 0.5),
 						});
 					}
 				}

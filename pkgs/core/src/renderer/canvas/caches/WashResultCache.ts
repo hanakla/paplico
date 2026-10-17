@@ -1,7 +1,7 @@
 import { localAppearances } from "../../../document/appearancePresets";
 import { PREVIEW_ELEMENT_SENTINEL_ID } from "../../../document/constants";
-import type { WorldBBox } from "../../../utils/geometry/bounds";
-import { hashSegmentsWithMetadata } from "../../../utils/geometry/segmentOps";
+import { hashSegmentsWithMetadata } from "../../../utils/geometry/measure/segmentHash";
+import type { WorldBBox } from "../../../utils/geometry/primitives/box";
 import type { BlitUVRect, FilteredTextureInfo } from "../CanvasLayerTypes";
 import { IdleClock, type UseStamp } from "../pipeline/IdleClock";
 import type { ElementFilterPlan } from "../pipeline/RenderPlanner";

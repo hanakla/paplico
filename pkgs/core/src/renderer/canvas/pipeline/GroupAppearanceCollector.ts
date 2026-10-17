@@ -10,13 +10,10 @@ import {
 	isPath,
 	type Path,
 } from "../../../schema";
-import { placeElement } from "../../../utils/geometry/geometry";
-
-import {
-	computeSubPathSignedArea,
-	reverseSubPath,
-	toWorldPath,
-} from "../../../utils/geometry/segmentOps";
+import { computeSubPathSignedArea } from "../../../utils/geometry/measure/area";
+import { reverseSubPath } from "../../../utils/geometry/reshape/segment";
+import { placeElement } from "../../../utils/geometry/space/coordinates";
+import { toWorldPath } from "../../../utils/geometry/space/worldSegments";
 import type { CompoundPathCache } from "../caches/CompoundPathCache";
 
 /**

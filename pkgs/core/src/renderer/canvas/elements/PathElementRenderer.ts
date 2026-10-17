@@ -19,13 +19,11 @@ import {
 import {
 	resolveBlendSourcePath,
 	resolveBlendSpinePath,
-} from "../../../utils/geometry/blendInterpolation";
-import type { GPUTransformAffine } from "../../../utils/geometry/geometry";
-import {
-	hashSegments,
-	splitIntoSubPaths,
-	toWorldPath,
-} from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/generate/blendInterpolation";
+import { hashSegments } from "../../../utils/geometry/measure/segmentHash";
+import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
+import type { GPUTransformAffine } from "../../../utils/geometry/space/coordinates";
+import { toWorldPath } from "../../../utils/geometry/space/worldSegments";
 import { flattenBezierPath } from "../../geometry/bezierFlatten";
 import {
 	appendFillLines,

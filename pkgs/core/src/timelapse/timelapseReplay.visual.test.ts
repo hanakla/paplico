@@ -14,7 +14,7 @@ import {
 	createTestRenderer,
 	renderArtboardForTest,
 } from "../testUtils/visualRegression";
-import { calculateElementBounds } from "../utils/geometry/bounds";
+import { calculateElementBounds } from "../utils/geometry/elementBounds";
 import { TimelapsePlayer } from "./TimelapsePlayer";
 import { TimelapseRecorder } from "./TimelapseRecorder";
 import type { TimelapseChangeSet } from "./timelapseIndex";

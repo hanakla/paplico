@@ -12,7 +12,7 @@ import { rectPath } from "../testUtils/svgFixtures";
 import {
 	applyTransformToPoint,
 	composeTransforms,
-} from "../utils/geometry/geometry";
+} from "../utils/geometry/space/coordinates";
 import { attachCollaboration } from "./attachCollaboration";
 import { extractDocumentFromYDoc } from "./extractDocumentFromYDoc";
 import { YjsProvider, type YjsProviderCallbacks } from "./YjsProvider";

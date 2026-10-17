@@ -1,5 +1,5 @@
 import type { ElementTransform } from "../schema";
-import { transformLinearMatrix } from "../utils/geometry/geometry";
+import { transformLinearMatrix } from "../utils/geometry/space/coordinates";
 
 interface Point {
 	x: number;

@@ -25,7 +25,7 @@ import type {
 	TextParagraph,
 	TextStyle,
 } from "../schema";
-import { resolveSegment } from "../utils/geometry/segmentOps";
+import { resolveSegment } from "../utils/geometry/primitives/segment";
 import type { LoadedFont } from "./fonts/FontLoader";
 import type { FontManager } from "./fonts/FontManager";
 import { rotateAnchorAroundPivot } from "./glyphQuad";

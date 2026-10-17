@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BoundingBox, Viewport } from "../schema";
-import { worldFrame } from "../utils/geometry/selectionFrame";
+import { worldFrame } from "../utils/geometry/space/selectionFrame";
 import {
 	calculateResizedBounds,
 	createFrameHandles,

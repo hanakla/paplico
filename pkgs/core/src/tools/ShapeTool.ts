@@ -16,7 +16,7 @@ import {
 	type Path,
 	type Viewport,
 } from "../schema";
-import { screenToWorld } from "../utils/geometry/geometry";
+import { screenToWorld } from "../utils/geometry/space/coordinates";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 import type { ShapeOption } from "./toolSettings";

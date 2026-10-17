@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CubicBezierSegment } from "../schema";
-import { getStartAnchor } from "../utils/geometry/segmentOps";
+import { getStartAnchor } from "../utils/geometry/primitives/segment";
 import {
 	bendSegmentAtT,
 	cutPathSegments,

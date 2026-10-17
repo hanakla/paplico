@@ -29,19 +29,20 @@ import {
 	type Path,
 	type Viewport,
 } from "../schema";
-import { brandWorldBBox, distanceToSegment } from "../utils/geometry/bounds";
+import { brandWorldBBox } from "../utils/geometry/primitives/box";
+import { resolveSegment } from "../utils/geometry/primitives/segment";
+import { distanceToSegment } from "../utils/geometry/query/hitTest";
+import { splitSegmentAtIndex } from "../utils/geometry/reshape/segment";
 import {
 	composeTransforms,
 	inverseTransform,
 	screenToWorld,
 	worldToScreen,
-} from "../utils/geometry/geometry";
+} from "../utils/geometry/space/coordinates";
 import {
 	getWorldSegments,
-	resolveSegment,
-	splitSegmentAtIndex,
 	toWorldPath,
-} from "../utils/geometry/segmentOps";
+} from "../utils/geometry/space/worldSegments";
 import {
 	type AnchorNode,
 	anchorsFromSegments,

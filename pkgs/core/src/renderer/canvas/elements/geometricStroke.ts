@@ -15,9 +15,9 @@ import {
 	type StrokeAppearance,
 	type StrokeWidthPoint,
 } from "../../../schema";
-import { transformLinearMatrix } from "../../../utils/geometry/geometry";
-import { triangleSoupOutline } from "../../../utils/geometry/pathOps";
-import { splitIntoSubPaths } from "../../../utils/geometry/segmentOps";
+import { triangleSoupOutline } from "../../../utils/geometry/generate/pathOps";
+import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
+import { transformLinearMatrix } from "../../../utils/geometry/space/coordinates";
 import { flattenBezierPathWithPressure } from "../../geometry/bezierFlatten";
 import {
 	deviceScaleBucket,

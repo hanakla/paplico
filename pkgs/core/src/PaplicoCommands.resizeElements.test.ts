@@ -19,8 +19,8 @@ import type {
 	Point,
 } from "./schema";
 import { rectPath } from "./testUtils/svgFixtures";
-import { applyTransformToPoint } from "./utils/geometry/geometry";
-import { worldFrame } from "./utils/geometry/selectionFrame";
+import { applyTransformToPoint } from "./utils/geometry/space/coordinates";
+import { worldFrame } from "./utils/geometry/space/selectionFrame";
 
 const COMBINED_PATH_IDS = ["a", "b"];
 

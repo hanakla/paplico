@@ -7,7 +7,7 @@ import {
 	isGroup,
 	isPath,
 } from "../../../schema";
-import { collectCompoundSources } from "../../../utils/geometry/compoundBake";
+import { collectCompoundSources } from "../../../utils/geometry/generate/compoundBake";
 import { collectGroupSegments } from "../pipeline/GroupAppearanceCollector";
 import {
 	type CompoundPathCache,

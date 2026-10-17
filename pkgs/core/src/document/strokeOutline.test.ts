@@ -13,7 +13,7 @@ import {
 	type Path,
 	type StrokeAppearance,
 } from "../schema";
-import { calculateSegmentListBounds } from "../utils/geometry/bounds";
+import { calculateSegmentListBounds } from "../utils/geometry/measure/pathBounds";
 import { createStrokeBrushSettings } from "./factory";
 import { buildStrokeOutline, canOutlineStrokes } from "./strokeOutline";
 

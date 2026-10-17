@@ -23,8 +23,8 @@ import {
 	expandBounds,
 	type LocalBBox,
 	type WorldBBox,
-} from "../utils/geometry/bounds";
-import { composeAncestorMatrix } from "../utils/geometry/geometry";
+} from "../utils/geometry/primitives/box";
+import { composeAncestorMatrix } from "../utils/geometry/space/coordinates";
 import {
 	compileShaderModule,
 	type ShaderDataDefinitions,

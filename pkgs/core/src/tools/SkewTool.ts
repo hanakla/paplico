@@ -8,8 +8,11 @@ import type {
 	ElementTransform,
 	Viewport,
 } from "../schema";
-import { calculateLocalElementBounds } from "../utils/geometry/bounds";
-import { keepPointInPlace, screenToWorld } from "../utils/geometry/geometry";
+import { calculateLocalElementBounds } from "../utils/geometry/elementBounds";
+import {
+	keepPointInPlace,
+	screenToWorld,
+} from "../utils/geometry/space/coordinates";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 

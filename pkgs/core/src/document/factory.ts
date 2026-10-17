@@ -18,8 +18,8 @@ import {
 	type RepeatObject,
 	type Viewport,
 } from "../schema";
-import { createWarpCageFromRect } from "../utils/geometry/meshWarp";
-import type { WarpGeometry } from "../utils/geometry/meshWarpShape";
+import type { WarpGeometry } from "../utils/geometry/generate/meshWarpShape";
+import { createWarpCageFromRect } from "../utils/geometry/reshape/meshWarp";
 
 export async function createEmbeddedImageFile(
 	file: File,

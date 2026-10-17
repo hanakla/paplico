@@ -20,11 +20,10 @@ import type {
 } from "../../schema";
 import type { TextRenderer } from "../../typography/TextRenderer";
 import type {
-	LocalBBox,
 	LocalBoundsCache,
-	WorldBBox,
 	WorldBoundsCache,
-} from "../../utils/geometry/bounds";
+} from "../../utils/geometry/elementBounds";
+import type { LocalBBox, WorldBBox } from "../../utils/geometry/primitives/box";
 import type { StructuredView } from "../../utils/wgpu-utils";
 import type { GradientTextureGenerator } from "../generators/GradientTextureGenerator";
 import type { MeshGradientTextureGenerator } from "../generators/MeshGradientTextureGenerator";

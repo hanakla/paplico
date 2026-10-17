@@ -4,7 +4,7 @@ import {
 	colorToRawRGBA,
 	toRGBColor,
 } from "../schema";
-import { lerpOklab } from "./geometry/blendInterpolation";
+import { lerpOklab } from "./geometry/generate/blendInterpolation";
 
 /**
  * Sample a linear/radial gradient's ColorStop list at parameter t (0-1),

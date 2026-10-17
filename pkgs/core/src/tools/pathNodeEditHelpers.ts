@@ -15,22 +15,22 @@ import type {
 	Path,
 	Viewport,
 } from "../schema";
-import { worldToScreen } from "../utils/geometry/geometry";
+import type { PathRun } from "../utils/geometry/generate/pathOps";
 import {
 	arcLengthRatioAt,
 	arcLengthRatios,
-	type PathRun,
-} from "../utils/geometry/pathOps";
+} from "../utils/geometry/measure/arcLength";
+import {
+	getStartAnchor,
+	resolveSegment,
+} from "../utils/geometry/primitives/segment";
+import { splitSegmentAtIndex } from "../utils/geometry/reshape/segment";
 import {
 	type Affine2D,
 	applyAffineToPoint,
-} from "../utils/geometry/repeatInterpolation";
-import {
-	getStartAnchor,
-	getWorldSegments,
-	resolveSegment,
-	splitSegmentAtIndex,
-} from "../utils/geometry/segmentOps";
+} from "../utils/geometry/space/affine";
+import { worldToScreen } from "../utils/geometry/space/coordinates";
+import { getWorldSegments } from "../utils/geometry/space/worldSegments";
 
 // --- Types ---
 

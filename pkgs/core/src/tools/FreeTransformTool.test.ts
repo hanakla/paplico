@@ -10,7 +10,7 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
-import type { WorldBBox } from "../utils/geometry/bounds";
+import type { WorldBBox } from "../utils/geometry/primitives/box";
 import { FreeTransformTool } from "./FreeTransformTool";
 
 const ELEMENT_ID = "el-1";

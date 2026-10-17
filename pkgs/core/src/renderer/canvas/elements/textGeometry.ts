@@ -1,5 +1,5 @@
 import type { CubicBezierSegment, Filter } from "../../../schema";
-import { appendSubpath } from "../../../utils/geometry/segmentOps";
+import { appendSubpath } from "../../../utils/geometry/reshape/segment";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
 import { resolveElementGeometry } from "../pipeline/PreFilterRenderer";
 

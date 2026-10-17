@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ElementTransform, Reference3DCamera } from "../../schema";
-import { composeTransforms } from "../../utils/geometry/geometry";
+import { composeTransforms } from "../../utils/geometry/space/coordinates";
 import {
 	computePerspectiveGuides,
 	guideSourceAffectedByDelta,

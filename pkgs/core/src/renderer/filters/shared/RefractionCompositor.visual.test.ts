@@ -3,7 +3,7 @@ import {
 	captureTexturePixels,
 	ensureWebGPUGlobals,
 } from "../../../testUtils/visualRegression";
-import { computeQuadProjectiveWeights } from "../../../utils/geometry/quadProjection";
+import { computeQuadProjectiveWeights } from "../../../utils/geometry/space/quadProjection";
 import { BackdropCaptureManager } from "../../canvas/pipeline/BackdropCaptureManager";
 import {
 	BackdropEffectCoordinator,

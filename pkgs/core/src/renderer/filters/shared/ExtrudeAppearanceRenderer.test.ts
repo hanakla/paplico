@@ -8,8 +8,8 @@ import type {
 	Filter,
 	Path,
 } from "../../../schema";
-import type { WorldBBox } from "../../../utils/geometry/bounds";
-import { computeSubPathSignedArea } from "../../../utils/geometry/segmentOps";
+import { computeSubPathSignedArea } from "../../../utils/geometry/measure/area";
+import type { WorldBBox } from "../../../utils/geometry/primitives/box";
 import {
 	AppearanceCache,
 	type AppearanceCacheEntry,

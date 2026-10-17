@@ -37,7 +37,7 @@ import {
 	TRANSIENT_LAYER_KIND,
 } from "../schema";
 import { cloneElementsWithIdRemap } from "../utils/cloneElements";
-import { calculateElementBounds } from "../utils/geometry/bounds";
+import { calculateElementBounds } from "../utils/geometry/elementBounds";
 import { neverReached } from "../utils/lang";
 
 /**

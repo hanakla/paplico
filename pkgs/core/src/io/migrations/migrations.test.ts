@@ -26,13 +26,13 @@ import {
 import { legacyPlace } from "../../testUtils/legacyPlacement";
 import { rectPath } from "../../testUtils/svgFixtures";
 import { createTestTextElement } from "../../testUtils/typographyFixtures";
-import { calculateLocalElementBounds } from "../../utils/geometry/bounds";
-import { applyCornerRadius } from "../../utils/geometry/cornerRadius";
+import { calculateLocalElementBounds } from "../../utils/geometry/elementBounds";
+import { applyCornerRadius } from "../../utils/geometry/generate/cornerRadius";
 import {
 	applyTransformToPoint,
 	composeAncestorTransform,
 	composeTransforms,
-} from "../../utils/geometry/geometry";
+} from "../../utils/geometry/space/coordinates";
 import { migAppearanceFilters } from "./20260221_mig_appearance_filters";
 import { migBrushSettings } from "./20260224_mig_brush_settings";
 import { migTiltPoolingDefaults } from "./20260228_mig_tilt_pooling_defaults";

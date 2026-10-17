@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Geometry utilities**
+  - `utils/geometry/` is split by role into `primitives/`, `space/`, `measure/`, `query/`, `generate/` and `reshape/` instead of one flat folder. Imports from `@paplico/core/utils` are unchanged.
+
 ## [0.8.0] - 2026-10-18
 
 ### Changed

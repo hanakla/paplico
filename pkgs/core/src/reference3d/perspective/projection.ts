@@ -7,7 +7,7 @@ import {
 import {
 	applyTransformToPoint,
 	inverseTransformPoint,
-} from "../../utils/geometry/geometry";
+} from "../../utils/geometry/space/coordinates";
 
 /**
  * Shared pinhole-camera projection math for the Reference3D subsystem.

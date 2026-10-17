@@ -8,16 +8,15 @@ import {
 	isIdentityTransform,
 	type Vec2,
 } from "../../../schema";
-
+import {
+	getStartAnchor,
+	splitIntoSubPaths,
+} from "../../../utils/geometry/primitives/segment";
 import {
 	applyTransformToPoint,
 	composeAncestorTransform,
 	transformBounds,
-} from "../../../utils/geometry/geometry";
-import {
-	getStartAnchor,
-	splitIntoSubPaths,
-} from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/space/coordinates";
 import type {
 	BlitMeshToCanvasFn,
 	BlitQuadToCanvasFn,

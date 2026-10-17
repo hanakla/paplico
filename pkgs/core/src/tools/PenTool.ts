@@ -18,8 +18,8 @@ import {
 	type StrokeAppearance,
 	type Viewport,
 } from "../schema";
-import { screenToWorld } from "../utils/geometry/geometry";
-import type { SmoothingMethod } from "../utils/geometry/strokeFitting";
+import type { SmoothingMethod } from "../utils/geometry/generate/strokeFitting";
+import { screenToWorld } from "../utils/geometry/space/coordinates";
 import {
 	type CoalescedPointerSample,
 	LONG_PRESS_MS,

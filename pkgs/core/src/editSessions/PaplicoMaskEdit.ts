@@ -36,7 +36,7 @@ import {
 import {
 	composeTransforms,
 	solveChildTransform,
-} from "../utils/geometry/geometry";
+} from "../utils/geometry/space/coordinates";
 
 interface MaskEditSession {
 	/** Element whose mask is being edited. */

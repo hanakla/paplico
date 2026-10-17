@@ -8,7 +8,7 @@ import {
 	isPath,
 	type Path,
 } from "../schema";
-import { placeElement } from "../utils/geometry/geometry";
+import { placeElement } from "../utils/geometry/space/coordinates";
 
 type EditablePath = {
 	path: Path;

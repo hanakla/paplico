@@ -20,11 +20,9 @@ import {
 	type TextElement,
 	type TextStyle,
 } from "../../../schema";
-import {
-	boundsIntersect,
-	calculateElementBounds,
-} from "../../../utils/geometry/bounds";
-import { composeTransforms } from "../../../utils/geometry/geometry";
+import { calculateElementBounds } from "../../../utils/geometry/elementBounds";
+import { boundsIntersect } from "../../../utils/geometry/query/hitTest";
+import { composeTransforms } from "../../../utils/geometry/space/coordinates";
 import { isPaintAppearance, splitAppearanceCopies } from "./appearanceCopies";
 import { uniformTransformScale } from "./pathData";
 import { isSvgNativeFilter } from "./svgFilterPrimitives";

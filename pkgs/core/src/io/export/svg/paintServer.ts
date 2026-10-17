@@ -9,7 +9,7 @@ import {
 import {
 	oklabToRgb,
 	rgbToOklab,
-} from "../../../utils/geometry/blendInterpolation";
+} from "../../../utils/geometry/generate/blendInterpolation";
 import {
 	composeWorldAffine,
 	formatNumber,

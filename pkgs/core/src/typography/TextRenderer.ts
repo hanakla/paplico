@@ -17,13 +17,13 @@ import {
 } from "../schema";
 import {
 	brandWorldBBox,
-	distanceToSegment,
 	type WorldBBox,
-} from "../utils/geometry/bounds";
+} from "../utils/geometry/primitives/box";
+import { distanceToSegment } from "../utils/geometry/query/hitTest";
 import {
 	inverseTransformPoint,
 	inverseTransformVector,
-} from "../utils/geometry/geometry";
+} from "../utils/geometry/space/coordinates";
 import {
 	getGlyphQuad,
 	hitTestGlyphQuad,

@@ -9,11 +9,11 @@ import {
 	type Solid3DBaseParams,
 	type Vec3,
 } from "../schema";
-import { calculateLocalElementBounds } from "../utils/geometry/bounds";
+import { calculateLocalElementBounds } from "../utils/geometry/elementBounds";
 import {
 	applyTransformToPoint,
 	composeTransforms,
-} from "../utils/geometry/geometry";
+} from "../utils/geometry/space/coordinates";
 import {
 	type Mat4,
 	mat4Multiply,
@@ -23,7 +23,7 @@ import {
 	mat4RotationZ,
 	mat4SimplePerspective,
 	mat4Translation,
-} from "../utils/geometry/mat4";
+} from "../utils/geometry/space/mat4";
 import {
 	type GizmoProjectFn,
 	projectRingPoints,

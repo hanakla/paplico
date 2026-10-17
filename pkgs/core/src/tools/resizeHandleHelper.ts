@@ -19,12 +19,12 @@ import {
 import {
 	applyTransformToPoint,
 	transformLinearMatrix,
-} from "../utils/geometry/geometry";
+} from "../utils/geometry/space/coordinates";
 import {
 	frameCorners,
 	frameWorldBounds,
 	type SelectionFrame,
-} from "../utils/geometry/selectionFrame";
+} from "../utils/geometry/space/selectionFrame";
 
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 

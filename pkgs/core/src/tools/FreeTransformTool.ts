@@ -7,7 +7,7 @@ import {
 	applyTransformToPoint,
 	composeTransforms,
 	screenToWorld,
-} from "../utils/geometry/geometry";
+} from "../utils/geometry/space/coordinates";
 import { constrainAxis } from "./SelectTool";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";

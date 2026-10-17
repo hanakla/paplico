@@ -29,12 +29,12 @@ import {
 	type Path,
 	type PathGeometry,
 } from "../schema";
-import { bakeCompoundPathSegments } from "../utils/geometry/compoundBake";
-import { composeTransforms } from "../utils/geometry/geometry";
+import { bakeCompoundPathSegments } from "../utils/geometry/generate/compoundBake";
+import { composeTransforms } from "../utils/geometry/space/coordinates";
 import {
 	reconstructSegmentsFromWorld,
 	transformSegmentsToWorld,
-} from "../utils/geometry/segmentOps";
+} from "../utils/geometry/space/worldSegments";
 import { localAppearances } from "./appearancePresets";
 import { createIdentityTransform, createStrokeBrushSettings } from "./factory";
 

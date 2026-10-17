@@ -46,16 +46,16 @@ import type { ToolSettings } from "./tools/toolSettings";
 import { TextLayoutEngine } from "./typography/TextLayoutEngine";
 import { TextRenderer } from "./typography/TextRenderer";
 import {
-	brandLocalBBox,
 	calculateElementBounds,
 	calculateLocalElementBounds,
-} from "./utils/geometry/bounds";
+} from "./utils/geometry/elementBounds";
+import { brandLocalBBox } from "./utils/geometry/primitives/box";
 import {
 	applyTransformToPoint,
 	composeTransforms,
 	transformLinearMatrix,
-} from "./utils/geometry/geometry";
-import { worldFrame } from "./utils/geometry/selectionFrame";
+} from "./utils/geometry/space/coordinates";
+import { worldFrame } from "./utils/geometry/space/selectionFrame";
 
 describe("PaplicoCommands", () => {
 	describe("createClipGroupFromTopmost", () => {

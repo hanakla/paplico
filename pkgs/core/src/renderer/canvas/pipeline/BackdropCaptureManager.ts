@@ -1,5 +1,5 @@
 import type { BoundingBox, Filter, Viewport } from "../../../schema";
-import { snapBoundsToRasterGrid } from "../../../utils/geometry/bounds";
+import { snapBoundsToRasterGrid } from "../../../utils/geometry/primitives/box";
 import { compileShaderModule } from "../../../utils/wgpu-utils";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
 import { createFullscreenPipeline } from "../../PipelineFactory";

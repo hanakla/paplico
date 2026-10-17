@@ -21,20 +21,22 @@ import {
 	type WetEdgeConfig,
 } from "../../../schema";
 import {
-	boundsIntersectionBox,
-	brandWorldBBox,
 	calculateLocalElementBounds,
 	calculatePlacedBounds,
-	expandBounds,
 	type LocalBoundsCache,
+} from "../../../utils/geometry/elementBounds";
+import { bakeCompoundPathSegments } from "../../../utils/geometry/generate/compoundBake";
+import {
+	boundsIntersectionBox,
+	brandWorldBBox,
+	expandBounds,
 	type WorldBBox,
-} from "../../../utils/geometry/bounds";
-import { bakeCompoundPathSegments } from "../../../utils/geometry/compoundBake";
+} from "../../../utils/geometry/primitives/box";
+import { boundsIntersectViewport } from "../../../utils/geometry/query/viewport";
 import {
 	applyTransformToPoint,
-	boundsIntersectViewport,
 	placeElement,
-} from "../../../utils/geometry/geometry";
+} from "../../../utils/geometry/space/coordinates";
 import type { FrameRequest, TransientElementEntry } from "../../types";
 import {
 	collectExternallyReferencedIds,

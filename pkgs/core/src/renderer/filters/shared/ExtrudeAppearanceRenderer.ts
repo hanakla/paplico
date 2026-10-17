@@ -39,24 +39,26 @@ import {
 	type FilterInterpolator,
 	resolveBlendSourcePath,
 	resolveBlendSpinePath,
-} from "../../../utils/geometry/blendInterpolation";
-import type { WorldBBox } from "../../../utils/geometry/bounds";
-import { applyCornerRadius } from "../../../utils/geometry/cornerRadius";
-import { placeElement } from "../../../utils/geometry/geometry";
-
-import { type Mat4, mat4TransformPoint } from "../../../utils/geometry/mat4";
+} from "../../../utils/geometry/generate/blendInterpolation";
+import { applyCornerRadius } from "../../../utils/geometry/generate/cornerRadius";
+import type { WorldBBox } from "../../../utils/geometry/primitives/box";
+import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
+import { groupRingsByContainment } from "../../../utils/geometry/query/ringContainment";
+import { appendSubpath } from "../../../utils/geometry/reshape/segment";
+import { placeElement } from "../../../utils/geometry/space/coordinates";
+import {
+	type Mat4,
+	mat4TransformPoint,
+} from "../../../utils/geometry/space/mat4";
 import {
 	computeQuadProjectiveWeights,
 	quadOfBounds,
-} from "../../../utils/geometry/quadProjection";
-import { groupRingsByContainment } from "../../../utils/geometry/ringContainment";
+} from "../../../utils/geometry/space/quadProjection";
 import {
-	appendSubpath,
 	reconstructSegmentsFromWorld,
-	splitIntoSubPaths,
 	toWorldPath,
 	transformSegmentsToWorld,
-} from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/space/worldSegments";
 import { neverReached } from "../../../utils/lang";
 import { aabbOfQuad } from "../../canvas/CanvasLayer.helpers";
 import type { BlitLayer, BlitUVRect } from "../../canvas/CanvasLayerTypes";

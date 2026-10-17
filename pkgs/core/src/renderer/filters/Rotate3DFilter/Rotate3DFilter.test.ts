@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CubicBezierSegment } from "../../../schema";
-import { resolveSegment } from "../../../utils/geometry/segmentOps";
+import { resolveSegment } from "../../../utils/geometry/primitives/segment";
 import {
 	applyRotate3DToSegments,
 	createRotate3DProjectionContext,

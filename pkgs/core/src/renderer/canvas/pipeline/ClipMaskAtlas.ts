@@ -20,7 +20,7 @@
  */
 
 import type { AnyArtObject, BoundingBox } from "../../../schema";
-import { boundsIntersectionBox } from "../../../utils/geometry/bounds";
+import { boundsIntersectionBox } from "../../../utils/geometry/primitives/box";
 import { neverReached } from "../../../utils/lang";
 import { expandRenderFilter } from "../CanvasLayer.helpers";
 import type {

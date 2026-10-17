@@ -4,7 +4,10 @@ import {
 	captureTexturePixels,
 	ensureWebGPUGlobals,
 } from "../../../testUtils/visualRegression";
-import { mat4Identity, mat4Orthographic } from "../../../utils/geometry/mat4";
+import {
+	mat4Identity,
+	mat4Orthographic,
+} from "../../../utils/geometry/space/mat4";
 import type { ExtrudeMeshData } from "../../geometry/extrudeMesh";
 import { buildRevolveMesh } from "../../geometry/revolveMesh";
 import {

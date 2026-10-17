@@ -15,14 +15,14 @@ import {
 	type StrokeParams,
 	type TextElement,
 } from "../../../schema";
+import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
 import {
 	brandLocalBBox,
 	brandWorldBBox,
-	calculateSegmentListBounds,
 	type WorldBBox,
-} from "../../../utils/geometry/bounds";
-import { transformBounds } from "../../../utils/geometry/geometry";
-import { appendSubpath } from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/primitives/box";
+import { appendSubpath } from "../../../utils/geometry/reshape/segment";
+import { transformBounds } from "../../../utils/geometry/space/coordinates";
 import {
 	applyRotate3DToSegments,
 	applyRotate3DWithContext,

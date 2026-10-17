@@ -5,8 +5,8 @@ import {
 	getTransform,
 	type Path,
 } from "../../../schema";
-import { collectCompoundSources } from "../../../utils/geometry/compoundBake";
-import { computeBooleanOperation } from "../../../utils/geometry/pathOps";
+import { collectCompoundSources } from "../../../utils/geometry/generate/compoundBake";
+import { computeBooleanOperation } from "../../../utils/geometry/generate/pathOps";
 import type { CompoundPathGeometryCacheEntry } from "../CanvasLayerTypes";
 import type { FilterRenderer } from "../pipeline/FilterRenderer";
 import { toCompoundSourceWorldPath } from "../pipeline/PreFilterRenderer";

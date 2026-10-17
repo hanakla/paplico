@@ -2,7 +2,7 @@ import pixelmatch from "pixelmatch";
 import { describe, expect, it } from "vitest";
 import type { CubicBezierSegment, Filter } from "../../../schema";
 import { renderSegmentsToPixels } from "../../../testUtils/canvasVRT";
-import { resolveSegment } from "../../../utils/geometry/segmentOps";
+import { resolveSegment } from "../../../utils/geometry/primitives/segment";
 import {
 	type PathUnionFilter,
 	PathUnionFilterHandler,

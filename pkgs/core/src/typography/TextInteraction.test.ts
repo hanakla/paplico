@@ -3,7 +3,7 @@ import type { SpatialIndex } from "../document/SpatialIndex";
 import { TextDependencyIndex } from "../document/TextDependencyIndex";
 import type { AnyArtObject, Document, Group } from "../schema";
 import { createTestTextElement } from "../testUtils/typographyFixtures";
-import type { WorldBBox } from "../utils/geometry/bounds";
+import type { WorldBBox } from "../utils/geometry/primitives/box";
 import { TextInteraction } from "./TextInteraction";
 import type { TextRenderer } from "./TextRenderer";
 

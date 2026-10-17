@@ -2,7 +2,7 @@ import type { Artboard, BoundingBox } from "../../schema";
 import {
 	toWorld,
 	type WorldBezierSegment,
-} from "../../utils/geometry/geometry";
+} from "../../utils/geometry/space/coordinates";
 import type { UIOverlayState } from "../types";
 import { buildArtboardOverlay } from "./builders/artboard";
 import { buildBucketFillOverlay } from "./builders/bucketFill";

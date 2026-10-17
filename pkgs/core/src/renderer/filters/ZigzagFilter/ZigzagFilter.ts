@@ -13,15 +13,15 @@
 import type { Appearance, CubicBezierSegment, Filter } from "../../../schema";
 import { lerpOptionalScalar } from "../../../utils/color";
 import {
+	buildRoundedPolyline,
+	buildStraightPolyline,
+} from "../../../utils/geometry/generate/polylineRounding";
+import {
 	buildArcLengthTable,
 	type SampledPoint,
 	samplePathAtArcLength,
-} from "../../../utils/geometry/pathSampling";
-import {
-	buildRoundedPolyline,
-	buildStraightPolyline,
-} from "../../../utils/geometry/polylineRounding";
-import { splitIntoSubPaths } from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/measure/arcLength";
+import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
 import type { FilterHandler } from "../../canvas/pipeline/FilterRenderer";
 
 export interface ZigzagParams {

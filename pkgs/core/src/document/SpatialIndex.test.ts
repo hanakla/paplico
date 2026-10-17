@@ -22,13 +22,13 @@ import type {
 import {
 	brandLocalBBox,
 	brandWorldBBox,
-	isPointInPath,
 	type WorldBBox,
-} from "../utils/geometry/bounds";
+} from "../utils/geometry/primitives/box";
+import { isPointInPath } from "../utils/geometry/query/hitTest";
 import {
 	createMeshWarpInverse,
 	createMeshWarpSampler,
-} from "../utils/geometry/meshWarp";
+} from "../utils/geometry/reshape/meshWarp";
 import {
 	createIdentityTransform,
 	createMeshWarpObjectFromGeometry,

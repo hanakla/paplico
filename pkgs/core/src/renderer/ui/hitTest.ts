@@ -1,5 +1,5 @@
 import type { Viewport } from "../../schema";
-import { screenToWorld } from "../../utils/geometry/geometry";
+import { screenToWorld } from "../../utils/geometry/space/coordinates";
 import { DEVICE_CURVE_TOLERANCE_PX } from "../geometry/strips/deviceGeometry";
 import { flattenBezierContour, isPointInFillContour } from "./fillTessellation";
 import {

@@ -1,5 +1,5 @@
 import { type BlendObject, getTransform, type Path } from "../../../schema";
-import { computeBlendIntermediates } from "../../../utils/geometry/blendInterpolation";
+import { computeBlendIntermediates } from "../../../utils/geometry/generate/blendInterpolation";
 
 interface BlendCacheEntry {
 	fingerprint: string;

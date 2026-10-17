@@ -35,8 +35,8 @@ import {
 	type TextRun,
 	type TextStyle,
 } from "../schema";
-import { calculateSegmentListBounds } from "./geometry/bounds";
-import { placeLocalPoint } from "./geometry/geometry";
+import { calculateSegmentListBounds } from "./geometry/measure/pathBounds";
+import { placeLocalPoint } from "./geometry/space/coordinates";
 import { clamp01 } from "./math";
 import { parseSvgFilterElement } from "./svgFilterImport";
 

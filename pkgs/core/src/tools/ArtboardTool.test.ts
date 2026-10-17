@@ -11,7 +11,7 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
-import { brandWorldBBox } from "../utils/geometry/bounds";
+import { brandWorldBBox } from "../utils/geometry/primitives/box";
 import { ArtboardTool } from "./ArtboardTool";
 
 // Default viewport (0,0,zoom=1), canvas 800×600:

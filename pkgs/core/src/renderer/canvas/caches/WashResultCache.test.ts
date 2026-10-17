@@ -1,4 +1,4 @@
-import type { WorldBBox } from "../../../utils/geometry/bounds";
+import type { WorldBBox } from "../../../utils/geometry/primitives/box";
 import type { ElementFilterPlan } from "../pipeline/RenderPlanner";
 import { type WashResult, WashResultCache } from "./WashResultCache";
 

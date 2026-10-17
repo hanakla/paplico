@@ -8,15 +8,15 @@ import {
 import {
 	calculateElementBounds,
 	calculateLocalElementBounds,
-	calculatePathBounds,
 	calculateRepeatSourceUnion,
-} from "../../utils/geometry/bounds";
+} from "../../utils/geometry/elementBounds";
+import { calculatePathBounds } from "../../utils/geometry/measure/pathBounds";
 import {
 	invertLinearMatrix,
 	type LinearMatrix2x2,
 	multiplyLinearMatrix,
 	transformLinearMatrix,
-} from "../../utils/geometry/geometry";
+} from "../../utils/geometry/space/coordinates";
 import type { MigrationContext } from "./context";
 
 /**

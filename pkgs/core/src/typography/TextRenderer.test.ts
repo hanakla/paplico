@@ -10,11 +10,11 @@ import {
 	createMockFontManager,
 	createTestTextElement,
 } from "../testUtils/typographyFixtures";
-import { calculateLocalElementBounds } from "../utils/geometry/bounds";
+import { calculateLocalElementBounds } from "../utils/geometry/elementBounds";
 import {
 	applyTransformToPoint,
 	cursorLocalToWorld,
-} from "../utils/geometry/geometry";
+} from "../utils/geometry/space/coordinates";
 import {
 	type LayoutedChar,
 	type LayoutResult,

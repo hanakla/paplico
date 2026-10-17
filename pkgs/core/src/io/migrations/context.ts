@@ -9,7 +9,7 @@ import { buildDocumentTextResolver } from "../../typography/documentTextResolver
 import type { FontManager } from "../../typography/fonts/FontManager";
 import { TextLayoutEngine } from "../../typography/TextLayoutEngine";
 import { TextRenderer } from "../../typography/TextRenderer";
-import { isTranslationOnly } from "../../utils/geometry/geometry";
+import { isTranslationOnly } from "../../utils/geometry/space/coordinates";
 
 /** What a migration needs that the document does not carry. */
 export interface MigrationContext {

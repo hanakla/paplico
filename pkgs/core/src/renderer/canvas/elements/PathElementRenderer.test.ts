@@ -11,7 +11,7 @@ import type {
 	StrokeAlign,
 	StrokeAppearance,
 } from "../../../schema";
-import { IDENTITY_GPU_TRANSFORM } from "../../../utils/geometry/geometry";
+import { IDENTITY_GPU_TRANSFORM } from "../../../utils/geometry/space/coordinates";
 import {
 	type LocalBounds,
 	OutlineCache,

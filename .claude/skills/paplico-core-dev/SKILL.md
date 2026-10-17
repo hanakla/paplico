@@ -388,11 +388,11 @@ then quietly unpersisted, unreachable, or un-remapped.
 
 ### Changing hit-testing / snapping
 
-**Impact:** SpatialIndex → utils/geometry/bounds
+**Impact:** SpatialIndex → utils/geometry/elementBounds
 
-SpatialIndex uses Quadtree for spatial queries and maintains a parent-group reverse index for O(1) lookups. Bounds are computed in `utils/geometry/bounds`. Snapping (`snapElements`, `snapArtboard`) aligns to artboard edges, element edges, and center lines.
+SpatialIndex uses Quadtree for spatial queries and maintains a parent-group reverse index for O(1) lookups. Bounds are computed in `utils/geometry/elementBounds.ts`. Snapping (`snapElements`, `snapArtboard`) aligns to artboard edges, element edges, and center lines.
 
-New element types need bounds calculation in `utils/geometry/bounds` — without it, the element is invisible to all spatial queries.
+New element types need bounds calculation in `utils/geometry/elementBounds.ts` — without it, the element is invisible to all spatial queries.
 
 ## Rasterization resolution (DPI / R)
 

@@ -31,8 +31,8 @@ import {
 	renderWithViewport,
 } from "../../testUtils/visualRegression";
 import { PenTool } from "../../tools/PenTool";
-import { calculateLocalElementBounds } from "../../utils/geometry/bounds";
-import { keepPointInPlace } from "../../utils/geometry/geometry";
+import { calculateLocalElementBounds } from "../../utils/geometry/elementBounds";
+import { keepPointInPlace } from "../../utils/geometry/space/coordinates";
 
 const MAX_DIFF_PERCENTAGE = 0.1;
 

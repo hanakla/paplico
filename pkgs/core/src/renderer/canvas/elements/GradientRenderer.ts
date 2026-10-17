@@ -13,7 +13,7 @@ import {
 	type Affine2D,
 	composeAffine,
 	IDENTITY_AFFINE,
-} from "../../../utils/geometry/repeatInterpolation";
+} from "../../../utils/geometry/space/affine";
 import type { GradientState } from "../CanvasLayerTypes";
 import { type GradientCache, hashGradientDraw } from "../caches/GradientCache";
 

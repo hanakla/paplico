@@ -48,7 +48,10 @@ import {
 	type Vec3,
 	type Viewport,
 } from "../schema";
-import { composeTransforms, screenToWorld } from "../utils/geometry/geometry";
+import {
+	composeTransforms,
+	screenToWorld,
+} from "../utils/geometry/space/coordinates";
 import { clamp } from "../utils/math";
 import {
 	type GizmoProjectFn,

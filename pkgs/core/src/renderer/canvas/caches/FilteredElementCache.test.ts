@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { brandWorldBBox } from "../../../utils/geometry/bounds";
+import { brandWorldBBox } from "../../../utils/geometry/primitives/box";
 import { FULL_BLIT_UV_RECT } from "../CanvasLayerTypes";
 import {
 	FilteredElementCache,

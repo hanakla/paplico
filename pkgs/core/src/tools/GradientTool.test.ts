@@ -24,12 +24,12 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
-import { brandWorldBBox } from "../utils/geometry/bounds";
 import {
-	cubicBez,
 	getDisplayedMeshHandle,
 	getEffectiveMeshEdgeCurve,
-} from "../utils/geometry/meshGradient";
+} from "../utils/geometry/measure/meshTopology";
+import { evalCubicBezier } from "../utils/geometry/primitives/bezier";
+import { brandWorldBBox } from "../utils/geometry/primitives/box";
 import { GradientTool } from "./GradientTool";
 
 describe("GradientTool", () => {
@@ -122,7 +122,7 @@ describe("GradientTool", () => {
 		expect(ctx.updateFill).toHaveBeenCalled();
 		const updated = ctx.updateFill.mock.calls.at(-1)?.[0] as MeshGradient;
 		const updatedV4 = updated.vertices[4];
-		const projected = cubicBez(
+		const projected = evalCubicBezier(
 			{ x: updated.vertices[0].x, y: updated.vertices[0].y },
 			updated.vertices[0].handles[1],
 			updated.vertices[1].handles[0],
@@ -194,7 +194,7 @@ describe("GradientTool", () => {
 		expect(ctx.updateFill).toHaveBeenCalled();
 		const updated = ctx.updateFill.mock.calls.at(-1)?.[0] as MeshGradient;
 		const updatedV9 = updated.vertices[9];
-		const projected = cubicBez(
+		const projected = evalCubicBezier(
 			{ x: updated.vertices[4].x, y: updated.vertices[4].y },
 			updated.vertices[4].handles[8],
 			updated.vertices[8].handles[4],
@@ -1335,8 +1335,8 @@ function rotatedCrossHandle(
 		);
 		const h = 1e-3;
 		const t0 = Math.max(0, Math.min(1 - h, t - h / 2));
-		const a = cubicBez(curve[0], curve[1], curve[2], curve[3], t0);
-		const b = cubicBez(curve[0], curve[1], curve[2], curve[3], t0 + h);
+		const a = evalCubicBezier(curve[0], curve[1], curve[2], curve[3], t0);
+		const b = evalCubicBezier(curve[0], curve[1], curve[2], curve[3], t0 + h);
 		return Math.atan2(b.y - a.y, b.x - a.x);
 	};
 	const oldVertex = before.vertices[vertexIndex];
@@ -1453,7 +1453,7 @@ function createInteriorRootSegmentMeshGradientFill(): MeshGradient {
 		{ x: 0.34, y: 0.38 },
 		{ x: 0.5, y: 0.5 },
 	] as const;
-	const derivedPoint = cubicBez(
+	const derivedPoint = evalCubicBezier(
 		rootCurve[0],
 		rootCurve[1],
 		rootCurve[2],

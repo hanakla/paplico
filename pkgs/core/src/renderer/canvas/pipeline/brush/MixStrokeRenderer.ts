@@ -6,11 +6,11 @@ import type {
 	StrokeAppearance,
 	Viewport,
 } from "../../../../schema";
+import { hashSegmentsWithMetadata } from "../../../../utils/geometry/measure/segmentHash";
 import {
 	expandBounds,
 	type WorldBBox,
-} from "../../../../utils/geometry/bounds";
-import { hashSegmentsWithMetadata } from "../../../../utils/geometry/segmentOps";
+} from "../../../../utils/geometry/primitives/box";
 import type { GPUTimingProfiler } from "../../../GPUTimingProfiler";
 import type { BlitLayer } from "../../CanvasLayerTypes";
 import type {

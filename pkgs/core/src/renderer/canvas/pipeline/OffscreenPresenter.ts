@@ -18,24 +18,31 @@ import {
 	type Viewport,
 } from "../../../schema";
 import {
-	boundsIntersect,
+	calculateRepeatSourceUnion,
+	type LocalBoundsCache,
+} from "../../../utils/geometry/elementBounds";
+import {
+	computeRepeatInstances,
+	repeatGridRegion,
+} from "../../../utils/geometry/generate/repeatInstances";
+import {
 	boundsIntersectionBox,
 	brandWorldBBox,
-	calculateRepeatSourceUnion,
 	expandBounds,
-	type LocalBoundsCache,
 	snapBoundsToRasterGrid,
 	type WorldBBox,
-} from "../../../utils/geometry/bounds";
-import { placeElement, screenToWorld } from "../../../utils/geometry/geometry";
+} from "../../../utils/geometry/primitives/box";
+import { boundsIntersect } from "../../../utils/geometry/query/hitTest";
 import {
 	type Affine2D,
 	applyAffineToPoint,
 	composeAffine,
-	computeRepeatInstances,
 	elementTransformToAffine,
-	repeatGridRegion,
-} from "../../../utils/geometry/repeatInterpolation";
+} from "../../../utils/geometry/space/affine";
+import {
+	placeElement,
+	screenToWorld,
+} from "../../../utils/geometry/space/coordinates";
 import { lerp } from "../../../utils/math";
 import type { RasterFrame } from "../../geometry/strips/stripTypes";
 import {

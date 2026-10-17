@@ -5,8 +5,8 @@ import {
 	expectSegmentsVisualMatch,
 	saveSegmentsPNG,
 } from "../../../testUtils/canvasVRT";
-import { evalCubicBezier } from "../../../utils/geometry/pathSampling";
-import { resolveSegment } from "../../../utils/geometry/segmentOps";
+import { evalCubicBezier } from "../../../utils/geometry/primitives/bezier";
+import { resolveSegment } from "../../../utils/geometry/primitives/segment";
 import { FilterRenderer } from "../../canvas/pipeline/FilterRenderer";
 import { applyPreFilters } from "../../canvas/pipeline/PreFilterRenderer";
 import { PathUnionFilterHandler } from "../PathUnionFilter/PathUnionFilter";

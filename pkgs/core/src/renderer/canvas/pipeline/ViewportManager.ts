@@ -7,7 +7,7 @@ import {
 	isRepeat,
 	type Viewport,
 } from "../../../schema";
-import { calculateLocalElementBounds } from "../../../utils/geometry/bounds";
+import { calculateLocalElementBounds } from "../../../utils/geometry/elementBounds";
 import {
 	GPU_TRANSFORM_VALUES,
 	type GPUTransformAffine,
@@ -19,7 +19,7 @@ import {
 	placeElement,
 	transformLinearMatrix,
 	writeGPUTransform,
-} from "../../../utils/geometry/geometry";
+} from "../../../utils/geometry/space/coordinates";
 import type { StructuredView } from "../../../utils/wgpu-utils";
 import type { ChangedElements } from "../../types";
 import type { ViewportState } from "../CanvasLayerTypes";

@@ -6,7 +6,7 @@ import type {
 	MeshArtObject,
 	Path,
 } from "../../../schema";
-import { resolveSegment } from "../../../utils/geometry/segmentOps";
+import { resolveSegment } from "../../../utils/geometry/primitives/segment";
 import { MeshWarpCache } from "../caches/MeshWarpCache";
 import { MeshElementRenderer } from "./MeshElementRenderer";
 

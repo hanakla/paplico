@@ -4,7 +4,7 @@ import { createCanvas } from "@napi-rs/canvas";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import type { CubicBezierSegment } from "../schema";
-import { resolveSegment } from "../utils/geometry/segmentOps";
+import { resolveSegment } from "../utils/geometry/primitives/segment";
 
 const PADDING = 16;
 

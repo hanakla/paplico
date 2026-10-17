@@ -1,5 +1,5 @@
 import { type AnyArtObject, isGroup, isMesh } from "../../../schema";
-import type { LocalBoundsCache } from "../../../utils/geometry/bounds";
+import type { LocalBoundsCache } from "../../../utils/geometry/elementBounds";
 import type { ChangedElements } from "../../types";
 
 /**

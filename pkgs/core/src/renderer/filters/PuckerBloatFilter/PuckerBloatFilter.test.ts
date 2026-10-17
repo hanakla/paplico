@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CubicBezierSegment, Filter } from "../../../schema";
-import { evalCubicBezier } from "../../../utils/geometry/pathSampling";
-import { resolveSegment } from "../../../utils/geometry/segmentOps";
+import { evalCubicBezier } from "../../../utils/geometry/primitives/bezier";
+import { resolveSegment } from "../../../utils/geometry/primitives/segment";
 import { PuckerBloatFilterHandler } from "./PuckerBloatFilter";
 
 // ---------------------------------------------------------------------------

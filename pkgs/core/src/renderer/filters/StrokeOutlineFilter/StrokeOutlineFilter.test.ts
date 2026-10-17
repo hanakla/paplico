@@ -7,7 +7,7 @@ import type {
 	StrokeAppearance,
 } from "../../../schema";
 import { lineSeg } from "../../../testUtils/segmentFactory";
-import { calculateSegmentListBounds } from "../../../utils/geometry/bounds";
+import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
 import type { AppearanceGeometry } from "../../canvas/pipeline/FilterRenderer";
 import { StrokeOutlineFilterHandler } from "./StrokeOutlineFilter";
 

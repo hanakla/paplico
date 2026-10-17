@@ -1,5 +1,5 @@
 import type { BoundingBox, Point, TextLayout } from "../../schema";
-import type { WorldBezierSegment } from "../../utils/geometry/geometry";
+import type { WorldBezierSegment } from "../../utils/geometry/space/coordinates";
 
 export interface SelectionUIData {
 	/** World-axis-aligned box around the selection; rendererStore.selectionBounds mirrors it. */

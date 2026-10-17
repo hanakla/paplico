@@ -16,7 +16,7 @@ import {
 	type PathSegment,
 	type Viewport,
 } from "../schema";
-import { screenToWorld } from "../utils/geometry/geometry";
+import { screenToWorld } from "../utils/geometry/space/coordinates";
 import {
 	buildAlphaMap,
 	buildCutMask,

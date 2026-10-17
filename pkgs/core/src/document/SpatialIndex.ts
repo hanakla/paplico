@@ -47,34 +47,49 @@ import {
 	findLayerForElement,
 	isEffectivelyLocked,
 } from "../utils/elementQuery";
-import { unionBounds } from "../utils/geometry/align";
+import {
+	calculateElementBounds,
+	calculateLocalElementBounds,
+	calculatePlacedBounds,
+	calculateRepeatSourceUnion,
+	type LocalBoundsCache,
+	type WorldBoundsCache,
+} from "../utils/geometry/elementBounds";
 import {
 	computeBlendIntermediates,
 	resolveBlendSourcePath,
 	resolveBlendSpinePath,
-} from "../utils/geometry/blendInterpolation";
+} from "../utils/geometry/generate/blendInterpolation";
+import { bakeCompoundPathSegments } from "../utils/geometry/generate/compoundBake";
+import {
+	computeRepeatInstances,
+	repeatGridRegion,
+} from "../utils/geometry/generate/repeatInstances";
+import { calculateSegmentListTightBounds } from "../utils/geometry/measure/pathBounds";
 import {
 	boundsArea,
 	boundsIntersectionArea,
 	boundsIntersectionBox,
 	brandLocalBBox,
 	brandWorldBBox,
-	calculateElementBounds,
-	calculateLocalElementBounds,
-	calculatePlacedBounds,
-	calculateRepeatSourceUnion,
-	calculateSegmentListTightBounds,
-	doesPathIntersectRect,
 	expandBounds,
+	type LocalBBox,
+	unionBounds,
+	type WorldBBox,
+} from "../utils/geometry/primitives/box";
+import {
+	doesPathIntersectRect,
 	isPointInPath,
 	isPointNearSegments,
 	isPointOnPath,
-	type LocalBBox,
-	type LocalBoundsCache,
-	type WorldBBox,
-	type WorldBoundsCache,
-} from "../utils/geometry/bounds";
-import { bakeCompoundPathSegments } from "../utils/geometry/compoundBake";
+} from "../utils/geometry/query/hitTest";
+import { Quadtree } from "../utils/geometry/query/Quadtree";
+import { createMeshWarpInverse } from "../utils/geometry/reshape/meshWarp";
+import {
+	type Affine2D,
+	composeAffine,
+	elementTransformToAffine,
+} from "../utils/geometry/space/affine";
 import {
 	asLocalCoord,
 	composeAncestorMatrix,
@@ -85,22 +100,13 @@ import {
 	transformBounds,
 	transformLinearMatrix,
 	type WorldBezierSegment,
-} from "../utils/geometry/geometry";
-import { createMeshWarpInverse } from "../utils/geometry/meshWarp";
-import { Quadtree } from "../utils/geometry/Quadtree";
-import {
-	type Affine2D,
-	composeAffine,
-	computeRepeatInstances,
-	elementTransformToAffine,
-	repeatGridRegion,
-} from "../utils/geometry/repeatInterpolation";
+} from "../utils/geometry/space/coordinates";
+import type { SelectionFrame } from "../utils/geometry/space/selectionFrame";
 import {
 	getWorldSegments,
 	toWorldPath,
 	transformSegmentsToWorld,
-} from "../utils/geometry/segmentOps";
-import type { SelectionFrame } from "../utils/geometry/selectionFrame";
+} from "../utils/geometry/space/worldSegments";
 import {
 	type AppearancePresetMap,
 	createAppearancePresetsMap,

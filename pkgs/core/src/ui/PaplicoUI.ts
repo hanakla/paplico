@@ -14,7 +14,7 @@ import type { AnyArtObject, BoundingBox, RawRGBA, Viewport } from "../schema";
 import { PenTool } from "../tools/PenTool";
 import type { PointerEventData, Tool } from "../tools/Tool";
 import { Emitter } from "../utils/emitter";
-import { screenToWorld } from "../utils/geometry/geometry";
+import { screenToWorld } from "../utils/geometry/space/coordinates";
 import { matchKey } from "../utils/keyboard";
 
 interface PaplicoUICallbacks {

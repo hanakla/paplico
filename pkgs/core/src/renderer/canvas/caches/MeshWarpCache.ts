@@ -7,7 +7,7 @@ import {
 	type MeshWarpResolution,
 	type WarpChildrenDeps,
 	warpMeshChildren,
-} from "../../../utils/geometry/meshWarp";
+} from "../../../utils/geometry/reshape/meshWarp";
 
 interface MeshWarpCacheEntry {
 	fingerprint: string;

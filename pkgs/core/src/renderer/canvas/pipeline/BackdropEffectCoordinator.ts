@@ -1,5 +1,5 @@
 import type { BoundingBox, Viewport } from "../../../schema";
-import { snapBoundsToRasterGrid } from "../../../utils/geometry/bounds";
+import { snapBoundsToRasterGrid } from "../../../utils/geometry/primitives/box";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
 import {
 	type BackdropCaptureManager,

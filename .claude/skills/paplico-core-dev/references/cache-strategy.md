@@ -291,7 +291,7 @@ cross-frame content caches:
 
 Sources: `renderer/{RenderScheduler,DocumentChangeSubscriber,CanvasTarget,GPUTimingProfiler}.ts`,
 `collaboration/YjsProvider.ts`, `scene3d/vrm/ikSolver.ts`,
-`utils/geometry/meshGradient.ts`, `ui/PaplicoUI.ts`, `PaplicoPatternEdit.ts`.
+`utils/geometry/measure/meshTopology.ts`, `ui/PaplicoUI.ts`, `PaplicoPatternEdit.ts`.
 
 ## Rules for adding or changing a cache
 

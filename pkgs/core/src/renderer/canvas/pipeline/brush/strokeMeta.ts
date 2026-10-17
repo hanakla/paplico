@@ -11,7 +11,7 @@ import {
 	type Path,
 	type StrokeColor,
 } from "../../../../schema";
-import { calculateElementBounds } from "../../../../utils/geometry/bounds";
+import { calculateElementBounds } from "../../../../utils/geometry/elementBounds";
 import type { BrushFrameBuffers } from "./BrushFrameBuffers";
 import type { StrokeDrawInput } from "./BrushRenderer";
 import { PATH_META_FLOATS } from "./shaders/dabColor.wgsl";

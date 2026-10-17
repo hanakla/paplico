@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	getStartAnchor,
 	splitIntoSubPaths,
-} from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/primitives/segment";
 import { buildImageQuadSegments } from "../../canvas/elements/ImageElementRenderer";
 import {
 	cornersFromBounds,

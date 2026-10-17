@@ -1,5 +1,5 @@
 import type { BlendMode, BoundingBox, CompositionMode } from "../../../schema";
-import { computeQuadProjectiveWeights } from "../../../utils/geometry/quadProjection";
+import { computeQuadProjectiveWeights } from "../../../utils/geometry/space/quadProjection";
 import {
 	type BlitUVRect,
 	FULL_BLIT_UV_RECT,

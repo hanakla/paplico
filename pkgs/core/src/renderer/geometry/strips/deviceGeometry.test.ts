@@ -4,7 +4,7 @@ import {
 	type GPUElementTransform,
 	IDENTITY_GPU_TRANSFORM,
 	worldToScreen,
-} from "../../../utils/geometry/geometry";
+} from "../../../utils/geometry/space/coordinates";
 import {
 	composeDeviceTransform,
 	deviceScaleBucket,

@@ -15,13 +15,14 @@ import {
 	type Path,
 	type Solid3DBaseParams,
 } from "../../../schema";
-import { brandWorldBBox } from "../../../utils/geometry/bounds";
+import { hashSegments } from "../../../utils/geometry/measure/segmentHash";
+import { brandWorldBBox } from "../../../utils/geometry/primitives/box";
 import {
 	applyTransformToPoint,
 	composeAncestorMatrix,
 	composeAncestorTransform,
 	placeElement,
-} from "../../../utils/geometry/geometry";
+} from "../../../utils/geometry/space/coordinates";
 import {
 	mat4Multiply,
 	mat4Orthographic,
@@ -32,8 +33,7 @@ import {
 	mat4SimplePerspective,
 	mat4TransformPoint,
 	mat4Translation,
-} from "../../../utils/geometry/mat4";
-import { hashSegments } from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/space/mat4";
 import { neverReached } from "../../../utils/lang";
 import type { AppearanceCacheEntry } from "../../canvas/caches/AppearanceCache";
 import type {

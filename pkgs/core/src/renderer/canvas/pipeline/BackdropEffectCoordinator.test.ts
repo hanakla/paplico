@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BoundingBox } from "../../../schema";
-import { snapBoundsToRasterGrid } from "../../../utils/geometry/bounds";
+import { snapBoundsToRasterGrid } from "../../../utils/geometry/primitives/box";
 import {
 	type BackdropCaptureManager,
 	type BackdropPixelRect,

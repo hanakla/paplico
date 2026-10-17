@@ -27,7 +27,7 @@ import {
 import {
 	floatBits,
 	hashSegmentsWithMetadata,
-} from "../../../../utils/geometry/segmentOps";
+} from "../../../../utils/geometry/measure/segmentHash";
 import { compileShaderModule } from "../../../../utils/wgpu-utils";
 import { hashSideProfile } from "../../../helpers";
 import { RENDER_SAMPLE_COUNT } from "../../CanvasLayerTypes";

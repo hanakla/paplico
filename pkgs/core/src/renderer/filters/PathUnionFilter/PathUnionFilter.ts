@@ -14,14 +14,12 @@ import {
 	booleanOp,
 	contourToCubicSegments,
 	cubicSegmentsToContour,
-	GeometryEpsilon,
-	type Segment,
 	signedContourArea,
-} from "../../../utils/geometry/bezierBool";
-import {
-	hashSegments,
-	splitIntoSubPaths,
-} from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/generate/booleanOp";
+import { hashSegments } from "../../../utils/geometry/measure/segmentHash";
+import { GeometryEpsilon } from "../../../utils/geometry/primitives/bezier";
+import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
+import type { Segment } from "../../../utils/geometry/query/segmentIntersection";
 import type { FilterHandler } from "../../canvas/pipeline/FilterRenderer";
 
 export interface PathUnionParams {

@@ -12,7 +12,8 @@ import type {
 	RawRGBA,
 	StrokeAppearance,
 } from "../schema";
-import { calculateElementBounds, expandBounds } from "../utils/geometry/bounds";
+import { calculateElementBounds } from "../utils/geometry/elementBounds";
+import { expandBounds } from "../utils/geometry/primitives/box";
 import { deepClone } from "../utils/lang";
 import { readStoredBrushSize, readStoredWetBleedRatio } from "./access";
 

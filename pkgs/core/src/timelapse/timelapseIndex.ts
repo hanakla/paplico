@@ -6,7 +6,7 @@ import {
 	getContainerChildIds,
 	isContainer,
 } from "../schema";
-import { calculateElementBounds } from "../utils/geometry/bounds";
+import { calculateElementBounds } from "../utils/geometry/elementBounds";
 import type {
 	TimelapseDirtyRect,
 	TimelapseEntry,

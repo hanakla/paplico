@@ -33,21 +33,19 @@ import {
 	type StrokeAppearance,
 	type TextElement,
 } from "../../../schema";
-import {
-	boundsIntersect,
-	calculateSegmentListBounds,
-	expandBounds,
-} from "../../../utils/geometry/bounds";
-import { bakeCompoundPathSegments } from "../../../utils/geometry/compoundBake";
+import { bakeCompoundPathSegments } from "../../../utils/geometry/generate/compoundBake";
+import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
+import { expandBounds } from "../../../utils/geometry/primitives/box";
+import { splitIntoSubPaths } from "../../../utils/geometry/primitives/segment";
+import { boundsIntersect } from "../../../utils/geometry/query/hitTest";
 import {
 	composeTransforms,
 	transformBounds,
-} from "../../../utils/geometry/geometry";
+} from "../../../utils/geometry/space/coordinates";
 import {
 	reconstructSegmentsFromWorld,
-	splitIntoSubPaths,
 	transformSegmentsToWorld,
-} from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/space/worldSegments";
 import { splitAppearanceCopies } from "./appearanceCopies";
 import {
 	type ClassifyOptions,

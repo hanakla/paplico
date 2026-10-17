@@ -5,7 +5,7 @@ import type {
 	RawRGBA,
 	Viewport,
 } from "../schema";
-import type { WorldBoundsCache } from "../utils/geometry/bounds";
+import type { WorldBoundsCache } from "../utils/geometry/elementBounds";
 import type { RenderStrategy } from "./RenderOrchestrator";
 import type { OverlayKey } from "./ui/overlayKeys";
 import type { UIOverlay } from "./ui/primitives";

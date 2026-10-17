@@ -10,7 +10,7 @@ import type { BoundingBox, RepeatObject } from "../schema";
 import {
 	type Affine2D,
 	applyAffineToPoint,
-} from "../utils/geometry/repeatInterpolation";
+} from "../utils/geometry/space/affine";
 
 /** A point on the radial ring at `angle` (0 = up), in the source authored space
  *  before the repeat transform. Matches radialInstances' placement. */

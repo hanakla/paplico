@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Artboard, PathSegment } from "../../../schema";
-import { applyTransformToPoint } from "../../../utils/geometry/geometry";
+import { applyTransformToPoint } from "../../../utils/geometry/space/coordinates";
 import {
 	composeWorldAffine,
 	createCoordMapper,

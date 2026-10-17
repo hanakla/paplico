@@ -67,7 +67,7 @@ pkgs/
 
 ## 座標系設計
 
-実装場所：`pkgs/core/src/utils/geometry/geometry.ts`
+実装場所：`pkgs/core/src/utils/geometry/space/coordinates.ts`
 
 無限キャンバスでは3つの座標系を使い分ける：
 
@@ -232,7 +232,7 @@ interface BezierPoint {
 
 // 三次ベジエセグメント。start/endはワールド絶対座標のアンカー、
 // cp1/cp2はアンカーからの相対オフセット（ワールド空間ベクトル）。
-// 絶対座標への解決は utils/geometry/segmentOps.ts の resolveSegment() を使う。
+// 絶対座標への解決は utils/geometry/primitives/segment.ts の resolveSegment() を使う。
 interface CubicBezierSegment {
 	start?: BezierPoint;    // サブパス最初のセグメントのみ。以降は前セグメントのendを始点に使う
 	cp1: BezierPoint;       // startアンカーからの相対オフセット
@@ -537,7 +537,7 @@ interface Tool {
 
 実装場所：
 
-- `pkgs/core/src/utils/geometry/strokeFitting.ts` の `IncrementalStrokeFitter` と `processStroke()`
+- `pkgs/core/src/utils/geometry/generate/strokeFitting.ts` の `IncrementalStrokeFitter` と `processStroke()`
 - `pkgs/core/src/brush/BrushStrokeSession.ts`
 - `pkgs/core/src/tools/PenTool.ts`
 

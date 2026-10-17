@@ -7,7 +7,7 @@ import type { RendererState } from "../Paplico";
 import type { AnyArtObject } from "../schema";
 import { loadTestDocument } from "../testUtils/loadTestDocument";
 import { rectPath, solidFillAppearance } from "../testUtils/svgFixtures";
-import { brandWorldBBox } from "../utils/geometry/bounds";
+import { brandWorldBBox } from "../utils/geometry/primitives/box";
 import {
 	DocumentChangeSubscriber,
 	type DocumentChangeSubscriberStore,

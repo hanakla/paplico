@@ -17,8 +17,8 @@ import {
 	type Path,
 	type TextElement,
 } from "../../../schema";
-import { applyTransformToPoint } from "../../../utils/geometry/geometry";
-import type { MeshWarpResolution } from "../../../utils/geometry/meshWarp";
+import type { MeshWarpResolution } from "../../../utils/geometry/reshape/meshWarp";
+import { applyTransformToPoint } from "../../../utils/geometry/space/coordinates";
 import type { PipelineType } from "../CanvasLayerTypes";
 import type { MeshWarpCache } from "../caches/MeshWarpCache";
 

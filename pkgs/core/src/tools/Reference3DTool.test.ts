@@ -20,7 +20,7 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
-import { brandWorldBBox } from "../utils/geometry/bounds";
+import { brandWorldBBox } from "../utils/geometry/primitives/box";
 import { Reference3DController } from "./Reference3DController";
 import { Reference3DTool } from "./Reference3DTool";
 

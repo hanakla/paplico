@@ -2,7 +2,7 @@ import type { BoundingBox } from "../../../schema";
 import {
 	boundsIntersectionBox,
 	expandBounds,
-} from "../../../utils/geometry/bounds";
+} from "../../../utils/geometry/primitives/box";
 
 /**
  * Fixed-R rasterization domain.

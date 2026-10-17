@@ -161,18 +161,18 @@ import {
 	getGradientTargetFill,
 } from "./utils/elementQuery";
 import { Emitter } from "./utils/emitter";
-import { arcLengthOfNearestSpinePoint } from "./utils/geometry/blendInterpolation";
-import { brandWorldBBox } from "./utils/geometry/bounds";
-import {
-	applyTransformToPoint,
-	composeTransforms,
-} from "./utils/geometry/geometry";
-import { buildArcLengthTable } from "./utils/geometry/pathSampling";
-import { resolveSelectionFrame } from "./utils/geometry/selectionFrame";
+import { arcLengthOfNearestSpinePoint } from "./utils/geometry/generate/blendInterpolation";
 import {
 	collectSelectionOutlines,
 	shouldDashSelectionBounds,
-} from "./utils/geometry/selectionOutlines";
+} from "./utils/geometry/generate/selectionOutlines";
+import { buildArcLengthTable } from "./utils/geometry/measure/arcLength";
+import { brandWorldBBox } from "./utils/geometry/primitives/box";
+import {
+	applyTransformToPoint,
+	composeTransforms,
+} from "./utils/geometry/space/coordinates";
+import { resolveSelectionFrame } from "./utils/geometry/space/selectionFrame";
 import { assertNonNull, deepClone } from "./utils/lang";
 import { transformPressure } from "./utils/pressureCurve";
 

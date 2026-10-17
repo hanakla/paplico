@@ -23,19 +23,20 @@ import {
 	type Viewport,
 } from "../schema";
 import { getFirstStroke } from "../utils/elementQuery";
-import { boundsIntersect, calculatePathBounds } from "../utils/geometry/bounds";
+import { processStroke } from "../utils/geometry/generate/strokeFitting";
+import { calculatePathBounds } from "../utils/geometry/measure/pathBounds";
+import { evalCubicBezier } from "../utils/geometry/primitives/bezier";
+import { boundsIntersect } from "../utils/geometry/query/hitTest";
+import {
+	splitPathByNormalizedRanges,
+	subtractEraserFromFilledPath,
+} from "../utils/geometry/reshape/pathSplit";
 import {
 	composeTransforms,
 	inverseTransform,
 	screenToWorld,
 	transformBounds,
-} from "../utils/geometry/geometry";
-import {
-	splitPathByNormalizedRanges,
-	subtractEraserFromFilledPath,
-} from "../utils/geometry/pathOps";
-import { evalCubicBezier } from "../utils/geometry/pathSampling";
-import { processStroke } from "../utils/geometry/strokeFitting";
+} from "../utils/geometry/space/coordinates";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 

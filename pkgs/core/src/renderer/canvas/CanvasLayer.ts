@@ -47,22 +47,24 @@ import {
 } from "../../schema";
 import type { TextRenderer } from "../../typography/TextRenderer";
 import {
-	boundsIntersect,
-	brandWorldBBox,
 	calculateElementBounds,
+	type LocalBoundsCache,
+} from "../../utils/geometry/elementBounds";
+import {
+	brandWorldBBox,
 	expandBounds,
 	type LocalBBox,
-	type LocalBoundsCache,
 	type WorldBBox,
-} from "../../utils/geometry/bounds";
+} from "../../utils/geometry/primitives/box";
+import { boundsIntersect } from "../../utils/geometry/query/hitTest";
+import type { MeshWarpClipGroup } from "../../utils/geometry/reshape/meshWarp";
 import {
 	composeAncestorMatrix,
 	getVisibleWorldBounds,
 	placeElement,
 	transformBounds,
-} from "../../utils/geometry/geometry";
-import type { MeshWarpClipGroup } from "../../utils/geometry/meshWarp";
-import { quadOfBounds } from "../../utils/geometry/quadProjection";
+} from "../../utils/geometry/space/coordinates";
+import { quadOfBounds } from "../../utils/geometry/space/quadProjection";
 import {
 	compileShaderModule,
 	type StructuredView,

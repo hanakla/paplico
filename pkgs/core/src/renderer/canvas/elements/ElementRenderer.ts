@@ -17,9 +17,12 @@ import type {
 	Reference3DElement,
 	TextElement,
 } from "../../../schema";
-import { brandWorldBBox, type WorldBBox } from "../../../utils/geometry/bounds";
-import type { GPUTransformAffine } from "../../../utils/geometry/geometry";
-import type { MeshWarpResolution } from "../../../utils/geometry/meshWarp";
+import {
+	brandWorldBBox,
+	type WorldBBox,
+} from "../../../utils/geometry/primitives/box";
+import type { MeshWarpResolution } from "../../../utils/geometry/reshape/meshWarp";
+import type { GPUTransformAffine } from "../../../utils/geometry/space/coordinates";
 import type { RasterFrame } from "../../geometry/strips/stripTypes";
 import {
 	type AssetState,

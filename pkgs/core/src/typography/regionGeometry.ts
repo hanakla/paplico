@@ -6,8 +6,8 @@
  */
 
 import type { CubicBezierSegment, Point } from "../schema";
-import { evalCubicBezier } from "../utils/geometry/pathSampling";
-import { resolveSegment } from "../utils/geometry/segmentOps";
+import { evalCubicBezier } from "../utils/geometry/primitives/bezier";
+import { resolveSegment } from "../utils/geometry/primitives/segment";
 
 /** Usable horizontal span within a line band */
 export interface TextLineInterval {

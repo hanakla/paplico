@@ -2,7 +2,7 @@ import type { BezierPoint, CubicBezierSegment } from "../schema";
 import {
 	IncrementalStrokeFitter,
 	type IncrementalStrokeFitterOptions,
-} from "../utils/geometry/strokeFitting";
+} from "../utils/geometry/generate/strokeFitting";
 
 type BrushStrokeSessionOptions = IncrementalStrokeFitterOptions;
 

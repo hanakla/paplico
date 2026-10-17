@@ -22,8 +22,8 @@ import {
 	type PathGeometry,
 	type StrokeAppearance,
 } from "../../../schema";
-import { calculateSegmentListBounds } from "../../../utils/geometry/bounds";
-import type { Affine2D } from "../../../utils/geometry/repeatInterpolation";
+import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
+import type { Affine2D } from "../../../utils/geometry/space/affine";
 import type { Brand } from "../../../utils/lang";
 import {
 	appearancePaintsPattern,

@@ -14,20 +14,15 @@ import {
 	type TextElement,
 	type Viewport,
 } from "../schema";
+import { calculateLocalElementBounds } from "../utils/geometry/elementBounds";
+import { mapWarpGeometryPositions } from "../utils/geometry/generate/meshWarpShape";
+import { calculateMeshCoordinateBounds } from "../utils/geometry/measure/pathBounds";
 import {
 	brandLocalBBox,
-	calculateLocalElementBounds,
-	calculateMeshCoordinateBounds,
 	type LocalBBox,
-	pointInPolygon,
 	type WorldBBox,
-} from "../utils/geometry/bounds";
-import {
-	composeTransforms,
-	screenToWorld,
-	solveChildTransform,
-} from "../utils/geometry/geometry";
-import { mapWarpGeometryPositions } from "../utils/geometry/meshWarpShape";
+} from "../utils/geometry/primitives/box";
+import { pointInPolygon } from "../utils/geometry/query/hitTest";
 import {
 	createLocalPointDeformer,
 	type DeformableElement,
@@ -35,7 +30,12 @@ import {
 	deformPathSegments,
 	flattenElementIds,
 	isDeformableElement,
-} from "../utils/geometry/pointDeform";
+} from "../utils/geometry/reshape/pointDeform";
+import {
+	composeTransforms,
+	screenToWorld,
+	solveChildTransform,
+} from "../utils/geometry/space/coordinates";
 import { LONG_PRESS_MS, type PointerEventData, type Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 

@@ -24,19 +24,17 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
-import {
-	brandWorldBBox,
-	calculateElementBounds,
-	type WorldBBox,
-} from "../utils/geometry/bounds";
+import { calculateElementBounds } from "../utils/geometry/elementBounds";
 import {
 	evalEdge,
 	getDisplayedMeshHandle,
-} from "../utils/geometry/meshGradient";
-import {
 	getMeshWorldBoundarySegments,
-	getWorldSegments,
-} from "../utils/geometry/segmentOps";
+} from "../utils/geometry/measure/meshTopology";
+import {
+	brandWorldBBox,
+	type WorldBBox,
+} from "../utils/geometry/primitives/box";
+import { getWorldSegments } from "../utils/geometry/space/worldSegments";
 import { MeshDeformTool } from "./MeshDeformTool";
 
 // --- Factories ---

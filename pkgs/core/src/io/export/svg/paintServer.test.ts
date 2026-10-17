@@ -8,7 +8,7 @@ import type {
 import {
 	oklabToRgb,
 	rgbToOklab,
-} from "../../../utils/geometry/blendInterpolation";
+} from "../../../utils/geometry/generate/blendInterpolation";
 import { colorToSvgPaint, gradientToSvgPaint } from "./paintServer";
 import { boundsUnitAffine, createCoordMapper } from "./pathData";
 import { SvgDocumentBuilder } from "./svgBuilder";

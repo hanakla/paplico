@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BoundingBox, Viewport } from "../../../schema";
-import { worldToScreen } from "../../../utils/geometry/geometry";
+import { worldToScreen } from "../../../utils/geometry/space/coordinates";
 import { degToRad } from "../../../utils/math";
 import type { GPUTimingProfiler } from "../../GPUTimingProfiler";
 import {

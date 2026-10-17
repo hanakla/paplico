@@ -28,30 +28,39 @@ import { getGradientTargetFill, replaceFillOf } from "../utils/elementQuery";
 import {
 	defaultEdgeCP,
 	freeGradientAdjacency as delaunayAdjacency,
-} from "../utils/geometry/freeGradient";
-import { composeTransforms, screenToWorld } from "../utils/geometry/geometry";
+} from "../utils/geometry/generate/freeGradient";
+import {
+	colorFromFaceCorners,
+	createEdgeDerivedColorVertex,
+	createQuadDerivedColorVertex,
+} from "../utils/geometry/generate/meshVertexFactory";
+import {
+	bilinearUV,
+	getBoundarySegmentInfo,
+	getLocalEdgeTFromBoundaryT,
+} from "../utils/geometry/measure/meshTopology";
+import {
+	findClosestMeshEdgePoint,
+	pointInBezierFace,
+} from "../utils/geometry/query/meshHitTest";
 import {
 	applyMeshHandleFan,
 	beginMeshHandleFan,
 	collectMeshCPHandles,
 	collectMeshEdgeCurves,
-	findClosestMeshEdgePoint,
 	type MeshHandleFanState,
 	slideMeshVertex,
 	writeMeshCPHandle,
-} from "../utils/geometry/meshEditing";
+} from "../utils/geometry/reshape/meshHandle";
 import {
-	bilinearUV,
-	colorFromFaceCorners,
-	createEdgeDerivedColorVertex,
-	createQuadDerivedColorVertex,
-	getBoundarySegmentInfo,
-	getLocalEdgeTFromBoundaryT,
-	pointInBezierFace,
 	rotateDerivedCrossHandles,
 	subdivideFace,
 	syncDerivedVertices,
-} from "../utils/geometry/meshGradient";
+} from "../utils/geometry/reshape/meshTopology";
+import {
+	composeTransforms,
+	screenToWorld,
+} from "../utils/geometry/space/coordinates";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 

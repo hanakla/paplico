@@ -23,7 +23,7 @@ import {
 	resolveCP1,
 	resolveCP2,
 	splitIntoSubPaths,
-} from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/primitives/segment";
 import type { FilterHandler } from "../../canvas/pipeline/FilterRenderer";
 
 export interface PuckerBloatParams {

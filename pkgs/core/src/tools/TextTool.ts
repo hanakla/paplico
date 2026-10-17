@@ -42,11 +42,11 @@ import {
 import type { TextGlyphQuad } from "../typography/glyphQuad";
 import { classifyPathForTextBinding } from "../typography/regionGeometry";
 import { splitRunAt } from "../typography/textContent";
+import { evalCubicBezier } from "../utils/geometry/primitives/bezier";
 import {
 	screenToWorld,
 	type WorldBezierSegment,
-} from "../utils/geometry/geometry";
-import { evalCubicBezier } from "../utils/geometry/pathSampling";
+} from "../utils/geometry/space/coordinates";
 import { matchKey } from "../utils/keyboard";
 import { deepClone } from "../utils/lang";
 import {

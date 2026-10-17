@@ -50,7 +50,7 @@ Array order = draw order. This is the reason fill, stroke, and effects are in th
 
 ## Path geometry (CubicBezierSegment / PathSegment)
 
-Why cp1/cp2 are relative offsets: Moving an anchor automatically moves its handles. If they were absolute, every anchor move would require updating both handles — easy to forget. Use `resolveSegment()` from `utils/geometry/segmentOps.ts` to get absolute coordinates.
+Why cp1/cp2 are relative offsets: Moving an anchor automatically moves its handles. If they were absolute, every anchor move would require updating both handles — easy to forget. Use `resolveSegment()` from `utils/geometry/primitives/segment.ts` to get absolute coordinates.
 
 - `start` exists only on segment[0] of each subpath. All others use previous segment's `end`
 - `isMoved: true` starts a new subpath (SVG moveTo equivalent)

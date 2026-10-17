@@ -24,12 +24,12 @@ import type {
 	Viewport,
 } from "../schema";
 import { getFirstStroke } from "../utils/elementQuery";
+import { evalCubicBezier } from "../utils/geometry/primitives/bezier";
 import {
 	screenToWorld,
 	type WorldBezierSegment,
-} from "../utils/geometry/geometry";
-import { evalBezier } from "../utils/geometry/pathOps";
-import { getWorldSegments } from "../utils/geometry/segmentOps";
+} from "../utils/geometry/space/coordinates";
+import { getWorldSegments } from "../utils/geometry/space/worldSegments";
 import { clamp } from "../utils/math";
 import {
 	dragStartThresholdScreenPx,
@@ -543,7 +543,7 @@ export class StrokeWidthEditTool implements Tool {
 			let py = p0.y;
 			for (let i = 1; i <= 10; i++) {
 				const t = i * 0.1;
-				const pos = evalBezier(p0, p1, p2, p3, t);
+				const pos = evalCubicBezier(p0, p1, p2, p3, t);
 				const dx = pos.x - px;
 				const dy = pos.y - py;
 				len += Math.sqrt(dx * dx + dy * dy);
@@ -586,7 +586,7 @@ export class StrokeWidthEditTool implements Tool {
 		const p2 = ws[segIndex].cp2;
 		const p3 = ws[segIndex].end;
 
-		const pos = evalBezier(p0, p1, p2, p3, localT);
+		const pos = evalCubicBezier(p0, p1, p2, p3, localT);
 
 		// Tangent (derivative)
 		const u = 1 - localT;

@@ -8,12 +8,12 @@ import type {
 	StrokeAppearance,
 } from "../../../schema";
 import { closedRectSegments, lineSeg } from "../../../testUtils/segmentFactory";
-import { applyAffineToPoint } from "../../../utils/geometry/repeatInterpolation";
+import { computeSubPathSignedArea } from "../../../utils/geometry/measure/area";
 import {
-	computeSubPathSignedArea,
 	resolveSegment,
 	splitIntoSubPaths,
-} from "../../../utils/geometry/segmentOps";
+} from "../../../utils/geometry/primitives/segment";
+import { applyAffineToPoint } from "../../../utils/geometry/space/affine";
 import {
 	TransformFilterHandler,
 	type TransformParams,

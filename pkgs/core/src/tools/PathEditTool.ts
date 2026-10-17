@@ -31,17 +31,58 @@ import {
 	type Point,
 	type Viewport,
 } from "../schema";
-import { blendKeyOutlines } from "../utils/geometry/blendInterpolation";
-import {
-	calculateMeshCoordinateBounds,
-	distanceToSegment,
-	expandBounds,
-	pointInPolygon,
-} from "../utils/geometry/bounds";
+import { blendKeyOutlines } from "../utils/geometry/generate/blendInterpolation";
 import {
 	cornerArcMidpointDistance,
 	cornerTrimDistance,
-} from "../utils/geometry/cornerRadius";
+} from "../utils/geometry/generate/cornerRadius";
+import type { PathRun } from "../utils/geometry/generate/pathOps";
+import { bilinearUV } from "../utils/geometry/measure/meshTopology";
+import { calculateMeshCoordinateBounds } from "../utils/geometry/measure/pathBounds";
+import { expandBounds } from "../utils/geometry/primitives/box";
+import {
+	getStartAnchor,
+	resolveCP1,
+	resolveCP2,
+	toRelativeCP1,
+	toRelativeCP2,
+} from "../utils/geometry/primitives/segment";
+import {
+	distanceToSegment,
+	pointInPolygon,
+} from "../utils/geometry/query/hitTest";
+import {
+	findClosestMeshEdgePoint,
+	pointInBezierFace,
+} from "../utils/geometry/query/meshHitTest";
+import {
+	applyMeshHandleFan,
+	beginMeshHandleFan,
+	collectMeshCPHandles,
+	collectMeshEdgeCurves,
+	type MeshHandleFanState,
+	slideMeshVertex,
+	writeMeshCPHandle,
+} from "../utils/geometry/reshape/meshHandle";
+import {
+	deleteMeshVertex,
+	rotateDerivedCrossHandles,
+	syncDerivedVertices,
+} from "../utils/geometry/reshape/meshTopology";
+import {
+	demoteWarpVertexToDerived,
+	promoteWarpVertexToExplicit,
+	subdivideWarpFace,
+} from "../utils/geometry/reshape/meshWarp";
+import {
+	createResizeAffine,
+	mapWithin,
+} from "../utils/geometry/reshape/resize";
+import { splitSegmentAtIndex } from "../utils/geometry/reshape/segment";
+import {
+	type Affine2D,
+	elementTransformToAffine,
+} from "../utils/geometry/space/affine";
 import {
 	applyTransformToPoint,
 	composeTransforms,
@@ -50,51 +91,17 @@ import {
 	screenToWorld,
 	type WorldBezierSegment,
 	worldToScreen,
-} from "../utils/geometry/geometry";
-import {
-	applyMeshHandleFan,
-	beginMeshHandleFan,
-	collectMeshCPHandles,
-	collectMeshEdgeCurves,
-	findClosestMeshEdgePoint,
-	type MeshHandleFanState,
-	slideMeshVertex,
-	writeMeshCPHandle,
-} from "../utils/geometry/meshEditing";
-import {
-	bilinearUV,
-	deleteMeshVertex,
-	pointInBezierFace,
-	rotateDerivedCrossHandles,
-	syncDerivedVertices,
-} from "../utils/geometry/meshGradient";
-import {
-	demoteWarpVertexToDerived,
-	promoteWarpVertexToExplicit,
-	subdivideWarpFace,
-} from "../utils/geometry/meshWarp";
-import type { PathRun } from "../utils/geometry/pathOps";
-import {
-	type Affine2D,
-	elementTransformToAffine,
-} from "../utils/geometry/repeatInterpolation";
-import { createResizeAffine, mapWithin } from "../utils/geometry/resize";
-import {
-	getStartAnchor,
-	getWorldSegments,
-	reconstructSegmentsFromWorld,
-	resolveCP1,
-	resolveCP2,
-	splitSegmentAtIndex,
-	toRelativeCP1,
-	toRelativeCP2,
-} from "../utils/geometry/segmentOps";
+} from "../utils/geometry/space/coordinates";
 import {
 	frameCenter,
 	type SelectionFrame,
 	transformFrame,
 	worldFrame,
-} from "../utils/geometry/selectionFrame";
+} from "../utils/geometry/space/selectionFrame";
+import {
+	getWorldSegments,
+	reconstructSegmentsFromWorld,
+} from "../utils/geometry/space/worldSegments";
 import { matchKey } from "../utils/keyboard";
 import { deepClone } from "../utils/lang";
 import {

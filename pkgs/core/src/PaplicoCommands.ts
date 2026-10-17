@@ -135,66 +135,55 @@ import {
 } from "./utils/color";
 import { getGradientTargetFill, replaceFillOf } from "./utils/elementQuery";
 import {
+	calculateElementBounds,
+	calculateLocalElementBounds,
+	calculateRepeatSourceUnion,
+} from "./utils/geometry/elementBounds";
+import {
+	computeSpineKeyPlacements,
+	relocateSpineAnchorsToKeys,
+} from "./utils/geometry/generate/blendInterpolation";
+import {
+	buildWarpGeometryFromContour,
+	mapWarpGeometryPositions,
+	remapWarpGeometrySrc,
+	type WarpGeometry,
+} from "./utils/geometry/generate/meshWarpShape";
+import type { PathRun } from "./utils/geometry/generate/pathOps";
+import {
 	type AlignDelta,
 	type AlignItem,
 	type AlignMode,
 	computeAlignDeltas,
 	computeDistributeDeltas,
 	type DistributeAxis,
-	unionBounds,
-} from "./utils/geometry/align";
-import {
-	computeSpineKeyPlacements,
-	relocateSpineAnchorsToKeys,
-} from "./utils/geometry/blendInterpolation";
+} from "./utils/geometry/measure/align";
+import { getMeshWorldBoundarySegments } from "./utils/geometry/measure/meshTopology";
+import { calculateMeshCoordinateBounds } from "./utils/geometry/measure/pathBounds";
 import {
 	brandLocalBBox,
 	brandWorldBBox,
-	calculateElementBounds,
-	calculateLocalElementBounds,
-	calculateMeshCoordinateBounds,
-	calculateRepeatSourceUnion,
 	translateBounds,
-} from "./utils/geometry/bounds";
+	unionBounds,
+} from "./utils/geometry/primitives/box";
 import {
-	applyTransformToPoint,
-	applyWorldAffineToTransform,
-	composeTransforms,
-	computeInverseCompositionTransform,
-	inverseTransformVector,
-	keepPointInPlace,
-	placeElement,
-	solveChildTransform,
-	transformBounds,
-} from "./utils/geometry/geometry";
+	toRelativeCP1,
+	toRelativeCP2,
+} from "./utils/geometry/primitives/segment";
 import {
 	deleteMeshVertex,
 	demoteMeshColorVertexToDerived,
 	syncDerivedVertices,
-} from "./utils/geometry/meshGradient";
-import { isMeshWarpPassthrough } from "./utils/geometry/meshWarp";
-import {
-	buildWarpGeometryFromContour,
-	mapWarpGeometryPositions,
-	remapWarpGeometrySrc,
-	type WarpGeometry,
-} from "./utils/geometry/meshWarpShape";
-import { closePathAtEndpoints, type PathRun } from "./utils/geometry/pathOps";
+} from "./utils/geometry/reshape/meshTopology";
+import { isMeshWarpPassthrough } from "./utils/geometry/reshape/meshWarp";
+import { closePathAtEndpoints } from "./utils/geometry/reshape/pathSplit";
 import {
 	createLocalPointDeformer,
 	type DeformFrame,
 	deformGradientFilters,
 	flattenElementIds,
 	isDeformableElement,
-} from "./utils/geometry/pointDeform";
-import {
-	type Affine2D,
-	affineToElementTransform,
-	elementTransformToAffine,
-	IDENTITY_AFFINE,
-	invertAffine,
-	isIdentityAffine,
-} from "./utils/geometry/repeatInterpolation";
+} from "./utils/geometry/reshape/pointDeform";
 import {
 	type AxisFlip,
 	boundsRelativeMap,
@@ -209,18 +198,34 @@ import {
 	scaleTextContent,
 	scaleTextLayout,
 	scaleTextStyle,
-} from "./utils/geometry/resize";
+} from "./utils/geometry/reshape/resize";
 import {
-	getMeshWorldBoundarySegments,
-	toRelativeCP1,
-	toRelativeCP2,
-	toWorldPath,
-	translateSegments,
-} from "./utils/geometry/segmentOps";
+	type Affine2D,
+	affineToElementTransform,
+	elementTransformToAffine,
+	IDENTITY_AFFINE,
+	invertAffine,
+	isIdentityAffine,
+} from "./utils/geometry/space/affine";
+import {
+	applyTransformToPoint,
+	applyWorldAffineToTransform,
+	composeTransforms,
+	computeInverseCompositionTransform,
+	inverseTransformVector,
+	keepPointInPlace,
+	placeElement,
+	solveChildTransform,
+	transformBounds,
+} from "./utils/geometry/space/coordinates";
 import {
 	type SelectionFrame,
 	worldSelectionFrame,
-} from "./utils/geometry/selectionFrame";
+} from "./utils/geometry/space/selectionFrame";
+import {
+	toWorldPath,
+	translateSegments,
+} from "./utils/geometry/space/worldSegments";
 import { deepClone, neverReached } from "./utils/lang";
 import { parseSvgToArtObjects, type SvgImportResult } from "./utils/svgImport";
 

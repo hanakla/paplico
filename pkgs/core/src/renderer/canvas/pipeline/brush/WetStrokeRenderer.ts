@@ -17,12 +17,12 @@ import type {
 	BrushSettings,
 	ElementTransform,
 } from "../../../../schema";
+import { calculatePathBounds } from "../../../../utils/geometry/measure/pathBounds";
 import {
-	calculatePathBounds,
 	expandBounds,
 	type WorldBBox,
-} from "../../../../utils/geometry/bounds";
-import { transformBounds } from "../../../../utils/geometry/geometry";
+} from "../../../../utils/geometry/primitives/box";
+import { transformBounds } from "../../../../utils/geometry/space/coordinates";
 import { FULL_BLIT_UV_RECT } from "../../CanvasLayerTypes";
 import {
 	createFrameTextureRef,

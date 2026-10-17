@@ -37,11 +37,11 @@ import type {
 	Viewport,
 } from "../schema";
 import type { TextGlyphQuad } from "../typography/glyphQuad";
-import type { WorldBBox } from "../utils/geometry/bounds";
-import type { WorldBezierSegment } from "../utils/geometry/geometry";
-import type { PathRun } from "../utils/geometry/pathOps";
-import type { AxisFlip } from "../utils/geometry/resize";
-import type { SelectionFrame } from "../utils/geometry/selectionFrame";
+import type { PathRun } from "../utils/geometry/generate/pathOps";
+import type { WorldBBox } from "../utils/geometry/primitives/box";
+import type { AxisFlip } from "../utils/geometry/reshape/resize";
+import type { WorldBezierSegment } from "../utils/geometry/space/coordinates";
+import type { SelectionFrame } from "../utils/geometry/space/selectionFrame";
 import type { Reference3DController } from "./Reference3DController";
 import type { TextToolController } from "./TextToolController";
 import type { BucketFillLeakState } from "./toolSettings";
