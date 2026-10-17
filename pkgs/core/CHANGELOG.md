@@ -12,7 +12,7 @@
 ### Fixed
 
 - **Rounded corners**
-  - Fix a rounded corner sharper or wider than a right angle not keeping a constant curvature.
+  - Fix a rounded corner sharper or wider than a right angle not keeping a constant curvature. ([hanakla/paplico#3](https://github.com/hanakla/paplico/issues/3))
 - **Groups**
   - Fix a filter such as blur or chromatic aberration, or an opacity, on a group resetting the blend modes of its children and of their fills to normal.
   - Fix a filter on an element two or more groups deep being dropped when an outer group has a filter or an opacity.
