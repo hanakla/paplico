@@ -53,7 +53,7 @@ export function QuickstartDemo() {
 				))}
 				<span className="ml-auto flex flex-wrap gap-1">
 					<button type="button" className="aero-chip" onClick={save}>
-						<Download className="size-3.5" />
+						<Upload className="size-3.5" />
 						exportDocument()
 					</button>
 					<button
@@ -70,7 +70,7 @@ export function QuickstartDemo() {
 						disabled={!saved}
 						onClick={load}
 					>
-						<Upload className="size-3.5" />
+						<Download className="size-3.5" />
 						importDocument()
 					</button>
 				</span>
