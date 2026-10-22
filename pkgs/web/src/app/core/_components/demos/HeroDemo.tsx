@@ -46,7 +46,6 @@ export function HeroDemo() {
 	return (
 		<div className="aero-window">
 			<div className="aero-titlebar">
-				<span className="aero-titlebar-dot" />
 				<span>Untitled — @paplico/core</span>
 				<span className="ml-auto text-[0.7rem] font-normal text-sky-900/60">
 					live · WebGPU

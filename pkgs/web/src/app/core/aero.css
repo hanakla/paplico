@@ -154,18 +154,6 @@
 	text-shadow: 0 1px 0 rgb(255 255 255 / 0.9);
 }
 
-.aero-titlebar-dot {
-	width: 0.7rem;
-	height: 0.7rem;
-	border-radius: 9999px;
-	background: radial-gradient(
-		circle at 35% 30%,
-		#fff 0 15%,
-		var(--aero-dot, var(--aero-aqua)) 60%
-	);
-	box-shadow: inset 0 -1px 2px rgb(0 0 0 / 0.2);
-}
-
 /* The drawable surface: paper white under the transparent WebGPU canvas */
 .aero-canvas {
 	background: radial-gradient(

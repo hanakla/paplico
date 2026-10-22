@@ -19,10 +19,6 @@ export function CollabDemo() {
 			{PEERS.map((peer) => (
 				<div key={peer.name} className="aero-window">
 					<div className="aero-titlebar">
-						<span
-							className="aero-titlebar-dot"
-							style={{ "--aero-dot": peer.color } as React.CSSProperties}
-						/>
 						<span>{peer.name}’s Paplico</span>
 					</div>
 					<LiveCanvas
