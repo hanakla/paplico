@@ -79,6 +79,10 @@ paplico.destroy();
 Create the engine in an effect and destroy it on unmount. Keep the instance in state so the rest of your UI can use it.
 
 ```tsx
+import { Paplico } from "@paplico/core";
+import { useEffect, useRef, useState } from "react";
+
+// `options` is the object passed to Paplico.create in "Create the engine"
 function Editor() {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const [paplico, setPaplico] = useState<Paplico | null>(null);

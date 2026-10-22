@@ -45,6 +45,7 @@ Every document change goes through `commands`. That one path keeps undo, redo an
 `paplico.uiState` is a Valtio proxy. In React, take a snapshot of it and re-render when it changes:
 
 ```tsx
+import type { Paplico } from "@paplico/core";
 import { useSnapshot } from "valtio";
 
 function UndoButton({ paplico }: { paplico: Paplico }) {
