@@ -10,10 +10,13 @@ import type { NavItem } from "./nav";
 export function DocsShell({
 	title,
 	nav,
+	backLink = { href: "/", label: "Back to App" },
 	children,
 }: {
 	title: string;
 	nav: NavItem[];
+	/** Where the header's back link leads; the app itself by default. */
+	backLink?: { href: string; label: string };
 	children: React.ReactNode;
 }) {
 	const mainRef = useRef<HTMLDivElement>(null);
@@ -26,10 +29,10 @@ export function DocsShell({
 			{/* Header */}
 			<header className="col-span-3 flex items-center gap-3 border-b border-border px-4 py-2">
 				<Link
-					href="/"
+					href={backLink.href}
 					className="text-sm text-muted-foreground hover:text-foreground transition-colors"
 				>
-					&larr; Back to App
+					&larr; {backLink.label}
 				</Link>
 				<span className="text-sm font-semibold text-foreground">{title}</span>
 			</header>

@@ -1,0 +1,70 @@
+import { CollabDemo } from "../../_components/demos/CollabDemo";
+import { SourceCode } from "../../_components/SourceCode";
+
+# Collaboration
+
+Every Paplico document is a [Yjs](https://yjs.dev) document. Collaboration means attaching a transport that syncs that Y.Doc with other peers. Yjs merges concurrent edits on its own, and undo only reverts the local user's changes.
+
+## Connecting
+
+`connectCollaboration` takes a factory and a document mode. The factory receives the Y.Doc to sync and returns a transport built around it.
+
+```ts
+import { PartyKitCollaboration } from "@paplico/core/collaboration";
+
+const collab = paplico.connectCollaboration(
+	(ydoc) => new PartyKitCollaboration(ydoc, { roomId, relayHost }),
+	{ document: "keepForRemote" },
+);
+```
+
+The document mode decides what happens to the document already on the canvas:
+
+| Mode | Use it when |
+| --- | --- |
+| `"fromRemote"` | Joining someone else's room. The local document is discarded and the room's state is adopted. |
+| `"keepForRemote"` | Sharing what is already on the canvas. The local document is kept and merged with the room. |
+
+Calling `connectCollaboration` again replaces the current transport. `paplico.clearCollaboration()` disconnects and goes back to working alone.
+
+## Built-in transports
+
+All of them take a `CollaborationConfig` with at least a `roomId`.
+
+| Transport | Server | Needs |
+| --- | --- | --- |
+| `Collaboration` | Any `y-websocket` server | `wsUrl` |
+| `PartyKitCollaboration` | The PartyKit server in `pkgs/partykit-collab-server` | `relayHost`, plus `authToken` and `roomToken` when the server checks them |
+| `E2EECollaboration` | The same PartyKit relay, which only forwards ciphertext | `relayHost` and `roomKey` |
+
+For end-to-end encryption, make a key with `generateRoomKey()` and encode it with `exportRoomKey()`. Pass the encoded key to `buildInviteUrl` as `encodedKey`. It goes into the URL fragment, which browsers never send to a server. The receiving side reads the invite with `parseInvite` and turns the key back into a `CryptoKey` with `importRoomKey`.
+
+## Knowing when the room is ready
+
+The engine emits events on itself, and the transport emits its own:
+
+```ts
+paplico.on("collaborationReady", () => {
+	// The room has synced and its document is on the canvas
+});
+
+collab.on("status", (status) => setOnline(status === "connected"));
+collab.on("kicked", () => showMessage("The owner removed you from the room"));
+collab.on("roomClosed", () => showMessage("The room was closed"));
+```
+
+## Cursors and presence
+
+Each transport exposes a Yjs `awareness`. The engine reports the local pointer through it as the pointer moves over the canvas. Read the other peers from `collab.getAwarenessStates()`, and draw their cursors in your own UI.
+
+## Writing your own transport
+
+A transport extends `CollaborationBase` and syncs the Y.Doc however you like. When it has received the room's state, it emits `"synced"` with `true`. The engine then merges and migrates the document before it reports `collaborationReady`.
+
+Here are two engines on one page, joined by a transport built on `BroadcastChannel`. Draw in one window, and the stroke shows up in the other. Open this page in a second tab, and that tab joins too.
+
+<CollabDemo />
+
+This is the transport running above, as it is in the source:
+
+<SourceCode file="app/core/_components/demos/BroadcastChannelCollaboration.ts" />

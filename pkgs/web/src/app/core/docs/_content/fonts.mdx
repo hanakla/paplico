@@ -1,0 +1,88 @@
+# Fonts
+
+Text fonts come from the `FontLoader`s you pass as `fontLoaders`. The engine registers none by default, so text renders with the fallback font until you add one.
+
+## How a text finds its font
+
+A text style stores its font as a `FontSource`, `{ loaderId, fontId }`. The loader whose `id` equals `loaderId` loads it. Text whose loader is not registered renders with the fallback font, so a document never breaks because a font is missing.
+
+## Built-in loaders
+
+| Loader | `id` | `fontId` |
+| --- | --- | --- |
+| `GoogleFontsLoader` | `google` | Family name. `Family:700` pins one weight file of a family without a variable font |
+| `LocalFontsLoader` | `local` | PostScript name of an installed font |
+
+```ts
+import { DomLocalFontBackend } from "@paplico/core/infra";
+import { GoogleFontsLoader, LocalFontsLoader } from "@paplico/core/typography";
+
+const paplico = await Paplico.create(canvas, {
+	fontLoaders: [
+		new GoogleFontsLoader(GOOGLE_FONTS_API_KEY),
+		new LocalFontsLoader(new DomLocalFontBackend()),
+	],
+	// ...
+});
+```
+
+`LocalFontsLoader` reads installed fonts through a `LocalFontBackend`. In browsers, use `DomLocalFontBackend` from `@paplico/core/infra`. On other platforms, implement `LocalFontBackend` in your app. The Paplico desktop app does this for Tauri in `pkgs/web/src/infra/localfonts.tauri.ts`.
+
+## Writing your own loader
+
+Extend `FontLoader` and pass an instance alongside the others. A loader only lists its fonts and fetches their files. Parsing, caching, deduplicating concurrent loads and registering the font for DOM text all happen in the base class.
+
+```ts
+import { FontLoader, type FontFile, type FontMetadata } from "@paplico/core/typography";
+
+class AppFontsLoader extends FontLoader {
+	// Stored in documents as FontSource.loaderId; keep it stable across releases
+	public readonly id = "app-fonts";
+	// Name shown to users, e.g. as a font picker tab
+	public readonly label = "App Fonts";
+
+	public async queryFonts(): Promise<FontMetadata[]> {
+		return [
+			{
+				family: "My Brand Sans",
+				fullName: "My Brand Sans Regular",
+				postScriptName: "MyBrandSans-Regular",
+				style: "Regular",
+				weight: 400,
+				loaderId: this.id,
+				fontId: "my-brand-sans",
+			},
+		];
+	}
+
+	protected async fetchFont(fontId: string): Promise<FontFile | null> {
+		const res = await fetch(`/fonts/${fontId}.ttf`);
+		if (!res.ok) return null;
+		return {
+			data: await res.arrayBuffer(),
+			metadata: {
+				family: "My Brand Sans",
+				fullName: "My Brand Sans Regular",
+				postScriptName: "MyBrandSans-Regular",
+				style: "Regular",
+				weight: 400,
+			},
+		};
+	}
+}
+```
+
+What the engine expects from `fetchFont`:
+
+- Return the font file and its metadata. TTF, OTF, WOFF2 and TrueType collections all work. In a collection, `metadata.postScriptName` selects the face.
+- Return `null` when the loader has no such font. Throw when fetching fails. Either way the text renders with the fallback font.
+- The font is registered for DOM text under `metadata.family`. Set `cssFamily` on the returned file to use another name.
+
+Two more rules:
+
+- Each loader `id` must be unique among the registered loaders.
+- A loader whose catalog cannot tell which writing systems a font covers may implement the optional `getScripts` and `resolveScripts` to detect them later.
+
+## Listing fonts
+
+`paplico.fonts.queryAllFonts()` lists the fonts of every loader. Build the `FontSource` of a listed font from its `loaderId` and `fontId`.

@@ -1,0 +1,108 @@
+import { QuickstartDemo } from "../../_components/demos/QuickstartDemo";
+
+# Getting Started
+
+This guide puts a drawable canvas on your page, then saves and loads the document.
+
+## Requirements
+
+- A browser with WebGPU. There is no Canvas 2D or WebGL fallback.
+- An ESM bundler such as Vite, webpack or Turbopack. It needs one alias, described in [Bundler Setup](/core/docs/bundler-setup).
+
+## Install
+
+```bash
+npm install @paplico/core
+```
+
+## Serve the files the engine needs
+
+The engine fetches nothing app-specific on its own. Your app serves these files and tells the engine where they are:
+
+| File | Passed as |
+| --- | --- |
+| `sRGB-v4.icc`, `DisplayP3Compat-v4.icc` | Bytes returned by `getBuiltinProfileBytes` |
+| `NotoSansJP-VariableFont_wght.ttf` | `fallbackFontUrl`, used for text that no loaded font covers |
+
+Copy them from `pkgs/web/public/assets/` in the [repository](https://github.com/hanakla/paplico).
+
+## Create the engine
+
+`Paplico.create` takes the canvas and the options. It throws when WebGPU cannot start, so catch it and show your own message.
+
+```ts
+import { Paplico } from "@paplico/core";
+
+const ICC_FILES = { srgb: "sRGB-v4.icc", "display-p3": "DisplayP3Compat-v4.icc" };
+
+const paplico = await Paplico.create(canvas, {
+	// No text fonts yet; see the Fonts guide
+	fontLoaders: [],
+	getBuiltinProfileBytes: async (id) => {
+		const res = await fetch(`/assets/icc/${ICC_FILES[id]}`);
+		return new Uint8Array(await res.arrayBuffer());
+	},
+	fallbackFontUrl: "/assets/fonts/NotoSansJP-VariableFont_wght.ttf",
+});
+
+paplico.startRendering();
+paplico.tools.setCurrentTool("pen");
+```
+
+The canvas follows its CSS size, so size it with CSS and the engine keeps up.
+
+## Save and load
+
+`exportDocument` returns the whole document as a papf `Blob`. `importDocument` replaces the current document with one.
+
+```ts
+const blob = await paplico.exportDocument();
+await saveSomewhere(blob);
+
+await paplico.importDocument(await loadFromSomewhere());
+```
+
+Here is that code running. Draw something, save it, clear the canvas and load it back:
+
+<QuickstartDemo />
+
+## Clean up
+
+`destroy` releases the GPU device, the canvas listeners and any collaboration connection. Call it when the canvas leaves the page.
+
+```ts
+paplico.destroy();
+```
+
+## Using it from React
+
+Create the engine in an effect and destroy it on unmount. Keep the instance in state so the rest of your UI can use it.
+
+```tsx
+function Editor() {
+	const canvasRef = useRef<HTMLCanvasElement>(null);
+	const [paplico, setPaplico] = useState<Paplico | null>(null);
+
+	useEffect(() => {
+		let instance: Paplico | null = null;
+		let disposed = false;
+
+		Paplico.create(canvasRef.current!, options).then((created) => {
+			if (disposed) return created.destroy();
+			instance = created;
+			created.startRendering();
+			setPaplico(created);
+		});
+
+		return () => {
+			disposed = true;
+			instance?.destroy();
+		};
+	}, []);
+
+	return <canvas ref={canvasRef} style={{ width: "100%", height: "100%" }} />;
+}
+```
+
+> [!TIP]
+> Keyboard shortcuts listen on `window`. When the page has text fields or several engines, pass `filterShortcutEvents` to `Paplico.create`. Return `false` from it to keep an event away from the engine.

@@ -1,0 +1,22 @@
+# Entry Points
+
+The package exposes these import paths and nothing else. Anything not exported from one of them is internal and may change between releases.
+
+| Import | Contents |
+| --- | --- |
+| `@paplico/core` | The `Paplico` facade, errors, shortcuts and `registerForHotReload` |
+| `@paplico/core/schema` | Document, layer, element, color and brush types |
+| `@paplico/core/document` | Default value factories, length units and renderer state |
+| `@paplico/core/brush` | Brush presets, properties and curves |
+| `@paplico/core/collaboration` | Collaboration transports, invite URLs and room crypto |
+| `@paplico/core/color` | ICC profile inspection |
+| `@paplico/core/io` | papf read and write, migrations |
+| `@paplico/core/export` | Artboard exporters and the `IExporter` interface |
+| `@paplico/core/tools` | Tool types and tool-specific helpers |
+| `@paplico/core/timelapse` | Timelapse export and playback |
+| `@paplico/core/typography` | Font loaders and text layout |
+| `@paplico/core/filters` | Filter types and the filter catalog |
+| `@paplico/core/utils` | Geometry, color and easing helpers |
+| `@paplico/core/infra` | Clipboard and the browser local font backend |
+| `@paplico/core/three-webgpu-compat` | Target of the `three` bundler alias. See [Bundler Setup](/core/docs/bundler-setup) |
+

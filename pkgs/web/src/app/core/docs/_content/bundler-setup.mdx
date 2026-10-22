@@ -1,0 +1,44 @@
+# Bundler Setup
+
+The engine uses three.js to show 3D reference models. three.js and `@pixiv/three-vrm` must share one WebGPU build of three.js. Alias the bare `three` import to the module the package ships for this, and both of them load the same copy.
+
+## Vite
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+
+export default defineConfig({
+	resolve: {
+		alias: [{ find: /^three$/, replacement: "@paplico/core/three-webgpu-compat" }],
+	},
+});
+```
+
+## Next.js
+
+Set the alias for both Turbopack and webpack, so it holds whichever one runs:
+
+```ts
+// next.config.ts
+export default {
+	turbopack: {
+		resolveAlias: { three: "@paplico/core/three-webgpu-compat" },
+	},
+	webpack: (config) => {
+		config.resolve.alias = {
+			...config.resolve.alias,
+			three$: "@paplico/core/three-webgpu-compat",
+		};
+		return config;
+	},
+};
+```
+
+## Running on Node
+
+`pngjs` is an optional peer dependency. Install it only when you run the engine on Node with a WebGPU implementation such as `webgpu` (Dawn). Browsers never load it.
+
+```bash
+npm install pngjs webgpu
+```
