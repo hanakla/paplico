@@ -11,6 +11,7 @@ import {
 	FilePlus,
 	FileUp,
 	FolderOpen,
+	FolderSearch,
 	Gamepad2,
 	Gauge,
 	Grid2x2,
@@ -35,21 +36,26 @@ import {
 	Upload,
 	X as XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { proxy, useSnapshot } from "valtio";
 import { AutoSaveRing } from "@/components/AutoSaveRing";
 import { Menu } from "@/components/Menu";
 import { Menubar } from "@/components/Menubar";
+import { Popover } from "@/components/Popover";
 import { useCanvasObstacle } from "@/hooks/useCanvasObstacle";
 import { useCurrentCanvasTargetResolver } from "@/hooks/useCurrentCanvasTarget";
+import { useCurrentDocumentName } from "@/hooks/useDocumentQueries";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useMenuActions } from "@/hooks/useMenuActions";
 import { useShortcutBinding } from "@/hooks/useShortcutBinding";
+import { tauriRevealFileInFolder } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import { RoomParticipants } from "@/organisms/RoomParticipants";
 import { UserMenu } from "@/organisms/UserMenu";
 import { documentSessionState } from "@/stores/documentSessionStore";
 import { useUIState } from "@/stores/uiStore";
+import { useEventCallback } from "@/utils/hooks";
+import { detectMacOSTauri, IS_TAURI_ENV } from "@/utils/platform";
 import { twm } from "@/utils/tailwind";
 
 export function DesktopMenuBar({
@@ -115,6 +121,7 @@ export function DesktopMenuBar({
 	);
 	const uiState = useSnapshot(paplico?.uiState ?? fallbackUiState);
 	const { fileHandle } = useSnapshot(documentSessionState);
+	const documentName = useCurrentDocumentName();
 	const appUiState = useUIState();
 
 	const undoShortcut = useShortcutBinding("paplico.undo");
@@ -159,6 +166,15 @@ export function DesktopMenuBar({
 	} = useMenuActions(paplicoRef, {
 		setExportDialogOpen: () => onOpenExportDialog(),
 		setDocumentSettingsDialogOpen: () => onOpenDocumentSettingsDialog(),
+	});
+
+	const [fileLocationPopoverOpen, setFileLocationPopoverOpen] = useState(false);
+	const handleRevealFileInFolder = useEventCallback(() => {
+		if (!fileHandle) return;
+		setFileLocationPopoverOpen(false);
+		tauriRevealFileInFolder(fileHandle).catch((error) => {
+			console.error("Failed to reveal the document file", error);
+		});
 	});
 
 	if (layoutMode !== "desktop") return null;
@@ -444,6 +460,38 @@ export function DesktopMenuBar({
 			</Menubar.Root>
 
 			<div className="flex items-center gap-2 ml-auto shrink-0 self-center">
+				{IS_TAURI_ENV ? (
+					<Popover.Root
+						open={fileLocationPopoverOpen}
+						onOpenChange={setFileLocationPopoverOpen}
+					>
+						<Popover.Trigger>
+							<button
+								type="button"
+								className="max-w-48 truncate rounded px-1 text-xs text-muted-foreground transition-colors cursor-pointer hover:bg-foreground/10 hover:text-foreground"
+							>
+								{documentName}
+							</button>
+						</Popover.Trigger>
+						<Popover.Content className="w-auto p-1">
+							<button
+								type="button"
+								onClick={handleRevealFileInFolder}
+								disabled={fileHandle == null}
+								className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-xs text-foreground cursor-pointer outline-none hover:bg-muted focus:bg-muted disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
+							>
+								<FolderSearch size={14} />
+								{detectMacOSTauri()
+									? t("menubar.revealInFinder")
+									: t("menubar.openFileLocation")}
+							</button>
+						</Popover.Content>
+					</Popover.Root>
+				) : (
+					<span className="max-w-48 truncate px-1 text-xs text-muted-foreground">
+						{documentName}
+					</span>
+				)}
 				<AutoSaveRing />
 				<RoomParticipants
 					connectedRoomId={connectedRoomId}

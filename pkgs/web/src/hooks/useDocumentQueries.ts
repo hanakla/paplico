@@ -5,12 +5,19 @@ import type {
 	DocumentMeta,
 	DocumentRevision,
 } from "@/infra/documentDB.types";
+import { useTranslation } from "@/locales";
+import {
+	documentNameFromFile,
+	documentSessionState,
+} from "@/stores/documentSessionStore";
 import {
 	countDocumentRevisions,
+	documentManagerState,
 	documentStorageState,
 	listDocumentMetas,
 	listDocumentRevisions,
 	loadDocumentData,
+	loadDocumentMeta,
 } from "@/stores/documentStore";
 import { useAsyncEffect } from "@/utils/hooks";
 
@@ -73,4 +80,30 @@ export function useDocumentHistories(docIds: string[]): {
 		revisions: histories?.revisions,
 		data: histories?.data,
 	};
+}
+
+/**
+ * Name the open document goes by: the file manual saves write to, then the
+ * stored document's name, then a placeholder.
+ */
+export function useCurrentDocumentName(): string {
+	const t = useTranslation();
+	const { fileHandle } = useSnapshot(documentSessionState);
+	const { currentDocumentId } = useSnapshot(documentManagerState);
+	const { changeCount } = useSnapshot(documentStorageState);
+	const [storedName, setStoredName] = useState<string>();
+
+	useAsyncEffect(
+		async (signal) => {
+			const meta = currentDocumentId
+				? await loadDocumentMeta(currentDocumentId)
+				: null;
+			if (signal.aborted) return;
+			setStoredName(meta?.name);
+		},
+		[currentDocumentId, changeCount],
+	);
+
+	if (fileHandle) return documentNameFromFile(fileHandle.file);
+	return storedName ?? t("menubar.untitledDocument");
 }

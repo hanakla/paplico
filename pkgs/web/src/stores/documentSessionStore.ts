@@ -72,12 +72,17 @@ export async function openDocumentFile(
 	const id = paplico.uiState.document.id || generateUid("doc");
 	await upsertDocument(
 		id,
-		file.name.replace(/\.papf$/i, ""),
+		documentNameFromFile(file),
 		await paplico.exportDocument(),
 	);
 	documentManagerState.currentDocumentId = id;
 	setExternalDocumentSession(source instanceof File ? null : source);
 	setLastDocumentId(id);
+}
+
+/** Names a document after the file it was opened from or saved to. */
+export function documentNameFromFile(file: File): string {
+	return file.name.replace(/\.papf$/i, "");
 }
 
 function replaceDocumentSession(

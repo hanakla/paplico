@@ -5,6 +5,7 @@
 	"permissions": [
 		"core:default",
 		"core:window:allow-start-dragging",
+		"core:window:allow-set-title",
 		"safe-area-insets-css:default",
 		"fs:allow-read-file",
 		"fs:allow-write-file",

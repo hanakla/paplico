@@ -11,8 +11,9 @@ export const viewport: Viewport = {
 	userScalable: false,
 };
 
+// No title here: the editor page names its tab after the open document,
+// and a metadata title would replace it whenever React remounts it
 export const metadata: Metadata = {
-	title: "Paplico",
 	appleWebApp: {
 		capable: true,
 		statusBarStyle: "black-translucent",

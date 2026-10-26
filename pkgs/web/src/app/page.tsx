@@ -61,6 +61,7 @@ import {
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useCanvasObstacle } from "@/hooks/useCanvasObstacle";
 import { getEncryptedRoomCredentials, useCollab } from "@/hooks/useCollab";
+import { useCurrentDocumentName } from "@/hooks/useDocumentQueries";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useMenuActions } from "@/hooks/useMenuActions";
 import { createAutomationFileSystem } from "@/infra/automationFileSystem";
@@ -72,6 +73,7 @@ import {
 } from "@/infra/filesystem";
 import { createFontLoaders } from "@/infra/fontLoaders";
 import { runIndexedDBMigrations } from "@/infra/indexedDBMigrations";
+import { tauriSetWindowTitle } from "@/infra/windowTitle";
 import { useTranslation } from "@/locales";
 import { ActionsPanel } from "@/organisms/ActionsPanel";
 import { CanvasPane } from "@/organisms/CanvasPane";
@@ -171,6 +173,11 @@ export default function Page() {
 		el.classList.toggle("notch-left", notchSide === "left");
 		el.classList.toggle("notch-right", notchSide === "right");
 	}, [notchSide]);
+
+	const windowTitle = `${useCurrentDocumentName()}￤Paplico`;
+	useEffect(() => {
+		if (IS_TAURI_ENV) void tauriSetWindowTitle(windowTitle);
+	}, [windowTitle]);
 
 	// Handle ?room=xxx URL parameter - open connect dialog with prefilled room ID
 	useEffect(() => {
@@ -859,6 +866,7 @@ export default function Page() {
 
 	return (
 		<PaplicoProvider paplico={paplico}>
+			<title>{windowTitle}</title>
 			<ToastContainer>
 				<div
 					role="application"

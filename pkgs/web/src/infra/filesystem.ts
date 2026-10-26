@@ -199,6 +199,14 @@ export async function domFSFileHandleFromTransferItem(
 	}
 }
 
+/** Opens the folder holding a saved file, with the file selected. */
+export async function tauriRevealFileInFolder(
+	handle: FileHandle,
+): Promise<void> {
+	const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+	await revealItemInDir(handle.handle as string);
+}
+
 /**
  * Picks the folder the export dialog opens on: the one holding the document,
  * then the download folder, then the documents folder.
