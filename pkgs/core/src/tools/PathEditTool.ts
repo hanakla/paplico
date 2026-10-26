@@ -216,8 +216,11 @@ type DragState =
 	  }
 	| {
 			mode: "faceDragPending";
+			/** The selected path whose face was pressed */
+			pathId: string;
 			startX: number;
 			startY: number;
+			shiftKey: boolean;
 			/** Alt held at pointerDown: duplicate the whole path on first move */
 			altKey: boolean;
 	  }
@@ -845,8 +848,10 @@ export class PathEditTool implements Tool {
 				// Clicked on the face of an already-selected path → pending before drag
 				this.dragState = {
 					mode: "faceDragPending",
+					pathId: hitPath.id,
 					startX: world.x,
 					startY: world.y,
+					shiftKey: event.shiftKey,
 					altKey: event.altKey,
 				};
 				this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
@@ -886,25 +891,13 @@ export class PathEditTool implements Tool {
 				);
 			}
 
-			// Select all anchor vertices of the newly selected path(s)
+			// Select all anchor vertices of the clicked path only, so a shift+click
+			// keeps the vertex selection of the other paths as it is
 			if (!event.shiftKey) {
 				this.selectedHandles.clear();
 			}
-			for (const path of this.selectedPaths.values()) {
-				const cpHandles = this.extractControlPoints(
-					path,
-					viewport,
-					canvasWidth,
-					canvasHeight,
-				);
-				for (const h of cpHandles) {
-					if (
-						(h.type === "anchor" && h.pointType === "end") ||
-						h.type === "corner-radius"
-					) {
-						this.selectedHandles.add(this.getHandleKey(h));
-					}
-				}
+			if (this.selectedPaths.has(hitPath.id)) {
+				this.selectAllVerticesOf(hitPath, viewport, canvasWidth, canvasHeight);
 			}
 
 			// Notify path selection
@@ -1619,24 +1612,28 @@ export class PathEditTool implements Tool {
 		}
 
 		if (ds.mode === "faceDragPending") {
-			// Released before threshold: treat as click on fill
-			this.selectedHandles.clear();
-			for (const [, path] of this.selectedPaths) {
-				const cpHandles = this.extractControlPoints(
-					path,
-					viewport,
-					canvasWidth,
-					canvasHeight,
-				);
-				for (const h of cpHandles) {
-					if (
-						h.type === "corner-radius" ||
-						(h.type === "anchor" &&
-							(h.pointType === "start" || h.pointType === "end"))
-					) {
-						this.selectedHandles.add(this.getHandleKey(h));
-					}
+			// Released before threshold: a click on the fill selects that path
+			// alone, and a shift+click takes it out of the selection
+			const path = this.selectedPaths.get(ds.pathId);
+			if (ds.shiftKey) {
+				this.selectedPaths.delete(ds.pathId);
+				this.pathAncestorTransforms.delete(ds.pathId);
+				for (const key of this.selectedHandles) {
+					if (key.startsWith(`${ds.pathId}:`)) this.selectedHandles.delete(key);
 				}
+				if (this.selectedPaths.size === 0 && this.selectedMeshes.size === 0) {
+					this.context.selectionClear();
+					// Drop the whole-element selection frame this tool may have drawn.
+					this.context.uiRefreshSelectionUI(false);
+				}
+			} else if (path) {
+				const ancestorTransform = this.pathAncestorTransforms.get(path.id);
+				this.selectedPaths.clear();
+				this.pathAncestorTransforms.clear();
+				this.selectedHandles.clear();
+				this.selectedPaths.set(path.id, path);
+				this.pathAncestorTransforms.set(path.id, ancestorTransform ?? null);
+				this.selectAllVerticesOf(path, viewport, canvasWidth, canvasHeight);
 			}
 			this.dragState = { mode: "idle" };
 			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
@@ -1645,25 +1642,7 @@ export class PathEditTool implements Tool {
 
 		if (ds.mode === "faceDrag") {
 			if (!ds.hasMoved) {
-				// Click without drag on fill: select all anchor vertices and corner-radius handles
-				this.selectedHandles.clear();
-				for (const [, path] of this.selectedPaths) {
-					const cpHandles = this.extractControlPoints(
-						path,
-						viewport,
-						canvasWidth,
-						canvasHeight,
-					);
-					for (const h of cpHandles) {
-						if (
-							h.type === "corner-radius" ||
-							(h.type === "anchor" &&
-								(h.pointType === "start" || h.pointType === "end"))
-						) {
-							this.selectedHandles.add(this.getHandleKey(h));
-						}
-					}
-				}
+				// Click without drag: onPointerDown already selected the clicked path's vertices
 				this.dragState = { mode: "idle" };
 				this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
 				return;
@@ -2258,6 +2237,29 @@ export class PathEditTool implements Tool {
 		}
 		if (!restored) return;
 		this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+	}
+
+	/** Select every anchor vertex and corner-radius handle of the path. */
+	private selectAllVerticesOf(
+		path: Path,
+		viewport: Viewport,
+		canvasWidth: number,
+		canvasHeight: number,
+	): void {
+		for (const h of this.extractControlPoints(
+			path,
+			viewport,
+			canvasWidth,
+			canvasHeight,
+		)) {
+			if (
+				h.type === "corner-radius" ||
+				(h.type === "anchor" &&
+					(h.pointType === "start" || h.pointType === "end"))
+			) {
+				this.selectedHandles.add(this.getHandleKey(h));
+			}
+		}
 	}
 
 	/**

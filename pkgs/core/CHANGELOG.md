@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Path edit tool**
+  - Fix Shift+clicking another path to add it selecting every vertex of the paths whose vertices were already selected.
+  - Fix clicking the fill of a selected path selecting every vertex of all the selected paths. A click selects that path alone, and a Shift+click takes it out of the selection.
+
 ## [0.9.0] - 2026-10-18
 
 ### Added

@@ -2101,6 +2101,123 @@ describe("PathEditTool", () => {
 			expect(selectedAnchors.length).toBe(4);
 			expect(selectedCR.length).toBe(4);
 		});
+
+		it("should keep the other path's vertex selection when Shift+clicking to add a path", () => {
+			const line = makeStraightPath("line", [0, 100, 200]);
+			const rect = createRectPath();
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path: line, ancestorTransform: null },
+			]);
+			ctx.getPathById.mockImplementation((id: string) =>
+				id === line.id ? line : null,
+			);
+
+			// Select the line's middle anchor (100,0)
+			tool.onPointerDown(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			// Shift+click the rect's face at world (0,-50), away from any anchor
+			ctx.findPathAtPoint.mockReturnValue(rect);
+			tool.onPointerDown(
+				ev(400, 350, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(400, 350, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const selectedAnchors = getControlPoints(ctx, HANDLES_KEY).filter(
+				(cp) => cp.type === "anchor" && cp.selected,
+			);
+			expect(
+				selectedAnchors
+					.filter((cp) => cp.pathId === line.id)
+					.map((cp) => `${cp.segmentIndex}:${cp.pointType}`),
+			).toEqual(["0:end"]);
+			expect(
+				selectedAnchors.filter((cp) => cp.pathId === rect.id),
+			).toHaveLength(4);
+		});
+
+		describe("when the face of an already-selected path is clicked", () => {
+			let line: Path;
+			let rect: Path;
+
+			beforeEach(() => {
+				line = makeStraightPath("line", [200, 300, 400]);
+				rect = createRectPath();
+				tool.initWithSelectedPaths(
+					[line, rect],
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+				// Select the line's middle anchor (300,0)
+				click(700, 300);
+				ctx.findPathAtPoint.mockReturnValue(rect);
+			});
+
+			it("should select only that path and all its vertices", () => {
+				// The rect's face at world (-50,-50), away from any anchor or edge
+				click(350, 350);
+
+				const controlPoints = getControlPoints(ctx, HANDLES_KEY);
+				expect(new Set(controlPoints.map((cp) => cp.pathId))).toEqual(
+					new Set([rect.id]),
+				);
+				expect(
+					controlPoints.filter((cp) => cp.type === "anchor" && cp.selected),
+				).toHaveLength(4);
+			});
+
+			it("should take that path out of the selection on Shift+click", () => {
+				click(350, 350, { shiftKey: true });
+
+				const controlPoints = getControlPoints(ctx, HANDLES_KEY);
+				expect(new Set(controlPoints.map((cp) => cp.pathId))).toEqual(
+					new Set([line.id]),
+				);
+				expect(
+					controlPoints
+						.filter((cp) => cp.type === "anchor" && cp.selected)
+						.map((cp) => `${cp.segmentIndex}:${cp.pointType}`),
+				).toEqual(["0:end"]);
+			});
+		});
+
+		function click(
+			x: number,
+			y: number,
+			overrides: Parameters<typeof ev>[2] = {},
+		) {
+			tool.onPointerDown(
+				ev(x, y, overrides),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(x, y, overrides),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		}
 	});
 
 	describe("Cursor", () => {
