@@ -64,7 +64,7 @@ export function setSelectionOverlay(
 	);
 }
 
-/** Hover highlight for the element pointed at outside the canvas (layer panel). */
+/** Hover highlight for the element under the pointer or a layer panel row. */
 export function setHoverOverlay(
 	uiState: UIOverlayState,
 	ui: HoverUIData | null,

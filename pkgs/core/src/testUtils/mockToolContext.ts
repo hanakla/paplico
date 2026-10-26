@@ -79,6 +79,7 @@ export function createMockToolContext(
 		selectionSelectMultiple: vi.fn(),
 		selectionClear: vi.fn(),
 		uiRefreshSelectionUI: vi.fn(),
+		uiSetHoveredElement: vi.fn(),
 		getSelectedElementIds: vi.fn(() => []),
 		setKeyObject: vi.fn(),
 		getKeyObjectId: vi.fn(() => null),

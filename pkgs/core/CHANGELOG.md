@@ -2,11 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Select tool**
+  - Hovering an unselected element outlines it.
+- **Path edit tool**
+  - Hovering an unselected path or element outlines it and shows the path's vertices, and hovering an unselected vertex rings it.
+- **Tools**
+  - `Tool.onPointerLeave` is called when the pointer leaves the canvas.
+
 ### Fixed
 
 - **Path edit tool**
   - Fix Shift+clicking another path to add it selecting every vertex of the paths whose vertices were already selected.
   - Fix clicking the fill of a selected path selecting every vertex of all the selected paths. A click selects that path alone, and a Shift+click takes it out of the selection.
+- **Path tool**
+  - Fix the outline of a hovered path staying after the pointer leaves the canvas.
 
 ## [0.9.0] - 2026-10-18
 

@@ -487,6 +487,20 @@ describe("PathTool", () => {
 			expect(primitive.segments[0].end).toEqual({ x: 300, y: 0 });
 		});
 
+		it("should drop the outline when the pointer leaves the canvas", () => {
+			ctx.findPathAtPoint.mockReturnValue(childPath);
+			tool.onPointerMove(
+				ev(650, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			tool.onPointerLeave();
+
+			expect(lastOverlayCall(ctx, OVERLAY_KEYS.pathHover)).toBeNull();
+		});
+
 		it("should continue the path from its drawn end point", () => {
 			toolClick(tool, 700, 300);
 			toolClick(tool, 700, 350);

@@ -1471,6 +1471,97 @@ describe("SelectTool onDoubleClick (editing scope)", () => {
 	});
 });
 
+describe("SelectTool hover outline", () => {
+	const layer: Layer = {
+		id: "layer-1",
+		name: "Layer 1",
+		visible: true,
+		locked: false,
+		opacity: 1,
+		blendMode: "normal",
+		elementIds: ["el-1"],
+	};
+	const hovered: AnyArtObject = {
+		id: "el-1",
+		type: "path",
+		segments: [],
+		opacity: 1,
+		blendMode: "normal",
+		transform: createIdentityTransform(),
+	};
+
+	function contextWith(selectedIds: string[]) {
+		return createMockToolContext({
+			getCurrentLayer: () => layer,
+			getSelectedElementIds: () => selectedIds,
+			findElementAtPoint: () => hovered,
+		});
+	}
+
+	it("should outline the unselected element a click would select", () => {
+		const context = contextWith([]);
+		const tool = new SelectTool(context);
+
+		tool.onPointerMove(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(context.uiSetHoveredElement.mock.calls.at(-1)?.[0]).toBe("el-1");
+	});
+
+	it("should not outline an element that is already selected", () => {
+		const context = contextWith(["el-1"]);
+		const tool = new SelectTool(context);
+
+		tool.onPointerMove(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(context.uiSetHoveredElement.mock.calls.at(-1)?.[0]).toBeNull();
+	});
+
+	it("should drop the outline when the pointer leaves the canvas", () => {
+		const context = contextWith([]);
+		const tool = new SelectTool(context);
+
+		tool.onPointerMove(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerLeave();
+
+		expect(context.uiSetHoveredElement.mock.calls.at(-1)?.[0]).toBeNull();
+	});
+
+	it("should drop the outline when the element is pressed", () => {
+		const context = contextWith([]);
+		const tool = new SelectTool(context);
+
+		tool.onPointerMove(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerDown(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		expect(context.uiSetHoveredElement.mock.calls.at(-1)?.[0]).toBeNull();
+	});
+});
+
 describe("SelectTool key object selection", () => {
 	const layer: Layer = {
 		id: "layer-1",

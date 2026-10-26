@@ -188,6 +188,23 @@ describe("PaplicoUI tool size adjustment", () => {
 	});
 });
 
+describe("PaplicoUI pointer leave", () => {
+	it("should tell the tool when a hovering pointer leaves the canvas", () => {
+		const harness = createHarness("select", 50);
+
+		dispatchPointer(harness.canvas, "pointermove", {
+			clientX: 100,
+			clientY: 100,
+		});
+		dispatchPointer(harness.canvas, "pointerleave", {
+			clientX: 0,
+			clientY: 100,
+		});
+
+		expect(harness.tool.onPointerLeave).toHaveBeenCalledOnce();
+	});
+});
+
 describe("PaplicoUI tool cursor", () => {
 	it.each([
 		["pen", "toolCursorUpdate"],
@@ -769,6 +786,7 @@ function createHarness(
 		onPointerMove: vi.fn(),
 		onPointerUp: vi.fn(),
 		onDoubleClick: vi.fn(),
+		onPointerLeave: vi.fn(),
 		onCancel: vi.fn(),
 		getCursor: vi.fn(() => "crosshair"),
 	} satisfies Tool;

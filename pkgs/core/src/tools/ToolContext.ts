@@ -92,6 +92,8 @@ export type ToolContextOptions = {
 		ui: SelectionUIData | ArtboardSelectionUIData | null,
 	) => void;
 	uiRefreshSelectionUI: (includeHandles: boolean) => void;
+	/** Outline the element the next click would pick up (null clears). */
+	uiSetHoveredElement: (elementId: string | null) => void;
 	/** Set or remove (null) a generic overlay channel entry. Keys come from
 	 * the central `OVERLAY_KEYS` registry. The overlay is stored as an
 	 * immutable snapshot — pass a fresh object on every update. */

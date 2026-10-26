@@ -284,7 +284,7 @@ interface UIOverlay {
 
 ### ホバーハイライト
 
-キャンバスの外から要素を指し示すとき、たとえばレイヤーパネルの行にホバーしたときは、`Paplico.setHoveredElement(elementId)` を呼ぶ。`Paplico` は要素のアウトラインを集め、`setHoverOverlay` で `sys/hover` エントリを組み立てる。画像・テキスト・複合パスのように自前のアウトラインを持たない要素は、バウンディングボックスの矩形で示される。
+レイヤーパネルの行にホバーしたときは、`Paplico.setHoveredElement(elementId)` を呼ぶ。選択ツールとパス編集ツールは、次のクリックで選ばれる要素を `ToolContext.uiSetHoveredElement` で同じ関数に渡す。`Paplico` は要素のアウトラインを集め、`setHoverOverlay` で `sys/hover` エントリを組み立てる。画像・テキスト・複合パスのように自前のアウトラインを持たない要素は、バウンディングボックスの矩形で示される。
 
 行がアンマウントされるときは `clearHoveredElement(elementId)` を呼ぶ。この関数は、ハイライトがまだその要素のものである場合にだけ消す。別の行が先にホバーを引き継いでいた場合、新しいハイライトは消えない。
 

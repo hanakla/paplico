@@ -27,6 +27,7 @@ export function buildPathEditOverlay(
 	const rectFills: UIPrimitive[] = [];
 	const rectStrokes: UIPrimitive[] = [];
 	const diamondFills: UIPrimitive[] = [];
+	const hoverMarks: UIPrimitive[] = [];
 	const boundsRects: UIPrimitive[] = [];
 	const hitProxies: UIPrimitive[] = [];
 
@@ -207,8 +208,28 @@ export function buildPathEditOverlay(
 						width: sw,
 					},
 				});
+				if (handle.hovered) {
+					hoverMarks.push(buildHoverRing(handle.worldX, handle.worldY, theme));
+				}
 			}
 		}
+	}
+
+	// The hovered unselected path's vertices: outlines only, so they read as
+	// grabbable without looking selected.
+	for (const anchor of data.hoverPath?.anchors ?? []) {
+		hoverMarks.push({
+			kind: "rect",
+			cx: anchor.x,
+			cy: anchor.y,
+			width: { screen: sizePx },
+			height: { screen: sizePx },
+			stroke: { color: theme.colors.hover, width: theme.strokeWidth.hover },
+		});
+	}
+	const hoveredAnchor = data.hoverPath?.hoveredAnchor;
+	if (hoveredAnchor) {
+		hoverMarks.push(buildHoverRing(hoveredAnchor.x, hoveredAnchor.y, theme));
 	}
 
 	// Mesh warp cages: edge curves behind the handle shapes, handles batched
@@ -347,6 +368,7 @@ export function buildPathEditOverlay(
 		...rectFills,
 		...rectStrokes,
 		...diamondFills,
+		...hoverMarks,
 		...hitProxies,
 	);
 
@@ -398,4 +420,15 @@ function getSegmentGroups(
 		segmentGroups.set(handle.segmentIndex, group);
 	}
 	return segmentGroups;
+}
+
+/** Ring around a hovered anchor, wide enough to clear its square. */
+function buildHoverRing(x: number, y: number, theme: UITheme): UIPrimitive {
+	return {
+		kind: "circle",
+		cx: x,
+		cy: y,
+		radius: { screen: theme.handleSize.pathEdit },
+		stroke: { color: theme.colors.hover, width: theme.strokeWidth.hover },
+	};
 }

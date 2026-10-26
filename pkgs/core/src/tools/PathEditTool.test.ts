@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createIdentityTransform } from "../document/factory";
+import type { UIPrimitive } from "../renderer/ui/primitives";
+import { UI_THEME } from "../renderer/ui/theme";
 import type { ImageObject, MeshArtObject, Path, PathSegment } from "../schema";
 import {
 	createMockToolContext,
@@ -2243,6 +2245,152 @@ describe("PathEditTool", () => {
 			);
 			// After pointerDown, draggedHandles is populated -> "grabbing"
 			expect(tool.getCursor()).toBe("grabbing");
+		});
+	});
+
+	describe("Hover", () => {
+		it("should outline an unselected path under the pointer", () => {
+			ctx.findPathAtPoint.mockReturnValue(cloneTestPath());
+
+			tool.onPointerMove(
+				ev(450, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.uiSetHoveredElement.mock.calls.at(-1)?.[0]).toBe("path-1");
+		});
+
+		it("should show the vertices of an unselected path under the pointer", () => {
+			const path = cloneTestPath();
+			ctx.findPathAtPoint.mockReturnValue(path);
+			ctx.getPathById.mockReturnValue(path);
+
+			tool.onPointerMove(
+				ev(450, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(hoverVertexPositions(ctx)).toEqual([
+				[0, 0],
+				[100, 0],
+				[200, 0],
+			]);
+		});
+
+		it("should ring the vertex of an unselected path under the pointer", () => {
+			const path = cloneTestPath();
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path, ancestorTransform: null },
+			]);
+			ctx.getPathById.mockReturnValue(path);
+
+			tool.onPointerMove(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(hoverRingsAt(ctx, 100, 0)).toHaveLength(1);
+			expect(ctx.uiSetHoveredElement.mock.calls.at(-1)?.[0]).toBe("path-1");
+		});
+
+		it("should not outline a path that is already selected", () => {
+			const path = cloneTestPath();
+			tool.initWithSelectedPaths(
+				[path],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			ctx.findPathAtPoint.mockReturnValue(path);
+
+			// world(50,0): on the curve, away from every handle
+			tool.onPointerMove(
+				ev(450, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.uiSetHoveredElement.mock.calls.at(-1)?.[0]).toBeNull();
+		});
+
+		it("should ring an unselected anchor of a selected path", () => {
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			tool.onPointerMove(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(hoverRingsAt(ctx, 100, 0)).toHaveLength(1);
+		});
+
+		it("should drop the ring and the outline when the pointer leaves the canvas", () => {
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			ctx.getViewport.mockReturnValue({
+				viewport: testViewport,
+				canvasWidth: testCanvasWidth,
+				canvasHeight: testCanvasHeight,
+			});
+			tool.onPointerMove(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			tool.onPointerLeave();
+
+			expect(hoverRingsAt(ctx, 100, 0)).toHaveLength(0);
+			expect(ctx.uiSetHoveredElement.mock.calls.at(-1)?.[0]).toBeNull();
+		});
+
+		it("should not ring an anchor that is already selected", () => {
+			tool.initWithSelectedPaths(
+				[cloneTestPath()],
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerDown(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			tool.onPointerMove(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(hoverRingsAt(ctx, 100, 0)).toHaveLength(0);
 		});
 	});
 
@@ -4894,3 +5042,27 @@ describe("PathEditTool", () => {
 		});
 	});
 });
+
+/** Hover rings drawn at a world point in the last path-edit handles overlay. */
+function hoverRingsAt(
+	ctx: MockToolContext,
+	worldX: number,
+	worldY: number,
+): UIPrimitive[] {
+	return (lastOverlayCall(ctx, HANDLES_KEY)?.primitives ?? []).filter(
+		(p) =>
+			p.kind === "circle" &&
+			p.cx === worldX &&
+			p.cy === worldY &&
+			p.stroke?.color === UI_THEME.colors.hover,
+	);
+}
+
+/** World positions of the hovered path's vertex outlines in the last overlay. */
+function hoverVertexPositions(ctx: MockToolContext): number[][] {
+	return (lastOverlayCall(ctx, HANDLES_KEY)?.primitives ?? []).flatMap((p) =>
+		p.kind === "rect" && p.stroke?.color === UI_THEME.colors.hover
+			? [[p.cx, p.cy]]
+			: [],
+	);
+}

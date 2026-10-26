@@ -658,6 +658,12 @@ export class PathTool implements Tool {
 		}
 	}
 
+	public onPointerLeave(): void {
+		if (!this.hoveredPathId) return;
+		this.updateHoverOverlay(null);
+		this.hoveredPathId = null;
+	}
+
 	public onCancel(): void {
 		// Called on tool switch. Finalize as open path if 2+ vertices exist
 		if (this.anchors.length >= 2) {

@@ -124,6 +124,13 @@ export interface Tool {
 	): void;
 
 	/**
+	 * Called when the pointer leaves the canvas, so the tool drops what it
+	 * marked under the pointer. A drag cut short by the leave has already
+	 * ended through onPointerUp.
+	 */
+	onPointerLeave?(): void;
+
+	/**
 	 * Called when the tool operation should be cancelled (e.g., Escape key)
 	 */
 	onCancel(): void;

@@ -1326,9 +1326,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	// ===== Hover highlight =====
 
 	/**
-	 * Highlight (or stop highlighting) an element from outside the canvas, such
-	 * as a hovered layer panel row. React can only read the overlay state, so
-	 * building the overlay and scheduling the frame has to happen here.
+	 * Highlight (or stop highlighting) an element, such as a hovered layer panel
+	 * row or the element a select tool click would pick. React can only read
+	 * the overlay state, so building the overlay and scheduling the frame has
+	 * to happen here.
 	 */
 	public setHoveredElement(elementId: string | null): void {
 		if (this.hoveredElementId === elementId) return;
@@ -2561,6 +2562,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			},
 			uiRefreshSelectionUI: (includeHandles) => {
 				this.refreshSelectionUI(includeHandles);
+			},
+			uiSetHoveredElement: (elementId) => {
+				this.setHoveredElement(elementId);
 			},
 			getSelectedElementIds: () => this.rendererStore.selectedElementIds,
 			setKeyObject: (id) => {

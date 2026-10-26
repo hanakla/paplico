@@ -1032,6 +1032,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		this.callbacks.clearCursor?.();
 		this.emit("toolCursorUpdate", null);
 		this.emit("eraserToolUpdate", null);
+		this.callbacks.getTool()?.onPointerLeave?.();
 	}
 
 	private createPointerEventData(

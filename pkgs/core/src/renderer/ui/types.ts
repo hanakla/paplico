@@ -39,6 +39,8 @@ export interface ControlPointHandle {
 	screenX: number;
 	screenY: number;
 	selected: boolean;
+	/** Under the pointer, so the next click picks it up (anchors only). */
+	hovered?: boolean;
 }
 
 export interface MeshCageHandle {
@@ -81,6 +83,12 @@ export interface PathEditUIData {
 	/** Extra context outlines drawn but not editable — e.g. a blend's key/spine
 	 *  outlines while editing a path inside the blend. */
 	additionalOutlines?: WorldBezierSegment[][];
+	/** Vertices of the unselected path under the pointer, which a click there
+	 *  can grab before the path is selected. */
+	hoverPath?: {
+		anchors: Array<{ x: number; y: number }>;
+		hoveredAnchor: { x: number; y: number } | null;
+	};
 	longPressRing?: { worldX: number; worldY: number };
 	lassoPath?: Array<{ x: number; y: number }>;
 }

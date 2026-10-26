@@ -227,6 +227,7 @@ export class SelectTool implements Tool {
 		this.shiftKey = event.shiftKey;
 		this.altKey = event.altKey;
 		this.dragStartThresholdPx = dragStartThresholdScreenPx(event.pointerType);
+		this.context.uiSetHoveredElement(null);
 
 		const world = screenToWorld(
 			event.x,
@@ -800,6 +801,9 @@ export class SelectTool implements Tool {
 
 		if (this.dragState.mode === "idle") {
 			this.updateExtrudeGizmoHover(event);
+			this.context.uiSetHoveredElement(
+				this.findHoverTarget(event, hoverWorld.x, hoverWorld.y, viewport),
+			);
 			return;
 		}
 
@@ -1422,10 +1426,15 @@ export class SelectTool implements Tool {
 		}
 	}
 
+	public onPointerLeave(): void {
+		this.context.uiSetHoveredElement(null);
+	}
+
 	public onCancel(): void {
 		this.dragState = { mode: "idle" };
 		this.updateSnapLineOverlay([]);
 		this.updateMarqueeOverlay(null);
+		this.context.uiSetHoveredElement(null);
 		this.selectedFrame = null;
 	}
 
@@ -1766,6 +1775,47 @@ export class SelectTool implements Tool {
 			createFrameHandles(this.selectedFrame),
 			viewport,
 		);
+	}
+
+	/**
+	 * The unselected element a click here would select, following the same
+	 * precedence as onPointerDown: where the press would grab a gizmo, the
+	 * rotation zone or a resize handle instead, nothing is hovered.
+	 */
+	private findHoverTarget(
+		event: PointerEventData,
+		worldX: number,
+		worldY: number,
+		viewport: Viewport,
+	): string | null {
+		const selectedIds = this.context.getSelectedElementIds();
+		if (
+			selectedIds.length > 0 &&
+			this.selectedFrame &&
+			!this.context.isReadonly()
+		) {
+			const overlayKey = this.context.uiHitTest({
+				x: event.x,
+				y: event.y,
+			})?.overlayKey;
+			if (
+				overlayKey === OVERLAY_KEYS.selectExtrudeGizmo ||
+				overlayKey === OVERLAY_KEYS.repeatHandles ||
+				hitTestRotationZone(worldX, worldY, this.selectedFrame, viewport) ||
+				this.hitTestHandle(worldX, worldY, viewport)
+			) {
+				return null;
+			}
+		}
+		if (!this.context.getCurrentLayer()) return null;
+
+		const element = this.context.findElementAtPoint(
+			worldX,
+			worldY,
+			this.calculateTolerance(viewport),
+		);
+		if (!element || selectedIds.includes(element.id)) return null;
+		return this.context.isElementEditable(element.id) ? element.id : null;
 	}
 
 	/** Expose selection bounds so a gesture interrupt can restore them */

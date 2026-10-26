@@ -153,6 +153,14 @@ type VertexFrameTarget = {
 	anchors: AnchorRef[];
 };
 
+/** What a click at the hovering pointer would pick up. */
+type HoverTarget = {
+	/** Anchor a click would select. */
+	handleKey: string | null;
+	/** Unselected path or element a click would select. */
+	elementId: string | null;
+};
+
 /** Shared fields for all handle-drag modes */
 type DraggingStateBase = {
 	handles: Map<string, ControlPointHandle>;
@@ -331,6 +339,8 @@ type DragState =
 			hasMoved: boolean;
 	  };
 
+const NO_HOVER: HoverTarget = { handleKey: null, elementId: null };
+
 export class PathEditTool implements Tool {
 	private static HIT_TOLERANCE_SCREEN_PX = 4;
 	/** Minimum world-unit distance from vertex to corner-radius handle */
@@ -366,6 +376,7 @@ export class PathEditTool implements Tool {
 	private vertexFrame: SelectionFrame | null = null;
 	/** Cursor of the vertex frame part under the hovering pointer. */
 	private vertexFrameCursor: string | null = null;
+	private hover: HoverTarget = NO_HOVER;
 
 	public constructor(context: ToolContext) {
 		this.context = context;
@@ -480,6 +491,8 @@ export class PathEditTool implements Tool {
 
 		this.pointerDownTime = Date.now();
 		this.dragStartThresholdPx = dragStartThresholdScreenPx(event.pointerType);
+		this.hover = NO_HOVER;
+		this.context.uiSetHoveredElement(null);
 
 		const world = screenToWorld(
 			event.x,
@@ -968,6 +981,7 @@ export class PathEditTool implements Tool {
 
 		if (ds.mode === "idle") {
 			this.vertexFrameCursor = this.vertexFrameCursorAt(event, world, viewport);
+			this.updateHover(event, world, viewport, canvasWidth, canvasHeight);
 			return;
 		}
 
@@ -1829,6 +1843,14 @@ export class PathEditTool implements Tool {
 		this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
 	}
 
+	public onPointerLeave(): void {
+		this.context.uiSetHoveredElement(null);
+		if (this.hover === NO_HOVER) return;
+		this.hover = NO_HOVER;
+		const vp = this.context.getViewport();
+		if (vp) this.updatePathEditUI(vp.viewport, vp.canvasWidth, vp.canvasHeight);
+	}
+
 	public onCancel(): void {
 		this.clearLongPressRing();
 		if (this.selectedMeshes.size > 0) {
@@ -1838,6 +1860,8 @@ export class PathEditTool implements Tool {
 		this.meshAncestorTransforms.clear();
 		this.selectedMeshVertices.clear();
 		this.dragState = { mode: "idle" };
+		this.hover = NO_HOVER;
+		this.context.uiSetHoveredElement(null);
 		this.clearSelection();
 		this.context.pathEditUpdateSelectedAnchors([]);
 		this.context.pathEditSetCutMode(false);
@@ -2354,55 +2378,53 @@ export class PathEditTool implements Tool {
 			ancestorTransform,
 		} of this.context.getAllEditablePaths()) {
 			if (this.selectedPaths.has(path.id)) continue;
-			const worldSegs = getWorldSegments(path, ancestorTransform ?? undefined);
-			const isClosedPath = path.segments.at(-1)?.isClosed === true;
-			for (let i = 0; i < path.segments.length; i++) {
-				const seg = path.segments[i];
-				const ws = worldSegs[i];
-				// Start anchor (first segment of open path only)
-				if (i === 0 && seg.start && !isClosedPath && ws.start) {
-					const dx = worldX - ws.start.x;
-					const dy = worldY - ws.start.y;
-					const distSq = dx * dx + dy * dy;
-					if (distSq <= tolSq && distSq < bestDistSq) {
-						bestHandle = {
-							type: "anchor",
-							pathId: path.id,
-							segmentIndex: i,
-							pointType: "start",
-							worldX: ws.start.x,
-							worldY: ws.start.y,
-							screenX: 0,
-							screenY: 0,
-							selected: false,
-						};
-						bestDistSq = distSq;
-					}
-				}
-				// End anchor
-				{
-					const dx = worldX - ws.end.x;
-					const dy = worldY - ws.end.y;
-					const distSq = dx * dx + dy * dy;
-					if (distSq <= tolSq && distSq < bestDistSq) {
-						bestHandle = {
-							type: "anchor",
-							pathId: path.id,
-							segmentIndex: i,
-							pointType: "end",
-							worldX: ws.end.x,
-							worldY: ws.end.y,
-							screenX: 0,
-							screenY: 0,
-							selected: false,
-						};
-						bestDistSq = distSq;
-					}
+			for (const handle of this.unselectedPathAnchors(
+				path,
+				ancestorTransform,
+			)) {
+				const distSq =
+					(worldX - handle.worldX) ** 2 + (worldY - handle.worldY) ** 2;
+				if (distSq <= tolSq && distSq < bestDistSq) {
+					bestHandle = handle;
+					bestDistSq = distSq;
 				}
 			}
 		}
 
 		return bestHandle;
+	}
+
+	/**
+	 * The world-space anchors of a path that has no handles of its own drawn:
+	 * the start of an open path and every segment end.
+	 */
+	private unselectedPathAnchors(
+		path: Path,
+		ancestorTransform: ElementTransform | null,
+	): ControlPointHandle[] {
+		const worldSegs = getWorldSegments(path, ancestorTransform ?? undefined);
+		const isClosedPath = path.segments.at(-1)?.isClosed === true;
+		const anchor = (
+			segmentIndex: number,
+			pointType: "start" | "end",
+			{ x, y }: Point,
+		): ControlPointHandle => ({
+			type: "anchor",
+			pathId: path.id,
+			segmentIndex,
+			pointType,
+			worldX: x,
+			worldY: y,
+			screenX: 0,
+			screenY: 0,
+			selected: false,
+		});
+		return worldSegs.flatMap((ws, i) => {
+			const end = anchor(i, "end", ws.end);
+			return i === 0 && path.segments[0].start && !isClosedPath && ws.start
+				? [anchor(0, "start", ws.start), end]
+				: [end];
+		});
 	}
 
 	/**
@@ -3477,6 +3499,7 @@ export class PathEditTool implements Tool {
 		canvasHeight: number,
 	): void {
 		const hasLasso = this.dragState.mode === "lasso";
+		const hoverPath = this.buildHoverPathUIData();
 		this.vertexFrame = this.currentVertexFrame(viewport.zoom);
 		this.updateVertexFrameOverlay(
 			this.vertexFrame &&
@@ -3488,7 +3511,7 @@ export class PathEditTool implements Tool {
 			this.selectedMeshes.size === 0 &&
 			!hasLasso
 		) {
-			this.updatePathEditOverlay(null);
+			this.updatePathEditOverlay(hoverPath ? { paths: [], hoverPath } : null);
 			return;
 		}
 
@@ -3501,7 +3524,10 @@ export class PathEditTool implements Tool {
 				viewport,
 				canvasWidth,
 				canvasHeight,
-			),
+			).map((handle) => ({
+				...handle,
+				hovered: this.getHandleKey(handle) === this.hover.handleKey,
+			})),
 			segments: getWorldSegments(
 				path,
 				this.pathAncestorTransforms.get(path.id) ?? undefined,
@@ -3523,6 +3549,7 @@ export class PathEditTool implements Tool {
 			meshCages: meshCages.length > 0 ? meshCages : undefined,
 			additionalOutlines:
 				additionalOutlines.length > 0 ? additionalOutlines : undefined,
+			hoverPath,
 			longPressRing: this.longPressRing ?? undefined,
 			// Copy: the overlay sink freezes this array in dev builds, but
 			// dragState.path keeps growing via push() on every pointer move.
@@ -3714,6 +3741,126 @@ export class PathEditTool implements Tool {
 			this.context.previewSegments(pathId, mapped);
 			this.cachedControlPoints.delete(pathId);
 		}
+	}
+
+	/**
+	 * Mark what a click here would pick up: a ring on an anchor, and the outline
+	 * of an unselected path or element with the path's vertices. The ring and
+	 * the vertices live in the path-edit overlay, so it is rebuilt only when the
+	 * hover target changes.
+	 */
+	private updateHover(
+		event: PointerEventData,
+		world: Point,
+		viewport: Viewport,
+		canvasWidth: number,
+		canvasHeight: number,
+	): void {
+		const target = this.findHoverTarget(
+			event,
+			world,
+			viewport,
+			canvasWidth,
+			canvasHeight,
+		);
+		this.context.uiSetHoveredElement(target.elementId);
+		if (
+			target.handleKey === this.hover.handleKey &&
+			target.elementId === this.hover.elementId
+		) {
+			return;
+		}
+		this.hover = target;
+		this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+	}
+
+	/**
+	 * The hover target under the pointer, following the same precedence as
+	 * onPointerDown. Already selected anchors, paths and elements, and spots
+	 * where the press grabs the vertex frame or a mesh handle, mark nothing.
+	 */
+	private findHoverTarget(
+		event: PointerEventData,
+		world: Point,
+		viewport: Viewport,
+		canvasWidth: number,
+		canvasHeight: number,
+	): HoverTarget {
+		if (
+			this.vertexFrameCursor ||
+			this.findMeshHandleAtPoint(event.x, event.y)
+		) {
+			return NO_HOVER;
+		}
+
+		const handle = this.findHandleAtPoint(
+			event.x,
+			event.y,
+			world.x,
+			world.y,
+			viewport,
+			canvasWidth,
+			canvasHeight,
+		);
+		if (handle) {
+			if (this.context.isElementLocked(handle.pathId)) return NO_HOVER;
+			const handleKey = this.getHandleKey(handle);
+			if (!this.selectedPaths.has(handle.pathId)) {
+				return { handleKey, elementId: handle.pathId };
+			}
+			return handle.type === "anchor" && !this.selectedHandles.has(handleKey)
+				? { handleKey, elementId: null }
+				: NO_HOVER;
+		}
+
+		const tolerance = PathEditTool.HIT_TOLERANCE_SCREEN_PX / viewport.zoom;
+		const path = this.context.findPathAtPoint(
+			world.x,
+			world.y,
+			tolerance,
+			true,
+		);
+		if (path) {
+			return this.selectedPaths.has(path.id)
+				? NO_HOVER
+				: { handleKey: null, elementId: path.id };
+		}
+
+		const element = this.context.findElementAtPoint(
+			world.x,
+			world.y,
+			tolerance,
+		);
+		if (
+			!element ||
+			isPath(element) ||
+			this.selectedMeshes.has(element.id) ||
+			this.context.isElementLocked(element.id)
+		) {
+			return NO_HOVER;
+		}
+		return { handleKey: null, elementId: element.id };
+	}
+
+	/** Vertices of the hovered unselected path, or undefined off a path. */
+	private buildHoverPathUIData(): PathEditUIData["hoverPath"] {
+		const path =
+			this.hover.elementId && this.context.getPathById(this.hover.elementId);
+		if (!path) return undefined;
+		const anchors = this.unselectedPathAnchors(
+			path,
+			this.context.getAncestorTransform(path.id),
+		);
+		const hovered = anchors.find(
+			(anchor) => this.getHandleKey(anchor) === this.hover.handleKey,
+		);
+		return {
+			anchors: anchors.map((anchor) => ({
+				x: anchor.worldX,
+				y: anchor.worldY,
+			})),
+			hoveredAnchor: hovered ? { x: hovered.worldX, y: hovered.worldY } : null,
+		};
 	}
 
 	/**
