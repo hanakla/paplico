@@ -52,6 +52,8 @@ interface UIState {
 	 *  Only the CSS describes where those sit, so the placement of the context
 	 *  actions bar reads the measured values from here. */
 	canvasObstacles: Partial<Record<CanvasObstacleKey, CanvasObstacleRect>>;
+	/** Whether a document file is being read and opened */
+	isLoadingDocument: boolean;
 }
 
 const BRUSH_DESIGNER_PANEL_DEFAULT_WIDTH = 480;
@@ -79,6 +81,7 @@ export const uiState = proxy<UIState>({
 	softProofEnabled: false,
 	pixelPreviewEnabled: false,
 	canvasObstacles: {},
+	isLoadingDocument: false,
 });
 
 export function setCanvasObstacleRect(
@@ -115,6 +118,18 @@ export function setActiveColorTarget(target: ColorTarget): void {
 
 export function setCurrentTargetId(targetId: string | null): void {
 	uiState.currentTargetId = targetId;
+}
+
+/** Keeps the loading dialog up while `task` reads and opens a document. */
+export async function whileLoadingDocument<T>(
+	task: () => Promise<T>,
+): Promise<T> {
+	uiState.isLoadingDocument = true;
+	try {
+		return await task();
+	} finally {
+		uiState.isLoadingDocument = false;
+	}
 }
 
 export function useUIState() {

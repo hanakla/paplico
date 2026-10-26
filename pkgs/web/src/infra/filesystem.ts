@@ -49,7 +49,6 @@ const tauriFS: IFileSystem = new (class TauriFS implements IFileSystem {
 
 	public async openFileDialog({ types }) {
 		const { open } = await import("@tauri-apps/plugin-dialog");
-		const { readFile } = await import("@tauri-apps/plugin-fs");
 
 		const extensions = types?.flatMap((t) => {
 			if (!t.accept) return [];
@@ -66,12 +65,7 @@ const tauriFS: IFileSystem = new (class TauriFS implements IFileSystem {
 
 		if (!result) return null;
 
-		const path = result;
-		const data = await readFile(path);
-		const name = path.split("/").pop() ?? path;
-		const file = new File([data], name);
-
-		return { handle: path, file } as FileHandle;
+		return tauriFileHandleFromPath(result);
 	}
 
 	public async overwrite(handle, blob: Blob) {
@@ -183,6 +177,17 @@ const domFS: IFileSystem = new (class DomFS implements IFileSystem {
 })();
 
 export const FileSystem: IFileSystem = IS_TAURI_ENV ? tauriFS : domFS;
+
+/** Reads a native path into a handle that later saves can overwrite. */
+export async function tauriFileHandleFromPath(
+	path: string,
+): Promise<FileHandle> {
+	const { readFile } = await import("@tauri-apps/plugin-fs");
+	const data = await readFile(path);
+	const name = path.split("/").pop() ?? path;
+
+	return { handle: path, file: new File([data], name) } as FileHandle;
+}
 
 export async function domFSFileHandleFromTransferItem(
 	item: DataTransferItem,

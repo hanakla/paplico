@@ -70,6 +70,7 @@ import { db } from "@/infra/documentDB.web";
 import {
 	domFSFileHandleFromTransferItem,
 	type FileHandle,
+	tauriFileHandleFromPath,
 } from "@/infra/filesystem";
 import { createFontLoaders } from "@/infra/fontLoaders";
 import { runIndexedDBMigrations } from "@/infra/indexedDBMigrations";
@@ -113,6 +114,7 @@ import {
 	toggleActiveColorTarget,
 	uiState,
 	useUIState,
+	whileLoadingDocument,
 } from "@/stores/uiStore";
 import { codeFromError, reportError } from "@/utils/errorReporting";
 import { useEventCallback, useNotchSide } from "@/utils/hooks";
@@ -337,14 +339,19 @@ export default function Page() {
 		},
 	);
 
-	/** Loads a document the user picked out of the filesystem. */
+	/**
+	 * Loads a document the user picked out of the filesystem. `load` runs
+	 * behind the loading dialog, so reading the file counts as loading too.
+	 */
 	const handleOpenDocumentFile = useEventCallback(
-		async (source: File | FileHandle) => {
+		async (load: () => Promise<File | FileHandle>) => {
 			const p = paplicoRef.current;
 			if (!p) return;
 
 			try {
-				await openDocumentFile(p, source);
+				await whileLoadingDocument(async () =>
+					openDocumentFile(p, await load()),
+				);
 			} catch (error) {
 				reportError({
 					code: codeFromError(error, "DOCUMENT_OPEN_FAILED"),
@@ -366,7 +373,7 @@ export default function Page() {
 			}
 
 			if (result.action === "openFile") {
-				await handleOpenDocumentFile(result.handle);
+				await handleOpenDocumentFile(async () => result.handle);
 				return;
 			}
 
@@ -656,11 +663,12 @@ export default function Page() {
 		}
 	});
 
-	const handleDropFiles = useEventCallback(
-		async (files: File[], fileHandle?: FileHandle | null) => {
-			const papfFile = files.find((f) => f.name.endsWith(".papf"));
-			if (!papfFile) return;
-
+	/**
+	 * Confirms closing the current document, then opens the dropped one. The
+	 * file is read only after the confirmation so the confirmation shows at once.
+	 */
+	const openDroppedDocument = useEventCallback(
+		async (loadDocument: () => Promise<File | FileHandle>) => {
 			if (collab.connectedRoomId != null) {
 				reportError({ code: "DOCUMENT_OPEN_WHILE_CONNECTED", capture: false });
 				return;
@@ -674,7 +682,7 @@ export default function Page() {
 			)
 				return;
 
-			await handleOpenDocumentFile(fileHandle ?? papfFile);
+			await handleOpenDocumentFile(loadDocument);
 		},
 	);
 
@@ -690,42 +698,44 @@ export default function Page() {
 			items[papfIndex],
 			files[papfIndex],
 		);
-		handleDropFiles(files, fileHandle);
+		openDroppedDocument(async () => fileHandle ?? files[papfIndex]);
 	});
 
 	// Handle file drops from Tauri (native drag-drop bypasses browser events)
 	useEffect(() => {
 		const handler = (e: Event) => {
-			const { files, handles } = (e as CustomEvent<TauriFileDropDetail>).detail;
-			const papfIndex = files.findIndex((f) => f.name.endsWith(".papf"));
-			handleDropFiles(files, handles[papfIndex] ?? null);
+			const { paths } = (e as CustomEvent<TauriFileDropDetail>).detail;
+			const path = paths.find((p) => p.endsWith(".papf"));
+			if (!path) return;
+
+			openDroppedDocument(() => tauriFileHandleFromPath(path));
 		};
 
 		window.addEventListener("tauri-file-drop", handler);
 		return () => window.removeEventListener("tauri-file-drop", handler);
-	}, [handleDropFiles]);
+	}, [openDroppedDocument]);
 
 	// Documents the OS opened through the .papf association. Before anything
 	// is loaded there is nothing to confirm closing, and the startup dialog
 	// gives way to the file.
 	useEffect(() => {
 		const handler = async (e: Event) => {
-			const { files, handles } = (e as CustomEvent<TauriFileDropDetail>).detail;
-			const handle = handles[files.findIndex((f) => f.name.endsWith(".papf"))];
-			if (!handle) return;
+			const { paths } = (e as CustomEvent<TauriFileDropDetail>).detail;
+			const path = paths.find((p) => p.endsWith(".papf"));
+			if (!path) return;
 
 			if (documentSessionState.source.kind !== "initial") {
-				handleDropFiles(files, handle);
+				openDroppedDocument(() => tauriFileHandleFromPath(path));
 				return;
 			}
 
-			await handleOpenDocumentFile(handle);
+			await handleOpenDocumentFile(() => tauriFileHandleFromPath(path));
 			NewDocumentDialog.end({ action: "cancel" });
 		};
 
 		window.addEventListener("tauri-open-files", handler);
 		return () => window.removeEventListener("tauri-open-files", handler);
-	}, [handleDropFiles, handleOpenDocumentFile]);
+	}, [openDroppedDocument, handleOpenDocumentFile]);
 
 	// Menu commands act on the view the engine treats as active
 	useEffect(() => {
@@ -1113,6 +1123,10 @@ export default function Page() {
 					<SpinnerDialog
 						open={isConnectingDevice || collab.isSyncing}
 						message={t("connectRoomDialog.connectingToDevice")}
+					/>
+					<SpinnerDialog
+						open={uiSnap.isLoadingDocument}
+						message={t("page.loadingDocument")}
 					/>
 
 					{/* Timelapse Dialog */}

@@ -15,7 +15,11 @@ import {
 	openDocumentFile,
 	setDocumentFileHandle,
 } from "@/stores/documentSessionStore";
-import { setPixelPreviewEnabled, uiState } from "@/stores/uiStore";
+import {
+	setPixelPreviewEnabled,
+	uiState,
+	whileLoadingDocument,
+} from "@/stores/uiStore";
 import { codeFromError, reportError } from "@/utils/errorReporting";
 import { useEventCallback } from "@/utils/hooks";
 
@@ -186,7 +190,7 @@ export function useMenuActions(
 		if (!p) return;
 
 		try {
-			await openDocumentFile(p, result);
+			await whileLoadingDocument(() => openDocumentFile(p, result));
 		} catch (error) {
 			reportError({
 				code: codeFromError(error, "IMPORT_FAILED"),

@@ -2,6 +2,7 @@ export const ja = {
 	page: {
 		noArtboardsAlert:
 			"書き出すアートボードがありません。アートボードツールで作成してください。",
+		loadingDocument: "読み込み中…",
 	},
 	menubar: {
 		fileMenu: "ファイル",

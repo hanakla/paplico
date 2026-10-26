@@ -2,12 +2,10 @@
 
 import { useEffect } from "react";
 import { handleAuthDeepLink } from "@/auth/tauriAuth";
-import type { FileHandle } from "@/infra/filesystem";
 import { detectTauriMobile, IS_TAURI_ENV } from "@/utils/platform";
 
 export type TauriFileDropDetail = {
-	files: File[];
-	handles: FileHandle[];
+	paths: string[];
 };
 
 export const TauriInit = IS_TAURI_ENV
@@ -26,41 +24,27 @@ export const TauriInit = IS_TAURI_ENV
 			useEffect(() => {
 				if (!IS_TAURI_ENV) return;
 
-				let cleanup: (() => void) | undefined;
-
-				(async () => {
+				return subscribeAsync(async () => {
 					const { listen } = await import("@tauri-apps/api/event");
-					const unlisten = await listen("app:reload", () => {
+					return listen("app:reload", () => {
 						location.reload();
 					});
-					cleanup = unlisten;
-				})();
-
-				return () => cleanup?.();
+				});
 			}, []);
 
 			useEffect(() => {
 				if (!IS_TAURI_ENV) return;
 
-				let cleanup: (() => void) | undefined;
-
-				(async () => {
+				return subscribeAsync(async () => {
 					const { getCurrentWebviewWindow } = await import(
 						"@tauri-apps/api/webviewWindow"
 					);
 
-					const unlisten = await getCurrentWebviewWindow().onDragDropEvent(
-						async (event) => {
-							if (event.payload.type !== "drop") return;
-							await dispatchTauriFiles("tauri-file-drop", event.payload.paths);
-						},
-					);
-
-					cleanup = unlisten;
-				})();
-
-				return () => cleanup?.();
-				// eslint-disable-next-line react-hooks/exhaustive-deps
+					return getCurrentWebviewWindow().onDragDropEvent((event) => {
+						if (event.payload.type !== "drop") return;
+						dispatchTauriPaths("tauri-file-drop", event.payload.paths);
+					});
+				});
 			}, []);
 
 			// Documents the OS opened through the .papf file association. The
@@ -68,37 +52,31 @@ export const TauriInit = IS_TAURI_ENV
 			useEffect(() => {
 				if (!IS_TAURI_ENV) return;
 
-				let cleanup: (() => void) | undefined;
-
-				(async () => {
+				return subscribeAsync(async () => {
 					const { invoke } = await import("@tauri-apps/api/core");
 					const { listen } = await import("@tauri-apps/api/event");
 
 					const unlisten = await listen<string[]>(
 						"paplico:open-files",
-						(event) => dispatchTauriFiles("tauri-open-files", event.payload),
+						(event) => dispatchTauriPaths("tauri-open-files", event.payload),
 					);
-					cleanup = unlisten;
 
-					await dispatchTauriFiles(
+					dispatchTauriPaths(
 						"tauri-open-files",
 						await invoke<string[]>("take_launch_files"),
 					);
-				})();
-
-				return () => cleanup?.();
+					return unlisten;
+				});
 			}, []);
 
 			// Deep link listener for OAuth callback (paplico://auth/callback)
 			useEffect(() => {
 				if (!IS_TAURI_ENV) return;
 
-				let cleanup: (() => void) | undefined;
-
-				(async () => {
+				return subscribeAsync(async () => {
 					const { onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
 
-					const unlisten = await onOpenUrl((urls) => {
+					return onOpenUrl((urls) => {
 						for (const url of urls) {
 							// Room invites are handled by the canvas page, which owns the
 							// connect dialog; auth callbacks stay here.
@@ -112,11 +90,7 @@ export const TauriInit = IS_TAURI_ENV
 							handleAuthDeepLink(url);
 						}
 					});
-
-					cleanup = unlisten;
-				})();
-
-				return () => cleanup?.();
+				});
 			}, []);
 
 			return (
@@ -132,27 +106,25 @@ export const TauriInit = IS_TAURI_ENV
 			return null;
 		};
 
-/** Reads native paths and hands them to the page as File objects. */
-async function dispatchTauriFiles(
+/**
+ * Runs an async subscription for an effect. The returned cleanup removes the
+ * listener even when the effect is torn down before the subscription settles.
+ */
+function subscribeAsync(subscribe: () => Promise<() => void>): () => void {
+	const unsubscribe = subscribe();
+	return () => {
+		void unsubscribe.then((unlisten) => unlisten());
+	};
+}
+
+/** Hands native paths to the page, which reads only the file it opens. */
+function dispatchTauriPaths(
 	eventName: "tauri-file-drop" | "tauri-open-files",
 	paths: string[],
-): Promise<void> {
+): void {
 	if (paths.length === 0) return;
-	const { readFile } = await import("@tauri-apps/plugin-fs");
-
-	const files: File[] = [];
-	const handles: FileHandle[] = [];
-	for (const path of paths) {
-		const name = path.split("/").pop() ?? path;
-		const data = await readFile(path);
-		const file = new File([data], name);
-		files.push(file);
-		handles.push({ handle: path, file } as FileHandle);
-	}
 
 	window.dispatchEvent(
-		new CustomEvent<TauriFileDropDetail>(eventName, {
-			detail: { files, handles },
-		}),
+		new CustomEvent<TauriFileDropDetail>(eventName, { detail: { paths } }),
 	);
 }
