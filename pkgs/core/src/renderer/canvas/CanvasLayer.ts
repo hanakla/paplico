@@ -2600,11 +2600,31 @@ export class CanvasLayer {
 				? expandRenderFilterWithAncestors(elementFilter, elementsMap)
 				: undefined;
 		const effectiveFilter = exportSelection?.filter;
+		// The isolation pass redraws the editing scope over a dimmed copy of this
+		// frame, so the frame leaves out what that pass redraws. Otherwise the
+		// copy holds the scope's own content under the redraw, and a glass solid
+		// in the scope refracts it.
+		const editingScopeId = this.renderState.editingScopeStack.at(-1);
+		const scopedLayer = this.activeDocument?.layers.find(
+			(layer) => layer.id === editingScopeId,
+		);
+		const isolationRedrawnIds =
+			editingScopeId == null ||
+			this.viewportState.bounds == null ||
+			this.compositeState.captureTexture == null
+				? []
+				: scopedLayer
+					? scopedLayer.elementIds
+					: this.renderState.isolatedElementId == null
+						? [editingScopeId]
+						: [];
 		// A target nested in a group draws through its ancestor groups; the
 		// ancestors' other children are skipped instead of dropped by the filter.
-		const skipElementIds = exportSelection?.skipIds.size
-			? exportSelection.skipIds
-			: undefined;
+		const skipIds = new Set([
+			...(exportSelection?.skipIds ?? []),
+			...isolationRedrawnIds,
+		]);
+		const skipElementIds = skipIds.size > 0 ? skipIds : undefined;
 
 		// Filter layer plans to include only target elements (for clipboard
 		// export). `elements` (the flat per-layer array executeFilterPlans reads)
@@ -2625,17 +2645,6 @@ export class CanvasLayer {
 		// true (element mutations) this writes transforms without mask info;
 		// applyClipMasks will re-upload once more with mask info included.
 		this.updateTransformsBuffer(elementsMap);
-		const parentGroupMap = this.elementHierarchy.parentMap;
-		for (const id of framePlan.backdropEntries.keys()) {
-			for (
-				let parentId = parentGroupMap.get(id);
-				parentId;
-				parentId = parentGroupMap.get(parentId)
-			) {
-				framePlan.backdropHostIds.add(parentId);
-			}
-		}
-
 		// Prepare phase for backdrop-composite geometry filters (glass extrude):
 		// encode depth-tested mesh passes into frame-local textures before any
 		// consumer pass opens (a depth pass cannot be nested inside another pass).
@@ -2657,6 +2666,33 @@ export class CanvasLayer {
 				profiler,
 				effectiveFilter,
 			);
+		}
+
+		// A glass solid samples what lies beneath its ancestor groups the same
+		// way a backdrop-filter element does, so both make those groups hosts.
+		// Its frame entries exist only once prepareFrame has baked them.
+		const resolvedBackdropDrivers = this.backdropDrivers.filter(
+			(driver) => driver.composesOverResolvedBackdrop,
+		);
+		const backdropSamplerIds = [
+			...framePlan.backdropEntries.keys(),
+			...[...elementsMap.values()]
+				.filter((element) =>
+					resolvedBackdropDrivers.some((driver) =>
+						driver.hasInlineComposite(element),
+					),
+				)
+				.map((element) => element.id),
+		];
+		const parentGroupMap = this.elementHierarchy.parentMap;
+		for (const id of backdropSamplerIds) {
+			for (
+				let parentId = parentGroupMap.get(id);
+				parentId;
+				parentId = parentGroupMap.get(parentId)
+			) {
+				framePlan.backdropHostIds.add(parentId);
+			}
 		}
 
 		// Register this frame's backdrop-filter regions with the coordinator, so
@@ -3778,6 +3814,9 @@ export class CanvasLayer {
 					this.elements.getCurrentRenderTargetBounds()!,
 					isPatternEditScopedLayer ? 0 : 0.3,
 				);
+				// The canvas now holds the dimmed copy, which no capture taken
+				// during the frame has.
+				this.backdropEffectCoordinator.invalidate();
 
 				// Restore stroke pipeline state for element rendering
 				dimPass.setPipeline(this.strokePipeline);
@@ -6302,12 +6341,19 @@ export class CanvasLayer {
 				groupCompositionPlan?.kind === "isolated"
 					? undefined
 					: this.backdropDrivers.find((d) => d.hasInlineComposite(element));
-			// No composite context means there is no backdrop to refract: this is
-			// the mask atlas baking mask content, which runs before the document
-			// under the mask is drawn. Blit the lit surface instead of skipping the
-			// element — its appearance replaces the flat look, so skipping draws
-			// nothing at all and the mask comes out empty.
-			if (backdropDriver && !compositeContext) {
+			const composesOverPicture =
+				backdropDriver?.composesOverResolvedBackdrop === true;
+			// Without a known backdrop there is nothing to refract. The mask atlas
+			// has no composite context: it bakes mask content before the document
+			// under the mask is drawn. An offscreen bake that is no backdrop host
+			// has no picture of what lies beneath it either. Blit the lit surface
+			// instead of skipping the element — its appearance replaces the flat
+			// look, so skipping draws nothing at all and a mask comes out empty.
+			if (
+				backdropDriver &&
+				(!compositeContext ||
+					(composesOverPicture && !compositeContext.backdrop))
+			) {
 				this.blitBackdropFreeLayers(
 					activePass,
 					backdropDriver.backdropFreeLayers?.(element) ?? [],
@@ -6324,16 +6370,30 @@ export class CanvasLayer {
 				// texture is what leaves something to apply it to: composed straight
 				// onto the target, the pixels are already final.
 				const inlineMasks = this.resolveSubtreeMasks(element.id);
+				// An offscreen target is not in canvas texel space, so the solid
+				// composes over the picture beneath the bake instead, and the blit
+				// below lays the result into the offscreen texture.
+				const pictureBackdrop =
+					composesOverPicture && compositeContext.backdrop?.coverage
+						? compositeContext.backdrop
+						: undefined;
+				const picture = pictureBackdrop?.resolve();
 				let filteredComposite = backdropDriver.composeInline(
 					element,
 					compositeContext.encoder,
-					compositeContext.targetTexture,
+					picture ?? compositeContext.targetTexture,
 					this.viewportState.current,
 					this.viewportState.width,
 					this.viewportState.height,
 					this.activeProfiler,
-					inlineMasks.length > 0,
+					inlineMasks.length > 0 || picture != null,
 				);
+				if (picture) {
+					pictureBackdrop?.release?.(picture);
+					// The captures came off the picture, which no later read of the
+					// canvas may reuse.
+					this.backdropEffectCoordinator.invalidate();
+				}
 				let ownsMaskedColor = false;
 				let ownsMaskedCoverage = false;
 				if (filteredComposite && inlineMasks.length > 0) {
@@ -6403,27 +6463,14 @@ export class CanvasLayer {
 				}
 				activePass = compositeContext.restartPass();
 				if (filteredComposite) {
-					const blitOpacity = effectiveAlpha * (filteredComposite.opacity ?? 1);
 					// Glass intermediate content replaces the backdrop within its
-					// coverage: punch the destination first so the src-over blit
-					// below totals a (1 - coverage·opacity) destination weight.
-					if (filteredComposite.coverage) {
-						this.composite.punchGlassCoverage(
-							activePass,
-							filteredComposite.texture.texture,
-							filteredComposite.coverage.texture,
-							filteredComposite.placement.bounds,
-							blitOpacity,
-							filteredComposite.placement.uvRect,
-						);
-					}
-					this.composite.blitTextureToCanvas(
+					// coverage, which an offscreen target also gathers for its own
+					// composite to punch what lies beneath the bake.
+					activePass = this.blitBakeWithCoverage(
 						activePass,
-						filteredComposite.texture.texture,
-						filteredComposite.placement.bounds,
-						blitOpacity,
-						filteredComposite.placement.uvRect,
-						this.blitPipeline,
+						filteredComposite,
+						effectiveAlpha * (filteredComposite.opacity ?? 1),
+						compositeContext,
 					);
 					if (ownsMaskedColor) releaseRenderSurface(filteredComposite);
 					if (

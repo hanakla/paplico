@@ -8,9 +8,12 @@ import type {
 	Document,
 	Extrude3DAppearance,
 	FillAppearance,
+	Group,
 	Path,
 	PathSegment,
 	RawRGBA,
+	Revolve3DAppearance,
+	Solid3DBaseParams,
 	Viewport,
 } from "../../../schema";
 import {
@@ -20,11 +23,14 @@ import {
 import type { RenderOrchestrator } from "../../RenderOrchestrator";
 import type { ChangedElements } from "../../types";
 import type { BlurFilter } from "../BlurFilter/BlurFilter";
+import type { DropShadowFilter } from "../DropShadowFilter/DropShadowFilter";
 
 const WIDTH = 800;
 const HEIGHT = 600;
 const UNCHANGED: ChangedElements = { upserted: new Set(), deleted: new Set() };
 const VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
+
+type GlassSolid = "extrude3d" | "revolve3d";
 
 // A glass extrude with a downstream filter goes through the intermediate
 // texture route (composeInline → filteredGlass → applyFilters → canvas
@@ -119,6 +125,46 @@ describe("glass extrude intermediate composite", () => {
 		}
 		expect(spreadAlpha).toBeGreaterThan(0);
 	});
+
+	it.each<GlassSolid>([
+		"extrude3d",
+		"revolve3d",
+	])("should refract the canvas beneath a filtered group the same as at the top level (%s)", async (solid) => {
+		// A filtered group bakes offscreen in its own texel space, yet its glass
+		// child must refract the canvas beneath the group. Copying that backdrop
+		// out of the group's bake with canvas coordinates runs past the bake's
+		// edge, and the GPU rejects the whole frame.
+		const white = { r: 1, g: 1, b: 1, a: 1 };
+		const { renderer: groupedRenderer } = await createTestRenderer();
+		const grouped = await renderFrame(
+			groupedRenderer,
+			createGlassDoc(null, 1, true, solid),
+			white,
+		);
+		const { renderer: topLevelRenderer } = await createTestRenderer();
+		const topLevel = await renderFrame(
+			topLevelRenderer,
+			createGlassDoc(null, 1, false, solid),
+			white,
+		);
+
+		// Interior of the solid, kept off the coverage fringe.
+		let differing = 0;
+		let compared = 0;
+		for (let y = 265; y < 335; y++) {
+			for (let x = 365; x < 435; x++) {
+				const i = (y * WIDTH + x) * 4;
+				compared++;
+				for (let c = 0; c < 4; c++) {
+					if (Math.abs(grouped[i + c] - topLevel[i + c]) > 12) {
+						differing++;
+						break;
+					}
+				}
+			}
+		}
+		expect((differing / compared) * 100).toBeLessThan(1);
+	});
 });
 
 async function renderFrame(
@@ -158,7 +204,12 @@ async function renderFrame(
 	return pixels;
 }
 
-function createGlassDoc(blurRadius: number | null, glassCount = 1): Document {
+function createGlassDoc(
+	blurRadius: number | null,
+	glassCount = 1,
+	inFilteredGroup = false,
+	solid: GlassSolid = "extrude3d",
+): Document {
 	const doc = createDefaultDocument("glass-intermediate-vrt");
 	const layer = createDefaultLayer("layer-1", "Layer");
 	// Opaque backdrop whose right edge (world x=10) runs under the glass, so
@@ -170,8 +221,10 @@ function createGlassDoc(blurRadius: number | null, glassCount = 1): Document {
 		b: 0.7,
 		a: 1,
 	});
-	const glass = createGlassPath(blurRadius, glassCount);
-	for (const element of [backdrop, glass]) {
+	const glass = createGlassPath(blurRadius, glassCount, solid);
+	doc.objects[glass.id] = glass;
+	const top = inFilteredGroup ? createFilteredGroup(glass.id) : glass;
+	for (const element of [backdrop, top]) {
 		doc.objects[element.id] = element;
 		layer.elementIds.push(element.id);
 	}
@@ -179,7 +232,11 @@ function createGlassDoc(blurRadius: number | null, glassCount = 1): Document {
 	return doc;
 }
 
-function createGlassPath(blurRadius: number | null, glassCount = 1): Path {
+function createGlassPath(
+	blurRadius: number | null,
+	glassCount: number,
+	solid: GlassSolid,
+): Path {
 	const fill: FillAppearance = {
 		uid: "fill-1",
 		processor: "fill",
@@ -199,29 +256,51 @@ function createGlassPath(blurRadius: number | null, glassCount = 1): Path {
 	};
 	const glassApps = Array.from(
 		{ length: glassCount },
-		(_, i): Extrude3DAppearance => ({
-			uid: `extrude-${i + 1}`,
-			processor: "extrude3d",
-			opacity: 1,
-			blendMode: "normal",
-			paramData: {
-				version: "1",
-				params: {
-					depth: 40 + i * 40,
-					rotationDeg: [0, 0, 0],
-					perspective: 20,
-					material: {
-						shading: "lambert",
-						lightDir: [0, 0, 1],
-						refraction: 1.5,
-						// Frosted glass: blurring the backdrop is what softens its
-						// alpha edge under the solid — the precondition for the
-						// src-over leak this suite guards against.
-						blur: 6 - i * 2,
-					},
+		(_, i): Extrude3DAppearance | Revolve3DAppearance => {
+			const app = {
+				uid: `${solid}-${i + 1}`,
+				opacity: 1,
+				blendMode: "normal",
+			} as const;
+			const params = {
+				rotationDeg: [0, 0, 0],
+				perspective: 20,
+				material: {
+					shading: "lambert",
+					lightDir: [0, 0, 1],
+					refraction: 1.5,
+					// Frosted glass: blurring the backdrop is what softens its
+					// alpha edge under the solid — the precondition for the
+					// src-over leak this suite guards against.
+					blur: 6 - i * 2,
 				},
-			},
-		}),
+			} satisfies Solid3DBaseParams;
+			return solid === "extrude3d"
+				? {
+						...app,
+						processor: solid,
+						paramData: {
+							version: "1",
+							params: { ...params, depth: 40 + i * 40 },
+						},
+					}
+				: {
+						...app,
+						processor: solid,
+						paramData: {
+							version: "1",
+							// Sweeps the profile round its left edge, so the solid
+							// covers the profile's own square and more.
+							params: {
+								...params,
+								angleDeg: 360,
+								offset: 0,
+								axis: "left",
+								cap: false,
+							},
+						},
+					};
+		},
 	);
 	// A downstream blur is what routes the glass through the intermediate
 	// texture; null keeps the direct route.
@@ -246,6 +325,38 @@ function createGlassPath(blurRadius: number | null, glassCount = 1): Path {
 		transform: createDefaultTransform(),
 		segments: rectSegments(0, 0, 100, 100),
 		filters: [fill, ...glassApps, ...downstream],
+	};
+}
+
+function createFilteredGroup(childId: string): Group {
+	// A filter is what bakes the group offscreen. The shadow stays invisible:
+	// the glass refracts what lies beneath the group, its shadow included, so
+	// a visible one would differ from the top-level render by design.
+	const shadow: DropShadowFilter = {
+		uid: "group-shadow",
+		processor: "drop-shadow",
+		opacity: 1,
+		blendMode: "normal",
+		enabled: true,
+		paramData: {
+			version: "1",
+			params: {
+				offsetX: 5,
+				offsetY: -2,
+				blurRadius: 0,
+				shadowOpacity: 0,
+				spreadRadius: 2.5,
+			},
+		},
+	};
+	return {
+		id: "group-1",
+		type: "group",
+		opacity: 1,
+		blendMode: "normal",
+		transform: createDefaultTransform(),
+		childIds: [childId],
+		filters: [shadow],
 	};
 }
 

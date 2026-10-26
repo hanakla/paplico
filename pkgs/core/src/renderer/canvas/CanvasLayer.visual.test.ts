@@ -6,6 +6,7 @@ import {
 } from "../../document/factory";
 import type {
 	Document,
+	Extrude3DAppearance,
 	FillAppearance,
 	Group,
 	Path,
@@ -28,6 +29,7 @@ const EDITED_ID = "edited-rect";
 const CLIP_ID = "clip-rect";
 const CLIP_GROUP_ID = "clip-group";
 const BLURRED_ID = "blurred-rect";
+const GLASS_GROUP_ID = "glass-group";
 const UNCHANGED: ChangedElements = { upserted: new Set(), deleted: new Set() };
 const BASE_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
 
@@ -259,12 +261,49 @@ describe("filtered child of a clip group", () => {
 	}, 240_000);
 });
 
+/**
+ * Editing a group dims the document and redraws the group's children at full
+ * opacity over it.
+ *
+ *   x: -50 .. 50    tilted glass solid (y -50..50), the group's back child
+ *   x: -10 .. 10    red square (y -10..10), the group's front child
+ */
+describe("editing scope isolation", () => {
+	it("should keep a front child out of the backdrop a glass child refracts", async () => {
+		const withFront = await renderEditedGroup(createGlassGroupDocument(true));
+		const withoutFront = await renderEditedGroup(
+			createGlassGroupDocument(false),
+		);
+
+		// The glass interior, clear of the red square by a few pixels. The
+		// tilted solid refracts the backdrop from off to the side, so a dimmed
+		// copy of the square beneath it would show up in this ring.
+		let differing = 0;
+		let compared = 0;
+		for (let y = 265; y < 335; y++) {
+			for (let x = 365; x < 435; x++) {
+				if (x >= 386 && x < 414 && y >= 286 && y < 314) continue;
+				const i = (y * CANVAS_WIDTH + x) * 4;
+				compared++;
+				for (let c = 0; c < 4; c++) {
+					if (Math.abs(withFront[i + c] - withoutFront[i + c]) > 6) {
+						differing++;
+						break;
+					}
+				}
+			}
+		}
+		expect((differing / compared) * 100).toBeLessThan(1);
+	});
+});
+
 // Helpers
 
 function renderFrame(
 	renderer: RenderOrchestrator,
 	doc: Document,
 	changedElements: ChangedElements,
+	editingScopeStack?: string[],
 ): void {
 	renderer.render(
 		{
@@ -272,9 +311,23 @@ function renderFrame(
 			document: doc,
 			strategy: "full",
 			changedElements,
+			editingScopeStack,
 		},
 		{},
 	);
+}
+
+/** Render with the glass group as the editing scope and read the frame back. */
+async function renderEditedGroup(doc: Document): Promise<Uint8Array> {
+	const { renderer, canvas } = await createTestRenderer();
+	const device = renderer.getDevice();
+	if (!device) throw new Error("no GPU device");
+	// The glass solid bakes asynchronously, so the first frame can miss it.
+	for (let frame = 0; frame < 2; frame++) {
+		renderFrame(renderer, doc, UNCHANGED, [GLASS_GROUP_ID]);
+		await device.queue.onSubmittedWorkDone();
+	}
+	return capturePresented(renderer, canvas);
 }
 
 function renderPan(
@@ -534,6 +587,78 @@ function createDocument(editedOffsetX: number): Document {
 	layer.elementIds.push(staticRect.id, editedRect.id);
 	document.layers = [layer];
 	return document;
+}
+
+/** A blue backdrop under a group holding a tilted glass solid and, when
+ *  `withFront`, a red square in front of it. */
+function createGlassGroupDocument(withFront: boolean): Document {
+	const document = createDefaultDocument("editing-scope-glass");
+	const layer = createDefaultLayer("layer-1", "Layer");
+	const rect = (id: string, segments: PathSegment[], color: RawRGBA): Path => ({
+		id,
+		type: "path",
+		opacity: 1,
+		blendMode: "normal",
+		transform: createDefaultTransform(),
+		segments,
+		filters: [fill(color)],
+	});
+	const backdrop = rect("backdrop", rectSegments(-70, 10, -150, 150), {
+		r: 0.1,
+		g: 0.2,
+		b: 0.7,
+		a: 1,
+	});
+	const glass = rect("glass", rectSegments(-50, 50, -50, 50), {
+		r: 0.8,
+		g: 0.8,
+		b: 0.8,
+		a: 0.25,
+	});
+	glass.filters = [...(glass.filters ?? []), glassExtrude()];
+	const front = rect("front", rectSegments(-10, 10, -10, 10), {
+		r: 0.9,
+		g: 0.1,
+		b: 0.1,
+		a: 1,
+	});
+	const group: Group = {
+		id: GLASS_GROUP_ID,
+		type: "group",
+		opacity: 1,
+		blendMode: "normal",
+		transform: createDefaultTransform(),
+		childIds: withFront ? [glass.id, front.id] : [glass.id],
+	};
+	for (const element of [backdrop, glass, front, group]) {
+		document.objects[element.id] = element;
+	}
+	layer.elementIds.push(backdrop.id, group.id);
+	document.layers = [layer];
+	return document;
+}
+
+function glassExtrude(): Extrude3DAppearance {
+	return {
+		uid: "glass-extrude",
+		processor: "extrude3d",
+		opacity: 1,
+		blendMode: "normal",
+		paramData: {
+			version: "1",
+			params: {
+				depth: 40,
+				rotationDeg: [20, -35, 0],
+				perspective: 20,
+				material: {
+					shading: "lambert",
+					lightDir: [0, 0, 1],
+					refraction: 1.5,
+					blur: 6,
+				},
+			},
+		},
+	};
 }
 
 function fill(color: RawRGBA): FillAppearance {

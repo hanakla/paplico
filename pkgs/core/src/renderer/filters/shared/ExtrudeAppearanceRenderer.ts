@@ -226,6 +226,7 @@ interface ExtrudeRendererDeps {
  * TexturePool after the frame.
  */
 export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
+	public readonly composesOverResolvedBackdrop = true;
 	/** This frame's baked glass solids grouped by element id. A plain
 	 *  path/group/text keeps one entry; an all-glass blend keeps one per
 	 *  interpolated instance (key + intermediate), composited in that order. */

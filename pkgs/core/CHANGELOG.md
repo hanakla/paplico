@@ -15,9 +15,14 @@
 
 - **Filters**
   - A filtered element inside a group that reaches far past the view no longer slows down drawing, path editing and the frame after a pan.
+- **Groups**
+  - While a group is being edited, the dimmed document behind it leaves that group out instead of showing a dimmed copy of it.
 
 ### Fixed
 
+- **Extrude / Revolve filters**
+  - Fix a glass solid inside a group with a filter making the whole canvas fail to draw.
+  - Fix a glass solid in a group being edited showing the group's other objects refracted inside it.
 - **Path edit tool**
   - Fix Shift+clicking another path to add it selecting every vertex of the paths whose vertices were already selected.
   - Fix clicking the fill of a selected path selecting every vertex of all the selected paths. A click selects that path alone, and a Shift+click takes it out of the selection.

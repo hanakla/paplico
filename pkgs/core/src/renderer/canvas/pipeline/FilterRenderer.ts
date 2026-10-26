@@ -451,6 +451,11 @@ export interface BackdropEffectDriver {
 	/** Whether the element has a backdrop-composited appearance to draw inline
 	 *  at its z-order (the caller then ends its pass and calls composeInline). */
 	hasInlineComposite(element: AnyArtObject): boolean;
+	/** Whether composeInline honours `renderToSeparateTexture`, so the caller
+	 *  can pass a resolved backdrop picture in canvas texel space as
+	 *  `targetTexture` and composite the returned layer itself. An offscreen
+	 *  target needs this: its own texture is not in canvas texel space. */
+	readonly composesOverResolvedBackdrop?: boolean;
 	/** Compose the element's inline appearance over `targetTexture`. The caller
 	 *  must have ended its active render pass first (this opens its own).
 	 *
