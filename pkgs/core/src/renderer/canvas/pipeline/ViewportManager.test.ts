@@ -48,7 +48,7 @@ describe("ViewportManager transforms buffer", () => {
 			vm.updateTransformsBuffer(elementsMap(path("a"), path("b")));
 			writes.length = 0;
 
-			vm.markElementTransformsDirty(changed(["a"]));
+			vm.markElementTransformsDirty(changed(["a"]), false);
 			vm.updateTransformsBuffer(
 				elementsMap(path("a", { x: 30, y: -10 }), path("b")),
 			);
@@ -66,7 +66,7 @@ describe("ViewportManager transforms buffer", () => {
 			vm.updateTransformsBuffer(elementsMap(path("a")));
 			writes.length = 0;
 
-			vm.markElementTransformsDirty(changed([]));
+			vm.markElementTransformsDirty(changed([]), false);
 			vm.updateTransformsBuffer(elementsMap(path("a")));
 
 			expect(writes).toHaveLength(0);
@@ -79,7 +79,7 @@ describe("ViewportManager transforms buffer", () => {
 			vm.updateTransformsBuffer(build());
 			writes.length = 0;
 
-			vm.markElementTransformsDirty(changed(["g"]));
+			vm.markElementTransformsDirty(changed(["g"]), false);
 			vm.updateTransformsBuffer(
 				elementsMap(group("g", ["a"], { x: 200 }), path("a", { x: 5 })),
 			);
@@ -102,7 +102,7 @@ describe("ViewportManager transforms buffer", () => {
 
 			// Move a to -60: g's union becomes -60..140, yet g's entry stays the
 			// identity it was written as.
-			vm.markElementTransformsDirty(changed(["a"]));
+			vm.markElementTransformsDirty(changed(["a"]), false);
 			vm.updateTransformsBuffer(
 				elementsMap(group("g", ["a", "b"]), path("a", { x: -60 }), b),
 			);
@@ -120,7 +120,7 @@ describe("ViewportManager transforms buffer", () => {
 			vm.updateTransformsBuffer(elementsMap(path("a"), blend("bl", ["a"])));
 			writes.length = 0;
 
-			vm.markElementTransformsDirty(changed(["a"]));
+			vm.markElementTransformsDirty(changed(["a"]), false);
 			vm.updateTransformsBuffer(
 				elementsMap(path("a", { x: 30 }), blend("bl", ["a"])),
 			);
@@ -136,7 +136,7 @@ describe("ViewportManager transforms buffer", () => {
 			const initialBuffers = buffers.length;
 			writes.length = 0;
 
-			vm.markElementTransformsDirty(changed(["b", "c", "d", "e"]));
+			vm.markElementTransformsDirty(changed(["b", "c", "d", "e"]), false);
 			vm.updateTransformsBuffer(
 				elementsMap(path("a"), path("b"), path("c"), path("d"), path("e")),
 			);
@@ -151,13 +151,64 @@ describe("ViewportManager transforms buffer", () => {
 			vm.updateTransformsBuffer(elementsMap(path("a"), path("b")));
 			const freed = vm.getTransformIndex("b");
 
-			vm.markElementTransformsDirty(changed([], ["b"]));
+			vm.markElementTransformsDirty(changed([], ["b"]), false);
 			vm.updateTransformsBuffer(elementsMap(path("a")));
 			expect(vm.getTransformIndex("b")).toBe(0);
 
-			vm.markElementTransformsDirty(changed(["c"]));
+			vm.markElementTransformsDirty(changed(["c"]), false);
 			vm.updateTransformsBuffer(elementsMap(path("a"), path("c")));
 			expect(vm.getTransformIndex("c")).toBe(freed);
+		});
+	});
+
+	describe("local bounds after a move", () => {
+		it("should keep a moved group's and its children's local bounds but recompute its parent's", () => {
+			const { vm, hierarchy } = createManager();
+			const child = path("a");
+			vm.updateTransformsBuffer(
+				elementsMap(group("outer", ["g"]), group("g", ["a"]), child),
+			);
+			const groupBounds = hierarchy.localBounds.get("g");
+			const childBounds = hierarchy.localBounds.get("a");
+
+			vm.markElementTransformsDirty(changed(["g"]), true);
+			vm.updateTransformsBuffer(
+				elementsMap(
+					group("outer", ["g"]),
+					group("g", ["a"], { x: 100 }),
+					child,
+				),
+			);
+
+			expect(hierarchy.localBounds.get("g")).toBe(groupBounds);
+			expect(hierarchy.localBounds.get("a")).toBe(childBounds);
+			expect(hierarchy.localBounds.get("outer")?.minX).toBe(100);
+		});
+
+		it("should recompute a group's local bounds when a duplicate joins it", () => {
+			const { vm, hierarchy } = createManager();
+			vm.updateTransformsBuffer(elementsMap(group("g", ["a"]), path("a")));
+
+			vm.markElementTransformsDirty(changed(["g", "copy"]), true);
+			vm.updateTransformsBuffer(
+				elementsMap(
+					group("g", ["a", "copy"]),
+					path("a"),
+					path("copy", { x: 100 }),
+				),
+			);
+
+			expect(hierarchy.localBounds.get("g")?.maxX).toBe(140);
+		});
+
+		it("should recompute a changed element's local bounds when the change may reshape it", () => {
+			const { vm, hierarchy } = createManager();
+			vm.updateTransformsBuffer(elementsMap(path("a")));
+
+			vm.markElementTransformsDirty(changed(["a"]), false);
+			vm.updateTransformsBuffer(elementsMap(path("a", {}, 80)));
+
+			expect(hierarchy.localBounds.get("a")?.maxX).toBe(80);
 		});
 	});
 
@@ -200,7 +251,7 @@ describe("ViewportManager transforms buffer", () => {
 				),
 			);
 
-			vm.markElementTransformsDirty(changed(["owner"]));
+			vm.markElementTransformsDirty(changed(["owner"]), false);
 			vm.updateTransformsBuffer(
 				elementsMap(
 					maskedPath("owner", ["m"], { x: 200 }),
@@ -220,7 +271,7 @@ describe("ViewportManager transforms buffer", () => {
 				),
 			);
 
-			vm.markElementTransformsDirty(changed(["owner"], ["m"]));
+			vm.markElementTransformsDirty(changed(["owner"], ["m"]), false);
 			vm.updateTransformsBuffer(elementsMap(path("owner", { x: 100 })));
 
 			expect(hierarchy.parentMap.has("m")).toBe(false);

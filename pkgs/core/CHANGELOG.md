@@ -13,6 +13,8 @@
 
 ### Changed
 
+- **Compound paths**
+  - Moving a compound path, or a group that holds one, no longer stalls when the move is committed.
 - **Filters**
   - A filtered element inside a group that reaches far past the view no longer slows down drawing, path editing and the frame after a pan.
 - **Groups**

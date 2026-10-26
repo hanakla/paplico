@@ -1983,9 +1983,18 @@ export class CanvasLayer {
 		// recomposes anything, so a changed element's bounds — and its
 		// ancestors', which aggregate them — must go now. This and the override
 		// eviction below walk the parent edges, so both run before the
-		// transient rebuild forgets them.
+		// transient rebuild forgets them. A shape-preserving move leaves the
+		// moved elements' own bounds valid, so only their ancestors go.
 		if (isDocumentFrame && request.changedElements) {
-			this.elementHierarchy.applyChanges(request.changedElements);
+			if (strategy === RenderStrategy.fullTransformOnly) {
+				const { upserted, deleted } = request.changedElements;
+				this.elementHierarchy.invalidateAncestorBounds(
+					new Set([...upserted, ...deleted]),
+					(id) => document.objects[id],
+				);
+			} else {
+				this.elementHierarchy.applyChanges(request.changedElements);
+			}
 		}
 		// Element overrides swap in new geometry under the same element id
 		// (e.g. path-edit drag previews), so the cached local bounds — and the
@@ -2042,12 +2051,13 @@ export class CanvasLayer {
 			}
 			// With a tracked change set, only the changed elements' transforms
 			// (and their bounds-coupled ancestors/descendants) are recomposed;
-			// an untracked frame falls back to the full rebuild. The strategies
-			// differ only in that fallback: fullTransformOnly preserves local
-			// bounds (shape-preserving moves), full drops them.
+			// an untracked frame falls back to the full rebuild. fullTransformOnly
+			// preserves the moved elements' own local bounds (shape-preserving
+			// moves); full drops them.
 			if (request.changedElements) {
 				this.viewportManager.markElementTransformsDirty(
 					request.changedElements,
+					strategy === RenderStrategy.fullTransformOnly,
 				);
 			} else {
 				if (strategy === RenderStrategy.full) this.elementHierarchy.clear();

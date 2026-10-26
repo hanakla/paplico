@@ -479,10 +479,18 @@ export class SpatialIndex {
 	 * A container's bounds are derived from its children's cached bounds, so a
 	 * change deep inside a nested group has to drop the whole chain or the
 	 * containers in between keep reporting the pre-change extent.
+	 *
+	 * `keepOwnLocalBounds` keeps the element's own local bounds, for a change
+	 * that only moved it: they are in its own space, before its transform.
 	 */
-	public clearBoundsCacheWithAncestors(elementId: string): void {
+	public clearBoundsCacheWithAncestors(
+		elementId: string,
+		keepOwnLocalBounds = false,
+	): void {
+		this.boundsCache.delete(elementId);
+		if (!keepOwnLocalBounds) this.localBoundsCache.delete(elementId);
 		for (
-			let id: string | undefined = elementId;
+			let id = this.parentGroupMap.get(elementId);
 			id;
 			id = this.parentGroupMap.get(id)
 		) {
@@ -494,7 +502,6 @@ export class SpatialIndex {
 	public invalidateBounds(elementId: string): void {
 		this.localBoundsCache.delete(elementId);
 		this.meshInverseCache.delete(elementId);
-		this.compoundPathCache.deleteMany([elementId]);
 		const element = this.findElement(elementId);
 		if (!element) {
 			this.boundsCache.delete(elementId);
@@ -567,14 +574,20 @@ export class SpatialIndex {
 	/**
 	 * Update an element's Quadtree entry: recalculate bounds and re-insert.
 	 * Used for incremental sync after partial document updates.
+	 * `keepLocalBounds` reuses the cached local bounds of an element that only
+	 * moved.
 	 */
-	public updateElement(layerId: string, element: AnyArtObject): void {
+	public updateElement(
+		layerId: string,
+		element: AnyArtObject,
+		keepLocalBounds = false,
+	): void {
 		const quadtree = this.layerQuadtrees.get(layerId);
 		if (!quadtree) return;
 
 		quadtree.remove(element.id);
 		this.boundsCache.delete(element.id);
-		this.localBoundsCache.delete(element.id);
+		if (!keepLocalBounds) this.localBoundsCache.delete(element.id);
 
 		const elementsMap = this.getElementsMapCached();
 		const bounds = calculateElementBounds(

@@ -1,35 +1,27 @@
-import {
-	type AnyArtObject,
-	type CompoundPath,
-	type CubicBezierSegment,
-	getTransform,
-	type Path,
+import type {
+	AnyArtObject,
+	CompoundPath,
+	CubicBezierSegment,
+	Path,
 } from "../../schema";
-import { collectCompoundSources } from "../../utils/geometry/generate/compoundBake";
-import { computeBooleanOperation } from "../../utils/geometry/generate/pathOps";
+import {
+	bakeCompoundPathSegments,
+	resolveCompoundBoolean,
+} from "../../utils/geometry/generate/compoundBake";
 import type { FilterCapabilityLookup } from "./filterCapabilities";
 import { toCompoundSourceWorldPath } from "./preFilters";
 
 /**
- * Caches boolean operation results for compound paths. Self-validating
- * via JSON fingerprint of source paths' geometry and transforms.
+ * Boolean results of compound paths for the renderer and the spatial index.
+ * Results are remembered by the memo behind resolveCompoundBoolean, which the
+ * bounds code shares, so a compound is combined once whichever asks first.
  */
 export class CompoundPathCache {
-	private cache = new Map<string, CompoundPathGeometryCacheEntry>();
-
 	public resolve(
 		compoundPath: CompoundPath,
 		pathMap: Map<string, Path>,
 	): CubicBezierSegment[] {
-		const fingerprint = createCompoundPathFingerprint(compoundPath, pathMap);
-		const cached = this.cache.get(compoundPath.id);
-		if (cached?.fingerprint === fingerprint) {
-			return cached.segments;
-		}
-
-		const segments = computeBooleanOperation(compoundPath.sources, pathMap);
-		this.cache.set(compoundPath.id, { fingerprint, segments });
-		return segments;
+		return resolveCompoundBoolean(compoundPath, pathMap);
 	}
 
 	/** Boolean result of the sources that resolve to a path, as they are drawn. */
@@ -38,54 +30,8 @@ export class CompoundPathCache {
 		resolveElement: (id: string) => AnyArtObject | undefined,
 		filterRenderer: FilterCapabilityLookup,
 	): CubicBezierSegment[] {
-		const { sources, pathMap } = collectCompoundSources(
-			compoundPath,
-			resolveElement,
-			(path) => toCompoundSourceWorldPath(path, filterRenderer),
+		return bakeCompoundPathSegments(compoundPath, resolveElement, (path) =>
+			toCompoundSourceWorldPath(path, filterRenderer),
 		);
-		if (sources.length === 0) return [];
-		return this.resolve({ ...compoundPath, sources }, pathMap);
 	}
-
-	public clear(): void {
-		this.cache.clear();
-	}
-
-	public size(): number {
-		return this.cache.size;
-	}
-
-	public deleteMany(ids: readonly string[]): void {
-		for (const id of ids) this.cache.delete(id);
-	}
-
-	public keys(): MapIterator<string> {
-		return this.cache.keys();
-	}
-}
-
-/** The inputs a compound path's boolean result depends on, as JSON. */
-export function createCompoundPathFingerprint(
-	compoundPath: CompoundPath,
-	pathMap: ReadonlyMap<string, Path>,
-): string {
-	const fingerprintSources = compoundPath.sources.map((source) => {
-		const path = pathMap.get(source.id);
-		if (!path) {
-			return { id: source.id, op: source.op, missing: true };
-		}
-		return {
-			id: source.id,
-			op: source.op,
-			filters: path.filters,
-			transform: getTransform(path),
-			segments: path.segments,
-		};
-	});
-	return JSON.stringify({ id: compoundPath.id, sources: fingerprintSources });
-}
-
-interface CompoundPathGeometryCacheEntry {
-	fingerprint: string;
-	segments: CubicBezierSegment[];
 }

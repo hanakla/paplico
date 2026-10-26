@@ -259,6 +259,10 @@ export class DocumentChangeSubscriber {
 
 		const affectedTopLevelOwners = new Map<string, string>();
 
+		const movedIds = this.transformOnlyChangeActive
+			? collectMovedIds(delta, spatialIndex)
+			: new Set<string>();
+
 		for (const [id, obj] of delta.added) {
 			const owner = resolveTopLevelOwner(id);
 			if (!owner) continue;
@@ -272,7 +276,7 @@ export class DocumentChangeSubscriber {
 		}
 
 		for (const [id] of delta.updated) {
-			spatialIndex.clearBoundsCacheWithAncestors(id);
+			spatialIndex.clearBoundsCacheWithAncestors(id, movedIds.has(id));
 
 			const owner = resolveTopLevelOwner(id);
 			if (!owner) continue;
@@ -295,7 +299,11 @@ export class DocumentChangeSubscriber {
 			const topLevelObject = objects[topLevelId];
 			if (!topLevelObject) continue;
 
-			spatialIndex.updateElement(layerId, topLevelObject);
+			spatialIndex.updateElement(
+				layerId,
+				topLevelObject,
+				movedIds.has(topLevelId),
+			);
 		}
 
 		if (hasContainerMutation(delta, deletedSnapshot)) {
@@ -325,6 +333,37 @@ export class DocumentChangeSubscriber {
 		}
 		return this.runtimeHooks;
 	}
+}
+
+/**
+ * The updated ids of a transform-only change that only moved, keeping their
+ * own local bounds. A container that holds another changed id, or held one
+ * that went away, changed shape: a duplicate joining a group, a blend whose
+ * keys moved with it.
+ */
+function collectMovedIds(
+	delta: ObjectsChangeDelta,
+	spatialIndex: SpatialIndex,
+): Set<string> {
+	const changedIds = new Set([
+		...delta.added.keys(),
+		...delta.updated.keys(),
+		...delta.deleted,
+	]);
+	const reshapedIds = new Set<string>();
+	for (const id of changedIds) {
+		const parentId = spatialIndex.getParentGroupId(id);
+		if (parentId) reshapedIds.add(parentId);
+	}
+	const movedIds = new Set<string>();
+	for (const [id, obj] of delta.updated) {
+		if (reshapedIds.has(id)) continue;
+		if (getContainerChildIds(obj)?.some((childId) => changedIds.has(childId))) {
+			continue;
+		}
+		movedIds.add(id);
+	}
+	return movedIds;
 }
 
 function buildTopLevelOwners(layers: Layer[]): Map<string, string> {

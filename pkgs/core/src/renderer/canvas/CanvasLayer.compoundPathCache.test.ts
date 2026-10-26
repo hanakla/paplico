@@ -32,7 +32,6 @@ describe("CompoundPathCache", () => {
 		const second = cache.resolve(compound, pathMap);
 
 		expect(second).toBe(first);
-		expect(cache.size()).toBe(1);
 	});
 
 	it("recomputes when source geometry/op/order changes", () => {
@@ -68,27 +67,6 @@ describe("CompoundPathCache", () => {
 		]);
 		const orderChangedSegments = cache.resolve(orderChanged, pathMap);
 		expect(orderChangedSegments).not.toBe(opChangedSegments);
-	});
-
-	it("drops all cached data when clear is called", () => {
-		const pathA = createCirclePath("a", 0, 0, 100);
-		const pathB = createCirclePath("b", 80, 0, 100);
-		const cache = new CompoundPathCache();
-		const pathMap = new Map<string, Path>([
-			[pathA.id, pathA],
-			[pathB.id, pathB],
-		]);
-		const compound = createCompoundPath("cp", [
-			{ id: pathA.id, op: "union" },
-			{ id: pathB.id, op: "union" },
-		]);
-
-		const first = cache.resolve(compound, pathMap);
-		cache.clear();
-		const second = cache.resolve(compound, pathMap);
-
-		expect(second).not.toBe(first);
-		expect(cache.size()).toBe(1);
 	});
 });
 

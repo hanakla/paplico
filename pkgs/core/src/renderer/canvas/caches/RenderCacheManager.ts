@@ -179,7 +179,6 @@ export class RenderCacheManager {
 		// pre-filter set changed stays until its element is deleted.
 		collectStale(this.outline.keys(), compositeElementId);
 		collectStale(this.strip.keys(), compositeElementId);
-		collectStale(this.compoundPath.keys());
 		collectStale(this.groupPath.keys());
 		collectStale(this.meshWarp.keys());
 		collectStale(this.blend.keys());
@@ -189,7 +188,6 @@ export class RenderCacheManager {
 		if (staleIds.length > 0) {
 			this.outline.deleteMany(staleIds);
 			this.strip.deleteMany(staleIds);
-			this.compoundPath.deleteMany(staleIds);
 			this.groupPath.deleteMany(staleIds);
 			this.meshWarp.deleteMany(staleIds);
 			this.blend.deleteMany(staleIds);

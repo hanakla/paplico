@@ -1,4 +1,9 @@
-import { type AnyArtObject, isGroup, isMesh } from "../../../schema";
+import {
+	type AnyArtObject,
+	getContainerChildIds,
+	isGroup,
+	isMesh,
+} from "../../../schema";
 import type { LocalBoundsCache } from "../../../utils/geometry/elementBounds";
 import type { ChangedElements } from "../../types";
 
@@ -49,6 +54,34 @@ export class ElementHierarchyCache {
 		}
 		if (!this.parentsKnown) this.localBounds.clear();
 		return evicted;
+	}
+
+	/**
+	 * Evict the local bounds of the ancestors of `ids` but keep those of `ids`
+	 * themselves, for changes that keep each element's own shape (a move).
+	 * Local bounds are in the element's own space, so they survive, while an
+	 * ancestor's aggregate where its children sit. An element among `ids`
+	 * that holds another of them — as a child, a mask, or a source its bounds
+	 * derive from, like a blend key — counts as that one's ancestor even
+	 * without an edge here, and an id that no longer resolves is evicted too.
+	 */
+	public invalidateAncestorBounds(
+		ids: ReadonlySet<string>,
+		resolveElement: (id: string) => AnyArtObject | undefined,
+	): void {
+		const stale: string[] = [];
+		for (const id of ids) {
+			const element = resolveElement(id);
+			const holdsAnother =
+				element != null &&
+				[parentedChildIds(element), getContainerChildIds(element)].some(
+					(childIds) => childIds?.some((childId) => ids.has(childId)),
+				);
+			if (!element || holdsAnother) stale.push(id);
+			const parentId = this.parents.get(id);
+			if (parentId !== undefined) stale.push(parentId);
+		}
+		this.invalidateBounds(stale);
 	}
 
 	public clear(): void {

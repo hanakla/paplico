@@ -241,10 +241,11 @@ describe("DocumentChangeSubscriber", () => {
 		expect(runtime.spatialIndex.insertElement).not.toHaveBeenCalled();
 		expect(
 			runtime.spatialIndex.clearBoundsCacheWithAncestors,
-		).toHaveBeenCalledWith(updatedId);
+		).toHaveBeenCalledWith(updatedId, false);
 		expect(runtime.spatialIndex.updateElement).toHaveBeenCalledWith(
 			layer.id,
 			updatedObject,
+			false,
 		);
 		expect(runtime.spatialIndex.removeElement).toHaveBeenCalledTimes(
 			store.document.layers.length,
@@ -346,6 +347,7 @@ describe("DocumentChangeSubscriber", () => {
 		expect(runtime.spatialIndex.updateElement).toHaveBeenCalledWith(
 			layer.id,
 			expect.objectContaining({ id: groupId, type: "group" }),
+			false,
 		);
 	});
 
@@ -449,6 +451,48 @@ describe("DocumentChangeSubscriber", () => {
 			expect(reported).toContain("a");
 		});
 	});
+
+	describe("transform-only changes synced from Yjs", () => {
+		it("keeps a moved element's local bounds and moves its hit area", () => {
+			const { provider, spatialIndex, subscriber } = createYjsSyncedIndex();
+			const localBounds = spatialIndex.getLocalBounds("a");
+
+			subscriber.withTransformOnlyChange(() => {
+				provider.updateElement("layer-1", "a", {
+					transform: { ...createIdentityTransform(), x: 50 },
+				});
+			});
+
+			expect(spatialIndex.getLocalBounds("a")).toBe(localBounds);
+			expect(spatialIndex.findElementAtPoint("layer-1", 50, 0)?.id).toBe("a");
+			expect(spatialIndex.findElementAtPoint("layer-1", 0, 0)).toBeNull();
+		});
+
+		it("recomputes the local bounds of a group whose child moved", () => {
+			const { provider, spatialIndex, subscriber } = createYjsSyncedIndex();
+			const groupId = provider.groupElements("layer-1", ["a", "b"]);
+			if (!groupId) throw new Error("group should be created");
+
+			subscriber.withTransformOnlyChange(() => {
+				provider.updateElement("layer-1", "a", {
+					transform: { ...createIdentityTransform(), x: -50 },
+				});
+			});
+
+			expect(spatialIndex.getLocalBounds(groupId)?.minX).toBe(-60);
+		});
+
+		it("recomputes a changed element's local bounds outside a transform-only change", () => {
+			const { provider, spatialIndex } = createYjsSyncedIndex();
+			const localBounds = spatialIndex.getLocalBounds("a");
+
+			provider.updateElement("layer-1", "a", {
+				transform: { ...createIdentityTransform(), x: 50 },
+			});
+
+			expect(spatialIndex.getLocalBounds("a")).not.toBe(localBounds);
+		});
+	});
 });
 
 /**
@@ -519,5 +563,5 @@ function createYjsSyncedIndex() {
 	);
 	onInvalidate.mockClear();
 
-	return { provider, spatialIndex, onInvalidate };
+	return { provider, spatialIndex, subscriber, onInvalidate };
 }

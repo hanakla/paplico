@@ -1,5 +1,5 @@
 import { describe, expect, it, type Mock, vi } from "vitest";
-import { mockCompoundPath } from "../../../testUtils/mockElements";
+import { mockGroup } from "../../../testUtils/mockElements";
 import { DocumentRenderScope } from "../../DocumentScopeRegistry";
 import type { AppearanceCacheEntry } from "./AppearanceCache";
 import type { FillOutline } from "./OutlineCache";
@@ -103,11 +103,15 @@ describe("RenderCacheManager", () => {
 			const scope = new DocumentRenderScope();
 			const manager = new RenderCacheManager();
 			manager.useDocumentScope(scope);
-			manager.compoundPath.resolve(mockCompoundPath("compound", []), new Map());
+			manager.groupPath.resolve(
+				mockGroup("group", []),
+				new Map(),
+				manager.compoundPath,
+			);
 
 			manager.clearAll();
 
-			expect(scope.compoundPath.size()).toBe(1);
+			expect(scope.groupPath.size()).toBe(1);
 		});
 	});
 

@@ -86,6 +86,9 @@ export class ViewportManager {
 	private transformsDirty: "none" | "partial" | "full" = "full";
 	/** Element ids accumulated by markElementTransformsDirty. */
 	private partialDirtyIds = new Set<string>();
+	/** False once a change marked into partialDirtyIds may have changed an
+	 *  element's own shape, not only where it sits. */
+	private partialKeepsShapes = true;
 	/** True when any Group element has a clipPathId set. */
 	private _hasClipGroups = false;
 	private _hasObjectMasks = false;
@@ -172,9 +175,17 @@ export class ViewportManager {
 	 * changed groups, their descendants (whose composed transforms inherit
 	 * them) — and uploads the touched slot range, instead of rebuilding and
 	 * re-uploading every element. A pending full invalidation always wins.
+	 *
+	 * `keepsShapes` says the changes only moved elements, so their own local
+	 * bounds stay cached and only their ancestors' are recomputed.
 	 */
-	public markElementTransformsDirty(changes: ChangedElements): void {
+	public markElementTransformsDirty(
+		changes: ChangedElements,
+		keepsShapes: boolean,
+	): void {
 		if (this.transformsDirty === "full") return;
+		if (this.transformsDirty === "none") this.partialKeepsShapes = true;
+		this.partialKeepsShapes &&= keepsShapes;
 		this.transformsDirty = "partial";
 		for (const id of changes.upserted) this.partialDirtyIds.add(id);
 		for (const id of changes.deleted) this.partialDirtyIds.add(id);
@@ -484,21 +495,22 @@ export class ViewportManager {
 		// A clip path is referenced, not parented, yet the owner's local bounds
 		// are cut by it (calculateElementBounds), so an edited clip path must
 		// evict its owners' bounds too or the clip mask keeps its old coverage.
+		const clipOwners: string[] = [];
 		for (const element of elementsMap.values()) {
 			if (
 				(element.type === "group" || element.type === "text") &&
 				element.clipPathId != null &&
 				dirty.has(element.clipPathId)
 			) {
+				clipOwners.push(element.id);
 				affected.add(element.id);
 			}
 		}
 
 		// Children that left a dirty parent (or joined one) change their
 		// composed transforms too, as does mask content moving between owners.
-		for (const childId of this.hierarchy.syncChildrenOf(dirty, elementsMap)) {
-			affected.add(childId);
-		}
+		const reparented = this.hierarchy.syncChildrenOf(dirty, elementsMap);
+		for (const childId of reparented) affected.add(childId);
 
 		// Descendants of affected parents inherit their composed transforms.
 		const stack = [...affected];
@@ -546,12 +558,19 @@ export class ViewportManager {
 		this._hasClipGroups = hasClipGroups;
 		this._hasObjectMasks = hasObjectMasks;
 
-		// Evict stale local bounds and placements so they recompute from live
-		// geometry.
+		// Evict stale placements and local bounds so they recompute from live
+		// geometry. Moves keep the moved elements' own local bounds and their
+		// descendants'; only their ancestors and the clip owners change shape.
 		const boundsCache = this.hierarchy.localBounds;
-		for (const id of affected) {
-			boundsCache.delete(id);
-			this._composedTransformCache.delete(id);
+		for (const id of affected) this._composedTransformCache.delete(id);
+		if (this.partialKeepsShapes) {
+			this.hierarchy.invalidateAncestorBounds(
+				new Set([...dirty, ...reparented]),
+				(id) => elementsMap.get(id),
+			);
+			this.hierarchy.invalidateBounds(clipOwners);
+		} else {
+			for (const id of affected) boundsCache.delete(id);
 		}
 
 		let minSlot = Number.MAX_SAFE_INTEGER;
