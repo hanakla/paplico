@@ -11,6 +11,11 @@
 - **Tools**
   - `Tool.onPointerLeave` is called when the pointer leaves the canvas.
 
+### Changed
+
+- **Filters**
+  - A filtered element inside a group that reaches far past the view no longer slows down drawing, path editing and the frame after a pan.
+
 ### Fixed
 
 - **Path edit tool**

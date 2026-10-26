@@ -27,6 +27,7 @@ const STATIC_ID = "static-rect";
 const EDITED_ID = "edited-rect";
 const CLIP_ID = "clip-rect";
 const CLIP_GROUP_ID = "clip-group";
+const BLURRED_ID = "blurred-rect";
 const UNCHANGED: ChangedElements = { upserted: new Set(), deleted: new Set() };
 const BASE_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
 
@@ -232,6 +233,32 @@ describe("partial redraw idempotency", () => {
 	}, 240_000);
 });
 
+/**
+ * A filtered child of a clip group is baked when the clip group first draws
+ * it. That bake must cover only the visible part of the child, as a bake of
+ * a top-level element does.
+ */
+describe("filtered child of a clip group", () => {
+	it("should bake only around the visible part of a child far larger than the view", async () => {
+		const { renderer, canvas } = await createTestRenderer();
+		const device = renderer.getDevice();
+		if (!device) throw new Error("no GPU device");
+		const elementBake = trackLargestTextureSide(
+			device,
+			"Offscreen Element Texture",
+		);
+
+		renderFrame(renderer, createLargeClipDocument(3000), UNCHANGED);
+		await device.queue.onSubmittedWorkDone();
+		const pixels = await capturePresented(renderer, canvas);
+
+		expect(elementBake.side).toBeGreaterThan(0);
+		expect(elementBake.side).toBeLessThan(CANVAS_WIDTH * 2);
+		const center = ((CANVAS_HEIGHT / 2) * CANVAS_WIDTH + CANVAS_WIDTH / 2) * 4;
+		expect(pixels[center + 1]).toBe(204);
+	}, 240_000);
+});
+
 // Helpers
 
 function renderFrame(
@@ -298,6 +325,23 @@ function trackPassLabel(device: GPUDevice, label: string): { count: number } {
 		return encoder;
 	}) as typeof device.createCommandEncoder;
 	return counter;
+}
+
+/** Longest side of any texture created with an exact label. */
+function trackLargestTextureSide(
+	device: GPUDevice,
+	label: string,
+): { side: number } {
+	const largest = { side: 0 };
+	const originalCreate = device.createTexture.bind(device);
+	device.createTexture = ((descriptor: GPUTextureDescriptor) => {
+		if (descriptor.label === label) {
+			const { width, height } = descriptor.size as GPUExtent3DDict;
+			largest.side = Math.max(largest.side, width, height ?? 1);
+		}
+		return originalCreate(descriptor);
+	}) as typeof device.createTexture;
+	return largest;
 }
 
 /** Debug aid: where do the two frames disagree (canvas px, y down)? */
@@ -413,6 +457,51 @@ function createClipDocument(clipHalfExtent: number): Document {
 	document.objects[content.id] = content;
 	document.objects[clipPath.id] = clipPath;
 	document.objects[group.id] = group;
+	layer.elementIds.push(group.id);
+	document.layers = [layer];
+	return document;
+}
+
+/** A clip group whose clip rect and two green children all span
+ *  ±`halfExtent`. One child is blurred. Two clipped children keep the group
+ *  off the inline mask path, so it draws them into its own bake. */
+function createLargeClipDocument(halfExtent: number): Document {
+	const document = createDefaultDocument("clip-group-child-filter");
+	const layer = createDefaultLayer("layer-1", "Layer");
+	const square = (id: string): Path => ({
+		id,
+		type: "path",
+		opacity: 1,
+		blendMode: "normal",
+		transform: createDefaultTransform(),
+		segments: rectSegments(-halfExtent, halfExtent, -halfExtent, halfExtent),
+		filters: [fill({ r: 0.1, g: 0.8, b: 0.1, a: 1 })],
+	});
+	const plain = square(STATIC_ID);
+	const blurred = square(BLURRED_ID);
+	blurred.filters = [
+		...(blurred.filters ?? []),
+		{
+			uid: "blur-1",
+			processor: "blur",
+			opacity: 1,
+			blendMode: "normal",
+			paramData: { version: "1", params: { radius: 8 } },
+		},
+	];
+	const clipPath = square(CLIP_ID);
+	const group: Group = {
+		id: CLIP_GROUP_ID,
+		type: "group",
+		opacity: 1,
+		blendMode: "normal",
+		transform: createDefaultTransform(),
+		childIds: [plain.id, blurred.id],
+		clipPathId: clipPath.id,
+	};
+	for (const object of [plain, blurred, clipPath, group]) {
+		document.objects[object.id] = object;
+	}
 	layer.elementIds.push(group.id);
 	document.layers = [layer];
 	return document;

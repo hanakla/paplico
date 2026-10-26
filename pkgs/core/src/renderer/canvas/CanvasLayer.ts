@@ -4033,22 +4033,27 @@ export class CanvasLayer {
 			// (viewport + margin) without clipping the filter's bleed.
 			const fpFilterMargin = (fp.textureBounds.width - fp.bounds.width) / 2;
 
+			// The frame's own plan for the element is sized in world space: a
+			// group child baked on its first draw hands that plan back in, while
+			// mask content is baked from a plan built in its owner's space under
+			// the same id. Only a world-space plan can be culled and clamped
+			// against the viewport, or reused by a later frame.
+			const isFramePlan =
+				this.activeFramePlan?.filterPlans.get(element.id) === fp;
+
 			// Frame-cache participation. A non-null hash means this element's
 			// filtered bake may be reused across frames: the bake then covers
 			// the full textureBounds (viewport-independent) so pans hit without
 			// re-running the chain. Backdrop-reading chains and groups holding a
 			// backdrop-filter element depend on what is behind the element and
 			// stay frame-local, as do preview-overridden elements and bakes past
-			// the full-bake budget. Only the frame's own
-			// plan for the element is cacheable: a group child baked on its
-			// first draw hands that plan back in, while mask content is baked
-			// from a plan built in its owner's space under the same id.
+			// the full-bake budget.
 			let cacheHash: string | null = null;
 			let cacheContentHash: string | null = null;
 			let cacheDeps: ReadonlySet<string> | null = null;
 			if (
 				this.filterCacheFrame != null &&
-				this.activeFramePlan?.filterPlans.get(element.id) === fp &&
+				isFramePlan &&
 				!rendersOwnSource &&
 				!this.filterCacheFrame.blockedIds.has(element.id) &&
 				!backdropHostIds?.has(element.id) &&
@@ -4119,7 +4124,7 @@ export class CanvasLayer {
 								fp.textureBounds,
 								elementsMap,
 								rasterScale,
-								selectedPlans !== undefined,
+								!isFramePlan,
 								fpFilterMargin,
 								undefined,
 								cacheHash != null ? { density: cacheDensity } : null,
