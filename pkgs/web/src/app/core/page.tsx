@@ -135,7 +135,7 @@ export default function CoreLandingPage() {
 				<div className="relative mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[1fr_1.25fr]">
 					<div>
 						<span className="aero-glass inline-block rounded-full! px-3 py-1 text-xs font-semibold text-sky-800">
-							WebGPU · TypeScript · v0.9
+							WebGPU · TypeScript · v0.10
 						</span>
 						<h1 className="mt-5 text-4xl leading-tight font-bold tracking-tight text-balance sm:text-5xl">
 							<span className="aero-gloss-text">
