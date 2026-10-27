@@ -48,6 +48,7 @@ import {
 	extractLayersFromYDoc,
 	yMapToObject,
 } from "./extractDocumentFromYDoc";
+import { encodeSegments, encodeStrokeWidths } from "./pathFieldCodec";
 
 /** Origin of the rewrite migrateRoomSchema makes, kept out of the undo history. */
 const ROOM_SCHEMA_MIGRATION_ORIGIN = Symbol("room-schema-migration");
@@ -57,10 +58,10 @@ const ROOM_SCHEMA_MIGRATION_ORIGIN = Symbol("room-schema-migration");
 /**
  * Scalar fields stored as direct Y.Map keys.
  *
- * These two sets are what `writeElementUpdates` matches mutated keys against,
- * and a key in neither is dropped without a word. They therefore have to cover
- * everything `objectToStoredFields` can write — `yjsFieldCoverage.test.ts`
- * holds them to it.
+ * These sets and BINARY_FIELDS are what `writeElementUpdates` matches mutated
+ * keys against, and a key in none of them is dropped without a word. They
+ * therefore have to cover everything `objectToStoredFields` can write —
+ * `yjsFieldCoverage.test.ts` holds them to it.
  */
 export const SCALAR_FIELDS = new Set([
 	"id",
@@ -94,7 +95,6 @@ export const SCALAR_FIELDS = new Set([
 
 /** Complex fields stored as JSON strings. @see SCALAR_FIELDS */
 export const JSON_FIELDS = new Set([
-	"segments",
 	"filters",
 	"childIds",
 	"sources",
@@ -105,7 +105,6 @@ export const JSON_FIELDS = new Set([
 	"flow",
 	"transform",
 	"mask",
-	"strokeWidths",
 	"strokeErasure",
 	"vertices",
 	"faces",
@@ -123,6 +122,17 @@ export const JSON_FIELDS = new Set([
 	"radial",
 	"mirror",
 ]);
+
+/** Fields stored as binary through pathFieldCodec, with their encoders. */
+const BINARY_FIELD_ENCODERS = {
+	segments: encodeSegments,
+	strokeWidths: encodeStrokeWidths,
+} satisfies Partial<Record<keyof Path, (value: never) => Uint8Array>>;
+
+/** Fields stored as binary. @see SCALAR_FIELDS */
+export const BINARY_FIELDS: ReadonlySet<string> = new Set(
+	Object.keys(BINARY_FIELD_ENCODERS),
+);
 
 // Serializable version of EmbeddedFile in Yjs storage.
 interface SerializedEmbeddedFile {
@@ -147,6 +157,10 @@ export interface YjsProviderCallbacks {
 	getCurrentLayerId: () => string | null;
 	setCurrentLayerId: (layerId: string) => void;
 	onUndoRedoStateChange?: (canUndo: boolean, canRedo: boolean) => void;
+	/**
+	 * The artboards after a transaction that changed them. A full sync carries
+	 * them in onDocumentUpdate instead.
+	 */
 	onArtboardsUpdate?: (artboards: Artboard[]) => void;
 	/**
 	 * Fired when undo/redo pops a stack item carrying stashed UndoStackMeta
@@ -237,11 +251,13 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	 * Delta sync tracking: accumulates changes within the current transaction.
 	 * yLayers changes → layer sync via onLayersUpdate.
 	 * yObjects changes → delta patch via onObjectsChange.
-	 * yArtboards / files / brushPresets / defs / meta changes → full sync via onDocumentUpdate.
+	 * yArtboards changes → artboard sync via onArtboardsUpdate.
+	 * files / brushPresets / defs / meta changes → full sync via onDocumentUpdate.
 	 */
 	private pendingObjectChanges: ObjectsChangeDelta | null = null;
 	private needsFullSync = false;
 	private needsLayerSync = false;
+	private needsArtboardSync = false;
 
 	/** Suppress object tracking during replaceDocument to avoid wasted yMapToObject calls */
 	private suppressObjectTracking = false;
@@ -319,7 +335,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 			}
 		});
 		this.yArtboards.observe(() => {
-			this.needsFullSync = true;
+			this.needsArtboardSync = true;
 		});
 		this.yFiles.observe(() => {
 			this.needsFullSync = true;
@@ -332,7 +348,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 		});
 		this.yDefs.observeDeep(() => {
 			// def CRUD is rare; route through the full-sync path (same flow as
-			// yArtboards / yMeta). Element-level edits to def members live in
+			// yMeta). Element-level edits to def members live in
 			// yObjects and continue to use the per-object delta path.
 			this.needsFullSync = true;
 		});
@@ -520,12 +536,14 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 			const objectChanges = this.pendingObjectChanges;
 			const needsFull = this.needsFullSync;
 			const needsLayers = this.needsLayerSync;
+			const needsArtboards = this.needsArtboardSync;
 			const undoRedo = this.isUndoRedoInProgress;
 
 			// Reset pending state
 			this.pendingObjectChanges = null;
 			this.needsFullSync = false;
 			this.needsLayerSync = false;
+			this.needsArtboardSync = false;
 
 			if (needsFull) {
 				const document = extractDocumentFromYDoc(this.ydoc);
@@ -561,6 +579,10 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 				}
 			}
 
+			if (needsArtboards) {
+				this.callbacks.onArtboardsUpdate?.(this.yArtboards.toArray());
+			}
+
 			const hasObjectChanges =
 				objectChanges &&
 				this.callbacks.onObjectsChange &&
@@ -570,7 +592,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 
 			if (hasObjectChanges) this.callbacks.onObjectsChange!(objectChanges);
 
-			if (needsLayers || hasObjectChanges) {
+			if (needsLayers || needsArtboards || hasObjectChanges) {
 				this.callbacks.onSyncApplied?.({ syncKind: "delta", undoRedo });
 			}
 		} catch (error) {
@@ -783,6 +805,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 		// Discard any accumulated state from observers that fired before guards took effect
 		this.pendingObjectChanges = null;
 		this.needsFullSync = false;
+		this.needsArtboardSync = false;
 
 		// Directly sync the document to Valtio (bypassing extractDocumentFromYDoc)
 		this.callbacks.onDocumentUpdate(doc);
@@ -2386,6 +2409,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 		this.pendingObjectChanges = null;
 		this.needsFullSync = false;
 		this.needsLayerSync = false;
+		this.needsArtboardSync = false;
 		this.suppressObjectTracking = false;
 		this.suppressSync = false;
 
@@ -2868,8 +2892,9 @@ function storedFieldsToYMap(fields: Record<string, unknown>): Y.Map<unknown> {
 
 /**
  * Write a partial element update onto its Y.Map. JSON fields are stored as
- * strings, scalar fields as is, and a missing value deletes the key. `id` and
- * `type` never change, and keys in neither field set are dropped.
+ * strings, binary fields as bytes, scalar fields as is, and a missing value
+ * deletes the key. `id` and `type` never change, and keys in no field set are
+ * dropped.
  */
 function writeElementUpdates(
 	yObj: Y.Map<unknown>,
@@ -2883,6 +2908,17 @@ function writeElementUpdates(
 				yObj.delete(key);
 			} else {
 				yObj.set(key, JSON.stringify(value));
+			}
+		} else if (BINARY_FIELDS.has(key)) {
+			if (value === undefined || value === null) {
+				yObj.delete(key);
+			} else {
+				yObj.set(
+					key,
+					BINARY_FIELD_ENCODERS[key as keyof typeof BINARY_FIELD_ENCODERS](
+						value,
+					),
+				);
 			}
 		} else if (SCALAR_FIELDS.has(key)) {
 			if (value === undefined) {
@@ -2915,7 +2951,8 @@ function writeArtboardUpdates(
 /**
  * Write only what changed between two stored field records onto a Y.Map:
  * keys whose value differs are set, keys that disappeared are deleted. Stored
- * values are scalars or JSON strings, so equality is a plain comparison.
+ * values are scalars, JSON strings or bytes, so equality is a plain or a
+ * byte-wise comparison.
  */
 function writeStoredFieldChanges(
 	yObj: Y.Map<unknown>,
@@ -2926,8 +2963,14 @@ function writeStoredFieldChanges(
 		if (!(key in after)) yObj.delete(key);
 	}
 	for (const [key, value] of Object.entries(after)) {
-		if (before[key] !== value) yObj.set(key, value);
+		if (!storedValuesEqual(before[key], value)) yObj.set(key, value);
 	}
+}
+
+function storedValuesEqual(a: unknown, b: unknown): boolean {
+	if (a === b) return true;
+	if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array)) return false;
+	return a.length === b.length && a.every((byte, i) => byte === b[i]);
 }
 
 /**
@@ -2970,9 +3013,9 @@ export function objectToStoredFields(
 	// Type-specific fields
 	switch (element.type) {
 		case "path":
-			fields.segments = JSON.stringify(element.segments);
+			fields.segments = encodeSegments(element.segments);
 			if (element.strokeWidths?.length)
-				fields.strokeWidths = JSON.stringify(element.strokeWidths);
+				fields.strokeWidths = encodeStrokeWidths(element.strokeWidths);
 			if (element.strokeWidthsBaked !== undefined)
 				fields.strokeWidthsBaked = element.strokeWidthsBaked;
 			if (element.strokeErasure?.length)

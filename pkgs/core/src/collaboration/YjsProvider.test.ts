@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import * as Y from "yjs";
 import {
+	createArtboard,
 	createIdentityTransform,
 	createMeshWarpObjectFromGeometry,
 } from "../document/factory";
@@ -13,6 +14,7 @@ import {
 	type BrushSettings,
 	type Document,
 	getTransform,
+	type Path,
 	type Reference3DDef,
 } from "../schema";
 import { rectPath } from "../testUtils/svgFixtures";
@@ -1254,6 +1256,82 @@ describe("YjsProvider", () => {
 	});
 
 	describe("undo/redo", () => {
+		describe("a segment edit", () => {
+			const original: Path = {
+				...rectPath("path-1", { x: 0, y: 0 }, 10, 10, []),
+				segments: [
+					{
+						start: { x: 0, y: 0, pressure: 0.2, tiltX: 5, deltaTime: 0 },
+						cp1: { x: 1, y: 2 },
+						cp2: { x: -1, y: -2 },
+						end: { x: 10, y: 0, pressure: 0.8, twist: 90 },
+						startPressure: 0.2,
+						endPressure: 0.8,
+						startTiltX: 5,
+						startTiltY: 0,
+						endTiltX: 0,
+						endTiltY: 0,
+						startDeltaTime: 0,
+						endDeltaTime: 16,
+						isMoved: true,
+						isClosed: false,
+						cornerRadius: 0,
+					},
+				],
+				strokeWidths: [{ t: 0.5, side1: 1, side2: 0.5 }],
+			};
+			const edited = original.segments.map((segment) => ({
+				...segment,
+				end: { ...segment.end, x: 20 },
+			}));
+
+			function storedPath(provider: YjsProvider): Path {
+				return extractDocumentFromYDoc(provider.ydoc).objects["path-1"] as Path;
+			}
+
+			it("should restore the exact segments on undo and redo", () => {
+				const provider = new YjsProvider({ callbacks });
+				provider.addLayer({
+					id: "layer-1",
+					name: "Layer 1",
+					visible: true,
+					locked: false,
+					opacity: 1,
+					elementIds: [],
+				});
+				provider.addElement("layer-1", original);
+				provider.stopUndoCapture();
+
+				provider.updateElement("layer-1", "path-1", { segments: edited });
+				provider.stopUndoCapture();
+				provider.undo();
+				expect(storedPath(provider).segments).toStrictEqual(original.segments);
+				expect(storedPath(provider).strokeWidths).toStrictEqual(
+					original.strokeWidths,
+				);
+
+				provider.redo();
+				expect(storedPath(provider).segments).toStrictEqual(edited);
+			});
+
+			it("should restore segments that were stored as JSON on undo", () => {
+				const provider = new YjsProvider({ callbacks });
+				addLayerWithPaths(provider, ["path-1"]);
+				const yPath = provider.ydoc
+					.getMap<Y.Map<unknown>>("objects")
+					.get("path-1");
+				yPath?.set("segments", JSON.stringify(original.segments));
+				provider.stopUndoCapture();
+
+				provider.updateElement("layer-1", "path-1", { segments: edited });
+				expect(yPath?.get("segments")).toBeInstanceOf(Uint8Array);
+				provider.stopUndoCapture();
+				provider.undo();
+
+				expect(storedPath(provider).segments).toStrictEqual(original.segments);
+			});
+		});
+
 		it("should support undo", () => {
 			const provider = new YjsProvider({ callbacks });
 
@@ -2267,6 +2345,83 @@ describe("YjsProvider", () => {
 			});
 		});
 
+		describe("artboard changes", () => {
+			function createArtboardProvider() {
+				const onArtboardsUpdate = vi.fn();
+				const onObjectsChange = vi.fn();
+				const onSyncApplied = vi.fn();
+				const provider = new YjsProvider({
+					callbacks: {
+						...callbacks,
+						onArtboardsUpdate,
+						onObjectsChange,
+						onSyncApplied,
+					},
+				});
+				addLayerWithPaths(provider, ["path-a"]);
+				provider.addArtboard(createArtboard("ab", "Main", 0, 0, 800, 600));
+				provider.stopUndoCapture();
+				mockOnDocumentUpdate.mockClear();
+				onArtboardsUpdate.mockClear();
+				onObjectsChange.mockClear();
+				onSyncApplied.mockClear();
+				return { provider, onArtboardsUpdate, onObjectsChange, onSyncApplied };
+			}
+
+			it("should sync an artboard move through onArtboardsUpdate without full sync", () => {
+				const { provider, onArtboardsUpdate, onObjectsChange, onSyncApplied } =
+					createArtboardProvider();
+
+				provider.updateArtboard("ab", { x: 120 });
+
+				expect(mockOnDocumentUpdate).not.toHaveBeenCalled();
+				expect(onObjectsChange).not.toHaveBeenCalled();
+				expect(onArtboardsUpdate).toHaveBeenCalledTimes(1);
+				expect(onArtboardsUpdate.mock.calls[0][0]).toEqual([
+					createArtboard("ab", "Main", 120, 0, 800, 600),
+				]);
+				expect(onSyncApplied.mock.calls).toEqual([
+					[{ syncKind: "delta", undoRedo: false }],
+				]);
+			});
+
+			it("should apply an artboard move and the elements it carries from one transaction", () => {
+				const { provider, onArtboardsUpdate, onObjectsChange, onSyncApplied } =
+					createArtboardProvider();
+
+				provider.commitArtboardMove("ab", { x: 50 }, [
+					{ elementId: "path-a", updates: { opacity: 0.5 } },
+				]);
+
+				expect(mockOnDocumentUpdate).not.toHaveBeenCalled();
+				expect(onArtboardsUpdate.mock.calls[0][0][0].x).toBe(50);
+				expect(
+					onObjectsChange.mock.calls[0][0].updated.get("path-a").opacity,
+				).toBe(0.5);
+				expect(onSyncApplied).toHaveBeenCalledTimes(1);
+			});
+
+			it("should sync the undo and redo of an artboard move as undo/redo deltas", () => {
+				const { provider, onArtboardsUpdate, onSyncApplied } =
+					createArtboardProvider();
+				provider.updateArtboard("ab", { x: 120 });
+				provider.stopUndoCapture();
+				onArtboardsUpdate.mockClear();
+				onSyncApplied.mockClear();
+
+				provider.undo();
+				expect(onArtboardsUpdate.mock.calls[0][0][0].x).toBe(0);
+
+				provider.redo();
+				expect(onArtboardsUpdate.mock.calls[1][0][0].x).toBe(120);
+				expect(mockOnDocumentUpdate).not.toHaveBeenCalled();
+				expect(onSyncApplied.mock.calls).toEqual([
+					[{ syncKind: "delta", undoRedo: true }],
+					[{ syncKind: "delta", undoRedo: true }],
+				]);
+			});
+		});
+
 		it("should trigger full sync for addFile updates", () => {
 			const mockOnObjectsChange = vi.fn();
 			const mockOnSyncApplied = vi.fn();
@@ -2977,6 +3132,16 @@ describe("YjsProvider", () => {
 			expect(getTransform(doc.objects[groupId])).toEqual(ROTATED);
 			expect(getTransform(doc.objects.a)).toEqual(createIdentityTransform());
 			expect(provider.canUndo()).toBe(false);
+		});
+
+		it("should leave a path's binary segments alone when the migration keeps them", async () => {
+			const { provider } = createLegacyRoom();
+			const yPath = provider.ydoc.getMap<Y.Map<unknown>>("objects").get("a");
+			const storedSegments = yPath?.get("segments");
+
+			await provider.migrateRoomSchema();
+
+			expect(yPath?.get("segments")).toBe(storedSegments);
 		});
 
 		it("should start over when a peer migrates the room while the context is measured", async () => {

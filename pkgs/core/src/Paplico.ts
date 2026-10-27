@@ -1902,6 +1902,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					this.requestReference3DServiceIfDocumentNeedsIt();
 					if (this.perspectiveGuideSourceId) this.refreshPerspectiveGuides();
 				},
+				onArtboardsUpdate: (artboards) => {
+					this.rendererStore.document.artboards = artboards;
+					this.renderChangeSubscriber.syncArtboardsOnly();
+				},
 				onLayersUpdate: (layers) => {
 					const previousLayers = this.rendererStore.document.layers;
 					this.rendererStore.document.layers = layers;

@@ -712,11 +712,7 @@ export class SpatialIndex {
 			}
 		}
 
-		// Rebuild the artboard spatial index.
-		this.artboardQuadtree = new Quadtree<Artboard>(WORLD_BOUNDS);
-		for (const artboard of this.store.document.artboards) {
-			this.insertArtboard(artboard);
-		}
+		this.rebuildArtboardIndex();
 	}
 
 	/** Look up the parent Group ID for a given child element ID. O(1). */
@@ -743,6 +739,14 @@ export class SpatialIndex {
 	}
 
 	// ===== Artboard Index =====
+
+	/** Rebuild the artboard spatial index from the document's artboards. */
+	public rebuildArtboardIndex(): void {
+		this.artboardQuadtree = new Quadtree<Artboard>(WORLD_BOUNDS);
+		for (const artboard of this.store.document.artboards) {
+			this.insertArtboard(artboard);
+		}
+	}
 
 	private insertArtboard(artboard: Artboard): void {
 		const bounds = getArtboardBounds(artboard);

@@ -1,7 +1,7 @@
 import { proxy, ref } from "valtio";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { YjsProvider } from "../collaboration/YjsProvider";
-import { createIdentityTransform } from "../document/factory";
+import { createArtboard, createIdentityTransform } from "../document/factory";
 import { SpatialIndex } from "../document/SpatialIndex";
 import type { AnyArtObject } from "../schema";
 import { loadTestDocument } from "../testUtils/loadTestDocument";
@@ -12,6 +12,7 @@ import {
 	type DocumentChangeSubscriberStore,
 } from "./DocumentChangeSubscriber";
 import type { RendererState } from "./types";
+import { OVERLAY_KEYS } from "./ui/overlayKeys";
 
 let testDoc: Awaited<ReturnType<typeof loadTestDocument>>;
 beforeAll(async () => {
@@ -35,6 +36,7 @@ function createStore(): DocumentChangeSubscriberStore {
 function createRuntimeMocks() {
 	const spatialIndex = {
 		rebuildAllIndices: vi.fn(),
+		rebuildArtboardIndex: vi.fn(),
 		getParentGroupId: vi.fn(() => null),
 		insertElement: vi.fn(),
 		invalidateBounds: vi.fn(),
@@ -202,6 +204,31 @@ describe("DocumentChangeSubscriber", () => {
 		expect(runtime.spatialIndex.rebuildAllIndices).not.toHaveBeenCalled();
 		expect(runtime.refreshSelectToolUI).toHaveBeenCalledTimes(1);
 		expect(runtime.syncPathToolFromDocument).toHaveBeenCalledTimes(1);
+	});
+
+	it("syncArtboardsOnly rebuilds the artboard index and redraws the selected artboard", () => {
+		const store = createStore();
+		const onInvalidate = vi.fn();
+		const runtime = createRuntimeMocks();
+		runtime.isArtboardToolActive.mockReturnValue(true);
+		const coordinator = new DocumentChangeSubscriber(store, onInvalidate, {
+			getSpatialIndex: () => runtime.spatialIndex,
+			refreshToolUI: runtime.refreshSelectToolUI,
+			syncPathToolFromDocument: runtime.syncPathToolFromDocument,
+			isArtboardToolActive: runtime.isArtboardToolActive,
+		});
+
+		// Store mutation is caller's responsibility (simulating Paplico)
+		store.document.artboards = [createArtboard("ab", "Main", 10, 0, 100, 100)];
+		store.selectedArtboardId = "ab";
+
+		coordinator.syncArtboardsOnly();
+
+		expect(runtime.spatialIndex.rebuildArtboardIndex).toHaveBeenCalledTimes(1);
+		expect(runtime.spatialIndex.rebuildAllIndices).not.toHaveBeenCalled();
+		expect(
+			store.uiOverlayState.overlays?.[OVERLAY_KEYS.sysArtboardSelection],
+		).toBeDefined();
 	});
 
 	it("syncObjectsDelta updates spatial index and refreshes tool UIs", () => {

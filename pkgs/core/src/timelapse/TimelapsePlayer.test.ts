@@ -145,6 +145,32 @@ describe("TimelapsePlayer", () => {
 		expect(path.segments).toEqual(original.segments);
 	});
 
+	it("should replay a path recorded with its segments and stroke widths as JSON", () => {
+		const recorded: Path = {
+			...squarePath("a", 0, 0),
+			strokeWidths: [{ t: 0.5, side1: 1, side2: 0.5 }],
+		};
+		const { data } = buildRecording([
+			(doc) => {
+				setLayer(doc, "layer-1", []);
+				setArtboard(doc, artboard);
+			},
+			(doc) => {
+				addElement(doc, "layer-1", recorded);
+				const yPath = doc.getMap<Y.Map<unknown>>("objects").get("a");
+				yPath?.set("segments", JSON.stringify(recorded.segments));
+				yPath?.set("strokeWidths", JSON.stringify(recorded.strokeWidths));
+			},
+		]);
+
+		const { player, onFrame } = createPlayer(data, artboard);
+		player.seekTo(player.totalEvents - 1);
+
+		const path = lastFrame(onFrame).objects.a as Path;
+		expect(path.segments).toEqual(recorded.segments);
+		expect(path.strokeWidths).toEqual(recorded.strokeWidths);
+	});
+
 	it("should keep playing past an object that cannot be decoded", () => {
 		const { data } = buildRecording([
 			(doc) => {

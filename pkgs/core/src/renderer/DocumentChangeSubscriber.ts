@@ -155,9 +155,9 @@ export class DocumentChangeSubscriber {
 		}
 
 		// A delta sync already reported its element ids through syncObjectsDelta
-		// or syncLayersOnly — pass an empty change set so this second "document"
-		// dirty doesn't void the frame's tracking. A full sync has no ids and
-		// must void it.
+		// or syncLayersOnly, and an artboard-only sync changes no element — pass
+		// an empty change set so this second "document" dirty doesn't void the
+		// frame's tracking. A full sync has no ids and must void it.
 		this.invalidate(
 			"document",
 			source,
@@ -171,21 +171,19 @@ export class DocumentChangeSubscriber {
 		// rebuildAllIndices is triggered automatically by SpatialIndex's
 		// subscription when store.document reference changes.
 
-		if (this.store.selectedArtboardId) {
-			const artboard = this.store.document.artboards.find(
-				(a) => a.id === this.store.selectedArtboardId,
-			);
-			if (artboard && hooks.isArtboardToolActive()) {
-				const bounds = getArtboardBounds(artboard);
-				setArtboardSelectionOverlay(this.store.uiOverlayState, {
-					bounds,
-					handles: createResizeHandles(bounds),
-				});
-			}
-		}
-
+		this.refreshArtboardSelectionOverlay(hooks);
 		hooks.refreshToolUI();
 		hooks.syncPathToolFromDocument();
+	}
+
+	/**
+	 * Apply an artboard-only change. No element changed, so the element
+	 * indices stay as they are.
+	 */
+	public syncArtboardsOnly(): void {
+		const hooks = this.requireRuntimeHooks();
+		hooks.getSpatialIndex().rebuildArtboardIndex();
+		this.refreshArtboardSelectionOverlay(hooks);
 	}
 
 	/**
@@ -324,6 +322,19 @@ export class DocumentChangeSubscriber {
 		this.invalidate("document", "yjs-sync", {
 			upserted: new Set([...delta.added.keys(), ...delta.updated.keys()]),
 			deleted: new Set(delta.deleted),
+		});
+	}
+
+	private refreshArtboardSelectionOverlay(hooks: RuntimeHooks): void {
+		if (!this.store.selectedArtboardId) return;
+		const artboard = this.store.document.artboards.find(
+			(a) => a.id === this.store.selectedArtboardId,
+		);
+		if (!artboard || !hooks.isArtboardToolActive()) return;
+		const bounds = getArtboardBounds(artboard);
+		setArtboardSelectionOverlay(this.store.uiOverlayState, {
+			bounds,
+			handles: createResizeHandles(bounds),
 		});
 	}
 

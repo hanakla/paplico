@@ -621,7 +621,22 @@ Y.Doc
 └─ "references3d" (Y.Map<Y.Map>)
 ```
 
-- 要素Y.Mapのフィールドは「スカラー直書き」（`SCALAR_FIELDS`）と「JSON文字列」（`JSON_FIELDS`）の2系統。どちらの集合にも無いキーは `updateElement` で黙って捨てられるため、schema拡張時は必ず追加する（`yjsFieldCoverage.test.ts` が検査）
+- 要素の Y.Map のフィールドは、3系統に分かれる。
+  - スカラーを直接書くものは `SCALAR_FIELDS` に並べる。
+  - JSON 文字列で書くものは `JSON_FIELDS` に並べる。
+  - バイナリで書くものは `BINARY_FIELDS` に並べる。パスの `segments` と `strokeWidths` がこれに当たる。
+  - どれにもないキーは、`updateElement` で黙って捨てられる。そのため、schema を拡張したら、必ずどれかに追加する。
+  - 追加漏れは、`yjsFieldCoverage.test.ts` が検出する。
+- `segments` と `strokeWidths` は、`Float64Array` を `Uint8Array` として書く。
+  - 長いストロークでは、アンカーを 1 個動かすだけでもフィールド全体を書き直す。バイナリは JSON 文字列より小さく、読み書きも速い。
+  - 先頭の 1 要素は、フォーマットのバージョンである。
+  - その後ろに、配列の 1 要素ごとに固定長のレコードが続く。
+  - レコードは、スキーマの全フィールドに 1 つずつ枠を持つ。`BezierPoint` の任意フィールドも、`start`、`cp1`、`cp2`、`end` のそれぞれに枠がある。
+  - 値のない任意フィールドは NaN にする。これで、値がないことと 0 を区別できる。
+  - 真偽値は 0 と 1 にする。
+  - 符号化と復号は、`pathFieldCodec.ts` だけが行う。
+  - 読むときは、以前の版が書いた JSON 文字列も受け付ける。タイムラプスの記録と共同編集のルームに、JSON 文字列が残っているからである。
+  - この版より前のアプリは、このバイナリを読めない。
 - **viewportはY.Docに含めない**。ローカル状態（`RendererState.viewports`、CanvasTarget IDキー）で管理する
 - ドキュメントの差し替え（既存ルームへの参加、`replaceDocument`、`loadYjsState`）は `YjsProvider.resetWithFreshDoc()` を通り、Y.DocとUndoManagerを作り直す。provider への `update` 購読は引き継がれ、古い `ydoc` に直接付けたリスナーは引き継がれない
 

@@ -254,8 +254,8 @@ sequenceDiagram
     Tool->>Tool: build Path with new ID and same widths
     Tool->>Commands: addPath(committed Path)
     Commands->>Yjs: addElement in transaction
-    Yjs-->>Changes: full document sync
-    Changes->>Scheduler: invalidate document without change set
+    Yjs-->>Changes: layer sync, then object delta
+    Changes->>Scheduler: invalidate document with the new Path ID
     Scheduler->>Scheduler: coalesce until next animation frame
 ```
 
@@ -267,11 +267,18 @@ sequenceDiagram
 
 ## 確定後の再描画
 
-`addElement` は `yObjects` とlayerの `elementIds` を同じトランザクションで変える。objectとlayerが同時に変わった更新を、`YjsProvider.syncYjsToValtio` はfull syncとして扱う。`extractDocumentFromYDoc` でdocument全体を作り直し、`onDocumentUpdate` へ渡す。Paplicoはstoreのdocumentを差し替える。`SpatialIndex` はこの差し替えを購読していて、`rebuildAllIndices` で全indexを作り直す。続いて `DocumentChangeSubscriber.syncFullDocument` がツールUIを更新する。
+`addElement` は `yObjects` とlayerの `elementIds` を同じトランザクションで変える。`YjsProvider.syncYjsToValtio` は、この更新をlayer同期とobjectのdeltaに分けて流す。
 
-最後に `DocumentChangeSubscriber.onSyncApplied` がdocument invalidationを出す。full syncは変更した要素のIDを持たない。このためchange setを渡さない。
+- 先に `onLayersUpdate` が、layerの配列をstoreへ渡す。
+  - `DocumentChangeSubscriber.syncLayersOnly` は、まだobjectsにないPathを飛ばす。
+- 次に `onObjectsChange` が、追加したPathをdeltaで渡す。
+  - `DocumentChangeSubscriber.syncObjectsDelta` が、Pathを `SpatialIndex` へ入れる。
+  - 続いてツールUIを更新する。
+  - 追加したPathのIDをchange setに入れて、document invalidationを出す。
 
-`RenderScheduler.markDirty` は同じframe内のdirty reasonとelement IDをまとめる。change setのないdocument変更を受けると、そのframeの変更追跡を破棄する。render callbackにはchange setを渡さない。document変更はfull render strategyである。次の `requestAnimationFrame` でrender callbackを呼ぶ。
+最後に `DocumentChangeSubscriber.onSyncApplied` が、もう一度document invalidationを出す。このとき渡すのは空のchange setである。そのため、そのframeの変更追跡は消えない。
+
+`RenderScheduler.markDirty` は同じframe内のdirty reasonとelement IDをまとめる。document変更はfull render strategyである。次の `requestAnimationFrame` で、まとめたchange setをrender callbackへ渡す。
 
 確定したdab strokeは `evaluateDabs` の結果をStampCacheへ保存する。後続のpanとzoomはGPU bufferを再uploadすることがある。Dabのproperty評価は繰り返さない。
 

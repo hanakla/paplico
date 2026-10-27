@@ -238,6 +238,45 @@ describe("yMapToObject: missing optional Yjs keys", () => {
 	});
 });
 
+describe("yMapToObject: path fields stored as JSON strings", () => {
+	it("should load the segments and stroke widths of a path stored as JSON", () => {
+		const segments = [
+			{
+				start: { x: 0, y: 0, pressure: 0.4 },
+				cp1: { x: 1, y: 0 },
+				cp2: { x: -1, y: 0 },
+				end: { x: 10, y: 0 },
+				startPressure: 0.4,
+				startTiltX: 0,
+				startTiltY: 0,
+				endTiltX: 0,
+				endTiltY: 0,
+				startDeltaTime: 0,
+				endDeltaTime: 16,
+				isMoved: true,
+			},
+		];
+		const strokeWidths = [{ t: 0.5, side1: 1, side2: 0.25 }];
+		const ydoc = new Y.Doc();
+		const yMap = new Y.Map<unknown>();
+		ydoc.transact(() => {
+			ydoc.getMap("test").set("el", yMap);
+			yMap.set("type", "path");
+			yMap.set("id", "legacy-path");
+			yMap.set("opacity", 1);
+			yMap.set("blendMode", "normal");
+			yMap.set("segments", JSON.stringify(segments));
+			yMap.set("strokeWidths", JSON.stringify(strokeWidths));
+		});
+
+		const result = yMapToObject(yMap) as Path;
+
+		expect(result.segments).toStrictEqual(segments);
+		expect(result.strokeWidths).toStrictEqual(strokeWidths);
+		ydoc.destroy();
+	});
+});
+
 // --- Round-trip serialization tests ---
 //
 // These tests ensure objectToStoredFields and yMapToObject stay in sync.

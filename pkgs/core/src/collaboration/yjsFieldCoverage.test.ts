@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createIdentityTransform } from "../document/factory";
 import type { AnyArtObject } from "../schema";
 import {
+	BINARY_FIELDS,
 	JSON_FIELDS,
 	objectToStoredFields,
 	SCALAR_FIELDS,
@@ -10,7 +11,7 @@ import {
 /**
  * `objectToStoredFields` writes an element on creation; `updateElement` writes
  * single fields on mutation, matching each key against SCALAR_FIELDS /
- * JSON_FIELDS and silently dropping anything in neither. The two are
+ * JSON_FIELDS / BINARY_FIELDS and silently dropping anything in none. The two are
  * hand-maintained lists of the same thing, so a field added to one and not the
  * other saves once and then never updates again — which is how ArtObject.mask
  * shipped as a button that did nothing.
@@ -80,12 +81,34 @@ describe("Yjs field coverage", () => {
 			// id / type are immutable and skipped by updateElement by design.
 			const updatable = stored.filter((key) => key !== "id" && key !== "type");
 			const dropped = updatable.filter(
-				(key) => !SCALAR_FIELDS.has(key) && !JSON_FIELDS.has(key),
+				(key) =>
+					!SCALAR_FIELDS.has(key) &&
+					!JSON_FIELDS.has(key) &&
+					!BINARY_FIELDS.has(key),
 			);
 
 			expect(dropped).toEqual([]);
 		});
 	}
+
+	it("should store every field in exactly one way", () => {
+		const scalarAndJson = [...SCALAR_FIELDS].filter((key) =>
+			JSON_FIELDS.has(key),
+		);
+		const binaryElsewhere = [...BINARY_FIELDS].filter(
+			(key) => SCALAR_FIELDS.has(key) || JSON_FIELDS.has(key),
+		);
+
+		expect([...scalarAndJson, ...binaryElsewhere]).toEqual([]);
+	});
+
+	it("should store a path's segments and stroke widths as binary", () => {
+		const path = fixtures[0];
+		const stored = objectToStoredFields(path);
+
+		expect(stored.segments).toBeInstanceOf(Uint8Array);
+		expect(stored.strokeWidths).toBeInstanceOf(Uint8Array);
+	});
 
 	it("should carry ArtObject.mask, which every element type can have", () => {
 		expect(JSON_FIELDS.has("mask")).toBe(true);

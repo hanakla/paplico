@@ -13,12 +13,18 @@
 
 ### Changed
 
+- **Artboards**
+  - Moving or resizing an artboard no longer gets slower as the document grows.
+- **Collaboration / Timelapse**
+  - A path's segments and stroke widths are written to a room and a timelapse recording as binary instead of JSON text. Older app versions cannot read the paths this version writes there.
 - **Compound paths**
   - Moving a compound path, or a group that holds one, no longer stalls when the move is committed.
 - **Filters**
   - A filtered element inside a group that reaches far past the view no longer slows down drawing, path editing and the frame after a pan.
 - **Groups**
   - While a group is being edited, the dimmed document behind it leaves that group out instead of showing a dimmed copy of it.
+- **Paths**
+  - Editing or committing a long stroke no longer stalls, and each edit adds less to the undo history.
 
 ### Fixed
 

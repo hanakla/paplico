@@ -32,6 +32,7 @@ import {
 	type TextElement,
 } from "../schema";
 import { safeJSONParse } from "../utils/lang";
+import { decodeSegments, decodeStrokeWidths } from "./pathFieldCodec";
 
 interface SerializedEmbeddedFile {
 	uid: string;
@@ -42,11 +43,11 @@ interface SerializedEmbeddedFile {
 }
 
 /**
- * Y.Map<unknown> から AnyArtObject に変換する。
- * type フィールドに基づいて適切な型にデシリアライズする。
+ * Convert a Y.Map<unknown> to an AnyArtObject, deserializing by its `type`.
  *
- * JSON.parse で復元するフィールド: segments, childIds, sources,
- * filters, color, fill, brushSettings, content, defaultStyle, layout, axisBinding, flow
+ * `segments` and `strokeWidths` are decoded through pathFieldCodec; the other
+ * complex fields (childIds, sources, filters, content, defaultStyle, layout,
+ * axisBinding, flow, …) are parsed from JSON strings.
  */
 export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 	const type = yMap.get("type") as string;
@@ -76,9 +77,9 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 			return {
 				...base,
 				type: "path",
-				segments: JSON.parse(yMap.get("segments") as string),
+				segments: decodeSegments(yMap.get("segments")),
 				strokeWidths: yMap.has("strokeWidths")
-					? JSON.parse(yMap.get("strokeWidths") as string)
+					? decodeStrokeWidths(yMap.get("strokeWidths"))
 					: undefined,
 				strokeWidthsBaked: yMap.get("strokeWidthsBaked") as boolean | undefined,
 				strokeErasure: yMap.has("strokeErasure")

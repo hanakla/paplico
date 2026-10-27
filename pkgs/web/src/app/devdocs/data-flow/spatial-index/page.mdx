@@ -16,7 +16,7 @@
 
 ## ドキュメント更新 → SpatialIndex 更新フロー
 
-既存要素の更新がどのように SpatialIndex に反映されるかを示す。layer の `elementIds` も変わる追加と削除は、後述の full sync を通る。
+既存要素の更新がどのように SpatialIndex に反映されるかを示す。layer の `elementIds` も変わる追加と削除は、この delta の前に後述の layer 同期を通る。
 
 ```
 ユーザー操作 (SelectTool 等)
@@ -60,13 +60,40 @@ delta.updated: [childId]
             └─ 全子要素の bounds を union して group bounds を算出
 ```
 
-### layer も変わる追加と削除は full sync を通る
+### layer も変わる追加と削除は layer 同期を先に通る
 
-`YjsProvider.syncYjsToValtio` は、1 回の更新で object と layer の両方が変わった場合に full sync を選ぶ。`addElement` は `yObjects` と layer の `elementIds` を同じトランザクションで変えるため、これに当たる。レイヤー直下の要素の削除も同じである。
+`YjsProvider.syncYjsToValtio` は、1 回の更新で object と layer の両方が変わった場合に、layer 同期と object の delta を順に流す。`addElement` は `yObjects` と layer の `elementIds` を同じトランザクションで変える。そのため、要素の追加はこれに当たる。レイヤー直下の要素の削除も同じである。
 
 ```
 ydoc "update" イベント
   └─ syncYjsToValtio()  ← needsLayerSync かつ object の変更あり
+       ├─ extractLayersFromYDoc(ydoc)
+       │    └─ onLayersUpdate(layers)  ← Paplico.ts
+       │         ├─ store.document.layers を差し替え
+       │         └─ renderChangeSubscriber.syncLayersOnly(previousLayers)
+       │              ├─ spatialIndex.syncLayerIndices(layerIds)
+       │              ├─ レイヤー直下から外れた要素を、元のレイヤーの Quadtree から外す
+       │              ├─ 別のレイヤー直下へ移った要素を、移った先の Quadtree へ入れる
+       │              └─ hooks.refreshToolUI()
+       └─ onObjectsChange(delta)  ← Paplico.ts
+            └─ renderChangeSubscriber.syncObjectsDelta(delta)
+```
+
+layer 同期を先に流すのは、object の delta が更新後の layer で要素の持ち主を引くためである。layer 同期は、まだ objects にない ID を飛ばす。新しい要素は、続く `syncObjectsDelta` が入れる。
+
+`syncObjectsDelta` は追加と削除も扱う。追加された要素がレイヤー直下なら `insertElement` を呼ぶ。コンテナの子なら、そのトップレベルオーナーを更新する。削除された要素は、全レイヤーの Quadtree から `removeElement` で外す。
+
+### アートボードの変更はアートボード index だけを作り直す
+
+アートボードが変わった更新では、Paplico が `onArtboardsUpdate` でアートボードの配列だけを受け取る。Paplico は `store.document.artboards` だけを書き換える。`store.document` は差し替えない。そのため、`rebuildAllIndices` は走らない。代わりに `DocumentChangeSubscriber.syncArtboardsOnly` が、`rebuildArtboardIndex` でアートボード index だけを作り直す。
+
+### full sync
+
+full sync になるのは、埋め込みファイル、ブラシプリセット、アピアランスプリセット、def、3D 参照シーン、meta が変わった更新である。どれも要素の見え方に関わる。`replaceDocument` によるドキュメントの差し替えも、同じ `onDocumentUpdate` を通る。
+
+```
+ydoc "update" イベント
+  └─ syncYjsToValtio()  ← needsFullSync
        └─ extractDocumentFromYDoc(ydoc)
             └─ onDocumentUpdate(document)  ← Paplico.ts
                  ├─ store.document を差し替え
@@ -74,8 +101,6 @@ ydoc "update" イベント
                  └─ renderChangeSubscriber.syncFullDocument()
                       └─ hooks.refreshToolUI()
 ```
-
-delta 経路の `syncObjectsDelta` も追加と削除を扱える。layer が変わらない追加と削除がこの経路に来る。追加された要素がレイヤー直下なら `insertElement` を呼ぶ。コンテナの子ならそのトップレベルオーナーを更新する。削除された要素は全レイヤーの Quadtree から `removeElement` で外す。
 
 ## ヒットテストの走査順
 

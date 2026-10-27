@@ -21,7 +21,15 @@ Paplico のデータ層は Yjs (CRDT) を single source of truth として持ち
                       └─ React re-render
 ```
 
-object だけが変わった更新は、変わった要素の delta として Valtio store と SpatialIndex へ届く。object と layer が同じトランザクションで変わった更新は full sync になる。要素の追加がこれに当たる。full sync では `Document` 全体を作り直して store へ差し替え、SpatialIndex は全 index を作り直す。
+更新は、変わった部分ごとに別の経路で届く。
+
+- object が変わった更新は、変わった要素の delta として Valtio store と SpatialIndex へ届く。
+- layer が変わった更新は、layer の配列だけを読み直して store へ渡す。
+- object と layer が同じトランザクションで変わった更新は、先に layer を、次に object の delta を反映する。要素の追加がこれに当たる。
+- アートボードが変わった更新は、アートボードの配列だけを読み直して store へ渡す。
+- 埋め込みファイル、ブラシプリセット、アピアランスプリセット、def、3D 参照シーン、meta が変わった更新は full sync になる。
+  - full sync では `Document` 全体を作り直して store へ差し替える。
+  - SpatialIndex は全 index を作り直す。
 
 ドキュメント自体の shape は [Document Schema](/devdocs/data-flow/document-schema) を、派生データ構造への伝播は [SpatialIndex とドキュメント更新フロー](/devdocs/data-flow/spatial-index) を参照。
 
