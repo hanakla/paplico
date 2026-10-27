@@ -677,13 +677,21 @@ export type RegisterableFilterHandler =
  *  pairs already used in the current frame. */
 const MAX_TEMP_PAIRS = 48;
 
+/** One size's ping-pong intermediates. */
+interface TempPair {
+	t1: GPUTexture;
+	t2: GPUTexture;
+	/** Chain-input copy for needsSourceGraphic chains; created on demand. */
+	src?: GPUTexture;
+	lastUsed: UseStamp;
+}
+
 export class FilterRenderer {
 	private device: GPUDevice;
 	private handlers: Map<string, FilterHandler> = new Map();
 	private tempTexture1: GPUTexture | null = null;
 	private tempTexture2: GPUTexture | null = null;
 	private textureSize = { width: 0, height: 0 };
-	private pendingDestroy: GPUTexture[] = [];
 	/**
 	 * Ping-pong intermediates keyed by size/format, reused across calls and
 	 * frames. Filter chains of different content sizes alternate within a
@@ -695,16 +703,7 @@ export class FilterRenderer {
 	 * LRU-capped at MAX_TEMP_PAIRS to bound held memory during
 	 * continuous size churn (zoom gestures).
 	 */
-	private tempPairs = new Map<
-		string,
-		{
-			t1: GPUTexture;
-			t2: GPUTexture;
-			/** Chain-input copy for needsSourceGraphic chains; created on demand. */
-			src?: GPUTexture;
-			lastUsed: UseStamp;
-		}
-	>();
+	private tempPairs = new Map<string, TempPair>();
 	private readonly clock = new IdleClock();
 
 	public constructor(device: GPUDevice) {
@@ -764,17 +763,14 @@ export class FilterRenderer {
 	}
 
 	/**
-	 * Start a document frame: retire the temp pairs that expired unused.
-	 * Deferred via pendingDestroy (drained next flush) in case something
-	 * encoded this frame still references them.
+	 * Start a document frame: destroy the temp pairs that expired unused.
 	 */
 	public beginFrame(): void {
 		this.clock.tick();
 		const now = performance.now();
 		for (const [key, pair] of this.tempPairs) {
 			if (!this.clock.isExpired(pair.lastUsed, now)) continue;
-			this.pendingDestroy.push(pair.t1, pair.t2);
-			if (pair.src) this.pendingDestroy.push(pair.src);
+			destroyTempPair(pair);
 			this.tempPairs.delete(key);
 		}
 	}
@@ -786,25 +782,17 @@ export class FilterRenderer {
 	public trimIdle(minIdleFrames: number): void {
 		for (const [key, pair] of this.tempPairs) {
 			if (!this.clock.isIdleFor(pair.lastUsed, minIdleFrames)) continue;
-			pair.t1.destroy();
-			pair.t2.destroy();
-			pair.src?.destroy();
+			destroyTempPair(pair);
 			this.tempPairs.delete(key);
 		}
 	}
 
 	/**
-	 * Destroy textures that were deferred from a previous resize.
+	 * Flush the deferred destroys of every registered handler that defers them.
 	 * Must be called once per frame AFTER the previous frame's queue.submit()
 	 * has completed, so in-flight command buffers no longer reference them.
-	 * Also flushes deferred destroys from all registered handlers that support it.
 	 */
 	public flushPendingDestroy(): void {
-		for (const tex of this.pendingDestroy) {
-			tex.destroy();
-		}
-		this.pendingDestroy.length = 0;
-
 		for (const handler of this.handlers.values()) {
 			(handler as { flushPendingDestroy?(): void }).flushPendingDestroy?.();
 		}
@@ -825,9 +813,7 @@ export class FilterRenderer {
 	public releaseIsolatedRenderTextures(keep: ReadonlySet<string>): void {
 		for (const [key, pair] of this.tempPairs) {
 			if (keep.has(key)) continue;
-			pair.t1.destroy();
-			pair.t2.destroy();
-			pair.src?.destroy();
+			destroyTempPair(pair);
 			this.tempPairs.delete(key);
 		}
 		for (const handler of this.handlers.values()) {
@@ -856,9 +842,7 @@ export class FilterRenderer {
 					}
 				}
 				if (lruKey) {
-					const lru = this.tempPairs.get(lruKey)!;
-					this.pendingDestroy.push(lru.t1, lru.t2);
-					if (lru.src) this.pendingDestroy.push(lru.src);
+					destroyTempPair(this.tempPairs.get(lruKey)!);
 					this.tempPairs.delete(lruKey);
 				}
 			}
@@ -1202,11 +1186,7 @@ export class FilterRenderer {
 
 	public destroy(): void {
 		this.flushPendingDestroy();
-		for (const pair of this.tempPairs.values()) {
-			pair.t1.destroy();
-			pair.t2.destroy();
-			pair.src?.destroy();
-		}
+		for (const pair of this.tempPairs.values()) destroyTempPair(pair);
 		this.tempPairs.clear();
 		this.tempTexture1 = null;
 		this.tempTexture2 = null;
@@ -1216,4 +1196,15 @@ export class FilterRenderer {
 		}
 		this.handlers.clear();
 	}
+}
+
+/**
+ * Destroy a temp pair right away. A pair is only retired when the frame being
+ * encoded has not used it, so every command buffer reading it is already
+ * submitted, and WebGPU keeps the memory until that work completes.
+ */
+function destroyTempPair(pair: TempPair): void {
+	pair.t1.destroy();
+	pair.t2.destroy();
+	pair.src?.destroy();
 }

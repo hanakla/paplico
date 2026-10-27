@@ -46,6 +46,8 @@
 - **Extrude / Revolve filters**
   - Fix a glass solid inside a group with a filter making the whole canvas fail to draw.
   - Fix a glass solid in a group being edited showing the group's other objects refracted inside it.
+- **Filters**
+  - Fix GPU memory jumping on every zoom step, and staying up after zooming stops, in documents with filtered elements.
 - **Path edit tool**
   - Fix Shift+clicking another path to add it selecting every vertex of the paths whose vertices were already selected.
   - Fix clicking the fill of a selected path selecting every vertex of all the selected paths. A click selects that path alone, and a Shift+click takes it out of the selection.

@@ -472,6 +472,21 @@ describe("FilterRenderer.trimIdle", () => {
 	});
 });
 
+describe("FilterRenderer temp pair cap", () => {
+	it("should destroy the least recently used temp textures as soon as a new size pushes them out", () => {
+		const { renderer, applyBlur } = createBlurChain();
+		renderer.beginFrame();
+		const oldest = applyBlur(240);
+
+		renderer.beginFrame();
+		for (let i = 1; i <= 47; i++) applyBlur(240 + i);
+		expect(oldest.destroy).not.toHaveBeenCalled();
+
+		applyBlur(240 + 48);
+		expect(oldest.destroy).toHaveBeenCalledOnce();
+	});
+});
+
 describe("hoistBlendInstanceAppearances", () => {
 	const extrude: Filter = {
 		uid: "ex",
@@ -573,7 +588,7 @@ describe("hoistBlendInstanceAppearances", () => {
  *  returns the temp texture the handler rendered into. */
 function createBlurChain(): {
 	renderer: FilterRenderer;
-	applyBlur: () => GPUTexture;
+	applyBlur: (width?: number) => GPUTexture;
 } {
 	const renderer = new FilterRenderer(createMockDevice());
 	const postProcess = vi.fn();
@@ -587,9 +602,9 @@ function createBlurChain(): {
 			paramData: { version: "1", params: { radius: 4 } },
 		},
 	];
-	const applyBlur = (): GPUTexture => {
+	const applyBlur = (width = 240): GPUTexture => {
 		renderer.applyFilters(
-			createMockTexture("Offscreen Element Texture", 240, 180, "rgba8unorm"),
+			createMockTexture("Offscreen Element Texture", width, 180, "rgba8unorm"),
 			filters,
 			createMockEncoder([]),
 		);
