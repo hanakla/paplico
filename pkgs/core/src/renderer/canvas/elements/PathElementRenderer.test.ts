@@ -18,6 +18,7 @@ import {
 	type OutlineEntry,
 } from "../caches/OutlineCache";
 import { StripCache } from "../caches/StripCache";
+import { ResidentStrips } from "../pipeline/strips/StripPagePool";
 import { PathElementRenderer } from "./PathElementRenderer";
 
 describe("PathElementRenderer", () => {
@@ -256,12 +257,11 @@ function createProbe() {
 	};
 	const renderer = new PathElementRenderer({
 		stripFrame: {
-			append: vi.fn((_batch, _ax, _ay, _w, _h, _slot, color) => {
+			upload: vi.fn(() => new ResidentStrips(null, 0, 0, 0, 0, false)),
+			draw: vi.fn((_pass, _strips, _ax, _ay, _element, color) => {
 				calls.push("strip");
 				colors.push(color);
-				return [{}];
 			}),
-			draw: vi.fn(),
 		},
 		dummyGradientBindGroup: {},
 		getBindGroup: () => ({}),

@@ -88,6 +88,33 @@ describe("render perf baseline", () => {
 			);
 			reportSplit(docFile, "pan", panSplit);
 
+			// Every frame changes the raster key of every path: the cost of a
+			// settle frame after a zoom or rotate gesture.
+			const device = renderer.getDevice();
+			if (!device) throw new Error("no GPU device");
+			const uploads = trackUploadBytes(device);
+			const zoomSplit = await measureSplit(MEASURE_FRAMES, (i) =>
+				renderFrame(
+					renderer,
+					doc,
+					{ ...base, zoom: base.zoom * 1.03 ** (i + 1) },
+					UNCHANGED,
+				),
+			);
+			reportSplit(docFile, "zoom", zoomSplit);
+			const rotateSplit = await measureSplit(MEASURE_FRAMES, (i) =>
+				renderFrame(
+					renderer,
+					doc,
+					{ ...base, rotation: ((i + 1) * Math.PI) / 90 },
+					UNCHANGED,
+				),
+			);
+			reportSplit(docFile, "rotate", rotateSplit);
+			console.log(
+				`[perf] ${docFile}: ${(uploads.bytes / (MEASURE_FRAMES * 2) / 1024).toFixed(0)}KB uploaded per zoom/rotate frame`,
+			);
+
 			const allIds: ChangedElements = {
 				upserted: new Set(Object.keys(doc.objects)),
 				deleted: new Set(),
@@ -422,6 +449,43 @@ function report(doc: string, caseName: string, samples: number[]): void {
  *  frame took the composite-blit path instead of re-rendering the document. */
 function trackViewportBlitPasses(device: GPUDevice): { count: number } {
 	return trackPassLabelCount(device, "Viewport Blit Pass");
+}
+
+/** Sums the bytes written through the device queue. */
+function trackUploadBytes(device: GPUDevice): { bytes: number } {
+	const counter = { bytes: 0 };
+	const queue = device.queue;
+	const writeBuffer = queue.writeBuffer.bind(queue);
+	queue.writeBuffer = ((
+		buffer: GPUBuffer,
+		offset: number,
+		data: BufferSource,
+		dataOffset?: number,
+		size?: number,
+	) => {
+		const element = ArrayBuffer.isView(data)
+			? ((data as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1)
+			: 1;
+		counter.bytes +=
+			size != null
+				? size * element
+				: data.byteLength - (dataOffset ?? 0) * element;
+		return writeBuffer(buffer, offset, data, dataOffset, size);
+	}) as typeof queue.writeBuffer;
+	const writeTexture = queue.writeTexture.bind(queue);
+	queue.writeTexture = ((
+		destination: GPUTexelCopyTextureInfo,
+		data: GPUAllowSharedBufferSource,
+		layout: GPUTexelCopyBufferLayout,
+		size: GPUExtent3DStrict,
+	) => {
+		const height = Array.isArray(size)
+			? (size[1] ?? 1)
+			: ((size as GPUExtent3DDict).height ?? 1);
+		counter.bytes += (layout.bytesPerRow ?? 0) * height;
+		return writeTexture(destination, data, layout, size);
+	}) as typeof queue.writeTexture;
+	return counter;
 }
 
 /** Counts render passes with an exact label — activation proof for a path. */

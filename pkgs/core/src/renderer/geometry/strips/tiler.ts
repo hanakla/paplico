@@ -3,6 +3,11 @@ import { growUint32, type LineArena } from "./lineArena";
 import { TILE_SIZE } from "./stripTypes";
 
 const INSERTION_SORT_MAX = 64;
+/**
+ * Read once: dev builds and vitest turn each use of an imported binding into
+ * a property read, which dominated these loops.
+ */
+const TILE = TILE_SIZE;
 const RADIX_BITS = 8;
 const RADIX_BUCKETS = 1 << RADIX_BITS;
 
@@ -107,12 +112,12 @@ export function tileLines(
 			// Carries no winding, but keeps per-row windings flowing through
 			// the tiles it crosses. A line on the tile grid separates two bands
 			// and touches neither.
-			if (y0 % TILE_SIZE === 0) continue;
-			const ty = clamp(Math.floor(y0 / TILE_SIZE), 0, maxTy);
+			if (y0 % TILE === 0) continue;
+			const ty = clamp(Math.floor(y0 / TILE), 0, maxTy);
 			const left = Math.min(x0, x1);
 			const right = Math.max(x0, x1);
-			const txStart = clamp(Math.floor(left / TILE_SIZE), 0, maxTx);
-			const txEnd = clamp(Math.ceil(right / TILE_SIZE) - 1, txStart, maxTx);
+			const txStart = clamp(Math.floor(left / TILE), 0, maxTx);
+			const txEnd = clamp(Math.ceil(right / TILE) - 1, txStart, maxTx);
 			for (let tx = txStart; tx <= txEnd; tx++) {
 				tiles.push((ty << 16) | tx, i);
 			}
@@ -121,19 +126,19 @@ export function tileLines(
 
 		const topY = Math.min(y0, y1);
 		const bottomY = Math.max(y0, y1);
-		const tyStart = clamp(Math.floor(topY / TILE_SIZE), 0, maxTy);
-		const tyEnd = clamp(Math.ceil(bottomY / TILE_SIZE) - 1, tyStart, maxTy);
+		const tyStart = clamp(Math.floor(topY / TILE), 0, maxTy);
+		const tyEnd = clamp(Math.ceil(bottomY / TILE) - 1, tyStart, maxTy);
 		const xSlope = (x1 - x0) / (y1 - y0);
 
 		for (let ty = tyStart; ty <= tyEnd; ty++) {
-			const rowTop = Math.max(topY, ty * TILE_SIZE);
-			const rowBottom = Math.min(bottomY, (ty + 1) * TILE_SIZE);
+			const rowTop = Math.max(topY, ty * TILE);
+			const rowBottom = Math.min(bottomY, (ty + 1) * TILE);
 			const xa = x0 + (rowTop - y0) * xSlope;
 			const xb = x0 + (rowBottom - y0) * xSlope;
 			const left = Math.min(xa, xb);
 			const right = Math.max(xa, xb);
-			const txStart = clamp(Math.floor(left / TILE_SIZE), 0, maxTx);
-			const txEnd = clamp(Math.ceil(right / TILE_SIZE) - 1, txStart, maxTx);
+			const txStart = clamp(Math.floor(left / TILE), 0, maxTx);
+			const txEnd = clamp(Math.ceil(right / TILE) - 1, txStart, maxTx);
 			for (let tx = txStart; tx <= txEnd; tx++) {
 				tiles.push((ty << 16) | tx, i);
 			}

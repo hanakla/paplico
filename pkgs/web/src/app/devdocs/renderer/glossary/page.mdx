@@ -293,7 +293,7 @@ UILayerの描画内容を駆動する構造体。`overlays` フィールドが�
 
 ### Sparse strips
 
-被覆率のある行を 4px 高の帯（strip）として持つ表現。各 strip は alpha スロットの列を指し、完全に覆われた区間は alpha を持たない。Vello GPU 方式に由来し、`renderer/geometry/strips/` が生成、`StripFrame` が GPU へ渡す。
+被覆率のある行を 4px 高の帯（strip）として持つ表現。各 strip は alpha スロットの列を指し、完全に覆われた区間は alpha を持たない。Vello GPU 方式に由来し、`renderer/geometry/strips/` が strip の形を決め、被覆率は `StripCoverage` が compute shader で求める。
 
 → [パス描画フロー](/devdocs/renderer/path-rendering)
 

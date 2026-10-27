@@ -1,4 +1,9 @@
-import type { StripBatch } from "../renderer/geometry/strips/stripTypes";
+import { appendClippedDeviceLine } from "../renderer/geometry/strips/deviceGeometry";
+import { StripRasterizer } from "../renderer/geometry/strips/stripRenderer";
+import type {
+	ClipRect,
+	StripBatch,
+} from "../renderer/geometry/strips/stripTypes";
 import { TILE_SIZE } from "../renderer/geometry/strips/stripTypes";
 
 /** A closed polygon as `[x, y, x, y, ...]` in device pixels. */
@@ -48,9 +53,14 @@ export function referenceCoverage(
 	return out;
 }
 
-/** Expand a strip batch into one float per pixel over `[0, width) × [0, height)`. */
+/**
+ * Expand a strip batch into one float per pixel over `[0, width) × [0, height)`.
+ * `alphas` holds 4 bytes per batch slot, `alphas[slot * 4 + row]`, as read
+ * back from the alpha page.
+ */
 export function expandStripBatch(
 	batch: StripBatch,
+	alphas: Uint8Array,
 	width: number,
 	height: number,
 ): Float32Array {
@@ -67,10 +77,63 @@ export function expandStripBatch(
 			for (let r = 0; r < TILE_SIZE; r++) {
 				const py = y + r;
 				if (py < 0 || py >= height) continue;
-				out[py * width + px] =
-					k < dense ? batch.alphas[(slot + k) * 4 + r] / 255 : 1;
+				out[py * width + px] = k < dense ? alphas[(slot + k) * 4 + r] / 255 : 1;
 			}
 		}
+	}
+	return out;
+}
+
+/** Lay out the strips of closed polygons, as the path renderer does for a fill. */
+export function layoutStrips(
+	polygons: ReferencePolygon[],
+	clip: ClipRect,
+	denseOnly: boolean,
+): StripBatch {
+	const rasterizer = new StripRasterizer();
+	for (const polygon of polygons) addPolygon(rasterizer, polygon, clip);
+	return rasterizer.rasterize(clip, { denseOnly });
+}
+
+/** Add a closed polygon's edges to the lines a rasterizer lays out next. */
+export function addPolygon(
+	rasterizer: StripRasterizer,
+	polygon: ReferencePolygon,
+	clip: ClipRect,
+): void {
+	const n = polygon.length / 2;
+	for (let i = 0; i < n; i++) {
+		const j = (i + 1) % n;
+		appendClippedDeviceLine(
+			rasterizer.lines,
+			polygon[i * 2],
+			polygon[i * 2 + 1],
+			polygon[j * 2],
+			polygon[j * 2 + 1],
+			clip,
+		);
+	}
+}
+
+export function rect(
+	x: number,
+	y: number,
+	w: number,
+	h: number,
+): ReferencePolygon {
+	return [x, y, x + w, y, x + w, y + h, x, y + h];
+}
+
+/** A self-intersecting five-point star, whose centre has winding 2. */
+export function pentagram(
+	cx: number,
+	cy: number,
+	radius: number,
+): ReferencePolygon {
+	const out: number[] = [];
+	for (let i = 0; i < 5; i++) {
+		const angle = -Math.PI / 2 + (i * 4 * Math.PI) / 5;
+		out.push(cx + radius * Math.cos(angle), cy + radius * Math.sin(angle));
 	}
 	return out;
 }

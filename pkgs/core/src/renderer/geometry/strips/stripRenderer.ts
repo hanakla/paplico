@@ -1,23 +1,37 @@
-import { growInt32, growUint8, growUint32, LineArena } from "./lineArena";
-import { type ClipRect, type StripBatch, TILE_SIZE } from "./stripTypes";
+import { growInt32, growUint32, LineArena } from "./lineArena";
+import {
+	type ClipRect,
+	LOCATION_FIELDS,
+	LOCATION_U32S,
+	type StripBatch,
+	TILE_SIZE,
+} from "./stripTypes";
 import { TileArena, tileLines } from "./tiler";
+
+/**
+ * Read once: dev builds and vitest turn each use of an imported binding into
+ * a property read, which dominated these loops.
+ */
+const TILE = TILE_SIZE;
 
 interface RasterizeOptions {
 	/**
-	 * Emit fully covered gaps as dense alpha-255 slots instead of fill-gap
-	 * spans, so every covered pixel owns a slot that per-pixel params can use.
+	 * Emit fully covered gaps as dense locations instead of fill-gap spans,
+	 * so every covered pixel owns a slot that per-pixel params can use.
 	 */
 	denseOnly: boolean;
 }
 
 /**
- * Turns clipped device-space lines into strips of exact nonzero coverage.
+ * Lays out clipped device-space lines as sparse strips; the coverage kernels
+ * integrate the alphas on the GPU.
  *
  * Lines are appended through `lines` relative to the clip origin, then
- * `rasterize` tiles them, sorts the tiles row-major, and walks each tile row
- * accumulating signed area per pixel (the font-rs / Vello "area + cover"
- * integration): a line's vertical extent inside a pixel adds a trapezoid to
- * that pixel and carries its full height to every pixel on its right.
+ * `rasterize` tiles them, sorts the tiles row-major, and walks each tile row.
+ * Every tile a line touches becomes a location of TILE_SIZE alpha slots, and
+ * runs of adjacent locations become strips. Between runs the walk follows the
+ * winding of the band's first pixel row only: it decides whether a gap is
+ * covered, the same rule the backdrop kernel applies to its per-row windings.
  * Scratch storage is reused across calls; the returned batch is a compact copy.
  */
 export class StripRasterizer {
@@ -26,37 +40,50 @@ export class StripRasterizer {
 	private strips = new Int32Array(4 * 256);
 	private slots = new Uint32Array(256);
 	private stripCount = 0;
-	private alphas = new Uint8Array(4 * 4096);
+	private locations = new Uint32Array(LOCATION_U32S * 1024);
+	private locationCount = 0;
+	private bands = new Uint32Array(2 * 256);
+	private bandCount = 0;
 	private slotCount = 0;
-	private readonly loc = new Float32Array(TILE_SIZE * TILE_SIZE);
-	private readonly accum = new Float32Array(TILE_SIZE);
+	private stripOpen = false;
+	private stripX = 0;
+	private stripY = 0;
+	private stripSlot = 0;
+	private stripDense = 0;
 	private minX = 0;
 	private minY = 0;
 	private maxX = 0;
 	private maxY = 0;
 
 	public rasterize(clip: ClipRect, options: RasterizeOptions): StripBatch {
-		const tileColumns = Math.max(1, Math.ceil((clip.x1 - clip.x0) / TILE_SIZE));
-		const tileRows = Math.max(1, Math.ceil((clip.y1 - clip.y0) / TILE_SIZE));
+		const tileColumns = Math.max(1, Math.ceil((clip.x1 - clip.x0) / TILE));
+		const tileRows = Math.max(1, Math.ceil((clip.y1 - clip.y0) / TILE));
 		this.tiles.reset();
 		tileLines(this.lines, this.tiles, tileColumns, tileRows);
 		this.tiles.sort();
 		this.stripCount = 0;
+		this.locationCount = 0;
+		this.bandCount = 0;
 		this.slotCount = 0;
+		this.stripOpen = false;
 		this.minX = Infinity;
 		this.minY = Infinity;
 		this.maxX = -Infinity;
 		this.maxY = -Infinity;
-		this.renderTiles(clip, options.denseOnly);
-		this.lines.reset();
+		this.layoutTiles(clip, options.denseOnly);
 
 		const count = this.stripCount;
-		return {
+		const batch: StripBatch = {
 			strips: this.strips.slice(0, count * 4),
 			slots: this.slots.slice(0, count),
 			stripCount: count,
-			alphas: this.alphas.slice(0, this.slotCount * 4),
 			slotCount: this.slotCount,
+			lines: this.packLines(),
+			entries: this.tiles.lines.slice(0, this.tiles.count),
+			locations: this.locations.slice(0, this.locationCount * LOCATION_U32S),
+			locationCount: this.locationCount,
+			bands: this.bands.slice(0, this.bandCount * 2),
+			bandCount: this.bandCount,
 			params: null,
 			bounds:
 				count === 0
@@ -68,51 +95,17 @@ export class StripRasterizer {
 							maxY: this.maxY,
 						},
 		};
+		this.lines.reset();
+		return batch;
 	}
 
-	private renderTiles(clip: ClipRect, denseOnly: boolean): void {
+	private layoutTiles(clip: ClipRect, denseOnly: boolean): void {
 		const tiles = this.tiles;
 		const lines = this.lines;
-		const loc = this.loc;
-		const accum = this.accum;
-		accum.fill(0);
-
+		const clipWidth = clip.x1 - clip.x0;
 		let curTx = -1;
 		let curTy = -1;
-		let locSlot = 0;
-		let stripOpen = false;
-		let stripX = 0;
-		let stripY = 0;
-		let stripSlot = 0;
-		let stripDense = 0;
-
-		const clipWidth = clip.x1 - clip.x0;
-
-		const closeStrip = (width: number): void => {
-			if (!stripOpen) return;
-			this.pushStrip(
-				stripX + clip.x0,
-				stripY + clip.y0,
-				width,
-				stripDense,
-				stripSlot,
-			);
-			stripOpen = false;
-		};
-
-		// Geometry right of the clip is dropped, so a band can end with winding
-		// still open; everything up to the clip edge is then covered.
-		const closeBand = (): void => {
-			const winding = Math.round(accum[0]);
-			if (winding !== 0 && denseOnly) {
-				const gapSlots = clipWidth - (stripX + stripDense);
-				if (gapSlots > 0) {
-					this.fillSlots(gapSlots);
-					stripDense += gapSlots;
-				}
-			}
-			closeStrip(winding !== 0 ? clipWidth - stripX : stripDense);
-		};
+		let winding = 0;
 
 		for (let i = 0; i <= tiles.count; i++) {
 			const atEnd = i === tiles.count;
@@ -121,158 +114,164 @@ export class StripRasterizer {
 			const ty = key >>> 16;
 
 			if (atEnd || tx !== curTx || ty !== curTy) {
-				if (curTx >= 0) this.flushLocation(locSlot);
 				if (atEnd) {
-					closeBand();
+					this.closeBand(clip, clipWidth, winding, denseOnly, curTy, i);
 					break;
 				}
-
 				if (ty !== curTy) {
-					closeBand();
-					accum.fill(0);
-				} else if (tx !== curTx + 1) {
-					const gapWinding = Math.round(accum[0]);
-					if (gapWinding !== 0 && denseOnly) {
-						const gapSlots = (tx - curTx - 1) * TILE_SIZE;
-						this.fillSlots(gapSlots);
-						stripDense += gapSlots;
-					} else {
-						closeStrip(gapWinding !== 0 ? tx * TILE_SIZE - stripX : stripDense);
+					if (curTy >= 0) {
+						this.closeBand(clip, clipWidth, winding, denseOnly, curTy, i);
 					}
-					accum.fill(gapWinding);
+					winding = 0;
+					this.openBand();
+				} else if (tx !== curTx + 1) {
+					const gapWinding = Math.round(winding);
+					if (gapWinding !== 0 && denseOnly) {
+						this.fillGap(curTx + 1, tx, ty, i);
+					} else {
+						this.closeStrip(
+							clip,
+							gapWinding !== 0 ? tx * TILE - this.stripX : this.stripDense,
+						);
+					}
+					winding = gapWinding;
 				}
 
 				curTx = tx;
 				curTy = ty;
-				for (let r = 0; r < TILE_SIZE; r++) {
-					const w = accum[r];
-					loc[r * TILE_SIZE] = w;
-					loc[r * TILE_SIZE + 1] = w;
-					loc[r * TILE_SIZE + 2] = w;
-					loc[r * TILE_SIZE + 3] = w;
+				if (!this.stripOpen) {
+					this.stripOpen = true;
+					this.stripX = tx * TILE;
+					this.stripY = ty * TILE;
+					this.stripSlot = this.slotCount;
+					this.stripDense = 0;
 				}
-				if (!stripOpen) {
-					stripOpen = true;
-					stripX = tx * TILE_SIZE;
-					stripY = ty * TILE_SIZE;
-					stripSlot = this.slotCount;
-					stripDense = 0;
-				}
-				this.ensureSlots(TILE_SIZE);
-				locSlot = this.slotCount;
-				this.slotCount += TILE_SIZE;
-				stripDense += TILE_SIZE;
+				this.pushLocation(tx, ty, i);
 			}
 
 			const line = tiles.lines[i];
-			this.accumulateLine(
-				lines.xs0[line] - tx * TILE_SIZE,
-				lines.ys0[line] - ty * TILE_SIZE,
-				lines.xs1[line] - tx * TILE_SIZE,
-				lines.ys1[line] - ty * TILE_SIZE,
+			winding += rowZeroCarry(
+				lines.xs0[line] - tx * TILE,
+				lines.ys0[line] - ty * TILE,
+				lines.xs1[line] - tx * TILE,
+				lines.ys1[line] - ty * TILE,
 			);
 		}
 	}
 
-	/** Add one line's signed area to the open tile location (tile-local coordinates). */
-	private accumulateLine(x0: number, y0: number, x1: number, y1: number): void {
-		if (y0 === y1) return;
-		const loc = this.loc;
-		const accum = this.accum;
-		// Upward lines (decreasing y) add winding, downward lines subtract.
-		const sign = y0 > y1 ? 1 : -1;
-		let topY: number;
-		let topX: number;
-		let bottomY: number;
-		let bottomX: number;
-		if (y0 < y1) {
-			topY = y0;
-			topX = x0;
-			bottomY = y1;
-			bottomX = x1;
-		} else {
-			topY = y1;
-			topX = x1;
-			bottomY = y0;
-			bottomX = x0;
-		}
-		const ySlope = (bottomY - topY) / (bottomX - topX);
-		const xSlope = 1 / ySlope;
-		const baseYX = topX - topY * xSlope;
-
-		for (let r = 0; r < TILE_SIZE; r++) {
-			const yMin = Math.max(topY, r);
-			const yMax = Math.min(bottomY, r + 1);
-			if (yMin >= yMax) continue;
-			let acc = 0;
-			for (let c = 0; c < TILE_SIZE; c++) {
-				// Vertical lines make the slope infinite; a pixel edge on the
-				// line itself yields NaN, which must resolve to yMin so the line
-				// belongs to the pixel on whose left edge it sits.
-				let yL = (c - topX) * ySlope + topY;
-				if (!(yL > yMin)) yL = yMin;
-				if (yL > yMax) yL = yMax;
-				let yR = (c + 1 - topX) * ySlope + topY;
-				if (!(yR > yMin)) yR = yMin;
-				if (yR > yMax) yR = yMax;
-				const xL = yL * xSlope + baseYX;
-				const xR = yR * xSlope + baseYX;
-				const h = Math.abs(yR - yL);
-				const area = h * (c + 1 - 0.5 * (xR + xL));
-				loc[r * TILE_SIZE + c] += area * sign + acc;
-				acc += h * sign;
-			}
-			accum[r] += acc;
-		}
-	}
-
-	private flushLocation(slot: number): void {
-		const loc = this.loc;
-		const alphas = this.alphas;
-		for (let c = 0; c < TILE_SIZE; c++) {
-			const base = (slot + c) * 4;
-			for (let r = 0; r < TILE_SIZE; r++) {
-				const v = Math.abs(loc[r * TILE_SIZE + c]) * 255 + 0.5;
-				alphas[base + r] = v > 255 ? 255 : v;
-			}
-		}
-	}
-
-	/** Append fully covered slots. */
-	private fillSlots(count: number): void {
-		this.ensureSlots(count);
-		this.alphas.fill(255, this.slotCount * 4, (this.slotCount + count) * 4);
-		this.slotCount += count;
-	}
-
-	private ensureSlots(add: number): void {
-		const needed = (this.slotCount + add) * 4;
-		if (needed <= this.alphas.length) return;
-		let next = this.alphas.length * 2;
-		while (next < needed) next *= 2;
-		this.alphas = growUint8(this.alphas, next);
-	}
-
-	private pushStrip(
-		x: number,
-		y: number,
-		width: number,
-		denseWidth: number,
-		slot: number,
+	/**
+	 * Geometry right of the clip is dropped, so a band can end with winding
+	 * still open; everything up to the clip edge is then covered. `entry` is
+	 * the first entry after the band: the fill locations start there, so the
+	 * band's last tile ends its entries there too.
+	 */
+	private closeBand(
+		clip: ClipRect,
+		clipWidth: number,
+		winding: number,
+		denseOnly: boolean,
+		ty: number,
+		entry: number,
 	): void {
+		if (!this.stripOpen) return;
+		const bandWinding = Math.round(winding);
+		if (bandWinding !== 0 && denseOnly) {
+			const from = (this.stripX + this.stripDense) / TILE;
+			this.fillGap(from, clipWidth / TILE, ty, entry);
+		}
+		this.closeStrip(
+			clip,
+			bandWinding !== 0 ? clipWidth - this.stripX : this.stripDense,
+		);
+		const band = (this.bandCount - 1) * 2;
+		this.bands[band + 1] = this.locationCount - this.bands[band];
+	}
+
+	private openBand(): void {
+		if (this.bandCount * 2 === this.bands.length) {
+			this.bands = growUint32(this.bands, this.bands.length * 2);
+		}
+		this.bands[this.bandCount * 2] = this.locationCount;
+		this.bands[this.bandCount * 2 + 1] = 0;
+		this.bandCount++;
+	}
+
+	/** Covered gap tiles `[fromTx, toTx)` join the open strip as dense locations. */
+	private fillGap(fromTx: number, toTx: number, ty: number, entry: number) {
+		for (let tx = fromTx; tx < toTx; tx++) {
+			this.pushLocation(tx, ty, entry);
+		}
+	}
+
+	/** Append a location whose entries start at `entryStart`. */
+	private pushLocation(tx: number, ty: number, entryStart: number): void {
+		if ((this.locationCount + 1) * LOCATION_U32S > this.locations.length) {
+			this.locations = growUint32(this.locations, this.locations.length * 2);
+		}
+		const at = this.locationCount++ * LOCATION_U32S;
+		this.locations[at + LOCATION_FIELDS.tile] = tx | (ty << 16);
+		this.locations[at + LOCATION_FIELDS.entryStart] = entryStart;
+		this.slotCount += TILE;
+		this.stripDense += TILE;
+	}
+
+	private closeStrip(clip: ClipRect, width: number): void {
+		if (!this.stripOpen) return;
+		this.stripOpen = false;
 		if (this.stripCount * 4 === this.strips.length) {
 			this.strips = growInt32(this.strips, this.strips.length * 2);
 			this.slots = growUint32(this.slots, this.slots.length * 2);
 		}
+		const x = this.stripX + clip.x0;
+		const y = this.stripY + clip.y0;
 		const i = this.stripCount++;
 		this.strips[i * 4] = x;
 		this.strips[i * 4 + 1] = y;
 		this.strips[i * 4 + 2] = width;
-		this.strips[i * 4 + 3] = denseWidth;
-		this.slots[i] = slot;
+		this.strips[i * 4 + 3] = this.stripDense;
+		this.slots[i] = this.stripSlot;
 		if (x < this.minX) this.minX = x;
 		if (y < this.minY) this.minY = y;
 		if (x + width > this.maxX) this.maxX = x + width;
-		if (y + TILE_SIZE > this.maxY) this.maxY = y + TILE_SIZE;
+		if (y + TILE > this.maxY) this.maxY = y + TILE;
 	}
+
+	/** Interleave the arena's lines as x0, y0, x1, y1 for the GPU. */
+	private packLines(): Float32Array {
+		const lines = this.lines;
+		const packed = new Float32Array(lines.count * 4);
+		for (let i = 0; i < lines.count; i++) {
+			packed[i * 4] = lines.xs0[i];
+			packed[i * 4 + 1] = lines.ys0[i];
+			packed[i * 4 + 2] = lines.xs1[i];
+			packed[i * 4 + 3] = lines.ys1[i];
+		}
+		return packed;
+	}
+}
+
+/**
+ * Winding a line (tile-local coordinates) carries past the tile's right edge
+ * in the first pixel row: its vertical extent there between x = 0 and
+ * x = TILE_SIZE, signed upward-positive. A vertical line on the left edge
+ * belongs to the tile, so an edge position resolves to the row's top.
+ */
+function rowZeroCarry(x0: number, y0: number, x1: number, y1: number): number {
+	if (y0 === y1) return 0;
+	const sign = y0 > y1 ? 1 : -1;
+	const topY = y0 < y1 ? y0 : y1;
+	const topX = y0 < y1 ? x0 : x1;
+	const bottomY = y0 < y1 ? y1 : y0;
+	const bottomX = y0 < y1 ? x1 : x0;
+	const yMin = topY > 0 ? topY : 0;
+	const yMax = bottomY < 1 ? bottomY : 1;
+	if (yMin >= yMax) return 0;
+	const ySlope = (bottomY - topY) / (bottomX - topX);
+	let yLeft = -topX * ySlope + topY;
+	if (!(yLeft > yMin)) yLeft = yMin;
+	if (yLeft > yMax) yLeft = yMax;
+	let yRight = (TILE - topX) * ySlope + topY;
+	if (!(yRight > yMin)) yRight = yMin;
+	if (yRight > yMax) yRight = yMax;
+	return Math.abs(yRight - yLeft) * sign;
 }

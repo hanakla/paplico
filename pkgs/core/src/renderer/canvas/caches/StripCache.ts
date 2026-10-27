@@ -1,4 +1,5 @@
-import type { ClipRect, StripBatch } from "../../geometry/strips/stripTypes";
+import type { ClipRect } from "../../geometry/strips/stripTypes";
+import type { ResidentStrips } from "../pipeline/strips/StripPagePool";
 
 /** Which pass family an entry was rasterized for; mask passes get their own. */
 export type StripCacheVariant = "normal" | "mask";
@@ -29,14 +30,16 @@ interface StripCacheEntry {
 	 * translation, so it moves with the geometry.
 	 */
 	coverage: ClipRect;
-	batch: StripBatch;
+	strips: ResidentStrips;
 }
 
 /**
  * Caches rasterized strips per (element, variant). Strips live in
  * anchor-relative device pixels, so a pan by whole texels only moves the
  * anchor; a zoom, rotation, transform edit or sub-pixel pan changes the key
- * and regenerates. Paint is applied per instance and is not part of the key.
+ * and regenerates. Paint is applied per draw and is not part of the key.
+ * The strips themselves stay resident on the GPU; an entry whose page was
+ * reused since counts as a miss.
  *
  * One element can be drawn into several passes per frame, each with its own
  * sub-pixel phase, so a variant holds several entries and a lookup picks the
@@ -68,7 +71,8 @@ export class StripCache {
 			(slot) =>
 				slot.variantKey === variantKey &&
 				stripRasterKeyEquals(slot.entry.key, key) &&
-				rectContains(slot.entry.coverage, passRect),
+				rectContains(slot.entry.coverage, passRect) &&
+				slot.entry.strips.isLive(),
 		);
 		if (index < 0) return undefined;
 		const [slot] = entries.splice(index, 1);

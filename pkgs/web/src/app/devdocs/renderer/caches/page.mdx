@@ -47,7 +47,7 @@ graph TD
 | プロパティ | クラス | 用途 |
 |---|---|---|
 | `outline` | `OutlineCache` | ローカル空間のアウトライン（塗りのポリライン、線の三角形） |
-| `strip` | `StripCache` | パスのテクセル空間へラスタライズした strip と alpha |
+| `strip` | `StripCache` | パスのテクセル空間へラスタライズした strip の、常駐ページ上の範囲 |
 | `compoundPath` | `CompoundPathCache` | 複合パスのブーリアン演算結果 |
 | `groupPath` | `GroupPathCache` | fill / stroke アピアランスを持つグループの合成パス |
 | `meshWarp` | `MeshWarpCache` | メッシュコンテナのワープ済み一時要素 |
@@ -82,7 +82,7 @@ graph TD
 
 ## StripCache
 
-`canvas/caches/StripCache.ts` に実装。アウトラインを描画先パスのテクセル空間へラスタライズした strip 列と alpha スロットをキャッシュする。
+`canvas/caches/StripCache.ts` に実装。アウトラインを描画先パスのテクセル空間へラスタライズした strip を、GPU 上の常駐ページへの参照としてキャッシュする。
 
 キーは `(elementId, "<variant>:<パス幅>x<パス高さ>:<suffix>")`。variant は通常描画（`normal`）かマスク描画（`mask`）かで、パスのテクセル空間が違うため分けている。パスのピクセルサイズを含めるのは、同じ要素が1フレームの中で複数のパスに描かれるためである。アトラスのセルと単独のマスクテクスチャがその例で、それぞれサブピクセル位相が違う。エントリを共有すると毎フレーム互いを追い出す。`OutlineCache` と同じく、要素あたり 6 件を古い順に退避する。エントリは以下のフィールドを持つ。
 
@@ -90,9 +90,9 @@ graph TD
 |---|---|---|
 | `key` | `StripRasterKey` | `geometryHash`、スケールバケット、変換の線形部分、1/256px に量子化したサブピクセル位相、params の有無 |
 | `coverage` | `ClipRect` | strip を生成した範囲。パス矩形の 3 倍で、この中にあるパスは再利用する |
-| `batch` | `StripBatch` | strip、alpha スロット、params |
+| `strips` | `ResidentStrips` | 常駐ページ上の strip インスタンスと alpha スロットの範囲 |
 
-strip はデバイス変換の整数部分をアンカーとした相対座標なので、整数テクセルのパンではアンカーが動くだけで再生成しない。ペイントはインスタンス側に乗り、キーに含まれない。
+strip はデバイス変換の整数部分をアンカーとした相対座標なので、整数テクセルのパンではアンカーが動くだけで再生成しない。ペイントは描画レコードに乗り、キーに含まれない。ページが再利用されて中身を失ったエントリは、`find()` で見つからなかったものとして扱う。
 
 ## StampCache
 

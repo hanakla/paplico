@@ -75,15 +75,13 @@ flowchart TD
    - **ジオメトリックブラシ** (`engine === "geometric"`): `renderGeometricStroke` でテッセレーション済みストロークを描画。ダッシュパターン・可変幅に対応
    - **dab / ribbonブラシ**: `BrushRenderer.render` へ即時描画を委譲する。ribbonだけが使うCanvasLayer側のバッチ経路を含む詳細は[ブラシレンダリング](/devdocs/renderer/brush)を参照
 
-### strip のフレームバッファ
+### strip の常駐ページ
 
-塗りと geometric ストロークの strip は、`StripFrame` がフレーム単位で集める。`PathElementRenderer` は `StripCache` の strip を `StripFrame.append()` でフレームのバッファへ詰め、返ってきた範囲ごとに **draw call**（GPUに描画命令を1回発行すること。回数が多いほどオーバーヘッドが増加する）を記録する。strip 1本が1インスタンスになる。
+塗りと geometric ストロークの strip は、`StripFrame` が GPU 上のページに常駐させる。`PathElementRenderer` は `StripCache` に無い strip を作ると `StripFrame.upload()` へ渡し、返ってきた `ResidentStrips` をキャッシュに置く。描画は `StripFrame.draw()` で、要素ごとに 1 回の **draw call**（GPUに描画命令を1回発行すること。回数が多いほどオーバーヘッドが増加する）になる。strip 1本が1インスタンスになる。
 
-インスタンスは固定容量のチャンク（16,384 インスタンス）に、被覆率の alpha は固定サイズのページ（r8 テクスチャ）に詰める。どちらも埋まると次のチャンク・ページを開く。1回の draw は1つのチャンクと1つのページに収まる範囲で、アウトラインがそれをまたぐと draw が分かれる。
+`upload()` はページの空きを確保し、strip のインスタンスをその場で 1 回だけ **writeBuffer**（CPU側のデータをGPUバッファにコピーするAPI呼び出し）で書く。被覆率は `StripCoverage` に積んでおき、`finishFrame()` がフレーム内のぶんをまとめて 1 回の compute パスで求める。この submit はフレーム本体の submit より先に走るので、先に記録した draw も求め終わった alpha を読む。
 
-チャンクとページはフレームをまたいで保持される。`finishFrame()` が、フレーム内で使った分だけを **writeBuffer**（CPU側のデータをGPUバッファにコピーするAPI呼び出し） / `writeTexture` でアップロードする。この呼び出しは全パスのエンコードが終わった後、submit の前に1回だけ走る。WebGPUはバッファの内容を submit 時点で読むので、先に記録した draw もこのデータを参照できる。
-
-要素ごとに個別のアップロードを発行すると、数百要素で数百回のCPU→GPUコピーが発生する。フレーム単位でまとめることで、コピーの回数をチャンク数とページ数に抑えている。
+キャッシュに当たったフレームでは、alpha もインスタンスも書き直さない。毎フレーム書くのは、draw 1 回につき 32 バイトの描画レコードだけである。
 
 ## GradientRenderer
 

@@ -24,7 +24,7 @@
 | `CompositeRenderer` | ブレンドモード合成とテクスチャblit（テクスチャを別のテクスチャにコピー描画する操作） |
 | `OffscreenPresenter` | オフスクリーンレンダーパス（メイン画面ではなく一時テクスチャに対する描画パス）の生成とクリップグループ描画 |
 | `DocumentCache` | composite・prebuffer・backdrop-mask用テクスチャの遅延生成と再利用 |
-| `strips/StripFrame` | フレーム内の strip インスタンスと被覆率ページを集め、submit 前に一括アップロードして描画する |
+| `strips/StripFrame` | strip を GPU のページに常駐させて描画する。被覆率は `StripCoverage` が submit 前に compute shader で求め、ページは `StripPagePool` が確保と再利用を受け持つ |
 | `TexturePool` | フレーム間のGPUテクスチャプーリング。available textureの推定メモリ予算に基づくeviction |
 | `UniformScope` | パスごとのビューポートuniform buffer / bind group（GPUリソースをシェーダーにバインドする単位）ペアのプール |
 | `ClipMaskAtlas` | クリップパスとオブジェクトマスクのマスクテクスチャを事前レンダリングし、フレーム間で再利用 |

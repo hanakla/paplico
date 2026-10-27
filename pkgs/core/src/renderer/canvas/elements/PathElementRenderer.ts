@@ -52,7 +52,6 @@ import {
 	appendTriangleSoupLines,
 	composeDeviceTransform,
 } from "../../geometry/strips/deviceGeometry";
-import { rasterizeStrokeParams } from "../../geometry/strips/paramsRasterizer";
 import { StripRasterizer } from "../../geometry/strips/stripRenderer";
 import {
 	type ClipRect,
@@ -61,6 +60,7 @@ import {
 	type StripBatch,
 	TILE_SIZE,
 } from "../../geometry/strips/stripTypes";
+import { binStrokeParams } from "../../geometry/strips/strokeParamsBinning";
 import { hashStrokeGeometry } from "../../helpers";
 import { cleanupPolygonPoints } from "../CanvasLayer.helpers";
 import type {
@@ -147,9 +147,10 @@ type StripPaint =
  *
  * Fills are flattened and strokes tessellated once per scale bucket in
  * element-local space (OutlineCache). Per pass the outline is mapped into
- * the pass's texel space, rasterized into strips (StripCache, reused across
- * whole-texel pans), appended to the frame's strip buffers and drawn with the
- * paint resolved per instance. Non-geometric strokes go to the brush engine.
+ * the pass's texel space and laid out as strips whose coverage the GPU
+ * integrates; the strips stay resident (StripCache, reused across
+ * whole-texel pans) and are drawn with the paint resolved per draw.
+ * Non-geometric strokes go to the brush engine.
  */
 export class PathElementRenderer {
 	private readonly deps: PathElementRendererDeps;
@@ -580,11 +581,11 @@ export class PathElementRenderer {
 				outline.localBounds,
 				local,
 			);
-			entry = {
-				key,
-				coverage,
-				batch: this.rasterizeOutline(outline, local, clip, paramsMode),
-			};
+			const strips = this.deps.stripFrame.upload(
+				this.rasterizeOutline(outline, local, clip, paramsMode),
+			);
+			if (!strips) return;
+			entry = { key, coverage, strips };
 			this.deps.stripCache.set(elementId, variantKey, entry);
 		}
 
@@ -592,29 +593,20 @@ export class PathElementRenderer {
 		if (!transformsBuffer) return;
 		const color: StripColor =
 			paint.kind === "solid" ? paint.color : [0, 0, 0, paint.alpha];
-		const ranges = this.deps.stripFrame.append(
-			entry.batch,
+		this.deps.stripFrame.draw(
+			passEncoder,
+			entry.strips,
 			anchorX,
 			anchorY,
-			frame.width,
-			frame.height,
 			this.deps.renderState.currentTransformIndex,
 			color,
-		);
-		const paintBindGroup =
+			this.deps.getBindGroup(),
+			transformsBuffer,
 			paint.kind === "solid"
 				? this.deps.dummyGradientBindGroup
-				: paint.bindGroup;
-		for (const range of ranges) {
-			this.deps.stripFrame.draw(
-				passEncoder,
-				range,
-				this.deps.getBindGroup(),
-				transformsBuffer,
-				paintBindGroup,
-				this.deps.getMaskBindGroup(),
-			);
-		}
+				: paint.bindGroup,
+			this.deps.getMaskBindGroup(),
+		);
 	}
 
 	private rasterizeOutline(
@@ -639,7 +631,7 @@ export class PathElementRenderer {
 			denseOnly: paramsMode !== 0,
 		});
 		if (paramsMode !== 0 && outline.kind === "stroke" && outline.params) {
-			rasterizeStrokeParams(
+			binStrokeParams(
 				batch,
 				outline.triangles,
 				outline.params,

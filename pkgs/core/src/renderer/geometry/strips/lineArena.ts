@@ -46,15 +46,6 @@ export function growUint32(
 	return dst;
 }
 
-export function growUint8(
-	src: Uint8Array,
-	length: number,
-): Uint8Array<ArrayBuffer> {
-	const dst = new Uint8Array(length);
-	dst.set(src);
-	return dst;
-}
-
 export function growInt32(
 	src: Int32Array,
 	length: number,

@@ -48,7 +48,10 @@ import {
 } from "./canvas/pipeline/FilterRenderer";
 import { ImageTextureStore } from "./canvas/pipeline/ImageTextureStore";
 import { buildFilterPlansForElements } from "./canvas/pipeline/RenderPlanner";
-import { STRIP_INSTANCE_LAYOUT } from "./canvas/pipeline/strips/stripInstanceLayout";
+import {
+	STRIP_DRAW_LAYOUT,
+	STRIP_INSTANCE_LAYOUT,
+} from "./canvas/pipeline/strips/stripInstanceLayout";
 import {
 	UNIFIED_VERTEX_BYTES,
 	UNIFIED_VERTEX_OFFSETS,
@@ -2096,7 +2099,7 @@ export class RenderOrchestrator {
 				label: "Strip Shader",
 				code: STRIP_SHADER,
 			}).module,
-			vertexBufferLayout: STRIP_INSTANCE_LAYOUT,
+			vertexBufferLayouts: [STRIP_INSTANCE_LAYOUT, STRIP_DRAW_LAYOUT],
 			pipelineLayout: stripLayout,
 			topology: "triangle-strip",
 			targetFormat: this.canvasFormat,

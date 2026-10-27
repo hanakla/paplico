@@ -1,6 +1,7 @@
 import { describe, expect, it, type Mock, vi } from "vitest";
 import { mockGroup } from "../../../testUtils/mockElements";
 import { DocumentRenderScope } from "../../DocumentScopeRegistry";
+import { ResidentStrips } from "../pipeline/strips/StripPagePool";
 import type { AppearanceCacheEntry } from "./AppearanceCache";
 import type { FillOutline } from "./OutlineCache";
 import { RenderCacheManager } from "./RenderCacheManager";
@@ -259,15 +260,7 @@ function makeStripEntry(): Parameters<StripCache["set"]>[2] {
 			paramsMode: 0,
 		},
 		coverage: { x0: 0, y0: 0, x1: 1, y1: 1 },
-		batch: {
-			strips: new Int32Array(0),
-			slots: new Uint32Array(0),
-			stripCount: 0,
-			alphas: new Uint8Array(0),
-			slotCount: 0,
-			params: null,
-			bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
-		},
+		strips: new ResidentStrips(null, 0, 0, 0, 0, false),
 	};
 }
 

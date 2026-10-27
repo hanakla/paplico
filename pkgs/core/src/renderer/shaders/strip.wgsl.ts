@@ -12,16 +12,11 @@
  *   BG3: Clip mask atlas
  */
 
-import {
-	STRIP_HAS_PARAMS_BIT,
-	STRIP_HEIGHT_SHIFT,
-	STRIP_PAGE_WIDTH,
-	STRIP_PAGE_WIDTH_BITS,
-	STRIP_PARAMS_SLOT_MASK,
-	STRIP_ROW_OFFSET_SHIFT,
-} from "../canvas/pipeline/strips/stripInstanceLayout";
+import { STRIP_DRAW_HAS_PARAMS } from "../canvas/pipeline/strips/stripInstanceLayout";
+import { TILE_SIZE } from "../geometry/strips/stripTypes";
 import { MASK_COMMON_WGSL } from "./maskCommon.wgsl";
 import { PAINT_COMMON_WGSL } from "./paintCommon.wgsl";
+import { STRIP_PAGE_COMMON_WGSL } from "./stripPageCommon.wgsl";
 import { TRANSFORM_COMMON_WGSL } from "./transformCommon.wgsl";
 
 export const STRIP_SHADER = /* wgsl */ `
@@ -47,20 +42,19 @@ ${PAINT_COMMON_WGSL}
 @group(3) @binding(0) var maskAtlas: texture_2d<f32>;
 @group(3) @binding(1) var maskSampler: sampler;
 
-const PAGE_WIDTH_BITS: u32 = ${STRIP_PAGE_WIDTH_BITS}u;
-const PAGE_WIDTH_MASK: u32 = ${STRIP_PAGE_WIDTH - 1}u;
-const PARAMS_SLOT_MASK: u32 = ${STRIP_PARAMS_SLOT_MASK}u;
-const ROW_OFFSET_SHIFT: u32 = ${STRIP_ROW_OFFSET_SHIFT}u;
-const HEIGHT_SHIFT: u32 = ${STRIP_HEIGHT_SHIFT}u;
-const HAS_PARAMS_BIT: u32 = ${STRIP_HAS_PARAMS_BIT}u;
+${STRIP_PAGE_COMMON_WGSL}
+
+const HAS_PARAMS: u32 = ${STRIP_DRAW_HAS_PARAMS}u;
+const STRIP_HEIGHT: f32 = ${TILE_SIZE}.0;
 
 struct StripInput {
-	@location(0) xy: u32,
+	@location(0) origin: vec2i,
 	@location(1) widths: u32,
 	@location(2) slot: u32,
-	@location(3) params: u32,
+	@location(3) anchor: vec2i,
 	@location(4) elementIndex: u32,
-	@location(5) color: vec4f,
+	@location(5) flags: u32,
+	@location(6) color: vec4f,
 }
 
 struct StripOutput {
@@ -73,26 +67,19 @@ struct StripOutput {
 	@location(3) @interpolate(flat) color: vec4f,
 	@location(4) @interpolate(flat) slot: u32,
 	@location(5) @interpolate(flat) denseWidth: u32,
-	@location(6) @interpolate(flat) params: u32,
+	@location(6) @interpolate(flat) flags: u32,
 	@location(7) @interpolate(flat) maskIndex: u32,
 	@location(8) maskBoundsMin: vec2f,
 	@location(9) maskBoundsMax: vec2f,
-}
-
-/** Texel of a slot's row inside a page. */
-fn pageTexel(slot: u32, row: u32) -> vec2u {
-	return vec2u(slot & PAGE_WIDTH_MASK, (slot >> PAGE_WIDTH_BITS) * 4u + row);
 }
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertexIndex: u32, in: StripInput) -> StripOutput {
 	var out: StripOutput;
 	let corner = vec2f(f32(vertexIndex & 1u), f32(vertexIndex >> 1u));
-	let origin = vec2f(f32(in.xy & 0xffffu), f32(in.xy >> 16u));
 	let width = f32(in.widths & 0xffffu);
-	let height = f32((in.params >> HEIGHT_SHIFT) & 7u);
-	let local = corner * vec2f(width, height);
-	let px = origin + local;
+	let local = corner * vec2f(width, STRIP_HEIGHT);
+	let px = vec2f(in.anchor + in.origin) + local;
 	out.position = vec4f(
 		px.x / uniforms.canvasWidth * 2.0 - 1.0,
 		1.0 - px.y / uniforms.canvasHeight * 2.0,
@@ -126,7 +113,7 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32, in: StripInput) -> StripOutp
 	out.color = in.color;
 	out.slot = in.slot;
 	out.denseWidth = in.widths >> 16u;
-	out.params = in.params;
+	out.flags = in.flags;
 	out.maskIndex = et.maskIndex;
 	out.maskBoundsMin = et.maskBoundsMin;
 	out.maskBoundsMax = et.maskBoundsMax;
@@ -138,14 +125,16 @@ ${MASK_COMMON_WGSL}
 @fragment
 fn fs_main(in: StripOutput) -> @location(0) vec4f {
 	let column = u32(floor(in.local.x));
-	let row = u32(floor(in.local.y)) + ((in.params >> ROW_OFFSET_SHIFT) & 3u);
+	let row = min(u32(floor(in.local.y)), 3u);
+	let slot = in.slot + column;
 	var coverage = 1.0;
 	if (column < in.denseWidth) {
-		coverage = textureLoad(alphaPage, pageTexel(in.slot + column, row), 0).r;
+		coverage = textureLoad(alphaPage, slotTexel(slot), 0)[row];
 	}
 	var tu = in.color.rg;
-	if ((in.params & HAS_PARAMS_BIT) != 0u) {
-		tu = textureLoad(paramsPage, pageTexel((in.params & PARAMS_SLOT_MASK) + column, row), 0).rg;
+	if ((in.flags & HAS_PARAMS) != 0u) {
+		let pair = textureLoad(paramsPage, paramsTexel(slot, row), 0);
+		tu = select(pair.rg, pair.ba, (row & 1u) == 1u);
 	}
 	let paint = paintColor(in.worldPos, in.color, tu) * coverage;
 	return applyClipMask(paint, in.maskIndex, in.maskBoundsMin, in.maskBoundsMax, in.transformedWorldPos);

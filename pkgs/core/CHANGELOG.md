@@ -31,6 +31,7 @@
   - While a group is being edited, the dimmed document behind it leaves that group out instead of showing a dimmed copy of it.
 - **Paths**
   - Editing or committing a long stroke no longer stalls, and each edit adds less to the undo history.
+  - Paths and text redraw faster after zooming, rotating or panning by part of a pixel, and a redraw that changes no path is faster too.
 - **Selection**
   - Selecting an element, on the canvas or in the layer panel, makes its layer the current layer instead of a click on the canvas doing so.
 

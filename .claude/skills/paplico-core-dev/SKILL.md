@@ -39,7 +39,7 @@ Paplico.ts (facade — public API boundary)
           ├── ClipMaskAtlas / TexturePool / UniformScope (GPU resource machinery)
           ├── RenderCacheManager (caches/) — AppearanceCache, OutlineCache,
           │       StripCache, StampCache, Compound/GroupPathCache, ...
-          ├── pipeline/strips/StripFrame — per-frame strip instances + coverage pages
+          ├── pipeline/strips/StripFrame — resident strip pages (StripPagePool) + GPU coverage (StripCoverage)
           ├── ElementRenderer (elements/ — element-type dispatch)
           │   ├── GradientRenderer / ImageElementRenderer / TextElementRenderer / MeshElementRenderer
           │   └── Reference3DElementRenderer (blits the three.js scene texture)
@@ -118,16 +118,22 @@ Not all changes need the same rendering work. A cursor move or a pan during inte
 
 Each brush stroke is composed of hundreds of dab sprites. Evaluating them every frame would be far too slow, so DabRenderer caches a committed stroke's dab list in StampCache and keeps it resident in BoundedStampStore; a pan or zoom re-draws without re-evaluating. Ribbons are one instance per bezier segment, and RibbonRenderer accumulates consecutive ribbons that share a pass, bindings and texture into one instanced draw.
 
-### Why paths rasterize on the CPU as coverage strips
+### Why paths render as coverage strips
 
 Path fills and geometric strokes do not go through the GPU rasterizer as
 triangles. `PathElementRenderer` flattens the outline once per scale bucket in
-element-local space (`OutlineCache`), maps it into the texel space of the pass
-being encoded, and `renderer/geometry/strips/` integrates the nonzero winding
-per pixel into 4-px-tall strips with 8-bit alphas (the Vello GPU sparse-strips
-scheme). `StripFrame` uploads every strip of the frame once before the submit
-and `strip.wgsl` draws one quad per strip, multiplying the alpha into the paint
-stage shared with `unified.wgsl` (`paintCommon.wgsl`).
+element-local space (`OutlineCache`) and maps it into the texel space of the
+pass being encoded. On the CPU, `renderer/geometry/strips/` only lays the
+lines out: it sorts them into 4×4-px tiles and groups the tiles into
+4-px-tall strips (the Vello GPU sparse-strips scheme). `StripFrame.upload`
+places the strips in a page that `StripPagePool` keeps resident on the GPU,
+and `StripCoverage` integrates the nonzero winding per pixel into the page's
+8-bit alpha slots with compute kernels (`stripCoverage.wgsl.ts`), once per
+frame before the submit. `strip.wgsl` draws one quad per strip, multiplying
+the alpha into the paint stage shared with `unified.wgsl` (`paintCommon.wgsl`).
+The location, batch and dispatch records the kernels read are generated from
+the field tables in `stripTypes.ts` and `stripCoverageLayout.ts`, and both
+shaders find a slot's texels through `stripPageCommon.wgsl.ts`.
 
 This buys three things at once. The flattening tolerance is a screen-pixel
 budget, so curves stay smooth at any zoom. Coverage is exact area, so there is
@@ -135,9 +141,9 @@ no fringe geometry, no MSAA and no stencil attachment anywhere in the document
 passes. And a stroke is the nonzero union of its tessellation triangles, so a
 semi-transparent stroke never darkens where it overlaps itself.
 
-The price is CPU work on frames that change the raster key: zoom, rotation, a
-transform edit, or a sub-pixel pan. Whole-texel pans and paint changes reuse
-the cached strips. Anything that needs the pass's texel space reads it from
+The price is CPU layout and a coverage dispatch on frames that change the
+raster key: zoom, rotation, a transform edit, or a sub-pixel pan. Whole-texel
+pans and paint changes reuse the resident strips without uploading anything. Anything that needs the pass's texel space reads it from
 `getRasterFrame()`, which follows the viewport binding stack (`UniformEntry.frame`);
 a pass that binds a viewport uniform without going through
 `setActiveBindGroup` / `pushViewportBinding` will rasterize into the wrong space.
