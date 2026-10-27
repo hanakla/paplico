@@ -977,7 +977,6 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	 * Deletes the original path and creates two new paths
 	 */
 	public splitPath(
-		layerId: string,
 		pathId: string,
 		segmentIndex: number,
 		pointType: "start" | "end",
@@ -1012,10 +1011,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 			this.yObjects.set(firstPath.id, this.objectToYMap(firstPath));
 			this.yObjects.set(secondPath.id, this.objectToYMap(secondPath));
 
-			this.replacePathElementIds(layerId, pathId, [
-				firstPath.id,
-				secondPath.id,
-			]);
+			this.replacePathElementIds(pathId, [firstPath.id, secondPath.id]);
 
 			// Remove old path from yObjects
 			this.yObjects.delete(pathId);
@@ -1028,7 +1024,6 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	 * anchors, which can cut one path into multiple.
 	 */
 	public replacePathWithPaths(
-		layerId: string,
 		pathId: string,
 		runs: PathRun[],
 		origin?: unknown,
@@ -1053,7 +1048,6 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 			}
 
 			this.replacePathElementIds(
-				layerId,
 				pathId,
 				newPaths.map((p) => p.id),
 			);
@@ -1062,25 +1056,20 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 		}, origin);
 	}
 
-	/** Swap pathId for newIds in the layer's elementIds and any group childIds. */
-	private replacePathElementIds(
-		layerId: string,
-		pathId: string,
-		newIds: string[],
-	): void {
-		// Find pathId in layer's elementIds and replace
-		const yLayer = this.findYLayer(layerId);
-		if (yLayer) {
-			const yElementIds = this.getYElementIds(yLayer);
-			if (yElementIds) {
-				for (let i = 0; i < yElementIds.length; i++) {
-					if (yElementIds.get(i) === pathId) {
-						yElementIds.delete(i, 1);
-						yElementIds.insert(i, [...newIds]);
-						break;
-					}
-				}
-			}
+	/**
+	 * Swap pathId for newIds in whichever layer's elementIds holds it and in any
+	 * group childIds. The layer is looked up rather than taken from the caller,
+	 * because the current layer need not be the one the path sits in.
+	 */
+	private replacePathElementIds(pathId: string, newIds: string[]): void {
+		for (let i = 0; i < this.yLayers.length; i++) {
+			const yLayer = this.yLayers.get(i);
+			const yElementIds = yLayer && this.getYElementIds(yLayer);
+			const index = yElementIds?.toArray().indexOf(pathId) ?? -1;
+			if (!yElementIds || index < 0) continue;
+			yElementIds.delete(index, 1);
+			yElementIds.insert(index, [...newIds]);
+			break;
 		}
 
 		// Check if path is in any group's childIds and update

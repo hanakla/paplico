@@ -2438,7 +2438,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	/**
 	 * Run a per-layer hit test from the frontmost pickable layer backwards and
-	 * make the layer of the first hit current, as clicking into it would.
+	 * return the first hit.
 	 */
 	private findInTopmostLayer(
 		find: (layerId: string) => AnyArtObject | null,
@@ -2448,11 +2448,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			const layer = layers[i];
 			if (!layer.visible || layer.locked) continue;
 			const element = find(layer.id);
-			if (!element) continue;
-			if (this.rendererStore.currentLayerId !== layer.id) {
-				this.rendererStore.currentLayerId = layer.id;
-			}
-			return element;
+			if (element) return element;
 		}
 		return null;
 	}
@@ -2593,7 +2589,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			findElementsInRect: (minX, minY, maxX, maxY) => {
 				const layers = this.rendererStore.document.layers;
 				const results: AnyArtObject[] = [];
-				let topmostLayerId: string | null = null;
 				for (let i = layers.length - 1; i >= 0; i--) {
 					const layer = layers[i];
 					if (!layer.visible || layer.locked) continue;
@@ -2604,16 +2599,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						maxX,
 						maxY,
 					);
-					if (elements.length > 0) {
-						topmostLayerId ??= layer.id;
-						results.push(...elements);
-					}
-				}
-				if (
-					topmostLayerId &&
-					this.rendererStore.currentLayerId !== topmostLayerId
-				) {
-					this.rendererStore.currentLayerId = topmostLayerId;
+					results.push(...elements);
 				}
 				return results;
 			},
@@ -2758,12 +2744,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						tolerance,
 						deepSearch,
 					);
-					if (path) {
-						if (this.rendererStore.currentLayerId !== layer.id) {
-							this.rendererStore.currentLayerId = layer.id;
-						}
-						return path;
-					}
+					if (path) return path;
 					// Bound texts occlude their (invisible) axis path: resolve
 					// through the text so the guide path stays reachable
 					const element = this.spatialIndex.findElementAtPoint(
@@ -2778,20 +2759,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 								element.axisBinding.pathObjectId
 							];
 						if (axisPath?.type === "path" && !axisPath.locked) {
-							if (this.rendererStore.currentLayerId !== layer.id) {
-								this.rendererStore.currentLayerId = layer.id;
-							}
 							return axisPath;
 						}
 					}
 				}
 				return null;
 			},
-			replacePathWithPaths: (pathId, runs) => {
-				const currentLayerId = this.rendererStore.currentLayerId;
-				if (!currentLayerId) return;
-				this.commands.replacePathWithPaths(currentLayerId, pathId, runs);
-			},
+			replacePathWithPaths: (pathId, runs) =>
+				this.commands.replacePathWithPaths(pathId, runs),
 			pathEditGetSelectionMode: () => {
 				return this.toolSettings.pathEditSelectionMode;
 			},
@@ -2902,6 +2877,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					text.blendMode = axisPath.blendMode;
 				}
 
+				// addText puts the text in the current layer; make that the layer
+				// of the path it rides
+				this.selection.followLayerOf([pathObjectId]);
 				this.commands.transact((commands) => {
 					commands.addText(text);
 					if (!axisPath) return;

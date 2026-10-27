@@ -1062,7 +1062,7 @@ describe("YjsProvider", () => {
 		it("should delete the original path while a clip group exists", () => {
 			const provider = createProviderWithClipGroup();
 
-			provider.replacePathWithPaths("layer-1", "path-1", runs);
+			provider.replacePathWithPaths("path-1", runs);
 
 			const doc = extractDocumentFromYDoc(provider.ydoc);
 			expect(doc.objects["path-1"]).toBeUndefined();
@@ -1074,10 +1074,22 @@ describe("YjsProvider", () => {
 			provider.destroy();
 		});
 
+		it("should put the runs in the layer that holds the path", () => {
+			const provider = createProviderWithClipGroup();
+
+			provider.replacePathWithPaths("path-2", runs);
+
+			const doc = extractDocumentFromYDoc(provider.ydoc);
+			expect(doc.layers[0].elementIds).toEqual(["path-1", "group-1"]);
+			expect(doc.layers[1].elementIds).toHaveLength(2);
+			expect(doc.layers[1].elementIds).not.toContain("path-2");
+			provider.destroy();
+		});
+
 		it("should point the clip group at the first run when its clip mask is replaced", () => {
 			const provider = createProviderWithClipGroup();
 
-			provider.replacePathWithPaths("layer-1", "clip-mask", runs);
+			provider.replacePathWithPaths("clip-mask", runs);
 
 			const doc = extractDocumentFromYDoc(provider.ydoc);
 			const group = doc.objects["group-1"] as {
@@ -1090,7 +1102,8 @@ describe("YjsProvider", () => {
 			provider.destroy();
 		});
 
-		/** A layer holding "path-1" and "group-1", which is clipped by "clip-mask". */
+		/** A layer holding "path-1" and "group-1", which is clipped by "clip-mask",
+		 *  and a second layer holding "path-2". */
 		function createProviderWithClipGroup(): YjsProvider {
 			const provider = new YjsProvider({ callbacks });
 			const makePath = (id: string) => ({
@@ -1116,6 +1129,7 @@ describe("YjsProvider", () => {
 					},
 					"clip-mask": makePath("clip-mask"),
 					content: makePath("content"),
+					"path-2": makePath("path-2"),
 				},
 				layers: [
 					{
@@ -1125,6 +1139,14 @@ describe("YjsProvider", () => {
 						locked: false,
 						opacity: 1,
 						elementIds: ["path-1", "group-1"],
+					},
+					{
+						id: "layer-2",
+						name: "Layer 2",
+						visible: true,
+						locked: false,
+						opacity: 1,
+						elementIds: ["path-2"],
 					},
 				],
 				viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },

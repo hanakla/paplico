@@ -113,6 +113,49 @@ describe("PaplicoSelection: selecting what an undo or redo changed", () => {
 	});
 });
 
+describe("PaplicoSelection: the current layer follows the selection", () => {
+	it("should switch to the layer of a selected element", () => {
+		const { selection, store } = setupDocument();
+
+		selection.selectElement("b1");
+
+		expect(store.currentLayerId).toBe("layer-b");
+	});
+
+	it("should switch to the layer of a group's child", () => {
+		const { selection, store } = setupDocument();
+		store.currentLayerId = "layer-b";
+
+		selection.selectElement("child");
+
+		expect(store.currentLayerId).toBe("layer-a");
+	});
+
+	it("should switch to the layer of an element added with a toggle", () => {
+		const { selection, store } = setupDocument();
+		selection.selectElement("a1");
+
+		selection.toggleElement("b1", {
+			minX: 0,
+			minY: 0,
+			maxX: 0,
+			maxY: 0,
+			width: 0,
+			height: 0,
+		});
+
+		expect(store.currentLayerId).toBe("layer-b");
+	});
+
+	it("should switch to the frontmost layer a multi-selection spans", () => {
+		const { selection, store } = setupDocument();
+
+		selection.selectMultiple(["a1", "b1"]);
+
+		expect(store.currentLayerId).toBe("layer-b");
+	});
+});
+
 describe("PaplicoSelection: selecting one element", () => {
 	it("should frame a child of a moved group where the group draws it", () => {
 		const store = createRendererState();

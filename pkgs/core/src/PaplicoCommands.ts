@@ -5296,31 +5296,10 @@ export class PaplicoCommands {
 		return node;
 	}
 
-	private splitPath(
-		layerId: string,
-		pathId: string,
-		segmentIndex: number,
-		pointType: "start" | "end",
-	): void {
-		if (this.cannotMutate() || this.isElementLocked(pathId)) return;
-		this.ctx.yjsProvider.splitPath(
-			layerId,
-			pathId,
-			segmentIndex,
-			pointType,
-			this.getMutationOrigin(),
-		);
-	}
-
 	/** Replace a path with several paths built from the given segment runs. */
-	public replacePathWithPaths(
-		layerId: string,
-		pathId: string,
-		runs: PathRun[],
-	): void {
+	public replacePathWithPaths(pathId: string, runs: PathRun[]): void {
 		if (this.cannotMutate() || this.isElementLocked(pathId)) return;
 		this.ctx.yjsProvider.replacePathWithPaths(
-			layerId,
 			pathId,
 			runs,
 			this.getMutationOrigin(),
@@ -5332,9 +5311,13 @@ export class PaplicoCommands {
 		segmentIndex: number,
 		pointType: "start" | "end",
 	): void {
-		const layerId = this.ctx.store.currentLayerId;
-		if (!layerId) return;
-		this.splitPath(layerId, pathId, segmentIndex, pointType);
+		if (this.cannotMutate() || this.isElementLocked(pathId)) return;
+		this.ctx.yjsProvider.splitPath(
+			pathId,
+			segmentIndex,
+			pointType,
+			this.getMutationOrigin(),
+		);
 	}
 
 	/** Close an open path with a straight segment from its end anchor to its start anchor. */

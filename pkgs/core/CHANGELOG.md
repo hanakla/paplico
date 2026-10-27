@@ -8,23 +8,31 @@
   - Hovering an unselected element outlines it.
 - **Path edit tool**
   - Hovering an unselected path or element outlines it and shows the path's vertices, and hovering an unselected vertex rings it.
+- **Selection**
+  - `PaplicoSelection.followLayerOf(elementIds)` makes the frontmost layer holding the elements the current layer.
 - **Tools**
   - `Tool.onPointerLeave` is called when the pointer leaves the canvas.
 
 ### Changed
 
+- **Breaking API changes**
+  - `PaplicoCommands.replacePathWithPaths` takes the path id and the runs instead of a layer id first. The path's own layer is used.
 - **Artboards**
   - Moving or resizing an artboard no longer gets slower as the document grows.
 - **Collaboration / Timelapse**
   - A path's segments and stroke widths are written to a room and a timelapse recording as binary instead of JSON text. Older app versions cannot read the paths this version writes there.
 - **Compound paths**
   - Moving a compound path, or a group that holds one, no longer stalls when the move is committed.
+- **Eyedropper**
+  - Picking a color no longer switches the current layer.
 - **Filters**
   - A filtered element inside a group that reaches far past the view no longer slows down drawing, path editing and the frame after a pan.
 - **Groups**
   - While a group is being edited, the dimmed document behind it leaves that group out instead of showing a dimmed copy of it.
 - **Paths**
   - Editing or committing a long stroke no longer stalls, and each edit adds less to the undo history.
+- **Selection**
+  - Selecting an element, on the canvas or in the layer panel, makes its layer the current layer instead of a click on the canvas doing so.
 
 ### Fixed
 
@@ -34,8 +42,10 @@
 - **Path edit tool**
   - Fix Shift+clicking another path to add it selecting every vertex of the paths whose vertices were already selected.
   - Fix clicking the fill of a selected path selecting every vertex of all the selected paths. A click selects that path alone, and a Shift+click takes it out of the selection.
+  - Fix cutting or splitting a path outside the current layer leaving the new paths in no layer.
 - **Path tool**
   - Fix the outline of a hovered path staying after the pointer leaves the canvas.
+  - Fix hovering a path in another layer switching the current layer.
 
 ## [0.9.0] - 2026-10-18
 

@@ -65,6 +65,7 @@ export class PaplicoSelection {
 		this.store.selectionBounds =
 			bounds ?? this.spatial.getWorldGeometryBounds(elementId);
 		this.store.keyObjectId = null;
+		this.followLayerOf([elementId]);
 	}
 
 	/**
@@ -92,6 +93,7 @@ export class PaplicoSelection {
 		} else {
 			if (!this.store.document.objects[elementId]) return;
 			this.store.selectedElementIds.push(elementId);
+			this.followLayerOf([elementId]);
 		}
 		this.ensureKeyObjectValid();
 		this.updateSelectionBounds();
@@ -101,15 +103,14 @@ export class PaplicoSelection {
 	 * Select multiple elements at once (used by marquee selection)
 	 */
 	public selectMultiple(elementIds: string[]): void {
-		if (elementIds.length === 0) return;
+		const existing = elementIds.filter((id) => this.store.document.objects[id]);
+		if (existing.length === 0) return;
 
+		this.followLayerOf(existing);
 		const layer = this.store.document.layers.find(
 			(l) => l.id === this.store.currentLayerId,
 		);
 		if (!layer) return;
-
-		const existing = elementIds.filter((id) => this.store.document.objects[id]);
-		if (existing.length === 0) return;
 
 		this.store.selectedElementIds = existing;
 		this.store.keyObjectId = null;
@@ -143,7 +144,7 @@ export class PaplicoSelection {
 	 * Clears the selection when nothing selectable remains.
 	 */
 	public selectChangedByHistory(objectIds: ReadonlySet<string>): void {
-		const { objects, layers } = this.store.document;
+		const { objects } = this.store.document;
 		const ancestorsById = new Map(
 			[...objectIds]
 				.filter((id) => {
@@ -156,21 +157,16 @@ export class PaplicoSelection {
 		);
 		const changedAncestorIds = new Set([...ancestorsById.values()].flat());
 
-		const targets = [...ancestorsById].flatMap(([id, ancestorIds]) => {
-			if (changedAncestorIds.has(id)) return [];
-			const rootId = ancestorIds.at(-1) ?? id;
-			const layerIndex = layers.findIndex((l) => l.elementIds.includes(rootId));
-			return layerIndex < 0 ? [] : [{ id, layerIndex }];
-		});
+		const targetIds = [...ancestorsById.keys()].filter(
+			(id) => !changedAncestorIds.has(id) && this.layerIndexOf(id) >= 0,
+		);
 
-		if (targets.length === 0) {
+		if (targetIds.length === 0) {
 			this.clear();
 			return;
 		}
 
-		const frontLayerIndex = Math.max(...targets.map((t) => t.layerIndex));
-		this.store.currentLayerId = layers[frontLayerIndex].id;
-		this.selectMultiple(targets.map((t) => t.id));
+		this.selectMultiple(targetIds);
 	}
 
 	/**
@@ -376,6 +372,19 @@ export class PaplicoSelection {
 		}
 	}
 
+	/**
+	 * Make the frontmost layer holding any of these elements the current layer,
+	 * so the commands that act on the current layer reach the selection.
+	 */
+	public followLayerOf(elementIds: readonly string[]): void {
+		const layerIndex = Math.max(
+			-1,
+			...elementIds.map((id) => this.layerIndexOf(id)),
+		);
+		if (layerIndex < 0) return;
+		this.store.currentLayerId = this.store.document.layers[layerIndex].id;
+	}
+
 	// --- Private Helpers ---
 
 	private pruneDeletedElements(): void {
@@ -388,6 +397,14 @@ export class PaplicoSelection {
 			this.store.selectionBounds = null;
 			setSelectionOverlay(this.store.uiOverlayState, null);
 		}
+	}
+
+	/** Index of the layer holding the element's top-level container, or -1. */
+	private layerIndexOf(elementId: string): number {
+		const rootId = this.getAncestorIds(elementId).at(-1) ?? elementId;
+		return this.store.document.layers.findIndex((l) =>
+			l.elementIds.includes(rootId),
+		);
 	}
 
 	/** Containers enclosing the element, nearest first. */
