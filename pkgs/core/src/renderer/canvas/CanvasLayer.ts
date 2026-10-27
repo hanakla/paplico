@@ -141,6 +141,10 @@ import { WashResultCache } from "./caches/WashResultCache";
 import { ElementRenderer } from "./elements/ElementRenderer";
 import { ElementVertexBuffer } from "./elements/ElementVertexBuffer";
 import type { Reference3DRenderContext } from "./elements/Reference3DElementRenderer";
+import {
+	DEFAULT_GPU_CACHE_BUDGET_BYTES,
+	splitGpuCacheBudget,
+} from "./gpuCacheBudget";
 import type { BackdropCaptureManager } from "./pipeline/BackdropCaptureManager";
 import {
 	BackdropEffectCoordinator,
@@ -550,6 +554,10 @@ export class CanvasLayer {
 	// -- Caches --
 	private cache: DocumentCache;
 	private texturePool!: TexturePool;
+	/** This canvas's share of the GPU cache budget for idle pooled textures. */
+	private texturePoolFloorBytes = splitGpuCacheBudget(
+		DEFAULT_GPU_CACHE_BUDGET_BYTES,
+	).texturePool;
 	private washCompositor!: WashCompositor;
 	private activeFramePlan: RendererFramePlan | null = null;
 	private readonly washResults = new WashResultCache({
@@ -1801,6 +1809,18 @@ export class CanvasLayer {
 		this.compositeFrameCache.valid = false;
 	}
 
+	/** Split `bytes` among this canvas's GPU caches. Each cache evicts down to
+	 *  its share the next time it stores. */
+	public setGpuCacheBudgetBytes(bytes: number): void {
+		const budget = splitGpuCacheBudget(bytes);
+		this.texturePoolFloorBytes = budget.texturePool;
+		this.mixStrokeRenderer?.setMaxResultCacheBytes(budget.mixStrokeResults);
+		this.washResults.setMaxBytes(budget.washResults);
+		this.cacheManager.setFilteredElementMaxBytes(budget.filteredElements);
+		this.brushRenderer.dabs.setResidentMaxBytes(budget.residentDabs);
+		this.stripFrame.setPageBudgetBytes(budget.stripPages);
+	}
+
 	/**
 	 * Upload or clear the soft proof 3D LUT used by the final display pass.
 	 */
@@ -2723,7 +2743,11 @@ export class CanvasLayer {
 		// the pool budget above it or resetFrame evicts canvas-sized textures
 		// every frame just to re-allocate them the next one.
 		this.texturePool.setBudgetBytes(
-			texturePoolBudgetBytes(prebufWidth, prebufHeight),
+			texturePoolBudgetBytes(
+				prebufWidth,
+				prebufHeight,
+				this.texturePoolFloorBytes,
+			),
 		);
 		if (backdropFilterRequests.size > 0) {
 			this.backdropEffectCoordinator.planFrame([

@@ -189,6 +189,11 @@ export class DabRenderer {
 		});
 	}
 
+	/** Bytes the resident dab store may grow to. */
+	public setResidentMaxBytes(bytes: number): void {
+		this.dabStore.setMaxBytes(bytes);
+	}
+
 	/** Per-frame housekeeping: return store ranges released by evicted
 	 *  StampCache entries and free grown-out live buffers. Both are deferred
 	 *  to this frame boundary so last frame's encoded draws kept their data. */

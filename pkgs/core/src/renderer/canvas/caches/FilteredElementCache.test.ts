@@ -44,6 +44,21 @@ describe("FilteredElementCache", () => {
 			expect(cache.get("d")).toBeDefined();
 		});
 
+		it("should evict down to a lowered budget on the next set", () => {
+			const cache = new FilteredElementCache(200);
+			for (const id of ["a", "b", "c", "d"]) cache.set(id, entry(22));
+			cache.beginFrame();
+
+			cache.setMaxBytes(50);
+			cache.set("e", entry(10));
+
+			expect(cache.get("a")).toBeUndefined();
+			expect(cache.get("b")).toBeUndefined();
+			expect(cache.get("c")).toBeUndefined();
+			expect(cache.get("d")).toBeDefined();
+			expect(cache.get("e")).toBeDefined();
+		});
+
 		it("should reject an entry that alone exceeds a quarter of the budget", () => {
 			const cache = new FilteredElementCache(100);
 			const rejected = entry(26);

@@ -42,6 +42,7 @@ export class WashResultCache {
 		WashResult & { lastUsed: UseStamp }
 	>();
 	private totalBytes = 0;
+	private maxBytes = MAX_BYTES;
 	/** Document-frame clock for idle eviction. */
 	private readonly clock = new IdleClock();
 	/** Filters-array -> JSON fingerprint (documents update immutably). */
@@ -51,6 +52,11 @@ export class WashResultCache {
 	private readonly keys = new WeakMap<object, string>();
 
 	public constructor(private readonly resources: WashResultCacheResources) {}
+
+	/** Change the budget. Eviction applies on the next store(). */
+	public setMaxBytes(bytes: number): void {
+		this.maxBytes = bytes;
+	}
 
 	/** Content key of a cacheable wash plan, or null when not cacheable
 	 *  (non-wash plans, previews, non-path elements). */
@@ -132,7 +138,7 @@ export class WashResultCache {
 	}
 
 	private evictOverBudget(): void {
-		while (this.totalBytes > MAX_BYTES) {
+		while (this.totalBytes > this.maxBytes) {
 			const oldest = this.entries.entries().next().value;
 			if (!oldest) break;
 			this.retire(oldest[0], oldest[1]);

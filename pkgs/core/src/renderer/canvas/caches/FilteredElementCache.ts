@@ -44,7 +44,12 @@ export class FilteredElementCache {
 	 *  overshoot instead; unpinned (older) entries still evict. */
 	private framePinned = new Set<string>();
 
-	public constructor(private readonly maxBytes = 256 * 1024 * 1024) {}
+	public constructor(private maxBytes = 256 * 1024 * 1024) {}
+
+	/** Change the budget. Eviction applies on the next set(). */
+	public setMaxBytes(bytes: number): void {
+		this.maxBytes = bytes;
+	}
 
 	/** Entries above this are rejected by set(). Callers must pre-check a
 	 *  bake's byte estimate against it and keep larger bakes frame-local —

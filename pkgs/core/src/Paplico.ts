@@ -217,6 +217,12 @@ interface PaplicoOptions {
 	 * stays platform-agnostic (it never fetches /assets/icc/ itself).
 	 */
 	getBuiltinProfileBytes: (id: BuiltinIccProfileId) => Promise<Uint8Array>;
+	/**
+	 * GPU memory the renderer's caches may keep across frames, shared equally
+	 * by the open canvases. Textures a frame is drawing with are not counted.
+	 * Defaults to 1600 MiB.
+	 */
+	gpuCacheBudgetBytes?: number;
 }
 
 /**
@@ -338,6 +344,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private readonly getBuiltinProfileBytes: (
 		id: BuiltinIccProfileId,
 	) => Promise<Uint8Array>;
+	private readonly gpuCacheBudgetBytes: number | undefined;
 
 	/** Soft proof (print simulation) display state. */
 	private softProof = {
@@ -376,7 +383,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			loaders: options.fontLoaders,
 			fallbackFontUrl: options.fallbackFontUrl,
 		});
-		this.renderer = new RenderOrchestrator(this.fonts);
+		this.gpuCacheBudgetBytes = options.gpuCacheBudgetBytes;
+		this.renderer = new RenderOrchestrator(
+			this.fonts,
+			this.gpuCacheBudgetBytes,
+		);
 		this.wireTextDocumentResolver();
 		// Reference3D edit isolation dims the whole composite — entering/leaving
 		// the session needs a document-level re-render, not just overlays.
@@ -997,7 +1008,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.yjsProvider.destroy();
 
 			// 3. Rebuild renderer with new code
-			this.renderer = new RenderOrchestrator(this.fonts);
+			this.renderer = new RenderOrchestrator(
+				this.fonts,
+				this.gpuCacheBudgetBytes,
+			);
 			this.wireTextDocumentResolver();
 
 			// 4. Re-init all subsystems (with primary canvas)

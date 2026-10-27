@@ -58,11 +58,21 @@ export class StripFrame {
 		this.coverage = new StripCoverage(device, this.paramsFallbackView);
 	}
 
+	/** Bytes the resident pages may grow to. */
+	public setPageBudgetBytes(bytes: number): void {
+		this.pool.setBudgetBytes(bytes);
+	}
+
 	public beginFrame(): void {
 		this.coverage.discardPending();
 		this.pool.beginFrame();
 		for (const chunk of this.chunks) chunk.count = 0;
 		this.chunkIndex = 0;
+	}
+
+	/** Whether one page can hold a batch of this size; `upload` fails otherwise. */
+	public canHold(slots: number, strips: number, wantParams: boolean): boolean {
+		return this.pool.canHold(slots, strips, wantParams);
 	}
 
 	/**

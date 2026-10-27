@@ -53,9 +53,10 @@ export class RenderCacheManager {
 	private active: DocumentCacheScope;
 	/** The caches every canvas drawing the active document shares. */
 	private shared = new DocumentRenderScope();
+	private filteredElementMaxBytes: number | undefined;
 
 	public constructor(private readonly options: RenderCacheManagerOptions = {}) {
-		this.active = createScope(options.stampCacheMaxBytes);
+		this.active = this.createScope();
 		this.scopes.set(DEFAULT_SCOPE_ID, this.active);
 	}
 
@@ -103,11 +104,20 @@ export class RenderCacheManager {
 			// Refresh recency — Map iteration order doubles as the LRU order.
 			this.scopes.delete(documentId);
 		} else {
-			scope = createScope(this.options.stampCacheMaxBytes);
+			scope = this.createScope();
 		}
 		this.scopes.set(documentId, scope);
 		this.active = scope;
 		this.evictOverBudget();
+	}
+
+	/** Budget of each document's filtered-element cache, existing scopes
+	 *  included. */
+	public setFilteredElementMaxBytes(bytes: number): void {
+		this.filteredElementMaxBytes = bytes;
+		for (const scope of this.scopes.values()) {
+			scope.filteredElement.setMaxBytes(bytes);
+		}
 	}
 
 	/** Read the shared caches from `scope` until the next call. */
@@ -127,7 +137,7 @@ export class RenderCacheManager {
 		destroyScope(scope);
 		this.scopes.delete(documentId);
 		if (scope === this.active) {
-			const fresh = createScope(this.options.stampCacheMaxBytes);
+			const fresh = this.createScope();
 			this.scopes.set(documentId, fresh);
 			this.active = fresh;
 		}
@@ -216,8 +226,19 @@ export class RenderCacheManager {
 	public clearAll(): void {
 		for (const scope of this.scopes.values()) destroyScope(scope);
 		this.scopes.clear();
-		this.active = createScope(this.options.stampCacheMaxBytes);
+		this.active = this.createScope();
 		this.scopes.set(DEFAULT_SCOPE_ID, this.active);
+	}
+
+	private createScope(): DocumentCacheScope {
+		return {
+			outline: new OutlineCache(),
+			strip: new StripCache(),
+			stamp: new StampCache(this.options.stampCacheMaxBytes),
+			gradient: new GradientCache(),
+			appearance: new AppearanceCache(),
+			filteredElement: new FilteredElementCache(this.filteredElementMaxBytes),
+		};
 	}
 
 	/** Destroy least-recently-activated scopes past the budget. */
@@ -237,17 +258,6 @@ export class RenderCacheManager {
 }
 
 // Helpers
-
-function createScope(stampCacheMaxBytes?: number): DocumentCacheScope {
-	return {
-		outline: new OutlineCache(),
-		strip: new StripCache(),
-		stamp: new StampCache(stampCacheMaxBytes),
-		gradient: new GradientCache(),
-		appearance: new AppearanceCache(),
-		filteredElement: new FilteredElementCache(),
-	};
-}
 
 /** Release a scope's entries including their GPU resources — every cache's
  *  clear() destroys (or flushes deferred destroys of) what it owns. */

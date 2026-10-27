@@ -58,6 +58,19 @@ describe("PathElementRenderer", () => {
 		expect(rasterized.value).toBe(2);
 	});
 
+	it("should lay out only the pass when the grown rect could outgrow one strip page", () => {
+		const { renderer, rasterized, transform } = createProbe({
+			pageHoldsGrownRect: false,
+		});
+		const path = singleStrokePath();
+
+		renderer.renderPath(passEncoderStub(), path);
+		transform.tx = 3;
+		renderer.renderPath(passEncoderStub(), path);
+
+		expect(rasterized.value).toBe(2);
+	});
+
 	it("should reuse the strips when the element is drawn into a pass of another size", () => {
 		const { renderer, rasterized, frame } = createProbe();
 		const path = singleStrokePath();
@@ -232,7 +245,8 @@ function squarePath(
 	};
 }
 
-function createProbe() {
+/** `pageHoldsGrownRect: false` makes a strip page too small for a layout over the grown rect. */
+function createProbe({ pageHoldsGrownRect = true } = {}) {
 	const calls: string[] = [];
 	const colors: (readonly number[])[] = [];
 	const rasterized = { value: 0 };
@@ -257,6 +271,7 @@ function createProbe() {
 	};
 	const renderer = new PathElementRenderer({
 		stripFrame: {
+			canHold: vi.fn(() => pageHoldsGrownRect),
 			upload: vi.fn(() => new ResidentStrips(null, 0, 0, 0, 0, false)),
 			draw: vi.fn((_pass, _strips, _ax, _ay, _element, color) => {
 				calls.push("strip");

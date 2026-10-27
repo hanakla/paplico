@@ -39,6 +39,17 @@ describe("RenderCacheManager", () => {
 			expect(manager.stamp.get("el1:fp:1.0:hash")).toBeUndefined();
 		});
 
+		it("should apply the filtered-element budget to existing and later document scopes", () => {
+			const manager = new RenderCacheManager();
+			manager.setActiveDocument("doc-a");
+
+			manager.setFilteredElementMaxBytes(400);
+
+			expect(manager.filteredElement.maxEntryBytes).toBe(100);
+			manager.setActiveDocument("doc-b");
+			expect(manager.filteredElement.maxEntryBytes).toBe(100);
+		});
+
 		it("should destroy a dropped document's GPU resources and stay usable", () => {
 			const manager = new RenderCacheManager();
 			manager.setActiveDocument("doc-a");

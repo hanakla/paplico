@@ -69,17 +69,21 @@ function textureBytes(
 const MAX_POOL_BYTES_CEILING = 1024 * 1024 * 1024;
 
 /**
- * Pool budget for a given canvas size. A frame's transient working set
- * (offscreen colours, glass composites, backdrop captures) scales
- * with the canvas surface; a fixed budget below that working set makes
- * resetFrame evict canvas-sized textures every frame just to re-allocate
- * them the next one.
+ * Pool budget for a given canvas size, never below `floorBytes`. A frame's
+ * transient working set (offscreen colours, glass composites, backdrop
+ * captures) scales with the canvas surface; a fixed budget below that
+ * working set makes resetFrame evict canvas-sized textures every frame just
+ * to re-allocate them the next one.
  */
-export function texturePoolBudgetBytes(width: number, height: number): number {
+export function texturePoolBudgetBytes(
+	width: number,
+	height: number,
+	floorBytes: number,
+): number {
 	const canvasBytes = width * height * 4;
-	return Math.min(
-		MAX_POOL_BYTES_CEILING,
-		Math.max(MAX_POOL_BYTES, canvasBytes * 16),
+	return Math.max(
+		floorBytes,
+		Math.min(MAX_POOL_BYTES_CEILING, canvasBytes * 16),
 	);
 }
 

@@ -38,6 +38,7 @@ import { expandRenderFilter } from "./canvas/CanvasLayer.helpers";
 import { RENDER_SAMPLE_COUNT } from "./canvas/CanvasLayerTypes";
 import { RenderCacheManager } from "./canvas/caches/RenderCacheManager";
 import type { Reference3DRenderContext } from "./canvas/elements/Reference3DElementRenderer";
+import { DEFAULT_GPU_CACHE_BUDGET_BYTES } from "./canvas/gpuCacheBudget";
 import { BackdropCaptureManager } from "./canvas/pipeline/BackdropCaptureManager";
 import { BrushTextureManager } from "./canvas/pipeline/brush/BrushTextureManager";
 import { buildParentedMap } from "./canvas/pipeline/ElementHierarchyCache";
@@ -308,7 +309,12 @@ export class RenderOrchestrator {
 	private onDeviceRestored: (() => void) | null = null;
 	private onDeviceRecoveryFailed: (() => void) | null = null;
 
-	public constructor(private readonly fontManager: FontManager) {}
+	/** @param gpuCacheBudgetBytes GPU cache budget the open canvas targets
+	 *  share equally. */
+	public constructor(
+		private readonly fontManager: FontManager,
+		private readonly gpuCacheBudgetBytes = DEFAULT_GPU_CACHE_BUDGET_BYTES,
+	) {}
 
 	public async initDevice(): Promise<boolean> {
 		if (this.destroyed) return false;
@@ -567,6 +573,7 @@ export class RenderOrchestrator {
 		});
 
 		this.registeredTargets.add(target);
+		this.distributeGpuCacheBudget();
 	}
 
 	/**
@@ -1808,6 +1815,7 @@ export class RenderOrchestrator {
 			td.cacheManager.clearAll();
 			this.imageTextures?.release(target.id);
 			this.targets.delete(target.id);
+			this.distributeGpuCacheBudget();
 		}
 
 		this.registeredTargets.delete(target);
@@ -1826,6 +1834,14 @@ export class RenderOrchestrator {
 			documentId,
 			this.isolatedTargets.has(targetId) ? targetId : undefined,
 		);
+	}
+
+	/** Give every open target an equal share of the GPU cache budget. */
+	private distributeGpuCacheBudget(): void {
+		const bytes = Math.floor(this.gpuCacheBudgetBytes / this.targets.size);
+		for (const td of this.targets.values()) {
+			td.canvasLayer.setGpuCacheBudgetBytes(bytes);
+		}
 	}
 
 	/**

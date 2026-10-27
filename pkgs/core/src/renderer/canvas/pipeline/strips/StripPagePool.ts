@@ -1,11 +1,16 @@
-import { STRIP_INSTANCE_BYTES, STRIP_PAGE_WIDTH } from "./stripInstanceLayout";
+import { IdleClock, type UseStamp } from "../IdleClock";
+import {
+	STRIP_INSTANCE_BYTES,
+	STRIP_PAGE_WIDTH,
+	STRIP_PARAMS_ROWS_PER_ALPHA_ROW,
+} from "./stripInstanceLayout";
 
 /** Alpha texel rows of a standard page: 1M slots, 4 MiB. */
 const PAGE_ROWS = 256;
 /** Strip instances of a standard page: 2 MiB. */
 const PAGE_STRIPS = 1 << 17;
-/** Alpha bytes the pool grows to before it reuses idle pages instead. */
-const ALPHA_BUDGET_BYTES = 64 * 1024 * 1024;
+/** Bytes of alpha, params and instances the pool grows to before it reuses idle pages instead. */
+const PAGE_BUDGET_BYTES = 64 * 1024 * 1024;
 
 /** One page: alpha (and on demand params) texels plus the strip instances that index them. */
 export interface StripPage {
@@ -20,7 +25,7 @@ export interface StripPage {
 	usedStrips: number;
 	/** Bumped when the page is reset; allocations of older generations are gone. */
 	generation: number;
-	lastUsedFrame: number;
+	lastUsed: UseStamp;
 	destroyed: boolean;
 	/** Draw bind groups keyed by the transforms buffer they were built with. */
 	bindGroups: WeakMap<GPUBuffer, GPUBindGroup>;
@@ -58,21 +63,26 @@ export class ResidentStrips {
  * page would exceed the budget, the page idle the longest is reset whole,
  * which invalidates every entry it held (they re-rasterize on their next
  * draw). A page used in the current frame is never reset, because the frame's
- * coverage dispatch runs before its draws and would overwrite them.
+ * coverage dispatch runs before its draws and would overwrite them. A frame
+ * whose pages do not fit the budget grows the pool past it; at frame start,
+ * pages idle long enough are freed until the pool fits again.
  */
 export class StripPagePool {
 	private readonly pages: StripPage[] = [];
 	private current: StripPage | null = null;
-	private frame = 0;
+	private readonly clock = new IdleClock();
+	private budgetBytes = PAGE_BUDGET_BYTES;
 
 	public constructor(private readonly device: GPUDevice) {}
 
-	public get currentFrame(): number {
-		return this.frame;
+	/** Change the bytes the pool grows to. Pages past it are freed once idle. */
+	public setBudgetBytes(bytes: number): void {
+		this.budgetBytes = bytes;
 	}
 
 	public beginFrame(): void {
-		this.frame++;
+		this.clock.tick();
+		this.trimIdlePages();
 	}
 
 	/**
@@ -85,8 +95,14 @@ export class StripPagePool {
 		wantParams: boolean,
 	): { page: StripPage; firstSlot: number; firstStrip: number } | null {
 		let page = this.current;
-		if (!page || !fits(page, slots, strips)) {
-			page = this.reusablePage(slots, strips) ?? this.createPage(slots, strips);
+		if (
+			!page ||
+			!fits(page, slots, strips) ||
+			!this.paramsFit(page, wantParams)
+		) {
+			page =
+				this.reusablePage(slots, strips, wantParams) ??
+				this.createPage(slots, strips, wantParams);
 			if (!page) return null;
 			this.current = page;
 		}
@@ -95,12 +111,25 @@ export class StripPagePool {
 		const firstStrip = page.usedStrips;
 		page.usedSlots += slots;
 		page.usedStrips += strips;
-		page.lastUsedFrame = this.frame;
+		page.lastUsed = this.clock.stamp();
 		return { page, firstSlot, firstStrip };
 	}
 
+	/** Whether one page can hold a batch of this size. */
+	public canHold(slots: number, strips: number, wantParams: boolean): boolean {
+		const { slotCapacity, stripCapacity } = newPageCapacity(slots, strips);
+		const rows = slotCapacity / STRIP_PAGE_WIDTH;
+		const textureRows = wantParams
+			? rows * STRIP_PARAMS_ROWS_PER_ALPHA_ROW
+			: rows;
+		return (
+			textureRows <= this.device.limits.maxTextureDimension2D &&
+			stripCapacity * STRIP_INSTANCE_BYTES <= this.device.limits.maxBufferSize
+		);
+	}
+
 	public touch(page: StripPage): void {
-		page.lastUsedFrame = this.frame;
+		page.lastUsed = this.clock.stamp();
 	}
 
 	public destroy(): void {
@@ -109,20 +138,27 @@ export class StripPagePool {
 		this.current = null;
 	}
 
-	/** The page idle the longest that can hold the batch, once the budget is spent. */
-	private reusablePage(slots: number, strips: number): StripPage | null {
-		const alphaBytes = this.pages.reduce(
-			(sum, p) => sum + p.slotCapacity * 4,
-			0,
+	/** The page idle the longest that can hold the batch, once a new page would exceed the budget. */
+	private reusablePage(
+		slots: number,
+		strips: number,
+		wantParams: boolean,
+	): StripPage | null {
+		const capacity = newPageCapacity(slots, strips);
+		const newBytes = capacityBytes(
+			capacity.slotCapacity,
+			capacity.stripCapacity,
+			wantParams,
 		);
-		if (alphaBytes + PAGE_ROWS * STRIP_PAGE_WIDTH * 4 <= ALPHA_BUDGET_BYTES) {
-			return null;
-		}
+		if (this.totalBytes() + newBytes <= this.budgetBytes) return null;
 		let oldest: StripPage | null = null;
 		for (const page of this.pages) {
-			if (page.lastUsedFrame >= this.frame) continue;
+			if (page.lastUsed.frame >= this.clock.frame) continue;
 			if (page.slotCapacity < slots || page.stripCapacity < strips) continue;
-			if (!oldest || page.lastUsedFrame < oldest.lastUsedFrame) oldest = page;
+			if (!this.paramsFit(page, wantParams)) continue;
+			if (!oldest || page.lastUsed.frame < oldest.lastUsed.frame) {
+				oldest = page;
+			}
 		}
 		if (!oldest) return null;
 		oldest.generation++;
@@ -131,16 +167,41 @@ export class StripPagePool {
 		return oldest;
 	}
 
-	private createPage(slots: number, strips: number): StripPage | null {
-		const rows = Math.max(PAGE_ROWS, Math.ceil(slots / STRIP_PAGE_WIDTH));
-		if (rows * 2 > this.device.limits.maxTextureDimension2D) return null;
-		const stripCapacity = Math.max(PAGE_STRIPS, strips);
-		if (
-			stripCapacity * STRIP_INSTANCE_BYTES >
-			this.device.limits.maxBufferSize
-		) {
-			return null;
+	/** Free pages idle long enough, oldest first, until the pool fits its budget. */
+	private trimIdlePages(): void {
+		let bytes = this.totalBytes();
+		if (bytes <= this.budgetBytes) return;
+		const now = performance.now();
+		const idle = this.pages
+			.filter((page) => this.clock.isExpired(page.lastUsed, now))
+			.toSorted((a, b) => a.lastUsed.frame - b.lastUsed.frame);
+		for (const page of idle) {
+			if (bytes <= this.budgetBytes) return;
+			bytes -= pageBytes(page);
+			destroyPage(page);
+			this.pages.splice(this.pages.indexOf(page), 1);
+			if (page === this.current) this.current = null;
 		}
+	}
+
+	private totalBytes(): number {
+		return this.pages.reduce((sum, page) => sum + pageBytes(page), 0);
+	}
+
+	/** Whether a page can take params: it has them, or its params texture fits the device. */
+	private paramsFit(page: StripPage, wantParams: boolean): boolean {
+		if (!wantParams || page.params) return true;
+		return this.canHold(page.slotCapacity, page.stripCapacity, true);
+	}
+
+	private createPage(
+		slots: number,
+		strips: number,
+		wantParams: boolean,
+	): StripPage | null {
+		if (!this.canHold(slots, strips, wantParams)) return null;
+		const { slotCapacity, stripCapacity } = newPageCapacity(slots, strips);
+		const rows = slotCapacity / STRIP_PAGE_WIDTH;
 		const index = this.pages.length;
 		const alpha = this.device.createTexture({
 			label: `Strip Alpha Page #${index}`,
@@ -161,12 +222,12 @@ export class StripPagePool {
 				size: stripCapacity * STRIP_INSTANCE_BYTES,
 				usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
 			}),
-			slotCapacity: rows * STRIP_PAGE_WIDTH,
+			slotCapacity,
 			stripCapacity,
 			usedSlots: 0,
 			usedStrips: 0,
 			generation: 0,
-			lastUsedFrame: this.frame,
+			lastUsed: this.clock.stamp(),
 			destroyed: false,
 			bindGroups: new WeakMap(),
 		};
@@ -179,7 +240,9 @@ export class StripPagePool {
 			label: `Strip Params Page #${this.pages.indexOf(page)}`,
 			size: {
 				width: STRIP_PAGE_WIDTH,
-				height: (page.slotCapacity / STRIP_PAGE_WIDTH) * 2,
+				height:
+					(page.slotCapacity / STRIP_PAGE_WIDTH) *
+					STRIP_PARAMS_ROWS_PER_ALPHA_ROW,
 			},
 			format: "rgba8unorm",
 			usage:
@@ -197,6 +260,39 @@ function fits(page: StripPage, slots: number, strips: number): boolean {
 		page.usedSlots + slots <= page.slotCapacity &&
 		page.usedStrips + strips <= page.stripCapacity
 	);
+}
+
+/** Capacity of a new page that holds a batch: a standard page, or one just big enough. */
+function newPageCapacity(
+	slots: number,
+	strips: number,
+): { slotCapacity: number; stripCapacity: number } {
+	const rows = Math.max(PAGE_ROWS, Math.ceil(slots / STRIP_PAGE_WIDTH));
+	return {
+		slotCapacity: rows * STRIP_PAGE_WIDTH,
+		stripCapacity: Math.max(PAGE_STRIPS, strips),
+	};
+}
+
+function pageBytes(page: StripPage): number {
+	return capacityBytes(
+		page.slotCapacity,
+		page.stripCapacity,
+		page.params !== null,
+	);
+}
+
+/** GPU bytes of a page: one rgba8 alpha texel per slot, its params texels and its instances. */
+function capacityBytes(
+	slotCapacity: number,
+	stripCapacity: number,
+	hasParams: boolean,
+): number {
+	const alphaBytes = slotCapacity * 4;
+	const paramsBytes = hasParams
+		? alphaBytes * STRIP_PARAMS_ROWS_PER_ALPHA_ROW
+		: 0;
+	return alphaBytes + paramsBytes + stripCapacity * STRIP_INSTANCE_BYTES;
 }
 
 function destroyPage(page: StripPage): void {

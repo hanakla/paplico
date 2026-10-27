@@ -127,6 +127,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 	/** elementId -> last resolved stroke, reused while its key holds. */
 	private readonly resultCache = new Map<string, MixResultCacheEntry>();
 	private resultCacheBytes = 0;
+	private maxResultCacheBytes = MAX_RESULT_CACHE_BYTES;
 	private frameBuffers: GPUBuffer[] = [];
 	private retiredBuffers: GPUBuffer[] = [];
 	private frameTextures: GPUTexture[] = [];
@@ -152,6 +153,11 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		// so this is the first safe point to free them.
 		for (const buffer of this.retiredBuffers) buffer.destroy();
 		this.retiredBuffers = [];
+	}
+
+	/** Change the result budget. Eviction applies on the next stored result. */
+	public setMaxResultCacheBytes(bytes: number): void {
+		this.maxResultCacheBytes = bytes;
 	}
 
 	/** Drop the results of strokes no longer in the document. */
@@ -664,7 +670,7 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		this.resultCache.set(elementId, entry);
 		this.resultCacheBytes += entry.bytes;
 		for (const [id, cached] of this.resultCache) {
-			if (this.resultCacheBytes <= MAX_RESULT_CACHE_BYTES) break;
+			if (this.resultCacheBytes <= this.maxResultCacheBytes) break;
 			if (id === elementId) continue;
 			this.retireResult(id, cached);
 		}

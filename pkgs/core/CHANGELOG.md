@@ -32,6 +32,8 @@
 - **Paths**
   - Editing or committing a long stroke no longer stalls, and each edit adds less to the undo history.
   - Paths and text redraw faster after zooming, rotating or panning by part of a pixel, and a redraw that changes no path is faster too.
+- **Renderer**
+  - Canvases open side by side split one GPU cache budget instead of each keeping its own.
 - **Selection**
   - Selecting an element, on the canvas or in the layer panel, makes its layer the current layer instead of a click on the canvas doing so.
 

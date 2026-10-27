@@ -576,11 +576,17 @@ export class PathElementRenderer {
 
 		let entry = this.deps.stripCache.find(elementId, variantKey, key, passRect);
 		if (!entry) {
-			const { coverage, clip } = generationClip(
-				passRect,
-				outline.localBounds,
-				local,
-			);
+			const grown = generationClip(passRect, outline.localBounds, local, true);
+			const bound = layoutBound(grown.clip);
+			// A layout over the grown rect can outgrow one page; the pass rect
+			// alone always fits, and only loses reuse across whole-texel pans.
+			const { coverage, clip } = this.deps.stripFrame.canHold(
+				bound.slots,
+				bound.strips,
+				paramsMode !== 0,
+			)
+				? grown
+				: generationClip(passRect, outline.localBounds, local, false);
 			const strips = this.deps.stripFrame.upload(
 				this.rasterizeOutline(outline, local, clip, paramsMode),
 			);
@@ -803,18 +809,19 @@ function boundsOf(points: readonly number[]): LocalBounds {
 }
 
 /**
- * Where strips are generated. `coverage` is the pass rect grown by one pass
- * on each side, so whole-texel pans stay inside it and reuse the strips;
- * `clip` narrows that to what the outline can touch. Both are aligned
- * outward to the tile grid.
+ * Where strips are generated. `coverage` is the pass rect, grown by one pass
+ * on each side when `grow` is set so whole-texel pans stay inside it and reuse
+ * the strips; `clip` narrows that to what the outline can touch. Both are
+ * aligned outward to the tile grid.
  */
 function generationClip(
 	passRect: ClipRect,
 	localBounds: LocalBounds,
 	t: DeviceTransform,
+	grow: boolean,
 ): { coverage: ClipRect; clip: ClipRect } {
-	const passWidth = passRect.x1 - passRect.x0;
-	const passHeight = passRect.y1 - passRect.y0;
+	const passWidth = grow ? passRect.x1 - passRect.x0 : 0;
+	const passHeight = grow ? passRect.y1 - passRect.y0 : 0;
 	const coverage = alignToTiles({
 		x0: passRect.x0 - passWidth,
 		y0: passRect.y0 - passHeight,
@@ -845,6 +852,13 @@ function generationClip(
 		y1: Math.min(coverage.y1, maxY + 1),
 	});
 	return { coverage, clip };
+}
+
+/** Most alpha slots and strips a layout inside a tile-aligned clip can produce: every tile covered, each its own strip. */
+function layoutBound(clip: ClipRect): { slots: number; strips: number } {
+	const tiles =
+		((clip.x1 - clip.x0) / TILE_SIZE) * ((clip.y1 - clip.y0) / TILE_SIZE);
+	return { slots: tiles * TILE_SIZE, strips: tiles };
 }
 
 function alignToTiles(rect: ClipRect): ClipRect {

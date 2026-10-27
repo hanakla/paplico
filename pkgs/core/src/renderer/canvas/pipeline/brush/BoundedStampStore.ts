@@ -64,7 +64,7 @@ const INITIAL_CAPACITY_STAMPS = 16_384;
 export class BoundedStampStore {
 	/** Hard cap the buffer may grow to, in stamps (≤ the device binding limit,
 	 *  so a whole-buffer binding always validates). */
-	public readonly maxCapacityStamps: number;
+	private capacityCapStamps: number;
 	private readonly floatsPerStamp: number;
 	private readonly bytesPerStamp: number;
 	private readonly usage: GPUBufferUsageFlags;
@@ -93,17 +93,29 @@ export class BoundedStampStore {
 		this.bytesPerStamp = options.floatsPerStamp * 4;
 		this.usage = options.usage;
 		this.label = options.label;
-		this.maxCapacityStamps =
+		this.capacityCapStamps =
 			options.maxCapacityStamps ??
-			deriveMaxCapacityStamps(device, this.bytesPerStamp);
-		if (this.maxCapacityStamps < 1) {
+			deriveMaxCapacityStamps(device, this.bytesPerStamp, MAX_STORE_BYTES);
+		if (this.capacityCapStamps < 1) {
 			throw new Error(
 				"BoundedStampStore: derived capacity cap is below one stamp",
 			);
 		}
-		this.initialCapacityStamps = Math.min(
-			options.initialCapacityStamps ?? INITIAL_CAPACITY_STAMPS,
-			this.maxCapacityStamps,
+		this.initialCapacityStamps =
+			options.initialCapacityStamps ?? INITIAL_CAPACITY_STAMPS;
+	}
+
+	public get maxCapacityStamps(): number {
+		return this.capacityCapStamps;
+	}
+
+	/** Change the bytes the buffer may grow to, kept within the device binding
+	 *  limit and at least one stamp. A buffer already past it keeps its size
+	 *  and stops growing. */
+	public setMaxBytes(bytes: number): void {
+		this.capacityCapStamps = Math.max(
+			1,
+			deriveMaxCapacityStamps(this.device, this.bytesPerStamp, bytes),
 		);
 	}
 
@@ -221,7 +233,10 @@ export class BoundedStampStore {
 	/** Create the initial buffer / capacity / free list on the first alloc. */
 	private ensureInitialized(): void {
 		if (this.gpuBuffer) return;
-		this.capacityStamps = this.initialCapacityStamps;
+		this.capacityStamps = Math.min(
+			this.initialCapacityStamps,
+			this.maxCapacityStamps,
+		);
 		this.gpuBuffer = this.createBuffer(this.capacityStamps);
 		this.freeList = [{ offset: 0, count: this.capacityStamps }];
 	}
@@ -356,14 +371,15 @@ export class BoundedStampStore {
 }
 
 /** Largest capacity that stays ≤ the device binding limit (so a whole-buffer
- *  binding always validates) and ≤ the 128 MiB cap. */
+ *  binding always validates) and ≤ `maxBytes`. */
 function deriveMaxCapacityStamps(
 	device: GPUDevice,
 	bytesPerStamp: number,
+	maxBytes: number,
 ): number {
 	const bindLimit = Math.min(
 		device.limits.maxStorageBufferBindingSize,
 		device.limits.maxBufferSize,
 	);
-	return Math.floor(Math.min(bindLimit, MAX_STORE_BYTES) / bytesPerStamp);
+	return Math.floor(Math.min(bindLimit, maxBytes) / bytesPerStamp);
 }

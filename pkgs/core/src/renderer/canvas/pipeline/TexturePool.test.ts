@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDLE_EVICT_FRAMES, IDLE_EVICT_MS } from "./IdleClock";
-import { TexturePool } from "./TexturePool";
+import { TexturePool, texturePoolBudgetBytes } from "./TexturePool";
+
+const MiB = 1024 * 1024;
 
 let now = 0;
 
@@ -130,6 +132,20 @@ describe("TexturePool", () => {
 
 			expect(lent.destroy).not.toHaveBeenCalled();
 		});
+	});
+});
+
+describe("texturePoolBudgetBytes", () => {
+	it("should keep the floor for a small canvas", () => {
+		expect(texturePoolBudgetBytes(100, 100, 300 * MiB)).toBe(300 * MiB);
+	});
+
+	it("should rise with a large canvas up to the ceiling", () => {
+		expect(texturePoolBudgetBytes(4096, 4096, 300 * MiB)).toBe(1024 * MiB);
+	});
+
+	it("should keep a floor above the ceiling", () => {
+		expect(texturePoolBudgetBytes(4096, 4096, 2048 * MiB)).toBe(2048 * MiB);
 	});
 });
 

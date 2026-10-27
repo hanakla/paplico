@@ -286,6 +286,16 @@ describe("BoundedStampStore", () => {
 		expect(store.maxCapacityStamps).toBe((128 * 1024 * 1024) / STAMP_BYTES);
 	});
 
+	it("should stop growing at a lowered byte budget", () => {
+		const { store } = createStore({ max: 8, initial: 2 });
+
+		store.setMaxBytes(4 * STAMP_BYTES);
+
+		expect(store.alloc(stamps(4))).not.toBeNull();
+		expect(store.canFit(1)).toBe(false);
+		expect(store.alloc(stamps(1))).toBeNull();
+	});
+
 	it("should destroy the backing buffer and any retired buffer", () => {
 		const { store } = createStore({ max: 8, initial: 2 });
 		store.alloc(stamps(2));

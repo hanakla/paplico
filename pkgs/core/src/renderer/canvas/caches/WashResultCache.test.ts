@@ -59,6 +59,20 @@ describe("WashResultCache", () => {
 		expect(cache.get("b", "k")).not.toBeNull();
 	});
 
+	it("releases the oldest results down to a lowered byte budget on the next store", () => {
+		const { cache, released } = createCache();
+		const oldest = {} as GPUTexture;
+		const middle = {} as GPUTexture;
+		cache.store("a", result(oldest, "k", 1024));
+		cache.store("b", result(middle, "k", 1024));
+
+		cache.setMaxBytes(1024);
+		cache.store("c", result({} as GPUTexture, "k", 1024));
+
+		expect(released).toEqual([oldest, middle]);
+		expect(cache.get("c", "k")).not.toBeNull();
+	});
+
 	it("discards every result on trimIdle(0) without releasing them", () => {
 		const { cache, released, discarded } = createCache();
 		const a = {} as GPUTexture;
