@@ -1,4 +1,8 @@
-import type { Artboard, Viewport } from "../../schema";
+import { type Artboard, getArtboardBounds, type Viewport } from "../../schema";
+import {
+	screenToWorld,
+	worldToScreen,
+} from "../../utils/geometry/space/coordinates";
 import { compileShaderModule } from "../../utils/wgpu-utils";
 import type { GPUTimingProfiler } from "../GPUTimingProfiler";
 import { createGeometryPipeline } from "../PipelineFactory";
@@ -22,7 +26,7 @@ import { OVERLAY_Z, UI_THEME } from "./theme";
  * Rendering is a three-stage pipeline:
  * 1. collect — gather pre-built UIPrimitives from the generic overlay channel
  *    (`UIOverlayState.overlays`, produced via builders/ + overlaySink) plus the
- *    system artboard frames (document artboards in artboard edit mode).
+ *    system artboard boundaries (every document artboard).
  * 2. lower — lowering.ts sorts primitives by (z, insertion order) and emits
  *    ordered triangle-fill and cubic-bezier-stroke instance runs.
  * 3. draw — upload both instance streams, replay their ordered runs, then blit
@@ -62,6 +66,8 @@ export class UILayer {
 	private bindGroup: GPUBindGroup;
 
 	private currentViewport: Viewport | null = null;
+	/** Backing-store pixels per CSS pixel of the render target */
+	private pixelRatio = 1;
 
 	/** Persistent CPU-side instance scratch (grow-only, reused every frame). */
 	private scratch = new LoweringScratch();
@@ -129,8 +135,9 @@ export class UILayer {
 		this.unitBezierBuffer.unmap();
 	}
 
-	public updateViewport(viewport: Viewport): void {
+	public updateViewport(viewport: Viewport, pixelRatio = 1): void {
 		this.currentViewport = viewport;
+		this.pixelRatio = pixelRatio;
 	}
 
 	public destroy(): void {
@@ -152,26 +159,36 @@ export class UILayer {
 		canvasHeight?: number,
 		profiler?: GPUTimingProfiler | null,
 	): void {
-		const { isArtboardEditMode, overlays } = uiState;
-
-		const overlayEntries = overlays ? Object.entries(overlays) : [];
-		const hasArtboardUI =
-			isArtboardEditMode && artboards && artboards.length > 0;
+		const overlayEntries = uiState.overlays
+			? Object.entries(uiState.overlays)
+			: [];
+		const hasArtboardUI = artboards != null && artboards.length > 0;
 		if (!hasArtboardUI && overlayEntries.length === 0) return;
 
 		const w = canvasWidth ?? 1;
 		const h = canvasHeight ?? 1;
 		this.ensureRenderTextures(w, h);
 
-		// --- Collect: system artboard frames + generic overlay channel ---
+		// --- Collect: system artboard boundaries + generic overlay channel ---
 		const groups: OverlayGroup[] = [];
-		if (hasArtboardUI && artboards) {
-			// Per-artboard frames in edit mode are system-driven (document
-			// artboards), not tool overlays; selection handles arrive via the
-			// generic overlay channel.
+		if (hasArtboardUI) {
+			// Artboard boundaries are system-driven (document artboards), not
+			// tool overlays. They sit below every tool overlay; selection
+			// handles arrive via the generic overlay channel.
 			groups.push({
 				z: OVERLAY_Z.artboard,
-				prims: buildArtboardOverlay(artboards, null, UI_THEME),
+				prims: buildArtboardOverlay(
+					snapArtboardsToPixels(
+						artboards,
+						this.currentViewport,
+						this.pixelRatio,
+						UI_THEME.strokeWidth.artboardOutline,
+						w,
+						h,
+					),
+					null,
+					UI_THEME,
+				),
 			});
 		}
 		// Generic overlay channel: entries join a stable (z, insertion order) sort.
@@ -488,4 +505,63 @@ export class UILayer {
 
 		return { pipeline: this.blitPipeline, bindGroup: this.blitBindGroup };
 	}
+}
+
+/**
+ * Move each artboard edge so its outline covers whole backing-store pixels
+ * instead of being anti-aliased into a blurred band whose look changes with
+ * every zoom step.
+ */
+function snapArtboardsToPixels(
+	artboards: Artboard[],
+	viewport: Viewport | null,
+	pixelRatio: number,
+	lineWidthPx: number,
+	canvasWidth: number,
+	canvasHeight: number,
+): Artboard[] {
+	// A rotated view puts the edges off the pixel grid, where snapping cannot help
+	if (!viewport || viewport.rotation !== 0) return artboards;
+
+	const deviceViewport = { ...viewport, zoom: viewport.zoom * pixelRatio };
+	// The line is centered on the edge, so its sides land on pixel boundaries
+	// when the center sits half a line width past one
+	const halfLine = (lineWidthPx * pixelRatio) / 2;
+	// An edge exactly between two pixel rows rounds away from the artboard
+	// (`outward` -1 toward smaller screen coordinates, 1 toward larger), so the
+	// outline never covers the artwork's outermost pixels on any side.
+	const snapPx = (px: number, outward: -1 | 1) =>
+		(outward < 0
+			? Math.ceil(px - halfLine - 0.5)
+			: Math.floor(px - halfLine + 0.5)) + halfLine;
+	const snapCorner = (wx: number, wy: number, outward: -1 | 1) => {
+		const screen = worldToScreen(
+			wx,
+			wy,
+			deviceViewport,
+			canvasWidth,
+			canvasHeight,
+		);
+		return screenToWorld(
+			snapPx(screen.x, outward),
+			snapPx(screen.y, outward),
+			deviceViewport,
+			canvasWidth,
+			canvasHeight,
+		);
+	};
+
+	return artboards.map((artboard) => {
+		const bounds = getArtboardBounds(artboard);
+		// World Y grows upward, so the top-left on screen is (minX, maxY)
+		const topLeft = snapCorner(bounds.minX, bounds.maxY, -1);
+		const bottomRight = snapCorner(bounds.maxX, bounds.minY, 1);
+		return {
+			...artboard,
+			x: (topLeft.x + bottomRight.x) / 2,
+			y: (topLeft.y + bottomRight.y) / 2,
+			width: bottomRight.x - topLeft.x,
+			height: topLeft.y - bottomRight.y,
+		};
+	});
 }

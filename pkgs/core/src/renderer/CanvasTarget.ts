@@ -26,9 +26,12 @@ type CanvasTargetEventMap = {
 export class CanvasTarget extends Emitter<CanvasTargetEventMap> {
 	public readonly id: string;
 	private readonly domElement: HTMLCanvasElement;
+	/** Size in CSS pixels, the space pointer input and tools work in */
 	public width = 0;
 	public height = 0;
-	private pixelRatio: number;
+	private readonly pixelRatioOverride: number | undefined;
+	/** Largest backing-store side the device can render to */
+	private maxPixelSize = Number.POSITIVE_INFINITY;
 
 	private _context: GPUCanvasContext | null = null;
 	private _disposed = false;
@@ -46,9 +49,18 @@ export class CanvasTarget extends Emitter<CanvasTargetEventMap> {
 		this.id = options?.id ?? nanoid();
 		this.domElement = canvas;
 		this._viewport = { ...(options?.viewport ?? createDefaultViewport()) };
-		this.pixelRatio = options?.pixelRatio ?? (globalThis.devicePixelRatio || 1);
+		this.pixelRatioOverride = options?.pixelRatio;
 
 		this.updateSize();
+	}
+
+	/**
+	 * Device pixels per CSS pixel the backing store aims for. Read live unless
+	 * fixed by the constructor, so a move to a display with another density
+	 * follows.
+	 */
+	public get pixelRatio(): number {
+		return this.pixelRatioOverride ?? (globalThis.devicePixelRatio || 1);
 	}
 
 	public get canvas(): HTMLCanvasElement {
@@ -101,6 +113,7 @@ export class CanvasTarget extends Emitter<CanvasTargetEventMap> {
 			throw new Error("Failed to get WebGPU context from canvas");
 		}
 
+		this.maxPixelSize = device.limits.maxTextureDimension2D;
 		ctx.configure({
 			device,
 			format,
@@ -125,14 +138,30 @@ export class CanvasTarget extends Emitter<CanvasTargetEventMap> {
 		const rect = this.domElement.getBoundingClientRect();
 		if (rect.width === 0 || rect.height === 0) return;
 
-		// Only update canvas backing store when size actually changed
-		if (this.width === rect.width && this.height === rect.height) return;
+		// A backing store at CSS resolution would be upscaled, and blurred, by
+		// the browser on high-density displays. One past the device's texture
+		// limit would fail to draw at all, so a canvas that large drops
+		// resolution instead.
+		const ratio = Math.min(
+			this.pixelRatio,
+			this.maxPixelSize / Math.max(rect.width, rect.height),
+		);
+		const pixelWidth = Math.round(rect.width * ratio);
+		const pixelHeight = Math.round(rect.height * ratio);
+		if (
+			this.width === rect.width &&
+			this.height === rect.height &&
+			this.domElement.width === pixelWidth &&
+			this.domElement.height === pixelHeight
+		) {
+			return;
+		}
 
 		this.width = rect.width;
 		this.height = rect.height;
 
-		this.domElement.width = rect.width;
-		this.domElement.height = rect.height;
+		this.domElement.width = pixelWidth;
+		this.domElement.height = pixelHeight;
 
 		this.emit("sizeChanged", { width: rect.width, height: rect.height });
 	}

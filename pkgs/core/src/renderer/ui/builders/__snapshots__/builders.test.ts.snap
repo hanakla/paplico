@@ -3,36 +3,66 @@
 exports[`UI overlay builders > should build artboard outline primitives from the VRT fixture 1`] = `
 [
   {
-    "cx": -60,
-    "cy": 10,
-    "height": 150,
-    "kind": "rect",
+    "closed": true,
+    "kind": "polyline",
+    "points": [
+      {
+        "x": -160,
+        "y": -65,
+      },
+      {
+        "x": 40,
+        "y": -65,
+      },
+      {
+        "x": 40,
+        "y": 85,
+      },
+      {
+        "x": -160,
+        "y": 85,
+      },
+    ],
     "stroke": {
       "color": [
-        0.4,
-        0.4,
-        0.4,
-        0.8,
+        0,
+        0,
+        0,
+        1,
       ],
-      "width": 1.5,
+      "width": 1,
     },
-    "width": 200,
   },
   {
-    "cx": 120,
-    "cy": -60,
-    "height": 80,
-    "kind": "rect",
+    "closed": true,
+    "kind": "polyline",
+    "points": [
+      {
+        "x": 70,
+        "y": -100,
+      },
+      {
+        "x": 170,
+        "y": -100,
+      },
+      {
+        "x": 170,
+        "y": -20,
+      },
+      {
+        "x": 70,
+        "y": -20,
+      },
+    ],
     "stroke": {
       "color": [
-        0.4,
-        0.4,
-        0.4,
-        0.8,
+        0,
+        0,
+        0,
+        1,
       ],
-      "width": 1.5,
+      "width": 1,
     },
-    "width": 100,
   },
 ]
 `;
@@ -40,36 +70,66 @@ exports[`UI overlay builders > should build artboard outline primitives from the
 exports[`UI overlay builders > should build artboard selection primitives from the VRT fixture 1`] = `
 [
   {
-    "cx": -60,
-    "cy": 10,
-    "height": 150,
-    "kind": "rect",
+    "closed": true,
+    "kind": "polyline",
+    "points": [
+      {
+        "x": -160,
+        "y": -65,
+      },
+      {
+        "x": 40,
+        "y": -65,
+      },
+      {
+        "x": 40,
+        "y": 85,
+      },
+      {
+        "x": -160,
+        "y": 85,
+      },
+    ],
     "stroke": {
       "color": [
-        0.4,
-        0.4,
-        0.4,
-        0.8,
+        0,
+        0,
+        0,
+        1,
       ],
-      "width": 1.5,
+      "width": 1,
     },
-    "width": 200,
   },
   {
-    "cx": 120,
-    "cy": -60,
-    "height": 80,
-    "kind": "rect",
+    "closed": true,
+    "kind": "polyline",
+    "points": [
+      {
+        "x": 70,
+        "y": -100,
+      },
+      {
+        "x": 170,
+        "y": -100,
+      },
+      {
+        "x": 170,
+        "y": -20,
+      },
+      {
+        "x": 70,
+        "y": -20,
+      },
+    ],
     "stroke": {
       "color": [
-        0.4,
-        0.4,
-        0.4,
-        0.8,
+        0,
+        0,
+        0,
+        1,
       ],
-      "width": 1.5,
+      "width": 1,
     },
-    "width": 100,
   },
   {
     "cx": -60,

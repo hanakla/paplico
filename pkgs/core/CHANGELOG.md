@@ -12,12 +12,16 @@
   - `PaplicoSelection.followLayerOf(elementIds)` makes the frontmost layer holding the elements the current layer.
 - **Tools**
   - `Tool.onPointerLeave` is called when the pointer leaves the canvas.
+- **Renderer**
+  - The `gpuCacheBudgetBytes` option of `Paplico.create` sets how much GPU memory the render caches keep between frames. It defaults to 1600 MiB.
 
 ### Changed
 
 - **Breaking API changes**
   - `PaplicoCommands.replacePathWithPaths` takes the path id and the runs instead of a layer id first. The path's own layer is used.
+  - `PaplicoSelection.setArtboardEditMode` is removed. Use `PaplicoSelection.selectArtboard(null)` to clear the artboard selection instead.
 - **Artboards**
+  - Every artboard's edge is always outlined by a black 1px line above the document instead of a gray line shown only while the artboard tool is active.
   - Moving or resizing an artboard no longer gets slower as the document grows.
 - **Collaboration / Timelapse**
   - A path's segments and stroke widths are written to a room and a timelapse recording as binary instead of JSON text. Older app versions cannot read the paths this version writes there.
@@ -49,6 +53,8 @@
 - **Path tool**
   - Fix the outline of a hovered path staying after the pointer leaves the canvas.
   - Fix hovering a path in another layer switching the current layer.
+- **Renderer**
+  - Fix the canvas looking blurry on high-density displays such as Retina. Backdrop filters, element filters and mix, blur and wet strokes stay as soft as before.
 
 ## [0.9.0] - 2026-10-18
 

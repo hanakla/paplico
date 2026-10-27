@@ -423,6 +423,9 @@ export class CanvasLayer {
 	 */
 
 	// -- Viewport & uniform binding --
+	/** Backing-store pixels per CSS pixel of the live canvas. Sizes meant to
+	 *  stay constant on screen scale by it. */
+	public pixelRatio = 1;
 	private viewportManager!: ViewportManager;
 	private readonly elementHierarchy = new ElementHierarchyCache();
 	private uniformScope: UniformScope;
@@ -2558,7 +2561,7 @@ export class CanvasLayer {
 			!disableViewportCulling &&
 			clearColorOverride == null &&
 			!pixelPreview
-				? STORE_MARGIN_PX
+				? STORE_MARGIN_PX * this.pixelRatio
 				: 0;
 		let { prebufWidth, prebufHeight, prebufZoom } = calculatePrebufDimensions({
 			viewport: this.viewportState.current!,
@@ -7545,10 +7548,10 @@ export class CanvasLayer {
 			return;
 		}
 
-		// @builtin(position) is in target (backing-store) pixels, which currently
-		// match CSS pixels, so on-screen spacing equals the pixel spacing below.
-		const spacingPx = CanvasLayer.DOT_GRID_SPACING_PX;
-		const radiusPx = CanvasLayer.DOT_GRID_RADIUS_PX;
+		// @builtin(position) is in backing-store pixels, while the spacing and
+		// radius are meant in CSS pixels.
+		const spacingPx = CanvasLayer.DOT_GRID_SPACING_PX * this.pixelRatio;
+		const radiusPx = CanvasLayer.DOT_GRID_RADIUS_PX * this.pixelRatio;
 
 		// Anchor the lattice phase to the world origin's screen projection so the
 		// dots pan with the canvas while keeping constant on-screen spacing.

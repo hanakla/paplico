@@ -5,8 +5,8 @@ import type { ArtboardSelectionUIData } from "../types";
 import { rectGeom } from "./shared";
 
 /**
- * Artboard edit mode: outline for every artboard, plus highlight and resize
- * handles for the selected artboard (or creation preview).
+ * Boundary outline for every artboard, plus highlight and resize handles for
+ * the selected artboard (or creation preview).
  */
 export function buildArtboardOverlay(
 	artboards: Artboard[],
@@ -14,18 +14,29 @@ export function buildArtboardOverlay(
 	theme: UITheme,
 ): UIPrimitive[] {
 	const prims: UIPrimitive[] = [];
-	const sw = theme.strokeWidth.default;
 
 	for (const artboard of artboards) {
-		const bounds = getArtboardBounds(artboard);
+		const { minX, minY, maxX, maxY } = getArtboardBounds(artboard);
+		// A closed polyline joins its corners; a rect stroke is four butt-capped
+		// lines that leave each outer corner pixel unpainted.
 		prims.push({
-			kind: "rect",
-			...rectGeom(bounds.minX, bounds.minY, bounds.maxX, bounds.maxY),
-			stroke: { color: theme.colors.artboardOutline, width: sw },
+			kind: "polyline",
+			points: [
+				{ x: minX, y: minY },
+				{ x: maxX, y: minY },
+				{ x: maxX, y: maxY },
+				{ x: minX, y: maxY },
+			],
+			closed: true,
+			stroke: {
+				color: theme.colors.artboardOutline,
+				width: theme.strokeWidth.artboardOutline,
+			},
 		});
 	}
 
 	if (selection) {
+		const sw = theme.strokeWidth.default;
 		prims.push({
 			kind: "rect",
 			...rectGeom(

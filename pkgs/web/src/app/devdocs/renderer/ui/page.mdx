@@ -24,7 +24,7 @@ flowchart LR
     PASS1 --> PASS2["Pass 2: Blitでキャンバスに合成"]
 ```
 
-UILayerは `RenderOrchestrator` から呼び出される。描画すべきUIデータがない場合は即座にreturnし、GPUリソースを消費しない。描画すべきUIデータがない場合とは、`overlays` が空で、かつアートボード編集モードのアートボード枠も無い場合である。
+UILayerは `RenderOrchestrator` から呼び出される。描画すべきUIデータがない場合は即座にreturnし、GPUリソースを消費しない。描画すべきUIデータがない場合とは、`overlays` が空で、かつドキュメントにアートボードが1つも無い場合である。
 
 ### 設計意図
 
@@ -39,7 +39,7 @@ UILayerをドキュメント描画と完全に分離し2パス構成にする理
 
 `UILayer.render()` は1フレームのUI描画を3段で処理する。
 
-1. **collect** — 描画するプリミティブの列を集める。入力は `UIOverlayState.overlays` の各エントリである。アートボード編集モードでは、ドキュメントのアートボード枠を `buildArtboardOverlay` で作って加える。
+1. **collect** — 描画するプリミティブの列を集める。入力は `UIOverlayState.overlays` の各エントリである。ドキュメントにアートボードがあれば、その枠を `buildArtboardOverlay` で作って加える。枠の辺は、線がキャンバスのピクセルにちょうど収まる位置へ寄せてから渡す。寄せないと、ズームのたびに線がにじんで見え方が変わるからである。
 2. **lower** — `lowering.ts` の `lowerScene` がプリミティブを重なり順に並べ、塗り三角形とストロークベジェの2本のインスタンス列へ変換する。
 3. **draw** — 2本のインスタンス列をGPUバッファへ書き込み、順序付きの run を再生してUIテクスチャに描く。最後にUIテクスチャをキャンバスへblitする。
 
@@ -242,7 +242,6 @@ UILayerの描画内容は `UIOverlayState` 構造体によって駆動される�
 
 ```typescript
 interface UIOverlayState {
-  isArtboardEditMode?: boolean;
   overlays?: Partial<Record<OverlayKey, UIOverlay>>;
 }
 
@@ -254,7 +253,7 @@ interface UIOverlay {
 
 `overlays` は、キーごとに1つの `UIOverlay` を持つ汎用のチャンネルである。エントリは不変のスナップショットとして扱う。更新するときはオブジェクトごと差し替え、中身を書き換えない。エントリは valtio の `ref()` で格納される。開発ビルドでは格納時に再帰的に凍結され、書き換えると例外になる。
 
-`isArtboardEditMode` が真のとき、UILayerはドキュメントのアートボード枠を自分で組み立てて描く。選択アートボードのハンドルは `overlays` 経由で届く。
+アートボードの枠は `overlays` を通らない。UILayerがドキュメントのアートボードから自分で組み立て、どのツールのオーバーレイよりも下に描く。選択アートボードの枠とハンドルは `overlays` 経由で届く。
 
 ビルダーへ渡す各 UIData の型定義は `core/renderer/ui/types.ts` にある。
 
@@ -308,6 +307,7 @@ UIの色と寸法は `core/renderer/ui/theme.ts` の `UI_THEME` に集約され�
 |---|---|---|
 | `default` | 1.5 px | UIアウトラインのデフォルト幅 |
 | `path` | 2.0 px | 選択のベジェパスアウトライン幅 |
+| `artboardOutline` | 1 px | 常に表示するアートボード枠線の幅 |
 | `hover` | 3.0 px | ホバーハイライトの幅 |
 | `meshVertexOutline` | 2.5 px | メッシュ頂点の白い枠 |
 | `gradientAxis` | 4 px | 線形グラデーションの軸線 |
@@ -352,7 +352,7 @@ UIの色と寸法は `core/renderer/ui/theme.ts` の `UI_THEME` に集約され�
 
 | キー | 値 | 用途 |
 |---|---|---|
-| `artboardOutline` | `[0.4, 0.4, 0.4, 0.8]` | アートボード枠線（灰色） |
+| `artboardOutline` | `[0, 0, 0, 1]` | アートボード枠線（黒） |
 | `artboardSelected` | `[0.2, 0.6, 1.0, 1.0]` | 選択アートボード（青） |
 
 #### パス編集ハンドル

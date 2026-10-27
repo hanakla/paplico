@@ -38,7 +38,6 @@ export function createRendererState(): RendererState {
 		selectionBounds: null,
 		keyObjectId: null,
 		uiOverlayState: {
-			isArtboardEditMode: false,
 			overlays: {},
 		},
 		patternEditSession: null,

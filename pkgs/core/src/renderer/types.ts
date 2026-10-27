@@ -125,7 +125,6 @@ export interface FrameRequest {
 
 /** UI overlay state passed to UILayer for rendering tool-specific overlays. */
 export interface UIOverlayState {
-	isArtboardEditMode?: boolean;
 	/**
 	 * Generic overlay channel keyed by the central `OVERLAY_KEYS` registry.
 	 * Values are stored with valtio `ref()` and treated as immutable — replace

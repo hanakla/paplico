@@ -1591,15 +1591,26 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.tool?.refreshUI?.();
 		});
 
-		const resizeObserver = new ResizeObserver(() => {
+		const resize = () => {
 			target.updateSize();
 			scheduler.markDirty("resize");
-		});
+		};
+		const resizeObserver = new ResizeObserver(resize);
 		resizeObserver.observe(canvas);
+		// A move to a display with another density keeps the CSS size, which
+		// the ResizeObserver does not report
+		const stopWatchingPixelRatio = watchDevicePixelRatio(resize);
 
 		this.canvasTargets.set(
 			target.id,
-			new CanvasTargetEntry(target, ui, scheduler, [], resizeObserver),
+			new CanvasTargetEntry(
+				target,
+				ui,
+				scheduler,
+				[],
+				resizeObserver,
+				stopWatchingPixelRatio,
+			),
 		);
 
 		// Keep a stable primary target for tool UI refresh and viewport-dependent APIs.
@@ -2403,7 +2414,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.clearAllOverrides();
 		this.rendererStore.editingScopeStack = [];
 		this.rendererStore.selectedArtboardId = null;
-		this.rendererStore.uiOverlayState.isArtboardEditMode = false;
 		this.rendererStore.uiOverlayState.overlays = {};
 		this.rendererStore.toolSession = null;
 
@@ -3406,9 +3416,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.patternEdit?.refreshSessionVisuals();
 		}
 
-		// Disable artboard edit mode when switching away from artboard tool
+		// The artboard selection belongs to the artboard tool
 		if (previousToolType === "artboard" && toolType !== "artboard") {
-			this.selection.setArtboardEditMode(false);
+			this.selection.selectArtboard(null);
 		}
 
 		// Touch-type mode is a text-tool session state; leaving the tool ends it
@@ -3449,7 +3459,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 			this.tool = new PathEditTool(this.toolContext);
 		} else if (toolType === "artboard") {
-			this.selection.setArtboardEditMode(true);
 			this.tool = new ArtboardTool(this.toolContext);
 		} else if (toolType === "path") {
 			this.tool = new PathTool(this.toolContext);
@@ -3962,7 +3971,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.clearAllOverrides();
 		this.rendererStore.editingScopeStack = [];
 		this.rendererStore.selectedArtboardId = null;
-		this.rendererStore.uiOverlayState.isArtboardEditMode = false;
 		this.rendererStore.uiOverlayState.overlays = {};
 		this.rendererStore.toolSession = null;
 
@@ -4058,14 +4066,36 @@ class CanvasTargetEntry {
 		public scheduler: RenderScheduler,
 		private valtioUnsubscribes: Array<() => void>,
 		private resizeObserver: ResizeObserver,
+		private stopWatchingPixelRatio: () => void,
 	) {}
 
 	public destroy() {
 		this.scheduler.destroy();
 		this.resizeObserver.disconnect();
+		this.stopWatchingPixelRatio();
 		for (const unsub of this.valtioUnsubscribes) unsub();
 		this.ui.destroy();
 	}
 }
 
 const INACTIVE_TARGET_UI_OVERLAY_STATE: UIOverlayState = Object.freeze({});
+
+/**
+ * Call `onChange` whenever `devicePixelRatio` changes. Returns a function that
+ * stops watching.
+ */
+function watchDevicePixelRatio(onChange: () => void): () => void {
+	let query: MediaQueryList;
+	const handleChange = () => {
+		onChange();
+		listen();
+	};
+	// A resolution query matches one ratio only, so each change re-registers
+	// against the new value
+	const listen = () => {
+		query = matchMedia(`(resolution: ${globalThis.devicePixelRatio}dppx)`);
+		query.addEventListener("change", handleChange, { once: true });
+	};
+	listen();
+	return () => query.removeEventListener("change", handleChange);
+}

@@ -507,20 +507,17 @@ export const UI_OVERLAY_FIXTURES: UIOverlayFixture[] = [
 		),
 	},
 	{
-		name: "artboard-edit-mode",
-		state: { isArtboardEditMode: true },
+		name: "artboard-outline",
+		state: {},
 		artboards: TEST_ARTBOARDS,
 	},
 	{
 		name: "artboard-selection",
-		state: {
-			isArtboardEditMode: true,
-			...overlayState(
-				"artboard-selection",
-				OVERLAY_Z.artboard,
-				buildArtboardOverlay([], UI_FIXTURE_DATA.artboardSelection, UI_THEME),
-			),
-		},
+		state: overlayState(
+			"artboard-selection",
+			OVERLAY_Z.artboard,
+			buildArtboardOverlay([], UI_FIXTURE_DATA.artboardSelection, UI_THEME),
+		),
 		artboards: TEST_ARTBOARDS,
 	},
 	{

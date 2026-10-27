@@ -45,6 +45,8 @@ export const UI_THEME = {
 		default: 1.5,
 		/** Stroke width for selection bezier path outlines */
 		path: 1,
+		/** Stroke width for the always-visible artboard boundary */
+		artboardOutline: 1,
 		/** Stroke width for hover highlights, thicker so they read at a glance */
 		hover: 3.0,
 		/** Stroke width for white mesh vertex outlines */
@@ -87,7 +89,7 @@ export const UI_THEME = {
 		// --- Snap Line ---
 		snapLine: rgba(1.0, 0.2, 0.5, 0.9),
 		// --- Artboard ---
-		artboardOutline: rgba(0.4, 0.4, 0.4, 0.8),
+		artboardOutline: rgba(0, 0, 0, 1),
 		artboardSelected: rgba(0.2, 0.6, 1.0, 1.0),
 		// --- Selection ---
 		selectionPath: rgba(0.2, 0.5, 1.0, 1.0),

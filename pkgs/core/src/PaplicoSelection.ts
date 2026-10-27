@@ -349,17 +349,6 @@ export class PaplicoSelection {
 		}
 	}
 
-	/**
-	 * Set artboard edit mode
-	 */
-	public setArtboardEditMode(enabled: boolean): void {
-		this.store.uiOverlayState.isArtboardEditMode = enabled;
-		if (!enabled) {
-			this.store.selectedArtboardId = null;
-			setArtboardSelectionOverlay(this.store.uiOverlayState, null);
-		}
-	}
-
 	// --- Layer ---
 
 	/**

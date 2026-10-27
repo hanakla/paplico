@@ -682,15 +682,22 @@ export class RenderOrchestrator {
 		const target = this.activeTarget;
 		target.updateSize();
 
-		td.canvasLayer.updateViewport(
-			request.viewport,
-			target.width,
-			target.height,
-		);
-		td.uiLayer.updateViewport(request.viewport);
-
 		const canvasTexture = td.context.getCurrentTexture();
 		const textureView = canvasTexture.createView();
+
+		// The document renders in backing-store pixels. UILayer keeps the CSS
+		// viewport because its overlay sizes are in CSS pixels; its shaders read
+		// the device zoom from the shared uniforms.
+		td.canvasLayer.pixelRatio = canvasTexture.width / target.width;
+		td.canvasLayer.updateViewport(
+			{
+				...request.viewport,
+				zoom: request.viewport.zoom * td.canvasLayer.pixelRatio,
+			},
+			canvasTexture.width,
+			canvasTexture.height,
+		);
+		td.uiLayer.updateViewport(request.viewport, td.canvasLayer.pixelRatio);
 
 		const encoder = this.device.createCommandEncoder({
 			label: "Frame Command Encoder",

@@ -25,7 +25,6 @@ function createStore(): DocumentChangeSubscriberStore {
 		elementOverrides: new Map(),
 		transientElements: new Map(),
 		uiOverlayState: {
-			isArtboardEditMode: false,
 			overlays: {},
 		},
 		selectedArtboardId: null,
@@ -126,7 +125,7 @@ describe("DocumentChangeSubscriber", () => {
 		hub.start();
 		hub.stop();
 
-		store.uiOverlayState.isArtboardEditMode = true;
+		store.uiOverlayState.overlays = {};
 		await Promise.resolve();
 
 		expect(onInvalidate).not.toHaveBeenCalled();

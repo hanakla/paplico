@@ -83,8 +83,8 @@ export function setHoverOverlay(
 
 /**
  * Selected-artboard overlay (bounds + resize handles only). The per-artboard
- * frames in edit mode are system-driven inside UILayer (document artboards +
- * `isArtboardEditMode`), not part of this overlay.
+ * boundaries are system-driven inside UILayer (document artboards), not part
+ * of this overlay.
  */
 export function setArtboardSelectionOverlay(
 	uiState: UIOverlayState,

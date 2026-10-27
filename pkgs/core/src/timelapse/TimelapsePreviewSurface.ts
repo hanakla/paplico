@@ -46,13 +46,11 @@ export class TimelapsePreviewSurface {
 		if (this.target.width === 0 || this.target.height === 0) return;
 
 		const bounds = getArtboardBounds(artboard);
+		const { canvas } = this.target;
 		await this.renderer.renderArtboardToCanvas(
 			artboard,
 			frame.document,
-			Math.min(
-				this.target.width / bounds.width,
-				this.target.height / bounds.height,
-			),
+			Math.min(canvas.width / bounds.width, canvas.height / bounds.height),
 			WHITE,
 			{ targetId: this.target.id, changedElements: frame.changedElements },
 		);
