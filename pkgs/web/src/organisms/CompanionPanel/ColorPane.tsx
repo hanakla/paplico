@@ -130,13 +130,13 @@ export const ColorPane = memo(function ColorPane({
 					onValueChange={handleTargetChange}
 				>
 					<ToggleGroup.Item
-						className="flex-1 min-w-0 size-auto h-11 px-2 text-xs truncate"
+						className="flex-1 min-w-0 size-auto h-11 px-2 type-value truncate"
 						value="stroke"
 					>
 						{t("companion.strokeColor")}
 					</ToggleGroup.Item>
 					<ToggleGroup.Item
-						className="flex-1 min-w-0 size-auto h-11 px-2 text-xs truncate"
+						className="flex-1 min-w-0 size-auto h-11 px-2 type-value truncate"
 						value="fill"
 					>
 						{t("companion.fillColor")}
@@ -159,19 +159,19 @@ export const ColorPane = memo(function ColorPane({
 				onValueChange={handleKindChange}
 			>
 				<ToggleGroup.Item
-					className="flex-1 min-w-0 size-auto h-11 px-1 text-xs truncate"
+					className="flex-1 min-w-0 size-auto h-11 px-1 type-value truncate"
 					value="none"
 				>
 					{t("toolbar.gradientNone")}
 				</ToggleGroup.Item>
 				<ToggleGroup.Item
-					className="flex-1 min-w-0 size-auto h-11 px-1 text-xs truncate"
+					className="flex-1 min-w-0 size-auto h-11 px-1 type-value truncate"
 					value="solid"
 				>
 					{t("toolbar.gradientSolid")}
 				</ToggleGroup.Item>
 				<ToggleGroup.Item
-					className="flex-1 min-w-0 size-auto h-11 px-1 text-xs truncate"
+					className="flex-1 min-w-0 size-auto h-11 px-1 type-value truncate"
 					value="linear"
 				>
 					{t("toolbar.gradientLinear")}
@@ -179,7 +179,7 @@ export const ColorPane = memo(function ColorPane({
 				{/* A stroke gradient is linear by definition in the schema. */}
 				{target === "fill" && (
 					<ToggleGroup.Item
-						className="flex-1 min-w-0 size-auto h-11 px-1 text-xs truncate"
+						className="flex-1 min-w-0 size-auto h-11 px-1 type-value truncate"
 						value="radial"
 					>
 						{t("toolbar.gradientRadial")}
@@ -260,7 +260,7 @@ export const ColorPane = memo(function ColorPane({
 				</ColorPicker2.Root>
 			) : (
 				kind === "" && (
-					<p className="text-xs text-muted-foreground px-1">
+					<p className="type-label text-muted-foreground px-1">
 						{t("companion.colorNotAdjustable")}
 					</p>
 				)

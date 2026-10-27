@@ -82,7 +82,7 @@ export const RepeatControls = memo(function RepeatControls() {
 	return (
 		<div className="flex flex-col gap-1.5 w-full">
 			<div className="flex items-center justify-between px-1">
-				<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+				<span className="type-section text-muted-foreground">
 					{t("actionsPanel.repeat")}
 				</span>
 				<Tooltip content={t("actionsPanel.releaseRepeat")} side="bottom">
@@ -194,7 +194,7 @@ export const RepeatControls = memo(function RepeatControls() {
 						/>
 						<label
 							htmlFor={rotateInstancesId}
-							className="flex items-center gap-2 text-[10px] text-muted-foreground cursor-pointer select-none"
+							className="flex items-center gap-2 type-label text-muted-foreground cursor-pointer select-none"
 						>
 							<Checkbox
 								id={rotateInstancesId}

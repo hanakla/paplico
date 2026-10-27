@@ -168,14 +168,14 @@ function NumberListInput({
 
 	return (
 		<div>
-			<div className="text-muted-foreground text-xs mb-1">{label}</div>
+			<div className="text-muted-foreground type-label mb-1">{label}</div>
 			<input
 				type="text"
 				value={text}
 				onChange={handleChange}
 				onBlur={handleBlur}
 				aria-label={label}
-				className="w-full min-w-0 rounded border border-border bg-background px-1.5 py-0.5 text-xs font-mono text-foreground"
+				className="w-full min-w-0 rounded border border-border bg-background px-1.5 py-0.5 type-value font-mono text-foreground"
 				spellCheck={false}
 			/>
 		</div>

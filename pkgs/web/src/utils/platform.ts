@@ -14,6 +14,13 @@ export function detectSafariBrowser(): boolean {
 	return isSafariTokenPresent && !isExcludedBrowser;
 }
 
+/** Tells whether the page runs in Firefox, by its user agent. */
+export function detectFirefoxBrowser(): boolean {
+	if (typeof navigator === "undefined") return false;
+
+	return navigator.userAgent.includes("Firefox/");
+}
+
 /** Tells whether the app runs in the iOS or Android Tauri build. */
 export function detectTauriMobile(): boolean {
 	return IS_TAURI_ENV && /iPhone|iPad|Android/.test(navigator.userAgent);

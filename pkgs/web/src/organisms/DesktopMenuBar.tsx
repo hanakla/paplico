@@ -184,12 +184,10 @@ export function DesktopMenuBar({
 			ref={menuBarObstacleRef}
 			data-tauri-drag-region
 			className={twm(
-				"min-h-10 bg-background/80 backdrop-liquid flex items-center px-3 pointer-events-auto pt-safe-top",
-				"tauri-mac:pl-18",
+				"relative min-h-10.5 flex items-center pl-1.25 pr-3 pointer-events-auto pt-safe-top",
+				"tauri-mac:pl-22",
 			)}
 		>
-			<div className="flex items-center gap-1.5 mr-4"></div>
-
 			<Menubar.Root>
 				<Menubar.Menu
 					trigger={

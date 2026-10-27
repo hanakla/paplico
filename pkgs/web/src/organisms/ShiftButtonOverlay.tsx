@@ -48,8 +48,8 @@ export function ShiftButtonOverlay({ className }: { className?: string }) {
 				"rounded-full text-base backdrop-liquid drop-shadow-md transition-all duration-150 select-none touch-none pointer-events-auto",
 				"outline-4 outline-offset-0 outline-transparent",
 				pressed
-					? "bg-virtual-shiftkey text-virtual-shiftkey-foreground/60 outline-virtual-shiftkey outline-offset-4"
-					: "bg-virtual-shiftkey text-virtual-shiftkey-foreground/60 hover:bg-virtual-shiftkey-hover",
+					? "bg-virtual-shiftkey text-virtual-shiftkey-foreground outline-virtual-shiftkey outline-offset-4"
+					: "bg-virtual-shiftkey text-virtual-shiftkey-foreground hover:bg-virtual-shiftkey-hover",
 				className,
 			)}
 			onPointerDown={handlePointerDown}

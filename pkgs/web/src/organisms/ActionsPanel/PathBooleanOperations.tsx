@@ -15,7 +15,7 @@ export const PathBooleanOperations = memo(function PathBooleanOperations() {
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.booleanOperations")}
 			</span>
 			<div className="flex gap-1">

@@ -258,20 +258,35 @@ export function FilterPanel() {
 		return (
 			<div className="w-52 bg-background/80 backdrop-liquid rounded-lg shadow-lg overflow-hidden">
 				<div className="px-3 py-1 border-b border-border flex items-center gap-1.5">
-					<span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground uppercase tracking-wide">
+					<span className="min-w-0 flex-1 truncate type-panel-title text-muted-foreground">
 						{t("filterPanel.appearance")}
 					</span>
-					<IconButton $size="xs" $variant="ghost" disabled>
+					<IconButton
+						$size="xs"
+						$variant="ghost"
+						aria-label={t("filterPanel.fill")}
+						disabled
+					>
 						<PaintBucket size={14} />
 					</IconButton>
-					<IconButton $size="xs" $variant="ghost" disabled>
+					<IconButton
+						$size="xs"
+						$variant="ghost"
+						aria-label={t("filterPanel.stroke")}
+						disabled
+					>
 						<Pen size={14} />
 					</IconButton>
-					<IconButton $size="xs" $variant="ghost" disabled>
+					<IconButton
+						$size="xs"
+						$variant="ghost"
+						aria-label={t("companion.addAppearance")}
+						disabled
+					>
 						<Plus size={14} />
 					</IconButton>
 				</div>
-				<p className="text-muted-foreground text-xs p-3">
+				<p className="text-muted-foreground type-label p-3">
 					{t("filterPanel.selectElementToApplyFilters")}
 				</p>
 			</div>
@@ -292,7 +307,7 @@ export function FilterPanel() {
 					<div className="px-3 py-1 border-b border-border flex items-center gap-1.5">
 						<Sparkles className="text-accent" size={14} />
 
-						<span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground uppercase tracking-wide">
+						<span className="min-w-0 flex-1 truncate type-panel-title text-muted-foreground">
 							{t("filterPanel.appearance")}
 						</span>
 
@@ -391,7 +406,7 @@ export function FilterPanel() {
 												onClick={handleSelectElementHeader}
 											>
 												{getElementTypeIcon(selectedElement.type)}
-												<span className="truncate text-xs font-medium">
+												<span className="truncate type-section">
 													{t(getElementTypeLabelKey(selectedElement.type))}
 												</span>
 											</button>
@@ -444,7 +459,7 @@ export function FilterPanel() {
 
 						<StackDropZone>
 							{filters.length === 0 && (
-								<p className="text-muted-foreground text-xs">
+								<p className="text-muted-foreground type-label">
 									{t("filterPanel.noFiltersApplied")}
 								</p>
 							)}

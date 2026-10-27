@@ -38,12 +38,14 @@ const iconButtonVariants = tv({
 		{
 			$variant: "ghost",
 			$pressed: true,
-			className: "bg-accent/60 text-accent-foreground hover:bg-accent-hover",
+			className:
+				"bg-accent-strong text-accent-foreground hover:bg-accent-hover",
 		},
 		{
 			$variant: "secondary",
 			$pressed: true,
-			className: "bg-accent/60 text-accent-foreground hover:bg-accent-hover",
+			className:
+				"bg-accent-strong text-accent-foreground hover:bg-accent-hover",
 		},
 	],
 	defaultVariants: {

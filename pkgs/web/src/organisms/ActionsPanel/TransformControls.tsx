@@ -77,7 +77,7 @@ export const TransformControls = memo(function TransformControls() {
 	return (
 		<div className="flex flex-col gap-1.5 w-full">
 			<div className="flex items-center px-1">
-				<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+				<span className="type-section text-muted-foreground">
 					{t("actionsPanel.transform")}
 				</span>
 			</div>

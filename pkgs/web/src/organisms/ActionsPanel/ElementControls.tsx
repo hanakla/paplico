@@ -187,7 +187,7 @@ export function FontFamilyControl() {
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.font")}
 			</span>
 			<FontCombobox
@@ -217,7 +217,7 @@ export function FontSizeControl() {
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.size")}
 			</span>
 			<div className="flex items-center gap-2 px-1">
@@ -285,7 +285,7 @@ export function AlignmentControl({ elements }: { elements?: TextElement[] }) {
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.align")}
 			</span>
 			<div className="flex gap-1 px-1">
@@ -324,7 +324,7 @@ export function AlignmentControl({ elements }: { elements?: TextElement[] }) {
 				</Tooltip>
 			</div>
 			{isMixed && (
-				<span className="text-[10px] text-muted-foreground px-1 italic">
+				<span className="type-label text-muted-foreground italic">
 					&lt;mixed&gt;
 				</span>
 			)}
@@ -364,7 +364,7 @@ export function WritingModeControl({ elements }: { elements?: TextElement[] }) {
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.writingMode")}
 			</span>
 			<div className="flex gap-1 px-1">
@@ -392,7 +392,7 @@ export function WritingModeControl({ elements }: { elements?: TextElement[] }) {
 				</Tooltip>
 			</div>
 			{isMixed && (
-				<span className="text-[10px] text-muted-foreground px-1 italic">
+				<span className="type-label text-muted-foreground italic">
 					&lt;mixed&gt;
 				</span>
 			)}

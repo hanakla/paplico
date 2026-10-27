@@ -25,7 +25,7 @@ export const SliderRow = memo(function SliderRow({
 	return (
 		// biome-ignore lint/a11y/noLabelWithoutControl: custom slider component
 		<label className="flex flex-col gap-1">
-			<span className="flex items-baseline justify-between text-xs text-muted-foreground">
+			<span className="flex items-baseline justify-between type-label text-muted-foreground">
 				{label}
 				<span className="font-mono text-foreground">{display}</span>
 			</span>

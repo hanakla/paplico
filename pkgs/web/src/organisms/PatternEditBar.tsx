@@ -101,7 +101,7 @@ export function PatternEditBar() {
 				</div>
 				<div className="flex items-center gap-3">
 					<div className="flex items-center gap-1">
-						<span className="text-[10px] text-muted-foreground">
+						<span className="type-label text-muted-foreground">
 							{t("toolbar.patternEditBarTileWidth")}
 						</span>
 						<FakeInput
@@ -115,7 +115,7 @@ export function PatternEditBar() {
 						/>
 					</div>
 					<div className="flex items-center gap-1">
-						<span className="text-[10px] text-muted-foreground">
+						<span className="type-label text-muted-foreground">
 							{t("toolbar.patternEditBarTileHeight")}
 						</span>
 						<FakeInput

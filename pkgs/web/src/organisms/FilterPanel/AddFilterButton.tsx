@@ -5,6 +5,7 @@ import { IconButton } from "@/components/IconButton";
 import { Menu } from "@/components/Menu";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useToolbarRailOffsets } from "@/hooks/useToolbarRailOffsets";
+import { useTranslation } from "@/locales";
 import { useEventCallback } from "@/utils/hooks";
 import { AddFilterMenu } from "./AddFilterMenu";
 import { AddFilterSheet } from "./AddFilterSheet";
@@ -25,6 +26,7 @@ export const AddFilterButton = memo(function AddFilterButton({
 	side: "left" | "right";
 	iconSize: number;
 }) {
+	const t = useTranslation();
 	const isSheet = useLayoutMode() === "portrait";
 	const railOffsets = useToolbarRailOffsets();
 	const [sheetOpen, setSheetOpen] = useState(false);
@@ -44,7 +46,11 @@ export const AddFilterButton = memo(function AddFilterButton({
 		return (
 			<Menu.Root highlightItemOnHover={false}>
 				<Menu.Trigger className="p-0 hover:bg-transparent data-popup-open:bg-transparent">
-					<IconButton $size="xs" $variant="ghost">
+					<IconButton
+						$size="xs"
+						$variant="ghost"
+						aria-label={t("companion.addAppearance")}
+					>
 						<Plus size={iconSize} />
 					</IconButton>
 				</Menu.Trigger>
@@ -61,7 +67,12 @@ export const AddFilterButton = memo(function AddFilterButton({
 
 	return (
 		<>
-			<IconButton $size="xs" $variant="ghost" onClick={handleOpenSheet}>
+			<IconButton
+				$size="xs"
+				$variant="ghost"
+				aria-label={t("companion.addAppearance")}
+				onClick={handleOpenSheet}
+			>
 				<Plus size={iconSize} />
 			</IconButton>
 			<Drawer.Root

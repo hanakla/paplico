@@ -131,7 +131,7 @@ export const KaleidoscopeFilterControls = memo(
 				onUpdate={onUpdate}
 			>
 				<div>
-					<div className="text-muted-foreground text-xs mb-1">
+					<div className="text-muted-foreground type-label mb-1">
 						{t("filterPanel.kaleidoPattern")}
 					</div>
 					<SimpleSelect
@@ -175,7 +175,7 @@ export const KaleidoscopeFilterControls = memo(
 					/>
 				</div>
 				<div>
-					<div className="text-muted-foreground text-xs mb-1">
+					<div className="text-muted-foreground type-label mb-1">
 						{t("filterPanel.blendMode")}
 					</div>
 					<SimpleSelect
@@ -197,7 +197,7 @@ export const KaleidoscopeFilterControls = memo(
 					/>
 				</div>
 				<div className="space-y-2">
-					<div className="text-muted-foreground text-xs">
+					<div className="text-muted-foreground type-label">
 						{t("filterPanel.kaleidoCenter")}
 					</div>
 					<Vec2Pad
@@ -205,7 +205,7 @@ export const KaleidoscopeFilterControls = memo(
 						y={params.centerY}
 						onChange={handleCenterPadChange}
 					/>
-					<div className="flex items-center gap-2 text-muted-foreground text-xs">
+					<div className="flex items-center gap-2 text-muted-foreground type-label">
 						<span>X</span>
 						<FakeInput
 							type="number"

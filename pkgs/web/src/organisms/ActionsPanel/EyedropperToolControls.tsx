@@ -18,7 +18,7 @@ export const EyedropperToolControls = memo(function EyedropperToolControls() {
 
 	return (
 		<div className="flex flex-col gap-2 w-full">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.eyedropperCopyTargets")}
 			</span>
 			<div className="flex flex-col gap-1.5 px-1">
@@ -62,7 +62,7 @@ const EyedropperCheckboxRow = memo(function EyedropperCheckboxRow({
 	label: string;
 }) {
 	return (
-		<span className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+		<span className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 			<Checkbox checked={checked} onCheckedChange={(v) => onToggle(!!v)} />
 			{label}
 		</span>

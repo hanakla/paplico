@@ -16,7 +16,7 @@ const sliderVariants = tv({
 	slots: {
 		root: "relative flex touch-none select-none data-disabled:opacity-40 data-disabled:pointer-events-none",
 		control: "flex items-center justify-center",
-		track: "relative grow rounded-full bg-foreground/20",
+		track: "relative grow rounded-full bg-foreground/60",
 		indicator: "absolute rounded-full bg-accent",
 		thumb:
 			"block rounded-full bg-accent shadow cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50",
@@ -125,6 +125,8 @@ function InfiniteSliderRoot({
 	onDragEnd,
 	className,
 	$size = "sm",
+	"aria-labelledby": ariaLabelledBy,
+	valueText,
 }: {
 	value: number;
 	min: number;
@@ -137,6 +139,9 @@ function InfiniteSliderRoot({
 	onDragEnd?: () => void;
 	className?: string;
 	$size?: VariantProps<typeof sliderVariants>["$size"];
+	"aria-labelledby"?: string;
+	/** Read out instead of the raw track position, which is not the value */
+	valueText?: string;
 }) {
 	const restPosition = computeInfiniteSliderRestPosition(
 		value,
@@ -240,6 +245,8 @@ function InfiniteSliderRoot({
 					/>
 					<BUISlider.Thumb
 						className={styles.thumb()}
+						aria-labelledby={ariaLabelledBy}
+						getAriaValueText={valueText == null ? undefined : () => valueText}
 						style={
 							dragPosition == null
 								? { transitionDuration: `${RELEASE_HOLD_MS}ms` }

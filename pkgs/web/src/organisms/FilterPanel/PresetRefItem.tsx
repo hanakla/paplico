@@ -158,7 +158,7 @@ export const PresetRefItem = memo(function PresetRefItem({
 							{preset.filters.map((filter) => (
 								<div
 									key={filter.uid}
-									className="flex items-center gap-1.5 py-0.5 text-[11px] text-muted-foreground"
+									className="flex items-center gap-1.5 py-0.5 type-label text-muted-foreground"
 								>
 									{getFilterIcon(filter.processor)}
 									<span className="truncate">

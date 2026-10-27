@@ -127,7 +127,7 @@ export const BrushPropertyRow = memo(function BrushPropertyRow({
 					}
 				/>
 				<Popover.Content className="w-64 space-y-2 p-2">
-					<div className="text-[11px] text-muted-foreground">
+					<div className="type-label text-muted-foreground">
 						{t("brushProperty.influencesDescription")}
 					</div>
 					<div className="flex flex-wrap gap-1">
@@ -234,7 +234,7 @@ const InfluenceCurve = memo(function InfluenceCurve({
 	return (
 		<div className="space-y-1">
 			<div className="flex items-center justify-between">
-				<span className="text-[11px] text-foreground">
+				<span className="type-value text-foreground">
 					{t(`brushInput.${curve.input}`)}
 				</span>
 				<IconButton

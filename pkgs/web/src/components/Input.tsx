@@ -21,7 +21,7 @@ const inputVariants = tv({
 	},
 	variants: {
 		$size: {
-			xs: { input: "h-6 px-1.5 text-[11px]", unit: "px-2 text-[11px]" },
+			xs: { input: "h-6 px-1.5 type-value", unit: "px-2 type-label" },
 			sm: { input: "h-8 px-2.5 text-xs", unit: "px-2 text-xs" },
 			md: { input: "h-10 px-3 text-sm", unit: "px-2 text-sm" },
 			lg: { input: "h-12 px-4 text-base", unit: "px-2 text-base" },

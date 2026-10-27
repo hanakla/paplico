@@ -44,7 +44,7 @@ export const InnerGlowFilterControls = memo(function InnerGlowFilterControls({
 			onUpdate={onUpdate}
 		>
 			<div>
-				<div className="text-muted-foreground text-xs mb-1">
+				<div className="text-muted-foreground type-label mb-1">
 					{t("filterPanel.innerGlowType")}
 				</div>
 				<SimpleSelect
@@ -58,7 +58,7 @@ export const InnerGlowFilterControls = memo(function InnerGlowFilterControls({
 				/>
 			</div>
 			<div>
-				<div className="text-muted-foreground text-xs mb-1">
+				<div className="text-muted-foreground type-label mb-1">
 					{t("filterPanel.innerGlowColor")}
 				</div>
 				<ColorPickerThin

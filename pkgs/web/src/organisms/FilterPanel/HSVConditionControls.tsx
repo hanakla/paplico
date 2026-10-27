@@ -45,7 +45,7 @@ export function HSVConditionControls({
 	const vividColor = `hsl(${hue}, 100%, 50%)`;
 
 	return (
-		<div className="space-y-2 text-muted-foreground text-xs">
+		<div className="space-y-2 text-muted-foreground type-label">
 			<div>
 				<div className="flex items-center justify-between mb-1">
 					<span>{t("filterPanel.hsvCondTargetHue")}</span>

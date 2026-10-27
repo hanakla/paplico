@@ -41,7 +41,7 @@ export const EraserToolControls = memo(function EraserToolControls() {
 				step={BRUSH_WIDTH_STEP}
 				onValueChange={handleWidthChange}
 			/>
-			<span className="flex items-center gap-2 text-muted-foreground text-xs">
+			<span className="flex items-center gap-2 text-muted-foreground type-label">
 				<Checkbox
 					id="eraser-pierce-all-layers"
 					checked={toolSnap.eraserPierceAllLayers}
@@ -52,7 +52,7 @@ export const EraserToolControls = memo(function EraserToolControls() {
 				</label>
 			</span>
 			<div className="flex flex-col gap-1.5">
-				<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+				<span className="type-section text-muted-foreground">
 					{t("actionsPanel.clearSelection")}
 				</span>
 				<Tooltip content={t("actionsPanel.clearSelection")} side="bottom">

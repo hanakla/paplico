@@ -60,7 +60,7 @@ export const HalftoneFilterControls = memo(function HalftoneFilterControls({
 			onUpdate={onUpdate}
 		>
 			<div>
-				<div className="text-muted-foreground text-xs mb-1">
+				<div className="text-muted-foreground type-label mb-1">
 					{t("filterPanel.halftonePlacement")}
 				</div>
 				<SimpleSelect
@@ -77,7 +77,7 @@ export const HalftoneFilterControls = memo(function HalftoneFilterControls({
 				/>
 			</div>
 			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-			<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+			<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 				<Checkbox
 					checked={params.invertDotSize ?? false}
 					onCheckedChange={handleInvertDotSizeChange}
@@ -85,7 +85,7 @@ export const HalftoneFilterControls = memo(function HalftoneFilterControls({
 				{t("filterPanel.halftoneInvertDotSize")}
 			</label>
 			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-			<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+			<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 				<Checkbox
 					checked={params.opaqueOnly ?? false}
 					onCheckedChange={handleOpaqueOnlyChange}

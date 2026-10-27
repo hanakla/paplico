@@ -133,7 +133,7 @@ export const AddFilterMenu = memo(function AddFilterMenu({
 						/>
 					))
 				) : (
-					<div className="px-2 py-1.5 text-muted-foreground text-xs">
+					<div className="px-2 py-1.5 text-muted-foreground type-label">
 						{t("filterPanel.filterSearchNoResults")}
 					</div>
 				)
@@ -239,7 +239,7 @@ const FlatFilterItem = memo(function FlatFilterItem({
 		<Menu.Item onClick={handleClick}>
 			{getFilterIcon(processor)}
 			{t(FILTER_TEXT_KEYS[processor as keyof typeof FILTER_TEXT_KEYS])}
-			<span className="ml-auto pl-4 text-muted-foreground text-xs">
+			<span className="ml-auto pl-4 text-muted-foreground type-label">
 				{t(`filterPanel.category.${category}` as LocalizeKeys)}
 			</span>
 		</Menu.Item>

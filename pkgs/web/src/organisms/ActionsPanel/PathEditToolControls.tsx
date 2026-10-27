@@ -79,7 +79,7 @@ export const PathEditToolControls = memo(function PathEditToolControls() {
 	return (
 		<div className="flex flex-col gap-2 w-full">
 			<div className="flex flex-col gap-1">
-				<span className="text-[10px] text-muted-foreground">
+				<span className="type-label text-muted-foreground">
 					{t("actionsPanel.pathEditSelectionMode")}
 				</span>
 				<ToggleGroup.Root
@@ -88,14 +88,14 @@ export const PathEditToolControls = memo(function PathEditToolControls() {
 				>
 					<ToggleGroup.Item
 						value="rectangle"
-						className="h-5 w-auto px-1.5 text-[10px] gap-0.5"
+						className="h-5 w-auto px-1.5 type-value gap-0.5"
 					>
 						<BoxSelect size={12} />
 						{t("actionsPanel.pathEditRectangle")}
 					</ToggleGroup.Item>
 					<ToggleGroup.Item
 						value="lasso"
-						className="h-5 w-auto px-1.5 text-[10px] gap-0.5"
+						className="h-5 w-auto px-1.5 type-value gap-0.5"
 					>
 						<LassoSelect size={12} />
 						{t("actionsPanel.pathEditLasso")}

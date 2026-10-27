@@ -101,7 +101,7 @@ export const SvgColorMatrixFilterControls = memo(
 				{params.type === "matrix" && (
 					<div className="space-y-1">
 						<div className="flex items-center justify-between">
-							<span className="text-muted-foreground text-xs">
+							<span className="text-muted-foreground type-label">
 								{t("filterPanel.svgMatrix")}
 							</span>
 							<Button $variant="ghost" $size="sm" onClick={handleReset}>

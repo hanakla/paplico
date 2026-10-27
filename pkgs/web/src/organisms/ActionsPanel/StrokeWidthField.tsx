@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FakeInput } from "@/components/FakeInput";
 import { InfiniteSlider, Slider } from "@/components/Slider";
@@ -26,6 +26,7 @@ export const StrokeWidthField = memo(function StrokeWidthField({
 	onValueChange: (value: number) => void;
 }) {
 	const t = useTranslation();
+	const labelId = useId();
 	const [overlayOpen, setOverlayOpen] = useState(false);
 	const overlayValueChanged = useRef(false);
 	const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -82,8 +83,8 @@ export const StrokeWidthField = memo(function StrokeWidthField({
 
 	return (
 		<div className="flex flex-col gap-1 w-full">
-			<div className="flex items-center justify-between gap-2 px-1">
-				<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+			<div className="flex items-center justify-between gap-2">
+				<span id={labelId} className="type-label text-muted-foreground">
 					{label}
 				</span>
 				<FakeInput
@@ -114,6 +115,8 @@ export const StrokeWidthField = memo(function StrokeWidthField({
 						value={isMixed ? min : value}
 						onValueChange={handleSliderChange}
 						className="w-full"
+						aria-labelledby={labelId}
+						valueText={formattedValue}
 					/>
 				) : (
 					<Slider
@@ -123,6 +126,7 @@ export const StrokeWidthField = memo(function StrokeWidthField({
 						value={isMixed ? min : value}
 						onValueChange={handleSliderChange}
 						className="w-full"
+						aria-labelledby={labelId}
 					/>
 				)}
 			</div>

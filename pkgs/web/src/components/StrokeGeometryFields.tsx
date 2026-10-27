@@ -88,7 +88,7 @@ export const StrokeGeometryFields = memo(function StrokeGeometryFields({
 			{showMiterLimit && lineJoin === "miter" && (
 				/* biome-ignore lint/a11y/noLabelWithoutControl: custom slider component */
 				<label
-					className="col-span-2 text-muted-foreground text-[10px] data-disabled:opacity-50"
+					className="col-span-2 text-muted-foreground type-label data-disabled:opacity-50"
 					data-disabled={disabled || undefined}
 				>
 					<div>
@@ -125,5 +125,5 @@ export const StrokeGeometryFields = memo(function StrokeGeometryFields({
 
 /** First grid column, so every row's control starts at the same x. */
 function RowLabel({ children }: { children: ReactNode }) {
-	return <span className="text-muted-foreground text-[10px]">{children}</span>;
+	return <span className="text-muted-foreground type-label">{children}</span>;
 }

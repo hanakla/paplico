@@ -232,7 +232,7 @@ export function Section({
 	return (
 		<Accordion.Item value={value} className="border-t border-border/40">
 			<Accordion.Header className="flex items-center justify-between">
-				<Accordion.Trigger className="group flex items-center gap-1 flex-1 py-1.5 text-xs font-medium text-muted-foreground">
+				<Accordion.Trigger className="group flex items-center gap-1 flex-1 py-1.5 type-section text-muted-foreground">
 					<ChevronRight
 						size={12}
 						className="shrink-0 transition-transform group-data-panel-open:rotate-90"
@@ -266,7 +266,7 @@ export function MaterialPatternSwatch({
 
 	return (
 		<div className="flex items-center justify-between">
-			<span className="text-muted-foreground text-xs">{label}</span>
+			<span className="text-muted-foreground type-label">{label}</span>
 			<Popover.Root open={open} onOpenChange={setOpen}>
 				<button
 					ref={buttonRef}

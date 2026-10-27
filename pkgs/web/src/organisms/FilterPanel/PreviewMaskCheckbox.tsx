@@ -16,7 +16,7 @@ export function PreviewMaskCheckbox({
 	const handleChange = useEventCallback(onCheckedChange);
 
 	return (
-		<div className="flex items-center gap-2 text-muted-foreground text-xs">
+		<div className="flex items-center gap-2 text-muted-foreground type-label">
 			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
 			<label className="flex items-center gap-2 cursor-pointer">
 				<Checkbox checked={checked} onCheckedChange={handleChange} />

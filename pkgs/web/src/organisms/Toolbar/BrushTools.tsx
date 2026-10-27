@@ -256,7 +256,7 @@ export const BrushSettingsPanel = memo(function BrushSettingsPanel({
 				<div className="max-h-80 space-y-3 overflow-y-auto pr-1">
 					<div className="space-y-2">
 						{brushPresets.persistedPresets.length === 0 ? (
-							<div className="rounded-lg border border-dashed border-border/30 px-3 py-4 text-center text-[11px] leading-4 text-muted-foreground">
+							<div className="rounded-lg border border-dashed border-border/30 px-3 py-4 text-center type-label leading-4 text-muted-foreground">
 								{t("toolbar.emptyPresetLibrary")}
 							</div>
 						) : (
@@ -281,12 +281,12 @@ export const BrushSettingsPanel = memo(function BrushSettingsPanel({
 					</div>
 
 					<div className="space-y-2">
-						<p className="text-xs font-medium text-muted-foreground">
+						<p className="type-section text-muted-foreground">
 							{t("toolbar.factoryPresets")}
 						</p>
 						{builtinPresetGroups.map((group) => (
 							<div key={group.category} className="space-y-2">
-								<p className="text-[11px] text-muted-foreground">
+								<p className="type-label text-muted-foreground">
 									{t(BRUSH_CATEGORY_LABEL_KEYS[group.category])}
 								</p>
 								<div className="overflow-hidden rounded-lg border border-border/20">
@@ -586,8 +586,7 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 		onSaved();
 	});
 
-	const panelSectionHeadingClassName =
-		"text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80";
+	const panelSectionHeadingClassName = "type-section text-muted-foreground";
 
 	return (
 		<div
@@ -766,7 +765,7 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 											{store.document.defs &&
 											Object.keys(store.document.defs).length > 0 ? (
 												<>
-													<div className="px-3 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+													<div className="px-3 py-1 type-section text-muted-foreground">
 														{t("toolbar.defsSection")}
 													</div>
 													{Object.values(store.document.defs).map((def) => (
@@ -812,13 +811,13 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 									>
 										<ToggleGroup.Item
 											value="tinting"
-											className="h-5 w-auto px-1.5 text-[10px]"
+											className="h-5 w-auto px-1.5 type-value"
 										>
 											{t("toolbar.colorModeTinting")}
 										</ToggleGroup.Item>
 										<ToggleGroup.Item
 											value="color"
-											className="h-5 w-auto px-1.5 text-[10px]"
+											className="h-5 w-auto px-1.5 type-value"
 										>
 											{t("toolbar.colorModeColor")}
 										</ToggleGroup.Item>
@@ -839,13 +838,13 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 									>
 										<ToggleGroup.Item
 											value="stamp"
-											className="h-5 w-auto px-1.5 text-[10px]"
+											className="h-5 w-auto px-1.5 type-value"
 										>
 											{t("toolbar.renderModeStamp")}
 										</ToggleGroup.Item>
 										<ToggleGroup.Item
 											value="ribbon"
-											className="h-5 w-auto px-1.5 text-[10px]"
+											className="h-5 w-auto px-1.5 type-value"
 										>
 											{t("toolbar.renderModeRibbon")}
 										</ToggleGroup.Item>
@@ -875,13 +874,13 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 													>
 														<ToggleGroup.Item
 															value="none"
-															className="h-5 w-auto px-1.5 text-[10px]"
+															className="h-5 w-auto px-1.5 type-value"
 														>
 															{t("toolbar.rotationNone")}
 														</ToggleGroup.Item>
 														<ToggleGroup.Item
 															value="tangent"
-															className="h-5 w-auto px-1.5 text-[10px]"
+															className="h-5 w-auto px-1.5 type-value"
 														>
 															{t("toolbar.rotationTangent")}
 														</ToggleGroup.Item>
@@ -946,7 +945,7 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 															})}
 														</div>
 													) : (
-														<span className="text-[10px] text-muted-foreground/60">
+														<span className="type-label text-muted-foreground/60">
 															{t("toolbar.scatterTexturesEmpty")}
 														</span>
 													)}
@@ -1045,19 +1044,19 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 									>
 										<ToggleGroup.Item
 											value="butt"
-											className="h-5 w-auto px-1.5 text-[10px]"
+											className="h-5 w-auto px-1.5 type-value"
 										>
 											{t("filterPanel.capButt")}
 										</ToggleGroup.Item>
 										<ToggleGroup.Item
 											value="round"
-											className="h-5 w-auto px-1.5 text-[10px]"
+											className="h-5 w-auto px-1.5 type-value"
 										>
 											{t("filterPanel.capRound")}
 										</ToggleGroup.Item>
 										<ToggleGroup.Item
 											value="square"
-											className="h-5 w-auto px-1.5 text-[10px]"
+											className="h-5 w-auto px-1.5 type-value"
 										>
 											{t("filterPanel.capSquare")}
 										</ToggleGroup.Item>
@@ -1077,19 +1076,19 @@ export const BrushDesignerPanel = memo(function BrushDesignerPanel({
 									>
 										<ToggleGroup.Item
 											value="miter"
-											className="h-5 w-auto px-1.5 text-[10px]"
+											className="h-5 w-auto px-1.5 type-value"
 										>
 											{t("filterPanel.joinMiter")}
 										</ToggleGroup.Item>
 										<ToggleGroup.Item
 											value="round"
-											className="h-5 w-auto px-1.5 text-[10px]"
+											className="h-5 w-auto px-1.5 type-value"
 										>
 											{t("filterPanel.joinRound")}
 										</ToggleGroup.Item>
 										<ToggleGroup.Item
 											value="bevel"
-											className="h-5 w-auto px-1.5 text-[10px]"
+											className="h-5 w-auto px-1.5 type-value"
 										>
 											{t("filterPanel.joinBevel")}
 										</ToggleGroup.Item>
@@ -1298,7 +1297,7 @@ export const PresetSelect = memo(function PresetSelect({
 										</Select.Item>
 									);
 								})}
-								<div className="px-3 py-1 text-[10px] text-muted-foreground/60">
+								<div className="px-3 py-1 type-label text-muted-foreground/60">
 									{t("toolbar.factoryPresets")}
 								</div>
 							</>

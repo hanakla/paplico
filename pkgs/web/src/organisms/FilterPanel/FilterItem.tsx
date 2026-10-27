@@ -172,7 +172,7 @@ export const FilterItem = memo(function FilterItem({
 				<div className="space-y-3">
 					<div className="border-t border-border/50" />
 					<div className="flex items-center justify-between">
-						<div className="text-muted-foreground text-[10px] font-medium uppercase tracking-wider">
+						<div className="text-muted-foreground type-section">
 							{t("filterPanel.effects")}
 						</div>
 						<AddFilterButton
@@ -186,7 +186,7 @@ export const FilterItem = memo(function FilterItem({
 					{filter.subFilters &&
 						(filter.subFilters as FilterType[]).map((sub, si) => (
 							<div key={si} className="space-y-1.5">
-								<div className="flex items-center gap-1 text-foreground text-[11px] font-medium">
+								<div className="flex items-center gap-1 text-foreground type-section">
 									{getFilterIcon(sub.processor)}
 									{FILTER_TEXT_KEYS[
 										sub.processor as keyof typeof FILTER_TEXT_KEYS
@@ -249,7 +249,7 @@ export const FilterItem = memo(function FilterItem({
 								<div className="flex min-w-0 items-center gap-1.5">
 									{getFilterIcon(filter.processor)}
 
-									<span className="truncate text-foreground text-xs font-medium">
+									<span className="truncate text-foreground type-section">
 										{filterLabel}
 									</span>
 
@@ -428,7 +428,7 @@ export const SubFilterRow = memo(function SubFilterRow({
 			>
 				<div className="flex min-w-0 items-center gap-1">
 					{getFilterIcon(subFilter.processor)}
-					<span className="truncate text-foreground text-xs">
+					<span className="truncate text-foreground type-value">
 						{FILTER_TEXT_KEYS[
 							subFilter.processor as keyof typeof FILTER_TEXT_KEYS
 						]

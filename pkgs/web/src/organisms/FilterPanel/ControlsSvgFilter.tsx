@@ -106,7 +106,7 @@ export const SvgFilterGraphControls = memo(function SvgFilterGraphControls({
 
 	return (
 		<div className="space-y-3">
-			<div className="text-muted-foreground text-xs">
+			<div className="text-muted-foreground type-label">
 				{t("filterPanel.svgNodes")}
 			</div>
 			{nodes.map((node, index) => (

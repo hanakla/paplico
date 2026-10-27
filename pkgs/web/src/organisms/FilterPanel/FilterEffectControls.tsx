@@ -411,7 +411,7 @@ export const FilterEffectControls = memo(function FilterEffectControls({
 function NoSettingsNote() {
 	const t = useTranslation();
 	return (
-		<p className="text-muted-foreground text-xs">
+		<p className="text-muted-foreground type-label">
 			{t("filterPanel.noSettings")}
 		</p>
 	);

@@ -105,7 +105,7 @@ export const LayerPane = memo(function LayerPane({
 			</ToggleGroup.Root>
 
 			{state.layers.length === 0 ? (
-				<p className="text-xs text-muted-foreground text-center py-4">
+				<p className="type-label text-muted-foreground text-center py-4">
 					{t("companion.noLayers")}
 				</p>
 			) : (
@@ -417,7 +417,7 @@ const ElementRow = memo(function ElementRow({
 				data-element-id={element.id}
 				onClick={onSelect}
 				className={twm(
-					"flex-1 min-w-0 min-h-11 px-2 text-xs text-left truncate",
+					"flex-1 min-w-0 min-h-11 px-2 type-value text-left truncate",
 					element.selected
 						? "text-accent font-medium"
 						: "text-muted-foreground",

@@ -110,7 +110,7 @@ function PresetSection({
 }) {
 	return (
 		<section className="flex flex-col gap-2">
-			<h2 className="text-xs text-muted-foreground">{heading}</h2>
+			<h2 className="type-section text-muted-foreground">{heading}</h2>
 			<div className="grid grid-cols-2 gap-2">
 				{presets.map((preset) => (
 					<button

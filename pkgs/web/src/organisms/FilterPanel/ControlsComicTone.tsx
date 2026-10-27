@@ -95,7 +95,7 @@ export const ComicToneFilterControls = memo(function ComicToneFilterControls({
 			onUpdate={onUpdate}
 		>
 			<div>
-				<div className="text-muted-foreground text-xs mb-1">
+				<div className="text-muted-foreground type-label mb-1">
 					{t("filterPanel.comicToneType")}
 				</div>
 				<SimpleSelect
@@ -113,7 +113,7 @@ export const ComicToneFilterControls = memo(function ComicToneFilterControls({
 				/>
 			</div>
 			<div>
-				<div className="text-muted-foreground text-xs mb-1">
+				<div className="text-muted-foreground type-label mb-1">
 					{t("filterPanel.comicToneColorMode")}
 				</div>
 				<SimpleSelect
@@ -133,7 +133,7 @@ export const ComicToneFilterControls = memo(function ComicToneFilterControls({
 				/>
 			</div>
 			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-			<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+			<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 				<Checkbox
 					checked={params.reversePattern}
 					onCheckedChange={handleReversePatternChange}
@@ -141,7 +141,7 @@ export const ComicToneFilterControls = memo(function ComicToneFilterControls({
 				{t("filterPanel.comicToneReversePattern")}
 			</label>
 			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-			<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+			<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 				<Checkbox
 					checked={params.showOriginalUnderDots}
 					onCheckedChange={handleShowOriginalChange}
@@ -149,7 +149,7 @@ export const ComicToneFilterControls = memo(function ComicToneFilterControls({
 				{t("filterPanel.comicToneShowOriginalUnderDots")}
 			</label>
 			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-			<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+			<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 				<Checkbox
 					checked={params.useLuminance}
 					onCheckedChange={handleUseLuminanceChange}
@@ -157,7 +157,7 @@ export const ComicToneFilterControls = memo(function ComicToneFilterControls({
 				{t("filterPanel.comicToneUseLuminance")}
 			</label>
 			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-			<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+			<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 				<Checkbox
 					checked={params.invertDotSize}
 					onCheckedChange={handleInvertDotSizeChange}
@@ -165,7 +165,7 @@ export const ComicToneFilterControls = memo(function ComicToneFilterControls({
 				{t("filterPanel.comicToneInvertDotSize")}
 			</label>
 			<div>
-				<div className="text-muted-foreground text-xs mb-1">
+				<div className="text-muted-foreground type-label mb-1">
 					{t("filterPanel.comicToneColor")}
 				</div>
 				<ColorPickerThin

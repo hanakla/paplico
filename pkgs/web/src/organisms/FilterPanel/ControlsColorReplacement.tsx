@@ -86,7 +86,7 @@ export const ColorReplacementFilterControls = memo(
 					onUpdate={onUpdate}
 				>
 					{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-					<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+					<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 						<Checkbox
 							checked={params.preserveLuminance}
 							onCheckedChange={handlePreserveLuminanceChange}

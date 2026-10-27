@@ -111,7 +111,7 @@ export const RadialRotDirFilterControls = memo(
 				onUpdate={onUpdate}
 			>
 				<div className="space-y-2">
-					<div className="text-muted-foreground text-xs">
+					<div className="text-muted-foreground type-label">
 						{t("filterPanel.rrdDirection")}
 					</div>
 					<Vec2Pad
@@ -119,7 +119,7 @@ export const RadialRotDirFilterControls = memo(
 						y={(params.directionY + 1) / 2}
 						onChange={handleDirectionPadChange}
 					/>
-					<div className="flex items-center gap-2 text-muted-foreground text-xs">
+					<div className="flex items-center gap-2 text-muted-foreground type-label">
 						<span>X</span>
 						<FakeInput
 							type="number"
@@ -145,7 +145,7 @@ export const RadialRotDirFilterControls = memo(
 					</div>
 				</div>
 				<div className="space-y-2">
-					<div className="text-muted-foreground text-xs">
+					<div className="text-muted-foreground type-label">
 						{t("filterPanel.rrdCenter")}
 					</div>
 					<Vec2Pad
@@ -153,7 +153,7 @@ export const RadialRotDirFilterControls = memo(
 						y={params.centerY}
 						onChange={handleCenterPadChange}
 					/>
-					<div className="flex items-center gap-2 text-muted-foreground text-xs">
+					<div className="flex items-center gap-2 text-muted-foreground type-label">
 						<span>X</span>
 						<FakeInput
 							type="number"

@@ -126,7 +126,7 @@ export const GradientMapFilterControls = memo(
 				onUpdate={onUpdate}
 			>
 				<div>
-					<div className="text-muted-foreground text-xs mb-1">
+					<div className="text-muted-foreground type-label mb-1">
 						{t("filterPanel.gradMapPreset")}
 					</div>
 					<SimpleSelect
@@ -148,7 +148,7 @@ export const GradientMapFilterControls = memo(
 						onChange={handleStopsTextChange}
 						onBlur={handleStopsTextBlur}
 						aria-label={t("toolbar.gradientStops")}
-						className="w-full min-w-0 rounded border border-border bg-background px-1.5 py-0.5 text-xs font-mono text-foreground"
+						className="w-full min-w-0 rounded border border-border bg-background px-1.5 py-0.5 type-value font-mono text-foreground"
 						spellCheck={false}
 					/>
 					<Tooltip content={t("filterPanel.gradMapCopyStops")}>

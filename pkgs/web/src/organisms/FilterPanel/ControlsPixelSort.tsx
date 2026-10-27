@@ -54,7 +54,7 @@ export const PixelSortFilterControls = memo(function PixelSortFilterControls({
 			params={params}
 			onUpdate={onUpdate}
 		>
-			<div className="text-muted-foreground text-xs">
+			<div className="text-muted-foreground type-label">
 				<div className="flex items-center justify-between">
 					<span>{t("filterPanel.pixelSortBrightness")}</span>
 					<span>
@@ -70,7 +70,7 @@ export const PixelSortFilterControls = memo(function PixelSortFilterControls({
 				/>
 			</div>
 			<div>
-				<div className="text-muted-foreground text-xs mb-1">
+				<div className="text-muted-foreground type-label mb-1">
 					{t("filterPanel.pixelSortOrder")}
 				</div>
 				<SimpleSelect

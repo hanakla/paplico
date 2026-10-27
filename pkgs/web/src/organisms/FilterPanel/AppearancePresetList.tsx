@@ -57,7 +57,7 @@ export const AppearancePresetList = memo(function AppearancePresetList({
 			<div className="flex items-center">
 				<button
 					type="button"
-					className="flex min-w-0 flex-1 items-center gap-1 px-1 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+					className="flex min-w-0 flex-1 items-center gap-1 px-1 py-1 type-section text-muted-foreground"
 					onClick={handleToggle}
 				>
 					{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
@@ -114,9 +114,9 @@ function PresetGroup({
 }) {
 	return (
 		<div>
-			<div className="px-1 text-[10px] text-muted-foreground/70">{label}</div>
+			<div className="px-1 type-label text-muted-foreground/70">{label}</div>
 			{presets.length === 0 ? (
-				<p className="px-1 py-0.5 text-[11px] text-muted-foreground">
+				<p className="px-1 py-0.5 type-label text-muted-foreground">
 					{emptyLabel}
 				</p>
 			) : (

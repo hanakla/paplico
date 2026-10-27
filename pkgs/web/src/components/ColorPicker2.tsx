@@ -97,10 +97,10 @@ const channelInputStyles = tv({
 			"[&::-webkit-inner-spin-button]:appearance-none",
 			"[&::-webkit-outer-spin-button]:appearance-none",
 		],
-		label: "text-[10px] text-muted-foreground text-center",
+		label: "type-label text-muted-foreground text-center",
 		modeButton: [
 			"mb-0.5 rounded px-1 py-0.5",
-			"text-[10px] font-semibold text-muted-foreground",
+			"type-section text-muted-foreground",
 			"hover:bg-accent",
 		],
 	},
@@ -857,10 +857,10 @@ const ModeToggle = memo(function ModeToggle() {
 
 	return (
 		<ToggleGroup.Root value={[mode]} onValueChange={handleChange}>
-			<ToggleGroup.Item value="hsva" className="h-5 w-auto px-1 text-[10px]">
+			<ToggleGroup.Item value="hsva" className="h-5 w-auto px-1 type-value">
 				HSVA
 			</ToggleGroup.Item>
-			<ToggleGroup.Item value="rgba" className="h-5 w-auto px-1 text-[10px]">
+			<ToggleGroup.Item value="rgba" className="h-5 w-auto px-1 type-value">
 				RGBA
 			</ToggleGroup.Item>
 		</ToggleGroup.Root>

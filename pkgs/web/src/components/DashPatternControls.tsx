@@ -88,37 +88,38 @@ export const DashPatternControls = memo(function DashPatternControls({
 	return (
 		<div className="flex flex-col gap-2" data-disabled={disabled || undefined}>
 			<div className="flex flex-col gap-1">
-				<span className="text-muted-foreground text-[10px]">
+				<span className="text-muted-foreground type-label">
 					{t("filterPanel.dashPattern")}
 				</span>
 				<ToggleGroup.Root
+					className="w-full"
 					value={[activePreset ?? ""]}
 					onValueChange={handlePresetChange}
 					disabled={disabled}
 				>
 					<ToggleGroup.Item
 						value="solid"
-						className="h-6 w-auto px-1.5 text-[10px]"
+						className="h-6 w-auto flex-1 px-1.5 type-value"
 					>
 						{t("filterPanel.dashPresetNone")}
 					</ToggleGroup.Item>
 					<ToggleGroup.Item
 						value="dashed"
-						className="h-6 w-auto px-1.5"
+						className="h-6 w-auto flex-1 px-1.5"
 						title={t("filterPanel.dashPresetDashed")}
 					>
 						<PresetLine dash="6 4" />
 					</ToggleGroup.Item>
 					<ToggleGroup.Item
 						value="dotted"
-						className="h-6 w-auto px-1.5"
+						className="h-6 w-auto flex-1 px-1.5"
 						title={t("filterPanel.dashPresetDotted")}
 					>
 						<PresetLine dash="0.1 4" />
 					</ToggleGroup.Item>
 					<ToggleGroup.Item
 						value="dash-dot"
-						className="h-6 w-auto px-1.5"
+						className="h-6 w-auto flex-1 px-1.5"
 						title={t("filterPanel.dashPresetDashDot")}
 					>
 						<PresetLine dash="6 4 0.1 4" />
@@ -148,7 +149,7 @@ export const DashPatternControls = memo(function DashPatternControls({
 					{patternTotal > 0 && (
 						/* biome-ignore lint/a11y/noLabelWithoutControl: custom slider component */
 						<label
-							className="text-muted-foreground text-[10px] data-disabled:opacity-50"
+							className="text-muted-foreground type-label data-disabled:opacity-50"
 							data-disabled={disabled || undefined}
 						>
 							<div>
@@ -224,7 +225,7 @@ const DashPairRow = memo(function DashPairRow({
 	});
 
 	return (
-		<div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+		<div className="flex items-center gap-1.5 type-label text-muted-foreground">
 			<span>{t("filterPanel.dashSegment")}</span>
 			<FakeInput
 				type="number"

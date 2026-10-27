@@ -88,9 +88,9 @@ export function ActionsPanel() {
 			: null;
 
 	return (
-		<div className="w-52 bg-background/80 backdrop-liquid rounded-xl shadow-lg flex flex-col overflow-hidden">
+		<div className="w-52 bg-background/80 backdrop-liquid rounded-(--panel-radius) shadow-lg flex flex-col overflow-hidden">
 			<div className="px-3 py-1 border-b border-border flex items-center">
-				<span className="text-xs/5 font-medium text-muted-foreground uppercase tracking-wide">
+				<span className="type-panel-title leading-5 text-muted-foreground">
 					{t("actionsPanel.actions")}
 				</span>
 			</div>

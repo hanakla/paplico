@@ -47,7 +47,7 @@ export function ElementMaskControls({ element }: { element: AnyArtObject }) {
 	if (!mask) {
 		return (
 			<div className="flex items-center justify-between">
-				<span className="text-muted-foreground text-xs">
+				<span className="text-muted-foreground type-label">
 					{t("filterPanel.mask")}
 				</span>
 				<Button $size="sm" $variant="ghost" onClick={handleAdd}>
@@ -65,7 +65,7 @@ export function ElementMaskControls({ element }: { element: AnyArtObject }) {
 	return (
 		<div>
 			<div className="flex items-center justify-between gap-2">
-				<span className="text-muted-foreground text-xs">
+				<span className="text-muted-foreground type-label">
 					{t("filterPanel.mask")}
 				</span>
 

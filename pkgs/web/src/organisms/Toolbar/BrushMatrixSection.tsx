@@ -174,13 +174,13 @@ export const BrushMatrixSection = memo(function BrushMatrixSection({
 					>
 						<ToggleGroup.Item
 							value="buildup"
-							className="h-5 w-auto px-1.5 text-[10px]"
+							className="h-5 w-auto px-1.5 type-value"
 						>
 							{t("toolbar.paintModeBuildup")}
 						</ToggleGroup.Item>
 						<ToggleGroup.Item
 							value="wash"
-							className="h-5 w-auto px-1.5 text-[10px]"
+							className="h-5 w-auto px-1.5 type-value"
 						>
 							{t("toolbar.paintModeWash")}
 						</ToggleGroup.Item>
@@ -190,7 +190,7 @@ export const BrushMatrixSection = memo(function BrushMatrixSection({
 
 			{groupsForEngine(settings.engine).map((group) => (
 				<div key={group} className="flex flex-col">
-					<p className="px-3 py-1 text-[11px] font-medium text-muted-foreground">
+					<p className="px-3 py-1 type-section text-muted-foreground">
 						{t(`brushGroup.${group}`)}
 					</p>
 					{propertiesOfGroup(group).map((propertyId) => (
@@ -408,7 +408,7 @@ const GatedSection = memo(function GatedSection({
 	return (
 		<div className="flex flex-col rounded-md border border-border-dim py-1">
 			<div className="flex items-center justify-between px-3 py-1">
-				<span className="text-[11px] font-medium text-foreground">{title}</span>
+				<span className="type-section text-foreground">{title}</span>
 				<Switch
 					aria-label={title}
 					checked={enabled}

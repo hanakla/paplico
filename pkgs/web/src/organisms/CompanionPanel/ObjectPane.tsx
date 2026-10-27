@@ -95,7 +95,7 @@ export const ObjectPane = memo(function ObjectPane({
 	const { selection } = state;
 	if (!selection) {
 		return (
-			<p className="p-4 text-xs text-muted-foreground text-center">
+			<p className="p-4 type-label text-muted-foreground text-center">
 				{t("companion.nothingSelected")}
 			</p>
 		);
@@ -108,7 +108,7 @@ export const ObjectPane = memo(function ObjectPane({
 
 	return (
 		<div className="flex flex-col gap-4 p-3">
-			<p className="text-xs text-muted-foreground">
+			<p className="type-label text-muted-foreground">
 				{t("companion.selectedCount", { count: selection.count })}
 			</p>
 
@@ -123,7 +123,7 @@ export const ObjectPane = memo(function ObjectPane({
 			/>
 
 			<div className="flex flex-col gap-1">
-				<span className="text-xs text-muted-foreground">
+				<span className="type-label text-muted-foreground">
 					{t("filterPanel.blendMode")}
 				</span>
 				<SimpleSelect
@@ -135,7 +135,7 @@ export const ObjectPane = memo(function ObjectPane({
 			</div>
 
 			<div className="flex flex-col gap-1">
-				<span className="text-xs text-muted-foreground">
+				<span className="type-label text-muted-foreground">
 					{t("filterPanel.compositionMode")}
 				</span>
 				<SimpleSelect
@@ -147,12 +147,12 @@ export const ObjectPane = memo(function ObjectPane({
 			</div>
 
 			<section className="flex flex-col gap-2">
-				<h2 className="text-xs text-muted-foreground">
+				<h2 className="type-section text-muted-foreground">
 					{t("companion.appearances")}
 				</h2>
 
 				{selection.filters.length === 0 ? (
-					<p className="text-xs text-muted-foreground py-2">
+					<p className="type-label text-muted-foreground py-2">
 						{t("companion.noAppearances")}
 					</p>
 				) : (

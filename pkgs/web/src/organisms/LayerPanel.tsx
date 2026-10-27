@@ -56,6 +56,7 @@ import {
 	memo,
 	type ReactNode,
 	useEffect,
+	useId,
 	useMemo,
 	useRef,
 	useState,
@@ -83,6 +84,7 @@ export function LayerPanel() {
 
 	const snap = useSnapshot(store);
 	const t = useTranslation();
+	const opacityLabelId = useId();
 	const appSnap = useAppConfig();
 	const isSimpleMode = appSnap.layerPanelMode === "simple";
 
@@ -330,7 +332,7 @@ export function LayerPanel() {
 					) : (
 						<>
 							<div className="flex items-center gap-0.5">
-								<span className="text-xs/none font-medium text-muted-foreground uppercase tracking-wide">
+								<span className="type-panel-title leading-none text-muted-foreground">
 									{t("layerPanel.layers")}
 								</span>
 								<Tooltip
@@ -343,6 +345,11 @@ export function LayerPanel() {
 									<IconButton
 										$size="xs"
 										$variant="ghost"
+										aria-label={
+											isSimpleMode
+												? t("layerPanel.detailedMode")
+												: t("layerPanel.simpleMode")
+										}
 										onClick={() =>
 											setLayerPanelMode(isSimpleMode ? "detailed" : "simple")
 										}
@@ -357,6 +364,7 @@ export function LayerPanel() {
 									<IconButton
 										$size="xs"
 										$variant="ghost"
+										aria-label={t("layerPanel.addLayer")}
 										onClick={handleAddLayer}
 									>
 										<Plus size={14} />
@@ -495,10 +503,13 @@ export function LayerPanel() {
 							}
 						/>
 						<div className="flex items-center justify-between gap-2">
-							<span className="text-[10px] text-muted-foreground">
+							<span
+								id={opacityLabelId}
+								className="type-label text-muted-foreground"
+							>
 								{t("layerPanel.opacity")}
 							</span>
-							<span className="text-[10px] text-foreground font-mono tabular-nums">
+							<span className="type-value text-foreground font-mono tabular-nums">
 								{Math.round(blendTarget.opacity * 100)}%
 							</span>
 						</div>
@@ -508,6 +519,8 @@ export function LayerPanel() {
 							step={0.01}
 							value={blendTarget.opacity}
 							onValueChange={handleUpdateOpacity}
+							aria-labelledby={opacityLabelId}
+							format={{ style: "percent" }}
 						/>
 					</div>
 				)}
@@ -925,6 +938,7 @@ export function filterLayerList(
 }
 
 type ConfirmDeleteButtonProps = {
+	label: string;
 	onConfirm: () => void;
 	confirmLabel?: string;
 	timeoutMs?: number;
@@ -935,6 +949,7 @@ type ConfirmDeleteButtonProps = {
 };
 
 const ConfirmDeleteButton = memo(function ConfirmDeleteButton({
+	label,
 	onConfirm,
 	confirmLabel = "削除する",
 	timeoutMs = 2500,
@@ -990,6 +1005,7 @@ const ConfirmDeleteButton = memo(function ConfirmDeleteButton({
 			<button
 				ref={buttonRef}
 				type="button"
+				aria-label={label}
 				disabled={disabled}
 				onClick={handleClick}
 				className={twm(
@@ -998,7 +1014,7 @@ const ConfirmDeleteButton = memo(function ConfirmDeleteButton({
 					"disabled:pointer-events-none disabled:opacity-50 whitespace-nowrap",
 					isActive
 						? "text-accent-foreground hover:bg-accent"
-						: "text-accent hover:text-accent-foreground hover:bg-accent",
+						: "text-muted-foreground hover:text-accent-foreground hover:bg-accent",
 					isConfirming &&
 						"flex-row-reverse bg-danger text-danger-foreground hover:bg-danger-hover w-fit",
 					className,
@@ -1229,7 +1245,7 @@ const ElementRowContent = memo(function ElementRowContent({
 					/>
 
 					{isExpandable && (
-						<span className="text-[9px] opacity-50">
+						<span className="type-label text-muted-foreground">
 							(
 							{isGroup(element)
 								? element.childIds.length
@@ -1243,29 +1259,39 @@ const ElementRowContent = memo(function ElementRowContent({
 					)}
 				</div>
 			</div>
-			<div className="flex gap-0">
+			<div className="flex gap-1">
 				{!isReadonly && (
-					<IconButton $size="xs" $variant="ghost" onClick={handleToggleLock}>
+					<IconButton
+						$size="xs"
+						$variant="ghost"
+						aria-label={t("companion.toggleElementLock")}
+						onClick={handleToggleLock}
+					>
 						{element.locked ? (
-							<Lock size={10} className="opacity-60" />
+							<Lock size={10} className="text-muted-foreground" />
 						) : (
-							<LockOpen size={10} className="opacity-30" />
+							<LockOpen
+								size={10}
+								className="text-muted-foreground opacity-80"
+							/>
 						)}
 					</IconButton>
 				)}
 				<IconButton
 					$size="xs"
 					$variant="ghost"
+					aria-label={t("companion.toggleElementVisibility")}
 					onClick={handleToggleVisibility}
 				>
 					{element.visible !== false ? (
-						<Eye size={10} className="opacity-60" />
+						<Eye size={10} className="text-muted-foreground" />
 					) : (
-						<EyeOff size={10} className="opacity-40" />
+						<EyeOff size={10} className="text-muted-foreground opacity-80" />
 					)}
 				</IconButton>
 				{!isReadonly && (
 					<ConfirmDeleteButton
+						label={t("contextActions.delete")}
 						icon={<X size={10} />}
 						onConfirm={() => commands.deleteElements([element.id])}
 						isActive={isSelected}
@@ -1392,12 +1418,16 @@ const DroppableLayerHeader = memo(function DroppableLayerHeader({
 	hideExpansionToggle,
 	disableRename,
 }: DroppableLayerHeaderProps) {
+	const t = useTranslation();
+
 	return (
 		<div className="flex items-center gap-0.5">
 			{!hideExpansionToggle && (
 				<IconButton
 					$size="xs"
 					$variant="ghost"
+					aria-label={t("companion.toggleLayerElements")}
+					aria-expanded={isExpanded}
 					onClick={onToggleExpansion}
 					className="shrink-0"
 				>
@@ -1412,7 +1442,7 @@ const DroppableLayerHeader = memo(function DroppableLayerHeader({
 				className={twm(
 					"flex-1 py-1 pr-2 rounded text-left text-xs transition-colors cursor-pointer text-accent-foreground",
 					isActive
-						? "bg-accent/80"
+						? "bg-accent-strong"
 						: "text-muted-foreground hover:bg-accent/20",
 					isOver ? "ring-1 ring-accent" : "",
 				)}
@@ -1428,7 +1458,7 @@ const DroppableLayerHeader = memo(function DroppableLayerHeader({
 							isActive ? "font-medium text-accent-foreground" : "",
 						)}
 					/>
-					<div className="flex gap-0.5">
+					<div className="flex gap-1">
 						{!isReadonly && (
 							<IconButton
 								$size="xs"
@@ -1437,14 +1467,15 @@ const DroppableLayerHeader = memo(function DroppableLayerHeader({
 									"rounded",
 									isActive
 										? "text-accent-foreground hover:bg-accent"
-										: "text-accent hover:text-accent-foreground hover:bg-accent",
+										: "text-muted-foreground hover:text-accent-foreground hover:bg-accent",
 								)}
+								aria-label={t("companion.toggleLayerLock")}
 								onClick={onToggleLock}
 							>
 								{isLocked ? (
 									<Lock size={10} />
 								) : (
-									<LockOpen size={10} className="opacity-60" />
+									<LockOpen size={10} className="opacity-80" />
 								)}
 							</IconButton>
 						)}
@@ -1455,18 +1486,20 @@ const DroppableLayerHeader = memo(function DroppableLayerHeader({
 								"rounded",
 								isActive
 									? "text-accent-foreground hover:bg-accent"
-									: "text-accent hover:text-accent-foreground hover:bg-accent",
+									: "text-muted-foreground hover:text-accent-foreground hover:bg-accent",
 							)}
+							aria-label={t("companion.toggleLayerVisibility")}
 							onClick={onToggleVisibility}
 						>
 							{isVisible ? (
 								<Eye size={10} />
 							) : (
-								<EyeOff size={10} className="opacity-60" />
+								<EyeOff size={10} className="opacity-80" />
 							)}
 						</IconButton>
 						{!isReadonly && (
 							<ConfirmDeleteButton
+								label={t("contextActions.delete")}
 								icon={<Trash2 size={10} />}
 								isActive={isActive}
 								onConfirm={onDelete}

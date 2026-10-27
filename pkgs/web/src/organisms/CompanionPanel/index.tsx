@@ -121,7 +121,7 @@ export const CompanionPanel = memo(function CompanionPanel({
 					)}
 				>
 					{icon}
-					<span className="text-[10px] truncate max-w-full px-0.5">
+					<span className="type-label truncate max-w-full px-0.5">
 						{t(labelKey)}
 					</span>
 				</button>
@@ -234,7 +234,7 @@ function Notice({
 	return (
 		<div className="flex flex-col items-center justify-center gap-2 h-full p-8 text-center">
 			<p className="text-sm">{title}</p>
-			<p className="text-xs text-muted-foreground">{description}</p>
+			<p className="type-label text-muted-foreground">{description}</p>
 		</div>
 	);
 }

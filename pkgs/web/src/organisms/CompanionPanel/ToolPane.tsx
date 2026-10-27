@@ -99,7 +99,7 @@ export const ToolPane = memo(function ToolPane({
 					)}
 				>
 					{icon}
-					<span className="text-[10px] leading-tight text-center px-1 truncate w-full">
+					<span className="type-label leading-tight text-center px-1 truncate w-full">
 						{t(labelKey)}
 					</span>
 				</button>

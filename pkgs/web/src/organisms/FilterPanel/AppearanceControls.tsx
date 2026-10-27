@@ -46,7 +46,7 @@ export const AppearanceBaseControls = memo(function AppearanceBaseControls({
 
 	return (
 		<div className="space-y-2">
-			<div className="flex items-center justify-between text-muted-foreground text-xs">
+			<div className="flex items-center justify-between text-muted-foreground type-label">
 				<span>{t("filterPanel.opacity")}</span>
 				<FakeInput
 					type="number"
@@ -69,7 +69,7 @@ export const AppearanceBaseControls = memo(function AppearanceBaseControls({
 			</div>
 
 			<div>
-				<div className="text-muted-foreground text-xs mb-1">
+				<div className="text-muted-foreground type-label mb-1">
 					{t("filterPanel.blendMode")}
 				</div>
 				<SimpleSelect
@@ -114,13 +114,13 @@ export const FillAppearanceControls = memo(function FillAppearanceControls({
 		<AppearanceBaseControls filter={filter} index={index}>
 			{fill.type === "solid" ? (
 				<div>
-					<div className="text-muted-foreground text-xs mb-1">
+					<div className="text-muted-foreground type-label mb-1">
 						{t("filterPanel.fillColor")}
 					</div>
 					<ColorPickerThin color={fill.color} onColorChange={handleUpdate} />
 				</div>
 			) : (
-				<div className="text-muted-foreground text-xs">
+				<div className="text-muted-foreground type-label">
 					{fill.type} gradient
 				</div>
 			)}
@@ -172,7 +172,7 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 		<AppearanceBaseControls filter={filter} index={index}>
 			{strokeColor.type === "solid" && (
 				<div>
-					<div className="text-muted-foreground text-xs mb-1">
+					<div className="text-muted-foreground type-label mb-1">
 						{t("filterPanel.strokeColor")}
 					</div>
 					<ColorPickerThin
@@ -182,7 +182,7 @@ export const StrokeAppearanceControls = memo(function StrokeAppearanceControls({
 				</div>
 			)}
 
-			<div className="text-muted-foreground text-xs">
+			<div className="text-muted-foreground type-label">
 				<div className="flex items-center justify-between">
 					<span>{t("filterPanel.width")}</span>
 					<FakeInput

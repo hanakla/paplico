@@ -21,7 +21,7 @@
 				"titleBarStyle": "Overlay",
 				"hiddenTitle": true,
 				"userAgent": "PaplicoDesktop",
-				"trafficLightPosition": { "x": 16, "y": 21 }
+				"trafficLightPosition": { "x": 16, "y": 24 }
 			}
 		],
 		"security": {

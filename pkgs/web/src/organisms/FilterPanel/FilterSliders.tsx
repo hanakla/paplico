@@ -46,7 +46,7 @@ export function FilterSliders<P extends object>({
 				const unit = s.scale ? "%" : (s.unit ?? "");
 
 				return (
-					<div key={s.paramKey} className="text-muted-foreground text-xs">
+					<div key={s.paramKey} className="text-muted-foreground type-label">
 						<div className="flex items-center justify-between">
 							<span>{t(s.labelKey)}</span>
 							<FakeInput

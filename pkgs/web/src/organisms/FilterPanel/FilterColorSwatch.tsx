@@ -21,7 +21,7 @@ export function FilterColorSwatch({
 
 	return (
 		<div className="flex items-center justify-between">
-			<span className="text-muted-foreground text-xs">{label}</span>
+			<span className="text-muted-foreground type-label">{label}</span>
 			<Popover.Root open={open} onOpenChange={setOpen}>
 				<button
 					ref={buttonRef}

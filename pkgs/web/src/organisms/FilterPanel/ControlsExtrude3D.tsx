@@ -308,7 +308,7 @@ export const Extrude3DFilterControls = memo(function Extrude3DFilterControls({
 							/>
 						</>
 					) : (
-						<p className="text-[10px] text-muted-foreground px-1">
+						<p className="type-label text-muted-foreground">
 							{t("filterPanel.extrudeFresnelHint")}
 						</p>
 					)}

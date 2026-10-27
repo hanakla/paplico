@@ -102,7 +102,7 @@ function ShapeParameterFields({
 						}
 					/>
 					<div className="flex flex-col gap-1">
-						<span className="text-[10px] text-muted-foreground">
+						<span className="type-label text-muted-foreground">
 							{t("actionsPanel.spiralDirection")}
 						</span>
 						<ToggleGroup.Root

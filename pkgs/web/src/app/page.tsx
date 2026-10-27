@@ -78,6 +78,7 @@ import { tauriSetWindowTitle } from "@/infra/windowTitle";
 import { useTranslation } from "@/locales";
 import { ActionsPanel } from "@/organisms/ActionsPanel";
 import { CanvasPane } from "@/organisms/CanvasPane";
+import { ChromeGlass } from "@/organisms/ChromeGlass";
 import { CompanionHost } from "@/organisms/CompanionHost";
 import {
 	CompanionRemoteModal,
@@ -120,6 +121,7 @@ import { codeFromError, reportError } from "@/utils/errorReporting";
 import { useEventCallback, useNotchSide } from "@/utils/hooks";
 import { resolveDefaultFontForLanguage } from "@/utils/paplico";
 import {
+	detectFirefoxBrowser,
 	detectMacOSTauri,
 	detectSafariBrowser,
 	IS_TAURI_ENV,
@@ -167,6 +169,10 @@ export default function Page() {
 
 	useEffect(() => {
 		document.documentElement.classList.toggle("safari", detectSafariBrowser());
+		document.documentElement.classList.toggle(
+			"firefox",
+			detectFirefoxBrowser(),
+		);
 		document.documentElement.classList.toggle("tauri-mac", detectMacOSTauri());
 	}, []);
 
@@ -902,6 +908,9 @@ export default function Page() {
 					</div>
 
 					<div className="absolute top-0 left-0 right-0 bottom-0 flex flex-col pointer-events-none">
+						{layoutMode === "desktop" && (
+							<ChromeGlass side={appSnap.toolbarSide} />
+						)}
 						<DesktopMenuBar
 							paplico={paplico}
 							connectedRoomId={collab.connectedRoomId}
@@ -1029,14 +1038,14 @@ export default function Page() {
 									const panelSideStyle = isTogether
 										? isToolbarLeft
 											? {
-													left: `calc(3.5rem + ${adjacentPanelWidth}px + var(--notch-left))`,
+													left: `calc(3rem + var(--panel-gap) + ${adjacentPanelWidth}px + var(--notch-left))`,
 												}
 											: {
-													right: `calc(3.5rem + ${adjacentPanelWidth}px + var(--notch-right))`,
+													right: `calc(3rem + var(--panel-gap) + ${adjacentPanelWidth}px + var(--notch-right))`,
 												}
 										: undefined;
 									const colCls = twm(
-										"absolute top-2 bottom-[max(0.75rem,var(--spacing-safe-bottom))] flex flex-col gap-3 pointer-events-none",
+										"absolute top-(--panel-gap) bottom-[max(0.75rem,var(--spacing-safe-bottom))] flex flex-col gap-3 pointer-events-none",
 									);
 
 									return (

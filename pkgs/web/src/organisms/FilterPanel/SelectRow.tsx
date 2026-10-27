@@ -15,7 +15,7 @@ export const SelectRow = memo(function SelectRow({
 }) {
 	return (
 		<div>
-			<div className="text-muted-foreground text-xs mb-1">{label}</div>
+			<div className="text-muted-foreground type-label mb-1">{label}</div>
 			<SimpleSelect
 				$size="sm"
 				items={items}

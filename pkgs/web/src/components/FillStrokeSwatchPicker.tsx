@@ -63,6 +63,7 @@ export function FillStrokeSwatchPicker({
 			<Popover.Root>
 				<Popover.Trigger>
 					<FillSwatchButton
+						label={t("companion.fillColor")}
 						fill={currentFill}
 						isActive={uiSnap.activeColorTarget === "fill"}
 						hasMixed={hasMixedFillColor}
@@ -94,6 +95,7 @@ export function FillStrokeSwatchPicker({
 								? "ring-1 ring-inset ring-white z-10"
 								: "ring-1 ring-inset ring-border z-0"
 						}`}
+						aria-label={t("companion.strokeColor")}
 						onClick={handleStrokeSwatchClick}
 					>
 						<ColorSwatch
@@ -161,11 +163,13 @@ export function FillStrokeSwatchPicker({
 }
 
 function FillSwatchButton({
+	label,
 	fill,
 	isActive,
 	hasMixed,
 	onClick,
 }: {
+	label: string;
 	fill: FillColor | null;
 	isActive: boolean;
 	hasMixed: boolean;
@@ -177,6 +181,7 @@ function FillSwatchButton({
 			className={`absolute top-0 left-0 w-6 h-6 rounded-sm border-2 overflow-hidden cursor-pointer ${
 				isActive ? "border-blue-500 z-10" : "border-border z-0"
 			}`}
+			aria-label={label}
 			onClick={onClick}
 		>
 			<ColorSwatch

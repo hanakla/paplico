@@ -82,7 +82,7 @@ export const SvgConvolveMatrixFilterControls = memo(
 					onChange={(kernelMatrix) => handleUpdate({ kernelMatrix })}
 					step={0.1}
 				/>
-				<div className="flex items-center justify-between text-muted-foreground text-xs">
+				<div className="flex items-center justify-between text-muted-foreground type-label">
 					<span>{t("filterPanel.svgDivisor")}</span>
 					<div className="flex items-center gap-2">
 						{params.divisor !== null && (
@@ -113,7 +113,7 @@ export const SvgConvolveMatrixFilterControls = memo(
 					onValueChange={(edgeMode) => handleUpdate({ edgeMode })}
 				/>
 				{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-				<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+				<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 					<Checkbox
 						checked={params.preserveAlpha}
 						onCheckedChange={(preserveAlpha) => handleUpdate({ preserveAlpha })}

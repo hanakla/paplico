@@ -69,7 +69,7 @@ export const BloomFilterControls = memo(function BloomFilterControls({
 	return (
 		<FilterSliders sliders={BLOOM_SLIDERS} params={params} onUpdate={onUpdate}>
 			<div>
-				<div className="text-muted-foreground text-xs mb-1">
+				<div className="text-muted-foreground type-label mb-1">
 					{t("filterPanel.blendMode")}
 				</div>
 				<SimpleSelect

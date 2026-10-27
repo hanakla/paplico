@@ -288,7 +288,7 @@ export const PaperTextureFilterControls = memo(
 		return (
 			<div className="space-y-2">
 				<div>
-					<div className="text-muted-foreground text-xs mb-1">
+					<div className="text-muted-foreground type-label mb-1">
 						{t("filterPanel.paperPresets")}
 					</div>
 					<SimpleSelect
@@ -306,7 +306,7 @@ export const PaperTextureFilterControls = memo(
 				</div>
 
 				<div>
-					<div className="text-muted-foreground text-xs mb-1">
+					<div className="text-muted-foreground type-label mb-1">
 						{t("filterPanel.paperType")}
 					</div>
 					<SimpleSelect
@@ -343,7 +343,7 @@ export const PaperTextureFilterControls = memo(
 						titleKey="filterPanel.paperGroupLighting"
 					>
 						{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-						<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+						<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 							<Checkbox
 								checked={params.lightingEnabled}
 								onCheckedChange={handleLightingChange}
@@ -380,7 +380,7 @@ export const PaperTextureFilterControls = memo(
 					onUpdate={onUpdate}
 				/>
 				{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-				<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+				<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 					<Checkbox
 						checked={params.invert}
 						onCheckedChange={handleInvertChange}
@@ -406,7 +406,7 @@ function ParamGroup({
 	return (
 		<Accordion.Item value={value} className="border-t border-border/50">
 			<Accordion.Header>
-				<Accordion.Trigger className="group flex items-center justify-between py-1.5 text-muted-foreground text-xs font-medium">
+				<Accordion.Trigger className="group flex items-center justify-between py-1.5 text-muted-foreground type-section">
 					{t(titleKey)}
 					<ChevronDown
 						size={12}

@@ -50,28 +50,29 @@ export const PenToolControls = memo(function PenToolControls() {
 				onValueChange={handleStabilizationChange}
 			/>
 			<div className="flex flex-col gap-1">
-				<span className="text-[10px] text-muted-foreground">
+				<span className="type-label text-muted-foreground">
 					{t("actionsPanel.smoothingMethod")}
 				</span>
 				<ToggleGroup.Root
+					className="w-full"
 					value={[toolSnap.smoothingMethod]}
 					onValueChange={handleSmoothingMethodChange}
 				>
 					<ToggleGroup.Item
 						value="smooth"
-						className="h-5 w-auto px-1.5 text-[10px]"
+						className="h-5 w-auto flex-1 px-1.5 type-value"
 					>
 						{t("actionsPanel.smoothingSmooth")}
 					</ToggleGroup.Item>
 					<ToggleGroup.Item
 						value="pulled-string"
-						className="h-5 w-auto px-1.5 text-[10px]"
+						className="h-5 w-auto flex-1 px-1.5 type-value"
 					>
 						{t("actionsPanel.smoothingPulledString")}
 					</ToggleGroup.Item>
 					<ToggleGroup.Item
 						value="inertia"
-						className="h-5 w-auto px-1.5 text-[10px]"
+						className="h-5 w-auto flex-1 px-1.5 type-value"
 					>
 						{t("actionsPanel.smoothingInertia")}
 					</ToggleGroup.Item>
@@ -87,7 +88,7 @@ export const PenToolControls = memo(function PenToolControls() {
 				onValueChange={handleOpacityChange}
 			/>
 
-			<span className="flex items-center gap-2 text-muted-foreground text-xs">
+			<span className="flex items-center gap-2 text-muted-foreground type-label">
 				<Checkbox
 					id="select-stroke-after-draw"
 					checked={toolSnap.selectStrokeAfterDraw}

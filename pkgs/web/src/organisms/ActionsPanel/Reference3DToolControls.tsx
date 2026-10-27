@@ -152,7 +152,7 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 
 	if (!scene) {
 		return (
-			<p className="text-[10px] leading-tight text-muted-foreground px-1">
+			<p className="type-label leading-tight text-muted-foreground">
 				{t("toolbar.reference3dHint")}
 			</p>
 		);
@@ -163,7 +163,7 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 			<Reference3DSceneField element={scene} />
 
 			<div className="flex flex-col">
-				<span className="mb-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+				<span className="mb-1 type-section text-muted-foreground">
 					{t("actionsPanel.reference3dAddPrimitive")}
 				</span>
 				<div className="flex gap-1">
@@ -184,7 +184,7 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 			</Button>
 
 			<div className="flex flex-col">
-				<span className="mb-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+				<span className="mb-1 type-section text-muted-foreground">
 					{t("actionsPanel.reference3dCamera")}
 				</span>
 				<LabeledInfiniteSlider
@@ -212,7 +212,7 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 					onValueChange={handlePitchChange}
 				/>
 				<div className="flex flex-col gap-1">
-					<span className="text-[10px] text-muted-foreground px-1">
+					<span className="type-label text-muted-foreground">
 						{t("actionsPanel.reference3dCameraMove")}
 					</span>
 					<MoveAxisSlider
@@ -234,7 +234,7 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 			</div>
 
 			<div className="flex flex-col">
-				<span className="mb-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+				<span className="mb-1 type-section text-muted-foreground">
 					{t("actionsPanel.reference3dLight")}
 				</span>
 				<LabeledSlider
@@ -256,7 +256,7 @@ export const Reference3DToolControls = memo(function Reference3DToolControls() {
 			</div>
 
 			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-			<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer px-1">
+			<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer px-1">
 				<Checkbox
 					checked={includeInExport}
 					onCheckedChange={handleIncludeInExportChange}
@@ -309,7 +309,7 @@ export const Reference3DSceneField = memo(function Reference3DSceneField({
 
 	return (
 		<div className="flex flex-col gap-1">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.reference3dScene")}
 			</span>
 			<SimpleSelect
@@ -368,8 +368,8 @@ function LabeledSlider({
 	return (
 		<div className="flex flex-col">
 			<div className="flex items-center justify-between px-1">
-				<span className="text-[10px] text-muted-foreground">{label}</span>
-				<span className="text-[10px] text-foreground font-mono tabular-nums">
+				<span className="type-label text-muted-foreground">{label}</span>
+				<span className="type-value text-foreground font-mono tabular-nums">
 					{value}
 					{unit}
 				</span>
@@ -404,8 +404,8 @@ function LabeledInfiniteSlider({
 	return (
 		<div className="flex flex-col">
 			<div className="flex items-center justify-between px-1">
-				<span className="text-[10px] text-muted-foreground">{label}</span>
-				<span className="text-[10px] text-foreground font-mono tabular-nums">
+				<span className="type-label text-muted-foreground">{label}</span>
+				<span className="type-value text-foreground font-mono tabular-nums">
 					{value.toFixed(1)}
 					{unit}
 				</span>
@@ -438,7 +438,7 @@ function MoveAxisSlider({
 }) {
 	return (
 		<div className="flex items-center gap-2 px-1">
-			<span className="text-[10px] text-muted-foreground w-3">{axisLabel}</span>
+			<span className="type-label text-muted-foreground w-3">{axisLabel}</span>
 			<InfiniteSlider
 				min={-Infinity}
 				max={Infinity}

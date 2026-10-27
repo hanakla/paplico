@@ -139,7 +139,7 @@ export const AddFilterSheet = memo(function AddFilterSheet({
 							/>
 						))
 					) : (
-						<p className="px-3 py-2 text-muted-foreground text-xs">
+						<p className="px-3 py-2 text-muted-foreground type-label">
 							{t("filterPanel.filterSearchNoResults")}
 						</p>
 					)}
@@ -348,7 +348,7 @@ const FilterRow = memo(function FilterRow({
 				{t(FILTER_TEXT_KEYS[entry.processor as keyof typeof FILTER_TEXT_KEYS])}
 			</span>
 			{showCategory && (
-				<span className="ml-auto shrink-0 pl-4 text-muted-foreground text-xs">
+				<span className="ml-auto shrink-0 pl-4 text-muted-foreground type-label">
 					{t(`filterPanel.category.${entry.category}` as LocalizeKeys)}
 				</span>
 			)}

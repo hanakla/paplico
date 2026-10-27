@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { FakeInput } from "@/components/FakeInput";
 import { Slider } from "@/components/Slider";
 
@@ -17,9 +18,14 @@ export function NumberRow({
 	value: number;
 	onChange: (value: number) => void;
 }) {
+	const labelId = useId();
+
 	return (
 		<div className="flex items-center gap-2">
-			<span className="text-[10px] text-muted-foreground shrink-0 w-12">
+			<span
+				id={labelId}
+				className="type-label text-muted-foreground shrink-0 w-12"
+			>
 				{label}
 			</span>
 			<Slider
@@ -29,6 +35,7 @@ export function NumberRow({
 				value={value}
 				onValueChange={onChange}
 				className="flex-1"
+				aria-labelledby={labelId}
 			/>
 			<FakeInput
 				$size="xs"

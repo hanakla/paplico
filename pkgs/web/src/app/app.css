@@ -13,6 +13,7 @@
 	--color-accent-hover: var(--accent-hover);
 	--color-accent-active: var(--accent-active);
 	--color-accent-foreground: var(--accent-foreground);
+	--color-accent-strong: var(--accent-strong);
 
 	--color-muted: var(--muted);
 	--color-muted-hover: var(--muted-hover);
@@ -120,6 +121,7 @@
 		--accent-hover: var(--color-sky-700);
 		--accent-active: var(--color-sky-700);
 		--accent-foreground: var(--color-zinc-100);
+		--accent-strong: var(--color-sky-700);
 
 		--muted: var(--color-gray-200);
 		--muted-hover: var(--color-gray-300);
@@ -140,7 +142,7 @@
 		--virtual-shiftkey-hover: var(--color-gray-100);
 		--virtual-shiftkey-active: var(--color-gray-200);
 		--virtual-shiftkey-pressed: var(--color-gray-200);
-		--virtual-shiftkey-foreground: var(--color-gray-400);
+		--virtual-shiftkey-foreground: var(--color-gray-600);
 
 		--success: var(--color-green-500);
 	}
@@ -158,6 +160,7 @@
 			--accent-hover: var(--color-sky-700);
 			--accent-active: var(--color-sky-700);
 			--accent-foreground: var(--color-zinc-100);
+			--accent-strong: var(--color-sky-700);
 
 			--muted: var(--color-slate-600);
 			--muted-hover: var(--color-gray-800);
@@ -178,7 +181,7 @@
 			--virtual-shiftkey-hover: var(--color-slate-600);
 			--virtual-shiftkey-active: var(--color-slate-600);
 			--virtual-shiftkey-pressed: var(--color-slate-900);
-			--virtual-shiftkey-foreground: var(--color-slate-300);
+			--virtual-shiftkey-foreground: var(--color-white);
 
 			--success: var(--color-green-600);
 		}
@@ -195,6 +198,7 @@
 		--accent-hover: var(--color-sky-700);
 		--accent-active: var(--color-sky-700);
 		--accent-foreground: var(--color-zinc-100);
+		--accent-strong: var(--color-sky-700);
 
 		--muted: var(--color-slate-600);
 		--muted-hover: var(--color-gray-500);
@@ -215,7 +219,7 @@
 		--virtual-shiftkey-hover: var(--color-slate-600);
 		--virtual-shiftkey-active: var(--color-slate-600);
 		--virtual-shiftkey-pressed: var(--color-slate-900);
-		--virtual-shiftkey-foreground: var(--color-slate-300);
+		--virtual-shiftkey-foreground: var(--color-white);
 
 		--success: var(--color-green-600);
 	}
@@ -231,6 +235,7 @@
 		--accent-hover: color-mix(in srgb, var(--color-pink-700) 80%, transparent);
 		--accent-active: color-mix(in srgb, var(--color-pink-700) 80%, transparent);
 		--accent-foreground: var(--color-white);
+		--accent-strong: var(--color-pink-700);
 
 		--muted: var(--color-pink-100);
 		--muted-hover: var(--color-pink-200);
@@ -251,7 +256,7 @@
 		--virtual-shiftkey-hover: var(--color-rose-100);
 		--virtual-shiftkey-active: var(--color-rose-200);
 		--virtual-shiftkey-pressed: var(--color-rose-200);
-		--virtual-shiftkey-foreground: var(--color-rose-500);
+		--virtual-shiftkey-foreground: var(--color-rose-700);
 
 		--success: var(--color-green-500);
 	}
@@ -266,6 +271,7 @@
 		--accent-hover: var(--color-lime-700);
 		--accent-active: var(--color-lime-800);
 		--accent-foreground: var(--color-white);
+		--accent-strong: var(--color-lime-700);
 
 		--muted: var(--color-lime-100);
 		--muted-hover: var(--color-lime-200);
@@ -286,7 +292,7 @@
 		--virtual-shiftkey-hover: var(--color-lime-100);
 		--virtual-shiftkey-active: var(--color-lime-200);
 		--virtual-shiftkey-pressed: var(--color-lime-200);
-		--virtual-shiftkey-foreground: var(--color-lime-600);
+		--virtual-shiftkey-foreground: var(--color-lime-800);
 
 		--success: var(--color-green-500);
 	}
@@ -302,6 +308,7 @@
 		--accent-hover: var(--color-violet-800);
 		--accent-active: var(--color-violet-800);
 		--accent-foreground: var(--color-white);
+		--accent-strong: var(--color-violet-700);
 
 		--muted: var(--color-violet-200);
 		--muted-hover: var(--color-violet-300);
@@ -338,6 +345,7 @@
 		--accent-hover: var(--color-zinc-200);
 		--accent-active: var(--color-zinc-100);
 		--accent-foreground: var(--color-black);
+		--accent-strong: var(--color-zinc-300);
 
 		--muted: var(--color-zinc-700);
 		--muted-hover: color-mix(in srgb, var(--color-zinc-200) 15%, transparent);
@@ -374,6 +382,7 @@
 		--accent-hover: var(--color-gray-700);
 		--accent-active: var(--color-gray-600);
 		--accent-foreground: var(--color-white);
+		--accent-strong: var(--color-gray-800);
 
 		--muted: var(--color-gray-100);
 		--muted-hover: var(--color-gray-200);
@@ -394,7 +403,7 @@
 		--virtual-shiftkey-hover: var(--color-gray-100);
 		--virtual-shiftkey-active: var(--color-gray-200);
 		--virtual-shiftkey-pressed: var(--color-gray-200);
-		--virtual-shiftkey-foreground: var(--color-gray-400);
+		--virtual-shiftkey-foreground: var(--color-gray-600);
 
 		--success: var(--color-green-500);
 	}
@@ -405,14 +414,46 @@
 		backdrop-filter: blur(20px) saturate(180%) url(#liquid-glass-frosted);
 	}
 
-	/* Safari doesn't support url() in backdrop-filter */
-	&:where(.safari *) {
+	/* Safari and Firefox show no blur at all when backdrop-filter holds url() */
+	&:where(.safari *, .firefox *) {
 		backdrop-filter: blur(40px) saturate(180%);
 	}
 
 	&:where(.tauri-mac *) {
 		backdrop-filter: blur(40px) saturate(180%);
 	}
+}
+
+/* Type scale for panel text, one utility per role. Sizes differ by at least
+   one step and weights split title/section from label/value, so each role
+   stays distinguishable from its neighbour. */
+@utility type-panel-title {
+	font-size: 0.75rem;
+	font-weight: 600;
+}
+
+@utility type-section {
+	font-size: 0.6875rem;
+	font-weight: 600;
+}
+
+@utility type-label {
+	font-size: 0.6875rem;
+	font-weight: 400;
+}
+
+@utility type-value {
+	font-size: 0.75rem;
+	font-weight: 400;
+}
+
+:root {
+	/* Side panels: corner radius and the gap that keeps them off the bars */
+	--panel-radius: 0.75rem;
+	--panel-gap: 0.5rem;
+	/* The bars' inner corner shares the panels' corner centre, so the gap
+	   around a panel stays even through the corner */
+	--chrome-corner: calc(var(--panel-radius) + var(--panel-gap));
 }
 
 :root {

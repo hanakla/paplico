@@ -14,7 +14,7 @@ const fakeSelectStyles = tv({
 	],
 	variants: {
 		$size: {
-			xs: "text-[11px]",
+			xs: "type-value",
 			sm: "text-xs",
 			md: "text-sm",
 			lg: "text-base",

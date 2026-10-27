@@ -91,7 +91,7 @@ export const ChromaticAberrationFilterControls = memo(
 		return (
 			<div className="space-y-2">
 				<div>
-					<div className="text-muted-foreground text-xs mb-1">
+					<div className="text-muted-foreground type-label mb-1">
 						{t("filterPanel.caColorMode")}
 					</div>
 					<SimpleSelect
@@ -108,7 +108,7 @@ export const ChromaticAberrationFilterControls = memo(
 				</div>
 
 				<div>
-					<div className="text-muted-foreground text-xs mb-1">
+					<div className="text-muted-foreground type-label mb-1">
 						{t("filterPanel.caShiftType")}
 					</div>
 					<SimpleSelect
@@ -123,7 +123,7 @@ export const ChromaticAberrationFilterControls = memo(
 				</div>
 
 				<div>
-					<div className="text-muted-foreground text-xs mb-1">
+					<div className="text-muted-foreground type-label mb-1">
 						{t("filterPanel.caBlendMode")}
 					</div>
 					<SimpleSelect
@@ -144,7 +144,7 @@ export const ChromaticAberrationFilterControls = memo(
 				/>
 
 				{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-				<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+				<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 					<Checkbox
 						checked={params.useFocusPoint}
 						onCheckedChange={handleUseFocusPointChange}
@@ -163,7 +163,7 @@ export const ChromaticAberrationFilterControls = memo(
 						y={params.focusPointY}
 						onChange={handleFocusPointChange}
 					/>
-					<div className="flex items-center gap-2 text-muted-foreground text-xs">
+					<div className="flex items-center gap-2 text-muted-foreground type-label">
 						<span>X</span>
 						<FakeInput
 							type="number"

@@ -400,7 +400,9 @@ export function Toolbar({
 			<div
 				ref={railObstacleRef}
 				className={twm(
-					"relative min-w-12 w-fit h-full bg-background/80 backdrop-liquid",
+					"relative min-w-12 w-fit h-full",
+					// On desktop the glass is ChromeGlass, shared with the menu bar
+					layoutMode !== "desktop" && "bg-background/80 backdrop-liquid",
 					"flex flex-col items-center gap-1 overflow-y-auto z-[10]",
 					"pt-notch-top pb-notch-bottom transition-[padding] duration-100",
 					side === "left" ? "pl-notch-left" : "pr-notch-right",
@@ -418,6 +420,7 @@ export function Toolbar({
 							$size="md"
 							$variant="ghost"
 							className="flex-none"
+							aria-label={t("toolbar.openMenu")}
 							onClick={handleOpenMenuSheet}
 						>
 							<MenuIcon size={16} />
@@ -434,6 +437,7 @@ export function Toolbar({
 					<Popover.Root open={uiSnap.brushPanelOpen}>
 						<Tooltip content={t("toolbar.penTool")} side={outwardSide}>
 							<IconButton
+								aria-label={t("toolbar.penTool")}
 								ref={penButtonRef}
 								$size="md"
 								$variant="ghost"
@@ -459,6 +463,7 @@ export function Toolbar({
 
 					<Tooltip content={t("toolbar.eraserTool")} side={outwardSide}>
 						<IconButton
+							aria-label={t("toolbar.eraserTool")}
 							$size="md"
 							$variant="ghost"
 							$pressed={snap.currentTool === "eraser"}
@@ -471,6 +476,7 @@ export function Toolbar({
 
 					<Tooltip content={t("toolbar.eyedropperTool")} side={outwardSide}>
 						<IconButton
+							aria-label={t("toolbar.eyedropperTool")}
 							$size="md"
 							$variant="ghost"
 							$pressed={snap.currentTool === "eyedropper"}
@@ -483,6 +489,7 @@ export function Toolbar({
 
 					<Tooltip content={t("toolbar.selectTool")} side={outwardSide}>
 						<IconButton
+							aria-label={t("toolbar.selectTool")}
 							$size="md"
 							$variant="ghost"
 							$pressed={snap.currentTool === "select"}
@@ -495,6 +502,7 @@ export function Toolbar({
 
 					<Tooltip content={t("toolbar.pathTool")} side={outwardSide}>
 						<IconButton
+							aria-label={t("toolbar.pathTool")}
 							$size="md"
 							$variant="ghost"
 							$pressed={snap.currentTool === "path"}
@@ -508,6 +516,7 @@ export function Toolbar({
 					<Popover.Root open={shapePanelOpen}>
 						<Tooltip content={t("toolbar.shapeTool")} side={outwardSide}>
 							<IconButton
+								aria-label={t("toolbar.shapeTool")}
 								ref={shapeButtonRef}
 								$size="md"
 								$variant="ghost"
@@ -534,6 +543,7 @@ export function Toolbar({
 
 					<Tooltip content={t("toolbar.textTool")} side={outwardSide}>
 						<IconButton
+							aria-label={t("toolbar.textTool")}
 							$size="md"
 							$variant="ghost"
 							$pressed={snap.currentTool === "text"}
@@ -550,6 +560,7 @@ export function Toolbar({
 						<Tooltip content={t("toolbar.bucketFillTool")} side={outwardSide}>
 							<Popover.Trigger>
 								<IconButton
+									aria-label={t("toolbar.bucketFillTool")}
 									$size="md"
 									$variant="ghost"
 									$pressed={snap.currentTool === "bucket-fill"}
@@ -571,6 +582,7 @@ export function Toolbar({
 
 					<Tooltip content={t("toolbar.pathEditTool")} side={outwardSide}>
 						<IconButton
+							aria-label={t("toolbar.pathEditTool")}
 							$size="md"
 							$variant="ghost"
 							$pressed={snap.currentTool === "path-edit"}
@@ -584,6 +596,7 @@ export function Toolbar({
 					<Popover.Root open={transformPanelOpen}>
 						<Tooltip content={t("toolbar.transformTool")} side={outwardSide}>
 							<IconButton
+								aria-label={t("toolbar.transformTool")}
 								ref={transformButtonRef}
 								$size="md"
 								$variant="ghost"
@@ -619,6 +632,7 @@ export function Toolbar({
 
 					<Tooltip content={t("toolbar.gradientTool")} side={outwardSide}>
 						<IconButton
+							aria-label={t("toolbar.gradientTool")}
 							$size="md"
 							$variant="ghost"
 							$pressed={snap.currentTool === "gradient"}
@@ -634,6 +648,7 @@ export function Toolbar({
 						side={outwardSide}
 					>
 						<IconButton
+							aria-label={t("toolbar.strokeWidthEditTool")}
 							$size="md"
 							$variant="ghost"
 							$pressed={snap.currentTool === "stroke-width-edit"}
@@ -646,6 +661,7 @@ export function Toolbar({
 
 					<Tooltip content={t("toolbar.reference3dTool")} side={outwardSide}>
 						<IconButton
+							aria-label={t("toolbar.reference3dTool")}
 							$size="md"
 							$variant="ghost"
 							$pressed={snap.currentTool === "reference3d"}
@@ -660,6 +676,7 @@ export function Toolbar({
 
 					<Tooltip content={t("toolbar.artboardTool")} side={outwardSide}>
 						<IconButton
+							aria-label={t("toolbar.artboardTool")}
 							$size="md"
 							$variant="ghost"
 							$pressed={snap.currentTool === "artboard"}
@@ -675,6 +692,7 @@ export function Toolbar({
 					<div className="flex flex-col gap-2">
 						<Tooltip content={t("toolbar.undoTooltip")} side={outwardSide}>
 							<IconButton
+								aria-label={t("toolbar.undoTooltip")}
 								$size="md"
 								$variant="ghost"
 								className="flex-none"
@@ -687,6 +705,7 @@ export function Toolbar({
 
 						<Tooltip content={t("toolbar.redoTooltip")} side={outwardSide}>
 							<IconButton
+								aria-label={t("toolbar.redoTooltip")}
 								$size="md"
 								$variant="ghost"
 								className="flex-none"
@@ -706,6 +725,7 @@ export function Toolbar({
 						{/* Swap fill ↔ stroke colors */}
 						<Tooltip content={t("toolbar.swapColors")} side={outwardSide}>
 							<button
+								aria-label={t("toolbar.swapColors")}
 								type="button"
 								className="mx-auto mt-1 flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
 								onClick={() => {
@@ -1079,10 +1099,10 @@ function BucketFillPanel() {
 
 			<div className="flex flex-col gap-1">
 				<div className="flex items-center justify-between">
-					<span className="text-[10px] text-muted-foreground">
+					<span className="type-label text-muted-foreground">
 						{t("toolbar.bucketFillTolerance")}
 					</span>
-					<span className="text-[10px] text-foreground font-mono tabular-nums">
+					<span className="type-value text-foreground font-mono tabular-nums">
 						{snap.bucketFillTolerance}
 					</span>
 				</div>
@@ -1097,10 +1117,10 @@ function BucketFillPanel() {
 
 			<div className="flex flex-col gap-1">
 				<div className="flex items-center justify-between">
-					<span className="text-[10px] text-muted-foreground">
+					<span className="type-label text-muted-foreground">
 						{t("toolbar.bucketFillGapClosing")}
 					</span>
-					<span className="text-[10px] text-foreground font-mono tabular-nums">
+					<span className="type-value text-foreground font-mono tabular-nums">
 						{snap.bucketFillGapClosing}px
 					</span>
 				</div>

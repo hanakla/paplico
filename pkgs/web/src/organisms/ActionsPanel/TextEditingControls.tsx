@@ -94,7 +94,7 @@ function TextEditFontFamilyControl() {
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.font")}
 			</span>
 			<FontCombobox
@@ -136,7 +136,7 @@ function TextEditFontSizeControl() {
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.size")}
 			</span>
 			<div className="flex items-center gap-2 px-1">
@@ -150,7 +150,7 @@ function TextEditFontSizeControl() {
 						onValueChange={handleSliderChange}
 					/>
 					{isMixedSize && (
-						<span className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground pointer-events-none">
+						<span className="absolute inset-0 flex items-center justify-center type-label text-muted-foreground pointer-events-none">
 							{t("actionsPanel.mixed")}
 						</span>
 					)}
@@ -195,7 +195,7 @@ function TextEditTextDecorationControl({
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.style")}
 			</span>
 			<div className="flex gap-1 px-1">
@@ -278,7 +278,7 @@ function TextEditLetterSpacingControl({
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.letterSpacing")}
 			</span>
 			<div className="flex items-center gap-2 px-1">
@@ -332,7 +332,7 @@ function TextEditLineSpacingControl({
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.lineSpacing")}
 			</span>
 			<div className="flex items-center gap-2 px-1">
@@ -377,7 +377,7 @@ function TextEditAlignmentControl() {
 
 	return (
 		<div className="flex flex-col gap-1.5">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.align")}
 			</span>
 			<div className="flex gap-1 px-1">

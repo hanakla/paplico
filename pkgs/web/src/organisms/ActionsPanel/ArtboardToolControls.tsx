@@ -90,7 +90,7 @@ export const ArtboardToolControls = memo(function ArtboardToolControls() {
 
 	if (!selectedArtboard) {
 		return (
-			<p className="w-full text-[10px] text-muted-foreground text-center leading-tight">
+			<p className="w-full type-label text-muted-foreground text-center leading-tight">
 				{t("actionsPanel.artboardSelectOrCreate")}
 			</p>
 		);
@@ -106,7 +106,7 @@ export const ArtboardToolControls = memo(function ArtboardToolControls() {
 				onKeyDown={handleKeyDown}
 			/>
 
-			<div className="text-[10px] text-muted-foreground text-right leading-none">
+			<div className="type-label text-muted-foreground text-right leading-none">
 				{units}
 			</div>
 
@@ -121,7 +121,7 @@ export const ArtboardToolControls = memo(function ArtboardToolControls() {
 						<div key={field} className="flex items-center gap-1">
 							<label
 								htmlFor={`${inputId}-${field}`}
-								className="text-[10px] text-muted-foreground w-3 uppercase"
+								className="type-label text-muted-foreground w-3 uppercase"
 							>
 								{field[0]}
 							</label>

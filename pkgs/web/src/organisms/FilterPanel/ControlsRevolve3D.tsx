@@ -217,7 +217,7 @@ export const Revolve3DFilterControls = memo(function Revolve3DFilterControls({
 						onUpdate={onUpdate}
 					/>
 					<div className="flex items-center justify-between">
-						<span className="text-muted-foreground text-xs">
+						<span className="text-muted-foreground type-label">
 							{t("filterPanel.revolveAxis")}
 						</span>
 						<SimpleSelect
@@ -228,7 +228,7 @@ export const Revolve3DFilterControls = memo(function Revolve3DFilterControls({
 						/>
 					</div>
 					<div className="flex items-center justify-between">
-						<span className="text-muted-foreground text-xs">
+						<span className="text-muted-foreground type-label">
 							{t("filterPanel.revolveCap")}
 						</span>
 						<Checkbox checked={params.cap} onCheckedChange={handleCapToggle} />
@@ -320,7 +320,7 @@ export const Revolve3DFilterControls = memo(function Revolve3DFilterControls({
 							/>
 						</>
 					) : (
-						<p className="text-[10px] text-muted-foreground px-1">
+						<p className="type-label text-muted-foreground">
 							{t("filterPanel.extrudeFresnelHint")}
 						</p>
 					)}

@@ -80,7 +80,7 @@ export const KirakiraFilterControls = memo(function KirakiraFilterControls({
 			onUpdate={onUpdate}
 		>
 			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-			<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+			<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 				<Checkbox
 					checked={params.sparkleAlpha}
 					onCheckedChange={handleSparkleAlphaChange}
@@ -88,7 +88,7 @@ export const KirakiraFilterControls = memo(function KirakiraFilterControls({
 				{t("filterPanel.kirakiraSparkleAlpha")}
 			</label>
 			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-			<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+			<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 				<Checkbox
 					checked={params.makeOriginalTransparent}
 					onCheckedChange={handleMakeOriginalTransparentChange}
@@ -96,7 +96,7 @@ export const KirakiraFilterControls = memo(function KirakiraFilterControls({
 				{t("filterPanel.kirakiraMakeOriginalTransparent")}
 			</label>
 			{/* biome-ignore lint/a11y/noLabelWithoutControl: custom checkbox component */}
-			<label className="flex items-center gap-2 text-muted-foreground text-xs cursor-pointer">
+			<label className="flex items-center gap-2 text-muted-foreground type-label cursor-pointer">
 				<Checkbox
 					checked={params.useCustomColor}
 					onCheckedChange={handleUseCustomColorChange}

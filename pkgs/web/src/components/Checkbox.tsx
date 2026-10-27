@@ -14,9 +14,9 @@ function CheckboxComponent({
 	return (
 		<BUICheckbox.Root
 			className={twm(
-				"flex size-4 items-center justify-center rounded border border-border bg-transparent outline-none",
+				"flex size-4 items-center justify-center rounded border border-foreground/60 bg-transparent outline-none",
 				"transition-colors duration-100",
-				"hover:border-foreground/50",
+				"hover:border-foreground/80",
 				"data-checked:bg-accent data-checked:border-accent",
 				"data-indeterminate:bg-accent data-indeterminate:border-accent",
 				"data-disabled:pointer-events-none data-disabled:opacity-50",

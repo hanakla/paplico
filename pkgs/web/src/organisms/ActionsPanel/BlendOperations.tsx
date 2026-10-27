@@ -124,7 +124,7 @@ export const BlendOperations = memo(function BlendOperations() {
 
 	return (
 		<div className="flex flex-col gap-1.5 w-full">
-			<span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide px-1">
+			<span className="type-section text-muted-foreground">
 				{t("actionsPanel.blend")}
 			</span>
 			<div className="flex gap-1">
@@ -206,7 +206,7 @@ export const BlendOperations = memo(function BlendOperations() {
 								onChange={(v) => handleDistanceChange(v ? Number(v) : 1)}
 								className="w-12 text-right tabular-nums"
 							/>
-							<span className="text-[10px] text-muted-foreground">
+							<span className="type-label text-muted-foreground">
 								{t("actionsPanel.blendSpacing")}
 							</span>
 						</div>
@@ -223,7 +223,7 @@ export const BlendOperations = memo(function BlendOperations() {
 					/>
 					<label
 						htmlFor={tiltId}
-						className="flex items-center gap-2 text-[10px] text-muted-foreground cursor-pointer select-none"
+						className="flex items-center gap-2 type-label text-muted-foreground cursor-pointer select-none"
 					>
 						<Checkbox
 							id={tiltId}
@@ -264,7 +264,7 @@ const EasingField = memo(function EasingField({
 
 	return (
 		<div className="flex flex-col gap-1">
-			<span className="text-[10px] text-muted-foreground">{label}</span>
+			<span className="type-label text-muted-foreground">{label}</span>
 			<div className="flex items-center gap-1">
 				<SimpleSelect
 					$size="sm"
@@ -299,9 +299,7 @@ const EasingField = memo(function EasingField({
 						</Tooltip>
 						<Popover.Content className="w-auto p-2">
 							<div className="flex flex-col gap-2">
-								<div className="pl-1 text-[11px] font-medium text-foreground">
-									{label}
-								</div>
+								<div className="pl-1 type-section text-foreground">{label}</div>
 								<BezierCurveEditor
 									value={value.nodes}
 									onChange={handleCurveChange}

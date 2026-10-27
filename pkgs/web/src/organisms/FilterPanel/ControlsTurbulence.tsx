@@ -86,7 +86,7 @@ export const TurbulenceFilterControls = memo(function TurbulenceFilterControls({
 			onUpdate={onUpdate}
 		>
 			<div>
-				<div className="text-muted-foreground text-xs mb-1">
+				<div className="text-muted-foreground type-label mb-1">
 					{t("filterPanel.turbulenceDisplacementMode")}
 				</div>
 				<SimpleSelect
@@ -110,7 +110,7 @@ export const TurbulenceFilterControls = memo(function TurbulenceFilterControls({
 				/>
 			</div>
 			<div>
-				<div className="text-muted-foreground text-xs mb-1">
+				<div className="text-muted-foreground type-label mb-1">
 					{t("filterPanel.turbulenceEdgeMode")}
 				</div>
 				<SimpleSelect

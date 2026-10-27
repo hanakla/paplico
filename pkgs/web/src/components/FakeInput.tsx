@@ -21,7 +21,7 @@ const fakeInputStyles = tv({
 	},
 	variants: {
 		$size: {
-			xs: { root: "text-[11px]", overlay: "text-base" },
+			xs: { root: "type-value", overlay: "text-base" },
 			sm: { root: "text-xs", overlay: "text-base" },
 			md: { root: "text-sm", overlay: "text-base" },
 			lg: { root: "text-base", overlay: "text-base" },
