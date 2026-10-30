@@ -109,6 +109,11 @@ export class BoundedStampStore {
 		return this.capacityCapStamps;
 	}
 
+	/** Bytes of the buffer as it has grown so far. */
+	public get residentBytes(): number {
+		return this.capacityStamps * this.bytesPerStamp;
+	}
+
 	/** Change the bytes the buffer may grow to, kept within the device binding
 	 *  limit and at least one stamp. A buffer already past it keeps its size
 	 *  and stops growing. */

@@ -20,6 +20,7 @@ import type {
 	FilterProcessorContext,
 } from "../../canvas/pipeline/FilterRenderer";
 import { FrameUniformPool } from "../../canvas/pipeline/FrameUniformPool";
+import { TEXELS_PER_BLUR_SIGMA } from "../shared/blurDetailDensity";
 import {
 	FROST_GLASS_PYRAMID_SHADER,
 	FROST_GLASS_SHADER,
@@ -418,6 +419,23 @@ export class FrostGlassFilterHandler implements FilterHandler {
 		verticalPass.setBindGroup(0, verticalBindGroup);
 		verticalPass.draw(3, 1, 0, 0);
 		verticalPass.end();
+	}
+
+	/** The blur (sigma = radius / 2) reads up to 3.5 sigmas: the shared
+	 *  pyramid blends two levels, the upper one up to twice the sigma. The
+	 *  scatter displaces the read by its block offset plus its per-pixel
+	 *  offset, up to 1.3 * `scatter` world px, before it. */
+	public getBackdropFootprint(filter: Filter): number {
+		const p = (filter as FrostGlassFilter).paramData.params;
+		return p.radius * 1.75 + 1.3 * (p.scatter ?? 0);
+	}
+
+	/** The output is the blurred input, whose sigma is half the radius. */
+	public getDetailDensity(filter: Filter): number {
+		const { radius } = (filter as FrostGlassFilter).paramData.params;
+		return radius > 0
+			? TEXELS_PER_BLUR_SIGMA / (radius / 2)
+			: Number.POSITIVE_INFINITY;
 	}
 
 	public getExpansionMargin(filter: Filter): number {

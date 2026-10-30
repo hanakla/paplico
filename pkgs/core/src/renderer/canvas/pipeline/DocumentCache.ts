@@ -57,7 +57,11 @@ export class DocumentCache {
 			label: "Composite Frame Cache",
 			size: { width, height },
 			format: this.deps.canvasFormat,
-			usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+			// COPY_SRC: a partial redraw copies what it keeps back from it.
+			usage:
+				GPUTextureUsage.TEXTURE_BINDING |
+				GPUTextureUsage.COPY_DST |
+				GPUTextureUsage.COPY_SRC,
 		});
 		return true;
 	}

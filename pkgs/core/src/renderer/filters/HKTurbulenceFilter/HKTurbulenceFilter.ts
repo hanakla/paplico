@@ -180,6 +180,23 @@ export class HKTurbulenceFilterHandler implements FilterHandler {
 		return Math.max(params.displacementX, params.displacementY) / 2;
 	}
 
+	/** A clamped cartesian warp reads its displacement away. Radial and
+	 *  twist warps scale with the element, and wrap and mirror read across
+	 *  it, so those may reach anywhere it captured. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		const p = (filter as HKTurbulenceFilter).paramData.params;
+		return p.edgeMode === "clamp" && p.displacementMode === "cartesian"
+			? Math.hypot(p.displacementX, p.displacementY)
+			: Math.hypot(bounds.width, bounds.height);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

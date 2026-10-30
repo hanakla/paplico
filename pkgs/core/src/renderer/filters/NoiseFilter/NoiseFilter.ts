@@ -168,6 +168,15 @@ export class NoiseFilterHandler implements FilterHandler {
 		return 0;
 	}
 
+	/** Reads only the input pixel under each output pixel. */
+	public getBackdropFootprint(): number {
+		return 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	/** The grain is a fixed 1 world px grid, so scaling the element leaves it as is. */
 	public onScaleFilter(params: Filter): Filter {
 		return params;

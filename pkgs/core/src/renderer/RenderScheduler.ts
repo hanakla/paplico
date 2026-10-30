@@ -264,6 +264,11 @@ export class RenderScheduler {
 				: RenderStrategy.fullInteraction;
 		}
 
+		// The settle frame after a gesture.
+		if (canBlit && this.dirtyReasons.has("viewport")) {
+			return RenderStrategy.viewportSettle;
+		}
+
 		// Selection / cursor changes leave the document untouched, so the
 		// cached composite is still exact: blit it and let the overlay layer
 		// redraw on top. CanvasLayer re-renders when it holds no valid cache.
@@ -273,7 +278,6 @@ export class RenderScheduler {
 
 		// "render" reason: async resource loaded (text path, brush texture), a
 		// post-process change (HDR / soft proof), or a tile-convergence follow-up.
-		// The settle "viewport" after an interaction lands here as well.
 		// overlayOnly re-renders the document (to show the result) without full
 		// cache invalidation (boundsCache, geometryCache), and stays
 		// non-interacting — so a tile-convergence follow-up bakes at the settle

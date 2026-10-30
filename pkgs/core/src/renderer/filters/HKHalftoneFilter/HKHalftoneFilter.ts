@@ -172,6 +172,15 @@ export class HKHalftoneFilterHandler implements FilterHandler {
 		return 0;
 	}
 
+	/** Each pixel reads the centre of its cell, at most a cell diagonal away. */
+	public getBackdropFootprint(filter: Filter): number {
+		return (filter as HKHalftoneFilter).paramData.params.size * Math.SQRT2;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

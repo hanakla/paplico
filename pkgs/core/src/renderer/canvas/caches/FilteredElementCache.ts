@@ -46,9 +46,10 @@ export class FilteredElementCache {
 
 	public constructor(private maxBytes = 256 * 1024 * 1024) {}
 
-	/** Change the budget. Eviction applies on the next set(). */
+	/** Change the budget, evicting down to it at once. */
 	public setMaxBytes(bytes: number): void {
 		this.maxBytes = bytes;
+		this.evictOverBudget();
 	}
 
 	/** Entries above this are rejected by set(). Callers must pre-check a

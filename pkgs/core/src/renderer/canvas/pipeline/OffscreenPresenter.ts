@@ -198,6 +198,14 @@ const CLIP_BLIT_BUFFER_SIZE = CLIP_BLIT_F32_COUNT * 4;
 const MASK_CHAIN_SLOTS = 4;
 const ATLAS_MASK_SLOTS = 16;
 
+/** A bake at a density the caller fixes. `fullBounds` bakes the whole
+ *  textureBounds instead of clamping it to the region the frame draws, as a
+ *  bake kept for later frames must. */
+interface FixedDensityBake {
+	density: number;
+	fullBounds: boolean;
+}
+
 interface ColorAtlasBakeReservation {
 	bounds: WorldBBox;
 	effectiveZoom: number;
@@ -452,6 +460,10 @@ export class OffscreenPresenter {
 		}
 	>();
 	private childBakeMemoTextures: GPUTexture[] = [];
+	/** Texels per world unit no bake may exceed while the children of a
+	 *  fixed-density group bake are pre-rasterized: they composite into it,
+	 *  which resamples anything finer away. */
+	private densityCeiling = Number.POSITIVE_INFINITY;
 	private colorBakeAtlasAllocator = new MaskAtlasAllocator(
 		COLOR_BAKE_ATLAS_SIZE,
 		COLOR_BAKE_ATLAS_SIZE,
@@ -615,6 +627,8 @@ export class OffscreenPresenter {
 	/** Reset pool indices and flush deferred destroys from the previous frame. */
 	public resetFrame(): void {
 		this.clipBlitPool.beginFrame();
+		// A throw mid-bake must not leave a ceiling on later frames.
+		this.densityCeiling = Number.POSITIVE_INFINITY;
 		this.colorAtlasMaskDrawCount = 0;
 		// Destroy textures deferred during the previous frame.  By deferring
 		// to the next frame's start (instead of right after queue.submit),
@@ -1145,8 +1159,8 @@ export class OffscreenPresenter {
 		 * postProcess filter renders its filtered result, not the flat geometry.
 		 */
 		filteredTextures?: Map<string, FilteredTextureInfo>,
-		/** Full-bounds bake at a caller-keyed density — see createOffscreenPass. */
-		fullBoundsBake: { density: number } | null = null,
+		/** Bake at a caller-keyed density — see createOffscreenPass. */
+		fixedDensityBake: FixedDensityBake | null = null,
 		/** Snap to the target's pixel grid — see createOffscreenPass. */
 		alignToTargetGrid = false,
 	): RasterizedRenderSurface | null {
@@ -1157,7 +1171,7 @@ export class OffscreenPresenter {
 			rasterScale,
 			skipCull,
 			filterMargin,
-			fullBoundsBake,
+			fixedDensityBake,
 			alignToTargetGrid,
 		);
 		if (!ctx) return null;
@@ -1411,8 +1425,8 @@ export class OffscreenPresenter {
 		rasterScale?: number,
 		/** Opt-in output clamp margin — see createOffscreenPass (null = no clamp). */
 		filterMargin: number | null = null,
-		/** Full-bounds bake at a caller-keyed density — see createOffscreenPass. */
-		fullBoundsBake: { density: number } | null = null,
+		/** Bake at a caller-keyed density — see createOffscreenPass. */
+		fixedDensityBake: FixedDensityBake | null = null,
 		/** Snap to the target's pixel grid — see createOffscreenPass. */
 		alignToTargetGrid = false,
 		/** Where the bake is composited, when that target's picture is known —
@@ -1449,6 +1463,10 @@ export class OffscreenPresenter {
 		// Pre-rasterize only children whose own filters need a post-process
 		// pass; renderElements draws everything else below and hands the group
 		// pre-filters to each child.
+		const savedCeiling = this.densityCeiling;
+		if (fixedDensityBake) {
+			this.densityCeiling = Math.min(savedCeiling, fixedDensityBake.density);
+		}
 		for (const child of childElements) {
 			if (this.deps.isBackdropElement(child.id)) continue;
 			const childMasks = this.deps.getElementPostMasks(child.id);
@@ -1509,10 +1527,11 @@ export class OffscreenPresenter {
 			// One bake per (child, density, clamp context, parent deformation)
 			// per frame. The clamp context is part of the key because interactive
 			// bakes crop to the draw region, which differs between the element-
-			// filter phase (real viewport) and the layer phase (prebuf store).
+			// filter phase (real viewport) and the layer phase (prebuf store), and
+			// by the group's margin around it.
 			const clampCtx =
 				this.deps.viewportState.drawRegion ?? this.deps.viewportState.bounds;
-			const memoKey = `${child.id}:${rasterScale ?? "R"}:${
+			const memoKey = `${child.id}:${rasterScale ?? "R"}@${this.densityCeiling}+${filterMargin ?? "-"}:${
 				clampCtx
 					? `${Math.round(clampCtx.minX)},${Math.round(clampCtx.minY)},${Math.round(clampCtx.maxX)},${Math.round(clampCtx.maxY)}`
 					: "full"
@@ -1550,6 +1569,10 @@ export class OffscreenPresenter {
 				childBounds,
 			);
 			const childTextureBounds = expandBounds(childBounds, childExpansion);
+			// The group's own filters read the children that far past what the
+			// frame draws, so a clamped child bake keeps that band too.
+			const childClampMargin =
+				filterMargin == null ? childExpansion : childExpansion + filterMargin;
 			const colorBakeReservation =
 				child.type === "path" &&
 				hasNormalBlending(child) &&
@@ -1582,7 +1605,7 @@ export class OffscreenPresenter {
 						elementsMap,
 						localBoundsCache,
 						rasterScale,
-						childExpansion,
+						childClampMargin,
 						null,
 						!childNeedsPostPass,
 					)
@@ -1593,7 +1616,7 @@ export class OffscreenPresenter {
 						elementsMap,
 						rasterScale,
 						false,
-						childExpansion,
+						childClampMargin,
 						undefined,
 						null,
 						!childNeedsPostPass,
@@ -1696,6 +1719,7 @@ export class OffscreenPresenter {
 			);
 		}
 		this.renderColorBakeBatch(encoder, colorBakeBatch, childFilteredTextures);
+		this.densityCeiling = savedCeiling;
 
 		const ctx = this.createOffscreenPass(
 			encoder,
@@ -1704,7 +1728,7 @@ export class OffscreenPresenter {
 			rasterScale,
 			false,
 			filterMargin,
-			fullBoundsBake,
+			fixedDensityBake,
 			alignToTargetGrid,
 		);
 		if (!ctx) return null;
@@ -2171,11 +2195,10 @@ export class OffscreenPresenter {
 		 *  coordinate space must span the full textureBounds, e.g. the
 		 *  per-appearance accumulator). */
 		filterMargin: number | null = null,
-		/** Non-null bakes the full textureBounds (no viewport region clamp) at
-		 *  exactly this density. A caller caching the result across frames keys
-		 *  on that density, so it is passed in rather than re-derived here —
-		 *  the hash and the texture can never disagree. */
-		fullBoundsBake: { density: number } | null = null,
+		/** Non-null bakes at exactly this density. A caller caching the result
+		 *  across frames keys on that density, so it is passed in rather than
+		 *  re-derived here — the hash and the texture can never disagree. */
+		fixedDensityBake: FixedDensityBake | null = null,
 		/** Snap the baked region to the target's pixel grid — see below. Only
 		 *  for bakes without raster filters: a filter's output is anchored to
 		 *  its texture, so its phase must not follow the viewport. */
@@ -2222,13 +2245,16 @@ export class OffscreenPresenter {
 			filterMargin != null && !skipCull
 				? (this.deps.viewportState.drawRegion ?? this.deps.viewportState.bounds)
 				: null;
-		const clampBounds = fullBoundsBake ? null : interactiveBounds;
-		const clampedBounds: BoundingBox = clampBounds
-			? (boundsIntersectionBox(
+		const clampBounds = fixedDensityBake?.fullBounds ? null : interactiveBounds;
+		const clampedBounds = clampBounds
+			? boundsIntersectionBox(
 					textureBounds,
 					expandBounds(brandWorldBBox(clampBounds), filterMargin ?? 0),
-				) ?? textureBounds)
+				)
 			: textureBounds;
+		// Nothing of the bake reaches what the frame draws: a partial redraw's
+		// dirty rect can miss a pass its parent target still overlaps.
+		if (!clampedBounds) return null;
 
 		// Interactive bakes follow the display zoom bucket — sharper zoomed in,
 		// coarser zoomed out. Export frames keep the rasterizationDpi ceiling so
@@ -2237,14 +2263,27 @@ export class OffscreenPresenter {
 		// derived it from the same rule and keys its cache on it). A grid-aligned
 		// bake is never cached, so it skips the bucket and bakes at the target's
 		// own density: resampling it down to the screen would blur its content.
+		// Nested in an offscreen coarser than the screen (a shadow's coverage
+		// bake), a bake composites into that offscreen, which resamples
+		// anything finer away, so it bakes no finer than it; so does a child
+		// pre-rasterized for such a bake before its pass opens. Exports keep
+		// their own density.
 		const zoomBucket = interactiveBakeDensity(rasterZoom, zoom, textureBounds);
-		const bakeZoom = fullBoundsBake
-			? fullBoundsBake.density
-			: interactiveBounds && !alignToTargetGrid
+		const ownZoom =
+			interactiveBounds && !alignToTargetGrid
 				? this.deps.renderState.isExport
 					? Math.min(rasterZoom, zoomBucket)
 					: zoomBucket
 				: rasterZoom;
+		const targetZoom = Math.min(
+			this.deps.getRasterFrame().viewport.zoom,
+			this.densityCeiling,
+		);
+		const bakeZoom = fixedDensityBake
+			? fixedDensityBake.density
+			: targetZoom < zoom && !this.deps.renderState.isExport
+				? Math.min(ownZoom, targetZoom)
+				: ownZoom;
 
 		// A viewport-clamped filter bake is snapped outward to the world-space
 		// texel grid of its density, so a pan never changes where the content
@@ -2264,7 +2303,7 @@ export class OffscreenPresenter {
 			clampBounds && !alignToTargetGrid
 				? snapBoundsToRasterGrid(clampedBounds, bakeZoom)
 				: !alignToTargetGrid ||
-						fullBoundsBake ||
+						fixedDensityBake?.fullBounds ||
 						bakeZoom !== zoom ||
 						!vp ||
 						vp.rotation !== 0

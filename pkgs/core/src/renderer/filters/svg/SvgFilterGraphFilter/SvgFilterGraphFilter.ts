@@ -163,6 +163,46 @@ export class SvgFilterGraphFilterHandler implements FilterHandler {
 		return previous;
 	}
 
+	/** Reads travel along the dependency edges like the margin. An unknown
+	 *  primitive copies the previous result on the GPU, so it reads that. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		const reach = new Map<string, number>();
+		let previous = 0;
+		for (const node of this.nodes(filter)) {
+			if (!isSvgFilterNodeEnabled(node)) {
+				reach.set(node.id, previous);
+				continue;
+			}
+			const handler = this.primitives.get(node.processor);
+			if (!handler) {
+				reach.set(node.id, previous);
+				continue;
+			}
+			const own = handler.getBackdropFootprint(
+				this.nodeFilter(filter, node),
+				bounds,
+			);
+			const inputs = nodeInputs(node).map((input) => {
+				if (input === "previous") return previous;
+				const ref = svgInputNodeRef(input);
+				if (ref === null) return 0;
+				return reach.get(ref) ?? previous;
+			});
+			previous = own + Math.max(0, ...inputs);
+			reach.set(node.id, previous);
+		}
+		return previous;
+	}
+
+	/** Nodes before a final blur may change the result, not only its
+	 *  sharpness, on a coarser input. */
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(filter: Filter, scale: [number, number]): Filter {
 		const nodes = this.nodes(filter).map((node) => {
 			const handler = this.primitives.get(node.processor);

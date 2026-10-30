@@ -249,7 +249,7 @@ describe("RenderScheduler", () => {
 			expect(lastCall(callback)[0]).toBe("fullInteraction");
 		});
 
-		it("should re-render at full quality once the interaction settles", () => {
+		it("should request a settle frame once the interaction settles", () => {
 			// Fake only the settle timer; leave requestAnimationFrame to the
 			// manual rafQueue stub the suite installs in beforeEach.
 			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -261,9 +261,40 @@ describe("RenderScheduler", () => {
 				flushFrame();
 				expect(lastCall(callback)[0]).toBe("viewportBlit");
 
-				// After the 100ms settle the scheduler drops interacting and fires a
-				// viewport dirty, which resolves to a real (overlayOnly) render.
 				vi.advanceTimersByTime(100);
+				flushFrame();
+				expect(lastCall(callback)[0]).toBe("viewportSettle");
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("should re-render the settle frame when volatile content exists", () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				const callback = vi.fn();
+				const scheduler = new RenderScheduler(callback, () => true);
+
+				scheduler.markDirty("viewport");
+				flushFrame();
+				vi.advanceTimersByTime(100);
+				flushFrame();
+				expect(lastCall(callback)[0]).toBe("overlayOnly");
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("should re-render the settle frame when a render dirt rides with it", () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				const callback = vi.fn();
+				const scheduler = new RenderScheduler(callback);
+
+				scheduler.markDirty("viewport");
+				flushFrame();
+				vi.advanceTimersByTime(100);
+				scheduler.markDirty("render");
 				flushFrame();
 				expect(lastCall(callback)[0]).toBe("overlayOnly");
 			} finally {

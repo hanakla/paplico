@@ -155,6 +155,24 @@ export class HKBlushStrokeFilterHandler implements FilterHandler {
 		return (f.paramData.params.strokeLength ?? 0) / 3;
 	}
 
+	/** Each pixel reads the neighbouring stroke cells, 1.5 cells away. A
+	 *  sparse stroke stretches the cell past the captured region. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		const p = (filter as HKBlushStrokeFilter).paramData.params;
+		const cellX = Math.sqrt(p.brushSize) * 5;
+		const cellY = cellX / (p.strokeDensity * 1.5);
+		const reach = 1.5 * Math.hypot(cellX, cellY);
+		const captured = Math.hypot(bounds.width, bounds.height);
+		return reach < captured ? reach : captured;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

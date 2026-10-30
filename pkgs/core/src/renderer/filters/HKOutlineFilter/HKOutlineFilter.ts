@@ -180,6 +180,18 @@ export class HKOutlineFilterHandler implements FilterHandler {
 		return f.paramData.params.thickness;
 	}
 
+	/** The jump flood that finds the edge steps up to twice the outline
+	 *  thickness on each axis. */
+	public getBackdropFootprint(filter: Filter): number {
+		return (
+			2 * Math.SQRT2 * (filter as HKOutlineFilter).paramData.params.thickness
+		);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

@@ -53,6 +53,11 @@ export class WashResultCache {
 
 	public constructor(private readonly resources: WashResultCacheResources) {}
 
+	/** Bytes of the results held now. */
+	public get residentBytes(): number {
+		return this.totalBytes;
+	}
+
 	/** Change the budget. Eviction applies on the next store(). */
 	public setMaxBytes(bytes: number): void {
 		this.maxBytes = bytes;

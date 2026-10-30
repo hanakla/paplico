@@ -48,6 +48,15 @@ export class SvgColorMatrixFilterHandler extends SvgFilterHandlerBase<SvgColorMa
 		);
 	}
 
+	/** Reads only the input pixel under each output pixel. */
+	public getBackdropFootprint(): number {
+		return 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public postProcess(context: FilterProcessorContext, filter: Filter): void {
 		const params = this.params(filter);
 		runColorMatrixPass(

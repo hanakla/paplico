@@ -92,6 +92,22 @@ export abstract class Solid3DFilterHandlerBase implements FilterHandler {
 	): Filter;
 	/** Upper bound on how far the solid can escape the flat outline. */
 	public abstract getExpansionMargin(filter: Filter): number;
+
+	/** A glass solid refracts the backdrop by a fraction of its own size, so
+	 *  the read may reach anywhere it captured. An opaque solid reads none. */
+	public getBackdropFootprint(
+		filter: Filter<Solid3DBaseParams>,
+		bounds: { width: number; height: number },
+	): number {
+		return extrudeNeedsBackdrop(filter.paramData.params.material)
+			? Math.hypot(bounds.width, bounds.height)
+			: 0;
+	}
+
+	/** The mesh is rebuilt from geometry at its own density. */
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
 	/** Lerp the params between a blend's adjacent keys. */
 	public abstract onInterpolate(a: unknown, b: unknown, t: number): unknown;
 

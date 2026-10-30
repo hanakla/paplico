@@ -475,16 +475,147 @@ describe("planPartialRedraw", () => {
 		expect(plan).toBeNull();
 	});
 
-	it("should return null when the store geometry changed since the capture", () => {
-		const plan = plan_({ state: { capturedStoreBounds: box(5, 0, 105, 100) } });
+	it("should return null when the store moved by a fraction of a texel since the capture", () => {
+		const plan = plan_({
+			state: { capturedStoreBounds: box(5.5, 0, 105.5, 100) },
+		});
 
 		expect(plan).toBeNull();
 	});
 
-	it("should return null when the frame has backdrop entries", () => {
-		const plan = plan_({ state: { hasBackdropEntries: true } });
+	it("should return null when the store density changed since the capture", () => {
+		const plan = plan_({ state: { capturedStoreDensity: 2 } });
 
 		expect(plan).toBeNull();
+	});
+
+	it("should redraw only the exposed strip when a viewport frame re-anchors the store", () => {
+		// The store moved 20 texels right: its right 20 columns were never baked.
+		const plan = plan_({
+			changed: { upserted: new Set(), deleted: new Set() },
+			target: storeBox,
+			state: {
+				capturedStoreBounds: box(-20, 0, 80, 100),
+				bakedWorldBounds: box(-20, 0, 80, 100),
+			},
+		});
+
+		expect(plan?.scissor).toEqual({ x: 80, y: 0, width: 20, height: 100 });
+		expect(plan?.cacheOffset).toEqual({ x: 20, y: 0 });
+		expect(plan?.bakedUnion).toEqual(storeBox);
+	});
+
+	it("should redraw what a backdrop read left incomplete at an edge the store moved past", () => {
+		// The store moved 20 texels right; the captured right edge at x=80 is
+		// now inside it, and a read with a 5 px footprint touches that edge.
+		const plan = plan_({
+			changed: { upserted: new Set(), deleted: new Set() },
+			target: storeBox,
+			state: {
+				capturedStoreBounds: box(-20, 0, 80, 100),
+				bakedWorldBounds: box(-20, 0, 80, 100),
+				backdropReads: [{ bounds: box(70, 0, 90, 100), footprint: 5 }],
+			},
+		});
+
+		expect(plan?.restoreBands).toEqual([
+			{ x: 0, y: 0, width: 75, height: 100 },
+		]);
+	});
+
+	it("should restore the texels a full render cut at the viewport's edges", () => {
+		const plan = plan_({
+			target: box(20.3, 20.3, 79.3, 79.3),
+			state: { bakedWorldBounds: box(20.3, 20.3, 79.3, 79.3) },
+		});
+
+		expect(plan?.restoreBands).toEqual([
+			{ x: 20, y: 20, width: 60, height: 22 },
+			{ x: 20, y: 68, width: 60, height: 12 },
+			{ x: 20, y: 42, width: 12, height: 26 },
+			{ x: 58, y: 42, width: 22, height: 26 },
+		]);
+	});
+
+	it("should return null when a viewport frame needs nothing the cache lacks", () => {
+		const plan = plan_({
+			changed: { upserted: new Set(), deleted: new Set() },
+			target: storeBox,
+		});
+
+		expect(plan).toBeNull();
+	});
+
+	it("should redraw a bounded backdrop footprint past the dirty rect", () => {
+		const plan = plan_({
+			state: {
+				backdropReads: [{ bounds: box(0, 0, 100, 100), footprint: 4 }],
+			},
+		});
+
+		expect(plan?.scissor).toEqual({ x: 24, y: 34, width: 42, height: 42 });
+	});
+
+	it("should redraw a backdrop read's output that reads the change", () => {
+		// A glass with a 6 px footprint over the change reads it from up to
+		// 6 px away, so its output there changes and is redrawn, not restored.
+		const plan = plan_({
+			state: {
+				backdropReads: [{ bounds: box(30, 30, 75, 75), footprint: 6 }],
+			},
+		});
+
+		expect(plan?.restoreBands).toEqual([
+			{ x: 0, y: 0, width: 100, height: 36 },
+			{ x: 0, y: 70, width: 100, height: 30 },
+			{ x: 0, y: 36, width: 30, height: 34 },
+			{ x: 64, y: 36, width: 36, height: 34 },
+		]);
+	});
+
+	it("should redraw a backdrop read beside the change that reaches it", () => {
+		const plan = plan_({
+			state: {
+				backdropReads: [{ bounds: box(60, 40, 70, 50), footprint: 5 }],
+			},
+		});
+
+		expect(plan?.restoreBands.at(-1)).toEqual({
+			x: 63,
+			y: 42,
+			width: 37,
+			height: 26,
+		});
+	});
+
+	it("should restore every cached texel outside the dirty rect", () => {
+		const plan = plan_({
+			state: {
+				backdropReads: [{ bounds: box(0, 0, 100, 100), footprint: 4 }],
+			},
+		});
+
+		expect(plan?.restoreBands).toEqual([
+			{ x: 0, y: 0, width: 100, height: 38 },
+			{ x: 0, y: 72, width: 100, height: 28 },
+			{ x: 0, y: 38, width: 28, height: 34 },
+			{ x: 62, y: 38, width: 38, height: 34 },
+		]);
+	});
+
+	it("should restore only the texels the cache holds", () => {
+		const plan = plan_({
+			changed: { upserted: new Set(), deleted: new Set() },
+			target: storeBox,
+			state: {
+				capturedStoreBounds: box(-20, 0, 80, 100),
+				bakedWorldBounds: box(-20, 0, 80, 100),
+			},
+		});
+
+		expect(plan?.restoreBands).toEqual([
+			{ x: 0, y: 0, width: 80, height: 100 },
+		]);
 	});
 
 	it("should snap the dirty rect of a small edit to the store texel grid", () => {
@@ -501,7 +632,8 @@ describe("planPartialRedraw", () => {
 			changed: { upserted: new Set(), deleted: new Set(["gone"]) },
 			elements: new Map(),
 			state: {
-				previousWorldBounds: new Map([["gone", box(10, 10, 20, 20)]]),
+				previousWorldBoundsOf: (id) =>
+					id === "gone" ? box(10, 10, 20, 20) : null,
 				currentWorldBoundsOf: () => null,
 			},
 		});
@@ -509,15 +641,28 @@ describe("planPartialRedraw", () => {
 		expect(plan?.dirtyWorld).toEqual(box(2, 2, 28, 28));
 	});
 
-	it("should extend the baked region by the dirty rect", () => {
+	it("should extend the baked region by a dirty rect that adjoins it", () => {
 		const plan = plan_({
+			target: box(0, 0, 10, 10),
+			state: {
+				bakedWorldBounds: box(0, 0, 32, 100),
+				currentWorldBoundsOf: () => box(40, 0, 50, 100),
+			},
+		});
+
+		expect(plan?.bakedUnion).toEqual(box(0, 0, 58, 100));
+	});
+
+	it("should keep the baked region to what the frame holds when the union is not a rectangle", () => {
+		const plan = plan_({
+			target: box(0, 0, 10, 10),
 			state: {
 				bakedWorldBounds: box(0, 0, 10, 10),
 				currentWorldBoundsOf: () => box(40, 40, 50, 50),
 			},
 		});
 
-		expect(plan?.bakedUnion).toEqual(box(0, 0, 58, 58));
+		expect(plan?.bakedUnion).toEqual(box(0, 0, 10, 10));
 	});
 
 	it("should return null when the dirty rect covers most of the store", () => {
@@ -538,12 +683,57 @@ describe("planPartialRedraw", () => {
 		expect(plan).toBeNull();
 	});
 
+	it("should spread a change inside a filtered group by the group's filter reach", () => {
+		// The group's filter reaches 5 px: the change spreads that far, and the
+		// frame draws 5 px further so the filter reads complete content there.
+		const plan = plan_({
+			elements: pathInGroup(),
+			structure: {
+				candidates: [
+					{
+						filterPlan: {
+							elementId: "g",
+							bounds: box(20, 20, 80, 80),
+							textureBounds: box(15, 15, 85, 85),
+							postFilters: [{}],
+						},
+					},
+				],
+			},
+			state: { parentOf: (id) => (id === "a" ? "g" : undefined) },
+		});
+
+		expect(plan?.scissor).toEqual({ x: 22, y: 32, width: 46, height: 46 });
+		expect(plan?.restoreBands).toEqual([
+			{ x: 0, y: 0, width: 100, height: 37 },
+			{ x: 0, y: 73, width: 100, height: 27 },
+			{ x: 0, y: 37, width: 27, height: 36 },
+			{ x: 63, y: 37, width: 37, height: 36 },
+		]);
+	});
+
+	it("should return null when a group around the change reads its backdrop", () => {
+		const plan = plan_({
+			elements: pathInGroup(),
+			structure: {
+				candidates: [{ backdropEntry: { element: { id: "g" } } }],
+			},
+			state: { parentOf: (id) => (id === "a" ? "g" : undefined) },
+		});
+
+		expect(plan).toBeNull();
+	});
+
 	function plan_(
 		options: {
 			changed?: { upserted: Set<string>; deleted: Set<string> };
 			untracked?: boolean;
-			elements?: Map<string, ReturnType<typeof mockPath>>;
+			elements?: Map<
+				string,
+				ReturnType<typeof mockPath> | ReturnType<typeof mockGroup>
+			>;
 			structure?: object;
+			target?: BoundingBox;
 			state?: Partial<PartialRedrawState>;
 		} = {},
 	) {
@@ -551,9 +741,11 @@ describe("planPartialRedraw", () => {
 			canRestore: true,
 			bakedWorldBounds: box(0, 0, 100, 100),
 			capturedStoreBounds: storeBox,
-			hasBackdropEntries: false,
-			previousWorldBounds: new Map(),
+			capturedStoreDensity: 1,
+			backdropReads: [],
+			previousWorldBoundsOf: () => null,
 			currentWorldBoundsOf: () => box(40, 40, 50, 50),
+			parentOf: () => undefined,
 			...options.state,
 		};
 		return planPartialRedraw(
@@ -562,8 +754,8 @@ describe("planPartialRedraw", () => {
 				: (options.changed ?? { upserted: new Set(["a"]), deleted: new Set() }),
 			options.elements ?? new Map([["a", mockPath("a")]]),
 			{ candidates: [], ...options.structure } as never,
-			[],
 			storeBox,
+			options.target ?? box(0, 0, 100, 100),
 			100,
 			100,
 			1,
@@ -571,6 +763,17 @@ describe("planPartialRedraw", () => {
 		);
 	}
 });
+
+/** Path "a" inside group "g". */
+function pathInGroup() {
+	return new Map<
+		string,
+		ReturnType<typeof mockPath> | ReturnType<typeof mockGroup>
+	>([
+		["a", mockPath("a")],
+		["g", mockGroup("g", ["a"])],
+	]);
+}
 
 function box(
 	minX: number,

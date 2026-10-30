@@ -76,6 +76,8 @@ function createMockPostHandler(
 		initialize: async () => {},
 		onScaleFilter: (filter: Filter) => filter,
 		getExpansionMargin: () => 0,
+		getBackdropFootprint: () => 0,
+		getDetailDensity: () => Number.POSITIVE_INFINITY,
 		postProcess,
 	};
 }
@@ -89,6 +91,8 @@ function createMockGeometryHandler(
 		initialize: async () => {},
 		onScaleFilter: (filter: Filter) => filter,
 		getExpansionMargin: () => 0,
+		getBackdropFootprint: () => 0,
+		getDetailDensity: () => Number.POSITIVE_INFINITY,
 		getRenderConfigure: () => ({
 			needsBackdrop: false,
 			needsSourceTexture: false,
@@ -106,6 +110,8 @@ describe("FilterRenderer.applyFilters", () => {
 			initialize: async () => {},
 			onScaleFilter: (filter: Filter) => filter,
 			getExpansionMargin: () => 0,
+			getBackdropFootprint: () => 0,
+			getDetailDensity: () => Number.POSITIVE_INFINITY,
 			postProcess(this: unknown) {
 				observedThis = this;
 			},

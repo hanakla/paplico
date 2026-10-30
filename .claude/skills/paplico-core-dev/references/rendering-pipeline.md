@@ -18,7 +18,8 @@ RenderScheduler collects dirty reasons (document change, viewport change, previe
 - `fullTransformOnly` — Re-render keeping boundsCache. Triggered by shape-preserving changes (move, paste, duplicate)
 - `viewportBlit` — Skip the document render: blit the cached composite frame through the current viewport and redraw only UILayer. Triggered by viewport change during active interaction and by selection / cursor changes. CanvasLayer falls back to a normal render when no valid cache exists
 - `fullInteraction` — Re-render with the same passes as `full`. Triggered by a viewport change during interaction that cannot blit (a preview or async resource rides along, or transient / override content exists)
-- `overlayOnly` — Re-render the document without invalidating boundsCache / geometryCache. Triggered by preview path update, async resource load, and the full-quality settle frame after a viewport gesture
+- `viewportSettle` — The frame after a viewport gesture settles. Blits the cached composite when it maps 1:1 onto the view and no bake waits for its re-bake at the current density; otherwise re-renders at full quality
+- `overlayOnly` — Re-render the document without invalidating boundsCache / geometryCache. Triggered by preview path update and async resource load
 
 The strategy resolution exists because a naive "re-render everything on every change" approach drops to ~15fps during pan/zoom on complex documents.
 

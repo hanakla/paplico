@@ -189,6 +189,11 @@ export class DabRenderer {
 		});
 	}
 
+	/** Bytes the resident dab store holds now. */
+	public get residentBytes(): number {
+		return this.dabStore.residentBytes;
+	}
+
 	/** Bytes the resident dab store may grow to. */
 	public setResidentMaxBytes(bytes: number): void {
 		this.dabStore.setMaxBytes(bytes);

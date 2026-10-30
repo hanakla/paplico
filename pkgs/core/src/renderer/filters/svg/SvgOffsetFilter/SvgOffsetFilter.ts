@@ -55,6 +55,14 @@ export class SvgOffsetFilterHandler extends SvgFilterHandlerBase<SvgOffsetParams
 		return Math.max(Math.abs(dx), Math.abs(dy));
 	}
 
+	public getBackdropFootprint(filter: Filter): number {
+		return this.getExpansionMargin(filter);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(filter: Filter, [sx, sy]: [number, number]): Filter {
 		const { dx, dy } = this.params(filter);
 		return this.withParams(filter, { dx: dx * sx, dy: dy * sy });

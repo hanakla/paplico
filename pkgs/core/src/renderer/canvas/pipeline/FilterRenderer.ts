@@ -437,6 +437,11 @@ export interface BackdropEffectDriver {
 		profiler?: GPUTimingProfiler | null,
 		filter?: ReadonlySet<string>,
 	): void;
+	/** How far (world units) the backdrop read behind one pixel of the
+	 *  element's inline composite reaches, so a partial redraw can bound what
+	 *  it must re-render. A composite that reads anywhere in the region it
+	 *  captures returns that region's diagonal. */
+	getBackdropFootprint(element: AnyArtObject): number;
 	/** Union the element's baked solids' projected bounds (for viewport
 	 *  culling) via `union`. No-op when the element has none. */
 	unionSolidBounds(
@@ -578,6 +583,22 @@ export interface FilterHandler extends FilterCapabilities {
 	 *  the batch deep enough. Omit (or return 0) for backdrop filters that
 	 *  sample the sharp capture. */
 	getBackdropBlurSigma?(filter: Filter, rasterScale: number): number;
+
+	/** Texels per world unit past which the filter's output cannot show more
+	 *  detail, because the filter blurs it away. A bake that feeds only this
+	 *  filter needs no more. `Number.POSITIVE_INFINITY` when the output keeps
+	 *  the input's detail. */
+	getDetailDensity(filter: Filter): number;
+
+	/** How far (world units) the read behind one output pixel reaches, so a
+	 *  partial redraw can bound what it must re-render when the filter reads
+	 *  the backdrop. `bounds` is the captured region. The read never leaves
+	 *  it, so a filter whose reach follows the element's size bounds it by
+	 *  `bounds`. */
+	getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number;
 
 	/** Def ids (patterns, brush sources) this filter's params reference, so the
 	 *  renderer can pre-rasterize them without knowing the filter's shape (e.g.

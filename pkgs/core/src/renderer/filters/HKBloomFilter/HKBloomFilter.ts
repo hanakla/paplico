@@ -460,6 +460,15 @@ export class HKBloomFilterHandler implements FilterHandler {
 		return ((filter as HKBloomFilter).paramData.params.radius ?? 0) * 3;
 	}
 
+	/** The separable glow reads its kernel radius on each axis. */
+	public getBackdropFootprint(filter: Filter): number {
+		return (filter as HKBloomFilter).paramData.params.radius * Math.SQRT2;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

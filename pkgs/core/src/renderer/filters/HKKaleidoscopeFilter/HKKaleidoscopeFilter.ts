@@ -202,6 +202,18 @@ export class HKKaleidoscopeFilterHandler implements FilterHandler {
 		return f.paramData.params.padding;
 	}
 
+	/** Mirrored tiles may read any point of the captured region. */
+	public getBackdropFootprint(
+		_filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		return Math.hypot(bounds.width, bounds.height);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

@@ -273,7 +273,8 @@ cross-frame content caches:
 
 - `RenderScheduler` coalesces dirty reasons in a per-frame set and retains a
   100 ms interaction settle window to choose `viewportBlit` / `fullInteraction`
-  versus the full-quality `overlayOnly` re-render after the gesture.
+  versus `viewportSettle` after the gesture, which blits a cache exact for the
+  view and re-renders otherwise.
 - `DocumentChangeSubscriber` incrementally updates `SpatialIndex` and clears
   changed bounds from Yjs deltas.
 - `YjsProvider` batches added/updated/deleted IDs and full/layer-sync flags for

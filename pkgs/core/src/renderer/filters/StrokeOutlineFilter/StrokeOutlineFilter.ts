@@ -70,6 +70,15 @@ export class StrokeOutlineFilterHandler implements FilterHandler {
 		return 0;
 	}
 
+	/** Changes the geometry before rasterization, never reading a backdrop. */
+	public getBackdropFootprint(): number {
+		return 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	/** The band's outline, fitted at the document's own scale. */
 	private outline(
 		segments: CubicBezierSegment[],

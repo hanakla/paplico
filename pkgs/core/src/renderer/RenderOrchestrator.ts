@@ -166,9 +166,13 @@ export const RenderStrategy = {
 	 *  selection stay crisp. CanvasLayer falls back to a normal render when
 	 *  it holds no valid cache. */
 	viewportBlit: "viewportBlit",
+	/** The frame after a viewport gesture ends. Blits the cached composite
+	 *  when it is exact for this viewport (same zoom, still covering it);
+	 *  otherwise re-renders at full quality, keeping the cached pixels the
+	 *  new store still shows. */
+	viewportSettle: "viewportSettle",
 	/** Re-render document + overlay without full cache invalidation (async
-	 *  resource load, post-process toggle, tile-convergence follow-up, the
-	 *  full-quality settle frame after a viewport gesture) */
+	 *  resource load, post-process toggle, tile-convergence follow-up) */
 	overlayOnly: "overlayOnly",
 } as const;
 export type RenderStrategy = keyof typeof RenderStrategy;

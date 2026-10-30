@@ -277,6 +277,20 @@ export class HKRadialRotDirFilterHandler implements FilterHandler {
 		return zoomMargin + rotateMargin + moveMargin;
 	}
 
+	/** Samples swing around the pivot by the element's size, so the read may
+	 *  reach any point of the captured region. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		const strength = (filter as HKRadialRotDirFilter).paramData.params.strength;
+		return strength ? Math.hypot(bounds.width, bounds.height) : 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

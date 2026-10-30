@@ -171,6 +171,11 @@ export class BlurStrokeRenderer implements BackdropEffectDriver {
 		return resolveBackdropBlurStroke(element) != null;
 	}
 
+	public getBackdropFootprint(element: AnyArtObject): number {
+		const stroke = resolveBackdropBlurStroke(element);
+		return stroke ? blurSigmaWorldOf(stroke.settings) * 3 : 0;
+	}
+
 	public composeInline(
 		element: AnyArtObject,
 		encoder: GPUCommandEncoder,
@@ -454,11 +459,22 @@ function blurRequestOf(
 	settings: BrushSettings,
 	rasterScale: number,
 ): BackdropEffectRequest {
-	const sizeBase = readStoredBrushSize(settings) ?? 10;
-	const sigmaWorld = (sizeBase * settings.backdropBlur!.radius) / 2;
 	return {
-		bounds: expandBounds(strokeBounds, sizeBase + sigmaWorld * 3),
-		blurSigma: sigmaWorld * rasterScale,
+		bounds: expandBounds(strokeBounds, blurReachOf(settings)),
+		blurSigma: blurSigmaWorldOf(settings) * rasterScale,
 		rasterScale,
 	};
+}
+
+/** World distance past the stroke bounds the blurred backdrop reaches: the
+ *  brush's own reach plus three sigmas of the kernel. */
+function blurReachOf(settings: BrushSettings): number {
+	return (readStoredBrushSize(settings) ?? 10) + blurSigmaWorldOf(settings) * 3;
+}
+
+/** The settings' blur radius (world px, relative to the brush size) halved
+ *  to a sigma the way the blur filter does. */
+function blurSigmaWorldOf(settings: BrushSettings): number {
+	const sizeBase = readStoredBrushSize(settings) ?? 10;
+	return (sizeBase * settings.backdropBlur!.radius) / 2;
 }

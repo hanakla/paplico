@@ -167,6 +167,30 @@ export class HKChromaticAberrationFilterHandler implements FilterHandler {
 		return f.paramData.params.strength;
 	}
 
+	/** A shift grows with the distance from the focus point, raised to the
+	 *  focus gradient. A negative gradient may reach anywhere it captured. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		const p = (filter as HKChromaticAberrationFilter).paramData.params;
+		if (!p.useFocusPoint) {
+			return p.shiftType === "zoom" ? p.strength * Math.SQRT1_2 : p.strength;
+		}
+		if (p.focusGradient < 0) return Math.hypot(bounds.width, bounds.height);
+		const farthest = Math.hypot(
+			Math.max(p.focusPointX, 1 - p.focusPointX),
+			Math.max(p.focusPointY, 1 - p.focusPointY),
+		);
+		const exponent =
+			p.shiftType === "zoom" ? 1 + p.focusGradient : p.focusGradient;
+		return p.strength * farthest ** exponent;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

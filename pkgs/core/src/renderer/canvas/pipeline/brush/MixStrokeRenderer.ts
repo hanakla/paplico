@@ -155,6 +155,11 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		this.retiredBuffers = [];
 	}
 
+	/** Bytes of the results held now. */
+	public get residentBytes(): number {
+		return this.resultCacheBytes;
+	}
+
 	/** Change the result budget. Eviction applies on the next stored result. */
 	public setMaxResultCacheBytes(bytes: number): void {
 		this.maxResultCacheBytes = bytes;
@@ -199,6 +204,15 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		return resolveMixingStroke(element) != null;
 	}
 
+	/** Colors picked up anywhere in the read region travel along the stroke,
+	 *  so a pixel may read any point of it. */
+	public getBackdropFootprint(element: AnyArtObject): number {
+		const stroke = resolveMixingStroke(element);
+		if (!stroke) return 0;
+		const bounds = this.readBoundsOf(element, stroke);
+		return Math.hypot(bounds.width, bounds.height);
+	}
+
 	public composeInline(
 		element: AnyArtObject,
 		encoder: GPUCommandEncoder,
@@ -220,12 +234,10 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		const mixing = settings.mixing!;
 		const rasterScale = this.deps.getRasterScale();
 
-		// Stroke world bounds padded by the brush reach.
-		const sizeBase = settings.properties.size?.base ?? 10;
 		// Snapped outward: a stroke being drawn grows a little every frame, and
 		// an exact fit would move the texture — and throw away everything
 		// carried over — on each of them.
-		const bounds = expandBounds(this.deps.getWorldBounds(element), sizeBase);
+		const bounds = this.readBoundsOf(element, stroke);
 
 		// The stroke still paints into the target on a cache hit, so report it
 		// either way — other backdrop consumers key off this.
@@ -742,6 +754,16 @@ export class MixStrokeRenderer implements BackdropEffectDriver {
 		);
 		this.frameBuffers.push(buffer);
 		return buffer;
+	}
+
+	/** Stroke world bounds padded by the brush reach: the region the stroke
+	 *  captures and draws into. */
+	private readBoundsOf(
+		element: AnyArtObject,
+		stroke: ResolvedStrokeAppearance,
+	): WorldBBox {
+		const sizeBase = stroke.settings.properties.size?.base ?? 10;
+		return expandBounds(this.deps.getWorldBounds(element), sizeBase);
 	}
 }
 

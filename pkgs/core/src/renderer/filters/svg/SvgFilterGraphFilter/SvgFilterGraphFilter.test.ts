@@ -26,6 +26,8 @@ const primitive = (postProcess = vi.fn()): FilterHandler => ({
 	initialize: async () => {},
 	onScaleFilter: (filter: Filter) => filter,
 	getExpansionMargin: () => 2,
+	getBackdropFootprint: () => 0,
+	getDetailDensity: () => Number.POSITIVE_INFINITY,
 	postProcess,
 });
 
@@ -267,4 +269,45 @@ describe("SvgFilterGraphFilterHandler", () => {
 			{ width: 8, height: 8 },
 		);
 	});
+
+	it("should take the backdrop footprint of the longest input path", () => {
+		const handler = new SvgFilterGraphFilterHandler(
+			new Map([["svg:offset", reaching(3)]]),
+		);
+		expect(
+			handler.getBackdropFootprint(
+				graph([
+					{ id: "a", processor: "svg:offset", params: { in: "previous" } },
+					{ id: "b", processor: "svg:offset", params: { in: "previous" } },
+					{ id: "c", processor: "svg:offset", params: { in: "ref:a" } },
+					{ id: "d", processor: "svg:offset", params: { in: "SourceAlpha" } },
+					{
+						id: "e",
+						processor: "svg:offset",
+						params: { in: "ref:c", in2: "ref:b" },
+					},
+				]),
+				{ width: 100, height: 100 },
+			),
+		).toBe(9);
+	});
+
+	it("should count an unknown primitive as reading the previous result in the backdrop footprint", () => {
+		const handler = new SvgFilterGraphFilterHandler(
+			new Map([["svg:offset", reaching(3)]]),
+		);
+		expect(
+			handler.getBackdropFootprint(
+				graph([
+					{ id: "a", processor: "svg:offset", params: { in: "previous" } },
+					{ id: "b", processor: "svg:unknown", params: { in: "SourceAlpha" } },
+				]),
+				{ width: 100, height: 100 },
+			),
+		).toBe(3);
+	});
 });
+
+function reaching(footprint: number): FilterHandler {
+	return { ...primitive(), getBackdropFootprint: () => footprint };
+}

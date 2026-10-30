@@ -257,6 +257,8 @@ function captureFilterContext(
 		initialize: async () => {},
 		onScaleFilter: (filter: Filter) => filter,
 		getExpansionMargin: () => 0,
+		getBackdropFootprint: () => 0,
+		getDetailDensity: () => Number.POSITIVE_INFINITY,
 		postProcess: (context) => {
 			captured = context;
 		},

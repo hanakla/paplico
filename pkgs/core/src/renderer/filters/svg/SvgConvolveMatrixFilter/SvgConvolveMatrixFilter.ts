@@ -79,6 +79,21 @@ export class SvgConvolveMatrixFilterHandler extends SvgFilterHandlerBase<SvgConv
 	public getExpansionMargin(filter: Filter): number {
 		return Math.ceil(clampSvgConvolveOrder(this.params(filter).order) / 2);
 	}
+
+	/** The kernel reads its half order around each pixel, and `wrap` reads
+	 *  the opposite edge of the input. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		return this.params(filter).edgeMode === "wrap"
+			? Math.max(bounds.width, bounds.height)
+			: this.getExpansionMargin(filter);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
 }
 
 /** The order the pass renders: whole, at least 1, at most SVG_CONVOLVE_ORDER_MAX. */

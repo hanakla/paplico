@@ -140,6 +140,15 @@ export class HKPosterizationFilterHandler implements FilterHandler {
 		return 0;
 	}
 
+	/** Reads only the input pixel under each output pixel. */
+	public getBackdropFootprint(): number {
+		return 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(params: Filter, _scale: [number, number]): Filter {
 		return params;
 	}

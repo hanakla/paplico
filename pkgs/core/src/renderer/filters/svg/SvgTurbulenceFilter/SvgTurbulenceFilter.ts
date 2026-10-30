@@ -57,6 +57,15 @@ export class SvgTurbulenceFilterHandler extends SvgFilterHandlerBase<SvgTurbulen
 		);
 	}
 
+	/** Draws without reading its input. */
+	public getBackdropFootprint(): number {
+		return 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public postProcess(context: FilterProcessorContext, filter: Filter): void {
 		const {
 			type,

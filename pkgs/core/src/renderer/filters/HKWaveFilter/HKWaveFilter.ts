@@ -160,6 +160,24 @@ export class HKWaveFilterHandler implements FilterHandler {
 		return (f.paramData.params.amplitude ?? 0) / 2;
 	}
 
+	/** The wave displaces by half its amplitude along an axis. Rotated, the
+	 *  displacement stretches by the aspect ratio of the texture the shader
+	 *  runs on, which a capture clipped at the canvas edge makes far wider
+	 *  than `bounds`, so the read may reach anywhere it captured. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		const p = (filter as HKWaveFilter).paramData.params;
+		return p.angleValue % 180 === 0
+			? 0.5 * Math.abs(p.amplitude) * (p.crossWave ? Math.SQRT2 : 1)
+			: Math.hypot(bounds.width, bounds.height);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

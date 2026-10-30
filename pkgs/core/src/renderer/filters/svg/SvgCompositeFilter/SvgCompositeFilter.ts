@@ -53,6 +53,15 @@ export class SvgCompositeFilterHandler extends SvgFilterHandlerBase<SvgComposite
 		);
 	}
 
+	/** Reads only the input pixel under each output pixel. */
+	public getBackdropFootprint(): number {
+		return 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public postProcess(context: FilterProcessorContext, filter: Filter): void {
 		const { operator, k1, k2, k3, k4, in: input, in2 } = this.params(filter);
 		const source = resolveSvgInput(context, input);

@@ -226,6 +226,22 @@ export class HKVhsInterlaceFilterHandler implements FilterHandler {
 		return Math.max(colorShiftPadding, verticalJitterPadding, 1);
 	}
 
+	/** Tracking error shifts by a fraction of the element's width, and the
+	 *  other distortions add to it, so the read may reach anywhere it
+	 *  captured. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		return (filter as HKVhsInterlaceFilter).paramData.params.intensity > 0
+			? Math.hypot(bounds.width, bounds.height)
+			: 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

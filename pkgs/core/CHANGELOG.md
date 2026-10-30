@@ -4,11 +4,30 @@
 
 ### Changed
 
+- **Renderer**
+  - Panning a zoomed-in document no longer stalls every few frames.
+  - The frame after a pan ends no longer stalls.
+  - Panning back over filtered elements in a zoomed-in document no longer stalls. Their results may use the part of `gpuCacheBudgetBytes` the other render caches leave unused.
+  - Panning near a blur brush stroke no longer slows down.
+  - Panning a zoomed-in document near a large clipping group no longer slows down.
+  - Panning or editing near an element with `applyToBackdrop` on a filter no longer slows down.
+- **Drop shadow filter**
+  - Panning over a large drop-shadowed group in a zoomed-in document no longer stalls.
+- **Kirakira filter**
+  - Panning or zooming a document onto a wide kirakira glow no longer stalls.
+  - An exported wide kirakira glow differs from earlier versions by a few levels of 255.
+- **Path edit tool**
+  - Dragging a vertex no longer stalls on its first frame or on release, and no longer slows down inside a drop-shadowed group.
 - **SVG export**
   - An alpha-locked element is exported as an image of only what it paints, instead of turning it and every element under it into one image.
 
 ### Fixed
 
+- **Renderer**
+  - Fix a filtered element just outside the screen appearing without its filter, or not at all, while panning it into view.
+- **Filters**
+  - Fix some filtered elements staying blurry after zooming in until the view moves.
+  - Fix the drop shadow or another filter of a group not following an element edited inside it.
 - **SVG export**
   - Fix Illustrator reporting a missing linked file, leaving out the images and dropping some clipping masks when it opens an exported SVG.
   - Fix an alpha-locked element with a blend mode coming out in a different color from the canvas.

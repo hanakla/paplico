@@ -20,4 +20,13 @@ export class AppearanceFilterHandler implements FilterHandler {
 	public getExpansionMargin(): number {
 		return 0;
 	}
+
+	/** Drawn by the element renderer, never on a backdrop. */
+	public getBackdropFootprint(): number {
+		return 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
 }

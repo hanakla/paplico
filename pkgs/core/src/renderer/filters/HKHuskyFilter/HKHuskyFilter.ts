@@ -324,6 +324,22 @@ export class HKHuskyFilterHandler implements FilterHandler {
 		return f.paramData.params.maxOffset + (f.paramData.params.melt ?? 0) * 40;
 	}
 
+	/** The melt, blur and bleed passes run one after another, so their
+	 *  reaches add up. */
+	public getBackdropFootprint(filter: Filter): number {
+		const p = (filter as HKHuskyFilter).paramData.params;
+		const melt = p.melt ?? 0;
+		return (
+			(melt > 0 ? Math.max(3, melt * 40 * Math.SQRT2) : 0) +
+			(p.blurIntensity > 0 ? p.maxOffset : 0) +
+			p.bleedIntensity * p.maxOffset * 0.4
+		);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

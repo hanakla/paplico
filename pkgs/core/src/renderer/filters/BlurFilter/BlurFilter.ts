@@ -18,6 +18,7 @@ import type {
 	FilterHandler,
 	FilterProcessorContext,
 } from "../../canvas/pipeline/FilterRenderer";
+import { TEXELS_PER_BLUR_SIGMA } from "../shared/blurDetailDensity";
 import { ScratchTexturePool } from "../shared/ScratchTexturePool";
 import { BLUR_PYRAMID_RESOLVE_SHADER, BLUR_SHADER } from "./blur.wgsl";
 
@@ -283,6 +284,19 @@ export class BlurFilterHandler implements FilterHandler {
 
 	public getExpansionMargin(filter: Filter): number {
 		return ((filter as BlurFilter).paramData.params.radius ?? 0) * 3;
+	}
+
+	/** The pyramid route for a wide blur reads as far as the margin. */
+	public getBackdropFootprint(filter: Filter): number {
+		return this.getExpansionMargin(filter);
+	}
+
+	/** The output is only the blurred input, whose sigma is half the radius. */
+	public getDetailDensity(filter: Filter): number {
+		const radius = (filter as BlurFilter).paramData.params.radius ?? 0;
+		return radius > 0
+			? TEXELS_PER_BLUR_SIGMA / (radius / 2)
+			: Number.POSITIVE_INFINITY;
 	}
 
 	public onScaleFilter(

@@ -7,14 +7,24 @@ import {
 	toRGBColor,
 } from "../../../schema";
 import { compileShaderModule } from "../../../utils/wgpu-utils";
+import {
+	BlurPyramidBuilder,
+	pyramidLevelVariance,
+} from "../../canvas/pipeline/BlurPyramid";
 import type {
 	FilterHandler,
 	FilterProcessorContext,
 } from "../../canvas/pipeline/FilterRenderer";
+import { ScratchTexturePool } from "../shared/ScratchTexturePool";
 import {
 	HK_KIRAKIRA_HORIZONTAL_SHADER,
 	HK_KIRAKIRA_VERTICAL_SHADER,
 } from "./hk-kirakira.wgsl";
+
+/** Sigma (texels) the glow keeps on the pyramid level it is blurred at.
+ *  The pyramid's own blur stays about 2% of the glow's variance, so the
+ *  glow keeps its Gaussian shape, and each pass reads about 24 texels. */
+const GLOW_LEVEL_SIGMA_TEXELS = 8;
 
 export interface HKKirakiraParams {
 	radius: number;
@@ -37,6 +47,10 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 	private horizontalBindGroupLayout: GPUBindGroupLayout | null = null;
 	private verticalUniformView: StructuredView | null = null;
 	private horizontalUniformView: StructuredView | null = null;
+	private blurPyramid: BlurPyramidBuilder | null = null;
+	/** Pyramid levels and the vertical pass's output, reused across chains
+	 *  and frames. */
+	private readonly scratch = new ScratchTexturePool();
 	private canvasFormat: GPUTextureFormat = "rgba8unorm";
 
 	public async initialize(
@@ -138,6 +152,23 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 			},
 			primitive: { topology: "triangle-list" },
 		});
+
+		this.blurPyramid = new BlurPyramidBuilder(device, (width, height, format) =>
+			this.scratch.acquire(
+				device,
+				width,
+				height,
+				format,
+				GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+				"HK Kirakira Pyramid Level",
+			),
+		);
+	}
+
+	public flushPendingDestroy(): void {
+		this.scratch.releaseAll();
+		this.scratch.flushPendingDestroy();
+		this.blurPyramid?.beginFrame();
 	}
 
 	private setUniformValues(
@@ -193,29 +224,50 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 			addressModeV: "clamp-to-edge",
 		});
 
-		// We need to keep the original for the horizontal pass composite.
-		// Save original to an intermediate texture.
-		const originalCopy = device.createTexture({
-			label: "HK Kirakira Original Copy",
-			size: [textureSize.width, textureSize.height],
-			format: this.canvasFormat,
-			usage:
-				GPUTextureUsage.TEXTURE_BINDING |
-				GPUTextureUsage.COPY_DST |
-				GPUTextureUsage.COPY_SRC,
-		});
-		commandEncoder.copyTextureToTexture(
-			{ texture: sourceTexture },
-			{ texture: originalCopy },
-			{ width: textureSize.width, height: textureSize.height },
+		// A wide glow is blurred on a reduced pyramid level: the pyramid takes
+		// a small part of the blur, and the two passes blur the rest at that
+		// level's texels, where they read a fixed number of texels per pixel.
+		const sigma = params.radius * dpiScale * 0.33 * params.strength;
+		const level = glowPyramidLevel(sigma, textureSize);
+		const reduced =
+			level > 0 && this.blurPyramid
+				? this.blurPyramid
+						.build(
+							commandEncoder,
+							sourceTexture,
+							textureSize.width,
+							textureSize.height,
+							level,
+							context.profiler,
+							context.timingLabel ?? "HK Kirakira Filter",
+						)
+						.at(-1)
+				: undefined;
+		const glowInput = reduced?.texture ?? sourceTexture;
+		const glowSize: [number, number] = reduced
+			? [reduced.usedWidth, reduced.usedHeight]
+			: [textureSize.width, textureSize.height];
+		// The shader derives its sigma from dpiScale; scale it so the passes
+		// add what the pyramid left, in the level's texels.
+		const levelSigma =
+			Math.sqrt(Math.max(sigma ** 2 - pyramidLevelVariance(level), 0)) /
+			2 ** level;
+		const glowDpiScale = reduced ? (dpiScale * levelSigma) / sigma : dpiScale;
+		const verticalTarget = this.scratch.acquire(
+			device,
+			glowSize[0],
+			glowSize[1],
+			this.canvasFormat,
+			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+			"HK Kirakira Vertical Texture",
 		);
 
-		// === Pass 1: Vertical blur (source -> target) ===
+		// === Pass 1: Vertical blur (glow input -> vertical target) ===
 		this.setUniformValues(
 			this.verticalUniformView,
 			params,
-			[textureSize.width, textureSize.height],
-			dpiScale,
+			glowSize,
+			glowDpiScale,
 		);
 
 		const verticalUniformBuffer = device.createBuffer({
@@ -234,7 +286,7 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 			layout: this.verticalBindGroupLayout,
 			entries: [
 				{ binding: 0, resource: { buffer: verticalUniformBuffer } },
-				{ binding: 1, resource: sourceTexture.createView() },
+				{ binding: 1, resource: glowInput.createView() },
 				{ binding: 2, resource: sampler },
 			],
 		});
@@ -243,7 +295,7 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 			label: "HK Kirakira Vertical Pass",
 			colorAttachments: [
 				{
-					view: targetTexture.createView(),
+					view: verticalTarget.createView(),
 					loadOp: "clear",
 					storeOp: "store",
 					clearValue: { r: 0, g: 0, b: 0, a: 0 },
@@ -255,19 +307,12 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 		verticalPass.draw(3, 1, 0, 0);
 		verticalPass.end();
 
-		// Copy vertical result to source for horizontal pass input
-		commandEncoder.copyTextureToTexture(
-			{ texture: targetTexture },
-			{ texture: sourceTexture },
-			{ width: textureSize.width, height: textureSize.height },
-		);
-
-		// === Pass 2: Horizontal blur + sparkle composite (source + originalCopy -> target) ===
+		// === Pass 2: Horizontal blur + sparkle composite (vertical target + source -> target) ===
 		this.setUniformValues(
 			this.horizontalUniformView,
 			params,
-			[textureSize.width, textureSize.height],
-			dpiScale,
+			glowSize,
+			glowDpiScale,
 		);
 
 		const horizontalUniformBuffer = device.createBuffer({
@@ -286,8 +331,8 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 			layout: this.horizontalBindGroupLayout,
 			entries: [
 				{ binding: 0, resource: { buffer: horizontalUniformBuffer } },
-				{ binding: 1, resource: sourceTexture.createView() },
-				{ binding: 2, resource: originalCopy.createView() },
+				{ binding: 1, resource: verticalTarget.createView() },
+				{ binding: 2, resource: sourceTexture.createView() },
 				{ binding: 3, resource: sampler },
 			],
 		});
@@ -308,12 +353,25 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 		horizontalPass.draw(3, 1, 0, 0);
 		horizontalPass.end();
 
-		// Note: originalCopy is NOT destroyed here because the commandEncoder
-		// has not been submitted yet. The texture will be GC'd after submit.
+		// The chain's passes are encoded; the next one may reuse these
+		// intermediates, since passes execute in encode order.
+		this.scratch.releaseAll();
 	}
 
 	public getExpansionMargin(filter: Filter): number {
 		return ((filter as HKKirakiraFilter).paramData.params.radius ?? 0) / 2;
+	}
+
+	/** The separable glow reads its kernel on each axis, plus the reduced
+	 *  pyramid level's own reach when the glow is wide. */
+	public getBackdropFootprint(filter: Filter): number {
+		const { radius, strength } = (filter as HKKirakiraFilter).paramData.params;
+		const sigma = radius * 0.33 * strength;
+		return Math.SQRT2 * (Math.min(radius, 3 * sigma) + 1.25 * sigma);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
 	}
 
 	public onScaleFilter(
@@ -368,6 +426,10 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 		return { ...p, customColor: adjustColor(p.customColor) };
 	}
 
+	public trimUnusedTextures(): void {
+		this.scratch.trimUnused();
+	}
+
 	public destroy(): void {
 		this.verticalPipeline = null;
 		this.horizontalPipeline = null;
@@ -375,5 +437,24 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 		this.horizontalBindGroupLayout = null;
 		this.verticalUniformView = null;
 		this.horizontalUniformView = null;
+		this.blurPyramid?.destroy();
+		this.blurPyramid = null;
+		this.scratch.destroy();
 	}
+}
+
+/**
+ * The pyramid level a glow of `sigma` texels is blurred at: the deepest one
+ * that leaves it GLOW_LEVEL_SIGMA_TEXELS of its own texels, or 0 to blur at
+ * full resolution. No level goes below one texel.
+ */
+function glowPyramidLevel(
+	sigma: number,
+	{ width, height }: { width: number; height: number },
+): number {
+	if (!(sigma > GLOW_LEVEL_SIGMA_TEXELS * 2)) return 0;
+	return Math.min(
+		Math.floor(Math.log2(sigma / GLOW_LEVEL_SIGMA_TEXELS)),
+		Math.floor(Math.log2(Math.max(width, height))),
+	);
 }

@@ -152,6 +152,17 @@ export class HKSprayingFilterHandler implements FilterHandler {
 		return f.paramData.params.strength * 1.3;
 	}
 
+	/** The block offset and the per-pixel offset add up to 1.3 * strength. */
+	public getBackdropFootprint(filter: Filter): number {
+		return (
+			Math.abs((filter as HKSprayingFilter).paramData.params.strength) * 1.3
+		);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

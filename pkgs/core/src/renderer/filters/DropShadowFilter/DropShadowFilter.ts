@@ -78,6 +78,11 @@ const MAX_ORIGINAL_COPY_SIZES = 8;
 
 /** Longest allowed side of a self-sized underlay texture, in texels. */
 const MAX_UNDERLAY_TEXTURE_SIDE = 4096;
+/** Texels per sigma a shadow's coverage is baked at. Two keep a shadow
+ *  within a few levels of 255 of one baked at the canvas density; four cost
+ *  a pan over a large shadowed group past its frame budget. The kernel's
+ *  sigma is half the blurRadius. */
+const SHADOW_TEXELS_PER_SIGMA = 2;
 
 export class DropShadowFilterHandler implements FilterHandler {
 	private pipeline: GPURenderPipeline | null = null;
@@ -700,12 +705,33 @@ export class DropShadowFilterHandler implements FilterHandler {
 		};
 	}
 
+	/** A spread is rounded to whole texels before the blur, so a spread
+	 *  shadow keeps the canvas density to hold its edge. */
+	public getDetailDensity(filter: Filter): number {
+		const p = (filter as DropShadowFilter).paramData.params;
+		const blurRadius = p.blurRadius ?? 0;
+		return blurRadius > 0 && !p.spreadRadius
+			? SHADOW_TEXELS_PER_SIGMA / (blurRadius / 2)
+			: Number.POSITIVE_INFINITY;
+	}
+
 	public getExpansionMargin(filter: Filter): number {
 		const p = (filter as DropShadowFilter).paramData.params;
 		return (
 			(p.blurRadius ?? 0) * 3 +
 			Math.max(Math.abs(p.offsetX ?? 0), Math.abs(p.offsetY ?? 0)) +
 			Math.max(p.spreadRadius ?? 0, 0)
+		);
+	}
+
+	/** The shadow is read at the offset through the blur, and a negative
+	 *  spread reaches inward as far as a positive one does outward. */
+	public getBackdropFootprint(filter: Filter): number {
+		const p = (filter as DropShadowFilter).paramData.params;
+		return (
+			(p.blurRadius ?? 0) * 3 +
+			Math.max(Math.abs(p.offsetX ?? 0), Math.abs(p.offsetY ?? 0)) +
+			Math.abs(p.spreadRadius ?? 0)
 		);
 	}
 

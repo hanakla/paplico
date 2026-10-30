@@ -188,6 +188,16 @@ export class HKComicToneFilterHandler implements FilterHandler {
 		return 0;
 	}
 
+	/** A dot reads the centre of its cell; lines read their own pixel. */
+	public getBackdropFootprint(filter: Filter): number {
+		const p = (filter as HKComicToneFilter).paramData.params;
+		return p.toneType === "dot" ? p.spacing * Math.SQRT1_2 : 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

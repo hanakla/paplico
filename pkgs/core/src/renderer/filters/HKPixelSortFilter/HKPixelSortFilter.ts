@@ -245,6 +245,21 @@ export class HKPixelSortFilterHandler implements FilterHandler {
 		return 0;
 	}
 
+	/** A sorted span may move a pixel along a whole line of the captured
+	 *  region. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		const strength =
+			(filter as HKPixelSortFilter).paramData.params.strength ?? 1;
+		return strength > 0 ? Math.hypot(bounds.width, bounds.height) : 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(params: Filter, _scale: [number, number]): Filter {
 		return params;
 	}

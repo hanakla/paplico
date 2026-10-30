@@ -14,8 +14,9 @@ import {
  * Shared lifecycle of the SVG filter primitive handlers: they own one or more
  * fullscreen passes, declare SourceGraphic reads from their `in` params, and
  * are in-place image filters (postProcess writes ctx.targetTexture).
- * Subclasses implement the primitive itself; those with spatial parameters
- * override the margin and scaling, which default to "none".
+ * Subclasses implement the primitive itself and declare how far it reads
+ * and how much detail it keeps; those with spatial parameters override the
+ * margin and scaling, which default to "none".
  *
  * Intermediate textures come from `scratch`, a pool the orchestrator shares
  * across every SVG handler so equal sizes are not held once per primitive.
@@ -33,6 +34,13 @@ export abstract class SvgFilterHandlerBase<P> implements FilterHandler {
 		device: GPUDevice,
 		canvasFormat: GPUTextureFormat,
 	): Promise<void>;
+
+	public abstract getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number;
+
+	public abstract getDetailDensity(filter: Filter): number;
 
 	public onScaleFilter(filter: Filter, scale: [number, number]): Filter {
 		return filter;

@@ -188,6 +188,18 @@ export class HKInnerGlowFilterHandler implements FilterHandler {
 			: 2;
 	}
 
+	/** The jump flood that finds the edge steps up to twice the glow weight
+	 *  on each axis. */
+	public getBackdropFootprint(filter: Filter): number {
+		return (
+			2 * Math.SQRT2 * (filter as HKInnerGlowFilter).paramData.params.weight
+		);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

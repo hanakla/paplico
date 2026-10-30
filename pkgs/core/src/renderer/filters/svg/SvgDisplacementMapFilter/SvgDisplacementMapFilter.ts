@@ -72,6 +72,15 @@ export class SvgDisplacementMapFilterHandler extends SvgFilterHandlerBase<SvgDis
 		return Math.abs(this.params(filter).scale) / 2;
 	}
 
+	/** `in` is read up to half the scale away; `in2` under the pixel. */
+	public getBackdropFootprint(filter: Filter): number {
+		return this.getExpansionMargin(filter);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(filter: Filter, [sx, sy]: [number, number]): Filter {
 		const { scale } = this.params(filter);
 		return this.withParams(filter, { scale: scale * Math.sqrt(sx * sy) });

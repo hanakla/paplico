@@ -159,6 +159,22 @@ export class HKDirectionalBlurFilterHandler implements FilterHandler {
 		);
 	}
 
+	/** The streak reads along its direction. A fade-out also zooms about the
+	 *  centre, which may reach anywhere it captured. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		const p = (filter as HKDirectionalBlurFilter).paramData.params;
+		return p.fadeOut > 0
+			? Math.hypot(bounds.width, bounds.height)
+			: p.strength * 1.5;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

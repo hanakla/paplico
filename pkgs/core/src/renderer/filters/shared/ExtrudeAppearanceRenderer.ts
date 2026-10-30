@@ -667,6 +667,14 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 		return this.findGlassRefractionEntries(element).length > 0;
 	}
 
+	/** Refraction reads anywhere in the region this frame captures for the
+	 *  element: its solids' bounds plus the margin of the filters after them. */
+	public getBackdropFootprint(element: AnyArtObject): number {
+		const [entry] = this.findGlassRefractionEntries(element);
+		const region = entry && this.frameRequests.get(entry)?.bounds;
+		return region ? Math.hypot(region.width, region.height) : 0;
+	}
+
 	/**
 	 * Compose the element's glass extrude(s) over `targetTexture` at its z-order,
 	 * and mark them so flushRemaining skips them. A blend contributes one entry

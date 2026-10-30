@@ -58,6 +58,11 @@ export class StripFrame {
 		this.coverage = new StripCoverage(device, this.paramsFallbackView);
 	}
 
+	/** Bytes the resident pages hold now. */
+	public get residentBytes(): number {
+		return this.pool.residentBytes;
+	}
+
 	/** Bytes the resident pages may grow to. */
 	public setPageBudgetBytes(bytes: number): void {
 		this.pool.setBudgetBytes(bytes);

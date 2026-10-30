@@ -75,6 +75,11 @@ export class StripPagePool {
 
 	public constructor(private readonly device: GPUDevice) {}
 
+	/** Bytes of the pages the pool holds now. */
+	public get residentBytes(): number {
+		return this.totalBytes();
+	}
+
 	/** Change the bytes the pool grows to. Pages past it are freed once idle. */
 	public setBudgetBytes(bytes: number): void {
 		this.budgetBytes = bytes;

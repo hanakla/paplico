@@ -89,6 +89,15 @@ export class ZigzagFilterHandler implements FilterHandler {
 		return zigzag.paramData.params.amplitude ?? 0;
 	}
 
+	/** Changes the geometry before rasterization, never reading a backdrop. */
+	public getBackdropFootprint(): number {
+		return 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onInterpolate(paramsA: unknown, paramsB: unknown, t: number): unknown {
 		return interpolateZigzagParams(
 			paramsA as ZigzagFilter["paramData"]["params"],

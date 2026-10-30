@@ -1,8 +1,12 @@
 import type { Appearance, Filter } from "../../../../schema";
 import { lerp } from "../../../../utils/math";
 import type { FilterProcessorContext } from "../../../canvas/pipeline/FilterRenderer";
+import { TEXELS_PER_BLUR_SIGMA } from "../../shared/blurDetailDensity";
 import { effectiveSigma, SvgFilterHandlerBase } from "../SvgFilterHandlerBase";
-import { SvgGaussianBlur } from "../SvgGaussianBlur";
+import {
+	SVG_GAUSSIAN_BLUR_READ_SIGMAS,
+	SvgGaussianBlur,
+} from "../SvgGaussianBlur";
 import { resolveSvgInput, type SvgFilterInputParams } from "../svgFilterInput";
 
 /** feGaussianBlur. Standard deviations in world px per axis. */
@@ -45,6 +49,21 @@ export class SvgGaussianBlurFilterHandler extends SvgFilterHandlerBase<SvgGaussi
 	public getExpansionMargin(filter: Filter): number {
 		const { stdDeviationX, stdDeviationY } = this.params(filter);
 		return 3 * Math.max(stdDeviationX, stdDeviationY);
+	}
+
+	/** The downsampled path for a wide blur reads up to 3.5 sigmas. */
+	public getBackdropFootprint(filter: Filter): number {
+		const { stdDeviationX, stdDeviationY } = this.params(filter);
+		return (
+			SVG_GAUSSIAN_BLUR_READ_SIGMAS * Math.max(stdDeviationX, stdDeviationY, 0)
+		);
+	}
+
+	/** Detail survives along the less blurred axis. */
+	public getDetailDensity(filter: Filter): number {
+		const { stdDeviationX, stdDeviationY } = this.params(filter);
+		const sigma = Math.min(stdDeviationX, stdDeviationY);
+		return sigma > 0 ? TEXELS_PER_BLUR_SIGMA / sigma : Number.POSITIVE_INFINITY;
 	}
 
 	public onScaleFilter(filter: Filter, [sx, sy]: [number, number]): Filter {

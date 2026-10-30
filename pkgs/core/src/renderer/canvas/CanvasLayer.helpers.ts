@@ -7,6 +7,7 @@ import {
 	type Viewport,
 } from "../../schema";
 import { computePolylineSignedArea } from "../../utils/geometry/measure/area";
+import { translateBounds } from "../../utils/geometry/primitives/box";
 
 /** Axis-aligned bounding box of a 4-corner quad (world space). */
 export function aabbOfQuad(
@@ -98,6 +99,30 @@ export function calculatePrebufDimensions({
 		),
 		prebufZoom,
 	};
+}
+
+/**
+ * Shift `bounds` by the sub-pixel amount that puts the texel grid of a store
+ * covering `storeBounds` onto whole pixels of a `width` × `height` canvas
+ * viewing `viewport` unrotated at the store's density, following
+ * worldToScreen. A blit through the shifted bounds copies each texel onto
+ * one pixel exactly; the content moves by at most half a pixel.
+ */
+export function alignToCanvasPixels(
+	bounds: BoundingBox,
+	storeBounds: BoundingBox,
+	viewport: Viewport,
+	width: number,
+	height: number,
+): BoundingBox {
+	const { zoom } = viewport;
+	const sx = width / 2 + (storeBounds.minX - viewport.x) * zoom;
+	const sy = height / 2 + (viewport.y - storeBounds.maxY) * zoom;
+	return translateBounds(
+		bounds,
+		(Math.round(sx) - sx) / zoom,
+		(sy - Math.round(sy)) / zoom,
+	);
 }
 
 /**
@@ -332,6 +357,31 @@ export function expandRenderFilterWithAncestors(
 		}
 	}
 	return { filter, skipIds };
+}
+
+/**
+ * How far each element's rendered output may reach through its own filter
+ * plan or a descendant's. Culling on the flat bounds alone drops a group
+ * whose child's filter spreads past it wherever only that spread reaches.
+ */
+export function collectFilterSpread(
+	plans: Iterable<{ elementId: string; textureBounds: BoundingBox }>,
+	parentOf: ReadonlyMap<string, string>,
+): Map<string, BoundingBox> {
+	const spread = new Map<string, BoundingBox>();
+	for (const plan of plans) {
+		for (
+			let id: string | undefined = plan.elementId;
+			id != null;
+			id = parentOf.get(id)
+		) {
+			spread.set(
+				id,
+				unionBoundingBoxes(spread.get(id) ?? null, plan.textureBounds)!,
+			);
+		}
+	}
+	return spread;
 }
 
 /** child id → containing group id, for every group in `elementsMap`. */

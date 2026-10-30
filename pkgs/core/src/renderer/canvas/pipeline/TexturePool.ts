@@ -111,6 +111,11 @@ export class TexturePool {
 
 	public constructor(private readonly device: GPUDevice) {}
 
+	/** Bytes of the idle textures the pool holds now. */
+	public get residentBytes(): number {
+		return this.totalPooledBytes;
+	}
+
 	public getBudgetBytes(): number {
 		return this.budgetBytes;
 	}

@@ -8,7 +8,10 @@ import {
 	svgFloodColor,
 } from "../SvgFloodFilter/SvgFloodFilter";
 import { SvgFullscreenPass } from "../SvgFullscreenPass";
-import { SvgGaussianBlur } from "../SvgGaussianBlur";
+import {
+	SVG_GAUSSIAN_BLUR_READ_SIGMAS,
+	SvgGaussianBlur,
+} from "../SvgGaussianBlur";
 import { svgOffsetTexels } from "../SvgOffsetFilter/SvgOffsetFilter";
 import {
 	resolveSvgInput,
@@ -96,6 +99,21 @@ export class SvgDropShadowFilterHandler extends SvgFilterHandlerBase<SvgDropShad
 	public getExpansionMargin(filter: Filter): number {
 		const { dx, dy, stdDeviation } = this.params(filter);
 		return 3 * stdDeviation + Math.max(Math.abs(dx), Math.abs(dy));
+	}
+
+	/** The shadow is read at the offset, through a blur whose downsampled
+	 *  path reaches up to 3.5 sigmas. */
+	public getBackdropFootprint(filter: Filter): number {
+		const { dx, dy, stdDeviation } = this.params(filter);
+		return (
+			Math.max(Math.abs(dx), Math.abs(dy)) +
+			SVG_GAUSSIAN_BLUR_READ_SIGMAS * Math.max(stdDeviation, 0)
+		);
+	}
+
+	/** The sharp source is composited back over the shadow. */
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
 	}
 
 	public onScaleFilter(filter: Filter, [sx, sy]: [number, number]): Filter {

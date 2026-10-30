@@ -161,6 +161,24 @@ export class HKGlitchFilterHandler implements FilterHandler {
 		return 0;
 	}
 
+	/** Slices shift by a fraction of the captured region's size. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		const p = (filter as HKGlitchFilter).paramData.params;
+		const reach =
+			(0.5 + 0.5 * Math.abs(p.bias)) *
+				p.intensity *
+				Math.max(bounds.width, bounds.height) +
+			(p.colorShift / 100) * bounds.width;
+		return Math.min(reach, Math.hypot(bounds.width, bounds.height));
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[_scaleX, _scaleY]: [number, number],

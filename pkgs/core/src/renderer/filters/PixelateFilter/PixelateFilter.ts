@@ -167,6 +167,16 @@ export class PixelateFilterHandler implements FilterHandler {
 		return 0;
 	}
 
+	/** Each pixel reads the centre of its block. */
+	public getBackdropFootprint(filter: Filter): number {
+		const p = (filter as PixelateFilter).paramData.params;
+		return 0.5 * Math.hypot(p.blockWidth ?? 8, p.blockHeight ?? 8);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

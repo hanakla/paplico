@@ -37,7 +37,6 @@ import {
 	expandRenderFilter,
 	unionBoundingBoxes,
 } from "../CanvasLayer.helpers";
-import { boundsAlmostEqual } from "./DocumentCache";
 import {
 	type FilterHandler,
 	type FilterRenderer,
@@ -993,13 +992,37 @@ function drawsFilterBeneath(
 	);
 }
 
-/** A qualified partial redraw: the dirty world rect (snapped to the store's
- *  texel grid), its prebuf-space scissor, and the baked-region union the
- *  capture records. */
+/** A texel rectangle of the store texture (x/y from its top-left corner). */
+export interface TexelRect {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+}
+
+/** A qualified partial redraw. `dirtyWorld` is the rect this frame
+ *  re-renders, snapped to the store's texel grid, and `scissor` is the same
+ *  rect in prebuf texels. It reaches past the region that actually changed
+ *  by the footprint of the backdrop reads there, so those reads see freshly
+ *  drawn pixels. Once the frame is drawn, `restoreBands` — every texel
+ *  outside the changed region that the cache holds — are copied back from
+ *  the cache, which also undoes any pass that drew past the scissor. */
 export interface PartialRedrawPlan {
 	dirtyWorld: BoundingBox;
-	scissor: { x: number; y: number; width: number; height: number };
+	scissor: TexelRect;
+	restoreBands: TexelRect[];
+	/** Offset from a store texel to the cache texel holding the same world
+	 *  point: the store may re-anchor by whole texels since the capture. */
+	cacheOffset: { x: number; y: number };
 	bakedUnion: BoundingBox;
+}
+
+/** An element that reads the picture beneath it this frame: a backdrop
+ *  filter, or an inline composite that warps or blurs the prebuf. */
+export interface PartialRedrawBackdropRead {
+	bounds: BoundingBox;
+	/** How far (world units) the read behind one output pixel reaches. */
+	footprint: number;
 }
 
 /** CPU-side facts about the previous frame and the current frame's bounds. */
@@ -1010,27 +1033,32 @@ export interface PartialRedrawState {
 	bakedWorldBounds: BoundingBox | null;
 	/** World rect of the whole store texture at capture time. */
 	capturedStoreBounds: BoundingBox | null;
-	hasBackdropEntries: boolean;
-	/** Output bounds of every element as it was last drawn. */
-	previousWorldBounds: ReadonlyMap<string, BoundingBox>;
+	/** Store texels per world unit at capture time. */
+	capturedStoreDensity: number;
+	backdropReads: readonly PartialRedrawBackdropRead[];
+	/** The element's world bounds in the captured frame, or null when that
+	 *  frame did not hold it. */
+	previousWorldBoundsOf(id: string): BoundingBox | null;
 	/** The element's world bounds as of this frame, or null when it is gone. */
 	currentWorldBoundsOf(id: string): BoundingBox | null;
+	/** The group holding the element this frame, if any. */
+	parentOf(id: string): string | undefined;
 }
 
 /**
- * Decide whether a tracked content change can redraw only its region.
- * Returns the dirty world rect (snapped to the store's texel grid), the
- * matching prebuf-space scissor, and the baked-region union the capture
- * should record — or null to fall back to the plain full render. The
- * fallbacks are deliberately broad: correctness first, coverage grows as
- * the exceptional paths (filters, backdrop, glass) learn their margins.
+ * Decide whether a frame can redraw only part of the store and restore the
+ * rest from the cached composite. The redrawn part covers the tracked
+ * content change and whatever of `targetRegion` (the region the frame must
+ * leave complete) the cache does not hold. Returns null to fall back to the
+ * plain full render. The fallbacks are deliberately broad: correctness
+ * first.
  */
 export function planPartialRedraw(
 	changedElements: FrameRequest["changedElements"],
 	elementsMap: Map<string, AnyArtObject>,
 	planStructure: FramePlanStructure,
-	passPlans: readonly LayerPassPlan[],
 	storeBox: BoundingBox,
+	targetRegion: BoundingBox,
 	prebufWidth: number,
 	prebufHeight: number,
 	prebufZoom: number,
@@ -1044,37 +1072,173 @@ export function planPartialRedraw(
 	) {
 		return null;
 	}
-	// The restore blits cached texels 1:1 back onto the store, so the store
-	// geometry (anchor/zoom/dims) must be unchanged since the capture.
-	if (!boundsAlmostEqual(state.capturedStoreBounds, storeBox)) return null;
-	// Backdrop elements and inline-glass breaks read the prebuf mid-frame; a
-	// restored prebuf holds the FINAL previous composite there, not the
-	// mid-frame state below the element, so those frames render fully.
-	if (state.hasBackdropEntries) return null;
-	for (const layerPass of passPlans) {
-		for (const segment of layerPass.segments) {
-			if (segment.breakAfter?.kind === "inlineBackdropCompose") return null;
+	// The restore copies cached texels 1:1 back onto the store, so the store
+	// must sit on the capture's texel grid.
+	const cacheOffset = storeTexelOffset(
+		state.capturedStoreBounds,
+		state.capturedStoreDensity,
+		storeBox,
+		prebufZoom,
+	);
+	if (!cacheOffset) return null;
+	const changed = changedRegionOf(
+		changedElements,
+		elementsMap,
+		planStructure,
+		prebufZoom,
+		state,
+	);
+	if (changed === undefined) return null;
+	const toTexels = (b: BoundingBox, snap: "outward" | "inward" = "outward") =>
+		toStoreTexelRect(b, storeBox, prebufWidth, prebufHeight, prebufZoom, snap);
+	const toWorld = (r: TexelRect): BoundingBox =>
+		texelRectToWorld(r, storeBox, prebufZoom);
+	// A full render records the viewport it drew, which cuts texels at its
+	// edges. The screen showed those texels as captured, so they are reused
+	// whole instead of falling between the scissor and the restore.
+	const bakedTexels = toTexels(state.bakedWorldBounds);
+	const reusable =
+		bakedTexels &&
+		trimInteriorStoreEdges(
+			toWorld(bakedTexels),
+			state.capturedStoreBounds,
+			storeBox,
+			state.backdropReads,
+		);
+	if (!reusable) return null;
+	const halfTexel = 0.5 / prebufZoom;
+	const dirty = unionBoundingBoxes(
+		changed && spreadByBackdropReads(changed.bounds, state.backdropReads),
+		uncoveredBounds(targetRegion, reusable, halfTexel),
+	);
+	if (!dirty) return null;
+	const clipped = boundsIntersectionBox(dirty, storeBox);
+	// Entirely outside the store: nothing visible changes, but the plain
+	// path keeps the bookkeeping (bounds map, capture) coherent.
+	if (!clipped) return null;
+	const guard = backdropGuard(clipped, state.backdropReads);
+	const drawn = boundsIntersectionBox(
+		expandBounds(clipped, guard + (changed?.inputReach ?? 0)),
+		storeBox,
+	);
+	if (!drawn) return null;
+	// Past this ratio a full redraw costs about the same and re-bakes the
+	// whole store for later pans.
+	const storeArea = storeBox.width * storeBox.height;
+	if (drawn.width * drawn.height > storeArea * 0.4) return null;
+	const dirtyTexels = toTexels(clipped);
+	const drawnTexels = toTexels(drawn);
+	// Inward, so a restore band never copies a texel the cache does not hold.
+	const reusableTexels = toTexels(reusable, "inward");
+	if (!dirtyTexels || !drawnTexels || !reusableTexels) return null;
+	const storeTexels = { x: 0, y: 0, width: prebufWidth, height: prebufHeight };
+	const restoreBands = subtractTexelRect(storeTexels, dirtyTexels).flatMap(
+		(band) => {
+			const kept = intersectTexelRects(band, reusableTexels);
+			return kept ? [kept] : [];
+		},
+	);
+	return {
+		dirtyWorld: toWorld(drawnTexels),
+		scissor: drawnTexels,
+		restoreBands,
+		cacheOffset,
+		bakedUnion:
+			rectangularUnion(toWorld(reusableTexels), toWorld(dirtyTexels)) ??
+			boundsIntersectionBox(targetRegion, storeBox) ??
+			toWorld(dirtyTexels),
+	};
+}
+
+/**
+ * `reusable` without what a backdrop read drew near an edge of the captured
+ * store that now lies inside the store. The read found nothing past that
+ * edge, so its pixels within its footprint of it are incomplete — harmless
+ * at the store's edge, wrong once a re-anchor brings them inside. Each such
+ * side is trimmed back by the footprint of the reads touching it.
+ */
+function trimInteriorStoreEdges(
+	reusable: BoundingBox,
+	captured: BoundingBox,
+	storeBox: BoundingBox,
+	reads: readonly PartialRedrawBackdropRead[],
+): BoundingBox | null {
+	let { minX, minY, maxX, maxY } = reusable;
+	for (const { bounds, footprint } of reads) {
+		if (footprint <= 0) continue;
+		const overlapsX =
+			bounds.maxX > captured.minX && bounds.minX < captured.maxX;
+		const overlapsY =
+			bounds.maxY > captured.minY && bounds.minY < captured.maxY;
+		if (
+			captured.minX > storeBox.minX &&
+			overlapsY &&
+			bounds.minX < captured.minX + footprint
+		) {
+			minX = Math.max(minX, captured.minX + footprint);
+		}
+		if (
+			captured.maxX < storeBox.maxX &&
+			overlapsY &&
+			bounds.maxX > captured.maxX - footprint
+		) {
+			maxX = Math.min(maxX, captured.maxX - footprint);
+		}
+		if (
+			captured.minY > storeBox.minY &&
+			overlapsX &&
+			bounds.minY < captured.minY + footprint
+		) {
+			minY = Math.max(minY, captured.minY + footprint);
+		}
+		if (
+			captured.maxY < storeBox.maxY &&
+			overlapsX &&
+			bounds.maxY > captured.maxY - footprint
+		) {
+			maxY = Math.min(maxY, captured.maxY - footprint);
 		}
 	}
-	// Elements whose rendered output extends past their bounds (filter
-	// margins, backdrop capture) need expansion math this path skips.
-	const specialIds = new Set<string>();
-	for (const candidate of planStructure.candidates) {
-		if (candidate.filterPlan) {
-			specialIds.add(candidate.filterPlan.elementId);
-		}
-		if (candidate.backdropEntry) {
-			specialIds.add(candidate.backdropEntry.element.id);
-		}
-	}
+	return maxX > minX && maxY > minY ? box(minX, minY, maxX, maxY) : null;
+}
+
+/**
+ * The world region a tracked change redraws, or null when nothing changed
+ * and undefined when the change needs a full render. A filtered group
+ * holding a changed element spreads the change by its filter reach, and
+ * every pixel of that region reads the group's content that far again:
+ * `inputReach` is the band the frame draws past the region so those reads
+ * are complete. The restore copies that band back from the cache.
+ */
+function changedRegionOf(
+	changedElements: NonNullable<FrameRequest["changedElements"]>,
+	elementsMap: Map<string, AnyArtObject>,
+	planStructure: FramePlanStructure,
+	prebufZoom: number,
+	state: PartialRedrawState,
+): { bounds: BoundingBox; inputReach: number } | null | undefined {
 	const changedIds = new Set([
 		...changedElements.upserted,
 		...changedElements.deleted,
 	]);
+	if (changedIds.size === 0) return null;
+	// Elements whose rendered output extends past their bounds (filter
+	// margins, backdrop capture) need expansion math this path skips.
+	const filterPlans = new Map<string, ElementFilterPlan>();
+	const backdropIds = new Set<string>();
+	for (const candidate of planStructure.candidates) {
+		if (candidate.filterPlan) {
+			filterPlans.set(candidate.filterPlan.elementId, candidate.filterPlan);
+		}
+		if (candidate.backdropEntry) {
+			backdropIds.add(candidate.backdropEntry.element.id);
+		}
+	}
 	// The render closure: containers relocate descendants, so an edited
 	// group dirties every descendant's region (and vice versa). Deleted ids
 	// are gone from the elements map, so the closure walk drops them — union
-	// them back in: their last-drawn bounds ARE the deletion's dirty region.
+	// them back in: their bounds in the captured frame ARE the deletion's
+	// dirty region.
 	const closure = new Set([
 		...expandRenderFilter(changedIds, elementsMap),
 		...changedIds,
@@ -1085,50 +1249,249 @@ export function planPartialRedraw(
 	const referencedIds = collectExternallyReferencedIds(elementsMap);
 	let dirty: BoundingBox | null = null;
 	for (const id of closure) {
-		if (specialIds.has(id)) return null;
-		if (referencedIds.has(id)) return null;
-		dirty = unionBoundingBoxes(
-			dirty,
-			state.previousWorldBounds.get(id) ?? null,
-		);
+		if (filterPlans.has(id) || backdropIds.has(id)) return undefined;
+		if (referencedIds.has(id)) return undefined;
+		dirty = unionBoundingBoxes(dirty, state.previousWorldBoundsOf(id));
 		dirty = unionBoundingBoxes(dirty, state.currentWorldBoundsOf(id));
 	}
-	if (!dirty) return null;
+	if (!dirty) return undefined;
+	let reach = 0;
+	for (const id of changedIds) {
+		const ancestorReach = filteredAncestorReach(
+			id,
+			elementsMap,
+			filterPlans,
+			backdropIds,
+			state,
+		);
+		if (ancestorReach === undefined) return undefined;
+		reach = Math.max(reach, ancestorReach);
+	}
 	// AA / hairline slack around the changed geometry (device px → world).
-	dirty = expandBounds(dirty, 8 / prebufZoom);
-	const clipped = boundsIntersectionBox(dirty, storeBox);
-	// Entirely outside the store: nothing visible changes, but the plain
-	// path keeps the bookkeeping (bounds map, capture) coherent.
-	if (!clipped) return null;
-	// Past this ratio a full redraw costs about the same and re-bakes the
-	// whole store for later pans.
-	const storeArea = storeBox.width * storeBox.height;
-	if (clipped.width * clipped.height > storeArea * 0.4) return null;
-	// Snap to the store texel grid so the scissor and the world-space cull
-	// rect describe exactly the same pixels.
+	return {
+		bounds: expandBounds(dirty, reach + 8 / prebufZoom),
+		inputReach: reach,
+	};
+}
+
+/**
+ * How far the filters of `id`'s enclosing groups spread a change of it,
+ * summed over nested filtered groups, or undefined when an enclosing
+ * container moves or reads its content in a way the dirty rect cannot
+ * follow (a non-group container, a backdrop filter). Each group's chain is
+ * bounded by its plan's margin once per filter, since chained filters
+ * spread one after another.
+ */
+function filteredAncestorReach(
+	id: string,
+	elementsMap: ReadonlyMap<string, AnyArtObject>,
+	filterPlans: ReadonlyMap<string, ElementFilterPlan>,
+	backdropIds: ReadonlySet<string>,
+	state: PartialRedrawState,
+): number | undefined {
+	let reach = 0;
+	for (
+		let ancestor = state.parentOf(id);
+		ancestor !== undefined;
+		ancestor = state.parentOf(ancestor)
+	) {
+		if (elementsMap.get(ancestor)?.type !== "group") return undefined;
+		if (backdropIds.has(ancestor)) return undefined;
+		const plan = filterPlans.get(ancestor);
+		if (!plan) continue;
+		const { bounds, textureBounds } = plan;
+		const margin = Math.max(
+			bounds.minX - textureBounds.minX,
+			bounds.minY - textureBounds.minY,
+			textureBounds.maxX - bounds.maxX,
+			textureBounds.maxY - bounds.maxY,
+			0,
+		);
+		reach += margin * Math.max(plan.postFilters.length, 1);
+	}
+	return reach;
+}
+
+/** Whole-texel offset from the current store to the captured one, or null
+ *  when the two texel grids differ. */
+function storeTexelOffset(
+	captured: BoundingBox,
+	capturedDensity: number,
+	storeBox: BoundingBox,
+	density: number,
+): { x: number; y: number } | null {
+	if (capturedDensity !== density) return null;
+	const x = (storeBox.minX - captured.minX) * density;
+	const y = (captured.maxY - storeBox.maxY) * density;
+	const wholeX = Math.round(x);
+	const wholeY = Math.round(y);
+	if (Math.abs(x - wholeX) > 1e-3 || Math.abs(y - wholeY) > 1e-3) return null;
+	return { x: wholeX, y: wholeY };
+}
+
+/** Bounding box of the part of `target` outside `covered`, or null when
+ *  `covered` holds all of it. Strips thinner than `minExtent` are float
+ *  error, not uncovered area. */
+function uncoveredBounds(
+	target: BoundingBox,
+	covered: BoundingBox,
+	minExtent: number,
+): BoundingBox | null {
+	const inner = boundsIntersectionBox(target, covered);
+	if (!inner) return target;
+	const strips: BoundingBox[] = [
+		box(target.minX, target.minY, inner.minX, target.maxY),
+		box(inner.maxX, target.minY, target.maxX, target.maxY),
+		box(inner.minX, target.minY, inner.maxX, inner.minY),
+		box(inner.minX, inner.maxY, inner.maxX, target.maxY),
+	];
+	let uncovered: BoundingBox | null = null;
+	for (const strip of strips) {
+		if (strip.width < minExtent || strip.height < minExtent) continue;
+		uncovered = unionBoundingBoxes(uncovered, strip);
+	}
+	return uncovered;
+}
+
+/** World distance the redrawn region must reach past `region` so every
+ *  backdrop read whose output lands inside it sees freshly drawn pixels. A
+ *  read whose output lands in the
+ *  widened region needs that region widened again (one backdrop element
+ *  may sit under another), so the widening repeats until no new read
+ *  touches it. */
+function backdropGuard(
+	region: BoundingBox,
+	reads: readonly PartialRedrawBackdropRead[],
+): number {
+	const pending = new Set(reads);
+	let guard = 0;
+	for (let grew = true; grew; ) {
+		grew = false;
+		const reached = expandBounds(region, guard);
+		for (const read of pending) {
+			if (!boundsIntersectionBox(read.bounds, reached)) continue;
+			guard += read.footprint;
+			pending.delete(read);
+			grew = true;
+		}
+	}
+	return guard;
+}
+
+/** `changed` widened by every backdrop read whose output it affects: a read
+ *  within its footprint of a changed pixel draws differently there, so that
+ *  part of the read's bounds changed too. A widened region may reach further
+ *  reads, so the widening repeats until no new read touches it. */
+function spreadByBackdropReads(
+	changed: BoundingBox,
+	reads: readonly PartialRedrawBackdropRead[],
+): BoundingBox {
+	const pending = new Set(reads);
+	let region = changed;
+	for (let grew = true; grew; ) {
+		grew = false;
+		for (const read of pending) {
+			const affected = boundsIntersectionBox(
+				read.bounds,
+				expandBounds(region, read.footprint),
+			);
+			if (!affected) continue;
+			region = unionBoundingBoxes(region, affected)!;
+			pending.delete(read);
+			grew = true;
+		}
+	}
+	return region;
+}
+
+/** `bounds` snapped to the store's texel grid, in store texels. An edge
+ *  within float error of a texel boundary stays on it either way. */
+function toStoreTexelRect(
+	bounds: BoundingBox,
+	storeBox: BoundingBox,
+	prebufWidth: number,
+	prebufHeight: number,
+	prebufZoom: number,
+	snap: "outward" | "inward",
+): TexelRect | null {
+	const eps = 1e-6;
+	const lower = snap === "outward" ? Math.floor : Math.ceil;
+	const upper = snap === "outward" ? Math.ceil : Math.floor;
+	const toLower = (v: number) => lower(snap === "outward" ? v + eps : v - eps);
+	const toUpper = (v: number) => upper(snap === "outward" ? v - eps : v + eps);
 	const clampX = (v: number) => Math.min(Math.max(v, 0), prebufWidth);
 	const clampY = (v: number) => Math.min(Math.max(v, 0), prebufHeight);
-	const x0 = clampX(Math.floor((clipped.minX - storeBox.minX) * prebufZoom));
-	const x1 = clampX(Math.ceil((clipped.maxX - storeBox.minX) * prebufZoom));
-	const y0 = clampY(Math.floor((storeBox.maxY - clipped.maxY) * prebufZoom));
-	const y1 = clampY(Math.ceil((storeBox.maxY - clipped.minY) * prebufZoom));
+	const x0 = clampX(toLower((bounds.minX - storeBox.minX) * prebufZoom));
+	const x1 = clampX(toUpper((bounds.maxX - storeBox.minX) * prebufZoom));
+	const y0 = clampY(toLower((storeBox.maxY - bounds.maxY) * prebufZoom));
+	const y1 = clampY(toUpper((storeBox.maxY - bounds.minY) * prebufZoom));
 	if (x1 <= x0 || y1 <= y0) return null;
-	const dirtyWorld: BoundingBox = {
-		minX: storeBox.minX + x0 / prebufZoom,
-		maxX: storeBox.minX + x1 / prebufZoom,
-		minY: storeBox.maxY - y1 / prebufZoom,
-		maxY: storeBox.maxY - y0 / prebufZoom,
-		width: (x1 - x0) / prebufZoom,
-		height: (y1 - y0) / prebufZoom,
-	};
-	const bakedUnion = boundsIntersectionBox(
-		unionBoundingBoxes(state.bakedWorldBounds, dirtyWorld)!,
-		storeBox,
+	return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+}
+
+function texelRectToWorld(
+	rect: TexelRect,
+	storeBox: BoundingBox,
+	prebufZoom: number,
+): BoundingBox {
+	return box(
+		storeBox.minX + rect.x / prebufZoom,
+		storeBox.maxY - (rect.y + rect.height) / prebufZoom,
+		storeBox.minX + (rect.x + rect.width) / prebufZoom,
+		storeBox.maxY - rect.y / prebufZoom,
 	);
-	if (!bakedUnion) return null;
-	return {
-		dirtyWorld,
-		scissor: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
-		bakedUnion,
-	};
+}
+
+/** `outer` minus `inner` (which it contains) as up to four rects. */
+function subtractTexelRect(outer: TexelRect, inner: TexelRect): TexelRect[] {
+	const innerRight = inner.x + inner.width;
+	const innerBottom = inner.y + inner.height;
+	const outerRight = outer.x + outer.width;
+	const outerBottom = outer.y + outer.height;
+	return [
+		{ x: outer.x, y: outer.y, width: outer.width, height: inner.y - outer.y },
+		{
+			x: outer.x,
+			y: innerBottom,
+			width: outer.width,
+			height: outerBottom - innerBottom,
+		},
+		{ x: outer.x, y: inner.y, width: inner.x - outer.x, height: inner.height },
+		{
+			x: innerRight,
+			y: inner.y,
+			width: outerRight - innerRight,
+			height: inner.height,
+		},
+	].filter((r) => r.width > 0 && r.height > 0);
+}
+
+function intersectTexelRects(a: TexelRect, b: TexelRect): TexelRect | null {
+	const x = Math.max(a.x, b.x);
+	const y = Math.max(a.y, b.y);
+	const right = Math.min(a.x + a.width, b.x + b.width);
+	const bottom = Math.min(a.y + a.height, b.y + b.height);
+	if (right <= x || bottom <= y) return null;
+	return { x, y, width: right - x, height: bottom - y };
+}
+
+/** Union of two boxes when it is itself a rectangle, else null. */
+function rectangularUnion(a: BoundingBox, b: BoundingBox): BoundingBox | null {
+	const union = unionBoundingBoxes(a, b)!;
+	const overlap = boundsIntersectionBox(a, b);
+	const overlapArea = overlap ? overlap.width * overlap.height : 0;
+	const coveredArea = a.width * a.height + b.width * b.height - overlapArea;
+	return Math.abs(coveredArea - union.width * union.height) <=
+		1e-6 * union.width * union.height
+		? union
+		: null;
+}
+
+function box(
+	minX: number,
+	minY: number,
+	maxX: number,
+	maxY: number,
+): BoundingBox {
+	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }

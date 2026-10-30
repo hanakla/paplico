@@ -15,6 +15,11 @@ import { SVG_INPUT_MODE_COLOR, svgRegionOriginTexel } from "./svgFilterInput";
  */
 const DOWNSAMPLE_SIGMA = 8;
 
+/** Sigmas from an output pixel this blur reads at most. The downsample, the
+ *  blur of the small copy and the bilinear upsample together reach about
+ *  3.3 sigmas, past the 3 of the direct path. */
+export const SVG_GAUSSIAN_BLUR_READ_SIGMAS = 3.5;
+
 /**
  * Separable Gaussian blur shared by the SVG primitives that blur. Sigmas
  * beyond DOWNSAMPLE_SIGMA texels blur a box-downsampled copy and bilinearly

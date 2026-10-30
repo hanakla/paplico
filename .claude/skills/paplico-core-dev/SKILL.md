@@ -20,7 +20,8 @@ Paplico.ts (facade — public API boundary)
   └── RenderOrchestrator (renderer/)
       ├── CanvasTarget           (DOM canvas wrapper, resize, viewport state)
       ├── RenderScheduler        (rAF scheduling, dirty → full/fullTransformOnly/
-      │                            fullInteraction/viewportBlit/overlayOnly)
+      │                            fullInteraction/viewportBlit/viewportSettle/
+      │                            overlayOnly)
       ├── FilterRenderer         (registered FilterHandlers — pipeline/FilterRenderer.ts;
       │                            owns per-size ping-pong temp pairs reused across frames)
       ├── UILayer                (renderer/ui/ — overlays, gizmos, guides, cursors)
@@ -112,7 +113,7 @@ WebGPU reads uniform buffer values at `queue.submit()` time, not at draw call ti
 
 ### Why RenderScheduler resolves dirty reasons into strategies
 
-Not all changes need the same rendering work. A cursor move or a pan during interaction blits the cached composite frame and redraws only the overlay (`viewportBlit`). An async resource load re-renders the document while keeping its caches (`overlayOnly`). Only a document change needs a full re-render (`full`). Without this, every mouse move would trigger a full pipeline pass, killing frame rate.
+Not all changes need the same rendering work. A cursor move or a pan during interaction blits the cached composite frame and redraws only the overlay (`viewportBlit`). The frame after the gesture settles blits it too when it maps 1:1 onto the view (`viewportSettle`). An async resource load re-renders the document while keeping its caches (`overlayOnly`). Only a document change needs a full re-render (`full`). Without this, every mouse move would trigger a full pipeline pass, killing frame rate.
 
 ### Why the brush renderers cache dabs and batch ribbons
 
@@ -227,6 +228,7 @@ appearance" below.
 **Easy to miss:**
 - `onScaleFilter` — Without this, spatial filter params don't scale during export and the filter looks wrong at non-1x resolution
 - `getExpansionMargin(filter, bounds?)` — Without this, blur/shadow effects get clipped to element bounds. It is a **symmetric scalar** margin; the optional `bounds` (planned content size in world px) lets zoom/rotate-style filters derive it from the content diagonal. A filter whose output is off-center (like a 3D projection) still cannot express its bounds through it
+- `getBackdropFootprint(filter, bounds)` and `getDetailDensity(filter)` are required. The footprint is how far (world px) one output pixel reads its input, counting every sampling offset in the shader; any filter with a postProcess reads the backdrop once `applyToBackdrop` is set, and a partial redraw widens what it redraws by this. `bounds` is the captured region, so a read that follows the element's size returns `Math.hypot(bounds.width, bounds.height)`. `getDetailDensity` is the texels per world px past which the output shows no more detail (4 per sigma for a pure Gaussian blur), `Number.POSITIVE_INFINITY` when the output keeps its input's detail
 - Per-frame GPU resource hooks — `startFrame()` (reset per-frame pools), `releaseFrame(release)` (hand frame-scoped textures back for deferred destroy), `flushPendingDestroy()` (drain the handler's own deferred destroys; called by `FilterRenderer.flushPendingDestroy` once per frame after the previous submit)
 - Distance-to-silhouette effects should build on the shared `JumpFloodDistanceField` (outline, drop-shadow spread and inner glow do) instead of per-pixel neighbourhood scans — an O(weight²) scan saturates the GPU at high DPI
 - `getRenderConfigure(filter)` → a partial `{ needsBackdrop?, needsSourceTexture? }` merged over the defaults `{ false, true }` (`resolveRenderConfigure`); omit entirely for a plain in-place filter. `needsBackdrop:true` (frost glass) gets `BackdropFilterProcessorContext` (with `backdropTexture`) and the main-pass z-order path instead of the pre-pass `executeFilterPlans`. `needsSourceTexture:false` (a self-sizing geometry filter that builds from `ctx.geometry`) lets the caller skip rasterizing the flat look

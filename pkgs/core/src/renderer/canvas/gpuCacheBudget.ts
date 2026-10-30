@@ -19,3 +19,19 @@ export function splitGpuCacheBudget(totalBytes: number) {
 		stripPages: share(0.04),
 	};
 }
+
+/**
+ * Bytes the filtered-element cache may hold: its own share, or whatever of
+ * the whole budget the other caches leave while they hold `otherCachesBytes`,
+ * whichever is larger. A filtered bake is the costliest result to rebuild
+ * when a pan brings it back, so the room the others leave goes to it.
+ */
+export function filteredElementBudgetBytes(
+	totalBytes: number,
+	otherCachesBytes: number,
+): number {
+	return Math.max(
+		splitGpuCacheBudget(totalBytes).filteredElements,
+		totalBytes - otherCachesBytes,
+	);
+}

@@ -163,6 +163,21 @@ export class HKFluidFilterHandler implements FilterHandler {
 		return f.paramData.params.padding;
 	}
 
+	/** The flow displaces by a fraction of the captured region's size. */
+	public getBackdropFootprint(
+		filter: Filter,
+		bounds: { width: number; height: number },
+	): number {
+		const p = (filter as HKFluidFilter).paramData.params;
+		return p.intensity || p.colorShift
+			? Math.hypot(bounds.width, bounds.height)
+			: 0;
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(
 		params: Filter,
 		[scaleX, scaleY]: [number, number],

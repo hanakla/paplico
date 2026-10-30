@@ -86,6 +86,15 @@ export class SvgMorphologyFilterHandler extends SvgFilterHandlerBase<SvgMorpholo
 		return Math.max(radiusX, radiusY);
 	}
 
+	public getBackdropFootprint(filter: Filter): number {
+		const { radiusX, radiusY } = this.params(filter);
+		return Math.max(radiusX, radiusY, 0);
+	}
+
+	public getDetailDensity(): number {
+		return Number.POSITIVE_INFINITY;
+	}
+
 	public onScaleFilter(filter: Filter, [sx, sy]: [number, number]): Filter {
 		const { radiusX, radiusY } = this.params(filter);
 		return this.withParams(filter, {
