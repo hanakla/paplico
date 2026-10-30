@@ -193,13 +193,14 @@ export class SVGExporter implements IExporter {
 						}),
 			getTextPaintSource: (element) =>
 				textRenderer?.getFlowHead(element) ?? element,
-			renderRasterRun: (elementIds) =>
+			renderRasterRun: (elementIds, backdropIds) =>
 				renderRasterChunk(
 					renderer,
 					doc,
 					elementIds,
 					artboardBounds,
 					rasterScale,
+					backdropIds,
 				),
 			patternBaseIds: new Map(),
 			state: { invertFilterId: null },

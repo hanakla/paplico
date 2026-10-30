@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **SVG export**
+  - An alpha-locked element is exported as an image of only what it paints, instead of turning it and every element under it into one image.
+
+### Fixed
+
+- **SVG export**
+  - Fix Illustrator reporting a missing linked file, leaving out the images and dropping some clipping masks when it opens an exported SVG.
+  - Fix an alpha-locked element with a blend mode coming out in a different color from the canvas.
+
 ## [0.10.0] - 2026-10-28
 
 ### Added

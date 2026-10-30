@@ -76,6 +76,12 @@ interface RasterRun {
 	kind: "raster";
 	/** Element ids in z order (bottom to top). */
 	elementIds: string[];
+	/**
+	 * Items below an alpha-locked element that feed its backdrop, in z
+	 * order. They are rendered only to derive the element's own contribution
+	 * and stay vector in the output.
+	 */
+	backdropIds?: string[];
 	/** Non-normal blend of a singleton run, carried onto its <image>. */
 	blendMode?: BlendMode;
 }
@@ -304,11 +310,13 @@ function classifyElementInner(
  * maps to SVG output items. Consecutive raster elements merge into one
  * {@link RasterRun}; a non-normal-blend raster element becomes a singleton run
  * so its blend applies against real siblings instead of a transparent chunk.
- * A backdrop-dependent element (alpha-lock / applyToBackdrop) swallows the
+ * An alpha-locked element becomes a singleton run whose backdropIds are the
  * items below it in the same list that its bounds overlap — only those can
- * feed its backdrop — plus every item that overlaps a swallowed item beneath
- * it, so the run never covers what was stacked above its content.
- * Cross-layer backdrop references are a known limitation.
+ * feed its backdrop — and those items keep their own plan items. An element
+ * with a backdrop filter swallows those items instead, plus every item that
+ * overlaps a swallowed item beneath it, so the run never covers what was
+ * stacked above its content. Cross-layer backdrop references are a known
+ * limitation.
  */
 export function planLayerItems(
 	elementIds: readonly string[],
@@ -335,8 +343,38 @@ export function planLayerItems(
 		if (cls === "raster") {
 			if (isBackdropDependent(element, opts)) {
 				flush();
-				elementsMap ??= new Map(Object.entries(opts.document.objects));
-				const backdropBounds = calculateElementBounds(element, elementsMap);
+				const map = (elementsMap ??= new Map(
+					Object.entries(opts.document.objects),
+				));
+				const backdropBounds = calculateElementBounds(element, map);
+				// Alpha lock keeps the backdrop's alpha, so an image laid over the
+				// vector backdrop can reproduce it. A backdrop filter may erase
+				// the backdrop (glass blurs it away), which nothing drawn over it
+				// can undo, so that backdrop is swallowed into the chunk.
+				if (!samplesBackdrop(element, opts)) {
+					const backdropIds = items
+						.flatMap((item) =>
+							item.kind === "vector" ? [item.elementId] : item.elementIds,
+						)
+						.filter((id) =>
+							boundsIntersect(
+								calculateElementBounds(opts.document.objects[id], map),
+								backdropBounds,
+							),
+						);
+					// The chunk holds the element's blend already composited over
+					// its backdrop; without one it blends against the real siblings.
+					items.push({
+						kind: "raster",
+						elementIds: [elementId],
+						...(backdropIds.length > 0
+							? { backdropIds }
+							: element.blendMode !== "normal"
+								? { blendMode: element.blendMode }
+								: {}),
+					});
+					continue;
+				}
 				const swallowed: string[] = [];
 				const kept: LayerPlanItem[] = [];
 				// Kept items end up below the run, so an item that overlaps
@@ -348,9 +386,7 @@ export function planLayerItems(
 						item.kind === "vector" ? [item.elementId] : item.elementIds;
 					const itemBounds = ids.flatMap((id) => {
 						const el = opts.document.objects[id];
-						return el
-							? [calculateElementBounds(el, elementsMap ?? undefined)]
-							: [];
+						return el ? [calculateElementBounds(el, map)] : [];
 					});
 					const overlaps = itemBounds.some((bounds) =>
 						swallowedBounds.some((s) => boundsIntersect(bounds, s)),
@@ -480,7 +516,15 @@ function isBackdropDependent(
 	element: AnyArtObject,
 	opts: ClassifyOptions,
 ): boolean {
-	if (element.compositionMode === "alpha-lock") return true;
+	return (
+		element.compositionMode === "alpha-lock" || samplesBackdrop(element, opts)
+	);
+}
+
+function samplesBackdrop(
+	element: AnyArtObject,
+	opts: ClassifyOptions,
+): boolean {
 	return (
 		localAppearances(element.filters).some(
 			(f) =>

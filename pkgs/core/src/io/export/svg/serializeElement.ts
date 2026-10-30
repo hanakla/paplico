@@ -105,7 +105,10 @@ export interface SerializeContext {
 	}>;
 	/** Flow-chain head carrying the run styles (TextRenderer.getFlowHead). */
 	getTextPaintSource(element: TextElement): TextElement;
-	renderRasterRun(elementIds: string[]): Promise<RasterChunkResult | null>;
+	renderRasterRun(
+		elementIds: string[],
+		backdropIds?: readonly string[],
+	): Promise<RasterChunkResult | null>;
 	/** Base <pattern> id per DefEntry id; null = unusable def. */
 	patternBaseIds: Map<string, string | null>;
 	/** Lazily-allocated shared defs (luminance-invert filter for inverted masks). */
@@ -125,7 +128,10 @@ export async function serializePlanItems(
 	const nodes: SvgNode[] = [];
 	for (const item of planLayerItems(elementIds, ctx.classify, ancestor)) {
 		if (item.kind === "raster") {
-			const chunk = await ctx.renderRasterRun(item.elementIds);
+			const chunk = await ctx.renderRasterRun(
+				item.elementIds,
+				item.backdropIds,
+			);
 			if (!chunk) continue;
 			const topLeft = ctx.mapper.point({
 				x: chunk.bounds.minX,
@@ -142,7 +148,8 @@ export async function serializePlanItems(
 					...(item.blendMode
 						? { style: `mix-blend-mode:${item.blendMode}` }
 						: {}),
-					href: chunk.dataUrl,
+					// Illustrator reads only xlink:href and reports a missing linked file for href
+					"xlink:href": chunk.dataUrl,
 				},
 			});
 			continue;
@@ -723,7 +730,8 @@ async function serializeImage(
 			height: image.height,
 			preserveAspectRatio: "none",
 			transform: svgMatrixToString(ctx.mapper.composeWorld(worldAffine)),
-			href: bytesToDataUrl(file.bin, file.type),
+			// Illustrator reads only xlink:href and reports a missing linked file for href
+			"xlink:href": bytesToDataUrl(file.bin, file.type),
 		},
 	};
 	return wrapElement([node], image, ctx, composed, {}, true, svgFilter);

@@ -747,7 +747,7 @@ describe("planLayerItems", () => {
 		]);
 	});
 
-	it("should swallow overlapping items below a backdrop-dependent element", () => {
+	it("should list overlapping items below a backdrop-dependent element as its backdrop", () => {
 		const vector = basePath({ filters: [solidFill()] });
 		const raster = basePath({ filters: [appearance("blur")] });
 		const locked = basePath({ compositionMode: "alpha-lock" });
@@ -759,14 +759,18 @@ describe("planLayerItems", () => {
 			opts,
 		);
 		expect(items).toEqual([
-			{ kind: "raster", elementIds: [vector.id, raster.id, locked.id] },
+			{ kind: "vector", elementId: vector.id, class: "pure" },
+			{ kind: "raster", elementIds: [raster.id] },
+			{
+				kind: "raster",
+				elementIds: [locked.id],
+				backdropIds: [vector.id, raster.id],
+			},
 			{ kind: "vector", elementId: above.id, class: "pure" },
 		]);
 	});
 
-	it("should keep non-overlapping items out of a backdrop swallow", () => {
-		// A blended vector far away from the alpha-locked element must stay
-		// vector — only backdrop-feeding overlaps get merged into the chunk.
+	it("should keep non-overlapping items out of the backdrop", () => {
 		const farBlend = basePath({
 			filters: [solidFill()],
 			blendMode: "multiply",
@@ -779,13 +783,18 @@ describe("planLayerItems", () => {
 		const items = planLayerItems([farBlend.id, underLock.id, locked.id], opts);
 		expect(items).toEqual([
 			{ kind: "vector", elementId: farBlend.id, class: "pure" },
-			{ kind: "raster", elementIds: [underLock.id, locked.id] },
+			{ kind: "vector", elementId: underLock.id, class: "pure" },
+			{
+				kind: "raster",
+				elementIds: [locked.id],
+				backdropIds: [underLock.id],
+			},
 		]);
 	});
 
-	it("should composite a blended backdrop run normally when it swallows items", () => {
-		// The chunk already holds the blend over the swallowed backdrop; a
-		// chunk-level blend would blend that backdrop a second time.
+	it("should composite a blended backdrop run normally when it has a backdrop", () => {
+		// The chunk already holds the blend over the backdrop; a chunk-level
+		// blend would blend that backdrop a second time.
 		const underLock = basePath({ filters: [solidFill()] });
 		const locked = basePath({
 			compositionMode: "alpha-lock",
@@ -794,13 +803,16 @@ describe("planLayerItems", () => {
 		const opts = makeOptions([underLock, locked]);
 
 		expect(planLayerItems([underLock.id, locked.id], opts)).toEqual([
-			{ kind: "raster", elementIds: [underLock.id, locked.id] },
+			{ kind: "vector", elementId: underLock.id, class: "pure" },
+			{
+				kind: "raster",
+				elementIds: [locked.id],
+				backdropIds: [underLock.id],
+			},
 		]);
 	});
 
-	it("should swallow items stacked over swallowed content even outside the backdrop", () => {
-		// `above` misses the locked element but covers `under`; kept below the
-		// run, the chunk holding `under` would paint over it.
+	it("should leave items that miss the backdrop-dependent element out of its backdrop", () => {
 		const under = rectPath("el-under", { x: 0, y: 0 }, 100, 100, [solidFill()]);
 		const above = rectPath("el-above", { x: 80, y: 0 }, 100, 100, [
 			solidFill(),
@@ -815,8 +827,47 @@ describe("planLayerItems", () => {
 		expect(
 			planLayerItems([under.id, above.id, far.id, locked.id], opts),
 		).toEqual([
+			{ kind: "vector", elementId: under.id, class: "pure" },
+			{ kind: "vector", elementId: above.id, class: "pure" },
 			{ kind: "vector", elementId: far.id, class: "pure" },
-			{ kind: "raster", elementIds: [under.id, above.id, locked.id] },
+			{ kind: "raster", elementIds: [locked.id], backdropIds: [under.id] },
+		]);
+	});
+
+	it("should swallow overlapping items below an element with a backdrop filter", () => {
+		// A backdrop filter may erase its backdrop, which an image laid over
+		// the vector backdrop cannot undo.
+		const vector = basePath({ filters: [solidFill()] });
+		const glass = basePath({
+			filters: [{ ...appearance("blur"), applyToBackdrop: true }],
+		});
+		const above = basePath({ filters: [solidFill()] });
+		const opts = makeOptions([vector, glass, above]);
+
+		expect(planLayerItems([vector.id, glass.id, above.id], opts)).toEqual([
+			{ kind: "raster", elementIds: [vector.id, glass.id] },
+			{ kind: "vector", elementId: above.id, class: "pure" },
+		]);
+	});
+
+	it("should swallow items stacked over swallowed content even outside a backdrop filter", () => {
+		// `above` misses the glass element but covers `under`; kept below the
+		// run, the chunk holding `under` would paint over it.
+		const under = rectPath("el-under", { x: 0, y: 0 }, 100, 100, [solidFill()]);
+		const above = rectPath("el-above", { x: 80, y: 0 }, 100, 100, [
+			solidFill(),
+		]);
+		const far = rectPath("el-far", { x: 500, y: 500 }, 20, 20, [solidFill()]);
+		const glass = rectPath("el-glass", { x: -30, y: 0 }, 40, 40, [
+			{ ...appearance("blur"), applyToBackdrop: true },
+		]);
+		const opts = makeOptions([under, above, far, glass]);
+
+		expect(
+			planLayerItems([under.id, above.id, far.id, glass.id], opts),
+		).toEqual([
+			{ kind: "vector", elementId: far.id, class: "pure" },
+			{ kind: "raster", elementIds: [under.id, above.id, glass.id] },
 		]);
 	});
 

@@ -155,6 +155,18 @@ describe("SVG Export vs GPU render - per-appearance copies", () => {
 	});
 });
 
+describe("SVG Export vs GPU render - alpha lock", () => {
+	it("an alpha-locked shape over vector shapes matches the PNG render", async () => {
+		const { renderer } = await createTestRenderer();
+		const { doc, artboard } = buildAlphaLockDocument();
+
+		// The shapes under the alpha-locked one stay vector and its image only
+		// holds what it changed. A wrong difference shows the backdrop twice or
+		// leaves the overlay out, far past this threshold.
+		await expectSvgMatchesGpu(renderer, artboard, doc, "alpha-lock", 1);
+	});
+});
+
 // --- Synthetic SVG filter fixtures ---
 
 /** Integer-aligned squares carrying the primitives resvg reproduces exactly. */
@@ -445,6 +457,36 @@ function buildAppearanceCopiesDocument(): {
 		]),
 	];
 
+	for (const el of elements) doc.objects[el.id] = el;
+	doc.layers[0].elementIds = elements.map((el) => el.id);
+
+	return { doc, artboard };
+}
+
+/** Two overlapping squares, an overlay alpha-locked bar over both, a square on top. */
+function buildAlphaLockDocument(): { doc: Document; artboard: Artboard } {
+	const doc = createDefaultDocument("doc-alpha-lock");
+	const artboard = createArtboard("ab-alpha-lock", "AlphaLock", 0, 0, 400, 300);
+	doc.artboards = [artboard];
+
+	const elements: AnyArtObject[] = [
+		rectPath("el-red", { x: -60, y: 0 }, 120, 120, [
+			solidFillAppearance(0.85, 0.25, 0.2),
+		]),
+		rectPath("el-blue", { x: 60, y: 0 }, 120, 120, [
+			solidFillAppearance(0.2, 0.35, 0.85),
+		]),
+		{
+			...rectPath("el-locked", { x: 0, y: 0 }, 320, 60, [
+				solidFillAppearance(0.95, 0.85, 0.3),
+			]),
+			blendMode: "overlay",
+			compositionMode: "alpha-lock",
+		},
+		rectPath("el-top", { x: 0, y: 50 }, 50, 50, [
+			solidFillAppearance(0.2, 0.7, 0.4),
+		]),
+	];
 	for (const el of elements) doc.objects[el.id] = el;
 	doc.layers[0].elementIds = elements.map((el) => el.id);
 

@@ -197,7 +197,7 @@ describe("SVGExporter", () => {
 
 		// Chunk bounds world (-5..5) → SVG top-left (45, 45), 10×10 world units.
 		expect(result?.svg).toContain(
-			`<image x="45" y="45" width="10" height="10" preserveAspectRatio="none" href="data:image/png;base64,CHUNK"/>`,
+			`<image x="45" y="45" width="10" height="10" preserveAspectRatio="none" xlink:href="data:image/png;base64,CHUNK"/>`,
 		);
 		const call = vi.mocked(renderRasterChunk).mock.calls[0];
 		expect(call[2]).toEqual(["blurred"]);
