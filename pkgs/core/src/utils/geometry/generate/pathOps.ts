@@ -40,30 +40,30 @@ const BOOLEAN_OP_BY_SOURCE_OP: Record<CompoundPathSource["op"], BooleanOp> = {
  * the accumulated result. The result keeps the sources' curves.
  * Only the outline of each source takes part, so an open sub-path is closed
  * with a straight line and stroke width plays no role.
+ * A source missing from `pathMap` or hidden takes no part, and the first
+ * remaining source becomes the base.
  */
 export function computeBooleanOperation(
 	sources: CompoundPathSource[],
 	pathMap: Map<string, Path>,
 ): CubicBezierSegment[] {
-	if (sources.length === 0) return [];
-
-	const firstPath = pathMap.get(sources[0].id);
-	if (!firstPath) return [];
-	if (sources.length === 1) return firstPath.segments ?? [];
+	const operands = sources.flatMap(({ id, op }) => {
+		const path = pathMap.get(id);
+		return path && path.visible !== false ? [{ op, path }] : [];
+	});
+	if (operands.length === 0) return [];
+	if (operands.length === 1) return operands[0].path.segments ?? [];
 
 	const geo = new GeometryEpsilon();
-	let result = pathToContours(firstPath, geo);
+	let result = pathToContours(operands[0].path, geo);
 	if (result.length === 0) return [];
 
 	try {
-		for (const source of sources.slice(1)) {
-			const path = pathMap.get(source.id);
-			if (!path) continue;
-
+		for (const { op, path } of operands.slice(1)) {
 			const contours = pathToContours(path, geo);
 			if (contours.length === 0) continue;
 
-			result = booleanOp(result, contours, BOOLEAN_OP_BY_SOURCE_OP[source.op]);
+			result = booleanOp(result, contours, BOOLEAN_OP_BY_SOURCE_OP[op]);
 		}
 	} catch {
 		return [];

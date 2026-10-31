@@ -74,8 +74,8 @@ export function createCompoundPathFingerprint(
 ): string {
 	const fingerprintSources = compoundPath.sources.map((source) => {
 		const path = pathMap.get(source.id);
-		if (!path) {
-			return { id: source.id, op: source.op, missing: true };
+		if (!path || path.visible === false) {
+			return { id: source.id, op: source.op, excluded: true };
 		}
 		return {
 			id: source.id,

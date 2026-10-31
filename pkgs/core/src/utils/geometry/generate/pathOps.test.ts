@@ -423,6 +423,49 @@ describe("computeBooleanOperation", () => {
 		expect(withMissing.length).toBe(withoutMissing.length);
 	});
 
+	it("leaves a hidden source out of the result", () => {
+		const pathA = createCirclePath("a", 0, 0, 100);
+		const hiddenB = { ...createCirclePath("b", 80, 0, 100), visible: false };
+
+		const segments = computeBooleanOperation(
+			[
+				{ id: pathA.id, op: "union" },
+				{ id: hiddenB.id, op: "union" },
+			],
+			new Map<string, Path>([
+				[pathA.id, pathA],
+				[hiddenB.id, hiddenB],
+			]),
+		);
+
+		const bounds = segmentsBounds(segments);
+		expect(bounds.minX).toBeCloseTo(-100, 0);
+		expect(bounds.maxX).toBeCloseTo(100, 0);
+	});
+
+	it("makes the next visible source the base when the base is hidden", () => {
+		const hiddenA = { ...createCirclePath("a", -300, 0, 100), visible: false };
+		const pathB = createCirclePath("b", 0, 0, 100);
+		const pathC = createCirclePath("c", 100, 0, 100);
+
+		const segments = computeBooleanOperation(
+			[
+				{ id: hiddenA.id, op: "union" },
+				{ id: pathB.id, op: "union" },
+				{ id: pathC.id, op: "subtract" },
+			],
+			new Map<string, Path>([
+				[hiddenA.id, hiddenA],
+				[pathB.id, pathB],
+				[pathC.id, pathC],
+			]),
+		);
+
+		const bounds = segmentsBounds(segments);
+		expect(bounds.minX).toBeCloseTo(-100, 0);
+		expect(bounds.maxX).toBeLessThan(100);
+	});
+
 	it("reflects source transform when caller passes world-space paths", () => {
 		const pathA = createCirclePath("a", 0, 0, 80);
 		const pathB = {

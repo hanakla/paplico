@@ -111,6 +111,25 @@ describe("bakeCompoundPathSegments", () => {
 		expect(booleanOp).toHaveBeenCalledTimes(1);
 		expect(after.minX).toBeLessThan(before.minX);
 	});
+
+	it("should leave a source out of the bounds once it is hidden", () => {
+		const compound = mockCompoundPath("hidden-source-compound", ["a", "b"]);
+		const before = calculateElementBounds(
+			compound,
+			elementsOf(square("a", 0), square("b", 30), compound),
+		);
+
+		const after = calculateElementBounds(
+			compound,
+			elementsOf(
+				square("a", 0),
+				{ ...square("b", 30), visible: false },
+				compound,
+			),
+		);
+
+		expect(after.maxX).toBeLessThan(before.maxX);
+	});
 });
 
 // Helpers

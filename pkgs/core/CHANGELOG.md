@@ -41,6 +41,8 @@
   - Fix a glass solid in a hidden layer still showing on the canvas.
 - **Layers**
   - Fix deleting a layer leaving the contents of its groups in the document, where a glass solid among them kept showing on the canvas.
+- **Compound paths**
+  - Fix a hidden source path still taking part in its compound path's shape.
 
 ## [0.10.0] - 2026-10-28
 
