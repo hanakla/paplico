@@ -451,6 +451,22 @@ export class SpatialIndex {
 		this.invalidateAncestorBounds(elementId);
 	}
 
+	/**
+	 * setTextBounds for a measured pre-transform box: applies the text's own
+	 * transform, so a moved or turned text is not indexed (and culled) at its
+	 * untransformed spot. Returns the world bounds it stored.
+	 */
+	public setMeasuredTextBounds(
+		text: TextElement,
+		localBounds: LocalBBox,
+	): WorldBBox {
+		const worldBounds = brandWorldBBox(
+			transformBounds(localBounds, getTransform(text)),
+		);
+		this.setTextBounds(text.id, worldBounds, localBounds);
+		return worldBounds;
+	}
+
 	/** Recalculate cached bounds for every ancestor container of an element. */
 	private invalidateAncestorBounds(elementId: string): void {
 		let ancestorId = this.parentGroupMap.get(elementId);

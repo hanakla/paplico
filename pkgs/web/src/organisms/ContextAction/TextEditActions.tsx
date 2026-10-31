@@ -82,6 +82,8 @@ export function TextEditActions() {
 	});
 	const handleConfirmTextEdit = useEventCallback(() => {
 		paplico.textToolController?.getTextTool()?.onCancel();
+		// The clicked button holds focus and unmounts with the edit UI
+		paplico.ui?.focusCanvas();
 	});
 
 	return (

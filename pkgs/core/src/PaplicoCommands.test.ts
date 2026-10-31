@@ -2466,21 +2466,19 @@ describe("PaplicoCommands", () => {
 				width: 200,
 				height: 60,
 			});
-			const setTextBounds = vi.fn();
+			const setMeasuredTextBounds = vi.fn();
 			const { commands } = createRotateCommands(
 				layer,
 				{ [text.id]: text },
-				{ getLocalBounds: () => measured, setTextBounds },
+				{ getLocalBounds: () => measured, setMeasuredTextBounds },
 			);
 			const turned = { ...createIdentityTransform(), rotation: Math.PI / 2 };
 
 			commands.updateElement("l1", text.id, { transform: turned });
 
-			const [, worldBounds, localBounds] = setTextBounds.mock.calls[0];
+			const [updated, localBounds] = setMeasuredTextBounds.mock.calls[0];
+			expect(updated.transform.rotation).toBeCloseTo(Math.PI / 2);
 			expect(localBounds).toEqual(measured);
-			// The measured box, turned a quarter: x 20..220 becomes y 20..220.
-			expect(worldBounds.minY).toBeCloseTo(20);
-			expect(worldBounds.maxY).toBeCloseTo(220);
 		});
 
 		it("should move a text's measured layout with its anchor", () => {
@@ -2494,16 +2492,16 @@ describe("PaplicoCommands", () => {
 				width: 200,
 				height: 60,
 			});
-			const setTextBounds = vi.fn();
+			const setMeasuredTextBounds = vi.fn();
 			const { commands } = createRotateCommands(
 				layer,
 				{ [text.id]: text },
-				{ getLocalBounds: () => measured, setTextBounds },
+				{ getLocalBounds: () => measured, setMeasuredTextBounds },
 			);
 
 			commands.updateElement("l1", text.id, { x: 50, y: 40 });
 
-			const [, , localBounds] = setTextBounds.mock.calls[0];
+			const [, localBounds] = setMeasuredTextBounds.mock.calls[0];
 			expect(localBounds).toMatchObject({
 				minX: 50,
 				minY: 0,

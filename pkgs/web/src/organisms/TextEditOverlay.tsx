@@ -7,7 +7,7 @@ import {
 	remapArrowToCursor,
 	worldToScreen,
 } from "@paplico/core/utils";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useSnapshot } from "valtio";
 import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
 import { useTargetViewport } from "@/contexts/ViewIdContext";
@@ -116,6 +116,16 @@ function TextEditOverlayInner({
 			document.removeEventListener("focusout", handleFocusOut);
 		};
 	}, [textEditState.isEditing]);
+
+	// Removing the focused textarea drops focus to <body>, where no canvas
+	// keybinding fires. Layout-effect cleanup runs before the textarea leaves the
+	// DOM, so it can still tell whether typing focus was here or on a UI control
+	useLayoutEffect(() => {
+		const textarea = textareaRef.current;
+		return () => {
+			if (document.activeElement === textarea) paplico.ui?.focusCanvas();
+		};
+	}, [paplico]);
 
 	// IME composition state
 	const isComposingRef = useRef(false);

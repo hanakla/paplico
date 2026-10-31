@@ -607,16 +607,12 @@ describe("scaleTextLayout", () => {
 			overflow: "visible",
 			wordWrap: true,
 		};
-		const result = scaleTextLayout(
-			layout,
-			{ x: 2, y: 3 },
-			{ width: 400, height: 300 },
-		);
+		const result = scaleTextLayout(layout, { x: 2, y: 3 });
 		expect(result.boxWidth).toBe(400); // 200 * 2.0
 		expect(result.boxHeight).toBe(300); // 100 * 3.0
 	});
 
-	it("should pin an 'auto' side at the scaled measured size", () => {
+	it("should keep an 'auto' side auto", () => {
 		const layout: TextLayout = {
 			writingMode: "horizontal-tb",
 			boxWidth: "auto",
@@ -625,13 +621,9 @@ describe("scaleTextLayout", () => {
 			wordWrap: true,
 		};
 
-		const result = scaleTextLayout(
-			layout,
-			{ x: 1.5, y: 2 },
-			{ width: 300, height: 200 },
-		);
-		expect(result.boxWidth).toBe(300);
-		expect(result.boxHeight).toBe(200);
+		const result = scaleTextLayout(layout, { x: 1.5, y: 2 });
+		expect(result.boxWidth).toBe("auto");
+		expect(result.boxHeight).toBe("auto");
 	});
 
 	it("should preserve non-layout properties", () => {
@@ -642,11 +634,7 @@ describe("scaleTextLayout", () => {
 			overflow: "hidden",
 			wordWrap: false,
 		};
-		const result = scaleTextLayout(
-			layout,
-			{ x: 2, y: 2 },
-			{ width: 200, height: 400 },
-		);
+		const result = scaleTextLayout(layout, { x: 2, y: 2 });
 		expect(result.writingMode).toBe("vertical-rl");
 		expect(result.overflow).toBe("hidden");
 		expect(result.wordWrap).toBe(false);
@@ -660,7 +648,7 @@ describe("scaleTextLayout", () => {
 			overflow: "visible",
 			wordWrap: true,
 		};
-		scaleTextLayout(layout, { x: 3, y: 3 }, { width: 300, height: 150 });
+		scaleTextLayout(layout, { x: 3, y: 3 });
 		expect(layout.boxWidth).toBe(100);
 		expect(layout.boxHeight).toBe(50);
 	});
@@ -725,11 +713,7 @@ describe("text resize integration", () => {
 			overflow: "visible",
 			wordWrap: true,
 		};
-		const scaledLayout = scaleTextLayout(
-			layout,
-			{ x: map.a, y: map.d },
-			{ width: newBounds.width, height: newBounds.height },
-		);
+		const scaledLayout = scaleTextLayout(layout, { x: map.a, y: map.d });
 		expect(scaledLayout.boxWidth).toBe(400); // 200 * 2
 		expect(scaledLayout.boxHeight).toBe(200); // 100 * 2
 

@@ -163,7 +163,6 @@ import { getMeshWorldBoundarySegments } from "./utils/geometry/measure/meshTopol
 import { calculateMeshCoordinateBounds } from "./utils/geometry/measure/pathBounds";
 import {
 	brandLocalBBox,
-	brandWorldBBox,
 	translateBounds,
 	unionBounds,
 } from "./utils/geometry/primitives/box";
@@ -518,17 +517,15 @@ export class PaplicoCommands {
 
 		const updated = this.ctx.store.document.objects[elementId];
 		if (!before?.measured || updated?.type !== "text") return;
-		const local = brandLocalBBox(
-			translateBounds(
-				before.measured,
-				updated.x - before.x,
-				updated.y - before.y,
+		this.ctx.spatial.setMeasuredTextBounds(
+			updated,
+			brandLocalBBox(
+				translateBounds(
+					before.measured,
+					updated.x - before.x,
+					updated.y - before.y,
+				),
 			),
-		);
-		this.ctx.spatial.setTextBounds(
-			elementId,
-			brandWorldBBox(transformBounds(local, getTransform(updated))),
-			local,
 		);
 	}
 
@@ -3181,14 +3178,10 @@ export class PaplicoCommands {
 		} else if (element.type === "text") {
 			// The anchor and the box scale away from the local origin like a
 			// path's points do; the glyphs scale by the map's area.
-			const local = calculateLocalElementBounds(element);
 			update({
 				x: element.x * axisScale.x,
 				y: element.y * axisScale.y,
-				layout: scaleTextLayout(element.layout, axisScale, {
-					width: local.width * axisScale.x,
-					height: local.height * axisScale.y,
-				}),
+				layout: scaleTextLayout(element.layout, axisScale),
 				defaultStyle: scaleTextStyle(element.defaultStyle, uniformScale),
 				content: scaleTextContent(element.content, uniformScale),
 				transform: composeTransforms(getTransform(element), remainder()),
@@ -4332,8 +4325,11 @@ export class PaplicoCommands {
 			textRenderer
 				.textElementToPaths(textElement)
 				.then((result) => {
-					this.ctx.spatial.setBounds(textElement.id, result.bounds);
-					this.ctx.selection?.selectElement(textElement.id, result.bounds);
+					const bounds = this.ctx.spatial.setMeasuredTextBounds(
+						textElement,
+						result.bounds,
+					);
+					this.ctx.selection?.selectElement(textElement.id, bounds);
 				})
 				.catch((err) => {
 					console.error("Failed to compute text bounds:", err);

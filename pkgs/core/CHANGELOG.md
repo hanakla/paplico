@@ -4,6 +4,8 @@
 
 ### Changed
 
+- **Breaking API changes**
+  - `TextRenderer.textElementToPaths` returns `bounds` as a `LocalBBox` instead of a `WorldBBox`. The bounds include the text's position but not its transform.
 - **Renderer**
   - Panning a zoomed-in document no longer stalls every few frames.
   - The frame after a pan ends no longer stalls.
@@ -28,6 +30,10 @@
 - **Filters**
   - Fix some filtered elements staying blurry after zooming in until the view moves.
   - Fix the drop shadow or another filter of a group not following an element edited inside it.
+- **Text tool**
+  - Fix a moved, rotated or resized text disappearing after its edit is confirmed.
+- **Select tool**
+  - Fix a text without a box getting a fixed box when resized, which showed the overflow mark once more characters were typed.
 - **SVG export**
   - Fix Illustrator reporting a missing linked file, leaving out the images and dropping some clipping masks when it opens an exported SVG.
   - Fix an alpha-locked element with a blend mode coming out in a different color from the canvas.

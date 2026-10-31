@@ -2955,9 +2955,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					if (!textRenderer) return;
 					try {
 						const result = await textRenderer.textElementToPaths(text);
-						this.spatialIndex.setBounds(text.id, result.bounds);
+						const bounds = this.spatialIndex.setMeasuredTextBounds(
+							text,
+							result.bounds,
+						);
 						if (this.rendererStore.selectedElementIds.includes(text.id)) {
-							this.selection.selectElement(text.id, result.bounds);
+							this.selection.selectElement(text.id, bounds);
 							this.refreshSelectionUI(this.currentToolType === "select");
 						}
 					} catch (err) {
@@ -2981,11 +2984,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 				try {
 					const result = await textRenderer.textElementToPaths(text);
-					this.spatialIndex.setBounds(text.id, result.bounds);
+					const bounds = this.spatialIndex.setMeasuredTextBounds(
+						text,
+						result.bounds,
+					);
 					// Only update selection if the element is still selected — user may
 					// have switched to a different text element during async layout
 					if (this.rendererStore.selectedElementIds.includes(text.id)) {
-						this.selection.selectElement(text.id, result.bounds);
+						this.selection.selectElement(text.id, bounds);
 						// Rebuild the overlay quad like pathComplete/shapeComplete do —
 						// selectElement only updates the store, so without this the
 						// displayed bbox stays where it was built at edit start (visibly

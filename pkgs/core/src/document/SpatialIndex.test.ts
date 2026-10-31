@@ -1742,6 +1742,57 @@ describe("SpatialIndex", () => {
 			);
 		});
 	});
+
+	describe("setMeasuredTextBounds", () => {
+		it("should index a moved text where its transform puts it", () => {
+			const text = makeText("txt-1", 0, 0, {
+				transform: { ...createIdentityTransform(), x: 1000, y: -500 },
+			});
+			const layer = makeLayer("layer-1", ["txt-1"]);
+			const store = makeStore([layer], { "txt-1": text });
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+
+			const world = idx.setMeasuredTextBounds(
+				text,
+				brandLocalBBox(makeBounds(5, -18, 60, 9)),
+			);
+
+			expect(world).toEqual(
+				expect.objectContaining({
+					minX: 1005,
+					minY: -518,
+					maxX: 1060,
+					maxY: -491,
+				}),
+			);
+			expect(idx.getBounds("txt-1")).toEqual(world);
+			const visible = idx.queryElements(
+				"layer-1",
+				brandWorldBBox(makeBounds(1000, -520, 1070, -480)),
+			);
+			expect(visible.map((element) => element.id)).toContain("txt-1");
+		});
+
+		it("should turn the measured box with the text's rotation", () => {
+			const text = makeText("txt-1", 0, 0, {
+				transform: { ...createIdentityTransform(), rotation: Math.PI / 2 },
+			});
+			const layer = makeLayer("layer-1", ["txt-1"]);
+			const store = makeStore([layer], { "txt-1": text });
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+
+			const world = idx.setMeasuredTextBounds(
+				text,
+				brandLocalBBox(makeBounds(20, -10, 220, 50)),
+			);
+
+			// A quarter turn maps x 20..220 onto y 20..220.
+			expect(world.minY).toBeCloseTo(20);
+			expect(world.maxY).toBeCloseTo(220);
+		});
+	});
 });
 
 describe("object mask hit testing", () => {

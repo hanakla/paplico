@@ -206,24 +206,23 @@ export function mapSegments(
 }
 
 /**
- * Scale a TextLayout's box sides. An "auto" side is pinned at `autoSize`,
- * the measured side scaled the same way.
+ * Scale a TextLayout's box sides. An "auto" side stays "auto": it follows
+ * the glyphs, which grow with the scaled font size.
  */
 export function scaleTextLayout(
 	layout: TextLayout,
 	scale: AxisScale,
-	autoSize: { width: number; height: number },
 ): TextLayout {
 	return {
 		...layout,
 		boxWidth:
 			typeof layout.boxWidth === "number"
 				? layout.boxWidth * scale.x
-				: autoSize.width,
+				: layout.boxWidth,
 		boxHeight:
 			typeof layout.boxHeight === "number"
 				? layout.boxHeight * scale.y
-				: autoSize.height,
+				: layout.boxHeight,
 	};
 }
 

@@ -16,8 +16,8 @@ import {
 	type TextElement,
 } from "../schema";
 import {
-	brandWorldBBox,
-	type WorldBBox,
+	brandLocalBBox,
+	type LocalBBox,
 } from "../utils/geometry/primitives/box";
 import { distanceToSegment } from "../utils/geometry/query/hitTest";
 import {
@@ -99,11 +99,12 @@ export class TextRenderer {
 
 	/**
 	 * Converts text layout output into path objects that CanvasLayer can render.
-	 * Path geometry stays in local coordinates; bounds are returned in world space.
+	 * Path geometry stays in local coordinates; bounds are offset by the
+	 * element position but not by its transform.
 	 */
 	public async textElementToPaths(element: TextElement): Promise<{
 		paths: Path[];
-		bounds: WorldBBox;
+		bounds: LocalBBox;
 	}> {
 		const layout = await this.getOrComputeLayout(element);
 		const paths: Path[] = [];
@@ -115,8 +116,7 @@ export class TextRenderer {
 			paths.push(path);
 		}
 
-		// Brand boundary: translating local text layout bounds by element position produces world-space bounds
-		const bounds: WorldBBox = brandWorldBBox({
+		const bounds = brandLocalBBox({
 			minX: layout.bounds.minX + element.x,
 			minY: layout.bounds.minY + element.y,
 			maxX: layout.bounds.maxX + element.x,
