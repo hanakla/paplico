@@ -633,6 +633,28 @@ describe("PaplicoCommands", () => {
 		});
 	});
 
+	describe("deleteLayer", () => {
+		it("should delete the children of the layer's groups along with the layer", () => {
+			const { provider, store, commands, sync } = createProviderCommands();
+			provider.addObjectOnly(createPath("child"));
+			provider.addElement("layer", {
+				id: "group",
+				type: "group",
+				childIds: ["child"],
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			} as Group);
+			sync();
+
+			commands.deleteLayer("layer");
+			sync();
+
+			expect(store.document.layers).toEqual([]);
+			expect(store.document.objects).toEqual({});
+		});
+	});
+
 	describe("addPathsToContainer", () => {
 		it("should insert paths into a compound path's sources with the given operation", () => {
 			const { store, commands, sync, compoundId } = createCompoundCommands();

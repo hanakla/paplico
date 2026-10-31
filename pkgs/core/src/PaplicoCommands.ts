@@ -536,25 +536,10 @@ export class PaplicoCommands {
 		if (elementIds.length === 0) return;
 
 		const objects = this.ctx.store.document.objects;
-		const deleteSet = new Set(elementIds.filter((id) => objects[id]));
+		const deleteSet = this.withOwnedElements(
+			elementIds.filter((id) => objects[id]),
+		);
 		if (deleteSet.size === 0) return;
-
-		// A container's children and an element's mask content are absorbed:
-		// they live only in document.objects and are reachable only through
-		// their owner, so they go with it or they linger as orphans.
-		const stack = [...deleteSet];
-		for (let id = stack.pop(); id !== undefined; id = stack.pop()) {
-			const obj = objects[id];
-			if (!obj) continue;
-			for (const ownedId of [
-				...(getContainerChildIds(obj) ?? []),
-				...(obj.mask?.elementIds ?? []),
-			]) {
-				if (deleteSet.has(ownedId)) continue;
-				deleteSet.add(ownedId);
-				stack.push(ownedId);
-			}
-		}
 
 		const origin = this.getMutationOrigin();
 
@@ -630,6 +615,31 @@ export class PaplicoCommands {
 		}
 
 		this.ctx.yjsProvider.deleteElements(allByLayer, origin);
+	}
+
+	/**
+	 * The given elements plus everything they own. A container's children and
+	 * an element's mask content are absorbed: they live only in
+	 * document.objects and are reachable only through their owner, so a
+	 * deletion takes them along or they linger as orphans.
+	 */
+	private withOwnedElements(rootIds: readonly string[]): Set<string> {
+		const objects = this.ctx.store.document.objects;
+		const ids = new Set(rootIds);
+		const stack = [...ids];
+		for (let id = stack.pop(); id !== undefined; id = stack.pop()) {
+			const obj = objects[id];
+			if (!obj) continue;
+			for (const ownedId of [
+				...(getContainerChildIds(obj) ?? []),
+				...(obj.mask?.elementIds ?? []),
+			]) {
+				if (ids.has(ownedId)) continue;
+				ids.add(ownedId);
+				stack.push(ownedId);
+			}
+		}
+		return ids;
 	}
 
 	/**
@@ -814,7 +824,13 @@ export class PaplicoCommands {
 
 	public deleteLayer(layerId: string): void {
 		if (this.cannotMutate()) return;
-		this.ctx.yjsProvider.deleteLayer(layerId);
+		const layer = this.ctx.store.document.layers.find((l) => l.id === layerId);
+		this.ctx.yjsProvider.transact(() => {
+			this.ctx.yjsProvider.deleteElements({
+				[layerId]: [...this.withOwnedElements(layer?.elementIds ?? [])],
+			});
+			this.ctx.yjsProvider.deleteLayer(layerId);
+		});
 
 		if (this.ctx.store.currentLayerId === layerId) {
 			if (this.ctx.store.document.layers.length > 0) {

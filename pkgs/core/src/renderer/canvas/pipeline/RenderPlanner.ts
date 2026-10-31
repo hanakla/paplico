@@ -118,6 +118,11 @@ export interface FramePlan {
 	layerElementsCache: Map<string, AnyArtObject[]>;
 	/** Elements map built from document.objects */
 	elementsMap: Map<string, AnyArtObject>;
+	/** Ids of the elements the visible layers draw: their top-level elements
+	 *  and everything those contain or reference. `elementsMap` also holds
+	 *  elements no visible layer reaches — a hidden layer's content, or a
+	 *  deleted layer's leftover descendants. */
+	drawnElementIds: ReadonlySet<string>;
 	/** Whether any layer or element uses a non-normal blend mode. */
 	needsCompositing: boolean;
 	/** Whether any layer alone needs compositing (non-normal blendMode). */
@@ -214,6 +219,7 @@ export function buildPassPlan(
 export interface FramePlanStructure {
 	elementsMap: Map<string, AnyArtObject>;
 	layerElementsCache: Map<string, AnyArtObject[]>;
+	drawnElementIds: ReadonlySet<string>;
 	needsCompositing: boolean;
 	anyLayerNeedsCompositing: boolean;
 	hasArtboards: boolean;
@@ -803,6 +809,14 @@ export function buildFramePlanStructure(
 		elementsMap,
 		transientElements,
 	);
+	const drawnElementIds = expandRenderFilter(
+		new Set(
+			[...layerElementsCache.values()].flatMap((elements) =>
+				elements.map((element) => element.id),
+			),
+		),
+		elementsMap,
+	);
 	const { needsCompositing, anyLayerNeedsCompositing } = checkCompositingNeeded(
 		document,
 		layerElementsCache,
@@ -845,6 +859,7 @@ export function buildFramePlanStructure(
 	return {
 		elementsMap,
 		layerElementsCache,
+		drawnElementIds,
 		needsCompositing,
 		anyLayerNeedsCompositing,
 		hasArtboards,
@@ -901,6 +916,7 @@ export function buildFramePlanView(
 	return {
 		layerElementsCache: structure.layerElementsCache,
 		elementsMap: structure.elementsMap,
+		drawnElementIds: structure.drawnElementIds,
 		needsCompositing: structure.needsCompositing,
 		anyLayerNeedsCompositing: structure.anyLayerNeedsCompositing,
 		hasArtboards: structure.hasArtboards,

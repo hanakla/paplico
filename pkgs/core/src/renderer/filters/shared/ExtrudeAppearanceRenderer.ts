@@ -304,8 +304,8 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 			) {
 				continue;
 			}
-			// Export/copy: skip front (non-target) solids so they never bake into
-			// the shared frame textures the export samples.
+			// No layer composes a solid it does not draw at its z-order, so
+			// flushRemaining would paint it over the frame.
 			if (filter && !filter.has(element.id)) continue;
 			if (blendMemberIds.has(element.id)) continue;
 			scanned.push(element);
@@ -372,18 +372,18 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 			};
 			for (const entry of glassEntries) this.frameRequests.set(entry, request);
 		}
-		// An element can also leave this driver's sight entirely — its 3D
-		// appearance removed or disabled — which the per-element sync above can
-		// no longer reach. Skipped while an element filter is active: an export
-		// legitimately renders a subset, and dropping the rest's shadows would
-		// only make the next live frame rebuild them.
-		if (!filter) {
-			const scannedIds = new Set(scanned.map((element) => element.id));
-			for (const elementId of [...this.underlayUids.keys()]) {
-				if (!scannedIds.has(elementId)) {
-					this.releaseUnusedUnderlays(elementId, new Set());
-				}
+		// An element can also leave this driver's sight entirely — deleted, or
+		// its 3D appearance removed or disabled — which the per-element sync
+		// above can no longer reach. One the filter merely leaves out keeps its
+		// shadows: an export's front object or a hidden layer's content draws
+		// again later, and dropping them would only make that frame rebuild them.
+		const scannedIds = new Set(scanned.map((element) => element.id));
+		for (const elementId of [...this.underlayUids.keys()]) {
+			if (scannedIds.has(elementId)) continue;
+			if (filter && !filter.has(elementId) && elementsMap.has(elementId)) {
+				continue;
 			}
+			this.releaseUnusedUnderlays(elementId, new Set());
 		}
 		this.deps.backdropEffectCoordinator.planFrame([
 			...new Set(this.frameRequests.values()),

@@ -37,6 +37,10 @@
 - **SVG export**
   - Fix Illustrator reporting a missing linked file, leaving out the images and dropping some clipping masks when it opens an exported SVG.
   - Fix an alpha-locked element with a blend mode coming out in a different color from the canvas.
+- **Extrude / Revolve filters**
+  - Fix a glass solid in a hidden layer still showing on the canvas.
+- **Layers**
+  - Fix deleting a layer leaving the contents of its groups in the document, where a glass solid among them kept showing on the canvas.
 
 ## [0.10.0] - 2026-10-28
 

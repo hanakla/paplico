@@ -426,9 +426,10 @@ export interface BackdropEffectDriver {
 	/** Bake this frame's solids before the main pass opens. `backdropScale` is
 	 *  the backdrop capture's texels per world px (device pixels per world px
 	 *  on screen, the export raster scale when exporting), so effects can turn
-	 *  world-unit parameters into capture texels. When `filter` is given
-	 *  (export/copy), only solids whose element id is in it are baked, so a
-	 *  front object's glass solid never contaminates the export. */
+	 *  world-unit parameters into capture texels. `filter` holds the ids of
+	 *  the elements this frame draws, and only those bake: neither a hidden
+	 *  layer's solid nor, on export/copy, a front object's solid lands in the
+	 *  frame. */
 	prepareFrame(
 		encoder: GPUCommandEncoder,
 		elementsMap: Map<string, AnyArtObject>,

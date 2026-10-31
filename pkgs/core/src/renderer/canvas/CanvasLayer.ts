@@ -2809,7 +2809,11 @@ export class CanvasLayer {
 		// re-sync is needed. Runs immediately (not as a graph pass):
 		// inline-composite classification — buildPassPlan reads the frame
 		// entries this bake registers, so they must exist before the plan is
-		// built.
+		// built. Only what the layers draw bakes: a solid no layer composes at
+		// its z-order would land on top of the frame in flushRemaining.
+		const bakeFilter =
+			effectiveFilter?.intersection(framePlan.drawnElementIds) ??
+			framePlan.drawnElementIds;
 		for (const driver of this.backdropDrivers) {
 			driver.prepareFrame(
 				encoder,
@@ -2820,7 +2824,7 @@ export class CanvasLayer {
 				// texels-per-world-px — at export scale just as much as on screen.
 				this.viewportState.current?.zoom ?? 1,
 				profiler,
-				effectiveFilter,
+				bakeFilter,
 			);
 		}
 
