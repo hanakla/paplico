@@ -3234,6 +3234,10 @@ export class CanvasLayer {
 				localBoundsCache: planStructure.localBoundsCache,
 			};
 			let boundsParentMap: ReadonlyMap<string, string> | null = null;
+			const parentMap = () => {
+				boundsParentMap ??= resolveParentGroupMap(boundsCtx);
+				return boundsParentMap;
+			};
 			const capturedElements = this.compositeFrameCache.elementsMap;
 			let captured: {
 				localBoundsCache: LocalBoundsCache;
@@ -3252,11 +3256,7 @@ export class CanvasLayer {
 				mergedElementsMap,
 				(element) =>
 					this.renderState.boundsCache?.get(element.id) ??
-					computeWorldBounds(
-						element,
-						boundsCtx,
-						(boundsParentMap ??= resolveParentGroupMap(boundsCtx)),
-					),
+					computeWorldBounds(element, boundsCtx, parentMap()),
 				prebufZoom,
 			);
 			partialPlan = planPartialRedraw(
@@ -3309,14 +3309,12 @@ export class CanvasLayer {
 					currentWorldBoundsOf: (id) => {
 						const element = mergedElementsMap.get(id);
 						if (!element) return null;
-						boundsParentMap ??= resolveParentGroupMap(boundsCtx);
 						return (
 							this.renderState.boundsCache?.get(id) ??
-							computeWorldBounds(element, boundsCtx, boundsParentMap)
+							computeWorldBounds(element, boundsCtx, parentMap())
 						);
 					},
-					parentOf: (id) =>
-						(boundsParentMap ??= resolveParentGroupMap(boundsCtx)).get(id),
+					parentOf: (id) => parentMap().get(id),
 				},
 			);
 			if (partialPlan) {

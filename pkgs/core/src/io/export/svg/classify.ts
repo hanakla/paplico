@@ -343,9 +343,8 @@ export function planLayerItems(
 		if (cls === "raster") {
 			if (isBackdropDependent(element, opts)) {
 				flush();
-				const map = (elementsMap ??= new Map(
-					Object.entries(opts.document.objects),
-				));
+				elementsMap ??= new Map(Object.entries(opts.document.objects));
+				const map = elementsMap;
 				const backdropBounds = calculateElementBounds(element, map);
 				// Alpha lock keeps the backdrop's alpha, so an image laid over the
 				// vector backdrop can reproduce it. A backdrop filter may erase
