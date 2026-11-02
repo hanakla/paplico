@@ -19,6 +19,7 @@ import { FakeInput } from "@/components/FakeInput";
 import { Menu } from "@/components/Menu";
 import { Spinner } from "@/components/Spinner";
 import { SwipeAction } from "@/components/SwipeAction";
+import { confirmCloseDocument } from "@/dialogs/CloseDocumentDialog";
 import { setLastDocumentId } from "@/hooks/useAppConfig";
 import {
 	useDocumentHistories,
@@ -51,6 +52,11 @@ import { useEventCallback } from "@/utils/hooks";
 import { IS_TAURI_ENV } from "@/utils/platform";
 import { twm } from "@/utils/tailwind";
 
+// The desktop app writes through a save dialog; a browser can only download
+const DOWNLOAD_LABEL_KEY = IS_TAURI_ENV
+	? "documentList.saveToFile"
+	: "documentList.download";
+
 export const DocumentListDialog = memo(function DocumentListDialog({
 	open,
 	onOpenChange,
@@ -73,7 +79,7 @@ export const DocumentListDialog = memo(function DocumentListDialog({
 		useDocumentHistories(expandedDocId);
 
 	const handleOpenDocument = useEventCallback(async (id: string) => {
-		if (!paplico) return;
+		if (!paplico || !(await confirmCloseDocument(paplico))) return;
 
 		// Load and switch
 		const data = await loadDocumentData(id);
@@ -87,7 +93,7 @@ export const DocumentListDialog = memo(function DocumentListDialog({
 
 	const handleOpenRevision = useEventCallback(
 		async (snapshot: DocumentSnapshot) => {
-			if (!paplico) return;
+			if (!paplico || !(await confirmCloseDocument(paplico))) return;
 			await paplico.importDocument(snapshot.document);
 			setSnapshotDocumentSession();
 			onOpenChange(false);
@@ -133,6 +139,7 @@ export const DocumentListDialog = memo(function DocumentListDialog({
 
 		await paplico.importDocument(data.document);
 		documentManagerState.currentDocumentId = newId;
+		setInternalDocumentSession(newId);
 		setLastDocumentId(newId);
 		onOpenChange(false);
 	});
@@ -155,6 +162,7 @@ export const DocumentListDialog = memo(function DocumentListDialog({
 				if (data) {
 					await paplico.importDocument(data.document);
 					documentManagerState.currentDocumentId = remaining[0].id;
+					setInternalDocumentSession(remaining[0].id);
 					setLastDocumentId(remaining[0].id);
 				}
 			} else {
@@ -164,6 +172,7 @@ export const DocumentListDialog = memo(function DocumentListDialog({
 				if (data) {
 					await paplico.importDocument(data.document);
 					documentManagerState.currentDocumentId = newId;
+					setInternalDocumentSession(newId);
 					setLastDocumentId(newId);
 				}
 			}
@@ -365,7 +374,7 @@ const DocumentRow = memo(function DocumentRow({
 												</Menu.Item>
 												<Menu.Item onClick={onDownload}>
 													<Download size={12} />
-													{t("documentList.download")}
+													{t(DOWNLOAD_LABEL_KEY)}
 												</Menu.Item>
 												<Menu.Separator />
 												<Menu.Item
@@ -470,8 +479,8 @@ const SnapshotRow = memo(function SnapshotRow({
 			<button
 				type="button"
 				onClick={onDownload}
-				title={t("documentList.download")}
-				aria-label={t("documentList.download")}
+				title={t(DOWNLOAD_LABEL_KEY)}
+				aria-label={t(DOWNLOAD_LABEL_KEY)}
 				className="shrink-0 p-1.5 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
 			>
 				<Download size={12} />

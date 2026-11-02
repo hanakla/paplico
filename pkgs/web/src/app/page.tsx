@@ -28,6 +28,10 @@ import type { AutomationRuntimeFactory } from "@/automation/types";
 import { ConfirmDialog } from "@/components/AlertDialog";
 import { Resizable } from "@/components/Resizable";
 import { PaplicoProvider } from "@/contexts/PaplicoContext";
+import {
+	CloseDocumentDialog,
+	confirmCloseDocument,
+} from "@/dialogs/CloseDocumentDialog";
 import { CompanionDialog } from "@/dialogs/CompanionDialog";
 import { ConnectRoomDialog } from "@/dialogs/ConnectRoomDialog";
 import { DisconnectedDialog } from "@/dialogs/DisconnectedDialog";
@@ -99,6 +103,7 @@ import {
 	documentSessionState,
 	openDocumentFile,
 	setInternalDocumentSession,
+	watchUnsavedFileChanges,
 } from "@/stores/documentSessionStore";
 import {
 	createDocument,
@@ -162,10 +167,15 @@ export default function Page() {
 	const sidePanelsBesideToolbar =
 		layoutMode === "desktop" && appSnap.panelLayout === "together";
 	const notchSide = useNotchSide();
-	useAutoSave();
+	const autoSave = useAutoSave();
 	const t = useTranslation();
 
 	const collab = useCollab(paplicoRef);
+
+	useEffect(() => {
+		if (!paplico) return;
+		return watchUnsavedFileChanges(paplico);
+	}, [paplico]);
 
 	useEffect(() => {
 		document.documentElement.classList.toggle("safari", detectSafariBrowser());
@@ -399,13 +409,7 @@ export default function Page() {
 	const handleNewDocument = useEventCallback(async () => {
 		const p = paplicoRef.current;
 		if (!p) return;
-		if (
-			!(await ConfirmDialog.call({
-				description: t("menubar.saveAndCloseConfirm"),
-				confirmLabel: t("menubar.saveAndContinue"),
-			}))
-		)
-			return;
+		if (!(await confirmCloseDocument(p))) return;
 
 		const result = await NewDocumentDialog.call({
 			hdrSupported: p.uiState.hdrSupported,
@@ -680,13 +684,8 @@ export default function Page() {
 				return;
 			}
 
-			if (
-				!(await ConfirmDialog.call({
-					description: t("menubar.saveAndCloseConfirm"),
-					confirmLabel: t("menubar.saveAndContinue"),
-				}))
-			)
-				return;
+			const p = paplicoRef.current;
+			if (!p || !(await confirmCloseDocument(p))) return;
 
 			await handleOpenDocumentFile(loadDocument);
 		},
@@ -934,6 +933,7 @@ export default function Page() {
 							onOpenDocumentListDialog={handleOpenDocumentListDialog}
 							onNewDocument={handleNewDocument}
 							onOpenTimelapseDialog={handleOpenTimelapseDialog}
+							onSaveRevision={autoSave.save}
 							isSplitView={isSplitView}
 							onToggleSplitView={handleToggleSplitView}
 						/>
@@ -1124,6 +1124,7 @@ export default function Page() {
 					{/* New Document Dialog */}
 					<NewDocumentDialog.Root />
 					<ConfirmDialog.Root />
+					<CloseDocumentDialog.Root />
 					<LicensesDialog.Root />
 
 					{/* Stays up until the document lands, not just until the socket

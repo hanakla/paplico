@@ -2,7 +2,7 @@ import type { Paplico } from "@paplico/core";
 import { generateUid } from "@paplico/core/schema";
 import { proxy, ref } from "valtio";
 import { setLastDocumentId } from "@/hooks/useAppConfig";
-import type { FileHandle } from "@/infra/filesystem";
+import { type FileHandle, FileSystem } from "@/infra/filesystem";
 import {
 	documentManagerState,
 	saveDocument,
@@ -19,6 +19,8 @@ interface DocumentSession {
 	identity: string;
 	source: DocumentSessionSource;
 	fileHandle: FileHandle | null;
+	/** Edits made since the document was last read from or written to its file. */
+	hasUnsavedFileChanges: boolean;
 	revision: number;
 }
 
@@ -27,6 +29,7 @@ export const documentSessionState = proxy<DocumentSession>({
 	identity: crypto.randomUUID(),
 	source: { kind: "initial" },
 	fileHandle: null,
+	hasUnsavedFileChanges: false,
 	revision: 0,
 });
 
@@ -45,11 +48,37 @@ export function setSnapshotDocumentSession(): void {
 }
 
 /**
- * Makes a newly written file the target of manual saves. The document stays
- * the same, so the session identity is kept.
+ * Makes a file the document was just written to the target of manual saves.
+ * The document stays the same, so the session identity is kept.
  */
 export function setDocumentFileHandle(fileHandle: FileHandle): void {
 	documentSessionState.fileHandle = ref(fileHandle);
+	documentSessionState.hasUnsavedFileChanges = false;
+}
+
+/** Writes the document over the file manual saves target. */
+export async function overwriteDocumentFile(
+	paplico: Paplico,
+	fileHandle: FileHandle,
+): Promise<void> {
+	// Cleared before exporting so edits made during the write mark the file again
+	documentSessionState.hasUnsavedFileChanges = false;
+	try {
+		await FileSystem.overwrite(fileHandle, await paplico.exportDocumentFile());
+	} catch (error) {
+		documentSessionState.hasUnsavedFileChanges = true;
+		throw error;
+	}
+}
+
+/**
+ * Marks the file as behind the document on every edit, so closing the
+ * document can ask before the edits are left out of the file.
+ */
+export function watchUnsavedFileChanges(paplico: Paplico): () => void {
+	return paplico.getYjsProvider().on("update", () => {
+		documentSessionState.hasUnsavedFileChanges = true;
+	});
 }
 
 /**
@@ -92,5 +121,6 @@ function replaceDocumentSession(
 	documentSessionState.identity = crypto.randomUUID();
 	documentSessionState.source = source;
 	documentSessionState.fileHandle = fileHandle && ref(fileHandle);
+	documentSessionState.hasUnsavedFileChanges = false;
 	documentSessionState.revision++;
 }

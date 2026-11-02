@@ -60,6 +60,23 @@ describe("documentSessionStore", () => {
 		);
 		expect(documentSessionState.identity).toBe(identity);
 	});
+
+	it("should treat a newly opened document as saved to its file", () => {
+		documentSessionState.hasUnsavedFileChanges = true;
+
+		setExternalDocumentSession(createFileHandle("opened.papf"));
+
+		expect(documentSessionState.hasUnsavedFileChanges).toBe(false);
+	});
+
+	it("should treat the document as saved once it is written to a file", () => {
+		setInternalDocumentSession("internal-document");
+		documentSessionState.hasUnsavedFileChanges = true;
+
+		setDocumentFileHandle(createFileHandle("saved.papf"));
+
+		expect(documentSessionState.hasUnsavedFileChanges).toBe(false);
+	});
 });
 
 function createFileHandle(name: string): FileHandle {

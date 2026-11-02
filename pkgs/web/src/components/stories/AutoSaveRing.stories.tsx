@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { fn } from "storybook/test";
 import { useSnapshot } from "valtio";
 import { AUTO_SAVE_INTERVAL_MS, AUTO_SAVE_SLOW_INTERVAL_MS } from "@/configs";
 import { autoSaveState } from "@/stores/autoSave";
@@ -7,17 +8,18 @@ import { AutoSaveRing } from "../AutoSaveRing";
 const meta = {
 	title: "Components/AutoSaveRing",
 	component: AutoSaveRing,
+	args: { onSave: fn() },
 } satisfies Meta<typeof AutoSaveRing>;
 
 export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-function AutoSaveRingShowcase() {
+function AutoSaveRingShowcase({ onSave }: { onSave: () => void }) {
 	return (
 		<div className="flex flex-col gap-4">
 			<div className="flex items-center gap-3 rounded-md border border-border p-3">
-				<AutoSaveRing />
+				<AutoSaveRing onSave={onSave} />
 				<div className="flex flex-col gap-0.5">
 					<p className="text-xs text-muted-foreground">
 						Live indicator driven by the module-level autoSaveState store. Click
@@ -85,5 +87,5 @@ function AutoSaveStateReadout() {
 }
 
 export const Playground: Story = {
-	render: () => <AutoSaveRingShowcase />,
+	render: (args) => <AutoSaveRingShowcase onSave={args.onSave} />,
 };

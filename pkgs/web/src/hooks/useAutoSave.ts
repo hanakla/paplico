@@ -15,8 +15,6 @@ import { useEventCallback } from "@/utils/hooks";
 
 const DEBOUNCE_MS = 2_000;
 
-let initialized = false;
-
 export function useAutoSave(): { save: () => void } {
 	const paplico = usePaplicoMaybe();
 	const { currentDocumentId: documentId } = useSnapshot(documentManagerState);
@@ -31,8 +29,7 @@ export function useAutoSave(): { save: () => void } {
 
 	// --- Debounce save (crash recovery) ---
 	useEffect(() => {
-		if (initialized || !paplico || !documentId) return;
-		initialized = true;
+		if (!paplico || !documentId) return;
 
 		const handler = () => {
 			pendingRef.current = true;
@@ -54,7 +51,6 @@ export function useAutoSave(): { save: () => void } {
 		const unsubscribe = paplico.getYjsProvider().on("update", handler);
 
 		return () => {
-			initialized = false;
 			unsubscribe();
 
 			if (timerRef.current) {
@@ -74,7 +70,44 @@ export function useAutoSave(): { save: () => void } {
 		};
 	}, [paplico, documentId]);
 
-	// --- Timer-based revision save ---
+	// --- Revision save, on the timer and on demand ---
+	const saveRevisionNow = useEventCallback(async () => {
+		if (!paplico || !documentId || autoSaveState.isSaving) return;
+		if (!hasUnsavedRevisionRef.current) {
+			markSaveAttempted();
+			return;
+		}
+
+		// Cleared before exporting so edits made during the save mark the next one
+		hasUnsavedRevisionRef.current = false;
+		autoSaveState.isSaving = true;
+		const start = performance.now();
+
+		try {
+			const [doc, thumbnail] = await Promise.all([
+				paplico.exportDocument(),
+				generateDocumentThumbnail(paplico),
+			]);
+			await saveRevision(documentId, doc, thumbnail);
+
+			const elapsed = performance.now() - start;
+			if (shouldExtendInterval(elapsed) && !autoSaveState.isSlowDocument) {
+				autoSaveState.isSlowDocument = true;
+				autoSaveState.intervalMs = AUTO_SAVE_SLOW_INTERVAL_MS;
+			}
+
+			autoSaveState.saveCount++;
+			resolveBanner("REVISION_SAVE_FAILED");
+		} catch (cause) {
+			hasUnsavedRevisionRef.current = true;
+			reportError({ code: "REVISION_SAVE_FAILED", channel: "banner", cause });
+		} finally {
+			autoSaveState.isSaving = false;
+			markSaveAttempted();
+		}
+	});
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: saveRevisionNow is stable (useEventCallback)
 	useEffect(() => {
 		if (!paplico || !documentId) return;
 
@@ -86,45 +119,9 @@ export function useAutoSave(): { save: () => void } {
 			hasUnsavedRevisionRef.current = true;
 		});
 
-		const runRevisionSave = async () => {
-			if (!paplico || !documentId || autoSaveState.isSaving) return;
-			if (!hasUnsavedRevisionRef.current) {
-				markSaveAttempted();
-				return;
-			}
-
-			// Cleared before exporting so edits made during the save mark the next one
-			hasUnsavedRevisionRef.current = false;
-			autoSaveState.isSaving = true;
-			const start = performance.now();
-
-			try {
-				const [doc, thumbnail] = await Promise.all([
-					paplico.exportDocument(),
-					generateDocumentThumbnail(paplico),
-				]);
-				await saveRevision(documentId, doc, thumbnail);
-
-				const elapsed = performance.now() - start;
-				if (shouldExtendInterval(elapsed) && !autoSaveState.isSlowDocument) {
-					autoSaveState.isSlowDocument = true;
-					autoSaveState.intervalMs = AUTO_SAVE_SLOW_INTERVAL_MS;
-				}
-
-				autoSaveState.saveCount++;
-				resolveBanner("AUTOSAVE_FAILED");
-			} catch (cause) {
-				hasUnsavedRevisionRef.current = true;
-				reportError({ code: "AUTOSAVE_FAILED", channel: "banner", cause });
-			} finally {
-				autoSaveState.isSaving = false;
-				markSaveAttempted();
-			}
-		};
-
 		const scheduleNext = () => {
 			intervalRef.current = setTimeout(async () => {
-				await runRevisionSave();
+				await saveRevisionNow();
 				scheduleNext();
 			}, intervalMs);
 		};
@@ -140,22 +137,7 @@ export function useAutoSave(): { save: () => void } {
 		};
 	}, [paplico, documentId, intervalMs]);
 
-	// --- Manual save ---
-	const save = useEventCallback(async () => {
-		if (!paplico || !documentId || autoSaveState.isSaving) return;
-
-		try {
-			await saveDocument(documentId, await paplico.exportDocument());
-			autoSaveState.saveCount++;
-			resolveBanner("AUTOSAVE_FAILED");
-		} catch (cause) {
-			reportError({ code: "AUTOSAVE_FAILED", channel: "banner", cause });
-		} finally {
-			markSaveAttempted();
-		}
-	});
-
-	return { save };
+	return { save: saveRevisionNow };
 }
 
 /** Reschedule the next auto-save; runs after every attempt, success or failure. */

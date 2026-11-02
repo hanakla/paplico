@@ -17,6 +17,7 @@ import type * as Y from "yjs";
 import { ConfirmDialog } from "@/components/AlertDialog";
 import { toastManager } from "@/components/Toast";
 import { PARTYKIT_HOST, webOrigin } from "@/configs";
+import { confirmCloseDocument } from "@/dialogs/CloseDocumentDialog";
 import { DisconnectedDialog } from "@/dialogs/DisconnectedDialog";
 import { appConfig, setCollaborationUserName } from "@/hooks/useAppConfig";
 import { useUserSession } from "@/hooks/useUserSession";
@@ -255,11 +256,7 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 			}
 
 			if (!isReconnect) {
-				const confirmed = await ConfirmDialog.call({
-					description: t("menubar.saveAndCloseConfirm"),
-					confirmLabel: t("menubar.saveAndContinue"),
-				});
-				if (!confirmed) return;
+				if (!(await confirmCloseDocument(pap))) return;
 
 				// Save current document before discarding
 				if (currentDocId && pap) {

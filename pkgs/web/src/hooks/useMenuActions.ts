@@ -6,13 +6,14 @@ import {
 import { isGroup } from "@paplico/core/schema";
 import type React from "react";
 import { toastManager } from "@/components/Toast";
+import { confirmCloseDocument } from "@/dialogs/CloseDocumentDialog";
 import { LicensesDialog } from "@/dialogs/LicensesDialog";
-import { confirmDialog } from "@/infra/confirmDialog";
 import { FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import {
 	documentSessionState,
 	openDocumentFile,
+	overwriteDocumentFile,
 	setDocumentFileHandle,
 } from "@/stores/documentSessionStore";
 import {
@@ -132,7 +133,9 @@ export function useMenuActions(
 			if (!handle) return;
 
 			setDocumentFileHandle(handle);
-			toastManager.add({ title: t("menubar.documentSaved") });
+			toastManager.add({
+				title: t("menubar.documentSaved", { name: handle.file.name }),
+			});
 		} catch (cause) {
 			reportError({
 				code: "EXPORT_FAILED",
@@ -159,9 +162,9 @@ export function useMenuActions(
 		});
 
 		try {
-			await FileSystem.overwrite(handle, await p.exportDocumentFile());
+			await overwriteDocumentFile(p, handle);
 			toastManager.update(toastId, {
-				title: t("menubar.documentSaved"),
+				title: t("menubar.documentSaved", { name: handle.file.name }),
 				type: "success",
 			});
 		} catch (error) {
@@ -172,8 +175,8 @@ export function useMenuActions(
 	});
 
 	const handleImport = useEventCallback(async () => {
-		const discard = await confirmDialog(t("menubar.saveAndCloseConfirm"));
-		if (!discard) return;
+		const p = paplicoRef.current;
+		if (!p || !(await confirmCloseDocument(p))) return;
 
 		const result = await FileSystem.openFileDialog({
 			id: "papf-open",
@@ -185,9 +188,6 @@ export function useMenuActions(
 			],
 		});
 		if (!result) return;
-
-		const p = paplicoRef.current;
-		if (!p) return;
 
 		try {
 			await whileLoadingDocument(() => openDocumentFile(p, result));

@@ -40,7 +40,6 @@ import { Accordion } from "@/components/Accordion";
 import { useCurrentCanvasTargetResolver } from "@/hooks/useCurrentCanvasTarget";
 import { useMenuActions } from "@/hooks/useMenuActions";
 import { useTranslation } from "@/locales";
-import { documentSessionState } from "@/stores/documentSessionStore";
 import { useUIState } from "@/stores/uiStore";
 import { IS_TAURI_ENV } from "@/utils/platform";
 
@@ -97,7 +96,6 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 	const t = useTranslation();
 	const { getCurrentCanvasTarget } = useCurrentCanvasTargetResolver();
 	const uiState = useSnapshot(paplico.uiState);
-	const { fileHandle } = useSnapshot(documentSessionState);
 	const appUiState = useUIState();
 
 	const paplicoRef = useRef<Paplico | null>(paplico);
@@ -245,13 +243,13 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 					<FileUp size={16} />
 					{t("menubar.openDocument")}
 				</MenuItem>
-				<MenuItem onClick={item(handleSave)} disabled={fileHandle == null}>
+				<MenuItem onClick={item(handleSave)}>
 					<Save size={16} />
-					{t("menubar.overwriteDocument")}
+					{t("menubar.saveToFile")}
 				</MenuItem>
 				<MenuItem onClick={item(handleExport)}>
 					<FileDown size={16} />
-					{t("menubar.saveDocument")}
+					{IS_TAURI_ENV ? t("menubar.saveToFileAs") : t("menubar.downloadFile")}
 				</MenuItem>
 				<MenuItem onClick={item(onOpenExportDialog)}>
 					<ImageDown size={16} />

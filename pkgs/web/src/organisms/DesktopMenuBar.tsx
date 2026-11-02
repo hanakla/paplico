@@ -77,6 +77,7 @@ export function DesktopMenuBar({
 	onOpenDocumentListDialog,
 	onNewDocument,
 	onOpenTimelapseDialog,
+	onSaveRevision,
 	isSplitView,
 	onToggleSplitView,
 }: {
@@ -98,6 +99,7 @@ export function DesktopMenuBar({
 	onOpenDocumentListDialog: () => void;
 	onNewDocument: () => void;
 	onOpenTimelapseDialog: () => void;
+	onSaveRevision: () => void;
 
 	isSplitView: boolean;
 	onToggleSplitView: () => void;
@@ -290,17 +292,15 @@ export function DesktopMenuBar({
 						<FileUp size={16} />
 						{t("menubar.openDocument")}
 					</Menubar.Item>
-					<Menubar.Item
-						onClick={handleSave}
-						shortcut="⌘S"
-						disabled={fileHandle == null}
-					>
+					<Menubar.Item onClick={handleSave} shortcut="⌘S">
 						<Save size={16} />
-						{t("menubar.overwriteDocument")}
+						{t("menubar.saveToFile")}
 					</Menubar.Item>
 					<Menubar.Item onClick={handleExport} shortcut="⇧⌘S">
 						<FileDown size={16} />
-						{t("menubar.saveDocument")}
+						{IS_TAURI_ENV
+							? t("menubar.saveToFileAs")
+							: t("menubar.downloadFile")}
 					</Menubar.Item>
 					<Menubar.Item onClick={onOpenExportDialog} shortcut="⇧⌘E">
 						<ImageDown size={16} />
@@ -490,7 +490,7 @@ export function DesktopMenuBar({
 						{documentName}
 					</span>
 				)}
-				<AutoSaveRing />
+				<AutoSaveRing onSave={onSaveRevision} />
 				<RoomParticipants
 					connectedRoomId={connectedRoomId}
 					isOwner={isRoomOwner}

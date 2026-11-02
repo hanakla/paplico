@@ -8,14 +8,13 @@ export const en = {
 		fileMenu: "File",
 		editMenu: "Edit",
 		viewMenu: "View",
-		saveAndCloseConfirm: "The current document will be saved and closed.",
-		saveAndContinue: "Save and continue",
 		new: "New",
 		openDocument: "Open Document",
-		overwriteDocument: "Save",
-		saveDocument: "Save Document",
+		saveToFile: "Save",
+		saveToFileAs: "Save As…",
+		downloadFile: "Download",
 		savingDocument: "Saving…",
-		documentSaved: "Saved",
+		documentSaved: "Saved to {{name}}",
 		untitledDocument: "[Untitled]",
 		revealInFinder: "Show in Finder",
 		openFileLocation: "Open File Location",
@@ -1332,7 +1331,7 @@ export const en = {
 		},
 	},
 	documentList: {
-		title: "Recent Documents",
+		title: "Documents in the App",
 		newDocument: "New Document",
 		untitled: "Untitled",
 		open: "Open",
@@ -1348,10 +1347,12 @@ export const en = {
 		revisionCount: "{{count}} rev",
 		noSnapshots: "No snapshots",
 		download: "Download",
+		saveToFile: "Save to File…",
 		storageWarning:
-			"Documents are stored inside this browser. The browser may delete them when your device runs low on space. Download the ones that matter to keep them safe.",
+			"Documents in the app are stored inside this browser. The browser may delete them when your device runs low on space. Download the ones that matter to keep them safe.",
 	},
 	autoSave: {
+		savedInApp: "Auto-saved in the app",
 		nextSaveIn: "Next auto-save in: {{time}}",
 		slowDocumentTooltip: "Large document — auto-saving every 5 min",
 		clickToSave: "Click to save now",
@@ -1364,6 +1365,13 @@ export const en = {
 	},
 	canvasZoomToast: {
 		scale: "{{value}}x",
+	},
+	closeDocumentDialog: {
+		title: "Save changes to {{name}}?",
+		description:
+			"Your changes stay in the app's documents even if you don't save them.",
+		save: "Save and Close",
+		discard: "Close Without Saving",
 	},
 	newDocumentDialog: {
 		title: "New Document",
@@ -1541,9 +1549,12 @@ export const en = {
 			"Paplico requires WebGPU. Please use a recent version of Chrome, Edge, or another WebGPU-enabled browser",
 		webgpuInitFailed: "Failed to initialize the GPU",
 		webgpuDeviceLost: "The GPU connection was lost and could not be recovered",
-		autosaveFailed: "Auto-save is failing",
+		autosaveFailed: "Auto-saving to the app is failing",
 		autosaveFailedDescription:
-			"Recent changes may be lost. Export your work to a file to keep it safe",
+			"Recent changes may be lost. Save your work to a file to keep it safe",
+		revisionSaveFailed: "Recording a revision is failing",
+		revisionSaveFailedDescription:
+			"The latest content is still saved in the app",
 		exportFailed: "Failed to export",
 		saveFailed: "Failed to save to the file",
 		importFailed: "Failed to import the file",

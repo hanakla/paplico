@@ -1,13 +1,11 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
-import { useAutoSave } from "@/hooks/useAutoSave";
 import { useTranslation } from "@/locales";
 import {
 	autoSaveState,
 	computeRingProgress,
 	formatAutoSaveCountdown,
 } from "@/stores/autoSave";
-import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
 import { Tooltip } from "./Tooltip";
 
@@ -17,9 +15,12 @@ const RING_STROKE = 2;
 const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const HOLD_FULL_MS = 5_000;
 
-export const AutoSaveRing = memo(function AutoSaveRing() {
+export const AutoSaveRing = memo(function AutoSaveRing({
+	onSave,
+}: {
+	onSave: () => void;
+}) {
 	const t = useTranslation();
-	const { save } = useAutoSave();
 	const snap = useSnapshot(autoSaveState);
 	const progressCircleRef = useRef<SVGCircleElement>(null);
 	const rafRef = useRef<number>(0);
@@ -70,16 +71,13 @@ export const AutoSaveRing = memo(function AutoSaveRing() {
 		return () => clearInterval(id);
 	}, []);
 
-	const handleClick = useEventCallback(() => {
-		save();
-	});
-
 	const statusText = snap.isSlowDocument
 		? t("autoSave.slowDocumentTooltip")
 		: t("autoSave.nextSaveIn", { time: countdown });
 
 	const tooltipContent = (
 		<>
+			<div>{t("autoSave.savedInApp")}</div>
 			<div>{statusText}</div>
 			<div className="opacity-60">{t("autoSave.clickToSave")}</div>
 		</>
@@ -89,7 +87,7 @@ export const AutoSaveRing = memo(function AutoSaveRing() {
 		<Tooltip content={tooltipContent} side="bottom">
 			<button
 				type="button"
-				onClick={handleClick}
+				onClick={onSave}
 				className="flex items-center justify-center w-6 h-6 rounded hover:bg-foreground/10 transition-colors cursor-pointer"
 			>
 				<svg

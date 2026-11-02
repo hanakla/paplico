@@ -33,7 +33,9 @@ describe("NotificationBannerHost", () => {
 			});
 		});
 
-		expect(await screen.findByText("Auto-save is failing")).toBeTruthy();
+		expect(
+			await screen.findByText("Auto-saving to the app is failing"),
+		).toBeTruthy();
 
 		fireEvent.click(screen.getByText("Retry"));
 		expect(onActionClick).toHaveBeenCalledTimes(1);
@@ -48,14 +50,16 @@ describe("NotificationBannerHost", () => {
 				titleKey: "errors.autosaveFailed",
 			});
 		});
-		await screen.findByText("Auto-save is failing");
+		await screen.findByText("Auto-saving to the app is failing");
 
 		await act(async () => {
 			resolveBanner("AUTOSAVE_FAILED");
 		});
 
 		await waitFor(() => {
-			expect(screen.queryByText("Auto-save is failing")).toBeNull();
+			expect(
+				screen.queryByText("Auto-saving to the app is failing"),
+			).toBeNull();
 		});
 	});
 });
