@@ -14,7 +14,7 @@ export const AUTO_SAVE_MAX_REVISIONS = 20;
 
 // --- Collaboration ---
 
-/** PartyKit host (`host:port`) serving cloud rooms and the E2EE relay. */
+/** Collab server host (`host:port`) serving cloud rooms and the E2EE relay. */
 export const PARTYKIT_HOST =
 	process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999";
 

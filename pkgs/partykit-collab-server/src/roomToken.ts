@@ -2,7 +2,7 @@
  * HMAC-SHA256 based room token verification for Cloudflare Workers.
  *
  * Uses Web Crypto API (crypto.subtle) since Node.js `crypto` is unavailable
- * in the Cloudflare Workers runtime that PartyKit runs on.
+ * in the Cloudflare Workers runtime.
  *
  * Token format: `{roomId}:{timestamp}:{hmac_hex}`
  */

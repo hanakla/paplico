@@ -1,7 +1,12 @@
 # @paplico/partykit-collab-server
 
-PartyKit collaboration server for Paplico.
+PartyServer collaboration server for Paplico, running as a Cloudflare Worker with Durable Objects.
 Yjs document synchronization and Supabase JWT authentication at the edge.
+
+| Path                   | Durable Object   | Purpose                                     |
+| ---------------------- | ---------------- | ------------------------------------------- |
+| `/parties/main/:room`  | `DocumentServer` | Yjs sync, room metadata, document snapshots |
+| `/parties/relay/:room` | `RelayServer`    | Stateless relay for E2EE sessions           |
 
 ## Deployment
 
@@ -10,37 +15,31 @@ Manual deployment is also available via `workflow_dispatch` on the Actions tab.
 
 ### Prerequisites
 
-Add the following GitHub repository secrets:
+Add the following secrets to the `Production` environment of the GitHub repository:
 
-- `PARTYKIT_LOGIN` — generated via `npx partykit login`
-- `PARTYKIT_TOKEN` — generated via `npx partykit token generate`
+- `CLOUDFLARE_API_TOKEN` — an Account API token with `Workers Scripts: Edit` and `Account Settings: Read`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `SUPABASE_JWT_SECRET`
+- `ROOM_SIGNING_SECRET` — must match the web app's, which signs the room tokens
 
-Set these PartyKit environment variables. The server refuses every connection while either is missing.
-
-```bash
-npx partykit env add SUPABASE_JWT_SECRET
-npx partykit env add ROOM_SIGNING_SECRET
-```
-
-`ROOM_SIGNING_SECRET` must match the web app's, which signs the room tokens.
+The workflow uploads `SUPABASE_JWT_SECRET` and `ROOM_SIGNING_SECRET` as Worker secrets on every deploy. The server refuses every connection while either is missing.
 
 ### Manual Deploy
 
 ```bash
-npx partykit deploy
+npx wrangler login
+npx wrangler deploy
 ```
 
-## Version Identification
+## Local Development
 
-The deploy commit hash is embedded at compile time via `DEPLOY_COMMIT_HASH`.
-Query the server version via HTTP GET:
+`yarn dev` at the repository root starts this server with `wrangler dev` on port 1999.
+Put the secrets in `.dev.vars` next to `wrangler.jsonc`:
 
 ```
-GET https://paplico.<username>.partykit.dev/party/<roomId>
--> { "version": "abc123def..." }
+SUPABASE_JWT_SECRET=...
+ROOM_SIGNING_SECRET=...
 ```
-
-During local development (`partykit dev`), the version is `"dev"`.
 
 ## Compatibility Policy
 
@@ -53,12 +52,12 @@ This server maintains backward compatibility with the **previous 1 release (N-1)
 
 ### Scope
 
-The Yjs sync protocol (provided by y-partykit) is inherently stable. The N-1 compatibility covers custom additions:
+The Yjs sync protocol (provided by y-partyserver) is inherently stable. The N-1 compatibility covers custom additions:
 
 - JWT authentication flow and token format
-- Room metadata schema (Durable Object KV)
+- Room metadata schema (Durable Object storage)
 - Awareness state fields (cursor, user info)
-- HTTP API (version endpoint response format)
+- HTTP API (room metadata response format)
 
 ### Breaking changes
 

@@ -32,7 +32,7 @@ WebGPUで動く、リアルタイム共同編集対応の無限キャンバス�
 | レンダリング   | WebGPU (WGSLシェーダ)      |
 | スタイリング   | Tailwind CSS               |
 | 状態管理       | Valtio                     |
-| 共同編集       | Yjs, y-websocket, PartyKit |
+| 共同編集       | Yjs, y-websocket, PartyServer |
 | 認証           | Supabase Auth              |
 | シリアライズ   | CBOR                       |
 | デスクトップ   | Tauri v2                   |
@@ -50,7 +50,7 @@ Yarn 4のmonorepoです。
 | `pkgs/desktop`                | Tauri v2 デスクトップアプリラッパー                                       |
 | `pkgs/syrup`                  | Syrupスクリプト言語: パーサ・型検査器・JSエミッタ・ワーカーサンドボックス |
 | `pkgs/avif-hdr`               | AVIF HDRのエンコード/デコード                                             |
-| `pkgs/partykit-collab-server` | クラウド共同編集モード用のPartyKitサーバ                                  |
+| `pkgs/partykit-collab-server` | クラウド共同編集モード用のPartyServerサーバ                               |
 | `pkgs/webgpu-devtools`        | WebGPUパイプラインを調査するブラウザ拡張                                  |
 
 ## はじめかた
@@ -63,7 +63,7 @@ Yarn 4のmonorepoです。
 
 ### SSL証明書
 
-開発サーバはHTTPSで動きます。Next.js + WebSocketサーバとPartyKit devの両方が、リポジトリルートの `.certs/` ディレクトリから証明書を読み込みます。
+開発サーバはHTTPSで動きます。Next.js + WebSocketサーバとwrangler devで動く共同編集サーバの両方が、リポジトリルートの `.certs/` ディレクトリから証明書を読み込みます。
 
 ```
 .certs/
@@ -84,7 +84,7 @@ mkcert -key-file .certs/localhost-key.pem -cert-file .certs/localhost-cert.pem l
 ```bash
 yarn install
 
-# 開発環境を起動 (Supabase + Next.js dev server + Storybook + PartyKit dev)
+# 開発環境を起動 (Supabase + Next.js dev server + Storybook + wrangler devの共同編集サーバ)
 yarn dev
 ```
 

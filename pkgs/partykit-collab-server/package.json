@@ -3,12 +3,18 @@
 	"version": "0.1.0",
 	"private": true,
 	"scripts": {
-		"dev": "partykit dev",
-		"deploy": "partykit deploy"
+		"dev": "wrangler dev --port 1999",
+		"deploy": "wrangler deploy"
 	},
 	"dependencies": {
 		"jose": "^6.2.8",
-		"partykit": "^0.0.115",
-		"y-partykit": "^0.0.33"
+		"lib0": "^0.2.117",
+		"partyserver": "^0.5.10",
+		"y-partyserver": "^2.2.0",
+		"yjs": "^13.6.33"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^5.20261026.1",
+		"wrangler": "~4.153.0"
 	}
 }

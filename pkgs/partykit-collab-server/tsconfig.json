@@ -6,7 +6,7 @@
 		"strict": true,
 		"esModuleInterop": true,
 		"skipLibCheck": true,
-		"types": ["partykit/server"]
+		"types": ["@cloudflare/workers-types"]
 	},
 	"include": ["src"]
 }

@@ -74,7 +74,7 @@ export interface CollaborationConfig {
 	roomId: string;
 	/** WebSocket endpoint for local mode. */
 	wsUrl?: string;
-	/** PartyKit host (`host:port`) for cloud and E2EE modes. */
+	/** Collab server host (`host:port`) for cloud and E2EE modes. */
 	relayHost?: string;
 	user?: {
 		name?: string;

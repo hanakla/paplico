@@ -7,7 +7,7 @@
  * - hmac_hex: HMAC-SHA256(roomId|timestamp, secret) in hex
  *
  * Used by the API Route to issue tokens.
- * Verification is done on the PartyKit side (Cloudflare Workers)
+ * Verification is done on the collab server (Cloudflare Workers)
  * via pkgs/partykit-collab-server/src/roomToken.ts.
  */
 

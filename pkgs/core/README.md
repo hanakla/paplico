@@ -116,7 +116,7 @@ never load it.
 | `@paplico/core/infra` | Clipboard, browser local font backend |
 | `@paplico/core/three-webgpu-compat` | Target of the `three` bundler alias |
 
-Collaboration transports take the PartyKit host from
+Collaboration transports take the collab server host from
 `CollaborationConfig.relayHost`; the engine reads no environment variables.
 
 ## Development

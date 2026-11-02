@@ -1,0 +1,17 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "paplico-collab",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-10-23",
+	"durable_objects": {
+		"bindings": [
+			// Binding names become the /parties/:party segment, so these keep the
+			// main and relay paths the clients already connect to.
+			{ "name": "Main", "class_name": "DocumentServer" },
+			{ "name": "Relay", "class_name": "RelayServer" }
+		]
+	},
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["DocumentServer", "RelayServer"] }
+	]
+}

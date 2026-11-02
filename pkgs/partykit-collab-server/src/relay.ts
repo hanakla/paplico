@@ -10,7 +10,7 @@
  * is why this party performs no authentication of its own.
  */
 
-import type * as Party from "partykit/server";
+import { type Connection, Server, type WSMessage } from "partyserver";
 
 /**
  * Departures are announced in the clear, because the relay has no key to
@@ -22,22 +22,18 @@ import type * as Party from "partykit/server";
  */
 const PEER_LEFT_PREFIX = "left:";
 
-export default class RelayServer implements Party.Server {
-	public constructor(public room: Party.Room) {}
-
-	public onMessage(message: string | ArrayBuffer, sender: Party.Connection) {
-		this.room.broadcast(message, [sender.id]);
+export class RelayServer extends Server {
+	public onMessage(sender: Connection, message: WSMessage) {
+		this.broadcast(message, [sender.id]);
 	}
 
-	public onClose(connection: Party.Connection) {
-		this.room.broadcast(`${PEER_LEFT_PREFIX}${connection.id}`, [connection.id]);
+	public onClose(connection: Connection) {
+		this.broadcast(`${PEER_LEFT_PREFIX}${connection.id}`, [connection.id]);
 	}
 
-	public onError(connection: Party.Connection) {
+	public onError(connection: Connection) {
 		// A dropped connection leaves the same way a closed one does, and the
 		// peers cannot tell the difference either.
-		this.room.broadcast(`${PEER_LEFT_PREFIX}${connection.id}`, [connection.id]);
+		this.broadcast(`${PEER_LEFT_PREFIX}${connection.id}`, [connection.id]);
 	}
 }
-
-RelayServer satisfies Party.Worker;

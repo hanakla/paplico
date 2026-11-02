@@ -32,7 +32,7 @@ WebGPU-powered infinite canvas / vector drawing application with real-time colla
 | Rendering     | WebGPU (WGSL shaders)      |
 | Styling       | Tailwind CSS               |
 | State         | Valtio                     |
-| Collaboration | Yjs, y-websocket, PartyKit |
+| Collaboration | Yjs, y-websocket, PartyServer |
 | Auth          | Supabase Auth              |
 | Serialization | CBOR                       |
 | Desktop       | Tauri v2                   |
@@ -50,7 +50,7 @@ This is a Yarn 4 monorepo:
 | `pkgs/desktop`                | Tauri v2 desktop app wrapper                                               |
 | `pkgs/syrup`                  | Syrup scripting language: parser, type checker, JS emitter, worker sandbox |
 | `pkgs/avif-hdr`               | AVIF HDR encode/decode                                                     |
-| `pkgs/partykit-collab-server` | PartyKit server for cloud collaboration mode                               |
+| `pkgs/partykit-collab-server` | PartyServer server for cloud collaboration mode                            |
 | `pkgs/webgpu-devtools`        | Browser extension for inspecting the WebGPU pipeline                       |
 
 ## Getting Started
@@ -63,7 +63,7 @@ This is a Yarn 4 monorepo:
 
 ### SSL Certificates
 
-The dev server (Next.js + WebSocket, and PartyKit dev) runs over HTTPS and reads a certificate from the `.certs/` directory at the repository root:
+The dev server (Next.js + WebSocket, and the collab server on wrangler dev) runs over HTTPS and reads a certificate from the `.certs/` directory at the repository root:
 
 ```
 .certs/
@@ -84,7 +84,7 @@ mkcert -key-file .certs/localhost-key.pem -cert-file .certs/localhost-cert.pem l
 ```bash
 yarn install
 
-# Start development (Supabase + Next.js dev server + Storybook + PartyKit dev)
+# Start development (Supabase + Next.js dev server + Storybook + collab server on wrangler dev)
 yarn dev
 ```
 

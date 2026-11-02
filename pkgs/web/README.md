@@ -27,7 +27,7 @@ WebGPU-powered infinite canvas drawing application with real-time collaboration.
 | Styling          | Tailwind CSS 4             |
 | State (App)      | Zustand                    |
 | State (Document) | Valtio                     |
-| Collaboration    | Yjs, y-websocket, PartyKit |
+| Collaboration    | Yjs, y-websocket, PartyServer |
 | Auth             | Supabase Auth              |
 | Serialization    | CBOR                       |
 | Testing          | Vitest                     |
@@ -50,12 +50,12 @@ Copy `pkgs/web/.env.example` to `pkgs/web/.env` and fill in the values:
 | `SUPABASE_URL`                             | Yes        | Supabase API URL                                    |
 | `SUPABASE_PUBLISHABLE_KEY`                 | Yes        | Supabase publishable key (`sb_publishable_...`)     |
 | `SUPABASE_SECRET_KEY`                      | Yes        | Supabase secret key (`sb_secret_...`, server only)  |
-| `SUPABASE_JWT_SECRET`                      | Cloud      | HS256 symmetric key for JWT verification (PartyKit) |
+| `SUPABASE_JWT_SECRET`                      | Cloud      | HS256 symmetric key for JWT verification (collab)   |
 | `NEXT_PUBLIC_COLLAB_MODE`                  | No         | `local` (default) or `cloud`                        |
-| `NEXT_PUBLIC_PARTYKIT_HOST`                | Cloud      | PartyKit WebSocket host                             |
+| `NEXT_PUBLIC_PARTYKIT_HOST`                | Cloud      | Collab server WebSocket host                        |
 | `NEXT_PUBLIC_API_BASE_URL`                 | Tauri prod | API server URL (e.g. `https://paplico.hanak.la`)    |
 | `NEXT_PUBLIC_GOOGLE_FONTS_API_KEY`         | No         | Google Fonts API key                                |
-| `ROOM_SIGNING_SECRET`                      | Cloud      | HMAC secret for room tokens (API and PartyKit)      |
+| `ROOM_SIGNING_SECRET`                      | Cloud      | HMAC secret for room tokens (API and collab server) |
 | `SUPABASE_AUTH_EXTERNAL_DISCORD_CLIENT_ID` | Cloud      | Discord OAuth Client ID                             |
 | `SUPABASE_AUTH_EXTERNAL_DISCORD_SECRET`    | Cloud      | Discord OAuth Secret                                |
 | `SUPABASE_AUTH_EXTERNAL_X_CLIENT_ID`       | Cloud      | X OAuth Client ID                                   |
@@ -168,7 +168,7 @@ This is part of a Yarn 4 monorepo:
 | ----------------------------- | -------------------------------------------- |
 | `pkgs/web`                    | Main application (this package)              |
 | `pkgs/core`                   | Shared utilities and types (`@paplico/core`) |
-| `pkgs/partykit-collab-server` | PartyKit collaboration server                |
+| `pkgs/partykit-collab-server` | PartyServer collaboration server             |
 
 ## Architecture
 

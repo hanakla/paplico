@@ -74,7 +74,7 @@ This ensures continuity and prevents losing context between sessions.
 - `pkgs/desktop` - Tauri v2 desktop app wrapper (`@paplico/desktop`)
 - `pkgs/syrup` - Syrup scripting language (`@paplico/syrup`): parser, type checker, JS emitter, worker sandbox and Monaco integration. Knows nothing about Paplico — see "Syrup Automation Scripting"
 - `pkgs/avif-hdr` - AVIF HDR encode/decode (`@paplico/avif-hdr`)
-- `pkgs/partykit-collab-server` - PartyKit server for cloud collaboration mode
+- `pkgs/partykit-collab-server` - PartyServer server (Cloudflare Workers) for cloud collaboration mode
 - `pkgs/webgpu-devtools` - WXT browser extension for inspecting the WebGPU pipeline
 
 ## Commands
@@ -83,7 +83,7 @@ This ensures continuity and prevents losing context between sessions.
 # Install dependencies (from root)
 yarn install
 
-# Start development (from root: Supabase + Next.js dev server on :5005 + Storybook on :6006 + PartyKit dev)
+# Start development (from root: Supabase + Next.js dev server on :5005 + Storybook on :6006 + collab server on wrangler dev)
 yarn dev
 
 # Local Supabase management (from root)
@@ -363,7 +363,7 @@ The cycle:
 **Backend (two collaboration modes):**
 
 - **Local mode** (default): Custom WebSocket server (`pkgs/web/server.mjs`) + `y-websocket`
-- **Cloud mode** (`NEXT_PUBLIC_COLLAB_MODE=cloud`): PartyKit (`y-partykit`) + Supabase session JWT authentication
+- **Cloud mode** (`NEXT_PUBLIC_COLLAB_MODE=cloud`): PartyServer on Cloudflare Workers (`y-partyserver`) + Supabase session JWT authentication
 - CBOR format for import/export
 
 ### Core Concepts
@@ -424,7 +424,7 @@ All drawing tools implement the `Tool` interface with pointer event handlers:
 
 - Two modes switchable via `NEXT_PUBLIC_COLLAB_MODE` env var:
   - `local` (default): `Collaboration` class using `y-websocket` + custom `server.mjs`
-  - `cloud`: `PartyKitCollaboration` class using `y-partykit` + Supabase session JWT auth
+  - `cloud`: `PartyKitCollaboration` class using `y-partyserver` + Supabase session JWT auth
 - `createCollaboration()` in `pkgs/web/src/hooks/useCollab.ts` selects the implementation and passes the relay host in `CollaborationConfig`; `@paplico/core` never reads `NEXT_PUBLIC_*`
 - `ICollaboration` interface abstracts both modes. Transports, including host-app ones, extend `CollaborationBase`
 - `Paplico.connectCollaboration(factory, { document })` is the only way to attach a transport. `factory` receives the Y.Doc to sync. `document: "fromRemote"` discards the local document before connecting; `"keepForRemote"` keeps it and merges with the room

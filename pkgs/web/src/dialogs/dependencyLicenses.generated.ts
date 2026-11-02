@@ -280,12 +280,6 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 		url: "https://github.com/vercel/next.js",
 	},
 	{
-		name: "partykit",
-		version: "0.0.115",
-		license: "MIT",
-		url: "https://github.com/partykit/partykit",
-	},
-	{
 		name: "partysocket",
 		version: "1.1.13",
 		license: "MIT",
@@ -412,10 +406,10 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 		url: "https://github.com/websockets/ws",
 	},
 	{
-		name: "y-partykit",
-		version: "0.0.33",
+		name: "y-partyserver",
+		version: "2.2.0",
 		license: "ISC",
-		url: "https://www.npmjs.com/package/y-partykit",
+		url: "https://github.com/cloudflare/partykit",
 	},
 	{
 		name: "y-protocols",

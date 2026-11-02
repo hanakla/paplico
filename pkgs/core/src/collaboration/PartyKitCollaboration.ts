@@ -1,17 +1,17 @@
 /**
- * PartyKitCollaboration - Cloud mode WebSocket connection via y-partykit
+ * PartyKitCollaboration - Cloud mode WebSocket connection via y-partyserver
  *
  * Same public interface as Collaboration.ts (y-websocket based),
- * but uses y-partykit/provider + PartyKit server.
+ * but uses y-partyserver/provider + the PartyServer collab server.
  *
  * Requires:
- * - CollaborationConfig.relayHost set to the PartyKit host
+ * - CollaborationConfig.relayHost set to the collab server host
  * - Supabase session JWT passed via CollaborationConfig.authToken
  */
 
 import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
-import YPartyKitProvider from "y-partykit/provider";
+import YProvider from "y-partyserver/provider";
 import type * as Y from "yjs";
 import {
 	CollabMessage,
@@ -21,8 +21,8 @@ import {
 } from "./ICollaboration";
 
 export class PartyKitCollaboration extends CollaborationBase {
-	private provider: YPartyKitProvider;
-	public readonly awareness: YPartyKitProvider["awareness"];
+	private provider: YProvider;
+	public readonly awareness: YProvider["awareness"];
 	public readonly isOwner: boolean;
 	public readonly isReadonly: boolean;
 
@@ -51,16 +51,11 @@ export class PartyKitCollaboration extends CollaborationBase {
 		if (config.roomToken) params.roomToken = config.roomToken;
 		if (config.roomReadonly) params.roomReadonly = "1";
 
-		this.provider = new YPartyKitProvider(
-			config.relayHost,
-			config.roomId,
-			ydoc,
-			{
-				connect: true,
-				protocol: globalThis.location?.protocol === "https:" ? "wss" : "ws",
-				params: Object.keys(params).length > 0 ? params : undefined,
-			},
-		);
+		this.provider = new YProvider(config.relayHost, config.roomId, ydoc, {
+			connect: true,
+			protocol: globalThis.location?.protocol === "https:" ? "wss" : "ws",
+			params: Object.keys(params).length > 0 ? params : undefined,
+		});
 
 		this.awareness = this.provider.awareness;
 

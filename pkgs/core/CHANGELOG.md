@@ -23,6 +23,8 @@
   - Dragging a vertex no longer stalls on its first frame or on release, and no longer slows down inside a drop-shadowed group.
 - **SVG export**
   - An alpha-locked element is exported as an image of only what it paints, instead of turning it and every element under it into one image.
+- **Collaboration**
+  - `PartyKitCollaboration` connects to a PartyServer host through `y-partyserver` instead of to a PartyKit host through `y-partykit`.
 
 ### Fixed
 
