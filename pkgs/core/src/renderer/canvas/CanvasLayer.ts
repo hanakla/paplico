@@ -3229,14 +3229,10 @@ export class CanvasLayer {
 			storeMarginPx > 0 &&
 			realViewportBounds
 		) {
+			const parentMap = this.elementHierarchy.parentMap;
 			const boundsCtx: WorldBoundsContext = {
 				elementsMap: mergedElementsMap,
 				localBoundsCache: planStructure.localBoundsCache,
-			};
-			let boundsParentMap: ReadonlyMap<string, string> | null = null;
-			const parentMap = () => {
-				boundsParentMap ??= resolveParentGroupMap(boundsCtx);
-				return boundsParentMap;
 			};
 			const capturedElements = this.compositeFrameCache.elementsMap;
 			let captured: {
@@ -3256,7 +3252,7 @@ export class CanvasLayer {
 				mergedElementsMap,
 				(element) =>
 					this.renderState.boundsCache?.get(element.id) ??
-					computeWorldBounds(element, boundsCtx, parentMap()),
+					computeWorldBounds(element, boundsCtx, parentMap),
 				prebufZoom,
 			);
 			partialPlan = planPartialRedraw(
@@ -3311,10 +3307,10 @@ export class CanvasLayer {
 						if (!element) return null;
 						return (
 							this.renderState.boundsCache?.get(id) ??
-							computeWorldBounds(element, boundsCtx, parentMap())
+							computeWorldBounds(element, boundsCtx, parentMap)
 						);
 					},
-					parentOf: (id) => parentMap().get(id),
+					parentOf: (id) => parentMap.get(id),
 				},
 			);
 			if (partialPlan) {

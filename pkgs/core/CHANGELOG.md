@@ -13,6 +13,7 @@
   - Panning near a blur brush stroke no longer slows down.
   - Panning a zoomed-in document near a large clipping group no longer slows down.
   - Panning or editing near an element with `applyToBackdrop` on a filter no longer slows down.
+  - Editing an element inside a mesh or used as a mask redraws the whole view instead of only the region around it.
 - **Drop shadow filter**
   - Panning over a large drop-shadowed group in a zoomed-in document no longer stalls.
 - **Kirakira filter**

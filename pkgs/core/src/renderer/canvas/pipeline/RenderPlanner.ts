@@ -1057,7 +1057,7 @@ export interface PartialRedrawState {
 	previousWorldBoundsOf(id: string): BoundingBox | null;
 	/** The element's world bounds as of this frame, or null when it is gone. */
 	currentWorldBoundsOf(id: string): BoundingBox | null;
-	/** The group holding the element this frame, if any. */
+	/** The element holding the element this frame as a child or mask, if any. */
 	parentOf(id: string): string | undefined;
 }
 
