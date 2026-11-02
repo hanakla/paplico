@@ -42,7 +42,7 @@ R is threaded only through **filter-family** offscreen passes, via the optional
 - **extrude3d**: opaque solids get R through `executeFilterPlans` (their
   `postProcess`); the glass driver's `prepareFrame` bakes at `getRasterScale()`
   too. (See `references/extrude-3d-appearance.md`.)
-- `OffscreenPresenter.applyWorldMasksToTexture` and `bakeQuadToTexture` — no
+- `OffscreenPresenter.applyWorldMaskToTexture` and `bakeQuadToTexture` — no
   kernel of their own, but their input is a filter output / 3D bake already at
   R, so taking the zoom would only stretch an R-resolution image into a finer
   texture. They read R from an `OffscreenPresenter` dep rather than a
@@ -61,7 +61,7 @@ no kernel: it is drawn once and sampled, so its resolution is not a means to an
 end, it is the output. Baking one at a fixed scale was tried on this branch and
 had to be undone — it costs the mask's edge whatever the screen is showing it
 at, for nothing in return. Bound the growth by shrinking what the texture covers
-instead, as `computeMaskCoverage` in `ClipMaskAtlas.ts` does.
+instead, as `ClipMaskAtlas.computeCoverage` does.
 
 ## Filter contract change (semantics only)
 
@@ -94,7 +94,7 @@ the display size, so the compositing/blit side is untouched.
 
 ## Gotchas / open edges
 
-- **Reference3D is under R, but clamped.** `Reference3DElementRenderer` sizes scene
+- **Scene3D is under R, but clamped.** `Reference3DElementRenderer` sizes scene
   textures from R through `clampReference3DRasterScale` ([0.25, 4]) with a
   2048 px side cap, since a full 3D scene is a different memory tradeoff from a
   filter bake. Zoom never re-renders scenes; changing the document DPI does.

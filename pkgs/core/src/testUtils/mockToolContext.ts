@@ -158,7 +158,6 @@ export function createMockToolContext(
 		})),
 		findElementsOnArtboard: vi.fn(() => []),
 		artboardMoveCommit: vi.fn(),
-		artboardDuplicate: vi.fn(() => "artboard-copy"),
 
 		pathDraftCreate: vi.fn(),
 		pathDraftUpdate: vi.fn(),

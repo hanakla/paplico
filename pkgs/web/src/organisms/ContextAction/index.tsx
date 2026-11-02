@@ -1,7 +1,7 @@
 import { canOutlineStrokes, localAppearances } from "@paplico/core/document";
 import { getArtboardBounds } from "@paplico/core/schema";
 import { worldToScreen } from "@paplico/core/utils";
-import { Copy, SquareDashed, Trash2 } from "lucide-react";
+import { SquareDashed, Trash2 } from "lucide-react";
 import { useDeferredValue, useEffect, useRef } from "react";
 import { useSnapshot } from "valtio";
 import { FillStrokeSwatchPicker } from "@/components/FillStrokeSwatchPicker";
@@ -151,12 +151,6 @@ function ContextActionsOverlayInner({
 
 	const handleDeselectAll = useEventCallback(() => {
 		paplico.shortcuts.executeCommand("paplico.deselectAll");
-	});
-
-	const handleDuplicateArtboard = useEventCallback(() => {
-		if (!selectedArtboardId) return;
-		const copyId = commands.duplicateArtboard(selectedArtboardId);
-		if (copyId) selection.selectArtboard(copyId);
 	});
 
 	const handleDelete = useEventCallback(() => {
@@ -330,22 +324,8 @@ function ContextActionsOverlayInner({
 					selectedIds={selectedIds}
 					selectedElements={selectedElements}
 					hasElementSelection={hasElementSelection}
-					hideArrangeAndDuplicate={
-						isGradientTool || Boolean(hasArtboardSelection)
-					}
+					hideArrangeAndDuplicate={isGradientTool}
 				/>
-			)}
-			{!isTextEditing && hasArtboardSelection && (
-				<Tooltip content={t("contextActions.duplicate")} side="bottom">
-					<IconButton
-						$size="md"
-						$variant="ghost"
-						className="text-foreground"
-						onClick={handleDuplicateArtboard}
-					>
-						<Copy size={18} />
-					</IconButton>
-				</Tooltip>
 			)}
 			{!isTextEditing && hasElementSelection && !isGradientTool && (
 				<Tooltip content={t("contextActions.deselectAll")} side="bottom">

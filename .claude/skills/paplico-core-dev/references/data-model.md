@@ -27,10 +27,10 @@ Every element extends `ArtObject`:
 - **Group** — `childIds: string[]` referencing other elements. Optional `clipPathId` for clipping mask
 - **ImageObject** — `fileUid` referencing `Document.files[]`, position + dimensions in world space
 - **CompoundPath** — `sources: CompoundPathSource[]` with per-source `BooleanOperation`. Non-destructive boolean ops applied sequentially
-- **TextElement** — Rich text content with `TextContent` / `TextStyle` / `TextLayout`. Optional `axisBinding` for text-on-path
+- **TextElement** — Rich text content with `TextContent` / `TextStyle` / `TextLayout`. Optional `pathBinding` for text-on-path
 - **MeshArtObject** (`type: "mesh"`) — Warp/deformation mesh: `vertices` + `faces` over a `width`×`height` region (edited by MeshDeformTool)
 - **BlendObject** (`type: "blend"`) — Illustrator-style blend between `objectIds`, optionally distributed along a `spineSourceId` with `spacing` and `tiltToSpine`
-- **Reference3DElement** (`type: "reference3d"`) — A 2D placement rectangle showing a rendered view of a shared 3D scene (see "Reference3D" below)
+- **Scene3DElement** (`type: "scene3d"`) — A 2D placement rectangle showing a rendered view of a shared 3D scene (see "Scene3D" below)
 
 When adding a new element type: extend `ArtObject`, add to `AnyArtObject`, handle in renderer dispatch, spatial index bounds, and serialization.
 
@@ -61,26 +61,26 @@ Why cp1/cp2 are relative offsets: Moving an anchor automatically moves its handl
 
 `Viewport { x, y, zoom, rotation }` — center of the viewport in world coordinates, plus scale and rotation. Used by ViewportManager to compute uniform buffer values and by coordinate conversion utilities.
 
-## Reference3D (shared 3D scenes)
+## Scene3D (shared 3D scenes)
 
-`Reference3DElement` (`type: "reference3d"`) looks like an `ImageObject` to the 2D
+`Scene3DElement` (`type: "scene3d"`) looks like an `ImageObject` to the 2D
 pipeline — a placement rect (`x/y/width/height`) showing a rendered view — but
 its content comes from a **document-level shared scene**, not an embedded image:
 
-- `Document.references3d?: Record<string, Reference3DDef>` holds the shared scene
-  definitions. A `Reference3DElement` references one by `sceneId` and carries its
-  **own** `camera` (`Reference3DCamera`), so one scene appears in multiple panels
+- `Document.scenes3d?: Record<string, Scene3DDef>` holds the shared scene
+  definitions. A `Scene3DElement` references one by `sceneId` and carries its
+  **own** `camera` (`Scene3DCamera`), so one scene appears in multiple panels
   from different angles (copying an element keeps the same `sceneId`).
-- `Reference3DDef = { id, name?, nodes: Reference3DNode[] }`; a `Reference3DNode` is a
+- `Scene3DDef = { id, name?, nodes: Scene3DNode[] }`; a `Scene3DNode` is a
   `primitive`, a `figure` (VRM `fileUid` + `VRMPoseData`), or a static `mesh`
   (glTF `fileUid`) — each with a `Transform3D` (meters).
 - `displayMode: "lineart" | "flat"`, optional `Lineart3DParams`, `lightDir`.
 
-Yjs: scenes live under a `references3d` Y.Map (node arrays as JSON, like
+Yjs: scenes live under a `scenes3d` Y.Map (node arrays as JSON, like
 `Path.segments`), tracked by UndoManager. This is a distinct feature (atari /
-reference scenes, three.js) — full detail in `references/reference3d.md`. It is
+reference scenes, three.js) — full detail in `references/scene3d.md`. It is
 **unrelated to the extrude3d appearance**.
 
 ## EmbeddedFile
 
-Binary assets stored in `Document.files[]`, referenced by `fileUid` from `ImageObject`, brush textures, and Reference3D `figure`/`mesh` nodes (VRM / glTF binaries). Included in CBOR export. This avoids external file dependencies — documents are self-contained.
+Binary assets stored in `Document.files[]`, referenced by `fileUid` from `ImageObject`, brush textures, and Scene3D `figure`/`mesh` nodes (VRM / glTF binaries). Included in CBOR export. This avoids external file dependencies — documents are self-contained.

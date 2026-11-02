@@ -260,9 +260,8 @@ export type ToolContextOptions = {
 	getArtboards: () => Artboard[];
 	getSelectedArtboardId: () => string | null;
 	findArtboardAtPoint: (x: number, y: number) => Artboard | null;
-	/** @param id The artboard that is not a snap target; null snaps to every artboard. */
 	snapArtboard: (
-		id: string | null,
+		id: string,
 		bounds: BoundingBox,
 		dx: number,
 		dy: number,
@@ -278,11 +277,6 @@ export type ToolContextOptions = {
 		deltaX: number,
 		deltaY: number,
 	) => void;
-	/** Copy an artboard and the elements on it by a world offset; returns the copy's id. */
-	artboardDuplicate: (
-		id: string,
-		offset: { x: number; y: number },
-	) => string | null;
 
 	pathDraftCreate: (path: Path) => void;
 	pathDraftUpdate: (

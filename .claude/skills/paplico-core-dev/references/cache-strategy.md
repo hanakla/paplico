@@ -60,9 +60,9 @@ Sources: `renderer/canvas/CanvasLayer.ts` (`invalidateDocumentCache` and
 | Lifetime | Main owners | Reset / eviction boundary |
 | --- | --- | --- |
 | One render frame | `TexturePool` leases, `UniformScope`, draw-buffer pools, backdrop batches, filter ping-pong resources | Frame start/end, submit completion, or the next safe destroy point |
-| Per `CanvasLayer` / canvas target | render caches, text/scene textures, clip masks, `DocumentCache` auxiliary textures | Canvas destruction, device-loss release, object removal, compatible descriptor miss |
-| Per renderer / engine | embedded image textures, brush textures, filter pipelines, text layouts, spatial/definition indexes | Engine/renderer destruction, document delta, explicit clear, or device recovery |
-| Process/module singleton | font assets and glyph outlines, colour engine import/LUT cache, lazy Reference3D service | Explicit loader/backend replacement where available; otherwise process lifetime |
+| Per `CanvasLayer` / canvas target | render caches, image/text/scene textures, clip masks, `DocumentCache` auxiliary textures | Canvas destruction, device-loss release, object removal, compatible descriptor miss |
+| Per renderer / engine | brush textures, filter pipelines, text layouts, spatial/definition indexes | Engine/renderer destruction, document delta, explicit clear, or device recovery |
+| Process/module singleton | font assets and glyph outlines, colour engine import/LUT cache, lazy Scene3D service | Explicit loader/backend replacement where available; otherwise process lifetime |
 
 GPU resource replacement must not destroy a texture or buffer referenced by an
 already encoded command buffer. The renderer uses `OffscreenPresenter.deferDestroy`,
@@ -171,14 +171,11 @@ Sources: `renderer/canvas/elements/{ElementRenderer,GradientRenderer}.ts`,
 
 ### Embedded images
 
-`ImageTextureStore` holds one `GPUTexture` per embedded file for the whole
-renderer, shared by every canvas target, so a second canvas showing the same
-document does not decode and upload the images again. The key is the file UID
-plus its content hash: one UID can carry other bytes in another revision of the
-document. A texture lives while some canvas holds it, so closing a preview
-releases its images without a capacity-based eviction.
+`ImageElementRenderer` caches one `GPUTexture` per embedded-file UID for a
+`CanvasLayer` and deduplicates decode/upload work with `pendingImageLoads`.
+It has no content hash or LRU; `CanvasLayer` teardown destroys all image textures.
 
-Source: `renderer/canvas/pipeline/ImageTextureStore.ts`.
+Source: `renderer/canvas/elements/ImageElementRenderer.ts`.
 
 ## Text and font caches
 
@@ -230,12 +227,12 @@ Sources: `renderer/canvas/pipeline/FilterRenderer.ts`,
 `renderer/filters/{DropShadowFilter,PathUnionFilter,FrostGlassFilter,Extrude3DFilter}/*Filter.ts`,
 `renderer/filters/shared/{ExtrudeRenderCache,ExtrudeMeshBaker,ExtrudeAppearanceRenderer,RefractionCompositor}.ts`.
 
-## Reference3D caches
+## Scene3D caches
 
 | Component | Strategy | Lifetime / invalidation |
 | --- | --- | --- |
-| `Reference3DElementRenderer` | Element ID → GPU texture plus a hash of scene nodes, camera, display/lineart/light, raster dimensions/scale, WebGL context epoch, and async-asset epoch | Shares pending render promises per element. Draws stale texture during a miss; replacement destroys the old texture. Renderer/device teardown destroys all textures. |
-| `loadReference3DService()` | Module-level service promise and instance | One lazy singleton; no current reset API. |
+| `Scene3DElementRenderer` | Element ID → GPU texture plus a hash of scene nodes, camera, display/lineart/light, raster dimensions/scale, WebGL context epoch, and async-asset epoch | Shares pending render promises per element. Draws stale texture during a miss; replacement destroys the old texture. Renderer/device teardown destroys all textures. |
+| `loadScene3DService()` | Module-level service promise and instance | One lazy singleton; no current reset API. |
 | `SceneInstanceStore` | Scene ID → runtime scene; node ID → JSON fingerprint/object | Unchanged node JSON skips rebuild. Changed/removed nodes dispose; scene/service disposal clears entries. |
 | `GLBMeshCache` | File UID → parsed group plus pending/failed state | Loaded clones share geometry/material. A failed UID does not retry until service disposal. |
 | `VRMFigureManager` | Node ID → parsed/in-flight VRM; file UID → normalized rig; scene ID → live-node set | File change/removal/orphan completion disposes the VRM scene; rigs remain until `disposeAll()`. |
@@ -244,12 +241,12 @@ Sources: `renderer/canvas/pipeline/FilterRenderer.ts`,
 
 Scene asset arrival increments `assetsEpoch`; WebGL context loss/restoration
 increments `contextEpoch`. Both are part of the 2D scene-texture validity key.
-`reference3dDefPreviews` is not a cache: it is the authoritative transient preview
+`scene3dDefPreviews` is not a cache: it is the authoritative transient preview
 while dragging, outside Yjs.
 
-Sources: `renderer/canvas/elements/Reference3DElementRenderer.ts`, `reference3d/index.ts`,
-`reference3d/Reference3DService.ts`, `reference3d/runtime/{SceneInstanceStore,GLBMeshCache}.ts`,
-`reference3d/vrm/VRMFigureManager.ts`, `reference3d/lineart/LineartPipeline.ts`, `Paplico.ts`.
+Sources: `renderer/canvas/elements/Scene3DElementRenderer.ts`, `scene3d/index.ts`,
+`scene3d/Scene3DService.ts`, `scene3d/runtime/{SceneInstanceStore,GLBMeshCache}.ts`,
+`scene3d/vrm/VRMFigureManager.ts`, `scene3d/lineart/LineartPipeline.ts`, `Paplico.ts`.
 
 ## Core indexes, loaders, and tool caches
 
@@ -294,8 +291,8 @@ cross-frame content caches:
   recovery state, not performance caches.
 
 Sources: `renderer/{RenderScheduler,DocumentChangeSubscriber,CanvasTarget,GPUTimingProfiler}.ts`,
-`collaboration/YjsProvider.ts`, `reference3d/vrm/ikSolver.ts`,
-`utils/geometry/measure/meshTopology.ts`, `ui/PaplicoUI.ts`, `editSessions/PaplicoPatternEdit.ts`.
+`collaboration/YjsProvider.ts`, `scene3d/vrm/ikSolver.ts`,
+`utils/geometry/measure/meshTopology.ts`, `ui/PaplicoUI.ts`, `PaplicoPatternEdit.ts`.
 
 ## Rules for adding or changing a cache
 

@@ -2,16 +2,6 @@
 
 ## [Unreleased]
 
-### Added
-
-- **Artboard tool**
-  - Alt+drag an artboard to place a copy of it and the elements on it.
-  - A dragged artboard snaps to the center lines of the other artboards.
-- **Artboards**
-  - `PaplicoCommands.duplicateArtboard` copies an artboard and the elements on it. Without an offset, the copy goes to the right of or below the source without overlapping another artboard.
-- **Paste**
-  - `PaplicoCommands.pasteElements` takes `layerRoot` to paste at the root of a given layer and `select: false` to keep the selection.
-
 ### Changed
 
 - **Breaking API changes**
@@ -47,8 +37,6 @@
   - Fix a moved, rotated or resized text disappearing after its edit is confirmed.
 - **Select tool**
   - Fix a text without a box getting a fixed box when resized, which showed the overflow mark once more characters were typed.
-- **Select tool / Paste**
-  - Fix a rotated element, or a group with rotated content, landing away from the pointer when Alt+drag duplicated or pasted.
 - **SVG export**
   - Fix Illustrator reporting a missing linked file, leaving out the images and dropping some clipping masks when it opens an exported SVG.
   - Fix an alpha-locked element with a blend mode coming out in a different color from the canvas.

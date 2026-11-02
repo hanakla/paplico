@@ -2833,8 +2833,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.spatialIndex.findElementsOverlappingArtboard(artboardBounds),
 			artboardMoveCommit: (id, updates, elements, deltaX, deltaY) =>
 				this.commands.commitArtboardMove(id, updates, elements, deltaX, deltaY),
-			artboardDuplicate: (id, offset) =>
-				this.commands.duplicateArtboard(id, offset),
 
 			pathDraftCreate: (path) => {
 				const currentLayerId = this.rendererStore.currentLayerId;

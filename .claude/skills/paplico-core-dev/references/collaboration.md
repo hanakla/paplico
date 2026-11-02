@@ -32,7 +32,9 @@ Delta sync is ~100x cheaper than full sync for single-element edits. The YjsProv
 
 ## UndoManager integration
 
-UndoManager watches the document's persistent Y types (`createUndoManager` holds the list). Changes are grouped into undo items with a 500ms capture timeout — rapid sequential edits become a single undo step.
+UndoManager watches specific Y types: `yObjects`, `yLayers`, `yArtboards`, `yAnimation`. Changes are grouped into undo items with a 500ms capture timeout — rapid sequential edits become a single undo step.
+
+Animation-origin transactions are excluded from the main undo stack (they have their own `animationUndoManager`). This prevents "undo" during animation editing from undoing drawing operations.
 
 Stack events (`stack-item-added`, `stack-item-popped`) notify the UI to update undo/redo button states.
 
@@ -42,7 +44,7 @@ Stack events (`stack-item-added`, `stack-item-popped`) notify the UI to update u
 
 Two implementations of `ICollaboration`:
 - **Collaboration** (local mode) — y-websocket + custom WebSocket server
-- **PartyKitCollaboration** (cloud mode) — y-partyserver + Supabase session JWT auth
+- **PartyKitCollaboration** (cloud mode) — y-partykit + Clerk JWT auth
 
 The app picks the implementation (`createCollaboration` in `pkgs/web/src/hooks/useCollab.ts`) and passes the relay host through `CollaborationConfig.relayHost`; the engine reads no environment variables. Both provide: Y.Doc sync, Awareness API (cursor positions, user presence), room management (kick, close).
 

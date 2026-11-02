@@ -776,14 +776,11 @@ export class SpatialIndex {
 
 	/**
 	 * Calculate the snapped position for an artboard being moved.
-	 * Compares the edges and center lines of all artboards; a full scan is
-	 * required because edge alignment is independent of spatial proximity.
-	 *
-	 * @param excludeArtboardId The artboard that is not a snap target, or null
-	 *   when every artboard is one (a copy that does not exist yet).
+	 * Compares all artboard edges; a full scan is required because edge alignment
+	 * is independent of spatial proximity.
 	 */
 	public snapArtboard(
-		excludeArtboardId: string | null,
+		movingArtboardId: string,
 		originalBounds: BoundingBox,
 		proposedDeltaX: number,
 		proposedDeltaY: number,
@@ -797,13 +794,11 @@ export class SpatialIndex {
 			minY: originalBounds.minY + proposedDeltaY,
 			maxY: originalBounds.maxY + proposedDeltaY,
 		};
-		const candidateCenterX = (candidate.minX + candidate.maxX) / 2;
-		const candidateCenterY = (candidate.minY + candidate.maxY) / 2;
 
 		// Full scan: edge alignment is independent of spatial proximity, and artboard count stays small.
 		const others = this.artboardQuadtree
 			.getAll()
-			.filter((item) => item.id !== excludeArtboardId);
+			.filter((item) => item.id !== movingArtboardId);
 
 		let bestCorrectionX = 0;
 		let bestDistX = threshold;
@@ -811,13 +806,8 @@ export class SpatialIndex {
 
 		for (const other of others) {
 			const ob = other.bounds;
-			const targetCenterX = (ob.minX + ob.maxX) / 2;
-			for (const movingEdge of [
-				candidate.minX,
-				candidate.maxX,
-				candidateCenterX,
-			]) {
-				for (const targetEdge of [ob.minX, ob.maxX, targetCenterX]) {
+			for (const movingEdge of [candidate.minX, candidate.maxX]) {
+				for (const targetEdge of [ob.minX, ob.maxX]) {
 					const dist = Math.abs(movingEdge - targetEdge);
 					if (dist < bestDistX) {
 						bestDistX = dist;
@@ -839,13 +829,8 @@ export class SpatialIndex {
 
 		for (const other of others) {
 			const ob = other.bounds;
-			const targetCenterY = (ob.minY + ob.maxY) / 2;
-			for (const movingEdge of [
-				candidate.minY,
-				candidate.maxY,
-				candidateCenterY,
-			]) {
-				for (const targetEdge of [ob.minY, ob.maxY, targetCenterY]) {
+			for (const movingEdge of [candidate.minY, candidate.maxY]) {
+				for (const targetEdge of [ob.minY, ob.maxY]) {
 					const dist = Math.abs(movingEdge - targetEdge);
 					if (dist < bestDistY) {
 						bestDistY = dist;

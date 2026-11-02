@@ -85,7 +85,6 @@ import {
 	type FilterEntry,
 	type Group,
 	generateUid,
-	getArtboardBounds,
 	getContainerChildIds,
 	getTransform,
 	type HdrSettings,
@@ -297,9 +296,6 @@ interface CommandContext {
 		stopCapture: () => void;
 	} | null;
 }
-
-/** World-space gap kept between an auto-placed artboard copy and its neighbours. */
-const ARTBOARD_DUPLICATE_GAP = 20;
 
 export class PaplicoCommands {
 	private readonly filterLookup: FilterCapabilityLookup = {
@@ -3693,68 +3689,6 @@ export class PaplicoCommands {
 		}
 	}
 
-	/**
-	 * Copy an artboard together with the elements riding on it, in one undo
-	 * step. Each element copy stays on its source's layer, right in front of
-	 * the sources.
-	 *
-	 * @param offset World offset of the copy. Omit to place it to the right of
-	 *   or below the source, whichever is nearer, without overlapping another
-	 *   artboard.
-	 * @returns The copy's id, or null when the artboard does not exist.
-	 */
-	public duplicateArtboard(
-		id: string,
-		offset?: { x: number; y: number },
-	): string | null {
-		if (this.cannotMutate()) return null;
-		const { artboards } = this.ctx.store.document;
-		const source = artboards.find((a) => a.id === id);
-		if (!source) return null;
-
-		const sourceBounds = getArtboardBounds(source);
-		const resolvedOffset =
-			offset ??
-			findFreeArtboardOffset(
-				sourceBounds,
-				artboards.filter((a) => a.id !== id).map(getArtboardBounds),
-			);
-		const copy: Artboard = {
-			...source,
-			id: `artboard-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-			name: `Artboard ${artboards.length + 1}`,
-			x: source.x + resolvedOffset.x,
-			y: source.y + resolvedOffset.y,
-		};
-
-		const riding =
-			this.ctx.spatial.findElementsOverlappingArtboard(sourceBounds);
-		const ridingIds = new Set(
-			this.filterOutGroupDescendants(riding.map((e) => e.elementId)),
-		);
-		// Each layer's own order, so the copies stack like their sources.
-		const idsByLayer = this.ctx.store.document.layers.map((layer) => ({
-			layerId: layer.id,
-			elementIds: layer.elementIds.filter((id) => ridingIds.has(id)),
-		}));
-
-		this.ctx.yjsProvider.transact(() => {
-			this.ctx.yjsProvider.addArtboard(copy);
-			for (const { layerId, elementIds } of idsByLayer) {
-				if (elementIds.length === 0) continue;
-				this.pasteElements(this.collectElementsByIds(elementIds).artObjects, {
-					offset: resolvedOffset,
-					placement: "front",
-					placementAnchorIds: elementIds,
-					layerRoot: layerId,
-					select: false,
-				});
-			}
-		}, this.getMutationOrigin());
-
-		return copy.id;
-	}
-
 	public deleteArtboard(id: string): void {
 		if (this.cannotMutate()) return;
 		this.ctx.yjsProvider.deleteArtboard(id);
@@ -4696,10 +4630,6 @@ export class PaplicoCommands {
 	 *   Omit to append on top.
 	 * @param opt.placementAnchorIds - Elements `placement` is resolved against
 	 *   instead of the selection.
-	 * @param opt.layerRoot - Layer whose root the paste lands in, outside any
-	 *   editing scope, instead of the current layer and scope.
-	 * @param opt.select - Whether the pasted elements become the selection.
-	 *   Defaults to true.
 	 * @returns IDs of the newly created elements.
 	 */
 	public pasteElements(
@@ -4709,20 +4639,11 @@ export class PaplicoCommands {
 			placement?: "front" | "back";
 			placementAnchorIds?: readonly string[];
 			offset?: { x: number; y: number };
-			layerRoot?: string;
-			select?: boolean;
 		},
 	): string[] {
-		if (this.cannotMutate()) return [];
-		const layerRoot = opt?.layerRoot;
-		if (
-			layerRoot ? this.isLayerLocked(layerRoot) : this.isCurrentContextLocked()
-		) {
-			return [];
-		}
+		if (this.cannotMutate() || this.isCurrentContextLocked()) return [];
 		if (elements.length === 0) return [];
-		const layerId = layerRoot ?? this.ctx.store.currentLayerId;
-		if (!layerId) return [];
+		if (!this.ctx.store.currentLayerId) return [];
 
 		const topLevelElements = this.getTopLevelElements(elements);
 
@@ -4744,12 +4665,9 @@ export class PaplicoCommands {
 		// moved to the resolved insertion point.
 		const anchorIds =
 			opt?.placementAnchorIds ?? this.ctx.store.selectedElementIds;
-		const pasteGroupId = layerRoot
-			? null
-			: this.resolvePasteGroupId(opt?.placement, anchorIds);
-		const targetContainerId =
-			pasteGroupId ?? (layerRoot ? null : this.getEditingScopeContainerId());
-		const landingContainerId = pasteGroupId ?? layerId;
+		const pasteGroupId = this.resolvePasteGroupId(opt?.placement, anchorIds);
+		const targetContainerId = pasteGroupId ?? this.getEditingScopeContainerId();
+		const landingContainerId = pasteGroupId ?? this.ctx.store.currentLayerId;
 		const existingCount = containerChildIds(
 			this.ctx.store.document,
 			landingContainerId,
@@ -4820,13 +4738,14 @@ export class PaplicoCommands {
 			const newId = idMap.get(element.id)!;
 
 			if (element.type === "group") {
-				// The group carries the paste offset. Its children stay untranslated
-				// because their coordinates are group-local.
-				const clonedGroup = translate(clonedById.get(element.id)!) as Group;
+				const clonedGroup = clonedById.get(element.id) as Group;
+				const layerId = this.ctx.store.currentLayerId!;
 				const clonedChildren: AnyArtObject[] = [];
 				// Everything below a direct child (a nested group's members, a
 				// nested mesh's warped children) is absorbed: reachable only
 				// through its own container's childIds, never listed in a layer.
+				// Untranslated — their coordinates are container-local and the
+				// direct child carries the paste offset.
 				const nestedDescendants: AnyArtObject[] = [];
 
 				// Clone children before transaction because `elements` is a Valtio proxy
@@ -4834,7 +4753,7 @@ export class PaplicoCommands {
 				for (const childId of element.childIds) {
 					const childClone = clonedById.get(childId);
 					if (!childClone) continue;
-					clonedChildren.push(childClone);
+					clonedChildren.push(translate(childClone));
 					const original = byId.get(childId);
 					if (!original) continue;
 					nestedDescendants.push(
@@ -4879,6 +4798,7 @@ export class PaplicoCommands {
 
 				newTopLevelIds.push(newId);
 			} else if (element.type === "mesh") {
+				const layerId = this.ctx.store.currentLayerId!;
 				const clonedMesh = clonedById.get(element.id) as MeshArtObject;
 				// A mesh container's children (and everything under them) are
 				// absorbed: reachable only through childIds, never listed in a
@@ -4910,6 +4830,7 @@ export class PaplicoCommands {
 				}, this.getMutationOrigin());
 				newTopLevelIds.push(newId);
 			} else if (element.type === "blend") {
+				const blendLayerId = this.ctx.store.currentLayerId!;
 				const sourceIds = element.spineSourceId
 					? [...element.objectIds, element.spineSourceId]
 					: element.objectIds;
@@ -4928,14 +4849,14 @@ export class PaplicoCommands {
 					// new blend (same absorption path as creation).
 					for (const clonedSource of clonedSources) {
 						this.ctx.yjsProvider.addElement(
-							layerId,
+							blendLayerId,
 							clonedSource,
 							this.getMutationOrigin(),
 						);
 					}
-					this.ctx.yjsProvider.createBlend(layerId, clonedBlend);
+					this.ctx.yjsProvider.createBlend(blendLayerId, clonedBlend);
 					this.moveIntoContainer(
-						layerId,
+						blendLayerId,
 						clonedBlend,
 						targetContainerId,
 						new Map(clonedSources.map((source) => [source.id, source])),
@@ -4959,20 +4880,18 @@ export class PaplicoCommands {
 							this.getMutationOrigin(),
 						);
 					}
-					this.addElementInto(layerId, translate(clone), targetContainerId);
+					this.addElementInto(translate(clone), targetContainerId);
 				}, this.getMutationOrigin());
 				newTopLevelIds.push(newId);
 			}
 		}
 
-		if (opt?.select !== false) {
-			if (this.ctx.selection) this.ctx.selection.selectMultiple(newTopLevelIds);
-			else this.ctx.store.selectedElementIds = newTopLevelIds;
-		}
+		if (this.ctx.selection) this.ctx.selection.selectMultiple(newTopLevelIds);
+		else this.ctx.store.selectedElementIds = newTopLevelIds;
 
 		if (insertAt !== existingCount) {
 			for (let i = 0; i < newTopLevelIds.length; i++) {
-				if (landingContainerId === layerId) {
+				if (landingContainerId === this.ctx.store.currentLayerId) {
 					this.ctx.yjsProvider.reorderElements(
 						landingContainerId,
 						existingCount + i,
@@ -5077,12 +4996,13 @@ export class PaplicoCommands {
 		return scopeContainer && isGroup(scopeContainer) ? scopeContainerId : null;
 	}
 
-	/** Adds a pasted element to the layer, then into its container. */
+	/** Adds a pasted element to the current layer, then into its container. */
 	private addElementInto(
-		layerId: string,
 		element: AnyArtObject,
 		targetContainerId: string | null,
 	): void {
+		if (!this.ctx.store.currentLayerId) return;
+		const layerId = this.ctx.store.currentLayerId;
 		this.ctx.yjsProvider.transact(() => {
 			this.ctx.yjsProvider.addElement(
 				layerId,
@@ -5759,10 +5679,12 @@ function releasedChildTransforms(
 }
 
 /**
- * Applies a world-space offset to a freshly cloned top-level element (i.e. one
- * returned by cloneElementsWithIdRemap). A path, an image and a text move their
- * own coordinates. A group, a mesh and a compound path move their transform.
- * A blend is returned unchanged; the caller translates its sources.
+ * Applies a world-space offset to a freshly cloned element (i.e. one returned by
+ * cloneElementsWithIdRemap). Only translates element types whose anchor lives
+ * directly on the element (path segments, image x/y, text x/y). Container-like
+ * types (group / blend / compound-path / mesh) carry no anchor of their own and
+ * are returned unchanged; their internal sources are translated separately by
+ * the caller.
  */
 function translateClonedElement(
 	element: AnyArtObject,
@@ -5770,26 +5692,14 @@ function translateClonedElement(
 	offsetY: number,
 ): AnyArtObject {
 	if (offsetX === 0 && offsetY === 0) return element;
-	// Segments and rects sit inside the element's own transform, which turns
-	// and scales them, so the world offset is mapped back through it first.
 	if (element.type === "path") {
-		const local = inverseTransformVector(
-			offsetX,
-			offsetY,
-			getTransform(element),
-		);
 		return {
 			...element,
-			segments: translateSegments(element.segments, local.x, local.y),
+			segments: translateSegments(element.segments, offsetX, offsetY),
 		} satisfies Path;
 	}
 	if (element.type === "image" || element.type === "text") {
-		const local = inverseTransformVector(
-			offsetX,
-			offsetY,
-			getTransform(element),
-		);
-		return { ...element, x: element.x + local.x, y: element.y + local.y };
+		return { ...element, x: element.x + offsetX, y: element.y + offsetY };
 	}
 	// Containers and compound paths carry the offset on their own transform;
 	// the absorbed children / sources stay in their stored coordinates, the
@@ -5858,58 +5768,4 @@ function containerChildIds(
 	if (layer) return layer.elementIds;
 	const container = document.objects[containerId];
 	return container && isGroup(container) ? container.childIds : [];
-}
-
-/**
- * Offset that moves an artboard copy to the right of or below its source,
- * whichever needs the shorter move, keeping the gap from every other artboard.
- * World Y grows upward, so "below" moves toward smaller Y.
- */
-function findFreeArtboardOffset(
-	source: BoundingBox,
-	others: readonly BoundingBox[],
-): { x: number; y: number } {
-	const gap = ARTBOARD_DUPLICATE_GAP;
-
-	// Each blocker pushes the candidate strictly past itself, so both walks end.
-	let x = source.maxX + gap;
-	for (;;) {
-		const blocker = findArtboardWithinGap(
-			{ ...source, minX: x, maxX: x + source.width },
-			others,
-		);
-		if (!blocker) break;
-		x = blocker.maxX + gap;
-	}
-
-	let maxY = source.minY - gap;
-	for (;;) {
-		const blocker = findArtboardWithinGap(
-			{ ...source, minY: maxY - source.height, maxY },
-			others,
-		);
-		if (!blocker) break;
-		maxY = blocker.minY - gap;
-	}
-
-	const rightOffset = x - source.minX;
-	const belowOffset = source.maxY - maxY;
-	return rightOffset <= belowOffset
-		? { x: rightOffset, y: 0 }
-		: { x: 0, y: -belowOffset };
-}
-
-/** First artboard closer to the candidate than the duplicate gap, if any. */
-function findArtboardWithinGap(
-	candidate: BoundingBox,
-	others: readonly BoundingBox[],
-): BoundingBox | undefined {
-	const gap = ARTBOARD_DUPLICATE_GAP;
-	return others.find(
-		(other) =>
-			candidate.minX < other.maxX + gap &&
-			other.minX < candidate.maxX + gap &&
-			candidate.minY < other.maxY + gap &&
-			other.minY < candidate.maxY + gap,
-	);
 }
