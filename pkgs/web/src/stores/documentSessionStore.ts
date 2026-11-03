@@ -105,7 +105,9 @@ export async function openDocumentFile(
 		await paplico.exportDocument(),
 	);
 	documentManagerState.currentDocumentId = id;
-	setExternalDocumentSession(source instanceof File ? null : source);
+	setExternalDocumentSession(
+		source instanceof File || source.handle == null ? null : source,
+	);
 	setLastDocumentId(id);
 }
 

@@ -3,6 +3,7 @@ import { IS_TAURI_ENV } from "@/utils/platform";
 
 declare const FILE_HANDLE_SYMBOL: unique symbol;
 export type FileHandle = Brand<typeof FILE_HANDLE_SYMBOL> & {
+	/** `null` when the platform hands over only the file, which cannot be written back. */
 	handle: any;
 	file: File;
 };
@@ -129,6 +130,12 @@ const domFS: IFileSystem = new (class DomFS implements IFileSystem {
 	}
 
 	public async openFileDialog({ id, types }) {
+		// Safari, including installed web apps on iPad, has no showOpenFilePicker
+		if (!("showOpenFilePicker" in window)) {
+			const file = await pickFileWithInput(types);
+			return file && ({ handle: null, file } as FileHandle);
+		}
+
 		const [result] = await showOpenFilePicker({ id, types });
 		if (!result) return null;
 
@@ -210,6 +217,25 @@ export async function tauriRevealFileInFolder(
 ): Promise<void> {
 	const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
 	await revealItemInDir(handle.handle as string);
+}
+
+/** Lets the user pick one file through a file input. `null` means the user called it off. */
+function pickFileWithInput(
+	types: FilePickerAcceptType[] = [],
+): Promise<File | null> {
+	const input = document.createElement("input");
+	input.type = "file";
+	// MIME types stay in the list because iOS greys out every file when it
+	// cannot map an unknown extension such as .papf to a file type
+	input.accept = types
+		.flatMap(({ accept = {} }) => Object.entries(accept).flat(2))
+		.join(",");
+
+	return new Promise((resolve) => {
+		input.addEventListener("change", () => resolve(input.files?.[0] ?? null));
+		input.addEventListener("cancel", () => resolve(null));
+		input.click();
+	});
 }
 
 /**
