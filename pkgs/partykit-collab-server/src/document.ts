@@ -3,12 +3,12 @@
  *
  * Responsibilities:
  * - Yjs document synchronization via y-partyserver
- * - Supabase JWT verification via HS256 symmetric key at edge (onBeforeConnect)
+ * - Supabase JWT verification against the project's JWKS at edge (onBeforeConnect)
  * - Room metadata and document snapshot storage in Durable Object storage
  * - Readonly enforcement, kick, and room closure
  */
 
-import { type JWTPayload, jwtVerify } from "jose";
+import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose";
 import * as decoding from "lib0/decoding";
 import * as encoding from "lib0/encoding";
 import type { Connection, ConnectionContext, WSMessage } from "partyserver";
@@ -30,6 +30,12 @@ const SNAPSHOT_CHUNK_COUNT_KEY = "snapshot:count";
 const SNAPSHOT_CHUNK_KEY_PREFIX = "snapshot:";
 /** Durable Object storage holds at most 2 MiB per value. */
 const SNAPSHOT_CHUNK_BYTES = 1024 * 1024;
+
+/**
+ * Kept across requests so jose's key cache saves a JWKS fetch per connection.
+ * SUPABASE_URL is only readable from env, so it is created on first use.
+ */
+let supabaseJwks: ReturnType<typeof createRemoteJWKSet> | undefined;
 
 interface RoomMetadata {
 	createdBy: string;
@@ -76,13 +82,15 @@ export class DocumentServer extends YServer {
 			return new Response("Authentication required", { status: 401 });
 		}
 
-		const jwtSecret = env.SUPABASE_JWT_SECRET;
-		if (!jwtSecret) {
-			console.error("SUPABASE_JWT_SECRET is not set");
+		if (!env.SUPABASE_URL) {
+			console.error("SUPABASE_URL is not set");
 			return new Response("Server misconfigured", { status: 500 });
 		}
 
-		const user = await verifyWithSecret(token, jwtSecret);
+		supabaseJwks ??= createRemoteJWKSet(
+			new URL("/auth/v1/.well-known/jwks.json", env.SUPABASE_URL),
+		);
+		const user = await verifySupabaseToken(token, supabaseJwks);
 		if (!user) {
 			return new Response("Invalid authentication token", { status: 403 });
 		}
@@ -319,15 +327,12 @@ interface VerifiedUser {
 	imageUrl?: string;
 }
 
-async function verifyWithSecret(
+async function verifySupabaseToken(
 	token: string,
-	jwtSecret: string,
+	jwks: ReturnType<typeof createRemoteJWKSet>,
 ): Promise<VerifiedUser | null> {
 	try {
-		const secret = new TextEncoder().encode(jwtSecret);
-		const { payload } = await jwtVerify<SupabaseJWTPayload>(token, secret, {
-			algorithms: ["HS256"],
-		});
+		const { payload } = await jwtVerify<SupabaseJWTPayload>(token, jwks);
 
 		if (!payload.sub) return null;
 

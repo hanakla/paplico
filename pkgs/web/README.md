@@ -50,7 +50,6 @@ Copy `pkgs/web/.env.example` to `pkgs/web/.env` and fill in the values:
 | `SUPABASE_URL`                             | Yes        | Supabase API URL                                    |
 | `SUPABASE_PUBLISHABLE_KEY`                 | Yes        | Supabase publishable key (`sb_publishable_...`)     |
 | `SUPABASE_SECRET_KEY`                      | Yes        | Supabase secret key (`sb_secret_...`, server only)  |
-| `SUPABASE_JWT_SECRET`                      | Cloud      | HS256 symmetric key for JWT verification (collab)   |
 | `NEXT_PUBLIC_COLLAB_MODE`                  | No         | `local` (default) or `cloud`                        |
 | `NEXT_PUBLIC_PARTYKIT_HOST`                | Cloud      | Collab server WebSocket host                        |
 | `NEXT_PUBLIC_API_BASE_URL`                 | Tauri prod | API server URL (e.g. `https://paplico.hanak.la`)    |
@@ -72,7 +71,6 @@ Copy `pkgs/web/.env.example` to `pkgs/web/.env` and fill in the values:
 | `SUPABASE_AUTH_EXTERNAL_DISCORD_SECRET`    | Discord OAuth Secret                                                                            |
 | `SUPABASE_AUTH_EXTERNAL_X_CLIENT_ID`       | X OAuth Client ID                                                                               |
 | `SUPABASE_AUTH_EXTERNAL_X_SECRET`          | X OAuth Secret                                                                                  |
-| `SUPABASE_JWT_SECRET`                      | HS256 symmetric key for JWT verification                                                        |
 | `ROOM_SIGNING_SECRET`                      | HMAC secret for room token verification                                                         |
 
 ### Install

@@ -19,25 +19,26 @@ Add the following secrets to the `Production` environment of the GitHub reposito
 
 - `CLOUDFLARE_API_TOKEN` — an Account API token with `Workers Scripts: Edit` and `Account Settings: Read`
 - `CLOUDFLARE_ACCOUNT_ID`
-- `SUPABASE_JWT_SECRET`
 - `ROOM_SIGNING_SECRET` — must match the web app's, which signs the room tokens
 
-The workflow uploads `SUPABASE_JWT_SECRET` and `ROOM_SIGNING_SECRET` as Worker secrets on every deploy. The server refuses every connection while either is missing.
+The workflow uploads `ROOM_SIGNING_SECRET` as a Worker secret on every deploy. It also sets `SUPABASE_URL` from the repository secret `SUPABASE_PROD_PROJECT_REF`, so the server verifies session tokens against that project's JWKS. The server refuses every connection while either is missing.
+
+Supabase must sign session tokens with an asymmetric key, such as ES256. A shared-secret HS256 key is not published in the JWKS.
 
 ### Manual Deploy
 
 ```bash
 npx wrangler login
-npx wrangler deploy
+npx wrangler deploy --var SUPABASE_URL:https://<project-ref>.supabase.co
 ```
 
 ## Local Development
 
 `yarn dev` at the repository root starts this server with `wrangler dev` on port 1999.
-Put the secrets in `.dev.vars` next to `wrangler.jsonc`:
+Put the settings in `.dev.vars` next to `wrangler.jsonc`:
 
 ```
-SUPABASE_JWT_SECRET=...
+SUPABASE_URL=http://127.0.0.1:54321
 ROOM_SIGNING_SECRET=...
 ```
 
