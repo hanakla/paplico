@@ -1,6 +1,6 @@
-import { Menu } from "@base-ui/react/menu";
 import { Menubar as BUIMenubar } from "@base-ui/react/menubar";
 import { memo, type ReactNode } from "react";
+import { Menu } from "@/components/Menu";
 import { twm } from "@/utils/tailwind";
 
 type MenubarProps = {
@@ -31,14 +31,12 @@ type MenubarMenuProps = {
 function MenubarMenu({ trigger, children }: MenubarMenuProps) {
 	return (
 		<Menu.Root>
-			<Menu.Trigger className="px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors data-[popup-open]:bg-muted data-[popup-open]:text-foreground">
+			<Menu.Trigger className="hover:bg-background data-popup-open:bg-background">
 				{trigger}
 			</Menu.Trigger>
 			<Menu.Portal>
 				<Menu.Positioner sideOffset={4}>
-					<Menu.Popup className="min-w-[180px] rounded-lg bg-background/80 backdrop-liquid border border-border/50 p-1 shadow-lg outline-none">
-						{children}
-					</Menu.Popup>
+					<Menu.Popup>{children}</Menu.Popup>
 				</Menu.Positioner>
 			</Menu.Portal>
 		</Menu.Root>
@@ -62,7 +60,7 @@ function MenubarItem({
 		<Menu.Item
 			onClick={onClick}
 			disabled={disabled}
-			className="flex items-center justify-between gap-4 px-3 py-1.5 text-sm text-foreground rounded cursor-pointer outline-none hover:bg-muted focus:bg-muted data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed"
+			className="justify-between gap-4"
 		>
 			<span className="flex items-center gap-2">{children}</span>
 			{shortcut && (
@@ -73,5 +71,5 @@ function MenubarItem({
 }
 
 function MenubarSeparator() {
-	return <Menu.Separator className="h-px bg-border my-1" />;
+	return <Menu.Separator className="mx-0 bg-border" />;
 }
