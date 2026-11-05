@@ -15,7 +15,7 @@ The element's own flat fill/stroke render is suppressed by the
 (`FilterRenderer.ts`) — `ElementRenderer.renderPath` and the CanvasLayer group
 branch early-return when it's true (i.e. some enabled appearance renders the
 element in place of its flat look). This is NOT gated on a specific processor
-name; `hasEnabledExtrude3d` gates only the glass driver's own solids.
+name; `hasEnabledSolidAppearance` gates only the glass driver's own solids.
 
 ### Opaque path — `postProcess`
 
@@ -31,22 +31,24 @@ name; `hasEnabledExtrude3d` gates only the glass driver's own solids.
 - `getRenderConfigure` returns `needsSourceTexture:false`, so the caller skips
   rasterizing the flat look before invoking (it would be discarded).
 
-### Glass path — `GeometryBackdropDriver`
+### Glass path — `BackdropEffectDriver`
 
 Glass extrudes (ior>1 / aberration / blur — `getRenderConfigure` reports
 `needsBackdrop`) need the backdrop at the element's z-order, so they can't run
 in the pre-pass filter path. The handler owns one driver per canvas:
 
-- `ExtrudeAppearanceRenderer` implements the generic `GeometryBackdropDriver`
+- `ExtrudeAppearanceRenderer` implements the generic `BackdropEffectDriver`
   interface (`beginFrame` / `prepareFrame` / `unionSolidBounds` /
   `hasInlineComposite` / `composeInline`), defined in `FilterRenderer.ts`.
 - Registered via `FilterHandler.attachCanvas(canvasId, resources)` /
-  `getGeometryBackdropDriver(canvasId)`. `CanvasLayer` holds
-  `backdropDrivers: GeometryBackdropDriver[]`.
+  `getBackdropEffectDriver(canvasId)`. `CanvasLayer` holds
+  `backdropDrivers: BackdropEffectDriver[]`.
 - `prepareFrame` bakes the glass solids (`bakeAppearance(glassOnly=true)` skips
   opaque ones — those go through `postProcess`) **before** the main pass, on the
   same encoder — a separate pass because a depth-tested mesh pass can't nest
-  inside another render pass.
+  inside another render pass. It bakes only the elements the frame draws
+  (`framePlan.drawnElementIds`): a solid no layer composes at its z-order would
+  land on top of the frame in `flushRemaining`.
 - During the main pass, when `hasInlineComposite(element)` is true the caller
   ends its render pass and calls `composeInline`, which captures the backdrop
   and warps it under the solid at the element's z-order (the driver opens its
@@ -56,7 +58,7 @@ in the pre-pass filter path. The handler owns one driver per canvas:
 
 - `buildOutline` exhaustively switches over **path / group / text / blend** (a
   `neverReached` default forces a decision when a new element type is added;
-  compound-path/image/mesh/scene3d return null). A group extrudes the
+  compound-path/image/mesh/reference3d return null). A group extrudes the
   world-space union of every descendant's outline; its albedo is baked by
   re-rendering the children.
 - Mesh: `renderer/geometry/extrudeMesh.ts` (pure CPU — flatten →

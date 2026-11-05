@@ -15,7 +15,7 @@ Paplico.ts (facade — public API boundary)
   ├── SpatialIndex          (hit testing via Quadtree — document/SpatialIndex.ts)
   ├── collaboration/        (Collaboration | PartyKitCollaboration | E2EECollaboration; the app picks one)
   │   └── YjsProvider       (owns the Y.Doc + UndoManager; single source of truth)
-  ├── scene3d/              (three.js runtime, lazy-loaded chunk — VRM figures,
+  ├── reference3d/          (three.js runtime, lazy-loaded chunk — VRM figures,
   │                          primitives, lineart, vanishing points)
   └── RenderOrchestrator (renderer/)
       ├── CanvasTarget           (DOM canvas wrapper, resize, viewport state)
@@ -247,7 +247,7 @@ completely differently for anything applied per element:
 | Mechanism | Applies per-element GPU state? |
 |-----------|-------------------------------|
 | Geometry draw (unified / brush / ribbon pipelines) | Yes — samples BG3 and the transforms-buffer entry |
-| **Texture blit** (`blitTextureToCanvas`, `blitQuadToCanvas`, `compositeTextureToCanvas`, a `GeometryBackdropDriver`'s inline compose) | **No** — each runs its own pipeline and never looks at BG3 |
+| **Texture blit** (`blitTextureToCanvas`, `blitQuadToCanvas`, `compositeSurfaceToCanvas`, a `BackdropEffectDriver`'s inline compose) | **No** — each runs its own pipeline and never looks at BG3 |
 
 So a property wired only into the geometry pipeline silently does nothing for
 every blit-drawn element, and the failure is invisible: no error, the element
@@ -256,7 +256,7 @@ property multiplied into their texture instead.
 
 Enumerate the blit sites from the code (`grep` the element loop in
 `CanvasLayer.renderElements` for `blitTextureToCanvas|blitQuadToCanvas|
-compositeTextureToCanvas|composeInline`) rather than from memory, and express
+compositeSurfaceToCanvas|composeInline`) rather than from memory, and express
 the routing rule as **one predicate** ("does this element draw via a texture?"),
 not as a growing chain of special cases. Fixing these one bug report at a time
 is how a feature ships four times and is still broken.
@@ -286,9 +286,8 @@ is how a feature ships four times and is still broken.
   and `applyOuterClipMask`) treats "outside the texture" as uncovered, so a
   texture sized to `calculateElementBounds` crops a 3D solid to its pre-extrude
   footprint and silently cuts off everything the solid paints beyond it. Union
-  in the extents that actually matter — the engine's own answer for an
-  appearance-replaced element is `expandBoundsForExtrude`, which unions the
-  override layers' bounds plus each driver's `unionSolidBounds`
+  in the extents that actually matter — for an appearance-replaced element that
+  is the filter plan's `textureBounds` plus each driver's `unionSolidBounds`
 - SpatialIndex — a property that removes part of an element should remove the
   same part from hit testing, or the invisible area still swallows clicks
 
@@ -438,14 +437,14 @@ Paplico has two independent 3D features — **do not conflate them**:
 - **extrude3d appearance** — a *2D element's own appearance* (self-built WebGPU,
   no three.js). A `postProcess` filter: opaque solids self-size through
   `postProcess`, glass solids composite at z-order via a per-canvas
-  `GeometryBackdropDriver`; flat fill/stroke is suppressed by the
+  `BackdropEffectDriver`; flat fill/stroke is suppressed by the
   processor-agnostic `isElementRenderReplaced`.
   Detail → `references/extrude-3d-appearance.md`.
-- **Scene3D (atari / reference scenes)** — a *distinct element type* (`scene3d`) +
-  document-level shared scenes (`Document.scenes3d`), built on three.js
+- **Reference3D (atari / reference scenes)** — a *distinct element type* (`reference3d`) +
+  document-level shared scenes (`Document.references3d`), built on three.js
   (lazy-loaded, blitted like an image): primitives, poseable VRM figures + IK,
   lineart extraction, camera-derived perspective guides. A tracing aid, not a 3D
-  editor. Detail → `references/scene3d.md`.
+  editor. Detail → `references/reference3d.md`.
 
 ## Renderer gotchas (hard-won)
 
@@ -471,6 +470,28 @@ Paplico has two independent 3D features — **do not conflate them**:
   decision where the state lives (`PaplicoSelection` for the scope stack,
   `PaplicoCommands.undo` for history) and let every caller inherit it, rather
   than guarding the one path that was reported.
+- **`elementsMap` is the whole document, not what the frame draws.** It holds
+  `document.objects` entire: a hidden layer's content, and elements no layer
+  reaches at all. Work that runs over every element before the main pass (a
+  backdrop driver baking its solids) has no z-order to compose an undrawn
+  element at, so whatever it bakes lands on top of the frame in
+  `flushRemaining`. Restrict such work to `framePlan.drawnElementIds`, the
+  render closure of the visible layers.
+- **An owned element is reachable only through its owner.** Group children and
+  mask content live only in `document.objects`; nothing else points at them.
+  Deleting an owner — a layer included — takes them along (`withOwnedElements`),
+  or they stay behind as orphans that every walk over `document.objects` still
+  meets.
+- **The renderer culls by the spatial index, and only drawing corrects it.** An
+  element indexed at the wrong place is culled, never drawn, and so never pushes
+  its real bounds back: the error sustains itself. Measured text bounds come
+  before the text's transform, so they enter the index only through
+  `SpatialIndex.setMeasuredTextBounds`, which applies it.
+- **Ancestor edges have one source.** The transforms buffer composes ancestors
+  through `ElementHierarchyCache`, whose edges include mesh children and masks.
+  Anything that needs an element's world bounds (the partial redraw, for one)
+  reads parents from the same cache; a separate group-only parent map yields
+  bounds that disagree with what the GPU draws.
 - **Entering a canvas mode from a button leaves focus on the button.** Every
   canvas keybinding is gated on `canvasFocused`, so Escape does nothing until the
   user clicks the canvas — which a dimmed canvas invites least. Whatever starts
@@ -620,7 +641,7 @@ Paplico has two independent 3D features — **do not conflate them**:
 | `FilterHandler`, `FilterProcessorContext` | pipeline/FilterRenderer.ts | Filter processing contract (pre/post; `postProcess` may return a self-sized `PostProcessResult` and read `ctx.geometry`) |
 | `FilterGeometryContext`, `PostProcessResult`, `FilterRenderRequirements` | pipeline/FilterRenderer.ts | Self-sizing geometry-filter inputs/outputs + per-filter requirements |
 | `isElementRenderReplaced` | pipeline/FilterRenderer.ts | Processor-agnostic "an appearance renders the element in place of its flat look" (suppresses fill/stroke) |
-| `GeometryBackdropDriver` | pipeline/FilterRenderer.ts | Per-canvas z-order backdrop-compositing driver a `FilterHandler` owns via `attachCanvas` (glass extrude) |
+| `BackdropEffectDriver` | pipeline/FilterRenderer.ts | Per-canvas z-order backdrop-compositing driver (glass extrude via `attachCanvas`, mixing and blur strokes) |
 | `Solid3DFilterHandlerBase` | filters/Solid3DFilterHandlerBase.ts | Shared 3D-solid handler core (extrude3d / revolve3d subclasses) |
 | `ExtrudeMeshBaker`, `ExtrudeFrameEntry` | filters/shared/ | Mesh build/bake core + frame-local extrude result |
 | `MeshPassRenderer` | pipeline/MeshPassRenderer.ts | Lit-mesh GPU pass |
@@ -633,8 +654,8 @@ Paplico has two independent 3D features — **do not conflate them**:
 
 ## Reference Documents
 
-- `references/extrude-3d-appearance.md` — extrude3d appearance filter (opaque postProcess vs glass GeometryBackdropDriver), ExtrudeMeshBaker, MeshPassRenderer, mesh/cache
-- `references/scene3d.md` — Scene3D atari feature: three.js boundary, scene data model, VRM/IK, lineart, perspective guides, Scene3DTool
+- `references/extrude-3d-appearance.md` — extrude3d appearance filter (opaque postProcess vs glass BackdropEffectDriver), ExtrudeMeshBaker, MeshPassRenderer, mesh/cache
+- `references/reference3d.md` — Reference3D atari feature: three.js boundary, scene data model, VRM/IK, lineart, perspective guides, Reference3DTool
 - `references/brush-engine.md` — Brush settings model and curve matrix, routing and the four draw seams, dab/path GPU layouts, wash, colour mixing, the wet layer, ribbons, caches, testing constraints
 - `references/rasterization-dpi.md` — Fixed rasterization resolution (R), where it applies, persistence, gotchas
 - `references/rendering-pipeline.md` — FrameGraph (declarative pass graph), render pass structure, cache, compositing, GPU resource ownership
