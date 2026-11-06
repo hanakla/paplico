@@ -1,9 +1,10 @@
 /**
  * Artboard Tool
- * Allows creating, selecting, moving, and resizing artboards on the canvas
+ * Allows creating, selecting, moving, duplicating, and resizing artboards on
+ * the canvas
  */
 
-import type { SnapLine } from "../document/SpatialIndex";
+import type { SnapLine, SnapResult } from "../document/SpatialIndex";
 import {
 	createResizeHandles,
 	type HandlePosition,
@@ -18,6 +19,7 @@ import {
 	getArtboardBounds,
 	type Viewport,
 } from "../schema";
+import { translateBounds } from "../utils/geometry/primitives/box";
 import {
 	calculateResizedBounds,
 	getResizeCursor,
@@ -42,6 +44,8 @@ type DragState =
 			startY: number;
 			originalBounds: BoundingBox;
 			affectedElements: Array<{ layerId: string; elementId: string }>;
+			/** Alt is held: the drop places a copy and the original stays. */
+			duplicate: boolean;
 	  }
 	| {
 			mode: "resize";
@@ -110,6 +114,7 @@ export class ArtboardTool implements Tool {
 				startY: worldY,
 				originalBounds,
 				affectedElements: this.context.findElementsOnArtboard(originalBounds),
+				duplicate: event.altKey,
 			};
 			this.updateSelectionUI(artboard);
 		} else {
@@ -169,26 +174,20 @@ export class ArtboardTool implements Tool {
 			this.updateSnapLineOverlay(snapped.snapLines);
 		} else if (ds.mode === "move") {
 			const selectedId = this.context.getSelectedArtboardId();
-			const deltaX = worldX - ds.startX;
-			const deltaY = worldY - ds.startY;
-
+			ds.duplicate = event.altKey;
 			const snapResult = selectedId
-				? this.context.snapArtboard(
-						selectedId,
-						ds.originalBounds,
-						deltaX,
-						deltaY,
-						viewport.zoom,
-					)
-				: { deltaX, deltaY, snapLines: [] };
+				? this.snapMove(selectedId, ds, worldX, worldY, viewport.zoom)
+				: {
+						deltaX: worldX - ds.startX,
+						deltaY: worldY - ds.startY,
+						snapLines: [],
+					};
 
-			const newBounds: BoundingBox = {
-				...ds.originalBounds,
-				minX: ds.originalBounds.minX + snapResult.deltaX,
-				maxX: ds.originalBounds.maxX + snapResult.deltaX,
-				minY: ds.originalBounds.minY + snapResult.deltaY,
-				maxY: ds.originalBounds.maxY + snapResult.deltaY,
-			};
+			const newBounds = translateBounds(
+				ds.originalBounds,
+				snapResult.deltaX,
+				snapResult.deltaY,
+			);
 			this.context.uiUpdateSelectionUI({
 				bounds: newBounds,
 				handles: this.getResizeHandles(newBounds),
@@ -267,20 +266,29 @@ export class ArtboardTool implements Tool {
 			const selectedId = this.context.getSelectedArtboardId();
 			if (selectedId) {
 				// Re-snap at final position
-				const deltaX = worldX - ds.startX;
-				const deltaY = worldY - ds.startY;
-				const snapResult = this.context.snapArtboard(
+				ds.duplicate = event.altKey;
+				const snapResult = this.snapMove(
 					selectedId,
-					ds.originalBounds,
-					deltaX,
-					deltaY,
+					ds,
+					worldX,
+					worldY,
 					viewport.zoom,
 				);
-
-				if (
+				const hasMoved =
 					Math.abs(snapResult.deltaX) > 0.1 ||
-					Math.abs(snapResult.deltaY) > 0.1
-				) {
+					Math.abs(snapResult.deltaY) > 0.1;
+
+				const copyId =
+					hasMoved && ds.duplicate
+						? this.context.artboardDuplicate(selectedId, {
+								x: snapResult.deltaX,
+								y: snapResult.deltaY,
+							})
+						: null;
+
+				if (copyId) {
+					this.context.artboardSelect(copyId);
+				} else if (hasMoved) {
 					// Commit artboard + elements in a single Yjs transaction
 					this.context.artboardMoveCommit(
 						selectedId,
@@ -297,9 +305,10 @@ export class ArtboardTool implements Tool {
 						snapResult.deltaY,
 					);
 				}
+				const droppedId = copyId ?? selectedId;
 				const artboard = this.context
 					.getArtboards()
-					.find((a) => a.id === selectedId);
+					.find((a) => a.id === droppedId);
 				if (artboard) {
 					this.updateSelectionUI(artboard);
 				}
@@ -460,6 +469,26 @@ export class ArtboardTool implements Tool {
 			viewport.zoom,
 		);
 		this.updateSnapLineOverlay(snapLines);
+	}
+
+	/**
+	 * Snap a dragged artboard to the other artboards. A copy being placed also
+	 * snaps to its own original, which stays where it is.
+	 */
+	private snapMove(
+		artboardId: string,
+		ds: Extract<DragState, { mode: "move" }>,
+		worldX: number,
+		worldY: number,
+		zoom: number,
+	): SnapResult {
+		return this.context.snapArtboard(
+			ds.duplicate ? null : artboardId,
+			ds.originalBounds,
+			worldX - ds.startX,
+			worldY - ds.startY,
+			zoom,
+		);
 	}
 
 	private snapPointToElements(

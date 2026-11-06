@@ -1446,6 +1446,54 @@ describe("PaplicoCommands", () => {
 	});
 
 	describe("duplicateElementsByIds (shared alt-drag / copy path)", () => {
+		it("should move a turned path by the offset in world space", () => {
+			const { commands, provider, store, sync } = createProviderCommands({
+				getParentGroupId: () => null,
+			} as Partial<SpatialIndex>);
+			provider.addElement("layer", {
+				...createPath("p1"),
+				transform: { ...createIdentityTransform(), rotation: Math.PI / 2 },
+			});
+			sync();
+
+			const [copyId] = commands.duplicateElementsByIds(["p1"], {
+				x: 0,
+				y: -300,
+			});
+			sync();
+
+			expect(worldStartOf(store, copyId)).toEqual(
+				expectedShifted(worldStartOf(store, "p1"), 0, -300),
+			);
+		});
+
+		it("should move a turned group by the offset in world space", () => {
+			const { commands, provider, store, sync } = createProviderCommands({
+				getParentGroupId: () => null,
+			} as Partial<SpatialIndex>);
+			provider.addElement("layer", {
+				...createGroup("g1", []),
+				transform: { ...createIdentityTransform(), rotation: Math.PI / 2 },
+			});
+			provider.addElement("layer", {
+				...createPath("child"),
+				transform: { ...createIdentityTransform(), rotation: Math.PI / 4 },
+			});
+			provider.addElementToGroup("layer", "g1", "child");
+			sync();
+
+			const [copyId] = commands.duplicateElementsByIds(["g1"], {
+				x: 0,
+				y: -300,
+			});
+			sync();
+
+			const copy = store.document.objects[copyId] as Group;
+			expect(worldStartOf(store, copy.childIds[0], copyId)).toEqual(
+				expectedShifted(worldStartOf(store, "child", "g1"), 0, -300),
+			);
+		});
+
 		it("stacks the copies right in front of the frontmost source, not the selection", () => {
 			const a = createPath("a");
 			const b = createPath("b");
@@ -2218,6 +2266,102 @@ describe("PaplicoCommands", () => {
 
 			expect(getTransform(store.document.objects[group.id]!).x).toBeCloseTo(30);
 			expect(getTransform(store.document.objects[child.id]!).x).toBeCloseTo(0);
+		});
+	});
+
+	describe("duplicateArtboard", () => {
+		function createArtboardDuplicateCommands() {
+			const riding = [
+				{ layerId: "layer", elementId: "p1" },
+				{ layerId: "layer-2", elementId: "p2" },
+			];
+			const fixture = createProviderCommands({
+				findElementsOverlappingArtboard: () => riding,
+				getParentGroupId: () => null,
+			} as Partial<SpatialIndex>);
+			const { provider, sync } = fixture;
+			provider.addLayer(createLayer("layer-2", []));
+			provider.addElement("layer", createPath("p1"));
+			provider.addElement("layer-2", createPath("p2"));
+			provider.addArtboard(createTestArtboard("ab-1", 0, 0));
+			sync();
+			provider.undoManager.clear();
+			return fixture;
+		}
+
+		it("should place the copy to the right when nothing is there", () => {
+			const { commands, store, sync } = createArtboardDuplicateCommands();
+
+			const copyId = commands.duplicateArtboard("ab-1");
+			sync();
+
+			const copy = store.document.artboards.find((a) => a.id === copyId);
+			expect(copy).toMatchObject({ x: 120, y: 0, width: 100, height: 100 });
+		});
+
+		it("should place the copy below when a neighbour pushes the right slot farther away", () => {
+			const { commands, provider, store, sync } =
+				createArtboardDuplicateCommands();
+			provider.addArtboard(createTestArtboard("ab-2", 130, 0));
+			sync();
+
+			const copyId = commands.duplicateArtboard("ab-1");
+			sync();
+
+			const copy = store.document.artboards.find((a) => a.id === copyId);
+			expect(copy).toMatchObject({ x: 0, y: -120 });
+		});
+
+		it("should copy the elements on the artboard into their own layers", () => {
+			const { commands, store, sync } = createArtboardDuplicateCommands();
+
+			commands.duplicateArtboard("ab-1", { x: 0, y: -300 });
+			sync();
+
+			const [layer, layer2] = store.document.layers;
+			expect(layer.elementIds).toHaveLength(2);
+			expect(layer2.elementIds).toHaveLength(2);
+			const copy = store.document.objects[layer2.elementIds[1]] as Path;
+			expect(copy.segments[0].start).toEqual({ x: 0, y: -300 });
+			expect(store.selectedElementIds).toEqual([]);
+		});
+
+		it("should stack the copies in another layer like their sources", () => {
+			const { commands, provider, store, sync } = createProviderCommands({
+				findElementsOverlappingArtboard: () => [
+					{ layerId: "layer-2", elementId: "front" },
+					{ layerId: "layer-2", elementId: "back" },
+				],
+				getParentGroupId: () => null,
+			} as Partial<SpatialIndex>);
+			provider.addLayer(createLayer("layer-2", []));
+			provider.addElement("layer-2", createPathAt("back", 0, 0, 10, 10));
+			provider.addElement("layer-2", createPathAt("front", 50, 0, 60, 10));
+			provider.addArtboard(createTestArtboard("ab-1", 0, 0));
+			sync();
+
+			commands.duplicateArtboard("ab-1", { x: 0, y: -300 });
+			sync();
+
+			const copyStartXs = store.document.layers[1].elementIds
+				.slice(2)
+				.map((id) => (store.document.objects[id] as Path).segments[0].start!.x);
+			expect(copyStartXs).toEqual([0, 50]);
+		});
+
+		it("should undo the artboard and its elements in one step", () => {
+			const { commands, provider, store, sync } =
+				createArtboardDuplicateCommands();
+
+			commands.duplicateArtboard("ab-1");
+			provider.undo();
+			sync();
+
+			expect(store.document.artboards.map((a) => a.id)).toEqual(["ab-1"]);
+			expect(store.document.layers.map((l) => l.elementIds)).toEqual([
+				["p1"],
+				["p2"],
+			]);
 		});
 	});
 
@@ -4973,6 +5117,27 @@ function createGroup(id: string, childIds: string[]): Group {
 		blendMode: "normal",
 		transform: createIdentityTransform(),
 	} as Group;
+}
+
+/** World position of a path's first point, under its group when given. */
+function worldStartOf(store: RendererState, pathId: string, groupId?: string) {
+	const { objects } = store.document;
+	const path = objects[pathId] as Path;
+	const own = getTransform(path);
+	const t = groupId
+		? composeTransforms(getTransform(objects[groupId]), own)
+		: own;
+	const { x, y } = path.segments[0].start!;
+	const world = applyTransformToPoint(x, y, t);
+	return { x: Math.round(world.x), y: Math.round(world.y) };
+}
+
+function expectedShifted(p: { x: number; y: number }, dx: number, dy: number) {
+	return { x: p.x + dx, y: p.y + dy };
+}
+
+function createTestArtboard(id: string, x: number, y: number): Artboard {
+	return { id, name: id, x, y, width: 100, height: 100 };
 }
 
 function createLayer(id: string, elementIds: string[]): Layer {
