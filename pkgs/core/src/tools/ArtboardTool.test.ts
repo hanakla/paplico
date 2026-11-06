@@ -361,6 +361,88 @@ describe("ArtboardTool", () => {
 		});
 	});
 
+	describe("Artboard Alt+drag duplicate", () => {
+		beforeEach(() => {
+			ctx.findArtboardAtPoint.mockReturnValue(testArtboard);
+			ctx.getArtboards.mockReturnValue([testArtboard]);
+			ctx.getSelectedArtboardId.mockReturnValue("ab-1");
+		});
+
+		it("should place a copy at the snapped drop position and leave the original", () => {
+			ctx.snapArtboard.mockReturnValue({
+				deltaX: 220,
+				deltaY: 0,
+				snapLines: [],
+			});
+
+			tool.onPointerDown(
+				ev(400, 300, { altKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(615, 300, { altKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(615, 300, { altKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.artboardDuplicate.mock.calls).toEqual([
+				["ab-1", { x: 220, y: 0 }],
+			]);
+			expect(ctx.artboardMoveCommit).not.toHaveBeenCalled();
+			expect(ctx.artboardSelect).toHaveBeenLastCalledWith("artboard-copy");
+		});
+
+		it("should snap the copy to every artboard including its original", () => {
+			tool.onPointerDown(
+				ev(400, 300, { altKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(450, 300, { altKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.snapArtboard.mock.calls.at(-1)?.[0]).toBeNull();
+		});
+
+		it("should move instead of copying when Alt is released before the drop", () => {
+			tool.onPointerDown(
+				ev(400, 300, { altKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(450, 300, { altKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(450, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.artboardDuplicate).not.toHaveBeenCalled();
+			expect(ctx.artboardMoveCommit.mock.calls[0]?.[0]).toBe("ab-1");
+		});
+	});
+
 	describe("Artboard resize", () => {
 		beforeEach(() => {
 			ctx.getSelectedArtboardId.mockReturnValue("ab-1");

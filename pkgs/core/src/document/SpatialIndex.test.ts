@@ -19,6 +19,7 @@ import type {
 	TextElement,
 	TextStyle,
 } from "../schema";
+import { getArtboardBounds } from "../schema";
 import {
 	brandLocalBBox,
 	brandWorldBBox,
@@ -376,6 +377,48 @@ describe("SpatialIndex", () => {
 				extentMin: -50,
 				extentMax: 50,
 			});
+		});
+	});
+
+	describe("snapArtboard", () => {
+		it("should snap a moved artboard's center line to another artboard's center line", () => {
+			const moving = makeArtboard("ab-1", 0, 0, 100, 100);
+			const target = makeArtboard("ab-2", 500, 0, 300, 300);
+			const store = makeStore(
+				[makeLayer("layer-1", [])],
+				{},
+				[],
+				[moving, target],
+			);
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+
+			const result = idx.snapArtboard(
+				"ab-1",
+				getArtboardBounds(moving),
+				502,
+				1000,
+				1,
+			);
+
+			expect(result.deltaX).toBe(500);
+			expect(result.snapLines).toContainEqual({
+				axis: "vertical",
+				position: 500,
+				extentMin: -150,
+				extentMax: 1050,
+			});
+		});
+
+		it("should snap to the moved artboard's own original only when no id is excluded", () => {
+			const original = makeArtboard("ab-1", 0, 0, 100, 100);
+			const store = makeStore([makeLayer("layer-1", [])], {}, [], [original]);
+			const idx = new SpatialIndex(store);
+			idx.rebuildAllIndices();
+			const bounds = getArtboardBounds(original);
+
+			expect(idx.snapArtboard("ab-1", bounds, 102, 0, 1).deltaX).toBe(102);
+			expect(idx.snapArtboard(null, bounds, 102, 0, 1).deltaX).toBe(100);
 		});
 	});
 
