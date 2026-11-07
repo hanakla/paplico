@@ -276,6 +276,16 @@ describe("ViewportManager transforms buffer", () => {
 
 			expect(hierarchy.parentMap.has("m")).toBe(false);
 		});
+
+		it("should report the object mask when the parent edges were derived before the rebuild", () => {
+			const { vm, hierarchy } = createManager();
+			const elements = elementsMap(maskedPath("owner", ["m"]), path("m"));
+
+			hierarchy.ensureParents(elements);
+			vm.updateTransformsBuffer(elements);
+
+			expect(vm.hasObjectMasks).toBe(true);
+		});
 	});
 });
 

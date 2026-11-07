@@ -340,15 +340,17 @@ export class ViewportManager {
 		this.transformsDirty = "none";
 		this.partialDirtyIds.clear();
 
-		if (this.hierarchy.ensureParents(elementsMap)) {
-			this._hasClipGroups = false;
-			this._hasObjectMasks = false;
-			for (const element of elementsMap.values()) {
-				if (isGroup(element) && element.clipPathId != null) {
-					this._hasClipGroups = true;
-				}
-				if (element.mask?.elementIds.length) this._hasObjectMasks = true;
+		// CanvasLayer derives the parent edges at the start of a frame, so
+		// ensureParents can report nothing new here. The flags are recomputed
+		// on every full rebuild regardless.
+		this.hierarchy.ensureParents(elementsMap);
+		this._hasClipGroups = false;
+		this._hasObjectMasks = false;
+		for (const element of elementsMap.values()) {
+			if (isGroup(element) && element.clipPathId != null) {
+				this._hasClipGroups = true;
 			}
+			if (element.mask?.elementIds.length) this._hasObjectMasks = true;
 		}
 		const boundsCache = this.hierarchy.localBounds;
 
