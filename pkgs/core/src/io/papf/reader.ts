@@ -446,9 +446,9 @@ export class PapfFile {
 
 	/**
 	 * Read the timelapse recording, or null if this file has none.
-	 * Every block but the last stays packed until playback expands it with
-	 * unpackTimelapse. The last block is expanded so a continued recording
-	 * picks up from its final timestamp.
+	 * Every block but the last stays packed, and playback expands one at a
+	 * time. The last block is expanded so a continued recording picks up from
+	 * its final timestamp.
 	 */
 	public async getTimelapseData(): Promise<TimelapseData | null> {
 		const tmlhEntry = this._toc.entries.find(
@@ -677,25 +677,8 @@ export async function openPapf(source: Blob): Promise<PapfFile> {
 	);
 }
 
-/**
- * Expand every packed block of a recording, for playback that walks the
- * whole recording.
- */
-export async function unpackTimelapse(
-	data: TimelapseData,
-): Promise<TimelapseData> {
-	const unpacked: TimelapseEntry[] = [];
-	for (const block of data.packedBlocks ?? []) {
-		unpacked.push(...(await decodeTimelapseBlock(block)));
-	}
-	return {
-		...data,
-		packedBlocks: undefined,
-		entries: [...unpacked, ...data.entries],
-	};
-}
-
-async function decodeTimelapseBlock(
+/** Expand one packed timelapse block into its entries. */
+export async function decodeTimelapseBlock(
 	block: TimelapsePackedBlock,
 ): Promise<TimelapseEntry[]> {
 	const raw = await decompressPayload(block.payload, block.codec);

@@ -10,6 +10,7 @@ import {
 	LATEST_SCHEMA_VERSION,
 	needsWholeDocumentMigration,
 } from "../io/migrations";
+import { decodeTimelapseBlock } from "../io/papf/reader";
 import {
 	type ChangedElementsAccumulator,
 	emptyChanges,
@@ -27,8 +28,10 @@ import type {
 	PlaybackState,
 	TimelapseData,
 	TimelapseDirtyRect,
+	TimelapseEntry,
 	TimelapseFrame,
 	TimelapseIndex,
+	TimelapsePackedBlock,
 } from "./types";
 
 /**
@@ -77,12 +80,28 @@ const INTRO_FADEOUT_MS = 300;
  * - seeking forward reuses the replay document; only seeking backwards rewinds
  *   to a keyframe
  *
+ * Packed blocks are expanded one at a time, when an entry inside one is
+ * applied. Expanding them all would take several times the document's memory.
+ * Expanding is asynchronous, so everything that walks the replay document
+ * runs as one queued task at a time.
+ *
  * Intro sequence: shows the completed work for INTRO_COMPLETE_MS, then
  * fades out over INTRO_FADEOUT_MS before starting normal playback.
  */
 export class TimelapsePlayer {
 	private replayDoc: Y.Doc;
-	private entries: TimelapseData["entries"];
+	private packedBlocks: readonly TimelapsePackedBlock[];
+	/** Entry position each packed block starts at, ascending. */
+	private blockStarts: number[];
+	/** The expanded entries after the packed blocks, starting at `tailStart`. */
+	private tailEntries: TimelapseEntry[];
+	private tailStart: number;
+	/** The only packed block kept expanded. */
+	private heldBlock: { start: number; entries: TimelapseEntry[] } | null = null;
+	/** Settles once every queued replay task has run. @see enqueue */
+	private replayQueue: Promise<unknown> = Promise.resolve();
+	/** The position the latest seekTo asked for. Seeks queued before it skip. */
+	private seekTarget: number | null = null;
 	private index: TimelapseIndex | undefined;
 	/** Entry positions where the recorded state starts over (document switch), ascending. */
 	private baselines: readonly number[];
@@ -125,7 +144,6 @@ export class TimelapsePlayer {
 	 */
 	private touched = createTouchedState();
 
-	/** `data` has every entry expanded, as unpackTimelapse returns it. */
 	public constructor(
 		data: TimelapseData,
 		private callbacks: {
@@ -139,16 +157,27 @@ export class TimelapsePlayer {
 		private filterArtboard?: Artboard,
 	) {
 		this.replayDoc = new Y.Doc();
-		this.entries = data.entries;
+		this.packedBlocks = data.packedBlocks ?? [];
+		let start = 0;
+		this.blockStarts = this.packedBlocks.map((block) => {
+			const blockStart = start;
+			start += block.count;
+			return blockStart;
+		});
+		this.tailEntries = data.entries;
+		this.tailStart = start;
 		this.index = data.index;
 		this.baselines = [...(data.baselines ?? [])].sort((a, b) => a - b);
 		this.schemaVersions = data.schemaVersions ?? [];
 		this.visible = selectEntriesForArtboard(
-			this.entries.length,
+			this.entryCount,
 			this.index,
 			this.filterArtboard,
 		);
 		this.setupChangeTracking();
+		// The timeline's length is known now, while the first seek may still
+		// be waiting on a block.
+		this.emitState();
 
 		if (!this.index) void this.buildIndexAsync();
 	}
@@ -175,7 +204,7 @@ export class TimelapsePlayer {
 			// Start intro sequence: show completed work, then fade out, then replay
 			this.introPhase = "complete";
 			this.introElapsed = 0;
-			this.resetReplay();
+			void this.enqueue(async () => this.resetReplay());
 			this.callbacks.onFrame({
 				document: this.buildCompletedDocument(),
 				changedElements: undefined,
@@ -203,11 +232,17 @@ export class TimelapsePlayer {
 	}
 
 	/** Seek to a position in the filtered timeline. */
-	public seekTo(visibleIndex: number): void {
+	public seekTo(visibleIndex: number): Promise<void> {
 		this.introPhase = null;
-		this.seekInternal(visibleIndex);
-		this.emitFrame();
-		this.emitState();
+		this.seekTarget = visibleIndex;
+		return this.enqueue(async () => {
+			// Dragging the seek bar queues a seek per move, and only the last
+			// position is still worth walking to.
+			if (this.seekTarget !== visibleIndex) return;
+			await this.seekInternal(visibleIndex);
+			this.emitFrame();
+			this.emitState();
+		});
 	}
 
 	/** The finished artwork, used as the first frame of an export. */
@@ -224,15 +259,17 @@ export class TimelapsePlayer {
 	 * segment-by-segment draw-on of each new path, which the video would
 	 * otherwise skip straight past.
 	 */
-	public advanceBy(elapsedMs: number): TimelapseFrame | null {
-		switch (this.stepClock(elapsedMs)) {
-			case "drawOn":
-				return this.consumeFrame();
-			case "entry":
-				return this.consumeFrame(true);
-			default:
-				return null;
-		}
+	public advanceBy(elapsedMs: number): Promise<TimelapseFrame | null> {
+		return this.enqueue(async () => {
+			switch (await this.stepClock(elapsedMs)) {
+				case "drawOn":
+					return this.consumeFrame();
+				case "entry":
+					return this.consumeFrame(true);
+				default:
+					return null;
+			}
+		});
 	}
 
 	/**
@@ -240,13 +277,15 @@ export class TimelapsePlayer {
 	 * building the frame. For walking a recording when only its length on the
 	 * clock matters. The next frame handed out is rebuilt in full.
 	 */
-	public skipBy(elapsedMs: number): void {
-		if (this.stepClock(elapsedMs) !== "entry") return;
+	public skipBy(elapsedMs: number): Promise<void> {
+		return this.enqueue(async () => {
+			if ((await this.stepClock(elapsedMs)) !== "entry") return;
 
-		const addedIds = [...this.touched.added];
-		this.touched = createTouchedState();
-		this.currentDoc = null;
-		this.startPathAnimationIfNewPath(addedIds, (id) => this.readObject(id));
+			const addedIds = [...this.touched.added];
+			this.touched = createTouchedState();
+			this.currentDoc = null;
+			this.startPathAnimationIfNewPath(addedIds, (id) => this.readObject(id));
+		});
 	}
 
 	/** True once every visible entry has played and no draw-on is running. */
@@ -257,15 +296,17 @@ export class TimelapsePlayer {
 	}
 
 	/** Rewind to a blank canvas, for an export that walks the whole recording. */
-	public restart(): TimelapseFrame {
-		this.resetReplay();
-		return this.consumeFrame();
+	public restart(): Promise<TimelapseFrame> {
+		return this.enqueue(async () => {
+			this.resetReplay();
+			return this.consumeFrame();
+		});
 	}
 
 	public dispose(): void {
 		this.disposed = true;
 		this.pause();
-		this.replayDoc.destroy();
+		void this.enqueue(async () => this.replayDoc.destroy());
 	}
 
 	// --- Internal ---
@@ -311,7 +352,7 @@ export class TimelapsePlayer {
 		doc.getMap("references3d").observeDeep(markOther);
 	}
 
-	private tick = (): void => {
+	private tick = async (): Promise<void> => {
 		const now = performance.now();
 		const elapsed = now - this.lastTickTimestamp!;
 		this.lastTickTimestamp = now;
@@ -333,14 +374,18 @@ export class TimelapsePlayer {
 			if (this.introElapsed >= INTRO_FADEOUT_MS) {
 				this.introPhase = null;
 				// Show the first frame (blank canvas) and begin normal playback
-				this.emitFrame();
+				void this.enqueue(async () => this.emitFrame());
 			}
 			this.emitState();
 			this.animFrameId = requestAnimationFrame(this.tick);
 			return;
 		}
 
-		const frame = this.advanceBy(elapsed);
+		const frameId = this.animFrameId;
+		const frame = await this.advanceBy(elapsed);
+		// A pause while the step waited on a block ends this loop, and a play
+		// after it has already started another.
+		if (this.animFrameId !== frameId) return;
 		if (frame) {
 			this.callbacks.onFrame(frame);
 			this.emitState();
@@ -359,7 +404,9 @@ export class TimelapsePlayer {
 	 * draw-on still running or just ended, a newly applied entry that changed
 	 * the drawing, or nothing new to show.
 	 */
-	private stepClock(elapsedMs: number): "drawOn" | "entry" | null {
+	private async stepClock(
+		elapsedMs: number,
+	): Promise<"drawOn" | "entry" | null> {
 		const scaled = elapsedMs * this.speed;
 
 		if (this.activePathAnim) {
@@ -377,7 +424,7 @@ export class TimelapsePlayer {
 		this.playbackTime -= EVENT_INTERVAL_MS;
 
 		const nextCursor = this.visibleCursor + 1;
-		this.applyEntriesUpTo(this.visible[nextCursor]);
+		await this.applyEntriesUpTo(this.visible[nextCursor]);
 		this.visibleCursor = nextCursor;
 
 		// Animation-track edits leave the drawing untouched.
@@ -389,7 +436,7 @@ export class TimelapsePlayer {
 		return "entry";
 	}
 
-	private seekInternal(visibleIndex: number): void {
+	private async seekInternal(visibleIndex: number): Promise<void> {
 		const target = Math.max(
 			-1,
 			Math.min(visibleIndex, this.visible.length - 1),
@@ -397,28 +444,78 @@ export class TimelapsePlayer {
 		this.clearPathAnimation();
 
 		const entryIndex = target < 0 ? -1 : this.visible[target];
-		if (entryIndex < this.appliedUpToIndex) this.rewindTo(entryIndex);
-		else this.applyEntriesUpTo(entryIndex);
+		if (entryIndex < this.appliedUpToIndex) await this.rewindTo(entryIndex);
+		else await this.applyEntriesUpTo(entryIndex);
 
 		this.visibleCursor = target;
 	}
 
 	/** Apply every entry up to and including `entryIndex`, without drawing. */
-	private applyEntriesUpTo(entryIndex: number): void {
+	private async applyEntriesUpTo(entryIndex: number): Promise<void> {
 		for (let i = this.appliedUpToIndex + 1; i <= entryIndex; i++) {
+			const entry = this.loadedEntry(i) ?? (await this.expandBlockOf(i));
 			// A baseline entry stands on its own. Everything recorded before it
 			// belongs to a document that was swapped out, and its items would
 			// stack on top of the new ones — the same layer twice.
 			if (this.baselines.includes(i)) this.recreateReplayDoc();
-			Y.applyUpdate(this.replayDoc, this.entries[i].u);
+			Y.applyUpdate(this.replayDoc, entry.u);
 			this.appliedUpToIndex = i;
 			this.captureKeyframe(i);
 		}
 	}
 
-	/** The last position at or before `entryIndex` where the state starts over. */
+	private get entryCount(): number {
+		return this.tailStart + this.tailEntries.length;
+	}
+
+	/**
+	 * Run a task that walks the replay document after every task queued before
+	 * it. A walk waits whenever it expands a block, and another walk starting
+	 * meanwhile would apply entries to the same document out of order.
+	 */
+	private enqueue<T>(task: () => Promise<T>): Promise<T> {
+		const run = this.replayQueue.then(task);
+		this.replayQueue = run.catch(() => {});
+		return run;
+	}
+
+	/** An entry that needs no expanding: one after the packed blocks, or one in the held block. */
+	private loadedEntry(entryIndex: number): TimelapseEntry | undefined {
+		if (entryIndex >= this.tailStart) {
+			return this.tailEntries[entryIndex - this.tailStart];
+		}
+		const held = this.heldBlock;
+		if (!held || entryIndex < held.start) return undefined;
+		return held.entries[entryIndex - held.start];
+	}
+
+	/** Expand the packed block holding `entryIndex` in place of the held one. */
+	private async expandBlockOf(entryIndex: number): Promise<TimelapseEntry> {
+		const blockIndex = this.blockStarts.findLastIndex(
+			(start) => start <= entryIndex,
+		);
+		// Let go of the held block first, so both are never expanded at once.
+		this.heldBlock = null;
+		const start = this.blockStarts[blockIndex];
+		const entries = await decodeTimelapseBlock(this.packedBlocks[blockIndex]);
+		this.heldBlock = { start, entries };
+		return entries[entryIndex - start];
+	}
+
+	/** Every entry in order, expanding one packed block at a time. */
+	private async *allEntries(): AsyncGenerator<TimelapseEntry> {
+		for (const block of this.packedBlocks) {
+			yield* await decodeTimelapseBlock(block);
+		}
+		yield* this.tailEntries;
+	}
+
+	/**
+	 * The last position at or before `entryIndex` where the state starts over,
+	 * which is the start of the recording when no baseline comes before it.
+	 */
 	private baselineAtOrBefore(entryIndex: number): number {
-		let found = -1;
+		let found = 0;
 		for (const baseline of this.baselines) {
 			if (baseline > entryIndex) break;
 			found = baseline;
@@ -435,7 +532,7 @@ export class TimelapsePlayer {
 	}
 
 	/** Rebuild the replay document from the nearest keyframe at or before the target. */
-	private rewindTo(entryIndex: number): void {
+	private async rewindTo(entryIndex: number): Promise<void> {
 		// A keyframe from before the last baseline holds the superseded
 		// document, so the walk has to restart at the baseline instead.
 		const baseline = this.baselineAtOrBefore(entryIndex);
@@ -454,7 +551,7 @@ export class TimelapsePlayer {
 		// Without a usable keyframe, start at the baseline rather than at zero:
 		// the entries before it build a document this one replaces.
 		this.appliedUpToIndex = snapshot ? startIndex : baseline - 1;
-		this.applyEntriesUpTo(entryIndex);
+		await this.applyEntriesUpTo(entryIndex);
 	}
 
 	private resetReplay(): void {
@@ -688,10 +785,10 @@ export class TimelapsePlayer {
 		const builder = new TimelapseIndexBuilder();
 		const rects: (TimelapseDirtyRect | null)[] = [];
 
-		for (let i = 0; i < this.entries.length; i++) {
-			rects.push(builder.step(this.entries[i].u));
+		for await (const entry of this.allEntries()) {
+			rects.push(builder.step(entry.u));
 
-			if ((i + 1) % INDEX_BUILD_YIELD_INTERVAL === 0) {
+			if (rects.length % INDEX_BUILD_YIELD_INTERVAL === 0) {
 				await new Promise<void>((resolve) => setTimeout(resolve, 0));
 				if (this.disposed) {
 					builder.destroy();
@@ -703,7 +800,8 @@ export class TimelapsePlayer {
 
 		const index: TimelapseIndex = { rects };
 		this.index = index;
-		this.applyIndex(index);
+		// Re-filtering moves the cursor, which a queued walk may be stepping.
+		await this.enqueue(async () => this.applyIndex(index));
 		this.callbacks.onIndexBuilt?.(index);
 
 		this.isPreparing = false;
@@ -713,7 +811,7 @@ export class TimelapsePlayer {
 	/** Re-filter the timeline, keeping playback at the same point in the recording. */
 	private applyIndex(index: TimelapseIndex): void {
 		this.visible = selectEntriesForArtboard(
-			this.entries.length,
+			this.entryCount,
 			index,
 			this.filterArtboard,
 		);

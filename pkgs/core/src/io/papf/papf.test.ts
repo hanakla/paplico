@@ -14,9 +14,9 @@ import {
 	TRANSIENT_LAYER_KIND,
 	type Viewport,
 } from "../../schema";
-import type { TimelapseData } from "../../timelapse/types";
+import type { TimelapseData, TimelapseEntry } from "../../timelapse/types";
 import { LATEST_SCHEMA_VERSION } from "../migrations";
-import { openPapf, PapfFile, unpackTimelapse } from "./reader";
+import { decodeTimelapseBlock, openPapf, PapfFile } from "./reader";
 import { Codec, FOOTER_BYTES, SECTION_HEADER_BYTES } from "./types";
 import { serializeDocument } from "./writer";
 
@@ -62,6 +62,16 @@ function makeTimelapse(count: number): TimelapseData {
 			u: new Uint8Array([i & 0xff, (i >> 8) & 0xff]),
 		})),
 	};
+}
+
+/** Every entry of a read recording, with its packed blocks expanded. */
+async function expandEntries(
+	timelapse: TimelapseData,
+): Promise<TimelapseEntry[]> {
+	const packed = await Promise.all(
+		(timelapse.packedBlocks ?? []).map(decodeTimelapseBlock),
+	);
+	return [...packed.flat(), ...timelapse.entries];
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +217,7 @@ describe("PAPF format", () => {
 			expect(restored.timelapse!.entries).toEqual(
 				timelapse.entries.slice(2_000),
 			);
-			expect((await unpackTimelapse(restored.timelapse!)).entries).toEqual(
+			expect(await expandEntries(restored.timelapse!)).toEqual(
 				timelapse.entries,
 			);
 		});
@@ -234,7 +244,7 @@ describe("PAPF format", () => {
 				await openPapf(await serializeDocument(first))
 			).toDocument();
 
-			expect((await unpackTimelapse(second.timelapse!)).entries).toEqual([
+			expect(await expandEntries(second.timelapse!)).toEqual([
 				...timelapse.entries,
 				recorded,
 			]);

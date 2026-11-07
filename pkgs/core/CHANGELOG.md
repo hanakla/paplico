@@ -16,7 +16,7 @@
 
 - **Breaking API changes**
   - `TextRenderer.textElementToPaths` returns `bounds` as a `LocalBBox` instead of a `WorldBBox`. The bounds include the text's position but not its transform.
-  - `Paplico.createTimelapsePlayer` returns a Promise instead of the player.
+  - `TimelapsePlayer.seekTo`, `advanceBy`, `skipBy` and `restart` return Promises.
   - A timelapse read from a file keeps every block but the last in `TimelapseData.packedBlocks` instead of in `entries`.
 - **Renderer**
   - Panning a zoomed-in document no longer stalls every few frames.
@@ -62,6 +62,8 @@
   - Fix a hidden source path still taking part in its compound path's shape.
 - **Timelapse**
   - Fix opening a document with a long timelapse recording crashing on iPad.
+  - Fix the timelapse dialog crashing on iPad when it opens a long recording.
+  - Fix seeking back to near the start of a recording made by an older build failing.
 
 ## [0.10.0] - 2026-10-28
 

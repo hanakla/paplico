@@ -314,7 +314,7 @@ FILE とタイムラプスの各ペイロードは遅延読み込み時に範囲
 6. TOC から単一の META エントリを特定し、codec に従って読み込み・解凍・CBOR デコード
 7. PapfFile を返す (この時点で全ファイルのメタ情報は取得済み、FILE/TMLH/TMLB のペイロードは未読み込み)
 8. getEmbeddedFile(uid) 呼び出し時に対象の FILE ペイロードだけを読み込み・解凍
-9. getTimelapseData() 呼び出し時に TMLH と、aux0 の昇順に並べた全 TMLB ペイロードを読み込む。最後のブロックだけを解凍・CBOR デコードする。残りのブロックは圧縮したまま `packedBlocks` に入れる。再生の前に `unpackTimelapse()` で展開する
+9. getTimelapseData() 呼び出し時に TMLH と、aux0 の昇順に並べた全 TMLB ペイロードを読み込む。最後のブロックだけを解凍・CBOR デコードする。残りのブロックは圧縮したまま `packedBlocks` に入れる。再生時は、再生位置のあるブロックだけを展開する
 10. toDocument() 呼び出し時は全 FILE とタイムラプスを読み込み、マイグレーションと正規化を適用して Document を返す
 ```
 

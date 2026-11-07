@@ -186,7 +186,7 @@ export class TimelapseExporter {
 		// advance the player, and only the latest frame among them is drawn,
 		// carrying the changes of every skipped one.
 		let framePixels = this.padToEncoder(
-			await this.renderFrame(this.player.restart(), artboard, scale),
+			await this.renderFrame(await this.player.restart(), artboard, scale),
 			encWidth,
 			encHeight,
 		);
@@ -196,7 +196,7 @@ export class TimelapseExporter {
 		for (let tick = 0; !this.player.hasFinished; tick++) {
 			if (encoderError) throw encoderError;
 
-			const frame = this.player.advanceBy(frameDurationMs);
+			const frame = await this.player.advanceBy(frameDurationMs);
 			if (frame) {
 				pendingDocument = frame.document;
 				if (frame.changedElements && pendingChanges) {
@@ -250,10 +250,10 @@ export class TimelapseExporter {
 		frameDurationMs: number,
 		throwIfAborted: () => void,
 	): Promise<number> {
-		this.player.restart();
+		await this.player.restart();
 		let ticks = 0;
 		while (!this.player.hasFinished) {
-			this.player.skipBy(frameDurationMs);
+			await this.player.skipBy(frameDurationMs);
 			ticks++;
 			if (ticks % COUNT_TICKS_YIELD_INTERVAL === 0) {
 				await new Promise<void>((r) => setTimeout(r, 0));

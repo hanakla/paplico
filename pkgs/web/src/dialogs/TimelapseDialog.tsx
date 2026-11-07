@@ -163,7 +163,7 @@ export const TimelapseDialog = memo(function TimelapseDialog({
 							)}
 							style={{ opacity: canvasOpacity }}
 						/>
-						{!hasData && !state.isPreparing && (
+						{!hasData && (
 							<div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
 								{t("timelapseDialog.noTimelapseData")}
 							</div>
@@ -388,36 +388,26 @@ function useTimelapsePlayer(
 		}
 
 		if (!paplico?.createTimelapsePlayer) return;
-		let disposed = false;
-		// Expanding a long recording takes a moment, and there is no player to
-		// report its state until then.
-		setState({ ...INITIAL_STATE, isPreparing: true });
-		void paplico
-			.createTimelapsePlayer(
-				{
-					onFrame: renderFrame,
-					onStateChange: setState,
-				},
-				artboard ?? null,
-			)
-			.then((player) => {
-				if (disposed) {
-					player?.dispose();
-					return;
-				}
-				playerRef.current = player;
-				if (!player) {
-					setState(INITIAL_STATE);
-					return;
-				}
-				// seekTo emits the real state, including whether the player is still
-				// rebuilding a missing index. Seeding INITIAL_STATE here would clobber it.
-				player.seekTo(0);
-			});
+		const player = paplico?.createTimelapsePlayer(
+			{
+				onFrame: renderFrame,
+				onStateChange: setState,
+			},
+			artboard ?? null,
+		);
+		if (!player) {
+			playerRef.current = null;
+			setState(INITIAL_STATE);
+			return;
+		}
+
+		playerRef.current = player;
+		// seekTo emits the real state, including whether the player is still
+		// rebuilding a missing index. Seeding INITIAL_STATE here would clobber it.
+		void player.seekTo(0);
 
 		return () => {
-			disposed = true;
-			playerRef.current?.dispose();
+			player.dispose();
 			playerRef.current = null;
 		};
 	}, [open, ready, paplico?.createTimelapsePlayer, artboard, renderFrame]);
@@ -433,7 +423,7 @@ function useTimelapsePlayer(
 	});
 
 	const handleSeek = useEventCallback((value: number) => {
-		playerRef.current?.seekTo(value);
+		void playerRef.current?.seekTo(value);
 	});
 
 	const handleSpeedChange = useEventCallback((speed: number) => {

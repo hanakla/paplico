@@ -34,7 +34,7 @@ describe("Timelapse end to end", () => {
 		session.draw(strokePath("stroke-2", 0, -100, 0, 100));
 
 		const live = session.document();
-		const replayed = replayToEnd(session.recording(), live.artboards[0]);
+		const replayed = await replayToEnd(session.recording(), live.artboards[0]);
 
 		const { renderer } = await createTestRenderer();
 		const device = renderer.getDevice();
@@ -58,7 +58,7 @@ describe("Timelapse end to end", () => {
 		session.addArtboard(createArtboard("ab", "Main", 0, 0, 800, 600));
 
 		const live = session.document();
-		const replayed = replayToEnd(session.recording(), live.artboards[0]);
+		const replayed = await replayToEnd(session.recording(), live.artboards[0]);
 
 		const { renderer } = await createTestRenderer();
 		const device = renderer.getDevice();
@@ -99,7 +99,7 @@ describe("Timelapse end to end", () => {
 		session.draw(strokePath("stroke-2", 0, -100, 0, 100));
 
 		const live = session.document();
-		const replayed = replayToEnd(session.recording(), live.artboards[0]);
+		const replayed = await replayToEnd(session.recording(), live.artboards[0]);
 
 		// Structure first: it says whether a mismatch is the document or the draw.
 		expect(Object.keys(replayed.objects).sort()).toEqual(
@@ -146,11 +146,11 @@ describe("Timelapse end to end", () => {
 		// Walk the export's frame clock and measure how much of the stroke is
 		// down on each frame it produces.
 		const frameDurationMs = 1000 / 30;
-		player.restart();
+		await player.restart();
 		const inkPerFrame: number[] = [];
 		const segmentsPerFrame: number[] = [];
 		while (!player.hasFinished) {
-			const frame = player.advanceBy(frameDurationMs);
+			const frame = await player.advanceBy(frameDurationMs);
 			if (!frame) continue;
 			const drawn = frame.document.objects["long-stroke"];
 			segmentsPerFrame.push(drawn?.type === "path" ? drawn.segments.length : 0);
@@ -226,7 +226,7 @@ describe("Timelapse end to end", () => {
 		expect(recording.baselines).toEqual([carried.entries.length]);
 
 		const live = session.document();
-		const replayed = replayToEnd(recording, live.artboards[0]);
+		const replayed = await replayToEnd(recording, live.artboards[0]);
 
 		expect(Object.keys(replayed.objects).sort()).toEqual(
 			Object.keys(live.objects).sort(),
@@ -333,10 +333,10 @@ function createPlayer(
 	);
 }
 
-function replayToEnd(
+async function replayToEnd(
 	data: ReturnType<TimelapseRecorder["getTimelapseData"]> & object,
 	artboard: Artboard,
-): Document {
+): Promise<Document> {
 	let last: Document | null = null;
 	const player = new TimelapsePlayer(
 		data,
@@ -350,7 +350,7 @@ function replayToEnd(
 		artboard,
 	);
 
-	for (let i = 0; i < player.totalEvents; i++) player.seekTo(i);
+	for (let i = 0; i < player.totalEvents; i++) await player.seekTo(i);
 	player.dispose();
 
 	if (!last) throw new Error("The player never emitted a frame");

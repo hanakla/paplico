@@ -37,7 +37,7 @@ describe("TimelapsePreviewSurface", () => {
 
 		const live = session.document();
 		const artboard = live.artboards[0];
-		const replayed = replayToEnd(session.recording(), artboard);
+		const replayed = await replayToEnd(session.recording(), artboard);
 
 		const { renderer } = await createTestRenderer();
 		const device = renderer.getDevice();
@@ -170,7 +170,7 @@ describe("TimelapsePreviewSurface", () => {
 			const tracked = await openPreview(renderer, device);
 			const fresh = await openPreview(renderer, device);
 			try {
-				const frames = [player.restart(), ...playToEnd(player)];
+				const frames = [await player.restart(), ...(await playToEnd(player))];
 				let trackedStores = 0;
 				for (const frame of frames) {
 					const storesBefore = cacheStores.count;
@@ -211,7 +211,7 @@ describe("TimelapsePreviewSurface", () => {
 			const tracked = await openPreview(renderer, device);
 			const fresh = await openPreview(renderer, device);
 			try {
-				const frames = [player.restart(), ...playToEnd(player)];
+				const frames = [await player.restart(), ...(await playToEnd(player))];
 				for (const frame of frames) {
 					const trackedImage = await tracked.surface.renderToImageData(
 						frame,
@@ -416,10 +416,10 @@ function startSession() {
 	};
 }
 
-function replayToEnd(
+async function replayToEnd(
 	data: NonNullable<ReturnType<TimelapseRecorder["getTimelapseData"]>>,
 	artboard: Artboard,
-): Document {
+): Promise<Document> {
 	let last: Document | null = null;
 	const player = new TimelapsePlayer(
 		data,
@@ -433,7 +433,7 @@ function replayToEnd(
 		artboard,
 	);
 
-	for (let i = 0; i < player.totalEvents; i++) player.seekTo(i);
+	for (let i = 0; i < player.totalEvents; i++) await player.seekTo(i);
 	player.dispose();
 
 	if (!last) throw new Error("The player never emitted a frame");
@@ -478,10 +478,10 @@ function recordBlurredSession() {
 }
 
 /** Advance on the 30fps export clock until playback ends, collecting every frame. */
-function playToEnd(player: TimelapsePlayer): TimelapseFrame[] {
+async function playToEnd(player: TimelapsePlayer): Promise<TimelapseFrame[]> {
 	const frames: TimelapseFrame[] = [];
 	while (!player.hasFinished) {
-		const frame = player.advanceBy(1000 / 30);
+		const frame = await player.advanceBy(1000 / 30);
 		if (frame) frames.push(frame);
 	}
 	return frames;

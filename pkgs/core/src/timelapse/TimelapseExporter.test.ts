@@ -127,16 +127,16 @@ function createPlayer(ticks: number) {
 		},
 		setSpeed: () => {},
 		captureCompletedFrame: () => ({}) as Document,
-		restart: () => {
+		restart: async () => {
 			position = 0;
 			return frame();
 		},
-		skipBy: () => {
+		skipBy: async () => {
 			position++;
 			player.onFirstSkip?.();
 			player.onFirstSkip = null;
 		},
-		advanceBy: () => {
+		advanceBy: async () => {
 			position++;
 			return frame();
 		},
