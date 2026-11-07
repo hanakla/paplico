@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import { LATEST_SCHEMA_VERSION } from "../io/migrations";
+import { Codec } from "../io/papf/types";
 import type { BoundingBox } from "../schema";
 import { TimelapseRecorder } from "./TimelapseRecorder";
+import type { TimelapsePackedBlock } from "./types";
 
 describe("TimelapseRecorder", () => {
 	describe("onYjsUpdate", () => {
@@ -92,6 +94,30 @@ describe("TimelapseRecorder", () => {
 				[0, 0, 30, 30],
 			]);
 		});
+
+		it("should fold rects into the entry after a packed recording", () => {
+			vi.useFakeTimers();
+			const bounds = [bbox(0, 0, 10, 10), bbox(20, 20, 30, 30)];
+			const recorder = new TimelapseRecorder(() => bounds.shift() ?? null);
+			recorder.restoreFrom({
+				version: 2,
+				packedBlocks: [packedBlock(2)],
+				entries: [],
+			});
+			const doc = new Y.Doc();
+			const updates: Uint8Array[] = [];
+			doc.on("update", (u: Uint8Array) => updates.push(u));
+			const obj = new Y.Map<number>();
+			doc.getMap("objects").set("a", obj);
+			obj.set("x", 1);
+			for (const u of updates) recorder.onYjsUpdate(u, changesFor("a"));
+
+			expect(recorder.getTimelapseData()?.index?.rects).toEqual([
+				null,
+				null,
+				[0, 0, 30, 30],
+			]);
+		});
 	});
 
 	describe("appendBaseline", () => {
@@ -144,6 +170,23 @@ describe("TimelapseRecorder", () => {
 			expect(data?.entries).toHaveLength(2);
 			expect(data?.index?.rects).toEqual([[0, 0, 1, 1], null]);
 			expect(data?.baselines).toEqual([1]);
+		});
+
+		it("should count packed entries of a carried recording before the baseline", () => {
+			const recorder = newRecorder();
+			const packed = packedBlock(3);
+			recorder.restoreFrom({
+				version: 2,
+				packedBlocks: [packed],
+				entries: [{ t: 0, u: new Uint8Array([7]) }],
+			});
+
+			recorder.appendBaseline(new Uint8Array([1]));
+
+			const data = recorder.getTimelapseData();
+			expect(data?.packedBlocks).toEqual([packed]);
+			expect(data?.index?.rects).toEqual([null, null, null, null, null]);
+			expect(data?.baselines).toEqual([4]);
 		});
 
 		it("should drop the previous document's recording when none is carried", () => {
@@ -237,6 +280,15 @@ describe("TimelapseRecorder", () => {
 
 function newRecorder(): TimelapseRecorder {
 	return new TimelapseRecorder(() => bbox(0, 0, 10, 10));
+}
+
+function packedBlock(count: number): TimelapsePackedBlock {
+	return {
+		count,
+		payload: new Uint8Array([0]),
+		codec: Codec.Deflate,
+		rawBytes: null,
+	};
 }
 
 function bbox(

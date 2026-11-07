@@ -16,7 +16,7 @@ import {
 } from "../../schema";
 import type { TimelapseData } from "../../timelapse/types";
 import { LATEST_SCHEMA_VERSION } from "../migrations";
-import { openPapf, PapfFile } from "./reader";
+import { openPapf, PapfFile, unpackTimelapse } from "./reader";
 import { Codec, FOOTER_BYTES, SECTION_HEADER_BYTES } from "./types";
 import { serializeDocument } from "./writer";
 
@@ -195,6 +195,49 @@ describe("PAPF format", () => {
 					timelapse.entries[i].u,
 				);
 			}
+		});
+
+		it("should leave every timelapse block but the last packed on read", async () => {
+			const timelapse = makeTimelapse(2_500);
+
+			const blob = await serializeDocument(makeMinimalDoc({ timelapse }));
+			const restored = await (await openPapf(blob)).toDocument();
+
+			expect(restored.timelapse!.packedBlocks).toHaveLength(2);
+			expect(restored.timelapse!.entries).toEqual(
+				timelapse.entries.slice(2_000),
+			);
+			expect((await unpackTimelapse(restored.timelapse!)).entries).toEqual(
+				timelapse.entries,
+			);
+		});
+
+		it("should keep an index that covers packed entries", async () => {
+			const timelapse = makeTimelapse(2_500);
+			timelapse.index = { rects: timelapse.entries.map(() => null) };
+
+			const blob = await serializeDocument(makeMinimalDoc({ timelapse }));
+			const restored = await (await openPapf(blob)).toDocument();
+
+			expect(restored.timelapse!.index).toEqual(timelapse.index);
+		});
+
+		it("should save packed timelapse blocks followed by entries recorded after them", async () => {
+			const timelapse = makeTimelapse(2_500);
+			const recorded = { t: 999_999, u: new Uint8Array([1, 2, 3]) };
+
+			const first = await (
+				await openPapf(await serializeDocument(makeMinimalDoc({ timelapse })))
+			).toDocument();
+			first.timelapse!.entries.push(recorded);
+			const second = await (
+				await openPapf(await serializeDocument(first))
+			).toDocument();
+
+			expect((await unpackTimelapse(second.timelapse!)).entries).toEqual([
+				...timelapse.entries,
+				recorded,
+			]);
 		});
 
 		it("should round-trip the timelapse dirty-rect index", async () => {

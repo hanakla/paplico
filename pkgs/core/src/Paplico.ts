@@ -37,6 +37,7 @@ import { renderElementsToPNG } from "./io/export/renderElementsToPNG";
 import type { ExportContext, ExportResult, IExporter } from "./io/export/types";
 import { prepareMigrationContext } from "./io/migrations/context";
 import { gcDocument } from "./io/papf/gc";
+import { unpackTimelapse } from "./io/papf/reader";
 import { serializeDocument } from "./io/papf/writer";
 import { PaplicoCommands } from "./PaplicoCommands";
 import { PaplicoSelection } from "./PaplicoSelection";
@@ -3867,17 +3868,18 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	// --- Timelapse ---
 
-	public createTimelapsePlayer(
+	/** Resolves to null when the document has no recording. */
+	public async createTimelapsePlayer(
 		callbacks: {
 			onFrame: (frame: TimelapseFrame) => void;
 			onStateChange: (state: PlaybackState) => void;
 		},
 		filterArtboard: Artboard | null,
-	): TimelapsePlayer | null {
+	): Promise<TimelapsePlayer | null> {
 		const data = this.timelapseRecorder.getTimelapseData();
 		if (!data) return null;
 		return new TimelapsePlayer(
-			data,
+			await unpackTimelapse(data),
 			{
 				...callbacks,
 				// The recording ends at the live document, so the intro frame

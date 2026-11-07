@@ -1,3 +1,4 @@
+import type { Codec } from "../io/papf/types";
 import type { ChangedElements } from "../renderer/types";
 import type { Document } from "../schema";
 
@@ -30,9 +31,29 @@ export interface TimelapseIndex {
 	rects: (TimelapseDirtyRect | null)[];
 }
 
+/**
+ * A run of entries kept exactly as the file stores it. A recording can be
+ * several times larger than the document once expanded, so it stays packed
+ * until playback needs it.
+ */
+export interface TimelapsePackedBlock {
+	/** Number of entries in the block */
+	count: number;
+	/** The block's payload as stored in the file */
+	payload: Uint8Array;
+	codec: Codec;
+	/** Payload size after decompression, or null if the file did not record it */
+	rawBytes: number | null;
+}
+
 /** タイムラプスデータ全体（Document.timelapse に格納） */
 export interface TimelapseData {
 	version: 2;
+	/**
+	 * Entries still packed, which come before `entries`. Positions in
+	 * `index`, `baselines` and `schemaVersions` count these first.
+	 */
+	packedBlocks?: TimelapsePackedBlock[];
 	entries: TimelapseEntry[];
 	/** 未計算なら undefined。読込時に一度だけ再構築して埋める */
 	index?: TimelapseIndex;

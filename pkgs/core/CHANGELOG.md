@@ -16,6 +16,8 @@
 
 - **Breaking API changes**
   - `TextRenderer.textElementToPaths` returns `bounds` as a `LocalBBox` instead of a `WorldBBox`. The bounds include the text's position but not its transform.
+  - `Paplico.createTimelapsePlayer` returns a Promise instead of the player.
+  - A timelapse read from a file keeps every block but the last in `TimelapseData.packedBlocks` instead of in `entries`.
 - **Renderer**
   - Panning a zoomed-in document no longer stalls every few frames.
   - The frame after a pan ends no longer stalls.
@@ -58,6 +60,8 @@
   - Fix deleting a layer leaving the contents of its groups in the document, where a glass solid among them kept showing on the canvas.
 - **Compound paths**
   - Fix a hidden source path still taking part in its compound path's shape.
+- **Timelapse**
+  - Fix opening a document with a long timelapse recording crashing on iPad.
 
 ## [0.10.0] - 2026-10-28
 

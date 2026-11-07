@@ -10,6 +10,7 @@ import type {
 	TimelapseDirtyRect,
 	TimelapseEntry,
 	TimelapseIndex,
+	TimelapsePackedBlock,
 } from "./types";
 
 /**
@@ -25,7 +26,11 @@ const COALESCE_WINDOW_MS = 300;
  * changed. Playback uses the rects to skip updates outside the artboard.
  */
 export class TimelapseRecorder {
+	/** @see TimelapseData.packedBlocks */
+	private packedBlocks: TimelapsePackedBlock[] = [];
+	private packedCount = 0;
 	private entries: TimelapseEntry[] = [];
+	/** One per entry, packed ones first */
 	private rects: (TimelapseDirtyRect | null)[] = [];
 	/** Entry positions where the state starts over. @see appendBaseline */
 	private baselines: number[] = [];
@@ -33,7 +38,7 @@ export class TimelapseRecorder {
 	private schemaVersions: NonNullable<TimelapseData["schemaVersions"]> = [];
 	private startedAt = Date.now();
 	private readonly ledger = new TimelapseBoundsLedger();
-	/** The entry still accepting updates that touch the same objects. */
+	/** The entry still accepting updates that touch the same objects, by its position in `entries`. */
 	private openGroup: { index: number; key: string } | null = null;
 
 	public constructor(
@@ -66,8 +71,9 @@ export class TimelapseRecorder {
 			t - this.entries[group.index].t < COALESCE_WINDOW_MS
 		) {
 			const entry = this.entries[group.index];
+			const rectIndex = this.packedCount + group.index;
 			entry.u = Y.mergeUpdates([entry.u, update]);
-			this.rects[group.index] = unionDirtyRect(this.rects[group.index], rect);
+			this.rects[rectIndex] = unionDirtyRect(this.rects[rectIndex], rect);
 			return;
 		}
 
@@ -88,9 +94,10 @@ export class TimelapseRecorder {
 	}
 
 	public getTimelapseData(): TimelapseData | null {
-		if (this.entries.length === 0) return null;
+		if (this.entryCount === 0) return null;
 		return {
 			version: 2,
+			packedBlocks: [...this.packedBlocks],
 			entries: this.entries,
 			index: { rects: this.rects },
 			baselines: [...this.baselines],
@@ -106,10 +113,12 @@ export class TimelapseRecorder {
 	 */
 	public restoreFrom(data: TimelapseData | undefined): void {
 		this.openGroup = null;
+		this.packedBlocks = data?.packedBlocks ? [...data.packedBlocks] : [];
+		this.packedCount = this.packedBlocks.reduce((n, b) => n + b.count, 0);
 		this.entries = data ? [...data.entries] : [];
 		this.rects = data?.index
 			? [...data.index.rects]
-			: new Array<TimelapseDirtyRect | null>(this.entries.length).fill(null);
+			: new Array<TimelapseDirtyRect | null>(this.entryCount).fill(null);
 		this.baselines = data?.baselines ? [...data.baselines] : [];
 		this.schemaVersions = data?.schemaVersions ? [...data.schemaVersions] : [];
 		const lastT = this.entries.at(-1)?.t ?? 0;
@@ -132,7 +141,7 @@ export class TimelapseRecorder {
 	public appendBaseline(baseline: Uint8Array): void {
 		this.openGroup = null;
 		this.markSchemaVersion();
-		this.baselines.push(this.entries.length);
+		this.baselines.push(this.entryCount);
 		this.entries.push({ t: Date.now() - this.startedAt, u: baseline });
 		this.rects.push(null);
 	}
@@ -149,11 +158,15 @@ export class TimelapseRecorder {
 		}
 	}
 
+	private get entryCount(): number {
+		return this.packedCount + this.entries.length;
+	}
+
 	/** Entries appended from here on carry this build's document shape. */
 	private markSchemaVersion(): void {
 		if (this.schemaVersions.at(-1)?.version === LATEST_SCHEMA_VERSION) return;
 		this.schemaVersions.push({
-			at: this.entries.length,
+			at: this.entryCount,
 			version: LATEST_SCHEMA_VERSION,
 		});
 	}

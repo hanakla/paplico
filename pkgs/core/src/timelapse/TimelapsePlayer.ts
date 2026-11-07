@@ -125,6 +125,7 @@ export class TimelapsePlayer {
 	 */
 	private touched = createTouchedState();
 
+	/** `data` has every entry expanded, as unpackTimelapse returns it. */
 	public constructor(
 		data: TimelapseData,
 		private callbacks: {

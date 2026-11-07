@@ -92,9 +92,8 @@ export async function serializeDocument(doc: Document): Promise<Blob> {
 	}
 
 	// 4. Timelapse sections (TMLH + TMLB blocks)
-	if (doc.timelapse && doc.timelapse.entries.length > 0) {
-		const timelapse = doc.timelapse;
-
+	const timelapse = doc.timelapse;
+	if (timelapse && countTimelapseEntries(timelapse) > 0) {
 		// TMLH - manifest
 		const tmlhPayload = buildTimelapseManifest(timelapse);
 		const {
@@ -115,14 +114,36 @@ export async function serializeDocument(doc: Document): Promise<Blob> {
 			flags: 0,
 		});
 
-		// TMLB - data blocks
-		const totalEntries = timelapse.entries.length;
-		const blockCount = Math.ceil(totalEntries / TIMELAPSE_BLOCK_SIZE);
+		// TMLB - data blocks. Packed blocks are written back as they were read.
+		const packedBlocks = timelapse.packedBlocks ?? [];
+		for (const [blockIdx, block] of packedBlocks.entries()) {
+			const sectionOffset = sink.position;
+			sink.write(
+				encodeSectionHeader(
+					SectionType.TMLB,
+					block.codec,
+					block.payload.byteLength,
+				),
+			);
+			sink.write(block.payload);
 
-		for (let blockIdx = 0; blockIdx < blockCount; blockIdx++) {
-			const start = blockIdx * TIMELAPSE_BLOCK_SIZE;
-			const end = Math.min(start + TIMELAPSE_BLOCK_SIZE, totalEntries);
-			const blockPayload = buildTimelapseBlock(timelapse.entries, start, end);
+			tocEntries.push({
+				sectionOffset,
+				storedBytes: block.payload.byteLength,
+				rawBytes: block.rawBytes ?? 0,
+				key: null,
+				aux0: blockIdx,
+				aux1: block.count,
+				sectionType: SectionType.TMLB,
+				codec: block.codec,
+				flags: 0,
+			});
+		}
+
+		const { entries } = timelapse;
+		for (let start = 0; start < entries.length; start += TIMELAPSE_BLOCK_SIZE) {
+			const end = Math.min(start + TIMELAPSE_BLOCK_SIZE, entries.length);
+			const blockPayload = buildTimelapseBlock(entries, start, end);
 
 			const { sectionOffset, storedBytes, rawBytes } = await writeSection(
 				sink,
@@ -136,7 +157,7 @@ export async function serializeDocument(doc: Document): Promise<Blob> {
 				storedBytes,
 				rawBytes,
 				key: null,
-				aux0: blockIdx,
+				aux0: packedBlocks.length + start / TIMELAPSE_BLOCK_SIZE,
 				aux1: end - start,
 				sectionType: SectionType.TMLB,
 				codec: Codec.Deflate,
@@ -205,13 +226,9 @@ class ChunkSink {
 	}
 
 	public toBlob(): Blob {
-		const merged = new Uint8Array(this.position);
-		let offset = 0;
-		for (const chunk of this.chunks) {
-			merged.set(chunk, offset);
-			offset += chunk.byteLength;
-		}
-		return new Blob([merged], { type: "application/x-paplico" });
+		return new Blob(this.chunks as Uint8Array<ArrayBuffer>[], {
+			type: "application/x-paplico",
+		});
 	}
 }
 
@@ -435,13 +452,10 @@ function buildMetaPayload(
 	};
 
 	if (doc.timelapse) {
-		const blockCount = Math.ceil(
-			doc.timelapse.entries.length / TIMELAPSE_BLOCK_SIZE,
-		);
 		meta.timelapse = {
 			schemaVersion: doc.timelapse.version,
-			totalUpdates: doc.timelapse.entries.length,
-			blockCount,
+			totalUpdates: countTimelapseEntries(doc.timelapse),
+			blockCount: countTimelapseBlocks(doc.timelapse),
 		};
 	}
 
@@ -485,12 +499,26 @@ async function writeSection(
 // Timelapse section helpers
 // ---------------------------------------------------------------------------
 
+function countTimelapseEntries(timelapse: TimelapseData): number {
+	const packed = (timelapse.packedBlocks ?? []).reduce(
+		(n, block) => n + block.count,
+		0,
+	);
+	return packed + timelapse.entries.length;
+}
+
+function countTimelapseBlocks(timelapse: TimelapseData): number {
+	return (
+		(timelapse.packedBlocks?.length ?? 0) +
+		Math.ceil(timelapse.entries.length / TIMELAPSE_BLOCK_SIZE)
+	);
+}
+
 function buildTimelapseManifest(timelapse: TimelapseData): Uint8Array {
-	const blockCount = Math.ceil(timelapse.entries.length / TIMELAPSE_BLOCK_SIZE);
 	const manifest: TimelapseManifestPayload = {
 		schemaVersion: timelapse.version,
-		totalUpdates: timelapse.entries.length,
-		blockCount,
+		totalUpdates: countTimelapseEntries(timelapse),
+		blockCount: countTimelapseBlocks(timelapse),
 	};
 	if (timelapse.index) manifest.dirtyRects = timelapse.index.rects;
 	if (timelapse.baselines?.length) manifest.baselines = timelapse.baselines;

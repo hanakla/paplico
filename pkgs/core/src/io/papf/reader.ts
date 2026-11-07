@@ -14,7 +14,11 @@ import {
 	type EmbeddedFile,
 	normalizeAppearanceFields,
 } from "../../schema";
-import type { TimelapseData, TimelapseEntry } from "../../timelapse/types";
+import type {
+	TimelapseData,
+	TimelapseEntry,
+	TimelapsePackedBlock,
+} from "../../timelapse/types";
 import { crc32, decompressDeflate } from "../binaryUtils";
 import { applyMigrations, LATEST_SCHEMA_VERSION } from "../migrations";
 import type { MigrationContext } from "../migrations/context";
@@ -441,17 +445,17 @@ export class PapfFile {
 	}
 
 	/**
-	 * Lazy-load all timelapse blocks and reassemble into TimelapseData.
-	 * Returns null if no timelapse data exists in this file.
+	 * Read the timelapse recording, or null if this file has none.
+	 * Every block but the last stays packed until playback expands it with
+	 * unpackTimelapse. The last block is expanded so a continued recording
+	 * picks up from its final timestamp.
 	 */
 	public async getTimelapseData(): Promise<TimelapseData | null> {
-		// Find the TMLH entry
 		const tmlhEntry = this._toc.entries.find(
 			(e) => e.sectionType === SectionType.TMLH,
 		);
 		if (!tmlhEntry) return null;
 
-		// Read and decode the timelapse manifest
 		const tmlhCompressed = await readSlice(
 			this.source,
 			tmlhEntry.payloadOffset,
@@ -460,31 +464,31 @@ export class PapfFile {
 		const tmlhData = await decompressPayload(tmlhCompressed, tmlhEntry.codec);
 		const manifest = decode(tmlhData) as TimelapseManifestPayload;
 
-		// Read all TMLB blocks (already sorted by aux0)
-		const allEntries: TimelapseEntry[] = [];
-
-		for (const block of this._toc.timelapseBlocks) {
-			const compressed = await readSlice(
-				this.source,
-				block.payloadOffset,
-				block.storedBytes,
-			);
-			const decompressed = await decompressPayload(compressed, block.codec);
-			const entries = decode(decompressed) as Array<{
-				t: number;
-				u: Uint8Array;
-			}>;
-
-			for (const entry of entries) {
-				allEntries.push({ t: entry.t, u: entry.u });
-			}
-		}
+		// Blocks are already sorted by aux0
+		const blocks = await Promise.all(
+			this._toc.timelapseBlocks.map(
+				async (block): Promise<TimelapsePackedBlock> => ({
+					count: block.aux1,
+					payload: await readSlice(
+						this.source,
+						block.payloadOffset,
+						block.storedBytes,
+					),
+					codec: block.codec,
+					rawBytes: block.rawBytes,
+				}),
+			),
+		);
+		const lastBlock = blocks.pop();
+		const entries = lastBlock ? await decodeTimelapseBlock(lastBlock) : [];
+		const entryCount =
+			blocks.reduce((n, block) => n + block.count, 0) + entries.length;
 
 		// A truncated or absent rect list would mis-align with the entries, so
 		// it is dropped entirely and rebuilt on first playback.
 		const dirtyRects = manifest.dirtyRects;
 		const index =
-			dirtyRects && dirtyRects.length === allEntries.length
+			dirtyRects && dirtyRects.length === entryCount
 				? { rects: dirtyRects }
 				: undefined;
 
@@ -498,7 +502,8 @@ export class PapfFile {
 
 		return {
 			version: 2,
-			entries: allEntries,
+			packedBlocks: blocks,
+			entries,
 			index,
 			baselines: manifest.baselines,
 			schemaVersions,
@@ -511,7 +516,8 @@ export class PapfFile {
 	 *
 	 * All embedded files are loaded eagerly via Promise.all(), which may cause
 	 * memory spikes for documents with many or large files. For memory-sensitive
-	 * use cases, prefer getEmbeddedFile() to load files on demand.
+	 * use cases, prefer getEmbeddedFile() to load files on demand. The timelapse
+	 * stays packed as getTimelapseData leaves it.
 	 */
 	public async readUnmigratedDocument(): Promise<Document> {
 		const { document: docMeta } = this._meta;
@@ -669,4 +675,36 @@ export async function openPapf(source: Blob): Promise<PapfFile> {
 		header.formatMajor,
 		header.formatMinor,
 	);
+}
+
+/**
+ * Expand every packed block of a recording, for playback that walks the
+ * whole recording.
+ */
+export async function unpackTimelapse(
+	data: TimelapseData,
+): Promise<TimelapseData> {
+	const unpacked: TimelapseEntry[] = [];
+	for (const block of data.packedBlocks ?? []) {
+		unpacked.push(...(await decodeTimelapseBlock(block)));
+	}
+	return {
+		...data,
+		packedBlocks: undefined,
+		entries: [...unpacked, ...data.entries],
+	};
+}
+
+async function decodeTimelapseBlock(
+	block: TimelapsePackedBlock,
+): Promise<TimelapseEntry[]> {
+	const raw = await decompressPayload(block.payload, block.codec);
+	const entries = decode(raw) as TimelapseEntry[];
+	if (entries.length !== block.count) {
+		throw new PaplicoError(
+			"PAPF_CORRUPTED",
+			`PAPF: timelapse block holds ${entries.length} entries, expected ${block.count}`,
+		);
+	}
+	return entries.map(({ t, u }) => ({ t, u }));
 }
