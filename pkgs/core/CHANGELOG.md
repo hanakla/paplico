@@ -58,6 +58,8 @@
   - Fix a glass solid in a hidden layer still showing on the canvas.
 - **Layers**
   - Fix deleting a layer leaving the contents of its groups in the document, where a glass solid among them kept showing on the canvas.
+- **Object masks**
+  - Fix an object mask showing the whole element instead of only the part the mask keeps.
 - **Compound paths**
   - Fix a hidden source path still taking part in its compound path's shape.
 - **Timelapse**
