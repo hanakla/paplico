@@ -1,7 +1,7 @@
+import type { Paplico } from "@paplico/core";
 import { useEffect, useRef } from "react";
 import { useSnapshot } from "valtio";
 import { AUTO_SAVE_SLOW_INTERVAL_MS } from "@/configs";
-import { usePaplicoMaybe } from "@/contexts/PaplicoContext";
 import { autoSaveState, shouldExtendInterval } from "@/stores/autoSave";
 import {
 	documentManagerState,
@@ -15,8 +15,12 @@ import { useEventCallback } from "@/utils/hooks";
 
 const DEBOUNCE_MS = 2_000;
 
-export function useAutoSave(): { save: () => void } {
-	const paplico = usePaplicoMaybe();
+/**
+ * Saves the current document after edits and stores revisions on a timer.
+ * Takes `paplico` as an argument because the page that calls it renders
+ * PaplicoProvider itself, so the context is not available there.
+ */
+export function useAutoSave(paplico: Paplico | null): { save: () => void } {
 	const { currentDocumentId: documentId } = useSnapshot(documentManagerState);
 
 	const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -167,7 +167,7 @@ export default function Page() {
 	const sidePanelsBesideToolbar =
 		layoutMode === "desktop" && appSnap.panelLayout === "together";
 	const notchSide = useNotchSide();
-	const autoSave = useAutoSave();
+	const autoSave = useAutoSave(paplico);
 	const t = useTranslation();
 
 	const collab = useCollab(paplicoRef);
