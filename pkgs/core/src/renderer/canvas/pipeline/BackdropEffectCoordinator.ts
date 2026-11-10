@@ -475,6 +475,46 @@ export class BackdropEffectCoordinator {
 		};
 	}
 
+	/** One request's own uncropped fixed-R capture of the current source — for
+	 *  a request the shared batch cannot serve on an intact R grid, and for a
+	 *  filter chain that maps each pixel to itself alone, which gains nothing
+	 *  from a batch that an overlapping draw drops anyway. Not stored as a
+	 *  batch: the returned texture is mutated in place by the caller's filter
+	 *  chain. */
+	public acquireIndividualFixedR(
+		encoder: GPUCommandEncoder,
+		sourceTexture: GPUTexture,
+		viewport: Pick<Viewport, "x" | "y" | "zoom">,
+		canvasWidth: number,
+		canvasHeight: number,
+		request: BackdropEffectRequest,
+		scale: number,
+	): FixedRBackdropRegion | null {
+		const own = this.captureFixedRBatch(
+			encoder,
+			sourceTexture,
+			viewport,
+			canvasWidth,
+			canvasHeight,
+			request,
+			scale,
+			true,
+		);
+		if (!own) return null;
+		const ownBounds = own.capturedBounds!;
+		return {
+			texture: own.sharp,
+			actualBounds: ownBounds,
+			sourceUV: worldBoundsToPrebufUV(
+				ownBounds,
+				viewport,
+				canvasWidth,
+				canvasHeight,
+			),
+			sampleBlur: makeBlurSampler(own, ownBounds, ownBounds),
+		};
+	}
+
 	/** Release this frame's capture + pyramid textures (pool-aware callback,
 	 *  same contract as the drivers' releaseFrame). */
 	public releaseFrame(release: (texture: GPUTexture) => void): void {
@@ -556,43 +596,6 @@ export class BackdropEffectCoordinator {
 			sharpCtl: blurTextureCtl(sharpWidth, sharpHeight, captured.texture),
 			levels,
 			dirtyBounds: [],
-		};
-	}
-
-	/** One request's own uncropped fixed-R capture — used when the shared
-	 *  batch cannot serve it on an intact R grid. Not stored as a batch: the
-	 *  returned texture is mutated in place by the caller's filter chain. */
-	private acquireIndividualFixedR(
-		encoder: GPUCommandEncoder,
-		sourceTexture: GPUTexture,
-		viewport: Pick<Viewport, "x" | "y" | "zoom">,
-		canvasWidth: number,
-		canvasHeight: number,
-		request: BackdropEffectRequest,
-		scale: number,
-	): FixedRBackdropRegion | null {
-		const own = this.captureFixedRBatch(
-			encoder,
-			sourceTexture,
-			viewport,
-			canvasWidth,
-			canvasHeight,
-			request,
-			scale,
-			true,
-		);
-		if (!own) return null;
-		const ownBounds = own.capturedBounds!;
-		return {
-			texture: own.sharp,
-			actualBounds: ownBounds,
-			sourceUV: worldBoundsToPrebufUV(
-				ownBounds,
-				viewport,
-				canvasWidth,
-				canvasHeight,
-			),
-			sampleBlur: makeBlurSampler(own, ownBounds, ownBounds),
 		};
 	}
 

@@ -238,11 +238,54 @@ describe("RenderScheduler", () => {
 			expect(lastCall(callback)[0]).toBe("fullInteraction");
 		});
 
-		it("should fall back to fullInteraction when a render dirt rides with a viewport change", () => {
+		it("should blit the cached frame when a render dirt rides with a viewport change", () => {
+			const callback = vi.fn();
+			const scheduler = new RenderScheduler(callback);
+
+			// Re-rendering here would draw every frame of a pinch at another zoom.
+			scheduler.markDirty("viewport");
+			scheduler.markDirty("render");
+			flushFrame();
+
+			expect(lastCall(callback)[0]).toBe("viewportBlit");
+		});
+
+		it("should blit the cached frame for a render dirt that arrives between the frames of a gesture", () => {
 			const callback = vi.fn();
 			const scheduler = new RenderScheduler(callback);
 
 			scheduler.markDirty("viewport");
+			flushFrame();
+			scheduler.markDirty("render");
+			flushFrame();
+
+			expect(lastCall(callback)[0]).toBe("viewportBlit");
+		});
+
+		it("should re-render at the settle frame for a render dirt that arrived during the gesture", () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				const callback = vi.fn();
+				const scheduler = new RenderScheduler(callback);
+
+				scheduler.markDirty("viewport");
+				scheduler.markDirty("render");
+				flushFrame();
+				vi.advanceTimersByTime(100);
+				flushFrame();
+
+				expect(lastCall(callback)[0]).toBe("overlayOnly");
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("should fall back to fullInteraction when a preview and a render dirt ride with a viewport change", () => {
+			const callback = vi.fn();
+			const scheduler = new RenderScheduler(callback);
+
+			scheduler.markDirty("viewport");
+			scheduler.markDirty("preview");
 			scheduler.markDirty("render");
 			flushFrame();
 
@@ -300,6 +343,122 @@ describe("RenderScheduler", () => {
 			} finally {
 				vi.useRealTimers();
 			}
+		});
+	});
+
+	describe("document renders on hold", () => {
+		it("should blit the cached frame in place of the settle frame while on hold", () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				const callback = vi.fn();
+				const scheduler = new RenderScheduler(
+					callback,
+					undefined,
+					undefined,
+					() => true,
+				);
+
+				scheduler.markDirty("viewport");
+				flushFrame();
+				vi.advanceTimersByTime(100);
+				flushFrame();
+
+				expect(callback).toHaveBeenCalledTimes(2);
+				expect(lastCall(callback)[0]).toBe("viewportBlit");
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("should render the settle frame once resumed", () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				let onHold = true;
+				const callback = vi.fn();
+				const scheduler = new RenderScheduler(
+					callback,
+					undefined,
+					undefined,
+					() => onHold,
+				);
+				scheduler.markDirty("viewport");
+				flushFrame();
+				vi.advanceTimersByTime(100);
+				flushFrame();
+
+				onHold = false;
+				scheduler.resumeDocumentRender();
+				flushFrame();
+
+				expect(lastCall(callback)[0]).toBe("viewportSettle");
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("should blit in place of a render dirt while on hold and re-render once resumed", () => {
+			let onHold = true;
+			const callback = vi.fn();
+			const scheduler = new RenderScheduler(
+				callback,
+				undefined,
+				undefined,
+				() => onHold,
+			);
+
+			scheduler.markDirty("render");
+			flushFrame();
+			expect(lastCall(callback)[0]).toBe("viewportBlit");
+
+			onHold = false;
+			scheduler.resumeDocumentRender();
+			flushFrame();
+			expect(lastCall(callback)[0]).toBe("overlayOnly");
+		});
+
+		it("should schedule nothing on resume when no re-render waited", () => {
+			const callback = vi.fn();
+			const scheduler = new RenderScheduler(
+				callback,
+				undefined,
+				undefined,
+				() => false,
+			);
+
+			scheduler.resumeDocumentRender();
+			flushFrame();
+
+			expect(callback).not.toHaveBeenCalled();
+		});
+
+		it("should render a document change at once while on hold", () => {
+			const callback = vi.fn();
+			const scheduler = new RenderScheduler(
+				callback,
+				undefined,
+				undefined,
+				() => true,
+			);
+
+			scheduler.markDirty("document");
+			flushFrame();
+
+			expect(lastCall(callback)[0]).toBe("full");
+		});
+
+		it("should render an in-progress draw at once while on hold", () => {
+			const callback = vi.fn();
+			const scheduler = new RenderScheduler(
+				callback,
+				undefined,
+				undefined,
+				() => true,
+			);
+
+			scheduler.markDirty("preview");
+			flushFrame();
+
+			expect(lastCall(callback)[0]).toBe("overlayOnly");
 		});
 	});
 

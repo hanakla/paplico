@@ -223,6 +223,20 @@ interface PaplicoOptions {
 	 * Defaults to 1600 MiB.
 	 */
 	gpuCacheBudgetBytes?: number;
+	/**
+	 * Width of the band around the view that is drawn ahead, in CSS px per
+	 * side. A pan inside it only moves the frame already drawn. Every
+	 * view-sized GPU texture grows by it, so a host short on GPU memory passes
+	 * less. Defaults to 256.
+	 */
+	panMarginPx?: number;
+	/**
+	 * Resolution the document is drawn at, relative to the canvas's backing
+	 * store, above 0 and up to 1. Below 1 the document is drawn with fewer
+	 * pixels and stretched over the canvas, which takes less GPU memory. Tool
+	 * overlays keep the full resolution. Defaults to 1.
+	 */
+	documentResolutionScale?: number;
 }
 
 /**
@@ -345,6 +359,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		id: BuiltinIccProfileId,
 	) => Promise<Uint8Array>;
 	private readonly gpuCacheBudgetBytes: number | undefined;
+	private readonly panMarginPx: number | undefined;
+	private readonly documentResolutionScale: number | undefined;
 
 	/** Soft proof (print simulation) display state. */
 	private softProof = {
@@ -384,9 +400,13 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			fallbackFontUrl: options.fallbackFontUrl,
 		});
 		this.gpuCacheBudgetBytes = options.gpuCacheBudgetBytes;
+		this.panMarginPx = options.panMarginPx;
+		this.documentResolutionScale = options.documentResolutionScale;
 		this.renderer = new RenderOrchestrator(
 			this.fonts,
 			this.gpuCacheBudgetBytes,
+			this.panMarginPx,
+			this.documentResolutionScale,
 		);
 		this.wireTextDocumentResolver();
 		// Reference3D edit isolation dims the whole composite — entering/leaving
@@ -1011,6 +1031,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.renderer = new RenderOrchestrator(
 				this.fonts,
 				this.gpuCacheBudgetBytes,
+				this.panMarginPx,
+				this.documentResolutionScale,
 			);
 			this.wireTextDocumentResolver();
 
@@ -1056,6 +1078,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.renderer.setOnRequestRender(() => {
 			this.renderer.invalidateDocumentCache();
 			this.markDirty("render");
+		});
+		this.renderer.setOnDocumentRenderResumed(() => {
+			for (const entry of this.canvasTargets.values()) {
+				entry.scheduler.resumeDocumentRender();
+			}
 		});
 
 		this.renderer.setOnTextBoundsComputed((elementId, bounds, localBounds) => {
@@ -1478,6 +1505,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			// Keep what the last frame drew, so returning to the same view after
 			// a pause does not re-allocate its working set.
 			() => this.renderer.trimIdle(1),
+			() => this.renderer.isDocumentRenderOnHold,
 		);
 
 		const ui = new PaplicoUI(canvas, {
@@ -1828,6 +1856,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						? (doc.hdr.exposure ?? 0)
 						: undefined,
 				softProof: this.softProof.active,
+				blitStaleComposite:
+					strategy === RenderStrategy.viewportBlit &&
+					this.renderer.isDocumentRenderOnHold,
 			},
 			isActiveTarget
 				? this.rendererStore.uiOverlayState
@@ -3898,12 +3929,33 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		return this.renderer.renderArtboardToImageData(artboard, document);
 	}
 
-	/** Exports an artboard through the given output format. */
+	/**
+	 * Exports an artboard through the given output format.
+	 *
+	 * @param options.rasterizationDpi Resolution the filters are rasterized at,
+	 *  in place of the document's. Filters are rasterized at this resolution
+	 *  whatever the output size, so a preview far smaller than the artboard
+	 *  passes its own pixel density to keep the intermediate textures small.
+	 */
 	public exportArtboard(
 		exporter: IExporter,
 		artboardId: string,
+		options?: { rasterizationDpi?: number },
 	): Promise<ExportResult | null> {
-		return exporter.export(this.createExportContext(), artboardId);
+		const context = this.createExportContext();
+		if (options?.rasterizationDpi == null) {
+			return exporter.export(context, artboardId);
+		}
+		return exporter.export(
+			{
+				...context,
+				document: {
+					...context.document,
+					rasterizationDpi: options.rasterizationDpi,
+				},
+			},
+			artboardId,
+		);
 	}
 
 	/** Renders specific elements to a PNG blob, sized to their filter-expanded bounds. */

@@ -111,12 +111,12 @@ import {
 	collectFilterSpread,
 	computeDotGridPhase,
 	cropFilterBake,
+	DEFAULT_PAN_MARGIN_PX,
 	expandRenderFilter,
 	expandRenderFilterWithAncestors,
 	hasNormalBlending,
 	interactiveBakeDensity,
 	STORE_DIM_QUANTUM,
-	STORE_MARGIN_PX,
 	splitGroupAppearances,
 	visibleBoundsToBox,
 } from "./CanvasLayer.helpers";
@@ -388,6 +388,7 @@ export class CanvasLayer {
 	// the draw region at the viewport so document edits (brush strokes) never
 	// pay the oversized filter-bake/raster cost (set per-frame in render()).
 	private fullStoreBakeThisFrame = false;
+	private lastDocumentFrameZoom: number | undefined;
 	// Whether this frame may attempt a partial redraw (tracked content change or
 	// a viewport-only frame on an ordinary live frame; final eligibility —
 	// cache/store geometry, plan shape, dirty size — is decided inside
@@ -451,9 +452,12 @@ export class CanvasLayer {
 	 */
 
 	// -- Viewport & uniform binding --
-	/** Backing-store pixels per CSS pixel of the live canvas. Sizes meant to
-	 *  stay constant on screen scale by it. */
+	/** Pixels the document renders per CSS pixel of the live canvas. Sizes
+	 *  meant to stay constant on screen scale by it. */
 	public pixelRatio = 1;
+	/** Backing-store pixels of the live canvas per pixel the document renders.
+	 *  Above 1 the last blit stretches the document over the canvas. */
+	public canvasPixelsPerDocumentPixel = 1;
 	private viewportManager!: ViewportManager;
 	private readonly elementHierarchy = new ElementHierarchyCache();
 	private uniformScope: UniformScope;
@@ -587,6 +591,9 @@ export class CanvasLayer {
 	private texturePool!: TexturePool;
 	/** This canvas's whole GPU cache budget. */
 	private gpuCacheBudgetBytes = DEFAULT_GPU_CACHE_BUDGET_BYTES;
+	/** Margin rendered around the viewport so a pan inside it only moves the
+	 *  cached frame, in CSS px per side. Every view-sized texture grows by it. */
+	private panMarginPx = DEFAULT_PAN_MARGIN_PX;
 	/** This canvas's share of the GPU cache budget for idle pooled textures. */
 	private texturePoolFloorBytes = splitGpuCacheBudget(
 		DEFAULT_GPU_CACHE_BUDGET_BYTES,
@@ -1844,6 +1851,10 @@ export class CanvasLayer {
 		this.compositeFrameCache.valid = false;
 	}
 
+	public setPanMarginPx(px: number): void {
+		this.panMarginPx = px;
+	}
+
 	/** Split `bytes` among this canvas's GPU caches. Each cache evicts down to
 	 *  its share the next time it stores; the filtered-element cache follows
 	 *  at the next document frame (see lendGpuCacheBudget). */
@@ -2041,6 +2052,10 @@ export class CanvasLayer {
 						this.cachedFrameMatchesViewportDensity())
 			) {
 				return this.renderViewportBlit(encoder, canvasTexture, profiler);
+			}
+			if (!needsPostProcess && request.blitStaleComposite) {
+				const blit = this.renderViewportBlit(encoder, canvasTexture, profiler);
+				if (blit) return blit;
 			}
 			// Fall through: render this frame normally and capture it.
 		}
@@ -2301,6 +2316,7 @@ export class CanvasLayer {
 		// reach them again.
 		this.cacheManager.filteredElement.beginFrame();
 		this.stripFrame.beginFrame();
+		this.backdropBlitBGCache.trim(this.backdropBlitPool.index);
 		this.backdropBlitPool.index = 0;
 	}
 
@@ -2316,8 +2332,10 @@ export class CanvasLayer {
 		this.washResults.beginDocumentFrame();
 		this.clipMaskAtlas.beginFrame();
 		this.filterRenderer.beginFrame();
+		const zoom = this.viewportState.current?.zoom;
 		// Last: the evictions above return their textures to this pool.
-		this.texturePool.resetFrame();
+		this.texturePool.resetFrame(zoom !== this.lastDocumentFrameZoom);
+		this.lastDocumentFrameZoom = zoom;
 		this.lendGpuCacheBudget();
 	}
 
@@ -2437,7 +2455,7 @@ export class CanvasLayer {
 	): Map<string, FilteredTextureInfo> {
 		this.progressiveBakeBudget = this.renderState.isExport
 			? Number.POSITIVE_INFINITY
-			: PROGRESSIVE_BAKES_PER_FRAME;
+			: PROGRESSIVE_BAKE_BYTES_PER_FRAME;
 		this.progressiveBakeDeferred = false;
 		this.gradient.drawIndex = 0;
 		this.brushRenderer.beginFrame();
@@ -2603,7 +2621,7 @@ export class CanvasLayer {
 		// margin, so its pans fall through to full renders.
 		const storeMarginPx =
 			this.captureCompositeFrameThisFrame && liveCanvasFrame
-				? STORE_MARGIN_PX * this.pixelRatio
+				? this.panMarginPx * this.pixelRatio
 				: 0;
 		// Derive this frame's plan (culling + backdrop segment slicing — cheap,
 		// O(candidates + layers), no full element walk). It culls against the
@@ -2713,9 +2731,11 @@ export class CanvasLayer {
 		}
 		// A world-grid prebuf at the canvas's own density, unrotated, maps each
 		// texel onto one canvas pixel once the final blit shifts away the
-		// sub-pixel offset the snap leaves.
+		// sub-pixel offset the snap leaves. A document stretched over the
+		// canvas is resampled anyway and stays where the world puts it.
 		const storeMapsOneToOne =
 			liveCanvasFrame &&
+			this.canvasPixelsPerDocumentPixel === 1 &&
 			this.viewportState.current!.rotation === 0 &&
 			prebufZoom === this.viewportState.current!.zoom;
 		const prebufVisibleBounds = getVisibleWorldBounds(
@@ -2864,9 +2884,12 @@ export class CanvasLayer {
 		// serves them all (dropped and recaptured when an intersecting draw —
 		// including an earlier backdrop blit — lands in a request's region).
 		const backdropFilterRequests = framePlan.backdropRequests;
+		// A pointwise chain captures on its own and stays out, or it would widen
+		// the batch the other requests share.
 		for (const bdElem of framePlan.backdropEntries.values()) {
 			if (bdElem.element.visible === false) continue;
 			if (effectiveFilter && !effectiveFilter.has(bdElem.element.id)) continue;
+			if (this.readsBackdropPointwise(bdElem)) continue;
 			backdropFilterRequests.set(bdElem.element.id, {
 				bounds: this.getBackdropTextureBounds(bdElem),
 				blurSigma: this.getBackdropBlurSigma(bdElem),
@@ -3332,6 +3355,7 @@ export class CanvasLayer {
 		) {
 			// The freshly allocated texture holds no captured frame yet.
 			this.compositeFrameCache.valid = false;
+			this.compositeFrameCache.bakedWorldBounds = null;
 		}
 		const compositeFrameTexture = this.cache.compositeFrameTexture;
 		const compositeFrameHandle =
@@ -3925,7 +3949,8 @@ export class CanvasLayer {
 				this.composite.blitTextureToCanvas(
 					pass,
 					ctx.get(cacheHandle),
-					this.cachedFrameMatchesViewportDensity()
+					this.canvasPixelsPerDocumentPixel === 1 &&
+						this.cachedFrameMatchesViewportDensity()
 						? alignToCanvasPixels(
 								baked,
 								world,
@@ -4319,6 +4344,23 @@ export class CanvasLayer {
 	}
 
 	/**
+	 * Whether every backdrop filter of a live element maps each pixel to itself
+	 * alone. Such a chain gives the same pixels on any grid, so it reads the
+	 * target at the target's own density instead of the capture grid, and a
+	 * capture never outgrows the target. Exports keep the capture grid.
+	 */
+	private readsBackdropPointwise(bdElem: BackdropElementEntry): boolean {
+		return (
+			!this.renderState.isExport &&
+			croppedBakeReach(
+				this.filterRenderer,
+				bdElem.backdropFilters,
+				bdElem.bounds,
+			) === 0
+		);
+	}
+
+	/**
 	 * Execute GPU filter rendering for elements identified in the frame plan.
 	 * Iterates layerPlans in order so filter rendering maintains correct layer ordering.
 	 *
@@ -4350,6 +4392,7 @@ export class CanvasLayer {
 				rasterScale,
 				viewportZoom,
 				bounds,
+				{ isExport: this.renderState.isExport },
 			);
 			return this.renderState.isExport
 				? Math.min(rasterScale, zoomBucket)
@@ -4492,6 +4535,7 @@ export class CanvasLayer {
 				let cacheHash: string | null = null;
 				let cacheContentHash: string | null = null;
 				let cacheDeps: ReadonlySet<string> | null = null;
+				let overBakeBudget = false;
 				if (
 					this.filterCacheFrame != null &&
 					isFramePlan &&
@@ -4534,11 +4578,14 @@ export class CanvasLayer {
 						);
 						continue;
 					}
-					if (
-						cacheContentHash != null &&
-						entry &&
+					const differsOnlyInDensity =
+						entry != null &&
 						entryCovers &&
-						this.shouldUseStaleBake(entry, cacheContentHash, cacheDensity)
+						entry.contentHash === cacheContentHash &&
+						entry.density !== cacheDensity;
+					if (
+						differsOnlyInDensity &&
+						this.shouldUseStaleBake(entry, entry.contentHash, cacheDensity)
 					) {
 						filteredTextures.set(
 							element.id,
@@ -4562,6 +4609,22 @@ export class CanvasLayer {
 						cacheHash = null;
 						this.progressiveBakeDeferred = true;
 					}
+					// Past the frame's re-bake budget a frame still has to draw the
+					// element, so it draws a coarser frame-local bake that a
+					// follow-up frame replaces.
+					if (
+						cacheHash != null &&
+						!differsOnlyInDensity &&
+						this.fullStoreBakeThisFrame &&
+						!this.takeProgressiveBakeBudget(
+							Math.ceil(keptBake.bake.width * cacheDensity) *
+								Math.ceil(keptBake.bake.height * cacheDensity) *
+								bytesPerTexel(this.canvasFormat),
+						)
+					) {
+						cacheHash = null;
+						overBakeBudget = true;
+					}
 				}
 
 				// A kept bake is for later frames too, so neither it nor its filters
@@ -4575,7 +4638,9 @@ export class CanvasLayer {
 						? { density: cacheDensity, fullBounds: true }
 						: detailBakeDensity != null
 							? { density: detailBakeDensity, fullBounds: false }
-							: null;
+							: overBakeBudget
+								? { density: cacheDensity / 2, fullBounds: false }
+								: null;
 				if (fixedDensityBake?.fullBounds) this.viewportState.bounds = null;
 				const bakeBounds =
 					cacheHash != null ? brandWorldBBox(keptBake.bake) : fp.textureBounds;
@@ -4889,12 +4954,21 @@ export class CanvasLayer {
 	): boolean {
 		if (entry.contentHash !== contentHash || entry.density === density)
 			return false;
+		return !this.takeProgressiveBakeBudget(
+			entry.byteSize * (density / entry.density) ** 2,
+		);
+	}
+
+	/** Spend this frame's re-bake budget on a bake of `bytes`, or leave it to
+	 *  a follow-up frame when the budget is gone. The first bake of a frame
+	 *  always fits, so every frame makes progress. */
+	private takeProgressiveBakeBudget(bytes: number): boolean {
 		if (this.progressiveBakeBudget > 0) {
-			this.progressiveBakeBudget--;
-			return false;
+			this.progressiveBakeBudget -= bytes;
+			return true;
 		}
 		this.progressiveBakeDeferred = true;
-		return true;
+		return false;
 	}
 
 	/** Content hash for a cached filtered bake. Push invalidation (element
@@ -6183,8 +6257,12 @@ export class CanvasLayer {
 		// filters (frost glass, pixelate) invariant to pan, and to zoom within
 		// one density bucket. The planned request is passed through for the
 		// coordinator's pending-union bookkeeping; a missing one (transient
-		// render paths) still captures.
-		const rasterScale = this.getBackdropRasterScale();
+		// render paths) still captures. A pointwise chain captures the target
+		// at its own density instead.
+		const pointwise = this.readsBackdropPointwise(bdElem);
+		const rasterScale = pointwise
+			? backdropViewport.zoom
+			: this.getBackdropRasterScale();
 		const fullBounds =
 			backdropRequest?.bounds ?? this.getBackdropTextureBounds(bdElem);
 		const request = backdropRequest ?? {
@@ -6192,15 +6270,25 @@ export class CanvasLayer {
 			blurSigma: this.getBackdropBlurSigma(bdElem),
 			rasterScale,
 		};
-		const captured = this.backdropEffectCoordinator.acquireFixedRRegion(
-			encoder,
-			backdropSourceTexture,
-			backdropViewport,
-			this.viewportState.width,
-			this.viewportState.height,
-			request,
-			this.activeProfiler,
-		);
+		const captured = pointwise
+			? this.backdropEffectCoordinator.acquireIndividualFixedR(
+					encoder,
+					backdropSourceTexture,
+					backdropViewport,
+					this.viewportState.width,
+					this.viewportState.height,
+					request,
+					rasterScale,
+				)
+			: this.backdropEffectCoordinator.acquireFixedRRegion(
+					encoder,
+					backdropSourceTexture,
+					backdropViewport,
+					this.viewportState.width,
+					this.viewportState.height,
+					request,
+					this.activeProfiler,
+				);
 		// Fully off-screen region — nothing to filter or blit.
 		if (!captured) return;
 
@@ -7951,16 +8039,20 @@ export class CanvasLayer {
 		}
 
 		// @builtin(position) is in backing-store pixels, while the spacing and
-		// radius are meant in CSS pixels.
-		const spacingPx = CanvasLayer.DOT_GRID_SPACING_PX * this.pixelRatio;
-		const radiusPx = CanvasLayer.DOT_GRID_RADIUS_PX * this.pixelRatio;
+		// radius are meant in CSS pixels and the target size and viewport in
+		// the pixels the document renders.
+		const toCanvas = this.canvasPixelsPerDocumentPixel;
+		const spacingPx =
+			CanvasLayer.DOT_GRID_SPACING_PX * this.pixelRatio * toCanvas;
+		const radiusPx =
+			CanvasLayer.DOT_GRID_RADIUS_PX * this.pixelRatio * toCanvas;
 
 		// Anchor the lattice phase to the world origin's screen projection so the
 		// dots pan with the canvas while keeping constant on-screen spacing.
 		const { phaseX, phaseY } = computeDotGridPhase(
-			targetWidth,
-			targetHeight,
-			viewport,
+			targetWidth * toCanvas,
+			targetHeight * toCanvas,
+			{ ...viewport, zoom: viewport.zoom * toCanvas },
 		);
 
 		const color = CanvasLayer.DOT_GRID_COLOR;
@@ -8618,7 +8710,11 @@ export class CanvasLayer {
 const EMPTY_ID_SET: ReadonlySet<string> = new Set();
 /** Full-bounds cached bakes may cover at most this many canvas surfaces. */
 const FILTER_CACHE_FULL_BAKE_BUDGET_FACTOR = 4;
-const PROGRESSIVE_BAKES_PER_FRAME = 12;
+/** Bytes of filter bakes a frame re-bakes at a new density. A bake holds its
+ *  whole filter chain's intermediates until the frame ends, so re-baking every
+ *  element in one frame after a zoom overruns a tablet's memory. The rest keep
+ *  their old density until a follow-up frame reaches them. */
+const PROGRESSIVE_BAKE_BYTES_PER_FRAME = 32 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Clip mask helpers
