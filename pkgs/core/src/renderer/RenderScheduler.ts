@@ -74,6 +74,14 @@ export class RenderScheduler {
 	private isInteracting = false;
 	/** Debounce timer for settling after interaction stops. */
 	private settleTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Whether a `render` dirt arrived during the interaction and waits for
+	 *  the settle frame. */
+	private renderAwaitsSettle = false;
+	/** Whether a document re-render with nothing new of the user's to show
+	 *  has to wait. */
+	private isDocumentRenderOnHold: () => boolean;
+	/** The dirt of the frames that blitted in place of a held re-render. */
+	private heldReasons = new Set<DirtyReason>();
 	/** Whether volatile content (transient preview elements, element overrides)
 	 *  is currently present. The composite frame cache never captures such
 	 *  content, so blitting it would show a frame without them. */
@@ -90,10 +98,22 @@ export class RenderScheduler {
 		) => void,
 		hasVolatileContent: () => boolean = () => false,
 		onIdle: () => void = () => {},
+		isDocumentRenderOnHold: () => boolean = () => false,
 	) {
 		this.renderCallback = renderCallback;
 		this.hasVolatileContent = hasVolatileContent;
 		this.onIdle = onIdle;
+		this.isDocumentRenderOnHold = isDocumentRenderOnHold;
+	}
+
+	/** Schedule the re-render that waited while document renders were on hold. */
+	public resumeDocumentRender(): void {
+		if (this.isDestroyed || this.heldReasons.size === 0) return;
+
+		this.dirty = true;
+		for (const reason of this.heldReasons) this.dirtyReasons.add(reason);
+		this.heldReasons.clear();
+		this.scheduleFrame();
 	}
 
 	/**
@@ -133,6 +153,10 @@ export class RenderScheduler {
 				// at full quality (zoom tolerance may have degraded the cache).
 				this.dirty = true;
 				this.dirtyReasons.add("viewport");
+				if (this.renderAwaitsSettle) {
+					this.renderAwaitsSettle = false;
+					this.dirtyReasons.add("render");
+				}
 				this.scheduleFrame();
 			}, 100);
 		}
@@ -176,6 +200,8 @@ export class RenderScheduler {
 		this.dirtyReasons.clear();
 		this.changedElements = emptyChanges();
 		this.isInteracting = false;
+		this.renderAwaitsSettle = false;
+		this.heldReasons.clear();
 		this.isDestroyed = false;
 	}
 
@@ -248,10 +274,23 @@ export class RenderScheduler {
 		// (in-progress draw geometry) and "render" (async resource /
 		// post-process) need real document pixels, and volatile content
 		// (transient previews / overrides) is never captured into the cache.
-		const canBlit =
-			!this.dirtyReasons.has("preview") &&
-			!this.dirtyReasons.has("render") &&
-			!this.hasVolatileContent();
+		const needsLivePixels =
+			this.dirtyReasons.has("preview") || this.hasVolatileContent();
+		const canBlit = !needsLivePixels && !this.dirtyReasons.has("render");
+
+		// A `render` dirt has no new content of the user's to show, so during
+		// a gesture it waits for the settle frame. Re-rendering for it on every
+		// frame of a pinch draws each frame at another zoom, and each of those
+		// allocates a whole new set of offscreen textures before the last set
+		// is freed.
+		if (
+			this.isInteracting &&
+			this.dirtyReasons.has("render") &&
+			!needsLivePixels
+		) {
+			this.renderAwaitsSettle = true;
+			return RenderStrategy.viewportBlit;
+		}
 
 		if (this.dirtyReasons.has("viewport") && this.isInteracting) {
 			// Any viewport interaction (pan/zoom/rotate) tries the composite
@@ -262,6 +301,20 @@ export class RenderScheduler {
 			return canBlit
 				? RenderStrategy.viewportBlit
 				: RenderStrategy.fullInteraction;
+		}
+
+		// What remains re-renders the document without new content of the
+		// user's to show: the settle frame after a gesture, or a `render` dirt.
+		// On hold it blits what is cached and renders once resumed.
+		if (
+			!needsLivePixels &&
+			!this.dirtyReasons.isSubsetOf(OVERLAY_ONLY_REASONS) &&
+			this.isDocumentRenderOnHold()
+		) {
+			for (const reason of this.dirtyReasons) {
+				if (!OVERLAY_ONLY_REASONS.has(reason)) this.heldReasons.add(reason);
+			}
+			return RenderStrategy.viewportBlit;
 		}
 
 		// The settle frame after a gesture.

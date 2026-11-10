@@ -4,6 +4,10 @@ import { localAppearances } from "../document/appearancePresets";
 import { classifyFilterHandler } from "../document/elementGeometry/filterCapabilities";
 import { planBoundsOf } from "../document/elementGeometry/filteredBounds";
 import {
+	type DestroyedTextureRelease,
+	releaseDestroyedTexturesPromptly,
+} from "../infra/webkitTextureRelease";
+import {
 	type AnyArtObject,
 	type Artboard,
 	type Document,
@@ -34,7 +38,10 @@ import {
 } from "../utils/wgpu-utils";
 import type { CanvasTarget } from "./CanvasTarget";
 import { type CanvasFrameTransaction, CanvasLayer } from "./canvas/CanvasLayer";
-import { expandRenderFilter } from "./canvas/CanvasLayer.helpers";
+import {
+	DEFAULT_PAN_MARGIN_PX,
+	expandRenderFilter,
+} from "./canvas/CanvasLayer.helpers";
 import { RENDER_SAMPLE_COUNT } from "./canvas/CanvasLayerTypes";
 import { RenderCacheManager } from "./canvas/caches/RenderCacheManager";
 import type { Reference3DRenderContext } from "./canvas/elements/Reference3DElementRenderer";
@@ -309,15 +316,25 @@ export class RenderOrchestrator {
 	private static readonly MAX_RECOVERY_ATTEMPTS = 5;
 	private static readonly BASE_RECOVERY_DELAY_MS = 1_000;
 	private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+	private destroyedTextureRelease: DestroyedTextureRelease | null = null;
+	private onDocumentRenderResumed: (() => void) | null = null;
 	private onDeviceLost: (() => void) | null = null;
 	private onDeviceRestored: (() => void) | null = null;
 	private onDeviceRecoveryFailed: (() => void) | null = null;
 
-	/** @param gpuCacheBudgetBytes GPU cache budget the open canvas targets
-	 *  share equally. */
+	/**
+	 * @param gpuCacheBudgetBytes GPU cache budget the open canvas targets
+	 *  share equally.
+	 * @param panMarginPx Margin each canvas renders around its viewport for
+	 *  pans, in CSS px per side.
+	 * @param documentResolutionScale Resolution the document renders at,
+	 *  relative to the canvas's backing store.
+	 */
 	public constructor(
 		private readonly fontManager: FontManager,
 		private readonly gpuCacheBudgetBytes = DEFAULT_GPU_CACHE_BUDGET_BYTES,
+		private readonly panMarginPx = DEFAULT_PAN_MARGIN_PX,
+		private readonly documentResolutionScale = 1,
 	) {}
 
 	public async initDevice(): Promise<boolean> {
@@ -361,6 +378,9 @@ export class RenderOrchestrator {
 				return false;
 			}
 			this.device = device;
+			this.destroyedTextureRelease = releaseDestroyedTexturesPromptly(device);
+			this.destroyedTextureRelease.onCaughtUp = () =>
+				this.onDocumentRenderResumed?.();
 			device.lost.then((info) => this.handleDeviceLost(device, info));
 
 			// Raised from 64: glass extrude passes (mesh/blur/compose, per instance)
@@ -552,6 +572,7 @@ export class RenderOrchestrator {
 		if (opts?.isolated) this.isolatedTargets.add(target.id);
 		const isolated = this.isolatedTargets.has(target.id);
 
+		canvasLayer.setPanMarginPx(this.panMarginPx);
 		if (this._onRequestRender && !isolated)
 			canvasLayer.setOnRequestRender(this._onRequestRender);
 		if (this._onTextBoundsComputed && !isolated)
@@ -689,19 +710,25 @@ export class RenderOrchestrator {
 		const canvasTexture = td.context.getCurrentTexture();
 		const textureView = canvasTexture.createView();
 
-		// The document renders in backing-store pixels. UILayer keeps the CSS
-		// viewport because its overlay sizes are in CSS pixels; its shaders read
-		// the device zoom from the shared uniforms.
-		td.canvasLayer.pixelRatio = canvasTexture.width / target.width;
+		// The document renders for a canvas of documentResolutionScale times
+		// the backing store, and its last blit stretches that picture over the
+		// real one. Its width and height stay fractional so both map the world
+		// to the same place. UILayer keeps the CSS viewport because its overlay
+		// sizes are in CSS pixels; its shaders read the device zoom from the
+		// shared uniforms.
+		const canvasPixelRatio = canvasTexture.width / target.width;
+		td.canvasLayer.pixelRatio = canvasPixelRatio * this.documentResolutionScale;
+		td.canvasLayer.canvasPixelsPerDocumentPixel =
+			1 / this.documentResolutionScale;
 		td.canvasLayer.updateViewport(
 			{
 				...request.viewport,
 				zoom: request.viewport.zoom * td.canvasLayer.pixelRatio,
 			},
-			canvasTexture.width,
-			canvasTexture.height,
+			canvasTexture.width * this.documentResolutionScale,
+			canvasTexture.height * this.documentResolutionScale,
 		);
-		td.uiLayer.updateViewport(request.viewport, td.canvasLayer.pixelRatio);
+		td.uiLayer.updateViewport(request.viewport, canvasPixelRatio);
 
 		const encoder = this.device.createCommandEncoder({
 			label: "Frame Command Encoder",
@@ -775,6 +802,20 @@ export class RenderOrchestrator {
 	public setTextDocumentResolver(resolver: TextDocumentResolver | null): void {
 		this.textDocumentResolver = resolver;
 		this.textRenderer?.setDocumentResolver(resolver);
+	}
+
+	/**
+	 * Whether document re-renders with nothing new of the user's to show have
+	 * to wait. Each one destroys the textures of the one before, and on WebKit
+	 * those stay resident until the collector runs.
+	 */
+	public get isDocumentRenderOnHold(): boolean {
+		return this.destroyedTextureRelease?.isBehind ?? false;
+	}
+
+	/** `callback` runs each time document re-renders come off hold. */
+	public setOnDocumentRenderResumed(callback: () => void): void {
+		this.onDocumentRenderResumed = callback;
 	}
 
 	public setOnRequestRender(callback: () => void): void {

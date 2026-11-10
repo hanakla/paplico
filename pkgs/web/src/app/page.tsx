@@ -128,6 +128,7 @@ import { resolveDefaultFontForLanguage } from "@/utils/paplico";
 import {
 	detectFirefoxBrowser,
 	detectMacOSTauri,
+	detectMobileDevice,
 	detectSafariBrowser,
 	IS_TAURI_ENV,
 } from "@/utils/platform";
@@ -438,10 +439,21 @@ export default function Page() {
 					fallbackFontUrl: "/assets/fonts/NotoSansJP-VariableFont_wght.ttf",
 					getBuiltinProfileBytes,
 					filterShortcutEvents: ignoreShortcutsInOptedOutSubtree,
+					// A phone or tablet ends a page at far less memory than a
+					// desktop does. Every view-sized texture grows by the margin, and
+					// nearly all of the renderer's textures scale with the
+					// document's pixels.
+					panMarginPx: detectMobileDevice() ? 64 : undefined,
+					documentResolutionScale: detectMobileDevice() ? 0.75 : undefined,
 				});
 				paplicoRef.current = p;
 				window.__paplico = p;
 				registerForHotReload(p);
+				// Safari keeps a closing page's GPU textures until a later garbage
+				// collection, so a reload would start on top of the old page's memory.
+				window.addEventListener("pagehide", (event) => {
+					if (!event.persisted) p.destroy();
+				});
 				p.startRendering();
 				applyThemeToDOM(appConfig.theme);
 

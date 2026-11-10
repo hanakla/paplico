@@ -752,6 +752,11 @@ export type RegisterableFilterHandler =
  *  pairs already used in the current frame. */
 const MAX_TEMP_PAIRS = 48;
 
+/** Bytes of temp pairs a frame may start with. A zoom gesture leaves pairs
+ *  of a new size at every step; they would otherwise outlive the gesture by
+ *  the idle clock's seconds. */
+const MAX_IDLE_TEMP_PAIR_BYTES = 256 * 1024 * 1024;
+
 /** One size's ping-pong intermediates. */
 interface TempPair {
 	t1: GPUTexture;
@@ -846,6 +851,19 @@ export class FilterRenderer {
 		const now = performance.now();
 		for (const [key, pair] of this.tempPairs) {
 			if (!this.clock.isExpired(pair.lastUsed, now)) continue;
+			destroyTempPair(pair);
+			this.tempPairs.delete(key);
+		}
+		let bytes = 0;
+		for (const pair of this.tempPairs.values()) bytes += tempPairBytes(pair);
+		const oldestFirst = [...this.tempPairs].sort(
+			([, a], [, b]) => a.lastUsed.frame - b.lastUsed.frame,
+		);
+		for (const [key, pair] of oldestFirst) {
+			// The last frame's pairs are what the next frame asks for.
+			if (bytes <= MAX_IDLE_TEMP_PAIR_BYTES) break;
+			if (!this.clock.isIdleFor(pair.lastUsed, 2)) break;
+			bytes -= tempPairBytes(pair);
 			destroyTempPair(pair);
 			this.tempPairs.delete(key);
 		}
@@ -1322,6 +1340,14 @@ export class FilterRenderer {
  * encoded has not used it, so every command buffer reading it is already
  * submitted, and WebGPU keeps the memory until that work completes.
  */
+function tempPairBytes(pair: TempPair): number {
+	let bytes = 0;
+	for (const texture of [pair.t1, pair.t2, pair.src]) {
+		if (texture) bytes += texture.width * texture.height * 4;
+	}
+	return bytes;
+}
+
 function destroyTempPair(pair: TempPair): void {
 	pair.t1.destroy();
 	pair.t2?.destroy();

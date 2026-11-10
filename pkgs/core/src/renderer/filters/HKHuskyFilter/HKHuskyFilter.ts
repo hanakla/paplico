@@ -33,6 +33,9 @@ export interface HKHuskyFilter extends Appearance<HKHuskyParams> {
 const STAGE_TEXTURE_IDLE_FRAMES = 120;
 /** Bound on cached chain intermediates during continuous size churn. */
 const MAX_STAGE_TEXTURES = 8;
+/** Bytes of cached intermediates a frame may start with, so a zoom gesture's
+ *  per-step sizes do not outlive it. */
+const MAX_IDLE_STAGE_BYTES = 128 * 1024 * 1024;
 
 export class HKHuskyFilterHandler implements FilterHandler {
 	private meltPipeline: GPURenderPipeline | null = null;
@@ -145,6 +148,21 @@ export class HKHuskyFilterHandler implements FilterHandler {
 				this.pendingDestroy.push(entry.texture);
 				this.stageTextures.delete(key);
 			}
+		}
+		let bytes = 0;
+		for (const entry of this.stageTextures.values()) {
+			bytes += entry.texture.width * entry.texture.height * 4;
+		}
+		const oldestFirst = [...this.stageTextures].sort(
+			([, a], [, b]) => a.lastUsedFrame - b.lastUsedFrame,
+		);
+		for (const [key, entry] of oldestFirst) {
+			// The last frame's textures are what the next frame asks for.
+			if (bytes <= MAX_IDLE_STAGE_BYTES) break;
+			if (this.frameIndex - entry.lastUsedFrame < 2) break;
+			bytes -= entry.texture.width * entry.texture.height * 4;
+			entry.texture.destroy();
+			this.stageTextures.delete(key);
 		}
 	}
 

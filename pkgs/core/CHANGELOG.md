@@ -11,6 +11,10 @@
   - `PaplicoCommands.duplicateArtboard` copies an artboard and the elements on it. Without an offset, the copy goes to the right of or below the source without overlapping another artboard.
 - **Paste**
   - `PaplicoCommands.pasteElements` takes `layerRoot` to paste at the root of a given layer and `select: false` to keep the selection.
+- **Renderer**
+  - The `documentResolutionScale` option of `Paplico.create` draws the document at a fraction of the canvas resolution and stretches it over the canvas, which takes less GPU memory. Tool overlays keep the full resolution. It defaults to 1.
+- **Export**
+  - `Paplico.exportArtboard` takes `rasterizationDpi` to rasterize filters at another resolution than the document's. A small preview passes its own pixel density to take far less GPU memory.
 
 ### Changed
 
@@ -27,6 +31,15 @@
   - Panning or editing near an element with `applyToBackdrop` on a filter no longer slows down.
   - Editing an element inside a mesh or used as a mask redraws the whole view instead of only the region around it.
   - Zooming into a document with many filtered elements takes less GPU memory.
+  - Filters are baked at a density closer to the zoom, in steps of √2 instead of 2, which takes less GPU memory at zooms between two powers of two.
+  - Safari and the other WebKit browsers give back the memory of offscreen textures soon after a zoom or pan replaces them, instead of holding it for seconds.
+  - On Safari and the other WebKit browsers, the sharp re-render after a pan or zoom waits until the memory of the textures replaced by the one before is given back. Until then the last frame drawn is shown scaled, and the part of the view it does not cover stays empty.
+  - A pinch that pauses and moves on no longer re-renders the document on every frame, which takes far less GPU memory. Filter bakes still waiting and newly loaded resources are drawn once the gesture stops.
+  - Zooming into a document with a color-only filter such as gradient map on `applyToBackdrop` takes less GPU memory.
+  - A two-finger pan near 100% zoom takes less GPU memory.
+  - Panning no longer stacks each frame's offscreen textures on top of the ones earlier frames left unused, which takes less GPU memory.
+  - The frames after a zoom-in reuse their offscreen textures instead of allocating them again, which takes less GPU memory.
+  - Filtered elements sharpen over a few frames after a zoom or pan instead of all in one frame, which takes less GPU memory.
 - **Drop shadow filter**
   - Panning over a large drop-shadowed group in a zoomed-in document no longer stalls.
 - **Kirakira filter**
@@ -43,6 +56,7 @@
 
 - **Renderer**
   - Fix a filtered element just outside the screen appearing without its filter, or not at all, while panning it into view.
+  - Fix the backdrop under a color-only filter on `applyToBackdrop` looking softer than the rest of the canvas at most zoom levels.
 - **Filters**
   - Fix some filtered elements staying blurry after zooming in until the view moves.
   - Fix the drop shadow or another filter of a group not following an element edited inside it.
@@ -84,6 +98,7 @@
   - `Tool.onPointerLeave` is called when the pointer leaves the canvas.
 - **Renderer**
   - The `gpuCacheBudgetBytes` option of `Paplico.create` sets how much GPU memory the render caches keep between frames. It defaults to 1600 MiB.
+  - The `panMarginPx` option of `Paplico.create` sets how far around the view a frame is drawn ahead for pans. A smaller value takes less GPU memory. It defaults to 256.
 
 ### Changed
 

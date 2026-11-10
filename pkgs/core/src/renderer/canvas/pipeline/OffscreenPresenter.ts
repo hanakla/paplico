@@ -626,6 +626,7 @@ export class OffscreenPresenter {
 
 	/** Reset pool indices and flush deferred destroys from the previous frame. */
 	public resetFrame(): void {
+		this.clipBlitBGCache.trim(this.clipBlitPool.nextIndex);
 		this.clipBlitPool.beginFrame();
 		// A throw mid-bake must not leave a ceiling on later frames.
 		this.densityCeiling = Number.POSITIVE_INFINITY;
@@ -2268,7 +2269,17 @@ export class OffscreenPresenter {
 		// anything finer away, so it bakes no finer than it; so does a child
 		// pre-rasterized for such a bake before its pass opens. Exports keep
 		// their own density.
-		const zoomBucket = interactiveBakeDensity(rasterZoom, zoom, textureBounds);
+		// A bake clamped to the frame never covers more than the clamp region
+		// plus the filter margin. Its budget is taken from that rect without
+		// the raster-scale floor, so a large element does not bake its visible
+		// part at the document's export density.
+		const { isExport } = this.deps.renderState;
+		const zoomBucket = clampBounds
+			? interactiveBakeDensity(rasterZoom, zoom, clampedBounds, {
+					minDensity: 0,
+					isExport,
+				})
+			: interactiveBakeDensity(rasterZoom, zoom, textureBounds, { isExport });
 		const ownZoom =
 			interactiveBounds && !alignToTargetGrid
 				? this.deps.renderState.isExport
@@ -2455,7 +2466,9 @@ export class OffscreenPresenter {
 			: textureBounds;
 		const zoom = this.deps.viewportState.current?.zoom ?? 1;
 		const rasterZoom = rasterScale ?? zoom;
-		const zoomBucket = interactiveBakeDensity(rasterZoom, zoom);
+		const zoomBucket = interactiveBakeDensity(rasterZoom, zoom, undefined, {
+			isExport: this.deps.renderState.isExport,
+		});
 		const bakeZoom = interactiveBounds
 			? this.deps.renderState.isExport
 				? Math.min(rasterZoom, zoomBucket)

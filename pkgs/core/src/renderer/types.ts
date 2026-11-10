@@ -117,6 +117,9 @@ export interface FrameRequest {
 	 *  display pass. No-op while no LUT is uploaded. Mutually exclusive with
 	 *  hdrExposure — if both are set, exposure wins and proof is skipped. */
 	softProof?: boolean;
+	/** A viewportBlit frame blits the cached composite even when it is stale
+	 *  or no longer covers the view, because document renders are on hold. */
+	blitStaleComposite?: boolean;
 	/** True while the user is actively panning/zooming. Tile rendering bakes
 	 *  at a reduced budget during interaction and fully at settle. When unset,
 	 *  the renderer derives it from the frame strategy (fullInteraction). */

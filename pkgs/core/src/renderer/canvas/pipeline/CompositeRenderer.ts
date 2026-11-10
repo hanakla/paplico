@@ -228,6 +228,13 @@ export class CompositeRenderer {
 
 	/** Reset pool indices at the start of each frame. */
 	public resetFrame(): void {
+		// WebKit keeps a destroyed texture resident while a bind group made
+		// with it is referenced, so the slots the last frame left untouched go.
+		this.blitBGCache.trim(this.blitPool.nextIndex);
+		this.blitNearestBGCache.trim(this.blitPool.nextIndex);
+		this.quadBlitBGCache.trim(this.quadBlitPool.nextIndex);
+		this.meshBlitBGCache.trim(this.meshBlitUniformPool.nextIndex);
+		this.compositeBGCache.trim(this.compositePool.nextIndex);
 		this.blitPool.beginFrame();
 		this.quadBlitPool.beginFrame();
 		this.compositePool.beginFrame();
