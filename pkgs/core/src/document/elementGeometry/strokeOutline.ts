@@ -63,8 +63,9 @@ type OutlineLayer = { outline: Path } | { paint: FilterEntry };
  * enabled stroke. Strokes it cannot reproduce stay as strokes.
  */
 export function canOutlineStrokes(element: AnyArtObject): boolean {
+	if (element.isGuide) return false;
 	if (element.type === "compound-path") return true;
-	if (element.type !== "path" || element.isGuide) return false;
+	if (element.type !== "path") return false;
 	return localAppearances(element.filters).some(
 		(filter) => filter.processor === "stroke" && isFilterEnabled(filter),
 	);

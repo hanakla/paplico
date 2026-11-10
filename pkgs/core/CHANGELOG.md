@@ -9,6 +9,8 @@
   - A dragged artboard snaps to the center lines of the other artboards.
 - **Artboards**
   - `PaplicoCommands.duplicateArtboard` copies an artboard and the elements on it. Without an offset, the copy goes to the right of or below the source without overlapping another artboard.
+- **Guides**
+  - Every element type takes `isGuide`, not only paths. A guide group makes every element inside it a guide.
 - **Paste**
   - `PaplicoCommands.pasteElements` takes `layerRoot` to paste at the root of a given layer and `select: false` to keep the selection.
 - **Renderer**
@@ -47,6 +49,8 @@
   - An exported wide kirakira glow differs from earlier versions by a few levels of 255.
 - **Path edit tool**
   - Dragging a vertex no longer stalls on its first frame or on release, and no longer slows down inside a drop-shadowed group.
+- **Guides**
+  - A guide is drawn as a thin cyan outline above the artboards and below the other tool UI instead of with its own paint.
 - **SVG export**
   - An alpha-locked element is exported as an image of only what it paints, instead of turning it and every element under it into one image.
 - **Collaboration**

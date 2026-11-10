@@ -992,6 +992,12 @@ export interface ArtObject {
 	visible?: boolean;
 	/** Default: false (undefined = unlocked) */
 	locked?: boolean;
+	/**
+	 * When true, the element is a guide: the UI overlay draws its outline as a
+	 * cyan line above the artboards instead of its own paint, and exports
+	 * leave it out. A guide group makes every element inside it a guide.
+	 */
+	isGuide?: boolean;
 	/** Appearance stack. Preset refs are expanded at document entry points (see core/document/appearancePresets.ts). */
 	filters?: FilterEntry[];
 	/** Element transform. Applied at render time. */
@@ -1078,8 +1084,6 @@ export interface PathGeometry {
 export interface Path extends ArtObject, PathGeometry {
 	type: "path";
 	segments: PathSegment[];
-	/** When true, rendered as a cyan guide line on top of all layers. Excluded from export. */
-	isGuide?: boolean;
 }
 
 export interface Group extends ArtObject {

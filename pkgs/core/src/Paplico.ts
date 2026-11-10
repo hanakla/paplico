@@ -74,6 +74,7 @@ import { buildPerspectiveGuideOverlay } from "./renderer/ui/builders/perspective
 import type { WorldBounds } from "./renderer/ui/builders/text";
 import { buildTextEditOverlay } from "./renderer/ui/builders/textEdit";
 import { buildToolCursorOverlay } from "./renderer/ui/builders/toolCursor";
+import { GuideOverlay } from "./renderer/ui/GuideOverlay";
 import { hitTestOverlays } from "./renderer/ui/hitTest";
 import { OVERLAY_KEYS, type OverlayKey } from "./renderer/ui/overlayKeys";
 import {
@@ -348,6 +349,16 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private perspectiveGuideSourceId: string | null = null;
 	/** Cached guide data for tools (recomputed on source changes). */
 	private perspectiveGuides: PerspectiveGuideData | null = null;
+	private readonly guideOverlay = new GuideOverlay({
+		outlineText: async (text) => {
+			const textRenderer = this.renderer?.getTextRenderer();
+			if (!textRenderer) return null;
+			const { outlinedPaths } =
+				await textRenderer.textElementToOutlinedPaths(text);
+			return outlinedPaths.map(({ path }) => path.segments);
+		},
+		onTextOutlined: () => this.refreshGuideOverlay(),
+	});
 
 	/** Element highlighted from outside the canvas (layer panel row hover). */
 	private hoveredElementId: string | null = null;
@@ -1489,6 +1500,15 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.markDirty("selection");
 	}
 
+	/** Redraw the "sys/guides" overlay from the document's guide elements. */
+	private refreshGuideOverlay(): void {
+		this.setUIOverlay(
+			OVERLAY_KEYS.sysGuides,
+			this.guideOverlay.build(this.rendererStore.document),
+		);
+		this.markDirty("selection");
+	}
+
 	public async addCanvasTarget(
 		canvas: HTMLCanvasElement,
 		options?: { id?: string; viewport?: Viewport },
@@ -1957,6 +1977,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					this.syncSoftProofToDocument(document);
 					this.requestReference3DServiceIfDocumentNeedsIt();
 					if (this.perspectiveGuideSourceId) this.refreshPerspectiveGuides();
+					this.refreshGuideOverlay();
 				},
 				onArtboardsUpdate: (artboards) => {
 					this.rendererStore.document.artboards = artboards;
@@ -1966,6 +1987,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					const previousLayers = this.rendererStore.document.layers;
 					this.rendererStore.document.layers = layers;
 					this.renderChangeSubscriber.syncLayersOnly(previousLayers);
+					this.refreshGuideOverlay();
 				},
 				onObjectsChange: (delta) => {
 					const objects = this.rendererStore.document.objects;
@@ -2040,6 +2062,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					) {
 						this.refreshPerspectiveGuides();
 					}
+					this.refreshGuideOverlay();
 				},
 				getCurrentLayerId: () => this.rendererStore.currentLayerId,
 				setCurrentLayerId: (layerId) => {
