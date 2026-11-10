@@ -8,6 +8,7 @@ import type React from "react";
 import { toastManager } from "@/components/Toast";
 import { confirmCloseDocument } from "@/dialogs/CloseDocumentDialog";
 import { LicensesDialog } from "@/dialogs/LicensesDialog";
+import { openableDocumentExtensions } from "@/documentImport";
 import { FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import {
@@ -183,7 +184,7 @@ export function useMenuActions(
 			types: [
 				{
 					description: "Paplico",
-					accept: { "application/octet-stream": [".papf"] },
+					accept: { "application/octet-stream": openableDocumentExtensions() },
 				},
 			],
 		});
