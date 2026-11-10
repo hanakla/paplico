@@ -116,7 +116,7 @@ Sources: `renderer/canvas/caches/RenderCacheManager.ts`,
 | `CompositeRenderer` | Frame-indexed pools for blit/quad/composite uniform buffers | Reuse by slot after frame reset; destroy releases buffers and the dummy base texture. |
 | `BackdropEffectCoordinator` | One frame-local backdrop batch may share sharp capture and blur-pyramid levels when its union covers later requests | Draw dirtiness patches only intersecting capture/pyramid regions; at least 50% dirty coverage rebuilds a level. Frame textures return through deferred release and uniform buffers reuse frame slots. |
 | `BackdropCaptureManager` | Reuses resample pipeline/layout/sampler for a compatible format | Each capture texture is created per request rather than pooled by this class. |
-| `FilterRenderer` | Two ping-pong filter textures reuse exact `(width, height, format)` matches | Descriptor change moves old textures to `pendingDestroy`; the next safe frame flush destroys them. |
+| `FilterRenderer` | One ping-pong filter texture per `(width, height, format)`, alternating with the chain's own unpadded source; a second one is created only for a chain that strips pool padding, reads the backdrop, or follows a self-sizing pass | Descriptor change moves old textures to `pendingDestroy`; the next safe frame flush destroys them. |
 
 `OffscreenPresenter.deferDestroy()` is the bridge between a consumer and the
 pool: pool-owned textures are released; non-pool textures are destroyed after

@@ -69,6 +69,8 @@ import {
 	type LocalBoundsCache,
 } from "../../utils/geometry/elementBounds";
 import {
+	boundsContain,
+	boundsIntersectionBox,
 	brandWorldBBox,
 	expandBounds,
 	type LocalBBox,
@@ -108,6 +110,7 @@ import {
 	calculatePrebufDimensions,
 	collectFilterSpread,
 	computeDotGridPhase,
+	cropFilterBake,
 	expandRenderFilter,
 	expandRenderFilterWithAncestors,
 	hasNormalBlending,
@@ -181,6 +184,7 @@ import { ElementHierarchyCache } from "./pipeline/ElementHierarchyCache";
 import {
 	type BackdropEffectCanvasResources,
 	type BackdropEffectDriver,
+	croppedBakeReach,
 	type FilterGeometryContext,
 	type FilterRenderer,
 	hoistBlendInstanceAppearances,
@@ -4454,13 +4458,37 @@ export class CanvasLayer {
 				const isFramePlan =
 					this.activeFramePlan?.filterPlans.get(element.id) === fp;
 
+				// A kept bake covers what this frame draws plus the chain's reach,
+				// cut on a grid laid from the element's whole bake, so later frames
+				// inside it reuse it and see the pixels the whole bake would give.
+				// A chain with a filter that forbids the cut, an underlay and an
+				// export bake the whole element.
+				const neededBounds = frameBounds
+					? boundsIntersectionBox(fp.textureBounds, frameBounds)
+					: fp.textureBounds;
+				const cropReach =
+					neededBounds && !fp.underlay
+						? croppedBakeReach(
+								this.filterRenderer,
+								fp.postFilters,
+								fp.textureBounds,
+							)
+						: null;
+				const keptBake =
+					neededBounds && cropReach != null
+						? cropFilterBake(
+								fp.textureBounds,
+								neededBounds,
+								cropReach,
+								cacheDensity,
+							)
+						: { bake: fp.textureBounds, valid: fp.textureBounds };
+
 				// Frame-cache participation. A non-null hash means this element's
-				// filtered bake may be reused across frames: the bake then covers
-				// the full textureBounds (viewport-independent) so pans hit without
-				// re-running the chain. Backdrop-reading chains and groups holding a
-				// backdrop-filter element depend on what is behind the element and
-				// stay frame-local, as do preview-overridden elements and bakes past
-				// the full-bake budget.
+				// filtered bake may be reused across frames. Backdrop-reading chains
+				// and groups holding a backdrop-filter element depend on what is
+				// behind the element and stay frame-local, as do preview-overridden
+				// elements and bakes past the cache budget.
 				let cacheHash: string | null = null;
 				let cacheContentHash: string | null = null;
 				let cacheDeps: ReadonlySet<string> | null = null;
@@ -4477,7 +4505,7 @@ export class CanvasLayer {
 								f,
 							).needsBackdrop,
 					) &&
-					this.filteredBakeWithinBudget(fp, cacheDensity)
+					this.bakeWithinCacheBudget(keptBake.bake, cacheDensity)
 				) {
 					// Everything this bake renders (group children, mask/compound/
 					// blend sources, …). A preview override anywhere inside means
@@ -4495,7 +4523,11 @@ export class CanvasLayer {
 				}
 				if (cacheHash != null) {
 					const entry = this.cacheManager.filteredElement.get(element.id);
-					if (entry?.hash === cacheHash) {
+					const entryCovers =
+						entry != null &&
+						(neededBounds == null ||
+							boundsContain(entry.validBounds, neededBounds));
+					if (entry?.hash === cacheHash && entryCovers) {
 						filteredTextures.set(
 							element.id,
 							buildCachedFilteredTextureInfo(entry, fp),
@@ -4505,6 +4537,7 @@ export class CanvasLayer {
 					if (
 						cacheContentHash != null &&
 						entry &&
+						entryCovers &&
 						this.shouldUseStaleBake(entry, cacheContentHash, cacheDensity)
 					) {
 						filteredTextures.set(
@@ -4513,14 +4546,16 @@ export class CanvasLayer {
 						);
 						continue;
 					}
-					// A frame that draws only the viewport (an edit's commit, or a
-					// preview frame with its overrides) bakes only what it draws
-					// and leaves re-baking the whole element for the cache to a
-					// follow-up frame, so the edit does not pay for it. A preview
-					// re-bakes that part every frame until a captured frame asks
-					// for the follow-up.
+					// A frame that draws only the viewport or a dirty rect (an
+					// edit's commit, a partial redraw, or a preview frame with its
+					// overrides) and finds no kept bake covering it bakes only what
+					// it draws and leaves the bake for the cache to a follow-up
+					// frame. The edit then does not pay for it, and a kept bake of
+					// the store is not replaced by one cut to that smaller region.
+					// A preview re-bakes that part every frame until a captured
+					// frame asks for the follow-up.
 					if (
-						!entry &&
+						!entryCovers &&
 						!this.fullStoreBakeThisFrame &&
 						!this.renderState.isExport
 					) {
@@ -4529,10 +4564,12 @@ export class CanvasLayer {
 					}
 				}
 
-				// A cached bake is the whole element, kept for later frames, so
-				// neither it nor its filters may be culled to the part of the store
-				// this frame draws. An underlay bake that is not kept (a preview
-				// frame's) keeps its detail density but bakes only that part.
+				// A kept bake is for later frames too, so neither it nor its filters
+				// may be culled to the part of the store this frame draws. The
+				// bakes nested in it cull and clamp against the kept region, so a
+				// filtered child of a cropped group is not baked whole. An
+				// underlay bake that is not kept (a preview frame's) keeps its
+				// detail density but bakes only that part.
 				const fixedDensityBake =
 					cacheHash != null
 						? { density: cacheDensity, fullBounds: true }
@@ -4540,6 +4577,11 @@ export class CanvasLayer {
 							? { density: detailBakeDensity, fullBounds: false }
 							: null;
 				if (fixedDensityBake?.fullBounds) this.viewportState.bounds = null;
+				const bakeBounds =
+					cacheHash != null ? brandWorldBBox(keptBake.bake) : fp.textureBounds;
+				if (cacheHash != null && cropReach != null) {
+					this.viewportState.bounds = bakeBounds;
+				}
 				const offscreenResult: CoveredSurface<RasterizedRenderSurface> | null =
 					rendersOwnSource
 						? null
@@ -4547,7 +4589,7 @@ export class CanvasLayer {
 							? this.offscreen.renderGroupToTexture(
 									encoder,
 									element,
-									fp.textureBounds,
+									bakeBounds,
 									elementsMap,
 									this.elementHierarchy.localBounds,
 									rasterScale,
@@ -4559,7 +4601,7 @@ export class CanvasLayer {
 							: this.offscreen.renderElementToTexture(
 									encoder,
 									element,
-									fp.textureBounds,
+									bakeBounds,
 									elementsMap,
 									rasterScale,
 									!isFramePlan,
@@ -4599,6 +4641,7 @@ export class CanvasLayer {
 							underlay.texture.texture,
 							underlay.placement.bounds,
 							underlay.placement.uvRect,
+							keptBake.valid,
 						);
 					}
 					filteredTextures.set(element.id, {
@@ -4746,6 +4789,7 @@ export class CanvasLayer {
 						filteredTexture,
 						outputBounds,
 						outputUvRect,
+						keptBake.valid,
 					);
 				}
 				filteredTextures.set(element.id, {
@@ -4826,17 +4870,6 @@ export class CanvasLayer {
 		);
 	}
 
-	/** A cacheable bake covers the full textureBounds; refuse when that would
-	 *  dwarf the canvas or exceed the cache's per-entry byte cap — otherwise
-	 *  every frame pays a full bake + copy only for set() to reject it
-	 *  (zoomed-in giants stay on the frame-local clamp path). */
-	private filteredBakeWithinBudget(
-		fp: ElementFilterPlan,
-		density: number,
-	): boolean {
-		return this.bakeWithinCacheBudget(fp.textureBounds, density);
-	}
-
 	/** Single source for the paint-hash callbacks — the clip-mask atlas and
 	 *  the filtered-element cache must fingerprint paint identically, or a
 	 *  change one of them tracks would leave the other stale. */
@@ -4898,6 +4931,7 @@ export class CanvasLayer {
 		texture: GPUTexture,
 		bounds: BoundingBox,
 		uvRect: BlitUVRect,
+		validBounds: BoundingBox,
 	): void {
 		const cacheTexture = this.device.createTexture({
 			label: "Filtered Element Cache Texture",
@@ -4919,6 +4953,7 @@ export class CanvasLayer {
 			density,
 			texture: cacheTexture,
 			bounds: brandWorldBBox(bounds),
+			validBounds,
 			uvRect,
 			byteSize: texture.width * texture.height * bytesPerTexel(texture.format),
 			dependencyIds,
@@ -5258,6 +5293,7 @@ export class CanvasLayer {
 						output.texture.texture,
 						output.placement.bounds,
 						output.placement.uvRect,
+						output.placement.bounds,
 					);
 				}
 				filteredTextures.set(elementId, {

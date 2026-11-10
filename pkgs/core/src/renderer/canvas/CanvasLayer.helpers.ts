@@ -7,7 +7,10 @@ import {
 	type Viewport,
 } from "../../schema";
 import { computePolylineSignedArea } from "../../utils/geometry/measure/area";
-import { translateBounds } from "../../utils/geometry/primitives/box";
+import {
+	boundsContain,
+	translateBounds,
+} from "../../utils/geometry/primitives/box";
 
 /** Axis-aligned bounding box of a 4-corner quad (world space). */
 export function aabbOfQuad(
@@ -209,6 +212,14 @@ function applyStoreMargin(
  */
 const INTERACTIVE_BAKE_TEXEL_BUDGET = 16 * 1024 * 1024;
 
+/** Side (texels) of the grid a cropped filter bake is cut on. A pan has to
+ *  cross a tile before the crop changes, so the kept bake is not re-baked on
+ *  every pan frame. */
+const CROPPED_BAKE_TILE_TEXELS = 512;
+
+/** Texels added to a chain's reach for the bilinear taps at its edge. */
+const CROPPED_BAKE_PAD_TEXELS = 2;
+
 /** Whether an element composites with plain source-over, so its content can
  *  draw straight onto the target instead of through a bake. */
 export function hasNormalBlending(element: AnyArtObject): boolean {
@@ -247,6 +258,56 @@ export function interactiveBakeDensity(
 	const budgetDensity =
 		2 ** Math.floor(Math.log2(Math.sqrt(INTERACTIVE_BAKE_TEXEL_BUDGET / area)));
 	return Math.min(bucket, Math.max(rasterZoom, budgetDensity));
+}
+
+/**
+ * The part of an element's filter bake (`textureBounds`, world px) that the
+ * region `needed` requires, when the chain's output at a point reads its
+ * input up to `reach` world px away. The cut follows a grid of
+ * CROPPED_BAKE_TILE_TEXELS laid from the bake's top-left corner at `density`
+ * texels per world px, so a pan inside one tile keeps the same crop. `valid`
+ * is where the cropped result matches the whole bake: the crop less the reach
+ * on every side cut inside the element.
+ */
+export function cropFilterBake(
+	textureBounds: BoundingBox,
+	needed: BoundingBox,
+	reach: number,
+	density: number,
+): { bake: BoundingBox; valid: BoundingBox } {
+	const tile = CROPPED_BAKE_TILE_TEXELS / density;
+	const read = reach + CROPPED_BAKE_PAD_TEXELS / density;
+	const { minX: left, maxY: top } = textureBounds;
+	const minX = Math.max(
+		left,
+		left + Math.floor((needed.minX - read - left) / tile) * tile,
+	);
+	const maxX = Math.min(
+		textureBounds.maxX,
+		left + Math.ceil((needed.maxX + read - left) / tile) * tile,
+	);
+	const maxY = Math.min(
+		top,
+		top - Math.floor((top - needed.maxY - read) / tile) * tile,
+	);
+	const minY = Math.max(
+		textureBounds.minY,
+		top - Math.ceil((top - needed.minY + read) / tile) * tile,
+	);
+	const valid = {
+		minX: minX > left ? minX + read : minX,
+		minY: minY > textureBounds.minY ? minY + read : minY,
+		maxX: maxX < textureBounds.maxX ? maxX - read : maxX,
+		maxY: maxY < top ? maxY - read : maxY,
+	};
+	return {
+		bake: { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY },
+		valid: {
+			...valid,
+			width: valid.maxX - valid.minX,
+			height: valid.maxY - valid.minY,
+		},
+	};
 }
 
 /**
@@ -460,18 +521,6 @@ function computePolygonBounds(points: number[]): {
 		if (y > maxY) maxY = y;
 	}
 	return { minX, minY, maxX, maxY };
-}
-
-/**
- * Check if bounds A fully contains bounds B.
- */
-function boundsContain(
-	a: { minX: number; minY: number; maxX: number; maxY: number },
-	b: { minX: number; minY: number; maxX: number; maxY: number },
-): boolean {
-	return (
-		a.minX <= b.minX && a.maxX >= b.maxX && a.minY <= b.minY && a.maxY >= b.maxY
-	);
 }
 
 /**

@@ -4,6 +4,7 @@ import { compileShaderModule } from "../../../utils/wgpu-utils";
 import type {
 	FilterHandler,
 	FilterProcessorContext,
+	FilterRenderRequirements,
 } from "../../canvas/pipeline/FilterRenderer";
 import { HK_CHROMATIC_ABERRATION_SHADER } from "./hk-chromatic-aberration.wgsl";
 
@@ -95,6 +96,16 @@ export class HKChromaticAberrationFilterHandler implements FilterHandler {
 
 		const params = f.paramData.params;
 
+		// The focus point is placed on the element's whole bake, so a bake cut
+		// to the view keeps the separation where the whole one has it.
+		const worldSize = context.sourceWorldSize ?? {
+			width: textureSize.width / dpiScale,
+			height: textureSize.height / dpiScale,
+		};
+		const contentOffset = context.sourceContentOffset ?? { x: 0, y: 0 };
+		const elementWorldSize = context.coordinateSpace?.worldSize ?? worldSize;
+		const worldOrigin = context.coordinateSpace?.sourceOffset ?? { x: 0, y: 0 };
+
 		const colorModeMap: Record<string, number> = {
 			rgb: 0,
 			cmyk: 1,
@@ -104,6 +115,9 @@ export class HKChromaticAberrationFilterHandler implements FilterHandler {
 
 		this.uniformView.set({
 			resolution: [textureSize.width, textureSize.height],
+			contentOffset: [contentOffset.x, contentOffset.y],
+			worldOrigin: [worldOrigin.x, worldOrigin.y],
+			elementSize: [elementWorldSize.width, elementWorldSize.height],
 			dpiScale,
 			strength: params.strength,
 			angle: params.angle,
@@ -189,6 +203,12 @@ export class HKChromaticAberrationFilterHandler implements FilterHandler {
 
 	public getDetailDensity(): number {
 		return Number.POSITIVE_INFINITY;
+	}
+
+	/** Every read stays within the footprint and is placed on the element's
+	 *  whole bake, so a bake cut to the view gives the same pixels. */
+	public getRenderConfigure(): Partial<FilterRenderRequirements> {
+		return { cropSafe: true };
 	}
 
 	public onScaleFilter(

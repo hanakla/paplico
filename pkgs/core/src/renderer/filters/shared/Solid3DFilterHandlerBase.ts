@@ -306,6 +306,7 @@ export abstract class Solid3DFilterHandlerBase implements FilterHandler {
 			needsBackdrop: extrudeNeedsBackdrop(filter.paramData.params.material),
 			needsSourceTexture: false,
 			needsSourceGraphic: false,
+			cropSafe: false,
 		};
 	}
 

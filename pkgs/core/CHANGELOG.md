@@ -26,6 +26,7 @@
   - Panning a zoomed-in document near a large clipping group no longer slows down.
   - Panning or editing near an element with `applyToBackdrop` on a filter no longer slows down.
   - Editing an element inside a mesh or used as a mask redraws the whole view instead of only the region around it.
+  - Zooming into a document with many filtered elements takes less GPU memory.
 - **Drop shadow filter**
   - Panning over a large drop-shadowed group in a zoomed-in document no longer stalls.
 - **Kirakira filter**
@@ -45,6 +46,8 @@
 - **Filters**
   - Fix some filtered elements staying blurry after zooming in until the view moves.
   - Fix the drop shadow or another filter of a group not following an element edited inside it.
+- **Chromatic aberration filter**
+  - Fix the separation's center moving while panning or zooming a large element.
 - **Text tool**
   - Fix a moved, rotated or resized text disappearing after its edit is confirmed.
 - **Select tool**

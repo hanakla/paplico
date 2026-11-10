@@ -20,6 +20,7 @@ import { degToRad } from "../../utils/math";
 import {
 	calculatePrebufDimensions,
 	computeDotGridPhase,
+	cropFilterBake,
 	expandRenderFilter,
 	groupSubPathsByContainment,
 	interactiveBakeDensity,
@@ -173,6 +174,75 @@ describe("interactiveBakeDensity", () => {
 		expect(interactiveBakeDensity(2, 0)).toBe(2);
 		expect(interactiveBakeDensity(2, -1)).toBe(2);
 		expect(interactiveBakeDensity(2, Number.NaN)).toBe(2);
+	});
+});
+
+describe("cropFilterBake", () => {
+	// 4096 x 4096 world px at 1 texel per px: eight 512-texel tiles per side.
+	const element = box(0, -4096, 4096, 0);
+
+	it("should keep the whole bake when the needed region and its reach cover it", () => {
+		const { bake, valid } = cropFilterBake(
+			element,
+			box(-10, -4100, 4100, 5),
+			0,
+			1,
+		);
+
+		expect(bake).toEqual(element);
+		expect(valid).toEqual(element);
+	});
+
+	it("should cut on the tile grid laid from the bake's top-left corner", () => {
+		const { bake } = cropFilterBake(
+			element,
+			box(1100, -2100, 1300, -1900),
+			0,
+			1,
+		);
+
+		expect(bake).toEqual(box(1024, -2560, 1536, -1536));
+	});
+
+	it("should widen the cut by the chain's reach", () => {
+		const { bake } = cropFilterBake(
+			element,
+			box(1100, -2100, 1300, -1900),
+			200,
+			1,
+		);
+
+		expect(bake).toEqual(box(512, -2560, 1536, -1536));
+	});
+
+	it("should leave the reach out of the valid region only on the sides it cut", () => {
+		const { bake, valid } = cropFilterBake(
+			element,
+			box(10, -100, 300, -10),
+			20,
+			1,
+		);
+
+		expect(bake).toEqual(box(0, -512, 512, 0));
+		expect(valid).toEqual(box(0, -490, 490, 0));
+	});
+
+	it("should keep the same cut while the needed region pans inside one tile", () => {
+		const a = cropFilterBake(element, box(1100, -2100, 1300, -1900), 0, 1);
+		const b = cropFilterBake(element, box(1150, -2050, 1350, -1850), 0, 1);
+
+		expect(b.bake).toEqual(a.bake);
+	});
+
+	it("should size the tiles in texels of the bake's density", () => {
+		const { bake } = cropFilterBake(
+			element,
+			box(1100, -2100, 1300, -1900),
+			0,
+			4,
+		);
+
+		expect(bake).toEqual(box(1024, -2176, 1408, -1792));
 	});
 });
 
@@ -599,4 +669,13 @@ function createCompoundPath(
 		transform: createIdentityTransform(),
 		...overrides,
 	};
+}
+
+function box(
+	minX: number,
+	minY: number,
+	maxX: number,
+	maxY: number,
+): BoundingBox {
+	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }
