@@ -4215,6 +4215,18 @@ export class CanvasLayer {
 					if (g) ancestorOpacity *= g.opacity ?? 1.0;
 				}
 
+				// The UI overlay draws a guide and everything inside one, so
+				// nothing of theirs is painted over the dimmed copy.
+				const editedElement = isolatedElement ?? scopeElement;
+				if (
+					!scopedLayer &&
+					editedElement &&
+					this.isInsideGuide(editedElement, ctx.elementsMap)
+				) {
+					dimPass.end();
+					return;
+				}
+
 				if (scopedLayer) {
 					if (scopedTransientElements.length > 0) {
 						dimPass = this.renderElements(
@@ -6727,6 +6739,19 @@ export class CanvasLayer {
 			mainCompositeContext,
 			localBoundsCache,
 		);
+	}
+
+	/** Whether the element is a guide, or sits in a container that is one. */
+	private isInsideGuide(
+		element: AnyArtObject,
+		elementsMap: Map<string, AnyArtObject>,
+	): boolean {
+		if (element.isGuide) return true;
+		const parents = this.elementHierarchy.parentMap;
+		for (let id = parents.get(element.id); id; id = parents.get(id)) {
+			if (elementsMap.get(id)?.isGuide) return true;
+		}
+		return false;
 	}
 
 	private renderElements(

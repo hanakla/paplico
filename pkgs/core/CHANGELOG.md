@@ -88,6 +88,8 @@
   - Fix deleting a layer leaving the contents of its groups in the document, where a glass solid among them kept showing on the canvas.
 - **Object masks**
   - Fix an object mask showing the whole element instead of only the part the mask keeps.
+- **Guides**
+  - Fix the elements inside a guide group showing their own paint while the group is being edited.
 - **Compound paths**
   - Fix a hidden source path still taking part in its compound path's shape.
 - **Timelapse**

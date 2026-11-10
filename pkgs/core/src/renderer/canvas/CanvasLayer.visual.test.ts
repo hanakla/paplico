@@ -30,6 +30,7 @@ const CLIP_ID = "clip-rect";
 const CLIP_GROUP_ID = "clip-group";
 const BLURRED_ID = "blurred-rect";
 const GLASS_GROUP_ID = "glass-group";
+const GUIDE_GROUP_ID = "guide-group";
 const UNCHANGED: ChangedElements = { upserted: new Set(), deleted: new Set() };
 const BASE_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
 
@@ -295,6 +296,18 @@ describe("editing scope isolation", () => {
 		}
 		expect((differing / compared) * 100).toBeLessThan(1);
 	});
+
+	it("should not paint the children of an edited guide group", async () => {
+		const frame = await renderEditedGroup(
+			createGuideGroupDocument(),
+			GUIDE_GROUP_ID,
+		);
+
+		// The middle of the red square, well inside the outline the overlay
+		// draws for it. The presented frame is BGRA.
+		const i = ((CANVAS_HEIGHT / 2) * CANVAS_WIDTH + CANVAS_WIDTH / 2) * 4;
+		expect(frame[i + 2] - frame[i + 1]).toBeLessThan(40);
+	});
 });
 
 // Helpers
@@ -317,14 +330,17 @@ function renderFrame(
 	);
 }
 
-/** Render with the glass group as the editing scope and read the frame back. */
-async function renderEditedGroup(doc: Document): Promise<Uint8Array> {
+/** Render with a group as the editing scope and read the frame back. */
+async function renderEditedGroup(
+	doc: Document,
+	groupId = GLASS_GROUP_ID,
+): Promise<Uint8Array> {
 	const { renderer, canvas } = await createTestRenderer();
 	const device = renderer.getDevice();
 	if (!device) throw new Error("no GPU device");
 	// The glass solid bakes asynchronously, so the first frame can miss it.
 	for (let frame = 0; frame < 2; frame++) {
-		renderFrame(renderer, doc, UNCHANGED, [GLASS_GROUP_ID]);
+		renderFrame(renderer, doc, UNCHANGED, [groupId]);
 		await device.queue.onSubmittedWorkDone();
 	}
 	return capturePresented(renderer, canvas);
@@ -634,6 +650,35 @@ function createGlassGroupDocument(withFront: boolean): Document {
 		document.objects[element.id] = element;
 	}
 	layer.elementIds.push(backdrop.id, group.id);
+	document.layers = [layer];
+	return document;
+}
+
+/** A guide group holding a red square around the canvas center. */
+function createGuideGroupDocument(): Document {
+	const document = createDefaultDocument("editing-scope-guide");
+	const layer = createDefaultLayer("layer-1", "Layer");
+	const square: Path = {
+		id: "guide-child",
+		type: "path",
+		opacity: 1,
+		blendMode: "normal",
+		transform: createDefaultTransform(),
+		segments: rectSegments(-60, 60, -60, 60),
+		filters: [fill({ r: 0.9, g: 0.1, b: 0.1, a: 1 })],
+	};
+	const group: Group = {
+		id: GUIDE_GROUP_ID,
+		type: "group",
+		opacity: 1,
+		blendMode: "normal",
+		transform: createDefaultTransform(),
+		isGuide: true,
+		childIds: [square.id],
+	};
+	document.objects[square.id] = square;
+	document.objects[group.id] = group;
+	layer.elementIds.push(group.id);
 	document.layers = [layer];
 	return document;
 }
