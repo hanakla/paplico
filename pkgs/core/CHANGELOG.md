@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Color**
+  - `createCmykToRgbConverter` in `@paplico/core/color` converts CMYK to RGB through a CMYK profile, or, when there is no profile, approximates a coated offset press with colors sampled from the FOGRA39L coated profile (zlib/libpng license).
 - **Artboard tool**
   - Alt+drag an artboard to place a copy of it and the elements on it.
   - A dragged artboard snaps to the center lines of the other artboards.

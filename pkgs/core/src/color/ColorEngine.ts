@@ -1,4 +1,5 @@
 import type { JsColorEngineModule, JscProfile } from "jscolorengine";
+import { approximateCmykToRgb } from "./cmykApproximation";
 import { buildLutGridRgb, packRgbToRgba } from "./softProofLut";
 import type { RenderingIntent, SoftProofLutResult } from "./types";
 
@@ -18,6 +19,16 @@ interface ConvertImageToCmykOptions {
 	intent: RenderingIntent;
 	/** Raw bytes for the source display profile (injected from infra; core does not fetch). */
 	srcProfileBytes: Uint8Array;
+}
+
+/** Converts interleaved 8-bit CMYK to interleaved 8-bit RGB. */
+export type CmykToRgbConverter = (cmyk: Uint8Array) => Uint8ClampedArray;
+
+interface CmykToRgbProfiles {
+	cmykProfileBytes: Uint8Array;
+	/** Raw bytes for the destination RGB profile (injected from infra; core does not fetch). */
+	rgbProfileBytes: Uint8Array;
+	intent: RenderingIntent;
 }
 
 interface ConvertImageRgbToRgbOptions {
@@ -101,6 +112,48 @@ export async function convertImageRgbToRgb(
 
 	const out = transform.transformArray(rgba, true, false, false);
 	return new Uint8Array(out.buffer, out.byteOffset, out.length);
+}
+
+/**
+ * Creates a converter from CMYK to RGB. With profiles it converts through the
+ * CMYK profile; without, it approximates a coated offset press by the
+ * FOGRA39L profile, for colors whose document names no profile.
+ */
+export async function createCmykToRgbConverter(
+	profiles?: CmykToRgbProfiles,
+): Promise<CmykToRgbConverter> {
+	if (!profiles) return approximateCmykToRgb;
+
+	const jsce = await loadJsColorEngine();
+	const cmykProfile = loadProfile(
+		jsce,
+		profiles.cmykProfileBytes,
+		"source CMYK",
+	);
+	const rgbProfile = loadProfile(
+		jsce,
+		profiles.rgbProfileBytes,
+		"destination display",
+	);
+	const intent = resolveDeviceToPcsIntent(jsce, cmykProfile, profiles.intent);
+
+	// Black point compensation keeps the press's deepest black at the
+	// screen's, as print layout applications do by default. Finding that
+	// black needs the profile's table back to CMYK, which an input-only
+	// profile lacks; such a profile converts without it.
+	const create = (bpc: boolean) => {
+		const transform = new jsce.Transform({
+			buildLut: true,
+			dataFormat: "int8",
+			BPC: bpc,
+		});
+		createTransform(() => transform.create(cmykProfile, rgbProfile, intent));
+		return transform;
+	};
+	const transform = cmykProfile.B2A.some(Boolean)
+		? create(true)
+		: create(false);
+	return (cmyk) => transform.transformArray(cmyk, false, false, false);
 }
 
 /**

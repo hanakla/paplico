@@ -1,5 +1,15 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { defineConfig } from "vitest/config";
+
+// Same choice as next.config.ts: the importer list this checkout carries.
+const privateDocumentImporters = path.resolve(
+	__dirname,
+	"./src/documentImport/importers.private.ts",
+);
+const documentImporters = existsSync(privateDocumentImporters)
+	? privateDocumentImporters
+	: path.resolve(__dirname, "./src/documentImport/importers.none.ts");
 
 export default defineConfig({
 	test: {
@@ -21,6 +31,7 @@ export default defineConfig({
 			{ find: "@", replacement: path.resolve(__dirname, "./src") },
 			// Same dedupe as next.config.ts: one three.js build for everything.
 			{ find: /^three$/, replacement: "@paplico/core/three-webgpu-compat" },
+			{ find: "#document-importers", replacement: documentImporters },
 		],
 	},
 });

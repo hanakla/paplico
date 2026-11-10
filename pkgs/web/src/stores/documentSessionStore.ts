@@ -1,6 +1,10 @@
 import type { Paplico } from "@paplico/core";
 import { generateUid } from "@paplico/core/schema";
 import { proxy, ref } from "valtio";
+import {
+	findDocumentImporter,
+	openableDocumentExtension,
+} from "@/documentImport";
 import { setLastDocumentId } from "@/hooks/useAppConfig";
 import { type FileHandle, FileSystem } from "@/infra/filesystem";
 import {
@@ -97,7 +101,8 @@ export async function openDocumentFile(
 	}
 
 	const file = source instanceof File ? source : source.file;
-	await paplico.importDocument(file);
+	const importer = findDocumentImporter(file.name);
+	await paplico.importDocument(importer ? await importer.convert(file) : file);
 	const id = paplico.uiState.document.id || generateUid("doc");
 	await upsertDocument(
 		id,
@@ -105,15 +110,18 @@ export async function openDocumentFile(
 		await paplico.exportDocument(),
 	);
 	documentManagerState.currentDocumentId = id;
+	// A converted file is never the save target: saving would replace it with
+	// a papf under the other application's extension.
 	setExternalDocumentSession(
-		source instanceof File || source.handle == null ? null : source,
+		importer || source instanceof File || source.handle == null ? null : source,
 	);
 	setLastDocumentId(id);
 }
 
 /** Names a document after the file it was opened from or saved to. */
 export function documentNameFromFile(file: File): string {
-	return file.name.replace(/\.papf$/i, "");
+	const extension = openableDocumentExtension(file.name);
+	return extension ? file.name.slice(0, -extension.length) : file.name;
 }
 
 function replaceDocumentSession(

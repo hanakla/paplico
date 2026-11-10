@@ -49,6 +49,7 @@ import { ScanInviteDialog } from "@/dialogs/ScanInviteDialog";
 import { SignInDialog } from "@/dialogs/SignInDialog";
 import { SpinnerDialog } from "@/dialogs/SpinnerDialog";
 import { TimelapseDialog } from "@/dialogs/TimelapseDialog";
+import { openableDocumentExtension } from "@/documentImport";
 import {
 	appConfig,
 	applyThemeToDOM,
@@ -706,23 +707,25 @@ export default function Page() {
 	const handleWindowDrop = useEventCallback(async (e: React.DragEvent) => {
 		const items = Array.from(e.dataTransfer.items);
 		const files = Array.from(e.dataTransfer.files);
-		const papfIndex = files.findIndex((f) => f.name.endsWith(".papf"));
+		const documentIndex = files.findIndex((f) =>
+			openableDocumentExtension(f.name),
+		);
 
-		if (papfIndex === -1) return;
+		if (documentIndex === -1) return;
 		e.preventDefault();
 
 		const fileHandle = await domFSFileHandleFromTransferItem(
-			items[papfIndex],
-			files[papfIndex],
+			items[documentIndex],
+			files[documentIndex],
 		);
-		openDroppedDocument(async () => fileHandle ?? files[papfIndex]);
+		openDroppedDocument(async () => fileHandle ?? files[documentIndex]);
 	});
 
 	// Handle file drops from Tauri (native drag-drop bypasses browser events)
 	useEffect(() => {
 		const handler = (e: Event) => {
 			const { paths } = (e as CustomEvent<TauriFileDropDetail>).detail;
-			const path = paths.find((p) => p.endsWith(".papf"));
+			const path = paths.find((p) => openableDocumentExtension(p));
 			if (!path) return;
 
 			openDroppedDocument(() => tauriFileHandleFromPath(path));

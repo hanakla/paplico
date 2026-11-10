@@ -435,4 +435,10 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 		license: "MIT",
 		url: "https://github.com/colinhacks/zod",
 	},
+	{
+		name: "zstddec",
+		version: "0.3.4",
+		license: "MIT AND BSD-3-Clause",
+		url: "https://github.com/donmccurdy/zstddec",
+	},
 ];

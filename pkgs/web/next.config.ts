@@ -1,9 +1,18 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import createMDX from "@next/mdx";
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
 const isTauriBuild = process.env.TAURI_BUILD === "1";
+
+// Importers for other applications' file formats are not part of every
+// checkout; one without them builds with an empty list.
+const documentImporters = existsSync(
+	path.resolve(__dirname, "src/documentImport/importers.private.ts"),
+)
+	? "./src/documentImport/importers.private.ts"
+	: "./src/documentImport/importers.none.ts";
 
 const nextConfig = {
 	pageExtensions: ["js", "jsx", "md", "mdx", "ts", "tsx"],
@@ -25,6 +34,7 @@ const nextConfig = {
 		resolveAlias: {
 			http: { browser: "./src/stubs/empty.ts" },
 			three: "@paplico/core/three-webgpu-compat",
+			"#document-importers": documentImporters,
 		},
 	},
 	webpack: (config, { isServer }) => {
@@ -34,6 +44,7 @@ const nextConfig = {
 		config.resolve.alias = {
 			...config.resolve.alias,
 			three$: "@paplico/core/three-webgpu-compat",
+			"#document-importers$": path.resolve(__dirname, documentImporters),
 		};
 		return config;
 	},

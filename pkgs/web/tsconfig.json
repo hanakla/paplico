@@ -15,7 +15,8 @@
 		"isolatedModules": true,
 		"jsx": "react-jsx",
 		"paths": {
-			"@/*": ["./src/*"]
+			"@/*": ["./src/*"],
+			"#document-importers": ["./src/documentImport/importers.none.ts"]
 		},
 		"types": [
 			"@webgpu/types",
