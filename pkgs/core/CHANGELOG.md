@@ -11,6 +11,7 @@
   - `PaplicoCommands.duplicateArtboard` copies an artboard and the elements on it. Without an offset, the copy goes to the right of or below the source without overlapping another artboard.
 - **Guides**
   - Every element type takes `isGuide`, not only paths. A guide group makes every element inside it a guide.
+  - `PaplicoCommands.makeGuides` and `PaplicoCommands.releaseGuides` turn the given unlocked elements into guides and back in one undo step.
 - **Paste**
   - `PaplicoCommands.pasteElements` takes `layerRoot` to paste at the root of a given layer and `select: false` to keep the selection.
 - **Renderer**

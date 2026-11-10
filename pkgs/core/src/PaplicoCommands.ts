@@ -818,6 +818,35 @@ export class PaplicoCommands {
 		}, origin);
 	}
 
+	/** Turn every given unlocked element into a guide in a single undo step. */
+	public makeGuides(elementIds: string[]): void {
+		this.setGuides(elementIds, true);
+	}
+
+	/** Turn every given unlocked guide back into artwork in a single undo step. */
+	public releaseGuides(elementIds: string[]): void {
+		this.setGuides(elementIds, false);
+	}
+
+	private setGuides(elementIds: string[], isGuide: boolean): void {
+		if (this.cannotMutate()) return;
+		const layerId = this.ctx.store.currentLayerId;
+		if (!layerId) return;
+
+		const origin = this.getMutationOrigin();
+		this.ctx.yjsProvider.transact(() => {
+			for (const elementId of elementIds) {
+				if (this.isElementLocked(elementId)) continue;
+				this.ctx.yjsProvider.updateElement(
+					layerId,
+					elementId,
+					{ isGuide },
+					origin,
+				);
+			}
+		}, origin);
+	}
+
 	// --- Layer Operations ---
 
 	public addLayer(layer: Layer): void {

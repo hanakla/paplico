@@ -286,6 +286,8 @@ export const ja = {
 		createClipGroup: "クリッピンググループを作成",
 		convertToClipObject: "クリップオブジェクトに変換",
 		outline: "アウトライン化",
+		makeGuides: "ガイド化",
+		releaseGuides: "ガイド化を解除",
 		charAngle: "角度",
 		charSkewX: "傾斜X",
 		charSkewY: "傾斜Y",

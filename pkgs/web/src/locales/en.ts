@@ -285,6 +285,8 @@ export const en = {
 		createClipGroup: "Create Clip Group",
 		convertToClipObject: "Convert to Clip Object",
 		outline: "Outline",
+		makeGuides: "Make Guides",
+		releaseGuides: "Release Guides",
 		charAngle: "Angle",
 		charSkewX: "Skew X",
 		charSkewY: "Skew Y",

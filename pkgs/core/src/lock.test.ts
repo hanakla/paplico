@@ -136,6 +136,40 @@ describe("Lock system integration", () => {
 		});
 	});
 
+	describe("makeGuides / releaseGuides", () => {
+		it("should make unlocked elements guides in one transaction and skip locked ones", () => {
+			const layer = makeLayer({ id: "l1", elementIds: ["e1", "e2"] });
+			const { commands, yjsProvider } = createCommands(layer, {
+				e1: makePath("e1", true),
+				e2: makePath("e2"),
+			});
+
+			commands.makeGuides(["e1", "e2"]);
+			expect(yjsProvider.transact).toHaveBeenCalledTimes(1);
+			expect(yjsProvider.updateElement).toHaveBeenCalledTimes(1);
+			expect(yjsProvider.updateElement.mock.calls[0][1]).toBe("e2");
+			expect(yjsProvider.updateElement.mock.calls[0][2]).toEqual({
+				isGuide: true,
+			});
+		});
+
+		it("should release unlocked guides in one transaction and skip locked ones", () => {
+			const layer = makeLayer({ id: "l1", elementIds: ["e1", "e2"] });
+			const { commands, yjsProvider } = createCommands(layer, {
+				e1: { ...makePath("e1", true), isGuide: true },
+				e2: { ...makePath("e2"), isGuide: true },
+			});
+
+			commands.releaseGuides(["e1", "e2"]);
+			expect(yjsProvider.transact).toHaveBeenCalledTimes(1);
+			expect(yjsProvider.updateElement).toHaveBeenCalledTimes(1);
+			expect(yjsProvider.updateElement.mock.calls[0][1]).toBe("e2");
+			expect(yjsProvider.updateElement.mock.calls[0][2]).toEqual({
+				isGuide: false,
+			});
+		});
+	});
+
 	describe("visibility", () => {
 		it("should toggle visibility of a locked element", () => {
 			const layer = makeLayer({ id: "l1", elementIds: ["e1"] });

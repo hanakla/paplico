@@ -138,6 +138,8 @@ function ContextActionsOverlayInner({
 	const hasOutlinableInSelection =
 		!isReference3DNodeContext &&
 		selectedElements.some((el) => el.type === "text" || canOutlineStrokes(el));
+	const hasArtworkInSelection = selectedElements.some((el) => !el.isGuide);
+	const hasGuideInSelection = selectedElements.some((el) => el.isGuide);
 	const meshWarpIdsInSelection = selectedElements
 		.filter((el) => el.type === "mesh")
 		.map((el) => el.id);
@@ -364,6 +366,8 @@ function ContextActionsOverlayInner({
 				<MoreActionsMenu
 					selectedIds={selectedIds}
 					hasOutlinableInSelection={hasOutlinableInSelection}
+					hasArtworkInSelection={hasArtworkInSelection}
+					hasGuideInSelection={hasGuideInSelection}
 					maskTargetId={maskTargetId}
 					singleSelectedId={singleSelectedId}
 					meshWarpIdsInSelection={meshWarpIdsInSelection}

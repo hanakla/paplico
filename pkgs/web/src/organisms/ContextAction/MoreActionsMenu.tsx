@@ -10,6 +10,8 @@ import {
 	Lock,
 	Paintbrush,
 	RemoveFormatting,
+	Ruler,
+	RulerDimensionLine,
 	Shapes,
 	Squircle,
 	Ungroup,
@@ -26,6 +28,8 @@ import { useEventCallback } from "@/utils/hooks";
 export function MoreActionsMenu({
 	selectedIds,
 	hasOutlinableInSelection,
+	hasArtworkInSelection,
+	hasGuideInSelection,
 	maskTargetId,
 	singleSelectedId,
 	meshWarpIdsInSelection,
@@ -33,6 +37,10 @@ export function MoreActionsMenu({
 	selectedIds: readonly string[];
 	/** Whether the selection holds text, a compound path or a stroke that outlining turns into a shape. */
 	hasOutlinableInSelection: boolean;
+	/** Whether the selection holds an element that is not a guide yet. */
+	hasArtworkInSelection: boolean;
+	/** Whether the selection holds a guide. */
+	hasGuideInSelection: boolean;
 	/** The lone selected element that has no mask yet, or null. */
 	maskTargetId: string | null;
 	/** The lone selected element, or null when the selection isn't exactly one element. */
@@ -55,6 +63,14 @@ export function MoreActionsMenu({
 
 	const handleOutline = useEventCallback(() => {
 		paplico.commands.outlineElements([...selectedIds]);
+	});
+
+	const handleMakeGuides = useEventCallback(() => {
+		commands.makeGuides([...selectedIds]);
+	});
+
+	const handleReleaseGuides = useEventCallback(() => {
+		commands.releaseGuides([...selectedIds]);
 	});
 
 	const handleCreateMask = useEventCallback(() => {
@@ -193,14 +209,24 @@ export function MoreActionsMenu({
 							</>
 						)}
 						{hasOutlinableInSelection && (
-							<>
-								<Menu.Item onClick={handleOutline}>
-									<RemoveFormatting size={14} />
-									{t("contextActions.outline")}
-								</Menu.Item>
-								<Menu.Separator />
-							</>
+							<Menu.Item onClick={handleOutline}>
+								<RemoveFormatting size={14} />
+								{t("contextActions.outline")}
+							</Menu.Item>
 						)}
+						{hasArtworkInSelection && (
+							<Menu.Item onClick={handleMakeGuides}>
+								<Ruler size={14} />
+								{t("contextActions.makeGuides")}
+							</Menu.Item>
+						)}
+						{hasGuideInSelection && (
+							<Menu.Item onClick={handleReleaseGuides}>
+								<RulerDimensionLine size={14} />
+								{t("contextActions.releaseGuides")}
+							</Menu.Item>
+						)}
+						<Menu.Separator />
 						{maskTargetId && (
 							<>
 								<Menu.Item onClick={handleCreateMask}>
