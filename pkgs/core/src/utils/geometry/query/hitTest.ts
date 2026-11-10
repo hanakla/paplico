@@ -27,6 +27,8 @@ const REFINED_SPAN_WORLD = 0.01;
 const MAX_REFINEMENT_STEPS = 48;
 /** How far a curve may stray from the chords it is tested as. */
 const CURVE_FLATNESS_WORLD = 0.5;
+/** Fill flatness as a share of the click tolerance a fill hit test is given. */
+const FILL_FLATNESS_PER_TOLERANCE = 0.25;
 /** Bounds the chord tests at halving a segment 12 times. */
 const MAX_SUBDIVISION_DEPTH = 12;
 
@@ -176,7 +178,16 @@ export function isPointOnPath(
 		(f) => f.processor === "fill",
 	);
 	if (hasFill) {
-		if (isPointInPath(px, py, path)) {
+		// The click tolerance is screen pixels over the zoom, so a share of it
+		// keeps the fill edge as sharp on screen at any zoom.
+		const flatness =
+			extraTolerance > 0
+				? Math.min(
+						CURVE_FLATNESS_WORLD,
+						extraTolerance * FILL_FLATNESS_PER_TOLERANCE,
+					)
+				: CURVE_FLATNESS_WORLD;
+		if (isPointInPath(px, py, path, flatness)) {
 			return true;
 		}
 	}
@@ -280,12 +291,15 @@ export function doesPathIntersectRect(
  * @param px Point X coordinate (world space)
  * @param py Point Y coordinate (world space)
  * @param path The path to test against
+ * @param flatness How far, in world units, the curves may be treated as
+ *   straight; smaller resolves the fill edge more finely.
  * @returns true if the point is inside the filled area
  */
 export function isPointInPath(
 	px: number,
 	py: number,
 	path: Pick<Path, "segments">,
+	flatness = CURVE_FLATNESS_WORLD,
 ): boolean {
 	if (path.segments.length === 0) return false;
 
@@ -319,7 +333,7 @@ export function isPointInPath(
 			prevEnd ?? undefined,
 		);
 
-		windingNumber += curveWinding([start, cp1, cp2, end], px, py, 0);
+		windingNumber += curveWinding([start, cp1, cp2, end], px, py, flatness, 0);
 
 		prevEnd = segment.end;
 	}
@@ -359,6 +373,7 @@ function curveWinding(
 	curve: CubicCurve,
 	px: number,
 	py: number,
+	flatness: number,
 	depth: number,
 ): number {
 	const [a, b, c, d] = curve;
@@ -366,24 +381,23 @@ function curveWinding(
 	// above, below or left of the point holds no chord that crosses the ray.
 	const box = controlBox(a, b, c, d);
 	if (box.minY > py || box.maxY <= py || box.maxX < px) return 0;
-	if (depth >= MAX_SUBDIVISION_DEPTH || isFlat(curve)) {
+	if (depth >= MAX_SUBDIVISION_DEPTH || isFlat(curve, flatness)) {
 		return windingCrossing(a, d, px, py);
 	}
 	const { left, right } = splitCurve(curve, 0.5);
 	return (
-		curveWinding(left, px, py, depth + 1) +
-		curveWinding(right, px, py, depth + 1)
+		curveWinding(left, px, py, flatness, depth + 1) +
+		curveWinding(right, px, py, flatness, depth + 1)
 	);
 }
 
 /**
- * Whether both inner control points lie within CURVE_FLATNESS_WORLD of the
- * chord, which keeps the whole curve that close to it.
+ * Whether both inner control points lie within `flatness` of the chord,
+ * which keeps the whole curve that close to it.
  */
-function isFlat([a, b, c, d]: CubicCurve): boolean {
+function isFlat([a, b, c, d]: CubicCurve, flatness: number): boolean {
 	return (
-		distanceToChord(b, a, d) <= CURVE_FLATNESS_WORLD &&
-		distanceToChord(c, a, d) <= CURVE_FLATNESS_WORLD
+		distanceToChord(b, a, d) <= flatness && distanceToChord(c, a, d) <= flatness
 	);
 }
 
@@ -490,7 +504,7 @@ function curveTouchesRect(
 	) {
 		return false;
 	}
-	if (depth >= MAX_SUBDIVISION_DEPTH || isFlat(curve)) {
+	if (depth >= MAX_SUBDIVISION_DEPTH || isFlat(curve, CURVE_FLATNESS_WORLD)) {
 		return lineTouchesRect(a, d, rect);
 	}
 	const { left, right } = splitCurve(curve, 0.5);

@@ -74,6 +74,7 @@
   - Fix a text without a box getting a fixed box when resized, which showed the overflow mark once more characters were typed.
   - Fix a click on a long thin line, or a marquee across it, missing the line in places along it.
   - Fix a click or a marquee on a filled path missing it, or picking it from outside, near an S-shaped edge or inside a single curve that loops back to its start.
+  - Fix a click just inside the curved edge of a filled path missing it when zoomed in beyond about 1300%.
 - **Select tool / Paste**
   - Fix a rotated element, or a group with rotated content, landing away from the pointer when Alt+drag duplicated or pasted.
 - **SVG export**
