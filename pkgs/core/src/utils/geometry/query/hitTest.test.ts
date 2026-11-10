@@ -3,13 +3,19 @@ import {
 	expect,
 	it,
 } from "../../../../../../node_modules/vitest/dist/index";
-import type { BoundingBox } from "../../../schema";
+import type { BoundingBox, FilterEntry, Path } from "../../../schema";
 import { closedRectSegments, lineSeg } from "../../../testUtils/segmentFactory";
+import {
+	evalCubicBezier,
+	evalCubicBezierDerivative,
+} from "../primitives/bezier";
+import { resolveSegment } from "../primitives/segment";
 import {
 	boundsIntersect,
 	doesPathIntersectRect,
 	isPointInPath,
 	isPointNearSegments,
+	isPointOnPath,
 	pointInBounds,
 } from "./hitTest";
 
@@ -123,6 +129,38 @@ describe("isPointNearSegments", () => {
 		const segments = closedRectSegments(0, 0, 3000, 3000);
 
 		expect(isPointNearSegments(2997, 1500, segments, 2)).toBe(false);
+	});
+});
+
+describe("isPointOnPath", () => {
+	it("should hit just inside a filled curve's edge at the highest zoom", () => {
+		// A filled dome: a curve bulging up from (0, 0) to (1000, 0), closed by
+		// the straight base. Clicks at 640x zoom come with 2px / 640 of reach.
+		const dome = lineSeg(
+			{ x: 1000, y: 0 },
+			{ start: { x: 0, y: 0 }, cp1: { x: 0, y: 800 }, cp2: { x: 0, y: 800 } },
+		);
+		const path = {
+			type: "path",
+			id: "dome",
+			segments: [dome, lineSeg({ x: 0, y: 0 })],
+			filters: [{ processor: "fill" } as FilterEntry],
+		} as Path;
+		const { start, cp1, cp2, end } = resolveSegment(dome);
+		const insideByTenth = Array.from({ length: 19 }, (_, i) => {
+			const t = (i + 1) / 20;
+			const point = evalCubicBezier(start, cp1, cp2, end, t);
+			const tangent = evalCubicBezierDerivative(start, cp1, cp2, end, t);
+			const length = Math.hypot(tangent.x, tangent.y);
+			return {
+				x: point.x + (tangent.y / length) * 0.1,
+				y: point.y - (tangent.x / length) * 0.1,
+			};
+		});
+
+		expect(
+			insideByTenth.filter(({ x, y }) => !isPointOnPath(x, y, path, 2 / 640)),
+		).toEqual([]);
 	});
 });
 
