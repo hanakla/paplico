@@ -388,6 +388,11 @@ export class CanvasLayer {
 	// the draw region at the viewport so document edits (brush strokes) never
 	// pay the oversized filter-bake/raster cost (set per-frame in render()).
 	private fullStoreBakeThisFrame = false;
+	// What the frame's store shows while a partial redraw narrows the draw
+	// region to its dirty rect, null on any other frame. A filter bake kept
+	// for later frames is cut for this region, so it covers the frames that
+	// follow instead of only the dirty rect (set per-frame in render()).
+	private partialRedrawStoreRegion: BoundingBox | null = null;
 	private lastDocumentFrameZoom: number | undefined;
 	// Whether this frame may attempt a partial redraw (tracked content change or
 	// a viewport-only frame on an ordinary live frame; final eligibility —
@@ -1968,6 +1973,7 @@ export class CanvasLayer {
 			this.captureCompositeFrameThisFrame &&
 			strategy !== RenderStrategy.full &&
 			strategy !== RenderStrategy.fullTransformOnly;
+		this.partialRedrawStoreRegion = null;
 
 		// A tracked content change on an ordinary live frame may redraw only the
 		// changed region, and a viewport-only frame only the part of the new
@@ -3344,6 +3350,7 @@ export class CanvasLayer {
 				// The dirty rect becomes the frame's draw region: element/segment
 				// culling and the offscreen bake clamp all follow viewportState
 				// .bounds, so everything outside it is skipped on the CPU.
+				this.partialRedrawStoreRegion = prebufViewportBounds;
 				prebufViewportBounds = partialPlan.dirtyWorld;
 			}
 		}
@@ -4449,6 +4456,14 @@ export class CanvasLayer {
 		// A full-bounds bake below switches culling off for its own element;
 		// every other element culls against the region this frame draws.
 		const frameBounds = this.viewportState.bounds;
+		// A nested call draws into another bake's coverage, which the store
+		// region need not contain; its kept bakes are cut for what it draws.
+		const keptRegion =
+			frameBounds &&
+			this.partialRedrawStoreRegion &&
+			boundsContain(this.partialRedrawStoreRegion, frameBounds)
+				? this.partialRedrawStoreRegion
+				: frameBounds;
 		try {
 			for (const fp of plans) {
 				this.viewportState.bounds = frameBounds;
@@ -4513,16 +4528,20 @@ export class CanvasLayer {
 				const isFramePlan =
 					this.activeFramePlan?.filterPlans.get(element.id) === fp;
 
-				// A kept bake covers what this frame draws plus the chain's reach,
-				// cut on a grid laid from the element's whole bake, so later frames
-				// inside it reuse it and see the pixels the whole bake would give.
-				// A chain with a filter that forbids the cut, an underlay and an
-				// export bake the whole element.
+				// A kept bake covers what this frame's store shows plus the chain's
+				// reach, cut on a grid laid from the element's whole bake, so later
+				// frames inside it reuse it and see the pixels the whole bake would
+				// give. A chain with a filter that forbids the cut, an underlay and
+				// an export bake the whole element.
 				const neededBounds = frameBounds
 					? boundsIntersectionBox(fp.textureBounds, frameBounds)
 					: fp.textureBounds;
+				const keptNeededBounds =
+					neededBounds && keptRegion && keptRegion !== frameBounds
+						? boundsIntersectionBox(fp.textureBounds, keptRegion)
+						: neededBounds;
 				const cropReach =
-					neededBounds && !fp.underlay
+					keptNeededBounds && !fp.underlay
 						? croppedBakeReach(
 								this.filterRenderer,
 								fp.postFilters,
@@ -4530,10 +4549,10 @@ export class CanvasLayer {
 							)
 						: null;
 				const keptBake =
-					neededBounds && cropReach != null
+					keptNeededBounds && cropReach != null
 						? cropFilterBake(
 								fp.textureBounds,
-								neededBounds,
+								keptNeededBounds,
 								cropReach,
 								cacheDensity,
 							)

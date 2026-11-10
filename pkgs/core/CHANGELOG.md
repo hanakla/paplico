@@ -36,6 +36,7 @@
   - Panning or editing near an element with `applyToBackdrop` on a filter no longer slows down.
   - Editing an element inside a mesh or used as a mask redraws the whole view instead of only the region around it.
   - Zooming into a document with many filtered elements takes less GPU memory.
+  - Panning over a large filtered element in a zoomed-in document no longer bakes it again each time the pan redraws only a strip of the view.
   - Filters are baked at a density closer to the zoom, in steps of √2 instead of 2, which takes less GPU memory at zooms between two powers of two.
   - Safari and the other WebKit browsers give back the memory of offscreen textures soon after a zoom or pan replaces them, instead of holding it for seconds.
   - On Safari and the other WebKit browsers, the sharp re-render after a pan or zoom waits until the memory of the textures replaced by the one before is given back. Until then the last frame drawn is shown scaled, and the part of the view it does not cover stays empty.
