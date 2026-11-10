@@ -12,9 +12,25 @@ import {
 	strokeOuterReach,
 } from "../../elementQuery";
 import { calculatePathBounds } from "../measure/pathBounds";
-import { evalCubicBezier } from "../primitives/bezier";
+import {
+	type CubicCurve,
+	evalCubicBezier,
+	evalCubicBezierDerivative,
+	splitCurve,
+} from "../primitives/bezier";
 import { expandBounds } from "../primitives/box";
 import { resolveSegment } from "../primitives/segment";
+
+/** World length along a curve below which the nearest-point search stops. */
+const REFINED_SPAN_WORLD = 0.01;
+/** Bounds the nearest-point search on degenerate curves. */
+const MAX_REFINEMENT_STEPS = 48;
+/** How far a curve may stray from the chords it is tested as. */
+const CURVE_FLATNESS_WORLD = 0.5;
+/** Bounds the chord tests at halving a segment 12 times. */
+const MAX_SUBDIVISION_DEPTH = 12;
+
+type Rect = Pick<BoundingBox, "minX" | "minY" | "maxX" | "maxY">;
 
 /**
  * Check if a point is inside a bounding box
@@ -99,34 +115,33 @@ export function distanceToSegment(
 		}
 	}
 
-	// Refine around bestT with binary search
+	// Refine around bestT until the bracket spans less than
+	// REFINED_SPAN_WORLD along the curve, so a long segment is resolved as
+	// finely as a short one.
 	let tMin = Math.max(0, bestT - 1 / numSamples);
 	let tMax = Math.min(1, bestT + 1 / numSamples);
-	const refinementSteps = 5;
+	const length = controlPolygonLength(p0, p1, p2, p3);
 
-	for (let step = 0; step < refinementSteps; step++) {
+	for (
+		let step = 0;
+		step < MAX_REFINEMENT_STEPS && (tMax - tMin) * length > REFINED_SPAN_WORLD;
+		step++
+	) {
 		const tMid = (tMin + tMax) / 2;
-		const tLow = (tMin + tMid) / 2;
-		const tHigh = (tMid + tMax) / 2;
+		const pt = evalCubicBezier(p0, p1, p2, p3, tMid);
+		const distMid = distanceSquared(px, py, pt.x, pt.y);
+		if (distMid < minDistSq) {
+			minDistSq = distMid;
+			bestT = tMid;
+		}
 
-		const ptLow = evalCubicBezier(p0, p1, p2, p3, tLow);
-		const ptHigh = evalCubicBezier(p0, p1, p2, p3, tHigh);
-
-		const distLow = distanceSquared(px, py, ptLow.x, ptLow.y);
-		const distHigh = distanceSquared(px, py, ptHigh.x, ptHigh.y);
-
-		if (distLow < distHigh) {
+		// Where the tangent points away from the point, the distance grows
+		// with t, so the nearest point lies before tMid; otherwise after it.
+		const tangent = evalCubicBezierDerivative(p0, p1, p2, p3, tMid);
+		if ((pt.x - px) * tangent.x + (pt.y - py) * tangent.y > 0) {
 			tMax = tMid;
-			if (distLow < minDistSq) {
-				minDistSq = distLow;
-				bestT = tLow;
-			}
 		} else {
 			tMin = tMid;
-			if (distHigh < minDistSq) {
-				minDistSq = distHigh;
-				bestT = tHigh;
-			}
 		}
 	}
 
@@ -184,9 +199,24 @@ export function isPointNearSegments(
 ): boolean {
 	let prevEnd: BezierPoint | null = null;
 	for (const segment of segments) {
-		const { distance } = distanceToSegment(px, py, segment, prevEnd);
-		if (distance <= tolerance) return true;
+		const start = segment.start ?? prevEnd;
 		prevEnd = segment.end;
+		if (!start) continue;
+		// A curve lies inside its control points' box, so a point farther
+		// than the tolerance from that box cannot be near the curve.
+		const { cp1, cp2, end } = resolveSegment(segment, start);
+		const box = controlBox(start, cp1, cp2, end);
+		if (
+			px < box.minX - tolerance ||
+			px > box.maxX + tolerance ||
+			py < box.minY - tolerance ||
+			py > box.maxY + tolerance
+		) {
+			continue;
+		}
+		if (distanceToSegment(px, py, segment, start).distance <= tolerance) {
+			return true;
+		}
 	}
 	return false;
 }
@@ -212,28 +242,22 @@ export function doesPathIntersectRect(
 		(f) => f.processor === "fill",
 	);
 
-	// Check if any sampled point on the stroke is inside the rect
+	// Check if the stroke's centerline enters the rect grown by the stroke's
+	// reach.
+	const rect = {
+		minX: rectMinX - strokeReach,
+		minY: rectMinY - strokeReach,
+		maxX: rectMaxX + strokeReach,
+		maxY: rectMaxY + strokeReach,
+	};
 	let prevEnd: BezierPoint | null = null;
 	for (const segment of path.segments) {
 		const { start, cp1, cp2, end } = resolveSegment(
 			segment,
 			prevEnd ?? undefined,
 		);
-
-		const numSamples = 16;
-		for (let i = 0; i <= numSamples; i++) {
-			const pt = evalCubicBezier(start, cp1, cp2, end, i / numSamples);
-			if (
-				pt.x + strokeReach >= rectMinX &&
-				pt.x - strokeReach <= rectMaxX &&
-				pt.y + strokeReach >= rectMinY &&
-				pt.y - strokeReach <= rectMaxY
-			) {
-				return true;
-			}
-		}
-
 		prevEnd = segment.end;
+		if (curveTouchesRect([start, cp1, cp2, end], rect, 0)) return true;
 	}
 
 	// If filled, check if any corner of the rect is inside the path
@@ -295,11 +319,7 @@ export function isPointInPath(
 			prevEnd ?? undefined,
 		);
 
-		// Flatten bezier curve into line segments for winding number calculation
-		const points = flattenBezierSegment(start, cp1, cp2, end);
-		for (let i = 0; i < points.length - 1; i++) {
-			windingNumber += windingCrossing(points[i], points[i + 1], px, py);
-		}
+		windingNumber += curveWinding([start, cp1, cp2, end], px, py, 0);
 
 		prevEnd = segment.end;
 	}
@@ -330,74 +350,60 @@ function windingCrossing(
 }
 
 /**
- * Flatten a cubic bezier segment into line segments for polygon testing
+ * Winding contribution of a cubic for a ray cast from (px, py) toward +x.
+ * Halves the curve until a half is flat enough to count as its chord, and
+ * drops each half the ray cannot cross, so a curve costs only the halves
+ * the ray passes through.
  */
-function flattenBezierSegment(
-	p0: BezierPoint,
-	p1: BezierPoint,
-	p2: BezierPoint,
-	p3: BezierPoint,
-	tolerance = 0.5,
-): BezierPoint[] {
-	const points: BezierPoint[] = [p0];
-
-	function subdivide(
-		t0: number,
-		t1: number,
-		q0: BezierPoint,
-		q3: BezierPoint,
-		depth: number,
-	): void {
-		if (depth > 12) {
-			points.push(q3);
-			return;
-		}
-
-		// Calculate midpoint at t = 0.5
-		const tMid = (t0 + t1) / 2;
-		const t = tMid;
-		const mt = 1 - t;
-		const qMid = {
-			x:
-				mt * mt * mt * p0.x +
-				3 * mt * mt * t * p1.x +
-				3 * mt * t * t * p2.x +
-				t * t * t * p3.x,
-			y:
-				mt * mt * mt * p0.y +
-				3 * mt * mt * t * p1.y +
-				3 * mt * t * t * p2.y +
-				t * t * t * p3.y,
-		};
-
-		// Check if line q0-q3 is close enough to curve
-		const dx = q3.x - q0.x;
-		const dy = q3.y - q0.y;
-		const d = Math.sqrt(dx * dx + dy * dy);
-
-		if (d < tolerance) {
-			points.push(q3);
-			return;
-		}
-
-		const midX = (q0.x + q3.x) / 2;
-		const midY = (q0.y + q3.y) / 2;
-		const distFromLine = Math.abs(
-			(qMid.x - midX) * (qMid.x - midX) + (qMid.y - midY) * (qMid.y - midY),
-		);
-
-		if (distFromLine < tolerance * tolerance) {
-			points.push(q3);
-			return;
-		}
-
-		// Subdivide recursively
-		subdivide(t0, tMid, q0, qMid, depth + 1);
-		subdivide(tMid, t1, qMid, q3, depth + 1);
+function curveWinding(
+	curve: CubicCurve,
+	px: number,
+	py: number,
+	depth: number,
+): number {
+	const [a, b, c, d] = curve;
+	// Every chord of the curve stays in its control box, so a box wholly
+	// above, below or left of the point holds no chord that crosses the ray.
+	const box = controlBox(a, b, c, d);
+	if (box.minY > py || box.maxY <= py || box.maxX < px) return 0;
+	if (depth >= MAX_SUBDIVISION_DEPTH || isFlat(curve)) {
+		return windingCrossing(a, d, px, py);
 	}
+	const { left, right } = splitCurve(curve, 0.5);
+	return (
+		curveWinding(left, px, py, depth + 1) +
+		curveWinding(right, px, py, depth + 1)
+	);
+}
 
-	subdivide(0, 1, p0, p3, 0);
-	return points;
+/**
+ * Whether both inner control points lie within CURVE_FLATNESS_WORLD of the
+ * chord, which keeps the whole curve that close to it.
+ */
+function isFlat([a, b, c, d]: CubicCurve): boolean {
+	return (
+		distanceToChord(b, a, d) <= CURVE_FLATNESS_WORLD &&
+		distanceToChord(c, a, d) <= CURVE_FLATNESS_WORLD
+	);
+}
+
+/** Distance from `p` to the line segment from `a` to `b`. */
+function distanceToChord(
+	p: BezierPoint,
+	a: BezierPoint,
+	b: BezierPoint,
+): number {
+	const dx = b.x - a.x;
+	const dy = b.y - a.y;
+	const lengthSq = dx * dx + dy * dy;
+	const t =
+		lengthSq === 0
+			? 0
+			: Math.max(
+					0,
+					Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSq),
+				);
+	return Math.sqrt(distanceSquared(p.x, p.y, a.x + dx * t, a.y + dy * t));
 }
 
 /**
@@ -433,4 +439,91 @@ export function pointInPolygon(
 		}
 	}
 	return inside;
+}
+
+/** Length of a cubic's control polygon, which bounds the curve's length. */
+function controlPolygonLength(
+	p0: BezierPoint,
+	p1: BezierPoint,
+	p2: BezierPoint,
+	p3: BezierPoint,
+): number {
+	return (
+		Math.hypot(p1.x - p0.x, p1.y - p0.y) +
+		Math.hypot(p2.x - p1.x, p2.y - p1.y) +
+		Math.hypot(p3.x - p2.x, p3.y - p2.y)
+	);
+}
+
+/** Box around a cubic's control points, which contains the whole curve. */
+function controlBox(
+	p0: BezierPoint,
+	p1: BezierPoint,
+	p2: BezierPoint,
+	p3: BezierPoint,
+): Rect {
+	return {
+		minX: Math.min(p0.x, p1.x, p2.x, p3.x),
+		minY: Math.min(p0.y, p1.y, p2.y, p3.y),
+		maxX: Math.max(p0.x, p1.x, p2.x, p3.x),
+		maxY: Math.max(p0.y, p1.y, p2.y, p3.y),
+	};
+}
+
+/**
+ * Whether a cubic touches the rect. Halves the curve, dropping each half
+ * whose control box misses the rect, until a half is flat enough to test as
+ * its chord, so a long curve costs only the halves near the rect.
+ */
+function curveTouchesRect(
+	curve: CubicCurve,
+	rect: Rect,
+	depth: number,
+): boolean {
+	const [a, b, c, d] = curve;
+	const box = controlBox(a, b, c, d);
+	if (
+		box.maxX < rect.minX ||
+		box.minX > rect.maxX ||
+		box.maxY < rect.minY ||
+		box.minY > rect.maxY
+	) {
+		return false;
+	}
+	if (depth >= MAX_SUBDIVISION_DEPTH || isFlat(curve)) {
+		return lineTouchesRect(a, d, rect);
+	}
+	const { left, right } = splitCurve(curve, 0.5);
+	return (
+		curveTouchesRect(left, rect, depth + 1) ||
+		curveTouchesRect(right, rect, depth + 1)
+	);
+}
+
+/** Whether the line from `a` to `b` touches the rect, by Liang-Barsky clipping. */
+function lineTouchesRect(a: BezierPoint, b: BezierPoint, rect: Rect): boolean {
+	const dx = b.x - a.x;
+	const dy = b.y - a.y;
+	let tEnter = 0;
+	let tExit = 1;
+	for (const [p, q] of [
+		[-dx, a.x - rect.minX],
+		[dx, rect.maxX - a.x],
+		[-dy, a.y - rect.minY],
+		[dy, rect.maxY - a.y],
+	] as const) {
+		if (p === 0) {
+			if (q < 0) return false;
+			continue;
+		}
+		const t = q / p;
+		if (p < 0) {
+			if (t > tExit) return false;
+			tEnter = Math.max(tEnter, t);
+		} else {
+			if (t < tEnter) return false;
+			tExit = Math.min(tExit, t);
+		}
+	}
+	return true;
 }

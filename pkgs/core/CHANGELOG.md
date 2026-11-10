@@ -51,6 +51,7 @@
   - Dragging a vertex no longer stalls on its first frame or on release, and no longer slows down inside a drop-shadowed group.
 - **Guides**
   - A guide is drawn as a thin cyan outline above the artboards and below the other tool UI instead of with its own paint.
+  - A click or a marquee selects a guide path, compound path or image only on that outline instead of anywhere on its fill or stroke.
 - **SVG export**
   - An alpha-locked element is exported as an image of only what it paints, instead of turning it and every element under it into one image.
 - **Collaboration**
@@ -70,6 +71,8 @@
   - Fix a moved, rotated or resized text disappearing after its edit is confirmed.
 - **Select tool**
   - Fix a text without a box getting a fixed box when resized, which showed the overflow mark once more characters were typed.
+  - Fix a click on a long thin line, or a marquee across it, missing the line in places along it.
+  - Fix a click or a marquee on a filled path missing it, or picking it from outside, near an S-shaped edge or inside a single curve that loops back to its start.
 - **Select tool / Paste**
   - Fix a rotated element, or a group with rotated content, landing away from the pointer when Alt+drag duplicated or pasted.
 - **SVG export**

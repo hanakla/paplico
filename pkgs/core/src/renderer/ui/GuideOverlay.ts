@@ -1,24 +1,16 @@
+import { guideLocalOutlines } from "../../document/elementGeometry/guideOutlines";
 import {
-	buildImageQuadSegments,
-	imageLocalBounds,
-} from "../../document/elementGeometry/imageGeometry";
-import {
-	type AnyArtObject,
 	type Document,
 	type ElementTransform,
 	getContainerChildIds,
 	type PathSegment,
 	type TextElement,
 } from "../../schema";
-import { bakeCompoundPathSegments } from "../../utils/geometry/generate/compoundBake";
 import {
 	placeElement,
 	type WorldBezierSegment,
 } from "../../utils/geometry/space/coordinates";
-import {
-	toWorldPath,
-	transformSegmentsToWorld,
-} from "../../utils/geometry/space/worldSegments";
+import { transformSegmentsToWorld } from "../../utils/geometry/space/worldSegments";
 import type { UIOverlay } from "./primitives";
 import { OVERLAY_Z, UI_THEME } from "./theme";
 
@@ -70,24 +62,19 @@ export class GuideOverlay {
 			const guide = inGuide || element.isGuide === true;
 			const placed = placeElement(matrix, element);
 			if (guide) {
-				for (const segments of this.localOutlines(element)) {
+				const local =
+					element.type === "text"
+						? this.glyphOutlines(element)
+						: guideLocalOutlines(
+								element,
+								(sourceId) => document.objects[sourceId],
+							);
+				for (const segments of local) {
 					outlines.push(transformSegmentsToWorld(segments, placed));
 				}
 			}
 			// A compound path's sources are drawn only as its boolean result.
-			if (element.type === "compound-path") {
-				const segments = guide
-					? bakeCompoundPathSegments(
-							element,
-							(sourceId) => document.objects[sourceId],
-							toWorldPath,
-						)
-					: [];
-				if (segments.length > 0) {
-					outlines.push(transformSegmentsToWorld(segments, placed));
-				}
-				return;
-			}
+			if (element.type === "compound-path") return;
 			for (const childId of getContainerChildIds(element) ?? []) {
 				visit(childId, placed, guide);
 			}
@@ -110,25 +97,6 @@ export class GuideOverlay {
 				stroke,
 			})),
 		};
-	}
-
-	/**
-	 * The outlines an element draws itself, in its local space. A container
-	 * draws none; the elements inside it draw theirs.
-	 */
-	private localOutlines(element: AnyArtObject): PathSegment[][] {
-		switch (element.type) {
-			case "path":
-				return element.segments.length > 0 ? [element.segments] : [];
-			case "image":
-				return [
-					buildImageQuadSegments(imageLocalBounds(element), element.corners),
-				];
-			case "text":
-				return this.glyphOutlines(element);
-			default:
-				return [];
-		}
 	}
 
 	private glyphOutlines(text: TextElement): PathSegment[][] {

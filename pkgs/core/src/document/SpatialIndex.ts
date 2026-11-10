@@ -101,6 +101,7 @@ import {
 import { CompoundPathCache } from "./elementGeometry/CompoundPathCache";
 import type { FilterCapabilityLookup } from "./elementGeometry/filterCapabilities";
 import { calculatePreFilteredElementBounds } from "./elementGeometry/filteredBounds";
+import { guideLocalOutlines } from "./elementGeometry/guideOutlines";
 import { resolveImageGeometry } from "./elementGeometry/imageGeometry";
 import {
 	childPreFilters,
@@ -1893,9 +1894,7 @@ export class SpatialIndex {
 				// local space. Blend sources keep their own transforms (the positional
 				// offset is the whole point of a blend), so without this a body click on
 				// a blend's inner object never hits.
-				if (
-					this.isPointOnPathLocal(child, x, y, tolerance, inheritedPreFilters)
-				)
+				if (this.isPointOnElement(child, x, y, tolerance, inheritedPreFilters))
 					return child;
 				continue;
 			}
@@ -2296,6 +2295,10 @@ export class SpatialIndex {
 		inheritedPreFilters: readonly Filter[],
 		placement: ElementTransform = getTransform(element),
 	): boolean {
+		if (element.type !== "text" && this.isGuide(element)) {
+			return this.isPointOnGuide(element, x, y, tolerance, placement);
+		}
+
 		if (isPath(element)) {
 			return this.isPointOnPathLocal(
 				element,
@@ -2324,6 +2327,103 @@ export class SpatialIndex {
 			tolerance,
 			inheritedPreFilters,
 		);
+	}
+
+	/**
+	 * Whether an element is a guide: marked isGuide itself, or inside a
+	 * container that is.
+	 */
+	private isGuide(element: AnyArtObject): boolean {
+		if (element.isGuide) return true;
+		for (
+			let id = this.parentGroupMap.get(element.id);
+			id;
+			id = this.parentGroupMap.get(id)
+		) {
+			if (this.store.document.objects[id]?.isGuide) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Hit-test a guide near the outline the guide overlay draws for it, never
+	 * on its paint, so a click inside a filled guide passes through. A
+	 * container other than a compound path hits through its children, placed
+	 * the way the overlay places them. `x`/`y` and `placement` are as in
+	 * isPointOnElement.
+	 */
+	private isPointOnGuide(
+		element: AnyArtObject,
+		x: LocalCoord,
+		y: LocalCoord,
+		tolerance: number,
+		placement: ElementTransform,
+	): boolean {
+		const local = this.toElementLocal(element, x, y, placement);
+		if (
+			guideLocalOutlines(element, (id) => this.store.document.objects[id]).some(
+				(segments) =>
+					isPointNearSegments(local.x, local.y, segments, tolerance),
+			)
+		) {
+			return true;
+		}
+		if (isCompoundPath(element)) return false;
+		return (getContainerChildIds(element) ?? []).some((id) => {
+			const child = this.store.document.objects[id];
+			return (
+				child != null &&
+				isElementVisible(child) &&
+				this.isPointOnElement(child, local.x, local.y, tolerance, [])
+			);
+		});
+	}
+
+	/**
+	 * Whether a rect, in the space `transform` maps the guide into, touches
+	 * the outline the guide overlay draws for it. A rect lying inside a filled
+	 * guide does not.
+	 */
+	private isGuideInRect(
+		element: AnyArtObject,
+		transform: ElementTransform,
+		minX: number,
+		minY: number,
+		maxX: number,
+		maxY: number,
+	): boolean {
+		const rect = this.toElementLocalRect(transform, minX, minY, maxX, maxY);
+		if (
+			guideLocalOutlines(element, (id) => this.store.document.objects[id]).some(
+				(segments) =>
+					doesPathIntersectRect(
+						{ segments, filters: [] },
+						rect.minX,
+						rect.minY,
+						rect.maxX,
+						rect.maxY,
+					),
+			)
+		) {
+			return true;
+		}
+		if (isCompoundPath(element)) return false;
+		return (getContainerChildIds(element) ?? []).some((id) => {
+			const child = this.store.document.objects[id];
+			return (
+				child != null &&
+				isElementVisible(child) &&
+				this.isElementInRect(
+					child,
+					getTransform(child),
+					rect.minX,
+					rect.minY,
+					rect.maxX,
+					rect.maxY,
+					[],
+				)
+			);
+		});
 	}
 
 	/**
@@ -2603,6 +2703,10 @@ export class SpatialIndex {
 		maxY: number,
 		inheritedPreFilters: readonly Filter[],
 	): boolean {
+		if (element.type !== "text" && this.isGuide(element)) {
+			return this.isGuideInRect(element, transform, minX, minY, maxX, maxY);
+		}
+
 		if (isPath(element)) {
 			const path = this.resolveAppearance(element);
 			const rect = this.toElementLocalRect(transform, minX, minY, maxX, maxY);
