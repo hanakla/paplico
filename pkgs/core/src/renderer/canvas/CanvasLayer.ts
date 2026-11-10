@@ -6760,13 +6760,8 @@ export class CanvasLayer {
 			) {
 				continue;
 			}
-			// Guide paths stay visible on canvas but are excluded from exports
-			// (schema: Path.isGuide "Excluded from export").
-			if (
-				element.type === "path" &&
-				element.isGuide &&
-				this.renderState.isExport
-			) {
+			// The UI overlay draws guides; they are never document content.
+			if (element.isGuide) {
 				continue;
 			}
 			if (skipElementIds?.has(element.id)) {

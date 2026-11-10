@@ -121,7 +121,7 @@ function classifyElementInner(
 		return "skip";
 	}
 	if (element.opacity <= 0) return "skip";
-	if (element.type === "path" && element.isGuide) return "skip";
+	if (element.isGuide) return "skip";
 	if (element.type === "reference3d") {
 		return element.includeInExport === true ? "raster" : "skip";
 	}

@@ -2995,6 +2995,7 @@ export function objectToStoredFields(
 		fields.compositionMode = element.compositionMode;
 	if (element.visible !== undefined) fields.visible = element.visible;
 	if (element.locked !== undefined) fields.locked = element.locked;
+	if (element.isGuide !== undefined) fields.isGuide = element.isGuide;
 	if (element.filters?.length) fields.filters = JSON.stringify(element.filters);
 	if (element.transform) fields.transform = JSON.stringify(element.transform);
 	if (element.mask) fields.mask = JSON.stringify(element.mask);
@@ -3011,7 +3012,6 @@ export function objectToStoredFields(
 				fields.strokeErasure = JSON.stringify(element.strokeErasure);
 			if (element.pathStart !== undefined) fields.pathStart = element.pathStart;
 			if (element.pathEnd !== undefined) fields.pathEnd = element.pathEnd;
-			if (element.isGuide !== undefined) fields.isGuide = element.isGuide;
 			break;
 		case "group":
 			fields.childIds = JSON.stringify(element.childIds);

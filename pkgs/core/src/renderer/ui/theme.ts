@@ -7,6 +7,8 @@ export type RGBA = [number, number, number, number];
  */
 export const OVERLAY_Z = {
 	artboard: 0,
+	/** Guide elements: above the artboard boundaries, below every other UI. */
+	guide: 5,
 	selection: 10,
 	pathEdit: 20,
 	toolCursor: 30,
@@ -47,6 +49,8 @@ export const UI_THEME = {
 		path: 1,
 		/** Stroke width for the always-visible artboard boundary */
 		artboardOutline: 1,
+		/** Stroke width for guide elements */
+		guide: 1,
 		/** Stroke width for hover highlights, thicker so they read at a glance */
 		hover: 3.0,
 		/** Stroke width for white mesh vertex outlines */
@@ -91,6 +95,8 @@ export const UI_THEME = {
 		// --- Artboard ---
 		artboardOutline: rgba(0, 0, 0, 1),
 		artboardSelected: rgba(0.2, 0.6, 1.0, 1.0),
+		// --- Guide ---
+		guide: rgba(0, 1, 1, 1),
 		// --- Selection ---
 		selectionPath: rgba(0.2, 0.5, 1.0, 1.0),
 		selectionBounds: rgba(0, 0.5, 1, 1),
