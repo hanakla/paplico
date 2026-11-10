@@ -4,8 +4,14 @@ import {
 	it,
 } from "../../../../../../node_modules/vitest/dist/index";
 import type { BoundingBox } from "../../../schema";
-import { closedRectSegments } from "../../../testUtils/segmentFactory";
-import { boundsIntersect, isPointInPath, pointInBounds } from "./hitTest";
+import { closedRectSegments, lineSeg } from "../../../testUtils/segmentFactory";
+import {
+	boundsIntersect,
+	doesPathIntersectRect,
+	isPointInPath,
+	isPointNearSegments,
+	pointInBounds,
+} from "./hitTest";
 
 describe("pointInBounds", () => {
 	const bounds: BoundingBox = {
@@ -62,6 +68,84 @@ describe("isPointInPath", () => {
 		// Left of both squares, where an edge joining the second contour's
 		// end to the first contour's start would cross a ray cast to +x.
 		expect(isPointInPath(-50, 150, { segments })).toBe(false);
+	});
+
+	it("should follow a symmetric S-shaped edge instead of its chord", () => {
+		// The top edge bulges above y=0 near x=25 and dips below it near x=75,
+		// and its midpoint lies exactly on the chord.
+		const segments = [
+			lineSeg(
+				{ x: 100, y: 0 },
+				{
+					start: { x: 0, y: 0 },
+					cp1: { x: 25, y: 80 },
+					cp2: { x: -25, y: -80 },
+				},
+			),
+			lineSeg({ x: 100, y: -100 }),
+			lineSeg({ x: 0, y: -100 }),
+			lineSeg({ x: 0, y: 0 }, { isClosed: true }),
+		];
+
+		expect(isPointInPath(25, 10, { segments })).toBe(true);
+		expect(isPointInPath(75, -10, { segments })).toBe(false);
+	});
+
+	it("should fill a single curve that loops back to its own start", () => {
+		const segments = [
+			lineSeg(
+				{ x: 0, y: 0 },
+				{
+					start: { x: 0, y: 0 },
+					cp1: { x: 100, y: 100 },
+					cp2: { x: -100, y: 100 },
+					isClosed: true,
+				},
+			),
+		];
+
+		expect(isPointInPath(0, 50, { segments })).toBe(true);
+		expect(isPointInPath(0, 100, { segments })).toBe(false);
+	});
+});
+
+describe("isPointNearSegments", () => {
+	it("should find every point along a long edge within the tolerance", () => {
+		const segments = closedRectSegments(0, 0, 3000, 3000);
+		const ys = Array.from({ length: 400 }, (_, i) => i * 7.5);
+
+		expect(
+			ys.filter((y) => !isPointNearSegments(3001, y, segments, 2)),
+		).toEqual([]);
+	});
+
+	it("should not find a point farther than the tolerance from every edge", () => {
+		const segments = closedRectSegments(0, 0, 3000, 3000);
+
+		expect(isPointNearSegments(2997, 1500, segments, 2)).toBe(false);
+	});
+});
+
+describe("doesPathIntersectRect", () => {
+	it("should detect a small rect crossing a long edge anywhere along it", () => {
+		const path = {
+			segments: closedRectSegments(0, 0, 3000, 3000),
+			filters: [],
+		};
+		const ys = Array.from({ length: 80 }, (_, i) => i * 37);
+
+		expect(
+			ys.filter((y) => !doesPathIntersectRect(path, 2980, y, 3020, y + 20)),
+		).toEqual([]);
+	});
+
+	it("should not detect a rect inside an unfilled closed path", () => {
+		const path = {
+			segments: closedRectSegments(0, 0, 3000, 3000),
+			filters: [],
+		};
+
+		expect(doesPathIntersectRect(path, 1000, 1000, 1040, 1040)).toBe(false);
 	});
 });
 
