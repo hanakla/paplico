@@ -9,6 +9,7 @@ import { compileShaderModule } from "../../../utils/wgpu-utils";
 import type {
 	FilterHandler,
 	FilterProcessorContext,
+	FilterRenderRequirements,
 } from "../../canvas/pipeline/FilterRenderer";
 import { HK_GRADIENT_MAP_SHADER } from "./hk-gradient-map.wgsl";
 
@@ -259,6 +260,12 @@ export class HKGradientMapFilterHandler implements FilterHandler {
 
 	public getDetailDensity(): number {
 		return Number.POSITIVE_INFINITY;
+	}
+
+	/** Every read stays within the footprint and is placed on the element's
+	 *  whole bake, so a bake cut to the view gives the same pixels. */
+	public getRenderConfigure(): Partial<FilterRenderRequirements> {
+		return { cropSafe: true };
 	}
 
 	public onScaleFilter(params: Filter, _scale: [number, number]): Filter {

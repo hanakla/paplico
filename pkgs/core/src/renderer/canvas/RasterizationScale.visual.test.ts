@@ -79,10 +79,18 @@ async function captureBlurScene(
 	const originalPostProcess = handler.postProcess;
 	let captured: SceneCapture | null = null;
 	handler.postProcess = function interceptedPostProcess(context, filter) {
+		// The bake's own texels: a crop-safe chain on an element runs on the
+		// pool texture, whose padding does not follow the rasterization scale.
+		const { dpiScale, textureSize } = context.sceneInfo;
+		const worldSize = context.coordinateSpace?.worldSize;
 		captured ??= {
-			dpiScale: context.sceneInfo.dpiScale,
-			width: context.sceneInfo.textureSize.width,
-			height: context.sceneInfo.textureSize.height,
+			dpiScale,
+			width: worldSize
+				? Math.ceil(worldSize.width * dpiScale)
+				: textureSize.width,
+			height: worldSize
+				? Math.ceil(worldSize.height * dpiScale)
+				: textureSize.height,
 		};
 		return originalPostProcess.call(this, context, filter);
 	};

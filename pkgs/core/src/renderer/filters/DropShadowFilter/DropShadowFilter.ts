@@ -41,6 +41,7 @@ import {
 import type {
 	FilterHandler,
 	FilterProcessorContext,
+	FilterRenderRequirements,
 	UnderlayProcessorContext,
 	UnderlayResult,
 } from "../../canvas/pipeline/FilterRenderer";
@@ -713,6 +714,12 @@ export class DropShadowFilterHandler implements FilterHandler {
 		return blurRadius > 0 && !p.spreadRadius
 			? SHADOW_TEXELS_PER_SIGMA / (blurRadius / 2)
 			: Number.POSITIVE_INFINITY;
+	}
+
+	/** Every read stays within the footprint and is placed on the element's
+	 *  whole bake, so a bake cut to the view gives the same pixels. */
+	public getRenderConfigure(): Partial<FilterRenderRequirements> {
+		return { cropSafe: true };
 	}
 
 	public getExpansionMargin(filter: Filter): number {

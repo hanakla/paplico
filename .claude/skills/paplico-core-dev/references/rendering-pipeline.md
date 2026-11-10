@@ -119,7 +119,7 @@ When adding a new element type, this is the dispatch point that must be extended
 
 ### 3. Filter application (FilterRenderer)
 
-Filters from `ArtObject.filters[]` are applied per-element after rendering. FilterRenderer uses a ping-pong between two temporary textures for multi-pass filters (e.g., blur requires horizontal + vertical passes). The final result is copied back to the element's texture.
+Filters from `ArtObject.filters[]` are applied per-element after rendering. FilterRenderer ping-pongs between one temporary texture and the element's own unpadded texture, so a chain ends in or is copied back to the element's texture. A chain that strips pool padding, reads the backdrop, or follows a self-sizing pass alternates between two temporary textures instead. A chain whose filters all declare `cropSafe` runs on the padded pool texture as it is, and a kept bake of such a chain covers only the part of the element the view needs (`FilteredElementCacheEntry.validBounds` records where it matches the whole bake).
 
 Pre-filters (`preProcess`) modify path geometry before rendering — they never touch textures. Post-filters (`postProcess`) usually operate on the already-rendered texture (same-size, in place; e.g. blur). But `postProcess` is also the home of **self-sizing geometry filters** (extrude3d): they read `ctx.geometry`, build their own output, and return a self-sized `PostProcessResult` blitted at its own bounds. fill/stroke, by contrast, still produce the flat look in `ElementRenderer`'s appearance loop, not via `FilterRenderer` (see SKILL.md "Two filter hooks").
 

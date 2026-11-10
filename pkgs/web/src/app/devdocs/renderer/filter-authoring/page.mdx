@@ -90,9 +90,9 @@ interface FilterProcessorContext {
 
 | フィールド | 用途 |
 |---|---|
-| `sceneInfo.textureSize` | `sourceTexture` の幅と高さ。プールのパディングが除去された後の内容サイズである |
+| `sceneInfo.textureSize` | `sourceTexture` の幅と高さ。プールのパディングが除去された後の内容サイズである。チェーンの全フィルターが `cropSafe` を宣言したときはパディングが残り、プールのテクスチャの寸法になる |
 | `sceneInfo.dpiScale` | 空間パラメータ（ぼかし半径など）に掛ける倍率 |
-| `sourceWorldSize` | UV [0,1] が対応する内容領域の正確なワールドサイズ。テクスチャ寸法の切り上げの影響を受けないため、テクスチャ内のパターンをワールドpxで組むときに使う |
+| `sourceWorldSize` | UV [0,1] が対応する内容領域の正確なワールドサイズ。テクスチャ寸法の切り上げの影響を受けないため、テクスチャ内のパターンをワールドpxで組むときに使う。チェーンの全フィルターが `cropSafe` を宣言したときは、パディングを含むテクスチャ全体のサイズになる。要素のサイズは `coordinateSpace.worldSize` で得る |
 | `sourceContentOffset` | `sourceTexture` の中で内容の左上が置かれているテクセル位置（小数）。グリッドやパターンを内容に固定するフィルター（`pixelate`）が使う |
 | `coordinateSpace` | `sourceTexture` が領域全体の一部しか含まないときの、切り取られていない座標空間。`sourceOffset` は、その一部分の左上のワールドpx位置である。要素に固定した模様を描くフィルター（`hk:glitch`, `hk:paper-v2` など）が使う |
 | `sourceGraphicTexture` | チェーンの入力そのもの。`needsSourceGraphic` を宣言したハンドラーがチェーンにあるときだけ渡される |
@@ -205,6 +205,7 @@ interface FilterRenderRequirements {
   needsBackdrop: boolean;       // 既定値 false
   needsSourceTexture: boolean;  // 既定値 true
   needsSourceGraphic: boolean;  // 既定値 false
+  cropSafe: boolean;            // 既定値 false
 }
 ```
 
@@ -213,8 +214,31 @@ interface FilterRenderRequirements {
 | `needsBackdrop` | フィルターの実行前に、レンダラーが要素の背後の内容をキャプチャする |
 | `needsSourceTexture` | `postProcess` が `sourceTexture` を読む。偽を返すのは、`context.geometry` だけから自前の出力を作るハンドラーである |
 | `needsSourceGraphic` | `postProcess` がチェーンの入力そのものを `context.sourceGraphicTexture` から読む。レンダラーはチェーン入力のコピーをチェーンの間保持するので、前段のフィルターがピンポン用テクスチャを上書きしても失われない |
+| `cropSafe` | 出力のある点が、入力のうち `getBackdropFootprint` の距離より内側だけを読む。読む位置はすべて `context.coordinateSpace` から求める |
 
 `ClipToShapeFilterHandler` は `{ needsSourceGraphic: true }` を返す。チェーンの現在の結果を、チェーン入力のアルファで切り抜くためである。
+
+#### `cropSafe` を宣言する
+
+`cropSafe` を真にすると、レンダラーは2つのことを行う。どちらも、チェーンの全フィルターが宣言したときだけ行われる。宣言しないフィルターが1つあると、チェーン全体が要素の全体を焼き、中間テクスチャも自分のサイズで持つ。
+
+1つ目は焼き込みの切り出しである。キャッシュに残す焼き込みは、ビューに必要な範囲にチェーンの `getBackdropFootprint` の合計を足した範囲だけになる。そのため `getBackdropFootprint` は、バックドロップを読まないフィルターでも、シェーダーのサンプリングのずれをすべて数えた値を返さなければならない。小さい値を返すと、切り出した焼き込みの縁に誤った画素が残る。
+
+2つ目はパディングを残したままの実行である。チェーンはプールのテクスチャの上でそのまま走る。このとき次のことが成り立つ。
+
+- `sceneInfo.textureSize` と `sourceWorldSize` はパディングを含む。
+- UV [0,1] は内容より広い範囲を指す。
+- 内容は `sourceContentOffset` のテクセル位置から始まる。
+
+テクスチャのUV、中心、寸法、端から位置を決めるフィルターは `cropSafe` を宣言できない。読む位置は、次の式で求めた要素全体の中のワールドpx位置から決める。
+
+```
+位置 = (テクセル位置 - sourceContentOffset) / dpiScale + coordinateSpace.sourceOffset
+```
+
+`coordinateSpace.worldSize` は要素全体のサイズである。`coordinateSpace.sourceOffset` は、テクスチャの内容の左上が要素全体の左上からどれだけ離れているかを、下向きを正として表す。
+
+宣言したフィルターは `filters/shared/CroppedBake.visual.test.ts` の `CASES` に追加する。このテストは、切り出した焼き込みと全体の焼き込みの画素が一致することと、パディングが結果を変えないことを確かめる。
 
 #### バックドロップに適用する
 

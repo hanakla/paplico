@@ -1,6 +1,9 @@
 export const HK_CHROMATIC_ABERRATION_SHADER = /* wgsl */ `
 struct Uniforms {
 	resolution: vec2f,
+	contentOffset: vec2f,
+	worldOrigin: vec2f,
+	elementSize: vec2f,
 	dpiScale: f32,
 	strength: f32,
 	angle: f32,
@@ -63,14 +66,22 @@ fn rotateOffset(offset: vec2f, dims: vec2f, radians: f32) -> vec2f {
 	return vec2f(px.x * c + px.y * s, -px.x * s + px.y * c) / dims;
 }
 
-fn calculateDistanceBasedOffset(texCoord: vec2f, focusPoint: vec2f, baseOffset: vec2f, gradient: f32) -> vec2f {
-	let dist = length(texCoord - focusPoint);
+// Position on the element's whole bake in its UV, which a bake cut to the
+// view shares with the whole one.
+fn elementUv(texCoord: vec2f) -> vec2f {
+	let worldPos = (texCoord * uniforms.resolution - uniforms.contentOffset) / uniforms.dpiScale
+		+ uniforms.worldOrigin;
+	return worldPos / uniforms.elementSize;
+}
+
+fn calculateDistanceBasedOffset(elemCoord: vec2f, focusPoint: vec2f, baseOffset: vec2f, gradient: f32) -> vec2f {
+	let dist = length(elemCoord - focusPoint);
 	let adjustedDistance = pow(dist, gradient);
 	return baseOffset * adjustedDistance;
 }
 
-fn calculateZoomOffset(texCoord: vec2f, focusPoint: vec2f, strengthPixels: f32, dims: vec2f) -> vec2f {
-	let direction = texCoord - focusPoint;
+fn calculateZoomOffset(elemCoord: vec2f, focusPoint: vec2f, strengthPixels: f32, dims: vec2f) -> vec2f {
+	let direction = elemCoord - focusPoint;
 	return vec2f(
 		direction.x * (strengthPixels / dims.x),
 		direction.y * (strengthPixels / dims.y)
@@ -81,6 +92,7 @@ fn calculateZoomOffset(texCoord: vec2f, focusPoint: vec2f, strengthPixels: f32, 
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	let dims = uniforms.resolution;
 	let texCoord = input.texCoord;
+	let elemCoord = elementUv(texCoord);
 
 	let dpiScale = uniforms.dpiScale;
 
@@ -99,19 +111,19 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
 	if (uniforms.shiftType < 0.5) {
 		// move mode
 		if (uniforms.useFocusPoint > 0.5) {
-			texOffset = calculateDistanceBasedOffset(texCoord, focusPoint, baseTexOffset, uniforms.focusGradient);
+			texOffset = calculateDistanceBasedOffset(elemCoord, focusPoint, baseTexOffset, uniforms.focusGradient);
 		} else {
 			texOffset = baseTexOffset;
 		}
 	} else {
 		// zoom mode
-		let zoomOffset = calculateZoomOffset(texCoord, focusPoint, uniforms.strength * dpiScale, dims);
+		let zoomOffset = calculateZoomOffset(elemCoord, focusPoint, uniforms.strength * dpiScale, dims);
 
 		let angleRad = uniforms.angle * 3.14159 / 180.0;
 		texOffset = rotateOffset(zoomOffset, dims, angleRad);
 
 		if (uniforms.useFocusPoint > 0.5) {
-			let dist = length(texCoord - focusPoint);
+			let dist = length(elemCoord - focusPoint);
 			let adjustedDistance = pow(dist, uniforms.focusGradient);
 			texOffset = texOffset * adjustedDistance;
 		}
