@@ -19,6 +19,7 @@ export {
 export { createBrushTextureFile } from "./embeddedFile";
 export { Emitter } from "./emitter";
 export { calculateElementBounds } from "./geometry/elementBounds";
+export { calculateSegmentListBounds } from "./geometry/measure/pathBounds";
 export { worldToScreen } from "./geometry/space/coordinates";
 export { sampleGradientColorAt } from "./gradientSampling";
 export { type Brand, deepClone } from "./lang";

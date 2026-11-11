@@ -1621,6 +1621,10 @@ const VALID_BLEND_MODES = new Set<string>([
 	"soft-light",
 	"difference",
 	"exclusion",
+	"hue",
+	"saturation",
+	"color",
+	"luminosity",
 ]);
 
 function resolveBlendMode(value: string | null): BlendMode | null {

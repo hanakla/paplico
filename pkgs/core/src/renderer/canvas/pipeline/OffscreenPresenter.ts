@@ -1369,11 +1369,14 @@ export class OffscreenPresenter {
 		const uv = baked.placement.uvRect;
 		const layers: BlitLayer[] = [];
 		for (const inst of computeRepeatInstances(repeat, center)) {
-			// Grid instances are pure translations; e/f carry the tile offset.
-			const tMinX = cb.minX + inst.e;
-			const tMaxX = cb.maxX + inst.e;
-			const tMinY = cb.minY + inst.f;
-			const tMaxY = cb.maxY + inst.f;
+			// Grid instances are translations, mirrored on an axis when a or d
+			// is negative. A mirrored tile samples its texture from the far edge.
+			const flipsX = inst.a < 0;
+			const flipsY = inst.d < 0;
+			const tMinX = (flipsX ? -cb.maxX : cb.minX) + inst.e;
+			const tMaxX = (flipsX ? -cb.minX : cb.maxX) + inst.e;
+			const tMinY = (flipsY ? -cb.maxY : cb.minY) + inst.f;
+			const tMaxY = (flipsY ? -cb.minY : cb.maxY) + inst.f;
 			const cxMin = Math.max(tMinX, region.minX);
 			const cxMax = Math.min(tMaxX, region.maxX);
 			const cyMin = Math.max(tMinY, region.minY);
@@ -1382,10 +1385,26 @@ export class OffscreenPresenter {
 			// V grows downward from the tile top (maxY), matching the bake's corner
 			// order (TL = maxY -> minV).
 			const uvRect: BlitUVRect = {
-				minU: lerp(uv.minU, uv.maxU, (cxMin - tMinX) / tileW),
-				maxU: lerp(uv.minU, uv.maxU, (cxMax - tMinX) / tileW),
-				minV: lerp(uv.minV, uv.maxV, (tMaxY - cyMax) / tileH),
-				maxV: lerp(uv.minV, uv.maxV, (tMaxY - cyMin) / tileH),
+				minU: lerp(
+					uv.minU,
+					uv.maxU,
+					(flipsX ? tMaxX - cxMin : cxMin - tMinX) / tileW,
+				),
+				maxU: lerp(
+					uv.minU,
+					uv.maxU,
+					(flipsX ? tMaxX - cxMax : cxMax - tMinX) / tileW,
+				),
+				minV: lerp(
+					uv.minV,
+					uv.maxV,
+					(flipsY ? cyMax - tMinY : tMaxY - cyMax) / tileH,
+				),
+				maxV: lerp(
+					uv.minV,
+					uv.maxV,
+					(flipsY ? cyMin - tMinY : tMaxY - cyMin) / tileH,
+				),
 			};
 			const quad: BlitQuad = [
 				applyAffineToPoint(repeatAffine, { x: cxMin, y: cyMax }),

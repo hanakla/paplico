@@ -571,6 +571,10 @@ export class GradientTool implements Tool {
 				this.dragState.handleId === "radial-center" ||
 				this.dragState.handleId === GradientTool.AXIS_HIT_ID
 			) {
+				if (updated.focalX !== undefined && updated.focalY !== undefined) {
+					updated.focalX += grabbed.x - updated.cx;
+					updated.focalY += grabbed.y - updated.cy;
+				}
 				updated.cx = grabbed.x;
 				updated.cy = grabbed.y;
 			} else if (this.dragState.handleId === "radial-radius-x") {

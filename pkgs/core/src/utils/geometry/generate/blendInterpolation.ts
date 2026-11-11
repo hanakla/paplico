@@ -1125,6 +1125,12 @@ function interpolateGradLike(
 		radiusX: g ? g.radiusX : lerp(ra!.radiusX, rb!.radiusX, t),
 		radiusY: g ? g.radiusY : lerp(ra!.radiusY, rb!.radiusY, t),
 		rotation: g ? g.rotation : lerp(ra!.rotation, rb!.rotation, t),
+		focalX: g
+			? (g.focalX ?? g.cx)
+			: lerp(ra!.focalX ?? ra!.cx, rb!.focalX ?? rb!.cx, t),
+		focalY: g
+			? (g.focalY ?? g.cy)
+			: lerp(ra!.focalY ?? ra!.cy, rb!.focalY ?? rb!.cy, t),
 		stops,
 	};
 }

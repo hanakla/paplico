@@ -107,12 +107,26 @@ export function gradientToSvgPaint(
 				cx: 0,
 				cy: 0,
 				r: 1,
+				...radialFocalAttrs(gradient),
 				gradientTransform: svgMatrixToString(transform),
 			},
 			children: stopNodes,
 		});
 	}
 	return { paint: `url(#${id})`, opacity: 1 };
+}
+
+/** The focal point in the unit circle the gradient is defined on, when it has one. */
+function radialFocalAttrs(gradient: RadialGradient): Record<string, number> {
+	if (gradient.focalX === undefined || gradient.focalY === undefined) return {};
+	const cos = Math.cos(gradient.rotation);
+	const sin = Math.sin(gradient.rotation);
+	const dx = gradient.focalX - gradient.cx;
+	const dy = gradient.focalY - gradient.cy;
+	return {
+		fx: (dx * cos + dy * sin) / (gradient.radiusX || 1),
+		fy: (dy * cos - dx * sin) / (gradient.radiusY || 1),
+	};
 }
 
 /**

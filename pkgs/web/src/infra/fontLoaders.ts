@@ -2,6 +2,7 @@ import { DomLocalFontBackend } from "@paplico/core/infra";
 import {
 	type FontLoader,
 	GoogleFontsLoader,
+	type LocalFontBackend,
 	LocalFontsLoader,
 } from "@paplico/core/typography";
 import { IS_TAURI_ENV } from "@/utils/platform";
@@ -14,11 +15,13 @@ import { TauriLocalFontBackend } from "./localfonts.tauri";
 export function createFontLoaders(
 	googleFontsApiKey: string | undefined,
 ): FontLoader[] {
-	const localBackend = IS_TAURI_ENV
-		? new TauriLocalFontBackend()
-		: new DomLocalFontBackend();
 	return [
 		new GoogleFontsLoader(googleFontsApiKey),
-		new LocalFontsLoader(localBackend),
+		new LocalFontsLoader(createLocalFontBackend()),
 	];
+}
+
+/** Reads the fonts installed on this device through the platform's own API. */
+export function createLocalFontBackend(): LocalFontBackend {
+	return IS_TAURI_ENV ? new TauriLocalFontBackend() : new DomLocalFontBackend();
 }

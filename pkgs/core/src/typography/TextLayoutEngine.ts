@@ -141,6 +141,8 @@ interface ShapedCharItem {
 	verticalAdvanceAdjustPx: number;
 	/** 縦中横: consecutive flagged chars compose horizontally in one cell */
 	tateChuYoko?: boolean;
+	/** Laid on its side in vertical writing, advancing by its width */
+	sideways?: boolean;
 	override?: CharOverride;
 }
 
@@ -499,7 +501,11 @@ export class TextLayoutEngine {
 					const rotRad = ((charOverride?.rotation ?? 0) * Math.PI) / 180;
 					let advanceAdjustPx = 0;
 					let verticalAdvanceAdjustPx = 0;
-					if (rotRad !== 0) {
+					const sideways = isSidewaysInVertical(runStyle, glyph.char);
+					if (sideways) {
+						verticalAdvanceAdjustPx =
+							(glyph.advanceWidth - fontSize) * sizeScale;
+					} else if (rotRad !== 0) {
 						const w = glyph.advanceWidth * sizeScale;
 						const h = fontSize * sizeScale;
 						const cos = Math.abs(Math.cos(rotRad));
@@ -526,6 +532,7 @@ export class TextLayoutEngine {
 						charLength: glyph.charLength ?? 1,
 						lineHeightPx: runLineHeight,
 						tateChuYoko: runStyle.tateChuYoko,
+						sideways,
 						override: charOverride,
 					});
 				}
@@ -1289,6 +1296,11 @@ export class TextLayoutEngine {
 				continue;
 			}
 			const fsScaled = it.fontSize * it.sizeScale;
+			if (it.sideways) {
+				chars.push(this.placeSideways(it, colLeft, cursorTop, it.advanceWidth));
+				cursorTop -= it.advanceWidth + it.kerning + it.letterSpacingPx;
+				continue;
+			}
 			const v = this.resolveVerticalGlyphPlacement(
 				it.font,
 				it.char,
@@ -1347,6 +1359,58 @@ export class TextLayoutEngine {
 				fsScaled + it.kerning + it.letterSpacingPx + it.verticalAdvanceAdjustPx;
 		}
 		return chars;
+	}
+
+	/**
+	 * A character laid on its side in a vertical column: turned a quarter turn
+	 * clockwise, with its em box centred on the column and its advance running
+	 * down from `cellTop`.
+	 */
+	private placeSideways(
+		it: Pick<
+			ShapedCharItem,
+			| "char"
+			| "charIndex"
+			| "charLength"
+			| "runIndex"
+			| "paragraphIndex"
+			| "fontSize"
+			| "sizeScale"
+			| "font"
+			| "rawGlyphPath"
+			| "kerning"
+			| "override"
+		>,
+		colLeft: number,
+		cellTop: number,
+		advanceWidth: number,
+	): LayoutedChar {
+		const fsScaled = it.fontSize * it.sizeScale;
+		const x = colLeft + fsScaled * (1 - BASELINE_RATIO);
+		const rotation = -Math.PI / 2;
+		return {
+			char: it.char,
+			charIndex: it.charIndex,
+			charLength: it.charLength,
+			runIndex: it.runIndex,
+			paragraphIndex: it.paragraphIndex,
+			x,
+			y: cellTop,
+			rotation,
+			fontSize: fsScaled,
+			font: it.font,
+			glyphPath: this.transformGlyphPath(
+				it.rawGlyphPath,
+				x,
+				cellTop,
+				it.sizeScale,
+				rotation,
+			),
+			advanceWidth,
+			kerningOffset: it.kerning,
+			sizeScale: it.sizeScale,
+			override: it.override,
+		};
 	}
 
 	/**
@@ -1703,6 +1767,33 @@ export class TextLayoutEngine {
 					const kerningEm = charOverride?.kerningAdjust ?? 0;
 					const kerning = kerningEm * fontSize;
 					const sizeScale = charOverride?.sizeMultiplier ?? 1;
+
+					if (isSidewaysInVertical(runStyle, glyph.char)) {
+						const advance = glyph.advanceWidth * sizeScale;
+						lineChars.push(
+							this.placeSideways(
+								{
+									char: glyph.char,
+									charIndex: runStart + glyph.charIndex,
+									charLength: glyph.charLength ?? 1,
+									runIndex: rIdx,
+									paragraphIndex: pIdx,
+									fontSize,
+									sizeScale,
+									font,
+									rawGlyphPath: glyph.path,
+									kerning,
+									override: charOverride,
+								},
+								currentX,
+								currentY + kerning + fontSize * sizeScale * BASELINE_RATIO,
+								advance,
+							),
+						);
+						currentY -= advance + kerning + letterSpacingPx;
+						lineHeight = -currentY;
+						continue;
+					}
 
 					// 縦書きグリフ解決（vert置換 or 約物フォールバック）
 					const v = this.resolveVerticalGlyphPlacement(
@@ -2288,6 +2379,22 @@ const VERTICAL_OFFSET_PUNCTUATION = new Set(["、", "。", "，", "．"]);
  * - "offset": 右上にオフセット（句読点）
  * - "normal": 変換不要（通常の全角文字）
  */
+/**
+ * Whether vertical writing in `style` lays `char` on its side: under
+ * "mixed", every character outside the wide East Asian ranges is.
+ */
+function isSidewaysInVertical(
+	style: Pick<TextStyle, "textOrientation" | "tateChuYoko">,
+	char: string,
+): boolean {
+	if (style.textOrientation !== "mixed" || style.tateChuYoko) return false;
+	return !WIDE_CHAR.test(char);
+}
+
+/** Characters East Asian writing sets upright: CJK, kana, hangul and full-width forms. */
+const WIDE_CHAR =
+	/[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]|[\u{20000}-\u{3FFFD}]/u;
+
 function classifyVerticalChar(char: string): "rotate" | "offset" | "normal" {
 	if (VERTICAL_ROTATE_CHARS.has(char)) return "rotate";
 	if (VERTICAL_OFFSET_PUNCTUATION.has(char)) return "offset";

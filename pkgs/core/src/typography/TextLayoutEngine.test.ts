@@ -299,6 +299,46 @@ describe("TextLayoutEngine vertical regions", () => {
 		expect(result.hasOverflow).toBe(false);
 	});
 
+	it("should lay Latin on its side, advancing by its width, under mixed orientation", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const element = createTextElement("", {
+			layout: {
+				writingMode: "vertical-rl",
+				boxWidth: 40,
+				boxHeight: 30,
+				wordWrap: true,
+				overflow: "hidden",
+			},
+		});
+		const style = element.content.paragraphs[0].runs[0].style;
+		element.content.paragraphs[0].runs = [
+			{ text: "aa", style: { ...style, textOrientation: "mixed" } },
+		];
+
+		const result = await engine.layout(element);
+
+		const [first, second] = result.lines[0].chars;
+		expect(first.rotation).toBeCloseTo(-Math.PI / 2);
+		expect(first.y - second.y).toBeCloseTo(first.advanceWidth);
+	});
+
+	it("should keep Latin upright in vertical writing by default", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const result = await engine.layout(
+			createTextElement("aa", {
+				layout: {
+					writingMode: "vertical-rl",
+					boxWidth: 40,
+					boxHeight: 30,
+					wordWrap: true,
+					overflow: "hidden",
+				},
+			}),
+		);
+
+		expect(result.lines[0].chars[0].rotation).toBe(0);
+	});
+
 	it("should compose tate-chu-yoko runs horizontally in one upright cell", async () => {
 		const engine = new TextLayoutEngine(createMockFontManager());
 		const element = createTextElement("", {
