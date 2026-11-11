@@ -84,6 +84,12 @@ export const DocumentListDialog = memo(function DocumentListDialog({
 		// Load and switch
 		const data = await loadDocumentData(id);
 		if (!data) return;
+
+		const currentId = documentManagerState.currentDocumentId;
+		if (currentId) {
+			await saveDocument(currentId, await paplico.exportDocument());
+		}
+
 		await paplico.importDocument(data.document);
 		documentManagerState.currentDocumentId = id;
 		setInternalDocumentSession(id);

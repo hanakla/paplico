@@ -101,7 +101,10 @@ import {
 import { CompoundPathCache } from "./elementGeometry/CompoundPathCache";
 import type { FilterCapabilityLookup } from "./elementGeometry/filterCapabilities";
 import { calculatePreFilteredElementBounds } from "./elementGeometry/filteredBounds";
-import { guideLocalOutlines } from "./elementGeometry/guideOutlines";
+import {
+	findGuideOwner,
+	guideLocalOutlines,
+} from "./elementGeometry/guideOutlines";
 import { resolveImageGeometry } from "./elementGeometry/imageGeometry";
 import {
 	childPreFilters,
@@ -1475,12 +1478,18 @@ export class SpatialIndex {
 			asLocalCoord(y),
 			this.resolveElementWorldTransform(element.id, element),
 		);
-		return this.findLeafInContainer(
+		const leaf = this.findLeafInContainer(
 			element,
 			local.x,
 			local.y,
 			tolerance,
 			this.collectInheritedPreFilters(element.id),
+		);
+		if (!leaf || !this.isGuide(leaf)) return leaf;
+		// A guide shows no paint, so what is painted under it is the hit.
+		return (
+			this.findPaintedElementsAtPoint(layerId, x, y, tolerance).at(0)
+				?.element ?? null
 		);
 	}
 
@@ -1504,7 +1513,8 @@ export class SpatialIndex {
 			if (
 				!element ||
 				!isElementVisible(element) ||
-				this.isElementLocked(element.id)
+				this.isElementLocked(element.id) ||
+				this.isGuide(element)
 			)
 				continue;
 			if (
@@ -2012,7 +2022,12 @@ export class SpatialIndex {
 		);
 		for (let i = childIds.length - 1; i >= 0; i--) {
 			const child = this.store.document.objects[childIds[i]];
-			if (!child || child.id === clipPathId || !isElementVisible(child))
+			if (
+				!child ||
+				child.id === clipPathId ||
+				!isElementVisible(child) ||
+				child.isGuide
+			)
 				continue;
 			if (!this.isPointOnElement(child, x, y, tolerance, childPreFilters))
 				continue;
@@ -2339,15 +2354,25 @@ export class SpatialIndex {
 	 * container that is.
 	 */
 	private isGuide(element: AnyArtObject): boolean {
-		if (element.isGuide) return true;
-		for (
-			let id = this.parentGroupMap.get(element.id);
-			id;
-			id = this.parentGroupMap.get(id)
-		) {
-			if (this.store.document.objects[id]?.isGuide) return true;
-		}
-		return false;
+		return this.findGuideOwnerOf(element) !== undefined;
+	}
+
+	/**
+	 * The id of the element that makes this one a guide: its own when it is
+	 * marked isGuide, otherwise that of the nearest container that is. Null
+	 * for artwork.
+	 */
+	public findGuideOwnerId(elementId: string): string | null {
+		const element = this.store.document.objects[elementId];
+		return (element && this.findGuideOwnerOf(element)?.id) ?? null;
+	}
+
+	private findGuideOwnerOf(element: AnyArtObject): AnyArtObject | undefined {
+		return findGuideOwner(
+			element,
+			(id) => this.store.document.objects[id],
+			(id) => this.parentGroupMap.get(id),
+		);
 	}
 
 	/**

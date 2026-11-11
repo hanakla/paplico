@@ -1398,6 +1398,17 @@ describe("SpatialIndex", () => {
 
 			expect(idx.findLeafElementAtPoint("layer-1", 300, 0)).toBe(child);
 		});
+
+		it("should reach what is painted under a guide's outline", () => {
+			const back = makeImage("back", 0, 0, 100, 100);
+			const guide = { ...makeImage("guide", 0, 0, 40, 40), isGuide: true };
+			const layer = makeLayer("layer-1", ["back", "guide"]);
+			const idx = new SpatialIndex(makeStore([layer], { back, guide }));
+			idx.rebuildAllIndices();
+
+			// x=20 is on the guide's right edge.
+			expect(idx.findLeafElementAtPoint("layer-1", 20, 0)).toBe(back);
+		});
 	});
 
 	describe("findPaintedElementsAtPoint", () => {
@@ -1435,6 +1446,29 @@ describe("SpatialIndex", () => {
 				["front", 0],
 				["back", 0],
 			]);
+		});
+
+		it("should leave out a guide and what is inside a guide group", () => {
+			const back = makeImage("back", 0, 0, 100, 100);
+			const guide = { ...makeImage("guide", 0, 0, 40, 40), isGuide: true };
+			const inner = makeImage("inner", 0, 0, 40, 40);
+			const guideGroup = {
+				...makeGroup("guide-group", ["inner"]),
+				isGuide: true,
+			};
+			const layer = makeLayer("layer-1", ["back", "guide", "guide-group"]);
+			const idx = new SpatialIndex(
+				makeStore([layer], {
+					back,
+					guide,
+					inner,
+					"guide-group": guideGroup,
+				}),
+			);
+			idx.rebuildAllIndices();
+
+			// x=20 is on the right edge of both guides.
+			expect(listed(idx, 20, 0)).toEqual([["back", 0]]);
 		});
 
 		it("should list a group with its own appearance ahead of its children", () => {

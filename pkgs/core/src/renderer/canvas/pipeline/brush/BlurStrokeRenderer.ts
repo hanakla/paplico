@@ -154,11 +154,11 @@ export class BlurStrokeRenderer implements BackdropEffectDriver {
 		_dpiScale: number,
 		_backdropScale: number,
 		_profiler?: GPUTimingProfiler | null,
-		filter?: ReadonlySet<string>,
+		draws?: (elementId: string) => boolean,
 	): void {
 		const rasterScale = this.deps.getRasterScale();
 		for (const { element, stroke } of this.blurStrokesOf(elementsMap)) {
-			if (filter && !filter.has(element.id)) continue;
+			if (draws && !draws(element.id)) continue;
 			this.frameRequests.set(
 				element.id,
 				blurRequestOf(

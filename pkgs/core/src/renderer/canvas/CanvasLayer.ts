@@ -23,6 +23,7 @@ import {
 	calculatePreFilteredElementBounds,
 	planBoundsOf,
 } from "../../document/elementGeometry/filteredBounds";
+import { findGuideOwner } from "../../document/elementGeometry/guideOutlines";
 import {
 	childPreFilters,
 	geometryFilters,
@@ -2949,11 +2950,17 @@ export class CanvasLayer {
 		// re-sync is needed. Runs immediately (not as a graph pass):
 		// inline-composite classification — buildPassPlan reads the frame
 		// entries this bake registers, so they must exist before the plan is
-		// built. Only what the layers draw bakes: a solid no layer composes at
-		// its z-order would land on top of the frame in flushRemaining.
+		// built. Only what the layers draw as artwork bakes: a solid no layer
+		// composes at its z-order would land on top of the frame in
+		// flushRemaining, and renderElements composes none for a guide.
 		const bakeFilter =
 			effectiveFilter?.intersection(framePlan.drawnElementIds) ??
 			framePlan.drawnElementIds;
+		const drawsAsArtwork = (elementId: string): boolean => {
+			if (!bakeFilter.has(elementId)) return false;
+			const element = elementsMap.get(elementId);
+			return !!element && !this.isInsideGuide(element, elementsMap);
+		};
 		for (const driver of this.backdropDrivers) {
 			driver.prepareFrame(
 				encoder,
@@ -2964,7 +2971,7 @@ export class CanvasLayer {
 				// texels-per-world-px — at export scale just as much as on screen.
 				this.viewportState.current?.zoom ?? 1,
 				profiler,
-				bakeFilter,
+				drawsAsArtwork,
 			);
 		}
 
@@ -6994,12 +7001,14 @@ export class CanvasLayer {
 		element: AnyArtObject,
 		elementsMap: Map<string, AnyArtObject>,
 	): boolean {
-		if (element.isGuide) return true;
 		const parents = this.elementHierarchy.parentMap;
-		for (let id = parents.get(element.id); id; id = parents.get(id)) {
-			if (elementsMap.get(id)?.isGuide) return true;
-		}
-		return false;
+		return (
+			findGuideOwner(
+				element,
+				(id) => elementsMap.get(id),
+				(id) => parents.get(id),
+			) !== undefined
+		);
 	}
 
 	private renderElements(

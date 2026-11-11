@@ -1,4 +1,8 @@
-import { canOutlineStrokes, localAppearances } from "@paplico/core/document";
+import {
+	canBecomeGuide,
+	canOutlineStrokes,
+	localAppearances,
+} from "@paplico/core/document";
 import { getArtboardBounds } from "@paplico/core/schema";
 import { worldToScreen } from "@paplico/core/utils";
 import { Copy, SquareDashed, Trash2 } from "lucide-react";
@@ -135,11 +139,18 @@ function ContextActionsOverlayInner({
 				(f) => f.processor === "fill" || f.processor === "stroke",
 			),
 		);
+	// An element inside a guide container is a guide without the mark.
+	const isGuide = (el: (typeof selectedElements)[number]) =>
+		selection.findGuideOwnerId(el.id) !== null;
 	const hasOutlinableInSelection =
 		!isReference3DNodeContext &&
-		selectedElements.some((el) => el.type === "text" || canOutlineStrokes(el));
-	const hasArtworkInSelection = selectedElements.some((el) => !el.isGuide);
-	const hasGuideInSelection = selectedElements.some((el) => el.isGuide);
+		selectedElements.some(
+			(el) => !isGuide(el) && (el.type === "text" || canOutlineStrokes(el)),
+		);
+	const hasArtworkInSelection = selectedElements.some(
+		(el) => !isGuide(el) && canBecomeGuide(el),
+	);
+	const hasGuideInSelection = selectedElements.some(isGuide);
 	const meshWarpIdsInSelection = selectedElements
 		.filter((el) => el.type === "mesh")
 		.map((el) => el.id);

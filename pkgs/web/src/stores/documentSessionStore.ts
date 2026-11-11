@@ -17,7 +17,8 @@ type DocumentSessionSource =
 	| { kind: "initial" }
 	| { kind: "internal"; documentId: string }
 	| { kind: "external" }
-	| { kind: "snapshot" };
+	| { kind: "snapshot" }
+	| { kind: "room" };
 
 interface DocumentSession {
 	identity: string;
@@ -49,6 +50,15 @@ export function setExternalDocumentSession(
 
 export function setSnapshotDocumentSession(): void {
 	replaceDocumentSession({ kind: "snapshot" }, null);
+}
+
+/**
+ * Marks the document as one received from a room this device joined. It is
+ * not the document `currentDocumentId` names, so auto save leaves it alone
+ * until another document is opened.
+ */
+export function setRoomDocumentSession(): void {
+	replaceDocumentSession({ kind: "room" }, null);
 }
 
 /**

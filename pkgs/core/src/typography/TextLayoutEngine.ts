@@ -56,6 +56,11 @@ export interface LayoutedChar {
 	override?: CharOverride;
 	/** 縦書き中の横組み（縦中横）セル内のグリフ。キャレット/ヒットは横書き扱い */
 	tateChuYoko?: boolean;
+	/**
+	 * Laid on its side in a vertical column. `y` is then the top of the glyph's
+	 * cell instead of its baseline, and the cell runs down by `advanceWidth`.
+	 */
+	sideways?: boolean;
 	/** ellipsis等、コンテンツに存在しない合成グリフ（カーソル/ヒット対象外） */
 	synthetic?: boolean;
 	/** このグリフが消費するコンテンツ文字数（合字>1、省略時1） */
@@ -1410,6 +1415,7 @@ export class TextLayoutEngine {
 			kerningOffset: it.kerning,
 			sizeScale: it.sizeScale,
 			override: it.override,
+			sideways: true,
 		};
 	}
 

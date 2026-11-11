@@ -1895,7 +1895,7 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 					3,
 					1,
 					null,
-					new Set(["some-other-element"]),
+					(elementId) => elementId === "some-other-element",
 				);
 				releaseFrame();
 				appearanceCache.flushPendingDestroy();

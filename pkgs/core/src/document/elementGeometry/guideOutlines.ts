@@ -36,3 +36,30 @@ export function guideLocalOutlines(
 			return [];
 	}
 }
+
+/**
+ * The element that makes `element` a guide: itself when it is marked isGuide,
+ * otherwise the nearest container around it that is. Undefined for artwork.
+ *
+ * @param parentIdOf gives the id of the container an element sits in.
+ */
+export function findGuideOwner(
+	element: AnyArtObject,
+	resolveElement: (id: string) => AnyArtObject | undefined,
+	parentIdOf: (id: string) => string | undefined,
+): AnyArtObject | undefined {
+	if (element.isGuide) return element;
+	for (let id = parentIdOf(element.id); id; id = parentIdOf(id)) {
+		const container = resolveElement(id);
+		if (container?.isGuide) return container;
+	}
+	return undefined;
+}
+
+/**
+ * Whether the element can be marked as a guide. An image and a 3D reference
+ * have no outline of their own to show in place of their paint.
+ */
+export function canBecomeGuide(element: AnyArtObject): boolean {
+	return element.type !== "image" && element.type !== "reference3d";
+}

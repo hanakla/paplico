@@ -691,6 +691,9 @@ export function warpMeshChildren(
 		if (visited.has(childId)) return;
 		const el = elementsMap.get(childId);
 		if (!el || el.visible === false) return;
+		// A guide paints nothing, so the cage has nothing of it to warp. The
+		// guide overlay outlines it where it is stored.
+		if (el.isGuide) return;
 		visited.add(childId);
 		if (isMeshWarpPassthrough(el)) {
 			out.push(el);
