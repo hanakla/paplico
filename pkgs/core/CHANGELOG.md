@@ -53,6 +53,8 @@
   - An exported wide kirakira glow differs from earlier versions by a few levels of 255.
 - **Path edit tool**
   - Dragging a vertex no longer stalls on its first frame or on release, and no longer slows down inside a drop-shadowed group.
+- **Groups**
+  - Duplicating, pasting or deleting a group with many nested elements no longer takes seconds in a large document. This also covers the undo and redo of each.
 - **Guides**
   - A guide is drawn as a thin cyan outline above the artboards and below the other tool UI instead of with its own paint.
   - A click or a marquee selects a guide path, compound path or image only on that outline instead of anywhere on its fill or stroke.

@@ -2,9 +2,15 @@ import { proxy, ref } from "valtio";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { YjsProvider } from "../collaboration/YjsProvider";
 import { createArtboard, createIdentityTransform } from "../document/factory";
+import type { ObjectsChangeDelta } from "../document/objectsChangeDelta";
 import { SpatialIndex } from "../document/SpatialIndex";
-import type { AnyArtObject } from "../schema";
+import type { AnyArtObject, BlendObject, Layer } from "../schema";
 import { loadTestDocument } from "../testUtils/loadTestDocument";
+import {
+	mockCompoundPath,
+	mockGroup,
+	mockLayer,
+} from "../testUtils/mockElements";
 import { rectPath, solidFillAppearance } from "../testUtils/svgFixtures";
 import { brandWorldBBox } from "../utils/geometry/primitives/box";
 import {
@@ -330,53 +336,6 @@ describe("DocumentChangeSubscriber", () => {
 		);
 	});
 
-	it("syncObjectsDelta falls back to document traversal when parent map is stale", () => {
-		const store = createStore();
-		const onInvalidate = vi.fn();
-		const runtime = createRuntimeMocks();
-		const coordinator = new DocumentChangeSubscriber(store, onInvalidate, {
-			getSpatialIndex: () => runtime.spatialIndex,
-			refreshToolUI: runtime.refreshSelectToolUI,
-			syncPathToolFromDocument: runtime.syncPathToolFromDocument,
-			isArtboardToolActive: runtime.isArtboardToolActive,
-		});
-
-		const layer = store.document.layers[0];
-		const childId = layer.elementIds[0];
-		const childObject = store.document.objects[childId];
-		const groupId = "stale-map-group";
-		const groupObject: AnyArtObject = {
-			type: "group",
-			id: groupId,
-			opacity: 1,
-			blendMode: "normal",
-			childIds: [childId],
-			transform: createIdentityTransform(),
-		};
-		store.document.objects[groupId] = groupObject;
-		layer.elementIds = [groupId];
-
-		const updatedChild = { ...childObject, opacity: 0.11 } as AnyArtObject;
-		const delta = {
-			added: new Map<string, AnyArtObject>(),
-			updated: new Map([[childId, updatedChild]]),
-			deleted: new Set<string>(),
-		};
-
-		store.document.objects = {
-			...store.document.objects,
-			[childId]: updatedChild,
-		};
-
-		coordinator.syncObjectsDelta(delta, store.document.layers, {});
-
-		expect(runtime.spatialIndex.updateElement).toHaveBeenCalledWith(
-			layer.id,
-			expect.objectContaining({ id: groupId, type: "group" }),
-			false,
-		);
-	});
-
 	it("syncObjectsDelta rebuilds parent group map when a group is deleted", () => {
 		const store = createStore();
 		const onInvalidate = vi.fn();
@@ -519,6 +478,263 @@ describe("DocumentChangeSubscriber", () => {
 			expect(spatialIndex.getLocalBounds("a")).not.toBe(localBounds);
 		});
 	});
+
+	describe("top-level owners of nested changes", () => {
+		it("should update the top-level group when an object is added deep inside it", () => {
+			const { spatialIndex, applyChange, updatedOwners } = createNestedIndex(
+				[
+					mockGroup("top", ["inner"]),
+					mockGroup("inner", ["a"]),
+					square("a", 0),
+				],
+				[mockLayer("layer-1", ["top"])],
+			);
+
+			applyChange({
+				added: [square("n", 500)],
+				updated: [mockGroup("inner", ["a", "n"])],
+			});
+
+			expect(updatedOwners()).toEqual([["layer-1", "top"]]);
+			expect(spatialIndex.getParentGroupId("n")).toBe("inner");
+			expect(
+				spatialIndex
+					.queryElements("layer-1", areaAround(500))
+					.map((element) => element.id),
+			).toEqual(["top"]);
+		});
+
+		it("should resolve every object of an added nested subtree to the group it joined", () => {
+			const { spatialIndex, applyChange, updatedOwners } = createNestedIndex(
+				[mockGroup("top", ["a"]), square("a", 0)],
+				[mockLayer("layer-1", ["top"])],
+			);
+
+			applyChange({
+				added: [
+					square("leaf", 500),
+					mockGroup("sub", ["leaf"]),
+					mockGroup("copy", ["sub"]),
+				],
+				updated: [mockGroup("top", ["a", "copy"])],
+			});
+
+			expect(updatedOwners()).toEqual([["layer-1", "top"]]);
+			expect(spatialIndex.getParentGroupId("leaf")).toBe("sub");
+			expect(spatialIndex.getParentGroupId("sub")).toBe("copy");
+			expect(spatialIndex.getParentGroupId("copy")).toBe("top");
+		});
+
+		it("should update the top-level group when an object deep inside it is deleted", () => {
+			const { spatialIndex, applyChange, updatedOwners } = createNestedIndex(
+				[
+					mockGroup("top", ["inner"]),
+					mockGroup("inner", ["a", "far"]),
+					square("a", 0),
+					square("far", 500),
+				],
+				[mockLayer("layer-1", ["top"])],
+			);
+
+			applyChange({
+				updated: [mockGroup("inner", ["a"])],
+				deleted: ["far"],
+			});
+
+			expect(updatedOwners()).toEqual([["layer-1", "top"]]);
+			expect(spatialIndex.getParentGroupId("far")).toBeNull();
+			expect(spatialIndex.queryElements("layer-1", areaAround(500))).toEqual(
+				[],
+			);
+		});
+
+		it("should drop a deleted top-level group and everything inside it", () => {
+			const { spatialIndex, applyChange, updatedOwners } = createNestedIndex(
+				[
+					mockGroup("top", ["inner"]),
+					mockGroup("inner", ["a"]),
+					square("a", 0),
+					square("other", 500),
+				],
+				[mockLayer("layer-1", ["top", "other"])],
+			);
+
+			applyChange({
+				layers: [mockLayer("layer-1", ["other"])],
+				deleted: ["top", "inner", "a"],
+			});
+
+			expect(updatedOwners()).toEqual([]);
+			expect(spatialIndex.getParentGroupId("a")).toBeNull();
+			expect(spatialIndex.getParentGroupId("inner")).toBeNull();
+			expect(spatialIndex.queryElements("layer-1", areaAround(0))).toEqual([]);
+		});
+
+		it("should update the blend that absorbed a changed key", () => {
+			const blend: BlendObject = {
+				type: "blend",
+				id: "blend",
+				objectIds: ["key-1", "key-2"],
+				spacing: { type: "steps", count: 2 },
+				placementEasing: { type: "linear" },
+				appearanceEasing: { type: "linear" },
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			};
+			const { applyChange, updatedOwners } = createNestedIndex(
+				[blend, square("key-1", 0), square("key-2", 100)],
+				[mockLayer("layer-1", ["blend"])],
+			);
+
+			applyChange({ updated: [square("key-1", -50)] });
+
+			expect(updatedOwners()).toEqual([["layer-1", "blend"]]);
+		});
+
+		it("should update the compound path that absorbed a changed source", () => {
+			const { applyChange, updatedOwners } = createNestedIndex(
+				[
+					mockCompoundPath("compound", ["source-1", "source-2"]),
+					square("source-1", 0),
+					square("source-2", 10),
+				],
+				[mockLayer("layer-1", ["compound"])],
+			);
+
+			applyChange({ updated: [square("source-2", 15)] });
+
+			expect(updatedOwners()).toEqual([["layer-1", "compound"]]);
+		});
+
+		it("should update both top-level groups when an object moves between their inner groups", () => {
+			const { spatialIndex, applyChange, updatedOwners } = createNestedIndex(
+				[
+					mockGroup("top-1", ["inner-1"]),
+					mockGroup("inner-1", ["a", "x"]),
+					mockGroup("top-2", ["inner-2"]),
+					mockGroup("inner-2", ["b"]),
+					square("a", 0),
+					square("x", 50),
+					square("b", 300),
+				],
+				[mockLayer("layer-1", ["top-1"]), mockLayer("layer-2", ["top-2"])],
+			);
+
+			applyChange({
+				updated: [
+					mockGroup("inner-1", ["a"]),
+					mockGroup("inner-2", ["b", "x"]),
+					square("x", 350),
+				],
+			});
+
+			expect(updatedOwners().toSorted()).toEqual([
+				["layer-1", "top-1"],
+				["layer-2", "top-2"],
+			]);
+			expect(spatialIndex.getParentGroupId("x")).toBe("inner-2");
+		});
+
+		it("should find the top-level group from the document when the index has no parent for a changed object", () => {
+			const { spatialIndex, applyChange, updatedOwners } = createNestedIndex(
+				[
+					mockGroup("top", ["inner"]),
+					mockGroup("inner", ["a"]),
+					square("a", 0),
+				],
+				[mockLayer("layer-1", ["top"])],
+			);
+			spatialIndex.clearContainerMappings(mockGroup("inner", ["a"]));
+
+			applyChange({ updated: [square("a", 20)] });
+
+			expect(updatedOwners()).toEqual([["layer-1", "top"]]);
+		});
+
+		it("should keep the new parent of children that a deleted container hands to its own parent", () => {
+			const { spatialIndex, applyChange, updatedOwners } = createNestedIndex(
+				[
+					mockGroup("top", ["inner"]),
+					mockGroup("inner", ["a", "b"]),
+					square("a", 0),
+					square("b", 100),
+				],
+				[mockLayer("layer-1", ["top"])],
+			);
+
+			applyChange({
+				updated: [mockGroup("top", ["a", "b"])],
+				deleted: ["inner"],
+			});
+
+			expect(updatedOwners()).toEqual([["layer-1", "top"]]);
+			expect(spatialIndex.getParentGroupId("a")).toBe("top");
+			expect(spatialIndex.getParentGroupId("b")).toBe("top");
+		});
+
+		it("should read the document once for a change to several objects that sit in no layer", () => {
+			const detachedIds = ["mask-1", "mask-2", "mask-3", "mask-4", "mask-5"];
+			const fillerIds = Array.from({ length: 40 }, (_, i) => `filler-${i}`);
+			const objects = [
+				mockGroup("top", fillerIds),
+				...fillerIds.map((id) => square(id, 0)),
+				...detachedIds.map((id) => square(id, 300)),
+			];
+			const { applyChange, updatedOwners, objectReadsDuringSync } =
+				createNestedIndex(objects, [mockLayer("layer-1", ["top"])]);
+
+			applyChange({ updated: detachedIds.map((id) => square(id, 320)) });
+
+			expect(updatedOwners()).toEqual([]);
+			expect(objectReadsDuringSync()).toBeLessThan(objects.length * 2);
+		});
+
+		it("should not read more of the document for a nested add or delete as the document grows", () => {
+			const readsFor = (fillerGroups: number) => {
+				const objects: AnyArtObject[] = [];
+				const elementIds: string[] = [];
+				for (let i = 0; i < fillerGroups; i++) {
+					objects.push(
+						mockGroup(`filler-${i}`, [`filler-${i}-child`]),
+						square(`filler-${i}-child`, i * 30),
+					);
+					elementIds.push(`filler-${i}`);
+				}
+				const { applyChange, objectReadsDuringSync } = createNestedIndex(
+					objects,
+					[mockLayer("layer-1", elementIds)],
+				);
+
+				const copy: AnyArtObject[] = [mockGroup("copy", [])];
+				const subIds: string[] = [];
+				for (let i = 0; i < 5; i++) {
+					const leafIds = [0, 1, 2, 3].map((j) => `copy-${i}-${j}`);
+					copy.push(...leafIds.map((id) => square(id, -500)));
+					copy.push(mockGroup(`copy-${i}`, leafIds));
+					subIds.push(`copy-${i}`);
+				}
+				copy[0] = mockGroup("copy", subIds);
+
+				applyChange({
+					layers: [mockLayer("layer-1", [...elementIds, "copy"])],
+					added: copy,
+				});
+				const addReads = objectReadsDuringSync();
+				applyChange({
+					layers: [mockLayer("layer-1", elementIds)],
+					deleted: copy.map((object) => object.id),
+				});
+				return { addReads, deleteReads: objectReadsDuringSync() };
+			};
+
+			const small = readsFor(20);
+			const large = readsFor(400);
+
+			expect(large.addReads).toBeLessThanOrEqual(small.addReads * 2);
+			expect(large.deleteReads).toBeLessThanOrEqual(small.deleteReads * 2);
+		});
+	});
 });
 
 /**
@@ -550,19 +766,7 @@ function createYjsSyncedIndex() {
 				subscriber.syncLayersOnly(previousLayers);
 			},
 			onObjectsChange: (delta) => {
-				const objects = store.document.objects;
-				const deletedSnapshot: Record<string, AnyArtObject> = {};
-				for (const id of delta.deleted) deletedSnapshot[id] = objects[id];
-				for (const [id, obj] of [...delta.added, ...delta.updated]) {
-					objects[id] = obj;
-				}
-				for (const id of delta.deleted) delete objects[id];
-				spatialIndex.applyObjectsDelta(delta);
-				subscriber.syncObjectsDelta(
-					delta,
-					store.document.layers,
-					deletedSnapshot,
-				);
+				applyObjectsChange(store, spatialIndex, subscriber, delta);
 			},
 			getCurrentLayerId: () => "layer-1",
 			setCurrentLayerId: () => {},
@@ -579,15 +783,120 @@ function createYjsSyncedIndex() {
 			elementIds: [],
 		});
 	}
-	provider.addElement(
-		"layer-1",
-		rectPath("a", { x: 0, y: 0 }, 20, 20, [solidFillAppearance(0, 0, 0)]),
-	);
-	provider.addElement(
-		"layer-1",
-		rectPath("b", { x: 100, y: 0 }, 20, 20, [solidFillAppearance(0, 0, 0)]),
-	);
+	provider.addElement("layer-1", square("a", 0));
+	provider.addElement("layer-1", square("b", 100));
 	onInvalidate.mockClear();
 
 	return { provider, spatialIndex, subscriber, onInvalidate };
+}
+
+/** A filled 20x20 square centred at (`x`, 0). */
+function square(id: string, x: number): AnyArtObject {
+	return rectPath(id, { x, y: 0 }, 20, 20, [solidFillAppearance(0, 0, 0)]);
+}
+
+/** The 40x40 world area centred at (`x`, 0). */
+function areaAround(x: number) {
+	return brandWorldBBox({
+		minX: x - 20,
+		minY: -20,
+		maxX: x + 20,
+		maxY: 20,
+		width: 40,
+		height: 40,
+	});
+}
+
+/**
+ * A real SpatialIndex over the given document, with changes applied in the
+ * order Paplico applies a Yjs sync: layers first, then the object delta.
+ */
+function createNestedIndex(objectList: AnyArtObject[], layers: Layer[]) {
+	let objectReads = 0;
+	let objectReadsDuringSync = 0;
+	const objects = new Proxy<Record<string, AnyArtObject>>(
+		Object.fromEntries(objectList.map((object) => [object.id, object])),
+		{
+			get: (target, key, receiver) => {
+				objectReads++;
+				return Reflect.get(target, key, receiver);
+			},
+		},
+	);
+	const store = createStore();
+	store.document = { ...testDoc, layers, objects: ref(objects) };
+	const spatialIndex = new SpatialIndex(store as unknown as RendererState);
+	spatialIndex.rebuildAllIndices();
+	const updateElement = vi.spyOn(spatialIndex, "updateElement");
+	const subscriber = new DocumentChangeSubscriber(store, vi.fn(), {
+		getSpatialIndex: () => spatialIndex,
+		refreshToolUI: () => {},
+		syncPathToolFromDocument: () => {},
+		isArtboardToolActive: () => false,
+	});
+
+	const applyChange = (change: {
+		layers?: Layer[];
+		added?: AnyArtObject[];
+		updated?: AnyArtObject[];
+		deleted?: string[];
+	}) => {
+		updateElement.mockClear();
+		if (change.layers) {
+			const previousLayers = store.document.layers;
+			store.document.layers = change.layers;
+			subscriber.syncLayersOnly(previousLayers);
+		}
+		const toEntries = (list: AnyArtObject[] = []) =>
+			new Map(list.map((object) => [object.id, object]));
+		const delta = {
+			added: toEntries(change.added),
+			updated: toEntries(change.updated),
+			deleted: new Set(change.deleted),
+		};
+		objectReadsDuringSync = applyObjectsChange(
+			store,
+			spatialIndex,
+			subscriber,
+			delta,
+			() => objectReads,
+		);
+	};
+
+	return {
+		spatialIndex,
+		applyChange,
+		/** The `[layerId, elementId]` pairs the last change re-indexed. */
+		updatedOwners: () =>
+			updateElement.mock.calls.map(([layerId, element]) => [
+				layerId,
+				element.id,
+			]),
+		objectReadsDuringSync: () => objectReadsDuringSync,
+	};
+}
+
+/**
+ * Apply an object delta the way Paplico applies it: write the objects, patch
+ * the index's object cache, then sync the subscriber. Returns how far
+ * `readCount` advanced during the subscriber's sync.
+ */
+function applyObjectsChange(
+	store: DocumentChangeSubscriberStore,
+	spatialIndex: SpatialIndex,
+	subscriber: DocumentChangeSubscriber,
+	delta: ObjectsChangeDelta,
+	readCount: () => number = () => 0,
+): number {
+	const objects = store.document.objects;
+	const deletedSnapshot: Record<string, AnyArtObject> = {};
+	for (const id of delta.deleted) deletedSnapshot[id] = objects[id];
+	for (const [id, obj] of [...delta.added, ...delta.updated]) {
+		objects[id] = obj;
+	}
+	for (const id of delta.deleted) delete objects[id];
+	spatialIndex.applyObjectsDelta(delta);
+	const readsBefore = readCount();
+	subscriber.syncObjectsDelta(delta, store.document.layers, deletedSnapshot);
+	return readCount() - readsBefore;
 }
