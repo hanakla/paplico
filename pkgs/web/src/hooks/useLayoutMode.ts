@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { detectTauriMobile, IS_TAURI_ENV } from "@/utils/platform";
 
 // Layout mode breakpoints:
 //   desktop:          width >= 768px (regardless of orientation/height)
@@ -12,8 +13,12 @@ const PORTRAIT_QUERY = "(width < 768px) and (orientation: portrait)";
 const LANDSCAPE_COMPACT_QUERY = "(height < 768px) and (orientation: landscape)";
 const TALL_DESKTOP_QUERY = "(width >= 768px) and (height >= 768px)";
 
+// A narrow desktop app window must keep the desktop layout.
+const IS_TAURI_DESKTOP = IS_TAURI_ENV && !detectTauriMobile();
+
 function getMode(): LayoutMode | null {
 	if (typeof window === "undefined") return null;
+	if (IS_TAURI_DESKTOP) return "desktop";
 	// height >= 768 → always desktop regardless of orientation
 	if (window.matchMedia(TALL_DESKTOP_QUERY).matches) return "desktop";
 	if (window.matchMedia(PORTRAIT_QUERY).matches) return "portrait";
@@ -26,6 +31,8 @@ export function useLayoutMode(): LayoutMode | null {
 	const [mode, setMode] = useState<LayoutMode | null>(getMode);
 
 	useEffect(() => {
+		if (IS_TAURI_DESKTOP) return;
+
 		const tallDesktop = window.matchMedia(TALL_DESKTOP_QUERY);
 		const portrait = window.matchMedia(PORTRAIT_QUERY);
 		const landscapeCompact = window.matchMedia(LANDSCAPE_COMPACT_QUERY);
