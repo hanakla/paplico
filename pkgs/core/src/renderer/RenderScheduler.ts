@@ -30,6 +30,13 @@ export type DirtyReason =
 	| "render" // Async resource loaded (text path, brush texture) — needs re-render but not full cache invalidation
 	| "elementMove"; // Shape-preserving document change (moves, paste, duplicate) — skips boundsCache invalidation
 
+/** How long after the last viewport change a gesture counts as over. */
+const SETTLE_DELAY_MS = 100;
+/** How often a gesture's end re-checks the resources it waits for. */
+const RESOURCE_POLL_MS = 16;
+/** A frame this long holds back the input events behind it. */
+const LONG_FRAME_MS = 50;
+
 /** Dirty reasons that require full document re-rendering */
 const FULL_RENDER_REASONS: ReadonlySet<DirtyReason> = new Set([
 	"document",
@@ -74,6 +81,8 @@ export class RenderScheduler {
 	private isInteracting = false;
 	/** Debounce timer for settling after interaction stops. */
 	private settleTimer: ReturnType<typeof setTimeout> | null = null;
+	/** When the last frame that took LONG_FRAME_MS or more finished. */
+	private lastLongFrameEnd = Number.NEGATIVE_INFINITY;
 	/** Whether a `render` dirt arrived during the interaction and waits for
 	 *  the settle frame. */
 	private renderAwaitsSettle = false;
@@ -89,6 +98,10 @@ export class RenderScheduler {
 	/** Called once when no frame has rendered for IDLE_EVICT_MS. Rendering is
 	 *  on demand, so frame-start eviction alone never runs while idle. */
 	private onIdle: () => void;
+	/** Whether resources the gesture's last frames asked for are on their way,
+	 *  so the settle frame draws with them instead of drawing again once they
+	 *  arrive. */
+	private isAwaitingResources: () => boolean;
 	private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
 	public constructor(
@@ -99,11 +112,13 @@ export class RenderScheduler {
 		hasVolatileContent: () => boolean = () => false,
 		onIdle: () => void = () => {},
 		isDocumentRenderOnHold: () => boolean = () => false,
+		isAwaitingResources: () => boolean = () => false,
 	) {
 		this.renderCallback = renderCallback;
 		this.hasVolatileContent = hasVolatileContent;
 		this.onIdle = onIdle;
 		this.isDocumentRenderOnHold = isDocumentRenderOnHold;
+		this.isAwaitingResources = isAwaitingResources;
 	}
 
 	/** Schedule the re-render that waited while document renders were on hold. */
@@ -141,24 +156,7 @@ export class RenderScheduler {
 		if (reason === "viewport") {
 			this.isInteracting = true;
 
-			if (this.settleTimer != null) {
-				clearTimeout(this.settleTimer);
-			}
-
-			this.settleTimer = setTimeout(() => {
-				this.settleTimer = null;
-				this.isInteracting = false;
-
-				// After interaction stops, trigger a viewport dirty to re-render
-				// at full quality (zoom tolerance may have degraded the cache).
-				this.dirty = true;
-				this.dirtyReasons.add("viewport");
-				if (this.renderAwaitsSettle) {
-					this.renderAwaitsSettle = false;
-					this.dirtyReasons.add("render");
-				}
-				this.scheduleFrame();
-			}, 100);
+			this.armSettleTimer();
 		}
 
 		this.scheduleFrame();
@@ -223,11 +221,52 @@ export class RenderScheduler {
 		this.clearIdleTimer();
 	}
 
+	/**
+	 * End the gesture after SETTLE_DELAY_MS unless more viewport changes arrive.
+	 * A long frame or a GPU too busy to deliver the next one holds back the
+	 * input events of a gesture still in progress, so the wait restarts after
+	 * either. Without that, the settle frame's full render starts mid-gesture
+	 * and is itself long enough to do the same again. Once the gesture is
+	 * over, the settle frame also waits for the resources it would otherwise
+	 * draw again for.
+	 */
+	private armSettleTimer(delayMs = SETTLE_DELAY_MS): void {
+		if (this.settleTimer != null) clearTimeout(this.settleTimer);
+
+		this.settleTimer = setTimeout(() => {
+			this.settleTimer = null;
+			const sinceLongFrame = performance.now() - this.lastLongFrameEnd;
+			if (this.pendingFrame !== null || sinceLongFrame < SETTLE_DELAY_MS) {
+				this.armSettleTimer();
+				return;
+			}
+			if (this.isAwaitingResources()) {
+				this.armSettleTimer(RESOURCE_POLL_MS);
+				return;
+			}
+			this.isInteracting = false;
+
+			// After interaction stops, trigger a viewport dirty to re-render
+			// at full quality (zoom tolerance may have degraded the cache).
+			this.dirty = true;
+			this.dirtyReasons.add("viewport");
+			if (this.renderAwaitsSettle) {
+				this.renderAwaitsSettle = false;
+				this.dirtyReasons.add("render");
+			}
+			this.scheduleFrame();
+		}, delayMs);
+	}
+
 	private scheduleFrame(): void {
 		if (this.pendingFrame !== null) return;
 
+		const scheduledAt = performance.now();
 		this.pendingFrame = requestAnimationFrame(() => {
 			this.pendingFrame = null;
+			if (performance.now() - scheduledAt >= LONG_FRAME_MS) {
+				this.lastLongFrameEnd = performance.now();
+			}
 
 			if (this.dirty && !this.isDestroyed) {
 				this.dirty = false;
@@ -238,7 +277,12 @@ export class RenderScheduler {
 				const changedElements = this.changedElements ?? undefined;
 				this.changedElements = emptyChanges();
 				this.dirtyReasons.clear();
+				const frameStart = performance.now();
 				this.renderCallback(strategy, changedElements);
+				const frameEnd = performance.now();
+				if (frameEnd - frameStart >= LONG_FRAME_MS) {
+					this.lastLongFrameEnd = frameEnd;
+				}
 				this.restartIdleTimer();
 			}
 		});

@@ -73,7 +73,7 @@ interface CacheEntry {
 
 export class DefRasterizer {
 	private readonly scope: string;
-	private readonly maxEntries: number;
+	private maxEntries: number;
 	private readonly onEvicted?: (textureUid: string) => void;
 	private readonly retireTexture: (texture: GPUTexture) => void;
 	private cache = new Map<string, CacheEntry>();
@@ -192,6 +192,12 @@ export class DefRasterizer {
 		});
 		this.evictIfNeeded();
 		return { texture, textureUid: key };
+	}
+
+	/** Keep room for `count` entries, so a frame that uses more defs than
+	 *  `maxEntries` does not evict and re-render them on every frame. */
+	public ensureCapacity(count: number): void {
+		this.maxEntries = Math.max(this.maxEntries, count);
 	}
 
 	/** Drop every cached entry of a def. */

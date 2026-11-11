@@ -815,6 +815,10 @@ export class RenderOrchestrator {
 		this.textRenderer?.setDocumentResolver(resolver);
 	}
 
+	public get isAwaitingImages(): boolean {
+		return this.imageTextures?.hasLoadsToAwait ?? false;
+	}
+
 	/**
 	 * Whether document re-renders with nothing new of the user's to show have
 	 * to wait. Each one destroys the textures of the one before, and on WebKit
