@@ -3,6 +3,7 @@ import {
 	createIdentityTransform,
 	createImageObject,
 } from "../../document/factory";
+import type { ObjectsChangeDelta } from "../../document/objectsChangeDelta";
 import type {
 	AnyArtObject,
 	CompoundPath,
@@ -152,6 +153,55 @@ describe("GuideOverlay", () => {
 		expect(outlineText).toHaveBeenCalledTimes(2);
 		expect(onTextOutlined).not.toHaveBeenCalled();
 	});
+
+	describe("while tracking a document", () => {
+		it("should draw a guide that a delta added to a document without guides", () => {
+			const doc = documentWith([path("art")]);
+			overlay.trackDocument(doc);
+			expect(overlay.build(doc)).toBeNull();
+
+			const guide = path("guide", { isGuide: true });
+			doc.objects.guide = guide;
+			doc.layers[0].elementIds.push("guide");
+			overlay.trackObjectsDelta(delta({ added: [guide] }));
+
+			expect(primitivesOf(overlay.build(doc))).toHaveLength(1);
+		});
+
+		it("should draw an element once an update marks it as a guide", () => {
+			const doc = documentWith([path("art")]);
+			overlay.trackDocument(doc);
+
+			const marked = path("art", { isGuide: true });
+			doc.objects.art = marked;
+			overlay.trackObjectsDelta(delta({ updated: [marked] }));
+
+			expect(primitivesOf(overlay.build(doc))).toHaveLength(1);
+		});
+
+		it("should keep drawing the remaining guide after another one is deleted", () => {
+			const doc = documentWith([
+				path("first", { isGuide: true }),
+				path("second", { isGuide: true }),
+			]);
+			overlay.trackDocument(doc);
+
+			delete doc.objects.first;
+			doc.layers[0].elementIds = ["second"];
+			overlay.trackObjectsDelta(delta({ deleted: ["first"] }));
+
+			expect(primitivesOf(overlay.build(doc))).toHaveLength(1);
+		});
+
+		it("should draw the guides of the document that replaced the tracked one", () => {
+			overlay.trackDocument(documentWith([path("art")]));
+			const next = documentWith([path("guide", { isGuide: true })]);
+
+			overlay.trackDocument(next);
+
+			expect(primitivesOf(overlay.build(next))).toHaveLength(1);
+		});
+	});
 });
 
 function path(id: string, fields: Partial<Path> = {}): Path {
@@ -181,4 +231,18 @@ function primitivesOf(
 	overlay: ReturnType<GuideOverlay["build"]>,
 ): BezierPathPrimitive[] {
 	return (overlay?.primitives ?? []) as BezierPathPrimitive[];
+}
+
+function delta(changes: {
+	added?: AnyArtObject[];
+	updated?: AnyArtObject[];
+	deleted?: string[];
+}): ObjectsChangeDelta {
+	const byId = (elements: AnyArtObject[] = []) =>
+		new Map(elements.map((element) => [element.id, element]));
+	return {
+		added: byId(changes.added),
+		updated: byId(changes.updated),
+		deleted: new Set(changes.deleted),
+	};
 }

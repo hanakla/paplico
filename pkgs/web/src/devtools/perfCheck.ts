@@ -46,6 +46,8 @@ type RenderRecord = {
 	passes: PassRecord[];
 	computePasses: Array<Pick<PassRecord, "label" | "gpuMs">>;
 	copies: string[];
+	/** Bytes written through queue.writeBuffer / writeTexture during the render. */
+	uploadBytes: number;
 	canvasCache?: {
 		reason: string;
 		requestStrategy: unknown;
@@ -165,6 +167,17 @@ export async function runPerfCheck(
 		if (typeof obj[key] === "function") obj[key] = factory(obj[key]);
 	}
 
+	/** Patch factory that records each call's CPU time as a WebGPU API sample. */
+	const timedApi = (method: string) => (orig: (...args: any[]) => any) =>
+		function (this: unknown, ...a: any[]) {
+			const t0 = performance.now();
+			try {
+				return orig.apply(this, a);
+			} finally {
+				apiSamples.push({ t: nowRel(), method, ms: performance.now() - t0 });
+			}
+		};
+
 	// ---- GPU timestamp query pool (per encoder) ------------------------------
 	// coverage mirrors a block-pool: passes we could not time are counted.
 	const coverage = {
@@ -245,23 +258,29 @@ export async function runPerfCheck(
 				}
 			},
 	);
+	patch(device, "createBindGroup", timedApi("GPUDevice.createBindGroup"));
+	patch(device, "createTexture", timedApi("GPUDevice.createTexture"));
+	/** timedApi that also adds the call's upload size to the current render. */
+	const timedUpload =
+		(method: string, bytesOf: (a: any[]) => number) =>
+		(orig: (...args: any[]) => any) => {
+			const timed = timedApi(method)(orig);
+			return function (this: unknown, ...a: any[]) {
+				if (curRender) curRender.uploadBytes += bytesOf(a);
+				return timed.apply(this, a);
+			};
+		};
 	patch(
-		device,
-		"createBindGroup",
-		(orig) =>
-			function (this: GPUDevice, ...a: any[]) {
-				const t0 = performance.now();
-				try {
-					return orig.apply(this, a);
-				} finally {
-					apiSamples.push({
-						t: nowRel(),
-						method: "GPUDevice.createBindGroup",
-						ms: performance.now() - t0,
-					});
-				}
-			},
+		device.queue,
+		"writeBuffer",
+		timedUpload("GPUQueue.writeBuffer", writeBufferBytes),
 	);
+	patch(
+		device.queue,
+		"writeTexture",
+		timedUpload("GPUQueue.writeTexture", writeTextureBytes),
+	);
+	patch(device.queue, "submit", timedApi("GPUQueue.submit"));
 
 	function texInfo(view: GPUTextureView | GPUTexture | undefined) {
 		const t =
@@ -310,48 +329,53 @@ export async function runPerfCheck(
 					};
 				};
 
-				wrapLocal(
-					encoder,
-					"beginRenderPass",
-					(obp) =>
-						function (this: GPUCommandEncoder, desc: GPURenderPassDescriptor) {
-							const label = desc?.label || "(unlabeled)";
-							const att = [...(desc?.colorAttachments ?? [])][0]?.view;
-							const { dims } = texInfo(att);
-							const rec: PassRecord = {
-								label,
-								dims,
-								draws: 0,
-								origin: state.captureOrigins ? originOf() : "",
-								gpuMs: null,
-							};
-							coverage.totalPasses++;
-							if (curRender) curRender.passes.push(rec);
+				wrapLocal(encoder, "beginRenderPass", (orig) => {
+					const obp = timedApi("GPUCommandEncoder.beginRenderPass")(orig);
+					return function (
+						this: GPUCommandEncoder,
+						desc: GPURenderPassDescriptor,
+					) {
+						const label = desc?.label || "(unlabeled)";
+						const att = [...(desc?.colorAttachments ?? [])][0]?.view;
+						const { dims } = texInfo(att);
+						const rec: PassRecord = {
+							label,
+							dims,
+							draws: 0,
+							origin: state.captureOrigins ? originOf() : "",
+							gpuMs: null,
+						};
+						coverage.totalPasses++;
+						if (curRender) curRender.passes.push(rec);
 
-							const timestampWrites = desc?.timestampWrites
-								? undefined
-								: timestampWritesFor(rec);
-							const pass: any = obp.call(
-								this,
-								timestampWrites ? { ...desc, timestampWrites } : desc,
-							);
-							for (const m of [
-								"draw",
-								"drawIndexed",
-								"drawIndirect",
-								"drawIndexedIndirect",
-							]) {
-								const of = pass[m];
-								if (typeof of === "function") {
-									pass[m] = function (this: unknown, ...args: any[]) {
-										rec.draws++;
-										return of.apply(this, args);
-									};
-								}
-							}
-							return pass;
-						},
-				);
+						const timestampWrites = desc?.timestampWrites
+							? undefined
+							: timestampWritesFor(rec);
+						const pass: any = obp.call(
+							this,
+							timestampWrites ? { ...desc, timestampWrites } : desc,
+						);
+						for (const m of [
+							"draw",
+							"drawIndexed",
+							"drawIndirect",
+							"drawIndexedIndirect",
+						]) {
+							if (typeof pass[m] !== "function") continue;
+							const of = timedApi(`GPURenderPassEncoder.${m}`)(pass[m]);
+							pass[m] = function (this: unknown, ...args: any[]) {
+								rec.draws++;
+								return of.apply(this, args);
+							};
+						}
+						wrapLocal(
+							pass,
+							"setBindGroup",
+							timedApi("GPURenderPassEncoder.setBindGroup"),
+						);
+						return pass;
+					};
+				});
 
 				wrapLocal(
 					encoder,
@@ -488,6 +512,7 @@ export async function runPerfCheck(
 					passes: [],
 					computePasses: [],
 					copies: [],
+					uploadBytes: 0,
 				};
 				const prev = curRender;
 				curRender = rec;
@@ -730,6 +755,20 @@ export async function runPerfCheck(
 		);
 		wrapCpu(proto, "releaseStaleEntries", "ClipMaskAtlas.releaseStaleEntries");
 	}
+	const pathRenderer = canvasLayer.elements?.pathRenderer;
+	if (pathRenderer) {
+		wrapCpu(
+			Object.getPrototypeOf(pathRenderer),
+			"rasterizeOutline",
+			"PathElementRenderer.rasterizeOutline",
+		);
+	}
+	const stripFrame = canvasLayer.stripFrame;
+	if (stripFrame) {
+		const proto = Object.getPrototypeOf(stripFrame);
+		wrapCpu(proto, "upload", "StripFrame.upload");
+		wrapCpu(proto, "finishFrame", "StripFrame.finishFrame");
+	}
 	if (filterRenderer)
 		wrapCpu(
 			Object.getPrototypeOf(filterRenderer),
@@ -780,7 +819,8 @@ export async function runPerfCheck(
 					avgMs: +(arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(3),
 					p50Ms: pct(arr, 0.5),
 					p95Ms: pct(arr, 0.95),
-					maxMs: +Math.max(...arr).toFixed(3),
+					// Per-draw samples can exceed the engine's spread argument limit.
+					maxMs: +arr.reduce((a, b) => Math.max(a, b)).toFixed(3),
 				}
 			: null;
 
@@ -909,6 +949,9 @@ export async function runPerfCheck(
 			drawsPerRender: round(passDraws, (v) => v / rc),
 			emptyPassesPerRender: round(passEmpty, (v) => v / rc),
 			copiesPerRender: round(copyCount, (v) => v / rc),
+			uploadBytesPerRender: Math.round(
+				renderSet.reduce((sum, r) => sum + r.uploadBytes, 0) / rc,
+			),
 			passOriginsPerRender: round(passOrigin, (v) => v / rc),
 			passDims,
 			gpuPassMsSumPerRender: +(
@@ -1073,4 +1116,23 @@ export async function runPerfCheck(
 		stop();
 		running = false;
 	}
+}
+
+/** Bytes a queue.writeBuffer call uploads (its size and offsets count elements of a typed array). */
+function writeBufferBytes([, , data, dataOffset, size]: any[]): number {
+	const element = ArrayBuffer.isView(data)
+		? ((data as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1)
+		: 1;
+	return size != null
+		? size * element
+		: data.byteLength - (dataOffset ?? 0) * element;
+}
+
+/** Bytes a queue.writeTexture call uploads. */
+function writeTextureBytes([, , layout, size]: any[]): number {
+	const height = Array.isArray(size) ? (size[1] ?? 1) : (size?.height ?? 1);
+	const layers = Array.isArray(size)
+		? (size[2] ?? 1)
+		: (size?.depthOrArrayLayers ?? 1);
+	return (layout?.bytesPerRow ?? 0) * height * layers;
 }

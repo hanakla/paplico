@@ -1,4 +1,5 @@
 import { guideLocalOutlines } from "../../document/elementGeometry/guideOutlines";
+import type { ObjectsChangeDelta } from "../../document/objectsChangeDelta";
 import {
 	type Document,
 	type ElementTransform,
@@ -22,6 +23,10 @@ import { OVERLAY_Z, UI_THEME } from "./theme";
  *
  * A text guide is outlined by its glyphs. Laying them out is asynchronous, so
  * a text guide shows up once `onTextOutlined` reports its glyphs are ready.
+ *
+ * Told about the document through `trackDocument` and `trackObjectsDelta`,
+ * it knows when no element is a guide and builds nothing without visiting
+ * the elements.
  */
 export class GuideOverlay {
 	private readonly outlineText: (
@@ -36,6 +41,11 @@ export class GuideOverlay {
 		TextElement,
 		PathSegment[][] | null
 	>();
+	/**
+	 * Ids of the elements marked isGuide in the tracked document, or null
+	 * while no document is tracked and only a walk can tell.
+	 */
+	private guideIds: Set<string> | null = null;
 
 	/**
 	 * @param options.outlineText resolves to null when glyphs cannot be laid
@@ -49,8 +59,34 @@ export class GuideOverlay {
 		this.onTextOutlined = options.onTextOutlined;
 	}
 
-	/** The guide overlay for `document`, or null when it shows no guide. */
+	/** Start tracking `document`, which replaced the one tracked so far. */
+	public trackDocument(document: Document): void {
+		this.guideIds = new Set(
+			Object.values(document.objects).flatMap((element) =>
+				element.isGuide === true ? [element.id] : [],
+			),
+		);
+	}
+
+	/** Follow a change of the tracked document's objects. */
+	public trackObjectsDelta(delta: ObjectsChangeDelta): void {
+		if (!this.guideIds) return;
+		for (const changed of [delta.added, delta.updated]) {
+			for (const [id, element] of changed) {
+				if (element.isGuide === true) this.guideIds.add(id);
+				else this.guideIds.delete(id);
+			}
+		}
+		for (const id of delta.deleted) this.guideIds.delete(id);
+	}
+
+	/**
+	 * The guide overlay for `document`, or null when it shows no guide.
+	 * `document` is the tracked document whenever one is tracked.
+	 */
 	public build(document: Document): UIOverlay | null {
+		if (this.guideIds?.size === 0) return null;
+
 		const outlines: WorldBezierSegment[][] = [];
 		const visit = (
 			id: string,

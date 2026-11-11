@@ -1982,6 +1982,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					document.objects = ref(document.objects);
 					this.defIndex.rebuild(document);
 					this.textDepIndex.rebuild(document);
+					this.guideOverlay.trackDocument(document);
 					this.rendererStore.document = document;
 					this.patternEdit.refreshSessionVisuals();
 					this.renderChangeSubscriber.syncFullDocument();
@@ -2030,6 +2031,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					// Update the SpatialIndex cache incrementally
 					this.spatialIndex.applyObjectsDelta(delta);
 					this.defIndex.notifyDelta(delta);
+					this.guideOverlay.trackObjectsDelta(delta);
 					for (const staleTextId of this.textDepIndex.notifyDelta(delta)) {
 						this.renderer.invalidateTextCache(staleTextId);
 					}
@@ -2053,9 +2055,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					};
 
 					// Phase 4: Valtio notification for React UI panels
-					this.rendererStore.document.objects = ref({
-						...this.rendererStore.document.objects,
-					});
+					const replacedObjects = this.rendererStore.document.objects;
+					this.rendererStore.document.objects = ref({ ...replacedObjects });
+					this.spatialIndex.adoptObjectsRecord(
+						replacedObjects,
+						this.rendererStore.document.objects,
+					);
 					this.patternEdit.refreshSessionVisuals();
 
 					if (!this.reference3dLoadRequested) {

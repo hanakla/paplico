@@ -1445,6 +1445,64 @@ describe("PaplicoCommands", () => {
 		});
 	});
 
+	describe("rebuildBlendSpineIfKey", () => {
+		function createBlendCommands() {
+			const fixture = createProviderCommands();
+			const { provider, sync } = fixture;
+			provider.addElement("layer", createPathAt("key-a", 0, 0, 10, 0));
+			provider.addElement("layer", createPathAt("key-b", 100, 0, 110, 0));
+			// Off the line through the key centers, so a rebuild always shows.
+			provider.addElement("layer", createPathAt("spine", 5, 20, 105, 20));
+			provider.addElement("layer", createPathAt("other", 0, 50, 10, 50));
+			provider.addElement("layer", {
+				id: "blend",
+				type: "blend",
+				objectIds: ["key-a", "key-b"],
+				spineSourceId: "spine",
+				spacing: { type: "steps", count: 3 },
+				placementEasing: { type: "linear" },
+				appearanceEasing: { type: "linear" },
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+			} as unknown as AnyArtObject);
+			sync();
+			return fixture;
+		}
+
+		function spineOf(store: RendererState): Path {
+			return store.document.objects.spine as Path;
+		}
+
+		it("should run the spine through a blend key that moved", () => {
+			const { provider, store, commands, sync } = createBlendCommands();
+			provider.updateElement("layer", "key-b", {
+				transform: { ...createIdentityTransform(), y: 80 },
+			});
+			sync();
+
+			commands.rebuildBlendSpineIfKey("key-b");
+			sync();
+
+			expect(spineOf(store).segments.at(-1)?.end.y).toBeCloseTo(80);
+			expect(getTransform(spineOf(store))).toEqual(createIdentityTransform());
+		});
+
+		it("should leave the spine alone when the moved element is no blend key", () => {
+			const { provider, store, commands, sync } = createBlendCommands();
+			const before = spineOf(store).segments;
+			provider.updateElement("layer", "other", {
+				transform: { ...createIdentityTransform(), y: 80 },
+			});
+			sync();
+
+			commands.rebuildBlendSpineIfKey("other");
+			sync();
+
+			expect(spineOf(store).segments).toEqual(before);
+		});
+	});
+
 	describe("duplicateElementsByIds (shared alt-drag / copy path)", () => {
 		it("should move a turned path by the offset in world space", () => {
 			const { commands, provider, store, sync } = createProviderCommands({
