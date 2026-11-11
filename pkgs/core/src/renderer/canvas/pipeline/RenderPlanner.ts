@@ -429,9 +429,11 @@ function classifyElementFilters(
 	// per-appearance offscreen path. Geometry sub-filters (path-offset,
 	// zigzag) deform inline — through resolveAppearancePasses for paths and
 	// renderGroupAppearanceFilters for groups — so routing them offscreen
-	// would only rasterize them at the document's fixed DPI. Other element
-	// types have no inline per-appearance deformation, so they still need it.
-	const deformsInline = isGroup(element) || element.type === "path";
+	// would only rasterize them at the document's fixed DPI. A text draws its
+	// glyphs as paths, so it deforms inline too. Other element types have no
+	// inline per-appearance deformation, so they still need it.
+	const deformsInline =
+		isGroup(element) || element.type === "path" || element.type === "text";
 	let hasAnySubFilters = false;
 	for (const filter of localAppearances(element.filters)) {
 		if (!isFilterEnabled(filter)) continue;

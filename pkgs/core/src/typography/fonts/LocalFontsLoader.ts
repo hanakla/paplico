@@ -164,42 +164,39 @@ export class LocalFontsLoader extends FontLoader {
 		onProgress();
 	}
 
-	protected async fetchFont(postScriptName: string): Promise<FontFile> {
-		// キャッシュされたFontDataを探す
-		let fontData = this.fontDataCache.get(postScriptName);
+	protected async fetchFont(fontId: string): Promise<FontFile> {
+		let fontData = this.fontDataCache.get(fontId);
 
-		// キャッシュになければ再取得
 		if (!fontData) {
 			if (!this.isSupported()) {
 				throw new Error("Local Font Access API is not supported");
 			}
 
-			const fonts: FontData[] = await this.backend.queryFontsByPostScriptNames([
-				postScriptName,
-			]);
-
-			if (fonts.length === 0) {
-				throw new Error(`Font not found: ${postScriptName}`);
+			fontData =
+				(await this.backend.queryFontsByPostScriptNames([fontId])).at(0) ??
+				// Some documents name a local font by its full name.
+				(await this.backend.queryFonts()).find(
+					(font) => font.fullName === fontId,
+				);
+			if (!fontData) {
+				throw new Error(`Font not found: ${fontId}`);
 			}
-
-			fontData = fonts[0];
-			this.fontDataCache.set(postScriptName, fontData);
+			this.fontDataCache.set(fontId, fontData);
 		}
 
-		// フォントデータをBlob→ArrayBufferとして取得
 		const blob = await fontData.blob();
 		return {
 			data: await blob.arrayBuffer(),
 			metadata: {
 				family: fontData.family,
 				fullName: fontData.fullName,
-				postScriptName,
+				postScriptName: fontData.postScriptName,
 				style: fontData.style,
 				weight: this.inferWeightFromStyle(fontData.style),
 			},
 			// Faces of one family share their family name, so each registers
 			// under its own PostScript name.
-			cssFamily: postScriptName,
+			cssFamily: fontData.postScriptName,
 		};
 	}
 

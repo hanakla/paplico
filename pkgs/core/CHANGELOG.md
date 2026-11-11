@@ -16,6 +16,7 @@
   - The `knockout` composition mode makes an element replace what is under it inside its parent instead of showing it through its own transparency.
 - **Utils**
   - `calculateSegmentListBounds` in `@paplico/core/utils` measures a list of segments.
+  - `linearMatrixToTransform` in `@paplico/core/utils` turns a matrix into an element transform.
 - **Color**
   - `createCmykToRgbConverter` in `@paplico/core/color` converts CMYK to RGB through a CMYK profile, or, when there is no profile, approximates a coated offset press with colors sampled from the FOGRA39L coated profile (zlib/libpng license).
 - **Artboard tool**
@@ -106,6 +107,8 @@
 - **Filters**
   - Fix some filtered elements staying blurry after zooming in until the view moves.
   - Fix the drop shadow or another filter of a group not following an element edited inside it.
+- **Path offset filter**
+  - Fix a hole in a shape, such as the counter of a letter, growing with a positive offset instead of shrinking. A hole the shape closes over is dropped.
 - **Chromatic aberration filter**
   - Fix the separation's center moving while panning or zooming a large element.
 - **Text tool**
@@ -140,9 +143,14 @@
   - Fix opening a document with a long timelapse recording crashing on iPad.
   - Fix the timelapse dialog crashing on iPad when it opens a long recording.
   - Fix seeking back to near the start of a recording made by an older build failing.
+- **Fonts**
+  - Fix `DomLocalFontBackend` returning every font without its PostScript name and `queryFontsByPostScriptNames` returning all fonts instead of the named ones.
+  - Fix `LocalFontsLoader` failing to load a font that a document names by its full name.
 - **Text**
   - Fix the caret, the selection and clicks landing above a character laid on its side in vertical writing.
   - Fix a character the chosen font lacks showing as a tofu box instead of being drawn with the fallback font.
+  - Fix a centered or right-aligned paragraph in vertical writing starting at the top of its column. Without a box, the text's position is the middle or the end of the column.
+  - Fix text with a path offset or another shape filter on one of its fills or strokes being drawn as a coarse image instead of sharp outlines.
 
 ## [0.10.0] - 2026-10-28
 

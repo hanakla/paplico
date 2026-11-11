@@ -21,11 +21,13 @@ import type {
 	Point,
 	TextContent,
 	TextElement,
+	TextLayout,
 	TextOnPathBinding,
 	TextParagraph,
 	TextStyle,
 } from "../schema";
 import { resolveSegment } from "../utils/geometry/primitives/segment";
+import { translateSegments } from "../utils/geometry/space/worldSegments";
 import type { LoadedFont } from "./fonts/FontLoader";
 import type { FontManager } from "./fonts/FontManager";
 import { rotateAnchorAroundPivot } from "./glyphQuad";
@@ -204,6 +206,8 @@ interface VerticalRegionSpec {
 	startRight: number;
 	ellipsis: boolean;
 	regionBounds: BoundingBox | null;
+	/** Where a column is aligned when the interval it fills has no bottom. */
+	alignWithin?: TextLineInterval;
 }
 
 interface PlacedLine {
@@ -342,6 +346,7 @@ export class TextLayoutEngine {
 							startRight: 0,
 							ellipsis: false,
 							regionBounds: vspec.regionBounds,
+							alignWithin: columnSpanOf(region.element.layout),
 						};
 				const flow = this.flowIntoRegionVertical(
 					shaped,
@@ -703,6 +708,7 @@ export class TextLayoutEngine {
 				startRight: boxWidth === "auto" ? 0 : boxWidth,
 				ellipsis: false,
 				regionBounds: boxRegionBounds(boxWidth, boxHeight),
+				alignWithin: columnSpanOf(layout),
 			};
 		}
 
@@ -1245,18 +1251,21 @@ export class TextLayoutEngine {
 				const finalColLeft = finalColRight - colWidth;
 
 				for (const pc of pendingCols) {
-					const chars = this.placeColumnItems(
-						pc.items,
-						finalColLeft,
-						pc.interval.x1,
+					const colTop = alignColumnTop(
+						meta.alignment,
+						Number.isFinite(pc.interval.x0)
+							? pc.interval
+							: (spec.alignWithin ?? pc.interval),
+						pc.used,
 					);
+					const chars = this.placeColumnItems(pc.items, finalColLeft, colTop);
 					const line: LayoutedLine = {
 						chars,
 						width: colWidth,
 						height: pc.used,
 						baseline: colWidth / 2,
 						x: finalColLeft,
-						y: pc.interval.x1,
+						y: colTop,
 						paragraphIndex: p,
 						softWrapped: pc.softWrapped,
 					};
@@ -1876,6 +1885,20 @@ export class TextLayoutEngine {
 				lineWidth = firstRunStyle.fontSize;
 			}
 
+			// The column was laid down from the origin: the top of its box, or
+			// without a box, where an aligned one has its middle or its end.
+			const columnTop = alignColumnTop(
+				para.alignment,
+				columnSpanOf(element.layout),
+				lineHeight,
+			);
+			if (columnTop !== 0) {
+				for (const char of lineChars) {
+					char.y += columnTop;
+					char.glyphPath = translateSegments(char.glyphPath, 0, columnTop);
+				}
+			}
+
 			// 列を確定（空段落でも行を生成する）
 			const line: LayoutedLine = {
 				chars: lineChars,
@@ -1883,7 +1906,7 @@ export class TextLayoutEngine {
 				height: lineHeight,
 				baseline: lineWidth / 2,
 				x: currentX,
-				y: 0,
+				y: columnTop,
 				paragraphIndex: pIdx,
 				softWrapped: false,
 			};
@@ -2445,6 +2468,46 @@ function alignStartX(
 			return interval.x1 - lineWidth;
 		default:
 			return interval.x0;
+	}
+}
+
+/**
+ * The span a column that nothing cuts is aligned in: the height of its box,
+ * or without one, from the element's point down without end.
+ */
+function columnSpanOf(layout: TextLayout): TextLineInterval {
+	return {
+		x0:
+			layout.boxHeight === "auto"
+				? Number.NEGATIVE_INFINITY
+				: -layout.boxHeight,
+		x1: 0,
+	};
+}
+
+/**
+ * Top of a column of `columnHeight` in `interval`, which runs down from `x1`
+ * to `x0`. A column with no bottom is anchored at its top instead: the top is
+ * where a start-aligned column begins, a centered one has its middle and an
+ * end-aligned one ends.
+ */
+function alignColumnTop(
+	alignment: "left" | "center" | "right" | "justify",
+	interval: TextLineInterval,
+	columnHeight: number,
+): number {
+	const isAnchored = !Number.isFinite(interval.x0);
+	switch (alignment) {
+		case "center":
+			return isAnchored
+				? interval.x1 + columnHeight / 2
+				: interval.x1 - (interval.x1 - interval.x0 - columnHeight) / 2;
+		case "right":
+			return isAnchored
+				? interval.x1 + columnHeight
+				: interval.x0 + columnHeight;
+		default:
+			return interval.x1;
 	}
 }
 

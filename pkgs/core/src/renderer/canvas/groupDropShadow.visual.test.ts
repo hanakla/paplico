@@ -22,6 +22,7 @@ import {
 } from "../../testUtils/visualRegression";
 import type { CanvasTarget } from "../CanvasTarget";
 import type { DropShadowFilter } from "../filters/DropShadowFilter/DropShadowFilter";
+import type { FrameRequest } from "../types";
 
 /** World (0, 0) sits at screen (400, 300), one world unit per pixel. */
 const VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1, rotation: 0 };
@@ -33,6 +34,8 @@ const HIDDEN: RawRGBA = { r: 0, g: 1, b: 0, a: 1 };
 const SHADOW_OFFSET = 150;
 /** One 8-bit step of rounding on each side of a blend. */
 const TOLERANCE = 2.5 / 255;
+/** More follow-up frames than the renderer needs to finish its bakes. */
+const MAX_FOLLOW_UP_FRAMES = 8;
 
 /**
  * A group holding a base square and a multiply square that reaches past the
@@ -181,9 +184,10 @@ function filledRect(
 	return path;
 }
 
-/** Render `frames` times through RenderOrchestrator.render, the path the
- *  editor draws with. Returns the last presented frame and how many drop
- *  shadow passes that frame encoded. */
+/** Render `frames` full frames through RenderOrchestrator.render, the path
+ *  the editor draws with. Before each one comes every follow-up frame the
+ *  renderer asked for, as the editor draws them. Returns the last presented
+ *  frame and how many drop shadow passes that full frame encoded. */
 async function renderFrames(
 	document: Document,
 	frames: number,
@@ -192,18 +196,33 @@ async function renderFrames(
 	const device = renderer.getDevice();
 	if (!device) throw new Error("Test renderer has no GPU device");
 	const shadowPasses = trackShadowPasses(device);
-	for (let frame = 0; frame < frames; frame++) {
-		shadowPasses.count = 0;
+	let followUpRequested = false;
+	renderer.setOnRequestRender(() => {
+		followUpRequested = true;
+	});
+	const renderFrame = async (strategy: FrameRequest["strategy"]) => {
+		followUpRequested = false;
 		renderer.render(
 			{
 				viewport: VIEWPORT,
 				document,
-				strategy: "full",
+				strategy,
 				changedElements: { upserted: new Set(), deleted: new Set() },
 			},
 			{},
 		);
 		await device.queue.onSubmittedWorkDone();
+	};
+	for (let frame = 0; frame < frames; frame++) {
+		for (
+			let followUp = 0;
+			followUpRequested && followUp < MAX_FOLLOW_UP_FRAMES;
+			followUp++
+		) {
+			await renderFrame("overlayOnly");
+		}
+		shadowPasses.count = 0;
+		await renderFrame("full");
 	}
 	const texture = presentedTexture(canvas);
 	const pixels = await captureTexturePixels(device, texture, 800, 600);
