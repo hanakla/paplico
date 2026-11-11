@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Blend modes**
+  - Add the `hue`, `saturation`, `color` and `luminosity` blend modes.
+- **Text**
+  - A text style takes `textOrientation`. `"mixed"` lays Latin and other proportional characters on their side in vertical writing.
+- **Repeat**
+  - A grid repeat takes `rowFlip` and `columnFlip`, which mirror every other row or column.
+- **Gradients**
+  - A radial gradient takes `focalX` and `focalY`, the point it starts from.
+- **Composition modes**
+  - The `knockout` composition mode makes an element replace what is under it inside its parent instead of showing it through its own transparency.
+- **Utils**
+  - `calculateSegmentListBounds` in `@paplico/core/utils` measures a list of segments.
 - **Color**
   - `createCmykToRgbConverter` in `@paplico/core/color` converts CMYK to RGB through a CMYK profile, or, when there is no profile, approximates a coated offset press with colors sampled from the FOGRA39L coated profile (zlib/libpng license).
 - **Artboard tool**
@@ -109,6 +121,8 @@
   - Fix opening a document with a long timelapse recording crashing on iPad.
   - Fix the timelapse dialog crashing on iPad when it opens a long recording.
   - Fix seeking back to near the start of a recording made by an older build failing.
+- **Text**
+  - Fix a character the chosen font lacks showing as a tofu box instead of being drawn with the fallback font.
 
 ## [0.10.0] - 2026-10-28
 

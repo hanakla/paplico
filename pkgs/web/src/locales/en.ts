@@ -392,6 +392,12 @@ export const en = {
 		repeatSpacingY: "Spacing Y",
 		repeatOffsetX: "Offset X",
 		repeatOffsetY: "Offset Y",
+		repeatRowFlip: "Flip rows",
+		repeatColumnFlip: "Flip columns",
+		repeatFlipNone: "None",
+		repeatFlipHorizontal: "Horizontal",
+		repeatFlipVertical: "Vertical",
+		repeatFlipBoth: "Both",
 		repeatCount: "Count",
 		repeatRadius: "Radius",
 		repeatStartAngle: "Start angle",
@@ -1081,6 +1087,7 @@ export const en = {
 		compositionModes: {
 			normal: "Unlocked",
 			"alpha-lock": "Alpha Lock",
+			knockout: "Knockout",
 		},
 	},
 	layerPanel: {
@@ -1107,6 +1114,10 @@ export const en = {
 			"soft-light": "Soft Light",
 			difference: "Difference",
 			exclusion: "Exclusion",
+			hue: "Hue",
+			saturation: "Saturation",
+			color: "Color",
+			luminosity: "Luminosity",
 		},
 	},
 	common: {

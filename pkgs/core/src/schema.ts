@@ -137,6 +137,10 @@ export interface RadialGradient {
 	radiusX: number; // Horizontal radius (0.0-1.0, bounds-relative)
 	radiusY: number; // Vertical radius (0.0-1.0, bounds-relative)
 	rotation: number; // Rotation angle in radians
+	/** Where the gradient starts, bounds-relative like cx. Default: cx. */
+	focalX?: number;
+	/** Where the gradient starts, bounds-relative like cy. Default: cy. */
+	focalY?: number;
 	stops: ColorStop[];
 }
 
@@ -461,9 +465,19 @@ export type BlendMode =
 	| "hard-light"
 	| "soft-light"
 	| "difference"
-	| "exclusion";
+	| "exclusion"
+	| "hue"
+	| "saturation"
+	| "color"
+	| "luminosity";
 
-export type CompositionMode = "normal" | "alpha-lock";
+/**
+ * How an element combines with what is under it.
+ * - "alpha-lock": draws only where something is already drawn.
+ * - "knockout": replaces what is under it inside its parent instead of showing
+ *   it through its own transparency.
+ */
+export type CompositionMode = "normal" | "alpha-lock" | "knockout";
 
 export const DEFAULT_COMPOSITION_MODE: CompositionMode = "normal";
 
@@ -1190,6 +1204,9 @@ export interface BlendObject extends ArtObject {
 /** Repeat arrangement mode (mirrors Illustrator's Repeat: Grid / Radial / Mirror). */
 export type RepeatMode = "grid" | "radial" | "mirror";
 
+/** The axes a grid repeat mirrors its copies across. */
+export type RepeatFlip = "horizontal" | "vertical" | "both";
+
 /**
  * Rectangular grid that fills a region with copies. The row/column COUNT is
  * derived from the region size and spacing (`cols = floor(width / spacingX) + 1`),
@@ -1213,6 +1230,10 @@ export interface RepeatGridParams {
 	/** Brick offset: odd columns are shifted vertically by this amount (world
 	 *  units, downward positive). Default 0. */
 	offsetY?: number;
+	/** How every other row is mirrored, about each copy's own center. Default: none. */
+	rowFlip?: RepeatFlip;
+	/** How every other column is mirrored, about each copy's own center. Default: none. */
+	columnFlip?: RepeatFlip;
 }
 
 /** Copies arranged evenly around a pivot point. */
@@ -1321,6 +1342,12 @@ export interface TextStyle {
 	baselineShift: number; // px (superscript / subscript)
 	/** Tate-chu-yoko: fit this run's text into a single character cell, kept horizontal within vertical writing */
 	tateChuYoko?: boolean;
+	/**
+	 * How vertical writing sets the characters: "upright" stands every one,
+	 * "mixed" lays proportional ones such as Latin on their side, as CSS
+	 * text-orientation: mixed does. Default: "upright".
+	 */
+	textOrientation?: "upright" | "mixed";
 	openTypeFeatures?: Record<string, boolean>;
 }
 

@@ -126,7 +126,7 @@ function classifyElementInner(
 		return element.includeInExport === true ? "raster" : "skip";
 	}
 
-	if (element.compositionMode === "alpha-lock") return "raster";
+	if ((element.compositionMode ?? "normal") !== "normal") return "raster";
 
 	const composed = ancestorTransform
 		? composeTransforms(ancestorTransform, element.transform)
@@ -516,7 +516,8 @@ function isBackdropDependent(
 	opts: ClassifyOptions,
 ): boolean {
 	return (
-		element.compositionMode === "alpha-lock" || samplesBackdrop(element, opts)
+		(element.compositionMode ?? "normal") !== "normal" ||
+		samplesBackdrop(element, opts)
 	);
 }
 
