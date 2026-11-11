@@ -1,3 +1,4 @@
+use crate::allowed_path::resolve_allowed_path;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
@@ -27,18 +28,5 @@ pub fn read_font_range(path: String, offset: u64, length: u64) -> Result<Vec<u8>
 }
 
 fn resolve_font_path(path: &str) -> Result<PathBuf, String> {
-    let canonical = fs::canonicalize(path)
-        .map_err(|e| format!("Failed to resolve font path {}: {}", path, e))?;
-
-    let ext = canonical
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
-        .unwrap_or_default();
-
-    if !ALLOWED_EXTENSIONS.contains(&ext.as_str()) {
-        return Err(format!("Invalid font file extension '{}': {}", ext, path));
-    }
-
-    Ok(canonical)
+    resolve_allowed_path(path, ALLOWED_EXTENSIONS, "font")
 }

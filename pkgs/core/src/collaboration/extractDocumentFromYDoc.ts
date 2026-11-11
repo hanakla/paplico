@@ -216,10 +216,18 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
  * @param options.skipUnreadableObjects Leave out objects that fail to decode
  *   instead of throwing. A replayed update stream can carry objects that were
  *   never whole in the live document.
+ * @param options.sourcePaths EmbeddedFile.sourcePath by file uid. The Y.Doc
+ *   does not hold them.
  */
 export function extractDocumentFromYDoc(
 	ydoc: Y.Doc,
-	{ skipUnreadableObjects = false }: { skipUnreadableObjects?: boolean } = {},
+	{
+		skipUnreadableObjects = false,
+		sourcePaths,
+	}: {
+		skipUnreadableObjects?: boolean;
+		sourcePaths?: ReadonlyMap<string, string>;
+	} = {},
 ): Document {
 	const yObjects = ydoc.getMap<Y.Map<unknown>>("objects");
 	const yLayers = ydoc.getArray<Y.Map<unknown>>("layers");
@@ -254,13 +262,15 @@ export function extractDocumentFromYDoc(
 
 	// files: Y.Map<SerializedEmbeddedFile> → EmbeddedFile[]
 	const files: EmbeddedFile[] = [];
-	for (const [_uid, serialized] of yFiles.entries()) {
+	for (const [uid, serialized] of yFiles.entries()) {
+		const sourcePath = sourcePaths?.get(uid);
 		files.push({
 			uid: serialized.uid,
 			name: serialized.name,
 			type: serialized.type,
 			hash: serialized.hash,
 			bin: normalizeEmbeddedBin(serialized.bin),
+			...(sourcePath ? { sourcePath } : {}),
 		});
 	}
 

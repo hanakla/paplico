@@ -49,6 +49,8 @@ export function attachCollaboration<T extends ICollaboration>(
 	const localObjectIds = new Set<string>();
 	if (document === "fromRemote") {
 		provider.resetWithFreshDoc();
+		// The room's document replaces the local one, whose links go with it
+		provider.clearFileSourcePaths();
 	} else {
 		for (const id of provider.getObjectIds()) localObjectIds.add(id);
 		provider.clearSchemaVersion();

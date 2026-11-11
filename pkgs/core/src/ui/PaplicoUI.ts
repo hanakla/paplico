@@ -14,7 +14,10 @@ import type { AnyArtObject, BoundingBox, RawRGBA, Viewport } from "../schema";
 import { PenTool } from "../tools/PenTool";
 import type { PointerEventData, Tool } from "../tools/Tool";
 import { Emitter } from "../utils/emitter";
-import { screenToWorld } from "../utils/geometry/space/coordinates";
+import {
+	clientToWorld,
+	screenToWorld,
+} from "../utils/geometry/space/coordinates";
 import { matchKey } from "../utils/keyboard";
 
 interface PaplicoUICallbacks {
@@ -1417,31 +1420,25 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 
 		if (!e.dataTransfer) return;
 
-		const rect = this.canvas.getBoundingClientRect();
-		const screenX = e.clientX - rect.left;
-		const screenY = e.clientY - rect.top;
-
-		const viewport = this.callbacks.getViewport();
-		const worldPos = screenToWorld(
-			screenX,
-			screenY,
-			viewport,
-			rect.width,
-			rect.height,
+		const world = clientToWorld(
+			e.clientX,
+			e.clientY,
+			this.canvas.getBoundingClientRect(),
+			this.callbacks.getViewport(),
 		);
 
-		const itemsArr = Array.from(e.dataTransfer.items);
 		// Include image/svg+xml: handleFileDrop imports SVG as vector (and falls
 		// back to rasterizing it if nothing could be parsed).
-		const fileItem = itemsArr.find(
-			(i) => i.kind === "file" && i.type.startsWith("image/"),
-		);
+		const files = Array.from(e.dataTransfer.items).flatMap((item) => {
+			if (item.kind !== "file" || !item.type.startsWith("image/")) return [];
+			return item.getAsFile() ?? [];
+		});
+		if (files.length === 0) return;
 
-		if (fileItem) {
-			const file = fileItem.getAsFile();
-			if (!file) return;
-			this.emit("fileDrop", [{ file, worldX: worldPos.x, worldY: worldPos.y }]);
-		}
+		this.emit(
+			"fileDrop",
+			files.map((file) => ({ file, worldX: world.x, worldY: world.y })),
+		);
 	}
 
 	// --- Clipboard Paste Events ---

@@ -584,6 +584,7 @@ interface EmbeddedFile {
 	type: string;      // MIME タイプ
 	hash: string;      // SHA-256。重複の排除に使う
 	bin: Uint8Array;
+	sourcePath?: string; // リンク元のパス。相対パスはドキュメントファイルのフォルダを起点にする。Y.Doc には入れず、共同編集の相手には送らない。パスからユーザーのフォルダ名が分かり、相手から受け取ると任意のパスを読むことになるため
 }
 ```
 

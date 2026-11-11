@@ -1091,6 +1091,20 @@ export const ja = {
 			knockout: "ノックアウト",
 		},
 	},
+	assetPanel: {
+		assets: "アセット",
+		noAssets: "このドキュメントにファイルはありません",
+		embedded: "埋め込み",
+		linked: "リンク",
+		replace: "差し替え…",
+		selectElements: "オブジェクトを選択",
+		moreActions: "その他の操作",
+		sourceMissing: "リンク先のファイルが見つかりません",
+	},
+	linkedFiles: {
+		changed: "リンク元の画像が変更されました",
+		update: "更新する",
+	},
 	layerPanel: {
 		layers: "レイヤー",
 		addLayer: "レイヤーを足す",

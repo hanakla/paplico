@@ -68,6 +68,7 @@ import { useCanvasObstacle } from "@/hooks/useCanvasObstacle";
 import { getEncryptedRoomCredentials, useCollab } from "@/hooks/useCollab";
 import { useCurrentDocumentName } from "@/hooks/useDocumentQueries";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
+import { useLinkedFileWatcher } from "@/hooks/useLinkedFileWatcher";
 import { useMenuActions } from "@/hooks/useMenuActions";
 import { createAutomationFileSystem } from "@/infra/automationFileSystem";
 import { getBuiltinProfileBytes } from "@/infra/builtinIccProfiles";
@@ -82,6 +83,7 @@ import { runIndexedDBMigrations } from "@/infra/indexedDBMigrations";
 import { tauriSetWindowTitle } from "@/infra/windowTitle";
 import { useTranslation } from "@/locales";
 import { ActionsPanel } from "@/organisms/ActionsPanel";
+import { AssetPanel } from "@/organisms/AssetPanel";
 import { CanvasPane } from "@/organisms/CanvasPane";
 import { ChromeGlass } from "@/organisms/ChromeGlass";
 import { CompanionHost } from "@/organisms/CompanionHost";
@@ -112,6 +114,7 @@ import {
 	loadDocumentData,
 	saveDocument,
 } from "@/stores/documentStore";
+import { placeDroppedImages } from "@/stores/linkedFilesStore";
 import {
 	AUTOMATION_PANEL_MAX_WIDTH,
 	AUTOMATION_PANEL_MIN_WIDTH,
@@ -528,6 +531,8 @@ export default function Page() {
 	// Artboards list for ExportDialog (read directly, not reactive - dialog is opened by user action)
 	const artboards = paplico?.uiState.document.artboards ?? [];
 
+	useLinkedFileWatcher(paplico);
+
 	const menuActions = useMenuActions(paplicoRef, {
 		setExportDialogOpen,
 		setDocumentSettingsDialogOpen,
@@ -724,11 +729,16 @@ export default function Page() {
 	// Handle file drops from Tauri (native drag-drop bypasses browser events)
 	useEffect(() => {
 		const handler = (e: Event) => {
-			const { paths } = (e as CustomEvent<TauriFileDropDetail>).detail;
+			const { paths, position } = (e as CustomEvent<TauriFileDropDetail>)
+				.detail;
 			const path = paths.find((p) => openableDocumentExtension(p));
-			if (!path) return;
+			if (path) {
+				openDroppedDocument(() => tauriFileHandleFromPath(path));
+				return;
+			}
 
-			openDroppedDocument(() => tauriFileHandleFromPath(path));
+			const p = paplicoRef.current;
+			if (p && position) void placeDroppedImages(p, paths, position);
 		};
 
 		window.addEventListener("tauri-file-drop", handler);
@@ -1099,6 +1109,12 @@ export default function Page() {
 													height={appSnap.sidePanelHeights.filters ?? null}
 												>
 													<FilterPanel />
+												</ResizableSidePanel>
+												<ResizableSidePanel
+													id="assets"
+													height={appSnap.sidePanelHeights.assets ?? null}
+												>
+													<AssetPanel />
 												</ResizableSidePanel>
 											</div>
 											{isTogether && (

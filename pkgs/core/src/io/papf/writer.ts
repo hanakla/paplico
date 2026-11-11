@@ -479,6 +479,7 @@ function buildFileManifest(files: EmbeddedFile[]): FileManifestEntry[] {
 		type: f.type,
 		hash: f.hash,
 		byteLength: f.bin.byteLength,
+		...(f.sourcePath ? { sourcePath: f.sourcePath } : {}),
 	}));
 }
 

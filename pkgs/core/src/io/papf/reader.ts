@@ -441,6 +441,10 @@ export class PapfFile {
 			type: manifest.type,
 			hash: manifest.hash,
 			bin,
+			// The manifest comes from a file anyone could have written
+			...(typeof manifest.sourcePath === "string" && manifest.sourcePath
+				? { sourcePath: manifest.sourcePath }
+				: {}),
 		};
 	}
 

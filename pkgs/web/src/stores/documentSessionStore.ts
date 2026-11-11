@@ -6,7 +6,11 @@ import {
 	openableDocumentExtension,
 } from "@/documentImport";
 import { setLastDocumentId } from "@/hooks/useAppConfig";
-import { type FileHandle, FileSystem } from "@/infra/filesystem";
+import { type FileHandle, FileSystem, nativePathOf } from "@/infra/filesystem";
+import {
+	resolveLinkedSourcePath,
+	toLinkedSourcePath,
+} from "@/infra/linkedFiles.tauri";
 import {
 	documentManagerState,
 	saveDocument,
@@ -70,11 +74,17 @@ export function setDocumentFileHandle(fileHandle: FileHandle): void {
 	documentSessionState.hasUnsavedFileChanges = false;
 }
 
-/** Writes the document over the file manual saves target. */
+/**
+ * Writes the document over the file manual saves target. Linked files are
+ * stored relative to the folder of that file.
+ */
 export async function overwriteDocumentFile(
 	paplico: Paplico,
 	fileHandle: FileHandle,
 ): Promise<void> {
+	const path = nativePathOf(fileHandle);
+	if (path !== null) rebaseLinkedFilePaths(paplico, documentPath(), path);
+
 	// Cleared before exporting so edits made during the write mark the file again
 	documentSessionState.hasUnsavedFileChanges = false;
 	try {
@@ -83,6 +93,38 @@ export async function overwriteDocumentFile(
 		documentSessionState.hasUnsavedFileChanges = true;
 		throw error;
 	}
+}
+
+/**
+ * Rewrites the stored source paths for a document file at `nextDocumentPath`,
+ * so they start at its folder. Returns whether any path changed.
+ */
+function rebaseLinkedFilePaths(
+	paplico: Paplico,
+	previousDocumentPath: string | null,
+	nextDocumentPath: string,
+): boolean {
+	let rebased = false;
+
+	for (const file of paplico.uiState.document.files) {
+		if (!file.sourcePath) continue;
+
+		const path = resolveLinkedSourcePath(file.sourcePath, previousDocumentPath);
+		if (path === null) continue;
+
+		const sourcePath = toLinkedSourcePath(path, nextDocumentPath);
+		if (sourcePath === file.sourcePath) continue;
+
+		paplico.commands.setEmbeddedFileSourcePath(file.uid, sourcePath);
+		rebased = true;
+	}
+
+	return rebased;
+}
+
+/** The native path of the document file, known only to the desktop build. */
+export function documentPath(): string | null {
+	return nativePathOf(documentSessionState.fileHandle);
 }
 
 /**

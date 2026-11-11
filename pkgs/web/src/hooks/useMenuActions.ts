@@ -9,7 +9,7 @@ import { toastManager } from "@/components/Toast";
 import { confirmCloseDocument } from "@/dialogs/CloseDocumentDialog";
 import { LicensesDialog } from "@/dialogs/LicensesDialog";
 import { openableDocumentExtensions } from "@/documentImport";
-import { FileSystem } from "@/infra/filesystem";
+import { type FileHandle, FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import {
 	documentSessionState,
@@ -123,17 +123,17 @@ export function useMenuActions(
 
 	const handleExport = useEventCallback(async () => {
 		try {
-			const blob = await paplicoRef.current?.exportDocumentFile();
-			if (!blob) return;
+			const p = paplicoRef.current;
+			if (!p) return;
 
 			const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-			const handle = await FileSystem.exportFile(
-				blob,
-				`paplico-${timestamp}.papf`,
-			);
+			const filename = `paplico-${timestamp}.papf`;
+
+			const handle = await saveDocumentAs(p, filename);
 			if (!handle) return;
 
 			setDocumentFileHandle(handle);
+
 			toastManager.add({
 				title: t("menubar.documentSaved", { name: handle.file.name }),
 			});
@@ -338,4 +338,23 @@ export function useMenuActions(
 		handleCopyLastStroke,
 		handleSendLastStroke,
 	};
+}
+
+/**
+ * Writes the document to a place the user picks. Where the platform settles
+ * the destination first, the one write already holds the linked file paths
+ * relative to it. `null` means the user called it off, or the platform only
+ * hands the file over as a download.
+ */
+async function saveDocumentAs(
+	paplico: Paplico,
+	filename: string,
+): Promise<FileHandle | null> {
+	if (!FileSystem.canRequestSaveFile()) {
+		return FileSystem.exportFile(await paplico.exportDocumentFile(), filename);
+	}
+
+	const handle = await FileSystem.requestSaveFile(filename);
+	if (handle) await overwriteDocumentFile(paplico, handle);
+	return handle;
 }

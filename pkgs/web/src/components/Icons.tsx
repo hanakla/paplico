@@ -1,4 +1,4 @@
-import { Layers, Pen, Plus, Sparkles, Zap } from "lucide-react";
+import { Images, Layers, Pen, Plus, Sparkles, Zap } from "lucide-react";
 import { memo } from "react";
 
 export const Icons = {
@@ -7,4 +7,5 @@ export const Icons = {
 	ActionsPanel: memo(Zap),
 	Layer: memo(Layers),
 	Appearance: memo(Sparkles),
+	Assets: memo(Images),
 };

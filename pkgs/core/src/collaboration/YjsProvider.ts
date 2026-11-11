@@ -239,6 +239,13 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	private yMeta!: Y.Map<unknown>;
 	private yArtboards!: Y.Array<Artboard>;
 	private yFiles!: Y.Map<SerializedEmbeddedFile>;
+	/**
+	 * EmbeddedFile.sourcePath by file uid. Held outside the Y.Doc: a path names
+	 * a place on this device, so sharing it would hand collaborators the user's
+	 * folder names, and accepting one from them would make this device read
+	 * whatever path they chose.
+	 */
+	private readonly fileSourcePaths = new Map<string, string>();
 	private yBrushPresets!: Y.Map<Y.Map<unknown>>;
 	private yAppearancePresets!: Y.Map<Y.Map<unknown>>;
 	private yDefs!: Y.Map<Y.Map<unknown>>;
@@ -546,7 +553,9 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 			this.needsArtboardSync = false;
 
 			if (needsFull) {
-				const document = extractDocumentFromYDoc(this.ydoc);
+				const document = extractDocumentFromYDoc(this.ydoc, {
+					sourcePaths: this.fileSourcePaths,
+				});
 				this.callbacks.onDocumentUpdate(document);
 
 				// Set current layer to first layer if not set or invalid
@@ -825,6 +834,11 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 
 	private populateYjsFromDocument(doc: Document): void {
 		populateYDocFromDocument(this.ydoc, doc);
+
+		this.fileSourcePaths.clear();
+		for (const file of doc.files) {
+			if (file.sourcePath) this.fileSourcePaths.set(file.uid, file.sourcePath);
+		}
 	}
 
 	/**
@@ -2266,28 +2280,62 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	// --- File Operations ---
 
 	/**
-	 * Add an embedded file.
-	 * Returns the uid if already exists (by hash), or the new uid
+	 * Add an embedded file. Returns the uid of a file already holding the same
+	 * bytes with the same link, or the new uid. A linked file and an embedded
+	 * one stay apart even when their bytes match, so adding one never changes
+	 * what the other is linked to.
 	 */
 	public addFile(file: EmbeddedFile): string {
-		// Check for existing file with same hash
 		for (const [uid, existing] of this.yFiles.entries()) {
-			if (existing.hash === file.hash) {
+			if (
+				existing.hash === file.hash &&
+				this.fileSourcePaths.get(uid) === (file.sourcePath || undefined)
+			) {
 				return uid;
 			}
 		}
 
-		const serialized: SerializedEmbeddedFile = {
-			uid: file.uid,
-			name: file.name,
-			type: file.type,
-			hash: file.hash,
-			// Store a detached copy so external mutation cannot corrupt Yjs payload.
-			bin: new Uint8Array(file.bin),
-		};
-
-		this.yFiles.set(file.uid, serialized);
+		writeEmbeddedFile(this.yFiles, file);
+		if (file.sourcePath) {
+			this.fileSourcePaths.set(file.uid, file.sourcePath);
+			this.syncFileSourcePaths();
+		}
 		return file.uid;
+	}
+
+	/** Sets where an embedded file is linked from. `null` unlinks it. */
+	public setFileSourcePath(uid: string, sourcePath: string | null): void {
+		if ((this.fileSourcePaths.get(uid) ?? null) === sourcePath) return;
+
+		if (sourcePath === null) this.fileSourcePaths.delete(uid);
+		else this.fileSourcePaths.set(uid, sourcePath);
+		this.syncFileSourcePaths();
+	}
+
+	/** Forgets every link, for a document that came from somewhere else. */
+	public clearFileSourcePaths(): void {
+		if (this.fileSourcePaths.size === 0) return;
+
+		this.fileSourcePaths.clear();
+		this.syncFileSourcePaths();
+	}
+
+	/**
+	 * Carries a source path change to the document the UI reads. The paths
+	 * live outside the Y.Doc, so no Yjs update announces them: outside a
+	 * transaction the sync runs here, and inside one it runs when the
+	 * transaction ends without having changed the Y.Doc.
+	 */
+	private syncFileSourcePaths(): void {
+		this.needsFullSync = true;
+		if (!this.ydoc._transaction) {
+			this.syncYjsToValtio();
+			return;
+		}
+
+		this.ydoc.once("afterAllTransactions", () => {
+			if (this.needsFullSync) this.syncYjsToValtio();
+		});
 	}
 
 	public addSvgImport(
@@ -2299,15 +2347,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	): void {
 		if (topLevelIds.length === 0) return;
 		this.ydoc.transact(() => {
-			for (const file of files) {
-				this.yFiles.set(file.uid, {
-					uid: file.uid,
-					name: file.name,
-					type: file.type,
-					hash: file.hash,
-					bin: new Uint8Array(file.bin),
-				});
-			}
+			for (const file of files) writeEmbeddedFile(this.yFiles, file);
 			for (const [, obj] of objects) {
 				this.yObjects.set(obj.id, this.objectToYMap(obj));
 			}
@@ -2799,16 +2839,8 @@ function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 	const yArtboards = ydoc.getArray<Artboard>("artboards");
 	for (const artboard of doc.artboards) yArtboards.push([artboard]);
 
-	const yFiles = ydoc.getMap<unknown>("files");
-	for (const file of doc.files) {
-		yFiles.set(file.uid, {
-			uid: file.uid,
-			name: file.name,
-			type: file.type,
-			hash: file.hash,
-			bin: new Uint8Array(file.bin),
-		});
-	}
+	const yFiles = ydoc.getMap<SerializedEmbeddedFile>("files");
+	for (const file of doc.files) writeEmbeddedFile(yFiles, file);
 
 	const yBrushPresets = ydoc.getMap<Y.Map<unknown>>("brushPresets");
 	for (const preset of doc.brushPresets) {
@@ -3191,4 +3223,20 @@ function enteredContainerChildIds(mapEvent: Y.YMapEvent<unknown>): string[] {
 	} as unknown as Y.Map<unknown>;
 	const previousIds = new Set(getContainerChildIds(yMapToObject(before)));
 	return childIds.filter((id) => !previousIds.has(id));
+}
+
+/** Writes one embedded file into the shared `files` map. */
+function writeEmbeddedFile(
+	yFiles: Y.Map<SerializedEmbeddedFile>,
+	file: EmbeddedFile,
+): void {
+	yFiles.set(file.uid, {
+		uid: file.uid,
+		name: file.name,
+		type: file.type,
+		hash: file.hash,
+		// A detached copy, so later mutation of the caller's bytes cannot reach
+		// the Yjs payload
+		bin: new Uint8Array(file.bin),
+	});
 }

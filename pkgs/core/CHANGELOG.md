@@ -27,7 +27,14 @@
 - **Guides**
   - Every element type takes `isGuide`, not only paths. A guide group makes every element inside it a guide.
   - `PaplicoCommands.makeGuides` and `PaplicoCommands.releaseGuides` turn the given unlocked elements into guides and back in one undo step.
+- **Linked files**
+  - `EmbeddedFile` takes `sourcePath`, the path of the file its bytes were read from. `PaplicoCommands.setEmbeddedFileSourcePath` sets or removes it. The path stays on the device and in the papf it saves; collaborators never receive it.
+  - `Paplico.dropImageFile` places an image file at a viewport position, for hosts that receive drops outside the canvas `drop` event.
+  - `PaplicoCommands.replaceEmbeddedFile` points every image that shows a file at a replacement in one undo step.
+- **Viewport**
+  - `Paplico.fitViewportToBounds` moves and zooms a canvas so the given bounds fill it. `insets` leaves out the edges floating UI covers.
 - **Paste**
+  - `PaplicoCommands.pasteImageFile` takes `sourcePath` to link the pasted image to its file.
   - `PaplicoCommands.pasteElements` takes `layerRoot` to paste at the root of a given layer and `select: false` to keep the selection.
 - **Renderer**
   - The `documentResolutionScale` option of `Paplico.create` draws the document at a fraction of the canvas resolution and stretches it over the canvas, which takes less GPU memory. Tool overlays keep the full resolution. It defaults to 1.

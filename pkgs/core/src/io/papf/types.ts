@@ -136,6 +136,8 @@ export type FileManifestEntry = {
 	hash: string;
 	/** Uncompressed file size in bytes. */
 	byteLength: number;
+	/** EmbeddedFile.sourcePath, for files linked to their origin. */
+	sourcePath?: string;
 };
 
 // ---------------------------------------------------------------------------

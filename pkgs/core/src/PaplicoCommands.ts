@@ -4025,6 +4025,47 @@ export class PaplicoCommands {
 		return this.ctx.yjsProvider.addFile(file);
 	}
 
+	/** Sets where an embedded file is linked from. `null` unlinks it. */
+	public setEmbeddedFileSourcePath(
+		uid: string,
+		sourcePath: string | null,
+	): void {
+		if (this.cannotMutate()) return;
+		this.ctx.yjsProvider.setFileSourcePath(uid, sourcePath);
+	}
+
+	/**
+	 * Points every image that shows the file `uid` at `replacement`, which
+	 * takes over the link to the source. The images keep the size they were
+	 * placed at. Undo puts the images back on the former file. A replacement
+	 * holding the same bytes only hands its link to the file.
+	 */
+	public replaceEmbeddedFile(uid: string, replacement: EmbeddedFile): void {
+		if (this.cannotMutate()) return;
+
+		const current = this.ctx.store.document.files.find(
+			(file) => file.uid === uid,
+		);
+		if (!current) return;
+		if (current.hash === replacement.hash) {
+			if (replacement.sourcePath) {
+				this.ctx.yjsProvider.setFileSourcePath(uid, replacement.sourcePath);
+			}
+			return;
+		}
+
+		const origin = this.getMutationOrigin();
+		this.ctx.yjsProvider.transact(() => {
+			const fileUid = this.ctx.yjsProvider.addFile(replacement);
+
+			this.ctx.yjsProvider.setFileSourcePath(uid, null);
+			for (const element of Object.values(this.ctx.store.document.objects)) {
+				if (element.type !== "image" || element.fileUid !== uid) continue;
+				this.ctx.yjsProvider.updateElement("", element.id, { fileUid }, origin);
+			}
+		}, origin);
+	}
+
 	// --- Brush Preset Operations ---
 
 	public addBrushPreset(preset: BrushPreset): void {
@@ -4452,23 +4493,26 @@ export class PaplicoCommands {
 
 	/**
 	 * Paste an image File as an ImageObject at the given viewport position.
-	 * Embeds the file's bytes via addEmbeddedFile.
+	 * Embeds the file's bytes via addEmbeddedFile. `sourcePath` keeps the
+	 * embedded file linked to where the bytes came from.
 	 */
 	public async pasteImageFile(
 		file: File,
 		viewport?: { x: number; y: number },
+		sourcePath?: string,
 	): Promise<string | null> {
 		const worldX = viewport?.x ?? 0;
 		const worldY = viewport?.y ?? 0;
 
 		try {
-			const fileUid = this.addEmbeddedFile(
-				await createEmbeddedFileFromBytes(
+			const fileUid = this.addEmbeddedFile({
+				...(await createEmbeddedFileFromBytes(
 					new Uint8Array(await file.arrayBuffer()),
 					file.name || "pasted-image.png",
 					file.type,
-				),
-			);
+				)),
+				sourcePath,
+			});
 
 			const imageBitmap = await createImageBitmap(file);
 			const imageWidth = imageBitmap.width;

@@ -15,7 +15,10 @@ import { YjsProvider } from "./collaboration/YjsProvider";
 import { buildSoftProofLut } from "./color/ColorEngine";
 import type { BuiltinIccProfileId, ProofProfileRef } from "./color/types";
 import { localAppearances } from "./document/appearancePresets";
-import { PREVIEW_ELEMENT_SENTINEL_ID } from "./document/constants";
+import {
+	PAPLICO_MIN_ZOOM_SCALE,
+	PREVIEW_ELEMENT_SENTINEL_ID,
+} from "./document/constants";
 import { DefIndex } from "./document/DefIndex";
 import { collectEditablePaths } from "./document/editablePaths";
 import { isUsableAsSubFilter } from "./document/elementGeometry/filterCapabilities";
@@ -94,6 +97,7 @@ import type {
 import {
 	type AnyArtObject,
 	type Artboard,
+	type BoundingBox,
 	type Color,
 	cloneAppearance,
 	colorToRawRGBA,
@@ -170,7 +174,9 @@ import { buildArcLengthTable } from "./utils/geometry/measure/arcLength";
 import { brandWorldBBox } from "./utils/geometry/primitives/box";
 import {
 	applyTransformToPoint,
+	clientToWorld,
 	composeTransforms,
+	screenToWorld,
 } from "./utils/geometry/space/coordinates";
 import { resolveSelectionFrame } from "./utils/geometry/space/selectionFrame";
 import { assertNonNull, deepClone } from "./utils/lang";
@@ -1713,6 +1719,63 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	public getCanvasTarget(targetId: string): CanvasTarget | null {
 		return this.canvasTargets.get(targetId)?.target ?? null;
+	}
+
+	/**
+	 * Moves and zooms a canvas so `bounds` sits in the middle of it, filling
+	 * `ratio` of the room it has. `insets` are the CSS pixels along each edge
+	 * that floating UI covers; the bounds are fitted into what is left. The
+	 * rotation of the view is kept.
+	 */
+	public fitViewportToBounds(
+		targetId: string,
+		bounds: BoundingBox,
+		{
+			ratio = 0.8,
+			insets: { top = 0, right = 0, bottom = 0, left = 0 } = {},
+		}: {
+			ratio?: number;
+			insets?: Partial<Record<"top" | "right" | "bottom" | "left", number>>;
+		} = {},
+	): void {
+		const target = this.getCanvasTarget(targetId);
+		if (!target) return;
+
+		const { rotation } = target.getViewport();
+		const cos = Math.abs(Math.cos(rotation));
+		const sin = Math.abs(Math.sin(rotation));
+		// The extent of the bounds along the axes of the rotated screen
+		const width = Math.max(bounds.width * cos + bounds.height * sin, 1);
+		const height = Math.max(bounds.width * sin + bounds.height * cos, 1);
+		const freeWidth = Math.max(target.width - left - right, 1);
+		const freeHeight = Math.max(target.height - top - bottom, 1);
+
+		const zoom = Math.min(
+			Math.max(
+				Math.min(freeWidth / width, freeHeight / height) * ratio,
+				PAPLICO_MIN_ZOOM_SCALE,
+			),
+			this.toolSettings.maxZoomScale,
+		);
+		const center = {
+			x: (bounds.minX + bounds.maxX) / 2,
+			y: (bounds.minY + bounds.maxY) / 2,
+		};
+		// With the view centred on the bounds, the middle of the free area
+		// shows another world point; shifting the view by the difference
+		// brings the bounds there
+		const shown = screenToWorld(
+			left + freeWidth / 2,
+			top + freeHeight / 2,
+			{ ...center, zoom, rotation },
+			target.width,
+			target.height,
+		);
+		target.setViewport({
+			x: center.x * 2 - shown.x,
+			y: center.y * 2 - shown.y,
+			zoom,
+		});
 	}
 
 	/**
@@ -3921,12 +3984,48 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
+	 * Places an image file the host received outside the canvas `drop` event,
+	 * such as a native drop. `clientX` / `clientY` are viewport coordinates in
+	 * CSS pixels; a point outside every canvas places nothing. `sourcePath`
+	 * keeps a raster image linked to the file it was read from.
+	 */
+	public async dropImageFile(
+		file: File,
+		clientX: number,
+		clientY: number,
+		sourcePath?: string,
+	): Promise<void> {
+		for (const { target } of this.canvasTargets.values()) {
+			const rect = target.canvas.getBoundingClientRect();
+			if (
+				clientX < rect.left ||
+				clientX > rect.right ||
+				clientY < rect.top ||
+				clientY > rect.bottom
+			) {
+				continue;
+			}
+
+			const world = clientToWorld(clientX, clientY, rect, target.getViewport());
+			await this.handleFileDrop([
+				{ file, worldX: world.x, worldY: world.y, sourcePath },
+			]);
+			return;
+		}
+	}
+
+	/**
 	 * Handle file drop
 	 */
 	private async handleFileDrop(
-		files: Array<{ file: File; worldX: number; worldY: number }>,
+		files: Array<{
+			file: File;
+			worldX: number;
+			worldY: number;
+			sourcePath?: string;
+		}>,
 	): Promise<void> {
-		for (const { file, worldX, worldY } of files) {
+		for (const { file, worldX, worldY, sourcePath } of files) {
 			try {
 				// SVG files import as vector (paths, text, gradients, patterns);
 				// fall back to rasterizing the file if nothing could be parsed.
@@ -3945,7 +4044,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					continue;
 				}
 
-				await this.commands.pasteImageFile(file, { x: worldX, y: worldY });
+				await this.commands.pasteImageFile(
+					file,
+					{ x: worldX, y: worldY },
+					sourcePath,
+				);
 			} catch (error) {
 				console.error(`Failed to process image: ${file.name}`, error);
 			}

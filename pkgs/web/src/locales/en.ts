@@ -1090,6 +1090,20 @@ export const en = {
 			knockout: "Knockout",
 		},
 	},
+	assetPanel: {
+		assets: "Assets",
+		noAssets: "No files in this document",
+		embedded: "Embedded",
+		linked: "Linked",
+		replace: "Replace…",
+		selectElements: "Select Objects",
+		moreActions: "More actions",
+		sourceMissing: "The linked file cannot be found",
+	},
+	linkedFiles: {
+		changed: "A linked image was changed",
+		update: "Update",
+	},
 	layerPanel: {
 		layers: "Layers",
 		addLayer: "Add layer",

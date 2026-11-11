@@ -2577,6 +2577,116 @@ describe("YjsProvider", () => {
 			const stored = yFiles.get("file-typed") as { bin?: unknown } | undefined;
 			expect(stored?.bin).toBeInstanceOf(Uint8Array);
 		});
+
+		const linkedFile = {
+			uid: "file-linked",
+			name: "ref.png",
+			type: "image/png",
+			hash: "hash-linked",
+			bin: new Uint8Array([1, 2, 3]),
+			sourcePath: "/Users/me/ref.png",
+		};
+
+		it("should keep the source path of a linked file in the document", () => {
+			const provider = new YjsProvider({ callbacks });
+			provider.addFile(linkedFile);
+
+			expect(mockOnDocumentUpdate.mock.lastCall?.[0].files[0].sourcePath).toBe(
+				"/Users/me/ref.png",
+			);
+		});
+
+		it("should keep the source path out of the state collaborators receive", () => {
+			const provider = new YjsProvider({ callbacks });
+			provider.addFile(linkedFile);
+
+			const received = new Y.Doc();
+			Y.applyUpdate(received, Y.encodeStateAsUpdate(provider.ydoc));
+
+			expect(extractDocumentFromYDoc(received).files).toHaveLength(1);
+			expect(JSON.stringify(received.toJSON())).not.toContain(
+				"/Users/me/ref.png",
+			);
+		});
+
+		it("should replace and remove the source path of a file", () => {
+			const provider = new YjsProvider({ callbacks });
+			provider.addFile(linkedFile);
+
+			provider.setFileSourcePath("file-linked", "img/ref.png");
+			expect(mockOnDocumentUpdate.mock.lastCall?.[0].files[0].sourcePath).toBe(
+				"img/ref.png",
+			);
+
+			provider.setFileSourcePath("file-linked", null);
+			expect(
+				mockOnDocumentUpdate.mock.lastCall?.[0].files[0].sourcePath,
+			).toBeUndefined();
+		});
+
+		it("should keep the source paths of a document it is given", () => {
+			const provider = new YjsProvider({ callbacks });
+			provider.replaceDocument({
+				id: "doc-linked",
+				objects: {},
+				layers: [],
+				viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },
+				files: [linkedFile],
+				artboards: [],
+				brushPresets: [],
+				units: "px",
+			});
+
+			provider.setFileSourcePath("file-linked", "img/ref.png");
+
+			expect(mockOnDocumentUpdate.mock.lastCall?.[0].files[0].sourcePath).toBe(
+				"img/ref.png",
+			);
+		});
+
+		it("should forget every source path when they are cleared", () => {
+			const provider = new YjsProvider({ callbacks });
+			provider.addFile(linkedFile);
+
+			provider.clearFileSourcePaths();
+
+			expect(
+				mockOnDocumentUpdate.mock.lastCall?.[0].files[0].sourcePath,
+			).toBeUndefined();
+		});
+
+		it("should keep a linked file apart from an embedded file with the same bytes", () => {
+			const provider = new YjsProvider({ callbacks });
+			provider.addFile({
+				...linkedFile,
+				uid: "file-embedded",
+				sourcePath: undefined,
+			});
+
+			const uid = provider.addFile(linkedFile);
+
+			expect(uid).toBe("file-linked");
+			expect(
+				mockOnDocumentUpdate.mock.lastCall?.[0].files.map(
+					(file: { uid: string; sourcePath?: string }) => [
+						file.uid,
+						file.sourcePath,
+					],
+				),
+			).toEqual([
+				["file-embedded", undefined],
+				["file-linked", "/Users/me/ref.png"],
+			]);
+		});
+
+		it("should reuse a file with the same bytes and the same link", () => {
+			const provider = new YjsProvider({ callbacks });
+			provider.addFile(linkedFile);
+
+			expect(provider.addFile({ ...linkedFile, uid: "file-again" })).toBe(
+				"file-linked",
+			);
+		});
 	});
 
 	describe("HDR settings", () => {

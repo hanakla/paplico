@@ -1678,6 +1678,12 @@ export interface EmbeddedFile {
 	type: string; // MIME type (e.g., "image/png")
 	hash: string; // SHA-256 hash (used for deduplication)
 	bin: Uint8Array;
+	/**
+	 * Where the bytes were read from, when the host app keeps the file linked
+	 * to its origin. Relative paths start at the folder of the document file
+	 * and use `/` separators.
+	 */
+	sourcePath?: string;
 }
 
 // --- Brush Types ---

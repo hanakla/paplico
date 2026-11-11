@@ -1,7 +1,9 @@
+mod allowed_path;
 mod automation_file_system;
 mod documents;
 mod fonts;
 mod launch_files;
+mod linked_files;
 
 use automation_file_system::AutomationFileSystemState;
 use launch_files::LaunchFilesState;
@@ -34,6 +36,8 @@ pub fn run() {
             automation_file_system::automation_directory_file,
             automation_file_system::automation_revoke_access,
             launch_files::take_launch_files,
+            linked_files::read_linked_image,
+            linked_files::stat_linked_images,
             documents::documents_list_metas,
             documents::documents_get_meta,
             documents::documents_load,
