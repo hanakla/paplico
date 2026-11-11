@@ -6,6 +6,7 @@ import type {
 	FilterProcessorContext,
 	FilterRenderRequirements,
 } from "../../canvas/pipeline/FilterRenderer";
+import { evictIdleOverBudget } from "../../canvas/pipeline/IdleClock";
 import {
 	HK_HUSKY_BLEED_SHADER,
 	HK_HUSKY_BLUR_SHADER,
@@ -149,21 +150,16 @@ export class HKHuskyFilterHandler implements FilterHandler {
 				this.stageTextures.delete(key);
 			}
 		}
-		let bytes = 0;
-		for (const entry of this.stageTextures.values()) {
-			bytes += entry.texture.width * entry.texture.height * 4;
-		}
-		const oldestFirst = [...this.stageTextures].sort(
-			([, a], [, b]) => a.lastUsedFrame - b.lastUsedFrame,
+		evictIdleOverBudget(
+			this.stageTextures,
+			MAX_IDLE_STAGE_BYTES,
+			this.frameIndex,
+			{
+				bytesOf: ({ texture }) => texture.width * texture.height * 4,
+				lastUsedFrameOf: (entry) => entry.lastUsedFrame,
+				destroy: ({ texture }) => texture.destroy(),
+			},
 		);
-		for (const [key, entry] of oldestFirst) {
-			// The last frame's textures are what the next frame asks for.
-			if (bytes <= MAX_IDLE_STAGE_BYTES) break;
-			if (this.frameIndex - entry.lastUsedFrame < 2) break;
-			bytes -= entry.texture.width * entry.texture.height * 4;
-			entry.texture.destroy();
-			this.stageTextures.delete(key);
-		}
 	}
 
 	private acquireStageTexture(
