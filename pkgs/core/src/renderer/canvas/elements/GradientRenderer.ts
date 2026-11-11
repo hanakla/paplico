@@ -141,10 +141,6 @@ export class GradientRenderer {
 			radialRadiusX: fill.type === "radial" ? fill.radiusX : 0,
 			radialRadiusY: fill.type === "radial" ? fill.radiusY : 0,
 			radialRotation: fill.type === "radial" ? fill.rotation : 0,
-			radialFocal:
-				fill.type === "radial"
-					? [fill.focalX ?? fill.cx, fill.focalY ?? fill.cy]
-					: [0, 0],
 			boundsMin,
 			boundsMax,
 			patternMatrixCol0: [patternMatrix.a, patternMatrix.b],

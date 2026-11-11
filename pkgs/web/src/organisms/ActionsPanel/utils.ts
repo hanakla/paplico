@@ -1,3 +1,6 @@
+import type { FontSource } from "@paplico/core/schema";
+import type { FontMetadata } from "@paplico/core/typography";
+
 export const BRUSH_WIDTH_STEP = 0.1;
 
 // --- Mixed value sentinel ---
@@ -16,4 +19,9 @@ export function resolveValue<E, V>(
 		if (getter(elements[i]) !== first) return MIXED;
 	}
 	return first;
+}
+
+/** Build FontSource from FontMetadata */
+export function buildFontSource(font: FontMetadata): FontSource {
+	return { loaderId: font.loaderId, fontId: font.fontId };
 }

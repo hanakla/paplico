@@ -10,10 +10,6 @@ export function useCompositionModeItems() {
 				value: "alpha-lock",
 				label: t("filterPanel.compositionModes.alpha-lock"),
 			},
-			{
-				value: "knockout",
-				label: t("filterPanel.compositionModes.knockout"),
-			},
 		],
 		[t],
 	);

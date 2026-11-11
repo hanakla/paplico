@@ -161,10 +161,6 @@ export class PSDExporter implements IExporter {
 			"soft-light": "soft light",
 			difference: "difference",
 			exclusion: "exclusion",
-			hue: "hue",
-			saturation: "saturation",
-			color: "color",
-			luminosity: "luminosity",
 		};
 		return mapping[paplicoMode];
 	}

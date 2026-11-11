@@ -153,14 +153,6 @@ export const COMPOSITE_SHADER = /* wgsl */ `
 			return vec4f(outRGB * outA, outA);
 		}
 
-		if (compositeUniforms.compositionMode == 2u) {
-			// knockout: the source's shape removes dest, whatever its opacity
-			let keptA = dstA * (1.0 - clamp(srcPremultiplied.a, 0.0, 1.0));
-			let outA = srcA + keptA;
-			let outRGB = (effectiveSrc * srcA + dstRGB * keptA) / max(outA, 0.001);
-			return vec4f(outRGB * outA, outA);
-		}
-
 		let outA = srcA + dstA * (1.0 - srcA);
 		let outRGB = (
 			effectiveSrc * srcA + dstRGB * dstA * (1.0 - srcA)

@@ -20,7 +20,6 @@ import { degToRad } from "../../utils/math";
 import {
 	calculatePrebufDimensions,
 	computeDotGridPhase,
-	cropFilterBake,
 	expandRenderFilter,
 	groupSubPathsByContainment,
 	interactiveBakeDensity,
@@ -132,57 +131,38 @@ describe("calculatePrebufDimensions", () => {
 describe("interactiveBakeDensity", () => {
 	it("should follow the display density when zooming in, past the raster scale", () => {
 		expect(interactiveBakeDensity(1, 1)).toBe(1);
-		// zoom 2.5 → bucket 2√2: bakes sharpen with the zoom instead of pinning
+		// zoom 2.5 → bucket 4: bakes sharpen with the zoom instead of pinning
 		// to the document raster scale (which kept them blurry forever).
-		expect(interactiveBakeDensity(1, 2.5)).toBeCloseTo(2 * Math.SQRT2);
+		expect(interactiveBakeDensity(1, 2.5)).toBe(4);
 		expect(interactiveBakeDensity(4, 8)).toBe(8);
 	});
 
-	it("should coarsen a zoomed-out bake to the half-octave bucket around the zoom", () => {
-		// zoom 0.19 → bucket 0.25/√2; raster density 1 would be 5x the display
-		expect(interactiveBakeDensity(1, 0.19)).toBeCloseTo(0.25 * Math.SQRT1_2);
-		expect(interactiveBakeDensity(4, 0.6)).toBeCloseTo(Math.SQRT1_2);
-	});
-
-	it("should keep the lower bucket while the zoom is just past a bucket", () => {
-		expect(interactiveBakeDensity(1, 2.02)).toBe(2);
-		expect(interactiveBakeDensity(1, 2.3)).toBeCloseTo(2 * Math.SQRT2);
-	});
-
-	it("should bake a zoom between two powers of two at less than the upper one", () => {
-		expect(interactiveBakeDensity(1, 1.2)).toBeCloseTo(Math.SQRT2);
-	});
-
-	it("should take the power-of-two bucket at or above the zoom itself for an export", () => {
-		expect(interactiveBakeDensity(1, 2.02, undefined, { isExport: true })).toBe(
-			4,
-		);
+	it("should coarsen a zoomed-out bake to the power-of-two bucket above the zoom", () => {
+		// zoom 0.19 → bucket 0.25; raster density 1 would be 5x the display
+		expect(interactiveBakeDensity(1, 0.19)).toBe(0.25);
+		expect(interactiveBakeDensity(4, 0.6)).toBe(1);
 	});
 
 	it("should cap the bucket by the element's bake budget, never below the raster scale", () => {
 		// 500x500 world px at 16 texels/px is 64M texels; 8 texels/px fits.
 		expect(interactiveBakeDensity(4, 10, { width: 500, height: 500 })).toBe(8);
 		// A small element keeps the full bucket.
-		expect(
-			interactiveBakeDensity(4, 10, { width: 50, height: 50 }),
-		).toBeCloseTo(8 * Math.SQRT2);
+		expect(interactiveBakeDensity(4, 10, { width: 50, height: 50 })).toBe(16);
 		// A huge element never drops under the document raster scale.
 		expect(interactiveBakeDensity(4, 10, { width: 8000, height: 8000 })).toBe(
 			4,
 		);
 	});
 
-	it("should never go below the display density for an export", () => {
+	it("should never go below the display density", () => {
 		for (const zoom of [0.13, 0.3, 0.77, 1.9, 3.2]) {
-			expect(
-				interactiveBakeDensity(4, zoom, undefined, { isExport: true }),
-			).toBeGreaterThanOrEqual(zoom);
+			expect(interactiveBakeDensity(4, zoom)).toBeGreaterThanOrEqual(zoom);
 		}
 	});
 
 	it("should return a stable value across a zoom bucket so cache keys stay stable", () => {
-		expect(interactiveBakeDensity(2, 0.3)).toBe(
-			interactiveBakeDensity(2, 0.39),
+		expect(interactiveBakeDensity(2, 0.26)).toBe(
+			interactiveBakeDensity(2, 0.49),
 		);
 		expect(interactiveBakeDensity(2, 0.26)).not.toBe(
 			interactiveBakeDensity(2, 0.51),
@@ -193,75 +173,6 @@ describe("interactiveBakeDensity", () => {
 		expect(interactiveBakeDensity(2, 0)).toBe(2);
 		expect(interactiveBakeDensity(2, -1)).toBe(2);
 		expect(interactiveBakeDensity(2, Number.NaN)).toBe(2);
-	});
-});
-
-describe("cropFilterBake", () => {
-	// 4096 x 4096 world px at 1 texel per px: eight 512-texel tiles per side.
-	const element = box(0, -4096, 4096, 0);
-
-	it("should keep the whole bake when the needed region and its reach cover it", () => {
-		const { bake, valid } = cropFilterBake(
-			element,
-			box(-10, -4100, 4100, 5),
-			0,
-			1,
-		);
-
-		expect(bake).toEqual(element);
-		expect(valid).toEqual(element);
-	});
-
-	it("should cut on the tile grid laid from the bake's top-left corner", () => {
-		const { bake } = cropFilterBake(
-			element,
-			box(1100, -2100, 1300, -1900),
-			0,
-			1,
-		);
-
-		expect(bake).toEqual(box(1024, -2560, 1536, -1536));
-	});
-
-	it("should widen the cut by the chain's reach", () => {
-		const { bake } = cropFilterBake(
-			element,
-			box(1100, -2100, 1300, -1900),
-			200,
-			1,
-		);
-
-		expect(bake).toEqual(box(512, -2560, 1536, -1536));
-	});
-
-	it("should leave the reach out of the valid region only on the sides it cut", () => {
-		const { bake, valid } = cropFilterBake(
-			element,
-			box(10, -100, 300, -10),
-			20,
-			1,
-		);
-
-		expect(bake).toEqual(box(0, -512, 512, 0));
-		expect(valid).toEqual(box(0, -490, 490, 0));
-	});
-
-	it("should keep the same cut while the needed region pans inside one tile", () => {
-		const a = cropFilterBake(element, box(1100, -2100, 1300, -1900), 0, 1);
-		const b = cropFilterBake(element, box(1150, -2050, 1350, -1850), 0, 1);
-
-		expect(b.bake).toEqual(a.bake);
-	});
-
-	it("should size the tiles in texels of the bake's density", () => {
-		const { bake } = cropFilterBake(
-			element,
-			box(1100, -2100, 1300, -1900),
-			0,
-			4,
-		);
-
-		expect(bake).toEqual(box(1024, -2176, 1408, -1792));
 	});
 });
 
@@ -688,13 +599,4 @@ function createCompoundPath(
 		transform: createIdentityTransform(),
 		...overrides,
 	};
-}
-
-function box(
-	minX: number,
-	minY: number,
-	maxX: number,
-	maxY: number,
-): BoundingBox {
-	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 }

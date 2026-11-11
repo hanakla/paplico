@@ -11,7 +11,6 @@ import {
 	type CubicBezierSegment,
 	type ElementTransform,
 	type FillAppearance,
-	type FillColor,
 	generateUid,
 	type Path,
 	type TextElement,
@@ -41,22 +40,6 @@ import type {
 	ResolvedTextRegionGeometry,
 	TextLayoutEngine,
 } from "./TextLayoutEngine";
-
-/**
- * A glyph path TextRenderer hands to the renderer. `colorLayer` marks one
- * layer of a color glyph: it paints in its own fill, in layer order, instead
- * of joining the paths that share its fill.
- */
-export type TextGlyphPath = Path & { colorLayer?: true };
-
-/** A glyph of an outlined text, in world coordinates. */
-export interface OutlinedGlyphPath {
-	path: Path;
-	runIndex: number;
-	paragraphIndex: number;
-	/** The paint of a color glyph layer, which replaces the run's fill. */
-	fill?: FillColor;
-}
 
 /** Approximate ascent ratio within one fontSize for vertical character cells.
  *  Matches the horizontal line.baseline heuristic (lineHeight × 0.8). */
@@ -120,16 +103,17 @@ export class TextRenderer {
 	 * element position but not by its transform.
 	 */
 	public async textElementToPaths(element: TextElement): Promise<{
-		paths: TextGlyphPath[];
+		paths: Path[];
 		bounds: LocalBBox;
 	}> {
 		const layout = await this.getOrComputeLayout(element);
-		const paths: TextGlyphPath[] = [];
+		const paths: Path[] = [];
 
 		for (const char of layout.chars) {
 			if (char.glyphPath.length === 0) continue; // spaces etc.
 
-			paths.push(...this.charToPaths(char, element));
+			const path = this.charToPath(char, element);
+			paths.push(path);
 		}
 
 		const bounds = brandLocalBBox({
@@ -147,45 +131,50 @@ export class TextRenderer {
 	/**
 	 * Converts text glyphs into standalone Path objects in world coordinates,
 	 * preserving the source Run mapping for per-character paint resolution.
-	 * A color glyph yields one path per layer, bottom first; `fill` is the
-	 * layer's own paint, which replaces the run's.
 	 */
 	public async textElementToOutlinedPaths(element: TextElement): Promise<{
-		outlinedPaths: OutlinedGlyphPath[];
+		outlinedPaths: Array<{
+			path: Path;
+			runIndex: number;
+			paragraphIndex: number;
+		}>;
 		bounds: BoundingBox;
 	}> {
 		const layout = await this.getOrComputeLayout(element);
-		const outlinedPaths: OutlinedGlyphPath[] = [];
+		const outlinedPaths: Array<{
+			path: Path;
+			runIndex: number;
+			paragraphIndex: number;
+		}> = [];
 
 		const ox = element.x;
 		const oy = element.y;
 
 		for (const char of layout.chars) {
-			for (const piece of glyphPieces(char)) {
-				// Offset anchor points by element position to produce world coordinates.
-				// cp1/cp2 are relative offsets and remain unchanged.
-				const worldSegments = piece.segments.map((seg) => ({
-					...seg,
-					start: seg.start
-						? { ...seg.start, x: seg.start.x + ox, y: seg.start.y + oy }
-						: undefined,
-					end: { ...seg.end, x: seg.end.x + ox, y: seg.end.y + oy },
-				}));
+			if (char.glyphPath.length === 0) continue;
 
-				outlinedPaths.push({
-					path: {
-						type: "path",
-						id: generateUid("obj"),
-						segments: worldSegments,
-						opacity: 1,
-						blendMode: "normal",
-						transform: createIdentityTransform(),
-					},
-					runIndex: char.runIndex,
-					paragraphIndex: char.paragraphIndex,
-					...(piece.fill ? { fill: piece.fill } : {}),
-				});
-			}
+			// Offset anchor points by element position to produce world coordinates.
+			// cp1/cp2 are relative offsets and remain unchanged.
+			const worldSegments = char.glyphPath.map((seg) => ({
+				...seg,
+				start: seg.start
+					? { ...seg.start, x: seg.start.x + ox, y: seg.start.y + oy }
+					: undefined,
+				end: { ...seg.end, x: seg.end.x + ox, y: seg.end.y + oy },
+			}));
+
+			outlinedPaths.push({
+				path: {
+					type: "path",
+					id: generateUid("obj"),
+					segments: worldSegments,
+					opacity: 1,
+					blendMode: "normal",
+					transform: createIdentityTransform(),
+				},
+				runIndex: char.runIndex,
+				paragraphIndex: char.paragraphIndex,
+			});
 		}
 
 		const bounds: BoundingBox = {
@@ -429,10 +418,7 @@ export class TextRenderer {
 		return min;
 	}
 
-	private charToPaths(
-		char: LayoutedChar,
-		element: TextElement,
-	): TextGlyphPath[] {
+	private charToPath(char: LayoutedChar, element: TextElement): Path {
 		// Mostly geometry; run-level fill rides along as a per-glyph appearance
 		// so per-character coloring survives into CanvasLayer.renderText
 		// (element-level appearance overrides / defaults resolve there).
@@ -442,31 +428,26 @@ export class TextRenderer {
 		const runFill =
 			paintSource.content.paragraphs[char.paragraphIndex]?.runs[char.runIndex]
 				?.style?.fill;
-		const id = `${element.id}-char-${char.charIndex}`;
-		return glyphPieces(char).map((piece, index) => {
-			const fill = piece.fill ?? runFill;
-			return {
-				type: "path",
-				id: char.colorLayers ? `${id}-layer-${index}` : id,
-				segments: piece.segments,
-				opacity: 1,
-				blendMode: "normal",
-				transform: createIdentityTransform(),
-				...(char.colorLayers ? { colorLayer: true } : {}),
-				...(fill
-					? {
-							filters: [
-								{
-									processor: "fill",
-									opacity: 1,
-									blendMode: "normal",
-									paramData: { version: "1", params: { fill } },
-								} as FillAppearance,
-							],
-						}
-					: {}),
-			};
-		});
+		return {
+			type: "path",
+			id: `${element.id}-char-${char.charIndex}`,
+			segments: char.glyphPath,
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+			...(runFill
+				? {
+						filters: [
+							{
+								processor: "fill",
+								opacity: 1,
+								blendMode: "normal",
+								paramData: { version: "1", params: { fill: runFill } },
+							} as FillAppearance,
+						],
+					}
+				: {}),
+		};
 	}
 
 	/**
@@ -530,8 +511,9 @@ export class TextRenderer {
 				const first = selected[from];
 				const last = selected[to - 1];
 				if (isVertical) {
-					const selTop = verticalCell(first).top;
-					const selBottom = verticalCell(last).bottom;
+					const selTop = first.y + first.fontSize * VERTICAL_ASCENT_RATIO;
+					const selBottom =
+						last.y - last.fontSize * (1 - VERTICAL_ASCENT_RATIO);
 					rects.push({
 						x: line.x,
 						y: selBottom,
@@ -711,7 +693,7 @@ export class TextRenderer {
 				}
 				return {
 					x: line ? line.x : char.x,
-					y: verticalCell(char).top,
+					y: char.y + char.fontSize * VERTICAL_ASCENT_RATIO,
 					height: line?.width ?? char.fontSize,
 				};
 			}
@@ -768,7 +750,7 @@ export class TextRenderer {
 					}
 					return {
 						x: line.x,
-						y: verticalCell(lastChar).bottom,
+						y: lastChar.y - lastChar.fontSize * (1 - VERTICAL_ASCENT_RATIO),
 						height: line.width,
 					};
 				}
@@ -792,7 +774,7 @@ export class TextRenderer {
 				}
 				return {
 					x: line ? line.x : lastChar.x,
-					y: verticalCell(lastChar).bottom,
+					y: lastChar.y - lastChar.fontSize * (1 - VERTICAL_ASCENT_RATIO),
 					height: line?.width ?? lastChar.fontSize,
 				};
 			}
@@ -1197,22 +1179,26 @@ export class TextRenderer {
 
 		if (isVertical) {
 			// Characters progress top-to-bottom (Y decreasing).
-			if (localY > verticalCell(chars[0]).top) return chars[0].charIndex;
+			// char.y is the glyph baseline; the visual top extends above
+			// by ascent (~0.8 × fontSize). Shift boundaries accordingly.
+			const firstTop = chars[0].y + chars[0].fontSize * VERTICAL_ASCENT_RATIO;
+			if (localY > firstTop) return chars[0].charIndex;
 
 			const lastChar = chars[chars.length - 1];
-			if (localY <= verticalCell(lastChar).bottom) {
-				return charEndIndex(lastChar);
-			}
+			const lastBottom =
+				lastChar.y - lastChar.fontSize * (1 - VERTICAL_ASCENT_RATIO);
+			if (localY <= lastBottom) return charEndIndex(lastChar);
 
 			for (const char of chars) {
-				const cell = verticalCell(char);
-				if (localY <= cell.top && localY > cell.bottom) {
+				const charTop = char.y + char.fontSize * VERTICAL_ASCENT_RATIO;
+				const charBottom = charTop - char.fontSize;
+				if (localY <= charTop && localY > charBottom) {
 					// Tate-chu-yoko cell: cluster members share the band, so
 					// resolve the caret along the horizontal axis instead
 					if (char.tateChuYoko) {
 						return hitTestTateChuYokoCell(chars, char, localX);
 					}
-					const midY = (cell.top + cell.bottom) / 2;
+					const midY = charTop - char.fontSize / 2;
 					return localY > midY ? char.charIndex : charEndIndex(char);
 				}
 			}
@@ -1238,9 +1224,8 @@ export class TextRenderer {
 		let bestIndex = chars[0].charIndex;
 		let bestDist = Number.POSITIVE_INFINITY;
 		for (const char of chars) {
-			const cell = verticalCell(char);
 			const center = isVertical
-				? (cell.top + cell.bottom) / 2
+				? char.y + char.fontSize * VERTICAL_ASCENT_RATIO - char.fontSize / 2
 				: char.x + char.advanceWidth / 2;
 			const dist = Math.abs((isVertical ? localY : localX) - center);
 			if (dist < bestDist) {
@@ -1277,22 +1262,9 @@ function verticalCaretHalfSplit(
 		const midX = char.x + char.advanceWidth / 2;
 		return localX < midX ? char.charIndex : charEndIndex(char);
 	}
-	const cell = verticalCell(char);
-	const midY = (cell.top + cell.bottom) / 2;
+	const midY =
+		char.y + char.fontSize * VERTICAL_ASCENT_RATIO - char.fontSize / 2;
 	return localY > midY ? char.charIndex : charEndIndex(char);
-}
-
-/**
- * The span a glyph takes along a vertical column. An upright glyph's `y` is
- * its baseline, with its em box around it. A sideways glyph's `y` is the top
- * of its cell, which runs down by the glyph's advance.
- */
-function verticalCell(char: LayoutedChar): { top: number; bottom: number } {
-	if (char.sideways) {
-		return { top: char.y, bottom: char.y - char.advanceWidth };
-	}
-	const top = char.y + char.fontSize * VERTICAL_ASCENT_RATIO;
-	return { top, bottom: top - char.fontSize };
 }
 
 /**
@@ -1485,21 +1457,4 @@ function hasVisualOverride(char: LayoutedChar): boolean {
 			(o.rotation ?? 0) !== 0 ||
 			(o.baselineShift ?? 0) !== 0)
 	);
-}
-
-/**
- * The parts of a glyph that paint separately: each layer of a color glyph,
- * bottom first, or the whole glyph with no paint of its own. Parts without
- * an outline, such as a space, are left out.
- */
-function glyphPieces(
-	char: LayoutedChar,
-): { segments: LayoutedChar["glyphPath"]; fill: FillColor | null }[] {
-	let start = 0;
-	const pieces = char.colorLayers?.map((layer) => {
-		const segments = char.glyphPath.slice(start, start + layer.segmentCount);
-		start += layer.segmentCount;
-		return { segments, fill: layer.fill };
-	}) ?? [{ segments: char.glyphPath, fill: null }];
-	return pieces.filter((piece) => piece.segments.length > 0);
 }

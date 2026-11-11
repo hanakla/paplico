@@ -15,10 +15,7 @@ import { YjsProvider } from "./collaboration/YjsProvider";
 import { buildSoftProofLut } from "./color/ColorEngine";
 import type { BuiltinIccProfileId, ProofProfileRef } from "./color/types";
 import { localAppearances } from "./document/appearancePresets";
-import {
-	PAPLICO_MIN_ZOOM_SCALE,
-	PREVIEW_ELEMENT_SENTINEL_ID,
-} from "./document/constants";
+import { PREVIEW_ELEMENT_SENTINEL_ID } from "./document/constants";
 import { DefIndex } from "./document/DefIndex";
 import { collectEditablePaths } from "./document/editablePaths";
 import { isUsableAsSubFilter } from "./document/elementGeometry/filterCapabilities";
@@ -77,7 +74,6 @@ import { buildPerspectiveGuideOverlay } from "./renderer/ui/builders/perspective
 import type { WorldBounds } from "./renderer/ui/builders/text";
 import { buildTextEditOverlay } from "./renderer/ui/builders/textEdit";
 import { buildToolCursorOverlay } from "./renderer/ui/builders/toolCursor";
-import { GuideOverlay } from "./renderer/ui/GuideOverlay";
 import { hitTestOverlays } from "./renderer/ui/hitTest";
 import { OVERLAY_KEYS, type OverlayKey } from "./renderer/ui/overlayKeys";
 import {
@@ -97,7 +93,6 @@ import type {
 import {
 	type AnyArtObject,
 	type Artboard,
-	type BoundingBox,
 	type Color,
 	cloneAppearance,
 	colorToRawRGBA,
@@ -174,9 +169,7 @@ import { buildArcLengthTable } from "./utils/geometry/measure/arcLength";
 import { brandWorldBBox } from "./utils/geometry/primitives/box";
 import {
 	applyTransformToPoint,
-	clientToWorld,
 	composeTransforms,
-	screenToWorld,
 } from "./utils/geometry/space/coordinates";
 import { resolveSelectionFrame } from "./utils/geometry/space/selectionFrame";
 import { assertNonNull, deepClone } from "./utils/lang";
@@ -227,41 +220,9 @@ interface PaplicoOptions {
 	/**
 	 * GPU memory the renderer's caches may keep across frames, shared equally
 	 * by the open canvases. Textures a frame is drawing with are not counted.
-	 * Image textures may hold half of this amount on top of it.
 	 * Defaults to 1600 MiB.
 	 */
 	gpuCacheBudgetBytes?: number;
-	/**
-	 * Width of the band around the view that is drawn ahead, in CSS px per
-	 * side. A pan inside it only moves the frame already drawn. Every
-	 * view-sized GPU texture grows by it, so a host short on GPU memory passes
-	 * less. Defaults to 256.
-	 */
-	panMarginPx?: number;
-	/**
-	 * Resolution the document is drawn at, relative to the canvas's backing
-	 * store, above 0 and up to 1. Below 1 the document is drawn with fewer
-	 * pixels and stretched over the canvas, which takes less GPU memory. Tool
-	 * overlays keep the full resolution. Defaults to 1.
-	 */
-	documentResolutionScale?: number;
-}
-
-/** What a serialized document holds beyond the document itself. */
-interface DocumentExportOptions {
-	/** Write the timelapse recording. Defaults to true. */
-	timelapse?: boolean;
-	/**
-	 * The source path written for each linked file, given its stored one.
-	 * `undefined` writes the file without its link. The document keeps its
-	 * own paths either way. Defaults to the stored path.
-	 */
-	rewriteSourcePath?: (sourcePath: string) => string | undefined;
-	/**
-	 * Data the host app keeps with the file. `importDocument` hands it back
-	 * without the engine reading it.
-	 */
-	appData?: Record<string, unknown>;
 }
 
 /**
@@ -316,10 +277,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private renderer: RenderOrchestrator;
 	private canvasTargets = new Map<string, CanvasTargetEntry>();
 	private primaryTargetId: string | null = null;
-	/** Whether a loaded resource still has to drop the cached composite frame.
-	 *  A gesture keeps blitting the cache, so the drop waits for the first
-	 *  frame that re-renders. */
-	private documentCacheInvalidationOwed = false;
 	private tool: Tool | null = null;
 	private toolContext!: ToolContext;
 	private yjsProvider!: YjsProvider;
@@ -377,16 +334,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private perspectiveGuideSourceId: string | null = null;
 	/** Cached guide data for tools (recomputed on source changes). */
 	private perspectiveGuides: PerspectiveGuideData | null = null;
-	private readonly guideOverlay = new GuideOverlay({
-		outlineText: async (text) => {
-			const textRenderer = this.renderer?.getTextRenderer();
-			if (!textRenderer) return null;
-			const { outlinedPaths } =
-				await textRenderer.textElementToOutlinedPaths(text);
-			return outlinedPaths.map(({ path }) => path.segments);
-		},
-		onTextOutlined: () => this.refreshGuideOverlay(),
-	});
 
 	/** Element highlighted from outside the canvas (layer panel row hover). */
 	private hoveredElementId: string | null = null;
@@ -398,8 +345,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		id: BuiltinIccProfileId,
 	) => Promise<Uint8Array>;
 	private readonly gpuCacheBudgetBytes: number | undefined;
-	private readonly panMarginPx: number | undefined;
-	private readonly documentResolutionScale: number | undefined;
 
 	/** Soft proof (print simulation) display state. */
 	private softProof = {
@@ -439,13 +384,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			fallbackFontUrl: options.fallbackFontUrl,
 		});
 		this.gpuCacheBudgetBytes = options.gpuCacheBudgetBytes;
-		this.panMarginPx = options.panMarginPx;
-		this.documentResolutionScale = options.documentResolutionScale;
 		this.renderer = new RenderOrchestrator(
 			this.fonts,
 			this.gpuCacheBudgetBytes,
-			this.panMarginPx,
-			this.documentResolutionScale,
 		);
 		this.wireTextDocumentResolver();
 		// Reference3D edit isolation dims the whole composite — entering/leaving
@@ -1070,8 +1011,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.renderer = new RenderOrchestrator(
 				this.fonts,
 				this.gpuCacheBudgetBytes,
-				this.panMarginPx,
-				this.documentResolutionScale,
 			);
 			this.wireTextDocumentResolver();
 
@@ -1115,13 +1054,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		);
 
 		this.renderer.setOnRequestRender(() => {
-			this.documentCacheInvalidationOwed = true;
+			this.renderer.invalidateDocumentCache();
 			this.markDirty("render");
-		});
-		this.renderer.setOnDocumentRenderResumed(() => {
-			for (const entry of this.canvasTargets.values()) {
-				entry.scheduler.resumeDocumentRender();
-			}
 		});
 
 		this.renderer.setOnTextBoundsComputed((elementId, bounds, localBounds) => {
@@ -1528,15 +1462,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.markDirty("selection");
 	}
 
-	/** Redraw the "sys/guides" overlay from the document's guide elements. */
-	private refreshGuideOverlay(): void {
-		this.setUIOverlay(
-			OVERLAY_KEYS.sysGuides,
-			this.guideOverlay.build(this.rendererStore.document),
-		);
-		this.markDirty("selection");
-	}
-
 	public async addCanvasTarget(
 		canvas: HTMLCanvasElement,
 		options?: { id?: string; viewport?: Viewport },
@@ -1553,8 +1478,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			// Keep what the last frame drew, so returning to the same view after
 			// a pause does not re-allocate its working set.
 			() => this.renderer.trimIdle(1),
-			() => this.renderer.isDocumentRenderOnHold,
-			() => this.renderer.isAwaitingImages,
 		);
 
 		const ui = new PaplicoUI(canvas, {
@@ -1663,7 +1586,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			// Every viewport change tries the composite blit; CanvasLayer
 			// re-renders when the cached frame no longer covers the view.
 			scheduler.markDirty("viewport");
-			this.renderer.holdImageLoads();
 			// Tool overlays with fixed on-screen sizes baked into world
 			// coordinates (scene gizmo arrows/rings) rebuild for the new view.
 			this.tool?.refreshUI?.();
@@ -1736,63 +1658,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	public getCanvasTarget(targetId: string): CanvasTarget | null {
 		return this.canvasTargets.get(targetId)?.target ?? null;
-	}
-
-	/**
-	 * Moves and zooms a canvas so `bounds` sits in the middle of it, filling
-	 * `ratio` of the room it has. `insets` are the CSS pixels along each edge
-	 * that floating UI covers; the bounds are fitted into what is left. The
-	 * rotation of the view is kept.
-	 */
-	public fitViewportToBounds(
-		targetId: string,
-		bounds: BoundingBox,
-		{
-			ratio = 0.8,
-			insets: { top = 0, right = 0, bottom = 0, left = 0 } = {},
-		}: {
-			ratio?: number;
-			insets?: Partial<Record<"top" | "right" | "bottom" | "left", number>>;
-		} = {},
-	): void {
-		const target = this.getCanvasTarget(targetId);
-		if (!target) return;
-
-		const { rotation } = target.getViewport();
-		const cos = Math.abs(Math.cos(rotation));
-		const sin = Math.abs(Math.sin(rotation));
-		// The extent of the bounds along the axes of the rotated screen
-		const width = Math.max(bounds.width * cos + bounds.height * sin, 1);
-		const height = Math.max(bounds.width * sin + bounds.height * cos, 1);
-		const freeWidth = Math.max(target.width - left - right, 1);
-		const freeHeight = Math.max(target.height - top - bottom, 1);
-
-		const zoom = Math.min(
-			Math.max(
-				Math.min(freeWidth / width, freeHeight / height) * ratio,
-				PAPLICO_MIN_ZOOM_SCALE,
-			),
-			this.toolSettings.maxZoomScale,
-		);
-		const center = {
-			x: (bounds.minX + bounds.maxX) / 2,
-			y: (bounds.minY + bounds.maxY) / 2,
-		};
-		// With the view centred on the bounds, the middle of the free area
-		// shows another world point; shifting the view by the difference
-		// brings the bounds there
-		const shown = screenToWorld(
-			left + freeWidth / 2,
-			top + freeHeight / 2,
-			{ ...center, zoom, rotation },
-			target.width,
-			target.height,
-		);
-		target.setViewport({
-			x: center.x * 2 - shown.x,
-			y: center.y * 2 - shown.y,
-			zoom,
-		});
 	}
 
 	/**
@@ -1930,16 +1795,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		if (entry.target.width === 0 || entry.target.height === 0) return;
 		if (!this.spatialIndex) return;
 
-		// A blit frame is a gesture's or a held render's: it shows the cache
-		// while the scheduler keeps the `render` dirt for a later frame.
-		if (
-			this.documentCacheInvalidationOwed &&
-			strategy !== RenderStrategy.viewportBlit
-		) {
-			this.documentCacheInvalidationOwed = false;
-			this.renderer.invalidateDocumentCache();
-		}
-
 		const doc = snapshot(this.rendererStore.document) as Document;
 		const isActiveTarget = entry.target === this.getActiveTarget();
 		this.renderer.setCanvasTarget(entry.target);
@@ -1973,9 +1828,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 						? (doc.hdr.exposure ?? 0)
 						: undefined,
 				softProof: this.softProof.active,
-				blitStaleComposite:
-					strategy === RenderStrategy.viewportBlit &&
-					this.renderer.isDocumentRenderOnHold,
 			},
 			isActiveTarget
 				? this.rendererStore.uiOverlayState
@@ -2062,7 +1914,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					document.objects = ref(document.objects);
 					this.defIndex.rebuild(document);
 					this.textDepIndex.rebuild(document);
-					this.guideOverlay.trackDocument(document);
 					this.rendererStore.document = document;
 					this.patternEdit.refreshSessionVisuals();
 					this.renderChangeSubscriber.syncFullDocument();
@@ -2075,7 +1926,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					this.syncSoftProofToDocument(document);
 					this.requestReference3DServiceIfDocumentNeedsIt();
 					if (this.perspectiveGuideSourceId) this.refreshPerspectiveGuides();
-					this.refreshGuideOverlay();
 				},
 				onArtboardsUpdate: (artboards) => {
 					this.rendererStore.document.artboards = artboards;
@@ -2085,7 +1935,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					const previousLayers = this.rendererStore.document.layers;
 					this.rendererStore.document.layers = layers;
 					this.renderChangeSubscriber.syncLayersOnly(previousLayers);
-					this.refreshGuideOverlay();
 				},
 				onObjectsChange: (delta) => {
 					const objects = this.rendererStore.document.objects;
@@ -2111,7 +1960,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					// Update the SpatialIndex cache incrementally
 					this.spatialIndex.applyObjectsDelta(delta);
 					this.defIndex.notifyDelta(delta);
-					this.guideOverlay.trackObjectsDelta(delta);
 					for (const staleTextId of this.textDepIndex.notifyDelta(delta)) {
 						this.renderer.invalidateTextCache(staleTextId);
 					}
@@ -2135,12 +1983,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					};
 
 					// Phase 4: Valtio notification for React UI panels
-					const replacedObjects = this.rendererStore.document.objects;
-					this.rendererStore.document.objects = ref({ ...replacedObjects });
-					this.spatialIndex.adoptObjectsRecord(
-						replacedObjects,
-						this.rendererStore.document.objects,
-					);
+					this.rendererStore.document.objects = ref({
+						...this.rendererStore.document.objects,
+					});
 					this.patternEdit.refreshSessionVisuals();
 
 					if (!this.reference3dLoadRequested) {
@@ -2164,7 +2009,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					) {
 						this.refreshPerspectiveGuides();
 					}
-					this.refreshGuideOverlay();
 				},
 				getCurrentLayerId: () => this.rendererStore.currentLayerId,
 				setCurrentLayerId: (layerId) => {
@@ -2405,12 +2249,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		return this.tool instanceof PenTool ? this.tool.getLastStroke() : null;
 	}
 
-	/** Limits of the GPU device the renderer draws with, or `null` before the
-	 *  renderer is initialized. */
-	public get deviceLimits(): GPUSupportedLimits | null {
-		return this.renderer.deviceLimits;
-	}
-
 	public get isReadonly(): boolean {
 		return this.roomSchemaNewer || (this.collaboration?.isReadonly ?? false);
 	}
@@ -2485,37 +2323,16 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	// ===== Import/Export =====
 
-	public async exportDocument({
-		timelapse = true,
-		rewriteSourcePath,
-		appData,
-	}: DocumentExportOptions = {}): Promise<Blob> {
+	public async exportDocument(): Promise<Blob> {
 		const primaryTarget = this.getPrimaryTarget();
-		// Started before anything is awaited, so the recording and the document
-		// are captured in the same task.
-		const recording = timelapse
-			? this.timelapseRecorder.getPackedTimelapseData()
-			: null;
 		const doc = {
 			...snapshot(this.rendererStore).document,
 			viewport:
 				primaryTarget?.getViewport() ?? this.rendererStore.document.viewport,
-			timelapse: (await recording) ?? undefined,
+			timelapse: this.timelapseRecorder.getTimelapseData() ?? undefined,
 		};
 		const { document: gcedDoc } = gcDocument(doc as Document);
-		if (!rewriteSourcePath) return serializeDocument(gcedDoc, appData);
-
-		return serializeDocument(
-			{
-				...gcedDoc,
-				files: gcedDoc.files.map((file) =>
-					file.sourcePath
-						? { ...file, sourcePath: rewriteSourcePath(file.sourcePath) }
-						: file,
-				),
-			},
-			appData,
-		);
+		return serializeDocument(gcedDoc);
 	}
 
 	/**
@@ -2523,11 +2340,9 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	 * preview page per artboard that embeds the full papf data.
 	 * Preview rendering never blocks the save; a failed page is left blank.
 	 */
-	public async exportDocumentFile(
-		options?: DocumentExportOptions,
-	): Promise<Blob> {
+	public async exportDocumentFile(): Promise<Blob> {
 		const [papf, pages, { wrapPapfInPdf }] = await Promise.all([
-			this.exportDocument(options),
+			this.exportDocument(),
 			renderPdfPreviewPages(this.createExportContext()),
 			import("./io/papf/pdfContainer"),
 		]);
@@ -2566,14 +2381,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
-	 * Replace the current document with `source`. Returns the `appData` a
-	 * file was exported with, or `null` when it holds none.
+	 * Replace the current document with `source`.
 	 * @throws PaplicoError while a collaboration transport is attached, since
 	 * the transport would keep syncing the discarded Y.Doc.
 	 */
-	public async importDocument(
-		source: Blob | Document,
-	): Promise<Record<string, unknown> | null> {
+	public async importDocument(source: Blob | Document): Promise<void> {
 		if (this.collaboration) {
 			throw new PaplicoError(
 				"DOCUMENT_OPEN_WHILE_CONNECTED",
@@ -2581,10 +2393,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			);
 		}
 
-		const { doc, appData } =
+		const doc =
 			source instanceof Blob
-				? await readDocumentFile(source, this.fonts)
-				: { doc: source, appData: null };
+				? await (
+						await (
+							await import("./io/papf/pdfContainer")
+						).openPapfContainer(source)
+					).toDocument((stored) => prepareMigrationContext(stored, this.fonts))
+				: source;
 
 		// Disconnect collaboration before replacing document to avoid broadcasting empty document
 		this.clearCollaboration();
@@ -2640,8 +2456,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.createTool(this.toolSettings.currentTool);
 		this.startRendering();
 		this.setupBrushSettingsSubscription();
-
-		return appData;
 	}
 
 	// ===== Tool Management =====
@@ -2822,8 +2636,6 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.selection.isElementEditable(elementId),
 			isElementLocked: (elementId) =>
 				this.spatialIndex.isElementLocked(elementId),
-			isElementGuide: (elementId) =>
-				this.spatialIndex.findGuideOwnerId(elementId) !== null,
 			isCurrentLayerLocked: () => {
 				const layerId = this.rendererStore.currentLayerId;
 				if (!layerId) return false;
@@ -4022,48 +3834,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
-	 * Places an image file the host received outside the canvas `drop` event,
-	 * such as a native drop. `clientX` / `clientY` are viewport coordinates in
-	 * CSS pixels; a point outside every canvas places nothing. `sourcePath`
-	 * keeps a raster image linked to the file it was read from.
-	 */
-	public async dropImageFile(
-		file: File,
-		clientX: number,
-		clientY: number,
-		sourcePath?: string,
-	): Promise<void> {
-		for (const { target } of this.canvasTargets.values()) {
-			const rect = target.canvas.getBoundingClientRect();
-			if (
-				clientX < rect.left ||
-				clientX > rect.right ||
-				clientY < rect.top ||
-				clientY > rect.bottom
-			) {
-				continue;
-			}
-
-			const world = clientToWorld(clientX, clientY, rect, target.getViewport());
-			await this.handleFileDrop([
-				{ file, worldX: world.x, worldY: world.y, sourcePath },
-			]);
-			return;
-		}
-	}
-
-	/**
 	 * Handle file drop
 	 */
 	private async handleFileDrop(
-		files: Array<{
-			file: File;
-			worldX: number;
-			worldY: number;
-			sourcePath?: string;
-		}>,
+		files: Array<{ file: File; worldX: number; worldY: number }>,
 	): Promise<void> {
-		for (const { file, worldX, worldY, sourcePath } of files) {
+		for (const { file, worldX, worldY } of files) {
 			try {
 				// SVG files import as vector (paths, text, gradients, patterns);
 				// fall back to rasterizing the file if nothing could be parsed.
@@ -4082,11 +3858,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					continue;
 				}
 
-				await this.commands.pasteImageFile(
-					file,
-					{ x: worldX, y: worldY },
-					sourcePath,
-				);
+				await this.commands.pasteImageFile(file, { x: worldX, y: worldY });
 			} catch (error) {
 				console.error(`Failed to process image: ${file.name}`, error);
 			}
@@ -4126,33 +3898,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		return this.renderer.renderArtboardToImageData(artboard, document);
 	}
 
-	/**
-	 * Exports an artboard through the given output format.
-	 *
-	 * @param options.rasterizationDpi Resolution the filters are rasterized at,
-	 *  in place of the document's. Filters are rasterized at this resolution
-	 *  whatever the output size, so a preview far smaller than the artboard
-	 *  passes its own pixel density to keep the intermediate textures small.
-	 */
+	/** Exports an artboard through the given output format. */
 	public exportArtboard(
 		exporter: IExporter,
 		artboardId: string,
-		options?: { rasterizationDpi?: number },
 	): Promise<ExportResult | null> {
-		const context = this.createExportContext();
-		if (options?.rasterizationDpi == null) {
-			return exporter.export(context, artboardId);
-		}
-		return exporter.export(
-			{
-				...context,
-				document: {
-					...context.document,
-					rasterizationDpi: options.rasterizationDpi,
-				},
-			},
-			artboardId,
-		);
+		return exporter.export(this.createExportContext(), artboardId);
 	}
 
 	/** Renders specific elements to a PNG blob, sized to their filter-expanded bounds. */
@@ -4355,28 +4106,4 @@ function watchDevicePixelRatio(onChange: () => void): () => void {
 	};
 	listen();
 	return () => query.removeEventListener("change", handleChange);
-}
-
-/**
- * Reads a document file brought up to this build's schema, with the
- * `appData` it was exported with. A file anyone could have written may hold
- * anything there, so only an object comes back.
- */
-async function readDocumentFile(
-	source: Blob,
-	fonts: FontManager,
-): Promise<{ doc: Document; appData: Record<string, unknown> | null }> {
-	const { openPapfContainer } = await import("./io/papf/pdfContainer");
-	const file = await openPapfContainer(source);
-	const { appData } = file.meta;
-
-	return {
-		doc: await file.toDocument((stored) =>
-			prepareMigrationContext(stored, fonts),
-		),
-		appData:
-			typeof appData === "object" && appData !== null && !Array.isArray(appData)
-				? appData
-				: null,
-	};
 }

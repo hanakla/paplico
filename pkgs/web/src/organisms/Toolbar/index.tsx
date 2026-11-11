@@ -529,6 +529,7 @@ export function Toolbar({
 							</IconButton>
 						</Tooltip>
 						<Popover.Content
+							className="p-1"
 							side={outwardSide}
 							sideOffset={8}
 							align="center"
@@ -614,6 +615,7 @@ export function Toolbar({
 							</IconButton>
 						</Tooltip>
 						<Popover.Content
+							className="p-1"
 							side={outwardSide}
 							sideOffset={8}
 							align="center"
@@ -1092,7 +1094,7 @@ function BucketFillPanel() {
 	});
 
 	return (
-		<div className="flex flex-col gap-2">
+		<div className="flex flex-col gap-2 p-1">
 			<ColorPickerThin color={fillColor} onColorChange={handleColorChange} />
 
 			<div className="flex flex-col gap-1">

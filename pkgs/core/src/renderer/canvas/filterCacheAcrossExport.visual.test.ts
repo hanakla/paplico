@@ -10,10 +10,6 @@ import { closedRectSegments } from "../../testUtils/segmentFactory";
 import { createTestRenderer } from "../../testUtils/visualRegression";
 import type { BlurFilter } from "../filters/BlurFilter/BlurFilter";
 import type { RenderOrchestrator } from "../RenderOrchestrator";
-import type { FrameRequest } from "../types";
-
-/** More frames than the editor needs to finish its bakes. */
-const MAX_EDITOR_FRAMES = 8;
 
 /**
  * The editor keeps filtered bakes across its frames. An export drawn through
@@ -24,44 +20,30 @@ describe("filtered bakes across an export", () => {
 		const { renderer } = await createTestRenderer();
 		const document = blurredDocument();
 		const bakes = countFilteredBakes(renderer);
-		renderEditorFrames(renderer, document);
-		const bakedBeforeExport = bakes();
+		renderEditorFrame(renderer, document);
+		const bakedByFirstFrame = bakes();
 
 		await renderer.renderArtboardToImageData(document.artboards[0], document);
-		const bakedAfterExport = bakes();
-		renderEditorFrames(renderer, document);
+		const bakedBeforeSecondFrame = bakes();
+		renderEditorFrame(renderer, document);
 
-		expect(bakedBeforeExport).toBeGreaterThan(0);
-		expect(bakes()).toBe(bakedAfterExport);
+		expect(bakedByFirstFrame).toBeGreaterThan(0);
+		expect(bakes()).toBe(bakedBeforeSecondFrame);
 	});
 });
 
-/**
- * Frames as the editor draws them with nothing changed: a full frame, then a
- * follow-up frame each time the renderer asks for one. The full frame leaves
- * the bake it wants kept to that follow-up.
- */
-function renderEditorFrames(renderer: RenderOrchestrator, document: Document) {
-	let followUpRequested = false;
-	renderer.setOnRequestRender(() => {
-		followUpRequested = true;
-	});
-	let strategy: FrameRequest["strategy"] = "full";
-	for (let frame = 0; frame < MAX_EDITOR_FRAMES; frame++) {
-		followUpRequested = false;
-		renderer.render(
-			{
-				viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },
-				document,
-				strategy,
-				changedElements: { upserted: new Set(), deleted: new Set() },
-				defRevision: 0,
-			},
-			{},
-		);
-		if (!followUpRequested) return;
-		strategy = "overlayOnly";
-	}
+/** A frame as the editor draws it: tracked, with nothing changed. */
+function renderEditorFrame(renderer: RenderOrchestrator, document: Document) {
+	renderer.render(
+		{
+			viewport: { x: 0, y: 0, zoom: 1, rotation: 0 },
+			document,
+			strategy: "full",
+			changedElements: { upserted: new Set(), deleted: new Set() },
+			defRevision: 0,
+		},
+		{},
+	);
 }
 
 /** Starts counting the bakes stored in the filtered element cache. */

@@ -1,10 +1,9 @@
-import type { BoundingBox } from "../../../schema";
 import type { WorldBBox } from "../../../utils/geometry/primitives/box";
 import type { BlitUVRect } from "../CanvasLayerTypes";
 
 /**
- * One cached post-filter bake: the element's textureBounds, or the part of
- * it a view needed, rendered through its filter chain at a bucketed density.
+ * One cached post-filter bake: the element's full (viewport-independent)
+ * textureBounds rendered through its filter chain at a bucketed density.
  * The texture is cache-owned; destruction is deferred to the frame boundary
  * (flushPendingDestroy) like AppearanceCache entries, because an evicted
  * texture may still be referenced by in-flight command buffers.
@@ -18,11 +17,8 @@ export interface FilteredElementCacheEntry {
 	/** Density bucket used to create the texture. */
 	density: number;
 	texture: GPUTexture;
-	/** World rect the texture covers. */
+	/** World rect the texture covers (the plan's textureBounds at bake time). */
 	bounds: WorldBBox;
-	/** Part of `bounds` whose pixels match a bake of the whole element. A
-	 *  frame may reuse the entry only where it needs nothing outside it. */
-	validBounds: BoundingBox;
 	/** Crop rect for pool-padding, from the bake's placement. */
 	uvRect: BlitUVRect;
 	byteSize: number;

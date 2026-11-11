@@ -2,16 +2,10 @@
 
 import { useEffect } from "react";
 import { handleAuthDeepLink } from "@/auth/tauriAuth";
-import {
-	detectMacOSTauri,
-	detectTauriMobile,
-	IS_TAURI_ENV,
-} from "@/utils/platform";
+import { detectTauriMobile, IS_TAURI_ENV } from "@/utils/platform";
 
 export type TauriFileDropDetail = {
 	paths: string[];
-	/** Where the files were dropped, in viewport CSS pixels. Absent for files the OS opened. */
-	position?: { x: number; y: number };
 };
 
 export const TauriInit = IS_TAURI_ENV
@@ -48,14 +42,7 @@ export const TauriInit = IS_TAURI_ENV
 
 					return getCurrentWebviewWindow().onDragDropEvent((event) => {
 						if (event.payload.type !== "drop") return;
-						// macOS reports the drop in CSS pixels despite the
-						// PhysicalPosition type; Windows reports device pixels
-						const scale = detectMacOSTauri() ? 1 : window.devicePixelRatio;
-						const { x, y } = event.payload.position;
-						dispatchTauriPaths("tauri-file-drop", event.payload.paths, {
-							x: x / scale,
-							y: y / scale,
-						});
+						dispatchTauriPaths("tauri-file-drop", event.payload.paths);
 					});
 				});
 			}, []);
@@ -134,13 +121,10 @@ function subscribeAsync(subscribe: () => Promise<() => void>): () => void {
 function dispatchTauriPaths(
 	eventName: "tauri-file-drop" | "tauri-open-files",
 	paths: string[],
-	position?: TauriFileDropDetail["position"],
 ): void {
 	if (paths.length === 0) return;
 
 	window.dispatchEvent(
-		new CustomEvent<TauriFileDropDetail>(eventName, {
-			detail: { paths, position },
-		}),
+		new CustomEvent<TauriFileDropDetail>(eventName, { detail: { paths } }),
 	);
 }

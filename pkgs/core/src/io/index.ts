@@ -1,4 +1,3 @@
-export { compressDeflate, decompressDeflate } from "./binaryUtils";
 export {
 	encodeElementsPayload,
 	PAPLICO_ELEMENTS_MIME,
@@ -9,7 +8,7 @@ export {
 	type MigrationContext,
 	prepareMigrationContext,
 } from "./migrations/context";
-export { findUnusedFileUids, gcDocument } from "./papf/gc";
+export { gcDocument } from "./papf/gc";
 export { openPapfContainer, wrapPapfInPdf } from "./papf/pdfContainer";
 export { openPapf } from "./papf/reader";
 export { serializeDocument } from "./papf/writer";

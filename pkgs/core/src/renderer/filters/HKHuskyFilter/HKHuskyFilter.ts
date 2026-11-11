@@ -4,9 +4,7 @@ import { compileShaderModule } from "../../../utils/wgpu-utils";
 import type {
 	FilterHandler,
 	FilterProcessorContext,
-	FilterRenderRequirements,
 } from "../../canvas/pipeline/FilterRenderer";
-import { evictIdleOverBudget } from "../../canvas/pipeline/IdleClock";
 import {
 	HK_HUSKY_BLEED_SHADER,
 	HK_HUSKY_BLUR_SHADER,
@@ -34,9 +32,6 @@ export interface HKHuskyFilter extends Appearance<HKHuskyParams> {
 const STAGE_TEXTURE_IDLE_FRAMES = 120;
 /** Bound on cached chain intermediates during continuous size churn. */
 const MAX_STAGE_TEXTURES = 8;
-/** Bytes of cached intermediates a frame may start with, so a zoom gesture's
- *  per-step sizes do not outlive it. */
-const MAX_IDLE_STAGE_BYTES = 128 * 1024 * 1024;
 
 export class HKHuskyFilterHandler implements FilterHandler {
 	private meltPipeline: GPURenderPipeline | null = null;
@@ -150,16 +145,6 @@ export class HKHuskyFilterHandler implements FilterHandler {
 				this.stageTextures.delete(key);
 			}
 		}
-		evictIdleOverBudget(
-			this.stageTextures,
-			MAX_IDLE_STAGE_BYTES,
-			this.frameIndex,
-			{
-				bytesOf: ({ texture }) => texture.width * texture.height * 4,
-				lastUsedFrameOf: (entry) => entry.lastUsedFrame,
-				destroy: ({ texture }) => texture.destroy(),
-			},
-		);
 	}
 
 	private acquireStageTexture(
@@ -353,12 +338,6 @@ export class HKHuskyFilterHandler implements FilterHandler {
 
 	public getDetailDensity(): number {
 		return Number.POSITIVE_INFINITY;
-	}
-
-	/** Every read stays within the footprint and is placed on the element's
-	 *  whole bake, so a bake cut to the view gives the same pixels. */
-	public getRenderConfigure(): Partial<FilterRenderRequirements> {
-		return { cropSafe: true };
 	}
 
 	public onScaleFilter(

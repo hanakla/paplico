@@ -32,10 +32,6 @@ export function useBlendModeItems() {
 				label: t("layerPanel.blendModes.difference"),
 			},
 			{ value: "exclusion", label: t("layerPanel.blendModes.exclusion") },
-			{ value: "hue", label: t("layerPanel.blendModes.hue") },
-			{ value: "saturation", label: t("layerPanel.blendModes.saturation") },
-			{ value: "color", label: t("layerPanel.blendModes.color") },
-			{ value: "luminosity", label: t("layerPanel.blendModes.luminosity") },
 		],
 		[t],
 	);

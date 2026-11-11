@@ -14,12 +14,10 @@ import type {
 	EmbeddedFile,
 	Filter,
 	Group,
+	Path,
 	Viewport,
 } from "../../schema";
-import type {
-	TextGlyphPath,
-	TextRenderer,
-} from "../../typography/TextRenderer";
+import type { TextRenderer } from "../../typography/TextRenderer";
 import type {
 	LocalBoundsCache,
 	WorldBoundsCache,
@@ -54,7 +52,7 @@ export interface GradientState {
 }
 
 interface TextPathCacheEntry {
-	paths: TextGlyphPath[];
+	paths: Path[];
 	localBounds: BoundingBox;
 }
 
@@ -320,16 +318,11 @@ export const BLEND_MODE_ORDER: readonly BlendMode[] = [
 	"soft-light",
 	"difference",
 	"exclusion",
-	"hue",
-	"saturation",
-	"color",
-	"luminosity",
 ];
 
 export const COMPOSITION_MODE_ORDER: readonly CompositionMode[] = [
 	"normal",
 	"alpha-lock",
-	"knockout",
 ];
 
 // ---------------------------------------------------------------------------

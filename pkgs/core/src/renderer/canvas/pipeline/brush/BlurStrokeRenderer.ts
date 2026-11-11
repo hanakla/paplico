@@ -22,7 +22,6 @@ import type {
 } from "../BackdropEffectCoordinator";
 import type { BackdropEffectDriver } from "../FilterRenderer";
 import { FrameUniformPool } from "../FrameUniformPool";
-import { memoizeByIdentity } from "../memoizeByIdentity";
 import { createFrameTextureRef, createRenderSurface } from "../RenderSurface";
 import type { TexturePool } from "../TexturePool";
 import type { UniformScope } from "../UniformScope";
@@ -74,14 +73,6 @@ export class BlurStrokeRenderer implements BackdropEffectDriver {
 	/** This frame's backdrop requests by element, planned ahead so the shared
 	 *  batch is captured with a pyramid deep enough for every blur stroke. */
 	private frameRequests = new Map<string, BackdropEffectRequest>();
-	private readonly blurStrokesOf = memoizeByIdentity(
-		(elementsMap: Map<string, AnyArtObject>) =>
-			[...elementsMap.values()].flatMap((element) => {
-				if (element.visible === false) return [];
-				const stroke = resolveBackdropBlurStroke(element);
-				return stroke ? [{ element, stroke }] : [];
-			}),
-	);
 	private frameTextures: GPUTexture[] = [];
 
 	public constructor(deps: BlurStrokeRendererDeps) {
@@ -154,11 +145,14 @@ export class BlurStrokeRenderer implements BackdropEffectDriver {
 		_dpiScale: number,
 		_backdropScale: number,
 		_profiler?: GPUTimingProfiler | null,
-		draws?: (elementId: string) => boolean,
+		filter?: ReadonlySet<string>,
 	): void {
 		const rasterScale = this.deps.getRasterScale();
-		for (const { element, stroke } of this.blurStrokesOf(elementsMap)) {
-			if (draws && !draws(element.id)) continue;
+		for (const element of elementsMap.values()) {
+			if (element.visible === false) continue;
+			if (filter && !filter.has(element.id)) continue;
+			const stroke = resolveBackdropBlurStroke(element);
+			if (!stroke) continue;
 			this.frameRequests.set(
 				element.id,
 				blurRequestOf(

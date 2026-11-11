@@ -12,14 +12,6 @@ import {
 /** Draw records per chunk buffer. */
 const RECORD_CAPACITY = 4096;
 
-/** Strip instances written to one page this frame, uploaded together in `finishFrame`. */
-interface PendingInstances {
-	page: StripPage;
-	firstStrip: number;
-	stripCount: number;
-	data: Uint32Array<ArrayBuffer>;
-}
-
 interface RecordChunk {
 	cpu: Uint32Array<ArrayBuffer>;
 	cpuI32: Int32Array<ArrayBuffer>;
@@ -35,9 +27,7 @@ export type StripColor = readonly [number, number, number, number];
  * Per-canvas strip storage and the draw that consumes it.
  *
  * `upload` places a batch in a resident page: its strip instances are
- * staged once, and its coverage is queued for the GPU. A frame uploads
- * thousands of small batches, so the instances staged into one page go up
- * in a single write in `finishFrame`. A cache entry keeps
+ * written once, and its coverage is queued for the GPU. A cache entry keeps
  * the returned `ResidentStrips` and draws them in later frames without
  * touching the CPU copy again. Each draw only appends a draw record (anchor,
  * transform slot, paint colour), uploaded with the queued coverage in
@@ -47,7 +37,6 @@ export class StripFrame {
 	private readonly pool: StripPagePool;
 	private readonly coverage: StripCoverage;
 	private readonly chunks: RecordChunk[] = [];
-	private readonly pendingInstances: PendingInstances[] = [];
 	private chunkIndex = 0;
 	/** Bound in place of a page's params texture when it has none, by the draw and by the coverage pass. */
 	private readonly paramsFallback: GPUTexture;
@@ -81,7 +70,6 @@ export class StripFrame {
 
 	public beginFrame(): void {
 		this.coverage.discardPending();
-		this.pendingInstances.length = 0;
 		this.pool.beginFrame();
 		for (const chunk of this.chunks) chunk.count = 0;
 		this.chunkIndex = 0;
@@ -117,12 +105,8 @@ export class StripFrame {
 			hasParams,
 		);
 
-		const instances = this.stageInstances(page, firstStrip, batch.stripCount);
-		const instancesI32 = new Int32Array(
-			instances.buffer,
-			instances.byteOffset,
-			instances.length,
-		);
+		const instances = new Uint32Array(batch.stripCount * STRIP_INSTANCE_U32S);
+		const instancesI32 = new Int32Array(instances.buffer);
 		for (let s = 0; s < batch.stripCount; s++) {
 			const at = s * STRIP_INSTANCE_U32S;
 			instancesI32[at] = batch.strips[s * 4];
@@ -131,6 +115,11 @@ export class StripFrame {
 				batch.strips[s * 4 + 2] | (batch.strips[s * 4 + 3] << 16);
 			instances[at + 3] = batch.slots[s] + firstSlot;
 		}
+		this.device.queue.writeBuffer(
+			page.instances,
+			firstStrip * STRIP_INSTANCE_BYTES,
+			instances,
+		);
 		this.coverage.enqueue(batch, strips);
 		return strips;
 	}
@@ -184,18 +173,8 @@ export class StripFrame {
 		pass.draw(4, strips.stripCount);
 	}
 
-	/** Upload the frame's strip instances and draw records and submit its coverage. Call before the frame's submit. */
+	/** Upload the frame's draw records and submit its coverage. Call before the frame's submit. */
 	public finishFrame(): void {
-		for (const pending of this.pendingInstances) {
-			this.device.queue.writeBuffer(
-				pending.page.instances,
-				pending.firstStrip * STRIP_INSTANCE_BYTES,
-				pending.data.buffer,
-				0,
-				pending.stripCount * STRIP_INSTANCE_BYTES,
-			);
-		}
-		this.pendingInstances.length = 0;
 		for (const chunk of this.chunks) {
 			if (chunk.count === 0) continue;
 			this.device.queue.writeBuffer(
@@ -215,37 +194,6 @@ export class StripFrame {
 		this.pool.destroy();
 		this.coverage.destroy();
 		this.paramsFallback.destroy();
-	}
-
-	/**
-	 * The staging words for `stripCount` instances placed at `firstStrip` of
-	 * `page`. Allocations within a page are contiguous, so they extend the
-	 * page's pending run; a page reused from its start begins a new run.
-	 */
-	private stageInstances(
-		page: StripPage,
-		firstStrip: number,
-		stripCount: number,
-	): Uint32Array<ArrayBuffer> {
-		let pending = this.pendingInstances.findLast((run) => run.page === page);
-		if (!pending || pending.firstStrip + pending.stripCount !== firstStrip) {
-			pending = {
-				page,
-				firstStrip,
-				stripCount: 0,
-				data: new Uint32Array(Math.max(stripCount, 1024) * STRIP_INSTANCE_U32S),
-			};
-			this.pendingInstances.push(pending);
-		}
-		const start = pending.stripCount * STRIP_INSTANCE_U32S;
-		const end = start + stripCount * STRIP_INSTANCE_U32S;
-		if (end > pending.data.length) {
-			const grown = new Uint32Array(Math.max(end, pending.data.length * 2));
-			grown.set(pending.data.subarray(0, start));
-			pending.data = grown;
-		}
-		pending.stripCount += stripCount;
-		return pending.data.subarray(start, end);
 	}
 
 	private chunkFor(): RecordChunk {

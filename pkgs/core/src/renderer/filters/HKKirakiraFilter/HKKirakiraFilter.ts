@@ -14,7 +14,6 @@ import {
 import type {
 	FilterHandler,
 	FilterProcessorContext,
-	FilterRenderRequirements,
 } from "../../canvas/pipeline/FilterRenderer";
 import { ScratchTexturePool } from "../shared/ScratchTexturePool";
 import {
@@ -229,15 +228,7 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 		// a small part of the blur, and the two passes blur the rest at that
 		// level's texels, where they read a fixed number of texels per pixel.
 		const sigma = params.radius * dpiScale * 0.33 * params.strength;
-		// The depth follows the element's whole bake, so a bake cut to the view
-		// blurs at the level the whole one does.
-		const wholeSize = context.coordinateSpace
-			? {
-					width: context.coordinateSpace.worldSize.width * dpiScale,
-					height: context.coordinateSpace.worldSize.height * dpiScale,
-				}
-			: textureSize;
-		const level = glowPyramidLevel(sigma, wholeSize);
+		const level = glowPyramidLevel(sigma, textureSize);
 		const reduced =
 			level > 0 && this.blurPyramid
 				? this.blurPyramid
@@ -381,12 +372,6 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 
 	public getDetailDensity(): number {
 		return Number.POSITIVE_INFINITY;
-	}
-
-	/** Every read stays within the footprint and is placed on the element's
-	 *  whole bake, so a bake cut to the view gives the same pixels. */
-	public getRenderConfigure(): Partial<FilterRenderRequirements> {
-		return { cropSafe: true };
 	}
 
 	public onScaleFilter(

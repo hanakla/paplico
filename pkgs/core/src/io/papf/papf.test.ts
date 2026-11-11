@@ -1,5 +1,5 @@
 import { proxy, snapshot } from "valtio";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	isPaplicoError,
 	type PaplicoError,
@@ -14,12 +14,11 @@ import {
 	TRANSIENT_LAYER_KIND,
 	type Viewport,
 } from "../../schema";
-import { expandTimelapseEntries } from "../../testUtils/timelapse";
-import type { TimelapseData } from "../../timelapse/types";
+import type { TimelapseData, TimelapseEntry } from "../../timelapse/types";
 import { LATEST_SCHEMA_VERSION } from "../migrations";
-import { openPapf, PapfFile } from "./reader";
+import { decodeTimelapseBlock, openPapf, PapfFile } from "./reader";
 import { Codec, FOOTER_BYTES, SECTION_HEADER_BYTES } from "./types";
-import { packTimelapseEntries, serializeDocument } from "./writer";
+import { serializeDocument } from "./writer";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,6 +62,16 @@ function makeTimelapse(count: number): TimelapseData {
 			u: new Uint8Array([i & 0xff, (i >> 8) & 0xff]),
 		})),
 	};
+}
+
+/** Every entry of a read recording, with its packed blocks expanded. */
+async function expandEntries(
+	timelapse: TimelapseData,
+): Promise<TimelapseEntry[]> {
+	const packed = await Promise.all(
+		(timelapse.packedBlocks ?? []).map(decodeTimelapseBlock),
+	);
+	return [...packed.flat(), ...timelapse.entries];
 }
 
 // ---------------------------------------------------------------------------
@@ -136,58 +145,7 @@ describe("PAPF format", () => {
 			);
 		});
 
-		it("should keep the app data a document was written with", async () => {
-			const appData = { host: { schema: 1, flag: false } };
-
-			const blob = await serializeDocument(makeMinimalDoc(), appData);
-
-			expect((await openPapf(blob)).meta.appData).toEqual(appData);
-		});
-
-		it("should write no app data when none is given", async () => {
-			const blob = await serializeDocument(makeMinimalDoc());
-
-			expect((await openPapf(blob)).meta).not.toHaveProperty("appData");
-		});
-
-		it("should keep the source path of a linked file", async () => {
-			const blob = await serializeDocument(
-				makeMinimalDoc({
-					files: [
-						{
-							...makeFile("linked", new Uint8Array([1, 2, 3])),
-							sourcePath: "img/ref.png",
-						},
-						makeFile("embedded", new Uint8Array([4, 5, 6])),
-					],
-				}),
-			);
-
-			const { files } = await (await openPapf(blob)).toDocument();
-
-			expect(files.map((file) => file.sourcePath)).toEqual([
-				"img/ref.png",
-				undefined,
-			]);
-		});
-
-		it("should ignore a source path that is not a string", async () => {
-			const blob = await serializeDocument(
-				makeMinimalDoc({
-					files: [
-						{
-							...makeFile("linked", new Uint8Array([1, 2, 3])),
-							sourcePath: 42 as unknown as string,
-						},
-					],
-				}),
-			);
-
-			const { files } = await (await openPapf(blob)).toDocument();
-
-			expect(files[0].sourcePath).toBeUndefined();
-		});
-
+		// rendererStore.document is a Valtio proxy in production.
 		// structuredClone / deepClone on a proxy breaks TypedArrays or throws DataCloneError.
 		// Paplico.exportDocument() uses snapshot() to unwrap the proxy first.
 		// This test verifies that path works end-to-end.
@@ -259,7 +217,7 @@ describe("PAPF format", () => {
 			expect(restored.timelapse!.entries).toEqual(
 				timelapse.entries.slice(2_000),
 			);
-			expect(await expandTimelapseEntries(restored.timelapse!)).toEqual(
+			expect(await expandEntries(restored.timelapse!)).toEqual(
 				timelapse.entries,
 			);
 		});
@@ -286,70 +244,10 @@ describe("PAPF format", () => {
 				await openPapf(await serializeDocument(first))
 			).toDocument();
 
-			expect(await expandTimelapseEntries(second.timelapse!)).toEqual([
+			expect(await expandEntries(second.timelapse!)).toEqual([
 				...timelapse.entries,
 				recorded,
 			]);
-		});
-
-		it("should write packed timelapse blocks back without compressing them again", async () => {
-			const timelapse = makeTimelapse(3);
-			const packedBlocks = await packTimelapseEntries(timelapse.entries);
-			const doc = makeMinimalDoc({
-				timelapse: { version: 2, packedBlocks, entries: [] },
-			});
-			let compressions = 0;
-			vi.stubGlobal(
-				"CompressionStream",
-				class extends CompressionStream {
-					public constructor(format: CompressionFormat) {
-						super(format);
-						compressions++;
-					}
-				},
-			);
-
-			const blobs = await Promise.all([
-				serializeDocument(doc),
-				serializeDocument(doc),
-			]).finally(() => vi.unstubAllGlobals());
-
-			// META and TMLH, for each save.
-			expect(compressions).toBe(4);
-			for (const blob of blobs) {
-				const [block] = (await openPapf(blob)).toc.timelapseBlocks;
-				const stored = new Uint8Array(
-					await blob
-						.slice(
-							Number(block.payloadOffset),
-							Number(block.payloadOffset) + block.storedBytes,
-						)
-						.arrayBuffer(),
-				);
-				expect(stored).toEqual(packedBlocks[0].payload);
-			}
-		});
-
-		it("should pack entries into the blocks a save writes for them", async () => {
-			const timelapse = makeTimelapse(2_500);
-
-			const packedBlocks = await packTimelapseEntries(timelapse.entries);
-			const restored = await (
-				await openPapf(
-					await serializeDocument(
-						makeMinimalDoc({
-							timelapse: { version: 2, packedBlocks, entries: [] },
-						}),
-					),
-				)
-			).toDocument();
-
-			expect(packedBlocks.map((block) => block.count)).toEqual([
-				1_000, 1_000, 500,
-			]);
-			expect(await expandTimelapseEntries(restored.timelapse!)).toEqual(
-				timelapse.entries,
-			);
 		});
 
 		it("should round-trip the timelapse dirty-rect index", async () => {

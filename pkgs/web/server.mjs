@@ -3,7 +3,6 @@
  */
 
 import fs from "node:fs";
-import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:https";
 import path from "node:path";
 import { parse } from "node:url";
@@ -219,12 +218,6 @@ const port =
 		? Number.parseInt(args[portIndex + 1], 10)
 		: 3000;
 
-// Serve the desktop development page over HTTP to allow Tauri's custom-protocol IPC.
-// WebKit blocks requests to the ipc: protocol from HTTPS pages.
-const httpPortIndex = args.indexOf("--http-port");
-const httpPort =
-	httpPortIndex !== -1 ? Number.parseInt(args[httpPortIndex + 1], 10) : null;
-
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
@@ -267,7 +260,7 @@ app.prepare().then(() => {
 		),
 	};
 
-	const handleRequest = async (req, res) => {
+	const server = createServer(httpsOptions, async (req, res) => {
 		try {
 			const parsedUrl = parse(req.url, true);
 
@@ -299,14 +292,12 @@ app.prepare().then(() => {
 			res.statusCode = 500;
 			res.end("internal server error");
 		}
-	};
-	const server = createServer(httpsOptions, handleRequest);
-	const httpServer = httpPort ? createHttpServer(handleRequest) : null;
+	});
 
 	const wss = new WebSocketServer({ noServer: true });
 	const upgradeHandler = app.getUpgradeHandler();
 
-	const handleUpgrade = (request, socket, head) => {
+	server.on("upgrade", (request, socket, head) => {
 		const { pathname } = parse(request.url, true);
 		if (pathname.startsWith("/api/collaboration")) {
 			wss.handleUpgrade(request, socket, head, (ws) => {
@@ -316,9 +307,7 @@ app.prepare().then(() => {
 			// Delegate other upgrades (e.g. Next.js HMR /_next/webpack-hmr) to Next.js
 			upgradeHandler(request, socket, head);
 		}
-	};
-	server.on("upgrade", handleUpgrade);
-	httpServer?.on("upgrade", handleUpgrade);
+	});
 
 	wss.on("connection", (ws, req) => {
 		const { pathname, query } = parse(req.url, true);
@@ -489,12 +478,6 @@ app.prepare().then(() => {
 		ws.on("error", (error) => {
 			console.error(`❌ WebSocket error in room ${roomId}:`, error);
 		});
-	});
-
-	httpServer?.listen(httpPort, hostname, () => {
-		console.log(
-			`> Ready on http://${hostname}:${httpPort} for the desktop app`,
-		);
 	});
 
 	server.listen(port, () => {

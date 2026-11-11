@@ -346,10 +346,6 @@ function mapRadialGradient(
 	map: Affine2D,
 ): RadialGradient {
 	const center = applyAffineToPoint(map, { x: gradient.cx, y: gradient.cy });
-	const focal = applyAffineToPoint(map, {
-		x: gradient.focalX ?? gradient.cx,
-		y: gradient.focalY ?? gradient.cy,
-	});
 	const cos = Math.cos(gradient.rotation);
 	const sin = Math.sin(gradient.rotation);
 	const ax = gradient.radiusX * cos;
@@ -375,7 +371,6 @@ function mapRadialGradient(
 		...gradient,
 		cx: center.x,
 		cy: center.y,
-		...(gradient.focalX !== undefined && { focalX: focal.x, focalY: focal.y }),
 		radiusX: keepsMajor ? q + r : Math.abs(q - r),
 		radiusY: keepsMajor ? Math.abs(q - r) : q + r,
 		rotation: nearestEquivalentAngle(

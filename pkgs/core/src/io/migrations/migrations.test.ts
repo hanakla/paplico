@@ -2372,25 +2372,6 @@ describe("migTransformOrigin (20260929)", () => {
 	});
 });
 
-describe("migGuideOnAnyElement (20261112)", () => {
-	it("should raise the version and leave the objects as they are", () => {
-		const group = {
-			id: "g1",
-			type: "group",
-			isGuide: true,
-			childIds: ["p1"],
-		};
-		const path = makeLegacyPath({ filters: [] });
-		const doc = makeDoc({ g1: group, p1: path }, 20261012);
-		const before = structuredClone(doc.objects);
-
-		applyMigrations(doc);
-
-		expect(doc.schemaVersion).toBe(20261112);
-		expect(doc.objects).toEqual(before);
-	});
-});
-
 describe("migCornerRadiusArc (20261012)", () => {
 	it("turns a stored edge distance into the radius of the arc", () => {
 		// The path turns 120° at the vertex, so the arc's radius is d / tan(60°)

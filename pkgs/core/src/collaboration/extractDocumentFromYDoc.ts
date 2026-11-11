@@ -59,7 +59,6 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 		compositionMode: yMap.get("compositionMode") as CompositionMode | undefined,
 		visible: yMap.get("visible") as boolean | undefined,
 		locked: yMap.get("locked") as boolean | undefined,
-		isGuide: yMap.get("isGuide") as boolean | undefined,
 		filters: yMap.has("filters")
 			? (normalizeAppearanceFields(
 					JSON.parse(yMap.get("filters") as string),
@@ -88,6 +87,7 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 					: undefined,
 				pathStart: yMap.get("pathStart") as number | undefined,
 				pathEnd: yMap.get("pathEnd") as number | undefined,
+				isGuide: yMap.get("isGuide") as boolean | undefined,
 			} satisfies Path;
 
 		case "group":
@@ -216,18 +216,10 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
  * @param options.skipUnreadableObjects Leave out objects that fail to decode
  *   instead of throwing. A replayed update stream can carry objects that were
  *   never whole in the live document.
- * @param options.sourcePaths EmbeddedFile.sourcePath by file uid. The Y.Doc
- *   does not hold them.
  */
 export function extractDocumentFromYDoc(
 	ydoc: Y.Doc,
-	{
-		skipUnreadableObjects = false,
-		sourcePaths,
-	}: {
-		skipUnreadableObjects?: boolean;
-		sourcePaths?: ReadonlyMap<string, string>;
-	} = {},
+	{ skipUnreadableObjects = false }: { skipUnreadableObjects?: boolean } = {},
 ): Document {
 	const yObjects = ydoc.getMap<Y.Map<unknown>>("objects");
 	const yLayers = ydoc.getArray<Y.Map<unknown>>("layers");
@@ -262,15 +254,13 @@ export function extractDocumentFromYDoc(
 
 	// files: Y.Map<SerializedEmbeddedFile> → EmbeddedFile[]
 	const files: EmbeddedFile[] = [];
-	for (const [uid, serialized] of yFiles.entries()) {
-		const sourcePath = sourcePaths?.get(uid);
+	for (const [_uid, serialized] of yFiles.entries()) {
 		files.push({
 			uid: serialized.uid,
 			name: serialized.name,
 			type: serialized.type,
 			hash: serialized.hash,
 			bin: normalizeEmbeddedBin(serialized.bin),
-			...(sourcePath ? { sourcePath } : {}),
 		});
 	}
 

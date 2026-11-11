@@ -234,52 +234,32 @@ export class DocumentChangeSubscriber {
 		const spatialIndex = hooks.getSpatialIndex();
 		const objects = this.store.document.objects;
 
-		// Read before the parent mapping is refreshed: a container that lost a
-		// child is found through the child's previous parent.
-		const movedIds = this.transformOnlyChangeActive
-			? collectMovedIds(delta, spatialIndex)
-			: new Set<string>();
-
-		// Owners are resolved by walking up the parent mapping, so it has to
-		// know the children this delta attached before the first lookup.
-		for (const [, obj] of delta.added) {
-			if (isContainer(obj)) spatialIndex.refreshContainerMappings(obj);
-		}
-		for (const [, obj] of delta.updated) {
-			if (isContainer(obj)) spatialIndex.refreshContainerMappings(obj);
-		}
-
 		const topLevelOwners = buildTopLevelOwners(layers);
-		const findTopLevelOwner = (
+		const resolveTopLevelOwner = (
 			objectId: string,
 		): { topLevelId: string; layerId: string } | null => {
 			const seen = new Set<string>();
-			for (
-				let id: string | null = objectId;
-				id && !seen.has(id);
-				id = spatialIndex.getParentGroupId(id)
-			) {
-				seen.add(id);
-				const layerId = topLevelOwners.get(id);
-				if (layerId) return { topLevelId: id, layerId };
+			let currentId: string | undefined = objectId;
+
+			while (currentId && !seen.has(currentId)) {
+				seen.add(currentId);
+
+				const layerId = topLevelOwners.get(currentId);
+				if (layerId) {
+					return { topLevelId: currentId, layerId };
+				}
+
+				currentId = spatialIndex.getParentGroupId(currentId) ?? undefined;
 			}
-			return null;
-		};
 
-		let parentMappingRebuilt = false;
-		const resolveTopLevelOwner = (objectId: string) => {
-			const owner = findTopLevelOwner(objectId);
-			// An object that left the document has no owner to look for.
-			if (owner || !objects[objectId] || parentMappingRebuilt) return owner;
-
-			// The parent mapping does not reach a layer. Rebuild it from the
-			// document, once per delta, in case it is stale.
-			spatialIndex.rebuildParentGroupMap();
-			parentMappingRebuilt = true;
-			return findTopLevelOwner(objectId);
+			return resolveTopLevelOwnerByTraversal(objectId, layers, objects);
 		};
 
 		const affectedTopLevelOwners = new Map<string, string>();
+
+		const movedIds = this.transformOnlyChangeActive
+			? collectMovedIds(delta, spatialIndex)
+			: new Set<string>();
 
 		for (const [id, obj] of delta.added) {
 			const owner = resolveTopLevelOwner(id);
@@ -324,9 +304,17 @@ export class DocumentChangeSubscriber {
 			);
 		}
 
-		for (const id of delta.deleted) {
-			const del = deletedSnapshot[id];
-			if (del && isContainer(del)) spatialIndex.clearContainerMappings(del);
+		if (hasContainerMutation(delta, deletedSnapshot)) {
+			for (const [, obj] of delta.added) {
+				if (isContainer(obj)) spatialIndex.refreshContainerMappings(obj);
+			}
+			for (const [, obj] of delta.updated) {
+				if (isContainer(obj)) spatialIndex.refreshContainerMappings(obj);
+			}
+			for (const id of delta.deleted) {
+				const del = deletedSnapshot[id];
+				if (del && isContainer(del)) spatialIndex.clearContainerMappings(del);
+			}
 		}
 
 		hooks.refreshToolUI();
@@ -397,4 +385,74 @@ function buildTopLevelOwners(layers: Layer[]): Map<string, string> {
 		}
 	}
 	return topLevelOwners;
+}
+
+function hasContainerMutation(
+	delta: ObjectsChangeDelta,
+	deletedSnapshot: Record<string, AnyArtObject>,
+): boolean {
+	for (const [, obj] of delta.added) {
+		if (isContainer(obj)) return true;
+	}
+	for (const [, obj] of delta.updated) {
+		if (isContainer(obj)) return true;
+	}
+	for (const id of delta.deleted) {
+		const deletedObject = deletedSnapshot[id];
+		if (deletedObject && isContainer(deletedObject)) return true;
+	}
+	return false;
+}
+
+function resolveTopLevelOwnerByTraversal(
+	objectId: string,
+	layers: Layer[],
+	objects: Record<string, AnyArtObject>,
+): { topLevelId: string; layerId: string } | null {
+	for (const layer of layers) {
+		for (const topLevelId of layer.elementIds) {
+			if (topLevelId === objectId) {
+				return { topLevelId, layerId: layer.id };
+			}
+			if (
+				containerContainsObject(
+					topLevelId,
+					objectId,
+					objects,
+					new Set<string>(),
+				)
+			) {
+				return { topLevelId, layerId: layer.id };
+			}
+		}
+	}
+	return null;
+}
+
+function containerContainsObject(
+	candidateId: string,
+	targetId: string,
+	objects: Record<string, AnyArtObject>,
+	visitedIds: Set<string>,
+): boolean {
+	if (visitedIds.has(candidateId)) return false;
+	visitedIds.add(candidateId);
+
+	const candidate = objects[candidateId];
+	if (!candidate || !isContainer(candidate)) return false;
+
+	// Containers include groups, compound-paths and blends — a blend's absorbed
+	// keys/spine live here, so editing one must resolve up to the blend or the
+	// blend never re-renders.
+	const childIds = getContainerChildIds(candidate);
+	if (!childIds) return false;
+
+	for (const childId of childIds) {
+		if (childId === targetId) return true;
+		if (containerContainsObject(childId, targetId, objects, visitedIds)) {
+			return true;
+		}
+	}
+
+	return false;
 }

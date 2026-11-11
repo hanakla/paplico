@@ -292,15 +292,6 @@ export class PaplicoSelection {
 	}
 
 	/**
-	 * The id of the element that makes this one a guide: its own when it is
-	 * marked as a guide, otherwise that of the nearest container that is. Null
-	 * for artwork.
-	 */
-	public findGuideOwnerId(elementId: string): string | null {
-		return this.spatial.findGuideOwnerId(elementId);
-	}
-
-	/**
 	 * Check if an element is editable (considering the editing scope).
 	 * An element is editable if it's a child of the current scope (last in stack).
 	 */

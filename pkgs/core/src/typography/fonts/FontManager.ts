@@ -4,7 +4,7 @@
  * Provides glyph path extraction and text shaping helpers.
  */
 
-import type { Font, Glyph, PathCommand } from "@cantoo/fontkit";
+import type { Font, Glyph } from "@cantoo/fontkit";
 import * as fontkit from "@cantoo/fontkit";
 import type {
 	CubicBezierSegment,
@@ -13,13 +13,6 @@ import type {
 	TextStyle,
 } from "../../schema";
 import { Emitter } from "../../utils/emitter";
-import {
-	type ColorGlyphLayerSource,
-	createSvgGlyphReader,
-	type GlyphColorLayer,
-	readColrBaseOutline,
-	readColrLayers,
-} from "./colorGlyphs";
 import {
 	extractLocalizedNames,
 	type FontLoader,
@@ -68,14 +61,6 @@ export interface ShapedGlyph {
 	y: number; // accumulated Y position
 	advanceWidth: number;
 	path: CubicBezierSegment[];
-	/** Colored layers of a color glyph, splitting `path` bottom layer first. */
-	colorLayers?: readonly GlyphColorLayer[];
-}
-
-/** A glyph's em-normalized outline, with its layers when it is a color glyph. */
-interface GlyphOutline {
-	path: CubicBezierSegment[];
-	colorLayers?: GlyphColorLayer[];
 }
 
 /**
@@ -84,14 +69,9 @@ interface GlyphOutline {
 export class FontManager extends Emitter<FontManagerEvents> {
 	/** Registered loaders keyed by `FontLoader.id`, in registration order. */
 	public readonly loaders: ReadonlyMap<string, FontLoader>;
-	private glyphPathCache = new WeakMap<Font, Map<number, GlyphOutline>>();
-	/** `SVG ` table reader and the outlines it resolved, by glyph id. */
-	private svgGlyphCache = new WeakMap<
+	private glyphPathCache = new WeakMap<
 		Font,
-		{
-			read: ReturnType<typeof createSvgGlyphReader>;
-			outlines: Map<number, Promise<GlyphOutline | null>>;
-		}
+		Map<number, CubicBezierSegment[]>
 	>();
 	private variationCache = new WeakMap<Font, Map<string, LoadedFont>>();
 	private fallbackFont: LoadedFont | undefined;
@@ -216,7 +196,7 @@ export class FontManager extends Emitter<FontManagerEvents> {
 	}
 
 	/** Cache em-normalized outlines by the actual shaped glyph and variable face. */
-	private getGlyphOutline(font: LoadedFont, glyph: Glyph): GlyphOutline {
+	private getGlyphPath(font: LoadedFont, glyph: Glyph): CubicBezierSegment[] {
 		let cache = this.glyphPathCache.get(font.fontkit);
 		if (!cache) {
 			cache = new Map();
@@ -228,64 +208,24 @@ export class FontManager extends Emitter<FontManagerEvents> {
 			cache.set(glyph.id, cached);
 			return cached;
 		}
-		const outline = this.extractGlyphOutline(glyph, font.fontkit);
-		cache.set(glyph.id, outline);
+		const path = this.extractGlyphPath(glyph, font.fontkit);
+		cache.set(glyph.id, path);
 		if (cache.size > 2_048) {
 			const oldest = cache.keys().next().value;
 			if (oldest !== undefined) cache.delete(oldest);
 		}
-		return outline;
-	}
-
-	/** The glyph's outline from its `SVG ` table document, cached per glyph. */
-	private getSvgGlyphOutline(
-		font: LoadedFont,
-		glyphId: number,
-	): Promise<GlyphOutline | null> {
-		let cache = this.svgGlyphCache.get(font.fontkit);
-		if (!cache) {
-			cache = { read: createSvgGlyphReader(font.fontkit), outlines: new Map() };
-			this.svgGlyphCache.set(font.fontkit, cache);
-		}
-		const { read } = cache;
-		if (!read) return Promise.resolve(null);
-		let outline = cache.outlines.get(glyphId);
-		if (!outline) {
-			outline = read(glyphId).then((layers) =>
-				layers ? composeColorGlyph(layers) : null,
-			);
-			cache.outlines.set(glyphId, outline);
-		}
-		return outline;
+		return path;
 	}
 
 	/**
-	 * The glyph's outline, built from its COLR layers in a COLR font, whose
-	 * glyphs fontkit leaves without an outline.
+	 * Extract bezier path segments from a Fontkit glyph.
 	 */
-	private extractGlyphOutline(glyph: Glyph, font: Font): GlyphOutline {
-		const layers = readColrLayers(font, glyph.id);
-		if (!layers) {
-			const path = readColrBaseOutline(font, glyph.id) ?? glyph.path;
-			return { path: this.extractGlyphPath(path, font.unitsPerEm) };
-		}
-		return composeColorGlyph(
-			layers.map(({ outline, fill }) => ({
-				outline: this.extractGlyphPath(outline, font.unitsPerEm),
-				fill,
-			})),
-		);
-	}
-
-	/**
-	 * Extract em-normalized bezier path segments from fontkit path commands.
-	 */
-	private extractGlyphPath(
-		glyphPath: { commands: PathCommand[] } | null | undefined,
-		unitsPerEm: number,
-	): CubicBezierSegment[] {
+	private extractGlyphPath(glyph: Glyph, font: Font): CubicBezierSegment[] {
+		const unitsPerEm = font.unitsPerEm;
 		// Keep geometry in em space for cache reuse across font sizes.
 		const scale = 1 / unitsPerEm;
+
+		const glyphPath = glyph.path;
 
 		if (!glyphPath) {
 			return [];
@@ -512,31 +452,25 @@ export class FontManager extends Emitter<FontManagerEvents> {
 
 			const glyphX = x + position.xOffset * scale;
 			const glyphY = y + position.yOffset * scale;
-			let outline: GlyphOutline;
+			let emPath: CubicBezierSegment[];
 			let advanceWidth = position.xAdvance * scale;
 
 			const useNotdef = (forceNotdef || glyph.id === 0) && char.trim() !== "";
 
 			if (useNotdef) {
 				const fallback = await this.getFallbackFont();
-				// A missing font shows as .notdef on purpose. A font that only
-				// lacks this character borrows it from the fallback font.
-				const substitute = fallback.fontkit.glyphForCodePoint(
-					forceNotdef ? 0 : (char.codePointAt(0) ?? 0),
-				);
-				if (!substitute) {
+				const notdefGlyph = fallback.fontkit.glyphForCodePoint(0);
+				if (!notdefGlyph) {
 					throw new Error("Fallback font has no .notdef glyph");
 				}
-				outline = this.getGlyphOutline(fallback, substitute);
+				emPath = this.getGlyphPath(fallback, notdefGlyph);
 				advanceWidth =
-					(substitute.advanceWidth * fontSize) / fallback.fontkit.unitsPerEm;
+					(notdefGlyph.advanceWidth * fontSize) / fallback.fontkit.unitsPerEm;
 			} else {
-				outline =
-					(await this.getSvgGlyphOutline(font, glyph.id)) ??
-					this.getGlyphOutline(font, glyph);
+				emPath = this.getGlyphPath(font, glyph);
 			}
 
-			const offsetPath = outline.path.map((seg) => ({
+			const offsetPath = emPath.map((seg) => ({
 				start: seg.start
 					? { x: seg.start.x * fontSize, y: seg.start.y * fontSize }
 					: undefined,
@@ -562,7 +496,6 @@ export class FontManager extends Emitter<FontManagerEvents> {
 				y: glyphY,
 				advanceWidth,
 				path: offsetPath,
-				colorLayers: outline.colorLayers,
 			});
 
 			x += advanceWidth + letterSpacingPx;
@@ -605,7 +538,7 @@ export class FontManager extends Emitter<FontManagerEvents> {
 			return null;
 		}
 
-		return this.getGlyphOutline(font, run.glyphs[0]).path;
+		return this.getGlyphPath(font, run.glyphs[0]);
 	}
 
 	/**
@@ -703,17 +636,4 @@ function unwrapQueriedFonts(
 	if (result.status === "fulfilled") return result.value;
 	console.error(`Failed to query ${sourceLabel}:`, result.reason);
 	return [];
-}
-
-/** Concatenate color layers into one glyph path, recording each layer's span. */
-function composeColorGlyph(
-	layers: readonly ColorGlyphLayerSource<CubicBezierSegment[]>[],
-): GlyphOutline {
-	return {
-		path: layers.flatMap((layer) => layer.outline),
-		colorLayers: layers.map(({ outline, fill }) => ({
-			segmentCount: outline.length,
-			fill,
-		})),
-	};
 }

@@ -1,12 +1,17 @@
 import type { Paplico } from "@paplico/core";
-import type { FontSource, TextElement, TextStyle } from "@paplico/core/schema";
+import type {
+	FontSource,
+	TextContent,
+	TextElement,
+	TextStyle,
+} from "@paplico/core/schema";
 import type { FontMetadata } from "@paplico/core/typography";
 import { useEffect, useMemo } from "react";
 import { proxy, useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
+import { buildFontSource } from "@/organisms/ActionsPanel/utils";
 import { uiState } from "@/stores/uiStore";
-import { buildFontSource } from "@/utils/font";
 import { useEventCallback } from "@/utils/hooks";
 
 // ---------------------------------------------------------------------------
@@ -18,13 +23,10 @@ interface ActiveFontSettings {
 	isLoading: boolean;
 	currentFont: FontMetadata | undefined;
 	currentFontSize: number;
-	currentFontWeight: number | undefined;
-	fontFaces: FontMetadata[];
 	isMixed: boolean;
 	isMixedSize: boolean;
 	handleFontChange: (font: FontMetadata | null) => void;
 	handleFontSizeChange: (size: number) => void;
-	handleFontWeightChange: (weight: number, face?: FontMetadata) => void;
 }
 
 export function useActiveFontSettings(): ActiveFontSettings {
@@ -134,33 +136,6 @@ export function useActiveFontSettings(): ActiveFontSettings {
 		uiSnap.textEditState.hasSelection,
 	]);
 
-	const currentFontWeight = useMemo(() => {
-		if (isTextEditing) {
-			return uiSnap.textEditState.selectionStyle?.fontWeight;
-		}
-		if (textElements.length === 0) return toolSnap.textDefaultStyle.fontWeight;
-		const weight = textElements[0].defaultStyle.fontWeight;
-		return textElements.every((el) => el.defaultStyle.fontWeight === weight)
-			? weight
-			: undefined;
-	}, [
-		isTextEditing,
-		uiSnap.textEditState.selectionStyle,
-		textElements,
-		toolSnap.textDefaultStyle,
-	]);
-	const fontFaces = useMemo(
-		() =>
-			fonts.filter(
-				(font) =>
-					font.family === currentFont?.family &&
-					font.loaderId === currentFont.loaderId &&
-					/italic|oblique/i.test(font.style) ===
-						/italic|oblique/i.test(currentFont.style),
-			),
-		[fonts, currentFont],
-	);
-
 	// Sync selected TextElement settings to tool defaults
 	useEffect(() => {
 		if (textElements.length === 0 || isMixed) return;
@@ -169,75 +144,108 @@ export function useActiveFontSettings(): ActiveFontSettings {
 		tools.state.textDefaultAlignment =
 			el.content.paragraphs[0]?.alignment ?? "left";
 		tools.state.textDefaultWritingMode = el.layout.writingMode;
+		// biome-ignore lint/correctness/useExhaustiveDependencies: tools.state is a stable Valtio proxy ref; write targets would cause infinite loop
 	}, [textElements, isMixed, tools.state]);
 
-	const applyTextStyle = useEventCallback((updates: Partial<TextStyle>) => {
-		Object.assign(tools.state.textDefaultStyle, updates);
-		if (isTextEditing) {
-			paplico.textToolController?.getTextTool()?.applyStyleToSelection(updates);
-			return;
-		}
-		const layerId = store.currentLayerId;
-		if (!layerId) return;
-		for (const el of textElements) {
-			commands.updateElement(layerId, el.id, {
-				defaultStyle: { ...el.defaultStyle, ...updates },
-				content: {
+	// Handle font change
+	const handleFontChange = useEventCallback(
+		(selectedFont: FontMetadata | null) => {
+			if (!selectedFont) return;
+
+			const fontSource = buildFontSource(selectedFont);
+
+			// Always update textDefaultStyle
+			tools.state.textDefaultStyle.fontFamily = selectedFont.family;
+			tools.state.textDefaultStyle.fontSource = fontSource;
+			tools.state.textDefaultStyle.fontVariationSettings = {};
+
+			if (isTextEditing) {
+				const textTool = paplico.textToolController?.getTextTool();
+				textTool?.changeSelectionFontFamily(selectedFont.family, fontSource);
+				return;
+			}
+
+			const layerId = store.currentLayerId;
+			if (!layerId) return;
+
+			for (const el of textElements) {
+				const updatedContent: TextContent = {
 					...el.content,
 					paragraphs: el.content.paragraphs.map((para) => ({
 						...para,
 						runs: para.runs.map((run) => ({
 							...run,
-							style: { ...run.style, ...updates },
+							style: {
+								...run.style,
+								fontFamily: selectedFont.family,
+								fontSource,
+								fontVariationSettings: {},
+							},
 						})),
 					})),
+				};
+
+				commands.updateElement(layerId, el.id, {
+					defaultStyle: {
+						...el.defaultStyle,
+						fontFamily: selectedFont.family,
+						fontSource,
+						fontVariationSettings: {},
+					},
+					content: updatedContent,
+				});
+			}
+		},
+	);
+
+	// Handle font size change
+	const handleFontSizeChange = useEventCallback((rawSize: number) => {
+		if (Number.isNaN(rawSize) || rawSize <= 0) return;
+		const newSize = roundFontSize(rawSize);
+
+		// Always update textDefaultStyle
+		tools.state.textDefaultStyle.fontSize = newSize;
+
+		if (isTextEditing) {
+			const textTool = paplico.textToolController?.getTextTool();
+			textTool?.changeSelectionFontSize(newSize);
+			return;
+		}
+
+		const layerId = store.currentLayerId;
+		if (!layerId) return;
+
+		for (const el of textElements) {
+			const updatedContent: TextContent = {
+				...el.content,
+				paragraphs: el.content.paragraphs.map((para) => ({
+					...para,
+					runs: para.runs.map((run) => ({
+						...run,
+						style: { ...run.style, fontSize: newSize },
+					})),
+				})),
+			};
+
+			commands.updateElement(layerId, el.id, {
+				defaultStyle: {
+					...el.defaultStyle,
+					fontSize: newSize,
 				},
+				content: updatedContent,
 			});
 		}
 	});
-
-	const handleFontChange = useEventCallback((font: FontMetadata | null) => {
-		if (!font) return;
-		applyTextStyle({
-			fontFamily: font.family,
-			fontSource: buildFontSource(font),
-			fontVariationSettings: {},
-		});
-	});
-
-	const handleFontSizeChange = useEventCallback((size: number) => {
-		if (!Number.isFinite(size) || size <= 0) return;
-		applyTextStyle({ fontSize: roundFontSize(size) });
-	});
-
-	const handleFontWeightChange = useEventCallback(
-		(weight: number, face?: FontMetadata) => {
-			if (!Number.isFinite(weight) || weight <= 0) return;
-			applyTextStyle({
-				fontWeight: weight,
-				...(face
-					? {
-							fontFamily: face.family,
-							fontSource: buildFontSource(face),
-							fontVariationSettings: {},
-						}
-					: {}),
-			});
-		},
-	);
 
 	return {
 		fonts,
 		isLoading,
 		currentFont,
 		currentFontSize,
-		currentFontWeight,
-		fontFaces,
 		isMixed,
 		isMixedSize,
 		handleFontChange,
 		handleFontSizeChange,
-		handleFontWeightChange,
 	};
 }
 
@@ -287,7 +295,15 @@ function ensureFontList(fontManager: Paplico["fonts"]): void {
 	fontListState.isLoading = true;
 	void (async () => {
 		try {
-			fontListState.fonts = await fontManager.queryAllFonts();
+			const allFonts = await fontManager.queryAllFonts();
+
+			const uniqueFamilies = new Map<string, FontMetadata>();
+			for (const font of allFonts) {
+				if (!uniqueFamilies.has(font.family)) {
+					uniqueFamilies.set(font.family, font);
+				}
+			}
+			fontListState.fonts = Array.from(uniqueFamilies.values());
 		} catch (err) {
 			console.error("Failed to load fonts:", err);
 		} finally {
@@ -321,8 +337,9 @@ export function useFontList(fontManager: Paplico["fonts"]): {
 /**
  * Find a FontMetadata entry that matches the given fontFamily + fontSource.
  *
- * Imported text can store a PostScript name as its family, so resolve its
- * source before trying family-name matching.
+ * Prefer the entry the source names exactly (e.g. one local face) before
+ * falling back to family-name matching, since the font list is de-duplicated
+ * by family.
  */
 function findMatchingFont(
 	fonts: FontMetadata[],

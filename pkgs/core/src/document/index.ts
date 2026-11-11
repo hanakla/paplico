@@ -6,7 +6,6 @@ export {
 	PAPLICO_MAX_ZOOM_SCALE,
 	PAPLICO_MIN_CONFIGURABLE_MAX_ZOOM_SCALE,
 } from "./constants";
-export { canBecomeGuide } from "./elementGeometry/guideOutlines";
 export { canOutlineStrokes } from "./elementGeometry/strokeOutline";
 export type { FilterStackCommands } from "./FilterStackCommands";
 export {

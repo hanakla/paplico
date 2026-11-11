@@ -1,11 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-	buildSoftProofLut,
-	convertImageToCmyk,
-	createCmykToRgbConverter,
-} from "./ColorEngine";
+import { buildSoftProofLut, convertImageToCmyk } from "./ColorEngine";
 import { inspectIccProfile } from "./IccProfileRegistry";
 
 const ICC_ASSET_DIR = resolve(__dirname, "../testUtils/assets/icc");
@@ -118,52 +114,6 @@ describe("buildSoftProofLut", () => {
 				displayProfileBytes: srgbProfileBytes,
 			}),
 		).rejects.toThrow(/B2A/);
-	});
-});
-
-describe("createCmykToRgbConverter", () => {
-	it("should convert through the CMYK profile it is given", async () => {
-		const convert = await createCmykToRgbConverter({
-			cmykProfileBytes: buildA2BOnlyCmykProfileBytes(),
-			rgbProfileBytes: srgbProfileBytes,
-			intent: "relative-colorimetric",
-		});
-
-		const [white, black] = chunk(
-			convert(Uint8Array.of(0, 0, 0, 0, 0, 0, 0, 255)),
-		);
-		expect(Math.min(...white)).toBeGreaterThanOrEqual(240);
-		expect(Math.max(...black)).toBeLessThanOrEqual(80);
-	});
-
-	it("should convert through a profile that has tables both ways", async () => {
-		const convert = await createCmykToRgbConverter({
-			cmykProfileBytes: buildTestCmykProfileBytes(),
-			rgbProfileBytes: srgbProfileBytes,
-			intent: "relative-colorimetric",
-		});
-
-		const [white, black] = chunk(
-			convert(Uint8Array.of(0, 0, 0, 0, 0, 0, 0, 255)),
-		);
-		expect(Math.min(...white)).toBeGreaterThanOrEqual(240);
-		expect(Math.max(...black)).toBeLessThanOrEqual(80);
-	});
-
-	it("should print paper white and dull the inks when no profile is given", async () => {
-		const convert = await createCmykToRgbConverter();
-
-		const [paper, cyan, black] = chunk(
-			convert(Uint8Array.of(0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 255)),
-		);
-		expect(paper).toEqual([255, 255, 255]);
-		// Printed cyan is far from the screen's pure cyan, and printed black
-		// is a dark gray rather than pure black.
-		expect(cyan[0]).toBe(0);
-		expect(cyan[1]).toBeLessThan(200);
-		expect(cyan[2]).toBeGreaterThan(200);
-		expect(Math.min(...black)).toBeGreaterThan(20);
-		expect(Math.max(...black)).toBeLessThan(60);
 	});
 });
 
@@ -544,11 +494,4 @@ function clampU16(value: number): number {
 
 function readIccAsset(fileName: string): Uint8Array {
 	return new Uint8Array(readFileSync(resolve(ICC_ASSET_DIR, fileName)));
-}
-
-/** Splits interleaved RGB into one array per pixel. */
-function chunk(rgb: Uint8ClampedArray): number[][] {
-	return [...Array(rgb.length / 3).keys()].map((i) => [
-		...rgb.subarray(i * 3, i * 3 + 3),
-	]);
 }

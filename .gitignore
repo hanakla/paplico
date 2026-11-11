@@ -26,6 +26,8 @@ pap.lock
 
 .claude/.worktree
 .claude/.plans
+.claude/skills/*
+!.claude/skills/paplico-core-dev/
 examples/
 .serena
 .DS_Store

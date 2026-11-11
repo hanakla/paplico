@@ -45,7 +45,6 @@ export const FILTER_TEXT_KEYS = {
 	pixelate: "filterPanel.pixelate",
 	noise: "filterPanel.noise",
 	"path-offset": "filterPanel.pathOffset",
-	"convert-to-shape": "filterPanel.convertToShape",
 	"path-union": "filterPanel.pathUnion",
 	"stroke-outline": "filterPanel.strokeOutline",
 	"pucker-bloat": "filterPanel.puckerBloat",
@@ -137,8 +136,6 @@ export function getFilterIcon(processor: string) {
 			return <AudioWaveform size={12} className="text-muted-foreground" />;
 		case "path-offset":
 			return <Expand size={12} className="text-muted-foreground" />;
-		case "convert-to-shape":
-			return <Crop size={12} className="text-muted-foreground" />;
 		case "path-union":
 			return <Merge size={12} className="text-muted-foreground" />;
 		case "stroke-outline":

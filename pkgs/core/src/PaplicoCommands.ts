@@ -18,7 +18,6 @@ import {
 	mapLocalAppearances,
 } from "./document/appearancePresets";
 import type { FilterCapabilityLookup } from "./document/elementGeometry/filterCapabilities";
-import { canBecomeGuide } from "./document/elementGeometry/guideOutlines";
 import { resolveElementGeometry } from "./document/elementGeometry/preFilters";
 import { buildStrokeOutline } from "./document/elementGeometry/strokeOutline";
 import {
@@ -41,7 +40,6 @@ import {
 	PAPLICO_ELEMENTS_MIME,
 	readClipboardElements,
 } from "./io/clipboardPayload";
-import { findUnusedFileUids } from "./io/papf/gc";
 import type { PaplicoSelection } from "./PaplicoSelection";
 import type { FilterRenderer } from "./renderer/canvas/pipeline/FilterRenderer";
 import {
@@ -69,12 +67,14 @@ import {
 	type BoundingBox,
 	type BrushPreset,
 	type BrushSettings,
-	BUILTIN_TEXTURE_FILE_UIDS,
+	BUILTIN_BRUSH_IDS,
+	BUILTIN_PAPER_IDS,
 	type Color,
 	type ColorProfileSettings,
 	type CompoundPath,
 	type CubicBezierSegment,
 	cloneAppearance,
+	createDefaultContentAppearance,
 	type DefEntry,
 	type DefKind,
 	type ElementTransform,
@@ -127,7 +127,6 @@ import {
 import type { ToolSettings } from "./tools/toolSettings";
 import type { TextRenderer } from "./typography/TextRenderer";
 import { splitTextContentAt } from "./typography/textContent";
-import { resolveOutlinedTextPaint } from "./typography/textPaint";
 import { cloneElementsWithIdRemap } from "./utils/cloneElements";
 import {
 	buildElementColorUpdates,
@@ -819,48 +818,6 @@ export class PaplicoCommands {
 		}, origin);
 	}
 
-	/**
-	 * Turn every given unlocked element into a guide in a single undo step.
-	 * An element that cannot become a guide is left as it is.
-	 */
-	public makeGuides(elementIds: string[]): void {
-		const { objects } = this.ctx.store.document;
-		this.setGuides(
-			elementIds.filter((id) => objects[id] && canBecomeGuide(objects[id])),
-			true,
-		);
-	}
-
-	/**
-	 * Turn every given unlocked guide back into artwork in a single undo step.
-	 * An element that is a guide through a container releases that container.
-	 */
-	public releaseGuides(elementIds: string[]): void {
-		const ownerIds = new Set(
-			elementIds.flatMap((id) => this.ctx.spatial.findGuideOwnerId(id) ?? []),
-		);
-		this.setGuides([...ownerIds], false);
-	}
-
-	private setGuides(elementIds: string[], isGuide: boolean): void {
-		if (this.cannotMutate()) return;
-		const layerId = this.ctx.store.currentLayerId;
-		if (!layerId) return;
-
-		const origin = this.getMutationOrigin();
-		this.ctx.yjsProvider.transact(() => {
-			for (const elementId of elementIds) {
-				if (this.isElementLocked(elementId)) continue;
-				this.ctx.yjsProvider.updateElement(
-					layerId,
-					elementId,
-					{ isGuide },
-					origin,
-				);
-			}
-		}, origin);
-	}
-
 	// --- Layer Operations ---
 
 	public addLayer(layer: Layer): void {
@@ -1298,31 +1255,49 @@ export class PaplicoCommands {
 		for (const elementId of elementIds) {
 			const element = this.ctx.store.document.objects[elementId];
 			if (!element || element.type !== "text") continue;
-			// A guide has no paint for its outlines to carry.
-			if (this.ctx.spatial.findGuideOwnerId(elementId)) continue;
 
 			const textElement = element;
 			const result = await textRenderer.textElementToOutlinedPaths(textElement);
 
 			if (result.outlinedPaths.length === 0) continue;
 
-			// Runs and styles live on the flow-chain head; flow targets have
-			// empty content.
+			// Apply per-character paint from source Run styles. Runs and styles
+			// live on the flow-chain head; flow targets have empty content.
 			const paintSource = textRenderer.getFlowHead(textElement);
-			const { groupFilters, glyphFilters } = resolveOutlinedTextPaint({
-				elementFilters: localAppearances(textElement.filters),
-				defaultStyle: paintSource.defaultStyle,
-				runFills: result.outlinedPaths.map(
-					({ runIndex, paragraphIndex, fill }) =>
-						fill ??
-						paintSource.content.paragraphs[paragraphIndex]?.runs[runIndex]
-							?.style?.fill,
-				),
-			});
-			const paths: Path[] = result.outlinedPaths.map(({ path }, index) => ({
-				...path,
-				filters: glyphFilters[index],
-			}));
+			const paths: Path[] = result.outlinedPaths.map(
+				({ path, runIndex, paragraphIndex }) => {
+					const run =
+						paintSource.content.paragraphs[paragraphIndex]?.runs[runIndex];
+					const style = run?.style ?? paintSource.defaultStyle;
+
+					const fill = style.fill ?? paintSource.defaultStyle.fill ?? null;
+					const stroke =
+						style.stroke ?? paintSource.defaultStyle.stroke ?? null;
+
+					const filters: Filter[] = [];
+					if (fill) {
+						filters.push({
+							uid: generateUid("app"),
+							processor: "fill",
+							paramData: { version: "1", params: { fill } },
+						} as FillAppearance);
+					}
+					if (stroke) {
+						filters.push({
+							uid: generateUid("app"),
+							processor: "stroke",
+							paramData: {
+								version: "1",
+								params: {
+									strokeColor: stroke,
+								},
+							},
+						} as StrokeAppearance);
+					}
+
+					return { ...path, filters };
+				},
+			);
 
 			const group: Group = {
 				type: "group",
@@ -1332,7 +1307,7 @@ export class PaplicoCommands {
 				blendMode: textElement.blendMode,
 				transform: textElement.transform,
 				name: "Outlined Text",
-				filters: groupFilters,
+				filters: [createDefaultContentAppearance()],
 			};
 
 			this.outlineTextElement(layerId, textElement.id, paths, group);
@@ -1369,7 +1344,6 @@ export class PaplicoCommands {
 				continue;
 			}
 			if (this.cannotMutate() || this.isElementLocked(id)) continue;
-			if (this.ctx.spatial.findGuideOwnerId(id)) continue;
 			const result = buildStrokeOutline(element, deps);
 			if (!result) continue;
 			replacements.push(result.root, ...result.children);
@@ -1628,24 +1602,20 @@ export class PaplicoCommands {
 	 * so it does not re-trigger key reflow.
 	 */
 	public rebuildBlendSpineIfKey(pathId: string): void {
-		const { objects } = this.ctx.store.document;
-		const blends = Object.values(objects).filter(
-			(obj): obj is BlendObject =>
-				isBlend(obj) && !!obj.spineSourceId && obj.objectIds.includes(pathId),
+		const elementsMap = new Map(
+			Object.entries(this.ctx.store.document.objects),
 		);
-		if (blends.length === 0) return;
-
-		const elementsMap = new Map(Object.entries(objects));
 		const origin = this.getMutationOrigin();
 		this.ctx.yjsProvider.transact(() => {
-			for (const blend of blends) {
-				const keys = blend.objectIds
-					.map((id) => objects[id])
+			for (const obj of Object.values(this.ctx.store.document.objects)) {
+				if (!isBlend(obj) || !obj.spineSourceId) continue;
+				if (!obj.objectIds.includes(pathId)) continue;
+				const keys = obj.objectIds
+					.map((id) => this.ctx.store.document.objects[id])
 					.filter((el): el is AnyArtObject => el !== undefined);
 				if (keys.length < 2) continue;
-				const spineId = blend.spineSourceId;
-				const spine = spineId && objects[spineId];
-				if (!spineId || !spine || !isPath(spine)) continue;
+				const spine = this.ctx.store.document.objects[obj.spineSourceId];
+				if (!spine || !isPath(spine)) continue;
 				// Move the spine's anchors onto the keys while keeping its cp1/cp2
 				// handles so curves are preserved. Fall back to a straight polyline
 				// only when the spine has fewer anchors than keys. blendKeyCenters are
@@ -1659,7 +1629,7 @@ export class PaplicoCommands {
 					polylineSpineSegments(centers);
 				this.ctx.yjsProvider.updateElement(
 					"",
-					spineId,
+					obj.spineSourceId,
 					{
 						segments,
 						transform: createIdentityTransform(),
@@ -4026,63 +3996,6 @@ export class PaplicoCommands {
 		return this.ctx.yjsProvider.addFile(file);
 	}
 
-	/** Sets where an embedded file is linked from. `null` unlinks it. */
-	public setEmbeddedFileSourcePath(
-		uid: string,
-		sourcePath: string | null,
-	): void {
-		if (this.cannotMutate()) return;
-		this.ctx.yjsProvider.setFileSourcePath(uid, sourcePath);
-	}
-
-	/**
-	 * Removes the files `findUnusedFileUids` names, and returns how many it
-	 * removed. The undo history goes with them: undoing back to an element
-	 * that showed one of them would restore the element without its file.
-	 */
-	public removeUnusedFiles(): number {
-		if (this.cannotMutate()) return 0;
-
-		const uids = findUnusedFileUids(this.ctx.store.document);
-		if (uids.length === 0) return 0;
-
-		this.ctx.yjsProvider.removeFiles(uids);
-		this.ctx.yjsProvider.clearUndoHistory();
-		return uids.length;
-	}
-
-	/**
-	 * Points every image that shows the file `uid` at `replacement`, which
-	 * takes over the link to the source. The images keep the size they were
-	 * placed at. Undo puts the images back on the former file. A replacement
-	 * holding the same bytes only hands its link to the file.
-	 */
-	public replaceEmbeddedFile(uid: string, replacement: EmbeddedFile): void {
-		if (this.cannotMutate()) return;
-
-		const current = this.ctx.store.document.files.find(
-			(file) => file.uid === uid,
-		);
-		if (!current) return;
-		if (current.hash === replacement.hash) {
-			if (replacement.sourcePath) {
-				this.ctx.yjsProvider.setFileSourcePath(uid, replacement.sourcePath);
-			}
-			return;
-		}
-
-		const origin = this.getMutationOrigin();
-		this.ctx.yjsProvider.transact(() => {
-			const fileUid = this.ctx.yjsProvider.addFile(replacement);
-
-			this.ctx.yjsProvider.setFileSourcePath(uid, null);
-			for (const element of Object.values(this.ctx.store.document.objects)) {
-				if (element.type !== "image" || element.fileUid !== uid) continue;
-				this.ctx.yjsProvider.updateElement("", element.id, { fileUid }, origin);
-			}
-		}, origin);
-	}
-
 	// --- Brush Preset Operations ---
 
 	public addBrushPreset(preset: BrushPreset): void {
@@ -4230,7 +4143,13 @@ export class PaplicoCommands {
 	 */
 	public async ensureBuiltinBrushes(): Promise<void> {
 		if (this.cannotMutate()) return;
-		const hasAllFiles = BUILTIN_TEXTURE_FILE_UIDS.every((id) =>
+		const builtinTextureIds = [
+			...Object.values(BUILTIN_BRUSH_IDS).filter(
+				(id) => id !== BUILTIN_BRUSH_IDS.svg,
+			),
+			...Object.values(BUILTIN_PAPER_IDS),
+		];
+		const hasAllFiles = builtinTextureIds.every((id) =>
 			this.ctx.store.document.files.some((file) => file.uid === id),
 		);
 
@@ -4504,26 +4423,23 @@ export class PaplicoCommands {
 
 	/**
 	 * Paste an image File as an ImageObject at the given viewport position.
-	 * Embeds the file's bytes via addEmbeddedFile. `sourcePath` keeps the
-	 * embedded file linked to where the bytes came from.
+	 * Embeds the file's bytes via addEmbeddedFile.
 	 */
 	public async pasteImageFile(
 		file: File,
 		viewport?: { x: number; y: number },
-		sourcePath?: string,
 	): Promise<string | null> {
 		const worldX = viewport?.x ?? 0;
 		const worldY = viewport?.y ?? 0;
 
 		try {
-			const fileUid = this.addEmbeddedFile({
-				...(await createEmbeddedFileFromBytes(
+			const fileUid = this.addEmbeddedFile(
+				await createEmbeddedFileFromBytes(
 					new Uint8Array(await file.arrayBuffer()),
 					file.name || "pasted-image.png",
 					file.type,
-				)),
-				sourcePath,
-			});
+				),
+			);
 
 			const imageBitmap = await createImageBitmap(file);
 			const imageWidth = imageBitmap.width;

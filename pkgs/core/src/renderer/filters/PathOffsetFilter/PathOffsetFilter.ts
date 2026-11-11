@@ -15,7 +15,6 @@ import {
 	resolveSegment,
 	splitIntoSubPaths,
 } from "../../../utils/geometry/primitives/segment";
-import { groupRingsByContainment } from "../../../utils/geometry/query/ringContainment";
 import type { FilterHandler } from "../../canvas/pipeline/FilterRenderer";
 
 export interface PathOffsetParams {
@@ -61,10 +60,6 @@ export interface PathOffsetFilter extends Appearance<PathOffsetParams> {
  * auto-detected via signed area: positive offset always expands outward
  * regardless of CW/CCW winding.
  *
- * A closed subpath inside another one is a hole, such as the counter of a
- * letter. It moves the other way, so the shape between the two grows or
- * shrinks evenly, and it is dropped once a growing shape closes over it.
- *
  * If an inward offset is large enough to invert the shape (signed area
  * flips sign), the original subpath is returned unchanged.
  *
@@ -102,22 +97,12 @@ export class PathOffsetFilterHandler implements FilterHandler {
 		if (Math.abs(offset) < EPSILON || segments.length === 0) return segments;
 
 		const subPaths = splitIntoSubPaths(segments);
-		const holes = holesAmong(subPaths);
 		const result: CubicBezierSegment[] = [];
 
 		for (const sub of subPaths) {
 			const isClosed = sub.at(-1)?.isClosed === true;
-			const isHole = holes.has(sub);
-			// A hole grows as the shape around it shrinks, and the other way
-			// round. One the growing shape closes over is gone.
 			const processed = isClosed
-				? offsetClosedSubPath(
-						sub,
-						isHole ? -offset : offset,
-						joinType,
-						miterLimit,
-						isHole ? [] : sub,
-					)
+				? offsetClosedSubPath(sub, offset, joinType, miterLimit)
 				: offsetOpenSubPath(sub, offset, joinType, miterLimit, openPathCap);
 
 			if (processed.length === 0) continue;
@@ -695,18 +680,11 @@ function offsetSegmentChain(
 	);
 }
 
-/**
- * Offsets one closed sub-path, outward for a positive `offset`.
- *
- * @param collapsed What to return when an inward offset leaves nothing of
- * the sub-path.
- */
 function offsetClosedSubPath(
 	sub: CubicBezierSegment[],
 	offset: number,
 	joinType: "miter" | "round" | "bevel",
 	miterLimit: number,
-	collapsed: CubicBezierSegment[],
 ): CubicBezierSegment[] {
 	if (sub.length === 0) return [];
 
@@ -738,7 +716,7 @@ function offsetClosedSubPath(
 			}
 		}
 		const minHalfDim = Math.min(maxX - minX, maxY - minY) / 2;
-		if (Math.abs(offset) > minHalfDim) return collapsed;
+		if (Math.abs(offset) > minHalfDim) return sub;
 	}
 
 	const cubics = offsetSegmentChain(
@@ -749,7 +727,7 @@ function offsetClosedSubPath(
 		true,
 		windingSign,
 	);
-	if (cubics.length === 0) return collapsed;
+	if (cubics.length === 0) return sub;
 
 	const result = toCubicBezierSegments(cubics, true);
 
@@ -760,13 +738,13 @@ function offsetClosedSubPath(
 	if (originalArea !== 0 && resultArea !== 0) {
 		const originalSign = originalArea > 0 ? 1 : -1;
 		const resultSign = resultArea > 0 ? 1 : -1;
-		if (originalSign !== resultSign) return collapsed;
+		if (originalSign !== resultSign) return sub;
 	}
 
 	// Check 2: inward offset should reduce area. If area increased,
 	// the edges crossed center and wrapped around → inversion.
 	if (offset < 0 && Math.abs(resultArea) > Math.abs(originalArea) * 1.1) {
-		return collapsed;
+		return sub;
 	}
 
 	// For inward offset, detect and remove self-intersection loops caused
@@ -779,30 +757,6 @@ function offsetClosedSubPath(
 	}
 
 	return result;
-}
-
-/**
- * The closed sub-paths that are holes: those inside another one, such as the
- * counter of a letter.
- */
-function holesAmong(
-	subPaths: CubicBezierSegment[][],
-): Set<CubicBezierSegment[]> {
-	const closed = subPaths.filter((sub) => sub.at(-1)?.isClosed === true);
-	if (closed.length < 2) return new Set();
-	const rings = closed.map((sub) =>
-		resolveSubPath(sub).flatMap(({ start, cp1, cp2, end }) =>
-			[0, 1 / 3, 2 / 3].map((t): [number, number] => {
-				const point = evalCubicBezier(start, cp1, cp2, end, t);
-				return [point.x, point.y];
-			}),
-		),
-	);
-	return new Set(
-		groupRingsByContainment(rings).flatMap((group) =>
-			group.slice(1).map((index) => closed[index]),
-		),
-	);
 }
 
 function offsetOpenSubPath(

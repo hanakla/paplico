@@ -1,7 +1,6 @@
 import type {
 	BlurFilter,
 	ClipToShapeFilter,
-	ConvertToShapeFilter,
 	DropShadowFilter,
 	FrostGlassFilter,
 	HKBloomFilter,
@@ -53,7 +52,6 @@ import { ChromaticAberrationFilterControls } from "./ControlsChromaticAberration
 import { ClipToShapeFilterControls } from "./ControlsClipToShape";
 import { ColorReplacementFilterControls } from "./ControlsColorReplacement";
 import { ComicToneFilterControls } from "./ControlsComicTone";
-import { ConvertToShapeFilterControls } from "./ControlsConvertToShape";
 import { DirectionalBlurFilterControls } from "./ControlsDirectionalBlur";
 import { DropShadowFilterControls } from "./ControlsDropShadow";
 import { Extrude3DFilterControls } from "./ControlsExtrude3D";
@@ -141,14 +139,6 @@ export const FilterEffectControls = memo(function FilterEffectControls({
 		return (
 			<PathOffsetFilterControls
 				filter={filter as PathOffsetFilter}
-				onUpdate={onUpdate}
-			/>
-		);
-	}
-	if (filter.processor === "convert-to-shape") {
-		return (
-			<ConvertToShapeFilterControls
-				filter={filter as ConvertToShapeFilter}
 				onUpdate={onUpdate}
 			/>
 		);

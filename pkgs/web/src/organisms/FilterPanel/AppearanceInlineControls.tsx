@@ -97,16 +97,15 @@ export const AppearanceInlineControls = memo(function AppearanceInlineControls({
 			{compositionMode !== undefined && (
 				<Tooltip
 					content={`${t("filterPanel.compositionMode")}: ${t(
-						`filterPanel.compositionModes.${compositionMode}`,
+						compositionMode === "alpha-lock"
+							? "filterPanel.compositionModes.alpha-lock"
+							: "filterPanel.compositionModes.normal",
 					)}`}
 				>
 					<IconButton
 						$size="xs"
 						$variant="ghost"
 						$pressed={compositionMode === "alpha-lock"}
-						// The button switches alpha lock on and off, so it would
-						// overwrite a knockout. The composition mode menu changes it.
-						disabled={compositionMode === "knockout"}
 						aria-label={t("filterPanel.compositionMode")}
 						onClick={handleCompositionToggle}
 					>

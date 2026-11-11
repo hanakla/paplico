@@ -89,7 +89,6 @@ function createLayoutChar(
 		glyphPath?: LayoutedChar["glyphPath"];
 		fontSize?: number;
 		tateChuYoko?: boolean;
-		sideways?: boolean;
 	},
 ): LayoutedChar {
 	return {
@@ -107,7 +106,6 @@ function createLayoutChar(
 		kerningOffset: 0,
 		sizeScale: 1,
 		tateChuYoko: options?.tateChuYoko,
-		sideways: options?.sideways,
 	};
 }
 
@@ -488,80 +486,6 @@ describe("TextRenderer tate-chu-yoko caret and hit testing", () => {
 		const rects = await renderer.getSelectionRects(element, 0, 1);
 		expect(rects).toHaveLength(1);
 		expect(rects[0]).toMatchObject({ x: 0, width: 12 });
-	});
-});
-
-describe("TextRenderer sideways glyphs in a vertical column", () => {
-	// Vertical column at x=0 width=12.
-	// char0 (upright): y=0, cell top=8, bottom=-2
-	// char1 and char2 (sideways, advance 4): y is the cell top.
-	// char1 cell top=-2, bottom=-6. char2 cell top=-6, bottom=-10.
-	function createSidewaysLayout() {
-		const element = createTextElement();
-		element.layout.writingMode = "vertical-rl";
-
-		const c0 = createLayoutChar(0, 0, 0, 10);
-		const c1 = createLayoutChar(1, 2, -2, 4, { sideways: true });
-		const c2 = createLayoutChar(2, 2, -6, 4, { sideways: true });
-		return {
-			element,
-			layout: {
-				chars: [c0, c1, c2],
-				lines: [
-					{
-						chars: [c0, c1, c2],
-						width: 12,
-						height: 18,
-						baseline: 8,
-						x: 0,
-						y: 0,
-						paragraphIndex: 0,
-						softWrapped: false,
-					},
-				],
-				bounds: {
-					minX: 0,
-					minY: -10,
-					maxX: 12,
-					maxY: 8,
-					width: 12,
-					height: 18,
-				},
-				hasOverflow: false,
-			},
-		};
-	}
-
-	it("should place the caret before a sideways glyph at the top of its cell", async () => {
-		const { element, layout } = createSidewaysLayout();
-		const renderer = createRenderer(layout);
-		const pos = await renderer.getCursorPosition(element, 1);
-		expect(pos.y).toBeCloseTo(-2);
-	});
-
-	it("should place the line-end caret at the bottom of the last sideways cell", async () => {
-		const { element, layout } = createSidewaysLayout();
-		const renderer = createRenderer(layout);
-		const pos = await renderer.getCursorPosition(element, 3);
-		expect(pos.y).toBeCloseTo(-10);
-	});
-
-	it("should pick the sideways glyph whose cell holds the click", async () => {
-		const { element, layout } = createSidewaysLayout();
-		const renderer = createRenderer(layout);
-		// char1's cell spans y=-2..-6 with its middle at -4.
-		expect(await renderer.hitTestCharacter(element, 5, -3)).toBe(1);
-		expect(await renderer.hitTestCharacter(element, 5, -5)).toBe(2);
-		// char2's cell spans y=-6..-10 with its middle at -8.
-		expect(await renderer.hitTestCharacter(element, 5, -9)).toBe(3);
-	});
-
-	it("should span a selection of sideways glyphs over their cells", async () => {
-		const { element, layout } = createSidewaysLayout();
-		const renderer = createRenderer(layout);
-		const rects = await renderer.getSelectionRects(element, 1, 3);
-		expect(rects).toHaveLength(1);
-		expect(rects[0]).toMatchObject({ x: 0, y: -10, width: 12, height: 8 });
 	});
 });
 

@@ -104,7 +104,6 @@ graph TD
 | `opacity` | 不透明度 |
 | `blendMode` / `compositionMode` | 合成方法 |
 | `visible` / `locked` | 表示・編集可否 |
-| `isGuide` | ガイドかどうか。ガイドは UI overlay がシアンの輪郭線で描き、書き出しには入らない |
 | `filters` | 要素単位のフィルター列 |
 | `transform` | レンダリング時に適用する移動・回転・スケール |
 | `mask` | 要素の描画結果にかけるグレースケールマスク。`elementIds` がマスクの内容を指す |
@@ -117,7 +116,7 @@ graph TD
 
 | 種別 | 主なフィールド | 用途 |
 |---|---|---|
-| `Path` | `segments`, `pathStart`, `pathEnd`, `strokeWidths`, `strokeWidthsBaked` | ストローク / フィルの基本図形 |
+| `Path` | `segments`, `pathStart`, `pathEnd`, `strokeWidths`, `strokeWidthsBaked`, `isGuide` | ストローク / フィルの基本図形 |
 | `Group` | `childIds`, `clipPathId`, `collapsed` | 子要素のまとまり、クリップ |
 | `CompoundPath` | `sources[]` | 非破壊ブーリアン演算 |
 | `ImageObject` | `fileUid`, `x`, `y`, `width`, `height`, `corners` | 埋め込み画像の配置 |

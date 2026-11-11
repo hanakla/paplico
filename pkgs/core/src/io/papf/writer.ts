@@ -7,11 +7,7 @@
 
 import { encode } from "cbor-x";
 import type { Document, EmbeddedFile } from "../../schema";
-import type {
-	TimelapseData,
-	TimelapseEntry,
-	TimelapsePackedBlock,
-} from "../../timelapse/types";
+import type { TimelapseData } from "../../timelapse/types";
 import { compressDeflate, crc32 } from "../binaryUtils";
 import { LATEST_SCHEMA_VERSION } from "../migrations";
 import {
@@ -43,10 +39,7 @@ import {
  *
  * Async because section payloads may be compressed via CompressionStream.
  */
-export async function serializeDocument(
-	doc: Document,
-	appData?: Record<string, unknown>,
-): Promise<Blob> {
+export async function serializeDocument(doc: Document): Promise<Blob> {
 	const sink = new ChunkSink();
 	const tocEntries: TocEntryRecord[] = [];
 
@@ -55,7 +48,7 @@ export async function serializeDocument(
 
 	// 2. META section
 	const fileManifest = buildFileManifest(doc.files);
-	const metaPayload = buildMetaPayload(doc, fileManifest, appData);
+	const metaPayload = buildMetaPayload(doc, fileManifest);
 	const metaCbor = encode(metaPayload);
 	const {
 		sectionOffset: metaOffset,
@@ -121,12 +114,9 @@ export async function serializeDocument(
 			flags: 0,
 		});
 
-		// TMLB - data blocks. Blocks already packed are written back untouched.
-		const blocks = [
-			...(timelapse.packedBlocks ?? []),
-			...(await packTimelapseEntries(timelapse.entries)),
-		];
-		for (const [blockIdx, block] of blocks.entries()) {
+		// TMLB - data blocks. Packed blocks are written back as they were read.
+		const packedBlocks = timelapse.packedBlocks ?? [];
+		for (const [blockIdx, block] of packedBlocks.entries()) {
 			const sectionOffset = sink.position;
 			sink.write(
 				encodeSectionHeader(
@@ -146,6 +136,31 @@ export async function serializeDocument(
 				aux1: block.count,
 				sectionType: SectionType.TMLB,
 				codec: block.codec,
+				flags: 0,
+			});
+		}
+
+		const { entries } = timelapse;
+		for (let start = 0; start < entries.length; start += TIMELAPSE_BLOCK_SIZE) {
+			const end = Math.min(start + TIMELAPSE_BLOCK_SIZE, entries.length);
+			const blockPayload = buildTimelapseBlock(entries, start, end);
+
+			const { sectionOffset, storedBytes, rawBytes } = await writeSection(
+				sink,
+				SectionType.TMLB,
+				Codec.Deflate,
+				blockPayload,
+			);
+
+			tocEntries.push({
+				sectionOffset,
+				storedBytes,
+				rawBytes,
+				key: null,
+				aux0: packedBlocks.length + start / TIMELAPSE_BLOCK_SIZE,
+				aux1: end - start,
+				sectionType: SectionType.TMLB,
+				codec: Codec.Deflate,
 				flags: 0,
 			});
 		}
@@ -178,29 +193,6 @@ export async function serializeDocument(
 	return sink.toBlob();
 }
 
-/**
- * Pack timelapse entries into blocks exactly as TMLB sections store them,
- * TIMELAPSE_BLOCK_SIZE entries to a block.
- */
-export async function packTimelapseEntries(
-	entries: readonly TimelapseEntry[],
-): Promise<TimelapsePackedBlock[]> {
-	const blocks: TimelapsePackedBlock[] = [];
-	for (let start = 0; start < entries.length; start += TIMELAPSE_BLOCK_SIZE) {
-		const block = entries
-			.slice(start, start + TIMELAPSE_BLOCK_SIZE)
-			.map(({ t, u }) => ({ t, u }));
-		const raw = encode(block);
-		blocks.push({
-			count: block.length,
-			payload: await compressDeflate(raw, DEFLATE_YIELD_BYTES),
-			codec: Codec.Deflate,
-			rawBytes: raw.byteLength,
-		});
-	}
-	return blocks;
-}
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -210,12 +202,7 @@ const FORMAT_MINOR = 0;
 const META_SCHEMA_MAJOR = 1;
 const META_SCHEMA_MINOR = 0;
 /** Entries per timelapse block. Balances compression ratio vs random-access granularity. */
-export const TIMELAPSE_BLOCK_SIZE = 1_000;
-/**
- * A timelapse block can hold a whole document. Deflating about this much at
- * a time keeps each stretch on the calling thread near one frame.
- */
-const DEFLATE_YIELD_BYTES = 1024 * 1024;
+const TIMELAPSE_BLOCK_SIZE = 1_000;
 
 // Pre-compressed MIME types (already use internal compression)
 const PRECOMPRESSED_MIMES = new Set([
@@ -433,7 +420,6 @@ function buildTocPayload(entries: TocEntryRecord[]): Uint8Array {
 function buildMetaPayload(
 	doc: Document,
 	fileManifest: FileManifestEntry[],
-	appData: Record<string, unknown> | undefined,
 ): MetaPayload {
 	// Exclude transient layers (e.g. pattern-edit working layers) from persisted
 	// output. They are session-local state owned by a single peer and must not
@@ -463,7 +449,6 @@ function buildMetaPayload(
 			references3d: doc.references3d,
 		},
 		fileManifest,
-		...(appData ? { appData } : {}),
 	};
 
 	if (doc.timelapse) {
@@ -484,7 +469,6 @@ function buildFileManifest(files: EmbeddedFile[]): FileManifestEntry[] {
 		type: f.type,
 		hash: f.hash,
 		byteLength: f.bin.byteLength,
-		...(f.sourcePath ? { sourcePath: f.sourcePath } : {}),
 	}));
 }
 
@@ -541,4 +525,16 @@ function buildTimelapseManifest(timelapse: TimelapseData): Uint8Array {
 	if (timelapse.schemaVersions?.length)
 		manifest.schemaVersions = timelapse.schemaVersions;
 	return encode(manifest);
+}
+
+function buildTimelapseBlock(
+	entries: TimelapseData["entries"],
+	start: number,
+	end: number,
+): Uint8Array {
+	const block = entries.slice(start, end).map((e) => ({
+		t: e.t,
+		u: e.u,
+	}));
+	return encode(block);
 }

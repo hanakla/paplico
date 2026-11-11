@@ -22,12 +22,10 @@ import type {
 	BrushSettings,
 	CompoundPath,
 	ElementTransform,
-	EmbeddedFile,
 	FillAppearance,
 	Filter,
 	FilterEntry,
 	Group,
-	ImageObject,
 	Layer,
 	LinearGradient,
 	MeshArtObject,
@@ -39,7 +37,7 @@ import type {
 	TextElement,
 	Vec2,
 } from "./schema";
-import { BUILTIN_PAPER_IDS, getTransform, toRGBColor } from "./schema";
+import { getTransform, toRGBColor } from "./schema";
 import {
 	createMockFontManager,
 	createTestTextElement,
@@ -1444,64 +1442,6 @@ describe("PaplicoCommands", () => {
 			commands.reorderBlendChildren("b-1", 0, 2);
 
 			expect(reorderBlendChildren).toHaveBeenCalledWith("b-1", 0, 2);
-		});
-	});
-
-	describe("rebuildBlendSpineIfKey", () => {
-		function createBlendCommands() {
-			const fixture = createProviderCommands();
-			const { provider, sync } = fixture;
-			provider.addElement("layer", createPathAt("key-a", 0, 0, 10, 0));
-			provider.addElement("layer", createPathAt("key-b", 100, 0, 110, 0));
-			// Off the line through the key centers, so a rebuild always shows.
-			provider.addElement("layer", createPathAt("spine", 5, 20, 105, 20));
-			provider.addElement("layer", createPathAt("other", 0, 50, 10, 50));
-			provider.addElement("layer", {
-				id: "blend",
-				type: "blend",
-				objectIds: ["key-a", "key-b"],
-				spineSourceId: "spine",
-				spacing: { type: "steps", count: 3 },
-				placementEasing: { type: "linear" },
-				appearanceEasing: { type: "linear" },
-				opacity: 1,
-				blendMode: "normal",
-				transform: createIdentityTransform(),
-			} as unknown as AnyArtObject);
-			sync();
-			return fixture;
-		}
-
-		function spineOf(store: RendererState): Path {
-			return store.document.objects.spine as Path;
-		}
-
-		it("should run the spine through a blend key that moved", () => {
-			const { provider, store, commands, sync } = createBlendCommands();
-			provider.updateElement("layer", "key-b", {
-				transform: { ...createIdentityTransform(), y: 80 },
-			});
-			sync();
-
-			commands.rebuildBlendSpineIfKey("key-b");
-			sync();
-
-			expect(spineOf(store).segments.at(-1)?.end.y).toBeCloseTo(80);
-			expect(getTransform(spineOf(store))).toEqual(createIdentityTransform());
-		});
-
-		it("should leave the spine alone when the moved element is no blend key", () => {
-			const { provider, store, commands, sync } = createBlendCommands();
-			const before = spineOf(store).segments;
-			provider.updateElement("layer", "other", {
-				transform: { ...createIdentityTransform(), y: 80 },
-			});
-			sync();
-
-			commands.rebuildBlendSpineIfKey("other");
-			sync();
-
-			expect(spineOf(store).segments).toEqual(before);
 		});
 	});
 
@@ -3610,179 +3550,6 @@ describe("PaplicoCommands", () => {
 });
 
 /** Stroke appearance the user has already customized beyond its color. */
-describe("PaplicoCommands.replaceEmbeddedFile", () => {
-	const linkedFile = {
-		uid: "file-old",
-		name: "ref.png",
-		type: "image/png",
-		hash: "hash-old",
-		bin: new Uint8Array([1, 2, 3]),
-		sourcePath: "img/ref.png",
-	};
-	const replacement = {
-		...linkedFile,
-		uid: "file-new",
-		hash: "hash-new",
-		bin: new Uint8Array([4, 5, 6]),
-	};
-
-	function createImageCommands() {
-		const context = createProviderCommands();
-		context.commands.addEmbeddedFile(linkedFile);
-		context.provider.addElement("layer", {
-			id: "image",
-			type: "image",
-			fileUid: "file-old",
-			x: 0,
-			y: 0,
-			width: 100,
-			height: 50,
-			opacity: 1,
-			blendMode: "normal",
-			transform: createIdentityTransform(),
-		} as ImageObject);
-		context.provider.undoManager.stopCapturing();
-		context.sync();
-		return context;
-	}
-
-	it("should point the image at the replacement at the size it was placed at", () => {
-		const { store, commands, sync } = createImageCommands();
-
-		commands.replaceEmbeddedFile("file-old", replacement);
-		sync();
-
-		expect(store.document.objects.image).toMatchObject({
-			fileUid: "file-new",
-			width: 100,
-			height: 50,
-		});
-	});
-
-	it("should move the link to the source over to the replacement", () => {
-		const { store, commands } = createImageCommands();
-
-		commands.replaceEmbeddedFile("file-old", replacement);
-
-		expect(
-			Object.fromEntries(
-				store.document.files.map((file) => [file.uid, file.sourcePath]),
-			),
-		).toEqual({ "file-old": undefined, "file-new": "img/ref.png" });
-	});
-
-	it("should only hand its link to the file when the replacement holds the same bytes", () => {
-		const { store, commands } = createImageCommands();
-
-		commands.replaceEmbeddedFile("file-old", {
-			...linkedFile,
-			uid: "file-same",
-			sourcePath: "other/ref.png",
-		});
-
-		expect(
-			store.document.files.map((file) => [file.uid, file.sourcePath]),
-		).toEqual([["file-old", "other/ref.png"]]);
-	});
-
-	it("should put the image back on the former file on undo", () => {
-		const { store, commands, sync } = createImageCommands();
-		commands.replaceEmbeddedFile("file-old", replacement);
-
-		commands.undo();
-		sync();
-
-		expect(store.document.objects.image).toMatchObject({ fileUid: "file-old" });
-	});
-});
-
-describe("PaplicoCommands.removeUnusedFiles", () => {
-	const shownFile = {
-		uid: "file-shown",
-		name: "shown.png",
-		type: "image/png",
-		hash: "hash-shown",
-		bin: new Uint8Array([1, 2, 3]),
-	};
-	const unusedFile = {
-		uid: "file-unused",
-		name: "unused.png",
-		type: "image/png",
-		hash: "hash-unused",
-		bin: new Uint8Array([4, 5, 6]),
-		sourcePath: "img/unused.png",
-	};
-
-	function createCommandsWithFiles(files: EmbeddedFile[]) {
-		const context = createProviderCommands();
-		for (const file of files) context.commands.addEmbeddedFile(file);
-		context.provider.addElement("layer", {
-			id: "image",
-			type: "image",
-			fileUid: "file-shown",
-			x: 0,
-			y: 0,
-			width: 100,
-			height: 50,
-			opacity: 1,
-			blendMode: "normal",
-			transform: createIdentityTransform(),
-		} as ImageObject);
-		context.sync();
-		return context;
-	}
-
-	it("should remove the files nothing uses and keep the ones an image shows", () => {
-		const { store, commands } = createCommandsWithFiles([
-			shownFile,
-			unusedFile,
-		]);
-
-		const removedCount = commands.removeUnusedFiles();
-
-		const uids = store.document.files.map((file) => file.uid);
-		expect(removedCount).toBe(1);
-		expect(uids).toContain("file-shown");
-		expect(uids).not.toContain("file-unused");
-	});
-
-	it("should keep the built-in textures nothing uses yet", () => {
-		const { store, commands } = createCommandsWithFiles([
-			shownFile,
-			{
-				...unusedFile,
-				uid: BUILTIN_PAPER_IDS.finePaper,
-				sourcePath: undefined,
-			},
-		]);
-
-		commands.removeUnusedFiles();
-
-		expect(store.document.files.map((file) => file.uid)).toContain(
-			BUILTIN_PAPER_IDS.finePaper,
-		);
-	});
-
-	it("should clear the undo history", () => {
-		const { commands, provider } = createCommandsWithFiles([
-			shownFile,
-			unusedFile,
-		]);
-
-		commands.removeUnusedFiles();
-
-		expect(provider.canUndo()).toBe(false);
-	});
-
-	it("should keep the undo history when every file is in use", () => {
-		const { commands, provider } = createCommandsWithFiles([shownFile]);
-
-		commands.removeUnusedFiles();
-
-		expect(provider.canUndo()).toBe(true);
-	});
-});
-
 function existingStrokeAppearance(): StrokeAppearance {
 	return {
 		uid: "app-stroke",

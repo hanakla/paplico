@@ -186,10 +186,6 @@ const BLEND_MODES: ReadonlySet<string> = new Set(
 		"soft-light": true,
 		difference: true,
 		exclusion: true,
-		hue: true,
-		saturation: true,
-		color: true,
-		luminosity: true,
 	} satisfies Record<BlendMode, true>),
 );
 
@@ -197,7 +193,6 @@ const COMPOSITION_MODES: ReadonlySet<string> = new Set(
 	Object.keys({
 		normal: true,
 		"alpha-lock": true,
-		knockout: true,
 	} satisfies Record<CompositionMode, true>),
 );
 

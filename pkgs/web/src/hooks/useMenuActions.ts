@@ -8,18 +8,12 @@ import type React from "react";
 import { toastManager } from "@/components/Toast";
 import { confirmCloseDocument } from "@/dialogs/CloseDocumentDialog";
 import { LicensesDialog } from "@/dialogs/LicensesDialog";
-import { SaveOptionsDialog } from "@/dialogs/SaveOptionsDialog";
-import { openableDocumentExtensions } from "@/documentImport";
-import { type FileHandle, FileSystem, nativePathOf } from "@/infra/filesystem";
+import { FileSystem } from "@/infra/filesystem";
 import { useTranslation } from "@/locales";
 import {
-	DEFAULT_SAVE_OPTIONS,
-	type DocumentSaveOptions,
 	documentSessionState,
-	exportDocumentCopy,
 	openDocumentFile,
 	overwriteDocumentFile,
-	rememberSaveOptions,
 	setDocumentFileHandle,
 } from "@/stores/documentSessionStore";
 import {
@@ -42,7 +36,7 @@ type MenuActions = {
 	handleGroup: () => void;
 	handleUngroup: () => void;
 	handleImport: () => Promise<void>;
-	handleSaveCopy: () => Promise<void>;
+	handleExport: () => Promise<void>;
 	handleSave: () => Promise<void>;
 	handleLoadImageToDocument: () => Promise<void>;
 	handleOpenExportDialog: () => void;
@@ -126,54 +120,31 @@ export function useMenuActions(
 		}
 	});
 
-	/**
-	 * Saves the document to a file the user picks. Only a save that is not a
-	 * copy makes that file, and the options chosen for it, the document's own.
-	 */
-	const saveToPickedFile = useEventCallback(async (asCopy: boolean) => {
+	const handleExport = useEventCallback(async () => {
 		try {
-			const p = paplicoRef.current;
-			if (!p) return;
+			const blob = await paplicoRef.current?.exportDocumentFile();
+			if (!blob) return;
 
-			const target = await pickSaveTarget(!asCopy);
-			if (!target) return;
+			const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+			const handle = await FileSystem.exportFile(
+				blob,
+				`paplico-${timestamp}.papf`,
+			);
+			if (!handle) return;
 
-			const { handle, saveOptions, filename } = target;
-			if (!handle) {
-				await FileSystem.exportFile(
-					await exportDocumentCopy(p, saveOptions, null),
-					filename,
-				);
-				if (!asCopy) rememberSaveOptions(saveOptions);
-				return;
-			}
-
-			if (asCopy) {
-				await FileSystem.overwrite(
-					handle,
-					await exportDocumentCopy(p, saveOptions, nativePathOf(handle)),
-				);
-			} else {
-				await overwriteDocumentFile(p, handle, saveOptions);
-				setDocumentFileHandle(handle, saveOptions);
-			}
+			setDocumentFileHandle(handle);
 			toastManager.add({
 				title: t("menubar.documentSaved", { name: handle.file.name }),
-				type: "success",
 			});
 		} catch (cause) {
 			reportError({
-				code: "SAVE_FAILED",
+				code: "EXPORT_FAILED",
 				cause,
-				action: {
-					labelKey: "errors.retryAction",
-					onClick: () => saveToPickedFile(asCopy),
-				},
+				// handleExport is a stable useEventCallback reference, safe to self-reference
+				action: { labelKey: "errors.retryAction", onClick: handleExport },
 			});
 		}
 	});
-
-	const handleSaveCopy = useEventCallback(() => saveToPickedFile(true));
 
 	const handleSave = useEventCallback(async () => {
 		const p = paplicoRef.current;
@@ -181,7 +152,7 @@ export function useMenuActions(
 
 		const handle = documentSessionState.fileHandle;
 		if (!handle) {
-			await saveToPickedFile(false);
+			await handleExport();
 			return;
 		}
 
@@ -199,7 +170,7 @@ export function useMenuActions(
 		} catch (error) {
 			toastManager.close(toastId);
 			reportError({ code: "SAVE_FAILED", cause: error });
-			await saveToPickedFile(false);
+			await handleExport();
 		}
 	});
 
@@ -212,7 +183,7 @@ export function useMenuActions(
 			types: [
 				{
 					description: "Paplico",
-					accept: { "application/octet-stream": openableDocumentExtensions() },
+					accept: { "application/octet-stream": [".papf"] },
 				},
 			],
 		});
@@ -353,7 +324,7 @@ export function useMenuActions(
 		handleGroup,
 		handleUngroup,
 		handleImport,
-		handleSaveCopy,
+		handleExport,
 		handleSave,
 		handleLoadImageToDocument,
 		handleOpenExportDialog,
@@ -366,39 +337,4 @@ export function useMenuActions(
 		handleCopyLastStroke,
 		handleSendLastStroke,
 	};
-}
-
-/**
- * Lets the user pick where the document goes and what the file holds.
- * `handle` is `null` where the platform only hands files over as a
- * download, under `filename`. There, `reuseSaveOptions` downloads with the
- * options the document already has instead of asking again. `null` means
- * the user called it off.
- */
-async function pickSaveTarget(reuseSaveOptions: boolean): Promise<{
-	handle: FileHandle | null;
-	saveOptions: DocumentSaveOptions;
-	filename: string;
-} | null> {
-	const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-	const filename = `paplico-${timestamp}.papf`;
-
-	if (!FileSystem.canRequestSaveFile()) {
-		const known = reuseSaveOptions ? documentSessionState.saveOptions : null;
-		const saveOptions = known ?? (await askSaveOptions());
-		return saveOptions && { handle: null, saveOptions, filename };
-	}
-
-	const handle = await FileSystem.requestSaveFile(filename);
-	if (!handle) return null;
-
-	const saveOptions = await askSaveOptions();
-	return saveOptions && { handle, saveOptions, filename };
-}
-
-/** Asks for save options, starting from the ones the document has. */
-function askSaveOptions(): Promise<DocumentSaveOptions | null> {
-	return SaveOptionsDialog.call({
-		saveOptions: documentSessionState.saveOptions ?? DEFAULT_SAVE_OPTIONS,
-	});
 }

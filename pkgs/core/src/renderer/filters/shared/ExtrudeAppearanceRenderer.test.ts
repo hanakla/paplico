@@ -23,7 +23,6 @@ import type {
 	UnderlayProcessorContext,
 	UnderlayResult,
 } from "../../canvas/pipeline/FilterRenderer";
-import type { ImageLoadState } from "../../canvas/pipeline/ImageTextureStore";
 import type { MeshPassRenderer } from "../../canvas/pipeline/MeshPassRenderer";
 import {
 	createBorrowedTextureRef,
@@ -202,7 +201,7 @@ describe("ExtrudeMeshBaker", () => {
 			texturePool: texturePool as unknown as TexturePool,
 			resolveTextOutline: () => null,
 			requestTextOutline: () => {},
-			imageLoadState: () => "whole",
+			isImageReady: () => true,
 		} satisfies FilterGeometryContext;
 
 		handler.postProcess(
@@ -856,7 +855,7 @@ describe("ExtrudeMeshBaker", () => {
 				texturePool: texturePool as unknown as TexturePool,
 				resolveTextOutline: () => null,
 				requestTextOutline: () => {},
-				imageLoadState: () => "whole",
+				isImageReady: () => true,
 			};
 			const ctx: FilterProcessorContext = {
 				device: device as unknown as GPUDevice,
@@ -944,7 +943,7 @@ describe("ExtrudeMeshBaker", () => {
 				texturePool: texturePool as unknown as TexturePool,
 				resolveTextOutline: () => null,
 				requestTextOutline: () => {},
-				imageLoadState: () => "whole",
+				isImageReady: () => true,
 			};
 			const ctx: FilterProcessorContext = {
 				device: device as unknown as GPUDevice,
@@ -1158,7 +1157,7 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 				resolvePatternTexture: () => null,
 				resolveTextOutline: () => null,
 				requestTextOutline: () => {},
-				imageLoadState: () => "whole",
+				isImageReady: () => true,
 				meshPass: drivers.meshPass,
 				baker: drivers.baker,
 				refractionCompositor: new RefractionCompositor(
@@ -1329,7 +1328,7 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 					resolvePatternTexture: () => null,
 					resolveTextOutline: () => null,
 					requestTextOutline: () => {},
-					imageLoadState: () => "whole",
+					isImageReady: () => true,
 					meshPass: drivers.meshPass,
 					baker: drivers.baker,
 					refractionCompositor: new RefractionCompositor(
@@ -1542,7 +1541,7 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 			expect(encodePassSpy).toHaveBeenCalledTimes(1);
 		});
 
-		it("should rebake a group each time more of an image child loads", async () => {
+		it("should rebake a group when an image child's readiness changes", async () => {
 			const device = createFakeDevice();
 			const handler = new Extrude3DFilterHandler();
 			const filterRenderer = {
@@ -1552,7 +1551,7 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 			await handler.initialize(device as unknown as GPUDevice);
 			// biome-ignore lint/style/noNonNullAssertion: initialized above.
 			const drivers = handler.getGeometryPassDrivers()!;
-			let imageLoadState: ImageLoadState = "none";
+			let imageReady = false;
 			const renderer = new ExtrudeAppearanceRenderer({
 				device: device as unknown as GPUDevice,
 				texturePool: createFakeTexturePool() as unknown as TexturePool,
@@ -1565,7 +1564,7 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 				resolvePatternTexture: () => null,
 				resolveTextOutline: () => null,
 				requestTextOutline: () => {},
-				imageLoadState: () => imageLoadState,
+				isImageReady: () => imageReady,
 				meshPass: drivers.meshPass,
 				baker: drivers.baker,
 				refractionCompositor: new RefractionCompositor(
@@ -1609,14 +1608,11 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 
 			renderer.prepareFrame(createFakeEncoder(), toMap(group, image), 1, 1);
 			renderer.releaseFrame(() => {});
-			imageLoadState = "preview";
-			renderer.prepareFrame(createFakeEncoder(), toMap(group, image), 1, 1);
-			renderer.releaseFrame(() => {});
-			imageLoadState = "whole";
+			imageReady = true;
 			renderer.prepareFrame(createFakeEncoder(), toMap(group, image), 1, 1);
 			renderer.releaseFrame(() => {});
 
-			expect(encodePassSpy).toHaveBeenCalledTimes(3);
+			expect(encodePassSpy).toHaveBeenCalledTimes(2);
 		});
 
 		it("should rebake a group when its clip path assignment changes", async () => {
@@ -1895,7 +1891,7 @@ describe("ExtrudeAppearanceRenderer.prepare (glass-only)", () => {
 					3,
 					1,
 					null,
-					(elementId) => elementId === "some-other-element",
+					new Set(["some-other-element"]),
 				);
 				releaseFrame();
 				appearanceCache.flushPendingDestroy();

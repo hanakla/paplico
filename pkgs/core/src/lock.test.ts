@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import type { YjsProvider } from "./collaboration/YjsProvider";
-import { findGuideOwner } from "./document/elementGeometry/guideOutlines";
 import type { SpatialIndex } from "./document/SpatialIndex";
 import { PaplicoCommands } from "./PaplicoCommands";
 import type { RendererState } from "./renderer/types";
@@ -134,94 +133,6 @@ describe("Lock system integration", () => {
 			expect(yjsProvider.updateElement.mock.calls[0][2]).toEqual({
 				visible: false,
 			});
-		});
-	});
-
-	describe("makeGuides / releaseGuides", () => {
-		it("should make unlocked elements guides in one transaction and skip locked ones", () => {
-			const layer = makeLayer({ id: "l1", elementIds: ["e1", "e2"] });
-			const { commands, yjsProvider } = createCommands(layer, {
-				e1: makePath("e1", true),
-				e2: makePath("e2"),
-			});
-
-			commands.makeGuides(["e1", "e2"]);
-			expect(yjsProvider.transact).toHaveBeenCalledTimes(1);
-			expect(yjsProvider.updateElement).toHaveBeenCalledTimes(1);
-			expect(yjsProvider.updateElement.mock.calls[0][1]).toBe("e2");
-			expect(yjsProvider.updateElement.mock.calls[0][2]).toEqual({
-				isGuide: true,
-			});
-		});
-
-		it("should release unlocked guides in one transaction and skip locked ones", () => {
-			const layer = makeLayer({ id: "l1", elementIds: ["e1", "e2"] });
-			const { commands, yjsProvider } = createCommands(layer, {
-				e1: { ...makePath("e1", true), isGuide: true },
-				e2: { ...makePath("e2"), isGuide: true },
-			});
-
-			commands.releaseGuides(["e1", "e2"]);
-			expect(yjsProvider.transact).toHaveBeenCalledTimes(1);
-			expect(yjsProvider.updateElement).toHaveBeenCalledTimes(1);
-			expect(yjsProvider.updateElement.mock.calls[0][1]).toBe("e2");
-			expect(yjsProvider.updateElement.mock.calls[0][2]).toEqual({
-				isGuide: false,
-			});
-		});
-
-		it("should leave an image and a 3D reference as artwork when making guides", () => {
-			const layer = makeLayer({ id: "l1", elementIds: ["e1", "i1", "r1"] });
-			const { commands, yjsProvider } = createCommands(layer, {
-				e1: makePath("e1"),
-				i1: { ...makePath("i1"), type: "image" } as unknown as AnyArtObject,
-				r1: {
-					...makePath("r1"),
-					type: "reference3d",
-				} as unknown as AnyArtObject,
-			});
-
-			commands.makeGuides(["e1", "i1", "r1"]);
-			const madeGuides = yjsProvider.updateElement.mock.calls.map(
-				(call) => call[1],
-			);
-			expect(madeGuides).toEqual(["e1"]);
-		});
-
-		it("should release the guide group when a child inside it is released", () => {
-			const layer = makeLayer({ id: "l1", elementIds: ["g1"] });
-			const { commands, yjsProvider } = createCommands(
-				layer,
-				{
-					g1: { ...makeGroup("g1"), isGuide: true },
-					e1: makePath("e1"),
-					e2: makePath("e2"),
-				},
-				{
-					parentGroupMap: new Map([
-						["e1", "g1"],
-						["e2", "g1"],
-					]),
-				},
-			);
-
-			commands.releaseGuides(["e1", "e2"]);
-			expect(yjsProvider.transact).toHaveBeenCalledTimes(1);
-			expect(yjsProvider.updateElement).toHaveBeenCalledTimes(1);
-			expect(yjsProvider.updateElement.mock.calls[0][1]).toBe("g1");
-			expect(yjsProvider.updateElement.mock.calls[0][2]).toEqual({
-				isGuide: false,
-			});
-		});
-
-		it("should change nothing when releasing artwork", () => {
-			const layer = makeLayer({ id: "l1", elementIds: ["e1"] });
-			const { commands, yjsProvider } = createCommands(layer, {
-				e1: makePath("e1"),
-			});
-
-			commands.releaseGuides(["e1"]);
-			expect(yjsProvider.updateElement).not.toHaveBeenCalled();
 		});
 	});
 
@@ -489,17 +400,6 @@ function createCommands(
 				store.document.layers,
 				parentGroupMap,
 			),
-		findGuideOwnerId: (elementId: string) => {
-			const element = store.document.objects[elementId];
-			const owner =
-				element &&
-				findGuideOwner(
-					element,
-					(id) => store.document.objects[id],
-					(id) => parentGroupMap.get(id),
-				);
-			return owner?.id ?? null;
-		},
 		parentGroupMap,
 	};
 

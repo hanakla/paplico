@@ -1,21 +1,10 @@
-import {
-	isRepeat,
-	type RepeatFlip,
-	type RepeatMode,
-} from "@paplico/core/schema";
-import {
-	Ban,
-	FlipHorizontal2,
-	FlipVertical2,
-	Move,
-	Unlink,
-} from "lucide-react";
+import { isRepeat, type RepeatMode } from "@paplico/core/schema";
+import { Unlink } from "lucide-react";
 import { memo, useId } from "react";
 import { useSnapshot } from "valtio";
 import { Checkbox } from "@/components/Checkbox";
 import { IconButton } from "@/components/IconButton";
 import { SimpleSelect } from "@/components/SimpleSelect";
-import { ToggleGroup } from "@/components/ToggleGroup";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplicoCommands, usePaplicoStore } from "@/contexts/PaplicoContext";
 import { useTranslation } from "@/locales";
@@ -24,8 +13,6 @@ import { NumberRow } from "./NumberRow";
 
 const RAD_TO_DEG = 180 / Math.PI;
 const DEG_TO_RAD = Math.PI / 180;
-/** Toggle value for a grid repeat that mirrors nothing, which the document stores as no field. */
-const NO_FLIP = "none";
 
 /**
  * Repeat parameter controls in the ActionsPanel. Shown when a single Repeat is
@@ -68,15 +55,6 @@ export const RepeatControls = memo(function RepeatControls() {
 		) => {
 			if (!repeat) return;
 			commands.updateRepeatGrid(repeat.id, { [field]: value });
-		},
-	);
-
-	const handleFlip = useEventCallback(
-		(field: "rowFlip" | "columnFlip", value: string) => {
-			if (!repeat) return;
-			commands.updateRepeatGrid(repeat.id, {
-				[field]: value === NO_FLIP ? undefined : (value as RepeatFlip),
-			});
 		},
 	);
 
@@ -175,16 +153,6 @@ export const RepeatControls = memo(function RepeatControls() {
 							value={repeat.grid.offsetY ?? 0}
 							onChange={(v) => handleGrid("offsetY", v)}
 						/>
-						<FlipRow
-							label={t("actionsPanel.repeatRowFlip")}
-							value={repeat.grid.rowFlip ?? NO_FLIP}
-							onValueChange={(v) => handleFlip("rowFlip", v)}
-						/>
-						<FlipRow
-							label={t("actionsPanel.repeatColumnFlip")}
-							value={repeat.grid.columnFlip ?? NO_FLIP}
-							onValueChange={(v) => handleFlip("columnFlip", v)}
-						/>
 					</>
 				)}
 
@@ -262,52 +230,3 @@ export const RepeatControls = memo(function RepeatControls() {
 		</div>
 	);
 });
-
-/** Labelled icon toggles for how every other row or column of a grid repeat is mirrored. */
-function FlipRow({
-	label,
-	value,
-	onValueChange,
-}: {
-	label: string;
-	value: string;
-	onValueChange: (value: string) => void;
-}) {
-	const t = useTranslation();
-
-	return (
-		<div className="flex items-center gap-2">
-			<span className="type-label text-muted-foreground shrink-0 w-12">
-				{label}
-			</span>
-			<ToggleGroup.Root
-				value={[value]}
-				onValueChange={(values) => {
-					if (values.length === 0) return;
-					onValueChange(values[0]);
-				}}
-			>
-				<Tooltip content={t("actionsPanel.repeatFlipNone")}>
-					<ToggleGroup.Item value={NO_FLIP} className="h-5 w-auto px-1.5">
-						<Ban size={12} />
-					</ToggleGroup.Item>
-				</Tooltip>
-				<Tooltip content={t("actionsPanel.repeatFlipHorizontal")}>
-					<ToggleGroup.Item value="horizontal" className="h-5 w-auto px-1.5">
-						<FlipHorizontal2 size={12} />
-					</ToggleGroup.Item>
-				</Tooltip>
-				<Tooltip content={t("actionsPanel.repeatFlipVertical")}>
-					<ToggleGroup.Item value="vertical" className="h-5 w-auto px-1.5">
-						<FlipVertical2 size={12} />
-					</ToggleGroup.Item>
-				</Tooltip>
-				<Tooltip content={t("actionsPanel.repeatFlipBoth")}>
-					<ToggleGroup.Item value="both" className="h-5 w-auto px-1.5">
-						<Move size={12} />
-					</ToggleGroup.Item>
-				</Tooltip>
-			</ToggleGroup.Root>
-		</div>
-	);
-}

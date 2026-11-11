@@ -22,7 +22,6 @@ import { DisconnectedDialog } from "@/dialogs/DisconnectedDialog";
 import { appConfig, setCollaborationUserName } from "@/hooks/useAppConfig";
 import { useUserSession } from "@/hooks/useUserSession";
 import { useTranslation } from "@/locales/index";
-import { setRoomDocumentSession } from "@/stores/documentSessionStore";
 import { documentManagerState, saveDocument } from "@/stores/documentStore";
 import { getReconnectInfo, setReconnectInfo } from "@/stores/sessionStore";
 import { captureError, reportError } from "@/utils/errorReporting";
@@ -278,7 +277,6 @@ export function useCollab(paplicoRef: React.RefObject<Paplico | null>) {
 			);
 
 			setupCollaborationListeners(collab, isEncryptedRoom);
-			if (!isReconnect) setRoomDocumentSession();
 
 			encryptedRoomCredentials = roomKey ? { roomId, roomKey } : null;
 			collabState.connectedRoomId = roomId;

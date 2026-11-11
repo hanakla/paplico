@@ -132,8 +132,6 @@ export type ToolContextOptions = {
 	getEditingScopeId: () => string | null;
 	isElementEditable: (elementId: string) => boolean;
 	isElementLocked: (elementId: string) => boolean;
-	/** Whether the element is a guide: marked as one, or inside a container that is. */
-	isElementGuide: (elementId: string) => boolean;
 	isCurrentLayerLocked: () => boolean;
 	isReadonly: () => boolean;
 	getElement: (elementId: string) => AnyArtObject | null;

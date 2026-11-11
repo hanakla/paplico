@@ -155,7 +155,7 @@ export function DesktopMenuBar({
 		handleGroup,
 		handleUngroup,
 		handleImport,
-		handleSaveCopy,
+		handleExport,
 		handleSave,
 		handleLoadImageToDocument,
 		handleTogglePixelPreview,
@@ -296,9 +296,11 @@ export function DesktopMenuBar({
 						<Save size={16} />
 						{t("menubar.saveToFile")}
 					</Menubar.Item>
-					<Menubar.Item onClick={handleSaveCopy} shortcut="⇧⌘S">
+					<Menubar.Item onClick={handleExport} shortcut="⇧⌘S">
 						<FileDown size={16} />
-						{IS_TAURI_ENV ? t("menubar.saveCopyAs") : t("menubar.downloadFile")}
+						{IS_TAURI_ENV
+							? t("menubar.saveToFileAs")
+							: t("menubar.downloadFile")}
 					</Menubar.Item>
 					<Menubar.Item onClick={onOpenExportDialog} shortcut="⇧⌘E">
 						<ImageDown size={16} />
@@ -469,7 +471,7 @@ export function DesktopMenuBar({
 								{documentName}
 							</button>
 						</Popover.Trigger>
-						<Popover.Content className="w-auto">
+						<Popover.Content className="w-auto p-1">
 							<button
 								type="button"
 								onClick={handleRevealFileInFolder}

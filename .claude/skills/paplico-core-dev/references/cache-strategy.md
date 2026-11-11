@@ -61,7 +61,7 @@ Sources: `renderer/canvas/CanvasLayer.ts` (`invalidateDocumentCache` and
 | --- | --- | --- |
 | One render frame | `TexturePool` leases, `UniformScope`, draw-buffer pools, backdrop batches, filter ping-pong resources | Frame start/end, submit completion, or the next safe destroy point |
 | Per `CanvasLayer` / canvas target | render caches, text/scene textures, clip masks, `DocumentCache` auxiliary textures | Canvas destruction, device-loss release, object removal, compatible descriptor miss |
-| Per renderer / engine | embedded image textures, brush textures, filter pipelines, text layouts, spatial/definition indexes | Engine/renderer destruction, document delta, explicit clear, device recovery, or for image textures their budget |
+| Per renderer / engine | embedded image textures, brush textures, filter pipelines, text layouts, spatial/definition indexes | Engine/renderer destruction, document delta, explicit clear, or device recovery |
 | Process/module singleton | font assets and glyph outlines, colour engine import/LUT cache, lazy Reference3D service | Explicit loader/backend replacement where available; otherwise process lifetime |
 
 GPU resource replacement must not destroy a texture or buffer referenced by an
@@ -116,7 +116,7 @@ Sources: `renderer/canvas/caches/RenderCacheManager.ts`,
 | `CompositeRenderer` | Frame-indexed pools for blit/quad/composite uniform buffers | Reuse by slot after frame reset; destroy releases buffers and the dummy base texture. |
 | `BackdropEffectCoordinator` | One frame-local backdrop batch may share sharp capture and blur-pyramid levels when its union covers later requests | Draw dirtiness patches only intersecting capture/pyramid regions; at least 50% dirty coverage rebuilds a level. Frame textures return through deferred release and uniform buffers reuse frame slots. |
 | `BackdropCaptureManager` | Reuses resample pipeline/layout/sampler for a compatible format | Each capture texture is created per request rather than pooled by this class. |
-| `FilterRenderer` | One ping-pong filter texture per `(width, height, format)`, alternating with the chain's own unpadded source; a second one is created only for a chain that strips pool padding, reads the backdrop, or follows a self-sizing pass | Descriptor change moves old textures to `pendingDestroy`; the next safe frame flush destroys them. |
+| `FilterRenderer` | Two ping-pong filter textures reuse exact `(width, height, format)` matches | Descriptor change moves old textures to `pendingDestroy`; the next safe frame flush destroys them. |
 
 `OffscreenPresenter.deferDestroy()` is the bridge between a consumer and the
 pool: pool-owned textures are released; non-pool textures are destroyed after
@@ -171,23 +171,12 @@ Sources: `renderer/canvas/elements/{ElementRenderer,GradientRenderer}.ts`,
 
 ### Embedded images
 
-`ImageTextureStore` holds the textures of embedded files for the whole
+`ImageTextureStore` holds one `GPUTexture` per embedded file for the whole
 renderer, shared by every canvas target, so a second canvas showing the same
 document does not decode and upload the images again. The key is the file UID
 plus its content hash: one UID can carry other bytes in another revision of the
-document. A file has up to two textures: a preview whose longer side is 512 px,
-and the whole image. A draw no larger than 1.25 times the preview uses the
-preview. `stateOf` reports which of them is loaded, and the paint hash of a
-cached bake includes it.
-
-A texture lives while some canvas holds it, and while the textures together
-stay within `imageTextureBudgetBytes`, which is half of `gpuCacheBudgetBytes`
-on top of the per-canvas shares. Past the budget, `beginFrame` frees the
-textures used longest ago. It keeps every texture the latest frame with images
-used, and every texture used within the last 2 s. A frame uses a texture when
-it draws it, requests it, or asks for its state. A partial redraw counts with
-the frame before it, and nothing is freed while an export holds loaded images
-it has not drawn yet. The background prefetch of previews stops at the budget.
+document. A texture lives while some canvas holds it, so closing a preview
+releases its images without a capacity-based eviction.
 
 Source: `renderer/canvas/pipeline/ImageTextureStore.ts`.
 
