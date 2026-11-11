@@ -483,9 +483,25 @@ export class SpatialIndex {
 	/** Incrementally update the cached elementsMap from a delta (avoids full O(N) rebuild). */
 	public applyObjectsDelta(delta: ObjectsChangeDelta): void {
 		if (!this.cachedElementsMap) return;
-		for (const [id, obj] of delta.added) this.cachedElementsMap.set(id, obj);
-		for (const [id, obj] of delta.updated) this.cachedElementsMap.set(id, obj);
+		for (const [id, obj] of delta.added) {
+			this.cachedElementsMap.set(id, this.resolveAppearance(obj));
+		}
+		for (const [id, obj] of delta.updated) {
+			this.cachedElementsMap.set(id, this.resolveAppearance(obj));
+		}
 		for (const id of delta.deleted) this.cachedElementsMap.delete(id);
+	}
+
+	/**
+	 * Keep the cached elementsMap when `document.objects` is replaced by a
+	 * record holding the same entries as `previous`. The map is otherwise
+	 * rebuilt from every object on the next lookup.
+	 */
+	public adoptObjectsRecord(
+		previous: Record<string, AnyArtObject>,
+		next: Record<string, AnyArtObject>,
+	): void {
+		if (this.cachedObjectsRef === previous) this.cachedObjectsRef = next;
 	}
 
 	/** Clear a single element's bounds cache entry without touching the quadtree. */

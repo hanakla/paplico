@@ -1627,20 +1627,24 @@ export class PaplicoCommands {
 	 * so it does not re-trigger key reflow.
 	 */
 	public rebuildBlendSpineIfKey(pathId: string): void {
-		const elementsMap = new Map(
-			Object.entries(this.ctx.store.document.objects),
+		const { objects } = this.ctx.store.document;
+		const blends = Object.values(objects).filter(
+			(obj): obj is BlendObject =>
+				isBlend(obj) && !!obj.spineSourceId && obj.objectIds.includes(pathId),
 		);
+		if (blends.length === 0) return;
+
+		const elementsMap = new Map(Object.entries(objects));
 		const origin = this.getMutationOrigin();
 		this.ctx.yjsProvider.transact(() => {
-			for (const obj of Object.values(this.ctx.store.document.objects)) {
-				if (!isBlend(obj) || !obj.spineSourceId) continue;
-				if (!obj.objectIds.includes(pathId)) continue;
-				const keys = obj.objectIds
-					.map((id) => this.ctx.store.document.objects[id])
+			for (const blend of blends) {
+				const keys = blend.objectIds
+					.map((id) => objects[id])
 					.filter((el): el is AnyArtObject => el !== undefined);
 				if (keys.length < 2) continue;
-				const spine = this.ctx.store.document.objects[obj.spineSourceId];
-				if (!spine || !isPath(spine)) continue;
+				const spineId = blend.spineSourceId;
+				const spine = spineId && objects[spineId];
+				if (!spineId || !spine || !isPath(spine)) continue;
 				// Move the spine's anchors onto the keys while keeping its cp1/cp2
 				// handles so curves are preserved. Fall back to a straight polyline
 				// only when the spine has fewer anchors than keys. blendKeyCenters are
@@ -1654,7 +1658,7 @@ export class PaplicoCommands {
 					polylineSpineSegments(centers);
 				this.ctx.yjsProvider.updateElement(
 					"",
-					obj.spineSourceId,
+					spineId,
 					{
 						segments,
 						transform: createIdentityTransform(),

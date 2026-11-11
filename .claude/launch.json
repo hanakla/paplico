@@ -1,0 +1,13 @@
+{
+	"version": "0.0.1",
+	"configurations": [
+		{
+			"name": "web",
+			"runtimeExecutable": "node",
+			"runtimeArgs": ["server.mjs", "-p", "5005"],
+			"cwd": "pkgs/web",
+			"port": 5005,
+			"url": "https://localhost:5005"
+		}
+	]
+}

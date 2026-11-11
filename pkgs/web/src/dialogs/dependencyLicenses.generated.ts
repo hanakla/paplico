@@ -395,7 +395,7 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 	},
 	{
 		name: "webgpu-utils",
-		version: "2.0.3",
+		version: "2.1.1",
 		license: "MIT",
 		url: "https://github.com/greggman/webgpu-utils",
 	},

@@ -53,15 +53,16 @@
   - Panning and zooming a document with many elements no longer slow down with each element added.
   - Panning a document with many clipping groups no longer stalls for seconds when they leave the view.
   - Panning a document with more than 32 patterns no longer draws them all again each time the pan redraws.
-  - A pan or zoom keeps moving through slow redraws. After a redraw of 100 ms or more, and in a view whose full redraw takes 200 ms or more, it shows the last picture. The part of the view that picture does not cover is drawn within 2 seconds.
+  - A pan or zoom keeps moving through slow redraws. After a redraw of 100 ms or more, and in a view whose full redraw takes 200 ms or more, it shows the last picture. The redraw of the part of the view that picture does not cover starts within a second.
   - Panning onto text and images that are still loading no longer redraws the whole view each time one finishes. Those that finish during the pan appear when it ends.
   - Panning onto a part of a document with many paths not shown yet no longer takes seconds to finish drawing.
-  - An image drawn small uses a 512 px preview, loaded for every image once the document opens, instead of the whole image.
-  - The images a pan is heading to load during the pan, and the redraw after it waits up to 400 ms for them, instead of drawing again as each arrives.
+  - The redraw after a pan waits up to 400 ms for the images the pan was heading to, instead of drawing again as each arrives.
   - Text is laid out in the background once the document opens instead of when it first comes into view.
   - A view with many clipping groups that hold several elements redraws about 10% faster.
   - Panning or editing near an element with `applyToBackdrop` on a filter no longer slows down.
   - Editing an element inside a mesh or used as a mask redraws the whole view instead of only the region around it.
+  - The redraw after an edit takes less time in a document with deeply nested groups.
+  - An edit takes less time to apply in a large document.
   - Zooming into a document with many filtered elements takes less GPU memory.
   - Panning over a large filtered element in a zoomed-in document no longer bakes it again each time the pan redraws only a strip of the view.
   - Filters are baked at a density closer to the zoom, in steps of √2 instead of 2, which takes less GPU memory at zooms between two powers of two.
@@ -85,9 +86,12 @@
   - Dragging a vertex no longer stalls on its first frame or on release, and no longer slows down inside a drop-shadowed group.
 - **Groups**
   - Duplicating, pasting or deleting a group with many nested elements no longer takes seconds in a large document. This also covers the undo and redo of each.
+- **Blends**
+  - Moving an element that no blend uses as a key takes less time in a large document.
 - **Guides**
   - A guide is drawn as a thin cyan outline above the artboards and below the other tool UI instead of with its own paint.
   - A click or a marquee selects a guide path, compound path or image only on that outline instead of anywhere on its fill or stroke.
+  - An edit to a document without guides no longer takes longer as the document grows to refresh the guides.
 - **SVG export**
   - An alpha-locked element is exported as an image of only what it paints, instead of turning it and every element under it into one image.
 - **Collaboration**

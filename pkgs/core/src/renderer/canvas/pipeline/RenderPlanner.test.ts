@@ -470,6 +470,35 @@ describe("planBoundsOf", () => {
 		expect(bounds.minY).toBeCloseTo(100);
 		expect(bounds.maxY).toBeCloseTo(140);
 	});
+
+	it("should size nested groups the same when one walk shares its pre-filter answers", () => {
+		const shifted = { ...mockPath("shifted"), filters: [shiftAppearance()] };
+		shifted.segments = closedRectSegments(0, 0, 40, 40);
+		const plain = mockPath("plain");
+		plain.segments = closedRectSegments(0, 0, 40, 40);
+		const deformedGroup = mockGroup("deformed-group", ["shifted"]);
+		const plainGroup = mockGroup("plain-group", ["plain"]);
+		const outer = mockGroup("outer", ["deformed-group", "plain-group"]);
+		const elementsMap = new Map(
+			[shifted, plain, deformedGroup, plainGroup, outer].map((element) => [
+				element.id,
+				element,
+			]),
+		);
+		const handlers = makeFilterHandlers();
+		const lookup = {
+			getHandler: (processor: string) => handlers.get(processor),
+		};
+
+		const answers = new Map();
+		for (const group of [outer, deformedGroup, plainGroup, outer]) {
+			expect(
+				planBoundsOf(group, elementsMap, lookup, undefined, null, answers),
+			).toEqual(planBoundsOf(group, elementsMap, lookup));
+		}
+		expect(planBoundsOf(outer, elementsMap, lookup).maxX).toBeCloseTo(140);
+		expect(planBoundsOf(plainGroup, elementsMap, lookup).maxX).toBeCloseTo(40);
+	});
 });
 
 /** A 40x40 square with a multiply fill, so it always gets a filter plan. */
