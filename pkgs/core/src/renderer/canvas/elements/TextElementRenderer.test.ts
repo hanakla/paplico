@@ -8,6 +8,7 @@ import type {
 	Filter,
 	Path,
 	StrokeAppearance,
+	StrokeParams,
 	TextElement,
 } from "../../../schema";
 import { closedRectSegments } from "../../../testUtils/segmentFactory";
@@ -19,7 +20,7 @@ import {
 	type Rotate3DParams,
 } from "../../filters/Rotate3DFilter/Rotate3DFilter";
 import {
-	buildGlyphPaintFilters,
+	resolveTextDrawPaths,
 	TextElementRenderer,
 } from "./TextElementRenderer";
 
@@ -137,6 +138,60 @@ describe("TextElementRenderer", () => {
 			expect(
 				localAppearances(drawn.filters).map((filter) => filter.processor),
 			).toEqual(["path-union", "fill"]);
+		});
+
+		it("should draw glyphs sharing a fill as one path so a gradient spans the whole text", () => {
+			const renderPath = vi.fn();
+			const renderer = createRendererWithGlyphs(
+				[
+					createGlyphPath("left", makeFill("shared")),
+					createGlyphPath("right", makeFill("shared")),
+				],
+				renderPath,
+			);
+
+			renderer.renderText(
+				{} as GPURenderPassEncoder,
+				{ ...createTextElement(NO_ROTATION), filters: [] },
+				1,
+				"main",
+			);
+
+			expect(renderPath).toHaveBeenCalledTimes(1);
+			const drawn = renderPath.mock.calls[0]?.[1] as Path;
+			expect(drawn.segments).toHaveLength(2);
+			expect(drawn.segments[1].isMoved).toBe(true);
+		});
+
+		it("should draw an element appearance once over glyphs painted differently", () => {
+			const renderPath = vi.fn();
+			const renderer = createRendererWithGlyphs(
+				[
+					createGlyphPath("left", makeFill("left")),
+					createGlyphPath("right", makeFill("right")),
+				],
+				renderPath,
+			);
+			const elementFill = makeFill("element");
+
+			renderer.renderText(
+				{} as GPURenderPassEncoder,
+				{
+					...createTextElement(NO_ROTATION),
+					filters: [contentAppearance(), elementFill],
+				},
+				1,
+				"main",
+			);
+
+			// One path per run fill at the content entry, then the element's
+			// fill over every glyph at once.
+			expect(renderPath).toHaveBeenCalledTimes(3);
+			const drawn = renderPath.mock.calls.map((call) => call[1] as Path);
+			expect(drawn.map((path) => path.segments.length)).toEqual([1, 1, 2]);
+			expect(localAppearances(drawn[0].filters)).toEqual([makeFill("left")]);
+			expect(localAppearances(drawn[1].filters)).toEqual([makeFill("right")]);
+			expect(localAppearances(drawn[2].filters)).toEqual([elementFill]);
 		});
 
 		it("should keep glyphs painted differently in separate runs", () => {
@@ -280,7 +335,7 @@ describe("TextElementRenderer", () => {
 	});
 });
 
-describe("buildGlyphPaintFilters", () => {
+describe("resolveTextDrawPaths", () => {
 	const red: FillParams["fill"] = {
 		type: "solid",
 		color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 },
@@ -299,12 +354,31 @@ describe("buildGlyphPaintFilters", () => {
 		paramData: { version: "1", params: { fill } },
 	});
 
+	/** The paint stack a text of one glyph is drawn with. */
+	const paintOfSingleGlyph = (opts: {
+		elementFilters: Filter[];
+		glyphFilters: Filter[] | undefined;
+		defaultFill: FillParams["fill"] | null;
+		defaultStroke: StrokeParams["strokeColor"] | null;
+		defaultBrushWidth: number;
+	}): Filter[] => {
+		const { glyphFilters, ...rest } = opts;
+		const [drawn] = resolveTextDrawPaths({
+			...rest,
+			elementId: "text-1",
+			glyphs: [
+				{ ...createGlyphPath("left", makeFill("left")), filters: glyphFilters },
+			],
+		});
+		return localAppearances(drawn.filters);
+	};
+
 	const paintKinds = (filters: Filter[]) => filters.map((f) => f.processor);
 	const fillValueAt = (filters: Filter[], i: number) =>
 		(filters[i] as FillAppearance).paramData.params.fill;
 
 	it("should paint the intrinsic fill below the stack for legacy text without a content entry", () => {
-		const result = buildGlyphPaintFilters({
+		const result = paintOfSingleGlyph({
 			elementFilters: [fillApp(blue)],
 			glyphFilters: undefined,
 			defaultFill: red,
@@ -318,7 +392,7 @@ describe("buildGlyphPaintFilters", () => {
 	});
 
 	it("should paint the intrinsic fill at the content entry's stack position", () => {
-		const result = buildGlyphPaintFilters({
+		const result = paintOfSingleGlyph({
 			elementFilters: [fillApp(blue), contentAppearance(true)],
 			glyphFilters: undefined,
 			defaultFill: red,
@@ -333,7 +407,7 @@ describe("buildGlyphPaintFilters", () => {
 	});
 
 	it("should skip the intrinsic fill when the content appearance is disabled", () => {
-		const result = buildGlyphPaintFilters({
+		const result = paintOfSingleGlyph({
 			elementFilters: [contentAppearance(false), fillApp(blue)],
 			glyphFilters: undefined,
 			defaultFill: red,
@@ -346,7 +420,7 @@ describe("buildGlyphPaintFilters", () => {
 	});
 
 	it("should prefer the per-run fill over the default style as the intrinsic color", () => {
-		const result = buildGlyphPaintFilters({
+		const result = paintOfSingleGlyph({
 			elementFilters: [contentAppearance()],
 			glyphFilters: [fillApp(blue)],
 			defaultFill: red,
@@ -375,7 +449,7 @@ describe("buildGlyphPaintFilters", () => {
 			},
 		};
 
-		const withApp = buildGlyphPaintFilters({
+		const withApp = paintOfSingleGlyph({
 			elementFilters: [contentAppearance(), strokeApp],
 			glyphFilters: undefined,
 			defaultFill: red,
@@ -384,7 +458,7 @@ describe("buildGlyphPaintFilters", () => {
 		});
 		expect(paintKinds(withApp)).toEqual(["fill", "stroke"]);
 
-		const withoutApp = buildGlyphPaintFilters({
+		const withoutApp = paintOfSingleGlyph({
 			elementFilters: [contentAppearance()],
 			glyphFilters: undefined,
 			defaultFill: red,
@@ -508,7 +582,7 @@ describe("axis appearance underlay", () => {
 		expect(underlay.opacity).toBe(1);
 		// Glyphs paint after the underlay so the text stays on top
 		const glyph = renderPath.mock.calls[1]?.[1] as Path;
-		expect(glyph.id).toBe("left");
+		expect(glyph.id).toBe("text-1-text-run-0");
 	});
 
 	it("should stay hidden without enabled appearance filters", () => {
@@ -517,7 +591,9 @@ describe("axis appearance underlay", () => {
 		renderer.renderText({} as GPURenderPassEncoder, element, 1, "main");
 
 		expect(renderPath).toHaveBeenCalledTimes(1);
-		expect((renderPath.mock.calls[0]?.[1] as Path).id).toBe("left");
+		expect((renderPath.mock.calls[0]?.[1] as Path).id).toBe(
+			"text-1-text-run-0",
+		);
 	});
 });
 
@@ -691,12 +767,6 @@ function createRendererWithGlyphs(
 			pendingPathLoads: new Map(),
 		},
 		renderState: { boundsCache: new Map(), localBoundsCache: new Map() },
-		filterRenderer: {
-			getHandler: (processor: string) =>
-				processor === "path-union"
-					? { preProcess: (segments: unknown) => segments }
-					: undefined,
-		},
 		renderPath,
 	} as unknown as ConstructorParameters<typeof TextElementRenderer>[0]);
 }

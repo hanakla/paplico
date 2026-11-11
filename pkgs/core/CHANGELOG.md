@@ -95,6 +95,8 @@
 - **Timelapse**
   - Saving a document no longer compresses again the part of its timelapse that an earlier save already compressed, which makes each save after the first far faster when the document embeds large images.
   - The first save after a document opens no longer freezes the page while it compresses the timelapse.
+- **Text**
+  - Outlining a text puts its fills and strokes on the group of glyph paths instead of on each glyph path, so a gradient spans the outlined text. Glyphs filled differently keep their own fill.
 
 ### Fixed
 
@@ -123,6 +125,7 @@
 - **SVG export**
   - Fix Illustrator reporting a missing linked file, leaving out the images and dropping some clipping masks when it opens an exported SVG.
   - Fix an alpha-locked element with a blend mode coming out in a different color from the canvas.
+  - Fix a text's gradient being written once per character instead of once across the text.
 - **Extrude / Revolve filters**
   - Fix a glass solid in a hidden layer still showing on the canvas.
 - **Layers**
@@ -151,6 +154,9 @@
   - Fix a character the chosen font lacks showing as a tofu box instead of being drawn with the fallback font.
   - Fix a centered or right-aligned paragraph in vertical writing starting at the top of its column. Without a box, the text's position is the middle or the end of the column.
   - Fix text with a path offset or another shape filter on one of its fills or strokes being drawn as a coarse image instead of sharp outlines.
+  - Fix a text's gradient restarting at every character, and each character's stroke being covered by the next character's fill. Characters given a fill of their own share one gradient across all the characters with that fill.
+- **Groups**
+  - Fix a fill or stroke on a group covering the holes of the paths and compound paths inside it.
 
 ## [0.10.0] - 2026-10-28
 
