@@ -167,7 +167,7 @@ export abstract class Solid3DFilterHandlerBase implements FilterHandler {
 			resolvePatternTexture: resources.resolvePatternTexture,
 			resolveTextOutline: resources.resolveTextOutline,
 			requestTextOutline: resources.requestTextOutline,
-			isImageReady: resources.isImageReady,
+			imageLoadState: resources.imageLoadState,
 			meshPass: this.meshPass,
 			baker: this.baker,
 			refractionCompositor,

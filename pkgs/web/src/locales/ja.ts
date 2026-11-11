@@ -1315,6 +1315,8 @@ export const ja = {
 		loadIccFile: "ICCプロファイルを読み込む…",
 		loadingProfiles: "システムプロファイルを読み込み中…",
 		alphaFlattenNote: "透明部分は背景色で塗りつぶされます。",
+		oversizedImagesNote:
+			"配置された画像のうち{{count}}枚が、長辺{{limit}}pxを超えています。この端末では、その画像を{{limit}}pxに縮めた状態で書き出します。",
 		invalidIccFile: "選択されたファイルは有効なICCプロファイルではありません。",
 	},
 	timelapseDialog: {

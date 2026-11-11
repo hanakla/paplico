@@ -196,6 +196,7 @@ import {
 	FrameGraph,
 } from "./pipeline/FrameGraph";
 import type {
+	ImageLoadState,
 	ImageTextureStore,
 	ImageTextures,
 } from "./pipeline/ImageTextureStore";
@@ -865,7 +866,11 @@ export class CanvasLayer {
 		this.sampler = resources.sampler;
 		this.nearestSampler = resources.nearestSampler;
 		this.filterRenderer = resources.filterRenderer;
-		this.imageTextures = resources.imageTextures.forCanvas(canvasId);
+		this.imageTextures = resources.imageTextures.forCanvas(canvasId, () =>
+			this.renderState.isExport
+				? Number.POSITIVE_INFINITY
+				: (this.viewportState.current?.zoom ?? 1),
+		);
 
 		this.backdropCaptureManager = resources.backdropCaptureManager;
 
@@ -1066,7 +1071,7 @@ export class CanvasLayer {
 				this.resolvePatternTexture(defId),
 			resolveTextOutline: (el) => this.resolveTextOutline(el),
 			requestTextOutline: (el) => this.requestTextOutline(el),
-			isImageReady: this.isImageReady,
+			imageLoadState: this.imageLoadState,
 			deferDestroy: (tex) => this.offscreen.deferDestroy(tex),
 			canvasFormat: this.canvasFormat,
 			backdropEffectCoordinator: this.backdropEffectCoordinator,
@@ -1640,10 +1645,10 @@ export class CanvasLayer {
 		this.viewportManager.getComposedTransformCache().get(elementId) ??
 		createIdentityTransform();
 
-	/** Whether the frame's document has the image file `fileUid` loaded. */
-	private isImageReady = (fileUid: string): boolean => {
+	/** How much of the frame's document's image file `fileUid` is loaded. */
+	private imageLoadState = (fileUid: string): ImageLoadState => {
 		const file = this.assetState.currentFiles.find((f) => f.uid === fileUid);
-		return file != null && this.imageTextures.has(file);
+		return file ? this.imageTextures.stateOf(file) : "none";
 	};
 
 	/** Where an element is drawn this frame: its bounds carried through the
@@ -3352,6 +3357,7 @@ export class CanvasLayer {
 				// .bounds, so everything outside it is skipped on the CPU.
 				this.partialRedrawStoreRegion = prebufViewportBounds;
 				prebufViewportBounds = partialPlan.dirtyWorld;
+				this.imageTextures.continueLastFrame();
 			}
 		}
 		// The previous composite is read by the partial-redraw restore and
@@ -4773,7 +4779,7 @@ export class CanvasLayer {
 							texturePool: this.texturePool,
 							resolveTextOutline: (el) => this.resolveTextOutline(el),
 							requestTextOutline: (el) => this.requestTextOutline(el),
-							isImageReady: this.isImageReady,
+							imageLoadState: this.imageLoadState,
 						}
 					: undefined;
 
@@ -4973,7 +4979,7 @@ export class CanvasLayer {
 		return {
 			resolvePatternTexture: (defId) => this.resolvePatternTexture(defId),
 			resolveTextOutline: (el) => this.resolveTextOutline(el),
-			isImageReady: this.isImageReady,
+			imageLoadState: this.imageLoadState,
 			filterRenderer: this.filterRenderer,
 		};
 	}

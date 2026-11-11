@@ -1313,6 +1313,8 @@ export const en = {
 		loadIccFile: "Load ICC profile…",
 		loadingProfiles: "Loading system profiles…",
 		alphaFlattenNote: "Transparent areas are filled with the background color.",
+		oversizedImagesNote:
+			"Placed images longer than {{limit}} px on one side: {{count}}. On this device they are exported scaled down to {{limit}} px.",
 		invalidIccFile: "The selected file is not a valid ICC profile.",
 	},
 	timelapseDialog: {
