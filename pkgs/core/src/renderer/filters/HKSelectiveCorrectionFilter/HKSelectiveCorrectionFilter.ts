@@ -4,6 +4,7 @@ import { compileShaderModule } from "../../../utils/wgpu-utils";
 import type {
 	FilterHandler,
 	FilterProcessorContext,
+	FilterRenderRequirements,
 } from "../../canvas/pipeline/FilterRenderer";
 import { HK_SELECTIVE_CORRECTION_SHADER } from "./hk-selective-correction.wgsl";
 
@@ -193,6 +194,12 @@ export class HKSelectiveCorrectionFilterHandler implements FilterHandler {
 
 	public getDetailDensity(): number {
 		return Number.POSITIVE_INFINITY;
+	}
+
+	/** Every read stays within the footprint and is placed on the element's
+	 *  whole bake, so a bake cut to the view gives the same pixels. */
+	public getRenderConfigure(): Partial<FilterRenderRequirements> {
+		return { cropSafe: true };
 	}
 
 	public onScaleFilter(params: Filter, _scale: [number, number]): Filter {

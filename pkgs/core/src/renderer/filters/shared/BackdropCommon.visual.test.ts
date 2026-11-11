@@ -628,12 +628,12 @@ describe("Backdrop capture density at a high rasterizationDpi", () => {
 		);
 		await renderer.getDevice()?.queue.onSubmittedWorkDone();
 
-		// Zoom 1.5 rounds up to 2 texels per world px; the blur margin adds a
-		// little on top of the pane width.
+		// Zoom 1.5 takes the √2 texels per world px bucket; the blur margin adds
+		// a little on top of the pane width.
 		expect(captureWidths.length).toBeGreaterThan(0);
 		for (const width of captureWidths) {
-			expect(width).toBeGreaterThanOrEqual(PANE_WIDTH * 2);
-			expect(width).toBeLessThan(PANE_WIDTH * 3);
+			expect(width).toBeGreaterThanOrEqual(PANE_WIDTH * Math.SQRT2);
+			expect(width).toBeLessThan(PANE_WIDTH * 2);
 		}
 	});
 

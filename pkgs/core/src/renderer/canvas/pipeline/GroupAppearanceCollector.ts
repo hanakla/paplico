@@ -19,8 +19,8 @@ import { toWorldPath } from "../../../utils/geometry/space/worldSegments";
 /**
  * Recursively collect all path segments from a group's children
  * as a single multi-subpath path in world space.
- * All closed subpaths are normalized to CCW winding so that
- * overlapping subpaths add (rather than cancel) under nonzero winding.
+ * Each child is turned so its outer contour winds CCW, so that overlapping
+ * children add (rather than cancel) under nonzero winding.
  * CompoundPaths are resolved via cache. ImageObject/TextElement are skipped.
  */
 export function collectGroupSegments(
@@ -84,16 +84,15 @@ function collectRecursive(
 }
 
 /**
- * Append segments to result, normalizing closed subpaths to CCW winding.
- * Splits input into subpaths (by isMoved), checks winding of each closed
- * subpath, and reverses CW subpaths so all subpaths use CCW winding.
- * This prevents overlapping shapes from canceling under nonzero winding.
+ * Append one child's segments to result, turned so its largest closed subpath
+ * winds CCW. Every closed subpath of the child is reversed together, which
+ * keeps the child's holes as holes while overlapping children add instead of
+ * cancelling under nonzero winding.
  */
 function appendNormalized(
 	segments: CubicBezierSegment[],
 	result: CubicBezierSegment[],
 ): void {
-	// Split into subpaths
 	const subPaths: CubicBezierSegment[][] = [];
 	let current: CubicBezierSegment[] = [];
 
@@ -106,25 +105,18 @@ function appendNormalized(
 	}
 	if (current.length > 0) subPaths.push(current);
 
+	const isClosed = (sub: CubicBezierSegment[]) =>
+		sub.at(-1)?.isClosed === true && sub.length >= 2;
+	let outerArea = 0;
 	for (const sub of subPaths) {
-		const isClosed = sub.at(-1)?.isClosed === true;
+		if (!isClosed(sub)) continue;
+		const area = computeSubPathSignedArea(sub);
+		if (Math.abs(area) > Math.abs(outerArea)) outerArea = area;
+	}
 
-		if (isClosed && sub.length >= 2) {
-			const area = computeSubPathSignedArea(sub);
-			if (area < 0) {
-				// CW winding → reverse to CCW
-				const reversed = reverseSubPath(sub);
-				result.push({ ...reversed[0], isMoved: true });
-				for (let i = 1; i < reversed.length; i++) {
-					result.push(reversed[i]);
-				}
-				continue;
-			}
-		}
-
-		result.push({ ...sub[0], isMoved: true });
-		for (let i = 1; i < sub.length; i++) {
-			result.push(sub[i]);
-		}
+	for (const sub of subPaths) {
+		const oriented = outerArea < 0 && isClosed(sub) ? reverseSubPath(sub) : sub;
+		result.push({ ...oriented[0], isMoved: true });
+		for (let i = 1; i < oriented.length; i++) result.push(oriented[i]);
 	}
 }

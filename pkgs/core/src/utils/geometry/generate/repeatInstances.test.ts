@@ -52,6 +52,49 @@ describe("computeRepeatInstances", () => {
 			]);
 		});
 
+		it("should mirror every other row about each copy's own center", () => {
+			const repeat = {
+				mode: "grid",
+				grid: {
+					width: 0,
+					height: 10,
+					spacingX: 10,
+					spacingY: 10,
+					rowFlip: "horizontal",
+				},
+			} as RepeatObject;
+
+			const [first, second] = computeRepeatInstances(repeat, { x: 3, y: 4 });
+
+			expect(first).toEqual(IDENTITY_AFFINE);
+			expect(applyAffineToPoint(second, { x: 3, y: 4 })).toEqual({
+				x: 3,
+				y: -6,
+			});
+			expect(applyAffineToPoint(second, { x: 5, y: 4 })).toEqual({
+				x: 1,
+				y: -6,
+			});
+		});
+
+		it("should cancel a row flip and a column flip on the same axis", () => {
+			const repeat = {
+				mode: "grid",
+				grid: {
+					width: 10,
+					height: 10,
+					spacingX: 10,
+					spacingY: 10,
+					rowFlip: "vertical",
+					columnFlip: "vertical",
+				},
+			} as RepeatObject;
+
+			const instances = computeRepeatInstances(repeat, { x: 0, y: 0 });
+
+			expect(instances[3].d).toBe(1);
+		});
+
 		it("should brick-offset odd rows horizontally by offsetX", () => {
 			const repeat = makeRepeat({
 				mode: "grid",

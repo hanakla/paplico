@@ -429,9 +429,11 @@ function classifyElementFilters(
 	// per-appearance offscreen path. Geometry sub-filters (path-offset,
 	// zigzag) deform inline — through resolveAppearancePasses for paths and
 	// renderGroupAppearanceFilters for groups — so routing them offscreen
-	// would only rasterize them at the document's fixed DPI. Other element
-	// types have no inline per-appearance deformation, so they still need it.
-	const deformsInline = isGroup(element) || element.type === "path";
+	// would only rasterize them at the document's fixed DPI. A text draws its
+	// glyphs as paths, so it deforms inline too. Other element types have no
+	// inline per-appearance deformation, so they still need it.
+	const deformsInline =
+		isGroup(element) || element.type === "path" || element.type === "text";
 	let hasAnySubFilters = false;
 	for (const filter of localAppearances(element.filters)) {
 		if (!isFilterEnabled(filter)) continue;
@@ -645,6 +647,8 @@ interface PlanWalk {
 	candidates: PlanCandidate[];
 	localBoundsCache?: LocalBoundsCache;
 	transientIds?: ReadonlySet<string>;
+	/** Pre-filter answers of this walk — see subtreeHasPreFilter. */
+	preFilterAnswers: Map<AnyArtObject, boolean>;
 }
 
 function collectPlanCandidates(
@@ -664,6 +668,7 @@ function collectPlanCandidates(
 		candidates,
 		localBoundsCache,
 		transientIds,
+		preFilterAnswers,
 	} = walk;
 	const handlerLookup = {
 		getHandler: (processor: string) => filterHandlers.get(processor),
@@ -682,6 +687,7 @@ function collectPlanCandidates(
 			handlerLookup,
 			transientIds?.has(element.id) ? undefined : localBoundsCache,
 			parentMatrix,
+			preFilterAnswers,
 		);
 
 		const { filterPlan, backdropEntry } = classifyElementFilters(
@@ -834,6 +840,7 @@ export function buildFramePlanStructure(
 				)
 			: undefined;
 	const candidates: PlanCandidate[] = [];
+	const preFilterAnswers = new Map<AnyArtObject, boolean>();
 	const layerRows: LayerRow[] = [];
 	for (const layer of document.layers) {
 		if (!layer.visible) continue;
@@ -845,6 +852,7 @@ export function buildFramePlanStructure(
 			candidates,
 			localBoundsCache,
 			transientIds,
+			preFilterAnswers,
 		});
 		const blending = scanBlendingFlags(layerElements, elementsMap);
 		layerRows.push({

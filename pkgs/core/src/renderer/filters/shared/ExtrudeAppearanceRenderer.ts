@@ -89,7 +89,9 @@ import type {
 } from "../../canvas/pipeline/FilterRenderer";
 import { resolveRenderConfigure } from "../../canvas/pipeline/FilterRenderer";
 import { collectGroupSegments } from "../../canvas/pipeline/GroupAppearanceCollector";
+import type { ImageLoadState } from "../../canvas/pipeline/ImageTextureStore";
 import type { MeshPassRenderer } from "../../canvas/pipeline/MeshPassRenderer";
+import { memoizeByIdentity } from "../../canvas/pipeline/memoizeByIdentity";
 import {
 	createBorrowedTextureRef,
 	createRenderSurface,
@@ -203,8 +205,8 @@ interface ExtrudeRendererDeps {
 	) => { paths: Path[]; localBounds: BoundingBox } | null;
 	/** Fire-and-forget: warm the glyph-outline cache for a later frame. */
 	requestTextOutline: (element: TextElement) => void;
-	/** Whether an embedded image file's GPU texture has finished decoding. */
-	isImageReady: (fileUid: string) => boolean;
+	/** How much of an embedded image file is loaded. */
+	imageLoadState: (fileUid: string) => ImageLoadState;
 	/** Shared lit-mesh pass + baker (owned by the handler, injected here). */
 	meshPass: MeshPassRenderer;
 	baker: ExtrudeMeshBaker;
@@ -231,6 +233,25 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 	 *  path/group/text keeps one entry; an all-glass blend keeps one per
 	 *  interpolated instance (key + intermediate), composited in that order. */
 	private readonly elementEntries = new Map<string, ExtrudeFrameEntry[]>();
+	/** The visible elements with an enabled solid appearance. Elements absorbed
+	 *  as blend keys never render standalone — the blend renders them, so a
+	 *  glass key listed here would bake twice and double-stack. */
+	private readonly solidElementsOf = memoizeByIdentity(
+		(elementsMap: Map<string, AnyArtObject>) => {
+			const elements = [...elementsMap.values()];
+			const blendMemberIds = new Set(
+				elements.flatMap((element) =>
+					element.type === "blend" ? element.objectIds : [],
+				),
+			);
+			return elements.filter(
+				(element) =>
+					element.visible !== false &&
+					hasEnabledSolidAppearance(element, this.deps.processor) &&
+					!blendMemberIds.has(element.id),
+			);
+		},
+	);
 	private frameTextures: GPUTexture[] = [];
 	/** Glass entries already composited inline at their z-order this frame, so
 	 *  flushRemaining doesn't compose them again. */
@@ -282,32 +303,16 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 		dpiScale: number,
 		backdropScale: number,
 		profiler?: GPUTimingProfiler | null,
-		filter?: ReadonlySet<string>,
+		draws?: (elementId: string) => boolean,
 	): void {
-		// Elements absorbed as blend keys never render standalone — the blend
-		// renders them (per-instance below). Skip them here so a glass key isn't
-		// baked twice (once as itself, once inside its blend) and double-stacked.
-		const blendMemberIds = new Set<string>();
-		for (const element of elementsMap.values()) {
-			if (element.type === "blend") {
-				for (const id of element.objectIds) blendMemberIds.add(id);
-			}
-		}
 		// Every element the driver considered this frame, entries or not. The
 		// underlay sync below walks THIS, not elementEntries: an element that
 		// stopped producing glass still has to release the shadow it cached.
 		const scanned: AnyArtObject[] = [];
-		for (const element of elementsMap.values()) {
-			if (
-				element.visible === false ||
-				!hasEnabledSolidAppearance(element, this.deps.processor)
-			) {
-				continue;
-			}
+		for (const element of this.solidElementsOf(elementsMap)) {
 			// No layer composes a solid it does not draw at its z-order, so
 			// flushRemaining would paint it over the frame.
-			if (filter && !filter.has(element.id)) continue;
-			if (blendMemberIds.has(element.id)) continue;
+			if (draws && !draws(element.id)) continue;
 			scanned.push(element);
 			// A blend with any glass instance bakes one solid per interpolated
 			// instance so each carries its own depth/rotation/material (opaque
@@ -380,7 +385,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 		const scannedIds = new Set(scanned.map((element) => element.id));
 		for (const elementId of [...this.underlayUids.keys()]) {
 			if (scannedIds.has(elementId)) continue;
-			if (filter && !filter.has(elementId) && elementsMap.has(elementId)) {
+			if (draws && !draws(elementId) && elementsMap.has(elementId)) {
 				continue;
 			}
 			this.releaseUnusedUnderlays(elementId, new Set());
@@ -541,7 +546,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 			texturePool: this.deps.texturePool,
 			resolveTextOutline: this.deps.resolveTextOutline,
 			requestTextOutline: this.deps.requestTextOutline,
-			isImageReady: this.deps.isImageReady,
+			imageLoadState: this.deps.imageLoadState,
 		};
 	}
 
@@ -665,6 +670,12 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 	 *  z-order (the caller ends its pass and calls composeInline). */
 	public hasInlineComposite(element: AnyArtObject): boolean {
 		return this.findGlassRefractionEntries(element).length > 0;
+	}
+
+	public getInlineCompositeIds(): string[] {
+		return [...this.elementEntries]
+			.filter(([, entries]) => entries.some((entry) => entry.refraction))
+			.map(([id]) => id);
 	}
 
 	/** Refraction reads anywhere in the region this frame captures for the

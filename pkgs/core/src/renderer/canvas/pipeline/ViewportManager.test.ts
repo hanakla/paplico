@@ -276,6 +276,109 @@ describe("ViewportManager transforms buffer", () => {
 
 			expect(hierarchy.parentMap.has("m")).toBe(false);
 		});
+
+		it("should report the object mask when the parent edges were derived before the rebuild", () => {
+			const { vm, hierarchy } = createManager();
+			const elements = elementsMap(maskedPath("owner", ["m"]), path("m"));
+
+			hierarchy.ensureParents(elements);
+			vm.updateTransformsBuffer(elements);
+
+			expect(vm.hasObjectMasks).toBe(true);
+		});
+	});
+
+	describe("mask info writes", () => {
+		it("should upload only the masked element's slot", () => {
+			const { vm, writes } = createManager();
+			vm.updateTransformsBuffer(
+				elementsMap(path("a"), path("b", { x: 30 }), path("c")),
+			);
+			writes.length = 0;
+
+			vm.writeMaskInfoOnly(
+				new Map([
+					[
+						"b",
+						{
+							layerIndex: 3,
+							bounds: {
+								minX: 1,
+								minY: 2,
+								maxX: 3,
+								maxY: 4,
+								width: 2,
+								height: 2,
+							},
+						},
+					],
+				]),
+			);
+
+			expect(writes).toHaveLength(1);
+			expect(writes[0].offset).toBe(vm.getTransformIndex("b") * STRIDE_BYTES);
+			expect(writes[0].size).toBe(STRIDE_BYTES);
+			expect(writes[0].data[0]).toBe(30);
+			expect([...writes[0].data.slice(8, 12)]).toEqual([1, 2, 3, 4]);
+		});
+
+		it("should upload nothing when no masked element owns a slot", () => {
+			const { vm, writes } = createManager();
+			vm.updateTransformsBuffer(elementsMap(path("a")));
+			writes.length = 0;
+
+			vm.writeMaskInfoOnly(
+				new Map([
+					[
+						"missing",
+						{
+							layerIndex: 0,
+							bounds: {
+								minX: 0,
+								minY: 0,
+								maxX: 1,
+								maxY: 1,
+								width: 1,
+								height: 1,
+							},
+						},
+					],
+				]),
+			);
+
+			expect(writes).toHaveLength(0);
+		});
+
+		it("should upload a reserved auxiliary slot with its container's transform", () => {
+			const { vm, writes } = createManager();
+			vm.updateTransformsBuffer(
+				elementsMap(path("a"), path("container", { x: 50, y: -20 })),
+			);
+			writes.length = 0;
+
+			vm.reserveAuxiliaryMaskSlots([{ id: "aux", inheritFromId: "container" }]);
+
+			expect(writes).toHaveLength(1);
+			expect(writes[0].offset).toBe(vm.getTransformIndex("aux") * STRIDE_BYTES);
+			expect(writes[0].size).toBe(STRIDE_BYTES);
+			expect(writes[0].data[0]).toBe(50);
+			expect(writes[0].data[1]).toBe(-20);
+		});
+
+		it("should not upload an auxiliary slot past the end of the GPU buffer", () => {
+			const { vm, writes, buffers } = createManager();
+			vm.updateTransformsBuffer(elementsMap(path("container")));
+			writes.length = 0;
+
+			vm.reserveAuxiliaryMaskSlots([
+				{ id: "aux1", inheritFromId: "container" },
+				{ id: "aux2", inheritFromId: "container" },
+			]);
+
+			expect(writes).toHaveLength(1);
+			expect(writes[0].offset + writes[0].size).toBe(buffers[0].size);
+			expect(writes[0].size).toBe(STRIDE_BYTES);
+		});
 	});
 });
 

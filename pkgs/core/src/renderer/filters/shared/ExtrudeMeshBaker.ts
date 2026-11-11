@@ -390,7 +390,7 @@ export class ExtrudeMeshBaker {
 					{
 						resolvePatternTexture: geom.resolvePatternTexture,
 						resolveTextOutline: geom.resolveTextOutline,
-						isImageReady: geom.isImageReady,
+						imageLoadState: geom.imageLoadState,
 						filterRenderer: this.filterRenderer,
 					},
 				)}`

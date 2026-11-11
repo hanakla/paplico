@@ -27,6 +27,7 @@ import type {
 	BackdropEffectCoordinator,
 } from "./BackdropEffectCoordinator";
 import { IdleClock, type UseStamp } from "./IdleClock";
+import type { ImageLoadState } from "./ImageTextureStore";
 import type { MeshPassRenderer } from "./MeshPassRenderer";
 import {
 	createBorrowedTextureRef,
@@ -40,7 +41,8 @@ import type { TexturePool } from "./TexturePool";
 interface FilterSceneInfo {
 	/** Width and height of the sourceTexture passed to the filter.
 	 * When pool padding is stripped, equals Math.ceil(contentBounds * dpiScale);
-	 * otherwise equals the raw GPU texture dimensions. */
+	 * otherwise equals the raw GPU texture dimensions. A chain whose filters
+	 * all declare cropSafe keeps the padding, so it gets the raw dimensions. */
 	textureSize: { width: number; height: number };
 	/** Rasterization scale of the source texture in texels per world px.
 	 * Filter processors must scale spatial parameters (e.g. blur radius) by
@@ -101,10 +103,9 @@ export interface FilterGeometryContext {
 	/** Fire-and-forget: ensure a Text element's glyph paths are loaded and
 	 *  cached (async font loading) for a subsequent frame. */
 	requestTextOutline: (element: TextElement) => void;
-	/** Whether an embedded image file's GPU texture has finished decoding
-	 *  (async image load). Used to invalidate a cached bake once a
-	 *  previously-not-ready image child becomes available. */
-	isImageReady: (fileUid: string) => boolean;
+	/** How much of an embedded image file is loaded. A cached bake is taken
+	 *  again each time more of an image child arrives. */
+	imageLoadState: (fileUid: string) => ImageLoadState;
 }
 
 /**
@@ -153,7 +154,9 @@ export interface FilterProcessorContext {
 	 * applyFilters' contentBounds. Unlike textureSize / dpiScale, it does not
 	 * inherit the ceil/pool quantization of the texture dimensions, so a
 	 * filter can size texture-local patterns in world px identically across
-	 * rasterization DPI.
+	 * rasterization DPI. A chain whose filters all declare cropSafe runs on
+	 * the padded pool texture, and gets that texture's whole size here,
+	 * padding included; the element's size is coordinateSpace.worldSize.
 	 */
 	sourceWorldSize?: { width: number; height: number };
 	/**
@@ -162,14 +165,20 @@ export interface FilterProcessorContext {
 	 * padding strip copies at integer texel origins, so the content sits up to
 	 * one texel off the texture origin — by a DPI-dependent amount. A filter
 	 * that anchors a grid or pattern to the content (pixelate) needs this
-	 * offset; translation-invariant patterns (noise) can ignore it.
+	 * offset; translation-invariant patterns (noise) can ignore it. A chain
+	 * whose filters all declare cropSafe runs on the padded pool texture,
+	 * where the offset is the content's whole distance from the texture
+	 * origin.
 	 */
 	sourceContentOffset?: { x: number; y: number };
 	/**
 	 * Optional unclipped coordinate space used to anchor spatial effects when
 	 * sourceTexture contains only a captured subsection of the full region.
-	 * sourceOffset is the subsection's top-left position in world px, with Y
-	 * increasing downwards to match texture coordinates.
+	 * worldSize is the full region's size in world px. sourceOffset is the
+	 * subsection's top-left position in world px, measured from the full
+	 * region's top-left corner with Y increasing downwards to match texture
+	 * coordinates. A texel of sourceTexture lies at
+	 * (texel - sourceContentOffset) / sceneInfo.dpiScale + sourceOffset.
 	 */
 	coordinateSpace?: FilterCoordinateSpace;
 	/**
@@ -286,12 +295,31 @@ export interface FilterRenderRequirements {
 	 * chain; earlier passes may overwrite the working textures freely.
 	 */
 	needsSourceGraphic: boolean;
+	/**
+	 * The output at a point depends only on the input within
+	 * getBackdropFootprint of it, and every position the filter reads goes
+	 * through ctx.coordinateSpace. The renderer may then bake only the part of
+	 * the element the view needs, so a zoomed-in element does not cost its whole
+	 * area. A filter that places anything by the texture's UVs, centre, size or
+	 * edges must leave this false, or its output moves as the view pans and
+	 * zooms. Setting it needs a case in CroppedBake.visual.test.ts.
+	 *
+	 * A chain whose filters all declare it, and whose caller passes a
+	 * coordinateSpace, also runs on the pool texture without stripping its
+	 * padding: sceneInfo.textureSize and sourceWorldSize
+	 * then include the padding, UV [0,1] spans more than the content, and the
+	 * content starts at sourceContentOffset. One filter that leaves it false
+	 * makes the whole chain bake the whole element on padding-free
+	 * intermediates of its own size.
+	 */
+	cropSafe: boolean;
 }
 
 const DEFAULT_RENDER_REQUIREMENTS: FilterRenderRequirements = {
 	needsBackdrop: false,
 	needsSourceTexture: true,
 	needsSourceGraphic: false,
+	cropSafe: false,
 };
 
 /** A plain in-place image filter (no getRenderConfigure) needs the
@@ -314,6 +342,27 @@ export function resolveRenderConfigure(
 		resolved.needsBackdrop = true;
 	}
 	return resolved;
+}
+
+/**
+ * How far (world units) the output of `filters` reads its input, or null when
+ * one of them forbids baking only part of the element (see
+ * FilterRenderRequirements.cropSafe). `bounds` is the element's whole bake.
+ */
+export function croppedBakeReach(
+	filterRenderer: FilterRenderer,
+	filters: readonly Filter[],
+	bounds: { width: number; height: number },
+): number | null {
+	let reach = 0;
+	for (const filter of filters) {
+		const handler = filterRenderer.getHandler(filter.processor);
+		if (!handler || !resolveRenderConfigure(handler, filter).cropSafe) {
+			return null;
+		}
+		reach += handler.getBackdropFootprint(filter, bounds);
+	}
+	return reach;
 }
 
 /**
@@ -399,8 +448,8 @@ export interface BackdropEffectCanvasResources {
 		element: TextElement,
 	) => { paths: Path[]; localBounds: BoundingBox } | null;
 	requestTextOutline: (element: TextElement) => void;
-	/** Whether an embedded image file's GPU texture has finished decoding. */
-	isImageReady: (fileUid: string) => boolean;
+	/** How much of an embedded image file is loaded. */
+	imageLoadState: (fileUid: string) => ImageLoadState;
 	/** Defer a frame-local texture's destruction to a GPU-safe point. */
 	deferDestroy: (texture: GPUTexture) => void;
 	/** Canvas color format (for the driver's own compositor pipelines). */
@@ -426,17 +475,17 @@ export interface BackdropEffectDriver {
 	/** Bake this frame's solids before the main pass opens. `backdropScale` is
 	 *  the backdrop capture's texels per world px (device pixels per world px
 	 *  on screen, the export raster scale when exporting), so effects can turn
-	 *  world-unit parameters into capture texels. `filter` holds the ids of
-	 *  the elements this frame draws, and only those bake: neither a hidden
-	 *  layer's solid nor, on export/copy, a front object's solid lands in the
-	 *  frame. */
+	 *  world-unit parameters into capture texels. `draws` tells whether this
+	 *  frame draws an element as artwork, and only those bake: neither a
+	 *  hidden layer's solid, nor a guide's, nor, on export/copy, a front
+	 *  object's solid lands in the frame. */
 	prepareFrame(
 		encoder: GPUCommandEncoder,
 		elementsMap: Map<string, AnyArtObject>,
 		dpiScale: number,
 		backdropScale: number,
 		profiler?: GPUTimingProfiler | null,
-		filter?: ReadonlySet<string>,
+		draws?: (elementId: string) => boolean,
 	): void;
 	/** How far (world units) the backdrop read behind one pixel of the
 	 *  element's inline composite reaches, so a partial redraw can bound what
@@ -462,6 +511,10 @@ export interface BackdropEffectDriver {
 	 *  `targetTexture` and composite the returned layer itself. An offscreen
 	 *  target needs this: its own texture is not in canvas texel space. */
 	readonly composesOverResolvedBackdrop?: boolean;
+	/** The ids `hasInlineComposite` answers true for this frame, valid once
+	 *  prepareFrame has run. A driver with `composesOverResolvedBackdrop`
+	 *  provides it, so the caller need not ask about every element. */
+	getInlineCompositeIds?(): string[];
 	/** Compose the element's inline appearance over `targetTexture`. The caller
 	 *  must have ended its active render pass first (this opens its own).
 	 *
@@ -593,9 +646,13 @@ export interface FilterHandler extends FilterCapabilities {
 
 	/** How far (world units) the read behind one output pixel reaches, so a
 	 *  partial redraw can bound what it must re-render when the filter reads
-	 *  the backdrop. `bounds` is the captured region. The read never leaves
-	 *  it, so a filter whose reach follows the element's size bounds it by
-	 *  `bounds`. */
+	 *  the backdrop, and a cropped bake can tell how much of its edge is
+	 *  wrong. `bounds` is the captured region for a backdrop read and the
+	 *  element's whole bake for a cropped bake. The read never leaves it, so
+	 *  a filter whose reach follows the element's size bounds it by `bounds`.
+	 *  A filter that declares cropSafe must count every sampling offset
+	 *  here even when it never reads the backdrop: a smaller value leaves
+	 *  wrong pixels along the edges of its cropped bakes. */
 	getBackdropFootprint(
 		filter: Filter,
 		bounds: { width: number; height: number },
@@ -699,10 +756,17 @@ export type RegisterableFilterHandler =
  *  pairs already used in the current frame. */
 const MAX_TEMP_PAIRS = 48;
 
+/** Bytes of temp pairs a frame may start with. A zoom gesture leaves pairs
+ *  of a new size at every step; they would otherwise outlive the gesture by
+ *  the idle clock's seconds. */
+const MAX_IDLE_TEMP_PAIR_BYTES = 256 * 1024 * 1024;
+
 /** One size's ping-pong intermediates. */
 interface TempPair {
 	t1: GPUTexture;
-	t2: GPUTexture;
+	/** Second ping-pong side, for chains that cannot write back into their
+	 *  source; created on demand. */
+	t2?: GPUTexture;
 	/** Chain-input copy for needsSourceGraphic chains; created on demand. */
 	src?: GPUTexture;
 	lastUsed: UseStamp;
@@ -712,7 +776,6 @@ export class FilterRenderer {
 	private device: GPUDevice;
 	private handlers: Map<string, FilterHandler> = new Map();
 	private tempTexture1: GPUTexture | null = null;
-	private tempTexture2: GPUTexture | null = null;
 	private textureSize = { width: 0, height: 0 };
 	/**
 	 * Ping-pong intermediates keyed by size/format, reused across calls and
@@ -795,6 +858,19 @@ export class FilterRenderer {
 			destroyTempPair(pair);
 			this.tempPairs.delete(key);
 		}
+		let bytes = 0;
+		for (const pair of this.tempPairs.values()) bytes += tempPairBytes(pair);
+		const oldestFirst = [...this.tempPairs].sort(
+			([, a], [, b]) => a.lastUsed.frame - b.lastUsed.frame,
+		);
+		for (const [key, pair] of oldestFirst) {
+			// The last frame's pairs are what the next frame asks for.
+			if (bytes <= MAX_IDLE_TEMP_PAIR_BYTES) break;
+			if (!this.clock.isIdleFor(pair.lastUsed, 2)) break;
+			bytes -= tempPairBytes(pair);
+			destroyTempPair(pair);
+			this.tempPairs.delete(key);
+		}
 	}
 
 	/**
@@ -868,27 +944,41 @@ export class FilterRenderer {
 					this.tempPairs.delete(lruKey);
 				}
 			}
-			const textureDescriptor: GPUTextureDescriptor = {
-				label: `Filter Temp ${width}x${height}`,
-				size: { width, height },
-				format,
-				usage:
-					GPUTextureUsage.RENDER_ATTACHMENT |
-					GPUTextureUsage.TEXTURE_BINDING |
-					GPUTextureUsage.COPY_SRC |
-					GPUTextureUsage.COPY_DST,
-			};
 			pair = {
-				t1: this.device.createTexture(textureDescriptor),
-				t2: this.device.createTexture(textureDescriptor),
+				t1: this.createTempTexture(width, height, format),
 				lastUsed: this.clock.stamp(),
 			};
 			this.tempPairs.set(key, pair);
 		}
 		pair.lastUsed = this.clock.stamp();
 		this.tempTexture1 = pair.t1;
-		this.tempTexture2 = pair.t2;
 		this.textureSize = { width, height };
+	}
+
+	/** The second ping-pong side for the current temp pair. */
+	private ensureSecondTempTexture(): GPUTexture {
+		const { width, height } = this.textureSize;
+		const format = this.tempTexture1!.format;
+		const pair = this.tempPairs.get(`${width}x${height}:${format}`)!;
+		pair.t2 ??= this.createTempTexture(width, height, format);
+		return pair.t2;
+	}
+
+	private createTempTexture(
+		width: number,
+		height: number,
+		format: GPUTextureFormat,
+	): GPUTexture {
+		return this.device.createTexture({
+			label: `Filter Temp ${width}x${height}`,
+			size: { width, height },
+			format,
+			usage:
+				GPUTextureUsage.RENDER_ATTACHMENT |
+				GPUTextureUsage.TEXTURE_BINDING |
+				GPUTextureUsage.COPY_SRC |
+				GPUTextureUsage.COPY_DST,
+		});
 	}
 
 	/** The chain-input copy texture for the current temp pair. */
@@ -983,16 +1073,30 @@ export class FilterRenderer {
 
 		// When the source texture has pool padding, run filters on content-sized
 		// intermediaries so UV [0,1] maps exactly to the content area.
-		// Filters never see quantization artifacts.
-		const cw = contentBounds ? Math.ceil(contentBounds.width * dpiScale) : srcW;
-		const ch = contentBounds
-			? Math.ceil(contentBounds.height * dpiScale)
-			: srcH;
+		// Filters never see quantization artifacts. A chain of crop-safe filters
+		// placed through coordinateSpace reads only near each pixel, so the
+		// transparent padding cannot reach the content: it runs on the source
+		// texture as it is, and its intermediates share the pool's sizes.
+		const runsOnSource =
+			!firstIgnoresSource &&
+			coordinateSpace != null &&
+			activeFilters.every(
+				({ filter, handler }) =>
+					resolveRenderConfigure(handler, filter).cropSafe,
+			);
+		const cw =
+			contentBounds && !runsOnSource
+				? Math.ceil(contentBounds.width * dpiScale)
+				: srcW;
+		const ch =
+			contentBounds && !runsOnSource
+				? Math.ceil(contentBounds.height * dpiScale)
+				: srcH;
 		const isPadded = !firstIgnoresSource && (cw !== srcW || ch !== srcH);
 
 		this.ensureTempTextures(cw, ch, format);
 
-		if (!this.tempTexture1 || !this.tempTexture2) {
+		if (!this.tempTexture1) {
 			console.warn("Failed to allocate temp textures for filtering");
 			return { texture: sourceTexture };
 		}
@@ -1001,10 +1105,15 @@ export class FilterRenderer {
 		let currentTarget: GPUTexture;
 		let finalTexture: GPUTexture = sourceTexture;
 
-		// Content is rendered centred inside the quantised source texture.
-		// Compute the pixel offset so we extract exactly the content region.
-		const padOffX = Math.floor((srcW - cw) / 2);
-		const padOffY = Math.floor((srcH - ch) / 2);
+		// Content sits where the caller placed it, or centred inside the
+		// quantised source texture. Strip from the texel it starts in.
+		const texelOffset = contentBounds?.texelOffset;
+		const padOffX = texelOffset
+			? Math.min(Math.floor(texelOffset.x), srcW - cw)
+			: Math.floor((srcW - cw) / 2);
+		const padOffY = texelOffset
+			? Math.min(Math.floor(texelOffset.y), srcH - ch)
+			: Math.floor((srcH - ch) / 2);
 
 		if (isPadded) {
 			// Strip padding: copy centred content to content-sized temp
@@ -1014,7 +1123,7 @@ export class FilterRenderer {
 				{ width: cw, height: ch },
 			);
 			currentSource = this.tempTexture1;
-			currentTarget = this.tempTexture2;
+			currentTarget = this.ensureSecondTempTexture();
 		} else {
 			// firstIgnoresSource also lands here: currentSource is never read by
 			// the leading handler, so its (possibly nonsensically-sized) content
@@ -1022,6 +1131,14 @@ export class FilterRenderer {
 			currentSource = sourceTexture;
 			currentTarget = this.tempTexture1;
 		}
+		// The texture each pass alternates with the first temp. The unpadded
+		// source is already consumed by the first pass, so the chain writes back
+		// into it instead of a second temp, unless a backdrop pass reads it as
+		// the backdrop or as the sharp level of the backdrop blur.
+		let pingPongPartner: GPUTexture | null =
+			!firstIgnoresSource && !isPadded && !maskTexture && !backdropBlur
+				? sourceTexture
+				: null;
 
 		// Keep the chain input alive for handlers that read SourceGraphic: the
 		// ping-pong textures are overwritten pass by pass, and in-place handlers
@@ -1072,16 +1189,18 @@ export class FilterRenderer {
 
 		// Exact world size UV [0,1] maps to; a self-sizing pass replaces the
 		// texture, after which only the texel-derived fallback remains valid.
-		let sourceWorldSize = contentBounds
-			? { width: contentBounds.width, height: contentBounds.height }
-			: undefined;
+		let sourceWorldSize = !contentBounds
+			? undefined
+			: runsOnSource
+				? { width: srcW / dpiScale, height: srcH / dpiScale }
+				: { width: contentBounds.width, height: contentBounds.height };
 		// Fractional texel position of the content's top-left corner: offscreen
 		// passes centre the content unless they say where they put it, and the
 		// padding strip copies at an integer origin, so the content sits a
 		// DPI-dependent sub-texel amount off the texture origin. In-place
 		// passes preserve positions, so the offset stays valid down the chain
 		// until a self-sizing pass replaces it.
-		const placedOffset = contentBounds?.texelOffset ?? {
+		const placedOffset = texelOffset ?? {
 			x: contentBounds ? (srcW - contentBounds.width * dpiScale) / 2 : 0,
 			y: contentBounds ? (srcH - contentBounds.height * dpiScale) / 2 : 0,
 		};
@@ -1139,9 +1258,10 @@ export class FilterRenderer {
 						lastLayer.texture.texture.height,
 						format,
 					);
-					if (!this.tempTexture1 || !this.tempTexture2) break;
+					if (!this.tempTexture1) break;
 					currentSource = lastLayer.texture.texture;
 					currentTarget = this.tempTexture1;
+					pingPongPartner = null;
 					sceneInfo.textureSize = {
 						width: lastLayer.texture.texture.width,
 						height: lastLayer.texture.texture.height,
@@ -1156,9 +1276,9 @@ export class FilterRenderer {
 				if (!isLastPass) {
 					currentSource = currentTarget;
 					currentTarget =
-						currentTarget === this.tempTexture1
-							? this.tempTexture2
-							: this.tempTexture1;
+						currentTarget !== this.tempTexture1
+							? this.tempTexture1
+							: (pingPongPartner ?? this.ensureSecondTempTexture());
 				}
 			}
 		}
@@ -1211,7 +1331,6 @@ export class FilterRenderer {
 		for (const pair of this.tempPairs.values()) destroyTempPair(pair);
 		this.tempPairs.clear();
 		this.tempTexture1 = null;
-		this.tempTexture2 = null;
 
 		for (const handler of this.handlers.values()) {
 			handler.destroy?.();
@@ -1225,8 +1344,16 @@ export class FilterRenderer {
  * encoded has not used it, so every command buffer reading it is already
  * submitted, and WebGPU keeps the memory until that work completes.
  */
+function tempPairBytes(pair: TempPair): number {
+	let bytes = 0;
+	for (const texture of [pair.t1, pair.t2, pair.src]) {
+		if (texture) bytes += texture.width * texture.height * 4;
+	}
+	return bytes;
+}
+
 function destroyTempPair(pair: TempPair): void {
 	pair.t1.destroy();
-	pair.t2.destroy();
+	pair.t2?.destroy();
 	pair.src?.destroy();
 }

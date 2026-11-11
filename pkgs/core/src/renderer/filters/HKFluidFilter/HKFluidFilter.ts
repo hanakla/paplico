@@ -4,6 +4,7 @@ import { compileShaderModule } from "../../../utils/wgpu-utils";
 import type {
 	FilterHandler,
 	FilterProcessorContext,
+	FilterRenderRequirements,
 } from "../../canvas/pipeline/FilterRenderer";
 import { HK_FLUID_SHADER } from "./hk-fluid.wgsl";
 
@@ -176,6 +177,12 @@ export class HKFluidFilterHandler implements FilterHandler {
 
 	public getDetailDensity(): number {
 		return Number.POSITIVE_INFINITY;
+	}
+
+	/** Every read is placed on the element's whole bake, and a read past the
+	 *  bake's edge counts as transparent, so padding changes nothing. */
+	public getRenderConfigure(): Partial<FilterRenderRequirements> {
+		return { cropSafe: true };
 	}
 
 	public onScaleFilter(

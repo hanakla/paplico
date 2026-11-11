@@ -20,6 +20,7 @@ import {
 	mockPath,
 } from "../../../testUtils/mockElements";
 import { closedRectSegments } from "../../../testUtils/segmentFactory";
+import { createTestTextElement } from "../../../testUtils/typographyFixtures";
 import { Extrude3DFilterHandler } from "../../filters/Extrude3DFilter/Extrude3DFilter";
 import type { FilterHandler } from "./FilterRenderer";
 import {
@@ -105,6 +106,18 @@ describe("RenderPlanner frame planning", () => {
 			const plans = plan.filterPlans.get(element.id)?.allAppearancePlans;
 			expect(plans).toBeDefined();
 			expect(plans!.map((p) => p.appearance.processor)).toEqual(["fill"]);
+		});
+	});
+
+	describe("geometry sub-filters of an appearance", () => {
+		it("should leave a text to deform its glyphs itself instead of baking the appearance", () => {
+			const text = createTestTextElement("a");
+			text.filters = [
+				{ ...fillAppearance("normal"), subFilters: [shiftAppearance()] },
+			];
+			const plan = buildViewOf(makeDocumentOf([text as unknown as Path]));
+
+			expect(plan.filterPlans.get(text.id)?.allAppearancePlans).toBeUndefined();
 		});
 	});
 
@@ -456,6 +469,35 @@ describe("planBoundsOf", () => {
 		expect(bounds.maxX).toBeCloseTo(0);
 		expect(bounds.minY).toBeCloseTo(100);
 		expect(bounds.maxY).toBeCloseTo(140);
+	});
+
+	it("should size nested groups the same when one walk shares its pre-filter answers", () => {
+		const shifted = { ...mockPath("shifted"), filters: [shiftAppearance()] };
+		shifted.segments = closedRectSegments(0, 0, 40, 40);
+		const plain = mockPath("plain");
+		plain.segments = closedRectSegments(0, 0, 40, 40);
+		const deformedGroup = mockGroup("deformed-group", ["shifted"]);
+		const plainGroup = mockGroup("plain-group", ["plain"]);
+		const outer = mockGroup("outer", ["deformed-group", "plain-group"]);
+		const elementsMap = new Map(
+			[shifted, plain, deformedGroup, plainGroup, outer].map((element) => [
+				element.id,
+				element,
+			]),
+		);
+		const handlers = makeFilterHandlers();
+		const lookup = {
+			getHandler: (processor: string) => handlers.get(processor),
+		};
+
+		const answers = new Map();
+		for (const group of [outer, deformedGroup, plainGroup, outer]) {
+			expect(
+				planBoundsOf(group, elementsMap, lookup, undefined, null, answers),
+			).toEqual(planBoundsOf(group, elementsMap, lookup));
+		}
+		expect(planBoundsOf(outer, elementsMap, lookup).maxX).toBeCloseTo(140);
+		expect(planBoundsOf(plainGroup, elementsMap, lookup).maxX).toBeCloseTo(40);
 	});
 });
 

@@ -4,6 +4,7 @@ import {
 	createMeshWarpObjectFromGeometry,
 } from "../../../document/factory";
 import type {
+	AnyArtObject,
 	FillAppearance,
 	FreeGradientStop,
 	Group,
@@ -574,6 +575,58 @@ describe("demoteWarpVertexToDerived", () => {
 });
 
 describe("warpMeshChildren", () => {
+	it("should leave a guide child and what a guide group holds out of the warp", () => {
+		const cage = createWarpCageFromRect(RECT);
+		const imageAt = (id: string): ImageObject => ({
+			id,
+			type: "image",
+			fileUid: "file-1",
+			x: 50,
+			y: 50,
+			width: 100,
+			height: 100,
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		});
+		const artwork = imageAt("artwork");
+		const guide = { ...imageAt("guide"), isGuide: true };
+		const inner = imageAt("inner");
+		const guideGroup: AnyArtObject = {
+			id: "guide-group",
+			type: "group",
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+			childIds: [inner.id],
+			isGuide: true,
+		};
+		const mesh: MeshArtObject = {
+			id: "mesh-1",
+			type: "mesh",
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+			childIds: [artwork.id, guide.id, guideGroup.id],
+			vertices: cage.vertices,
+			faces: cage.faces,
+		};
+
+		const { transients } = warpMeshChildren(mesh, {
+			elementsMap: new Map<string, AnyArtObject>([
+				[artwork.id, artwork],
+				[guide.id, guide],
+				[inner.id, inner],
+				[guideGroup.id, guideGroup],
+			]),
+			getTextGlyphPaths: () => null,
+		});
+
+		expect(transients.map((transient) => transient.id)).toEqual([
+			`${mesh.id}::warp::${artwork.id}`,
+		]);
+	});
+
 	it("should bend an image child's interior grid along the cage curvature", () => {
 		const cage = createWarpCageFromRect(RECT);
 		// Bow the bottom cage edge downward — the 4-corner projective blit

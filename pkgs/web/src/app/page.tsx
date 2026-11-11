@@ -49,6 +49,7 @@ import { ScanInviteDialog } from "@/dialogs/ScanInviteDialog";
 import { SignInDialog } from "@/dialogs/SignInDialog";
 import { SpinnerDialog } from "@/dialogs/SpinnerDialog";
 import { TimelapseDialog } from "@/dialogs/TimelapseDialog";
+import { openableDocumentExtension } from "@/documentImport";
 import {
 	appConfig,
 	applyThemeToDOM,
@@ -128,6 +129,7 @@ import { resolveDefaultFontForLanguage } from "@/utils/paplico";
 import {
 	detectFirefoxBrowser,
 	detectMacOSTauri,
+	detectMobileDevice,
 	detectSafariBrowser,
 	IS_TAURI_ENV,
 } from "@/utils/platform";
@@ -167,7 +169,7 @@ export default function Page() {
 	const sidePanelsBesideToolbar =
 		layoutMode === "desktop" && appSnap.panelLayout === "together";
 	const notchSide = useNotchSide();
-	const autoSave = useAutoSave();
+	const autoSave = useAutoSave(paplico);
 	const t = useTranslation();
 
 	const collab = useCollab(paplicoRef);
@@ -438,10 +440,21 @@ export default function Page() {
 					fallbackFontUrl: "/assets/fonts/NotoSansJP-VariableFont_wght.ttf",
 					getBuiltinProfileBytes,
 					filterShortcutEvents: ignoreShortcutsInOptedOutSubtree,
+					// A phone or tablet ends a page at far less memory than a
+					// desktop does. Every view-sized texture grows by the margin, and
+					// nearly all of the renderer's textures scale with the
+					// document's pixels.
+					panMarginPx: detectMobileDevice() ? 64 : undefined,
+					documentResolutionScale: detectMobileDevice() ? 0.75 : undefined,
 				});
 				paplicoRef.current = p;
 				window.__paplico = p;
 				registerForHotReload(p);
+				// Safari keeps a closing page's GPU textures until a later garbage
+				// collection, so a reload would start on top of the old page's memory.
+				window.addEventListener("pagehide", (event) => {
+					if (!event.persisted) p.destroy();
+				});
 				p.startRendering();
 				applyThemeToDOM(appConfig.theme);
 
@@ -694,23 +707,25 @@ export default function Page() {
 	const handleWindowDrop = useEventCallback(async (e: React.DragEvent) => {
 		const items = Array.from(e.dataTransfer.items);
 		const files = Array.from(e.dataTransfer.files);
-		const papfIndex = files.findIndex((f) => f.name.endsWith(".papf"));
+		const documentIndex = files.findIndex((f) =>
+			openableDocumentExtension(f.name),
+		);
 
-		if (papfIndex === -1) return;
+		if (documentIndex === -1) return;
 		e.preventDefault();
 
 		const fileHandle = await domFSFileHandleFromTransferItem(
-			items[papfIndex],
-			files[papfIndex],
+			items[documentIndex],
+			files[documentIndex],
 		);
-		openDroppedDocument(async () => fileHandle ?? files[papfIndex]);
+		openDroppedDocument(async () => fileHandle ?? files[documentIndex]);
 	});
 
 	// Handle file drops from Tauri (native drag-drop bypasses browser events)
 	useEffect(() => {
 		const handler = (e: Event) => {
 			const { paths } = (e as CustomEvent<TauriFileDropDetail>).detail;
-			const path = paths.find((p) => p.endsWith(".papf"));
+			const path = paths.find((p) => openableDocumentExtension(p));
 			if (!path) return;
 
 			openDroppedDocument(() => tauriFileHandleFromPath(path));

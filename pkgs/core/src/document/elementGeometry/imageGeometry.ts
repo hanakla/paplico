@@ -23,16 +23,7 @@ export function resolveImageGeometry(
 	quad: CubicBezierSegment[];
 	deformed: CubicBezierSegment[];
 } {
-	const halfWidth = image.width / 2;
-	const halfHeight = image.height / 2;
-	const localBounds = {
-		minX: image.x - halfWidth,
-		minY: image.y - halfHeight,
-		maxX: image.x + halfWidth,
-		maxY: image.y + halfHeight,
-		width: image.width,
-		height: image.height,
-	};
+	const localBounds = imageLocalBounds(image);
 	const quad = buildImageQuadSegments(localBounds, image.corners);
 	// applyPreFilters returns the input by reference when no enabled geometry
 	// filter applies; a filter that leaves the geometry unchanged is treated
@@ -47,6 +38,20 @@ export function resolveImageGeometry(
 			? quad
 			: filtered;
 	return { localBounds, quad, deformed };
+}
+
+/** The flat rectangle an image is drawn in, in its local space. */
+export function imageLocalBounds(image: ImageObject): BoundingBox {
+	const halfWidth = image.width / 2;
+	const halfHeight = image.height / 2;
+	return {
+		minX: image.x - halfWidth,
+		minY: image.y - halfHeight,
+		maxX: image.x + halfWidth,
+		maxY: image.y + halfHeight,
+		width: image.width,
+		height: image.height,
+	};
 }
 
 /**

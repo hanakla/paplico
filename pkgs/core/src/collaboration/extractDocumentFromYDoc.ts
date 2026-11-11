@@ -59,6 +59,7 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 		compositionMode: yMap.get("compositionMode") as CompositionMode | undefined,
 		visible: yMap.get("visible") as boolean | undefined,
 		locked: yMap.get("locked") as boolean | undefined,
+		isGuide: yMap.get("isGuide") as boolean | undefined,
 		filters: yMap.has("filters")
 			? (normalizeAppearanceFields(
 					JSON.parse(yMap.get("filters") as string),
@@ -87,7 +88,6 @@ export function yMapToObject(yMap: Y.Map<unknown>): AnyArtObject {
 					: undefined,
 				pathStart: yMap.get("pathStart") as number | undefined,
 				pathEnd: yMap.get("pathEnd") as number | undefined,
-				isGuide: yMap.get("isGuide") as boolean | undefined,
 			} satisfies Path;
 
 		case "group":

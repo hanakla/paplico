@@ -101,6 +101,10 @@ import {
 import { CompoundPathCache } from "./elementGeometry/CompoundPathCache";
 import type { FilterCapabilityLookup } from "./elementGeometry/filterCapabilities";
 import { calculatePreFilteredElementBounds } from "./elementGeometry/filteredBounds";
+import {
+	findGuideOwner,
+	guideLocalOutlines,
+} from "./elementGeometry/guideOutlines";
 import { resolveImageGeometry } from "./elementGeometry/imageGeometry";
 import {
 	childPreFilters,
@@ -479,9 +483,25 @@ export class SpatialIndex {
 	/** Incrementally update the cached elementsMap from a delta (avoids full O(N) rebuild). */
 	public applyObjectsDelta(delta: ObjectsChangeDelta): void {
 		if (!this.cachedElementsMap) return;
-		for (const [id, obj] of delta.added) this.cachedElementsMap.set(id, obj);
-		for (const [id, obj] of delta.updated) this.cachedElementsMap.set(id, obj);
+		for (const [id, obj] of delta.added) {
+			this.cachedElementsMap.set(id, this.resolveAppearance(obj));
+		}
+		for (const [id, obj] of delta.updated) {
+			this.cachedElementsMap.set(id, this.resolveAppearance(obj));
+		}
 		for (const id of delta.deleted) this.cachedElementsMap.delete(id);
+	}
+
+	/**
+	 * Keep the cached elementsMap when `document.objects` is replaced by a
+	 * record holding the same entries as `previous`. The map is otherwise
+	 * rebuilt from every object on the next lookup.
+	 */
+	public adoptObjectsRecord(
+		previous: Record<string, AnyArtObject>,
+		next: Record<string, AnyArtObject>,
+	): void {
+		if (this.cachedObjectsRef === previous) this.cachedObjectsRef = next;
 	}
 
 	/** Clear a single element's bounds cache entry without touching the quadtree. */
@@ -1474,12 +1494,18 @@ export class SpatialIndex {
 			asLocalCoord(y),
 			this.resolveElementWorldTransform(element.id, element),
 		);
-		return this.findLeafInContainer(
+		const leaf = this.findLeafInContainer(
 			element,
 			local.x,
 			local.y,
 			tolerance,
 			this.collectInheritedPreFilters(element.id),
+		);
+		if (!leaf || !this.isGuide(leaf)) return leaf;
+		// A guide shows no paint, so what is painted under it is the hit.
+		return (
+			this.findPaintedElementsAtPoint(layerId, x, y, tolerance).at(0)
+				?.element ?? null
 		);
 	}
 
@@ -1503,7 +1529,8 @@ export class SpatialIndex {
 			if (
 				!element ||
 				!isElementVisible(element) ||
-				this.isElementLocked(element.id)
+				this.isElementLocked(element.id) ||
+				this.isGuide(element)
 			)
 				continue;
 			if (
@@ -1893,9 +1920,7 @@ export class SpatialIndex {
 				// local space. Blend sources keep their own transforms (the positional
 				// offset is the whole point of a blend), so without this a body click on
 				// a blend's inner object never hits.
-				if (
-					this.isPointOnPathLocal(child, x, y, tolerance, inheritedPreFilters)
-				)
+				if (this.isPointOnElement(child, x, y, tolerance, inheritedPreFilters))
 					return child;
 				continue;
 			}
@@ -2013,7 +2038,12 @@ export class SpatialIndex {
 		);
 		for (let i = childIds.length - 1; i >= 0; i--) {
 			const child = this.store.document.objects[childIds[i]];
-			if (!child || child.id === clipPathId || !isElementVisible(child))
+			if (
+				!child ||
+				child.id === clipPathId ||
+				!isElementVisible(child) ||
+				child.isGuide
+			)
 				continue;
 			if (!this.isPointOnElement(child, x, y, tolerance, childPreFilters))
 				continue;
@@ -2214,7 +2244,12 @@ export class SpatialIndex {
 	public clearContainerMappings(container: AnyArtObject): void {
 		const childIds = getContainerChildIds(container);
 		if (childIds) {
-			for (const cid of childIds) this.parentGroupMap.delete(cid);
+			for (const cid of childIds) {
+				// A child that another container took over keeps its new parent.
+				if (this.parentGroupMap.get(cid) === container.id) {
+					this.parentGroupMap.delete(cid);
+				}
+			}
 		}
 		this.parentGroupMap.delete(container.id);
 	}
@@ -2296,6 +2331,10 @@ export class SpatialIndex {
 		inheritedPreFilters: readonly Filter[],
 		placement: ElementTransform = getTransform(element),
 	): boolean {
+		if (element.type !== "text" && this.isGuide(element)) {
+			return this.isPointOnGuide(element, x, y, tolerance, placement);
+		}
+
 		if (isPath(element)) {
 			return this.isPointOnPathLocal(
 				element,
@@ -2324,6 +2363,113 @@ export class SpatialIndex {
 			tolerance,
 			inheritedPreFilters,
 		);
+	}
+
+	/**
+	 * Whether an element is a guide: marked isGuide itself, or inside a
+	 * container that is.
+	 */
+	private isGuide(element: AnyArtObject): boolean {
+		return this.findGuideOwnerOf(element) !== undefined;
+	}
+
+	/**
+	 * The id of the element that makes this one a guide: its own when it is
+	 * marked isGuide, otherwise that of the nearest container that is. Null
+	 * for artwork.
+	 */
+	public findGuideOwnerId(elementId: string): string | null {
+		const element = this.store.document.objects[elementId];
+		return (element && this.findGuideOwnerOf(element)?.id) ?? null;
+	}
+
+	private findGuideOwnerOf(element: AnyArtObject): AnyArtObject | undefined {
+		return findGuideOwner(
+			element,
+			(id) => this.store.document.objects[id],
+			(id) => this.parentGroupMap.get(id),
+		);
+	}
+
+	/**
+	 * Hit-test a guide near the outline the guide overlay draws for it, never
+	 * on its paint, so a click inside a filled guide passes through. A
+	 * container other than a compound path hits through its children, placed
+	 * the way the overlay places them. `x`/`y` and `placement` are as in
+	 * isPointOnElement.
+	 */
+	private isPointOnGuide(
+		element: AnyArtObject,
+		x: LocalCoord,
+		y: LocalCoord,
+		tolerance: number,
+		placement: ElementTransform,
+	): boolean {
+		const local = this.toElementLocal(element, x, y, placement);
+		if (
+			guideLocalOutlines(element, (id) => this.store.document.objects[id]).some(
+				(segments) =>
+					isPointNearSegments(local.x, local.y, segments, tolerance),
+			)
+		) {
+			return true;
+		}
+		if (isCompoundPath(element)) return false;
+		return (getContainerChildIds(element) ?? []).some((id) => {
+			const child = this.store.document.objects[id];
+			return (
+				child != null &&
+				isElementVisible(child) &&
+				this.isPointOnElement(child, local.x, local.y, tolerance, [])
+			);
+		});
+	}
+
+	/**
+	 * Whether a rect, in the space `transform` maps the guide into, touches
+	 * the outline the guide overlay draws for it. A rect lying inside a filled
+	 * guide does not.
+	 */
+	private isGuideInRect(
+		element: AnyArtObject,
+		transform: ElementTransform,
+		minX: number,
+		minY: number,
+		maxX: number,
+		maxY: number,
+	): boolean {
+		const rect = this.toElementLocalRect(transform, minX, minY, maxX, maxY);
+		if (
+			guideLocalOutlines(element, (id) => this.store.document.objects[id]).some(
+				(segments) =>
+					doesPathIntersectRect(
+						{ segments, filters: [] },
+						rect.minX,
+						rect.minY,
+						rect.maxX,
+						rect.maxY,
+					),
+			)
+		) {
+			return true;
+		}
+		if (isCompoundPath(element)) return false;
+		return (getContainerChildIds(element) ?? []).some((id) => {
+			const child = this.store.document.objects[id];
+			return (
+				child != null &&
+				isElementVisible(child) &&
+				this.isElementInRect(
+					child,
+					getTransform(child),
+					rect.minX,
+					rect.minY,
+					rect.maxX,
+					rect.maxY,
+					[],
+				)
+			);
+		});
 	}
 
 	/**
@@ -2603,6 +2749,10 @@ export class SpatialIndex {
 		maxY: number,
 		inheritedPreFilters: readonly Filter[],
 	): boolean {
+		if (element.type !== "text" && this.isGuide(element)) {
+			return this.isGuideInRect(element, transform, minX, minY, maxX, maxY);
+		}
+
 		if (isPath(element)) {
 			const path = this.resolveAppearance(element);
 			const rect = this.toElementLocalRect(transform, minX, minY, maxX, maxY);

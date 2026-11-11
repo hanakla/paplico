@@ -4,13 +4,36 @@
 
 ### Added
 
+- **Blend modes**
+  - Add the `hue`, `saturation`, `color` and `luminosity` blend modes.
+- **Text**
+  - A text style takes `textOrientation`. `"mixed"` lays Latin and other proportional characters on their side in vertical writing.
+- **Repeat**
+  - A grid repeat takes `rowFlip` and `columnFlip`, which mirror every other row or column.
+- **Gradients**
+  - A radial gradient takes `focalX` and `focalY`, the point it starts from.
+- **Composition modes**
+  - The `knockout` composition mode makes an element replace what is under it inside its parent instead of showing it through its own transparency.
+- **Utils**
+  - `calculateSegmentListBounds` in `@paplico/core/utils` measures a list of segments.
+  - `linearMatrixToTransform` in `@paplico/core/utils` turns a matrix into an element transform.
+- **Color**
+  - `createCmykToRgbConverter` in `@paplico/core/color` converts CMYK to RGB through a CMYK profile, or, when there is no profile, approximates a coated offset press with colors sampled from the FOGRA39L coated profile (zlib/libpng license).
 - **Artboard tool**
   - Alt+drag an artboard to place a copy of it and the elements on it.
   - A dragged artboard snaps to the center lines of the other artboards.
 - **Artboards**
   - `PaplicoCommands.duplicateArtboard` copies an artboard and the elements on it. Without an offset, the copy goes to the right of or below the source without overlapping another artboard.
+- **Guides**
+  - Every element type takes `isGuide`, not only paths. A guide group makes every element inside it a guide.
+  - `PaplicoCommands.makeGuides` and `PaplicoCommands.releaseGuides` turn the given unlocked elements into guides and back in one undo step.
 - **Paste**
   - `PaplicoCommands.pasteElements` takes `layerRoot` to paste at the root of a given layer and `select: false` to keep the selection.
+- **Renderer**
+  - The `documentResolutionScale` option of `Paplico.create` draws the document at a fraction of the canvas resolution and stretches it over the canvas, which takes less GPU memory. Tool overlays keep the full resolution. It defaults to 1.
+  - `Paplico.deviceLimits` returns the limits of the GPU device the renderer draws with, such as the largest side a texture can have.
+- **Export**
+  - `Paplico.exportArtboard` takes `rasterizationDpi` to rasterize filters at another resolution than the document's. A small preview passes its own pixel density to take far less GPU memory.
 
 ### Changed
 
@@ -18,14 +41,42 @@
   - `TextRenderer.textElementToPaths` returns `bounds` as a `LocalBBox` instead of a `WorldBBox`. The bounds include the text's position but not its transform.
   - `TimelapsePlayer.seekTo`, `advanceBy`, `skipBy` and `restart` return Promises.
   - A timelapse read from a file keeps every block but the last in `TimelapseData.packedBlocks` instead of in `entries`.
+- **Documents**
+  - A document is saved at schema version 20261112. A build older than guides on every element type refuses to open it instead of drawing its guides as artwork.
 - **Renderer**
   - Panning a zoomed-in document no longer stalls every few frames.
   - The frame after a pan ends no longer stalls.
   - Panning back over filtered elements in a zoomed-in document no longer stalls. Their results may use the part of `gpuCacheBudgetBytes` the other render caches leave unused.
   - Panning near a blur brush stroke no longer slows down.
   - Panning a zoomed-in document near a large clipping group no longer slows down.
+  - Panning over nested clipping groups no longer gets slower as the document grows.
+  - Panning and zooming a document with many elements no longer slow down with each element added.
+  - Panning a document with many clipping groups no longer stalls for seconds when they leave the view.
+  - Panning a document with more than 32 patterns no longer draws them all again each time the pan redraws.
+  - A pan or zoom keeps moving through slow redraws. After a redraw of 100 ms or more, and in a view whose full redraw takes 200 ms or more, it shows the last picture. The redraw of the part of the view that picture does not cover starts within a second.
+  - Panning onto text and images that are still loading no longer redraws the whole view each time one finishes. Those that finish during the pan appear when it ends.
+  - Panning onto a part of a document with many paths not shown yet no longer takes seconds to finish drawing.
+  - The redraw after a pan waits up to 400 ms for the images the pan was heading to, instead of drawing again as each arrives.
+  - Text is laid out in the background once the document opens instead of when it first comes into view.
+  - A view with many clipping groups that hold several elements redraws about 10% faster.
   - Panning or editing near an element with `applyToBackdrop` on a filter no longer slows down.
   - Editing an element inside a mesh or used as a mask redraws the whole view instead of only the region around it.
+  - The redraw after an edit takes less time in a document with deeply nested groups.
+  - An edit takes less time to apply in a large document.
+  - Zooming into a document with many filtered elements takes less GPU memory.
+  - Panning over a large filtered element in a zoomed-in document no longer bakes it again each time the pan redraws only a strip of the view.
+  - Filters are baked at a density closer to the zoom, in steps of √2 instead of 2, which takes less GPU memory at zooms between two powers of two.
+  - Safari and the other WebKit browsers give back the memory of offscreen textures soon after a zoom or pan replaces them, instead of holding it for seconds.
+  - On Safari and the other WebKit browsers, the sharp re-render after a pan or zoom waits until the memory of the textures replaced by the one before is given back. Until then the last frame drawn is shown scaled, and the part of the view it does not cover stays empty.
+  - A pinch that pauses and moves on no longer re-renders the document on every frame, which takes far less GPU memory. Filter bakes still waiting and newly loaded resources are drawn once the gesture stops.
+  - Zooming into a document with a color-only filter such as gradient map on `applyToBackdrop` takes less GPU memory.
+  - A two-finger pan near 100% zoom takes less GPU memory.
+  - Panning no longer stacks each frame's offscreen textures on top of the ones earlier frames left unused, which takes less GPU memory.
+  - The frames after a zoom-in reuse their offscreen textures instead of allocating them again, which takes less GPU memory.
+  - Filtered elements sharpen over a few frames after a zoom or pan instead of all in one frame, which takes less GPU memory.
+- **Images**
+  - An image drawn small uses a 512 px preview instead of the whole image. The previews load once the document opens, until the image textures reach their budget.
+  - Image textures stay within a budget of their own, half the size of `gpuCacheBudgetBytes` and on top of it, apart from the ones the view is drawing. Past it, the images drawn longest ago are freed and load again when they are next drawn, instead of staying loaded until the canvas closes.
 - **Drop shadow filter**
   - Panning over a large drop-shadowed group in a zoomed-in document no longer stalls.
 - **Kirakira filter**
@@ -33,37 +84,83 @@
   - An exported wide kirakira glow differs from earlier versions by a few levels of 255.
 - **Path edit tool**
   - Dragging a vertex no longer stalls on its first frame or on release, and no longer slows down inside a drop-shadowed group.
+- **Groups**
+  - Duplicating, pasting or deleting a group with many nested elements no longer takes seconds in a large document. This also covers the undo and redo of each.
+- **Blends**
+  - Moving an element that no blend uses as a key takes less time in a large document.
+- **Guides**
+  - A guide is drawn as a thin cyan outline above the artboards and below the other tool UI instead of with its own paint.
+  - A click or a marquee selects a guide path, compound path or image only on that outline instead of anywhere on its fill or stroke.
+  - An edit to a document without guides no longer takes longer as the document grows to refresh the guides.
 - **SVG export**
   - An alpha-locked element is exported as an image of only what it paints, instead of turning it and every element under it into one image.
 - **Collaboration**
   - `PartyKitCollaboration` connects to a PartyServer host through `y-partyserver` instead of to a PartyKit host through `y-partykit`.
+- **Timelapse**
+  - Saving a document no longer compresses again the part of its timelapse that an earlier save already compressed, which makes each save after the first far faster when the document embeds large images.
+  - The first save after a document opens no longer freezes the page while it compresses the timelapse.
+- **Text**
+  - Outlining a text puts its fills and strokes on the group of glyph paths instead of on each glyph path, so a gradient spans the outlined text. Glyphs filled differently keep their own fill.
 
 ### Fixed
 
+- **Images**
+  - Fix an image wider or taller than the GPU's texture limit leaving the whole canvas undrawn. It is drawn scaled down to fit the limit.
+  - Fix panning or zooming stalling while a document's images load. New image loads wait until the gesture ends.
 - **Renderer**
   - Fix a filtered element just outside the screen appearing without its filter, or not at all, while panning it into view.
+  - Fix the backdrop under a color-only filter on `applyToBackdrop` looking softer than the rest of the canvas at most zoom levels.
 - **Filters**
   - Fix some filtered elements staying blurry after zooming in until the view moves.
   - Fix the drop shadow or another filter of a group not following an element edited inside it.
+- **Path offset filter**
+  - Fix a hole in a shape, such as the counter of a letter, growing with a positive offset instead of shrinking. A hole the shape closes over is dropped.
+- **Chromatic aberration filter**
+  - Fix the separation's center moving while panning or zooming a large element.
 - **Text tool**
   - Fix a moved, rotated or resized text disappearing after its edit is confirmed.
 - **Select tool**
   - Fix a text without a box getting a fixed box when resized, which showed the overflow mark once more characters were typed.
+  - Fix a click on a long thin line, or a marquee across it, missing the line in places along it.
+  - Fix a click or a marquee on a filled path missing it, or picking it from outside, near an S-shaped edge or inside a single curve that loops back to its start.
+  - Fix a click just inside the curved edge of a filled path missing it when zoomed in beyond about 1300%.
 - **Select tool / Paste**
   - Fix a rotated element, or a group with rotated content, landing away from the pointer when Alt+drag duplicated or pasted.
 - **SVG export**
   - Fix Illustrator reporting a missing linked file, leaving out the images and dropping some clipping masks when it opens an exported SVG.
   - Fix an alpha-locked element with a blend mode coming out in a different color from the canvas.
+  - Fix a text's gradient being written once per character instead of once across the text.
 - **Extrude / Revolve filters**
   - Fix a glass solid in a hidden layer still showing on the canvas.
 - **Layers**
   - Fix deleting a layer leaving the contents of its groups in the document, where a glass solid among them kept showing on the canvas.
+- **Object masks**
+  - Fix an object mask showing the whole element instead of only the part the mask keeps.
+- **Guides**
+  - Fix the elements inside a guide group showing their own paint while the group is being edited.
+  - Fix a 3D reference made a guide vanishing from the canvas with nothing left to select. `makeGuides` leaves an image and a 3D reference as artwork.
+  - Fix releasing an element inside a guide group doing nothing. `releaseGuides` releases the group that makes it a guide.
+  - Fix a glass 3D solid that is a guide being drawn over everything else.
+  - Fix a guide inside a mesh warp still showing its paint.
+  - Fix outlining a guide turning it into painted paths.
+  - Fix the eyedropper picking, and the eraser cutting, the paint a guide does not show.
 - **Compound paths**
   - Fix a hidden source path still taking part in its compound path's shape.
 - **Timelapse**
   - Fix opening a document with a long timelapse recording crashing on iPad.
   - Fix the timelapse dialog crashing on iPad when it opens a long recording.
   - Fix seeking back to near the start of a recording made by an older build failing.
+- **Fonts**
+  - Fix `DomLocalFontBackend` returning every font without its PostScript name and `queryFontsByPostScriptNames` returning all fonts instead of the named ones.
+  - Fix `LocalFontsLoader` failing to load a font that a document names by its full name.
+- **Text**
+  - Fix the caret, the selection and clicks landing above a character laid on its side in vertical writing.
+  - Fix a character the chosen font lacks showing as a tofu box instead of being drawn with the fallback font.
+  - Fix a centered or right-aligned paragraph in vertical writing starting at the top of its column. Without a box, the text's position is the middle or the end of the column.
+  - Fix text with a path offset or another shape filter on one of its fills or strokes being drawn as a coarse image instead of sharp outlines.
+  - Fix a text's gradient restarting at every character, and each character's stroke being covered by the next character's fill. Characters given a fill of their own share one gradient across all the characters with that fill.
+- **Groups**
+  - Fix a fill or stroke on a group covering the holes of the paths and compound paths inside it.
 
 ## [0.10.0] - 2026-10-28
 
@@ -79,6 +176,7 @@
   - `Tool.onPointerLeave` is called when the pointer leaves the canvas.
 - **Renderer**
   - The `gpuCacheBudgetBytes` option of `Paplico.create` sets how much GPU memory the render caches keep between frames. It defaults to 1600 MiB.
+  - The `panMarginPx` option of `Paplico.create` sets how far around the view a frame is drawn ahead for pans. A smaller value takes less GPU memory. It defaults to 256.
 
 ### Changed
 

@@ -20,6 +20,12 @@ export class BlitBindGroupCache {
 		this.slots[index] = { texture, bindGroup };
 		return bindGroup;
 	}
+
+	/** Drop the slots from `usedSlots` on, which the last frame did not reach.
+	 *  Their bind groups keep textures of earlier frames referenced. */
+	public trim(usedSlots: number): void {
+		if (this.slots.length > usedSlots) this.slots.length = usedSlots;
+	}
 }
 
 /**
@@ -46,6 +52,12 @@ export class MaskedBlitBindGroupCache {
 		const bindGroup = create();
 		this.slots[index] = { source, secondary, bindGroup };
 		return bindGroup;
+	}
+
+	/** Drop the slots from `usedSlots` on, which the last frame did not reach.
+	 *  Their bind groups keep textures of earlier frames referenced. */
+	public trim(usedSlots: number): void {
+		if (this.slots.length > usedSlots) this.slots.length = usedSlots;
 	}
 }
 
@@ -77,5 +89,11 @@ export class TripleTextureBindGroupCache {
 		const bindGroup = create();
 		this.slots[index] = { t0, t1, t2, bindGroup };
 		return bindGroup;
+	}
+
+	/** Drop the slots from `usedSlots` on, which the last frame did not reach.
+	 *  Their bind groups keep textures of earlier frames referenced. */
+	public trim(usedSlots: number): void {
+		if (this.slots.length > usedSlots) this.slots.length = usedSlots;
 	}
 }

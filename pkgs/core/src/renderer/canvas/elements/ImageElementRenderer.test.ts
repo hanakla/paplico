@@ -57,7 +57,9 @@ function createDeps() {
 	const texture = {} as GPUTexture;
 	const images: ImageTextures = {
 		get: (file) => (file.uid === "file-1" ? texture : null),
-		has: (file) => file.uid === "file-1",
+		request: () => {},
+		stateOf: (file) => (file.uid === "file-1" ? "whole" : "none"),
+		continueLastFrame: () => {},
 		ensure: async () => null,
 	};
 

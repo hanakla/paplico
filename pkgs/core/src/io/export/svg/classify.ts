@@ -121,12 +121,12 @@ function classifyElementInner(
 		return "skip";
 	}
 	if (element.opacity <= 0) return "skip";
-	if (element.type === "path" && element.isGuide) return "skip";
+	if (element.isGuide) return "skip";
 	if (element.type === "reference3d") {
 		return element.includeInExport === true ? "raster" : "skip";
 	}
 
-	if (element.compositionMode === "alpha-lock") return "raster";
+	if ((element.compositionMode ?? "normal") !== "normal") return "raster";
 
 	const composed = ancestorTransform
 		? composeTransforms(ancestorTransform, element.transform)
@@ -250,7 +250,7 @@ function classifyElementInner(
 			// renderer; the outline exporter does not reproduce that yet.
 			if (needsBake) return "raster";
 			// The renderer composites fill/stroke APPEARANCES onto glyph paint
-			// (TextElementRenderer.buildGlyphPaintFilters); the outline exporter
+			// (TextElementRenderer.resolveTextDrawPaths); the outline exporter
 			// only reads run styles, so appearance-painted text must rasterize.
 			if (hasVisiblePaintAppearances(element)) return "raster";
 			// An axis path carrying appearances renders as an underlay of THIS
@@ -516,7 +516,8 @@ function isBackdropDependent(
 	opts: ClassifyOptions,
 ): boolean {
 	return (
-		element.compositionMode === "alpha-lock" || samplesBackdrop(element, opts)
+		(element.compositionMode ?? "normal") !== "normal" ||
+		samplesBackdrop(element, opts)
 	);
 }
 

@@ -21,6 +21,19 @@ export function detectFirefoxBrowser(): boolean {
 	return navigator.userAgent.includes("Firefox/");
 }
 
+/**
+ * Tells whether the app runs on a phone or tablet, by its user agent. Safari
+ * on iPadOS reports itself as a Mac, so a Mac with a touch screen counts.
+ */
+export function detectMobileDevice(): boolean {
+	if (typeof navigator === "undefined") return false;
+
+	return (
+		/iPhone|iPad|Android/.test(navigator.userAgent) ||
+		(navigator.platform.startsWith("Mac") && navigator.maxTouchPoints > 1)
+	);
+}
+
 /** Tells whether the app runs in the iOS or Android Tauri build. */
 export function detectTauriMobile(): boolean {
 	return IS_TAURI_ENV && /iPhone|iPad|Android/.test(navigator.userAgent);

@@ -395,7 +395,7 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 	},
 	{
 		name: "webgpu-utils",
-		version: "2.0.3",
+		version: "2.1.1",
 		license: "MIT",
 		url: "https://github.com/greggman/webgpu-utils",
 	},
@@ -434,5 +434,11 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 		version: "4.4.3",
 		license: "MIT",
 		url: "https://github.com/colinhacks/zod",
+	},
+	{
+		name: "zstddec",
+		version: "0.3.4",
+		license: "MIT AND BSD-3-Clause",
+		url: "https://github.com/donmccurdy/zstddec",
 	},
 ];

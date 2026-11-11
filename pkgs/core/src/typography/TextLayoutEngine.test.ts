@@ -299,6 +299,119 @@ describe("TextLayoutEngine vertical regions", () => {
 		expect(result.hasOverflow).toBe(false);
 	});
 
+	it("should end an end-aligned column without a box at the element's point", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const element = createTextElement("aaa", {
+			layout: { writingMode: "vertical-rl" },
+		});
+		const startTop = (await engine.layout(element)).lines[0].y;
+		element.content.paragraphs[0].alignment = "right";
+
+		const [column] = (await engine.layout(element)).lines;
+
+		expect(column.height).toBe(30);
+		expect(column.y - column.height).toBe(startTop);
+		expect(column.chars[0].y - column.chars[1].y).toBeCloseTo(10);
+	});
+
+	it("should center a centered column without a box on the element's point", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const element = createTextElement("aaa", {
+			layout: { writingMode: "vertical-rl" },
+		});
+		const startTop = (await engine.layout(element)).lines[0].y;
+		element.content.paragraphs[0].alignment = "center";
+
+		const [column] = (await engine.layout(element)).lines;
+
+		expect(column.y - column.height / 2).toBe(startTop);
+	});
+
+	it("should align a column inside its box when the box does not cut it", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const element = createTextElement("a", {
+			layout: {
+				writingMode: "vertical-rl",
+				boxWidth: 40,
+				boxHeight: 30,
+				overflow: "visible",
+			},
+		});
+		const boxTop = (await engine.layout(element)).lines[0].y;
+
+		element.content.paragraphs[0].alignment = "right";
+		const [bottom] = (await engine.layout(element)).lines;
+		element.content.paragraphs[0].alignment = "center";
+		const [middle] = (await engine.layout(element)).lines;
+
+		// The box is 30 tall and the column 10.
+		expect(bottom.y).toBe(boxTop - 20);
+		expect(middle.y).toBe(boxTop - 10);
+	});
+
+	it("should align a column to the bottom or the middle of its box", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const element = createTextElement("a", {
+			layout: {
+				writingMode: "vertical-rl",
+				boxWidth: 40,
+				boxHeight: 30,
+				wordWrap: true,
+				overflow: "hidden",
+			},
+		});
+		const boxTop = (await engine.layout(element)).lines[0].y;
+
+		element.content.paragraphs[0].alignment = "right";
+		const [bottom] = (await engine.layout(element)).lines;
+		element.content.paragraphs[0].alignment = "center";
+		const [middle] = (await engine.layout(element)).lines;
+
+		// The box is 30 tall and the column 10.
+		expect(bottom.y).toBe(boxTop - 20);
+		expect(middle.y).toBe(boxTop - 10);
+	});
+
+	it("should lay Latin on its side, advancing by its width, under mixed orientation", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const element = createTextElement("", {
+			layout: {
+				writingMode: "vertical-rl",
+				boxWidth: 40,
+				boxHeight: 30,
+				wordWrap: true,
+				overflow: "hidden",
+			},
+		});
+		const style = element.content.paragraphs[0].runs[0].style;
+		element.content.paragraphs[0].runs = [
+			{ text: "aa", style: { ...style, textOrientation: "mixed" } },
+		];
+
+		const result = await engine.layout(element);
+
+		const [first, second] = result.lines[0].chars;
+		expect(first.rotation).toBeCloseTo(-Math.PI / 2);
+		expect(first.y - second.y).toBeCloseTo(first.advanceWidth);
+	});
+
+	it("should keep Latin upright in vertical writing by default", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const result = await engine.layout(
+			createTextElement("aa", {
+				layout: {
+					writingMode: "vertical-rl",
+					boxWidth: 40,
+					boxHeight: 30,
+					wordWrap: true,
+					overflow: "hidden",
+				},
+			}),
+		);
+
+		expect(result.lines[0].chars[0].rotation).toBe(0);
+	});
+
 	it("should compose tate-chu-yoko runs horizontally in one upright cell", async () => {
 		const engine = new TextLayoutEngine(createMockFontManager());
 		const element = createTextElement("", {

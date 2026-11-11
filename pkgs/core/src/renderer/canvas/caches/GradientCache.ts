@@ -130,6 +130,8 @@ export function hashGradientDraw(
 		h = (h * 31 + floatBits(fill.radiusX)) | 0;
 		h = (h * 31 + floatBits(fill.radiusY)) | 0;
 		h = (h * 31 + floatBits(fill.rotation)) | 0;
+		h = (h * 31 + floatBits(fill.focalX ?? fill.cx)) | 0;
+		h = (h * 31 + floatBits(fill.focalY ?? fill.cy)) | 0;
 	}
 
 	if (fill.type === "linear" || fill.type === "radial") {
