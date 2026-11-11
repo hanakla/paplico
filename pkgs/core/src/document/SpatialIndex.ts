@@ -2213,7 +2213,12 @@ export class SpatialIndex {
 	public clearContainerMappings(container: AnyArtObject): void {
 		const childIds = getContainerChildIds(container);
 		if (childIds) {
-			for (const cid of childIds) this.parentGroupMap.delete(cid);
+			for (const cid of childIds) {
+				// A child that another container took over keeps its new parent.
+				if (this.parentGroupMap.get(cid) === container.id) {
+					this.parentGroupMap.delete(cid);
+				}
+			}
 		}
 		this.parentGroupMap.delete(container.id);
 	}
