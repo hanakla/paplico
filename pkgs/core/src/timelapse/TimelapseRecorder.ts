@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import { LATEST_SCHEMA_VERSION } from "../io/migrations";
+import { packTimelapseEntries, TIMELAPSE_BLOCK_SIZE } from "../io/papf/writer";
 import type { BoundingBox } from "../schema";
 import {
 	TimelapseBoundsLedger,
@@ -22,6 +23,12 @@ import type {
 const COALESCE_WINDOW_MS = 300;
 
 /**
+ * Update bytes of closed entries worth packing before a full block of them
+ * has gathered. Packing fewer would add a block to the file on every save.
+ */
+const PACK_MIN_BYTES = 1024 * 1024;
+
+/**
  * Records Yjs updates with timestamps, along with the world rect each update
  * changed. Playback uses the rects to skip updates outside the artboard.
  */
@@ -40,6 +47,8 @@ export class TimelapseRecorder {
 	private readonly ledger = new TimelapseBoundsLedger();
 	/** The entry still accepting updates that touch the same objects, by its position in `entries`. */
 	private openGroup: { index: number; key: string } | null = null;
+	/** The pack in progress, shared by every caller that arrives during it. */
+	private packing: Promise<void> | null = null;
 
 	public constructor(
 		private readonly getWorldBounds: (id: string) => BoundingBox | null,
@@ -106,6 +115,41 @@ export class TimelapseRecorder {
 	}
 
 	/**
+	 * The recording as it stands at the call, for a save to write. What is
+	 * recorded after the call is left out, so the result matches a document
+	 * captured in the same task even when packing takes seconds.
+	 *
+	 * The entries that can no longer change are packed on the way, and stay
+	 * packed in the recorder, so later saves write their bytes back instead of
+	 * encoding and compressing them again. The entry still accepting updates
+	 * stays unpacked, and so does a run of entries shorter than a block and
+	 * smaller than PACK_MIN_BYTES.
+	 */
+	public async getPackedTimelapseData(): Promise<TimelapseData | null> {
+		const captured = this.getTimelapseData();
+		if (!captured) return null;
+		// The open entry takes later updates in place and every later entry is
+		// pushed onto the same arrays, so the capture copies both.
+		captured.entries = captured.entries.map(({ t, u }) => ({ t, u }));
+		captured.index = { rects: [...this.rects] };
+		const { rects, packedCount } = this;
+
+		this.packing ??= this.packClosedEntries().finally(() => {
+			this.packing = null;
+		});
+		await this.packing;
+
+		// restoreFrom swapped in another document's recording meanwhile. The
+		// capture is still this document's, only not packed.
+		if (this.rects !== rects) return captured;
+		return {
+			...captured,
+			packedBlocks: this.packedBlocks,
+			entries: captured.entries.slice(this.packedCount - packedCount),
+		};
+	}
+
+	/**
 	 * Carries over the recording a loaded document brought with it.
 	 * The recorder outlives the document, so pass undefined when switching to
 	 * a document without a recording. Otherwise the previous document's history
@@ -156,6 +200,29 @@ export class TimelapseRecorder {
 		for (let i = 0; i < count; i++) {
 			this.rects[i] ??= index.rects[i];
 		}
+	}
+
+	private async packClosedEntries(): Promise<void> {
+		const entries = this.entries;
+		const closed = entries.slice(0, this.openGroup?.index);
+		if (
+			closed.length < TIMELAPSE_BLOCK_SIZE &&
+			closed.reduce((bytes, entry) => bytes + entry.u.byteLength, 0) <
+				PACK_MIN_BYTES
+		) {
+			return;
+		}
+
+		const blocks = await packTimelapseEntries(closed);
+		// restoreFrom swapped the recording while the blocks were being packed.
+		if (this.entries !== entries) return;
+
+		// Recordings handed out earlier hold these arrays, so the arrays are
+		// replaced instead of edited.
+		this.packedBlocks = [...this.packedBlocks, ...blocks];
+		this.packedCount += closed.length;
+		this.entries = entries.slice(closed.length);
+		if (this.openGroup) this.openGroup.index -= closed.length;
 	}
 
 	private get entryCount(): number {

@@ -60,6 +60,9 @@
   - An alpha-locked element is exported as an image of only what it paints, instead of turning it and every element under it into one image.
 - **Collaboration**
   - `PartyKitCollaboration` connects to a PartyServer host through `y-partyserver` instead of to a PartyKit host through `y-partykit`.
+- **Timelapse**
+  - Saving a document no longer compresses again the part of its timelapse that an earlier save already compressed, which makes each save after the first far faster when the document embeds large images.
+  - The first save after a document opens no longer freezes the page while it compresses the timelapse.
 
 ### Fixed
 

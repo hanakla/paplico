@@ -31,15 +31,39 @@ export function crc32(data: Uint8Array): number {
 // Deflate compression / decompression
 // ---------------------------------------------------------------------------
 
-export async function compressDeflate(data: Uint8Array): Promise<Uint8Array> {
+/**
+ * Compress `data` with deflate.
+ *
+ * The browser deflates each written chunk in one task on the calling thread.
+ * With `yieldEveryBytes`, the data is written in chunks of that size and the
+ * thread is released between them, so a large payload does not hold it for
+ * the whole compression.
+ */
+export async function compressDeflate(
+	data: Uint8Array,
+	yieldEveryBytes = data.byteLength,
+): Promise<Uint8Array> {
 	try {
 		const cs = new CompressionStream("deflate");
 		const writer = cs.writable.getWriter();
 		const reader = cs.readable.getReader();
 
-		const writePromise = writer
-			.write(data as Uint8Array<ArrayBuffer>)
-			.then(() => writer.close());
+		const writePromise = (async () => {
+			for (
+				let offset = 0;
+				offset < data.byteLength;
+				offset += yieldEveryBytes
+			) {
+				if (offset > 0) await yieldToEventLoop();
+				await writer.write(
+					data.subarray(
+						offset,
+						offset + yieldEveryBytes,
+					) as Uint8Array<ArrayBuffer>,
+				);
+			}
+			await writer.close();
+		})();
 
 		const chunks: Uint8Array[] = [];
 		let totalLength = 0;
@@ -96,4 +120,19 @@ export async function decompressDeflate(data: Uint8Array): Promise<Uint8Array> {
 		offset += chunk.byteLength;
 	}
 	return result;
+}
+
+/**
+ * Resolve in a later task. A message port is used because a timer is slowed
+ * down to once a second or less while the page is in the background.
+ */
+function yieldToEventLoop(): Promise<void> {
+	return new Promise((resolve) => {
+		const { port1, port2 } = new MessageChannel();
+		port1.onmessage = () => {
+			port1.close();
+			resolve();
+		};
+		port2.postMessage(null);
+	});
 }

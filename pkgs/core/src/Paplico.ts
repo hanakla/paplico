@@ -2379,11 +2379,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	public async exportDocument(): Promise<Blob> {
 		const primaryTarget = this.getPrimaryTarget();
+		// Started before anything is awaited, so the recording and the document
+		// are captured in the same task.
+		const timelapse = this.timelapseRecorder.getPackedTimelapseData();
 		const doc = {
 			...snapshot(this.rendererStore).document,
 			viewport:
 				primaryTarget?.getViewport() ?? this.rendererStore.document.viewport,
-			timelapse: this.timelapseRecorder.getTimelapseData() ?? undefined,
+			timelapse: (await timelapse) ?? undefined,
 		};
 		const { document: gcedDoc } = gcDocument(doc as Document);
 		return serializeDocument(gcedDoc);
