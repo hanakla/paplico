@@ -46,6 +46,17 @@
   - Panning back over filtered elements in a zoomed-in document no longer stalls. Their results may use the part of `gpuCacheBudgetBytes` the other render caches leave unused.
   - Panning near a blur brush stroke no longer slows down.
   - Panning a zoomed-in document near a large clipping group no longer slows down.
+  - Panning over nested clipping groups no longer gets slower as the document grows.
+  - Panning and zooming a document with many elements no longer slow down with each element added.
+  - Panning a document with many clipping groups no longer stalls for seconds when they leave the view.
+  - Panning a document with more than 32 patterns no longer draws them all again each time the pan redraws.
+  - A pan or zoom keeps moving through slow redraws. After a redraw of 100 ms or more, and in a view whose full redraw takes 200 ms or more, it shows the last picture. The part of the view that picture does not cover is drawn within 2 seconds.
+  - Panning onto text and images that are still loading no longer redraws the whole view each time one finishes. Those that finish during the pan appear when it ends.
+  - Panning onto a part of a document with many paths not shown yet no longer takes seconds to finish drawing.
+  - An image drawn small uses a 512 px preview, loaded for every image once the document opens, instead of the whole image.
+  - The images a pan is heading to load during the pan, and the redraw after it waits up to 400 ms for them, instead of drawing again as each arrives.
+  - Text is laid out in the background once the document opens instead of when it first comes into view.
+  - A view with many clipping groups that hold several elements redraws about 10% faster.
   - Panning or editing near an element with `applyToBackdrop` on a filter no longer slows down.
   - Editing an element inside a mesh or used as a mask redraws the whole view instead of only the region around it.
   - Zooming into a document with many filtered elements takes less GPU memory.

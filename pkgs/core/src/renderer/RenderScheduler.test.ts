@@ -312,6 +312,80 @@ describe("RenderScheduler", () => {
 			}
 		});
 
+		it("should keep the gesture going while a long frame holds back its input", () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			const now = vi.spyOn(performance, "now").mockReturnValue(0);
+			try {
+				const callback = vi.fn(() => {
+					now.mockReturnValue(80);
+				});
+				const scheduler = new RenderScheduler(callback);
+
+				scheduler.markDirty("viewport");
+				flushFrame();
+				callback.mockClear();
+				now.mockReturnValue(100);
+				vi.advanceTimersByTime(100);
+				flushFrame();
+				expect(callback).not.toHaveBeenCalled();
+
+				now.mockReturnValue(200);
+				vi.advanceTimersByTime(100);
+				flushFrame();
+				expect(lastCall(callback)[0]).toBe("viewportSettle");
+			} finally {
+				now.mockRestore();
+				vi.useRealTimers();
+			}
+		});
+
+		it("should keep the gesture going while its next frame has not been delivered", () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				const callback = vi.fn();
+				const scheduler = new RenderScheduler(callback);
+
+				scheduler.markDirty("viewport");
+				vi.advanceTimersByTime(100);
+				flushFrame();
+				expect(lastCall(callback)[0]).toBe("viewportBlit");
+
+				vi.advanceTimersByTime(100);
+				flushFrame();
+				expect(lastCall(callback)[0]).toBe("viewportSettle");
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
+		it("should hold the settle frame until the resources the gesture asked for arrive", () => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			try {
+				let isAwaiting = true;
+				const callback = vi.fn();
+				const scheduler = new RenderScheduler(
+					callback,
+					undefined,
+					undefined,
+					undefined,
+					() => isAwaiting,
+				);
+
+				scheduler.markDirty("viewport");
+				flushFrame();
+				vi.advanceTimersByTime(100);
+				flushFrame();
+				expect(callback).toHaveBeenCalledOnce();
+
+				isAwaiting = false;
+				vi.advanceTimersByTime(16);
+				flushFrame();
+				expect(lastCall(callback)[0]).toBe("viewportSettle");
+			} finally {
+				vi.useRealTimers();
+			}
+		});
+
 		it("should re-render the settle frame when volatile content exists", () => {
 			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 			try {

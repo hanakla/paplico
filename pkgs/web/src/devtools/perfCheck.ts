@@ -17,6 +17,8 @@ interface PerfCheckResult {
 	inventory: unknown;
 	overall: unknown;
 	windows: unknown[];
+	/** Who dropped the composite frame cache, grouped by call site. */
+	cacheInvalidations: Array<{ origin: string; count: number; times: number[] }>;
 }
 
 /** Document / viewport / GPU conditions the measurement ran under. */
@@ -128,6 +130,7 @@ export async function runPerfCheck(
 	const cpuSamples: CpuSample[] = [];
 	const apiSamples: CpuSample[] = [];
 	const dirtyEvents: DirtyEvent[] = [];
+	const cacheInvalidations: Array<{ t: number; origin: string }> = [];
 	let curRender: RenderRecord | null = null;
 	let viewportAtStart: unknown = null;
 	const state = {
@@ -205,11 +208,11 @@ export async function runPerfCheck(
 		return block;
 	}
 
-	function originOf() {
+	function originOf(depth = 5) {
 		const stack = new Error().stack ?? "";
 		return stack
 			.split("\n")
-			.slice(3, 8) // drop Error + beginRenderPass wrapper frames
+			.slice(3, 3 + depth) // drop Error + the patched method's wrapper frames
 			.map((l) => {
 				const m = l.match(/at\s+([^\s(]+)/);
 				return m ? m[1] : null;
@@ -609,6 +612,36 @@ export async function runPerfCheck(
 	wrapCpu(clProto, "executeFrame", "CanvasLayer.executeFrame");
 	wrapCpu(clProto, "renderElements", "CanvasLayer.renderElements");
 	wrapCpu(clProto, "applyPostMasks", "CanvasLayer.applyPostMasks");
+	// Each FrameGraph pass is timed under its name, which splits executeFrame
+	// into the stages the frame was built from. A graph lives for one frame, so
+	// its passes are wrapped in place without a restore entry.
+	patch(
+		clProto,
+		"executeFrame",
+		(orig) =>
+			function (this: unknown, graph: any, ...rest: any[]) {
+				for (const pass of graph?.passes ?? []) {
+					wrapLocal(
+						pass.desc,
+						"execute",
+						(execute) =>
+							function (this: unknown, ...a: any[]) {
+								const t0 = performance.now();
+								try {
+									return execute.apply(this, a);
+								} finally {
+									cpuSamples.push({
+										t: nowRel(),
+										method: `FrameGraph pass: ${pass.name}`,
+										ms: performance.now() - t0,
+									});
+								}
+							},
+					);
+				}
+				return orig.call(this, graph, ...rest);
+			},
+	);
 	wrapCpu(Object.getPrototypeOf(uiLayer), "render", "UILayer.render");
 	const offscreen = canvasLayer.offscreen;
 	if (offscreen) {
@@ -622,6 +655,22 @@ export async function runPerfCheck(
 			proto,
 			"renderGroupToTexture",
 			"OffscreenPresenter.renderGroupToTexture",
+		);
+		wrapCpu(proto, "renderClipGroup", "OffscreenPresenter.renderClipGroup");
+		wrapCpu(
+			proto,
+			"renderClipGroupToTexture",
+			"OffscreenPresenter.renderClipGroupToTexture",
+		);
+		wrapCpu(
+			proto,
+			"renderElementsToOffscreenTexture",
+			"OffscreenPresenter.renderElementsToOffscreenTexture",
+		);
+		wrapCpu(
+			proto,
+			"blitThroughClipMask",
+			"OffscreenPresenter.blitThroughClipMask",
 		);
 		wrapCpu(
 			proto,
@@ -669,6 +718,17 @@ export async function runPerfCheck(
 			"renderSilhouetteAtlasBatch",
 			"ClipMaskAtlas.renderSilhouetteAtlasBatch",
 		);
+		wrapCpu(
+			proto,
+			"computeMaskFingerprint",
+			"ClipMaskAtlas.computeMaskFingerprint",
+		);
+		wrapCpu(
+			proto,
+			"flushAtlasDescriptors",
+			"ClipMaskAtlas.flushAtlasDescriptors",
+		);
+		wrapCpu(proto, "releaseStaleEntries", "ClipMaskAtlas.releaseStaleEntries");
 	}
 	if (filterRenderer)
 		wrapCpu(
@@ -689,6 +749,22 @@ export async function runPerfCheck(
 				},
 		);
 	}
+
+	// ---- composite cache invalidations ---------------------------------------
+	// An invalidated cache turns the next viewport frame into a full redraw,
+	// so each call is recorded with the call site that asked for it.
+	patch(
+		clProto,
+		"invalidateDocumentCache",
+		(orig) =>
+			function (this: unknown, ...a: any[]) {
+				cacheInvalidations.push({
+					t: +nowRel().toFixed(1),
+					origin: originOf(8),
+				});
+				return orig.apply(this, a);
+			},
+	);
 
 	// ---- reporting -----------------------------------------------------------
 	const pct = (arr: number[], q: number) => {
@@ -960,6 +1036,13 @@ export async function runPerfCheck(
 			inventory: buildInventory(),
 			overall: aggregate(renders, cpuSamples, apiSamples),
 			windows: buildWindows(),
+			cacheInvalidations: Object.entries(
+				Object.groupBy(cacheInvalidations, (e) => e.origin),
+			).map(([origin, events = []]) => ({
+				origin,
+				count: events.length,
+				times: events.map((e) => e.t),
+			})),
 		};
 	}
 

@@ -206,6 +206,16 @@ interface FixedDensityBake {
 	fullBounds: boolean;
 }
 
+/** A clip group's children and its effective mask, baked to two textures of
+ *  the same placement and not multiplied yet. */
+interface ClipGroupParts {
+	source: CoveredSurface<ColorRenderSurface>;
+	maskTexture: GPUTexture;
+	groupBounds: WorldBBox;
+	/** The masks the group inherits that its own mask does not carry. */
+	remainingMasks: WorldMaskAssignment[];
+}
+
 interface ColorAtlasBakeReservation {
 	bounds: WorldBBox;
 	effectiveZoom: number;
@@ -1858,7 +1868,7 @@ export class OffscreenPresenter {
 			return passEncoder;
 		}
 		passEncoder.end();
-		const clipped = this.renderClipGroupToTexture(
+		const parts = this.renderClipSourceAndMask(
 			encoder,
 			group,
 			children,
@@ -1875,6 +1885,22 @@ export class OffscreenPresenter {
 				alpha: alphaMultiplier,
 			},
 		);
+		// Nothing else has to read the clipped result, so the parent takes
+		// source × mask as it is, without a texture to hold the product.
+		if (parts && !parts.source.coverage && parts.remainingMasks.length === 0) {
+			const parentPass = compositeContext.restartPass();
+			this.drawThroughClipMask(
+				parentPass,
+				this.deps.getBindGroup(),
+				parts.source,
+				parts.maskTexture,
+				alphaMultiplier,
+			);
+			releaseRenderSurface(parts.source);
+			this.deferDestroy(parts.maskTexture);
+			return parentPass;
+		}
+		const clipped = parts && this.clipToTexture(encoder, parts);
 		const blitPass = compositeContext.restartPass();
 		if (!clipped) return blitPass;
 		const nextPass = this.deps.blitBakeWithCoverage(
@@ -1911,6 +1937,42 @@ export class OffscreenPresenter {
 		 *  known — backdrop-filter children sample it. */
 		backdrop?: OffscreenBackdrop,
 	): CoveredSurface<ColorRenderSurface> | null {
+		const parts = this.renderClipSourceAndMask(
+			encoder,
+			group,
+			children,
+			filteredTextures,
+			elementsMap,
+			childrenMatrix,
+			parentMatrix,
+			skipElementIds,
+			localBoundsCache,
+			outerMasks,
+			parentContext,
+			backdrop,
+		);
+		return parts && this.clipToTexture(encoder, parts);
+	}
+
+	/**
+	 * Render a clip group's children and its effective mask to two offscreen
+	 * textures of the same placement. The clip is not applied yet: the caller
+	 * multiplies the two, then applies `remainingMasks`.
+	 */
+	private renderClipSourceAndMask(
+		encoder: GPUCommandEncoder,
+		group: Group,
+		children: AnyArtObject[],
+		filteredTextures: Map<string, FilteredTextureInfo>,
+		elementsMap: Map<string, AnyArtObject>,
+		childrenMatrix: ElementTransform,
+		parentMatrix: ElementTransform | null,
+		skipElementIds: ReadonlySet<string> | undefined,
+		localBoundsCache: LocalBoundsCache | undefined,
+		outerMasks: readonly WorldMaskAssignment[],
+		parentContext: CompositeRenderContext | undefined,
+		backdrop: OffscreenBackdrop | undefined,
+	): ClipGroupParts | null {
 		if (!group.clipPathId) return null;
 
 		const clipPath = elementsMap.get(group.clipPathId);
@@ -1977,17 +2039,33 @@ export class OffscreenPresenter {
 		this.deps.setActiveBindGroup(null);
 		this.deps.viewportState.bounds = maskCtx.savedViewportBounds;
 
-		// Step 3: Blit source × mask to a final offscreen texture. The
-		// coverage of backdrop-filter children is clipped alike.
+		return {
+			source: sourceResult,
+			maskTexture: maskCtx.offscreenTexture,
+			groupBounds,
+			// The enclosing clip is already in the mask above; only the rest of
+			// the inherited stack (object masks) still applies.
+			remainingMasks: outerMasks.filter((mask) => mask !== parentMask),
+		};
+	}
+
+	/** Apply a clip group's mask and the masks it inherits to its children,
+	 *  into a texture of its own. Releases the parts. */
+	private clipToTexture(
+		encoder: GPUCommandEncoder,
+		{ source, maskTexture, groupBounds, remainingMasks }: ClipGroupParts,
+	): CoveredSurface<ColorRenderSurface> | null {
+		// Blit source × mask to a final offscreen texture. The coverage of
+		// backdrop-filter children is clipped alike.
 		const clipped = this.blitThroughClipMask(
 			encoder,
-			sourceResult,
-			maskCtx.offscreenTexture,
+			source,
+			maskTexture,
 			groupBounds,
 		);
 		const sourceCoverage =
-			sourceResult.coverage &&
-			createRenderSurface(sourceResult.coverage, sourceResult.placement, {
+			source.coverage &&
+			createRenderSurface(source.coverage, source.placement, {
 				role: "color",
 				alphaMode: "premultiplied",
 				opacityState: "intrinsic",
@@ -1997,18 +2075,15 @@ export class OffscreenPresenter {
 				? this.blitThroughClipMask(
 						encoder,
 						sourceCoverage,
-						maskCtx.offscreenTexture,
+						maskTexture,
 						groupBounds,
 					)
 				: null;
-		releaseRenderSurface(sourceResult);
+		releaseRenderSurface(source);
 		if (sourceCoverage) releaseRenderSurface(sourceCoverage);
-		this.deferDestroy(maskCtx.offscreenTexture);
+		this.deferDestroy(maskTexture);
 		if (!clipped) return null;
 
-		// The enclosing clip is already in the mask above; only the rest of
-		// the inherited stack (object masks) still applies.
-		const remainingMasks = outerMasks.filter((mask) => mask !== parentMask);
 		const applyRemainingMasks = (surface: ColorRenderSurface) => {
 			if (remainingMasks.length === 0) return surface;
 			const masked = this.applyWorldMasksToTexture(
@@ -2054,6 +2129,46 @@ export class OffscreenPresenter {
 		);
 		if (!finalCtx) return null;
 
+		this.drawThroughClipMask(
+			finalCtx.passEncoder,
+			finalCtx.entry.bindGroup,
+			source,
+			maskTexture,
+			1,
+		);
+		finalCtx.passEncoder.end();
+
+		this.deps.setActiveBindGroup(null);
+		this.deps.viewportState.bounds = finalCtx.savedViewportBounds;
+
+		return createRenderSurface(
+			createFrameTextureRef(finalCtx.offscreenTexture, (texture) =>
+				this.deferDestroy(texture),
+			),
+			{
+				kind: "world-aabb",
+				bounds: finalCtx.coverageBounds,
+				uvRect: finalCtx.blitUvRect,
+			},
+			{
+				role: "color",
+				alphaMode: "premultiplied",
+				opacityState: "intrinsic",
+			},
+		);
+	}
+
+	/**
+	 * Draw `source` multiplied by a clip mask of the same placement into
+	 * `pass`, whose viewport is bound by `viewportBindGroup`.
+	 */
+	private drawThroughClipMask(
+		pass: GPURenderPassEncoder,
+		viewportBindGroup: GPUBindGroup,
+		source: ColorRenderSurface,
+		maskTexture: GPUTexture,
+		opacity: number,
+	): void {
 		const sourceTexture = source.texture.texture;
 		const srcUvRect = source.placement.uvRect;
 		const srcBlitBounds = source.placement.bounds;
@@ -2062,7 +2177,7 @@ export class OffscreenPresenter {
 		f[1] = srcBlitBounds.minY;
 		f[2] = srcBlitBounds.maxX;
 		f[3] = srcBlitBounds.maxY;
-		f[4] = 1.0;
+		f[4] = opacity;
 		f[5] = 0;
 		f[6] = 0;
 		f[7] = 0;
@@ -2095,31 +2210,11 @@ export class OffscreenPresenter {
 				}),
 		);
 
-		finalCtx.passEncoder.setPipeline(this.deps.blitWithMaskPipeline);
-		finalCtx.passEncoder.setBindGroup(0, finalCtx.entry.bindGroup);
-		finalCtx.passEncoder.setBindGroup(1, blitBindGroup);
-		finalCtx.passEncoder.setBindGroup(2, this.deps.dummyMaskBindGroup);
-		finalCtx.passEncoder.draw(6);
-		finalCtx.passEncoder.end();
-
-		this.deps.setActiveBindGroup(null);
-		this.deps.viewportState.bounds = finalCtx.savedViewportBounds;
-
-		return createRenderSurface(
-			createFrameTextureRef(finalCtx.offscreenTexture, (texture) =>
-				this.deferDestroy(texture),
-			),
-			{
-				kind: "world-aabb",
-				bounds: finalCtx.coverageBounds,
-				uvRect: finalCtx.blitUvRect,
-			},
-			{
-				role: "color",
-				alphaMode: "premultiplied",
-				opacityState: "intrinsic",
-			},
-		);
+		pass.setPipeline(this.deps.blitWithMaskPipeline);
+		pass.setBindGroup(0, viewportBindGroup);
+		pass.setBindGroup(1, blitBindGroup);
+		pass.setBindGroup(2, this.deps.dummyMaskBindGroup);
+		pass.draw(6);
 	}
 
 	/**

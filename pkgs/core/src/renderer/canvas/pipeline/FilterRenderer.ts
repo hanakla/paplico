@@ -511,6 +511,10 @@ export interface BackdropEffectDriver {
 	 *  `targetTexture` and composite the returned layer itself. An offscreen
 	 *  target needs this: its own texture is not in canvas texel space. */
 	readonly composesOverResolvedBackdrop?: boolean;
+	/** The ids `hasInlineComposite` answers true for this frame, valid once
+	 *  prepareFrame has run. A driver with `composesOverResolvedBackdrop`
+	 *  provides it, so the caller need not ask about every element. */
+	getInlineCompositeIds?(): string[];
 	/** Compose the element's inline appearance over `targetTexture`. The caller
 	 *  must have ended its active render pass first (this opens its own).
 	 *

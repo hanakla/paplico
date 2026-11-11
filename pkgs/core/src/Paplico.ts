@@ -293,6 +293,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	private renderer: RenderOrchestrator;
 	private canvasTargets = new Map<string, CanvasTargetEntry>();
 	private primaryTargetId: string | null = null;
+	/** Whether a loaded resource still has to drop the cached composite frame.
+	 *  A gesture keeps blitting the cache, so the drop waits for the first
+	 *  frame that re-renders. */
+	private documentCacheInvalidationOwed = false;
 	private tool: Tool | null = null;
 	private toolContext!: ToolContext;
 	private yjsProvider!: YjsProvider;
@@ -1088,7 +1092,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		);
 
 		this.renderer.setOnRequestRender(() => {
-			this.renderer.invalidateDocumentCache();
+			this.documentCacheInvalidationOwed = true;
 			this.markDirty("render");
 		});
 		this.renderer.setOnDocumentRenderResumed(() => {
@@ -1527,6 +1531,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			// a pause does not re-allocate its working set.
 			() => this.renderer.trimIdle(1),
 			() => this.renderer.isDocumentRenderOnHold,
+			() => this.renderer.isAwaitingImages,
 		);
 
 		const ui = new PaplicoUI(canvas, {
@@ -1844,6 +1849,16 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		if (!entry) return;
 		if (entry.target.width === 0 || entry.target.height === 0) return;
 		if (!this.spatialIndex) return;
+
+		// A blit frame is a gesture's or a held render's: it shows the cache
+		// while the scheduler keeps the `render` dirt for a later frame.
+		if (
+			this.documentCacheInvalidationOwed &&
+			strategy !== RenderStrategy.viewportBlit
+		) {
+			this.documentCacheInvalidationOwed = false;
+			this.renderer.invalidateDocumentCache();
+		}
 
 		const doc = snapshot(this.rendererStore.document) as Document;
 		const isActiveTarget = entry.target === this.getActiveTarget();

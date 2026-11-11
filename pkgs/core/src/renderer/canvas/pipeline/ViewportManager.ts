@@ -612,18 +612,31 @@ export class ViewportManager {
 			if (slot > maxSlot) maxSlot = slot;
 		}
 
-		if (maxSlot >= 0) {
-			const byteOffset = minSlot * GPU_TRANSFORM_VALUES * 4;
-			const byteLength = (maxSlot - minSlot + 1) * GPU_TRANSFORM_VALUES * 4;
-			this.device.queue.writeBuffer(
-				this.transformsBuffer!,
-				byteOffset,
-				this.cachedF32!.buffer,
-				byteOffset,
-				byteLength,
-			);
-		}
+		this.uploadSlotRange(minSlot, maxSlot);
 		return true;
+	}
+
+	/**
+	 * Upload the CPU mirror's slots `minSlot..maxSlot` to the GPU transforms
+	 * buffer. Slots past what the GPU buffer holds are skipped: auxiliary slots
+	 * can be reserved after it was sized, and the rebuild they request lands
+	 * next frame.
+	 */
+	private uploadSlotRange(minSlot: number, maxSlot: number): void {
+		if (!this.transformsBuffer || !this.cachedF32) return;
+		const byteOffset = minSlot * GPU_TRANSFORM_VALUES * 4;
+		const byteEnd = Math.min(
+			(maxSlot + 1) * GPU_TRANSFORM_VALUES * 4,
+			this.transformsBufferSize,
+		);
+		if (byteEnd <= byteOffset) return;
+		this.device.queue.writeBuffer(
+			this.transformsBuffer,
+			byteOffset,
+			this.cachedF32.buffer,
+			byteOffset,
+			byteEnd - byteOffset,
+		);
 	}
 
 	/** composeAncestorTransform memoized per element, so siblings share one walk. */
@@ -722,15 +735,18 @@ export class ViewportManager {
 			this.cachedU32 = new Uint32Array(grown);
 		}
 		// The GPU buffer was sized during updateTransformsBuffer, before these
-		// slots existed. Rebuild it next frame when they no longer fit, and let
-		// writeMaskInfoOnly clamp this frame's upload to what is allocated.
+		// slots existed. Rebuild it next frame when they no longer fit.
 		if (this.nextSlot * GPU_TRANSFORM_VALUES * 4 > this.transformsBufferSize) {
 			this.transformsDirty = "full";
 		}
+		let minSlot = Number.MAX_SAFE_INTEGER;
+		let maxSlot = -1;
 		for (const { id, inheritFromId } of entries) {
 			const slot = this.transformIndexMap.get(id);
 			const sourceSlot = this.transformIndexMap.get(inheritFromId);
 			if (slot === undefined) continue;
+			if (slot < minSlot) minSlot = slot;
+			if (slot > maxSlot) maxSlot = slot;
 			const offset = slot * GPU_TRANSFORM_VALUES;
 			if (sourceSlot === undefined) {
 				writeGPUTransform(
@@ -748,24 +764,28 @@ export class ViewportManager {
 				this.cachedF32[offset + i] = this.cachedF32[from + i];
 			}
 		}
+		this.uploadSlotRange(minSlot, maxSlot);
 	}
 
 	/**
 	 * Write only clip-mask fields to the GPU transforms buffer.
 	 * Assumes the buffer was already populated by a prior updateTransformsBuffer call.
 	 * Avoids full CPU-side transform recomputation — only mask info (offset+8..+13)
-	 * is updated for masked elements, then the affected bytes are uploaded.
+	 * is updated for masked elements, then the slot range they span is uploaded.
 	 */
 	public writeMaskInfoOnly(maskMap: ReadonlyMap<string, GPUMaskInfo>): void {
 		if (!this.transformsBuffer || !this.cachedF32 || !this.cachedU32) return;
-		if (maskMap.size === 0) return;
 
 		const f32 = this.cachedF32;
 		const u32 = this.cachedU32;
 
+		let minSlot = Number.MAX_SAFE_INTEGER;
+		let maxSlot = -1;
 		for (const [id, mask] of maskMap) {
 			const idx = this.transformIndexMap.get(id);
 			if (idx === undefined) continue;
+			if (idx < minSlot) minSlot = idx;
+			if (idx > maxSlot) maxSlot = idx;
 
 			const offset = idx * GPU_TRANSFORM_VALUES;
 			u32[offset + 6] = maskIndexWord(mask);
@@ -776,21 +796,7 @@ export class ViewportManager {
 			f32[offset + 11] = mask.bounds.maxY;
 		}
 
-		// Slots may be sparse (freed slots persist between compactions), so the
-		// populated range is bounded by the next never-assigned slot — capped at
-		// what the GPU buffer actually holds (auxiliary slots can be reserved
-		// after it was sized; the rebuild they request lands next frame).
-		const dataBytes = Math.min(
-			this.nextSlot * GPU_TRANSFORM_VALUES * 4,
-			this.transformsBufferSize,
-		);
-		this.device.queue.writeBuffer(
-			this.transformsBuffer,
-			0,
-			f32.buffer,
-			0,
-			dataBytes,
-		);
+		this.uploadSlotRange(minSlot, maxSlot);
 	}
 
 	public destroy(): void {

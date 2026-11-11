@@ -678,6 +678,14 @@ export class ElementRenderer {
 		this.textRenderer.requestTextPathCache(cacheKey, element);
 	}
 
+	/** The world bounds an image element is drawn over. */
+	public imageWorldBounds(
+		image: ImageObject,
+		elementsMap: Map<string, AnyArtObject>,
+	): BoundingBox {
+		return this.imageRenderer.worldBounds(image, elementsMap);
+	}
+
 	/**
 	 * Pre-warm image textures for an export pass. Loading is async, so images
 	 * must be decoded before the synchronous render or they render as holes.
