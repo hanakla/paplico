@@ -7,10 +7,7 @@ import {
 	saveSegmentsPNG,
 } from "../../../testUtils/canvasVRT";
 import { evalCubicBezier } from "../../../utils/geometry/primitives/bezier";
-import {
-	resolveSegment,
-	splitIntoSubPaths,
-} from "../../../utils/geometry/primitives/segment";
+import { resolveSegment } from "../../../utils/geometry/primitives/segment";
 import { FilterRenderer } from "../../canvas/pipeline/FilterRenderer";
 import { PathUnionFilterHandler } from "../PathUnionFilter/PathUnionFilter";
 import {
@@ -57,42 +54,6 @@ describe("PathOffsetFilterHandler", () => {
 			const pts = samplePath(result);
 			const bottomEdgePts = pts.filter((p) => Math.abs(p.y + 40) < 2);
 			expect(bottomEdgePts.length).toBeGreaterThan(0);
-		});
-
-		it("should shrink a hole when a positive offset grows the shape around it", () => {
-			const frame = [
-				...makeCCWRect(0, 0, 100, 100),
-				...makeCWRect(0, 0, 40, 40),
-			];
-			const [outer, hole] = splitIntoSubPaths(applyOffset(frame, 10)).map(
-				computeBBox,
-			);
-
-			expect(outer.maxX - outer.minX).toBeCloseTo(120, 0);
-			expect(hole.maxX - hole.minX).toBeCloseTo(20, 0);
-			expect(hole.maxY - hole.minY).toBeCloseTo(20, 0);
-		});
-
-		it("should drop a hole a positive offset closes over", () => {
-			const frame = [
-				...makeCCWRect(0, 0, 100, 100),
-				...makeCWRect(0, 0, 40, 40),
-			];
-
-			expect(splitIntoSubPaths(applyOffset(frame, 30))).toHaveLength(1);
-		});
-
-		it("should grow a hole when a negative offset shrinks the shape around it", () => {
-			const frame = [
-				...makeCCWRect(0, 0, 100, 100),
-				...makeCWRect(0, 0, 40, 40),
-			];
-			const [outer, hole] = splitIntoSubPaths(applyOffset(frame, -10)).map(
-				computeBBox,
-			);
-
-			expect(outer.maxX - outer.minX).toBeCloseTo(80, 0);
-			expect(hole.maxX - hole.minX).toBeCloseTo(60, 0);
 		});
 
 		it("expands bbox for positive offset on CW closed rect (winding correction)", () => {

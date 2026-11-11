@@ -8,13 +8,7 @@ import type {
 } from "../typography/fonts/LocalFontsLoader";
 
 /** Font record returned by `window.queryLocalFonts()`. */
-interface LocalFontAccessData {
-	family: string;
-	fullName: string;
-	postscriptName: string;
-	style: string;
-	blob(): Promise<Blob>;
-}
+type LocalFontAccessData = Omit<FontData, "readRange">;
 
 export class DomLocalFontBackend implements LocalFontBackend {
 	public isSupported(): boolean {
@@ -32,7 +26,7 @@ export class DomLocalFontBackend implements LocalFontBackend {
 	): Promise<FontData[]> {
 		// @ts-expect-error - Local Font Access API is not yet in TypeScript's lib.dom
 		const fonts: LocalFontAccessData[] = await window.queryLocalFonts({
-			postscriptNames: names,
+			postScriptNames: names,
 		});
 		return fonts.map(withRangeReader);
 	}
@@ -42,7 +36,7 @@ function withRangeReader(font: LocalFontAccessData): FontData {
 	return {
 		family: font.family,
 		fullName: font.fullName,
-		postScriptName: font.postscriptName,
+		postScriptName: font.postScriptName,
 		style: font.style,
 		blob: () => font.blob(),
 		// The Local Font Access blob is file-backed, so slicing it avoids

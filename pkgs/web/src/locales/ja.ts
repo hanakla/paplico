@@ -286,8 +286,6 @@ export const ja = {
 		createClipGroup: "クリッピンググループを作成",
 		convertToClipObject: "クリップオブジェクトに変換",
 		outline: "アウトライン化",
-		makeGuides: "ガイド化",
-		releaseGuides: "ガイド化を解除",
 		charAngle: "角度",
 		charSkewX: "傾斜X",
 		charSkewY: "傾斜Y",
@@ -393,12 +391,6 @@ export const ja = {
 		repeatSpacingY: "縦間隔",
 		repeatOffsetX: "水平オフセット",
 		repeatOffsetY: "垂直オフセット",
-		repeatRowFlip: "行の反転",
-		repeatColumnFlip: "列の反転",
-		repeatFlipNone: "なし",
-		repeatFlipHorizontal: "水平",
-		repeatFlipVertical: "垂直",
-		repeatFlipBoth: "両方",
 		repeatCount: "個数",
 		repeatRadius: "半径",
 		repeatStartAngle: "開始角",
@@ -1088,7 +1080,6 @@ export const ja = {
 		compositionModes: {
 			normal: "ロックなし",
 			"alpha-lock": "アルファロック",
-			knockout: "ノックアウト",
 		},
 	},
 	layerPanel: {
@@ -1115,10 +1106,6 @@ export const ja = {
 			"soft-light": "ソフトライト",
 			difference: "差の絶対値",
 			exclusion: "除外",
-			hue: "色相",
-			saturation: "彩度",
-			color: "カラー",
-			luminosity: "輝度",
 		},
 	},
 	common: {
@@ -1326,8 +1313,6 @@ export const ja = {
 		loadIccFile: "ICCプロファイルを読み込む…",
 		loadingProfiles: "システムプロファイルを読み込み中…",
 		alphaFlattenNote: "透明部分は背景色で塗りつぶされます。",
-		oversizedImagesNote:
-			"配置された画像のうち{{count}}枚が、長辺{{limit}}pxを超えています。この端末では、その画像を{{limit}}pxに縮めた状態で書き出します。",
 		invalidIccFile: "選択されたファイルは有効なICCプロファイルではありません。",
 	},
 	timelapseDialog: {

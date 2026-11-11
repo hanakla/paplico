@@ -4,7 +4,6 @@ import { compileShaderModule } from "../../../utils/wgpu-utils";
 import type {
 	FilterHandler,
 	FilterProcessorContext,
-	FilterRenderRequirements,
 } from "../../canvas/pipeline/FilterRenderer";
 import { HK_TURBULENCE_SHADER } from "./hk-turbulence.wgsl";
 
@@ -196,16 +195,6 @@ export class HKTurbulenceFilterHandler implements FilterHandler {
 
 	public getDetailDensity(): number {
 		return Number.POSITIVE_INFINITY;
-	}
-
-	/** Clamped reads stay within the footprint and are placed on the
-	 *  element's whole bake. Wrapped and mirrored reads come from the bake's
-	 *  opposite edge, which a bake cut to the view moves. */
-	public getRenderConfigure(filter: Filter): Partial<FilterRenderRequirements> {
-		return {
-			cropSafe:
-				(filter as HKTurbulenceFilter).paramData.params.edgeMode === "clamp",
-		};
 	}
 
 	public onScaleFilter(

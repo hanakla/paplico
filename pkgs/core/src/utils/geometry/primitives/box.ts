@@ -105,16 +105,6 @@ export function boundsArea(b: BoundingBox): number {
 	return b.width * b.height;
 }
 
-/** Whether bounds `a` fully contains bounds `b`. */
-export function boundsContain(
-	a: { minX: number; minY: number; maxX: number; maxY: number },
-	b: { minX: number; minY: number; maxX: number; maxY: number },
-): boolean {
-	return (
-		a.minX <= b.minX && a.maxX >= b.maxX && a.minY <= b.minY && a.maxY >= b.maxY
-	);
-}
-
 /**
  * Calculate the intersection bounding box of two bounding boxes.
  * Returns null if no intersection.

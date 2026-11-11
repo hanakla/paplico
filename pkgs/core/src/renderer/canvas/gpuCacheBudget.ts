@@ -21,14 +21,6 @@ export function splitGpuCacheBudget(totalBytes: number) {
 }
 
 /**
- * Bytes the image textures may hold. Every canvas shares them, so they get
- * an amount of their own on top of the budget the canvases split.
- */
-export function imageTextureBudgetBytes(totalBytes: number): number {
-	return Math.floor(totalBytes * 0.5);
-}
-
-/**
  * Bytes the filtered-element cache may hold: its own share, or whatever of
  * the whole budget the other caches leave while they hold `otherCachesBytes`,
  * whichever is larger. A filtered bake is the costliest result to rebuild

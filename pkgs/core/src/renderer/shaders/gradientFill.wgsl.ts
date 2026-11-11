@@ -35,7 +35,6 @@ struct GradientUniforms {
 	patternMatrixCol2: vec2f,
 	patternTileWidth: f32,
 	patternTileHeight: f32,
-	radialFocal: vec2f,
 }
 
 struct MeshFace {
@@ -449,13 +448,22 @@ fn sampleMeshGradient(uv: vec2f) -> vec4f {
 		}
 		// Radial gradient (ellipse with rotation)
 		case 2u: {
-			let t = radialGradientT(
-				uv,
-				gradient.radialCenter,
-				gradient.radialFocal,
-				vec2f(gradient.radialRadiusX, gradient.radialRadiusY),
-				gradient.radialRotation
+			let delta = uv - gradient.radialCenter;
+
+				// Apply inverse rotation to align with axis
+			let cosTheta = cos(-gradient.radialRotation);
+			let sinTheta = sin(-gradient.radialRotation);
+			let rotatedDelta = vec2f(
+				delta.x * cosTheta - delta.y * sinTheta,
+				delta.x * sinTheta + delta.y * cosTheta
 			);
+
+			// Ellipse distance calculation
+			let normalizedDist = vec2f(
+				rotatedDelta.x / max(gradient.radialRadiusX, 0.0001),
+				rotatedDelta.y / max(gradient.radialRadiusY, 0.0001)
+			);
+			let t = length(normalizedDist);
 			color = sampleGradientStops(t);
 			}
 		// Free-form gradient

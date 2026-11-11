@@ -1,4 +1,4 @@
-import type { RepeatFlip, RepeatObject } from "../../../schema";
+import type { RepeatObject } from "../../../schema";
 import {
 	type Affine2D,
 	applyAffineToPoint,
@@ -18,7 +18,7 @@ export function computeRepeatInstances(
 ): Affine2D[] {
 	switch (repeat.mode) {
 		case "grid":
-			return gridInstances(repeat.grid, sourceCenter);
+			return gridInstances(repeat.grid);
 		case "radial":
 			return radialInstances(repeat.radial, sourceCenter);
 		case "mirror":
@@ -59,10 +59,7 @@ export function repeatGridRegion(
 	};
 }
 
-function gridInstances(
-	grid: RepeatObject["grid"],
-	center: { x: number; y: number },
-): Affine2D[] {
+function gridInstances(grid: RepeatObject["grid"]): Affine2D[] {
 	const cols = gridCountForSize(grid.width, grid.spacingX);
 	const rows = gridCountForSize(grid.height, grid.spacingY);
 	const offsetX = grid.offsetX ?? 0;
@@ -77,31 +74,10 @@ function gridInstances(
 		for (let c = 0; c < cols; c++) {
 			// Odd columns shift down by offsetY (down = -y).
 			const colShift = c % 2 === 1 ? -offsetY : 0;
-			// A row flip and a column flip on the same axis cancel out.
-			const flipRow = r % 2 === 1 ? grid.rowFlip : undefined;
-			const flipColumn = c % 2 === 1 ? grid.columnFlip : undefined;
-			const flipsX =
-				flips(flipRow, "horizontal") !== flips(flipColumn, "horizontal");
-			const flipsY =
-				flips(flipRow, "vertical") !== flips(flipColumn, "vertical");
-			out.push({
-				a: flipsX ? -1 : 1,
-				b: 0,
-				c: 0,
-				d: flipsY ? -1 : 1,
-				e: c * grid.spacingX + rowShift + (flipsX ? 2 * center.x : 0),
-				f: rowY + colShift + (flipsY ? 2 * center.y : 0),
-			});
+			out.push(translate(c * grid.spacingX + rowShift, rowY + colShift));
 		}
 	}
 	return out;
-}
-
-function flips(
-	flip: RepeatFlip | undefined,
-	axis: Exclude<RepeatFlip, "both">,
-): boolean {
-	return flip === axis || flip === "both";
 }
 
 function radialInstances(

@@ -17,7 +17,6 @@ import {
 import type {
 	FilterHandler,
 	FilterProcessorContext,
-	FilterRenderRequirements,
 } from "../../canvas/pipeline/FilterRenderer";
 import { TEXELS_PER_BLUR_SIGMA } from "../shared/blurDetailDensity";
 import { ScratchTexturePool } from "../shared/ScratchTexturePool";
@@ -298,12 +297,6 @@ export class BlurFilterHandler implements FilterHandler {
 		return radius > 0
 			? TEXELS_PER_BLUR_SIGMA / (radius / 2)
 			: Number.POSITIVE_INFINITY;
-	}
-
-	/** Every read stays within the footprint and is placed on the element's
-	 *  whole bake, so a bake cut to the view gives the same pixels. */
-	public getRenderConfigure(): Partial<FilterRenderRequirements> {
-		return { cropSafe: true };
 	}
 
 	public onScaleFilter(

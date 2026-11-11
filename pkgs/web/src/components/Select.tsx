@@ -66,7 +66,9 @@ function SelectTrigger({
 	$size?: SelectSize;
 }) {
 	return (
-		<BUISelect.Trigger className={selectTriggerVariants({ $size, className })}>
+		<BUISelect.Trigger
+			className={twm(selectTriggerVariants({ $size }), className)}
+		>
 			{children}
 		</BUISelect.Trigger>
 	);

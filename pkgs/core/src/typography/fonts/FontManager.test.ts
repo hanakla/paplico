@@ -63,25 +63,6 @@ describe("FontManager.shapeText() - per-glyph Noto Sans JP fallback", () => {
 		expect(shaped[0].path.length).toBeGreaterThan(0);
 	});
 
-	it("draws a character the font lacks with the fallback font's own glyph", async () => {
-		const primaryFont = createPrimaryFont();
-
-		const [kanji] = await fontManager.shapeText(primaryFont, "漢", 16);
-		const [kana] = await fontManager.shapeText(primaryFont, "あ", 16);
-
-		expect(kanji.path).not.toEqual(kana.path);
-	});
-
-	it("draws .notdef for every character of a missing font", async () => {
-		const primaryFont = createPrimaryFont();
-		const options = { forceNotdef: true };
-
-		const [kanji] = await fontManager.shapeText(primaryFont, "漢", 16, options);
-		const [kana] = await fontManager.shapeText(primaryFont, "あ", 16, options);
-
-		expect(kanji.path).toEqual(kana.path);
-	});
-
 	it("does not call getFallbackFont for half-width space", async () => {
 		const primaryFont = createPrimaryFont();
 		await fontManager.shapeText(primaryFont, " ", 16);

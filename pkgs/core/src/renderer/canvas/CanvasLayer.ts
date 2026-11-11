@@ -23,7 +23,6 @@ import {
 	calculatePreFilteredElementBounds,
 	planBoundsOf,
 } from "../../document/elementGeometry/filteredBounds";
-import { findGuideOwner } from "../../document/elementGeometry/guideOutlines";
 import {
 	childPreFilters,
 	geometryFilters,
@@ -42,7 +41,6 @@ import {
 	type DefEntry,
 	type Document,
 	type ElementTransform,
-	type EmbeddedFile,
 	type FillAppearance,
 	type Filter,
 	type Group,
@@ -50,7 +48,6 @@ import {
 	getContainerChildIds,
 	getTransform,
 	hasGroupAppearances,
-	type ImageObject,
 	isBlend,
 	isCompoundPath,
 	isGroup,
@@ -72,15 +69,12 @@ import {
 	type LocalBoundsCache,
 } from "../../utils/geometry/elementBounds";
 import {
-	boundsContain,
-	boundsIntersectionBox,
 	brandWorldBBox,
 	expandBounds,
 	type LocalBBox,
 	type WorldBBox,
 } from "../../utils/geometry/primitives/box";
 import { boundsIntersect } from "../../utils/geometry/query/hitTest";
-import { boundsIntersectViewport } from "../../utils/geometry/query/viewport";
 import type { MeshWarpClipGroup } from "../../utils/geometry/reshape/meshWarp";
 import {
 	composeAncestorMatrix,
@@ -114,13 +108,12 @@ import {
 	calculatePrebufDimensions,
 	collectFilterSpread,
 	computeDotGridPhase,
-	cropFilterBake,
-	DEFAULT_PAN_MARGIN_PX,
 	expandRenderFilter,
 	expandRenderFilterWithAncestors,
 	hasNormalBlending,
 	interactiveBakeDensity,
 	STORE_DIM_QUANTUM,
+	STORE_MARGIN_PX,
 	splitGroupAppearances,
 	visibleBoundsToBox,
 } from "./CanvasLayer.helpers";
@@ -188,7 +181,6 @@ import { ElementHierarchyCache } from "./pipeline/ElementHierarchyCache";
 import {
 	type BackdropEffectCanvasResources,
 	type BackdropEffectDriver,
-	croppedBakeReach,
 	type FilterGeometryContext,
 	type FilterRenderer,
 	hoistBlendInstanceAppearances,
@@ -200,7 +192,6 @@ import {
 	FrameGraph,
 } from "./pipeline/FrameGraph";
 import type {
-	ImageLoadState,
 	ImageTextureStore,
 	ImageTextures,
 } from "./pipeline/ImageTextureStore";
@@ -212,7 +203,6 @@ import {
 	planGroupComposition,
 	planMaskApplication,
 } from "./pipeline/MaskApplicationPlan";
-import { memoizeByIdentity } from "./pipeline/memoizeByIdentity";
 import {
 	type AtlasMaskComputeItem,
 	type ColorAtlasBakeItem,
@@ -328,25 +318,6 @@ const BACKDROP_RESAMPLE_REACH_TEXELS = 2;
  *  next frame re-anchors the store. Small steps keep each partial redraw's
  *  exposed strip narrow instead of exposing a whole margin at once. */
 const STORE_REANCHOR_STEP_PX = 64;
-/** How long a pan waits before re-anchoring the store, as a multiple of the
- *  time the last document frame took. A costly document spends most of the
- *  gesture blitting instead of redrawing strips back to back. */
-const REANCHOR_HOLD_FACTOR = 3;
-/** A gesture's document frame this long stalls it visibly. For a while after
- *  one, the gesture blits what is cached and the part of the view the cache
- *  lacks stays empty. */
-const STALL_FRAME_MS = 100;
-/** A view whose full redraw takes this long cannot be redrawn during a
- *  gesture at all without stalling it, so its gestures only blit. */
-const STALL_FULL_REDRAW_MS = 200;
-/** A view whose full redraw takes this long is drawn before its margin. */
-const VIEW_FIRST_REDRAW_MS = 150;
-/** How long part of the view may stay empty during a gesture, including the
- *  redraw that fills it. */
-const MAX_VIEW_UNDRAWN_MS = 1000;
-/** The shortest such wait, so a view too costly to fit the limit still spends
- *  part of the gesture moving. */
-const MIN_VIEW_UNDRAWN_MS = 300;
 /** Fraction of the store margin the view may drift from the store's centre
  *  on the axis a re-anchor keeps (see storeAnchorFor). */
 const STORE_ANCHOR_KEEP_FRACTION = 0.5;
@@ -413,12 +384,6 @@ export class CanvasLayer {
 	// the draw region at the viewport so document edits (brush strokes) never
 	// pay the oversized filter-bake/raster cost (set per-frame in render()).
 	private fullStoreBakeThisFrame = false;
-	// What the frame's store shows while a partial redraw narrows the draw
-	// region to its dirty rect, null on any other frame. A filter bake kept
-	// for later frames is cut for this region, so it covers the frames that
-	// follow instead of only the dirty rect (set per-frame in render()).
-	private partialRedrawStoreRegion: BoundingBox | null = null;
-	private lastDocumentFrameZoom: number | undefined;
 	// Whether this frame may attempt a partial redraw (tracked content change or
 	// a viewport-only frame on an ordinary live frame; final eligibility —
 	// cache/store geometry, plan shape, dirty size — is decided inside
@@ -482,12 +447,9 @@ export class CanvasLayer {
 	 */
 
 	// -- Viewport & uniform binding --
-	/** Pixels the document renders per CSS pixel of the live canvas. Sizes
-	 *  meant to stay constant on screen scale by it. */
+	/** Backing-store pixels per CSS pixel of the live canvas. Sizes meant to
+	 *  stay constant on screen scale by it. */
 	public pixelRatio = 1;
-	/** Backing-store pixels of the live canvas per pixel the document renders.
-	 *  Above 1 the last blit stretches the document over the canvas. */
-	public canvasPixelsPerDocumentPixel = 1;
 	private viewportManager!: ViewportManager;
 	private readonly elementHierarchy = new ElementHierarchyCache();
 	private uniformScope: UniformScope;
@@ -621,9 +583,6 @@ export class CanvasLayer {
 	private texturePool!: TexturePool;
 	/** This canvas's whole GPU cache budget. */
 	private gpuCacheBudgetBytes = DEFAULT_GPU_CACHE_BUDGET_BYTES;
-	/** Margin rendered around the viewport so a pan inside it only moves the
-	 *  cached frame, in CSS px per side. Every view-sized texture grows by it. */
-	private panMarginPx = DEFAULT_PAN_MARGIN_PX;
 	/** This canvas's share of the GPU cache budget for idle pooled textures. */
 	private texturePoolFloorBytes = splitGpuCacheBudget(
 		DEFAULT_GPU_CACHE_BUDGET_BYTES,
@@ -646,43 +605,6 @@ export class CanvasLayer {
 	 *  (currently glass extrude). CanvasLayer drives them generically without
 	 *  knowing the concrete filter behind each. */
 	private backdropDrivers: BackdropEffectDriver[] = [];
-	private readonly patternDefIdsOf = memoizeByIdentity(
-		(elementsMap: Map<string, AnyArtObject>) =>
-			collectPatternDefIdsInUse(elementsMap, this.filterRenderer),
-	);
-	private readonly brushDefIdsOf = memoizeByIdentity(collectBrushDefIdsInUse);
-	private readonly textAxisPathIdsOf = memoizeByIdentity(
-		collectTextAxisPathIds,
-	);
-	private readonly isolatingGroupsOf = memoizeByIdentity(
-		collectIsolatingGroups,
-	);
-	private readonly clipGroupsOf = memoizeByIdentity(
-		(elementsMap: Map<string, AnyArtObject>) =>
-			[...elementsMap.values()].filter(
-				(element): element is Group =>
-					isGroup(element) && element.clipPathId != null,
-			),
-	);
-	private readonly meshesOf = memoizeByIdentity(
-		(elementsMap: Map<string, AnyArtObject>) =>
-			[...elementsMap.values()].filter(isMesh),
-	);
-	private readonly placedImagesOf = memoizeByIdentity(
-		(elementsMap: Map<string, AnyArtObject>) =>
-			[...elementsMap.values()]
-				.filter(
-					(element): element is ImageObject =>
-						element.type === "image" && element.visible !== false,
-				)
-				.map((image) => ({
-					image,
-					bounds: this.elements.imageWorldBounds(image, elementsMap),
-				})),
-	);
-	private readonly filesByUidOf = memoizeByIdentity(
-		(files: EmbeddedFile[]) => new Map(files.map((file) => [file.uid, file])),
-	);
 	private mixStrokeRenderer: MixStrokeRenderer | null = null;
 	private blurStrokeRenderer: BlurStrokeRenderer | null = null;
 	/** Object identity -> serial, for backdrop content keys (see
@@ -798,20 +720,6 @@ export class CanvasLayer {
 	} | null = null;
 	private progressiveBakeBudget = 0;
 	private progressiveBakeDeferred = false;
-	/** Until when a pan keeps blitting a store it could re-anchor. */
-	private reanchorHeldUntil = 0;
-	/** When a gesture's document frame started, until the next frame arrives.
-	 *  A frame the GPU takes long over shows up as that next frame arriving
-	 *  late, so the frame's real cost is only known then. */
-	private lastGestureFrameStart: number | null = null;
-	/** Until when a gesture blits the store even past its edge. */
-	private staleBlitHeldUntil = 0;
-	/** Since when a gesture has shown a cached frame lacking part of the view. */
-	private viewUndrawnSince: number | null = null;
-	private lastFrameDrewViewFirst = false;
-	private textPrefetchRun = 0;
-	private lastFullRedrawMs = 0;
-	private lastFrameWasPartial = false;
 	/** Changed-element ids recorded by render(); resolved against the merged
 	 *  elements map (which knows every container kind's edges) once
 	 *  renderDocument has built it. */
@@ -941,11 +849,7 @@ export class CanvasLayer {
 		this.sampler = resources.sampler;
 		this.nearestSampler = resources.nearestSampler;
 		this.filterRenderer = resources.filterRenderer;
-		this.imageTextures = resources.imageTextures.forCanvas(canvasId, () =>
-			this.renderState.isExport
-				? Number.POSITIVE_INFINITY
-				: (this.viewportState.current?.zoom ?? 1),
-		);
+		this.imageTextures = resources.imageTextures.forCanvas(canvasId);
 
 		this.backdropCaptureManager = resources.backdropCaptureManager;
 
@@ -1146,7 +1050,7 @@ export class CanvasLayer {
 				this.resolvePatternTexture(defId),
 			resolveTextOutline: (el) => this.resolveTextOutline(el),
 			requestTextOutline: (el) => this.requestTextOutline(el),
-			imageLoadState: this.imageLoadState,
+			isImageReady: this.isImageReady,
 			deferDestroy: (tex) => this.offscreen.deferDestroy(tex),
 			canvasFormat: this.canvasFormat,
 			backdropEffectCoordinator: this.backdropEffectCoordinator,
@@ -1468,20 +1372,15 @@ export class CanvasLayer {
 				.map((plan) => plan.elementId),
 		);
 		framePlan.groupCompositionPlans.clear();
-		// A group with none of these composites as a passthrough, which is what
-		// a group without a plan means.
-		const filteredGroups = [...filterPlanIds].flatMap((id) => {
-			const element = elementsMap.get(id);
-			return element && isGroup(element) ? [element] : [];
-		});
-		for (const element of new Set([
-			...this.isolatingGroupsOf(elementsMap),
-			...filteredGroups,
-		])) {
+		for (const element of elementsMap.values()) {
+			if (!isGroup(element)) continue;
 			framePlan.groupCompositionPlans.set(
 				element.id,
 				planGroupComposition({
-					hasOwnMask: groupHasOwnMask(element),
+					hasOwnMask:
+						element.mask != null &&
+						element.mask.enabled !== false &&
+						element.mask.elementIds.length > 0,
 					hasOwnClip: element.clipPathId != null,
 					hasOpacity: (element.opacity ?? 1) !== 1,
 					hasFilter: filterPlanIds.has(element.id),
@@ -1512,20 +1411,15 @@ export class CanvasLayer {
 			ancestorMatrixOf: (id) => this.viewportManager.getAncestorMatrix(id),
 		};
 		let clipGroups = this.viewportManager.hasClipGroups
-			? collectClipGroups(
-					boundsContext,
-					this.clipGroupsOf(elementsMap),
-					drawRegion,
-					(element, union) => {
-						// A group filter (or baked solid) paints past the group's flat
-						// bounds; count that so a spill into view is not culled.
-						const plan = framePlan.filterPlans.get(element.id);
-						if (plan) union(plan.textureBounds);
-						for (const driver of this.backdropDrivers) {
-							driver.unionSolidBounds(element, union);
-						}
-					},
-				)
+			? collectClipGroups(boundsContext, drawRegion, (element, union) => {
+					// A group filter (or baked solid) paints past the group's flat
+					// bounds; count that so a spill into view is not culled.
+					const plan = framePlan.filterPlans.get(element.id);
+					if (plan) union(plan.textureBounds);
+					for (const driver of this.backdropDrivers) {
+						driver.unionSolidBounds(element, union);
+					}
+				})
 			: [];
 		let objectMasks = this.viewportManager.hasObjectMasks
 			? collectObjectMasks(boundsContext, drawRegion, (element, union) => {
@@ -1698,7 +1592,6 @@ export class CanvasLayer {
 				(path) => collectDrawableAppearances(path, this.filterRenderer).length,
 				filterPlanIds,
 				this.renderState.editingScopeStack.at(-1),
-				this.elementHierarchy.parentMap,
 			);
 		for (const [elementId, plan] of maskApplicationPlans) {
 			framePlan.maskApplicationPlans.set(elementId, plan);
@@ -1731,10 +1624,10 @@ export class CanvasLayer {
 		this.viewportManager.getComposedTransformCache().get(elementId) ??
 		createIdentityTransform();
 
-	/** How much of the frame's document's image file `fileUid` is loaded. */
-	private imageLoadState = (fileUid: string): ImageLoadState => {
+	/** Whether the frame's document has the image file `fileUid` loaded. */
+	private isImageReady = (fileUid: string): boolean => {
 		const file = this.assetState.currentFiles.find((f) => f.uid === fileUid);
-		return file ? this.imageTextures.stateOf(file) : "none";
+		return file != null && this.imageTextures.has(file);
 	};
 
 	/** Where an element is drawn this frame: its bounds carried through the
@@ -1755,7 +1648,8 @@ export class CanvasLayer {
 		const result: Array<
 			MeshWarpClipGroup & { meshId: string; bounds: BoundingBox }
 		> = [];
-		for (const element of this.meshesOf(elementsMap)) {
+		for (const element of elementsMap.values()) {
+			if (!isMesh(element)) continue;
 			const { clipGroups } = this.elements.resolveMeshWarp(
 				element,
 				elementsMap,
@@ -1946,10 +1840,6 @@ export class CanvasLayer {
 		this.compositeFrameCache.valid = false;
 	}
 
-	public setPanMarginPx(px: number): void {
-		this.panMarginPx = px;
-	}
-
 	/** Split `bytes` among this canvas's GPU caches. Each cache evicts down to
 	 *  its share the next time it stores; the filtered-element cache follows
 	 *  at the next document frame (see lendGpuCacheBudget). */
@@ -2041,7 +1931,6 @@ export class CanvasLayer {
 			elementOverrides,
 			transientElements,
 		} = request;
-		this.settleLastGestureFrame(strategy);
 
 		// Persistent renderState object — set every frame so a prior export
 		// render never leaks its flag into the next interactive frame.
@@ -2060,14 +1949,10 @@ export class CanvasLayer {
 		// Content strategies (full / fullTransformOnly) keep the draw region at
 		// the viewport; every other capture-eligible frame is viewport-driven and
 		// bakes the whole store (see fullStoreBakeThisFrame).
-		const drawsViewFirst = this.shouldDrawViewFirst(strategy);
-		this.lastFrameDrewViewFirst = drawsViewFirst;
 		this.fullStoreBakeThisFrame =
 			this.captureCompositeFrameThisFrame &&
 			strategy !== RenderStrategy.full &&
-			strategy !== RenderStrategy.fullTransformOnly &&
-			!drawsViewFirst;
-		this.partialRedrawStoreRegion = null;
+			strategy !== RenderStrategy.fullTransformOnly;
 
 		// A tracked content change on an ordinary live frame may redraw only the
 		// changed region, and a viewport-only frame only the part of the new
@@ -2096,11 +1981,15 @@ export class CanvasLayer {
 		// Text axis paths are guides: collect them fresh each frame so paths
 		// render again the moment their referencing text (or its binding) goes
 		// away, without relying on the opacity restore bookkeeping.
-		const textAxisPathIds = this.textAxisPathIdsOf(document.objects);
-		this.renderState.textAxisPathIds =
-			textAxisPathIds.size > 0 ? textAxisPathIds : null;
-		this.renderState.paintedAxisPathIds =
-			textAxisPathIds.size > 0 ? new Set() : null;
+		let textAxisPathIds: Set<string> | null = null;
+		for (const obj of Object.values(document.objects)) {
+			if (obj?.type === "text" && obj.axisBinding) {
+				textAxisPathIds ??= new Set();
+				textAxisPathIds.add(obj.axisBinding.pathObjectId);
+			}
+		}
+		this.renderState.textAxisPathIds = textAxisPathIds;
+		this.renderState.paintedAxisPathIds = textAxisPathIds ? new Set() : null;
 		this.renderState.currentZoom =
 			this.viewportManager.viewportState.current?.zoom ?? 1;
 
@@ -2125,12 +2014,6 @@ export class CanvasLayer {
 		this.renderState.boundsCache = boundsCache ?? null;
 		this.renderState.localBoundsCache = this.elementHierarchy.localBounds;
 		if (!this.viewportState.current) return null;
-		if (
-			strategy === RenderStrategy.viewportBlit &&
-			this.captureCompositeFrameThisFrame
-		) {
-			this.requestStoreImages(document.files);
-		}
 
 		// viewportBlit: a viewport-only interaction frame. With a valid cached
 		// composite that still covers the visible world, blit + reproject it and
@@ -2149,27 +2032,14 @@ export class CanvasLayer {
 				this.cache.compositeFrameTexture &&
 				this.cachedFrameCoversViewport() &&
 				(strategy === RenderStrategy.viewportBlit
-					? this.isReanchorOnHold() ||
-						!this.storeDriftExceeds(STORE_REANCHOR_STEP_PX)
+					? !this.storeDriftExceeds(STORE_REANCHOR_STEP_PX)
 					: !this.progressiveBakeDeferred &&
 						this.cachedFrameMatchesViewportDensity())
 			) {
 				return this.renderViewportBlit(encoder, canvasTexture, profiler);
 			}
-			if (
-				!needsPostProcess &&
-				(request.blitStaleComposite ||
-					(strategy === RenderStrategy.viewportBlit &&
-						(performance.now() < this.staleBlitHeldUntil ||
-							this.lastFullRedrawMs >= STALL_FULL_REDRAW_MS) &&
-						this.mayLeaveViewUndrawn()))
-			) {
-				const blit = this.renderViewportBlit(encoder, canvasTexture, profiler);
-				if (blit) return blit;
-			}
 			// Fall through: render this frame normally and capture it.
 		}
-		const documentFrameStart = performance.now();
 		this.beginDocumentFrame();
 		const isDocumentFrame =
 			strategy === RenderStrategy.full ||
@@ -2390,18 +2260,6 @@ export class CanvasLayer {
 			});
 		}
 		const transaction = this.executeFrame(graph, encoder, filteredTextures);
-		const documentFrameEnd = performance.now();
-		this.viewUndrawnSince = null;
-		const documentFrameMs = documentFrameEnd - documentFrameStart;
-		if (strategy === RenderStrategy.viewportBlit) {
-			this.lastGestureFrameStart = documentFrameStart;
-		}
-		// A partial redraw is the least a full one costs here.
-		this.lastFullRedrawMs = this.lastFrameWasPartial
-			? Math.max(this.lastFullRedrawMs, documentFrameMs)
-			: documentFrameMs;
-		this.reanchorHeldUntil =
-			documentFrameEnd + documentFrameMs * REANCHOR_HOLD_FACTOR;
 		this.updateViewportBoundsCache();
 		// The filter bakes decide which bakes wait while the graph executes,
 		// so the follow-up frame is asked for only after it. A
@@ -2439,7 +2297,6 @@ export class CanvasLayer {
 		// reach them again.
 		this.cacheManager.filteredElement.beginFrame();
 		this.stripFrame.beginFrame();
-		this.backdropBlitBGCache.trim(this.backdropBlitPool.index);
 		this.backdropBlitPool.index = 0;
 	}
 
@@ -2455,10 +2312,8 @@ export class CanvasLayer {
 		this.washResults.beginDocumentFrame();
 		this.clipMaskAtlas.beginFrame();
 		this.filterRenderer.beginFrame();
-		const zoom = this.viewportState.current?.zoom;
 		// Last: the evictions above return their textures to this pool.
-		this.texturePool.resetFrame(zoom !== this.lastDocumentFrameZoom);
-		this.lastDocumentFrameZoom = zoom;
+		this.texturePool.resetFrame();
 		this.lendGpuCacheBudget();
 	}
 
@@ -2578,7 +2433,7 @@ export class CanvasLayer {
 	): Map<string, FilteredTextureInfo> {
 		this.progressiveBakeBudget = this.renderState.isExport
 			? Number.POSITIVE_INFINITY
-			: PROGRESSIVE_BAKE_BYTES_PER_FRAME;
+			: PROGRESSIVE_BAKES_PER_FRAME;
 		this.progressiveBakeDeferred = false;
 		this.gradient.drawIndex = 0;
 		this.brushRenderer.beginFrame();
@@ -2672,7 +2527,6 @@ export class CanvasLayer {
 				transientElements,
 			);
 			if (!elementOverrides?.size) {
-				void this.prefetchTextOutlines(mergedElementsMap);
 				this.framePlanStructureCache = {
 					objects: document.objects,
 					layers: document.layers,
@@ -2745,14 +2599,21 @@ export class CanvasLayer {
 		// margin, so its pans fall through to full renders.
 		const storeMarginPx =
 			this.captureCompositeFrameThisFrame && liveCanvasFrame
-				? this.panMarginPx * this.pixelRatio
+				? STORE_MARGIN_PX * this.pixelRatio
 				: 0;
 		// Derive this frame's plan (culling + backdrop segment slicing — cheap,
 		// O(candidates + layers), no full element walk). It culls against the
 		// whole store: a frame may draw anywhere in it, and an element there
 		// without its filter plan or backdrop entry would draw wrong. The store
-		// is not known yet, so the plan reaches wherever it can lie.
-		const storeReachPx = storeReachPxOf(storeMarginPx);
+		// is not known yet, so the reach covers where it can lie: off the view
+		// by the drift a re-anchor keeps, plus half the size round-up on each
+		// side and one texel for the world-grid snap.
+		const storeReachPx =
+			storeMarginPx > 0
+				? storeMarginPx * (1 + STORE_ANCHOR_KEEP_FRACTION) +
+					STORE_DIM_QUANTUM / 2 +
+					1
+				: 0;
 		const framePlan: RendererFramePlan = {
 			...buildFramePlanView(
 				planStructure,
@@ -2848,11 +2709,9 @@ export class CanvasLayer {
 		}
 		// A world-grid prebuf at the canvas's own density, unrotated, maps each
 		// texel onto one canvas pixel once the final blit shifts away the
-		// sub-pixel offset the snap leaves. A document stretched over the
-		// canvas is resampled anyway and stays where the world puts it.
+		// sub-pixel offset the snap leaves.
 		const storeMapsOneToOne =
 			liveCanvasFrame &&
-			this.canvasPixelsPerDocumentPixel === 1 &&
 			this.viewportState.current!.rotation === 0 &&
 			prebufZoom === this.viewportState.current!.zoom;
 		const prebufVisibleBounds = getVisibleWorldBounds(
@@ -2950,17 +2809,11 @@ export class CanvasLayer {
 		// re-sync is needed. Runs immediately (not as a graph pass):
 		// inline-composite classification — buildPassPlan reads the frame
 		// entries this bake registers, so they must exist before the plan is
-		// built. Only what the layers draw as artwork bakes: a solid no layer
-		// composes at its z-order would land on top of the frame in
-		// flushRemaining, and renderElements composes none for a guide.
+		// built. Only what the layers draw bakes: a solid no layer composes at
+		// its z-order would land on top of the frame in flushRemaining.
 		const bakeFilter =
 			effectiveFilter?.intersection(framePlan.drawnElementIds) ??
 			framePlan.drawnElementIds;
-		const drawsAsArtwork = (elementId: string): boolean => {
-			if (!bakeFilter.has(elementId)) return false;
-			const element = elementsMap.get(elementId);
-			return !!element && !this.isInsideGuide(element, elementsMap);
-		};
 		for (const driver of this.backdropDrivers) {
 			driver.prepareFrame(
 				encoder,
@@ -2971,7 +2824,7 @@ export class CanvasLayer {
 				// texels-per-world-px — at export scale just as much as on screen.
 				this.viewportState.current?.zoom ?? 1,
 				profiler,
-				drawsAsArtwork,
+				bakeFilter,
 			);
 		}
 
@@ -2983,9 +2836,13 @@ export class CanvasLayer {
 		);
 		const backdropSamplerIds = [
 			...framePlan.backdropEntries.keys(),
-			...resolvedBackdropDrivers.flatMap(
-				(driver) => driver.getInlineCompositeIds?.() ?? [],
-			),
+			...[...elementsMap.values()]
+				.filter((element) =>
+					resolvedBackdropDrivers.some((driver) =>
+						driver.hasInlineComposite(element),
+					),
+				)
+				.map((element) => element.id),
 		];
 		const parentGroupMap = this.elementHierarchy.parentMap;
 		for (const id of backdropSamplerIds) {
@@ -3003,12 +2860,9 @@ export class CanvasLayer {
 		// serves them all (dropped and recaptured when an intersecting draw —
 		// including an earlier backdrop blit — lands in a request's region).
 		const backdropFilterRequests = framePlan.backdropRequests;
-		// A pointwise chain captures on its own and stays out, or it would widen
-		// the batch the other requests share.
 		for (const bdElem of framePlan.backdropEntries.values()) {
 			if (bdElem.element.visible === false) continue;
 			if (effectiveFilter && !effectiveFilter.has(bdElem.element.id)) continue;
-			if (this.readsBackdropPointwise(bdElem)) continue;
 			backdropFilterRequests.set(bdElem.element.id, {
 				bounds: this.getBackdropTextureBounds(bdElem),
 				blurSigma: this.getBackdropBlurSigma(bdElem),
@@ -3081,7 +2935,10 @@ export class CanvasLayer {
 		// fill / stroke before the main pass so the gradient renderer can
 		// sample them without lazy mid-frame allocations. Mirrors
 		// preRenderBrushDefs.
-		const patternDefIds = this.patternDefIdsOf(elementsMap);
+		const patternDefIds = collectPatternDefIdsInUse(
+			elementsMap,
+			this.filterRenderer,
+		);
 		if (patternDefIds.size > 0) {
 			fg.graph.addPass("Pattern Defs", {
 				reads: [],
@@ -3096,10 +2953,7 @@ export class CanvasLayer {
 
 		// Same pre-pass for defs referenced as brush sources so the stamp
 		// pipeline finds their textures in the BrushTextureManager.
-		const brushDefIds = this.brushDefIdsOf(elementsMap);
-		this.activeDefs?.rasterizer.ensureCapacity(
-			patternDefIds.size + brushDefIds.size,
-		);
+		const brushDefIds = collectBrushDefIdsInUse(elementsMap);
 		if (brushDefIds.size > 0) {
 			fg.graph.addPass("Brush Defs", {
 				reads: [],
@@ -3463,9 +3317,7 @@ export class CanvasLayer {
 				// The dirty rect becomes the frame's draw region: element/segment
 				// culling and the offscreen bake clamp all follow viewportState
 				// .bounds, so everything outside it is skipped on the CPU.
-				this.partialRedrawStoreRegion = prebufViewportBounds;
 				prebufViewportBounds = partialPlan.dirtyWorld;
-				this.imageTextures.continueLastFrame();
 			}
 		}
 		// The previous composite is read by the partial-redraw restore and
@@ -3476,9 +3328,7 @@ export class CanvasLayer {
 		) {
 			// The freshly allocated texture holds no captured frame yet.
 			this.compositeFrameCache.valid = false;
-			this.compositeFrameCache.bakedWorldBounds = null;
 		}
-		this.lastFrameWasPartial = partialPlan != null;
 		const compositeFrameTexture = this.cache.compositeFrameTexture;
 		const compositeFrameHandle =
 			compositeFrameTexture &&
@@ -3981,18 +3831,10 @@ export class CanvasLayer {
 					this.compositeFrameCache.storeBounds =
 						visibleBoundsToBox(prebufVisibleBounds);
 					this.compositeFrameCache.storeDensity = prebufZoom;
-					// The same elements map proves the same document, so the bounds
-					// captured with it still hold.
-					if (
-						this.compositeFrameCache.elementsMap !== mergedElementsMap ||
-						this.compositeFrameCache.elementBounds == null
-					) {
-						this.compositeFrameCache.elementBounds = this.renderState
-							.boundsCache
-							? new Map(this.renderState.boundsCache)
-							: null;
-					}
 					this.compositeFrameCache.elementsMap = mergedElementsMap;
+					this.compositeFrameCache.elementBounds = this.renderState.boundsCache
+						? new Map(this.renderState.boundsCache)
+						: null;
 					this.compositeFrameCache.clearColor = clearColor;
 					this.compositeFrameCache.dotGrid = dotGridBackground;
 					this.compositeFrameCache.valid = true;
@@ -4079,8 +3921,7 @@ export class CanvasLayer {
 				this.composite.blitTextureToCanvas(
 					pass,
 					ctx.get(cacheHandle),
-					this.canvasPixelsPerDocumentPixel === 1 &&
-						this.cachedFrameMatchesViewportDensity()
+					this.cachedFrameMatchesViewportDensity()
 						? alignToCanvasPixels(
 								baked,
 								world,
@@ -4196,113 +4037,6 @@ export class CanvasLayer {
 			});
 		}
 		return reads;
-	}
-
-	/**
-	 * Hold back the next redraws for as long as the last gesture frame's cost
-	 * asks, now that the frame after it shows what that cost was. Only a frame
-	 * of the same gesture shows it: it arrives as soon as the GPU delivers it,
-	 * while any other frame arrives after a wait for input or for the settle.
-	 */
-	private settleLastGestureFrame(strategy: RenderStrategy): void {
-		if (this.lastGestureFrameStart == null) return;
-		const now = performance.now();
-		const frameMs = now - this.lastGestureFrameStart;
-		this.lastGestureFrameStart = null;
-		if (strategy !== RenderStrategy.viewportBlit) return;
-		this.lastFullRedrawMs = Math.max(this.lastFullRedrawMs, frameMs);
-		if (frameMs < STALL_FRAME_MS) return;
-		this.staleBlitHeldUntil = now + frameMs * REANCHOR_HOLD_FACTOR;
-		this.reanchorHeldUntil = this.staleBlitHeldUntil;
-	}
-
-	/**
-	 * Whether this frame fills in a view the cache lacks by drawing the view
-	 * alone, leaving the store's margin to later frames. A costly view shows up
-	 * in about half the time that way. Never twice in a row: the frame after it
-	 * bakes the whole store. A frame of a gesture in progress is left out: it
-	 * redraws only the part of the store the cache lacks, which is less than
-	 * the view.
-	 */
-	private shouldDrawViewFirst(strategy: RenderStrategy): boolean {
-		return (
-			!this.lastFrameDrewViewFirst &&
-			this.lastFullRedrawMs >= VIEW_FIRST_REDRAW_MS &&
-			(strategy === RenderStrategy.viewportSettle ||
-				strategy === RenderStrategy.overlayOnly) &&
-			(!this.cachedFrameCoversViewport() ||
-				!this.cachedFrameMatchesViewportDensity())
-		);
-	}
-
-	/**
-	 * Lay out every text of the document in the background, one at a time, so
-	 * a pan onto texts not shown yet finds their outlines ready. A newer
-	 * document takes over from the run of an older one.
-	 */
-	private async prefetchTextOutlines(
-		elementsMap: Map<string, AnyArtObject>,
-	): Promise<void> {
-		const run = ++this.textPrefetchRun;
-		for (const element of elementsMap.values()) {
-			if (element.type !== "text") continue;
-			await this.elements.ensureTextPaths(element);
-			if (run !== this.textPrefetchRun) return;
-		}
-	}
-
-	/**
-	 * Ask for the image textures a frame drawing the store around the current
-	 * view would draw with, so that during a gesture they load before the
-	 * frame that ends it rather than costing a redraw after it.
-	 */
-	private requestStoreImages(files: EmbeddedFile[]): void {
-		const structure = this.framePlanStructureCache;
-		const viewport = this.viewportState.current;
-		if (!structure || !viewport) return;
-		const reachPx = storeReachPxOf(this.panMarginPx * this.pixelRatio);
-		const width = this.viewportState.width + reachPx * 2;
-		const height = this.viewportState.height + reachPx * 2;
-		const filesByUid = this.filesByUidOf(files);
-		for (const { image, bounds } of this.placedImagesOf(
-			structure.mergedElementsMap,
-		)) {
-			const file = filesByUid.get(image.fileUid);
-			if (
-				file &&
-				boundsIntersectViewport(
-					bounds.minX,
-					bounds.minY,
-					bounds.maxX,
-					bounds.maxY,
-					viewport,
-					width,
-					height,
-				)
-			) {
-				this.imageTextures.request(file, bounds);
-			}
-		}
-	}
-
-	/** Whether a gesture may keep showing a cached frame that lacks part of the
-	 *  view: it may for as long as a redraw started then still ends within
-	 *  MAX_VIEW_UNDRAWN_MS. */
-	private mayLeaveViewUndrawn(): boolean {
-		if (this.cachedFrameCoversViewport()) {
-			this.viewUndrawnSince = null;
-			return true;
-		}
-		const now = performance.now();
-		this.viewUndrawnSince ??= now;
-		return (
-			now - this.viewUndrawnSince <
-			Math.max(MIN_VIEW_UNDRAWN_MS, MAX_VIEW_UNDRAWN_MS - this.lastFullRedrawMs)
-		);
-	}
-
-	private isReanchorOnHold(): boolean {
-		return performance.now() < this.reanchorHeldUntil;
 	}
 
 	/**
@@ -4452,18 +4186,6 @@ export class CanvasLayer {
 					if (g) ancestorOpacity *= g.opacity ?? 1.0;
 				}
 
-				// The UI overlay draws a guide and everything inside one, so
-				// nothing of theirs is painted over the dimmed copy.
-				const editedElement = isolatedElement ?? scopeElement;
-				if (
-					!scopedLayer &&
-					editedElement &&
-					this.isInsideGuide(editedElement, ctx.elementsMap)
-				) {
-					dimPass.end();
-					return;
-				}
-
 				if (scopedLayer) {
 					if (scopedTransientElements.length > 0) {
 						dimPass = this.renderElements(
@@ -4593,23 +4315,6 @@ export class CanvasLayer {
 	}
 
 	/**
-	 * Whether every backdrop filter of a live element maps each pixel to itself
-	 * alone. Such a chain gives the same pixels on any grid, so it reads the
-	 * target at the target's own density instead of the capture grid, and a
-	 * capture never outgrows the target. Exports keep the capture grid.
-	 */
-	private readsBackdropPointwise(bdElem: BackdropElementEntry): boolean {
-		return (
-			!this.renderState.isExport &&
-			croppedBakeReach(
-				this.filterRenderer,
-				bdElem.backdropFilters,
-				bdElem.bounds,
-			) === 0
-		);
-	}
-
-	/**
 	 * Execute GPU filter rendering for elements identified in the frame plan.
 	 * Iterates layerPlans in order so filter rendering maintains correct layer ordering.
 	 *
@@ -4641,7 +4346,6 @@ export class CanvasLayer {
 				rasterScale,
 				viewportZoom,
 				bounds,
-				{ isExport: this.renderState.isExport },
 			);
 			return this.renderState.isExport
 				? Math.min(rasterScale, zoomBucket)
@@ -4686,14 +4390,6 @@ export class CanvasLayer {
 		// A full-bounds bake below switches culling off for its own element;
 		// every other element culls against the region this frame draws.
 		const frameBounds = this.viewportState.bounds;
-		// A nested call draws into another bake's coverage, which the store
-		// region need not contain; its kept bakes are cut for what it draws.
-		const keptRegion =
-			frameBounds &&
-			this.partialRedrawStoreRegion &&
-			boundsContain(this.partialRedrawStoreRegion, frameBounds)
-				? this.partialRedrawStoreRegion
-				: frameBounds;
 		try {
 			for (const fp of plans) {
 				this.viewportState.bounds = frameBounds;
@@ -4758,45 +4454,16 @@ export class CanvasLayer {
 				const isFramePlan =
 					this.activeFramePlan?.filterPlans.get(element.id) === fp;
 
-				// A kept bake covers what this frame's store shows plus the chain's
-				// reach, cut on a grid laid from the element's whole bake, so later
-				// frames inside it reuse it and see the pixels the whole bake would
-				// give. A chain with a filter that forbids the cut, an underlay and
-				// an export bake the whole element.
-				const neededBounds = frameBounds
-					? boundsIntersectionBox(fp.textureBounds, frameBounds)
-					: fp.textureBounds;
-				const keptNeededBounds =
-					neededBounds && keptRegion && keptRegion !== frameBounds
-						? boundsIntersectionBox(fp.textureBounds, keptRegion)
-						: neededBounds;
-				const cropReach =
-					keptNeededBounds && !fp.underlay
-						? croppedBakeReach(
-								this.filterRenderer,
-								fp.postFilters,
-								fp.textureBounds,
-							)
-						: null;
-				const keptBake =
-					keptNeededBounds && cropReach != null
-						? cropFilterBake(
-								fp.textureBounds,
-								keptNeededBounds,
-								cropReach,
-								cacheDensity,
-							)
-						: { bake: fp.textureBounds, valid: fp.textureBounds };
-
 				// Frame-cache participation. A non-null hash means this element's
-				// filtered bake may be reused across frames. Backdrop-reading chains
-				// and groups holding a backdrop-filter element depend on what is
-				// behind the element and stay frame-local, as do preview-overridden
-				// elements and bakes past the cache budget.
+				// filtered bake may be reused across frames: the bake then covers
+				// the full textureBounds (viewport-independent) so pans hit without
+				// re-running the chain. Backdrop-reading chains and groups holding a
+				// backdrop-filter element depend on what is behind the element and
+				// stay frame-local, as do preview-overridden elements and bakes past
+				// the full-bake budget.
 				let cacheHash: string | null = null;
 				let cacheContentHash: string | null = null;
 				let cacheDeps: ReadonlySet<string> | null = null;
-				let overBakeBudget = false;
 				if (
 					this.filterCacheFrame != null &&
 					isFramePlan &&
@@ -4810,7 +4477,7 @@ export class CanvasLayer {
 								f,
 							).needsBackdrop,
 					) &&
-					this.bakeWithinCacheBudget(keptBake.bake, cacheDensity)
+					this.filteredBakeWithinBudget(fp, cacheDensity)
 				) {
 					// Everything this bake renders (group children, mask/compound/
 					// blend sources, …). A preview override anywhere inside means
@@ -4828,25 +4495,17 @@ export class CanvasLayer {
 				}
 				if (cacheHash != null) {
 					const entry = this.cacheManager.filteredElement.get(element.id);
-					const entryCovers =
-						entry != null &&
-						(neededBounds == null ||
-							boundsContain(entry.validBounds, neededBounds));
-					if (entry?.hash === cacheHash && entryCovers) {
+					if (entry?.hash === cacheHash) {
 						filteredTextures.set(
 							element.id,
 							buildCachedFilteredTextureInfo(entry, fp),
 						);
 						continue;
 					}
-					const differsOnlyInDensity =
-						entry != null &&
-						entryCovers &&
-						entry.contentHash === cacheContentHash &&
-						entry.density !== cacheDensity;
 					if (
-						differsOnlyInDensity &&
-						this.shouldUseStaleBake(entry, entry.contentHash, cacheDensity)
+						cacheContentHash != null &&
+						entry &&
+						this.shouldUseStaleBake(entry, cacheContentHash, cacheDensity)
 					) {
 						filteredTextures.set(
 							element.id,
@@ -4854,60 +4513,33 @@ export class CanvasLayer {
 						);
 						continue;
 					}
-					// A frame that draws only the viewport or a dirty rect (an
-					// edit's commit, a partial redraw, or a preview frame with its
-					// overrides) and finds no kept bake covering it bakes only what
-					// it draws and leaves the bake for the cache to a follow-up
-					// frame. The edit then does not pay for it, and a kept bake of
-					// the store is not replaced by one cut to that smaller region.
-					// A preview re-bakes that part every frame until a captured
-					// frame asks for the follow-up.
+					// A frame that draws only the viewport (an edit's commit, or a
+					// preview frame with its overrides) bakes only what it draws
+					// and leaves re-baking the whole element for the cache to a
+					// follow-up frame, so the edit does not pay for it. A preview
+					// re-bakes that part every frame until a captured frame asks
+					// for the follow-up.
 					if (
-						!entryCovers &&
+						!entry &&
 						!this.fullStoreBakeThisFrame &&
 						!this.renderState.isExport
 					) {
 						cacheHash = null;
 						this.progressiveBakeDeferred = true;
 					}
-					// Past the frame's re-bake budget a frame still has to draw the
-					// element, so it draws a coarser frame-local bake that a
-					// follow-up frame replaces.
-					if (
-						cacheHash != null &&
-						!differsOnlyInDensity &&
-						this.fullStoreBakeThisFrame &&
-						!this.takeProgressiveBakeBudget(
-							Math.ceil(keptBake.bake.width * cacheDensity) *
-								Math.ceil(keptBake.bake.height * cacheDensity) *
-								bytesPerTexel(this.canvasFormat),
-						)
-					) {
-						cacheHash = null;
-						overBakeBudget = true;
-					}
 				}
 
-				// A kept bake is for later frames too, so neither it nor its filters
-				// may be culled to the part of the store this frame draws. The
-				// bakes nested in it cull and clamp against the kept region, so a
-				// filtered child of a cropped group is not baked whole. An
-				// underlay bake that is not kept (a preview frame's) keeps its
-				// detail density but bakes only that part.
+				// A cached bake is the whole element, kept for later frames, so
+				// neither it nor its filters may be culled to the part of the store
+				// this frame draws. An underlay bake that is not kept (a preview
+				// frame's) keeps its detail density but bakes only that part.
 				const fixedDensityBake =
 					cacheHash != null
 						? { density: cacheDensity, fullBounds: true }
 						: detailBakeDensity != null
 							? { density: detailBakeDensity, fullBounds: false }
-							: overBakeBudget
-								? { density: cacheDensity / 2, fullBounds: false }
-								: null;
+							: null;
 				if (fixedDensityBake?.fullBounds) this.viewportState.bounds = null;
-				const bakeBounds =
-					cacheHash != null ? brandWorldBBox(keptBake.bake) : fp.textureBounds;
-				if (cacheHash != null && cropReach != null) {
-					this.viewportState.bounds = bakeBounds;
-				}
 				const offscreenResult: CoveredSurface<RasterizedRenderSurface> | null =
 					rendersOwnSource
 						? null
@@ -4915,7 +4547,7 @@ export class CanvasLayer {
 							? this.offscreen.renderGroupToTexture(
 									encoder,
 									element,
-									bakeBounds,
+									fp.textureBounds,
 									elementsMap,
 									this.elementHierarchy.localBounds,
 									rasterScale,
@@ -4927,7 +4559,7 @@ export class CanvasLayer {
 							: this.offscreen.renderElementToTexture(
 									encoder,
 									element,
-									bakeBounds,
+									fp.textureBounds,
 									elementsMap,
 									rasterScale,
 									!isFramePlan,
@@ -4967,7 +4599,6 @@ export class CanvasLayer {
 							underlay.texture.texture,
 							underlay.placement.bounds,
 							underlay.placement.uvRect,
-							keptBake.valid,
 						);
 					}
 					filteredTextures.set(element.id, {
@@ -5003,7 +4634,7 @@ export class CanvasLayer {
 							texturePool: this.texturePool,
 							resolveTextOutline: (el) => this.resolveTextOutline(el),
 							requestTextOutline: (el) => this.requestTextOutline(el),
-							imageLoadState: this.imageLoadState,
+							isImageReady: this.isImageReady,
 						}
 					: undefined;
 
@@ -5115,7 +4746,6 @@ export class CanvasLayer {
 						filteredTexture,
 						outputBounds,
 						outputUvRect,
-						keptBake.valid,
 					);
 				}
 				filteredTextures.set(element.id, {
@@ -5196,6 +4826,17 @@ export class CanvasLayer {
 		);
 	}
 
+	/** A cacheable bake covers the full textureBounds; refuse when that would
+	 *  dwarf the canvas or exceed the cache's per-entry byte cap — otherwise
+	 *  every frame pays a full bake + copy only for set() to reject it
+	 *  (zoomed-in giants stay on the frame-local clamp path). */
+	private filteredBakeWithinBudget(
+		fp: ElementFilterPlan,
+		density: number,
+	): boolean {
+		return this.bakeWithinCacheBudget(fp.textureBounds, density);
+	}
+
 	/** Single source for the paint-hash callbacks — the clip-mask atlas and
 	 *  the filtered-element cache must fingerprint paint identically, or a
 	 *  change one of them tracks would leave the other stale. */
@@ -5203,7 +4844,7 @@ export class CanvasLayer {
 		return {
 			resolvePatternTexture: (defId) => this.resolvePatternTexture(defId),
 			resolveTextOutline: (el) => this.resolveTextOutline(el),
-			imageLoadState: this.imageLoadState,
+			isImageReady: this.isImageReady,
 			filterRenderer: this.filterRenderer,
 		};
 	}
@@ -5215,21 +4856,12 @@ export class CanvasLayer {
 	): boolean {
 		if (entry.contentHash !== contentHash || entry.density === density)
 			return false;
-		return !this.takeProgressiveBakeBudget(
-			entry.byteSize * (density / entry.density) ** 2,
-		);
-	}
-
-	/** Spend this frame's re-bake budget on a bake of `bytes`, or leave it to
-	 *  a follow-up frame when the budget is gone. The first bake of a frame
-	 *  always fits, so every frame makes progress. */
-	private takeProgressiveBakeBudget(bytes: number): boolean {
 		if (this.progressiveBakeBudget > 0) {
-			this.progressiveBakeBudget -= bytes;
-			return true;
+			this.progressiveBakeBudget--;
+			return false;
 		}
 		this.progressiveBakeDeferred = true;
-		return false;
+		return true;
 	}
 
 	/** Content hash for a cached filtered bake. Push invalidation (element
@@ -5266,7 +4898,6 @@ export class CanvasLayer {
 		texture: GPUTexture,
 		bounds: BoundingBox,
 		uvRect: BlitUVRect,
-		validBounds: BoundingBox,
 	): void {
 		const cacheTexture = this.device.createTexture({
 			label: "Filtered Element Cache Texture",
@@ -5288,7 +4919,6 @@ export class CanvasLayer {
 			density,
 			texture: cacheTexture,
 			bounds: brandWorldBBox(bounds),
-			validBounds,
 			uvRect,
 			byteSize: texture.width * texture.height * bytesPerTexel(texture.format),
 			dependencyIds,
@@ -5312,7 +4942,6 @@ export class CanvasLayer {
 		const { elementsMap, layerPlans } = framePlan;
 		const rasterScale = this.getRasterScale();
 		const boundsCache = this.elementHierarchy.localBounds;
-		const region = this.viewportState.bounds;
 		const bakeIn = (
 			elements: readonly AnyArtObject[],
 			parentMatrix: ElementTransform | null,
@@ -5326,11 +4955,6 @@ export class CanvasLayer {
 					continue;
 				}
 				if (!isRepeat(element)) continue;
-				// A repeat this frame does not draw needs no bake.
-				const reach =
-					framePlan.filterPlans.get(element.id)?.textureBounds ??
-					this.worldBoundsOf(element);
-				if (region && !boundsIntersect(reach, region)) continue;
 				const info = this.offscreen.bakeRepeat(
 					encoder,
 					element,
@@ -5634,7 +5258,6 @@ export class CanvasLayer {
 						output.texture.texture,
 						output.placement.bounds,
 						output.placement.uvRect,
-						output.placement.bounds,
 					);
 				}
 				filteredTextures.set(elementId, {
@@ -6524,12 +6147,8 @@ export class CanvasLayer {
 		// filters (frost glass, pixelate) invariant to pan, and to zoom within
 		// one density bucket. The planned request is passed through for the
 		// coordinator's pending-union bookkeeping; a missing one (transient
-		// render paths) still captures. A pointwise chain captures the target
-		// at its own density instead.
-		const pointwise = this.readsBackdropPointwise(bdElem);
-		const rasterScale = pointwise
-			? backdropViewport.zoom
-			: this.getBackdropRasterScale();
+		// render paths) still captures.
+		const rasterScale = this.getBackdropRasterScale();
 		const fullBounds =
 			backdropRequest?.bounds ?? this.getBackdropTextureBounds(bdElem);
 		const request = backdropRequest ?? {
@@ -6537,25 +6156,15 @@ export class CanvasLayer {
 			blurSigma: this.getBackdropBlurSigma(bdElem),
 			rasterScale,
 		};
-		const captured = pointwise
-			? this.backdropEffectCoordinator.acquireIndividualFixedR(
-					encoder,
-					backdropSourceTexture,
-					backdropViewport,
-					this.viewportState.width,
-					this.viewportState.height,
-					request,
-					rasterScale,
-				)
-			: this.backdropEffectCoordinator.acquireFixedRRegion(
-					encoder,
-					backdropSourceTexture,
-					backdropViewport,
-					this.viewportState.width,
-					this.viewportState.height,
-					request,
-					this.activeProfiler,
-				);
+		const captured = this.backdropEffectCoordinator.acquireFixedRRegion(
+			encoder,
+			backdropSourceTexture,
+			backdropViewport,
+			this.viewportState.width,
+			this.viewportState.height,
+			request,
+			this.activeProfiler,
+		);
 		// Fully off-screen region — nothing to filter or blit.
 		if (!captured) return;
 
@@ -6996,21 +6605,6 @@ export class CanvasLayer {
 		);
 	}
 
-	/** Whether the element is a guide, or sits in a container that is one. */
-	private isInsideGuide(
-		element: AnyArtObject,
-		elementsMap: Map<string, AnyArtObject>,
-	): boolean {
-		const parents = this.elementHierarchy.parentMap;
-		return (
-			findGuideOwner(
-				element,
-				(id) => elementsMap.get(id),
-				(id) => parents.get(id),
-			) !== undefined
-		);
-	}
-
 	private renderElements(
 		passEncoder: GPURenderPassEncoder,
 		elements: AnyArtObject[],
@@ -7042,8 +6636,13 @@ export class CanvasLayer {
 			) {
 				continue;
 			}
-			// The UI overlay draws guides; they are never document content.
-			if (element.isGuide) {
+			// Guide paths stay visible on canvas but are excluded from exports
+			// (schema: Path.isGuide "Excluded from export").
+			if (
+				element.type === "path" &&
+				element.isGuide &&
+				this.renderState.isExport
+			) {
 				continue;
 			}
 			if (skipElementIds?.has(element.id)) {
@@ -8316,20 +7915,16 @@ export class CanvasLayer {
 		}
 
 		// @builtin(position) is in backing-store pixels, while the spacing and
-		// radius are meant in CSS pixels and the target size and viewport in
-		// the pixels the document renders.
-		const toCanvas = this.canvasPixelsPerDocumentPixel;
-		const spacingPx =
-			CanvasLayer.DOT_GRID_SPACING_PX * this.pixelRatio * toCanvas;
-		const radiusPx =
-			CanvasLayer.DOT_GRID_RADIUS_PX * this.pixelRatio * toCanvas;
+		// radius are meant in CSS pixels.
+		const spacingPx = CanvasLayer.DOT_GRID_SPACING_PX * this.pixelRatio;
+		const radiusPx = CanvasLayer.DOT_GRID_RADIUS_PX * this.pixelRatio;
 
 		// Anchor the lattice phase to the world origin's screen projection so the
 		// dots pan with the canvas while keeping constant on-screen spacing.
 		const { phaseX, phaseY } = computeDotGridPhase(
-			targetWidth * toCanvas,
-			targetHeight * toCanvas,
-			{ ...viewport, zoom: viewport.zoom * toCanvas },
+			targetWidth,
+			targetHeight,
+			viewport,
 		);
 
 		const color = CanvasLayer.DOT_GRID_COLOR;
@@ -8471,7 +8066,6 @@ export class CanvasLayer {
 	 */
 	public invalidateDocumentCache(): void {
 		this.compositeFrameCache.valid = false;
-		this.compositeFrameCache.elementBounds = null;
 	}
 
 	/**
@@ -8988,23 +8582,7 @@ export class CanvasLayer {
 const EMPTY_ID_SET: ReadonlySet<string> = new Set();
 /** Full-bounds cached bakes may cover at most this many canvas surfaces. */
 const FILTER_CACHE_FULL_BAKE_BUDGET_FACTOR = 4;
-/** Bytes of filter bakes a frame re-bakes at a new density. A bake holds its
- *  whole filter chain's intermediates until the frame ends, so re-baking every
- *  element in one frame after a zoom overruns a tablet's memory. The rest keep
- *  their old density until a follow-up frame reaches them. */
-const PROGRESSIVE_BAKE_BYTES_PER_FRAME = 32 * 1024 * 1024;
-
-/**
- * How far past the view, in device px, a store with `marginPx` of margin can
- * reach: off the view by the drift a re-anchor keeps, plus half the size
- * round-up on each side and one texel for the world-grid snap.
- */
-function storeReachPxOf(marginPx: number): number {
-	if (marginPx <= 0) return 0;
-	return (
-		marginPx * (1 + STORE_ANCHOR_KEEP_FRACTION) + STORE_DIM_QUANTUM / 2 + 1
-	);
-}
+const PROGRESSIVE_BAKES_PER_FRAME = 12;
 
 // ---------------------------------------------------------------------------
 // Clip mask helpers
@@ -9080,7 +8658,6 @@ interface ObjectMaskEntry {
  */
 function collectClipGroups(
 	ctx: WorldBoundsContext,
-	candidates: readonly Group[],
 	viewportBounds: BoundingBox | null,
 	/** Report where the group actually paints, when that exceeds its element
 	 *  bounds (a group filter's expansion margin, a 3D solid's projection), so a
@@ -9109,8 +8686,9 @@ function collectClipGroups(
 	};
 
 	const groups: ClipGroupEntry[] = [];
-	for (const element of candidates) {
-		const clipPath = elementsMap.get(element.clipPathId!);
+	for (const [, element] of elementsMap) {
+		if (!isGroup(element) || element.clipPathId == null) continue;
+		const clipPath = elementsMap.get(element.clipPathId);
 		if (!clipPath) continue;
 
 		const groupBounds = computeWorldBounds(element, ctx, parentGroupMap);
@@ -9133,7 +8711,7 @@ function collectClipGroups(
 		const parent = enclosingClipGroup(element.id, elementsMap, parentGroupMap);
 		groups.push({
 			groupId: element.id,
-			clipPathId: element.clipPathId!,
+			clipPathId: element.clipPathId,
 			clipPath,
 			groupBounds,
 			maskKey: effectiveMaskKey(element),
@@ -9339,29 +8917,36 @@ function buildMaskAssignment(
 	countPathDraws: (path: Path) => number,
 	filterPlanIds: ReadonlySet<string>,
 	editingScopeId: string | undefined,
-	parentGroupMap: ReadonlyMap<string, string>,
 ): {
 	assignment: Map<string, AssignedMask>;
 	maskApplicationPlans: Map<string, MaskApplicationPlan>;
+	groupCompositionPlans: Map<string, GroupCompositionPlan>;
 	masksByKey: Map<string, AssignedMask>;
 	inlineClipGroupIds: Set<string>;
 } {
 	const assignment = new Map<string, AssignedMask>();
 	const maskApplicationPlans = new Map<string, MaskApplicationPlan>();
+	const groupCompositionPlans = new Map<string, GroupCompositionPlan>();
 	const masksByKey = new Map<string, AssignedMask>();
 	const inlineClipGroupIds = new Set<string>();
 	const maskStacks = new Map<string, PlannedMask[]>();
+	const parentGroupMap = resolveParentGroupMap({ elementsMap });
 	const clipGroupIds = new Set(clipGroups.map((entry) => entry.groupId));
 	const objectMaskOwnerIds = new Set(objectMasks.map((entry) => entry.ownerId));
 
-	const groupPlanOf = (element: Group): GroupCompositionPlan =>
-		planGroupComposition({
-			hasOwnMask: objectMaskOwnerIds.has(element.id),
-			hasOwnClip: clipGroupIds.has(element.id),
-			hasOpacity: (element.opacity ?? 1) !== 1,
-			hasFilter: filterPlanIds.has(element.id),
-			dependsOnBackdrop: dependsOnBackdrop(element),
-		});
+	for (const element of elementsMap.values()) {
+		if (!isGroup(element)) continue;
+		groupCompositionPlans.set(
+			element.id,
+			planGroupComposition({
+				hasOwnMask: objectMaskOwnerIds.has(element.id),
+				hasOwnClip: clipGroupIds.has(element.id),
+				hasOpacity: (element.opacity ?? 1) !== 1,
+				hasFilter: filterPlanIds.has(element.id),
+				dependsOnBackdrop: dependsOnBackdrop(element),
+			}),
+		);
+	}
 
 	const sortedClipGroups = [...clipGroups].sort(
 		(a, b) =>
@@ -9376,9 +8961,9 @@ function buildMaskAssignment(
 
 		const group = elementsMap.get(entry.groupId);
 		if (!group || !isGroup(group)) continue;
-		const groupPlan = groupPlanOf(group);
+		const groupPlan = groupCompositionPlans.get(group.id);
 		const clipOnly =
-			groupPlan.kind === "isolated" &&
+			groupPlan?.kind === "isolated" &&
 			groupPlan.reasons.every((reason) => reason === "clip");
 		// The fragment shader multiplies the mask into each draw on its own,
 		// so where two draws overlap on the mask's partial-coverage edge the
@@ -9423,7 +9008,9 @@ function buildMaskAssignment(
 	for (const [elementId, masks] of maskStacks) {
 		const element = elementsMap.get(elementId);
 		if (!element) continue;
-		const groupPlan = isGroup(element) ? groupPlanOf(element) : undefined;
+		const groupPlan = isGroup(element)
+			? groupCompositionPlans.get(elementId)
+			: undefined;
 		// A group draws its children inline when nothing composites it as one
 		// layer: a normal-blended passthrough group, or an inline clip group.
 		// Its children then keep their own inline masks and blend against the
@@ -9453,6 +9040,7 @@ function buildMaskAssignment(
 	return {
 		assignment,
 		maskApplicationPlans,
+		groupCompositionPlans,
 		masksByKey,
 		inlineClipGroupIds,
 	};
@@ -9526,41 +9114,6 @@ function assignMaskStackRecursive(
  * Used by CanvasLayer.render as a pre-pass before the main render pass so
  * pattern textures are warm by the time the gradient renderer asks for them.
  */
-/** The paths text elements are bound to as axes. Those paths are guides. */
-function collectTextAxisPathIds(
-	objects: Document["objects"],
-): ReadonlySet<string> {
-	const ids = new Set<string>();
-	for (const obj of Object.values(objects)) {
-		if (obj?.type === "text" && obj.axisBinding) {
-			ids.add(obj.axisBinding.pathObjectId);
-		}
-	}
-	return ids;
-}
-
-function groupHasOwnMask(group: Group): boolean {
-	return (
-		group.mask != null &&
-		group.mask.enabled !== false &&
-		group.mask.elementIds.length > 0
-	);
-}
-
-/** The groups that composite as one layer for a reason the document alone
- *  decides: their own mask, clip path or opacity. */
-function collectIsolatingGroups(
-	elementsMap: Map<string, AnyArtObject>,
-): Group[] {
-	return [...elementsMap.values()].filter(
-		(element): element is Group =>
-			isGroup(element) &&
-			(groupHasOwnMask(element) ||
-				element.clipPathId != null ||
-				(element.opacity ?? 1) !== 1),
-	);
-}
-
 function collectPatternDefIdsInUse(
 	elementsMap: Map<string, AnyArtObject>,
 	filterRenderer: FilterRenderer,

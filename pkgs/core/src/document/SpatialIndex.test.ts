@@ -498,58 +498,6 @@ describe("SpatialIndex", () => {
 			);
 		});
 
-		it("should keep group bounds following a change across an adopted objects record", () => {
-			const child = makeImage("child-1", 0, 0, 40, 40);
-			const group = makeGroup("group-1", ["child-1"]);
-			const objects: Record<string, AnyArtObject> = {
-				"group-1": group,
-				"child-1": child,
-			};
-			const store = makeStore([makeLayer("layer-1", ["group-1"])], objects);
-			const idx = new SpatialIndex(store);
-			idx.rebuildAllIndices();
-			idx.getBounds("group-1");
-
-			const grown = makeImage("child-1", 0, 0, 200, 200);
-			objects["child-1"] = grown;
-			idx.applyObjectsDelta({
-				added: new Map(),
-				updated: new Map([["child-1", grown]]),
-				deleted: new Set(),
-			});
-			store.document.objects = { ...objects };
-			idx.adoptObjectsRecord(objects, store.document.objects);
-			idx.clearBoundsCacheWithAncestors("child-1");
-
-			expect(idx.getBounds("group-1")).toEqual(
-				expect.objectContaining({ maxX: 100, maxY: 100 }),
-			);
-		});
-
-		it("should read a replaced objects record that was adopted from another record", () => {
-			const child = makeImage("child-1", 0, 0, 40, 40);
-			const group = makeGroup("group-1", ["child-1"]);
-			const objects: Record<string, AnyArtObject> = {
-				"group-1": group,
-				"child-1": child,
-			};
-			const store = makeStore([makeLayer("layer-1", ["group-1"])], objects);
-			const idx = new SpatialIndex(store);
-			idx.rebuildAllIndices();
-			idx.getBounds("group-1");
-
-			store.document.objects = {
-				"group-1": group,
-				"child-1": makeImage("child-1", 0, 0, 200, 200),
-			};
-			idx.adoptObjectsRecord({}, store.document.objects);
-			idx.clearBoundsCacheWithAncestors("child-1");
-
-			expect(idx.getBounds("group-1")).toEqual(
-				expect.objectContaining({ maxX: 100, maxY: 100 }),
-			);
-		});
-
 		it("setBounds updates the cache and quadtree", () => {
 			const img = makeImage("img-1", 0, 0, 100, 60);
 			const layer = makeLayer("layer-1", ["img-1"]);
@@ -1450,17 +1398,6 @@ describe("SpatialIndex", () => {
 
 			expect(idx.findLeafElementAtPoint("layer-1", 300, 0)).toBe(child);
 		});
-
-		it("should reach what is painted under a guide's outline", () => {
-			const back = makeImage("back", 0, 0, 100, 100);
-			const guide = { ...makeImage("guide", 0, 0, 40, 40), isGuide: true };
-			const layer = makeLayer("layer-1", ["back", "guide"]);
-			const idx = new SpatialIndex(makeStore([layer], { back, guide }));
-			idx.rebuildAllIndices();
-
-			// x=20 is on the guide's right edge.
-			expect(idx.findLeafElementAtPoint("layer-1", 20, 0)).toBe(back);
-		});
 	});
 
 	describe("findPaintedElementsAtPoint", () => {
@@ -1498,29 +1435,6 @@ describe("SpatialIndex", () => {
 				["front", 0],
 				["back", 0],
 			]);
-		});
-
-		it("should leave out a guide and what is inside a guide group", () => {
-			const back = makeImage("back", 0, 0, 100, 100);
-			const guide = { ...makeImage("guide", 0, 0, 40, 40), isGuide: true };
-			const inner = makeImage("inner", 0, 0, 40, 40);
-			const guideGroup = {
-				...makeGroup("guide-group", ["inner"]),
-				isGuide: true,
-			};
-			const layer = makeLayer("layer-1", ["back", "guide", "guide-group"]);
-			const idx = new SpatialIndex(
-				makeStore([layer], {
-					back,
-					guide,
-					inner,
-					"guide-group": guideGroup,
-				}),
-			);
-			idx.rebuildAllIndices();
-
-			// x=20 is on the right edge of both guides.
-			expect(listed(idx, 20, 0)).toEqual([["back", 0]]);
 		});
 
 		it("should list a group with its own appearance ahead of its children", () => {
@@ -2239,35 +2153,6 @@ describe("geometry filter hit testing", () => {
 				],
 			},
 		);
-
-		expect(idx.findElementAtPoint("layer-1", 0, SHIFT_Y)).toBe(group);
-		expect(idx.findElementAtPoint("layer-1", 0, 0)).toBeNull();
-	});
-
-	it("should apply an appearance preset that an update gives a group's child", () => {
-		const group = makeGroup("group-1", ["child-1"]);
-		const objects: Record<string, AnyArtObject> = {
-			"group-1": group,
-			"child-1": makePath("child-1"),
-		};
-		const idx = createFilteredIndex(["group-1"], objects, {
-			appearancePresets: [
-				{ uid: "preset-1", name: "shift", filters: [shiftUpFilter()] },
-			],
-		});
-
-		const withPreset: Path = {
-			...makePath("child-1"),
-			filters: [{ type: "preset", uid: "ref", presetUid: "preset-1" }],
-		};
-		objects["child-1"] = withPreset;
-		idx.applyObjectsDelta({
-			added: new Map(),
-			updated: new Map([["child-1", withPreset]]),
-			deleted: new Set(),
-		});
-		idx.clearBoundsCacheWithAncestors("child-1");
-		idx.updateElement("layer-1", group);
 
 		expect(idx.findElementAtPoint("layer-1", 0, SHIFT_Y)).toBe(group);
 		expect(idx.findElementAtPoint("layer-1", 0, 0)).toBeNull();

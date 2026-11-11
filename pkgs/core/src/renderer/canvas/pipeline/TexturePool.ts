@@ -10,8 +10,7 @@
  *
  * Pooled textures leave in least-recently-released order: at frame start
  * when they sat unused long enough (IdleClock.isExpired) or the pool is over
- * its memory budget, when a new allocation would push the pool past that
- * budget, and on trimIdle() when they sat out recent frames.
+ * its memory budget, and on trimIdle() when they sat out recent frames.
  *
  * Usage:
  *   pool.resetFrame()            // start of a document frame — evict idle textures
@@ -66,17 +65,6 @@ function textureBytes(
 	return width * height * sampleCount * bytesPerTexel;
 }
 
-/**
- * Frames a pooled texture must sit out before the budget may free it. The
- * last frame's textures are what the next frame asks for, so freeing them when
- * a frame's working set exceeds the budget re-allocates that set every frame,
- * and each freed texture stays resident until the GPU finishes with it.
- */
-const IDLE_FRAMES_BEFORE_BUDGET_EVICTION = 2;
-/** After a zoom the offscreen sizes differ, so the last frame's textures will
- *  not be asked for again and only hold memory the new sizes need. */
-const IDLE_FRAMES_BEFORE_BUDGET_EVICTION_AFTER_ZOOM = 1;
-
 /** Ceiling for the canvas-scaled pool budget. */
 const MAX_POOL_BYTES_CEILING = 1024 * 1024 * 1024;
 
@@ -120,8 +108,6 @@ export class TexturePool {
 
 	/** Budget for pooled (idle) textures; re-evaluated per canvas size. */
 	private budgetBytes = MAX_POOL_BYTES;
-
-	private budgetEvictionIdleFrames = IDLE_FRAMES_BEFORE_BUDGET_EVICTION;
 
 	public constructor(private readonly device: GPUDevice) {}
 
@@ -182,7 +168,6 @@ export class TexturePool {
 			return tex;
 		}
 
-		this.makeRoomFor(textureBytes(qw, qh, format, sampleCount));
 		// Allocate at the quantized size.  All textures in the same bucket
 		// share identical dimensions, so render-pass attachments (MSAA +
 		// resolve target) always match.
@@ -226,7 +211,6 @@ export class TexturePool {
 			this.inUse.add(tex);
 			return tex;
 		}
-		this.makeRoomFor(textureBytes(width, height, format, sampleCount));
 		const tex = this.device.createTexture({
 			label,
 			size: { width, height },
@@ -282,20 +266,17 @@ export class TexturePool {
 	 * the least recently released ones while over budget. Call before the
 	 * frame encodes anything, so no evicted texture is referenced by an
 	 * unsubmitted command buffer.
-	 *
-	 * @param zoomChanged Whether this frame draws at another zoom than the last.
 	 */
-	public resetFrame(zoomChanged = false): void {
-		this.budgetEvictionIdleFrames = zoomChanged
-			? IDLE_FRAMES_BEFORE_BUDGET_EVICTION_AFTER_ZOOM
-			: IDLE_FRAMES_BEFORE_BUDGET_EVICTION;
+	public resetFrame(): void {
 		this.clock.tick();
 		const now = performance.now();
 		for (const [texture, { key, stamp }] of this.releasedAt) {
-			const overBudget =
-				this.totalPooledBytes > this.budgetBytes &&
-				this.clock.isIdleFor(stamp, this.budgetEvictionIdleFrames);
-			if (!this.clock.isExpired(stamp, now) && !overBudget) break;
+			if (
+				!this.clock.isExpired(stamp, now) &&
+				this.totalPooledBytes <= this.budgetBytes
+			) {
+				break;
+			}
 			this.evict(texture, key);
 		}
 	}
@@ -338,34 +319,6 @@ export class TexturePool {
 		this.inUse.clear();
 
 		this.totalPooledBytes = 0;
-	}
-
-	/**
-	 * Free the least recently released textures so a new allocation of `bytes`
-	 * fits the budget. During a pan every element's size changes, so a frame
-	 * misses its buckets and would otherwise allocate on top of everything the
-	 * earlier frames left idle.
-	 */
-	private makeRoomFor(bytes: number): void {
-		let heldBytes = this.totalPooledBytes + bytes;
-		for (const { width, height, format, sampleCount } of this.inUse) {
-			heldBytes += textureBytes(width, height, format, sampleCount);
-		}
-		for (const [texture, { key, stamp }] of this.releasedAt) {
-			if (
-				heldBytes <= this.budgetBytes ||
-				!this.clock.isIdleFor(stamp, this.budgetEvictionIdleFrames)
-			) {
-				return;
-			}
-			heldBytes -= textureBytes(
-				texture.width,
-				texture.height,
-				texture.format,
-				texture.sampleCount,
-			);
-			this.evict(texture, key);
-		}
 	}
 
 	private evict(texture: GPUTexture, key: string): void {

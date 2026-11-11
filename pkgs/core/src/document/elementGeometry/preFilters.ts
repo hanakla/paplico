@@ -154,32 +154,29 @@ export function resolveCompoundDrawnShape(
  * True when the element, any group descendant or any compound path source
  * carries an enabled geometry filter, including appearance sub-filters — the
  * gate for deformed-bounds and deformed-hit-test work.
- *
- * `knownAnswers` holds the answers already found for elements of
- * `elementsMap`, so a walk that asks about every container visits each
- * element once. An answer covers the descendants as they are now: pass a map
- * that lives no longer than one walk over an unchanged `elementsMap`.
  */
 export function subtreeHasPreFilter(
 	element: AnyArtObject,
 	elementsMap: ReadonlyMap<string, AnyArtObject>,
 	filterRenderer: FilterCapabilityLookup,
-	knownAnswers?: Map<AnyArtObject, boolean>,
 ): boolean {
-	const known = knownAnswers?.get(element);
-	if (known !== undefined) return known;
-
-	const answer =
+	if (
 		geometryFilters(element, filterRenderer).length > 0 ||
-		collectAppearancePreSubFilters(element, filterRenderer).length > 0 ||
-		containedElementIds(element).some((id) => {
-			const child = elementsMap.get(id);
-			return child
-				? subtreeHasPreFilter(child, elementsMap, filterRenderer, knownAnswers)
-				: false;
-		});
-	knownAnswers?.set(element, answer);
-	return answer;
+		collectAppearancePreSubFilters(element, filterRenderer).length > 0
+	) {
+		return true;
+	}
+	const childIds = isGroup(element)
+		? element.childIds
+		: isCompoundPath(element)
+			? element.sources.map((source) => source.id)
+			: [];
+	return childIds.some((id) => {
+		const child = elementsMap.get(id);
+		return child
+			? subtreeHasPreFilter(child, elementsMap, filterRenderer)
+			: false;
+	});
 }
 
 /** Enabled geometry sub-filters of each enabled fill/stroke appearance —
@@ -321,13 +318,4 @@ function runPreFilter(
 			},
 		},
 	];
-}
-
-/** Ids of the group children or compound path sources of `element`. */
-function containedElementIds(element: AnyArtObject): string[] {
-	if (isGroup(element)) return element.childIds;
-	if (isCompoundPath(element)) {
-		return element.sources.map((source) => source.id);
-	}
-	return [];
 }

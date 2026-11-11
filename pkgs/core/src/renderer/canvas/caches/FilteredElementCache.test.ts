@@ -209,22 +209,20 @@ function entry(
 	byteSize: number,
 	dependencyIds: readonly string[] = [],
 ): FilteredElementCacheEntry {
-	const bounds = brandWorldBBox({
-		minX: 0,
-		minY: 0,
-		maxX: 1,
-		maxY: 1,
-		width: 1,
-		height: 1,
-	});
 	return {
 		hash: "h",
 		contentHash: "content",
 		density: 1,
 		dependencyIds: new Set(dependencyIds),
 		texture: { destroy: vi.fn() } as unknown as GPUTexture,
-		bounds,
-		validBounds: bounds,
+		bounds: brandWorldBBox({
+			minX: 0,
+			minY: 0,
+			maxX: 1,
+			maxY: 1,
+			width: 1,
+			height: 1,
+		}),
 		uvRect: FULL_BLIT_UV_RECT,
 		byteSize,
 	};

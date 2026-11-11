@@ -314,69 +314,68 @@ describe("SVGExporter", () => {
 	});
 
 	it("should outline text through the text renderer with run styles", async () => {
+		const textEl = {
+			type: "text",
+			id: "t1",
+			opacity: 1,
+			blendMode: "normal",
+			transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+			x: 0,
+			y: 0,
+			content: {
+				paragraphs: [
+					{
+						runs: [{ text: "A", style: runStyle() }],
+						alignment: "left",
+						lineHeight: 1,
+						indent: 0,
+						spacing: { before: 0, after: 0 },
+					},
+				],
+			},
+			defaultStyle: runStyle(),
+			layout: {
+				writingMode: "horizontal-tb",
+				boxWidth: "auto",
+				boxHeight: "auto",
+				overflow: "visible",
+				wordWrap: true,
+			},
+		} satisfies TextElement;
+
 		const glyph: Path = path("glyph", {
 			segments: [
 				seg({ start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, isMoved: true }),
 				seg({ end: { x: 5, y: 10 }, isClosed: true }),
 			],
 		});
+		const renderer = {
+			getTextRenderer: () => ({
+				textElementToOutlinedPaths: vi.fn(async () => ({
+					outlinedPaths: [{ path: glyph, runIndex: 0, paragraphIndex: 0 }],
+					bounds: {
+						minX: 0,
+						minY: 0,
+						maxX: 10,
+						maxY: 10,
+						width: 10,
+						height: 10,
+					},
+				})),
+				getFlowHead: (el: TextElement) => el,
+			}),
+			getFilterHandler: () => undefined,
+			ensureTextDocumentResolver: () => () => {},
+		} as unknown as ExportRenderer;
 
-		const doc = makeDocument(
-			[textElement(runStyle())],
-			[{ elementIds: ["t1"] }],
-		);
-		const ctx = makeContext(makeGlyphRenderer([glyph]), doc);
+		const doc = makeDocument([textEl], [{ elementIds: ["t1"] }]);
+		const ctx = makeContext(renderer, doc);
 		const result = await new SVGExporter().export(ctx, "artboard1");
 
 		// Glyph world (0,0)-(10,0)-(5,10) → SVG (50,50)-(60,50)-(55,40)
 		expect(result?.svg).toContain(
 			`<path d="M 50 50 L 60 50 L 55 40 Z" fill="#0000ff"/>`,
 		);
-	});
-
-	it("should span a text's gradient over all its glyphs instead of each one", async () => {
-		const glyphAt = (id: string, x: number): Path =>
-			path(id, {
-				segments: [
-					seg({ start: { x, y: 0 }, end: { x: x + 10, y: 0 }, isMoved: true }),
-					seg({ end: { x: x + 5, y: 10 }, isClosed: true }),
-				],
-			});
-		const gradient: TextStyle["fill"] = {
-			type: "linear",
-			x1: 0,
-			y1: 0,
-			x2: 1,
-			y2: 0,
-			stops: [
-				{
-					offset: 0,
-					color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
-					midpoint: 0.5,
-				},
-				{
-					offset: 1,
-					color: { type: "rgb", r: 1, g: 1, b: 1, a: 1 },
-					midpoint: 0.5,
-				},
-			],
-		};
-
-		const doc = makeDocument(
-			[textElement({ ...runStyle(), fill: gradient })],
-			[{ elementIds: ["t1"] }],
-		);
-		const ctx = makeContext(
-			makeGlyphRenderer([glyphAt("left", 0), glyphAt("right", 20)]),
-			doc,
-		);
-		const result = await new SVGExporter().export(ctx, "artboard1");
-
-		const transforms = [
-			...(result?.svg.matchAll(/gradientTransform="([^"]+)"/g) ?? []),
-		].map((match) => match[1]);
-		expect(transforms.length).toBeGreaterThan(0);
-		expect(new Set(transforms).size).toBe(1);
 	});
 
 	it("should rotate gradients with the element (local-space evaluation)", async () => {
@@ -733,64 +732,6 @@ function blurFilter(): Filter {
 		blendMode: "normal",
 		paramData: { version: "1", params: {} },
 	};
-}
-
-/** A one-run text whose run and default style are both `style`. */
-function textElement(style: TextStyle): TextElement {
-	return {
-		type: "text",
-		id: "t1",
-		opacity: 1,
-		blendMode: "normal",
-		transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
-		x: 0,
-		y: 0,
-		content: {
-			paragraphs: [
-				{
-					runs: [{ text: "A", style }],
-					alignment: "left",
-					lineHeight: 1,
-					indent: 0,
-					spacing: { before: 0, after: 0 },
-				},
-			],
-		},
-		defaultStyle: style,
-		layout: {
-			writingMode: "horizontal-tb",
-			boxWidth: "auto",
-			boxHeight: "auto",
-			overflow: "visible",
-			wordWrap: true,
-		},
-	};
-}
-
-/** An export renderer whose text renderer outlines every text as `glyphs`. */
-function makeGlyphRenderer(glyphs: Path[]): ExportRenderer {
-	return {
-		getTextRenderer: () => ({
-			textElementToOutlinedPaths: vi.fn(async () => ({
-				outlinedPaths: glyphs.map((glyph) => ({
-					path: glyph,
-					runIndex: 0,
-					paragraphIndex: 0,
-				})),
-				bounds: {
-					minX: 0,
-					minY: 0,
-					maxX: 10,
-					maxY: 10,
-					width: 10,
-					height: 10,
-				},
-			})),
-			getFlowHead: (el: TextElement) => el,
-		}),
-		getFilterHandler: () => undefined,
-		ensureTextDocumentResolver: () => () => {},
-	} as unknown as ExportRenderer;
 }
 
 function runStyle(): TextStyle {

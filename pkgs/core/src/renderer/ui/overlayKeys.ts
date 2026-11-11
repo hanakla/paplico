@@ -48,7 +48,6 @@ export const OVERLAY_KEYS = {
 	sysTextOverflow: "sys/text-overflow",
 	sysFontMissing: "sys/font-missing",
 	sysPerspectiveGuides: "sys/perspective-guides",
-	sysGuides: "sys/guides",
 	patternEditTile: "pattern-edit/tile",
 	repeatHandles: "repeat/handles",
 } as const;

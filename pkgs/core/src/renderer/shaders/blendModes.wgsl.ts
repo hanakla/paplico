@@ -101,39 +101,6 @@ export const BLEND_MODE_FUNCTIONS_WGSL = /* wgsl */ `
 		return base + blend - 2.0 * base * blend;
 	}
 
-	// Non-separable modes (W3C compositing): they trade the hue, saturation
-	// and luminosity of the two colors instead of working per channel.
-	fn blendLum(c: vec3f) -> f32 {
-		return dot(c, vec3f(0.3, 0.59, 0.11));
-	}
-
-	fn blendSat(c: vec3f) -> f32 {
-		return max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
-	}
-
-	fn blendSetSat(c: vec3f, s: f32) -> vec3f {
-		let low = min(c.r, min(c.g, c.b));
-		let range = blendSat(c);
-		if range <= 0.0 {
-			return vec3f(0.0);
-		}
-		return (c - vec3f(low)) * s / range;
-	}
-
-	fn blendSetLum(c: vec3f, l: f32) -> vec3f {
-		var out = c + vec3f(l - blendLum(c));
-		let lum = blendLum(out);
-		let low = min(out.r, min(out.g, out.b));
-		let high = max(out.r, max(out.g, out.b));
-		if low < 0.0 {
-			out = vec3f(lum) + (out - vec3f(lum)) * lum / (lum - low);
-		}
-		if high > 1.0 {
-			out = vec3f(lum) + (out - vec3f(lum)) * (1.0 - lum) / (high - lum);
-		}
-		return out;
-	}
-
 	fn applyBlendMode(base: vec3f, blend: vec3f, blendMode: u32) -> vec3f {
 		switch blendMode {
 			case 0u: {
@@ -171,18 +138,6 @@ export const BLEND_MODE_FUNCTIONS_WGSL = /* wgsl */ `
 			}
 			case 11u: {
 				return blendExclusion(base, blend);
-			}
-			case 12u: {
-				return blendSetLum(blendSetSat(blend, blendSat(base)), blendLum(base));
-			}
-			case 13u: {
-				return blendSetLum(blendSetSat(base, blendSat(blend)), blendLum(base));
-			}
-			case 14u: {
-				return blendSetLum(blend, blendLum(base));
-			}
-			case 15u: {
-				return blendSetLum(base, blendLum(blend));
 			}
 			default: {
 				return blendNormal(base, blend);

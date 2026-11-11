@@ -20,20 +20,6 @@ export function computeThumbnailScale(
 }
 
 /**
- * Resolution to rasterize filters at for a thumbnail drawn at `scale`: the
- * thumbnail's own pixel density, never above the document's. An export
- * rasterizes filters at the document's resolution whatever its output size,
- * which for a 300 dpi document allocates gigabytes of intermediate textures
- * to draw a 512 px image.
- */
-export function computeThumbnailRasterizationDpi(
-	documentDpi: number | undefined,
-	scale: number,
-): number {
-	return Math.min(documentDpi ?? 72, 72 * scale);
-}
-
-/**
  * Compute combined bounding box of all elements in world space.
  * Returns null if no elements exist.
  */
@@ -91,12 +77,6 @@ export async function generateDocumentThumbnail(
 					backgroundColor: { r: 0.95, g: 0.95, b: 0.95, a: 1 },
 				}),
 				artboard.id,
-				{
-					rasterizationDpi: computeThumbnailRasterizationDpi(
-						doc.rasterizationDpi,
-						scale,
-					),
-				},
 			);
 			return result?.blob ?? null;
 		}
@@ -111,20 +91,10 @@ export async function generateDocumentThumbnail(
 		if (!bounds) return null;
 
 		const scale = computeThumbnailScale(bounds.width, bounds.height);
-		const result = await paplico.renderElementsToPNG(
-			elementIds,
-			{
-				...doc,
-				rasterizationDpi: computeThumbnailRasterizationDpi(
-					doc.rasterizationDpi,
-					scale,
-				),
-			} as any,
-			{
-				scale,
-				backgroundColor: { r: 0.95, g: 0.95, b: 0.95, a: 1 },
-			},
-		);
+		const result = await paplico.renderElementsToPNG(elementIds, doc as any, {
+			scale,
+			backgroundColor: { r: 0.95, g: 0.95, b: 0.95, a: 1 },
+		});
 		return result?.blob ?? null;
 	} catch (e) {
 		console.warn("[generateDocumentThumbnail] Failed:", e);

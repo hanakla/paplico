@@ -459,17 +459,13 @@ export class FontManager extends Emitter<FontManagerEvents> {
 
 			if (useNotdef) {
 				const fallback = await this.getFallbackFont();
-				// A missing font shows as .notdef on purpose. A font that only
-				// lacks this character borrows it from the fallback font.
-				const substitute = fallback.fontkit.glyphForCodePoint(
-					forceNotdef ? 0 : (char.codePointAt(0) ?? 0),
-				);
-				if (!substitute) {
+				const notdefGlyph = fallback.fontkit.glyphForCodePoint(0);
+				if (!notdefGlyph) {
 					throw new Error("Fallback font has no .notdef glyph");
 				}
-				emPath = this.getGlyphPath(fallback, substitute);
+				emPath = this.getGlyphPath(fallback, notdefGlyph);
 				advanceWidth =
-					(substitute.advanceWidth * fontSize) / fallback.fontkit.unitsPerEm;
+					(notdefGlyph.advanceWidth * fontSize) / fallback.fontkit.unitsPerEm;
 			} else {
 				emPath = this.getGlyphPath(font, glyph);
 			}

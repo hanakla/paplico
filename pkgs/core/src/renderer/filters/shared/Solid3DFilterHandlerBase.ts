@@ -167,7 +167,7 @@ export abstract class Solid3DFilterHandlerBase implements FilterHandler {
 			resolvePatternTexture: resources.resolvePatternTexture,
 			resolveTextOutline: resources.resolveTextOutline,
 			requestTextOutline: resources.requestTextOutline,
-			imageLoadState: resources.imageLoadState,
+			isImageReady: resources.isImageReady,
 			meshPass: this.meshPass,
 			baker: this.baker,
 			refractionCompositor,
@@ -306,7 +306,6 @@ export abstract class Solid3DFilterHandlerBase implements FilterHandler {
 			needsBackdrop: extrudeNeedsBackdrop(filter.paramData.params.material),
 			needsSourceTexture: false,
 			needsSourceGraphic: false,
-			cropSafe: false,
 		};
 	}
 

@@ -1,10 +1,6 @@
 import type { Paplico } from "@paplico/core";
 import { generateUid } from "@paplico/core/schema";
 import { proxy, ref } from "valtio";
-import {
-	findDocumentImporter,
-	openableDocumentExtension,
-} from "@/documentImport";
 import { setLastDocumentId } from "@/hooks/useAppConfig";
 import { type FileHandle, FileSystem } from "@/infra/filesystem";
 import {
@@ -17,8 +13,7 @@ type DocumentSessionSource =
 	| { kind: "initial" }
 	| { kind: "internal"; documentId: string }
 	| { kind: "external" }
-	| { kind: "snapshot" }
-	| { kind: "room" };
+	| { kind: "snapshot" };
 
 interface DocumentSession {
 	identity: string;
@@ -50,15 +45,6 @@ export function setExternalDocumentSession(
 
 export function setSnapshotDocumentSession(): void {
 	replaceDocumentSession({ kind: "snapshot" }, null);
-}
-
-/**
- * Marks the document as one received from a room this device joined. It is
- * not the document `currentDocumentId` names, so auto save leaves it alone
- * until another document is opened.
- */
-export function setRoomDocumentSession(): void {
-	replaceDocumentSession({ kind: "room" }, null);
 }
 
 /**
@@ -111,10 +97,7 @@ export async function openDocumentFile(
 	}
 
 	const file = source instanceof File ? source : source.file;
-	const importer = findDocumentImporter(file.name);
-	await paplico.importDocument(
-		importer ? await importer.convert(file, paplico.fonts) : file,
-	);
+	await paplico.importDocument(file);
 	const id = paplico.uiState.document.id || generateUid("doc");
 	await upsertDocument(
 		id,
@@ -122,18 +105,15 @@ export async function openDocumentFile(
 		await paplico.exportDocument(),
 	);
 	documentManagerState.currentDocumentId = id;
-	// A converted file is never the save target: saving would replace it with
-	// a papf under the other application's extension.
 	setExternalDocumentSession(
-		importer || source instanceof File || source.handle == null ? null : source,
+		source instanceof File || source.handle == null ? null : source,
 	);
 	setLastDocumentId(id);
 }
 
 /** Names a document after the file it was opened from or saved to. */
 export function documentNameFromFile(file: File): string {
-	const extension = openableDocumentExtension(file.name);
-	return extension ? file.name.slice(0, -extension.length) : file.name;
+	return file.name.replace(/\.papf$/i, "");
 }
 
 function replaceDocumentSession(

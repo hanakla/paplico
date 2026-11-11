@@ -76,9 +76,6 @@ export function planBoundsOf(
 	/** The chain the enclosing containers place the element under (see
 	 *  childrenMatrixOf), or null at top level. */
 	parentMatrix: ElementTransform | null = null,
-	/** Pre-filter answers shared by one walk over `elementsMap` — see
-	 *  subtreeHasPreFilter. */
-	preFilterAnswers?: Map<AnyArtObject, boolean>,
 ): WorldBBox {
 	const placement = placeElement(parentMatrix, element);
 	// A repeat bakes its own transform into its instances, so its extent is
@@ -97,7 +94,6 @@ export function planBoundsOf(
 			elementsMap,
 			filterRenderer,
 			localBoundsCache,
-			preFilterAnswers,
 		),
 		placement,
 	);
@@ -110,7 +106,6 @@ function calculatePreFilteredLocalBounds(
 	elementsMap: ReadonlyMap<string, AnyArtObject>,
 	filterRenderer: FilterCapabilityLookup | null,
 	localBoundsCache?: LocalBoundsCache,
-	preFilterAnswers?: Map<AnyArtObject, boolean>,
 ): BoundingBox {
 	const flat = calculateLocalElementBounds(
 		element,
@@ -120,14 +115,7 @@ function calculatePreFilteredLocalBounds(
 	if (!filterRenderer) return flat;
 
 	if (isGroup(element)) {
-		if (
-			!subtreeHasPreFilter(
-				element,
-				elementsMap,
-				filterRenderer,
-				preFilterAnswers,
-			)
-		) {
+		if (!subtreeHasPreFilter(element, elementsMap, filterRenderer)) {
 			return flat;
 		}
 		const cached = preFilteredLocalBoundsCache.get(element);
@@ -142,13 +130,11 @@ function calculatePreFilteredLocalBounds(
 			if (!child) continue;
 			deformed = unionBoxes(
 				deformed,
-				planBoundsOf(
+				calculatePreFilteredElementBounds(
 					withInheritedPreFilters(child, groupPreFilters),
 					elementsMap,
 					filterRenderer,
 					localBoundsCache,
-					null,
-					preFilterAnswers,
 				),
 			);
 		}
@@ -157,14 +143,7 @@ function calculatePreFilteredLocalBounds(
 	}
 
 	if (isCompoundPath(element)) {
-		if (
-			!subtreeHasPreFilter(
-				element,
-				elementsMap,
-				filterRenderer,
-				preFilterAnswers,
-			)
-		) {
+		if (!subtreeHasPreFilter(element, elementsMap, filterRenderer)) {
 			return flat;
 		}
 		const cached = preFilteredLocalBoundsCache.get(element);

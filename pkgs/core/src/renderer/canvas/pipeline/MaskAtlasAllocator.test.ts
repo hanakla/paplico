@@ -28,29 +28,6 @@ describe("MaskAtlasAllocator", () => {
 		expect(allocator.allocate(8, 16)).toEqual(first);
 	});
 
-	it("joins released neighbours when no single free rect fits", () => {
-		const allocator = new MaskAtlasAllocator(16, 16);
-		const quarters = [
-			allocator.allocate(8, 8),
-			allocator.allocate(8, 8),
-			allocator.allocate(8, 8),
-			allocator.allocate(8, 8),
-		];
-		expect(allocator.allocate(1, 1)).toBeNull();
-
-		for (const quarter of quarters) {
-			if (!quarter) throw new Error("Allocation failed");
-			allocator.release(quarter);
-		}
-
-		expect(allocator.allocate(16, 16)).toEqual({
-			x: 0,
-			y: 0,
-			width: 16,
-			height: 16,
-		});
-	});
-
 	it("rejects invalid and oversized rectangles", () => {
 		const allocator = new MaskAtlasAllocator(16, 16);
 

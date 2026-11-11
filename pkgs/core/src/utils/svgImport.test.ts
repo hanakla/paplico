@@ -912,7 +912,7 @@ describe("parseSvgToArtObjects – mix-blend-mode", () => {
 	it("unknown blend mode → falls back to 'normal'", async () => {
 		const result = await parseSvgToArtObjects(
 			`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-        <rect x="0" y="0" width="50" height="50" fill="red" style="mix-blend-mode: plus-lighter;"/>
+        <rect x="0" y="0" width="50" height="50" fill="red" style="mix-blend-mode: hue;"/>
       </svg>`,
 			0,
 			0,

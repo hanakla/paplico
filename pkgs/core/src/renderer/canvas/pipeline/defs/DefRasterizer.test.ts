@@ -154,24 +154,6 @@ describe("DefRasterizer", () => {
 			expect(calls).toBe(1);
 		});
 
-		it("keeps every def of a frame that uses more than maxEntries", () => {
-			const rasterizer = new DefRasterizer({ scope: "c1", maxEntries: 2 });
-			const make = () => ({ destroy: () => {} }) as unknown as GPUTexture;
-			const ids = ["d1", "d2", "d3"];
-			rasterizer.ensureCapacity(ids.length);
-			for (const id of ids) rasterizer.ensureRasterized(id, 1, 64, 64, make);
-
-			let calls = 0;
-			for (const id of ids) {
-				rasterizer.ensureRasterized(id, 1, 64, 64, () => {
-					calls++;
-					return make();
-				});
-			}
-
-			expect(calls).toBe(0);
-		});
-
 		it("hands dropped textures to retireTexture instead of destroying them", () => {
 			const retired: GPUTexture[] = [];
 			const rasterizer = new DefRasterizer({

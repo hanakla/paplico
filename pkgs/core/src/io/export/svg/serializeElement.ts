@@ -752,24 +752,10 @@ async function serializeText(
 	const localToWorld = elementTransformToWorldAffine(composed);
 	const strokeScale = uniformTransformScale(composed) ?? 1;
 
-	const glyphs = outline.outlinedPaths.map((glyph) => {
-		const runFill =
-			paintSource.content.paragraphs[glyph.paragraphIndex]?.runs[glyph.runIndex]
-				?.style.fill;
-		return {
-			...glyph,
-			fillKey: runFill ? JSON.stringify(runFill) : "",
-			worldSegments: transformWorldGlyph(glyph.path.segments, composed),
-		};
-	});
-	// The renderer paints the glyphs sharing a fill as one shape, so a gradient
-	// is evaluated in their combined pre-transform bounds.
-	const fillBounds = new Map(
-		[...Map.groupBy(glyphs, (glyph) => glyph.fillKey)].map(([key, group]) => [
-			key,
-			calculateSegmentListBounds(group.flatMap((g) => g.path.segments)),
-		]),
-	);
+	const glyphs = outline.outlinedPaths.map((glyph) => ({
+		...glyph,
+		worldSegments: transformWorldGlyph(glyph.path.segments, composed),
+	}));
 	const svgFilter = registerSvgFilter(element, ctx, ancestor);
 	// Element opacity rides the wrapper when a filter must run first (see
 	// serializePathLike); otherwise it rides each glyph shape.
@@ -777,11 +763,8 @@ async function serializeText(
 	const glyphCullBounds = innerCullBounds(svgFilter, ctx.cullBounds);
 	if (glyphCullBounds === null) return null;
 
-	// The renderer strokes the whole text after its fills, so the stroke
-	// nodes follow every fill node.
-	const fillNodes: SvgNode[] = [];
-	const strokeNodes: SvgNode[] = [];
-	for (const { fillKey, runIndex, paragraphIndex, worldSegments } of glyphs) {
+	const glyphNodes: SvgNode[] = [];
+	for (const { path, runIndex, paragraphIndex, worldSegments } of glyphs) {
 		const d = segmentsToPathData(worldSegments, ctx.mapper);
 		if (!d) continue;
 
@@ -808,7 +791,9 @@ async function serializeText(
 		}
 
 		if (fill) {
-			const glyphLocalBounds = fillBounds.get(fillKey);
+			// Gradients are evaluated per glyph in the glyph's pre-transform
+			// bounds, matching the renderer's per-glyph fill passes.
+			const glyphLocalBounds = calculateSegmentListBounds(path.segments);
 			if (glyphLocalBounds) {
 				const paint = await resolveFillPaint(
 					fill,
@@ -820,7 +805,7 @@ async function serializeText(
 					ctx,
 				);
 				if (paint.paint !== "none") {
-					fillNodes.push({
+					glyphNodes.push({
 						tag: "path",
 						attrs: {
 							d,
@@ -834,7 +819,7 @@ async function serializeText(
 		if (stroke?.type === "solid") {
 			const paint = colorToSvgPaint(stroke.color);
 			if (paint.opacity > 0) {
-				strokeNodes.push({
+				glyphNodes.push({
 					tag: "path",
 					attrs: {
 						d,
@@ -849,7 +834,6 @@ async function serializeText(
 			}
 		}
 	}
-	const glyphNodes = [...fillNodes, ...strokeNodes];
 	if (glyphNodes.length === 0) return null;
 
 	return wrapElement(

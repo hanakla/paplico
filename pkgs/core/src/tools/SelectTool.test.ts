@@ -3,17 +3,13 @@ import {
 	createIdentityTransform,
 	createRepeatObject,
 } from "../document/factory";
-import { SpatialIndex } from "../document/SpatialIndex";
-import type { RendererState } from "../renderer/types";
 import type { UIPrimitive } from "../renderer/ui/primitives";
 import type { SelectionUIData } from "../renderer/ui/types";
 import {
 	type AnyArtObject,
-	type CompoundPath,
 	type CubicBezierSegment,
 	type Extrude3DAppearance,
 	type Extrude3DParams,
-	type FilterEntry,
 	type Group,
 	getTransform,
 	type ImageObject,
@@ -267,7 +263,7 @@ describe("SelectTool resize snapping", () => {
 		const { context, tool } = setupResizeSnap({ x: 150 });
 
 		// Shift-drag the ne handle at world(100,100) to world(140,110)
-		drag(tool, [500, 200], [540, 190], { shiftKey: true });
+		resizeDrag(tool, [500, 200], [540, 190], { shiftKey: true });
 
 		const [, , newBounds] = context.elementsResize.mock.calls[0];
 		expect(newBounds).toMatchObject({ minX: -100, minY: -100 });
@@ -279,7 +275,7 @@ describe("SelectTool resize snapping", () => {
 		const { context, tool } = setupResizeSnap({ y: 160 });
 
 		// The pointer travels further along x, but only the y edge snaps
-		drag(tool, [500, 200], [540, 190], { shiftKey: true });
+		resizeDrag(tool, [500, 200], [540, 190], { shiftKey: true });
 
 		const [, , newBounds] = context.elementsResize.mock.calls[0];
 		expect(newBounds.maxX).toBeCloseTo(160);
@@ -290,7 +286,7 @@ describe("SelectTool resize snapping", () => {
 		const { context, tool } = setupResizeSnap({ x: 150 });
 
 		// Alt-drag the e handle at world(100,0) to world(140,0)
-		drag(tool, [500, 300], [540, 300], { altKey: true });
+		resizeDrag(tool, [500, 300], [540, 300], { altKey: true });
 
 		const [, , newBounds] = context.elementsResize.mock.calls[0];
 		expect(newBounds.minX).toBeCloseTo(-150);
@@ -1945,111 +1941,6 @@ describe("SelectTool repeat radial gizmo", () => {
 	});
 });
 
-describe("SelectTool guides", () => {
-	it("does not select a filled guide when clicking inside it", () => {
-		const { context, tool } = setupGuideScene([filledSquare("guide")]);
-
-		drag(tool, [400, 300], [400, 300]);
-
-		expect(context.elementSelect).not.toHaveBeenCalled();
-	});
-
-	it("selects a filled guide when clicking on its outline", () => {
-		const { context, tool } = setupGuideScene([filledSquare("guide")]);
-
-		drag(tool, [450, 300], [450, 300]);
-
-		expect(context.elementSelect.mock.calls[0][0]).toBe("guide");
-	});
-
-	it("selects a guide image only on its rectangle", () => {
-		const image: ImageObject = {
-			id: "guide",
-			type: "image",
-			fileUid: "file-1",
-			x: 0,
-			y: 0,
-			width: 100,
-			height: 100,
-			isGuide: true,
-			opacity: 1,
-			blendMode: "normal",
-			transform: createIdentityTransform(),
-		};
-		const { context, tool } = setupGuideScene([image]);
-
-		drag(tool, [400, 300], [400, 300]);
-		expect(context.elementSelect).not.toHaveBeenCalled();
-
-		drag(tool, [400, 250], [400, 250]);
-		expect(context.elementSelect.mock.calls[0][0]).toBe("guide");
-	});
-
-	it("selects a guide group only on the outline of an element inside it", () => {
-		const group: Group = {
-			id: "guide-group",
-			type: "group",
-			childIds: ["square"],
-			isGuide: true,
-			opacity: 1,
-			blendMode: "normal",
-			transform: createIdentityTransform(),
-		};
-		const square = { ...filledSquare("square"), isGuide: undefined };
-		const { context, tool } = setupGuideScene([group], [square]);
-
-		drag(tool, [400, 300], [400, 300]);
-		expect(context.elementSelect).not.toHaveBeenCalled();
-
-		drag(tool, [350, 300], [350, 300]);
-		expect(context.elementSelect.mock.calls[0][0]).toBe("guide-group");
-	});
-
-	it("selects a guide compound path only on the outline of its boolean result", () => {
-		const compound: CompoundPath = {
-			id: "guide",
-			type: "compound-path",
-			sources: [
-				{ id: "outer", op: "union" },
-				{ id: "inner", op: "union" },
-			],
-			filters: fillFilters(),
-			isGuide: true,
-			opacity: 1,
-			blendMode: "normal",
-			transform: createIdentityTransform(),
-		};
-		const outer = { ...filledSquare("outer"), isGuide: undefined };
-		const inner = { ...filledSquare("inner", 20), isGuide: undefined };
-		const { context, tool } = setupGuideScene([compound], [outer, inner]);
-
-		drag(tool, [400, 300], [400, 300]);
-		drag(tool, [420, 300], [420, 300]);
-		expect(context.elementSelect).not.toHaveBeenCalled();
-
-		drag(tool, [450, 300], [450, 300]);
-
-		expect(context.elementSelect.mock.calls[0][0]).toBe("guide");
-	});
-
-	it("does not select a filled guide with a marquee drawn inside it", () => {
-		const { context, tool } = setupGuideScene([filledSquare("guide")]);
-
-		drag(tool, [380, 280], [420, 320]);
-
-		expect(context.elementSelect).not.toHaveBeenCalled();
-		expect(context.selectionSelectMultiple).not.toHaveBeenCalled();
-	});
-
-	it("selects a filled guide with a marquee crossing its outline", () => {
-		const { context, tool } = setupGuideScene([filledSquare("guide")]);
-
-		drag(tool, [420, 280], [470, 320]);
-
-		expect(context.selectionSelectMultiple.mock.calls[0][0]).toEqual(["guide"]);
-	});
-});
-
 /**
  * A selected 200×200 path centered on the origin whose resize edges snap to
  * the given world lines: `x` is a vertical line, `y` a horizontal one.
@@ -2083,11 +1974,11 @@ function setupResizeSnap(lines: { x?: number; y?: number }) {
 	});
 }
 
-function drag(
+function resizeDrag(
 	tool: SelectTool,
 	from: [number, number],
 	to: [number, number],
-	modifiers: { shiftKey?: boolean; altKey?: boolean } = {},
+	modifiers: { shiftKey?: boolean; altKey?: boolean },
 ) {
 	tool.onPointerDown(
 		ev(...from, modifiers),
@@ -2107,89 +1998,4 @@ function drag(
 		testCanvasWidth,
 		testCanvasHeight,
 	);
-}
-
-/**
- * A select tool over one layer holding `elements`, hit-tested by a real
- * SpatialIndex. `children` are the elements inside them.
- */
-function setupGuideScene(
-	elements: AnyArtObject[],
-	children: AnyArtObject[] = [],
-) {
-	const layer: Layer = {
-		id: "layer-1",
-		name: "Layer 1",
-		visible: true,
-		locked: false,
-		opacity: 1,
-		blendMode: "normal",
-		elementIds: elements.map((element) => element.id),
-	};
-	const objects = Object.fromEntries(
-		[...elements, ...children].map((element) => [element.id, element]),
-	);
-	const index = new SpatialIndex({
-		document: {
-			id: "doc",
-			layers: [layer],
-			objects,
-			viewport: testViewport,
-			files: [],
-			artboards: [],
-			brushPresets: [],
-		},
-		editingScopeStack: [],
-	} as unknown as RendererState);
-	index.rebuildAllIndices();
-
-	const context = createMockToolContext({
-		getCurrentLayer: () => layer,
-		findElementAtPoint: (x, y, tolerance) =>
-			index.findElementAtPoint(layer.id, x, y, tolerance),
-		findElementsInRect: (minX, minY, maxX, maxY) =>
-			index.findElementsInRect(layer.id, minX, minY, maxX, maxY),
-		getWorldGeometryBounds: (id) => index.getWorldGeometryBounds(id),
-		selectGetSelectionMode: () => "rectangle",
-	});
-	return { context, tool: new SelectTool(context) };
-}
-
-/** A filled guide square centered on the origin, 100×100 by default. */
-function filledSquare(id: string, halfSize = 50): Path {
-	const corners = [
-		{ x: halfSize, y: -halfSize },
-		{ x: halfSize, y: halfSize },
-		{ x: -halfSize, y: halfSize },
-		{ x: -halfSize, y: -halfSize },
-	];
-	return {
-		id,
-		type: "path",
-		segments: corners.map((corner, i) =>
-			seg(
-				i === 0 ? { x: -halfSize, y: -halfSize } : undefined,
-				{ x: 0, y: 0 },
-				{ x: 0, y: 0 },
-				corner,
-			),
-		),
-		filters: fillFilters(),
-		isGuide: true,
-		opacity: 1,
-		blendMode: "normal",
-		transform: createIdentityTransform(),
-	};
-}
-
-function fillFilters(): FilterEntry[] {
-	return [
-		{
-			uid: "fill-1",
-			processor: "fill",
-			opacity: 1,
-			blendMode: "normal",
-			paramData: { version: "1", params: {} },
-		} as unknown as FilterEntry,
-	];
 }

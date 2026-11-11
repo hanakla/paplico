@@ -6,10 +6,7 @@ export interface MaskAtlasRect {
 }
 
 export class MaskAtlasAllocator {
-	private freeRects: MaskAtlasRect[];
-	/** Whether a release left free rects that may join. They join only when
-	 *  an allocation needs them: a pan releases hundreds of masks at once. */
-	private hasUnmergedReleases = false;
+	private readonly freeRects: MaskAtlasRect[];
 
 	public constructor(
 		private readonly width: number,
@@ -21,10 +18,15 @@ export class MaskAtlasAllocator {
 	public allocate(width: number, height: number): MaskAtlasRect | null {
 		if (width <= 0 || height <= 0) return null;
 
-		let bestIndex = this.findBestFit(width, height);
-		if (bestIndex < 0 && this.hasUnmergedReleases) {
-			this.mergeFreeRects();
-			bestIndex = this.findBestFit(width, height);
+		let bestIndex = -1;
+		let bestWaste = Number.POSITIVE_INFINITY;
+		for (let i = 0; i < this.freeRects.length; i++) {
+			const rect = this.freeRects[i];
+			if (width > rect.width || height > rect.height) continue;
+			const waste = rect.width * rect.height - width * height;
+			if (waste >= bestWaste) continue;
+			bestIndex = i;
+			bestWaste = waste;
 		}
 		if (bestIndex < 0) return null;
 
@@ -76,21 +78,7 @@ export class MaskAtlasAllocator {
 			return;
 		}
 		this.freeRects.push(rect);
-		this.hasUnmergedReleases = true;
-	}
-
-	private findBestFit(width: number, height: number): number {
-		let bestIndex = -1;
-		let bestWaste = Number.POSITIVE_INFINITY;
-		for (let i = 0; i < this.freeRects.length; i++) {
-			const rect = this.freeRects[i];
-			if (width > rect.width || height > rect.height) continue;
-			const waste = rect.width * rect.height - width * height;
-			if (waste >= bestWaste) continue;
-			bestIndex = i;
-			bestWaste = waste;
-		}
-		return bestIndex;
+		this.mergeFreeRects();
 	}
 
 	private addFreeRect(rect: MaskAtlasRect): void {
@@ -98,51 +86,47 @@ export class MaskAtlasAllocator {
 	}
 
 	private mergeFreeRects(): void {
-		this.hasUnmergedReleases = false;
-		let previousCount: number;
-		do {
-			previousCount = this.freeRects.length;
-			this.freeRects = mergeRuns(
-				mergeRuns(this.freeRects, "x", "width", "y", "height"),
-				"y",
-				"height",
-				"x",
-				"width",
-			);
-		} while (this.freeRects.length < previousCount);
+		let merged = true;
+		while (merged) {
+			merged = false;
+			outer: for (let i = 0; i < this.freeRects.length; i++) {
+				for (let j = i + 1; j < this.freeRects.length; j++) {
+					const combined = mergeAdjacentRects(
+						this.freeRects[i],
+						this.freeRects[j],
+					);
+					if (!combined) continue;
+					this.freeRects.splice(j, 1);
+					this.freeRects[i] = combined;
+					merged = true;
+					break outer;
+				}
+			}
+		}
 	}
 }
 
-/** Join rects that touch end to end along one axis and match across it. */
-function mergeRuns(
-	rects: readonly MaskAtlasRect[],
-	position: "x" | "y",
-	length: "width" | "height",
-	crossPosition: "x" | "y",
-	crossLength: "width" | "height",
-): MaskAtlasRect[] {
-	const merged: MaskAtlasRect[] = [];
-	const sorted = rects.toSorted(
-		(a, b) =>
-			a[crossPosition] - b[crossPosition] ||
-			a[crossLength] - b[crossLength] ||
-			a[position] - b[position],
-	);
-	for (const rect of sorted) {
-		const last = merged.at(-1);
-		if (
-			last &&
-			last[crossPosition] === rect[crossPosition] &&
-			last[crossLength] === rect[crossLength] &&
-			last[position] + last[length] === rect[position]
-		) {
-			merged[merged.length - 1] = {
-				...last,
-				[length]: last[length] + rect[length],
-			};
-			continue;
+function mergeAdjacentRects(
+	a: MaskAtlasRect,
+	b: MaskAtlasRect,
+): MaskAtlasRect | null {
+	if (a.y === b.y && a.height === b.height) {
+		if (a.x + a.width === b.x) {
+			return { x: a.x, y: a.y, width: a.width + b.width, height: a.height };
 		}
-		merged.push(rect);
+		if (b.x + b.width === a.x) {
+			return { x: b.x, y: a.y, width: a.width + b.width, height: a.height };
+		}
 	}
-	return merged;
+
+	if (a.x === b.x && a.width === b.width) {
+		if (a.y + a.height === b.y) {
+			return { x: a.x, y: a.y, width: a.width, height: a.height + b.height };
+		}
+		if (b.y + b.height === a.y) {
+			return { x: a.x, y: b.y, width: a.width, height: a.height + b.height };
+		}
+	}
+
+	return null;
 }

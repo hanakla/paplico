@@ -285,8 +285,6 @@ export const en = {
 		createClipGroup: "Create Clip Group",
 		convertToClipObject: "Convert to Clip Object",
 		outline: "Outline",
-		makeGuides: "Make Guides",
-		releaseGuides: "Release Guides",
 		charAngle: "Angle",
 		charSkewX: "Skew X",
 		charSkewY: "Skew Y",
@@ -392,12 +390,6 @@ export const en = {
 		repeatSpacingY: "Spacing Y",
 		repeatOffsetX: "Offset X",
 		repeatOffsetY: "Offset Y",
-		repeatRowFlip: "Flip rows",
-		repeatColumnFlip: "Flip columns",
-		repeatFlipNone: "None",
-		repeatFlipHorizontal: "Horizontal",
-		repeatFlipVertical: "Vertical",
-		repeatFlipBoth: "Both",
 		repeatCount: "Count",
 		repeatRadius: "Radius",
 		repeatStartAngle: "Start angle",
@@ -1087,7 +1079,6 @@ export const en = {
 		compositionModes: {
 			normal: "Unlocked",
 			"alpha-lock": "Alpha Lock",
-			knockout: "Knockout",
 		},
 	},
 	layerPanel: {
@@ -1114,10 +1105,6 @@ export const en = {
 			"soft-light": "Soft Light",
 			difference: "Difference",
 			exclusion: "Exclusion",
-			hue: "Hue",
-			saturation: "Saturation",
-			color: "Color",
-			luminosity: "Luminosity",
 		},
 	},
 	common: {
@@ -1324,8 +1311,6 @@ export const en = {
 		loadIccFile: "Load ICC profile…",
 		loadingProfiles: "Loading system profiles…",
 		alphaFlattenNote: "Transparent areas are filled with the background color.",
-		oversizedImagesNote:
-			"Placed images longer than {{limit}} px on one side: {{count}}. On this device they are exported scaled down to {{limit}} px.",
 		invalidIccFile: "The selected file is not a valid ICC profile.",
 	},
 	timelapseDialog: {

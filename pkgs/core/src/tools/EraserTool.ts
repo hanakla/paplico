@@ -271,8 +271,6 @@ export class EraserTool implements Tool {
 
 		for (const { id: elementId, layer } of targets) {
 			if (this.context.isElementLocked(elementId)) continue;
-			// A guide shows no paint to erase.
-			if (this.context.isElementGuide(elementId)) continue;
 
 			const element = objects[elementId];
 			if (element?.type !== "path") continue;

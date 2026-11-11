@@ -18,34 +18,6 @@ struct ColorStop {
 	midpoint: f32,
 }
 
-// Position along a radial gradient at uv: 0 at the focal point, 1 on the
-// ellipse. Rays run from the focal point out to the ellipse, which with the
-// focal point at the center reduces to the distance from the center.
-fn radialGradientT(
-	uv: vec2f,
-	center: vec2f,
-	focal: vec2f,
-	radii: vec2f,
-	rotation: f32,
-) -> f32 {
-	let cosTheta = cos(-rotation);
-	let sinTheta = sin(-rotation);
-	let scale = max(radii, vec2f(0.0001));
-	let d = uv - center;
-	let g = focal - center;
-	let point = vec2f(d.x * cosTheta - d.y * sinTheta, d.x * sinTheta + d.y * cosTheta) / scale;
-	let f = vec2f(g.x * cosTheta - g.y * sinTheta, g.x * sinTheta + g.y * cosTheta) / scale;
-	let ray = point - f;
-	let a = dot(ray, ray);
-	if a < 1e-12 {
-		return 0.0;
-	}
-	let b = dot(f, ray);
-	// A focal point on the ellipse has no distance left to solve against.
-	let c = min(dot(f, f) - 1.0, -0.0001);
-	return a / (sqrt(b * b - a * c) - b);
-}
-
 // Photoshop-style piecewise-linear midpoint remap. fRaw is the raw linear
 // position within a stop segment (0-1); midpoint biases where the visual
 // 50% point falls. Clamp guards both halves against a degenerate midpoint

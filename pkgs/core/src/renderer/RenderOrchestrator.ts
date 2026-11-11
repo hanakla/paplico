@@ -4,10 +4,6 @@ import { localAppearances } from "../document/appearancePresets";
 import { classifyFilterHandler } from "../document/elementGeometry/filterCapabilities";
 import { planBoundsOf } from "../document/elementGeometry/filteredBounds";
 import {
-	type DestroyedTextureRelease,
-	releaseDestroyedTexturesPromptly,
-} from "../infra/webkitTextureRelease";
-import {
 	type AnyArtObject,
 	type Artboard,
 	type Document,
@@ -38,17 +34,11 @@ import {
 } from "../utils/wgpu-utils";
 import type { CanvasTarget } from "./CanvasTarget";
 import { type CanvasFrameTransaction, CanvasLayer } from "./canvas/CanvasLayer";
-import {
-	DEFAULT_PAN_MARGIN_PX,
-	expandRenderFilter,
-} from "./canvas/CanvasLayer.helpers";
+import { expandRenderFilter } from "./canvas/CanvasLayer.helpers";
 import { RENDER_SAMPLE_COUNT } from "./canvas/CanvasLayerTypes";
 import { RenderCacheManager } from "./canvas/caches/RenderCacheManager";
 import type { Reference3DRenderContext } from "./canvas/elements/Reference3DElementRenderer";
-import {
-	DEFAULT_GPU_CACHE_BUDGET_BYTES,
-	imageTextureBudgetBytes,
-} from "./canvas/gpuCacheBudget";
+import { DEFAULT_GPU_CACHE_BUDGET_BYTES } from "./canvas/gpuCacheBudget";
 import { BackdropCaptureManager } from "./canvas/pipeline/BackdropCaptureManager";
 import { BrushTextureManager } from "./canvas/pipeline/brush/BrushTextureManager";
 import { buildParentedMap } from "./canvas/pipeline/ElementHierarchyCache";
@@ -207,9 +197,6 @@ interface TargetData {
 	uiLayer: UILayer;
 	backdropCaptureManager: BackdropCaptureManager;
 	cacheManager: RenderCacheManager;
-	/** The document files whose image previews were last queued for this
-	 *  target. */
-	prefetchedFiles?: Document["files"];
 }
 
 interface Pipelines {
@@ -322,25 +309,15 @@ export class RenderOrchestrator {
 	private static readonly MAX_RECOVERY_ATTEMPTS = 5;
 	private static readonly BASE_RECOVERY_DELAY_MS = 1_000;
 	private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
-	private destroyedTextureRelease: DestroyedTextureRelease | null = null;
-	private onDocumentRenderResumed: (() => void) | null = null;
 	private onDeviceLost: (() => void) | null = null;
 	private onDeviceRestored: (() => void) | null = null;
 	private onDeviceRecoveryFailed: (() => void) | null = null;
 
-	/**
-	 * @param gpuCacheBudgetBytes GPU cache budget the open canvas targets
-	 *  share equally.
-	 * @param panMarginPx Margin each canvas renders around its viewport for
-	 *  pans, in CSS px per side.
-	 * @param documentResolutionScale Resolution the document renders at,
-	 *  relative to the canvas's backing store.
-	 */
+	/** @param gpuCacheBudgetBytes GPU cache budget the open canvas targets
+	 *  share equally. */
 	public constructor(
 		private readonly fontManager: FontManager,
 		private readonly gpuCacheBudgetBytes = DEFAULT_GPU_CACHE_BUDGET_BYTES,
-		private readonly panMarginPx = DEFAULT_PAN_MARGIN_PX,
-		private readonly documentResolutionScale = 1,
 	) {}
 
 	public async initDevice(): Promise<boolean> {
@@ -384,9 +361,6 @@ export class RenderOrchestrator {
 				return false;
 			}
 			this.device = device;
-			this.destroyedTextureRelease = releaseDestroyedTexturesPromptly(device);
-			this.destroyedTextureRelease.onCaughtUp = () =>
-				this.onDocumentRenderResumed?.();
 			device.lost.then((info) => this.handleDeviceLost(device, info));
 
 			// Raised from 64: glass extrude passes (mesh/blur/compose, per instance)
@@ -578,7 +552,6 @@ export class RenderOrchestrator {
 		if (opts?.isolated) this.isolatedTargets.add(target.id);
 		const isolated = this.isolatedTargets.has(target.id);
 
-		canvasLayer.setPanMarginPx(this.panMarginPx);
 		if (this._onRequestRender && !isolated)
 			canvasLayer.setOnRequestRender(this._onRequestRender);
 		if (this._onTextBoundsComputed && !isolated)
@@ -716,25 +689,19 @@ export class RenderOrchestrator {
 		const canvasTexture = td.context.getCurrentTexture();
 		const textureView = canvasTexture.createView();
 
-		// The document renders for a canvas of documentResolutionScale times
-		// the backing store, and its last blit stretches that picture over the
-		// real one. Its width and height stay fractional so both map the world
-		// to the same place. UILayer keeps the CSS viewport because its overlay
-		// sizes are in CSS pixels; its shaders read the device zoom from the
-		// shared uniforms.
-		const canvasPixelRatio = canvasTexture.width / target.width;
-		td.canvasLayer.pixelRatio = canvasPixelRatio * this.documentResolutionScale;
-		td.canvasLayer.canvasPixelsPerDocumentPixel =
-			1 / this.documentResolutionScale;
+		// The document renders in backing-store pixels. UILayer keeps the CSS
+		// viewport because its overlay sizes are in CSS pixels; its shaders read
+		// the device zoom from the shared uniforms.
+		td.canvasLayer.pixelRatio = canvasTexture.width / target.width;
 		td.canvasLayer.updateViewport(
 			{
 				...request.viewport,
 				zoom: request.viewport.zoom * td.canvasLayer.pixelRatio,
 			},
-			canvasTexture.width * this.documentResolutionScale,
-			canvasTexture.height * this.documentResolutionScale,
+			canvasTexture.width,
+			canvasTexture.height,
 		);
-		td.uiLayer.updateViewport(request.viewport, canvasPixelRatio);
+		td.uiLayer.updateViewport(request.viewport, td.canvasLayer.pixelRatio);
 
 		const encoder = this.device.createCommandEncoder({
 			label: "Frame Command Encoder",
@@ -745,11 +712,6 @@ export class RenderOrchestrator {
 		td.canvasLayer.useDocumentScope(
 			this.documentScopeOf(target.id, request.document.id),
 		);
-
-		if (request.document.files !== td.prefetchedFiles) {
-			td.prefetchedFiles = request.document.files;
-			this.imageTextures?.prefetchPreviews(request.document.files, target.id);
-		}
 
 		const frame = td.canvasLayer.render(
 			encoder,
@@ -815,24 +777,6 @@ export class RenderOrchestrator {
 		this.textRenderer?.setDocumentResolver(resolver);
 	}
 
-	public get isAwaitingImages(): boolean {
-		return this.imageTextures?.hasLoadsToAwait ?? false;
-	}
-
-	/**
-	 * Whether document re-renders with nothing new of the user's to show have
-	 * to wait. Each one destroys the textures of the one before, and on WebKit
-	 * those stay resident until the collector runs.
-	 */
-	public get isDocumentRenderOnHold(): boolean {
-		return this.destroyedTextureRelease?.isBehind ?? false;
-	}
-
-	/** `callback` runs each time document re-renders come off hold. */
-	public setOnDocumentRenderResumed(callback: () => void): void {
-		this.onDocumentRenderResumed = callback;
-	}
-
 	public setOnRequestRender(callback: () => void): void {
 		this._onRequestRender = callback;
 		for (const [id, td] of this.targets) {
@@ -863,10 +807,6 @@ export class RenderOrchestrator {
 		for (const td of this.targets.values()) {
 			td.canvasLayer.setReference3DContextProvider(provider);
 		}
-	}
-
-	public holdImageLoads(): void {
-		this.imageTextures?.holdLoads();
 	}
 
 	/**
@@ -997,14 +937,11 @@ export class RenderOrchestrator {
 		await Promise.all(
 			textElements.map((el) => td.canvasLayer.elements.ensureTextPaths(el)),
 		);
-		await td.canvasLayer.elements.ensureReference3DTextures(
+		await td.canvasLayer.elements.ensureImageTextures(
 			opts.document,
 			opts.elementFilter,
 		);
-		// From here to the render below, no frame may free an image this
-		// export is loading or has loaded and not drawn yet.
-		this.imageTextures?.beginExport();
-		await td.canvasLayer.elements.ensureImageTextures(
+		await td.canvasLayer.elements.ensureReference3DTextures(
 			opts.document,
 			opts.elementFilter,
 		);
@@ -1166,7 +1103,6 @@ export class RenderOrchestrator {
 			const textureToDestroy = intermediateTexture as GPUTexture | null;
 			textureToDestroy?.destroy();
 			restoreTextDocumentResolver();
-			this.imageTextures?.endExport();
 		}
 	}
 
@@ -1487,14 +1423,9 @@ export class RenderOrchestrator {
 		};
 	}
 
-	/** Limits of the GPU device in use, or `null` before it is initialized. */
-	public get deviceLimits(): GPUSupportedLimits | null {
-		return this.device?.limits ?? null;
-	}
-
 	/** Device texture-size limit for sizing analysis rasters (4096 before init). */
 	public getMaxTextureDimension(): number {
-		return this.deviceLimits?.maxTextureDimension2D ?? 4096;
+		return this.device?.limits.maxTextureDimension2D ?? 4096;
 	}
 
 	/**
@@ -1925,10 +1856,10 @@ export class RenderOrchestrator {
 	}
 
 	/**
-	 * Advance the frame clock of the generators and the image textures every
-	 * target shares, once per render cycle. A cycle ends when a target that
-	 * already rendered in it renders again, so canvases drawing side by side
-	 * age the shared textures once per round rather than once per canvas.
+	 * Advance the frame clock of the generators every target shares, once per
+	 * render cycle. A cycle ends when a target that already rendered in it
+	 * renders again, so canvases drawing side by side age the shared textures
+	 * once per round rather than once per canvas.
 	 */
 	private beginTargetFrame(targetId: string): void {
 		if (this.targetsInRenderCycle.has(targetId)) {
@@ -1937,7 +1868,6 @@ export class RenderOrchestrator {
 		if (this.targetsInRenderCycle.size === 0) {
 			this.gradientTextureGenerator?.beginFrame();
 			this.meshGradientTextureGenerator?.beginFrame();
-			this.imageTextures?.beginFrame();
 		}
 		this.targetsInRenderCycle.add(targetId);
 	}
@@ -2910,10 +2840,8 @@ export class RenderOrchestrator {
 		this.meshGradientTextureGenerator = new MeshGradientTextureGenerator(
 			this.device,
 		);
-		this.imageTextures = new ImageTextureStore(
-			this.device,
-			() => this._onRequestRender?.(),
-			imageTextureBudgetBytes(this.gpuCacheBudgetBytes),
+		this.imageTextures = new ImageTextureStore(this.device, () =>
+			this._onRequestRender?.(),
 		);
 	}
 }

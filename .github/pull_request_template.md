@@ -19,10 +19,6 @@
 1.
 2.
 
-#### Screenshots
-
-(Attach screenshots / mp4 video if applicable)
-
 ## Checklist
 
 - [ ] Ran `yarn lint:fix`

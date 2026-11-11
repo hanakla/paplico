@@ -75,8 +75,7 @@
 		"ws": "^8.20.0",
 		"y-protocols": "^1.0.6",
 		"yjs": "^13.6.33",
-		"zod": "^4.4.3",
-		"zstddec": "^0.3.4"
+		"zod": "^4.4.3"
 	},
 	"devDependencies": {
 		"@storybook/nextjs-vite": "^10.6.0",

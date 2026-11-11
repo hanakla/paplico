@@ -1,5 +1,9 @@
 import { localAppearances } from "../../../document/appearancePresets";
-import { createIdentityTransform } from "../../../document/factory";
+import { isGeometryFilter } from "../../../document/elementGeometry/filterCapabilities";
+import {
+	createIdentityTransform,
+	createStrokeBrushSettings,
+} from "../../../document/factory";
 import {
 	type BoundingBox,
 	type CubicBezierSegment,
@@ -8,15 +12,10 @@ import {
 	type Filter,
 	isIdentityTransform,
 	type Path,
+	type StrokeAppearance,
 	type StrokeParams,
 	type TextElement,
 } from "../../../schema";
-import {
-	defaultTextStrokeWidth,
-	fillAppearanceOf,
-	INTRINSIC_FILL,
-	resolveTextPaintStack,
-} from "../../../typography/textPaint";
 import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
 import {
 	brandLocalBBox,
@@ -38,10 +37,12 @@ import type {
 	TextState,
 } from "../CanvasLayerTypes";
 import { boundsAlmostEqual } from "../pipeline/DocumentCache";
+import type { FilterRenderer } from "../pipeline/FilterRenderer";
 
 interface TextRendererDeps {
 	textState: TextState;
 	renderState: RenderState;
+	filterRenderer: Pick<FilterRenderer, "getHandler">;
 	renderPath: (
 		passEncoder: GPURenderPassEncoder,
 		path: Path,
@@ -144,6 +145,15 @@ export class TextElementRenderer {
 			oy,
 		);
 
+		// Content-derived paint comes from the flow-chain head (the single
+		// owner of runs/styles); flow targets have empty content of their own.
+		// Per-member appearance filters stay frame-local.
+		const paintStyle =
+			this.deps.textState.renderer?.getFlowHead(element).defaultStyle ??
+			element.defaultStyle;
+		const defaultBrushWidth =
+			paintStyle.strokeWidth ?? Math.max(1, paintStyle.fontSize * 0.03);
+
 		const geometryFilters = localAppearances(element.filters).filter(
 			(f) =>
 				f.processor !== "fill" &&
@@ -156,16 +166,51 @@ export class TextElementRenderer {
 		const perPathGeometryFilters = geometryFilters.filter(
 			(f) => f.processor !== "3d-rotate",
 		);
+		const worldPathSegments = paths.map((path) =>
+			path.segments.map((seg) => ({
+				...seg,
+				start: seg.start
+					? { ...seg.start, x: seg.start.x + ox, y: seg.start.y + oy }
+					: undefined,
+				cp1: seg.cp1,
+				cp2: seg.cp2,
+				end: { ...seg.end, x: seg.end.x + ox, y: seg.end.y + oy },
+			})),
+		);
 		const sharedRotate3DContexts = sharedRotate3DFilters.map((filter) =>
 			createRotate3DProjectionContext(
 				filter.paramData.params,
-				paths.flatMap((path) => offsetSegments(path.segments, ox, oy)),
+				worldPathSegments.flat(),
 				worldBounds,
 			),
 		);
 
-		for (const drawPath of this.resolveDrawPaths(element, paths)) {
-			let segments = offsetSegments(drawPath.segments, ox, oy);
+		const glyphPaints = paths.map((path) =>
+			buildGlyphPaintFilters({
+				elementFilters: localAppearances(element.filters),
+				glyphFilters: localAppearances(path.filters),
+				defaultFill: paintStyle.fill ?? null,
+				defaultStroke: paintStyle.stroke ?? null,
+				defaultBrushWidth,
+			}),
+		);
+
+		// A geometry filter belongs to the text, not to each glyph: run per glyph,
+		// path-union merges a glyph's own counters but leaves overlapping
+		// neighbours as separate contours. Concatenating the glyphs first makes
+		// renderPath deform the whole text at once instead.
+		const mergeGlyphs = perPathGeometryFilters.some((f) =>
+			isGeometryFilter(f, this.deps.filterRenderer),
+		);
+
+		for (const unit of resolveTextDrawUnits(
+			paths,
+			worldPathSegments as Path["segments"][],
+			glyphPaints,
+			element.id,
+			mergeGlyphs,
+		)) {
+			let segments = unit.segments;
 			for (const [filterIndex, filter] of sharedRotate3DFilters.entries()) {
 				const context = sharedRotate3DContexts[filterIndex];
 				segments = context
@@ -177,42 +222,21 @@ export class TextElementRenderer {
 						) as Path["segments"]);
 			}
 
+			const offsetPath: Path = {
+				...unit.template,
+				id: unit.id,
+				filters: [...perPathGeometryFilters, ...unit.paintFilters],
+				opacity: element.opacity,
+				blendMode: element.blendMode,
+				segments,
+			};
 			this.deps.renderPath(
 				passEncoder,
-				{
-					...drawPath,
-					filters: [...perPathGeometryFilters, ...(drawPath.filters ?? [])],
-					segments,
-				},
+				offsetPath,
 				alphaMultiplier,
 				pipelineType,
 			);
 		}
-	}
-
-	/**
-	 * The paths a text is drawn as, in paint order and in element-local space,
-	 * each carrying the fills and strokes it is painted with.
-	 */
-	private resolveDrawPaths(element: TextElement, glyphs: Path[]): Path[] {
-		// Content-derived paint comes from the flow-chain head (the single
-		// owner of runs/styles); flow targets have empty content of their own.
-		// Per-member appearance filters stay frame-local.
-		const paintStyle =
-			this.deps.textState.renderer?.getFlowHead(element).defaultStyle ??
-			element.defaultStyle;
-		return resolveTextDrawPaths({
-			elementId: element.id,
-			glyphs,
-			elementFilters: localAppearances(element.filters),
-			defaultFill: paintStyle.fill ?? null,
-			defaultStroke: paintStyle.stroke ?? null,
-			defaultBrushWidth: defaultTextStrokeWidth(paintStyle),
-		}).map((path) => ({
-			...path,
-			opacity: element.opacity,
-			blendMode: element.blendMode,
-		}));
 	}
 
 	/**
@@ -276,8 +300,8 @@ export class TextElementRenderer {
 
 	/**
 	 * Warp-ready glyph outline paths for a mesh warp container's text child:
-	 * element-local space (x/y NOT applied), split and painted the same way
-	 * renderResolvedTextPaths draws them. Returns null while the async
+	 * element-local space (x/y NOT applied), per-glyph paint filters resolved
+	 * the same way renderResolvedTextPaths does. Returns null while the async
 	 * glyph layout is pending (a follow-up render is requested).
 	 */
 	public getWarpGlyphPaths(element: TextElement): Path[] | null {
@@ -289,9 +313,25 @@ export class TextElementRenderer {
 			return null;
 		}
 
+		const paintStyle =
+			this.deps.textState.renderer.getFlowHead(element).defaultStyle ??
+			element.defaultStyle;
+		const defaultBrushWidth =
+			paintStyle.strokeWidth ?? Math.max(1, paintStyle.fontSize * 0.03);
 		// Geometry filters other than paint are dropped for warped glyphs; the
 		// Coons warp replaces them as the deformation of record.
-		return this.resolveDrawPaths(element, cached.paths);
+		return cached.paths.map((path) => ({
+			...path,
+			filters: buildGlyphPaintFilters({
+				elementFilters: localAppearances(element.filters),
+				glyphFilters: localAppearances(path.filters),
+				defaultFill: paintStyle.fill ?? null,
+				defaultStroke: paintStyle.stroke ?? null,
+				defaultBrushWidth,
+			}),
+			opacity: element.opacity,
+			blendMode: element.blendMode,
+		}));
 	}
 
 	/** Lay out `element` unless its outlines are cached, and wait for them. */
@@ -412,115 +452,58 @@ export class TextElementRenderer {
 	}
 }
 
-/**
- * Split a text into the paths it is drawn as, in paint order.
- *
- * A fill or stroke of the element paints every glyph as one multi-subpath
- * path, so a gradient spans the text and a stroke lies over all the fills
- * below it. The glyphs' own fill paints where the paint stack places it, one
- * path per distinct fill. A text whose glyphs share one fill yields a single
- * path carrying the whole stack.
- */
-export function resolveTextDrawPaths(opts: {
-	elementId: string;
-	glyphs: Path[];
-	elementFilters: Filter[];
-	defaultFill: FillParams["fill"] | null;
-	defaultStroke: StrokeParams["strokeColor"] | null;
-	defaultBrushWidth: number;
-}): Path[] {
-	const { elementId, glyphs } = opts;
-	if (glyphs.length === 0) return [];
-
-	const runs = groupGlyphsByFill(glyphs, opts.defaultFill);
-	const wholeText = runs.length === 1 ? runs[0].segments : [];
-	if (runs.length > 1) {
-		for (const glyph of glyphs) appendSubpath(wholeText, glyph.segments);
-	}
-
-	const units: { segments: Path["segments"]; filters: Filter[] }[] = [];
-	let wholeTextPaint: Filter[] = [];
-	const flushWholeTextPaint = () => {
-		if (wholeTextPaint.length === 0) return;
-		units.push({ segments: wholeText, filters: wholeTextPaint });
-		wholeTextPaint = [];
-	};
-	for (const entry of resolveTextPaintStack(opts)) {
-		if (entry !== INTRINSIC_FILL) {
-			wholeTextPaint.push(entry);
-			continue;
-		}
-		if (runs.length === 1) {
-			if (runs[0].fill) wholeTextPaint.push(runs[0].fill);
-			continue;
-		}
-		flushWholeTextPaint();
-		for (const run of runs) {
-			if (run.fill) units.push({ segments: run.segments, filters: [run.fill] });
-		}
-	}
-	flushWholeTextPaint();
-
-	return units.map((unit, index) => ({
-		...glyphs[0],
-		id: `${elementId}-text-run-${index}`,
-		filters: unit.filters,
-		segments: unit.segments,
-	}));
-}
-
-/** The glyphs of a text that share one intrinsic fill, as one outline. */
-interface TextFillRun {
-	/** Per-run fill entry, else the default style's fill; null paints nothing. */
-	fill: FillAppearance | null;
+/** One run of glyphs drawn as a single path. The element's geometry filters
+ *  deform a run's whole outline, so a run must share one resolved paint. */
+interface TextDrawUnit {
+	id: string;
+	/** Glyph path the run inherits its non-paint fields from. */
+	template: Path;
+	paintFilters: Filter[];
 	segments: Path["segments"];
 }
 
-function groupGlyphsByFill(
-	glyphs: Path[],
-	defaultFill: FillParams["fill"] | null,
-): TextFillRun[] {
-	// Glyphs of one run share the fill object, so serialize each object once.
-	const fillKeys = new Map<FillParams["fill"], string>();
-	const runs = new Map<string, TextFillRun>();
-	for (const glyph of glyphs) {
-		const runFill = localAppearances(glyph.filters).find(
-			(f): f is FillAppearance => f.processor === "fill",
-		);
-		let key = "";
-		if (runFill) {
-			const fill = runFill.paramData.params.fill;
-			key = fillKeys.get(fill) ?? JSON.stringify(fill);
-			fillKeys.set(fill, key);
-		}
-		let run = runs.get(key);
+/**
+ * Split a text's glyphs into the runs drawn as one path each.
+ *
+ * `merge` false keeps one run per glyph. `merge` true concatenates the glyphs
+ * that resolve to the same paint into one multi-subpath run, so the geometry
+ * filters renderPath applies act on the text rather than on single glyphs.
+ * Grouping by paint instead of merging everything keeps per-run fills
+ * paintable; a text painted in one colour — the common case — yields exactly
+ * one run, i.e. the whole text.
+ */
+function resolveTextDrawUnits(
+	paths: Path[],
+	glyphSegments: Path["segments"][],
+	glyphPaints: Filter[][],
+	elementId: string,
+	merge: boolean,
+): TextDrawUnit[] {
+	if (!merge) {
+		return paths.map((path, i) => ({
+			id: path.id,
+			template: path,
+			paintFilters: glyphPaints[i],
+			segments: glyphSegments[i],
+		}));
+	}
+
+	const runs = new Map<string, TextDrawUnit>();
+	paths.forEach((path, i) => {
+		const paintKey = JSON.stringify(glyphPaints[i]);
+		let run = runs.get(paintKey);
 		if (!run) {
 			run = {
-				fill:
-					runFill ??
-					(defaultFill == null ? null : fillAppearanceOf(defaultFill)),
+				id: `${elementId}-text-run-${runs.size}`,
+				template: path,
+				paintFilters: glyphPaints[i],
 				segments: [],
 			};
-			runs.set(key, run);
+			runs.set(paintKey, run);
 		}
-		appendSubpath(run.segments, glyph.segments);
-	}
+		appendSubpath(run.segments, glyphSegments[i]);
+	});
 	return [...runs.values()];
-}
-
-/** Shift element-local segments to the element's position. */
-function offsetSegments(
-	segments: Path["segments"],
-	ox: number,
-	oy: number,
-): Path["segments"] {
-	return segments.map((seg) => ({
-		...seg,
-		start: seg.start
-			? { ...seg.start, x: seg.start.x + ox, y: seg.start.y + oy }
-			: undefined,
-		end: { ...seg.end, x: seg.end.x + ox, y: seg.end.y + oy },
-	}));
 }
 
 function findStaleByElementId(
@@ -571,6 +554,102 @@ function unionWithAxisBounds(
 	const maxX = Math.max(localBounds.maxX, axis.maxX);
 	const maxY = Math.max(localBounds.maxY, axis.maxY);
 	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
+ * Ordered per-glyph paint list resolved from the element's appearance stack.
+ * "content" stands for the glyph's intrinsic fill (per-run fill, else the
+ * default style fill) and paints at its stack position; elements with no
+ * content entry paint the intrinsic fill below the stack. Fill/stroke
+ * appearances overpaint in stack order and disabled entries are skipped. A
+ * default-style stroke applies only while no stroke appearance exists.
+ */
+export function buildGlyphPaintFilters(opts: {
+	elementFilters: Filter[] | undefined;
+	glyphFilters: Filter[] | undefined;
+	defaultFill: FillParams["fill"] | null;
+	defaultStroke: StrokeParams["strokeColor"] | null;
+	defaultBrushWidth: number;
+}): Filter[] {
+	const {
+		elementFilters,
+		glyphFilters,
+		defaultFill,
+		defaultStroke,
+		defaultBrushWidth,
+	} = opts;
+
+	const runFillEntry = (glyphFilters ?? []).find(
+		(f): f is FillAppearance => f.processor === "fill",
+	);
+	const passthrough = (glyphFilters ?? []).filter(
+		(f) => f.processor !== "fill",
+	);
+
+	const paint: Filter[] = [];
+	const paintIntrinsic = () => {
+		// The per-run fill entry passes through as-is (uid/params intact)
+		if (runFillEntry) {
+			paint.push(runFillEntry);
+			return;
+		}
+		if (defaultFill == null) return;
+		paint.push({
+			processor: "fill",
+			opacity: 1,
+			blendMode: "normal",
+			paramData: { version: "1", params: { fill: defaultFill } },
+		} as FillAppearance);
+	};
+
+	const hasContentEntry = (elementFilters ?? []).some(
+		(f) => f.processor === "content",
+	);
+	if (!hasContentEntry) paintIntrinsic();
+
+	let hasStrokeApp = false;
+	for (const app of elementFilters ?? []) {
+		if (app.enabled === false) continue;
+		if (app.processor === "content") {
+			paintIntrinsic();
+		} else if (app.processor === "fill") {
+			paint.push({ ...(app as FillAppearance) });
+		} else if (app.processor === "stroke") {
+			hasStrokeApp = true;
+			const params = (app as StrokeAppearance).paramData.params;
+			paint.push({
+				...(app as StrokeAppearance),
+				paramData: {
+					version: "1",
+					params: {
+						strokeColor: params.strokeColor,
+						brushSettings:
+							params.brushSettings ??
+							createStrokeBrushSettings(defaultBrushWidth),
+					},
+				},
+			} as StrokeAppearance);
+		}
+	}
+
+	// Default-style stroke paints on top only while no stroke appearance
+	// overrides it.
+	if (!hasStrokeApp && defaultStroke != null) {
+		paint.push({
+			processor: "stroke",
+			opacity: 1,
+			blendMode: "normal",
+			paramData: {
+				version: "1",
+				params: {
+					strokeColor: defaultStroke,
+					brushSettings: createStrokeBrushSettings(defaultBrushWidth),
+				},
+			},
+		} as StrokeAppearance);
+	}
+
+	return [...passthrough, ...paint];
 }
 
 function toWorldBounds(bounds: BoundingBox, x: number, y: number): WorldBBox {

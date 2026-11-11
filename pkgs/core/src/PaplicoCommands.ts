@@ -18,7 +18,6 @@ import {
 	mapLocalAppearances,
 } from "./document/appearancePresets";
 import type { FilterCapabilityLookup } from "./document/elementGeometry/filterCapabilities";
-import { canBecomeGuide } from "./document/elementGeometry/guideOutlines";
 import { resolveElementGeometry } from "./document/elementGeometry/preFilters";
 import { buildStrokeOutline } from "./document/elementGeometry/strokeOutline";
 import {
@@ -75,6 +74,7 @@ import {
 	type CompoundPath,
 	type CubicBezierSegment,
 	cloneAppearance,
+	createDefaultContentAppearance,
 	type DefEntry,
 	type DefKind,
 	type ElementTransform,
@@ -127,7 +127,6 @@ import {
 import type { ToolSettings } from "./tools/toolSettings";
 import type { TextRenderer } from "./typography/TextRenderer";
 import { splitTextContentAt } from "./typography/textContent";
-import { resolveOutlinedTextPaint } from "./typography/textPaint";
 import { cloneElementsWithIdRemap } from "./utils/cloneElements";
 import {
 	buildElementColorUpdates,
@@ -819,48 +818,6 @@ export class PaplicoCommands {
 		}, origin);
 	}
 
-	/**
-	 * Turn every given unlocked element into a guide in a single undo step.
-	 * An element that cannot become a guide is left as it is.
-	 */
-	public makeGuides(elementIds: string[]): void {
-		const { objects } = this.ctx.store.document;
-		this.setGuides(
-			elementIds.filter((id) => objects[id] && canBecomeGuide(objects[id])),
-			true,
-		);
-	}
-
-	/**
-	 * Turn every given unlocked guide back into artwork in a single undo step.
-	 * An element that is a guide through a container releases that container.
-	 */
-	public releaseGuides(elementIds: string[]): void {
-		const ownerIds = new Set(
-			elementIds.flatMap((id) => this.ctx.spatial.findGuideOwnerId(id) ?? []),
-		);
-		this.setGuides([...ownerIds], false);
-	}
-
-	private setGuides(elementIds: string[], isGuide: boolean): void {
-		if (this.cannotMutate()) return;
-		const layerId = this.ctx.store.currentLayerId;
-		if (!layerId) return;
-
-		const origin = this.getMutationOrigin();
-		this.ctx.yjsProvider.transact(() => {
-			for (const elementId of elementIds) {
-				if (this.isElementLocked(elementId)) continue;
-				this.ctx.yjsProvider.updateElement(
-					layerId,
-					elementId,
-					{ isGuide },
-					origin,
-				);
-			}
-		}, origin);
-	}
-
 	// --- Layer Operations ---
 
 	public addLayer(layer: Layer): void {
@@ -1298,30 +1255,49 @@ export class PaplicoCommands {
 		for (const elementId of elementIds) {
 			const element = this.ctx.store.document.objects[elementId];
 			if (!element || element.type !== "text") continue;
-			// A guide has no paint for its outlines to carry.
-			if (this.ctx.spatial.findGuideOwnerId(elementId)) continue;
 
 			const textElement = element;
 			const result = await textRenderer.textElementToOutlinedPaths(textElement);
 
 			if (result.outlinedPaths.length === 0) continue;
 
-			// Runs and styles live on the flow-chain head; flow targets have
-			// empty content.
+			// Apply per-character paint from source Run styles. Runs and styles
+			// live on the flow-chain head; flow targets have empty content.
 			const paintSource = textRenderer.getFlowHead(textElement);
-			const { groupFilters, glyphFilters } = resolveOutlinedTextPaint({
-				elementFilters: localAppearances(textElement.filters),
-				defaultStyle: paintSource.defaultStyle,
-				runFills: result.outlinedPaths.map(
-					({ runIndex, paragraphIndex }) =>
-						paintSource.content.paragraphs[paragraphIndex]?.runs[runIndex]
-							?.style?.fill,
-				),
-			});
-			const paths: Path[] = result.outlinedPaths.map(({ path }, index) => ({
-				...path,
-				filters: glyphFilters[index],
-			}));
+			const paths: Path[] = result.outlinedPaths.map(
+				({ path, runIndex, paragraphIndex }) => {
+					const run =
+						paintSource.content.paragraphs[paragraphIndex]?.runs[runIndex];
+					const style = run?.style ?? paintSource.defaultStyle;
+
+					const fill = style.fill ?? paintSource.defaultStyle.fill ?? null;
+					const stroke =
+						style.stroke ?? paintSource.defaultStyle.stroke ?? null;
+
+					const filters: Filter[] = [];
+					if (fill) {
+						filters.push({
+							uid: generateUid("app"),
+							processor: "fill",
+							paramData: { version: "1", params: { fill } },
+						} as FillAppearance);
+					}
+					if (stroke) {
+						filters.push({
+							uid: generateUid("app"),
+							processor: "stroke",
+							paramData: {
+								version: "1",
+								params: {
+									strokeColor: stroke,
+								},
+							},
+						} as StrokeAppearance);
+					}
+
+					return { ...path, filters };
+				},
+			);
 
 			const group: Group = {
 				type: "group",
@@ -1331,7 +1307,7 @@ export class PaplicoCommands {
 				blendMode: textElement.blendMode,
 				transform: textElement.transform,
 				name: "Outlined Text",
-				filters: groupFilters,
+				filters: [createDefaultContentAppearance()],
 			};
 
 			this.outlineTextElement(layerId, textElement.id, paths, group);
@@ -1368,7 +1344,6 @@ export class PaplicoCommands {
 				continue;
 			}
 			if (this.cannotMutate() || this.isElementLocked(id)) continue;
-			if (this.ctx.spatial.findGuideOwnerId(id)) continue;
 			const result = buildStrokeOutline(element, deps);
 			if (!result) continue;
 			replacements.push(result.root, ...result.children);
@@ -1627,24 +1602,20 @@ export class PaplicoCommands {
 	 * so it does not re-trigger key reflow.
 	 */
 	public rebuildBlendSpineIfKey(pathId: string): void {
-		const { objects } = this.ctx.store.document;
-		const blends = Object.values(objects).filter(
-			(obj): obj is BlendObject =>
-				isBlend(obj) && !!obj.spineSourceId && obj.objectIds.includes(pathId),
+		const elementsMap = new Map(
+			Object.entries(this.ctx.store.document.objects),
 		);
-		if (blends.length === 0) return;
-
-		const elementsMap = new Map(Object.entries(objects));
 		const origin = this.getMutationOrigin();
 		this.ctx.yjsProvider.transact(() => {
-			for (const blend of blends) {
-				const keys = blend.objectIds
-					.map((id) => objects[id])
+			for (const obj of Object.values(this.ctx.store.document.objects)) {
+				if (!isBlend(obj) || !obj.spineSourceId) continue;
+				if (!obj.objectIds.includes(pathId)) continue;
+				const keys = obj.objectIds
+					.map((id) => this.ctx.store.document.objects[id])
 					.filter((el): el is AnyArtObject => el !== undefined);
 				if (keys.length < 2) continue;
-				const spineId = blend.spineSourceId;
-				const spine = spineId && objects[spineId];
-				if (!spineId || !spine || !isPath(spine)) continue;
+				const spine = this.ctx.store.document.objects[obj.spineSourceId];
+				if (!spine || !isPath(spine)) continue;
 				// Move the spine's anchors onto the keys while keeping its cp1/cp2
 				// handles so curves are preserved. Fall back to a straight polyline
 				// only when the spine has fewer anchors than keys. blendKeyCenters are
@@ -1658,7 +1629,7 @@ export class PaplicoCommands {
 					polylineSpineSegments(centers);
 				this.ctx.yjsProvider.updateElement(
 					"",
-					spineId,
+					obj.spineSourceId,
 					{
 						segments,
 						transform: createIdentityTransform(),
