@@ -20,6 +20,7 @@ import {
 	mockPath,
 } from "../../../testUtils/mockElements";
 import { closedRectSegments } from "../../../testUtils/segmentFactory";
+import { createTestTextElement } from "../../../testUtils/typographyFixtures";
 import { Extrude3DFilterHandler } from "../../filters/Extrude3DFilter/Extrude3DFilter";
 import type { FilterHandler } from "./FilterRenderer";
 import {
@@ -105,6 +106,18 @@ describe("RenderPlanner frame planning", () => {
 			const plans = plan.filterPlans.get(element.id)?.allAppearancePlans;
 			expect(plans).toBeDefined();
 			expect(plans!.map((p) => p.appearance.processor)).toEqual(["fill"]);
+		});
+	});
+
+	describe("geometry sub-filters of an appearance", () => {
+		it("should leave a text to deform its glyphs itself instead of baking the appearance", () => {
+			const text = createTestTextElement("a");
+			text.filters = [
+				{ ...fillAppearance("normal"), subFilters: [shiftAppearance()] },
+			];
+			const plan = buildViewOf(makeDocumentOf([text as unknown as Path]));
+
+			expect(plan.filterPlans.get(text.id)?.allAppearancePlans).toBeUndefined();
 		});
 	});
 

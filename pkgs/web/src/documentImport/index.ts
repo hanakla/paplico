@@ -1,3 +1,4 @@
+import type { Paplico } from "@paplico/core";
 import type { Document } from "@paplico/core/schema";
 import { documentImporters } from "#document-importers";
 
@@ -5,7 +6,8 @@ import { documentImporters } from "#document-importers";
 export interface DocumentImporter {
 	/** Lowercase file extensions, each with its leading dot. */
 	extensions: `.${string}`[];
-	convert(file: Blob): Promise<Document>;
+	/** @param fonts Lists the fonts the converted text can be set in. */
+	convert(file: Blob, fonts: Paplico["fonts"]): Promise<Document>;
 }
 
 /** Extensions of every file the app can open as a document. */

@@ -112,7 +112,9 @@ export async function openDocumentFile(
 
 	const file = source instanceof File ? source : source.file;
 	const importer = findDocumentImporter(file.name);
-	await paplico.importDocument(importer ? await importer.convert(file) : file);
+	await paplico.importDocument(
+		importer ? await importer.convert(file, paplico.fonts) : file,
+	);
 	const id = paplico.uiState.document.id || generateUid("doc");
 	await upsertDocument(
 		id,
