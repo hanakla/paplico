@@ -209,6 +209,34 @@ describe("EraserTool", () => {
 			expect(ctx.mockCommands.updateElement).toHaveBeenCalled();
 		});
 
+		it("should leave a guide path as it is", () => {
+			opts.getCurrentLayer.mockReturnValue(testLayer);
+			opts.getObjects.mockReturnValue({ "path-1": testPath });
+			ctx.isElementGuide.mockReturnValue(true);
+
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(500, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.mockCommands.deleteElements).not.toHaveBeenCalled();
+			expect(ctx.mockCommands.updateElement).not.toHaveBeenCalled();
+		});
+
 		it("should erase paths on every layer when pierce mode is on", () => {
 			// Two layers, each holding a path over the stroke line (world y=0).
 			const secondPath = { ...testPath, id: "path-2" };

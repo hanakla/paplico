@@ -303,7 +303,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 		dpiScale: number,
 		backdropScale: number,
 		profiler?: GPUTimingProfiler | null,
-		filter?: ReadonlySet<string>,
+		draws?: (elementId: string) => boolean,
 	): void {
 		// Every element the driver considered this frame, entries or not. The
 		// underlay sync below walks THIS, not elementEntries: an element that
@@ -312,7 +312,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 		for (const element of this.solidElementsOf(elementsMap)) {
 			// No layer composes a solid it does not draw at its z-order, so
 			// flushRemaining would paint it over the frame.
-			if (filter && !filter.has(element.id)) continue;
+			if (draws && !draws(element.id)) continue;
 			scanned.push(element);
 			// A blend with any glass instance bakes one solid per interpolated
 			// instance so each carries its own depth/rotation/material (opaque
@@ -385,7 +385,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 		const scannedIds = new Set(scanned.map((element) => element.id));
 		for (const elementId of [...this.underlayUids.keys()]) {
 			if (scannedIds.has(elementId)) continue;
-			if (filter && !filter.has(elementId) && elementsMap.has(elementId)) {
+			if (draws && !draws(elementId) && elementsMap.has(elementId)) {
 				continue;
 			}
 			this.releaseUnusedUnderlays(elementId, new Set());

@@ -18,6 +18,7 @@ import {
 	mapLocalAppearances,
 } from "./document/appearancePresets";
 import type { FilterCapabilityLookup } from "./document/elementGeometry/filterCapabilities";
+import { canBecomeGuide } from "./document/elementGeometry/guideOutlines";
 import { resolveElementGeometry } from "./document/elementGeometry/preFilters";
 import { buildStrokeOutline } from "./document/elementGeometry/strokeOutline";
 import {
@@ -818,14 +819,27 @@ export class PaplicoCommands {
 		}, origin);
 	}
 
-	/** Turn every given unlocked element into a guide in a single undo step. */
+	/**
+	 * Turn every given unlocked element into a guide in a single undo step.
+	 * An element that cannot become a guide is left as it is.
+	 */
 	public makeGuides(elementIds: string[]): void {
-		this.setGuides(elementIds, true);
+		const { objects } = this.ctx.store.document;
+		this.setGuides(
+			elementIds.filter((id) => objects[id] && canBecomeGuide(objects[id])),
+			true,
+		);
 	}
 
-	/** Turn every given unlocked guide back into artwork in a single undo step. */
+	/**
+	 * Turn every given unlocked guide back into artwork in a single undo step.
+	 * An element that is a guide through a container releases that container.
+	 */
 	public releaseGuides(elementIds: string[]): void {
-		this.setGuides(elementIds, false);
+		const ownerIds = new Set(
+			elementIds.flatMap((id) => this.ctx.spatial.findGuideOwnerId(id) ?? []),
+		);
+		this.setGuides([...ownerIds], false);
 	}
 
 	private setGuides(elementIds: string[], isGuide: boolean): void {
@@ -1284,6 +1298,8 @@ export class PaplicoCommands {
 		for (const elementId of elementIds) {
 			const element = this.ctx.store.document.objects[elementId];
 			if (!element || element.type !== "text") continue;
+			// A guide has no paint for its outlines to carry.
+			if (this.ctx.spatial.findGuideOwnerId(elementId)) continue;
 
 			const textElement = element;
 			const result = await textRenderer.textElementToOutlinedPaths(textElement);
@@ -1373,6 +1389,7 @@ export class PaplicoCommands {
 				continue;
 			}
 			if (this.cannotMutate() || this.isElementLocked(id)) continue;
+			if (this.ctx.spatial.findGuideOwnerId(id)) continue;
 			const result = buildStrokeOutline(element, deps);
 			if (!result) continue;
 			replacements.push(result.root, ...result.children);

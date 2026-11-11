@@ -19,17 +19,19 @@ import {
 } from "../../../testUtils/visualRegression";
 
 /**
- * A glass extrude that no visible layer draws: one in a hidden layer, and one
- * a deleted layer's group left behind in `objects`. The solid spans screen
- * [400,500]x[200,300] over a white ground.
+ * A glass extrude that no visible layer draws: one in a hidden layer, one a
+ * deleted layer's group left behind in `objects`, and one that is a guide.
+ * The solid spans screen [400,500]x[200,300] over a white ground.
  */
-type Scene = "shown" | "hiddenLayer" | "orphaned";
+type Scene = "shown" | "hiddenLayer" | "orphaned" | "guide";
 
 describe("glass extrude no visible layer draws", () => {
 	it.each([
 		["in a hidden layer", "hiddenLayer", false],
 		["in a group in a hidden layer", "hiddenLayer", true],
 		["left behind by a deleted layer's group", "orphaned", true],
+		["marked as a guide", "guide", false],
+		["in a guide group", "guide", true],
 	] as const)("should not paint a glass solid %s", async (_label, scene, inGroup) => {
 		const { renderer, canvas } = await createTestRenderer();
 		const ground = await renderTwice(renderer, canvas, createDoc(null, false));
@@ -85,7 +87,8 @@ function countDifferingPixels(a: Uint8Array, b: Uint8Array): number {
 }
 
 /** The ground layer, plus the glass as `scene` leaves it; null leaves none.
- *  An orphaned glass is in `objects` with no layer or group reaching it. */
+ *  An orphaned glass is in `objects` with no layer or group reaching it. A
+ *  guide scene marks the element the layer holds: the group, or the glass. */
 function createDoc(scene: Scene | null, inGroup: boolean): Document {
 	const doc = createDefaultDocument("undrawn-glass");
 	const groundLayer = createDefaultLayer("layer-1", "Ground");
@@ -108,9 +111,10 @@ function createDoc(scene: Scene | null, inGroup: boolean): Document {
 		childIds: [glass.id],
 	};
 	const top = inGroup ? group : glass;
+	if (scene === "guide") top.isGuide = true;
 	doc.objects[top.id] = top;
 	const glassLayer = createDefaultLayer("layer-2", "Glass");
-	glassLayer.visible = scene === "shown";
+	glassLayer.visible = scene !== "hiddenLayer";
 	glassLayer.elementIds.push(top.id);
 	doc.layers.push(glassLayer);
 	return doc;

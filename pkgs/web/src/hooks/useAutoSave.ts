@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { useSnapshot } from "valtio";
 import { AUTO_SAVE_SLOW_INTERVAL_MS } from "@/configs";
 import { autoSaveState, shouldExtendInterval } from "@/stores/autoSave";
+import { documentSessionState } from "@/stores/documentSessionStore";
 import {
 	documentManagerState,
 	saveDocument,
@@ -21,7 +22,11 @@ const DEBOUNCE_MS = 2_000;
  * PaplicoProvider itself, so the context is not available there.
  */
 export function useAutoSave(paplico: Paplico | null): { save: () => void } {
-	const { currentDocumentId: documentId } = useSnapshot(documentManagerState);
+	const { currentDocumentId } = useSnapshot(documentManagerState);
+	const { source } = useSnapshot(documentSessionState);
+	// A room's document is not the one the current id names, so it has no
+	// record to be saved under.
+	const documentId = source.kind === "room" ? null : currentDocumentId;
 
 	const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const pendingRef = useRef(false);
@@ -61,16 +66,9 @@ export function useAutoSave(paplico: Paplico | null): { save: () => void } {
 				clearTimeout(timerRef.current);
 				timerRef.current = null;
 			}
-
-			if (paplico && documentId) {
-				paplico
-					.exportDocument()
-					.then((doc) => saveDocument(documentId, doc))
-					.then(() => resolveBanner("AUTOSAVE_FAILED"))
-					.catch((cause) => {
-						reportError({ code: "AUTOSAVE_FAILED", channel: "banner", cause });
-					});
-			}
+			// No save here: by the time the document id changes, the engine
+			// already holds the next document, so an export would write that
+			// document under this id. Whoever switches documents saves first.
 		};
 	}, [paplico, documentId]);
 

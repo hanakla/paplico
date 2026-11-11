@@ -511,9 +511,8 @@ export class TextRenderer {
 				const first = selected[from];
 				const last = selected[to - 1];
 				if (isVertical) {
-					const selTop = first.y + first.fontSize * VERTICAL_ASCENT_RATIO;
-					const selBottom =
-						last.y - last.fontSize * (1 - VERTICAL_ASCENT_RATIO);
+					const selTop = verticalCell(first).top;
+					const selBottom = verticalCell(last).bottom;
 					rects.push({
 						x: line.x,
 						y: selBottom,
@@ -693,7 +692,7 @@ export class TextRenderer {
 				}
 				return {
 					x: line ? line.x : char.x,
-					y: char.y + char.fontSize * VERTICAL_ASCENT_RATIO,
+					y: verticalCell(char).top,
 					height: line?.width ?? char.fontSize,
 				};
 			}
@@ -750,7 +749,7 @@ export class TextRenderer {
 					}
 					return {
 						x: line.x,
-						y: lastChar.y - lastChar.fontSize * (1 - VERTICAL_ASCENT_RATIO),
+						y: verticalCell(lastChar).bottom,
 						height: line.width,
 					};
 				}
@@ -774,7 +773,7 @@ export class TextRenderer {
 				}
 				return {
 					x: line ? line.x : lastChar.x,
-					y: lastChar.y - lastChar.fontSize * (1 - VERTICAL_ASCENT_RATIO),
+					y: verticalCell(lastChar).bottom,
 					height: line?.width ?? lastChar.fontSize,
 				};
 			}
@@ -1179,26 +1178,22 @@ export class TextRenderer {
 
 		if (isVertical) {
 			// Characters progress top-to-bottom (Y decreasing).
-			// char.y is the glyph baseline; the visual top extends above
-			// by ascent (~0.8 × fontSize). Shift boundaries accordingly.
-			const firstTop = chars[0].y + chars[0].fontSize * VERTICAL_ASCENT_RATIO;
-			if (localY > firstTop) return chars[0].charIndex;
+			if (localY > verticalCell(chars[0]).top) return chars[0].charIndex;
 
 			const lastChar = chars[chars.length - 1];
-			const lastBottom =
-				lastChar.y - lastChar.fontSize * (1 - VERTICAL_ASCENT_RATIO);
-			if (localY <= lastBottom) return charEndIndex(lastChar);
+			if (localY <= verticalCell(lastChar).bottom) {
+				return charEndIndex(lastChar);
+			}
 
 			for (const char of chars) {
-				const charTop = char.y + char.fontSize * VERTICAL_ASCENT_RATIO;
-				const charBottom = charTop - char.fontSize;
-				if (localY <= charTop && localY > charBottom) {
+				const cell = verticalCell(char);
+				if (localY <= cell.top && localY > cell.bottom) {
 					// Tate-chu-yoko cell: cluster members share the band, so
 					// resolve the caret along the horizontal axis instead
 					if (char.tateChuYoko) {
 						return hitTestTateChuYokoCell(chars, char, localX);
 					}
-					const midY = charTop - char.fontSize / 2;
+					const midY = (cell.top + cell.bottom) / 2;
 					return localY > midY ? char.charIndex : charEndIndex(char);
 				}
 			}
@@ -1224,8 +1219,9 @@ export class TextRenderer {
 		let bestIndex = chars[0].charIndex;
 		let bestDist = Number.POSITIVE_INFINITY;
 		for (const char of chars) {
+			const cell = verticalCell(char);
 			const center = isVertical
-				? char.y + char.fontSize * VERTICAL_ASCENT_RATIO - char.fontSize / 2
+				? (cell.top + cell.bottom) / 2
 				: char.x + char.advanceWidth / 2;
 			const dist = Math.abs((isVertical ? localY : localX) - center);
 			if (dist < bestDist) {
@@ -1262,9 +1258,22 @@ function verticalCaretHalfSplit(
 		const midX = char.x + char.advanceWidth / 2;
 		return localX < midX ? char.charIndex : charEndIndex(char);
 	}
-	const midY =
-		char.y + char.fontSize * VERTICAL_ASCENT_RATIO - char.fontSize / 2;
+	const cell = verticalCell(char);
+	const midY = (cell.top + cell.bottom) / 2;
 	return localY > midY ? char.charIndex : charEndIndex(char);
+}
+
+/**
+ * The span a glyph takes along a vertical column. An upright glyph's `y` is
+ * its baseline, with its em box around it. A sideways glyph's `y` is the top
+ * of its cell, which runs down by the glyph's advance.
+ */
+function verticalCell(char: LayoutedChar): { top: number; bottom: number } {
+	if (char.sideways) {
+		return { top: char.y, bottom: char.y - char.advanceWidth };
+	}
+	const top = char.y + char.fontSize * VERTICAL_ASCENT_RATIO;
+	return { top, bottom: top - char.fontSize };
 }
 
 /**

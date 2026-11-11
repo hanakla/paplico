@@ -2716,6 +2716,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.selection.isElementEditable(elementId),
 			isElementLocked: (elementId) =>
 				this.spatialIndex.isElementLocked(elementId),
+			isElementGuide: (elementId) =>
+				this.spatialIndex.findGuideOwnerId(elementId) !== null,
 			isCurrentLayerLocked: () => {
 				const layerId = this.rendererStore.currentLayerId;
 				if (!layerId) return false;

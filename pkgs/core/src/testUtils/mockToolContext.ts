@@ -92,6 +92,7 @@ export function createMockToolContext(
 		getEditingScopeId: vi.fn(() => null),
 		isElementEditable: vi.fn(() => true),
 		isElementLocked: vi.fn(() => false),
+		isElementGuide: vi.fn(() => false),
 		isCurrentLayerLocked: vi.fn(() => false),
 		isReadonly: vi.fn(() => false),
 		getElement: vi.fn(() => null),

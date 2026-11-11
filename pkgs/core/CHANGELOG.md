@@ -40,6 +40,8 @@
   - `TextRenderer.textElementToPaths` returns `bounds` as a `LocalBBox` instead of a `WorldBBox`. The bounds include the text's position but not its transform.
   - `TimelapsePlayer.seekTo`, `advanceBy`, `skipBy` and `restart` return Promises.
   - A timelapse read from a file keeps every block but the last in `TimelapseData.packedBlocks` instead of in `entries`.
+- **Documents**
+  - A document is saved at schema version 20261112. A build older than guides on every element type refuses to open it instead of drawing its guides as artwork.
 - **Renderer**
   - Panning a zoomed-in document no longer stalls every few frames.
   - The frame after a pan ends no longer stalls.
@@ -126,6 +128,12 @@
   - Fix an object mask showing the whole element instead of only the part the mask keeps.
 - **Guides**
   - Fix the elements inside a guide group showing their own paint while the group is being edited.
+  - Fix a 3D reference made a guide vanishing from the canvas with nothing left to select. `makeGuides` leaves an image and a 3D reference as artwork.
+  - Fix releasing an element inside a guide group doing nothing. `releaseGuides` releases the group that makes it a guide.
+  - Fix a glass 3D solid that is a guide being drawn over everything else.
+  - Fix a guide inside a mesh warp still showing its paint.
+  - Fix outlining a guide turning it into painted paths.
+  - Fix the eyedropper picking, and the eraser cutting, the paint a guide does not show.
 - **Compound paths**
   - Fix a hidden source path still taking part in its compound path's shape.
 - **Timelapse**
@@ -133,6 +141,7 @@
   - Fix the timelapse dialog crashing on iPad when it opens a long recording.
   - Fix seeking back to near the start of a recording made by an older build failing.
 - **Text**
+  - Fix the caret, the selection and clicks landing above a character laid on its side in vertical writing.
   - Fix a character the chosen font lacks showing as a tofu box instead of being drawn with the fallback font.
 
 ## [0.10.0] - 2026-10-28
