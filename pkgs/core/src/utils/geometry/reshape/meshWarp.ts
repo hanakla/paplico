@@ -563,9 +563,9 @@ export function isMeshWarpPassthrough(
 export interface WarpChildrenDeps {
 	elementsMap: ReadonlyMap<string, AnyArtObject>;
 	/**
-	 * Warp-ready glyph outline paths for a text child (element-local space,
-	 * per-glyph paint filters applied, element x/y NOT applied), or null while
-	 * the async glyph layout is still pending.
+	 * Warp-ready glyph outline paths for a text child, or null while the async
+	 * glyph layout is still pending. They are in element-local space without
+	 * the element's x/y, one path per paint the text is drawn with.
 	 */
 	getTextGlyphPaths: (element: TextElement) => Path[] | null;
 }

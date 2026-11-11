@@ -203,7 +203,6 @@ export class ElementRenderer {
 		this.textRenderer = new TextElementRenderer({
 			textState: deps.textState,
 			renderState: deps.renderState,
-			filterRenderer: deps.filterRenderer,
 			renderPath: (pass, path, alpha, pt) =>
 				this.pathRenderer.renderPath(pass, path, alpha, pt),
 		});

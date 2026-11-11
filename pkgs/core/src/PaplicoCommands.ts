@@ -75,7 +75,6 @@ import {
 	type CompoundPath,
 	type CubicBezierSegment,
 	cloneAppearance,
-	createDefaultContentAppearance,
 	type DefEntry,
 	type DefKind,
 	type ElementTransform,
@@ -128,6 +127,7 @@ import {
 import type { ToolSettings } from "./tools/toolSettings";
 import type { TextRenderer } from "./typography/TextRenderer";
 import { splitTextContentAt } from "./typography/textContent";
+import { resolveOutlinedTextPaint } from "./typography/textPaint";
 import { cloneElementsWithIdRemap } from "./utils/cloneElements";
 import {
 	buildElementColorUpdates,
@@ -1306,43 +1306,22 @@ export class PaplicoCommands {
 
 			if (result.outlinedPaths.length === 0) continue;
 
-			// Apply per-character paint from source Run styles. Runs and styles
-			// live on the flow-chain head; flow targets have empty content.
+			// Runs and styles live on the flow-chain head; flow targets have
+			// empty content.
 			const paintSource = textRenderer.getFlowHead(textElement);
-			const paths: Path[] = result.outlinedPaths.map(
-				({ path, runIndex, paragraphIndex }) => {
-					const run =
-						paintSource.content.paragraphs[paragraphIndex]?.runs[runIndex];
-					const style = run?.style ?? paintSource.defaultStyle;
-
-					const fill = style.fill ?? paintSource.defaultStyle.fill ?? null;
-					const stroke =
-						style.stroke ?? paintSource.defaultStyle.stroke ?? null;
-
-					const filters: Filter[] = [];
-					if (fill) {
-						filters.push({
-							uid: generateUid("app"),
-							processor: "fill",
-							paramData: { version: "1", params: { fill } },
-						} as FillAppearance);
-					}
-					if (stroke) {
-						filters.push({
-							uid: generateUid("app"),
-							processor: "stroke",
-							paramData: {
-								version: "1",
-								params: {
-									strokeColor: stroke,
-								},
-							},
-						} as StrokeAppearance);
-					}
-
-					return { ...path, filters };
-				},
-			);
+			const { groupFilters, glyphFilters } = resolveOutlinedTextPaint({
+				elementFilters: localAppearances(textElement.filters),
+				defaultStyle: paintSource.defaultStyle,
+				runFills: result.outlinedPaths.map(
+					({ runIndex, paragraphIndex }) =>
+						paintSource.content.paragraphs[paragraphIndex]?.runs[runIndex]
+							?.style?.fill,
+				),
+			});
+			const paths: Path[] = result.outlinedPaths.map(({ path }, index) => ({
+				...path,
+				filters: glyphFilters[index],
+			}));
 
 			const group: Group = {
 				type: "group",
@@ -1352,7 +1331,7 @@ export class PaplicoCommands {
 				blendMode: textElement.blendMode,
 				transform: textElement.transform,
 				name: "Outlined Text",
-				filters: [createDefaultContentAppearance()],
+				filters: groupFilters,
 			};
 
 			this.outlineTextElement(layerId, textElement.id, paths, group);
