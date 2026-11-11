@@ -31,6 +31,7 @@ import {
 import type { MeshWarpResolution } from "../../../utils/geometry/reshape/meshWarp";
 import type { GPUTransformAffine } from "../../../utils/geometry/space/coordinates";
 import type { RasterFrame } from "../../geometry/strips/stripTypes";
+import { expandRenderFilterWithAncestors } from "../CanvasLayer.helpers";
 import {
 	type AssetState,
 	BLEND_MODE_ORDER,
@@ -680,14 +681,22 @@ export class ElementRenderer {
 	/**
 	 * Pre-warm image textures for an export pass. Loading is async, so images
 	 * must be decoded before the synchronous render or they render as holes.
+	 * `elementFilter` holds the top-level ids the render receives, so the
+	 * images it draws are the ones the render expands that filter to.
 	 */
 	public async ensureImageTextures(
 		document: Document,
 		elementFilter?: ReadonlySet<string>,
 	): Promise<void> {
+		const drawnIds =
+			elementFilter &&
+			expandRenderFilterWithAncestors(
+				elementFilter,
+				new Map(Object.entries(document.objects)),
+			).filter;
 		const imageElements = Object.values(document.objects).filter(
 			(el): el is ImageObject =>
-				el.type === "image" && (!elementFilter || elementFilter.has(el.id)),
+				el.type === "image" && (!drawnIds || drawnIds.has(el.id)),
 		);
 
 		await Promise.all(

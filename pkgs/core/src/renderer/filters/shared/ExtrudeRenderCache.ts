@@ -13,6 +13,7 @@ import {
 	type TextElement,
 } from "../../../schema";
 import type { FilterRenderer } from "../../canvas/pipeline/FilterRenderer";
+import type { ImageLoadState } from "../../canvas/pipeline/ImageTextureStore";
 
 /**
  * Callback bundle a render-cache fingerprint needs to fold in descendant
@@ -27,7 +28,7 @@ import type { FilterRenderer } from "../../canvas/pipeline/FilterRenderer";
 interface PaintHashContext {
 	resolvePatternTexture: (defId: string) => { revision: number } | null;
 	resolveTextOutline: (element: TextElement) => unknown | null;
-	isImageReady: (fileUid: string) => boolean;
+	imageLoadState: (fileUid: string) => ImageLoadState;
 	filterRenderer: Pick<FilterRenderer, "getHandler">;
 }
 
@@ -157,7 +158,7 @@ export function computePaintHash(
 		case "text":
 			return `${hashLeafPaintContent(localAppearances(element.filters), ctx.resolvePatternTexture)}:${ctx.resolveTextOutline(element) !== null}`;
 		case "image":
-			return `${element.fileUid}:${ctx.isImageReady(element.fileUid)}`;
+			return `${element.fileUid}:${ctx.imageLoadState(element.fileUid)}`;
 		case "repeat":
 			// Repeat is not extruded and contributes no paint of its own to
 			// an extruded ancestor, so its hash never needs to vary.

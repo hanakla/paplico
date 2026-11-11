@@ -18,6 +18,7 @@
   - `PaplicoCommands.pasteElements` takes `layerRoot` to paste at the root of a given layer and `select: false` to keep the selection.
 - **Renderer**
   - The `documentResolutionScale` option of `Paplico.create` draws the document at a fraction of the canvas resolution and stretches it over the canvas, which takes less GPU memory. Tool overlays keep the full resolution. It defaults to 1.
+  - `Paplico.deviceLimits` returns the limits of the GPU device the renderer draws with, such as the largest side a texture can have.
 - **Export**
   - `Paplico.exportArtboard` takes `rasterizationDpi` to rasterize filters at another resolution than the document's. A small preview passes its own pixel density to take far less GPU memory.
 
@@ -46,6 +47,9 @@
   - Panning no longer stacks each frame's offscreen textures on top of the ones earlier frames left unused, which takes less GPU memory.
   - The frames after a zoom-in reuse their offscreen textures instead of allocating them again, which takes less GPU memory.
   - Filtered elements sharpen over a few frames after a zoom or pan instead of all in one frame, which takes less GPU memory.
+- **Images**
+  - An image drawn small uses a 512 px preview instead of the whole image. The previews load once the document opens, until the image textures reach their budget.
+  - Image textures stay within a budget of their own, half the size of `gpuCacheBudgetBytes` and on top of it, apart from the ones the view is drawing. Past it, the images drawn longest ago are freed and load again when they are next drawn, instead of staying loaded until the canvas closes.
 - **Drop shadow filter**
   - Panning over a large drop-shadowed group in a zoomed-in document no longer stalls.
 - **Kirakira filter**
@@ -68,6 +72,9 @@
 
 ### Fixed
 
+- **Images**
+  - Fix an image wider or taller than the GPU's texture limit leaving the whole canvas undrawn. It is drawn scaled down to fit the limit.
+  - Fix panning or zooming stalling while a document's images load. New image loads wait until the gesture ends.
 - **Renderer**
   - Fix a filtered element just outside the screen appearing without its filter, or not at all, while panning it into view.
   - Fix the backdrop under a color-only filter on `applyToBackdrop` looking softer than the rest of the canvas at most zoom levels.

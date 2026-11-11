@@ -89,6 +89,7 @@ import type {
 } from "../../canvas/pipeline/FilterRenderer";
 import { resolveRenderConfigure } from "../../canvas/pipeline/FilterRenderer";
 import { collectGroupSegments } from "../../canvas/pipeline/GroupAppearanceCollector";
+import type { ImageLoadState } from "../../canvas/pipeline/ImageTextureStore";
 import type { MeshPassRenderer } from "../../canvas/pipeline/MeshPassRenderer";
 import {
 	createBorrowedTextureRef,
@@ -203,8 +204,8 @@ interface ExtrudeRendererDeps {
 	) => { paths: Path[]; localBounds: BoundingBox } | null;
 	/** Fire-and-forget: warm the glyph-outline cache for a later frame. */
 	requestTextOutline: (element: TextElement) => void;
-	/** Whether an embedded image file's GPU texture has finished decoding. */
-	isImageReady: (fileUid: string) => boolean;
+	/** How much of an embedded image file is loaded. */
+	imageLoadState: (fileUid: string) => ImageLoadState;
 	/** Shared lit-mesh pass + baker (owned by the handler, injected here). */
 	meshPass: MeshPassRenderer;
 	baker: ExtrudeMeshBaker;
@@ -541,7 +542,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 			texturePool: this.deps.texturePool,
 			resolveTextOutline: this.deps.resolveTextOutline,
 			requestTextOutline: this.deps.requestTextOutline,
-			isImageReady: this.deps.isImageReady,
+			imageLoadState: this.deps.imageLoadState,
 		};
 	}
 

@@ -1,6 +1,7 @@
 import { resolveImageGeometry } from "../../../document/elementGeometry/imageGeometry";
 import {
 	type AnyArtObject,
+	type BoundingBox,
 	type CubicBezierSegment,
 	type EmbeddedFile,
 	type ImageObject,
@@ -54,23 +55,11 @@ export class ImageElementRenderer {
 			return;
 		}
 
-		// Get texture from cache (sync only - async load triggers re-render)
-		const texture = this.deps.images.get(file);
-		if (!texture) {
-			// Start async load, will render on next frame
-			this.deps.images.ensure(file);
-			return;
-		}
+		const { quad, deformed, t, bounds } = this.placement(image, elementsMap);
 
-		const { localBounds, quad, deformed } = resolveImageGeometry(
-			image,
-			this.deps.filterRenderer,
-		);
-		const t = composeAncestorTransform(
-			image,
-			elementsMap,
-			this.deps.getParentGroupMap(),
-		);
+		// A missing texture loads in the background and re-renders when it lands.
+		const texture = this.deps.images.get(file, bounds);
+		if (!texture) return;
 
 		// Warped corner vertices need the perspective quad blit even when no
 		// geometry filter deformed the quad further.
@@ -96,10 +85,6 @@ export class ImageElementRenderer {
 			}
 			// Corner extraction failed: fall through to standard AABB blit.
 		}
-
-		const bounds = isIdentityTransform(t)
-			? localBounds
-			: transformBounds(localBounds, t);
 
 		// Blit texture to canvas at the image position
 		this.deps.blitTextureToCanvas(
@@ -132,11 +117,7 @@ export class ImageElementRenderer {
 		}
 
 		const texture = this.deps.images.get(file);
-		if (!texture) {
-			// Start async load, will render on next frame
-			this.deps.images.ensure(file);
-			return;
-		}
+		if (!texture) return;
 
 		this.deps.blitMeshToCanvas(
 			passEncoder,
@@ -146,6 +127,35 @@ export class ImageElementRenderer {
 		);
 
 		this.restoreStrokePipeline(passEncoder);
+	}
+
+	/** The world bounds `image` is drawn over. */
+	public worldBounds(
+		image: ImageObject,
+		elementsMap: Map<string, AnyArtObject>,
+	): BoundingBox {
+		return this.placement(image, elementsMap).bounds;
+	}
+
+	/** Where `image` lands: its quad before and after the geometry filters,
+	 *  its ancestors' transform, and the world bounds that transform yields. */
+	private placement(
+		image: ImageObject,
+		elementsMap: Map<string, AnyArtObject>,
+	) {
+		const { localBounds, quad, deformed } = resolveImageGeometry(
+			image,
+			this.deps.filterRenderer,
+		);
+		const t = composeAncestorTransform(
+			image,
+			elementsMap,
+			this.deps.getParentGroupMap(),
+		);
+		const bounds = isIdentityTransform(t)
+			? localBounds
+			: transformBounds(localBounds, t);
+		return { quad, deformed, t, bounds };
 	}
 
 	/** Re-arm the stroke pipeline state a blit pass clobbered. */

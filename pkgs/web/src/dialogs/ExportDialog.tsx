@@ -20,7 +20,7 @@ import {
 	TIFFExporter,
 } from "@paplico/core/export";
 import type { Artboard, EmbeddedFile } from "@paplico/core/schema";
-import { Download, ImageIcon, Upload, X } from "lucide-react";
+import { Download, ImageIcon, Info, Upload, X } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/Button";
 import { Checkbox } from "@/components/Checkbox";
@@ -33,6 +33,7 @@ import { Slider } from "@/components/Slider";
 import { toastManager } from "@/components/Toast";
 import { Tooltip } from "@/components/Tooltip";
 import { BASE_DPI, RASTERIZATION_DPI_PRESETS } from "@/configs";
+import { countImagesOverSide } from "@/dialogs/exportImageLimit";
 import { SpinnerDialog } from "@/dialogs/SpinnerDialog";
 import { useSystemIccProfiles } from "@/hooks/useSystemIccProfiles";
 import {
@@ -88,6 +89,7 @@ export const ExportDialog = memo(function ExportDialog({
 	const [customDpiText, setCustomDpiText] = useState(String(BASE_DPI));
 	const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
 	const [exportingMessage, setExportingMessage] = useState<string | null>(null);
+	const [oversizedImageCount, setOversizedImageCount] = useState(0);
 	const thumbnailUrlsRef = useRef<string[]>([]);
 	const t = useTranslation();
 
@@ -170,6 +172,23 @@ export const ExportDialog = memo(function ExportDialog({
 			setThumbnails({});
 		};
 	}, [open, paplico, artboards]);
+
+	const maxImageSide = paplico?.deviceLimits?.maxTextureDimension2D;
+	useEffect(() => {
+		if (!open || !paplico || maxImageSide == null) return;
+
+		let cancelled = false;
+		void countImagesOverSide(paplico.uiState.document, maxImageSide).then(
+			(count) => {
+				if (!cancelled) setOversizedImageCount(count);
+			},
+		);
+
+		return () => {
+			cancelled = true;
+			setOversizedImageCount(0);
+		};
+	}, [open, paplico, maxImageSide]);
 
 	useEffect(() => {
 		if (!isHdrEnabled) {
@@ -629,6 +648,21 @@ export const ExportDialog = memo(function ExportDialog({
 								)}
 							</div>
 						)}
+
+						{/* SVG embeds each image file as it is */}
+						{format !== "svg" &&
+							maxImageSide != null &&
+							oversizedImageCount > 0 && (
+								<div className="flex items-start gap-2 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-xs text-foreground">
+									<Info size={14} className="mt-0.5 shrink-0 text-accent" />
+									<p>
+										{t("exportDialog.oversizedImagesNote", {
+											count: oversizedImageCount,
+											limit: maxImageSide,
+										})}
+									</p>
+								</div>
+							)}
 
 						{/* Color Profile (PNG / JPEG) */}
 						{showRgbProfile && (

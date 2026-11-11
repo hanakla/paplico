@@ -221,6 +221,7 @@ interface PaplicoOptions {
 	/**
 	 * GPU memory the renderer's caches may keep across frames, shared equally
 	 * by the open canvases. Textures a frame is drawing with are not counted.
+	 * Image textures may hold half of this amount on top of it.
 	 * Defaults to 1600 MiB.
 	 */
 	gpuCacheBudgetBytes?: number;
@@ -1634,6 +1635,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			// Every viewport change tries the composite blit; CanvasLayer
 			// re-renders when the cached frame no longer covers the view.
 			scheduler.markDirty("viewport");
+			this.renderer.holdImageLoads();
 			// Tool overlays with fixed on-screen sizes baked into world
 			// coordinates (scene gizmo arrows/rings) rebuild for the new view.
 			this.tool?.refreshUI?.();
@@ -2301,6 +2303,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	 */
 	public getLastPenStroke(): PenStrokeRecord | null {
 		return this.tool instanceof PenTool ? this.tool.getLastStroke() : null;
+	}
+
+	/** Limits of the GPU device the renderer draws with, or `null` before the
+	 *  renderer is initialized. */
+	public get deviceLimits(): GPUSupportedLimits | null {
+		return this.renderer.deviceLimits;
 	}
 
 	public get isReadonly(): boolean {

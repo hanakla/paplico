@@ -45,7 +45,10 @@ import {
 import { RENDER_SAMPLE_COUNT } from "./canvas/CanvasLayerTypes";
 import { RenderCacheManager } from "./canvas/caches/RenderCacheManager";
 import type { Reference3DRenderContext } from "./canvas/elements/Reference3DElementRenderer";
-import { DEFAULT_GPU_CACHE_BUDGET_BYTES } from "./canvas/gpuCacheBudget";
+import {
+	DEFAULT_GPU_CACHE_BUDGET_BYTES,
+	imageTextureBudgetBytes,
+} from "./canvas/gpuCacheBudget";
 import { BackdropCaptureManager } from "./canvas/pipeline/BackdropCaptureManager";
 import { BrushTextureManager } from "./canvas/pipeline/brush/BrushTextureManager";
 import { buildParentedMap } from "./canvas/pipeline/ElementHierarchyCache";
@@ -204,6 +207,9 @@ interface TargetData {
 	uiLayer: UILayer;
 	backdropCaptureManager: BackdropCaptureManager;
 	cacheManager: RenderCacheManager;
+	/** The document files whose image previews were last queued for this
+	 *  target. */
+	prefetchedFiles?: Document["files"];
 }
 
 interface Pipelines {
@@ -740,6 +746,11 @@ export class RenderOrchestrator {
 			this.documentScopeOf(target.id, request.document.id),
 		);
 
+		if (request.document.files !== td.prefetchedFiles) {
+			td.prefetchedFiles = request.document.files;
+			this.imageTextures?.prefetchPreviews(request.document.files, target.id);
+		}
+
 		const frame = td.canvasLayer.render(
 			encoder,
 			textureView,
@@ -848,6 +859,10 @@ export class RenderOrchestrator {
 		for (const td of this.targets.values()) {
 			td.canvasLayer.setReference3DContextProvider(provider);
 		}
+	}
+
+	public holdImageLoads(): void {
+		this.imageTextures?.holdLoads();
 	}
 
 	/**
@@ -978,11 +993,14 @@ export class RenderOrchestrator {
 		await Promise.all(
 			textElements.map((el) => td.canvasLayer.elements.ensureTextPaths(el)),
 		);
-		await td.canvasLayer.elements.ensureImageTextures(
+		await td.canvasLayer.elements.ensureReference3DTextures(
 			opts.document,
 			opts.elementFilter,
 		);
-		await td.canvasLayer.elements.ensureReference3DTextures(
+		// From here to the render below, no frame may free an image this
+		// export is loading or has loaded and not drawn yet.
+		this.imageTextures?.beginExport();
+		await td.canvasLayer.elements.ensureImageTextures(
 			opts.document,
 			opts.elementFilter,
 		);
@@ -1144,6 +1162,7 @@ export class RenderOrchestrator {
 			const textureToDestroy = intermediateTexture as GPUTexture | null;
 			textureToDestroy?.destroy();
 			restoreTextDocumentResolver();
+			this.imageTextures?.endExport();
 		}
 	}
 
@@ -1464,9 +1483,14 @@ export class RenderOrchestrator {
 		};
 	}
 
+	/** Limits of the GPU device in use, or `null` before it is initialized. */
+	public get deviceLimits(): GPUSupportedLimits | null {
+		return this.device?.limits ?? null;
+	}
+
 	/** Device texture-size limit for sizing analysis rasters (4096 before init). */
 	public getMaxTextureDimension(): number {
-		return this.device?.limits.maxTextureDimension2D ?? 4096;
+		return this.deviceLimits?.maxTextureDimension2D ?? 4096;
 	}
 
 	/**
@@ -1897,10 +1921,10 @@ export class RenderOrchestrator {
 	}
 
 	/**
-	 * Advance the frame clock of the generators every target shares, once per
-	 * render cycle. A cycle ends when a target that already rendered in it
-	 * renders again, so canvases drawing side by side age the shared textures
-	 * once per round rather than once per canvas.
+	 * Advance the frame clock of the generators and the image textures every
+	 * target shares, once per render cycle. A cycle ends when a target that
+	 * already rendered in it renders again, so canvases drawing side by side
+	 * age the shared textures once per round rather than once per canvas.
 	 */
 	private beginTargetFrame(targetId: string): void {
 		if (this.targetsInRenderCycle.has(targetId)) {
@@ -1909,6 +1933,7 @@ export class RenderOrchestrator {
 		if (this.targetsInRenderCycle.size === 0) {
 			this.gradientTextureGenerator?.beginFrame();
 			this.meshGradientTextureGenerator?.beginFrame();
+			this.imageTextures?.beginFrame();
 		}
 		this.targetsInRenderCycle.add(targetId);
 	}
@@ -2881,8 +2906,10 @@ export class RenderOrchestrator {
 		this.meshGradientTextureGenerator = new MeshGradientTextureGenerator(
 			this.device,
 		);
-		this.imageTextures = new ImageTextureStore(this.device, () =>
-			this._onRequestRender?.(),
+		this.imageTextures = new ImageTextureStore(
+			this.device,
+			() => this._onRequestRender?.(),
+			imageTextureBudgetBytes(this.gpuCacheBudgetBytes),
 		);
 	}
 }

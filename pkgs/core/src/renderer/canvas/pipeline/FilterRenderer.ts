@@ -27,6 +27,7 @@ import type {
 	BackdropEffectCoordinator,
 } from "./BackdropEffectCoordinator";
 import { IdleClock, type UseStamp } from "./IdleClock";
+import type { ImageLoadState } from "./ImageTextureStore";
 import type { MeshPassRenderer } from "./MeshPassRenderer";
 import {
 	createBorrowedTextureRef,
@@ -102,10 +103,9 @@ export interface FilterGeometryContext {
 	/** Fire-and-forget: ensure a Text element's glyph paths are loaded and
 	 *  cached (async font loading) for a subsequent frame. */
 	requestTextOutline: (element: TextElement) => void;
-	/** Whether an embedded image file's GPU texture has finished decoding
-	 *  (async image load). Used to invalidate a cached bake once a
-	 *  previously-not-ready image child becomes available. */
-	isImageReady: (fileUid: string) => boolean;
+	/** How much of an embedded image file is loaded. A cached bake is taken
+	 *  again each time more of an image child arrives. */
+	imageLoadState: (fileUid: string) => ImageLoadState;
 }
 
 /**
@@ -448,8 +448,8 @@ export interface BackdropEffectCanvasResources {
 		element: TextElement,
 	) => { paths: Path[]; localBounds: BoundingBox } | null;
 	requestTextOutline: (element: TextElement) => void;
-	/** Whether an embedded image file's GPU texture has finished decoding. */
-	isImageReady: (fileUid: string) => boolean;
+	/** How much of an embedded image file is loaded. */
+	imageLoadState: (fileUid: string) => ImageLoadState;
 	/** Defer a frame-local texture's destruction to a GPU-safe point. */
 	deferDestroy: (texture: GPUTexture) => void;
 	/** Canvas color format (for the driver's own compositor pipelines). */
