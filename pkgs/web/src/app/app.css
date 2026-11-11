@@ -145,12 +145,15 @@
 		--virtual-shiftkey-foreground: var(--color-gray-600);
 
 		--success: var(--color-green-500);
+
+		/* How bright the canvas shows through a frosted panel */
+		--backdrop-brightness: 1;
 	}
 
 	/* .dark is Single source of truth */
 	@media (prefers-color-scheme: dark) {
 		:root {
-			--background: var(--color-slate-700);
+			--background: var(--color-slate-900);
 			--foreground: var(--color-white);
 			--border: var(--color-slate-600);
 			--border-dim: color-mix(in srgb, var(--color-slate-600) 60%, transparent);
@@ -159,7 +162,7 @@
 			--accent: var(--color-sky-600);
 			--accent-hover: var(--color-sky-700);
 			--accent-active: var(--color-sky-700);
-			--accent-foreground: var(--color-zinc-100);
+			--accent-foreground: var(--color-white);
 			--accent-strong: var(--color-sky-700);
 
 			--muted: var(--color-slate-600);
@@ -188,7 +191,7 @@
 	}
 
 	.dark {
-		--background: var(--color-slate-800);
+		--background: var(--color-slate-900);
 		--foreground: var(--color-white);
 		--border: var(--color-slate-500);
 		--border-dim: color-mix(in srgb, var(--color-slate-600) 60%, transparent);
@@ -197,7 +200,7 @@
 		--accent: var(--color-sky-600);
 		--accent-hover: var(--color-sky-700);
 		--accent-active: var(--color-sky-700);
-		--accent-foreground: var(--color-zinc-100);
+		--accent-foreground: var(--color-white);
 		--accent-strong: var(--color-sky-700);
 
 		--muted: var(--color-slate-600);
@@ -222,6 +225,9 @@
 		--virtual-shiftkey-foreground: var(--color-white);
 
 		--success: var(--color-green-600);
+
+		/* A light canvas behind a dark panel washes out the accent */
+		--backdrop-brightness: 0.4;
 	}
 
 	.pink {
@@ -411,16 +417,19 @@
 
 @utility backdrop-liquid {
 	& {
-		backdrop-filter: blur(20px) saturate(180%) url(#liquid-glass-frosted);
+		backdrop-filter: blur(20px) saturate(180%)
+			brightness(var(--backdrop-brightness)) url(#liquid-glass-frosted);
 	}
 
 	/* Safari and Firefox show no blur at all when backdrop-filter holds url() */
 	&:where(.safari *, .firefox *) {
-		backdrop-filter: blur(40px) saturate(180%);
+		backdrop-filter: blur(40px) saturate(180%)
+			brightness(var(--backdrop-brightness));
 	}
 
 	&:where(.tauri-mac *) {
-		backdrop-filter: blur(40px) saturate(180%);
+		backdrop-filter: blur(40px) saturate(180%)
+			brightness(var(--backdrop-brightness));
 	}
 }
 

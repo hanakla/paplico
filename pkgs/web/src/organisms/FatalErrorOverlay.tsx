@@ -42,7 +42,7 @@ export function FatalErrorOverlay() {
 					<button
 						type="button"
 						onClick={handleReload}
-						className="mt-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent/80 transition-colors"
+						className="mt-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground hover:bg-accent/80 transition-colors"
 					>
 						{t("errors.reload")}
 					</button>
