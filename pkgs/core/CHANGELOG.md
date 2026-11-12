@@ -44,9 +44,8 @@
 - **Export**
   - `Paplico.exportArtboard` takes `rasterizationDpi` to rasterize filters at another resolution than the document's. A small preview passes its own pixel density to take far less GPU memory.
 - **Documents**
-  - `Paplico.exportDocument` and `Paplico.exportDocumentFile` take `timelapse: false` to leave the timelapse recording out of the file.
-  - `Paplico.exportDocument` and `Paplico.exportDocumentFile` take `rewriteSourcePath` to change or drop the link of each linked file in the written file only.
-  - `Paplico.exportDocument` and `Paplico.exportDocumentFile` take `appData` to keep data of the host app in the file. `Paplico.importDocument` returns it.
+  - `Paplico.exportDocument` and `Paplico.exportDocumentFile` take `timelapse`, `rewriteSourcePath` and `appData` to leave out the timelapse, rewrite linked file paths and keep host app data in the written file.
+  - `Paplico.importDocument` returns the `appData` a file holds.
 
 ### Changed
 
