@@ -3,6 +3,7 @@ import type {
 	AnyArtObject,
 	Document,
 	FillAppearance,
+	FillColor,
 	Filter,
 	Group,
 	Layer,
@@ -331,6 +332,32 @@ describe("SVGExporter", () => {
 		// Glyph world (0,0)-(10,0)-(5,10) → SVG (50,50)-(60,50)-(55,40)
 		expect(result?.svg).toContain(
 			`<path d="M 50 50 L 60 50 L 55 40 Z" fill="#0000ff"/>`,
+		);
+	});
+
+	it("should paint a color glyph layer in its own fill instead of the run's", async () => {
+		const glyph: Path = path("glyph", {
+			segments: [
+				seg({ start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, isMoved: true }),
+				seg({ end: { x: 5, y: 10 }, isClosed: true }),
+			],
+		});
+
+		const doc = makeDocument(
+			[textElement(runStyle())],
+			[{ elementIds: ["t1"] }],
+		);
+		const ctx = makeContext(
+			makeGlyphRenderer(
+				[glyph],
+				[{ type: "solid", color: { type: "rgb", r: 1, g: 0, b: 0, a: 1 } }],
+			),
+			doc,
+		);
+		const result = await new SVGExporter().export(ctx, "artboard1");
+
+		expect(result?.svg).toContain(
+			`<path d="M 50 50 L 60 50 L 55 40 Z" fill="#ff0000"/>`,
 		);
 	});
 
@@ -767,15 +794,22 @@ function textElement(style: TextStyle): TextElement {
 	};
 }
 
-/** An export renderer whose text renderer outlines every text as `glyphs`. */
-function makeGlyphRenderer(glyphs: Path[]): ExportRenderer {
+/**
+ * An export renderer whose text renderer outlines every text as `glyphs`,
+ * with `layerFills` as the color glyph layer paint of each glyph.
+ */
+function makeGlyphRenderer(
+	glyphs: Path[],
+	layerFills: (FillColor | undefined)[] = [],
+): ExportRenderer {
 	return {
 		getTextRenderer: () => ({
 			textElementToOutlinedPaths: vi.fn(async () => ({
-				outlinedPaths: glyphs.map((glyph) => ({
+				outlinedPaths: glyphs.map((glyph, index) => ({
 					path: glyph,
 					runIndex: 0,
 					paragraphIndex: 0,
+					fill: layerFills[index],
 				})),
 				bounds: {
 					minX: 0,

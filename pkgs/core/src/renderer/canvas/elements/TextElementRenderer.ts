@@ -11,6 +11,7 @@ import {
 	type StrokeParams,
 	type TextElement,
 } from "../../../schema";
+import type { TextGlyphPath } from "../../../typography/TextRenderer";
 import {
 	defaultTextStrokeWidth,
 	fillAppearanceOf,
@@ -418,12 +419,12 @@ export class TextElementRenderer {
  * A fill or stroke of the element paints every glyph as one multi-subpath
  * path, so a gradient spans the text and a stroke lies over all the fills
  * below it. The glyphs' own fill paints where the paint stack places it, one
- * path per distinct fill. A text whose glyphs share one fill yields a single
- * path carrying the whole stack.
+ * path per distinct fill, then each color glyph layer in its own fill. A text
+ * whose glyphs share one fill yields a single path carrying the whole stack.
  */
 export function resolveTextDrawPaths(opts: {
 	elementId: string;
-	glyphs: Path[];
+	glyphs: TextGlyphPath[];
 	elementFilters: Filter[];
 	defaultFill: FillParams["fill"] | null;
 	defaultStroke: StrokeParams["strokeColor"] | null;
@@ -469,7 +470,10 @@ export function resolveTextDrawPaths(opts: {
 	}));
 }
 
-/** The glyphs of a text that share one intrinsic fill, as one outline. */
+/**
+ * The glyphs of a text that share one intrinsic fill, as one outline, or one
+ * layer of a color glyph.
+ */
 interface TextFillRun {
 	/** Per-run fill entry, else the default style's fill; null paints nothing. */
 	fill: FillAppearance | null;
@@ -477,16 +481,28 @@ interface TextFillRun {
 }
 
 function groupGlyphsByFill(
-	glyphs: Path[],
+	glyphs: TextGlyphPath[],
 	defaultFill: FillParams["fill"] | null,
 ): TextFillRun[] {
 	// Glyphs of one run share the fill object, so serialize each object once.
 	const fillKeys = new Map<FillParams["fill"], string>();
 	const runs = new Map<string, TextFillRun>();
+	// Color glyph layers overlap each other, so merging the layers that share
+	// a fill would paint them out of order.
+	const colorLayers: TextFillRun[] = [];
+	const defaultAppearance =
+		defaultFill == null ? null : fillAppearanceOf(defaultFill);
 	for (const glyph of glyphs) {
 		const runFill = localAppearances(glyph.filters).find(
 			(f): f is FillAppearance => f.processor === "fill",
 		);
+		if (glyph.colorLayer) {
+			colorLayers.push({
+				fill: runFill ?? defaultAppearance,
+				segments: glyph.segments,
+			});
+			continue;
+		}
 		let key = "";
 		if (runFill) {
 			const fill = runFill.paramData.params.fill;
@@ -496,16 +512,14 @@ function groupGlyphsByFill(
 		let run = runs.get(key);
 		if (!run) {
 			run = {
-				fill:
-					runFill ??
-					(defaultFill == null ? null : fillAppearanceOf(defaultFill)),
+				fill: runFill ?? defaultAppearance,
 				segments: [],
 			};
 			runs.set(key, run);
 		}
 		appendSubpath(run.segments, glyph.segments);
 	}
-	return [...runs.values()];
+	return [...runs.values(), ...colorLayers];
 }
 
 /** Shift element-local segments to the element's position. */

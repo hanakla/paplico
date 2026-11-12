@@ -171,6 +171,8 @@
   - Fix a centered or right-aligned paragraph in vertical writing starting at the top of its column. Without a box, the text's position is the middle or the end of the column.
   - Fix text with a path offset or another shape filter on one of its fills or strokes being drawn as a coarse image instead of sharp outlines.
   - Fix a text's gradient restarting at every character, and each character's stroke being covered by the next character's fill. Characters given a fill of their own share one gradient across all the characters with that fill.
+  - Fix color fonts such as Twitter Color Emoji drawing their emoji in the text color, and text in a COLR color font not showing at all. Outlined text and SVG export keep the colors too.
+    - Glyphs from the `SVG ` table keep their colors when they use only fills; a glyph with strokes, patterns or masks is still drawn in the text color. COLR v1 glyphs are not supported.
 - **Groups**
   - Fix a fill or stroke on a group covering the holes of the paths and compound paths inside it.
 

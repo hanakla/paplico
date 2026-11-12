@@ -28,6 +28,7 @@ import type {
 } from "../schema";
 import { resolveSegment } from "../utils/geometry/primitives/segment";
 import { translateSegments } from "../utils/geometry/space/worldSegments";
+import type { GlyphColorLayer } from "./fonts/colorGlyphs";
 import type { LoadedFont } from "./fonts/FontLoader";
 import type { FontManager } from "./fonts/FontManager";
 import { rotateAnchorAroundPivot } from "./glyphQuad";
@@ -52,6 +53,8 @@ export interface LayoutedChar {
 	fontSize: number;
 	font: LoadedFont;
 	glyphPath: CubicBezierSegment[];
+	/** Colored layers of a color glyph, splitting `glyphPath` bottom layer first. */
+	colorLayers?: readonly GlyphColorLayer[];
 	advanceWidth: number;
 	kerningOffset: number; // カーニング調整値
 	sizeScale: number; // 文字サイズスケール（CharOverrideから）
@@ -128,6 +131,7 @@ interface ShapedCharItem {
 	kind: "char";
 	char: string;
 	rawGlyphPath: CubicBezierSegment[];
+	colorLayers?: readonly GlyphColorLayer[];
 	advanceWidth: number; // sizeScale適用済み
 	kerning: number;
 	/** Per-run tracking (letterSpacing × fontSize) applied after each char */
@@ -528,6 +532,7 @@ export class TextLayoutEngine {
 						kind: "char",
 						char: glyph.char,
 						rawGlyphPath: glyph.path,
+						colorLayers: glyph.colorLayers,
 						advanceWidth: glyph.advanceWidth * sizeScale,
 						kerning: kerningEm * fontSize,
 						letterSpacingPx,
@@ -1016,6 +1021,7 @@ export class TextLayoutEngine {
 					v.skewYRad,
 				),
 				advanceWidth: it.advanceWidth,
+				colorLayers: it.colorLayers,
 				kerningOffset: it.kerning,
 				sizeScale: it.sizeScale,
 				override: it.override,
@@ -1365,6 +1371,7 @@ export class TextLayoutEngine {
 					d.skewYRad,
 				),
 				advanceWidth: it.advanceWidth,
+				colorLayers: v.path === it.rawGlyphPath ? it.colorLayers : undefined,
 				kerningOffset: it.kerning,
 				sizeScale: it.sizeScale,
 				override: it.override,
@@ -1392,6 +1399,7 @@ export class TextLayoutEngine {
 			| "sizeScale"
 			| "font"
 			| "rawGlyphPath"
+			| "colorLayers"
 			| "kerning"
 			| "override"
 		>,
@@ -1421,6 +1429,7 @@ export class TextLayoutEngine {
 				rotation,
 			),
 			advanceWidth,
+			colorLayers: it.colorLayers,
 			kerningOffset: it.kerning,
 			sizeScale: it.sizeScale,
 			override: it.override,
@@ -1486,6 +1495,7 @@ export class TextLayoutEngine {
 					d.skewYRad,
 				),
 				advanceWidth: c.advanceWidth,
+				colorLayers: c.colorLayers,
 				kerningOffset: c.kerning,
 				sizeScale: c.sizeScale,
 				override: c.override,
@@ -1616,6 +1626,7 @@ export class TextLayoutEngine {
 			font,
 			glyphPath: this.transformGlyphPath(glyph.path, cx, y, 1, 0),
 			advanceWidth: glyph.advanceWidth,
+			colorLayers: glyph.colorLayers,
 			kerningOffset: 0,
 			sizeScale: 1,
 			synthetic: true,
@@ -1736,6 +1747,7 @@ export class TextLayoutEngine {
 							kind: "char",
 							char: glyph.char,
 							rawGlyphPath: glyph.path,
+							colorLayers: glyph.colorLayers,
 							advanceWidth: glyph.advanceWidth * sizeScale,
 							kerning: (charOverride?.kerningAdjust ?? 0) * fontSize,
 							letterSpacingPx,
@@ -1797,6 +1809,7 @@ export class TextLayoutEngine {
 									sizeScale,
 									font,
 									rawGlyphPath: glyph.path,
+									colorLayers: glyph.colorLayers,
 									kerning,
 									override: charOverride,
 								},
@@ -1863,6 +1876,8 @@ export class TextLayoutEngine {
 							d.skewYRad,
 						),
 						advanceWidth: advScaled,
+						colorLayers:
+							finalGlyphPath === glyph.path ? glyph.colorLayers : undefined,
 						kerningOffset: kerning,
 						sizeScale,
 						override: charOverride,
@@ -2055,6 +2070,7 @@ export class TextLayoutEngine {
 					d.skewYRad,
 				),
 				advanceWidth: it.advanceWidth,
+				colorLayers: it.colorLayers,
 				kerningOffset: it.kerning,
 				sizeScale: it.sizeScale,
 				override: it.override,

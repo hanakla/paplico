@@ -432,6 +432,27 @@ describe("resolveTextDrawPaths", () => {
 		expect(fillValueAt(result, 0)).toEqual(blue);
 	});
 
+	it("should paint the layers of a color glyph in their order even when two share a fill", () => {
+		const layer = (fill: FillParams["fill"]) => ({
+			...createGlyphPath("left", makeFill("left")),
+			filters: [fillApp(fill)],
+			colorLayer: true as const,
+		});
+
+		const drawn = resolveTextDrawPaths({
+			elementId: "text-1",
+			glyphs: [layer(red), layer(blue), layer(red)],
+			elementFilters: [contentAppearance()],
+			defaultFill: null,
+			defaultStroke: null,
+			defaultBrushWidth: 1,
+		});
+
+		expect(
+			drawn.map((path) => fillValueAt(localAppearances(path.filters), 0)),
+		).toEqual([red, blue, red]);
+	});
+
 	it("should apply the default-style stroke only while no stroke appearance exists", () => {
 		const strokeApp: Filter = {
 			uid: "app-stroke",

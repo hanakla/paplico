@@ -11,6 +11,7 @@ import {
 	type CubicBezierSegment,
 	type ElementTransform,
 	type FillAppearance,
+	type FillColor,
 	generateUid,
 	type Path,
 	type TextElement,
@@ -40,6 +41,22 @@ import type {
 	ResolvedTextRegionGeometry,
 	TextLayoutEngine,
 } from "./TextLayoutEngine";
+
+/**
+ * A glyph path TextRenderer hands to the renderer. `colorLayer` marks one
+ * layer of a color glyph: it paints in its own fill, in layer order, instead
+ * of joining the paths that share its fill.
+ */
+export type TextGlyphPath = Path & { colorLayer?: true };
+
+/** A glyph of an outlined text, in world coordinates. */
+export interface OutlinedGlyphPath {
+	path: Path;
+	runIndex: number;
+	paragraphIndex: number;
+	/** The paint of a color glyph layer, which replaces the run's fill. */
+	fill?: FillColor;
+}
 
 /** Approximate ascent ratio within one fontSize for vertical character cells.
  *  Matches the horizontal line.baseline heuristic (lineHeight × 0.8). */
@@ -103,17 +120,16 @@ export class TextRenderer {
 	 * element position but not by its transform.
 	 */
 	public async textElementToPaths(element: TextElement): Promise<{
-		paths: Path[];
+		paths: TextGlyphPath[];
 		bounds: LocalBBox;
 	}> {
 		const layout = await this.getOrComputeLayout(element);
-		const paths: Path[] = [];
+		const paths: TextGlyphPath[] = [];
 
 		for (const char of layout.chars) {
 			if (char.glyphPath.length === 0) continue; // spaces etc.
 
-			const path = this.charToPath(char, element);
-			paths.push(path);
+			paths.push(...this.charToPaths(char, element));
 		}
 
 		const bounds = brandLocalBBox({
@@ -131,50 +147,45 @@ export class TextRenderer {
 	/**
 	 * Converts text glyphs into standalone Path objects in world coordinates,
 	 * preserving the source Run mapping for per-character paint resolution.
+	 * A color glyph yields one path per layer, bottom first; `fill` is the
+	 * layer's own paint, which replaces the run's.
 	 */
 	public async textElementToOutlinedPaths(element: TextElement): Promise<{
-		outlinedPaths: Array<{
-			path: Path;
-			runIndex: number;
-			paragraphIndex: number;
-		}>;
+		outlinedPaths: OutlinedGlyphPath[];
 		bounds: BoundingBox;
 	}> {
 		const layout = await this.getOrComputeLayout(element);
-		const outlinedPaths: Array<{
-			path: Path;
-			runIndex: number;
-			paragraphIndex: number;
-		}> = [];
+		const outlinedPaths: OutlinedGlyphPath[] = [];
 
 		const ox = element.x;
 		const oy = element.y;
 
 		for (const char of layout.chars) {
-			if (char.glyphPath.length === 0) continue;
+			for (const piece of glyphPieces(char)) {
+				// Offset anchor points by element position to produce world coordinates.
+				// cp1/cp2 are relative offsets and remain unchanged.
+				const worldSegments = piece.segments.map((seg) => ({
+					...seg,
+					start: seg.start
+						? { ...seg.start, x: seg.start.x + ox, y: seg.start.y + oy }
+						: undefined,
+					end: { ...seg.end, x: seg.end.x + ox, y: seg.end.y + oy },
+				}));
 
-			// Offset anchor points by element position to produce world coordinates.
-			// cp1/cp2 are relative offsets and remain unchanged.
-			const worldSegments = char.glyphPath.map((seg) => ({
-				...seg,
-				start: seg.start
-					? { ...seg.start, x: seg.start.x + ox, y: seg.start.y + oy }
-					: undefined,
-				end: { ...seg.end, x: seg.end.x + ox, y: seg.end.y + oy },
-			}));
-
-			outlinedPaths.push({
-				path: {
-					type: "path",
-					id: generateUid("obj"),
-					segments: worldSegments,
-					opacity: 1,
-					blendMode: "normal",
-					transform: createIdentityTransform(),
-				},
-				runIndex: char.runIndex,
-				paragraphIndex: char.paragraphIndex,
-			});
+				outlinedPaths.push({
+					path: {
+						type: "path",
+						id: generateUid("obj"),
+						segments: worldSegments,
+						opacity: 1,
+						blendMode: "normal",
+						transform: createIdentityTransform(),
+					},
+					runIndex: char.runIndex,
+					paragraphIndex: char.paragraphIndex,
+					...(piece.fill ? { fill: piece.fill } : {}),
+				});
+			}
 		}
 
 		const bounds: BoundingBox = {
@@ -418,7 +429,10 @@ export class TextRenderer {
 		return min;
 	}
 
-	private charToPath(char: LayoutedChar, element: TextElement): Path {
+	private charToPaths(
+		char: LayoutedChar,
+		element: TextElement,
+	): TextGlyphPath[] {
 		// Mostly geometry; run-level fill rides along as a per-glyph appearance
 		// so per-character coloring survives into CanvasLayer.renderText
 		// (element-level appearance overrides / defaults resolve there).
@@ -428,26 +442,31 @@ export class TextRenderer {
 		const runFill =
 			paintSource.content.paragraphs[char.paragraphIndex]?.runs[char.runIndex]
 				?.style?.fill;
-		return {
-			type: "path",
-			id: `${element.id}-char-${char.charIndex}`,
-			segments: char.glyphPath,
-			opacity: 1,
-			blendMode: "normal",
-			transform: createIdentityTransform(),
-			...(runFill
-				? {
-						filters: [
-							{
-								processor: "fill",
-								opacity: 1,
-								blendMode: "normal",
-								paramData: { version: "1", params: { fill: runFill } },
-							} as FillAppearance,
-						],
-					}
-				: {}),
-		};
+		const id = `${element.id}-char-${char.charIndex}`;
+		return glyphPieces(char).map((piece, index) => {
+			const fill = piece.fill ?? runFill;
+			return {
+				type: "path",
+				id: char.colorLayers ? `${id}-layer-${index}` : id,
+				segments: piece.segments,
+				opacity: 1,
+				blendMode: "normal",
+				transform: createIdentityTransform(),
+				...(char.colorLayers ? { colorLayer: true } : {}),
+				...(fill
+					? {
+							filters: [
+								{
+									processor: "fill",
+									opacity: 1,
+									blendMode: "normal",
+									paramData: { version: "1", params: { fill } },
+								} as FillAppearance,
+							],
+						}
+					: {}),
+			};
+		});
 	}
 
 	/**
@@ -1466,4 +1485,21 @@ function hasVisualOverride(char: LayoutedChar): boolean {
 			(o.rotation ?? 0) !== 0 ||
 			(o.baselineShift ?? 0) !== 0)
 	);
+}
+
+/**
+ * The parts of a glyph that paint separately: each layer of a color glyph,
+ * bottom first, or the whole glyph with no paint of its own. Parts without
+ * an outline, such as a space, are left out.
+ */
+function glyphPieces(
+	char: LayoutedChar,
+): { segments: LayoutedChar["glyphPath"]; fill: FillColor | null }[] {
+	let start = 0;
+	const pieces = char.colorLayers?.map((layer) => {
+		const segments = char.glyphPath.slice(start, start + layer.segmentCount);
+		start += layer.segmentCount;
+		return { segments, fill: layer.fill };
+	}) ?? [{ segments: char.glyphPath, fill: null }];
+	return pieces.filter((piece) => piece.segments.length > 0);
 }

@@ -1313,7 +1313,8 @@ export class PaplicoCommands {
 				elementFilters: localAppearances(textElement.filters),
 				defaultStyle: paintSource.defaultStyle,
 				runFills: result.outlinedPaths.map(
-					({ runIndex, paragraphIndex }) =>
+					({ runIndex, paragraphIndex, fill }) =>
+						fill ??
 						paintSource.content.paragraphs[paragraphIndex]?.runs[runIndex]
 							?.style?.fill,
 				),

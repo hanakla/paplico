@@ -32,6 +32,7 @@ import {
 	type StrokeAppearance,
 	type TextElement,
 } from "../../../schema";
+import type { OutlinedGlyphPath } from "../../../typography/TextRenderer";
 import { bakeCompoundPathSegments } from "../../../utils/geometry/generate/compoundBake";
 import { deviceScaleBucket } from "../../../utils/geometry/measure/curveTolerance";
 import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
@@ -96,11 +97,7 @@ export interface SerializeContext {
 	cullBounds: BoundingBox;
 	filterResolver: Pick<FilterRenderer, "getHandler" | "calculateExpansion">;
 	outlineText(element: TextElement): Promise<{
-		outlinedPaths: Array<{
-			path: Path;
-			runIndex: number;
-			paragraphIndex: number;
-		}>;
+		outlinedPaths: OutlinedGlyphPath[];
 		bounds: BoundingBox;
 	}>;
 	/** Flow-chain head carrying the run styles (TextRenderer.getFlowHead). */
@@ -752,18 +749,23 @@ async function serializeText(
 	const localToWorld = elementTransformToWorldAffine(composed);
 	const strokeScale = uniformTransformScale(composed) ?? 1;
 
-	const glyphs = outline.outlinedPaths.map((glyph) => {
+	const glyphs = outline.outlinedPaths.map((glyph, index) => {
 		const runFill =
 			paintSource.content.paragraphs[glyph.paragraphIndex]?.runs[glyph.runIndex]
 				?.style.fill;
 		return {
 			...glyph,
-			fillKey: runFill ? JSON.stringify(runFill) : "",
+			fillKey: glyph.fill
+				? `layer-${index}`
+				: runFill
+					? JSON.stringify(runFill)
+					: "",
 			worldSegments: transformWorldGlyph(glyph.path.segments, composed),
 		};
 	});
 	// The renderer paints the glyphs sharing a fill as one shape, so a gradient
-	// is evaluated in their combined pre-transform bounds.
+	// is evaluated in their combined pre-transform bounds. A color glyph layer
+	// paints alone in its own fill.
 	const fillBounds = new Map(
 		[...Map.groupBy(glyphs, (glyph) => glyph.fillKey)].map(([key, group]) => [
 			key,
@@ -781,14 +783,21 @@ async function serializeText(
 	// nodes follow every fill node.
 	const fillNodes: SvgNode[] = [];
 	const strokeNodes: SvgNode[] = [];
-	for (const { fillKey, runIndex, paragraphIndex, worldSegments } of glyphs) {
+	for (const {
+		fillKey,
+		runIndex,
+		paragraphIndex,
+		worldSegments,
+		fill: layerFill,
+	} of glyphs) {
 		const d = segmentsToPathData(worldSegments, ctx.mapper);
 		if (!d) continue;
 
 		const style =
 			paintSource.content.paragraphs[paragraphIndex]?.runs[runIndex]?.style ??
 			paintSource.defaultStyle;
-		const fill = style.fill ?? paintSource.defaultStyle.fill ?? null;
+		const fill =
+			layerFill ?? style.fill ?? paintSource.defaultStyle.fill ?? null;
 		const stroke = style.stroke ?? paintSource.defaultStyle.stroke ?? null;
 		const strokeWidth =
 			(style.strokeWidth ?? paintSource.defaultStyle.strokeWidth ?? 1) *
