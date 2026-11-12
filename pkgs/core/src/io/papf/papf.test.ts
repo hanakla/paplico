@@ -136,6 +136,20 @@ describe("PAPF format", () => {
 			);
 		});
 
+		it("should keep the app data a document was written with", async () => {
+			const appData = { host: { schema: 1, flag: false } };
+
+			const blob = await serializeDocument(makeMinimalDoc(), appData);
+
+			expect((await openPapf(blob)).meta.appData).toEqual(appData);
+		});
+
+		it("should write no app data when none is given", async () => {
+			const blob = await serializeDocument(makeMinimalDoc());
+
+			expect((await openPapf(blob)).meta).not.toHaveProperty("appData");
+		});
+
 		it("should keep the source path of a linked file", async () => {
 			const blob = await serializeDocument(
 				makeMinimalDoc({

@@ -43,7 +43,10 @@ import {
  *
  * Async because section payloads may be compressed via CompressionStream.
  */
-export async function serializeDocument(doc: Document): Promise<Blob> {
+export async function serializeDocument(
+	doc: Document,
+	appData?: Record<string, unknown>,
+): Promise<Blob> {
 	const sink = new ChunkSink();
 	const tocEntries: TocEntryRecord[] = [];
 
@@ -52,7 +55,7 @@ export async function serializeDocument(doc: Document): Promise<Blob> {
 
 	// 2. META section
 	const fileManifest = buildFileManifest(doc.files);
-	const metaPayload = buildMetaPayload(doc, fileManifest);
+	const metaPayload = buildMetaPayload(doc, fileManifest, appData);
 	const metaCbor = encode(metaPayload);
 	const {
 		sectionOffset: metaOffset,
@@ -430,6 +433,7 @@ function buildTocPayload(entries: TocEntryRecord[]): Uint8Array {
 function buildMetaPayload(
 	doc: Document,
 	fileManifest: FileManifestEntry[],
+	appData: Record<string, unknown> | undefined,
 ): MetaPayload {
 	// Exclude transient layers (e.g. pattern-edit working layers) from persisted
 	// output. They are session-local state owned by a single peer and must not
@@ -459,6 +463,7 @@ function buildMetaPayload(
 			references3d: doc.references3d,
 		},
 		fileManifest,
+		...(appData ? { appData } : {}),
 	};
 
 	if (doc.timelapse) {

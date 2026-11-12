@@ -11,7 +11,7 @@ export const en = {
 		new: "New",
 		openDocument: "Open Document",
 		saveToFile: "Save",
-		saveToFileAs: "Save As…",
+		saveCopyAs: "Save a Copy…",
 		downloadFile: "Download",
 		savingDocument: "Saving…",
 		documentSaved: "Saved to {{name}}",
@@ -1401,6 +1401,15 @@ export const en = {
 			"Your changes stay in the app's documents even if you don't save them.",
 		save: "Save and Close",
 		discard: "Close Without Saving",
+	},
+	saveOptionsDialog: {
+		title: "Save Options",
+		timelapse: "Include timelapse",
+		timelapseDescription:
+			"How the drawing was made. Leave it out for a smaller file.",
+		keepLinks: "Keep linked images linked",
+		keepLinksDescription: "Picks up edits made to the original image files.",
+		save: "Save",
 	},
 	newDocumentDialog: {
 		title: "New Document",

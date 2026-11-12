@@ -115,7 +115,7 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 		handleGroup,
 		handleUngroup,
 		handleImport,
-		handleExport,
+		handleSaveCopy,
 		handleSave,
 		handleLoadImageToDocument,
 		handleTogglePixelPreview,
@@ -247,9 +247,9 @@ export const MobileMenuSheet = memo(function MobileMenuSheet({
 					<Save size={16} />
 					{t("menubar.saveToFile")}
 				</MenuItem>
-				<MenuItem onClick={item(handleExport)}>
+				<MenuItem onClick={item(handleSaveCopy)}>
 					<FileDown size={16} />
-					{IS_TAURI_ENV ? t("menubar.saveToFileAs") : t("menubar.downloadFile")}
+					{IS_TAURI_ENV ? t("menubar.saveCopyAs") : t("menubar.downloadFile")}
 				</MenuItem>
 				<MenuItem onClick={item(onOpenExportDialog)}>
 					<ImageDown size={16} />

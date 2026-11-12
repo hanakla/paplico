@@ -242,6 +242,9 @@ type MetaPayload = {
     byteLength: number; // 非圧縮バイト数
   }>;
 
+  // ホストアプリがファイルに持たせるデータ。エンジンは読まずに書き、import 時にそのまま返す
+  appData?: Record<string, unknown>;
+
   // タイムラプスメタ情報
   timelapse?: {
     schemaVersion: number;
@@ -254,6 +257,8 @@ type MetaPayload = {
 `document.files` のバイナリは FILE セクションへ、`document.timelapse` は TMLH/TMLB セクションへ分離されるため、META には含まれない。
 
 `hdr`、`colorProfile`、`rasterizationDpi`、`defs`、`references3d`、`appearancePresets` は後方互換性のため任意フィールドである。`toDocument()` は `defs` と `references3d` が存在しない場合に空オブジェクトを、`appearancePresets` が存在しない場合に空配列を補う。
+
+`appData` は、`exportDocument` の `appData` を渡したときだけ書く。キーはアプリの名前にする。Paplico のアプリは `appData.paplico` に `schema` と `saveOptions` を書く。`schema` は `appData.paplico` の中身のスキーマバージョンである。
 
 ### バージョニング
 

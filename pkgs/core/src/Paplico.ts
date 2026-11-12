@@ -247,6 +247,23 @@ interface PaplicoOptions {
 	documentResolutionScale?: number;
 }
 
+/** What a serialized document holds beyond the document itself. */
+interface DocumentExportOptions {
+	/** Write the timelapse recording. Defaults to true. */
+	timelapse?: boolean;
+	/**
+	 * The source path written for each linked file, given its stored one.
+	 * `undefined` writes the file without its link. The document keeps its
+	 * own paths either way. Defaults to the stored path.
+	 */
+	rewriteSourcePath?: (sourcePath: string) => string | undefined;
+	/**
+	 * Data the host app keeps with the file. `importDocument` hands it back
+	 * without the engine reading it.
+	 */
+	appData?: Record<string, unknown>;
+}
+
 /**
  * Outcome of a soft proof LUT build. `superseded` means a newer build or a
  * disable owns the proof state, so the caller must leave it untouched.
@@ -2468,19 +2485,37 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	// ===== Import/Export =====
 
-	public async exportDocument(): Promise<Blob> {
+	public async exportDocument({
+		timelapse = true,
+		rewriteSourcePath,
+		appData,
+	}: DocumentExportOptions = {}): Promise<Blob> {
 		const primaryTarget = this.getPrimaryTarget();
 		// Started before anything is awaited, so the recording and the document
 		// are captured in the same task.
-		const timelapse = this.timelapseRecorder.getPackedTimelapseData();
+		const recording = timelapse
+			? this.timelapseRecorder.getPackedTimelapseData()
+			: null;
 		const doc = {
 			...snapshot(this.rendererStore).document,
 			viewport:
 				primaryTarget?.getViewport() ?? this.rendererStore.document.viewport,
-			timelapse: (await timelapse) ?? undefined,
+			timelapse: (await recording) ?? undefined,
 		};
 		const { document: gcedDoc } = gcDocument(doc as Document);
-		return serializeDocument(gcedDoc);
+		if (!rewriteSourcePath) return serializeDocument(gcedDoc, appData);
+
+		return serializeDocument(
+			{
+				...gcedDoc,
+				files: gcedDoc.files.map((file) =>
+					file.sourcePath
+						? { ...file, sourcePath: rewriteSourcePath(file.sourcePath) }
+						: file,
+				),
+			},
+			appData,
+		);
 	}
 
 	/**
@@ -2488,9 +2523,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	 * preview page per artboard that embeds the full papf data.
 	 * Preview rendering never blocks the save; a failed page is left blank.
 	 */
-	public async exportDocumentFile(): Promise<Blob> {
+	public async exportDocumentFile(
+		options?: DocumentExportOptions,
+	): Promise<Blob> {
 		const [papf, pages, { wrapPapfInPdf }] = await Promise.all([
-			this.exportDocument(),
+			this.exportDocument(options),
 			renderPdfPreviewPages(this.createExportContext()),
 			import("./io/papf/pdfContainer"),
 		]);
@@ -2529,11 +2566,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
-	 * Replace the current document with `source`.
+	 * Replace the current document with `source`. Returns the `appData` a
+	 * file was exported with, or `null` when it holds none.
 	 * @throws PaplicoError while a collaboration transport is attached, since
 	 * the transport would keep syncing the discarded Y.Doc.
 	 */
-	public async importDocument(source: Blob | Document): Promise<void> {
+	public async importDocument(
+		source: Blob | Document,
+	): Promise<Record<string, unknown> | null> {
 		if (this.collaboration) {
 			throw new PaplicoError(
 				"DOCUMENT_OPEN_WHILE_CONNECTED",
@@ -2541,14 +2581,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			);
 		}
 
-		const doc =
+		const { doc, appData } =
 			source instanceof Blob
-				? await (
-						await (
-							await import("./io/papf/pdfContainer")
-						).openPapfContainer(source)
-					).toDocument((stored) => prepareMigrationContext(stored, this.fonts))
-				: source;
+				? await readDocumentFile(source, this.fonts)
+				: { doc: source, appData: null };
 
 		// Disconnect collaboration before replacing document to avoid broadcasting empty document
 		this.clearCollaboration();
@@ -2604,6 +2640,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.createTool(this.toolSettings.currentTool);
 		this.startRendering();
 		this.setupBrushSettingsSubscription();
+
+		return appData;
 	}
 
 	// ===== Tool Management =====
@@ -4317,4 +4355,28 @@ function watchDevicePixelRatio(onChange: () => void): () => void {
 	};
 	listen();
 	return () => query.removeEventListener("change", handleChange);
+}
+
+/**
+ * Reads a document file brought up to this build's schema, with the
+ * `appData` it was exported with. A file anyone could have written may hold
+ * anything there, so only an object comes back.
+ */
+async function readDocumentFile(
+	source: Blob,
+	fonts: FontManager,
+): Promise<{ doc: Document; appData: Record<string, unknown> | null }> {
+	const { openPapfContainer } = await import("./io/papf/pdfContainer");
+	const file = await openPapfContainer(source);
+	const { appData } = file.meta;
+
+	return {
+		doc: await file.toDocument((stored) =>
+			prepareMigrationContext(stored, fonts),
+		),
+		appData:
+			typeof appData === "object" && appData !== null && !Array.isArray(appData)
+				? appData
+				: null,
+	};
 }

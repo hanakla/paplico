@@ -45,6 +45,7 @@ import {
 } from "@/dialogs/NewDocumentDialog";
 import { PreferencesDialog } from "@/dialogs/PreferencesDialog";
 import { PublishRoomDialog } from "@/dialogs/PublishRoomDialog";
+import { SaveOptionsDialog } from "@/dialogs/SaveOptionsDialog";
 import { ScanInviteDialog } from "@/dialogs/ScanInviteDialog";
 import { SignInDialog } from "@/dialogs/SignInDialog";
 import { SpinnerDialog } from "@/dialogs/SpinnerDialog";
@@ -1156,6 +1157,7 @@ export default function Page() {
 					<NewDocumentDialog.Root />
 					<ConfirmDialog.Root />
 					<CloseDocumentDialog.Root />
+					<SaveOptionsDialog.Root />
 					<LicensesDialog.Root />
 
 					{/* Stays up until the document lands, not just until the socket

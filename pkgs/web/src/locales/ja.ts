@@ -11,7 +11,7 @@ export const ja = {
 		new: "新規",
 		openDocument: "ドキュメントを開く",
 		saveToFile: "ファイルに保存",
-		saveToFileAs: "別名でファイルに保存…",
+		saveCopyAs: "別名で複製を保存…",
 		downloadFile: "ファイルをダウンロード",
 		savingDocument: "保存中…",
 		documentSaved: "{{name}} に保存しました",
@@ -1402,6 +1402,14 @@ export const ja = {
 		description: "保存しなくても、変更はアプリ内のドキュメントに残ります。",
 		save: "ファイルに保存して閉じる",
 		discard: "保存せずに閉じる",
+	},
+	saveOptionsDialog: {
+		title: "保存オプション",
+		timelapse: "タイムラプスを含める",
+		timelapseDescription: "描いた過程の記録。外すとファイルが小さくなります",
+		keepLinks: "リンクした画像をリンクのまま保存する",
+		keepLinksDescription: "元の画像ファイルの更新を取り込めます",
+		save: "保存",
 	},
 	newDocumentDialog: {
 		title: "新規ドキュメント",
