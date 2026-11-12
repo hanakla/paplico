@@ -9,7 +9,7 @@ import { proxy, type Snapshot, snapshot } from "valtio";
 import { FileSystem, nativePathOf } from "@/infra/filesystem";
 import {
 	fileName,
-	isNetworkPath,
+	isLocalPath,
 	type LinkedImageStat,
 	readLinkedImage,
 	resolveLinkedSourcePath,
@@ -226,7 +226,7 @@ function linkedImageType(path: string): string | undefined {
 
 /**
  * The native path the source of a linked file is read from. `null` when the
- * path cannot be resolved, and for a stored path that starts at another
+ * path cannot be resolved, and for a stored path that may start at another
  * machine: a document could name any server there, and reading connects to
  * it. A relative path from a document on a shared folder is still read.
  */
@@ -234,7 +234,7 @@ function readablePath(
 	file: Pick<EmbeddedFile, "sourcePath">,
 	fromPath: string | null,
 ): string | null {
-	if (!file.sourcePath || isNetworkPath(file.sourcePath)) return null;
+	if (!file.sourcePath || !isLocalPath(file.sourcePath)) return null;
 	return resolveLinkedSourcePath(file.sourcePath, fromPath);
 }
 

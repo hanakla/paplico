@@ -1,5 +1,5 @@
 import {
-	isNetworkPath,
+	isLocalPath,
 	resolveLinkedSourcePath,
 	toLinkedSourcePath,
 } from "./linkedFiles.tauri";
@@ -53,6 +53,27 @@ describe("resolveLinkedSourcePath", () => {
 		).toBe("/Users/me/photos/ref.png");
 	});
 
+	it("should stop .. at the root instead of reaching another machine", () => {
+		expect(
+			resolveLinkedSourcePath(
+				"../../../../..///evil/s/x.png",
+				"/Users/me/doc.papf",
+			),
+		).toBe("/evil/s/x.png");
+		expect(
+			resolveLinkedSourcePath(
+				"../../../../..///evil/s/x.png",
+				"C:/Users/me/doc.papf",
+			),
+		).toBe("C:/evil/s/x.png");
+		expect(
+			resolveLinkedSourcePath(
+				"..\\..\\..\\..\\..\\\\\\evil\\s\\x.png",
+				"C:\\Users\\me\\doc.papf",
+			),
+		).toBe("C:/evil/s/x.png");
+	});
+
 	it("should give back the path toLinkedSourcePath was made from", () => {
 		const documentPath = "/Users/me/art/doc.papf";
 		const filePath = "/Users/me/photos/2026/ref.png";
@@ -65,16 +86,20 @@ describe("resolveLinkedSourcePath", () => {
 	});
 });
 
-describe("isNetworkPath", () => {
-	it("should name paths that start at another machine", () => {
-		expect(isNetworkPath("\\\\server\\share\\a.png")).toBe(true);
-		expect(isNetworkPath("//server/share/a.png")).toBe(true);
+describe("isLocalPath", () => {
+	it("should reject paths that may start at another machine", () => {
+		expect(isLocalPath("\\\\server\\share\\a.png")).toBe(false);
+		expect(isLocalPath("//server/share/a.png")).toBe(false);
+		expect(isLocalPath("\\??\\UNC\\server\\share\\a.png")).toBe(false);
+		expect(isLocalPath("/??/UNC/server/share/a.png")).toBe(false);
+		expect(isLocalPath("\\art\\a.png")).toBe(false);
 	});
 
-	it("should leave local absolute and relative paths alone", () => {
-		expect(isNetworkPath("/Users/me/a.png")).toBe(false);
-		expect(isNetworkPath("C:\\art\\a.png")).toBe(false);
-		expect(isNetworkPath("../img/a.png")).toBe(false);
+	it("should accept drive, POSIX and relative paths", () => {
+		expect(isLocalPath("/Users/me/a.png")).toBe(true);
+		expect(isLocalPath("C:\\art\\a.png")).toBe(true);
+		expect(isLocalPath("C:/art/a.png")).toBe(true);
+		expect(isLocalPath("../img/a.png")).toBe(true);
 	});
 });
 
@@ -83,5 +108,28 @@ describe("resolveLinkedSourcePath for a document on a shared folder", () => {
 		expect(
 			resolveLinkedSourcePath("img/a.png", "\\\\server\\share\\doc.papf"),
 		).toBe("//server/share/img/a.png");
+	});
+
+	it("should stop .. at the share instead of reaching another machine", () => {
+		expect(
+			resolveLinkedSourcePath(
+				"../../evil/s/x.png",
+				"\\\\server\\share\\doc.papf",
+			),
+		).toBe("//server/share/evil/s/x.png");
+	});
+});
+
+describe("toLinkedSourcePath for a document on a shared folder", () => {
+	it("should keep the absolute path for a file on another share", () => {
+		expect(
+			toLinkedSourcePath("//nas/photos/ref.png", "//nas/art/doc.papf"),
+		).toBe("//nas/photos/ref.png");
+	});
+
+	it("should keep the absolute path for a file on another machine", () => {
+		expect(toLinkedSourcePath("//evil/s/x.png", "/Users/me/doc.papf")).toBe(
+			"//evil/s/x.png",
+		);
 	});
 });

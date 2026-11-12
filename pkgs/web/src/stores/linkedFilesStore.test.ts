@@ -1,9 +1,11 @@
 import type { Paplico } from "@paplico/core";
 import type { Document } from "@paplico/core/schema";
 import { proxy } from "valtio";
+import type { FileHandle } from "@/infra/filesystem";
 import { readLinkedImage, statLinkedImages } from "@/infra/linkedFiles.tauri";
 import {
 	documentSessionState,
+	setExternalDocumentSession,
 	setSnapshotDocumentSession,
 } from "./documentSessionStore";
 import {
@@ -185,18 +187,45 @@ describe("checkLinkedFiles", () => {
 		expect(readLinkedImage).toHaveBeenCalledTimes(2);
 	});
 
-	it("should never read a stored path that starts at another machine", async () => {
+	it.each([
+		"\\\\server\\share\\ref.png",
+		"\\??\\UNC\\server\\share\\ref.png",
+	])("should never read the stored path %s", async (sourcePath) => {
 		const changed = await checkLinkedFiles(
-			createPaplico(
-				[{ ...linkedFile, sourcePath: "\\\\server\\share\\ref.png" }],
-				["file-linked"],
-			),
+			createPaplico([{ ...linkedFile, sourcePath }], ["file-linked"]),
 		);
 
 		expect(changed).toEqual([]);
 		expect(linkedFilesState.status).toEqual({ "file-linked": "missing" });
 		expect(statLinkedImages).toHaveBeenCalledWith([]);
 		expect(readLinkedImage).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[
+			"/Users/me/art/doc.papf",
+			"../../../../..///evil/s/ref.png",
+			"/evil/s/ref.png",
+		],
+		[
+			"C:\\Users\\me\\doc.papf",
+			"..\\..\\..\\..\\\\evil\\s\\ref.png",
+			"C:/evil/s/ref.png",
+		],
+		[
+			"\\\\server\\share\\doc.papf",
+			"../../../evil/s/ref.png",
+			"//server/share/evil/s/ref.png",
+		],
+	])("should keep a relative path from %s off another machine", async (documentPath, sourcePath, readPath) => {
+		setExternalDocumentSession({ handle: documentPath } as FileHandle);
+
+		await checkLinkedFiles(
+			createPaplico([{ ...linkedFile, sourcePath }], ["file-linked"]),
+		);
+
+		expect(statLinkedImages).toHaveBeenCalledWith([readPath]);
+		expect(vi.mocked(readLinkedImage).mock.calls[0][0]).toBe(readPath);
 	});
 
 	it("should record and report nothing when another document opens during the check", async () => {

@@ -54,7 +54,7 @@ export function toLinkedSourcePath(
 
 	const from = segments(documentPath).slice(0, -1);
 	const to = segments(filePath);
-	if (from[0] !== to[0]) return filePath;
+	if (root(from) !== root(to)) return filePath;
 
 	const shared = from.findIndex((segment, i) => segment !== to[i]);
 	const sharedLength = shared === -1 ? from.length : shared;
@@ -67,7 +67,8 @@ export function toLinkedSourcePath(
 
 /**
  * The native path a stored source path points at. `null` for a relative path
- * while the document has no file to start from.
+ * while the document has no file to start from. A relative path stays on the
+ * drive or the `//server/share` of the document, however many `..` it holds.
  */
 export function resolveLinkedSourcePath(
 	sourcePath: string,
@@ -77,19 +78,23 @@ export function resolveLinkedSourcePath(
 	if (documentPath === null) return null;
 
 	const resolved = segments(documentPath).slice(0, -1);
+	const rootLength = rootSegmentCount(resolved);
 	for (const segment of segments(sourcePath)) {
-		if (segment === "..") resolved.pop();
-		else resolved.push(segment);
+		if (segment === "" || segment === ".") continue;
+		if (segment !== "..") resolved.push(segment);
+		else if (resolved.length > rootLength) resolved.pop();
 	}
 	return resolved.join("/");
 }
 
 /**
- * Whether a path names a folder on another machine: `\\server\share` or
- * `//server/share`. Reading one connects to that machine.
+ * Whether a stored path is relative, starts at a drive, or is a POSIX path.
+ * Any other start may connect to another machine on Windows: `\\server`,
+ * `//server`, and `\??\UNC\server`, which Windows passes on without
+ * converting.
  */
-export function isNetworkPath(path: string): boolean {
-	return /^[/\\]{2}/.test(path);
+export function isLocalPath(path: string): boolean {
+	return /^(?:[^/\\]|\/[^/\\?])/.test(path);
 }
 
 function isAbsolutePath(path: string): boolean {
@@ -99,6 +104,19 @@ function isAbsolutePath(path: string): boolean {
 /** Path segments; the first one is the root, empty for POSIX and the drive for Windows. */
 function segments(path: string): string[] {
 	return path.split(/[/\\]/);
+}
+
+/** The drive, the POSIX root or the `//server/share` a path starts at. */
+function root(pathSegments: string[]): string {
+	return pathSegments.slice(0, rootSegmentCount(pathSegments)).join("/");
+}
+
+/**
+ * How many leading segments make up the root `..` never climbs out of: four
+ * for `//server/share`, one for a drive or the POSIX root.
+ */
+function rootSegmentCount(pathSegments: string[]): number {
+	return pathSegments[0] === "" && pathSegments[1] === "" ? 4 : 1;
 }
 
 /** The last segment of a native path, split at either kind of separator. */
