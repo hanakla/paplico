@@ -31,6 +31,8 @@
   - `EmbeddedFile` takes `sourcePath`, the path of the file its bytes were read from. `PaplicoCommands.setEmbeddedFileSourcePath` sets or removes it. The path stays on the device and in the papf it saves; collaborators never receive it.
   - `Paplico.dropImageFile` places an image file at a viewport position, for hosts that receive drops outside the canvas `drop` event.
   - `PaplicoCommands.replaceEmbeddedFile` points every image that shows a file at a replacement in one undo step.
+- **Embedded files**
+  - `PaplicoCommands.removeUnusedFiles` removes the embedded files nothing in the document uses, clears the undo history, and returns how many files it removed. `findUnusedFileUids` in `@paplico/core/io` lists those files. Neither counts the built-in brush and paper textures.
 - **Viewport**
   - `Paplico.fitViewportToBounds` moves and zooms a canvas so the given bounds fill it. `insets` leaves out the edges floating UI covers.
 - **Paste**

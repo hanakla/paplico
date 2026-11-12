@@ -22,6 +22,7 @@ import type {
 	BrushSettings,
 	CompoundPath,
 	ElementTransform,
+	EmbeddedFile,
 	FillAppearance,
 	Filter,
 	FilterEntry,
@@ -38,7 +39,7 @@ import type {
 	TextElement,
 	Vec2,
 } from "./schema";
-import { getTransform, toRGBColor } from "./schema";
+import { BUILTIN_PAPER_IDS, getTransform, toRGBColor } from "./schema";
 import {
 	createMockFontManager,
 	createTestTextElement,
@@ -3692,6 +3693,93 @@ describe("PaplicoCommands.replaceEmbeddedFile", () => {
 		sync();
 
 		expect(store.document.objects.image).toMatchObject({ fileUid: "file-old" });
+	});
+});
+
+describe("PaplicoCommands.removeUnusedFiles", () => {
+	const shownFile = {
+		uid: "file-shown",
+		name: "shown.png",
+		type: "image/png",
+		hash: "hash-shown",
+		bin: new Uint8Array([1, 2, 3]),
+	};
+	const unusedFile = {
+		uid: "file-unused",
+		name: "unused.png",
+		type: "image/png",
+		hash: "hash-unused",
+		bin: new Uint8Array([4, 5, 6]),
+		sourcePath: "img/unused.png",
+	};
+
+	function createCommandsWithFiles(files: EmbeddedFile[]) {
+		const context = createProviderCommands();
+		for (const file of files) context.commands.addEmbeddedFile(file);
+		context.provider.addElement("layer", {
+			id: "image",
+			type: "image",
+			fileUid: "file-shown",
+			x: 0,
+			y: 0,
+			width: 100,
+			height: 50,
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		} as ImageObject);
+		context.sync();
+		return context;
+	}
+
+	it("should remove the files nothing uses and keep the ones an image shows", () => {
+		const { store, commands } = createCommandsWithFiles([
+			shownFile,
+			unusedFile,
+		]);
+
+		const removedCount = commands.removeUnusedFiles();
+
+		const uids = store.document.files.map((file) => file.uid);
+		expect(removedCount).toBe(1);
+		expect(uids).toContain("file-shown");
+		expect(uids).not.toContain("file-unused");
+	});
+
+	it("should keep the built-in textures nothing uses yet", () => {
+		const { store, commands } = createCommandsWithFiles([
+			shownFile,
+			{
+				...unusedFile,
+				uid: BUILTIN_PAPER_IDS.finePaper,
+				sourcePath: undefined,
+			},
+		]);
+
+		commands.removeUnusedFiles();
+
+		expect(store.document.files.map((file) => file.uid)).toContain(
+			BUILTIN_PAPER_IDS.finePaper,
+		);
+	});
+
+	it("should clear the undo history", () => {
+		const { commands, provider } = createCommandsWithFiles([
+			shownFile,
+			unusedFile,
+		]);
+
+		commands.removeUnusedFiles();
+
+		expect(provider.canUndo()).toBe(false);
+	});
+
+	it("should keep the undo history when every file is in use", () => {
+		const { commands, provider } = createCommandsWithFiles([shownFile]);
+
+		commands.removeUnusedFiles();
+
+		expect(provider.canUndo()).toBe(true);
 	});
 });
 

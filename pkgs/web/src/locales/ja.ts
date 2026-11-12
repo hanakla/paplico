@@ -1100,6 +1100,10 @@ export const ja = {
 		selectElements: "オブジェクトを選択",
 		moreActions: "その他の操作",
 		sourceMissing: "リンク先のファイルが見つかりません",
+		removeUnused: "未使用をすべて削除",
+		unusedRemoved: "未使用のファイルを {{count}} 件削除しました",
+		removeUnusedConfirm:
+			"ドキュメントのどこにも使われていないファイルを削除します。取り消しの履歴も消えるため、この操作は元に戻せません。",
 	},
 	linkedFiles: {
 		changed: "リンク元の画像が変更されました",

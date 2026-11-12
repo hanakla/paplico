@@ -1,18 +1,23 @@
 import { Menu as BUIMenu } from "@base-ui/react/menu";
+import { findUnusedFileUids } from "@paplico/core/io";
+import type { Document } from "@paplico/core/schema";
 import {
 	Ellipsis,
 	Link2,
 	Package,
 	Replace,
 	SquareDashedMousePointer,
+	Trash2,
 	TriangleAlert,
 } from "lucide-react";
 import { useMemo, useRef } from "react";
 import { useSnapshot } from "valtio";
 import { IconButton } from "@/components/IconButton";
 import { Menu } from "@/components/Menu";
+import { toastManager } from "@/components/Toast";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { useCurrentCanvasTargetResolver } from "@/hooks/useCurrentCanvasTarget";
+import { confirmDialog } from "@/infra/confirmDialog";
 import { useTranslation } from "@/locales";
 import {
 	collectAssetElementIds,
@@ -29,9 +34,8 @@ import { useEventCallback } from "@/utils/hooks";
 export function AssetPanel() {
 	const t = useTranslation();
 	const paplico = usePaplico();
-	const { objects, references3d, files } = useSnapshot(
-		paplico.uiState,
-	).document;
+	const doc = useSnapshot(paplico.uiState).document;
+	const { objects, references3d, files } = doc;
 	const { status } = useSnapshot(linkedFilesState);
 	const rootRef = useRef<HTMLDivElement>(null);
 
@@ -57,6 +61,20 @@ export function AssetPanel() {
 		});
 	});
 
+	const handleRemoveUnusedFiles = useEventCallback(async () => {
+		if (!(await confirmDialog(t("assetPanel.removeUnusedConfirm")))) return;
+		const count = paplico.commands.removeUnusedFiles();
+		toastManager.add({
+			title: t("assetPanel.unusedRemoved", { count }),
+			type: "success",
+		});
+	});
+
+	const hasUnusedFiles = useMemo(
+		() => findUnusedFileUids(doc as Document).length > 0,
+		[doc],
+	);
+
 	const assetFiles = useMemo(() => {
 		const assetUids = collectAssetFileUids({ objects, references3d });
 		return files.filter((file) => assetUids.has(file.uid));
@@ -67,10 +85,36 @@ export function AssetPanel() {
 			ref={rootRef}
 			className="w-52 bg-background/80 backdrop-liquid rounded-lg shadow-lg flex flex-col overflow-hidden"
 		>
-			<div className="px-3 py-1 border-b border-border flex items-center shrink-0">
-				<span className="type-panel-title leading-5 text-muted-foreground">
+			<div className="pl-3 pr-1 py-1 border-b border-border flex items-center shrink-0">
+				<span className="flex-1 type-panel-title leading-5 text-muted-foreground">
 					{t("assetPanel.assets")}
 				</span>
+				<Menu.Root>
+					<BUIMenu.Trigger
+						render={
+							<IconButton
+								$size="xs"
+								$variant="ghost"
+								aria-label={t("assetPanel.moreActions")}
+							>
+								<Ellipsis size={14} />
+							</IconButton>
+						}
+					/>
+					<Menu.Portal>
+						<Menu.Positioner side="bottom" align="end" sideOffset={4}>
+							<Menu.Popup>
+								<Menu.Item
+									disabled={!hasUnusedFiles}
+									onClick={() => void handleRemoveUnusedFiles()}
+								>
+									<Trash2 size={14} />
+									{t("assetPanel.removeUnused")}
+								</Menu.Item>
+							</Menu.Popup>
+						</Menu.Positioner>
+					</Menu.Portal>
+				</Menu.Root>
 			</div>
 
 			{assetFiles.length === 0 ? (

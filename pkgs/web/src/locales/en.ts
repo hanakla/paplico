@@ -1099,6 +1099,10 @@ export const en = {
 		selectElements: "Select Objects",
 		moreActions: "More actions",
 		sourceMissing: "The linked file cannot be found",
+		removeUnused: "Remove All Unused",
+		unusedRemoved: "Removed unused files: {{count}}",
+		removeUnusedConfirm:
+			"Remove the files nothing in the document uses? The undo history is cleared as well, so this cannot be undone.",
 	},
 	linkedFiles: {
 		changed: "A linked image was changed",

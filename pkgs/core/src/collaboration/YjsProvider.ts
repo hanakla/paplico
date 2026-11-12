@@ -2312,6 +2312,17 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 		this.syncFileSourcePaths();
 	}
 
+	/** Removes embedded files along with their links. */
+	public removeFiles(uids: readonly string[]): void {
+		if (uids.length === 0) return;
+
+		// The sync the file removal triggers reads the links, so they go first.
+		for (const uid of uids) this.fileSourcePaths.delete(uid);
+		this.ydoc.transact(() => {
+			for (const uid of uids) this.yFiles.delete(uid);
+		});
+	}
+
 	/** Forgets every link, for a document that came from somewhere else. */
 	public clearFileSourcePaths(): void {
 		if (this.fileSourcePaths.size === 0) return;

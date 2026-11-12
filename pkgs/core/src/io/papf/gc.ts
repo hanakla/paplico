@@ -17,6 +17,7 @@
  */
 import {
 	type AnyArtObject,
+	BUILTIN_TEXTURE_FILE_UIDS,
 	type Document,
 	getContainerChildIds,
 } from "../../schema";
@@ -54,6 +55,16 @@ export function gcDocument(doc: Document): GcResult {
 		deletedObjectIds,
 		deletedFileUids,
 	};
+}
+
+/**
+ * Uids of the embedded files a save leaves out, except the built-in textures
+ * every document holds.
+ */
+export function findUnusedFileUids(doc: Document): string[] {
+	return gcDocument(doc).deletedFileUids.filter(
+		(uid) => !BUILTIN_TEXTURE_FILE_UIDS.includes(uid),
+	);
 }
 
 /**

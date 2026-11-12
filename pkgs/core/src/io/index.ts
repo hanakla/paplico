@@ -8,7 +8,7 @@ export {
 	type MigrationContext,
 	prepareMigrationContext,
 } from "./migrations/context";
-export { gcDocument } from "./papf/gc";
+export { findUnusedFileUids, gcDocument } from "./papf/gc";
 export { openPapfContainer, wrapPapfInPdf } from "./papf/pdfContainer";
 export { openPapf } from "./papf/reader";
 export { serializeDocument } from "./papf/writer";

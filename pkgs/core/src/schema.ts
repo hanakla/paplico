@@ -1713,6 +1713,17 @@ export const BUILTIN_PAPER_IDS = {
 	coarsePaper: "builtin-paper-coarse",
 } as const;
 
+/**
+ * Uids of the built-in brush and paper textures. Every document holds them,
+ * so brush settings can pick them whether or not anything uses them yet.
+ */
+export const BUILTIN_TEXTURE_FILE_UIDS: readonly string[] = [
+	...Object.values(BUILTIN_BRUSH_IDS).filter(
+		(id) => id !== BUILTIN_BRUSH_IDS.svg,
+	),
+	...Object.values(BUILTIN_PAPER_IDS),
+];
+
 // Stamp rotation mode
 // - none: No rotation (fixed at 0)
 // - tangent: Rotate along path tangent direction

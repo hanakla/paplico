@@ -1114,6 +1114,9 @@ export default function Page() {
 												<ResizableSidePanel
 													id="assets"
 													height={appSnap.sidePanelHeights.assets ?? null}
+													// Default limit: a long file list scrolls inside
+													// the panel instead of stretching the column.
+													className="max-h-[30dvh]"
 												>
 													<AssetPanel />
 												</ResizableSidePanel>

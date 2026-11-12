@@ -41,6 +41,7 @@ import {
 	PAPLICO_ELEMENTS_MIME,
 	readClipboardElements,
 } from "./io/clipboardPayload";
+import { findUnusedFileUids } from "./io/papf/gc";
 import type { PaplicoSelection } from "./PaplicoSelection";
 import type { FilterRenderer } from "./renderer/canvas/pipeline/FilterRenderer";
 import {
@@ -68,8 +69,7 @@ import {
 	type BoundingBox,
 	type BrushPreset,
 	type BrushSettings,
-	BUILTIN_BRUSH_IDS,
-	BUILTIN_PAPER_IDS,
+	BUILTIN_TEXTURE_FILE_UIDS,
 	type Color,
 	type ColorProfileSettings,
 	type CompoundPath,
@@ -4035,6 +4035,22 @@ export class PaplicoCommands {
 	}
 
 	/**
+	 * Removes the files `findUnusedFileUids` names, and returns how many it
+	 * removed. The undo history goes with them: undoing back to an element
+	 * that showed one of them would restore the element without its file.
+	 */
+	public removeUnusedFiles(): number {
+		if (this.cannotMutate()) return 0;
+
+		const uids = findUnusedFileUids(this.ctx.store.document);
+		if (uids.length === 0) return 0;
+
+		this.ctx.yjsProvider.removeFiles(uids);
+		this.ctx.yjsProvider.clearUndoHistory();
+		return uids.length;
+	}
+
+	/**
 	 * Points every image that shows the file `uid` at `replacement`, which
 	 * takes over the link to the source. The images keep the size they were
 	 * placed at. Undo puts the images back on the former file. A replacement
@@ -4213,13 +4229,7 @@ export class PaplicoCommands {
 	 */
 	public async ensureBuiltinBrushes(): Promise<void> {
 		if (this.cannotMutate()) return;
-		const builtinTextureIds = [
-			...Object.values(BUILTIN_BRUSH_IDS).filter(
-				(id) => id !== BUILTIN_BRUSH_IDS.svg,
-			),
-			...Object.values(BUILTIN_PAPER_IDS),
-		];
-		const hasAllFiles = builtinTextureIds.every((id) =>
+		const hasAllFiles = BUILTIN_TEXTURE_FILE_UIDS.every((id) =>
 			this.ctx.store.document.files.some((file) => file.uid === id),
 		);
 
