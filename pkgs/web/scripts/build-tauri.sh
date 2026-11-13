@@ -24,6 +24,9 @@ cleanup() {
     fi
   done
   rm -rf "$BACKUP_DIR"
+  # These route types describe the tree without EXCLUDE_FILES. They conflict with
+  # .next/dev/types in `tsc` once the files are restored.
+  rm -rf .next/types
 }
 
 trap cleanup EXIT
