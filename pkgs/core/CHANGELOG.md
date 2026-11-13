@@ -43,6 +43,8 @@
   - `Paplico.deviceLimits` returns the limits of the GPU device the renderer draws with, such as the largest side a texture can have.
 - **Export**
   - `Paplico.exportArtboard` takes `rasterizationDpi` to rasterize filters at another resolution than the document's. A small preview passes its own pixel density to take far less GPU memory.
+- **Deflate**
+  - `compressDeflate` and `decompressDeflate` in `@paplico/core/io` compress and decompress bytes with deflate.
 - **Documents**
   - `Paplico.exportDocument` and `Paplico.exportDocumentFile` take `timelapse`, `rewriteSourcePath` and `appData` to leave out the timelapse, rewrite linked file paths and keep host app data in the written file.
   - `Paplico.importDocument` returns the `appData` a file holds.

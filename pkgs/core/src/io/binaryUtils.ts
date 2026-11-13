@@ -42,7 +42,7 @@ export function crc32(data: Uint8Array): number {
 export async function compressDeflate(
 	data: Uint8Array,
 	yieldEveryBytes = data.byteLength,
-): Promise<Uint8Array> {
+): Promise<Uint8Array<ArrayBuffer>> {
 	try {
 		const cs = new CompressionStream("deflate");
 		const writer = cs.writable.getWriter();
@@ -86,13 +86,16 @@ export async function compressDeflate(
 		return result;
 	} catch (error) {
 		throw new Error(
-			`PAPF: deflate compression failed for ${data.byteLength} byte payload`,
+			`Deflate compression failed for ${data.byteLength} byte payload`,
 			{ cause: error },
 		);
 	}
 }
 
-export async function decompressDeflate(data: Uint8Array): Promise<Uint8Array> {
+/** Decompress deflate `data`. */
+export async function decompressDeflate(
+	data: Uint8Array,
+): Promise<Uint8Array<ArrayBuffer>> {
 	const ds = new DecompressionStream("deflate");
 	const writer = ds.writable.getWriter();
 	const reader = ds.readable.getReader();

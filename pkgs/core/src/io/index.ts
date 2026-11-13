@@ -1,3 +1,4 @@
+export { compressDeflate, decompressDeflate } from "./binaryUtils";
 export {
 	encodeElementsPayload,
 	PAPLICO_ELEMENTS_MIME,
