@@ -12,7 +12,8 @@ import {
 	confirmCloseDocument,
 } from "./CloseDocumentDialog";
 
-vi.mock("@/infra/filesystem", () => ({
+vi.mock("@/infra/filesystem", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/infra/filesystem")>()),
 	FileSystem: { overwrite: vi.fn() },
 }));
 
@@ -83,6 +84,7 @@ describe("confirmCloseDocument", () => {
 		fireEvent.click(await view.findByText("Save and Close"));
 
 		expect(await closing).toBe(false);
+		expect(FileSystem.overwrite).toHaveBeenCalledOnce();
 		expect(documentSessionState.hasUnsavedFileChanges).toBe(true);
 	});
 });
@@ -104,5 +106,6 @@ function createFileHandle(name: string): FileHandle {
 function createPaplico(): Paplico {
 	return {
 		exportDocumentFile: async () => new Blob(),
+		uiState: { document: { files: [] } },
 	} as unknown as Paplico;
 }
