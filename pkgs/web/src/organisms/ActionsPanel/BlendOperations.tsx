@@ -297,7 +297,7 @@ const EasingField = memo(function EasingField({
 								}
 							/>
 						</Tooltip>
-						<Popover.Content className="w-auto p-2">
+						<Popover.Content className="w-auto">
 							<div className="flex flex-col gap-2">
 								<div className="pl-1 type-section text-foreground">{label}</div>
 								<BezierCurveEditor

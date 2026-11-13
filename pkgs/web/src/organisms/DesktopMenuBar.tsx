@@ -469,7 +469,7 @@ export function DesktopMenuBar({
 								{documentName}
 							</button>
 						</Popover.Trigger>
-						<Popover.Content className="w-auto p-1">
+						<Popover.Content className="w-auto">
 							<button
 								type="button"
 								onClick={handleRevealFileInFolder}

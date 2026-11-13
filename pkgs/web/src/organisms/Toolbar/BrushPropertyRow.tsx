@@ -126,30 +126,32 @@ export const BrushPropertyRow = memo(function BrushPropertyRow({
 						</IconButton>
 					}
 				/>
-				<Popover.Content className="w-64 space-y-2 p-2">
-					<div className="type-label text-muted-foreground">
-						{t("brushProperty.influencesDescription")}
-					</div>
-					<div className="flex flex-wrap gap-1">
-						{BRUSH_INPUT_IDS.map((input) => (
-							<InputToggle
-								key={input}
-								input={input}
-								active={curves.some((curve) => curve.input === input)}
-								onToggle={handleToggleInput}
+				<Popover.Content className="w-64">
+					<div className="space-y-2">
+						<div className="type-label text-muted-foreground">
+							{t("brushProperty.influencesDescription")}
+						</div>
+						<div className="flex flex-wrap gap-1">
+							{BRUSH_INPUT_IDS.map((input) => (
+								<InputToggle
+									key={input}
+									input={input}
+									active={curves.some((curve) => curve.input === input)}
+									onToggle={handleToggleInput}
+								/>
+							))}
+						</div>
+
+						{curves.map((curve) => (
+							<InfluenceCurve
+								key={curve.input}
+								curve={curve}
+								yRange={curveYRange}
+								onChange={handleCurveChange}
+								onRemove={handleToggleInput}
 							/>
 						))}
 					</div>
-
-					{curves.map((curve) => (
-						<InfluenceCurve
-							key={curve.input}
-							curve={curve}
-							yRange={curveYRange}
-							onChange={handleCurveChange}
-							onRemove={handleToggleInput}
-						/>
-					))}
 				</Popover.Content>
 			</Popover.Root>
 		</div>
