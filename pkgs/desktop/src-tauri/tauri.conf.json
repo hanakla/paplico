@@ -5,7 +5,7 @@
 	"identifier": "la.hanak.paplico-app",
 	"build": {
 		"beforeDevCommand": "yarn workspace pap dev:tauri",
-		"devUrl": "https://localhost:5005",
+		"devUrl": "http://localhost:5006",
 		"beforeBuildCommand": "yarn workspace pap build:tauri",
 		"frontendDist": "../../web/out"
 	},
@@ -25,7 +25,7 @@
 			}
 		],
 		"security": {
-			"csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ipc: http://ipc.localhost wss://localhost:* https://localhost:* https://paplico.hanak.la https://paplico-dev.hanak.la wss://paplico-collab.hanakla.workers.dev https://paplico-collab.hanakla.workers.dev https://www.googleapis.com https://*.clerk.accounts.dev https://*.sentry.io"
+			"csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ipc: http://ipc.localhost ws://localhost:5006 wss://localhost:* https://localhost:* https://paplico.hanak.la https://paplico-dev.hanak.la wss://paplico-collab.hanakla.workers.dev https://paplico-collab.hanakla.workers.dev https://www.googleapis.com https://*.clerk.accounts.dev https://*.sentry.io"
 		}
 	},
 	"plugins": {
