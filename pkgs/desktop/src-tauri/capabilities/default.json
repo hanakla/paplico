@@ -36,6 +36,6 @@
 		"opener:default",
 		"oauth:allow-start",
 		"oauth:allow-cancel",
-		"system-fonts:default"
+		"paplico-query-local-fonts:default"
 	]
 }

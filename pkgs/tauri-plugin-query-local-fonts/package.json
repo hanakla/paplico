@@ -1,0 +1,45 @@
+{
+	"name": "@paplico/tauri-plugin-query-local-fonts",
+	"version": "0.2.0",
+	"description": "Tauri plugin that lists installed fonts like the browser's window.queryLocalFonts()",
+	"type": "module",
+	"license": "MIT",
+	"author": "Hanakla <hanakla.dev@gmail.com>",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/hanakla/paplico",
+		"directory": "pkgs/tauri-plugin-query-local-fonts"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"CHANGELOG.md"
+	],
+	"exports": {
+		".": {
+			"import": "./guest-js/index.ts",
+			"types": "./guest-js/index.ts"
+		}
+	},
+	"publishConfig": {
+		"access": "public",
+		"exports": {
+			".": {
+				"types": "./dist/index.d.mts",
+				"import": "./dist/index.mjs"
+			}
+		}
+	},
+	"scripts": {
+		"build": "tsdown",
+		"typecheck": "tsc --noEmit"
+	},
+	"peerDependencies": {
+		"@tauri-apps/api": "^2"
+	},
+	"devDependencies": {
+		"@tauri-apps/api": "^2.12.0",
+		"tsdown": "^0.22.14",
+		"typescript": "^7.0.2"
+	}
+}

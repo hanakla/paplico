@@ -2733,9 +2733,9 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-oauth",
  "tauri-plugin-opener",
+ "tauri-plugin-paplico-query-local-fonts",
  "tauri-plugin-safe-area-insets-css",
  "tauri-plugin-sql",
- "tauri-plugin-system-fonts",
  "uuid",
 ]
 
@@ -4460,6 +4460,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-paplico-query-local-fonts"
+version = "0.1.0"
+dependencies = [
+ "fontdb",
+ "objc2-core-foundation",
+ "objc2-core-text",
+ "serde",
+ "tauri",
+ "tauri-plugin",
+ "ttf-parser",
+ "windows",
+]
+
+[[package]]
 name = "tauri-plugin-safe-area-insets-css"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4490,19 +4504,6 @@ dependencies = [
  "time",
  "tokio",
  "uuid",
-]
-
-[[package]]
-name = "tauri-plugin-system-fonts"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ad16fdc3a5ea7de468670338d3b5fe7f1b560a8f72445e8612f4b4ef0fa252c"
-dependencies = [
- "fontdb",
- "serde",
- "tauri",
- "tauri-plugin",
- "thiserror 2.0.18",
 ]
 
 [[package]]

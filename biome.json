@@ -7,7 +7,11 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["**", "!!.claude/worktrees"]
+		"includes": [
+			"**",
+			"!!.claude/worktrees",
+			"!!pkgs/tauri-plugin-query-local-fonts/permissions/schemas"
+		]
 	},
 	"css": {
 		"parser": {

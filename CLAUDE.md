@@ -74,6 +74,7 @@ This ensures continuity and prevents losing context between sessions.
 - `pkgs/desktop` - Tauri v2 desktop app wrapper (`@paplico/desktop`)
 - `pkgs/syrup` - Syrup scripting language (`@paplico/syrup`): parser, type checker, JS emitter, worker sandbox and Monaco integration. Knows nothing about Paplico — see "Syrup Automation Scripting"
 - `pkgs/avif-hdr` - AVIF HDR encode/decode (`@paplico/avif-hdr`)
+- `pkgs/tauri-plugin-query-local-fonts` - Tauri plugin that lists installed fonts in the shape of the browser's `window.queryLocalFonts()` (`@paplico/tauri-plugin-query-local-fonts` on npm, `tauri-plugin-paplico-query-local-fonts` on crates.io): CoreText on macOS, DirectWrite on Windows, fontdb elsewhere
 - `pkgs/partykit-collab-server` - PartyServer server (Cloudflare Workers) for cloud collaboration mode
 - `pkgs/webgpu-devtools` - WXT browser extension for inspecting the WebGPU pipeline
 

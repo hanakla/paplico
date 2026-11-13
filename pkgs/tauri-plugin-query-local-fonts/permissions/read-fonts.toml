@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "read-fonts"
+description = "Reads the files of the fonts the last query returned, whole or in part."
+commands.allow = ["read_font", "read_font_range"]

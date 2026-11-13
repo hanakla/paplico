@@ -19,7 +19,7 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
 tauri-plugin-oauth = "2"
-tauri-plugin-system-fonts = "2"
+tauri-plugin-paplico-query-local-fonts = { path = "../../tauri-plugin-query-local-fonts" }
 
 [profile.release]
 strip = true

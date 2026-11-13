@@ -1,105 +1,39 @@
 /**
- * Tauri implementation of LocalFontBackend using tauri-plugin-system-fonts.
+ * Tauri implementation of LocalFontBackend on the app's own
+ * `queryLocalFonts` plugin, which asks the OS for its fonts the way the
+ * browser does.
  */
 
 import type { FontData, LocalFontBackend } from "@paplico/core/typography";
-
-interface SystemFont {
-	id: string;
-	name: string;
-	fontName: string;
-	path: string;
-	weight: number;
-	style: "normal" | "italic" | "oblique";
-	monospaced: boolean;
-}
-
-const WEIGHT_NAMES: Record<number, string> = {
-	100: "Thin",
-	200: "ExtraLight",
-	300: "Light",
-	400: "Regular",
-	500: "Medium",
-	600: "SemiBold",
-	700: "Bold",
-	800: "ExtraBold",
-	900: "Black",
-};
-
-function buildStyleString(weight: number, style: string): string {
-	const nearest = [100, 200, 300, 400, 500, 600, 700, 800, 900].reduce(
-		(prev, curr) =>
-			Math.abs(curr - weight) < Math.abs(prev - weight) ? curr : prev,
-	);
-	const weightName = WEIGHT_NAMES[nearest] ?? "Regular";
-	if (style === "italic") return `${weightName} Italic`;
-	if (style === "oblique") return `${weightName} Oblique`;
-	return weightName;
-}
+import {
+	type FontData as PluginFontData,
+	queryLocalFonts,
+	readFontRange,
+} from "@paplico/tauri-plugin-query-local-fonts";
 
 export class TauriLocalFontBackend implements LocalFontBackend {
-	private cache: Map<string, SystemFont> | null = null;
-
 	public isSupported(): boolean {
 		return true;
 	}
 
 	public async queryFonts(): Promise<FontData[]> {
-		const { getSystemFonts } = await import("tauri-plugin-system-fonts-api");
-		const systemFonts: SystemFont[] = await getSystemFonts();
-
-		this.cache = new Map();
-		for (const sf of systemFonts) {
-			if (sf.fontName) {
-				this.cache.set(sf.fontName, sf);
-			}
-		}
-
-		return systemFonts
-			.filter((sf) => sf.fontName)
-			.map((sf) => this.toFontData(sf));
+		return (await queryLocalFonts()).map(toFontData);
 	}
 
 	public async queryFontsByPostScriptNames(
 		names: string[],
 	): Promise<FontData[]> {
-		if (!this.cache) await this.queryFonts();
-
-		const nameSet = new Set(names);
-		return [...this.cache!.entries()]
-			.filter(([psName]) => nameSet.has(psName))
-			.map(([, sf]) => this.toFontData(sf));
+		return (await queryLocalFonts({ postscriptNames: names })).map(toFontData);
 	}
+}
 
-	private toFontData(sf: SystemFont): FontData {
-		return {
-			family: sf.name,
-			fullName: sf.fontName,
-			postScriptName: sf.fontName,
-			style: buildStyleString(sf.weight, sf.style),
-			blob: () => this.loadFontBlob(sf.path),
-			readRange: (offset, length) =>
-				this.readFontRange(sf.path, offset, length),
-		};
-	}
-
-	private async loadFontBlob(path: string): Promise<Blob> {
-		const { invoke } = await import("@tauri-apps/api/core");
-		const bytes: number[] = await invoke("load_font_data", { path });
-		return new Blob([new Uint8Array(bytes)]);
-	}
-
-	private async readFontRange(
-		path: string,
-		offset: number,
-		length: number,
-	): Promise<ArrayBuffer> {
-		const { invoke } = await import("@tauri-apps/api/core");
-		const bytes: number[] = await invoke("read_font_range", {
-			path,
-			offset,
-			length,
-		});
-		return new Uint8Array(bytes).buffer;
-	}
+function toFontData(font: PluginFontData): FontData {
+	return {
+		family: font.family,
+		fullName: font.fullName,
+		postScriptName: font.postscriptName,
+		style: font.style,
+		blob: () => font.blob(),
+		readRange: (offset, length) => readFontRange(font, offset, length),
+	};
 }

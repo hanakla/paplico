@@ -1,0 +1,15 @@
+{
+	"compilerOptions": {
+		"target": "ES2025",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"strict": true,
+		"skipLibCheck": true,
+		"declaration": true,
+		"outDir": "./dist",
+		"rootDir": "./guest-js",
+		"lib": ["ES2025", "DOM"]
+	},
+	"include": ["guest-js/**/*.ts"],
+	"exclude": ["node_modules", "dist"]
+}

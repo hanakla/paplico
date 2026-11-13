@@ -370,12 +370,6 @@ export const DEPENDENCY_LICENSES: DependencyLicense[] = [
 		url: "https://github.com/tailwindlabs/tailwindcss",
 	},
 	{
-		name: "tauri-plugin-system-fonts-api",
-		version: "2.0.2",
-		license: "MIT",
-		url: "https://github.com/ayangweb/tauri-plugin-system-fonts",
-	},
-	{
 		name: "three",
 		version: "0.185.1",
 		license: "MIT",

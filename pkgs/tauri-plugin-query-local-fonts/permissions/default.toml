@@ -1,0 +1,3 @@
+[default]
+description = "Lists the fonts installed on the device and reads their files."
+permissions = ["allow-query-local-fonts", "read-fonts"]

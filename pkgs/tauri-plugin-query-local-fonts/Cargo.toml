@@ -1,0 +1,29 @@
+[package]
+name = "tauri-plugin-paplico-query-local-fonts"
+version = "0.2.0"
+edition = "2021"
+description = "Tauri plugin from Paplico that lists installed fonts like the browser's window.queryLocalFonts()"
+license = "MIT"
+repository = "https://github.com/hanakla/paplico"
+readme = "README.md"
+include = ["/src", "/permissions", "/build.rs", "/README.md", "/CHANGELOG.md"]
+keywords = ["tauri", "tauri-plugin", "fonts", "paplico"]
+links = "tauri-plugin-paplico-query-local-fonts"
+
+[dependencies]
+tauri = { version = "2" }
+serde = { version = "1", features = ["derive"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFArray", "CFString", "CFURL"] }
+objc2-core-text = { version = "0.3", default-features = false, features = ["std", "CTFontCollection", "CTFontDescriptor"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Graphics_DirectWrite"] }
+
+[target.'cfg(not(any(target_os = "macos", windows)))'.dependencies]
+fontdb = "0.23"
+ttf-parser = "0.25"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }

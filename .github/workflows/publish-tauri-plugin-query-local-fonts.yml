@@ -1,0 +1,126 @@
+name: Publish tauri-plugin-query-local-fonts
+
+# Publishes the JavaScript package to npm and the Rust crate to crates.io.
+# Runs only on the public mirror; the private repository is a no-op.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pkgs/tauri-plugin-query-local-fonts/**"
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: 24
+
+jobs:
+  npm:
+    if: github.repository == 'hanakla/paplico'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: publish
+
+    # id-token lets npm exchange a GitHub OIDC token for a short-lived
+    # registry credential (trusted publishing), so no npm token is stored.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+      - run: corepack enable
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Trusted publishing needs npm 11.5.1+; pin ahead of whatever Node ships.
+      - run: npm install -g npm@latest
+
+      - run: yarn install --immutable
+
+      - name: Check whether the version is already published
+        id: version
+        run: |
+          local_version="$(node -p "require('./pkgs/tauri-plugin-query-local-fonts/package.json').version")"
+          published_version="$(npm view @paplico/tauri-plugin-query-local-fonts version 2>/dev/null || true)"
+          if [ "$local_version" = "$published_version" ]; then
+            echo "should-publish=false" >> "$GITHUB_OUTPUT"
+            echo "@paplico/tauri-plugin-query-local-fonts@$local_version is already published; skipping."
+          else
+            echo "should-publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Typecheck
+        if: steps.version.outputs.should-publish == 'true'
+        run: yarn workspace @paplico/tauri-plugin-query-local-fonts typecheck
+
+      - name: Build
+        if: steps.version.outputs.should-publish == 'true'
+        run: yarn workspace @paplico/tauri-plugin-query-local-fonts build
+
+      # The package resolves to its TypeScript sources during development and
+      # only switches to dist through publishConfig, which Yarn applies and npm
+      # ignores. Packing with Yarn and unpacking the result hands npm a
+      # directory whose manifest is already publish-ready.
+      - name: Stage the package
+        if: steps.version.outputs.should-publish == 'true'
+        run: |
+          yarn workspace @paplico/tauri-plugin-query-local-fonts pack -o "$RUNNER_TEMP/tauri-plugin-query-local-fonts.tgz"
+          mkdir -p "$RUNNER_TEMP/stage"
+          tar -xzf "$RUNNER_TEMP/tauri-plugin-query-local-fonts.tgz" -C "$RUNNER_TEMP/stage"
+
+      - name: Publish
+        if: steps.version.outputs.should-publish == 'true'
+        working-directory: ${{ runner.temp }}/stage/package
+        run: npm publish --access public
+
+  crate:
+    if: github.repository == 'hanakla/paplico'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: publish
+
+    # id-token lets crates.io exchange a GitHub OIDC token for a short-lived
+    # publish token (trusted publishing), so no crates.io token is stored.
+    permissions:
+      contents: read
+      id-token: write
+
+    defaults:
+      run:
+        working-directory: pkgs/tauri-plugin-query-local-fonts
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check whether the version is already published
+        id: version
+        run: |
+          local_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          status="$(curl -s -o /dev/null -w '%{http_code}' -A 'paplico-publish (https://github.com/hanakla/paplico)' \
+            "https://crates.io/api/v1/crates/tauri-plugin-paplico-query-local-fonts/$local_version")"
+          if [ "$status" = "200" ]; then
+            echo "should-publish=false" >> "$GITHUB_OUTPUT"
+            echo "tauri-plugin-paplico-query-local-fonts@$local_version is already published; skipping."
+          else
+            echo "should-publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # cargo publish builds the crate, and Tauri links against WebKitGTK on Linux.
+      - name: Install Tauri's Linux libraries
+        if: steps.version.outputs.should-publish == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.version.outputs.should-publish == 'true'
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        if: steps.version.outputs.should-publish == 'true'
+        id: auth
+
+      - name: Publish
+        if: steps.version.outputs.should-publish == 'true'
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
