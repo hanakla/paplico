@@ -14,7 +14,8 @@
 		"dist",
 		"README.md",
 		"CHANGELOG.md",
-		"specification.md"
+		"specification.md",
+		"LICENSE"
 	],
 	"exports": {
 		".": {

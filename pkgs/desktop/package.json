@@ -2,6 +2,7 @@
 	"name": "@paplico/desktop",
 	"version": "0.0.0",
 	"private": true,
+	"license": "AGPL-3.0-or-later",
 	"scripts": {
 		"tauri": "tauri",
 		"dev": "tauri dev",

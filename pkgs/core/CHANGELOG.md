@@ -48,6 +48,8 @@
 - **Documents**
   - `Paplico.exportDocument` and `Paplico.exportDocumentFile` take `timelapse`, `rewriteSourcePath` and `appData` to leave out the timelapse, rewrite linked file paths and keep host app data in the written file.
   - `Paplico.importDocument` returns the `appData` a file holds.
+- **Package**
+  - The published package includes its `LICENSE` file.
 
 ### Changed
 

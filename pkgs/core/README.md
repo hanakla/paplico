@@ -299,4 +299,4 @@ const result = await paplico.exportArtboard(new WebPExporter({ scale: 2 }), artb
 
 ## License
 
-AGPL-3.0-or-later
+[AGPL-3.0-or-later](./LICENSE)

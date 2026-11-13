@@ -132,4 +132,16 @@ Viewport-based WebGPU rendering with viewport culling, layer texture caching, an
 
 ## License
 
-Paplico is licensed under the [GNU Affero General Public License v3.0 or later](./LICENSE) (AGPL-3.0-or-later).
+Each package carries its own license. Read the license file of the package you use.
+
+| Package                               | License           | License file                                                           |
+| ------------------------------------- | ----------------- | ---------------------------------------------------------------------- |
+| `pkgs/core`                           | AGPL-3.0-or-later | [LICENSE](./pkgs/core/LICENSE)                                         |
+| `pkgs/web`                            | AGPL-3.0-or-later | [LICENSE](./pkgs/web/LICENSE)                                          |
+| `pkgs/desktop`                        | AGPL-3.0-or-later | [LICENSE](./pkgs/desktop/LICENSE)                                      |
+| `pkgs/partykit-collab-server`         | AGPL-3.0-or-later | [LICENSE](./pkgs/partykit-collab-server/LICENSE)                       |
+| `pkgs/webgpu-devtools`                | AGPL-3.0-or-later | [LICENSE](./pkgs/webgpu-devtools/LICENSE)                              |
+| `pkgs/syrup`                          | MIT               | [LICENSE](./pkgs/syrup/LICENSE)                                        |
+| `pkgs/avif-hdr`                       | BSD-2-Clause      | [LICENSE](./pkgs/avif-hdr/LICENSE)                                     |
+
+Third-party code and assets inside a package keep their own terms. Each package states them next to the files they cover.

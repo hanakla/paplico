@@ -1,7 +1,7 @@
 {
 	"name": "paplico-root",
 	"private": true,
-	"license": "AGPL-3.0-or-later",
+	"license": "SEE LICENSE IN LICENSE",
 	"packageManager": "yarn@4.17.1",
 	"workspaces": [
 		"pkgs/*"

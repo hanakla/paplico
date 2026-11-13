@@ -2,6 +2,7 @@
 	"name": "@paplico/partykit-collab-server",
 	"version": "0.1.0",
 	"private": true,
+	"license": "AGPL-3.0-or-later",
 	"scripts": {
 		"dev": "wrangler dev --port 1999",
 		"deploy": "wrangler deploy"

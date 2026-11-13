@@ -2,6 +2,7 @@
 name = "paplico-desktop"
 version = "0.0.0"
 edition = "2021"
+license = "AGPL-3.0-or-later"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

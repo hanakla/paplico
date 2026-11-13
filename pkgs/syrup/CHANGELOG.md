@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- The published package includes its `LICENSE` file.
+
 ## [0.1.0] - 2026-08-02
 
 ### Added

@@ -132,4 +132,16 @@ User Input → Tool → PaplicoCommands → YjsProvider → Yjs Doc
 
 ## ライセンス
 
-Paplicoは [GNU Affero General Public License v3.0 or later](./LICENSE) (AGPL-3.0-or-later) でライセンスされています。
+ライセンスはパッケージごとに違います。使うパッケージのライセンスファイルを読んでください。
+
+| パッケージ                            | ライセンス        | ライセンスファイル                                                     |
+| ------------------------------------- | ----------------- | ---------------------------------------------------------------------- |
+| `pkgs/core`                           | AGPL-3.0-or-later | [LICENSE](./pkgs/core/LICENSE)                                         |
+| `pkgs/web`                            | AGPL-3.0-or-later | [LICENSE](./pkgs/web/LICENSE)                                          |
+| `pkgs/desktop`                        | AGPL-3.0-or-later | [LICENSE](./pkgs/desktop/LICENSE)                                      |
+| `pkgs/partykit-collab-server`         | AGPL-3.0-or-later | [LICENSE](./pkgs/partykit-collab-server/LICENSE)                       |
+| `pkgs/webgpu-devtools`                | AGPL-3.0-or-later | [LICENSE](./pkgs/webgpu-devtools/LICENSE)                              |
+| `pkgs/syrup`                          | MIT               | [LICENSE](./pkgs/syrup/LICENSE)                                        |
+| `pkgs/avif-hdr`                       | BSD-2-Clause      | [LICENSE](./pkgs/avif-hdr/LICENSE)                                     |
+
+パッケージに含まれる第三者のコードと素材には、それぞれの条件が適用されます。条件は、対象のファイルのそばに書いてあります。
