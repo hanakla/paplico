@@ -5,6 +5,7 @@ import {
 import {
 	type BlurFilter,
 	type ClipToShapeFilter,
+	type ConvertToShapeFilter,
 	type DropShadowFilter,
 	type FrostGlassFilter,
 	type RoughFilter,
@@ -42,6 +43,7 @@ type DefaultFilter =
 	| RoughFilter
 	| DropShadowFilter
 	| ClipToShapeFilter
+	| ConvertToShapeFilter
 	| SvgGaussianBlurFilter
 	| SvgOffsetFilter
 	| SvgFloodFilter
@@ -165,6 +167,20 @@ const FILTER_DEFS: Record<string, () => ReturnType<typeof Object>> = {
 		paramData: {
 			version: "1",
 			params: { offset: 5, joinType: "miter" as const },
+		},
+	}),
+	"convert-to-shape": () => ({
+		uid: generateUid("filter"),
+		processor: "convert-to-shape",
+		paramData: {
+			version: "1",
+			params: {
+				shape: "rectangle",
+				sizeMode: "relative",
+				width: 0,
+				height: 0,
+				cornerRadius: 0,
+			},
 		},
 	}),
 	"path-union": () => ({

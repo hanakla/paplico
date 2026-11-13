@@ -34,6 +34,25 @@ export function screenToWorld(
 }
 
 /**
+ * Convert a point in viewport (client) coordinates to world space, for a
+ * canvas that occupies `rect` on the page.
+ */
+export function clientToWorld(
+	clientX: number,
+	clientY: number,
+	rect: Pick<DOMRect, "left" | "top" | "width" | "height">,
+	viewport: Viewport,
+): { x: number; y: number } {
+	return screenToWorld(
+		clientX - rect.left,
+		clientY - rect.top,
+		viewport,
+		rect.width,
+		rect.height,
+	);
+}
+
+/**
  * World coordinates to screen coordinates
  */
 export function worldToScreen(

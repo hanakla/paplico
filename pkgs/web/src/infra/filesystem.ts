@@ -1,5 +1,6 @@
 import type { Brand } from "@paplico/core/utils";
 import { IS_TAURI_ENV } from "@/utils/platform";
+import { fileName } from "./linkedFiles.tauri";
 
 declare const FILE_HANDLE_SYMBOL: unique symbol;
 export type FileHandle = Brand<typeof FILE_HANDLE_SYMBOL> & {
@@ -30,6 +31,16 @@ interface IFileSystem {
 	 * platform only hands the file over as a download.
 	 */
 	exportFile(blob: Blob, filename: string): Promise<FileHandle | null>;
+	/**
+	 * Whether the platform can settle where a file goes before anything is
+	 * written to it.
+	 */
+	canRequestSaveFile(): boolean;
+	/**
+	 * Lets the user pick where a file is saved, without writing it. `null`
+	 * means the user called it off.
+	 */
+	requestSaveFile(filename: string): Promise<FileHandle | null>;
 	/**
 	 * Settles where a batch of exported files goes before the first one is
 	 * rendered. `null` means the user called the export off.
@@ -94,8 +105,31 @@ const tauriFS: IFileSystem = new (class TauriFS implements IFileSystem {
 		const bytes = new Uint8Array(await blob.arrayBuffer());
 		await writeFile(path, bytes);
 
-		const name = path.split("/").pop() ?? path;
-		return { handle: path, file: new File([bytes], name) } as FileHandle;
+		return {
+			handle: path,
+			file: new File([bytes], fileName(path)),
+		} as FileHandle;
+	}
+
+	public canRequestSaveFile() {
+		return true;
+	}
+
+	public async requestSaveFile(filename: string) {
+		const { save } = await import("@tauri-apps/plugin-dialog");
+
+		const path = await save({
+			defaultPath: filename,
+			filters: [
+				{
+					name: "Paplico",
+					extensions: [filename.split(".").pop() ?? "papf"],
+				},
+			],
+		});
+
+		if (!path) return null;
+		return { handle: path, file: new File([], fileName(path)) } as FileHandle;
 	}
 
 	public async requestExportDestination(documentHandle: FileHandle | null) {
@@ -163,6 +197,14 @@ const domFS: IFileSystem = new (class DomFS implements IFileSystem {
 		return null;
 	}
 
+	public canRequestSaveFile() {
+		return false;
+	}
+
+	public async requestSaveFile() {
+		return null;
+	}
+
 	// The browser has no folder to name, so there is nothing to ask about
 	public async requestExportDestination() {
 		return async (file: ExportedFile) => {
@@ -185,15 +227,18 @@ const domFS: IFileSystem = new (class DomFS implements IFileSystem {
 
 export const FileSystem: IFileSystem = IS_TAURI_ENV ? tauriFS : domFS;
 
+/** The native path a handle stands for. `null` for a browser handle or a bare file. */
+export function nativePathOf(handle: FileHandle | null): string | null {
+	return typeof handle?.handle === "string" ? handle.handle : null;
+}
+
 /** Reads a native path into a handle that later saves can overwrite. */
 export async function tauriFileHandleFromPath(
 	path: string,
 ): Promise<FileHandle> {
 	const { readFile } = await import("@tauri-apps/plugin-fs");
 	const data = await readFile(path);
-	const name = path.split("/").pop() ?? path;
-
-	return { handle: path, file: new File([data], name) } as FileHandle;
+	return { handle: path, file: new File([data], fileName(path)) } as FileHandle;
 }
 
 export async function domFSFileHandleFromTransferItem(
@@ -249,8 +294,8 @@ async function resolveDefaultExportDirectory(
 		"@tauri-apps/api/path"
 	);
 
-	const documentPath = documentHandle?.handle;
-	if (typeof documentPath === "string") {
+	const documentPath = nativePathOf(documentHandle);
+	if (documentPath !== null) {
 		try {
 			return await dirname(documentPath);
 		} catch {

@@ -4,10 +4,8 @@ import {
 	AlignLeft,
 	AlignRight,
 	Bold,
-	Check,
 	Italic,
 	MoveHorizontal,
-	Pointer,
 	Strikethrough,
 	Underline,
 } from "lucide-react";
@@ -21,9 +19,11 @@ import { usePaplico } from "@/contexts/PaplicoContext";
 import { useActiveFontSettings } from "@/hooks/useCurrentFontSetting";
 import { useFontPreview } from "@/hooks/useFontPreview";
 import { useTranslation } from "@/locales";
+import { FontCombobox } from "@/organisms/TextControls/FontCombobox";
+import { FontWeightControl } from "@/organisms/TextControls/FontWeightControl";
+import { TextCharTouchModeToggle } from "@/organisms/TextControls/TextCharTouchModeToggle";
 import { uiState } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
-import { FontCombobox } from "./FontCombobox";
 
 export const TextEditingControls = memo(function TextEditingControls() {
 	const uiSnap = useSnapshot(uiState);
@@ -34,6 +34,7 @@ export const TextEditingControls = memo(function TextEditingControls() {
 	return (
 		<div className="flex flex-col gap-3">
 			<TextEditFontFamilyControl />
+			<FontWeightControl showLabel={false} />
 			<TextEditFontSizeControl />
 			<TextEditTextDecorationControl currentStyle={displayStyle} />
 			<TextEditLetterSpacingControl currentStyle={displayStyle} />
@@ -43,48 +44,6 @@ export const TextEditingControls = memo(function TextEditingControls() {
 		</div>
 	);
 });
-
-/**
- * Touch-type mode toggle (per-char move/rotate/scale). Shared between the
- * editing controls and the text tool's idle panel.
- */
-export function TextCharTouchModeToggle() {
-	const t = useTranslation();
-	const paplico = usePaplico();
-	const touchOn = useSnapshot(paplico.tools.state).textCharTouchMode;
-
-	const handleToggle = useEventCallback(() => {
-		if (touchOn) {
-			// End char-touch by returning to text editing on the same element,
-			// not just flipping the mode off.
-			paplico.textToolController?.getTextTool()?.endCharTouchToEdit();
-		} else {
-			paplico.tools.state.textCharTouchMode = true;
-		}
-	});
-
-	return (
-		<div className="flex px-1">
-			<Tooltip
-				content={
-					touchOn
-						? t("actionsPanel.charTouchBackToEdit")
-						: t("actionsPanel.charTouchMode")
-				}
-				side="bottom"
-			>
-				<IconButton
-					$size="xs"
-					$variant="ghost"
-					$pressed={touchOn}
-					onClick={handleToggle}
-				>
-					{touchOn ? <Check size={14} /> : <Pointer size={14} />}
-				</IconButton>
-			</Tooltip>
-		</div>
-	);
-}
 
 function TextEditFontFamilyControl() {
 	const t = useTranslation();

@@ -106,7 +106,7 @@ function AppearanceSurfaceContent({
 
 	if (!isSheet) {
 		return (
-			<Popover.Content side="left" sideOffset={16} className="min-w-64 p-3">
+			<Popover.Content side="left" sideOffset={16} className="min-w-64">
 				{children}
 			</Popover.Content>
 		);

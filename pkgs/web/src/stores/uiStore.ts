@@ -19,7 +19,7 @@ export type CanvasObstacleRect = {
 	bottom: number;
 };
 
-interface UIState {
+export interface UIState {
 	/** ID of the last focused CanvasTarget */
 	currentTargetId: string | null;
 	contextActionsOffset: {
@@ -43,7 +43,7 @@ interface UIState {
 	/** Currently selected brush preset uid (built-in or persisted) */
 	selectedBrushPresetUid: string | null;
 	/** Which panel is open in mobile layout (null = all closed) */
-	mobilePanelOpen: "context" | "layers" | "filters" | null;
+	mobilePanelOpen: "context" | "layers" | "filters" | "assets" | null;
 	/** Whether soft proof (print simulation) display is enabled (UI-only, not synced) */
 	softProofEnabled: boolean;
 	/** Whether pixel preview (rasterization-DPI display) is enabled (UI-only, not synced) */
@@ -165,9 +165,7 @@ export function setSelectedBrushPresetUid(presetUid: string | null): void {
 	uiState.selectedBrushPresetUid = presetUid;
 }
 
-export function setMobilePanelOpen(
-	panel: "context" | "layers" | "filters" | null,
-): void {
+export function setMobilePanelOpen(panel: UIState["mobilePanelOpen"]): void {
 	uiState.mobilePanelOpen = panel;
 }
 

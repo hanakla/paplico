@@ -5,17 +5,19 @@ import { useAppConfig } from "@/hooks/useAppConfig";
 import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useToolbarRailOffsets } from "@/hooks/useToolbarRailOffsets";
 import { ActionsPanel } from "@/organisms/ActionsPanel";
+import { AssetPanel } from "@/organisms/AssetPanel";
 import { FilterPanel } from "@/organisms/FilterPanel";
 import { LayerPanel } from "@/organisms/LayerPanel";
-import { setMobilePanelOpen, useUIState } from "@/stores/uiStore";
+import { setMobilePanelOpen, type UIState, useUIState } from "@/stores/uiStore";
 import { twm } from "@/utils/tailwind";
 
-type PanelKey = "context" | "layers" | "filters";
+type PanelKey = NonNullable<UIState["mobilePanelOpen"]>;
 
 const PANEL_ICONS: Record<PanelKey, React.ComponentType<{ size: number }>> = {
 	context: Icons.ActionsPanel,
 	layers: Icons.Layer,
 	filters: Icons.Appearance,
+	assets: Icons.Assets,
 };
 
 const PANEL_GLASS_CLS = "bg-background/80 backdrop-liquid";
@@ -35,26 +37,28 @@ export function MobilePanels() {
 
 	const isOpen = uiSnap.mobilePanelOpen !== null;
 
-	const tabs = (["context", "layers", "filters"] as const).map((panel) => {
-		const Icon = PANEL_ICONS[panel];
-		return (
-			<button
-				key={panel}
-				type="button"
-				className={twm(
-					"p-1.5 rounded-lg transition-colors",
-					uiSnap.mobilePanelOpen === panel
-						? "bg-accent text-accent-foreground"
-						: "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-				)}
-				onClick={() =>
-					setMobilePanelOpen(uiSnap.mobilePanelOpen === panel ? null : panel)
-				}
-			>
-				<Icon size={16} />
-			</button>
-		);
-	});
+	const tabs = (["context", "layers", "filters", "assets"] as const).map(
+		(panel) => {
+			const Icon = PANEL_ICONS[panel];
+			return (
+				<button
+					key={panel}
+					type="button"
+					className={twm(
+						"p-1.5 rounded-lg transition-colors",
+						uiSnap.mobilePanelOpen === panel
+							? "bg-accent text-accent-foreground"
+							: "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+					)}
+					onClick={() =>
+						setMobilePanelOpen(uiSnap.mobilePanelOpen === panel ? null : panel)
+					}
+				>
+					<Icon size={16} />
+				</button>
+			);
+		},
+	);
 
 	// The surface holding the panel paints the glass, so it also covers the
 	// drag handle above the panel. The panel's own copy would stack a second one.
@@ -63,6 +67,7 @@ export function MobilePanels() {
 			{uiSnap.mobilePanelOpen === "context" && <ActionsPanel />}
 			{uiSnap.mobilePanelOpen === "layers" && <LayerPanel />}
 			{uiSnap.mobilePanelOpen === "filters" && <FilterPanel />}
+			{uiSnap.mobilePanelOpen === "assets" && <AssetPanel />}
 		</div>
 	);
 

@@ -1678,6 +1678,12 @@ export interface EmbeddedFile {
 	type: string; // MIME type (e.g., "image/png")
 	hash: string; // SHA-256 hash (used for deduplication)
 	bin: Uint8Array;
+	/**
+	 * Where the bytes were read from, when the host app keeps the file linked
+	 * to its origin. Relative paths start at the folder of the document file
+	 * and use `/` separators.
+	 */
+	sourcePath?: string;
 }
 
 // --- Brush Types ---
@@ -1706,6 +1712,17 @@ export const BUILTIN_PAPER_IDS = {
 	finePaper: "builtin-paper-fine",
 	coarsePaper: "builtin-paper-coarse",
 } as const;
+
+/**
+ * Uids of the built-in brush and paper textures. Every document holds them,
+ * so brush settings can pick them whether or not anything uses them yet.
+ */
+export const BUILTIN_TEXTURE_FILE_UIDS: readonly string[] = [
+	...Object.values(BUILTIN_BRUSH_IDS).filter(
+		(id) => id !== BUILTIN_BRUSH_IDS.svg,
+	),
+	...Object.values(BUILTIN_PAPER_IDS),
+];
 
 // Stamp rotation mode
 // - none: No rotation (fixed at 0)

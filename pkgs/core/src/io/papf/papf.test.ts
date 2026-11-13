@@ -136,7 +136,58 @@ describe("PAPF format", () => {
 			);
 		});
 
-		// rendererStore.document is a Valtio proxy in production.
+		it("should keep the app data a document was written with", async () => {
+			const appData = { host: { schema: 1, flag: false } };
+
+			const blob = await serializeDocument(makeMinimalDoc(), appData);
+
+			expect((await openPapf(blob)).meta.appData).toEqual(appData);
+		});
+
+		it("should write no app data when none is given", async () => {
+			const blob = await serializeDocument(makeMinimalDoc());
+
+			expect((await openPapf(blob)).meta).not.toHaveProperty("appData");
+		});
+
+		it("should keep the source path of a linked file", async () => {
+			const blob = await serializeDocument(
+				makeMinimalDoc({
+					files: [
+						{
+							...makeFile("linked", new Uint8Array([1, 2, 3])),
+							sourcePath: "img/ref.png",
+						},
+						makeFile("embedded", new Uint8Array([4, 5, 6])),
+					],
+				}),
+			);
+
+			const { files } = await (await openPapf(blob)).toDocument();
+
+			expect(files.map((file) => file.sourcePath)).toEqual([
+				"img/ref.png",
+				undefined,
+			]);
+		});
+
+		it("should ignore a source path that is not a string", async () => {
+			const blob = await serializeDocument(
+				makeMinimalDoc({
+					files: [
+						{
+							...makeFile("linked", new Uint8Array([1, 2, 3])),
+							sourcePath: 42 as unknown as string,
+						},
+					],
+				}),
+			);
+
+			const { files } = await (await openPapf(blob)).toDocument();
+
+			expect(files[0].sourcePath).toBeUndefined();
+		});
+
 		// structuredClone / deepClone on a proxy breaks TypedArrays or throws DataCloneError.
 		// Paplico.exportDocument() uses snapshot() to unwrap the proxy first.
 		// This test verifies that path works end-to-end.

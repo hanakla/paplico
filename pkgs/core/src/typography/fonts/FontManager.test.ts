@@ -120,6 +120,7 @@ function createNoGlyphFontkit() {
 		ascent: 800,
 		descent: -200,
 		availableFeatures: [],
+		directory: { tables: {} },
 		layout: (text: string) => {
 			const chars = [...text];
 			return {

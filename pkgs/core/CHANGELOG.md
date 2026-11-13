@@ -27,13 +27,27 @@
 - **Guides**
   - Every element type takes `isGuide`, not only paths. A guide group makes every element inside it a guide.
   - `PaplicoCommands.makeGuides` and `PaplicoCommands.releaseGuides` turn the given unlocked elements into guides and back in one undo step.
+- **Linked files**
+  - `EmbeddedFile` takes `sourcePath`, the path of the file its bytes were read from. `PaplicoCommands.setEmbeddedFileSourcePath` sets or removes it. The path stays on the device and in the papf it saves; collaborators never receive it.
+  - `Paplico.dropImageFile` places an image file at a viewport position, for hosts that receive drops outside the canvas `drop` event.
+  - `PaplicoCommands.replaceEmbeddedFile` points every image that shows a file at a replacement in one undo step.
+- **Embedded files**
+  - `PaplicoCommands.removeUnusedFiles` removes the embedded files nothing in the document uses, clears the undo history, and returns how many files it removed. `findUnusedFileUids` in `@paplico/core/io` lists those files. Neither counts the built-in brush and paper textures.
+- **Viewport**
+  - `Paplico.fitViewportToBounds` moves and zooms a canvas so the given bounds fill it. `insets` leaves out the edges floating UI covers.
 - **Paste**
+  - `PaplicoCommands.pasteImageFile` takes `sourcePath` to link the pasted image to its file.
   - `PaplicoCommands.pasteElements` takes `layerRoot` to paste at the root of a given layer and `select: false` to keep the selection.
 - **Renderer**
   - The `documentResolutionScale` option of `Paplico.create` draws the document at a fraction of the canvas resolution and stretches it over the canvas, which takes less GPU memory. Tool overlays keep the full resolution. It defaults to 1.
   - `Paplico.deviceLimits` returns the limits of the GPU device the renderer draws with, such as the largest side a texture can have.
 - **Export**
   - `Paplico.exportArtboard` takes `rasterizationDpi` to rasterize filters at another resolution than the document's. A small preview passes its own pixel density to take far less GPU memory.
+- **Deflate**
+  - `compressDeflate` and `decompressDeflate` in `@paplico/core/io` compress and decompress bytes with deflate.
+- **Documents**
+  - `Paplico.exportDocument` and `Paplico.exportDocumentFile` take `timelapse`, `rewriteSourcePath` and `appData` to leave out the timelapse, rewrite linked file paths and keep host app data in the written file.
+  - `Paplico.importDocument` returns the `appData` a file holds.
 
 ### Changed
 
@@ -159,6 +173,8 @@
   - Fix a centered or right-aligned paragraph in vertical writing starting at the top of its column. Without a box, the text's position is the middle or the end of the column.
   - Fix text with a path offset or another shape filter on one of its fills or strokes being drawn as a coarse image instead of sharp outlines.
   - Fix a text's gradient restarting at every character, and each character's stroke being covered by the next character's fill. Characters given a fill of their own share one gradient across all the characters with that fill.
+  - Fix color fonts such as Twitter Color Emoji drawing their emoji in the text color, and text in a COLR color font not showing at all. Outlined text and SVG export keep the colors too.
+    - Glyphs from the `SVG ` table keep their colors when they use only fills; a glyph with strokes, patterns or masks is still drawn in the text color. COLR v1 glyphs are not supported.
 - **Groups**
   - Fix a fill or stroke on a group covering the holes of the paths and compound paths inside it.
 

@@ -107,11 +107,12 @@ function PopoverContent({
 					onMouseDown={stopPropagation}
 					onPointerDown={stopPropagation}
 					className={twm(
-						"isolate max-w-(--available-width) rounded-lg p-3 shadow-lg outline-none",
+						"isolate max-w-(--available-width) rounded-lg shadow-lg outline-none",
 						"origin-(--transform-origin) transition-[transform,scale,opacity] duration-150 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
 						"data-starting-style:opacity-0 data-starting-style:scale-50",
 						"data-ending-style:opacity-0 data-ending-style:scale-50",
 						className,
+						"p-0",
 					)}
 				>
 					{/* The glass lives on a child, not on Popup itself: backdrop-filter
@@ -136,7 +137,7 @@ function PopoverContent({
 					>
 						<PopoverArrowSvg />
 					</BUIPopover.Arrow>
-					<div className="max-h-[calc(var(--available-height,100dvh)-1.5rem)] overflow-y-auto">
+					<div className="max-h-[var(--available-height,100dvh)] overflow-y-auto p-2">
 						{children}
 					</div>
 				</BUIPopover.Popup>

@@ -7,6 +7,7 @@ import { Toast as BUIToast } from "@base-ui/react/toast";
 import { X } from "lucide-react";
 import { memo } from "react";
 import { twm } from "@/utils/tailwind";
+import { Button } from "./Button";
 import type { PropsWithNativeClassName } from "./types";
 
 /** Singleton manager — use this to add toasts from anywhere, including outside React. */
@@ -95,7 +96,10 @@ function ToastContent({
 	return (
 		<BUIToast.Content
 			className={twm(
-				"overflow-hidden transition-opacity duration-250",
+				// The padding keeps a focused action's ring and scale-up inside
+				// the clip, and the negative margin takes the padding back out of
+				// the layout
+				"-m-1 overflow-hidden p-1 transition-opacity duration-250",
 				"data-behind:pointer-events-none data-behind:opacity-0",
 				"data-expanded:pointer-events-auto data-expanded:opacity-100",
 				className,
@@ -141,10 +145,8 @@ function ToastAction({
 }: PropsWithNativeClassName<BUIToast.Action.Props>) {
 	return (
 		<BUIToast.Action
-			className={twm(
-				"mt-1 inline-flex items-center text-xs font-medium text-accent hover:underline",
-				className,
-			)}
+			render={<Button $size="sm" />}
+			className={twm("shrink-0", className)}
 			{...props}
 		/>
 	);
@@ -159,7 +161,7 @@ function ToastClose({
 		<BUIToast.Close
 			aria-label={props["aria-label"] ?? "Close notification"}
 			className={twm(
-				"absolute top-3 right-3 flex h-6 w-6 items-center justify-center rounded-full opacity-70 transition-colors transition-opacity hover:bg-foreground/8 hover:opacity-100",
+				"absolute top-1/2 right-3 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full opacity-70 transition-colors transition-opacity hover:bg-foreground/8 hover:opacity-100",
 				className,
 			)}
 			{...props}

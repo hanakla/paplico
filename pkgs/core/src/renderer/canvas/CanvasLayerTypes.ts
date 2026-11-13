@@ -14,10 +14,12 @@ import type {
 	EmbeddedFile,
 	Filter,
 	Group,
-	Path,
 	Viewport,
 } from "../../schema";
-import type { TextRenderer } from "../../typography/TextRenderer";
+import type {
+	TextGlyphPath,
+	TextRenderer,
+} from "../../typography/TextRenderer";
 import type {
 	LocalBoundsCache,
 	WorldBoundsCache,
@@ -52,7 +54,7 @@ export interface GradientState {
 }
 
 interface TextPathCacheEntry {
-	paths: Path[];
+	paths: TextGlyphPath[];
 	localBounds: BoundingBox;
 }
 

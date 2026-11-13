@@ -74,6 +74,7 @@ import {
 import { AppearanceFilterHandler } from "./filters/AppearanceFilter/AppearanceFilter";
 import { BlurFilterHandler } from "./filters/BlurFilter/BlurFilter";
 import { ClipToShapeFilterHandler } from "./filters/ClipToShapeFilter/ClipToShapeFilter";
+import { ConvertToShapeFilterHandler } from "./filters/ConvertToShapeFilter/ConvertToShapeFilter";
 import { DropShadowFilterHandler } from "./filters/DropShadowFilter/DropShadowFilter";
 import { Extrude3DFilterHandler } from "./filters/Extrude3DFilter/Extrude3DFilter";
 import { FrostGlassFilterHandler } from "./filters/FrostGlassFilter/FrostGlassFilter";
@@ -2735,6 +2736,10 @@ export class RenderOrchestrator {
 		const pathOffsetHandler = new PathOffsetFilterHandler();
 		await pathOffsetHandler.initialize(this.device, this.canvasFormat);
 		filterRenderer.registerHandler("path-offset", pathOffsetHandler);
+
+		const convertToShapeHandler = new ConvertToShapeFilterHandler();
+		await convertToShapeHandler.initialize();
+		filterRenderer.registerHandler("convert-to-shape", convertToShapeHandler);
 
 		const pathUnionHandler = new PathUnionFilterHandler();
 		await pathUnionHandler.initialize(this.device, this.canvasFormat);

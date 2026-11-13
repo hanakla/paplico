@@ -22,10 +22,12 @@ import type {
 	BrushSettings,
 	CompoundPath,
 	ElementTransform,
+	EmbeddedFile,
 	FillAppearance,
 	Filter,
 	FilterEntry,
 	Group,
+	ImageObject,
 	Layer,
 	LinearGradient,
 	MeshArtObject,
@@ -37,7 +39,7 @@ import type {
 	TextElement,
 	Vec2,
 } from "./schema";
-import { getTransform, toRGBColor } from "./schema";
+import { BUILTIN_PAPER_IDS, getTransform, toRGBColor } from "./schema";
 import {
 	createMockFontManager,
 	createTestTextElement,
@@ -3608,6 +3610,179 @@ describe("PaplicoCommands", () => {
 });
 
 /** Stroke appearance the user has already customized beyond its color. */
+describe("PaplicoCommands.replaceEmbeddedFile", () => {
+	const linkedFile = {
+		uid: "file-old",
+		name: "ref.png",
+		type: "image/png",
+		hash: "hash-old",
+		bin: new Uint8Array([1, 2, 3]),
+		sourcePath: "img/ref.png",
+	};
+	const replacement = {
+		...linkedFile,
+		uid: "file-new",
+		hash: "hash-new",
+		bin: new Uint8Array([4, 5, 6]),
+	};
+
+	function createImageCommands() {
+		const context = createProviderCommands();
+		context.commands.addEmbeddedFile(linkedFile);
+		context.provider.addElement("layer", {
+			id: "image",
+			type: "image",
+			fileUid: "file-old",
+			x: 0,
+			y: 0,
+			width: 100,
+			height: 50,
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		} as ImageObject);
+		context.provider.undoManager.stopCapturing();
+		context.sync();
+		return context;
+	}
+
+	it("should point the image at the replacement at the size it was placed at", () => {
+		const { store, commands, sync } = createImageCommands();
+
+		commands.replaceEmbeddedFile("file-old", replacement);
+		sync();
+
+		expect(store.document.objects.image).toMatchObject({
+			fileUid: "file-new",
+			width: 100,
+			height: 50,
+		});
+	});
+
+	it("should move the link to the source over to the replacement", () => {
+		const { store, commands } = createImageCommands();
+
+		commands.replaceEmbeddedFile("file-old", replacement);
+
+		expect(
+			Object.fromEntries(
+				store.document.files.map((file) => [file.uid, file.sourcePath]),
+			),
+		).toEqual({ "file-old": undefined, "file-new": "img/ref.png" });
+	});
+
+	it("should only hand its link to the file when the replacement holds the same bytes", () => {
+		const { store, commands } = createImageCommands();
+
+		commands.replaceEmbeddedFile("file-old", {
+			...linkedFile,
+			uid: "file-same",
+			sourcePath: "other/ref.png",
+		});
+
+		expect(
+			store.document.files.map((file) => [file.uid, file.sourcePath]),
+		).toEqual([["file-old", "other/ref.png"]]);
+	});
+
+	it("should put the image back on the former file on undo", () => {
+		const { store, commands, sync } = createImageCommands();
+		commands.replaceEmbeddedFile("file-old", replacement);
+
+		commands.undo();
+		sync();
+
+		expect(store.document.objects.image).toMatchObject({ fileUid: "file-old" });
+	});
+});
+
+describe("PaplicoCommands.removeUnusedFiles", () => {
+	const shownFile = {
+		uid: "file-shown",
+		name: "shown.png",
+		type: "image/png",
+		hash: "hash-shown",
+		bin: new Uint8Array([1, 2, 3]),
+	};
+	const unusedFile = {
+		uid: "file-unused",
+		name: "unused.png",
+		type: "image/png",
+		hash: "hash-unused",
+		bin: new Uint8Array([4, 5, 6]),
+		sourcePath: "img/unused.png",
+	};
+
+	function createCommandsWithFiles(files: EmbeddedFile[]) {
+		const context = createProviderCommands();
+		for (const file of files) context.commands.addEmbeddedFile(file);
+		context.provider.addElement("layer", {
+			id: "image",
+			type: "image",
+			fileUid: "file-shown",
+			x: 0,
+			y: 0,
+			width: 100,
+			height: 50,
+			opacity: 1,
+			blendMode: "normal",
+			transform: createIdentityTransform(),
+		} as ImageObject);
+		context.sync();
+		return context;
+	}
+
+	it("should remove the files nothing uses and keep the ones an image shows", () => {
+		const { store, commands } = createCommandsWithFiles([
+			shownFile,
+			unusedFile,
+		]);
+
+		const removedCount = commands.removeUnusedFiles();
+
+		const uids = store.document.files.map((file) => file.uid);
+		expect(removedCount).toBe(1);
+		expect(uids).toContain("file-shown");
+		expect(uids).not.toContain("file-unused");
+	});
+
+	it("should keep the built-in textures nothing uses yet", () => {
+		const { store, commands } = createCommandsWithFiles([
+			shownFile,
+			{
+				...unusedFile,
+				uid: BUILTIN_PAPER_IDS.finePaper,
+				sourcePath: undefined,
+			},
+		]);
+
+		commands.removeUnusedFiles();
+
+		expect(store.document.files.map((file) => file.uid)).toContain(
+			BUILTIN_PAPER_IDS.finePaper,
+		);
+	});
+
+	it("should clear the undo history", () => {
+		const { commands, provider } = createCommandsWithFiles([
+			shownFile,
+			unusedFile,
+		]);
+
+		commands.removeUnusedFiles();
+
+		expect(provider.canUndo()).toBe(false);
+	});
+
+	it("should keep the undo history when every file is in use", () => {
+		const { commands, provider } = createCommandsWithFiles([shownFile]);
+
+		commands.removeUnusedFiles();
+
+		expect(provider.canUndo()).toBe(true);
+	});
+});
+
 function existingStrokeAppearance(): StrokeAppearance {
 	return {
 		uid: "app-stroke",

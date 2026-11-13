@@ -136,6 +136,8 @@ export type FileManifestEntry = {
 	hash: string;
 	/** Uncompressed file size in bytes. */
 	byteLength: number;
+	/** EmbeddedFile.sourcePath, for files linked to their origin. */
+	sourcePath?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -183,6 +185,11 @@ export type MetaPayload = {
 		references3d?: Record<string, Reference3DDef>;
 	};
 	fileManifest: FileManifestEntry[];
+	/**
+	 * Data the host app keeps with the file. The engine writes it and hands it
+	 * back on import without reading it.
+	 */
+	appData?: Record<string, unknown>;
 	timelapse?: {
 		schemaVersion: number;
 		totalUpdates: number;

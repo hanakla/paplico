@@ -15,6 +15,7 @@ export const FILTER_CATALOG: FilterCatalogEntry[] = [
 	{ processor: "zigzag", category: "Geometry" },
 	{ processor: "rough", category: "Geometry" },
 	{ processor: "path-offset", category: "Geometry" },
+	{ processor: "convert-to-shape", category: "Geometry" },
 	{ processor: "path-union", category: "Geometry" },
 	{ processor: "stroke-outline", category: "Geometry" },
 	{ processor: "pucker-bloat", category: "Geometry" },

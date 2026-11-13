@@ -23,7 +23,11 @@
  *   pool.destroy()               // teardown — destroy everything
  */
 
-import { IdleClock, type UseStamp } from "./IdleClock";
+import {
+	IDLE_FRAMES_BEFORE_BUDGET_EVICTION,
+	IdleClock,
+	type UseStamp,
+} from "./IdleClock";
 
 /** Budget for pooled (idle) textures. A glass-solid + drop-shadow frame
  *  parks well over 128 MB between frames (offscreen colors, backdrop
@@ -66,13 +70,6 @@ function textureBytes(
 	return width * height * sampleCount * bytesPerTexel;
 }
 
-/**
- * Frames a pooled texture must sit out before the budget may free it. The
- * last frame's textures are what the next frame asks for, so freeing them when
- * a frame's working set exceeds the budget re-allocates that set every frame,
- * and each freed texture stays resident until the GPU finishes with it.
- */
-const IDLE_FRAMES_BEFORE_BUDGET_EVICTION = 2;
 /** After a zoom the offscreen sizes differ, so the last frame's textures will
  *  not be asked for again and only hold memory the new sizes need. */
 const IDLE_FRAMES_BEFORE_BUDGET_EVICTION_AFTER_ZOOM = 1;

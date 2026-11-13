@@ -12,7 +12,9 @@ import type {
 	TextElement,
 } from "../../../schema";
 import { closedRectSegments } from "../../../testUtils/segmentFactory";
+import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
 import { DocumentRenderScope } from "../../DocumentScopeRegistry";
+import { ConvertToShapeFilterHandler } from "../../filters/ConvertToShapeFilter/ConvertToShapeFilter";
 import {
 	applyRotate3DToSegments,
 	applyRotate3DWithContext,
@@ -377,6 +379,51 @@ describe("resolveTextDrawPaths", () => {
 	const fillValueAt = (filters: Filter[], i: number) =>
 		(filters[i] as FillAppearance).paramData.params.fill;
 
+	it("uses the bounds of the whole text for a fill's shape conversion", () => {
+		const shape: Filter = {
+			uid: "shape",
+			processor: "convert-to-shape",
+			opacity: 1,
+			blendMode: "normal",
+			paramData: {
+				version: "1",
+				params: {
+					shape: "rectangle",
+					sizeMode: "relative",
+					width: 10,
+					height: 10,
+					cornerRadius: 0,
+				},
+			},
+		};
+		const [drawn] = resolveTextDrawPaths({
+			elementId: "text",
+			glyphs: [
+				createGlyphPath("left", makeFill("left")),
+				createGlyphPath("right", makeFill("right")),
+			],
+			elementFilters: [
+				{ ...fillApp(blue), subFilters: [shape] },
+				contentAppearance(),
+			],
+			defaultFill: red,
+			defaultStroke: null,
+			defaultBrushWidth: 1,
+		});
+		const app = localAppearances(drawn.filters)[0];
+		expect(app.subFilters).toEqual([shape]);
+		const result = new ConvertToShapeFilterHandler().preProcess(
+			drawn.segments,
+			shape,
+		);
+		expect(calculateSegmentListBounds(result)).toMatchObject({
+			minX: -45,
+			maxX: 45,
+			minY: -15,
+			maxY: -5,
+		});
+	});
+
 	it("should paint the intrinsic fill below the stack for legacy text without a content entry", () => {
 		const result = paintOfSingleGlyph({
 			elementFilters: [fillApp(blue)],
@@ -430,6 +477,27 @@ describe("resolveTextDrawPaths", () => {
 
 		expect(paintKinds(result)).toEqual(["fill"]);
 		expect(fillValueAt(result, 0)).toEqual(blue);
+	});
+
+	it("should paint the layers of a color glyph in their order even when two share a fill", () => {
+		const layer = (fill: FillParams["fill"]) => ({
+			...createGlyphPath("left", makeFill("left")),
+			filters: [fillApp(fill)],
+			colorLayer: true as const,
+		});
+
+		const drawn = resolveTextDrawPaths({
+			elementId: "text-1",
+			glyphs: [layer(red), layer(blue), layer(red)],
+			elementFilters: [contentAppearance()],
+			defaultFill: null,
+			defaultStroke: null,
+			defaultBrushWidth: 1,
+		});
+
+		expect(
+			drawn.map((path) => fillValueAt(localAppearances(path.filters), 0)),
+		).toEqual([red, blue, red]);
 	});
 
 	it("should apply the default-style stroke only while no stroke appearance exists", () => {

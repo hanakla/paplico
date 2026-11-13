@@ -26,7 +26,7 @@ import type {
 	BackdropBlurLevels,
 	BackdropEffectCoordinator,
 } from "./BackdropEffectCoordinator";
-import { IdleClock, type UseStamp } from "./IdleClock";
+import { evictIdleOverBudget, IdleClock, type UseStamp } from "./IdleClock";
 import type { ImageLoadState } from "./ImageTextureStore";
 import type { MeshPassRenderer } from "./MeshPassRenderer";
 import {
@@ -858,19 +858,16 @@ export class FilterRenderer {
 			destroyTempPair(pair);
 			this.tempPairs.delete(key);
 		}
-		let bytes = 0;
-		for (const pair of this.tempPairs.values()) bytes += tempPairBytes(pair);
-		const oldestFirst = [...this.tempPairs].sort(
-			([, a], [, b]) => a.lastUsed.frame - b.lastUsed.frame,
+		evictIdleOverBudget(
+			this.tempPairs,
+			MAX_IDLE_TEMP_PAIR_BYTES,
+			this.clock.frame,
+			{
+				bytesOf: tempPairBytes,
+				lastUsedFrameOf: (pair) => pair.lastUsed.frame,
+				destroy: destroyTempPair,
+			},
 		);
-		for (const [key, pair] of oldestFirst) {
-			// The last frame's pairs are what the next frame asks for.
-			if (bytes <= MAX_IDLE_TEMP_PAIR_BYTES) break;
-			if (!this.clock.isIdleFor(pair.lastUsed, 2)) break;
-			bytes -= tempPairBytes(pair);
-			destroyTempPair(pair);
-			this.tempPairs.delete(key);
-		}
 	}
 
 	/**

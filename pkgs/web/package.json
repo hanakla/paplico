@@ -4,7 +4,7 @@
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
 		"dev": "run-p dev:server dev:storybook dev:partykit",
-		"dev:server": "node server.mjs -p 5005",
+		"dev:server": "node server.mjs -p 5005 --http-port 5006",
 		"dev:storybook": "storybook dev -p 6006 --no-open",
 		"dev:partykit": "yarn workspace @paplico/partykit-collab-server dev --local-protocol https --https-key-path ../../.certs/localhost-key.pem --https-cert-path ../../.certs/localhost-cert.pem",
 		"build": "next build",
@@ -12,7 +12,7 @@
 		"test": "vitest",
 		"test:update": "UPDATE_BASELINES=true vitest -u",
 		"storybook": "storybook dev -p 6006 --no-open",
-		"dev:tauri": "bash -c 'if [ -f ../../pap.lock ] && ps -p $(cat ../../pap.lock) >/dev/null 2>&1; then echo \"Dev server already running\"; while true; do sleep 86400; done; else TAURI_BUILD=1 node server.mjs -p 5005; fi'",
+		"dev:tauri": "bash -c 'if [ -f ../../pap.lock ] && ps -p $(cat ../../pap.lock) >/dev/null 2>&1; then echo \"Dev server already running\"; while true; do sleep 86400; done; else TAURI_BUILD=1 node server.mjs -p 5005 --http-port 5006; fi'",
 		"build:tauri": "bash scripts/build-tauri.sh",
 		"db:dev:start": "supabase start",
 		"db:dev:stop": "supabase stop",

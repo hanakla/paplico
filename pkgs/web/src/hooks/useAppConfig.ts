@@ -28,8 +28,13 @@ type LayerPanelMode = "simple" | "detailed";
 type FilterMenuView = "category" | "list";
 
 /** Panels of the desktop side panel column whose height the user can drag */
-export type SidePanelId = "actions" | "layers" | "filters";
-const SIDE_PANEL_IDS: SidePanelId[] = ["actions", "layers", "filters"];
+export type SidePanelId = "actions" | "layers" | "filters" | "assets";
+const SIDE_PANEL_IDS: SidePanelId[] = [
+	"actions",
+	"layers",
+	"filters",
+	"assets",
+];
 
 /** Range a side panel height limit can be dragged within, in px */
 export const SIDE_PANEL_MIN_HEIGHT = 80;

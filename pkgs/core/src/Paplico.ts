@@ -15,7 +15,10 @@ import { YjsProvider } from "./collaboration/YjsProvider";
 import { buildSoftProofLut } from "./color/ColorEngine";
 import type { BuiltinIccProfileId, ProofProfileRef } from "./color/types";
 import { localAppearances } from "./document/appearancePresets";
-import { PREVIEW_ELEMENT_SENTINEL_ID } from "./document/constants";
+import {
+	PAPLICO_MIN_ZOOM_SCALE,
+	PREVIEW_ELEMENT_SENTINEL_ID,
+} from "./document/constants";
 import { DefIndex } from "./document/DefIndex";
 import { collectEditablePaths } from "./document/editablePaths";
 import { isUsableAsSubFilter } from "./document/elementGeometry/filterCapabilities";
@@ -94,6 +97,7 @@ import type {
 import {
 	type AnyArtObject,
 	type Artboard,
+	type BoundingBox,
 	type Color,
 	cloneAppearance,
 	colorToRawRGBA,
@@ -170,7 +174,9 @@ import { buildArcLengthTable } from "./utils/geometry/measure/arcLength";
 import { brandWorldBBox } from "./utils/geometry/primitives/box";
 import {
 	applyTransformToPoint,
+	clientToWorld,
 	composeTransforms,
+	screenToWorld,
 } from "./utils/geometry/space/coordinates";
 import { resolveSelectionFrame } from "./utils/geometry/space/selectionFrame";
 import { assertNonNull, deepClone } from "./utils/lang";
@@ -239,6 +245,23 @@ interface PaplicoOptions {
 	 * overlays keep the full resolution. Defaults to 1.
 	 */
 	documentResolutionScale?: number;
+}
+
+/** What a serialized document holds beyond the document itself. */
+interface DocumentExportOptions {
+	/** Write the timelapse recording. Defaults to true. */
+	timelapse?: boolean;
+	/**
+	 * The source path written for each linked file, given its stored one.
+	 * `undefined` writes the file without its link. The document keeps its
+	 * own paths either way. Defaults to the stored path.
+	 */
+	rewriteSourcePath?: (sourcePath: string) => string | undefined;
+	/**
+	 * Data the host app keeps with the file. `importDocument` hands it back
+	 * without the engine reading it.
+	 */
+	appData?: Record<string, unknown>;
 }
 
 /**
@@ -1716,6 +1739,63 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
+	 * Moves and zooms a canvas so `bounds` sits in the middle of it, filling
+	 * `ratio` of the room it has. `insets` are the CSS pixels along each edge
+	 * that floating UI covers; the bounds are fitted into what is left. The
+	 * rotation of the view is kept.
+	 */
+	public fitViewportToBounds(
+		targetId: string,
+		bounds: BoundingBox,
+		{
+			ratio = 0.8,
+			insets: { top = 0, right = 0, bottom = 0, left = 0 } = {},
+		}: {
+			ratio?: number;
+			insets?: Partial<Record<"top" | "right" | "bottom" | "left", number>>;
+		} = {},
+	): void {
+		const target = this.getCanvasTarget(targetId);
+		if (!target) return;
+
+		const { rotation } = target.getViewport();
+		const cos = Math.abs(Math.cos(rotation));
+		const sin = Math.abs(Math.sin(rotation));
+		// The extent of the bounds along the axes of the rotated screen
+		const width = Math.max(bounds.width * cos + bounds.height * sin, 1);
+		const height = Math.max(bounds.width * sin + bounds.height * cos, 1);
+		const freeWidth = Math.max(target.width - left - right, 1);
+		const freeHeight = Math.max(target.height - top - bottom, 1);
+
+		const zoom = Math.min(
+			Math.max(
+				Math.min(freeWidth / width, freeHeight / height) * ratio,
+				PAPLICO_MIN_ZOOM_SCALE,
+			),
+			this.toolSettings.maxZoomScale,
+		);
+		const center = {
+			x: (bounds.minX + bounds.maxX) / 2,
+			y: (bounds.minY + bounds.maxY) / 2,
+		};
+		// With the view centred on the bounds, the middle of the free area
+		// shows another world point; shifting the view by the difference
+		// brings the bounds there
+		const shown = screenToWorld(
+			left + freeWidth / 2,
+			top + freeHeight / 2,
+			{ ...center, zoom, rotation },
+			target.width,
+			target.height,
+		);
+		target.setViewport({
+			x: center.x * 2 - shown.x,
+			y: center.y * 2 - shown.y,
+			zoom,
+		});
+	}
+
+	/**
 	 * Make the target the one that shows tool overlays and passes pointer
 	 * input to the current tool. Other targets render without tool overlays
 	 * and without the editing scope.
@@ -2405,19 +2485,37 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 
 	// ===== Import/Export =====
 
-	public async exportDocument(): Promise<Blob> {
+	public async exportDocument({
+		timelapse = true,
+		rewriteSourcePath,
+		appData,
+	}: DocumentExportOptions = {}): Promise<Blob> {
 		const primaryTarget = this.getPrimaryTarget();
 		// Started before anything is awaited, so the recording and the document
 		// are captured in the same task.
-		const timelapse = this.timelapseRecorder.getPackedTimelapseData();
+		const recording = timelapse
+			? this.timelapseRecorder.getPackedTimelapseData()
+			: null;
 		const doc = {
 			...snapshot(this.rendererStore).document,
 			viewport:
 				primaryTarget?.getViewport() ?? this.rendererStore.document.viewport,
-			timelapse: (await timelapse) ?? undefined,
+			timelapse: (await recording) ?? undefined,
 		};
 		const { document: gcedDoc } = gcDocument(doc as Document);
-		return serializeDocument(gcedDoc);
+		if (!rewriteSourcePath) return serializeDocument(gcedDoc, appData);
+
+		return serializeDocument(
+			{
+				...gcedDoc,
+				files: gcedDoc.files.map((file) =>
+					file.sourcePath
+						? { ...file, sourcePath: rewriteSourcePath(file.sourcePath) }
+						: file,
+				),
+			},
+			appData,
+		);
 	}
 
 	/**
@@ -2425,9 +2523,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	 * preview page per artboard that embeds the full papf data.
 	 * Preview rendering never blocks the save; a failed page is left blank.
 	 */
-	public async exportDocumentFile(): Promise<Blob> {
+	public async exportDocumentFile(
+		options?: DocumentExportOptions,
+	): Promise<Blob> {
 		const [papf, pages, { wrapPapfInPdf }] = await Promise.all([
-			this.exportDocument(),
+			this.exportDocument(options),
 			renderPdfPreviewPages(this.createExportContext()),
 			import("./io/papf/pdfContainer"),
 		]);
@@ -2466,11 +2566,14 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
-	 * Replace the current document with `source`.
+	 * Replace the current document with `source`. Returns the `appData` a
+	 * file was exported with, or `null` when it holds none.
 	 * @throws PaplicoError while a collaboration transport is attached, since
 	 * the transport would keep syncing the discarded Y.Doc.
 	 */
-	public async importDocument(source: Blob | Document): Promise<void> {
+	public async importDocument(
+		source: Blob | Document,
+	): Promise<Record<string, unknown> | null> {
 		if (this.collaboration) {
 			throw new PaplicoError(
 				"DOCUMENT_OPEN_WHILE_CONNECTED",
@@ -2478,14 +2581,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			);
 		}
 
-		const doc =
+		const { doc, appData } =
 			source instanceof Blob
-				? await (
-						await (
-							await import("./io/papf/pdfContainer")
-						).openPapfContainer(source)
-					).toDocument((stored) => prepareMigrationContext(stored, this.fonts))
-				: source;
+				? await readDocumentFile(source, this.fonts)
+				: { doc: source, appData: null };
 
 		// Disconnect collaboration before replacing document to avoid broadcasting empty document
 		this.clearCollaboration();
@@ -2541,6 +2640,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		this.createTool(this.toolSettings.currentTool);
 		this.startRendering();
 		this.setupBrushSettingsSubscription();
+
+		return appData;
 	}
 
 	// ===== Tool Management =====
@@ -3921,12 +4022,48 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 	}
 
 	/**
+	 * Places an image file the host received outside the canvas `drop` event,
+	 * such as a native drop. `clientX` / `clientY` are viewport coordinates in
+	 * CSS pixels; a point outside every canvas places nothing. `sourcePath`
+	 * keeps a raster image linked to the file it was read from.
+	 */
+	public async dropImageFile(
+		file: File,
+		clientX: number,
+		clientY: number,
+		sourcePath?: string,
+	): Promise<void> {
+		for (const { target } of this.canvasTargets.values()) {
+			const rect = target.canvas.getBoundingClientRect();
+			if (
+				clientX < rect.left ||
+				clientX > rect.right ||
+				clientY < rect.top ||
+				clientY > rect.bottom
+			) {
+				continue;
+			}
+
+			const world = clientToWorld(clientX, clientY, rect, target.getViewport());
+			await this.handleFileDrop([
+				{ file, worldX: world.x, worldY: world.y, sourcePath },
+			]);
+			return;
+		}
+	}
+
+	/**
 	 * Handle file drop
 	 */
 	private async handleFileDrop(
-		files: Array<{ file: File; worldX: number; worldY: number }>,
+		files: Array<{
+			file: File;
+			worldX: number;
+			worldY: number;
+			sourcePath?: string;
+		}>,
 	): Promise<void> {
-		for (const { file, worldX, worldY } of files) {
+		for (const { file, worldX, worldY, sourcePath } of files) {
 			try {
 				// SVG files import as vector (paths, text, gradients, patterns);
 				// fall back to rasterizing the file if nothing could be parsed.
@@ -3945,7 +4082,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 					continue;
 				}
 
-				await this.commands.pasteImageFile(file, { x: worldX, y: worldY });
+				await this.commands.pasteImageFile(
+					file,
+					{ x: worldX, y: worldY },
+					sourcePath,
+				);
 			} catch (error) {
 				console.error(`Failed to process image: ${file.name}`, error);
 			}
@@ -4214,4 +4355,28 @@ function watchDevicePixelRatio(onChange: () => void): () => void {
 	};
 	listen();
 	return () => query.removeEventListener("change", handleChange);
+}
+
+/**
+ * Reads a document file brought up to this build's schema, with the
+ * `appData` it was exported with. A file anyone could have written may hold
+ * anything there, so only an object comes back.
+ */
+async function readDocumentFile(
+	source: Blob,
+	fonts: FontManager,
+): Promise<{ doc: Document; appData: Record<string, unknown> | null }> {
+	const { openPapfContainer } = await import("./io/papf/pdfContainer");
+	const file = await openPapfContainer(source);
+	const { appData } = file.meta;
+
+	return {
+		doc: await file.toDocument((stored) =>
+			prepareMigrationContext(stored, fonts),
+		),
+		appData:
+			typeof appData === "object" && appData !== null && !Array.isArray(appData)
+				? appData
+				: null,
+	};
 }

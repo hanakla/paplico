@@ -41,6 +41,7 @@ import {
 	PAPLICO_ELEMENTS_MIME,
 	readClipboardElements,
 } from "./io/clipboardPayload";
+import { findUnusedFileUids } from "./io/papf/gc";
 import type { PaplicoSelection } from "./PaplicoSelection";
 import type { FilterRenderer } from "./renderer/canvas/pipeline/FilterRenderer";
 import {
@@ -68,8 +69,7 @@ import {
 	type BoundingBox,
 	type BrushPreset,
 	type BrushSettings,
-	BUILTIN_BRUSH_IDS,
-	BUILTIN_PAPER_IDS,
+	BUILTIN_TEXTURE_FILE_UIDS,
 	type Color,
 	type ColorProfileSettings,
 	type CompoundPath,
@@ -1313,7 +1313,8 @@ export class PaplicoCommands {
 				elementFilters: localAppearances(textElement.filters),
 				defaultStyle: paintSource.defaultStyle,
 				runFills: result.outlinedPaths.map(
-					({ runIndex, paragraphIndex }) =>
+					({ runIndex, paragraphIndex, fill }) =>
+						fill ??
 						paintSource.content.paragraphs[paragraphIndex]?.runs[runIndex]
 							?.style?.fill,
 				),
@@ -4025,6 +4026,63 @@ export class PaplicoCommands {
 		return this.ctx.yjsProvider.addFile(file);
 	}
 
+	/** Sets where an embedded file is linked from. `null` unlinks it. */
+	public setEmbeddedFileSourcePath(
+		uid: string,
+		sourcePath: string | null,
+	): void {
+		if (this.cannotMutate()) return;
+		this.ctx.yjsProvider.setFileSourcePath(uid, sourcePath);
+	}
+
+	/**
+	 * Removes the files `findUnusedFileUids` names, and returns how many it
+	 * removed. The undo history goes with them: undoing back to an element
+	 * that showed one of them would restore the element without its file.
+	 */
+	public removeUnusedFiles(): number {
+		if (this.cannotMutate()) return 0;
+
+		const uids = findUnusedFileUids(this.ctx.store.document);
+		if (uids.length === 0) return 0;
+
+		this.ctx.yjsProvider.removeFiles(uids);
+		this.ctx.yjsProvider.clearUndoHistory();
+		return uids.length;
+	}
+
+	/**
+	 * Points every image that shows the file `uid` at `replacement`, which
+	 * takes over the link to the source. The images keep the size they were
+	 * placed at. Undo puts the images back on the former file. A replacement
+	 * holding the same bytes only hands its link to the file.
+	 */
+	public replaceEmbeddedFile(uid: string, replacement: EmbeddedFile): void {
+		if (this.cannotMutate()) return;
+
+		const current = this.ctx.store.document.files.find(
+			(file) => file.uid === uid,
+		);
+		if (!current) return;
+		if (current.hash === replacement.hash) {
+			if (replacement.sourcePath) {
+				this.ctx.yjsProvider.setFileSourcePath(uid, replacement.sourcePath);
+			}
+			return;
+		}
+
+		const origin = this.getMutationOrigin();
+		this.ctx.yjsProvider.transact(() => {
+			const fileUid = this.ctx.yjsProvider.addFile(replacement);
+
+			this.ctx.yjsProvider.setFileSourcePath(uid, null);
+			for (const element of Object.values(this.ctx.store.document.objects)) {
+				if (element.type !== "image" || element.fileUid !== uid) continue;
+				this.ctx.yjsProvider.updateElement("", element.id, { fileUid }, origin);
+			}
+		}, origin);
+	}
+
 	// --- Brush Preset Operations ---
 
 	public addBrushPreset(preset: BrushPreset): void {
@@ -4172,13 +4230,7 @@ export class PaplicoCommands {
 	 */
 	public async ensureBuiltinBrushes(): Promise<void> {
 		if (this.cannotMutate()) return;
-		const builtinTextureIds = [
-			...Object.values(BUILTIN_BRUSH_IDS).filter(
-				(id) => id !== BUILTIN_BRUSH_IDS.svg,
-			),
-			...Object.values(BUILTIN_PAPER_IDS),
-		];
-		const hasAllFiles = builtinTextureIds.every((id) =>
+		const hasAllFiles = BUILTIN_TEXTURE_FILE_UIDS.every((id) =>
 			this.ctx.store.document.files.some((file) => file.uid === id),
 		);
 
@@ -4452,23 +4504,26 @@ export class PaplicoCommands {
 
 	/**
 	 * Paste an image File as an ImageObject at the given viewport position.
-	 * Embeds the file's bytes via addEmbeddedFile.
+	 * Embeds the file's bytes via addEmbeddedFile. `sourcePath` keeps the
+	 * embedded file linked to where the bytes came from.
 	 */
 	public async pasteImageFile(
 		file: File,
 		viewport?: { x: number; y: number },
+		sourcePath?: string,
 	): Promise<string | null> {
 		const worldX = viewport?.x ?? 0;
 		const worldY = viewport?.y ?? 0;
 
 		try {
-			const fileUid = this.addEmbeddedFile(
-				await createEmbeddedFileFromBytes(
+			const fileUid = this.addEmbeddedFile({
+				...(await createEmbeddedFileFromBytes(
 					new Uint8Array(await file.arrayBuffer()),
 					file.name || "pasted-image.png",
 					file.type,
-				),
-			);
+				)),
+				sourcePath,
+			});
 
 			const imageBitmap = await createImageBitmap(file);
 			const imageWidth = imageBitmap.width;
