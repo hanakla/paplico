@@ -14,9 +14,9 @@ import { usePaplico } from "@/contexts/PaplicoContext";
 import { useAppConfig } from "@/hooks/useAppConfig";
 import { isFontEqual, useFontList } from "@/hooks/useCurrentFontSetting";
 import { useTranslation } from "@/locales";
+import { buildFontSource } from "@/utils/font";
 import { useEventCallback } from "@/utils/hooks";
 import { twm } from "@/utils/tailwind";
-import { buildFontSource } from "./utils";
 
 /** "all", or the `FontLoader.id` whose fonts the list is narrowed to. */
 type FontTab = string;
@@ -27,7 +27,6 @@ export const FontCombobox = memo(function FontCombobox({
 	fonts,
 	currentFont,
 	isLoading,
-	isMixed,
 	onFontChange,
 	previewReady,
 	previewRef,
@@ -81,12 +80,9 @@ export const FontCombobox = memo(function FontCombobox({
 		setOpen(isOpen);
 	});
 
-	const itemToString = useEventCallback((font: FontMetadata | null) => {
-		if (!font) return "";
-		if (font.localizedFullName) return font.localizedFullName;
-		const localized = fontManager.getLocalizedNames(buildFontSource(font));
-		return localized?.localizedFullName ?? font.fullName;
-	});
+	const itemToString = (font: FontMetadata | null) => {
+		return font?.family ?? "";
+	};
 
 	// Merge any localized names and detected scripts that have become
 	// available since the font catalog was first queried. `loadedVersion` is
@@ -94,16 +90,19 @@ export const FontCombobox = memo(function FontCombobox({
 	// batch of local font headers has been read.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: loadedVersion is the explicit re-derivation trigger
 	const enrichedFonts = useMemo(() => {
-		let changed = false;
-		const result = fonts.map((f) => {
+		const uniqueFamilies = new Map<string, FontMetadata>();
+		for (const font of fonts) {
+			if (!uniqueFamilies.has(font.family)) {
+				uniqueFamilies.set(font.family, font);
+			}
+		}
+		return [...uniqueFamilies.values()].map((f) => {
 			const source = buildFontSource(f);
 			const localized = fontManager.getLocalizedNames(source);
 			const scripts = fontManager.getFontScripts(source);
 			if (!localized && !scripts) return f;
-			changed = true;
 			return { ...f, ...localized, ...(scripts ? { scripts } : {}) };
 		});
-		return changed ? result : fonts;
 	}, [fonts, loadedVersion, fontManager]);
 
 	// Only loaders that offer fonts get a tab; one loader alone needs no tabs.
@@ -149,7 +148,7 @@ export const FontCombobox = memo(function FontCombobox({
 		>
 			<div className="relative">
 				<Combobox2.Input
-					$size="sm"
+					$size="xs"
 					clearable={false}
 					placeholder={placeholder ?? t("actionsPanel.selectFont")}
 				/>
@@ -394,9 +393,7 @@ const FontPreviewItem = memo(function FontPreviewItem({
 					isReady ? { fontFamily: `"${font.family}", sans-serif` } : undefined
 				}
 			>
-				<span className="flex-1 truncate">
-					{font.localizedFullName ?? font.fullName}
-				</span>
+				<span className="flex-1 truncate">{font.family}</span>
 				{font.loaderId === "google" && <GoogleFontsIcon />}
 			</span>
 		</BUICombobox.Item>

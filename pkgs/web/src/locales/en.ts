@@ -263,10 +263,9 @@ export const en = {
 		scatterTexturesEmpty: "No scatter textures",
 	},
 	contextActions: {
-		variableFont: "Variable font",
+		variableFont: "Variations",
 		variableFontMixedValue: "Mixed",
 		variableFontMixed: "Select text using the same font",
-		variableFontNone: "This font has no variable axes",
 		variableFontLoadError: "Could not load the font",
 		variableFontReset: "Reset to default",
 
@@ -350,6 +349,7 @@ export const en = {
 		artboardSelectOrCreate: "Select an artboard or drag to create new",
 		clearSelection: "Clear Selection",
 		font: "Font",
+		weight: "Weight",
 		loading: "Loading...",
 		mixed: "Mixed",
 		mixedBracket: "<mixed>",

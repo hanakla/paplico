@@ -1,5 +1,5 @@
-import { BoxSelect, LassoSelect, Merge, Scissors, Split } from "lucide-react";
-import { type ComponentProps, memo, useMemo } from "react";
+import { BoxSelect, LassoSelect, Merge, Split } from "lucide-react";
+import { memo, useMemo } from "react";
 import { useSnapshot } from "valtio";
 import { IconButton } from "@/components/IconButton";
 import { ToggleGroup } from "@/components/ToggleGroup";
@@ -7,6 +7,7 @@ import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { appConfig } from "@/hooks/useAppConfig";
 import { useTranslation } from "@/locales";
+import { PathEditCutModeToggle } from "@/organisms/PathEditCutModeToggle";
 import { useEventCallback } from "@/utils/hooks";
 
 export const PathEditToolControls = memo(function PathEditToolControls() {
@@ -129,36 +130,3 @@ export const PathEditToolControls = memo(function PathEditToolControls() {
 		</div>
 	);
 });
-
-/**
- * Cut mode toggle: arms the next canvas click to cut the path under it.
- * Shared between the path edit panel and the context actions bar.
- */
-export function PathEditCutModeToggle({
-	$size = "xs",
-}: {
-	$size?: ComponentProps<typeof IconButton>["$size"];
-}) {
-	const t = useTranslation();
-	const { tools } = usePaplico();
-	const cutMode = useSnapshot(tools.state).pathEditCutMode;
-
-	const handleToggle = useEventCallback(() => {
-		tools.setPathEditCutMode(!cutMode);
-	});
-
-	return (
-		<Tooltip content={t("actionsPanel.pathEditCutMode")} side="bottom">
-			<IconButton
-				$size={$size}
-				$variant="ghost"
-				$pressed={cutMode}
-				onClick={handleToggle}
-			>
-				<Scissors size={CUT_ICON_SIZE[$size]} />
-			</IconButton>
-		</Tooltip>
-	);
-}
-
-const CUT_ICON_SIZE = { xs: 14, sm: 16, md: 18, lg: 20 } as const;

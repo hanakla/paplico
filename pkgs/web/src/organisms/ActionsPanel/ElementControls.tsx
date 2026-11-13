@@ -30,9 +30,10 @@ import { usePaplico } from "@/contexts/PaplicoContext";
 import { useActiveFontSettings } from "@/hooks/useCurrentFontSetting";
 import { useFontPreview } from "@/hooks/useFontPreview";
 import { useTranslation } from "@/locales";
+import { FontCombobox } from "@/organisms/TextControls/FontCombobox";
+import { FontWeightControl } from "@/organisms/TextControls/FontWeightControl";
 import { useEventCallback } from "@/utils/hooks";
 import { assertNonNull } from "@/utils/lang";
-import { FontCombobox } from "./FontCombobox";
 import { StrokeWidthField } from "./StrokeWidthField";
 import { BRUSH_WIDTH_STEP, MIXED, resolveValue } from "./utils";
 
@@ -206,6 +207,7 @@ export function FontFamilyControl() {
 							: t("actionsPanel.selectFont")
 				}
 			/>
+			<FontWeightControl showLabel={false} />
 		</div>
 	);
 }

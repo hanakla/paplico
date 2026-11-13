@@ -3,6 +3,7 @@ import { Check, ChevronDown, X } from "lucide-react";
 import { memo, type ReactNode } from "react";
 import { tv } from "tailwind-variants";
 import { twm } from "@/utils/tailwind";
+import { selectTriggerVariants } from "./selectTriggerVariants";
 import type { PropsWithNativeClassName } from "./types";
 export const Combobox2 = {
 	Root: memo(ComboboxRoot) as typeof ComboboxRoot,
@@ -16,11 +17,6 @@ export const Combobox2 = {
 const variant = tv({
 	slots: {
 		root: "",
-		input: [
-			"w-full pl-2 pr-12 border border-border ",
-			"bg-muted text-muted-foreground rounded",
-			"placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring",
-		],
 		clear: "",
 		trigger: "",
 		item: [
@@ -30,16 +26,19 @@ const variant = tv({
 	},
 	variants: {
 		$size: {
-			sm: {
-				input: "text-xs h-7",
+			xs: {
 				clear: "w-4",
-				trigger: "w-4",
+				trigger: "w-3.5",
+				item: "py-1.5 px-2 text-xs",
+			},
+			sm: {
+				clear: "w-4",
+				trigger: "w-3.5",
 				item: "py-1.5 px-2 text-xs",
 			},
 			md: {
-				input: "text-base h-10",
 				clear: "w-4",
-				trigger: "w-4",
+				trigger: "w-3.5",
 				item: "py-1.5 px-2 text-xs",
 			},
 		},
@@ -70,9 +69,28 @@ function ComboboxInput({
 
 	return (
 		<div className="relative">
-			<BUICombobox.Input className={styles.input({ className })} {...props} />
+			<BUICombobox.Input
+				className={selectTriggerVariants({
+					$size,
+					className: twm(
+						"placeholder:text-muted-foreground",
+						clearable ? "pr-14" : "pr-8",
+						className,
+					),
+				})}
+				{...props}
+			/>
 
-			<div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-2 h-7 items-center">
+			<div
+				className={twm(
+					"absolute top-1/2 -translate-y-1/2 flex gap-2 items-center text-muted-foreground",
+					$size === "xs"
+						? "right-1.5"
+						: $size === "sm"
+							? "right-2.5"
+							: "right-3",
+				)}
+			>
 				{clearable && (
 					<BUICombobox.Clear className={styles.clear()}>
 						<X size={16} />
@@ -80,7 +98,7 @@ function ComboboxInput({
 				)}
 
 				<BUICombobox.Trigger className={styles.trigger()}>
-					<ChevronDown size={16} />
+					<ChevronDown size={14} />
 				</BUICombobox.Trigger>
 			</div>
 		</div>
@@ -99,6 +117,7 @@ function ComboboxPopup({
 		<BUICombobox.Portal>
 			<BUICombobox.Positioner
 				className={twm("outline-none z-50", className)}
+				align="start"
 				sideOffset={sideOffset}
 			>
 				<BUICombobox.Popup

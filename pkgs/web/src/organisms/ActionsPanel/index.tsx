@@ -4,6 +4,7 @@ import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
 import { useTranslation } from "@/locales";
+import { TextCharTouchModeToggle } from "@/organisms/TextControls/TextCharTouchModeToggle";
 import { uiState } from "@/stores/uiStore";
 import { ArtboardToolControls } from "./ArtboardToolControls";
 import { BlendOperations } from "./BlendOperations";
@@ -26,10 +27,7 @@ import {
 import { RepeatControls } from "./RepeatControls";
 import { SelectToolControls } from "./SelectToolControls";
 import { ShapeToolControls } from "./ShapeToolControls";
-import {
-	TextCharTouchModeToggle,
-	TextEditingControls,
-} from "./TextEditingControls";
+import { TextEditingControls } from "./TextEditingControls";
 import { TransformControls } from "./TransformControls";
 
 /**
