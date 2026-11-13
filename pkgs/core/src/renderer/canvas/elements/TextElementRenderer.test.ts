@@ -12,7 +12,9 @@ import type {
 	TextElement,
 } from "../../../schema";
 import { closedRectSegments } from "../../../testUtils/segmentFactory";
+import { calculateSegmentListBounds } from "../../../utils/geometry/measure/pathBounds";
 import { DocumentRenderScope } from "../../DocumentScopeRegistry";
+import { ConvertToShapeFilterHandler } from "../../filters/ConvertToShapeFilter/ConvertToShapeFilter";
 import {
 	applyRotate3DToSegments,
 	applyRotate3DWithContext,
@@ -376,6 +378,51 @@ describe("resolveTextDrawPaths", () => {
 	const paintKinds = (filters: Filter[]) => filters.map((f) => f.processor);
 	const fillValueAt = (filters: Filter[], i: number) =>
 		(filters[i] as FillAppearance).paramData.params.fill;
+
+	it("uses the bounds of the whole text for a fill's shape conversion", () => {
+		const shape: Filter = {
+			uid: "shape",
+			processor: "convert-to-shape",
+			opacity: 1,
+			blendMode: "normal",
+			paramData: {
+				version: "1",
+				params: {
+					shape: "rectangle",
+					sizeMode: "relative",
+					width: 10,
+					height: 10,
+					cornerRadius: 0,
+				},
+			},
+		};
+		const [drawn] = resolveTextDrawPaths({
+			elementId: "text",
+			glyphs: [
+				createGlyphPath("left", makeFill("left")),
+				createGlyphPath("right", makeFill("right")),
+			],
+			elementFilters: [
+				{ ...fillApp(blue), subFilters: [shape] },
+				contentAppearance(),
+			],
+			defaultFill: red,
+			defaultStroke: null,
+			defaultBrushWidth: 1,
+		});
+		const app = localAppearances(drawn.filters)[0];
+		expect(app.subFilters).toEqual([shape]);
+		const result = new ConvertToShapeFilterHandler().preProcess(
+			drawn.segments,
+			shape,
+		);
+		expect(calculateSegmentListBounds(result)).toMatchObject({
+			minX: -45,
+			maxX: 45,
+			minY: -15,
+			maxY: -5,
+		});
+	});
 
 	it("should paint the intrinsic fill below the stack for legacy text without a content entry", () => {
 		const result = paintOfSingleGlyph({

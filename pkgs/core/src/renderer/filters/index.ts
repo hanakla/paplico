@@ -12,6 +12,10 @@ export type {
 	ClipToShapeParams,
 } from "./ClipToShapeFilter/ClipToShapeFilter";
 export type {
+	ConvertToShapeFilter,
+	ConvertToShapeParams,
+} from "./ConvertToShapeFilter/ConvertToShapeFilter";
+export type {
 	DropShadowFilter,
 	DropShadowParams,
 } from "./DropShadowFilter/DropShadowFilter";
