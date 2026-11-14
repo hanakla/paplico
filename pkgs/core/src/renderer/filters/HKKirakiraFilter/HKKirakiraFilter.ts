@@ -367,8 +367,10 @@ export class HKKirakiraFilterHandler implements FilterHandler {
 		this.scratch.releaseAll();
 	}
 
+	/** The glow spreads as far as the separable kernel reads on each axis. */
 	public getExpansionMargin(filter: Filter): number {
-		return ((filter as HKKirakiraFilter).paramData.params.radius ?? 0) / 2;
+		const { radius, strength } = (filter as HKKirakiraFilter).paramData.params;
+		return Math.min(radius, 3 * radius * 0.33 * strength);
 	}
 
 	/** The separable glow reads its kernel on each axis, plus the reduced

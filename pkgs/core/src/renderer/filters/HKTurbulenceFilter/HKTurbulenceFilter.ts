@@ -178,7 +178,8 @@ export class HKTurbulenceFilterHandler implements FilterHandler {
 	public getExpansionMargin(filter: Filter): number {
 		const f = filter as HKTurbulenceFilter;
 		const params = f.paramData.params;
-		return Math.max(params.displacementX, params.displacementY) / 2;
+		// A cartesian warp moves each axis by up to its full displacement.
+		return Math.max(params.displacementX, params.displacementY);
 	}
 
 	/** A clamped cartesian warp reads its displacement away. Radial and

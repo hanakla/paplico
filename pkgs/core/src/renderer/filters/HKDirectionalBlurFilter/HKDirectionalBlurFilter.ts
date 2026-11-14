@@ -153,9 +153,10 @@ export class HKDirectionalBlurFilterHandler implements FilterHandler {
 		pass.end();
 	}
 
+	/** The streak reads up to 1.5 times its strength along its direction. */
 	public getExpansionMargin(filter: Filter): number {
 		return (
-			((filter as HKDirectionalBlurFilter).paramData.params.strength ?? 0) / 2
+			((filter as HKDirectionalBlurFilter).paramData.params.strength ?? 0) * 1.5
 		);
 	}
 

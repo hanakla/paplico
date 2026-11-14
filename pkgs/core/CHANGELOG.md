@@ -99,11 +99,12 @@
 - **Images**
   - An image drawn small uses a 512 px preview instead of the whole image. The previews load once the document opens, until the image textures reach their budget.
   - Image textures stay within a budget of their own, half the size of `gpuCacheBudgetBytes` and on top of it, apart from the ones the view is drawing. Past it, the images drawn longest ago are freed and load again when they are next drawn, instead of staying loaded until the canvas closes.
-- **Drop shadow filter**
-  - Panning over a large drop-shadowed group in a zoomed-in document no longer stalls.
-- **Kirakira filter**
-  - Panning or zooming a document onto a wide kirakira glow no longer stalls.
-  - An exported wide kirakira glow differs from earlier versions by a few levels of 255.
+- **Filters**
+  - **Drop shadow filter**
+    - Panning over a large drop-shadowed group in a zoomed-in document no longer stalls.
+  - **Kirakira filter**
+    - Panning or zooming a document onto a wide kirakira glow no longer stalls.
+    - An exported wide kirakira glow differs from earlier versions by a few levels of 255.
 - **Path edit tool**
   - Dragging a vertex no longer stalls on its first frame or on release, and no longer slows down inside a drop-shadowed group.
 - **Groups**
@@ -135,10 +136,18 @@
 - **Filters**
   - Fix some filtered elements staying blurry after zooming in until the view moves.
   - Fix the drop shadow or another filter of a group not following an element edited inside it.
-- **Path offset filter**
-  - Fix a hole in a shape, such as the counter of a letter, growing with a positive offset instead of shrinking. A hole the shape closes over is dropped.
-- **Chromatic aberration filter**
-  - Fix the separation's center moving while panning or zooming a large element.
+  - **Path offset filter**
+    - Fix a hole in a shape, such as the counter of a letter, growing with a positive offset instead of shrinking. A hole the shape closes over is dropped.
+  - **Chromatic aberration filter**
+    - Fix the separation's center moving while panning or zooming a large element.
+  - **Kirakira filter**
+    - Fix the glow being cut off in a straight edge when its strength is above 50%.
+  - **Directional blur filter**
+    - Fix the streak being cut off in a straight edge.
+  - **Turbulence filter**
+    - Fix the warped edges being cut off in a straight edge when the displacement is large.
+  - **Extrude / Revolve filters**
+    - Fix a glass solid in a hidden layer still showing on the canvas.
 - **Text tool**
   - Fix a moved, rotated or resized text disappearing after its edit is confirmed.
 - **Select tool**
@@ -152,8 +161,6 @@
   - Fix Illustrator reporting a missing linked file, leaving out the images and dropping some clipping masks when it opens an exported SVG.
   - Fix an alpha-locked element with a blend mode coming out in a different color from the canvas.
   - Fix a text's gradient being written once per character instead of once across the text.
-- **Extrude / Revolve filters**
-  - Fix a glass solid in a hidden layer still showing on the canvas.
 - **Layers**
   - Fix deleting a layer leaving the contents of its groups in the document, where a glass solid among them kept showing on the canvas.
 - **Object masks**
