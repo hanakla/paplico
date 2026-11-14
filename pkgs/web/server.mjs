@@ -226,7 +226,6 @@ const httpPort =
 	httpPortIndex !== -1 ? Number.parseInt(args[httpPortIndex + 1], 10) : null;
 
 const app = next({ dev, hostname, port });
-const handle = app.getRequestHandler();
 
 const lockFilePath = path.join(__dirname, "../../pap.lock");
 
@@ -258,6 +257,12 @@ if (fs.existsSync(lockFilePath)) {
 }
 
 app.prepare().then(() => {
+	// Next.js's own handlers, taken directly. getRequestHandler() attaches HMR
+	// only to the server that receives the first request, and
+	// getUpgradeHandler() does nothing in development, so through them HMR
+	// works on only one of the two ports.
+	const { requestHandler: handle, upgradeHandler } = app;
+
 	const httpsOptions = {
 		key: fs.readFileSync(
 			path.join(__dirname, "../../.certs", "localhost-key.pem"),
@@ -293,7 +298,7 @@ app.prepare().then(() => {
 				return;
 			}
 
-			await handle(req, res, parsedUrl);
+			await handle(req, res);
 		} catch (err) {
 			console.error("Error occurred handling", req.url, err);
 			res.statusCode = 500;
@@ -304,7 +309,6 @@ app.prepare().then(() => {
 	const httpServer = httpPort ? createHttpServer(handleRequest) : null;
 
 	const wss = new WebSocketServer({ noServer: true });
-	const upgradeHandler = app.getUpgradeHandler();
 
 	const handleUpgrade = (request, socket, head) => {
 		const { pathname } = parse(request.url, true);
