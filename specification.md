@@ -1370,9 +1370,10 @@ interface Migration {
 軸の値は、`TextStyle.fontVariationSettings` に持つ。軸タグから値への対応である。描画時の座標は、`fonts/fontVariations.ts` の `resolveFontVariations` が決める。
 
 - `wght` は `fontWeight` を使う。
-- 値の指定がない `ital` は、`fontStyle` を使う。
-- その他の軸は、指定値を使う。指定がなければ、軸の既定値を使う。
+- その他の軸は、指定値を使う。指定がなければ、軸の既定値を使う。`ital` もこれに従う。
 - どの軸も、その軸の min〜max に収める。
+
+イタリック体や太字の書体は、`fontSource` でその書体を選んで使う。グリフを斜めにしたり太らせたりする変形はしない。
 
 **TextRenderer**
 

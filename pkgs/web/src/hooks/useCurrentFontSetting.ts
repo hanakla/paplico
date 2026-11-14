@@ -50,9 +50,12 @@ export function useActiveFontSettings(): ActiveFontSettings {
 	// Resolve current font
 	const currentFont = useMemo(() => {
 		if (isTextEditing) {
-			const ss = uiSnap.textEditState
-				.selectionStyle as Partial<TextStyle> | null;
-			return findMatchingFont(fonts, ss?.fontFamily, ss?.fontSource);
+			const style = uiSnap.textEditState.selectionStyle?.style;
+			return findMatchingFont(
+				fonts,
+				style && !style.fontFamily.mixed ? style.fontFamily.value : undefined,
+				style && !style.fontSource.mixed ? style.fontSource.value : undefined,
+			);
 		}
 
 		if (textElements.length > 0) {
@@ -79,28 +82,24 @@ export function useActiveFontSettings(): ActiveFontSettings {
 	// Resolve mixed state for font family
 	const isMixed = useMemo(() => {
 		if (isTextEditing) {
-			const ss = uiSnap.textEditState
-				.selectionStyle as Partial<TextStyle> | null;
 			return (
-				uiSnap.textEditState.hasSelection && ss != null && !("fontFamily" in ss)
+				uiSnap.textEditState.selectionStyle?.style.fontFamily.mixed ?? false
 			);
 		}
 		if (textElements.length <= 1) return false;
 		const families = textElements.map((el) => el.defaultStyle.fontFamily);
 		return new Set(families).size > 1;
-	}, [
-		textElements,
-		isTextEditing,
-		uiSnap.textEditState.selectionStyle,
-		uiSnap.textEditState.hasSelection,
-	]);
+	}, [textElements, isTextEditing, uiSnap.textEditState.selectionStyle]);
 
 	// Resolve current font size (display/write both round to 3 decimals)
 	const currentFontSize = useMemo(() => {
 		if (isTextEditing) {
-			const ss = uiSnap.textEditState
-				.selectionStyle as Partial<TextStyle> | null;
-			return roundFontSize(ss?.fontSize ?? toolSnap.textDefaultStyle.fontSize);
+			const style = uiSnap.textEditState.selectionStyle?.style;
+			return roundFontSize(
+				style && !style.fontSize.mixed
+					? style.fontSize.value
+					: toolSnap.textDefaultStyle.fontSize,
+			);
 		}
 
 		if (textElements.length > 0) {
@@ -118,25 +117,19 @@ export function useActiveFontSettings(): ActiveFontSettings {
 	// Mixed state for font size
 	const isMixedSize = useMemo(() => {
 		if (isTextEditing) {
-			const ss = uiSnap.textEditState
-				.selectionStyle as Partial<TextStyle> | null;
-			return (
-				uiSnap.textEditState.hasSelection && ss != null && !("fontSize" in ss)
-			);
+			return uiSnap.textEditState.selectionStyle?.style.fontSize.mixed ?? false;
 		}
 		if (textElements.length <= 1) return false;
 		const sizes = textElements.map((el) => el.defaultStyle.fontSize);
 		return new Set(sizes).size > 1;
-	}, [
-		textElements,
-		isTextEditing,
-		uiSnap.textEditState.selectionStyle,
-		uiSnap.textEditState.hasSelection,
-	]);
+	}, [textElements, isTextEditing, uiSnap.textEditState.selectionStyle]);
 
 	const currentFontWeight = useMemo(() => {
 		if (isTextEditing) {
-			return uiSnap.textEditState.selectionStyle?.fontWeight;
+			const style = uiSnap.textEditState.selectionStyle?.style;
+			return style && !style.fontWeight.mixed
+				? style.fontWeight.value
+				: undefined;
 		}
 		if (textElements.length === 0) return toolSnap.textDefaultStyle.fontWeight;
 		const weight = textElements[0].defaultStyle.fontWeight;

@@ -42,6 +42,30 @@ describe("FakeInput", () => {
 		});
 	});
 
+	describe("when a numeric field has no value", () => {
+		it("should scrub from the minimum", () => {
+			const onChange = vi.fn();
+			const view = render(
+				<FakeInput
+					type="number"
+					step={1}
+					min={70}
+					max={150}
+					value=""
+					placeholder="Mixed"
+					onChange={onChange}
+				/>,
+			);
+			const field = view.getByText("Mixed");
+
+			fireEvent.pointerDown(field, { clientX: 0, pointerId: 1 });
+			fireEvent.pointerMove(field, { clientX: 30, pointerId: 1 });
+			fireEvent.pointerUp(field, { clientX: 30, pointerId: 1 });
+
+			expect(onChange.mock.calls.at(-1)?.[0]).toBe("80");
+		});
+	});
+
 	describe("when a numeric field opens on click", () => {
 		it("should scrub the value on a horizontal drag without opening the editor", () => {
 			const onChange = vi.fn();

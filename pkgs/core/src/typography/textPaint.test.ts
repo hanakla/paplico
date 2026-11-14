@@ -98,7 +98,6 @@ function textStyle(overrides: Partial<TextStyle>): TextStyle {
 		fontSource: { loaderId: "google", fontId: "Test" },
 		fontSize: 16,
 		fontWeight: 400,
-		fontStyle: "normal",
 		fill: null,
 		underline: false,
 		strikethrough: false,

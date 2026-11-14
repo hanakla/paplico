@@ -493,7 +493,6 @@ function textOn(id: string, pathObjectId: string): TextElement {
 		fontSource: { loaderId: "local", fontId: "sans-serif" },
 		fontSize: 16,
 		fontWeight: 400,
-		fontStyle: "normal",
 		fill: null,
 		underline: false,
 		strikethrough: false,

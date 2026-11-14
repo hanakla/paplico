@@ -60,6 +60,7 @@ type FakeInputProps = {
 	$side?: "start" | "end";
 	$delay?: number;
 	className?: string;
+	"aria-label"?: string;
 };
 
 export const FakeInput = memo(FakeInputRoot);
@@ -83,6 +84,7 @@ function FakeInputRoot({
 	$side,
 	$delay = 500,
 	className,
+	"aria-label": ariaLabel,
 }: FakeInputProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const rootRef = useRef<HTMLDivElement>(null);
@@ -106,6 +108,14 @@ function FakeInputRoot({
 	const isNumber = type === "number";
 
 	const displayText = value || placeholder || "";
+	const numericValue = value ? Number(value) : Number.NaN;
+	// An empty field, such as a mixed selection, has no number to scrub from,
+	// so it starts at min, or at 0 when the field has no finite min.
+	const scrubBase = Number.isFinite(numericValue)
+		? numericValue
+		: min !== undefined && Number.isFinite(min)
+			? min
+			: 0;
 
 	const finishEdit = useEventCallback(() => {
 		setIsEditing(false);
@@ -170,10 +180,9 @@ function FakeInputRoot({
 	// (long press / double click in default mode, a click in click mode).
 	const beginScrub = useEventCallback((e: React.PointerEvent) => {
 		if (!isNumber) return;
-		const base = Number(value);
 		scrubStart.current = {
 			x: e.clientX,
-			value: Number.isFinite(base) ? base : 0,
+			value: scrubBase,
 			fine: e.ctrlKey,
 		};
 		didScrub.current = false;
@@ -193,10 +202,9 @@ function FakeInputRoot({
 		// Rebase the anchor when Ctrl toggles mid-drag so the value doesn't jump
 		// from re-scaling the whole delta.
 		if (e.ctrlKey !== scrubStart.current.fine) {
-			const base = Number(value);
 			scrubStart.current = {
 				x: e.clientX,
-				value: Number.isFinite(base) ? base : 0,
+				value: scrubBase,
 				fine: e.ctrlKey,
 			};
 		}
@@ -299,6 +307,13 @@ function FakeInputRoot({
 		<Clickable
 			ref={rootRef}
 			className={root({ className })}
+			role={isNumber ? "spinbutton" : undefined}
+			aria-label={ariaLabel}
+			aria-valuenow={
+				isNumber && Number.isFinite(numericValue) ? numericValue : undefined
+			}
+			aria-valuemin={isNumber ? min : undefined}
+			aria-valuemax={isNumber ? max : undefined}
 			onClick={disabled || isClickMode ? handleClickPointerUp : undefined}
 			onKeyDown={handleKeydown}
 			onDoubleClick={disabled || isClickMode ? undefined : handleDoubleClick}

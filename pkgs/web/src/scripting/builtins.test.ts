@@ -272,7 +272,6 @@ function createTextStyle(fontWeight: number) {
 		fontSource: { loaderId: "local", fontId: "Inter" },
 		fontSize: 16,
 		fontWeight,
-		fontStyle: "normal" as const,
 		fill: null,
 		underline: false,
 		strikethrough: false,

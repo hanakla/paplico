@@ -58,6 +58,40 @@ import type { TextToolController } from "./TextToolController";
 import type { PointerEventData, Tool } from "./Tool";
 import type { ToolContext } from "./ToolContext";
 
+/** A value read from every selected run; mixed when the runs differ. */
+type SelectionValue<T> = { mixed: true } | { mixed: false; value: T };
+
+/** Styles of the selected text, as the text editing UI shows them. */
+export interface SelectionStyleSummary {
+	hasSelection: boolean;
+	style: { [K in keyof TextStyle]-?: SelectionValue<TextStyle[K]> };
+	/**
+	 * Effective coordinates of every axis of style.fontSource except wght,
+	 * which fontWeight holds. Empty while the font is mixed or not loaded.
+	 */
+	fontVariations: Record<string, SelectionValue<number>>;
+}
+
+/** Every TextStyle key, so a summary also reports keys no run has set. */
+const TEXT_STYLE_KEYS = Object.keys({
+	fontFamily: true,
+	fontSource: true,
+	fontSize: true,
+	fontWeight: true,
+	fontVariationSettings: true,
+	fill: true,
+	stroke: true,
+	strokeWidth: true,
+	underline: true,
+	strikethrough: true,
+	letterSpacing: true,
+	lineHeight: true,
+	baselineShift: true,
+	tateChuYoko: true,
+	textOrientation: true,
+	openTypeFeatures: true,
+} satisfies Record<keyof TextStyle, true>) as (keyof TextStyle)[];
+
 interface TextToolOptions {
 	controller: TextToolController | null;
 	defaultStyle: TextStyle;
@@ -80,10 +114,7 @@ interface TextToolOptions {
 		rotation?: number,
 	) => void;
 	/** Called when selection style info changes (for ActionsPanel) */
-	selectionStyleChange?: (
-		style: Partial<TextStyle> | null,
-		hasSelection: boolean,
-	) => void;
+	selectionStyleChange?: (summary: SelectionStyleSummary | null) => void;
 	/** Called when selection range changes (for selection rect calculation) */
 	selectionRangeChange?: (
 		textElement: TextElement,
@@ -286,8 +317,7 @@ export class TextTool implements Tool {
 			},
 			updateTextCursor: (cursorPos, x, y, fontSize, rotation) =>
 				context.updateTextCursor(cursorPos, x, y, fontSize, rotation),
-			selectionStyleChange: (style, hasSelection) =>
-				context.selectionStyleChange(style, hasSelection),
+			selectionStyleChange: (summary) => context.selectionStyleChange(summary),
 			selectionRangeChange: (textElement, startIndex, endIndex) =>
 				context.selectionRangeChange(textElement, startIndex, endIndex),
 			getCursorWorldPosition: (textElement, charIndex) =>
@@ -3181,17 +3211,10 @@ export class TextTool implements Tool {
 	 * Run境界で分割し、選択部分にスタイルを適用し、隣接同一スタイルRunを結合する
 	 */
 	public applyStyleToSelection(styleUpdates: Partial<TextStyle>): void {
-		this.mapSelectionStyle((style) => {
+		this.mapSelectionStyle(() => {
 			const updates = { ...styleUpdates };
 			if (updates.fontSource || updates.fontFamily) {
 				updates.fontVariationSettings = {};
-			} else if (updates.fontStyle !== undefined) {
-				updates.fontVariationSettings = {
-					...(style.fontVariationSettings ??
-						this.editState?.textElement.defaultStyle.fontVariationSettings),
-					...updates.fontVariationSettings,
-				};
-				delete updates.fontVariationSettings.ital;
 			}
 			return updates;
 		});
@@ -3209,27 +3232,42 @@ export class TextTool implements Tool {
 		});
 	}
 
-	/** Report effective per-axis values; undefined coordinates are mixed. */
-	public getSelectionFontVariations(): {
-		fontSource: FontSource | null;
-		values: Record<string, number | undefined>;
-	} | null {
+	/**
+	 * Report the selection style again, so axis values computed before the
+	 * selection's font finished loading pick up its axes.
+	 */
+	public refreshSelectionStyle(): void {
+		this.notifySelectionStyleChange();
+	}
+
+	/** Summarize the styles under the selection, or at the caret without one. */
+	public getSelectionStyleSummary(): SelectionStyleSummary | null {
 		const styles = this.getSelectionStyles();
 		if (styles.length === 0) return null;
-		const source = styles[0].fontSource;
-		if (!styles.every((style) => deepEqual(style.fontSource, source))) {
-			return { fontSource: null, values: {} };
-		}
-		const axes = this.context.getFontVariationAxes(source) ?? {};
-		const coordinates = styles.map((style) =>
-			resolveFontVariations(style, axes),
+		const style = Object.fromEntries(
+			TEXT_STYLE_KEYS.map((key) => [
+				key,
+				readSelectionValue(styles.map((runStyle) => runStyle[key])),
+			]),
+		) as SelectionStyleSummary["style"];
+		const axes = style.fontSource.mixed
+			? {}
+			: (this.context.getFontVariationAxes(style.fontSource.value) ?? {});
+		const coordinates = styles.map((runStyle) =>
+			resolveFontVariations(runStyle, axes),
 		);
-		const values: Record<string, number | undefined> = { ...coordinates[0] };
-		for (const tag of Object.keys(values)) {
-			if (!coordinates.every((value) => value[tag] === values[tag]))
-				values[tag] = undefined;
-		}
-		return { fontSource: source, values };
+		return {
+			hasSelection: !!this.editState?.selectionRange,
+			style,
+			fontVariations: Object.fromEntries(
+				Object.keys(axes)
+					.filter((tag) => tag !== "wght")
+					.map((tag) => [
+						tag,
+						readSelectionValue(coordinates.map((values) => values[tag])),
+					]),
+			),
+		};
 	}
 
 	private mapSelectionStyle(
@@ -3389,28 +3427,6 @@ export class TextTool implements Tool {
 			textElement.content.paragraphs[cursorPosition.paragraph]?.alignment ??
 			"left"
 		);
-	}
-
-	/**
-	 * 選択範囲の共通スタイルを取得
-	 */
-	private getSelectionStyle(): Partial<TextStyle> | null {
-		const styles = this.getSelectionStyles();
-		if (styles.length === 0) return null;
-
-		// 共通値を計算
-		const result: Partial<TextStyle> = { ...styles[0] };
-		const keys = Object.keys(result) as (keyof TextStyle)[];
-		for (const key of keys) {
-			for (let i = 1; i < styles.length; i++) {
-				if (!deepEqual(styles[i][key], result[key])) {
-					delete result[key];
-					break;
-				}
-			}
-		}
-
-		return result;
 	}
 
 	private getSelectionStyles(): TextStyle[] {
@@ -3575,12 +3591,7 @@ export class TextTool implements Tool {
 	 * 選択スタイル変更をコールバック通知
 	 */
 	private notifySelectionStyleChange(): void {
-		// getSelectionStyle() already covers both cases: the common style
-		// across a selection, or the caret's run style with any staged
-		// pendingCaretStyle merged on top when there is no selection.
-		const style = this.getSelectionStyle();
-		const hasSelection = !!this.editState?.selectionRange;
-		this.options.selectionStyleChange?.(style, hasSelection);
+		this.options.selectionStyleChange?.(this.getSelectionStyleSummary());
 	}
 
 	/**
@@ -3612,7 +3623,6 @@ export function createDefaultTextStyle(): TextStyle {
 		fontSource: { loaderId: "google", fontId: "Inter" },
 		fontSize: 24,
 		fontWeight: 400,
-		fontStyle: "normal",
 		fill: {
 			type: "solid",
 			color: createDefaultColor(),
@@ -3665,7 +3675,6 @@ function textStyleToCss(style: TextStyle): string {
 		`font-family: '${style.fontFamily.replaceAll("'", "")}'`,
 		`font-size: ${style.fontSize}px`,
 		`font-weight: ${style.fontWeight}`,
-		`font-style: ${style.fontStyle}`,
 	];
 	const variations = Object.entries(style.fontVariationSettings ?? {})
 		.filter(
@@ -3785,7 +3794,6 @@ function areStylesEqual(a: TextStyle, b: TextStyle): boolean {
 		a.fontFamily === b.fontFamily &&
 		a.fontSize === b.fontSize &&
 		a.fontWeight === b.fontWeight &&
-		a.fontStyle === b.fontStyle &&
 		a.underline === b.underline &&
 		a.strikethrough === b.strikethrough &&
 		a.letterSpacing === b.letterSpacing &&
@@ -3798,6 +3806,13 @@ function areStylesEqual(a: TextStyle, b: TextStyle): boolean {
 		a.lineHeight === b.lineHeight &&
 		(a.tateChuYoko ?? false) === (b.tateChuYoko ?? false)
 	);
+}
+
+function readSelectionValue<T>(values: T[]): SelectionValue<T> {
+	const [value] = values;
+	return values.every((other) => deepEqual(other, value))
+		? { mixed: false, value }
+		: { mixed: true };
 }
 
 /**

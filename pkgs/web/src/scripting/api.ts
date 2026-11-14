@@ -122,7 +122,6 @@ declare type TextStyle {
 	let fontFamily: String
 	let fontSize: Number
 	let fontWeight: Number
-	let fontStyle: String
 	let underline: Bool
 	let strikethrough: Bool
 	let letterSpacing: Number

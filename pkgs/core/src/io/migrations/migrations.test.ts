@@ -53,6 +53,8 @@ import { migSplitStrokeErasure } from "./20260925_mig_split_stroke_erasure";
 import { migFontSourceLoader } from "./20260927_mig_font_source_loader";
 import { migTransformOrigin } from "./20260929_mig_transform_origin";
 import { migCornerRadiusArc } from "./20261012_mig_corner_radius_arc";
+import { migGuideOnAnyElement } from "./20261112_mig_guide_on_any_element";
+import { migDropFontStyle } from "./20261115_mig_drop_font_style";
 import {
 	applyMigration,
 	applyMigrations,
@@ -2384,10 +2386,56 @@ describe("migGuideOnAnyElement (20261112)", () => {
 		const doc = makeDoc({ g1: group, p1: path }, 20261012);
 		const before = structuredClone(doc.objects);
 
-		applyMigrations(doc);
+		applyMigration(doc, migGuideOnAnyElement);
 
 		expect(doc.schemaVersion).toBe(20261112);
 		expect(doc.objects).toEqual(before);
+	});
+});
+
+describe("migDropFontStyle (20261115)", () => {
+	it("moves an italic style into the ital axis and removes fontStyle", () => {
+		const text = {
+			id: "t1",
+			type: "text",
+			defaultStyle: {
+				fontFamily: "Test",
+				fontStyle: "italic",
+				fontVariationSettings: { wdth: 80 },
+			},
+			content: {
+				paragraphs: [
+					{
+						runs: [
+							{ text: "a", style: { fontFamily: "Test" } },
+							{ text: "b", style: { fontFamily: "Test", fontStyle: "normal" } },
+							{
+								text: "c",
+								style: {
+									fontFamily: "Test",
+									fontStyle: "italic",
+									fontVariationSettings: { ital: 0 },
+								},
+							},
+						],
+					},
+				],
+			},
+		};
+		const doc = makeDoc({ t1: text }, 20261112);
+
+		applyMigration(doc, migDropFontStyle);
+
+		expect(doc.schemaVersion).toBe(20261115);
+		expect(text.defaultStyle).toEqual({
+			fontFamily: "Test",
+			fontVariationSettings: { wdth: 80, ital: 1 },
+		});
+		expect(text.content.paragraphs[0].runs.map((run) => run.style)).toEqual([
+			{ fontFamily: "Test", fontVariationSettings: { wdth: 80, ital: 1 } },
+			{ fontFamily: "Test" },
+			{ fontFamily: "Test", fontVariationSettings: { ital: 0 } },
+		]);
 	});
 });
 

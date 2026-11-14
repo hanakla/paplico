@@ -13,9 +13,11 @@ export const StrokeWidthField = memo(function StrokeWidthField({
 	max,
 	step,
 	range,
+	slider = true,
 	onValueChange,
 }: {
 	label: string;
+	/** Where the slider sits; the number field shows it unless `isMixed`. */
 	value: number;
 	isMixed?: boolean;
 	min: number;
@@ -23,6 +25,8 @@ export const StrokeWidthField = memo(function StrokeWidthField({
 	step: number;
 	/** If set, renders an InfiniteSlider (delta-based, works with an unbounded max) with this half-width window instead of a plain linear Slider. */
 	range?: number;
+	/** False leaves only the number field, which still changes the value by dragging. */
+	slider?: boolean;
 	onValueChange: (value: number) => void;
 }) {
 	const t = useTranslation();
@@ -40,9 +44,8 @@ export const StrokeWidthField = memo(function StrokeWidthField({
 	const handleInputChange = useEventCallback((val: string | undefined) => {
 		if (!val) return;
 		const parsed = Number.parseFloat(val);
-		if (!Number.isNaN(parsed) && parsed > 0) {
-			onValueChange(roundToStep(parsed, step));
-		}
+		if (!Number.isFinite(parsed)) return;
+		onValueChange(roundToStep(Math.min(max, Math.max(min, parsed)), step));
 	});
 
 	const clearLongPress = useEventCallback(() => {
@@ -96,40 +99,43 @@ export const StrokeWidthField = memo(function StrokeWidthField({
 					value={isMixed ? undefined : formattedValue}
 					onChange={handleInputChange}
 					placeholder={isMixed ? t("actionsPanel.mixedBracket") : undefined}
+					aria-label={label}
 				/>
 			</div>
-			<div
-				ref={anchorRef}
-				className="px-1"
-				onPointerDown={handlePointerDown}
-				onPointerMove={handlePointerMove}
-				onPointerUp={handlePointerUp}
-				onPointerLeave={clearLongPress}
-			>
-				{range != null ? (
-					<InfiniteSlider
-						min={min}
-						max={max}
-						range={range}
-						step={step}
-						value={isMixed ? min : value}
-						onValueChange={handleSliderChange}
-						className="w-full"
-						aria-labelledby={labelId}
-						valueText={formattedValue}
-					/>
-				) : (
-					<Slider
-						min={min}
-						max={max}
-						step={step}
-						value={isMixed ? min : value}
-						onValueChange={handleSliderChange}
-						className="w-full"
-						aria-labelledby={labelId}
-					/>
-				)}
-			</div>
+			{slider && (
+				<div
+					ref={anchorRef}
+					className="px-1"
+					onPointerDown={handlePointerDown}
+					onPointerMove={handlePointerMove}
+					onPointerUp={handlePointerUp}
+					onPointerLeave={clearLongPress}
+				>
+					{range != null ? (
+						<InfiniteSlider
+							min={min}
+							max={max}
+							range={range}
+							step={step}
+							value={value}
+							onValueChange={handleSliderChange}
+							className="w-full"
+							aria-labelledby={labelId}
+							valueText={formattedValue}
+						/>
+					) : (
+						<Slider
+							min={min}
+							max={max}
+							step={step}
+							value={value}
+							onValueChange={handleSliderChange}
+							className="w-full"
+							aria-labelledby={labelId}
+						/>
+					)}
+				</div>
+			)}
 
 			{overlayOpen && (
 				<SliderOverlay
@@ -138,7 +144,7 @@ export const StrokeWidthField = memo(function StrokeWidthField({
 					max={max}
 					step={step}
 					range={range}
-					value={isMixed ? min : value}
+					value={value}
 					formattedValue={formattedValue}
 					onValueChange={(val: number) => {
 						overlayValueChanged.current = true;

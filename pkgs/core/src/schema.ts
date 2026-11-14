@@ -1326,12 +1326,19 @@ export interface FontSource {
  */
 export interface TextStyle {
 	fontFamily: string;
+	/**
+	 * The face text is drawn with. An italic or bold face is chosen by naming
+	 * that face here; no other field slants or thickens the glyphs.
+	 */
 	fontSource: FontSource;
 	fontSize: number; // px
-	fontWeight: number; // Variable fonts use their declared weight range.
-	/** Explicit variable coordinates other than wght, which is stored in fontWeight. */
+	/** The wght coordinate of a variable font. A face without a wght axis draws at its own weight. */
+	fontWeight: number;
+	/**
+	 * Explicit variable coordinates other than wght, which fontWeight holds.
+	 * A variable font's italic is its ital coordinate here.
+	 */
 	fontVariationSettings?: Record<string, number>;
-	fontStyle: "normal" | "italic" | "oblique";
 	fill: FillColor | null;
 	stroke?: StrokeColor | null;
 	strokeWidth?: number;

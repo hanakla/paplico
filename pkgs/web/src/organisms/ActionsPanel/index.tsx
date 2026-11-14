@@ -114,8 +114,10 @@ export function ActionsPanel() {
 				) : isCharTouchMode ||
 					(isTextTool && !hasSelection && !isTextEditing) ? (
 					<div className="flex flex-col gap-3 w-full">
-						<FontFamilyControl />
-						<FontSizeControl />
+						<div className="flex flex-col gap-1.5">
+							<FontFamilyControl />
+							<FontSizeControl />
+						</div>
 						<div className="flex gap-2">
 							<AlignmentControl />
 							<WritingModeControl />

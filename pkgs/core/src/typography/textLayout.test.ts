@@ -24,7 +24,6 @@ function makeTextElement(overrides: Partial<TextElement> = {}): TextElement {
 		fontSource: { loaderId: "local", fontId: NOTO_SANS_JP_POST_SCRIPT_NAME },
 		fontSize: 24,
 		fontWeight: 400,
-		fontStyle: "normal" as const,
 		fill: null,
 		underline: false,
 		strikethrough: false,

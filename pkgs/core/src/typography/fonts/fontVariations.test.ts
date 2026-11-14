@@ -41,28 +41,21 @@ describe("variable coordinates", () => {
 		expect(style.fontWeight).toBe(400);
 	});
 
-	it("ignores a non-finite ital coordinate and uses the font style", () => {
-		expect(
-			resolveFontVariations(
-				{
-					...createDefaultTextStyle(),
-					fontStyle: "italic",
-					fontVariationSettings: { ital: Number.NaN },
-				},
-				axes(),
-			).ital,
-		).toBe(1);
-	});
-
-	it("resets only the chosen axis including the italic style fallback", () => {
+	it("uses the axis default for a non-finite ital coordinate", () => {
 		const style = {
 			...createDefaultTextStyle(),
-			fontStyle: "italic" as const,
+			fontVariationSettings: { ital: Number.NaN },
+		};
+		expect(resolveFontVariations(style, axes()).ital).toBe(0);
+	});
+
+	it("resets only the chosen axis", () => {
+		const style = {
+			...createDefaultTextStyle(),
 			fontVariationSettings: { wdth: 80, ital: 1 },
 		};
 		const next = updateFontVariation(style, axes(), "ital", null);
 		expect(next.fontVariationSettings).toEqual({ wdth: 80 });
-		expect(next.fontStyle).toBe("normal");
 		expect(updateFontVariation(next, axes(), "wght", null).fontWeight).toBe(
 			300,
 		);

@@ -38,7 +38,7 @@ describe("FontWeightControl", () => {
 	it.each([
 		false,
 		true,
-	])("keeps the panel label hidden for variable=%s", (isVariable) => {
+	])("shows the panel label only on the variable slider for variable=%s", (isVariable) => {
 		variable = isVariable;
 		const view = render(
 			<>
@@ -54,7 +54,7 @@ describe("FontWeightControl", () => {
 		const context = within(view.getByRole("region", { name: "context" }));
 		const role = isVariable ? "spinbutton" : "combobox";
 
-		expect(panel.queryByText("actionsPanel.weight")).toBeNull();
+		expect(Boolean(panel.queryByText("actionsPanel.weight"))).toBe(isVariable);
 		expect(panel.getByRole(role, { name: "actionsPanel.weight" })).toBeTruthy();
 		expect(context.getByText("actionsPanel.weight")).toBeTruthy();
 	});

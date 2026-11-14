@@ -486,7 +486,6 @@ describe("InMemoryCollaboration", () => {
 										fontSource: { loaderId: "local", fontId: "ArialMT" },
 										fontSize: 16,
 										fontWeight: 400,
-										fontStyle: "normal" as const,
 										fill: {
 											type: "solid" as const,
 											color: {
@@ -517,7 +516,6 @@ describe("InMemoryCollaboration", () => {
 					fontSource: { loaderId: "local", fontId: "ArialMT" },
 					fontSize: 16,
 					fontWeight: 400,
-					fontStyle: "normal" as const,
 					fill: {
 						type: "solid" as const,
 						color: { type: "rgb" as const, r: 0, g: 0, b: 0, a: 1 },

@@ -545,7 +545,6 @@ describe("objectToStoredFields ↔ yMapToObject round-trip", () => {
 									fontSource: { loaderId: "local", fontId: "ArialMT" },
 									fontSize: 16,
 									fontWeight: 400,
-									fontStyle: "normal",
 									fill: {
 										type: "solid",
 										color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
@@ -570,7 +569,6 @@ describe("objectToStoredFields ↔ yMapToObject round-trip", () => {
 				fontSource: { loaderId: "local", fontId: "ArialMT" },
 				fontSize: 16,
 				fontWeight: 400,
-				fontStyle: "normal" as const,
 				fill: {
 					type: "solid" as const,
 					color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 },
@@ -729,7 +727,6 @@ function populateFullDocument(ydoc: Y.Doc) {
 				fontSource: { loaderId: "local", fontId: "ArialMT" },
 				fontSize: 16,
 				fontWeight: 400,
-				fontStyle: "normal",
 				fill: { type: "solid", color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 } },
 				letterSpacing: 0,
 				lineHeight: 1.2,

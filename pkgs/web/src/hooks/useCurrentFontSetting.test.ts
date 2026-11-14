@@ -2,8 +2,11 @@ import {
 	createDefaultColor,
 	createDefaultTransform,
 } from "@paplico/core/document";
-import type { TextElement } from "@paplico/core/schema";
-import { defaultTextEditState } from "@paplico/core/tools";
+import type { TextElement, TextStyle } from "@paplico/core/schema";
+import {
+	defaultTextEditState,
+	type SelectionStyleSummary,
+} from "@paplico/core/tools";
 import type { FontMetadata } from "@paplico/core/typography";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { proxy } from "valtio";
@@ -38,7 +41,9 @@ describe("useActiveFontSettings", () => {
 			...defaultTextEditState,
 			isEditing: true,
 			elementId: "text-1",
-			selectionStyle: paplico.uiState.document.objects["text-1"].defaultStyle,
+			selectionStyle: summarize(
+				paplico.uiState.document.objects["text-1"].defaultStyle,
+			),
 		};
 		const { result } = renderHook(() => useActiveFontSettings());
 		await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -108,7 +113,9 @@ describe("useActiveFontSettings", () => {
 			...defaultTextEditState,
 			isEditing: true,
 			elementId: "text-1",
-			selectionStyle: paplico.uiState.document.objects["text-1"].defaultStyle,
+			selectionStyle: summarize(
+				paplico.uiState.document.objects["text-1"].defaultStyle,
+			),
 		};
 		const { result } = renderHook(() => useActiveFontSettings());
 		await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -146,7 +153,9 @@ describe("useActiveFontSettings", () => {
 			...defaultTextEditState,
 			isEditing: true,
 			elementId: "text-1",
-			selectionStyle: paplico.uiState.document.objects["text-1"].defaultStyle,
+			selectionStyle: summarize(
+				paplico.uiState.document.objects["text-1"].defaultStyle,
+			),
 		};
 		const { result } = renderHook(() => useActiveFontSettings());
 		await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -203,7 +212,6 @@ function makeTextElement(): TextElement {
 		fontSource: { loaderId: "local", fontId: "HiraginoSans-W2" },
 		fontSize: 24,
 		fontWeight: 200,
-		fontStyle: "normal",
 		fill: { type: "solid", color: createDefaultColor() },
 		underline: false,
 		strikethrough: false,
@@ -237,5 +245,19 @@ function makeTextElement(): TextElement {
 			overflow: "visible",
 			wordWrap: false,
 		},
+	};
+}
+
+/** A caret summary, where every key holds the run's own value. */
+function summarize(style: TextStyle): SelectionStyleSummary {
+	return {
+		hasSelection: false,
+		style: Object.fromEntries(
+			Object.entries(style).map(([key, value]) => [
+				key,
+				{ mixed: false, value },
+			]),
+		) as SelectionStyleSummary["style"],
+		fontVariations: {},
 	};
 }

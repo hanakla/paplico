@@ -8,6 +8,7 @@
   - Add the `hue`, `saturation`, `color` and `luminosity` blend modes.
 - **Text**
   - A text style takes `textOrientation`. `"mixed"` lays Latin and other proportional characters on their side in vertical writing.
+  - `SelectionStyleSummary.fontVariations` holds the variable font axis values of the selected text. It updates when the font of the selection finishes loading.
 - **Repeat**
   - A grid repeat takes `rowFlip` and `columnFlip`, which mirror every other row or column.
 - **Gradients**
@@ -54,11 +55,16 @@
 ### Changed
 
 - **Breaking API changes**
+  - `TextStyle.fontStyle` is removed. Choose an italic face with `fontSource`, or set `ital` in `fontVariationSettings` instead.
+  - `TextEditState.selectionStyle` is a `SelectionStyleSummary`. Each style key holds `{ mixed: true }` or `{ mixed: false, value }` instead of being left out when the selected runs differ.
+  - `TextEditState.hasSelection` moved to `SelectionStyleSummary.hasSelection`.
+  - `TextToolController.updateSelectionStyle` takes one `SelectionStyleSummary` instead of a style and `hasSelection`.
   - `TextRenderer.textElementToPaths` returns `bounds` as a `LocalBBox` instead of a `WorldBBox`. The bounds include the text's position but not its transform.
   - `TimelapsePlayer.seekTo`, `advanceBy`, `skipBy` and `restart` return Promises.
   - A timelapse read from a file keeps every block but the last in `TimelapseData.packedBlocks` instead of in `entries`.
 - **Documents**
-  - A document is saved at schema version 20261112. A build older than guides on every element type refuses to open it instead of drawing its guides as artwork.
+  - A document is saved at schema version 20261115. A build older than guides on every element type refuses to open it instead of drawing its guides as artwork.
+  - Opening an older document moves an italic text style into the `ital` coordinate of `fontVariationSettings`, so a variable font with an `ital` axis keeps its italic.
 - **Renderer**
   - Panning a zoomed-in document no longer stalls every few frames.
   - The frame after a pan ends no longer stalls.

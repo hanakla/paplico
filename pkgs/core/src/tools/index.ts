@@ -4,6 +4,7 @@ export {
 	getCameraOrbitAngles,
 	Reference3DTool,
 } from "./Reference3DTool";
+export type { SelectionStyleSummary } from "./TextTool";
 export {
 	defaultTextEditState,
 	type TextEditState,

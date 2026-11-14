@@ -57,11 +57,38 @@ describe("text variation editing", () => {
 			{ wdth: 100, slnt: -5 },
 			{ wdth: 100, slnt: -10 },
 		]);
-		expect(tool.getSelectionFontVariations()?.values).toMatchObject({
-			wdth: 100,
-			slnt: undefined,
-			wght: 400,
+		const summary = tool.getSelectionStyleSummary();
+		expect(summary?.fontVariations).toMatchObject({
+			wdth: { mixed: false, value: 100 },
+			slnt: { mixed: true },
 		});
+		expect(summary?.fontVariations.wght).toBeUndefined();
+		expect(summary?.style.fontWeight).toEqual({ mixed: false, value: 400 });
+	});
+
+	it("reports the selection's axis values again once its font has loaded", () => {
+		let loaded = false;
+		const selectionStyleChange = vi.fn();
+		const loadingTool = new TextTool(
+			createMockToolContext({
+				getFontVariationAxes: (source) =>
+					loaded ? getFontVariationAxes(source) : undefined,
+				selectionStyleChange,
+			}),
+			{ defaultStyle: element.defaultStyle },
+		);
+		loadingTool.enterEditModeForElement(element);
+		loadingTool.selectAll();
+		expect(selectionStyleChange.mock.calls.at(-1)?.[0]?.fontVariations).toEqual(
+			{},
+		);
+
+		loaded = true;
+		loadingTool.refreshSelectionStyle();
+
+		expect(
+			selectionStyleChange.mock.calls.at(-1)?.[0]?.fontVariations,
+		).toMatchObject({ wdth: { mixed: true } });
 	});
 
 	it("splits the selected text and leaves the rest at its original weight", () => {
@@ -80,7 +107,9 @@ describe("text variation editing", () => {
 		element.defaultStyle.fontVariationSettings = { wdth: 70, slnt: -4 };
 		delete element.content.paragraphs[0].runs[0].style.fontVariationSettings;
 		tool.selectAll();
-		expect(tool.getSelectionFontVariations()?.values.wdth).toBeUndefined();
+		expect(tool.getSelectionStyleSummary()?.fontVariations.wdth).toEqual({
+			mixed: true,
+		});
 		tool.changeSelectionFontVariation("wght", 600);
 		expect(
 			element.content.paragraphs[0].runs.map(
@@ -112,7 +141,10 @@ describe("text variation editing", () => {
 				(run) => run.style.fontVariationSettings,
 			),
 		).toEqual([{ slnt: -5 }, { slnt: -10 }]);
-		expect(tool.getSelectionFontVariations()?.values.wdth).toBe(100);
+		expect(tool.getSelectionStyleSummary()?.fontVariations.wdth).toEqual({
+			mixed: false,
+			value: 100,
+		});
 	});
 
 	it("clears font-specific coordinates when changing font", () => {
@@ -127,16 +159,6 @@ describe("text variation editing", () => {
 		).toEqual({});
 	});
 
-	it("preserves inherited width when italic clears an explicit ital coordinate", () => {
-		element.defaultStyle.fontVariationSettings = { wdth: 70, ital: 1 };
-		delete element.content.paragraphs[0].runs[0].style.fontVariationSettings;
-		tool.selectAll();
-		tool.applyStyleToSelection({ fontStyle: "italic" });
-		expect(
-			element.content.paragraphs[0].runs[0].style.fontVariationSettings,
-		).toEqual({ wdth: 70 });
-	});
-
 	it("does not merge an inherited map with an explicit empty map", () => {
 		element.defaultStyle.fontVariationSettings = { wdth: 70 };
 		delete element.content.paragraphs[0].runs[0].style.fontVariationSettings;
@@ -144,7 +166,9 @@ describe("text variation editing", () => {
 		tool.selectAll();
 		tool.applyStyleToSelection({ fontWeight: 700 });
 		expect(element.content.paragraphs[0].runs).toHaveLength(2);
-		expect(tool.getSelectionFontVariations()?.values.wdth).toBeUndefined();
+		expect(tool.getSelectionStyleSummary()?.fontVariations.wdth).toEqual({
+			mixed: true,
+		});
 	});
 
 	it("detects different faces even when the family names match", () => {
@@ -153,7 +177,17 @@ describe("text variation editing", () => {
 			fontId: "Another face",
 		};
 		tool.selectAll();
-		expect(tool.getSelectionFontVariations()?.fontSource).toBeNull();
+		const summary = tool.getSelectionStyleSummary();
+		expect(summary?.style.fontSource).toEqual({ mixed: true });
+		expect(summary?.fontVariations).toEqual({});
+	});
+
+	it("reports a key no run has set as one shared undefined value", () => {
+		tool.selectAll();
+		expect(tool.getSelectionStyleSummary()?.style.textOrientation).toEqual({
+			mixed: false,
+			value: undefined,
+		});
 	});
 
 	it("preserves coordinates through edit persistence, undo, peer sync and PAPF", async () => {

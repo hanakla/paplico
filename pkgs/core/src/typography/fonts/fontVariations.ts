@@ -16,11 +16,7 @@ export function resolveFontVariations(
 				? style.fontWeight
 				: explicit !== undefined && Number.isFinite(explicit)
 					? explicit
-					: tag === "ital"
-						? style.fontStyle === "italic"
-							? 1
-							: 0
-						: axis.default;
+					: axis.default;
 		values[tag] = Number.isFinite(requested)
 			? Math.max(axis.min, Math.min(axis.max, requested))
 			: axis.default;
@@ -48,16 +44,7 @@ export function updateFontVariation(
 	}
 	if (value === null) delete settings[tag];
 	else settings[tag] = Math.max(axis.min, Math.min(axis.max, value));
-	return {
-		...style,
-		fontVariationSettings: settings,
-		...(tag === "ital" && value === null
-			? {
-					fontStyle:
-						axis.default === 0 ? ("normal" as const) : ("italic" as const),
-				}
-			: {}),
-	};
+	return { ...style, fontVariationSettings: settings };
 }
 
 /** Canonical order makes equivalent coordinates share an instance. */

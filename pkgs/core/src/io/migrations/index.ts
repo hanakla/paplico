@@ -21,6 +21,7 @@ import { migFontSourceLoader } from "./20260927_mig_font_source_loader";
 import { migTransformOrigin } from "./20260929_mig_transform_origin";
 import { migCornerRadiusArc } from "./20261012_mig_corner_radius_arc";
 import { migGuideOnAnyElement } from "./20261112_mig_guide_on_any_element";
+import { migDropFontStyle } from "./20261115_mig_drop_font_style";
 import type { MigrationContext } from "./context";
 
 export interface Migration {
@@ -62,6 +63,7 @@ const migrations: Migration[] = [
 	migTransformOrigin,
 	migCornerRadiusArc,
 	migGuideOnAnyElement,
+	migDropFontStyle,
 ];
 
 /** Schema version a document has once every migration ran. */

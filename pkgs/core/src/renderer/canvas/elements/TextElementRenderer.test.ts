@@ -747,7 +747,6 @@ function createTextElement(rotateParams: Rotate3DParams): TextElement {
 			fontSource: { loaderId: "google", fontId: "Inter" },
 			fontSize: 10,
 			fontWeight: 400,
-			fontStyle: "normal",
 			fill: null,
 			stroke: null,
 			strokeWidth: 1,

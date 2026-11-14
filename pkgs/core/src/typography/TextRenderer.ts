@@ -353,7 +353,7 @@ export class TextRenderer {
 	 */
 	public computeTextCacheKey(element: TextElement): string {
 		const s = element.defaultStyle;
-		const base = `${element.id}:${JSON.stringify(element.content)}:${s.fontFamily}:${JSON.stringify(s.fontSource)}:${JSON.stringify(s.fontVariationSettings ?? {})}:${s.fontSize}:${s.fontWeight}:${s.fontStyle}:${s.letterSpacing}:${s.lineHeight ?? ""}:${JSON.stringify(element.layout)}:${this.boundGeometryKeyOf(element)}`;
+		const base = `${element.id}:${JSON.stringify(element.content)}:${s.fontFamily}:${JSON.stringify(s.fontSource)}:${JSON.stringify(s.fontVariationSettings ?? {})}:${s.fontSize}:${s.fontWeight}:${s.letterSpacing}:${s.lineHeight ?? ""}:${JSON.stringify(element.layout)}:${this.boundGeometryKeyOf(element)}`;
 		const chain = this.resolveFlowChain(element);
 		if (!chain) return base;
 		const signature = [

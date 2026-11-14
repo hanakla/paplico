@@ -31,7 +31,6 @@ import type {
 	StrokeAppearance,
 	StrokeColor,
 	TextElement,
-	TextStyle,
 	Vec2,
 	Viewport,
 } from "../schema";
@@ -42,6 +41,7 @@ import type { AxisFlip } from "../utils/geometry/reshape/resize";
 import type { WorldBezierSegment } from "../utils/geometry/space/coordinates";
 import type { SelectionFrame } from "../utils/geometry/space/selectionFrame";
 import type { Reference3DController } from "./Reference3DController";
+import type { SelectionStyleSummary } from "./TextTool";
 import type { TextToolController } from "./TextToolController";
 import type { BucketFillLeakState } from "./toolSettings";
 
@@ -316,10 +316,7 @@ export type ToolContextOptions = {
 		fontSize?: number,
 		rotation?: number,
 	) => void;
-	selectionStyleChange: (
-		style: Partial<TextStyle> | null,
-		hasSelection: boolean,
-	) => void;
+	selectionStyleChange: (summary: SelectionStyleSummary | null) => void;
 	selectionRangeChange: (
 		textElement: TextElement,
 		startIndex: number,

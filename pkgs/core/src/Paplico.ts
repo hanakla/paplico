@@ -909,12 +909,13 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.buildReference3DRenderContext(),
 		);
 
-		// Re-evaluate font-missing outlines once a still-loading font arrives, so
-		// the red box clears itself when the font finally becomes available.
+		// Re-evaluate font-missing outlines and the selection's axis values once a
+		// still-loading font arrives, so neither stays on the not-yet-loaded state.
 		this.fonts.on("fontLoaded", () => {
 			if (this.currentToolType === "text") {
 				this.scheduleFontMissingOutlineRefresh();
 			}
+			if (this.tool instanceof TextTool) this.tool.refreshSelectionStyle();
 		});
 
 		// Add initial canvas as primary target
@@ -3238,8 +3239,8 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			updateTextCursor: (_cursorPos, x, y, fontSize, rotation) => {
 				this.textToolController?.updateTextCursor(x, y, fontSize, rotation);
 			},
-			selectionStyleChange: (style, hasSelection) => {
-				this.textToolController?.updateSelectionStyle(style, hasSelection);
+			selectionStyleChange: (summary) => {
+				this.textToolController?.updateSelectionStyle(summary);
 			},
 			selectionRangeChange: async (textElement, startIndex, endIndex) => {
 				const controller = this.textToolController;

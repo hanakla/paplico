@@ -1,36 +1,32 @@
 import { Ellipsis } from "lucide-react";
-import { useEffect, useState } from "react";
-import { subscribe } from "valtio";
+import { useEffect, useMemo, useState } from "react";
+import { useSnapshot } from "valtio";
 import { IconButton } from "@/components/IconButton";
 import { Popover } from "@/components/Popover";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
+import { useFontList } from "@/hooks/useCurrentFontSetting";
 import { useTranslation } from "@/locales";
 import { FontVariationAxisControl } from "@/organisms/TextControls/FontVariationAxisControl";
 import { FontWeightControl } from "@/organisms/TextControls/FontWeightControl";
 import { uiState } from "@/stores/uiStore";
-import { useEventCallback } from "@/utils/hooks";
 
 export function FontVariationPopover() {
 	const t = useTranslation();
 	const paplico = usePaplico();
 	const manager = paplico.fonts;
 	const [open, setOpen] = useState(false);
-	const [, refresh] = useState(0);
 	const [loadError, setLoadError] = useState(false);
-	const tool = paplico.textToolController?.getTextTool();
-	const selection = tool?.getSelectionFontVariations();
-	const source = selection?.fontSource;
-	const axes = source ? manager.getVariationAxes(source) : undefined;
+	const selection = useSnapshot(uiState).textEditState.selectionStyle;
+	const { loadedVersion } = useFontList(manager);
+	const fontSource = selection?.style.fontSource;
+	const source = fontSource && !fontSource.mixed ? fontSource.value : undefined;
 	const sourceKey = JSON.stringify(source);
-
-	useEffect(() => {
-		if (!open) return;
-		// Selection summaries can stay mixed while individual coordinates change.
-		return subscribe(uiState.textEditState, () =>
-			refresh((version) => version + 1),
-		);
-	}, [open]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: loadedVersion refreshes axes after the font is parsed.
+	const axes = useMemo(
+		() => (source ? manager.getVariationAxes(source) : undefined),
+		[source, manager, loadedVersion],
+	);
 
 	useEffect(() => {
 		if (!open || !sourceKey) return;
@@ -42,9 +38,7 @@ export function FontVariationPopover() {
 		void manager
 			.loadFont(fontSource)
 			.then((font) => {
-				if (!active) return;
-				setLoadError(!font);
-				refresh((version) => version + 1);
+				if (active) setLoadError(!font);
 			})
 			.catch(() => {
 				if (active) setLoadError(true);
@@ -53,11 +47,6 @@ export function FontVariationPopover() {
 			active = false;
 		};
 	}, [open, sourceKey, manager]);
-
-	const changeAxis = useEventCallback((tag: string, value: number | null) => {
-		tool?.changeSelectionFontVariation(tag, value);
-		refresh((version) => version + 1);
-	});
 
 	return (
 		<Popover.Root open={open} onOpenChange={setOpen}>
@@ -107,18 +96,26 @@ export function FontVariationPopover() {
 						) : (
 							Object.entries(axes)
 								.filter(([tag]) => tag !== "wght")
-								.map(
-									([tag, axis]) =>
+								.map(([tag, axis]) => {
+									const current = selection?.fontVariations[tag];
+									return (
 										axis && (
 											<FontVariationAxisControl
 												key={`${sourceKey}:${tag}`}
 												tag={tag}
 												axis={axis}
-												value={selection?.values[tag]}
-												onChange={(value) => changeAxis(tag, value)}
+												value={
+													current && !current.mixed ? current.value : undefined
+												}
+												onChange={(value) =>
+													paplico.textToolController
+														?.getTextTool()
+														?.changeSelectionFontVariation(tag, value)
+												}
 											/>
-										),
-								)
+										)
+									);
+								})
 						)}
 					</div>
 				</fieldset>

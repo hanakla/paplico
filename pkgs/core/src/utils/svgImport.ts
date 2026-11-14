@@ -58,7 +58,6 @@ const INHERITED_PROPS = [
 	"font-family",
 	"font-size",
 	"font-weight",
-	"font-style",
 	"letter-spacing",
 	"text-anchor",
 	"writing-mode",
@@ -1401,7 +1400,6 @@ function createBaseTextStyle(): TextStyle {
 		fontSource: { loaderId: "google", fontId: "Inter" },
 		fontSize: 16,
 		fontWeight: 400,
-		fontStyle: "normal",
 		fill: { type: "solid", color: createDefaultColor() },
 		underline: false,
 		strikethrough: false,
@@ -1421,13 +1419,6 @@ function applyTextStyle(
 
 	const weight = parseSvgFontWeight(getProp("font-weight"));
 	if (weight !== null) style.fontWeight = weight;
-
-	const fontStyle = getProp("font-style")?.trim().toLowerCase();
-	if (fontStyle === "italic" || fontStyle === "oblique") {
-		style.fontStyle = fontStyle;
-	} else if (fontStyle === "normal") {
-		style.fontStyle = "normal";
-	}
 
 	const family = cleanFontFamily(getProp("font-family"));
 	if (family) style.fontFamily = family;

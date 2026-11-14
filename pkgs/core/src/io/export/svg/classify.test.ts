@@ -72,7 +72,6 @@ const textStyle = (partial: Partial<TextStyle> = {}): TextStyle => ({
 	fontSource: { loaderId: "google", fontId: "Test" },
 	fontSize: 16,
 	fontWeight: 400,
-	fontStyle: "normal",
 	fill: { type: "solid", color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 } },
 	underline: false,
 	strikethrough: false,

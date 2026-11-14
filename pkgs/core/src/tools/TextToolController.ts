@@ -1,6 +1,5 @@
 import type { TextEditUIData } from "../renderer/ui/types";
-import type { TextStyle } from "../schema";
-import type { TextTool } from "./TextTool";
+import type { SelectionStyleSummary, TextTool } from "./TextTool";
 
 /** Selection rectangle in world coordinates */
 interface SelectionRect {
@@ -24,8 +23,8 @@ export interface TextEditState {
 	cursorHeight: number;
 	cursorVisible: boolean;
 	writingMode: "horizontal-tb" | "vertical-rl" | "vertical-lr";
-	selectionStyle: Partial<TextStyle> | null;
-	hasSelection: boolean;
+	/** Null while nothing is edited, or the caret has no run to read. */
+	selectionStyle: SelectionStyleSummary | null;
 	selectionRects: SelectionRect[];
 	/** Element transform rotation in radians (for CSS rotation of cursor/selection) */
 	elementRotation: number;
@@ -42,7 +41,6 @@ export const defaultTextEditState: TextEditState = {
 	cursorVisible: true,
 	writingMode: "horizontal-tb",
 	selectionStyle: null,
-	hasSelection: false,
 	selectionRects: [],
 	elementRotation: 0,
 	cursorRotation: 0,
@@ -103,7 +101,6 @@ export class TextToolController {
 		this.state.cursorVisible = true;
 		this.state.writingMode = writingMode;
 		this.state.selectionStyle = null;
-		this.state.hasSelection = false;
 		this.state.selectionRects = [];
 		this.state.elementRotation = elementRotation;
 		this.state.cursorRotation = 0;
@@ -123,7 +120,6 @@ export class TextToolController {
 		this.state.cursorVisible = true;
 		this.state.writingMode = "horizontal-tb";
 		this.state.selectionStyle = null;
-		this.state.hasSelection = false;
 		this.state.selectionRects = [];
 		this.state.elementRotation = 0;
 		this.state.cursorRotation = 0;
@@ -178,12 +174,8 @@ export class TextToolController {
 		this.syncTextEditUI();
 	}
 
-	public updateSelectionStyle(
-		style: Partial<TextStyle> | null,
-		hasSelection: boolean,
-	): void {
-		this.state.selectionStyle = style;
-		this.state.hasSelection = hasSelection;
+	public updateSelectionStyle(summary: SelectionStyleSummary | null): void {
+		this.state.selectionStyle = summary;
 		this.syncTextEditUI();
 	}
 

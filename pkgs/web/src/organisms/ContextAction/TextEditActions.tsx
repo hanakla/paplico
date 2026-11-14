@@ -1,5 +1,5 @@
 import { createDefaultColor } from "@paplico/core/document";
-import type { Color, TextStyle } from "@paplico/core/schema";
+import type { Color } from "@paplico/core/schema";
 import {
 	Check,
 	ClipboardPaste,
@@ -47,11 +47,10 @@ export function TextEditActions() {
 		handleFontSizeChange,
 	} = useActiveFontSettings();
 	const { previewReady, previewRef } = useFontPreview();
-	const textSelectionStyle = uiSnap.textEditState
-		.selectionStyle as Partial<TextStyle> | null;
+	const textFill = uiSnap.textEditState.selectionStyle?.style.fill;
 	const textFillColor =
-		textSelectionStyle?.fill?.type === "solid"
-			? (textSelectionStyle.fill.color as Color)
+		textFill && !textFill.mixed && textFill.value?.type === "solid"
+			? (textFill.value.color as Color)
 			: null;
 
 	const handleTextFontSizeInput = useEventCallback(

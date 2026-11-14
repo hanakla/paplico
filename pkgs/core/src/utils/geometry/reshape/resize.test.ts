@@ -60,7 +60,6 @@ function makeTextStyle(overrides: Partial<TextStyle> = {}): TextStyle {
 		fontSource: { loaderId: "google", fontId: "Arial" },
 		fontSize: 24,
 		fontWeight: 400,
-		fontStyle: "normal",
 		fill: { type: "solid", color: { type: "rgb", r: 0, g: 0, b: 0, a: 1 } },
 		underline: false,
 		strikethrough: false,
@@ -512,14 +511,12 @@ describe("scaleTextStyle", () => {
 		const style = makeTextStyle({
 			fontFamily: "Noto Sans JP",
 			fontWeight: 700,
-			fontStyle: "italic",
 			letterSpacing: 0.05,
 			underline: true,
 		});
 		const result = scaleTextStyle(style, 2);
 		expect(result.fontFamily).toBe("Noto Sans JP");
 		expect(result.fontWeight).toBe(700);
-		expect(result.fontStyle).toBe("italic");
 		expect(result.letterSpacing).toBe(0.05);
 		expect(result.underline).toBe(true);
 	});

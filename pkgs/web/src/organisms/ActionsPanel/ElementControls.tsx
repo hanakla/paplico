@@ -22,8 +22,6 @@ import { memo } from "react";
 import { useSnapshot } from "valtio";
 import { DashPatternControls } from "@/components/DashPatternControls";
 import { IconButton } from "@/components/IconButton";
-import { Input } from "@/components/Input";
-import { Slider } from "@/components/Slider";
 import { StrokeGeometryFields } from "@/components/StrokeGeometryFields";
 import { Tooltip } from "@/components/Tooltip";
 import { usePaplico } from "@/contexts/PaplicoContext";
@@ -56,8 +54,10 @@ export const ElementControls = memo(function ElementControls({
 		const textElements = elements as TextElement[];
 		return (
 			<>
-				<FontFamilyControl />
-				<FontSizeControl />
+				<div className="flex flex-col gap-1.5">
+					<FontFamilyControl />
+					<FontSizeControl />
+				</div>
 				<div className="flex gap-2">
 					<AlignmentControl elements={textElements} />
 					<WritingModeControl elements={textElements} />
@@ -207,7 +207,7 @@ export function FontFamilyControl() {
 							: t("actionsPanel.selectFont")
 				}
 			/>
-			<FontWeightControl showLabel={false} />
+			<FontWeightControl showLabel={false} slider={false} />
 		</div>
 	);
 }
@@ -218,34 +218,16 @@ export function FontSizeControl() {
 		useActiveFontSettings();
 
 	return (
-		<div className="flex flex-col gap-1.5">
-			<span className="type-section text-muted-foreground">
-				{t("actionsPanel.size")}
-			</span>
-			<div className="flex items-center gap-2 px-1">
-				<Slider
-					min={8}
-					max={200}
-					step={1}
-					value={isMixedSize ? 24 : currentFontSize}
-					onValueChange={handleFontSizeChange}
-					className="w-full flex-1"
-				/>
-				<Input
-					type="number"
-					$size="xs"
-					min="1"
-					max="1000"
-					step="1"
-					value={isMixedSize ? "" : currentFontSize}
-					onChange={(e) =>
-						handleFontSizeChange(Number.parseFloat(e.target.value))
-					}
-					placeholder={isMixedSize ? t("actionsPanel.mixedBracket") : undefined}
-					className="w-14"
-				/>
-			</div>
-		</div>
+		<StrokeWidthField
+			label={t("actionsPanel.size")}
+			value={isMixedSize ? 24 : currentFontSize}
+			isMixed={isMixedSize}
+			min={1}
+			max={1000}
+			step={1}
+			slider={false}
+			onValueChange={handleFontSizeChange}
+		/>
 	);
 }
 

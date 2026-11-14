@@ -11,8 +11,15 @@ import { FontVariationAxisControl } from "./FontVariationAxisControl";
 
 export function FontWeightControl({
 	showLabel = true,
+	slider = true,
 }: {
+	/**
+	 * Whether the face select shows its heading. The variable weight slider
+	 * always shows its label, because its number alone does not say what it is.
+	 */
 	showLabel?: boolean;
+	/** False leaves the variable weight as a number field without a slider. */
+	slider?: boolean;
 }) {
 	const t = useTranslation();
 	const manager = usePaplico().fonts;
@@ -42,7 +49,7 @@ export function FontWeightControl({
 				axis={axis}
 				value={currentFontWeight}
 				label={t("actionsPanel.weight")}
-				showLabel={showLabel}
+				slider={slider}
 				onChange={(value) => handleFontWeightChange(value ?? axis.default)}
 			/>
 		);
