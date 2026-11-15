@@ -124,7 +124,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - if: steps.pw-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
-      - run: npx concurrently -k -s first -n "SB,TEST" "yarn workspace pap storybook --ci" "npx wait-on tcp:6006 && yarn workspace pap test-storybook"
+      - run: npx concurrently -k -s first -n "SB,TEST" "yarn workspace pap storybook --ci" "npx wait-on http://127.0.0.1:6006 && yarn workspace pap test-storybook"
 
   lint-unused:
     needs: setup
