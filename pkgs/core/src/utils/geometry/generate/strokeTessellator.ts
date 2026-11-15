@@ -37,6 +37,12 @@ export interface StrokeTessellateInput {
 	 * comes from.
 	 */
 	alignShift?: number;
+	/**
+	 * Unit direction of travel for a polyline whose points all coincide, as a
+	 * zero-length dash yields. Such a polyline draws as a dot made of two
+	 * opposite caps, and the caps take their orientation from this.
+	 */
+	dotDirection?: [number, number];
 }
 
 interface StrokeTessellateResult {
@@ -75,6 +81,7 @@ export function tessellateStroke(
 		arcParams,
 		zoom = 1,
 		alignShift = 0,
+		dotDirection,
 	} = input;
 
 	const pointCount = points.length / 2;
@@ -141,6 +148,7 @@ export function tessellateStroke(
 			arcParams
 				? subpath.samples.map(({ pathT }) => toGlobalT(pathT))
 				: undefined,
+			dotDirection,
 		);
 		appendNumbers(result.vertices, subpathResult.vertices);
 		appendNumbers(result.vertexParams, subpathResult.vertexParams);
@@ -434,15 +442,47 @@ function tessellateVisibleSubpath(
 	zoom: number,
 	/** Whole-stroke t per sample; enables vertexParams emission. */
 	globalTs?: number[],
+	dotDirection?: [number, number],
 ): StrokeTessellateResult {
 	const { points, leftHalfWidths: left, rightHalfWidths: right } = centered;
 	const segments = buildSegments(points, points.length / 2);
-	if (segments.length === 0) {
-		return { vertices: [], count: 0, vertexParams: [] };
-	}
-
 	const vertices: number[] = [];
 	const vertexParams: number[] = [];
+	if (segments.length === 0) {
+		if (!dotDirection) return { vertices, count: 0, vertexParams };
+		const [dx, dy] = dotDirection;
+		for (const sign of [1, -1]) {
+			emitCap(
+				vertices,
+				lineCap,
+				points[0],
+				points[1],
+				dx * sign,
+				dy * sign,
+				-dy,
+				dx,
+				left[0],
+				right[0],
+				zoom,
+			);
+		}
+		if (globalTs) {
+			appendGroupParams(
+				vertices,
+				0,
+				vertexParams,
+				globalTs[0],
+				points[0],
+				points[1],
+				-dy,
+				dx,
+				left[0],
+				right[0],
+			);
+		}
+		return { vertices, count: vertices.length / 2, vertexParams };
+	}
+
 	const corners = segments.map((seg) =>
 		bodyCorners(seg, left[seg.i0], right[seg.i0], left[seg.i1], right[seg.i1]),
 	);
@@ -619,14 +659,20 @@ export function polylineArcLength(points: number[]): number {
  * Splits a polyline into dash sub-polylines according to an SVG-style dash pattern.
  * Each returned sub-polyline contains interpolated points and pressures
  * at exact dash/gap boundaries, plus its start arc length within the input
- * polyline (`arcOffset`).
+ * polyline (`arcOffset`). A zero-length dash comes out as two coincident
+ * points with the polyline's unit `direction` at that position.
  */
 export function applyDashPattern(
 	points: number[],
 	pressures: number[],
 	dashArray: readonly number[],
 	dashOffset: number,
-): { points: number[]; pressures: number[]; arcOffset: number }[] {
+): {
+	points: number[];
+	pressures: number[];
+	arcOffset: number;
+	direction?: [number, number];
+}[] {
 	const pointCount = points.length / 2;
 	if (pointCount < 2) return [{ points, pressures, arcOffset: 0 }];
 
@@ -679,8 +725,7 @@ export function applyDashPattern(
 
 	const isDash = () => phaseIndex % 2 === 0;
 
-	const result: { points: number[]; pressures: number[]; arcOffset: number }[] =
-		[];
+	const result: ReturnType<typeof applyDashPattern> = [];
 
 	// Current dash accumulator
 	let curPoints: number[] = [];
@@ -745,7 +790,14 @@ export function applyDashPattern(
 				curPoints.push(ix, iy);
 				curPressures.push(ip);
 
-				if (curPoints.length >= 4) {
+				if (pattern[phaseIndex] <= 0) {
+					result.push({
+						points: [ix, iy, ix, iy],
+						pressures: [ip, ip],
+						arcOffset: walked + consumed,
+						direction: [dx / segLen, dy / segLen],
+					});
+				} else if (curPoints.length >= 4) {
 					// At least 2 points (4 floats in flat array)
 					result.push({
 						points: curPoints,
@@ -764,18 +816,8 @@ export function applyDashPattern(
 
 			// Advance to next phase
 			phaseIndex = (phaseIndex + 1) % pattern.length;
-			phaseRemaining = pattern[phaseIndex];
-
-			// Skip zero-length phases
-			while (phaseRemaining <= 0 && consumed < segLen) {
-				if (isDash()) {
-					// Zero-length dash produces nothing
-				} else {
-					// Zero-length gap: no interruption, continue current dash if any
-				}
-				phaseIndex = (phaseIndex + 1) % pattern.length;
-				phaseRemaining = pattern[phaseIndex];
-			}
+			// A negative entry must not walk the segment backwards.
+			phaseRemaining = Math.max(0, pattern[phaseIndex]);
 		}
 
 		walked += segLen;

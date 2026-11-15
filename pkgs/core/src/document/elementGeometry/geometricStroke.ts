@@ -203,7 +203,14 @@ export function tessellateGeometricStroke(
 					shape.dashArray!,
 					shape.dashOffset ?? 0,
 				)
-			: [{ points: flatPoints, pressures: flatPressures, arcOffset: 0 }];
+			: [
+					{
+						points: flatPoints,
+						pressures: flatPressures,
+						arcOffset: 0,
+						direction: undefined,
+					},
+				];
 
 		// Whole-polyline arc length so dash sub-polylines map their local
 		// t into the full stroke's range.
@@ -211,7 +218,7 @@ export function tessellateGeometricStroke(
 			? polylineArcLength(hasDash ? dashPoints : flatPoints)
 			: 0;
 
-		for (const { points, pressures, arcOffset } of subPolylines) {
+		for (const { points, pressures, arcOffset, direction } of subPolylines) {
 			if (points.length < 4) continue;
 			const result = tessellateStroke({
 				points,
@@ -227,6 +234,7 @@ export function tessellateGeometricStroke(
 				pathStart: shape.pathStart,
 				pathEnd: shape.pathEnd,
 				alignShift,
+				dotDirection: direction,
 				arcParams: wantArcParams
 					? { arcOffset, totalArcLength: subPathArcTotal }
 					: undefined,

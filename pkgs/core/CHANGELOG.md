@@ -181,6 +181,8 @@
   - Fix a fill or stroke on a group covering the holes of the paths and compound paths inside it.
   - Fix text with a path offset or another shape filter on one of its fills or strokes being drawn as a coarse image instead of sharp outlines.
   - Fix a text's gradient restarting at every character, and each character's stroke being covered by the next character's fill. Characters given a fill of their own share one gradient across all the characters with that fill.
+  - Fix a dash of length 0 drawing nothing instead of a dot at each repeat with a round cap, or a square with a square cap.
+  - Fix a dash pattern with a gap of length 0 dropping the dash after the gap.
 
 ## [0.10.0] - 2026-10-28
 

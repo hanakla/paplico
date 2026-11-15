@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { lineSeg } from "../../../testUtils/segmentFactory";
+import { coversPoint } from "../../../testUtils/triangleSoup";
 import { flattenBezierPathWithPressure } from "./bezierFlatten";
 import {
 	applyDashPattern,
@@ -773,13 +774,59 @@ describe("applyDashPattern", () => {
 		expect(endPressure).toBeCloseTo(0.5, 5);
 	});
 
-	it("should handle zero-length gaps as continuous line", () => {
-		const points = [0, 0, 100, 0];
-		const pressures = [1, 1];
-		const result = applyDashPattern(points, pressures, [10, 0], 0);
+	it("should keep the line unbroken across zero-length gaps", () => {
+		const result = applyDashPattern([0, 0, 100, 0], [1, 1], [10, 0], 0);
 
-		// Zero-length gaps don't interrupt: single continuous output
-		expect(result).toHaveLength(1);
+		expect(result.map(({ points }) => [points[0], points.at(-2)])).toEqual(
+			Array.from({ length: 10 }, (_, index) => [index * 10, index * 10 + 10]),
+		);
+	});
+
+	it("should keep the dash that follows a zero-length gap", () => {
+		const result = applyDashPattern([0, 0, 30, 0], [1, 1], [5, 0, 5, 10], 0);
+
+		expect(result.map(({ points }) => [points[0], points.at(-2)])).toEqual([
+			[0, 5],
+			[5, 10],
+			[20, 25],
+			[25, 30],
+		]);
+	});
+
+	it("should emit a zero-length dash at every pattern repeat", () => {
+		const result = applyDashPattern([0, 0, 10, 0], [1, 1], [0, 3], 0);
+
+		expect(result.map(({ arcOffset }) => arcOffset)).toEqual([0, 3, 6, 9]);
+		for (const [index, dot] of result.entries()) {
+			expect(dot.points).toEqual([index * 3, 0, index * 3, 0]);
+			expect(dot.direction).toEqual([1, 0]);
+		}
+	});
+
+	it("should move zero-length dashes with dashOffset", () => {
+		const result = applyDashPattern([0, 0, 10, 0], [1, 1], [0, 3], 1);
+
+		expect(result.map(({ points }) => points[0])).toEqual([2, 5, 8]);
+	});
+
+	it("should give a zero-length dash the direction of the segment it sits on", () => {
+		const result = applyDashPattern(
+			[0, 0, 10, 0, 10, 10],
+			[1, 1, 1],
+			[0, 15],
+			0,
+		);
+
+		expect(result).toHaveLength(2);
+		expect(result[0].direction).toEqual([1, 0]);
+		expect(result[1].points).toEqual([10, 5, 10, 5]);
+		expect(result[1].direction).toEqual([0, 1]);
+	});
+
+	it("should leave direction unset on a dash that has length", () => {
+		const result = applyDashPattern([0, 0, 100, 0], [1, 1], [10, 10], 0);
+
+		expect(result.every(({ direction }) => direction === undefined)).toBe(true);
 	});
 
 	it("should handle multi-segment polylines", () => {
@@ -878,6 +925,77 @@ function getBodySegmentEndpoints(
 		)
 		.slice(0, 2);
 }
+
+describe("tessellateStroke zero-length dash", () => {
+	const dot = (
+		lineCap: StrokeTessellateInput["lineCap"],
+		dotDirection: [number, number],
+	) =>
+		tessellateStroke(
+			makeInput({
+				points: [50, 50, 50, 50],
+				pressures: [1, 1],
+				lineCap,
+				dotDirection,
+			}),
+		);
+
+	it("should draw a round cap as a full circle of the stroke width", () => {
+		const [minX, minY, maxX, maxY] = verticesBounds(
+			dot("round", [1, 0]).vertices,
+		);
+
+		expect(minX).toBeCloseTo(45, 5);
+		expect(maxX).toBeCloseTo(55, 5);
+		expect(minY).toBeCloseTo(45, 1);
+		expect(maxY).toBeCloseTo(55, 1);
+		expect(coversPoint(dot("round", [1, 0]).vertices, 53, 53)).toBe(true);
+		expect(coversPoint(dot("round", [1, 0]).vertices, 54.5, 54.5)).toBe(false);
+	});
+
+	it("should draw a square cap as a square aligned with the path direction", () => {
+		const { vertices } = dot("square", [Math.SQRT1_2, Math.SQRT1_2]);
+
+		// A 10-unit square turned 45 degrees reaches 5 * sqrt(2) along the axes
+		// and leaves the axis-aligned corners empty.
+		expect(coversPoint(vertices, 50, 56.5)).toBe(true);
+		expect(coversPoint(vertices, 56.5, 50)).toBe(true);
+		expect(coversPoint(vertices, 54.5, 54.5)).toBe(false);
+	});
+
+	it("should draw nothing with a butt cap", () => {
+		expect(dot("butt", [1, 0]).count).toBe(0);
+	});
+
+	it("should draw nothing for coincident points without a direction", () => {
+		const result = tessellateStroke(
+			makeInput({
+				points: [50, 50, 50, 50],
+				pressures: [1, 1],
+				lineCap: "round",
+			}),
+		);
+
+		expect(result.count).toBe(0);
+	});
+
+	it("should give every dot vertex the dash's t along the whole stroke", () => {
+		const result = tessellateStroke(
+			makeInput({
+				points: [30, 0, 30, 0],
+				pressures: [1, 1],
+				lineCap: "round",
+				dotDirection: [1, 0],
+				arcParams: { arcOffset: 30, totalArcLength: 100 },
+			}),
+		);
+
+		expect(result.vertexParams).toHaveLength(result.vertices.length);
+		for (let i = 0; i < result.vertexParams.length; i += 2) {
+			expect(result.vertexParams[i]).toBeCloseTo(0.3, 5);
+		}
+	});
+});
 
 describe("applyDashPattern arc offsets", () => {
 	it("should report each dash's start arc length within the polyline", () => {
@@ -1022,26 +1140,6 @@ describe("interpolateStrokeWidths", () => {
 		expect(interpolateStrokeWidths(widths, 1).side1).toBe(1);
 	});
 });
-
-function coversPoint(vertices: number[], x: number, y: number): boolean {
-	for (let i = 0; i < vertices.length; i += 6) {
-		const crosses = [0, 2, 4].map((offset, index) => {
-			const next = ((index + 1) % 3) * 2;
-			return (
-				(vertices[i + next] - vertices[i + offset]) *
-					(y - vertices[i + offset + 1]) -
-				(vertices[i + next + 1] - vertices[i + offset + 1]) *
-					(x - vertices[i + offset])
-			);
-		});
-		if (
-			crosses.every((value) => value >= -1e-10) ||
-			crosses.every((value) => value <= 1e-10)
-		)
-			return true;
-	}
-	return false;
-}
 
 /** [minX, minY, maxX, maxY] of a triangle soup, rounded to hide FP noise. */
 function verticesBounds(vertices: number[]): number[] {
