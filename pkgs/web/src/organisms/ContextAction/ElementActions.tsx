@@ -151,7 +151,9 @@ export function ElementActions({
 					</IconButton>
 				</Tooltip>
 			)}
-			{hasMultipleSelection && <AlignActionsMenu selectedIds={selectedIds} />}
+			{(hasMultipleSelection || hasSingleSelection) && (
+				<AlignActionsMenu selectedIds={selectedIds} />
+			)}
 			{hasGroupInSelection && (
 				<Tooltip content={t("contextActions.ungroup")} side="bottom">
 					<IconButton

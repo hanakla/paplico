@@ -1037,19 +1037,36 @@ export class SpatialIndex {
 
 			for (const item of quadtree.query(artboardBounds)) {
 				const effectiveBB = this.getEffectiveBounds(item.data, elementsMap);
-				if (!effectiveBB) continue;
-
-				const area = boundsArea(effectiveBB);
-				if (area <= 0) continue;
-
-				const overlapArea = boundsIntersectionArea(artboardBounds, effectiveBB);
-				if (overlapArea / area > 0.5) {
+				if (effectiveBB && ridesOnArtboard(effectiveBB, artboardBounds)) {
 					results.push({ layerId: layer.id, elementId: item.id });
 				}
 			}
 		}
 
 		return results;
+	}
+
+	/**
+	 * The topmost artboard the element rides on, judged by the same rule as
+	 * {@link findElementsOverlappingArtboard}. Null when it rides on none.
+	 */
+	public findArtboardOfElement(elementId: string): Artboard | null {
+		const element = this.store.document.objects[elementId];
+		if (!element) return null;
+
+		const effectiveBB = this.getEffectiveBounds(
+			element,
+			this.getElementsMapCached(),
+		);
+		if (!effectiveBB) return null;
+
+		const { artboards } = this.store.document;
+		for (let i = artboards.length - 1; i >= 0; i--) {
+			if (ridesOnArtboard(effectiveBB, getArtboardBounds(artboards[i]))) {
+				return artboards[i];
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -2889,4 +2906,14 @@ const NO_FILTER_HANDLERS: FilterCapabilityLookup = {
 
 function isElementVisible(element: AnyArtObject): boolean {
 	return element.visible !== false;
+}
+
+/** An element rides on an artboard when more than half of its area lies inside it. */
+function ridesOnArtboard(
+	elementBounds: BoundingBox,
+	artboardBounds: BoundingBox,
+): boolean {
+	const area = boundsArea(elementBounds);
+	if (area <= 0) return false;
+	return boundsIntersectionArea(artboardBounds, elementBounds) / area > 0.5;
 }

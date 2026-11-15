@@ -51,7 +51,10 @@ import {
 	calculateElementBounds,
 	calculateLocalElementBounds,
 } from "./utils/geometry/elementBounds";
-import { brandLocalBBox } from "./utils/geometry/primitives/box";
+import {
+	brandLocalBBox,
+	brandWorldBBox,
+} from "./utils/geometry/primitives/box";
 import {
 	applyTransformToPoint,
 	composeTransforms,
@@ -2326,6 +2329,53 @@ describe("PaplicoCommands", () => {
 
 			expect(getTransform(store.document.objects[group.id]!).x).toBeCloseTo(30);
 			expect(getTransform(store.document.objects[child.id]!).x).toBeCloseTo(0);
+		});
+	});
+
+	describe("alignSelectedElements with a single element", () => {
+		function createSingleAlignCommands(artboard: Artboard | null) {
+			const fixture = createProviderCommands({
+				getWorldBounds: () =>
+					brandWorldBBox({
+						minX: 0,
+						minY: 0,
+						maxX: 10,
+						maxY: 10,
+						width: 10,
+						height: 10,
+					}),
+				findArtboardOfElement: () => artboard,
+				invalidateBounds: () => {},
+				getParentGroupId: () => null,
+			} as Partial<SpatialIndex>);
+			fixture.provider.addElement("layer", createPathAt("p1", 0, 0, 10, 10));
+			fixture.sync();
+			fixture.store.selectedElementIds = ["p1"];
+			return fixture;
+		}
+
+		it("should center the element on the artboard it rides on", () => {
+			const { commands, store, sync } = createSingleAlignCommands(
+				createTestArtboard("ab-1", 200, 0),
+			);
+
+			const moved = commands.alignSelectedElements("centerH");
+			sync();
+
+			const path = store.document.objects["p1"] as Path;
+			expect(moved).toBe(true);
+			expect(getTransform(path).x).toBe(195);
+		});
+
+		it("should do nothing when the element rides on no artboard", () => {
+			const { commands, store, sync } = createSingleAlignCommands(null);
+
+			const moved = commands.alignSelectedElements("centerH");
+			sync();
+
+			const path = store.document.objects["p1"] as Path;
+			expect(moved).toBe(false);
+			expect(getTransform(path).x).toBe(0);
 		});
 	});
 

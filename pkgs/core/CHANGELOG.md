@@ -56,6 +56,8 @@
 
 ### Changed
 
+- **Align**
+  - `PaplicoCommands.alignSelectedElements` aligns a single selected element to the artboard it rides on, and does nothing when it rides on none.
 - **Breaking API changes**
   - `TextStyle.fontStyle` is removed. Choose an italic face with `fontSource`, or set `ital` in `fontVariationSettings` instead.
   - `TextEditState.selectionStyle` is a `SelectionStyleSummary`. Each style key holds `{ mixed: true }` or `{ mixed: false, value }` instead of being left out when the selected runs differ.

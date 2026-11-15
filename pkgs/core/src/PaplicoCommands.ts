@@ -3438,22 +3438,21 @@ export class PaplicoCommands {
 	}
 
 	/**
-	 * Align the current multi-selection along `mode`, using the key object (or
-	 * the selection union) as the reference. Returns true when anything moved.
+	 * Align the current selection along `mode`. A multi-selection uses the key
+	 * object (or the selection union) as the reference. A single element uses
+	 * the artboard it rides on, and does nothing when it rides on none. Returns true when anything moved.
 	 */
 	public alignSelectedElements(mode: AlignMode): boolean {
 		const layerId = this.ctx.store.currentLayerId;
 		if (!layerId) return false;
 
 		const items = this.collectAlignItems(this.ctx.store.selectedElementIds);
-		if (items.length < 2) return false;
+		if (items.length === 0) return false;
 
-		const keyObjectId = this.ctx.store.keyObjectId;
-		const keyItem =
-			keyObjectId != null
-				? items.find((it) => it.id === keyObjectId)
-				: undefined;
-		const reference = keyItem?.bounds ?? unionBounds(items);
+		const reference =
+			items.length === 1
+				? this.resolveArtboardAlignReference(items[0].id)
+				: this.resolveMultiAlignReference(items);
 		if (!reference) return false;
 
 		return this.applyAlignDeltas(
@@ -3475,6 +3474,20 @@ export class PaplicoCommands {
 		if (items.length < 3) return false;
 
 		return this.applyAlignDeltas(layerId, computeDistributeDeltas(items, axis));
+	}
+
+	private resolveMultiAlignReference(items: AlignItem[]) {
+		const keyObjectId = this.ctx.store.keyObjectId;
+		const keyItem =
+			keyObjectId != null
+				? items.find((it) => it.id === keyObjectId)
+				: undefined;
+		return keyItem?.bounds ?? unionBounds(items);
+	}
+
+	private resolveArtboardAlignReference(elementId: string) {
+		const artboard = this.ctx.spatial.findArtboardOfElement(elementId);
+		return artboard ? getArtboardBounds(artboard) : null;
 	}
 
 	private collectAlignItems(elementIds: readonly string[]): AlignItem[] {
