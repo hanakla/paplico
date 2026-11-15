@@ -14,6 +14,7 @@ import {
 	type StrokeAppearance,
 	type StrokeColor,
 } from "./schema";
+import type { PathEditMode } from "./tools/PathEditTool";
 import type { StrokeWidthEditTarget } from "./tools/StrokeWidthEditTool";
 import type { Tool } from "./tools/Tool";
 import {
@@ -109,6 +110,9 @@ export class PaplicoTools {
 			this.store.gradientTargetFillUid = null;
 			this.store.gradientSelectedStopId = null;
 			this.store.gradientSelectedStopIndex = null;
+			if (this.store.currentTool === "path-edit") {
+				this.store.pathEditMode = "edit";
+			}
 		}
 		this.store.currentTool = tool;
 	}
@@ -246,8 +250,8 @@ export class PaplicoTools {
 		this.store.pathEditSelectionMode = mode;
 	}
 
-	public setPathEditCutMode(enabled: boolean): void {
-		this.store.pathEditCutMode = enabled;
+	public setPathEditMode(mode: PathEditMode): void {
+		this.store.pathEditMode = mode;
 	}
 
 	public setStrokeWidthEditTarget(target: StrokeWidthEditTarget): void {

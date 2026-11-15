@@ -21,7 +21,7 @@ import {
 import type { SmoothingMethod } from "../utils/geometry/generate/strokeFitting";
 import { screenToWorld } from "../utils/geometry/space/coordinates";
 import {
-	type CoalescedPointerSample,
+	areCoalescedBatchesEqual,
 	LONG_PRESS_MS,
 	type PointerEventData,
 	type Tool,
@@ -689,30 +689,6 @@ export class PenTool implements Tool {
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
-
-/** Every field of a coalesced sample; a new field must be listed here to be compared. */
-const COALESCED_SAMPLE_KEYS = Object.keys({
-	x: true,
-	y: true,
-	pressure: true,
-	tiltX: true,
-	tiltY: true,
-	twist: true,
-	timeStamp: true,
-} satisfies Record<
-	keyof CoalescedPointerSample,
-	true
->) as (keyof CoalescedPointerSample)[];
-
-function areCoalescedBatchesEqual(
-	previous: PointerEventData["coalesced"],
-	current: NonNullable<PointerEventData["coalesced"]>,
-): boolean {
-	if (!previous || previous.length !== current.length) return false;
-	return previous.every((sample, index) =>
-		COALESCED_SAMPLE_KEYS.every((key) => sample[key] === current[index][key]),
-	);
-}
 
 /**
  * Pick the guide direction closest in angle to the initial stroke motion,

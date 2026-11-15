@@ -20,6 +20,7 @@ import {
 	type PressureCurvePoint,
 } from "../utils/pressureCurve";
 import type { EraserMode } from "./EraserTool";
+import type { PathEditMode } from "./PathEditTool";
 import type { StrokeWidthEditTarget } from "./StrokeWidthEditTool";
 import { createDefaultTextStyle } from "./TextTool";
 
@@ -141,8 +142,8 @@ export interface ToolSettings {
 	textCharTouchMode: boolean;
 	/** Selection mode for PathEdit tool: lasso or rectangle marquee */
 	pathEditSelectionMode: "lasso" | "rectangle";
-	/** PathEdit tool: the next click cuts the path instead of selecting */
-	pathEditCutMode: boolean;
+	/** PathEdit tool: what a press on the canvas does */
+	pathEditMode: PathEditMode;
 	/** StrokeWidthEdit tool: which per-side profile of the path it edits */
 	strokeWidthEditTarget: StrokeWidthEditTarget;
 	/** Selection mode for Select tool: lasso or rectangle marquee */
@@ -222,7 +223,7 @@ export function createToolSettings(): ToolSettings {
 		textDefaultWritingMode: "horizontal-tb",
 		textCharTouchMode: false,
 		pathEditSelectionMode: "rectangle",
-		pathEditCutMode: false,
+		pathEditMode: "edit",
 		strokeWidthEditTarget: "width",
 		selectSelectionMode: "rectangle",
 		pathEditSelectedAnchors: [],

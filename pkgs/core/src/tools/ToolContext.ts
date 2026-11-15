@@ -36,10 +36,12 @@ import type {
 } from "../schema";
 import type { TextGlyphQuad } from "../typography/glyphQuad";
 import type { PathRun } from "../utils/geometry/generate/pathOps";
+import type { IncrementalStrokeFitterOptions } from "../utils/geometry/generate/strokeFitting";
 import type { WorldBBox } from "../utils/geometry/primitives/box";
 import type { AxisFlip } from "../utils/geometry/reshape/resize";
 import type { WorldBezierSegment } from "../utils/geometry/space/coordinates";
 import type { SelectionFrame } from "../utils/geometry/space/selectionFrame";
+import type { PathEditMode } from "./PathEditTool";
 import type { Reference3DController } from "./Reference3DController";
 import type { SelectionStyleSummary } from "./TextTool";
 import type { TextToolController } from "./TextToolController";
@@ -232,8 +234,13 @@ export type ToolContextOptions = {
 
 	// path edit tool
 	pathEditGetSelectionMode: () => "lasso" | "rectangle";
-	pathEditGetCutMode: () => boolean;
-	pathEditSetCutMode: (enabled: boolean) => void;
+	pathEditGetMode: () => PathEditMode;
+	pathEditSetMode: (mode: PathEditMode) => void;
+	/** How the pen tool smooths a stroke; sculpt strokes share it. */
+	getStrokeSmoothing: () => Pick<
+		IncrementalStrokeFitterOptions,
+		"stabilization" | "smoothingMethod"
+	>;
 	/** Stash the anchor selection an upcoming deletion destroys (undo restore). */
 	stashPathEditUndoSelection: (handleKeys: string[]) => void;
 	pathEditUpdateSelectedAnchors: (

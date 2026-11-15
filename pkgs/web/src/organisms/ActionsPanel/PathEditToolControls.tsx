@@ -9,6 +9,7 @@ import { appConfig } from "@/hooks/useAppConfig";
 import { useTranslation } from "@/locales";
 import { PathEditCutModeToggle } from "@/organisms/PathEditCutModeToggle";
 import { useEventCallback } from "@/utils/hooks";
+import { StrokeSmoothingFields } from "./StrokeSmoothingFields";
 
 export const PathEditToolControls = memo(function PathEditToolControls() {
 	const t = useTranslation();
@@ -127,6 +128,8 @@ export const PathEditToolControls = memo(function PathEditToolControls() {
 				</Tooltip>
 				<PathEditCutModeToggle />
 			</div>
+
+			{toolSnap.pathEditMode === "sculpt" && <StrokeSmoothingFields />}
 		</div>
 	);
 });

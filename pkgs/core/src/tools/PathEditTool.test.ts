@@ -17,12 +17,14 @@ import {
 	testCanvasWidth,
 	testViewport,
 } from "../testUtils/pointerEvent";
+import { createFilledRect } from "../testUtils/segmentFactory";
 import {
 	getEffectiveMeshEdgeCurve,
 	getVertexNeighbors,
 } from "../utils/geometry/measure/meshTopology";
 import { evalCubicBezier } from "../utils/geometry/primitives/bezier";
 import { brandWorldBBox } from "../utils/geometry/primitives/box";
+import { isPointInPath } from "../utils/geometry/query/hitTest";
 import { syncDerivedVertices } from "../utils/geometry/reshape/meshTopology";
 import {
 	createMeshWarpSampler,
@@ -5005,7 +5007,7 @@ describe("PathEditTool", () => {
 			ctx.getAllEditablePaths.mockReturnValue([
 				{ path, ancestorTransform: null },
 			]);
-			ctx.pathEditGetCutMode.mockReturnValue(true);
+			ctx.pathEditGetMode.mockReturnValue("cut");
 
 			tool.onPointerDown(
 				ev(450, 300),
@@ -5015,7 +5017,7 @@ describe("PathEditTool", () => {
 			);
 
 			expect(ctx.replacePathWithPaths).toHaveBeenCalledTimes(1);
-			expect(ctx.pathEditSetCutMode).toHaveBeenCalledWith(false);
+			expect(ctx.pathEditSetMode.mock.calls.at(-1)?.[0]).toBe("edit");
 		});
 
 		it("should keep alt-click on an anchor building a tangent instead of cutting", () => {
@@ -5040,6 +5042,585 @@ describe("PathEditTool", () => {
 
 			expect(ctx.replacePathWithPaths).not.toHaveBeenCalled();
 		});
+	});
+
+	describe("sculpting a path", () => {
+		// world x/y -50..50 -> screen x 350..450, y 250..350
+		const square = (): Path => createFilledRect(-50, -50, 100, 100);
+
+		beforeEach(() => {
+			ctx.pathEditGetMode.mockReturnValue("sculpt");
+		});
+
+		it("should grow the path by a stroke that starts inside it", () => {
+			initPaths([square()]);
+
+			drawStroke([
+				[400, 300],
+				[500, 280],
+				[500, 320],
+				[410, 310],
+			]);
+
+			const segments = sculptedSegments("test-filled-rect");
+			// screen(480,300) -> world(80,0), outside the square before the stroke
+			expect(isPointInPath(80, 0, { segments })).toBe(true);
+			expect(isPointInPath(0, 0, { segments })).toBe(true);
+		});
+
+		it("should carve the path by a stroke that starts outside it", () => {
+			initPaths([square()]);
+
+			drawStroke([
+				[500, 280],
+				[420, 295],
+				[420, 305],
+				[500, 320],
+			]);
+
+			const segments = sculptedSegments("test-filled-rect");
+			// screen(440,300) -> world(40,0), inside the square before the stroke
+			expect(isPointInPath(40, 0, { segments })).toBe(false);
+			expect(isPointInPath(-30, 0, { segments })).toBe(true);
+		});
+
+		it("should draw the stroke instead of moving an anchor it starts on", () => {
+			initPaths([square()]);
+
+			// screen(449,251) is within reach of the corner anchor at screen(450,250)
+			drawStroke([
+				[449, 251],
+				[500, 230],
+				[500, 290],
+				[440, 290],
+			]);
+
+			expect(ctx.batchPathUpdate).toHaveBeenCalledTimes(1);
+			const segments = sculptedSegments("test-filled-rect");
+			// screen(480,270) -> world(80,30)
+			expect(isPointInPath(80, 30, { segments })).toBe(true);
+		});
+
+		it("should reshape a moved path where the stroke crosses it on screen", () => {
+			// Shifted 100 to the right: world x 50..150 -> screen x 450..550
+			initPaths([
+				{
+					...square(),
+					transform: { ...createIdentityTransform(), x: 100 },
+				},
+			]);
+
+			drawStroke([
+				[500, 300],
+				[600, 280],
+				[600, 320],
+				[510, 310],
+			]);
+
+			const segments = sculptedSegments("test-filled-rect");
+			// screen(580,300) -> world(180,0) -> the path's own (80,0)
+			expect(isPointInPath(80, 0, { segments })).toBe(true);
+			expect(isPointInPath(180, 0, { segments })).toBe(false);
+		});
+
+		it("should grow only the path the stroke starts in when several are selected", () => {
+			// world x 60..160 -> screen x 460..560
+			const neighbour = { ...createFilledRect(60, -50, 100, 100), id: "b" };
+			initPaths([square(), neighbour]);
+
+			drawStroke([
+				[400, 300],
+				[500, 280],
+				[500, 320],
+				[410, 310],
+			]);
+
+			const batch = ctx.batchPathUpdate.mock.calls[0][0];
+			expect(batch.map(([id]) => id)).toEqual(["test-filled-rect"]);
+		});
+
+		it("should leave the path as it is when the stroke never crosses its outline", () => {
+			initPaths([square()]);
+
+			drawStroke([
+				[390, 290],
+				[410, 290],
+				[410, 310],
+			]);
+
+			expect(ctx.batchPathUpdate).not.toHaveBeenCalled();
+			expect(ctx.eraseElement).not.toHaveBeenCalled();
+		});
+
+		it("should reshape a filled open path as the region its joined ends enclose, and close it", () => {
+			// Three sides of the square: the fourth is the line joining its ends
+			const openSquare = {
+				...square(),
+				segments: square().segments.slice(0, 3),
+			};
+			initPaths([openSquare]);
+
+			drawStroke([
+				[400, 300],
+				[500, 280],
+				[500, 320],
+				[410, 310],
+			]);
+
+			const segments = sculptedSegments("test-filled-rect");
+			expect(isPointInPath(80, 0, { segments })).toBe(true);
+			expect(isPointInPath(0, 0, { segments })).toBe(true);
+			expect(segments.at(-1)?.isClosed).toBe(true);
+		});
+
+		it("should keep an open path without a fill open", () => {
+			initPaths([
+				{ ...square(), filters: [], segments: square().segments.slice(0, 3) },
+			]);
+
+			drawStroke([
+				[400, 300],
+				[500, 280],
+				[500, 320],
+				[410, 310],
+			]);
+
+			const segments = sculptedSegments("test-filled-rect");
+			expect(segments.length).toBeGreaterThan(3);
+			expect(segments.some((segment) => segment.isClosed)).toBe(false);
+		});
+
+		it("should keep an open path open when its fill is turned off", () => {
+			const filled = square();
+			initPaths([
+				{
+					...filled,
+					filters: filled.filters?.map((filter) => ({
+						...filter,
+						enabled: false,
+					})),
+					segments: filled.segments.slice(0, 3),
+				},
+			]);
+
+			drawStroke([
+				[400, 300],
+				[500, 280],
+				[500, 320],
+				[410, 310],
+			]);
+
+			const segments = sculptedSegments("test-filled-rect");
+			expect(segments.some((segment) => segment.isClosed)).toBe(false);
+		});
+
+		it("should move the width profile along with the reshaped path", () => {
+			initPaths([
+				{
+					...square(),
+					filters: [],
+					segments: square().segments.slice(0, 3),
+					strokeWidths: [{ t: 0.5, side1: 0.5, side2: 0.5 }],
+				},
+			]);
+
+			drawStroke([
+				[400, 300],
+				[500, 280],
+				[500, 320],
+				[410, 310],
+			]);
+
+			const [pathId, profiles] = ctx.updateElement.mock.calls[0];
+			expect(pathId).toBe("test-filled-rect");
+			expect(profiles).toMatchObject({
+				strokeWidths: [{ side1: 0.5, side2: 0.5 }],
+			});
+		});
+
+		it("should show the stroke smoothed as the pen tool smooths it while dragging", () => {
+			ctx.getStrokeSmoothing.mockReturnValue({
+				stabilization: 1,
+				smoothingMethod: "pulled-string",
+			});
+			initPaths([square()]);
+			// A zigzag 10 px either side of screen y=300 (world y=0)
+			const zigzag = Array.from(
+				{ length: 30 },
+				(_, index): [number, number] => [
+					400 + index * 5,
+					300 + (index % 2 === 0 ? -10 : 10),
+				],
+			);
+
+			const [first, ...rest] = zigzag;
+			tool.onPointerDown(
+				ev(first[0], first[1]),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			for (const [x, y] of rest) {
+				tool.onPointerMove(
+					ev(x, y),
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+			}
+
+			const stroke = lastOverlayCall(ctx, HANDLES_KEY)?.primitives.find(
+				(primitive) => primitive.kind === "polyline",
+			);
+			const points = stroke?.kind === "polyline" ? stroke.points : [];
+			expect(points.length).toBeGreaterThan(1);
+			const middle = points.slice(2, -2);
+			expect(Math.max(...middle.map(({ y }) => Math.abs(y)))).toBeLessThan(10);
+		});
+
+		it("should select another path clicked without moving", () => {
+			initPaths([square()]);
+			const other = { ...createFilledRect(100, -50, 100, 100), id: "other" };
+			ctx.findPathAtPoint.mockReturnValue(other);
+			ctx.pathSelect.mockClear();
+
+			// screen(550,300) -> world(150,0), inside the other path
+			tool.onPointerDown(
+				ev(550, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(550, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.pathSelect.mock.calls.at(-1)?.[0]).toBe("other");
+			expect(ctx.batchPathUpdate).not.toHaveBeenCalled();
+			// The next drag sculpts the newly selected path
+			ctx.findPathAtPoint.mockReturnValue(null);
+			drawStroke([
+				[550, 300],
+				[650, 280],
+				[650, 320],
+				[560, 310],
+			]);
+			expect(ctx.batchPathUpdate.mock.calls[0][0].map(([id]) => id)).toEqual([
+				"other",
+			]);
+		});
+
+		it("should add another path to the selection on a shift+click", () => {
+			initPaths([square()]);
+			const other = { ...createFilledRect(100, -50, 100, 100), id: "other" };
+			ctx.findPathAtPoint.mockReturnValue(other);
+
+			tool.onPointerDown(
+				ev(550, 300, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(550, 300, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const ids = getControlPoints(ctx, HANDLES_KEY).map(
+				({ pathId }) => pathId,
+			);
+			expect(new Set(ids)).toEqual(new Set(["test-filled-rect", "other"]));
+		});
+
+		it("should select an unfilled path clicked inside its outline", () => {
+			initPaths([square()]);
+			const outline = {
+				...createFilledRect(100, -50, 100, 100),
+				id: "outline",
+				filters: [],
+			};
+			ctx.findPathAtPoint.mockReturnValue(null);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path: square(), ancestorTransform: null },
+				{ path: outline, ancestorTransform: null },
+			]);
+			ctx.pathSelect.mockClear();
+
+			// screen(550,300) -> world(150,0), inside the outline only
+			tool.onPointerDown(
+				ev(550, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(550, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.pathSelect.mock.calls.at(-1)?.[0]).toBe("outline");
+			const ids = getControlPoints(ctx, HANDLES_KEY).map(
+				({ pathId }) => pathId,
+			);
+			expect(new Set(ids)).toEqual(new Set(["outline"]));
+		});
+
+		it("should take a selected path out of the selection on a shift+click on its edge", () => {
+			const other = { ...createFilledRect(100, -50, 100, 100), id: "other" };
+			initPaths([square(), other]);
+			ctx.findPathAtPoint.mockReturnValue(square());
+
+			// screen(450,300) -> world(50,0), on the square's right edge
+			tool.onPointerDown(
+				ev(450, 300, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(450, 300, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			const ids = getControlPoints(ctx, HANDLES_KEY).map(
+				({ pathId }) => pathId,
+			);
+			expect(new Set(ids)).toEqual(new Set(["other"]));
+			expect(ctx.batchPathUpdate).not.toHaveBeenCalled();
+		});
+
+		it("should not add an anchor on a double-click", () => {
+			initPaths([square()]);
+			ctx.getAllEditablePaths.mockReturnValue([
+				{ path: square(), ancestorTransform: null },
+			]);
+
+			// screen(450,300) -> world(50,0), on the square's right edge
+			tool.onDoubleClick(
+				ev(450, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.pathUpdate).not.toHaveBeenCalled();
+			expect(ctx.batchPathUpdate).not.toHaveBeenCalled();
+		});
+
+		it("should drop a deselected path's anchors and keep the others selected", () => {
+			const other = { ...createFilledRect(100, -50, 100, 100), id: "other" };
+			initPaths([square(), other]);
+			ctx.findPathAtPoint.mockReturnValue(other);
+			ctx.pathSelect.mockClear();
+
+			tool.onPointerDown(
+				ev(550, 300, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerUp(
+				ev(550, 300, { shiftKey: true }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+
+			expect(ctx.pathSelect).not.toHaveBeenCalled();
+			expect(tool.getVertexSelectedElementIds()).not.toContain("other");
+		});
+
+		it("should not append a coalesced batch delivered twice", () => {
+			initPaths([square()]);
+			const batch = [450, 480, 500].map((x, index) => ({
+				x,
+				y: 280 + index * 10,
+				pressure: 0.5,
+				tiltX: 0,
+				tiltY: 0,
+				twist: 0,
+				timeStamp: 10 + index,
+			}));
+			tool.onPointerDown(
+				ev(400, 300),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			tool.onPointerMove(
+				ev(500, 300, { coalesced: batch }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			const once = lastOverlayCall(ctx, HANDLES_KEY)?.primitives.find(
+				(primitive) => primitive.kind === "polyline",
+			);
+
+			tool.onPointerMove(
+				ev(500, 300, { coalesced: batch }),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			const twice = lastOverlayCall(ctx, HANDLES_KEY)?.primitives.find(
+				(primitive) => primitive.kind === "polyline",
+			);
+
+			expect(twice).toEqual(once);
+		});
+
+		it("should sculpt instead of selecting when a drag starts on another path", () => {
+			initPaths([square()]);
+			const other = { ...createFilledRect(100, -50, 100, 100), id: "other" };
+			ctx.findPathAtPoint.mockReturnValue(other);
+			ctx.pathSelect.mockClear();
+
+			// Starts on the other path, carves into the selected one
+			drawStroke([
+				[520, 280],
+				[420, 295],
+				[420, 305],
+				[520, 320],
+			]);
+
+			expect(ctx.pathSelect).not.toHaveBeenCalled();
+			expect(ctx.batchPathUpdate.mock.calls[0][0].map(([id]) => id)).toEqual([
+				"test-filled-rect",
+			]);
+		});
+
+		it("should leave the outline of an unfilled path alone when the stroke grows another", () => {
+			const unfilled = { ...square(), filters: [] };
+			// world x 60..160 -> screen x 460..560
+			const away = {
+				...createFilledRect(60, -50, 100, 100),
+				id: "away",
+				filters: [],
+			};
+			initPaths([unfilled, away]);
+
+			// Starts inside the square, runs right of both paths' shared gap
+			drawStroke([
+				[420, 280],
+				[440, 200],
+				[380, 200],
+				[380, 280],
+			]);
+
+			const ids = ctx.batchPathUpdate.mock.calls[0]?.[0].map(([id]) => id);
+			expect(ids).toEqual(["test-filled-rect"]);
+		});
+
+		it("should keep the usual drags when only a locked path is selected", () => {
+			ctx.isElementLocked.mockReturnValue(true);
+			initPaths([square()]);
+
+			// The press lands on empty space and starts a marquee.
+			drawStroke([
+				[600, 250],
+				[650, 250],
+				[650, 350],
+			]);
+
+			expect(ctx.batchPathUpdate).not.toHaveBeenCalled();
+			expect(ctx.selectionClear).toHaveBeenCalled();
+		});
+
+		it("should stay in sculpt mode when a drag is cancelled", () => {
+			initPaths([square()]);
+
+			tool.onCancel();
+
+			expect(ctx.pathEditSetMode).not.toHaveBeenCalled();
+		});
+
+		it("should leave a locked path as it is", () => {
+			ctx.isElementLocked.mockReturnValue(true);
+			initPaths([square()]);
+
+			drawStroke([
+				[400, 300],
+				[500, 280],
+				[500, 320],
+				[410, 310],
+			]);
+
+			expect(ctx.batchPathUpdate).not.toHaveBeenCalled();
+		});
+
+		it("should offer the crosshair cursor only while a path it can reshape is selected", () => {
+			initPaths([square()]);
+
+			expect(tool.getCursor()).toBe("crosshair");
+
+			ctx.isElementLocked.mockReturnValue(true);
+
+			expect(tool.getCursor()).toBe("grab");
+		});
+
+		it("should delete the path when the stroke carves all of it away", () => {
+			initPaths([square()]);
+
+			drawStroke([
+				[300, 200],
+				[500, 200],
+				[500, 400],
+				[300, 400],
+			]);
+
+			expect(ctx.eraseElement.mock.calls[0][0]).toBe("test-filled-rect");
+			expect(ctx.batchPathUpdate).not.toHaveBeenCalled();
+		});
+
+		function initPaths(paths: Path[]): void {
+			tool.initWithSelectedPaths(
+				paths,
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		}
+
+		/** Press at the first screen point, drag through the rest, release at the last. */
+		function drawStroke(points: Array<[x: number, y: number]>): void {
+			const [first, ...rest] = points;
+			tool.onPointerDown(
+				ev(first[0], first[1]),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+			for (const [x, y] of rest) {
+				tool.onPointerMove(
+					ev(x, y),
+					testViewport,
+					testCanvasWidth,
+					testCanvasHeight,
+				);
+			}
+			const last = points.at(-1) ?? first;
+			tool.onPointerUp(
+				ev(last[0], last[1]),
+				testViewport,
+				testCanvasWidth,
+				testCanvasHeight,
+			);
+		}
+
+		function sculptedSegments(pathId: string): PathSegment[] {
+			const batch = ctx.batchPathUpdate.mock.calls[0][0];
+			return batch.find(([id]) => id === pathId)?.[1] ?? [];
+		}
 	});
 });
 

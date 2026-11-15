@@ -13,6 +13,35 @@ export function dragStartThresholdScreenPx(
 /** How long a press must be held before a tool treats it as a long press. */
 export const LONG_PRESS_MS = 400;
 
+/** Every field of a coalesced sample; a new field must be listed here to be compared. */
+const COALESCED_SAMPLE_KEYS = Object.keys({
+	x: true,
+	y: true,
+	pressure: true,
+	tiltX: true,
+	tiltY: true,
+	twist: true,
+	timeStamp: true,
+} satisfies Record<
+	keyof CoalescedPointerSample,
+	true
+>) as (keyof CoalescedPointerSample)[];
+
+/**
+ * Whether a pointermove carries the same coalesced batch as the one before,
+ * which some input stacks deliver twice: appending it again would step the
+ * stroke back and forth.
+ */
+export function areCoalescedBatchesEqual(
+	previous: PointerEventData["coalesced"],
+	current: NonNullable<PointerEventData["coalesced"]>,
+): boolean {
+	if (!previous || previous.length !== current.length) return false;
+	return previous.every((sample, index) =>
+		COALESCED_SAMPLE_KEYS.every((key) => sample[key] === current[index][key]),
+	);
+}
+
 export interface PointerEventData {
 	x: number; // screen coordinates
 	y: number;

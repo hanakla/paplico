@@ -23,6 +23,8 @@
 - **Artboard tool**
   - Alt+drag an artboard to place a copy of it and the elements on it.
   - A dragged artboard snaps to the center lines of the other artboards.
+- **Path edit tool**
+  - Sculpt mode reshapes the selected paths by a freehand stroke: a stroke that starts inside a path adds the region it encloses, and one that starts outside carves that region away. An open path with a fill that shows is reshaped as the region its joined ends enclose and comes out closed. An open path without one stays a line: the stretch between the places the stroke crosses it follows the stroke. The corners where the stroke meets the path are rounded in proportion to the gap between them. The reshaped path keeps its direction, pressure and tilt. The stroke is smoothed with the pen tool's `stabilization` and `smoothingMethod` settings, and shows smoothed while it is drawn. `PaplicoTools.setPathEditMode("sculpt")` turns it on.
 - **Artboards**
   - `PaplicoCommands.duplicateArtboard` copies an artboard and the elements on it. Without an offset, the copy goes to the right of or below the source without overlapping another artboard.
 - **Guides**

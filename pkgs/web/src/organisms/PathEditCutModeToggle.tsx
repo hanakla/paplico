@@ -15,10 +15,10 @@ export function PathEditCutModeToggle({
 }) {
 	const t = useTranslation();
 	const { tools } = usePaplico();
-	const cutMode = useSnapshot(tools.state).pathEditCutMode;
+	const cutMode = useSnapshot(tools.state).pathEditMode === "cut";
 
 	const handleToggle = useEventCallback(() => {
-		tools.setPathEditCutMode(!cutMode);
+		tools.setPathEditMode(cutMode ? "edit" : "cut");
 	});
 
 	return (

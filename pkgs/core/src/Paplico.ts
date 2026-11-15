@@ -2983,11 +2983,15 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			pathEditGetSelectionMode: () => {
 				return this.toolSettings.pathEditSelectionMode;
 			},
-			pathEditGetCutMode: () => {
-				return this.toolSettings.pathEditCutMode;
+			pathEditGetMode: () => {
+				return this.toolSettings.pathEditMode;
 			},
-			pathEditSetCutMode: (enabled) => {
-				this.toolSettings.pathEditCutMode = enabled;
+			getStrokeSmoothing: () => ({
+				stabilization: this.toolSettings.stabilization,
+				smoothingMethod: this.toolSettings.smoothingMethod,
+			}),
+			pathEditSetMode: (mode) => {
+				this.toolSettings.pathEditMode = mode;
 			},
 			stashPathEditUndoSelection: (handleKeys) =>
 				this.yjsProvider.stashUndoMeta("pathEditSelection", handleKeys),

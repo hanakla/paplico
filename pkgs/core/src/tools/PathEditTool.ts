@@ -3,6 +3,8 @@
  * Allows editing Bezier control points of path elements
  */
 
+import { BrushStrokeSession } from "../brush/BrushStrokeSession";
+import { localAppearances } from "../document/appearancePresets";
 import { buildMarqueeOverlay } from "../renderer/ui/builders/marquee";
 import { buildPathEditOverlay } from "../renderer/ui/builders/pathEdit";
 import {
@@ -24,17 +26,20 @@ import {
 	type BoundingBox,
 	type CubicBezierSegment,
 	type ElementTransform,
+	type FillAppearance,
 	getTransform,
 	isBlend,
 	isIdentityTransform,
 	isMesh,
 	isPath,
+	isVisibleFill,
 	type MeshArtObject,
 	type Path,
 	type PathSegment,
 	type Point,
 	type Viewport,
 } from "../schema";
+import { flattenBezierPath } from "../utils/geometry/generate/bezierFlatten";
 import { blendKeyOutlines } from "../utils/geometry/generate/blendInterpolation";
 import {
 	cornerArcMidpointDistance,
@@ -48,11 +53,13 @@ import {
 	getStartAnchor,
 	resolveCP1,
 	resolveCP2,
+	splitIntoSubPaths,
 	toRelativeCP1,
 	toRelativeCP2,
 } from "../utils/geometry/primitives/segment";
 import {
 	distanceToSegment,
+	isPointInPath,
 	pointInPolygon,
 } from "../utils/geometry/query/hitTest";
 import {
@@ -78,14 +85,17 @@ import {
 	promoteWarpVertexToExplicit,
 	subdivideWarpFace,
 } from "../utils/geometry/reshape/meshWarp";
+import { carryProfile, sculptPath } from "../utils/geometry/reshape/pathSculpt";
 import {
 	createResizeAffine,
+	mapSegments,
 	mapWithin,
 } from "../utils/geometry/reshape/resize";
 import { splitSegmentAtIndex } from "../utils/geometry/reshape/segment";
 import {
 	type Affine2D,
 	elementTransformToAffine,
+	invertAffine,
 } from "../utils/geometry/space/affine";
 import {
 	applyTransformToPoint,
@@ -132,6 +142,7 @@ import {
 } from "./resizeHandleHelper";
 import { constrainAxis } from "./SelectTool";
 import {
+	areCoalescedBatchesEqual,
 	dragStartThresholdScreenPx,
 	LONG_PRESS_MS,
 	type PointerEventData,
@@ -264,6 +275,18 @@ type DragState =
 			shiftKey: boolean;
 	  }
 	| {
+			/** Draw the stroke that reshapes the selected paths. */
+			mode: "sculpt";
+			/** The stroke so far, smoothed as the pen tool smooths a stroke */
+			session: BrushStrokeSession;
+			/** The event clock at pointerDown, which sample times count from */
+			startTime: number;
+			/** The press, replayed as an editing click when the pointer never moved */
+			pressEvent: PointerEventData;
+			hasMoved: boolean;
+			lastCoalescedBatch: PointerEventData["coalesced"];
+	  }
+	| {
 			/**
 			 * Whole-element drag for objects without editable vertices (images,
 			 * mesh containers, …): the element translates as a unit.
@@ -338,6 +361,13 @@ type DragState =
 			targets: VertexFrameTarget[];
 			hasMoved: boolean;
 	  };
+
+/**
+ * What a press on the canvas does in the path edit tool: `edit` selects and
+ * drags, `cut` cuts the path under the next click, and `sculpt` draws a
+ * stroke that reshapes the selected paths.
+ */
+export type PathEditMode = "edit" | "cut" | "sculpt";
 
 const NO_HOVER: HoverTarget = { handleKey: null, elementId: null };
 
@@ -502,6 +532,139 @@ export class PathEditTool implements Tool {
 			canvasHeight,
 		);
 
+		// Sculpting takes every drag while a path it can reshape is selected:
+		// a stroke that starts on an anchor or an edge must not turn into
+		// moving it. A press that never moves becomes a click on release.
+		if (this.isArmedToSculpt()) {
+			const session = new BrushStrokeSession({
+				...this.context.getStrokeSmoothing(),
+				zoom: viewport.zoom,
+			});
+			session.append({
+				...world,
+				...strokeSampleAttributes(event),
+				deltaTime: 0,
+			});
+			this.dragState = {
+				mode: "sculpt",
+				session,
+				startTime: event.timeStamp,
+				pressEvent: event,
+				hasMoved: false,
+				lastCoalescedBatch: undefined,
+			};
+			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+			return;
+		}
+
+		this.pressForEditing(event, world, viewport, canvasWidth, canvasHeight);
+	}
+
+	/**
+	 * Select a clicked path with all its anchors: alone, or added to the
+	 * selection and taken out of it again with shift.
+	 */
+	private pickPath(
+		hitPath: Path,
+		shiftKey: boolean,
+		viewport: Viewport,
+		canvasWidth: number,
+		canvasHeight: number,
+	): void {
+		if (shiftKey) {
+			if (this.selectedPaths.has(hitPath.id)) {
+				this.deselectPath(hitPath.id);
+				return;
+			} else {
+				this.selectedPaths.set(hitPath.id, hitPath);
+				this.pathAncestorTransforms.set(
+					hitPath.id,
+					this.context.getAncestorTransform(hitPath.id),
+				);
+			}
+		} else {
+			this.selectedPaths.clear();
+			this.pathAncestorTransforms.clear();
+			this.selectedPaths.set(hitPath.id, hitPath);
+			this.pathAncestorTransforms.set(
+				hitPath.id,
+				this.context.getAncestorTransform(hitPath.id),
+			);
+		}
+
+		// Select all anchor vertices of the clicked path only, so a shift+click
+		// keeps the vertex selection of the other paths as it is
+		if (!shiftKey) {
+			this.selectedHandles.clear();
+		}
+		if (this.selectedPaths.has(hitPath.id)) {
+			this.selectAllVerticesOf(hitPath, viewport, canvasWidth, canvasHeight);
+		}
+
+		if (this.selectedPaths.size > 0) {
+			this.context.pathSelect(hitPath.id);
+		}
+	}
+
+	/** Take a path and its anchors out of the selection. */
+	private deselectPath(pathId: string): void {
+		this.selectedPaths.delete(pathId);
+		this.pathAncestorTransforms.delete(pathId);
+		for (const key of this.selectedHandles) {
+			if (key.startsWith(`${pathId}:`)) this.selectedHandles.delete(key);
+		}
+		if (this.selectedPaths.size === 0 && this.selectedMeshes.size === 0) {
+			this.context.selectionClear();
+			// Drop the whole-element selection frame this tool may have drawn.
+			this.context.uiRefreshSelectionUI(false);
+		}
+	}
+
+	/**
+	 * The path a click while sculpting picks: the one under the pointer, or
+	 * else the smallest one whose closed outline surrounds it, filled or not.
+	 */
+	private sculptClickTarget(world: Point, zoom: number): Path | null {
+		const hit = this.context.findPathAtPoint(
+			world.x,
+			world.y,
+			PathEditTool.HIT_TOLERANCE_SCREEN_PX / zoom,
+			true,
+		);
+		if (hit) return hit;
+
+		const around = this.context
+			.getAllEditablePaths()
+			.filter(({ path, ancestorTransform }) => {
+				if (path.visible === false || this.context.isElementLocked(path.id)) {
+					return false;
+				}
+				const elementT = getTransform(path);
+				const t = ancestorTransform
+					? composeTransforms(ancestorTransform, elementT)
+					: elementT;
+				const local = inverseTransform(world.x, world.y, t);
+				const closed = splitIntoSubPaths(path.segments)
+					.filter((subPath) => subPath.at(-1)?.isClosed === true)
+					.flat();
+				return isPointInPath(local.x, local.y, { segments: closed });
+			})
+			.map(({ path }) => ({ path, bounds: this.context.getBounds(path.id) }));
+		const area = ({ bounds }: (typeof around)[number]) =>
+			bounds
+				? (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY)
+				: Number.POSITIVE_INFINITY;
+		return around.toSorted((a, b) => area(a) - area(b))[0]?.path ?? null;
+	}
+
+	/** A press read as editing: picking up handles, faces and paths, or starting a marquee. */
+	private pressForEditing(
+		event: PointerEventData,
+		world: Point,
+		viewport: Viewport,
+		canvasWidth: number,
+		canvasHeight: number,
+	): void {
 		// One overlay refresh serves every hit test this event runs — the
 		// finders below read it as-is.
 		this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
@@ -578,7 +741,8 @@ export class PathEditTool implements Tool {
 		// Cutting takes the click before any selection or drag interpretation:
 		// alt+shift is the shortcut, and the panel's cut mode arms a plain click.
 		if (
-			(this.context.pathEditGetCutMode() || (event.altKey && event.shiftKey)) &&
+			(this.context.pathEditGetMode() === "cut" ||
+				(event.altKey && event.shiftKey)) &&
 			this.tryCutAtPoint(world, viewport, canvasWidth, canvasHeight)
 		) {
 			return;
@@ -881,42 +1045,13 @@ export class PathEditTool implements Tool {
 		);
 
 		if (hitPath) {
-			if (event.shiftKey) {
-				// Shift+click: add/remove path from selection
-				if (this.selectedPaths.has(hitPath.id)) {
-					this.selectedPaths.delete(hitPath.id);
-					this.pathAncestorTransforms.delete(hitPath.id);
-				} else {
-					this.selectedPaths.set(hitPath.id, hitPath);
-					this.pathAncestorTransforms.set(
-						hitPath.id,
-						this.context.getAncestorTransform(hitPath.id),
-					);
-				}
-			} else {
-				// Normal click: select single path
-				this.selectedPaths.clear();
-				this.pathAncestorTransforms.clear();
-				this.selectedPaths.set(hitPath.id, hitPath);
-				this.pathAncestorTransforms.set(
-					hitPath.id,
-					this.context.getAncestorTransform(hitPath.id),
-				);
-			}
-
-			// Select all anchor vertices of the clicked path only, so a shift+click
-			// keeps the vertex selection of the other paths as it is
-			if (!event.shiftKey) {
-				this.selectedHandles.clear();
-			}
-			if (this.selectedPaths.has(hitPath.id)) {
-				this.selectAllVerticesOf(hitPath, viewport, canvasWidth, canvasHeight);
-			}
-
-			// Notify path selection
-			if (this.selectedPaths.size > 0) {
-				this.context.pathSelect(hitPath.id);
-			}
+			this.pickPath(
+				hitPath,
+				event.shiftKey,
+				viewport,
+				canvasWidth,
+				canvasHeight,
+			);
 
 			// Enter face drag mode so the user can immediately drag the object
 			this.dragState = {
@@ -1101,6 +1236,32 @@ export class PathEditTool implements Tool {
 
 		if (ds.mode === "lasso") {
 			ds.path.push({ x: world.x, y: world.y });
+			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+			return;
+		}
+
+		if (ds.mode === "sculpt") {
+			const samples = event.coalesced?.length ? event.coalesced : null;
+			if (samples && areCoalescedBatchesEqual(ds.lastCoalescedBatch, samples)) {
+				return;
+			}
+			ds.lastCoalescedBatch = samples ?? undefined;
+			ds.hasMoved ||=
+				Math.hypot(event.x - ds.pressEvent.x, event.y - ds.pressEvent.y) >
+				this.dragStartThresholdPx;
+			for (const sample of samples ?? [event]) {
+				ds.session.append({
+					...screenToWorld(
+						sample.x,
+						sample.y,
+						viewport,
+						canvasWidth,
+						canvasHeight,
+					),
+					...strokeSampleAttributes(sample),
+					deltaTime: Math.max(sample.timeStamp - ds.startTime, 0),
+				});
+			}
 			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
 			return;
 		}
@@ -1612,6 +1773,53 @@ export class PathEditTool implements Tool {
 			return;
 		}
 
+		if (ds.mode === "sculpt" && !ds.hasMoved) {
+			// A click only selects: there is no anchor or curve to edit while
+			// sculpting, and an unfilled outline is picked from inside it too.
+			ds.session.abort();
+			this.dragState = { mode: "idle" };
+			const { pressEvent } = ds;
+			const world = screenToWorld(
+				pressEvent.x,
+				pressEvent.y,
+				viewport,
+				canvasWidth,
+				canvasHeight,
+			);
+			const target = this.sculptClickTarget(world, viewport.zoom);
+			if (target) {
+				this.pickPath(
+					target,
+					pressEvent.shiftKey,
+					viewport,
+					canvasWidth,
+					canvasHeight,
+				);
+				this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+				return;
+			}
+			// Elsewhere it picks up what the path edit tool would, or clears.
+			this.pressForEditing(
+				pressEvent,
+				world,
+				viewport,
+				canvasWidth,
+				canvasHeight,
+			);
+			this.onPointerUp(event, viewport, canvasWidth, canvasHeight);
+			return;
+		}
+
+		if (ds.mode === "sculpt") {
+			this.dragState = { mode: "idle" };
+			// The preview fit is what the user saw, so it is what reshapes.
+			const stroke = ds.session.getCommitSegments();
+			ds.session.commit();
+			if (stroke.length > 0) this.sculptSelectedPaths(stroke, viewport);
+			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
+			return;
+		}
+
 		if (ds.mode === "segmentBendDrag") {
 			if (ds.hasMoved) {
 				const path = this.selectedPaths.get(ds.pathId);
@@ -1630,16 +1838,7 @@ export class PathEditTool implements Tool {
 			// alone, and a shift+click takes it out of the selection
 			const path = this.selectedPaths.get(ds.pathId);
 			if (ds.shiftKey) {
-				this.selectedPaths.delete(ds.pathId);
-				this.pathAncestorTransforms.delete(ds.pathId);
-				for (const key of this.selectedHandles) {
-					if (key.startsWith(`${ds.pathId}:`)) this.selectedHandles.delete(key);
-				}
-				if (this.selectedPaths.size === 0 && this.selectedMeshes.size === 0) {
-					this.context.selectionClear();
-					// Drop the whole-element selection frame this tool may have drawn.
-					this.context.uiRefreshSelectionUI(false);
-				}
+				this.deselectPath(ds.pathId);
 			} else if (path) {
 				const ancestorTransform = this.pathAncestorTransforms.get(path.id);
 				this.selectedPaths.clear();
@@ -1739,6 +1938,8 @@ export class PathEditTool implements Tool {
 		canvasWidth: number,
 		canvasHeight: number,
 	): void {
+		// No anchor is added or cut while sculpting.
+		if (this.isArmedToSculpt()) return;
 		const world = screenToWorld(
 			event.x,
 			event.y,
@@ -1864,7 +2065,11 @@ export class PathEditTool implements Tool {
 		this.context.uiSetHoveredElement(null);
 		this.clearSelection();
 		this.context.pathEditUpdateSelectedAnchors([]);
-		this.context.pathEditSetCutMode(false);
+		// Sculpting goes on after a cancelled drag, such as one a second
+		// finger interrupts to pan or zoom.
+		if (this.context.pathEditGetMode() === "cut") {
+			this.context.pathEditSetMode("edit");
+		}
 	}
 
 	public saveInterruptibleState(): unknown {
@@ -1888,7 +2093,11 @@ export class PathEditTool implements Tool {
 
 	public getCursor(): string {
 		const ds = this.dragState;
-		if (ds.mode === "lasso" || ds.mode === "pending-lasso") {
+		if (
+			ds.mode === "lasso" ||
+			ds.mode === "pending-lasso" ||
+			ds.mode === "sculpt"
+		) {
 			return "crosshair";
 		}
 		if (ds.mode === "vertexFrameResize") {
@@ -1901,8 +2110,9 @@ export class PathEditTool implements Tool {
 		if (ds.mode !== "idle") {
 			return "grabbing";
 		}
-		// Armed to cut: never offer the grab cursor, the click won't move anything.
-		if (this.context.pathEditGetCutMode()) {
+		// Armed to cut or sculpt: never offer the grab cursor, the press won't
+		// move anything.
+		if (this.context.pathEditGetMode() === "cut" || this.isArmedToSculpt()) {
 			return "crosshair";
 		}
 		if (this.vertexFrameCursor) {
@@ -2083,6 +2293,131 @@ export class PathEditTool implements Tool {
 		return true;
 	}
 
+	private isArmedToSculpt(): boolean {
+		return (
+			this.context.pathEditGetMode() === "sculpt" &&
+			this.sculptablePaths().length > 0
+		);
+	}
+
+	/** The selected paths sculpting can reshape: the unlocked ones. */
+	private sculptablePaths(): Path[] {
+		return [...this.selectedPaths.values()].filter(
+			(path) => !this.context.isElementLocked(path.id),
+		);
+	}
+
+	/**
+	 * Reshape the selected paths by a stroke drawn in world space. A stroke
+	 * that starts inside selected paths is added to those paths alone; one
+	 * that starts outside every selected path is taken away from all of them.
+	 * An open path with a fill that shows counts as the region it encloses
+	 * with its ends joined by a straight line, and comes out closed. Without
+	 * such a fill it is a line, redrawn where the stroke crosses it.
+	 */
+	private sculptSelectedPaths(
+		stroke: CubicBezierSegment[],
+		viewport: Viewport,
+	): void {
+		const targets = this.sculptablePaths().map((path) => {
+			const elementT = getTransform(path);
+			const ancestorT = this.pathAncestorTransforms.get(path.id);
+			const t = ancestorT ? composeTransforms(ancestorT, elementT) : elementT;
+			const localStroke = mapSegments(
+				stroke,
+				invertAffine(elementTransformToAffine(t)),
+			);
+			const strokeStart = getStartAnchor(localStroke[0]);
+			// Local units one world unit covers, to carry the zoom into the
+			// path's own space.
+			const localUnit = inverseTransformVector(1, 0, t);
+			// A path without a fill that shows is seen as a line where it is
+			// open: closing it would stroke the line joining its ends.
+			const hasFill = localAppearances(
+				this.context.resolveElementAppearance(path).filters,
+			).some(
+				(appearance) =>
+					appearance.processor === "fill" &&
+					isVisibleFill(appearance as FillAppearance),
+			);
+			// Lines enclose nothing to start a stroke in.
+			const region = hasFill
+				? path.segments
+				: splitIntoSubPaths(path.segments)
+						.filter((subPath) => subPath.at(-1)?.isClosed === true)
+						.flat();
+			return {
+				path,
+				localStroke,
+				localZoom: viewport.zoom / Math.hypot(localUnit.x, localUnit.y),
+				hasFill,
+				startsInside: isPointInPath(strokeStart.x, strokeStart.y, {
+					segments: region,
+				}),
+			};
+		});
+
+		const isGrowing = targets.some(({ startsInside }) => startsInside);
+		const op = isGrowing ? "add" : "subtract";
+		const updates: Array<[pathId: string, segments: CubicBezierSegment[]]> = [];
+		const profileUpdates: Array<
+			[pathId: string, profiles: Pick<Path, "strokeWidths" | "strokeErasure">]
+		> = [];
+		const emptiedPathIds: string[] = [];
+		for (const target of targets) {
+			const { path, localStroke, localZoom, hasFill } = target;
+			// A stroke that starts inside paths grows those alone; the lines
+			// it crosses are redrawn either way.
+			const regionOp = isGrowing && !target.startsInside ? null : op;
+			if (regionOp === null && hasFill) continue;
+			const segments = sculptPath(
+				path.segments,
+				localStroke,
+				regionOp,
+				localZoom,
+				!hasFill,
+			);
+			if (!segments) continue;
+			if (segments.length === 0) {
+				emptiedPathIds.push(path.id);
+			} else {
+				updates.push([path.id, segments]);
+				// The profiles sit at ratios of the path's length, which the
+				// reshaping changed.
+				if (path.strokeWidths?.length || path.strokeErasure?.length) {
+					profileUpdates.push([
+						path.id,
+						{
+							strokeWidths:
+								path.strokeWidths &&
+								carryProfile(path.strokeWidths, path.segments, segments),
+							strokeErasure:
+								path.strokeErasure &&
+								carryProfile(path.strokeErasure, path.segments, segments),
+						},
+					]);
+				}
+			}
+		}
+		if (updates.length === 0 && emptiedPathIds.length === 0) return;
+
+		this.context.stashPathEditUndoSelection([...this.selectedHandles]);
+		// Handle keys point at segments the reshaping rebuilt.
+		this.selectedHandles.clear();
+		// One change for collaborators and for undo, outlines and profiles alike.
+		this.context.transact(() => {
+			if (updates.length > 0) this.context.batchPathUpdate(updates);
+			for (const [pathId, profiles] of profileUpdates) {
+				this.context.updateElement(pathId, profiles);
+			}
+			for (const pathId of emptiedPathIds) this.context.eraseElement(pathId);
+		});
+		for (const pathId of [...updates.map(([id]) => id), ...emptiedPathIds]) {
+			this.cachedControlPoints.delete(pathId);
+			this.reloadPath(pathId);
+		}
+	}
+
 	/**
 	 * Cut the path under the cursor open at that point — on an anchor when one
 	 * is within reach, otherwise at the nearest point along a segment. An open
@@ -2121,7 +2456,11 @@ export class PathEditTool implements Tool {
 
 		// Handle keys point at segments the cut rebuilt.
 		this.selectedHandles.clear();
-		this.context.pathEditSetCutMode(false);
+		// One cut per arming; a cut by the alt+shift shortcut leaves the mode
+		// it was made in.
+		if (this.context.pathEditGetMode() === "cut") {
+			this.context.pathEditSetMode("edit");
+		}
 
 		if (this.selectedPaths.size > 0) {
 			this.updatePathEditUI(viewport, canvasWidth, canvasHeight);
@@ -3498,7 +3837,12 @@ export class PathEditTool implements Tool {
 		canvasWidth: number,
 		canvasHeight: number,
 	): void {
-		const hasLasso = this.dragState.mode === "lasso";
+		const strokePath =
+			this.dragState.mode === "lasso"
+				? this.dragState.path
+				: this.dragState.mode === "sculpt"
+					? flattenToPoints(this.dragState.session.getPreviewSegments())
+					: null;
 		const hoverPath = this.buildHoverPathUIData();
 		this.vertexFrame = this.currentVertexFrame(viewport.zoom);
 		this.updateVertexFrameOverlay(
@@ -3509,7 +3853,7 @@ export class PathEditTool implements Tool {
 		if (
 			this.selectedPaths.size === 0 &&
 			this.selectedMeshes.size === 0 &&
-			!hasLasso
+			!strokePath
 		) {
 			this.updatePathEditOverlay(hoverPath ? { paths: [], hoverPath } : null);
 			return;
@@ -3553,8 +3897,7 @@ export class PathEditTool implements Tool {
 			longPressRing: this.longPressRing ?? undefined,
 			// Copy: the overlay sink freezes this array in dev builds, but
 			// dragState.path keeps growing via push() on every pointer move.
-			lassoPath:
-				this.dragState.mode === "lasso" ? [...this.dragState.path] : undefined,
+			lassoPath: strokePath ? [...strokePath] : undefined,
 		});
 
 		// Publish selected anchor info for ActionsPanel
@@ -4600,4 +4943,22 @@ function insetBounds(bounds: BoundingBox, inset: number): BoundingBox {
 		width: halfWidth * 2,
 		height: halfHeight * 2,
 	};
+}
+
+/** Pressure, tilt and twist of a pointer sample, for a stroke record. */
+function strokeSampleAttributes({
+	pressure,
+	tiltX,
+	tiltY,
+	twist,
+}: Pick<PointerEventData, "pressure" | "tiltX" | "tiltY" | "twist">) {
+	return { pressure, tiltX, tiltY, twist };
+}
+
+function flattenToPoints(segments: CubicBezierSegment[]): Point[] {
+	const flat = flattenBezierPath(segments);
+	return Array.from({ length: flat.length / 2 }, (_, index) => ({
+		x: flat[index * 2],
+		y: flat[index * 2 + 1],
+	}));
 }

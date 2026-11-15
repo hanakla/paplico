@@ -475,6 +475,8 @@ export const en = {
 		pathEditMerge: "Merge Vertices",
 		pathEditSplit: "Split Path",
 		pathEditCutMode: "Cut Path (or alt+shift-click)",
+		pathEditSculptMode:
+			"Sculpt (draw from inside to add, from outside to carve)",
 		selectStrokeAfterDraw: "Auto-select stroke",
 	},
 	filterPanel: {

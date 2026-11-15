@@ -476,6 +476,8 @@ export const ja = {
 		pathEditMerge: "頂点を結合",
 		pathEditSplit: "パスを分割",
 		pathEditCutMode: "パスを切断 (Alt+Shift+クリックでも可)",
+		pathEditSculptMode:
+			"スカルプト (内側からなぞって足す、外側からなぞって削る)",
 		selectStrokeAfterDraw: "線を自動選択",
 	},
 	filterPanel: {

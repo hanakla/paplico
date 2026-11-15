@@ -23,6 +23,7 @@ import { useTargetViewport } from "@/contexts/ViewIdContext";
 import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
 import { useTranslation } from "@/locales";
 import { PathEditCutModeToggle } from "@/organisms/PathEditCutModeToggle";
+import { PathEditSculptModeToggle } from "@/organisms/PathEditSculptModeToggle";
 import { TextCharTouchModeToggle } from "@/organisms/TextControls/TextCharTouchModeToggle";
 import { uiState } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
@@ -309,6 +310,7 @@ function ContextActionsOverlayInner({
 			{isPathEditToolContext && (
 				<>
 					<PathEditCutModeToggle $size="md" />
+					<PathEditSculptModeToggle />
 					<Separator orientation="vertical" className="mx-0.5 h-5" />
 				</>
 			)}

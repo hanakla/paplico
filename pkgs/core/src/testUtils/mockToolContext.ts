@@ -4,6 +4,7 @@ import type { PaplicoCommands } from "../PaplicoCommands";
 import { hitTestOverlays } from "../renderer/ui/hitTest";
 import type { OverlayKey } from "../renderer/ui/overlayKeys";
 import type { UIOverlay } from "../renderer/ui/primitives";
+import type { PathEditMode } from "../tools/PathEditTool";
 import { ToolContext, type ToolContextOptions } from "../tools/ToolContext";
 import {
 	testCanvasHeight,
@@ -253,8 +254,12 @@ export function createMockToolContext(
 		emitColorPick: vi.fn(),
 
 		pathEditGetSelectionMode: vi.fn(() => "lasso" as const),
-		pathEditGetCutMode: vi.fn(() => false),
-		pathEditSetCutMode: vi.fn(),
+		pathEditGetMode: vi.fn((): PathEditMode => "edit"),
+		getStrokeSmoothing: vi.fn(() => ({
+			stabilization: 0,
+			smoothingMethod: "smooth" as const,
+		})),
+		pathEditSetMode: vi.fn(),
 		stashPathEditUndoSelection: vi.fn(),
 		selectGetSelectionMode: vi.fn(() => "lasso" as const),
 		pathEditUpdateSelectedAnchors: vi.fn(),

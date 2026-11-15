@@ -254,7 +254,8 @@ function groupHoleRings(rings: Ring[]): Ring[][] {
 	return solids.map((solid) => solid.shape);
 }
 
-function ringPerimeter(ring: Ring): number {
+/** Length of a polygon ring's edges. */
+export function ringPerimeter(ring: Ring): number {
 	let length = 0;
 	for (let i = 1; i < ring.length; i++) {
 		length += Math.hypot(
