@@ -141,6 +141,9 @@
   - Fix the caret, the selection and clicks landing above a character laid on its side in vertical writing.
   - Fix a character with a negative kerning in vertical writing moving down onto the character after it instead of up toward the one before it.
   - Fix a centered or right-aligned paragraph in vertical writing starting at the top of its column. Without a box, the text's position is the middle or the end of the column.
+  - Fix vertical forms such as `︙` and symbols such as `①` and `※` lying on their side in vertical writing with `textOrientation: "mixed"`. The orientation of each character follows its Unicode Vertical_Orientation.
+  - Fix tate-chu-yoko split across several runs, such as `!` and `?` styled apart, stacking its characters on top of each other in vertical text without a box instead of setting them side by side in one cell.
+  - Fix a tate-chu-yoko group with kerning or a space at its end sitting off the center of its column. Spaces at either end stay out of the centering.
   - Fix a character the chosen font lacks showing as a tofu box instead of being drawn with the fallback font.
   - Fix color fonts such as Twitter Color Emoji drawing their emoji in the text color, and text in a COLR color font not showing at all. Outlined text and SVG export keep the colors too.
     - Glyphs from the `SVG ` table keep their colors when they use only fills; a glyph with strokes, patterns or masks is still drawn in the text color. COLR v1 glyphs are not supported.

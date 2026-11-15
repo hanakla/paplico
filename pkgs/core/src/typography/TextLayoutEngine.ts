@@ -38,6 +38,7 @@ import {
 	intervalsForBand,
 	type TextLineInterval,
 } from "./regionGeometry";
+import { isUprightInVertical } from "./verticalOrientation";
 
 /**
  * レイアウト済み文字情報
@@ -194,6 +195,11 @@ interface RegionSpec {
 	provider: TextLineWidthProvider | null;
 	/** 最初の行バンドの上端Y（要素ローカル） */
 	startTop: number;
+	/**
+	 * Whether the first line's em box, not its line height, starts at
+	 * `startTop`, so the leading above it does not take a shape's top edge.
+	 */
+	firstLineAtEmBox: boolean;
 	ellipsis: boolean;
 	/** リージョン自体の外形bounds（空リージョンでも選択可能にするための下限bounds） */
 	regionBounds: BoundingBox | null;
@@ -593,6 +599,7 @@ export class TextLayoutEngine {
 				return {
 					provider: null,
 					startTop: 0,
+					firstLineAtEmBox: false,
 					ellipsis: false,
 					regionBounds: null,
 				};
@@ -605,6 +612,7 @@ export class TextLayoutEngine {
 							: intervalsForBand(polygons, top, bottom, inset),
 				},
 				startTop: shapeBounds.maxY,
+				firstLineAtEmBox: true,
 				ellipsis: layout.overflow === "ellipsis",
 				regionBounds: shapeBounds,
 			};
@@ -629,6 +637,7 @@ export class TextLayoutEngine {
 							: [{ x0: 0, x1: width }],
 				},
 				startTop: 0,
+				firstLineAtEmBox: false,
 				ellipsis: layout.overflow === "ellipsis",
 				regionBounds: boxRegionBounds(boxWidth, boxHeight),
 			};
@@ -637,6 +646,7 @@ export class TextLayoutEngine {
 		return {
 			provider: null,
 			startTop: 0,
+			firstLineAtEmBox: false,
 			ellipsis: false,
 			regionBounds: hasBox ? boxRegionBounds(boxWidth, boxHeight) : null,
 		};
@@ -775,7 +785,14 @@ export class TextLayoutEngine {
 		const placed: PlacedLine[] = [];
 		const allChars: LayoutedChar[] = [];
 		let idx = start.idx;
-		let bandTop = spec.startTop;
+		const first = paraMeta[start.p];
+		// The band of the first line starts above the region by the leading
+		// above its em box.
+		let bandTop =
+			spec.startTop +
+			(spec.firstLineAtEmBox && first
+				? (first.maxLineHeight - first.maxFontSize) * BASELINE_RATIO
+				: 0);
 		// Baseline of the last placed line. The next line's advance is the max
 		// lineHeightPx of the chars that land in it (space-before, Illustrator-style)
 		let prevBaseline: number | null = null;
@@ -1456,22 +1473,35 @@ export class TextLayoutEngine {
 		cursorTop: number,
 	): LayoutedChar[] {
 		const maxFs = Math.max(...cluster.map((c) => c.fontSize * c.sizeScale));
-		let width = 0;
-		for (let i = 0; i < cluster.length; i++) {
-			width += cluster[i].advanceWidth;
-			if (i < cluster.length - 1) {
-				width += cluster[i].kerning + cluster[i].letterSpacingPx;
-			}
+		// Horizontal composition: a glyph's own kerning shifts itself like the
+		// horizontal placement. Negative kerning can pull a glyph past the one
+		// before it, so the span to center runs from the leftmost glyph edge to
+		// the rightmost one. Spaces at the cluster's ends stay out of the span,
+		// as in Japanese typesetting
+		const lefts: number[] = [];
+		let pen = 0;
+		for (const c of cluster) {
+			lefts.push(pen + c.kerning);
+			pen += c.advanceWidth + c.kerning + c.letterSpacingPx;
 		}
+		const first = cluster.findIndex((c) => c.char.trim() !== "");
+		const last = cluster.findLastIndex((c) => c.char.trim() !== "");
+		const spanIndices = [...cluster.keys()].slice(
+			first === -1 ? 0 : first,
+			last === -1 ? cluster.length : last + 1,
+		);
+		const spanStart = Math.min(...spanIndices.map((i) => lefts[i]));
+		const spanEnd = Math.max(
+			...spanIndices.map((i) => lefts[i] + cluster[i].advanceWidth),
+		);
+		const originX = colLeft + (maxFs - (spanEnd - spanStart)) / 2 - spanStart;
 
 		const placed: LayoutedChar[] = [];
-		let x = colLeft + (maxFs - width) / 2;
 		const baseY = cursorTop - maxFs * BASELINE_RATIO;
-		for (const c of cluster) {
-			// Horizontal composition: overrides use the horizontal axes, and a
-			// glyph's own kerning shifts itself like the horizontal placement
+		for (const [i, c] of cluster.entries()) {
+			// Overrides use the horizontal axes
 			const d = charVisualDelta(c.override, false);
-			const charX = x + c.kerning + d.dx;
+			const charX = originX + lefts[i] + d.dx;
 			const charY = baseY + d.dy;
 			const anchor =
 				d.rotRad === 0
@@ -1510,7 +1540,6 @@ export class TextLayoutEngine {
 				override: c.override,
 				tateChuYoko: true,
 			});
-			x += c.advanceWidth + c.kerning + c.letterSpacingPx;
 		}
 		return placed;
 	}
@@ -1708,6 +1737,8 @@ export class TextLayoutEngine {
 			const lineChars: LayoutedChar[] = [];
 			let lineWidth = 0;
 			let lineHeight = 0;
+			// 縦中横: consecutive flagged runs share one upright cell
+			const tateChuYokoCluster: ShapedCharItem[] = [];
 
 			for (let rIdx = 0; rIdx < para.runs.length; rIdx++) {
 				const run = para.runs[rIdx];
@@ -1745,9 +1776,8 @@ export class TextLayoutEngine {
 				// Content-based indexing (see shapeContent)
 				const runStart = globalCharIndex;
 
-				// 縦中横: run全体を1つの正立セルに横組みで収める
 				if (runStyle.tateChuYoko === true && shaped.length > 0) {
-					const cluster: ShapedCharItem[] = shaped.map((glyph) => {
+					const runCluster: ShapedCharItem[] = shaped.map((glyph) => {
 						const charOverride = run.charOverrides?.find(
 							(o) => o.charIndex === glyph.charIndex,
 						);
@@ -1774,21 +1804,30 @@ export class TextLayoutEngine {
 							override: charOverride,
 						};
 					});
+					tateChuYokoCluster.push(...runCluster);
+					globalCharIndex = runStart + run.text.length;
+					const nextRun = para.runs[rIdx + 1];
+					if (
+						nextRun?.text &&
+						this.mergeStyles(defaultStyle, nextRun.style).tateChuYoko === true
+					) {
+						continue;
+					}
 					// placeTateChuYokoCluster anchors the cell top at cursorTop
 					// (the region path's convention); this path's baseline sits
 					// at currentY, so shift the cell top up by the ascent ratio
 					const maxFs = Math.max(
-						...cluster.map((c) => c.fontSize * c.sizeScale),
+						...tateChuYokoCluster.map((c) => c.fontSize * c.sizeScale),
 					);
 					const placed = this.placeTateChuYokoCluster(
-						cluster,
+						tateChuYokoCluster,
 						currentX,
 						currentY + maxFs * BASELINE_RATIO,
 					);
 					lineChars.push(...placed);
-					currentY -= tateChuYokoAdvance(cluster);
+					currentY -= tateChuYokoAdvance(tateChuYokoCluster);
 					lineHeight = -currentY;
-					globalCharIndex = runStart + run.text.length;
+					tateChuYokoCluster.length = 0;
 					continue;
 				}
 
@@ -2435,19 +2474,15 @@ const VERTICAL_OFFSET_PUNCTUATION = new Set(["、", "。", "，", "．"]);
  */
 /**
  * Whether vertical writing in `style` lays `char` on its side: under
- * "mixed", every character outside the wide East Asian ranges is.
+ * "mixed", every character whose Vertical_Orientation is R is.
  */
 function isSidewaysInVertical(
 	style: Pick<TextStyle, "textOrientation" | "tateChuYoko">,
 	char: string,
 ): boolean {
 	if (style.textOrientation !== "mixed" || style.tateChuYoko) return false;
-	return !WIDE_CHAR.test(char);
+	return !isUprightInVertical(char);
 }
-
-/** Characters East Asian writing sets upright: CJK, kana, hangul and full-width forms. */
-const WIDE_CHAR =
-	/[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]|[\u{20000}-\u{3FFFD}]/u;
 
 function classifyVerticalChar(char: string): "rotate" | "offset" | "normal" {
 	if (VERTICAL_ROTATE_CHARS.has(char)) return "rotate";

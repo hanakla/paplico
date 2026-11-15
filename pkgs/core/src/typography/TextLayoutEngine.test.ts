@@ -183,7 +183,9 @@ describe("TextLayoutEngine inShape", () => {
 		);
 
 		expect(result.lines.map(lineText)).toEqual(["aaaaaaaaaa", "aaaaa"]);
-		expect(result.lines.map((l) => l.y)).toEqual([-24, -54]);
+		// The first line's em box (font size 10) starts at the shape's top, so
+		// its baseline is 0.8 * 10 down; the next follows a line height (30) on
+		expect(result.lines.map((l) => l.y)).toEqual([-8, -38]);
 		expect(result.hasOverflow).toBe(false);
 	});
 
@@ -193,7 +195,7 @@ describe("TextLayoutEngine inShape", () => {
 			createTextElement("aaaaaaaaaaaa", {
 				axisBinding: { mode: "inShape", pathObjectId: "p" },
 			}),
-			{ kind: "inShape", segments: closedRectSegments(0, 0, 100, -50) },
+			{ kind: "inShape", segments: closedRectSegments(0, 0, 100, -30) },
 		);
 
 		expect(result.lines.map(lineText)).toEqual(["aaaaaaaaaa"]);
@@ -264,12 +266,13 @@ describe("TextLayoutEngine inShape packing", () => {
 			{ kind: "inShape", segments: triangle },
 		);
 
-		// Ink-band evaluation (baseline ±fontSize instead of the full
-		// lineHeight band): 1 / 4 / 7 chars instead of the former 1 / 3 / 6
-		expect(result.lines.map((l) => l.chars.length)).toEqual([1, 4, 7]);
+		// Each line takes the width of its glyphs' band, not of its whole line
+		// height. The first band sits on the tip, where nothing fits, so the
+		// lines start a line height lower: 3 / 6 / 9 chars
+		expect(result.lines.map((l) => l.chars.length)).toEqual([3, 6, 9]);
 		// Rows are centered segments of the triangle, not forced at x=50
-		expect(result.lines[1].x).toBeGreaterThan(20);
-		expect(result.lines[1].x + result.lines[1].width).toBeLessThan(80);
+		expect(result.lines[1].x).toBeCloseTo(20);
+		expect(result.lines[1].x + result.lines[1].width).toBeCloseTo(80);
 	});
 });
 
@@ -420,6 +423,27 @@ describe("TextLayoutEngine vertical regions", () => {
 		expect(first.y - second.y).toBeCloseTo(first.advanceWidth);
 	});
 
+	it("should keep vertical forms such as ︙ upright under mixed orientation", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const element = createTextElement("", {
+			layout: {
+				writingMode: "vertical-rl",
+				boxWidth: 40,
+				boxHeight: 30,
+				wordWrap: true,
+				overflow: "hidden",
+			},
+		});
+		const style = element.content.paragraphs[0].runs[0].style;
+		element.content.paragraphs[0].runs = [
+			{ text: "︙︙", style: { ...style, textOrientation: "mixed" } },
+		];
+
+		const result = await engine.layout(element);
+
+		expect(result.lines[0].chars.map((c) => c.rotation)).toEqual([0, 0]);
+	});
+
 	it("should keep Latin upright in vertical writing by default", async () => {
 		const engine = new TextLayoutEngine(createMockFontManager());
 		const result = await engine.layout(
@@ -501,6 +525,76 @@ describe("TextLayoutEngine vertical regions", () => {
 		// The cluster consumes one cell: the following char sits exactly one
 		// cell below the char before the cluster minus two advances
 		expect(before.y - after.y).toBeCloseTo(20);
+	});
+
+	it("should compose consecutive tate-chu-yoko runs into one cell in unconstrained vertical layout", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const element = createTextElement("", {
+			layout: {
+				writingMode: "vertical-rl",
+				boxWidth: "auto",
+				boxHeight: "auto",
+				overflow: "visible",
+				wordWrap: false,
+			},
+		});
+		const style = element.content.paragraphs[0].runs[0].style;
+		element.content.paragraphs[0].runs = [
+			{ text: "a", style: { ...style } },
+			{ text: "a", style: { ...style, tateChuYoko: true } },
+			{ text: "a", style: { ...style, tateChuYoko: true } },
+			{ text: "a", style: { ...style } },
+		];
+
+		const result = await engine.layout(element);
+
+		const [before, tcy1, tcy2, after] = result.chars;
+		expect(tcy1.y).toBe(tcy2.y);
+		expect(tcy2.x - tcy1.x).toBeCloseTo(10);
+		expect(before.y - after.y).toBeCloseTo(20);
+	});
+
+	it("should keep a kerned tate-chu-yoko cluster centered on its column, leaving out spaces at its ends", async () => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const layoutCluster = async (
+			text: string,
+			charOverrides: { charIndex: number; kerningAdjust: number }[],
+		) => {
+			const element = createTextElement("", {
+				layout: {
+					writingMode: "vertical-rl",
+					boxWidth: "auto",
+					boxHeight: "auto",
+					overflow: "visible",
+					wordWrap: false,
+				},
+			});
+			const style = element.content.paragraphs[0].runs[0].style;
+			element.content.paragraphs[0].runs = [
+				{
+					text,
+					style: { ...style, tateChuYoko: true },
+					charOverrides,
+				},
+			];
+			const chars = (await engine.layout(element)).chars.filter(
+				(c) => c.char !== " ",
+			);
+			const left = Math.min(...chars.map((c) => c.x));
+			const right = Math.max(...chars.map((c) => c.x + c.advanceWidth));
+			return (left + right) / 2;
+		};
+		const center = await layoutCluster("aa", []);
+
+		expect(
+			await layoutCluster("aa", [{ charIndex: 0, kerningAdjust: -0.5 }]),
+		).toBeCloseTo(center);
+		// The second glyph is pulled left past the first one
+		expect(
+			await layoutCluster("aaa", [{ charIndex: 1, kerningAdjust: -1.5 }]),
+		).toBeCloseTo(center);
+		expect(await layoutCluster(" aa", [])).toBeCloseTo(center);
+		expect(await layoutCluster("aa ", [])).toBeCloseTo(center);
 	});
 
 	it("should report overflow when vertical columns exceed the box width", async () => {
