@@ -1317,7 +1317,14 @@ export class TextLayoutEngine {
 			}
 			const fsScaled = it.fontSize * it.sizeScale;
 			if (it.sideways) {
-				chars.push(this.placeSideways(it, colLeft, cursorTop, it.advanceWidth));
+				chars.push(
+					this.placeSideways(
+						it,
+						colLeft,
+						cursorTop - it.kerning,
+						it.advanceWidth,
+					),
+				);
 				cursorTop -= it.advanceWidth + it.kerning + it.letterSpacingPx;
 				continue;
 			}
@@ -1330,8 +1337,10 @@ export class TextLayoutEngine {
 			const d = charVisualDelta(it.override, true);
 			const charX = colLeft + v.offsetX + d.dx;
 			// Center the glyph in its rotation-widened cell (flow runs downward)
+			// Kerning moves the glyph along the flow before it, as in a row
 			const charY =
 				cursorTop -
+				it.kerning -
 				fsScaled * BASELINE_RATIO -
 				it.verticalAdvanceAdjustPx / 2 +
 				v.offsetY +
@@ -1814,7 +1823,7 @@ export class TextLayoutEngine {
 									override: charOverride,
 								},
 								currentX,
-								currentY + kerning + fontSize * sizeScale * BASELINE_RATIO,
+								currentY - kerning + fontSize * sizeScale * BASELINE_RATIO,
 								advance,
 							),
 						);
@@ -1841,7 +1850,7 @@ export class TextLayoutEngine {
 							: 0;
 					const charX = currentX + v.offsetX + d.dx;
 					const charY =
-						currentY + kerning + v.offsetY + d.dy - vAdvanceAdjust / 2;
+						currentY - kerning + v.offsetY + d.dy - vAdvanceAdjust / 2;
 					const charRotation = v.rotation + d.rotRad;
 					const finalGlyphPath = v.path;
 					const anchor =

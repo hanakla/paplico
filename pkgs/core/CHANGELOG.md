@@ -207,6 +207,7 @@
   - Fix `LocalFontsLoader` failing to load a font that a document names by its full name.
 - **Text**
   - Fix the caret, the selection and clicks landing above a character laid on its side in vertical writing.
+  - Fix a character with a negative kerning in vertical writing moving down onto the character after it instead of up toward the one before it.
   - Fix a character the chosen font lacks showing as a tofu box instead of being drawn with the fallback font.
   - Fix a centered or right-aligned paragraph in vertical writing starting at the top of its column. Without a box, the text's position is the middle or the end of the column.
   - Fix text with a path offset or another shape filter on one of its fills or strokes being drawn as a coarse image instead of sharp outlines.

@@ -299,6 +299,31 @@ describe("TextLayoutEngine vertical regions", () => {
 		expect(result.hasOverflow).toBe(false);
 	});
 
+	it.each([
+		["without a box", { writingMode: "vertical-rl" as const }],
+		[
+			"in a box",
+			{
+				writingMode: "vertical-rl" as const,
+				boxWidth: 40,
+				boxHeight: 30,
+				overflow: "visible" as const,
+			},
+		],
+	])("should move a kerned character up toward the one before it %s", async (_, layout) => {
+		const engine = new TextLayoutEngine(createMockFontManager());
+		const element = createTextElement("aaa", { layout });
+		element.content.paragraphs[0].runs[0].charOverrides = [
+			{ charIndex: 1, kerningAdjust: -0.5 },
+		];
+
+		const [column] = (await engine.layout(element)).lines;
+		const [first, second, third] = column.chars;
+
+		expect(first.y - second.y).toBeCloseTo(5);
+		expect(second.y - third.y).toBeCloseTo(10);
+	});
+
 	it("should end an end-aligned column without a box at the element's point", async () => {
 		const engine = new TextLayoutEngine(createMockFontManager());
 		const element = createTextElement("aaa", {
