@@ -14,10 +14,9 @@ import { reportError } from "@/utils/errorReporting";
 import { generateDocumentThumbnail } from "@/utils/generateDocumentThumbnail";
 import { useEventCallback } from "@/utils/hooks";
 
-const DEBOUNCE_MS = 2_000;
-
 /**
- * Saves the current document after edits and stores revisions on a timer.
+ * Saves the current document and a revision of it on a timer, when it was
+ * edited since the last save.
  * Takes `paplico` as an argument because the page that calls it renders
  * PaplicoProvider itself, so the context is not available there.
  */
@@ -28,51 +27,12 @@ export function useAutoSave(paplico: Paplico | null): { save: () => void } {
 	// record to be saved under.
 	const documentId = source.kind === "room" ? null : currentDocumentId;
 
-	const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const pendingRef = useRef(false);
 	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	// A ref so edits survive the timer effect restarting on interval changes
 	const hasUnsavedRevisionRef = useRef(false);
 
 	const { intervalMs } = useSnapshot(autoSaveState);
 
-	// --- Debounce save (crash recovery) ---
-	useEffect(() => {
-		if (!paplico || !documentId) return;
-
-		const handler = () => {
-			pendingRef.current = true;
-
-			if (timerRef.current) clearTimeout(timerRef.current);
-			timerRef.current = setTimeout(async () => {
-				if (!pendingRef.current || !paplico || !documentId) return;
-				pendingRef.current = false;
-
-				try {
-					await saveDocument(documentId, await paplico.exportDocument());
-					resolveBanner("AUTOSAVE_FAILED");
-				} catch (cause) {
-					reportError({ code: "AUTOSAVE_FAILED", channel: "banner", cause });
-				}
-			}, DEBOUNCE_MS);
-		};
-
-		const unsubscribe = paplico.getYjsProvider().on("update", handler);
-
-		return () => {
-			unsubscribe();
-
-			if (timerRef.current) {
-				clearTimeout(timerRef.current);
-				timerRef.current = null;
-			}
-			// No save here: by the time the document id changes, the engine
-			// already holds the next document, so an export would write that
-			// document under this id. Whoever switches documents saves first.
-		};
-	}, [paplico, documentId]);
-
-	// --- Revision save, on the timer and on demand ---
 	const saveRevisionNow = useEventCallback(async () => {
 		if (!paplico || !documentId || autoSaveState.isSaving) return;
 		if (!hasUnsavedRevisionRef.current) {
@@ -90,6 +50,15 @@ export function useAutoSave(paplico: Paplico | null): { save: () => void } {
 				paplico.exportDocument(),
 				generateDocumentThumbnail(paplico),
 			]);
+			// The record a reload opens is written first, so a failed revision
+			// still leaves the latest content in it.
+			try {
+				await saveDocument(documentId, doc);
+				resolveBanner("AUTOSAVE_FAILED");
+			} catch (cause) {
+				hasUnsavedRevisionRef.current = true;
+				reportError({ code: "AUTOSAVE_FAILED", channel: "banner", cause });
+			}
 			await saveRevision(documentId, doc, thumbnail);
 
 			const elapsed = performance.now() - start;

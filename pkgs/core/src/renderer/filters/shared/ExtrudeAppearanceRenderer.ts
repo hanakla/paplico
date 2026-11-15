@@ -91,7 +91,10 @@ import { resolveRenderConfigure } from "../../canvas/pipeline/FilterRenderer";
 import { collectGroupSegments } from "../../canvas/pipeline/GroupAppearanceCollector";
 import type { ImageLoadState } from "../../canvas/pipeline/ImageTextureStore";
 import type { MeshPassRenderer } from "../../canvas/pipeline/MeshPassRenderer";
-import { memoizeByIdentity } from "../../canvas/pipeline/memoizeByIdentity";
+import {
+	concatResults,
+	memoizeByIdentity,
+} from "../../canvas/pipeline/memoizeByIdentity";
 import {
 	createBorrowedTextureRef,
 	createRenderSurface,
@@ -251,6 +254,7 @@ export class ExtrudeAppearanceRenderer implements BackdropEffectDriver {
 					!blendMemberIds.has(element.id),
 			);
 		},
+		concatResults,
 	);
 	private frameTextures: GPUTexture[] = [];
 	/** Glass entries already composited inline at their z-order this frame, so

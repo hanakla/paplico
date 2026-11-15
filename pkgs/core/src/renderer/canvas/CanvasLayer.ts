@@ -211,7 +211,12 @@ import {
 	planGroupComposition,
 	planMaskApplication,
 } from "./pipeline/MaskApplicationPlan";
-import { memoizeByIdentity } from "./pipeline/memoizeByIdentity";
+import {
+	concatResults,
+	declareExtension,
+	memoizeByIdentity,
+	unionResults,
+} from "./pipeline/memoizeByIdentity";
 import {
 	type AtlasMaskComputeItem,
 	type ClipGroupAtlasItem,
@@ -226,6 +231,7 @@ import {
 	buildFramePlanView,
 	buildPassPlan,
 	type ElementFilterPlan,
+	extendFramePlanStructure,
 	type FramePlan,
 	type FramePlanStructure,
 	type PartialRedrawBackdropRead,
@@ -664,13 +670,18 @@ export class CanvasLayer {
 	private readonly patternDefIdsOf = memoizeByIdentity(
 		(elementsMap: Map<string, AnyArtObject>) =>
 			collectPatternDefIdsInUse(elementsMap, this.filterRenderer),
+		unionResults,
 	);
-	private readonly brushDefIdsOf = memoizeByIdentity(collectBrushDefIdsInUse);
+	private readonly brushDefIdsOf = memoizeByIdentity(
+		collectBrushDefIdsInUse,
+		unionResults,
+	);
 	private readonly textAxisPathIdsOf = memoizeByIdentity(
 		collectTextAxisPathIds,
 	);
 	private readonly isolatingGroupsOf = memoizeByIdentity(
 		collectIsolatingGroups,
+		concatResults,
 	);
 	private readonly clipGroupsOf = memoizeByIdentity(
 		(elementsMap: Map<string, AnyArtObject>) =>
@@ -678,10 +689,17 @@ export class CanvasLayer {
 				(element): element is Group =>
 					isGroup(element) && element.clipPathId != null,
 			),
+		concatResults,
 	);
 	private readonly meshesOf = memoizeByIdentity(
 		(elementsMap: Map<string, AnyArtObject>) =>
 			[...elementsMap.values()].filter(isMesh),
+		concatResults,
+	);
+	private readonly repeatsOf = memoizeByIdentity(
+		(elementsMap: Map<string, AnyArtObject>) =>
+			[...elementsMap.values()].filter(isRepeat),
+		concatResults,
 	);
 	private readonly topLevelBoundsOf = memoizeByIdentity(
 		(structure: FramePlanStructure) =>
@@ -703,6 +721,7 @@ export class CanvasLayer {
 					image,
 					bounds: this.elements.imageWorldBounds(image, elementsMap),
 				})),
+		concatResults,
 	);
 	private readonly filesByUidOf = memoizeByIdentity(
 		(files: EmbeddedFile[]) => new Map(files.map((file) => [file.uid, file])),
@@ -2265,8 +2284,29 @@ export class CanvasLayer {
 		// re-upload all transforms during pan/zoom.
 		const transients = transientElements ?? null;
 		if (transients !== this.lastTransientElements || transients != null) {
+			const previous = this.lastTransientElements;
 			this.lastTransientElements = transients;
-			this.viewportManager.markTransformsDirty();
+			// Top-level, normally blended paths have no parent relations: their
+			// slots alone are recomposed, and those of the ones that left.
+			if (
+				(!transients || drawAboveTheirLayers(transients)) &&
+				(!previous || drawAboveTheirLayers(previous))
+			) {
+				const upserted = new Set(
+					[...(transients?.values() ?? [])].map((entry) => entry.element.id),
+				);
+				const deleted = new Set(
+					[...(previous?.values() ?? [])]
+						.map((entry) => entry.element.id)
+						.filter((id) => !upserted.has(id)),
+				);
+				this.viewportManager.markElementTransformsDirty(
+					{ upserted, deleted },
+					false,
+				);
+			} else {
+				this.viewportManager.markTransformsDirty();
+			}
 		}
 		// Full document updates invalidate brush stamp caches and transform
 		// buffer. Geometry caches (flatten, stroke, fill) are
@@ -2684,59 +2724,96 @@ export class CanvasLayer {
 		// overrides are active (the map mutates in place, identity proves
 		// nothing); the pre-override cache entry stays valid for after they end.
 		const cachedPlan = this.framePlanStructureCache;
-		let mergedElementsMap: Map<string, AnyArtObject>;
-		let planStructure: FramePlanStructure;
-		if (
+		const documentMatches =
 			cachedPlan != null &&
 			!elementOverrides?.size &&
 			cachedPlan.objects === document.objects &&
 			cachedPlan.layers === document.layers &&
 			cachedPlan.artboards === document.artboards &&
-			cachedPlan.appearancePresets === document.appearancePresets &&
-			cachedPlan.transients === transientElements
-		) {
-			mergedElementsMap = cachedPlan.mergedElementsMap;
-			planStructure = cachedPlan.structure;
-		} else {
-			mergedElementsMap = new Map<string, AnyArtObject>(
+			cachedPlan.appearancePresets === document.appearancePresets;
+		// A tool preview that only adds paths above their layers leaves the
+		// document's own map and structure as they are, so those are built
+		// without the preview, kept, and extended by it each frame.
+		const extendsDocumentPlan =
+			!elementOverrides?.size &&
+			transientElements != null &&
+			drawAboveTheirLayers(transientElements);
+		const buildFor = (
+			transients: typeof transientElements,
+		): { map: Map<string, AnyArtObject>; structure: FramePlanStructure } => {
+			const map = new Map<string, AnyArtObject>(
 				Object.entries(document.objects),
 			);
 			if (elementOverrides) {
-				for (const [id, el] of elementOverrides) mergedElementsMap.set(id, el);
+				for (const [id, el] of elementOverrides) map.set(id, el);
 			}
-			if (transientElements) {
-				for (const [, { element }] of transientElements)
-					mergedElementsMap.set(element.id, element);
+			if (transients) {
+				for (const [, { element }] of transients) map.set(element.id, element);
 			}
 			// Expand appearance preset refs once here so the planner, bounds,
 			// element renderers and caches only ever see concrete filters.
-			resolveElementsMapAppearance(mergedElementsMap, document);
+			resolveElementsMapAppearance(map, document);
 			// Copy a render-replacing appearance (e.g. extrude3d) from a blend's keys
 			// onto the blend so the generic filter system renders each interpolated
 			// instance through it — no extrude-specific branch in the render path.
-			hoistBlendInstanceAppearances(mergedElementsMap, this.filterRenderer);
+			hoistBlendInstanceAppearances(map, this.filterRenderer);
 			// Share the ViewportManager's bounds cache so raw element bounds
 			// computed here are reused in updateTransformsBuffer (avoids double calc).
-			planStructure = buildFramePlanStructure(
+			const structure = buildFramePlanStructure(
 				document,
 				this.filterRenderer.getHandlers(),
 				false,
 				this.elementHierarchy.localBounds,
-				mergedElementsMap,
-				transientElements,
+				map,
+				transients,
 			);
 			if (!elementOverrides?.size) {
-				void this.prefetchTextOutlines(mergedElementsMap);
+				void this.prefetchTextOutlines(map);
 				this.framePlanStructureCache = {
 					objects: document.objects,
 					layers: document.layers,
 					artboards: document.artboards,
 					appearancePresets: document.appearancePresets,
-					transients: transientElements,
-					mergedElementsMap,
-					structure: planStructure,
+					transients,
+					mergedElementsMap: map,
+					structure,
 				};
 			}
+			return { map, structure };
+		};
+		let mergedElementsMap: Map<string, AnyArtObject>;
+		let planStructure: FramePlanStructure;
+		if (documentMatches && cachedPlan.transients === transientElements) {
+			mergedElementsMap = cachedPlan.mergedElementsMap;
+			planStructure = cachedPlan.structure;
+		} else if (extendsDocumentPlan) {
+			const base =
+				documentMatches && cachedPlan.transients === undefined
+					? {
+							map: cachedPlan.mergedElementsMap,
+							structure: cachedPlan.structure,
+						}
+					: buildFor(undefined);
+			const previews = new Map(
+				[...transientElements.values()].map(({ element }) => [
+					element.id,
+					element,
+				]),
+			);
+			resolveElementsMapAppearance(previews, document);
+			mergedElementsMap = new Map(base.map);
+			for (const [id, element] of previews) mergedElementsMap.set(id, element);
+			declareExtension(mergedElementsMap, base.map, previews);
+			planStructure = extendFramePlanStructure(
+				base.structure,
+				mergedElementsMap,
+				transientElements,
+				this.filterRenderer.getHandlers(),
+				false,
+			);
+		} else {
+			({ map: mergedElementsMap, structure: planStructure } =
+				buildFor(transientElements));
 		}
 		// Track the active elementsMap for def rasterization so live overrides
 		// (tool drafts, transient layers) are reflected in pattern previews.
@@ -5550,8 +5627,8 @@ export class CanvasLayer {
 	 * layer.elementIds), so they reach the canvas only through here: the shared
 	 * bake texture is blitted at each instance's world-space quad via the same
 	 * `overrideLayers` path a self-sized extrude appearance uses. Repeats inside
-	 * groups are reached by walking the groups, since the element dispatch has no
-	 * repeat entry to fall back on.
+	 * groups are baked here too, since the element dispatch has no repeat entry
+	 * to fall back on.
 	 */
 	private bakeRepeats(
 		encoder: GPUCommandEncoder,
@@ -5559,40 +5636,52 @@ export class CanvasLayer {
 		framePlan: FramePlan,
 	): void {
 		const { elementsMap, layerPlans } = framePlan;
+		const repeats = this.repeatsOf(elementsMap);
+		if (repeats.length === 0) return;
 		const rasterScale = this.getRasterScale();
 		const boundsCache = this.elementHierarchy.localBounds;
 		const region = this.viewportState.bounds;
-		const bakeIn = (
-			elements: readonly AnyArtObject[],
-			parentMatrix: ElementTransform | null,
-		): void => {
-			for (const element of elements) {
-				if (isGroup(element)) {
-					bakeIn(
-						element.childIds.flatMap((id) => elementsMap.get(id) ?? []),
-						placeElement(parentMatrix, element),
-					);
-					continue;
+		const parentMap = this.elementHierarchy.parentMap;
+		const layerElementIds = new Set(
+			layerPlans.flatMap((layerPlan) =>
+				layerPlan.elements.map((element) => element.id),
+			),
+		);
+		// A repeat is drawn when the groups holding it lead up to an element of
+		// a layer; one absorbed as another element's source is not.
+		const isDrawn = (repeat: AnyArtObject): boolean => {
+			let id = repeat.id;
+			for (
+				let parentId = parentMap.get(id);
+				parentId;
+				parentId = parentMap.get(id)
+			) {
+				const parent = elementsMap.get(parentId);
+				if (!parent || !isGroup(parent) || !parent.childIds.includes(id)) {
+					return false;
 				}
-				if (!isRepeat(element)) continue;
-				// A repeat this frame does not draw needs no bake.
-				const reach =
-					framePlan.filterPlans.get(element.id)?.textureBounds ??
-					this.worldBoundsOf(element);
-				if (region && !boundsIntersect(reach, region)) continue;
-				const info = this.offscreen.bakeRepeat(
-					encoder,
-					element,
-					parentMatrix,
-					elementsMap,
-					rasterScale,
-					boundsCache,
-					filteredTextures,
-				);
-				if (info) filteredTextures.set(element.id, info);
+				id = parentId;
 			}
+			return layerElementIds.has(id);
 		};
-		for (const layerPlan of layerPlans) bakeIn(layerPlan.elements, null);
+		for (const element of repeats) {
+			if (!isDrawn(element)) continue;
+			// A repeat this frame does not draw needs no bake.
+			const reach =
+				framePlan.filterPlans.get(element.id)?.textureBounds ??
+				this.worldBoundsOf(element);
+			if (region && !boundsIntersect(reach, region)) continue;
+			const info = this.offscreen.bakeRepeat(
+				encoder,
+				element,
+				this.viewportManager.getAncestorMatrix(element.id),
+				elementsMap,
+				rasterScale,
+				boundsCache,
+				filteredTextures,
+			);
+			if (info) filteredTextures.set(element.id, info);
+		}
 	}
 
 	/**
@@ -10171,6 +10260,23 @@ function nextStoreFillTarget(
 	grown.width = grown.maxX - grown.minX;
 	grown.height = grown.maxY - grown.minY;
 	return grown;
+}
+
+/**
+ * Whether every transient is a normally blended path drawn above its layer,
+ * as a pen or brush preview is. Such transients parent nothing, are nobody's
+ * child and leave whether the frame composites unchanged, so the document's
+ * own plan and transforms hold beneath them.
+ */
+function drawAboveTheirLayers(
+	transients: ReadonlyMap<string, TransientElementEntry>,
+): boolean {
+	for (const { element, topLevel } of transients.values()) {
+		if (topLevel === false || !isPath(element) || !hasNormalBlending(element)) {
+			return false;
+		}
+	}
+	return true;
 }
 
 /**

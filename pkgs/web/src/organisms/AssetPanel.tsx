@@ -16,7 +16,7 @@ import {
 	Trash2,
 	TriangleAlert,
 } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
 import { IconButton } from "@/components/IconButton";
 import { Menu } from "@/components/Menu";
@@ -34,9 +34,13 @@ import {
 } from "@/stores/linkedFilesStore";
 import { useEventCallback } from "@/utils/hooks";
 
+/** How long the document has to stay unchanged before it is searched for
+ *  unused files. */
+const UNUSED_FILES_CHECK_DELAY_MS = 300;
+
 /**
- * Lists the files the elements of the document show, embedded or linked to
- * their source.
+ * Tabs for the files the elements of the document show, embedded or linked to
+ * their source, and for the artboards.
  */
 export function AssetPanel() {
 	const t = useTranslation();
@@ -86,10 +90,15 @@ export function AssetPanel() {
 		});
 	});
 
-	const hasUnusedFiles = useMemo(
-		() => findUnusedFileUids(doc as Document).length > 0,
-		[doc],
-	);
+	// The search walks the whole document, and a drag changes the document on
+	// every pointer move, so it waits until the changes stop.
+	const [hasUnusedFiles, setHasUnusedFiles] = useState(false);
+	useEffect(() => {
+		const timer = setTimeout(() => {
+			setHasUnusedFiles(findUnusedFileUids(doc as Document).length > 0);
+		}, UNUSED_FILES_CHECK_DELAY_MS);
+		return () => clearTimeout(timer);
+	}, [doc]);
 
 	const assetFiles = useMemo(() => {
 		const assetUids = collectAssetFileUids({ objects, references3d });

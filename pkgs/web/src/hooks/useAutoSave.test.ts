@@ -1,6 +1,7 @@
 import type { Paplico } from "@paplico/core";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AUTO_SAVE_INTERVAL_MS } from "@/configs";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import {
 	setInternalDocumentSession,
@@ -12,6 +13,10 @@ vi.mock("@/stores/documentStore", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/stores/documentStore")>()),
 	saveDocument: vi.fn(async () => {}),
 	saveRevision: vi.fn(async () => {}),
+}));
+
+vi.mock("@/utils/generateDocumentThumbnail", () => ({
+	generateDocumentThumbnail: vi.fn(async () => null),
 }));
 
 describe("useAutoSave", () => {
@@ -27,12 +32,12 @@ describe("useAutoSave", () => {
 		documentManagerState.currentDocumentId = null;
 	});
 
-	it("should save the edited document under its id two seconds after an edit", async () => {
+	it("should save the edited document under its id when the save interval passes", async () => {
 		const engine = createEngine("content-a");
 		renderHook(() => useAutoSave(engine.paplico));
 
 		engine.edit();
-		await act(() => vi.advanceTimersByTimeAsync(2_000));
+		await act(() => vi.advanceTimersByTimeAsync(AUTO_SAVE_INTERVAL_MS));
 
 		const calls = vi.mocked(saveDocument).mock.calls;
 		expect(calls).toHaveLength(1);
@@ -49,12 +54,12 @@ describe("useAutoSave", () => {
 		await act(async () => {
 			documentManagerState.currentDocumentId = "doc-b";
 		});
-		await act(() => vi.advanceTimersByTimeAsync(2_000));
+		await act(() => vi.advanceTimersByTimeAsync(AUTO_SAVE_INTERVAL_MS));
 
 		expect(vi.mocked(saveDocument).mock.calls).toEqual([]);
 	});
 
-	it("should drop a pending save when the document changes before it runs", async () => {
+	it("should not write an edit under the previous id when the document changes before the save runs", async () => {
 		const engine = createEngine("content-a");
 		renderHook(() => useAutoSave(engine.paplico));
 
@@ -63,9 +68,10 @@ describe("useAutoSave", () => {
 		await act(async () => {
 			documentManagerState.currentDocumentId = "doc-b";
 		});
-		await act(() => vi.advanceTimersByTimeAsync(2_000));
+		await act(() => vi.advanceTimersByTimeAsync(AUTO_SAVE_INTERVAL_MS));
 
-		expect(vi.mocked(saveDocument).mock.calls).toEqual([]);
+		const ids = vi.mocked(saveDocument).mock.calls.map(([id]) => id);
+		expect(ids).not.toContain("doc-a");
 	});
 
 	it("should not save a room's document under the current document's id", async () => {
@@ -78,7 +84,7 @@ describe("useAutoSave", () => {
 			setRoomDocumentSession();
 		});
 		engine.edit();
-		await act(() => vi.advanceTimersByTimeAsync(2_000));
+		await act(() => vi.advanceTimersByTimeAsync(AUTO_SAVE_INTERVAL_MS));
 
 		expect(vi.mocked(saveDocument).mock.calls).toEqual([]);
 	});
@@ -96,7 +102,7 @@ describe("useAutoSave", () => {
 			setInternalDocumentSession("doc-b");
 		});
 		engine.edit();
-		await act(() => vi.advanceTimersByTimeAsync(2_000));
+		await act(() => vi.advanceTimersByTimeAsync(AUTO_SAVE_INTERVAL_MS));
 
 		const calls = vi.mocked(saveDocument).mock.calls;
 		expect(calls).toHaveLength(1);

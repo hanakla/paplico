@@ -22,7 +22,7 @@ import type {
 } from "../BackdropEffectCoordinator";
 import type { BackdropEffectDriver } from "../FilterRenderer";
 import { FrameUniformPool } from "../FrameUniformPool";
-import { memoizeByIdentity } from "../memoizeByIdentity";
+import { concatResults, memoizeByIdentity } from "../memoizeByIdentity";
 import { createFrameTextureRef, createRenderSurface } from "../RenderSurface";
 import type { TexturePool } from "../TexturePool";
 import type { UniformScope } from "../UniformScope";
@@ -81,6 +81,7 @@ export class BlurStrokeRenderer implements BackdropEffectDriver {
 				const stroke = resolveBackdropBlurStroke(element);
 				return stroke ? [{ element, stroke }] : [];
 			}),
+		concatResults,
 	);
 	private frameTextures: GPUTexture[] = [];
 

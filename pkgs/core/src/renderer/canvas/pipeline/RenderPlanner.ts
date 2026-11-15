@@ -879,6 +879,67 @@ export function buildFramePlanStructure(
 }
 
 /**
+ * `base`, the structure of the document alone, with top-level transient
+ * elements drawn above their layers. A tool preview changes every frame
+ * while the document under it does not, so the document's part is classified
+ * once and each frame classifies its transients only. The caller checks
+ * that the transients are elements this covers: top-level and normally
+ * blended.
+ */
+export function extendFramePlanStructure(
+	base: FramePlanStructure,
+	elementsMap: Map<string, AnyArtObject>,
+	transientElements: ReadonlyMap<string, TransientElementEntry>,
+	filterHandlers: ReadonlyMap<string, FilterHandler>,
+	skipBackdropFilters: boolean,
+): FramePlanStructure {
+	const byLayer = Map.groupBy(
+		[...transientElements.values()].filter((entry) =>
+			base.layerElementsCache.has(entry.layerId),
+		),
+		(entry) => entry.layerId,
+	);
+	const layerElementsCache = new Map(base.layerElementsCache);
+	const candidates = [...base.candidates];
+	const drawnIds = new Set<string>();
+	const transientIds = new Set(
+		[...transientElements.values()].map((entry) => entry.element.id),
+	);
+	for (const [layerId, entries] of byLayer) {
+		const added = entries.map((entry) => entry.element);
+		layerElementsCache.set(layerId, [
+			...(base.layerElementsCache.get(layerId) ?? []),
+			...added,
+		]);
+		for (const element of added) drawnIds.add(element.id);
+		collectPlanCandidates(added, {
+			elementsMap,
+			filterHandlers,
+			skipBackdropFilters,
+			candidates,
+			localBoundsCache: base.localBoundsCache,
+			transientIds,
+			preFilterAnswers: new Map(),
+		});
+	}
+	return {
+		...base,
+		elementsMap,
+		layerElementsCache,
+		drawnElementIds: new Set([
+			...base.drawnElementIds,
+			...expandRenderFilter(drawnIds, elementsMap),
+		]),
+		candidates,
+		layerRows: base.layerRows.map((row) =>
+			byLayer.has(row.layerId)
+				? { ...row, elements: layerElementsCache.get(row.layerId) ?? [] }
+				: row,
+		),
+	};
+}
+
+/**
  * Derive the per-frame plan from a structure: cull candidates against the
  * viewport. Cheap — O(candidates + layers), not O(elements).
  */

@@ -109,6 +109,8 @@
   - **Kirakira filter**
     - Panning or zooming a document onto a wide kirakira glow no longer stalls.
     - An exported wide kirakira glow differs from earlier versions by a few levels of 255.
+- **Pen tool**
+  - Drawing a stroke no longer gets slower as the document grows.
 - **Path edit tool**
   - Dragging a vertex no longer stalls on its first frame or on release, and no longer slows down inside a drop-shadowed group.
 - **Groups**
