@@ -91,6 +91,9 @@ import type { GradientRenderer } from "./GradientRenderer";
 
 /** Sub-pixel translation phase resolution of the strip cache key. */
 const PHASE_STEPS = 256;
+/** How many scale buckets finer than the frame's a kept outline may be and
+ *  still be drawn. Each bucket finer costs the rasterizer more edges. */
+const OUTLINE_REUSE_BUCKETS = 3;
 
 interface PathElementRendererDeps {
 	stripFrame: StripFrame;
@@ -156,6 +159,12 @@ export class PathElementRenderer {
 	private readonly deps: PathElementRendererDeps;
 	private readonly rasterizer = new StripRasterizer();
 
+	private readonly appearancePasses = new WeakMap<
+		Path,
+		readonly ResolvedAppearancePass[]
+	>();
+	private readonly fillGeometryHashes = new WeakMap<DrawableSegments, number>();
+
 	public constructor(deps: PathElementRendererDeps) {
 		this.deps = deps;
 	}
@@ -170,11 +179,25 @@ export class PathElementRenderer {
 		this.renderAppearancePasses(
 			passEncoder,
 			path,
-			resolveAppearancePasses(path, this.deps.filterRenderer),
+			this.appearancePassesOf(path),
 			alphaMultiplier,
 			pipelineType,
 			cacheVariant,
 		);
+	}
+
+	/**
+	 * The appearance passes of `path`, resolved once per path object. A frame
+	 * that leaves a path alone hands in the object the last frame drew, so its
+	 * geometry filters do not run again.
+	 */
+	public appearancePassesOf(path: Path): readonly ResolvedAppearancePass[] {
+		let passes = this.appearancePasses.get(path);
+		if (!passes) {
+			passes = resolveAppearancePasses(path, this.deps.filterRenderer);
+			this.appearancePasses.set(path, passes);
+		}
+		return passes;
 	}
 
 	/**
@@ -287,13 +310,13 @@ export class PathElementRenderer {
 		const frame = this.deps.getRasterFrame();
 		const transform = this.currentDeviceTransform(frame);
 		const scaleBucket = deviceScaleBucket(transform);
-		const geometryHash = hashSegments(segments);
+		const geometryHash = this.fillGeometryHashOf(segments);
 
 		let outline = this.deps.outlineCache.get(cacheKey, "fill");
 		if (
 			outline?.kind !== "fill" ||
 			outline.geometryHash !== geometryHash ||
-			outline.scaleBucket !== scaleBucket
+			!servesScaleBucket(outline.scaleBucket, scaleBucket)
 		) {
 			outline = flattenFillOutline(segments, geometryHash, scaleBucket);
 			this.deps.outlineCache.set(cacheKey, "fill", outline);
@@ -320,6 +343,16 @@ export class PathElementRenderer {
 			frame,
 			transform,
 		);
+	}
+
+	/** The geometry hash of a fill outline, derived once per segment list. */
+	private fillGeometryHashOf(segments: DrawableSegments): number {
+		let hash = this.fillGeometryHashes.get(segments);
+		if (hash === undefined) {
+			hash = hashSegments(segments);
+			this.fillGeometryHashes.set(segments, hash);
+		}
+		return hash;
 	}
 
 	public renderCompoundPath(
@@ -453,22 +486,23 @@ export class PathElementRenderer {
 		// Round join/cap subdivision follows the device-space error budget of
 		// the scale bucket without re-tessellating on every zoom tick.
 		const scaleBucket = deviceScaleBucket(transform);
-		const geometryHash = hashStrokeGeometry(
-			segments,
-			shape.width,
-			shape.sizeByPressure,
-			shape.lineCap,
-			shape.lineJoin,
-			shape.miterLimit,
-			shape.dashArray,
-			shape.dashOffset,
-			shape.strokeWidths,
-			shape.strokeErasure,
-			shape.pathStart,
-			shape.pathEnd,
-			scaleBucket,
-			shape.align,
-		);
+		const geometryHashAt = (bucket: number) =>
+			hashStrokeGeometry(
+				segments,
+				shape.width,
+				shape.sizeByPressure,
+				shape.lineCap,
+				shape.lineJoin,
+				shape.miterLimit,
+				shape.dashArray,
+				shape.dashOffset,
+				shape.strokeWidths,
+				shape.strokeErasure,
+				shape.pathStart,
+				shape.pathEnd,
+				bucket,
+				shape.align,
+			);
 		// Along/across stroke gradients need per-pixel arc params; the outline
 		// carries them only when asked, so the mode is part of its key.
 		const paramsMode =
@@ -482,11 +516,16 @@ export class PathElementRenderer {
 		const outlineKey = `${cacheKey}:p${paramsMode === 0 ? 0 : 1}`;
 
 		let outline = this.deps.outlineCache.get(elementId, outlineKey);
-		if (
-			outline?.kind !== "stroke" ||
-			outline.geometryHash !== geometryHash ||
-			outline.scaleBucket !== scaleBucket
-		) {
+		// The hash carries the bucket the outline was tessellated at, so a kept
+		// outline of a finer bucket is checked against the hash at its own.
+		let geometryHash = geometryHashAt(
+			outline?.kind === "stroke" &&
+				servesScaleBucket(outline.scaleBucket, scaleBucket)
+				? outline.scaleBucket
+				: scaleBucket,
+		);
+		if (outline?.kind !== "stroke" || outline.geometryHash !== geometryHash) {
+			geometryHash = geometryHashAt(scaleBucket);
 			outline = tessellateStrokeOutline(
 				segments,
 				shape,
@@ -766,6 +805,15 @@ function flattenFillOutline(
 		points: Float32Array.from(points),
 		subpathOffsets: Int32Array.from(offsets),
 	};
+}
+
+/**
+ * Whether an outline flattened for `kept` can be drawn at `wanted`. A finer
+ * bucket stays within the device error budget of every coarser one, so a
+ * zoom-out keeps the outlines it has instead of flattening them all again.
+ */
+function servesScaleBucket(kept: number, wanted: number): boolean {
+	return kept >= wanted && kept - wanted <= OUTLINE_REUSE_BUCKETS;
 }
 
 /** Tessellate a stroke into body triangles at the bucket's local tolerance. */

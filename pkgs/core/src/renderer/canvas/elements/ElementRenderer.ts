@@ -393,6 +393,10 @@ export class ElementRenderer {
 		);
 	}
 
+	public appearancePassesOf(path: Path): readonly ResolvedAppearancePass[] {
+		return this.pathRenderer.appearancePassesOf(path);
+	}
+
 	public renderAppearancePasses(
 		passEncoder: GPURenderPassEncoder,
 		path: Path,

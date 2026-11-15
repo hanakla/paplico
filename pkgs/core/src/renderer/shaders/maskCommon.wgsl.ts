@@ -33,7 +33,9 @@ fn applyClipMask(premultiplied: vec4f, maskIdx: u32, boundsMin: vec2f, boundsMax
 		let origin = vec2f(rect.xy);
 		let size = vec2f(rect.zw);
 		let atlasSize = vec2f(textureDimensions(maskAtlas));
-		clampedUV = (origin + vec2f(0.5) + clampedUV * max(size - vec2f(1.0), vec2f(0.0))) / atlasSize;
+		// A texel of the rect is a pixel of what the mask was drawn for, so the
+		// rect is read at its own scale and the lookup stays inside it.
+		clampedUV = (origin + clamp(clampedUV * size, vec2f(0.5), max(size - vec2f(0.5), vec2f(0.5)))) / atlasSize;
 	}
 	let sampled = textureSampleLevel(maskAtlas, maskSampler, clampedUV, 0.0);
 	let inBounds = step(0.0, maskUV.x) * step(maskUV.x, 1.0)

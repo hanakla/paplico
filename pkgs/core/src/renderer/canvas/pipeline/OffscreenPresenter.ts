@@ -228,6 +228,14 @@ export interface ColorAtlasBakeItem extends ColorAtlasBakeReservation {
 	elementsMap: Map<string, AnyArtObject>;
 }
 
+/** A clip group whose children are baked into a rect of a clip group atlas. */
+export interface ClipGroupAtlasItem {
+	group: Group;
+	children: AnyArtObject[];
+	bounds: WorldBBox;
+	atlasRect: MaskAtlasRect;
+}
+
 export interface ColorAtlasCopyItem {
 	key: string;
 	surface: RenderSurface;
@@ -248,6 +256,7 @@ const MASK_CHAIN_F32_COUNT = 36;
 const MASK_CHAIN_BUFFER_SIZE = MASK_CHAIN_F32_COUNT * 4;
 const COLOR_BAKE_ATLAS_SIZE = 2048;
 const MAX_COLOR_BAKE_DIM = 256;
+const CLIP_GROUP_ATLAS_SIZE = 4096;
 const COLOR_ATLAS_MASK_DRAW_F32_COUNT = 12 + ATLAS_MASK_SLOTS * 9;
 const MAX_COLOR_ATLAS_MASK_DRAWS = 16_384;
 const ATLAS_MASK_COMPUTE_F32_COUNT = 16 + ATLAS_MASK_SLOTS * 9;
@@ -289,7 +298,7 @@ const COLOR_ATLAS_MASK_SHADER = /* wgsl */ `
 		let safeSize = max(bounds.zw - bounds.xy, vec2f(1e-6));
 		let rawUV = (worldPos - bounds.xy) / safeSize;
 		let clampedUV = clamp(vec2f(rawUV.x, 1.0 - rawUV.y), vec2f(0.0), vec2f(1.0));
-		return (rect.xy + vec2f(0.5) + clampedUV * max(rect.zw - vec2f(1.0), vec2f(0.0))) / textureSize;
+		return (rect.xy + clamp(clampedUV * rect.zw, vec2f(0.5), max(rect.zw - vec2f(0.5), vec2f(0.5)))) / textureSize;
 	}
 
 	fn maskCoverage(sampled: vec4f, bounds: vec4f, worldPos: vec2f, invert: f32) -> f32 {
@@ -394,7 +403,7 @@ const ATLAS_MASK_COMPUTE_SHADER = /* wgsl */ `
 		let safeSize = max(bounds.zw - bounds.xy, vec2f(1e-6));
 		let rawUV = (worldPos - bounds.xy) / safeSize;
 		let clampedUV = clamp(vec2f(rawUV.x, 1.0 - rawUV.y), vec2f(0.0), vec2f(1.0));
-		return (rect.xy + vec2f(0.5) + clampedUV * max(rect.zw - vec2f(1.0), vec2f(0.0))) / textureSize;
+		return (rect.xy + clamp(clampedUV * rect.zw, vec2f(0.5), max(rect.zw - vec2f(0.5), vec2f(0.5)))) / textureSize;
 	}
 
 	fn maskCoverage(sampled: vec4f, bounds: vec4f, worldPos: vec2f, invert: f32) -> f32 {
@@ -480,6 +489,11 @@ export class OffscreenPresenter {
 	);
 	private colorBakeAtlasTexture: GPUTexture | null = null;
 	private colorBakeAtlasView: GPUTextureView | null = null;
+	/** Two atlases of clip group bakes. A group is baked into the one its
+	 *  nesting depth selects, so the bakes of the groups nested in it, which it
+	 *  draws from, lie in the other. */
+	private clipGroupAtlasAllocators = createClipGroupAtlasAllocators();
+	private readonly clipGroupAtlasTextures: (GPUTexture | null)[] = [null, null];
 	private colorBakeClearTexture: GPUTexture | null = null;
 	private readonly textureViewCache = new WeakMap<GPUTexture, GPUTextureView>();
 	private readonly colorAtlasMaskDrawData = new Float32Array(
@@ -657,6 +671,7 @@ export class OffscreenPresenter {
 			COLOR_BAKE_ATLAS_SIZE,
 			COLOR_BAKE_ATLAS_SIZE,
 		);
+		this.clipGroupAtlasAllocators = createClipGroupAtlasAllocators();
 		this.atlasMaskOutputAllocator = new MaskAtlasAllocator(
 			COLOR_BAKE_ATLAS_SIZE,
 			COLOR_BAKE_ATLAS_SIZE,
@@ -720,6 +735,10 @@ export class OffscreenPresenter {
 		this.whiteMaskTexture = null;
 		this.colorBakeAtlasTexture?.destroy();
 		this.colorBakeAtlasTexture = null;
+		for (const [index, texture] of this.clipGroupAtlasTextures.entries()) {
+			texture?.destroy();
+			this.clipGroupAtlasTextures[index] = null;
+		}
 		this.colorBakeAtlasView = null;
 		this.colorBakeClearTexture?.destroy();
 		this.colorBakeClearTexture = null;
@@ -823,10 +842,12 @@ export class OffscreenPresenter {
 		if (!ctx) return null;
 
 		const pass = ctx.passEncoder;
+		// The pass may be snapped outward to the target's pixel grid; the
+		// source keeps its own bounds inside it.
 		this.drawSurfaceWithMaskChain(
 			pass,
 			source.texture.texture,
-			ctx.coverageBounds,
+			bakeBounds,
 			bakeUvRect,
 			1,
 			masks,
@@ -2410,10 +2431,11 @@ export class OffscreenPresenter {
 				? Math.min(ownZoom, targetZoom)
 				: ownZoom;
 
-		// A viewport-clamped filter bake is snapped outward to the world-space
-		// texel grid of its density, so a pan never changes where the content
-		// falls on the bake's texels: kernels, offsets and displacement reads
-		// then see the same texels frame after frame. Grid-aligned bakes
+		// A filter bake, clamped to the viewport or covering its element, is
+		// snapped outward to the world-space texel grid of its density, so
+		// neither a pan nor the switch between the two kinds changes where the
+		// content falls on the bake's texels: kernels, offsets and displacement
+		// reads then see the same texels frame after frame. Grid-aligned bakes
 		// (clip groups, masks) keep the target-pixel snap below instead.
 		//
 		// A filter-free bake at the target's own density is snapped outward to
@@ -2425,7 +2447,7 @@ export class OffscreenPresenter {
 		// axis-aligned grid in world space, and cached full-bounds bakes keep
 		// their own bounds so a sub-pixel pan does not re-bake them.
 		const effectiveBounds =
-			clampBounds && !alignToTargetGrid
+			(clampBounds || fixedDensityBake?.fullBounds) && !alignToTargetGrid
 				? snapBoundsToRasterGrid(clampedBounds, bakeZoom)
 				: !alignToTargetGrid ||
 						fixedDensityBake?.fullBounds ||
@@ -2744,6 +2766,170 @@ export class OffscreenPresenter {
 		return surfaces;
 	}
 
+	/**
+	 * A rect of the clip group atlas of `depth` for a bake of `groupBounds`,
+	 * cut to what the frame draws and grown outward to the target's pixel
+	 * grid, so the bake's texels are the target's pixels. Null when the bake
+	 * is off the frame, larger than an atlas rect may be, or the view is
+	 * rotated and has no such grid.
+	 */
+	public reserveClipGroupAtlasBake(
+		groupBounds: WorldBBox,
+		depth: number,
+	): { bounds: WorldBBox; atlasRect: MaskAtlasRect } | null {
+		const viewport = this.deps.viewportState.current;
+		if (!viewport || viewport.rotation !== 0) return null;
+		const drawn =
+			this.deps.viewportState.drawRegion ?? this.deps.viewportState.bounds;
+		const visible = drawn
+			? boundsIntersectionBox(groupBounds, drawn)
+			: groupBounds;
+		if (!visible) return null;
+		const bounds = snapBoundsToPixelGrid(
+			visible,
+			viewport,
+			this.deps.viewportState.width,
+			this.deps.viewportState.height,
+		);
+		const width = Math.round(bounds.width * viewport.zoom);
+		const height = Math.round(bounds.height * viewport.zoom);
+		if (
+			width <= 0 ||
+			height <= 0 ||
+			width > MAX_COLOR_BAKE_DIM ||
+			height > MAX_COLOR_BAKE_DIM
+		) {
+			return null;
+		}
+		const atlasRect = this.clipGroupAtlasAllocators[depth % 2].allocate(
+			width,
+			height,
+		);
+		return atlasRect && { bounds: brandWorldBBox(bounds), atlasRect };
+	}
+
+	/**
+	 * Draw the children of every item into its rect of the clip group atlas
+	 * of `depth`, in one pass. The children are drawn unclipped; whoever
+	 * draws the returned surface multiplies the group's mask into it. Groups
+	 * nested in an item are drawn from `filteredTextures`, where the deeper
+	 * call left their bakes.
+	 */
+	public renderClipGroupAtlasBatch(
+		encoder: GPUCommandEncoder,
+		depth: number,
+		items: readonly ClipGroupAtlasItem[],
+		filteredTextures: Map<string, FilteredTextureInfo>,
+		elementsMap: Map<string, AnyArtObject>,
+		skipElementIds: ReadonlySet<string> | undefined,
+		localBoundsCache: LocalBoundsCache | undefined,
+	): Map<string, ColorRenderSurface> {
+		const surfaces = new Map<string, ColorRenderSurface>();
+		const transformsBindGroup = this.deps.getTransformsBindGroup();
+		const viewport = this.deps.viewportState.current;
+		if (items.length === 0 || !transformsBindGroup || !viewport) {
+			return surfaces;
+		}
+		const atlas = this.ensureClipGroupAtlas(depth % 2);
+		const clearTexture = this.ensureColorBakeClearTexture();
+		for (const { atlasRect } of items) {
+			encoder.copyTextureToTexture(
+				{ texture: clearTexture },
+				{ texture: atlas, origin: [atlasRect.x, atlasRect.y] },
+				[atlasRect.width, atlasRect.height],
+			);
+		}
+
+		let pass = encoder.beginRenderPass({
+			label: `Clip Group Atlas Batch [${depth}] [${items.length}]`,
+			colorAttachments: [
+				{ view: this.getTextureView(atlas), loadOp: "load", storeOp: "store" },
+			],
+		});
+		const savedViewportBounds = this.deps.viewportState.bounds;
+		const savedDrawRegion = this.deps.viewportState.drawRegion;
+		this.deps.viewportState.drawRegion = null;
+
+		for (const item of items) {
+			const { atlasRect, bounds } = item;
+			pass.setViewport(
+				atlasRect.x,
+				atlasRect.y,
+				atlasRect.width,
+				atlasRect.height,
+				0,
+				1,
+			);
+			pass.setScissorRect(
+				atlasRect.x,
+				atlasRect.y,
+				atlasRect.width,
+				atlasRect.height,
+			);
+			const entry = this.deps.uniformScope.acquire(
+				{
+					x: (bounds.minX + bounds.maxX) / 2,
+					y: (bounds.minY + bounds.maxY) / 2,
+					zoom: viewport.zoom,
+					rotation: 0,
+				},
+				atlasRect.width,
+				atlasRect.height,
+			);
+			this.deps.setActiveBindGroup(entry);
+			this.deps.viewportState.bounds = bounds;
+			this.deps.renderState.currentMaskBindGroup = this.deps.dummyMaskBindGroup;
+			pass.setPipeline(this.deps.strokePipeline);
+			pass.setBindGroup(0, entry.bindGroup);
+			pass.setBindGroup(1, transformsBindGroup);
+			pass.setBindGroup(2, this.deps.dummyGradientBindGroup);
+			pass.setBindGroup(3, this.deps.dummyMaskBindGroup);
+			pass = this.deps.renderElements(
+				pass,
+				item.children,
+				filteredTextures,
+				elementsMap,
+				1.0,
+				placeElement(this.deps.getAncestorMatrix(item.group.id), item.group),
+				skipElementIds,
+				"offscreen",
+				undefined,
+				localBoundsCache,
+			);
+			this.deps.setActiveBindGroup(null);
+
+			surfaces.set(
+				item.group.id,
+				createRenderSurface(
+					createBorrowedTextureRef(atlas, "child-bake-memo"),
+					{
+						kind: "world-aabb",
+						bounds,
+						// The whole rect: its texels are the target's pixels, so the
+						// blit reads each at its centre.
+						uvRect: {
+							minU: atlasRect.x / CLIP_GROUP_ATLAS_SIZE,
+							minV: atlasRect.y / CLIP_GROUP_ATLAS_SIZE,
+							maxU: (atlasRect.x + atlasRect.width) / CLIP_GROUP_ATLAS_SIZE,
+							maxV: (atlasRect.y + atlasRect.height) / CLIP_GROUP_ATLAS_SIZE,
+						},
+					},
+					{
+						role: "color",
+						alphaMode: "premultiplied",
+						opacityState: "intrinsic",
+					},
+				),
+			);
+		}
+
+		pass.end();
+		this.deps.viewportState.bounds = savedViewportBounds;
+		this.deps.viewportState.drawRegion = savedDrawRegion;
+		this.deps.renderState.currentMaskBindGroup = this.deps.dummyMaskBindGroup;
+		return surfaces;
+	}
+
 	public copyColorSurfacesToAtlas(
 		encoder: GPUCommandEncoder,
 		items: readonly ColorAtlasCopyItem[],
@@ -3004,6 +3190,19 @@ export class OffscreenPresenter {
 			texture: this.colorBakeAtlasTexture,
 			view: this.colorBakeAtlasView,
 		};
+	}
+
+	private ensureClipGroupAtlas(index: number): GPUTexture {
+		this.clipGroupAtlasTextures[index] ??= this.deps.device.createTexture({
+			label: `Clip Group Atlas [${index}]`,
+			size: [CLIP_GROUP_ATLAS_SIZE, CLIP_GROUP_ATLAS_SIZE],
+			format: this.deps.canvasFormat,
+			usage:
+				GPUTextureUsage.RENDER_ATTACHMENT |
+				GPUTextureUsage.TEXTURE_BINDING |
+				GPUTextureUsage.COPY_DST,
+		});
+		return this.clipGroupAtlasTextures[index];
 	}
 
 	private ensureColorBakeClearTexture(): GPUTexture {
@@ -3279,7 +3478,7 @@ function subUvRect(
  * `height` px viewing `viewport` (unrotated), following worldToScreen:
  * `sx = width / 2 + (x - vx) * zoom`, `sy = height / 2 + (vy - y) * zoom`.
  */
-function snapBoundsToPixelGrid(
+export function snapBoundsToPixelGrid(
 	bounds: BoundingBox,
 	viewport: Viewport,
 	width: number,
@@ -3297,6 +3496,16 @@ function snapBoundsToPixelGrid(
 	const maxY = fromScreenY(Math.floor(toScreenY(bounds.maxY) + eps));
 	const minY = fromScreenY(Math.ceil(toScreenY(bounds.minY) - eps));
 	return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+function createClipGroupAtlasAllocators(): [
+	MaskAtlasAllocator,
+	MaskAtlasAllocator,
+] {
+	return [
+		new MaskAtlasAllocator(CLIP_GROUP_ATLAS_SIZE, CLIP_GROUP_ATLAS_SIZE),
+		new MaskAtlasAllocator(CLIP_GROUP_ATLAS_SIZE, CLIP_GROUP_ATLAS_SIZE),
+	];
 }
 
 /** A pre-rasterized group child in the form renderElements draws from. */

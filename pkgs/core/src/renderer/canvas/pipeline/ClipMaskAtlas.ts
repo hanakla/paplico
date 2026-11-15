@@ -33,8 +33,9 @@ import type {
 } from "../CanvasLayerTypes";
 import { IdleClock, type UseStamp } from "./IdleClock";
 import { MaskAtlasAllocator, type MaskAtlasRect } from "./MaskAtlasAllocator";
+import { snapBoundsToPixelGrid } from "./OffscreenPresenter";
 import { createBorrowedTextureRef, type TextureRef } from "./RenderSurface";
-import { quantizeSize, type TexturePool } from "./TexturePool";
+import type { TexturePool } from "./TexturePool";
 import type { UniformEntry, UniformScope } from "./UniformScope";
 import type { GPUMaskInfo } from "./ViewportManager";
 
@@ -181,6 +182,8 @@ interface AtlasSilhouetteBatchItem {
 	mask: MaskRenderRequest;
 	coverage: MaskCoverage;
 	atlasRect: MaskAtlasRect;
+	/** The enclosing clip's mask, which the sources are clipped by. */
+	parent: MaskEntry | null;
 }
 
 export class ClipMaskAtlas {
@@ -307,16 +310,18 @@ export class ClipMaskAtlas {
 		const masks = Array.from(uniqueMasks.values()).sort(
 			(a, b) => nestingDepth(a.key) - nestingDepth(b.key),
 		);
-		// The atlas batch is encoded after this loop, so a mask another one
-		// samples as its parent must be drawn in loop order instead.
-		const parentKeys = new Set(
-			masks.flatMap((mask) => (mask.parentKey ? [mask.parentKey] : [])),
-		);
-		const zoom = this.deps.viewportState.current?.zoom ?? 1;
+		const target = this.deps.viewportState.current;
+		const zoom = target?.zoom ?? 1;
 		const maxDim = this.deps.device.limits.maxTextureDimension2D;
 		const savedBounds = this.deps.viewportState.bounds;
 		const activeKeys = new Set<string>();
-		const atlasSilhouetteBatch: AtlasSilhouetteBatchItem[] = [];
+		// Silhouettes wait here and are drawn a nesting depth at a time, so one
+		// pass draws every mask of a depth after the masks they are clipped by.
+		const pendingSilhouettes: AtlasSilhouetteBatchItem[] = [];
+		const flushSilhouettes = () => {
+			this.renderSilhouetteBatches(encoder, pendingSilhouettes, elementsMap);
+			pendingSilhouettes.length = 0;
+		};
 
 		for (let i = 0; i < masks.length; i++) {
 			const mask = masks[i];
@@ -327,6 +332,15 @@ export class ClipMaskAtlas {
 				drawRegion,
 				zoom,
 				maxDim,
+				target && target.rotation === 0
+					? (bounds) =>
+							snapBoundsToPixelGrid(
+								bounds,
+								target,
+								this.deps.viewportState.width,
+								this.deps.viewportState.height,
+							)
+					: undefined,
 			);
 			if (!coverage) continue;
 
@@ -358,10 +372,10 @@ export class ClipMaskAtlas {
 				coverage,
 				fingerprint,
 				parent?.entry ?? null,
-				parentKeys.has(mask.key),
+				flushSilhouettes,
 			);
 			if (rendered) {
-				if (rendered.batchItem) atlasSilhouetteBatch.push(rendered.batchItem);
+				if (rendered.batchItem) pendingSilhouettes.push(rendered.batchItem);
 				this.maskEntries.set(mask.key, rendered.entry);
 				// A change to any enclosing clip path re-bakes the nested mask too.
 				const dependencyIds = new Set(
@@ -381,7 +395,7 @@ export class ClipMaskAtlas {
 			}
 		}
 
-		this.renderSilhouetteAtlasBatch(encoder, atlasSilhouetteBatch, elementsMap);
+		flushSilhouettes();
 		this.deps.viewportState.bounds = savedBounds;
 		this.flushAtlasDescriptors();
 		this.releaseStaleEntries(activeKeys);
@@ -524,7 +538,7 @@ export class ClipMaskAtlas {
 		coverage: MaskCoverage,
 		fingerprint: string,
 		parent: MaskEntry | null,
-		isParent: boolean,
+		flushSilhouettes: () => void,
 	): RenderedMask | null {
 		const {
 			logicalWidth,
@@ -547,15 +561,10 @@ export class ClipMaskAtlas {
 			this.atlasAllocator.release(atlasRect);
 			atlasRect = null;
 		}
-		// The atlas batch is drawn after every staged mask and straight into the
-		// atlas, so a nested silhouette (which samples its parent) and any mask
-		// that is itself a parent take the staging route below.
 		if (
 			atlasRect &&
 			atlasDescriptorIndex !== null &&
-			mask.mode === "silhouette" &&
-			!parent &&
-			!isParent
+			mask.mode === "silhouette"
 		) {
 			const atlas = this.ensureAtlasResources();
 			return {
@@ -569,9 +578,11 @@ export class ClipMaskAtlas {
 				},
 				texture: null,
 				atlasRect,
-				batchItem: { mask, coverage, atlasRect },
+				batchItem: { mask, coverage, atlasRect, parent },
 			};
 		}
+		// This mask may be clipped by a silhouette that still waits in a batch.
+		flushSilhouettes();
 		const maskTexture = atlasRect
 			? this.deps.texturePool.acquireExact(
 					logicalWidth,
@@ -755,6 +766,33 @@ export class ClipMaskAtlas {
 		};
 	}
 
+	/**
+	 * Draw the waiting silhouettes into the atlas, a nesting depth at a time.
+	 * A depth's masks are clipped by masks of the depths before it, which the
+	 * atlas holds by then.
+	 */
+	private renderSilhouetteBatches(
+		encoder: GPUCommandEncoder,
+		items: readonly AtlasSilhouetteBatchItem[],
+		elementsMap: Map<string, AnyArtObject>,
+	): void {
+		if (items.length === 0) return;
+		const byDepth = Map.groupBy(items, (item) => nestingDepth(item.mask.key));
+		for (const depth of [...byDepth.keys()].sort((a, b) => a - b)) {
+			const batch = byDepth.get(depth)!;
+			this.renderSilhouetteAtlasBatch(
+				encoder,
+				batch.filter((item) => !item.parent),
+				elementsMap,
+			);
+			this.renderNestedSilhouetteBatch(
+				encoder,
+				batch.filter((item) => item.parent),
+				elementsMap,
+			);
+		}
+	}
+
 	private renderSilhouetteAtlasBatch(
 		encoder: GPUCommandEncoder,
 		items: readonly AtlasSilhouetteBatchItem[],
@@ -791,42 +829,112 @@ export class ClipMaskAtlas {
 		this.deps.viewportState.bounds = null;
 
 		for (const { mask, coverage, atlasRect } of items) {
-			pass.setViewport(
-				atlasRect.x,
-				atlasRect.y,
-				atlasRect.width,
-				atlasRect.height,
-				0,
-				1,
-			);
-			pass.setScissorRect(
-				atlasRect.x,
-				atlasRect.y,
-				atlasRect.width,
-				atlasRect.height,
-			);
-			const tempViewport = {
-				x: (coverage.coverageBounds.minX + coverage.coverageBounds.maxX) / 2,
-				y: (coverage.coverageBounds.minY + coverage.coverageBounds.maxY) / 2,
-				zoom: coverage.effectiveZoom,
-				rotation: 0,
-			};
-			const entry = this.deps.uniformScope.acquire(
-				tempViewport,
-				coverage.logicalWidth,
-				coverage.logicalHeight,
-			);
-			this.deps.setActiveBindGroup(entry);
-			pass.setBindGroup(0, entry.bindGroup);
-			for (const source of mask.sources) {
-				this.deps.renderState.currentTransformIndex =
-					this.deps.getTransformIndex(source.id);
-				this.deps.renderClipShapeToMask(pass, source, elementsMap);
-			}
-			this.deps.setActiveBindGroup(null);
+			this.drawSilhouetteAt(pass, mask, coverage, atlasRect, elementsMap);
 		}
 
 		pass.end();
+	}
+
+	/**
+	 * Draw silhouettes that are clipped by a mask in the atlas. A pass cannot
+	 * read the atlas while it draws into it, so they are drawn side by side
+	 * into a staging texture in one pass and copied to their atlas rects.
+	 */
+	private renderNestedSilhouetteBatch(
+		encoder: GPUCommandEncoder,
+		items: readonly AtlasSilhouetteBatchItem[],
+		elementsMap: Map<string, AnyArtObject>,
+	): void {
+		const transformsBindGroup = this.deps.getTransformsBindGroup();
+		if (items.length === 0 || !transformsBindGroup) return;
+		const atlas = this.ensureAtlasResources();
+		for (const { height, placed } of packIntoShelves(items, this.atlasSize)) {
+			const staging = this.deps.texturePool.acquireExact(
+				this.atlasSize,
+				height,
+				this.deps.canvasFormat,
+				1,
+				GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+				"Clip Mask Nested Batch Staging",
+			);
+			const pass = encoder.beginRenderPass({
+				label: `Clip Mask Nested Batch [${placed.length}]`,
+				colorAttachments: [
+					{
+						view: staging.createView(),
+						clearValue: { r: 0, g: 0, b: 0, a: 0 },
+						loadOp: "clear",
+						storeOp: "store",
+					},
+				],
+			});
+			pass.setPipeline(this.deps.strokePipeline);
+			pass.setBindGroup(1, transformsBindGroup);
+			pass.setBindGroup(2, this.deps.dummyGradientBindGroup);
+			this.deps.viewportState.bounds = null;
+			for (const { item, x, y } of placed) {
+				const parent = item.parent!;
+				// Drawing the sources with the parent mask in their transform
+				// slots clips them by it, so the rect holds the intersection.
+				this.deps.writeMaskInfo(
+					new Map(item.mask.sources.map((source) => [source.id, parent])),
+				);
+				pass.setBindGroup(3, parent.bindGroup);
+				this.deps.renderState.currentMaskBindGroup = parent.bindGroup;
+				this.drawSilhouetteAt(
+					pass,
+					item.mask,
+					item.coverage,
+					{ ...item.atlasRect, x, y },
+					elementsMap,
+				);
+			}
+			this.unbindMaskForMaskPass();
+			pass.end();
+			for (const { item, x, y } of placed) {
+				encoder.copyTextureToTexture(
+					{ texture: staging, origin: [x, y] },
+					{
+						texture: atlas.texture,
+						origin: [item.atlasRect.x, item.atlasRect.y],
+					},
+					[item.atlasRect.width, item.atlasRect.height],
+				);
+			}
+			this.deps.texturePool.release(staging);
+		}
+	}
+
+	/** Draw a mask's sources into `rect` of the pass's target. */
+	private drawSilhouetteAt(
+		pass: GPURenderPassEncoder,
+		mask: MaskRenderRequest,
+		coverage: MaskCoverage,
+		rect: MaskAtlasRect,
+		elementsMap: Map<string, AnyArtObject>,
+	): void {
+		pass.setViewport(rect.x, rect.y, rect.width, rect.height, 0, 1);
+		pass.setScissorRect(rect.x, rect.y, rect.width, rect.height);
+		const tempViewport = {
+			x: (coverage.coverageBounds.minX + coverage.coverageBounds.maxX) / 2,
+			y: (coverage.coverageBounds.minY + coverage.coverageBounds.maxY) / 2,
+			zoom: coverage.effectiveZoom,
+			rotation: 0,
+		};
+		const entry = this.deps.uniformScope.acquire(
+			tempViewport,
+			coverage.logicalWidth,
+			coverage.logicalHeight,
+		);
+		this.deps.setActiveBindGroup(entry);
+		pass.setBindGroup(0, entry.bindGroup);
+		for (const source of mask.sources) {
+			this.deps.renderState.currentTransformIndex = this.deps.getTransformIndex(
+				source.id,
+			);
+			this.deps.renderClipShapeToMask(pass, source, elementsMap);
+		}
+		this.deps.setActiveBindGroup(null);
 	}
 
 	/**
@@ -893,17 +1001,22 @@ export function computeMaskCoverage(
 	renderTargetCoverage: BoundingBox | null,
 	zoom: number,
 	maxDim: number,
+	/** Grows bounds outward to the pixel grid of what the mask is drawn into.
+	 *  A mask on that grid at the same zoom has the edge coverage of a path
+	 *  drawn straight into the target; off it, the sampler blends neighbouring
+	 *  texels and whatever lies beneath the masked element shows at the edge. */
+	snapToTargetGrid?: (bounds: BoundingBox) => BoundingBox,
 ): MaskCoverage | null {
-	const coverageBounds = renderTargetCoverage
+	const cropped = renderTargetCoverage
 		? boundsIntersectionBox(maskBounds, renderTargetCoverage)
 		: maskBounds;
-	if (
-		!coverageBounds ||
-		coverageBounds.width <= 0 ||
-		coverageBounds.height <= 0
-	) {
+	if (!cropped || cropped.width <= 0 || cropped.height <= 0) {
 		return null;
 	}
+	const fitsAtZoom =
+		cropped.width * zoom <= maxDim && cropped.height * zoom <= maxDim;
+	const coverageBounds =
+		snapToTargetGrid && fitsAtZoom ? snapToTargetGrid(cropped) : cropped;
 
 	const effectiveZoom = Math.min(
 		zoom,
@@ -912,12 +1025,14 @@ export function computeMaskCoverage(
 	);
 	if (!Number.isFinite(effectiveZoom) || effectiveZoom <= 0) return null;
 
+	// Snapped bounds are a whole number of texels up to rounding error, which
+	// must not add one.
 	const logicalWidth = Math.min(
-		Math.ceil(coverageBounds.width * effectiveZoom),
+		Math.ceil(coverageBounds.width * effectiveZoom - 1e-6),
 		maxDim,
 	);
 	const logicalHeight = Math.min(
-		Math.ceil(coverageBounds.height * effectiveZoom),
+		Math.ceil(coverageBounds.height * effectiveZoom - 1e-6),
 		maxDim,
 	);
 	if (logicalWidth <= 0 || logicalHeight <= 0) return null;
@@ -927,14 +1042,62 @@ export function computeMaskCoverage(
 		logicalHeight,
 		effectiveZoom,
 		coverageBounds,
-		texWidth: Math.min(quantizeSize(logicalWidth), maxDim),
-		texHeight: Math.min(quantizeSize(logicalHeight), maxDim),
+		// The sampler maps the mask's bounds onto the whole texture, so it holds
+		// exactly the texels that were drawn.
+		texWidth: logicalWidth,
+		texHeight: logicalHeight,
 	};
 }
 
 /** Nesting depth encoded in a mask key — see clipMaskKey. */
 function nestingDepth(key: string): number {
 	return key.split("|").length;
+}
+
+/**
+ * Lay the items' atlas rects out in rows of `width`, cut into textures no
+ * taller than `width`. Each texture's height is a multiple of
+ * MAX_ATLASED_MASK_DIM so that batches of a similar size reuse one.
+ */
+function packIntoShelves(
+	items: readonly AtlasSilhouetteBatchItem[],
+	width: number,
+): Array<{
+	height: number;
+	placed: Array<{ item: AtlasSilhouetteBatchItem; x: number; y: number }>;
+}> {
+	const pages: ReturnType<typeof packIntoShelves> = [];
+	let placed: (typeof pages)[number]["placed"] = [];
+	let x = 0;
+	let y = 0;
+	let rowHeight = 0;
+	const closePage = () => {
+		if (placed.length === 0) return;
+		pages.push({
+			height:
+				Math.ceil((y + rowHeight) / MAX_ATLASED_MASK_DIM) *
+				MAX_ATLASED_MASK_DIM,
+			placed,
+		});
+		placed = [];
+		x = 0;
+		y = 0;
+		rowHeight = 0;
+	};
+	for (const item of items) {
+		const { width: w, height: h } = item.atlasRect;
+		if (x + w > width) {
+			x = 0;
+			y += rowHeight;
+			rowHeight = 0;
+		}
+		if (y + h > width) closePage();
+		placed.push({ item, x, y });
+		x += w;
+		rowHeight = Math.max(rowHeight, h);
+	}
+	closePage();
+	return pages;
 }
 
 /** Mask sources are drawn straight from their geometry, never from a filter cache. */

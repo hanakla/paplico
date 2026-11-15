@@ -308,6 +308,7 @@ export class RenderOrchestrator {
 
 	// Stored callbacks (applied to new targets)
 	private _onRequestRender: (() => void) | null = null;
+	private _onRequestPartialRender: (() => void) | null = null;
 	private _onTextBoundsComputed:
 		| ((elementId: string, bounds: WorldBBox, localBounds: LocalBBox) => void)
 		| null = null;
@@ -582,6 +583,8 @@ export class RenderOrchestrator {
 		canvasLayer.setPanMarginPx(this.panMarginPx);
 		if (this._onRequestRender && !isolated)
 			canvasLayer.setOnRequestRender(this._onRequestRender);
+		if (this._onRequestPartialRender && !isolated)
+			canvasLayer.setOnRequestPartialRender(this._onRequestPartialRender);
 		if (this._onTextBoundsComputed && !isolated)
 			canvasLayer.setOnTextBoundsComputed(this._onTextBoundsComputed);
 		if (this._reference3dContextProvider)
@@ -832,6 +835,16 @@ export class RenderOrchestrator {
 	/** `callback` runs each time document re-renders come off hold. */
 	public setOnDocumentRenderResumed(callback: () => void): void {
 		this.onDocumentRenderResumed = callback;
+	}
+
+	/** `callback` runs when a canvas wants another frame that keeps its cached
+	 *  composite and bakes more of the store around it. */
+	public setOnRequestPartialRender(callback: () => void): void {
+		this._onRequestPartialRender = callback;
+		for (const [id, td] of this.targets) {
+			if (this.isolatedTargets.has(id)) continue;
+			td.canvasLayer.setOnRequestPartialRender(callback);
+		}
 	}
 
 	public setOnRequestRender(callback: () => void): void {
@@ -2917,7 +2930,8 @@ export class RenderOrchestrator {
 		);
 		this.imageTextures = new ImageTextureStore(
 			this.device,
-			() => this._onRequestRender?.(),
+			// An arrived image is redrawn over the cached composite where it lies.
+			() => (this._onRequestPartialRender ?? this._onRequestRender)?.(),
 			imageTextureBudgetBytes(this.gpuCacheBudgetBytes),
 		);
 	}

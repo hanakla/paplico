@@ -42,7 +42,12 @@ export class MeshGradientTextureGenerator {
 	private device: GPUDevice;
 	private textureCache: Map<string, TextureCacheEntry> = new Map();
 	private preparedDataCache: Map<string, PreparedCacheEntry> = new Map();
+	/** The prepared-data key of each gradient object, derived once: a frame
+	 *  that leaves a gradient alone hands in the object the last one drew. */
+	private readonly preparedDataKeys = new WeakMap<MeshGradient, string>();
 	private frameCounter = 0;
+	/** The frame that last asked for prepared data. */
+	private lastPreparedFrame = 0;
 
 	private static readonly MAX_CACHE_SIZE = 32;
 	private static readonly EVICT_AFTER_FRAMES = 10;
@@ -94,11 +99,17 @@ export class MeshGradientTextureGenerator {
 		if (
 			this.preparedDataCache.size > MeshGradientTextureGenerator.MAX_CACHE_SIZE
 		) {
-			const entries = [...this.preparedDataCache.entries()].sort(
-				(a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame,
+			// What the last frame to draw any of them drew stays: a view holding
+			// more gradients than the cap would otherwise rebuild the overflow
+			// every frame.
+			const entries = [...this.preparedDataCache.entries()]
+				.filter(([, entry]) => entry.lastUsedFrame < this.lastPreparedFrame)
+				.sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame);
+			const toRemove = Math.min(
+				entries.length,
+				this.preparedDataCache.size -
+					MeshGradientTextureGenerator.MAX_CACHE_SIZE,
 			);
-			const toRemove =
-				entries.length - MeshGradientTextureGenerator.MAX_CACHE_SIZE;
 			for (let i = 0; i < toRemove; i++) {
 				entries[i][1].data.vertexBuffer.destroy();
 				entries[i][1].data.faceBuffer.destroy();
@@ -113,7 +124,12 @@ export class MeshGradientTextureGenerator {
 	public prepareMeshGradientData(
 		gradient: MeshGradient,
 	): PreparedMeshGradientData {
-		const cacheKey = computeMeshGradientHash(gradient);
+		this.lastPreparedFrame = this.frameCounter;
+		let cacheKey = this.preparedDataKeys.get(gradient);
+		if (cacheKey === undefined) {
+			cacheKey = computeMeshGradientHash(gradient);
+			this.preparedDataKeys.set(gradient, cacheKey);
+		}
 		const cached = this.preparedDataCache.get(cacheKey);
 		if (cached) {
 			cached.lastUsedFrame = this.frameCounter;

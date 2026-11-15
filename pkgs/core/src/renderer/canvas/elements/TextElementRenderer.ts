@@ -55,6 +55,15 @@ export class TextElementRenderer {
 	// Path-cache builds run every frame, so a persistently failing font (e.g. an
 	// unresolved family) would spam the console. Log each distinct failure once.
 	private readonly loggedPathCacheErrors = new Set<string>();
+	private readonly drawPaths = new WeakMap<
+		TextElement,
+		{
+			glyphs: Path[];
+			localBounds: BoundingBox;
+			paintStyle: TextElement["defaultStyle"];
+			paths: readonly Path[];
+		}
+	>();
 
 	public constructor(private readonly deps: TextRendererDeps) {}
 
@@ -133,7 +142,6 @@ export class TextElementRenderer {
 		this.syncTextBoundsIfNeeded(element, localBounds);
 		const ox = element.x;
 		const oy = element.y;
-		const worldBounds = toWorldBounds(localBounds, ox, oy);
 
 		// Axis path appearances render as an underlay so the text stays on top
 		this.renderAxisAppearanceUnderlay(
@@ -145,6 +153,46 @@ export class TextElementRenderer {
 			oy,
 		);
 
+		for (const drawPath of this.retainedDrawPaths(
+			element,
+			paths,
+			localBounds,
+		)) {
+			this.deps.renderPath(
+				passEncoder,
+				drawPath,
+				alphaMultiplier,
+				pipelineType,
+			);
+		}
+	}
+
+	/**
+	 * The paths a text is drawn as, placed in the text's space with its
+	 * geometry filters attached. They are kept for as long as the text, its
+	 * glyph outlines and its paint style stay the same objects, so a frame
+	 * that leaves the text alone draws the paths the last one drew and every
+	 * cache keyed on them still holds.
+	 */
+	private retainedDrawPaths(
+		element: TextElement,
+		glyphs: Path[],
+		localBounds: BoundingBox,
+	): readonly Path[] {
+		const paintStyle =
+			this.deps.textState.renderer?.getFlowHead(element).defaultStyle ??
+			element.defaultStyle;
+		const retained = this.drawPaths.get(element);
+		if (
+			retained?.glyphs === glyphs &&
+			retained.localBounds === localBounds &&
+			retained.paintStyle === paintStyle
+		) {
+			return retained.paths;
+		}
+		const ox = element.x;
+		const oy = element.y;
+		const worldBounds = toWorldBounds(localBounds, ox, oy);
 		const geometryFilters = localAppearances(element.filters).filter(
 			(f) =>
 				f.processor !== "fill" &&
@@ -160,12 +208,12 @@ export class TextElementRenderer {
 		const sharedRotate3DContexts = sharedRotate3DFilters.map((filter) =>
 			createRotate3DProjectionContext(
 				filter.paramData.params,
-				paths.flatMap((path) => offsetSegments(path.segments, ox, oy)),
+				glyphs.flatMap((path) => offsetSegments(path.segments, ox, oy)),
 				worldBounds,
 			),
 		);
 
-		for (const drawPath of this.resolveDrawPaths(element, paths)) {
+		const paths = this.resolveDrawPaths(element, glyphs).map((drawPath) => {
 			let segments = offsetSegments(drawPath.segments, ox, oy);
 			for (const [filterIndex, filter] of sharedRotate3DFilters.entries()) {
 				const context = sharedRotate3DContexts[filterIndex];
@@ -177,18 +225,14 @@ export class TextElementRenderer {
 							worldBounds,
 						) as Path["segments"]);
 			}
-
-			this.deps.renderPath(
-				passEncoder,
-				{
-					...drawPath,
-					filters: [...perPathGeometryFilters, ...(drawPath.filters ?? [])],
-					segments,
-				},
-				alphaMultiplier,
-				pipelineType,
-			);
-		}
+			return {
+				...drawPath,
+				filters: [...perPathGeometryFilters, ...(drawPath.filters ?? [])],
+				segments,
+			};
+		});
+		this.drawPaths.set(element, { glyphs, localBounds, paintStyle, paths });
+		return paths;
 	}
 
 	/**

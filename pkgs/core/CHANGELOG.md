@@ -113,6 +113,8 @@
   - Dragging a vertex no longer stalls on its first frame or on release, and no longer slows down inside a drop-shadowed group.
 - **Groups**
   - Duplicating, pasting or deleting a group with many nested elements no longer takes seconds in a large document. This also covers the undo and redo of each.
+- **Clip groups**
+  - Zooming and panning a document with many clip groups take less time to finish. This covers clip groups up to 256 px on screen whose content holds no blend mode, group opacity or filter.
 - **Blends**
   - Moving an element that no blend uses as a key takes less time in a large document.
 - **Guides**
@@ -128,6 +130,15 @@
   - The first save after a document opens no longer freezes the page while it compresses the timelapse.
 - **Text**
   - Outlining a text puts its fills and strokes on the group of glyph paths instead of on each glyph path, so a gradient spans the outlined text. Glyphs filled differently keep their own fill.
+  - Redrawing a document with many texts takes less time.
+- **Mesh gradients**
+  - Redrawing a view that holds more than 32 mesh gradients no longer rebuilds the ones over that count on every frame.
+- **Viewport**
+  - Zooming out until most of the document is in view finishes in one redraw instead of three.
+  - Zooming out no longer flattens every path again when the zoom halves. An outline flattened for up to 8 times the zoom is drawn as it is.
+  - After a zoom shows the view first, the area around it is drawn a strip at a time instead of redrawing the view with it.
+- **Images**
+  - An image that finishes loading no longer redraws the document once per notification. Only the area of the images that arrived is redrawn when it is small.
 
 ### Fixed
 
@@ -169,6 +180,10 @@
   - Fix deleting a layer leaving the contents of its groups in the document, where a glass solid among them kept showing on the canvas.
 - **Clip groups**
   - Fix a thin line of what lies behind showing along the edge two clip groups share, when zoomed or rasterized. A clip shape's edge now reaches a quarter of a pixel further out.
+  - Fix a filtered element inside a clip group turning blurry when zoomed in.
+  - Fix the edge of a clip shape being drawn up to a pixel softer than the edge of a path with the same outline.
+- **Filters**
+  - Fix a spray or other noise filter changing its grain between the frame that shows a zoomed view first and the frame after it.
 - **Object masks**
   - Fix an object mask showing the whole element instead of only the part the mask keeps.
 - **Guides**

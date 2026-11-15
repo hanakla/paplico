@@ -97,7 +97,7 @@ const MASK_CHAIN_WGSL = /* wgsl */ `
 		let rawUV = (worldPos - bounds.xy) / safeSize;
 		let clampedUV = clamp(vec2f(rawUV.x, 1.0 - rawUV.y), vec2f(0.0), vec2f(1.0));
 		if (rect.z > 0.0 && rect.w > 0.0) {
-			return (rect.xy + vec2f(0.5) + clampedUV * max(rect.zw - vec2f(1.0), vec2f(0.0))) / textureSize;
+			return (rect.xy + clamp(clampedUV * rect.zw, vec2f(0.5), max(rect.zw - vec2f(0.5), vec2f(0.5)))) / textureSize;
 		}
 		return clampedUV;
 	}

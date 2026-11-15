@@ -1119,6 +1119,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.documentCacheInvalidationOwed = true;
 			this.markDirty("render");
 		});
+		this.renderer.setOnRequestPartialRender(() => this.markDirty("render"));
 		this.renderer.setOnDocumentRenderResumed(() => {
 			for (const entry of this.canvasTargets.values()) {
 				entry.scheduler.resumeDocumentRender();
