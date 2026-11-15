@@ -45,6 +45,7 @@
   - `calculateSegmentListBounds` in `@paplico/core/utils` measures a list of segments.
   - `linearMatrixToTransform` in `@paplico/core/utils` turns a matrix into an element transform.
   - `compressDeflate` and `decompressDeflate` in `@paplico/core/io` compress and decompress bytes with deflate.
+  - `createMeshWarpObject` in `@paplico/core/document` wraps elements in a mesh warp whose cage covers a given box.
   - The published package includes its `LICENSE` file.
 
 ### Changed
@@ -70,6 +71,7 @@
     - An exported wide kirakira glow differs from earlier versions by a few levels of 255.
 - **Text**
   - Outlining a text puts its fills and strokes on the group of glyph paths instead of on each glyph path, so a gradient spans the outlined text. Glyphs filled differently keep their own fill.
+  - A text flowed inside a shape starts its first line with the top of its characters at the shape's top instead of the top of its line height, so the lines move up by the leading above the first line.
 - **Document**
   - `PaplicoCommands.alignSelectedElements` aligns a single selected element to the artboard it rides on, and does nothing when it rides on none.
   - A document is saved at schema version 20261115. A build older than guides on every element type refuses to open it instead of drawing its guides as artwork.

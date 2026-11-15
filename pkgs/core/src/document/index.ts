@@ -19,6 +19,7 @@ export {
 	createEmbeddedFileFromBytes,
 	createEmbeddedImageFile,
 	createImageObject,
+	createMeshWarpObject,
 	createStrokeBrushSettings,
 } from "./factory";
 export {

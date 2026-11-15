@@ -9,6 +9,9 @@ import type { CubicBezierSegment, Point } from "../schema";
 import { evalCubicBezier } from "../utils/geometry/primitives/bezier";
 import { resolveSegment } from "../utils/geometry/primitives/segment";
 
+/** How far inside a band its edges are sampled, in units. */
+const EDGE_TOLERANCE = 0.002;
+
 /** Usable horizontal span within a line band */
 export interface TextLineInterval {
 	x0: number;
@@ -102,9 +105,11 @@ export function intervalsForBand(
 ): TextLineInterval[] {
 	const lo = Math.min(yA, yB);
 	const hi = Math.max(yA, yB);
-	// Sample strictly inside the band: a scanline exactly on a polygon edge
-	// (e.g. the shape's top edge) would register no crossings
-	const delta = (hi - lo) * 1e-6;
+	// Sample strictly inside the band: a scanline on a polygon edge, such as
+	// the shape's top edge that the first line's em box starts at, would
+	// register no crossings. An edge read from a file can tilt by a
+	// thousandth of a unit from rounding, so the sample keeps clear of that.
+	const delta = Math.max((hi - lo) * 1e-6, EDGE_TOLERANCE);
 	const atLo = scanlineIntervals(polygons, lo + delta);
 	const atHi = scanlineIntervals(polygons, hi - delta);
 	const common = intersectIntervals(atLo, atHi);
