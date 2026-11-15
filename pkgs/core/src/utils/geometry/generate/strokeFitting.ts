@@ -1885,7 +1885,8 @@ export interface IncrementalStrokeFitterOptions {
 const FITTER_TAIL_MAX_POINTS = 128;
 /** Points held back from a forced freeze so the visible tail stays supple. */
 const FITTER_TAIL_HOLDBACK = 16;
-const FITTER_DEDUPE_DIST_SQ = 0.5 * 0.5;
+/** Screen-space distance under which consecutive input samples merge. */
+const FITTER_DEDUPE_DIST_PX = 0.5;
 
 /**
  * Incremental variant of processStroke for live drawing: sections behind the
@@ -1900,6 +1901,7 @@ export class IncrementalStrokeFitter {
 
 	private readonly stabilization: number;
 	private readonly tolerance: number;
+	private readonly dedupeDistSq: number;
 	private readonly method: SmoothingMethod;
 	private readonly gaussianRadius: number;
 	/** Kernel weights by sample distance (see gaussianKernelWeights). */
@@ -1953,6 +1955,7 @@ export class IncrementalStrokeFitter {
 		const baseTolerance =
 			options.stabilization <= 0 ? 0.5 : 1.0 + options.stabilization * 3.0;
 		this.tolerance = baseTolerance / options.zoom;
+		this.dedupeDistSq = (FITTER_DEDUPE_DIST_PX / options.zoom) ** 2;
 		this.gaussianRadius =
 			this.method === "smooth" && options.stabilization > 0
 				? Math.ceil(3 * options.stabilization * 4.0)
@@ -1976,7 +1979,7 @@ export class IncrementalStrokeFitter {
 		if (prev) {
 			const dx = point.x - prev.x;
 			const dy = point.y - prev.y;
-			if (dx * dx + dy * dy < FITTER_DEDUPE_DIST_SQ) {
+			if (dx * dx + dy * dy < this.dedupeDistSq) {
 				this.floatingLast = point;
 				return;
 			}

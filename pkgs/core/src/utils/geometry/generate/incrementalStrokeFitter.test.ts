@@ -336,6 +336,20 @@ describe("IncrementalStrokeFitter", () => {
 	});
 });
 
+describe("IncrementalStrokeFitter at high zoom", () => {
+	it("should produce preview segments for a stroke drawn at zoom 200", () => {
+		const zoom = 200;
+		const fitter = new IncrementalStrokeFitter({ stabilization: 0, zoom });
+
+		// 60 screen pixels of drag, one pixel per event.
+		for (let i = 0; i <= 60; i++) {
+			fitter.push({ x: i / zoom, y: 0, deltaTime: i * 8 });
+		}
+
+		expect(fitter.getSegments().length).toBeGreaterThan(0);
+	});
+});
+
 /**
  * Straight line: fast first half (2px / 2ms), slow second half (2px / 25ms).
  * Kept under 128 points so the whole run fits into a single live tail

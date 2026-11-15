@@ -142,6 +142,8 @@
 
 ### Fixed
 
+- **Pen tool**
+  - Fix a brush stroke drawn at a high zoom showing no preview while drawing.
 - **Images**
   - Fix an image wider or taller than the GPU's texture limit leaving the whole canvas undrawn. It is drawn scaled down to fit the limit.
   - Fix panning or zooming stalling while a document's images load. New image loads wait until the gesture ends.
