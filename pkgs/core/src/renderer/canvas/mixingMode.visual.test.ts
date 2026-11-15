@@ -52,6 +52,19 @@ describe("Mixing strokes", () => {
 		expect(pixel[1]).toBeLessThan(pixel[0] - 40);
 	});
 
+	it("should pick up the backdrop where a moved group puts the stroke", async () => {
+		// In its own coordinates the stroke lies left of the field, so only a
+		// pickup taken at the group's position finds the green.
+		const pixel = await renderStrokePixel(
+			mixingBrush({ colorRate: 0 }),
+			undefined,
+			300,
+		);
+
+		expect(pixel[1]).toBeGreaterThan(120);
+		expect(pixel[0]).toBeLessThan(pixel[1] - 40);
+	});
+
 	it("should paint the brush color when colorRate is 1", async () => {
 		const pixel = await renderStrokePixel(mixingBrush({ colorRate: 1 }));
 

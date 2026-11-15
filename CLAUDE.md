@@ -272,40 +272,7 @@ Being told about a single word is a report about a habit, not about that word. G
 
 ## Writing Package Changelogs (`pkgs/*/CHANGELOG.md`)
 
-Readers scan only the first few words of each entry to decide whether it concerns them. Every rule below serves that.
-
-### Structure
-
-- Under each `### Added` / `Changed` / `Removed` / `Fixed`, group entries under a bold top-level bullet and nest the entries beneath it.
-- The group heading is a tool or feature name: **Select tool**, **Gradient tool**, **SVG export**, **Timelapse**. Never an operation or a condition.
-  - ✗ **Alt+drag duplicate in the select tool** → ✓ **Select tool**
-  - ✗ **Rotated and scaled groups** → ✓ **Groups**
-  - ✗ **Long press and eyedropper** → ✓ split into **Tools** and **Eyedropper**
-- An entry that applies to two tools goes under a joined heading such as **Select tool / Path edit tool**.
-- Put **Breaking API changes** first in `### Changed`. Every signature change, removed field and changed default key goes there.
-
-### Entry form
-
-- Fixed: start with `Fix` and the symptom the user saw.
-  - ✓ `Fix an Alt+drag copy starting 10 units away from its original and lagging behind the pointer.`
-- Changed: state the new behaviour, with the old one in the same sentence as `instead of …`.
-  - ✓ `A click picks on release instead of on press.`
-- Added: state what was added in one sentence.
-- Removed: name what was removed, then `Use … instead.` Split items whose replacements differ.
-  - ✗ `` `getFontManager` and the `googleFontsApiKey` option. Pass a `GoogleFontsLoader` instead. `` → ✓ one entry each, with `paplico.fonts` and `GoogleFontsLoader` as their replacements
-- Performance changes: state the speed the user notices, such as `… no longer get slower as the document grows`, never the mechanism that made it faster.
-
-### One sentence, unless the second carries something new
-
-Keep a second sentence or a nested bullet only when it says what the first cannot: an API name needed to use the feature, the condition or scope the change applies to, a new value, or a dependency bump. Do not write:
-
-- The symptom turned inside out: `It now works on such a group.`
-- The symptom said again in the past: `A half-transparent shadow color used to cast a full shadow.`
-- Internal causes and mechanisms: raster chunks, buffer ownership, how a migration measures something
-- Which app component uses the API: `The ActionsPanel's flip buttons use it.`
-- Why the change was made
-
-Symptoms of one operation go in one entry. Two symptoms of the same Alt+drag are one `Fix`, not two.
+When adding or editing a changelog entry, read the `paplico-releasenote` skill first. The rules live there only.
 
 ## Codebase Exploration
 

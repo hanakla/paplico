@@ -150,6 +150,7 @@
 - **Renderer**
   - Fix a filtered element just outside the screen appearing without its filter, or not at all, while panning it into view.
   - Fix the backdrop under a color-only filter on `applyToBackdrop` looking softer than the rest of the canvas at most zoom levels.
+  - Fix a smudge brush stroke that was moved, or sits in a moved group, still picking up the colors from where it was drawn.
 - **Filters**
   - Fix some filtered elements staying blurry after zooming in until the view moves.
   - Fix the drop shadow or another filter of a group not following an element edited inside it.
