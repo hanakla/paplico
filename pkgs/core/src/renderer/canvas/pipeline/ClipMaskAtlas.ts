@@ -26,8 +26,8 @@ import { expandRenderFilter } from "../CanvasLayer.helpers";
 import type {
 	FilteredTextureInfo,
 	GPUCoreResources,
+	RenderClipShapeToMaskFn,
 	RenderElementsFn,
-	RenderElementToMaskFn,
 	RenderState,
 	ViewportState,
 } from "../CanvasLayerTypes";
@@ -129,7 +129,7 @@ interface ClipMaskAtlasDeps extends GPUCoreResources {
 	/** Point the given elements' transform slots at a mask, so drawing them
 	 *  samples it through the inline clip path. */
 	writeMaskInfo: (masks: ReadonlyMap<string, GPUMaskInfo>) => void;
-	renderElementToMask: RenderElementToMaskFn;
+	renderClipShapeToMask: RenderClipShapeToMaskFn;
 	renderElements: RenderElementsFn;
 	/** How the element currently paints — fill, stroke, referenced pattern
 	 *  revisions, nested children. Keys the cache of masks drawn with their
@@ -637,7 +637,7 @@ export class ClipMaskAtlas {
 				for (const source of mask.sources) {
 					this.deps.renderState.currentTransformIndex =
 						this.deps.getTransformIndex(source.id);
-					this.deps.renderElementToMask(passEncoder, source, elementsMap);
+					this.deps.renderClipShapeToMask(passEncoder, source, elementsMap);
 				}
 				this.unbindMaskForMaskPass();
 				passEncoder.end();
@@ -821,7 +821,7 @@ export class ClipMaskAtlas {
 			for (const source of mask.sources) {
 				this.deps.renderState.currentTransformIndex =
 					this.deps.getTransformIndex(source.id);
-				this.deps.renderElementToMask(pass, source, elementsMap);
+				this.deps.renderClipShapeToMask(pass, source, elementsMap);
 			}
 			this.deps.setActiveBindGroup(null);
 		}

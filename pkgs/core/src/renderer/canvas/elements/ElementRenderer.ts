@@ -458,6 +458,34 @@ export class ElementRenderer {
 		elementsMap: Map<string, AnyArtObject>,
 		preFilters?: readonly Filter[],
 	): void {
+		this.renderSilhouette(passEncoder, element, elementsMap, preFilters, 1);
+	}
+
+	/**
+	 * Render the shape of a clip path to a mask texture.
+	 *
+	 * Two clip shapes that share an edge each cover part of the pixels on it.
+	 * Drawn with plain coverage, neither covers those pixels fully and what
+	 * lies behind shows through as a line along the edge. The shape is drawn
+	 * at twice its alpha, which the mask texture clamps, so its edge reaches
+	 * full coverage halfway across the pixel and one of the two shapes always
+	 * covers it.
+	 */
+	public renderClipShapeToMask(
+		passEncoder: GPURenderPassEncoder,
+		element: AnyArtObject,
+		elementsMap: Map<string, AnyArtObject>,
+	): void {
+		this.renderSilhouette(passEncoder, element, elementsMap, undefined, 2);
+	}
+
+	private renderSilhouette(
+		passEncoder: GPURenderPassEncoder,
+		element: AnyArtObject,
+		elementsMap: Map<string, AnyArtObject>,
+		preFilters: readonly Filter[] | undefined,
+		alpha: number,
+	): void {
 		this.deps.renderState.currentTransformIndex = this.deps.getTransformIndex(
 			element.id,
 		);
@@ -472,7 +500,7 @@ export class ElementRenderer {
 				params: {
 					fill: {
 						type: "solid",
-						color: { type: "rgb", r: 1, g: 1, b: 1, a: 1 },
+						color: { type: "rgb", r: 1, g: 1, b: 1, a: alpha },
 					},
 				},
 			},
@@ -569,7 +597,7 @@ export class ElementRenderer {
 					.map((id) => elementsMap.get(id))
 					.filter((el): el is AnyArtObject => el !== undefined);
 				for (const child of childElements) {
-					this.renderElementToMask(
+					this.renderSilhouette(
 						passEncoder,
 						child,
 						elementsMap,
@@ -577,6 +605,7 @@ export class ElementRenderer {
 							...geometryFilters(child, this.deps.filterRenderer),
 							...preFilters,
 						],
+						alpha,
 					);
 				}
 				break;

@@ -68,8 +68,8 @@ import {
 	FULL_BLIT_UV_RECT,
 	type OffscreenBackdrop,
 	RENDER_SAMPLE_COUNT,
+	type RenderClipShapeToMaskFn,
 	type RenderElementsFn,
-	type RenderElementToMaskFn,
 	type RenderGroupAppearancesFn,
 	type RenderState,
 	type SharedRenderBindings,
@@ -129,7 +129,7 @@ interface OffscreenPresenterDeps extends SharedRenderBindings {
 
 	renderElements: RenderElementsFn;
 	dispatchElementDirect: DispatchElementDirectFn;
-	renderElementToMask: RenderElementToMaskFn;
+	renderClipShapeToMask: RenderClipShapeToMaskFn;
 	blitQuadToCanvas: BlitQuadToCanvasFn;
 	/** The inline mask assigned to an element this frame, or the dummy when none. */
 	getElementMaskBindGroup: (elementId: string) => GPUBindGroup;
@@ -2033,7 +2033,7 @@ export class OffscreenPresenter {
 		);
 		this.deps.renderState.currentMaskBindGroup =
 			parentMask?.bindGroup ?? this.deps.dummyMaskBindGroup;
-		this.deps.renderElementToMask(maskCtx.passEncoder, clipPath, elementsMap);
+		this.deps.renderClipShapeToMask(maskCtx.passEncoder, clipPath, elementsMap);
 		this.deps.renderState.currentMaskBindGroup = this.deps.dummyMaskBindGroup;
 		maskCtx.passEncoder.end();
 		this.deps.setActiveBindGroup(null);

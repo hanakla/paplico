@@ -1237,8 +1237,8 @@ export class CanvasLayer {
 			renderElements: (...args) => this.renderElements(...args),
 			dispatchElementDirect: (...args) =>
 				this.elements.dispatchElementDirect(...args),
-			renderElementToMask: (...args) =>
-				this.elements.renderElementToMask(...args),
+			renderClipShapeToMask: (...args) =>
+				this.elements.renderClipShapeToMask(...args),
 			blitQuadToCanvas: (pass, texture, corners, opacity, uvRect) =>
 				this.composite.blitQuadToCanvas(
 					pass,
@@ -7035,7 +7035,7 @@ export class CanvasLayer {
 				continue;
 			}
 			// Text axis paths are guides — never paint their fill/stroke.
-			// (They still work as clip sources via renderElementToMask.)
+			// (They still work as clip sources via renderClipShapeToMask.)
 			if (
 				element.type === "path" &&
 				this.renderState.textAxisPathIds?.has(element.id)
@@ -8364,8 +8364,8 @@ export class CanvasLayer {
 			getTransformIndex: (elementId: string) =>
 				this.viewportManager.getTransformIndex(elementId),
 			writeMaskInfo: (masks) => this.viewportManager.writeMaskInfoOnly(masks),
-			renderElementToMask: (...args) =>
-				this.elements.renderElementToMask(...args),
+			renderClipShapeToMask: (...args) =>
+				this.elements.renderClipShapeToMask(...args),
 			renderElements: (...args) => this.renderElements(...args),
 			paintHash: (element, elementsMap) =>
 				computePaintHash(element, elementsMap, this.paintHashContext()),

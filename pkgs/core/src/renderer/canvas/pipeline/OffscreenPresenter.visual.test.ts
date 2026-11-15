@@ -180,6 +180,15 @@ describe("Offscreen pixel alignment", () => {
 	});
 });
 
+describe("Clip groups that share an edge", () => {
+	it("leaves no line of the backdrop along the edge", async () => {
+		// At this zoom the edge falls inside a pixel, so each clip shape covers
+		// part of the pixels on it.
+		const lightest = await renderAbuttingClipsAndMeasureSeam(1.7);
+		expect(lightest).toBeLessThanOrEqual(12);
+	});
+});
+
 describe("Clip groups are not isolated", () => {
 	it("multiplies a nested clip group's child against the document beneath", async () => {
 		const { inside, outside } = await renderNestedClipMultiplyAndSample();
@@ -268,16 +277,16 @@ describe("Clip groups are not isolated", () => {
 		["children in a passthrough group", true],
 	])("keeps a lower child from showing through the upper one on the clip edge (%s)", async (_name, wrapped) => {
 		// The light rect fully covers the dark rect where both cross the
-		// clip edge at column 500.5, so the edge column must read between
-		// the light rect and the white document, and the columns past it
-		// must be white. Masking each child on its own lets the dark rect
-		// through the light rect's partial-coverage edge pixel.
+		// clip edge at column 500.5. The clip covers half of the edge column,
+		// which it keeps whole, so that column must read as the light rect
+		// and the columns past it must be white. Masking each child on its
+		// own lets the dark rect through the light rect's edge pixel.
 		const { inside, edge, outside } =
 			await renderOverlappingClippedChildrenAndSampleEdge(wrapped);
 		for (const [, g] of inside) expect(g).toBeLessThanOrEqual(246);
 		const [r, g, b] = edge;
-		expect(g).toBeGreaterThanOrEqual(243);
-		expect(g).toBeLessThanOrEqual(252);
+		expect(g).toBeGreaterThanOrEqual(240);
+		expect(g).toBeLessThanOrEqual(246);
 		expect(r).toBeGreaterThanOrEqual(g);
 		expect(b).toBe(g);
 		for (const px of outside) expect(px).toEqual([255, 255, 255]);
@@ -480,6 +489,65 @@ async function renderNestedFractionalClipsOnScreenAndMeasureEdge(zoom: number) {
 	)._context.getCurrentTexture();
 	const pixels = await captureTexturePixels(device, texture, 800, 600);
 	return countLeftEdgeGray(pixels, zoom);
+}
+
+/**
+ * Two clip groups of black content meet at world x 0.37 over the white
+ * background. Returns the lightest value on a row across the edge, which is
+ * 0 where the content is unbroken.
+ */
+async function renderAbuttingClipsAndMeasureSeam(zoom: number) {
+	const { renderer, canvas } = await createTestRenderer();
+	const doc = createDefaultDocument("abutting-clips-vrt");
+	const layer = createDefaultLayer("layer-bg", "Background");
+	const edgeX = 0.37;
+	for (const [left, right] of [
+		[-100, edgeX],
+		[edgeX, 100],
+	]) {
+		const child: Path = {
+			type: "path",
+			id: generateUid("path"),
+			opacity: 1,
+			blendMode: "normal",
+			segments: rectSegments(0, 0, 200, 200),
+			filters: [solidFill(0, 0, 0)],
+			transform: createDefaultTransform(),
+		};
+		const clipPath: Path = {
+			...child,
+			id: generateUid("clip-path"),
+			segments: rectSegments((left + right) / 2, 0, right - left, 200),
+			filters: [],
+		};
+		const group: Group = {
+			type: "group",
+			id: generateUid("group"),
+			opacity: 1,
+			blendMode: "normal",
+			childIds: [clipPath.id, child.id],
+			clipPathId: clipPath.id,
+			transform: createDefaultTransform(),
+			filters: [],
+		};
+		for (const object of [child, clipPath, group]) {
+			doc.objects[object.id] = object;
+		}
+		layer.elementIds.push(group.id);
+	}
+	doc.layers = [layer];
+
+	const viewport = { x: 0, y: 0, zoom, rotation: 0 };
+	const texture = await renderWithViewport(renderer, canvas, doc, viewport);
+	const device = renderer.getDevice();
+	if (!device) throw new Error("Test renderer has no device");
+	const pixels = await captureTexturePixels(device, texture, 800, 600);
+	texture.destroy();
+	let lightest = 0;
+	for (let x = 390; x < 412; x++) {
+		lightest = Math.max(lightest, pixels[(300 * 800 + x) * 4]);
+	}
+	return lightest;
 }
 
 /**

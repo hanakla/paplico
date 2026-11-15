@@ -167,6 +167,8 @@
   - Fix a text's gradient being written once per character instead of once across the text.
 - **Layers**
   - Fix deleting a layer leaving the contents of its groups in the document, where a glass solid among them kept showing on the canvas.
+- **Clip groups**
+  - Fix a thin line of what lies behind showing along the edge two clip groups share, when zoomed or rasterized. A clip shape's edge now reaches a quarter of a pixel further out.
 - **Object masks**
   - Fix an object mask showing the whole element instead of only the part the mask keeps.
 - **Guides**

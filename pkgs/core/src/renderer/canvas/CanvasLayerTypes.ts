@@ -375,8 +375,8 @@ export type DispatchElementDirectFn = (
 	pipelineType: PipelineType,
 ) => void;
 
-/** Signature of ElementRenderer.renderElementToMask — injected into OffscreenPresenter. */
-export type RenderElementToMaskFn = (
+/** Signature of ElementRenderer.renderClipShapeToMask — injected into the clip mask renderers. */
+export type RenderClipShapeToMaskFn = (
 	passEncoder: GPURenderPassEncoder,
 	element: AnyArtObject,
 	elementsMap: Map<string, AnyArtObject>,
