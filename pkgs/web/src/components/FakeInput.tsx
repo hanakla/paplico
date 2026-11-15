@@ -59,6 +59,12 @@ type FakeInputProps = {
 	$behaviour?: "default" | "click";
 	$side?: "start" | "end";
 	$delay?: number;
+	/** Opens the editor when it turns true and commits it when it turns false. */
+	editing?: boolean;
+	/** Reports the editor opening and closing, including by click and Escape. */
+	onEditingChange?: (editing: boolean) => void;
+	/** Runs before the built-in keys of the editor. Preventing the default skips them. */
+	onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 	className?: string;
 	"aria-label"?: string;
 };
@@ -83,12 +89,19 @@ function FakeInputRoot({
 	$behaviour = "default",
 	$side,
 	$delay = 500,
+	editing,
+	onEditingChange,
+	onKeyDown,
 	className,
 	"aria-label": ariaLabel,
 }: FakeInputProps) {
 	const inputRef = useRef<HTMLInputElement>(null);
 	const rootRef = useRef<HTMLDivElement>(null);
-	const [isEditing, setIsEditing] = useState(false);
+	const [isEditing, setIsEditingState] = useState(false);
+	const setIsEditing = useEventCallback((next: boolean) => {
+		setIsEditingState(next);
+		onEditingChange?.(next);
+	});
 	// Screen rect of the root, captured when editing starts. The portal host
 	// replicates this box so the overlay's absolute positioning keeps anchoring
 	// to the same spot as the inline version did.
@@ -150,6 +163,13 @@ function FakeInputRoot({
 		setEditValue(value ?? "");
 		setIsEditing(true);
 	});
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: follows the editing prop only; startEdit and finishEdit are stable (useEventCallback)
+	useEffect(() => {
+		if (editing === undefined || editing === isEditing) return;
+		if (editing) startEdit();
+		else finishEdit();
+	}, [editing]);
 
 	const clearLongPress = useEventCallback(() => {
 		if (longPressTimer.current) {
@@ -261,6 +281,9 @@ function FakeInputRoot({
 	const handleInputKeydown = useEventCallback(
 		(e: React.KeyboardEvent<HTMLInputElement>) => {
 			e.stopPropagation();
+
+			onKeyDown?.(e);
+			if (e.defaultPrevented) return;
 
 			if (e.key === "Enter") finishEdit();
 			if (e.key === "Escape") {
