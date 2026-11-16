@@ -745,6 +745,16 @@ describe("TextTool.commitEditing", () => {
 		expect(textCreate).toHaveBeenCalledTimes(1);
 	});
 
+	it("should return to the select tool after committing", () => {
+		const ctx = createMockToolContext();
+		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+
+		tool.enterEditModeForElement(createTextElement("abc"));
+		tool.commitEditing();
+
+		expect(ctx.complete).toHaveBeenCalledTimes(1);
+	});
+
 	it("should be a no-op when not editing", () => {
 		const textComplete = vi.fn();
 		const textDelete = vi.fn();
@@ -755,6 +765,7 @@ describe("TextTool.commitEditing", () => {
 
 		expect(textComplete).not.toHaveBeenCalled();
 		expect(textDelete).not.toHaveBeenCalled();
+		expect(ctx.complete).not.toHaveBeenCalled();
 	});
 });
 

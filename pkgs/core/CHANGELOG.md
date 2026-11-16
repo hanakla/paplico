@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **Tools**
+  - Committing a text with Escape or Cmd/Ctrl+Enter switches to the select tool instead of staying in the text tool.
+
 ## [0.11.0] - 2026-11-16
 
 ### Added

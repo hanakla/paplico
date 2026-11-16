@@ -1335,12 +1335,14 @@ export class TextTool implements Tool {
 
 	/**
 	 * Commit the current edit session (Escape / Cmd+Enter from the hidden
-	 * textarea). Runs the full exit path — persist/delete, editEnd, overlay
-	 * refresh — so editState never outlives the visible edit UI.
+	 * textarea) and hand control back to the select tool. Runs the full exit
+	 * path — persist/delete, editEnd, overlay refresh — so editState never
+	 * outlives the visible edit UI.
 	 */
 	public commitEditing(): void {
 		if (!this.editState) return;
 		this.exitEditMode();
+		this.context.complete();
 	}
 
 	// --- Touch-type mode (per-char move/rotate/scale) ---
