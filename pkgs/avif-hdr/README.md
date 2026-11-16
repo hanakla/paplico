@@ -91,4 +91,4 @@ Based on the architecture of [tinyavif](https://github.com/rachelplusplus/tinyav
 
 ## License
 
-BSD 2-Clause. CDF probability tables derived from AV1 specification (AOM Patent License 1.0).
+BSD 2-Clause. CDF probability tables derived from AV1 specification (AOM Patent License 1.0). The patent license text is in [PATENTS](PATENTS), laid out as libaom does: the BSD license in `LICENSE` and the separate patent grant in `PATENTS`.

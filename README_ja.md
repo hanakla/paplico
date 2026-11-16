@@ -26,18 +26,18 @@ WebGPUで動く、リアルタイム共同編集対応の無限キャンバス�
 
 ## 技術スタック
 
-| カテゴリ       | 技術                       |
-| -------------- | -------------------------- |
-| フレームワーク | Next.js, React             |
-| レンダリング   | WebGPU (WGSLシェーダ)      |
-| スタイリング   | Tailwind CSS               |
-| 状態管理       | Valtio                     |
+| カテゴリ       | 技術                          |
+| -------------- | ----------------------------- |
+| フレームワーク | Next.js, React                |
+| レンダリング   | WebGPU (WGSLシェーダ)         |
+| スタイリング   | Tailwind CSS                  |
+| 状態管理       | Valtio                        |
 | 共同編集       | Yjs, y-websocket, PartyServer |
-| 認証           | Supabase Auth              |
-| シリアライズ   | CBOR                       |
-| デスクトップ   | Tauri v2                   |
-| テスト         | Vitest                     |
-| Lint           | Biome                      |
+| 認証           | Supabase Auth                 |
+| シリアライズ   | CBOR                          |
+| デスクトップ   | Tauri v2                      |
+| テスト         | Vitest                        |
+| Lint           | Biome                         |
 
 ## パッケージ構成
 
@@ -142,6 +142,7 @@ User Input → Tool → PaplicoCommands → YjsProvider → Yjs Doc
 | `pkgs/partykit-collab-server`         | AGPL-3.0-or-later | [LICENSE](./pkgs/partykit-collab-server/LICENSE)                       |
 | `pkgs/webgpu-devtools`                | AGPL-3.0-or-later | [LICENSE](./pkgs/webgpu-devtools/LICENSE)                              |
 | `pkgs/syrup`                          | MIT               | [LICENSE](./pkgs/syrup/LICENSE)                                        |
-| `pkgs/avif-hdr`                       | BSD-2-Clause      | [LICENSE](./pkgs/avif-hdr/LICENSE)                                     |
+| `pkgs/tauri-plugin-query-local-fonts` | MIT               | [LICENSE](./pkgs/tauri-plugin-query-local-fonts/LICENSE)               |
+| `pkgs/avif-hdr`                       | BSD-2-Clause      | [LICENSE](./pkgs/avif-hdr/LICENSE)、[PATENTS](./pkgs/avif-hdr/PATENTS) |
 
 パッケージに含まれる第三者のコードと素材には、それぞれの条件が適用されます。条件は、対象のファイルのそばに書いてあります。

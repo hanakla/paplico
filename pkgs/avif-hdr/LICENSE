@@ -30,4 +30,5 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 This software contains code ported from tinyavif (https://github.com/rachelplusplus/tinyavif),
 which is subject to the terms of the BSD 2 Clause License and the Alliance for
 Open Media Patent License 1.0. The Alliance for Open Media Patent License 1.0
-can be obtained at www.aomedia.org/license/patent.
+can be obtained at www.aomedia.org/license/patent. A copy is in the PATENTS
+file next to this file.

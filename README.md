@@ -26,18 +26,18 @@ WebGPU-powered infinite canvas / vector drawing application with real-time colla
 
 ## Tech Stack
 
-| Category      | Technology                 |
-| ------------- | -------------------------- |
-| Framework     | Next.js, React             |
-| Rendering     | WebGPU (WGSL shaders)      |
-| Styling       | Tailwind CSS               |
-| State         | Valtio                     |
+| Category      | Technology                    |
+| ------------- | ----------------------------- |
+| Framework     | Next.js, React                |
+| Rendering     | WebGPU (WGSL shaders)         |
+| Styling       | Tailwind CSS                  |
+| State         | Valtio                        |
 | Collaboration | Yjs, y-websocket, PartyServer |
-| Auth          | Supabase Auth              |
-| Serialization | CBOR                       |
-| Desktop       | Tauri v2                   |
-| Testing       | Vitest                     |
-| Linting       | Biome                      |
+| Auth          | Supabase Auth                 |
+| Serialization | CBOR                          |
+| Desktop       | Tauri v2                      |
+| Testing       | Vitest                        |
+| Linting       | Biome                         |
 
 ## Packages
 
@@ -142,6 +142,7 @@ Each package carries its own license. Read the license file of the package you u
 | `pkgs/partykit-collab-server`         | AGPL-3.0-or-later | [LICENSE](./pkgs/partykit-collab-server/LICENSE)                       |
 | `pkgs/webgpu-devtools`                | AGPL-3.0-or-later | [LICENSE](./pkgs/webgpu-devtools/LICENSE)                              |
 | `pkgs/syrup`                          | MIT               | [LICENSE](./pkgs/syrup/LICENSE)                                        |
-| `pkgs/avif-hdr`                       | BSD-2-Clause      | [LICENSE](./pkgs/avif-hdr/LICENSE)                                     |
+| `pkgs/tauri-plugin-query-local-fonts` | MIT               | [LICENSE](./pkgs/tauri-plugin-query-local-fonts/LICENSE)               |
+| `pkgs/avif-hdr`                       | BSD-2-Clause      | [LICENSE](./pkgs/avif-hdr/LICENSE), [PATENTS](./pkgs/avif-hdr/PATENTS) |
 
 Third-party code and assets inside a package keep their own terms. Each package states them next to the files they cover.

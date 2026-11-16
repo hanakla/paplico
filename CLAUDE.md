@@ -277,7 +277,7 @@ When adding or editing a changelog entry, read the `paplico-releasenote` skill f
 ## Codebase Exploration
 
 - **When available, use Serena tool for codebase exploration**
-  - \*\*\*Must: Call `activate_project` for each begging of session
+  - **Must: Call `initial_instructions` at the beginning of each session.** Serena activates the project by itself at startup, so there is no `activate_project` tool to call
   - Serena provides advanced semantic search and code navigation capabilities
   - Prefer Serena over manual file searching when exploring unfamiliar code
   - Use Serena to understand relationships between components and call chains

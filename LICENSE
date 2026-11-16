@@ -4,11 +4,21 @@ This file is not a license. Read the license file of the package you use.
 Package                              License             License file
 pkgs/core                            AGPL-3.0-or-later   pkgs/core/LICENSE
 pkgs/web                             AGPL-3.0-or-later   pkgs/web/LICENSE
+<<<<<<< ours
+pkgs/web-wasm                        AGPL-3.0-or-later   pkgs/web-wasm/LICENSE
+pkgs/desktop                         AGPL-3.0-or-later   pkgs/desktop/LICENSE
+pkgs/partykit-collab-server          AGPL-3.0-or-later   pkgs/partykit-collab-server/LICENSE
+pkgs/webgpu-devtools                 AGPL-3.0-or-later   pkgs/webgpu-devtools/LICENSE
+pkgs/syrup                           MIT                 pkgs/syrup/LICENSE
+pkgs/tauri-plugin-query-local-fonts  MIT                 pkgs/tauri-plugin-query-local-fonts/LICENSE
+pkgs/avif-hdr                        BSD-2-Clause        pkgs/avif-hdr/LICENSE, pkgs/avif-hdr/PATENTS
+=======
 pkgs/desktop                         AGPL-3.0-or-later   pkgs/desktop/LICENSE
 pkgs/partykit-collab-server          AGPL-3.0-or-later   pkgs/partykit-collab-server/LICENSE
 pkgs/webgpu-devtools                 AGPL-3.0-or-later   pkgs/webgpu-devtools/LICENSE
 pkgs/syrup                           MIT                 pkgs/syrup/LICENSE
 pkgs/avif-hdr                        BSD-2-Clause        pkgs/avif-hdr/LICENSE
+>>>>>>> theirs
 
 Third-party code and assets inside a package keep their own terms. Each
 package states them next to the files they cover.

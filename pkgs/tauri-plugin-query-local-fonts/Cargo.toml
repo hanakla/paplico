@@ -6,7 +6,7 @@ description = "Tauri plugin from Paplico that lists installed fonts like the bro
 license = "MIT"
 repository = "https://github.com/hanakla/paplico"
 readme = "README.md"
-include = ["/src", "/permissions", "/build.rs", "/README.md", "/CHANGELOG.md"]
+include = ["/src", "/permissions", "/build.rs", "/README.md", "/CHANGELOG.md", "/LICENSE"]
 keywords = ["tauri", "tauri-plugin", "fonts", "paplico"]
 links = "tauri-plugin-paplico-query-local-fonts"
 
