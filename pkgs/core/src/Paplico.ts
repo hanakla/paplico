@@ -1611,6 +1611,10 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.rendererStore.uiOverlayState.overlays?.[
 					OVERLAY_KEYS.sysTextEdit
 				] != null,
+			onToolPress: (worldX, worldY) => {
+				this.rendererStore.focusedArtboardId =
+					this.findArtboardAtPoint(worldX, worldY)?.id ?? null;
+			},
 		});
 
 		ui.on("toolCursorUpdate", (data) => {

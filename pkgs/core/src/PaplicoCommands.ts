@@ -4394,7 +4394,14 @@ export class PaplicoCommands {
 			const items = await Clipboard.read();
 			// 1. PAPLICO elements (highest priority)
 			const elements = await readClipboardElements(items);
-			if (elements) return this.pasteElements(elements, opt);
+			if (elements) {
+				return this.pasteElements(elements.objects, {
+					...opt,
+					offset: viewport
+						? undefined
+						: this.focusedArtboardOffset(elements.artboardOrigin),
+				});
+			}
 
 			// 2. SVG
 			for (const item of items) {
@@ -4438,6 +4445,41 @@ export class PaplicoCommands {
 			console.warn("Failed to read system clipboard:", err);
 		}
 		return [];
+	}
+
+	/**
+	 * Shift that carries elements from the artboard whose top-left corner is
+	 * `artboardOrigin` to the same spot on the focused artboard. Undefined
+	 * when either artboard is missing, so the elements stay where they were.
+	 */
+	private focusedArtboardOffset(
+		artboardOrigin: { x: number; y: number } | undefined,
+	): { x: number; y: number } | undefined {
+		if (!artboardOrigin) return undefined;
+		const { focusedArtboardId, document } = this.ctx.store;
+		const focused = document.artboards.find((a) => a.id === focusedArtboardId);
+		if (!focused) return undefined;
+		const bounds = getArtboardBounds(focused);
+		return {
+			x: bounds.minX - artboardOrigin.x,
+			y: bounds.maxY - artboardOrigin.y,
+		};
+	}
+
+	/**
+	 * World-space top-left corner of the artboard the frontmost of the given
+	 * elements rides on, or undefined when none of them rides on one.
+	 */
+	private findArtboardOriginOf(
+		elementIds: readonly string[],
+	): { x: number; y: number } | undefined {
+		for (const id of elementIds.toReversed()) {
+			const artboard = this.ctx.spatial.findArtboardOfElement(id);
+			if (!artboard) continue;
+			const bounds = getArtboardBounds(artboard);
+			return { x: bounds.minX, y: bounds.maxY };
+		}
+		return undefined;
 	}
 
 	/**
@@ -4763,7 +4805,12 @@ export class PaplicoCommands {
 
 			if (artObjects.length > 0) {
 				itemData[PAPLICO_ELEMENTS_MIME] = new Blob(
-					[encodeElementsPayload(artObjects)],
+					[
+						encodeElementsPayload(
+							artObjects,
+							this.findArtboardOriginOf(elementIds),
+						),
+					],
 					{ type: PAPLICO_ELEMENTS_MIME },
 				);
 			}

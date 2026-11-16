@@ -26,7 +26,16 @@ describe("clipboard elements payload", () => {
 			encodeElementsPayload([path]),
 		);
 
-		expect(decoded).toEqual([path]);
+		expect(decoded?.objects).toEqual([path]);
+	});
+
+	it("should hand back the artboard corner it was encoded with", () => {
+		const decoded = decodeElementsPayload(
+			PAPLICO_ELEMENTS_MIME,
+			encodeElementsPayload([makePath("p")], { x: -50, y: 50 }),
+		);
+
+		expect(decoded?.artboardOrigin).toEqual({ x: -50, y: 50 });
 	});
 
 	it("should bring a legacy entry up to the latest schema", () => {
@@ -40,9 +49,11 @@ describe("clipboard elements payload", () => {
 
 		// The transform origin migration keeps the turned group; its child,
 		// whose geometry sits on the origin, stays where it is.
-		expect(decoded?.map((obj) => obj.id)).toEqual(["g", "p"]);
-		expect(getTransform(decoded![0])).toEqual(ROTATED);
-		expect(getTransform(decoded![1])).toEqual(createIdentityTransform());
+		expect(decoded?.objects.map((obj) => obj.id)).toEqual(["g", "p"]);
+		expect(getTransform(decoded!.objects[0])).toEqual(ROTATED);
+		expect(getTransform(decoded!.objects[1])).toEqual(
+			createIdentityTransform(),
+		);
 	});
 
 	it("should refuse an entry written by a newer client", () => {
@@ -63,7 +74,7 @@ describe("clipboard elements payload", () => {
 
 			const elements = await readClipboardElements([item]);
 
-			expect(elements?.map((obj) => obj.id)).toEqual(["current"]);
+			expect(elements?.objects.map((obj) => obj.id)).toEqual(["current"]);
 		});
 
 		it("should return null when no item carries elements", async () => {

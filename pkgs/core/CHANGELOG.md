@@ -74,6 +74,7 @@
   - A text flowed inside a shape starts its first line with the top of its characters at the shape's top instead of the top of its line height, so the lines move up by the leading above the first line.
 - **Document**
   - `PaplicoCommands.alignSelectedElements` aligns a single selected element to the artboard it rides on, and does nothing when it rides on none.
+  - Paste to front and paste to back put elements copied from an artboard at the same spot on the artboard last pressed instead of where they were copied from. A press outside every artboard makes them paste where they were copied from.
   - A document is saved at schema version 20261115. A build older than guides on every element type refuses to open it instead of drawing its guides as artwork.
   - Opening an older document moves an italic text style into the `ital` coordinate of `fontVariationSettings`, so a variable font with an `ital` axis keeps its italic.
   - Saving a document that embeds large images is far faster after its first save.

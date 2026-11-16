@@ -2379,6 +2379,64 @@ describe("PaplicoCommands", () => {
 		});
 	});
 
+	describe("paste in front after copying from an artboard", () => {
+		function copyFromArtboard() {
+			const fixture = createProviderCommands({
+				findArtboardOfElement: (id: string) =>
+					id === "p1" ? createTestArtboard("ab-1", 0, 0) : null,
+				getParentGroupId: () => null,
+			} as Partial<SpatialIndex>);
+			const { provider, store, sync } = fixture;
+			provider.addArtboard(createTestArtboard("ab-1", 0, 0));
+			provider.addArtboard(createTestArtboard("ab-2", 300, 50));
+			provider.addElement("layer", createPathAt("p1", 10, 10, 20, 20));
+			sync();
+			store.selectedElementIds = ["p1"];
+
+			const written: ClipboardItem[] = [];
+			vi.spyOn(navigator.clipboard, "write").mockImplementation(
+				async (items) => {
+					written.push(...items);
+				},
+			);
+			vi.spyOn(navigator.clipboard, "read").mockImplementation(
+				async () => written,
+			);
+			return fixture;
+		}
+
+		function pastedStart(store: RendererState, ids: string[]) {
+			const pasted = store.document.objects[ids[0]!] as Path;
+			return pasted.segments[0]!.start;
+		}
+
+		it("should keep the spot relative to the top-left corner of the focused artboard", async () => {
+			const { commands, store, sync } = copyFromArtboard();
+			await commands.copySelectedToClipboard();
+			store.focusedArtboardId = "ab-2";
+
+			const ids = await commands.pasteFromSystemClipboard({
+				placement: "front",
+			});
+			sync();
+
+			expect(pastedStart(store, ids)).toEqual({ x: 310, y: 60 });
+		});
+
+		it("should paste in place when no artboard is focused", async () => {
+			const { commands, store, sync } = copyFromArtboard();
+			await commands.copySelectedToClipboard();
+			store.focusedArtboardId = null;
+
+			const ids = await commands.pasteFromSystemClipboard({
+				placement: "front",
+			});
+			sync();
+
+			expect(pastedStart(store, ids)).toEqual({ x: 10, y: 10 });
+		});
+	});
+
 	describe("duplicateArtboard", () => {
 		function createArtboardDuplicateCommands() {
 			const riding = [
@@ -3913,6 +3971,7 @@ describe("cut/copy of axis-bound texts", () => {
 				isElementLocked: () => false,
 				getAncestorTransform: () => null,
 				getChildrenMatrix: () => null,
+				findArtboardOfElement: () => null,
 			} as unknown as SpatialIndex,
 			isReadonly: () => false,
 			onClipboardWriteFailed,
@@ -4039,6 +4098,7 @@ describe("flow-aware cut of chain members", () => {
 				isElementLocked: () => false,
 				getAncestorTransform: () => null,
 				getChildrenMatrix: () => null,
+				findArtboardOfElement: () => null,
 			} as unknown as SpatialIndex,
 			isReadonly: () => false,
 			getTextRenderer: () => renderer,

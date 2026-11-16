@@ -47,6 +47,7 @@ export function createRendererState(): RendererState {
 		reference3dSelectedNodeId: null,
 		editingScopeStack: [],
 		selectedArtboardId: null,
+		focusedArtboardId: null,
 		hdrSupported: false,
 		viewports: {},
 	});

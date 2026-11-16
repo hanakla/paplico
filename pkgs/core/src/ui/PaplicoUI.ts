@@ -69,6 +69,9 @@ interface PaplicoUICallbacks {
 	// editing textarea). Canvas.focus() is suppressed in pointerdown, and
 	// keydown from the tool's element passes through to the shortcut dispatcher.
 	isToolManagingFocus?: () => boolean;
+
+	/** World position of a press handed to the tool. */
+	onToolPress?: (worldX: number, worldY: number) => void;
 }
 
 type PaplicoUIEvents = {
@@ -627,12 +630,17 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			// Ignore pointer capture errors
 		}
 
-		tool.onPointerDown(
-			this.createPointerEventData(e, rect),
+		const pressed = this.createPointerEventData(e, rect);
+		const world = screenToWorld(
+			pressed.x,
+			pressed.y,
 			viewport,
 			rect.width,
 			rect.height,
 		);
+		this.callbacks.onToolPress?.(world.x, world.y);
+
+		tool.onPointerDown(pressed, viewport, rect.width, rect.height);
 	}
 
 	/** Deliver the held-back touch press once it is known to be a single finger. */
@@ -1494,7 +1502,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 		// 1. Paplico elements (highest priority) — Async Clipboard API
 		try {
 			const elements = await readClipboardElements(await Clipboard.read());
-			if (elements) return { type: "artobject", elements };
+			if (elements) return { type: "artobject", elements: elements.objects };
 		} catch {
 			// Async Clipboard API not available or permission denied
 		}

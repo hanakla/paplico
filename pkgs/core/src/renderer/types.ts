@@ -167,6 +167,10 @@ export interface RendererState {
 	reference3dSelectedNodeId: string | null;
 	editingScopeStack: string[];
 	selectedArtboardId: string | null;
+	/** Artboard under the last canvas press with any tool, or null when that
+	 *  press landed outside every artboard. Paste in front / back places the
+	 *  copied elements on it. */
+	focusedArtboardId: string | null;
 	hdrSupported: boolean;
 	/** Per-target viewports keyed by CanvasTarget ID. */
 	viewports: Record<string, Viewport>;
