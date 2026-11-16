@@ -5,7 +5,7 @@
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
 		"tauri": "tauri",
-		"dev": "tauri dev",
+		"dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
 		"build": "tauri build",
 		"dev:ios": "tauri ios dev",
 		"build:ios": "tauri ios build"

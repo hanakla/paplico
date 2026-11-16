@@ -1,0 +1,23 @@
+{
+	"$schema": "https://schema.tauri.app/config/3",
+	"identifier": "la.hanak.paplico-app.dev",
+	"app": {
+		"windows": [
+			{
+				"title": "Paplico (dev)",
+				"width": 1280,
+				"height": 800,
+				"minWidth": 800,
+				"minHeight": 600,
+				"dragDropEnabled": true,
+				"titleBarStyle": "Overlay",
+				"hiddenTitle": false,
+				"userAgent": "PaplicoDesktop",
+				"trafficLightPosition": { "x": 16, "y": 24 }
+			}
+		],
+		"security": {
+			"csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' ipc: http://ipc.localhost ws://localhost:5006 wss://localhost:* https://localhost:* https://paplico.hanak.la https://paplico-dev.hanak.la wss://paplico-collab.hanakla.workers.dev https://paplico-collab.hanakla.workers.dev https://www.googleapis.com https://fonts.gstatic.com https://*.clerk.accounts.dev https://*.sentry.io"
+		}
+	}
+}
