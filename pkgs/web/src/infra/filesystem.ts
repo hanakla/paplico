@@ -260,8 +260,8 @@ export async function domFSFileHandleFromTransferItem(
 export async function tauriRevealFileInFolder(
 	handle: FileHandle,
 ): Promise<void> {
-	const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
-	await revealItemInDir(handle.handle as string);
+	const { revealItemsInDir } = await import("@tauri-apps/plugin-opener");
+	await revealItemsInDir(handle.handle as string);
 }
 
 /** Lets the user pick one file through a file input. `null` means the user called it off. */

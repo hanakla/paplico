@@ -18,11 +18,11 @@
 			"allow": [{ "path": "$APPDATA" }]
 		},
 		{
-			"identifier": "fs:allow-read-text-file",
+			"identifier": "fs:allow-read-file",
 			"allow": [{ "path": "$APPDATA/config.yml" }]
 		},
 		{
-			"identifier": "fs:allow-write-text-file",
+			"identifier": "fs:allow-write-file",
 			"allow": [{ "path": "$APPDATA/config.yml" }]
 		},
 		"dialog:default",

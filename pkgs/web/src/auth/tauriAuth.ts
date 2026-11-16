@@ -1,8 +1,8 @@
 /**
  * tauriAuth — OAuth authentication module for Tauri (dev + production).
  *
- * Clerk SDK is stubbed in production, and WKWebView blocks popup/redirect
- * OAuth in all environments, so we always open the system browser.
+ * The system browser runs OAuth independently of the app's webview.
+ * Clerk SDK is stubbed in production builds.
  *
  * Flow:
  * 1. Open /auth/app/start?strategy=xxx&state=yyy in the default system browser

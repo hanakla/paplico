@@ -1,6 +1,6 @@
 # @paplico/tauri-plugin-query-local-fonts
 
-A Tauri v2 plugin that lists the fonts installed on the device in the shape of the browser's [`window.queryLocalFonts()`](https://developer.mozilla.org/en-US/docs/Web/API/Window/queryLocalFonts).
+A Tauri v3 plugin that lists the fonts installed on the device in the shape of the browser's [`window.queryLocalFonts()`](https://developer.mozilla.org/en-US/docs/Web/API/Window/queryLocalFonts).
 
 The fonts come from the OS itself, so fonts a font manager activates are listed too.
 

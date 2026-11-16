@@ -38,5 +38,8 @@
 		"npm-run-all2": "^8.0.4",
 		"ts-morph": "^28.0.0",
 		"tsx": "^4.23.12"
+	},
+	"resolutions": {
+		"@tauri-apps/api": "3.0.0-alpha.3"
 	}
 }

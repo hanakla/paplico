@@ -3,24 +3,34 @@ name = "paplico-desktop"
 version = "0.0.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
+rust-version = "1.95"
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "=3.0.0-alpha.4", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-safe-area-insets-css = "0.2"
-tauri-plugin-fs = "2"
-tauri-plugin-dialog = "2"
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }
-tauri-plugin-deep-link = "2"
-tauri-plugin-opener = "2"
+tauri = { version = "=3.0.0-alpha.6", features = [] }
+tauri-plugin-safe-area-insets-css = { path = "vendor/tauri-plugin-safe-area-insets-css" }
+tauri-plugin-fs = "=3.0.0-alpha.3"
+tauri-plugin-dialog = "=3.0.0-alpha.4"
+tauri-plugin-sql = { version = "=3.0.0-alpha.3", features = ["sqlite"] }
+tauri-plugin-deep-link = "=3.0.0-alpha.3"
+tauri-plugin-opener = "=3.0.0-alpha.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
-tauri-plugin-oauth = "2"
+tauri-plugin-oauth = { path = "vendor/tauri-plugin-oauth" }
 tauri-plugin-paplico-query-local-fonts = { path = "../../tauri-plugin-query-local-fonts" }
+
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+tauri-runtime-cef = "=3.0.0-alpha.7"
+
+[target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
+tauri-runtime-wry = "=3.0.0-alpha.6"
+
+[patch.crates-io]
+download-cef = { path = "vendor/download-cef" }
 
 [profile.release]
 strip = true

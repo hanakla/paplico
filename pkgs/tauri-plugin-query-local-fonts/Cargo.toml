@@ -2,6 +2,7 @@
 name = "tauri-plugin-paplico-query-local-fonts"
 version = "0.2.0"
 edition = "2021"
+rust-version = "1.95"
 description = "Tauri plugin from Paplico that lists installed fonts like the browser's window.queryLocalFonts()"
 license = "MIT"
 repository = "https://github.com/hanakla/paplico"
@@ -11,7 +12,7 @@ keywords = ["tauri", "tauri-plugin", "fonts", "paplico"]
 links = "tauri-plugin-paplico-query-local-fonts"
 
 [dependencies]
-tauri = { version = "2" }
+tauri = { version = "=3.0.0-alpha.6" }
 serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -26,4 +27,4 @@ fontdb = "0.23"
 ttf-parser = "0.25"
 
 [build-dependencies]
-tauri-plugin = { version = "2", features = ["build"] }
+tauri-plugin = { version = "=3.0.0-alpha.4", features = ["build"] }

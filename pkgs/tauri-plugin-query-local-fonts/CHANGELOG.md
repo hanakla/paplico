@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Breaking API changes**
+  - The plugin requires Tauri 3.0 alpha instead of Tauri 2. Rust 1.95 or newer is required.
+
 ## 0.2.0
 
 ### Changed

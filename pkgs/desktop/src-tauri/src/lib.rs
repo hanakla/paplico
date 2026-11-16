@@ -6,13 +6,19 @@ mod linked_files;
 
 use automation_file_system::AutomationFileSystemState;
 use launch_files::LaunchFilesState;
-use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::Emitter;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder.runtime(
+        tauri_runtime_cef::Cef::default().secret_storage(tauri_runtime_cef::SecretStorage::Mock),
+    );
+    #[cfg(mobile)]
+    let builder = builder.runtime(tauri_runtime_wry::Wry::default());
+
+    builder
         .plugin(tauri_plugin_safe_area_insets_css::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -52,81 +58,10 @@ pub fn run() {
                 tauri::async_runtime::block_on(documents::open(&app.path().app_data_dir()?))?;
             app.manage(documents_db);
 
-            let app_menu = SubmenuBuilder::new(app, &app.package_info().name)
-                .hide()
-                .hide_others()
-                .show_all()
-                .separator()
-                .quit()
-                .build()?;
-
-            let edit_menu = SubmenuBuilder::new(app, "Edit")
-                .undo()
-                .redo()
-                .separator()
-                .cut()
-                .copy()
-                .paste()
-                .select_all()
-                .build()?;
-
-            let reload = MenuItemBuilder::new("Reload")
-                .id("reload")
-                .accelerator("CmdOrCtrl+R")
-                .build(app)?;
-
-            let force_reload = MenuItemBuilder::new("Force Reload")
-                .id("force-reload")
-                .accelerator("CmdOrCtrl+Shift+R")
-                .build(app)?;
-
-            #[allow(unused_mut)]
-            let mut view_builder = SubmenuBuilder::new(app, "View")
-                .item(&reload)
-                .item(&force_reload);
-
-            #[cfg(debug_assertions)]
-            let devtools = MenuItemBuilder::new("Toggle Developer Tools")
-                .id("devtools")
-                .accelerator("CmdOrCtrl+Shift+I")
-                .build(app)?;
-
-            #[cfg(debug_assertions)]
-            {
-                view_builder = view_builder.separator().item(&devtools);
-            }
-
-            let view_menu = view_builder.build()?;
-
-            let menu = MenuBuilder::new(app)
-                .items(&[&app_menu, &edit_menu, &view_menu])
-                .build()?;
-
-            app.set_menu(menu)?;
+            #[cfg(desktop)]
+            setup_menu(app)?;
 
             launch_files::open_files(app.handle(), launch_files::command_line_documents());
-
-            app.on_menu_event(move |app, event| {
-                let id = event.id().0.as_str();
-                match id {
-                    "reload" | "force-reload" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            window.emit("app:reload", ()).ok();
-                        }
-                    }
-                    #[cfg(debug_assertions)]
-                    "devtools" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            if window.is_devtools_open() {
-                                window.close_devtools();
-                            } else {
-                                window.open_devtools();
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            });
 
             Ok(())
         })
@@ -143,4 +78,86 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
         });
+}
+
+#[cfg(desktop)]
+fn setup_menu(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+    use tauri::Emitter;
+
+    let app_menu = SubmenuBuilder::new(app, &app.package_info().name)
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    let reload = MenuItemBuilder::new("Reload")
+        .id("reload")
+        .accelerator("CmdOrCtrl+R")
+        .build(app)?;
+
+    let force_reload = MenuItemBuilder::new("Force Reload")
+        .id("force-reload")
+        .accelerator("CmdOrCtrl+Shift+R")
+        .build(app)?;
+
+    #[allow(unused_mut)]
+    let mut view_builder = SubmenuBuilder::new(app, "View")
+        .item(&reload)
+        .item(&force_reload);
+
+    #[cfg(debug_assertions)]
+    let devtools = MenuItemBuilder::new("Toggle Developer Tools")
+        .id("devtools")
+        .accelerator("CmdOrCtrl+Shift+I")
+        .build(app)?;
+
+    #[cfg(debug_assertions)]
+    {
+        view_builder = view_builder.separator().item(&devtools);
+    }
+
+    let view_menu = view_builder.build()?;
+
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_menu, &edit_menu, &view_menu])
+        .build()?;
+
+    app.set_menu(menu)?;
+
+    app.on_menu_event(move |app, event| {
+        let id = event.id().0.as_str();
+        match id {
+            "reload" | "force-reload" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.emit("app:reload", ()).ok();
+                }
+            }
+            #[cfg(debug_assertions)]
+            "devtools" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    if window.is_devtools_open() {
+                        window.close_devtools();
+                    } else {
+                        window.open_devtools();
+                    }
+                }
+            }
+            _ => {}
+        }
+    });
+
+    Ok(())
 }

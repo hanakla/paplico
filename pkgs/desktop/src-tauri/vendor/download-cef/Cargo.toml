@@ -1,0 +1,66 @@
+[package]
+edition = "2021"
+name = "download-cef"
+version = "3.0.0"
+authors = [
+    "Wu Yu Wei <yuweiwu@pm.me>",
+    "Bill Avery <wravery@gmail.com>",
+    "csmoe <csmoe@msn.com>",
+]
+publish = false
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "Download and extract pre-built CEF (Chromium Embedded Framework) archives."
+readme = "README.md"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/tauri-apps/cef-rs"
+
+[lib]
+name = "download_cef"
+path = "src/lib.rs"
+
+[dependencies.bzip2]
+version = "0.6"
+
+[dependencies.clap]
+version = "4"
+features = ["derive"]
+
+[dependencies.fs-err]
+version = "3.2.2"
+
+[dependencies.indicatif]
+version = "0.18"
+
+[dependencies.regex]
+version = "1"
+
+[dependencies.semver]
+version = "1"
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+
+[dependencies.serde_json]
+version = "1"
+
+[dependencies.sha1_smol]
+version = "1"
+
+[dependencies.tar]
+version = "0.4"
+
+[dependencies.thiserror]
+version = "2"
+
+[dependencies.ureq]
+version = "3"
+features = [
+    "json",
+    "socks-proxy",
+]

@@ -1,0 +1,20 @@
+[package]
+name = "tauri-plugin-safe-area-insets-css"
+version = "0.2.0"
+authors = [ "saurL" ]
+description = "A Tauri plugin to provide safe area insets CSS variables for mobile apps."
+edition = "2021"
+license = "MIT"
+rust-version = "1.95"
+exclude = ["/examples", "/dist-js", "/guest-js", "/node_modules"]
+publish = false
+links = "tauri-plugin-safe-area-insets-css"
+readme = "README.md"
+
+[dependencies]
+tauri = { version = "=3.0.0-alpha.6" }
+serde = "1.0"
+thiserror = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "=3.0.0-alpha.4", features = ["build"] }

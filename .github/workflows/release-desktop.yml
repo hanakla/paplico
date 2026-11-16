@@ -63,7 +63,9 @@ jobs:
             args: ""
 
     runs-on: ${{ matrix.platform }}
-    timeout-minutes: 30
+    timeout-minutes: 60
+    env:
+      CEF_PATH: ${{ github.workspace }}/.cef
 
     steps:
       - uses: actions/checkout@v7
@@ -83,7 +85,21 @@ jobs:
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libgtk-4-dev libx11-dev libxkbcommon-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-python@v6
+        if: matrix.platform != 'ubuntu-latest'
+        with:
+          python-version: "3.x"
+
+      - name: Install CEF build tools
+        if: matrix.platform != 'ubuntu-latest'
+        run: python -m pip install cmake ninja
+
+      - uses: actions/cache@v6
+        with:
+          path: ${{ env.CEF_PATH }}
+          key: cef-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pkgs/desktop/src-tauri/Cargo.lock') }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
