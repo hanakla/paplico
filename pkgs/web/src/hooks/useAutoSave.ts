@@ -3,7 +3,10 @@ import { useEffect, useRef } from "react";
 import { useSnapshot } from "valtio";
 import { AUTO_SAVE_SLOW_INTERVAL_MS } from "@/configs";
 import { autoSaveState, shouldExtendInterval } from "@/stores/autoSave";
-import { documentSessionState } from "@/stores/documentSessionStore";
+import {
+	documentSessionState,
+	overwriteDocumentFile,
+} from "@/stores/documentSessionStore";
 import {
 	documentManagerState,
 	saveDocument,
@@ -13,6 +16,7 @@ import { resolveBanner } from "@/stores/notificationStore";
 import { reportError } from "@/utils/errorReporting";
 import { generateDocumentThumbnail } from "@/utils/generateDocumentThumbnail";
 import { useEventCallback } from "@/utils/hooks";
+import { IS_TAURI_ENV } from "@/utils/platform";
 
 /**
  * Saves the current document and a revision of it on a timer, when it was
@@ -46,6 +50,8 @@ export function useAutoSave(paplico: Paplico | null): { save: () => void } {
 		const start = performance.now();
 
 		try {
+			if (IS_TAURI_ENV) await saveToFile(paplico);
+
 			const [doc, thumbnail] = await Promise.all([
 				paplico.exportDocument(),
 				generateDocumentThumbnail(paplico),
@@ -109,6 +115,15 @@ export function useAutoSave(paplico: Paplico | null): { save: () => void } {
 	}, [paplico, documentId, intervalMs]);
 
 	return { save: saveRevisionNow };
+}
+
+/** Writes the file manual saves target, if the document has one. */
+async function saveToFile(paplico: Paplico): Promise<void> {
+	const { fileHandle } = documentSessionState;
+	if (!fileHandle) return;
+
+	await overwriteDocumentFile(paplico, fileHandle);
+	autoSaveState.saveCount++;
 }
 
 /** Reschedule the next auto-save; runs after every attempt, success or failure. */

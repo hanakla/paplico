@@ -2,13 +2,18 @@ import { createDefaultDocument } from "@paplico/core/document";
 import { openPapf, serializeDocument } from "@paplico/core/io";
 import { generateUid } from "@paplico/core/schema";
 import { proxy } from "valtio";
-import { AUTO_SAVE_MAX_REVISIONS } from "@/configs";
+import {
+	AUTO_SAVE_MAX_REVISIONS,
+	DESKTOP_MAX_REVISIONS,
+	DESKTOP_MAX_STORED_DOCUMENTS,
+} from "@/configs";
 import type {
 	DocumentData,
 	DocumentMeta,
 	DocumentRevision,
 } from "@/infra/documentDB.types";
 import { documentsRepo } from "@/repos/documents";
+import { IS_TAURI_ENV } from "@/utils/platform";
 
 // --- State ---
 
@@ -34,6 +39,7 @@ export async function createDocument(name: string): Promise<string> {
 		{ id, name, createdAt: now, updatedAt: now, thumbnail: null },
 		{ id, document, thumbnail: null, createdAt: now },
 	);
+	await keepNewestDocuments(id);
 	documentStorageState.changeCount++;
 
 	return id;
@@ -50,6 +56,7 @@ export async function upsertDocument(
 	document: Blob,
 ): Promise<void> {
 	await documentsRepo.upsert(id, name, document, Date.now());
+	await keepNewestDocuments(id);
 	documentStorageState.changeCount++;
 }
 
@@ -75,7 +82,7 @@ export async function saveRevision(
 			thumbnail,
 			createdAt: Date.now(),
 		},
-		AUTO_SAVE_MAX_REVISIONS,
+		IS_TAURI_ENV ? DESKTOP_MAX_REVISIONS : AUTO_SAVE_MAX_REVISIONS,
 	);
 	documentStorageState.changeCount++;
 }
@@ -146,7 +153,22 @@ export async function duplicateDocument(
 		},
 		{ id: newId, document, thumbnail: data.thumbnail ?? null, createdAt: now },
 	);
+	await keepNewestDocuments(newId);
 	documentStorageState.changeCount++;
 
 	return newId;
+}
+
+/**
+ * Deletes the least recently updated documents beyond the desktop limit.
+ * `keepId` is the document that was just stored, which is never deleted.
+ */
+async function keepNewestDocuments(keepId: string): Promise<void> {
+	if (!IS_TAURI_ENV) return;
+
+	const metas = await documentsRepo.listMetas();
+	const excess = metas
+		.filter((meta) => meta.id !== keepId)
+		.slice(DESKTOP_MAX_STORED_DOCUMENTS - 1);
+	for (const meta of excess) await documentsRepo.delete(meta.id);
 }

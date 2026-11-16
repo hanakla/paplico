@@ -12,6 +12,11 @@ export const AUTO_SAVE_SLOW_THRESHOLD_MS = 1_000;
 /** Max revisions kept per document */
 export const AUTO_SAVE_MAX_REVISIONS = 20;
 
+/** The desktop build keeps documents as files, so the store only serves recovery. */
+export const DESKTOP_MAX_REVISIONS = 10;
+
+export const DESKTOP_MAX_STORED_DOCUMENTS = 10;
+
 // --- Collaboration ---
 
 /** Collab server host (`host:port`) serving cloud rooms and the E2EE relay. */

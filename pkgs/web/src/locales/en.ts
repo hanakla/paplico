@@ -1399,6 +1399,8 @@ export const en = {
 		saveToFile: "Save to File…",
 		storageWarning:
 			"Documents in the app are stored inside this browser. The browser may delete them when your device runs low on space. Download the ones that matter to keep them safe.",
+		desktopStorageWarning:
+			"Documents in the app are kept only for recovery: the latest 10 documents with up to 10 revisions each. Older ones are deleted automatically. Save the ones that matter to a file.",
 	},
 	autoSave: {
 		savedInApp: "Auto-saved in the app",

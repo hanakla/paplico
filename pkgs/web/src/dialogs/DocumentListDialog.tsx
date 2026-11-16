@@ -216,6 +216,12 @@ export const DocumentListDialog = memo(function DocumentListDialog({
 							<p>{t("documentList.storageWarning")}</p>
 						</div>
 					)}
+					{IS_TAURI_ENV && (
+						<div className="mb-3 flex items-start gap-2 rounded-lg border border-warn bg-warn/20 px-3 py-2 text-xs text-foreground">
+							<TriangleAlert size={14} className="mt-0.5 shrink-0 text-warn" />
+							<p>{t("documentList.desktopStorageWarning")}</p>
+						</div>
+					)}
 
 					{/* New Document Button */}
 					<button
