@@ -113,23 +113,17 @@ fn setup_menu(app: &tauri::App) -> tauri::Result<()> {
         .accelerator("CmdOrCtrl+Shift+R")
         .build(app)?;
 
-    #[allow(unused_mut)]
-    let mut view_builder = SubmenuBuilder::new(app, "View")
-        .item(&reload)
-        .item(&force_reload);
-
-    #[cfg(debug_assertions)]
     let devtools = MenuItemBuilder::new("Toggle Developer Tools")
         .id("devtools")
         .accelerator("CmdOrCtrl+Shift+I")
         .build(app)?;
 
-    #[cfg(debug_assertions)]
-    {
-        view_builder = view_builder.separator().item(&devtools);
-    }
-
-    let view_menu = view_builder.build()?;
+    let view_menu = SubmenuBuilder::new(app, "View")
+        .item(&reload)
+        .item(&force_reload)
+        .separator()
+        .item(&devtools)
+        .build()?;
 
     let menu = MenuBuilder::new(app)
         .items(&[&app_menu, &edit_menu, &view_menu])
@@ -145,7 +139,6 @@ fn setup_menu(app: &tauri::App) -> tauri::Result<()> {
                     window.emit("app:reload", ()).ok();
                 }
             }
-            #[cfg(debug_assertions)]
             "devtools" => {
                 if let Some(window) = app.get_webview_window("main") {
                     if window.is_devtools_open() {

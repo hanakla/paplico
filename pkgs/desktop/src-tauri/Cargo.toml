@@ -9,7 +9,7 @@ rust-version = "1.95"
 tauri-build = { version = "=3.0.0-alpha.4", features = [] }
 
 [dependencies]
-tauri = { version = "=3.0.0-alpha.6", features = [] }
+tauri = { version = "=3.0.0-alpha.6", features = ["devtools"] }
 tauri-plugin-safe-area-insets-css = { path = "vendor/tauri-plugin-safe-area-insets-css" }
 tauri-plugin-fs = "=3.0.0-alpha.3"
 tauri-plugin-dialog = "=3.0.0-alpha.4"
