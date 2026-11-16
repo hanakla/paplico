@@ -29,6 +29,11 @@ export interface LocalFontBackend {
 	isSupported(): boolean;
 	queryFonts(): Promise<FontData[]>;
 	queryFontsByPostScriptNames(names: string[]): Promise<FontData[]>;
+	/**
+	 * Calls `listener` when fonts are installed or removed. Returns a function
+	 * that stops listening.
+	 */
+	onFontsChanged(listener: () => void): () => void;
 }
 
 /**
@@ -42,6 +47,7 @@ export class LocalFontsLoader extends FontLoader {
 	private fontDataCache: Map<string, FontData> = new Map();
 	private scripts: Map<string, FontScript[]> = new Map();
 	private scriptsResolution: Promise<void> | null = null;
+	private stopWatching: (() => void) | null = null;
 
 	public constructor(backend: LocalFontBackend) {
 		super();
@@ -70,6 +76,11 @@ export class LocalFontsLoader extends FontLoader {
 
 		try {
 			const fonts: FontData[] = await this.backend.queryFonts();
+			this.stopWatching ??= this.backend.onFontsChanged(() => {
+				this.fontList = null;
+				this.scriptsResolution = null;
+				this.onListChanged?.();
+			});
 
 			// FontDataをキャッシュ（postScriptNameまたはfullNameをキーとして使用）
 			for (const font of fonts) {

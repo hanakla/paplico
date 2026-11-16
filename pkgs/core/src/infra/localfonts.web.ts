@@ -6,6 +6,7 @@ import type {
 	FontData,
 	LocalFontBackend,
 } from "../typography/fonts/LocalFontsLoader";
+import { pollFontChanges } from "./fontChangePolling";
 
 /** Font record returned by `window.queryLocalFonts()`. */
 interface LocalFontAccessData {
@@ -35,6 +36,10 @@ export class DomLocalFontBackend implements LocalFontBackend {
 			postscriptNames: names,
 		});
 		return fonts.map(withRangeReader);
+	}
+
+	public onFontsChanged(listener: () => void): () => void {
+		return pollFontChanges(() => this.queryFonts(), listener);
 	}
 }
 

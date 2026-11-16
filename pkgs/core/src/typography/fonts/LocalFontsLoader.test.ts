@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	NOTO_SANS_JP_PATH,
 	NOTO_SANS_JP_POST_SCRIPT_NAME,
@@ -36,10 +36,26 @@ describe("LocalFontsLoader", () => {
 			/Font not found/,
 		);
 	});
+
+	it("should list a font installed after the first listing", async () => {
+		const backend = createBackend();
+		const loader = new LocalFontsLoader(backend);
+		const onListChanged = vi.fn();
+		loader.onListChanged = onListChanged;
+		expect(await loader.queryFonts()).toHaveLength(1);
+
+		backend.install("Added-Regular");
+
+		expect(onListChanged).toHaveBeenCalledTimes(1);
+		const names = (await loader.queryFonts()).map((f) => f.postScriptName);
+		expect(names).toContain("Added-Regular");
+	});
 });
 
 /** A device with one installed font. */
-function createBackend(): LocalFontBackend {
+function createBackend(): LocalFontBackend & {
+	install(postScriptName: string): void;
+} {
 	const bytes = Uint8Array.from(fs.readFileSync(NOTO_SANS_JP_PATH));
 	const installed: FontData[] = [
 		{
@@ -52,10 +68,19 @@ function createBackend(): LocalFontBackend {
 				bytes.slice(offset, offset + length).buffer,
 		},
 	];
+	const listeners = new Set<() => void>();
 	return {
 		isSupported: () => true,
 		queryFonts: async () => installed,
 		queryFontsByPostScriptNames: async (names) =>
 			installed.filter((font) => names.includes(font.postScriptName)),
+		onFontsChanged: (listener) => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+		install: (postScriptName) => {
+			installed.push({ ...installed[0], postScriptName });
+			for (const listener of listeners) listener();
+		},
 	};
 }

@@ -1,7 +1,12 @@
 use crate::{FontRecord, LocalFont};
 use std::path::PathBuf;
-use windows::core::{w, Interface, Result, BOOL};
+use std::sync::Arc;
+use windows::core::{w, Interface, Result, BOOL, PCWSTR};
 use windows::Win32::Graphics::DirectWrite::*;
+use windows::Win32::System::Registry::{
+    RegNotifyChangeKeyValue, RegOpenKeyExW, HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE,
+    KEY_NOTIFY, REG_NOTIFY_CHANGE_LAST_SET,
+};
 
 /// Lists every font in DirectWrite's system collection, the source Chrome
 /// reads too. Faces DirectWrite only simulates are left out: they have no file
@@ -13,7 +18,7 @@ pub fn enumerate() -> Vec<LocalFont> {
 fn fonts() -> Result<Vec<LocalFont>> {
     let factory: IDWriteFactory = unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)? };
     let mut collection = None;
-    unsafe { factory.GetSystemFontCollection(&mut collection, false)? };
+    unsafe { factory.GetSystemFontCollection(&mut collection, true)? };
     let Some(collection) = collection else {
         return Ok(Vec::new());
     };
@@ -85,4 +90,31 @@ fn file_path(font: &IDWriteFont) -> Result<Option<PathBuf>> {
     Ok(Some(PathBuf::from(String::from_utf16_lossy(
         &path[..length as usize],
     ))))
+}
+
+/// Calls `on_change` when Windows adds or removes an installed font, which
+/// shows as a write to the registry key that lists them. Per-user installs
+/// write to the current user's key, the others to the machine's.
+pub fn watch(on_change: impl Fn() + Send + Sync + 'static) -> bool {
+    let on_change = Arc::new(on_change);
+    // An HKEY cannot cross threads, so each thread takes its own.
+    let roots: [fn() -> HKEY; 2] = [|| HKEY_LOCAL_MACHINE, || HKEY_CURRENT_USER];
+    for root in roots {
+        let on_change = Arc::clone(&on_change);
+        std::thread::spawn(move || watch_fonts_key(root(), &*on_change));
+    }
+    true
+}
+
+fn watch_fonts_key(root: HKEY, on_change: &dyn Fn()) {
+    const FONTS_KEY: PCWSTR = w!(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts");
+    let mut key = HKEY::default();
+    if unsafe { RegOpenKeyExW(root, FONTS_KEY, None, KEY_NOTIFY, &mut key) }.is_err() {
+        return;
+    }
+    while unsafe { RegNotifyChangeKeyValue(key, true, REG_NOTIFY_CHANGE_LAST_SET, None, false) }
+        .is_ok()
+    {
+        on_change();
+    }
 }

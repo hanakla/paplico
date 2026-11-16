@@ -101,6 +101,12 @@ export abstract class FontLoader {
 	private loadedFonts = new Map<string, LoadedFont>();
 	private loadingPromises = new Map<string, Promise<LoadedFont | null>>();
 
+	/**
+	 * Set by FontManager. Loaders call it after the fonts they offer changed,
+	 * so the next `queryFonts()` lists the new set.
+	 */
+	public onListChanged?: () => void;
+
 	/** List the fonts this loader offers. */
 	public abstract queryFonts(): Promise<FontMetadata[]>;
 

@@ -1,9 +1,16 @@
 use crate::{FontRecord, LocalFont};
-use objc2_core_foundation::{CFArray, CFString, CFURL};
+use objc2_core_foundation::{
+    CFArray, CFDictionary, CFNotificationCenter, CFNotificationSuspensionBehavior, CFString, CFURL,
+};
 use objc2_core_text::{
     kCTFontDisplayNameAttribute, kCTFontFamilyNameAttribute, kCTFontNameAttribute,
-    kCTFontStyleNameAttribute, kCTFontURLAttribute, CTFontCollection, CTFontDescriptor,
+    kCTFontManagerRegisteredFontsChangedNotification, kCTFontStyleNameAttribute,
+    kCTFontURLAttribute, CTFontCollection, CTFontDescriptor,
 };
+use std::ffi::c_void;
+use std::ptr;
+
+type OnChange = Box<dyn Fn() + Send + Sync>;
 
 /// Lists every font CoreText can use, the source Safari and Chrome read too.
 pub fn enumerate() -> Vec<LocalFont> {
@@ -41,4 +48,34 @@ fn local_font(descriptor: &CTFontDescriptor) -> Option<LocalFont> {
         },
         path: url.to_file_path()?,
     })
+}
+
+/// Calls `on_change` when CoreText registers or unregisters fonts. The
+/// observer stays for the life of the process.
+pub fn watch(on_change: impl Fn() + Send + Sync + 'static) -> bool {
+    let Some(center) = CFNotificationCenter::local_center() else {
+        return false;
+    };
+    let observer = Box::into_raw(Box::new(Box::new(on_change) as OnChange));
+    unsafe {
+        center.add_observer(
+            observer.cast::<c_void>(),
+            Some(notify),
+            Some(kCTFontManagerRegisteredFontsChangedNotification),
+            ptr::null(),
+            CFNotificationSuspensionBehavior::DeliverImmediately,
+        );
+    }
+    true
+}
+
+unsafe extern "C-unwind" fn notify(
+    _center: *mut CFNotificationCenter,
+    observer: *mut c_void,
+    _name: *const CFString,
+    _object: *const c_void,
+    _user_info: *const CFDictionary,
+) {
+    let on_change = unsafe { &*observer.cast::<OnChange>() };
+    on_change();
 }

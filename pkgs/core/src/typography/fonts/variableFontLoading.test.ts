@@ -120,6 +120,7 @@ describe("variable font loading", () => {
 			isSupported: () => true,
 			queryFonts: async () => [fontData],
 			queryFontsByPostScriptNames: async () => [fontData],
+			onFontsChanged: () => () => {},
 		};
 		const manager = new FontManager({
 			loaders: [new LocalFontsLoader(backend)],

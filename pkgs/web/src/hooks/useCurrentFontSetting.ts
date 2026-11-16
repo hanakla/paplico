@@ -266,6 +266,7 @@ let listedFontManager: Paplico["fonts"] | null = null;
  *   fontkit, so localized names propagate into the list.
  * - `fontScriptsResolved`: bumps `loadedVersion` as font scripts are
  *   detected, so the list can regroup by writing system.
+ * - `fontListChanged`: lists the fonts again, e.g. after one was installed.
  */
 function ensureFontList(fontManager: Paplico["fonts"]): void {
 	if (listedFontManager === fontManager) return;
@@ -277,8 +278,7 @@ function ensureFontList(fontManager: Paplico["fonts"]): void {
 	fontManager.on("fontLoaded", bumpLoadedVersion);
 	fontManager.on("fontScriptsResolved", bumpLoadedVersion);
 
-	fontListState.isLoading = true;
-	void (async () => {
+	const refreshFontList = async () => {
 		try {
 			fontListState.fonts = await fontManager.queryAllFonts();
 		} catch (err) {
@@ -286,7 +286,11 @@ function ensureFontList(fontManager: Paplico["fonts"]): void {
 		} finally {
 			fontListState.isLoading = false;
 		}
-	})();
+	};
+	fontManager.on("fontListChanged", refreshFontList);
+
+	fontListState.isLoading = true;
+	void refreshFontList();
 }
 
 export function useFontList(fontManager: Paplico["fonts"]): {

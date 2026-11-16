@@ -52,3 +52,8 @@ fn english_name(face: &Face, id: u16) -> Option<String> {
         })
         .or_else(|| names().find_map(|n| n.to_string()))
 }
+
+/// No OS notification covers the font directories fontconfig reads.
+pub fn watch(_on_change: impl Fn() + Send + Sync + 'static) -> bool {
+    false
+}

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 /** A font installed on the device, in the shape of the browser's `FontData`. */
 export interface FontData {
@@ -53,4 +54,23 @@ export function readFontRange(
 			length,
 		},
 	);
+}
+
+/**
+ * Whether the OS tells the plugin when fonts are installed or removed, so
+ * `onLocalFontsChanged` fires. Where it does not, list the fonts again from
+ * time to time to notice changes.
+ */
+export function hasNativeChangeEvents(): Promise<boolean> {
+	return invoke<boolean>(
+		"plugin:paplico-query-local-fonts|has_native_change_events",
+	);
+}
+
+/**
+ * Calls `listener` when fonts are installed or removed, as often as the OS
+ * reports it. One install can report several times in a row.
+ */
+export function onLocalFontsChanged(listener: () => void): Promise<UnlistenFn> {
+	return listen("paplico-query-local-fonts:changed", listener);
 }

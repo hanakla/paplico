@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::ipc::Response;
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::{Manager, Runtime, State};
+use tauri::{Emitter, Manager, Runtime, State};
 
 #[cfg_attr(target_os = "macos", path = "macos.rs")]
 #[cfg_attr(windows, path = "windows.rs")]
@@ -30,6 +30,10 @@ pub struct FontRecord {
     pub style: String,
 }
 
+/// Emitted when fonts were installed or removed, on the platforms whose OS
+/// says so. Query the fonts again to see the new set.
+const CHANGED_EVENT: &str = "paplico-query-local-fonts:changed";
+
 /// A font the OS reported, with the file its data is read from.
 pub struct LocalFont {
     pub record: FontRecord,
@@ -41,18 +45,34 @@ pub struct LocalFont {
 #[derive(Default)]
 struct FontFiles(Mutex<BTreeMap<String, PathBuf>>);
 
+/// Whether the OS tells the plugin about font changes.
+struct NativeChangeEvents(bool);
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("paplico-query-local-fonts")
         .invoke_handler(tauri::generate_handler![
             query_local_fonts,
             read_font,
-            read_font_range
+            read_font_range,
+            has_native_change_events
         ])
         .setup(|app, _api| {
             app.manage(FontFiles::default());
+            let handle = app.clone();
+            let native = platform::watch(move || {
+                let _ = handle.emit(CHANGED_EVENT, ());
+            });
+            app.manage(NativeChangeEvents(native));
             Ok(())
         })
         .build()
+}
+
+/// Whether `paplico-query-local-fonts:changed` fires on this platform. When it
+/// does not, the caller has to list the fonts again to notice changes.
+#[tauri::command]
+fn has_native_change_events(native: State<'_, NativeChangeEvents>) -> bool {
+    native.0
 }
 
 /// Lists the fonts sorted by PostScript name, one per name, keeping only the

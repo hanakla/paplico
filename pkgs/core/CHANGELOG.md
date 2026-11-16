@@ -2,8 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Text**
+  - Fonts installed or removed while the app runs appear in the font list. The browser checks once a minute and when the window regains focus. `FontManager` emits `fontListChanged` after each change.
+
 ### Changed
 
+- **Breaking API changes**
+  - `LocalFontBackend` requires `onFontsChanged(listener)`, which calls `listener` when fonts are installed or removed and returns a function that stops listening.
 - **Tools**
   - Committing a text with Escape or Cmd/Ctrl+Enter switches to the select tool instead of staying in the text tool.
 - **Document**

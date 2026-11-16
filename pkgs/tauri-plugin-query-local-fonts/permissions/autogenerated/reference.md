@@ -5,6 +5,7 @@ Lists the fonts installed on the device and reads their files.
 #### This default permission set includes the following:
 
 - `allow-query-local-fonts`
+- `allow-has-native-change-events`
 - `read-fonts`
 
 ## Permission Table
@@ -15,6 +16,32 @@ Lists the fonts installed on the device and reads their files.
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`paplico-query-local-fonts:allow-has-native-change-events`
+
+</td>
+<td>
+
+Enables the has_native_change_events command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`paplico-query-local-fonts:deny-has-native-change-events`
+
+</td>
+<td>
+
+Denies the has_native_change_events command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>

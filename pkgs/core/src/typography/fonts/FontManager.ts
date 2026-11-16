@@ -39,6 +39,9 @@ type FontManagerEvents = {
 	/** Fired while loaders detect font scripts from font headers, throttled,
 	 * and once more after each loader resolves its last font. */
 	fontScriptsResolved: undefined;
+	/** Fired when a loader's fonts changed, e.g. a font was installed on the
+	 * device. Query the fonts again to list the new set. */
+	fontListChanged: undefined;
 };
 
 /**
@@ -111,6 +114,9 @@ export class FontManager extends Emitter<FontManagerEvents> {
 			options.loaders.map((loader) => [loader.id, loader]),
 		);
 		this.fallbackFontUrl = options.fallbackFontUrl;
+		for (const loader of this.loaders.values()) {
+			loader.onListChanged = () => this.emit("fontListChanged");
+		}
 	}
 
 	/** Read axes from the loaded face, rather than catalog metadata. */

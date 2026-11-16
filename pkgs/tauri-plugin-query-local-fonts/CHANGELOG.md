@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+
+- **Font change events**
+  - `onLocalFontsChanged(listener)` calls `listener` when fonts are installed or removed on macOS and Windows.
+  - `hasNativeChangeEvents()` tells whether the platform reports changes. Linux does not, so list the fonts again from time to time there.
+
 ### Changed
 
 - **Breaking API changes**
