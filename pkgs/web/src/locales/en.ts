@@ -9,6 +9,7 @@ export const en = {
 		editMenu: "Edit",
 		viewMenu: "View",
 		new: "New",
+		newWindow: "New Window",
 		openDocument: "Open Document",
 		saveToFile: "Save",
 		saveCopyAs: "Save a Copy…",

@@ -6,6 +6,7 @@ mod linked_files;
 
 use automation_file_system::AutomationFileSystemState;
 use launch_files::LaunchFilesState;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -39,6 +40,7 @@ pub fn run() {
             automation_file_system::automation_directory_file,
             automation_file_system::automation_revoke_access,
             launch_files::take_launch_files,
+            open_new_window,
             linked_files::read_linked_image,
             linked_files::stat_linked_images,
             documents::documents_list_metas,
@@ -83,7 +85,6 @@ pub fn run() {
 #[cfg(desktop)]
 fn setup_menu(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-    use tauri::Emitter;
 
     let app_menu = SubmenuBuilder::new(app, &app.package_info().name)
         .hide()
@@ -135,12 +136,12 @@ fn setup_menu(app: &tauri::App) -> tauri::Result<()> {
         let id = event.id().0.as_str();
         match id {
             "reload" | "force-reload" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    window.emit("app:reload", ()).ok();
+                if let Some(window) = focused_window(app) {
+                    window.eval("location.reload()").ok();
                 }
             }
             "devtools" => {
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = focused_window(app) {
                     if window.is_devtools_open() {
                         window.close_devtools();
                     } else {
@@ -153,4 +154,31 @@ fn setup_menu(app: &tauri::App) -> tauri::Result<()> {
     });
 
     Ok(())
+}
+
+/// Opens another window with the first window's settings under a label of its own.
+#[tauri::command]
+async fn open_new_window(app: tauri::AppHandle) -> tauri::Result<()> {
+    static NEXT_WINDOW_NUMBER: AtomicU32 = AtomicU32::new(2);
+
+    let mut config = app
+        .config()
+        .app
+        .windows
+        .first()
+        .cloned()
+        .expect("tauri.conf.json defines no window");
+    config.label = format!(
+        "window-{}",
+        NEXT_WINDOW_NUMBER.fetch_add(1, Ordering::Relaxed)
+    );
+    tauri::WebviewWindowBuilder::from_config(&app, &config)?.build()?;
+    Ok(())
+}
+
+#[cfg(desktop)]
+fn focused_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    app.webview_windows()
+        .into_values()
+        .find(|window| window.is_focused().unwrap_or(false))
 }

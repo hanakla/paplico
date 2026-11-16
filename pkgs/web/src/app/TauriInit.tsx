@@ -22,18 +22,6 @@ export const TauriInit = IS_TAURI_ENV
 				import("@saurl/tauri-plugin-safe-area-insets-css-api");
 			}, []);
 
-			// Listen for reload events from the native menu (emitted from Rust side)
-			useEffect(() => {
-				if (!IS_TAURI_ENV) return;
-
-				return subscribeAsync(async () => {
-					const { listen } = await import("@tauri-apps/api/event");
-					return listen("app:reload", () => {
-						location.reload();
-					});
-				});
-			}, []);
-
 			useEffect(() => {
 				if (!IS_TAURI_ENV) return;
 

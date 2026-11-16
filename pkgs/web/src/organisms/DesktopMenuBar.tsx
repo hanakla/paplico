@@ -2,6 +2,7 @@
 
 import type { Paplico } from "@paplico/core";
 import {
+	AppWindow,
 	Bot,
 	Check,
 	ClipboardCopy,
@@ -49,6 +50,7 @@ import { useLayoutMode } from "@/hooks/useLayoutMode";
 import { useMenuActions } from "@/hooks/useMenuActions";
 import { useShortcutBinding } from "@/hooks/useShortcutBinding";
 import { tauriRevealFileInFolder } from "@/infra/filesystem";
+import { tauriOpenNewWindow } from "@/infra/newWindow.tauri";
 import { useTranslation } from "@/locales";
 import { RoomParticipants } from "@/organisms/RoomParticipants";
 import { UserMenu } from "@/organisms/UserMenu";
@@ -198,6 +200,15 @@ export function DesktopMenuBar({
 						</span>
 					}
 				>
+					{IS_TAURI_ENV && (
+						<>
+							<Menubar.Item onClick={tauriOpenNewWindow}>
+								<AppWindow size={16} />
+								{t("menubar.newWindow")}
+							</Menubar.Item>
+							<Menubar.Separator />
+						</>
+					)}
 					{/* Reaching your own other devices */}
 					<Menubar.Item
 						onClick={onOpenConnectOtherDevicesDialog}

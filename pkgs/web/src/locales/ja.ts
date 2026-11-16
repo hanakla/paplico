@@ -9,6 +9,7 @@ export const ja = {
 		editMenu: "編集",
 		viewMenu: "ビュー",
 		new: "新規",
+		newWindow: "新しいウィンドウ",
 		openDocument: "ドキュメントを開く",
 		saveToFile: "ファイルに保存",
 		saveCopyAs: "別名で複製を保存…",
