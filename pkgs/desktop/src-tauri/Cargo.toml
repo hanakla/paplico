@@ -24,7 +24,7 @@ tauri-plugin-oauth = { path = "vendor/tauri-plugin-oauth" }
 tauri-plugin-paplico-query-local-fonts = { path = "../../tauri-plugin-query-local-fonts" }
 
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
-tauri-runtime-cef = "=3.0.0-alpha.7"
+tauri-runtime-cef = { version = "=3.0.0-alpha.7", features = ["devtools"] }
 
 [target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]
 tauri-runtime-wry = "=3.0.0-alpha.6"
