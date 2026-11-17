@@ -1404,6 +1404,7 @@ export const en = {
 			"Documents in the app are kept only for recovery: the latest 10 documents with up to 10 revisions each. Older ones are deleted automatically. Save the ones that matter to a file.",
 	},
 	autoSave: {
+		saving: "Auto-saving…",
 		savedInApp: "Auto-saved in the app",
 		nextSaveIn: "Next auto-save in: {{time}}",
 		slowDocumentTooltip: "Large document — auto-saving every 5 min",
