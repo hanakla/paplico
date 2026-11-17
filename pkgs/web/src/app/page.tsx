@@ -185,6 +185,11 @@ export default function Page() {
 	}, [paplico]);
 
 	useEffect(() => {
+		if (documentSessionSnap.source.kind === "initial") return;
+		NewDocumentDialog.end({ action: "cancel" });
+	}, [documentSessionSnap.source.kind]);
+
+	useEffect(() => {
 		document.documentElement.classList.toggle("safari", detectSafariBrowser());
 		document.documentElement.classList.toggle(
 			"firefox",
@@ -762,7 +767,6 @@ export default function Page() {
 			}
 
 			await handleOpenDocumentFile(() => tauriFileHandleFromPath(path));
-			NewDocumentDialog.end({ action: "cancel" });
 		};
 
 		window.addEventListener("tauri-open-files", handler);
