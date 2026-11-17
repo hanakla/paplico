@@ -7,7 +7,7 @@ import {
 	remapArrowToCursor,
 	worldToScreen,
 } from "@paplico/core/utils";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
 import { usePaplico, usePaplicoMaybe } from "@/contexts/PaplicoContext";
 import { useTargetViewport } from "@/contexts/ViewIdContext";
@@ -48,11 +48,107 @@ function TextEditOverlayInner({
 	canvasHeight,
 }: TextEditOverlayProps) {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const editContextElementRef = useRef<HTMLDivElement>(null);
+	const editContextRef = useRef<EditContextLike | null>(null);
+	const [useEditContext, setUseEditContext] = useState(false);
 
 	const ui = useSnapshot(uiState);
 	const paplico = usePaplico();
 	const { textEditState } = ui;
 	const controller = paplico.textToolController;
+	const isComposingRef = useRef(false);
+	const compositionEndingRef = useRef(false);
+	const compositionEndTimer = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
+	const markCompositionEnd = useEventCallback(() => {
+		isComposingRef.current = false;
+		compositionEndingRef.current = true;
+		if (compositionEndTimer.current !== null)
+			clearTimeout(compositionEndTimer.current);
+		compositionEndTimer.current = setTimeout(() => {
+			compositionEndingRef.current = false;
+			compositionEndTimer.current = null;
+		}, 0);
+	});
+
+	useEffect(
+		() => () => {
+			if (compositionEndTimer.current !== null)
+				clearTimeout(compositionEndTimer.current);
+		},
+		[],
+	);
+
+	useEffect(() => {
+		setUseEditContext("EditContext" in window);
+	}, []);
+
+	useLayoutEffect(() => {
+		const element = editContextElementRef.current;
+		if (!useEditContext || !element) return;
+		const Constructor = (
+			window as unknown as { EditContext: new () => EditContextLike }
+		).EditContext;
+		const context = new Constructor();
+		editContextRef.current = context;
+		(
+			element as HTMLDivElement & { editContext: EditContextLike | null }
+		).editContext = context;
+		const onStart = () => {
+			isComposingRef.current = true;
+			controller?.getTextTool()?.startComposition();
+		};
+		const onUpdate = (event: Event) => {
+			const update = event as Event & { text: string };
+			const tool = controller?.getTextTool();
+			if (isComposingRef.current) {
+				tool?.updateComposition(context.text);
+			} else {
+				if (update.text) tool?.insertText(update.text);
+				context.updateText(0, context.text.length, "");
+				context.updateSelection(0, 0);
+			}
+		};
+		const onFormat = (event: Event) => {
+			const formats = (
+				event as Event & { getTextFormats(): EditContextFormat[] }
+			).getTextFormats();
+			controller?.getTextTool()?.updateCompositionFormats(
+				formats
+					.filter(
+						(format) =>
+							format.underlineStyle !== "none" &&
+							format.underlineThickness !== "none",
+					)
+					.map((format) => ({
+						start: format.rangeStart,
+						end: format.rangeEnd,
+						thick: format.underlineThickness === "thick",
+					})),
+			);
+		};
+		const onEnd = () => {
+			markCompositionEnd();
+			controller?.getTextTool()?.endComposition(context.text);
+			context.updateText(0, context.text.length, "");
+			context.updateSelection(0, 0);
+		};
+		context.addEventListener("compositionstart", onStart);
+		context.addEventListener("textupdate", onUpdate);
+		context.addEventListener("textformatupdate", onFormat);
+		context.addEventListener("compositionend", onEnd);
+		return () => {
+			context.removeEventListener("compositionstart", onStart);
+			context.removeEventListener("textupdate", onUpdate);
+			context.removeEventListener("textformatupdate", onFormat);
+			context.removeEventListener("compositionend", onEnd);
+			(
+				element as HTMLDivElement & { editContext: EditContextLike | null }
+			).editContext = null;
+			editContextRef.current = null;
+		};
+	}, [controller, useEditContext, markCompositionEnd]);
 
 	// Prevent focus from leaving the textarea when interacting with the canvas
 	// during text editing. On desktop, mousedown preventDefault suppresses the
@@ -64,7 +160,10 @@ function TextEditOverlayInner({
 
 		// Initial focus (preventScroll: focusing the off-canvas 1px textarea
 		// must not scroll the page — see PaplicoUI.canvas.focus for the same)
-		textareaRef.current?.focus({ preventScroll: true });
+		(useEditContext
+			? editContextElementRef.current
+			: textareaRef.current
+		)?.focus({ preventScroll: true });
 
 		const preventCanvasFocusLoss = (e: Event) => {
 			const target = e.target as HTMLElement;
@@ -75,14 +174,21 @@ function TextEditOverlayInner({
 				// Focus may sit on a UI control (color picker, size input) after
 				// styling: clicking back onto the canvas must return typing focus
 				// to the hidden textarea, or keystrokes keep going to the control
-				textareaRef.current?.focus({ preventScroll: true });
+				(useEditContext
+					? editContextElementRef.current
+					: textareaRef.current
+				)?.focus({ preventScroll: true });
 			}
 		};
 
 		// Fallback: if focusout still fires (e.g. programmatic blur, or a
 		// non-canvas element that isn't a UI control), re-focus the textarea.
 		const handleFocusOut = (e: FocusEvent) => {
-			if (e.target !== textareaRef.current) return;
+			if (
+				e.target !==
+				(useEditContext ? editContextElementRef.current : textareaRef.current)
+			)
+				return;
 			if (!uiState.textEditState.isEditing) return;
 
 			const nextTarget = e.relatedTarget as HTMLElement | null;
@@ -99,7 +205,10 @@ function TextEditOverlayInner({
 
 			requestAnimationFrame(() => {
 				if (uiState.textEditState.isEditing) {
-					textareaRef.current?.focus({ preventScroll: true });
+					(useEditContext
+						? editContextElementRef.current
+						: textareaRef.current
+					)?.focus({ preventScroll: true });
 				}
 			});
 		};
@@ -115,21 +224,21 @@ function TextEditOverlayInner({
 			document.removeEventListener("mousedown", preventCanvasFocusLoss, true);
 			document.removeEventListener("focusout", handleFocusOut);
 		};
-	}, [textEditState.isEditing]);
+	}, [textEditState.isEditing, useEditContext]);
 
 	// Removing the focused textarea drops focus to <body>, where no canvas
 	// keybinding fires. Layout-effect cleanup runs before the textarea leaves the
 	// DOM, so it can still tell whether typing focus was here or on a UI control
 	useLayoutEffect(() => {
-		const textarea = textareaRef.current;
+		const textarea = useEditContext
+			? editContextElementRef.current
+			: textareaRef.current;
 		return () => {
 			if (document.activeElement === textarea) paplico.ui?.focusCanvas();
 		};
-	}, [paplico]);
+	}, [paplico, useEditContext]);
 
 	// IME composition state
-	const isComposingRef = useRef(false);
-
 	const handleInput = useEventCallback(
 		(e: React.FormEvent<HTMLTextAreaElement>) => {
 			if (isComposingRef.current) return;
@@ -147,17 +256,19 @@ function TextEditOverlayInner({
 	);
 
 	const handleKeyDown = useEventCallback(
-		(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+		(e: React.KeyboardEvent<HTMLElement>) => {
 			const textTool = controller?.getTextTool();
 			if (!textTool) return;
 
 			const { altKey, shiftKey, ctrlKey, metaKey, key } = e;
 
 			// Ignore during IME composition
-			if (isComposingRef.current) {
-				if (key === "Escape") {
-					return;
-				}
+			if (
+				isComposingRef.current ||
+				e.nativeEvent.isComposing ||
+				e.nativeEvent.keyCode === 229 ||
+				(key === "Enter" && compositionEndingRef.current)
+			) {
 				return;
 			}
 
@@ -333,7 +444,7 @@ function TextEditOverlayInner({
 
 	const handleCompositionEnd = useEventCallback(
 		(e: React.CompositionEvent<HTMLTextAreaElement>) => {
-			isComposingRef.current = false;
+			markCompositionEnd();
 			const textTool = controller?.getTextTool();
 			const finalText = e.data;
 
@@ -360,28 +471,64 @@ function TextEditOverlayInner({
 	const textareaLeft = Math.min(Math.max(screenPos.x, 0), canvasWidth - 1);
 	const textareaTop = Math.min(Math.max(screenPos.y, 0), canvasHeight - 1);
 
+	useLayoutEffect(() => {
+		const element = editContextElementRef.current;
+		const context = editContextRef.current;
+		if (!element || !context) return;
+		const bounds = element.getBoundingClientRect();
+		context.updateControlBounds(bounds);
+		context.updateSelectionBounds(bounds);
+	});
+
 	const isVertical =
 		textEditState.writingMode === "vertical-rl" ||
 		textEditState.writingMode === "vertical-lr";
 
 	return (
 		<div className="pointer-events-none absolute inset-0">
-			{/* Hidden textarea for keyboard/IME input only */}
-			<textarea
-				ref={textareaRef}
-				className="pointer-events-auto absolute h-px w-px resize-none border-none bg-transparent opacity-0 outline-none"
-				style={{
-					left: textareaLeft,
-					top: textareaTop,
-					caretColor: "transparent",
-					writingMode: isVertical ? textEditState.writingMode : undefined,
-				}}
-				onInput={handleInput}
-				onKeyDown={handleKeyDown}
-				onCompositionStart={handleCompositionStart}
-				onCompositionUpdate={handleCompositionUpdate}
-				onCompositionEnd={handleCompositionEnd}
-			/>
+			{useEditContext ? (
+				// biome-ignore lint/a11y/useSemanticElements: EditContext cannot attach to a textarea.
+				<div
+					ref={editContextElementRef}
+					role="textbox"
+					aria-label="Text editor"
+					tabIndex={-1}
+					onKeyDown={handleKeyDown}
+					className="pointer-events-auto absolute h-px w-px outline-none"
+					style={{ left: textareaLeft, top: textareaTop }}
+				/>
+			) : (
+				<textarea
+					ref={textareaRef}
+					className="pointer-events-auto absolute h-px w-px resize-none border-none bg-transparent opacity-0 outline-none"
+					style={{
+						left: textareaLeft,
+						top: textareaTop,
+						caretColor: "transparent",
+						writingMode: isVertical ? textEditState.writingMode : undefined,
+					}}
+					onInput={handleInput}
+					onKeyDown={handleKeyDown}
+					onCompositionStart={handleCompositionStart}
+					onCompositionUpdate={handleCompositionUpdate}
+					onCompositionEnd={handleCompositionEnd}
+				/>
+			)}
 		</div>
 	);
+}
+
+interface EditContextFormat {
+	rangeStart: number;
+	rangeEnd: number;
+	underlineStyle: string;
+	underlineThickness: string;
+}
+
+interface EditContextLike extends EventTarget {
+	readonly text: string;
+	updateText(start: number, end: number, text: string): void;
+	updateSelection(start: number, end: number): void;
+	updateControlBounds(bounds: DOMRect): void;
+	updateSelectionBounds(bounds: DOMRect): void;
 }

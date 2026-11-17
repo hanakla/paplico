@@ -59,6 +59,7 @@ function ComboboxInput({
 	className,
 	$size,
 	clearable = true,
+	onFocus,
 	...props
 }: PropsWithNativeClassName<BUICombobox.Input.Props> & {
 	$size?: keyof typeof variant.variants.$size;
@@ -79,6 +80,12 @@ function ComboboxInput({
 					),
 				})}
 				{...props}
+				onFocus={(event) => {
+					const input = event.currentTarget;
+					onFocus?.(event);
+					// Base UI synchronizes the input value during focus handling.
+					requestAnimationFrame(() => input.select());
+				}}
 			/>
 
 			<div

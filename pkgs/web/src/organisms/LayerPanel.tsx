@@ -1207,7 +1207,7 @@ const ElementRowContent = memo(function ElementRowContent({
 	const isExpanded = isExpandable && expandedGroups.has(element.id);
 
 	return (
-		<div className="flex items-center justify-between gap-2">
+		<div className="flex items-center gap-1">
 			<div className="flex-1 truncate">
 				<div className="flex items-center gap-1">
 					{isExpandable && (
@@ -1241,7 +1241,10 @@ const ElementRowContent = memo(function ElementRowContent({
 						onChange={(n) => onRenameElement(layerId, element.id, n)}
 						disabled={isDragging}
 						$size="xs"
-						className={twm("flex-1 cursor-text", isSelected && "font-medium")}
+						className={twm(
+							"min-w-0 flex-1 truncate cursor-text",
+							isSelected && "font-medium",
+						)}
 					/>
 
 					{isExpandable && (
@@ -1259,7 +1262,7 @@ const ElementRowContent = memo(function ElementRowContent({
 					)}
 				</div>
 			</div>
-			<div className="flex gap-1">
+			<div className="flex shrink-0">
 				{!isReadonly && (
 					<IconButton
 						$size="xs"
@@ -1421,7 +1424,7 @@ const DroppableLayerHeader = memo(function DroppableLayerHeader({
 	const t = useTranslation();
 
 	return (
-		<div className="flex items-center gap-0.5">
+		<div className="flex items-center">
 			{!hideExpansionToggle && (
 				<IconButton
 					$size="xs"
@@ -1429,7 +1432,7 @@ const DroppableLayerHeader = memo(function DroppableLayerHeader({
 					aria-label={t("companion.toggleLayerElements")}
 					aria-expanded={isExpanded}
 					onClick={onToggleExpansion}
-					className="shrink-0"
+					className="w-4 shrink-0"
 				>
 					{isExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
 				</IconButton>
@@ -1440,25 +1443,25 @@ const DroppableLayerHeader = memo(function DroppableLayerHeader({
 				onClick={onSelect}
 				onDoubleClick={onToggleExpansion}
 				className={twm(
-					"flex-1 py-1 pr-2 rounded text-left text-xs transition-colors cursor-pointer text-accent-foreground",
+					"min-w-0 flex-1 py-1 pr-1 rounded text-left text-xs transition-colors cursor-pointer text-accent-foreground",
 					isActive
 						? "bg-accent-strong"
 						: "text-muted-foreground hover:bg-accent/20",
 					isOver ? "ring-1 ring-accent" : "",
 				)}
 			>
-				<div className="flex items-center justify-between gap-2">
+				<div className="flex items-center gap-1">
 					<FakeInput
 						value={layerName}
 						onChange={(n) => onRename(n)}
 						disabled={disableRename}
 						$size="xs"
 						className={twm(
-							"flex-1 truncate pl-2 cursor-text",
+							"min-w-0 flex-1 truncate pl-0.5 cursor-text",
 							isActive ? "font-medium text-accent-foreground" : "",
 						)}
 					/>
-					<div className="flex gap-1">
+					<div className="flex shrink-0">
 						{!isReadonly && (
 							<IconButton
 								$size="xs"

@@ -328,6 +328,7 @@ export type ToolContextOptions = {
 		textElement: TextElement,
 		startIndex: number,
 		endIndex: number,
+		composition?: Array<{ start: number; end: number; thick: boolean }>,
 	) => void | Promise<void>;
 	getCursorWorldPosition: (
 		textElement: TextElement,

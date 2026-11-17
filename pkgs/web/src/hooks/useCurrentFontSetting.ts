@@ -25,6 +25,9 @@ interface ActiveFontSettings {
 	handleFontChange: (font: FontMetadata | null) => void;
 	handleFontSizeChange: (size: number) => void;
 	handleFontWeightChange: (weight: number, face?: FontMetadata) => void;
+	textStyles: TextStyle[];
+	applyTextStyle: (updates: Partial<TextStyle>) => void;
+	handleFontVariationChange: (tag: string, value: number | null) => void;
 }
 
 export function useActiveFontSettings(): ActiveFontSettings {
@@ -46,6 +49,18 @@ export function useActiveFontSettings(): ActiveFontSettings {
 			.map((el) => paplico.getTextStyleSource(el));
 		return [...new Map(sources.map((el) => [el.id, el])).values()];
 	}, [selectedElements, paplico]);
+	const textStyles = useMemo(
+		() =>
+			textElements.flatMap((element) => {
+				const runs = element.content.paragraphs.flatMap(
+					(paragraph) => paragraph.runs,
+				);
+				return runs.length
+					? runs.map((run) => run.style)
+					: [element.defaultStyle];
+			}),
+		[textElements],
+	);
 
 	// Resolve current font
 	const currentFont = useMemo(() => {
@@ -58,10 +73,10 @@ export function useActiveFontSettings(): ActiveFontSettings {
 			);
 		}
 
-		if (textElements.length > 0) {
-			const families = textElements.map((el) => el.defaultStyle.fontFamily);
+		if (textStyles.length > 0) {
+			const families = textStyles.map((style) => style.fontFamily);
 			if (new Set(families).size > 1) return undefined; // mixed
-			const style = textElements[0].defaultStyle;
+			const style = textStyles[0];
 			return findMatchingFont(fonts, style.fontFamily, style.fontSource);
 		}
 
@@ -73,7 +88,7 @@ export function useActiveFontSettings(): ActiveFontSettings {
 		);
 	}, [
 		fonts,
-		textElements,
+		textStyles,
 		isTextEditing,
 		uiSnap.textEditState.selectionStyle,
 		toolSnap.textDefaultStyle,
@@ -86,10 +101,10 @@ export function useActiveFontSettings(): ActiveFontSettings {
 				uiSnap.textEditState.selectionStyle?.style.fontFamily.mixed ?? false
 			);
 		}
-		if (textElements.length <= 1) return false;
-		const families = textElements.map((el) => el.defaultStyle.fontFamily);
+		if (textStyles.length <= 1) return false;
+		const families = textStyles.map((style) => style.fontFamily);
 		return new Set(families).size > 1;
-	}, [textElements, isTextEditing, uiSnap.textEditState.selectionStyle]);
+	}, [textStyles, isTextEditing, uiSnap.textEditState.selectionStyle]);
 
 	// Resolve current font size (display/write both round to 3 decimals)
 	const currentFontSize = useMemo(() => {
@@ -102,13 +117,13 @@ export function useActiveFontSettings(): ActiveFontSettings {
 			);
 		}
 
-		if (textElements.length > 0) {
-			return roundFontSize(textElements[0].defaultStyle.fontSize);
+		if (textStyles.length > 0) {
+			return roundFontSize(textStyles[0].fontSize);
 		}
 
 		return roundFontSize(toolSnap.textDefaultStyle.fontSize);
 	}, [
-		textElements,
+		textStyles,
 		isTextEditing,
 		uiSnap.textEditState.selectionStyle,
 		toolSnap.textDefaultStyle,
@@ -119,10 +134,10 @@ export function useActiveFontSettings(): ActiveFontSettings {
 		if (isTextEditing) {
 			return uiSnap.textEditState.selectionStyle?.style.fontSize.mixed ?? false;
 		}
-		if (textElements.length <= 1) return false;
-		const sizes = textElements.map((el) => el.defaultStyle.fontSize);
+		if (textStyles.length <= 1) return false;
+		const sizes = textStyles.map((style) => style.fontSize);
 		return new Set(sizes).size > 1;
-	}, [textElements, isTextEditing, uiSnap.textEditState.selectionStyle]);
+	}, [textStyles, isTextEditing, uiSnap.textEditState.selectionStyle]);
 
 	const currentFontWeight = useMemo(() => {
 		if (isTextEditing) {
@@ -131,15 +146,15 @@ export function useActiveFontSettings(): ActiveFontSettings {
 				? style.fontWeight.value
 				: undefined;
 		}
-		if (textElements.length === 0) return toolSnap.textDefaultStyle.fontWeight;
-		const weight = textElements[0].defaultStyle.fontWeight;
-		return textElements.every((el) => el.defaultStyle.fontWeight === weight)
+		if (textStyles.length === 0) return toolSnap.textDefaultStyle.fontWeight;
+		const weight = textStyles[0].fontWeight;
+		return textStyles.every((style) => style.fontWeight === weight)
 			? weight
 			: undefined;
 	}, [
 		isTextEditing,
 		uiSnap.textEditState.selectionStyle,
-		textElements,
+		textStyles,
 		toolSnap.textDefaultStyle,
 	]);
 	const fontFaces = useMemo(
@@ -203,6 +218,40 @@ export function useActiveFontSettings(): ActiveFontSettings {
 		applyTextStyle({ fontSize: roundFontSize(size) });
 	});
 
+	const handleFontVariationChange = useEventCallback(
+		(tag: string, value: number | null) => {
+			if (isTextEditing) {
+				paplico.textToolController
+					?.getTextTool()
+					?.changeSelectionFontVariation(tag, value);
+				return;
+			}
+			const layerId = store.currentLayerId;
+			if (!layerId) return;
+			const updateStyle = (style: TextStyle): TextStyle => {
+				const variations = { ...style.fontVariationSettings };
+				if (value === null) delete variations[tag];
+				else variations[tag] = value;
+				return { ...style, fontVariationSettings: variations };
+			};
+			for (const el of textElements) {
+				commands.updateElement(layerId, el.id, {
+					defaultStyle: updateStyle(el.defaultStyle),
+					content: {
+						...el.content,
+						paragraphs: el.content.paragraphs.map((para) => ({
+							...para,
+							runs: para.runs.map((run) => ({
+								...run,
+								style: updateStyle(run.style),
+							})),
+						})),
+					},
+				});
+			}
+		},
+	);
+
 	const handleFontWeightChange = useEventCallback(
 		(weight: number, face?: FontMetadata) => {
 			if (!Number.isFinite(weight) || weight <= 0) return;
@@ -231,6 +280,9 @@ export function useActiveFontSettings(): ActiveFontSettings {
 		handleFontChange,
 		handleFontSizeChange,
 		handleFontWeightChange,
+		textStyles,
+		applyTextStyle,
+		handleFontVariationChange,
 	};
 }
 

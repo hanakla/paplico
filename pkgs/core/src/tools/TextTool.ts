@@ -120,6 +120,7 @@ interface TextToolOptions {
 		textElement: TextElement,
 		startIndex: number,
 		endIndex: number,
+		composition?: Array<{ start: number; end: number; thick: boolean }>,
 	) => void;
 	/** Get accurate cursor position via TextRenderer (LOCAL coords + element offset → WORLD coords) */
 	getCursorWorldPosition?: (
@@ -278,6 +279,11 @@ export class TextTool implements Tool {
 		char: number;
 		originalRunText: string;
 	} | null = null;
+	private compositionFormats: Array<{
+		start: number;
+		end: number;
+		thick: boolean;
+	}> | null = null;
 	private hitTestSeq = 0;
 	private cursorUpdateSeq = 0;
 	private charTouchMode = false;
@@ -318,8 +324,13 @@ export class TextTool implements Tool {
 			updateTextCursor: (cursorPos, x, y, fontSize, rotation) =>
 				context.updateTextCursor(cursorPos, x, y, fontSize, rotation),
 			selectionStyleChange: (summary) => context.selectionStyleChange(summary),
-			selectionRangeChange: (textElement, startIndex, endIndex) =>
-				context.selectionRangeChange(textElement, startIndex, endIndex),
+			selectionRangeChange: (textElement, startIndex, endIndex, composition) =>
+				context.selectionRangeChange(
+					textElement,
+					startIndex,
+					endIndex,
+					composition,
+				),
 			getCursorWorldPosition: (textElement, charIndex) =>
 				context.getCursorWorldPosition(textElement, charIndex),
 			hitTestCharacter: (textElement, worldX, worldY) =>
@@ -1252,6 +1263,7 @@ export class TextTool implements Tool {
 		if (!this.editState) return;
 		this.editState.isComposing = true;
 		this.editState.compositionText = "";
+		this.compositionFormats = null;
 
 		const { cursorPosition, textElement } = this.editState;
 		const run =
@@ -1293,6 +1305,14 @@ export class TextTool implements Tool {
 		this.requestRender(true);
 	}
 
+	public updateCompositionFormats(
+		formats: Array<{ start: number; end: number; thick: boolean }>,
+	): void {
+		if (!this.editState?.isComposing) return;
+		this.compositionFormats = formats;
+		this.notifySelectionRangeChange();
+	}
+
 	public endComposition(finalText: string): void {
 		if (!this.editState) return;
 
@@ -1314,6 +1334,7 @@ export class TextTool implements Tool {
 		this.editState.isComposing = false;
 		this.editState.compositionText = "";
 		this.compositionAnchor = null;
+		this.compositionFormats = null;
 
 		if (finalText) {
 			// Route through insertText so the caret-staged style, selection
@@ -3544,6 +3565,23 @@ export class TextTool implements Tool {
 		if (!this.editState || !this.options.selectionRangeChange) return;
 
 		const { selectionRange, textElement } = this.editState;
+		if (this.compositionAnchor && this.editState.isComposing) {
+			const start = this.getAbsoluteCharIndex(this.compositionAnchor);
+			const formats = this.compositionFormats ?? [
+				{ start: 0, end: this.editState.compositionText.length, thick: true },
+			];
+			this.options.selectionRangeChange(
+				textElement,
+				start,
+				start + this.editState.compositionText.length,
+				formats.map((format) => ({
+					...format,
+					start: start + format.start,
+					end: start + format.end,
+				})),
+			);
+			return;
+		}
 		if (!selectionRange) {
 			// 選択なし → 空配列
 			this.options.selectionRangeChange(textElement, 0, 0);

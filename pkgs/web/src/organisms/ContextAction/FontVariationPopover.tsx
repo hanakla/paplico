@@ -1,3 +1,4 @@
+import type { TextStyle } from "@paplico/core/schema";
 import { Ellipsis } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSnapshot } from "valtio";
@@ -11,7 +12,13 @@ import { FontVariationAxisControl } from "@/organisms/TextControls/FontVariation
 import { FontWeightControl } from "@/organisms/TextControls/FontWeightControl";
 import { uiState } from "@/stores/uiStore";
 
-export function FontVariationPopover() {
+export function FontVariationPopover({
+	textStyles,
+	onVariationChange,
+}: {
+	textStyles?: readonly TextStyle[];
+	onVariationChange?: (tag: string, value: number | null) => void;
+}) {
 	const t = useTranslation();
 	const paplico = usePaplico();
 	const manager = paplico.fonts;
@@ -20,7 +27,17 @@ export function FontVariationPopover() {
 	const selection = useSnapshot(uiState).textEditState.selectionStyle;
 	const { loadedVersion } = useFontList(manager);
 	const fontSource = selection?.style.fontSource;
-	const source = fontSource && !fontSource.mixed ? fontSource.value : undefined;
+	const selectedSource = textStyles?.[0]?.fontSource;
+	const source = textStyles
+		? textStyles.every(
+				(style) =>
+					JSON.stringify(style.fontSource) === JSON.stringify(selectedSource),
+			)
+			? selectedSource
+			: undefined
+		: fontSource && !fontSource.mixed
+			? fontSource.value
+			: undefined;
 	const sourceKey = JSON.stringify(source);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: loadedVersion refreshes axes after the font is parsed.
 	const axes = useMemo(
@@ -97,7 +114,15 @@ export function FontVariationPopover() {
 							Object.entries(axes)
 								.filter(([tag]) => tag !== "wght")
 								.map(([tag, axis]) => {
-									const current = selection?.fontVariations[tag];
+									const values = textStyles?.map(
+										(style) =>
+											style.fontVariationSettings?.[tag] ?? axis?.default,
+									);
+									const current = values
+										? values.every((value) => value === values[0])
+											? { mixed: false as const, value: values[0] }
+											: { mixed: true as const }
+										: selection?.fontVariations[tag];
 									return (
 										axis && (
 											<FontVariationAxisControl
@@ -107,11 +132,13 @@ export function FontVariationPopover() {
 												value={
 													current && !current.mixed ? current.value : undefined
 												}
-												onChange={(value) =>
-													paplico.textToolController
-														?.getTextTool()
-														?.changeSelectionFontVariation(tag, value)
-												}
+												onChange={(value) => {
+													if (onVariationChange) onVariationChange(tag, value);
+													else
+														paplico.textToolController
+															?.getTextTool()
+															?.changeSelectionFontVariation(tag, value);
+												}}
 											/>
 										)
 									);

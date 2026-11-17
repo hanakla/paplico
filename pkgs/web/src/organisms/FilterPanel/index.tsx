@@ -120,7 +120,9 @@ export function FilterPanel() {
 				stack.addSubFilter(selectedFilterIndex, newFilter);
 			} else {
 				stack.addFilter(newFilter);
+				setSelectedFilterIndex(filters.length);
 			}
+			setSurfaceOpen(true);
 		},
 	);
 

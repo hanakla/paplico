@@ -6,6 +6,7 @@
 
 - **Text**
   - Fonts installed or removed while the app runs appear in the font list. The browser checks once a minute and when the window regains focus. `FontManager` emits `fontListChanged` after each change.
+  - Text being composed with an IME is underlined. When EditContext is available, the underline marks the ranges and thickness reported by the IME.
 
 ### Changed
 
@@ -14,6 +15,7 @@
 - **Tools**
   - Committing a text with Escape or Cmd/Ctrl+Enter switches to the select tool instead of staying in the text tool.
 - **Document**
+  - Shortcuts work while controls outside the canvas have focus instead of requiring canvas focus. Text inputs and editable content keep their keys. Other input controls keep Space and Enter.
   - Paste to front and paste to back put elements copied from an artboard at the same spot on the artboard last pressed instead of where they were copied from. A press outside every artboard makes them paste where they were copied from.
 
 ### Fixed

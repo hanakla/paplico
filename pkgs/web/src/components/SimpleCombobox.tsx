@@ -1,7 +1,7 @@
-import { type FocusEvent, memo } from "react";
+import { Combobox as BUICombobox } from "@base-ui/react/combobox";
+import { memo } from "react";
 import { useEventCallback } from "@/utils/hooks";
-import { twm } from "@/utils/tailwind";
-import { Combobox } from "./Combobox";
+import { Combobox2 } from "./Combobox2";
 
 type Item = { label: string; value: string };
 type SeparatorItem = { separator: true; id: string };
@@ -34,20 +34,8 @@ export const SimpleCombobox = memo(function SimpleCombobox({
 		onValueChange(item && "value" in item ? item.value : "");
 	});
 
-	// Select the whole text on focus so typing replaces the current value
-	// (natural type-to-narrow) instead of appending to it. Deferred to the next
-	// frame so base-ui's own focus handling (which syncs the input value from the
-	// selected item) runs first; selecting synchronously races with it.
-	const handleFocus = useEventCallback((e: FocusEvent<HTMLInputElement>) => {
-		const input = e.currentTarget;
-		requestAnimationFrame(() => input.select());
-	});
-
-	const sizeHeight = $size === "sm" ? "h-8" : "h-10";
-	const sizeFont = $size === "sm" ? "text-xs" : "text-sm";
-
 	return (
-		<Combobox.Root<ItemOrSeparator>
+		<Combobox2.Root<ItemOrSeparator>
 			items={items}
 			value={selectedItem}
 			onValueChange={handleValueChange}
@@ -61,44 +49,32 @@ export const SimpleCombobox = memo(function SimpleCombobox({
 			}
 			disabled={disabled}
 		>
-			<div className={twm("relative", className)}>
-				<Combobox.Input
-					placeholder={placeholder}
-					onFocus={handleFocus}
-					className={twm(sizeHeight, sizeFont)}
-				/>
-				<div
-					className={twm(
-						"absolute right-2 bottom-0 flex items-center gap-2",
-						sizeHeight,
-					)}
-				>
-					<Combobox.Clear className={sizeHeight} />
-					<Combobox.Trigger className={sizeHeight} />
-				</div>
+			<div className={className}>
+				<Combobox2.Input placeholder={placeholder} $size={$size} />
 			</div>
 
-			<Combobox.Portal>
-				<Combobox.Positioner>
-					<Combobox.Popup className="w-auto min-w-(--anchor-width) max-w-[min(90vw,32rem)]">
-						<Combobox.Empty>No match</Combobox.Empty>
-						<Combobox.List<ItemOrSeparator>>
-							{(item) =>
-								"separator" in item ? (
-									<Combobox.Separator key={item.id} />
-								) : (
-									<Combobox.Item key={item.value} value={item}>
-										<Combobox.ItemIndicator />
-										<span className="col-start-2 whitespace-nowrap">
-											{item.label}
-										</span>
-									</Combobox.Item>
-								)
-							}
-						</Combobox.List>
-					</Combobox.Popup>
-				</Combobox.Positioner>
-			</Combobox.Portal>
-		</Combobox.Root>
+			<Combobox2.Popup className="w-auto min-w-(--anchor-width) max-w-[min(90vw,32rem)]">
+				<Combobox2.Empty>No match</Combobox2.Empty>
+				<Combobox2.List<ItemOrSeparator>>
+					{(item) =>
+						"separator" in item ? (
+							<BUICombobox.Separator
+								key={item.id}
+								className="my-1 h-px bg-border/50"
+							/>
+						) : (
+							<Combobox2.Item
+								key={item.value}
+								value={item}
+								$size={$size}
+								className="whitespace-nowrap"
+							>
+								{item.label}
+							</Combobox2.Item>
+						)
+					}
+				</Combobox2.List>
+			</Combobox2.Popup>
+		</Combobox2.Root>
 	);
 });

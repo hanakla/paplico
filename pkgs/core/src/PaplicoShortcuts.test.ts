@@ -44,6 +44,27 @@ describe("PaplicoShortcuts", () => {
 	});
 
 	describe("handleKeyEvent", () => {
+		it("keeps customized shortcuts after removing the canvas focus condition", () => {
+			const handler = vi.fn(() => true);
+			shortcuts.registerCommand("paplico.deleteElements", "Edit", handler);
+			shortcuts.registerDefaultKeybinding("paplico.deleteElements", {
+				code: "Delete",
+			});
+			shortcuts.importConfig({
+				version: 1,
+				keybindings: [
+					{
+						commandId: "paplico.deleteElements",
+						key: { code: "KeyD" },
+						when: { canvasFocused: true },
+					},
+				],
+			});
+
+			expect(shortcuts.handleKeyEvent(fakeKeyEvent("KeyD"))).toBe(true);
+			expect(shortcuts.handleKeyEvent(fakeKeyEvent("Delete"))).toBe(false);
+		});
+
 		it("executes a matching command and returns true", () => {
 			const handler = vi.fn(() => true);
 			shortcuts.registerCommand("test.delete", "Edit", handler);

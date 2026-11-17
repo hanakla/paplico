@@ -497,16 +497,12 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			this.selection.clear();
 			return true;
 		});
-		s.registerDefaultKeybinding(
-			Cmds["paplico.deleteElements"],
-			{ code: "Delete" },
-			{ canvasFocused: true },
-		);
-		s.registerDefaultKeybinding(
-			Cmds["paplico.deleteElements"],
-			{ code: "Backspace" },
-			{ canvasFocused: true },
-		);
+		s.registerDefaultKeybinding(Cmds["paplico.deleteElements"], {
+			code: "Delete",
+		});
+		s.registerDefaultKeybinding(Cmds["paplico.deleteElements"], {
+			code: "Backspace",
+		});
 
 		// Copy/Cut/Paste
 		s.registerCommand(Cmds["paplico.copy"], "Edit", () => {
@@ -699,33 +695,28 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 		s.registerCommand(Cmds["paplico.exitEditingScope"], "Navigation", () => {
 			return this.exitEditingScopeOneLevel();
 		});
-		s.registerDefaultKeybinding(
-			Cmds["paplico.exitEditingScope"],
-			{ code: "Escape" },
-			{ canvasFocused: true },
-		);
+		s.registerDefaultKeybinding(Cmds["paplico.exitEditingScope"], {
+			code: "Escape",
+		});
 
 		s.registerCommand(Cmds["paplico.exitEditingScopeAll"], "Navigation", () => {
 			if (this.rendererStore.editingScopeStack.length === 0) return false;
 			this.selection.exitEditingScope();
 			return true;
 		});
-		s.registerDefaultKeybinding(
-			Cmds["paplico.exitEditingScopeAll"],
-			{ code: "Escape", shift: true },
-			{ canvasFocused: true },
-		);
+		s.registerDefaultKeybinding(Cmds["paplico.exitEditingScopeAll"], {
+			code: "Escape",
+			shift: true,
+		});
 
 		// Selection commands (clearSelection after exitEditingScope for Escape fallback)
 		s.registerCommand(Cmds["paplico.clearSelection"], "Selection", () => {
 			this.selection.clear();
 			return true;
 		});
-		s.registerDefaultKeybinding(
-			Cmds["paplico.clearSelection"],
-			{ code: "Escape" },
-			{ canvasFocused: true },
-		);
+		s.registerDefaultKeybinding(Cmds["paplico.clearSelection"], {
+			code: "Escape",
+		});
 
 		s.registerCommand(Cmds["paplico.selectAll"], "Selection", () => {
 			this.selection.selectAll();
@@ -3251,15 +3242,33 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 			selectionStyleChange: (summary) => {
 				this.textToolController?.updateSelectionStyle(summary);
 			},
-			selectionRangeChange: async (textElement, startIndex, endIndex) => {
+			selectionRangeChange: (
+				textElement,
+				startIndex,
+				endIndex,
+				composition,
+			) => {
 				const controller = this.textToolController;
 				if (!controller) return;
-				controller.updateTextSelectionRects(
-					await this.textInteraction.selectionRects(
-						textElement,
-						startIndex,
-						endIndex,
-					),
+				controller.updateTextRange(
+					composition
+						? Promise.all(
+								composition.map(async (range) =>
+									(
+										await this.textInteraction.selectionRects(
+											textElement,
+											range.start,
+											range.end,
+										)
+									).map((rect) => ({ ...rect, thick: range.thick })),
+								),
+							).then((groups) => groups.flat())
+						: this.textInteraction.selectionRects(
+								textElement,
+								startIndex,
+								endIndex,
+							),
+					!!composition,
 				);
 			},
 			getCursorWorldPosition: (textElement, charIndex) =>

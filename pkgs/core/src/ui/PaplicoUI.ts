@@ -66,8 +66,7 @@ interface PaplicoUICallbacks {
 	getShortcuts?: () => PaplicoShortcuts | null;
 
 	// When true, the active tool manages its own focus target (e.g. text
-	// editing textarea). Canvas.focus() is suppressed in pointerdown, and
-	// keydown from the tool's element passes through to the shortcut dispatcher.
+	// editing textarea). Canvas.focus() is suppressed in pointerdown.
 	isToolManagingFocus?: () => boolean;
 
 	/** World position of a press handed to the tool. */
@@ -388,10 +387,7 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 	/**
 	 * Hand keyboard focus back to the canvas.
 	 *
-	 * Clicking a control in the surrounding UI takes focus off the canvas, and
-	 * every canvas keybinding is gated on `canvasFocused` — so a button that puts
-	 * the canvas into a mode leaves the user unable to leave that mode by keyboard
-	 * until they click the canvas. Whatever starts such a mode calls this.
+	 * Tool key handlers require canvas focus.
 	 */
 	public focusCanvas(): void {
 		this.canvas.focus({ preventScroll: true });
@@ -1342,16 +1338,19 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 	// --- Keyboard Events ---
 
 	private handleKeyDown(e: KeyboardEvent): void {
-		// Ignore typing in input/textarea — unless the active tool manages
-		// focus (isToolManagingFocus) and the key wasn't already consumed
-		// (defaultPrevented), so app-level shortcuts (undo/redo) still work.
 		if (
-			e.target instanceof HTMLInputElement ||
-			e.target instanceof HTMLTextAreaElement
+			e.target instanceof HTMLElement &&
+			(e.target.matches('input[type="text"], input:not([type]), textarea') ||
+				e.target.isContentEditable)
 		) {
-			if (!this.callbacks.isToolManagingFocus?.() || e.defaultPrevented) {
-				return;
-			}
+			return;
+		}
+		if (
+			(e.target instanceof HTMLInputElement ||
+				e.target instanceof HTMLSelectElement) &&
+			(e.code === "Space" || e.code === "Enter" || e.code === "NumpadEnter")
+		) {
+			return;
 		}
 
 		// Apply external shortcut filter
@@ -1374,7 +1373,6 @@ export class PaplicoUI extends Emitter<PaplicoUIEvents> {
 			}
 		}
 
-		// During text editing, only allow undo/redo shortcuts
 		if (this.callbacks.isToolManagingFocus?.()) {
 			const shortcuts = this.callbacks.getShortcuts?.();
 			if (

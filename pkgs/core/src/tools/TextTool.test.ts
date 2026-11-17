@@ -805,6 +805,38 @@ describe("TextTool cursor update sequencing", () => {
 });
 
 describe("TextTool IME composition caret", () => {
+	it("reports the composing range and clears it on commit", () => {
+		const selectionRangeChange = vi.fn();
+		const ctx = createMockToolContext({ selectionRangeChange });
+		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		tool.enterEditModeForElement(createTextElement("ab"));
+		tool.moveToDocumentEnd(false);
+		tool.startComposition();
+		tool.updateComposition("かん");
+		expect(selectionRangeChange.mock.calls.at(-1)?.slice(1)).toEqual([
+			2,
+			4,
+			[{ start: 2, end: 4, thick: true }],
+		]);
+		tool.updateCompositionFormats([
+			{ start: 0, end: 1, thick: false },
+			{ start: 1, end: 2, thick: true },
+		]);
+		expect(selectionRangeChange.mock.calls.at(-1)?.slice(1)).toEqual([
+			2,
+			4,
+			[
+				{ start: 2, end: 3, thick: false },
+				{ start: 3, end: 4, thick: true },
+			],
+		]);
+		tool.endComposition("感");
+		expect(selectionRangeChange.mock.calls.at(-1)?.slice(1)).toEqual([
+			0,
+			0,
+			undefined,
+		]);
+	});
 	it("should advance the caret by the composing text before commit", async () => {
 		const updateTextCursor = vi.fn();
 		const ctx = createMockToolContext({ updateTextCursor });

@@ -205,7 +205,7 @@ export function ContextActionsBar({
 				{!isMobile && (
 					<button
 						type="button"
-						className="flex h-7 items-center justify-center rounded-sm border-r border-border px-1 text-muted-foreground active:cursor-grabbing"
+						className="mr-1 flex h-7 items-center justify-center border-r border-border px-1 text-muted-foreground active:cursor-grabbing"
 						aria-label="Move context actions"
 						onPointerDown={handleDragPointerDown}
 						onPointerMove={handleDragPointerMove}

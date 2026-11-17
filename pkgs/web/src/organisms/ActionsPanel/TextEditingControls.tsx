@@ -4,7 +4,6 @@ import {
 	AlignCenter,
 	AlignLeft,
 	AlignRight,
-	MoveHorizontal,
 	Strikethrough,
 	Underline,
 } from "lucide-react";
@@ -19,6 +18,7 @@ import { useTranslation } from "@/locales";
 import { FontCombobox } from "@/organisms/TextControls/FontCombobox";
 import { FontWeightControl } from "@/organisms/TextControls/FontWeightControl";
 import { TextCharTouchModeToggle } from "@/organisms/TextControls/TextCharTouchModeToggle";
+import { TextTateChuYokoToggle } from "@/organisms/TextControls/TextTateChuYokoToggle";
 import { uiState } from "@/stores/uiStore";
 import { useEventCallback } from "@/utils/hooks";
 import { StrokeWidthField } from "./StrokeWidthField";
@@ -113,17 +113,9 @@ function TextEditTextDecorationControl({
 		!!currentStyle &&
 		!currentStyle.strikethrough.mixed &&
 		currentStyle.strikethrough.value;
-	const isTateChuYoko =
-		!!currentStyle &&
-		!currentStyle.tateChuYoko.mixed &&
-		!!currentStyle.tateChuYoko.value;
-
 	const handleToggle = useEventCallback((updates: Partial<TextStyle>) => {
 		const textTool = paplico.textToolController?.getTextTool();
 		textTool?.applyStyleToSelection(updates);
-	});
-	const handleTateChuYokoToggle = useEventCallback(() => {
-		handleToggle({ tateChuYoko: !isTateChuYoko });
 	});
 
 	return (
@@ -146,15 +138,7 @@ function TextEditTextDecorationControl({
 					<Strikethrough size={14} />
 				</IconButton>
 			</Tooltip>
-			<Tooltip content={t("actionsPanel.tateChuYoko")} side="bottom">
-				<IconButton
-					$size="xs"
-					$variant={isTateChuYoko ? "default" : "ghost"}
-					onClick={handleTateChuYokoToggle}
-				>
-					<MoveHorizontal size={14} />
-				</IconButton>
-			</Tooltip>
+			<TextTateChuYokoToggle />
 		</div>
 	);
 }

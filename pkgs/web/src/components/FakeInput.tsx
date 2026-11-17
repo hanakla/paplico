@@ -50,7 +50,7 @@ type FakeInputProps = {
 	onChange: (value: string | undefined) => void;
 	type?: React.HTMLInputTypeAttribute;
 	step?: number | string;
-	/** Clamp bounds applied to drag-scrubbing when type="number". */
+	/** Clamp bounds applied to scrubbing and arrow-key adjustments. */
 	min?: number;
 	max?: number;
 	unit?: string;
@@ -284,6 +284,28 @@ function FakeInputRoot({
 
 			onKeyDown?.(e);
 			if (e.defaultPrevented) return;
+			if (
+				isNumber &&
+				!e.nativeEvent.isComposing &&
+				(e.key === "ArrowUp" || e.key === "ArrowDown")
+			) {
+				e.preventDefault();
+				const resolved = editValue.trim()
+					? resolveNumberInput(editValue.trim())
+					: String(scrubBase);
+				if (resolved == null) return;
+				setEditValue(
+					stepNumber(
+						Number(resolved),
+						e.key === "ArrowUp" ? 1 : -1,
+						step,
+						e.shiftKey,
+						min,
+						max,
+					),
+				);
+				return;
+			}
 
 			if (e.key === "Enter") finishEdit();
 			if (e.key === "Escape") {
@@ -299,6 +321,24 @@ function FakeInputRoot({
 			e.preventDefault();
 
 			if (e.target === inputRef.current) return;
+			if (disabled) return;
+			if (
+				isNumber &&
+				!e.nativeEvent.isComposing &&
+				(e.key === "ArrowUp" || e.key === "ArrowDown")
+			) {
+				onChange(
+					stepNumber(
+						scrubBase,
+						e.key === "ArrowUp" ? 1 : -1,
+						step,
+						e.shiftKey,
+						min,
+						max,
+					),
+				);
+				return;
+			}
 
 			if ((!e.nativeEvent.isComposing && e.key === "Enter") || e.key === " ") {
 				setEditValue(value ?? "");
@@ -396,4 +436,18 @@ function resolveNumberInput(input: string): string | null {
 	if (evaluated == null) return null;
 
 	return String(Number(evaluated.toFixed(6)));
+}
+
+function stepNumber(
+	value: number,
+	direction: number,
+	step: FakeInputProps["step"],
+	shiftKey: boolean,
+	min?: number,
+	max?: number,
+): string {
+	let next = value + direction * (Number(step) || 1) * (shiftKey ? 10 : 1);
+	if (min != null) next = Math.max(min, next);
+	if (max != null) next = Math.min(max, next);
+	return String(Number(next.toFixed(6)));
 }

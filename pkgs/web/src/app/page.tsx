@@ -27,6 +27,7 @@ import { createAutomationScriptRepository } from "@/automation/repository";
 import type { AutomationRuntimeFactory } from "@/automation/types";
 import { ConfirmDialog } from "@/components/AlertDialog";
 import { Resizable } from "@/components/Resizable";
+import { ScrollArea } from "@/components/ScrollArea";
 import { PaplicoProvider } from "@/contexts/PaplicoContext";
 import {
 	CloseDocumentDialog,
@@ -1085,42 +1086,42 @@ export default function Page() {
 											</div>
 											{/* Only the panels scroll. The breadcrumb and the shift
 											    button deliberately reach outside the column's width,
-											    which a scroll container would clip. The bottom
-											    padding keeps the last panel's resize handle, which
-											    straddles its edge, from making the column scrollable
-											    on its own. */}
-											<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-1">
-												<ResizableSidePanel
-													id="actions"
-													height={appSnap.sidePanelHeights.actions ?? null}
-												>
-													<ActionsPanel />
-												</ResizableSidePanel>
-												<ResizableSidePanel
-													id="layers"
-													height={appSnap.sidePanelHeights.layers ?? null}
-													// Default limit: the layer list has to leave room
-													// for the panels under it.
-													className="max-h-[30dvh]"
-												>
-													<LayerPanel />
-												</ResizableSidePanel>
-												<ResizableSidePanel
-													id="filters"
-													height={appSnap.sidePanelHeights.filters ?? null}
-												>
-													<FilterPanel />
-												</ResizableSidePanel>
-												<ResizableSidePanel
-													id="assets"
-													height={appSnap.sidePanelHeights.assets ?? null}
-													// Default limit: a long file list scrolls inside
-													// the panel instead of stretching the column.
-													className="max-h-[30dvh]"
-												>
-													<AssetPanel />
-												</ResizableSidePanel>
-											</div>
+											    which a scroll container would clip. Padding leaves
+											    room for panel shadows and resize handles. */}
+											<ScrollArea.Root className="-mx-4 -mt-(--panel-gap) min-h-0 flex-1">
+												<ScrollArea.Viewport contentClassName="flex flex-col gap-3 px-4 pt-(--panel-gap) pb-4">
+													<ResizableSidePanel
+														id="actions"
+														height={appSnap.sidePanelHeights.actions ?? null}
+													>
+														<ActionsPanel />
+													</ResizableSidePanel>
+													<ResizableSidePanel
+														id="layers"
+														height={appSnap.sidePanelHeights.layers ?? null}
+														// Default limit: the layer list has to leave room
+														// for the panels under it.
+														className="max-h-[30dvh]"
+													>
+														<LayerPanel />
+													</ResizableSidePanel>
+													<ResizableSidePanel
+														id="filters"
+														height={appSnap.sidePanelHeights.filters ?? null}
+													>
+														<FilterPanel />
+													</ResizableSidePanel>
+													<ResizableSidePanel
+														id="assets"
+														height={appSnap.sidePanelHeights.assets ?? null}
+														// Default limit: a long file list scrolls inside
+														// the panel instead of stretching the column.
+														className="max-h-[30dvh]"
+													>
+														<AssetPanel />
+													</ResizableSidePanel>
+												</ScrollArea.Viewport>
+											</ScrollArea.Root>
 											{isTogether && (
 												<ShiftButtonOverlay
 													className={twm(

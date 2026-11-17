@@ -7,6 +7,7 @@ interface SelectionRect {
 	y: number;
 	width: number;
 	height: number;
+	thick?: boolean;
 }
 
 /**
@@ -57,6 +58,8 @@ export class TextToolController {
 	private textTool: TextTool | null = null;
 	private state: TextEditState;
 	private blinkTimer: ReturnType<typeof setInterval> | null = null;
+	private rangeSequence = 0;
+	private compositionRects: SelectionRect[] = [];
 	private onTextEditUIChange: ((data: TextEditUIData | null) => void) | null =
 		null;
 
@@ -111,6 +114,8 @@ export class TextToolController {
 
 	public endTextEdit(): void {
 		this.stopBlinkTimer();
+		this.rangeSequence++;
+		this.compositionRects = [];
 
 		this.state.isEditing = false;
 		this.state.elementId = null;
@@ -169,6 +174,26 @@ export class TextToolController {
 
 	// --- Selection management ---
 
+	public async updateTextRange(
+		rects: Promise<SelectionRect[]>,
+		composition: boolean,
+	): Promise<void> {
+		const sequence = ++this.rangeSequence;
+		if (!composition) {
+			this.compositionRects = [];
+			this.syncTextEditUI();
+		}
+		const result = await rects;
+		if (sequence !== this.rangeSequence || !this.state.isEditing) return;
+		if (composition) {
+			this.compositionRects = result;
+			this.state.selectionRects = [];
+			this.syncTextEditUI();
+		} else {
+			this.updateTextSelectionRects(result);
+		}
+	}
+
 	public updateTextSelectionRects(rects: SelectionRect[]): void {
 		this.state.selectionRects = rects;
 		this.syncTextEditUI();
@@ -226,8 +251,18 @@ export class TextToolController {
 				...r,
 				rotation: s.elementRotation,
 			})),
-			// TODO: Wire up IME composition underline from TextTool.compositionAnchor
-			compositionUnderline: null,
+			compositionUnderlines: this.compositionRects.map((r) => {
+				const vertical = s.writingMode !== "horizontal-tb";
+				const rotation = s.elementRotation;
+				const offset = vertical ? r.width : 0;
+				return {
+					x: r.x + offset * Math.cos(rotation),
+					y: r.y + offset * Math.sin(rotation),
+					length: vertical ? r.height : r.width,
+					rotation: rotation + (vertical ? Math.PI / 2 : 0),
+					thick: r.thick ?? true,
+				};
+			}),
 		};
 
 		this.onTextEditUIChange?.(data);

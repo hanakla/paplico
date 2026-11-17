@@ -28,6 +28,24 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("useActiveFontSettings", () => {
+	it("shows mixed values when runs in one selected text use different styles", async () => {
+		const element = paplico.uiState.document.objects["text-1"];
+		const first = element.content.paragraphs[0].runs[0];
+		element.content.paragraphs[0].runs.push({
+			text: "other",
+			style: {
+				...first.style,
+				fontFamily: "Other",
+				fontSize: 48,
+				fontWeight: 700,
+			},
+		});
+		const { result } = renderHook(() => useActiveFontSettings());
+		await waitFor(() => expect(result.current.isLoading).toBe(false));
+		expect(result.current.isMixed).toBe(true);
+		expect(result.current.isMixedSize).toBe(true);
+		expect(result.current.currentFontWeight).toBeUndefined();
+	});
 	it("resolves a selected text's local face by its saved source", async () => {
 		const { result } = renderHook(() => useActiveFontSettings());
 		await waitFor(() => expect(result.current.isLoading).toBe(false));
@@ -87,6 +105,39 @@ describe("useActiveFontSettings", () => {
 				}),
 			}),
 		);
+	});
+
+	it("changes one variation on the selected text without replacing other axes", async () => {
+		const element = paplico.uiState.document.objects["text-1"];
+		element.defaultStyle.fontVariationSettings = { slnt: 5 };
+		element.content.paragraphs[0].runs[0].style.fontVariationSettings = {
+			slnt: 10,
+		};
+		const { result } = renderHook(() => useActiveFontSettings());
+		await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+		act(() => result.current.handleFontVariationChange("wdth", 125));
+
+		const updates = paplico.commands.updateElement.mock.calls[0][2];
+		expect(updates.defaultStyle.fontVariationSettings).toEqual({
+			slnt: 5,
+			wdth: 125,
+		});
+		expect(
+			updates.content.paragraphs[0].runs[0].style.fontVariationSettings,
+		).toEqual({ slnt: 10, wdth: 125 });
+	});
+
+	it("applies the chosen text color to the selected element and its runs", async () => {
+		const { result } = renderHook(() => useActiveFontSettings());
+		await waitFor(() => expect(result.current.isLoading).toBe(false));
+		const fill = { type: "solid" as const, color: createDefaultColor() };
+
+		act(() => result.current.applyTextStyle({ fill }));
+
+		const updates = paplico.commands.updateElement.mock.calls[0][2];
+		expect(updates.defaultStyle.fill).toEqual(fill);
+		expect(updates.content.paragraphs[0].runs[0].style.fill).toEqual(fill);
 	});
 
 	it("changes the static font source together with its weight", async () => {

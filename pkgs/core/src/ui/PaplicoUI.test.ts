@@ -756,6 +756,82 @@ describe("PaplicoUI inactive view", () => {
 
 		expect(handler).toHaveBeenCalledOnce();
 	});
+
+	it("runs activation key shortcuts outside input controls", () => {
+		const shortcuts = new PaplicoShortcuts();
+		const handler = vi.fn(() => true);
+		shortcuts.registerCommand("test.command", "Edit", handler);
+		for (const code of ["KeyD", "Space", "Enter", "NumpadEnter"]) {
+			shortcuts.registerDefaultKeybinding("test.command", { code });
+		}
+		createHarness("select", 50, 1, 0, undefined, shortcuts);
+
+		const button = document.createElement("button");
+		const input = document.createElement("input");
+		const number = document.createElement("input");
+		number.type = "number";
+		const select = document.createElement("select");
+		const textarea = document.createElement("textarea");
+		const editable = document.createElement("div");
+		editable.contentEditable = "true";
+		const child = document.createElement("span");
+		editable.append(child);
+		document.body.append(button, input, number, select, textarea, editable);
+
+		for (const target of [input, textarea, editable, child]) {
+			target.dispatchEvent(
+				new KeyboardEvent("keydown", { code: "KeyD", bubbles: true }),
+			);
+		}
+		expect(handler).not.toHaveBeenCalled();
+
+		for (const target of [input, number, select, textarea, editable, child]) {
+			for (const code of ["Space", "Enter", "NumpadEnter"]) {
+				target.dispatchEvent(
+					new KeyboardEvent("keydown", { code, bubbles: true }),
+				);
+			}
+		}
+		expect(handler).not.toHaveBeenCalled();
+
+		for (const target of [number, select]) {
+			target.dispatchEvent(
+				new KeyboardEvent("keydown", { code: "KeyD", bubbles: true }),
+			);
+		}
+		expect(handler).toHaveBeenCalledTimes(2);
+		handler.mockClear();
+
+		for (const code of ["Space", "Enter", "NumpadEnter", "KeyD"]) {
+			button.dispatchEvent(
+				new KeyboardEvent("keydown", { code, bubbles: true }),
+			);
+		}
+		expect(handler).toHaveBeenCalledTimes(4);
+		button.remove();
+		input.remove();
+		number.remove();
+		select.remove();
+		textarea.remove();
+		editable.remove();
+	});
+
+	it("does not switch tools while text editing is taking focus", () => {
+		const shortcuts = new PaplicoShortcuts();
+		const handler = vi.fn(() => true);
+		shortcuts.registerCommand("test.command", "Tools", handler);
+		shortcuts.registerDefaultKeybinding("test.command", { code: "KeyD" });
+		createHarness("text", 50, 1, 0, undefined, shortcuts, () => true);
+
+		const event = new KeyboardEvent("keydown", {
+			code: "KeyD",
+			cancelable: true,
+		});
+		window.dispatchEvent(event);
+
+		expect(handler).not.toHaveBeenCalled();
+		expect(event.defaultPrevented).toBe(false);
+	});
 });
 
 function createHarness(
@@ -765,6 +841,7 @@ function createHarness(
 	touchDrawOffsetScale = 0,
 	maxZoomScale?: number,
 	shortcuts = new PaplicoShortcuts(),
+	isToolManagingFocus?: () => boolean,
 ) {
 	const canvas = document.createElement("canvas");
 	canvas.getBoundingClientRect = () =>
@@ -816,6 +893,7 @@ function createHarness(
 		getToolColor: () => color,
 		getTouchDrawOffsetScale: () => touchDrawOffsetScale,
 		getShortcuts: () => shortcuts,
+		isToolManagingFocus,
 		...(maxZoomScale !== undefined
 			? { getMaxZoomScale: () => maxZoomScale }
 			: {}),

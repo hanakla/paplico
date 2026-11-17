@@ -441,7 +441,9 @@ export const UI_FIXTURE_DATA: {
 			{ x: -80, y: -20, width: 120, height: 44, rotation: 0 },
 			{ x: -80, y: -70, width: 90, height: 40, rotation: 0.25 },
 		],
-		compositionUnderline: { x: 60, y: 40, width: 80, rotation: 0 },
+		compositionUnderlines: [
+			{ x: 60, y: 40, length: 80, rotation: 0, thick: true },
+		],
 	},
 	bucketFill: {
 		cutPaths: [

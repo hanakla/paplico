@@ -167,9 +167,7 @@ function keySpecEquals(a: KeySpec, b: KeySpec): boolean {
  * ```
  *
  * ## Context management
- * Call `setContext("canvasFocused", true/false)` from `PaplicoUI` on
- * `pointerenter`/`pointerleave` so that canvas-only bindings (tool keys,
- * Delete, Escape, etc.) are suppressed when a UI panel has interaction focus.
+ * `PaplicoUI` updates `canvasFocused` when the canvas gains or loses focus.
  *
  * ## Persistence
  * `exportConfig()` / `importConfig()` serialise only user-defined bindings.
@@ -294,7 +292,19 @@ export class PaplicoShortcuts extends Emitter<ShortcutEvents> {
 		this.userBindings = config.keybindings.map((b) => ({
 			commandId: b.commandId,
 			key: { ...b.key },
-			when: b.when ? { ...b.when } : undefined,
+			when:
+				b.when?.canvasFocused === true &&
+				Object.keys(b.when).length === 1 &&
+				[
+					defaultShortcutCommands["paplico.deleteElements"],
+					defaultShortcutCommands["paplico.exitEditingScope"],
+					defaultShortcutCommands["paplico.exitEditingScopeAll"],
+					defaultShortcutCommands["paplico.clearSelection"],
+				].some((id) => id === b.commandId)
+					? undefined
+					: b.when
+						? { ...b.when }
+						: undefined,
 			source: "user" as const,
 		}));
 		this.emit("change", undefined);

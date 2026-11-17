@@ -336,12 +336,13 @@ export interface TextEditUIData {
 		height: number;
 		rotation: number;
 	}>;
-	compositionUnderline: {
+	compositionUnderlines: Array<{
 		x: number;
 		y: number;
-		width: number;
+		length: number;
 		rotation: number;
-	} | null;
+		thick: boolean;
+	}>;
 }
 
 export interface BucketFillUIData {

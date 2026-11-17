@@ -102,9 +102,9 @@ export function buildTextEditOverlay(
 	}
 
 	// IME composition underline (2px screen thickness)
-	if (data.compositionUnderline) {
-		const u = data.compositionUnderline;
+	for (const u of data.compositionUnderlines) {
 		const underlineColor = theme.colors.textCompositionUnderline;
+		const thickness = u.thick ? 2 : 1;
 
 		if (u.rotation !== 0) {
 			const cosR = Math.cos(u.rotation);
@@ -113,18 +113,18 @@ export function buildTextEditOverlay(
 				kind: "line",
 				x1: u.x,
 				y1: u.y,
-				x2: u.x + u.width * cosR,
-				y2: u.y + u.width * sinR,
-				fill: { color: underlineColor, width: { screen: 2 } },
+				x2: u.x + u.length * cosR,
+				y2: u.y + u.length * sinR,
+				fill: { color: underlineColor, width: { screen: thickness } },
 			});
 		} else {
 			prims.push({
 				kind: "rect",
-				cx: u.x + u.width / 2,
+				cx: u.x + u.length / 2,
 				cy: u.y,
 				screenOffset: { x: 0, y: 1 },
-				width: u.width,
-				height: { screen: 2 },
+				width: u.length,
+				height: { screen: thickness },
 				fill: { color: underlineColor },
 			});
 		}

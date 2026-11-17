@@ -4,6 +4,62 @@ import { FakeInput } from "./FakeInput";
 
 describe("FakeInput", () => {
 	describe("when the field is numeric", () => {
+		it("should adjust by ten steps with Shift in and out of the editor", () => {
+			const onChange = vi.fn();
+			const view = render(
+				<FakeInput
+					type="number"
+					value="10"
+					step={0.5}
+					min={0}
+					max={12}
+					onChange={onChange}
+				/>,
+			);
+			const field = view.getByRole("spinbutton");
+			fireEvent.keyDown(field, { key: "ArrowUp", shiftKey: true });
+			expect(onChange).toHaveBeenCalledWith("12");
+			fireEvent.doubleClick(field);
+			const input = view.getByRole("textbox") as HTMLInputElement;
+			fireEvent.keyDown(input, { key: "ArrowDown", shiftKey: true });
+			expect(input.value).toBe("5");
+			fireEvent.keyDown(input, { key: "Enter" });
+			expect(onChange).toHaveBeenLastCalledWith("5");
+		});
+
+		it("should adjust the edited value by step and clamp it to the bounds", () => {
+			const onChange = vi.fn();
+			const view = render(
+				<FakeInput
+					type="number"
+					value="0.2"
+					step={0.1}
+					min={0}
+					max={0.3}
+					onChange={onChange}
+				/>,
+			);
+			fireEvent.doubleClick(view.getByRole("spinbutton"));
+			const input = view.getByRole("textbox") as HTMLInputElement;
+
+			fireEvent.keyDown(input, { key: "ArrowUp" });
+			fireEvent.keyDown(input, { key: "ArrowUp" });
+			expect(input.value).toBe("0.3");
+			fireEvent.keyDown(input, { key: "ArrowDown" });
+			fireEvent.keyDown(input, { key: "ArrowDown" });
+			fireEvent.keyDown(input, { key: "Enter" });
+			expect(onChange).toHaveBeenCalledWith("0.1");
+		});
+
+		it("should adjust the focused field without opening the editor", () => {
+			const onChange = vi.fn();
+			const view = render(
+				<FakeInput type="number" value="10" onChange={onChange} />,
+			);
+			fireEvent.keyDown(view.getByRole("spinbutton"), { key: "ArrowDown" });
+			expect(onChange).toHaveBeenCalledWith("9");
+			expect(view.queryByRole("textbox")).toBeNull();
+		});
 		it("should commit the result of a typed expression", () => {
 			const onChange = vi.fn();
 			const view = renderNumberField({ value: "10", onChange });

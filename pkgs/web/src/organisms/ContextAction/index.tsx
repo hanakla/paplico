@@ -38,6 +38,7 @@ import { MoreActionsMenu } from "./MoreActionsMenu";
 import { Reference3DNodeActions } from "./Reference3DNodeActions";
 import { StrokeWidthEditTargetToggle } from "./StrokeWidthEditTargetToggle";
 import { TextEditActions } from "./TextEditActions";
+import { TextStyleActions } from "./TextStyleActions";
 
 interface SelectionMenuOverlayProps {
 	canvasWidth: number;
@@ -340,6 +341,14 @@ function ContextActionsOverlayInner({
 			)}
 			{isReference3DNodeContext && <Reference3DNodeActions />}
 			{!isReference3DNodeContext && isTextEditing && <TextEditActions />}
+			{!isReference3DNodeContext &&
+				!isTextEditing &&
+				!isGradientTool &&
+				hasElementSelection &&
+				selectedElements.length === selectedIds.length &&
+				selectedElements.every((element) => element.type === "text") && (
+					<TextStyleActions />
+				)}
 			{!isReference3DNodeContext && !isTextEditing && (
 				<ElementActions
 					selectedIds={selectedIds}
