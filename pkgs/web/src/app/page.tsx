@@ -28,6 +28,7 @@ import type { AutomationRuntimeFactory } from "@/automation/types";
 import { ConfirmDialog } from "@/components/AlertDialog";
 import { Resizable } from "@/components/Resizable";
 import { ScrollArea } from "@/components/ScrollArea";
+import { toastManager } from "@/components/Toast";
 import { PaplicoProvider } from "@/contexts/PaplicoContext";
 import {
 	CloseDocumentDialog,
@@ -148,6 +149,7 @@ const automationScriptRepository = createAutomationScriptRepository();
 export default function Page() {
 	const [paplico, setPaplico] = useState<Paplico | null>(null);
 	const paplicoRef = useRef<Paplico | null>(null);
+	const autoSaveToastIdRef = useRef<string | null>(null);
 	const [primaryTargetId, setPrimaryTargetId] = useState<string | null>(null);
 	const [isSplitView, setIsSplitView] = useState(false);
 	const initializedRef = useRef(false);
@@ -174,8 +176,22 @@ export default function Page() {
 	const sidePanelsBesideToolbar =
 		layoutMode === "desktop" && appSnap.panelLayout === "together";
 	const notchSide = useNotchSide();
-	const autoSave = useAutoSave(paplico);
 	const t = useTranslation();
+	const handleAutoSaveStart = useEventCallback(() => {
+		autoSaveToastIdRef.current = toastManager.add({
+			title: t("autoSave.saving"),
+			type: "loading",
+		});
+	});
+	const handleAutoSaveEnd = useEventCallback(() => {
+		if (!autoSaveToastIdRef.current) return;
+		toastManager.close(autoSaveToastIdRef.current);
+		autoSaveToastIdRef.current = null;
+	});
+	const autoSave = useAutoSave(paplico, {
+		onSaveEnd: handleAutoSaveEnd,
+		onSaveStart: handleAutoSaveStart,
+	});
 
 	const collab = useCollab(paplicoRef);
 
