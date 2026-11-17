@@ -6,7 +6,7 @@
 //! header's `BlobRef`s point into.
 
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqliteRow};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions, SqliteRow};
 use sqlx::Row;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -113,7 +113,9 @@ pub async fn open(app_data_dir: &Path) -> Result<DocumentsDb, String> {
     let options = SqliteConnectOptions::new()
         .filename(app_data_dir.join("documents.sqlite"))
         .create_if_missing(true);
-    let pool = SqlitePool::connect_with(options)
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
         .await
         .map_err(|error| error.to_string())?;
 
