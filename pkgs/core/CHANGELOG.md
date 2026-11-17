@@ -20,6 +20,8 @@
 
 ### Fixed
 
+- **Export**
+  - Fix GPU errors when exporting successive artboards with clipped content.
 - **Text**
   - Fix uneven spacing and displaced characters on paths.
 

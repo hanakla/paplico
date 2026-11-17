@@ -2099,6 +2099,8 @@ export class CanvasLayer {
 		// Persistent renderState object — set every frame so a prior export
 		// render never leaks its flag into the next interactive frame.
 		this.renderState.isExport = request.isExport ?? false;
+		this.renderState.currentMaskBindGroup = this.dummyMaskBindGroup;
+		this.inlineMaskEntries.clear();
 
 		// Only a full-viewport, non-preview, non-subset render produces a frame
 		// worth caching for later viewport-only blits. Export/clipboard subsets
