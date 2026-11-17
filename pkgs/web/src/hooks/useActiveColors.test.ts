@@ -6,7 +6,7 @@ import type {
 	StrokeAppearance,
 } from "@paplico/core/schema";
 import { act, renderHook } from "@testing-library/react";
-import { proxy } from "valtio";
+import { proxy, ref } from "valtio";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useActiveColors } from "./useActiveColors";
 
@@ -382,7 +382,79 @@ describe("useActiveColors", () => {
 		});
 	});
 
+	it.each([
+		["e1"],
+		["e1", "e2"],
+	])("refreshes both swatches after the document updates: %j", async (...ids) => {
+		const initial: FillColor = {
+			type: "linear",
+			x1: 0,
+			y1: 0,
+			x2: 1,
+			y2: 0,
+			stops: [{ offset: 0, color: RED, midpoint: 0.5 }],
+		};
+		mockStore = createMockStore({
+			selectedElementIds: ids,
+			objects: ref(
+				Object.fromEntries(
+					ids.map((id) => [id, makeElement(id, { fill: initial })]),
+				),
+			),
+		});
+		const toolbar = renderHook(() => useActiveColors());
+		const contextActions = renderHook(() => useActiveColors());
+		const fill = { ...initial, y2: 1 };
+		mockCommands.updateSelectedElementsFill.mockImplementationOnce(() => {
+			mockStore.document.objects = ref(
+				Object.fromEntries(ids.map((id) => [id, makeElement(id, { fill })])),
+			);
+		});
+
+		await act(async () =>
+			toolbar.result.current.handleGradientFillChange(fill),
+		);
+
+		expect(toolbar.result.current.currentFill).toEqual(fill);
+		expect(contextActions.result.current.currentFill).toEqual(fill);
+	});
+
 	describe("when multiple elements are selected", () => {
+		it.each([
+			true,
+			false,
+		])("displays a gradient only when the selection agrees (%s)", (same) => {
+			const gradient = {
+				type: "linear" as const,
+				x1: 0,
+				y1: 0,
+				x2: 1,
+				y2: 0,
+				stops: [{ offset: 0, color: RED, midpoint: 0.5 }],
+			};
+			const other = { ...structuredClone(gradient), y2: same ? 0 : 1 };
+			mockStore = createMockStore({
+				selectedElementIds: ["e1", "e2"],
+				objects: {
+					e1: makeElement("e1", {
+						fill: gradient,
+						strokeColor: { type: "stroke-gradient", gradient, mode: "within" },
+					}),
+					e2: makeElement("e2", {
+						fill: other,
+						strokeColor: {
+							type: "stroke-gradient",
+							gradient: other,
+							mode: "within",
+						},
+					}),
+				},
+			});
+			const { result } = renderHook(() => useActiveColors());
+			expect(result.current.currentFill).toEqual(same ? gradient : null);
+			expect(result.current.currentStrokeFill).toEqual(same ? gradient : null);
+		});
+
 		describe("with different stroke colors", () => {
 			it("should report mixed stroke color", () => {
 				mockStore = createMockStore({
@@ -473,7 +545,7 @@ function createMockStore(
 function makeElement(
 	id: string,
 	opts: {
-		strokeColor?: { type: "solid"; color: typeof RED };
+		strokeColor?: StrokeAppearance["paramData"]["params"]["strokeColor"];
 		fill?: FillColor;
 	} = {},
 ): AnyArtObject {

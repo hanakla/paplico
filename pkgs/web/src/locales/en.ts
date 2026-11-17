@@ -191,6 +191,7 @@ export const en = {
 		patternEditBarFitToBounds: "Fit To Bounds",
 		addStop: "Add Stop",
 		removeStop: "Remove Stop",
+		duplicateStop: "Duplicate Stop",
 		reverseGradient: "Reverse Gradient",
 		editWithGradientTool: "Edit with Gradient Tool",
 		removeFill: "Remove Fill",

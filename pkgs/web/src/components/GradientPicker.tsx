@@ -28,6 +28,7 @@ import {
 	ArrowRight,
 	Ban,
 	Circle,
+	Copy,
 	Edit3,
 	Grid3x3,
 	Hexagon,
@@ -405,17 +406,59 @@ const GradientEditor = memo(function GradientEditor({
 	fill: LinearGradient | RadialGradient;
 	onFillChange: (fill: FillColor | null) => void;
 }) {
+	const t = useTranslation();
+	const radians = isLinearGradient(fill)
+		? Math.atan2(fill.y2 - fill.y1, fill.x2 - fill.x1)
+		: Math.atan2(Math.sin(fill.rotation), Math.cos(fill.rotation));
+	const degrees = (radians * 180) / Math.PI;
+
 	const handleStopsChange = useEventCallback((stops: ColorStop[]) => {
 		onFillChange({ ...fill, stops });
 	});
+	const handleAngleChange = useEventCallback((value: number) => {
+		const angle = (value * Math.PI) / 180;
+		if (isRadialGradient(fill)) {
+			onFillChange({ ...fill, rotation: angle });
+			return;
+		}
+		const centerX = (fill.x1 + fill.x2) / 2;
+		const centerY = (fill.y1 + fill.y2) / 2;
+		const halfLength =
+			Math.hypot(fill.x2 - fill.x1, fill.y2 - fill.y1) / 2 || 0.5;
+		const dx = Math.cos(angle) * halfLength;
+		const dy = Math.sin(angle) * halfLength;
+		onFillChange({
+			...fill,
+			x1: centerX - dx,
+			y1: centerY - dy,
+			x2: centerX + dx,
+			y2: centerY + dy,
+		});
+	});
 
 	return (
-		<GradientStopsEditor
-			stops={fill.stops}
-			onStopsChange={handleStopsChange}
-			previewShape={isLinearGradient(fill) ? "linear" : "radial"}
-			enableMidpoint
-		/>
+		<div className="flex flex-col gap-3">
+			<GradientStopsEditor
+				stops={fill.stops}
+				onStopsChange={handleStopsChange}
+				previewShape={isLinearGradient(fill) ? "linear" : "radial"}
+				enableMidpoint
+			/>
+			<div className="flex items-center gap-2 text-xs text-muted-foreground">
+				<span>{t("toolbar.patternRotation")}</span>
+				<FakeInput
+					$size="xs"
+					type="number"
+					aria-label={t("toolbar.patternRotation")}
+					value={String(Math.round(degrees))}
+					step={1}
+					min={-180}
+					max={180}
+					onChange={(value) => handleAngleChange(value ? Number(value) : 0)}
+					className="tabular-nums"
+				/>
+			</div>
+		</div>
 	);
 });
 
@@ -790,6 +833,21 @@ export const GradientStopsEditor = memo(function GradientStopsEditor({
 		setSelectedStopIdx(Math.min(selectedStopIdx, newStops.length - 1));
 	});
 
+	const handleDuplicateStop = useEventCallback(() => {
+		if (!selectedStop || (maxStops !== undefined && stops.length >= maxStops))
+			return;
+		const neighbor = stops[selectedStopIdx + 1] ?? stops[selectedStopIdx - 1];
+		const duplicate = {
+			...selectedStop,
+			offset: neighbor
+				? (selectedStop.offset + neighbor.offset) / 2
+				: selectedStop.offset,
+		};
+		const sorted = [...stops, duplicate].sort((a, b) => a.offset - b.offset);
+		onStopsChange(sorted);
+		setSelectedStopIdx(sorted.indexOf(duplicate));
+	});
+
 	const handleReverse = useEventCallback(() => {
 		onStopsChange(reverseStops(stops));
 		setSelectedStopIdx(stops.length - 1 - selectedStopIdx);
@@ -890,10 +948,19 @@ export const GradientStopsEditor = memo(function GradientStopsEditor({
 				</div>
 			</div>
 
-			<div className="flex justify-end">
-				<Tooltip content={t("toolbar.reverseGradient")}>
-					<IconButton $variant="ghost" $size="xs" onClick={handleReverse}>
-						<ArrowLeftRight size={12} />
+			<div className="flex">
+				<Tooltip content={t("toolbar.duplicateStop")}>
+					<IconButton
+						$variant="ghost"
+						$size="xs"
+						aria-label={t("toolbar.duplicateStop")}
+						disabled={
+							!selectedStop ||
+							(maxStops !== undefined && stops.length >= maxStops)
+						}
+						onClick={handleDuplicateStop}
+					>
+						<Copy size={12} />
 					</IconButton>
 				</Tooltip>
 				{stops.length > 2 && (
@@ -903,6 +970,12 @@ export const GradientStopsEditor = memo(function GradientStopsEditor({
 						</IconButton>
 					</Tooltip>
 				)}
+				<div className="flex-1" />
+				<Tooltip content={t("toolbar.reverseGradient")}>
+					<IconButton $variant="ghost" $size="xs" onClick={handleReverse}>
+						<ArrowLeftRight size={12} />
+					</IconButton>
+				</Tooltip>
 			</div>
 
 			{/* Color picker for the clicked stop, anchored to its marker */}

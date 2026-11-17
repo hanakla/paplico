@@ -192,6 +192,7 @@ export const ja = {
 		patternEditBarFitToBounds: "全体BBoxに合わせる",
 		addStop: "停止点を追加",
 		removeStop: "停止点を削除",
+		duplicateStop: "停止点を複製",
 		reverseGradient: "グラデーションを反転",
 		editWithGradientTool: "グラデーションツールで編集",
 		removeFill: "塗りを削除",

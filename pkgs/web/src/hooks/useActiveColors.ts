@@ -6,10 +6,10 @@ import {
 	type StrokeGradientMode,
 } from "@paplico/core/schema";
 import { getFirstFill, getFirstStroke } from "@paplico/core/utils";
-import { useEffect, useMemo, useState } from "react";
+import { isEqual } from "es-toolkit";
+import { useMemo } from "react";
 import { useSnapshot } from "valtio";
 import { usePaplico } from "@/contexts/PaplicoContext";
-import { useSelectedElements } from "@/hooks/paplico/useSelectedElements";
 import { useEventCallback } from "@/utils/hooks";
 import { deepClone } from "@/utils/lang";
 
@@ -32,8 +32,7 @@ interface ActiveColors {
  * 1. Resolve selected elements from `uiState.selectedElementIds`.
  * 2. Extract stroke/fill appearances from each element's `filters` array.
  * 3. Detect mixed colors across selection → `hasMixedStrokeColor` / `hasMixedFillColor`.
- * 4. When all selected elements share the same color, sync it to `uiStore` picked colors.
- * 5. Derive `currentFill`, `currentStrokeFill`, and `currentStrokeGradientMode`
+ * 4. Derive `currentFill`, `currentStrokeFill`, and `currentStrokeGradientMode`
  *    from selection (or fall back to the tool's current color when nothing is selected).
  *
  * **Writing (set) flow:**
@@ -52,126 +51,56 @@ export function useActiveColors(): ActiveColors {
 
 	const snap = useSnapshot(tools.state);
 
-	const [hasMixedStrokeColor, setHasMixedStrokeColor] = useState(false);
-	const [hasMixedFillColor, setHasMixedFillColor] = useState(false);
-
-	// Resolve selected elements reactively (via subscribe, not useSnapshot tracking)
-	const selectedElements = useSelectedElements(store);
-
-	// Detect mixed colors and sync to uiStore on selection change
-	useEffect(() => {
-		if (selectedElements.length === 0) {
-			setHasMixedStrokeColor(false);
-			setHasMixedFillColor(false);
-			return;
-		}
-
-		const strokeColors: Array<{
-			r: number;
-			g: number;
-			b: number;
-			a: number;
-		} | null> = [];
-		const fillColors: Array<{
-			r: number;
-			g: number;
-			b: number;
-			a: number;
-		} | null> = [];
-
-		for (const element of selectedElements) {
-			const strokeApp = getFirstStroke(element.filters);
-			const color = strokeApp?.paramData.params.strokeColor;
-			if (color === undefined) {
-				strokeColors.push(null);
-			} else if (color.type === "solid") {
-				const rgb = color.color;
-				if (rgb.type === "rgb") {
-					strokeColors.push({ r: rgb.r, g: rgb.g, b: rgb.b, a: rgb.a });
-				}
-			}
-
-			const fillApp = getFirstFill(element.filters);
-			const fill = fillApp?.paramData.params.fill;
-			if (fill === undefined) {
-				fillColors.push(null);
-			} else if (fill.type === "solid") {
-				const rgb = fill.color;
-				if (rgb.type === "rgb") {
-					fillColors.push({ r: rgb.r, g: rgb.g, b: rgb.b, a: rgb.a });
-				}
-			}
-		}
-
-		// Check stroke color uniformity
-		if (strokeColors.length > 0) {
-			const firstStroke = strokeColors[0];
-			const allSameStroke = strokeColors.every((c) => {
-				if (c === null && firstStroke === null) return true;
-				if (c === null || firstStroke === null) return false;
-				return (
-					c.r === firstStroke.r &&
-					c.g === firstStroke.g &&
-					c.b === firstStroke.b &&
-					c.a === firstStroke.a
-				);
-			});
-			setHasMixedStrokeColor(!allSameStroke);
-		} else {
-			setHasMixedStrokeColor(false);
-		}
-
-		// Check fill color uniformity
-		if (fillColors.length > 0) {
-			const firstFill = fillColors[0];
-			const allSameFill = fillColors.every((c) => {
-				if (c === null && firstFill === null) return true;
-				if (c === null || firstFill === null) return false;
-				return (
-					c.r === firstFill.r &&
-					c.g === firstFill.g &&
-					c.b === firstFill.b &&
-					c.a === firstFill.a
-				);
-			});
-			setHasMixedFillColor(!allSameFill);
-		} else {
-			setHasMixedFillColor(false);
-		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [selectedElements]);
-
-	// Build fill color for GradientPicker display
-	// biome-ignore lint/correctness/useExhaustiveDependencies: selectedElements and snap.fillAppearance are reactivity triggers for paplico.getActiveFillAppearance()
-	const currentFill = useMemo((): FillColor | null => {
-		if (hasMixedFillColor) return null;
-		const fillApp = paplico.getActiveFillAppearance();
-		const fill = fillApp?.paramData.params.fill ?? null;
-		return fill ? deepClone(fill) : null;
-	}, [selectedElements, snap.fillAppearance, hasMixedFillColor, paplico]);
-
-	// Build stroke color as FillColor for GradientPicker display
-	// biome-ignore lint/correctness/useExhaustiveDependencies: selectedElements and snap.strokeAppearance are reactivity triggers for paplico.getActiveStrokeAppearance()
-	const currentStrokeFill = useMemo((): FillColor | null => {
-		if (hasMixedStrokeColor) return null;
-		const sc =
-			paplico.getActiveStrokeAppearance()?.paramData.params.strokeColor;
-		if (!sc) return null;
-		if (sc.type === "solid") return deepClone(sc);
-		if (sc.type === "stroke-gradient") return deepClone(sc.gradient);
-		return null;
-	}, [selectedElements, snap.strokeAppearance, hasMixedStrokeColor, paplico]);
-
-	// Resolve current stroke gradient mode
-	const currentStrokeGradientMode = useMemo((): StrokeGradientMode => {
-		if (selectedElements.length === 0) return "within";
-		const strokeApp = getFirstStroke(selectedElements[0]?.filters);
-		const sc = strokeApp?.paramData.params.strokeColor as
-			| StrokeColor
-			| undefined;
-		if (sc?.type === "stroke-gradient") return sc.mode;
-		return "within";
-	}, [selectedElements]);
+	const selection = useSnapshot(store, { sync: true });
+	const selectedIds = selection.selectedElementIds;
+	// The engine stores this record as a Valtio ref, so its values are not snapshots.
+	const objects = selection.document.objects as typeof store.document.objects;
+	const selectedElements = useMemo(
+		() => selectedIds.flatMap((id) => (objects[id] ? [objects[id]] : [])),
+		[selectedIds, objects],
+	);
+	const {
+		currentFill,
+		currentStrokeFill,
+		currentStrokeGradientMode,
+		hasMixedFillColor,
+		hasMixedStrokeColor,
+	} = useMemo(() => {
+		const [first, ...others] = selectedElements;
+		const getFill = (element: AnyArtObject) =>
+			getFirstFill(element.filters)?.paramData.params.fill;
+		const getStroke = (element: AnyArtObject) =>
+			getFirstStroke(element.filters)?.paramData.params.strokeColor;
+		const fill = first
+			? getFill(first)
+			: snap.fillAppearance?.paramData.params.fill;
+		const stroke = first
+			? getStroke(first)
+			: snap.strokeAppearance?.paramData.params.strokeColor;
+		const hasMixedFillColor = others.some(
+			(element) => !isEqual(fill, getFill(element)),
+		);
+		const hasMixedStrokeColor = others.some(
+			(element) => !isEqual(stroke, getStroke(element)),
+		);
+		return {
+			currentFill:
+				fill && !hasMixedFillColor ? (deepClone(fill) as FillColor) : null,
+			currentStrokeFill:
+				!hasMixedStrokeColor &&
+				(stroke?.type === "solid" || stroke?.type === "stroke-gradient")
+					? (deepClone(
+							stroke.type === "solid" ? stroke : stroke.gradient,
+						) as FillColor)
+					: null,
+			currentStrokeGradientMode:
+				first && !hasMixedStrokeColor && stroke?.type === "stroke-gradient"
+					? stroke.mode
+					: ("within" as const),
+			hasMixedFillColor,
+			hasMixedStrokeColor,
+		};
+	}, [selectedElements, snap.fillAppearance, snap.strokeAppearance]);
 
 	const commands = paplico.commands;
 

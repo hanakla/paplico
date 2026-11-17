@@ -43,8 +43,6 @@ export function FillStrokeSwatchPicker({
 		currentFill,
 		currentStrokeFill,
 		currentStrokeGradientMode,
-		hasMixedFillColor,
-		hasMixedStrokeColor,
 		handleGradientFillChange,
 		handleStrokeGradientChange,
 		handleStrokeGradientModeChange,
@@ -66,7 +64,6 @@ export function FillStrokeSwatchPicker({
 						label={t("companion.fillColor")}
 						fill={currentFill}
 						isActive={uiSnap.activeColorTarget === "fill"}
-						hasMixed={hasMixedFillColor}
 						onClick={handleFillSwatchClick}
 					/>
 				</Popover.Trigger>
@@ -104,11 +101,6 @@ export function FillStrokeSwatchPicker({
 							size={24}
 							className="w-full h-full rounded-none"
 						/>
-						{hasMixedStrokeColor && currentStrokeFill && (
-							<div className="absolute inset-0 flex items-center justify-center bg-black/20">
-								<span className="text-white text-xs font-bold">?</span>
-							</div>
-						)}
 					</button>
 				</Popover.Trigger>
 				<Popover.Content
@@ -166,13 +158,11 @@ function FillSwatchButton({
 	label,
 	fill,
 	isActive,
-	hasMixed,
 	onClick,
 }: {
 	label: string;
 	fill: FillColor | null;
 	isActive: boolean;
-	hasMixed: boolean;
 	onClick: () => void;
 }) {
 	return (
@@ -190,11 +180,6 @@ function FillSwatchButton({
 				size={24}
 				className="w-full h-full rounded-none"
 			/>
-			{hasMixed && fill && (
-				<div className="absolute inset-0 flex items-center justify-center bg-black/20">
-					<span className="text-white text-xs font-bold">?</span>
-				</div>
-			)}
 		</button>
 	);
 }
