@@ -45,10 +45,17 @@ const UNUSED_FILES_CHECK_DELAY_MS = 300;
 export function AssetPanel() {
 	const t = useTranslation();
 	const paplico = usePaplico();
-	const doc = useSnapshot(paplico.uiState).document;
+	const { document: doc, selectedElementIds } = useSnapshot(paplico.uiState);
 	const { objects, references3d, files } = doc;
+	const selectedFileUids = new Set(
+		selectedElementIds.flatMap((id) => {
+			const element = objects[id];
+			return element?.type === "image" ? [element.fileUid] : [];
+		}),
+	);
 	const { status } = useSnapshot(linkedFilesState);
 	const rootRef = useRef<HTMLDivElement>(null);
+	const assetListRef = useRef<HTMLUListElement>(null);
 	const [tab, setTab] = useState("assets");
 
 	const { getCurrentCanvasTarget } = useCurrentCanvasTargetResolver();
@@ -104,6 +111,24 @@ export function AssetPanel() {
 		const assetUids = collectAssetFileUids({ objects, references3d });
 		return files.filter((file) => assetUids.has(file.uid));
 	}, [objects, references3d, files]);
+	const firstSelectedFileUid = assetFiles.find((file) =>
+		selectedFileUids.has(file.uid),
+	)?.uid;
+
+	useEffect(() => {
+		if (tab !== "assets" || !firstSelectedFileUid) return;
+		const list = assetListRef.current;
+		const selected = list?.querySelector<HTMLElement>("[data-selected]");
+		if (!list || !selected) return;
+
+		const listBounds = list.getBoundingClientRect();
+		const selectedBounds = selected.getBoundingClientRect();
+		if (selectedBounds.top < listBounds.top) {
+			list.scrollTop += selectedBounds.top - listBounds.top;
+		} else if (selectedBounds.bottom > listBounds.bottom) {
+			list.scrollTop += selectedBounds.bottom - listBounds.bottom;
+		}
+	}, [firstSelectedFileUid, tab]);
 
 	return (
 		<Tabs.Root
@@ -166,11 +191,15 @@ export function AssetPanel() {
 						{t("assetPanel.noAssets")}
 					</p>
 				) : (
-					<ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
+					<ul
+						ref={assetListRef}
+						className="min-h-0 flex-1 divide-y divide-border overflow-y-auto"
+					>
 						{assetFiles.map((file) => (
 							<li
 								key={file.uid}
-								className="flex items-center gap-1.5 py-0.5 pl-3 pr-1"
+								data-selected={selectedFileUids.has(file.uid) || undefined}
+								className="flex items-center gap-1.5 py-0.5 pl-3 pr-1 data-selected:bg-accent/30"
 							>
 								{file.sourcePath ? (
 									<Link2
