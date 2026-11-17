@@ -1,13 +1,18 @@
 import type { Paplico } from "@paplico/core";
 import type { Document } from "@paplico/core/schema";
 import { documentImporters } from "#document-importers";
+import type { ResolvePlacedImage } from "@/dot-ai-import";
 
 /** Converts a file written by another application into a Paplico document. */
 export interface DocumentImporter {
 	/** Lowercase file extensions, each with its leading dot. */
 	extensions: `.${string}`[];
 	/** @param fonts Lists the fonts the converted text can be set in. */
-	convert(file: Blob, fonts: Paplico["fonts"]): Promise<Document>;
+	convert(
+		file: Blob,
+		fonts: Paplico["fonts"],
+		resolvePlacedImage: ResolvePlacedImage | null,
+	): Promise<Document>;
 }
 
 /** Extensions of every file the app can open as a document. */

@@ -10,7 +10,9 @@ import { FileSystem, nativePathOf } from "@/infra/filesystem";
 import {
 	fileName,
 	isLocalPath,
+	LINKED_IMAGE_TYPES,
 	type LinkedImageStat,
+	linkedImageType,
 	readLinkedImage,
 	resolveLinkedSourcePath,
 	statLinkedImages,
@@ -23,20 +25,6 @@ type LinkedFileStatus = "missing" | "changed";
 
 /** The part of a document that says which files its elements show. */
 type AssetSource = Snapshot<Pick<Document, "objects" | "references3d">>;
-
-/**
- * Image types the app links to and takes as a replacement, by file
- * extension. `read_linked_image` of the desktop app accepts the same
- * extensions; keep pkgs/desktop/src-tauri/src/linked_files.rs equal to this.
- */
-const LINKED_IMAGE_TYPES: Record<string, string> = {
-	png: "image/png",
-	jpg: "image/jpeg",
-	jpeg: "image/jpeg",
-	webp: "image/webp",
-	gif: "image/gif",
-	avif: "image/avif",
-};
 
 /** Linked files that differ from their source, by EmbeddedFile.uid. */
 export const linkedFilesState = proxy<{
@@ -217,11 +205,6 @@ function assetFileUidsOf(
 	return (document.references3d?.[element.sceneId]?.nodes ?? []).flatMap(
 		(node) => (node.kind === "primitive" ? [] : [node.fileUid]),
 	);
-}
-
-/** The MIME type of an image the app links to, or undefined for any other file. */
-function linkedImageType(path: string): string | undefined {
-	return LINKED_IMAGE_TYPES[path.split(".").pop()?.toLowerCase() ?? ""];
 }
 
 /**

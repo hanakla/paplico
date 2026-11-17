@@ -8,6 +8,7 @@ import {
 import { setLastDocumentId } from "@/hooks/useAppConfig";
 import { type FileHandle, FileSystem, nativePathOf } from "@/infra/filesystem";
 import {
+	resolveLinkedImage,
 	resolveLinkedSourcePath,
 	toLinkedSourcePath,
 } from "@/infra/linkedFiles.tauri";
@@ -232,8 +233,15 @@ export async function openDocumentFile(
 
 	const file = source instanceof File ? source : source.file;
 	const importer = findDocumentImporter(file.name);
+	const sourcePath = source instanceof File ? null : nativePathOf(source);
 	const appData = await paplico.importDocument(
-		importer ? await importer.convert(file, paplico.fonts) : file,
+		importer
+			? await importer.convert(
+					file,
+					paplico.fonts,
+					sourcePath ? (path) => resolveLinkedImage(path, sourcePath) : null,
+				)
+			: file,
 	);
 	const id = paplico.uiState.document.id || generateUid("doc");
 	await upsertDocument(

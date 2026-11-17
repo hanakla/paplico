@@ -1,8 +1,30 @@
+import { invoke } from "@tauri-apps/api/core";
 import {
 	isLocalPath,
+	resolveLinkedImage,
 	resolveLinkedSourcePath,
 	toLinkedSourcePath,
 } from "./linkedFiles.tauri";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+describe("resolveLinkedImage", () => {
+	it.each([
+		["/reference/image.png", "/reference/image.png"],
+		["../reference/image.png", "/art/reference/image.png"],
+	])("should read %s through the native linked image command", async (path, sourcePath) => {
+		vi.mocked(invoke).mockResolvedValueOnce([1, 2, 3]);
+		const image = await resolveLinkedImage(path, "/art/chapters/page.ai");
+
+		expect(invoke).toHaveBeenLastCalledWith("read_linked_image", {
+			path: sourcePath,
+		});
+		expect(image).toMatchObject({
+			sourcePath,
+			file: { name: "image.png", type: "image/png", size: 3 },
+		});
+	});
+});
 
 describe("toLinkedSourcePath", () => {
 	it("should keep the absolute path while the document has no file", () => {

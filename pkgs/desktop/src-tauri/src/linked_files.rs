@@ -5,7 +5,7 @@ use std::time::UNIX_EPOCH;
 use tauri::ipc::Response;
 
 // The web app decides which images it links to, in
-// pkgs/web/src/stores/linkedFilesStore.ts. Keep this list equal to that one.
+// pkgs/web/src/infra/linkedFiles.tauri.ts. Keep this list equal to that one.
 const ALLOWED_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "avif"];
 
 /// What tells an edited linked image from an untouched one without reading it.

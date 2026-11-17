@@ -1,3 +1,17 @@
+/**
+ * Image types the app links to and takes as a replacement, by file
+ * extension. `read_linked_image` of the desktop app accepts the same
+ * extensions; keep pkgs/desktop/src-tauri/src/linked_files.rs equal to this.
+ */
+export const LINKED_IMAGE_TYPES: Record<string, string> = {
+	png: "image/png",
+	jpg: "image/jpeg",
+	jpeg: "image/jpeg",
+	webp: "image/webp",
+	gif: "image/gif",
+	avif: "image/avif",
+};
+
 /** What tells an edited linked image from an untouched one without reading it. */
 export interface LinkedImageStat {
 	/** Milliseconds since the Unix epoch. */
@@ -122,4 +136,22 @@ function rootSegmentCount(pathSegments: string[]): number {
 /** The last segment of a native path, split at either kind of separator. */
 export function fileName(path: string): string {
 	return segments(path).at(-1) ?? path;
+}
+
+/** The MIME type of an image the app links to, or undefined for any other file. */
+export function linkedImageType(path: string): string | undefined {
+	return LINKED_IMAGE_TYPES[path.split(".").pop()?.toLowerCase() ?? ""];
+}
+
+/** Opens a local image referenced by a native document. */
+export async function resolveLinkedImage(
+	sourcePath: string,
+	documentPath: string,
+): Promise<{ file: File; sourcePath: string } | null> {
+	if (!isLocalPath(sourcePath)) return null;
+	const path = resolveLinkedSourcePath(sourcePath, documentPath);
+	const type = path && linkedImageType(path);
+	if (!path || !type) return null;
+	const file = await readLinkedImage(path, { name: fileName(path), type });
+	return file && { file, sourcePath: path };
 }
