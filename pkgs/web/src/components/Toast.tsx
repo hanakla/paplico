@@ -133,7 +133,13 @@ function ToastDescription({
 }: PropsWithNativeClassName<BUIToast.Description.Props>) {
 	return (
 		<BUIToast.Description
-			className={twm("text-xs leading-5 text-muted-foreground", className)}
+			className={twm(
+				"text-xs leading-5 text-muted-foreground",
+				"data-[type=warning]:text-warn-foreground",
+				"data-[type=info]:text-accent-foreground",
+				"data-[type=error]:text-danger-foreground",
+				className,
+			)}
 			{...props}
 		/>
 	);
@@ -162,6 +168,9 @@ function ToastClose({
 			aria-label={props["aria-label"] ?? "Close notification"}
 			className={twm(
 				"absolute top-1/2 right-3 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full opacity-70 transition-colors transition-opacity hover:bg-foreground/8 hover:opacity-100",
+				"data-[type=warning]:text-warn-foreground",
+				"data-[type=info]:text-accent-foreground",
+				"data-[type=error]:text-danger-foreground",
 				className,
 			)}
 			{...props}
