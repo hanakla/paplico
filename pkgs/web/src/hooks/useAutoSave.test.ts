@@ -34,29 +34,15 @@ describe("useAutoSave", () => {
 
 	it("should save the edited document under its id when the save interval passes", async () => {
 		const engine = createEngine("content-a");
-		const onSaveEnd = vi.fn();
-		const onSaveStart = vi.fn();
-		renderHook(() => useAutoSave(engine.paplico, { onSaveEnd, onSaveStart }));
+		renderHook(() => useAutoSave(engine.paplico));
 
 		engine.edit();
 		await act(() => vi.advanceTimersByTimeAsync(AUTO_SAVE_INTERVAL_MS));
 
-		expect(onSaveStart).toHaveBeenCalledOnce();
-		expect(onSaveEnd).toHaveBeenCalledOnce();
 		const calls = vi.mocked(saveDocument).mock.calls;
 		expect(calls).toHaveLength(1);
 		expect(calls[0][0]).toBe("doc-a");
 		expect(await calls[0][1].text()).toBe("content-a");
-	});
-
-	it("should not report a save start when there are no changes", async () => {
-		const engine = createEngine("content-a");
-		const onSaveStart = vi.fn();
-		renderHook(() => useAutoSave(engine.paplico, { onSaveStart }));
-
-		await act(() => vi.advanceTimersByTimeAsync(AUTO_SAVE_INTERVAL_MS));
-
-		expect(onSaveStart).not.toHaveBeenCalled();
 	});
 
 	it("should not write the next document under the previous id when the document changes", async () => {

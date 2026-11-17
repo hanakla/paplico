@@ -2,11 +2,13 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-18
+
 ### Added
 
 - **Text**
   - Fonts installed or removed while the app runs appear in the font list. The browser checks once a minute and when the window regains focus. `FontManager` emits `fontListChanged` after each change.
-  - Text being composed with an IME is underlined. When EditContext is available, the underline marks the ranges and thickness reported by the IME.
+  - Text being composed with an IME is underlined. When `EditContext` is available, the underline marks the ranges and thickness reported by the IME.
 
 ### Changed
 

@@ -24,15 +24,7 @@ import { IS_TAURI_ENV } from "@/utils/platform";
  * Takes `paplico` as an argument because the page that calls it renders
  * PaplicoProvider itself, so the context is not available there.
  */
-export type UseAutoSaveOptions = {
-	onSaveEnd?: () => void;
-	onSaveStart?: () => void;
-};
-
-export function useAutoSave(
-	paplico: Paplico | null,
-	{ onSaveEnd, onSaveStart }: UseAutoSaveOptions = {},
-): { save: () => void } {
+export function useAutoSave(paplico: Paplico | null): { save: () => void } {
 	const { currentDocumentId } = useSnapshot(documentManagerState);
 	const { source } = useSnapshot(documentSessionState);
 	// A room's document is not the one the current id names, so it has no
@@ -55,7 +47,6 @@ export function useAutoSave(
 		// Cleared before exporting so edits made during the save mark the next one
 		hasUnsavedRevisionRef.current = false;
 		autoSaveState.isSaving = true;
-		onSaveStart?.();
 		const start = performance.now();
 
 		try {
@@ -90,7 +81,6 @@ export function useAutoSave(
 		} finally {
 			autoSaveState.isSaving = false;
 			markSaveAttempted();
-			onSaveEnd?.();
 		}
 	});
 
