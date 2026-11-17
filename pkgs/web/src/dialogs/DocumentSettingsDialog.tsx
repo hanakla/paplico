@@ -268,9 +268,9 @@ export const DocumentSettingsDialog = memo(function DocumentSettingsDialog({
 
 	return (
 		<Dialog.Root open={open} onOpenChange={onOpenChange}>
-			<Dialog.Content className="w-[400px] p-0 flex flex-col">
+			<Dialog.Content className="w-[400px] p-0 flex flex-col overflow-hidden">
 				{/* Header */}
-				<div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+				<div className="flex shrink-0 items-center justify-between px-4 py-3 border-b border-border/30">
 					<Dialog.Title className="text-sm font-medium mb-0">
 						{t("documentSettings.title")}
 					</Dialog.Title>
@@ -285,7 +285,7 @@ export const DocumentSettingsDialog = memo(function DocumentSettingsDialog({
 				</div>
 
 				{/* Content */}
-				<div className="p-4 space-y-4">
+				<div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-4">
 					{/* Document Name */}
 					<div>
 						<div className="text-xs font-medium mb-1.5">
@@ -539,7 +539,7 @@ export const DocumentSettingsDialog = memo(function DocumentSettingsDialog({
 				</div>
 
 				{/* Footer */}
-				<div className="flex justify-end px-4 py-3 border-t border-border/30">
+				<div className="flex shrink-0 justify-end px-4 py-3 border-t border-border/30">
 					<Button $variant="ghost" $size="sm" onClick={handleClose}>
 						{t("documentSettings.close")}
 					</Button>

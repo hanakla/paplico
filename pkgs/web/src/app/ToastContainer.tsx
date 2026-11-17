@@ -1,5 +1,6 @@
 "use client";
 import type { ReactNode } from "react";
+import { Spinner } from "@/components/Spinner";
 import { Toast } from "@/components/Toast";
 
 export function ToastContainer({ children }: { children: ReactNode }) {
@@ -20,6 +21,7 @@ function ToastList() {
 	return toasts.map((toast) => (
 		<Toast.Root key={toast.id} toast={toast}>
 			<Toast.Content className="flex items-center gap-3">
+				{toast.type === "loading" && <Spinner $size="sm" />}
 				<div className="min-w-0 flex-1">
 					<Toast.Title />
 					<Toast.Description />

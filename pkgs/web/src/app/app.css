@@ -528,48 +528,36 @@ body {
 	user-select: text !important;
 }
 
-/* via: https://cssloaders.github.io/ */
-.spinner,
-.spinner::before,
-.spinner::after {
+.spinner {
 	display: inline-block;
-	border-radius: 50%;
+	position: relative;
 	width: var(--spinner-size);
 	height: var(--spinner-size);
-	color: var(--foreground);
-	animation: bblFadInOut 1.8s infinite ease-in-out;
-	animation-fill-mode: both;
+	flex: none;
 }
 
-.spinner {
-	position: relative;
-	transform: translateZ(0);
-	animation-delay: -0.16s;
-	margin-top: calc(var(--spinner-size) * -1);
-	margin-bottom: var(--spinner-size);
-}
-
-.spinner::before,
-.spinner::after {
-	content: "";
+.spinner-bar {
 	position: absolute;
-	top: 0;
-}
-.spinner::before {
-	left: calc(var(--spinner-gap) * -1);
-	animation-delay: -0.32s;
-}
-.spinner::after {
-	left: var(--spinner-gap);
+	top: 5%;
+	left: 45%;
+	width: 10%;
+	height: 30%;
+	border-radius: 9999px;
+	background: var(--foreground);
+	transform: rotate(calc(var(--spinner-index) * 45deg));
+	transform-origin: 50% 150%;
+	animation: spinner-fade 1.2s linear infinite;
+	animation-delay: calc(var(--spinner-index) * 0.15s - 1.2s);
 }
 
-@keyframes bblFadInOut {
-	0%,
-	80%,
-	100% {
-		box-shadow: 0 var(--spinner-size) 0 calc(var(--spinner-size) / -2);
+@keyframes spinner-fade {
+	0% {
+		opacity: 1;
 	}
-	40% {
-		box-shadow: 0 var(--spinner-size) 0 0;
+	12.5% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0.15;
 	}
 }

@@ -54,15 +54,18 @@ function DialogContent({
 		<BUIDialog.Portal>
 			<BUIDialog.Backdrop
 				className={twm(
-					"fixed inset-0 min-h-dvh bg-background/30 backdrop-blur-xs",
+					"fixed inset-0 min-h-dvh bg-background/30 backdrop-blur-sm",
 					"transition-opacity duration-150",
 					"data-starting-style]:opacity-0 data-ending-style:opacity-0",
 				)}
-			/>
+			>
+				<div className="w-full min-h-10.5 pt-safe-top" data-tauri-drag-region />
+			</BUIDialog.Backdrop>
 			<BUIDialog.Popup
 				className={twm(
 					"fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2",
-					"w-[400px] max-w-[calc(100vw-3rem)]",
+					"w-[400px] max-w-[calc(100vw-3rem)] max-h-[calc(100dvh-3rem)]",
+					"overflow-y-auto overscroll-contain",
 					"rounded-lg bg-background/95 backdrop-liquid border border-border/50 p-6 shadow-xl",
 					"outline-none",
 					"transition-all duration-150",

@@ -2,7 +2,7 @@ export const en = {
 	page: {
 		noArtboardsAlert:
 			"No artboards to export. Create one with the Artboard tool.",
-		loadingDocument: "Loading…",
+		loadingDocument: "Loading",
 	},
 	menubar: {
 		fileMenu: "File",

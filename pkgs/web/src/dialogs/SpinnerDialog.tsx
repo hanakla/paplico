@@ -13,9 +13,9 @@ export const SpinnerDialog = memo(function SpinnerDialog({
 }) {
 	return (
 		<Dialog.Root open={open}>
-			<Dialog.Content className="w-[240px] p-6 flex flex-col items-center gap-3">
+			<Dialog.Content className="w-40 aspect-square p-6 flex flex-col items-center justify-center gap-3 border-none">
 				<Spinner $size="lg" />
-				{message && <p className="text-sm text-muted-foreground">{message}</p>}
+				{message && <p className="text-sm text-foreground">{message}</p>}
 			</Dialog.Content>
 		</Dialog.Root>
 	);
