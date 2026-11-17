@@ -26,6 +26,10 @@ import type {
 	TextParagraph,
 	TextStyle,
 } from "../schema";
+import {
+	buildArcLengthTable,
+	samplePathAtArcLength,
+} from "../utils/geometry/measure/arcLength";
 import { resolveSegment } from "../utils/geometry/primitives/segment";
 import { translateSegments } from "../utils/geometry/space/worldSegments";
 import type { GlyphColorLayer } from "./fonts/colorGlyphs";
@@ -232,16 +236,6 @@ interface RegionFlowResult {
 	/** 未配置分の継続位置。null = 全て配置済み */
 	next: FlowCursor | null;
 	overflowStartIndex?: number;
-}
-
-/**
- * パス上の点と接線
- */
-interface PathPoint {
-	x: number;
-	y: number;
-	angle: number; // 接線の角度（ラジアン）
-	t: number; // パラメータ (0-1)
 }
 
 const EPS = 1e-6;
@@ -2044,7 +2038,9 @@ export class TextLayoutEngine {
 			return { chars, next: null };
 		}
 
-		const pathLength = this.calculatePathLength(segments);
+		const arcLengths = buildArcLengthTable(segments);
+		const pathLength = arcLengths.at(-1)?.cumulativeLength ?? 0;
+		if (pathLength <= EPS) return { chars, next: null };
 
 		// alignment center/right: 収まる幅を先に確定してから開始距離を決める（2パス）
 		let totalWidth = 0;
@@ -2077,25 +2073,31 @@ export class TextLayoutEngine {
 
 			// パス全長を超える文字は打ち切り（オーバーフロー）
 			if (
-				currentDistance + it.advanceWidth + it.advanceAdjustPx >
+				currentDistance + it.kerning + it.advanceWidth + it.advanceAdjustPx >
 				pathLength + EPS
 			)
 				break;
 
 			// 文字の中心位置をパス上に配置（回転で広がったセルの中央）
 			const centerDistance =
-				currentDistance + (it.advanceWidth + it.advanceAdjustPx) / 2;
-			const pathPoint = this.getPointOnPath(
+				currentDistance +
+				it.kerning +
+				(it.advanceWidth + it.advanceAdjustPx) / 2;
+			const pathPoint = samplePathAtArcLength(
 				segments,
-				centerDistance / pathLength,
+				arcLengths,
+				Math.max(0, centerDistance),
+				pathLength,
 			);
+			if (!pathPoint) break;
 
 			// Touch-type deltas: the spine point doubles as the rotation pivot,
 			// so the extra rotation composes without anchor compensation
 			const d = charVisualDelta(it.override, false);
 			const cx = pathPoint.x + d.dx;
 			const cy = pathPoint.y + d.dy;
-			const rotation = pathPoint.angle + d.rotRad;
+			const rotation =
+				Math.atan2(-pathPoint.normalX, pathPoint.normalY) + d.rotRad;
 
 			chars.push({
 				char: it.char,
@@ -2110,8 +2112,8 @@ export class TextLayoutEngine {
 				font: it.font,
 				glyphPath: this.transformGlyphPath(
 					it.rawGlyphPath,
-					cx,
-					cy,
+					cx - (Math.cos(rotation) * it.advanceWidth) / 2,
+					cy - (Math.sin(rotation) * it.advanceWidth) / 2,
 					it.sizeScale,
 					rotation,
 					d.skewXRad,
@@ -2212,128 +2214,6 @@ export class TextLayoutEngine {
 			isMoved: seg.isMoved,
 			isClosed: seg.isClosed,
 		}));
-	}
-
-	/**
-	 * パスの全長を計算
-	 */
-	private calculatePathLength(segments: CubicBezierSegment[]): number {
-		let length = 0;
-		let prevEnd: Point | undefined;
-		for (const seg of segments) {
-			length += this.bezierLength(seg, prevEnd);
-			prevEnd = seg.end;
-		}
-		return length;
-	}
-
-	/**
-	 * 3次ベジエ曲線の長さを近似計算
-	 */
-	private bezierLength(seg: CubicBezierSegment, prevEnd?: Point): number {
-		const resolved = resolveSegment(seg, prevEnd);
-		// 分割数
-		const steps = 20;
-		let length = 0;
-		let prev = resolved.start;
-
-		for (let i = 1; i <= steps; i++) {
-			const t = i / steps;
-			const point = this.bezierPoint(resolved, t);
-			length += Math.hypot(point.x - prev.x, point.y - prev.y);
-			prev = point;
-		}
-
-		return length;
-	}
-
-	/**
-	 * 3次ベジエ曲線上の点を取得
-	 * resolved: resolveSegmentで絶対座標に変換済みのセグメント
-	 */
-	private bezierPoint(
-		resolved: { start: Point; cp1: Point; cp2: Point; end: Point },
-		t: number,
-	): Point {
-		const u = 1 - t;
-		const tt = t * t;
-		const uu = u * u;
-		const uuu = uu * u;
-		const ttt = tt * t;
-
-		return {
-			x:
-				uuu * resolved.start.x +
-				3 * uu * t * resolved.cp1.x +
-				3 * u * tt * resolved.cp2.x +
-				ttt * resolved.end.x,
-			y:
-				uuu * resolved.start.y +
-				3 * uu * t * resolved.cp1.y +
-				3 * u * tt * resolved.cp2.y +
-				ttt * resolved.end.y,
-		};
-	}
-
-	/**
-	 * 3次ベジエ曲線上の接線を取得
-	 * resolved: resolveSegmentで絶対座標に変換済みのセグメント
-	 */
-	private bezierTangent(
-		resolved: { start: Point; cp1: Point; cp2: Point; end: Point },
-		t: number,
-	): Point {
-		const u = 1 - t;
-		const tt = t * t;
-		const uu = u * u;
-
-		return {
-			x:
-				3 * uu * (resolved.cp1.x - resolved.start.x) +
-				6 * u * t * (resolved.cp2.x - resolved.cp1.x) +
-				3 * tt * (resolved.end.x - resolved.cp2.x),
-			y:
-				3 * uu * (resolved.cp1.y - resolved.start.y) +
-				6 * u * t * (resolved.cp2.y - resolved.cp1.y) +
-				3 * tt * (resolved.end.y - resolved.cp2.y),
-		};
-	}
-
-	/**
-	 * パス上の指定位置（0-1）の点と角度を取得
-	 */
-	private getPointOnPath(segments: CubicBezierSegment[], t: number): PathPoint {
-		const totalLength = this.calculatePathLength(segments);
-		const targetLength = t * totalLength;
-
-		let accumulated = 0;
-		let prevEnd: Point | undefined;
-		for (const seg of segments) {
-			const segLength = this.bezierLength(seg, prevEnd);
-			if (accumulated + segLength >= targetLength) {
-				// このセグメント内
-				const localT = (targetLength - accumulated) / segLength;
-				const resolved = resolveSegment(seg, prevEnd);
-				const point = this.bezierPoint(resolved, localT);
-				const tangent = this.bezierTangent(resolved, localT);
-				const angle = Math.atan2(tangent.y, tangent.x);
-				return { ...point, angle, t: localT };
-			}
-			accumulated += segLength;
-			prevEnd = seg.end;
-		}
-
-		// 末端
-		const lastSeg = segments.at(-1)!;
-		const lastPrevEnd = segments.length > 1 ? segments.at(-2)?.end : undefined;
-		const lastResolved = resolveSegment(lastSeg, lastPrevEnd);
-		const tangent = this.bezierTangent(lastResolved, 1);
-		return {
-			x: lastSeg.end.x,
-			y: lastSeg.end.y,
-			angle: Math.atan2(tangent.y, tangent.x),
-			t: 1,
-		};
 	}
 
 	/**

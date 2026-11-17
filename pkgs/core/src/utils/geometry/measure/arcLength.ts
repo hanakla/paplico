@@ -183,12 +183,8 @@ export function samplePathAtArcLength(
 		segmentIndex = entry0.segmentIndex;
 		localT = entry0.localT + (entry1.localT - entry0.localT) * interpT;
 	} else {
-		// Crossing segment boundary - use entry1's segment
-		segmentIndex = interpT < 0.5 ? entry0.segmentIndex : entry1.segmentIndex;
-		localT =
-			interpT < 0.5
-				? entry0.localT + (1 - entry0.localT) * (interpT * 2)
-				: entry1.localT * ((interpT - 0.5) * 2);
+		segmentIndex = entry1.segmentIndex;
+		localT = entry1.localT * interpT;
 	}
 
 	// Ensure valid indices

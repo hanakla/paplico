@@ -16,6 +16,11 @@
 - **Document**
   - Paste to front and paste to back put elements copied from an artboard at the same spot on the artboard last pressed instead of where they were copied from. A press outside every artboard makes them paste where they were copied from.
 
+### Fixed
+
+- **Text**
+  - Fix uneven spacing and displaced characters on paths.
+
 ## [0.11.0] - 2026-11-16
 
 ### Added

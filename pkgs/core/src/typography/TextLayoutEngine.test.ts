@@ -170,6 +170,35 @@ describe("TextLayoutEngine on-path overflow", () => {
 		expect(result.chars[0].x).toBeCloseTo(35);
 		expect(result.chars.at(-1)?.x).toBeCloseTo(65);
 	});
+
+	it("places glyphs at equal distances along a nonuniform path and applies kerning before each glyph", async () => {
+		const element = createTextElement("主人公", {
+			axisBinding: {
+				mode: "onPath",
+				pathObjectId: "p",
+				startOffset: 0,
+				alignment: "left",
+				offsetDistance: 0,
+				orientation: "rotate",
+			},
+		});
+		element.content.paragraphs[0].runs[0].charOverrides = [
+			{ charIndex: 1, kerningAdjust: 0.1 },
+			{ charIndex: 2, kerningAdjust: 0.1 },
+		];
+		const segments = [lineSeg({ x: 100, y: 0 }, { start: { x: 0, y: 0 } })];
+		const result = await new TextLayoutEngine(createMockFontManager()).layout(
+			element,
+			{ kind: "onPath", segments },
+		);
+
+		for (const [index, expected] of [5, 16, 27].entries()) {
+			expect(Math.abs(result.chars[index].x - expected)).toBeLessThan(0.2);
+		}
+		expect(Math.abs(result.chars[0].glyphPath[0].start?.x ?? NaN)).toBeLessThan(
+			0.2,
+		);
+	});
 });
 
 describe("TextLayoutEngine inShape", () => {
