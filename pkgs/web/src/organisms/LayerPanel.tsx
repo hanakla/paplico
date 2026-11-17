@@ -1593,8 +1593,8 @@ const SortableLayerSection = memo(function SortableLayerSection({
 			{showIndicatorBefore && (
 				<div className="h-0.5 bg-accent rounded-full mx-1" />
 			)}
-			<div ref={setNodeRef} style={style} className="space-y-0.5">
-				<div {...attributes} {...listeners}>
+			<div style={style} className="space-y-0.5">
+				<div ref={setNodeRef} {...attributes} {...listeners}>
 					<DroppableLayerHeader
 						{...headerProps}
 						onToggleExpansion={handleToggleExpansion}
