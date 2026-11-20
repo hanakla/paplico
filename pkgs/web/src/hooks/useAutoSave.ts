@@ -39,10 +39,7 @@ export function useAutoSave(
 	// record to be saved under.
 	const documentId = source.kind === "room" ? null : currentDocumentId;
 
-	// A ref so edits survive the timer effect restarting on interval changes
 	const hasUnsavedRevisionRef = useRef(false);
-
-	const { intervalMs } = useSnapshot(autoSaveState);
 
 	const saveRevisionNow = useEventCallback(async () => {
 		if (!paplico || !documentId || autoSaveState.isSaving) return;
@@ -64,6 +61,7 @@ export function useAutoSave(
 				paplico.exportDocument(),
 				generateDocumentThumbnail(paplico),
 			]);
+
 			// The record a reload opens is written first, so a failed revision
 			// still leaves the latest content in it.
 			try {
@@ -99,7 +97,7 @@ export function useAutoSave(
 
 		const now = Date.now();
 		autoSaveState.lastSaveTimestamp = now;
-		autoSaveState.nextSaveAt = now + intervalMs;
+		autoSaveState.nextSaveAt = now + autoSaveState.intervalMs;
 
 		let intervalTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -111,7 +109,7 @@ export function useAutoSave(
 			intervalTimer = setTimeout(async () => {
 				await saveRevisionNow();
 				scheduleNext();
-			}, intervalMs);
+			}, autoSaveState.intervalMs);
 		};
 
 		scheduleNext();
@@ -124,7 +122,7 @@ export function useAutoSave(
 				intervalTimer = null;
 			}
 		};
-	}, [paplico, documentId, intervalMs]);
+	}, [paplico, documentId]);
 
 	return { save: saveRevisionNow };
 }

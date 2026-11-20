@@ -1,8 +1,13 @@
 import type { Paplico } from "@paplico/core";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AUTO_SAVE_INTERVAL_MS } from "@/configs";
+import {
+	AUTO_SAVE_INTERVAL_MS,
+	AUTO_SAVE_SLOW_INTERVAL_MS,
+	AUTO_SAVE_SLOW_THRESHOLD_MS,
+} from "@/configs";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { autoSaveState } from "@/stores/autoSave";
 import {
 	setInternalDocumentSession,
 	setRoomDocumentSession,
@@ -23,6 +28,8 @@ describe("useAutoSave", () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 		vi.mocked(saveDocument).mockClear();
+		autoSaveState.intervalMs = AUTO_SAVE_INTERVAL_MS;
+		autoSaveState.isSlowDocument = false;
 		documentManagerState.currentDocumentId = "doc-a";
 		setInternalDocumentSession("doc-a");
 	});
@@ -57,6 +64,31 @@ describe("useAutoSave", () => {
 		await act(() => vi.advanceTimersByTimeAsync(AUTO_SAVE_INTERVAL_MS));
 
 		expect(onSaveStart).not.toHaveBeenCalled();
+	});
+
+	it("should use the extended interval after a slow save", async () => {
+		const engine = createEngine("content-a");
+		const performanceNow = vi
+			.spyOn(performance, "now")
+			.mockReturnValueOnce(0)
+			.mockReturnValueOnce(AUTO_SAVE_SLOW_THRESHOLD_MS + 1);
+		renderHook(() => useAutoSave(engine.paplico));
+
+		engine.edit();
+		await act(() => vi.advanceTimersByTimeAsync(AUTO_SAVE_INTERVAL_MS));
+		engine.edit();
+		await act(() => vi.advanceTimersByTimeAsync(AUTO_SAVE_INTERVAL_MS));
+
+		expect(saveDocument).toHaveBeenCalledOnce();
+
+		await act(() =>
+			vi.advanceTimersByTimeAsync(
+				AUTO_SAVE_SLOW_INTERVAL_MS - AUTO_SAVE_INTERVAL_MS,
+			),
+		);
+
+		expect(saveDocument).toHaveBeenCalledTimes(2);
+		performanceNow.mockRestore();
 	});
 
 	it("should not write the next document under the previous id when the document changes", async () => {
