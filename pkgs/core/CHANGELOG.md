@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Collaboration**
+  - Fix a desktop app failing to reach the collaboration server, because it asked for an unencrypted `ws://` connection.
+  - Fix a host being disconnected when a guest joins a device-to-device session with a large document. The relay refuses messages above 32 MiB, so the document is now sent in pieces of 8 MiB. A guest on an older version cannot read these messages.
+
 ## [0.12.0] - 2026-11-18
 
 ### Added

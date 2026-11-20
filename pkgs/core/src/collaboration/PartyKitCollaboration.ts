@@ -19,6 +19,7 @@ import {
 	type CollaborationConfig,
 	USER_COLORS,
 } from "./ICollaboration";
+import { relayProtocolForPage } from "./relaySocket";
 
 export class PartyKitCollaboration extends CollaborationBase {
 	private provider: YProvider;
@@ -53,7 +54,7 @@ export class PartyKitCollaboration extends CollaborationBase {
 
 		this.provider = new YProvider(config.relayHost, config.roomId, ydoc, {
 			connect: true,
-			protocol: globalThis.location?.protocol === "https:" ? "wss" : "ws",
+			protocol: relayProtocolForPage(),
 			params: Object.keys(params).length > 0 ? params : undefined,
 		});
 

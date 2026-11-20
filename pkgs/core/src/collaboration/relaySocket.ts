@@ -8,6 +8,7 @@
  */
 
 import PartySocket from "partysocket";
+import { encodeFrames, FrameAssembler } from "./relayFraming";
 
 /**
  * The relay announces a departure in the clear, because it holds no key to
@@ -37,23 +38,25 @@ export function createPartyRelaySocket(
 		host: resolveRelayHost(host),
 		party: "relay",
 		room: roomId,
-		// Follow the page: a plain ws:// from an https:// page is blocked as
-		// mixed content, and the dev relay is served over TLS for that reason.
-		protocol: globalThis.location?.protocol === "https:" ? "wss" : "ws",
+		protocol: relayProtocolForPage(),
 	});
 	socket.binaryType = "arraybuffer";
+	const assembler = new FrameAssembler();
 
 	return {
 		get id() {
 			return socket.id;
 		},
-		send: (data) => socket.send(data),
+		send: (data) => {
+			for (const frame of encodeFrames(data)) socket.send(frame);
+		},
 		close: () => socket.close(),
 		reconnect: () => socket.reconnect(),
 		onMessage: (handler) => {
 			socket.addEventListener("message", (event) => {
-				if (event.data instanceof ArrayBuffer)
-					handler(new Uint8Array(event.data));
+				if (!(event.data instanceof ArrayBuffer)) return;
+				const payload = assembler.push(new Uint8Array(event.data));
+				if (payload) handler(payload);
 			});
 		},
 		onPeerLeft: (handler) => {
@@ -67,9 +70,23 @@ export function createPartyRelaySocket(
 		},
 		onStatusChange: (handler) => {
 			socket.addEventListener("open", () => handler("connected"));
-			socket.addEventListener("close", () => handler("disconnected"));
+			socket.addEventListener("close", () => {
+				assembler.clear();
+				handler("disconnected");
+			});
 		},
 	};
+}
+
+/**
+ * Forces TLS when the page has it, because a plain ws:// from an https:// page
+ * is blocked as mixed content and the dev relay is served over TLS for that
+ * reason. Anything else is left to PartySocket, which picks ws:// for a local
+ * host and wss:// for a remote one. A desktop page is neither http: nor
+ * https:, so it must not be assumed to want ws://.
+ */
+export function relayProtocolForPage(): "wss" | undefined {
+	return globalThis.location?.protocol === "https:" ? "wss" : undefined;
 }
 
 const LOCALHOST_PATTERN =

@@ -38,6 +38,13 @@ for file in "${EXCLUDE_FILES[@]}"; do
   fi
 done
 
+# The desktop build has no origin of its own, so API and share links need the deployed site's address.
+# CI passes it through the environment, so the default only applies to local builds.
+export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-https://paplico.hanak.la}"
+# A guest opens the deployed site, so the relay must be the one the site uses, not the one in .env.
+export NEXT_PUBLIC_COLLAB_MODE="${NEXT_PUBLIC_COLLAB_MODE:-cloud}"
+export NEXT_PUBLIC_PARTYKIT_HOST="${NEXT_PUBLIC_PARTYKIT_HOST:-paplico-collab.hanakla.workers.dev}"
+
 TAURI_BUILD=1 npx next build
 
 echo "Static export complete: out/"
