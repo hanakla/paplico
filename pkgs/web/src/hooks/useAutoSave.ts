@@ -39,7 +39,6 @@ export function useAutoSave(
 	// record to be saved under.
 	const documentId = source.kind === "room" ? null : currentDocumentId;
 
-	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	// A ref so edits survive the timer effect restarting on interval changes
 	const hasUnsavedRevisionRef = useRef(false);
 
@@ -102,24 +101,27 @@ export function useAutoSave(
 		autoSaveState.lastSaveTimestamp = now;
 		autoSaveState.nextSaveAt = now + intervalMs;
 
+		let intervalTimer: ReturnType<typeof setTimeout> | null = null;
+
 		const unsubscribe = paplico.getYjsProvider().on("update", () => {
 			hasUnsavedRevisionRef.current = true;
 		});
 
 		const scheduleNext = () => {
-			intervalRef.current = setTimeout(async () => {
+			intervalTimer = setTimeout(async () => {
 				await saveRevisionNow();
 				scheduleNext();
 			}, intervalMs);
 		};
+
 		scheduleNext();
 
 		return () => {
 			unsubscribe();
 
-			if (intervalRef.current) {
-				clearTimeout(intervalRef.current);
-				intervalRef.current = null;
+			if (intervalTimer != null) {
+				clearTimeout(intervalTimer);
+				intervalTimer = null;
 			}
 		};
 	}, [paplico, documentId, intervalMs]);
