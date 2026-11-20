@@ -143,6 +143,14 @@ interface SerializedEmbeddedFile {
 	bin: Uint8Array | number[];
 }
 
+type YLayerValue = string | number | boolean | Y.Array<string>;
+type YLayerMap = Y.Map<YLayerValue>;
+type YObjectValue = string | number | boolean | Uint8Array | null | undefined;
+type YObjectMap = Y.Map<YObjectValue>;
+type YDocumentMetaValue = string | number;
+type YDocumentMetaMap = Y.Map<YDocumentMetaValue>;
+type StoredObjectFields = Record<string, YObjectValue>;
+
 export interface YjsSyncAppliedMeta {
 	syncKind: "full" | "delta";
 	undoRedo: boolean;
@@ -207,7 +215,7 @@ type YjsProviderEventMap = {
  * Manages document state with Yjs CRDT
  *
  * Normalized data model:
- * - yObjects: Y.Map<Y.Map<unknown>> — All ArtObjects stored by ID, each as individual Y.Map
+ * - yObjects: Y.Map<YObjectMap> — All ArtObjects stored by ID, each as individual Y.Map
  * - layer.elementIds: Y.Array<string> — Layers hold only ordered ID lists
  * - Group.childIds — Groups reference children by ID (children NOT in layer.elementIds)
  *
@@ -234,9 +242,9 @@ type YjsProviderEventMap = {
 export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	public ydoc: Y.Doc;
 	// Bound by bindSharedTypes() (constructor + resetWithFreshDoc).
-	private yLayers!: Y.Array<Y.Map<unknown>>;
-	private yObjects!: Y.Map<Y.Map<unknown>>;
-	private yMeta!: Y.Map<unknown>;
+	private yLayers!: Y.Array<YLayerMap>;
+	private yObjects!: Y.Map<YObjectMap>;
+	private yMeta!: YDocumentMetaMap;
 	private yArtboards!: Y.Array<Artboard>;
 	private yFiles!: Y.Map<SerializedEmbeddedFile>;
 	/**
@@ -448,8 +456,8 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	// --- Y.Map helpers ---
 
 	/** Convert AnyArtObject to Y.Map for storage */
-	private objectToYMap(element: AnyArtObject): Y.Map<unknown> {
-		const yMap = new Y.Map<unknown>();
+	private objectToYMap(element: AnyArtObject): YObjectMap {
+		const yMap = new Y.Map<YObjectValue>();
 		const fields = this.objectToStoredFields(element);
 		for (const [key, value] of Object.entries(fields)) {
 			yMap.set(key, value);
@@ -457,7 +465,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 		return yMap;
 	}
 
-	private objectToStoredFields(element: AnyArtObject): Record<string, unknown> {
+	private objectToStoredFields(element: AnyArtObject): StoredObjectFields {
 		return objectToStoredFields(element);
 	}
 
@@ -465,12 +473,12 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	 * Write a container's child list. Every write goes through here so the list
 	 * keeps its one invariant: an element appears in it once. See uniqueIds.
 	 */
-	private setChildIds(yContainer: Y.Map<unknown>, childIds: string[]): void {
+	private setChildIds(yContainer: YObjectMap, childIds: string[]): void {
 		yContainer.set("childIds", JSON.stringify(uniqueIds(childIds)));
 	}
 
 	/** Find a yLayer Y.Map by layer ID */
-	private findYLayer(layerId: string): Y.Map<unknown> | null {
+	private findYLayer(layerId: string): YLayerMap | null {
 		for (let i = 0; i < this.yLayers.length; i++) {
 			const yLayer = this.yLayers.get(i);
 			if (yLayer?.get("id") === layerId) return yLayer;
@@ -479,7 +487,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	}
 
 	/** Get the elementIds Y.Array from a yLayer */
-	private getYElementIds(yLayer: Y.Map<unknown>): Y.Array<string> {
+	private getYElementIds(yLayer: YLayerMap): Y.Array<string> {
 		return yLayer.get("elementIds") as Y.Array<string>;
 	}
 
@@ -846,7 +854,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	 */
 	public addLayer(layer: Layer): void {
 		this.ydoc.transact(() => {
-			const yLayer = new Y.Map<unknown>();
+			const yLayer = new Y.Map<YLayerValue>();
 			yLayer.set("id", layer.id);
 			yLayer.set("name", layer.name);
 			yLayer.set("visible", layer.visible);
@@ -1232,36 +1240,35 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	// --- Group Operations ---
 
 	/**
-	 * Create a group from elements at specified IDs
-	 * Normalized: children are removed from layer.elementIds, stored in group.childIds
+	 * Create a group from elements in a layer or parent group.
+	 * Normalized: children are removed from their parent and stored in group.childIds.
 	 */
 	public groupElements(
-		layerId: string,
+		parentId: string,
 		elementIds: string[],
 		origin?: unknown,
 	): string | null {
 		let groupId: string | null = null;
 
 		this.ydoc.transact(() => {
-			const yLayer = this.findYLayer(layerId);
-			if (!yLayer) return;
+			const yLayer = this.findYLayer(parentId);
+			const yElementIds = yLayer ? this.getYElementIds(yLayer) : null;
+			const yParent = yLayer ? undefined : this.yObjects.get(parentId);
+			const childIdsJson = yParent?.get("childIds") as string | undefined;
+			const childIds = yElementIds
+				? yElementIds.toArray()
+				: childIdsJson
+					? (JSON.parse(childIdsJson) as string[])
+					: null;
+			if (!childIds || elementIds.length < 2) return;
 
-			const yElementIds = this.getYElementIds(yLayer);
-			if (!yElementIds) return;
+			const selectedSet = new Set(elementIds);
+			const indicesToRemove = childIds
+				.map((id, index) => (selectedSet.has(id) ? index : -1))
+				.filter((index) => index !== -1);
+			const minIndex = indicesToRemove.at(0);
+			if (minIndex == null) return;
 
-			if (elementIds.length < 2) return;
-
-			// Find the minimum index among elementIds in yElementIds
-			let minIndex = Number.MAX_SAFE_INTEGER;
-			for (let i = 0; i < yElementIds.length; i++) {
-				if (elementIds.includes(yElementIds.get(i))) {
-					minIndex = Math.min(minIndex, i);
-				}
-			}
-
-			if (minIndex === Number.MAX_SAFE_INTEGER) return;
-
-			// Create group object
 			groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 			const group: Group = {
 				type: "group",
@@ -1272,28 +1279,27 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 				transform: createIdentityTransform(),
 				filters: [createDefaultContentAppearance()],
 			};
-
-			// Add group to yObjects
 			this.yObjects.set(groupId, this.objectToYMap(group));
 
-			// Remove all elementIds from yElementIds (reverse order for safe deletion)
-			const indicesToRemove: number[] = [];
-			for (let i = 0; i < yElementIds.length; i++) {
-				if (elementIds.includes(yElementIds.get(i))) {
-					indicesToRemove.push(i);
-				}
-			}
-			for (let i = indicesToRemove.length - 1; i >= 0; i--) {
-				yElementIds.delete(indicesToRemove[i], 1);
-			}
-
-			// Insert groupId at the minimum position
-			// After deletions, the insertion index shifts down by the number of deleted items before minIndex
 			const deletedBefore = indicesToRemove.filter(
-				(idx) => idx < minIndex,
+				(index) => index < minIndex,
 			).length;
 			const insertAt = minIndex - deletedBefore;
-			yElementIds.insert(insertAt, [groupId]);
+
+			if (yElementIds) {
+				for (const index of indicesToRemove.toReversed()) {
+					yElementIds.delete(index, 1);
+				}
+				yElementIds.insert(insertAt, [groupId]);
+				return;
+			}
+
+			const remainingIds = childIds.filter(
+				(_, index) => !indicesToRemove.includes(index),
+			);
+			remainingIds.splice(insertAt, 0, groupId);
+			if (!yParent) return;
+			this.setChildIds(yParent, remainingIds);
 		}, origin);
 
 		return groupId;
@@ -1699,70 +1705,6 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 	}
 
 	/**
-	 * Create a group from elements that are children of a parent group.
-	 * Normalized: children are removed from parentGroup.childIds, stored in new group.childIds.
-	 * The new group is inserted into parentGroup.childIds at the minimum index of the selected elements.
-	 */
-	public groupElementsInGroup(
-		parentGroupId: string,
-		elementIds: string[],
-		origin?: unknown,
-	): string | null {
-		let groupId: string | null = null;
-
-		this.ydoc.transact(() => {
-			const yParent = this.yObjects.get(parentGroupId);
-			if (!yParent) return;
-
-			const childIdsJson = yParent.get("childIds") as string | undefined;
-			const childIds: string[] = childIdsJson ? JSON.parse(childIdsJson) : [];
-
-			if (elementIds.length < 2) return;
-
-			// Find the minimum index among elementIds in childIds
-			let minIndex = Number.MAX_SAFE_INTEGER;
-			for (let i = 0; i < childIds.length; i++) {
-				if (elementIds.includes(childIds[i])) {
-					minIndex = Math.min(minIndex, i);
-				}
-			}
-			if (minIndex === Number.MAX_SAFE_INTEGER) return;
-
-			// Create new group object
-			groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-			const group: Group = {
-				type: "group",
-				id: groupId,
-				childIds: elementIds,
-				opacity: 1,
-				blendMode: "normal",
-				transform: createIdentityTransform(),
-				filters: [createDefaultContentAppearance()],
-			};
-			this.yObjects.set(groupId, this.objectToYMap(group));
-
-			// Remove selected elements from parent childIds and insert new group
-			const indicesToRemove: number[] = [];
-			for (let i = 0; i < childIds.length; i++) {
-				if (elementIds.includes(childIds[i])) {
-					indicesToRemove.push(i);
-				}
-			}
-			const newChildIds = childIds.filter(
-				(_, i) => !indicesToRemove.includes(i),
-			);
-			const deletedBefore = indicesToRemove.filter(
-				(idx) => idx < minIndex,
-			).length;
-			const insertAt = minIndex - deletedBefore;
-			newChildIds.splice(insertAt, 0, groupId);
-			this.setChildIds(yParent, newChildIds);
-		}, origin);
-
-		return groupId;
-	}
-
-	/**
 	 * Set clip path for a group
 	 */
 	public setClipPath(
@@ -2063,7 +2005,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
 
 		// Group parent: restore into childIds (JSON scalar). Locate first,
 		// then mutate, to avoid editing yObjects mid-iteration.
-		let targetGroup: Y.Map<unknown> | null = null;
+		let targetGroup: YObjectMap | null = null;
 		let targetChildIds: string[] | null = null;
 		let targetIndex = -1;
 		for (const [, yObj] of this.yObjects.entries()) {
@@ -2816,7 +2758,7 @@ export class YjsProvider extends Emitter<YjsProviderEventMap> {
  * laid out in Yjs — YjsProvider populates through here too.
  */
 function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
-	const yObjects = ydoc.getMap<Y.Map<unknown>>("objects");
+	const yObjects = ydoc.getMap<YObjectMap>("objects");
 	for (const [id, obj] of Object.entries(doc.objects)) {
 		yObjects.set(
 			id,
@@ -2824,9 +2766,9 @@ function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 		);
 	}
 
-	const yLayers = ydoc.getArray<Y.Map<unknown>>("layers");
+	const yLayers = ydoc.getArray<YLayerMap>("layers");
 	for (const layer of doc.layers) {
-		const yLayer = new Y.Map<unknown>();
+		const yLayer = new Y.Map<YLayerValue>();
 		yLayer.set("id", layer.id);
 		yLayer.set("name", layer.name);
 		yLayer.set("visible", layer.visible);
@@ -2877,7 +2819,7 @@ function populateYDocFromDocument(ydoc: Y.Doc, doc: Document): void {
 		yReferences3d.set(sceneId, reference3DDefToYMap(def));
 	}
 
-	const yMeta = ydoc.getMap<unknown>("meta");
+	const yMeta = ydoc.getMap<YDocumentMetaValue>("meta");
 	yMeta.set("hdr", JSON.stringify(doc.hdr ?? { enabled: false, exposure: 0 }));
 	yMeta.set(
 		"colorProfile",
@@ -2916,8 +2858,8 @@ function appearancePresetToYMap(preset: AppearancePreset): Y.Map<unknown> {
 	return yPreset;
 }
 
-function storedFieldsToYMap(fields: Record<string, unknown>): Y.Map<unknown> {
-	const yMap = new Y.Map<unknown>();
+function storedFieldsToYMap(fields: StoredObjectFields): YObjectMap {
+	const yMap = new Y.Map<YObjectValue>();
 	for (const [key, value] of Object.entries(fields)) yMap.set(key, value);
 	return yMap;
 }
@@ -2929,7 +2871,7 @@ function storedFieldsToYMap(fields: Record<string, unknown>): Y.Map<unknown> {
  * dropped.
  */
 function writeElementUpdates(
-	yObj: Y.Map<unknown>,
+	yObj: YObjectMap,
 	updates: Partial<AnyArtObject>,
 ): void {
 	for (const [key, value] of Object.entries(updates)) {
@@ -2987,9 +2929,9 @@ function writeArtboardUpdates(
  * byte-wise comparison.
  */
 function writeStoredFieldChanges(
-	yObj: Y.Map<unknown>,
-	before: Record<string, unknown>,
-	after: Record<string, unknown>,
+	yObj: YObjectMap,
+	before: StoredObjectFields,
+	after: StoredObjectFields,
 ): void {
 	for (const key of Object.keys(before)) {
 		if (!(key in after)) yObj.delete(key);
@@ -3026,8 +2968,8 @@ function withUniqueChildIds(element: AnyArtObject): AnyArtObject {
 /** Convert AnyArtObject to serializable key/value fields for Y.Map storage */
 export function objectToStoredFields(
 	element: AnyArtObject,
-): Record<string, unknown> {
-	const fields: Record<string, unknown> = {};
+): StoredObjectFields {
+	const fields: StoredObjectFields = {};
 
 	// Common ArtObject fields
 	fields.id = element.id;

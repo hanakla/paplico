@@ -168,7 +168,7 @@ describe("PaplicoCommands", () => {
 			const layer = createLayer("layer-1", [parentGroup.id]);
 			const addObjectOnly = vi.fn<YjsProvider["addObjectOnly"]>();
 			const addElementToGroup = vi.fn<YjsProvider["addElementToGroup"]>();
-			const groupElementsInGroup = vi.fn<YjsProvider["groupElementsInGroup"]>(
+			const groupElements = vi.fn<YjsProvider["groupElements"]>(
 				() => "group-2",
 			);
 			const setClipPath = vi.fn<YjsProvider["setClipPath"]>();
@@ -187,7 +187,7 @@ describe("PaplicoCommands", () => {
 				yjsProvider: {
 					addObjectOnly,
 					addElementToGroup,
-					groupElementsInGroup,
+					groupElements,
 					setClipPath,
 					updateElement,
 					transact: vi.fn((fn: () => void) => fn()),
@@ -207,7 +207,7 @@ describe("PaplicoCommands", () => {
 				undefined,
 				0,
 			]);
-			expect(groupElementsInGroup.mock.calls[0][1]).toEqual([rect.id, path.id]);
+			expect(groupElements.mock.calls[0][1]).toEqual([rect.id, path.id]);
 			expect(setClipPath.mock.calls[0][2]).toBe(path.id);
 		});
 	});

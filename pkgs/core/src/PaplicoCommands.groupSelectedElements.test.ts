@@ -32,7 +32,6 @@ describe("PaplicoCommands.groupSelectedElements", () => {
 	let store: RendererState;
 	let moveElementToLayer: ReturnType<typeof vi.fn>;
 	let groupElements: ReturnType<typeof vi.fn>;
-	let groupElementsInGroup: ReturnType<typeof vi.fn>;
 	let removeElement: ReturnType<typeof vi.fn>;
 	let insertElement: ReturnType<typeof vi.fn>;
 	let commands: PaplicoCommands;
@@ -40,7 +39,6 @@ describe("PaplicoCommands.groupSelectedElements", () => {
 	beforeEach(() => {
 		moveElementToLayer = vi.fn();
 		groupElements = vi.fn().mockReturnValue("group-1");
-		groupElementsInGroup = vi.fn().mockReturnValue("group-1");
 		removeElement = vi.fn();
 		insertElement = vi.fn();
 
@@ -78,7 +76,6 @@ describe("PaplicoCommands.groupSelectedElements", () => {
 			yjsProvider: {
 				moveElementToLayer,
 				groupElements,
-				groupElementsInGroup,
 			} as unknown as YjsProvider,
 			spatial: {
 				removeElement,
@@ -135,13 +132,42 @@ describe("PaplicoCommands.groupSelectedElements", () => {
 		const groupId = commands.groupSelectedElements(["c2", "c0"]);
 
 		expect(groupId).toBe("group-1");
-		expect(groupElementsInGroup).toHaveBeenCalledTimes(1);
-		expect(groupElementsInGroup.mock.calls[0]).toEqual([
+		expect(groupElements).toHaveBeenCalledTimes(1);
+		expect(groupElements.mock.calls[0]).toEqual([
 			"parent-group",
 			["c0", "c2"],
 			undefined,
 		]);
-		expect(groupElements).not.toHaveBeenCalled();
+		expect(moveElementToLayer).not.toHaveBeenCalled();
+		expect(store.selectedElementIds).toEqual(["group-1"]);
+	});
+
+	it("groups selected elements inside a layer editing scope", () => {
+		store.editingScopeStack = ["layer-0"];
+
+		const groupId = commands.groupSelectedElements(["a1", "a0"]);
+
+		expect(groupId).toBe("group-1");
+		expect(groupElements).toHaveBeenCalledWith(
+			"layer-0",
+			["a0", "a1"],
+			undefined,
+		);
+		expect(moveElementToLayer).not.toHaveBeenCalled();
+		expect(store.selectedElementIds).toEqual(["group-1"]);
+	});
+
+	it("groups selected elements inside a layer editing scope", () => {
+		store.editingScopeStack = ["layer-0"];
+
+		const groupId = commands.groupSelectedElements(["a1", "a0"]);
+
+		expect(groupId).toBe("group-1");
+		expect(groupElements).toHaveBeenCalledWith(
+			"layer-0",
+			["a0", "a1"],
+			undefined,
+		);
 		expect(moveElementToLayer).not.toHaveBeenCalled();
 		expect(store.selectedElementIds).toEqual(["group-1"]);
 	});
@@ -151,7 +177,6 @@ describe("PaplicoCommands.groupSelectedElements", () => {
 
 		// a0 lives at the layer root, not in the editing scope's childIds.
 		expect(commands.groupSelectedElements(["c0", "a0"])).toBeNull();
-		expect(groupElementsInGroup).not.toHaveBeenCalled();
 		expect(groupElements).not.toHaveBeenCalled();
 	});
 });

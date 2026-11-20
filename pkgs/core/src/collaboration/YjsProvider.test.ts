@@ -1495,7 +1495,7 @@ describe("YjsProvider", () => {
 				"path-3",
 			]);
 			provider.stopUndoCapture();
-			const innerId = provider.groupElementsInGroup(outerId as string, [
+			const innerId = provider.groupElements(outerId as string, [
 				"path-1",
 				"path-2",
 			]);

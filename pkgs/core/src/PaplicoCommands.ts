@@ -1166,23 +1166,26 @@ export class PaplicoCommands {
 
 		const editingScopeId = this.ctx.store.editingScopeStack.at(-1);
 		if (editingScopeId) {
-			// Inside an editing scope, the selection lives in the parent group's
-			// childIds (not in any layer's elementIds). Group within the parent,
-			// keeping the children's stacking (z) order regardless of selection
-			// order.
+			const scopedLayer = this.ctx.store.document.layers.find(
+				(layer) => layer.id === editingScopeId,
+			);
 			const parentGroup = this.ctx.store.document.objects[editingScopeId];
-			if (!parentGroup || !isGroup(parentGroup)) return null;
+			const scopedElementIds =
+				scopedLayer?.elementIds ??
+				(parentGroup && isGroup(parentGroup) ? parentGroup.childIds : null);
+			if (!scopedElementIds) return null;
 
 			const selectedWithIndex = elementIds
-				.map((id) => ({ id, index: parentGroup.childIds.indexOf(id) }))
+				.map((id) => ({ id, index: scopedElementIds.indexOf(id) }))
 				.filter((item) => item.index !== -1);
 			if (selectedWithIndex.length < 2) return null;
 
 			selectedWithIndex.sort((a, b) => a.index - b.index);
+			const orderedIds = selectedWithIndex.map((item) => item.id);
 
-			const groupId = this.ctx.yjsProvider.groupElementsInGroup(
+			const groupId = this.ctx.yjsProvider.groupElements(
 				editingScopeId,
-				selectedWithIndex.map((item) => item.id),
+				orderedIds,
 				this.getMutationOrigin(),
 			);
 			if (!groupId) return null;
@@ -2172,7 +2175,7 @@ export class PaplicoCommands {
 			const orderedIds = selectedWithIndex.map((item) => item.id);
 			const topmostId = orderedIds.at(-1)!;
 
-			const groupId = this.ctx.yjsProvider.groupElementsInGroup(
+			const groupId = this.ctx.yjsProvider.groupElements(
 				editingScopeId,
 				orderedIds,
 				this.getMutationOrigin(),
@@ -2267,7 +2270,7 @@ export class PaplicoCommands {
 					this.getMutationOrigin(),
 					index,
 				);
-				groupId = this.ctx.yjsProvider.groupElementsInGroup(
+				groupId = this.ctx.yjsProvider.groupElements(
 					editingScopeId,
 					[rect.id, elementId],
 					this.getMutationOrigin(),
