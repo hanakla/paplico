@@ -12,6 +12,15 @@
 - **Collaboration**
   - Fix a desktop app failing to reach the collaboration server, because it asked for an unencrypted `ws://` connection.
   - Fix a host being disconnected when a guest joins a device-to-device session with a large document. The relay refuses messages above 32 MiB, so the document is now sent in pieces of 8 MiB. A guest on an older version cannot read these messages.
+- **Text**
+  - Fix Enter leaving the text after the caret on the same line, or moving it out of order, in a line made of differently styled parts or joined with Backspace.
+  - Fix Enter dropping the per-character adjustments of the text it moves to the new line.
+  - Fix deleting or replacing a selection that spans differently styled parts removing the text after it and dropping the style of what remains.
+  - Fix the Left and Right keys needing two presses to pass between differently styled parts. Text typed there takes the style of the part before the caret.
+  - Fix kerning, character size and alignment changes made while editing not being saved until the edit ends. Undo takes back each change and keeps the caret in place.
+  - Fix the selected text staying in place until an IME composition is confirmed.
+  - Fix a new text ignoring the font, size, alignment and writing mode chosen after the text tool was picked.
+
 ## [0.12.0] - 2026-11-18
 
 ### Added

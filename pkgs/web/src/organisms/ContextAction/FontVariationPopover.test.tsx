@@ -72,7 +72,6 @@ describe("FontVariationPopover", () => {
 					] as TextElement;
 				},
 			}),
-			{ defaultStyle: element.defaultStyle },
 		);
 		controller.registerTextTool(tool);
 		tool.enterEditModeForElement(element);

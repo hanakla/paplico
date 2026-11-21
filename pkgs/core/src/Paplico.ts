@@ -3074,6 +3074,11 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				this.refreshSelectionUI(this.currentToolType === "select");
 			},
 
+			getTextDefaults: () => ({
+				style: this.toolSettings.textDefaultStyle,
+				alignment: this.toolSettings.textDefaultAlignment,
+				writingMode: this.toolSettings.textDefaultWritingMode,
+			}),
 			textCreate: (text) => {
 				this.commands.addText(text);
 				this.registerInitialTextRegionBounds(text);
@@ -3705,9 +3710,7 @@ export class Paplico extends Emitter<PaplicoEventMap> {
 				shapeOption: this.toolSettings.shapeOption,
 			});
 		} else if (toolType === "text") {
-			const textTool = new TextTool(this.toolContext, {
-				defaultStyle: { ...this.toolSettings.textDefaultStyle },
-			});
+			const textTool = new TextTool(this.toolContext);
 			this.tool = textTool;
 			this.textToolController?.registerTextTool(textTool);
 			this.lastTextOverflowBadgeKey = null;

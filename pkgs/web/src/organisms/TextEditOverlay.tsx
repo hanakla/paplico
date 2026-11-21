@@ -494,7 +494,7 @@ function TextEditOverlayInner({
 					aria-label="Text editor"
 					tabIndex={-1}
 					onKeyDown={handleKeyDown}
-					className="pointer-events-auto absolute h-px w-px outline-none"
+					className="pointer-events-auto absolute h-px w-px caret-transparent outline-none"
 					style={{ left: textareaLeft, top: textareaTop }}
 				/>
 			) : (

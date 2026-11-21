@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createIdentityTransform } from "../document/factory";
 import type { OverlayHit } from "../renderer/ui/hitTest";
 import { OVERLAY_KEYS } from "../renderer/ui/overlayKeys";
-import type { Path, TextElement, TextStyle } from "../schema";
+import type { Path, TextElement } from "../schema";
 import { createMockToolContext } from "../testUtils/mockToolContext";
 import {
 	ev,
@@ -49,12 +49,10 @@ function createTextElement(text: string): TextElement {
 }
 
 function createTool(previewUpdate: (text: TextElement | null) => void) {
-	const defaultStyle: TextStyle = createDefaultTextStyle();
 	return new TextTool(
 		createMockToolContext({
 			textPreviewUpdate: previewUpdate,
 		}),
-		{ defaultStyle },
 	);
 }
 
@@ -87,7 +85,6 @@ describe("TextTool", () => {
 				textPreviewUpdate: previewUpdate,
 				findTextAtPoint: vi.fn(() => text),
 			}),
-			{ defaultStyle: createDefaultTextStyle() },
 		);
 
 		tool.onPointerMove(
@@ -107,7 +104,6 @@ describe("TextTool", () => {
 				textPreviewUpdate: previewUpdate,
 				findTextAtPoint: vi.fn(() => null),
 			}),
-			{ defaultStyle: createDefaultTextStyle() },
 		);
 
 		tool.onPointerMove(
@@ -118,6 +114,40 @@ describe("TextTool", () => {
 		);
 
 		expect(tool.getCursor()).toBe("crosshair");
+	});
+
+	it("should create a text with the defaults set after the tool was picked", () => {
+		const textCreate = vi.fn();
+		const defaults = {
+			style: createDefaultTextStyle(),
+			alignment: "left" as "left" | "center",
+			writingMode: "horizontal-tb" as "horizontal-tb" | "vertical-rl",
+		};
+		const tool = new TextTool(
+			createMockToolContext({ textCreate, getTextDefaults: () => defaults }),
+		);
+
+		defaults.style = { ...defaults.style, fontSize: 60 };
+		defaults.alignment = "center";
+		defaults.writingMode = "vertical-rl";
+		tool.onPointerDown(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+		tool.onPointerUp(
+			ev(400, 300),
+			testViewport,
+			testCanvasWidth,
+			testCanvasHeight,
+		);
+
+		const created = textCreate.mock.calls[0][0] as TextElement;
+		expect(created.defaultStyle.fontSize).toBe(60);
+		expect(created.content.paragraphs[0].runs[0].style.fontSize).toBe(60);
+		expect(created.content.paragraphs[0].alignment).toBe("center");
+		expect(created.layout.writingMode).toBe("vertical-rl");
 	});
 });
 
@@ -167,7 +197,7 @@ describe("TextTool path-bound creation", () => {
 			getBounds: vi.fn(() => bbox(0, -10, 100, 10)),
 			textCreateOnPath,
 		});
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		// world(50, 0) = screen(450, 300): on the outline
 		tool.onPointerDown(
@@ -201,7 +231,7 @@ describe("TextTool path-bound creation", () => {
 			getBounds: vi.fn(() => bbox(0, -100, 100, 0)),
 			textCreateOnPath,
 		});
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		// world(50, 0) = screen(450, 300): on the top edge
 		tool.onPointerDown(
@@ -232,7 +262,7 @@ describe("TextTool path-bound creation", () => {
 			textCreateOnPath,
 			textCreate,
 		});
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		// world(50, -50) = screen(450, 350): interior, 50px from every edge
 		tool.onPointerDown(
@@ -260,7 +290,7 @@ describe("TextTool region drag", () => {
 	it("should create a fixed-box wrapping region from a drag", () => {
 		const textCreate = vi.fn();
 		const ctx = createMockToolContext({ textCreate });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.onPointerDown(
 			ev(400, 300),
@@ -296,7 +326,7 @@ describe("TextTool region drag", () => {
 	it("should create point text on a sub-threshold click, only at pointerup", () => {
 		const textCreate = vi.fn();
 		const ctx = createMockToolContext({ textCreate });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.onPointerDown(
 			ev(400, 300),
@@ -325,7 +355,7 @@ describe("TextTool region drag", () => {
 	it("should show the region preview while dragging and clear it on release", () => {
 		const uiSetOverlay = vi.fn();
 		const ctx = createMockToolContext({ uiSetOverlay });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.onPointerDown(
 			ev(400, 300),
@@ -388,7 +418,7 @@ describe("TextTool flow linking", () => {
 			textFlowLink,
 			...overrides,
 		});
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 		// Editing region A publishes its ■ handle into the overlay store
 		tool.enterEditModeForElement(a);
 		return { tool, ctx, a, b, textFlowLink };
@@ -470,7 +500,7 @@ describe("TextTool flow linking", () => {
 	it("should clear flow overlays on cancel", () => {
 		const uiSetOverlay = vi.fn();
 		const ctx = createMockToolContext({ uiSetOverlay });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.onCancel();
 
@@ -498,7 +528,7 @@ describe("TextTool empty region persistence", () => {
 		const textDelete = vi.fn();
 		const textComplete = vi.fn();
 		const ctx = createMockToolContext({ textDelete, textComplete });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.enterEditModeForElement(emptyRegion());
 		tool.onCancel();
@@ -517,7 +547,7 @@ describe("TextTool empty region persistence", () => {
 			textComplete,
 			findTextAtPoint: vi.fn(() => null),
 		});
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		// Blank click creates a text and enters editing
 		tool.onPointerDown(
@@ -557,7 +587,7 @@ describe("TextTool empty region persistence", () => {
 			textComplete,
 			findTextAtPoint: vi.fn(() => null),
 		});
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.onPointerDown(
 			ev(400, 300),
@@ -587,7 +617,7 @@ describe("TextTool empty region persistence", () => {
 	it("should still delete an empty point text on exit", () => {
 		const textDelete = vi.fn();
 		const ctx = createMockToolContext({ textDelete });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.enterEditModeForElement(createTextElement(""));
 		tool.onCancel();
@@ -598,7 +628,7 @@ describe("TextTool empty region persistence", () => {
 	it("should keep a font picked on empty text when exiting without typing", () => {
 		const textComplete = vi.fn();
 		const ctx = createMockToolContext({ textComplete });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.enterEditModeForElement(emptyRegion());
 		tool.applyStyleToSelection({ fontFamily: "Noto Sans JP" });
@@ -644,7 +674,7 @@ describe("TextTool flow link visual feedback", () => {
 			findTextAtPoint: vi.fn(() => null),
 			listTextElements: vi.fn(() => [a, b, c]),
 		});
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 		tool.enterEditModeForElement(a);
 
 		// Click A's ■ handle: corner (100,-50) + screenOffset(5,-5) = (505,355)
@@ -677,7 +707,7 @@ describe("TextTool flow link visual feedback", () => {
 			findTextAtPoint: vi.fn(() => a),
 			textChainMembers: vi.fn(() => [a, b]),
 		});
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.onPointerMove(
 			ev(450, 325),
@@ -700,7 +730,7 @@ describe("TextTool flow link visual feedback", () => {
 			findTextAtPoint: vi.fn(() => null),
 			textChainMembers: vi.fn(() => []),
 		});
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.onPointerMove(
 			ev(400, 300),
@@ -722,7 +752,7 @@ describe("TextTool.commitEditing", () => {
 		const textComplete = vi.fn();
 		const textCreate = vi.fn();
 		const ctx = createMockToolContext({ textComplete, textCreate });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.enterEditModeForElement(createTextElement("abc"));
 		tool.commitEditing();
@@ -747,7 +777,7 @@ describe("TextTool.commitEditing", () => {
 
 	it("should return to the select tool after committing", () => {
 		const ctx = createMockToolContext();
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.enterEditModeForElement(createTextElement("abc"));
 		tool.commitEditing();
@@ -759,7 +789,7 @@ describe("TextTool.commitEditing", () => {
 		const textComplete = vi.fn();
 		const textDelete = vi.fn();
 		const ctx = createMockToolContext({ textComplete, textDelete });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 
 		tool.commitEditing();
 
@@ -785,7 +815,7 @@ describe("TextTool cursor update sequencing", () => {
 			updateTextCursor,
 			getCursorWorldPosition,
 		});
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 		tool.enterEditModeForElement(createTextElement(""));
 
 		tool.insertText("a");
@@ -808,7 +838,7 @@ describe("TextTool IME composition caret", () => {
 	it("reports the composing range and clears it on commit", () => {
 		const selectionRangeChange = vi.fn();
 		const ctx = createMockToolContext({ selectionRangeChange });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 		tool.enterEditModeForElement(createTextElement("ab"));
 		tool.moveToDocumentEnd(false);
 		tool.startComposition();
@@ -840,7 +870,7 @@ describe("TextTool IME composition caret", () => {
 	it("should advance the caret by the composing text before commit", async () => {
 		const updateTextCursor = vi.fn();
 		const ctx = createMockToolContext({ updateTextCursor });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 		tool.enterEditModeForElement(createTextElement("ab"));
 		tool.moveToDocumentEnd(false); // caret after "ab" (index 2)
 
@@ -862,7 +892,7 @@ describe("TextTool IME composition caret", () => {
 	it("should return the caret to the anchor when composition is cleared", async () => {
 		const updateTextCursor = vi.fn();
 		const ctx = createMockToolContext({ updateTextCursor });
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 		tool.enterEditModeForElement(createTextElement("ab"));
 		tool.moveToDocumentEnd(false);
 
@@ -873,6 +903,85 @@ describe("TextTool IME composition caret", () => {
 
 		const last = updateTextCursor.mock.calls.at(-1);
 		expect(last?.[0]).toBe(2);
+	});
+
+	it("should replace the selected text as soon as composition starts", () => {
+		const tool = createTool(vi.fn());
+		const element = createTextElement("abcdef");
+		tool.enterEditModeForElement(element);
+		tool.moveToDocumentEnd(false);
+		for (let i = 0; i < 3; i++) tool.moveCursor("left", true); // select "def"
+
+		tool.startComposition();
+		tool.updateComposition("かん");
+		expect(paragraphTexts(element)).toEqual(["abcかん"]);
+
+		tool.endComposition("感");
+		expect(paragraphTexts(element)).toEqual(["abc感"]);
+	});
+});
+
+describe("TextTool newline", () => {
+	const setupTwoRuns = () => {
+		const tool = createTool(vi.fn());
+		const element = createTextElement("abc");
+		const [first] = element.content.paragraphs[0].runs;
+		element.content.paragraphs[0].runs.push({
+			text: "def",
+			style: { ...first.style, fontSize: first.style.fontSize * 2 },
+		});
+		tool.enterEditModeForElement(element);
+		return { tool, element };
+	};
+
+	it("should break the line inside a run", () => {
+		const tool = createTool(vi.fn());
+		const element = createTextElement("abcdef");
+		tool.enterEditModeForElement(element);
+		for (let i = 0; i < 3; i++) tool.moveCursor("right", false);
+
+		tool.insertNewline();
+
+		expect(paragraphTexts(element)).toEqual(["abc", "def"]);
+	});
+
+	it("should carry the runs after the caret's run to the new line", () => {
+		const { tool, element } = setupTwoRuns();
+		for (let i = 0; i < 3; i++) tool.moveCursor("right", false); // end of "abc"
+
+		tool.insertNewline();
+
+		expect(paragraphTexts(element)).toEqual(["abc", "def"]);
+	});
+
+	it("should keep the text order when the caret's run is followed by another run", () => {
+		const { tool, element } = setupTwoRuns();
+		for (let i = 0; i < 2; i++) tool.moveCursor("right", false); // after "ab"
+
+		tool.insertNewline();
+
+		expect(paragraphTexts(element)).toEqual(["ab", "cdef"]);
+	});
+
+	it("should keep an override attached to its character on the new line", () => {
+		const tool = createTool(vi.fn());
+		const element = createTextElement("abcdef");
+		element.content.paragraphs[0].runs[0].charOverrides = [
+			{ charIndex: 1, rotation: 30 },
+			{ charIndex: 4, kerningAdjust: 0.5 },
+		];
+		tool.enterEditModeForElement(element);
+		for (let i = 0; i < 3; i++) tool.moveCursor("right", false);
+
+		tool.insertNewline();
+
+		const [before, after] = element.content.paragraphs;
+		expect(before.runs[0].charOverrides).toEqual([
+			{ charIndex: 1, rotation: 30 },
+		]);
+		expect(after.runs[0].charOverrides).toEqual([
+			{ charIndex: 1, kerningAdjust: 0.5 },
+		]);
 	});
 });
 
@@ -898,7 +1007,7 @@ describe("TextTool caret-pending style via IME", () => {
 describe("TextTool caret-pending style", () => {
 	it("should stage a style with no selection and apply it to the next typed text", () => {
 		const ctx = createMockToolContext();
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 		const element = createTextElement("ab");
 		tool.enterEditModeForElement(element);
 		tool.moveToDocumentEnd(false);
@@ -917,7 +1026,7 @@ describe("TextTool caret-pending style", () => {
 
 	it("should drop the staged style when the caret moves", () => {
 		const ctx = createMockToolContext();
-		const tool = new TextTool(ctx, { defaultStyle: createDefaultTextStyle() });
+		const tool = new TextTool(ctx);
 		const element = createTextElement("ab");
 		tool.enterEditModeForElement(element);
 		tool.moveToDocumentEnd(false);
@@ -1127,9 +1236,7 @@ describe("TextTool drag selection from the entry press", () => {
 			),
 			selectionRangeChange,
 		});
-		const tool = new TextTool(context, {
-			defaultStyle: createDefaultTextStyle(),
-		});
+		const tool = new TextTool(context);
 
 		// screen(400,300) = world(0,0) → char 0; keep the pointer down and drag
 		tool.onPointerDown(
@@ -1164,9 +1271,7 @@ describe("TextTool drag selection from the entry press", () => {
 			),
 			selectionRangeChange,
 		});
-		const tool = new TextTool(context, {
-			defaultStyle: createDefaultTextStyle(),
-		});
+		const tool = new TextTool(context);
 
 		const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -1245,9 +1350,7 @@ describe("TextTool char touch mode", () => {
 			uiHitTest,
 			textCreate,
 		});
-		const tool = new TextTool(ctx, {
-			defaultStyle: createDefaultTextStyle(),
-		});
+		const tool = new TextTool(ctx);
 		tool.setCharTouchMode(true);
 		return { tool, element, ctx, textCharTouchCommit, uiHitTest, textCreate };
 	};
@@ -1735,9 +1838,7 @@ describe("TextTool line spacing", () => {
 					which === "start" ? 0 : 2,
 			),
 		});
-		const tool = new TextTool(context, {
-			defaultStyle: createDefaultTextStyle(),
-		});
+		const tool = new TextTool(context);
 		const element = createTextElement("abc");
 		tool.enterEditModeForElement(element);
 
@@ -1754,3 +1855,185 @@ describe("TextTool line spacing", () => {
 		expect(rest.style.lineHeight).toBe(undefined);
 	});
 });
+
+describe("TextTool editing across runs", () => {
+	/** "abc" at the default size, "def" at double size, "ghi" at triple size */
+	const setupThreeRuns = () => {
+		const tool = createTool(vi.fn());
+		const element = createTextElement("abc");
+		const [first] = element.content.paragraphs[0].runs;
+		const { fontSize } = first.style;
+		element.content.paragraphs[0].runs.push(
+			{ text: "def", style: { ...first.style, fontSize: fontSize * 2 } },
+			{ text: "ghi", style: { ...first.style, fontSize: fontSize * 3 } },
+		);
+		tool.enterEditModeForElement(element);
+		return { tool, element, fontSize };
+	};
+	const runsOf = (element: TextElement, paragraph = 0) =>
+		element.content.paragraphs[paragraph].runs.map(
+			(run) => [run.text, run.style.fontSize] as const,
+		);
+
+	it("should keep the runs after a selection that spans two runs", () => {
+		const { tool, element, fontSize } = setupThreeRuns();
+		for (let i = 0; i < 2; i++) tool.moveCursor("right", false);
+		for (let i = 0; i < 2; i++) tool.moveCursor("right", true); // select "cd"
+
+		tool.deleteText("backward");
+
+		expect(runsOf(element)).toEqual([
+			["ab", fontSize],
+			["ef", fontSize * 2],
+			["ghi", fontSize * 3],
+		]);
+	});
+
+	it("should keep the styles and runs after a selection that spans paragraphs", () => {
+		const { tool, element, fontSize } = setupThreeRuns();
+		tool.moveToDocumentEnd(false);
+		for (let i = 0; i < 4; i++) tool.moveCursor("left", false); // caret after "e"
+		tool.insertNewline(); // "abcde" / "fghi"
+		tool.moveToDocumentStart(false);
+		tool.moveCursor("right", false);
+		for (let i = 0; i < 6; i++) tool.moveCursor("right", true); // "bcde", the break, "f"
+
+		tool.deleteText("backward");
+
+		expect(element.content.paragraphs).toHaveLength(1);
+		expect(runsOf(element)).toEqual([
+			["a", fontSize],
+			["ghi", fontSize * 3],
+		]);
+	});
+
+	it("should type at the start of the deleted selection", () => {
+		const { tool, element } = setupThreeRuns();
+		for (let i = 0; i < 2; i++) tool.moveCursor("right", false);
+		for (let i = 0; i < 2; i++) tool.moveCursor("right", true); // select "cd"
+
+		tool.insertText("X");
+
+		expect(paragraphTexts(element)).toEqual(["abXefghi"]);
+	});
+
+	it("should move the caret one character per arrow key across runs", async () => {
+		const updateTextCursor = vi.fn();
+		const tool = new TextTool(createMockToolContext({ updateTextCursor }));
+		const element = createTextElement("abc");
+		const [first] = element.content.paragraphs[0].runs;
+		element.content.paragraphs[0].runs.push({
+			text: "def",
+			style: { ...first.style, fontSize: first.style.fontSize * 2 },
+		});
+		tool.enterEditModeForElement(element);
+		const caretIndex = async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			return updateTextCursor.mock.calls.at(-1)?.[0];
+		};
+
+		const forward: number[] = [];
+		for (let i = 0; i < 6; i++) {
+			tool.moveCursor("right", false);
+			forward.push(await caretIndex());
+		}
+		const backward: number[] = [];
+		for (let i = 0; i < 6; i++) {
+			tool.moveCursor("left", false);
+			backward.push(await caretIndex());
+		}
+
+		expect(forward).toEqual([1, 2, 3, 4, 5, 6]);
+		expect(backward).toEqual([5, 4, 3, 2, 1, 0]);
+	});
+
+	it("should not leave an empty run at the head of the line Enter creates", () => {
+		const { tool, element, fontSize } = setupThreeRuns();
+		for (let i = 0; i < 3; i++) tool.moveCursor("right", false); // end of "abc"
+
+		tool.insertNewline();
+
+		expect(runsOf(element, 1)).toEqual([
+			["def", fontSize * 2],
+			["ghi", fontSize * 3],
+		]);
+	});
+});
+
+describe("TextTool adjustments while editing", () => {
+	const setup = () => {
+		const persistTextEdit = vi.fn((text: TextElement) => text);
+		const tool = new TextTool(createMockToolContext({ persistTextEdit }));
+		const element = createTextElement("abc");
+		tool.enterEditModeForElement(element);
+		return { tool, element, persistTextEdit };
+	};
+
+	it("should save a kerning change as soon as it is made", () => {
+		const { tool, persistTextEdit } = setup();
+
+		tool.adjustKerning(0.1);
+
+		const saved = persistTextEdit.mock.calls.at(-1)?.[0];
+		expect(saved?.content.paragraphs[0].runs[0].charOverrides).toEqual([
+			{ charIndex: 0, kerningAdjust: 0.1 },
+		]);
+	});
+
+	it("should save a character size change as soon as it is made", () => {
+		const { tool, persistTextEdit } = setup();
+
+		tool.adjustCharacterSize(1.1);
+
+		const saved = persistTextEdit.mock.calls.at(-1)?.[0];
+		expect(saved?.content.paragraphs[0].runs[0].charOverrides).toEqual([
+			{ charIndex: 0, sizeMultiplier: 1.1 },
+		]);
+	});
+
+	it("should save a paragraph alignment change as soon as it is made", () => {
+		const { tool, persistTextEdit } = setup();
+
+		tool.changeParagraphAlignment("center");
+
+		const saved = persistTextEdit.mock.calls.at(-1)?.[0];
+		expect(saved?.content.paragraphs[0].alignment).toBe("center");
+	});
+
+	it("should keep the caret in place when the content comes back with the same text", async () => {
+		const updateTextCursor = vi.fn();
+		const tool = new TextTool(createMockToolContext({ updateTextCursor }));
+		const element = createTextElement("abc");
+		tool.enterEditModeForElement(element);
+		tool.moveCursor("right", false);
+		tool.adjustKerning(0.1);
+
+		// What undo hands back: the same text without the adjustment
+		tool.clampCursorToContent(createTextElement("abc"));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(updateTextCursor.mock.calls.at(-1)?.[0]).toBe(1);
+	});
+
+	it("should kern the first character of the next run when the caret is between two runs", () => {
+		const { tool, element } = setup();
+		const [first] = element.content.paragraphs[0].runs;
+		element.content.paragraphs[0].runs.push({
+			text: "def",
+			style: { ...first.style, fontSize: first.style.fontSize * 2 },
+		});
+		for (let i = 0; i < 3; i++) tool.moveCursor("right", false); // between "c" and "d"
+
+		tool.adjustKerning(0.1);
+
+		const [abc, def] = element.content.paragraphs[0].runs;
+		expect(abc.charOverrides).toBe(undefined);
+		expect(def.charOverrides).toEqual([{ charIndex: 0, kerningAdjust: 0.1 }]);
+	});
+});
+
+function paragraphTexts(element: TextElement): string[] {
+	return element.content.paragraphs.map((paragraph) =>
+		paragraph.runs.map((run) => run.text).join(""),
+	);
+}

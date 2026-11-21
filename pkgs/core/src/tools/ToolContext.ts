@@ -31,6 +31,9 @@ import type {
 	StrokeAppearance,
 	StrokeColor,
 	TextElement,
+	TextLayout,
+	TextParagraph,
+	TextStyle,
 	Vec2,
 	Viewport,
 } from "../schema";
@@ -306,6 +309,12 @@ export type ToolContextOptions = {
 
 	shapeComplete: (path: Path) => void;
 
+	/** Style, alignment and writing mode a newly created text starts with. */
+	getTextDefaults: () => {
+		style: TextStyle;
+		alignment: TextParagraph["alignment"];
+		writingMode: TextLayout["writingMode"];
+	};
 	textCreate: (text: TextElement) => void;
 	textComplete: (text: TextElement) => void;
 	textDelete: (id: string) => void;

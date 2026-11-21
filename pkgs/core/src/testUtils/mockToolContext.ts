@@ -5,6 +5,7 @@ import { hitTestOverlays } from "../renderer/ui/hitTest";
 import type { OverlayKey } from "../renderer/ui/overlayKeys";
 import type { UIOverlay } from "../renderer/ui/primitives";
 import type { PathEditMode } from "../tools/PathEditTool";
+import { createDefaultTextStyle } from "../tools/TextTool";
 import { ToolContext, type ToolContextOptions } from "../tools/ToolContext";
 import {
 	testCanvasHeight,
@@ -170,6 +171,11 @@ export function createMockToolContext(
 
 		shapeComplete: vi.fn(),
 
+		getTextDefaults: vi.fn(() => ({
+			style: createDefaultTextStyle(),
+			alignment: "left" as const,
+			writingMode: "horizontal-tb" as const,
+		})),
 		textCreate: vi.fn(),
 		textComplete: vi.fn(),
 		textDelete: vi.fn(),

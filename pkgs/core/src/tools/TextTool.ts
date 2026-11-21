@@ -28,9 +28,7 @@ import {
 	generateUid,
 	hsvToRgb,
 	type TextAxisBinding,
-	type TextContent,
 	type TextElement,
-	type TextLayout,
 	type TextRun,
 	type TextStyle,
 	type Viewport,
@@ -94,7 +92,6 @@ const TEXT_STYLE_KEYS = Object.keys({
 
 interface TextToolOptions {
 	controller: TextToolController | null;
-	defaultStyle: TextStyle;
 	textCreate: (text: TextElement) => void;
 	textComplete: (text: TextElement) => void;
 	textDelete?: (id: string) => void;
@@ -179,7 +176,6 @@ type TextInteractionState =
 
 interface TextToolInitOptions {
 	controller?: TextToolController | null;
-	defaultStyle: TextStyle;
 }
 
 interface CursorPosition {
@@ -297,11 +293,10 @@ export class TextTool implements Tool {
 	private hoveredText: TextElement | null = null;
 	private lastZoom = 1;
 
-	public constructor(context: ToolContext, options: TextToolInitOptions) {
+	public constructor(context: ToolContext, options: TextToolInitOptions = {}) {
 		this.context = context;
 		this.options = {
 			controller: options.controller ?? context.textToolController,
-			defaultStyle: options.defaultStyle,
 			textCreate: (text) => context.textCreate(text),
 			textComplete: (text) => context.textComplete(text),
 			textDelete: (id) => context.textDelete(id),
@@ -885,21 +880,21 @@ export class TextTool implements Tool {
 		const run = paragraph.runs[cursorPosition.run];
 		if (!run) return;
 
-		// Split text at cursor
-		const textBefore = run.text.slice(0, cursorPosition.char);
-		const textAfter = run.text.slice(cursorPosition.char);
+		// Everything after the caret moves down: the rest of the caret's run
+		// and every run that follows it in the paragraph
+		const trailingRuns = paragraph.runs.splice(cursorPosition.run + 1);
+		paragraph.runs[cursorPosition.run] = splitRunAt(
+			run,
+			0,
+			cursorPosition.char,
+		);
 
-		// Update current run with text before
-		run.text = textBefore;
-
-		// Create new paragraph with text after
+		const restOfRun = splitRunAt(run, cursorPosition.char, run.text.length);
 		const newParagraph = {
-			runs: [
-				{
-					text: textAfter,
-					style: { ...run.style },
-				},
-			],
+			runs:
+				restOfRun.text === "" && trailingRuns.length > 0
+					? trailingRuns
+					: [restOfRun, ...trailingRuns],
 			alignment: paragraph.alignment,
 			lineHeight: paragraph.lineHeight,
 			indent: paragraph.indent,
@@ -961,40 +956,13 @@ export class TextTool implements Tool {
 				return;
 			}
 		}
-		// Move cursor position
-		if (direction === "left") {
-			if (cursorPosition.char > 0) {
-				cursorPosition.char--;
-			} else if (cursorPosition.run > 0) {
-				cursorPosition.run--;
-				const prevRun =
-					textElement.content.paragraphs[cursorPosition.paragraph].runs[
-						cursorPosition.run
-					];
-				cursorPosition.char = prevRun.text.length;
-			} else if (cursorPosition.paragraph > 0) {
-				cursorPosition.paragraph--;
-				const prevPara =
-					textElement.content.paragraphs[cursorPosition.paragraph];
-				cursorPosition.run = prevPara.runs.length - 1;
-				cursorPosition.char = prevPara.runs[cursorPosition.run].text.length;
-			}
-		} else if (direction === "right") {
-			const paragraph =
-				textElement.content.paragraphs[cursorPosition.paragraph];
-			const run = paragraph.runs[cursorPosition.run];
-			if (cursorPosition.char < run.text.length) {
-				cursorPosition.char++;
-			} else if (cursorPosition.run < paragraph.runs.length - 1) {
-				cursorPosition.run++;
-				cursorPosition.char = 0;
-			} else if (
-				cursorPosition.paragraph <
-				textElement.content.paragraphs.length - 1
-			) {
-				cursorPosition.paragraph++;
-				cursorPosition.run = 0;
-				cursorPosition.char = 0;
+		// Left and right step by absolute index: the end of a run and the start
+		// of the next one are the same caret position
+		if (direction === "left" || direction === "right") {
+			const target =
+				this.getCursorCharIndex() + (direction === "left" ? -1 : 1);
+			if (target >= 0 && target <= this.flattenText(textElement).length) {
+				Object.assign(cursorPosition, this.charIndexToCursorPosition(target));
 			}
 		} else if (direction === "up" || direction === "down") {
 			// 上下移動はTextRendererのレイアウト情報が必要（async）
@@ -1261,6 +1229,12 @@ export class TextTool implements Tool {
 
 	public startComposition(): void {
 		if (!this.editState) return;
+
+		// The composing text replaces the selection, as typed text does
+		if (this.editState.selectionRange) {
+			this.deleteSelection();
+		}
+
 		this.editState.isComposing = true;
 		this.editState.compositionText = "";
 		this.compositionFormats = null;
@@ -2035,15 +2009,32 @@ export class TextTool implements Tool {
 	// --- Private Methods ---
 
 	private buildTextElement(position: { x: number; y: number }): TextElement {
+		const defaults = this.context.getTextDefaults();
 		return {
 			type: "text",
 			id: generateUid("obj"),
 			x: position.x,
 			y: position.y,
 			transform: createIdentityTransform(),
-			content: this.createDefaultContent(),
-			defaultStyle: { ...this.options.defaultStyle },
-			layout: this.createDefaultLayout(),
+			content: {
+				paragraphs: [
+					{
+						runs: [{ text: "", style: { ...defaults.style } }],
+						alignment: defaults.alignment,
+						lineHeight: 1.2,
+						indent: 0,
+						spacing: { before: 0, after: 0 },
+					},
+				],
+			},
+			defaultStyle: { ...defaults.style },
+			layout: {
+				writingMode: defaults.writingMode,
+				boxWidth: "auto",
+				boxHeight: "auto",
+				overflow: "visible",
+				wordWrap: false,
+			},
 			opacity: 1,
 			blendMode: "normal" as BlendMode,
 			filters: [
@@ -2301,35 +2292,6 @@ export class TextTool implements Tool {
 		this.interaction = { kind: "idle" };
 		this.context.uiSetOverlay(OVERLAY_KEYS.textRegionPreview, null);
 		this.context.uiSetOverlay(OVERLAY_KEYS.textFlowLinkPreview, null);
-	}
-
-	private createDefaultContent(): TextContent {
-		return {
-			paragraphs: [
-				{
-					runs: [
-						{
-							text: "",
-							style: { ...this.options.defaultStyle },
-						},
-					],
-					alignment: "left",
-					lineHeight: 1.2,
-					indent: 0,
-					spacing: { before: 0, after: 0 },
-				},
-			],
-		};
-	}
-
-	private createDefaultLayout(): TextLayout {
-		return {
-			writingMode: "horizontal-tb",
-			boxWidth: "auto",
-			boxHeight: "auto",
-			overflow: "visible",
-			wordWrap: false,
-		};
 	}
 
 	private enterEditMode(textElement: TextElement): void {
@@ -2602,8 +2564,9 @@ export class TextTool implements Tool {
 		if (!this.editState) return;
 		if (latestTextElement) {
 			const oldElement = this.editState.textElement;
+			const caretIndex = this.getCursorCharIndex();
 			this.editState.textElement = latestTextElement;
-			this.moveCursorToDiffEnd(oldElement, latestTextElement);
+			this.moveCursorToDiffEnd(oldElement, latestTextElement, caretIndex);
 			this.editState.selectionRange = null;
 			this.requestRender(true);
 			return;
@@ -2635,11 +2598,20 @@ export class TextTool implements Tool {
 	private moveCursorToDiffEnd(
 		oldElement: TextElement,
 		newElement: TextElement,
+		caretIndex: number,
 	): void {
 		if (!this.editState) return;
 
 		const oldChars = this.flattenText(oldElement);
 		const newChars = this.flattenText(newElement);
+
+		// Same text: only styles or per-character adjustments changed, so the
+		// caret stays on the character it was at
+		if (oldChars === newChars) {
+			this.editState.cursorPosition =
+				this.charIndexToCursorPosition(caretIndex);
+			return;
+		}
 
 		// Find first difference
 		let diffIdx = 0;
@@ -2844,27 +2816,21 @@ export class TextTool implements Tool {
 				override.kerningAdjust = (override.kerningAdjust ?? 0) + deltaEm;
 			});
 		} else {
-			// カーソル位置の1文字
-			const { cursorPosition, textElement } = this.editState;
-			const paragraph =
-				textElement.content.paragraphs[cursorPosition.paragraph];
-			if (!paragraph) return;
-
-			const run = paragraph.runs[cursorPosition.run];
-			if (!run) return;
+			const target = this.charAfterCaret();
+			if (!target) return;
+			const { run, charIndex } = target;
 
 			run.charOverrides ??= [];
-			let override = run.charOverrides.find(
-				(o) => o.charIndex === cursorPosition.char,
-			);
+			let override = run.charOverrides.find((o) => o.charIndex === charIndex);
 			if (!override) {
-				override = { charIndex: cursorPosition.char };
+				override = { charIndex };
 				run.charOverrides.push(override);
 			}
 			override.kerningAdjust = (override.kerningAdjust ?? 0) + deltaEm;
 		}
 
 		this.requestRender();
+		this.persistAndSync(this.editState.textElement);
 	}
 
 	/**
@@ -3078,22 +3044,16 @@ export class TextTool implements Tool {
 	private resetKerning(): void {
 		if (!this.editState) return;
 
-		const { cursorPosition, textElement } = this.editState;
-		const paragraph = textElement.content.paragraphs[cursorPosition.paragraph];
-		if (!paragraph) return;
-
-		const run = paragraph.runs[cursorPosition.run];
-		if (!run?.charOverrides) return;
-
-		const override = run.charOverrides.find(
-			(o) => o.charIndex === cursorPosition.char,
+		const target = this.charAfterCaret();
+		const override = target?.run.charOverrides?.find(
+			(o) => o.charIndex === target.charIndex,
 		);
+		if (!override) return;
 
-		if (override) {
-			override.kerningAdjust = 0;
-		}
+		override.kerningAdjust = 0;
 
 		this.requestRender();
+		this.persistAndSync(this.editState.textElement);
 	}
 
 	/**
@@ -3113,26 +3073,21 @@ export class TextTool implements Tool {
 				override.sizeMultiplier = (override.sizeMultiplier ?? 1.0) * multiplier;
 			});
 		} else {
-			const { cursorPosition, textElement } = this.editState;
-			const paragraph =
-				textElement.content.paragraphs[cursorPosition.paragraph];
-			if (!paragraph) return;
-
-			const run = paragraph.runs[cursorPosition.run];
-			if (!run) return;
+			const target = this.charAfterCaret();
+			if (!target) return;
+			const { run, charIndex } = target;
 
 			run.charOverrides ??= [];
-			let override = run.charOverrides.find(
-				(o) => o.charIndex === cursorPosition.char,
-			);
+			let override = run.charOverrides.find((o) => o.charIndex === charIndex);
 			if (!override) {
-				override = { charIndex: cursorPosition.char };
+				override = { charIndex };
 				run.charOverrides.push(override);
 			}
 			override.sizeMultiplier = (override.sizeMultiplier ?? 1.0) * multiplier;
 		}
 
 		this.requestRender();
+		this.persistAndSync(this.editState.textElement);
 	}
 
 	private deleteSelection(): void {
@@ -3142,57 +3097,27 @@ export class TextTool implements Tool {
 		const { start, end } = this.normalizeSelectionRange(selectionRange);
 		const paragraphs = textElement.content.paragraphs;
 
-		// Simple case: selection within a single run
-		if (start.paragraph === end.paragraph && start.run === end.run) {
-			const run = paragraphs[start.paragraph].runs[start.run];
-			spliceCharOverrides(run, start.char, end.char);
-			run.text = run.text.slice(0, start.char) + run.text.slice(end.char);
+		const startIndex = this.getAbsoluteCharIndex(start);
+		const startPara = paragraphs[start.paragraph];
+		const endPara = paragraphs[end.paragraph];
+		const startRun = startPara.runs[start.run];
+		const endRun = endPara.runs[end.run];
 
-			cursorPosition.paragraph = start.paragraph;
-			cursorPosition.run = start.run;
-			cursorPosition.char = start.char;
-		} else {
-			// Complex case: selection spans multiple runs/paragraphs
-			// Keep text before selection start
-			const startPara = paragraphs[start.paragraph];
-			const startRun = startPara.runs[start.run];
-			const textBefore = startRun.text.slice(0, start.char);
+		// Everything outside the selection survives with its own style: the
+		// runs before it, the cut halves of its first and last runs, and the
+		// runs after it
+		const kept = [
+			...startPara.runs.slice(0, start.run),
+			splitRunAt(startRun, 0, start.char),
+			splitRunAt(endRun, end.char, endRun.text.length),
+			...endPara.runs.slice(end.run + 1),
+		].filter((run) => run.text.length > 0);
+		startPara.runs =
+			kept.length > 0 ? kept : [{ text: "", style: { ...startRun.style } }];
+		mergeAdjacentRuns(startPara.runs);
+		paragraphs.splice(start.paragraph + 1, end.paragraph - start.paragraph);
 
-			// Keep text after selection end
-			const endPara = paragraphs[end.paragraph];
-			const endRun = endPara.runs[end.run];
-			const textAfter = endRun.text.slice(end.char);
-
-			// Merge: set start run text to textBefore + textAfter, carrying the
-			// surviving chars' overrides from both sides
-			const keptOverrides = [
-				...(startRun.charOverrides ?? []).filter(
-					(o) => o.charIndex < start.char,
-				),
-				...(endRun.charOverrides ?? [])
-					.filter((o) => o.charIndex >= end.char)
-					.map((o) => ({
-						...o,
-						charIndex: o.charIndex - end.char + start.char,
-					})),
-			];
-			startRun.charOverrides =
-				keptOverrides.length > 0 ? keptOverrides : undefined;
-			startRun.text = textBefore + textAfter;
-
-			// Remove runs after start run in start paragraph
-			startPara.runs.splice(start.run + 1);
-
-			// Remove paragraphs between start and end
-			if (start.paragraph < end.paragraph) {
-				paragraphs.splice(start.paragraph + 1, end.paragraph - start.paragraph);
-			}
-
-			// Update cursor
-			cursorPosition.paragraph = start.paragraph;
-			cursorPosition.run = start.run;
-			cursorPosition.char = start.char;
-		}
+		Object.assign(cursorPosition, this.charIndexToCursorPosition(startIndex));
 
 		this.editState.selectionRange = null;
 		this.requestRender();
@@ -3364,6 +3289,10 @@ export class TextTool implements Tool {
 					continue;
 				}
 
+				// A range edge resting on this run's boundary covers none of its
+				// characters; splitting here would leave an empty styled run
+				if (charStart === charEnd) continue;
+
 				// Run分割が必要
 				const parts: TextRun[] = [];
 
@@ -3433,6 +3362,7 @@ export class TextTool implements Tool {
 		}
 
 		this.requestRender();
+		this.persistAndSync(textElement);
 	}
 
 	/**
@@ -3502,6 +3432,24 @@ export class TextTool implements Tool {
 	/**
 	 * 選択範囲内の全文字に対して処理を実行
 	 */
+	/**
+	 * The character right after the caret, as its run and run-local index.
+	 * Null at the end of a paragraph.
+	 */
+	private charAfterCaret(): { run: TextRun; charIndex: number } | null {
+		if (!this.editState) return null;
+
+		const { cursorPosition, textElement } = this.editState;
+		const runs =
+			textElement.content.paragraphs[cursorPosition.paragraph]?.runs ?? [];
+		let charIndex = cursorPosition.char;
+		for (let r = cursorPosition.run; r < runs.length; r++) {
+			if (charIndex < runs[r].text.length) return { run: runs[r], charIndex };
+			charIndex = 0;
+		}
+		return null;
+	}
+
 	private forEachCharInSelection(
 		fn: (run: TextRun, charIndex: number) => void,
 	): void {

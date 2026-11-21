@@ -42,9 +42,7 @@ describe("text variation editing", () => {
 				},
 			},
 		];
-		tool = new TextTool(createMockToolContext({ getFontVariationAxes }), {
-			defaultStyle: element.defaultStyle,
-		});
+		tool = new TextTool(createMockToolContext({ getFontVariationAxes }));
 		tool.enterEditModeForElement(element);
 	});
 
@@ -75,7 +73,6 @@ describe("text variation editing", () => {
 					loaded ? getFontVariationAxes(source) : undefined,
 				selectionStyleChange,
 			}),
-			{ defaultStyle: element.defaultStyle },
 		);
 		loadingTool.enterEditModeForElement(element);
 		loadingTool.selectAll();
@@ -222,7 +219,6 @@ describe("text variation editing", () => {
 						return text;
 					},
 				}),
-				{ defaultStyle: element.defaultStyle },
 			);
 			editor.enterEditModeForElement(element);
 			editor.selectAll();
