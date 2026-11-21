@@ -22,8 +22,6 @@ export const AutoSaveRing = memo(function AutoSaveRing({
 }) {
 	const t = useTranslation();
 	const snap = useSnapshot(autoSaveState);
-	const progressCircleRef = useRef<SVGCircleElement>(null);
-	const rafRef = useRef<number>(0);
 	const [justSaved, setJustSaved] = useState(false);
 	const prevSaveCountRef = useRef(snap.saveCount);
 
@@ -36,40 +34,20 @@ export const AutoSaveRing = memo(function AutoSaveRing({
 		}
 	}, [snap.saveCount]);
 
-	useEffect(() => {
-		const animate = () => {
-			const { lastSaveTimestamp, intervalMs, isSaving } = autoSaveState;
-			const now = Date.now();
-			const sinceSave = now - lastSaveTimestamp;
-
-			if (progressCircleRef.current && !isSaving) {
-				const progress =
-					sinceSave < HOLD_FULL_MS
-						? 1
-						: computeRingProgress(lastSaveTimestamp, intervalMs, now);
-				const offset = CIRCUMFERENCE * (1 - progress);
-				progressCircleRef.current.style.strokeDashoffset = String(offset);
-			}
-
-			rafRef.current = requestAnimationFrame(animate);
-		};
-
-		rafRef.current = requestAnimationFrame(animate);
-		return () => cancelAnimationFrame(rafRef.current);
-	}, []);
-
-	const [countdown, setCountdown] = useState(() =>
-		formatAutoSaveCountdown(autoSaveState.nextSaveAt - Date.now()),
-	);
+	// The ring moves less than a pixel per second, so a one-second clock is
+	// enough and leaves the window idle between ticks.
+	const [now, setNow] = useState(Date.now);
 
 	useEffect(() => {
-		const id = setInterval(() => {
-			setCountdown(
-				formatAutoSaveCountdown(autoSaveState.nextSaveAt - Date.now()),
-			);
-		}, 1_000);
+		const id = setInterval(() => setNow(Date.now()), 1_000);
 		return () => clearInterval(id);
 	}, []);
+
+	const progress =
+		now - snap.lastSaveTimestamp < HOLD_FULL_MS
+			? 1
+			: computeRingProgress(snap.lastSaveTimestamp, snap.intervalMs, now);
+	const countdown = formatAutoSaveCountdown(snap.nextSaveAt - now);
 
 	const statusText = snap.isSlowDocument
 		? t("autoSave.slowDocumentTooltip")
@@ -111,7 +89,6 @@ export const AutoSaveRing = memo(function AutoSaveRing({
 						opacity={0.15}
 					/>
 					<circle
-						ref={progressCircleRef}
 						cx={RING_SIZE / 2}
 						cy={RING_SIZE / 2}
 						r={RING_RADIUS}
@@ -119,7 +96,7 @@ export const AutoSaveRing = memo(function AutoSaveRing({
 						stroke="currentColor"
 						strokeWidth={RING_STROKE}
 						strokeDasharray={CIRCUMFERENCE}
-						strokeDashoffset={CIRCUMFERENCE}
+						strokeDashoffset={CIRCUMFERENCE * (1 - progress)}
 						strokeLinecap="round"
 						transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
 					/>
